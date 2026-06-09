@@ -12,7 +12,7 @@ The accepted boundary ADR in `docs/adr/2026-06-06-draft-asset-run-boundary.md` d
 Draft -> WorkflowRevision -> RunLedger
 ```
 
-H2OMeta now needs the first durable control-plane guardrails around that lifecycle before larger executor, schema, and frontend changes. The current system already has WorkflowDesignDraft contracts, Snakemake execution, remote runner storage, run events, tool preparation, and a local API facade. The remaining risk is that mutable draft state, executable assets, run facts, and runner process effects can still be advanced by command-style paths without a durable asset revision, queue, attempt, or lease boundary.
+H2OMeta now needs the first durable control-plane guardrails around that lifecycle before larger executor, schema, and frontend changes. The current system already has WorkflowDesignDraft contracts, Snakemake execution, remote runner storage, run events, tool preparation, and a local API facade. The remaining risk is that mutable draft state, executable workflows, run facts, and runner process effects can still be advanced by command-style paths without a durable workflow revision, queue, attempt, or lease boundary.
 
 ## Decision
 
@@ -60,7 +60,7 @@ Redis-backed workers, Kubernetes-native execution, CWL/Nextflow export, Postgres
 
 old ad hoc executable run payloads must fail loudly once v2 submit is enabled. The system must not add silent fallback paths that execute caller-supplied RuleSpec, mutable draft content, or legacy generated workflow bodies to preserve older behavior.
 
-Unsupported payloads should return clear problem details that name the unsupported contract and the required asset revision submission path.
+Unsupported payloads should return clear problem details that name the unsupported contract and the required workflow revision submission path.
 
 ## Consequences
 

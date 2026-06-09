@@ -1,5 +1,9 @@
 # Workflow Template Structure
 
+Status: Current
+
+Last reviewed: 2026-06-09
+
 H2OMeta pipeline templates have one manifest-driven contract with two layers:
 
 - `pipeline.json` is the H2OMeta product and execution contract entry point. It powers catalog display, input forms, output previews, DAG visualization, runner validation, output path generation, and artifact collection.
@@ -9,7 +13,7 @@ This split lets H2OMeta keep product-specific metadata without hiding the underl
 
 ## Directory Layout
 
-Runnable templates must use this structure:
+Runnable standard templates should use this structure:
 
 ```text
 apps/remote_runner/pipelines/<pipeline-id>/
@@ -34,6 +38,8 @@ apps/remote_runner/pipelines/<pipeline-id>/
 ```
 
 H2OMeta does not support runnable legacy template layouts. A bundled pipeline that does not use this structure must fail catalog validation instead of being silently adapted.
+
+`workflow/Snakefile`, `pipeline.json`, and `.test/run-config.json` are required for catalog validation today. `config/README.md` and `config/config.yaml` are required for generated WorkflowDesignDraft exports and recommended for new production templates that need human-readable local handoff, but some existing minimal bundled smoke/demo pipelines omit them.
 
 ## `pipeline.json` Contract
 
@@ -160,9 +166,9 @@ Rule files should avoid product-specific assumptions. They should consume `confi
 - resource/database bindings;
 - output paths generated from `execution.outputs`.
 
-`config/config.yaml` is a human-readable example configuration for documentation and local experimentation. It is not the runtime source of truth inside H2OMeta.
+`config/config.yaml`, when present, is a human-readable example configuration for documentation and local experimentation. It is not the runtime source of truth inside H2OMeta.
 
-`config/README.md` explains required inputs, parameters, outputs, and example local Snakemake commands.
+`config/README.md`, when present, explains required inputs, parameters, outputs, and example local Snakemake commands.
 
 ## Test Fixture Contract
 

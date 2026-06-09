@@ -4,6 +4,8 @@ Status: Accepted
 
 Date: 2026-06-06
 
+Terminology note: the 2026-06-07 durable control-plane ADR supersedes the term `Asset Revision` for compiled workflows with `WorkflowRevision`. In current docs and code, `asset` is reserved for data assets, artifact blobs, database versions, and future DRS or RO-Crate objects.
+
 ## Context
 
 WorkflowDesignDraft and generated Snakemake workflow support are now past MVP shape. The next risk is not missing code volume; it is blurred ownership between editable workflow design, reproducible workflow assets, and execution facts.
@@ -22,18 +24,18 @@ The current project should keep the existing Windows launcher, local API facade,
 Adopt this core lifecycle:
 
 ```text
-WorkflowDesignDraft mutable design -> immutable asset revision -> run ledger facts
+WorkflowDesignDraft mutable design -> immutable WorkflowRevision -> run ledger facts
 ```
 
 ### WorkflowDesignDraft
 
 WorkflowDesignDraft is the editable user design contract. It may be saved, reopened, validated, forked, and revised.
 
-Drafts are not directly runnable. A run request must reference a compiled immutable asset revision, not caller-supplied draft content or ad hoc generated workflow content.
+Drafts are not directly runnable. A run request must reference a compiled immutable WorkflowRevision, not caller-supplied draft content or ad hoc generated workflow content.
 
-### Asset Revision
+### WorkflowRevision
 
-An asset revision is the immutable executable workflow bundle produced from a valid draft. It must include enough identity to reproduce and audit the run input:
+A WorkflowRevision is the immutable executable workflow bundle produced from a valid draft. It must include enough identity to reproduce and audit the run input:
 
 - `pipeline.json`
 - `Snakefile`
@@ -90,7 +92,7 @@ Container or Nix-style execution can be explored later as adapters. They should 
 This decision narrows the next implementation work:
 
 - Add a `service-info` contract for identity, version/build id, readiness, and state counts.
-- Make asset revisions first-class and immutable before allowing draft-derived runs to depend on them.
+- Make WorkflowRevisions first-class and immutable before allowing draft-derived runs to depend on them.
 - Move run history toward append-only events and auditable artifacts in `apps/remote_runner`.
 - Keep React Query as the owner of frontend GET caching as features migrate into vertical slices.
 - Keep React Flow as a possible view adapter only; domain graph contracts stay outside React Flow.

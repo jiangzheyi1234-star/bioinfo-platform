@@ -31,7 +31,7 @@ Agents are roles, not permission to roam. If an agent needs a file outside its o
 ## Phase Gates
 
 1. Intake: record current branch, `git status`, baseline SHA, dirty files, and local-only artifacts.
-2. Context: read `AGENTS.md`, this document, and task-specific docs or source.
+2. Context: read `AGENTS.md`, this document, `docs/windows-agent-command-guide.md` for Windows-owned proof, and task-specific docs or source.
 3. Scout: for diverged branches or cross-boundary changes, assign read-only scouts to disjoint topics.
 4. Decision: choose `merge`, `cherry-pick`, `rebuild`, `document only`, or `discard` for each candidate area.
 5. Slice: assign disjoint write scopes if implementation is needed.

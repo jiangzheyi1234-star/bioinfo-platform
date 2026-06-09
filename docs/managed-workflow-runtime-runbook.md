@@ -40,7 +40,7 @@ The normal local launcher path does not use `--require-supply-chain` yet, so mis
 The release is incomplete unless these assets exist on the manifest-declared GitHub Release.
 `resources/remote-runner` and `dist/remote-runner` are searched as local overrides, but both are Git-ignored local cache/override locations and must not be used as the release handoff. A manifest-matching `.tar.gz` and its `.sha256` file in those directories are still managed runtime inputs, so routine task cleanup must not delete them unless the task explicitly refreshes artifacts and proves they remain resolvable from another manifest source.
 
-The release manifest declares the artifact download URL, expected artifact SHA-256, artifact size, explicit conda spec path, explicit conda spec SHA-256, and optional supply-chain metadata references for each platform. When no local artifact is present, the provider downloads the release asset into the local artifact cache and verifies SHA-256 and size before use. Private GitHub releases require `H2OMETA_RELEASE_DOWNLOAD_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` in the local environment.
+The release manifest declares the artifact download URL, expected artifact SHA-256, artifact size, explicit conda spec path, explicit conda spec SHA-256, and optional supply-chain metadata references for each platform. Explicit bundle environment variables such as `H2OMETA_REMOTE_RUNNER_BUNDLE` and `H2OMETA_WORKFLOW_RUNTIME_BUNDLE` are hard overrides: a missing or mismatched override fails instead of falling back. When no local artifact is present, the provider downloads the release asset into the local artifact cache and verifies SHA-256 and size before use. Private GitHub releases require `H2OMETA_RELEASE_DOWNLOAD_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, `GITHUB_PERSONAL_ACCESS_TOKEN`, or a readable H2OMeta GH CLI login in the local environment.
 
 A clean `resources/remote-runner` directory is expected in the production path. The local artifact cache is the handoff point after manifest verification, and remote bootstrap uploads the resolved cache file over SSH/SFTP to the target host. Do not manually copy release tarballs into `resources/remote-runner` just to make SSH install work; use that directory only for an intentional manifest-matching local override.
 
@@ -90,7 +90,7 @@ The GitHub Actions workflow `.github/workflows/release-remote-runner-artifacts.y
 
 - `release-artifacts-metadata.json`: full builder, source, lock, artifact, and SBOM metadata.
 - `release-manifest-metadata.json`: compact values intended for `config/remote-runner-release-manifest.json`.
-- `release-attestations.json`: GitHub attestation IDs, URLs, and published bundle paths emitted by the workflow.
+- `release-attestations.json`: local in-toto-style attestation bundle IDs, URLs, and published bundle paths emitted by the workflow.
 - `attestation-bundles/*.intoto.json`: local provenance and SBOM attestation bundles emitted by the CI builder.
 - `release-published-assets.json`: published GitHub Release asset API URLs, digests, and sizes emitted by the publish job.
 
@@ -131,7 +131,7 @@ cd /d E:\code\bio_ui
 uv run python scripts\build_remote_runner_artifact_on_server.py
 ```
 
-The script refuses to package a dirty `apps\remote_runner` tree unless `--allow-dirty-source` is passed. For any release-like staging build, prefer `--source-ref <40-character-commit-sha>` so the build input is immutable. `--allow-dirty-source` is development-only.
+The script refuses to package dirty remote runner release sources unless `--allow-dirty-source` is passed. The dirty-source check covers `apps\remote_runner`, `core\__init__.py`, shared runtime helpers under `core`, and `core\contracts`. `--allow-dirty-source` is development-only; production release artifacts must come from the CI builder path above.
 
 For recovery when the exact current deployed dependency set must be reproduced, use an explicit spec exported from the already installed control-plane runtime. This still creates a fresh environment before packaging; it must not be confused with re-tarring an installed release directory:
 

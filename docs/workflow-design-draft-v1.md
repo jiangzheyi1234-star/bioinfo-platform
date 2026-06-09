@@ -1,5 +1,9 @@
 # WorkflowDesignDraft v1
 
+Status: Current
+
+Last reviewed: 2026-06-09
+
 WorkflowDesignDraft is the persisted workflow design layer for user-composed Snakemake workflows. It is a versioned design contract, not an execution backend name. Snakemake remains the only compiler target in this MVP.
 
 ## Contract
@@ -10,21 +14,34 @@ Required sections:
 
 - `metadata`: `name`, `description`, `projectId`, and `tags`.
 - `inputs`: named design inputs with `role`, preview `path`, optional `filename`, `mimeType`, and metadata.
-- `nodes`: workflow graph nodes. Each node stores `id`, `toolId`, external `inputs`, `params`, `runtime`, `resources`, `outputs`, `metadata`, and `provenance`.
+- `nodes`: workflow graph nodes. Each node stores `id`, `toolRevisionId`, external `inputs`, `params`, `runtime`, `resources`, `outputs`, `metadata`, and `provenance`.
 - `edges`: explicit node-to-node graph connections with `from.nodeId`, `from.port`, `to.nodeId`, and `to.port`.
-- `resources`: database/resource bindings keyed by rule resource key.
+- `resources`: an object with `bindings` keyed by rule resource key and optional design `metadata`.
 - `outputs`: exposed workflow outputs with `from.nodeId`, `from.port`, and `as`.
 - `provenance`: design-level provenance.
 
-Node payloads intentionally store only `toolId`, not executable `ruleTemplate` or `ruleSpecDraft`. Node `inputs` bind external draft inputs by stable role with `fromInput`; positional upload bindings such as `fromUpload` are runtime/UI state and are not persisted in WorkflowDesignDraft. Upstream step bindings are represented by `edges`, so a saved DAG has one canonical source of truth for node-to-node links. Planning resolves the tool from the saved registry, validates `toolContract.workflowReady`, and uses the saved rule contract. AI-generated draft content cannot bypass saved tool contracts, ruleTemplate validation, or the workflow-ready gate.
+Node payloads intentionally store only `toolRevisionId`, not executable `ruleTemplate` or `ruleSpecDraft`. Node `inputs` bind external draft inputs by stable role with `fromInput`; positional upload bindings such as `fromUpload` are runtime/UI state and are not persisted in WorkflowDesignDraft. Upstream step bindings are represented by `edges`, so a saved DAG has one canonical source of truth for node-to-node links. Planning resolves the tool revision from the saved registry, validates `toolContract.workflowReady`, and uses the saved rule contract. AI-generated draft content cannot bypass saved tool contracts, ruleTemplate validation, or the workflow-ready gate.
 
-The web builder converts persisted `{fromInput}` bindings into UI upload bindings only when reopening a saved draft. It does not accept persisted `{fromInput}` as an input shape while building a new draft from UI graph state. Reopen-and-save must preserve existing metadata and provenance for unchanged design identities, including top-level metadata, input metadata, node metadata/provenance, resource metadata, exposed output metadata, and non-exposed node output metadata when both node id and `toolId` still match.
+The web builder converts persisted `{fromInput}` bindings into UI upload bindings only when reopening a saved draft. It does not accept persisted `{fromInput}` as an input shape while building a new draft from UI graph state. Reopen-and-save must preserve existing metadata and provenance for unchanged design identities, including top-level metadata, input metadata, node metadata/provenance, resource metadata, exposed output metadata, and non-exposed node output metadata when both node id and `toolRevisionId` still match.
 
-UI edge recommendation audit may contain arrays for hard checks and evidence. At the WorkflowDesignDraft persistence boundary those arrays are encoded as scalar JSON strings, and only the known scalar audit keys `source`, `decision`, `confidence`, `reason`, `hardChecks`, and `evidence` are accepted on reopen. Invalid audit shapes fail loudly instead of being dropped.
+UI edge recommendation audit may contain arrays for hard checks and evidence before persistence. At the WorkflowDesignDraft persistence boundary audit values must be scalar, and only the known audit keys `source`, `decision`, `confidence`, `reason`, `hardChecks`, and `evidence` are accepted on reopen. Invalid audit shapes fail loudly instead of being dropped.
 
 All new API request models are strict Pydantic models with `extra="forbid"`. Public JSON must use the contract keys, including `from` and `as`; Python field-name aliases such as `from_` or `as_` are not accepted on API payloads. Unsupported older shapes must fail clearly. Do not add compatibility adapters for old generated workflow payloads.
 
 Draft input ids, input roles, node ids, normalized generated step ids, exposed output aliases, and Snakemake-safe exposed output target aliases are unique within a draft. Duplicate values are rejected at request validation time so `fromInput` bindings, node references, generated step ids, and final output names never depend on list order or first-match behavior.
+
+Resource bindings use this shape:
+
+```json
+{
+  "resources": {
+    "bindings": {
+      "reference_database": { "databaseId": "db_custom" }
+    },
+    "metadata": { "selectionMode": "manual" }
+  }
+}
+```
 
 ## APIs
 
@@ -53,13 +70,15 @@ The plan endpoint validates a saved draft without creating a run. It returns:
 - exposed outputs
 - validation issues
 - Snakefile and config previews
-- a draft-derived runSpec
+- a draft-derived runSpec preview
 
-The generated runSpec is derived from the saved draft plus current saved registry contracts. Valid plan responses stamp the runSpec with `workflowDesign.draftId` and `workflowDesign.revision`; invalid plan responses do not return a runnable runSpec. The web builder submits only after save plus plan validation, requires the visible plan to match the current draft shape, requires those draft markers, and attaches uploaded input IDs to that planned runSpec.
+The generated runSpec preview is derived from the saved draft plus current saved registry contracts. Valid plan responses stamp the runSpec with `workflowDesign.draftId` and `workflowDesign.revision`; invalid plan responses do not return a runnable runSpec. The plan response is not submit-ready by itself.
+
+The compile endpoint materializes the export layout, creates or reuses an immutable `WorkflowRevision`, and returns a compiled runSpec with `workflowRevisionId`. User-created generated-tool runs submit only after save, visible plan validation, compile/export, and upload binding. Submission requires the compiled runSpec to carry `workflowDesign.draftId`, `workflowDesign.revision`, and `workflowRevisionId`.
 
 `normalizedGraph` and the preview config `workflow.graph` return the full normalized WorkflowDesignDraft contract, including metadata, inputs, node metadata/provenance, resources metadata, output metadata, and design provenance. Draft edge audit is design-only metadata: valid audit entries are scalar key/value pairs and remain in the normalized draft graph, but are stripped from executable generated runSpecs.
 
-When a workflow-ready tool declares required database resources but the draft has not bound them yet, the plan response is invalid and non-runnable, but still returns the collected `requiredResources` specs. This gives the builder enough authoritative registry-derived information to prompt for missing resource bindings without accepting a fallback runSpec.
+When a workflow-ready tool declares required database resources but the draft has not bound them yet, the plan response is invalid and non-runnable, but still returns the collected `requiredResources` specs. The current UI primarily renders resource controls from the local tool contract; `requiredResources` remains the backend authority for diagnostics and future missing-resource prompts.
 
 ## Draft Registry
 
@@ -79,6 +98,8 @@ The compiler/export boundary materializes:
 
 The exported `workflow/Snakefile` uses `configfile: "run-config.json"`, validates `workflow/schemas/config.schema.yaml`, and reads final target/output paths from `config["outputs"]`. `config/config.yaml` is a human-readable example/config artifact, while `.test/run-config.json` mirrors the runtime config shape used for dry-run validation.
 
+Compile/export also records a `WorkflowRevision` manifest with file checksums, a graph snapshot, tool revision references, runtime lock identity, and compiler provenance. Material changes create a new workflow revision instead of mutating a prior compiled identity.
+
 ## Current MVP Progress
 
 - Added strict WorkflowDesignDraft v1 contract.
@@ -87,8 +108,9 @@ The exported `workflow/Snakefile` uses `configfile: "run-config.json"`, validate
 - Returned full normalized draft graphs from plan/compile previews and kept design-only edge audit out of executable generated runSpecs.
 - Invalid plan responses for missing required database bindings retain the registry-derived `requiredResources` specs while keeping previews and runSpec empty.
 - Added compile/export materialization.
+- Added immutable WorkflowRevision creation for compiled exports.
 - Wired local API proxy routes.
-- Updated the generated workflow builder to save, reopen, validate, preview, and submit through a planned draft runSpec.
+- Updated the generated workflow builder to save, reopen, validate, preview, compile, and submit through a compiled draft runSpec carrying `workflowRevisionId`.
 - Preserved draft metadata/provenance on reopen-and-save and made draft/server load failures visible rather than treating them as empty draft lists.
 - Stamped valid planned/compiled runSpecs with draft id and revision, and kept invalid plans non-runnable.
 
@@ -96,4 +118,4 @@ The exported `workflow/Snakefile` uses `configfile: "run-config.json"`, validate
 
 1. Semantic Tool Recommendation v1: hard-filter tools by typed ports, EDAM data/format/operation, workflowReady state, and resource/database compatibility.
 2. Run Orchestrator v1: rule-level Snakemake job status, cancellation, retry/resume, graph-projected logs, and persisted provenance/artifact lineage.
-3. WorkflowDesignDraft revisions: explicit diff view, immutable revision snapshots, and promotion/export history.
+3. WorkflowDesignDraft usability: explicit diff view, visible compile readiness, and promotion/export history.
