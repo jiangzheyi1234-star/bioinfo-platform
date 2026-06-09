@@ -56,8 +56,16 @@ def _fasta_input(name: str) -> list[dict[str, Any]]:
     return [_input(name, "sequence_reads", "text/plain", filename=f"{name}.fasta", content=">smoke\nACGTACGT\n")]
 
 
-def _bam_input(name: str = "bam") -> list[dict[str, Any]]:
-    return [_input(name, "alignment_bam", "application/octet-stream", filename=f"{name}.bam", content="BAM placeholder\n")]
+def _sam_input(name: str = "alignment") -> list[dict[str, Any]]:
+    return [
+        _input(
+            name,
+            "alignment_sam",
+            "text/plain",
+            filename=f"{name}.sam",
+            content="@HD\tVN:1.6\tSO:unsorted\n@SQ\tSN:chr1\tLN:8\nsmoke\t0\tchr1\t1\t60\t8M\t*\t0\t0\tACGTACGT\tFFFFFFFF\n",
+        )
+    ]
 
 
 def _vcf_input(name: str = "vcf") -> list[dict[str, Any]]:
@@ -150,16 +158,16 @@ OPEN_SOURCE_TOOL_PROFILES: tuple[ToolProfile, ...] = (
     _profile(
         "deeptools-bamcoverage",
         "deeptools",
-        "bamCoverage -b {input.bam:q} -o {output.bigwig:q} --numberOfProcessors {threads}",
-        [_input("bam", "alignment_bam", "application/octet-stream", content="BAM placeholder\n")],
+        "samtools view -bS {input.alignment:q} > results/deeptools-input.bam && bamCoverage -b results/deeptools-input.bam -o {output.bigwig:q} --numberOfProcessors {threads}",
+        _sam_input(),
         [_output("bigwig", "results/coverage.bw", "coverage_bigwig", "application/octet-stream")],
         threads=2,
     ),
     _profile(
         "bedtools-bamtobed",
         "bedtools",
-        "bedtools bamtobed -i {input.bam:q} > {output.bed:q}",
-        [_input("bam", "alignment_bam", "application/octet-stream", content="BAM placeholder\n")],
+        "samtools view -bS {input.alignment:q} > results/bedtools-input.bam && bedtools bamtobed -i results/bedtools-input.bam > {output.bed:q}",
+        _sam_input(),
         [_output("bed", "results/alignments.bed", "intervals_bed", "text/plain")],
     ),
     _profile(
@@ -205,16 +213,16 @@ OPEN_SOURCE_TOOL_PROFILES: tuple[ToolProfile, ...] = (
     _profile(
         "macs2-callpeak",
         "macs2",
-        "macs2 callpeak -t {input.bam:q} -n sample --outdir results/macs2 {params.extra} && cp results/macs2/sample_peaks.narrowPeak {output.peaks:q}",
-        [_input("bam", "alignment_bam", "application/octet-stream", content="BAM placeholder\n")],
+        "samtools view -bS {input.alignment:q} > results/macs2-input.bam && macs2 callpeak -t results/macs2-input.bam -n sample --outdir results/macs2 {params.extra} && cp results/macs2/sample_peaks.narrowPeak {output.peaks:q}",
+        _sam_input(),
         [_output("peaks", "results/macs2/sample_peaks.narrowPeak", "peaks_narrowpeak", "text/plain")],
         params={"extra": {"type": "string", "title": "Extra MACS2 arguments", "default": "--nomodel"}},
     ),
     _profile(
         "featurecounts",
         "subread",
-        "featureCounts -T {threads} -a {config.annotation_gtf:q} -o {output.counts:q} {input.bam:q}",
-        [_input("bam", "alignment_bam", "application/octet-stream", content="BAM placeholder\n")],
+        "samtools view -bS {input.alignment:q} > results/featurecounts-input.bam && featureCounts -T {threads} -a {config.annotation_gtf:q} -o {output.counts:q} results/featurecounts-input.bam",
+        _sam_input(),
         [_output("counts", "results/featurecounts.txt", "gene_counts", "text/plain")],
         tool_names=("subread", "featureCounts"),
         resources={"annotation_gtf": _database_resource("custom")},
@@ -223,8 +231,8 @@ OPEN_SOURCE_TOOL_PROFILES: tuple[ToolProfile, ...] = (
     _profile(
         "samtools-sort",
         "samtools",
-        "samtools sort -@ {threads} -o {output.sorted_bam:q} {input.bam:q}",
-        _bam_input(),
+        "samtools view -bS {input.alignment:q} | samtools sort -@ {threads} -o {output.sorted_bam:q}",
+        _sam_input(),
         [_output("sorted_bam", "results/samtools-sorted.bam", "alignment_bam", "application/octet-stream")],
         tool_names=("samtools-sort", "samtools sort"),
         threads=2,
@@ -232,8 +240,8 @@ OPEN_SOURCE_TOOL_PROFILES: tuple[ToolProfile, ...] = (
     _profile(
         "picard-markduplicates",
         "picard",
-        "picard MarkDuplicates I={input.bam:q} O={output.dedup_bam:q} M={output.metrics:q} {params.extra}",
-        _bam_input(),
+        "samtools view -bS {input.alignment:q} > results/picard-input.bam && picard MarkDuplicates I=results/picard-input.bam O={output.dedup_bam:q} M={output.metrics:q} {params.extra}",
+        _sam_input(),
         [
             _output("dedup_bam", "results/picard-dedup.bam", "alignment_bam", "application/octet-stream"),
             _output("metrics", "results/picard-markduplicates-metrics.txt", "report", "text/plain"),
@@ -302,8 +310,8 @@ OPEN_SOURCE_TOOL_PROFILES: tuple[ToolProfile, ...] = (
     _profile(
         "htseq-count",
         "htseq",
-        "htseq-count {params.extra} {input.bam:q} {config.annotation_gtf:q} > {output.counts:q}",
-        _bam_input(),
+        "samtools view -bS {input.alignment:q} > results/htseq-input.bam && htseq-count {params.extra} results/htseq-input.bam {config.annotation_gtf:q} > {output.counts:q}",
+        _sam_input(),
         [_output("counts", "results/htseq-counts.tsv", "gene_counts", "text/tab-separated-values")],
         params={"extra": {"type": "string", "title": "Extra HTSeq-count arguments", "default": "-f bam -r pos -s no"}},
         resources={"annotation_gtf": _database_resource("custom")},
@@ -312,8 +320,8 @@ OPEN_SOURCE_TOOL_PROFILES: tuple[ToolProfile, ...] = (
     _profile(
         "freebayes-call",
         "freebayes",
-        "freebayes -f {config.reference_fasta:q} {input.bam:q} > {output.vcf:q}",
-        _bam_input(),
+        "samtools view -bS {input.alignment:q} > results/freebayes-input.bam && freebayes -f {config.reference_fasta:q} results/freebayes-input.bam > {output.vcf:q}",
+        _sam_input(),
         [_output("vcf", "results/freebayes.vcf", "variants_vcf", "text/plain")],
         resources={"reference_fasta": _database_resource("custom")},
         threads=2,

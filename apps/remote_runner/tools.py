@@ -95,12 +95,18 @@ def mark_registered_tool_production_enabled(
         raise ToolRegistryError("TOOL_PRODUCTION_EVIDENCE_MESSAGE_REQUIRED")
     evidence_type = normalize_production_evidence_type(accepted.get("evidenceType"))
     accepted["evidenceType"] = evidence_type
-    artifact_summary = validate_production_evidence_run(cfg, accepted, tool_id=normalized)
+    tool_revision_id = str(item.get("toolRevisionId") or "").strip()
+    artifact_summary = validate_production_evidence_run(
+        cfg,
+        accepted,
+        tool_id=normalized,
+        tool_revision_id=tool_revision_id,
+    )
     checked_at = now_iso()
     evidence_event = _record_production_evidence_event(
         cfg,
         tool_id=normalized,
-        contract=contract,
+        tool_revision_id=tool_revision_id,
         accepted=accepted,
         artifact_summary=artifact_summary,
         checked_at=checked_at,
@@ -136,14 +142,14 @@ def _record_production_evidence_event(
     cfg: RemoteRunnerConfig,
     *,
     tool_id: str,
-    contract: dict[str, Any],
+    tool_revision_id: str,
     accepted: dict[str, Any],
     artifact_summary: dict[str, str],
     checked_at: str,
 ) -> dict[str, Any]:
     payload = {
         "toolId": tool_id,
-        "toolRevisionId": str(contract.get("toolRevisionId") or ""),
+        "toolRevisionId": tool_revision_id,
         "runId": str(accepted.get("runId") or ""),
         "evidenceType": str(accepted.get("evidenceType") or ""),
         "message": str(accepted.get("message") or ""),

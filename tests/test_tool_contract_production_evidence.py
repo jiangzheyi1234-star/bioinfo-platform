@@ -5,6 +5,7 @@ from pathlib import Path
 from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
 from apps.remote_runner.databases import add_reference_database
 from apps.remote_runner.storage import create_run_record, persist_artifact, update_run_state, upsert_tool
+from apps.remote_runner.tool_revisions import publish_tool_revision
 from apps.remote_runner.tools import ToolRegistryError, add_registered_tool, mark_registered_tool_production_enabled
 from tests.generated_workflow_test_helpers import generated_workflow_node, generated_workflow_run_spec
 
@@ -22,7 +23,7 @@ def _cfg(tmp_path: Path) -> RemoteRunnerConfig:
     )
 
 
-def _ready_tool(cfg: RemoteRunnerConfig) -> None:
+def _ready_tool(cfg: RemoteRunnerConfig) -> dict[str, object]:
     saved = add_registered_tool(
         cfg,
         {
@@ -49,7 +50,7 @@ def _ready_tool(cfg: RemoteRunnerConfig) -> None:
     saved["contractStatus"]["dryRun"] = {"status": "passed", "message": "Snakemake dry-run passed."}
     saved["contractStatus"]["smokeRun"] = {"status": "passed", "message": "Snakemake smoke run passed."}
     saved["contractStatus"]["outputValidation"] = {"status": "passed", "message": "Output validation passed."}
-    upsert_tool(cfg, saved)
+    return upsert_tool(cfg, saved)
 
 
 def _completed_run_with_artifact(
@@ -432,3 +433,81 @@ def test_production_acceptance_evidence_accepts_graph_workflow_nodes(tmp_path: P
     )
 
     assert accepted["toolContract"]["state"] == "ProductionEnabled"
+
+
+def test_production_acceptance_evidence_accepts_published_tool_revision_node(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    saved = _ready_tool(cfg)
+    revision = publish_tool_revision(cfg, saved)
+    saved["toolRevisionId"] = revision["toolRevisionId"]
+    saved["revision"] = revision["revision"]
+    saved["publishedAt"] = revision["publishedAt"]
+    upsert_tool(cfg, saved)
+    _completed_run_with_artifact(
+        cfg,
+        tmp_path,
+        run_id="run_revision_tool",
+        run_spec={
+            "runId": "run_revision_tool",
+            "pipelineId": "generated-tool-run-v1",
+            "workflow": {
+                "contractVersion": "rule-contract-v1",
+                "nodes": [{"id": "copy_report", "toolRevisionId": revision["toolRevisionId"]}],
+                "edges": [],
+                "outputs": [],
+            },
+        },
+    )
+
+    accepted = mark_registered_tool_production_enabled(
+        cfg,
+        "conda-forge::production-ready",
+        {"runId": "run_revision_tool", "message": "Accepted.", "evidenceType": "real-data-acceptance"},
+    )
+
+    assert accepted["toolContract"]["state"] == "ProductionEnabled"
+    assert accepted["contractStatus"]["production"]["code"] == "PRODUCTION_ACCEPTED"
+
+
+def test_production_acceptance_evidence_requires_current_tool_revision_node(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    saved = _ready_tool(cfg)
+    old_revision = publish_tool_revision(cfg, saved)
+    saved["ruleTemplate"]["log"] = "logs/production-ready-v2.log"
+    current_revision = publish_tool_revision(cfg, saved)
+    saved["toolRevisionId"] = current_revision["toolRevisionId"]
+    saved["revision"] = current_revision["revision"]
+    saved["publishedAt"] = current_revision["publishedAt"]
+    upsert_tool(cfg, saved)
+    _completed_run_with_artifact(
+        cfg,
+        tmp_path,
+        run_id="run_old_revision_tool",
+        run_spec={
+            "runId": "run_old_revision_tool",
+            "pipelineId": "generated-tool-run-v1",
+            "workflow": {
+                "contractVersion": "rule-contract-v1",
+                "nodes": [{"id": "copy_report", "toolRevisionId": old_revision["toolRevisionId"]}],
+                "edges": [],
+                "outputs": [],
+            },
+        },
+    )
+
+    try:
+        mark_registered_tool_production_enabled(
+            cfg,
+            "conda-forge::production-ready",
+            {
+                "runId": "run_old_revision_tool",
+                "message": "Accepted.",
+                "evidenceType": "real-data-acceptance",
+            },
+        )
+    except ToolRegistryError as exc:
+        assert str(exc) == "TOOL_PRODUCTION_EVIDENCE_TOOL_MISMATCH"
+    else:
+        raise AssertionError("Production evidence should match the current published tool revision.")

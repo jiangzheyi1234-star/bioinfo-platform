@@ -303,9 +303,11 @@ def test_validation_queue_prioritizes_self_contained_profiles_before_required_re
     bedtools = next(item for item in report["validationQueue"]["items"] if item["profileId"] == "bedtools-bamtobed")
     bowtie2 = next(item for item in report["validationQueue"]["items"] if item["profileId"] == "bowtie2-align")
     assert "self-contained-smoke" in bcftools["priority"]["reasons"]
-    assert "self-contained-smoke" not in bedtools["priority"]["reasons"]
-    assert "smoke-fixture-placeholder" in bedtools["priority"]["reasons"]
-    assert bedtools["evidence"]["smokeFixtureQuality"] == "placeholder"
+    assert "self-contained-smoke" in bedtools["priority"]["reasons"]
+    assert "smoke-fixture-placeholder" not in bedtools["priority"]["reasons"]
+    assert bedtools["evidence"]["smokeFixtureQuality"] == "materialized"
+    assert bedtools["preparePayload"]["ruleTemplate"]["inputs"][0]["kind"] == "alignment_sam"
+    assert "samtools view -bS" in bedtools["preparePayload"]["ruleTemplate"]["commandTemplate"]
     assert "required-resources-pending" in bowtie2["priority"]["reasons"]
     assert bowtie2["evidence"]["requiredResourceKeys"] == ["bowtie2_index"]
 

@@ -6,6 +6,7 @@
     "dev": "next dev -H 127.0.0.1 -p 3765",
     "build": "next build",
     "start": "next start -H 127.0.0.1 -p 3765",
+    "smoke:local": "powershell -ExecutionPolicy Bypass -File ../../scripts/local_web_smoke.ps1",
     "lint": "next lint"
   },
   "dependencies": {
