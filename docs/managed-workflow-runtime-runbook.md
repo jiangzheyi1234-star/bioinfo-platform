@@ -42,6 +42,8 @@ The release is incomplete unless these assets exist on the manifest-declared Git
 
 The release manifest declares the artifact download URL, expected artifact SHA-256, artifact size, explicit conda spec path, explicit conda spec SHA-256, and optional supply-chain metadata references for each platform. When no local artifact is present, the provider downloads the release asset into the local artifact cache and verifies SHA-256 and size before use. Private GitHub releases require `H2OMETA_RELEASE_DOWNLOAD_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` in the local environment.
 
+A clean `resources/remote-runner` directory is expected in the production path. The local artifact cache is the handoff point after manifest verification, and remote bootstrap uploads the resolved cache file over SSH/SFTP to the target host. Do not manually copy release tarballs into `resources/remote-runner` just to make SSH install work; use that directory only for an intentional manifest-matching local override.
+
 Supply-chain metadata fields are:
 
 - `sbom_urls`: SBOM document for the built artifact.
@@ -168,6 +170,7 @@ uv run python scripts\build_workflow_runtime_artifact_on_server.py --runtime-sou
 ## Bootstrap Contract
 
 Default bootstrap requires the manifest-declared workflow runtime artifact. It may come from an explicit local override, a local staging directory, or the manifest download URL; it must fail loudly when the artifact cannot be resolved or verified.
+Before the SSH install step, the local provider resolves both the control-plane and workflow-runtime bundles and verifies their manifest digest and size. Bootstrap then uploads those resolved local bundle paths to the remote host, extracts them, writes the remote SHA marker, and reuses the install only when the marker still matches the manifest-declared artifact.
 
 Only use this environment variable for an explicit repair-only reuse path:
 

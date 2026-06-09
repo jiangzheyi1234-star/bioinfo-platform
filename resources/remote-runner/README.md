@@ -3,6 +3,8 @@
 This directory is a local staging and override location for remote runner release artifacts.
 The Git source of truth for artifact names, versions, platforms, download URLs, SHA-256 values, and sizes is `config/remote-runner-release-manifest.json`.
 Release `.tar.gz` files are published as GitHub Release assets and are intentionally ignored by Git.
+It is normal for this directory to contain only `.gitkeep` and this README on a clean checkout.
+Production launcher startup does not require local tarballs here.
 
 Current linux-64 release assets:
 
@@ -13,6 +15,20 @@ Current linux-64 release assets:
 
 Do not commit local scratch artifacts from `resources/remote-runner` or `dist/remote-runner`.
 The explicit conda specs used to build these artifacts are release inputs under `config/remote-runner-conda-specs` and are referenced by `config/remote-runner-release-manifest.json`.
+
+## Runtime Resolution And SSH Upload
+
+`resources/remote-runner` is not the production source of truth. The shared artifact provider resolves artifacts in this order:
+
+1. Explicit bundle environment variables such as `H2OMETA_REMOTE_RUNNER_BUNDLE`.
+2. Manifest search-root environment variables.
+3. Manifest-matching local files under `resources/remote-runner` or `dist/remote-runner`.
+4. The manifest-declared GitHub Release asset, downloaded into `H2OMETA_ARTIFACT_CACHE_DIR`.
+
+Only files whose SHA-256 and size match the manifest are accepted. A stale local tarball is rejected and the provider continues to the manifest download URL.
+After resolution, SSH bootstrap uploads the resolved bundle path to the target server and installs it there. The upload does not require this directory to hold a copy.
+
+Use `resources/remote-runner` only for development, staging, offline repair, or emergency bootstrap validation when a manifest-matching local override is intentionally needed.
 
 Build the control-plane artifact:
 
