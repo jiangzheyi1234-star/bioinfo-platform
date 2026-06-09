@@ -4,20 +4,41 @@ from typing import Any
 from urllib.parse import quote, urlencode
 
 from config import resolve_runner_token
-from core.remote_runner.client import RemoteRunnerHttpClient
+from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
+from core.remote_runner.client import RemoteRunnerClientError, RemoteRunnerHttpClient
+from core.remote_runner.layout import remote_runner_bootstrap_layout
+
 
 def _is_manager_error(exc: Exception) -> bool:
     return exc.__class__.__name__ == "RemoteRunnerManagerError"
 
 
+def _record_service_port(record: dict[str, Any]) -> int | None:
+    try:
+        port = int(record.get("service_port") or 0)
+    except (TypeError, ValueError):
+        return None
+    if port <= 0 or port > 65535:
+        return None
+    return port
+
+
+def _manager_error_blocks_runtime_state_resync(exc: Exception) -> bool:
+    detail = str(exc)
+    return (
+        "runner token not available" in detail
+        or "service_port is missing" in detail
+        or "service_port is invalid" in detail
+    )
+
+
 class RemoteRunnerProxyMixin:
     def get_health(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
+        return self._get_health_with_runtime_state_resync(
             server_id=str(kwargs["server_id"]),
             ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
+            record=dict(kwargs["server_record"]),
         )
-        return client.get_health()
 
     def upload_content(self, **kwargs) -> dict[str, Any]:
         client = self._get_client(
@@ -313,21 +334,162 @@ class RemoteRunnerProxyMixin:
             detail = str(exc) or exc.__class__.__name__
             raise self._manager_error(detail) from exc
 
-    def _get_client(self, *, server_id: str, ssh_service, record: dict[str, Any], timeout: int = 5) -> RemoteRunnerHttpClient:
+    def _get_health_with_runtime_state_resync(
+        self,
+        *,
+        server_id: str,
+        ssh_service,
+        record: dict[str, Any],
+    ) -> dict[str, Any]:
+        try:
+            client, service_port, tunnel_port = self._get_client_connection(
+                server_id=server_id,
+                ssh_service=ssh_service,
+                record=record,
+            )
+        except Exception as exc:
+            if not _is_manager_error(exc) or _manager_error_blocks_runtime_state_resync(exc):
+                raise
+            stale_service_port = _record_service_port(record)
+            if stale_service_port is None:
+                raise
+            return self._get_health_after_runtime_state_resync(
+                server_id=server_id,
+                ssh_service=ssh_service,
+                record=record,
+                stale_service_port=stale_service_port,
+                stale_error=exc,
+            )
+        try:
+            health = client.get_health()
+        except RemoteRunnerClientError as exc:
+            return self._get_health_after_runtime_state_resync(
+                server_id=server_id,
+                ssh_service=ssh_service,
+                record=record,
+                stale_service_port=service_port,
+                stale_error=exc,
+            )
+        return self._attach_connection_metadata(
+            health,
+            service_port=service_port,
+            tunnel_port=tunnel_port,
+        )
+
+    def _get_health_after_runtime_state_resync(
+        self,
+        *,
+        server_id: str,
+        ssh_service,
+        record: dict[str, Any],
+        stale_service_port: int,
+        stale_error: Exception,
+    ) -> dict[str, Any]:
+        version = str(record.get("bootstrap_version") or REMOTE_RUNNER_VERSION)
+        home_dir = self._resolve_remote_home(ssh_service)
+        paths = remote_runner_bootstrap_layout(home_dir, version)
+        state = self._wait_for_runtime_state(
+            ssh_service=ssh_service,
+            remote_runtime_state=paths.runtime_state,
+            version=version,
+            attempts=1,
+            delay_seconds=0,
+        )
+        service_port = int(state["bindPort"])
+        if service_port == stale_service_port:
+            raise stale_error
+        token = self._resolve_runner_token(record)
+        tunnel = self._open_runner_tunnel(
+            server_id=server_id,
+            ssh_service=ssh_service,
+            remote_port=service_port,
+        )
+        client = RemoteRunnerHttpClient(
+            base_url=f"http://127.0.0.1:{tunnel.local_port}",
+            token=token,
+            timeout=5,
+        )
+        runtime_state = {
+            "bindPort": service_port,
+            "pid": int(state.get("pid") or 0),
+            "version": str(state.get("version") or version),
+        }
+        try:
+            health = client.get_health()
+        except RemoteRunnerClientError as exc:
+            detail_payload = dict(exc.detail) if isinstance(exc.detail, dict) else {}
+            detail_payload.setdefault("message", str(exc))
+            detail_payload["servicePort"] = service_port
+            detail_payload["tunnelPort"] = int(tunnel.local_port)
+            detail_payload["runtimeState"] = runtime_state
+            detail_payload["connectionResynced"] = True
+            raise RemoteRunnerClientError(
+                str(exc),
+                status_code=exc.status_code,
+                detail=detail_payload,
+            ) from exc
+        health = self._attach_connection_metadata(
+            health,
+            service_port=service_port,
+            tunnel_port=int(tunnel.local_port),
+        )
+        health["runtimeState"] = runtime_state
+        health["connectionResynced"] = True
+        return health
+
+    @classmethod
+    def _attach_connection_metadata(
+        cls,
+        health: dict[str, Any],
+        *,
+        service_port: int,
+        tunnel_port: int,
+    ) -> dict[str, Any]:
+        health["servicePort"] = service_port
+        health["tunnelPort"] = tunnel_port
+        return health
+
+    @classmethod
+    def _resolve_runner_token(cls, record: dict[str, Any]) -> str:
         token = resolve_runner_token(str(record.get("token_ref", "") or ""))
         if not token:
-            raise self._manager_error("runner token not available")
+            raise cls._manager_error("runner token not available")
+        return token
+
+    def _get_client_connection(
+        self,
+        *,
+        server_id: str,
+        ssh_service,
+        record: dict[str, Any],
+        timeout: int = 5,
+    ) -> tuple[RemoteRunnerHttpClient, int, int]:
+        token = self._resolve_runner_token(record)
         remote_port = self._require_service_port(record)
         tunnel = self._open_runner_tunnel(
             server_id=server_id,
             ssh_service=ssh_service,
             remote_port=remote_port,
         )
-        return RemoteRunnerHttpClient(
-            base_url=f"http://127.0.0.1:{tunnel.local_port}",
-            token=token,
+        return (
+            RemoteRunnerHttpClient(
+                base_url=f"http://127.0.0.1:{tunnel.local_port}",
+                token=token,
+                timeout=timeout,
+            ),
+            remote_port,
+            int(tunnel.local_port),
+        )
+
+    def _get_client(self, *, server_id: str, ssh_service, record: dict[str, Any], timeout: int = 5) -> RemoteRunnerHttpClient:
+        client, _, _ = self._get_client_connection(
+            server_id=server_id,
+            ssh_service=ssh_service,
+            record=record,
             timeout=timeout,
         )
+        return client
+
 
     @staticmethod
     def _manager_error(message: str) -> RuntimeError:

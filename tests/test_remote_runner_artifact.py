@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import tarfile
 from pathlib import Path
 
@@ -469,6 +470,45 @@ def test_artifact_provider_downloads_declared_artifact_to_cache(
     assert expected_path.with_suffix(expected_path.suffix + ".sha256").read_text(encoding="utf-8") == (
         f"{sha256}  {filename}\n"
     )
+
+
+def test_artifact_provider_reuses_concurrent_valid_cache_when_replace_is_locked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    version = "downloaded-control-plane"
+    filename = f"h2ometa-remote-runner-{version}-linux-64.tar.gz"
+    source = tmp_path / "release" / filename
+    _write_artifact(source, version=version, platform="linux-64", content=b"downloaded")
+    sha256 = hashlib.sha256(source.read_bytes()).hexdigest()
+    cache_root = tmp_path / "artifact-cache"
+    expected_path = cache_root / "remote_runner" / version / "linux-64" / filename
+    monkeypatch.setenv("H2OMETA_ARTIFACT_CACHE_DIR", str(cache_root))
+    monkeypatch.setattr(
+        "core.remote_runner.artifact.REMOTE_RUNNER_ARTIFACT",
+        _spec_with_download_url(
+            key="remote_runner",
+            name="h2ometa-remote-runner",
+            service="h2ometa-remote",
+            version=version,
+            bundle_env_var="H2OMETA_REMOTE_RUNNER_BUNDLE",
+            search_root_env_var="H2OMETA_REMOTE_RUNNER_DIR",
+            url=source.as_uri(),
+            sha256=sha256,
+            size_bytes=source.stat().st_size,
+        ),
+    )
+
+    def locked_replace(src: str | bytes | os.PathLike[str], dst: str | bytes | os.PathLike[str]) -> None:
+        Path(dst).write_bytes(Path(src).read_bytes())
+        raise PermissionError("target is locked by concurrent downloader")
+
+    monkeypatch.setattr("core.remote_runner.artifact_io.os.replace", locked_replace)
+
+    resolved = RemoteRunnerArtifactProvider(search_roots=[]).resolve(version, platform="linux-64")
+
+    assert resolved.archive_path == expected_path
+    assert expected_path.read_bytes() == source.read_bytes()
+    assert not list(expected_path.parent.glob(f"{filename}.*.tmp"))
 
 
 def test_artifact_provider_ignores_stale_repo_candidate_and_downloads_manifest_artifact(

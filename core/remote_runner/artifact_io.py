@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import tarfile
+import uuid
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -93,19 +94,19 @@ def download_declared_archive(
     cache_dir = artifact_cache_root() / spec.key / version / platform
     archive_path = cache_dir / filename
     if archive_path.exists():
-        actual_sha = sha256_file(archive_path)
-        actual_size = archive_path.stat().st_size
-        if actual_sha == expected_sha and (not expected_size or actual_size == expected_size):
+        if cached_declared_archive_is_valid(
+            archive_path,
+            expected_sha=expected_sha,
+            expected_size=expected_size,
+        ):
             write_checksum_file(archive_path, expected_sha)
             return archive_path
         archive_path.unlink()
 
-    tmp_path = archive_path.with_name(f"{archive_path.name}.tmp")
+    tmp_path = archive_path.with_name(f"{archive_path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
     label = spec.key.replace("_", " ")
     try:
         cache_dir.mkdir(parents=True, exist_ok=True)
-        if tmp_path.exists():
-            tmp_path.unlink()
         request = Request(url, headers=download_headers())
         with urlopen(request, timeout=120) as response, tmp_path.open("wb") as handle:
             shutil.copyfileobj(response, handle)
@@ -117,7 +118,20 @@ def download_declared_archive(
         actual_sha = sha256_file(tmp_path)
         if actual_sha != expected_sha:
             raise RemoteRunnerArtifactError(f"{label} artifact sha256 mismatch after download: {url}")
-        os.replace(tmp_path, archive_path)
+        try:
+            os.replace(tmp_path, archive_path)
+        except OSError as exc:
+            if cached_declared_archive_is_valid(
+                archive_path,
+                expected_sha=expected_sha,
+                expected_size=expected_size,
+            ):
+                cleanup_download_temp_file(tmp_path)
+                write_checksum_file(archive_path, expected_sha)
+                return archive_path
+            raise RemoteRunnerArtifactError(
+                f"{label} artifact cache finalization failed: {type(exc).__name__}: {exc}"
+            ) from exc
         write_checksum_file(archive_path, expected_sha)
         return archive_path
     except RemoteRunnerArtifactError:
@@ -135,8 +149,32 @@ def download_declared_archive(
             "GITHUB_PERSONAL_ACCESS_TOKEN, or configure GH CLI auth with scripts\\configure-github-release-auth.ps1"
         ) from exc
     finally:
+        cleanup_download_temp_file(tmp_path)
+
+
+def cached_declared_archive_is_valid(
+    archive_path: Path,
+    *,
+    expected_sha: str,
+    expected_size: int,
+) -> bool:
+    if not archive_path.exists():
+        return False
+    try:
+        actual_size = archive_path.stat().st_size
+        if expected_size and actual_size != expected_size:
+            return False
+        return sha256_file(archive_path) == expected_sha
+    except OSError:
+        return False
+
+
+def cleanup_download_temp_file(tmp_path: Path) -> None:
+    try:
         if tmp_path.exists():
             tmp_path.unlink()
+    except OSError:
+        return
 
 
 def artifact_cache_root() -> Path:
