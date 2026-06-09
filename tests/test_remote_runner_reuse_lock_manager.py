@@ -1,51 +1,20 @@
 from __future__ import annotations
 
-import asyncio
 import json
-import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
-from apps.remote_runner.config import (
-    ensure_runtime_layout,
-    get_runtime_state_path,
-    inspect_workflow_runtime,
-    load_remote_runner_config,
-    write_runtime_state,
-)
-from apps.remote_runner.config import RemoteRunnerConfig
-from apps.remote_runner.executor import run_snakemake_execution
-from apps.remote_runner.api_models import RunCreateRequest, UploadCreateRequest
-from apps.remote_runner.execution_query_routes import (
-    get_result_api,
-    get_result_preview_api,
-    get_run as get_run_api,
-    get_run_events_api,
-    get_run_logs_api,
-    get_run_results_api,
-    get_runs as list_runs_api,
-    list_results_api,
-)
-from apps.remote_runner.health_routes import health_live, health_ready, health_startup
-from apps.remote_runner.pipeline_routes import get_pipeline_api, get_pipelines
-from apps.remote_runner.submission_routes import create_run, create_upload
-from config import get_app_cache_dir
-from core.remote_runner.artifact import RemoteRunnerArtifactError
-from core.remote_runner.bundle import REMOTE_RUNNER_VERSION, RemoteRunnerBundleBuilder
+from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
 from core.remote_runner.client import RemoteRunnerClientError
 from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerError
 from tests.helpers.remote_runner_control_plane import (
-    _ORIGINAL_ENSURE_WORKFLOW_RUNTIME,
-    _default_workflow_runtime,
-    _fake_runtime_dir,
     _is_remote_bundle_cleanup,
     _is_remote_config_atomic_move,
     _fake_workflow_artifact,
     _runtime_state_json,
-    _write_file_summary_pipeline,
 )
 
 def test_wait_for_runtime_state_rejects_dead_runner_pid() -> None:
@@ -83,6 +52,16 @@ def test_bootstrap_reuses_existing_runner_when_artifact_sha_matches(monkeypatch)
         archive_path = Path(__file__)
         platform = "linux-64"
         sha256 = "b" * 64
+
+    class FakeWorkflowArtifact:
+        version = "0.1.0"
+        platform = "linux-64"
+        sha256 = "f" * 64
+        manifest = {"packages": {"snakemake": "9.19.0"}}
+        python_entrypoint = "workflow-env/bin/python"
+        conda_entrypoint = "workflow-env/bin/conda"
+        conda_unpack_entrypoint = "workflow-env/bin/conda-unpack"
+        snakemake_entrypoint = "workflow-env/bin/snakemake"
 
     class FakeTunnel:
         local_port = 18765
@@ -169,11 +148,13 @@ def test_bootstrap_reuses_existing_runner_when_artifact_sha_matches(monkeypatch)
                 }
             }
 
-    with patch.object(manager, "_artifact_provider", SimpleNamespace(resolve=lambda **kwargs: FakeArtifact())), patch(
-        "core.remote_runner.reuse.RemoteRunnerHttpClient", FakeClient
-    ), patch("core.remote_runner.reuse.resolve_runner_token", lambda token_ref: "phase2-token"), patch(
-        "core.remote_runner.manager.store_runner_token"
-    ) as store_token:
+    with patch.object(manager, "_artifact_provider", SimpleNamespace(resolve=lambda **kwargs: FakeArtifact())), patch.object(
+        manager,
+        "_workflow_artifact_provider",
+        SimpleNamespace(resolve=lambda **kwargs: FakeWorkflowArtifact()),
+    ), patch("core.remote_runner.reuse.RemoteRunnerHttpClient", FakeClient), patch(
+        "core.remote_runner.reuse.resolve_runner_token", lambda token_ref: "phase2-token"
+    ), patch("core.remote_runner.manager.store_runner_token") as store_token:
         result = manager.bootstrap(
             server_id="srv_test",
             server={"label": "demo"},
@@ -197,7 +178,7 @@ def test_bootstrap_reuses_existing_runner_when_artifact_sha_matches(monkeypatch)
                     },
                     "tooling": {
                         "workflow_runtime": {
-                            "artifact_sha": "f" * 64,
+                            "artifact_sha": "stale-workflow-runtime-sha",
                             "snakemake_command": "/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/workflow-env/bin/snakemake",
                         }
                     },
@@ -218,6 +199,15 @@ def test_bootstrap_reuses_existing_runner_when_artifact_sha_matches(monkeypatch)
         "restored": False,
         "status": "skipped",
         "message": "Existing runner reused; rollback was not needed.",
+    }
+    workflow_runtime = result["bootstrap_metadata"]["tooling"]["workflow_runtime"]
+    assert workflow_runtime["artifact_sha"] == "f" * 64
+    assert workflow_runtime["snakemake_version"] == "9.19.0"
+    assert workflow_runtime["snakemake_command"].endswith("/workflow-env/bin/snakemake")
+    assert result["bootstrap_metadata"]["workflow_runtime"] == {
+        "action": "reused",
+        "path": "/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64",
+        "artifact_sha": "f" * 64,
     }
     assert uploads == []
     assert not any("tar -xzf" in cmd for cmd in executed)
@@ -527,6 +517,8 @@ def test_remote_install_lock_waits_until_atomic_mkdir_succeeds(monkeypatch) -> N
             calls.append(cmd)
             if len(calls) == 1:
                 return 0, "busy", ""
+            if "H2OMETA_RECLAIM_LOCK" in cmd:
+                return 0, "young", ""
             return 0, "acquired", ""
 
     monkeypatch.setattr("core.remote_runner.install_lock.time.sleep", lambda seconds: sleeps.append(seconds))
@@ -551,6 +543,7 @@ def test_remote_install_lock_waits_until_atomic_mkdir_succeeds(monkeypatch) -> N
         "path": "/home/tester/.h2ometa/runner/locks/install-test.lock",
         "acquired": True,
         "waited": True,
+        "last_reclaim_status": "young",
     }
 
 def test_remote_install_lock_fails_when_busy() -> None:
@@ -558,6 +551,10 @@ def test_remote_install_lock_fails_when_busy() -> None:
 
     class FakeSSH:
         def run(self, cmd: str, timeout: int = 10):
+            if "H2OMETA_RECLAIM_LOCK" in cmd:
+                return 0, "active", ""
+            if "H2OMETA_DESCRIBE_LOCK" in cmd:
+                return 0, 'exists=yes type=dir ageSeconds=900 activeProcess=yes owner={"version":"install-test"}', ""
             return 0, "busy", ""
 
     try:
@@ -570,7 +567,11 @@ def test_remote_install_lock_fails_when_busy() -> None:
             delay_seconds=0,
         )
     except RemoteRunnerManagerError as exc:
-        assert "install lock is busy" in str(exc)
+        message = str(exc)
+        assert "install lock is busy" in message
+        assert "last reclaim status: active" in message
+        assert "activeProcess=yes" in message
+        assert 'owner={"version":"install-test"}' in message
     else:
         raise AssertionError("busy install lock should fail after attempts are exhausted")
 
