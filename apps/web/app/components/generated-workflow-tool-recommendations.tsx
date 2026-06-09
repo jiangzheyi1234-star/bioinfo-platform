@@ -62,12 +62,7 @@ export function GeneratedWorkflowToolRecommendations({
       cancelled = true;
     };
   }, [
-    selectedOutputCandidate?.value,
-    selectedOutputCandidate?.port.type,
-    selectedOutputCandidate?.port.kind,
-    selectedOutputCandidate?.port.mimeType,
-    selectedOutputCandidate?.port.data,
-    selectedOutputCandidate?.port.format,
+    selectedOutputCandidate,
   ]);
 
   async function handlePrepareRecommendation(recommendation: WorkflowToolRecommendationItem) {
@@ -267,8 +262,6 @@ function recommendationSearchQuery(recommendation: WorkflowToolRecommendationIte
 function recommendationCandidateName(recommendation: WorkflowToolRecommendationItem): string {
   return (
     recommendation.candidate.toolNames?.[0] ||
-    recommendation.candidate.toolName ||
-    recommendation.candidate.name ||
     recommendation.candidate.profileId ||
     recommendation.candidate.candidateId ||
     ""
