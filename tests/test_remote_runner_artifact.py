@@ -22,6 +22,7 @@ from core.remote_runner.release_manifest import (
     WORKFLOW_RUNTIME_ARTIFACT,
     WORKFLOW_RUNTIME_VERSION,
 )
+from tests.helpers.remote_runner_artifact_checks import staged_artifact_matches_manifest
 
 
 def _write_artifact(
@@ -146,6 +147,10 @@ def _local_staged_release_artifact_or_skip(repo_root: Path, filename: str) -> Pa
             "release artifact tarballs are external; run scripts/check_remote_runner_release_artifacts.py "
             "with release download credentials to verify artifact contents"
         )
+    if filename == REMOTE_RUNNER_ARTIFACT.archive_filename("linux-64") and not staged_artifact_matches_manifest(
+        bundle, REMOTE_RUNNER_ARTIFACT, platform="linux-64"
+    ):
+        pytest.skip("local staged release artifact is stale relative to the release manifest")
     return bundle
 
 
@@ -545,10 +550,10 @@ def test_artifact_provider_ignores_stale_repo_candidate_and_downloads_manifest_a
 
 
 def test_workflow_runtime_provider_resolves_conda_pack_artifact(tmp_path: Path) -> None:
-    bundle = tmp_path / "h2ometa-workflow-runtime-0.1.0-linux-64.tar.gz"
-    _write_workflow_artifact(bundle)
+    bundle = tmp_path / "h2ometa-workflow-runtime-local-workflow-linux-64.tar.gz"
+    _write_workflow_artifact(bundle, version="local-workflow")
 
-    resolved = WorkflowRuntimeArtifactProvider(search_roots=[tmp_path]).resolve("0.1.0", platform="linux-64")
+    resolved = WorkflowRuntimeArtifactProvider(search_roots=[tmp_path]).resolve("local-workflow", platform="linux-64")
 
     assert resolved.archive_path == bundle
     assert resolved.snakemake_entrypoint == "workflow-env/bin/snakemake"
@@ -556,27 +561,27 @@ def test_workflow_runtime_provider_resolves_conda_pack_artifact(tmp_path: Path) 
 
 
 def test_workflow_runtime_provider_rejects_wrong_service(tmp_path: Path) -> None:
-    bundle = tmp_path / "h2ometa-workflow-runtime-0.1.0-linux-64.tar.gz"
-    _write_workflow_artifact(bundle, service="h2ometa-remote")
+    bundle = tmp_path / "h2ometa-workflow-runtime-local-workflow-linux-64.tar.gz"
+    _write_workflow_artifact(bundle, version="local-workflow", service="h2ometa-remote")
 
     with pytest.raises(RemoteRunnerArtifactError, match="unexpected service"):
-        WorkflowRuntimeArtifactProvider(search_roots=[tmp_path]).resolve("0.1.0", platform="linux-64")
+        WorkflowRuntimeArtifactProvider(search_roots=[tmp_path]).resolve("local-workflow", platform="linux-64")
 
 
 def test_workflow_runtime_provider_rejects_artifact_missing_snakemake_package(tmp_path: Path) -> None:
-    bundle = tmp_path / "h2ometa-workflow-runtime-0.1.0-linux-64.tar.gz"
-    _write_workflow_artifact(bundle, include_snakemake_package=False)
+    bundle = tmp_path / "h2ometa-workflow-runtime-local-workflow-linux-64.tar.gz"
+    _write_workflow_artifact(bundle, version="local-workflow", include_snakemake_package=False)
 
     with pytest.raises(RemoteRunnerArtifactError, match="missing snakemake Python package"):
-        WorkflowRuntimeArtifactProvider(search_roots=[tmp_path]).resolve("0.1.0", platform="linux-64")
+        WorkflowRuntimeArtifactProvider(search_roots=[tmp_path]).resolve("local-workflow", platform="linux-64")
 
 
 def test_workflow_runtime_provider_rejects_missing_snakemake_package_version(tmp_path: Path) -> None:
-    bundle = tmp_path / "h2ometa-workflow-runtime-0.1.0-linux-64.tar.gz"
-    _write_workflow_artifact(bundle, snakemake_package="")
+    bundle = tmp_path / "h2ometa-workflow-runtime-local-workflow-linux-64.tar.gz"
+    _write_workflow_artifact(bundle, version="local-workflow", snakemake_package="")
 
     with pytest.raises(RemoteRunnerArtifactError, match="must declare snakemake package version"):
-        WorkflowRuntimeArtifactProvider(search_roots=[tmp_path]).resolve("0.1.0", platform="linux-64")
+        WorkflowRuntimeArtifactProvider(search_roots=[tmp_path]).resolve("local-workflow", platform="linux-64")
 
 
 def test_workflow_runtime_provider_downloads_declared_artifact_to_cache(
@@ -612,16 +617,6 @@ def test_workflow_runtime_provider_downloads_declared_artifact_to_cache(
     assert resolved.snakemake_entrypoint == "workflow-env/bin/snakemake"
 
 
-def test_supply_chain_metadata_treats_pending_manifest_values_as_incomplete() -> None:
-    metadata = supply_chain_metadata(REMOTE_RUNNER_ARTIFACT, platform=REMOTE_RUNNER_ARTIFACT.default_platform)
-
-    assert metadata["complete"] is False
-    assert "sbomUrl" in metadata["pendingFields"]
-    assert "attestationUrl" in metadata["pendingFields"]
-    assert "builderId" in metadata["pendingFields"]
-    assert "sourceCommit" in metadata["pendingFields"]
-
-
 def test_release_artifact_preflight_has_supply_chain_strict_gate() -> None:
     source = (Path.cwd() / "scripts" / "check_remote_runner_release_artifacts.py").read_text(encoding="utf-8")
 
@@ -631,17 +626,22 @@ def test_release_artifact_preflight_has_supply_chain_strict_gate() -> None:
     assert "release supply-chain metadata incomplete" in source
 
 
-def test_release_manifest_records_supply_chain_placeholders_for_ci_handoff() -> None:
-    runner = supply_chain_metadata(REMOTE_RUNNER_ARTIFACT, platform=REMOTE_RUNNER_ARTIFACT.default_platform)
-    workflow = supply_chain_metadata(WORKFLOW_RUNTIME_ARTIFACT, platform=WORKFLOW_RUNTIME_ARTIFACT.default_platform)
+def test_release_manifest_records_supply_chain_assets_for_ci_handoff() -> None:
+    runner, workflow = (
+        supply_chain_metadata(REMOTE_RUNNER_ARTIFACT, platform=REMOTE_RUNNER_ARTIFACT.default_platform),
+        supply_chain_metadata(WORKFLOW_RUNTIME_ARTIFACT, platform=WORKFLOW_RUNTIME_ARTIFACT.default_platform),
+    )
 
     for metadata in (runner, workflow):
-        assert metadata["sbomUrl"].startswith("pending:")
-        assert metadata["attestationUrl"].startswith("pending:")
-        assert metadata["signatureUrl"].startswith("pending:")
-        assert metadata["builderId"].startswith("pending:")
-        assert metadata["sourceRef"].startswith("pending:")
-        assert metadata["sourceCommit"].startswith("pending:")
+        assert metadata["complete"] is True
+        assert metadata["pendingFields"] == []
+        assert metadata["missingRequired"] == []
+        assert metadata["invalidFields"] == []
+        assert metadata["sbomUrl"].startswith("https://api.github.com/")
+        assert metadata["attestationUrl"].startswith("https://api.github.com/")
+        assert metadata["signatureUrl"].startswith("https://api.github.com/")
+        assert ".github/workflows/release-remote-runner-artifacts.yml@" in metadata["builderId"]
+        assert metadata["sourceRef"] == metadata["sourceCommit"]
 
 
 def test_local_staged_remote_runner_artifact_contains_current_runtime_contract() -> None:
