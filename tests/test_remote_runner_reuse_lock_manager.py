@@ -527,6 +527,8 @@ def test_remote_install_lock_waits_until_atomic_mkdir_succeeds(monkeypatch) -> N
             calls.append(cmd)
             if len(calls) == 1:
                 return 0, "busy", ""
+            if "H2OMETA_RECLAIM_LOCK" in cmd:
+                return 0, "young", ""
             return 0, "acquired", ""
 
     monkeypatch.setattr("core.remote_runner.install_lock.time.sleep", lambda seconds: sleeps.append(seconds))
@@ -551,6 +553,7 @@ def test_remote_install_lock_waits_until_atomic_mkdir_succeeds(monkeypatch) -> N
         "path": "/home/tester/.h2ometa/runner/locks/install-test.lock",
         "acquired": True,
         "waited": True,
+        "last_reclaim_status": "young",
     }
 
 def test_remote_install_lock_fails_when_busy() -> None:

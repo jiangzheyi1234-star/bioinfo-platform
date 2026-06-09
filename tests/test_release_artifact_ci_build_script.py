@@ -41,11 +41,12 @@ def test_ci_builder_copies_release_sources_from_immutable_ref_without_test_fixtu
         ("core/contracts", "abc123"),
     ]
     assert (tmp_path / "build" / "bundle" / "remote_runner" / "main.py").exists()
-    assert not (
+    assert (
         tmp_path / "build" / "bundle" / "remote_runner" / "pipelines" / "demo" / ".test" / "run-config.json"
     ).exists()
     assert (tmp_path / "build" / "bundle" / "core" / "contracts" / "workflow_design.py").exists()
     assert ("abc123:apps/remote_runner/main.py", "show") in file_writes
+    assert ("abc123:apps/remote_runner/pipelines/demo/.test/run-config.json", "show") in file_writes
 
 
 def test_ci_builder_requires_immutable_source_ref_and_clean_checkout(monkeypatch) -> None:
