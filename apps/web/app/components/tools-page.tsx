@@ -1,5 +1,6 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import { ArrowLeft, Plus, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -14,7 +15,9 @@ import { WorkflowPageHeader } from "./workflow-page-header";
 import { WorkflowWorkspaceTabs } from "./workflow-workspace-tabs";
 
 export function ToolsPage({ initialQuery = "" }: { initialQuery?: string }) {
-  const state = useToolsPageState(initialQuery);
+  const searchParams = useSearchParams();
+  const initialSearchQuery = initialQuery || searchParams.get("q") || "";
+  const state = useToolsPageState(initialSearchQuery);
   const catalogQualityStrip = (
     <ToolCatalogQualityStrip
       candidateCatalog={state.candidateCatalog}
