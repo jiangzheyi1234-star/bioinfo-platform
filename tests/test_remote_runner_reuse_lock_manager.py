@@ -197,7 +197,7 @@ def test_bootstrap_reuses_existing_runner_when_artifact_sha_matches(monkeypatch)
                     },
                     "tooling": {
                         "workflow_runtime": {
-                            "artifact_sha": "f" * 64,
+                            "artifact_sha": "stale-workflow-runtime-sha",
                             "snakemake_command": "/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/workflow-env/bin/snakemake",
                         }
                     },
@@ -218,6 +218,15 @@ def test_bootstrap_reuses_existing_runner_when_artifact_sha_matches(monkeypatch)
         "restored": False,
         "status": "skipped",
         "message": "Existing runner reused; rollback was not needed.",
+    }
+    workflow_runtime = result["bootstrap_metadata"]["tooling"]["workflow_runtime"]
+    assert workflow_runtime["artifact_sha"] == "f" * 64
+    assert workflow_runtime["snakemake_version"] == "9.19.0"
+    assert workflow_runtime["snakemake_command"].endswith("/workflow-env/bin/snakemake")
+    assert result["bootstrap_metadata"]["workflow_runtime"] == {
+        "action": "reused",
+        "path": "/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64",
+        "artifact_sha": "f" * 64,
     }
     assert uploads == []
     assert not any("tar -xzf" in cmd for cmd in executed)
@@ -561,6 +570,10 @@ def test_remote_install_lock_fails_when_busy() -> None:
 
     class FakeSSH:
         def run(self, cmd: str, timeout: int = 10):
+            if "H2OMETA_RECLAIM_LOCK" in cmd:
+                return 0, "active", ""
+            if "H2OMETA_DESCRIBE_LOCK" in cmd:
+                return 0, 'exists=yes type=dir ageSeconds=900 activeProcess=yes owner={"version":"install-test"}', ""
             return 0, "busy", ""
 
     try:
@@ -573,7 +586,11 @@ def test_remote_install_lock_fails_when_busy() -> None:
             delay_seconds=0,
         )
     except RemoteRunnerManagerError as exc:
-        assert "install lock is busy" in str(exc)
+        message = str(exc)
+        assert "install lock is busy" in message
+        assert "last reclaim status: active" in message
+        assert "activeProcess=yes" in message
+        assert 'owner={"version":"install-test"}' in message
     else:
         raise AssertionError("busy install lock should fail after attempts are exhausted")
 

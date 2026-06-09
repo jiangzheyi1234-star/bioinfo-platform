@@ -145,8 +145,10 @@ def copy_git_tree(local_dir: Path, destination: Path, *, source_ref: str) -> Non
     release_root = local_dir.relative_to(REPO_ROOT).as_posix()
     for repo_relative_path in git_release_files_at_ref(local_dir, source_ref):
         parts = PurePosixPath(repo_relative_path).parts
-        if ".test" in parts and parts[-1] != "run-config.json":
-            continue
+        if ".test" in parts:
+            test_index = parts.index(".test")
+            if test_index != len(parts) - 2 or parts[-1] != "run-config.json":
+                continue
         rel = PurePosixPath(repo_relative_path).relative_to(PurePosixPath(release_root))
         target = destination.joinpath(*rel.parts)
         copy_git_file(source_ref, repo_relative_path, target)

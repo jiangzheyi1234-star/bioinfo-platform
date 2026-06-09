@@ -19,8 +19,19 @@ foreach ($processId in $pids) {
     } else {
         Write-Host ("[INFO] Existing API listener PID {0}" -f $processId)
     }
-    Stop-Process -Id $processId -Force -ErrorAction Stop
-    Write-Host ("[INFO] Stopped stale local API PID {0}." -f $processId)
+    try {
+        Stop-Process -Id $processId -Force -ErrorAction Stop
+        Write-Host ("[INFO] Stopped stale local API PID {0}." -f $processId)
+    } catch [Microsoft.PowerShell.Commands.ProcessCommandException] {
+        Write-Host ("[INFO] Local listener PID {0} exited before stop." -f $processId)
+    } catch {
+        $current = @(Get-NetTCPConnection -LocalAddress $HostAddress -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+            Where-Object { $_.OwningProcess -eq $processId })
+        if ($current.Count -gt 0) {
+            throw
+        }
+        Write-Host ("[INFO] Local listener PID {0} is no longer listening." -f $processId)
+    }
 }
 
 Start-Sleep -Milliseconds 500
