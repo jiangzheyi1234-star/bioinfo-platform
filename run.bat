@@ -23,8 +23,15 @@ if "%MODE%"=="" (
 )
 
 if "%H2OMETA_DEV_CACHE_ROOT%"=="" set "H2OMETA_DEV_CACHE_ROOT=%DEFAULT_DEV_CACHE_ROOT%"
+if "%H2OMETA_UV_CACHE_DIR%"=="" (
+    if not "%UV_CACHE_DIR%"=="" (
+        set "H2OMETA_UV_CACHE_DIR=%UV_CACHE_DIR%"
+    )
+)
 if "%H2OMETA_UV_CACHE_DIR%"=="" set "H2OMETA_UV_CACHE_DIR=%H2OMETA_DEV_CACHE_ROOT%\uv-cache"
+set "UV_CACHE_DIR=%H2OMETA_UV_CACHE_DIR%"
 if "%H2OMETA_CARGO_TARGET_DIR%"=="" set "H2OMETA_CARGO_TARGET_DIR=%H2OMETA_DEV_CACHE_ROOT%\cargo-target\bio_ui"
+if "%H2OMETA_ARTIFACT_CACHE_DIR%"=="" set "H2OMETA_ARTIFACT_CACHE_DIR=%H2OMETA_DEV_CACHE_ROOT%\artifacts"
 set "DESKTOP_EXE=%H2OMETA_CARGO_TARGET_DIR%\debug\h2ometa-desktop.exe"
 
 if /I "%MODE%"=="--help" goto :help
@@ -331,15 +338,29 @@ echo Close the two spawned terminal windows to stop the dev servers.
 endlocal & exit /b 0
 
 :build_remote_runner_artifact
-echo [INFO] Resolving prebuilt remote runner artifact...
+echo [INFO] Resolving manifest-declared remote runner artifacts...
 if not exist "%RELEASE_MANIFEST_PATH%" (
     echo [ERROR] Remote runner release manifest not found: %RELEASE_MANIFEST_PATH%
     exit /b 1
 )
-if "%H2OMETA_REMOTE_RUNNER_BUNDLE%"=="" call :resolve_release_artifact H2OMETA_REMOTE_RUNNER_BUNDLE remote_runner
+call :prepare_windows_uv_environment
+if errorlevel 1 exit /b 1
+
+set "ARTIFACT_ENV_FILE=%TEMP%\h2ometa-release-artifacts-%RANDOM%-%RANDOM%.cmd"
+call uv run --frozen python "%REPO_ROOT%\scripts\check_remote_runner_release_artifacts.py" --cmd-env > "%ARTIFACT_ENV_FILE%"
+if errorlevel 1 (
+    if exist "%ARTIFACT_ENV_FILE%" del "%ARTIFACT_ENV_FILE%" >nul 2>nul
+    echo [ERROR] Manifest-declared release artifacts could not be resolved or verified.
+    echo [ERROR] The resolver checks explicit bundle env vars, manifest search roots, and the manifest download cache.
+    echo [ERROR] For private GitHub releases set H2OMETA_RELEASE_DOWNLOAD_TOKEN, GH_TOKEN, or GITHUB_TOKEN.
+    exit /b 1
+)
+call "%ARTIFACT_ENV_FILE%"
+if exist "%ARTIFACT_ENV_FILE%" del "%ARTIFACT_ENV_FILE%" >nul 2>nul
+
 if not exist "%H2OMETA_REMOTE_RUNNER_BUNDLE%" (
     echo [ERROR] Prebuilt remote runner artifact not found.
-    echo [ERROR] Set H2OMETA_REMOTE_RUNNER_BUNDLE or add the manifest-declared artifact under one of the manifest search roots in %RELEASE_MANIFEST_PATH%.
+    echo [ERROR] The shared artifact resolver did not set H2OMETA_REMOTE_RUNNER_BUNDLE.
     exit /b 1
 )
 if not exist "%H2OMETA_REMOTE_RUNNER_BUNDLE%.sha256" (
@@ -348,11 +369,9 @@ if not exist "%H2OMETA_REMOTE_RUNNER_BUNDLE%.sha256" (
 )
 echo [INFO] H2OMETA_REMOTE_RUNNER_BUNDLE=%H2OMETA_REMOTE_RUNNER_BUNDLE%
 
-echo [INFO] Resolving prebuilt workflow runtime artifact...
-if "%H2OMETA_WORKFLOW_RUNTIME_BUNDLE%"=="" call :resolve_release_artifact H2OMETA_WORKFLOW_RUNTIME_BUNDLE workflow_runtime
 if not exist "%H2OMETA_WORKFLOW_RUNTIME_BUNDLE%" (
     echo [ERROR] Prebuilt workflow runtime artifact not found.
-    echo [ERROR] Set H2OMETA_WORKFLOW_RUNTIME_BUNDLE or add the manifest-declared artifact under one of the manifest search roots in %RELEASE_MANIFEST_PATH%.
+    echo [ERROR] The shared artifact resolver did not set H2OMETA_WORKFLOW_RUNTIME_BUNDLE.
     exit /b 1
 )
 if not exist "%H2OMETA_WORKFLOW_RUNTIME_BUNDLE%.sha256" (
@@ -362,6 +381,63 @@ if not exist "%H2OMETA_WORKFLOW_RUNTIME_BUNDLE%.sha256" (
 echo [INFO] H2OMETA_WORKFLOW_RUNTIME_BUNDLE=%H2OMETA_WORKFLOW_RUNTIME_BUNDLE%
 exit /b 0
 
-:resolve_release_artifact
-for /f "usebackq delims=" %%I in (`powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $repoRoot=[System.IO.Path]::GetFullPath('%REPO_ROOT%'); $manifest=Get-Content -Raw -Path '%RELEASE_MANIFEST_PATH%' | ConvertFrom-Json; $artifact=$manifest.artifacts.%~2; if($null -eq $artifact){ throw 'artifact key not found in release manifest: %~2' }; $filename='{0}-{1}-{2}.tar.gz' -f $artifact.name, $artifact.version, $artifact.default_platform; $roots=@(); foreach($envName in @($artifact.search_root_env_vars)){ $value=[Environment]::GetEnvironmentVariable([string]$envName); if($value){ $roots += $value } }; foreach($relative in $manifest.relative_search_roots){ $roots += (Join-Path $repoRoot $relative) }; foreach($candidate in $roots){ $path=Join-Path $candidate $filename; if(Test-Path $path){ [Console]::WriteLine($path); exit 0 } }"`) do set "%~1=%%I"
+:prepare_windows_uv_environment
+where uv >nul 2>nul
+if errorlevel 1 (
+    echo [ERROR] uv is required for release artifact resolution on Windows.
+    exit /b 1
+)
+if "%H2OMETA_WINDOWS_UV_PROJECT_ENVIRONMENT%"=="" (
+    set "H2OMETA_WINDOWS_UV_PROJECT_ENVIRONMENT=%REPO_ROOT%\.venv-win"
+)
+set "UV_PYTHON="
+set "UV_PROJECT_ENVIRONMENT=%H2OMETA_WINDOWS_UV_PROJECT_ENVIRONMENT%"
+set "UV_PYTHON_INSTALL_DIR=%REPO_ROOT%\.codex-uv-python"
+call :validate_windows_uv_project_environment
+if errorlevel 1 exit /b 1
+echo [INFO] UV project environment: %UV_PROJECT_ENVIRONMENT%
+echo [INFO] UV python install dir: %UV_PYTHON_INSTALL_DIR%
+exit /b 0
+
+:validate_windows_uv_project_environment
+if "%UV_PROJECT_ENVIRONMENT%"=="" (
+    echo [ERROR] UV_PROJECT_ENVIRONMENT is not set.
+    exit /b 1
+)
+if /I "%UV_PROJECT_ENVIRONMENT%"=="%REPO_ROOT%\.venv" (
+    echo [ERROR] Refusing to use repo-local .venv from Windows. Use .venv-win for Windows-owned uv work.
+    exit /b 1
+)
+echo %UV_PROJECT_ENVIRONMENT% | findstr /I /C:"%REPO_ROOT%\\.venv\\" >nul 2>nul
+if not "%ERRORLEVEL%"=="1" (
+    echo [ERROR] Refusing to use repo-local .venv from Windows. Use .venv-win for Windows-owned uv work.
+    exit /b 1
+)
+if /I "%UV_PROJECT_ENVIRONMENT%"=="%REPO_ROOT%\.venv-wsl-codex" (
+    echo [ERROR] Refusing to use WSL-owned .venv-wsl-codex from Windows.
+    exit /b 1
+)
+echo %UV_PROJECT_ENVIRONMENT% | findstr /I /C:"%REPO_ROOT%\\.venv-wsl-codex\\" >nul 2>nul
+if not "%ERRORLEVEL%"=="1" (
+    echo [ERROR] Refusing to use WSL-owned .venv-wsl-codex from Windows.
+    exit /b 1
+)
+echo %UV_PROJECT_ENVIRONMENT% | findstr /I /C:"/mnt/" >nul 2>nul
+if not "%ERRORLEVEL%"=="1" (
+    echo [ERROR] Refusing to use a WSL /mnt/... uv environment from Windows: %UV_PROJECT_ENVIRONMENT%
+    exit /b 1
+)
+echo %UV_PROJECT_ENVIRONMENT% | findstr /I /C:"\\wsl" >nul 2>nul
+if not "%ERRORLEVEL%"=="1" (
+    echo [ERROR] Refusing to use a WSL UNC uv environment from Windows: %UV_PROJECT_ENVIRONMENT%
+    exit /b 1
+)
+if exist "%UV_PROJECT_ENVIRONMENT%\bin" (
+    echo [ERROR] Refusing uv environment with Linux-style bin directory: %UV_PROJECT_ENVIRONMENT%
+    exit /b 1
+)
+if exist "%UV_PROJECT_ENVIRONMENT%\lib64" (
+    echo [ERROR] Refusing uv environment with Linux-style lib64 directory: %UV_PROJECT_ENVIRONMENT%
+    exit /b 1
+)
 exit /b 0
