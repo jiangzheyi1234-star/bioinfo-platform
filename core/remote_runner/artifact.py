@@ -22,6 +22,7 @@ from core.remote_runner.release_manifest import (
     WORKFLOW_RUNTIME_VERSION,
 )
 from core.remote_runner.remote_runner_artifact_validation import REQUIRED_WRAPPER_ASSET_MEMBERS
+from core.remote_runner.remote_runner_artifact_validation import verify_bundled_runtime_entrypoints
 from core.remote_runner.remote_runner_artifact_validation import verify_required_wrapper_assets
 from core.remote_runner.workflow_runtime_artifact_validation import verify_workflow_runtime_contents
 
@@ -76,6 +77,7 @@ class RemoteRunnerArtifactProvider:
         runtime = manifest.get("runtime") if isinstance(manifest.get("runtime"), dict) else {}
         if str(runtime.get("provider") or "") != "bundled" or str(runtime.get("python") or "") != "runtime/bin/python":
             raise RemoteRunnerArtifactError(f"remote runner artifact does not declare bundled runtime: {archive_path}")
+        verify_bundled_runtime_entrypoints(archive_path)
         verify_required_wrapper_assets(archive_path)
         return RemoteRunnerArtifact(
             version=version,
