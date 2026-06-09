@@ -52,6 +52,49 @@ class RuntimeServerStateMixin:
             },
         )
 
+    def _save_runner_health_snapshot(self, *, server_id: str, health: dict[str, Any]) -> dict[str, Any]:
+        patch: dict[str, Any] = {"last_health_snapshot": health}
+        runtime_state = health.get("runtimeState")
+        runtime_bind_port = runtime_state.get("bindPort") if isinstance(runtime_state, dict) else None
+        service_port = self._coerce_positive_port(health.get("servicePort") or runtime_bind_port)
+        tunnel_port = self._coerce_positive_port(health.get("tunnelPort"))
+        if service_port is not None:
+            patch["service_port"] = service_port
+        if tunnel_port is not None:
+            patch["tunnel_port"] = tunnel_port
+        return self._save_server_registry_entry(server_id, patch)
+
+    @staticmethod
+    def _coerce_positive_port(value: Any) -> int | None:
+        try:
+            port = int(value)
+        except (TypeError, ValueError):
+            return None
+        if port <= 0 or port > 65535:
+            return None
+        return port
+
+    def _save_runner_connection_metadata_from_detail(
+        self,
+        *,
+        server_id: str,
+        detail: Any,
+    ) -> dict[str, Any] | None:
+        if not isinstance(detail, dict):
+            return None
+        runtime_state = detail.get("runtimeState")
+        runtime_bind_port = runtime_state.get("bindPort") if isinstance(runtime_state, dict) else None
+        service_port = self._coerce_positive_port(detail.get("servicePort") or runtime_bind_port)
+        tunnel_port = self._coerce_positive_port(detail.get("tunnelPort"))
+        patch: dict[str, Any] = {}
+        if service_port is not None:
+            patch["service_port"] = service_port
+        if tunnel_port is not None:
+            patch["tunnel_port"] = tunnel_port
+        if not patch:
+            return None
+        return self._save_server_registry_entry(server_id, patch)
+
     def _refresh_runner_status_or_recover(
         self,
         *,
@@ -64,7 +107,7 @@ class RuntimeServerStateMixin:
         snapshot = registry_entry.get("last_health_snapshot")
         if isinstance(snapshot, dict):
             reason_code = str(snapshot.get("reasonCode") or "")
-            if reason_code in {"RUNNER_STOPPED", "RUNNER_SETUP_FAILED", "RUNNER_NOT_READY"}:
+            if reason_code in {"RUNNER_STOPPED", "RUNNER_SETUP_FAILED"}:
                 return status
         try:
             if ssh is None or not getattr(ssh, "is_connected", False):
@@ -75,8 +118,12 @@ class RuntimeServerStateMixin:
                 ssh_service=ssh,
                 server_record=registry_entry,
             )
-        except RuntimeServiceError:
+        except RuntimeServiceError as exc:
             with self._lock:
+                self._save_runner_connection_metadata_from_detail(
+                    server_id=server_id,
+                    detail=exc.detail,
+                )
                 self._save_runner_preparing_snapshot(
                     server_id=server_id,
                     message="远程服务正在恢复...",
@@ -86,7 +133,7 @@ class RuntimeServerStateMixin:
             with self._lock:
                 return self._get_ssh_status_unlocked()
         with self._lock:
-            self._save_server_registry_entry(server_id, {"last_health_snapshot": health})
+            self._save_runner_health_snapshot(server_id=server_id, health=health)
             return self._get_ssh_status_unlocked()
 
     def _ensure_runner_ready_in_background(self, server_id: str) -> None:
@@ -155,6 +202,8 @@ class RuntimeServerStateMixin:
                 server_record=record,
             )
             if bool((health.get("ready") or {}).get("ok")):
+                with self._lock:
+                    record = self._save_runner_health_snapshot(server_id=server_id, health=health)
                 return server_id, ssh, record
         self.ensure_remote_runner_ready(server_id)
         record = self._get_server_registry_entry(server_id)
@@ -220,8 +269,15 @@ class RuntimeServerStateMixin:
                 workflow_runtime = dict(remote_health.get("workflowRuntime") or {})
                 pipeline_registry = dict(remote_health.get("pipelineRegistry") or {})
                 with self._lock:
-                    self._save_server_registry_entry(server_id, {"last_health_snapshot": remote_health})
+                    self._save_runner_health_snapshot(server_id=server_id, health=remote_health)
             except RuntimeServiceError as exc:
+                with self._lock:
+                    updated_entry = self._save_runner_connection_metadata_from_detail(
+                        server_id=server_id,
+                        detail=exc.detail,
+                    )
+                if updated_entry is not None:
+                    registry_entry = updated_entry
                 snapshot = self._get_saved_readiness_snapshot(
                     server_id=server_id,
                     registry_entry=registry_entry,
