@@ -71,6 +71,11 @@ class RemoteRunnerReuseMixin:
                 remote_artifact_sha=remote_workflow_artifact_sha,
                 remote_config=remote_config,
             )
+            self._refresh_reuse_workflow_runtime_metadata(
+                bootstrap_metadata=bootstrap_metadata,
+                workflow_artifact=workflow_artifact,
+                workflow_runtime_dir=workflow_runtime_dir,
+            )
             remote_port = int(state["bindPort"])
             tunnel = ssh_service.ensure_local_tunnel(
                 f"runner-{server_id}",
@@ -151,6 +156,11 @@ class RemoteRunnerReuseMixin:
                 remote_artifact_sha=remote_workflow_artifact_sha,
                 remote_config=remote_config,
             )
+            self._refresh_reuse_workflow_runtime_metadata(
+                bootstrap_metadata=bootstrap_metadata,
+                workflow_artifact=workflow_artifact,
+                workflow_runtime_dir=workflow_runtime_dir,
+            )
             remote_port = int(state["bindPort"])
             tunnel = ssh_service.ensure_local_tunnel(
                 f"runner-{server_id}",
@@ -178,3 +188,23 @@ class RemoteRunnerReuseMixin:
             }
         except (RemoteRunnerManagerError, RemoteRunnerClientError) as exc:
             return self._reuse_failed(bootstrap_metadata, str(exc) or "reuse check failed")
+
+    def _refresh_reuse_workflow_runtime_metadata(
+        self,
+        *,
+        bootstrap_metadata: dict[str, Any],
+        workflow_artifact: WorkflowRuntimeArtifact,
+        workflow_runtime_dir: str,
+    ) -> None:
+        runtime = self._build_workflow_runtime_metadata(
+            artifact=workflow_artifact,
+            remote_dir=workflow_runtime_dir,
+        )
+        tooling = dict(bootstrap_metadata.get("tooling") or {})
+        tooling["workflow_runtime"] = runtime
+        bootstrap_metadata["tooling"] = tooling
+        bootstrap_metadata["workflow_runtime"] = {
+            "action": "reused",
+            "path": workflow_runtime_dir,
+            "artifact_sha": workflow_artifact.sha256,
+        }

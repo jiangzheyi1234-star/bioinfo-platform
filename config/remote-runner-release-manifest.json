@@ -18,37 +18,37 @@
         "linux-64": "config/remote-runner-conda-specs/h2ometa-remote-runner/0.1.1-control-plane/linux-64.explicit.txt"
       },
       "sha256": {
-        "linux-64": "ef91040640f0d81a56e5c7a6eca424b4a3d67cd56a9ff0f626b6acec3df32cbc"
+        "linux-64": "321b14efe77d779ab9f64d8a8652860cff4f2f2f8ca1d9d6a5291744ffacd340"
       },
       "size_bytes": {
-        "linux-64": 105921324
+        "linux-64": 105915461
       },
       "lock_sha256": {
         "linux-64": "2a5c0c27f7ec75cbb525c7289e1f21f17312aa5b3d015df7996c84fd78325c38"
       },
       "download_urls": {
-        "linux-64": "https://api.github.com/repos/jiangzheyi1234-star/bioinfo-platform/releases/assets/441993452"
+        "linux-64": "https://api.github.com/repos/jiangzheyi1234-star/bioinfo-platform/releases/assets/442451580"
       },
       "sbom_urls": {
-        "linux-64": "https://api.github.com/repos/jiangzheyi1234-star/bioinfo-platform/releases/assets/441993447"
+        "linux-64": "https://api.github.com/repos/jiangzheyi1234-star/bioinfo-platform/releases/assets/442451578"
       },
       "provenance_urls": {
-        "linux-64": "https://api.github.com/repos/jiangzheyi1234-star/bioinfo-platform/releases/assets/441993473"
+        "linux-64": "https://api.github.com/repos/jiangzheyi1234-star/bioinfo-platform/releases/assets/442451594"
       },
       "attestation_urls": {
-        "linux-64": "https://api.github.com/repos/jiangzheyi1234-star/bioinfo-platform/releases/assets/441993463"
+        "linux-64": "https://api.github.com/repos/jiangzheyi1234-star/bioinfo-platform/releases/assets/442451588"
       },
       "signature_urls": {
-        "linux-64": "https://api.github.com/repos/jiangzheyi1234-star/bioinfo-platform/releases/assets/441993463"
+        "linux-64": "https://api.github.com/repos/jiangzheyi1234-star/bioinfo-platform/releases/assets/442451588"
       },
       "builder_ids": {
-        "linux-64": "jiangzheyi1234-star/bioinfo-platform/.github/workflows/release-remote-runner-artifacts.yml@refs/heads/main"
+        "linux-64": "jiangzheyi1234-star/bioinfo-platform/.github/workflows/release-remote-runner-artifacts.yml@refs/heads/codex/remote-runner-ci-artifact-hardening-20260609"
       },
       "source_refs": {
-        "linux-64": "b7554272c441d9f978198c6d08e3ba438390aec0"
+        "linux-64": "ff39673bc78dc0b72be9f7196e204563551b9750"
       },
       "source_commits": {
-        "linux-64": "b7554272c441d9f978198c6d08e3ba438390aec0"
+        "linux-64": "ff39673bc78dc0b72be9f7196e204563551b9750"
       }
     },
     "workflow_runtime": {
@@ -64,37 +64,37 @@
         "linux-64": "config/remote-runner-conda-specs/h2ometa-workflow-runtime/0.1.0/linux-64.explicit.txt"
       },
       "sha256": {
-        "linux-64": "a0551413309bb7a80422ec840714c7e78a18ef4f645a9c0c3b6d006b03de9361"
+        "linux-64": "7aac26db9a6a1aeecf2ad4e4857df3e64b8e36e466860e36a73280b3d290145e"
       },
       "size_bytes": {
-        "linux-64": 144439161
+        "linux-64": 144443336
       },
       "lock_sha256": {
         "linux-64": "89e18e81b81d3045b0e68175b3a0810efc8f5ef11c41ff7837432c91bf2e9458"
       },
       "download_urls": {
-        "linux-64": "https://api.github.com/repos/jiangzheyi1234-star/bioinfo-platform/releases/assets/441993449"
+        "linux-64": "https://api.github.com/repos/jiangzheyi1234-star/bioinfo-platform/releases/assets/442451577"
       },
       "sbom_urls": {
-        "linux-64": "https://api.github.com/repos/jiangzheyi1234-star/bioinfo-platform/releases/assets/441993462"
+        "linux-64": "https://api.github.com/repos/jiangzheyi1234-star/bioinfo-platform/releases/assets/442451587"
       },
       "provenance_urls": {
-        "linux-64": "https://api.github.com/repos/jiangzheyi1234-star/bioinfo-platform/releases/assets/441993473"
+        "linux-64": "https://api.github.com/repos/jiangzheyi1234-star/bioinfo-platform/releases/assets/442451594"
       },
       "attestation_urls": {
-        "linux-64": "https://api.github.com/repos/jiangzheyi1234-star/bioinfo-platform/releases/assets/441993465"
+        "linux-64": "https://api.github.com/repos/jiangzheyi1234-star/bioinfo-platform/releases/assets/442451589"
       },
       "signature_urls": {
-        "linux-64": "https://api.github.com/repos/jiangzheyi1234-star/bioinfo-platform/releases/assets/441993465"
+        "linux-64": "https://api.github.com/repos/jiangzheyi1234-star/bioinfo-platform/releases/assets/442451589"
       },
       "builder_ids": {
-        "linux-64": "jiangzheyi1234-star/bioinfo-platform/.github/workflows/release-remote-runner-artifacts.yml@refs/heads/main"
+        "linux-64": "jiangzheyi1234-star/bioinfo-platform/.github/workflows/release-remote-runner-artifacts.yml@refs/heads/codex/remote-runner-ci-artifact-hardening-20260609"
       },
       "source_refs": {
-        "linux-64": "b7554272c441d9f978198c6d08e3ba438390aec0"
+        "linux-64": "ff39673bc78dc0b72be9f7196e204563551b9750"
       },
       "source_commits": {
-        "linux-64": "b7554272c441d9f978198c6d08e3ba438390aec0"
+        "linux-64": "ff39673bc78dc0b72be9f7196e204563551b9750"
       }
     }
   }
