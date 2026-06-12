@@ -155,3 +155,74 @@ def test_ssh_status_refresh_persists_resynced_service_port_after_auth_failure() 
     assert record["service_port"] == 36551
     assert record["tunnel_port"] == 19001
     assert record["last_health_snapshot"]["state"] == "recovering"
+
+
+def test_get_server_health_path_returns_persisted_resynced_service_port() -> None:
+    server_id = f"srv_{uuid.uuid5(uuid.NAMESPACE_DNS, '192.0.2.10:22:tester').hex[:12]}"
+    cfg = {
+        "ssh": {
+            "auth_mode": "password_ref",
+            "host": "192.0.2.10",
+            "port": 22,
+            "user": "tester",
+            "password_ref": "ssh://tester@192.0.2.10:22",
+            "identity_ref": "",
+            "timeout_sec": 5,
+            "auto_connect_on_startup": True,
+        },
+        "servers": {
+            server_id: {
+                "bootstrap_version": "phase1-test",
+                "runner_mode": "systemd_user",
+                "tunnel_port": 18000,
+                "service_port": 43127,
+                "token_ref": "runner://srv_test",
+                "last_health_snapshot": {
+                    "startup": {"ok": True, "message": "Remote runner config loaded."},
+                    "live": {"ok": True, "message": "Remote runner process is alive."},
+                    "ready": {"ok": True, "message": "Remote runner control plane is ready."},
+                    "reasonCode": "",
+                    "checkedAt": "2026-06-09T13:00:00Z",
+                },
+            }
+        },
+    }
+    health = {
+        "startup": {"ok": True, "message": "Remote runner config loaded."},
+        "live": {"ok": True, "message": "Remote runner process is alive."},
+        "ready": {"ok": True, "message": "Remote runner control plane is ready."},
+        "reasonCode": "",
+        "checkedAt": "2026-06-09T14:00:00Z",
+        "servicePort": 36551,
+        "tunnelPort": 19001,
+        "runtimeState": {
+            "bindPort": 36551,
+            "pid": 4242,
+            "version": "phase1-test",
+        },
+        "connectionResynced": True,
+    }
+    service = RuntimeService(
+        service_locator=ServiceLocator(
+            ssh_service=SimpleNamespace(is_connected=True, close=lambda: None),
+            remote_runner_manager=SimpleNamespace(get_health=lambda **_kwargs: health),
+        )
+    )
+    service._initialized = True
+
+    def save_capture(next_cfg: dict) -> None:
+        snapshot = dict(next_cfg)
+        cfg.clear()
+        cfg.update(snapshot)
+
+    with patch("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg), patch(
+        "core.app_runtime.runtime_config.save_runtime_config", save_capture
+    ):
+        server = service.get_server(server_id)
+
+    assert server["health"]["servicePort"] == 36551
+    assert server["runner"]["servicePort"] == 36551
+    assert server["runner"]["tunnelPort"] == 19001
+    record = cfg["servers"][server_id]
+    assert record["service_port"] == 36551
+    assert record["tunnel_port"] == 19001

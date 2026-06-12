@@ -1,0 +1,116 @@
+# H2OMeta Release Policy
+
+This repository does not require a GitHub Release for every source change. GitHub Releases are required only for the managed remote runtime handoff: the remote runner control plane and the workflow runtime artifacts consumed by local launchers and remote bootstrap.
+
+## Release Scope
+
+Create a runtime Release when any of these change:
+
+- `apps/remote_runner` source included in the remote runner bundle.
+- Shared runtime helpers packaged into the remote runner bundle.
+- Remote runner or workflow runtime explicit conda specs under `config/remote-runner-conda-specs`.
+- Artifact versions, hashes, sizes, download URLs, SBOMs, attestations, or builder/source metadata in `config/remote-runner-release-manifest.json`.
+- Bootstrap behavior that requires a new prebuilt Linux runtime artifact.
+
+Do not create a runtime Release for ordinary frontend changes, backend API changes that are not packaged into the remote runner bundle, documentation-only updates, or local development cache refreshes.
+
+## Version Tags
+
+Runtime Releases use an annotated or lightweight Git tag named:
+
+```text
+h2ometa-runtime-vX.Y.Z
+```
+
+The tag must point at the exact commit used as the workflow `source_ref`. The release workflow still requires a full 40-character commit SHA for `source_ref`; the tag is the human-facing release handle and rollback anchor.
+
+Rules:
+
+- Do not move a tag after artifacts have been consumed by a developer machine or remote server.
+- If a tarball changes, create a new tag and Release.
+- Metadata-only repair can reuse the same Release only when tarball bytes, SHA-256, and size stay unchanged.
+- Keep old runtime Releases so a remote environment can be audited or rolled back.
+
+## Release Artifacts
+
+The GitHub Release must contain the CI-built assets for every manifest-declared platform:
+
+- `h2ometa-remote-runner-<version>-<platform>.tar.gz`
+- `h2ometa-remote-runner-<version>-<platform>.tar.gz.sha256`
+- `h2ometa-workflow-runtime-<version>-<platform>.tar.gz`
+- `h2ometa-workflow-runtime-<version>-<platform>.tar.gz.sha256`
+- `*.spdx.json`
+- `attestation-bundles/*.intoto.json`
+- `release-artifacts-metadata.json`
+- `release-manifest-metadata.json`
+- `release-attestations.json`
+- `release-published-assets.json` when `publish_release=true`
+
+`resources/remote-runner` and `dist/remote-runner` are local cache or override locations. They are not the production release handoff.
+
+## Standard Release Flow
+
+Run these steps for a production runtime release:
+
+1. Choose the exact source commit and ensure it is pushed to GitHub.
+2. Create a tag named `h2ometa-runtime-vX.Y.Z` at that commit.
+3. Create a GitHub Release for that tag.
+4. Manually dispatch `.github/workflows/release-remote-runner-artifacts.yml`.
+5. Set `source_ref` to the full 40-character commit SHA.
+6. Set `publish_release=true` and `release_tag=h2ometa-runtime-vX.Y.Z`.
+7. Wait for CI to build and publish all assets.
+8. Download `release-artifacts-metadata.json`, `release-attestations.json`, and `release-published-assets.json` from the workflow artifacts.
+9. Update the manifest:
+
+```powershell
+uv run python scripts\update_remote_runner_release_manifest.py `
+  --metadata dist\remote-runner\release-artifacts-metadata.json `
+  --attestations dist\remote-runner\release-attestations.json `
+  --published-assets dist\remote-runner\release-published-assets.json
+```
+
+10. Validate the release handoff:
+
+```powershell
+uv run python scripts\check_release_manifest_traceability.py --release-tag h2ometa-runtime-vX.Y.Z
+uv run python scripts\check_remote_runner_release_artifacts.py --require-supply-chain
+```
+
+11. Commit the manifest update and any release documentation updates.
+12. Run the required remote smoke or acceptance flow for the release.
+
+## Traceability Requirements
+
+`config/remote-runner-release-manifest.json` is the runtime artifact lock file. For every artifact/platform entry, it must record:
+
+- Artifact SHA-256 and size.
+- Explicit conda spec SHA-256.
+- GitHub Release asset API URL for the artifact.
+- GitHub Release asset API URL for the SBOM.
+- Provenance URL, attestation URL, and signature URL.
+- GitHub Actions builder identity.
+- Immutable 40-character `source_refs` value.
+- Resolved 40-character `source_commits` value.
+
+The source ref, source commit, release tag, and GitHub Release assets must describe the same build. If the source commit cannot be resolved from a normal checkout, the release is not fully auditable and should be repaired by fetching/restoring the tag or by publishing a new runtime Release from the current source.
+
+## Private Release Access
+
+Private GitHub Release assets require one of these local credentials:
+
+- `H2OMETA_RELEASE_DOWNLOAD_TOKEN`
+- `GH_TOKEN`
+- `GITHUB_TOKEN`
+- `GITHUB_PERSONAL_ACCESS_TOKEN`
+- H2OMeta GH CLI auth configured with `scripts\configure-github-release-auth.ps1`
+
+Tokens must not be committed to the repository, release manifest, or docs.
+
+## Repair Policy
+
+If a previous Release/tag was deleted:
+
+- Prefer recreating the missing tag at the original source commit if that commit still exists in GitHub history.
+- If the original commit no longer exists, create a new runtime Release from current `main`, republish artifacts, and update the manifest from CI metadata.
+- Do not edit `source_commits` to the current commit unless the artifacts were actually rebuilt from that commit.
+- Do not hand-write GitHub asset URLs unless this is an offline repair and the updater cannot consume `release-published-assets.json`.

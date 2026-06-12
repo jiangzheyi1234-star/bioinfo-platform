@@ -1,6 +1,8 @@
 # Remote Runner Release Runbook
 
 This runbook is the release path for the H2OMeta remote runner control plane and managed Snakemake workflow runtime.
+The remote-agent architecture, lifecycle states, and scoring model are defined in `docs/remote-agent-deployment-strategy.md`.
+The release rules, tag naming, and repair policy are defined in `docs/release-policy.md`.
 
 ## Goal
 
@@ -32,9 +34,18 @@ Run production release validation with supply-chain metadata enabled:
 ```powershell
 uv run python scripts\check_remote_runner_release_artifacts.py --require-supply-chain
 ```
-
 The normal local launcher path does not use `--require-supply-chain` yet, so missing or `pending:` SBOM/provenance/signature metadata is reported as a release hardening gap instead of blocking ordinary development startup.
 
+
+## Remote Agent Lifecycle Score
+
+Use the remote-agent scorecard after architecture or bootstrap changes:
+
+```powershell
+uv run python scripts\score_remote_agent_lifecycle.py
+uv run python scripts\score_remote_agent_lifecycle.py --validation-plan
+```
+The scorecard is a static guardrail, not a replacement for remote smoke. A release candidate still needs the validation sequence printed by `--validation-plan`.
 ## Release Artifacts
 
 The release is incomplete unless these assets exist on the manifest-declared GitHub Release.
@@ -95,6 +106,7 @@ The GitHub Actions workflow `.github/workflows/release-remote-runner-artifacts.y
 - `release-published-assets.json`: published GitHub Release asset API URLs, digests, and sizes emitted by the publish job.
 
 After publishing those assets to the release location, replace the manifest's `pending:` supply-chain fields with the real SBOM, attestation, builder, and source-ref values from those metadata files and the GitHub attestation records. When `publish_release` is enabled, the workflow uploads the built assets and metadata to the existing GitHub Release tag passed as `release_tag`, then writes and uploads `release-published-assets.json` so the manifest update can use published asset metadata without a hand lookup. The manifest must still be updated in source control and validated with `--require-supply-chain`.
+Production runtime releases should use tags named `h2ometa-runtime-vX.Y.Z`. The tag must point at the same full commit SHA passed as the workflow `source_ref`.
 
 Use the manifest update helper after downloading the workflow's release metadata artifacts:
 
@@ -110,6 +122,7 @@ The updater verifies that published asset digests and sizes match the CI metadat
 The local acceptance command for a production release is:
 
 ```powershell
+uv run python scripts\check_release_manifest_traceability.py --release-tag h2ometa-runtime-vX.Y.Z
 uv run python scripts\check_remote_runner_release_artifacts.py --require-supply-chain
 ```
 

@@ -269,7 +269,9 @@ class RuntimeServerStateMixin:
                 workflow_runtime = dict(remote_health.get("workflowRuntime") or {})
                 pipeline_registry = dict(remote_health.get("pipelineRegistry") or {})
                 with self._lock:
-                    self._save_runner_health_snapshot(server_id=server_id, health=remote_health)
+                    registry_entry.update(
+                        self._save_runner_health_snapshot(server_id=server_id, health=remote_health)
+                    )
             except RuntimeServiceError as exc:
                 with self._lock:
                     updated_entry = self._save_runner_connection_metadata_from_detail(

@@ -26,6 +26,12 @@ powershell -ExecutionPolicy Bypass -File scripts\configure-github-release-auth.p
 ```
 
 The script stores GH CLI config under `%LOCALAPPDATA%\H2OMeta\gh-cli`, saves `H2OMETA_GH_CONFIG_DIR` as a user environment variable, and validates the manifest artifact download without writing the token to the repository.
+If a previous GitHub Release or tag was deleted, validate the manifest traceability before treating startup failures as launcher bugs:
+
+```powershell
+uv run python scripts\check_release_manifest_traceability.py --release-tag h2ometa-runtime-vX.Y.Z
+```
+
 The local API process uses the repo uv project files (`pyproject.toml`/`uv.lock`) with `uv run --frozen`; Python dependencies have a single source of truth in the uv project files.
 On Windows, the launcher defaults `UV_PROJECT_ENVIRONMENT` to `E:\code\bio_ui\.venv-win` so it never shares a WSL-created repo venv. Set `H2OMETA_WINDOWS_UV_PROJECT_ENVIRONMENT` only when debugging or intentionally using a different Windows-owned uv environment.
 
