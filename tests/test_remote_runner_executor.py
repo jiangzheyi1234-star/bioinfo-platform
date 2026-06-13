@@ -241,7 +241,7 @@ def test_executor_records_attempt_process_group_when_process_starts(tmp_path: Pa
     claim = claim_next_run_job(
         cfg,
         worker_id="worker_process_group",
-        now="2026-06-07T10:00:00Z",
+        now="2099-06-07T10:00:00Z",
         lease_seconds=30,
     )
     assert claim is not None

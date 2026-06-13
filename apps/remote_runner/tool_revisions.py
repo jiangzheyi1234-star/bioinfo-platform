@@ -30,6 +30,7 @@ def publish_tool_revision(cfg: RemoteRunnerConfig, tool: dict[str, Any]) -> dict
         ).fetchone()
         revision = int(row["latest_revision"] or 0) + 1
         published_at = now_iso()
+        environment_lock = build_environment_lock(tool)
         revision_tool = {
             **tool,
             "id": tool_id,
@@ -41,6 +42,8 @@ def publish_tool_revision(cfg: RemoteRunnerConfig, tool: dict[str, Any]) -> dict
             "status": "published",
             "message": str(tool.get("message") or "Tool revision published."),
         }
+        if environment_lock:
+            revision_tool["environmentLock"] = environment_lock
         revision_tool["toolContract"] = build_tool_contract(revision_tool)
         connection.execute(
             """
@@ -59,6 +62,34 @@ def publish_tool_revision(cfg: RemoteRunnerConfig, tool: dict[str, Any]) -> dict
     return revision_tool
 
 
+def build_environment_lock(tool: dict[str, Any]) -> dict[str, Any]:
+    environment_spec = tool.get("environmentSpec")
+    if not isinstance(environment_spec, dict):
+        return {}
+    adapter_name = str(environment_spec.get("adapter") or "conda").strip()
+    if adapter_name == "apptainer":
+        image = str(environment_spec.get("image") or "").strip()
+        digest = str(environment_spec.get("digest") or "").strip()
+        return {
+            "adapter": "apptainer",
+            "image": image,
+            "digest": digest,
+        }
+    if adapter_name == "native":
+        return {"adapter": "native"}
+    env_name = str(environment_spec.get("name") or "").strip()
+    env_file = str(environment_spec.get("file") or "").strip()
+    channels = list(environment_spec.get("channels") or [])
+    dependencies = list(environment_spec.get("dependencies") or [])
+    return {
+        "adapter": "conda",
+        "name": env_name,
+        "file": env_file,
+        "channels": channels,
+        "dependencies": dependencies,
+    }
+
+
 def tool_spec_hash(tool: dict[str, Any]) -> str:
     stable = {
         "toolId": str(tool.get("id") or tool.get("toolId") or "").strip(),
@@ -69,6 +100,7 @@ def tool_spec_hash(tool: dict[str, Any]) -> str:
         "ruleTemplate": tool.get("ruleTemplate") if isinstance(tool.get("ruleTemplate"), dict) else {},
         "ruleSpecDraft": tool.get("ruleSpecDraft") if isinstance(tool.get("ruleSpecDraft"), dict) else {},
         "capabilities": tool.get("capabilities") if isinstance(tool.get("capabilities"), list) else [],
+        "environmentLock": tool.get("environmentLock") if isinstance(tool.get("environmentLock"), dict) else {},
     }
     raw = json.dumps(stable, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()

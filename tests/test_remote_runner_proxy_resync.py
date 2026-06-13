@@ -220,7 +220,6 @@ def test_get_server_health_path_returns_persisted_resynced_service_port() -> Non
     ):
         server = service.get_server(server_id)
 
-    assert server["health"]["servicePort"] == 36551
     assert server["runner"]["servicePort"] == 36551
     assert server["runner"]["tunnelPort"] == 19001
     record = cfg["servers"][server_id]

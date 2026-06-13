@@ -155,9 +155,25 @@ def test_generated_workflow_renders_output_semantics(tmp_path: Path, monkeypatch
         stdout = "ok"
         stderr = ""
 
-    def fake_collect(_cfg, _run_id, *, output_schema, outputs):
+    def fake_collect(
+        _cfg,
+        _run_id,
+        *,
+        output_schema,
+        outputs,
+        attempt_id=None,
+        lease_generation=None,
+        request_id=None,
+        result_dir=None,
+        finalize_run=False,
+    ):
         collected["output_schema"] = output_schema
         collected["outputs"] = outputs
+        collected["attempt_id"] = attempt_id
+        collected["lease_generation"] = lease_generation
+        collected["request_id"] = request_id
+        collected["result_dir"] = result_dir
+        collected["finalize_run"] = finalize_run
         return []
 
     monkeypatch.setattr("apps.remote_runner.executor.subprocess.run", lambda *_args, **_kwargs: Result())

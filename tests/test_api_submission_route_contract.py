@@ -74,6 +74,7 @@ def test_run_result_routes_delegate_runtime_calls_to_service() -> None:
     assert "runtime_service()" not in route_source
     assert "list_runs_from_request" in list_route
     assert "get_run_from_request" in detail_routes
+    assert "cancel_run_from_request" in detail_routes
     assert "get_run_events_from_request" in detail_routes
     assert "get_run_logs_from_request" in detail_routes
     assert "get_run_results_from_request" in detail_routes
@@ -83,6 +84,7 @@ def test_run_result_routes_delegate_runtime_calls_to_service() -> None:
 
     assert "def list_runs_from_request(" in service_source
     assert "def get_run_from_request(" in service_source
+    assert "def cancel_run_from_request(" in service_source
     assert "def get_run_events_from_request(" in service_source
     assert "def get_run_logs_from_request(" in service_source
     assert "def get_run_results_from_request(" in service_source
@@ -142,4 +144,4 @@ def test_workflow_design_api_tests_use_response_data_helper() -> None:
     source = _source("tests/test_workflow_design_drafts.py")
 
     assert "." + "json()" not in source
-    assert "def _response_data(" in source
+    assert "TestClient" not in source

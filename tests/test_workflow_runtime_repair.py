@@ -33,7 +33,7 @@ def _fake_workflow_artifact() -> WorkflowRuntimeArtifact:
 
 
 def test_marked_workflow_runtime_is_reinstalled_when_verification_fails(monkeypatch) -> None:
-    monkeypatch.setattr("core.remote_runner.manager.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr("core.remote_runner.workflow_runtime.time.sleep", lambda _seconds: None)
     manager = RemoteRunnerManager()
     artifact = _fake_workflow_artifact()
     executed: list[str] = []

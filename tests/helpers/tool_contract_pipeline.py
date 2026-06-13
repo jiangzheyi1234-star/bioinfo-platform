@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,7 @@ from apps.remote_runner.tools import ToolRegistryError, normalize_rule_template
 
 def _cfg(tmp_path: Path) -> RemoteRunnerConfig:
     workflow_bin = tmp_path / "workflow-env" / "bin"
+    suffix = ".cmd" if os.name == "nt" else ""
     return RemoteRunnerConfig(
         token="tool-contract-token",
         data_root=str(tmp_path / "shared"),
@@ -21,8 +23,8 @@ def _cfg(tmp_path: Path) -> RemoteRunnerConfig:
         work_dir=str(tmp_path / "shared" / "work"),
         logs_dir=str(tmp_path / "shared" / "logs"),
         release_dir=str(Path.cwd() / "apps" / "remote_runner"),
-        managed_conda_command=str(workflow_bin / "conda"),
-        snakemake_command=str(workflow_bin / "snakemake"),
+        managed_conda_command=str(workflow_bin / f"conda{suffix}"),
+        snakemake_command=str(workflow_bin / f"snakemake{suffix}"),
     )
 
 
@@ -30,6 +32,10 @@ def _runtime_commands(tmp_path: Path) -> None:
     workflow_bin = tmp_path / "workflow-env" / "bin"
     workflow_bin.mkdir(parents=True, exist_ok=True)
     for command in ["conda", "snakemake"]:
+        if os.name == "nt":
+            path = workflow_bin / f"{command}.cmd"
+            path.write_text("@echo off\r\nexit /b 0\r\n", encoding="utf-8")
+            continue
         path = workflow_bin / command
         path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
         path.chmod(0o755)

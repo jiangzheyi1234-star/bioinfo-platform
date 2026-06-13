@@ -130,14 +130,9 @@ def claim_next_run_job(
         next_generation = 1
         if current_lease is not None:
             next_generation = int(current_lease["lease_generation"]) + 1
-            _fence_attempt_record(
-                connection,
-                attempt_id=str(current_lease["attempt_id"]),
-                generation=int(current_lease["lease_generation"]),
-                reason="lease_expired",
-                occurred_at=claimed_at,
-                run=run,
-            )
+            lease_state = str(current_lease["state"])
+            if lease_state not in {"expired", "fenced"}:
+                raise RuntimeError(f"RUN_JOB_LEASE_NOT_RELEASED: {lease_state}")
 
         attempt_id = f"att_{uuid.uuid4().hex[:12]}"
         attempt_number = int(job["attempt_count"]) + 1
@@ -494,21 +489,13 @@ def _select_claimable_job(connection: sqlite3.Connection, now: str) -> sqlite3.R
         """
         SELECT jobs.*
         FROM run_jobs AS jobs
-        LEFT JOIN run_leases AS leases ON leases.run_id = jobs.run_id
-        WHERE (
-            jobs.state = 'queued'
-            AND jobs.available_at <= ?
-            AND jobs.dead_lettered_at IS NULL
-        ) OR (
-            jobs.state = 'claimed'
-            AND leases.state = 'active'
-            AND leases.expires_at < ?
-            AND jobs.dead_lettered_at IS NULL
-        )
+        WHERE jobs.state = 'queued'
+          AND jobs.available_at <= ?
+          AND jobs.dead_lettered_at IS NULL
         ORDER BY jobs.priority DESC, jobs.available_at ASC, jobs.created_at ASC, jobs.job_id ASC
         LIMIT 1
         """,
-        (now, now),
+        (now,),
     ).fetchone()
 
 

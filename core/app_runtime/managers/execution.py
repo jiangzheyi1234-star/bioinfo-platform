@@ -43,6 +43,9 @@ class ExecutionManager(BaseRuntimeManager):
     def get_run(self, run_id: str) -> dict[str, Any]:
         return {"data": self.call_runner("get_run", run_id=run_id)}
 
+    def cancel_run(self, run_id: str) -> dict[str, Any]:
+        return {"data": self.call_runner("cancel_run", run_id=run_id)}
+
     def get_run_events(self, run_id: str) -> dict[str, Any]:
         return {"data": self.call_runner("get_run_events", run_id=run_id)}
 

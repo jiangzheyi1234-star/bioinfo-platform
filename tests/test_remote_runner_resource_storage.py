@@ -78,16 +78,16 @@ def test_mark_resource_for_deletion_sets_timestamp_and_keeps_finalizers(tmp_path
     deleted = mark_resource_for_deletion(
         cfg,
         resource["resourceId"],
-        deleted_at="2026-06-07T10:00:00Z",
+        deleted_at="2099-06-07T10:00:00Z",
     )
     replay = mark_resource_for_deletion(
         cfg,
         resource["resourceId"],
-        deleted_at="2026-06-07T10:05:00Z",
+        deleted_at="2099-06-07T10:05:00Z",
     )
 
-    assert deleted["deletionTimestamp"] == "2026-06-07T10:00:00Z"
-    assert replay["deletionTimestamp"] == "2026-06-07T10:00:00Z"
+    assert deleted["deletionTimestamp"] == "2099-06-07T10:00:00Z"
+    assert replay["deletionTimestamp"] == "2099-06-07T10:00:00Z"
     assert deleted["finalizers"] == ["h2ometa.io/delete-release-files"]
     assert deleted["conditions"] == []
 
@@ -159,19 +159,19 @@ def test_reconcile_queue_deduplicates_and_uses_bounded_backoff(tmp_path):
         cfg,
         resource["resourceId"],
         reason="desired_changed",
-        now="2026-06-07T10:00:00Z",
+        now="2099-06-07T10:00:00Z",
     )
     replay = enqueue_reconcile(
         cfg,
         resource["resourceId"],
         reason="desired_changed",
-        now="2026-06-07T10:00:05Z",
+        now="2099-06-07T10:00:05Z",
     )
     failed = record_reconcile_failure(
         cfg,
         first["itemId"],
         error="runner not reachable",
-        now="2026-06-07T10:00:10Z",
+        now="2099-06-07T10:00:10Z",
         max_backoff_seconds=16,
     )
 
@@ -179,7 +179,7 @@ def test_reconcile_queue_deduplicates_and_uses_bounded_backoff(tmp_path):
     assert failed["attempts"] == 1
     assert failed["state"] == "pending"
     assert 2 <= failed["backoffSeconds"] <= 16
-    assert failed["availableAt"] > "2026-06-07T10:00:10Z"
+    assert failed["availableAt"] > "2099-06-07T10:00:10Z"
     assert failed["lastError"] == "runner not reachable"
 
     exhausted = failed
@@ -188,7 +188,7 @@ def test_reconcile_queue_deduplicates_and_uses_bounded_backoff(tmp_path):
             cfg,
             first["itemId"],
             error="still failing",
-            now="2026-06-07T10:01:00Z",
+            now="2099-06-07T10:01:00Z",
             max_backoff_seconds=16,
         )
     assert exhausted["state"] == "exhausted"
@@ -207,19 +207,19 @@ def test_reconcile_queue_claim_success_and_resource_status_are_controller_owned(
         cfg,
         resource["resourceId"],
         reason="desired_changed",
-        now="2026-06-07T10:00:00Z",
+        now="2099-06-07T10:00:00Z",
     )
 
     claimed = claim_reconcile_item(
         cfg,
         worker_id="controller-a",
-        now="2026-06-07T10:00:01Z",
+        now="2099-06-07T10:00:01Z",
         lease_seconds=30,
     )
     not_ready = claim_reconcile_item(
         cfg,
         worker_id="controller-b",
-        now="2026-06-07T10:00:02Z",
+        now="2099-06-07T10:00:02Z",
         lease_seconds=30,
     )
     status = update_resource_status(
@@ -228,20 +228,20 @@ def test_reconcile_queue_claim_success_and_resource_status_are_controller_owned(
         status="ready",
         observed={"runId": "run_controller_status", "phase": "queued"},
         conditions=[{"type": "Ready", "status": "True", "reason": "JobQueued"}],
-        now="2026-06-07T10:00:03Z",
+        now="2099-06-07T10:00:03Z",
     )
     succeeded = record_reconcile_success(
         cfg,
         item["itemId"],
         worker_id="controller-a",
-        now="2026-06-07T10:00:04Z",
+        now="2099-06-07T10:00:04Z",
     )
 
     assert claimed is not None
     assert claimed["itemId"] == item["itemId"]
     assert claimed["state"] == "claimed"
     assert claimed["claimedBy"] == "controller-a"
-    assert claimed["claimedUntil"] == "2026-06-07T10:00:31Z"
+    assert claimed["claimedUntil"] == "2099-06-07T10:00:31Z"
     assert not_ready is None
     assert status["status"] == "ready"
     assert status["observed"] == {"runId": "run_controller_status", "phase": "queued"}
@@ -255,17 +255,17 @@ def test_reconcile_queue_claim_success_and_resource_status_are_controller_owned(
 def test_expired_reconcile_claim_can_be_reclaimed(tmp_path):
     cfg = make_configured_remote_runner(tmp_path)
     resource = apply_resource(cfg, kind="RunJob", name="run_reclaim", desired={"runId": "run_reclaim"})
-    item = enqueue_reconcile(cfg, resource["resourceId"], reason="desired_changed", now="2026-06-07T10:00:00Z")
-    first = claim_reconcile_item(cfg, worker_id="controller-a", now="2026-06-07T10:00:01Z", lease_seconds=10)
-    second = claim_reconcile_item(cfg, worker_id="controller-b", now="2026-06-07T10:00:05Z", lease_seconds=10)
-    reclaimed = claim_reconcile_item(cfg, worker_id="controller-b", now="2026-06-07T10:00:12Z", lease_seconds=10)
+    item = enqueue_reconcile(cfg, resource["resourceId"], reason="desired_changed", now="2099-06-07T10:00:00Z")
+    first = claim_reconcile_item(cfg, worker_id="controller-a", now="2099-06-07T10:00:01Z", lease_seconds=10)
+    second = claim_reconcile_item(cfg, worker_id="controller-b", now="2099-06-07T10:00:05Z", lease_seconds=10)
+    reclaimed = claim_reconcile_item(cfg, worker_id="controller-b", now="2099-06-07T10:00:12Z", lease_seconds=10)
 
     assert first is not None
     assert second is None
     assert reclaimed is not None
     assert reclaimed["itemId"] == item["itemId"]
     assert reclaimed["claimedBy"] == "controller-b"
-    assert reclaimed["claimedUntil"] == "2026-06-07T10:00:22Z"
+    assert reclaimed["claimedUntil"] == "2099-06-07T10:00:22Z"
 
 
 def test_reconcile_queue_dedup_key_is_scoped_by_resource_and_reason(tmp_path):
@@ -287,19 +287,19 @@ def test_reconcile_queue_dedup_key_is_scoped_by_resource_and_reason(tmp_path):
         cfg,
         first_resource["resourceId"],
         reason="desired_changed",
-        now="2026-06-07T10:00:00Z",
+        now="2099-06-07T10:00:00Z",
     )
     first_replay = enqueue_reconcile(
         cfg,
         first_resource["resourceId"],
         reason="desired_changed",
-        now="2026-06-07T10:00:05Z",
+        now="2099-06-07T10:00:05Z",
     )
     second = enqueue_reconcile(
         cfg,
         second_resource["resourceId"],
         reason="desired_changed",
-        now="2026-06-07T10:00:10Z",
+        now="2099-06-07T10:00:10Z",
     )
 
     assert first_replay["itemId"] == first["itemId"]
@@ -328,14 +328,14 @@ def test_custom_reconcile_dedup_key_is_still_scoped_by_resource(tmp_path):
         first_resource["resourceId"],
         reason="desired_changed",
         dedup_key="release",
-        now="2026-06-07T10:00:00Z",
+        now="2099-06-07T10:00:00Z",
     )
     second = enqueue_reconcile(
         cfg,
         second_resource["resourceId"],
         reason="desired_changed",
         dedup_key="release",
-        now="2026-06-07T10:00:05Z",
+        now="2099-06-07T10:00:05Z",
     )
 
     assert first["itemId"] != second["itemId"]
@@ -355,21 +355,21 @@ def test_exhausted_reconcile_item_can_be_reactivated_by_new_desired_state(tmp_pa
         cfg,
         resource["resourceId"],
         reason="desired_changed",
-        now="2026-06-07T10:00:00Z",
+        now="2099-06-07T10:00:00Z",
         max_attempts=1,
     )
     exhausted = record_reconcile_failure(
         cfg,
         item["itemId"],
         error="failed once",
-        now="2026-06-07T10:01:00Z",
+        now="2099-06-07T10:01:00Z",
     )
 
     reactivated = enqueue_reconcile(
         cfg,
         resource["resourceId"],
         reason="desired_changed",
-        now="2026-06-07T10:02:00Z",
+        now="2099-06-07T10:02:00Z",
     )
 
     assert exhausted["state"] == "exhausted"
@@ -378,4 +378,4 @@ def test_exhausted_reconcile_item_can_be_reactivated_by_new_desired_state(tmp_pa
     assert reactivated["attempts"] == 0
     assert reactivated["backoffSeconds"] == 1
     assert reactivated["lastError"] is None
-    assert reactivated["availableAt"] == "2026-06-07T10:02:00Z"
+    assert reactivated["availableAt"] == "2099-06-07T10:02:00Z"

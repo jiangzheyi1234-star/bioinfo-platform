@@ -13,6 +13,7 @@ def test_run_worker_supervisor_polls_until_stopped(monkeypatch) -> None:
     from apps.remote_runner import worker_supervisor
 
     calls: list[dict[str, Any]] = []
+    reconciliations: list[Any] = []
     heartbeats: list[dict[str, Any]] = []
     registrations: list[dict[str, Any]] = []
     stopped: list[dict[str, Any]] = []
@@ -40,6 +41,11 @@ def test_run_worker_supervisor_polls_until_stopped(monkeypatch) -> None:
     monkeypatch.setattr(worker_supervisor, "heartbeat_run_worker", lambda _cfg, **kwargs: heartbeats.append(kwargs))
     monkeypatch.setattr(worker_supervisor, "mark_run_worker_stopped", lambda _cfg, **kwargs: stopped.append(kwargs))
     monkeypatch.setattr(worker_supervisor, "run_worker_is_draining", lambda _cfg, _worker_id: False)
+    monkeypatch.setattr(
+        worker_supervisor,
+        "run_active_reconciler_once",
+        lambda cfg: reconciliations.append(cfg),
+    )
     monkeypatch.setattr(worker_supervisor, "process_next_run_job", fake_process_next_run_job)
 
     cfg = SimpleNamespace(service_name="test-runner")
@@ -56,6 +62,8 @@ def test_run_worker_supervisor_polls_until_stopped(monkeypatch) -> None:
     supervisor.stop(timeout_seconds=1)
 
     assert calls
+    assert reconciliations
+    assert reconciliations[0] is cfg
     assert calls[0] == {
         "cfg": cfg,
         "workerId": "worker_test",
@@ -73,11 +81,17 @@ def test_run_worker_supervisor_drain_skips_new_claims(monkeypatch) -> None:
 
     heartbeats: list[dict[str, Any]] = []
     calls: list[dict[str, Any]] = []
+    reconciliations: list[Any] = []
 
     monkeypatch.setattr(worker_supervisor, "register_run_worker", lambda _cfg, **_kwargs: {})
     monkeypatch.setattr(worker_supervisor, "heartbeat_run_worker", lambda _cfg, **kwargs: heartbeats.append(kwargs))
     monkeypatch.setattr(worker_supervisor, "mark_run_worker_stopped", lambda _cfg, **_kwargs: {})
     monkeypatch.setattr(worker_supervisor, "run_worker_is_draining", lambda _cfg, _worker_id: True)
+    monkeypatch.setattr(
+        worker_supervisor,
+        "run_active_reconciler_once",
+        lambda cfg: reconciliations.append(cfg),
+    )
     monkeypatch.setattr(worker_supervisor, "process_next_run_job", lambda *_args, **kwargs: calls.append(kwargs))
 
     supervisor = worker_supervisor.start_run_worker_supervisor(
@@ -93,6 +107,7 @@ def test_run_worker_supervisor_drain_skips_new_claims(monkeypatch) -> None:
     supervisor.stop(timeout_seconds=1)
 
     assert calls == []
+    assert reconciliations
     assert heartbeats[0]["state"] == "draining"
 
 

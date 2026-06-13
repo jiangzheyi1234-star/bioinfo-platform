@@ -65,7 +65,7 @@ def rule_output_specs_by_name(rule_template: dict[str, Any]) -> dict[str, dict[s
 
 
 def _render_output_value(path: Path | SnakemakeExpression, spec: dict[str, Any]) -> str:
-    rendered = str(path) if isinstance(path, SnakemakeExpression) else repr(str(path))
+    rendered = str(path) if isinstance(path, SnakemakeExpression) else repr(path.as_posix())
     if bool(spec.get("directory")):
         rendered = f"directory({rendered})"
     if bool(spec.get("protected")):

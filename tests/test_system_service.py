@@ -24,10 +24,15 @@ def test_service_info_exposes_local_identity_version_readiness(monkeypatch) -> N
         "backendSource": "windows-launcher",
     }
     assert item["readiness"] == {
-        "status": "ready",
+        "status": "degraded",
         "checks": {
             "process": True,
             "systemRoutes": True,
+            "remoteRunner": False,
         },
     }
-    assert item["stateCounts"] == {"localApiProcesses": 1}
+    assert item["stateCounts"] == {
+        "localApiProcesses": 1,
+        "remoteRunnerConnected": False,
+        "activeSshSessions": 0,
+    }

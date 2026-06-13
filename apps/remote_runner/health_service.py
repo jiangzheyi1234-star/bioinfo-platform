@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 import time
 from typing import Any
 
@@ -60,6 +61,7 @@ def build_health_ready_payload(cfg: RemoteRunnerConfig) -> dict[str, Any]:
     payload = _build_health_payload(status, checks, cfg)
     payload["workflowRuntime"] = _workflow_runtime_payload(workflow, cfg)
     payload["pipelineRegistry"] = registry.model_dump()
+    _enrich_with_operational_metrics(payload, cfg)
     return payload
 
 
@@ -117,3 +119,33 @@ def _workflow_runtime_payload(
         "workflowProfileName": workflow.workflowProfileName or cfg.workflow_profile_name or "",
         "workflowProfilePath": workflow.workflowProfilePath,
     }
+
+
+def _enrich_with_operational_metrics(payload: dict[str, Any], cfg: RemoteRunnerConfig) -> None:
+    from .metrics import collect_disk_metrics, collect_queue_metrics, get_metrics
+    from .run_worker_storage import build_run_worker_health
+
+    if Path(cfg.db_path).is_file():
+        try:
+            queue = collect_queue_metrics(cfg)
+            payload["queue"] = queue
+        except Exception:
+            payload["queue"] = {"error": "queue_metrics_failed"}
+        try:
+            workers = build_run_worker_health(cfg)
+            payload["workers"] = workers
+        except Exception:
+            payload["workers"] = {"error": "worker_metrics_failed"}
+    else:
+        payload["queue"] = {"error": "runtime_database_missing"}
+        payload["workers"] = {"error": "runtime_database_missing"}
+    try:
+        disk = collect_disk_metrics(cfg.data_root)
+        payload["disk"] = disk
+    except Exception:
+        payload["disk"] = {"error": "disk_metrics_failed"}
+    try:
+        metrics = get_metrics()
+        payload["metrics"] = metrics.snapshot()
+    except Exception:
+        payload["metrics"] = {"error": "metrics_snapshot_failed"}

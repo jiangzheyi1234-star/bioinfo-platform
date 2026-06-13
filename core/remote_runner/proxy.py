@@ -264,6 +264,14 @@ class RemoteRunnerProxyMixin:
         )
         return client.get_json(f"/api/v1/runs/{kwargs['run_id']}")["data"]
 
+    def cancel_run(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+        )
+        return client.post_json(f"/api/v1/runs/{kwargs['run_id']}/cancel", {})["data"]
+
     def get_run_events(self, **kwargs) -> dict[str, Any]:
         client = self._get_client(
             server_id=str(kwargs["server_id"]),

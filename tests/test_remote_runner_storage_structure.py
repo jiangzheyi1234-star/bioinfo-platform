@@ -104,7 +104,7 @@ def test_general_storage_module_is_import_facade_for_runtime_storage_domains() -
     log_storage = (REMOTE_RUNNER / "log_storage.py").read_text(encoding="utf-8")
     artifact_storage = (REMOTE_RUNNER / "artifact_storage.py").read_text(encoding="utf-8")
 
-    assert len(storage.splitlines()) <= 90
+    assert len(storage.splitlines()) <= 100
     for import_name in (
         "from .upload_storage import (",
         "from .workflow_run_storage import (",

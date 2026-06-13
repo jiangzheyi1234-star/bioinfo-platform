@@ -4,25 +4,28 @@ Use this file when a task matches a failure mode that has already happened in `b
 
 ## Contents
 
-- Windows Codex `pytest` failures
+- Windows Codex `pytest` isolation failures
 - Real config and keyring pollution
 - Stale fixed port `8876`
 - Duplicate runner startup
 - Dirty bootstrap retries
 - Browser screenshot capture timeouts
+- Historical artifact-edge duplicates during runner upgrade
+- Staging deploy direct health payload mismatch
 
-## Windows Codex `pytest` Failures
+## Windows Codex `pytest` Isolation Failures
 
 Symptom:
-- `pytest` is requested from this Windows Codex environment and fails, hangs, or writes to the wrong runtime context.
+- `pytest` from Windows fails because it touches real app config, uses a non-Windows executable shim, hits Windows path limits, or relies on POSIX-only test assumptions.
 
 What to do:
-- Do not run `pytest` here.
-- Ask the user to run the needed `pytest` command manually from the project’s normal test environment.
-- If you only need quick confidence on touched Python files, prefer syntax-level verification such as `python -m py_compile` or a narrow import check.
+- Run Windows pytest only with the Windows-owned environment and isolated `APPDATA`/`LOCALAPPDATA`.
+- Fix test fixtures to be cross-platform when the behavior is not Linux-specific.
+- Keep POSIX-only behavior explicitly mocked or skipped on Windows.
+- Clean `.pytest_cache`, repo-local `__pycache__`, and pytest app-data temp directories before final reporting.
 
 Why this exists:
-- This repository already documents that Windows Codex is not the place to run `pytest`.
+- Full Windows pytest has been proven to pass, but only after isolating app persistence and removing old POSIX-only assumptions.
 
 ## Real Config And Keyring Pollution
 
@@ -91,3 +94,32 @@ What to do:
 
 Why this exists:
 - `Page.captureScreenshot` timeouts are a known CDP/Chromium failure mode in Playwright/Puppeteer-style automation, and increasing a timeout alone may not fix it.
+
+## Historical Artifact-Edge Duplicates During Runner Upgrade
+
+Symptom:
+- A newly staged runner exits during `SCHEMA_SQL` with
+  `UNIQUE constraint failed: run_artifact_edges.run_id, run_artifact_edges.role, run_artifact_edges.port_name`.
+- Fresh-database tests pass, but the real runner database contains repeated historical output edges.
+
+What to do:
+- Do not delete the runner database or historical lineage rows.
+- Keep the adopted-output unique index out of raw `SCHEMA_SQL`.
+- Run the idempotent storage migration first: retain the earliest canonical output edge, give later duplicates stable `#legacy-<edge_id>` port names, then create the partial unique index.
+- Validate the migration against a pre-existing database fixture before staging the release again.
+
+Why this exists:
+- Schema creation and upgrade are different operations. A new uniqueness invariant must reconcile existing data before SQLite can enforce it.
+
+## Staging Deploy Direct Health Payload Mismatch
+
+Symptom:
+- `scripts/deploy_remote_runner_staging_artifact.py` rolls back after repeated `/health/ready` probes even though journal logs show HTTP 200 responses.
+- The Local API health wrapper reports `ready.ok`, but the remote runner's direct `/health/ready` endpoint returns a health payload with `status`, `checks`, `workflowRuntime`, and `pipelineRegistry`.
+
+What to do:
+- For direct remote runner readiness probes, check the direct health payload, for example `status == "ok"`.
+- Do not use the Local API wrapped `ready.ok` shape unless the request is going through the Local API server health endpoint.
+
+Why this exists:
+- Staging deploy probes the runner over localhost on the remote host, not through the Local API proxy response shape.

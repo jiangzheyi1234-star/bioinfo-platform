@@ -8,6 +8,7 @@ from apps.remote_runner.pipeline import get_pipeline
 from apps.remote_runner.preflight import RunPreflightError, preflight_run_spec
 from apps.remote_runner.storage import upsert_tool as _upsert_tool
 from apps.remote_runner.tool_revisions import publish_tool_revision
+from apps.remote_runner.workflow_revision_storage import create_or_fetch_workflow_revision
 from core.contracts.workflow_design import workflow_design_to_generated_run_spec
 from apps.remote_runner.workflow_design_storage import create_workflow_design_draft
 
@@ -124,6 +125,16 @@ def _draft_run_spec(
         draft_id=saved["draftId"],
         revision=saved["revision"],
     )
+    workflow_revision = create_or_fetch_workflow_revision(
+        cfg,
+        draft_id=saved["draftId"],
+        draft_revision=saved["revision"],
+        manifest={"files": []},
+        graph_snapshot={"runSpec": run_spec},
+        runtime_lock={"provider": "test"},
+        compiler={"name": "test"},
+    )
+    run_spec["workflowRevisionId"] = workflow_revision["workflowRevisionId"]
     run_spec["inputs"] = [
         {"role": role, "uploadId": f"upl_{role}", "filename": f"{role}.txt"}
         for role in input_roles

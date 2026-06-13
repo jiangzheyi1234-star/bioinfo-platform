@@ -53,8 +53,8 @@ def test_github_release_auth_configuration_script_is_documented() -> None:
     assert script.exists()
     assert "GH_CONFIG_DIR" in source
     assert "H2OMETA_GH_CONFIG_DIR" in source
-    assert "gh auth login --hostname" in source
-    assert "gh auth token --hostname" in source
+    assert "auth login --hostname" in source
+    assert "auth token --hostname" in source
     assert "check_remote_runner_release_artifacts.py --cmd-env" in source
     assert "configure-github-release-auth.ps1 -ValidateArtifacts" in docs
 

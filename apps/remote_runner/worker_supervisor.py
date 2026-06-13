@@ -8,6 +8,7 @@ from typing import Any
 import uuid
 
 from .config import load_remote_runner_config
+from .reconciler import run_active_reconciler_once
 from .run_worker import process_next_run_job
 from .run_worker_storage import (
     heartbeat_run_worker,
@@ -47,7 +48,14 @@ class RunWorkerSupervisor:
         self._heartbeat_interval_seconds = heartbeat_interval_seconds
         self._error_backoff_seconds = error_backoff_seconds
         self._stop_event = threading.Event()
-        self._thread = threading.Thread(target=self._run_loop, name=f"h2ometa-run-worker-{worker_id}", daemon=True)
+        self._threads: list[threading.Thread] = []
+        for index in range(self._concurrency_limit):
+            thread = threading.Thread(
+                target=self._run_loop,
+                name=f"h2ometa-run-worker-{worker_id}-{index}",
+                daemon=True,
+            )
+            self._threads.append(thread)
 
     def start(self) -> None:
         register_run_worker(
@@ -59,17 +67,20 @@ class RunWorkerSupervisor:
             queue_name=self._queue_name,
             concurrency_limit=self._concurrency_limit,
         )
-        self._thread.start()
+        for thread in self._threads:
+            thread.start()
 
     def stop(self, *, timeout_seconds: float = 5.0) -> None:
         self._stop_event.set()
-        self._thread.join(timeout=timeout_seconds)
-        if not self._thread.is_alive():
+        for thread in self._threads:
+            thread.join(timeout=timeout_seconds)
+        if not any(thread.is_alive() for thread in self._threads):
             self._heartbeat_stopped()
 
     def _run_loop(self) -> None:
         while not self._stop_event.is_set():
             try:
+                run_active_reconciler_once(self._cfg)
                 if run_worker_is_draining(self._cfg, self._worker_id):
                     self._heartbeat("draining")
                     self._stop_event.wait(self._poll_interval_seconds)
@@ -185,6 +196,7 @@ def start_run_worker_supervisor(
     poll_interval_seconds: float = 1.0,
     heartbeat_interval_seconds: float = 15.0,
     error_backoff_seconds: float = 5.0,
+    concurrency_limit: int = 1,
 ) -> RunWorkerSupervisor:
     supervisor = RunWorkerSupervisor(
         cfg,
@@ -192,6 +204,7 @@ def start_run_worker_supervisor(
         poll_interval_seconds=poll_interval_seconds,
         heartbeat_interval_seconds=heartbeat_interval_seconds,
         error_backoff_seconds=error_backoff_seconds,
+        concurrency_limit=concurrency_limit,
     )
     supervisor.start()
     return supervisor

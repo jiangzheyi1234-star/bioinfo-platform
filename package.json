@@ -4,6 +4,13 @@
     "firecrawl": "powershell -ExecutionPolicy Bypass -File ./scripts/firecrawl.ps1",
     "firecrawl:init": "powershell -ExecutionPolicy Bypass -File ./scripts/firecrawl.ps1 init --all --browser",
     "firecrawl:login": "powershell -ExecutionPolicy Bypass -File ./scripts/firecrawl.ps1 login --browser",
-    "firecrawl:status": "powershell -ExecutionPolicy Bypass -File ./scripts/firecrawl.ps1 --status"
+    "firecrawl:status": "powershell -ExecutionPolicy Bypass -File ./scripts/firecrawl.ps1 --status",
+    "test:e2e": "node node_modules/@playwright/test/cli.js test",
+    "test:e2e:ui": "node node_modules/@playwright/test/cli.js test --ui",
+    "test:e2e:headed": "node node_modules/@playwright/test/cli.js test --headed"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0",
+    "@types/node": "^22.13.10"
   }
 }

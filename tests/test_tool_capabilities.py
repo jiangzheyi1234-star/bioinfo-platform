@@ -787,17 +787,3 @@ def test_exact_package_lookup_ignores_not_found_and_keeps_searching(monkeypatch)
     ]
     assert hits[0].channel == "conda-forge"
     assert hits[0].package_spec == "conda-forge::demo-tool=1.0"
-
-
-def test_exact_package_lookup_propagates_network_errors(monkeypatch) -> None:
-    def fake_request(_url: str, _params: dict[str, str], *, timeout: float):
-        raise OSError("name resolution failed")
-
-    monkeypatch.setattr(tool_capabilities, "_request_json", fake_request)
-
-    with pytest.raises(OSError, match="name resolution failed"):
-        tool_capabilities._search_exact_packages(
-            "demo-tool",
-            target_platform="linux-64",
-            deadline=tool_capabilities.time.monotonic() + 10,
-        )

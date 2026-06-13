@@ -24,13 +24,15 @@ def build_workflow_profile_content(
     *,
     conda_prefix: str | Path,
     wrapper_prefix: str = DEFAULT_SNAKEMAKE_WRAPPER_PREFIX,
+    jobs: int = 1,
 ) -> str:
     normalized_wrapper_prefix = normalize_wrapper_prefix(wrapper_prefix)
+    normalized_jobs = max(1, int(jobs))
     return "\n".join(
         [
             "# Managed workflow profile for H2OMeta remote runner.",
             "executor: local",
-            "jobs: 1",
+            f"jobs: {normalized_jobs}",
             "latency-wait: 60",
             "printshellcmds: true",
             "rerun-incomplete: true",

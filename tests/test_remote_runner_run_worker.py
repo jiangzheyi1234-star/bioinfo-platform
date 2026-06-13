@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from apps.remote_runner.config import RemoteRunnerConfig
+from apps.remote_runner.reconciler import run_active_reconciler_once
 from apps.remote_runner.run_execution_storage import claim_next_run_job, request_run_cancel
 from apps.remote_runner.run_worker import process_next_run_job
 from apps.remote_runner.storage import create_run_record, fetch_run, update_run_state
@@ -17,7 +18,7 @@ class FakeClock:
 
     def __call__(self) -> str:
         self.tick += 1
-        return f"2026-06-07T10:00:{self.tick:02d}Z"
+        return f"2099-06-07T10:00:{self.tick:02d}Z"
 
 
 def _config(tmp_path: Path) -> RemoteRunnerConfig:
@@ -252,10 +253,15 @@ def test_run_worker_does_not_publish_failure_for_stale_attempt(tmp_path: Path) -
         lease_generation: int,
         attempt_work_dir: str,
     ) -> None:
+        run_active_reconciler_once(
+            cfg,
+            now="2099-06-07T10:05:00Z",
+            retry_delay_seconds=0,
+        )
         reclaimed = claim_next_run_job(
             cfg,
             worker_id="worker_reclaim",
-            now="2026-06-07T10:05:00Z",
+            now="2099-06-07T10:05:00Z",
             lease_seconds=30,
         )
         assert reclaimed is not None
@@ -309,10 +315,15 @@ def test_run_worker_passes_stale_lease_cancellation_callback_to_executor(tmp_pat
         should_cancel_attempt,
     ) -> None:
         nonlocal cancel_seen
+        run_active_reconciler_once(
+            cfg,
+            now="2099-06-07T10:05:00Z",
+            retry_delay_seconds=0,
+        )
         reclaimed = claim_next_run_job(
             cfg,
             worker_id="worker_reclaim_cancellation",
-            now="2026-06-07T10:05:00Z",
+            now="2099-06-07T10:05:00Z",
             lease_seconds=30,
         )
         assert reclaimed is not None
@@ -364,7 +375,7 @@ def test_run_worker_cancellation_callback_observes_cancel_command(tmp_path: Path
             run_id,
             actor="worker-test",
             command_id="cmd_worker_cancel",
-            now="2026-06-07T10:00:05Z",
+            now="2099-06-07T10:00:05Z",
         )
         cancel_seen = bool(should_cancel_attempt())
 

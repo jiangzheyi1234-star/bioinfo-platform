@@ -46,7 +46,7 @@ def test_prepare_validation_results_append_hash_chained_evidence_events(tmp_path
             stage="dry_run",
             status="succeeded",
             result={"toolRevisionId": "bioconda::fastqc@1"},
-            created_at="2026-06-07T10:00:00Z",
+            created_at="2099-06-07T10:00:00Z",
         )
         second = record_prepare_job_validation_result(
             connection,
@@ -58,7 +58,7 @@ def test_prepare_validation_results_append_hash_chained_evidence_events(tmp_path
                 "logs": ["dry-run ok", "output ok"],
                 "artifacts": [{"path": "report.html", "sizeBytes": 123}],
             },
-            created_at="2026-06-07T10:00:01Z",
+            created_at="2099-06-07T10:00:01Z",
         )
         connection.commit()
 

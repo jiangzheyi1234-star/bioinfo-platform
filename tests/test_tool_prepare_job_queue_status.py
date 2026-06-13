@@ -24,14 +24,14 @@ def test_list_tool_prepare_jobs_returns_filtered_page_and_status_counts(tmp_path
     ]
     jobs_by_id = {job["jobId"]: job for job in jobs}
 
-    claimed = claim_next_tool_prepare_job(cfg, worker_id="worker-a", now="2026-06-07T10:00:00Z")
+    claimed = claim_next_tool_prepare_job(cfg, worker_id="worker-a", now="2099-06-07T10:00:00Z")
     assert claimed is not None
     complete_tool_prepare_job(
         cfg,
         claimed["jobId"],
         {"id": jobs_by_id[claimed["jobId"]]["toolId"], "toolContract": {"state": "WorkflowReady", "workflowReady": True}},
     )
-    running = claim_next_tool_prepare_job(cfg, worker_id="worker-a", now="2026-06-07T10:01:00Z")
+    running = claim_next_tool_prepare_job(cfg, worker_id="worker-a", now="2099-06-07T10:01:00Z")
     assert running is not None
     remaining_jobs = [job for job in jobs if job["jobId"] not in {claimed["jobId"], running["jobId"]}]
     succeeded, failed, waiting, cancelled = remaining_jobs

@@ -30,7 +30,7 @@ def test_candidate_database_errors_are_reported_as_conflicts() -> None:
     assert "DATABASE_CANDIDATES" not in source
     assert 'detail.startswith("DATABASE_CANDIDATES:")' not in source
     assert "_detail_response(409, exc.payload)" not in source
-    assert "_detail_response(exc.status_code, exc.payload)" in source
+    assert "return status_payload_response(exc)" in source
 
 
 def test_database_not_found_status_lives_on_domain_error() -> None:
@@ -46,7 +46,8 @@ def test_database_not_found_status_lives_on_domain_error() -> None:
     assert "def database_registry_status_code(" not in route_errors
     assert "DATABASE_NOT_FOUND" not in route_errors
     assert "getattr(exc, \"status_code\", 400)" not in route_errors
-    assert "_detail_response(exc.status_code, detail)" in route_errors
+    assert "register_status_detail_exception_handlers(" in route_errors
+    assert "DatabaseRegistryError," in route_errors
 
 
 def test_database_candidate_scanning_lives_outside_registry_module() -> None:

@@ -402,7 +402,7 @@ def test_remote_runner_proxy_forwarders_do_not_wrap_client_errors() -> None:
     proxy_source = _source("core/remote_runner/proxy.py")
 
     forwarding_source = proxy_source.split("class RemoteRunnerProxyMixin:", 1)[1]
-    forwarding_source = forwarding_source.split("def rotate_token(", 1)[0]
+    forwarding_source = forwarding_source.split("def _open_runner_tunnel(", 1)[0]
     assert "except RemoteRunnerClientError" not in forwarding_source
     assert "self._manager_error(str(exc))" not in forwarding_source
 
@@ -447,7 +447,7 @@ def test_get_client_uses_tunnel_boundary_for_adapter_errors() -> None:
     assert "ensure_local_tunnel(" in tunnel_source
     assert "except (RuntimeError, OSError, EOFError) as exc:" in tunnel_source
     assert "_is_manager_error(exc)" in tunnel_source
-    assert "self._open_runner_tunnel(" in client_source
+    assert "self._get_client_connection(" in client_source
     assert "ensure_local_tunnel(" not in client_source
     assert "except Exception" not in client_source
 

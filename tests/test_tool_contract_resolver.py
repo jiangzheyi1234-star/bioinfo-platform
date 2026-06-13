@@ -107,6 +107,8 @@ def test_fastp_profile_overlay_has_no_database_resource() -> None:
             "mimeType": "text/plain",
             "required": True,
             "multiple": True,
+            "data": "http://edamontology.org/data_2044",
+            "format": "http://edamontology.org/format_1930",
         }
     ]
     assert set(template["outputs"][index]["name"] for index in range(len(template["outputs"]))) == {
@@ -185,6 +187,7 @@ def test_multiqc_profile_overlay_declares_report_output() -> None:
             "path": "results/multiqc.html",
             "kind": "report",
             "mimeType": "text/html",
+            "format": "http://edamontology.org/format_2331",
         }
     ]
     assert template["smokeTest"]["inputs"]["fastqc_data"]["filename"] == "fastqc_data.txt"
@@ -213,6 +216,8 @@ def test_seqkit_stats_profile_overlay_declares_locked_generic_wrapper() -> None:
             "kind": "sequence_reads",
             "mimeType": "text/plain",
             "required": True,
+            "data": "http://edamontology.org/data_2044",
+            "format": "http://edamontology.org/format_1930",
         }
     ]
     assert template["outputs"] == [

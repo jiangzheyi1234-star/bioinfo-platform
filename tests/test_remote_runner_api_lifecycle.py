@@ -121,7 +121,7 @@ def test_remote_runner_worker_health_endpoint_reports_worker_sessions(tmp_path: 
         session_id="session-api",
         pid=789,
         hostname="host-api",
-        now="2026-06-07T10:00:00Z",
+        now="2099-06-07T10:00:00Z",
     )
 
     response = asyncio.run(health_workers(authorization="Bearer phase-worker-token"))

@@ -1,6 +1,6 @@
 # Codex Agent Fleet
 
-This document is the repository-local coordination contract for multi-agent work in H2OMeta. It is intentionally stricter than ordinary ad hoc collaboration because this project crosses Windows launchers, WSL Python checks, remote Linux runners, GitHub release artifacts, and supply-chain metadata.
+This document is the repository-local coordination contract for multi-agent work in H2OMeta. It is intentionally stricter than ordinary ad hoc collaboration because this project crosses Windows launchers, Windows Python checks, optional WSL/Linux parity checks, remote Linux runners, GitHub release artifacts, and supply-chain metadata.
 
 ## Operating Principle
 
@@ -17,8 +17,8 @@ This follows the same shape as GitHub branch protection practice: keep important
 - Worker: edits only the files or modules explicitly assigned by the integrator.
 - Reviewer: inspects the integrated diff from an adversarial, evidence-based stance.
 - Release keeper: checks artifact manifest, release asset references, supply-chain metadata, and GitHub release/tag implications.
-- Windows proof owner: runs launcher, frontend, desktop, UI smoke, npm build, and remote smoke proof from Windows.
-- WSL proof owner: runs `pytest`, `ruff`, and Python quality gates from a real WSL Codex CLI only.
+- Windows proof owner: runs launcher, frontend, desktop, UI smoke, npm build, remote smoke proof, and Windows pytest/Python quality gates from Windows.
+- WSL/Linux proof owner: runs `pytest`, `ruff`, and Python quality gates from a WSL/Linux environment only when Linux parity is explicitly required.
 
 Agents are roles, not permission to roam. If an agent needs a file outside its ownership, it reports the need instead of editing the file.
 
@@ -36,7 +36,7 @@ Agents are roles, not permission to roam. If an agent needs a file outside its o
 4. Decision: choose `merge`, `cherry-pick`, `rebuild`, `document only`, or `discard` for each candidate area.
 5. Slice: assign disjoint write scopes if implementation is needed.
 6. Review: inspect the integrated diff for regressions, missing proof, hidden fallbacks, and platform mistakes.
-7. Proof: run the required Windows and WSL commands from their owning platforms.
+7. Proof: run required Windows commands from Windows, and run WSL/Linux commands only when that platform proof is explicitly required.
 8. Commit: stage only intended files, review staged diff, run a diff check, commit, and report remaining local-only files.
 9. Cleanup: delete temporary local branches only after useful content is merged, rejected, or recorded.
 
@@ -99,10 +99,10 @@ For production remote-runner artifacts:
 
 ## Platform Ownership
 
-- Windows owns `run.bat --web`, `run.bat --desktop`, UI smoke tests, frontend dependency installs, `npm run build`, launcher debugging, desktop work, and real remote smoke/bootstrap/database acceptance.
-- WSL owns focused `uv run pytest ...`, `uv run ruff check ...`, and Python quality gates.
+- Windows owns `run.bat --web`, `run.bat --desktop`, UI smoke tests, frontend dependency installs, `npm run build`, launcher debugging, desktop work, real remote smoke/bootstrap/database acceptance, and pytest/Python quality gates with the Windows-owned environment.
+- WSL owns focused `uv run pytest ...`, `uv run ruff check ...`, and Python quality gates only when Linux/WSL parity is explicitly required.
 - Windows must not reuse WSL virtual environments, and WSL must not point uv at repo-local Windows environments.
-- A Windows agent may review WSL scripts but must not substitute Windows Python for WSL proof.
+- A Windows agent may review WSL scripts but must not claim WSL/Linux proof unless that proof actually ran on WSL/Linux.
 - A WSL agent may review launcher code but must not substitute WSL commands for real Windows launcher proof.
 
 ## Worker Prompt Shape

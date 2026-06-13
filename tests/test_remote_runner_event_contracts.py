@@ -79,7 +79,7 @@ def test_run_event_v2_appender_assigns_deterministic_sequence_after_v1_rows() ->
             1,
             "Accepted",
             "req_1",
-            "2026-06-07T00:00:00Z",
+            "2099-06-07T00:00:00Z",
             None,
         ),
     )
@@ -97,7 +97,7 @@ def test_run_event_v2_appender_assigns_deterministic_sequence_after_v1_rows() ->
         command_id="cmd_1",
         correlation_id="corr_1",
         payload={"reason": "accepted"},
-        occurred_at="2026-06-07T00:00:01Z",
+        occurred_at="2099-06-07T00:00:01Z",
         command_derived=True,
         correlation_required=True,
     )
@@ -114,7 +114,7 @@ def test_run_event_v2_appender_assigns_deterministic_sequence_after_v1_rows() ->
         command_id="cmd_1",
         correlation_id="corr_1",
         payload={},
-        occurred_at="2026-06-07T00:00:02Z",
+        occurred_at="2099-06-07T00:00:02Z",
         command_derived=True,
         correlation_required=True,
     )
@@ -122,7 +122,7 @@ def test_run_event_v2_appender_assigns_deterministic_sequence_after_v1_rows() ->
     assert first["sequence"] == 2
     assert second["sequence"] == 3
     assert first["schema_version"] == "run-event.v2"
-    assert first["occurred_at"] == "2026-06-07T00:00:01Z"
+    assert first["occurred_at"] == "2099-06-07T00:00:01Z"
     assert first["command_id"] == "cmd_1"
     assert first["correlation_id"] == "corr_1"
     assert first["payload"] == {"reason": "accepted"}
@@ -142,7 +142,7 @@ def test_run_event_v2_appender_writes_ledger_columns_and_hash_chain() -> None:
         payload={"workflowRevisionId": "wfr_1"},
         command_id="cmd_submit",
         actor="tester",
-        requested_at="2026-06-07T00:00:00Z",
+        requested_at="2099-06-07T00:00:00Z",
     )
     first = event_contracts.append_run_event_v2(
         connection,
@@ -155,7 +155,7 @@ def test_run_event_v2_appender_writes_ledger_columns_and_hash_chain() -> None:
         payload={"runId": "run_chain"},
         command_id=command["commandId"],
         actor="tester",
-        occurred_at="2026-06-07T00:00:01Z",
+        occurred_at="2099-06-07T00:00:01Z",
         command_derived=True,
     )
     second = event_contracts.append_run_event_v2(
@@ -167,7 +167,7 @@ def test_run_event_v2_appender_writes_ledger_columns_and_hash_chain() -> None:
         message="Queued",
         request_id="req_chain",
         payload={"jobId": "job_1"},
-        occurred_at="2026-06-07T00:00:02Z",
+        occurred_at="2099-06-07T00:00:02Z",
     )
 
     rows = connection.execute(
@@ -205,7 +205,7 @@ def test_run_event_hash_chain_verification_detects_payload_mutation() -> None:
         message="Accepted",
         request_id="req_tamper",
         payload={"runId": "run_tampered"},
-        occurred_at="2026-06-07T00:00:01Z",
+        occurred_at="2099-06-07T00:00:01Z",
     )
     row = connection.execute("SELECT details_json FROM run_events WHERE run_id = ?", ("run_tampered",)).fetchone()
     details = json.loads(row["details_json"])
@@ -257,7 +257,7 @@ def test_storage_connection_migrates_legacy_run_events_table_before_index_creati
             message="Accepted",
             request_id="req_legacy",
             payload={},
-            occurred_at="2026-06-07T00:00:01Z",
+            occurred_at="2099-06-07T00:00:01Z",
         )
         row = connection.execute("SELECT seq, event_hash FROM run_events WHERE run_id = ?", ("run_legacy",)).fetchone()
 

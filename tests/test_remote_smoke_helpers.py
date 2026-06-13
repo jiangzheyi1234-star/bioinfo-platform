@@ -10,7 +10,7 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-import remote_smoke_helpers
+import remote_smoke_helpers  # noqa: E402
 
 
 class RemoteSmokeHelpersTest(unittest.TestCase):

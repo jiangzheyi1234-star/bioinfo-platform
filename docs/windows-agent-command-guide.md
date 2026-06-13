@@ -2,14 +2,14 @@
 
 Status: Current
 
-Last reviewed: 2026-06-10
+Last reviewed: 2026-06-14
 
 Use this guide when an agent is operating from the Windows Codex environment for H2OMeta. Read it with `AGENTS.md` and `docs/codex-agent-fleet.md` before running launcher, frontend, UI smoke, or remote-smoke proof commands.
 
 ## Platform Ownership
 
-- Windows owns `run.bat --web`, `run.bat --desktop`, UI smoke, `apps/web` dependency installs, `npm run build`, launcher debugging, desktop builds, and real remote bootstrap/smoke/database acceptance.
-- WSL owns `uv run pytest ...`, `uv run ruff check ...`, and Python quality gates. From Windows Codex, do not run `pytest` and do not invoke WSL just to run it.
+- Windows owns `run.bat --web`, `run.bat --desktop`, UI smoke, `apps/web` dependency installs, `npm run build`, launcher debugging, desktop builds, real remote bootstrap/smoke/database acceptance, and Python test/quality commands such as `pytest` when the Windows env is prepared.
+- WSL may run `uv run pytest ...`, `uv run ruff check ...`, and Python quality gates only when Linux/WSL parity is specifically needed. From Windows Codex, do not invoke WSL just to run `pytest`.
 - Keep uv environments separate. Windows uses `.venv-win`; WSL must use a WSL-only venv such as `/tmp/bio_ui_codex_uv_venv_pytest`.
 
 ## PowerShell Command Shape
@@ -36,7 +36,7 @@ Use this guide when an agent is operating from the Windows Codex environment for
 
 ## Windows uv Commands
 
-Use Windows uv only for Windows-owned tasks, not pytest proof:
+Use Windows uv for Windows-owned Python tasks and pytest proof:
 
 ```powershell
 $env:UV_CACHE_DIR='E:\code\bio_ui\.uv-cache-local'
@@ -44,6 +44,14 @@ Remove-Item Env:\UV_PYTHON -ErrorAction SilentlyContinue
 $env:UV_PROJECT_ENVIRONMENT='E:\code\bio_ui\.venv-win'
 $env:UV_PYTHON_INSTALL_DIR='E:\code\bio_ui\.codex-uv-python'
 uv run --frozen <command>
+```
+
+For pytest that may touch runtime startup, SSH auto-connect, or config persistence, also redirect app data before running:
+
+```powershell
+$env:APPDATA='E:\code\bio_ui\.tmp\pytest-appdata\Roaming'
+$env:LOCALAPPDATA='E:\code\bio_ui\.tmp\pytest-appdata\Local'
+python -m pytest
 ```
 
 ## npm And npx
@@ -70,5 +78,5 @@ uv run --frozen <command>
 
 ```text
 Windows command rules for this repo:
-Read AGENTS.md, docs/codex-agent-fleet.md, and docs/windows-agent-command-guide.md first. Use Windows for run.bat --web, UI smoke, frontend installs, npm run build, launcher debugging, desktop builds, and real remote smoke. Do not run pytest from Windows or invoke WSL for it. Use apply_patch for edits. Quote paths with spaces using PowerShell call operator, e.g. & 'C:\Program Files\PowerShell\7\pwsh.exe'. Avoid non-ASCII .ps1 assertions unless encoding is verified in PowerShell 5 and 7. If npx/Playwright fails because of npm cache or browser install, request scoped escalation. Clean local-only repo artifacts before final reporting.
+Read AGENTS.md, docs/codex-agent-fleet.md, and docs/windows-agent-command-guide.md first. Use Windows for run.bat --web, UI smoke, frontend installs, npm run build, launcher debugging, desktop builds, real remote smoke, and pytest/Python quality commands with the Windows-owned env. Do not invoke WSL just to run pytest. Use apply_patch for edits. Quote paths with spaces using PowerShell call operator, e.g. & 'C:\Program Files\PowerShell\7\pwsh.exe'. Avoid non-ASCII .ps1 assertions unless encoding is verified in PowerShell 5 and 7. If npx/Playwright fails because of npm cache or browser install, request scoped escalation. Clean local-only repo artifacts before final reporting.
 ```

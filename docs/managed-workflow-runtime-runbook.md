@@ -236,8 +236,8 @@ uv run python skills\h2ometa-remote-smoke-test\scripts\remote_smoke.py --bootstr
 uv run python skills\h2ometa-remote-smoke-test\scripts\remote_pipeline_smoke.py
 ```
 
-Run focused pytest only from the WSL Codex CLI:
+Run focused pytest from Windows with the Windows-owned environment and isolated app-data roots. Use WSL/Linux pytest only when Linux parity is explicitly required:
 
-```bash
+```powershell
 pytest tests/test_remote_runner_artifact.py tests/test_remote_runner_bootstrap_workflow_runtime.py tests/test_remote_runner_workflow_runtime_gate.py tests/test_workflow_runtime_repair.py tests/test_backend_contract_api.py tests/test_remote_clean_runner.py tests/test_run_submission_status.py tests/test_runner_ops_stop_command.py tests/test_workflow_runtime_artifact_build_script.py
 ```

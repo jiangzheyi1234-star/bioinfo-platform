@@ -56,7 +56,7 @@ def test_create_or_fetch_workflow_revision_is_deterministic_and_immutable(tmp_pa
         runtime_lock=_runtime_lock(),
         compiler=_compiler(),
         created_by="agent-a",
-        created_at="2026-06-07T10:00:00Z",
+        created_at="2099-06-07T10:00:00Z",
     )
     replay = create_or_fetch_workflow_revision(
         cfg,
@@ -67,7 +67,7 @@ def test_create_or_fetch_workflow_revision_is_deterministic_and_immutable(tmp_pa
         runtime_lock=_runtime_lock(),
         compiler=_compiler(),
         created_by="agent-b",
-        created_at="2026-06-07T10:05:00Z",
+        created_at="2099-06-07T10:05:00Z",
     )
     changed = create_or_fetch_workflow_revision(
         cfg,
@@ -78,7 +78,7 @@ def test_create_or_fetch_workflow_revision_is_deterministic_and_immutable(tmp_pa
         runtime_lock=_runtime_lock(),
         compiler=_compiler(),
         created_by="agent-a",
-        created_at="2026-06-07T10:10:00Z",
+        created_at="2099-06-07T10:10:00Z",
     )
 
     assert first["created"] is True

@@ -8,6 +8,9 @@ if "%H2OMETA_WORKDIR%"=="" (
 )
 
 cd /d "%H2OMETA_WORKDIR%"
+if not "%UV_CACHE_DIR%"=="" (
+    set "H2OMETA_UV_CACHE_DIR=%UV_CACHE_DIR%"
+)
 if "%H2OMETA_UV_CACHE_DIR%"=="" (
     set "H2OMETA_UV_CACHE_DIR=%LOCALAPPDATA%\H2OMeta\dev-cache\uv-cache"
 )

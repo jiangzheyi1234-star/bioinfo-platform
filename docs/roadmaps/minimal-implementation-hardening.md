@@ -16,13 +16,13 @@ Track: architecture-track.
 
 Why now: Placeholder smoke fixtures and overly broad production-evidence matching can leak into tool contract quality and production claims.
 
-Accepted constraints: Windows owns launcher, UI smoke, and `npm run build`; WSL owns `uv run pytest ...` and Python quality gates. Small `tests/` and `.test/fixtures` samples are preserved unless they affect product contracts or production evidence.
+Accepted constraints: Windows owns launcher, UI smoke, `npm run build`, and pytest/Python quality gates with the Windows-owned environment; WSL/Linux proof is reserved for explicit parity needs. Small `tests/` and `.test/fixtures` samples are preserved unless they affect product contracts or production evidence.
 
 Rejected alternatives: Do not remove every fallback or demo mention globally. Do not add silent compatibility branches. Do not replace real-data acceptance with tiny smoke fixtures.
 
 Ownership split: Integrator owns this roadmap and final proof; Worker B owns tool-profile smoke fixture hardening; Worker C owns local web smoke; Worker D owns one frontend component-family split per later slice; Worker E owns production-evidence matching and event storage.
 
-Proof required: Windows `npm run build` and local smoke when the launcher is running; WSL `uv run pytest ...` commands for focused Python tests.
+Proof required: Windows `npm run build`, local smoke when the launcher is running, and Windows pytest/Python commands for focused tests; WSL/Linux pytest only for explicit parity gaps.
 
 Stop conditions: Existing dirty-file conflict, Windows/WSL environment mismatch, or repeated smoke failure that needs a repo-local pitfall note.
 

@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-from apps.remote_runner.config import RemoteRunnerConfig
 from core.remote_runner.artifact import WorkflowRuntimeArtifact
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
 from core.remote_runner.manager import RemoteRunnerManager

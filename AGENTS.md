@@ -7,14 +7,15 @@
 - For multi-agent work, use `docs/codex-agent-fleet.md` as the coordination contract. One integrator must own the branch baseline, merge strategy, final review, and platform proof; scouts and workers may only inspect or edit their assigned ownership slices.
 - Keep Windows and WSL uv environments separate. `pyproject.toml` plus `uv.lock` are the only dependency source of truth, but virtual environments are OS-specific and must not be shared across Windows and WSL.
 - Windows-owned work:
-  - Use Windows for `run.bat --web`, `run.bat --desktop`, UI smoke tests, frontend dependency installs, `npm run build`, desktop builds, remote bootstrap/smoke/database acceptance, and launcher debugging.
+  - Use Windows for `run.bat --web`, `run.bat --desktop`, UI smoke tests, frontend dependency installs, `npm run build`, desktop builds, remote bootstrap/smoke/database acceptance, launcher debugging, and Python test/quality commands such as `pytest` when the Windows env is prepared.
   - Windows launchers use `E:\code\bio_ui\.venv-win` by default for `UV_PROJECT_ENVIRONMENT`; override with `H2OMETA_WINDOWS_UV_PROJECT_ENVIRONMENT` only when debugging launcher environment issues.
   - For Windows Python commands, use PowerShell/cmd with `$env:UV_CACHE_DIR='E:\code\bio_ui\.uv-cache-local'`, remove `$env:UV_PYTHON` if it is set, set `$env:UV_PROJECT_ENVIRONMENT='E:\code\bio_ui\.venv-win'`, and set `$env:UV_PYTHON_INSTALL_DIR='E:\code\bio_ui\.codex-uv-python'` before `uv run ...`.
+  - For Windows `pytest`, isolate app persistence when tests may touch runtime config: set `APPDATA` and `LOCALAPPDATA` to repo-local or temp test directories, then clean `.pytest_cache`, `__pycache__`, and local-only temp artifacts before final reporting.
   - Treat `E:\code\bio_ui\.venv-win` as Windows-owned. If any repo-local virtual environment was created by WSL/Linux, do not silently reuse it from Windows; report the mismatch and ask before deleting or recreating it.
 - WSL-owned work:
-  - Use WSL Codex CLI for `pytest` and Python test/quality commands such as focused `uv run pytest ...` and `uv run ruff check ...`.
+  - WSL may run `pytest`, `ruff`, and Python quality gates only from a WSL-owned environment when Linux/WSL parity is specifically needed.
   - In WSL, never point `UV_PROJECT_ENVIRONMENT` at `/mnt/e/code/bio_ui/.venv`, `/mnt/e/code/bio_ui/.venv-win`, or any Windows-owned venv. Use a WSL-only environment, for example `export UV_PROJECT_ENVIRONMENT=/tmp/bio_ui_codex_uv_venv_pytest`, `export UV_CACHE_DIR=/tmp/bio_ui_codex_uv_cache`, `unset UV_PYTHON`, and `export UV_PYTHON_INSTALL_DIR=/tmp/bio_ui_codex_uv_python` before `uv run ...`.
-  - From this Windows Codex environment, do not run `pytest`, and do not invoke WSL just to run it. Ask the user to run needed pytest commands manually from the WSL Codex CLI.
+  - From Windows Codex, do not invoke WSL just to run `pytest`; run it on Windows unless the task explicitly needs WSL/Linux proof.
 - Keep hand-written source files under 800 lines. Ignore lockfiles and generated files. If a source file is already over 800 lines, avoid making it larger; extract new logic into a new module when possible.
 - Frontend work must reuse the existing Tailwind + shadcn/ui system.
 - Reuse `apps/web/components/ui` and `apps/web/app/components` before adding new components.

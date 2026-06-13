@@ -6,6 +6,7 @@ import sqlite3
 import pytest
 
 from apps.remote_runner.execution_query_storage import fetch_run
+from apps.remote_runner.reconciler import run_active_reconciler_once
 from apps.remote_runner.workflow_run_storage import StaleRunAttemptError, update_run_state
 from apps.remote_runner.run_execution_storage import (
     claim_next_run_job,
@@ -28,6 +29,20 @@ def _run_spec(run_id: str) -> dict[str, str]:
         "pipelineVersion": "0.1.0",
         "runSpecVersion": "2026-04-21",
     }
+
+
+def _reconcile_and_claim(cfg, *, worker_id: str, now: str):
+    run_active_reconciler_once(
+        cfg,
+        now=now,
+        retry_delay_seconds=0,
+    )
+    return claim_next_run_job(
+        cfg,
+        worker_id=worker_id,
+        now=now,
+        lease_seconds=10,
+    )
 
 
 def _create_run(cfg, run_id: str = "run_jobs"):
@@ -129,14 +144,14 @@ def test_claim_next_job_creates_attempt_with_current_lease_and_work_dir(tmp_path
     claim = claim_next_run_job(
         cfg,
         worker_id="worker_a",
-        now="2026-06-07T10:00:00Z",
+        now="2099-06-07T10:00:00Z",
         lease_seconds=30,
     )
 
     assert claim is not None
     assert claim["runId"] == "run_claim"
     assert claim["leaseGeneration"] == 1
-    assert claim["lease"]["expiresAt"] == "2026-06-07T10:00:30Z"
+    assert claim["lease"]["expiresAt"] == "2099-06-07T10:00:30Z"
     assert claim["job"]["queueName"] == "default"
     assert claim["job"]["attemptCount"] == 1
     assert claim["job"]["maxAttempts"] == 3
@@ -161,8 +176,8 @@ def test_two_workers_cannot_claim_same_unexpired_job(tmp_path):
     cfg = make_configured_remote_runner(tmp_path)
     _create_run(cfg, "run_single_claim")
 
-    first = claim_next_run_job(cfg, worker_id="worker_a", now="2026-06-07T10:00:00Z", lease_seconds=30)
-    second = claim_next_run_job(cfg, worker_id="worker_b", now="2026-06-07T10:00:10Z", lease_seconds=30)
+    first = claim_next_run_job(cfg, worker_id="worker_a", now="2099-06-07T10:00:00Z", lease_seconds=30)
+    second = claim_next_run_job(cfg, worker_id="worker_b", now="2099-06-07T10:00:10Z", lease_seconds=30)
 
     assert first is not None
     assert second is None
@@ -171,9 +186,9 @@ def test_two_workers_cannot_claim_same_unexpired_job(tmp_path):
 def test_expired_lease_reclaim_fences_old_attempt_and_increments_generation(tmp_path):
     cfg = make_configured_remote_runner(tmp_path)
     _create_run(cfg, "run_reclaim")
-    first = claim_next_run_job(cfg, worker_id="worker_a", now="2026-06-07T10:00:00Z", lease_seconds=10)
+    first = claim_next_run_job(cfg, worker_id="worker_a", now="2099-06-07T10:00:00Z", lease_seconds=10)
 
-    second = claim_next_run_job(cfg, worker_id="worker_b", now="2026-06-07T10:00:11Z", lease_seconds=10)
+    second = _reconcile_and_claim(cfg, worker_id="worker_b", now="2099-06-07T10:00:11Z")
 
     assert first is not None
     assert second is not None
@@ -186,15 +201,24 @@ def test_expired_lease_reclaim_fences_old_attempt_and_increments_generation(tmp_
             "SELECT state, fenced_reason FROM run_attempts WHERE attempt_id = ?",
             (first["attemptId"],),
         ).fetchone()
+        fence_events = connection.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM run_events
+            WHERE run_id = ? AND event_type = 'run_attempt_fenced'
+            """,
+            ("run_reclaim",),
+        ).fetchone()
     assert old_attempt["state"] == "fenced"
     assert old_attempt["fenced_reason"] == "lease_expired"
+    assert fence_events["count"] == 1
 
 
 def test_old_heartbeat_and_completion_are_fenced_after_reclaim(tmp_path):
     cfg = make_configured_remote_runner(tmp_path)
     _create_run(cfg, "run_stale_attempt")
-    first = claim_next_run_job(cfg, worker_id="worker_a", now="2026-06-07T10:00:00Z", lease_seconds=10)
-    second = claim_next_run_job(cfg, worker_id="worker_b", now="2026-06-07T10:00:11Z", lease_seconds=10)
+    first = claim_next_run_job(cfg, worker_id="worker_a", now="2099-06-07T10:00:00Z", lease_seconds=10)
+    second = _reconcile_and_claim(cfg, worker_id="worker_b", now="2099-06-07T10:00:11Z")
     assert first is not None
     assert second is not None
 
@@ -202,7 +226,7 @@ def test_old_heartbeat_and_completion_are_fenced_after_reclaim(tmp_path):
         cfg,
         first["attemptId"],
         lease_generation=first["leaseGeneration"],
-        now="2026-06-07T10:00:12Z",
+        now="2099-06-07T10:00:12Z",
     )
     completion = complete_run_attempt(
         cfg,
@@ -210,7 +234,7 @@ def test_old_heartbeat_and_completion_are_fenced_after_reclaim(tmp_path):
         lease_generation=first["leaseGeneration"],
         state="succeeded",
         exit_code=0,
-        now="2026-06-07T10:00:13Z",
+        now="2099-06-07T10:00:13Z",
     )
 
     assert heartbeat["accepted"] is False
@@ -221,11 +245,15 @@ def test_old_heartbeat_and_completion_are_fenced_after_reclaim(tmp_path):
     assert run["status"] == "queued"
 
 
-def test_process_group_recording_is_fenced_by_current_generation(tmp_path):
+def test_process_group_recording_is_fenced_by_current_generation(tmp_path, monkeypatch):
     cfg = make_configured_remote_runner(tmp_path)
     _create_run(cfg, "run_process_group")
-    first = claim_next_run_job(cfg, worker_id="worker_a", now="2026-06-07T10:00:00Z", lease_seconds=10)
+    first = claim_next_run_job(cfg, worker_id="worker_a", now="2099-06-07T10:00:00Z", lease_seconds=10)
     assert first is not None
+    monkeypatch.setattr(
+        "apps.remote_runner.reconciler.terminate_process_group",
+        lambda process_group_id: {"terminated": True, "processGroupId": int(process_group_id)},
+    )
 
     accepted = record_run_attempt_process_group(
         cfg,
@@ -233,7 +261,7 @@ def test_process_group_recording_is_fenced_by_current_generation(tmp_path):
         lease_generation=first["leaseGeneration"],
         process_group_id="4242",
     )
-    second = claim_next_run_job(cfg, worker_id="worker_b", now="2026-06-07T10:00:11Z", lease_seconds=10)
+    second = _reconcile_and_claim(cfg, worker_id="worker_b", now="2099-06-07T10:00:11Z")
     assert second is not None
     rejected = record_run_attempt_process_group(
         cfg,
@@ -256,7 +284,7 @@ def test_process_group_recording_is_fenced_by_current_generation(tmp_path):
 def test_request_run_cancel_records_command_event_and_marks_active_attempt(tmp_path):
     cfg = make_configured_remote_runner(tmp_path)
     _create_run(cfg, "run_cancel")
-    claim = claim_next_run_job(cfg, worker_id="worker_cancel", now="2026-06-07T10:00:00Z", lease_seconds=30)
+    claim = claim_next_run_job(cfg, worker_id="worker_cancel", now="2099-06-07T10:00:00Z", lease_seconds=30)
     assert claim is not None
 
     result = request_run_cancel(
@@ -264,7 +292,7 @@ def test_request_run_cancel_records_command_event_and_marks_active_attempt(tmp_p
         "run_cancel",
         actor="api-test",
         command_id="cmd_cancel_run",
-        now="2026-06-07T10:00:05Z",
+        now="2099-06-07T10:00:05Z",
     )
 
     assert result == {
@@ -273,7 +301,7 @@ def test_request_run_cancel_records_command_event_and_marks_active_attempt(tmp_p
         "stage": "cancel",
         "commandId": "cmd_cancel_run",
         "attemptId": claim["attemptId"],
-        "cancelRequestedAt": "2026-06-07T10:00:05Z",
+        "cancelRequestedAt": "2099-06-07T10:00:05Z",
     }
     assert run_attempt_cancel_requested(
         cfg,
@@ -298,7 +326,7 @@ def test_request_run_cancel_records_command_event_and_marks_active_attempt(tmp_p
             ("run_cancel_requested",),
         ).fetchone()
     assert dict(run) == {"status": "canceling", "stage": "cancel", "state_version": 2}
-    assert attempt["cancel_requested_at"] == "2026-06-07T10:00:05Z"
+    assert attempt["cancel_requested_at"] == "2099-06-07T10:00:05Z"
     assert dict(command) == {"command_type": "cancel_run", "actor": "api-test"}
     assert dict(event) == {"event_type": "run_cancel_requested", "command_id": "cmd_cancel_run"}
 
@@ -306,8 +334,8 @@ def test_request_run_cancel_records_command_event_and_marks_active_attempt(tmp_p
 def test_run_attempt_cancel_requested_treats_stale_generation_as_cancelled(tmp_path):
     cfg = make_configured_remote_runner(tmp_path)
     _create_run(cfg, "run_stale_cancel_check")
-    first = claim_next_run_job(cfg, worker_id="worker_a", now="2026-06-07T10:00:00Z", lease_seconds=10)
-    second = claim_next_run_job(cfg, worker_id="worker_b", now="2026-06-07T10:00:11Z", lease_seconds=10)
+    first = claim_next_run_job(cfg, worker_id="worker_a", now="2099-06-07T10:00:00Z", lease_seconds=10)
+    second = _reconcile_and_claim(cfg, worker_id="worker_b", now="2099-06-07T10:00:11Z")
     assert first is not None
     assert second is not None
 
@@ -326,8 +354,8 @@ def test_run_attempt_cancel_requested_treats_stale_generation_as_cancelled(tmp_p
 def test_stale_attempt_cannot_update_run_projection(tmp_path):
     cfg = make_configured_remote_runner(tmp_path)
     _create_run(cfg, "run_stale_projection")
-    first = claim_next_run_job(cfg, worker_id="worker_a", now="2026-06-07T10:00:00Z", lease_seconds=10)
-    second = claim_next_run_job(cfg, worker_id="worker_b", now="2026-06-07T10:00:11Z", lease_seconds=10)
+    first = claim_next_run_job(cfg, worker_id="worker_a", now="2099-06-07T10:00:00Z", lease_seconds=10)
+    second = _reconcile_and_claim(cfg, worker_id="worker_b", now="2099-06-07T10:00:11Z")
     assert first is not None
     assert second is not None
 
@@ -351,7 +379,7 @@ def test_stale_attempt_cannot_update_run_projection(tmp_path):
 def test_current_attempt_completion_marks_job_and_lease_terminal(tmp_path):
     cfg = make_configured_remote_runner(tmp_path)
     _create_run(cfg, "run_complete_attempt")
-    claim = claim_next_run_job(cfg, worker_id="worker_a", now="2026-06-07T10:00:00Z", lease_seconds=30)
+    claim = claim_next_run_job(cfg, worker_id="worker_a", now="2099-06-07T10:00:00Z", lease_seconds=30)
     assert claim is not None
 
     completion = complete_run_attempt(
@@ -360,7 +388,7 @@ def test_current_attempt_completion_marks_job_and_lease_terminal(tmp_path):
         lease_generation=claim["leaseGeneration"],
         state="succeeded",
         exit_code=0,
-        now="2026-06-07T10:00:05Z",
+        now="2099-06-07T10:00:05Z",
     )
 
     assert completion["accepted"] is True

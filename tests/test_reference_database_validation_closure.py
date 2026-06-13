@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from apps.remote_runner.databases import (
     DatabaseCandidateConflictError,
-    DatabaseRegistryError,
     add_reference_database,
     add_verified_reference_database,
     check_reference_database,

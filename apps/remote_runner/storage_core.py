@@ -17,14 +17,104 @@ def get_connection(cfg: RemoteRunnerConfig) -> sqlite3.Connection:
     connection = sqlite3.connect(str(cfg.db_path), check_same_thread=False)
     connection.row_factory = sqlite3.Row
     connection.executescript(SCHEMA_SQL)
+    _ensure_adopted_output_edge_uniqueness(connection)
     _ensure_run_columns(connection)
     _ensure_run_event_columns(connection)
     _ensure_run_execution_columns(connection)
+    _ensure_candidate_output_columns(connection)
     _ensure_tools_columns(connection)
     _ensure_tool_prepare_job_columns(connection)
     _ensure_artifact_columns(connection)
     connection.commit()
     return connection
+
+
+def _ensure_adopted_output_edge_uniqueness(connection: sqlite3.Connection) -> None:
+    index_name = "idx_run_artifact_edges_adopted_output"
+    if _index_exists(connection, index_name):
+        return
+
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        if _index_exists(connection, index_name):
+            connection.commit()
+            return
+        duplicate_groups = connection.execute(
+            """
+            SELECT run_id, port_name
+            FROM run_artifact_edges
+            WHERE role = 'output' AND port_name IS NOT NULL
+            GROUP BY run_id, port_name
+            HAVING COUNT(*) > 1
+            ORDER BY run_id, port_name
+            """
+        ).fetchall()
+        for group in duplicate_groups:
+            duplicate_edges = connection.execute(
+                """
+                SELECT edge_id
+                FROM run_artifact_edges
+                WHERE run_id = ? AND role = 'output' AND port_name = ?
+                ORDER BY created_at ASC, edge_id ASC
+                """,
+                (group["run_id"], group["port_name"]),
+            ).fetchall()
+            for edge in duplicate_edges[1:]:
+                migrated_port_name = _legacy_output_port_name(
+                    connection,
+                    run_id=str(group["run_id"]),
+                    port_name=str(group["port_name"]),
+                    edge_id=str(edge["edge_id"]),
+                )
+                connection.execute(
+                    "UPDATE run_artifact_edges SET port_name = ? WHERE edge_id = ?",
+                    (migrated_port_name, edge["edge_id"]),
+                )
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX idx_run_artifact_edges_adopted_output
+            ON run_artifact_edges(run_id, role, port_name)
+            WHERE role = 'output' AND port_name IS NOT NULL
+            """
+        )
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+
+
+def _legacy_output_port_name(
+    connection: sqlite3.Connection,
+    *,
+    run_id: str,
+    port_name: str,
+    edge_id: str,
+) -> str:
+    base = f"{port_name}#legacy-{edge_id}"
+    candidate = base
+    suffix = 2
+    while connection.execute(
+        """
+        SELECT 1
+        FROM run_artifact_edges
+        WHERE run_id = ? AND role = 'output' AND port_name = ?
+        LIMIT 1
+        """,
+        (run_id, candidate),
+    ).fetchone():
+        candidate = f"{base}-{suffix}"
+        suffix += 1
+    return candidate
+
+
+def _index_exists(connection: sqlite3.Connection, index_name: str) -> bool:
+    return (
+        connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?",
+            (index_name,),
+        ).fetchone()
+        is not None
+    )
 
 
 def _ensure_run_columns(connection: sqlite3.Connection) -> None:
@@ -114,6 +204,22 @@ def _ensure_run_execution_columns(connection: sqlite3.Connection) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_run_workers_state_heartbeat
         ON run_workers(state, heartbeat_at)
+        """
+    )
+
+
+def _ensure_candidate_output_columns(connection: sqlite3.Connection) -> None:
+    _ensure_columns(
+        connection,
+        "candidate_outputs",
+        {
+            "lease_generation": "INTEGER NOT NULL DEFAULT 0",
+        },
+    )
+    connection.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_candidate_outputs_attempt_generation_key
+        ON candidate_outputs(run_id, attempt_id, lease_generation, output_key)
         """
     )
 

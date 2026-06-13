@@ -111,12 +111,28 @@ def test_startup_auto_connect_uses_saved_password_ref_when_flag_set() -> None:
         }
     }
     service = RuntimeService(service_locator=ServiceLocator(remote_runner_manager=ReadyRemoteRunnerManager()))
+    result = SimpleNamespace(ok=True, client=DummyClient(), message="")
+
+    class ImmediateThread:
+        def __init__(self, *, target, name: str, daemon: bool) -> None:
+            self.target = target
+            self.name = name
+            self.daemon = daemon
+
+        def start(self) -> None:
+            self.target()
 
     with patch("core.app_runtime.runtime_config.get_runtime_config", return_value=cfg), patch(
+        "core.app_runtime.runtime_config.save_runtime_config"
+    ), patch(
         "core.app_runtime.ssh_connection.resolve_ssh_password", return_value="secret"
     ), patch(
-        "core.app_runtime.ssh_connection.ssh_connect"
-    ) as connect_mock:
+        "core.app_runtime.ssh_connection.ssh_connect", return_value=result
+    ) as connect_mock, patch(
+        "core.app_runtime.ssh_connection.threading.Thread", ImmediateThread
+    ), patch(
+        "core.app_runtime.server_state.threading.Thread", ImmediateThread
+    ):
         service.initialize()
 
     connect_mock.assert_called_once_with(

@@ -490,8 +490,10 @@ def test_remote_runner_reuse_rejects_prefix_template_without_pattern_sets() -> N
 
 
 def test_remote_runner_database_validation_routes_run_in_threadpool() -> None:
-    source = Path("apps/remote_runner/database_routes.py").read_text(encoding="utf-8")
+    route_source = Path("apps/remote_runner/database_routes.py").read_text(encoding="utf-8")
+    service_source = Path("apps/remote_runner/database_service.py").read_text(encoding="utf-8")
 
-    assert "from starlette.concurrency import run_in_threadpool" in source
-    assert "await run_in_threadpool(add_verified_reference_database" in source
-    assert "await run_in_threadpool(check_reference_database" in source
+    assert "run_sync" not in route_source
+    assert "from .route_utils import authorized_config, data_response, request_payload, run_sync" in service_source
+    assert "await run_sync(add_verified_reference_database, cfg, request_payload(payload))" in service_source
+    assert "await run_sync(check_reference_database, cfg, database_id)" in service_source

@@ -218,4 +218,4 @@ snakemake --snakefile workflow/Snakefile --directory .test --configfile .test/ru
 snakemake --snakefile workflow/Snakefile --directory .test --configfile .test/run-config.json --lint
 ```
 
-Do not run Python `pytest` from the Windows Codex environment for this repository.
+Python `pytest` may run from the Windows Codex environment when using the Windows-owned environment and isolated app-data roots. Use WSL/Linux pytest only when the task explicitly needs Linux parity proof.

@@ -14,7 +14,7 @@ Use this skill to do two things:
 
 ## Hard Rules
 
-- Do not run `pytest` from this Windows Codex environment. If real `pytest` is needed, ask the user to run it manually from the project’s normal test environment.
+- Windows Codex may run `pytest` when using the Windows-owned Python/uv environment and isolated app-data roots. Do not invoke WSL just to run pytest unless the task explicitly needs WSL/Linux proof.
 - Do not let tests write to the real Windows config at `C:/Users/Administrator/AppData/Roaming/H2OMeta/config.json`. Patch `get_config`, `save_config`, keyring, and runner token storage, or redirect app data to a temp directory.
 - Do not print passwords, keyring values, bearer tokens, or runner token refs beyond non-sensitive identifiers already stored in config.
 - Do not foreground-run `launch_remote_runner.sh` during routine diagnostics. That can start a second runner and overwrite `runner-state.json`.
@@ -27,7 +27,7 @@ Use this decision path before taking action:
 
 1. If the task is a real remote smoke, start with non-mutating checks: config read, SSH connect, Local API health, `/api/v1/ssh/status`, and `/api/v1/servers`.
 2. If the task is a real bootstrap or pipeline smoke, run the canonical repo-local skill entrypoints under `skills/h2ometa-remote-smoke-test/scripts/`.
-3. If the task is code-testing or verification work, read [test-safety.md](test-safety.md) first and decide whether the work needs syntax-only verification, isolated unit tests, or user-run `pytest`.
+3. If the task is code-testing or verification work, read [test-safety.md](test-safety.md) first and decide whether the work needs syntax-only verification, isolated Windows pytest, or explicit WSL/Linux proof.
 4. If the task looks familiar because it matches a prior failure mode, read [pitfalls.md](pitfalls.md) before improvising.
 
 ## Canonical Entrypoints
@@ -37,6 +37,7 @@ These scripts under this skill are the official entrypoints:
 - `python skills/h2ometa-remote-smoke-test/scripts/remote_smoke.py`
 - `python skills/h2ometa-remote-smoke-test/scripts/remote_smoke.py --bootstrap`
 - `python skills/h2ometa-remote-smoke-test/scripts/remote_pipeline_smoke.py`
+- `python skills/h2ometa-remote-smoke-test/scripts/remote_worker_crash_recovery_acceptance.py`
 - `python skills/h2ometa-remote-smoke-test/scripts/remote_pipeline_database_binding_smoke.py`
 - `python skills/h2ometa-remote-smoke-test/scripts/remote_real_database_acceptance.py --rerun-check`
 
@@ -60,6 +61,7 @@ Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 8765 -State Listen
 - Mutating bootstrap validation: use `skills/h2ometa-remote-smoke-test/scripts/remote_smoke.py --bootstrap`
 - Real tool validation starts from the tool search/add flow, then use the generated-tool smoke helpers once the searched tool has a saved contract.
 - Minimal end-to-end pipeline path: use `skills/h2ometa-remote-smoke-test/scripts/remote_pipeline_smoke.py`
+- Destructive P0-1 worker crash/restart acceptance: use `skills/h2ometa-remote-smoke-test/scripts/remote_worker_crash_recovery_acceptance.py --allow-runner-kill` only on an idle `systemd_user` runner after verifying the deployed release contains the current P0-1 code.
 - Normal Snakemake pipeline database binding: use `skills/h2ometa-remote-smoke-test/scripts/remote_pipeline_database_binding_smoke.py`
 - Real production database acceptance: use `skills/h2ometa-remote-smoke-test/scripts/remote_real_database_acceptance.py`
 - Additional generated-tool, linear-workflow, or database smoke helpers: use the matching script in `skills/h2ometa-remote-smoke-test/scripts/` only after the control-plane smoke is green

@@ -32,3 +32,4 @@ src = ["apps", "core", "scripts", "tests"]
 
 [tool.ruff.lint.per-file-ignores]
 "apps/remote_runner/pipelines/*/workflow/scripts/*.py" = ["F821"]
+"apps/remote_runner/snakemake_wrappers/**/wrapper.py" = ["F821"]

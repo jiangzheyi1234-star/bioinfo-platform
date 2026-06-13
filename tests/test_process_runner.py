@@ -33,7 +33,8 @@ def test_process_runner_terminates_process_group_when_cancelled(monkeypatch) -> 
         process_ref["process"].returncode = -sig
 
     monkeypatch.setattr(process_runner.subprocess, "Popen", fake_popen)
-    monkeypatch.setattr(process_runner.os, "killpg", fake_killpg)
+    monkeypatch.setattr(process_runner.os, "name", "posix")
+    monkeypatch.setattr(process_runner.os, "killpg", fake_killpg, raising=False)
 
     result = process_runner.run_process(
         ["snakemake"],

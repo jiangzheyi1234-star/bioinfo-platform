@@ -24,7 +24,7 @@ from .package_metadata import wrapper_environment_dirs
 WRAPPER_CACHE_TTL_SECONDS = 3600
 WRAPPER_INDEX_CACHE_FILENAME = f"wrapper-index-v2-{archive.SNAKEMAKE_WRAPPERS_REF}.json"
 
-_WRAPPER_CACHE: tuple[float, dict[str, list[dict[str, Any]]]] | None = None
+_WRAPPER_CACHE: tuple[Path, float, dict[str, list[dict[str, Any]]]] | None = None
 
 
 def clear_wrapper_index_cache() -> None:
@@ -35,22 +35,29 @@ def clear_wrapper_index_cache() -> None:
 def wrapper_index() -> dict[str, list[dict[str, Any]]]:
     global _WRAPPER_CACHE
     now = time.time()
-    if _WRAPPER_CACHE and now - _WRAPPER_CACHE[0] < WRAPPER_CACHE_TTL_SECONDS:
-        return _WRAPPER_CACHE[1]
+    cache_path = wrapper_index_cache_path()
+    if (
+        _WRAPPER_CACHE
+        and _WRAPPER_CACHE[0] == cache_path
+        and now - _WRAPPER_CACHE[1] < WRAPPER_CACHE_TTL_SECONDS
+    ):
+        return _WRAPPER_CACHE[2]
     cached_index = load_cached_wrapper_index()
     if cached_index is not None:
-        _WRAPPER_CACHE = (now, cached_index)
-        return cached_index
+        index = cached_index or bundled_wrapper_index()
+        _WRAPPER_CACHE = (cache_path, now, index)
+        return index
     try:
         payload = archive.request_wrapper_tree()
     except urllib.error.HTTPError as exc:
         if exc.code != 403:
             raise
-        _WRAPPER_CACHE = (now, {})
-        return {}
+        index = bundled_wrapper_index()
+        _WRAPPER_CACHE = (cache_path, now, index)
+        return index
     index = build_wrapper_index(payload)
     save_cached_wrapper_index(index)
-    _WRAPPER_CACHE = (now, index)
+    _WRAPPER_CACHE = (cache_path, now, index)
     return index
 
 
@@ -83,6 +90,21 @@ def build_wrapper_index(payload: dict[str, Any]) -> dict[str, list[dict[str, Any
     for entries in index.values():
         entries.sort(key=lambda entry: entry["wrapperPath"])
     return index
+
+
+def bundled_wrapper_index() -> dict[str, list[dict[str, Any]]]:
+    wrapper_root = Path(__file__).resolve().parents[2] / "remote_runner" / "snakemake_wrappers" / archive.SNAKEMAKE_WRAPPERS_REF
+    if not wrapper_root.is_dir():
+        return {}
+    tree = [
+        {
+            "path": path.relative_to(wrapper_root).as_posix(),
+            "type": "blob",
+        }
+        for path in wrapper_root.rglob("*")
+        if path.is_file()
+    ]
+    return build_wrapper_index({"tree": tree})
 
 
 def wrapper_index_cache_path() -> Path:

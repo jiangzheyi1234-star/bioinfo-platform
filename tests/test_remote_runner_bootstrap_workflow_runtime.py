@@ -1,46 +1,16 @@
 from __future__ import annotations
 
-import asyncio
-import json
-import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import pytest
 
-from apps.remote_runner.config import (
-    ensure_runtime_layout,
-    get_runtime_state_path,
-    inspect_workflow_runtime,
-    load_remote_runner_config,
-    write_runtime_state,
-)
-from apps.remote_runner.config import RemoteRunnerConfig
-from apps.remote_runner.executor import run_snakemake_execution
-from apps.remote_runner.api_models import RunCreateRequest, UploadCreateRequest
-from apps.remote_runner.execution_query_routes import (
-    get_result_api,
-    get_result_preview_api,
-    get_run as get_run_api,
-    get_run_events_api,
-    get_run_logs_api,
-    get_run_results_api,
-    get_runs as list_runs_api,
-    list_results_api,
-)
-from apps.remote_runner.health_routes import health_live, health_ready, health_startup
-from apps.remote_runner.pipeline_routes import get_pipeline_api, get_pipelines
-from apps.remote_runner.submission_routes import create_run, create_upload
-from config import get_app_cache_dir
-from core.remote_runner.artifact import RemoteRunnerArtifactError
-from core.remote_runner.bundle import REMOTE_RUNNER_VERSION, RemoteRunnerBundleBuilder
+from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
 from core.remote_runner.client import RemoteRunnerClientError
-from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerError
+from core.remote_runner.manager import RemoteRunnerManager
 from tests.helpers.remote_runner_control_plane import (
     _ORIGINAL_ENSURE_WORKFLOW_RUNTIME,
-    _default_workflow_runtime,
-    _fake_runtime_dir,
+    _default_workflow_runtime,  # noqa: F401
     _is_remote_bundle_cleanup,
     _is_remote_config_atomic_move,
     _is_remote_current_release_read,
@@ -48,15 +18,15 @@ from tests.helpers.remote_runner_control_plane import (
     _is_remote_runner_config_read,
     _fake_workflow_artifact,
     _runtime_state_json,
-    _write_file_summary_pipeline,
 )
+
 
 def test_bootstrap_workflow_runtime_installs_artifact_and_verifies_snakemake(monkeypatch) -> None:
     monkeypatch.setattr(
         "core.remote_runner.manager.RemoteRunnerManager._ensure_workflow_runtime",
         _ORIGINAL_ENSURE_WORKFLOW_RUNTIME,
     )
-    monkeypatch.setattr("core.remote_runner.manager.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr("core.remote_runner.workflow_runtime.time.sleep", lambda _seconds: None)
     manager = RemoteRunnerManager()
     artifact = _fake_workflow_artifact()
     executed: list[str] = []
@@ -90,6 +60,10 @@ def test_bootstrap_workflow_runtime_installs_artifact_and_verifies_snakemake(mon
             if _is_remote_runner_config_read(cmd):
                 return 1, "", "No such file"
             if _is_remote_bundle_cleanup(cmd) or _is_remote_config_atomic_move(cmd):
+                return 0, "", ""
+            if "rm -rf" in cmd and "/locks/install-" in cmd:
+                return 0, "", ""
+            if "owner.json" in cmd and "printf %s" in cmd:
                 return 0, "", ""
             raise AssertionError(f"unexpected command: {cmd}")
 
@@ -139,6 +113,10 @@ def test_bootstrap_workflow_runtime_registers_existing_remote_runtime(monkeypatc
             if _is_remote_runner_config_read(cmd):
                 return 1, "", "No such file"
             if _is_remote_bundle_cleanup(cmd) or _is_remote_config_atomic_move(cmd):
+                return 0, "", ""
+            if "rm -rf" in cmd and "/locks/install-" in cmd:
+                return 0, "", ""
+            if "owner.json" in cmd and "printf %s" in cmd:
                 return 0, "", ""
             raise AssertionError(f"unexpected command: {cmd}")
 
@@ -197,6 +175,10 @@ def test_bootstrap_uses_bundled_service_runtime_without_remote_installer(monkeyp
             if _is_remote_runner_config_read(cmd):
                 return 1, "", "No such file"
             if _is_remote_bundle_cleanup(cmd) or _is_remote_config_atomic_move(cmd):
+                return 0, "", ""
+            if "rm -rf" in cmd and "/locks/install-" in cmd:
+                return 0, "", ""
+            if "owner.json" in cmd and "printf %s" in cmd:
                 return 0, "", ""
             raise AssertionError(f"unexpected command: {cmd}")
 
@@ -279,6 +261,10 @@ def test_bootstrap_does_not_install_runtime_on_remote_host(monkeypatch) -> None:
             if _is_remote_runner_config_read(cmd):
                 return 1, "", "No such file"
             if _is_remote_bundle_cleanup(cmd) or _is_remote_config_atomic_move(cmd):
+                return 0, "", ""
+            if "rm -rf" in cmd and "/locks/install-" in cmd:
+                return 0, "", ""
+            if "owner.json" in cmd and "printf %s" in cmd:
                 return 0, "", ""
             raise AssertionError(f"unexpected command: {cmd}")
 
@@ -365,6 +351,10 @@ def test_bootstrap_waits_for_remote_runner_health_after_startup(monkeypatch) -> 
                 return 1, "", "No such file"
             if _is_remote_bundle_cleanup(cmd) or _is_remote_config_atomic_move(cmd):
                 return 0, "", ""
+            if "rm -rf" in cmd and "/locks/install-" in cmd:
+                return 0, "", ""
+            if "owner.json" in cmd and "printf %s" in cmd:
+                return 0, "", ""
             raise AssertionError(f"unexpected command: {cmd}")
 
         def upload(self, local: str, remote: str) -> None:
@@ -392,7 +382,7 @@ def test_bootstrap_waits_for_remote_runner_health_after_startup(monkeypatch) -> 
                 "checkedAt": "2026-04-22T00:00:00Z",
             }
 
-    monkeypatch.setattr("core.remote_runner.manager.time.sleep", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("core.remote_runner.readiness.time.sleep", lambda *_args, **_kwargs: None)
 
     with patch.object(manager, "_artifact_provider", SimpleNamespace(resolve=lambda **kwargs: FakeBundle())), patch(
         "core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient
@@ -447,6 +437,10 @@ def test_bootstrap_does_not_require_system_python3_for_bundled_runtime(monkeypat
             if _is_remote_runner_config_read(cmd):
                 return 1, "", "No such file"
             if _is_remote_bundle_cleanup(cmd) or _is_remote_config_atomic_move(cmd):
+                return 0, "", ""
+            if "rm -rf" in cmd and "/locks/install-" in cmd:
+                return 0, "", ""
+            if "owner.json" in cmd and "printf %s" in cmd:
                 return 0, "", ""
             raise AssertionError(f"unexpected command: {cmd}")
 

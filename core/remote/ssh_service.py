@@ -13,6 +13,14 @@ from core.remote.local_tunnel import LocalTunnel
 from core.remote.ssh_reconnect import SSHReconnectError, SSHReconnector
 from core.remote.terminal_session import TerminalSession
 
+__all__ = [
+    "LocalTunnel",
+    "SSHReconnectError",
+    "SSHReconnector",
+    "SSHService",
+    "TerminalSession",
+]
+
 logger = logging.getLogger(__name__)
 
 

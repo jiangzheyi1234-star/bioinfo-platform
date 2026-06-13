@@ -7,8 +7,9 @@ from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
 from apps.remote_runner.executor import run_snakemake_execution
 from apps.remote_runner.generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
 from apps.remote_runner.rule_environment import render_rule_conda_env_yaml
-from apps.remote_runner.storage import fetch_tool, persist_upload, upsert_tool
+from apps.remote_runner.storage import fetch_tool, persist_upload
 from apps.remote_runner.tools import add_registered_tool
+from tests.generated_workflow_test_helpers import generated_workflow_node, upsert_ready_tool
 
 
 def _cfg(tmp_path: Path) -> RemoteRunnerConfig:
@@ -54,12 +55,7 @@ def _register_multi_dependency_tool(cfg: RemoteRunnerConfig) -> dict:
             },
         },
     )
-    saved["contractStatus"] = {
-        "dryRun": {"status": "passed", "message": "Snakemake dry-run passed."},
-        "smokeRun": {"status": "passed", "message": "Snakemake smoke run passed."},
-        "outputValidation": {"status": "passed", "message": "Output validation passed."},
-    }
-    return upsert_tool(cfg, saved)
+    return upsert_ready_tool(cfg, saved)
 
 
 def test_rule_environment_contract_is_persisted(tmp_path: Path) -> None:
@@ -119,7 +115,16 @@ def test_generated_rule_environment_writes_multi_dependency_env(tmp_path: Path, 
             "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
             "projectId": "proj_demo",
             "inputs": [{"uploadId": upload["uploadId"], "filename": "reads.fastq", "role": "input"}],
-            "tool": {"id": "bioconda::fastp-rule"},
+            "workflow": {
+                "contractVersion": "rule-contract-v1",
+                "nodes": [
+                    generated_workflow_node(
+                        "bioconda::fastp-rule",
+                        inputs={"reads": {"fromInput": "input"}},
+                    )
+                ],
+                "edges": [],
+            },
         },
     )
 

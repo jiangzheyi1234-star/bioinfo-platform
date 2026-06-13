@@ -9,6 +9,13 @@ from .database_template_catalog import (
 )
 from .database_template_definitions import DATABASE_TEMPLATES
 
+__all__ = [
+    "DATABASE_TEMPLATES",
+    "database_template_capabilities",
+    "database_template_runtime_shape",
+    "list_database_templates",
+]
+
 
 def list_database_templates() -> list[dict[str, Any]]:
     return build_database_template_catalog(DATABASE_TEMPLATES)

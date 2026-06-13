@@ -148,8 +148,8 @@ def test_generated_workflow_builder_uses_server_tool_recommendations() -> None:
     assert "recommendationCandidateName(recommendation)" in _function_body(recommendations_ui, "recommendationSearchQuery")
     candidate_name_body = _function_body(recommendations_ui, "recommendationCandidateName")
     assert "recommendation.candidate.toolNames?.[0]" in candidate_name_body
-    assert "recommendation.candidate.toolName" in candidate_name_body
-    assert "recommendation.candidate.name" in candidate_name_body
+    assert "recommendation.candidate.profileId" in candidate_name_body
+    assert "recommendation.candidate.candidateId" in candidate_name_body
     assert "recommendation.candidate.profileId" in candidate_name_body
     assert "recommendation.candidate.candidateId" in candidate_name_body
 

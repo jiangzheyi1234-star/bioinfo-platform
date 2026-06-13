@@ -4,9 +4,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from core.problem_responses import (
-    detail_response,
-    status_payload_response,
     register_status_detail_exception_handlers,
+    status_payload_response,
     value_error_response,
 )
 

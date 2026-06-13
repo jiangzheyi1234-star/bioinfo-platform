@@ -12,7 +12,6 @@ from core.app_runtime.errors import (
     runtime_service_status_code,
 )
 from core.problem_responses import (
-    detail_response,
     register_fixed_status_exception_handlers,
     status_detail_response,
     status_payload_response,

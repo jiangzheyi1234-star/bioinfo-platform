@@ -1,74 +1,137 @@
 from __future__ import annotations
 
+import logging
 import sqlite3
 from typing import Any
 
 from .config import RemoteRunnerConfig
 from .event_contracts import append_run_event_v2
+from .reconciler_actions import (
+    dead_letter_job,
+    fence_expired_attempt,
+    requeue_retryable_job,
+    terminate_process_group,
+)
 from .reconciler_rules import (
     clock_jump_observation,
-    expired_lease_observation,
-    queued_job_observation,
 )
 from .storage_core import get_connection, now_iso
 
 
-def run_shadow_reconciler_once(
+LOGGER = logging.getLogger(__name__)
+
+
+def run_active_reconciler_once(
     cfg: RemoteRunnerConfig,
     *,
     now: str | None = None,
     clock_jump_expiry_threshold: int = 10,
+    retry_delay_seconds: int = 5,
 ) -> list[dict[str, Any]]:
-    observed_at = str(now or now_iso())
+    reconciled_at = str(now or now_iso())
+    actions: list[dict[str, Any]] = []
+    recoveries: list[dict[str, Any]] = []
     with get_connection(cfg) as connection:
-        expired_rows = _expired_lease_rows(connection, observed_at)
-        queued_rows = _queued_job_rows(connection, observed_at)
-        observations: list[dict[str, Any]] = []
+        expired_rows = _expired_lease_rows(connection, reconciled_at)
         clock_jump = clock_jump_observation(
             expired_lease_count=len(expired_rows),
             threshold=int(clock_jump_expiry_threshold),
         )
         if clock_jump is not None:
-            observations.append(clock_jump)
+            actions.append(clock_jump)
             _append_observation_to_runs(
                 connection,
                 rows=expired_rows,
                 event_type="clock_jump_suspected",
                 observation=clock_jump,
-                observed_at=observed_at,
+                observed_at=reconciled_at,
             )
 
-        for row in expired_rows:
-            observation = expired_lease_observation(dict(row))
-            observations.append(observation)
-            _append_observation_event(
+        for raw_row in expired_rows:
+            row = dict(raw_row)
+            run_id = str(row["run_id"])
+            attempt_id = str(row["attempt_id"])
+            generation = int(row["lease_generation"])
+            run = connection.execute(
+                "SELECT * FROM runs WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            if run is None:
+                continue
+            fence_result = fence_expired_attempt(
                 connection,
-                run_id=str(row["run_id"]),
-                event_type="run_lease_expired_observed",
-                observation=observation,
-                observed_at=observed_at,
+                attempt_id=attempt_id,
+                generation=generation,
+                reason="lease_expired",
+                occurred_at=reconciled_at,
+                run=run,
             )
-
-        for row in queued_rows:
-            observations.append(queued_job_observation(dict(row)))
-
+            if fence_result.get("fenced") or fence_result.get("reason") == "already_fenced":
+                recoveries.append(row)
         connection.commit()
-        return observations
 
-
-def _queued_job_rows(connection: sqlite3.Connection, now: str) -> list[sqlite3.Row]:
-    return connection.execute(
-        """
-        SELECT jobs.*
-        FROM run_jobs AS jobs
-        LEFT JOIN run_leases AS leases ON leases.run_id = jobs.run_id
-        WHERE jobs.state = 'queued'
-          AND jobs.available_at <= ?
-          AND leases.run_id IS NULL
-        ORDER BY jobs.priority DESC, jobs.available_at ASC, jobs.created_at ASC, jobs.job_id ASC
-        """,
-        (now,),
-    ).fetchall()
+    for row in recoveries:
+        attempt_id = str(row["attempt_id"])
+        terminate_result = terminate_process_group(row.get("process_group_id"))
+        LOGGER.info(
+            "Fenced attempt %s, process group termination result: %s",
+            attempt_id,
+            terminate_result,
+        )
+        if not _termination_confirmed(terminate_result):
+            actions.append(
+                {
+                    "type": "run_attempt_recovery_blocked",
+                    "runId": str(row["run_id"]),
+                    "jobId": str(row["job_id"]),
+                    "attemptId": attempt_id,
+                    "reason": str(terminate_result.get("reason") or "termination_unconfirmed"),
+                }
+            )
+            continue
+        with get_connection(cfg) as connection:
+            job = connection.execute(
+                "SELECT * FROM run_jobs WHERE job_id = ?",
+                (str(row["job_id"]),),
+            ).fetchone()
+            if job is None or str(job["state"]) != "claimed":
+                continue
+            attempt_count = int(job["attempt_count"])
+            max_attempts = int(job["max_attempts"])
+            if attempt_count < max_attempts:
+                requeue_result = requeue_retryable_job(
+                    connection,
+                    job_id=str(row["job_id"]),
+                    run_id=str(row["run_id"]),
+                    retry_delay_seconds=retry_delay_seconds,
+                    requeued_at=reconciled_at,
+                )
+                actions.append({
+                    "type": "run_attempt_recovered",
+                    "runId": str(row["run_id"]),
+                    "jobId": str(row["job_id"]),
+                    "attemptId": attempt_id,
+                    "action": "requeued",
+                    "availableAt": requeue_result.get("availableAt"),
+                })
+            else:
+                dead_letter_result = dead_letter_job(
+                    connection,
+                    job_id=str(row["job_id"]),
+                    run_id=str(row["run_id"]),
+                    reason="max_attempts_exceeded",
+                    dead_lettered_at=reconciled_at,
+                )
+                actions.append({
+                    "type": "run_attempt_recovered",
+                    "runId": str(row["run_id"]),
+                    "jobId": str(row["job_id"]),
+                    "attemptId": attempt_id,
+                    "action": "dead_lettered",
+                    "reason": dead_letter_result.get("reason"),
+                })
+            connection.commit()
+    return actions
 
 
 def _expired_lease_rows(connection: sqlite3.Connection, now: str) -> list[sqlite3.Row]:
@@ -79,16 +142,26 @@ def _expired_lease_rows(connection: sqlite3.Connection, now: str) -> list[sqlite
             jobs.run_id,
             leases.attempt_id,
             leases.lease_generation,
-            leases.expires_at
+            leases.expires_at,
+            attempts.process_group_id
         FROM run_jobs AS jobs
         JOIN run_leases AS leases ON leases.run_id = jobs.run_id
+        JOIN run_attempts AS attempts ON attempts.attempt_id = leases.attempt_id
         WHERE jobs.state = 'claimed'
-          AND leases.state = 'active'
+          AND leases.state IN ('active', 'expired', 'fenced')
           AND leases.expires_at < ?
         ORDER BY leases.expires_at ASC, jobs.run_id ASC
         """,
         (now,),
     ).fetchall()
+
+
+def _termination_confirmed(result: dict[str, Any]) -> bool:
+    return bool(
+        result.get("terminated")
+        or result.get("confirmedStopped")
+        or result.get("reason") in {"no_process_group", "process_group_not_found"}
+    )
 
 
 def _append_observation_to_runs(
@@ -131,7 +204,7 @@ def _append_observation_event(
         event_type=event_type,
         stage="reconcile",
         state_version=int(run["state_version"]),
-        message="Shadow reconciler observation.",
+        message="Active reconciler observation.",
         request_id=str(run["request_id"]),
         payload=observation,
         occurred_at=observed_at,

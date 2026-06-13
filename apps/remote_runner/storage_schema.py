@@ -152,6 +152,7 @@ CREATE TABLE IF NOT EXISTS candidate_outputs (
     candidate_output_id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL,
     attempt_id TEXT NOT NULL,
+    lease_generation INTEGER NOT NULL,
     output_key TEXT NOT NULL,
     path TEXT NOT NULL,
     size_bytes INTEGER,
@@ -161,7 +162,7 @@ CREATE TABLE IF NOT EXISTS candidate_outputs (
     verification_json TEXT NOT NULL DEFAULT '{}',
     adopted_artifact_id TEXT,
     adopted_at TEXT,
-    UNIQUE(run_id, attempt_id, output_key)
+    UNIQUE(run_id, attempt_id, lease_generation, output_key)
 );
 
 CREATE TABLE IF NOT EXISTS artifacts (

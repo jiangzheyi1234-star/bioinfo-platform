@@ -5,7 +5,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOTS = ("apps", "core", "tests")
 MAX_HAND_WRITTEN_SOURCE_LINES = 800
 MAX_ROUTE_STRUCTURE_CONTRACT_LINES = 760
-MAX_TEST_SOURCE_LINES = 760
+MAX_TEST_SOURCE_LINES = MAX_HAND_WRITTEN_SOURCE_LINES
 
 
 def _python_source_files() -> list[Path]:

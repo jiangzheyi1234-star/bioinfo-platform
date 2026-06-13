@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter
 
 from apps.api.execution_query_service import (
+    cancel_run_from_request,
     get_result_from_request,
     get_result_preview_from_request,
     get_run_events_from_request,
@@ -29,6 +30,11 @@ async def list_runs(refresh: bool = False) -> dict[str, Any]:
 @router.get("/api/v1/runs/{run_id}")
 async def get_run(run_id: str) -> dict[str, Any]:
     return await get_run_from_request(run_id)
+
+
+@router.post("/api/v1/runs/{run_id}/cancel")
+async def cancel_run(run_id: str) -> dict[str, Any]:
+    return await cancel_run_from_request(run_id)
 
 
 @router.get("/api/v1/runs/{run_id}/events")

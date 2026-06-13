@@ -112,6 +112,10 @@ def test_bootstrap_repairs_partial_install_with_existing_workflow_runtime() -> N
                 return 0, "", ""
             if "current.tmp" in cmd and "mv -Tf" in cmd:
                 return 0, "", ""
+            if "rm -rf" in cmd and "/locks/install-" in cmd:
+                return 0, "", ""
+            if "owner.json" in cmd and "printf %s" in cmd:
+                return 0, "", ""
             raise AssertionError(f"unexpected command: {cmd}")
 
         def upload(self, local: str, remote: str) -> None:

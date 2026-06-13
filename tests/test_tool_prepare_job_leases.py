@@ -20,7 +20,7 @@ def test_claim_tool_prepare_job_sets_lease_and_attempt(tmp_path: Path) -> None:
     claimed = claim_next_tool_prepare_job(
         cfg,
         worker_id="worker-a",
-        now="2026-06-07T10:00:00Z",
+        now="2099-06-07T10:00:00Z",
         lease_seconds=30,
     )
 
@@ -29,8 +29,8 @@ def test_claim_tool_prepare_job_sets_lease_and_attempt(tmp_path: Path) -> None:
     assert claimed["stage"] == "claimed"
     assert claimed["lease"] == {
         "claimedBy": "worker-a",
-        "claimedUntil": "2026-06-07T10:00:30Z",
-        "heartbeatAt": "2026-06-07T10:00:00Z",
+        "claimedUntil": "2099-06-07T10:00:30Z",
+        "heartbeatAt": "2099-06-07T10:00:00Z",
         "attempts": 1,
         "maxAttempts": 3,
         "nextAttemptAt": None,
@@ -44,7 +44,7 @@ def test_expired_running_tool_prepare_job_can_be_reclaimed(tmp_path: Path) -> No
     first = claim_next_tool_prepare_job(
         cfg,
         worker_id="worker-a",
-        now="2026-06-07T10:00:00Z",
+        now="2099-06-07T10:00:00Z",
         lease_seconds=10,
     )
     assert first is not None
@@ -52,20 +52,20 @@ def test_expired_running_tool_prepare_job_can_be_reclaimed(tmp_path: Path) -> No
     assert claim_next_tool_prepare_job(
         cfg,
         worker_id="worker-b",
-        now="2026-06-07T10:00:05Z",
+        now="2099-06-07T10:00:05Z",
         lease_seconds=10,
     ) is None
     reclaimed = claim_next_tool_prepare_job(
         cfg,
         worker_id="worker-b",
-        now="2026-06-07T10:00:11Z",
+        now="2099-06-07T10:00:11Z",
         lease_seconds=10,
     )
 
     assert reclaimed is not None
     assert reclaimed["jobId"] == first["jobId"]
     assert reclaimed["lease"]["claimedBy"] == "worker-b"
-    assert reclaimed["lease"]["claimedUntil"] == "2026-06-07T10:00:21Z"
+    assert reclaimed["lease"]["claimedUntil"] == "2099-06-07T10:00:21Z"
     assert reclaimed["lease"]["attempts"] == 2
     assert [event["stage"] for event in reclaimed["events"]] == ["queued", "claimed", "reclaimed"]
 
@@ -87,7 +87,7 @@ def test_legacy_running_tool_prepare_job_without_lease_can_be_reclaimed(tmp_path
     reclaimed = claim_next_tool_prepare_job(
         cfg,
         worker_id="worker-b",
-        now="2026-06-07T10:00:00Z",
+        now="2099-06-07T10:00:00Z",
         lease_seconds=10,
     )
 
@@ -104,7 +104,7 @@ def test_tool_prepare_job_heartbeat_extends_current_lease(tmp_path: Path) -> Non
     claimed = claim_next_tool_prepare_job(
         cfg,
         worker_id="worker-a",
-        now="2026-06-07T10:00:00Z",
+        now="2099-06-07T10:00:00Z",
         lease_seconds=10,
     )
     assert claimed is not None
@@ -113,23 +113,23 @@ def test_tool_prepare_job_heartbeat_extends_current_lease(tmp_path: Path) -> Non
         cfg,
         claimed["jobId"],
         worker_id="worker-a",
-        now="2026-06-07T10:00:05Z",
+        now="2099-06-07T10:00:05Z",
         lease_seconds=10,
     )
     rejected = heartbeat_tool_prepare_job(
         cfg,
         claimed["jobId"],
         worker_id="worker-b",
-        now="2026-06-07T10:00:06Z",
+        now="2099-06-07T10:00:06Z",
         lease_seconds=10,
     )
 
-    assert accepted == {"accepted": True, "claimedUntil": "2026-06-07T10:00:15Z"}
+    assert accepted == {"accepted": True, "claimedUntil": "2099-06-07T10:00:15Z"}
     assert rejected == {"accepted": False, "reason": "not_current_worker"}
     refreshed = fetch_tool_prepare_job(cfg, claimed["jobId"])
     assert refreshed is not None
-    assert refreshed["lease"]["heartbeatAt"] == "2026-06-07T10:00:05Z"
-    assert refreshed["lease"]["claimedUntil"] == "2026-06-07T10:00:15Z"
+    assert refreshed["lease"]["heartbeatAt"] == "2099-06-07T10:00:05Z"
+    assert refreshed["lease"]["claimedUntil"] == "2099-06-07T10:00:15Z"
 
 
 def test_tool_prepare_worker_failure_retries_then_exhausts(tmp_path: Path) -> None:
@@ -141,7 +141,7 @@ def test_tool_prepare_worker_failure_retries_then_exhausts(tmp_path: Path) -> No
     first = claim_next_tool_prepare_job(
         cfg,
         worker_id="worker-a",
-        now="2026-06-07T10:00:00Z",
+        now="2099-06-07T10:00:00Z",
         lease_seconds=10,
     )
     assert first is not None
@@ -151,24 +151,24 @@ def test_tool_prepare_worker_failure_retries_then_exhausts(tmp_path: Path) -> No
         job["jobId"],
         code="TOOL_PREPARE_WORKER_CRASHED",
         message="worker crashed",
-        now="2026-06-07T10:00:01Z",
+        now="2099-06-07T10:00:01Z",
         retry_delay_seconds=30,
     )
     assert retry["status"] == "queued"
     assert retry["stage"] == "retry_wait"
     assert retry["lease"]["attempts"] == 1
-    assert retry["lease"]["nextAttemptAt"] == "2026-06-07T10:00:31Z"
+    assert retry["lease"]["nextAttemptAt"] == "2099-06-07T10:00:31Z"
     assert claim_next_tool_prepare_job(
         cfg,
         worker_id="worker-b",
-        now="2026-06-07T10:00:30Z",
+        now="2099-06-07T10:00:30Z",
         lease_seconds=10,
     ) is None
 
     second = claim_next_tool_prepare_job(
         cfg,
         worker_id="worker-b",
-        now="2026-06-07T10:00:31Z",
+        now="2099-06-07T10:00:31Z",
         lease_seconds=10,
     )
     assert second is not None
@@ -177,7 +177,7 @@ def test_tool_prepare_worker_failure_retries_then_exhausts(tmp_path: Path) -> No
         job["jobId"],
         code="TOOL_PREPARE_WORKER_CRASHED",
         message="worker crashed again",
-        now="2026-06-07T10:00:32Z",
+        now="2099-06-07T10:00:32Z",
         retry_delay_seconds=30,
     )
 
@@ -185,11 +185,11 @@ def test_tool_prepare_worker_failure_retries_then_exhausts(tmp_path: Path) -> No
     assert exhausted["stage"] == "exhausted"
     assert exhausted["errorCode"] == "TOOL_PREPARE_WORKER_CRASHED"
     assert exhausted["lease"]["attempts"] == 2
-    assert exhausted["lease"]["exhaustedAt"] == "2026-06-07T10:00:32Z"
+    assert exhausted["lease"]["exhaustedAt"] == "2099-06-07T10:00:32Z"
     assert claim_next_tool_prepare_job(
         cfg,
         worker_id="worker-c",
-        now="2026-06-07T10:01:32Z",
+        now="2099-06-07T10:01:32Z",
         lease_seconds=10,
     ) is None
 

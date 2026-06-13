@@ -51,7 +51,7 @@ def test_run_worker_register_heartbeat_drain_and_stop_are_visible_in_health(tmp_
         session_id="session-a",
         pid=123,
         hostname="host-a",
-        now="2026-06-07T10:00:00Z",
+        now="2099-06-07T10:00:00Z",
     )
     running = heartbeat_run_worker(
         cfg,
@@ -60,11 +60,11 @@ def test_run_worker_register_heartbeat_drain_and_stop_are_visible_in_health(tmp_
         state="running",
         current_attempt_id="att_123",
         last_error={"code": "LAST_TRANSIENT_ERROR"},
-        now="2026-06-07T10:00:05Z",
+        now="2099-06-07T10:00:05Z",
     )
-    draining = request_run_worker_drain(cfg, "worker-a", now="2026-06-07T10:00:06Z")
+    draining = request_run_worker_drain(cfg, "worker-a", now="2099-06-07T10:00:06Z")
 
-    health = build_run_worker_health(cfg, now="2026-06-07T10:00:08Z")
+    health = build_run_worker_health(cfg, now="2099-06-07T10:00:08Z")
 
     assert registered["state"] == "idle"
     assert running["currentAttemptId"] == "att_123"
@@ -82,14 +82,14 @@ def test_run_worker_register_heartbeat_drain_and_stop_are_visible_in_health(tmp_
             "queueName": "default",
             "concurrencyLimit": 1,
             "currentAttemptId": "att_123",
-            "heartbeatAt": "2026-06-07T10:00:05Z",
+            "heartbeatAt": "2099-06-07T10:00:05Z",
             "heartbeatAgeSeconds": 3,
             "lastError": {"code": "LAST_TRANSIENT_ERROR"},
-            "drainRequestedAt": "2026-06-07T10:00:06Z",
+            "drainRequestedAt": "2099-06-07T10:00:06Z",
             "draining": True,
-            "startedAt": "2026-06-07T10:00:00Z",
+            "startedAt": "2099-06-07T10:00:00Z",
             "stoppedAt": None,
-            "updatedAt": "2026-06-07T10:00:06Z",
+            "updatedAt": "2099-06-07T10:00:06Z",
         }
     ]
 
@@ -97,12 +97,12 @@ def test_run_worker_register_heartbeat_drain_and_stop_are_visible_in_health(tmp_
         cfg,
         worker_id="worker-a",
         session_id="session-a",
-        now="2026-06-07T10:00:09Z",
+        now="2099-06-07T10:00:09Z",
     )
 
     assert stopped["state"] == "stopped"
     assert stopped["currentAttemptId"] is None
-    assert stopped["stoppedAt"] == "2026-06-07T10:00:09Z"
+    assert stopped["stoppedAt"] == "2099-06-07T10:00:09Z"
 
 
 def test_run_worker_health_reports_queue_depth_and_claimed_jobs(tmp_path) -> None:
@@ -126,7 +126,7 @@ def test_run_worker_health_reports_queue_depth_and_claimed_jobs(tmp_path) -> Non
         session_id="session-health",
         pid=456,
         hostname="host-health",
-        now="2026-06-07T10:00:00Z",
+        now="2099-06-07T10:00:00Z",
     )
 
     queued = build_run_worker_health(cfg, now="2999-01-01T00:00:00Z")

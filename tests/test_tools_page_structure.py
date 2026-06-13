@@ -80,16 +80,15 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "candidateId: candidate.candidateId" in _function_body(hook, "installableCandidateItem")
     assert "sourceRef: candidate.sourceRef" in _function_body(hook, "installableCandidateItem")
     assert "initialQuery" in hook
-    assert "useToolsPageState(initialQuery)" in page
+    assert "const initialSearchQuery = initialQuery || searchParams.get(\"q\") || \"\"" in page
+    assert "useToolsPageState(initialSearchQuery)" in page
     assert "const catalogQualityStrip = (" in page
     assert page.count("{catalogQualityStrip}") == 2
-    assert "useSearchParams" not in page
-    assert "searchParams" in route_page
-    assert "type ToolsSearchParams = Promise" in route_page
-    assert "export default async function Page" in route_page
-    assert "const params = await searchParams" in route_page
-    assert "Array.isArray(params?.q)" in route_page
-    assert 'initialQuery={query || ""}' in route_page
+    assert "useSearchParams" in page
+    assert 'import { Suspense } from "react"' in route_page
+    assert "export default function Page" in route_page
+    assert "<Suspense fallback={null}>" in route_page
+    assert "<ToolsPage />" in route_page
     assert 'useState<"library" | "search">(() => initialQuery ? "search" : "library")' in hook
     assert "fetchSnakemakeWrapperCatalog" in hook
     assert "wrapperCatalog" in hook

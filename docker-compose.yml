@@ -1,0 +1,66 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: h2ometa-api
+    restart: unless-stopped
+    ports:
+      - "8765:8765"
+    volumes:
+      - h2ometa-data:/data
+      - h2ometa-logs:/app/logs
+    environment:
+      - H2OMETA_DEPLOYMENT_MODE=server-single-user
+      - H2OMETA_DATA_ROOT=/data
+      - H2OMETA_BACKEND_SOURCE=docker-compose
+      - H2OMETA_RUNTIME_BUILD_ID=${H2OMETA_RUNTIME_BUILD_ID:-docker-compose-local}
+      - H2OMETA_RUNNER_TOKEN=${H2OMETA_RUNNER_TOKEN:-}
+      - H2OMETA_SSH_HOST=${H2OMETA_SSH_HOST:-}
+      - H2OMETA_SSH_PORT=${H2OMETA_SSH_PORT:-22}
+      - H2OMETA_SSH_USER=${H2OMETA_SSH_USER:-}
+      - H2OMETA_SSH_AUTH_MODE=${H2OMETA_SSH_AUTH_MODE:-password_ref}
+      - H2OMETA_SSH_HOST_ALIAS=${H2OMETA_SSH_HOST_ALIAS:-}
+      - H2OMETA_REMOTE_RUN_WORKER=${H2OMETA_REMOTE_RUN_WORKER:-1}
+    networks:
+      - h2ometa-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8765/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: h2ometa-web
+    restart: unless-stopped
+    ports:
+      - "3765:3765"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_BASE=http://api:8765
+      - NEXT_PUBLIC_DEPLOYMENT_MODE=server-single-user
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - h2ometa-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3765/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  h2ometa-data:
+    driver: local
+  h2ometa-logs:
+    driver: local
+
+networks:
+  h2ometa-network:
+    driver: bridge

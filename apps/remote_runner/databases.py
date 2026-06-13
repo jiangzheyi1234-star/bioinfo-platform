@@ -23,6 +23,12 @@ from .database_runtime_paths import (
 from .database_templates import DATABASE_TEMPLATES, database_template_capabilities, database_template_runtime_shape
 from .storage import get_connection, now_iso
 
+__all__ = [
+    "DatabaseCandidateConflictError",
+    "DatabaseNotFoundError",
+    "DatabaseRegistryError",
+    "resolve_run_databases",
+]
 
 _DATABASE_REGISTRY_LOCK = threading.Lock()
 def list_reference_databases(cfg: RemoteRunnerConfig) -> list[dict[str, Any]]:

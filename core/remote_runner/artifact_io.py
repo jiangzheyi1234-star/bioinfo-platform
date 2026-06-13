@@ -103,11 +103,12 @@ def download_declared_archive(
             return archive_path
         archive_path.unlink()
 
-    tmp_path = archive_path.with_name(f"{archive_path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    tmp_path = archive_path.parent / f".download-{os.getpid()}-{uuid.uuid4().hex[:12]}.tmp"
     label = spec.key.replace("_", " ")
     try:
         cache_dir.mkdir(parents=True, exist_ok=True)
         request = Request(url, headers=download_headers())
+        tmp_path.parent.mkdir(parents=True, exist_ok=True)
         with urlopen(request, timeout=120) as response, tmp_path.open("wb") as handle:
             shutil.copyfileobj(response, handle)
         actual_size = tmp_path.stat().st_size

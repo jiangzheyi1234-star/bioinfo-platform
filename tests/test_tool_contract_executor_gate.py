@@ -7,7 +7,8 @@ from unittest.mock import patch
 from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
 from apps.remote_runner.executor import run_snakemake_execution
 from apps.remote_runner.generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
-from apps.remote_runner.storage import create_run_record, fetch_run, persist_upload
+from apps.remote_runner.storage import create_run_record, fetch_run, persist_upload, upsert_tool
+from apps.remote_runner.tool_revisions import publish_tool_revision
 from apps.remote_runner.tools import add_registered_tool
 
 
@@ -29,7 +30,7 @@ def test_executor_rejects_generated_tool_run_when_contract_not_workflow_ready(tm
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)
     upload = persist_upload(cfg, filename="input.txt", content_base64="c21va2UK", mime_type="text/plain")
-    add_registered_tool(
+    tool = add_registered_tool(
         cfg,
         {
             "id": "conda-forge::coreutils",
@@ -52,11 +53,24 @@ def test_executor_rejects_generated_tool_run_when_contract_not_workflow_ready(tm
             },
         },
     )
+    revision = publish_tool_revision(cfg, tool)
+    revision["status"] = "published"
+    tool = upsert_tool(cfg, revision)
     run_spec = {
         "runId": "run_executor_contract_gate",
         "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
         "inputs": [{"uploadId": upload["uploadId"], "filename": "input.txt", "role": "input"}],
-        "tool": {"id": "conda-forge::coreutils"},
+        "workflow": {
+            "contractVersion": "rule-contract-v1",
+            "nodes": [
+                {
+                    "id": "run_tool",
+                    "toolRevisionId": tool["toolRevisionId"],
+                    "inputs": {"primary": {"fromInput": "input"}},
+                }
+            ],
+            "edges": [],
+        },
     }
     create_run_record(
         cfg,

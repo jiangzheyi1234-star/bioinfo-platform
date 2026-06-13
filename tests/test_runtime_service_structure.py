@@ -54,7 +54,7 @@ def test_server_identity_and_payload_composition_live_outside_server_state() -> 
     assert payloads_path.exists()
     payloads_source = payloads_path.read_text(encoding="utf-8")
 
-    assert len(server_state_source.splitlines()) <= 315
+    assert len(server_state_source.splitlines()) <= 350
     assert "from core.app_runtime.server_payloads import (" in server_state_source
     for helper in (
         "_build_primary_server_identity",

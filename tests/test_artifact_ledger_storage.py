@@ -27,13 +27,13 @@ def test_artifact_blob_identity_is_content_addressed_across_materializations(tmp
         cfg,
         path=first_path,
         media_type="text/plain",
-        created_at="2026-06-07T10:00:00Z",
+        created_at="2099-06-07T10:00:00Z",
     )
     second_blob = record_artifact_blob_for_path(
         cfg,
         path=second_path,
         media_type="text/plain",
-        created_at="2026-06-07T10:00:01Z",
+        created_at="2099-06-07T10:00:01Z",
     )
     first_materialization = record_artifact_materialization(
         cfg,
@@ -41,7 +41,7 @@ def test_artifact_blob_identity_is_content_addressed_across_materializations(tmp
         storage_backend="local",
         storage_uri=first_path.resolve().as_uri(),
         local_path=first_path,
-        created_at="2026-06-07T10:00:02Z",
+        created_at="2099-06-07T10:00:02Z",
     )
     second_materialization = record_artifact_materialization(
         cfg,
@@ -49,7 +49,7 @@ def test_artifact_blob_identity_is_content_addressed_across_materializations(tmp
         storage_backend="local",
         storage_uri=second_path.resolve().as_uri(),
         local_path=second_path,
-        created_at="2026-06-07T10:00:03Z",
+        created_at="2099-06-07T10:00:03Z",
     )
     replay = record_artifact_materialization(
         cfg,
@@ -57,7 +57,7 @@ def test_artifact_blob_identity_is_content_addressed_across_materializations(tmp
         storage_backend="local",
         storage_uri=second_path.resolve().as_uri(),
         local_path=second_path,
-        created_at="2026-06-07T10:00:04Z",
+        created_at="2099-06-07T10:00:04Z",
     )
 
     assert second_blob["artifactBlobId"] == first_blob["artifactBlobId"]
@@ -81,7 +81,7 @@ def test_run_artifact_edges_model_bipartite_lineage(tmp_path: Path) -> None:
         cfg,
         path=artifact_path,
         media_type="application/octet-stream",
-        created_at="2026-06-07T10:00:00Z",
+        created_at="2099-06-07T10:00:00Z",
     )
 
     upstream = record_run_artifact_edge(
@@ -92,7 +92,7 @@ def test_run_artifact_edges_model_bipartite_lineage(tmp_path: Path) -> None:
         port_name="bam",
         step_id="align",
         upstream_run_id=None,
-        created_at="2026-06-07T10:00:01Z",
+        created_at="2099-06-07T10:00:01Z",
     )
     downstream = record_run_artifact_edge(
         cfg,
@@ -102,7 +102,7 @@ def test_run_artifact_edges_model_bipartite_lineage(tmp_path: Path) -> None:
         port_name="bam",
         step_id="call_variants",
         upstream_run_id="run_align",
-        created_at="2026-06-07T10:00:02Z",
+        created_at="2099-06-07T10:00:02Z",
     )
 
     assert upstream["contentHash"] == blob["sha256"]
@@ -124,7 +124,7 @@ def test_lineage_edges_record_canonical_prov_relation(tmp_path: Path) -> None:
         workflow_revision_id="wfrev_demo",
         payload={"portName": "bam", "stepId": "align"},
         content_hash="sha256:demo",
-        created_at="2026-06-07T10:00:03Z",
+        created_at="2099-06-07T10:00:03Z",
     )
 
     assert edge["subjectKind"] == "run"

@@ -41,7 +41,8 @@ def test_tool_registry_status_codes_live_on_domain_errors() -> None:
     assert "tool_route_status" not in local_errors
     assert "tool_production_status_code" not in local_errors
     assert "normalized.startswith(\"TOOL_PRODUCTION_\")" not in local_errors
-    assert "return _detail_response(exc.status_code, str(exc))" in remote_errors
+    assert "register_status_detail_exception_handlers(" in remote_errors
+    assert "ToolRegistryError," in remote_errors
 
     assert runtime_service_status_code("runner http error 409: TOOL_PRODUCTION_REQUIRES_WORKFLOW_READY") == 409
     assert runtime_service_status_code("runner http error 404: TOOL_NOT_FOUND") == 404

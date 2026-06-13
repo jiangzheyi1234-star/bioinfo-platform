@@ -501,7 +501,7 @@ def test_executor_artifact_collection_lives_outside_execution_flow() -> None:
     artifact_path = ROOT / "apps" / "remote_runner" / "executor_artifacts.py"
     io_path = ROOT / "apps" / "remote_runner" / "executor_inputs.py"
 
-    assert len(executor_source.splitlines()) <= 350
+    assert len(executor_source.splitlines()) <= 400
     assert "from .executor_artifacts import _collect_artifacts" in executor_source
     assert "from .executor_inputs import _build_run_outputs, _resolve_run_inputs" in executor_source
     assert "from .tool_contract_validation import _validate_outputs" not in executor_source

@@ -28,7 +28,7 @@ def test_prepare_validation_queue_skips_waiting_resource_jobs(monkeypatch) -> No
                             "stage": "waiting_resource",
                             "message": "Required database resource binding is missing.",
                             "errorCode": "RESOURCE_BINDING_MISSING",
-                            "updatedAt": "2026-06-07T00:00:00Z",
+                            "updatedAt": "2099-06-07T00:00:00Z",
                         }
                         for index, tool_id in enumerate(tool_ids)
                     }
@@ -88,7 +88,7 @@ def test_prepare_validation_queue_skips_waiting_resource_jobs(monkeypatch) -> No
         "stage": "waiting_resource",
         "message": "Required database resource binding is missing.",
         "errorCode": "RESOURCE_BINDING_MISSING",
-        "updatedAt": "2026-06-07T00:00:00Z",
+        "updatedAt": "2099-06-07T00:00:00Z",
         "resultState": "",
         "workflowReady": False,
         "productionEnabled": False,
@@ -122,7 +122,7 @@ def test_prepare_validation_queue_fills_batch_after_blocked_jobs(monkeypatch) ->
                             "stage": "dry_run",
                             "message": "Validating existing job.",
                             "errorCode": "",
-                            "updatedAt": "2026-06-07T00:00:00Z",
+                            "updatedAt": "2099-06-07T00:00:00Z",
                         }
                     }
                 }

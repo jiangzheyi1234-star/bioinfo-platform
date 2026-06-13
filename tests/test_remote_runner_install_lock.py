@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import time
 from pathlib import Path
+
+import pytest
 
 from core.remote_runner.install_lock import (
     _OWNER_LOCK_MIN_AGE_SECONDS,
@@ -58,6 +61,7 @@ def test_reclaim_stale_install_lock_uses_owner_created_at_without_runner_process
     assert "[c]onda-unpack" in command
 
 
+@pytest.mark.skipif(os.name == "nt", reason="remote install-lock reclaim shell uses POSIX bash heredoc")
 def test_reclaim_stale_install_lock_preserves_recent_owner_lock(tmp_path: Path) -> None:
     lock_dir = tmp_path / "install-test.lock"
     lock_dir.mkdir()
@@ -77,6 +81,7 @@ def test_reclaim_stale_install_lock_preserves_recent_owner_lock(tmp_path: Path) 
     assert lock_dir.exists()
 
 
+@pytest.mark.skipif(os.name == "nt", reason="remote install-lock reclaim shell uses POSIX bash heredoc")
 def test_reclaim_stale_install_lock_reclaims_old_owner_lock(tmp_path: Path) -> None:
     lock_dir = tmp_path / "install-test.lock"
     lock_dir.mkdir()

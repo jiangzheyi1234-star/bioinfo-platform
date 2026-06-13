@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from apps.api.response_cache import invalidate_response_cache
 from apps.api.route_utils import cached_runtime_payload, run_runtime_payload, runtime_service
 
 
@@ -20,6 +21,15 @@ async def get_run_from_request(run_id: str) -> dict[str, Any]:
         lambda: runtime_service().get_run(run_id),
         wrapper="raw",
     )
+
+
+async def cancel_run_from_request(run_id: str) -> dict[str, Any]:
+    result = await run_runtime_payload(
+        lambda: runtime_service().cancel_run(run_id),
+        wrapper="raw",
+    )
+    await invalidate_response_cache("runs", prefixes=(f"run_detail:{run_id}",))
+    return result
 
 
 async def get_run_events_from_request(run_id: str) -> dict[str, Any]:
