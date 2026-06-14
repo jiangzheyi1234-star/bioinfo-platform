@@ -210,6 +210,7 @@ def test_active_reconciler_detects_clock_jump(tmp_path):
         claim_next_run_job(
             cfg,
             worker_id=f"worker_{index}",
+            max_active_slots=3,
             now="2099-06-07T10:00:00Z",
             lease_seconds=10,
         )

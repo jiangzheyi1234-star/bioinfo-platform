@@ -87,6 +87,20 @@ def test_run_submit_request_accepts_pipeline_id_inside_run_spec() -> None:
     assert request.model_dump()["runSpec"]["workflowRevisionId"] == "wfrev_demo"
 
 
+def test_run_submit_request_accepts_explicit_execution_queue() -> None:
+    request = RunSubmitRequest.model_validate(
+        {
+            "serverId": "srv_demo",
+            "runSpec": {
+                "pipelineId": "file-summary-v1",
+                "execution": {"queueName": "short"},
+            },
+        }
+    )
+
+    assert request.model_dump()["runSpec"]["execution"] == {"queueName": "short"}
+
+
 def test_workflow_design_compile_request_is_strict() -> None:
     request = WorkflowDesignDraftCompileRequest.model_validate({"serverId": "srv_demo"})
 

@@ -16,6 +16,7 @@ from apps.remote_runner.run_execution_storage import (
     request_run_cancel,
     run_attempt_cancel_requested,
 )
+from apps.remote_runner.resource_pool import ResourceRequest
 from apps.remote_runner.storage import create_run_record
 from apps.remote_runner.storage_core import get_connection
 from tests.helpers.reference_database import make_configured_remote_runner
@@ -29,6 +30,14 @@ def _run_spec(run_id: str) -> dict[str, str]:
         "pipelineVersion": "0.1.0",
         "runSpecVersion": "2026-04-21",
     }
+
+
+def _queued_attempt_and_lease_counts(cfg, run_id: str) -> tuple[str, int, int]:
+    with get_connection(cfg) as connection:
+        job = connection.execute("SELECT state FROM run_jobs WHERE run_id = ?", (run_id,)).fetchone()
+        attempts = connection.execute("SELECT COUNT(*) AS count FROM run_attempts WHERE run_id = ?", (run_id,)).fetchone()
+        leases = connection.execute("SELECT COUNT(*) AS count FROM run_leases WHERE run_id = ?", (run_id,)).fetchone()
+    return str(job["state"]), int(attempts["count"]), int(leases["count"])
 
 
 def _reconcile_and_claim(cfg, *, worker_id: str, now: str):
@@ -122,6 +131,7 @@ def test_run_execution_storage_migrates_retry_timeout_and_publish_columns(tmp_pa
 
     assert {
         "queue_name",
+        "wait_reason_json",
         "attempt_count",
         "max_attempts",
         "retry_policy_json",
@@ -130,11 +140,24 @@ def test_run_execution_storage_migrates_retry_timeout_and_publish_columns(tmp_pa
     }.issubset(job_columns)
     assert {
         "attempt_number",
+        "session_id",
+        "slot_id",
         "process_pid",
         "cancel_requested_at",
         "killed_at",
         "output_adoption_state",
     }.issubset(attempt_columns)
+
+
+def test_sqlite_connections_enable_wal_and_busy_timeout(tmp_path):
+    cfg = make_configured_remote_runner(tmp_path)
+
+    with get_connection(cfg) as connection:
+        journal_mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
+        busy_timeout = connection.execute("PRAGMA busy_timeout").fetchone()[0]
+
+    assert str(journal_mode).lower() == "wal"
+    assert int(busy_timeout) >= 5000
 
 
 def test_claim_next_job_creates_attempt_with_current_lease_and_work_dir(tmp_path):
@@ -170,6 +193,125 @@ def test_claim_next_job_creates_attempt_with_current_lease_and_work_dir(tmp_path
         ).fetchone()
     assert job["state"] == "claimed"
     assert event["event_type"] == "run_attempt_claimed"
+
+
+def test_claim_next_job_filters_by_worker_queue_before_attempt_creation(tmp_path):
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_queue_a")
+    _create_run(cfg, "run_queue_b")
+    with get_connection(cfg) as connection:
+        connection.execute("UPDATE run_jobs SET queue_name = ? WHERE run_id = ?", ("queue_a", "run_queue_a"))
+        connection.execute("UPDATE run_jobs SET queue_name = ? WHERE run_id = ?", ("queue_b", "run_queue_b"))
+        connection.commit()
+
+    claim = claim_next_run_job(
+        cfg,
+        worker_id="worker_queue_a",
+        session_id="session_queue_a",
+        slot_id="slot-0",
+        queue_name="queue_a",
+        now="2099-06-07T10:00:00Z",
+        lease_seconds=30,
+    )
+
+    assert claim is not None
+    assert claim["runId"] == "run_queue_a"
+    assert claim["job"]["queueName"] == "queue_a"
+    assert claim["attempt"]["sessionId"] == "session_queue_a"
+    assert claim["attempt"]["slotId"] == "slot-0"
+    assert _queued_attempt_and_lease_counts(cfg, "run_queue_b") == ("queued", 0, 0)
+
+
+def test_admission_rejects_when_slot_or_resources_unavailable_before_lease(tmp_path):
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_admitted")
+    _create_run(cfg, "run_waiting")
+    first = claim_next_run_job(
+        cfg,
+        worker_id="worker_admission",
+        session_id="session_admission",
+        slot_id="slot-0",
+        queue_name="default",
+        resource_request=ResourceRequest(cpu=1),
+        resource_capacity=ResourceRequest(cpu=1),
+        max_active_slots=1,
+        now="2099-06-07T10:00:00Z",
+        lease_seconds=30,
+    )
+    second = claim_next_run_job(
+        cfg,
+        worker_id="worker_admission",
+        session_id="session_admission",
+        slot_id="slot-1",
+        queue_name="default",
+        resource_request=ResourceRequest(cpu=1),
+        resource_capacity=ResourceRequest(cpu=1),
+        max_active_slots=1,
+        now="2099-06-07T10:00:01Z",
+        lease_seconds=30,
+    )
+
+    assert first is not None
+    assert second is None
+    waiting_run_id = "run_waiting" if first["runId"] == "run_admitted" else "run_admitted"
+    assert _queued_attempt_and_lease_counts(cfg, waiting_run_id) == ("queued", 0, 0)
+    with get_connection(cfg) as connection:
+        wait_reason = connection.execute(
+            "SELECT wait_reason_json FROM run_jobs WHERE run_id = ?",
+            (waiting_run_id,),
+        ).fetchone()["wait_reason_json"]
+        allocation = connection.execute(
+            "SELECT state, attempt_id, slot_id, cpu FROM run_resource_allocations WHERE attempt_id = ?",
+            (first["attemptId"],),
+        ).fetchone()
+    assert "ADMISSION_SLOT_UNAVAILABLE" in wait_reason
+    assert dict(allocation) == {
+        "state": "allocated",
+        "attempt_id": first["attemptId"],
+        "slot_id": "slot-0",
+        "cpu": 1,
+    }
+
+
+def test_completion_releases_persistent_resource_allocation_idempotently(tmp_path):
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_release")
+    claim = claim_next_run_job(
+        cfg,
+        worker_id="worker_release",
+        session_id="session_release",
+        slot_id="slot-0",
+        resource_request=ResourceRequest(cpu=1),
+        resource_capacity=ResourceRequest(cpu=1),
+        now="2099-06-07T10:00:00Z",
+        lease_seconds=30,
+    )
+    assert claim is not None
+
+    complete_run_attempt(
+        cfg,
+        claim["attemptId"],
+        lease_generation=claim["leaseGeneration"],
+        state="succeeded",
+        exit_code=0,
+        now="2099-06-07T10:00:05Z",
+    )
+    complete_run_attempt(
+        cfg,
+        claim["attemptId"],
+        lease_generation=claim["leaseGeneration"],
+        state="succeeded",
+        exit_code=0,
+        now="2099-06-07T10:00:06Z",
+    )
+
+    with get_connection(cfg) as connection:
+        allocation = connection.execute(
+            "SELECT state, released_at FROM run_resource_allocations WHERE attempt_id = ?",
+            (claim["attemptId"],),
+        ).fetchone()
+    assert allocation["state"] == "released"
+    assert allocation["released_at"] == "2099-06-07T10:00:05Z"
 
 
 def test_two_workers_cannot_claim_same_unexpired_job(tmp_path):

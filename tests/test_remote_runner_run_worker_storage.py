@@ -6,7 +6,9 @@ from apps.remote_runner.run_execution_storage import claim_next_run_job
 from apps.remote_runner.run_worker_storage import (
     build_run_worker_health,
     heartbeat_run_worker,
+    heartbeat_run_worker_slot,
     mark_run_worker_stopped,
+    register_run_worker_slot,
     register_run_worker,
     request_run_worker_drain,
     run_worker_is_draining,
@@ -90,6 +92,7 @@ def test_run_worker_register_heartbeat_drain_and_stop_are_visible_in_health(tmp_
             "startedAt": "2099-06-07T10:00:00Z",
             "stoppedAt": None,
             "updatedAt": "2099-06-07T10:00:06Z",
+            "slots": [],
         }
     ]
 
@@ -103,6 +106,111 @@ def test_run_worker_register_heartbeat_drain_and_stop_are_visible_in_health(tmp_
     assert stopped["state"] == "stopped"
     assert stopped["currentAttemptId"] is None
     assert stopped["stoppedAt"] == "2099-06-07T10:00:09Z"
+
+
+def test_run_worker_rejects_stale_session_heartbeat(tmp_path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    register_run_worker(
+        cfg,
+        worker_id="worker-session",
+        session_id="session-old",
+        pid=111,
+        hostname="host",
+        now="2099-06-07T10:00:00Z",
+    )
+    register_run_worker(
+        cfg,
+        worker_id="worker-session",
+        session_id="session-new",
+        pid=222,
+        hostname="host",
+        now="2099-06-07T10:00:05Z",
+    )
+
+    stale = heartbeat_run_worker(
+        cfg,
+        worker_id="worker-session",
+        session_id="session-old",
+        state="running",
+        current_attempt_id="att_old",
+        now="2099-06-07T10:00:06Z",
+    )
+    current = build_run_worker_health(cfg, now="2099-06-07T10:00:07Z")["workers"][0]
+
+    assert stale == {"accepted": False, "reason": "stale_session", "currentSessionId": "session-new"}
+    assert current["sessionId"] == "session-new"
+    assert current["currentAttemptId"] is None
+
+
+def test_run_worker_slots_have_independent_state_and_stale_session_fencing(tmp_path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    register_run_worker(
+        cfg,
+        worker_id="worker-slots",
+        session_id="session-a",
+        pid=333,
+        hostname="host",
+        concurrency_limit=2,
+        now="2099-06-07T10:00:00Z",
+    )
+    register_run_worker_slot(
+        cfg,
+        worker_id="worker-slots",
+        session_id="session-a",
+        slot_id="slot-0",
+        now="2099-06-07T10:00:01Z",
+    )
+    register_run_worker_slot(
+        cfg,
+        worker_id="worker-slots",
+        session_id="session-a",
+        slot_id="slot-1",
+        now="2099-06-07T10:00:01Z",
+    )
+    heartbeat_run_worker_slot(
+        cfg,
+        worker_id="worker-slots",
+        session_id="session-a",
+        slot_id="slot-0",
+        state="running",
+        current_attempt_id="att_slot_0",
+        now="2099-06-07T10:00:02Z",
+    )
+    heartbeat_run_worker_slot(
+        cfg,
+        worker_id="worker-slots",
+        session_id="session-a",
+        slot_id="slot-1",
+        state="idle",
+        current_attempt_id=None,
+        now="2099-06-07T10:00:03Z",
+    )
+    register_run_worker(
+        cfg,
+        worker_id="worker-slots",
+        session_id="session-b",
+        pid=444,
+        hostname="host",
+        concurrency_limit=2,
+        now="2099-06-07T10:00:04Z",
+    )
+
+    stale = heartbeat_run_worker_slot(
+        cfg,
+        worker_id="worker-slots",
+        session_id="session-a",
+        slot_id="slot-0",
+        state="running",
+        current_attempt_id="att_stale",
+        now="2099-06-07T10:00:05Z",
+    )
+    health = build_run_worker_health(cfg, now="2099-06-07T10:00:06Z")
+
+    assert stale == {"accepted": False, "reason": "stale_session", "currentSessionId": "session-b"}
+    assert health["workers"][0]["sessionId"] == "session-b"
+    slots = {slot["slotId"]: slot for slot in health["workers"][0]["slots"]}
+    assert slots["slot-0"]["currentAttemptId"] is None
+    assert slots["slot-1"]["currentAttemptId"] is None
 
 
 def test_run_worker_health_reports_queue_depth_and_claimed_jobs(tmp_path) -> None:

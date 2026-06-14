@@ -22,6 +22,9 @@ def test_run_worker_supervisor_polls_until_stopped(monkeypatch) -> None:
         cfg,
         *,
         worker_id: str,
+        session_id: str,
+        slot_id: str,
+        queue_name: str,
         heartbeat_interval_seconds: float,
         on_attempt_claimed,
         on_attempt_finished,
@@ -30,6 +33,9 @@ def test_run_worker_supervisor_polls_until_stopped(monkeypatch) -> None:
             {
                 "cfg": cfg,
                 "workerId": worker_id,
+                "sessionId": session_id,
+                "slotId": slot_id,
+                "queueName": queue_name,
                 "heartbeatIntervalSeconds": heartbeat_interval_seconds,
                 "hasAttemptClaimedCallback": callable(on_attempt_claimed),
                 "hasAttemptFinishedCallback": callable(on_attempt_finished),
@@ -38,6 +44,7 @@ def test_run_worker_supervisor_polls_until_stopped(monkeypatch) -> None:
         return {"claimed": False}
 
     monkeypatch.setattr(worker_supervisor, "register_run_worker", lambda _cfg, **kwargs: registrations.append(kwargs))
+    monkeypatch.setattr(worker_supervisor, "register_run_worker_slot", lambda _cfg, **_kwargs: {})
     monkeypatch.setattr(worker_supervisor, "heartbeat_run_worker", lambda _cfg, **kwargs: heartbeats.append(kwargs))
     monkeypatch.setattr(worker_supervisor, "mark_run_worker_stopped", lambda _cfg, **kwargs: stopped.append(kwargs))
     monkeypatch.setattr(worker_supervisor, "run_worker_is_draining", lambda _cfg, _worker_id: False)
@@ -67,6 +74,9 @@ def test_run_worker_supervisor_polls_until_stopped(monkeypatch) -> None:
     assert calls[0] == {
         "cfg": cfg,
         "workerId": "worker_test",
+        "sessionId": registrations[0]["session_id"],
+        "slotId": "slot-0",
+        "queueName": "default",
         "heartbeatIntervalSeconds": 0.02,
         "hasAttemptClaimedCallback": True,
         "hasAttemptFinishedCallback": True,
@@ -84,6 +94,7 @@ def test_run_worker_supervisor_drain_skips_new_claims(monkeypatch) -> None:
     reconciliations: list[Any] = []
 
     monkeypatch.setattr(worker_supervisor, "register_run_worker", lambda _cfg, **_kwargs: {})
+    monkeypatch.setattr(worker_supervisor, "register_run_worker_slot", lambda _cfg, **_kwargs: {})
     monkeypatch.setattr(worker_supervisor, "heartbeat_run_worker", lambda _cfg, **kwargs: heartbeats.append(kwargs))
     monkeypatch.setattr(worker_supervisor, "mark_run_worker_stopped", lambda _cfg, **_kwargs: {})
     monkeypatch.setattr(worker_supervisor, "run_worker_is_draining", lambda _cfg, _worker_id: True)
