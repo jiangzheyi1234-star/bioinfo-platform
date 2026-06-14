@@ -126,6 +126,19 @@ uv run python scripts\check_release_manifest_traceability.py --release-tag h2ome
 uv run python scripts\check_remote_runner_release_artifacts.py --require-supply-chain
 ```
 
+For a local staging control-plane tarball that has not been promoted into the release manifest, start the Local API/Web launcher with an explicit staging gate before running destructive acceptance:
+
+```bat
+cd /d E:\code\bio_ui
+set H2OMETA_UV_CACHE_DIR=E:\code\bio_ui\.uv-cache-local
+set H2OMETA_ARTIFACT_CACHE_DIR=E:\code\bio_ui\.tmp\artifact-cache
+set H2OMETA_ALLOW_STAGING_REMOTE_RUNNER_BUNDLE=1
+set H2OMETA_REMOTE_RUNNER_BUNDLE=E:\code\bio_ui\resources\remote-runner\h2ometa-remote-runner-0.1.1-control-plane-linux-64.tar.gz
+run.bat --web
+```
+
+Run the release gate from a Windows PowerShell with the same `H2OMETA_REMOTE_RUNNER_BUNDLE` value. Without the explicit staging gate, Local API bootstrap must continue to reject tarballs whose digest does not match `config/remote-runner-release-manifest.json`.
+
 ## Dev/Staging Control Plane Build
 
 Build the Linux remote runner control-plane artifact from a real Windows PowerShell or `cmd.exe` session, not WSL. This path is for development, staging, offline repair, and emergency bootstrap validation. The script uploads release sources to a remote Linux temporary directory, builds a clean bundled Python runtime there, packages the source and runtime together, downloads the artifact into `resources\remote-runner`, and writes its `.sha256`.
@@ -255,6 +268,14 @@ After artifact preflight is green, validate the real path from Windows:
 uv run python skills\h2ometa-remote-smoke-test\scripts\remote_smoke.py --bootstrap
 uv run python skills\h2ometa-remote-smoke-test\scripts\remote_pipeline_smoke.py
 ```
+
+For execution control-plane policy changes, also run the real policy gate:
+
+```powershell
+uv run python scripts\remote_execution_policy_acceptance.py --allow-policy-restart
+```
+
+This policy acceptance restarts the remote runner, sends one controlled SIGKILL for heartbeat/retry recovery, proves retry `availableAt` backoff, proves `ATTEMPT_TIMEOUT` start-to-close fencing, proves `QUEUE_TTL_EXCEEDED` while a second slot waits on resource admission, and restores the single-slot production default before completion.
 
 Run focused pytest from Windows with the Windows-owned environment and isolated app-data roots. Use WSL/Linux pytest only when Linux parity is explicitly required:
 

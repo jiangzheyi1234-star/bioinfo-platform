@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from core.remote_runner.artifact_io import (
@@ -60,7 +61,7 @@ class RemoteRunnerArtifactProvider:
             platform=platform,
             archive_path=archive_path,
             repo_root=self._repo_root,
-        ):
+        ) and not _explicit_staging_runner_bundle_allowed(archive_path):
             verify_declared_artifact_metadata(
                 REMOTE_RUNNER_ARTIFACT,
                 platform=platform,
@@ -86,6 +87,19 @@ class RemoteRunnerArtifactProvider:
             sha256=actual,
             manifest=manifest,
         )
+
+
+def _explicit_staging_runner_bundle_allowed(archive_path: Path) -> bool:
+    allowed = str(os.environ.get("H2OMETA_ALLOW_STAGING_REMOTE_RUNNER_BUNDLE", "") or "").strip().lower()
+    if allowed not in {"1", "true", "yes", "on"}:
+        return False
+    explicit = str(os.environ.get(REMOTE_RUNNER_ARTIFACT.bundle_env_var, "") or "").strip()
+    if not explicit:
+        return False
+    try:
+        return Path(explicit).resolve() == archive_path.resolve()
+    except OSError:
+        return False
 
 
 class WorkflowRuntimeArtifactProvider:

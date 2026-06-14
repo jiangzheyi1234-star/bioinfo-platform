@@ -347,7 +347,12 @@ call :prepare_windows_uv_environment
 if errorlevel 1 exit /b 1
 
 set "ARTIFACT_ENV_FILE=%TEMP%\h2ometa-release-artifacts-%RANDOM%-%RANDOM%.cmd"
-call uv run --frozen python "%REPO_ROOT%\scripts\check_remote_runner_release_artifacts.py" --cmd-env > "%ARTIFACT_ENV_FILE%"
+set "ARTIFACT_CHECK_ARGS=--cmd-env"
+if "%H2OMETA_ALLOW_STAGING_REMOTE_RUNNER_BUNDLE%"=="1" (
+    echo [WARN] Allowing explicit staging remote runner bundle for local acceptance.
+    set "ARTIFACT_CHECK_ARGS=%ARTIFACT_CHECK_ARGS% --allow-staging-runner-bundle"
+)
+call uv run --frozen python "%REPO_ROOT%\scripts\check_remote_runner_release_artifacts.py" %ARTIFACT_CHECK_ARGS% > "%ARTIFACT_ENV_FILE%"
 if errorlevel 1 (
     if exist "%ARTIFACT_ENV_FILE%" del "%ARTIFACT_ENV_FILE%" >nul 2>nul
     echo [ERROR] Manifest-declared release artifacts could not be resolved or verified.

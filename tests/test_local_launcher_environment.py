@@ -34,7 +34,9 @@ def test_root_launcher_uses_shared_release_artifact_resolver() -> None:
     run_bat = (REPO_ROOT / "run.bat").read_text(encoding="utf-8")
     resolver = (REPO_ROOT / "scripts" / "check_remote_runner_release_artifacts.py").read_text(encoding="utf-8")
 
-    assert 'scripts\\check_remote_runner_release_artifacts.py" --cmd-env' in run_bat
+    assert 'set "ARTIFACT_CHECK_ARGS=--cmd-env"' in run_bat
+    assert 'scripts\\check_remote_runner_release_artifacts.py" %ARTIFACT_CHECK_ARGS%' in run_bat
+    assert "--allow-staging-runner-bundle" in run_bat
     assert ":resolve_release_artifact" not in run_bat
     assert "ConvertFrom-Json" not in run_bat
     assert "RemoteRunnerArtifactProvider" in resolver
@@ -42,6 +44,7 @@ def test_root_launcher_uses_shared_release_artifact_resolver() -> None:
     assert '"--cmd-env"' in resolver
     assert 'set "{name}={value}"' in resolver
     assert "--require-supply-chain" in resolver
+    assert "--allow-staging-runner-bundle" in resolver
     assert 'scripts\\check_remote_runner_release_artifacts.py" --cmd-env --require-supply-chain' not in run_bat
 
 

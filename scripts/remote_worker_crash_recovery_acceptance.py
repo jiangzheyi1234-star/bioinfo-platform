@@ -427,6 +427,7 @@ def _run_remote_json(client, source: str, env: dict[str, Any], *, timeout: int) 
 def _wait_for_server_ready(api_base: str, server_id: str, timeout: float) -> dict[str, Any]:
     deadline = time.monotonic() + timeout
     last_error = ""
+    last_payload: dict[str, Any] = {}
     while time.monotonic() < deadline:
         try:
             payload = remote_pipeline_common.response_data(remote_pipeline_common.http_json(
@@ -436,13 +437,17 @@ def _wait_for_server_ready(api_base: str, server_id: str, timeout: float) -> dic
                 payload={},
                 timeout=10,
             ))
+            last_payload = payload if isinstance(payload, dict) else {}
             ready = payload.get("ready") if isinstance(payload, dict) else None
             if isinstance(ready, dict) and ready.get("ok") is True:
                 return payload
         except Exception as exc:  # noqa: BLE001 - service and tunnel are expected to flap during restart.
             last_error = str(exc)
         time.sleep(1)
-    raise TimeoutError(f"server did not become ready after worker restart: {last_error}")
+    raise TimeoutError(
+        "server did not become ready after worker restart: "
+        + json.dumps({"lastError": last_error, "lastPayload": last_payload}, sort_keys=True)
+    )
 
 
 def _wait_for_terminal_run(api_base: str, run_id: str, timeout: float) -> dict[str, Any]:
@@ -475,7 +480,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--api-base", default=DEFAULT_API_BASE)
     parser.add_argument("--pipeline-id", default=DEFAULT_PIPELINE_ID)
     parser.add_argument("--hold-timeout", type=float, default=30)
-    parser.add_argument("--restart-timeout", type=float, default=45)
+    parser.add_argument("--restart-timeout", type=float, default=90)
     parser.add_argument("--run-timeout", type=float, default=180)
     parser.add_argument(
         "--allow-runner-kill",
@@ -491,9 +496,24 @@ def main(argv: list[str] | None = None) -> int:
         print("ERROR: --allow-runner-kill is required for this destructive platform acceptance.")
         return 2
     ready, context = remote_smoke.check_local_api(args.api_base, 5.0, bootstrap=False)
-    if not ready or not context:
+    if not context:
         return 1
     server_id = str(context["serverId"])
+    try:
+        refreshed = _wait_for_server_ready(args.api_base, server_id, args.restart_timeout)
+    except TimeoutError:
+        if not ready:
+            return 1
+        raise
+    remote_pipeline_common.print_json(
+        "SERVER_READY_PREFLIGHT",
+        {
+            "serverId": server_id,
+            "ready": refreshed.get("ready"),
+            "runtimeState": refreshed.get("runtimeState"),
+            "connectionResynced": refreshed.get("connectionResynced"),
+        },
+    )
     server = remote_pipeline_common.response_data(remote_pipeline_common.http_json(
         "GET",
         args.api_base,

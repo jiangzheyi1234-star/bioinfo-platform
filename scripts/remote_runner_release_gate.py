@@ -6,24 +6,49 @@ from __future__ import annotations
 import argparse
 from datetime import UTC, datetime
 import json
+import os
 import subprocess
 import sys
+import tarfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from core.remote_runner.artifact_io import read_expected_sha256, sha256_file  # noqa: E402
+
+for stream in (sys.stdout, sys.stderr):
+    if hasattr(stream, "reconfigure"):
+        stream.reconfigure(encoding="utf-8", errors="replace")
 
 
 EVIDENCE_LABELS = {
     "ACCEPTANCE_SUMMARY",
     "CONCURRENCY_EVIDENCE",
+    "POLICY_ACCEPTANCE_SUMMARY",
+    "POLICY_ATTEMPT_TIMEOUT_EVIDENCE",
+    "POLICY_BACKOFF_EVIDENCE",
+    "POLICY_PREFLIGHT",
+    "POLICY_QUEUE_TTL_EVIDENCE",
     "POST_ACCEPTANCE_INVARIANTS",
+    "POST_POLICY_INVARIANTS",
     "RECOVERY_EVIDENCE",
     "RESOURCE_WAIT_EVIDENCE",
     "RESULT",
     "RUNNER_READY",
+    "SERVER_READY_PREFLIGHT",
+}
+
+REQUIRED_BUNDLE_MARKERS = {
+    "remote_runner/worker_resource_config.py": "",
+    "remote_runner/executor_outcomes.py": "RUN_CANCELLED",
+    "remote_runner/execution_policy.py": "attempt_start_to_close_exceeded",
+    "remote_runner/worker_supervisor.py": "H2OMETA_REMOTE_ENABLE_MULTI_SLOT",
+    "remote_runner/reconciler_actions.py": "expire_queued_jobs_over_ttl",
 }
 
 
@@ -49,6 +74,16 @@ def build_steps(*, allow_two_slot: bool, allow_runner_kill: bool) -> list[GateSt
                 sys.executable,
                 str(REPO_ROOT / "scripts" / "remote_worker_crash_recovery_acceptance.py"),
                 "--allow-runner-kill",
+                "--restart-timeout",
+                "90",
+            ],
+        ),
+        GateStep(
+            name="execution-policy-acceptance",
+            command=[
+                sys.executable,
+                str(REPO_ROOT / "scripts" / "remote_execution_policy_acceptance.py"),
+                "--allow-policy-restart",
             ],
         ),
     ]
@@ -149,6 +184,11 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         print(f"ERROR: {exc}")
         return 2
+    try:
+        _validate_release_bundle_env()
+    except ValueError as exc:
+        print(f"ERROR: {exc}")
+        return 2
 
     results = []
     for step in steps:
@@ -190,6 +230,45 @@ def _write_evidence_json(path: Path | None, summary: dict[str, object]) -> None:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _validate_release_bundle_env() -> Path:
+    raw = str(os.environ.get("H2OMETA_REMOTE_RUNNER_BUNDLE", "") or "").strip()
+    if not raw:
+        raise ValueError(
+            "H2OMETA_REMOTE_RUNNER_BUNDLE must point to the staged remote-runner artifact "
+            "so Local API health refresh cannot redeploy the manifest default artifact"
+        )
+    artifact = Path(raw).resolve()
+    checksum = Path(str(artifact) + ".sha256")
+    if not artifact.is_file():
+        raise ValueError(f"H2OMETA_REMOTE_RUNNER_BUNDLE artifact not found: {artifact}")
+    if not checksum.is_file():
+        raise ValueError(f"H2OMETA_REMOTE_RUNNER_BUNDLE checksum not found: {checksum}")
+    expected = read_expected_sha256(checksum)
+    actual = sha256_file(artifact)
+    if actual != expected:
+        raise ValueError(f"H2OMETA_REMOTE_RUNNER_BUNDLE sha256 mismatch: {artifact}")
+    with tarfile.open(artifact, "r:gz") as archive:
+        members = {member.name.strip("./"): member for member in archive.getmembers()}
+        missing = [name for name in REQUIRED_BUNDLE_MARKERS if name not in members]
+        if missing:
+            raise ValueError("H2OMETA_REMOTE_RUNNER_BUNDLE missing required members: " + ", ".join(missing))
+        for name, marker in REQUIRED_BUNDLE_MARKERS.items():
+            if not marker:
+                continue
+            handle = archive.extractfile(members[name])
+            if handle is None:
+                raise ValueError(f"H2OMETA_REMOTE_RUNNER_BUNDLE member unreadable: {name}")
+            text = handle.read().decode("utf-8", errors="replace")
+            if marker not in text:
+                raise ValueError(f"H2OMETA_REMOTE_RUNNER_BUNDLE member {name} missing marker: {marker}")
+    print(
+        "RELEASE_GATE_BUNDLE: "
+        + json.dumps({"path": str(artifact), "sha256": actual, "markers": sorted(REQUIRED_BUNDLE_MARKERS)}, sort_keys=True),
+        flush=True,
+    )
+    return artifact
 
 
 def _source_commit() -> str:

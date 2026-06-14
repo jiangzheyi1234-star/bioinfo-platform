@@ -204,6 +204,7 @@ def configure_worker(*, slots, total_cpu, enable_multi_slot=True):
         )
     subprocess.run(["systemctl", "--user", "restart", "h2ometa-remote.service"], check=True)
     wait_ready()
+    wait_worker_config(slots=slots)
 
 
 def current_worker_state():
@@ -225,6 +226,23 @@ def current_worker_state():
         """
     )
     return {"workers": workers, "slots": slots}
+
+
+def wait_worker_config(*, slots, timeout=45):
+    deadline = time.monotonic() + timeout
+    last = {}
+    while time.monotonic() < deadline:
+        state = current_worker_state()
+        last = state
+        if (
+            len(state["workers"]) == 1
+            and int(state["workers"][0].get("concurrency_limit") or 0) == int(slots)
+            and len(state["slots"]) == int(slots)
+            and all(slot.get("session_id") == state["workers"][0].get("session_id") for slot in state["slots"])
+        ):
+            return state
+        time.sleep(0.5)
+    raise TimeoutError(json.dumps({"expectedSlots": int(slots), "lastWorkerState": last}, sort_keys=True))
 
 
 def restore_worker_default():

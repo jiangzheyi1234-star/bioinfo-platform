@@ -82,13 +82,16 @@ uv run python scripts\check_remote_runner_release_artifacts.py --require-supply-
 For runtime releases that change remote-runner execution control-plane behavior, the required staged acceptance gate is:
 
 ```powershell
+$env:H2OMETA_REMOTE_RUNNER_BUNDLE = "E:\code\bio_ui\resources\remote-runner\h2ometa-remote-runner-0.1.1-control-plane-linux-64.tar.gz"
 uv run python scripts\remote_runner_release_gate.py `
   --allow-two-slot `
   --allow-runner-kill `
   --evidence-json dist\remote-runner\release-gate-evidence.json
 ```
 
-This gate temporarily enables the P0-3B two-slot worker mode, runs real Snakemake concurrency/cancel/resource-wait acceptance, runs worker crash/restart recovery acceptance, verifies closed-loop recovery evidence from the control-plane event ledger, verifies retry backoff policy evidence on recovery requeue events, writes machine-readable release evidence, and must restore the remote runner to the single-slot production default before completion.
+For a local staging artifact that has not been promoted into `config/remote-runner-release-manifest.json`, start `run.bat --web` with `H2OMETA_ALLOW_STAGING_REMOTE_RUNNER_BUNDLE=1`, `H2OMETA_REMOTE_RUNNER_BUNDLE` pointing at the staged tarball, and a writable `H2OMETA_ARTIFACT_CACHE_DIR`. The launcher and gate still validate the tarball sidecar checksum and runtime markers, but the explicit staging gate prevents Local API bootstrap from silently replacing the staged runner with the manifest-declared production artifact.
+
+This gate temporarily enables the P0-3B two-slot worker mode, runs real Snakemake concurrency/cancel/resource-wait acceptance, runs worker crash/restart recovery acceptance, runs execution policy acceptance for retry backoff, heartbeat timeout, start-to-close timeout, and queue TTL resource-wait behavior, verifies closed-loop recovery evidence from the control-plane event ledger, writes machine-readable release evidence, and must restore the remote runner to the single-slot production default before completion.
 
 ## Traceability Requirements
 

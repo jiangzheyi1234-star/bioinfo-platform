@@ -39,6 +39,7 @@ These scripts under this skill are the official entrypoints:
 - `python skills/h2ometa-remote-smoke-test/scripts/remote_pipeline_smoke.py`
 - `python skills/h2ometa-remote-smoke-test/scripts/remote_worker_crash_recovery_acceptance.py`
 - `uv run python scripts\remote_two_slot_acceptance.py --allow-two-slot`
+- `uv run python scripts\remote_execution_policy_acceptance.py --allow-policy-restart`
 - `uv run python scripts\remote_runner_release_gate.py --allow-two-slot --allow-runner-kill --evidence-json dist\remote-runner\release-gate-evidence.json`
 - `python skills/h2ometa-remote-smoke-test/scripts/remote_pipeline_database_binding_smoke.py`
 - `python skills/h2ometa-remote-smoke-test/scripts/remote_real_database_acceptance.py --rerun-check`
@@ -49,6 +50,20 @@ When a real smoke requires the Local API, start it first:
 cd /d E:\code\bio_ui
 run.bat --web
 ```
+
+When validating a local staging remote-runner tarball whose SHA has not been promoted into
+`config/remote-runner-release-manifest.json`, start the Local API with the explicit staging gate:
+
+```bat
+cd /d E:\code\bio_ui
+set H2OMETA_ARTIFACT_CACHE_DIR=E:\code\bio_ui\.tmp\artifact-cache
+set H2OMETA_ALLOW_STAGING_REMOTE_RUNNER_BUNDLE=1
+set H2OMETA_REMOTE_RUNNER_BUNDLE=E:\code\bio_ui\resources\remote-runner\h2ometa-remote-runner-0.1.1-control-plane-linux-64.tar.gz
+run.bat --web
+```
+
+Also set the same `H2OMETA_REMOTE_RUNNER_BUNDLE` in the shell that runs
+`scripts\remote_runner_release_gate.py`; the gate refuses to run without it.
 
 Then verify the API:
 
@@ -65,7 +80,8 @@ Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 8765 -State Listen
 - Minimal end-to-end pipeline path: use `skills/h2ometa-remote-smoke-test/scripts/remote_pipeline_smoke.py`
 - Destructive P0-1 worker crash/restart acceptance: use `skills/h2ometa-remote-smoke-test/scripts/remote_worker_crash_recovery_acceptance.py --allow-runner-kill` only on an idle `systemd_user` runner after verifying the deployed release contains the current P0-1 code.
 - Real P0-3B 2-slot Snakemake acceptance: use `scripts/remote_two_slot_acceptance.py --allow-two-slot`; it directly probes the remote runner over SSH, temporarily enables the multi-slot gate, and must restore the production default single slot before exiting.
-- Runtime release gate after staging a runner that changes execution control-plane behavior: use `scripts/remote_runner_release_gate.py --allow-two-slot --allow-runner-kill --evidence-json dist\remote-runner\release-gate-evidence.json`; it runs the real 2-slot Snakemake gate and the worker crash/restart gate in sequence, then writes machine-readable evidence.
+- Real execution policy acceptance: use `scripts/remote_execution_policy_acceptance.py --allow-policy-restart`; it directly probes the remote runner over SSH, temporarily restarts the worker, sends one controlled SIGKILL, proves retry backoff, heartbeat timeout, start-to-close timeout, and queue TTL resource-wait evidence, and must restore the production default single slot before exiting.
+- Runtime release gate after staging a runner that changes execution control-plane behavior: use `scripts/remote_runner_release_gate.py --allow-two-slot --allow-runner-kill --evidence-json dist\remote-runner\release-gate-evidence.json`; it runs the real 2-slot Snakemake gate, worker crash/restart gate, and execution policy gate in sequence, then writes machine-readable evidence.
 - Normal Snakemake pipeline database binding: use `skills/h2ometa-remote-smoke-test/scripts/remote_pipeline_database_binding_smoke.py`
 - Real production database acceptance: use `skills/h2ometa-remote-smoke-test/scripts/remote_real_database_acceptance.py`
 - Additional generated-tool, linear-workflow, or database smoke helpers: use the matching script in `skills/h2ometa-remote-smoke-test/scripts/` only after the control-plane smoke is green

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import hashlib
+import os
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -16,10 +17,16 @@ from core.remote_runner.artifact import (  # noqa: E402
     RemoteRunnerArtifactProvider,
     WorkflowRuntimeArtifactProvider,
 )
+from core.remote_runner.artifact_io import read_expected_sha256, read_manifest  # noqa: E402
+from core.remote_runner.artifact_models import RemoteRunnerArtifact  # noqa: E402
 from core.remote_runner.artifact_diagnostics import supply_chain_metadata  # noqa: E402
 from core.remote_runner.release_manifest import (  # noqa: E402
     REMOTE_RUNNER_ARTIFACT,
     WORKFLOW_RUNTIME_ARTIFACT,
+)
+from core.remote_runner.remote_runner_artifact_validation import (  # noqa: E402
+    verify_bundled_runtime_entrypoints,
+    verify_required_wrapper_assets,
 )
 
 
@@ -56,6 +63,14 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "Use this for production release validation, not routine local launcher startup."
         ),
     )
+    parser.add_argument(
+        "--allow-staging-runner-bundle",
+        action="store_true",
+        help=(
+            "Allow H2OMETA_REMOTE_RUNNER_BUNDLE to point at a local staging artifact whose sidecar "
+            "checksum is valid but whose sha256 has not been promoted into the release manifest."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -87,16 +102,52 @@ def _verify_supply_chain(spec, *, platform: str) -> dict[str, object]:
     return metadata
 
 
+def _resolve_staging_runner_bundle() -> RemoteRunnerArtifact:
+    raw = str(os.environ.get("H2OMETA_REMOTE_RUNNER_BUNDLE", "") or "").strip()
+    if not raw:
+        raise RemoteRunnerArtifactError("--allow-staging-runner-bundle requires H2OMETA_REMOTE_RUNNER_BUNDLE")
+    archive_path = Path(raw).resolve()
+    checksum_path = Path(str(archive_path) + ".sha256")
+    if not archive_path.is_file():
+        raise RemoteRunnerArtifactError(f"staging remote runner artifact not found: {archive_path}")
+    if not checksum_path.is_file():
+        raise RemoteRunnerArtifactError(f"staging remote runner checksum not found: {checksum_path}")
+    expected = read_expected_sha256(checksum_path)
+    actual = _sha256_file(archive_path)
+    if actual != expected:
+        raise RemoteRunnerArtifactError(f"staging remote runner artifact sha256 mismatch: {archive_path}")
+    manifest = read_manifest(archive_path)
+    platform = str(manifest.get("platform") or "")
+    if str(manifest.get("service") or "") != REMOTE_RUNNER_ARTIFACT.service:
+        raise RemoteRunnerArtifactError(f"staging remote runner artifact manifest has unexpected service: {archive_path}")
+    if str(manifest.get("version") or "") != REMOTE_RUNNER_ARTIFACT.version:
+        raise RemoteRunnerArtifactError(f"staging remote runner artifact manifest version mismatch: {archive_path}")
+    if platform != REMOTE_RUNNER_ARTIFACT.default_platform:
+        raise RemoteRunnerArtifactError(f"staging remote runner artifact platform mismatch: {archive_path}")
+    verify_bundled_runtime_entrypoints(archive_path)
+    verify_required_wrapper_assets(archive_path)
+    return RemoteRunnerArtifact(
+        version=REMOTE_RUNNER_ARTIFACT.version,
+        platform=platform,
+        archive_path=archive_path,
+        sha256=actual,
+        manifest=manifest,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     try:
         if args.require_supply_chain:
             _verify_supply_chain(REMOTE_RUNNER_ARTIFACT, platform=REMOTE_RUNNER_ARTIFACT.default_platform)
             _verify_supply_chain(WORKFLOW_RUNTIME_ARTIFACT, platform=WORKFLOW_RUNTIME_ARTIFACT.default_platform)
-        runner = RemoteRunnerArtifactProvider(repo_root=REPO_ROOT).resolve(
-            version=REMOTE_RUNNER_ARTIFACT.version,
-            platform=REMOTE_RUNNER_ARTIFACT.default_platform,
-        )
+        if args.allow_staging_runner_bundle:
+            runner = _resolve_staging_runner_bundle()
+        else:
+            runner = RemoteRunnerArtifactProvider(repo_root=REPO_ROOT).resolve(
+                version=REMOTE_RUNNER_ARTIFACT.version,
+                platform=REMOTE_RUNNER_ARTIFACT.default_platform,
+            )
         workflow = WorkflowRuntimeArtifactProvider(repo_root=REPO_ROOT).resolve(
             version=WORKFLOW_RUNTIME_ARTIFACT.version,
             platform=WORKFLOW_RUNTIME_ARTIFACT.default_platform,

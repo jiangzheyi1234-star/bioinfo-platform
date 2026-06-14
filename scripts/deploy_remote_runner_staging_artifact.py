@@ -83,16 +83,20 @@ def validate_staging_artifact(artifact: Path) -> dict[str, Any]:
     executor_artifacts = _archive_text(artifact, "remote_runner/executor_artifacts.py")
     reconciler = _archive_text(artifact, "remote_runner/reconciler.py")
     actions = _archive_text(artifact, "remote_runner/reconciler_actions.py")
+    archive_members = {item.name.strip("./") for item in tarfile.open(artifact, "r:gz").getmembers()}
     markers = {
         "candidateAdoption": "adopt_verified_candidate_outputs" in executor_artifacts,
         "activeReconciler": "run_active_reconciler_once" in reconciler,
         "sigkillEscalation": "signal.SIGKILL" in actions,
-        "runWorkerResourceConfig": "remote_runner/worker_resource_config.py" in {
-            item.name.strip("./") for item in tarfile.open(artifact, "r:gz").getmembers()
-        },
+        "runWorkerResourceConfig": "remote_runner/worker_resource_config.py" in archive_members,
         "multiSlotGate": "H2OMETA_REMOTE_ENABLE_MULTI_SLOT"
         in _archive_text(artifact, "remote_runner/worker_supervisor.py"),
-        "cancelResultMapping": "RUN_CANCELLED" in _archive_text(artifact, "remote_runner/executor.py"),
+        "cancelResultMapping": "RUN_CANCELLED" in _archive_text(artifact, "remote_runner/executor_outcomes.py"),
+        "executionPolicy": (
+            "remote_runner/execution_policy.py" in archive_members
+            and "attempt_start_to_close_exceeded" in _archive_text(artifact, "remote_runner/execution_policy.py")
+            and "expire_queued_jobs_over_ttl" in actions
+        ),
     }
     missing = [key for key, present in markers.items() if not present]
     if missing:
@@ -147,7 +151,10 @@ grep -q 'run_active_reconciler_once' "$STAGE/remote_runner/reconciler.py"
 grep -q 'signal.SIGKILL' "$STAGE/remote_runner/reconciler_actions.py"
 test -f "$STAGE/remote_runner/worker_resource_config.py"
 grep -q 'H2OMETA_REMOTE_ENABLE_MULTI_SLOT' "$STAGE/remote_runner/worker_supervisor.py"
-grep -q 'RUN_CANCELLED' "$STAGE/remote_runner/executor.py"
+grep -q 'RUN_CANCELLED' "$STAGE/remote_runner/executor_outcomes.py"
+test -f "$STAGE/remote_runner/execution_policy.py"
+grep -q 'attempt_start_to_close_exceeded' "$STAGE/remote_runner/execution_policy.py"
+grep -q 'expire_queued_jobs_over_ttl' "$STAGE/remote_runner/reconciler_actions.py"
 chmod +x "$STAGE"/*.sh
 
 systemctl --user stop h2ometa-remote.service
