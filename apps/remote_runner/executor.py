@@ -183,6 +183,17 @@ def _execute_snakemake_workflow(
         append_log_lines(cfg, run_id, "stdout", [line for line in dry_run.stdout.splitlines() if line])
         append_log_lines(cfg, run_id, "stderr", [line for line in dry_run.stderr.splitlines() if line])
         if dry_run.returncode != 0:
+            if should_cancel_attempt is not None and should_cancel_attempt():
+                _mark_cancelled(
+                    cfg,
+                    run_id=run_id,
+                    request_id=request_id,
+                    stderr=dry_run.stderr,
+                    result_dir=str(result_dir),
+                    attempt_id=attempt_id,
+                    lease_generation=lease_generation,
+                )
+                return
             _mark_failed(
                 cfg,
                 run_id=run_id,
@@ -216,6 +227,17 @@ def _execute_snakemake_workflow(
         append_log_lines(cfg, run_id, "stdout", [line for line in run_result.stdout.splitlines() if line])
         append_log_lines(cfg, run_id, "stderr", [line for line in run_result.stderr.splitlines() if line])
         if run_result.returncode != 0:
+            if should_cancel_attempt is not None and should_cancel_attempt():
+                _mark_cancelled(
+                    cfg,
+                    run_id=run_id,
+                    request_id=request_id,
+                    stderr=run_result.stderr,
+                    result_dir=str(result_dir),
+                    attempt_id=attempt_id,
+                    lease_generation=lease_generation,
+                )
+                return
             _mark_failed(
                 cfg,
                 run_id=run_id,
@@ -387,5 +409,36 @@ def _mark_failed(
             "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "scope": scope,
             "stage": scope,
+        },
+    )
+
+
+def _mark_cancelled(
+    cfg: RemoteRunnerConfig,
+    *,
+    run_id: str,
+    request_id: str,
+    stderr: str,
+    result_dir: str = "",
+    attempt_id: str | None = None,
+    lease_generation: int | None = None,
+) -> None:
+    update_run_state(
+        cfg,
+        run_id=run_id,
+        status="canceled",
+        stage="cancel",
+        message="Run execution cancelled.",
+        request_id=request_id,
+        result_dir=result_dir,
+        attempt_id=attempt_id,
+        lease_generation=lease_generation,
+        last_error={
+            "code": "RUN_CANCELLED",
+            "message": stderr.strip() or "Run execution cancelled.",
+            "requestId": request_id,
+            "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "scope": "workflow",
+            "stage": "cancel",
         },
     )

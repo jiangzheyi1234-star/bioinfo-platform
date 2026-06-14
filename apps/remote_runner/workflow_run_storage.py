@@ -209,7 +209,7 @@ def update_run_state(
             raise StaleRunAttemptError("RUN_ATTEMPT_STALE")
         next_state_version = int(existing["state_version"]) + 1
         started_at = existing["started_at"] or now_iso()
-        finished_at = now_iso() if status in {"completed", "failed"} else None
+        finished_at = now_iso() if status in {"completed", "failed", "canceled", "cancelled"} else None
         last_updated_at = now_iso()
         connection.execute(
             """

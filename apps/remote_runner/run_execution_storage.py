@@ -528,7 +528,7 @@ def complete_run_attempt(
             """,
             (normalized_state, finished_at, exit_code, finished_at, normalized_attempt_id),
         )
-        terminal_job_state = "completed" if normalized_state == "succeeded" else "failed"
+        terminal_job_state = _terminal_job_state_for_attempt_state(normalized_state)
         connection.execute(
             "UPDATE run_jobs SET state = ?, updated_at = ? WHERE job_id = ?",
             (terminal_job_state, finished_at, attempt["job_id"]),
@@ -563,6 +563,15 @@ def complete_run_attempt(
         )
         connection.commit()
         return {"accepted": True, "state": normalized_state}
+
+
+def _terminal_job_state_for_attempt_state(state: str) -> str:
+    normalized = str(state or "").strip().lower()
+    if normalized == "succeeded":
+        return "completed"
+    if normalized in {"canceled", "cancelled"}:
+        return "cancelled"
+    return "failed"
 
 
 def _select_claimable_job(connection: sqlite3.Connection, now: str, queue_name: str) -> sqlite3.Row | None:

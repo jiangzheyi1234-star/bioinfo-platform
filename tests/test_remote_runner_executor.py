@@ -124,6 +124,66 @@ def test_executor_fails_when_upload_input_is_missing(tmp_path: Path, monkeypatch
     assert run["stage"] == "validate"
     assert run["lastError"]["code"] == "INPUT_NOT_FOUND"
 
+def test_executor_marks_cancelled_when_dry_run_is_cancelled(tmp_path: Path, monkeypatch) -> None:
+    snakemake_command = tmp_path / "tooling" / "workflow-env" / "bin" / "snakemake"
+    cfg = RemoteRunnerConfig(
+        token="phase2-token",
+        data_root=str(tmp_path / "shared"),
+        db_path=str(tmp_path / "shared" / "data" / "runner.db"),
+        uploads_dir=str(tmp_path / "shared" / "uploads"),
+        results_dir=str(tmp_path / "shared" / "results"),
+        work_dir=str(tmp_path / "shared" / "work"),
+        logs_dir=str(tmp_path / "shared" / "logs"),
+        release_dir=str(tmp_path / "release"),
+        snakemake_command=str(snakemake_command),
+    )
+    snakemake_command.parent.mkdir(parents=True, exist_ok=True)
+    snakemake_command.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    _write_file_summary_pipeline(Path(cfg.release_dir))
+    ensure_runtime_layout(cfg)
+
+    from apps.remote_runner.storage import create_run_record, fetch_run, persist_upload
+
+    upload = persist_upload(
+        cfg,
+        filename="reads.fastq",
+        content_base64="QHJlYWQxCkFDR1QKKwohISEhCg==",
+        mime_type="text/plain",
+    )
+    run_spec = {
+        "pipelineId": "file-summary-v1",
+        "projectId": "proj_demo",
+        "inputs": [{"uploadId": upload["uploadId"], "filename": "reads.fastq", "role": "reads"}],
+    }
+    created = create_run_record(
+        cfg,
+        server_id="srv_demo",
+        request_id="req_cancel_dry_run",
+        run_spec=run_spec,
+        idempotency_key="idem_cancel_dry_run",
+        payload_hash="c" * 64,
+    )
+
+    class Result:
+        returncode = -15
+        stdout = ""
+        stderr = "Snakemake process terminated after cancel."
+
+    monkeypatch.setattr("apps.remote_runner.executor.subprocess.run", lambda *args, **kwargs: Result())
+
+    run_snakemake_execution(
+        cfg,
+        run_id=created.run["runId"],
+        request_id="req_cancel_dry_run",
+        run_spec=run_spec,
+        should_cancel_attempt=lambda: True,
+    )
+
+    run = fetch_run(cfg, created.run["runId"])
+    assert run["status"] == "canceled"
+    assert run["stage"] == "cancel"
+    assert run["lastError"]["code"] == "RUN_CANCELLED"
+
 def test_executor_exports_managed_conda_runtime_when_configured(tmp_path: Path, monkeypatch) -> None:
     managed_conda_command = tmp_path / "tooling" / "bin" / "micromamba"
     managed_conda_root_prefix = tmp_path / "tooling" / "micromamba-root"

@@ -167,13 +167,13 @@ def process_next_run_job(
 
         final_run = fetch_run(cfg, run_id)
         final_status = str(final_run.get("status") if final_run else "")
-        attempt_state = "succeeded" if final_status == "completed" else "failed"
+        attempt_state = _attempt_state_for_run_status(final_status)
         completion = complete_run_attempt(
             cfg,
             attempt_id,
             lease_generation=lease_generation,
             state=attempt_state,
-            exit_code=0 if attempt_state == "succeeded" else 1,
+            exit_code=_exit_code_for_attempt_state(attempt_state),
             now=now_factory(),
         )
         result = {
@@ -207,6 +207,23 @@ def process_next_run_job(
         return result
     finally:
         clear_log_context()
+
+
+def _attempt_state_for_run_status(status: str) -> str:
+    normalized = str(status or "").strip().lower()
+    if normalized == "completed":
+        return "succeeded"
+    if normalized in {"canceled", "cancelled"}:
+        return "cancelled"
+    return "failed"
+
+
+def _exit_code_for_attempt_state(state: str) -> int:
+    if state == "succeeded":
+        return 0
+    if state in {"canceled", "cancelled"}:
+        return 130
+    return 1
 
 
 def _start_heartbeat_thread(
