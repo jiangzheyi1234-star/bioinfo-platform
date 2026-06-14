@@ -8,6 +8,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from .worker_resource_config import apply_run_worker_env_overrides
+
 from .workflow_runtime_config import (
     DEFAULT_CONDA_PREFIX_DIRNAME,
     DEFAULT_SNAKEMAKE_WRAPPER_PREFIX,
@@ -68,7 +70,15 @@ class RemoteRunnerConfig:
     snakemake_version: str = ""
     workflow_profile_dir: str = ""
     workflow_profile_name: str = ""
-
+    run_worker_slot_count: int = 1
+    run_worker_total_cpu: int = 1
+    run_worker_total_memory_mb: int = 0
+    run_worker_total_disk_mb: int = 0
+    run_worker_total_gpu: int = 0
+    run_worker_attempt_cpu: int = 1
+    run_worker_attempt_memory_mb: int = 0
+    run_worker_attempt_disk_mb: int = 0
+    run_worker_attempt_gpu: int = 0
 
 def get_config_path() -> Path:
     raw = str(os.environ.get("H2OMETA_REMOTE_CONFIG", "") or "").strip()
@@ -81,6 +91,7 @@ def load_remote_runner_config() -> RemoteRunnerConfig:
     if path.exists():
         raw = json.loads(path.read_text(encoding="utf-8"))
     cfg = RemoteRunnerConfig(**{key: value for key, value in raw.items() if key in RemoteRunnerConfig.__dataclass_fields__})
+    apply_run_worker_env_overrides(cfg)
     return cfg
 
 

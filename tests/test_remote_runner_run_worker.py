@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import logging
 import time
 from pathlib import Path
 from typing import Any
 
 from apps.remote_runner.config import RemoteRunnerConfig
 from apps.remote_runner.reconciler import run_active_reconciler_once
+from apps.remote_runner.resource_pool import ResourcePool, ResourcePoolConfig, ResourceRequest
 from apps.remote_runner.run_execution_storage import claim_next_run_job, request_run_cancel
 from apps.remote_runner.run_worker import process_next_run_job
 from apps.remote_runner.storage import create_run_record, fetch_run, update_run_state
@@ -116,6 +118,51 @@ def test_run_worker_claims_job_and_completes_current_attempt(tmp_path: Path) -> 
     assert lease["state"] == "completed"
 
 
+def test_run_worker_logs_attempt_and_slot_context(tmp_path: Path, caplog) -> None:
+    cfg = _config(tmp_path)
+    run_id = _create_queued_run(cfg, "run_worker_log_context")
+    clock = FakeClock()
+
+    def fake_execute(
+        cfg: RemoteRunnerConfig,
+        *,
+        request_id: str,
+        **_attempt_context: Any,
+    ) -> None:
+        update_run_state(
+            cfg,
+            run_id=run_id,
+            status="completed",
+            stage="finalize",
+            message="Fake worker execution completed.",
+            request_id=request_id,
+        )
+
+    with caplog.at_level(logging.INFO, logger="apps.remote_runner.run_worker"):
+        result = process_next_run_job(
+            cfg,
+            worker_id="worker_log_context",
+            session_id="session_log_context",
+            slot_id="slot-log",
+            execute_run=fake_execute,
+            lease_seconds=30,
+            heartbeat_interval_seconds=0,
+            now_factory=clock,
+        )
+
+    claimed_record = next(record for record in caplog.records if record.message.startswith("Run attempt claimed"))
+    finished_record = next(record for record in caplog.records if record.message.startswith("Run attempt finished"))
+    assert result["claimed"] is True
+    assert result["runId"] in claimed_record.message
+    assert result["attemptId"] in claimed_record.message
+    assert "slot-log" in claimed_record.message
+    assert claimed_record.workerId == "worker_log_context"
+    assert claimed_record.slotId == "slot-log"
+    assert claimed_record.leaseGeneration == result["leaseGeneration"]
+    assert finished_record.slotId == "slot-log"
+    assert finished_record.runStatus == "completed"
+
+
 def test_run_worker_passes_attempt_context_to_executor(tmp_path: Path) -> None:
     cfg = _config(tmp_path)
     run_id = _create_queued_run(cfg, "run_worker_attempt_context")
@@ -184,6 +231,74 @@ def test_run_worker_passes_attempt_context_to_executor(tmp_path: Path) -> None:
         }
     ]
     assert Path(seen[0]["attemptWorkDir"]).parent == Path(cfg.work_dir) / "attempts"
+
+
+def test_run_worker_passes_resource_plan_to_default_executor(tmp_path: Path, monkeypatch) -> None:
+    from apps.remote_runner import run_worker
+
+    cfg = _config(tmp_path)
+    run_id = _create_queued_run(cfg, "run_worker_resource_plan")
+    resource_pool = ResourcePool(ResourcePoolConfig(total_cpu=2, max_concurrent_tasks=2))
+    resource_request = ResourceRequest(cpu=1)
+    resource_capacity = ResourceRequest(cpu=2)
+    seen: list[dict[str, Any]] = []
+    clock = FakeClock()
+
+    def fake_executor(
+        cfg: RemoteRunnerConfig,
+        *,
+        run_id: str,
+        request_id: str,
+        run_spec: dict[str, Any],
+        attempt_id: str,
+        lease_generation: int,
+        attempt_work_dir: str,
+        should_cancel_attempt,
+        resource_pool,
+        resource_request,
+    ) -> None:
+        seen.append(
+            {
+                "runId": run_id,
+                "attemptId": attempt_id,
+                "leaseGeneration": lease_generation,
+                "attemptWorkDir": attempt_work_dir,
+                "resourcePool": resource_pool,
+                "resourceRequest": resource_request,
+                "cancelled": should_cancel_attempt(),
+                "runSpec": run_spec,
+            }
+        )
+        update_run_state(
+            cfg,
+            run_id=run_id,
+            status="completed",
+            stage="finalize",
+            message="Fake worker execution completed.",
+            request_id=request_id,
+            attempt_id=attempt_id,
+            lease_generation=lease_generation,
+        )
+
+    monkeypatch.setattr(run_worker, "run_snakemake_execution", fake_executor)
+
+    result = process_next_run_job(
+        cfg,
+        worker_id="worker_resource_plan",
+        resource_request=resource_request,
+        resource_capacity=resource_capacity,
+        max_active_slots=2,
+        resource_pool=resource_pool,
+        lease_seconds=30,
+        heartbeat_interval_seconds=0,
+        now_factory=clock,
+    )
+
+    assert result["claimed"] is True
+    assert seen[0]["runId"] == run_id
+    assert seen[0]["resourcePool"] is resource_pool
+    assert seen[0]["resourceRequest"] is resource_request
+    assert seen[0]["cancelled"] is False
 
 
 def test_run_worker_heartbeats_while_fake_executor_runs(tmp_path: Path) -> None:
@@ -313,6 +428,7 @@ def test_run_worker_passes_stale_lease_cancellation_callback_to_executor(tmp_pat
         lease_generation: int,
         attempt_work_dir: str,
         should_cancel_attempt,
+        **_resource_context: Any,
     ) -> None:
         nonlocal cancel_seen
         run_active_reconciler_once(
@@ -367,6 +483,7 @@ def test_run_worker_cancellation_callback_observes_cancel_command(tmp_path: Path
         lease_generation: int,
         attempt_work_dir: str,
         should_cancel_attempt,
+        **_resource_context: Any,
     ) -> None:
         nonlocal cancel_seen
         assert should_cancel_attempt() is False

@@ -14,6 +14,7 @@ from apps.remote_runner.config import (
     write_runtime_state,
 )
 from apps.remote_runner.config import RemoteRunnerConfig
+from apps.remote_runner.worker_resource_config import build_run_worker_resource_plan
 from config import get_app_cache_dir
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION, RemoteRunnerBundleBuilder
 from tests.helpers.remote_runner_control_plane import (
@@ -36,11 +37,15 @@ def test_workflow_runtime_config_helpers_live_outside_config_module() -> None:
     root = Path(__file__).resolve().parents[1]
     config_source = (root / "apps" / "remote_runner" / "config.py").read_text(encoding="utf-8")
     workflow_runtime_path = root / "apps" / "remote_runner" / "workflow_runtime_config.py"
+    worker_resource_config_path = root / "apps" / "remote_runner" / "worker_resource_config.py"
 
     assert workflow_runtime_path.exists()
+    assert worker_resource_config_path.exists()
     workflow_runtime_source = workflow_runtime_path.read_text(encoding="utf-8")
+    worker_resource_config_source = worker_resource_config_path.read_text(encoding="utf-8")
     assert len(config_source.splitlines()) <= 260
     assert "from .workflow_runtime_config import (" in config_source
+    assert "from .worker_resource_config import apply_run_worker_env_overrides" in config_source
     for helper in (
         "build_workflow_runtime_environment",
         "get_workflow_profile_dir",
@@ -51,6 +56,8 @@ def test_workflow_runtime_config_helpers_live_outside_config_module() -> None:
     ):
         assert f"def {helper}(" not in config_source
         assert f"def {helper}(" in workflow_runtime_source
+    assert "def build_run_worker_resource_plan(" not in config_source
+    assert "def build_run_worker_resource_plan(" in worker_resource_config_source
     assert "subprocess.run(" not in config_source
 
 def test_write_runtime_state_records_assigned_port(tmp_path: Path) -> None:
@@ -146,6 +153,40 @@ def test_load_remote_runner_config_preserves_workflow_runtime_metadata(tmp_path:
     assert cfg.workflow_runtime_source == "managed"
     assert cfg.snakemake_command == str(snakemake_command)
     assert cfg.snakemake_version == "9.1.0"
+
+
+def test_load_remote_runner_config_preserves_and_overrides_worker_capacity(tmp_path: Path, monkeypatch) -> None:
+    config_path = tmp_path / "runner.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "token": "phase2-token",
+                "run_worker_slot_count": 2,
+                "run_worker_total_cpu": 2,
+                "run_worker_total_memory_mb": 4096,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("H2OMETA_REMOTE_CONFIG", str(config_path))
+    monkeypatch.setenv("H2OMETA_REMOTE_RUN_WORKER_TOTAL_CPU", "4")
+
+    cfg = load_remote_runner_config()
+    plan = build_run_worker_resource_plan(cfg)
+
+    assert cfg.run_worker_slot_count == 2
+    assert cfg.run_worker_total_cpu == 4
+    assert plan.slot_count == 2
+    assert plan.resource_capacity.cpu == 4
+    assert plan.resource_capacity.memory_mb == 4096
+    assert plan.resource_pool_config.max_concurrent_tasks == 2
+
+
+def test_run_worker_resource_plan_rejects_unsupported_slot_count() -> None:
+    cfg = RemoteRunnerConfig(run_worker_slot_count=3, run_worker_total_cpu=3)
+
+    with pytest.raises(ValueError, match="P0_3B_MAX_TWO_SLOTS"):
+        build_run_worker_resource_plan(cfg)
 
 def test_inspect_workflow_runtime_runs_snakemake_with_workflow_bin_on_path(tmp_path: Path, monkeypatch) -> None:
     managed_conda_command = tmp_path / "tooling" / "workflow-env" / "bin" / "conda"

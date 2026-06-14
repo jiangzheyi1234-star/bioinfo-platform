@@ -67,7 +67,14 @@ def test_remote_runner_health_endpoints_require_auth_and_do_not_mutate_runtime(
     assert live["status"] == "ok"
     assert ready["status"] == "failed"
     assert ready["checks"]["workflow_runtime"] is False
+    assert ready["checks"]["queue_observable"] is True
+    assert ready["checks"]["workers_observable"] is True
+    assert ready["checks"]["sqlite_wal"] is True
+    assert ready["checks"]["sqlite_busy_timeout"] is True
+    assert ready["checks"]["disk_free"] is True
     assert ready["workflowRuntime"]["ok"] is False
+    assert ready["queue"]["waitReasons"] == {}
+    assert ready["sqlite"]["journalMode"] == "wal"
     assert Path(tmp_path / "shared" / "data" / "runner.db").exists()
 
 def test_remote_runner_health_does_not_create_runtime_layout(tmp_path: Path, monkeypatch) -> None:

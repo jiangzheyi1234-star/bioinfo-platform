@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 import time
+from typing import Any
 
 from .config import RemoteRunnerConfig, ensure_runtime_layout
 from .storage_schema import SCHEMA_SQL
@@ -14,7 +15,7 @@ def now_iso() -> str:
 
 def get_connection(cfg: RemoteRunnerConfig) -> sqlite3.Connection:
     ensure_runtime_layout(cfg)
-    connection = sqlite3.connect(str(cfg.db_path), check_same_thread=False)
+    connection = sqlite3.connect(str(cfg.db_path), check_same_thread=False, factory=_ObservedConnection)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA busy_timeout = 5000")
     connection.execute("PRAGMA journal_mode = WAL")
@@ -29,6 +30,38 @@ def get_connection(cfg: RemoteRunnerConfig) -> sqlite3.Connection:
     _ensure_artifact_columns(connection)
     connection.commit()
     return connection
+
+
+class _ObservedConnection(sqlite3.Connection):
+    def execute(self, sql: str, parameters: Any = (), /) -> sqlite3.Cursor:
+        try:
+            return super().execute(sql, parameters)
+        except sqlite3.OperationalError as exc:
+            _record_sqlite_operational_error(exc)
+            raise
+
+    def executemany(self, sql: str, parameters: Any, /) -> sqlite3.Cursor:
+        try:
+            return super().executemany(sql, parameters)
+        except sqlite3.OperationalError as exc:
+            _record_sqlite_operational_error(exc)
+            raise
+
+    def executescript(self, sql_script: str, /) -> sqlite3.Cursor:
+        try:
+            return super().executescript(sql_script)
+        except sqlite3.OperationalError as exc:
+            _record_sqlite_operational_error(exc)
+            raise
+
+
+def _record_sqlite_operational_error(exc: sqlite3.OperationalError) -> None:
+    message = str(exc).lower()
+    if "database is locked" not in message and "database table is locked" not in message and "busy" not in message:
+        return
+    from .metrics import record_sqlite_busy_error
+
+    record_sqlite_busy_error()
 
 
 def _ensure_adopted_output_edge_uniqueness(connection: sqlite3.Connection) -> None:

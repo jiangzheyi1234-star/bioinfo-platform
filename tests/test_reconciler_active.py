@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
+
 from apps.remote_runner.reconciler import run_active_reconciler_once
 from apps.remote_runner import reconciler
+from apps.remote_runner.metrics import collect_queue_metrics
 from apps.remote_runner.run_execution_storage import claim_next_run_job
 from apps.remote_runner.storage import create_run_record
 from apps.remote_runner.storage_core import get_connection
@@ -73,12 +76,19 @@ def test_active_reconciler_fences_expired_lease_and_requeues_retryable_job(tmp_p
             "SELECT state, attempt_count, dead_lettered_at FROM run_jobs WHERE run_id = ?",
             ("run_retry",),
         ).fetchone()
+        allocation = connection.execute(
+            "SELECT state, released_at FROM run_resource_allocations WHERE attempt_id = ?",
+            (claim["attemptId"],),
+        ).fetchone()
     assert attempt["state"] == "fenced"
     assert attempt["fenced_reason"] == "lease_expired"
     assert lease["state"] == "expired"
     assert job["state"] == "queued"
     assert job["attempt_count"] == 1
     assert job["dead_lettered_at"] is None
+    assert allocation["state"] == "released"
+    assert allocation["released_at"] == "2099-06-07T10:00:11Z"
+    assert collect_queue_metrics(cfg)["recovery"]["requeuedJobs"] == 1
 
 
 def test_active_reconciler_dead_letters_exhausted_job(tmp_path):
@@ -200,6 +210,31 @@ def test_active_reconciler_handles_worker_crash_recovery(tmp_path):
     assert attempt2["fenced_reason"] is None
     assert lease["attempt_id"] == attempt2_id
     assert lease["lease_generation"] == 2
+
+
+def test_active_reconciler_logs_attempt_and_slot_context(tmp_path, caplog):
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_reconciler_log")
+    claim = claim_next_run_job(
+        cfg,
+        worker_id="worker_log",
+        session_id="session_log",
+        slot_id="slot-log",
+        now="2099-06-07T10:00:00Z",
+        lease_seconds=10,
+    )
+    assert claim is not None
+
+    with caplog.at_level(logging.INFO, logger="apps.remote_runner.reconciler"):
+        run_active_reconciler_once(cfg, now="2099-06-07T10:00:11Z")
+
+    record = next(record for record in caplog.records if record.message.startswith("Fenced attempt termination checked"))
+    assert "run_reconciler_log" in record.message
+    assert claim["attemptId"] in record.message
+    assert "slot-log" in record.message
+    assert record.runId == "run_reconciler_log"
+    assert record.attemptId == claim["attemptId"]
+    assert record.slotId == "slot-log"
 
 
 def test_active_reconciler_detects_clock_jump(tmp_path):
@@ -324,5 +359,17 @@ def test_active_reconciler_does_not_requeue_until_termination_is_confirmed(tmp_p
             "SELECT state FROM run_leases WHERE run_id = ?",
             ("run_termination_blocked",),
         ).fetchone()
+        event = connection.execute(
+            """
+            SELECT event_type, details_json
+            FROM run_events
+            WHERE run_id = ? AND event_type = 'run_attempt_recovery_blocked'
+            """,
+            ("run_termination_blocked",),
+        ).fetchone()
     assert job["state"] == "claimed"
     assert lease["state"] == "expired"
+    assert event is not None
+    assert event["event_type"] == "run_attempt_recovery_blocked"
+    assert "permission_denied" in event["details_json"]
+    assert collect_queue_metrics(cfg)["recovery"]["recoveryBlocked"] == 1

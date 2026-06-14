@@ -32,7 +32,7 @@ def test_json_formatter_produces_valid_json():
 
 def test_json_formatter_includes_context():
     formatter = JsonFormatter()
-    set_log_context(request_id="req_123", run_id="run_456")
+    set_log_context(request_id="req_123", run_id="run_456", attempt_id="att_789", slot_id="slot-0")
     try:
         record = logging.LogRecord(
             name="test",
@@ -47,6 +47,8 @@ def test_json_formatter_includes_context():
         parsed = json.loads(output)
         assert parsed["context"]["requestId"] == "req_123"
         assert parsed["context"]["runId"] == "run_456"
+        assert parsed["context"]["attemptId"] == "att_789"
+        assert parsed["context"]["slotId"] == "slot-0"
     finally:
         clear_log_context()
 
@@ -82,7 +84,8 @@ def test_set_and_clear_log_context():
         command_id="cmd_2",
         run_id="run_3",
         attempt_id="att_4",
-        correlation_id="cor_5",
+        slot_id="slot_5",
+        correlation_id="cor_6",
     )
     from core.logging_config import (
         attempt_id_var,
@@ -90,13 +93,16 @@ def test_set_and_clear_log_context():
         correlation_id_var,
         request_id_var,
         run_id_var,
+        slot_id_var,
     )
 
     assert request_id_var.get() == "req_1"
     assert command_id_var.get() == "cmd_2"
     assert run_id_var.get() == "run_3"
     assert attempt_id_var.get() == "att_4"
-    assert correlation_id_var.get() == "cor_5"
+    assert slot_id_var.get() == "slot_5"
+    assert correlation_id_var.get() == "cor_6"
     clear_log_context()
     assert request_id_var.get() == ""
     assert run_id_var.get() == ""
+    assert slot_id_var.get() == ""

@@ -4,6 +4,8 @@ import logging
 import sqlite3
 from typing import Any
 
+from core.logging_config import clear_log_context, set_log_context
+
 from .config import RemoteRunnerConfig
 from .event_contracts import append_run_event_v2
 from .reconciler_actions import (
@@ -72,20 +74,43 @@ def run_active_reconciler_once(
 
     for row in recoveries:
         attempt_id = str(row["attempt_id"])
-        terminate_result = terminate_process_group(row.get("process_group_id"))
-        LOGGER.info(
-            "Fenced attempt %s, process group termination result: %s",
-            attempt_id,
-            terminate_result,
+        set_log_context(
+            run_id=str(row["run_id"]),
+            attempt_id=attempt_id,
+            slot_id=str(row.get("slot_id") or ""),
         )
+        try:
+            terminate_result = terminate_process_group(row.get("process_group_id"))
+            LOGGER.info(
+                "Fenced attempt termination checked run_id=%s attempt_id=%s slot_id=%s",
+                str(row["run_id"]),
+                attempt_id,
+                str(row.get("slot_id") or ""),
+                extra={
+                    "runId": str(row["run_id"]),
+                    "jobId": str(row["job_id"]),
+                    "attemptId": attempt_id,
+                    "slotId": str(row.get("slot_id") or ""),
+                    "termination": terminate_result,
+                },
+            )
+        finally:
+            clear_log_context()
         if not _termination_confirmed(terminate_result):
+            blocked_reason = str(terminate_result.get("reason") or "termination_unconfirmed")
+            _record_recovery_blocked(
+                cfg,
+                row=row,
+                reason=blocked_reason,
+                blocked_at=reconciled_at,
+            )
             actions.append(
                 {
                     "type": "run_attempt_recovery_blocked",
                     "runId": str(row["run_id"]),
                     "jobId": str(row["job_id"]),
                     "attemptId": attempt_id,
-                    "reason": str(terminate_result.get("reason") or "termination_unconfirmed"),
+                    "reason": blocked_reason,
                 }
             )
             continue
@@ -143,6 +168,7 @@ def _expired_lease_rows(connection: sqlite3.Connection, now: str) -> list[sqlite
             leases.attempt_id,
             leases.lease_generation,
             leases.expires_at,
+            leases.slot_id,
             attempts.process_group_id
         FROM run_jobs AS jobs
         JOIN run_leases AS leases ON leases.run_id = jobs.run_id
@@ -162,6 +188,40 @@ def _termination_confirmed(result: dict[str, Any]) -> bool:
         or result.get("confirmedStopped")
         or result.get("reason") in {"no_process_group", "process_group_not_found"}
     )
+
+
+def _record_recovery_blocked(
+    cfg: RemoteRunnerConfig,
+    *,
+    row: dict[str, Any],
+    reason: str,
+    blocked_at: str,
+) -> None:
+    with get_connection(cfg) as connection:
+        run = connection.execute(
+            "SELECT * FROM runs WHERE run_id = ?",
+            (str(row["run_id"]),),
+        ).fetchone()
+        if run is None:
+            return
+        append_run_event_v2(
+            connection,
+            run_id=str(row["run_id"]),
+            event_type="run_attempt_recovery_blocked",
+            stage="reconcile",
+            state_version=int(run["state_version"]),
+            message="Run attempt recovery blocked.",
+            request_id=str(run["request_id"]),
+            payload={
+                "jobId": str(row["job_id"]),
+                "attemptId": str(row["attempt_id"]),
+                "leaseGeneration": int(row["lease_generation"]),
+                "slotId": str(row.get("slot_id") or ""),
+                "reason": reason,
+            },
+            occurred_at=blocked_at,
+        )
+        connection.commit()
 
 
 def _append_observation_to_runs(

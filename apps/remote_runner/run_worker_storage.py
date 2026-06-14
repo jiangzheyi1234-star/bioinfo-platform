@@ -357,9 +357,25 @@ def build_run_worker_health(cfg: RemoteRunnerConfig, *, now: str | None = None) 
     slots_by_worker: dict[str, list[dict[str, Any]]] = {}
     for row in slot_rows:
         slots_by_worker.setdefault(str(row["worker_id"]), []).append(_slot_row_to_dict(row, now_text=timestamp))
+    slot_state_counts: dict[str, int] = {}
+    for row in slot_rows:
+        state = str(row["state"] or "")
+        slot_state_counts[state] = slot_state_counts.get(state, 0) + 1
+    worker_state_counts: dict[str, int] = {}
+    for row in worker_rows:
+        state = str(row["state"] or "")
+        worker_state_counts[state] = worker_state_counts.get(state, 0) + 1
     return {
         "queueDepth": int(queue_depth),
         "claimedJobs": int(claimed_jobs),
+        "summary": {
+            "workerCount": len(worker_rows),
+            "totalSlots": len(slot_rows),
+            "runningSlots": slot_state_counts.get("running", 0),
+            "idleSlots": slot_state_counts.get("idle", 0),
+            "workerStates": dict(sorted(worker_state_counts.items())),
+            "slotStates": dict(sorted(slot_state_counts.items())),
+        },
         "workers": [
             {
                 **_worker_row_to_dict(row, now_text=timestamp),

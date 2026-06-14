@@ -208,6 +208,14 @@ def test_run_worker_slots_have_independent_state_and_stale_session_fencing(tmp_p
 
     assert stale == {"accepted": False, "reason": "stale_session", "currentSessionId": "session-b"}
     assert health["workers"][0]["sessionId"] == "session-b"
+    assert health["summary"] == {
+        "workerCount": 1,
+        "totalSlots": 2,
+        "runningSlots": 0,
+        "idleSlots": 2,
+        "workerStates": {"idle": 1},
+        "slotStates": {"idle": 2},
+    }
     slots = {slot["slotId"]: slot for slot in health["workers"][0]["slots"]}
     assert slots["slot-0"]["currentAttemptId"] is None
     assert slots["slot-1"]["currentAttemptId"] is None

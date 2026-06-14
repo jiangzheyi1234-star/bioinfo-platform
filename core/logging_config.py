@@ -12,6 +12,7 @@ request_id_var: ContextVar[str] = ContextVar("request_id", default="")
 command_id_var: ContextVar[str] = ContextVar("command_id", default="")
 run_id_var: ContextVar[str] = ContextVar("run_id", default="")
 attempt_id_var: ContextVar[str] = ContextVar("attempt_id", default="")
+slot_id_var: ContextVar[str] = ContextVar("slot_id", default="")
 correlation_id_var: ContextVar[str] = ContextVar("correlation_id", default="")
 
 
@@ -31,6 +32,7 @@ class JsonFormatter(logging.Formatter):
             ("commandId", command_id_var),
             ("runId", run_id_var),
             ("attemptId", attempt_id_var),
+            ("slotId", slot_id_var),
             ("correlationId", correlation_id_var),
         ):
             value = var.get("")
@@ -67,6 +69,7 @@ def set_log_context(
     command_id: str = "",
     run_id: str = "",
     attempt_id: str = "",
+    slot_id: str = "",
     correlation_id: str = "",
 ) -> None:
     if request_id:
@@ -77,6 +80,8 @@ def set_log_context(
         run_id_var.set(run_id)
     if attempt_id:
         attempt_id_var.set(attempt_id)
+    if slot_id:
+        slot_id_var.set(slot_id)
     if correlation_id:
         correlation_id_var.set(correlation_id)
 
@@ -86,4 +91,5 @@ def clear_log_context() -> None:
     command_id_var.set("")
     run_id_var.set("")
     attempt_id_var.set("")
+    slot_id_var.set("")
     correlation_id_var.set("")

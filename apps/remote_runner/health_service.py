@@ -57,11 +57,13 @@ def build_health_ready_payload(cfg: RemoteRunnerConfig) -> dict[str, Any]:
     checks["workflow_runtime"] = workflow.ok
     checks["workflow_profile"] = workflow.workflowProfileOk
     checks["pipeline_registry"] = registry.ok
-    status = "ok" if all(checks.values()) else "failed"
-    payload = _build_health_payload(status, checks, cfg)
+    payload = _build_health_payload("ok", checks, cfg)
     payload["workflowRuntime"] = _workflow_runtime_payload(workflow, cfg)
     payload["pipelineRegistry"] = registry.model_dump()
     _enrich_with_operational_metrics(payload, cfg)
+    checks.update(_operational_readiness_checks(payload))
+    payload["checks"] = checks
+    payload["status"] = "ok" if all(checks.values()) else "failed"
     return payload
 
 
@@ -122,7 +124,7 @@ def _workflow_runtime_payload(
 
 
 def _enrich_with_operational_metrics(payload: dict[str, Any], cfg: RemoteRunnerConfig) -> None:
-    from .metrics import collect_disk_metrics, collect_queue_metrics, get_metrics
+    from .metrics import collect_disk_metrics, collect_queue_metrics, collect_sqlite_metrics, get_metrics
     from .run_worker_storage import build_run_worker_health
 
     if Path(cfg.db_path).is_file():
@@ -136,9 +138,14 @@ def _enrich_with_operational_metrics(payload: dict[str, Any], cfg: RemoteRunnerC
             payload["workers"] = workers
         except Exception:
             payload["workers"] = {"error": "worker_metrics_failed"}
+        try:
+            payload["sqlite"] = collect_sqlite_metrics(cfg)
+        except Exception:
+            payload["sqlite"] = {"ok": False, "error": "sqlite_metrics_failed"}
     else:
         payload["queue"] = {"error": "runtime_database_missing"}
         payload["workers"] = {"error": "runtime_database_missing"}
+        payload["sqlite"] = {"ok": False, "error": "runtime_database_missing"}
     try:
         disk = collect_disk_metrics(cfg.data_root)
         payload["disk"] = disk
@@ -149,3 +156,17 @@ def _enrich_with_operational_metrics(payload: dict[str, Any], cfg: RemoteRunnerC
         payload["metrics"] = metrics.snapshot()
     except Exception:
         payload["metrics"] = {"error": "metrics_snapshot_failed"}
+
+
+def _operational_readiness_checks(payload: dict[str, Any]) -> dict[str, bool]:
+    queue = payload.get("queue") if isinstance(payload.get("queue"), dict) else {}
+    workers = payload.get("workers") if isinstance(payload.get("workers"), dict) else {}
+    sqlite = payload.get("sqlite") if isinstance(payload.get("sqlite"), dict) else {}
+    disk = payload.get("disk") if isinstance(payload.get("disk"), dict) else {}
+    return {
+        "queue_observable": "error" not in queue,
+        "workers_observable": "error" not in workers,
+        "sqlite_wal": bool(sqlite.get("walEnabled")),
+        "sqlite_busy_timeout": bool(sqlite.get("busyTimeoutOk")),
+        "disk_free": "error" not in disk and int(disk.get("freeBytes") or 0) > 0,
+    }

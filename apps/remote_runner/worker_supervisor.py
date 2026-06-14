@@ -9,6 +9,8 @@ import uuid
 
 from .config import load_remote_runner_config
 from .reconciler import run_active_reconciler_once
+from .resource_pool import ResourcePool
+from .worker_resource_config import build_run_worker_resource_plan
 from .run_worker import process_next_run_job
 from .run_worker_storage import (
     heartbeat_run_worker,
@@ -39,15 +41,17 @@ class RunWorkerSupervisor:
         heartbeat_interval_seconds: float,
         error_backoff_seconds: float,
         queue_name: str = "default",
-        concurrency_limit: int = 1,
+        concurrency_limit: int | None = None,
     ) -> None:
         self._cfg = cfg
         self._worker_id = worker_id
         self._session_id = f"session_{uuid.uuid4().hex[:12]}"
         self._queue_name = queue_name
-        self._concurrency_limit = max(1, int(concurrency_limit))
+        self._resource_plan = build_run_worker_resource_plan(cfg, slot_count=concurrency_limit)
+        self._concurrency_limit = self._resource_plan.slot_count
         if self._concurrency_limit > 1 and not _multi_slot_enabled():
-            raise ValueError("P0_3A_SINGLE_SLOT_ONLY")
+            raise ValueError("P0_3B_MULTI_SLOT_GATE_REQUIRED")
+        self._resource_pool = ResourcePool(self._resource_plan.resource_pool_config)
         self._poll_interval_seconds = poll_interval_seconds
         self._heartbeat_interval_seconds = heartbeat_interval_seconds
         self._error_backoff_seconds = error_backoff_seconds
@@ -111,6 +115,10 @@ class RunWorkerSupervisor:
                     session_id=self._session_id,
                     slot_id=slot_id,
                     queue_name=self._queue_name,
+                    resource_request=self._resource_plan.resource_request,
+                    resource_capacity=self._resource_plan.resource_capacity,
+                    max_active_slots=self._resource_plan.slot_count,
+                    resource_pool=self._resource_pool,
                     heartbeat_interval_seconds=self._heartbeat_interval_seconds,
                     on_attempt_claimed=lambda claim: self._mark_attempt_claimed(slot_id, claim),
                     on_attempt_finished=lambda result: self._mark_attempt_finished(slot_id, result),
@@ -255,7 +263,7 @@ def start_run_worker_supervisor(
     poll_interval_seconds: float = 1.0,
     heartbeat_interval_seconds: float = 15.0,
     error_backoff_seconds: float = 5.0,
-    concurrency_limit: int = 1,
+    concurrency_limit: int | None = None,
 ) -> RunWorkerSupervisor:
     supervisor = RunWorkerSupervisor(
         cfg,
