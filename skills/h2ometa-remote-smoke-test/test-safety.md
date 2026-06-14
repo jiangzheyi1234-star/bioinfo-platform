@@ -17,6 +17,7 @@ Use this order:
 2. If the task changes Python files and only needs a quick sanity check, use syntax-level verification from Windows.
 3. If the task requires real `pytest`, run it from Windows with the Windows-owned environment and isolated app-data roots unless the task explicitly needs WSL/Linux proof.
 4. If the task requires a real remote smoke, use the canonical scripts in `skills/h2ometa-remote-smoke-test/scripts/`.
+5. If the task changes remote-runner execution control-plane behavior, run the destructive release gate only after the staged runner is known idle and the user has accepted both `--allow-two-slot` and `--allow-runner-kill`.
 
 ## Windows Pytest
 
@@ -74,4 +75,8 @@ For real environment validation, do not invent new ad-hoc commands first. Start 
 - `python skills/h2ometa-remote-smoke-test/scripts/remote_smoke.py --bootstrap`
 - `python skills/h2ometa-remote-smoke-test/scripts/remote_pipeline_smoke.py`
 - `python skills/h2ometa-remote-smoke-test/scripts/remote_worker_crash_recovery_acceptance.py`
+- `uv run python scripts\remote_two_slot_acceptance.py --allow-two-slot`
+- `uv run python scripts\remote_runner_release_gate.py --allow-two-slot --allow-runner-kill`
 - `python skills/h2ometa-remote-smoke-test/scripts/remote_real_database_acceptance.py --rerun-check`
+
+Use `scripts\remote_runner_release_gate.py` only for staged/release validation. It temporarily enables two remote worker slots, then sends SIGSTOP/SIGKILL during crash recovery. The gate is expected to restore the remote runner to the single-slot production default before it exits.

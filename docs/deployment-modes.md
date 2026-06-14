@@ -151,7 +151,7 @@ server {
 | `H2OMETA_SSH_AUTH_MODE` | 认证模式 | ❌ (password_ref) |
 | `H2OMETA_REMOTE_RUN_WORKER` | 启用 Remote Worker | ❌ (1) |
 | `H2OMETA_REMOTE_ENABLE_MULTI_SLOT` | 允许 Remote Worker 多槽启动 | ❌ (0) |
-| `H2OMETA_REMOTE_RUN_WORKER_SLOTS` | Remote Worker slot 数，P0-3B-A 仅支持 1 或 2 | ❌ (1) |
+| `H2OMETA_REMOTE_RUN_WORKER_SLOTS` | Remote Worker slot 数；生产默认 1，P0-3B 仅在 `H2OMETA_REMOTE_ENABLE_MULTI_SLOT=1` 时允许 2 | ❌ (1) |
 | `H2OMETA_REMOTE_RUN_WORKER_TOTAL_CPU` | Remote Worker workflow 级 CPU admission 总量 | ❌ (1) |
 | `H2OMETA_REMOTE_RUN_WORKER_TOTAL_MEMORY_MB` | Remote Worker workflow 级内存 admission 总量 | ❌ (0) |
 | `H2OMETA_REMOTE_RUN_WORKER_TOTAL_DISK_MB` | Remote Worker workflow 级临时磁盘 admission 总量 | ❌ (0) |

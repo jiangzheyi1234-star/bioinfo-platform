@@ -38,6 +38,8 @@ These scripts under this skill are the official entrypoints:
 - `python skills/h2ometa-remote-smoke-test/scripts/remote_smoke.py --bootstrap`
 - `python skills/h2ometa-remote-smoke-test/scripts/remote_pipeline_smoke.py`
 - `python skills/h2ometa-remote-smoke-test/scripts/remote_worker_crash_recovery_acceptance.py`
+- `uv run python scripts\remote_two_slot_acceptance.py --allow-two-slot`
+- `uv run python scripts\remote_runner_release_gate.py --allow-two-slot --allow-runner-kill`
 - `python skills/h2ometa-remote-smoke-test/scripts/remote_pipeline_database_binding_smoke.py`
 - `python skills/h2ometa-remote-smoke-test/scripts/remote_real_database_acceptance.py --rerun-check`
 
@@ -62,6 +64,8 @@ Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 8765 -State Listen
 - Real tool validation starts from the tool search/add flow, then use the generated-tool smoke helpers once the searched tool has a saved contract.
 - Minimal end-to-end pipeline path: use `skills/h2ometa-remote-smoke-test/scripts/remote_pipeline_smoke.py`
 - Destructive P0-1 worker crash/restart acceptance: use `skills/h2ometa-remote-smoke-test/scripts/remote_worker_crash_recovery_acceptance.py --allow-runner-kill` only on an idle `systemd_user` runner after verifying the deployed release contains the current P0-1 code.
+- Real P0-3B 2-slot Snakemake acceptance: use `scripts/remote_two_slot_acceptance.py --allow-two-slot`; it directly probes the remote runner over SSH, temporarily enables the multi-slot gate, and must restore the production default single slot before exiting.
+- Runtime release gate after staging a runner that changes execution control-plane behavior: use `scripts/remote_runner_release_gate.py --allow-two-slot --allow-runner-kill`; it runs the real 2-slot Snakemake gate and the worker crash/restart gate in sequence.
 - Normal Snakemake pipeline database binding: use `skills/h2ometa-remote-smoke-test/scripts/remote_pipeline_database_binding_smoke.py`
 - Real production database acceptance: use `skills/h2ometa-remote-smoke-test/scripts/remote_real_database_acceptance.py`
 - Additional generated-tool, linear-workflow, or database smoke helpers: use the matching script in `skills/h2ometa-remote-smoke-test/scripts/` only after the control-plane smoke is green

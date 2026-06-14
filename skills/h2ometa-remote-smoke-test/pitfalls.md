@@ -12,6 +12,7 @@ Use this file when a task matches a failure mode that has already happened in `b
 - Browser screenshot capture timeouts
 - Historical artifact-edge duplicates during runner upgrade
 - Staging deploy direct health payload mismatch
+- Two-slot acceptance leaving production defaults changed
 
 ## Windows Codex `pytest` Isolation Failures
 
@@ -123,3 +124,17 @@ What to do:
 
 Why this exists:
 - Staging deploy probes the runner over localhost on the remote host, not through the Local API proxy response shape.
+
+## Two-Slot Acceptance Leaving Production Defaults Changed
+
+Symptom:
+- After running P0-3B acceptance, the remote runner still reports `concurrency_limit=2`, `slot-1` is active, or the systemd user environment still has `H2OMETA_REMOTE_ENABLE_MULTI_SLOT=1`.
+- Later single-slot release or smoke validation behaves differently from production defaults.
+
+What to do:
+- Use `scripts/remote_two_slot_acceptance.py --allow-two-slot` or `scripts/remote_runner_release_gate.py --allow-two-slot --allow-runner-kill`; both are expected to restore `run_worker_slot_count=1`, unset the multi-slot environment gate, restart the service, and emit `POST_ACCEPTANCE_INVARIANTS`.
+- If a hand-run command fails before cleanup, update `~/.h2ometa/runner/shared/config/runner.json` to single-slot values, unset `H2OMETA_REMOTE_ENABLE_MULTI_SLOT`, `H2OMETA_REMOTE_RUN_WORKER_SLOTS`, `H2OMETA_REMOTE_RUN_WORKER_TOTAL_CPU`, and `H2OMETA_REMOTE_RUN_WORKER_ATTEMPT_CPU` with `systemctl --user unset-environment`, then restart `h2ometa-remote.service`.
+- Confirm the current worker has `concurrency_limit=1`, exactly one active `slot-0`, and no allocated resource rows for the acceptance run ids.
+
+Why this exists:
+- P0-3B deliberately opens a normally-disabled multi-slot gate for real Snakemake concurrency proof. Release evidence is incomplete unless the gate also proves cleanup back to production defaults.

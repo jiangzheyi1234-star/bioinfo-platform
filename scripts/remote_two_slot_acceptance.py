@@ -21,7 +21,6 @@ import pathlib
 import sqlite3
 import subprocess
 import time
-import urllib.error
 import urllib.request
 import uuid
 
@@ -167,7 +166,7 @@ def submit_run(label):
     return request("POST", "/api/v1/runs", payload, timeout=30)
 
 
-def configure_worker(*, slots, total_cpu):
+def configure_worker(*, slots, total_cpu, enable_multi_slot=True):
     cfg = json.loads(CONFIG.read_text(encoding="utf-8"))
     cfg.update(
         {
@@ -177,112 +176,212 @@ def configure_worker(*, slots, total_cpu):
         }
     )
     CONFIG.write_text(json.dumps(cfg, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    subprocess.run(
-        [
-            "systemctl",
-            "--user",
-            "set-environment",
-            "H2OMETA_REMOTE_ENABLE_MULTI_SLOT=1",
-            f"H2OMETA_REMOTE_RUN_WORKER_SLOTS={int(slots)}",
-            f"H2OMETA_REMOTE_RUN_WORKER_TOTAL_CPU={int(total_cpu)}",
-            "H2OMETA_REMOTE_RUN_WORKER_ATTEMPT_CPU=1",
-        ],
-        check=True,
-    )
+    if enable_multi_slot:
+        subprocess.run(
+            [
+                "systemctl",
+                "--user",
+                "set-environment",
+                "H2OMETA_REMOTE_ENABLE_MULTI_SLOT=1",
+                f"H2OMETA_REMOTE_RUN_WORKER_SLOTS={int(slots)}",
+                f"H2OMETA_REMOTE_RUN_WORKER_TOTAL_CPU={int(total_cpu)}",
+                "H2OMETA_REMOTE_RUN_WORKER_ATTEMPT_CPU=1",
+            ],
+            check=True,
+        )
+    else:
+        subprocess.run(
+            [
+                "systemctl",
+                "--user",
+                "unset-environment",
+                "H2OMETA_REMOTE_ENABLE_MULTI_SLOT",
+                "H2OMETA_REMOTE_RUN_WORKER_SLOTS",
+                "H2OMETA_REMOTE_RUN_WORKER_TOTAL_CPU",
+                "H2OMETA_REMOTE_RUN_WORKER_ATTEMPT_CPU",
+            ],
+            check=True,
+        )
     subprocess.run(["systemctl", "--user", "restart", "h2ometa-remote.service"], check=True)
     wait_ready()
 
 
-ready = wait_ready()
-state = json.loads(STATE.read_text(encoding="utf-8"))
-emit("RUNNER_READY", {"status": ready.get("status"), "bindPort": state["bindPort"], "pid": state.get("pid")})
-workers = db_rows(
-    """
-    SELECT worker_id, session_id, concurrency_limit, state
-    FROM run_workers
-    WHERE stopped_at IS NULL
-    ORDER BY started_at DESC
-    LIMIT 3
-    """
-)
-slots = db_rows(
-    """
-    SELECT worker_id, session_id, slot_id, state
-    FROM run_worker_slots
-    WHERE stopped_at IS NULL
-    ORDER BY slot_id
-    """
-)
-emit("WORKER_SLOTS", {"workers": workers, "slots": slots})
-if not any(int(row.get("concurrency_limit") or 0) == 2 for row in workers):
-    raise RuntimeError(f"2-slot worker not registered: {workers}")
+def current_worker_state():
+    workers = db_rows(
+        """
+        SELECT worker_id, session_id, concurrency_limit, state
+        FROM run_workers
+        WHERE stopped_at IS NULL
+        ORDER BY started_at DESC
+        LIMIT 3
+        """
+    )
+    slots = db_rows(
+        """
+        SELECT worker_id, session_id, slot_id, state, current_attempt_id
+        FROM run_worker_slots
+        WHERE stopped_at IS NULL
+        ORDER BY slot_id
+        """
+    )
+    return {"workers": workers, "slots": slots}
 
-submitted = [submit_run(str(index)) for index in range(3)]
-run_ids = [item["runId"] for item in submitted]
-emit("RUNS_SUBMITTED", {"runIds": run_ids})
 
-evidence = wait_for_two_active(run_ids)
-active_summary = [
-    {
-        "runId": row["run_id"],
-        "attemptId": row["attempt_id"],
-        "slotId": row["allocation_slot_id"],
-        "processPid": row["process_pid"],
+def restore_worker_default():
+    configure_worker(slots=1, total_cpu=1, enable_multi_slot=False)
+    state = current_worker_state()
+    emit("RESTORE_DEFAULT", state)
+    return state
+
+
+def post_acceptance_invariants(run_ids):
+    marks = ",".join("?" for _ in run_ids)
+    leaks = db_rows(
+        f"""
+        SELECT run_id, attempt_id, slot_id, state
+        FROM run_resource_allocations
+        WHERE run_id IN ({marks}) AND state = 'allocated'
+        """,
+        tuple(run_ids),
+    )
+    active_leases = db_rows(
+        f"""
+        SELECT run_id, attempt_id, slot_id, state
+        FROM run_leases
+        WHERE run_id IN ({marks}) AND state = 'active'
+        """,
+        tuple(run_ids),
+    )
+    unfinished_jobs = db_rows(
+        f"""
+        SELECT run_id, state, wait_reason_json
+        FROM run_jobs
+        WHERE run_id IN ({marks}) AND state NOT IN ('completed', 'failed', 'cancelled', 'canceled')
+        """,
+        tuple(run_ids),
+    )
+    worker_state = current_worker_state()
+    workers = worker_state["workers"]
+    slots = worker_state["slots"]
+    errors = []
+    if leaks:
+        errors.append("allocated resource rows remain")
+    if active_leases:
+        errors.append("active leases remain")
+    if unfinished_jobs:
+        errors.append("unfinished run jobs remain")
+    if len(workers) != 1 or int(workers[0].get("concurrency_limit") or 0) != 1:
+        errors.append("active worker is not restored to single-slot concurrency")
+    if len(slots) != 1 or slots[0].get("slot_id") != "slot-0" or slots[0].get("state") != "idle":
+        errors.append("active slot state is not restored to one idle slot")
+    payload = {
+        "ok": not errors,
+        "errors": errors,
+        "allocatedLeaks": leaks,
+        "activeLeases": active_leases,
+        "unfinishedJobs": unfinished_jobs,
+        "workers": workers,
+        "slots": slots,
     }
-    for row in evidence["active"]
-]
-emit("CONCURRENCY_EVIDENCE", {"active": active_summary})
+    emit("POST_ACCEPTANCE_INVARIANTS", payload)
+    if errors:
+        raise RuntimeError(f"post-acceptance invariants failed: {errors}")
+    return payload
 
-cancel_run_id = active_summary[0]["runId"]
-other_active_run_id = active_summary[1]["runId"]
-cancel_result = request("POST", f"/api/v1/runs/{cancel_run_id}/cancel", {}, timeout=10)
-emit("CANCEL_REQUESTED", {"runId": cancel_run_id, "result": cancel_result})
 
-final = wait_terminal(run_ids)
-emit("RUNS_FINAL", final)
-if final[cancel_run_id].get("status") not in {"canceled", "cancelled"}:
-    raise RuntimeError(f"cancel target did not cancel: {final[cancel_run_id]}")
-if final[other_active_run_id].get("status") != "completed":
-    raise RuntimeError(f"other active run did not complete: {final[other_active_run_id]}")
+all_run_ids = []
+restored = False
+try:
+    ready = wait_ready()
+    state = json.loads(STATE.read_text(encoding="utf-8"))
+    emit("RUNNER_READY", {"status": ready.get("status"), "bindPort": state["bindPort"], "pid": state.get("pid")})
+    configure_worker(slots=2, total_cpu=2)
+    worker_state = current_worker_state()
+    emit("WORKER_SLOTS", worker_state)
+    if not any(int(row.get("concurrency_limit") or 0) == 2 for row in worker_state["workers"]):
+        raise RuntimeError(f"2-slot worker not registered: {worker_state['workers']}")
 
-leaks = db_rows(
-    f"""
-    SELECT run_id, attempt_id, slot_id, state
-    FROM run_resource_allocations
-    WHERE run_id IN ({",".join("?" for _ in run_ids)}) AND state = 'allocated'
-    """,
-    tuple(run_ids),
-)
-slot_final = db_rows(
-    """
-    SELECT slot_id, state, current_attempt_id
-    FROM run_worker_slots
-    WHERE stopped_at IS NULL
-    ORDER BY slot_id
-    """
-)
-emit("FINAL_DB_STATE", {"allocatedLeaks": leaks, "slots": slot_final})
-if leaks:
-    raise RuntimeError(f"resource allocations leaked: {leaks}")
+    submitted = [submit_run(str(index)) for index in range(3)]
+    run_ids = [item["runId"] for item in submitted]
+    all_run_ids.extend(run_ids)
+    emit("RUNS_SUBMITTED", {"runIds": run_ids})
 
-configure_worker(slots=2, total_cpu=1)
-wait_submitted = [submit_run(f"wait-{index}") for index in range(2)]
-wait_run_ids = [item["runId"] for item in wait_submitted]
-wait_evidence = wait_for_resource_wait(wait_run_ids)
-emit(
-    "RESOURCE_WAIT_EVIDENCE",
-    {
-        "runIds": wait_run_ids,
-        "active": [
-            {"runId": row["run_id"], "attemptId": row["attempt_id"], "slotId": row["allocation_slot_id"]}
-            for row in wait_evidence["active"]
-        ],
-        "waiting": wait_evidence["waiting"],
-    },
-)
-wait_final = wait_terminal(wait_run_ids)
-emit("RESOURCE_WAIT_FINAL", wait_final)
-print("RESULT: ok", flush=True)
+    evidence = wait_for_two_active(run_ids)
+    active_summary = [
+        {
+            "runId": row["run_id"],
+            "attemptId": row["attempt_id"],
+            "slotId": row["allocation_slot_id"],
+            "processPid": row["process_pid"],
+        }
+        for row in evidence["active"]
+    ]
+    emit("CONCURRENCY_EVIDENCE", {"active": active_summary})
+
+    cancel_run_id = active_summary[0]["runId"]
+    other_active_run_id = active_summary[1]["runId"]
+    cancel_result = request("POST", f"/api/v1/runs/{cancel_run_id}/cancel", {}, timeout=10)
+    emit("CANCEL_REQUESTED", {"runId": cancel_run_id, "result": cancel_result})
+
+    final = wait_terminal(run_ids)
+    emit("RUNS_FINAL", final)
+    if final[cancel_run_id].get("status") not in {"canceled", "cancelled"}:
+        raise RuntimeError(f"cancel target did not cancel: {final[cancel_run_id]}")
+    if final[other_active_run_id].get("status") != "completed":
+        raise RuntimeError(f"other active run did not complete: {final[other_active_run_id]}")
+
+    leaks = db_rows(
+        f"""
+        SELECT run_id, attempt_id, slot_id, state
+        FROM run_resource_allocations
+        WHERE run_id IN ({",".join("?" for _ in run_ids)}) AND state = 'allocated'
+        """,
+        tuple(run_ids),
+    )
+    slot_final = current_worker_state()["slots"]
+    emit("FINAL_DB_STATE", {"allocatedLeaks": leaks, "slots": slot_final})
+    if leaks:
+        raise RuntimeError(f"resource allocations leaked: {leaks}")
+
+    configure_worker(slots=2, total_cpu=1)
+    wait_submitted = [submit_run(f"wait-{index}") for index in range(2)]
+    wait_run_ids = [item["runId"] for item in wait_submitted]
+    all_run_ids.extend(wait_run_ids)
+    wait_evidence = wait_for_resource_wait(wait_run_ids)
+    emit(
+        "RESOURCE_WAIT_EVIDENCE",
+        {
+            "runIds": wait_run_ids,
+            "active": [
+                {"runId": row["run_id"], "attemptId": row["attempt_id"], "slotId": row["allocation_slot_id"]}
+                for row in wait_evidence["active"]
+            ],
+            "waiting": wait_evidence["waiting"],
+        },
+    )
+    wait_final = wait_terminal(wait_run_ids)
+    emit("RESOURCE_WAIT_FINAL", wait_final)
+    restore_worker_default()
+    restored = True
+    invariants = post_acceptance_invariants(all_run_ids)
+    emit(
+        "ACCEPTANCE_SUMMARY",
+        {
+            "twoSlotRunIds": run_ids,
+            "resourceWaitRunIds": wait_run_ids,
+            "cancelledRunId": cancel_run_id,
+            "completedSiblingRunId": other_active_run_id,
+            "postAcceptanceOk": invariants["ok"],
+        },
+    )
+    print("RESULT: ok", flush=True)
+finally:
+    if not restored:
+        try:
+            restore_worker_default()
+            emit("RESTORE_AFTER_FAILURE", {"ok": True})
+        except Exception as exc:  # noqa: BLE001 - acceptance must report failed cleanup clearly.
+            emit("RESTORE_AFTER_FAILURE", {"ok": False, "error": str(exc)})
 '''
 
 
@@ -316,6 +415,8 @@ def _remote_command() -> str:
 set -euo pipefail
 ROOT="$HOME/.h2ometa/runner"
 CONFIG="$ROOT/shared/config/runner.json"
+restore_default() {{
+if [ -f "$CONFIG" ]; then
 python3 - "$CONFIG" <<'PY'
 import json
 import pathlib
@@ -323,14 +424,17 @@ import sys
 path = pathlib.Path(sys.argv[1])
 cfg = json.loads(path.read_text(encoding="utf-8"))
 cfg.update({{
-    "run_worker_slot_count": 2,
-    "run_worker_total_cpu": 2,
+    "run_worker_slot_count": 1,
+    "run_worker_total_cpu": 1,
     "run_worker_attempt_cpu": 1,
 }})
 path.write_text(json.dumps(cfg, indent=2, sort_keys=True) + "\\n", encoding="utf-8")
 PY
-systemctl --user set-environment H2OMETA_REMOTE_ENABLE_MULTI_SLOT=1 H2OMETA_REMOTE_RUN_WORKER_SLOTS=2 H2OMETA_REMOTE_RUN_WORKER_TOTAL_CPU=2 H2OMETA_REMOTE_RUN_WORKER_ATTEMPT_CPU=1
-systemctl --user restart h2ometa-remote.service
+fi
+systemctl --user unset-environment H2OMETA_REMOTE_ENABLE_MULTI_SLOT H2OMETA_REMOTE_RUN_WORKER_SLOTS H2OMETA_REMOTE_RUN_WORKER_TOTAL_CPU H2OMETA_REMOTE_RUN_WORKER_ATTEMPT_CPU >/dev/null 2>&1 || true
+systemctl --user restart h2ometa-remote.service >/dev/null 2>&1 || true
+}}
+trap 'code=$?; restore_default; exit $code' EXIT
 python3 - <<'PY'
 import base64
 exec(compile(base64.b64decode({encoded!r}).decode("utf-8"), "remote_two_slot_acceptance.py", "exec"))

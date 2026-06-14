@@ -247,8 +247,13 @@ uv run pytest tests/test_reconciler_active.py tests/test_reconciler_actions.py t
 
 ### 状态
 
-- 未启用。
-- P0-3A 和最低可观测性验收通过前，生产默认必须保持单槽位。
+- 受控 2-slot 验收已通过，生产默认仍保持单槽位。
+- 真实远端 Snakemake 2-slot acceptance 已证明两个任务并发运行、取消隔离、
+  resource-wait 不提前创建 attempt/lease，且验收后恢复单槽默认。
+- Worker crash/restart acceptance 仍作为 destructive gate，与 2-slot gate 共同组成
+  execution control-plane runtime release gate：
+  `uv run python scripts\remote_runner_release_gate.py --allow-two-slot --allow-runner-kill`。
+- 3-4 槽位仍未默认启用；需要真实吞吐或等待时间证据后再评估。
 
 ### 目标
 
