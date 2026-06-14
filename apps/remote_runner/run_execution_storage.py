@@ -9,6 +9,14 @@ from typing import Any
 
 from .config import RemoteRunnerConfig
 from .event_contracts import append_run_event_v2, record_run_command
+from .admission_storage import (
+    admission_wait_reason,
+    mark_worker_slot_idle,
+    mark_worker_slot_running,
+    record_resource_allocation,
+    release_resource_allocation,
+)
+from .resource_pool import ResourceRequest
 from .storage_core import get_connection, now_iso
 
 
@@ -22,6 +30,7 @@ def enqueue_run_job(
     queue_name: str = "default",
     priority: int = 0,
     available_at: str | None = None,
+    wait_reason: dict[str, Any] | None = None,
     max_attempts: int = 3,
     retry_policy: dict[str, Any] | None = None,
     timeout_policy: dict[str, Any] | None = None,
@@ -34,6 +43,7 @@ def enqueue_run_job(
             queue_name=queue_name,
             priority=priority,
             available_at=queued_at,
+            wait_reason=wait_reason,
             max_attempts=max_attempts,
             retry_policy=retry_policy,
             timeout_policy=timeout_policy,
@@ -49,6 +59,7 @@ def enqueue_run_job_record(
     queue_name: str = "default",
     priority: int = 0,
     available_at: str,
+    wait_reason: dict[str, Any] | None = None,
     max_attempts: int = 3,
     retry_policy: dict[str, Any] | None = None,
     timeout_policy: dict[str, Any] | None = None,
@@ -69,9 +80,9 @@ def enqueue_run_job_record(
         """
         INSERT INTO run_jobs (
             job_id, run_id, state, queue_name, priority, available_at,
-            attempt_count, max_attempts, retry_policy_json, timeout_policy_json,
+            wait_reason_json, attempt_count, max_attempts, retry_policy_json, timeout_policy_json,
             dead_lettered_at, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             job_id,
@@ -80,6 +91,7 @@ def enqueue_run_job_record(
             normalized_queue_name,
             int(priority),
             available_at,
+            _stable_json(wait_reason or {}),
             0,
             normalized_max_attempts,
             _stable_json(retry_policy or {}),
@@ -111,15 +123,45 @@ def claim_next_run_job(
     cfg: RemoteRunnerConfig,
     *,
     worker_id: str,
+    session_id: str = "",
+    slot_id: str = "slot-0",
+    queue_name: str = "default",
+    resource_request: ResourceRequest | None = None,
+    resource_capacity: ResourceRequest | None = None,
+    max_active_slots: int = 1,
     now: str | None = None,
     lease_seconds: int = 60,
 ) -> dict[str, Any] | None:
     normalized_worker_id = _required_text(worker_id, "WORKER_ID_REQUIRED")
+    normalized_session_id = _optional_text(session_id) or ""
+    normalized_slot_id = _required_text(slot_id, "SLOT_ID_REQUIRED")
+    normalized_queue_name = _required_text(queue_name, "QUEUE_NAME_REQUIRED")
     claimed_at = _optional_text(now) or now_iso()
+    request = resource_request or ResourceRequest()
+    capacity = resource_capacity or ResourceRequest(cpu=max(1, int(max_active_slots)))
     with get_connection(cfg) as connection:
         connection.execute("BEGIN IMMEDIATE")
-        job = _select_claimable_job(connection, claimed_at)
+        job = _select_claimable_job(connection, claimed_at, normalized_queue_name)
         if job is None:
+            connection.commit()
+            return None
+        wait_reason = admission_wait_reason(
+            connection,
+            worker_id=normalized_worker_id,
+            slot_id=normalized_slot_id,
+            request=request,
+            capacity=capacity,
+            max_active_slots=max_active_slots,
+        )
+        if wait_reason is not None:
+            connection.execute(
+                """
+                UPDATE run_jobs
+                SET wait_reason_json = ?, updated_at = ?
+                WHERE job_id = ?
+                """,
+                (_stable_json(wait_reason), claimed_at, job["job_id"]),
+            )
             connection.commit()
             return None
         run = _fetch_run_row(connection, str(job["run_id"]))
@@ -143,9 +185,10 @@ def claim_next_run_job(
             INSERT INTO run_attempts (
                 attempt_id, run_id, job_id, lease_generation, attempt_number,
                 state, worker_id, work_dir, process_pid, process_group_id,
+                session_id, slot_id,
                 cancel_requested_at, killed_at, output_adoption_state,
                 started_at, finished_at, exit_code, fenced_reason, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 attempt_id,
@@ -158,6 +201,8 @@ def claim_next_run_job(
                 work_dir,
                 None,
                 None,
+                normalized_session_id,
+                normalized_slot_id,
                 None,
                 None,
                 "pending",
@@ -173,13 +218,15 @@ def claim_next_run_job(
             """
             INSERT INTO run_leases (
                 run_id, attempt_id, lease_generation, worker_id, heartbeat_at,
-                expires_at, state, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                session_id, slot_id, expires_at, state, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(run_id) DO UPDATE SET
                 attempt_id = excluded.attempt_id,
                 lease_generation = excluded.lease_generation,
                 worker_id = excluded.worker_id,
                 heartbeat_at = excluded.heartbeat_at,
+                session_id = excluded.session_id,
+                slot_id = excluded.slot_id,
                 expires_at = excluded.expires_at,
                 state = excluded.state,
                 updated_at = excluded.updated_at
@@ -190,6 +237,8 @@ def claim_next_run_job(
                 next_generation,
                 normalized_worker_id,
                 claimed_at,
+                normalized_session_id,
+                normalized_slot_id,
                 expires_at,
                 "active",
                 claimed_at,
@@ -198,7 +247,7 @@ def claim_next_run_job(
         connection.execute(
             """
             UPDATE run_jobs
-            SET state = ?, attempt_count = ?, updated_at = ?
+            SET state = ?, wait_reason_json = '{}', attempt_count = ?, updated_at = ?
             WHERE job_id = ?
             """,
             ("claimed", attempt_number, claimed_at, job["job_id"]),
@@ -217,8 +266,28 @@ def claim_next_run_job(
                 "leaseGeneration": next_generation,
                 "attemptNumber": attempt_number,
                 "workerId": normalized_worker_id,
+                "sessionId": normalized_session_id,
+                "slotId": normalized_slot_id,
             },
             occurred_at=claimed_at,
+        )
+        record_resource_allocation(
+            connection,
+            run_id=str(job["run_id"]),
+            attempt_id=attempt_id,
+            worker_id=normalized_worker_id,
+            session_id=normalized_session_id,
+            slot_id=normalized_slot_id,
+            request=request,
+            created_at=claimed_at,
+        )
+        mark_worker_slot_running(
+            connection,
+            worker_id=normalized_worker_id,
+            session_id=normalized_session_id,
+            slot_id=normalized_slot_id,
+            attempt_id=attempt_id,
+            updated_at=claimed_at,
         )
         connection.commit()
 
@@ -435,6 +504,10 @@ def complete_run_attempt(
             "SELECT * FROM run_leases WHERE run_id = ?",
             (attempt["run_id"],),
         ).fetchone()
+        if str(attempt["state"]) in {"succeeded", "failed"} and lease is not None and str(lease["state"]) in TERMINAL_RUN_STATUSES:
+            release_resource_allocation(connection, attempt_id=normalized_attempt_id, released_at=finished_at)
+            connection.commit()
+            return {"accepted": False, "reason": "already_terminal"}
         if not _is_current_lease(lease, normalized_attempt_id, lease_generation):
             _fence_attempt_record(
                 connection,
@@ -464,6 +537,14 @@ def complete_run_attempt(
             "UPDATE run_leases SET state = ?, updated_at = ? WHERE run_id = ?",
             (terminal_job_state, finished_at, attempt["run_id"]),
         )
+        release_resource_allocation(connection, attempt_id=normalized_attempt_id, released_at=finished_at)
+        mark_worker_slot_idle(
+            connection,
+            worker_id=str(attempt["worker_id"]),
+            session_id=str(attempt["session_id"] or ""),
+            slot_id=str(attempt["slot_id"] or "slot-0"),
+            updated_at=finished_at,
+        )
         append_run_event_v2(
             connection,
             run_id=str(attempt["run_id"]),
@@ -484,7 +565,7 @@ def complete_run_attempt(
         return {"accepted": True, "state": normalized_state}
 
 
-def _select_claimable_job(connection: sqlite3.Connection, now: str) -> sqlite3.Row | None:
+def _select_claimable_job(connection: sqlite3.Connection, now: str, queue_name: str) -> sqlite3.Row | None:
     return connection.execute(
         """
         SELECT jobs.*
@@ -492,10 +573,11 @@ def _select_claimable_job(connection: sqlite3.Connection, now: str) -> sqlite3.R
         WHERE jobs.state = 'queued'
           AND jobs.available_at <= ?
           AND jobs.dead_lettered_at IS NULL
+          AND jobs.queue_name = ?
         ORDER BY jobs.priority DESC, jobs.available_at ASC, jobs.created_at ASC, jobs.job_id ASC
         LIMIT 1
         """,
-        (now,),
+        (now, queue_name),
     ).fetchone()
 
 
@@ -526,6 +608,7 @@ def _fence_attempt_record(
         "UPDATE run_leases SET state = ?, updated_at = ? WHERE attempt_id = ?",
         ("expired" if reason == "lease_expired" else "fenced", occurred_at, attempt_id),
     )
+    release_resource_allocation(connection, attempt_id=attempt_id, released_at=occurred_at)
     append_run_event_v2(
         connection,
         run_id=str(existing["run_id"]),
@@ -570,6 +653,7 @@ def _job_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "queueName": row["queue_name"],
         "priority": int(row["priority"]),
         "availableAt": row["available_at"],
+        "waitReason": _json_object(row["wait_reason_json"]),
         "attemptCount": int(row["attempt_count"]),
         "maxAttempts": int(row["max_attempts"]),
         "retryPolicy": _json_object(row["retry_policy_json"]),
@@ -589,6 +673,8 @@ def _attempt_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "attemptNumber": int(row["attempt_number"]),
         "state": row["state"],
         "workerId": row["worker_id"],
+        "sessionId": row["session_id"],
+        "slotId": row["slot_id"],
         "workDir": row["work_dir"],
         "processPid": row["process_pid"],
         "processGroupId": row["process_group_id"],
@@ -610,6 +696,8 @@ def _lease_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "attemptId": row["attempt_id"],
         "leaseGeneration": int(row["lease_generation"]),
         "workerId": row["worker_id"],
+        "sessionId": row["session_id"],
+        "slotId": row["slot_id"],
         "heartbeatAt": row["heartbeat_at"],
         "expiresAt": row["expires_at"],
         "state": row["state"],

@@ -21,6 +21,7 @@ def register_run_worker(
 ) -> dict[str, Any]:
     timestamp = _optional_text(now) or now_iso()
     normalized_worker_id = _required_text(worker_id, "WORKER_ID_REQUIRED")
+    normalized_session_id = _required_text(session_id, "SESSION_ID_REQUIRED")
     with get_connection(cfg) as connection:
         connection.execute(
             """
@@ -45,7 +46,7 @@ def register_run_worker(
             """,
             (
                 normalized_worker_id,
-                _required_text(session_id, "SESSION_ID_REQUIRED"),
+                normalized_session_id,
                 int(pid),
                 _required_text(hostname, "HOSTNAME_REQUIRED"),
                 "idle",
@@ -59,6 +60,15 @@ def register_run_worker(
                 None,
                 timestamp,
             ),
+        )
+        connection.execute(
+            """
+            UPDATE run_worker_slots
+            SET session_id = ?, state = 'idle', current_attempt_id = NULL,
+                heartbeat_at = ?, last_error_json = '{}', stopped_at = NULL, updated_at = ?
+            WHERE worker_id = ?
+            """,
+            (normalized_session_id, timestamp, timestamp, normalized_worker_id),
         )
         connection.commit()
     return fetch_run_worker(cfg, normalized_worker_id)
@@ -84,12 +94,12 @@ def heartbeat_run_worker(
         ).fetchone()
         if row is None:
             raise KeyError(normalized_worker_id)
-        connection.execute(
+        cursor = connection.execute(
             """
             UPDATE run_workers
             SET session_id = ?, state = ?, current_attempt_id = ?, heartbeat_at = ?,
                 last_error_json = ?, updated_at = ?
-            WHERE worker_id = ?
+            WHERE worker_id = ? AND session_id = ?
             """,
             (
                 normalized_session_id,
@@ -99,10 +109,137 @@ def heartbeat_run_worker(
                 _stable_json(last_error or {}),
                 timestamp,
                 normalized_worker_id,
+                normalized_session_id,
+            ),
+        )
+        if cursor.rowcount == 0:
+            return {
+                "accepted": False,
+                "reason": "stale_session",
+                "currentSessionId": str(row["session_id"]),
+            }
+        connection.commit()
+    return fetch_run_worker(cfg, normalized_worker_id)
+
+
+def register_run_worker_slot(
+    cfg: RemoteRunnerConfig,
+    *,
+    worker_id: str,
+    session_id: str,
+    slot_id: str,
+    now: str | None = None,
+) -> dict[str, Any]:
+    timestamp = _optional_text(now) or now_iso()
+    normalized_worker_id = _required_text(worker_id, "WORKER_ID_REQUIRED")
+    normalized_session_id = _required_text(session_id, "SESSION_ID_REQUIRED")
+    normalized_slot_id = _required_text(slot_id, "SLOT_ID_REQUIRED")
+    with get_connection(cfg) as connection:
+        worker = connection.execute(
+            "SELECT session_id FROM run_workers WHERE worker_id = ?",
+            (normalized_worker_id,),
+        ).fetchone()
+        if worker is None:
+            raise KeyError(normalized_worker_id)
+        if worker["session_id"] != normalized_session_id:
+            return {
+                "accepted": False,
+                "reason": "stale_session",
+                "currentSessionId": str(worker["session_id"]),
+            }
+        connection.execute(
+            """
+            INSERT INTO run_worker_slots (
+                worker_id, session_id, slot_id, state, current_attempt_id,
+                heartbeat_at, last_error_json, started_at, stopped_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(worker_id, slot_id) DO UPDATE SET
+                session_id = excluded.session_id,
+                state = excluded.state,
+                current_attempt_id = excluded.current_attempt_id,
+                heartbeat_at = excluded.heartbeat_at,
+                last_error_json = excluded.last_error_json,
+                started_at = excluded.started_at,
+                stopped_at = excluded.stopped_at,
+                updated_at = excluded.updated_at
+            """,
+            (
+                normalized_worker_id,
+                normalized_session_id,
+                normalized_slot_id,
+                "idle",
+                None,
+                timestamp,
+                "{}",
+                timestamp,
+                None,
+                timestamp,
             ),
         )
         connection.commit()
-    return fetch_run_worker(cfg, normalized_worker_id)
+    return fetch_run_worker_slot(cfg, worker_id=normalized_worker_id, slot_id=normalized_slot_id)
+
+
+def heartbeat_run_worker_slot(
+    cfg: RemoteRunnerConfig,
+    *,
+    worker_id: str,
+    session_id: str,
+    slot_id: str,
+    state: str,
+    current_attempt_id: str | None = None,
+    last_error: dict[str, Any] | None = None,
+    now: str | None = None,
+) -> dict[str, Any]:
+    timestamp = _optional_text(now) or now_iso()
+    normalized_worker_id = _required_text(worker_id, "WORKER_ID_REQUIRED")
+    normalized_session_id = _required_text(session_id, "SESSION_ID_REQUIRED")
+    normalized_slot_id = _required_text(slot_id, "SLOT_ID_REQUIRED")
+    with get_connection(cfg) as connection:
+        worker = connection.execute(
+            "SELECT session_id FROM run_workers WHERE worker_id = ?",
+            (normalized_worker_id,),
+        ).fetchone()
+        if worker is None:
+            raise KeyError(normalized_worker_id)
+        if worker["session_id"] != normalized_session_id:
+            return {
+                "accepted": False,
+                "reason": "stale_session",
+                "currentSessionId": str(worker["session_id"]),
+            }
+        slot = connection.execute(
+            "SELECT * FROM run_worker_slots WHERE worker_id = ? AND slot_id = ?",
+            (normalized_worker_id, normalized_slot_id),
+        ).fetchone()
+        if slot is None:
+            raise KeyError(normalized_slot_id)
+        if slot["session_id"] != normalized_session_id:
+            return {
+                "accepted": False,
+                "reason": "stale_session",
+                "currentSessionId": str(slot["session_id"]),
+            }
+        connection.execute(
+            """
+            UPDATE run_worker_slots
+            SET state = ?, current_attempt_id = ?, heartbeat_at = ?,
+                last_error_json = ?, updated_at = ?
+            WHERE worker_id = ? AND slot_id = ? AND session_id = ?
+            """,
+            (
+                _required_text(state, "WORKER_SLOT_STATE_REQUIRED"),
+                _optional_text(current_attempt_id),
+                timestamp,
+                _stable_json(last_error or {}),
+                timestamp,
+                normalized_worker_id,
+                normalized_slot_id,
+                normalized_session_id,
+            ),
+        )
+        connection.commit()
+    return fetch_run_worker_slot(cfg, worker_id=normalized_worker_id, slot_id=normalized_slot_id)
 
 
 def request_run_worker_drain(
@@ -152,7 +289,7 @@ def mark_run_worker_stopped(
             UPDATE run_workers
             SET session_id = ?, state = ?, current_attempt_id = NULL,
                 stopped_at = ?, updated_at = ?
-            WHERE worker_id = ?
+            WHERE worker_id = ? AND session_id = ?
             """,
             (
                 _required_text(session_id, "SESSION_ID_REQUIRED"),
@@ -160,10 +297,29 @@ def mark_run_worker_stopped(
                 timestamp,
                 timestamp,
                 normalized_worker_id,
+                _required_text(session_id, "SESSION_ID_REQUIRED"),
             ),
         )
         connection.commit()
     return fetch_run_worker(cfg, normalized_worker_id)
+
+
+def fetch_run_worker_slot(
+    cfg: RemoteRunnerConfig,
+    *,
+    worker_id: str,
+    slot_id: str,
+) -> dict[str, Any]:
+    normalized_worker_id = _required_text(worker_id, "WORKER_ID_REQUIRED")
+    normalized_slot_id = _required_text(slot_id, "SLOT_ID_REQUIRED")
+    with get_connection(cfg) as connection:
+        row = connection.execute(
+            "SELECT * FROM run_worker_slots WHERE worker_id = ? AND slot_id = ?",
+            (normalized_worker_id, normalized_slot_id),
+        ).fetchone()
+    if row is None:
+        raise KeyError(normalized_slot_id)
+    return _slot_row_to_dict(row, now_text=now_iso())
 
 
 def fetch_run_worker(cfg: RemoteRunnerConfig, worker_id: str) -> dict[str, Any] | None:
@@ -182,6 +338,9 @@ def build_run_worker_health(cfg: RemoteRunnerConfig, *, now: str | None = None) 
         worker_rows = connection.execute(
             "SELECT * FROM run_workers ORDER BY worker_id ASC",
         ).fetchall()
+        slot_rows = connection.execute(
+            "SELECT * FROM run_worker_slots ORDER BY worker_id ASC, slot_id ASC",
+        ).fetchall()
         queue_depth = connection.execute(
             """
             SELECT COUNT(*) AS count
@@ -195,10 +354,35 @@ def build_run_worker_health(cfg: RemoteRunnerConfig, *, now: str | None = None) 
         claimed_jobs = connection.execute(
             "SELECT COUNT(*) AS count FROM run_jobs WHERE state = 'claimed'",
         ).fetchone()["count"]
+    slots_by_worker: dict[str, list[dict[str, Any]]] = {}
+    for row in slot_rows:
+        slots_by_worker.setdefault(str(row["worker_id"]), []).append(_slot_row_to_dict(row, now_text=timestamp))
     return {
         "queueDepth": int(queue_depth),
         "claimedJobs": int(claimed_jobs),
-        "workers": [_worker_row_to_dict(row, now_text=timestamp) for row in worker_rows],
+        "workers": [
+            {
+                **_worker_row_to_dict(row, now_text=timestamp),
+                "slots": slots_by_worker.get(str(row["worker_id"]), []),
+            }
+            for row in worker_rows
+        ],
+    }
+
+
+def _slot_row_to_dict(row, *, now_text: str) -> dict[str, Any]:
+    return {
+        "workerId": row["worker_id"],
+        "sessionId": row["session_id"],
+        "slotId": row["slot_id"],
+        "state": row["state"],
+        "currentAttemptId": row["current_attempt_id"],
+        "heartbeatAt": row["heartbeat_at"],
+        "heartbeatAgeSeconds": _age_seconds(row["heartbeat_at"], now_text),
+        "lastError": _json_object(row["last_error_json"]),
+        "startedAt": row["started_at"],
+        "stoppedAt": row["stopped_at"],
+        "updatedAt": row["updated_at"],
     }
 
 

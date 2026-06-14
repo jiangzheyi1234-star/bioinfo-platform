@@ -166,6 +166,7 @@ def create_run_record(
         enqueue_run_job_record(
             connection,
             run_id=run["runId"],
+            queue_name=_run_queue_name(run_spec),
             available_at=submitted_at,
         )
         connection.execute(
@@ -245,6 +246,14 @@ def update_run_state(
         )
         connection.commit()
     return fetch_run(cfg, run_id)
+
+
+def _run_queue_name(run_spec: dict[str, Any]) -> str:
+    execution = run_spec.get("execution")
+    if not isinstance(execution, dict):
+        return "default"
+    queue_name = str(execution.get("queueName") or execution.get("queue") or "").strip()
+    return queue_name or "default"
 
 
 def run_attempt_can_publish(

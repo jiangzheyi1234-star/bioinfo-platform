@@ -81,6 +81,7 @@ class RunSpecRequest(BaseModel):
     inputs: list[dict[str, Any]] | None = None
     params: dict[str, Any] | None = None
     resourceBindings: dict[str, Any] | None = None
+    execution: dict[str, Any] | None = None
     workflowDesign: dict[str, Any] | None = None
     workflow: dict[str, Any] | None = None
 

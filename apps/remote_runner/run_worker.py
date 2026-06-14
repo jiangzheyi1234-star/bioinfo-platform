@@ -27,6 +27,9 @@ def process_next_run_job(
     cfg: RemoteRunnerConfig,
     *,
     worker_id: str,
+    session_id: str = "",
+    slot_id: str = "slot-0",
+    queue_name: str = "default",
     execute_run: RunExecutorWithKeywords | None = None,
     lease_seconds: int = 60,
     heartbeat_interval_seconds: float = 15.0,
@@ -37,6 +40,9 @@ def process_next_run_job(
     claim = claim_next_run_job(
         cfg,
         worker_id=worker_id,
+        session_id=session_id,
+        slot_id=slot_id,
+        queue_name=queue_name,
         now=now_factory(),
         lease_seconds=lease_seconds,
     )

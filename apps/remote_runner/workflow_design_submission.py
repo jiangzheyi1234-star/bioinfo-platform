@@ -16,6 +16,7 @@ ALLOWED_WORKFLOW_DESIGN_RUN_SPEC_KEYS = {
     "inputs",
     "workflow",
     "resourceBindings",
+    "execution",
     "workflowDesign",
     "workflowRevisionId",
 }

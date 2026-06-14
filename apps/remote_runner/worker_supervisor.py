@@ -12,7 +12,9 @@ from .reconciler import run_active_reconciler_once
 from .run_worker import process_next_run_job
 from .run_worker_storage import (
     heartbeat_run_worker,
+    heartbeat_run_worker_slot,
     mark_run_worker_stopped,
+    register_run_worker_slot,
     register_run_worker,
     run_worker_is_draining,
 )
@@ -44,14 +46,23 @@ class RunWorkerSupervisor:
         self._session_id = f"session_{uuid.uuid4().hex[:12]}"
         self._queue_name = queue_name
         self._concurrency_limit = max(1, int(concurrency_limit))
+        if self._concurrency_limit > 1 and not _multi_slot_enabled():
+            raise ValueError("P0_3A_SINGLE_SLOT_ONLY")
         self._poll_interval_seconds = poll_interval_seconds
         self._heartbeat_interval_seconds = heartbeat_interval_seconds
         self._error_backoff_seconds = error_backoff_seconds
         self._stop_event = threading.Event()
         self._threads: list[threading.Thread] = []
+        self._controller_thread = threading.Thread(
+            target=self._controller_loop,
+            name=f"h2ometa-run-controller-{worker_id}",
+            daemon=True,
+        )
         for index in range(self._concurrency_limit):
+            slot_id = f"slot-{index}"
             thread = threading.Thread(
                 target=self._run_loop,
+                args=(slot_id,),
                 name=f"h2ometa-run-worker-{worker_id}-{index}",
                 daemon=True,
             )
@@ -67,20 +78,28 @@ class RunWorkerSupervisor:
             queue_name=self._queue_name,
             concurrency_limit=self._concurrency_limit,
         )
+        for index, thread in enumerate(self._threads):
+            register_run_worker_slot(
+                self._cfg,
+                worker_id=self._worker_id,
+                session_id=self._session_id,
+                slot_id=f"slot-{index}",
+            )
+        self._controller_thread.start()
         for thread in self._threads:
             thread.start()
 
     def stop(self, *, timeout_seconds: float = 5.0) -> None:
         self._stop_event.set()
+        self._controller_thread.join(timeout=timeout_seconds)
         for thread in self._threads:
             thread.join(timeout=timeout_seconds)
         if not any(thread.is_alive() for thread in self._threads):
             self._heartbeat_stopped()
 
-    def _run_loop(self) -> None:
+    def _run_loop(self, slot_id: str) -> None:
         while not self._stop_event.is_set():
             try:
-                run_active_reconciler_once(self._cfg)
                 if run_worker_is_draining(self._cfg, self._worker_id):
                     self._heartbeat("draining")
                     self._stop_event.wait(self._poll_interval_seconds)
@@ -89,9 +108,12 @@ class RunWorkerSupervisor:
                 result = process_next_run_job(
                     self._cfg,
                     worker_id=self._worker_id,
+                    session_id=self._session_id,
+                    slot_id=slot_id,
+                    queue_name=self._queue_name,
                     heartbeat_interval_seconds=self._heartbeat_interval_seconds,
-                    on_attempt_claimed=self._mark_attempt_claimed,
-                    on_attempt_finished=self._mark_attempt_finished,
+                    on_attempt_claimed=lambda claim: self._mark_attempt_claimed(slot_id, claim),
+                    on_attempt_finished=lambda result: self._mark_attempt_finished(slot_id, result),
                 )
             except Exception as exc:  # noqa: BLE001 - supervisor must keep polling after persisting/logging failures.
                 self._heartbeat(
@@ -107,10 +129,28 @@ class RunWorkerSupervisor:
             if not result.get("claimed"):
                 self._stop_event.wait(self._poll_interval_seconds)
 
-    def _mark_attempt_claimed(self, claim: dict[str, Any]) -> None:
-        self._heartbeat("running", current_attempt_id=str(claim.get("attemptId") or ""))
+    def _controller_loop(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                run_active_reconciler_once(self._cfg)
+            except Exception as exc:  # noqa: BLE001 - controller should stay alive after transient storage/process errors.
+                self._heartbeat(
+                    "error",
+                    last_error={
+                        "code": "RUN_RECONCILER_LOOP_FAILED",
+                        "message": str(exc) or exc.__class__.__name__,
+                    },
+                )
+                LOGGER.exception("Remote runner reconciler loop failed.")
+                self._stop_event.wait(self._error_backoff_seconds)
+                continue
+            self._stop_event.wait(self._poll_interval_seconds)
 
-    def _mark_attempt_finished(self, result: dict[str, Any]) -> None:
+    def _mark_attempt_claimed(self, slot_id: str, claim: dict[str, Any]) -> None:
+        self._heartbeat("running", current_attempt_id=str(claim.get("attemptId") or ""))
+        self._slot_heartbeat(slot_id, "running", current_attempt_id=str(claim.get("attemptId") or ""))
+
+    def _mark_attempt_finished(self, slot_id: str, result: dict[str, Any]) -> None:
         error_message = str(result.get("executionError") or "")
         self._heartbeat(
             "idle",
@@ -123,6 +163,7 @@ class RunWorkerSupervisor:
                 else None
             ),
         )
+        self._slot_heartbeat(slot_id, "idle")
 
     def _heartbeat(
         self,
@@ -145,6 +186,24 @@ class RunWorkerSupervisor:
             self._cfg,
             worker_id=self._worker_id,
             session_id=self._session_id,
+        )
+
+    def _slot_heartbeat(
+        self,
+        slot_id: str,
+        state: str,
+        *,
+        current_attempt_id: str | None = None,
+        last_error: dict[str, Any] | None = None,
+    ) -> None:
+        heartbeat_run_worker_slot(
+            self._cfg,
+            worker_id=self._worker_id,
+            session_id=self._session_id,
+            slot_id=slot_id,
+            state=state,
+            current_attempt_id=current_attempt_id,
+            last_error=last_error,
         )
 
 
@@ -343,3 +402,8 @@ def start_configured_tool_prepare_worker_supervisor() -> ToolPrepareWorkerSuperv
 def _run_worker_enabled() -> bool:
     value = str(os.environ.get("H2OMETA_REMOTE_RUN_WORKER", "1") or "").strip().lower()
     return value not in {"0", "false", "no", "off"}
+
+
+def _multi_slot_enabled() -> bool:
+    value = str(os.environ.get("H2OMETA_REMOTE_ENABLE_MULTI_SLOT", "0") or "").strip().lower()
+    return value in {"1", "true", "yes", "on"}

@@ -19,7 +19,7 @@ class ResourcePoolConfig:
     total_memory_mb: int = 8192
     total_disk_mb: int = 0
     total_gpu: int = 0
-    max_concurrent_tasks: int = 2
+    max_concurrent_tasks: int = 1
 
 
 @dataclass

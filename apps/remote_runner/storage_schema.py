@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS run_jobs (
     queue_name TEXT NOT NULL DEFAULT 'default',
     priority INTEGER NOT NULL DEFAULT 0,
     available_at TEXT NOT NULL,
+    wait_reason_json TEXT NOT NULL DEFAULT '{}',
     attempt_count INTEGER NOT NULL DEFAULT 0,
     max_attempts INTEGER NOT NULL DEFAULT 3,
     retry_policy_json TEXT NOT NULL DEFAULT '{}',
@@ -100,6 +101,8 @@ CREATE TABLE IF NOT EXISTS run_attempts (
     attempt_number INTEGER NOT NULL DEFAULT 1,
     state TEXT NOT NULL,
     worker_id TEXT NOT NULL,
+    session_id TEXT NOT NULL DEFAULT '',
+    slot_id TEXT NOT NULL DEFAULT 'slot-0',
     work_dir TEXT NOT NULL,
     process_pid INTEGER,
     process_group_id TEXT,
@@ -119,6 +122,8 @@ CREATE TABLE IF NOT EXISTS run_leases (
     attempt_id TEXT NOT NULL,
     lease_generation INTEGER NOT NULL,
     worker_id TEXT NOT NULL,
+    session_id TEXT NOT NULL DEFAULT '',
+    slot_id TEXT NOT NULL DEFAULT 'slot-0',
     heartbeat_at TEXT NOT NULL,
     expires_at TEXT NOT NULL,
     state TEXT NOT NULL,
@@ -147,6 +152,41 @@ CREATE TABLE IF NOT EXISTS run_workers (
     stopped_at TEXT,
     updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS run_worker_slots (
+    worker_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    slot_id TEXT NOT NULL,
+    state TEXT NOT NULL,
+    current_attempt_id TEXT,
+    heartbeat_at TEXT NOT NULL,
+    last_error_json TEXT NOT NULL DEFAULT '{}',
+    started_at TEXT NOT NULL,
+    stopped_at TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(worker_id, slot_id)
+);
+
+CREATE TABLE IF NOT EXISTS run_resource_allocations (
+    allocation_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    attempt_id TEXT NOT NULL,
+    worker_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    slot_id TEXT NOT NULL,
+    cpu INTEGER NOT NULL DEFAULT 1,
+    memory_mb INTEGER NOT NULL DEFAULT 0,
+    disk_mb INTEGER NOT NULL DEFAULT 0,
+    gpu INTEGER NOT NULL DEFAULT 0,
+    state TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    released_at TEXT,
+    updated_at TEXT NOT NULL,
+    UNIQUE(attempt_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_run_resource_allocations_active
+ON run_resource_allocations(state, slot_id, worker_id);
 
 CREATE TABLE IF NOT EXISTS candidate_outputs (
     candidate_output_id TEXT PRIMARY KEY,

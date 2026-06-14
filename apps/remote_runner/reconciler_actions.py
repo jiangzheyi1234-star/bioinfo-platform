@@ -44,6 +44,16 @@ def fence_expired_attempt(
         "UPDATE run_leases SET state = ?, updated_at = ? WHERE attempt_id = ?",
         ("expired" if reason == "lease_expired" else "fenced", occurred_at, attempt_id),
     )
+    connection.execute(
+        """
+        UPDATE run_resource_allocations
+        SET state = 'released',
+            released_at = COALESCE(released_at, ?),
+            updated_at = ?
+        WHERE attempt_id = ? AND state = 'allocated'
+        """,
+        (occurred_at, occurred_at, attempt_id),
+    )
     append_run_event_v2(
         connection,
         run_id=str(existing["run_id"]),
