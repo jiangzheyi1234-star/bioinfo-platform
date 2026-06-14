@@ -80,6 +80,7 @@ def _environment_lock(tool: dict[str, Any]) -> dict[str, Any]:
 def _validation_evidence(tool: dict[str, Any]) -> dict[str, Any]:
     status = tool.get("contractStatus") if isinstance(tool.get("contractStatus"), dict) else {}
     validation_summary = tool.get("validationSummary") if isinstance(tool.get("validationSummary"), dict) else {}
+    rule_template = tool.get("ruleTemplate") if isinstance(tool.get("ruleTemplate"), dict) else {}
     stages = []
     for stage_id in ("dryRun", "smokeRun", "outputValidation"):
         stage = status.get(stage_id) if isinstance(status.get(stage_id), dict) else {}
@@ -98,6 +99,33 @@ def _validation_evidence(tool: dict[str, Any]) -> dict[str, Any]:
         "validationResultId": str(validation_summary.get("latestResultId") or tool.get("validationResultId") or "").strip(),
         "evidenceId": str(validation_summary.get("evidenceId") or tool.get("evidenceId") or "").strip(),
         "stages": stages,
+        "fixture": _fixture_summary(rule_template),
+    }
+
+
+def _fixture_summary(rule_template: dict[str, Any]) -> dict[str, Any]:
+    smoke_test = rule_template.get("smokeTest") if isinstance(rule_template.get("smokeTest"), dict) else {}
+    inputs = smoke_test.get("inputs") if isinstance(smoke_test.get("inputs"), dict) else {}
+    outputs = rule_template.get("outputs") if isinstance(rule_template.get("outputs"), list) else []
+    return {
+        "inputs": [
+            {
+                "name": str(name),
+                "filename": str(value.get("filename") or value.get("name") or name),
+                "mimeType": str(value.get("mimeType") or ""),
+            }
+            for name, value in inputs.items()
+            if isinstance(value, dict) and (value.get("content") or value.get("contentBase64"))
+        ],
+        "expectedArtifacts": [
+            {
+                "name": str(item.get("name") or ""),
+                "path": str(item.get("path") or ""),
+                "mimeType": str(item.get("mimeType") or ""),
+            }
+            for item in outputs
+            if isinstance(item, dict) and str(item.get("path") or "").strip()
+        ],
     }
 
 
