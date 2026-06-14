@@ -276,7 +276,8 @@ def _recovery_counts(connection: sqlite3.Connection) -> dict[str, int]:
             'run_attempt_fenced',
             'run_job_requeued',
             'run_job_dead_lettered',
-            'run_attempt_recovery_blocked'
+            'run_attempt_recovery_blocked',
+            'run_control_plane_recovered'
         )
         GROUP BY event_type
         """
@@ -287,6 +288,7 @@ def _recovery_counts(connection: sqlite3.Connection) -> dict[str, int]:
         "requeuedJobs": raw.get("run_job_requeued", 0),
         "deadLetteredJobs": raw.get("run_job_dead_lettered", 0),
         "recoveryBlocked": raw.get("run_attempt_recovery_blocked", 0),
+        "controlPlaneRecoveries": raw.get("run_control_plane_recovered", 0),
     }
 
 

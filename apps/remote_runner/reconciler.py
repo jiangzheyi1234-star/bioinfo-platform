@@ -9,8 +9,10 @@ from core.logging_config import clear_log_context, set_log_context
 from .config import RemoteRunnerConfig
 from .event_contracts import append_run_event_v2
 from .reconciler_actions import (
+    append_control_plane_recovery_event,
     dead_letter_job,
     fence_expired_attempt,
+    recover_control_plane_invariants,
     requeue_retryable_job,
     terminate_process_group,
 )
@@ -33,6 +35,7 @@ def run_active_reconciler_once(
     reconciled_at = str(now or now_iso())
     actions: list[dict[str, Any]] = []
     recoveries: list[dict[str, Any]] = []
+    blocked_job_ids: set[str] = set()
     with get_connection(cfg) as connection:
         expired_rows = _expired_lease_rows(connection, reconciled_at)
         clock_jump = clock_jump_observation(
@@ -98,6 +101,7 @@ def run_active_reconciler_once(
             clear_log_context()
         if not _termination_confirmed(terminate_result):
             blocked_reason = str(terminate_result.get("reason") or "termination_unconfirmed")
+            blocked_job_ids.add(str(row["job_id"]))
             _record_recovery_blocked(
                 cfg,
                 row=row,
@@ -131,14 +135,29 @@ def run_active_reconciler_once(
                     retry_delay_seconds=retry_delay_seconds,
                     requeued_at=reconciled_at,
                 )
-                actions.append({
+                action = {
                     "type": "run_attempt_recovered",
                     "runId": str(row["run_id"]),
                     "jobId": str(row["job_id"]),
                     "attemptId": attempt_id,
                     "action": "requeued",
+                    "reasonCode": "LEASE_EXPIRED",
                     "availableAt": requeue_result.get("availableAt"),
-                })
+                }
+                append_control_plane_recovery_event(
+                    connection,
+                    run_id=str(row["run_id"]),
+                    action="requeue_after_lease_expiry",
+                    reason_code="LEASE_EXPIRED",
+                    occurred_at=reconciled_at,
+                    payload={
+                        "jobId": str(row["job_id"]),
+                        "attemptId": attempt_id,
+                        "leaseGeneration": int(row["lease_generation"]),
+                        "availableAt": requeue_result.get("availableAt"),
+                    },
+                )
+                actions.append(action)
             else:
                 dead_letter_result = dead_letter_job(
                     connection,
@@ -147,15 +166,41 @@ def run_active_reconciler_once(
                     reason="max_attempts_exceeded",
                     dead_lettered_at=reconciled_at,
                 )
-                actions.append({
+                action = {
                     "type": "run_attempt_recovered",
                     "runId": str(row["run_id"]),
                     "jobId": str(row["job_id"]),
                     "attemptId": attempt_id,
                     "action": "dead_lettered",
+                    "reasonCode": "LEASE_EXPIRED",
                     "reason": dead_letter_result.get("reason"),
-                })
+                }
+                append_control_plane_recovery_event(
+                    connection,
+                    run_id=str(row["run_id"]),
+                    action="dead_letter_after_lease_expiry",
+                    reason_code="LEASE_EXPIRED",
+                    occurred_at=reconciled_at,
+                    payload={
+                        "jobId": str(row["job_id"]),
+                        "attemptId": attempt_id,
+                        "leaseGeneration": int(row["lease_generation"]),
+                        "reason": dead_letter_result.get("reason"),
+                    },
+                )
+                actions.append(action)
             connection.commit()
+    with get_connection(cfg) as connection:
+        invariant_actions = recover_control_plane_invariants(
+            connection,
+            occurred_at=reconciled_at,
+            retry_delay_seconds=retry_delay_seconds,
+            blocked_job_ids=blocked_job_ids,
+        )
+        connection.commit()
+    actions.extend(invariant_actions)
+    for action in actions:
+        _log_recovery_action(action)
     return actions
 
 
@@ -268,4 +313,22 @@ def _append_observation_event(
         request_id=str(run["request_id"]),
         payload=observation,
         occurred_at=observed_at,
+    )
+
+
+def _log_recovery_action(action: dict[str, Any]) -> None:
+    action_type = str(action.get("type") or "")
+    if action_type not in {"run_attempt_recovered", "run_control_plane_recovered", "run_attempt_recovery_blocked"}:
+        return
+    LOGGER.info(
+        "Execution recovery action recorded",
+        extra={
+            "event": "execution.recovery.action",
+            "decision": str(action.get("action") or action_type),
+            "reasonCode": str(action.get("reasonCode") or action.get("reason") or ""),
+            "runId": str(action.get("runId") or ""),
+            "jobId": str(action.get("jobId") or ""),
+            "attemptId": str(action.get("attemptId") or ""),
+            "slotId": str(action.get("slotId") or ""),
+        },
     )

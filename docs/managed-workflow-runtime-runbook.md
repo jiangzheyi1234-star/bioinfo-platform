@@ -207,6 +207,22 @@ Routine diagnostics must not foreground-run `launch_remote_runner.sh`; that can 
 
 The workflow UI readiness panel must show SSH, runner live, workflow runtime, Snakemake version, profile, pipeline registry, and the most recent bootstrap canary separately. A missing canary record is not proof of readiness.
 
+## Execution Recovery
+
+The run worker supervisor runs a single active reconciler loop. The reconciler is bounded: it only repairs control-plane states that can be derived from the SQLite ledger, and it records every applied repair as `run_control_plane_recovered` in the run event ledger.
+
+Automatic recovery actions:
+
+- `LEASE_EXPIRED`: fence the old attempt, release its resource allocation, set the worker slot idle, confirm the old process group has stopped, then requeue or dead-letter the job.
+- `ACTIVE_LEASE_WITHOUT_RUNNING_ATTEMPT`: close an active lease whose attempt is already terminal or missing, release allocation, and idle the slot.
+- `ALLOCATED_RESOURCE_WITHOUT_ACTIVE_LEASE`: release the orphan allocation.
+- `RUNNING_SLOT_WITHOUT_RUNNING_ATTEMPT`: clear the stale slot attempt reference and return the slot to idle.
+- `CLAIMED_JOB_WITHOUT_ACTIVE_LEASE`: requeue or dead-letter only when no old process group still needs termination confirmation.
+
+Blocked recovery remains visible instead of silently retrying unsafe work. If termination cannot be confirmed, the reconciler writes `run_attempt_recovery_blocked`, leaves the job claimed, and readiness remains failed until the process-group issue is resolved or a later reconciler pass can confirm it is gone.
+
+`/health/execution-diagnostics` includes `recoveryEvidence`, queue recovery counts, and readiness reason codes. Use those fields before manually editing SQLite state.
+
 ## Cleanup
 
 Cleanup is intentionally split by target. The default is conservative and removes only the runner release/current state:

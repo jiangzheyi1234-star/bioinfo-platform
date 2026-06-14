@@ -8,11 +8,13 @@ import subprocess
 import time
 from typing import Any
 
+from .admission_storage import mark_worker_slot_idle, release_resource_allocation
 from .event_contracts import append_run_event_v2
 from .storage_core import now_iso
 
 
 LOGGER = logging.getLogger(__name__)
+RECOVERY_EVENT_TYPE = "run_control_plane_recovered"
 
 
 def fence_expired_attempt(
@@ -54,6 +56,13 @@ def fence_expired_attempt(
         """,
         (occurred_at, occurred_at, attempt_id),
     )
+    mark_worker_slot_idle(
+        connection,
+        worker_id=str(existing["worker_id"]),
+        session_id=str(existing["session_id"] or ""),
+        slot_id=str(existing["slot_id"] or "slot-0"),
+        updated_at=occurred_at,
+    )
     append_run_event_v2(
         connection,
         run_id=str(existing["run_id"]),
@@ -66,6 +75,28 @@ def fence_expired_attempt(
         occurred_at=occurred_at,
     )
     return {"fenced": True, "attemptId": attempt_id, "reason": reason}
+
+
+def recover_control_plane_invariants(
+    connection: sqlite3.Connection,
+    *,
+    occurred_at: str,
+    retry_delay_seconds: int = 5,
+    blocked_job_ids: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    actions: list[dict[str, Any]] = []
+    actions.extend(_close_active_leases_without_running_attempts(connection, occurred_at=occurred_at))
+    actions.extend(_release_orphaned_allocations(connection, occurred_at=occurred_at))
+    actions.extend(_idle_orphaned_running_slots(connection, occurred_at=occurred_at))
+    actions.extend(
+        _recover_claimed_jobs_without_active_leases(
+            connection,
+            occurred_at=occurred_at,
+            retry_delay_seconds=retry_delay_seconds,
+            blocked_job_ids=blocked_job_ids or set(),
+        )
+    )
+    return actions
 
 
 def terminate_process_group(
@@ -268,3 +299,291 @@ def dead_letter_job(
             occurred_at=timestamp,
         )
     return {"deadLettered": True, "jobId": job_id, "reason": reason}
+
+
+def append_control_plane_recovery_event(
+    connection: sqlite3.Connection,
+    *,
+    run_id: str,
+    action: str,
+    reason_code: str,
+    occurred_at: str,
+    payload: dict[str, Any],
+) -> dict[str, Any] | None:
+    run = connection.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+    if run is None:
+        return None
+    return append_run_event_v2(
+        connection,
+        run_id=run_id,
+        event_type=RECOVERY_EVENT_TYPE,
+        stage="reconcile",
+        state_version=int(run["state_version"]),
+        message="Execution control-plane recovery applied.",
+        request_id=str(run["request_id"]),
+        payload={
+            "action": action,
+            "reasonCode": reason_code,
+            **payload,
+        },
+        occurred_at=occurred_at,
+    )
+
+
+def _close_active_leases_without_running_attempts(
+    connection: sqlite3.Connection,
+    *,
+    occurred_at: str,
+) -> list[dict[str, Any]]:
+    rows = connection.execute(
+        """
+        SELECT leases.run_id, leases.attempt_id, leases.lease_generation,
+               leases.worker_id, leases.session_id, leases.slot_id,
+               attempts.state AS attempt_state
+        FROM run_leases AS leases
+        LEFT JOIN run_attempts AS attempts ON attempts.attempt_id = leases.attempt_id
+        WHERE leases.state = 'active'
+          AND COALESCE(attempts.state, '') <> 'running'
+        ORDER BY leases.expires_at ASC, leases.run_id ASC
+        """
+    ).fetchall()
+    actions: list[dict[str, Any]] = []
+    for row in rows:
+        attempt_state = str(row["attempt_state"] or "")
+        target_lease_state = _lease_state_for_non_running_attempt(attempt_state)
+        connection.execute(
+            "UPDATE run_leases SET state = ?, updated_at = ? WHERE run_id = ?",
+            (target_lease_state, occurred_at, row["run_id"]),
+        )
+        if target_lease_state in {"completed", "failed", "cancelled"}:
+            connection.execute(
+                "UPDATE run_jobs SET state = ?, updated_at = ? WHERE run_id = ? AND state = 'claimed'",
+                (target_lease_state, occurred_at, row["run_id"]),
+            )
+        release_resource_allocation(connection, attempt_id=str(row["attempt_id"]), released_at=occurred_at)
+        mark_worker_slot_idle(
+            connection,
+            worker_id=str(row["worker_id"]),
+            session_id=str(row["session_id"] or ""),
+            slot_id=str(row["slot_id"] or "slot-0"),
+            updated_at=occurred_at,
+        )
+        action = {
+            "type": RECOVERY_EVENT_TYPE,
+            "action": "close_active_lease_without_running_attempt",
+            "reasonCode": "ACTIVE_LEASE_WITHOUT_RUNNING_ATTEMPT",
+            "runId": str(row["run_id"]),
+            "attemptId": str(row["attempt_id"]),
+            "leaseGeneration": int(row["lease_generation"]),
+            "attemptState": attempt_state or "missing",
+            "leaseState": target_lease_state,
+        }
+        append_control_plane_recovery_event(
+            connection,
+            run_id=str(row["run_id"]),
+            action=str(action["action"]),
+            reason_code=str(action["reasonCode"]),
+            occurred_at=occurred_at,
+            payload={
+                "attemptId": action["attemptId"],
+                "leaseGeneration": action["leaseGeneration"],
+                "attemptState": action["attemptState"],
+                "leaseState": action["leaseState"],
+            },
+        )
+        actions.append(action)
+    return actions
+
+
+def _release_orphaned_allocations(
+    connection: sqlite3.Connection,
+    *,
+    occurred_at: str,
+) -> list[dict[str, Any]]:
+    rows = connection.execute(
+        """
+        SELECT allocations.run_id, allocations.allocation_id, allocations.attempt_id,
+               allocations.worker_id, allocations.session_id, allocations.slot_id,
+               leases.state AS lease_state
+        FROM run_resource_allocations AS allocations
+        LEFT JOIN run_leases AS leases ON leases.attempt_id = allocations.attempt_id
+        WHERE allocations.state = 'allocated'
+          AND COALESCE(leases.state, '') <> 'active'
+        ORDER BY allocations.created_at ASC
+        """
+    ).fetchall()
+    actions: list[dict[str, Any]] = []
+    for row in rows:
+        release_resource_allocation(connection, attempt_id=str(row["attempt_id"]), released_at=occurred_at)
+        action = {
+            "type": RECOVERY_EVENT_TYPE,
+            "action": "release_orphaned_allocation",
+            "reasonCode": "ALLOCATED_RESOURCE_WITHOUT_ACTIVE_LEASE",
+            "runId": str(row["run_id"]),
+            "attemptId": str(row["attempt_id"]),
+            "allocationId": str(row["allocation_id"]),
+            "leaseState": str(row["lease_state"] or "missing"),
+        }
+        append_control_plane_recovery_event(
+            connection,
+            run_id=str(row["run_id"]),
+            action=str(action["action"]),
+            reason_code=str(action["reasonCode"]),
+            occurred_at=occurred_at,
+            payload={
+                "attemptId": action["attemptId"],
+                "allocationId": action["allocationId"],
+                "leaseState": action["leaseState"],
+            },
+        )
+        actions.append(action)
+    return actions
+
+
+def _idle_orphaned_running_slots(
+    connection: sqlite3.Connection,
+    *,
+    occurred_at: str,
+) -> list[dict[str, Any]]:
+    rows = connection.execute(
+        """
+        SELECT slots.worker_id, slots.session_id, slots.slot_id, slots.current_attempt_id,
+               attempts.run_id, attempts.state AS attempt_state
+        FROM run_worker_slots AS slots
+        LEFT JOIN run_attempts AS attempts ON attempts.attempt_id = slots.current_attempt_id
+        WHERE slots.state = 'running'
+          AND (slots.current_attempt_id IS NULL OR COALESCE(attempts.state, '') <> 'running')
+        ORDER BY slots.worker_id ASC, slots.slot_id ASC
+        """
+    ).fetchall()
+    actions: list[dict[str, Any]] = []
+    for row in rows:
+        connection.execute(
+            """
+            UPDATE run_worker_slots
+            SET state = 'idle', current_attempt_id = NULL, heartbeat_at = ?, updated_at = ?
+            WHERE worker_id = ? AND slot_id = ? AND session_id = ?
+            """,
+            (occurred_at, occurred_at, row["worker_id"], row["slot_id"], row["session_id"]),
+        )
+        action = {
+            "type": RECOVERY_EVENT_TYPE,
+            "action": "idle_orphaned_running_slot",
+            "reasonCode": "RUNNING_SLOT_WITHOUT_RUNNING_ATTEMPT",
+            "workerId": str(row["worker_id"]),
+            "sessionId": str(row["session_id"]),
+            "slotId": str(row["slot_id"]),
+            "attemptId": str(row["current_attempt_id"] or ""),
+            "runId": str(row["run_id"] or ""),
+            "attemptState": str(row["attempt_state"] or "missing"),
+        }
+        if action["runId"]:
+            append_control_plane_recovery_event(
+                connection,
+                run_id=str(action["runId"]),
+                action=str(action["action"]),
+                reason_code=str(action["reasonCode"]),
+                occurred_at=occurred_at,
+                payload={
+                    "attemptId": action["attemptId"],
+                    "workerId": action["workerId"],
+                    "sessionId": action["sessionId"],
+                    "slotId": action["slotId"],
+                    "attemptState": action["attemptState"],
+                },
+            )
+        actions.append(action)
+    return actions
+
+
+def _recover_claimed_jobs_without_active_leases(
+    connection: sqlite3.Connection,
+    *,
+    occurred_at: str,
+    retry_delay_seconds: int,
+    blocked_job_ids: set[str],
+) -> list[dict[str, Any]]:
+    rows = connection.execute(
+        """
+        SELECT jobs.job_id, jobs.run_id, jobs.attempt_count, jobs.max_attempts,
+               leases.attempt_id, leases.lease_generation, leases.state AS lease_state,
+               attempts.process_group_id
+        FROM run_jobs AS jobs
+        LEFT JOIN run_leases AS leases ON leases.run_id = jobs.run_id
+        LEFT JOIN run_attempts AS attempts ON attempts.attempt_id = leases.attempt_id
+        WHERE jobs.state = 'claimed'
+          AND COALESCE(leases.state, '') <> 'active'
+          AND COALESCE(attempts.process_group_id, '') = ''
+        ORDER BY jobs.updated_at ASC
+        """
+    ).fetchall()
+    actions: list[dict[str, Any]] = []
+    for row in rows:
+        if str(row["job_id"]) in blocked_job_ids:
+            continue
+        attempt_count = int(row["attempt_count"])
+        max_attempts = int(row["max_attempts"])
+        if attempt_count < max_attempts:
+            result = requeue_retryable_job(
+                connection,
+                job_id=str(row["job_id"]),
+                run_id=str(row["run_id"]),
+                retry_delay_seconds=retry_delay_seconds,
+                requeued_at=occurred_at,
+            )
+            action_name = "requeue_claimed_job_without_active_lease"
+            action = {
+                "type": RECOVERY_EVENT_TYPE,
+                "action": action_name,
+                "reasonCode": "CLAIMED_JOB_WITHOUT_ACTIVE_LEASE",
+                "runId": str(row["run_id"]),
+                "jobId": str(row["job_id"]),
+                "attemptId": str(row["attempt_id"] or ""),
+                "leaseGeneration": int(row["lease_generation"] or 0),
+                "availableAt": result.get("availableAt"),
+            }
+        else:
+            result = dead_letter_job(
+                connection,
+                job_id=str(row["job_id"]),
+                run_id=str(row["run_id"]),
+                reason="claimed_job_without_active_lease",
+                dead_lettered_at=occurred_at,
+            )
+            action_name = "dead_letter_claimed_job_without_active_lease"
+            action = {
+                "type": RECOVERY_EVENT_TYPE,
+                "action": action_name,
+                "reasonCode": "CLAIMED_JOB_WITHOUT_ACTIVE_LEASE",
+                "runId": str(row["run_id"]),
+                "jobId": str(row["job_id"]),
+                "attemptId": str(row["attempt_id"] or ""),
+                "leaseGeneration": int(row["lease_generation"] or 0),
+                "reason": result.get("reason"),
+            }
+        append_control_plane_recovery_event(
+            connection,
+            run_id=str(row["run_id"]),
+            action=action_name,
+            reason_code="CLAIMED_JOB_WITHOUT_ACTIVE_LEASE",
+            occurred_at=occurred_at,
+            payload={
+                "jobId": str(row["job_id"]),
+                "attemptId": str(row["attempt_id"] or ""),
+                "leaseGeneration": int(row["lease_generation"] or 0),
+                "leaseState": str(row["lease_state"] or "missing"),
+            },
+        )
+        actions.append(action)
+    return actions
+
+
+def _lease_state_for_non_running_attempt(attempt_state: str) -> str:
+    normalized = str(attempt_state or "").strip().lower()
+    if normalized == "succeeded":
+        return "completed"
+    if normalized == "failed":
+        return "failed"
+    if normalized in {"canceled", "cancelled"}:
+        return "cancelled"
+    return "fenced"

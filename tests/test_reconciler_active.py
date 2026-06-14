@@ -4,8 +4,10 @@ import logging
 
 from apps.remote_runner.reconciler import run_active_reconciler_once
 from apps.remote_runner import reconciler
+from apps.remote_runner.execution_diagnostics import build_execution_diagnostics
 from apps.remote_runner.metrics import collect_queue_metrics
 from apps.remote_runner.run_execution_storage import claim_next_run_job
+from apps.remote_runner.run_worker_storage import register_run_worker, register_run_worker_slot
 from apps.remote_runner.storage import create_run_record
 from apps.remote_runner.storage_core import get_connection
 from tests.helpers.reference_database import make_configured_remote_runner
@@ -42,6 +44,24 @@ def _create_run(cfg, run_id: str):
         )
         connection.commit()
     return result
+
+
+def _register_worker_slot(cfg, *, worker_id: str, session_id: str, slot_id: str) -> None:
+    register_run_worker(
+        cfg,
+        worker_id=worker_id,
+        session_id=session_id,
+        pid=789,
+        hostname=f"host-{worker_id}",
+        now="2099-06-07T09:59:59Z",
+    )
+    register_run_worker_slot(
+        cfg,
+        worker_id=worker_id,
+        session_id=session_id,
+        slot_id=slot_id,
+        now="2099-06-07T09:59:59Z",
+    )
 
 
 def test_active_reconciler_fences_expired_lease_and_requeues_retryable_job(tmp_path):
@@ -89,6 +109,145 @@ def test_active_reconciler_fences_expired_lease_and_requeues_retryable_job(tmp_p
     assert allocation["state"] == "released"
     assert allocation["released_at"] == "2099-06-07T10:00:11Z"
     assert collect_queue_metrics(cfg)["recovery"]["requeuedJobs"] == 1
+    assert collect_queue_metrics(cfg)["recovery"]["controlPlaneRecoveries"] == 1
+
+
+def test_active_reconciler_marks_slot_idle_and_reports_recovery_evidence(tmp_path):
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_slot_recovery")
+    _register_worker_slot(cfg, worker_id="worker_slot", session_id="session_slot", slot_id="slot-0")
+    claim = claim_next_run_job(
+        cfg,
+        worker_id="worker_slot",
+        session_id="session_slot",
+        slot_id="slot-0",
+        now="2099-06-07T10:00:00Z",
+        lease_seconds=10,
+    )
+    assert claim is not None
+
+    actions = run_active_reconciler_once(cfg, now="2099-06-07T10:00:11Z")
+
+    assert any(
+        action.get("type") == "run_attempt_recovered"
+        and action.get("reasonCode") == "LEASE_EXPIRED"
+        for action in actions
+    )
+    with get_connection(cfg) as connection:
+        slot = connection.execute(
+            "SELECT state, current_attempt_id FROM run_worker_slots WHERE worker_id = ? AND slot_id = ?",
+            ("worker_slot", "slot-0"),
+        ).fetchone()
+    assert slot["state"] == "idle"
+    assert slot["current_attempt_id"] is None
+
+    diagnostics = build_execution_diagnostics(cfg, run_ids=["run_slot_recovery"])
+    recovery = diagnostics["recoveryEvidence"]
+    assert any(
+        event["eventType"] == "run_control_plane_recovered"
+        and event["payload"]["action"] == "requeue_after_lease_expiry"
+        and event["payload"]["reasonCode"] == "LEASE_EXPIRED"
+        for event in recovery
+    )
+    assert diagnostics["readiness"]["ok"] is True
+
+
+def test_active_reconciler_closes_terminal_attempt_active_lease(tmp_path):
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_terminal_lease")
+    _register_worker_slot(cfg, worker_id="worker_terminal", session_id="session_terminal", slot_id="slot-0")
+    claim = claim_next_run_job(
+        cfg,
+        worker_id="worker_terminal",
+        session_id="session_terminal",
+        slot_id="slot-0",
+        now="2099-06-07T10:00:00Z",
+        lease_seconds=60,
+    )
+    assert claim is not None
+    with get_connection(cfg) as connection:
+        connection.execute(
+            "UPDATE runs SET status = ?, stage = ?, last_updated_at = ? WHERE run_id = ?",
+            ("completed", "finalize", "2099-06-07T10:00:05Z", "run_terminal_lease"),
+        )
+        connection.execute(
+            """
+            UPDATE run_attempts
+            SET state = ?, finished_at = ?, updated_at = ?
+            WHERE attempt_id = ?
+            """,
+            ("succeeded", "2099-06-07T10:00:05Z", "2099-06-07T10:00:05Z", claim["attemptId"]),
+        )
+        connection.commit()
+
+    actions = run_active_reconciler_once(cfg, now="2099-06-07T10:00:06Z")
+
+    assert any(
+        action.get("action") == "close_active_lease_without_running_attempt"
+        and action.get("reasonCode") == "ACTIVE_LEASE_WITHOUT_RUNNING_ATTEMPT"
+        for action in actions
+    )
+    with get_connection(cfg) as connection:
+        job = connection.execute(
+            "SELECT state FROM run_jobs WHERE run_id = ?",
+            ("run_terminal_lease",),
+        ).fetchone()
+        lease = connection.execute(
+            "SELECT state FROM run_leases WHERE run_id = ?",
+            ("run_terminal_lease",),
+        ).fetchone()
+        allocation = connection.execute(
+            "SELECT state FROM run_resource_allocations WHERE attempt_id = ?",
+            (claim["attemptId"],),
+        ).fetchone()
+        slot = connection.execute(
+            "SELECT state, current_attempt_id FROM run_worker_slots WHERE worker_id = ? AND slot_id = ?",
+            ("worker_terminal", "slot-0"),
+        ).fetchone()
+    assert job["state"] == "completed"
+    assert lease["state"] == "completed"
+    assert allocation["state"] == "released"
+    assert slot["state"] == "idle"
+    assert slot["current_attempt_id"] is None
+    assert build_execution_diagnostics(cfg, run_ids=["run_terminal_lease"])["ok"] is True
+
+
+def test_active_reconciler_requeues_claimed_job_without_active_lease(tmp_path):
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_claimed_without_lease")
+    claim = claim_next_run_job(
+        cfg,
+        worker_id="worker_orphan",
+        now="2099-06-07T10:00:00Z",
+        lease_seconds=60,
+    )
+    assert claim is not None
+    with get_connection(cfg) as connection:
+        connection.execute(
+            "UPDATE run_leases SET state = ?, updated_at = ? WHERE run_id = ?",
+            ("fenced", "2099-06-07T10:00:05Z", "run_claimed_without_lease"),
+        )
+        connection.commit()
+
+    actions = run_active_reconciler_once(cfg, now="2099-06-07T10:00:06Z")
+
+    assert any(
+        action.get("action") == "requeue_claimed_job_without_active_lease"
+        and action.get("reasonCode") == "CLAIMED_JOB_WITHOUT_ACTIVE_LEASE"
+        for action in actions
+    )
+    with get_connection(cfg) as connection:
+        job = connection.execute(
+            "SELECT state, attempt_count FROM run_jobs WHERE run_id = ?",
+            ("run_claimed_without_lease",),
+        ).fetchone()
+        allocation = connection.execute(
+            "SELECT state FROM run_resource_allocations WHERE attempt_id = ?",
+            (claim["attemptId"],),
+        ).fetchone()
+    assert job["state"] == "queued"
+    assert job["attempt_count"] == 1
+    assert allocation["state"] == "released"
 
 
 def test_active_reconciler_dead_letters_exhausted_job(tmp_path):

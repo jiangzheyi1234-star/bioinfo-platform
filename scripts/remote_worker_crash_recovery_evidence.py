@@ -69,6 +69,18 @@ def validate_recovery_evidence(
         raise ValueError(f"EXPECTED_SINGLE_REQUEUE_EVENT: {len(requeue_events)}")
     if event_details(requeue_events[0]).get("jobId") != second_claim.get("jobId"):
         raise ValueError("REQUEUE_EVENT_REFERENCES_UNEXPECTED_JOB")
+    control_plane_recoveries = [
+        event_details(event)
+        for event in events
+        if event.get("eventType") == "run_control_plane_recovered"
+    ]
+    if not any(
+        event.get("action") == "requeue_after_lease_expiry"
+        and event.get("reasonCode") == "LEASE_EXPIRED"
+        and event.get("attemptId") == held["attemptId"]
+        for event in control_plane_recoveries
+    ):
+        raise ValueError("CONTROL_PLANE_RECOVERY_EVENT_MISSING")
 
     attempts = list(snapshot.get("attempts") or [])
     if len(attempts) != 2:
@@ -154,4 +166,5 @@ def validate_recovery_evidence(
         "lineageCount": snapshot["lineageCount"],
         "fenceEventCount": len(fence_events),
         "requeueEventCount": len(requeue_events),
+        "controlPlaneRecoveryEventCount": len(control_plane_recoveries),
     }

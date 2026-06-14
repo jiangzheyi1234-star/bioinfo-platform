@@ -88,7 +88,7 @@ uv run python scripts\remote_runner_release_gate.py `
   --evidence-json dist\remote-runner\release-gate-evidence.json
 ```
 
-This gate temporarily enables the P0-3B two-slot worker mode, runs real Snakemake concurrency/cancel/resource-wait acceptance, runs worker crash/restart recovery acceptance, writes machine-readable release evidence, and must restore the remote runner to the single-slot production default before completion.
+This gate temporarily enables the P0-3B two-slot worker mode, runs real Snakemake concurrency/cancel/resource-wait acceptance, runs worker crash/restart recovery acceptance, verifies closed-loop recovery evidence from the control-plane event ledger, writes machine-readable release evidence, and must restore the remote runner to the single-slot production default before completion.
 
 ## Traceability Requirements
 

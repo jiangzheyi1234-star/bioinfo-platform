@@ -27,6 +27,7 @@ def build_execution_diagnostics(
         allocated_resources = _allocated_resources(connection)
         resource_waits = _resource_waits(connection)
         recent_events = _recent_events(connection, run_ids=normalized_run_ids, limit=event_limit)
+        recovery_evidence = _recovery_evidence(connection, run_ids=normalized_run_ids, limit=event_limit)
         event_chains = {
             run_id: verify_run_event_hash_chain(connection, run_id)
             for run_id in normalized_run_ids
@@ -48,6 +49,7 @@ def build_execution_diagnostics(
         "activeLeases": active_leases,
         "allocatedResources": allocated_resources,
         "resourceWaits": resource_waits,
+        "recoveryEvidence": recovery_evidence,
         "recentEvents": recent_events,
         "eventHashChains": event_chains,
     }
@@ -200,6 +202,47 @@ def _recent_events(connection, *, run_ids: list[str], limit: int) -> list[dict[s
     ]
 
 
+def _recovery_evidence(connection, *, run_ids: list[str], limit: int) -> list[dict[str, Any]]:
+    safe_limit = max(1, min(int(limit), 200))
+    params: list[Any] = []
+    where = """
+        WHERE event_type IN (
+            'run_attempt_fenced',
+            'run_job_requeued',
+            'run_job_dead_lettered',
+            'run_attempt_recovery_blocked',
+            'run_control_plane_recovered'
+        )
+    """
+    if run_ids:
+        marks = ",".join("?" for _ in run_ids)
+        where += f" AND run_id IN ({marks})"
+        params.extend(run_ids)
+    params.append(safe_limit)
+    rows = connection.execute(
+        f"""
+        SELECT run_id, event_type, seq, stage, state_version, created_at, details_json
+        FROM run_events
+        {where}
+        ORDER BY created_at DESC, seq DESC
+        LIMIT ?
+        """,
+        tuple(params),
+    ).fetchall()
+    return [
+        {
+            "runId": row["run_id"],
+            "eventType": row["event_type"],
+            "sequence": int(row["seq"]),
+            "stage": row["stage"],
+            "stateVersion": int(row["state_version"]),
+            "createdAt": row["created_at"],
+            "payload": _event_payload(row["details_json"]),
+        }
+        for row in rows
+    ]
+
+
 def _invariants(
     connection,
     *,
@@ -331,6 +374,12 @@ def _row_identity(row) -> dict[str, Any]:
         for key in row.keys()
         if row[key] is not None
     }
+
+
+def _event_payload(value: str | None) -> dict[str, Any]:
+    details = _json_object(value)
+    payload = details.get("payload") if isinstance(details, dict) else None
+    return payload if isinstance(payload, dict) else {}
 
 
 def _json_object(value: str | None) -> dict[str, Any]:

@@ -45,6 +45,14 @@ def _evidence():
         _event("run_attempt_fenced", attemptId="att_old", leaseGeneration=1, reason="lease_expired"),
         _event("run_job_requeued", jobId="job_1"),
         _event(
+            "run_control_plane_recovered",
+            action="requeue_after_lease_expiry",
+            reasonCode="LEASE_EXPIRED",
+            jobId="job_1",
+            attemptId="att_old",
+            leaseGeneration=1,
+        ),
+        _event(
             "run_attempt_claimed",
             jobId="job_1",
             attemptId="att_new",
@@ -155,6 +163,7 @@ def test_validate_recovery_evidence_accepts_exactly_once_recovery() -> None:
     assert evidence["leaseGenerations"] == [1, 2]
     assert evidence["artifactCount"] == 3
     assert evidence["fenceEventCount"] == 1
+    assert evidence["controlPlaneRecoveryEventCount"] == 1
 
 
 def test_validate_recovery_evidence_accepts_run_event_v2_payload_shape() -> None:
@@ -181,6 +190,21 @@ def test_validate_recovery_evidence_rejects_duplicate_fence_event() -> None:
     events.append(_event("run_attempt_fenced", attemptId="att_old", leaseGeneration=1, reason="lease_expired"))
 
     with pytest.raises(ValueError, match="EXPECTED_SINGLE_FENCE_EVENT"):
+        acceptance.validate_recovery_evidence(
+            final_run={"runId": "run_acceptance", "status": "completed"},
+            events=events,
+            results=results,
+            held=held,
+            restarted=restarted,
+            snapshot=snapshot,
+        )
+
+
+def test_validate_recovery_evidence_rejects_missing_control_plane_recovery_event() -> None:
+    held, restarted, events, snapshot, results = _evidence()
+    events = [event for event in events if event["eventType"] != "run_control_plane_recovered"]
+
+    with pytest.raises(ValueError, match="CONTROL_PLANE_RECOVERY_EVENT_MISSING"):
         acceptance.validate_recovery_evidence(
             final_run={"runId": "run_acceptance", "status": "completed"},
             events=events,
