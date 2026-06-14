@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from scripts.collect_diagnostics import (
+    collect_remote_runner_health,
     collect_environment,
     collect_system_info,
     filter_sensitive,
@@ -93,3 +94,41 @@ def test_collect_environment_filters_secrets():
     finally:
         os.environ.pop("H2OMETA_TEST_VALUE", None)
         os.environ.pop("H2OMETA_SECRET_TOKEN", None)
+
+
+def test_collect_remote_runner_health_includes_execution_diagnostics(monkeypatch):
+    import io
+    import json
+    import urllib.error
+    import urllib.request
+
+    requested: list[str] = []
+
+    class FakeResponse:
+        def __init__(self, payload: dict):
+            self.payload = payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return json.dumps(self.payload).encode("utf-8")
+
+    def fake_urlopen(request, timeout):
+        requested.append(request.full_url)
+        if request.full_url.endswith("/health/ready"):
+            body = io.BytesIO(b'{"status":"failed","reasonCode":"RUN_WORKER_UNAVAILABLE"}')
+            raise urllib.error.HTTPError(request.full_url, 503, "Service Unavailable", {}, body)
+        return FakeResponse({"status": "ok", "data": {"schemaVersion": "execution-diagnostics.v1"}})
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    health = collect_remote_runner_health("http://runner.local", "runner-token")
+
+    assert any(url.endswith("/health/execution-diagnostics") for url in requested)
+    assert health["/health/ready"]["httpStatus"] == 503
+    assert health["/health/ready"]["reasonCode"] == "RUN_WORKER_UNAVAILABLE"
+    assert health["/health/execution-diagnostics"]["data"]["schemaVersion"] == "execution-diagnostics.v1"

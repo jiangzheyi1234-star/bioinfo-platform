@@ -5,6 +5,7 @@ from typing import Any
 
 RESOURCE_WAIT_DEGRADED_SECONDS = 900
 QUEUED_DEGRADED_SECONDS = 1800
+WORKER_HEARTBEAT_STALE_SECONDS = 90
 
 
 def evaluate_execution_readiness(
@@ -35,8 +36,26 @@ def evaluate_execution_readiness(
     worker_summary = _dict(workers.get("summary"))
     if require_worker and int(worker_summary.get("workerCount") or 0) <= 0:
         blocking.append(_reason("RUN_WORKER_UNAVAILABLE", "No run worker is registered."))
-    if require_worker and _all_workers_unavailable(_list(workers.get("workers"))):
+    worker_rows = _list(workers.get("workers"))
+    if require_worker and _all_workers_unavailable(worker_rows):
         blocking.append(_reason("RUN_WORKER_UNAVAILABLE", "All run workers are stopped or draining."))
+    stale_workers = _stale_workers(worker_rows)
+    if require_worker and stale_workers and not _has_fresh_available_worker(worker_rows):
+        blocking.append(
+            _reason(
+                "RUN_WORKER_HEARTBEAT_STALE",
+                "All available run worker heartbeats are stale.",
+                {"thresholdSeconds": WORKER_HEARTBEAT_STALE_SECONDS, "workers": stale_workers},
+            )
+        )
+    elif stale_workers:
+        degraded.append(
+            _reason(
+                "RUN_WORKER_HEARTBEAT_DEGRADED",
+                "One or more run worker heartbeats are stale.",
+                {"thresholdSeconds": WORKER_HEARTBEAT_STALE_SECONDS, "workers": stale_workers},
+            )
+        )
 
     oldest_queued_age = queue.get("oldestQueuedAgeSeconds")
     if isinstance(oldest_queued_age, int) and oldest_queued_age >= QUEUED_DEGRADED_SECONDS:
@@ -74,6 +93,7 @@ def evaluate_execution_readiness(
             "sqliteBusyTimeout": bool(sqlite.get("busyTimeoutOk")),
             "executionInvariants": bool(invariants.get("ok")),
             "runWorkerAvailable": not any(reason["code"] == "RUN_WORKER_UNAVAILABLE" for reason in blocking),
+            "workerHeartbeatFresh": not stale_workers,
             "queueWaitWithinThreshold": not any(reason["code"] == "QUEUE_WAIT_DEGRADED" for reason in degraded),
             "resourceWaitWithinThreshold": not any(reason["code"] == "RESOURCE_WAIT_DEGRADED" for reason in degraded),
         },
@@ -88,6 +108,39 @@ def _all_workers_unavailable(workers: list[Any]) -> bool:
         if worker.get("state") != "stopped" and not worker.get("draining"):
             return False
     return True
+
+
+def _has_fresh_available_worker(workers: list[Any]) -> bool:
+    for raw in workers:
+        worker = _dict(raw)
+        if _worker_available(worker) and not _worker_stale(worker):
+            return True
+    return False
+
+
+def _stale_workers(workers: list[Any]) -> list[dict[str, Any]]:
+    stale: list[dict[str, Any]] = []
+    for raw in workers:
+        worker = _dict(raw)
+        if not _worker_available(worker) or not _worker_stale(worker):
+            continue
+        stale.append(
+            {
+                "workerId": worker.get("workerId"),
+                "sessionId": worker.get("sessionId"),
+                "heartbeatAgeSeconds": worker.get("heartbeatAgeSeconds"),
+            }
+        )
+    return stale
+
+
+def _worker_available(worker: dict[str, Any]) -> bool:
+    return worker.get("state") != "stopped" and not worker.get("draining")
+
+
+def _worker_stale(worker: dict[str, Any]) -> bool:
+    age = worker.get("heartbeatAgeSeconds")
+    return isinstance(age, int) and age >= WORKER_HEARTBEAT_STALE_SECONDS
 
 
 def _reason(code: str, message: str, details: Any | None = None) -> dict[str, Any]:

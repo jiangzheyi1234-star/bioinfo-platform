@@ -21,6 +21,7 @@ from apps.api.ssh_routes import (
     create_terminal_session,
     disconnect_ssh,
     ensure_server_runner,
+    get_server_execution_diagnostics,
     get_server_health,
     get_ssh_status,
     list_servers,
@@ -243,6 +244,48 @@ def test_servers_health_contract_exposes_reason_code(monkeypatch, tmp_path: Path
     health = health_payload["data"]
     assert health["reasonCode"] == "SSH_NOT_CONNECTED"
     assert set(health.keys()) >= {"startup", "live", "ready", "reasonCode", "checkedAt"}
+
+
+def test_server_execution_diagnostics_contract(monkeypatch, tmp_path: Path) -> None:
+    service = make_service(tmp_path)
+    service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)
+    cfg = {
+        "ssh": {
+            "host": "192.0.2.10",
+            "port": 22,
+            "user": "tester",
+            "auth_mode": "key_file",
+            "identity_ref": "C:/keys/id_ed25519",
+            "timeout_sec": 5,
+        },
+        "servers": {},
+    }
+
+    class FakeRemoteRunnerManager:
+        def get_execution_diagnostics(self, **kwargs):
+            return {
+                "schemaVersion": "execution-diagnostics.v1",
+                "readiness": {"schemaVersion": "execution-readiness-policy.v1", "ok": True},
+                "executionObservability": {"schemaVersion": "execution-observability.v1"},
+            }
+
+    service._service_locator.remote_runner_manager = FakeRemoteRunnerManager()
+    monkeypatch.setattr("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg)
+    patch_runtime_service(monkeypatch, service)
+
+    server_id = asyncio.run(list_servers())["data"]["items"][0]["serverId"]
+    cfg["servers"][server_id] = {
+        "bootstrap_version": "phase-diagnostics-test",
+        "runner_mode": "background_process",
+        "service_port": 43127,
+        "token_ref": "runner://srv_test",
+    }
+
+    payload = asyncio.run(get_server_execution_diagnostics(server_id))
+
+    assert payload["data"]["schemaVersion"] == "execution-diagnostics.v1"
+    assert payload["data"]["readiness"]["ok"] is True
+    assert payload["data"]["executionObservability"]["schemaVersion"] == "execution-observability.v1"
 
 
 def test_server_actions_update_server_state(monkeypatch, tmp_path: Path) -> None:

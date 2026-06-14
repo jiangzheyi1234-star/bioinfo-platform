@@ -57,7 +57,9 @@ class RemoteRunnerHttpClient:
         *,
         payload: dict[str, Any] | None = None,
         extra_headers: dict[str, str] | None = None,
+        accepted_statuses: set[int] | None = None,
     ) -> dict[str, Any]:
+        accepted = accepted_statuses or {200}
         body = json.dumps(payload).encode("utf-8") if payload is not None else None
         headers = {
             "Authorization": f"Bearer {self.token}",
@@ -77,6 +79,10 @@ class RemoteRunnerHttpClient:
                 return json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             response_payload = exc.read().decode("utf-8", errors="replace")
+            if exc.code in accepted:
+                decoded = json.loads(response_payload or "{}")
+                if isinstance(decoded, dict):
+                    return decoded
             detail_value = _http_error_detail_value(response_payload)
             if exc.code == 409 and isinstance(detail_value, dict):
                 raise RemoteRunnerConflictError(detail_value) from exc
@@ -90,8 +96,8 @@ class RemoteRunnerHttpClient:
         except (http.client.RemoteDisconnected, ConnectionError, OSError) as exc:
             raise RemoteRunnerClientError(str(exc) or "runner unreachable") from exc
 
-    def get_json(self, path: str) -> dict[str, Any]:
-        return self._request_json("GET", path)
+    def get_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, Any]:
+        return self._request_json("GET", path, accepted_statuses=accepted_statuses)
 
     def post_json(
         self,
@@ -159,9 +165,9 @@ class RemoteRunnerHttpClient:
         return self.get_json(path)["data"]
 
     def get_health(self) -> dict[str, Any]:
-        startup = self.get_json("/health/startup")
+        startup = self.get_json("/health/startup", accepted_statuses={200, 503})
         live = self.get_json("/health/live")
-        ready = self.get_json("/health/ready")
+        ready = self.get_json("/health/ready", accepted_statuses={200, 503})
         workflow = ready.get("workflowRuntime") if isinstance(ready.get("workflowRuntime"), dict) else {}
         pipeline_registry = ready.get("pipelineRegistry") if isinstance(ready.get("pipelineRegistry"), dict) else {}
         ready_ok = ready.get("status") == "ok"
@@ -229,3 +235,6 @@ class RemoteRunnerHttpClient:
             "reasonCode": reason_code,
             "checkedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
+
+    def get_execution_diagnostics(self) -> dict[str, Any]:
+        return self.get_json("/health/execution-diagnostics")["data"]

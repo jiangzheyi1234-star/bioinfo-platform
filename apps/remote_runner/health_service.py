@@ -197,6 +197,7 @@ def _enrich_with_execution_readiness(payload: dict[str, Any], cfg: RemoteRunnerC
                 "sqliteBusyTimeout": False,
                 "executionInvariants": False,
                 "runWorkerAvailable": False,
+                "workerHeartbeatFresh": False,
                 "queueWaitWithinThreshold": True,
                 "resourceWaitWithinThreshold": True,
             },
@@ -223,6 +224,7 @@ def _enrich_with_execution_readiness(payload: dict[str, Any], cfg: RemoteRunnerC
                 "sqliteBusyTimeout": False,
                 "executionInvariants": False,
                 "runWorkerAvailable": False,
+                "workerHeartbeatFresh": False,
                 "queueWaitWithinThreshold": True,
                 "resourceWaitWithinThreshold": True,
             },
@@ -252,4 +254,5 @@ def _execution_readiness_checks(payload: dict[str, Any]) -> dict[str, bool]:
         "execution_ready": bool(readiness.get("ok")),
         "execution_invariants": bool(checks.get("executionInvariants")),
         "run_worker_available": bool(checks.get("runWorkerAvailable")),
+        "worker_heartbeat_fresh": bool(checks.get("workerHeartbeatFresh")),
     }

@@ -65,6 +65,13 @@ async def refresh_server_health_from_request(server_id: str) -> dict[str, Any]:
     )
 
 
+async def get_server_execution_diagnostics_from_request(server_id: str) -> dict[str, Any]:
+    return await run_runtime_payload(
+        lambda: runtime_service().get_runner_execution_diagnostics(server_id),
+        wrapper="data",
+    )
+
+
 async def ensure_server_runner_from_request(server_id: str) -> dict[str, Any]:
     result = await run_runtime_payload(
         lambda: runtime_service().ensure_remote_runner_ready(server_id),

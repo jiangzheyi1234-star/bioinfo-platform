@@ -147,6 +147,26 @@ def test_execution_admission_ready_rejects_when_no_worker_is_available(tmp_path)
     assert message.startswith("RUN_WORKER_UNAVAILABLE:")
 
 
+def test_execution_readiness_rejects_when_all_worker_heartbeats_are_stale(tmp_path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    register_run_worker(
+        cfg,
+        worker_id="worker-stale",
+        session_id="session-stale",
+        pid=123,
+        hostname="host-stale",
+        now="2099-06-07T10:00:00Z",
+    )
+
+    diagnostics = build_execution_diagnostics(cfg, now="2099-06-07T10:02:00Z")
+    readiness = diagnostics["readiness"]
+
+    assert diagnostics["ok"] is False
+    assert readiness["reasonCode"] == "RUN_WORKER_HEARTBEAT_STALE"
+    assert readiness["checks"]["workerHeartbeatFresh"] is False
+    assert readiness["blockingReasons"][0]["details"]["workers"][0]["workerId"] == "worker-stale"
+
+
 def test_execution_diagnostics_redacts_sensitive_worker_errors(tmp_path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     register_run_worker(

@@ -133,7 +133,13 @@ def collect_remote_runner_health(api_base: str, token: str) -> dict[str, Any]:
     import urllib.error
 
     results: dict[str, Any] = {}
-    endpoints = ["/health/startup", "/health/live", "/health/ready", "/health/workers"]
+    endpoints = [
+        "/health/startup",
+        "/health/live",
+        "/health/ready",
+        "/health/workers",
+        "/health/execution-diagnostics",
+    ]
     for endpoint in endpoints:
         url = f"{api_base}{endpoint}"
         try:
@@ -143,11 +149,25 @@ def collect_remote_runner_health(api_base: str, token: str) -> dict[str, Any]:
             with urllib.request.urlopen(req, timeout=5) as resp:
                 body = json.loads(resp.read().decode())
                 results[endpoint] = filter_sensitive(body)
+        except urllib.error.HTTPError as exc:
+            body = _json_http_error_body(exc)
+            results[endpoint] = filter_sensitive(body) if body else {"error": str(exc)}
         except urllib.error.URLError as exc:
             results[endpoint] = {"error": str(exc)}
         except Exception as exc:
             results[endpoint] = {"error": str(exc)}
     return results
+
+
+def _json_http_error_body(exc) -> dict[str, Any] | None:
+    try:
+        raw = exc.read().decode("utf-8", errors="replace")
+        body = json.loads(raw or "{}")
+    except Exception:
+        return None
+    if not isinstance(body, dict):
+        return None
+    return {"httpStatus": int(exc.code), **body}
 
 
 def collect_environment() -> dict[str, str]:

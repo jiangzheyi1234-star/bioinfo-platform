@@ -40,6 +40,14 @@ class RemoteRunnerProxyMixin:
             record=dict(kwargs["server_record"]),
         )
 
+    def get_execution_diagnostics(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+        )
+        return client.get_execution_diagnostics()
+
     def upload_content(self, **kwargs) -> dict[str, Any]:
         client = self._get_client(
             server_id=str(kwargs["server_id"]),

@@ -22,11 +22,32 @@ class RunnerOperationsMixin(
     def stop_remote_runner_service(self) -> dict[str, Any]:
         return self.runner.stop_remote_runner_service()
 
+    def get_runner_execution_diagnostics(self, server_id: str | None = None) -> dict[str, Any]:
+        selected_server_id, ssh, record = self._require_existing_runner_prepared(preferred_server_id=server_id)
+        return self._call_remote_runner(
+            self._service_locator.remote_runner_manager.get_execution_diagnostics,
+            server_id=selected_server_id,
+            ssh_service=ssh,
+            server_record=record,
+        )
+
     @staticmethod
     def _call_remote_runner(func, /, **kwargs):
         return call_remote_runner(func, **kwargs)
 
     def _require_existing_runner_ready(
+        self,
+        *,
+        preferred_server_id: Optional[str] = None,
+    ):
+        server_id, ssh, record = self._require_existing_runner_prepared(preferred_server_id=preferred_server_id)
+        snapshot = record.get("last_health_snapshot")
+        if isinstance(snapshot, dict) and not bool((snapshot.get("ready") or {}).get("ok")):
+            message = str((snapshot.get("ready") or {}).get("message") or "Remote runner is not ready.")
+            raise RuntimeServiceError(message)
+        return server_id, ssh, record
+
+    def _require_existing_runner_prepared(
         self,
         *,
         preferred_server_id: Optional[str] = None,
@@ -43,9 +64,5 @@ class RunnerOperationsMixin(
         record = self._get_server_registry_entry(server_id)
         if not record.get("bootstrap_version"):
             raise RuntimeServiceError("Remote runner is not prepared")
-        snapshot = record.get("last_health_snapshot")
-        if isinstance(snapshot, dict) and not bool((snapshot.get("ready") or {}).get("ok")):
-            message = str((snapshot.get("ready") or {}).get("message") or "Remote runner is not ready.")
-            raise RuntimeServiceError(message)
         ssh = self._ensure_ssh_connected()
         return server_id, ssh, record

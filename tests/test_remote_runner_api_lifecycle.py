@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from fastapi import Response
 
 from apps.remote_runner.config import (
     ensure_runtime_layout,
@@ -61,17 +62,20 @@ def test_remote_runner_health_endpoints_require_auth_and_do_not_mutate_runtime(
     monkeypatch.setenv("H2OMETA_REMOTE_CONFIG", str(config_path))
 
     with pytest.raises(RemoteRunnerAuthError, match="runner authentication failed"):
-        asyncio.run(health_startup(authorization=None))
+        asyncio.run(health_startup(response=Response(), authorization=None))
 
     cfg = load_remote_runner_config()
     ensure_runtime_layout(cfg)
-    startup = asyncio.run(health_startup(authorization="Bearer phase1-token"))
-    live = asyncio.run(health_live(authorization="Bearer phase1-token"))
-    ready = asyncio.run(health_ready(authorization="Bearer phase1-token"))
+    startup = asyncio.run(health_startup(response=Response(), authorization="Bearer phase1-token"))
+    live = asyncio.run(health_live(response=Response(), authorization="Bearer phase1-token"))
+    ready = asyncio.run(health_ready(response=Response(), authorization="Bearer phase1-token"))
+    ready_response = Response()
+    asyncio.run(health_ready(response=ready_response, authorization="Bearer phase1-token"))
 
     assert startup["status"] == "ok"
     assert live["status"] == "ok"
     assert ready["status"] == "failed"
+    assert ready_response.status_code == 503
     assert ready["checks"]["workflow_runtime"] is False
     assert ready["checks"]["queue_observable"] is True
     assert ready["checks"]["workers_observable"] is True
@@ -80,6 +84,7 @@ def test_remote_runner_health_endpoints_require_auth_and_do_not_mutate_runtime(
     assert ready["checks"]["disk_free"] is True
     assert ready["checks"]["execution_ready"] is False
     assert ready["checks"]["run_worker_available"] is False
+    assert ready["checks"]["worker_heartbeat_fresh"] is True
     assert ready["executionReadiness"]["reasonCode"] == "RUN_WORKER_UNAVAILABLE"
     assert ready["workflowRuntime"]["ok"] is False
     assert ready["queue"]["waitReasons"] == {}
@@ -104,11 +109,16 @@ def test_remote_runner_health_does_not_create_runtime_layout(tmp_path: Path, mon
     )
     monkeypatch.setenv("H2OMETA_REMOTE_CONFIG", str(config_path))
 
-    startup = asyncio.run(health_startup(authorization="Bearer phase1-token"))
-    ready = asyncio.run(health_ready(authorization="Bearer phase1-token"))
+    startup = asyncio.run(health_startup(response=Response(), authorization="Bearer phase1-token"))
+    startup_response = Response()
+    ready_response = Response()
+    ready = asyncio.run(health_ready(response=ready_response, authorization="Bearer phase1-token"))
+    asyncio.run(health_startup(response=startup_response, authorization="Bearer phase1-token"))
 
     assert startup["status"] == "failed"
+    assert startup_response.status_code == 503
     assert ready["status"] == "failed"
+    assert ready_response.status_code == 503
     assert not Path(tmp_path / "shared" / "data" / "runner.db").exists()
 
 
@@ -284,7 +294,7 @@ def test_remote_runner_health_ready_surfaces_invalid_pipeline_manifest(tmp_path:
     monkeypatch.setenv("H2OMETA_REMOTE_CONFIG", str(config_path))
 
     with pytest.raises(PipelineRegistryError) as exc_info:
-        asyncio.run(health_ready(authorization="Bearer phase2-token"))
+        asyncio.run(health_ready(response=Response(), authorization="Bearer phase2-token"))
 
     assert str(exc_info.value) == "PIPELINE_MANIFEST_INVALID_JSON"
 
