@@ -127,7 +127,8 @@ uv run python scripts\remote_runner_release_gate.py `
 ```
 
 The soak step repeats the real two-slot, crash/restart, and execution-policy
-fault acceptance scripts and requires `SOAK_ACCEPTANCE_SUMMARY` plus
+fault acceptance scripts with bootstrap stabilization barriers between
+destructive scenarios. It requires `SOAK_ACCEPTANCE_SUMMARY` plus
 `SOAK_OBSERVABILITY_EVIDENCE`. Its evidence must prove concurrency, cancel
 isolation, resource saturation, lease-expiry recovery, retry backoff, attempt
 timeout, queue TTL, SQLite/backpressure observability, and post-run invariants.

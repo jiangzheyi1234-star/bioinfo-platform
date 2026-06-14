@@ -67,6 +67,7 @@ def build_steps(
     iterations: int,
     allow_soak: bool,
     allow_runner_kill: bool,
+    stabilize_between_steps: bool = True,
 ) -> list[SoakStep]:
     if not allow_soak:
         raise ValueError("--allow-soak is required for real remote soak acceptance")
@@ -77,40 +78,58 @@ def build_steps(
 
     steps: list[SoakStep] = []
     for iteration in range(1, iterations + 1):
-        steps.extend(
-            [
-                SoakStep(
-                    name=f"two-slot-stress-{iteration}",
-                    iteration=iteration,
-                    command=[
-                        sys.executable,
-                        str(REPO_ROOT / "scripts" / "remote_two_slot_acceptance.py"),
-                        "--allow-two-slot",
-                    ],
-                ),
-                SoakStep(
-                    name=f"worker-crash-restart-{iteration}",
-                    iteration=iteration,
-                    command=[
-                        sys.executable,
-                        str(REPO_ROOT / "scripts" / "remote_worker_crash_recovery_acceptance.py"),
-                        "--allow-runner-kill",
-                        "--restart-timeout",
-                        "90",
-                    ],
-                ),
-                SoakStep(
-                    name=f"execution-policy-faults-{iteration}",
-                    iteration=iteration,
-                    command=[
-                        sys.executable,
-                        str(REPO_ROOT / "scripts" / "remote_execution_policy_acceptance.py"),
-                        "--allow-policy-restart",
-                    ],
-                ),
-            ]
+        steps.append(
+            SoakStep(
+                name=f"two-slot-stress-{iteration}",
+                iteration=iteration,
+                command=[
+                    sys.executable,
+                    str(REPO_ROOT / "scripts" / "remote_two_slot_acceptance.py"),
+                    "--allow-two-slot",
+                ],
+            )
+        )
+        if stabilize_between_steps:
+            steps.append(_stabilization_step(name=f"stabilize-before-crash-{iteration}", iteration=iteration))
+        steps.append(
+            SoakStep(
+                name=f"worker-crash-restart-{iteration}",
+                iteration=iteration,
+                command=[
+                    sys.executable,
+                    str(REPO_ROOT / "scripts" / "remote_worker_crash_recovery_acceptance.py"),
+                    "--allow-runner-kill",
+                    "--restart-timeout",
+                    "90",
+                ],
+            )
+        )
+        if stabilize_between_steps:
+            steps.append(_stabilization_step(name=f"stabilize-before-policy-{iteration}", iteration=iteration))
+        steps.append(
+            SoakStep(
+                name=f"execution-policy-faults-{iteration}",
+                iteration=iteration,
+                command=[
+                    sys.executable,
+                    str(REPO_ROOT / "scripts" / "remote_execution_policy_acceptance.py"),
+                    "--allow-policy-restart",
+                ],
+            )
         )
     return steps
+
+
+def _stabilization_step(*, name: str, iteration: int) -> SoakStep:
+    return SoakStep(
+        name=name,
+        iteration=iteration,
+        command=[
+            sys.executable,
+            str(REPO_ROOT / "scripts" / "remote_smoke.py"),
+            "--bootstrap",
+        ],
+    )
 
 
 def run_step(step: SoakStep) -> dict[str, Any]:
@@ -220,6 +239,11 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="Optional path for machine-readable soak evidence.",
     )
+    parser.add_argument(
+        "--no-stabilization",
+        action="store_true",
+        help="Skip bootstrap stabilization barriers between destructive scenarios.",
+    )
     args = parser.parse_args(list(argv) if argv is not None else sys.argv[1:])
 
     try:
@@ -227,6 +251,7 @@ def main(argv: list[str] | None = None) -> int:
             iterations=args.iterations,
             allow_soak=args.allow_soak,
             allow_runner_kill=args.allow_runner_kill,
+            stabilize_between_steps=not args.no_stabilization,
         )
     except ValueError as exc:
         print(f"ERROR: {exc}", flush=True)

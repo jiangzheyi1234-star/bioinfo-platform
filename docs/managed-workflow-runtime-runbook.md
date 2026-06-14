@@ -189,11 +189,14 @@ uv run python scripts\remote_runner_soak_acceptance.py `
 ```
 
 The soak harness repeats the real two-slot Snakemake acceptance, worker
-crash/restart recovery, and execution-policy fault acceptance. It writes
-`remote-runner-soak-acceptance.v1` evidence and fails when required categories
-are missing: batch concurrency, cancel isolation, resource saturation,
-lease-expiry recovery, retry backoff, attempt timeout, queue TTL, SQLite and
-backpressure observability, and post-run invariants.
+crash/restart recovery, and execution-policy fault acceptance. Between
+destructive scenarios it runs a bootstrap stabilization barrier so Local API
+runner token, tunnel, runtime-state, and systemd restart state converge before
+the next fault is injected. It writes `remote-runner-soak-acceptance.v1`
+evidence and fails when required categories are missing: batch concurrency,
+cancel isolation, resource saturation, lease-expiry recovery, retry backoff,
+attempt timeout, queue TTL, SQLite and backpressure observability, and post-run
+invariants.
 
 To attach this heavier proof to the release gate evidence, opt in explicitly:
 

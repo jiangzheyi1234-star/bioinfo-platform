@@ -134,15 +134,38 @@ def test_soak_builds_repeated_real_acceptance_steps() -> None:
 
     assert [step.name for step in steps] == [
         "two-slot-stress-1",
+        "stabilize-before-crash-1",
         "worker-crash-restart-1",
+        "stabilize-before-policy-1",
         "execution-policy-faults-1",
         "two-slot-stress-2",
+        "stabilize-before-crash-2",
         "worker-crash-restart-2",
+        "stabilize-before-policy-2",
         "execution-policy-faults-2",
     ]
     assert steps[0].command[-1] == "--allow-two-slot"
-    assert "--allow-runner-kill" in steps[1].command
-    assert steps[2].command[-1] == "--allow-policy-restart"
+    assert steps[1].command[-1] == "--bootstrap"
+    assert "--allow-runner-kill" in steps[2].command
+    assert steps[3].command[-1] == "--bootstrap"
+    assert steps[4].command[-1] == "--allow-policy-restart"
+
+
+def test_soak_can_disable_stabilization_steps() -> None:
+    soak = _load_module()
+
+    steps = soak.build_steps(
+        iterations=1,
+        allow_soak=True,
+        allow_runner_kill=True,
+        stabilize_between_steps=False,
+    )
+
+    assert [step.name for step in steps] == [
+        "two-slot-stress-1",
+        "worker-crash-restart-1",
+        "execution-policy-faults-1",
+    ]
 
 
 def test_soak_summary_requires_fault_and_observability_categories(monkeypatch) -> None:
