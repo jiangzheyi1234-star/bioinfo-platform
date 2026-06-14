@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .tool_profile_registry import TOOL_PROFILES, ToolProfile
+from .tool_profile_model import ToolProfile
 from .tool_profile_semantics import enrich_rule_template_semantics
 from .tool_profile_sources import all_tool_profiles
 

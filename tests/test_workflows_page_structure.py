@@ -88,11 +88,11 @@ def test_generated_workflow_builder_uses_server_tool_recommendations() -> None:
     assert recommendations_path.exists()
     recommendations_ui = recommendations_path.read_text(encoding="utf-8")
     assert "export async function fetchWorkflowToolRecommendations" in api
-    assert "/api/v1/tool-capabilities/candidate-recommendations" in api
-    assert "outputKind" in api
-    assert "outputMimeType" in api
-    assert "outputData" in api
-    assert "outputFormat" in api
+    assert "fetchCapabilityGraphSnapshot" in api
+    assert "/api/v1/tool-capabilities/candidate-recommendations" not in api
+    assert "workflowRecommendationsFromCapabilityGraph" in api
+    assert "agentSelectable === true" in api
+    assert "CapabilityGraphSemanticNode" in api
     assert "GeneratedWorkflowToolRecommendations" in builder_ui
     assert "outputCandidates={outputCandidates}" in builder_ui
     assert "onAddTool={onAddRecommendedTool || builder.addStep}" in builder_ui

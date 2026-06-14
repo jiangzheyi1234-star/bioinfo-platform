@@ -9,7 +9,6 @@ from apps.api.tool_profile_external_refs import profile_snakemake_wrappers
 from apps.api.tool_profile_catalog import catalog_tool_profiles
 from apps.api.tool_profile_model import ToolProfile
 from apps.api.tool_profile_prepare_payload import profile_prepare_payload
-from apps.api.tool_profile_registry import TOOL_PROFILES
 from apps.api.tool_profile_semantics import enrich_rule_template_semantics
 from apps.api.tool_profile_sources import all_tool_profiles
 from apps.api.tool_validation_plan import workflow_ready_validation_plan

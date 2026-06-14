@@ -433,216 +433,27 @@ def test_unified_tool_candidate_catalog_uses_local_bioconda_index_for_empty_quer
     assert item["targetPlatformSupported"] is True
 
 
-def test_semantic_tool_recommendations_use_profile_input_ports() -> None:
-    from apps.api.tool_candidate_recommendations import recommend_tool_candidates
-
-    catalog = recommend_tool_candidates(
-        output_port={"kind": "sequence_reads", "mimeType": "text/plain"},
-        page=1,
-        page_size=20,
-    )
-
-    candidate_ids = [item["candidate"]["candidateId"] for item in catalog["items"]]
-    assert "h2ometa-tool-profile::fastqc" in candidate_ids
-    assert "h2ometa-tool-profile::bracken" not in candidate_ids
-    fastqc = next(item for item in catalog["items"] if item["candidate"]["candidateId"] == "h2ometa-tool-profile::fastqc")
-    assert fastqc["decision"] == "recommended"
-    assert fastqc["confidence"] >= 0.55
-    assert fastqc["matchedFields"] == ["kind", "mimeType"]
-    assert fastqc["inputPort"]["name"] == "reads"
-    assert fastqc["candidate"]["qualityTier"] == "draft-runnable"
-    assert fastqc["candidate"]["contractState"] == "SnakemakeRenderable"
-    assert fastqc["candidate"]["snakemakeWrapperCount"] >= 1
-    assert fastqc["candidate"]["snakemakeWrappers"][0]["wrapperPath"] == "bio/fastqc"
-    assert fastqc["executionGate"] == {
-        "currentState": "SnakemakeRenderable",
-        "requiredState": "WorkflowReady",
-        "canAddStep": False,
-        "nextAction": "prepare-tool",
-        "reason": "WORKFLOW_TOOL_NOT_READY",
-        "sourceOfTruth": "registeredTool.toolContract",
-    }
-    assert fastqc["validationPlan"]["requiredState"] == "WorkflowReady"
-    assert fastqc["validationPlan"]["submit"]["path"] == "/api/v1/tools/prepare-jobs"
-    assert fastqc["validationPlan"]["successCriteria"][-1] == {"toolContractField": "workflowReady", "value": True}
-    assert fastqc["preparePayload"]["id"] == "bioconda::fastqc"
-    assert fastqc["preparePayload"]["name"] == "fastqc"
-    assert fastqc["preparePayload"]["source"] == "bioconda"
-    assert fastqc["preparePayload"]["packageSpec"] == "bioconda::fastqc=0.12.1"
-    assert fastqc["preparePayload"]["targetPlatform"] == "linux-64"
-    assert fastqc["preparePayload"]["targetPlatformSupported"] is True
-    assert fastqc["preparePayload"]["ruleSpecDraft"]["source"] == "h2ometa-tool-profile"
-    assert fastqc["preparePayload"]["ruleSpecDraft"]["requiresUserCompletion"] is False
-    assert fastqc["preparePayload"]["snakemakeWrappers"][0]["wrapperPath"] == "bio/fastqc"
-    assert fastqc["preparePayload"]["ruleSpecDraft"]["lock"]["matchedWrapper"]["wrapperPath"] == "bio/fastqc"
-    assert fastqc["preparePayload"]["ruleTemplate"] == fastqc["preparePayload"]["ruleSpecDraft"]["ruleTemplate"]
-    assert "端口方向 output -> input" in fastqc["hardChecks"]
-    assert any("kind" in value for value in fastqc["evidence"])
-
-
-def test_semantic_tool_recommendations_match_edam_format_only() -> None:
-    from apps.api.tool_candidate_recommendations import recommend_tool_candidates
-
-    catalog = recommend_tool_candidates(
-        output_port={"format": EDAM_FASTQ},
-        page=1,
-        page_size=20,
-    )
-
-    fastqc = next(
-        item
-        for item in catalog["items"]
-        if item["candidate"]["candidateId"] == "h2ometa-tool-profile::fastqc"
-    )
-    assert fastqc["matchedFields"] == ["format"]
-    assert fastqc["inputPort"]["format"] == EDAM_FASTQ
-    assert fastqc["preparePayload"]["ruleTemplate"]["inputs"][0]["format"] == EDAM_FASTQ
-    assert fastqc["preparePayload"]["ruleTemplate"] == fastqc["preparePayload"]["ruleSpecDraft"]["ruleTemplate"]
-    assert any(f"format matches: {EDAM_FASTQ}" == value for value in fastqc["evidence"])
-
-
-def test_semantic_tool_recommendations_allow_registered_workflow_ready_tools() -> None:
-    from apps.api.tool_candidate_recommendations import recommend_tool_candidates
-
-    catalog = recommend_tool_candidates(
-        output_port={"kind": "sequence_reads", "mimeType": "text/plain"},
-        page=1,
-        page_size=20,
-        registered_tools=[
-            {
-                "id": "bioconda::fastqc",
-                "toolRevisionId": "bioconda::fastqc@1.0.0",
-                "name": "fastqc",
-                "toolContract": {
-                    "state": "WorkflowReady",
-                    "workflowReady": True,
-                },
-            }
-        ],
-    )
-
-    fastqc = next(item for item in catalog["items"] if item["candidate"]["candidateId"] == "h2ometa-tool-profile::fastqc")
-
-    assert fastqc["executionGate"] == {
-        "currentState": "WorkflowReady",
-        "requiredState": "WorkflowReady",
-        "canAddStep": True,
-        "nextAction": "add-step",
-        "reason": "WORKFLOW_TOOL_READY",
-        "sourceOfTruth": "registeredTool.toolContract",
-        "toolRevisionId": "bioconda::fastqc@1.0.0",
-        "toolId": "bioconda::fastqc",
-    }
-    assert "validationPlan" not in fastqc
-    assert "preparePayload" not in fastqc
-
-
-def test_semantic_tool_recommendations_wait_on_active_prepare_jobs() -> None:
-    from apps.api.tool_candidate_recommendations import recommend_tool_candidates
-
-    catalog = recommend_tool_candidates(
-        output_port={"kind": "sequence_reads", "mimeType": "text/plain"},
-        page=1,
-        page_size=20,
-        latest_prepare_jobs_by_tool_id={
-            "bioconda::fastqc": {
-                "jobId": "toolprep_fastqc",
-                "toolId": "bioconda::fastqc",
-                "status": "running",
-                "stage": "dry_run",
-                "message": "Validating Snakemake workflow.",
-                "errorCode": "",
-                "updatedAt": "2099-06-07T00:00:00Z",
-                "resultState": "",
-                "workflowReady": False,
-                "productionEnabled": False,
-            }
-        },
-    )
-
-    fastqc = next(item for item in catalog["items"] if item["candidate"]["candidateId"] == "h2ometa-tool-profile::fastqc")
-    assert fastqc["latestPrepareJob"] == {
-        "jobId": "toolprep_fastqc",
-        "toolId": "bioconda::fastqc",
-        "status": "running",
-        "stage": "dry_run",
-        "message": "Validating Snakemake workflow.",
-        "errorCode": "",
-        "updatedAt": "2099-06-07T00:00:00Z",
-        "resultState": "",
-        "workflowReady": False,
-        "productionEnabled": False,
-    }
-    assert fastqc["executionGate"] == {
-        "currentState": "SnakemakeRenderable",
-        "requiredState": "WorkflowReady",
-        "canAddStep": False,
-        "nextAction": "wait-for-tool-validation",
-        "reason": "TOOL_PREPARE_JOB_ACTIVE",
-        "sourceOfTruth": "toolPrepareJob",
-        "jobId": "toolprep_fastqc",
-        "toolId": "bioconda::fastqc",
-    }
-    assert "preparePayload" not in fastqc
-    assert fastqc["validationPlan"]["poll"]["pathTemplate"] == "/api/v1/tools/prepare-jobs/{jobId}"
-
-
-def test_tool_recommendation_service_hydrates_registered_tools(monkeypatch) -> None:
-    from apps.api import tool_capability_service
-
-    captured: dict[str, object] = {}
-    registered_tool = {
-        "id": "bioconda::fastqc",
-        "toolRevisionId": "bioconda::fastqc@1.0.0",
-        "name": "fastqc",
-        "toolContract": {"state": "WorkflowReady", "workflowReady": True},
-    }
-
-    class Runtime:
-        def list_tools(self) -> dict[str, object]:
-            return {"data": {"items": [registered_tool]}}
-
-        def list_latest_tool_prepare_jobs(self, tool_ids: list[str]) -> dict[str, object]:
-            assert tool_ids
-            return {"data": {"byToolId": {}}}
-
-        def list_tool_index(
-            self,
-            *,
-            query: str = "",
-            limit: int = 50,
-            offset: int = 0,
-            source: str | None = None,
-            state: str | None = None,
-        ) -> dict[str, object]:
-            return {"data": {"items": [], "total": 0, "hasMore": False}}
-
-    def fake_recommend_tool_candidates(**kwargs):
-        captured.update(kwargs)
-        return {"items": [], "total": 0}
-
-    monkeypatch.setattr(tool_capability_service, "runtime_service", lambda: Runtime())
-    monkeypatch.setattr(tool_capability_service, "recommend_tool_candidates", fake_recommend_tool_candidates)
-
-    result = asyncio.run(
-        tool_capability_service.recommend_tool_candidates_from_request(
-            q="fastqc",
-            output_port={"kind": "sequence_reads"},
-            page=1,
-            page_size=5,
-        )
-    )
-
-    assert result == {"data": {"items": [], "total": 0}}
-    assert captured["registered_tools"] == [registered_tool]
-
-
-def test_tool_candidate_service_merges_remote_tool_index(monkeypatch) -> None:
+def test_capability_graph_merges_remote_tool_index_catalog(monkeypatch) -> None:
     from apps.api import tool_capability_service
 
     index_calls: list[dict[str, object]] = []
 
     class Runtime:
+        def list_tools(self) -> dict[str, object]:
+            return {"data": {"items": []}}
+
+        def list_latest_tool_prepare_jobs(self, tool_ids: list[str]) -> dict[str, object]:
+            return {"data": {"byToolId": {}}}
+
+        def list_tool_prepare_job_queue(
+            self,
+            *,
+            status: str = "",
+            limit: int = 50,
+            offset: int = 0,
+        ) -> dict[str, object]:
+            return {"data": {"items": [], "total": 0, "limit": limit, "offset": offset, "statusCounts": {}}}
+
         def list_tool_index(
             self,
             *,
@@ -703,15 +514,16 @@ def test_tool_candidate_service_merges_remote_tool_index(monkeypatch) -> None:
     )
 
     response = asyncio.run(
-        tool_capability_service.search_tool_candidates_from_request(
+        tool_capability_service.get_capability_graph_snapshot_from_request(
             q="fast",
             target_platform="linux-64",
             page=1,
             page_size=10,
+            agent_selectable_only=False,
         )
     )
 
-    catalog = response["data"]
+    catalog = response["data"]["catalog"]
     assert catalog["total"] == 2
     assert catalog["sourceCounts"]["registeredToolIndex"] == 2
     assert catalog["addableDraftCounts"]["registeredToolIndex"] == 0
@@ -725,68 +537,10 @@ def test_tool_candidate_service_merges_remote_tool_index(monkeypatch) -> None:
     assert catalog["items"][0]["qualityTier"] == "workflow-ready"
     assert catalog["items"][0]["toolContract"] == {"state": "WorkflowReady", "workflowReady": True, "productionEnabled": False}
     assert index_calls == [
+        {"query": "", "limit": 100, "offset": 0, "source": None, "state": "WorkflowReady"},
+        {"query": "", "limit": 100, "offset": 0, "source": None, "state": "ProductionEnabled"},
         {"query": "fast", "limit": 10, "offset": 0, "source": None, "state": None},
         {"query": "fast", "limit": 1, "offset": 0, "source": None, "state": "SnakemakeRenderable"},
         {"query": "fast", "limit": 1, "offset": 0, "source": None, "state": "WorkflowReady"},
         {"query": "fast", "limit": 1, "offset": 0, "source": None, "state": "ProductionEnabled"},
     ]
-
-
-def test_tool_recommendation_service_hydrates_latest_prepare_jobs(monkeypatch) -> None:
-    from apps.api import tool_capability_service
-
-    captured: dict[str, object] = {}
-
-    class Runtime:
-        def list_tools(self) -> dict[str, object]:
-            return {"data": {"items": []}}
-
-        def list_latest_tool_prepare_jobs(self, tool_ids: list[str]) -> dict[str, object]:
-            assert "bioconda::fastqc" in tool_ids
-            return {
-                "data": {
-                    "byToolId": {
-                        "bioconda::fastqc": {
-                            "jobId": "toolprep_fastqc",
-                            "toolId": "bioconda::fastqc",
-                            "status": "running",
-                        }
-                    }
-                }
-            }
-
-        def list_tool_index(
-            self,
-            *,
-            query: str = "",
-            limit: int = 50,
-            offset: int = 0,
-            source: str | None = None,
-            state: str | None = None,
-        ) -> dict[str, object]:
-            return {"data": {"items": [], "total": 0, "hasMore": False}}
-
-    def fake_recommend_tool_candidates(**kwargs):
-        captured.update(kwargs)
-        return {"items": [], "total": 0}
-
-    monkeypatch.setattr(tool_capability_service, "runtime_service", lambda: Runtime())
-    monkeypatch.setattr(tool_capability_service, "recommend_tool_candidates", fake_recommend_tool_candidates)
-
-    result = asyncio.run(
-        tool_capability_service.recommend_tool_candidates_from_request(
-            q="fastqc",
-            output_port={"kind": "sequence_reads"},
-            page=1,
-            page_size=5,
-        )
-    )
-
-    assert result == {"data": {"items": [], "total": 0}}
-    assert captured["latest_prepare_jobs_by_tool_id"] == {
-        "bioconda::fastqc": {
-            "jobId": "toolprep_fastqc",
-            "toolId": "bioconda::fastqc",
-            "status": "running",
-        }
-    }

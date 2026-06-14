@@ -9,17 +9,15 @@ from fastapi import APIRouter, Query
 from apps.api.tool_capability_service import (
     disable_bio_tool_pack_from_request,
     enable_bio_tool_pack_from_request,
-    get_tool_candidate_target_acceptance_from_request,
+    get_capability_graph_snapshot_from_request,
     get_tool_capabilities_index_status_from_request,
     import_bio_tool_pack_from_request,
     list_bio_tool_packs_from_request,
     list_snakemake_wrapper_catalog_from_request,
     list_tool_profile_catalog_from_request,
     prepare_tool_validation_queue_from_request,
-    recommend_tool_candidates_from_request,
     review_bio_tool_pack_from_request,
     refresh_tool_capabilities_index_from_request,
-    search_tool_candidates_from_request,
     search_tool_capabilities_from_request,
 )
 
@@ -44,52 +42,20 @@ async def search_tool_capabilities_api(
     )
 
 
-@router.get("/api/v1/tool-capabilities/candidates", operation_id="searchToolCandidates")
-async def search_tool_candidates_api(
+@router.get("/api/v1/tool-capabilities/capability-graph", operation_id="getCapabilityGraphSnapshot")
+async def capability_graph_snapshot_api(
     q: str = "",
-    targetPlatform: str = "",
+    targetPlatform: str = "linux-64",
     page: int = Query(default=1, ge=1),
     pageSize: int = Query(default=50, ge=1, le=100),
+    agentSelectableOnly: bool = False,
 ) -> dict[str, Any]:
-    return await search_tool_candidates_from_request(
+    return await get_capability_graph_snapshot_from_request(
         q=q,
         target_platform=targetPlatform,
         page=page,
         page_size=pageSize,
-    )
-
-
-@router.get("/api/v1/tool-capabilities/candidate-recommendations", operation_id="recommendToolCandidates")
-async def recommend_tool_candidates_api(
-    q: str = "",
-    outputType: str = "",
-    outputKind: str = "",
-    outputMimeType: str = "",
-    outputData: str = "",
-    outputFormat: str = "",
-    page: int = Query(default=1, ge=1),
-    pageSize: int = Query(default=20, ge=1, le=100),
-) -> dict[str, Any]:
-    return await recommend_tool_candidates_from_request(
-        q=q,
-        output_port={
-            "type": outputType,
-            "kind": outputKind,
-            "mimeType": outputMimeType,
-            "data": outputData,
-            "format": outputFormat,
-        },
-        page=page,
-        page_size=pageSize,
-    )
-
-
-@router.get("/api/v1/tool-capabilities/target-acceptance", operation_id="getToolCandidateTargetAcceptance")
-async def tool_candidate_target_acceptance_api(
-    targetPlatform: str = "linux-64",
-) -> dict[str, Any]:
-    return await get_tool_candidate_target_acceptance_from_request(
-        target_platform=targetPlatform,
+        agent_selectable_only=agentSelectableOnly,
     )
 
 

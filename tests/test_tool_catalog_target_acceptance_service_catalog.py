@@ -102,13 +102,13 @@ def test_target_acceptance_service_includes_unified_catalog_candidates(monkeypat
         },
     )
 
-    result = asyncio.run(tool_capability_service.get_tool_candidate_target_acceptance_from_request(target_platform="linux-64"))
+    result = asyncio.run(_capability_graph_target_acceptance(tool_capability_service))
 
     assert requested_page_sizes == [100]
     assert "bioconda::aaa-ready" in latest_prepare_tool_ids
-    queued_ids = {item["candidateId"] for item in result["data"]["validationQueue"]["items"]}
+    queued_ids = {item["candidateId"] for item in result["validationQueue"]["items"]}
     assert "aaa-conda::ready" in queued_ids
-    queue_item = next(item for item in result["data"]["validationQueue"]["items"] if item["candidateId"] == "aaa-conda::ready")
+    queue_item = next(item for item in result["validationQueue"]["items"] if item["candidateId"] == "aaa-conda::ready")
     assert queue_item["latestPrepareJob"]["jobId"] == "toolprep_aaa"
     assert queue_item["action"] == "wait-for-tool-validation"
     assert "preparePayload" not in queue_item
@@ -181,10 +181,10 @@ def test_target_acceptance_service_includes_prepare_job_queue_status(monkeypatch
         },
     )
 
-    result = asyncio.run(tool_capability_service.get_tool_candidate_target_acceptance_from_request(target_platform="linux-64"))
+    result = asyncio.run(_capability_graph_target_acceptance(tool_capability_service))
 
     assert queue_requests == [{"status": "", "limit": 50, "offset": 0}]
-    assert result["data"]["prepareJobQueue"] == {
+    assert result["prepareJobQueue"] == {
         "items": [
             {
                 "jobId": "toolprep_fastqc",
@@ -206,6 +206,17 @@ def test_target_acceptance_service_includes_prepare_job_queue_status(monkeypatch
             "waiting_resource": 1,
         },
     }
+
+
+async def _capability_graph_target_acceptance(tool_capability_service):
+    result = await tool_capability_service.get_capability_graph_snapshot_from_request(
+        q="",
+        target_platform="linux-64",
+        page=1,
+        page_size=100,
+        agent_selectable_only=False,
+    )
+    return result["data"]["targetAcceptance"]
 
 
 def _empty_prepare_job_queue(*, limit: int = 50, offset: int = 0) -> dict[str, object]:

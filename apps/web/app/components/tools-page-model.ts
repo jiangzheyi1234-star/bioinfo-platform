@@ -523,6 +523,68 @@ export type ToolCatalogTargetAcceptanceResponse = {
   data: ToolCatalogTargetAcceptance;
 };
 
+export type CapabilityGraphSelectionPolicy = {
+  sourceOfTruth?: string;
+  readinessSourceOfTruth?: string;
+  canAddStepStates?: string[];
+  blockedReason?: string;
+};
+
+export type CapabilityGraphSemanticNode = {
+  id: string;
+  kind: string;
+  profileId?: string;
+  packId?: string;
+  workflowStage?: string;
+  operation?: string;
+  agentSelectable?: boolean;
+  toolRevisionId?: string;
+  name?: string;
+  value?: string;
+  type?: string;
+  kindLabel?: string;
+  data?: string;
+  format?: string;
+  required?: boolean;
+};
+
+export type CapabilityGraphSnapshot = {
+  contractVersion: "capability-graph-snapshot-v1" | string;
+  query: string;
+  targetPlatform: string;
+  profileCount: number;
+  packIds: string[];
+  catalog: ToolCandidateCatalog;
+  semanticGraph: {
+    contractVersion?: string;
+    nodes: CapabilityGraphSemanticNode[];
+    edges: Array<{ from: string; to: string; kind: string }>;
+    agentSelectableProfileIds: string[];
+  };
+  registeredTools: AddedTool[];
+  registeredToolCounts: {
+    total: number;
+    workflowReady: number;
+    productionEnabled: number;
+  };
+  agentSelectableTools: AddedTool[];
+  agentSelectableProfileIds: string[];
+  selectionPolicy: CapabilityGraphSelectionPolicy;
+  targetAcceptance?: ToolCatalogTargetAcceptance;
+  targetSummary?: {
+    complete?: boolean;
+    blockedTargets?: string[];
+    targets?: ToolCatalogTargetAcceptance["targets"];
+  };
+  validationQueue?: ToolCatalogValidationQueue;
+  productionQueue?: ToolCatalogProductionQueue;
+  prepareJobQueue?: ToolPrepareJobQueue;
+};
+
+export type CapabilityGraphSnapshotResponse = {
+  data: CapabilityGraphSnapshot;
+};
+
 export type SnakemakeWrapperCatalog = {
   items: SnakemakeWrapperMatch[];
   query: string;

@@ -96,10 +96,11 @@ def mark_registered_tool_production_enabled(
     evidence_type = normalize_production_evidence_type(accepted.get("evidenceType"))
     accepted["evidenceType"] = evidence_type
     tool_revision_id = str(item.get("toolRevisionId") or "").strip()
+    if not tool_revision_id:
+        raise ToolProductionConflictError("TOOL_PRODUCTION_REQUIRES_TOOL_REVISION")
     artifact_summary = validate_production_evidence_run(
         cfg,
         accepted,
-        tool_id=normalized,
         tool_revision_id=tool_revision_id,
     )
     checked_at = now_iso()

@@ -3,7 +3,14 @@ import { cachedAsync, invalidateAsyncCache, invalidateAsyncCachePrefix, peekAsyn
 
 import type { DatabaseItem, DatabasesResponse } from "./database-page-model";
 import type { RuleOutputSpec } from "./generated-workflow-model";
-import type { AddedTool, RuleSpecDraft, RuleSpecTemplate, ToolProfileWrapperEvidence, ToolsResponse } from "./tools-page-model";
+import { fetchCapabilityGraphSnapshot } from "./tools-page-api";
+import type {
+  AddedTool,
+  CapabilityGraphSemanticNode,
+  RuleSpecDraft,
+  RuleSpecTemplate,
+  ToolProfileWrapperEvidence,
+} from "./tools-page-model";
 import type {
   WorkflowDesignCompileResult,
   WorkflowDesignDraft,
@@ -181,11 +188,19 @@ export function getCachedWorkflowCatalog(): WorkflowCatalogItem[] | undefined {
 
 export async function fetchWorkflowTools(options: FetchOptions = {}): Promise<AddedTool[]> {
   return cachedAsync(WORKFLOW_TOOLS_CACHE_KEY, 30_000, async () => {
-    const response = await requestLocalApiJson<ToolsResponse>("GET", `/api/v1/tools${refreshQuery(options)}`, { cache: "no-store" });
-    return response.data.items || [];
+    const snapshot = await fetchCapabilityGraphSnapshot({ query: "", page: 1, pageSize: 100 });
+    return normalizeWorkflowTools(snapshot.agentSelectableTools?.length ? snapshot.agentSelectableTools : snapshot.registeredTools || []);
   }, {
     forceRefresh: options.forceRefresh,
   });
+}
+
+function normalizeWorkflowTools(items: AddedTool[]): AddedTool[] {
+  return items.map((item) => ({
+    ...item,
+    selectedVersion: item.selectedVersion || item.version || "",
+    selectedPackageSpec: item.selectedPackageSpec || item.packageSpec,
+  }));
 }
 
 export async function fetchWorkflowDatabases(options: FetchOptions = {}): Promise<DatabaseItem[]> {
@@ -208,22 +223,128 @@ export async function fetchWorkflowToolRecommendations({
   page?: number;
   pageSize?: number;
 }): Promise<WorkflowToolRecommendations> {
-  const params = new URLSearchParams({
-    page: String(page),
-    pageSize: String(pageSize),
+  const snapshot = await fetchCapabilityGraphSnapshot({ query, page: 1, pageSize: 100 });
+  return workflowRecommendationsFromCapabilityGraph({
+    outputPort,
+    page,
+    pageSize,
+    query,
+    profileNodes: snapshot.semanticGraph?.nodes || [],
+    graphEdges: snapshot.semanticGraph?.edges || [],
   });
-  if (query) params.set("q", query);
-  if (outputPort.type) params.set("outputType", outputPort.type);
-  if (outputPort.kind) params.set("outputKind", outputPort.kind);
-  if (outputPort.mimeType) params.set("outputMimeType", outputPort.mimeType);
-  if (outputPort.data) params.set("outputData", outputPort.data);
-  if (outputPort.format) params.set("outputFormat", outputPort.format);
-  const response = await requestLocalApiJson<{ data: WorkflowToolRecommendations }>(
-    "GET",
-    `/api/v1/tool-capabilities/candidate-recommendations?${params.toString()}`,
-    { cache: "no-store" }
-  );
-  return response.data;
+}
+
+function workflowRecommendationsFromCapabilityGraph({
+  graphEdges,
+  outputPort,
+  page,
+  pageSize,
+  profileNodes,
+  query,
+}: {
+  graphEdges: Array<{ from: string; to: string; kind: string }>;
+  outputPort: RuleOutputSpec;
+  page: number;
+  pageSize: number;
+  profileNodes: CapabilityGraphSemanticNode[];
+  query: string;
+}): WorkflowToolRecommendations {
+  const normalizedQuery = query.trim().toLowerCase();
+  const boundedPage = Math.max(1, page || 1);
+  const boundedPageSize = Math.max(1, Math.min(pageSize || 5, 100));
+  const inputPortsByProfileNode = capabilityInputPortsByProfileNode(profileNodes, graphEdges);
+  const items = profileNodes
+    .filter((node) => node.kind === "ToolProfile" && node.agentSelectable === true && node.toolRevisionId)
+    .filter((node) => !normalizedQuery || capabilityNodeText(node).includes(normalizedQuery))
+    .flatMap((node) =>
+      (inputPortsByProfileNode.get(node.id) || []).flatMap((inputPort) => {
+        const matchedFields = matchedCapabilityFields(inputPort, outputPort);
+        if (matchedFields.length === 0) return [];
+        return [capabilityGraphRecommendation(node, inputPort, matchedFields)];
+      })
+    )
+    .sort((left, right) => right.confidence - left.confidence || recommendationName(left).localeCompare(recommendationName(right)));
+  const offset = (boundedPage - 1) * boundedPageSize;
+  return {
+    items: items.slice(offset, offset + boundedPageSize),
+    query: normalizedQuery,
+    total: items.length,
+    page: boundedPage,
+    pageSize: boundedPageSize,
+    hasMore: offset + boundedPageSize < items.length,
+  };
+}
+
+function capabilityInputPortsByProfileNode(
+  nodes: CapabilityGraphSemanticNode[],
+  edges: Array<{ from: string; to: string; kind: string }>
+) {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const result = new Map<string, CapabilityGraphSemanticNode[]>();
+  edges
+    .filter((edge) => edge.kind === "consumes")
+    .forEach((edge) => {
+      const port = byId.get(edge.to);
+      if (!port || port.kind !== "InputPort") return;
+      result.set(edge.from, [...(result.get(edge.from) || []), port]);
+    });
+  return result;
+}
+
+function matchedCapabilityFields(inputPort: CapabilityGraphSemanticNode, outputPort: RuleOutputSpec): string[] {
+  const fields: Array<keyof RuleOutputSpec> = ["type", "kind", "mimeType", "data", "format"];
+  return fields.filter((field) => {
+    const left = String(inputPort[field as keyof CapabilityGraphSemanticNode] || "").trim();
+    const right = String(outputPort[field] || "").trim();
+    return left.length > 0 && right.length > 0 && left === right;
+  });
+}
+
+function capabilityGraphRecommendation(
+  profileNode: CapabilityGraphSemanticNode,
+  inputPort: CapabilityGraphSemanticNode,
+  matchedFields: string[]
+): WorkflowToolRecommendationItem {
+  const profileId = String(profileNode.profileId || "").trim();
+  const toolRevisionId = String(profileNode.toolRevisionId || "").trim();
+  return {
+    decision: "recommended",
+    candidate: {
+      candidateId: profileNode.id,
+      candidateKind: "capability-graph-tool-profile",
+      profileId,
+      toolNames: [profileId].filter(Boolean),
+    },
+    executionGate: {
+      currentState: "WorkflowReady",
+      requiredState: "WorkflowReady",
+      canAddStep: true,
+      nextAction: "add-step",
+      reason: "WORKFLOW_TOOL_READY",
+      sourceOfTruth: "CapabilityGraphSnapshot",
+      toolRevisionId,
+    },
+    inputPort: {
+      name: String(inputPort.name || ""),
+      required: inputPort.required,
+      type: String(inputPort.type || ""),
+      kind: String(inputPort.kindLabel || inputPort.kind || ""),
+      data: String(inputPort.data || ""),
+      format: String(inputPort.format || ""),
+    },
+    matchedFields,
+    confidence: Math.min(1, 0.45 + matchedFields.length * 0.15),
+    hardChecks: ["CapabilityGraphSnapshot agentSelectable=true", "端口方向 output -> input", "类型字段无冲突"],
+    evidence: [`profile ${profileId}`, `toolRevisionId ${toolRevisionId}`],
+  };
+}
+
+function capabilityNodeText(node: CapabilityGraphSemanticNode): string {
+  return [node.profileId, node.packId, node.operation, node.workflowStage, node.toolRevisionId].join(" ").toLowerCase();
+}
+
+function recommendationName(item: WorkflowToolRecommendationItem): string {
+  return item.candidate.profileId || item.candidate.candidateId || "";
 }
 
 export async function fetchWorkflowDesignDrafts(options: FetchOptions = {}): Promise<WorkflowDesignDraftRecord[]> {

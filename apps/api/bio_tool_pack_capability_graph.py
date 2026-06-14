@@ -139,6 +139,6 @@ def _node_id(*parts: str) -> str:
 
 
 def _default_profiles() -> tuple[ToolProfile, ...]:
-    from .tool_profile_definitions import TOOL_PROFILES
+    from .tool_profile_sources import all_tool_profiles
 
-    return TOOL_PROFILES
+    return all_tool_profiles()

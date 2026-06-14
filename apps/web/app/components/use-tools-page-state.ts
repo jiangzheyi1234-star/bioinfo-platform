@@ -6,16 +6,16 @@ import {
   addToolDependency,
   createToolPrepareJob,
   fetchAddedTools,
+  fetchCapabilityGraphSnapshot,
   fetchSnakemakeWrapperCatalog,
-  fetchToolCandidateTargetAcceptance,
   getCachedAddedTools,
   openToolSourceUrl,
   removeToolDependency,
-  searchToolCandidates,
   updateToolRuleTemplate,
 } from "./tools-page-api";
 import {
   type AddedTool,
+  type CapabilityGraphSnapshot,
   type RuleSpecTemplate,
   type SnakemakeWrapperCatalog,
   type ToolCandidateCatalog,
@@ -31,6 +31,7 @@ import {
   packageSpecLocked,
   searchErrorMessage,
   toolErrorMessage,
+  uniqueDependencies,
 } from "./tools-page-model";
 import { isActiveJob, isTerminalJob, useToolPrepareTasks } from "./tool-prepare-task-context";
 
@@ -55,6 +56,7 @@ export function useToolsPageState(initialQuery = "") {
   const [searchTotal, setSearchTotal] = useState(0);
   const [searchHasMore, setSearchHasMore] = useState(false);
   const [searchComplete, setSearchComplete] = useState(true);
+  const [capabilityGraph, setCapabilityGraph] = useState<CapabilityGraphSnapshot | null>(null);
   const [candidateCatalog, setCandidateCatalog] = useState<ToolCandidateCatalog | null>(null);
   const [candidateCatalogLoading, setCandidateCatalogLoading] = useState(false);
   const [candidateCatalogError, setCandidateCatalogError] = useState("");
@@ -130,8 +132,14 @@ export function useToolsPageState(initialQuery = "") {
     }
     setTargetAcceptanceError("");
     try {
-      const acceptance = await fetchToolCandidateTargetAcceptance();
-      setTargetAcceptance(acceptance);
+      const graph = await fetchCapabilityGraphSnapshot({ query: "", page: 1, pageSize: 100 });
+      setCapabilityGraph(graph);
+      setTargetAcceptance(graph.targetAcceptance || null);
+      if (graph.registeredTools?.length) {
+        const nextTools = normalizeGraphTools(graph.registeredTools);
+        addedToolsRef.current = nextTools;
+        setAddedTools(nextTools);
+      }
     } catch (err) {
       setTargetAcceptance(null);
       setTargetAcceptanceError(toolErrorMessage(err, "读取 Catalog v1 targets 失败"));
@@ -189,15 +197,25 @@ export function useToolsPageState(initialQuery = "") {
       setCandidateCatalogLoading(true);
       setCandidateCatalogError("");
       try {
-        const catalog = await searchToolCandidates({
+        const graph = await fetchCapabilityGraphSnapshot({
           query: canSearchTools ? normalized : "",
           page: canSearchTools ? searchPage : 1,
+          pageSize: 50,
           signal: controller.signal,
         });
         if (controller.signal.aborted) {
           return;
         }
-        setCandidateCatalog(catalog);
+        setCapabilityGraph(graph);
+        setCandidateCatalog(graph.catalog);
+        if (graph.targetAcceptance) {
+          setTargetAcceptance(graph.targetAcceptance);
+        }
+        if (graph.registeredTools?.length) {
+          const nextTools = normalizeGraphTools(graph.registeredTools);
+          addedToolsRef.current = nextTools;
+          setAddedTools(nextTools);
+        }
         setCandidateCatalogError("");
         if (!canSearchTools) {
           setItems([]);
@@ -208,11 +226,11 @@ export function useToolsPageState(initialQuery = "") {
           setError("");
           return;
         }
-        const nextItems = installableCandidateItems(catalog.items || []);
+        const nextItems = installableCandidateItems(graph.catalog.items || []);
         setItems(nextItems);
-        setSearchTotal(catalog.sourceCounts?.condaPackages ?? nextItems.length);
-        setSearchHasMore(Boolean(catalog.hasMore));
-        setSearchComplete(!catalog.hasMore);
+        setSearchTotal(graph.catalog.sourceCounts?.condaPackages ?? nextItems.length);
+        setSearchHasMore(Boolean(graph.catalog.hasMore));
+        setSearchComplete(!graph.catalog.hasMore);
         setError("");
         setSelectedId((current) => (nextItems.some((item) => item.id === current) ? current : nextItems[0]?.id || ""));
       } catch (err) {
@@ -454,6 +472,7 @@ export function useToolsPageState(initialQuery = "") {
     addedTools,
     addingSelectedTool: addingSelectedTool || selectedPrepareRunning,
     canSaveSelected,
+    capabilityGraph,
     candidateCatalog,
     candidateCatalogError,
     candidateCatalogLoading,
@@ -512,6 +531,16 @@ export function useToolsPageState(initialQuery = "") {
 
 function installableCandidateItems(items: ToolCandidateCatalogItem[]): ToolSearchItem[] {
   return items.flatMap(installableCandidateItem);
+}
+
+function normalizeGraphTools(items: AddedTool[]): AddedTool[] {
+  return uniqueDependencies(
+    items.map((item) => ({
+      ...item,
+      selectedVersion: item.selectedVersion || item.version || "",
+      selectedPackageSpec: item.selectedPackageSpec || item.packageSpec,
+    }))
+  );
 }
 
 function installableCandidateItem(item: ToolCandidateCatalogItem): ToolSearchItem[] {

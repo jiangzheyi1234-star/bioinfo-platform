@@ -10,10 +10,10 @@ from apps.api.bio_tool_pack_store import (
     list_bio_tool_packs,
     review_bio_tool_pack_manifest,
 )
+from apps.api.capability_graph_service import DEFAULT_CAPABILITY_GRAPH_SERVICE
 from apps.api.route_utils import run_sync, runtime_service
 from apps.api.snakemake_wrappers import catalog_snakemake_wrappers
 from apps.api.tool_candidate_catalog import search_tool_candidates
-from apps.api.tool_candidate_recommendations import recommend_tool_candidates
 from apps.api.tool_candidate_target_acceptance import bio_agent_catalog_target_acceptance, validation_queue_tool_ids
 from apps.api.tool_capabilities import search_tool_capabilities
 from apps.api.tool_profile_catalog import catalog_tool_profiles
@@ -41,84 +41,6 @@ async def search_tool_capabilities_from_request(
             page=page,
             page_size=resolved_page_size,
         ),
-    )
-
-
-async def search_tool_candidates_from_request(
-    *,
-    q: str,
-    target_platform: str,
-    page: int,
-    page_size: int,
-) -> dict[str, Any]:
-    runtime = runtime_service()
-    return await run_sync(
-        lambda: {
-            "data": _search_tool_candidates_with_tool_index(
-                runtime=runtime,
-                query=q,
-                target_platform=target_platform,
-                page=page,
-                page_size=page_size,
-            )
-        },
-    )
-
-
-async def recommend_tool_candidates_from_request(
-    *,
-    q: str,
-    output_port: dict[str, Any],
-    page: int,
-    page_size: int,
-) -> dict[str, Any]:
-    runtime = runtime_service()
-    return await run_sync(
-        lambda: {
-            "data": _recommend_tool_candidates_with_registered_tools(
-                runtime=runtime,
-                output_port=output_port,
-                query=q,
-                page=page,
-                page_size=page_size,
-            )
-        },
-    )
-
-
-def _recommend_tool_candidates_with_registered_tools(
-    *,
-    runtime: Any,
-    output_port: dict[str, Any],
-    query: str,
-    page: int,
-    page_size: int,
-) -> dict[str, Any]:
-    registered_tools = _registered_tools_with_tool_index(
-        runtime=runtime,
-        registered_tools=registered_tools_from_runtime_payload(runtime.list_tools()),
-    )
-    catalog = _search_tool_candidates_with_tool_index(
-        runtime=runtime,
-        query=query,
-        target_platform="linux-64",
-        page=1,
-        page_size=100,
-    )
-    catalog_items = _catalog_items(catalog)
-    latest_prepare_jobs = _latest_prepare_jobs_from_runtime_payload(
-        runtime.list_latest_tool_prepare_jobs(
-            validation_queue_tool_ids(registered_tools=registered_tools, catalog_items=catalog_items)
-        )
-    )
-    return recommend_tool_candidates(
-        output_port=output_port,
-        query=query,
-        page=page,
-        page_size=page_size,
-        registered_tools=registered_tools,
-        latest_prepare_jobs_by_tool_id=latest_prepare_jobs,
-        catalog_items=catalog_items,
     )
 
 
@@ -272,13 +194,6 @@ def _count_value(value: Any) -> int:
         return 0
 
 
-async def get_tool_candidate_target_acceptance_from_request(*, target_platform: str) -> dict[str, Any]:
-    runtime = runtime_service()
-    return await run_sync(
-        lambda: {"data": _target_acceptance_with_runtime_state(runtime=runtime, target_platform=target_platform)},
-    )
-
-
 async def prepare_tool_validation_queue_from_request(*, target_platform: str, max_items: int) -> dict[str, Any]:
     runtime = runtime_service()
     return await run_sync(
@@ -297,13 +212,118 @@ def _target_acceptance_with_runtime_state(*, runtime: Any, target_platform: str)
         runtime=runtime,
         registered_tools=registered_tools_from_runtime_payload(runtime.list_tools()),
     )
-    catalog = _search_tool_candidates_with_tool_index(
+    snapshot = _capability_snapshot_with_runtime_state(
         runtime=runtime,
         query="",
         target_platform=target_platform,
         page=1,
         page_size=100,
+        registered_tools=registered_tools,
+        include_acceptance=False,
     )
+    return _target_acceptance_from_snapshot(
+        runtime=runtime,
+        target_platform=target_platform,
+        registered_tools=registered_tools,
+        snapshot=snapshot,
+    )
+
+
+async def get_capability_graph_snapshot_from_request(
+    *,
+    q: str,
+    target_platform: str,
+    page: int,
+    page_size: int,
+    agent_selectable_only: bool,
+) -> dict[str, Any]:
+    runtime = runtime_service()
+    return await run_sync(
+        lambda: {
+            "data": _capability_snapshot_with_runtime_state(
+                runtime=runtime,
+                query=q,
+                target_platform=target_platform,
+                page=page,
+                page_size=page_size,
+                agent_selectable_only=agent_selectable_only,
+            )
+        }
+    )
+
+
+def _capability_snapshot_with_runtime_state(
+    *,
+    runtime: Any,
+    query: str,
+    target_platform: str,
+    page: int,
+    page_size: int,
+    registered_tools: list[dict[str, Any]] | None = None,
+    agent_selectable_only: bool = False,
+    include_acceptance: bool = True,
+) -> dict[str, Any]:
+    registered = registered_tools
+    if registered is None:
+        registered = _registered_tools_with_tool_index(
+            runtime=runtime,
+            registered_tools=registered_tools_from_runtime_payload(runtime.list_tools()),
+        )
+    catalog = _search_tool_candidates_with_tool_index(
+        runtime=runtime,
+        query=query,
+        target_platform=target_platform,
+        page=page,
+        page_size=page_size,
+    )
+    prepare_job_queue = (
+        _prepare_job_queue_from_runtime_payload(runtime.list_tool_prepare_job_queue(status="", limit=50, offset=0))
+        if include_acceptance
+        else None
+    )
+    base_snapshot = DEFAULT_CAPABILITY_GRAPH_SERVICE.snapshot_from_runtime(
+        runtime=runtime,
+        query=query,
+        target_platform=target_platform,
+        page=page,
+        page_size=page_size,
+        registered_tools=registered,
+        catalog=catalog,
+        prepare_job_queue=prepare_job_queue,
+        agent_selectable_only=agent_selectable_only,
+    )
+    if not include_acceptance:
+        return base_snapshot
+    target_acceptance = _target_acceptance_from_snapshot(
+        runtime=runtime,
+        target_platform=target_platform,
+        registered_tools=registered,
+        snapshot=base_snapshot,
+        prepare_job_queue=prepare_job_queue,
+    )
+    return DEFAULT_CAPABILITY_GRAPH_SERVICE.snapshot_from_runtime(
+        runtime=runtime,
+        query=query,
+        target_platform=target_platform,
+        page=page,
+        page_size=page_size,
+        registered_tools=registered,
+        catalog=catalog,
+        target_acceptance=target_acceptance,
+        prepare_job_queue=prepare_job_queue,
+        agent_selectable_only=agent_selectable_only,
+    )
+
+
+def _target_acceptance_from_snapshot(
+    *,
+    runtime: Any,
+    target_platform: str,
+    registered_tools: list[dict[str, Any]],
+    snapshot: dict[str, Any],
+    prepare_job_queue: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    catalog = snapshot["catalog"]
     latest_prepare_jobs = _latest_prepare_jobs_from_runtime_payload(
         runtime.list_latest_tool_prepare_jobs(
             validation_queue_tool_ids(registered_tools=registered_tools, catalog_items=_catalog_items(catalog))
@@ -315,10 +335,24 @@ def _target_acceptance_with_runtime_state(*, runtime: Any, target_platform: str)
         latest_prepare_jobs_by_tool_id=latest_prepare_jobs,
         catalog=catalog,
     )
-    acceptance["prepareJobQueue"] = _prepare_job_queue_from_runtime_payload(
+    acceptance["capabilityGraphSnapshot"] = _snapshot_summary(snapshot)
+    acceptance["prepareJobQueue"] = prepare_job_queue or _prepare_job_queue_from_runtime_payload(
         runtime.list_tool_prepare_job_queue(status="", limit=50, offset=0)
     )
     return acceptance
+
+
+def _snapshot_summary(snapshot: dict[str, Any]) -> dict[str, Any]:
+    graph = snapshot.get("semanticGraph") if isinstance(snapshot.get("semanticGraph"), dict) else {}
+    catalog = snapshot.get("catalog") if isinstance(snapshot.get("catalog"), dict) else {}
+    return {
+        "contractVersion": snapshot.get("contractVersion"),
+        "profileCount": _count_value(snapshot.get("profileCount")),
+        "packIds": list(snapshot.get("packIds") or []),
+        "catalogTotal": _count_value(catalog.get("total")),
+        "agentSelectableProfileIds": list(graph.get("agentSelectableProfileIds") or []),
+        "selectionPolicy": dict(snapshot.get("selectionPolicy") or {}),
+    }
 
 
 def _catalog_items(catalog: dict[str, Any]) -> list[dict[str, Any]]:

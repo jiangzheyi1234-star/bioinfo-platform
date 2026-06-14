@@ -59,8 +59,10 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "/api/v1/tool-capabilities/snakemake-wrappers?page=1&pageSize=1" in api
     assert "export async function fetchToolProfileCatalog" in api
     assert "/api/v1/tool-capabilities/tool-profiles?page=1&pageSize=50" in api
-    assert "export async function searchToolCandidates" in api
-    assert "/api/v1/tool-capabilities/candidates" in api
+    assert "export async function fetchCapabilityGraphSnapshot" in api
+    assert "/api/v1/tool-capabilities/capability-graph" in api
+    assert "export async function searchToolCandidates" not in api
+    assert "/api/v1/tool-capabilities/candidates" not in api
     assert "export async function createToolPrepareJob" in api
     assert "export async function prepareToolValidationQueue" in api
     assert "/api/v1/tool-capabilities/validation-queue/prepare" in api
@@ -229,8 +231,8 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "workflow-ready" in ui
     assert "production-enabled" in ui
     assert "ToolCatalogTargetAcceptance" in model
-    assert "fetchToolCandidateTargetAcceptance" in api
-    assert "/api/v1/tool-capabilities/target-acceptance" in api
+    assert "fetchToolCandidateTargetAcceptance" not in api
+    assert "graph.targetAcceptance" in hook
     assert "targetAcceptance" in hook
     assert "setTargetAcceptance" in hook
     assert "targetAcceptance={state.targetAcceptance}" in page
@@ -300,7 +302,7 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "规则节点库" not in ui
     assert "工具节点预览" not in ui
     assert "加入工具节点" not in ui
-    assert "targetPlatform=linux-64" in api
+    assert 'targetPlatform: "linux-64"' in api
     assert "formatPlatformBadgeText" in ui
     assert "export function PlatformChips" in ui
     assert "支持平台" in ui
@@ -331,8 +333,9 @@ def test_tools_search_surfaces_unified_candidate_catalog() -> None:
     ui = (COMPONENTS / "tools-page-ui.tsx").read_text(encoding="utf-8")
 
     assert "signal?: AbortSignal" in api
-    assert "searchToolCandidates" in hook
+    assert "fetchCapabilityGraphSnapshot" in hook
     assert "searchToolCapabilities" not in hook
+    assert "const [capabilityGraph" in hook
     assert "const [candidateCatalog" in hook
     assert "setCandidateCatalogLoading" in hook
     assert "setCandidateCatalogError" in hook
@@ -343,6 +346,7 @@ def test_tools_search_surfaces_unified_candidate_catalog() -> None:
     assert "if (!canSearchTools)" in hook
     assert "installableCandidateItems" in hook
     assert "candidateCatalog={state.candidateCatalog}" in page
+    assert "capabilityGraph" in hook
     assert "candidateCatalogLoading={state.candidateCatalogLoading}" in page
     assert "candidateCatalogError={state.candidateCatalogError}" in page
     assert "candidateCatalog?: ToolCandidateCatalog | null" in ui
@@ -376,6 +380,7 @@ def test_tools_page_surfaces_target_validation_queue_priority() -> None:
     assert "wrapperContractHintFields?: string[]" in model
     assert "wrapperCondaDependencies?: string[]" in model
     assert "validationQueue?: ToolCatalogValidationQueue" in model
+    assert "export type CapabilityGraphSnapshot" in model
     assert "export type ToolCatalogProductionQueue" in model
     assert "productionQueue?: ToolCatalogProductionQueue" in model
     assert "export type ToolPrepareJobQueue" in model

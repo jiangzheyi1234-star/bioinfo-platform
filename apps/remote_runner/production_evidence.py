@@ -7,7 +7,6 @@ from .databases import fetch_reference_database
 from .generated_workflow_constants import GENERATED_TOOL_RUN_PIPELINE_ID
 from .storage import fetch_run, fetch_run_results
 from .tools_errors import ToolProductionConflictError, ToolRegistryError
-from .tool_revisions import fetch_tool_revision
 
 PRODUCTION_EVIDENCE_TYPES = {
     "real-data-acceptance",
@@ -28,8 +27,7 @@ def validate_production_evidence_run(
     cfg: RemoteRunnerConfig,
     evidence: dict[str, Any],
     *,
-    tool_id: str,
-    tool_revision_id: str = "",
+    tool_revision_id: str,
 ) -> dict[str, str]:
     run_id = str(evidence.get("runId") or "").strip()
     run = fetch_run(cfg, run_id)
@@ -39,10 +37,11 @@ def validate_production_evidence_run(
         raise ToolProductionConflictError("TOOL_PRODUCTION_EVIDENCE_RUN_NOT_COMPLETED")
     if str(run.get("pipelineId") or "") != GENERATED_TOOL_RUN_PIPELINE_ID:
         raise ToolProductionConflictError("TOOL_PRODUCTION_EVIDENCE_PIPELINE_MISMATCH")
-    run_tool_ids = _run_tool_ids(cfg, run.get("runSpec"))
+    run_tool_ids = _run_tool_ids(run.get("runSpec"))
     expected_revision_id = str(tool_revision_id or "").strip()
-    expected_tool_id = expected_revision_id or tool_id
-    if expected_tool_id not in run_tool_ids:
+    if not expected_revision_id:
+        raise ToolProductionConflictError("TOOL_PRODUCTION_REQUIRES_TOOL_REVISION")
+    if expected_revision_id not in run_tool_ids:
         raise ToolProductionConflictError("TOOL_PRODUCTION_EVIDENCE_TOOL_MISMATCH")
     _validate_database_evidence(cfg, evidence, run.get("runSpec"))
     try:
@@ -68,7 +67,7 @@ def validate_production_evidence_run(
     return {"artifactCount": str(len(artifacts)), "artifactNames": ",".join(names)}
 
 
-def _run_tool_ids(cfg: RemoteRunnerConfig, run_spec: Any) -> set[str]:
+def _run_tool_ids(run_spec: Any) -> set[str]:
     if not isinstance(run_spec, dict):
         return set()
     ids: set[str] = set()
@@ -77,11 +76,9 @@ def _run_tool_ids(cfg: RemoteRunnerConfig, run_spec: Any) -> set[str]:
     if isinstance(nodes, list):
         for node in nodes:
             if isinstance(node, dict):
-                _collect_tool_id(node.get("tool"), ids)
                 tool_revision_id = str(node.get("toolRevisionId") or "").strip()
                 if tool_revision_id:
                     ids.add(tool_revision_id)
-                    _collect_tool_id(fetch_tool_revision(cfg, tool_revision_id), ids)
     return ids
 
 
@@ -114,14 +111,6 @@ def _run_database_bindings(run_spec: Any) -> dict[str, dict[str, Any]]:
     if not isinstance(raw, dict):
         return {}
     return {str(role): binding for role, binding in raw.items() if isinstance(binding, dict)}
-
-
-def _collect_tool_id(raw: Any, ids: set[str]) -> None:
-    if not isinstance(raw, dict):
-        return
-    tool_id = str(raw.get("id") or "").strip()
-    if tool_id:
-        ids.add(tool_id)
 
 
 def _artifact_matches(artifact: dict[str, Any], expected_name: str) -> bool:

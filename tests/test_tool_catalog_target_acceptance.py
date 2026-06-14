@@ -314,8 +314,9 @@ def test_validation_queue_prioritizes_self_contained_profiles_before_required_re
 
 def test_validation_evidence_summarizes_wrapper_contract_hints(monkeypatch) -> None:
     from apps.api import tool_candidate_target_acceptance
+    from apps.api.tool_profile_sources import all_tool_profiles
 
-    profile = next(profile for profile in tool_candidate_target_acceptance.TOOL_PROFILES if profile.profile_id == "fastqc")
+    profile = next(profile for profile in all_tool_profiles() if profile.profile_id == "fastqc")
     monkeypatch.setattr(
         tool_candidate_target_acceptance,
         "profile_snakemake_wrappers",
@@ -605,10 +606,10 @@ def test_target_acceptance_service_hydrates_registered_tools(monkeypatch) -> Non
     monkeypatch.setattr(tool_capability_service, "runtime_service", lambda: Runtime())
     monkeypatch.setattr(tool_capability_service, "bio_agent_catalog_target_acceptance", fake_acceptance)
 
-    result = asyncio.run(tool_capability_service.get_tool_candidate_target_acceptance_from_request(target_platform="linux-64"))
+    result = asyncio.run(_capability_graph_target_acceptance(tool_capability_service))
 
-    assert result["data"]["complete"] is False
-    assert result["data"]["prepareJobQueue"]["total"] == 0
+    assert result["complete"] is False
+    assert result["prepareJobQueue"]["total"] == 0
     assert captured["registered_tools"] == [registered_tool]
     assert "bioconda::multiqc" in captured_tool_ids
     assert captured["latest_prepare_jobs_by_tool_id"] == {
@@ -679,9 +680,9 @@ def test_target_acceptance_service_counts_remote_tool_index(monkeypatch) -> None
         },
     )
 
-    result = asyncio.run(tool_capability_service.get_tool_candidate_target_acceptance_from_request(target_platform="linux-64"))
+    result = asyncio.run(_capability_graph_target_acceptance(tool_capability_service))
 
-    report = result["data"]
+    report = result
     assert report["targets"]["workflowReady"] == {"target": 30, "actual": 30, "passed": True, "remaining": 0}
     assert report["targets"]["productionEnabled"] == {"target": 10, "actual": 10, "passed": True, "remaining": 0}
     assert report["catalog"]["sourceCounts"]["registeredToolIndex"] == 40
@@ -763,14 +764,25 @@ def test_target_acceptance_service_uses_tool_index_for_production_queue(monkeypa
         },
     )
 
-    result = asyncio.run(tool_capability_service.get_tool_candidate_target_acceptance_from_request(target_platform="linux-64"))
+    result = asyncio.run(_capability_graph_target_acceptance(tool_capability_service))
 
-    production_queue = result["data"]["productionQueue"]
+    production_queue = result["productionQueue"]
     assert production_queue["available"] == 1
     assert production_queue["items"][0]["toolId"] == "bioconda::fastqc"
     assert production_queue["items"][0]["toolRevisionId"] == "bioconda::fastqc@0.12.1"
     assert production_queue["items"][0]["action"] == "submit-production-evidence"
     assert production_queue["items"][0]["executionGate"]["sourceOfTruth"] == "registeredTool.toolContract"
+
+
+async def _capability_graph_target_acceptance(tool_capability_service):
+    result = await tool_capability_service.get_capability_graph_snapshot_from_request(
+        q="",
+        target_platform="linux-64",
+        page=1,
+        page_size=100,
+        agent_selectable_only=False,
+    )
+    return result["data"]["targetAcceptance"]
 
 
 def _empty_prepare_job_queue(*, limit: int = 50, offset: int = 0) -> dict[str, object]:

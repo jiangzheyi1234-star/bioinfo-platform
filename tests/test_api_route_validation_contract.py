@@ -29,9 +29,10 @@ def test_tool_capability_route_uses_query_constraints_for_pagination() -> None:
     assert "bounded_page" not in source
     assert "bounded_page_size" not in source
     assert "search_tool_capabilities_from_request" in source
-    assert "search_tool_candidates_from_request" in source
-    assert "recommend_tool_candidates_from_request" in source
-    assert "get_tool_candidate_target_acceptance_from_request" in source
+    assert "get_capability_graph_snapshot_from_request" in source
+    assert "search_tool_candidates_from_request" not in source
+    assert "recommend_tool_candidates_from_request" not in source
+    assert "get_tool_candidate_target_acceptance_from_request" not in source
     assert "prepare_tool_validation_queue_from_request" in source
     assert "list_snakemake_wrapper_catalog_from_request" in source
     assert "list_tool_profile_catalog_from_request" in source
@@ -39,9 +40,10 @@ def test_tool_capability_route_uses_query_constraints_for_pagination() -> None:
     assert "refresh_tool_capabilities_index_from_request" in source
 
     assert "def search_tool_capabilities_from_request(" in service_source
-    assert "def search_tool_candidates_from_request(" in service_source
-    assert "def recommend_tool_candidates_from_request(" in service_source
-    assert "def get_tool_candidate_target_acceptance_from_request(" in service_source
+    assert "def get_capability_graph_snapshot_from_request(" in service_source
+    assert "def search_tool_candidates_from_request(" not in service_source
+    assert "def recommend_tool_candidates_from_request(" not in service_source
+    assert "def get_tool_candidate_target_acceptance_from_request(" not in service_source
     assert "def prepare_tool_validation_queue_from_request(" in service_source
     assert "def list_snakemake_wrapper_catalog_from_request(" in service_source
     assert "def list_tool_profile_catalog_from_request(" in service_source
@@ -49,15 +51,16 @@ def test_tool_capability_route_uses_query_constraints_for_pagination() -> None:
     assert "def refresh_tool_capabilities_index_from_request(" in service_source
     assert '@router.get("/api/v1/tool-capabilities/snakemake-wrappers", operation_id="listSnakemakeWrapperCatalog")' in source
     assert '@router.get("/api/v1/tool-capabilities/tool-profiles", operation_id="listToolProfileCatalog")' in source
-    assert '@router.get("/api/v1/tool-capabilities/candidates", operation_id="searchToolCandidates")' in source
-    assert '@router.get("/api/v1/tool-capabilities/candidate-recommendations", operation_id="recommendToolCandidates")' in source
-    assert '@router.get("/api/v1/tool-capabilities/target-acceptance", operation_id="getToolCandidateTargetAcceptance")' in source
+    assert '@router.get("/api/v1/tool-capabilities/capability-graph", operation_id="getCapabilityGraphSnapshot")' in source
+    assert "/api/v1/tool-capabilities/candidates" not in source
+    assert "/api/v1/tool-capabilities/candidate-recommendations" not in source
+    assert "/api/v1/tool-capabilities/target-acceptance" not in source
     assert '@router.post("/api/v1/tool-capabilities/validation-queue/prepare", operation_id="prepareToolValidationQueue")' in source
     assert 'maxItems: int = Query(default=3, ge=1, le=30)' in source
-    assert 'outputKind: str = ""' in source
-    assert 'outputMimeType: str = ""' in source
-    assert 'outputData: str = ""' in source
-    assert 'outputFormat: str = ""' in source
+    assert 'outputKind: str = ""' not in source
+    assert 'outputMimeType: str = ""' not in source
+    assert 'outputData: str = ""' not in source
+    assert 'outputFormat: str = ""' not in source
     assert 'pageSize: int = Query(default=50, ge=1, le=100)' in source
 
 
@@ -67,9 +70,7 @@ def test_local_api_routes_pin_openapi_operation_ids() -> None:
 
     for operation_id in [
         "searchToolCapabilities",
-        "searchToolCandidates",
-        "recommendToolCandidates",
-        "getToolCandidateTargetAcceptance",
+        "getCapabilityGraphSnapshot",
         "prepareToolValidationQueue",
         "listSnakemakeWrapperCatalog",
         "listToolProfileCatalog",

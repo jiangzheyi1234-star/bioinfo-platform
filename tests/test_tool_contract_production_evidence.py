@@ -4,7 +4,7 @@ from pathlib import Path
 
 from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
 from apps.remote_runner.databases import add_reference_database
-from apps.remote_runner.storage import create_run_record, persist_artifact, update_run_state, upsert_tool
+from apps.remote_runner.storage import create_run_record, fetch_tool, persist_artifact, update_run_state, upsert_tool
 from apps.remote_runner.tool_revisions import publish_tool_revision
 from apps.remote_runner.tools import ToolRegistryError, add_registered_tool, mark_registered_tool_production_enabled
 from tests.generated_workflow_test_helpers import generated_workflow_node, generated_workflow_run_spec
@@ -50,6 +50,11 @@ def _ready_tool(cfg: RemoteRunnerConfig) -> dict[str, object]:
     saved["contractStatus"]["dryRun"] = {"status": "passed", "message": "Snakemake dry-run passed."}
     saved["contractStatus"]["smokeRun"] = {"status": "passed", "message": "Snakemake smoke run passed."}
     saved["contractStatus"]["outputValidation"] = {"status": "passed", "message": "Output validation passed."}
+    saved = upsert_tool(cfg, saved)
+    revision = publish_tool_revision(cfg, saved)
+    saved["toolRevisionId"] = revision["toolRevisionId"]
+    saved["revision"] = revision["revision"]
+    saved["publishedAt"] = revision["publishedAt"]
     return upsert_tool(cfg, saved)
 
 
@@ -64,7 +69,9 @@ def _completed_run_with_artifact(
     result_dir.mkdir(parents=True, exist_ok=True)
     artifact = result_dir / "report.txt"
     artifact.write_text(artifact_content, encoding="utf-8")
-    stored_run_spec = dict(run_spec or generated_workflow_run_spec("conda-forge::production-ready"))
+    tool = fetch_tool(cfg, "conda-forge::production-ready") or {}
+    tool_revision_id = str(tool.get("toolRevisionId") or "conda-forge::production-ready").strip()
+    stored_run_spec = dict(run_spec or generated_workflow_run_spec(tool_revision_id))
     stored_run_spec["runId"] = run_id
     create_run_record(
         cfg,
@@ -86,8 +93,16 @@ def _completed_run_with_artifact(
     persist_artifact(cfg, run_id=run_id, kind="report", path=artifact, mime_type="text/plain")
 
 
-def _production_run_spec(*, resource_bindings: dict[str, object] | None = None) -> dict[str, object]:
-    return generated_workflow_run_spec("conda-forge::production-ready", resource_bindings=resource_bindings)
+def _production_run_spec(
+    cfg: RemoteRunnerConfig,
+    *,
+    resource_bindings: dict[str, object] | None = None,
+) -> dict[str, object]:
+    tool = fetch_tool(cfg, "conda-forge::production-ready") or {}
+    tool_revision_id = str(tool.get("toolRevisionId") or "").strip()
+    if not tool_revision_id:
+        raise AssertionError("production test fixture must publish a toolRevisionId")
+    return generated_workflow_run_spec(tool_revision_id, resource_bindings=resource_bindings)
 
 
 def _registered_database(cfg: RemoteRunnerConfig, tmp_path: Path, *, template_id: str, status: str = "available") -> None:
@@ -295,7 +310,7 @@ def test_real_database_production_evidence_must_match_run_binding(tmp_path: Path
         cfg,
         tmp_path,
         run_id="run_database_wrong_template",
-        run_spec=_production_run_spec(resource_bindings={"taxonomy": {"databaseId": "db_real", "templateId": "kraken2"}}),
+        run_spec=_production_run_spec(cfg, resource_bindings={"taxonomy": {"databaseId": "db_real", "templateId": "kraken2"}}),
     )
     try:
         mark_registered_tool_production_enabled(
@@ -320,7 +335,7 @@ def test_real_database_production_evidence_must_match_run_binding(tmp_path: Path
         cfg,
         tmp_path,
         run_id="run_database_self_reported_template",
-        run_spec=_production_run_spec(resource_bindings={"taxonomy": {"databaseId": "db_real", "templateId": "custom"}}),
+        run_spec=_production_run_spec(cfg, resource_bindings={"taxonomy": {"databaseId": "db_real", "templateId": "custom"}}),
     )
     try:
         mark_registered_tool_production_enabled(
@@ -345,7 +360,7 @@ def test_real_database_production_evidence_must_match_run_binding(tmp_path: Path
         cfg,
         tmp_path,
         run_id="run_database_unavailable",
-        run_spec=_production_run_spec(resource_bindings={"taxonomy": {"databaseId": "db_real", "templateId": "custom"}}),
+        run_spec=_production_run_spec(cfg, resource_bindings={"taxonomy": {"databaseId": "db_real", "templateId": "custom"}}),
     )
     try:
         mark_registered_tool_production_enabled(
@@ -370,7 +385,7 @@ def test_real_database_production_evidence_must_match_run_binding(tmp_path: Path
         cfg,
         tmp_path,
         run_id="run_database_matched",
-        run_spec=_production_run_spec(resource_bindings={"taxonomy": {"databaseId": "db_real", "templateId": "custom"}}),
+        run_spec=_production_run_spec(cfg, resource_bindings={"taxonomy": {"databaseId": "db_real", "templateId": "custom"}}),
     )
     accepted = mark_registered_tool_production_enabled(
         cfg,
@@ -406,7 +421,7 @@ def test_production_acceptance_rejects_empty_artifacts(tmp_path: Path) -> None:
         raise AssertionError("Production evidence should reject empty generated artifacts.")
 
 
-def test_production_acceptance_evidence_accepts_graph_workflow_nodes(tmp_path: Path) -> None:
+def test_production_acceptance_evidence_rejects_tool_id_only_graph_nodes(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)
     _ready_tool(cfg)
@@ -426,13 +441,16 @@ def test_production_acceptance_evidence_accepts_graph_workflow_nodes(tmp_path: P
         },
     )
 
-    accepted = mark_registered_tool_production_enabled(
-        cfg,
-        "conda-forge::production-ready",
-        {"runId": "run_graph_tool", "message": "Accepted.", "evidenceType": "real-data-acceptance"},
-    )
-
-    assert accepted["toolContract"]["state"] == "ProductionEnabled"
+    try:
+        mark_registered_tool_production_enabled(
+            cfg,
+            "conda-forge::production-ready",
+            {"runId": "run_graph_tool", "message": "Accepted.", "evidenceType": "real-data-acceptance"},
+        )
+    except ToolRegistryError as exc:
+        assert str(exc) == "TOOL_PRODUCTION_EVIDENCE_TOOL_MISMATCH"
+    else:
+        raise AssertionError("Production evidence should reference the current toolRevisionId, not a tool id.")
 
 
 def test_production_acceptance_evidence_accepts_published_tool_revision_node(tmp_path: Path) -> None:

@@ -11,6 +11,7 @@ def test_bio_tool_pack_routes_pin_review_import_enable_contracts() -> None:
     service_source = (ROOT / "apps/api/tool_capability_service.py").read_text(encoding="utf-8")
 
     for service_name in [
+        "get_capability_graph_snapshot_from_request",
         "list_bio_tool_packs_from_request",
         "review_bio_tool_pack_from_request",
         "import_bio_tool_pack_from_request",
@@ -21,6 +22,7 @@ def test_bio_tool_pack_routes_pin_review_import_enable_contracts() -> None:
         assert f"def {service_name}(" in service_source
 
     for route, operation_id in [
+        ('@router.get("/api/v1/tool-capabilities/capability-graph"', "getCapabilityGraphSnapshot"),
         ('@router.get("/api/v1/tool-capabilities/tool-packs"', "listBioToolPacks"),
         ('@router.post("/api/v1/tool-capabilities/tool-packs/review"', "reviewBioToolPack"),
         ('@router.post("/api/v1/tool-capabilities/tool-packs"', "importBioToolPack"),
@@ -32,3 +34,4 @@ def test_bio_tool_pack_routes_pin_review_import_enable_contracts() -> None:
 
     assert "review_bio_tool_pack_manifest(payload)" in service_source
     assert "import_bio_tool_pack_manifest(payload, enable=enable)" in service_source
+    assert "DEFAULT_CAPABILITY_GRAPH_SERVICE.snapshot_from_runtime(" in service_source

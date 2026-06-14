@@ -5,17 +5,16 @@ import { cachedAsync, invalidateAsyncCachePrefix, peekAsyncCache } from "@/app/l
 
 import {
   type AddedTool,
+  type CapabilityGraphSnapshot,
+  type CapabilityGraphSnapshotResponse,
   type RuleSpecTemplate,
   type SnakemakeWrapperCatalogResponse,
-  type ToolCandidateCatalogResponse,
-  type ToolCatalogTargetAcceptanceResponse,
   type ToolProfileCatalogResponse,
   type ToolPrepareJob,
   type ToolPrepareJobResponse,
   type ToolSearchResponse,
   type ToolValidationQueuePrepareResponse,
   TOOL_SEARCH_PAGE_SIZE,
-  type ToolsResponse,
   uniqueDependencies,
 } from "./tools-page-model";
 
@@ -28,13 +27,9 @@ export function invalidateWorkflowToolCaches() {
   invalidateAsyncCachePrefix("tools:");
 }
 
-function refreshQuery(options: { forceRefresh?: boolean }) {
-  return options.forceRefresh ? "?refresh=true" : "";
-}
-
-function normalizeAddedTools(response: ToolsResponse): AddedTool[] {
+function normalizeAddedToolItems(items: AddedTool[]): AddedTool[] {
   return uniqueDependencies(
-    (response.data.items || []).map((item) => ({
+    items.map((item) => ({
       ...item,
       selectedVersion: item.version || "",
       selectedPackageSpec: item.packageSpec,
@@ -51,11 +46,39 @@ export async function fetchAddedTools(options: { forceRefresh?: boolean } = {}):
     ADDED_TOOLS_CACHE_KEY,
     ADDED_TOOLS_CACHE_TTL_MS,
     async () => {
-      const response = await requestLocalApiJson<ToolsResponse>("GET", `/api/v1/tools${refreshQuery(options)}`, { cache: "no-store" });
-      return normalizeAddedTools(response);
+      const snapshot = await fetchCapabilityGraphSnapshot({ query: "", page: 1, pageSize: 100 });
+      return normalizeAddedToolItems(snapshot.registeredTools || []);
     },
     { forceRefresh: options.forceRefresh }
   );
+}
+
+export async function fetchCapabilityGraphSnapshot({
+  agentSelectableOnly = false,
+  page,
+  pageSize = 50,
+  query,
+  signal,
+}: {
+  agentSelectableOnly?: boolean;
+  page: number;
+  pageSize?: number;
+  query: string;
+  signal?: AbortSignal;
+}): Promise<CapabilityGraphSnapshot> {
+  const params = new URLSearchParams({
+    q: query,
+    page: String(page),
+    pageSize: String(pageSize),
+    targetPlatform: "linux-64",
+  });
+  if (agentSelectableOnly) params.set("agentSelectableOnly", "true");
+  const response = await requestLocalApiJson<CapabilityGraphSnapshotResponse>(
+    "GET",
+    `/api/v1/tool-capabilities/capability-graph?${params.toString()}`,
+    { cache: "no-store", signal, timeoutMs: TOOL_SEARCH_REQUEST_TIMEOUT_MS }
+  );
+  return response.data;
 }
 
 export async function searchToolCapabilities({
@@ -75,23 +98,6 @@ export async function searchToolCapabilities({
   return response.data;
 }
 
-export async function searchToolCandidates({
-  query,
-  page,
-  signal,
-}: {
-  query: string;
-  page: number;
-  signal?: AbortSignal;
-}): Promise<ToolCandidateCatalogResponse["data"]> {
-  const response = await requestLocalApiJson<ToolCandidateCatalogResponse>(
-    "GET",
-    `/api/v1/tool-capabilities/candidates?q=${encodeURIComponent(query)}&page=${page}&pageSize=50&targetPlatform=linux-64`,
-    { cache: "no-store", signal, timeoutMs: TOOL_SEARCH_REQUEST_TIMEOUT_MS }
-  );
-  return response.data;
-}
-
 export async function fetchSnakemakeWrapperCatalog(): Promise<SnakemakeWrapperCatalogResponse["data"]> {
   const response = await requestLocalApiJson<SnakemakeWrapperCatalogResponse>(
     "GET",
@@ -105,15 +111,6 @@ export async function fetchToolProfileCatalog(): Promise<ToolProfileCatalogRespo
   const response = await requestLocalApiJson<ToolProfileCatalogResponse>(
     "GET",
     "/api/v1/tool-capabilities/tool-profiles?page=1&pageSize=50",
-    { cache: "no-store" }
-  );
-  return response.data;
-}
-
-export async function fetchToolCandidateTargetAcceptance(): Promise<ToolCatalogTargetAcceptanceResponse["data"]> {
-  const response = await requestLocalApiJson<ToolCatalogTargetAcceptanceResponse>(
-    "GET",
-    "/api/v1/tool-capabilities/target-acceptance?targetPlatform=linux-64",
     { cache: "no-store" }
   );
   return response.data;

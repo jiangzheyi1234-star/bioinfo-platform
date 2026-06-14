@@ -11,7 +11,8 @@ def test_bio_tool_pack_import_enable_surfaces_external_profiles() -> None:
         list_bio_tool_packs,
         review_bio_tool_pack_manifest,
     )
-    from apps.api.tool_candidate_recommendations import recommend_tool_candidates
+    from apps.api.bio_tool_pack_acceptance import reliability_acceptance_matrix
+    from apps.api.bio_tool_pack_capability_graph import semantic_capability_graph
     from apps.api.tool_candidate_target_acceptance import validation_queue_tool_ids
     from apps.api.tool_profile_catalog import catalog_tool_profiles
 
@@ -44,17 +45,13 @@ def test_bio_tool_pack_import_enable_surfaces_external_profiles() -> None:
     assert item["preparePayload"]["id"] == "bioconda::sourmash"
     assert item["preparePayload"]["ruleSpecDraft"]["requiresUserCompletion"] is False
 
-    recommendations = recommend_tool_candidates(
-        output_port={"kind": "sequence_reads", "mimeType": "text/plain"},
-        query="sourmash",
-        page=1,
-        page_size=10,
-    )
-    recommendation = recommendations["items"][0]
-    assert recommendation["candidate"]["candidateId"] == "h2ometa-tool-profile::sourmash-sketch"
-    assert recommendation["blockReason"] == "WORKFLOW_TOOL_NOT_READY"
-    assert recommendation["preparePayload"]["id"] == "bioconda::sourmash"
     assert "bioconda::sourmash" in validation_queue_tool_ids()
+    assert "sourmash-sketch" in {row["profileId"] for row in reliability_acceptance_matrix()["rows"]}
+    assert "sourmash-sketch" in {
+        node["profileId"]
+        for node in semantic_capability_graph()["nodes"]
+        if node["kind"] == "ToolProfile"
+    }
 
 
 def test_bio_tool_pack_import_rejects_profile_id_collisions() -> None:
