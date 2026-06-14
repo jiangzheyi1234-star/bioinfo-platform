@@ -163,6 +163,16 @@ def require_release_identity(
         raise ValueError("manifest metadata sourceCommit mismatch")
     if require_commit(gate_evidence.get("sourceCommit"), "releaseGate.sourceCommit") != source_commit:
         raise ValueError("release gate sourceCommit mismatch")
+    runner_sha = require_sha256(
+        require_artifact(metadata, "remote_runner").get("sha256"),
+        "metadata.remote_runner.sha256",
+    )
+    gate_bundle = gate_evidence.get("remoteRunnerBundle")
+    if not isinstance(gate_bundle, dict):
+        raise ValueError("release gate remoteRunnerBundle must be an object")
+    gate_runner_sha = require_sha256(gate_bundle.get("sha256"), "releaseGate.remoteRunnerBundle.sha256")
+    if gate_runner_sha != runner_sha:
+        raise ValueError("release gate remoteRunnerBundle sha256 mismatch")
     if str(published_assets.get("releaseTag") or "").strip() != release_tag:
         raise ValueError("published assets releaseTag mismatch")
     artifacts = metadata.get("artifacts")
@@ -175,6 +185,20 @@ def require_release_identity(
     if tag_commit != source_commit:
         raise ValueError(f"release tag {release_tag} points at {tag_commit}, not {source_commit}")
     return source_commit
+
+
+def require_artifact(metadata: dict[str, Any], artifact_key: str) -> dict[str, Any]:
+    artifacts = metadata.get("artifacts")
+    if not isinstance(artifacts, list):
+        raise ValueError("metadata.artifacts must be a list")
+    matches = [
+        artifact
+        for artifact in artifacts
+        if isinstance(artifact, dict) and str(artifact.get("artifactKey") or "") == artifact_key
+    ]
+    if len(matches) != 1:
+        raise ValueError(f"metadata must include exactly one {artifact_key} artifact")
+    return matches[0]
 
 
 def validate_production_manifest(manifest: dict[str, Any], *, source_commit: str, release_tag: str) -> None:
@@ -260,6 +284,13 @@ def require_commit(raw: object, field: str) -> str:
     value = str(raw or "").strip().lower()
     if len(value) != 40 or any(ch not in "0123456789abcdef" for ch in value):
         raise ValueError(f"{field} must be a full 40-character commit SHA")
+    return value
+
+
+def require_sha256(raw: object, field: str) -> str:
+    value = str(raw or "").strip().lower()
+    if len(value) != 64 or any(ch not in "0123456789abcdef" for ch in value):
+        raise ValueError(f"{field} must be a SHA-256 digest")
     return value
 
 

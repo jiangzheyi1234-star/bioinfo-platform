@@ -155,7 +155,7 @@ uv run python scripts\promote_remote_runner_release.py `
   --summary-json dist\remote-runner\release-promotion-summary.json
 ```
 
-The promotion gate writes `release-promotion-summary.json` and a candidate promoted manifest. It fails production promotion when the release tag, CI source commit, manifest metadata, published asset digests, SBOM/attestation records, or real gate evidence disagree. It also rejects `pending:` and `pending-release-asset:` supply-chain values in the production manifest. Use `--apply` only after reviewing the candidate manifest; otherwise the checked-in manifest is left untouched.
+The promotion gate writes `release-promotion-summary.json` and a candidate promoted manifest. It fails production promotion when the release tag, CI source commit, manifest metadata, published asset digests, SBOM/attestation records, or real gate evidence disagree. It also requires `release-gate-evidence.json` to include `remoteRunnerBundle.sha256`, and that digest must match the controlled CI `remote_runner` artifact digest. It also rejects `pending:` and `pending-release-asset:` supply-chain values in the production manifest. Use `--apply` only after reviewing the candidate manifest; otherwise the checked-in manifest is left untouched.
 
 For a local staging control-plane tarball that has not been promoted into the release manifest, start the Local API/Web launcher with an explicit staging gate before running destructive acceptance:
 
@@ -168,7 +168,7 @@ set H2OMETA_REMOTE_RUNNER_BUNDLE=E:\code\bio_ui\resources\remote-runner\h2ometa-
 run.bat --web
 ```
 
-Run the release gate from a Windows PowerShell with the same `H2OMETA_REMOTE_RUNNER_BUNDLE` value. Without the explicit staging gate, Local API bootstrap must continue to reject tarballs whose digest does not match `config/remote-runner-release-manifest.json`.
+Run the release gate from a Windows PowerShell with the same `H2OMETA_REMOTE_RUNNER_BUNDLE` value. The gate writes the resolved bundle path, SHA-256, and marker list into `release-gate-evidence.json`; promotion later compares that SHA-256 with the CI artifact metadata. Without the explicit staging gate, Local API bootstrap must continue to reject tarballs whose digest does not match `config/remote-runner-release-manifest.json`.
 After the destructive release gate writes evidence, validate the evidence contract before attaching it to release notes or promotion records:
 
 ```powershell

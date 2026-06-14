@@ -62,6 +62,20 @@ OPTIONAL_GATE_LABELS = {
         "SOAK_OBSERVABILITY_EVIDENCE",
     },
 }
+REQUIRED_SOAK_CATEGORIES = {
+    "attemptTimeout",
+    "batchRuns",
+    "cancelIsolation",
+    "leaseExpiryRecovery",
+    "observability",
+    "postRunInvariants",
+    "queueTtl",
+    "realTwoSlotConcurrency",
+    "resourceSaturation",
+    "retryBackoff",
+    "sqliteBackpressureObserved",
+    "workerCrashRestart",
+}
 
 
 @dataclass(frozen=True)
@@ -255,7 +269,8 @@ def validate_release_gate_evidence(path: Path) -> CheckResult:
     payload = _read_json(path)
     _require(payload.get("schemaVersion") == RELEASE_GATE_SCHEMA, f"{path} has wrong schemaVersion")
     _require(payload.get("ok") is True, f"{path} is not an ok release gate result")
-    _require_commit(payload.get("sourceCommit"), "releaseGate.sourceCommit")
+    source_commit = _require_commit(payload.get("sourceCommit"), "releaseGate.sourceCommit")
+    bundle = _validate_release_gate_bundle(payload.get("remoteRunnerBundle"))
     steps = payload.get("steps")
     _require(isinstance(steps, list), "release gate steps must be a list")
     seen: dict[str, list[str]] = {}
@@ -271,10 +286,16 @@ def validate_release_gate_evidence(path: Path) -> CheckResult:
         _require(required is not None, f"unexpected release gate step: {name}")
         missing = sorted(required - label_set)
         _require(not missing, f"{name} evidence missing labels: {', '.join(missing)}")
+        if name == "soak-stress-fault-injection":
+            _validate_soak_evidence(raw_step, source_commit=source_commit)
         seen[name] = sorted(label_set)
     missing_steps = sorted(set(EXPECTED_GATE_LABELS) - set(seen))
     _require(not missing_steps, "release gate evidence missing steps: " + ", ".join(missing_steps))
-    return CheckResult(name="release-gate-evidence", ok=True, detail={"path": str(path), "steps": seen})
+    return CheckResult(
+        name="release-gate-evidence",
+        ok=True,
+        detail={"path": str(path), "remoteRunnerBundle": bundle, "steps": seen},
+    )
 
 
 def run_real_release_gate(evidence_json: Path) -> CheckResult:
@@ -355,6 +376,54 @@ def _read_json(path: Path) -> dict[str, Any]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     _require(isinstance(payload, dict), f"{path} must contain a JSON object")
     return payload
+
+
+def _validate_release_gate_bundle(raw: object) -> dict[str, Any]:
+    _require(isinstance(raw, dict), "releaseGate.remoteRunnerBundle must be an object")
+    path = _require_text(raw.get("path"), "releaseGate.remoteRunnerBundle.path")
+    sha256 = _require_sha256(raw.get("sha256"), "releaseGate.remoteRunnerBundle.sha256")
+    markers = raw.get("markers")
+    _require(isinstance(markers, list) and markers, "releaseGate.remoteRunnerBundle.markers must be a non-empty list")
+    return {"path": path, "sha256": sha256, "markers": sorted(str(marker) for marker in markers)}
+
+
+def _validate_soak_evidence(step: dict[str, Any], *, source_commit: str) -> None:
+    summary = _single_payload(step, "SOAK_ACCEPTANCE_SUMMARY")
+    observability = _single_payload(step, "SOAK_OBSERVABILITY_EVIDENCE")
+    _require(
+        summary.get("schemaVersion") == "remote-runner-soak-acceptance.v1",
+        "SOAK_ACCEPTANCE_SUMMARY has wrong schemaVersion",
+    )
+    _require(summary.get("ok") is True, "SOAK_ACCEPTANCE_SUMMARY is not ok")
+    _require(_require_commit(summary.get("sourceCommit"), "SOAK_ACCEPTANCE_SUMMARY.sourceCommit") == source_commit, "SOAK_ACCEPTANCE_SUMMARY sourceCommit mismatch")
+    _require(int(summary.get("iterations") or 0) >= 1, "SOAK_ACCEPTANCE_SUMMARY iterations must be at least 1")
+    categories = summary.get("categories")
+    _require(isinstance(categories, dict), "SOAK_ACCEPTANCE_SUMMARY categories must be an object")
+    missing_categories = sorted(category for category in REQUIRED_SOAK_CATEGORIES if categories.get(category) is not True)
+    _require(not missing_categories, "SOAK_ACCEPTANCE_SUMMARY missing categories: " + ", ".join(missing_categories))
+    _require(int(categories.get("resourceWaitObservations") or 0) > 0, "SOAK_ACCEPTANCE_SUMMARY missing resourceWaitObservations")
+    _require(int(categories.get("runCount") or 0) >= 4, "SOAK_ACCEPTANCE_SUMMARY runCount is too low")
+    _require(not summary.get("failures"), "SOAK_ACCEPTANCE_SUMMARY contains failures")
+
+    _require(
+        observability.get("schemaVersion") == "remote-runner-soak-observability.v1",
+        "SOAK_OBSERVABILITY_EVIDENCE has wrong schemaVersion",
+    )
+    _require(observability.get("ok") is True, "SOAK_OBSERVABILITY_EVIDENCE is not ok")
+    _require(observability.get("sloOk") is True, "SOAK_OBSERVABILITY_EVIDENCE sloOk is not true")
+    _require(int(observability.get("observabilityCount") or 0) > 0, "SOAK_OBSERVABILITY_EVIDENCE missing observations")
+
+
+def _single_payload(step: dict[str, Any], label: str) -> dict[str, Any]:
+    evidence = step.get("evidence")
+    _require(isinstance(evidence, list), f"{step.get('name')} evidence must be a list")
+    payloads = [
+        entry.get("payload")
+        for entry in evidence
+        if isinstance(entry, dict) and entry.get("label") == label and isinstance(entry.get("payload"), dict)
+    ]
+    _require(len(payloads) == 1, f"{step.get('name')} must contain exactly one {label} payload")
+    return payloads[0]
 
 
 def _resolve_path(base: Path, raw: object) -> Path:

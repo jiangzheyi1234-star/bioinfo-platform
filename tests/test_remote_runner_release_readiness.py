@@ -29,6 +29,50 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
+def _gate_bundle() -> dict[str, Any]:
+    return {
+        "path": "E:/code/bio_ui/resources/remote-runner/h2ometa-remote-runner.tar.gz",
+        "sha256": "1" * 64,
+        "markers": ["remote_runner/execution_observability.py"],
+    }
+
+
+def _soak_summary(source_commit: str) -> dict[str, Any]:
+    categories = {
+        "attemptTimeout": True,
+        "batchRuns": True,
+        "cancelIsolation": True,
+        "leaseExpiryRecovery": True,
+        "observability": True,
+        "postRunInvariants": True,
+        "queueTtl": True,
+        "realTwoSlotConcurrency": True,
+        "resourceSaturation": True,
+        "retryBackoff": True,
+        "sqliteBackpressureObserved": True,
+        "workerCrashRestart": True,
+        "resourceWaitObservations": 1,
+        "runCount": 4,
+    }
+    return {
+        "schemaVersion": "remote-runner-soak-acceptance.v1",
+        "ok": True,
+        "sourceCommit": source_commit,
+        "iterations": 3,
+        "categories": categories,
+        "failures": [],
+    }
+
+
+def _soak_observability() -> dict[str, Any]:
+    return {
+        "schemaVersion": "remote-runner-soak-observability.v1",
+        "ok": True,
+        "sloOk": True,
+        "observabilityCount": 6,
+    }
+
+
 def test_release_readiness_validates_ci_build_metadata(tmp_path: Path) -> None:
     readiness = _load_module()
     source_commit = "a" * 40
@@ -119,6 +163,7 @@ def test_release_readiness_validates_required_release_gate_labels(tmp_path: Path
             "schemaVersion": "remote-runner-release-gate.v1",
             "ok": True,
             "sourceCommit": "b" * 40,
+            "remoteRunnerBundle": _gate_bundle(),
             "steps": [
                 {
                     "name": "real-snakemake-two-slot",
@@ -175,6 +220,7 @@ def test_release_readiness_accepts_optional_soak_gate_step(tmp_path: Path) -> No
             "schemaVersion": "remote-runner-release-gate.v1",
             "ok": True,
             "sourceCommit": "b" * 40,
+            "remoteRunnerBundle": _gate_bundle(),
             "steps": [
                 {
                     "name": "real-snakemake-two-slot",
@@ -216,6 +262,11 @@ def test_release_readiness_accepts_optional_soak_gate_step(tmp_path: Path) -> No
                         "SOAK_ACCEPTANCE_SUMMARY",
                         "SOAK_OBSERVABILITY_EVIDENCE",
                     ],
+                    "evidence": [
+                        {"label": "RESULT", "payload": {"ok": True}},
+                        {"label": "SOAK_ACCEPTANCE_SUMMARY", "payload": _soak_summary("b" * 40)},
+                        {"label": "SOAK_OBSERVABILITY_EVIDENCE", "payload": _soak_observability()},
+                    ],
                 },
             ],
         },
@@ -236,6 +287,7 @@ def test_release_readiness_rejects_partial_release_gate_evidence(tmp_path: Path)
             "schemaVersion": "remote-runner-release-gate.v1",
             "ok": True,
             "sourceCommit": "c" * 40,
+            "remoteRunnerBundle": _gate_bundle(),
             "steps": [
                 {
                     "name": "execution-policy-acceptance",
@@ -252,6 +304,96 @@ def test_release_readiness_rejects_partial_release_gate_evidence(tmp_path: Path)
         assert "evidence missing labels" in str(exc)
     else:
         raise AssertionError("partial release gate evidence was accepted")
+
+
+def test_release_readiness_rejects_release_gate_without_bundle_provenance(tmp_path: Path) -> None:
+    readiness = _load_module()
+    evidence_path = tmp_path / "release-gate-evidence.json"
+    _write_json(
+        evidence_path,
+        {
+            "schemaVersion": "remote-runner-release-gate.v1",
+            "ok": True,
+            "sourceCommit": "d" * 40,
+            "steps": [],
+        },
+    )
+
+    try:
+        readiness.validate_release_gate_evidence(evidence_path)
+    except ValueError as exc:
+        assert "remoteRunnerBundle" in str(exc)
+    else:
+        raise AssertionError("release gate evidence without bundle provenance was accepted")
+
+
+def test_release_readiness_rejects_soak_step_without_payload_proof(tmp_path: Path) -> None:
+    readiness = _load_module()
+    evidence_path = tmp_path / "release-gate-evidence.json"
+    source_commit = "e" * 40
+    _write_json(
+        evidence_path,
+        {
+            "schemaVersion": "remote-runner-release-gate.v1",
+            "ok": True,
+            "sourceCommit": source_commit,
+            "remoteRunnerBundle": _gate_bundle(),
+            "steps": [
+                {
+                    "name": "real-snakemake-two-slot",
+                    "exitCode": 0,
+                    "evidenceLabels": [
+                        "ACCEPTANCE_SUMMARY",
+                        "CONCURRENCY_EVIDENCE",
+                        "OBSERVABILITY_EVIDENCE",
+                        "POST_ACCEPTANCE_INVARIANTS",
+                        "RESOURCE_WAIT_EVIDENCE",
+                        "RESULT",
+                        "RUNNER_READY",
+                    ],
+                },
+                {
+                    "name": "worker-crash-restart-recovery",
+                    "exitCode": 0,
+                    "evidenceLabels": ["RECOVERY_EVIDENCE", "RESULT", "SERVER_READY_PREFLIGHT"],
+                },
+                {
+                    "name": "execution-policy-acceptance",
+                    "exitCode": 0,
+                    "evidenceLabels": [
+                        "POLICY_ACCEPTANCE_SUMMARY",
+                        "POLICY_ATTEMPT_TIMEOUT_EVIDENCE",
+                        "POLICY_BACKOFF_EVIDENCE",
+                        "OBSERVABILITY_EVIDENCE",
+                        "POLICY_PREFLIGHT",
+                        "POLICY_QUEUE_TTL_EVIDENCE",
+                        "POST_POLICY_INVARIANTS",
+                        "RESULT",
+                    ],
+                },
+                {
+                    "name": "soak-stress-fault-injection",
+                    "exitCode": 0,
+                    "evidenceLabels": [
+                        "RESULT",
+                        "SOAK_ACCEPTANCE_SUMMARY",
+                        "SOAK_OBSERVABILITY_EVIDENCE",
+                    ],
+                    "evidence": [
+                        {"label": "SOAK_ACCEPTANCE_SUMMARY", "payload": _soak_summary("f" * 40)},
+                        {"label": "SOAK_OBSERVABILITY_EVIDENCE", "payload": _soak_observability()},
+                    ],
+                },
+            ],
+        },
+    )
+
+    try:
+        readiness.validate_release_gate_evidence(evidence_path)
+    except ValueError as exc:
+        assert "sourceCommit mismatch" in str(exc)
+    else:
+        raise AssertionError("soak evidence with mismatched sourceCommit was accepted")
 
 
 def test_release_readiness_can_run_as_non_destructive_ci_metadata_check(tmp_path: Path, capsys) -> None:

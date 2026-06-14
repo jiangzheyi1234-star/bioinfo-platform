@@ -152,7 +152,11 @@ def test_release_gate_writes_machine_readable_evidence_json(tmp_path, monkeypatc
 
     monkeypatch.setattr(gate, "run_step", fake_run_step)
     monkeypatch.setattr(gate, "_source_commit", lambda: "abc123")
-    monkeypatch.setattr(gate, "_validate_release_bundle_env", lambda: tmp_path / "bundle.tar.gz")
+    monkeypatch.setattr(
+        gate,
+        "_validate_release_bundle_env",
+        lambda: {"path": str(tmp_path / "bundle.tar.gz"), "sha256": "1" * 64, "markers": ["marker"]},
+    )
 
     exit_code = gate.main(
         [
@@ -168,6 +172,7 @@ def test_release_gate_writes_machine_readable_evidence_json(tmp_path, monkeypatc
     assert payload["schemaVersion"] == "remote-runner-release-gate.v1"
     assert payload["ok"] is True
     assert payload["sourceCommit"] == "abc123"
+    assert payload["remoteRunnerBundle"]["sha256"] == "1" * 64
     assert [step["name"] for step in payload["steps"]] == [
         "real-snakemake-two-slot",
         "worker-crash-restart-recovery",

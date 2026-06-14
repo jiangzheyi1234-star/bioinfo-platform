@@ -111,7 +111,7 @@ uv run python scripts\check_remote_runner_release_readiness.py `
 
 For a local staging artifact that has not been promoted into `config/remote-runner-release-manifest.json`, start `run.bat --web` with `H2OMETA_ALLOW_STAGING_REMOTE_RUNNER_BUNDLE=1`, `H2OMETA_REMOTE_RUNNER_BUNDLE` pointing at the staged tarball, and a writable `H2OMETA_ARTIFACT_CACHE_DIR`. The launcher and gate still validate the tarball sidecar checksum and runtime markers, but the explicit staging gate prevents Local API bootstrap from silently replacing the staged runner with the manifest-declared production artifact.
 
-This gate temporarily enables the P0-3B two-slot worker mode, runs real Snakemake concurrency/cancel/resource-wait acceptance, runs worker crash/restart recovery acceptance, runs execution policy acceptance for retry backoff, heartbeat timeout, start-to-close timeout, and queue TTL resource-wait behavior, verifies closed-loop recovery evidence from the control-plane event ledger, writes machine-readable release evidence, and must restore the remote runner to the single-slot production default before completion.
+This gate temporarily enables the P0-3B two-slot worker mode, runs real Snakemake concurrency/cancel/resource-wait acceptance, runs worker crash/restart recovery acceptance, runs execution policy acceptance for retry backoff, heartbeat timeout, start-to-close timeout, and queue TTL resource-wait behavior, verifies closed-loop recovery evidence from the control-plane event ledger, writes machine-readable release evidence, and must restore the remote runner to the single-slot production default before completion. The evidence includes `remoteRunnerBundle.path`, `remoteRunnerBundle.sha256`, and the verified bundle marker list. Production promotion requires that bundle SHA-256 to match the `remote_runner` artifact SHA-256 from the controlled CI metadata, so the artifact promoted is the same artifact that passed real remote acceptance.
 The two-slot and execution-policy gate steps must also emit `OBSERVABILITY_EVIDENCE` collected from `/health/execution-diagnostics`. Promotion tooling treats this as proof that the release exposes the `execution-observability.v1` golden-signal/SLO contract during real runner operation.
 
 For higher-risk execution-control-plane changes, add the optional soak gate:
@@ -129,15 +129,19 @@ uv run python scripts\remote_runner_release_gate.py `
 The soak step repeats the real two-slot, crash/restart, and execution-policy
 fault acceptance scripts with bootstrap stabilization barriers between
 destructive scenarios. It requires `SOAK_ACCEPTANCE_SUMMARY` plus
-`SOAK_OBSERVABILITY_EVIDENCE`. Its evidence must prove concurrency, cancel
-isolation, resource saturation, lease-expiry recovery, retry backoff, attempt
-timeout, queue TTL, SQLite/backpressure observability, and post-run invariants.
-Warnings such as slot saturation are acceptable during deliberate stress, but
-failed execution-observability SLOs or missing categories block the soak result.
+`SOAK_OBSERVABILITY_EVIDENCE`. Readiness validation checks the soak payloads,
+not just their labels: schema, `ok`, `sourceCommit`, iterations, required
+categories, resource-wait observations, run count, empty failures, SLO status,
+and observability count must all pass. Its evidence must prove concurrency,
+cancel isolation, resource saturation, lease-expiry recovery, retry backoff,
+attempt timeout, queue TTL, SQLite/backpressure observability, and post-run
+invariants. Warnings such as slot saturation are acceptable during deliberate
+stress, but failed execution-observability SLOs or missing categories block the
+soak result.
 
 For controlled CI builds, `.github/workflows/release-remote-runner-artifacts.yml` runs `scripts\check_remote_runner_release_readiness.py` immediately after artifact build with the generated `release-artifacts-metadata.json`, `release-manifest-metadata.json`, and `release-attestations.json`. That CI path is intentionally non-destructive: it validates artifact, checksum, SBOM, manifest metadata, source commit, and attestation consistency, but it does not connect to or kill a remote runner. Real remote acceptance remains a separate explicit release gate and is represented by `release-gate-evidence.json`.
 
-Production promotion is stricter than staging readiness. `scripts\promote_remote_runner_release.py` rejects mismatched source commits, release tags that do not point at the promoted source commit, missing real release gate evidence, mismatched published asset digests or sizes, and any production manifest field that still contains `pending:` or `pending-release-asset:`. The GitHub workflow exposes this as a protected `promote_release=true` path using the `production-runtime` environment; callers must provide the workflow run id and artifact name that contain `release-gate-evidence.json`.
+Production promotion is stricter than staging readiness. `scripts\promote_remote_runner_release.py` rejects mismatched source commits, release tags that do not point at the promoted source commit, missing real release gate evidence, a release-gate bundle SHA-256 that does not match the controlled CI `remote_runner` artifact, mismatched published asset digests or sizes, and any production manifest field that still contains `pending:` or `pending-release-asset:`. The GitHub workflow exposes this as a protected `promote_release=true` path using the `production-runtime` environment; callers must provide the workflow run id and artifact name that contain `release-gate-evidence.json`.
 
 ## Traceability Requirements
 

@@ -236,7 +236,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: {exc}")
         return 2
     try:
-        _validate_release_bundle_env()
+        remote_runner_bundle = _validate_release_bundle_env()
     except ValueError as exc:
         print(f"ERROR: {exc}")
         return 2
@@ -246,12 +246,17 @@ def main(argv: list[str] | None = None) -> int:
         result = run_step(step)
         results.append(result)
         if int(result["exitCode"]) != 0:
-            summary = _build_gate_summary(ok=False, steps=results, failed_step=step.name)
+            summary = _build_gate_summary(
+                ok=False,
+                steps=results,
+                remote_runner_bundle=remote_runner_bundle,
+                failed_step=step.name,
+            )
             _write_evidence_json(args.evidence_json, summary)
             print("RELEASE_GATE_SUMMARY: " + json.dumps(summary, sort_keys=True), flush=True)
             return int(result["exitCode"]) or 1
 
-    summary = _build_gate_summary(ok=True, steps=results)
+    summary = _build_gate_summary(ok=True, steps=results, remote_runner_bundle=remote_runner_bundle)
     _write_evidence_json(args.evidence_json, summary)
     print("RELEASE_GATE_SUMMARY: " + json.dumps(summary, sort_keys=True), flush=True)
     print("RESULT: ok", flush=True)
@@ -262,6 +267,7 @@ def _build_gate_summary(
     *,
     ok: bool,
     steps: list[dict[str, object]],
+    remote_runner_bundle: dict[str, object],
     failed_step: str | None = None,
 ) -> dict[str, object]:
     summary: dict[str, object] = {
@@ -269,6 +275,7 @@ def _build_gate_summary(
         "ok": ok,
         "generatedAt": _utc_now(),
         "sourceCommit": _source_commit(),
+        "remoteRunnerBundle": remote_runner_bundle,
         "steps": steps,
     }
     if failed_step:
@@ -283,7 +290,7 @@ def _write_evidence_json(path: Path | None, summary: dict[str, object]) -> None:
     path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def _validate_release_bundle_env() -> Path:
+def _validate_release_bundle_env() -> dict[str, object]:
     raw = str(os.environ.get("H2OMETA_REMOTE_RUNNER_BUNDLE", "") or "").strip()
     if not raw:
         raise ValueError(
@@ -314,12 +321,9 @@ def _validate_release_bundle_env() -> Path:
             text = handle.read().decode("utf-8", errors="replace")
             if marker not in text:
                 raise ValueError(f"H2OMETA_REMOTE_RUNNER_BUNDLE member {name} missing marker: {marker}")
-    print(
-        "RELEASE_GATE_BUNDLE: "
-        + json.dumps({"path": str(artifact), "sha256": actual, "markers": sorted(REQUIRED_BUNDLE_MARKERS)}, sort_keys=True),
-        flush=True,
-    )
-    return artifact
+    payload = {"path": str(artifact), "sha256": actual, "markers": sorted(REQUIRED_BUNDLE_MARKERS)}
+    print("RELEASE_GATE_BUNDLE: " + json.dumps(payload, sort_keys=True), flush=True)
+    return payload
 
 
 def _source_commit() -> str:

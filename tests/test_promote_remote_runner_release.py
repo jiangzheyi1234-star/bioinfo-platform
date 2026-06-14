@@ -123,7 +123,7 @@ def _fixture(tmp_path: Path) -> dict[str, Path]:
             },
         },
     )
-    _write_json(paths["gate"], _release_gate(source_commit))
+    _write_json(paths["gate"], _release_gate(source_commit, runner_sha))
     return paths
 
 
@@ -177,11 +177,16 @@ def _asset(asset_id: int, sha256: str, size: int) -> dict[str, Any]:
     }
 
 
-def _release_gate(source_commit: str) -> dict[str, Any]:
+def _release_gate(source_commit: str, runner_sha: str) -> dict[str, Any]:
     return {
         "schemaVersion": "remote-runner-release-gate.v1",
         "ok": True,
         "sourceCommit": source_commit,
+        "remoteRunnerBundle": {
+            "path": "E:/code/bio_ui/resources/remote-runner/h2ometa-remote-runner.tar.gz",
+            "sha256": runner_sha,
+            "markers": ["remote_runner/execution_observability.py"],
+        },
         "steps": [
             {
                 "name": "real-snakemake-two-slot",
@@ -272,6 +277,21 @@ def test_promote_release_rejects_release_gate_source_mismatch(tmp_path: Path, mo
     summary = json.loads(paths["summary"].read_text(encoding="utf-8"))
     assert summary["ok"] is False
     assert "release gate sourceCommit mismatch" in json.dumps(summary)
+
+
+def test_promote_release_rejects_release_gate_bundle_mismatch(tmp_path: Path, monkeypatch) -> None:
+    promote = _load_module()
+    paths = _fixture(tmp_path)
+    gate = json.loads(paths["gate"].read_text(encoding="utf-8"))
+    gate["remoteRunnerBundle"]["sha256"] = "f" * 64
+    _write_json(paths["gate"], gate)
+    monkeypatch.setattr(promote, "git_commit", lambda ref: "a" * 40)
+
+    assert promote.main(_argv(paths)) == 1
+
+    summary = json.loads(paths["summary"].read_text(encoding="utf-8"))
+    assert summary["ok"] is False
+    assert "remoteRunnerBundle sha256 mismatch" in json.dumps(summary)
 
 
 def test_promote_release_rejects_pending_production_manifest_fields(tmp_path: Path, monkeypatch) -> None:
