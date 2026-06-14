@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import UTC, datetime
 import json
 import subprocess
 import sys
@@ -67,8 +68,26 @@ def _collect_label(line: str) -> str | None:
     return None
 
 
+def _parse_evidence_line(line: str) -> dict[str, object] | None:
+    label = _collect_label(line)
+    if label is None:
+        return None
+    payload_text = line.split(":", 1)[1].strip() if ":" in line else ""
+    if label == "RESULT" and payload_text == "ok":
+        payload: object = {"ok": True}
+    elif payload_text:
+        try:
+            payload = json.loads(payload_text)
+        except json.JSONDecodeError:
+            payload = {"raw": payload_text}
+    else:
+        payload = {}
+    return {"label": label, "payload": payload}
+
+
 def run_step(step: GateStep) -> dict[str, object]:
     started = time.monotonic()
+    started_at = _utc_now()
     print(f"RELEASE_GATE_STEP_START: {json.dumps({'name': step.name}, sort_keys=True)}", flush=True)
     process = subprocess.Popen(
         step.command,
@@ -80,19 +99,27 @@ def run_step(step: GateStep) -> dict[str, object]:
         errors="replace",
     )
     labels: list[str] = []
+    evidence: list[dict[str, object]] = []
     assert process.stdout is not None
     for line in process.stdout:
         print(line, end="")
-        label = _collect_label(line)
-        if label and label not in labels:
+        entry = _parse_evidence_line(line)
+        if entry is None:
+            continue
+        label = str(entry["label"])
+        evidence.append(entry)
+        if label not in labels:
             labels.append(label)
     exit_code = process.wait()
     elapsed_seconds = round(time.monotonic() - started, 3)
     payload = {
         "name": step.name,
         "exitCode": exit_code,
+        "startedAt": started_at,
+        "finishedAt": _utc_now(),
         "elapsedSeconds": elapsed_seconds,
         "evidenceLabels": labels,
+        "evidence": evidence,
     }
     print(f"RELEASE_GATE_STEP_DONE: {json.dumps(payload, sort_keys=True)}", flush=True)
     return payload
@@ -110,6 +137,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Required acknowledgement that the gate sends SIGSTOP and SIGKILL to the remote runner service.",
     )
+    parser.add_argument(
+        "--evidence-json",
+        type=Path,
+        help="Optional path for a machine-readable release gate evidence JSON file.",
+    )
     args = parser.parse_args(list(argv) if argv is not None else sys.argv[1:])
 
     try:
@@ -123,16 +155,60 @@ def main(argv: list[str] | None = None) -> int:
         result = run_step(step)
         results.append(result)
         if int(result["exitCode"]) != 0:
-            print(
-                "RELEASE_GATE_SUMMARY: "
-                + json.dumps({"ok": False, "failedStep": step.name, "steps": results}, sort_keys=True),
-                flush=True,
-            )
+            summary = _build_gate_summary(ok=False, steps=results, failed_step=step.name)
+            _write_evidence_json(args.evidence_json, summary)
+            print("RELEASE_GATE_SUMMARY: " + json.dumps(summary, sort_keys=True), flush=True)
             return int(result["exitCode"]) or 1
 
-    print("RELEASE_GATE_SUMMARY: " + json.dumps({"ok": True, "steps": results}, sort_keys=True), flush=True)
+    summary = _build_gate_summary(ok=True, steps=results)
+    _write_evidence_json(args.evidence_json, summary)
+    print("RELEASE_GATE_SUMMARY: " + json.dumps(summary, sort_keys=True), flush=True)
     print("RESULT: ok", flush=True)
     return 0
+
+
+def _build_gate_summary(
+    *,
+    ok: bool,
+    steps: list[dict[str, object]],
+    failed_step: str | None = None,
+) -> dict[str, object]:
+    summary: dict[str, object] = {
+        "schemaVersion": "remote-runner-release-gate.v1",
+        "ok": ok,
+        "generatedAt": _utc_now(),
+        "sourceCommit": _source_commit(),
+        "steps": steps,
+    }
+    if failed_step:
+        summary["failedStep"] = failed_step
+    return summary
+
+
+def _write_evidence_json(path: Path | None, summary: dict[str, object]) -> None:
+    if path is None:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _source_commit() -> str:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(REPO_ROOT),
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except Exception:
+        return "unknown"
+    return result.stdout.strip() or "unknown"
+
+
+def _utc_now() -> str:
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 if __name__ == "__main__":

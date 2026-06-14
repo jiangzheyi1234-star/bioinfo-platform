@@ -82,10 +82,13 @@ uv run python scripts\check_remote_runner_release_artifacts.py --require-supply-
 For runtime releases that change remote-runner execution control-plane behavior, the required staged acceptance gate is:
 
 ```powershell
-uv run python scripts\remote_runner_release_gate.py --allow-two-slot --allow-runner-kill
+uv run python scripts\remote_runner_release_gate.py `
+  --allow-two-slot `
+  --allow-runner-kill `
+  --evidence-json dist\remote-runner\release-gate-evidence.json
 ```
 
-This gate temporarily enables the P0-3B two-slot worker mode, runs real Snakemake concurrency/cancel/resource-wait acceptance, runs worker crash/restart recovery acceptance, and must restore the remote runner to the single-slot production default before completion.
+This gate temporarily enables the P0-3B two-slot worker mode, runs real Snakemake concurrency/cancel/resource-wait acceptance, runs worker crash/restart recovery acceptance, writes machine-readable release evidence, and must restore the remote runner to the single-slot production default before completion.
 
 ## Traceability Requirements
 

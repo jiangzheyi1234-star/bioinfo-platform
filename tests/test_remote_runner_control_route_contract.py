@@ -96,6 +96,7 @@ def test_remote_runner_control_plane_services_use_async_thread_boundary() -> Non
         "health_ready_from_request",
         "health_meta_from_request",
         "health_workers_from_request",
+        "execution_diagnostics_from_request",
         "list_pipelines_from_request",
         "get_pipeline_from_request",
         "create_upload_from_request",
@@ -198,6 +199,7 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
     assert "health_ready_from_request" not in main_source
     assert "health_meta_from_request" not in main_source
     assert "health_workers_from_request" not in main_source
+    assert "execution_diagnostics_from_request" not in main_source
     assert "list_pipelines_from_request" not in main_source
     assert "get_pipeline_from_request" not in main_source
     assert "create_upload_from_request" not in main_source
@@ -238,11 +240,13 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
     assert '@router.get("/health/ready")' in health_route_source
     assert '@router.get("/health/meta")' in health_route_source
     assert '@router.get("/health/workers")' in health_route_source
+    assert '@router.get("/health/execution-diagnostics")' in health_route_source
     assert "health_startup_from_request" in health_route_source
     assert "health_live_from_request" in health_route_source
     assert "health_ready_from_request" in health_route_source
     assert "health_meta_from_request" in health_route_source
     assert "health_workers_from_request" in health_route_source
+    assert "execution_diagnostics_from_request" in health_route_source
 
     assert "router = APIRouter()" in pipeline_route_source
     assert '@router.get("/api/v1/pipelines")' in pipeline_route_source
@@ -282,6 +286,7 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
         "health_ready_from_request",
         "health_meta_from_request",
         "health_workers_from_request",
+        "execution_diagnostics_from_request",
         "list_pipelines_from_request",
         "get_pipeline_from_request",
         "create_upload_from_request",

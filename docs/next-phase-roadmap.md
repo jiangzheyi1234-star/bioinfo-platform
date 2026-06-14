@@ -283,6 +283,10 @@ uv run pytest tests/test_reconciler_active.py tests/test_reconciler_actions.py t
 
 - 进行中。
 - JSON formatter、指标容器、健康信息和 diagnostics 脚本已创建。
+- P0-3C 最小执行诊断切片已接入：`/health/execution-diagnostics`
+  汇总 queue metrics、worker/slot health、SQLite WAL/busy timeout、active lease、
+  allocation、resource-wait、recent events 和不变量；runtime release gate 可写
+  `release-gate-evidence.json`。
 - `configure_structured_logging()` 尚未接入 API/Runner 启动入口。
 - completed、failed、lease expiry、heartbeat 和时长等计数器尚未在真实事件点更新。
 - Local API readiness 仍需加入队列深度、磁盘余量和 worker 状态阈值。

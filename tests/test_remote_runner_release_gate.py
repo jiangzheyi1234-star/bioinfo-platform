@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -68,5 +69,49 @@ def test_release_gate_streams_output_and_collects_evidence_labels(monkeypatch, c
 
     assert result["exitCode"] == 0
     assert result["evidenceLabels"] == ["CONCURRENCY_EVIDENCE", "POST_ACCEPTANCE_INVARIANTS", "RESULT"]
+    assert result["evidence"] == [
+        {"label": "CONCURRENCY_EVIDENCE", "payload": {"active": []}},
+        {"label": "POST_ACCEPTANCE_INVARIANTS", "payload": {"ok": True}},
+        {"label": "RESULT", "payload": {"ok": True}},
+    ]
     captured = capsys.readouterr()
     assert "RELEASE_GATE_STEP_DONE" in captured.out
+
+
+def test_release_gate_writes_machine_readable_evidence_json(tmp_path, monkeypatch) -> None:
+    gate = _load_module()
+    evidence_path = tmp_path / "release-gate-evidence.json"
+
+    def fake_run_step(step):
+        return {
+            "name": step.name,
+            "exitCode": 0,
+            "startedAt": "2099-06-07T10:00:00Z",
+            "finishedAt": "2099-06-07T10:00:01Z",
+            "elapsedSeconds": 1.0,
+            "evidenceLabels": ["RESULT"],
+            "evidence": [{"label": "RESULT", "payload": {"ok": True}}],
+        }
+
+    monkeypatch.setattr(gate, "run_step", fake_run_step)
+    monkeypatch.setattr(gate, "_source_commit", lambda: "abc123")
+
+    exit_code = gate.main(
+        [
+            "--allow-two-slot",
+            "--allow-runner-kill",
+            "--evidence-json",
+            str(evidence_path),
+        ]
+    )
+
+    payload = json.loads(evidence_path.read_text(encoding="utf-8"))
+    assert exit_code == 0
+    assert payload["schemaVersion"] == "remote-runner-release-gate.v1"
+    assert payload["ok"] is True
+    assert payload["sourceCommit"] == "abc123"
+    assert [step["name"] for step in payload["steps"]] == [
+        "real-snakemake-two-slot",
+        "worker-crash-restart-recovery",
+    ]
+    assert payload["steps"][0]["evidence"][0]["payload"] == {"ok": True}

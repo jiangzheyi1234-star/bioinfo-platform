@@ -4,6 +4,7 @@ from typing import Any, Literal
 
 from .api_models import RunCreateRequest, UploadCreateRequest
 from .config import RemoteRunnerConfig, dump_public_config
+from .execution_diagnostics import build_execution_diagnostics
 from .health_service import (
     build_health_live_payload,
     build_health_ready_payload,
@@ -56,6 +57,12 @@ async def health_workers_from_request(authorization: str | None) -> dict[str, An
     cfg = await _authorized_config_from_request(authorization)
     worker_health = await run_sync(build_run_worker_health, cfg)
     return data_response(worker_health)
+
+
+async def execution_diagnostics_from_request(authorization: str | None) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization)
+    diagnostics = await run_sync(build_execution_diagnostics, cfg)
+    return data_response(diagnostics)
 
 
 async def list_pipelines_from_request(authorization: str | None) -> dict[str, Any]:

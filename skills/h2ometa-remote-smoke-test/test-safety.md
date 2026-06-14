@@ -76,7 +76,7 @@ For real environment validation, do not invent new ad-hoc commands first. Start 
 - `python skills/h2ometa-remote-smoke-test/scripts/remote_pipeline_smoke.py`
 - `python skills/h2ometa-remote-smoke-test/scripts/remote_worker_crash_recovery_acceptance.py`
 - `uv run python scripts\remote_two_slot_acceptance.py --allow-two-slot`
-- `uv run python scripts\remote_runner_release_gate.py --allow-two-slot --allow-runner-kill`
+- `uv run python scripts\remote_runner_release_gate.py --allow-two-slot --allow-runner-kill --evidence-json dist\remote-runner\release-gate-evidence.json`
 - `python skills/h2ometa-remote-smoke-test/scripts/remote_real_database_acceptance.py --rerun-check`
 
-Use `scripts\remote_runner_release_gate.py` only for staged/release validation. It temporarily enables two remote worker slots, then sends SIGSTOP/SIGKILL during crash recovery. The gate is expected to restore the remote runner to the single-slot production default before it exits.
+Use `scripts\remote_runner_release_gate.py` only for staged/release validation. It temporarily enables two remote worker slots, then sends SIGSTOP/SIGKILL during crash recovery. The gate is expected to restore the remote runner to the single-slot production default before it exits and should write a machine-readable evidence JSON for release review.
