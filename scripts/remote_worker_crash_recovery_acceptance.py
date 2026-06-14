@@ -359,6 +359,14 @@ def build_run_submit_payload(
             "pipelineId": pipeline_id,
             "inputs": [{"uploadId": upload["uploadId"], "filename": upload["filename"], "role": "reads"}],
             "params": {"threads": 1},
+            "execution": {
+                "retryPolicy": {"maxAttempts": 3, "backoffSeconds": 5},
+                "timeoutPolicy": {
+                    "queueTtlSeconds": 0,
+                    "startToCloseTimeoutSeconds": 0,
+                    "heartbeatTimeoutSeconds": 0,
+                },
+            },
         },
     }
 

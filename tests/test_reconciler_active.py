@@ -13,7 +13,7 @@ from apps.remote_runner.storage_core import get_connection
 from tests.helpers.reference_database import make_configured_remote_runner
 
 
-def _run_spec(run_id: str) -> dict[str, str]:
+def _run_spec(run_id: str) -> dict:
     return {
         "runId": run_id,
         "projectId": "proj_reconcile",
@@ -23,12 +23,15 @@ def _run_spec(run_id: str) -> dict[str, str]:
     }
 
 
-def _create_run(cfg, run_id: str):
+def _create_run(cfg, run_id: str, *, execution: dict | None = None):
+    run_spec = _run_spec(run_id)
+    if execution is not None:
+        run_spec["execution"] = execution
     result = create_run_record(
         cfg,
         server_id="srv_reconcile",
         request_id=f"req_{run_id}",
-        run_spec=_run_spec(run_id),
+        run_spec=run_spec,
         idempotency_key=f"idem_{run_id}",
         payload_hash=f"hash_{run_id}",
     )
@@ -110,6 +113,94 @@ def test_active_reconciler_fences_expired_lease_and_requeues_retryable_job(tmp_p
     assert allocation["released_at"] == "2099-06-07T10:00:11Z"
     assert collect_queue_metrics(cfg)["recovery"]["requeuedJobs"] == 1
     assert collect_queue_metrics(cfg)["recovery"]["controlPlaneRecoveries"] == 1
+
+
+def test_active_reconciler_uses_retry_backoff_policy(tmp_path):
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_backoff", execution={"retryPolicy": {"maxAttempts": 3, "backoffSeconds": 17}})
+    claim = claim_next_run_job(
+        cfg,
+        worker_id="worker_backoff",
+        now="2099-06-07T10:00:00Z",
+        lease_seconds=10,
+    )
+    assert claim is not None
+
+    actions = run_active_reconciler_once(cfg, now="2099-06-07T10:00:11Z", retry_delay_seconds=5)
+
+    recovery = next(action for action in actions if action.get("type") == "run_attempt_recovered")
+    assert recovery["availableAt"] == "2099-06-07T10:00:28Z"
+    with get_connection(cfg) as connection:
+        job = connection.execute("SELECT available_at FROM run_jobs WHERE run_id = ?", ("run_backoff",)).fetchone()
+        event = connection.execute(
+            "SELECT details_json FROM run_events WHERE run_id = ? AND event_type = ?",
+            ("run_backoff", "run_job_requeued"),
+        ).fetchone()
+    assert job["available_at"] == "2099-06-07T10:00:28Z"
+    assert '"backoffSeconds":17' in event["details_json"]
+
+
+def test_active_reconciler_dead_letters_queued_job_after_queue_ttl(tmp_path):
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_queue_ttl", execution={"timeoutPolicy": {"queueTtlSeconds": 5}})
+
+    actions = run_active_reconciler_once(cfg, now="2099-06-07T10:00:05Z")
+
+    assert any(
+        action.get("action") == "dead_letter_queue_ttl_exceeded"
+        and action.get("reasonCode") == "QUEUE_TTL_EXCEEDED"
+        for action in actions
+    )
+    with get_connection(cfg) as connection:
+        job = connection.execute(
+            "SELECT state, dead_lettered_at FROM run_jobs WHERE run_id = ?",
+            ("run_queue_ttl",),
+        ).fetchone()
+        run = connection.execute("SELECT status, stage FROM runs WHERE run_id = ?", ("run_queue_ttl",)).fetchone()
+        recovery = connection.execute(
+            "SELECT details_json FROM run_events WHERE run_id = ? AND event_type = ?",
+            ("run_queue_ttl", "run_control_plane_recovered"),
+        ).fetchone()
+    assert job["state"] == "failed"
+    assert job["dead_lettered_at"] == "2099-06-07T10:00:05Z"
+    assert run["status"] == "failed"
+    assert run["stage"] == "dead_letter"
+    assert "QUEUE_TTL_EXCEEDED" in recovery["details_json"]
+
+
+def test_active_reconciler_fences_attempt_after_start_to_close_timeout(tmp_path):
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(
+        cfg,
+        "run_attempt_timeout",
+        execution={"timeoutPolicy": {"startToCloseTimeoutSeconds": 5}},
+    )
+    claim = claim_next_run_job(
+        cfg,
+        worker_id="worker_timeout",
+        now="2099-06-07T10:00:00Z",
+        lease_seconds=60,
+    )
+    assert claim is not None
+
+    actions = run_active_reconciler_once(cfg, now="2099-06-07T10:00:05Z")
+
+    recovery = next(action for action in actions if action.get("type") == "run_attempt_recovered")
+    assert recovery["reasonCode"] == "ATTEMPT_TIMEOUT"
+    with get_connection(cfg) as connection:
+        attempt = connection.execute(
+            "SELECT state, fenced_reason FROM run_attempts WHERE attempt_id = ?",
+            (claim["attemptId"],),
+        ).fetchone()
+        lease = connection.execute("SELECT state FROM run_leases WHERE run_id = ?", ("run_attempt_timeout",)).fetchone()
+        recovery_event = connection.execute(
+            "SELECT details_json FROM run_events WHERE run_id = ? AND event_type = ?",
+            ("run_attempt_timeout", "run_control_plane_recovered"),
+        ).fetchone()
+    assert attempt["state"] == "fenced"
+    assert attempt["fenced_reason"] == "attempt_timeout"
+    assert lease["state"] == "fenced"
+    assert "ATTEMPT_TIMEOUT" in recovery_event["details_json"]
 
 
 def test_active_reconciler_marks_slot_idle_and_reports_recovery_evidence(tmp_path):

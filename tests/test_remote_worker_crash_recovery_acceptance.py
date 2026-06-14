@@ -43,7 +43,7 @@ def _evidence():
             workerId="worker_1",
         ),
         _event("run_attempt_fenced", attemptId="att_old", leaseGeneration=1, reason="lease_expired"),
-        _event("run_job_requeued", jobId="job_1"),
+        _event("run_job_requeued", jobId="job_1", backoffSeconds=5, availableAt="2099-06-07T10:00:16Z"),
         _event(
             "run_control_plane_recovered",
             action="requeue_after_lease_expiry",
@@ -51,6 +51,8 @@ def _evidence():
             jobId="job_1",
             attemptId="att_old",
             leaseGeneration=1,
+            backoffSeconds=5,
+            availableAt="2099-06-07T10:00:16Z",
         ),
         _event(
             "run_attempt_claimed",
@@ -146,6 +148,7 @@ def test_build_run_submit_payload_pins_acceptance_run_id() -> None:
     assert payload["serverId"] == "srv_real"
     assert payload["runSpec"]["runId"] == "run_acceptance"
     assert payload["runSpec"]["inputs"][0]["uploadId"] == "upl_real"
+    assert payload["runSpec"]["execution"]["retryPolicy"]["backoffSeconds"] == 5
 
 
 def test_validate_recovery_evidence_accepts_exactly_once_recovery() -> None:
@@ -163,6 +166,7 @@ def test_validate_recovery_evidence_accepts_exactly_once_recovery() -> None:
     assert evidence["leaseGenerations"] == [1, 2]
     assert evidence["artifactCount"] == 3
     assert evidence["fenceEventCount"] == 1
+    assert evidence["retryBackoffSeconds"] == 5
     assert evidence["controlPlaneRecoveryEventCount"] == 1
 
 

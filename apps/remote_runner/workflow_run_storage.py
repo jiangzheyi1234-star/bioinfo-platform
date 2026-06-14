@@ -9,6 +9,7 @@ from typing import Any
 from .config import RemoteRunnerConfig
 from .errors import IdempotencyKeyReusedError
 from .event_contracts import append_run_event_v2, record_run_command
+from .execution_policy import execution_policy_from_run_spec
 from .execution_query_storage import fetch_run
 from .run_execution_storage import enqueue_run_job_record
 from .storage_core import get_connection, now_iso
@@ -62,6 +63,7 @@ def create_run_record(
     run_spec_version = str(run_spec.get("runSpecVersion") or "2026-04-21").strip() or "2026-04-21"
     workflow_revision_id = str(run_spec.get("workflowRevisionId") or "").strip() or None
     submitted_at = now_iso()
+    execution_policy = execution_policy_from_run_spec(run_spec)
     run = {
         "runId": run_id,
         "serverId": server_id,
@@ -166,8 +168,11 @@ def create_run_record(
         enqueue_run_job_record(
             connection,
             run_id=run["runId"],
-            queue_name=_run_queue_name(run_spec),
+            queue_name=execution_policy.queue_name,
             available_at=submitted_at,
+            max_attempts=execution_policy.retry.max_attempts,
+            retry_policy=execution_policy.retry.as_dict(),
+            timeout_policy=execution_policy.timeout.as_dict(),
         )
         connection.execute(
             """
@@ -246,14 +251,6 @@ def update_run_state(
         )
         connection.commit()
     return fetch_run(cfg, run_id)
-
-
-def _run_queue_name(run_spec: dict[str, Any]) -> str:
-    execution = run_spec.get("execution")
-    if not isinstance(execution, dict):
-        return "default"
-    queue_name = str(execution.get("queueName") or execution.get("queue") or "").strip()
-    return queue_name or "default"
 
 
 def run_attempt_can_publish(

@@ -22,18 +22,21 @@ from apps.remote_runner.workflow_run_storage import StaleRunAttemptError
 from tests.helpers.reference_database import make_configured_remote_runner
 
 
-def _create_attempt(cfg, run_id: str = "run_candidate"):
+def _create_attempt(cfg, run_id: str = "run_candidate", *, execution: dict | None = None):
+    run_spec = {
+        "runId": run_id,
+        "projectId": "proj_candidate",
+        "pipelineId": "pipeline_candidate",
+        "pipelineVersion": "0.1.0",
+        "runSpecVersion": "2026-04-21",
+    }
+    if execution is not None:
+        run_spec["execution"] = execution
     create_run_record(
         cfg,
         server_id="srv_candidate",
         request_id=f"req_{run_id}",
-        run_spec={
-            "runId": run_id,
-            "projectId": "proj_candidate",
-            "pipelineId": "pipeline_candidate",
-            "pipelineVersion": "0.1.0",
-            "runSpecVersion": "2026-04-21",
-        },
+        run_spec=run_spec,
         idempotency_key=f"idem_{run_id}",
         payload_hash=f"hash_{run_id}",
     )
@@ -236,7 +239,7 @@ def test_candidate_output_verification_rejects_checksum_mismatch_and_missing_exp
 
 def test_candidate_output_adoption_rejects_stale_lease_generation(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
-    claim = _create_attempt(cfg, "run_candidate_stale")
+    claim = _create_attempt(cfg, "run_candidate_stale", execution={"retryPolicy": {"backoffSeconds": 0}})
     output = tmp_path / "stale.txt"
     output.write_text("old attempt\n", encoding="utf-8")
     candidate = record_candidate_output(

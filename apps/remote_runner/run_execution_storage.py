@@ -9,6 +9,7 @@ from typing import Any
 
 from .config import RemoteRunnerConfig
 from .event_contracts import append_run_event_v2, record_run_command
+from .execution_policy import heartbeat_timeout_seconds_for_job
 from .execution_decision_logging import log_admission_wait, log_claim_accepted
 from .admission_storage import (
     admission_wait_reason,
@@ -189,7 +190,10 @@ def claim_next_run_job(
         attempt_id = f"att_{uuid.uuid4().hex[:12]}"
         attempt_number = int(job["attempt_count"]) + 1
         work_dir = str(Path(cfg.work_dir) / "attempts" / attempt_id)
-        expires_at = _add_seconds(claimed_at, int(lease_seconds))
+        expires_at = _add_seconds(
+            claimed_at,
+            heartbeat_timeout_seconds_for_job(job, fallback_seconds=lease_seconds),
+        )
         connection.execute(
             """
             INSERT INTO run_attempts (
@@ -344,7 +348,14 @@ def heartbeat_run_attempt(
         ).fetchone()
         if not _is_current_lease(lease, normalized_attempt_id, lease_generation):
             return {"accepted": False, "reason": "stale_generation"}
-        expires_at = _add_seconds(heartbeat_at, int(lease_seconds))
+        job = connection.execute(
+            "SELECT * FROM run_jobs WHERE job_id = ?",
+            (attempt["job_id"],),
+        ).fetchone()
+        expires_at = _add_seconds(
+            heartbeat_at,
+            heartbeat_timeout_seconds_for_job(job, fallback_seconds=lease_seconds),
+        )
         connection.execute(
             """
             UPDATE run_leases

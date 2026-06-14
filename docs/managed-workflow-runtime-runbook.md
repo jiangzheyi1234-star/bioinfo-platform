@@ -214,10 +214,14 @@ The run worker supervisor runs a single active reconciler loop. The reconciler i
 Automatic recovery actions:
 
 - `LEASE_EXPIRED`: fence the old attempt, release its resource allocation, set the worker slot idle, confirm the old process group has stopped, then requeue or dead-letter the job.
+- `ATTEMPT_TIMEOUT`: fence an attempt that has exceeded its per-job start-to-close timeout even if its heartbeat lease is still active, then confirm process termination before requeue or dead-letter.
+- `QUEUE_TTL_EXCEEDED`: dead-letter a queued job whose per-job queue TTL has elapsed before any attempt is claimed.
 - `ACTIVE_LEASE_WITHOUT_RUNNING_ATTEMPT`: close an active lease whose attempt is already terminal or missing, release allocation, and idle the slot.
 - `ALLOCATED_RESOURCE_WITHOUT_ACTIVE_LEASE`: release the orphan allocation.
 - `RUNNING_SLOT_WITHOUT_RUNNING_ATTEMPT`: clear the stale slot attempt reference and return the slot to idle.
 - `CLAIMED_JOB_WITHOUT_ACTIVE_LEASE`: requeue or dead-letter only when no old process group still needs termination confirmation.
+
+Run submission persists execution policy into `run_jobs`: queue name, max attempts, retry backoff, queue TTL, start-to-close attempt timeout, and heartbeat timeout. Retryable recovery must use the stored per-job backoff instead of a global delay; heartbeat timeout `0` means use the worker lease setting.
 
 Blocked recovery remains visible instead of silently retrying unsafe work. If termination cannot be confirmed, the reconciler writes `run_attempt_recovery_blocked`, leaves the job claimed, and readiness remains failed until the process-group issue is resolved or a later reconciler pass can confirm it is gone.
 

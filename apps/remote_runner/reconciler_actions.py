@@ -10,6 +10,11 @@ from typing import Any
 
 from .admission_storage import mark_worker_slot_idle, release_resource_allocation
 from .event_contracts import append_run_event_v2
+from .execution_policy import (
+    queue_ttl_exceeded,
+    queue_ttl_seconds_for_job,
+    retry_backoff_seconds_for_job,
+)
 from .storage_core import now_iso
 
 
@@ -96,6 +101,56 @@ def recover_control_plane_invariants(
             blocked_job_ids=blocked_job_ids or set(),
         )
     )
+    return actions
+
+
+def expire_queued_jobs_over_ttl(
+    connection: sqlite3.Connection,
+    *,
+    occurred_at: str,
+) -> list[dict[str, Any]]:
+    rows = connection.execute(
+        """
+        SELECT *
+        FROM run_jobs
+        WHERE state = 'queued'
+          AND dead_lettered_at IS NULL
+        ORDER BY created_at ASC, job_id ASC
+        """
+    ).fetchall()
+    actions: list[dict[str, Any]] = []
+    for row in rows:
+        if not queue_ttl_exceeded(row, now=occurred_at):
+            continue
+        result = dead_letter_job(
+            connection,
+            job_id=str(row["job_id"]),
+            run_id=str(row["run_id"]),
+            reason="queue_ttl_exceeded",
+            dead_lettered_at=occurred_at,
+        )
+        action = {
+            "type": RECOVERY_EVENT_TYPE,
+            "action": "dead_letter_queue_ttl_exceeded",
+            "reasonCode": "QUEUE_TTL_EXCEEDED",
+            "runId": str(row["run_id"]),
+            "jobId": str(row["job_id"]),
+            "queueTtlSeconds": queue_ttl_seconds_for_job(row),
+            "reason": result.get("reason"),
+        }
+        append_control_plane_recovery_event(
+            connection,
+            run_id=str(row["run_id"]),
+            action=str(action["action"]),
+            reason_code=str(action["reasonCode"]),
+            occurred_at=occurred_at,
+            payload={
+                "jobId": action["jobId"],
+                "queueTtlSeconds": action["queueTtlSeconds"],
+                "reason": action["reason"],
+            },
+        )
+        actions.append(action)
     return actions
 
 
@@ -213,9 +268,10 @@ def requeue_retryable_job(
     if attempt_count >= max_attempts:
         return {"requeued": False, "reason": "max_attempts_exceeded"}
     from datetime import datetime, timedelta, timezone
+    backoff_seconds = retry_backoff_seconds_for_job(job, fallback_seconds=retry_delay_seconds)
     available_at = (
         datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-        + timedelta(seconds=retry_delay_seconds)
+        + timedelta(seconds=backoff_seconds)
     ).strftime("%Y-%m-%dT%H:%M:%SZ")
     connection.execute(
         """
@@ -239,11 +295,12 @@ def requeue_retryable_job(
                 "jobId": job_id,
                 "attemptCount": attempt_count,
                 "maxAttempts": max_attempts,
+                "backoffSeconds": backoff_seconds,
                 "availableAt": available_at,
             },
             occurred_at=timestamp,
         )
-    return {"requeued": True, "jobId": job_id, "availableAt": available_at}
+    return {"requeued": True, "jobId": job_id, "availableAt": available_at, "backoffSeconds": backoff_seconds}
 
 
 def dead_letter_job(

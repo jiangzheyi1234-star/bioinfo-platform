@@ -23,7 +23,7 @@ from apps.remote_runner.storage_core import get_connection
 from tests.helpers.reference_database import make_configured_remote_runner
 
 
-def _run_spec(run_id: str) -> dict[str, str]:
+def _run_spec(run_id: str) -> dict:
     return {
         "runId": run_id,
         "projectId": "proj_jobs",
@@ -55,12 +55,15 @@ def _reconcile_and_claim(cfg, *, worker_id: str, now: str):
     )
 
 
-def _create_run(cfg, run_id: str = "run_jobs"):
+def _create_run(cfg, run_id: str = "run_jobs", *, execution: dict | None = None):
+    run_spec = _run_spec(run_id)
+    if execution is not None:
+        run_spec["execution"] = execution
     return create_run_record(
         cfg,
         server_id="srv_jobs",
         request_id=f"req_{run_id}",
-        run_spec=_run_spec(run_id),
+        run_spec=run_spec,
         idempotency_key=f"idem_{run_id}",
         payload_hash=f"hash_{run_id}",
     )
@@ -89,6 +92,54 @@ def test_create_run_record_enqueues_one_job_and_replay_does_not_duplicate(tmp_pa
         ]
     assert job_count == 1
     assert event_types == ["accepted", "run_job_queued"]
+
+
+def test_create_run_record_persists_default_execution_policy(tmp_path):
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_policy_defaults")
+
+    with get_connection(cfg) as connection:
+        job = connection.execute("SELECT * FROM run_jobs WHERE run_id = ?", ("run_policy_defaults",)).fetchone()
+
+    assert job["queue_name"] == "default"
+    assert job["max_attempts"] == 3
+    assert '"backoffSeconds":5' in job["retry_policy_json"]
+    assert '"heartbeatTimeoutSeconds":0' in job["timeout_policy_json"]
+
+
+def test_create_run_record_persists_explicit_execution_policy(tmp_path):
+    cfg = make_configured_remote_runner(tmp_path)
+    run_spec = {
+        **_run_spec("run_policy_explicit"),
+        "execution": {
+            "queueName": "gpu",
+            "retryPolicy": {"maxAttempts": 4, "backoffSeconds": 17},
+            "timeoutPolicy": {
+                "queueTtlSeconds": 120,
+                "startToCloseTimeoutSeconds": 300,
+                "heartbeatTimeoutSeconds": 9,
+            },
+        },
+    }
+
+    create_run_record(
+        cfg,
+        server_id="srv_jobs",
+        request_id="req_run_policy_explicit",
+        run_spec=run_spec,
+        idempotency_key="idem_run_policy_explicit",
+        payload_hash="hash_run_policy_explicit",
+    )
+
+    with get_connection(cfg) as connection:
+        job = connection.execute("SELECT * FROM run_jobs WHERE run_id = ?", ("run_policy_explicit",)).fetchone()
+
+    assert job["queue_name"] == "gpu"
+    assert job["max_attempts"] == 4
+    assert '"backoffSeconds":17' in job["retry_policy_json"]
+    assert '"queueTtlSeconds":120' in job["timeout_policy_json"]
+    assert '"startToCloseTimeoutSeconds":300' in job["timeout_policy_json"]
+    assert '"heartbeatTimeoutSeconds":9' in job["timeout_policy_json"]
 
 
 def test_run_execution_storage_migrates_retry_timeout_and_publish_columns(tmp_path):
@@ -179,8 +230,8 @@ def test_claim_next_job_creates_attempt_with_current_lease_and_work_dir(tmp_path
     assert claim["job"]["queueName"] == "default"
     assert claim["job"]["attemptCount"] == 1
     assert claim["job"]["maxAttempts"] == 3
-    assert claim["job"]["retryPolicy"] == {}
-    assert claim["job"]["timeoutPolicy"] == {}
+    assert claim["job"]["retryPolicy"]["backoffSeconds"] == 5
+    assert claim["job"]["timeoutPolicy"]["heartbeatTimeoutSeconds"] == 0
     assert claim["attempt"]["workerId"] == "worker_a"
     assert claim["attempt"]["attemptNumber"] == 1
     assert claim["attempt"]["outputAdoptionState"] == "pending"
@@ -194,6 +245,41 @@ def test_claim_next_job_creates_attempt_with_current_lease_and_work_dir(tmp_path
         ).fetchone()
     assert job["state"] == "claimed"
     assert event["event_type"] == "run_attempt_claimed"
+
+
+def test_claim_and_heartbeat_use_job_heartbeat_timeout_policy(tmp_path):
+    cfg = make_configured_remote_runner(tmp_path)
+    run_spec = {
+        **_run_spec("run_heartbeat_policy"),
+        "execution": {"timeoutPolicy": {"heartbeatTimeoutSeconds": 7}},
+    }
+    create_run_record(
+        cfg,
+        server_id="srv_jobs",
+        request_id="req_run_heartbeat_policy",
+        run_spec=run_spec,
+        idempotency_key="idem_run_heartbeat_policy",
+        payload_hash="hash_run_heartbeat_policy",
+    )
+
+    claim = claim_next_run_job(
+        cfg,
+        worker_id="worker_policy",
+        now="2099-06-07T10:00:00Z",
+        lease_seconds=30,
+    )
+    assert claim is not None
+    assert claim["lease"]["expiresAt"] == "2099-06-07T10:00:07Z"
+
+    heartbeat = heartbeat_run_attempt(
+        cfg,
+        claim["attemptId"],
+        lease_generation=claim["leaseGeneration"],
+        now="2099-06-07T10:00:03Z",
+        lease_seconds=30,
+    )
+
+    assert heartbeat == {"accepted": True, "expiresAt": "2099-06-07T10:00:10Z"}
 
 
 def test_claim_next_job_filters_by_worker_queue_before_attempt_creation(tmp_path):
@@ -367,7 +453,7 @@ def test_two_workers_cannot_claim_same_unexpired_job(tmp_path):
 
 def test_expired_lease_reclaim_fences_old_attempt_and_increments_generation(tmp_path):
     cfg = make_configured_remote_runner(tmp_path)
-    _create_run(cfg, "run_reclaim")
+    _create_run(cfg, "run_reclaim", execution={"retryPolicy": {"backoffSeconds": 0}})
     first = claim_next_run_job(cfg, worker_id="worker_a", now="2099-06-07T10:00:00Z", lease_seconds=10)
 
     second = _reconcile_and_claim(cfg, worker_id="worker_b", now="2099-06-07T10:00:11Z")
@@ -398,7 +484,7 @@ def test_expired_lease_reclaim_fences_old_attempt_and_increments_generation(tmp_
 
 def test_old_heartbeat_and_completion_are_fenced_after_reclaim(tmp_path):
     cfg = make_configured_remote_runner(tmp_path)
-    _create_run(cfg, "run_stale_attempt")
+    _create_run(cfg, "run_stale_attempt", execution={"retryPolicy": {"backoffSeconds": 0}})
     first = claim_next_run_job(cfg, worker_id="worker_a", now="2099-06-07T10:00:00Z", lease_seconds=10)
     second = _reconcile_and_claim(cfg, worker_id="worker_b", now="2099-06-07T10:00:11Z")
     assert first is not None
@@ -429,7 +515,7 @@ def test_old_heartbeat_and_completion_are_fenced_after_reclaim(tmp_path):
 
 def test_process_group_recording_is_fenced_by_current_generation(tmp_path, monkeypatch):
     cfg = make_configured_remote_runner(tmp_path)
-    _create_run(cfg, "run_process_group")
+    _create_run(cfg, "run_process_group", execution={"retryPolicy": {"backoffSeconds": 0}})
     first = claim_next_run_job(cfg, worker_id="worker_a", now="2099-06-07T10:00:00Z", lease_seconds=10)
     assert first is not None
     monkeypatch.setattr(
@@ -515,7 +601,7 @@ def test_request_run_cancel_records_command_event_and_marks_active_attempt(tmp_p
 
 def test_run_attempt_cancel_requested_treats_stale_generation_as_cancelled(tmp_path):
     cfg = make_configured_remote_runner(tmp_path)
-    _create_run(cfg, "run_stale_cancel_check")
+    _create_run(cfg, "run_stale_cancel_check", execution={"retryPolicy": {"backoffSeconds": 0}})
     first = claim_next_run_job(cfg, worker_id="worker_a", now="2099-06-07T10:00:00Z", lease_seconds=10)
     second = _reconcile_and_claim(cfg, worker_id="worker_b", now="2099-06-07T10:00:11Z")
     assert first is not None
@@ -535,7 +621,7 @@ def test_run_attempt_cancel_requested_treats_stale_generation_as_cancelled(tmp_p
 
 def test_stale_attempt_cannot_update_run_projection(tmp_path):
     cfg = make_configured_remote_runner(tmp_path)
-    _create_run(cfg, "run_stale_projection")
+    _create_run(cfg, "run_stale_projection", execution={"retryPolicy": {"backoffSeconds": 0}})
     first = claim_next_run_job(cfg, worker_id="worker_a", now="2099-06-07T10:00:00Z", lease_seconds=10)
     second = _reconcile_and_claim(cfg, worker_id="worker_b", now="2099-06-07T10:00:11Z")
     assert first is not None

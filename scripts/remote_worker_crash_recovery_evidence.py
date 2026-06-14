@@ -67,20 +67,31 @@ def validate_recovery_evidence(
     requeue_events = [event for event in events if event.get("eventType") == "run_job_requeued"]
     if len(requeue_events) != 1:
         raise ValueError(f"EXPECTED_SINGLE_REQUEUE_EVENT: {len(requeue_events)}")
-    if event_details(requeue_events[0]).get("jobId") != second_claim.get("jobId"):
+    requeue_payload = event_details(requeue_events[0])
+    if requeue_payload.get("jobId") != second_claim.get("jobId"):
         raise ValueError("REQUEUE_EVENT_REFERENCES_UNEXPECTED_JOB")
+    if int(requeue_payload.get("backoffSeconds") or -1) < 0:
+        raise ValueError("REQUEUE_EVENT_MISSING_BACKOFF_POLICY")
+    if not requeue_payload.get("availableAt"):
+        raise ValueError("REQUEUE_EVENT_MISSING_AVAILABLE_AT")
     control_plane_recoveries = [
         event_details(event)
         for event in events
         if event.get("eventType") == "run_control_plane_recovered"
     ]
-    if not any(
-        event.get("action") == "requeue_after_lease_expiry"
+    recovery_payload = next((
+        event
+        for event in control_plane_recoveries
+        if event.get("action") == "requeue_after_lease_expiry"
         and event.get("reasonCode") == "LEASE_EXPIRED"
         and event.get("attemptId") == held["attemptId"]
-        for event in control_plane_recoveries
-    ):
+    ), None)
+    if recovery_payload is None:
         raise ValueError("CONTROL_PLANE_RECOVERY_EVENT_MISSING")
+    if int(recovery_payload.get("backoffSeconds") or -1) < 0:
+        raise ValueError("CONTROL_PLANE_RECOVERY_MISSING_BACKOFF_POLICY")
+    if not recovery_payload.get("availableAt"):
+        raise ValueError("CONTROL_PLANE_RECOVERY_MISSING_AVAILABLE_AT")
 
     attempts = list(snapshot.get("attempts") or [])
     if len(attempts) != 2:
@@ -166,5 +177,7 @@ def validate_recovery_evidence(
         "lineageCount": snapshot["lineageCount"],
         "fenceEventCount": len(fence_events),
         "requeueEventCount": len(requeue_events),
+        "retryBackoffSeconds": int(requeue_payload["backoffSeconds"]),
+        "retryAvailableAt": requeue_payload["availableAt"],
         "controlPlaneRecoveryEventCount": len(control_plane_recoveries),
     }

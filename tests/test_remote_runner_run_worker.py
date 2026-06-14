@@ -39,17 +39,25 @@ def _config(tmp_path: Path) -> RemoteRunnerConfig:
     )
 
 
-def _create_queued_run(cfg: RemoteRunnerConfig, run_id: str = "run_worker") -> str:
+def _create_queued_run(
+    cfg: RemoteRunnerConfig,
+    run_id: str = "run_worker",
+    *,
+    execution: dict[str, Any] | None = None,
+) -> str:
+    run_spec = {
+        "runId": run_id,
+        "projectId": "proj_worker",
+        "pipelineId": "pipeline_worker",
+        "pipelineVersion": "0.1.0",
+    }
+    if execution is not None:
+        run_spec["execution"] = execution
     created = create_run_record(
         cfg,
         server_id="srv_worker",
         request_id="req_worker",
-        run_spec={
-            "runId": run_id,
-            "projectId": "proj_worker",
-            "pipelineId": "pipeline_worker",
-            "pipelineVersion": "0.1.0",
-        },
+        run_spec=run_spec,
         idempotency_key=f"idem_{run_id}",
         payload_hash=f"payload_{run_id}",
     )
@@ -355,7 +363,7 @@ def test_run_worker_heartbeats_while_fake_executor_runs(tmp_path: Path) -> None:
 
 def test_run_worker_does_not_publish_failure_for_stale_attempt(tmp_path: Path) -> None:
     cfg = _config(tmp_path)
-    _create_queued_run(cfg, "run_worker_stale_attempt")
+    _create_queued_run(cfg, "run_worker_stale_attempt", execution={"retryPolicy": {"backoffSeconds": 0}})
     clock = FakeClock()
 
     def fake_execute(
@@ -414,7 +422,7 @@ def test_run_worker_passes_stale_lease_cancellation_callback_to_executor(tmp_pat
     from apps.remote_runner import run_worker
 
     cfg = _config(tmp_path)
-    _create_queued_run(cfg, "run_worker_stale_cancellation")
+    _create_queued_run(cfg, "run_worker_stale_cancellation", execution={"retryPolicy": {"backoffSeconds": 0}})
     clock = FakeClock()
     cancel_seen = False
 

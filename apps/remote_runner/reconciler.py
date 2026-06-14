@@ -8,9 +8,11 @@ from core.logging_config import clear_log_context, set_log_context
 
 from .config import RemoteRunnerConfig
 from .event_contracts import append_run_event_v2
+from .execution_policy import attempt_start_to_close_exceeded
 from .reconciler_actions import (
     append_control_plane_recovery_event,
     dead_letter_job,
+    expire_queued_jobs_over_ttl,
     fence_expired_attempt,
     recover_control_plane_invariants,
     requeue_retryable_job,
@@ -37,16 +39,18 @@ def run_active_reconciler_once(
     recoveries: list[dict[str, Any]] = []
     blocked_job_ids: set[str] = set()
     with get_connection(cfg) as connection:
-        expired_rows = _expired_lease_rows(connection, reconciled_at)
+        actions.extend(expire_queued_jobs_over_ttl(connection, occurred_at=reconciled_at))
+        expired_rows = _lease_recovery_rows(connection, reconciled_at)
+        lease_expired_rows = [row for row in expired_rows if row["recovery_reason"] == "lease_expired"]
         clock_jump = clock_jump_observation(
-            expired_lease_count=len(expired_rows),
+            expired_lease_count=len(lease_expired_rows),
             threshold=int(clock_jump_expiry_threshold),
         )
         if clock_jump is not None:
             actions.append(clock_jump)
             _append_observation_to_runs(
                 connection,
-                rows=expired_rows,
+                rows=lease_expired_rows,
                 event_type="clock_jump_suspected",
                 observation=clock_jump,
                 observed_at=reconciled_at,
@@ -67,7 +71,7 @@ def run_active_reconciler_once(
                 connection,
                 attempt_id=attempt_id,
                 generation=generation,
-                reason="lease_expired",
+                reason=str(row["recovery_reason"]),
                 occurred_at=reconciled_at,
                 run=run,
             )
@@ -135,30 +139,35 @@ def run_active_reconciler_once(
                     retry_delay_seconds=retry_delay_seconds,
                     requeued_at=reconciled_at,
                 )
+                reason_code = _recovery_reason_code(str(row["recovery_reason"]))
+                recovery_action = _recovery_action_name("requeue", str(row["recovery_reason"]))
                 action = {
                     "type": "run_attempt_recovered",
                     "runId": str(row["run_id"]),
                     "jobId": str(row["job_id"]),
                     "attemptId": attempt_id,
                     "action": "requeued",
-                    "reasonCode": "LEASE_EXPIRED",
+                    "reasonCode": reason_code,
                     "availableAt": requeue_result.get("availableAt"),
                 }
                 append_control_plane_recovery_event(
                     connection,
                     run_id=str(row["run_id"]),
-                    action="requeue_after_lease_expiry",
-                    reason_code="LEASE_EXPIRED",
+                    action=recovery_action,
+                    reason_code=reason_code,
                     occurred_at=reconciled_at,
                     payload={
                         "jobId": str(row["job_id"]),
                         "attemptId": attempt_id,
                         "leaseGeneration": int(row["lease_generation"]),
+                        "backoffSeconds": requeue_result.get("backoffSeconds"),
                         "availableAt": requeue_result.get("availableAt"),
                     },
                 )
                 actions.append(action)
             else:
+                reason_code = _recovery_reason_code(str(row["recovery_reason"]))
+                recovery_action = _recovery_action_name("dead_letter", str(row["recovery_reason"]))
                 dead_letter_result = dead_letter_job(
                     connection,
                     job_id=str(row["job_id"]),
@@ -172,14 +181,14 @@ def run_active_reconciler_once(
                     "jobId": str(row["job_id"]),
                     "attemptId": attempt_id,
                     "action": "dead_lettered",
-                    "reasonCode": "LEASE_EXPIRED",
+                    "reasonCode": reason_code,
                     "reason": dead_letter_result.get("reason"),
                 }
                 append_control_plane_recovery_event(
                     connection,
                     run_id=str(row["run_id"]),
-                    action="dead_letter_after_lease_expiry",
-                    reason_code="LEASE_EXPIRED",
+                    action=recovery_action,
+                    reason_code=reason_code,
                     occurred_at=reconciled_at,
                     payload={
                         "jobId": str(row["job_id"]),
@@ -204,27 +213,56 @@ def run_active_reconciler_once(
     return actions
 
 
-def _expired_lease_rows(connection: sqlite3.Connection, now: str) -> list[sqlite3.Row]:
-    return connection.execute(
+def _lease_recovery_rows(connection: sqlite3.Connection, now: str) -> list[dict[str, Any]]:
+    rows = connection.execute(
         """
         SELECT
             jobs.job_id,
             jobs.run_id,
+            jobs.timeout_policy_json,
             leases.attempt_id,
             leases.lease_generation,
             leases.expires_at,
             leases.slot_id,
+            attempts.started_at,
             attempts.process_group_id
         FROM run_jobs AS jobs
         JOIN run_leases AS leases ON leases.run_id = jobs.run_id
         JOIN run_attempts AS attempts ON attempts.attempt_id = leases.attempt_id
         WHERE jobs.state = 'claimed'
           AND leases.state IN ('active', 'expired', 'fenced')
-          AND leases.expires_at < ?
         ORDER BY leases.expires_at ASC, jobs.run_id ASC
         """,
-        (now,),
     ).fetchall()
+    recoveries: list[dict[str, Any]] = []
+    for row in rows:
+        recovery_reason = _lease_recovery_reason(row, now)
+        if recovery_reason is None:
+            continue
+        payload = dict(row)
+        payload["recovery_reason"] = recovery_reason
+        recoveries.append(payload)
+    return recoveries
+
+
+def _lease_recovery_reason(row: sqlite3.Row, now: str) -> str | None:
+    if str(row["expires_at"]) < now:
+        return "lease_expired"
+    if attempt_start_to_close_exceeded(row, now=now):
+        return "attempt_timeout"
+    return None
+
+
+def _recovery_reason_code(reason: str) -> str:
+    if reason == "attempt_timeout":
+        return "ATTEMPT_TIMEOUT"
+    return "LEASE_EXPIRED"
+
+
+def _recovery_action_name(prefix: str, reason: str) -> str:
+    if reason == "attempt_timeout":
+        return f"{prefix}_after_attempt_timeout"
+    return f"{prefix}_after_lease_expiry"
 
 
 def _termination_confirmed(result: dict[str, Any]) -> bool:
