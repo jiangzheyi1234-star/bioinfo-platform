@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 import time
@@ -9,10 +10,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .config import RemoteRunnerConfig, inspect_runtime_layout, inspect_workflow_runtime
 from .errors import RemoteRunnerReadinessError
+from .execution_diagnostics import build_execution_diagnostics
 from .pipeline import inspect_pipeline_registry
 
 
 _STARTED_AT = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+LOGGER = logging.getLogger(__name__)
 
 
 class WorkflowRuntimeInspection(BaseModel):
@@ -61,7 +64,9 @@ def build_health_ready_payload(cfg: RemoteRunnerConfig) -> dict[str, Any]:
     payload["workflowRuntime"] = _workflow_runtime_payload(workflow, cfg)
     payload["pipelineRegistry"] = registry.model_dump()
     _enrich_with_operational_metrics(payload, cfg)
+    _enrich_with_execution_readiness(payload, cfg)
     checks.update(_operational_readiness_checks(payload))
+    checks.update(_execution_readiness_checks(payload))
     payload["checks"] = checks
     payload["status"] = "ok" if all(checks.values()) else "failed"
     return payload
@@ -81,6 +86,24 @@ def ensure_submission_ready(cfg: RemoteRunnerConfig) -> None:
         detail_parts.append(registry.message or "Pipeline registry is not ready.")
     if detail_parts:
         raise RemoteRunnerReadinessError(f"{reason_code}: {'; '.join(detail_parts)}")
+
+
+def ensure_execution_admission_ready(cfg: RemoteRunnerConfig) -> None:
+    diagnostics = build_execution_diagnostics(cfg)
+    readiness = diagnostics["readiness"]
+    if readiness["ok"]:
+        return
+    reason_code = readiness.get("reasonCode") or "EXECUTION_NOT_READY"
+    LOGGER.warning(
+        "execution admission rejected",
+        extra={
+            "event": "execution.admission.rejected",
+            "decision": "reject",
+            "reasonCode": reason_code,
+            "blockingReasons": readiness.get("blockingReasons", []),
+        },
+    )
+    raise RemoteRunnerReadinessError(f"{reason_code}: execution control plane is not ready")
 
 
 def _build_health_payload(status: str, checks: dict[str, bool], cfg: RemoteRunnerConfig) -> dict[str, Any]:
@@ -158,6 +181,56 @@ def _enrich_with_operational_metrics(payload: dict[str, Any], cfg: RemoteRunnerC
         payload["metrics"] = {"error": "metrics_snapshot_failed"}
 
 
+def _enrich_with_execution_readiness(payload: dict[str, Any], cfg: RemoteRunnerConfig) -> None:
+    if not Path(cfg.db_path).is_file():
+        payload["executionReadiness"] = {
+            "schemaVersion": "execution-readiness-policy.v1",
+            "ok": False,
+            "status": "failed",
+            "reasonCode": "RUNTIME_DATABASE_MISSING",
+            "blockingReasons": [
+                {"code": "RUNTIME_DATABASE_MISSING", "message": "Runtime database is missing."}
+            ],
+            "degradedReasons": [],
+            "checks": {
+                "sqliteWal": False,
+                "sqliteBusyTimeout": False,
+                "executionInvariants": False,
+                "runWorkerAvailable": False,
+                "queueWaitWithinThreshold": True,
+                "resourceWaitWithinThreshold": True,
+            },
+        }
+        return
+    try:
+        diagnostics = build_execution_diagnostics(cfg)
+    except Exception as exc:  # noqa: BLE001 - readiness must report diagnostics failure explicitly.
+        payload["executionReadiness"] = {
+            "schemaVersion": "execution-readiness-policy.v1",
+            "ok": False,
+            "status": "failed",
+            "reasonCode": "EXECUTION_DIAGNOSTICS_FAILED",
+            "blockingReasons": [
+                {
+                    "code": "EXECUTION_DIAGNOSTICS_FAILED",
+                    "message": "Execution diagnostics could not be collected.",
+                    "details": {"errorType": type(exc).__name__},
+                }
+            ],
+            "degradedReasons": [],
+            "checks": {
+                "sqliteWal": False,
+                "sqliteBusyTimeout": False,
+                "executionInvariants": False,
+                "runWorkerAvailable": False,
+                "queueWaitWithinThreshold": True,
+                "resourceWaitWithinThreshold": True,
+            },
+        }
+        return
+    payload["executionReadiness"] = diagnostics["readiness"]
+
+
 def _operational_readiness_checks(payload: dict[str, Any]) -> dict[str, bool]:
     queue = payload.get("queue") if isinstance(payload.get("queue"), dict) else {}
     workers = payload.get("workers") if isinstance(payload.get("workers"), dict) else {}
@@ -169,4 +242,14 @@ def _operational_readiness_checks(payload: dict[str, Any]) -> dict[str, bool]:
         "sqlite_wal": bool(sqlite.get("walEnabled")),
         "sqlite_busy_timeout": bool(sqlite.get("busyTimeoutOk")),
         "disk_free": "error" not in disk and int(disk.get("freeBytes") or 0) > 0,
+    }
+
+
+def _execution_readiness_checks(payload: dict[str, Any]) -> dict[str, bool]:
+    readiness = payload.get("executionReadiness") if isinstance(payload.get("executionReadiness"), dict) else {}
+    checks = readiness.get("checks") if isinstance(readiness.get("checks"), dict) else {}
+    return {
+        "execution_ready": bool(readiness.get("ok")),
+        "execution_invariants": bool(checks.get("executionInvariants")),
+        "run_worker_available": bool(checks.get("runWorkerAvailable")),
     }

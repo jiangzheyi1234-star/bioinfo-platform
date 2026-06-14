@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 import json
 import subprocess
 from collections.abc import Callable
@@ -9,6 +8,7 @@ from pathlib import Path
 from .config import RemoteRunnerConfig
 from .executor_artifacts import _collect_artifacts
 from .executor_inputs import _build_run_outputs, _resolve_run_inputs
+from .executor_outcomes import _mark_cancelled, _mark_failed
 from .generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID, prepare_generated_tool_workflow
 from .pipeline import PipelineRegistryError, get_pipeline, validate_run_spec_for_pipeline
 from .run_execution_storage import record_run_attempt_process_group
@@ -377,68 +377,3 @@ def _resolve_execution_result_dir(
     if lease_generation is None:
         raise ValueError("RUN_LEASE_GENERATION_REQUIRED")
     return Path(cfg.results_dir) / "attempts" / str(attempt_id) / f"generation-{int(lease_generation)}"
-
-
-def _mark_failed(
-    cfg: RemoteRunnerConfig,
-    *,
-    run_id: str,
-    request_id: str,
-    message: str,
-    scope: str,
-    stderr: str,
-    code: str | None = None,
-    result_dir: str = "",
-    attempt_id: str | None = None,
-    lease_generation: int | None = None,
-) -> None:
-    update_run_state(
-        cfg,
-        run_id=run_id,
-        status="failed",
-        stage=scope,
-        message=message,
-        request_id=request_id,
-        result_dir=result_dir,
-        attempt_id=attempt_id,
-        lease_generation=lease_generation,
-        last_error={
-            "code": code or ("WORKFLOW_RUNTIME_MISSING" if scope == "validate" else "WORKFLOW_EXECUTION_FAILED"),
-            "message": stderr.strip() or message,
-            "requestId": request_id,
-            "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "scope": scope,
-            "stage": scope,
-        },
-    )
-
-
-def _mark_cancelled(
-    cfg: RemoteRunnerConfig,
-    *,
-    run_id: str,
-    request_id: str,
-    stderr: str,
-    result_dir: str = "",
-    attempt_id: str | None = None,
-    lease_generation: int | None = None,
-) -> None:
-    update_run_state(
-        cfg,
-        run_id=run_id,
-        status="canceled",
-        stage="cancel",
-        message="Run execution cancelled.",
-        request_id=request_id,
-        result_dir=result_dir,
-        attempt_id=attempt_id,
-        lease_generation=lease_generation,
-        last_error={
-            "code": "RUN_CANCELLED",
-            "message": stderr.strip() or "Run execution cancelled.",
-            "requestId": request_id,
-            "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "scope": "workflow",
-            "stage": "cancel",
-        },
-    )

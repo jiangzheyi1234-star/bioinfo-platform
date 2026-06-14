@@ -6,7 +6,7 @@ from typing import Any
 from .api_models import RunCreateRequest
 from .config import RemoteRunnerConfig
 from .generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
-from .health_service import ensure_submission_ready
+from .health_service import ensure_execution_admission_ready, ensure_submission_ready
 from .pipeline import get_pipeline, validate_run_spec_for_pipeline
 from .preflight import preflight_run_spec
 from .route_utils import request_payload
@@ -30,6 +30,7 @@ def create_run_from_request(
     pipeline = get_pipeline(cfg, pipeline_id)
     validate_run_spec_for_pipeline(pipeline, run_spec)
     preflight_run_spec(cfg, pipeline, run_spec)
+    ensure_execution_admission_ready(cfg)
     if (
         pipeline_id != GENERATED_TOOL_RUN_PIPELINE_ID
         and not str(pipeline_version or "").strip()

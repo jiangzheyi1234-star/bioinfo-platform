@@ -9,6 +9,7 @@ from typing import Any
 
 from .config import RemoteRunnerConfig
 from .event_contracts import append_run_event_v2, record_run_command
+from .execution_decision_logging import log_admission_wait, log_claim_accepted
 from .admission_storage import (
     admission_wait_reason,
     mark_worker_slot_idle,
@@ -162,6 +163,15 @@ def claim_next_run_job(
                 """,
                 (_stable_json(wait_reason), claimed_at, job["job_id"]),
             )
+            log_admission_wait(
+                wait_reason=wait_reason,
+                job=job,
+                queue_name=normalized_queue_name,
+                worker_id=normalized_worker_id,
+                session_id=normalized_session_id,
+                slot_id=normalized_slot_id,
+                request=request,
+            )
             connection.commit()
             return None
         run = _fetch_run_row(connection, str(job["run_id"]))
@@ -288,6 +298,16 @@ def claim_next_run_job(
             slot_id=normalized_slot_id,
             attempt_id=attempt_id,
             updated_at=claimed_at,
+        )
+        log_claim_accepted(
+            job=job,
+            attempt_id=attempt_id,
+            lease_generation=next_generation,
+            queue_name=normalized_queue_name,
+            worker_id=normalized_worker_id,
+            session_id=normalized_session_id,
+            slot_id=normalized_slot_id,
+            request=request,
         )
         connection.commit()
 

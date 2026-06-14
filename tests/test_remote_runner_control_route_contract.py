@@ -49,6 +49,7 @@ def test_run_create_route_delegates_submission_to_service() -> None:
     assert "from .submission_service import create_run_from_request as create_run_submission_from_request" in control_source
     assert "async def create_run_from_request(" in control_source
     assert "def create_run_from_request(" in service_source
+    assert "ensure_execution_admission_ready(cfg)" in service_source
     assert "from .route_utils import request_payload" in service_source
     assert "request.runSpec.model_dump(" not in service_source
     assert "run_spec = request_payload(request.runSpec)" in service_source

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 import sqlite3
 
@@ -271,6 +272,45 @@ def test_admission_rejects_when_slot_or_resources_unavailable_before_lease(tmp_p
         "slot_id": "slot-0",
         "cpu": 1,
     }
+
+
+def test_claim_and_admission_wait_emit_structured_decision_logs(tmp_path, caplog) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_log_claimed")
+    _create_run(cfg, "run_log_waiting")
+
+    with caplog.at_level(logging.INFO, logger="apps.remote_runner.run_execution_storage"):
+        claim_next_run_job(
+            cfg,
+            worker_id="worker_log",
+            session_id="session_log",
+            slot_id="slot-0",
+            resource_request=ResourceRequest(cpu=1),
+            resource_capacity=ResourceRequest(cpu=1),
+            max_active_slots=1,
+            now="2099-06-07T10:00:00Z",
+            lease_seconds=30,
+        )
+        claim_next_run_job(
+            cfg,
+            worker_id="worker_log",
+            session_id="session_log",
+            slot_id="slot-1",
+            resource_request=ResourceRequest(cpu=1),
+            resource_capacity=ResourceRequest(cpu=1),
+            max_active_slots=1,
+            now="2099-06-07T10:00:01Z",
+            lease_seconds=30,
+        )
+
+    records = {record.event: record for record in caplog.records if hasattr(record, "event")}
+    assert records["execution.claim.accepted"].decision == "claim"
+    assert records["execution.claim.accepted"].attemptId.startswith("att_")
+    assert records["execution.claim.accepted"].leaseGeneration == 1
+    assert records["execution.claim.accepted"].slotId == "slot-0"
+    assert records["execution.admission.wait"].decision == "wait"
+    assert records["execution.admission.wait"].reasonCode == "ADMISSION_SLOT_UNAVAILABLE"
+    assert records["execution.admission.wait"].slotId == "slot-1"
 
 
 def test_completion_releases_persistent_resource_allocation_idempotently(tmp_path):

@@ -115,3 +115,19 @@ def test_release_gate_writes_machine_readable_evidence_json(tmp_path, monkeypatc
         "worker-crash-restart-recovery",
     ]
     assert payload["steps"][0]["evidence"][0]["payload"] == {"ok": True}
+
+
+def test_release_gate_redacts_sensitive_evidence_payloads() -> None:
+    gate = _load_module()
+
+    parsed = gate._parse_evidence_line(
+        'ACCEPTANCE_SUMMARY: {"token": "SECRET_TOKEN_CANARY", '
+        '"authorization": "Bearer SECRET_AUTH_CANARY", '
+        '"nested": {"keyFile": "C:/Users/Administrator/.ssh/SECRET_KEY_CANARY"}}\n'
+    )
+
+    serialized = json.dumps(parsed, sort_keys=True)
+    assert "SECRET_TOKEN_CANARY" not in serialized
+    assert "SECRET_AUTH_CANARY" not in serialized
+    assert "SECRET_KEY_CANARY" not in serialized
+    assert serialized.count("[REDACTED]") == 3

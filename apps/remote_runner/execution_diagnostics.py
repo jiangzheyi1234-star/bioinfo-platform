@@ -4,6 +4,7 @@ from typing import Any
 
 from .config import RemoteRunnerConfig
 from .event_contracts import verify_run_event_hash_chain
+from .execution_readiness import evaluate_execution_readiness
 from .metrics import collect_queue_metrics, collect_sqlite_metrics
 from .run_worker_storage import build_run_worker_health
 from .storage_core import get_connection, now_iso
@@ -36,7 +37,7 @@ def build_execution_diagnostics(
             worker_health=worker_health,
             sqlite_metrics=sqlite_metrics,
         )
-    return {
+    payload = {
         "schemaVersion": "execution-diagnostics.v1",
         "generatedAt": timestamp,
         "ok": invariants["ok"],
@@ -50,6 +51,10 @@ def build_execution_diagnostics(
         "recentEvents": recent_events,
         "eventHashChains": event_chains,
     }
+    payload = _redact_sensitive(payload)
+    payload["readiness"] = evaluate_execution_readiness(payload)
+    payload["ok"] = bool(invariants["ok"]) and bool(payload["readiness"]["ok"])
+    return payload
 
 
 def _normalize_run_ids(run_ids: list[str] | None) -> list[str]:
@@ -336,3 +341,41 @@ def _json_object(value: str | None) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {"code": "INVALID_WAIT_REASON_JSON"}
     return parsed if isinstance(parsed, dict) else {"code": "INVALID_WAIT_REASON_JSON"}
+
+
+def _redact_sensitive(value: Any) -> Any:
+    if isinstance(value, dict):
+        redacted: dict[str, Any] = {}
+        for key, item in value.items():
+            key_text = str(key)
+            if _sensitive_key(key_text):
+                redacted[key_text] = "[REDACTED]"
+            else:
+                redacted[key_text] = _redact_sensitive(item)
+        return redacted
+    if isinstance(value, list):
+        return [_redact_sensitive(item) for item in value]
+    if isinstance(value, str) and _sensitive_text(value):
+        return "[REDACTED]"
+    return value
+
+
+def _sensitive_key(key: str) -> bool:
+    normalized = key.lower().replace("_", "").replace("-", "")
+    return any(
+        marker in normalized
+        for marker in (
+            "authorization",
+            "password",
+            "privatekey",
+            "secret",
+            "token",
+            "identityref",
+            "keyfile",
+        )
+    )
+
+
+def _sensitive_text(value: str) -> bool:
+    lowered = value.lower()
+    return lowered.startswith("bearer ") or "authorization:" in lowered or "-----begin " in lowered

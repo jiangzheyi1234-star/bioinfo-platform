@@ -166,6 +166,7 @@ def test_submission_records_durable_job_without_starting_executor(
     _write_file_summary_pipeline(Path(cfg.release_dir))
 
     monkeypatch.setattr("apps.remote_runner.submission_service.ensure_submission_ready", lambda cfg: None)
+    monkeypatch.setattr("apps.remote_runner.submission_service.ensure_execution_admission_ready", lambda cfg: None)
 
     request = RunCreateRequest(
         serverId="srv_idem",

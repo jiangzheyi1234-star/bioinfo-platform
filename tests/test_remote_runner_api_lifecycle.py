@@ -25,7 +25,13 @@ from apps.remote_runner.execution_query_routes import (
     get_runs as list_runs_api,
     list_results_api,
 )
-from apps.remote_runner.health_routes import health_live, health_ready, health_startup, health_workers
+from apps.remote_runner.health_routes import (
+    health_execution_diagnostics,
+    health_live,
+    health_ready,
+    health_startup,
+    health_workers,
+)
 from apps.remote_runner.pipeline_routes import get_pipeline_api, get_pipelines
 from apps.remote_runner.run_worker_storage import register_run_worker
 from apps.remote_runner.submission_routes import create_run, create_upload
@@ -72,6 +78,9 @@ def test_remote_runner_health_endpoints_require_auth_and_do_not_mutate_runtime(
     assert ready["checks"]["sqlite_wal"] is True
     assert ready["checks"]["sqlite_busy_timeout"] is True
     assert ready["checks"]["disk_free"] is True
+    assert ready["checks"]["execution_ready"] is False
+    assert ready["checks"]["run_worker_available"] is False
+    assert ready["executionReadiness"]["reasonCode"] == "RUN_WORKER_UNAVAILABLE"
     assert ready["workflowRuntime"]["ok"] is False
     assert ready["queue"]["waitReasons"] == {}
     assert ready["sqlite"]["journalMode"] == "wal"
@@ -137,6 +146,10 @@ def test_remote_runner_worker_health_endpoint_reports_worker_sessions(tmp_path: 
     assert response["data"]["claimedJobs"] == 0
     assert response["data"]["workers"][0]["workerId"] == "worker-api"
     assert response["data"]["workers"][0]["sessionId"] == "session-api"
+
+    diagnostics = asyncio.run(health_execution_diagnostics(authorization="Bearer phase-worker-token"))
+    assert diagnostics["data"]["schemaVersion"] == "execution-diagnostics.v1"
+    assert diagnostics["data"]["readiness"]["reasonCode"] == ""
 
 
 def test_remote_runner_cancel_run_endpoint_records_cancel_command(tmp_path: Path, monkeypatch) -> None:
@@ -380,7 +393,16 @@ def test_remote_runner_run_lifecycle_produces_events_logs_and_results(tmp_path: 
     )
     monkeypatch.setenv("H2OMETA_REMOTE_CONFIG", str(config_path))
     (tmp_path / "release" / "snakemake_wrappers").mkdir(parents=True)
-    ensure_runtime_layout(load_remote_runner_config())
+    cfg = load_remote_runner_config()
+    ensure_runtime_layout(cfg)
+    register_run_worker(
+        cfg,
+        worker_id="worker-api-lifecycle",
+        session_id="session-api-lifecycle",
+        pid=789,
+        hostname="host-api-lifecycle",
+        now="2099-06-07T10:00:00Z",
+    )
     _write_file_summary_pipeline(tmp_path / "release")
 
     submit = asyncio.run(
@@ -401,7 +423,6 @@ def test_remote_runner_run_lifecycle_produces_events_logs_and_results(tmp_path: 
     )
     run_id = submit["data"]["runId"]
 
-    cfg = load_remote_runner_config()
     result_dir = Path(cfg.results_dir) / run_id
     result_dir.mkdir(parents=True, exist_ok=True)
     (result_dir / "run-report.html").write_text("<h1>done</h1>", encoding="utf-8")

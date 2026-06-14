@@ -82,7 +82,7 @@ def _parse_evidence_line(line: str) -> dict[str, object] | None:
             payload = {"raw": payload_text}
     else:
         payload = {}
-    return {"label": label, "payload": payload}
+    return {"label": label, "payload": _redact_sensitive(payload)}
 
 
 def run_step(step: GateStep) -> dict[str, object]:
@@ -182,7 +182,7 @@ def _build_gate_summary(
     }
     if failed_step:
         summary["failedStep"] = failed_step
-    return summary
+    return _redact_sensitive(summary)
 
 
 def _write_evidence_json(path: Path | None, summary: dict[str, object]) -> None:
@@ -209,6 +209,44 @@ def _source_commit() -> str:
 
 def _utc_now() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _redact_sensitive(value):
+    if isinstance(value, dict):
+        redacted = {}
+        for key, item in value.items():
+            key_text = str(key)
+            if _sensitive_key(key_text):
+                redacted[key_text] = "[REDACTED]"
+            else:
+                redacted[key_text] = _redact_sensitive(item)
+        return redacted
+    if isinstance(value, list):
+        return [_redact_sensitive(item) for item in value]
+    if isinstance(value, str) and _sensitive_text(value):
+        return "[REDACTED]"
+    return value
+
+
+def _sensitive_key(key: str) -> bool:
+    normalized = key.lower().replace("_", "").replace("-", "")
+    return any(
+        marker in normalized
+        for marker in (
+            "authorization",
+            "password",
+            "privatekey",
+            "secret",
+            "token",
+            "identityref",
+            "keyfile",
+        )
+    )
+
+
+def _sensitive_text(value: str) -> bool:
+    lowered = value.lower()
+    return lowered.startswith("bearer ") or "authorization:" in lowered or "-----begin " in lowered
 
 
 if __name__ == "__main__":
