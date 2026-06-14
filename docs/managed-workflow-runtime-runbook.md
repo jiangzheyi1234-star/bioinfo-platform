@@ -141,6 +141,22 @@ uv run python scripts\check_remote_runner_release_readiness.py `
   --require-supply-chain
 ```
 
+After real remote acceptance has produced `release-gate-evidence.json`, run the production promotion gate before updating the checked-in manifest:
+
+```powershell
+uv run python scripts\promote_remote_runner_release.py `
+  --metadata dist\remote-runner\release-artifacts-metadata.json `
+  --manifest-metadata dist\remote-runner\release-manifest-metadata.json `
+  --attestations dist\remote-runner\release-attestations.json `
+  --published-assets dist\remote-runner\release-published-assets.json `
+  --release-gate-evidence dist\remote-runner\release-gate-evidence.json `
+  --release-tag h2ometa-runtime-vX.Y.Z `
+  --output-manifest dist\remote-runner\promoted-release-manifest.json `
+  --summary-json dist\remote-runner\release-promotion-summary.json
+```
+
+The promotion gate writes `release-promotion-summary.json` and a candidate promoted manifest. It fails production promotion when the release tag, CI source commit, manifest metadata, published asset digests, SBOM/attestation records, or real gate evidence disagree. It also rejects `pending:` and `pending-release-asset:` supply-chain values in the production manifest. Use `--apply` only after reviewing the candidate manifest; otherwise the checked-in manifest is left untouched.
+
 For a local staging control-plane tarball that has not been promoted into the release manifest, start the Local API/Web launcher with an explicit staging gate before running destructive acceptance:
 
 ```bat
@@ -159,6 +175,8 @@ After the destructive release gate writes evidence, validate the evidence contra
 uv run python scripts\check_remote_runner_release_readiness.py `
   --release-gate-evidence dist\remote-runner\release-gate-evidence.json
 ```
+
+For GitHub-driven production promotion, dispatch `.github/workflows/release-remote-runner-artifacts.yml` with `publish_release=true`, `promote_release=true`, the runtime release tag, and the workflow run id/artifact name that contain `release-gate-evidence.json`. The promotion job runs in the protected `production-runtime` environment, downloads the published asset map and real gate evidence, then uploads `release-promotion-summary.json` plus `promoted-release-manifest.json` for review.
 
 ## Dev/Staging Control Plane Build
 

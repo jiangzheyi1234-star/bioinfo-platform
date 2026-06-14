@@ -226,6 +226,12 @@ def test_ci_builder_uses_controlled_linux_builder_not_ssh(monkeypatch) -> None:
     assert "release-published-assets.json" in workflow
     assert "scripts/check_remote_runner_release_readiness.py" in workflow
     assert "dist/remote-runner/release-readiness-summary.json" in workflow
+    assert "promote_release" in workflow
+    assert "production-runtime" in workflow
+    assert "scripts/promote_remote_runner_release.py" in workflow
+    assert "release_gate_evidence_run_id" in workflow
+    assert "gh run download \"$RELEASE_GATE_EVIDENCE_RUN_ID\"" in workflow
+    assert "dist/remote-runner/release-promotion-summary.json" in workflow
     assert 'dist.rglob("*")' in workflow
     assert "h2ometa-remote-runner-release-published-assets-${{ env.PLATFORM }}" in workflow
     assert "published release is missing expected assets" in workflow

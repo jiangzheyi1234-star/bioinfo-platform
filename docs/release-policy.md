@@ -80,8 +80,22 @@ uv run python scripts\check_remote_runner_release_readiness.py `
   --require-supply-chain
 ```
 
-11. Commit the manifest update and any release documentation updates.
-12. Run the required remote smoke or acceptance flow for the release.
+11. Run the production promotion gate with the CI metadata, published asset map, and real release gate evidence:
+
+```powershell
+uv run python scripts\promote_remote_runner_release.py `
+  --metadata dist\remote-runner\release-artifacts-metadata.json `
+  --manifest-metadata dist\remote-runner\release-manifest-metadata.json `
+  --attestations dist\remote-runner\release-attestations.json `
+  --published-assets dist\remote-runner\release-published-assets.json `
+  --release-gate-evidence dist\remote-runner\release-gate-evidence.json `
+  --release-tag h2ometa-runtime-vX.Y.Z `
+  --output-manifest dist\remote-runner\promoted-release-manifest.json `
+  --summary-json dist\remote-runner\release-promotion-summary.json
+```
+
+12. Review `release-promotion-summary.json` and `promoted-release-manifest.json`.
+13. Commit the promoted manifest update and any release documentation updates.
 
 For runtime releases that change remote-runner execution control-plane behavior, the required staged acceptance gate is:
 
@@ -100,6 +114,8 @@ For a local staging artifact that has not been promoted into `config/remote-runn
 This gate temporarily enables the P0-3B two-slot worker mode, runs real Snakemake concurrency/cancel/resource-wait acceptance, runs worker crash/restart recovery acceptance, runs execution policy acceptance for retry backoff, heartbeat timeout, start-to-close timeout, and queue TTL resource-wait behavior, verifies closed-loop recovery evidence from the control-plane event ledger, writes machine-readable release evidence, and must restore the remote runner to the single-slot production default before completion.
 
 For controlled CI builds, `.github/workflows/release-remote-runner-artifacts.yml` runs `scripts\check_remote_runner_release_readiness.py` immediately after artifact build with the generated `release-artifacts-metadata.json`, `release-manifest-metadata.json`, and `release-attestations.json`. That CI path is intentionally non-destructive: it validates artifact, checksum, SBOM, manifest metadata, source commit, and attestation consistency, but it does not connect to or kill a remote runner. Real remote acceptance remains a separate explicit release gate and is represented by `release-gate-evidence.json`.
+
+Production promotion is stricter than staging readiness. `scripts\promote_remote_runner_release.py` rejects mismatched source commits, release tags that do not point at the promoted source commit, missing real release gate evidence, mismatched published asset digests or sizes, and any production manifest field that still contains `pending:` or `pending-release-asset:`. The GitHub workflow exposes this as a protected `promote_release=true` path using the `production-runtime` environment; callers must provide the workflow run id and artifact name that contain `release-gate-evidence.json`.
 
 ## Traceability Requirements
 
