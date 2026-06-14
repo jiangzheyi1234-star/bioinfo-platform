@@ -194,6 +194,20 @@ def test_run_worker_slots_have_independent_state_and_stale_session_fencing(tmp_p
         concurrency_limit=2,
         now="2099-06-07T10:00:04Z",
     )
+    register_run_worker_slot(
+        cfg,
+        worker_id="worker-slots",
+        session_id="session-b",
+        slot_id="slot-0",
+        now="2099-06-07T10:00:04Z",
+    )
+    register_run_worker_slot(
+        cfg,
+        worker_id="worker-slots",
+        session_id="session-b",
+        slot_id="slot-1",
+        now="2099-06-07T10:00:04Z",
+    )
 
     stale = heartbeat_run_worker_slot(
         cfg,
@@ -219,6 +233,55 @@ def test_run_worker_slots_have_independent_state_and_stale_session_fencing(tmp_p
     slots = {slot["slotId"]: slot for slot in health["workers"][0]["slots"]}
     assert slots["slot-0"]["currentAttemptId"] is None
     assert slots["slot-1"]["currentAttemptId"] is None
+
+
+def test_run_worker_register_stops_slots_not_registered_by_new_session(tmp_path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    register_run_worker(
+        cfg,
+        worker_id="worker-resize",
+        session_id="session-two-slot",
+        pid=333,
+        hostname="host",
+        concurrency_limit=2,
+        now="2099-06-07T10:00:00Z",
+    )
+    for slot_id in ("slot-0", "slot-1"):
+        register_run_worker_slot(
+            cfg,
+            worker_id="worker-resize",
+            session_id="session-two-slot",
+            slot_id=slot_id,
+            now="2099-06-07T10:00:01Z",
+        )
+
+    register_run_worker(
+        cfg,
+        worker_id="worker-resize",
+        session_id="session-one-slot",
+        pid=444,
+        hostname="host",
+        concurrency_limit=1,
+        now="2099-06-07T10:01:00Z",
+    )
+    register_run_worker_slot(
+        cfg,
+        worker_id="worker-resize",
+        session_id="session-one-slot",
+        slot_id="slot-0",
+        now="2099-06-07T10:01:01Z",
+    )
+
+    health = build_run_worker_health(cfg, now="2099-06-07T10:01:02Z")
+    slots = {slot["slotId"]: slot for slot in health["workers"][0]["slots"]}
+
+    assert health["workers"][0]["concurrencyLimit"] == 1
+    assert slots["slot-0"]["sessionId"] == "session-one-slot"
+    assert slots["slot-0"]["state"] == "idle"
+    assert slots["slot-0"]["stoppedAt"] is None
+    assert slots["slot-1"]["sessionId"] == "session-two-slot"
+    assert slots["slot-1"]["state"] == "stopped"
+    assert slots["slot-1"]["stoppedAt"] == "2099-06-07T10:01:00Z"
 
 
 def test_run_worker_health_reports_queue_depth_and_claimed_jobs(tmp_path) -> None:

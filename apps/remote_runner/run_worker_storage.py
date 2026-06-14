@@ -64,11 +64,11 @@ def register_run_worker(
         connection.execute(
             """
             UPDATE run_worker_slots
-            SET session_id = ?, state = 'idle', current_attempt_id = NULL,
-                heartbeat_at = ?, last_error_json = '{}', stopped_at = NULL, updated_at = ?
-            WHERE worker_id = ?
+            SET state = 'stopped', current_attempt_id = NULL,
+                heartbeat_at = ?, stopped_at = COALESCE(stopped_at, ?), updated_at = ?
+            WHERE worker_id = ? AND stopped_at IS NULL
             """,
-            (normalized_session_id, timestamp, timestamp, normalized_worker_id),
+            (timestamp, timestamp, timestamp, normalized_worker_id),
         )
         connection.commit()
     return fetch_run_worker(cfg, normalized_worker_id)

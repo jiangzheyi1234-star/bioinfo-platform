@@ -23,6 +23,7 @@ CORE_RUNTIME_HELPER_FILES = (
     "async_boundary.py",
     "api_payloads.py",
     "api_responses.py",
+    "logging_config.py",
     "problem_responses.py",
     "problem_status.py",
 )
@@ -294,6 +295,14 @@ mkdir -p micromamba bundle/runtime
 tar -xjf micromamba.tar.bz2 -C micromamba
 MAMBA_ROOT_PREFIX="$BUILD_ROOT/mamba-root" ./micromamba/bin/micromamba create -y -p "$BUILD_ROOT/runtime-src" --file explicit.txt
 """
+    if runtime_source == "copy-from-current":
+        return f"""
+SRC="$HOME/.h2ometa/runner/releases/{REMOTE_RUNNER_VERSION}/runtime"
+test -x "$SRC/bin/python"
+test -x "$SRC/bin/conda-unpack"
+mkdir -p bundle
+cp -a "$SRC" bundle/runtime
+"""
     raise RuntimeError(f"unsupported runtime source: {runtime_source}")
 
 
@@ -306,6 +315,16 @@ def build_remote_script(
     lock_file_name: str,
     lock_sha256: str,
 ) -> str:
+    if runtime_source == "copy-from-current":
+        runtime_validation = '"$BUILD_ROOT/bundle/runtime/bin/python" -c "import fastapi, uvicorn, pydantic"'
+        runtime_pack = ""
+    else:
+        runtime_validation = '"$BUILD_ROOT/runtime-src/bin/python" -c "import fastapi, uvicorn, pydantic"'
+        runtime_pack = (
+            '"$BUILD_ROOT/runtime-src/bin/conda-pack" -p "$BUILD_ROOT/runtime-src" '
+            '-o "$BUILD_ROOT/runtime.tar.gz" --force\n'
+            'tar -xzf "$BUILD_ROOT/runtime.tar.gz" -C "$BUILD_ROOT/bundle/runtime"'
+        )
     manifest = {
         "service": REMOTE_RUNNER_ARTIFACT.service,
         "version": version,
@@ -324,9 +343,8 @@ def build_remote_script(
 set -euo pipefail
 cd "$BUILD_ROOT"
 {build_runtime_script(platform=platform, runtime_source=runtime_source)}
-"$BUILD_ROOT/runtime-src/bin/python" -c "import fastapi, uvicorn, pydantic"
-"$BUILD_ROOT/runtime-src/bin/conda-pack" -p "$BUILD_ROOT/runtime-src" -o "$BUILD_ROOT/runtime.tar.gz" --force
-tar -xzf "$BUILD_ROOT/runtime.tar.gz" -C "$BUILD_ROOT/bundle/runtime"
+{runtime_validation}
+{runtime_pack}
 python3 - <<'PY'
 import json
 from pathlib import Path
@@ -467,12 +485,13 @@ def main() -> int:
     parser.add_argument("--output-dir", default=str(Path("resources") / "remote-runner"))
     parser.add_argument(
         "--runtime-source",
-        choices=("lockfile", "clean-solve", "explicit-from-current"),
+        choices=("lockfile", "clean-solve", "explicit-from-current", "copy-from-current"),
         default="lockfile",
         help=(
             "lockfile builds from a checked-in explicit spec. clean-solve is a dev-only "
             "refresh path. explicit-from-current exports package URLs from the currently "
-            "installed remote runner runtime and rebuilds a fresh env from that lock-like spec."
+            "installed remote runner runtime and rebuilds a fresh env from that lock-like spec. "
+            "copy-from-current reuses the currently installed remote runner runtime for staging."
         ),
     )
     parser.add_argument(

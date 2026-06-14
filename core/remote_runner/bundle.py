@@ -10,6 +10,15 @@ from pathlib import Path
 from core.remote_runner.layout import REMOTE_RUNNER_RELATIVE_ROOT
 from core.remote_runner.release_manifest import REMOTE_RUNNER_ARTIFACT, REMOTE_RUNNER_VERSION
 
+CORE_RUNTIME_HELPER_FILES = (
+    "async_boundary.py",
+    "api_payloads.py",
+    "api_responses.py",
+    "logging_config.py",
+    "problem_responses.py",
+    "problem_status.py",
+)
+
 
 @dataclass
 class BuiltBootstrapBundle:
@@ -47,6 +56,8 @@ class RemoteRunnerBundleBuilder:
         core_bundle = bundle_dir / "core"
         core_bundle.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_core / "__init__.py", core_bundle / "__init__.py")
+        for filename in CORE_RUNTIME_HELPER_FILES:
+            shutil.copy2(source_core / filename, core_bundle / filename)
         shutil.copytree(
             source_core / "contracts",
             core_bundle / "contracts",

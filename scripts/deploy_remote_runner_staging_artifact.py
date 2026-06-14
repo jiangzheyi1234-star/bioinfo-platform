@@ -87,6 +87,12 @@ def validate_staging_artifact(artifact: Path) -> dict[str, Any]:
         "candidateAdoption": "adopt_verified_candidate_outputs" in executor_artifacts,
         "activeReconciler": "run_active_reconciler_once" in reconciler,
         "sigkillEscalation": "signal.SIGKILL" in actions,
+        "runWorkerResourceConfig": "remote_runner/worker_resource_config.py" in {
+            item.name.strip("./") for item in tarfile.open(artifact, "r:gz").getmembers()
+        },
+        "multiSlotGate": "H2OMETA_REMOTE_ENABLE_MULTI_SLOT"
+        in _archive_text(artifact, "remote_runner/worker_supervisor.py"),
+        "cancelResultMapping": "RUN_CANCELLED" in _archive_text(artifact, "remote_runner/executor.py"),
     }
     missing = [key for key, present in markers.items() if not present]
     if missing:
@@ -139,6 +145,9 @@ tar -xzf "$ARTIFACT" -C "$STAGE"
 grep -q 'adopt_verified_candidate_outputs' "$STAGE/remote_runner/executor_artifacts.py"
 grep -q 'run_active_reconciler_once' "$STAGE/remote_runner/reconciler.py"
 grep -q 'signal.SIGKILL' "$STAGE/remote_runner/reconciler_actions.py"
+test -f "$STAGE/remote_runner/worker_resource_config.py"
+grep -q 'H2OMETA_REMOTE_ENABLE_MULTI_SLOT' "$STAGE/remote_runner/worker_supervisor.py"
+grep -q 'RUN_CANCELLED' "$STAGE/remote_runner/executor.py"
 chmod +x "$STAGE"/*.sh
 
 systemctl --user stop h2ometa-remote.service
