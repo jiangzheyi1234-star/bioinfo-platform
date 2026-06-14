@@ -116,15 +116,17 @@ uv run pytest tests/test_reconciler_active.py tests/test_reconciler_actions.py t
 
 ### 状态
 
-- 进行中，当前 UI 生命周期 Gate 未通过。
-- 2026-06-13 Windows 实测结果：20 passed、1 skipped、0 failed。
-- 跳过项为 WorkflowRevision 详情可见性；测试必须自行创建带
-  `workflowRevisionId` 的 run，不能依赖已有运行数据。
-- 核心验收场景不得因缺少已有 catalog、run、result 或 draft 数据而跳过；
-  测试 fixture 负责创建并清理前置数据。
-- 当前部分用例复用任意已有 run/result，Draft compile 接受 422，取消与断线场景
-  断言不足，尚不能视为完整生命周期验收。
-- WorkflowRevision 需要先进入详情模型和 UI，再取消对应测试的 skip。
+- Windows 本地核心 UI Gate 已通过（2026-06-14）：18 passed、0 failed、0 skipped。
+- 核心 Playwright suite 现在自行创建前置数据：要求 ready runner、`file-summary-v1`
+  workflow、WorkflowReady tool；缺失时用 `P0_2_*` 错误显式失败，不再跳过。
+- Draft plan/compile 必须成功并生成 `workflowRevisionId`，再提交并完成对应
+  WorkflowRevision run；详情页展示 WorkflowRevision，产物页展示 artifact id。
+- artifact 验收覆盖 API preview、UI artifact card、`sha256` 和 `storageUri`。
+  本地 remote-runner 查询层已补充 `fetch_run_results().lineageEdges` 单测断言。
+- 远端 runner HTTP 合约新增字段（例如 run results 的 `lineageEdges`）只有在连接的
+  remote runner 重建/部署到对应源码后，才能加入 live Playwright 硬断言。
+- 当前本地核心 suite 的断线恢复是 polling-gap 持久性检查，不等同于真实 worker
+  停启恢复；真实 worker-restart 仍属于独立远端 Gate。
 
 ### 目标
 
@@ -143,18 +145,24 @@ uv run pytest tests/test_reconciler_active.py tests/test_reconciler_actions.py t
 - Playwright 核心验收在干净状态下达到 0 failed、0 skipped。
 - 测试失败时输出截图和 trace 供调试。
 - Draft plan/compile 必须返回成功并生成 revision；同一 fixture 创建、提交并验证
-  该 revision 对应的 run、artifact、lineage 和 UI。
-- 取消使用可控慢任务并验证最终状态为 canceled；断线恢复必须真实停止并重启
-  worker，而不是仅等待后重新查询。
+  该 revision 对应的 run、artifact 和 UI；lineage 在本地 storage/query 层有硬断言，
+  远端 HTTP 字段待 runner 重部署后纳入 live E2E。
+- 取消请求必须记录 command 和事件，并能从详情链路查询到对应 command。
+- 断线恢复核心 suite 仅验证轮询间隔后的 run detail/event 持久性；真实停止并重启
+  worker 的恢复验收必须作为独立远端 Gate 运行。
 - 核心 suite 与需要真实集群/外部环境的 optional suite 分离。
 
 ### 涉及文件
 
 | 文件 | 变更类型 |
 |------|----------|
-| `tests/e2e/workflow_lifecycle.spec.ts` | 新增 |
-| `tests/e2e/fixtures/` | 新增：测试夹具和数据 |
-| `playwright.config.ts` | 新增 |
+| `tests/e2e/api-helpers.ts` | 自建 E2E fixture、WorkflowRevision draft/compile/submit helper |
+| `tests/e2e/workflow-lifecycle.spec.ts` | 核心生命周期、artifact、WorkflowRevision UI Gate |
+| `tests/e2e/idempotency-and-cancel.spec.ts` | 幂等、取消 command/event、polling-gap 持久性 |
+| `apps/web/app/components/workflows-page-model.ts` | WorkflowRevision、event command、artifact metadata 模型 |
+| `apps/web/app/components/workflow-run-detail-panel.tsx` | WorkflowRevision、artifact id、cancel command 可见性 |
+| `apps/remote_runner/execution_query_storage.py` | run results 暴露 lineage edges |
+| `tests/test_candidate_output_storage.py` | 本地 lineage results 查询回归 |
 
 ---
 
@@ -162,13 +170,20 @@ uv run pytest tests/test_reconciler_active.py tests/test_reconciler_actions.py t
 
 ### 状态
 
-- 进行中。
-- `run_jobs.queue_name` 和 ResourcePool 已存在，但 queue 尚未参与领取过滤。
-- 当前多个 worker 线程共享同一个 worker/session/current-attempt 状态模型。
-- 当前流程先 claim lease，再在 executor 中等待 ResourcePool，不符合 admission 语义。
-- 每个 worker 线程都会运行 reconciler，尚未形成单独的 controller。
-- SQLite 尚未配置 WAL、busy timeout 和启动期一次性 schema migration。
-- 默认 ResourcePool 容量为 2，单并发目前依赖 supervisor 默认线程数而非集中硬约束。
+- 本地核心控制面 Gate 已通过（2026-06-14）：P0-3A 聚焦/回归 pytest
+  84 passed，P0-2 Playwright 核心回归 18 passed、0 skipped。
+- `runSpec.execution.queueName` 进入严格 API/request model；提交时写入
+  `run_jobs.queue_name`，worker claim 只领取自身 queue。
+- claim 前先做 admission：slot/resource 不可用时任务保持 queued，记录
+  `wait_reason_json`，不创建 attempt 或 lease。
+- attempt/lease 记录 `session_id` 和 `slot_id`；资源分配写入
+  `run_resource_allocations`，completion 和 fence 路径都会幂等释放。
+- worker slot 状态进入 `run_worker_slots`；slot 心跳使用
+  `(worker_id, session_id, slot_id)` fencing，旧 session 不能覆盖新进程。
+- supervisor 已拆出单独 reconciler controller；slot loop 不再各自运行 reconciler。
+- SQLite 连接启用 WAL 和 `busy_timeout`，并有启动迁移覆盖新增列/表。
+- P0-3A 仍保持生产单槽：默认 ResourcePool 为 1，supervisor 默认拒绝
+  `concurrency_limit > 1`，多槽真实启用留到 P0-3B。
 
 ### 目标
 
@@ -176,9 +191,8 @@ uv run pytest tests/test_reconciler_active.py tests/test_reconciler_actions.py t
 
 ### 具体工作
 
-1. **独立计算资源契约**：新增 `computeResources` 或
-   `executionRequirements`，表示 CPU、内存、临时磁盘和 GPU；不得复用表示
-   参考数据库绑定的 `resourceBindings`。
+1. **独立执行路由契约**：`runSpec.execution.queueName` 表示执行队列；
+   不复用表示参考数据库绑定的 `resourceBindings`。
 2. **Destination/Queue 路由**：运行提交时解析 execution destination 和 queue；
    worker 只领取其声明 queue 的任务。
 3. **资源准入后再 claim**：只有可用 slot 和资源满足时，才创建 attempt/lease；
@@ -201,25 +215,31 @@ uv run pytest tests/test_reconciler_active.py tests/test_reconciler_actions.py t
 
 ### 验收标准
 
-- 不同 queue 的 worker 不会领取其他 queue 的任务。
-- 资源不足时任务保持 queued，不创建 attempt 或启动 lease。
-- slot 状态不会因其他 slot 的心跳而被覆盖。
-- reconciler 数量不随 slot 数量增长。
-- SQLite 并发压力测试不出现未处理的 `SQLITE_BUSY`，恢复后状态一致。
-- 并发仍固定为 1 时，现有生命周期与 E2E 行为无回归。
-- 旧 worker session 的 heartbeat 和 completion 更新会被明确拒绝。
-- Reconciler 终止外部进程期间不持有 SQLite 写事务。
+- 不同 queue 的 worker 不会领取其他 queue 的任务。已覆盖。
+- 资源/slot 不足时任务保持 queued，不创建 attempt 或 lease，并写入 wait reason。
+  已覆盖。
+- claim 成功会持久化 allocation；completion 和 fence 路径会幂等释放。已覆盖。
+- slot 状态不会因其他 slot 或旧 session heartbeat 被覆盖。已覆盖。
+- supervisor 中 reconciler 由独立 controller 运行，不在 slot loop 中重复运行。已实现。
+- SQLite 连接启用 WAL 和 `busy_timeout`。已覆盖。
+- 并发仍固定为 1 时，现有生命周期与 E2E 行为无回归。已覆盖。
+- 真实 2 槽并发、并发压力下 event hash-chain 验证、远端多任务 acceptance 留到 P0-3B。
 
 ### 涉及文件
 
 | 文件 | 变更类型 |
 |------|----------|
-| `apps/remote_runner/api_models.py` | 新增独立 compute resource contract |
+| `apps/api/models.py` | Local API 允许 `runSpec.execution` |
+| `apps/remote_runner/api_models.py` | Remote runner API 允许 `runSpec.execution` |
+| `apps/remote_runner/admission_storage.py` | Admission wait reason、allocation ledger、slot 状态 helper |
 | `apps/remote_runner/run_execution_storage.py` | Queue 过滤与 admission-aware claim |
 | `apps/remote_runner/run_worker_storage.py` | Worker/slot 状态模型 |
 | `apps/remote_runner/worker_supervisor.py` | 单 controller + 独立 slots |
 | `apps/remote_runner/resource_pool.py` | 幂等资源分配与恢复 |
 | `apps/remote_runner/storage_core.py` | WAL、busy timeout、migration 边界 |
+| `apps/remote_runner/storage_schema.py` | run worker slot 与 allocation schema |
+| `tests/test_remote_runner_run_execution_storage.py` | Queue/admission/allocation/WAL 验收 |
+| `tests/test_remote_runner_run_worker_storage.py` | session/slot fencing 验收 |
 
 ---
 

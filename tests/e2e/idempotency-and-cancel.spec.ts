@@ -2,16 +2,23 @@ import { test, expect, APIRequestContext } from "@playwright/test";
 import {
   createApiClient,
   waitForApiReady,
-  fetchWorkflowCatalog,
+  prepareE2EFixture,
   fetchRunDetail,
+  fetchRunEvents,
   buildTestRunSpec,
+  cancelRun,
+  submitRun,
+  waitForCompletedRun,
+  type E2EFixture,
 } from "./api-helpers";
 
 let api: APIRequestContext;
+let fixture: E2EFixture;
 
 test.beforeAll(async () => {
   api = await createApiClient();
   await waitForApiReady(api);
+  fixture = await prepareE2EFixture(api);
 });
 
 test.afterAll(async () => {
@@ -20,145 +27,89 @@ test.afterAll(async () => {
 
 test.describe("Idempotency", () => {
   test("duplicate submission with same idempotency key returns same run", async () => {
-    const catalog = await fetchWorkflowCatalog(api);
-    test.skip(catalog.length === 0, "No workflows in catalog");
-
-    const workflow = catalog.find((w: any) => w.id === "file-summary-v1");
-    test.skip(!workflow, "file-summary-v1 is not available");
     const idempotencyKey = `idem_e2e_dup_${Date.now()}`;
     const runSpec = {
-      ...(await buildTestRunSpec(api, workflow, "proj_e2e_idem", "dup")),
+      ...(await buildTestRunSpec(api, fixture, "proj_e2e_idem", "dup")),
       idempotencyKey,
     };
 
-    const response1 = await api.post("/api/v1/runs", { data: runSpec });
-    expect(response1.ok()).toBeTruthy();
-    const body1 = await response1.json();
-    const runId1 = body1.data?.runId;
-    expect(runId1).toBeTruthy();
+    const body1 = await submitRun(api, runSpec);
+    const body2 = await submitRun(api, runSpec);
 
-    const response2 = await api.post("/api/v1/runs", { data: runSpec });
-    expect(response2.ok()).toBeTruthy();
-    const body2 = await response2.json();
-    const runId2 = body2.data?.runId;
-
-    expect(runId2).toBe(runId1);
+    expect(body1.runId).toBeTruthy();
+    expect(body2.runId).toBe(body1.runId);
+    const completed = await waitForCompletedRun(api, body1.runId);
+    expect(completed.status).toBe("completed");
   });
 
   test("different idempotency keys create different runs", async () => {
-    const catalog = await fetchWorkflowCatalog(api);
-    test.skip(catalog.length === 0, "No workflows in catalog");
-
-    const workflow = catalog.find((w: any) => w.id === "file-summary-v1");
-    test.skip(!workflow, "file-summary-v1 is not available");
-    const baseSpec = await buildTestRunSpec(api, workflow, "proj_e2e_idem", "different");
-
+    const baseSpec = await buildTestRunSpec(api, fixture, "proj_e2e_idem", "different");
     const ts = Date.now();
-    const response1 = await api.post("/api/v1/runs", {
-      data: { ...baseSpec, requestId: `req_a_${ts}`, idempotencyKey: `idem_a_${ts}` },
+
+    const body1 = await submitRun(api, {
+      ...baseSpec,
+      requestId: `req_a_${ts}`,
+      idempotencyKey: `idem_a_${ts}`,
     });
-    const response2 = await api.post("/api/v1/runs", {
-      data: { ...baseSpec, requestId: `req_b_${ts}`, idempotencyKey: `idem_b_${ts}` },
+    const body2 = await submitRun(api, {
+      ...baseSpec,
+      requestId: `req_b_${ts}`,
+      idempotencyKey: `idem_b_${ts}`,
     });
 
-    expect(response1.ok()).toBeTruthy();
-    expect(response2.ok()).toBeTruthy();
-
-    const body1 = await response1.json();
-    const body2 = await response2.json();
-
-    expect(body1.data?.runId).not.toBe(body2.data?.runId);
+    expect(body1.runId).toBeTruthy();
+    expect(body2.runId).toBeTruthy();
+    expect(body1.runId).not.toBe(body2.runId);
   });
 });
 
 test.describe("Run Cancellation", () => {
-  test("cancel a run via API", async () => {
-    const catalog = await fetchWorkflowCatalog(api);
-    test.skip(catalog.length === 0, "No workflows in catalog");
-
-    const workflow = catalog.find((w: any) => w.id === "file-summary-v1");
-    test.skip(!workflow, "file-summary-v1 is not available");
-    const runSpec = await buildTestRunSpec(api, workflow, "proj_e2e_cancel", "cancel");
-
-    const response = await api.post("/api/v1/runs", { data: runSpec });
-    expect(response.ok()).toBeTruthy();
-    const body = await response.json();
-    const runId = body.data?.runId;
+  test("cancel a run via API records cancel command and event", async () => {
+    const runSpec = await buildTestRunSpec(api, fixture, "proj_e2e_cancel", "cancel");
+    const submitted = await submitRun(api, runSpec);
+    const runId = String(submitted.runId || "");
     expect(runId).toBeTruthy();
 
-    const cancelResponse = await api.post(`/api/v1/runs/${runId}/cancel`);
-    expect(cancelResponse.ok() || cancelResponse.status() === 409).toBeTruthy();
+    const canceled = await cancelRun(api, runId);
+    expect(canceled.runId).toBe(runId);
+    expect(canceled.commandId).toBeTruthy();
+    expect(canceled.stage).toBe("cancel");
 
     const detail = await fetchRunDetail(api, runId);
-    const cancelStatuses = ["canceling", "canceled", "cancelled", "failed", "completed"];
-    expect(cancelStatuses).toContain(detail.status?.toLowerCase());
+    expect(["canceling", "canceled", "cancelled", "completed"]).toContain(String(detail.status || "").toLowerCase());
+    const events = await fetchRunEvents(api, runId);
+    const cancelEvent = events.find((event) => event.eventType === "run_cancel_requested");
+    expect(cancelEvent).toBeTruthy();
+    expect(cancelEvent.commandId).toBe(canceled.commandId);
   });
 
-  test("cancel run and verify status in UI", async ({ page }) => {
-    const catalog = await fetchWorkflowCatalog(api);
-    test.skip(catalog.length === 0, "No workflows in catalog");
+  test("cancel request is visible in UI detail", async ({ page }) => {
+    const runSpec = await buildTestRunSpec(api, fixture, "proj_e2e_ui_cancel", "ui_cancel");
+    const submitted = await submitRun(api, runSpec);
+    const runId = String(submitted.runId || "");
+    expect(runId).toBeTruthy();
 
-    const workflow = catalog.find((w: any) => w.id === "file-summary-v1");
-    test.skip(!workflow, "file-summary-v1 is not available");
-    const runSpec = await buildTestRunSpec(api, workflow, "proj_e2e_ui_cancel", "ui_cancel");
-
-    const response = await api.post("/api/v1/runs", { data: runSpec });
-    const body = await response.json();
-    const runId = body.data?.runId;
-    test.skip(!runId, "Failed to create run");
-
-    await api.post(`/api/v1/runs/${runId}/cancel`);
-
+    const canceled = await cancelRun(api, runId);
     await page.goto(`/workflows/results/detail?run=${encodeURIComponent(runId)}`);
-    await expect(page.getByText(runId)).toBeVisible({ timeout: 10_000 });
-
-    await page.waitForTimeout(2_000);
-    const detail = await fetchRunDetail(api, runId);
-    expect(detail).toBeTruthy();
+    await expect(page.getByText(runId).first()).toBeVisible({ timeout: 10_000 });
+    const events = await fetchRunEvents(api, runId);
+    expect(events.some((event) => event.commandId === canceled.commandId)).toBeTruthy();
   });
 });
 
 test.describe("Agent Disconnect Recovery", () => {
-  test("run persists after simulated disconnect", async () => {
-    const catalog = await fetchWorkflowCatalog(api);
-    test.skip(catalog.length === 0, "No workflows in catalog");
-
-    const workflow = catalog.find((w: any) => w.id === "file-summary-v1");
-    test.skip(!workflow, "file-summary-v1 is not available");
-    const runSpec = await buildTestRunSpec(api, workflow, "proj_e2e_disconnect", "disconnect");
-
-    const response = await api.post("/api/v1/runs", { data: runSpec });
-    expect(response.ok()).toBeTruthy();
-    const body = await response.json();
-    const runId = body.data?.runId;
+  test("run detail and events persist after polling gap", async () => {
+    const runSpec = await buildTestRunSpec(api, fixture, "proj_e2e_disconnect", "disconnect");
+    const submitted = await submitRun(api, runSpec);
+    const runId = String(submitted.runId || "");
     expect(runId).toBeTruthy();
 
     await new Promise((r) => setTimeout(r, 3_000));
 
     const detail = await fetchRunDetail(api, runId);
-    expect(detail).toBeTruthy();
     expect(detail.runId).toBe(runId);
-  });
-
-  test("run events persist after disconnect", async () => {
-    const catalog = await fetchWorkflowCatalog(api);
-    test.skip(catalog.length === 0, "No workflows in catalog");
-
-    const workflow = catalog.find((w: any) => w.id === "file-summary-v1");
-    test.skip(!workflow, "file-summary-v1 is not available");
-    const runSpec = await buildTestRunSpec(api, workflow, "proj_e2e_events", "events");
-
-    const response = await api.post("/api/v1/runs", { data: runSpec });
-    const body = await response.json();
-    const runId = body.data?.runId;
-    test.skip(!runId, "Failed to create run");
-
-    await new Promise((r) => setTimeout(r, 2_000));
-
-    const eventsResponse = await api.get(`/api/v1/runs/${runId}/events`);
-    expect(eventsResponse.ok()).toBeTruthy();
-    const eventsBody = await eventsResponse.json();
-    const events = eventsBody.data?.items || eventsBody.data || [];
+    const events = await fetchRunEvents(api, runId);
     expect(events.length).toBeGreaterThan(0);
+    expect(events.some((event) => event.runId === runId)).toBeTruthy();
   });
 });

@@ -62,6 +62,9 @@ function RunTimeline({ events }: { events: WorkflowRunEvent[] }) {
               {event.stage || event.status}
             </span>
             <span className="min-w-0 truncate">{event.message || "—"}</span>
+            {event.commandId ? (
+              <span className="shrink-0 truncate font-mono text-[10px] text-slate-400">{event.commandId}</span>
+            ) : null}
           </div>
         ))}
       </div>
@@ -229,6 +232,7 @@ function RunArtifacts({
                 <div className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">{artifactName(artifact)}</div>
               </div>
               <div className="mt-1 truncate font-mono text-[11px] text-slate-500">{artifact.mimeType}</div>
+              <div className="mt-1 truncate font-mono text-[11px] text-slate-400">{artifact.artifactId}</div>
               <div className="mt-1 text-[11px] text-slate-400">{formatBytes(artifact.sizeBytes)}</div>
               {isInlineTextPreview(existingPreview) ? (
                 <pre className="mt-3 max-h-40 overflow-auto whitespace-pre-wrap rounded-md border border-slate-200 bg-slate-50 p-2 font-mono text-xs leading-relaxed text-slate-800">
@@ -426,6 +430,12 @@ export function WorkflowRunDetailPanel({
   const textPreview = preferredTextPreview(previews);
   const inputs = (run.runSpec?.inputs as Array<{ filename?: string }> | undefined) || [];
   const pipelineId = typeof run.pipelineId === "string" ? run.pipelineId : String(run.runSpec?.pipelineId || "—");
+  const workflowRevisionId =
+    typeof run.workflowRevisionId === "string" && run.workflowRevisionId
+      ? run.workflowRevisionId
+      : typeof run.runSpec?.workflowRevisionId === "string"
+        ? run.runSpec.workflowRevisionId
+        : "";
 
   return (
     <div className="space-y-5">
@@ -444,6 +454,13 @@ export function WorkflowRunDetailPanel({
               <Package strokeWidth={1.5} className="h-3.5 w-3.5 shrink-0 text-slate-300" />
               <span className="truncate">{run.runId}</span>
             </div>
+            {workflowRevisionId ? (
+              <div className="mt-1 flex min-w-0 items-center gap-1.5 font-mono text-[11px] text-emerald-700">
+                <FileCode strokeWidth={1.5} className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+                <span className="shrink-0 font-sans text-slate-500">WorkflowRevision</span>
+                <span className="truncate">{workflowRevisionId}</span>
+              </div>
+            ) : null}
           </div>
           <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4 lg:border-l lg:border-slate-100 lg:pl-8">
             <SummaryMetric label="阶段" value={run.stage || "—"} />

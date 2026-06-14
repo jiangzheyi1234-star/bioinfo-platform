@@ -134,6 +134,7 @@ export type WorkflowRun = {
   message?: string;
   requestId?: string;
   pipelineId?: string;
+  workflowRevisionId?: string;
   startedAt?: string;
   finishedAt?: string;
   submittedAt?: string;
@@ -141,6 +142,8 @@ export type WorkflowRun = {
   updatedAt?: string;
   runSpec?: {
     pipelineId?: string;
+    workflowRevisionId?: string;
+    workflowDesign?: { draftId?: string; revision?: number };
     inputs?: Array<{ filename?: string; role?: string; uploadId?: string }>;
     params?: Record<string, unknown>;
   };
@@ -165,6 +168,8 @@ export type JsonSchema = {
 export type WorkflowRunEvent = {
   eventId?: string;
   runId?: string;
+  eventType?: string;
+  commandId?: string;
   status?: string;
   stage?: string;
   message?: string;
@@ -182,6 +187,8 @@ export type WorkflowArtifact = {
   mimeType: string;
   sizeBytes: number;
   path?: string;
+  sha256?: string;
+  storageUri?: string;
 };
 
 export type WorkflowResultDetail = {

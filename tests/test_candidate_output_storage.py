@@ -175,6 +175,10 @@ def test_candidate_output_adoption_preserves_lineage_metadata(tmp_path: Path) ->
     assert edges[0]["portName"] == "report"
     assert edges[0]["stepId"] == "summarize"
     assert edges[0]["upstreamRunId"] == "run_raw_reads"
+    result_bundle = fetch_run_results(cfg, claim["runId"])
+    assert len(result_bundle["lineageEdges"]) == 1
+    assert result_bundle["lineageEdges"][0]["runId"] == claim["runId"]
+    assert result_bundle["lineageEdges"][0]["predicate"] == "prov:generated"
 
 
 def test_candidate_output_verification_rejects_checksum_mismatch_and_missing_expected(tmp_path: Path) -> None:

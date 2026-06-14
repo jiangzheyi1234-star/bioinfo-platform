@@ -84,6 +84,8 @@ def fetch_run_events(cfg: RemoteRunnerConfig, run_id: str) -> list[dict[str, Any
 
 
 def fetch_run_results(cfg: RemoteRunnerConfig, run_id: str) -> dict[str, Any]:
+    from .artifact_ledger_storage import list_lineage_edges_for_run
+
     run = fetch_run(cfg, run_id)
     if run is None:
         raise RemoteRunnerNotFoundError("RUN_NOT_FOUND")
@@ -107,7 +109,12 @@ def fetch_run_results(cfg: RemoteRunnerConfig, run_id: str) -> dict[str, Any]:
         }
         for row in rows
     ]
-    return {"runId": run_id, "resultDir": run["resultDir"], "artifacts": artifacts}
+    return {
+        "runId": run_id,
+        "resultDir": run["resultDir"],
+        "artifacts": artifacts,
+        "lineageEdges": list_lineage_edges_for_run(cfg, run_id),
+    }
 
 
 def list_results(cfg: RemoteRunnerConfig) -> list[dict[str, Any]]:
