@@ -320,6 +320,7 @@ def _latest_validation_summary(connection: Any, tool_id: str) -> dict[str, Any]:
         return {}
     return {
         "latestResultId": row["validation_result_id"],
+        "evidenceId": row["evidence_id"],
         "latestJobId": row["job_id"],
         "latestStage": row["stage"],
         "latestStatus": row["status"],

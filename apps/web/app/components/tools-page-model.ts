@@ -296,6 +296,75 @@ export type ToolContract = {
   reasons?: string[];
 };
 
+export type CapabilityBundleValidationEvidence = {
+  status?: string;
+  validationResultId?: string;
+  evidenceId?: string;
+  jobId?: string;
+  checkedAt?: string;
+  stages?: Array<{ id?: string; status?: string; code?: string; checkedAt?: string; logPath?: string }>;
+  fixture?: {
+    inputs?: Array<{ name?: string; filename?: string; mimeType?: string }>;
+    expectedArtifacts?: Array<{ name?: string; path?: string; mimeType?: string }>;
+  };
+};
+
+export type CapabilityBundleSummary = {
+  capabilityBundleVersion: "capability-bundle-v1" | string;
+  capabilityId: string;
+  toolId?: string;
+  toolName?: string;
+  profileId?: string;
+  packId?: string;
+  toolRevisionId: string;
+  source?: string;
+  version?: string;
+  inputs?: RuleSpecPort[];
+  outputs?: RuleSpecPort[];
+  parameters?: Record<string, RuleSpecParam | RuleSpecScalar>;
+  environmentLock?: {
+    manager?: string;
+    targetPlatform?: string;
+    channels?: string[];
+    dependencies?: string[];
+    packageSpec?: string;
+  };
+  risk?: { level?: string; reasons?: string[] };
+  permissions?: { network?: boolean; filesystem?: string[]; databases?: string[] };
+  approval?: { required?: boolean; approved?: boolean; policyVersion?: string; reason?: string };
+  validationEvidence?: CapabilityBundleValidationEvidence;
+  selectionSummary?: {
+    label?: string;
+    workflowStage?: string;
+    operation?: string;
+    reason?: string;
+  };
+  agentSelectable?: boolean;
+  blockedReasons?: string[];
+  nextAction?: string;
+};
+
+export type CapabilityBundleStatus = {
+  version?: string;
+  agentSelectable?: boolean;
+  blockedReasons?: string[];
+  nextAction?: string;
+};
+
+export type CapabilityBundleGate = {
+  capabilityBundleVersion?: "capability-bundle-v1" | string;
+  total?: number;
+  selectable?: number;
+  blocked?: number;
+  blockedTools?: Array<{
+    toolId?: string;
+    toolRevisionId?: string;
+    capabilityId?: string;
+    blockedReasons?: string[];
+    nextAction?: string;
+  }>;
+};
+
 export type ToolSearchResponse = {
   data: {
     items: ToolSearchItem[];
@@ -546,6 +615,8 @@ export type CapabilityGraphSemanticNode = {
   data?: string;
   format?: string;
   required?: boolean;
+  capabilityId?: string;
+  capabilityBundle?: CapabilityBundleSummary;
 };
 
 export type CapabilityGraphSnapshot = {
@@ -554,6 +625,7 @@ export type CapabilityGraphSnapshot = {
   targetPlatform: string;
   profileCount: number;
   packIds: string[];
+  capabilityBundleVersion?: "capability-bundle-v1" | string;
   catalog: ToolCandidateCatalog;
   semanticGraph: {
     contractVersion?: string;
@@ -561,6 +633,8 @@ export type CapabilityGraphSnapshot = {
     edges: Array<{ from: string; to: string; kind: string }>;
     agentSelectableProfileIds: string[];
   };
+  capabilityBundles?: CapabilityBundleSummary[];
+  capabilityBundleGate?: CapabilityBundleGate;
   registeredTools: AddedTool[];
   registeredToolCounts: {
     total: number;
@@ -655,6 +729,8 @@ export type AddedTool = ToolSearchItem & {
   updatedAt?: string;
   publishedAt?: string | null;
   lastCheckedAt?: string | null;
+  capabilityBundle?: CapabilityBundleSummary;
+  capabilityBundleStatus?: CapabilityBundleStatus;
 };
 
 export type ToolPrepareJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled" | "waiting_resource" | "exhausted" | string;

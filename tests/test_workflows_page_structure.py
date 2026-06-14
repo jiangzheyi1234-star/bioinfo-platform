@@ -92,6 +92,11 @@ def test_generated_workflow_builder_uses_server_tool_recommendations() -> None:
     assert "/api/v1/tool-capabilities/candidate-recommendations" not in api
     assert "workflowRecommendationsFromCapabilityGraph" in api
     assert "agentSelectable === true" in api
+    assert "node.capabilityBundle?.capabilityId" in api
+    assert "candidateKind: \"capability-bundle\"" in api
+    assert "sourceOfTruth: \"capability-bundle-v1\"" in api
+    assert "capabilityBundle?: CapabilityBundleSummary" in api
+    assert "capabilityId?: string" in api
     assert "CapabilityGraphSemanticNode" in api
     assert "GeneratedWorkflowToolRecommendations" in builder_ui
     assert "outputCandidates={outputCandidates}" in builder_ui

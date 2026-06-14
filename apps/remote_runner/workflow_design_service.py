@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .capability_bundle_audit import capability_bundle_manifest_entry
 from .api_models import (
     WorkflowDesignDraftCreateRequest,
     WorkflowDesignDraftForkRequest,
@@ -179,17 +180,37 @@ def _workflow_revision_manifest(export_dir: Path, compiled: dict[str, Any]) -> d
     run_spec = compiled.get("runSpec") if isinstance(compiled.get("runSpec"), dict) else {}
     workflow = run_spec.get("workflow") if isinstance(run_spec.get("workflow"), dict) else {}
     nodes = workflow.get("nodes") if isinstance(workflow.get("nodes"), list) else []
+    bundle_audit_by_revision = {
+        str(item.get("toolRevisionId") or "").strip(): item
+        for item in (compiled.get("capabilityBundleAudit") or [])
+        if isinstance(item, dict) and str(item.get("toolRevisionId") or "").strip()
+    }
     return {
         "schemaVersion": "workflow-revision-manifest.v1",
         "layout": compiled.get("layout") if isinstance(compiled.get("layout"), dict) else {},
         "files": files,
         "runSpecSha256": _sha256_json(run_spec),
         "toolRevisions": [
-            {"toolRevisionId": str(node.get("toolRevisionId") or "").strip()}
+            _tool_revision_manifest_entry(node, bundle_audit_by_revision=bundle_audit_by_revision)
             for node in nodes
             if isinstance(node, dict) and str(node.get("toolRevisionId") or "").strip()
         ],
     }
+
+
+def _tool_revision_manifest_entry(
+    node: dict[str, Any],
+    *,
+    bundle_audit_by_revision: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    tool_revision_id = str(node.get("toolRevisionId") or "").strip()
+    audit = bundle_audit_by_revision.get(tool_revision_id)
+    if audit is not None:
+        return dict(audit)
+    tool = node.get("tool") if isinstance(node.get("tool"), dict) else {}
+    if tool:
+        return capability_bundle_manifest_entry(tool, step_id=str(node.get("id") or ""))
+    return {"toolRevisionId": tool_revision_id}
 
 
 def _workflow_revision_graph_snapshot(compiled: dict[str, Any]) -> dict[str, Any]:

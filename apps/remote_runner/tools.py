@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .capability_bundle_audit import capability_bundle_audit_for_tool
 from .config import RemoteRunnerConfig
 from .evidence_storage import append_evidence_event
 from .production_evidence import normalize_production_evidence_type, validate_production_evidence_run
@@ -106,6 +107,7 @@ def mark_registered_tool_production_enabled(
     checked_at = now_iso()
     evidence_event = _record_production_evidence_event(
         cfg,
+        tool=item,
         tool_id=normalized,
         tool_revision_id=tool_revision_id,
         accepted=accepted,
@@ -142,15 +144,20 @@ def mark_registered_tool_production_enabled(
 def _record_production_evidence_event(
     cfg: RemoteRunnerConfig,
     *,
+    tool: dict[str, Any],
     tool_id: str,
     tool_revision_id: str,
     accepted: dict[str, Any],
     artifact_summary: dict[str, str],
     checked_at: str,
 ) -> dict[str, Any]:
+    capability_audit = capability_bundle_audit_for_tool(tool)
     payload = {
         "toolId": tool_id,
         "toolRevisionId": tool_revision_id,
+        "capabilityBundle": capability_audit,
+        "capabilityId": capability_audit["capabilityId"],
+        "capabilityBundleVersion": capability_audit["capabilityBundleVersion"],
         "runId": str(accepted.get("runId") or ""),
         "evidenceType": str(accepted.get("evidenceType") or ""),
         "message": str(accepted.get("message") or ""),

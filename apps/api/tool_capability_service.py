@@ -389,15 +389,28 @@ def _tool_index_registered_tool(item: dict[str, Any]) -> dict[str, Any]:
     facets = item.get("facets") if isinstance(item.get("facets"), dict) else {}
     state = str(item.get("state") or facets.get("state") or "WorkflowReady").strip() or "WorkflowReady"
     tool_id = str(item.get("toolId") or item.get("id") or "").strip()
+    package_spec = str(item.get("packageSpec") or "").strip()
     return {
         "id": tool_id,
         "toolId": tool_id,
         "toolRevisionId": str(item.get("latestStableRevisionId") or item.get("toolRevisionId") or "").strip(),
         "name": str(item.get("name") or _tool_name_from_identifier(tool_id)).strip(),
+        "source": str(item.get("source") or (package_spec.split("::", 1)[0] if "::" in package_spec else "")).strip(),
+        "packageSpec": package_spec,
+        "version": _tool_version_from_package_spec(package_spec),
+        "targetPlatform": str(facets.get("targetPlatform") or "linux-64"),
+        "validationSummary": item.get("validationSummary") if isinstance(item.get("validationSummary"), dict) else {},
         "toolContract": {
             "state": state,
             "workflowReady": state in {"WorkflowReady", "ProductionEnabled"},
             "productionEnabled": state == "ProductionEnabled",
+            "package": {
+                "packageSpec": package_spec,
+                "source": str(item.get("source") or (package_spec.split("::", 1)[0] if "::" in package_spec else "")).strip(),
+                "version": _tool_version_from_package_spec(package_spec),
+                "targetPlatform": str(facets.get("targetPlatform") or "linux-64"),
+                "targetPlatformSupported": True,
+            },
         },
     }
 
@@ -409,6 +422,15 @@ def _tool_name_from_identifier(value: Any) -> str:
     if "@" in text:
         text = text.split("@", 1)[0]
     return text
+
+
+def _tool_version_from_package_spec(package_spec: str) -> str:
+    text = str(package_spec or "").strip().rsplit("::", 1)[-1]
+    if "==" in text:
+        return text.split("==", 1)[1].strip()
+    if "=" in text:
+        return text.split("=", 1)[1].strip()
+    return ""
 
 
 def _prepare_tool_validation_queue(*, runtime: Any, target_platform: str, max_items: int) -> dict[str, Any]:

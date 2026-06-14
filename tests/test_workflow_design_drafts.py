@@ -16,6 +16,7 @@ from core.contracts.workflow_design import workflow_design_graph, workflow_desig
 from apps.remote_runner.workflow_design_compiler import compile_workflow_design_project
 from apps.remote_runner.workflow_design_planner import plan_workflow_design_draft
 from apps.remote_runner.workflow_design_service import compile_workflow_design_draft_export
+from apps.remote_runner.workflow_revision_storage import fetch_workflow_revision
 from apps.remote_runner.workflow_design_storage import (
     create_workflow_design_draft,
     fetch_workflow_design_draft,
@@ -231,6 +232,12 @@ def test_workflow_design_plan_preview_and_compile_export(tmp_path: Path) -> None
     preview_config = json.loads(plan["previews"]["config"])
     assert preview_config["workflow"]["outputs"]["qc_report"]["output"] == "report"
     assert preview_config["workflow"]["graph"]["metadata"]["description"] == "Saved workflow design fixture"
+    preview_bundle = preview_config["workflow"]["steps"][0]["tool"]["capabilityBundle"]
+    assert preview_bundle["capabilityBundleVersion"] == "capability-bundle-v1"
+    assert preview_bundle["toolRevisionId"] == test_tool_revision_id("bioconda::qc=1.0")
+    assert preview_bundle["toolVersion"] == "1.0"
+    assert preview_bundle["selectionRationale"]["sourceOfTruth"] == "capability-bundle-v1"
+    assert preview_bundle["nextAction"] == "execute-workflow-step"
 
     export_dir = tmp_path / "export"
     exported = compile_workflow_design_project(
@@ -242,6 +249,9 @@ def test_workflow_design_plan_preview_and_compile_export(tmp_path: Path) -> None
     )
 
     assert exported["layout"]["snakefile"] == "workflow/Snakefile"
+    assert exported["capabilityBundleAudit"][0]["capabilityBundleVersion"] == "capability-bundle-v1"
+    assert exported["capabilityBundleAudit"][0]["toolRevisionId"] == test_tool_revision_id("bioconda::qc=1.0")
+    assert exported["capabilityBundleAudit"][0]["selectionRationale"]["reason"]
     assert exported["runSpec"]["workflowDesign"]["draftId"] == saved["draftId"]
     assert exported["runSpec"]["workflowDesign"]["revision"] == saved["revision"]
     assert (export_dir / "workflow" / "Snakefile").is_file()
@@ -262,6 +272,11 @@ def test_workflow_design_plan_preview_and_compile_export(tmp_path: Path) -> None
     assert (export_dir / "config" / "config.yaml").is_file()
     assert not (export_dir / "config" / "schema" / "config.schema.json").exists()
     assert (export_dir / ".test" / "run-config.json").is_file()
+    test_config = json.loads((export_dir / ".test" / "run-config.json").read_text(encoding="utf-8"))
+    test_bundle = test_config["workflow"]["steps"][0]["tool"]["capabilityBundle"]
+    assert test_bundle["capabilityId"].startswith("capability-bundle-v1:tool:")
+    assert test_bundle["validationEvidence"]["status"] == "passed"
+    assert test_bundle["environmentLock"]["packageSpec"] == "bioconda::qc=1.0"
     assert (export_dir / "README.md").read_text(encoding="utf-8").startswith("# QC workflow")
 
 
@@ -415,6 +430,12 @@ def test_generated_tool_run_preflight_requires_saved_workflow_design_draft(tmp_p
     compiled = compile_workflow_design_draft_export(cfg, saved["draftId"])
     run_spec = dict(compiled["runSpec"])
     run_spec["inputs"] = [{"role": "input", "uploadId": "upl_reads", "filename": "reads.fastq"}]
+    revision = fetch_workflow_revision(cfg, compiled["workflowRevisionId"])
+    manifest_bundle = revision["manifest"]["toolRevisions"][0]
+    assert manifest_bundle["capabilityBundleVersion"] == "capability-bundle-v1"
+    assert manifest_bundle["toolRevisionId"] == test_tool_revision_id("bioconda::qc=1.0")
+    assert manifest_bundle["selectionRationale"]["sourceOfTruth"] == "capability-bundle-v1"
+    assert manifest_bundle["nextAction"] == "execute-workflow-step"
 
     preflight_run_spec(cfg, pipeline, run_spec)
 

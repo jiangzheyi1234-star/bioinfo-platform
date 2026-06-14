@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .capability_bundle_audit import capability_bundle_audit_for_tool
 from .config import RemoteRunnerConfig
 from .generated_workflow import GENERATED_TOOL_RUN_VERSION
 from .generated_workflow_outputs import resolve_exposed_outputs
@@ -176,11 +177,13 @@ def _preview_config(
                     "rule": step.rule_name,
                     "tool": {
                         "id": step.tool_id,
+                        "toolRevisionId": step.tool_revision_id,
                         "name": str(step.tool.get("name") or ""),
                         "source": str(step.tool.get("source") or ""),
                         "version": str(step.tool.get("version") or ""),
                         "packageSpec": str(step.tool.get("packageSpec") or ""),
                         "ruleTemplate": step.rule_template,
+                        "capabilityBundle": capability_bundle_audit_for_tool(step.tool, step_id=step.step_id),
                     },
                     "inputs": step.inputs,
                     "outputs": {name: str(path) for name, path in step.outputs.items()},

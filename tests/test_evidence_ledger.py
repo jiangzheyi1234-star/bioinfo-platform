@@ -161,6 +161,11 @@ def test_production_promotion_event_records_current_tool_revision(tmp_path: Path
 
     assert events[-1]["eventType"] == "tool.production.acceptance.v1"
     assert events[-1]["payload"]["toolRevisionId"] == revision["toolRevisionId"]
+    assert events[-1]["payload"]["capabilityBundleVersion"] == "capability-bundle-v1"
+    assert events[-1]["payload"]["capabilityId"].startswith("capability-bundle-v1:tool:")
+    assert events[-1]["payload"]["capabilityBundle"]["toolVersion"] == "9.5"
+    assert events[-1]["payload"]["capabilityBundle"]["selectionRationale"]["sourceOfTruth"] == "capability-bundle-v1"
+    assert events[-1]["payload"]["capabilityBundle"]["nextAction"] == "execute-workflow-step"
 
 
 def test_operator_diagnostics_bundle_archives_artifact_and_evidence(tmp_path: Path) -> None:

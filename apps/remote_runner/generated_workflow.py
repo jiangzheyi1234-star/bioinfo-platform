@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .capability_bundle_audit import capability_bundle_audit_for_tool
 from .config import RemoteRunnerConfig
 from .generated_workflow_constants import GENERATED_TOOL_RUN_PIPELINE_ID
 from .generated_workflow_graph import workflow_graph_config
@@ -164,6 +165,7 @@ def prepare_generated_tool_workflow(
 
 def _config_tool(step: GeneratedWorkflowStepPlan) -> dict[str, Any]:
     package_spec = str(step.tool.get("packageSpec") or "")
+    capability_audit = capability_bundle_audit_for_tool(step.tool, step_id=step.step_id)
     config = {
         "id": step.tool_id,
         "toolRevisionId": step.tool_revision_id,
@@ -174,6 +176,7 @@ def _config_tool(step: GeneratedWorkflowStepPlan) -> dict[str, Any]:
         "packageSpec": package_spec,
         "capabilities": list(step.tool.get("capabilities") or []),
         "ruleTemplate": step.rule_template,
+        "capabilityBundle": capability_audit,
     }
     rule_spec_draft = step.rule_spec_draft
     if rule_spec_draft:

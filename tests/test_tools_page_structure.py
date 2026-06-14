@@ -381,6 +381,15 @@ def test_tools_page_surfaces_target_validation_queue_priority() -> None:
     assert "wrapperCondaDependencies?: string[]" in model
     assert "validationQueue?: ToolCatalogValidationQueue" in model
     assert "export type CapabilityGraphSnapshot" in model
+    assert "export type CapabilityBundleSummary" in model
+    assert "export type CapabilityBundleStatus" in model
+    assert "export type CapabilityBundleGate" in model
+    assert "capabilityBundleVersion" in model
+    assert "capabilityBundles?: CapabilityBundleSummary[]" in model
+    assert "capabilityBundleGate?: CapabilityBundleGate" in model
+    assert "capabilityBundle?: CapabilityBundleSummary" in model
+    assert "capabilityBundleStatus?: CapabilityBundleStatus" in model
+    assert "approval?: { required?: boolean; approved?: boolean; policyVersion?: string; reason?: string }" in model
     assert "export type ToolCatalogProductionQueue" in model
     assert "productionQueue?: ToolCatalogProductionQueue" in model
     assert "export type ToolPrepareJobQueue" in model

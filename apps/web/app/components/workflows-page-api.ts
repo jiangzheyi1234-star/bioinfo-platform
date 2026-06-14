@@ -6,6 +6,7 @@ import type { RuleOutputSpec } from "./generated-workflow-model";
 import { fetchCapabilityGraphSnapshot } from "./tools-page-api";
 import type {
   AddedTool,
+  CapabilityBundleSummary,
   CapabilityGraphSemanticNode,
   RuleSpecDraft,
   RuleSpecTemplate,
@@ -49,6 +50,8 @@ export type WorkflowToolRecommendationCandidate = {
   snakemakeWrappers?: ToolProfileWrapperEvidence[];
   snakemakeWrapperCount?: number;
   preparePayload?: WorkflowToolRecommendationPreparePayload;
+  capabilityId?: string;
+  capabilityBundleVersion?: string;
 };
 
 export type WorkflowToolRecommendationExecutionGate = {
@@ -61,6 +64,7 @@ export type WorkflowToolRecommendationExecutionGate = {
   toolRevisionId?: string;
   toolId?: string;
   jobId?: string;
+  capabilityId?: string;
 };
 
 export type WorkflowToolRecommendationLatestPrepareJob = {
@@ -126,6 +130,7 @@ export type WorkflowToolRecommendationItem = {
   executionGate?: WorkflowToolRecommendationExecutionGate;
   latestPrepareJob?: WorkflowToolRecommendationLatestPrepareJob;
   validationPlan?: WorkflowToolRecommendationValidationPlan;
+  capabilityBundle?: CapabilityBundleSummary;
   preparePayload?: WorkflowToolRecommendationPreparePayload;
   inputPort: {
     name: string;
@@ -189,7 +194,7 @@ export function getCachedWorkflowCatalog(): WorkflowCatalogItem[] | undefined {
 export async function fetchWorkflowTools(options: FetchOptions = {}): Promise<AddedTool[]> {
   return cachedAsync(WORKFLOW_TOOLS_CACHE_KEY, 30_000, async () => {
     const snapshot = await fetchCapabilityGraphSnapshot({ query: "", page: 1, pageSize: 100 });
-    return normalizeWorkflowTools(snapshot.agentSelectableTools?.length ? snapshot.agentSelectableTools : snapshot.registeredTools || []);
+    return normalizeWorkflowTools(snapshot.agentSelectableTools || []);
   }, {
     forceRefresh: options.forceRefresh,
   });
@@ -254,13 +259,19 @@ function workflowRecommendationsFromCapabilityGraph({
   const boundedPageSize = Math.max(1, Math.min(pageSize || 5, 100));
   const inputPortsByProfileNode = capabilityInputPortsByProfileNode(profileNodes, graphEdges);
   const items = profileNodes
-    .filter((node) => node.kind === "ToolProfile" && node.agentSelectable === true && node.toolRevisionId)
+    .filter(
+      (node) =>
+        node.kind === "ToolProfile" &&
+        node.agentSelectable === true &&
+        node.toolRevisionId &&
+        node.capabilityBundle?.capabilityId
+    )
     .filter((node) => !normalizedQuery || capabilityNodeText(node).includes(normalizedQuery))
     .flatMap((node) =>
       (inputPortsByProfileNode.get(node.id) || []).flatMap((inputPort) => {
         const matchedFields = matchedCapabilityFields(inputPort, outputPort);
         if (matchedFields.length === 0) return [];
-        return [capabilityGraphRecommendation(node, inputPort, matchedFields)];
+        return [capabilityGraphRecommendation(node, inputPort, matchedFields, node.capabilityBundle)];
       })
     )
     .sort((left, right) => right.confidence - left.confidence || recommendationName(left).localeCompare(recommendationName(right)));
@@ -303,16 +314,20 @@ function matchedCapabilityFields(inputPort: CapabilityGraphSemanticNode, outputP
 function capabilityGraphRecommendation(
   profileNode: CapabilityGraphSemanticNode,
   inputPort: CapabilityGraphSemanticNode,
-  matchedFields: string[]
+  matchedFields: string[],
+  capabilityBundle?: CapabilityBundleSummary
 ): WorkflowToolRecommendationItem {
   const profileId = String(profileNode.profileId || "").trim();
-  const toolRevisionId = String(profileNode.toolRevisionId || "").trim();
+  const toolRevisionId = String(capabilityBundle?.toolRevisionId || profileNode.toolRevisionId || "").trim();
+  const capabilityId = String(capabilityBundle?.capabilityId || profileNode.capabilityId || "").trim();
   return {
     decision: "recommended",
     candidate: {
       candidateId: profileNode.id,
-      candidateKind: "capability-graph-tool-profile",
+      candidateKind: "capability-bundle",
       profileId,
+      capabilityId,
+      capabilityBundleVersion: capabilityBundle?.capabilityBundleVersion,
       toolNames: [profileId].filter(Boolean),
     },
     executionGate: {
@@ -321,9 +336,11 @@ function capabilityGraphRecommendation(
       canAddStep: true,
       nextAction: "add-step",
       reason: "WORKFLOW_TOOL_READY",
-      sourceOfTruth: "CapabilityGraphSnapshot",
+      sourceOfTruth: "capability-bundle-v1",
       toolRevisionId,
+      capabilityId,
     },
+    capabilityBundle,
     inputPort: {
       name: String(inputPort.name || ""),
       required: inputPort.required,
@@ -334,8 +351,12 @@ function capabilityGraphRecommendation(
     },
     matchedFields,
     confidence: Math.min(1, 0.45 + matchedFields.length * 0.15),
-    hardChecks: ["CapabilityGraphSnapshot agentSelectable=true", "端口方向 output -> input", "类型字段无冲突"],
-    evidence: [`profile ${profileId}`, `toolRevisionId ${toolRevisionId}`],
+    hardChecks: ["capability-bundle-v1 agentSelectable=true", "端口方向 output -> input", "类型字段无冲突"],
+    evidence: [
+      `capabilityId ${capabilityId}`,
+      `toolRevisionId ${toolRevisionId}`,
+      `validation ${capabilityBundle?.validationEvidence?.status || "unknown"}`,
+    ],
   };
 }
 
