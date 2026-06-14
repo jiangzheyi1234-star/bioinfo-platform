@@ -42,6 +42,8 @@ EVIDENCE_LABELS = {
     "RESULT",
     "RUNNER_READY",
     "SERVER_READY_PREFLIGHT",
+    "SOAK_ACCEPTANCE_SUMMARY",
+    "SOAK_OBSERVABILITY_EVIDENCE",
 }
 
 REQUIRED_BUNDLE_MARKERS = {
@@ -60,7 +62,14 @@ class GateStep:
     command: list[str]
 
 
-def build_steps(*, allow_two_slot: bool, allow_runner_kill: bool) -> list[GateStep]:
+def build_steps(
+    *,
+    allow_two_slot: bool,
+    allow_runner_kill: bool,
+    include_soak: bool = False,
+    allow_soak: bool = False,
+    soak_iterations: int = 1,
+) -> list[GateStep]:
     steps = [
         GateStep(
             name="real-snakemake-two-slot",
@@ -93,6 +102,24 @@ def build_steps(*, allow_two_slot: bool, allow_runner_kill: bool) -> list[GateSt
         raise ValueError("--allow-two-slot is required for the real 2-slot acceptance gate")
     if not allow_runner_kill:
         raise ValueError("--allow-runner-kill is required for the crash-recovery acceptance gate")
+    if include_soak:
+        if not allow_soak:
+            raise ValueError("--include-soak requires --allow-soak")
+        if soak_iterations < 1:
+            raise ValueError("--soak-iterations must be at least 1")
+        steps.append(
+            GateStep(
+                name="soak-stress-fault-injection",
+                command=[
+                    sys.executable,
+                    str(REPO_ROOT / "scripts" / "remote_runner_soak_acceptance.py"),
+                    "--allow-soak",
+                    "--allow-runner-kill",
+                    "--iterations",
+                    str(soak_iterations),
+                ],
+            )
+        )
     return steps
 
 
@@ -179,10 +206,32 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="Optional path for a machine-readable release gate evidence JSON file.",
     )
+    parser.add_argument(
+        "--include-soak",
+        action="store_true",
+        help="Also run the repeatable soak/stress/fault-injection acceptance harness.",
+    )
+    parser.add_argument(
+        "--allow-soak",
+        action="store_true",
+        help="Required with --include-soak; acknowledges repeated real remote acceptance.",
+    )
+    parser.add_argument(
+        "--soak-iterations",
+        type=int,
+        default=1,
+        help="Full two-slot/crash/policy acceptance cycles to run when --include-soak is set.",
+    )
     args = parser.parse_args(list(argv) if argv is not None else sys.argv[1:])
 
     try:
-        steps = build_steps(allow_two_slot=args.allow_two_slot, allow_runner_kill=args.allow_runner_kill)
+        steps = build_steps(
+            allow_two_slot=args.allow_two_slot,
+            allow_runner_kill=args.allow_runner_kill,
+            include_soak=args.include_soak,
+            allow_soak=args.allow_soak,
+            soak_iterations=args.soak_iterations,
+        )
     except ValueError as exc:
         print(f"ERROR: {exc}")
         return 2

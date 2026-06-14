@@ -49,6 +49,45 @@ def test_release_gate_builds_real_two_slot_crash_and_policy_steps() -> None:
     assert steps[2].command[-2].endswith("remote_execution_policy_acceptance.py")
 
 
+def test_release_gate_can_include_optional_soak_step() -> None:
+    gate = _load_module()
+
+    steps = gate.build_steps(
+        allow_two_slot=True,
+        allow_runner_kill=True,
+        include_soak=True,
+        allow_soak=True,
+        soak_iterations=3,
+    )
+
+    assert [step.name for step in steps] == [
+        "real-snakemake-two-slot",
+        "worker-crash-restart-recovery",
+        "execution-policy-acceptance",
+        "soak-stress-fault-injection",
+    ]
+    assert any(part.endswith("remote_runner_soak_acceptance.py") for part in steps[-1].command)
+    assert "--allow-soak" in steps[-1].command
+    assert "--allow-runner-kill" in steps[-1].command
+    assert steps[-1].command[-2:] == ["--iterations", "3"]
+
+
+def test_release_gate_requires_explicit_soak_acknowledgement() -> None:
+    gate = _load_module()
+
+    try:
+        gate.build_steps(
+            allow_two_slot=True,
+            allow_runner_kill=True,
+            include_soak=True,
+            allow_soak=False,
+        )
+    except ValueError as exc:
+        assert "--include-soak requires --allow-soak" in str(exc)
+    else:
+        raise AssertionError("soak gate accepted missing --allow-soak")
+
+
 def test_release_gate_streams_output_and_collects_evidence_labels(monkeypatch, capsys) -> None:
     gate = _load_module()
 
@@ -60,6 +99,7 @@ def test_release_gate_streams_output_and_collects_evidence_labels(monkeypatch, c
                     'OBSERVABILITY_EVIDENCE: {"schemaVersion": "execution-observability.v1"}\n',
                     'POLICY_BACKOFF_EVIDENCE: {"backoffSeconds": 12}\n',
                     'POST_ACCEPTANCE_INVARIANTS: {"ok": true}\n',
+                    'SOAK_ACCEPTANCE_SUMMARY: {"ok": true}\n',
                     "RESULT: ok\n",
                 ]
             )
@@ -80,6 +120,7 @@ def test_release_gate_streams_output_and_collects_evidence_labels(monkeypatch, c
         "OBSERVABILITY_EVIDENCE",
         "POLICY_BACKOFF_EVIDENCE",
         "POST_ACCEPTANCE_INVARIANTS",
+        "SOAK_ACCEPTANCE_SUMMARY",
         "RESULT",
     ]
     assert result["evidence"] == [
@@ -87,6 +128,7 @@ def test_release_gate_streams_output_and_collects_evidence_labels(monkeypatch, c
         {"label": "OBSERVABILITY_EVIDENCE", "payload": {"schemaVersion": "execution-observability.v1"}},
         {"label": "POLICY_BACKOFF_EVIDENCE", "payload": {"backoffSeconds": 12}},
         {"label": "POST_ACCEPTANCE_INVARIANTS", "payload": {"ok": True}},
+        {"label": "SOAK_ACCEPTANCE_SUMMARY", "payload": {"ok": True}},
         {"label": "RESULT", "payload": {"ok": True}},
     ]
     captured = capsys.readouterr()

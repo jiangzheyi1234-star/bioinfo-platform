@@ -166,6 +166,67 @@ def test_release_readiness_validates_required_release_gate_labels(tmp_path: Path
     }
 
 
+def test_release_readiness_accepts_optional_soak_gate_step(tmp_path: Path) -> None:
+    readiness = _load_module()
+    evidence_path = tmp_path / "release-gate-evidence.json"
+    _write_json(
+        evidence_path,
+        {
+            "schemaVersion": "remote-runner-release-gate.v1",
+            "ok": True,
+            "sourceCommit": "b" * 40,
+            "steps": [
+                {
+                    "name": "real-snakemake-two-slot",
+                    "exitCode": 0,
+                    "evidenceLabels": [
+                        "ACCEPTANCE_SUMMARY",
+                        "CONCURRENCY_EVIDENCE",
+                        "OBSERVABILITY_EVIDENCE",
+                        "POST_ACCEPTANCE_INVARIANTS",
+                        "RESOURCE_WAIT_EVIDENCE",
+                        "RESULT",
+                        "RUNNER_READY",
+                    ],
+                },
+                {
+                    "name": "worker-crash-restart-recovery",
+                    "exitCode": 0,
+                    "evidenceLabels": ["RECOVERY_EVIDENCE", "RESULT", "SERVER_READY_PREFLIGHT"],
+                },
+                {
+                    "name": "execution-policy-acceptance",
+                    "exitCode": 0,
+                    "evidenceLabels": [
+                        "POLICY_ACCEPTANCE_SUMMARY",
+                        "POLICY_ATTEMPT_TIMEOUT_EVIDENCE",
+                        "POLICY_BACKOFF_EVIDENCE",
+                        "OBSERVABILITY_EVIDENCE",
+                        "POLICY_PREFLIGHT",
+                        "POLICY_QUEUE_TTL_EVIDENCE",
+                        "POST_POLICY_INVARIANTS",
+                        "RESULT",
+                    ],
+                },
+                {
+                    "name": "soak-stress-fault-injection",
+                    "exitCode": 0,
+                    "evidenceLabels": [
+                        "RESULT",
+                        "SOAK_ACCEPTANCE_SUMMARY",
+                        "SOAK_OBSERVABILITY_EVIDENCE",
+                    ],
+                },
+            ],
+        },
+    )
+
+    result = readiness.validate_release_gate_evidence(evidence_path)
+
+    assert result.ok is True
+    assert "soak-stress-fault-injection" in result.detail["steps"]
+
+
 def test_release_readiness_rejects_partial_release_gate_evidence(tmp_path: Path) -> None:
     readiness = _load_module()
     evidence_path = tmp_path / "release-gate-evidence.json"

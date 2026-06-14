@@ -176,6 +176,37 @@ uv run python scripts\check_remote_runner_release_readiness.py `
   --release-gate-evidence dist\remote-runner\release-gate-evidence.json
 ```
 
+For execution-control-plane changes that need longer stability proof, run the
+explicit soak/stress/fault-injection harness after the staged Local API/Web
+launcher is already using the same `H2OMETA_REMOTE_RUNNER_BUNDLE`:
+
+```powershell
+uv run python scripts\remote_runner_soak_acceptance.py `
+  --allow-soak `
+  --allow-runner-kill `
+  --iterations 3 `
+  --evidence-json dist\remote-runner\soak-evidence.json
+```
+
+The soak harness repeats the real two-slot Snakemake acceptance, worker
+crash/restart recovery, and execution-policy fault acceptance. It writes
+`remote-runner-soak-acceptance.v1` evidence and fails when required categories
+are missing: batch concurrency, cancel isolation, resource saturation,
+lease-expiry recovery, retry backoff, attempt timeout, queue TTL, SQLite and
+backpressure observability, and post-run invariants.
+
+To attach this heavier proof to the release gate evidence, opt in explicitly:
+
+```powershell
+uv run python scripts\remote_runner_release_gate.py `
+  --allow-two-slot `
+  --allow-runner-kill `
+  --include-soak `
+  --allow-soak `
+  --soak-iterations 3 `
+  --evidence-json dist\remote-runner\release-gate-evidence.json
+```
+
 For GitHub-driven production promotion, dispatch `.github/workflows/release-remote-runner-artifacts.yml` with `publish_release=true`, `promote_release=true`, the runtime release tag, and the workflow run id/artifact name that contain `release-gate-evidence.json`. The promotion job runs in the protected `production-runtime` environment, downloads the published asset map and real gate evidence, then uploads `release-promotion-summary.json` plus `promoted-release-manifest.json` for review.
 
 ## Dev/Staging Control Plane Build

@@ -55,6 +55,13 @@ EXPECTED_GATE_LABELS = {
         "RESULT",
     },
 }
+OPTIONAL_GATE_LABELS = {
+    "soak-stress-fault-injection": {
+        "RESULT",
+        "SOAK_ACCEPTANCE_SUMMARY",
+        "SOAK_OBSERVABILITY_EVIDENCE",
+    },
+}
 
 
 @dataclass(frozen=True)
@@ -260,7 +267,7 @@ def validate_release_gate_evidence(path: Path) -> CheckResult:
         labels = raw_step.get("evidenceLabels")
         _require(isinstance(labels, list), f"{name} evidenceLabels must be a list")
         label_set = {str(label) for label in labels}
-        required = EXPECTED_GATE_LABELS.get(name)
+        required = EXPECTED_GATE_LABELS.get(name) or OPTIONAL_GATE_LABELS.get(name)
         _require(required is not None, f"unexpected release gate step: {name}")
         missing = sorted(required - label_set)
         _require(not missing, f"{name} evidence missing labels: {', '.join(missing)}")
