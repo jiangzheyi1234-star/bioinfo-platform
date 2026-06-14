@@ -77,6 +77,7 @@ def emit_observability(phase, run_ids):
                 if isinstance(alert, dict)
             ],
             "goldenSignals": golden,
+            "executionPolicy": observability.get("executionPolicy") or {},
         },
     )
 

@@ -78,6 +78,13 @@ def test_execution_diagnostics_reports_control_plane_snapshot(tmp_path) -> None:
     assert observability["goldenSignals"]["traffic"]["runningAttempts"] == 1
     assert observability["goldenSignals"]["saturation"]["slots"]["utilization"] == 1.0
     assert observability["goldenSignals"]["saturation"]["queueBackpressure"]["resourceWaitJobs"] == 1
+    assert observability["executionPolicy"]["jobsWithRetryPolicy"] == 2
+    assert observability["executionPolicy"]["jobsWithRetryBackoff"] == 2
+    assert observability["executionPolicy"]["policyRecoveryReasons"] == {
+        "ATTEMPT_TIMEOUT": 0,
+        "LEASE_EXPIRED": 0,
+        "QUEUE_TTL_EXCEEDED": 0,
+    }
     assert {"RESOURCE_WAIT_DEGRADED", "SLOT_SATURATION"}.issubset(
         {alert["code"] for alert in observability["alerts"]}
     )

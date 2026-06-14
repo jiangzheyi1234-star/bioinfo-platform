@@ -25,6 +25,7 @@ def build_execution_observability(
     traffic = _traffic_signal(queue_metrics)
     errors = _error_signal(connection, queue_metrics=queue_metrics, sqlite_metrics=sqlite_metrics, invariants=invariants)
     saturation = _saturation_signal(queue_metrics=queue_metrics, worker_health=worker_health)
+    execution_policy = _execution_policy_signal(connection, now=now)
     golden_signals = {
         "latency": latency,
         "traffic": traffic,
@@ -54,6 +55,7 @@ def build_execution_observability(
             "slotSaturationWarningRatio": SLOT_SATURATION_WARNING_RATIO,
         },
         "goldenSignals": golden_signals,
+        "executionPolicy": execution_policy,
         "alerts": alerts,
         "slo": slo,
     }
@@ -169,6 +171,47 @@ def _saturation_signal(queue_metrics: dict[str, Any], worker_health: dict[str, A
     }
 
 
+def _execution_policy_signal(connection, *, now: str) -> dict[str, Any]:
+    rows = connection.execute(
+        """
+        SELECT state, available_at, attempt_count, retry_policy_json, timeout_policy_json
+        FROM run_jobs
+        """
+    ).fetchall()
+    policy = {
+        "jobsWithRetryPolicy": 0,
+        "jobsWithRetryBackoff": 0,
+        "jobsWithQueueTtl": 0,
+        "jobsWithStartToCloseTimeout": 0,
+        "jobsWithHeartbeatTimeout": 0,
+        "retryBackoffScheduledJobs": 0,
+    }
+    for row in rows:
+        retry = _json_object(row["retry_policy_json"])
+        timeout = _json_object(row["timeout_policy_json"])
+        if int(retry.get("maxAttempts") or 0) > 1:
+            policy["jobsWithRetryPolicy"] += 1
+        if int(retry.get("backoffSeconds") or 0) > 0:
+            policy["jobsWithRetryBackoff"] += 1
+        if int(timeout.get("queueTtlSeconds") or 0) > 0:
+            policy["jobsWithQueueTtl"] += 1
+        if int(timeout.get("startToCloseTimeoutSeconds") or timeout.get("attemptTimeoutSeconds") or 0) > 0:
+            policy["jobsWithStartToCloseTimeout"] += 1
+        if int(timeout.get("heartbeatTimeoutSeconds") or timeout.get("leaseSeconds") or 0) > 0:
+            policy["jobsWithHeartbeatTimeout"] += 1
+        if row["state"] == "queued" and int(row["attempt_count"] or 0) > 0 and str(row["available_at"]) > now:
+            policy["retryBackoffScheduledJobs"] += 1
+    recovery = _count_recovery_reasons(connection)
+    return {
+        **policy,
+        "recoveriesByReason": recovery,
+        "policyRecoveryReasons": {
+            key: recovery.get(key, 0)
+            for key in ("ATTEMPT_TIMEOUT", "LEASE_EXPIRED", "QUEUE_TTL_EXCEEDED")
+        },
+    }
+
+
 def _alerts(
     *,
     latency: dict[str, Any],
@@ -278,6 +321,16 @@ def _event_payload(value: str | None) -> dict[str, Any]:
         return {}
     payload = details.get("payload") if isinstance(details, dict) else None
     return payload if isinstance(payload, dict) else {}
+
+
+def _json_object(value: str | None) -> dict[str, Any]:
+    import json
+
+    try:
+        parsed = json.loads(value or "{}")
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def _alert(
