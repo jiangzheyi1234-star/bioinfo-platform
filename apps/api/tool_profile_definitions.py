@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from .bio_tool_pack_manifest import bio_tool_pack_manifest_from_profiles, load_bio_tool_pack_manifest
 from .tool_profile_open_source_pack import OPEN_SOURCE_TOOL_PROFILES
 from .tool_profile_model import ToolProfile
 
 
-TOOL_PROFILES: tuple[ToolProfile, ...] = (
+_CURATED_TOOL_PROFILES: tuple[ToolProfile, ...] = (
     ToolProfile(
         profile_id="bracken",
         version=1,
@@ -394,3 +395,19 @@ TOOL_PROFILES: tuple[ToolProfile, ...] = (
         },
     ),
 ) + OPEN_SOURCE_TOOL_PROFILES
+
+
+DEFAULT_BIO_TOOL_PACK_MANIFEST = bio_tool_pack_manifest_from_profiles(
+    _CURATED_TOOL_PROFILES,
+    pack_id="h2ometa-metagenomics-core",
+    version=1,
+    name="H2OMeta Metagenomics Core Tool Pack",
+    source="https://github.com/h2ometa/h2ometa",
+    license="project-license",
+    citations=(
+        "H2OMeta curated Bio Tool Pack v1",
+        "Bioconda, BioContainers, Snakemake wrappers, and bio.tools package metadata",
+    ),
+)
+
+TOOL_PROFILES: tuple[ToolProfile, ...] = load_bio_tool_pack_manifest(DEFAULT_BIO_TOOL_PACK_MANIFEST)

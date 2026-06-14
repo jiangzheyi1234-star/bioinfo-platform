@@ -34,10 +34,10 @@ import {
 export { WorkflowCatalogTable };
 
 function prefetchWorkflowDetailData() {
-  void fetchWorkflowTools();
-  void fetchWorkflowDatabases();
-  void fetchWorkflowServer();
-  void fetchRunsList();
+  void fetchWorkflowTools().catch(() => undefined);
+  void fetchWorkflowDatabases().catch(() => undefined);
+  void fetchWorkflowServer().catch(() => undefined);
+  void fetchRunsList().catch(() => undefined);
 }
 
 function WorkflowCatalogTable({

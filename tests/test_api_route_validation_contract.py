@@ -124,7 +124,11 @@ def test_remote_file_route_uses_query_constraints_for_bounds() -> None:
     source = _source("apps/api/ssh_routes.py")
 
     assert '@router.get("/api/v1/servers/{server_id}/execution-diagnostics")' in source
+    assert '@router.get("/api/v1/servers/{server_id}/operator-diagnostics")' in source
     assert "get_server_execution_diagnostics_from_request" in source
+    assert "get_server_operator_diagnostics_from_request" in source
+    assert 'run_id: str = ""' in source
+    assert 'scenario_id: str = ""' in source
     assert 'limit: int = Query(default=500, ge=1, le=5000)' in source
     assert 'offset: int = Query(default=0, ge=0)' in source
     assert 'cursor: int = Query(default=0, ge=0)' in source

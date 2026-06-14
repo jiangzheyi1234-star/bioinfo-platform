@@ -78,119 +78,106 @@ export function ToolCatalogValidationQueueStrip({
   return (
     <>
       {prepareQueueActive ? (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          <span className="inline-flex h-7 items-center rounded-md border border-slate-200 bg-white px-2 text-[11px] text-slate-500">
-            prepare job queue
-          </span>
+        <div aria-label="prepare job queue" className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-slate-200 pb-2 text-xs">
+          <span className="font-medium text-slate-800">验证任务</span>
           {prepareQueueMetricItems(prepareJobQueue).map(([label, value]) => (
-            <span
-              key={label}
-              className="inline-flex h-7 items-center rounded-md border border-slate-200 bg-white px-2 text-[11px] text-slate-600"
-            >
-              <span className="mr-1 font-mono text-slate-900">{value}</span>
-              {label}
+            <span key={label} className="text-slate-500">
+              <span className="font-mono text-slate-900">{value}</span> {prepareQueueLabel(label)}
             </span>
           ))}
         </div>
       ) : null}
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        {visibleItems.map((item) => {
-          const preparing = preparingCandidateId === item.candidateId;
-          const activePrepareJob = isActivePrepareJob(item);
-          return (
-            <span
-              key={item.candidateId}
-              className="inline-flex min-h-7 max-w-full items-center gap-1 rounded-md border border-blue-100 bg-white px-2 py-1 text-[11px] text-slate-600"
-              title={item.validationPlan?.readinessBoundary || (item.priority?.reasons || []).join(", ")}
+      {items.length > 0 ? (
+        <div aria-label="validation queue" className={prepareQueueActive ? "mt-3" : ""}>
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div className="text-xs font-medium text-slate-800">待验证候选</div>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-7 bg-white px-2 text-[11px]"
+              disabled={batchPreparing}
+              onClick={() => void prepareTopValidationCandidates()}
             >
-              <span className="truncate font-medium text-slate-800">{item.profileId}</span>
-              <span className="font-mono text-blue-700">{item.priority?.score ?? 0}</span>
-              <span className="text-slate-400">{item.executionGate?.nextAction || item.action}</span>
-              {item.latestPrepareJob?.status ? (
-                <>
-                  <span className="text-slate-400">latest</span>
-                  <span className="font-mono text-slate-800">{item.latestPrepareJob?.status}</span>
-                  {item.latestPrepareJob?.errorCode ? (
-                    <span className="max-w-[140px] truncate font-mono text-amber-700">{item.latestPrepareJob?.errorCode}</span>
-                  ) : null}
-                </>
-              ) : null}
-              <span className="font-mono text-slate-800">{item.validationPlan?.stages?.length ?? 0}</span>
-              <span className="text-slate-400">prepare stages</span>
-              <span className="text-slate-400">wrappers</span>
-              <span className="font-mono text-slate-800">{item.evidence?.snakemakeWrapperCount ?? 0}</span>
-              {item.evidence?.wrapperContractHintCount ? (
-                <>
-                  <span className="text-slate-400">metadata</span>
-                  <span
-                    className="font-mono text-slate-800"
-                    title={(item.evidence?.wrapperContractHintFields || []).join(", ")}
+              {batchPreparing ? <Loader2 strokeWidth={1.5} className="mr-1 h-3 w-3 animate-spin" /> : null}
+              批量验证
+            </Button>
+          </div>
+          <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
+            {visibleItems.map((item) => {
+              const preparing = preparingCandidateId === item.candidateId;
+              const activePrepareJob = isActivePrepareJob(item);
+              return (
+                <div
+                  key={item.candidateId}
+                  className="grid gap-3 border-b border-slate-100 px-3 py-2 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_minmax(220px,0.9fr)_auto]"
+                  title={item.validationPlan?.readinessBoundary || (item.priority?.reasons || []).join(", ")}
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium text-slate-900">{item.profileId}</div>
+                    <div className="mt-0.5 flex min-w-0 flex-wrap gap-x-2 gap-y-1 text-[11px] text-slate-500">
+                      <span>优先级 <span className="font-mono text-blue-700">{item.priority?.score ?? 0}</span></span>
+                      <span>{item.executionGate?.nextAction || item.action}</span>
+                    </div>
+                  </div>
+                  <div className="min-w-0 text-[11px] text-slate-500">
+                    <div className="truncate">
+                      {item.latestPrepareJob?.status ? (
+                        <>
+                          最近 <span className="font-mono text-slate-800">{item.latestPrepareJob.status}</span>
+                          {item.latestPrepareJob?.errorCode ? (
+                            <span className="ml-1 font-mono text-amber-700">{item.latestPrepareJob?.errorCode}</span>
+                          ) : null}
+                        </>
+                      ) : (
+                        "尚未验证"
+                      )}
+                    </div>
+                    <div className="mt-1 truncate">{validationEvidenceSummary(item)}</div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-8 bg-white px-2 text-xs"
+                    disabled={preparing || activePrepareJob || !item.preparePayload}
+                    onClick={() => void prepareValidationCandidate(item)}
                   >
-                    {item.evidence.wrapperContractHintCount}
-                  </span>
-                </>
-              ) : null}
-              {item.evidence?.wrapperCondaDependencies?.length ? (
-                <>
-                  <span className="text-slate-400">env</span>
-                  <span
-                    className="font-mono text-slate-800"
-                    title={item.evidence.wrapperCondaDependencies.join(", ")}
-                  >
-                    {item.evidence.wrapperCondaDependencies.length}
-                  </span>
-                </>
-              ) : null}
-              <span className="text-slate-400">semantics</span>
-              <span className="font-mono text-slate-800">{(item.evidence?.semanticPortFields || []).join("/") || "none"}</span>
-              <Button
-                type="button"
-                variant="outline"
-                className="ml-1 h-6 bg-white px-1.5 text-[11px]"
-                disabled={preparing || activePrepareJob || !item.preparePayload}
-                onClick={() => void prepareValidationCandidate(item)}
-              >
-                {preparing || activePrepareJob ? <Loader2 strokeWidth={1.5} className="mr-1 h-3 w-3 animate-spin" /> : null}
-                {activePrepareJob ? "验证中" : "验证"}
-              </Button>
-            </span>
-          );
-        })}
-        <span className="inline-flex h-7 items-center rounded-md border border-slate-200 bg-white px-2 text-[11px] text-slate-400">
-          validation queue
-        </span>
-        <Button
-          type="button"
-          variant="outline"
-          className="h-7 bg-white px-2 text-[11px]"
-          disabled={batchPreparing}
-          onClick={() => void prepareTopValidationCandidates()}
-        >
-          {batchPreparing ? <Loader2 strokeWidth={1.5} className="mr-1 h-3 w-3 animate-spin" /> : null}
-          批量验证
-        </Button>
-      </div>
+                    {preparing || activePrepareJob ? <Loader2 strokeWidth={1.5} className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                    {activePrepareJob ? "验证中" : "验证"}
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+          {items.length > visibleItems.length ? (
+            <div className="mt-1 text-[11px] text-slate-400">还有 {items.length - visibleItems.length} 个候选未显示</div>
+          ) : null}
+        </div>
+      ) : null}
       {productionQueue?.items?.length ? (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          <span className="inline-flex h-7 items-center rounded-md border border-emerald-100 bg-white px-2 text-[11px] text-emerald-700">
-            production evidence queue
-          </span>
-          {productionQueue.items.slice(0, 3).map((item) => (
-            <span
-              key={item.toolId}
-              className="inline-flex min-h-7 max-w-full items-center gap-1 rounded-md border border-emerald-100 bg-white px-2 py-1 text-[11px] text-slate-600"
-              title={item.productionPlan?.acceptedEvidenceTypes?.join(", ") || item.executionGate?.reason || ""}
-            >
-              <span className="truncate font-medium text-slate-800">{item.toolName || item.toolId}</span>
-              <span className="font-mono text-emerald-700">{item.currentState}</span>
-              <span className="text-slate-400">{item.action || item.executionGate?.nextAction || "submit-production-evidence"}</span>
-              <span className="text-slate-400">fields</span>
-              <span className="font-mono text-slate-800">{item.productionPlan?.requiredEvidenceFields?.length ?? 0}</span>
-            </span>
-          ))}
-          <span className="inline-flex h-7 items-center rounded-md border border-slate-200 bg-white px-2 text-[11px] text-slate-400">
-            {productionQueue.available} available · {productionQueue.remaining} remaining
-          </span>
+        <div
+          aria-label="production evidence queue"
+          data-action="submit-production-evidence"
+          className="mt-3 rounded-md border border-emerald-100 bg-white px-3 py-2"
+        >
+          <div className="mb-2 flex items-center justify-between gap-3 text-xs">
+            <span className="font-medium text-emerald-800">生产证据</span>
+            <span className="text-slate-500">{productionQueue.available} 可提交 · {productionQueue.remaining} 待处理</span>
+          </div>
+          <div className="grid gap-1.5">
+            {productionQueue.items.slice(0, 3).map((item) => (
+              <div
+                key={item.toolId}
+                className="flex min-w-0 items-center justify-between gap-3 text-[11px]"
+                title={item.productionPlan?.acceptedEvidenceTypes?.join(", ") || item.executionGate?.reason || ""}
+              >
+                <span className="min-w-0 truncate font-medium text-slate-800">{item.toolName || item.toolId}</span>
+                <span className="shrink-0 text-slate-500">
+                  <span className="font-mono text-emerald-700">{item.currentState}</span>
+                  <span className="ml-1">{item.productionPlan?.requiredEvidenceFields?.length ?? 0} 字段</span>
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       ) : null}
       {batchStatus ? <div className="mt-1 text-[11px] text-slate-500">{batchStatus}</div> : null}
@@ -208,6 +195,45 @@ function prepareQueueMetricItems(queue?: ToolPrepareJobQueue): [string, number][
     ["exhausted", counts.exhausted ?? 0],
     ["succeeded", counts.succeeded ?? 0],
   ];
+}
+
+function prepareQueueLabel(label: string) {
+  switch (label) {
+    case "queued":
+      return "排队";
+    case "running":
+      return "运行";
+    case "waiting":
+      return "等待资源";
+    case "exhausted":
+      return "耗尽";
+    case "succeeded":
+      return "成功";
+    default:
+      return label;
+  }
+}
+
+function validationEvidenceSummary(item: ToolCatalogValidationQueueItem): string {
+  const evidence = item.evidence || {};
+  const parts = [
+    `${item.validationPlan?.stages?.length ?? 0} prepare stages`,
+    `${evidence.snakemakeWrapperCount ?? 0} wrappers`,
+  ];
+  if (evidence.wrapperContractHintCount) {
+    parts.push(`${evidence.wrapperContractHintCount} metadata`);
+  }
+  if (evidence.wrapperContractHintFields?.length) {
+    parts.push(evidence.wrapperContractHintFields.slice(0, 2).join("/"));
+  }
+  if (evidence.wrapperCondaDependencies?.length) {
+    parts.push(`${evidence.wrapperCondaDependencies.length} env`);
+  }
+  const semanticFields = (evidence.semanticPortFields || []).join("/");
+  if (semanticFields) {
+    parts.push(semanticFields);
+  }
+  return parts.join(" · ");
 }
 
 function isActivePrepareJob(item: ToolCatalogValidationQueueItem): boolean {

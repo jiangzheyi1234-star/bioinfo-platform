@@ -11,6 +11,7 @@ from apps.api.tool_profile_model import ToolProfile
 from apps.api.tool_profile_prepare_payload import profile_prepare_payload
 from apps.api.tool_profile_registry import TOOL_PROFILES
 from apps.api.tool_profile_semantics import enrich_rule_template_semantics
+from apps.api.tool_profile_sources import all_tool_profiles
 from apps.api.tool_validation_plan import workflow_ready_validation_plan
 
 
@@ -222,7 +223,7 @@ def validation_queue_tool_ids(
 ) -> list[str]:
     workflow_ready_names = _workflow_ready_tool_names(registered_tools or [])
     ids: list[str] = []
-    for profile in TOOL_PROFILES:
+    for profile in all_tool_profiles():
         if _profile_registered_workflow_ready(profile, workflow_ready_names):
             continue
         prepare_payload = profile_prepare_payload(profile)
@@ -249,7 +250,7 @@ def _validation_queue(
     workflow_ready_names = _workflow_ready_tool_names(registered_tools)
     candidates = [
         _validation_queue_item(profile, latest_prepare_jobs_by_tool_id=latest_prepare_jobs_by_tool_id)
-        for profile in TOOL_PROFILES
+        for profile in all_tool_profiles()
         if not _profile_registered_workflow_ready(profile, workflow_ready_names)
     ]
     candidates.extend(
@@ -352,6 +353,7 @@ def _validation_queue_item(profile: ToolProfile, *, latest_prepare_jobs_by_tool_
         "candidateKind": "h2ometa-tool-profile",
         "profileId": profile.profile_id,
         "profileVersion": profile.version,
+        "packId": profile.pack_id,
         "toolNames": list(profile.tool_names),
         "currentState": "SnakemakeRenderable",
         "requiredState": "WorkflowReady",

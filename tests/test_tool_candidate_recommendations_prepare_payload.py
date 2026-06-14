@@ -14,6 +14,7 @@ def test_semantic_recommendation_candidate_exposes_prepare_payload() -> None:
     assert fastqc["candidate"]["preparePayload"] == fastqc["preparePayload"]
     assert fastqc["candidate"]["preparePayload"]["id"] == "bioconda::fastqc"
     assert fastqc["candidate"]["preparePayload"]["ruleSpecDraft"]["requiresUserCompletion"] is False
+    assert fastqc["blockReason"] == "WORKFLOW_TOOL_NOT_READY"
 
 
 def test_semantic_recommendations_include_unified_catalog_wrapper_candidates() -> None:
@@ -67,4 +68,5 @@ def test_semantic_recommendations_include_unified_catalog_wrapper_candidates() -
     assert item["validationPlan"]["requiredState"] == "WorkflowReady"
     assert item["executionGate"]["canAddStep"] is False
     assert item["executionGate"]["nextAction"] == "prepare-tool"
+    assert item["blockReason"] == "WORKFLOW_TOOL_NOT_READY"
     assert item["matchedFields"] == ["kind", "format"]

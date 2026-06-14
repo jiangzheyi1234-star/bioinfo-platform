@@ -31,6 +31,23 @@ class RunnerOperationsMixin(
             server_record=record,
         )
 
+    def get_runner_operator_diagnostics(
+        self,
+        server_id: str | None = None,
+        *,
+        run_id: str = "",
+        scenario_id: str = "",
+    ) -> dict[str, Any]:
+        selected_server_id, ssh, record = self._require_existing_runner_prepared(preferred_server_id=server_id)
+        return self._call_remote_runner(
+            self._service_locator.remote_runner_manager.get_operator_diagnostics,
+            server_id=selected_server_id,
+            ssh_service=ssh,
+            server_record=record,
+            run_id=run_id,
+            scenario_id=scenario_id,
+        )
+
     @staticmethod
     def _call_remote_runner(func, /, **kwargs):
         return call_remote_runner(func, **kwargs)

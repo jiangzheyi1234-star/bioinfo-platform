@@ -3,7 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
+from apps.remote_runner.artifact_ledger_storage import list_lineage_edges_for_run, list_run_artifact_edges
 from apps.remote_runner.evidence_storage import list_evidence_events
+from apps.remote_runner.operator_diagnostics_bundle import archive_operator_diagnostics_bundle
 from apps.remote_runner.storage import upsert_tool
 from apps.remote_runner.storage_core import get_connection
 from apps.remote_runner.tool_platform_storage import record_prepare_job_validation_result
@@ -159,3 +161,50 @@ def test_production_promotion_event_records_current_tool_revision(tmp_path: Path
 
     assert events[-1]["eventType"] == "tool.production.acceptance.v1"
     assert events[-1]["payload"]["toolRevisionId"] == revision["toolRevisionId"]
+
+
+def test_operator_diagnostics_bundle_archives_artifact_and_evidence(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    bundle = {
+        "schemaVersion": "operator-diagnostics-bundle.v1",
+        "bundleId": "opdiag_test",
+        "bundleHash": "abc123",
+        "collectedAt": "2099-06-07T10:00:00Z",
+        "identity": {"serverId": "srv_1", "runId": "run_diagnostics", "scenarioId": "worker-crash"},
+        "release": {"releaseTag": "v1.2.3", "sourceCommit": "abc123"},
+        "summary": {
+            "remoteRunnerReachable": True,
+            "readinessOk": False,
+            "reasonCodes": ["RUN_WORKER_HEARTBEAT_STALE"],
+            "endpointStatuses": {
+                "ready": {
+                    "httpStatus": 503,
+                    "ok": False,
+                    "reasonCode": "RUN_WORKER_HEARTBEAT_STALE",
+                }
+            },
+        },
+        "includedSections": ["remoteRunner", "localApi"],
+        "redactionPolicy": {"schemaVersion": "diagnostics-redaction.v1"},
+    }
+    bundle_path = tmp_path / "operator-diagnostics.json"
+    bundle_path.write_text('{"schemaVersion":"operator-diagnostics-bundle.v1"}', encoding="utf-8")
+
+    archived = archive_operator_diagnostics_bundle(cfg, bundle=bundle, bundle_path=bundle_path)
+
+    events = list_evidence_events(cfg, subject_kind="run", subject_id="run_diagnostics")
+    run_edges = list_run_artifact_edges(cfg, "run_diagnostics")
+    lineage_edges = list_lineage_edges_for_run(cfg, "run_diagnostics")
+
+    assert archived["eventType"] == "operator.diagnostics.bundle.created.v1"
+    assert archived["artifactBlobId"].startswith("ablob_")
+    assert events[-1]["eventType"] == "operator.diagnostics.bundle.created.v1"
+    assert events[-1]["schema"]["name"] == "OperatorDiagnosticsBundleEvidence"
+    assert events[-1]["payload"]["bundleId"] == "opdiag_test"
+    assert events[-1]["payload"]["runArtifactEdgeId"] == archived["runArtifactEdgeId"]
+    assert events[-1]["payload"]["reasonCodes"] == ["RUN_WORKER_HEARTBEAT_STALE"]
+    assert run_edges[-1]["role"] == "diagnostic"
+    assert run_edges[-1]["portName"] == "operator-diagnostics-bundle"
+    assert lineage_edges[-1]["evidenceEventId"] == archived["eventId"]
+    assert lineage_edges[-1]["objectId"] == archived["artifactBlobId"]

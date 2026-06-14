@@ -1,4 +1,14 @@
-import { AlertCircle, ChevronLeft, ChevronRight, ExternalLink, Check, Loader2, PackagePlus, Workflow } from "lucide-react";
+import {
+  AlertCircle,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
+  Loader2,
+  PackagePlus,
+  Workflow,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -134,68 +144,141 @@ export function ToolCatalogQualityStrip({
           : error || wrapperCatalog?.sourceRef?.ref || "source pending";
   const targetMetrics = targetAcceptance ? catalogTargetMetrics(targetAcceptance) : [];
   const validationQueueItems = targetAcceptance?.validationQueue?.items ?? [];
+  const productionQueueItems = targetAcceptance?.productionQueue?.items ?? [];
+  const prepareQueueTotal = targetAcceptance?.prepareJobQueue?.total ?? targetAcceptance?.prepareJobQueue?.items?.length ?? 0;
+  const queueTotal = validationQueueItems.length + productionQueueItems.length + prepareQueueTotal;
+  const blockedCount = targetAcceptance?.blockedTargets.length ?? 0;
   const targetStatusText = targetAcceptanceLoading
     ? "正在读取 Catalog v1 targets"
     : targetAcceptanceError || (
         targetAcceptance
-          ? `${targetAcceptance.blockedTargets.length} blocked targets`
+          ? `${blockedCount} 个目标未达成`
           : "targets pending"
       );
   return (
-    <section className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="min-w-0">
-          <div className="text-xs font-medium text-slate-700">
-            {showingCandidates ? "Tool candidate catalog" : "Snakemake wrapper catalog"}
+    <section
+      aria-label={showingCandidates ? "Tool candidate catalog" : "Snakemake wrapper catalog"}
+      className="rounded-md border border-slate-200 bg-white"
+    >
+      <div className="grid gap-4 px-4 py-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+        <div className="min-w-0 space-y-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+            <div className="text-sm font-medium text-slate-900">
+              {showingCandidates ? "候选工具索引" : "Wrapper catalog"}
+            </div>
+            <div className="min-w-0 truncate text-xs text-slate-500">{statusText}</div>
           </div>
-          <div className="mt-0.5 text-[11px] text-slate-400">{statusText}</div>
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          {sourceMetrics.map(([label, value]) => (
-            <span key={label} className="inline-flex h-6 items-center rounded-md border border-slate-200 bg-white px-2 text-[11px] text-slate-600">
-              <span className="mr-1 font-mono text-slate-900">{value}</span>
-              {label}
-            </span>
-          ))}
-          {metrics.map(([label, value]) => (
-            <span key={label} className="inline-flex h-6 items-center rounded-md border border-slate-200 bg-white px-2 text-[11px] text-slate-600">
-              <span className="mr-1 font-mono text-slate-900">{value}</span>
-              {label}
-            </span>
-          ))}
-        </div>
-      </div>
-      <div className="mt-2 border-t border-slate-200 pt-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="min-w-0">
-            <div className="text-xs font-medium text-slate-700">Catalog v1 targets</div>
-            <div className="mt-0.5 text-[11px] text-slate-400">{targetStatusText}</div>
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {targetMetrics.map(([label, result]) => (
-              <span
-                key={label}
-                className={cn(
-                  "inline-flex h-6 items-center rounded-md border bg-white px-2 text-[11px]",
-                  result.passed ? "border-emerald-200 text-emerald-700" : "border-amber-200 text-amber-700"
-                )}
-              >
-                <span className="mr-1 font-mono text-slate-900">{result.actual}/{result.target}</span>
-                {label}
-                <span className="ml-1 text-slate-400">{result.remaining} remaining</span>
-              </span>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+            {metrics.map(([label, value]) => (
+              <CatalogMetric key={label} label={catalogMetricLabel(label)} value={value} />
             ))}
           </div>
         </div>
-        <ToolCatalogValidationQueueStrip
-          items={validationQueueItems}
-          productionQueue={targetAcceptance?.productionQueue}
-          prepareJobQueue={targetAcceptance?.prepareJobQueue}
-          onQueueChanged={onQueueChanged}
-        />
+        <div className="flex min-w-[190px] flex-col justify-between gap-3 rounded-md border border-slate-100 bg-slate-50 px-3 py-2">
+          <div>
+            <div className="text-[11px] font-medium uppercase text-slate-400">来源</div>
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {sourceMetrics.length > 0 ? (
+                sourceMetrics.map(([label, value]) => (
+                  <span key={label} className="text-xs text-slate-600">
+                    <span className="font-mono text-slate-900">{value}</span> {catalogMetricLabel(label)}
+                  </span>
+                ))
+              ) : (
+                <span className="text-xs text-slate-500">{showingCandidates ? "candidate catalog" : "snakemake wrappers"}</span>
+              )}
+            </div>
+          </div>
+          <div className={cn("text-xs", blockedCount > 0 || targetAcceptanceError ? "text-amber-700" : "text-emerald-700")}>
+            {targetStatusText}
+          </div>
+        </div>
+      </div>
+
+      <div className="border-t border-slate-100 px-4 py-3">
+        <div className="grid gap-2 lg:grid-cols-5">
+          {targetMetrics.map(([label, result]) => (
+            <CatalogTargetProgress key={label} label={catalogMetricLabel(label)} result={result} />
+          ))}
+        </div>
+        {queueTotal > 0 ? (
+          <details className="group mt-3 rounded-md border border-slate-200 bg-slate-50">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs">
+              <span className="font-medium text-slate-800">处理队列</span>
+              <span className="flex min-w-0 items-center gap-2 text-slate-500">
+                <span className="truncate">
+                  {validationQueueItems.length} 待验证 · {productionQueueItems.length} 生产证据 · {prepareQueueTotal} 任务
+                </span>
+                <ChevronDown strokeWidth={1.5} className="h-4 w-4 shrink-0 transition group-open:rotate-180" />
+              </span>
+            </summary>
+            <div className="border-t border-slate-200 px-3 pb-3 pt-2">
+              <ToolCatalogValidationQueueStrip
+                items={validationQueueItems}
+                productionQueue={targetAcceptance?.productionQueue}
+                prepareJobQueue={targetAcceptance?.prepareJobQueue}
+                onQueueChanged={onQueueChanged}
+              />
+            </div>
+          </details>
+        ) : null}
       </div>
     </section>
   );
+}
+
+function CatalogMetric({ label, value }: { label: string; value: number | undefined }) {
+  return (
+    <div className="min-w-0 rounded-md border border-slate-100 bg-slate-50 px-3 py-2">
+      <div className="font-mono text-sm font-semibold text-slate-950">{value ?? 0}</div>
+      <div className="mt-0.5 truncate text-[11px] text-slate-500">{label}</div>
+    </div>
+  );
+}
+
+function CatalogTargetProgress({ label, result }: { label: string; result: ToolCatalogTargetResult }) {
+  const target = Math.max(1, result.target || 0);
+  const percent = Math.max(0, Math.min(100, Math.round(((result.actual || 0) / target) * 100)));
+  return (
+    <div className="min-w-0">
+      <div className="mb-1 flex items-center justify-between gap-2 text-[11px]">
+        <span className="truncate text-slate-600">{label}</span>
+        <span className={cn("font-mono", result.passed ? "text-emerald-700" : "text-amber-700")}>
+          {result.actual}/{result.target}
+        </span>
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+        <div className={cn("h-full rounded-full", result.passed ? "bg-emerald-500" : "bg-amber-400")} style={{ width: `${percent}%` }} />
+      </div>
+      {!result.passed ? <div className="mt-1 text-[11px] text-slate-400">还差 {result.remaining}</div> : null}
+    </div>
+  );
+}
+
+function catalogMetricLabel(label: string) {
+  switch (label) {
+    case "discovered":
+      return "已发现";
+    case "addable drafts":
+    case "addable":
+      return "可添加";
+    case "draft-runnable":
+      return "草稿可运行";
+    case "workflow-ready":
+      return "流程就绪";
+    case "production-enabled":
+      return "生产可用";
+    case "conda packages":
+      return "Conda";
+    case "wrappers":
+      return "Wrappers";
+    case "profiles":
+      return "Profiles";
+    case "renderable":
+      return "可渲染";
+    default:
+      return label;
+  }
 }
 
 function catalogTargetMetrics(acceptance: ToolCatalogTargetAcceptance): [string, ToolCatalogTargetResult][] {

@@ -7,6 +7,7 @@ from typing import Any
 
 from .tool_profile_registry import TOOL_PROFILES, ToolProfile
 from .tool_profile_semantics import enrich_rule_template_semantics
+from .tool_profile_sources import all_tool_profiles
 
 
 PROFILE_CONTRACT_SOURCE = "h2ometa-tool-profile-registry"
@@ -17,7 +18,15 @@ def resolve_tool_profile(tool: dict[str, Any], *, wrappers: list[dict[str, Any]]
     profile = _profile_for_tool(tool.get("name"))
     if profile is None:
         return None
+    return resolve_tool_profile_record(profile, tool, wrappers=wrappers)
 
+
+def resolve_tool_profile_record(
+    profile: ToolProfile,
+    tool: dict[str, Any],
+    *,
+    wrappers: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     package_spec = _clean(tool.get("packageSpec")) or _package_spec_from_identity(tool)
     matched_wrapper = _matched_wrapper(profile, wrappers or [])
     lock: dict[str, Any] = {
@@ -58,7 +67,7 @@ def resolve_tool_profile(tool: dict[str, Any], *, wrappers: list[dict[str, Any]]
 
 
 def known_tool_profile_ids() -> list[str]:
-    return sorted(profile.profile_id for profile in TOOL_PROFILES)
+    return sorted(profile.profile_id for profile in all_tool_profiles())
 
 
 def _profile_rule_template(profile: ToolProfile, package_spec: str) -> dict[str, Any]:
@@ -132,19 +141,9 @@ def _clean(value: Any) -> str:
     return str(value or "").strip()
 
 
-_PROFILE_BY_TOOL_NAME: dict[str, ToolProfile] | None = None
-
-
 def _profile_for_tool(name: Any) -> ToolProfile | None:
-    return _profile_by_tool_name().get(_normalize_tool_name(name))
-
-
-def _profile_by_tool_name() -> dict[str, ToolProfile]:
-    global _PROFILE_BY_TOOL_NAME
-    if _PROFILE_BY_TOOL_NAME is None:
-        _PROFILE_BY_TOOL_NAME = {
-            _normalize_tool_name(tool_name): profile
-            for profile in TOOL_PROFILES
-            for tool_name in profile.tool_names
-        }
-    return _PROFILE_BY_TOOL_NAME
+    normalized = _normalize_tool_name(name)
+    for profile in all_tool_profiles():
+        if normalized in {_normalize_tool_name(tool_name) for tool_name in profile.tool_names}:
+            return profile
+    return None

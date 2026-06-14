@@ -19,15 +19,15 @@ export function WorkflowWorkspaceTabs() {
 
   function prefetchTab(href: string) {
     if (href === "/workflows/databases") {
-      void fetchDatabases();
-      void fetchDatabaseTemplates();
+      void fetchDatabases().catch(() => undefined);
+      void fetchDatabaseTemplates().catch(() => undefined);
       return;
     }
     if (href === "/workflows/tools") {
-      void fetchWorkflowTools();
+      void fetchWorkflowTools().catch(() => undefined);
       return;
     }
-    void fetchWorkflowCatalog();
+    void fetchWorkflowCatalog().catch(() => undefined);
   }
 
   return (

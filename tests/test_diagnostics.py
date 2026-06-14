@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from scripts.collect_diagnostics import (
+    build_operator_diagnostics_bundle,
     collect_remote_runner_health,
     collect_environment,
     collect_system_info,
@@ -105,8 +106,9 @@ def test_collect_remote_runner_health_includes_execution_diagnostics(monkeypatch
     requested: list[str] = []
 
     class FakeResponse:
-        def __init__(self, payload: dict):
+        def __init__(self, payload: dict, status: int = 200):
             self.payload = payload
+            self.status = status
 
         def __enter__(self):
             return self
@@ -128,7 +130,110 @@ def test_collect_remote_runner_health_includes_execution_diagnostics(monkeypatch
 
     health = collect_remote_runner_health("http://runner.local", "runner-token")
 
+    assert any(url.endswith("/health/meta") for url in requested)
     assert any(url.endswith("/health/execution-diagnostics") for url in requested)
     assert health["/health/ready"]["httpStatus"] == 503
-    assert health["/health/ready"]["reasonCode"] == "RUN_WORKER_UNAVAILABLE"
-    assert health["/health/execution-diagnostics"]["data"]["schemaVersion"] == "execution-diagnostics.v1"
+    assert health["/health/ready"]["body"]["reasonCode"] == "RUN_WORKER_UNAVAILABLE"
+    assert health["/health/execution-diagnostics"]["body"]["data"]["schemaVersion"] == "execution-diagnostics.v1"
+
+
+def test_operator_diagnostics_bundle_summarizes_probe_statuses(monkeypatch, tmp_path):
+    import io
+    import json
+    import urllib.error
+    import urllib.request
+
+    requested: list[str] = []
+
+    class FakeResponse:
+        status = 200
+
+        def __init__(self, payload: dict):
+            self.payload = payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return json.dumps(self.payload).encode("utf-8")
+
+    def fake_urlopen(request, timeout):
+        requested.append(request.full_url)
+        if request.full_url.endswith("/health/ready"):
+            body = io.BytesIO(b'{"status":"failed","reasonCode":"RUN_WORKER_UNAVAILABLE"}')
+            raise urllib.error.HTTPError(request.full_url, 503, "Service Unavailable", {}, body)
+        if request.full_url.endswith("/health/execution-diagnostics"):
+            return FakeResponse(
+                {
+                    "status": "ok",
+                    "data": {
+                        "schemaVersion": "execution-diagnostics.v1",
+                        "readiness": {"reasonCode": ""},
+                    },
+                }
+            )
+        return FakeResponse({"status": "ok", "data": {}})
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    output = tmp_path / "operator-diagnostics.json"
+
+    bundle = build_operator_diagnostics_bundle(
+        local_api_base="http://local-api",
+        remote_runner_base="http://runner.local",
+        runner_token="runner-token",
+        server_id="srv_1",
+        run_id="run_1",
+        scenario_id="resource-wait",
+        release_tag="v1.2.3",
+        source_commit="abc123",
+        output_path=str(output),
+    )
+
+    assert bundle["schemaVersion"] == "operator-diagnostics-bundle.v1"
+    assert bundle["identity"] == {"serverId": "srv_1", "runId": "run_1", "scenarioId": "resource-wait"}
+    assert bundle["summary"]["remoteRunnerReachable"] is True
+    assert bundle["summary"]["readinessOk"] is False
+    assert bundle["summary"]["reasonCodes"] == ["RUN_WORKER_UNAVAILABLE"]
+    assert bundle["summary"]["endpointStatuses"]["ready"]["httpStatus"] == 503
+    assert bundle["remoteRunner"]["/health/ready"]["body"]["reasonCode"] == "RUN_WORKER_UNAVAILABLE"
+    assert any(url.endswith("/health/meta") for url in requested)
+    assert output.exists()
+    assert json.loads(output.read_text(encoding="utf-8"))["bundleId"].startswith("opdiag_")
+
+
+def test_operator_diagnostics_bundle_records_unreachable_reason(monkeypatch):
+    import urllib.error
+    import urllib.request
+
+    def fake_urlopen(request, timeout):
+        if "runner.local" in request.full_url:
+            raise urllib.error.URLError("connection refused")
+
+        class FakeResponse:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return b'{"status":"ok"}'
+
+        return FakeResponse()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    bundle = build_operator_diagnostics_bundle(
+        local_api_base="http://local-api",
+        remote_runner_base="http://runner.local",
+        server_id="srv_unreachable",
+    )
+
+    assert bundle["summary"]["remoteRunnerReachable"] is False
+    assert bundle["summary"]["reasonCodes"] == ["RUNNER_UNREACHABLE"]
+    assert bundle["summary"]["endpointStatuses"]["startup"]["error"]["reasonCode"] == "RUNNER_UNREACHABLE"

@@ -8,8 +8,8 @@ from apps.api.tool_candidate_model import tool_profile_candidate_fields
 from apps.api.tool_profile_external_refs import profile_external_candidate_fields
 from apps.api.tool_profile_model import ToolProfile
 from apps.api.tool_profile_prepare_payload import profile_prepare_payload
-from apps.api.tool_profile_registry import TOOL_PROFILES
 from apps.api.tool_profile_semantics import enrich_rule_template_semantics
+from apps.api.tool_profile_sources import all_tool_profiles
 from apps.api.tool_validation_plan import workflow_ready_validation_plan
 from core.contracts.rule_ports import (
     matched_compatibility_fields,
@@ -73,7 +73,7 @@ def _profile_recommendations(
     latest_prepare_jobs_by_tool_id: dict[str, Any],
 ) -> list[dict[str, Any]]:
     recommendations: list[dict[str, Any]] = []
-    for profile in TOOL_PROFILES:
+    for profile in all_tool_profiles():
         if query and not _profile_matches_query(profile, query):
             continue
         registered_tool = _matching_registered_tool(profile, workflow_ready_tools)
@@ -95,6 +95,7 @@ def _profile_recommendations(
                 "hardChecks": ["端口方向 output -> input", "类型字段无冲突"],
                 "evidence": _evidence(matched_fields=matched_fields, input_spec=input_spec),
             }
+            item["blockReason"] = "" if item["executionGate"]["canAddStep"] else item["executionGate"]["reason"]
             if registered_tool is None:
                 item["validationPlan"] = workflow_ready_validation_plan()
                 if latest_prepare_job is not None:
@@ -144,6 +145,9 @@ def _catalog_candidate_recommendations(
                 "hardChecks": ["端口方向 output -> input", "类型字段无冲突"],
                 "evidence": _evidence(matched_fields=matched_fields, input_spec=input_spec),
             }
+            recommendation["blockReason"] = (
+                "" if recommendation["executionGate"]["canAddStep"] else recommendation["executionGate"]["reason"]
+            )
             if registered_tool is None:
                 recommendation["validationPlan"] = workflow_ready_validation_plan()
                 if latest_prepare_job is not None:
@@ -289,6 +293,7 @@ def _profile_candidate(profile: ToolProfile) -> dict[str, Any]:
     return {
         "profileId": profile.profile_id,
         "profileVersion": profile.version,
+        "packId": profile.pack_id,
         "toolNames": list(profile.tool_names),
         "preferredWrapperPaths": list(profile.preferred_wrapper_paths),
         "preparePayload": profile_prepare_payload(profile),

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -14,3 +14,10 @@ class ToolProfile:
     rule_template: dict[str, Any]
     preferred_wrapper_paths: tuple[str, ...] = ()
     package_name: str = ""
+    pack_id: str = ""
+    workflow_stage: str = ""
+    operation: str = ""
+    license: str = ""
+    citations: tuple[str, ...] = ()
+    source_refs: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    report_schemas: tuple[dict[str, Any], ...] = field(default_factory=tuple)

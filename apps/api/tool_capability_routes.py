@@ -7,12 +7,17 @@ from typing import Any
 from fastapi import APIRouter, Query
 
 from apps.api.tool_capability_service import (
+    disable_bio_tool_pack_from_request,
+    enable_bio_tool_pack_from_request,
     get_tool_candidate_target_acceptance_from_request,
     get_tool_capabilities_index_status_from_request,
+    import_bio_tool_pack_from_request,
+    list_bio_tool_packs_from_request,
     list_snakemake_wrapper_catalog_from_request,
     list_tool_profile_catalog_from_request,
     prepare_tool_validation_queue_from_request,
     recommend_tool_candidates_from_request,
+    review_bio_tool_pack_from_request,
     refresh_tool_capabilities_index_from_request,
     search_tool_candidates_from_request,
     search_tool_capabilities_from_request,
@@ -123,6 +128,34 @@ async def list_tool_profile_catalog_api(
         page=page,
         page_size=pageSize,
     )
+
+
+@router.get("/api/v1/tool-capabilities/tool-packs", operation_id="listBioToolPacks")
+async def list_bio_tool_packs_api() -> dict[str, Any]:
+    return await list_bio_tool_packs_from_request()
+
+
+@router.post("/api/v1/tool-capabilities/tool-packs/review", operation_id="reviewBioToolPack")
+async def review_bio_tool_pack_api(payload: dict[str, Any]) -> dict[str, Any]:
+    return await review_bio_tool_pack_from_request(payload)
+
+
+@router.post("/api/v1/tool-capabilities/tool-packs", operation_id="importBioToolPack")
+async def import_bio_tool_pack_api(
+    payload: dict[str, Any],
+    enable: bool = False,
+) -> dict[str, Any]:
+    return await import_bio_tool_pack_from_request(payload, enable=enable)
+
+
+@router.post("/api/v1/tool-capabilities/tool-packs/{pack_id}/enable", operation_id="enableBioToolPack")
+async def enable_bio_tool_pack_api(pack_id: str) -> dict[str, Any]:
+    return await enable_bio_tool_pack_from_request(pack_id)
+
+
+@router.post("/api/v1/tool-capabilities/tool-packs/{pack_id}/disable", operation_id="disableBioToolPack")
+async def disable_bio_tool_pack_api(pack_id: str) -> dict[str, Any]:
+    return await disable_bio_tool_pack_from_request(pack_id)
 
 
 @router.get("/api/v1/tool-capabilities/index/status", operation_id="getToolCapabilitiesIndexStatus")

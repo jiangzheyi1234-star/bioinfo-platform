@@ -12,7 +12,7 @@ from apps.api.tool_candidate_dependencies import (
 )
 from apps.api.tool_profile_external_refs import profile_snakemake_wrappers
 from apps.api.tool_profile_model import ToolProfile
-from apps.api.tool_profiles import resolve_tool_profile
+from apps.api.tool_profiles import resolve_tool_profile_record
 
 
 def profile_prepare_payload(profile: ToolProfile) -> dict[str, Any]:
@@ -23,6 +23,8 @@ def profile_prepare_payload(profile: ToolProfile) -> dict[str, Any]:
     wrappers = profile_snakemake_wrappers(profile)
     dependency = _profile_primary_dependency(profile, wrappers, preferred_name=package_name)
     if dependency is None:
+        dependency = _profile_manifest_dependency(profile, preferred_name=package_name)
+    if dependency is None and not profile.pack_id:
         dependency = _bioconda_dependency_from_index(package_name)
     version = ""
     if dependency is not None:
@@ -31,7 +33,8 @@ def profile_prepare_payload(profile: ToolProfile) -> dict[str, Any]:
         version = dependency["version"]
         package_spec = package_spec_from_conda_dependency(dependency)
     tool_id = f"{source}::{package_name}"
-    draft = resolve_tool_profile(
+    draft = resolve_tool_profile_record(
+        profile,
         {
             "id": tool_id,
             "name": tool_name,
@@ -79,6 +82,21 @@ def _profile_primary_dependency(
         if dependency is not None:
             return dependency
     return None
+
+
+def _profile_manifest_dependency(profile: ToolProfile, *, preferred_name: str) -> dict[str, str] | None:
+    if not profile.pack_id:
+        return None
+    environment = profile.rule_template.get("environment") if isinstance(profile.rule_template.get("environment"), dict) else {}
+    conda = environment.get("conda") if isinstance(environment.get("conda"), dict) else {}
+    channels = [str(item).strip() for item in conda.get("channels", []) if str(item or "").strip()]
+    dependencies = [
+        preferred_name if str(item or "").strip() == "{packageSpec}" else str(item or "").strip()
+        for item in conda.get("dependencies", [])
+        if str(item or "").strip()
+    ]
+    hints = {"environment": {"conda": {"channels": channels, "dependencies": dependencies}}}
+    return conda_dependency_from_environment_hints(hints, preferred_name=preferred_name)
 
 
 def _wrapper_dependency(wrapper: dict[str, Any], *, preferred_name: str) -> dict[str, str] | None:

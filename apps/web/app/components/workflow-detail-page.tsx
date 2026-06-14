@@ -31,8 +31,8 @@ export function WorkflowDetailPage({ workflowId: workflowIdProp = "" }: { workfl
             <Button asChild variant="outline" className="h-9 bg-white px-3 text-slate-600">
               <Link
                 href="/workflows"
-                onFocus={() => void fetchWorkflowCatalog()}
-                onPointerEnter={() => void fetchWorkflowCatalog()}
+                onFocus={() => void fetchWorkflowCatalog().catch(() => undefined)}
+                onPointerEnter={() => void fetchWorkflowCatalog().catch(() => undefined)}
               >
                 <ArrowLeft strokeWidth={1.5} className="mr-2 h-4 w-4" />
                 返回流程目录

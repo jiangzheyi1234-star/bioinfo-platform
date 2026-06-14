@@ -3,6 +3,13 @@ from __future__ import annotations
 from typing import Any
 
 from apps.api.bioconda_tool_index import bioconda_index_status, refresh_bioconda_index
+from apps.api.bio_tool_pack_store import (
+    disable_bio_tool_pack,
+    enable_bio_tool_pack,
+    import_bio_tool_pack_manifest,
+    list_bio_tool_packs,
+    review_bio_tool_pack_manifest,
+)
 from apps.api.route_utils import run_sync, runtime_service
 from apps.api.snakemake_wrappers import catalog_snakemake_wrappers
 from apps.api.tool_candidate_catalog import search_tool_candidates
@@ -653,6 +660,30 @@ async def list_tool_profile_catalog_from_request(
             )
         },
     )
+
+
+async def list_bio_tool_packs_from_request() -> dict[str, Any]:
+    return await run_sync(lambda: {"data": list_bio_tool_packs()})
+
+
+async def review_bio_tool_pack_from_request(payload: dict[str, Any]) -> dict[str, Any]:
+    return await run_sync(lambda: {"data": review_bio_tool_pack_manifest(payload)})
+
+
+async def import_bio_tool_pack_from_request(
+    payload: dict[str, Any],
+    *,
+    enable: bool,
+) -> dict[str, Any]:
+    return await run_sync(lambda: {"data": import_bio_tool_pack_manifest(payload, enable=enable)})
+
+
+async def enable_bio_tool_pack_from_request(pack_id: str) -> dict[str, Any]:
+    return await run_sync(lambda: {"data": enable_bio_tool_pack(pack_id)})
+
+
+async def disable_bio_tool_pack_from_request(pack_id: str) -> dict[str, Any]:
+    return await run_sync(lambda: {"data": disable_bio_tool_pack(pack_id)})
 
 
 async def refresh_tool_capabilities_index_from_request() -> dict[str, Any]:

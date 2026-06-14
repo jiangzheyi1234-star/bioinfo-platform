@@ -48,6 +48,23 @@ class RemoteRunnerProxyMixin:
         )
         return client.get_execution_diagnostics()
 
+    def get_operator_diagnostics(self, **kwargs) -> dict[str, Any]:
+        record = kwargs["server_record"]
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=record,
+        )
+        metadata = record.get("bootstrap_metadata") if isinstance(record.get("bootstrap_metadata"), dict) else {}
+        release = metadata.get("release") if isinstance(metadata.get("release"), dict) else {}
+        return client.get_operator_diagnostics(
+            server_id=str(kwargs["server_id"]),
+            run_id=str(kwargs.get("run_id") or ""),
+            scenario_id=str(kwargs.get("scenario_id") or ""),
+            release_tag=str(release.get("releaseTag") or record.get("bootstrap_version") or ""),
+            source_commit=str(release.get("sourceCommit") or ""),
+        )
+
     def upload_content(self, **kwargs) -> dict[str, Any]:
         client = self._get_client(
             server_id=str(kwargs["server_id"]),
