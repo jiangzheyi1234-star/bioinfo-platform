@@ -74,6 +74,10 @@ uv run python scripts\update_remote_runner_release_manifest.py `
 ```powershell
 uv run python scripts\check_release_manifest_traceability.py --release-tag h2ometa-runtime-vX.Y.Z
 uv run python scripts\check_remote_runner_release_artifacts.py --require-supply-chain
+uv run python scripts\check_remote_runner_release_readiness.py `
+  --release-tag h2ometa-runtime-vX.Y.Z `
+  --require-manifest-artifacts `
+  --require-supply-chain
 ```
 
 11. Commit the manifest update and any release documentation updates.
@@ -87,11 +91,15 @@ uv run python scripts\remote_runner_release_gate.py `
   --allow-two-slot `
   --allow-runner-kill `
   --evidence-json dist\remote-runner\release-gate-evidence.json
+uv run python scripts\check_remote_runner_release_readiness.py `
+  --release-gate-evidence dist\remote-runner\release-gate-evidence.json
 ```
 
 For a local staging artifact that has not been promoted into `config/remote-runner-release-manifest.json`, start `run.bat --web` with `H2OMETA_ALLOW_STAGING_REMOTE_RUNNER_BUNDLE=1`, `H2OMETA_REMOTE_RUNNER_BUNDLE` pointing at the staged tarball, and a writable `H2OMETA_ARTIFACT_CACHE_DIR`. The launcher and gate still validate the tarball sidecar checksum and runtime markers, but the explicit staging gate prevents Local API bootstrap from silently replacing the staged runner with the manifest-declared production artifact.
 
 This gate temporarily enables the P0-3B two-slot worker mode, runs real Snakemake concurrency/cancel/resource-wait acceptance, runs worker crash/restart recovery acceptance, runs execution policy acceptance for retry backoff, heartbeat timeout, start-to-close timeout, and queue TTL resource-wait behavior, verifies closed-loop recovery evidence from the control-plane event ledger, writes machine-readable release evidence, and must restore the remote runner to the single-slot production default before completion.
+
+For controlled CI builds, `.github/workflows/release-remote-runner-artifacts.yml` runs `scripts\check_remote_runner_release_readiness.py` immediately after artifact build with the generated `release-artifacts-metadata.json`, `release-manifest-metadata.json`, and `release-attestations.json`. That CI path is intentionally non-destructive: it validates artifact, checksum, SBOM, manifest metadata, source commit, and attestation consistency, but it does not connect to or kill a remote runner. Real remote acceptance remains a separate explicit release gate and is represented by `release-gate-evidence.json`.
 
 ## Traceability Requirements
 

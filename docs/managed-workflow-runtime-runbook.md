@@ -104,6 +104,17 @@ The GitHub Actions workflow `.github/workflows/release-remote-runner-artifacts.y
 - `release-attestations.json`: local in-toto-style attestation bundle IDs, URLs, and published bundle paths emitted by the workflow.
 - `attestation-bundles/*.intoto.json`: local provenance and SBOM attestation bundles emitted by the CI builder.
 - `release-published-assets.json`: published GitHub Release asset API URLs, digests, and sizes emitted by the publish job.
+- `release-readiness-summary.json`: non-destructive CI readiness proof that the generated artifacts, sidecars, SBOMs, manifest metadata, source commit, and attestation records agree.
+
+The CI workflow runs the same readiness check after building artifacts:
+
+```bash
+uv run --frozen python scripts/check_remote_runner_release_readiness.py \
+  --ci-build-metadata dist/remote-runner/release-artifacts-metadata.json \
+  --manifest-metadata dist/remote-runner/release-manifest-metadata.json \
+  --attestations dist/remote-runner/release-attestations.json \
+  --output-json dist/remote-runner/release-readiness-summary.json
+```
 
 After publishing those assets to the release location, replace the manifest's `pending:` supply-chain fields with the real SBOM, attestation, builder, and source-ref values from those metadata files and the GitHub attestation records. When `publish_release` is enabled, the workflow uploads the built assets and metadata to the existing GitHub Release tag passed as `release_tag`, then writes and uploads `release-published-assets.json` so the manifest update can use published asset metadata without a hand lookup. The manifest must still be updated in source control and validated with `--require-supply-chain`.
 Production runtime releases should use tags named `h2ometa-runtime-vX.Y.Z`. The tag must point at the same full commit SHA passed as the workflow `source_ref`.
@@ -124,6 +135,10 @@ The local acceptance command for a production release is:
 ```powershell
 uv run python scripts\check_release_manifest_traceability.py --release-tag h2ometa-runtime-vX.Y.Z
 uv run python scripts\check_remote_runner_release_artifacts.py --require-supply-chain
+uv run python scripts\check_remote_runner_release_readiness.py `
+  --release-tag h2ometa-runtime-vX.Y.Z `
+  --require-manifest-artifacts `
+  --require-supply-chain
 ```
 
 For a local staging control-plane tarball that has not been promoted into the release manifest, start the Local API/Web launcher with an explicit staging gate before running destructive acceptance:
@@ -138,6 +153,12 @@ run.bat --web
 ```
 
 Run the release gate from a Windows PowerShell with the same `H2OMETA_REMOTE_RUNNER_BUNDLE` value. Without the explicit staging gate, Local API bootstrap must continue to reject tarballs whose digest does not match `config/remote-runner-release-manifest.json`.
+After the destructive release gate writes evidence, validate the evidence contract before attaching it to release notes or promotion records:
+
+```powershell
+uv run python scripts\check_remote_runner_release_readiness.py `
+  --release-gate-evidence dist\remote-runner\release-gate-evidence.json
+```
 
 ## Dev/Staging Control Plane Build
 

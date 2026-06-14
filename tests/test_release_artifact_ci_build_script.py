@@ -224,6 +224,8 @@ def test_ci_builder_uses_controlled_linux_builder_not_ssh(monkeypatch) -> None:
     assert "dist/remote-runner/release-attestations.json" in workflow
     assert "dist/remote-runner/attestation-bundles/*.intoto.json" in workflow
     assert "release-published-assets.json" in workflow
+    assert "scripts/check_remote_runner_release_readiness.py" in workflow
+    assert "dist/remote-runner/release-readiness-summary.json" in workflow
     assert 'dist.rglob("*")' in workflow
     assert "h2ometa-remote-runner-release-published-assets-${{ env.PLATFORM }}" in workflow
     assert "published release is missing expected assets" in workflow

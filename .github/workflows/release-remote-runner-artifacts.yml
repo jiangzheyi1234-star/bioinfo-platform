@@ -76,6 +76,14 @@ jobs:
             --platform "$PLATFORM" \
             --output-dir dist/remote-runner
 
+      - name: Validate release readiness metadata
+        run: |
+          uv run --frozen python scripts/check_remote_runner_release_readiness.py \
+            --ci-build-metadata dist/remote-runner/release-artifacts-metadata.json \
+            --manifest-metadata dist/remote-runner/release-manifest-metadata.json \
+            --attestations dist/remote-runner/release-attestations.json \
+            --output-json dist/remote-runner/release-readiness-summary.json
+
       - name: Upload release artifact bundle
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -88,6 +96,7 @@ jobs:
             dist/remote-runner/release-artifacts-metadata.json
             dist/remote-runner/release-manifest-metadata.json
             dist/remote-runner/release-attestations.json
+            dist/remote-runner/release-readiness-summary.json
           if-no-files-found: error
           retention-days: 14
 
