@@ -278,6 +278,26 @@ Run submission persists execution policy into `run_jobs`: queue name, max attemp
 Blocked recovery remains visible instead of silently retrying unsafe work. If termination cannot be confirmed, the reconciler writes `run_attempt_recovery_blocked`, leaves the job claimed, and readiness remains failed until the process-group issue is resolved or a later reconciler pass can confirm it is gone.
 
 `/health/execution-diagnostics` includes `recoveryEvidence`, queue recovery counts, and readiness reason codes. Use those fields before manually editing SQLite state.
+The same response also includes `executionObservability` with schema `execution-observability.v1`. This is the stable runtime diagnostics contract for release gates, soak tests, and future UI panels. It follows the SRE golden-signal grouping:
+
+- `goldenSignals.latency`: oldest queue wait, oldest resource wait, and oldest running attempt age.
+- `goldenSignals.traffic`: queued, claimed, running, completed, failed, dead-lettered jobs, and active leases.
+- `goldenSignals.errors`: failed/dead-lettered jobs, fenced attempts, recovery counts, SQLite busy errors, invariant failures, fence reasons, and recovery reasons.
+- `goldenSignals.saturation`: worker/slot utilization, queue backpressure, wait reasons, and allocated CPU/memory/disk/GPU.
+
+Actionable alert codes are emitted under `executionObservability.alerts` and summarized by `executionObservability.slo`. Operators should treat `critical` alerts as release blockers or incident triggers:
+
+- `EXECUTION_INVARIANT_FAILED`: control-plane state is internally inconsistent.
+- `SQLITE_NOT_READY`: WAL or busy-timeout expectations are not met.
+- `RECOVERY_BLOCKED`: the reconciler could not safely finish recovery.
+
+`warning` alerts are soak/release regression signals and UI warning candidates:
+
+- `QUEUE_WAIT_DEGRADED`
+- `RESOURCE_WAIT_DEGRADED`
+- `ATTEMPT_RUNTIME_DEGRADED`
+- `SLOT_SATURATION`
+- `DEAD_LETTERED_JOBS`
 
 ## Cleanup
 

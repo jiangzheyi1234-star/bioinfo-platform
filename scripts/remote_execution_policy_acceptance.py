@@ -58,6 +58,29 @@ def request(method, path, payload=None, timeout=20):
     return parsed.get("data", parsed)
 
 
+def emit_observability(phase, run_ids):
+    diagnostics = request("GET", "/health/execution-diagnostics", timeout=20)
+    observability = diagnostics.get("executionObservability") or {}
+    golden = observability.get("goldenSignals") or {}
+    slo = observability.get("slo") or {}
+    emit(
+        "OBSERVABILITY_EVIDENCE",
+        {
+            "phase": phase,
+            "runIds": list(run_ids),
+            "schemaVersion": observability.get("schemaVersion"),
+            "sloStatus": slo.get("status"),
+            "sloOk": slo.get("ok"),
+            "alertCodes": [
+                str(alert.get("code"))
+                for alert in observability.get("alerts") or []
+                if isinstance(alert, dict)
+            ],
+            "goldenSignals": golden,
+        },
+    )
+
+
 def wait_ready(timeout=90):
     deadline = time.monotonic() + timeout
     last_error = ""
@@ -575,6 +598,7 @@ try:
 
     restore_worker_default()
     invariants = post_acceptance_invariants(all_run_ids)
+    emit_observability("post-policy-acceptance", all_run_ids)
     emit(
         "POLICY_ACCEPTANCE_SUMMARY",
         {

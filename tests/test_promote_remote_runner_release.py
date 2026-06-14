@@ -189,6 +189,7 @@ def _release_gate(source_commit: str) -> dict[str, Any]:
                 "evidenceLabels": [
                     "ACCEPTANCE_SUMMARY",
                     "CONCURRENCY_EVIDENCE",
+                    "OBSERVABILITY_EVIDENCE",
                     "POST_ACCEPTANCE_INVARIANTS",
                     "RESOURCE_WAIT_EVIDENCE",
                     "RESULT",
@@ -207,6 +208,7 @@ def _release_gate(source_commit: str) -> dict[str, Any]:
                     "POLICY_ACCEPTANCE_SUMMARY",
                     "POLICY_ATTEMPT_TIMEOUT_EVIDENCE",
                     "POLICY_BACKOFF_EVIDENCE",
+                    "OBSERVABILITY_EVIDENCE",
                     "POLICY_PREFLIGHT",
                     "POLICY_QUEUE_TTL_EVIDENCE",
                     "POST_POLICY_INVARIANTS",

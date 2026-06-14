@@ -29,6 +29,7 @@ for stream in (sys.stdout, sys.stderr):
 EVIDENCE_LABELS = {
     "ACCEPTANCE_SUMMARY",
     "CONCURRENCY_EVIDENCE",
+    "OBSERVABILITY_EVIDENCE",
     "POLICY_ACCEPTANCE_SUMMARY",
     "POLICY_ATTEMPT_TIMEOUT_EVIDENCE",
     "POLICY_BACKOFF_EVIDENCE",
@@ -46,6 +47,7 @@ EVIDENCE_LABELS = {
 REQUIRED_BUNDLE_MARKERS = {
     "remote_runner/worker_resource_config.py": "",
     "remote_runner/executor_outcomes.py": "RUN_CANCELLED",
+    "remote_runner/execution_observability.py": "execution-observability.v1",
     "remote_runner/execution_policy.py": "attempt_start_to_close_exceeded",
     "remote_runner/worker_supervisor.py": "H2OMETA_REMOTE_ENABLE_MULTI_SLOT",
     "remote_runner/reconciler_actions.py": "expire_queued_jobs_over_ttl",

@@ -66,6 +66,22 @@ def test_execution_diagnostics_reports_control_plane_snapshot(tmp_path) -> None:
     assert blocked is None
     assert diagnostics["schemaVersion"] == "execution-diagnostics.v1"
     assert diagnostics["ok"] is True
+    observability = diagnostics["executionObservability"]
+    assert observability["schemaVersion"] == "execution-observability.v1"
+    assert observability["semanticConventions"]["signalGroups"] == [
+        "latency",
+        "traffic",
+        "errors",
+        "saturation",
+    ]
+    assert observability["goldenSignals"]["traffic"]["claimedJobs"] == 1
+    assert observability["goldenSignals"]["traffic"]["runningAttempts"] == 1
+    assert observability["goldenSignals"]["saturation"]["slots"]["utilization"] == 1.0
+    assert observability["goldenSignals"]["saturation"]["queueBackpressure"]["resourceWaitJobs"] == 1
+    assert {"RESOURCE_WAIT_DEGRADED", "SLOT_SATURATION"}.issubset(
+        {alert["code"] for alert in observability["alerts"]}
+    )
+    assert observability["slo"]["status"] == "degraded"
     assert diagnostics["readiness"]["ok"] is True
     assert diagnostics["queueMetrics"]["claimedJobs"] == 1
     assert diagnostics["queueMetrics"]["resourceWaitJobs"] == 1
@@ -105,6 +121,10 @@ def test_execution_diagnostics_flags_allocated_resource_without_active_lease(tmp
     assert diagnostics["ok"] is False
     assert "allocatedResourcesHaveActiveLeases" in failures
     assert "claimedJobsHaveActiveLeases" in failures
+    assert diagnostics["executionObservability"]["slo"]["status"] == "failed"
+    assert "EXECUTION_INVARIANT_FAILED" in {
+        alert["code"] for alert in diagnostics["executionObservability"]["alerts"]
+    }
 
 
 def test_execution_admission_ready_rejects_when_no_worker_is_available(tmp_path) -> None:

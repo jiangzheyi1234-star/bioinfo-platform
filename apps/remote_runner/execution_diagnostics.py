@@ -4,6 +4,7 @@ from typing import Any
 
 from .config import RemoteRunnerConfig
 from .event_contracts import verify_run_event_hash_chain
+from .execution_observability import build_execution_observability
 from .execution_readiness import evaluate_execution_readiness
 from .metrics import collect_queue_metrics, collect_sqlite_metrics
 from .run_worker_storage import build_run_worker_health
@@ -38,10 +39,19 @@ def build_execution_diagnostics(
             worker_health=worker_health,
             sqlite_metrics=sqlite_metrics,
         )
+        observability = build_execution_observability(
+            connection,
+            now=timestamp,
+            queue_metrics=queue_metrics,
+            worker_health=worker_health,
+            sqlite_metrics=sqlite_metrics,
+            invariants=invariants,
+        )
     payload = {
         "schemaVersion": "execution-diagnostics.v1",
         "generatedAt": timestamp,
         "ok": invariants["ok"],
+        "executionObservability": observability,
         "queueMetrics": queue_metrics,
         "workerHealth": worker_health,
         "sqlite": sqlite_metrics,

@@ -149,6 +149,8 @@ def test_remote_runner_worker_health_endpoint_reports_worker_sessions(tmp_path: 
 
     diagnostics = asyncio.run(health_execution_diagnostics(authorization="Bearer phase-worker-token"))
     assert diagnostics["data"]["schemaVersion"] == "execution-diagnostics.v1"
+    assert diagnostics["data"]["executionObservability"]["schemaVersion"] == "execution-observability.v1"
+    assert diagnostics["data"]["executionObservability"]["slo"]["schemaVersion"] == "execution-slo-policy.v1"
     assert diagnostics["data"]["readiness"]["reasonCode"] == ""
 
 

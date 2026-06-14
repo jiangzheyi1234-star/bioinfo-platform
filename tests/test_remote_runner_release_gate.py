@@ -57,6 +57,7 @@ def test_release_gate_streams_output_and_collects_evidence_labels(monkeypatch, c
             return iter(
                 [
                     'CONCURRENCY_EVIDENCE: {"active": []}\n',
+                    'OBSERVABILITY_EVIDENCE: {"schemaVersion": "execution-observability.v1"}\n',
                     'POLICY_BACKOFF_EVIDENCE: {"backoffSeconds": 12}\n',
                     'POST_ACCEPTANCE_INVARIANTS: {"ok": true}\n',
                     "RESULT: ok\n",
@@ -76,12 +77,14 @@ def test_release_gate_streams_output_and_collects_evidence_labels(monkeypatch, c
     assert result["exitCode"] == 0
     assert result["evidenceLabels"] == [
         "CONCURRENCY_EVIDENCE",
+        "OBSERVABILITY_EVIDENCE",
         "POLICY_BACKOFF_EVIDENCE",
         "POST_ACCEPTANCE_INVARIANTS",
         "RESULT",
     ]
     assert result["evidence"] == [
         {"label": "CONCURRENCY_EVIDENCE", "payload": {"active": []}},
+        {"label": "OBSERVABILITY_EVIDENCE", "payload": {"schemaVersion": "execution-observability.v1"}},
         {"label": "POLICY_BACKOFF_EVIDENCE", "payload": {"backoffSeconds": 12}},
         {"label": "POST_ACCEPTANCE_INVARIANTS", "payload": {"ok": True}},
         {"label": "RESULT", "payload": {"ok": True}},
@@ -139,6 +142,16 @@ def test_release_gate_requires_explicit_bundle_env(monkeypatch, capsys) -> None:
 
     captured = capsys.readouterr()
     assert "H2OMETA_REMOTE_RUNNER_BUNDLE must point" in captured.out
+
+
+def test_release_gate_and_staging_deploy_require_observability_bundle_marker() -> None:
+    gate = _load_module()
+    staging_source = Path("scripts/deploy_remote_runner_staging_artifact.py").read_text(encoding="utf-8")
+
+    assert gate.REQUIRED_BUNDLE_MARKERS["remote_runner/execution_observability.py"] == "execution-observability.v1"
+    assert "executionObservability" in staging_source
+    assert "execution_observability.py" in staging_source
+    assert "execution-observability.v1" in staging_source
 
 
 def test_release_gate_redacts_sensitive_evidence_payloads() -> None:

@@ -126,6 +126,7 @@ def test_release_readiness_validates_required_release_gate_labels(tmp_path: Path
                     "evidenceLabels": [
                         "ACCEPTANCE_SUMMARY",
                         "CONCURRENCY_EVIDENCE",
+                        "OBSERVABILITY_EVIDENCE",
                         "POST_ACCEPTANCE_INVARIANTS",
                         "RESOURCE_WAIT_EVIDENCE",
                         "RESULT",
@@ -144,6 +145,7 @@ def test_release_readiness_validates_required_release_gate_labels(tmp_path: Path
                         "POLICY_ACCEPTANCE_SUMMARY",
                         "POLICY_ATTEMPT_TIMEOUT_EVIDENCE",
                         "POLICY_BACKOFF_EVIDENCE",
+                        "OBSERVABILITY_EVIDENCE",
                         "POLICY_PREFLIGHT",
                         "POLICY_QUEUE_TTL_EVIDENCE",
                         "POST_POLICY_INVARIANTS",

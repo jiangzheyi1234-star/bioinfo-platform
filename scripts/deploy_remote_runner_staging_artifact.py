@@ -92,6 +92,10 @@ def validate_staging_artifact(artifact: Path) -> dict[str, Any]:
         "multiSlotGate": "H2OMETA_REMOTE_ENABLE_MULTI_SLOT"
         in _archive_text(artifact, "remote_runner/worker_supervisor.py"),
         "cancelResultMapping": "RUN_CANCELLED" in _archive_text(artifact, "remote_runner/executor_outcomes.py"),
+        "executionObservability": (
+            "remote_runner/execution_observability.py" in archive_members
+            and "execution-observability.v1" in _archive_text(artifact, "remote_runner/execution_observability.py")
+        ),
         "executionPolicy": (
             "remote_runner/execution_policy.py" in archive_members
             and "attempt_start_to_close_exceeded" in _archive_text(artifact, "remote_runner/execution_policy.py")
@@ -153,6 +157,8 @@ test -f "$STAGE/remote_runner/worker_resource_config.py"
 grep -q 'H2OMETA_REMOTE_ENABLE_MULTI_SLOT' "$STAGE/remote_runner/worker_supervisor.py"
 grep -q 'RUN_CANCELLED' "$STAGE/remote_runner/executor_outcomes.py"
 test -f "$STAGE/remote_runner/execution_policy.py"
+test -f "$STAGE/remote_runner/execution_observability.py"
+grep -q 'execution-observability.v1' "$STAGE/remote_runner/execution_observability.py"
 grep -q 'attempt_start_to_close_exceeded' "$STAGE/remote_runner/execution_policy.py"
 grep -q 'expire_queued_jobs_over_ttl' "$STAGE/remote_runner/reconciler_actions.py"
 chmod +x "$STAGE"/*.sh
