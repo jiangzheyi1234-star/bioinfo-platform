@@ -3,6 +3,7 @@ from __future__ import annotations
 from apps.api.tool_profile_catalog import catalog_tool_profiles
 from apps.api.tool_profile_registry import TOOL_PROFILES
 from apps.api.tool_profiles import resolve_tool_profile
+from apps.remote_runner.database_templates import DATABASE_TEMPLATES
 
 
 BIO_TOOL_PACK_V1_PROFILE_COUNT = 30
@@ -88,6 +89,71 @@ def test_bio_tool_pack_v1_profiles_resolve_to_ready_rule_spec_drafts() -> None:
         assert draft["status"] == "ready-for-validation"
         assert draft["lock"]["profileId"] == profile.profile_id
         assert draft["ruleTemplate"]["environment"]["conda"]["dependencies"] == [f"bioconda::{package_name}=1.0"]
+
+
+def test_bio_tool_pack_database_resources_use_dedicated_templates_when_available() -> None:
+    resources_by_profile = {
+        profile.profile_id: {
+            key: spec
+            for key, spec in (profile.rule_template.get("resources") or {}).items()
+            if isinstance(spec, dict) and spec.get("type") == "database"
+        }
+        for profile in TOOL_PROFILES
+    }
+
+    expected_dedicated_templates = {
+        ("bracken", "bracken_db"): "bracken",
+        ("kraken2", "kraken2_db"): "kraken2",
+        ("bwa-mem", "bwa_index"): "bwa",
+        ("bowtie2-align", "bowtie2_index"): "bowtie2",
+        ("blastn-search", "blast_db"): "blast",
+        ("minimap2-align", "reference_fasta"): "minimap2",
+        ("salmon-quant", "transcriptome_index"): "salmon",
+        ("hisat2-align", "hisat2_index"): "hisat2",
+        ("star-align", "star_index"): "star",
+        ("kallisto-quant", "transcriptome_index"): "kallisto",
+    }
+    for (profile_id, resource_key), template_id in expected_dedicated_templates.items():
+        resource = resources_by_profile[profile_id][resource_key]
+        assert resource["acceptedTemplates"] == [template_id]
+
+    expected_custom_resources = {
+        ("featurecounts", "annotation_gtf"),
+        ("htseq-count", "annotation_gtf"),
+        ("freebayes-call", "reference_fasta"),
+    }
+    for profile_id, resource_key in expected_custom_resources:
+        assert resources_by_profile[profile_id][resource_key]["acceptedTemplates"] == ["custom"]
+
+    referenced_templates = {
+        template_id
+        for resources in resources_by_profile.values()
+        for resource in resources.values()
+        for template_id in resource.get("acceptedTemplates") or []
+    }
+    assert set(DATABASE_TEMPLATES) - referenced_templates == set()
+    assert {
+        "metaphlan",
+        "centrifuge",
+        "kaiju",
+        "card_rgi",
+        "diamond",
+        "humann",
+        "gtdbtk",
+        "sourmash",
+        "mmseqs2",
+        "hmmer_pfam",
+        "eggnog_mapper",
+        "interproscan",
+        "silva_qiime",
+        "checkm",
+        "ncbi_taxonomy",
+    }.issubset(referenced_templates)
+
+    for profile_id, resources in resources_by_profile.items():
+        for resource_key, resource in resources.items():
+            for template_id in resource.get("acceptedTemplates") or []:
+                assert template_id in DATABASE_TEMPLATES, f"{profile_id}:{resource_key}"
 
 
 def test_bio_tool_pack_resolved_profiles_include_edam_port_semantics() -> None:

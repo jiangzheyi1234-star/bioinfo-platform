@@ -201,6 +201,16 @@ def _render_command(
         replacements[f"{{config.{key}:q}}"] = f"{{config[databases][{key}]:q}}"
         replacements[f"{{config.{safe_key}}}"] = f"{{config[databases][{key}]}}"
         replacements[f"{{config.{safe_key}:q}}"] = f"{{config[databases][{key}]:q}}"
+        if isinstance(value, dict):
+            for field in value:
+                safe_field = _safe_identifier(str(field))
+                field_key = str(field)
+                rendered = f"{{config[databases][{key}][{field_key}]}}"
+                rendered_quoted = f"{{config[databases][{key}][{field_key}]:q}}"
+                replacements[f"{{config.{key}.{field}}}"] = rendered
+                replacements[f"{{config.{key}.{field}:q}}"] = rendered_quoted
+                replacements[f"{{config.{safe_key}.{safe_field}}}"] = rendered
+                replacements[f"{{config.{safe_key}.{safe_field}:q}}"] = rendered_quoted
     command = command_template
     for token, value in replacements.items():
         command = command.replace(token, value)

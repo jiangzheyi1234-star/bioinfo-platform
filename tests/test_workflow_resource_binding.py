@@ -174,6 +174,74 @@ def test_workflow_resource_binding_preserves_composite_metadata_and_custom_templ
     )
 
 
+def test_generated_workflow_renders_composite_database_field_tokens_from_run_config(tmp_path: Path, monkeypatch) -> None:
+    cfg = _cfg(tmp_path)
+    card_dir = tmp_path / "card"
+    card_dir.mkdir()
+    card_json = card_dir / "card.json"
+    card_json.write_text("{}", encoding="utf-8")
+    add_reference_database(cfg, {"id": "db_card", "name": "CARD", "templateId": "card_rgi", "path": str(card_dir)})
+    upsert_ready_tool(
+        cfg,
+        {
+            "id": "bioconda::rgi-demo",
+            "name": "rgi",
+            "source": "bioconda",
+            "sourceLabel": "bioconda",
+            "version": "6.0",
+            "packageSpec": "bioconda::rgi=6.0",
+            "targetPlatform": "linux-64",
+            "targetPlatformSupported": True,
+            "ruleTemplate": {
+                "commandTemplate": "printf '%s\\n' {config.card_db.card_json:q} > {output.tool_output:q}",
+                "inputs": [{"name": "primary", "type": "file", "required": True}],
+                "outputs": [{"name": "tool_output", "path": "card-db.txt", "kind": "log", "mimeType": "text/plain"}],
+                "resources": {
+                    "card_db": {
+                        "type": "database",
+                        "required": True,
+                        "acceptedTemplates": ["card_rgi"],
+                        "configKey": "card_db",
+                    }
+                },
+            },
+        },
+    )
+    upload = persist_upload(cfg, filename="contigs.fa", content_base64="PmMKQUNHVAo=", mime_type="text/plain")
+
+    class Result:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    monkeypatch.setattr("apps.remote_runner.executor.subprocess.run", lambda *_args, **_kwargs: Result())
+    monkeypatch.setattr("apps.remote_runner.executor._collect_artifacts", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr("apps.remote_runner.executor.update_run_state", lambda *args, **kwargs: None)
+    monkeypatch.setattr("apps.remote_runner.executor.append_log_lines", lambda *args, **kwargs: None)
+
+    run_spec = generated_workflow_run_spec(
+        "bioconda::rgi-demo",
+        project_id="proj_demo",
+        resource_bindings={"card_db": "db_card"},
+    )
+    run_spec["inputs"] = [{"uploadId": upload["uploadId"], "filename": "contigs.fa", "role": "input"}]
+
+    run_snakemake_execution(
+        cfg,
+        run_id="run_composite_resource_binding",
+        request_id="req_composite_resource_binding",
+        run_spec=run_spec,
+    )
+
+    work_dir = Path(cfg.work_dir) / "run_composite_resource_binding"
+    run_config = json.loads((work_dir / "run-config.json").read_text(encoding="utf-8"))
+    snakefile = (work_dir / "workflow" / "Snakefile").read_text(encoding="utf-8")
+
+    assert run_config["databases"]["card_db"] == {"card_json": str(card_json)}
+    assert "{config[databases][card_db][card_json]:q}" in snakefile
+    assert str(card_json) not in snakefile
+
+
 def test_workflow_resource_binding_rejects_wrong_template(tmp_path: Path, monkeypatch) -> None:
     cfg = _cfg(tmp_path)
     db_dir = _make_kraken2_database(tmp_path / "kraken2")

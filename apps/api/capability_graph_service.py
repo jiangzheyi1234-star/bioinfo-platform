@@ -27,6 +27,7 @@ class CapabilityGraphService:
         page_size: int = 50,
         registered_tools: list[dict[str, Any]] | None = None,
         catalog: dict[str, Any] | None = None,
+        databases: list[dict[str, Any]] | None = None,
         target_acceptance: dict[str, Any] | None = None,
         prepare_job_queue: dict[str, Any] | None = None,
         agent_selectable_only: bool = False,
@@ -40,7 +41,11 @@ class CapabilityGraphService:
             page_size=page_size,
         )
         registered_tools_view = _registered_tools_view(registered)
-        capability_bundle_results = _capability_bundle_results(profiles=profiles, registered_tools=registered_tools_view)
+        capability_bundle_results = _capability_bundle_results(
+            profiles=profiles,
+            registered_tools=registered_tools_view,
+            databases=databases,
+        )
         capability_bundles = [result["bundle"] for result in capability_bundle_results if result.get("agentSelectable")]
         bundle_ready_tools = [
             {**result["tool"], "capabilityBundle": result["bundle"]}
@@ -74,6 +79,7 @@ class CapabilityGraphService:
                 "sourceOfTruth": "CapabilityGraphSnapshot",
                 "readinessSourceOfTruth": "registeredTool.toolContract",
                 "bundleSourceOfTruth": CAPABILITY_BUNDLE_VERSION,
+                "resourceAdmissionSourceOfTruth": "validated reference database registry",
                 "canAddStepStates": ["WorkflowReady", "ProductionEnabled"],
                 "blockedReason": "CAPABILITY_BUNDLE_NOT_SELECTABLE",
             },
@@ -101,6 +107,7 @@ class CapabilityGraphService:
         page_size: int = 50,
         registered_tools: list[dict[str, Any]] | None = None,
         catalog: dict[str, Any] | None = None,
+        databases: list[dict[str, Any]] | None = None,
         target_acceptance: dict[str, Any] | None = None,
         prepare_job_queue: dict[str, Any] | None = None,
         agent_selectable_only: bool = False,
@@ -115,6 +122,7 @@ class CapabilityGraphService:
             page_size=page_size,
             registered_tools=registered,
             catalog=catalog,
+            databases=databases,
             target_acceptance=target_acceptance,
             prepare_job_queue=prepare_job_queue,
             agent_selectable_only=agent_selectable_only,
@@ -165,13 +173,14 @@ def _capability_bundle_results(
     *,
     profiles: tuple[ToolProfile, ...],
     registered_tools: list[dict[str, Any]],
+    databases: list[dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for tool in registered_tools:
         if not isinstance(tool, dict):
             continue
         profile = _matching_profile(tool, profiles)
-        bundle, reasons = _capability_bundle_for_tool(tool=tool, profile=profile)
+        bundle, reasons = _capability_bundle_for_tool(tool=tool, profile=profile, databases=databases)
         results.append(
             {
                 "tool": tool,
@@ -187,6 +196,7 @@ def _capability_bundle_for_tool(
     *,
     tool: dict[str, Any],
     profile: ToolProfile | None,
+    databases: list[dict[str, Any]] | None,
 ) -> tuple[dict[str, Any], list[str]]:
     contract = tool.get("toolContract") if isinstance(tool.get("toolContract"), dict) else {}
     rule_template = _bundle_rule_template(tool=tool, profile=profile)
@@ -209,7 +219,13 @@ def _capability_bundle_for_tool(
     validation_evidence = _validation_evidence(tool, rule_template=completed_template)
     risk = _risk_summary(rule_template=completed_template)
     permissions = _permissions_summary(rule_template=completed_template)
-    approval = _approval_summary(tool=tool, risk=risk, permissions=permissions)
+    resource_admission = _database_resource_admission(rule_template=completed_template, databases=databases)
+    approval = _approval_summary(
+        tool=tool,
+        risk=risk,
+        permissions=permissions,
+        resource_admission=resource_admission,
+    )
     profile_id = profile.profile_id if profile is not None else _tool_name_from_identifier(tool_name or tool_id)
     pack_id = profile.pack_id if profile is not None else str(tool.get("packId") or "registered-tool").strip()
     capability_id = _capability_id(pack_id=pack_id, profile_id=profile_id, tool_revision_id=tool_revision_id)
@@ -230,6 +246,7 @@ def _capability_bundle_for_tool(
         "risk": risk,
         "permissions": permissions,
         "approval": approval,
+        "admissionEvidence": _admission_evidence(resource_admission),
         "validationEvidence": validation_evidence,
         "selectionSummary": {
             "label": tool_name or profile_id,
@@ -295,7 +312,10 @@ def _bundle_blocking_reasons(
     if validation_evidence.get("status") != "passed":
         reasons.append("VALIDATION_EVIDENCE_REQUIRED")
     if approval.get("required") is True and approval.get("approved") is not True:
-        reasons.append("CAPABILITY_APPROVAL_REQUIRED")
+        if approval.get("reason") == "database-resource-required":
+            reasons.append("DATABASE_RESOURCE_REQUIRED")
+        else:
+            reasons.append("CAPABILITY_APPROVAL_REQUIRED")
     return _unique_strings(reasons)
 
 
@@ -341,17 +361,21 @@ def _attach_bundle_summaries_to_graph(graph: dict[str, Any], bundles: list[dict[
 
 
 def _capability_bundle_gate(results: list[dict[str, Any]]) -> dict[str, Any]:
-    blocked = [
-        {
+    blocked: list[dict[str, Any]] = []
+    for result in results:
+        if result.get("agentSelectable") or not isinstance(result.get("bundle"), dict):
+            continue
+        blocked_tool = {
             "toolId": str(result["tool"].get("id") or result["tool"].get("toolId") or ""),
             "toolRevisionId": str(result["bundle"].get("toolRevisionId") or ""),
             "capabilityId": str(result["bundle"].get("capabilityId") or ""),
             "blockedReasons": list(result.get("reasons") or []),
             "nextAction": _bundle_next_action(list(result.get("reasons") or [])),
         }
-        for result in results
-        if not result.get("agentSelectable") and isinstance(result.get("bundle"), dict)
-    ]
+        admission_evidence = result["bundle"].get("admissionEvidence")
+        if admission_evidence:
+            blocked_tool["admissionEvidence"] = admission_evidence
+        blocked.append(blocked_tool)
     selectable = [result for result in results if result.get("agentSelectable")]
     return {
         "capabilityBundleVersion": CAPABILITY_BUNDLE_VERSION,
@@ -524,7 +548,13 @@ def _permissions_summary(*, rule_template: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _approval_summary(*, tool: dict[str, Any], risk: dict[str, Any], permissions: dict[str, Any]) -> dict[str, Any]:
+def _approval_summary(
+    *,
+    tool: dict[str, Any],
+    risk: dict[str, Any],
+    permissions: dict[str, Any],
+    resource_admission: dict[str, Any] | None,
+) -> dict[str, Any]:
     policy = tool.get("capabilityApproval") if isinstance(tool.get("capabilityApproval"), dict) else {}
     risk_level = str(risk.get("level") or "low").strip()
     requires_approval = (
@@ -532,13 +562,131 @@ def _approval_summary(*, tool: dict[str, Any], risk: dict[str, Any], permissions
         or bool(permissions.get("network"))
         or bool(permissions.get("databases"))
     )
+    resource_ready = bool(resource_admission and resource_admission.get("complete"))
     approved = bool(policy.get("approved")) if requires_approval else True
+    if requires_approval and not approved and resource_ready:
+        approved = True
+    reason = str(policy.get("reason") or "").strip()
+    policy_version = str(policy.get("policyVersion") or "").strip()
+    if not reason:
+        if not requires_approval:
+            reason = "low-risk-auto-approved"
+        elif resource_ready:
+            reason = "validated-database-resource"
+        elif resource_admission and resource_admission.get("missingResources"):
+            reason = "database-resource-required"
+        else:
+            reason = "approval-required"
+    if not policy_version and requires_approval and resource_ready:
+        policy_version = "capability-admission-v1"
     return {
         "required": requires_approval,
         "approved": approved,
-        "policyVersion": str(policy.get("policyVersion") or "").strip(),
-        "reason": str(policy.get("reason") or ("approval-required" if requires_approval else "low-risk-auto-approved")),
+        "policyVersion": policy_version,
+        "reason": reason,
     }
+
+
+def _admission_evidence(resource_admission: dict[str, Any] | None) -> dict[str, Any]:
+    if not resource_admission:
+        return {}
+    return {
+        "policyVersion": "capability-admission-v1",
+        "databaseResources": list(resource_admission.get("resources") or []),
+        "missingResources": list(resource_admission.get("missingResources") or []),
+    }
+
+
+def _database_resource_admission(
+    *,
+    rule_template: dict[str, Any],
+    databases: list[dict[str, Any]] | None,
+) -> dict[str, Any] | None:
+    resource_specs = _database_resource_specs(rule_template)
+    if not resource_specs:
+        return None
+    if databases is None:
+        return None
+    resources: list[dict[str, Any]] = []
+    missing: list[dict[str, Any]] = []
+    for resource_key, spec in resource_specs.items():
+        candidates = [
+            _database_evidence(database, resource_key=resource_key, spec=spec)
+            for database in databases
+            if _database_matches_resource_spec(database, spec)
+        ]
+        available = [candidate for candidate in candidates if candidate["status"] == "available"]
+        summary = {
+            "resourceKey": resource_key,
+            "configKey": str(spec.get("configKey") or resource_key).strip(),
+            "required": bool(spec.get("required", True)),
+            "acceptedTemplates": [str(item).strip() for item in spec.get("acceptedTemplates") or [] if str(item).strip()],
+            "acceptedCapabilities": [
+                str(item).strip() for item in spec.get("acceptedCapabilities") or [] if str(item).strip()
+            ],
+            "candidateCount": len(candidates),
+            "availableCount": len(available),
+            "databaseIds": [candidate["databaseId"] for candidate in available],
+            "databases": available,
+        }
+        resources.append(summary)
+        if summary["required"] and not available:
+            missing.append(
+                {
+                    "resourceKey": resource_key,
+                    "configKey": summary["configKey"],
+                    "acceptedTemplates": summary["acceptedTemplates"],
+                    "acceptedCapabilities": summary["acceptedCapabilities"],
+                    "nextAction": "add-database",
+                }
+            )
+    return {
+        "complete": not missing,
+        "resources": resources,
+        "missingResources": missing,
+    }
+
+
+def _database_resource_specs(rule_template: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    resources = rule_template.get("resources") if isinstance(rule_template.get("resources"), dict) else {}
+    return {
+        str(key): dict(value)
+        for key, value in resources.items()
+        if isinstance(value, dict) and str(value.get("type") or "") == "database"
+    }
+
+
+def _database_matches_resource_spec(database: dict[str, Any], spec: dict[str, Any]) -> bool:
+    metadata = database.get("metadata") if isinstance(database.get("metadata"), dict) else {}
+    template_id = str(metadata.get("templateId") or "").strip().lower()
+    accepted_templates = [str(item).strip().lower() for item in spec.get("acceptedTemplates") or [] if str(item).strip()]
+    if accepted_templates and template_id not in accepted_templates:
+        return False
+    accepted_capabilities = [str(item).strip() for item in spec.get("acceptedCapabilities") or [] if str(item).strip()]
+    if accepted_capabilities:
+        capabilities = [str(item).strip() for item in metadata.get("capabilities") or [] if str(item).strip()]
+        if not any(capability in capabilities for capability in accepted_capabilities):
+            return False
+    return bool(template_id or not accepted_templates)
+
+
+def _database_evidence(database: dict[str, Any], *, resource_key: str, spec: dict[str, Any]) -> dict[str, Any]:
+    metadata = database.get("metadata") if isinstance(database.get("metadata"), dict) else {}
+    evidence = {
+        "resourceKey": resource_key,
+        "configKey": str(spec.get("configKey") or resource_key).strip(),
+        "databaseId": str(database.get("id") or database.get("databaseId") or "").strip(),
+        "name": str(database.get("name") or "").strip(),
+        "templateId": str(metadata.get("templateId") or "").strip(),
+        "status": str(database.get("status") or "").strip(),
+        "version": str(database.get("version") or "").strip(),
+        "lastCheckedAt": str(database.get("lastCheckedAt") or database.get("last_checked_at") or "").strip(),
+        "pathMode": str(database.get("pathMode") or metadata.get("pathMode") or "").strip(),
+    }
+    read_lengths = metadata.get("availableReadLengths")
+    if isinstance(read_lengths, list):
+        evidence["availableReadLengths"] = [int(item) for item in read_lengths if str(item).isdigit()]
+    return evidence
 
 
 def _matching_profile(tool: dict[str, Any], profiles: tuple[ToolProfile, ...]) -> ToolProfile | None:
@@ -592,6 +740,8 @@ def _bundle_next_action(reasons: list[str]) -> str:
         return "add-step"
     if "VALIDATION_EVIDENCE_REQUIRED" in reasons:
         return "run-validation"
+    if "DATABASE_RESOURCE_REQUIRED" in reasons:
+        return "add-database"
     if "CAPABILITY_APPROVAL_REQUIRED" in reasons:
         return "request-approval"
     if any(reason.startswith("CAPABILITY_") or reason in {"SMOKE_FIXTURE_REQUIRED", "EXPECTED_ARTIFACT_REQUIRED"} for reason in reasons):

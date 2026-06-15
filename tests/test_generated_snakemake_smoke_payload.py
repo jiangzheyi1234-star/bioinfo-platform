@@ -78,6 +78,25 @@ def _plan(*, project_id: str = "proj_smoke", resource_bindings: dict | None = No
     }
 
 
+def test_workflow_design_node_uses_exact_tool_revision_id_only() -> None:
+    from local_api_smoke_helpers import workflow_design_node
+
+    node = workflow_design_node(
+        node_id="count_bytes",
+        tool_revision_id="conda-forge::coreutils#rev1",
+        inputs={"primary": {"fromInput": "input"}},
+    )
+
+    assert node == {
+        "id": "count_bytes",
+        "toolRevisionId": "conda-forge::coreutils#rev1",
+        "inputs": {"primary": {"fromInput": "input"}},
+        "params": {},
+        "runtime": {},
+    }
+    assert "toolId" not in node
+
+
 def _upload_http_calls(module: object) -> list[ast.Call]:
     source = Path(module.__file__).read_text(encoding="utf-8")
     return _upload_http_calls_from_source(source)

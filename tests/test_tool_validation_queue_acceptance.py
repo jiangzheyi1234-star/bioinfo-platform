@@ -5,6 +5,7 @@ import asyncio
 
 def test_prepare_validation_queue_enqueues_candidates_and_skips_active_jobs(monkeypatch) -> None:
     from apps.api import tool_capability_service
+    from apps.api.tool_profile_catalog import catalog_tool_profiles
 
     class Runtime:
         def __init__(self) -> None:
@@ -64,6 +65,11 @@ def test_prepare_validation_queue_enqueues_candidates_and_skips_active_jobs(monk
 
     runtime = Runtime()
     monkeypatch.setattr(tool_capability_service, "runtime_service", lambda: runtime)
+    monkeypatch.setattr(
+        tool_capability_service,
+        "search_tool_candidates",
+        lambda query, *, target_platform, page, page_size: catalog_tool_profiles(page=1, page_size=30),
+    )
 
     result = asyncio.run(
         tool_capability_service.prepare_tool_validation_queue_from_request(

@@ -365,6 +365,7 @@ def test_tools_page_surfaces_target_validation_queue_priority() -> None:
     hook = (COMPONENTS / "use-tools-page-state.ts").read_text(encoding="utf-8")
     model = (COMPONENTS / "tools-page-model.ts").read_text(encoding="utf-8")
     ui = (COMPONENTS / "tools-page-ui.tsx").read_text(encoding="utf-8")
+    capability_gate = (COMPONENTS / "tools-page-capability-gate.tsx").read_text(encoding="utf-8")
     validation_queue = (COMPONENTS / "tools-page-validation-queue.tsx").read_text(encoding="utf-8")
 
     assert "export type ToolCatalogValidationQueueItem" in model
@@ -390,6 +391,8 @@ def test_tools_page_surfaces_target_validation_queue_priority() -> None:
     assert "capabilityBundle?: CapabilityBundleSummary" in model
     assert "capabilityBundleStatus?: CapabilityBundleStatus" in model
     assert "approval?: { required?: boolean; approved?: boolean; policyVersion?: string; reason?: string }" in model
+    assert "export type CapabilityAdmissionEvidence" in model
+    assert "admissionEvidence?: CapabilityAdmissionEvidence" in model
     assert "export type ToolCatalogProductionQueue" in model
     assert "productionQueue?: ToolCatalogProductionQueue" in model
     assert "export type ToolPrepareJobQueue" in model
@@ -397,6 +400,11 @@ def test_tools_page_surfaces_target_validation_queue_priority() -> None:
     assert "export type ToolValidationBatchPlan" in model
     assert "batchPlan?: ToolValidationBatchPlan" in model
     assert 'import { ToolCatalogValidationQueueStrip } from "./tools-page-validation-queue";' in ui
+    assert 'import { CapabilityBundleGatePanel } from "./tools-page-capability-gate";' in ui
+    assert "CapabilityBundleGatePanel" in capability_gate
+    assert "DATABASE_RESOURCE_REQUIRED" in capability_gate
+    assert "acceptedTemplates" in capability_gate
+    assert "capabilityGraph={state.capabilityGraph}" in page
     assert "validationQueueItems" in ui
     assert "targetAcceptance?.validationQueue?.items ?? []" in ui
     assert "targetAcceptance?.validationQueue?.items?.slice(0, 3)" not in ui

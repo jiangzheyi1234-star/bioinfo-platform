@@ -270,7 +270,7 @@ def main() -> int:
             nodes=[
                 workflow_design_node(
                     node_id="database_path",
-                    tool_id=tool["id"],
+                    tool_revision_id=tool["toolRevisionId"],
                     inputs={"primary": {"fromInput": "input"}},
                 )
             ],

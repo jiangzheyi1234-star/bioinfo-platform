@@ -176,7 +176,7 @@ def run_database_smoke(api_base: str, database: dict[str, Any], *, server_id: st
             nodes=[
                 workflow_design_node(
                     node_id="database_path",
-                    tool_id=tool["id"],
+                    tool_revision_id=tool["toolRevisionId"],
                     inputs={"primary": {"fromInput": "input"}},
                 )
             ],

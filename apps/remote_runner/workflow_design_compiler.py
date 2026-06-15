@@ -127,7 +127,11 @@ def compile_workflow_design_project(
             "testConfig": ".test/run-config.json",
         },
         "capabilityBundleAudit": [
-            capability_bundle_audit_for_tool(step.tool, step_id=step.step_id)
+            capability_bundle_audit_for_tool(
+                step.tool,
+                step_id=step.step_id,
+                resource_context=resource_config["resources"],
+            )
             for step in plan.steps
         ],
         "runSpec": workflow_design_to_generated_run_spec(design, draft_id=draft_id, revision=revision),
@@ -187,7 +191,11 @@ def _run_config(
                         "version": str(step.tool.get("version") or ""),
                         "packageSpec": str(step.tool.get("packageSpec") or ""),
                         "ruleTemplate": step.rule_template,
-                        "capabilityBundle": capability_bundle_audit_for_tool(step.tool, step_id=step.step_id),
+                        "capabilityBundle": capability_bundle_audit_for_tool(
+                            step.tool,
+                            step_id=step.step_id,
+                            resource_context=resource_config["resources"],
+                        ),
                     },
                     "inputs": step.inputs,
                     "outputs": {name: str(path) for name, path in step.outputs.items()},

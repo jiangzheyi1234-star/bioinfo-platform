@@ -110,14 +110,14 @@ def prepare_generated_tool_workflow(
                 "resources": workflow_resource_config["resources"],
                 "resourceConfig": workflow_resource_config["config"],
                 "inputs": resolved_inputs,
-                "tool": _config_tool(generated_steps[0]),
+                "tool": _config_tool(generated_steps[0], resource_context=workflow_resource_config["resources"]),
                 "workflow": {
                     **({"graph": graph_config} if graph_config else {}),
                     "steps": [
                         {
                             "id": step.step_id,
                             "rule": step.rule_name,
-                            "tool": _config_tool(step),
+                            "tool": _config_tool(step, resource_context=workflow_resource_config["resources"]),
                             "inputs": step.inputs,
                             "outputs": {name: str(path) for name, path in step.outputs.items()},
                             "outputSpecs": rule_output_metadata(step.outputs, step.rule_template),
@@ -163,9 +163,17 @@ def prepare_generated_tool_workflow(
     )
 
 
-def _config_tool(step: GeneratedWorkflowStepPlan) -> dict[str, Any]:
+def _config_tool(
+    step: GeneratedWorkflowStepPlan,
+    *,
+    resource_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     package_spec = str(step.tool.get("packageSpec") or "")
-    capability_audit = capability_bundle_audit_for_tool(step.tool, step_id=step.step_id)
+    capability_audit = capability_bundle_audit_for_tool(
+        step.tool,
+        step_id=step.step_id,
+        resource_context=resource_context,
+    )
     config = {
         "id": step.tool_id,
         "toolRevisionId": step.tool_revision_id,

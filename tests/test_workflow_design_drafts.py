@@ -343,6 +343,24 @@ def test_workflow_design_plan_resolves_bound_database_resources(tmp_path: Path) 
     assert preview_config["workflow"]["graph"]["resources"]["bindings"] == {
         "reference_database": {"databaseId": "db_custom"}
     }
+    preview_bundle = preview_config["workflow"]["steps"][0]["tool"]["capabilityBundle"]
+    assert preview_bundle["approval"]["reason"] == "validated-database-resource"
+    assert preview_bundle["admissionEvidence"]["databaseResources"][0]["databaseId"] == "db_custom"
+    assert preview_bundle["admissionEvidence"]["databaseResources"][0]["templateId"] == "custom"
+
+    exported = compile_workflow_design_project(
+        cfg,
+        saved["draft"],
+        export_dir=tmp_path / "db-export",
+        draft_id=saved["draftId"],
+        revision=saved["revision"],
+    )
+    exported_bundle = exported["capabilityBundleAudit"][0]
+    assert exported_bundle["approval"]["policyVersion"] == "capability-admission-v1"
+    assert exported_bundle["admissionEvidence"]["databaseResources"][0]["resourceKey"] == "reference_database"
+    test_config = json.loads((tmp_path / "db-export" / ".test" / "run-config.json").read_text(encoding="utf-8"))
+    test_bundle = test_config["workflow"]["steps"][0]["tool"]["capabilityBundle"]
+    assert test_bundle["admissionEvidence"] == exported_bundle["admissionEvidence"]
 
 
 def test_workflow_design_compile_removes_stale_generated_files(tmp_path: Path) -> None:

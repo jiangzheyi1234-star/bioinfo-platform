@@ -183,7 +183,11 @@ def _preview_config(
                         "version": str(step.tool.get("version") or ""),
                         "packageSpec": str(step.tool.get("packageSpec") or ""),
                         "ruleTemplate": step.rule_template,
-                        "capabilityBundle": capability_bundle_audit_for_tool(step.tool, step_id=step.step_id),
+                        "capabilityBundle": capability_bundle_audit_for_tool(
+                            step.tool,
+                            step_id=step.step_id,
+                            resource_context=resource_config["resources"],
+                        ),
                     },
                     "inputs": step.inputs,
                     "outputs": {name: str(path) for name, path in step.outputs.items()},

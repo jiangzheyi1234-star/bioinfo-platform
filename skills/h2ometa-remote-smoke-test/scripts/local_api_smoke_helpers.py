@@ -74,19 +74,16 @@ def build_workflow_design_draft(
 def workflow_design_node(
     *,
     node_id: str,
-    tool_id: str,
+    tool_revision_id: str,
     inputs: dict[str, Any] | None = None,
     params: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "id": node_id,
-        "toolId": tool_id,
+        "toolRevisionId": tool_revision_id,
         "inputs": inputs or {},
         "params": params or {},
         "runtime": {},
-        "resources": {},
-        "outputs": {},
-        "provenance": {"source": "remote-smoke"},
     }
 
 

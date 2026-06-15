@@ -269,6 +269,7 @@ def _capability_snapshot_with_runtime_state(
             runtime=runtime,
             registered_tools=registered_tools_from_runtime_payload(runtime.list_tools()),
         )
+    databases = _runtime_database_items(runtime)
     catalog = _search_tool_candidates_with_tool_index(
         runtime=runtime,
         query=query,
@@ -289,6 +290,7 @@ def _capability_snapshot_with_runtime_state(
         page_size=page_size,
         registered_tools=registered,
         catalog=catalog,
+        databases=databases,
         prepare_job_queue=prepare_job_queue,
         agent_selectable_only=agent_selectable_only,
     )
@@ -309,6 +311,7 @@ def _capability_snapshot_with_runtime_state(
         page_size=page_size,
         registered_tools=registered,
         catalog=catalog,
+        databases=databases,
         target_acceptance=target_acceptance,
         prepare_job_queue=prepare_job_queue,
         agent_selectable_only=agent_selectable_only,
@@ -358,6 +361,18 @@ def _snapshot_summary(snapshot: dict[str, Any]) -> dict[str, Any]:
 def _catalog_items(catalog: dict[str, Any]) -> list[dict[str, Any]]:
     items = catalog.get("items") if isinstance(catalog, dict) else None
     return [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
+
+
+def _runtime_database_items(runtime: Any) -> list[dict[str, Any]] | None:
+    list_databases = getattr(runtime, "list_databases", None)
+    if not callable(list_databases):
+        return None
+    payload = list_databases()
+    data = payload.get("data") if isinstance(payload, dict) else None
+    raw_items = data.get("items") if isinstance(data, dict) else payload
+    if not isinstance(raw_items, list):
+        return None
+    return [dict(item) for item in raw_items if isinstance(item, dict)]
 
 
 def _registered_tools_with_tool_index(*, runtime: Any, registered_tools: list[dict[str, Any]]) -> list[dict[str, Any]]:

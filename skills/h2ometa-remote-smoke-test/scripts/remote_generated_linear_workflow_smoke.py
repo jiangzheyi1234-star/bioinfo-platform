@@ -169,12 +169,12 @@ def main() -> int:
             nodes=[
                 workflow_design_node(
                     node_id="count_bytes",
-                    tool_id=count_tool["id"],
+                    tool_revision_id=count_tool["toolRevisionId"],
                     inputs={"primary": {"fromInput": "input"}},
                 ),
                 workflow_design_node(
                     node_id="copy_summary",
-                    tool_id=copy_tool["id"],
+                    tool_revision_id=copy_tool["toolRevisionId"],
                 ),
             ],
             edges=[

@@ -309,6 +309,32 @@ export type CapabilityBundleValidationEvidence = {
   };
 };
 
+export type CapabilityAdmissionEvidence = {
+  policyVersion?: string;
+  databaseResources?: Array<{
+    resourceKey?: string;
+    configKey?: string;
+    databaseId?: string;
+    databaseIds?: string[];
+    name?: string;
+    templateId?: string;
+    status?: string;
+    version?: string;
+    lastCheckedAt?: string;
+    pathMode?: string;
+    availableReadLengths?: number[];
+    candidateCount?: number;
+    availableCount?: number;
+  }>;
+  missingResources?: Array<{
+    resourceKey?: string;
+    configKey?: string;
+    acceptedTemplates?: string[];
+    acceptedCapabilities?: string[];
+    nextAction?: string;
+  }>;
+};
+
 export type CapabilityBundleSummary = {
   capabilityBundleVersion: "capability-bundle-v1" | string;
   capabilityId: string;
@@ -332,6 +358,7 @@ export type CapabilityBundleSummary = {
   risk?: { level?: string; reasons?: string[] };
   permissions?: { network?: boolean; filesystem?: string[]; databases?: string[] };
   approval?: { required?: boolean; approved?: boolean; policyVersion?: string; reason?: string };
+  admissionEvidence?: CapabilityAdmissionEvidence;
   validationEvidence?: CapabilityBundleValidationEvidence;
   selectionSummary?: {
     label?: string;
@@ -362,6 +389,7 @@ export type CapabilityBundleGate = {
     capabilityId?: string;
     blockedReasons?: string[];
     nextAction?: string;
+    admissionEvidence?: CapabilityAdmissionEvidence;
   }>;
 };
 

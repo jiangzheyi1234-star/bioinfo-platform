@@ -138,11 +138,57 @@ def test_capability_graph_requires_approval_for_risky_bundle_permissions() -> No
     }
 
 
+def test_capability_graph_uses_validated_database_resource_as_admission_evidence() -> None:
+    from apps.api.capability_graph_service import CapabilityGraphService
+
+    bracken = _ready_tool("bracken", "2.9")
+    snapshot = CapabilityGraphService().snapshot(
+        registered_tools=[bracken],
+        catalog=_empty_catalog(),
+        databases=[_available_database("db_bracken", template_id="bracken")],
+    )
+
+    bundle = snapshot["agentSelectableTools"][0]["capabilityBundle"]
+    assert snapshot["capabilityBundleGate"]["selectable"] == 1
+    assert bundle["approval"] == {
+        "required": True,
+        "approved": True,
+        "policyVersion": "capability-admission-v1",
+        "reason": "validated-database-resource",
+    }
+    assert bundle["admissionEvidence"]["databaseResources"][0]["resourceKey"] == "bracken_db"
+    assert bundle["admissionEvidence"]["databaseResources"][0]["databaseIds"] == ["db_bracken"]
+    assert bundle["admissionEvidence"]["databaseResources"][0]["databases"][0]["templateId"] == "bracken"
+
+
+def test_capability_graph_reports_missing_database_resource_before_manual_approval() -> None:
+    from apps.api.capability_graph_service import CapabilityGraphService
+
+    snapshot = CapabilityGraphService().snapshot(
+        registered_tools=[_ready_tool("bracken", "2.9")],
+        catalog=_empty_catalog(),
+        databases=[],
+    )
+
+    assert snapshot["agentSelectableTools"] == []
+    status = snapshot["registeredTools"][0]["capabilityBundleStatus"]
+    assert status["blockedReasons"] == ["DATABASE_RESOURCE_REQUIRED"]
+    assert status["nextAction"] == "add-database"
+    blocked = snapshot["capabilityBundleGate"]["blockedTools"][0]
+    assert blocked["blockedReasons"] == ["DATABASE_RESOURCE_REQUIRED"]
+    assert blocked["nextAction"] == "add-database"
+    assert blocked["admissionEvidence"]["missingResources"][0]["resourceKey"] == "bracken_db"
+    assert blocked["admissionEvidence"]["missingResources"][0]["acceptedTemplates"] == ["bracken"]
+
+
 def test_capability_graph_snapshot_endpoint_uses_remote_tool_index(monkeypatch) -> None:
     from apps.api import tool_capability_service
 
     class Runtime:
         def list_tools(self) -> dict[str, object]:
+            return {"data": {"items": []}}
+
+        def list_databases(self) -> dict[str, object]:
             return {"data": {"items": []}}
 
         def list_tool_index(
@@ -234,6 +280,110 @@ def test_capability_graph_snapshot_endpoint_uses_remote_tool_index(monkeypatch) 
     assert {node["profileId"] for node in snapshot["semanticGraph"]["nodes"] if node["kind"] == "ToolProfile"} == {"fastqc"}
 
 
+def test_capability_graph_snapshot_endpoint_admits_database_backed_tool_from_runtime_state(monkeypatch) -> None:
+    from apps.api import tool_capability_service
+
+    class Runtime:
+        def list_tools(self) -> dict[str, object]:
+            return {"data": {"items": [_ready_tool("bracken", "2.9")]}}
+
+        def list_databases(self) -> dict[str, object]:
+            return {"data": {"items": [_available_database("db_bracken", template_id="bracken")]}}
+
+        def list_tool_index(
+            self,
+            *,
+            query: str = "",
+            limit: int = 50,
+            offset: int = 0,
+            source: str | None = None,
+            state: str | None = None,
+        ) -> dict[str, object]:
+            return {"data": {"items": [], "total": 0, "hasMore": False}}
+
+        def list_latest_tool_prepare_jobs(self, tool_ids: list[str]) -> dict[str, object]:
+            return {"data": {"byToolId": {}}}
+
+        def list_tool_prepare_job_queue(
+            self,
+            *,
+            status: str = "",
+            limit: int = 50,
+            offset: int = 0,
+        ) -> dict[str, object]:
+            return {
+                "data": {
+                    "items": [],
+                    "total": 0,
+                    "limit": limit,
+                    "offset": offset,
+                    "statusCounts": {},
+                }
+            }
+
+    monkeypatch.setattr(tool_capability_service, "runtime_service", lambda: Runtime())
+    monkeypatch.setattr(
+        tool_capability_service,
+        "search_tool_candidates",
+        lambda query, *, target_platform, page, page_size: _empty_catalog(),
+    )
+
+    result = asyncio.run(
+        tool_capability_service.get_capability_graph_snapshot_from_request(
+            q="bracken",
+            target_platform="linux-64",
+            page=1,
+            page_size=10,
+            agent_selectable_only=True,
+        )
+    )
+
+    snapshot = result["data"]
+    assert snapshot["agentSelectableProfileIds"] == ["bracken"]
+    assert snapshot["agentSelectableTools"][0]["capabilityBundle"]["approval"]["reason"] == "validated-database-resource"
+    assert snapshot["capabilityBundleGate"]["blocked"] == 0
+
+
+def test_capability_graph_database_admission_accepts_every_database_template() -> None:
+    from apps.api.capability_graph_service import CapabilityGraphService
+    from apps.remote_runner.database_templates import DATABASE_TEMPLATES, database_template_capabilities
+
+    registered_tools = []
+    databases = []
+    for template_id, template in DATABASE_TEMPLATES.items():
+        capabilities = database_template_capabilities(template)
+        registered_tools.append(_ready_database_template_tool(template_id, capabilities=capabilities))
+        databases.append(
+            _available_database(
+                f"db_{template_id}",
+                template_id=template_id,
+                capabilities=capabilities,
+                db_type=str(template.get("type") or "reference"),
+            )
+        )
+
+    snapshot = CapabilityGraphService().snapshot(
+        registered_tools=registered_tools,
+        catalog=_empty_catalog(),
+        databases=databases,
+    )
+
+    assert snapshot["capabilityBundleGate"]["total"] == len(DATABASE_TEMPLATES)
+    assert snapshot["capabilityBundleGate"]["selectable"] == len(DATABASE_TEMPLATES)
+    assert snapshot["capabilityBundleGate"]["blocked"] == 0
+    bundles_by_template = {
+        bundle["profileId"].removeprefix("template-"): bundle
+        for bundle in snapshot["capabilityBundles"]
+    }
+    assert set(bundles_by_template) == set(DATABASE_TEMPLATES)
+    for template_id, bundle in bundles_by_template.items():
+        assert bundle["approval"]["reason"] == "validated-database-resource"
+        resource = bundle["admissionEvidence"]["databaseResources"][0]
+        assert resource["resourceKey"] == "db"
+        assert resource["databaseIds"] == [f"db_{template_id}"]
+        assert resource["databases"][0]["templateId"] == template_id
+
+
 def _ready_tool(profile_id: str, version: str, *, name: str | None = None) -> dict[str, object]:
     tool_name = name or profile_id
     package_name = "seqkit" if profile_id == "seqkit" else profile_id
@@ -267,6 +417,83 @@ def _ready_tool(profile_id: str, version: str, *, name: str | None = None) -> di
                 "smokeRun": {"status": "passed"},
                 "outputValidation": {"status": "passed"},
             },
+        },
+    }
+
+
+def _ready_database_template_tool(template_id: str, *, capabilities: list[str]) -> dict[str, object]:
+    tool = _ready_tool(f"template-{template_id}", "1.0")
+    tool["ruleTemplate"] = {
+        "commandTemplate": "printf ok > {output.report:q}",
+        "inputs": [
+            {
+                "name": "reads",
+                "type": "file",
+                "kind": "sequence_reads",
+                "mimeType": "text/plain",
+                "required": True,
+            }
+        ],
+        "outputs": [
+            {
+                "name": "report",
+                "path": f"results/{template_id}.txt",
+                "kind": "report",
+                "mimeType": "text/plain",
+            }
+        ],
+        "params": {},
+        "resources": {
+            "threads": {"default": 1},
+            "mem_mb": {"default": 128},
+            "db": {
+                "type": "database",
+                "required": True,
+                "acceptedTemplates": [template_id],
+                "acceptedCapabilities": capabilities,
+                "configKey": "db",
+            },
+        },
+        "environment": {
+            "conda": {
+                "channels": ["conda-forge", "bioconda"],
+                "dependencies": ["{packageSpec}"],
+            }
+        },
+        "smokeTest": {
+            "inputs": {
+                "reads": {
+                    "filename": "reads.fastq",
+                    "content": "@smoke\nACGT\n+\nFFFF\n",
+                    "mimeType": "text/plain",
+                }
+            },
+            "timeoutSeconds": 60,
+        },
+    }
+    return tool
+
+
+def _available_database(
+    database_id: str,
+    *,
+    template_id: str,
+    capabilities: list[str] | None = None,
+    db_type: str = "taxonomy",
+) -> dict[str, object]:
+    return {
+        "id": database_id,
+        "name": f"{template_id} database",
+        "type": db_type,
+        "version": "2026.06",
+        "path": f"/data/{template_id}",
+        "status": "available",
+        "lastCheckedAt": "2026-06-15T00:00:00Z",
+        "metadata": {
+            "templateId": template_id,
+            "capabilities": capabilities or ["taxonomy_database"],
+            "pathMode": "directory",
+            "availableReadLengths": [100, 150] if template_id == "bracken" else [],
         },
     }
 

@@ -9,7 +9,7 @@ RULE_TOKEN_RE = re.compile(r"\{[^{}\s]+\}")
 DATABASE_TOKEN_RE = re.compile(
     r"^database\.[A-Za-z_][A-Za-z0-9_]*\.(id|name|type|templateId|version|path|manifestPath|checksum)(:q)?$"
 )
-CONFIG_TOKEN_RE = re.compile(r"^config\.[A-Za-z_][A-Za-z0-9_]*(:q)?$")
+CONFIG_TOKEN_RE = re.compile(r"^config\.[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?(:q)?$")
 
 
 def validate_command_tokens(

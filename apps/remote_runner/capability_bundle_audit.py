@@ -6,14 +6,19 @@ from typing import Any
 CAPABILITY_BUNDLE_VERSION = "capability-bundle-v1"
 
 
-def capability_bundle_audit_for_tool(tool: dict[str, Any], *, step_id: str = "") -> dict[str, Any]:
+def capability_bundle_audit_for_tool(
+    tool: dict[str, Any],
+    *,
+    step_id: str = "",
+    resource_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     tool_id = str(tool.get("id") or tool.get("toolId") or "").strip()
     tool_revision_id = str(tool.get("toolRevisionId") or "").strip()
     tool_name = str(tool.get("name") or _tool_name_from_identifier(tool_id)).strip()
     version = str(tool.get("version") or _version_from_package_spec(str(tool.get("packageSpec") or ""))).strip()
     risk = _risk_summary(tool)
     permissions = _permissions_summary(tool)
-    approval = _approval_summary(tool, risk=risk, permissions=permissions)
+    approval = _approval_summary(tool, risk=risk, permissions=permissions, resource_context=resource_context)
     validation_evidence = _validation_evidence(tool)
     return {
         "capabilityBundleVersion": CAPABILITY_BUNDLE_VERSION,
@@ -32,14 +37,20 @@ def capability_bundle_audit_for_tool(tool: dict[str, Any], *, step_id: str = "")
         "risk": risk,
         "permissions": permissions,
         "approval": approval,
+        "admissionEvidence": _admission_evidence(resource_context, permissions=permissions),
         "validationEvidence": validation_evidence,
         "environmentLock": _environment_lock(tool),
         "nextAction": "execute-workflow-step",
     }
 
 
-def capability_bundle_manifest_entry(tool: dict[str, Any], *, step_id: str = "") -> dict[str, Any]:
-    audit = capability_bundle_audit_for_tool(tool, step_id=step_id)
+def capability_bundle_manifest_entry(
+    tool: dict[str, Any],
+    *,
+    step_id: str = "",
+    resource_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    audit = capability_bundle_audit_for_tool(tool, step_id=step_id, resource_context=resource_context)
     return {
         "capabilityBundleVersion": audit["capabilityBundleVersion"],
         "capabilityId": audit["capabilityId"],
@@ -49,6 +60,7 @@ def capability_bundle_manifest_entry(tool: dict[str, Any], *, step_id: str = "")
         "risk": audit["risk"],
         "permissions": audit["permissions"],
         "approval": audit["approval"],
+        "admissionEvidence": audit["admissionEvidence"],
         "validationEvidence": audit["validationEvidence"],
         "nextAction": audit["nextAction"],
     }
@@ -158,18 +170,88 @@ def _permissions_summary(tool: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _approval_summary(tool: dict[str, Any], *, risk: dict[str, Any], permissions: dict[str, Any]) -> dict[str, Any]:
+def _approval_summary(
+    tool: dict[str, Any],
+    *,
+    risk: dict[str, Any],
+    permissions: dict[str, Any],
+    resource_context: dict[str, Any] | None,
+) -> dict[str, Any]:
     policy = tool.get("capabilityApproval") if isinstance(tool.get("capabilityApproval"), dict) else {}
     required = (
         str(risk.get("level") or "low") in {"medium", "high"}
         or bool(permissions.get("network"))
         or bool(permissions.get("databases"))
     )
+    resource_ready = _resource_context_satisfies_permissions(resource_context, permissions=permissions)
+    approved = bool(policy.get("approved")) if required else True
+    if required and not approved and resource_ready:
+        approved = True
+    reason = str(policy.get("reason") or "").strip()
+    if not reason:
+        if not required:
+            reason = "low-risk-auto-approved"
+        elif resource_ready:
+            reason = "validated-database-resource"
+        else:
+            reason = "approval-required"
+    policy_version = str(policy.get("policyVersion") or "").strip()
+    if not policy_version and required and resource_ready:
+        policy_version = "capability-admission-v1"
     return {
         "required": required,
-        "approved": bool(policy.get("approved")) if required else True,
-        "policyVersion": str(policy.get("policyVersion") or "").strip(),
-        "reason": str(policy.get("reason") or ("approval-required" if required else "low-risk-auto-approved")),
+        "approved": approved,
+        "policyVersion": policy_version,
+        "reason": reason,
+    }
+
+
+def _resource_context_satisfies_permissions(
+    resource_context: dict[str, Any] | None,
+    *,
+    permissions: dict[str, Any],
+) -> bool:
+    database_keys = [str(item).strip() for item in permissions.get("databases") or [] if str(item).strip()]
+    if not database_keys:
+        return False
+    resources = resource_context if isinstance(resource_context, dict) else {}
+    return all(isinstance(resources.get(key), dict) and bool(resources[key].get("databaseId")) for key in database_keys)
+
+
+def _admission_evidence(
+    resource_context: dict[str, Any] | None,
+    *,
+    permissions: dict[str, Any],
+) -> dict[str, Any]:
+    database_keys = [str(item).strip() for item in permissions.get("databases") or [] if str(item).strip()]
+    resources = resource_context if isinstance(resource_context, dict) else {}
+    database_resources = []
+    for key in database_keys:
+        resource = resources.get(key) if isinstance(resources.get(key), dict) else {}
+        if not resource:
+            continue
+        database_resources.append(
+            {
+                "resourceKey": key,
+                "configKey": str(resource.get("configKey") or key),
+                "databaseId": str(resource.get("databaseId") or ""),
+                "name": str(resource.get("name") or ""),
+                "templateId": str(resource.get("templateId") or ""),
+                "status": "available",
+                "version": str(resource.get("version") or ""),
+                "pathMode": str(resource.get("pathMode") or ""),
+            }
+        )
+    if not database_resources:
+        return {}
+    return {
+        "policyVersion": "capability-admission-v1",
+        "databaseResources": database_resources,
+        "missingResources": [
+            {"resourceKey": key, "nextAction": "add-database"}
+            for key in database_keys
+            if key not in {resource["resourceKey"] for resource in database_resources}
+        ],
     }
 
 

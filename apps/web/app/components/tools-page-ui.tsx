@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 
 import type {
   RuleSpecDraft,
+  CapabilityGraphSnapshot,
   SnakemakeWrapperCatalog,
   ToolCandidateCatalog,
   ToolCatalogTargetAcceptance,
@@ -23,6 +24,7 @@ import type {
   ToolSearchItem,
 } from "./tools-page-model";
 import { displayRuleTemplateForTool, hasRuleAction, ruleSpecReadinessForTool } from "./tool-rule-readiness";
+import { CapabilityBundleGatePanel } from "./tools-page-capability-gate";
 import { ToolCatalogValidationQueueStrip } from "./tools-page-validation-queue";
 import { ToolWrapperSelector } from "./tools-page-wrapper-selector";
 
@@ -96,9 +98,7 @@ export function WrapperBadge({ item }: { item: ToolSearchItem }) {
 export function ToolCatalogQualityStrip({
   candidateCatalog,
   candidateCatalogError = "",
-  candidateCatalogLoading = false,
-  error,
-  loading,
+  candidateCatalogLoading = false, capabilityGraph, error, loading,
   targetAcceptance,
   targetAcceptanceError = "",
   targetAcceptanceLoading = false,
@@ -107,9 +107,8 @@ export function ToolCatalogQualityStrip({
 }: {
   candidateCatalog?: ToolCandidateCatalog | null;
   candidateCatalogError?: string;
-  candidateCatalogLoading?: boolean;
-  error: string;
-  loading: boolean;
+  candidateCatalogLoading?: boolean; capabilityGraph?: CapabilityGraphSnapshot | null;
+  error: string; loading: boolean;
   targetAcceptance?: ToolCatalogTargetAcceptance | null;
   targetAcceptanceError?: string;
   targetAcceptanceLoading?: boolean;
@@ -222,6 +221,7 @@ export function ToolCatalogQualityStrip({
             </div>
           </details>
         ) : null}
+        <CapabilityBundleGatePanel gate={capabilityGraph?.capabilityBundleGate} />
       </div>
     </section>
   );

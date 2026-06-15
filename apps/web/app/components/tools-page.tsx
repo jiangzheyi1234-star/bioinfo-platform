@@ -23,6 +23,7 @@ export function ToolsPage({ initialQuery = "" }: { initialQuery?: string }) {
       candidateCatalog={state.candidateCatalog}
       candidateCatalogError={state.candidateCatalogError}
       candidateCatalogLoading={state.candidateCatalogLoading}
+      capabilityGraph={state.capabilityGraph}
       error={state.wrapperCatalogError}
       loading={state.wrapperCatalogLoading}
       targetAcceptance={state.targetAcceptance}
