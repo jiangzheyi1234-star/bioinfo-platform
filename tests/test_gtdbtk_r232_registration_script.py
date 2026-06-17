@@ -33,8 +33,10 @@ def test_build_database_payload_uses_official_gtdbtk_contract() -> None:
     assert payload["templateId"] == "gtdbtk"
     assert payload["version"] == "R232"
     assert payload["path"].endswith("/extracted/release")
+    assert payload["databaseLayer"] == "production_full"
     assert payload["sizeBytes"] == GTDBTK_R232_ARCHIVE_BYTES
     assert payload["checksum"] == f"md5:{GTDBTK_R232_MD5}"
+    assert payload["metadata"]["databaseLayer"] == "production_full"
     assert payload["metadata"]["archiveMd5"] == GTDBTK_R232_MD5
 
 

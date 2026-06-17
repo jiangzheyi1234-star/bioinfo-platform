@@ -40,9 +40,11 @@ export type CreateDatabaseInput = {
   description: string;
   manifestPath: string;
   source: "manual";
+  databaseLayer: "user_manual";
   selectedEntryPath?: string;
   metadata: {
     templateId: string;
+    databaseLayer: "user_manual";
     selectedEntryPath?: string;
     input?: {
       kind: "multi";

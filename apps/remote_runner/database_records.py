@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from .database_errors import DatabaseRegistryError
+from .database_layers import database_layer, layer_metadata, normalize_database_layer
 from .database_runtime_paths import (
     compute_database_entry_path,
     database_input_metadata,
@@ -21,6 +22,7 @@ def database_row_to_dict(row) -> dict[str, Any]:
         "metadata": metadata, "status": row["status"], "message": row["message"],
         "createdAt": row["created_at"], "updatedAt": row["updated_at"], "lastCheckedAt": row["last_checked_at"],
     }
+    item["databaseLayer"] = database_layer(item)
     return _with_database_path_semantics(item)
 
 
@@ -34,6 +36,8 @@ def normalize_database_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if not data_path:
         raise DatabaseRegistryError("DATABASE_PATH_REQUIRED")
     metadata = dict(payload.get("metadata") or {})
+    database_layer_value = normalize_database_layer(payload, metadata)
+    metadata = layer_metadata(metadata, database_layer_value)
     template_id = str(payload.get("templateId") or metadata.get("templateId") or "").strip().lower()
     template = DATABASE_TEMPLATES.get(template_id) if template_id else None
     if template_id and template is None:

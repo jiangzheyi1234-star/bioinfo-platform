@@ -149,7 +149,13 @@ def register_fixture_database(api_base: str, fixture: dict[str, Any], *, run_id:
         "path": fixture["remoteSelectedPath"],
         "source": "minimal-real-smoke",
         "description": "Temporary minimal fixture for real database template acceptance smoke.",
-        "metadata": {"templateId": template_id, "smokeRunId": run_id, "fixtureKind": "minimal-real-smoke"},
+        "metadata": {
+            "templateId": template_id,
+            "databaseLayer": "validation_fixture",
+            "smokeRunId": run_id,
+            "fixtureKind": "minimal-real-smoke",
+            "fixtureScope": "template-smoke",
+        },
     }
     return response_data(http_json("POST", api_base, "/api/v1/databases", payload=payload, timeout=1800))
 

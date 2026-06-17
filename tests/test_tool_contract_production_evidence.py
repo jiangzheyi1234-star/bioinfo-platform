@@ -105,7 +105,14 @@ def _production_run_spec(
     return generated_workflow_run_spec(tool_revision_id, resource_bindings=resource_bindings)
 
 
-def _registered_database(cfg: RemoteRunnerConfig, tmp_path: Path, *, template_id: str, status: str = "available") -> None:
+def _registered_database(
+    cfg: RemoteRunnerConfig,
+    tmp_path: Path,
+    *,
+    template_id: str,
+    status: str = "available",
+    database_layer: str = "user_manual",
+) -> None:
     database_dir = tmp_path / f"db-{template_id}-{status}"
     database_dir.mkdir(parents=True, exist_ok=True)
     add_reference_database(
@@ -116,7 +123,7 @@ def _registered_database(cfg: RemoteRunnerConfig, tmp_path: Path, *, template_id
             "templateId": template_id,
             "path": str(database_dir),
             "status": status,
-            "metadata": {"templateId": template_id},
+            "metadata": {"templateId": template_id, "databaseLayer": database_layer},
         },
     )
 
@@ -401,6 +408,45 @@ def test_real_database_production_evidence_must_match_run_binding(tmp_path: Path
     )
 
     assert accepted["toolContract"]["state"] == "ProductionEnabled"
+
+
+def test_real_database_acceptance_rejects_validation_fixture_database(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    _ready_tool(cfg)
+    _registered_database(
+        cfg,
+        tmp_path,
+        template_id="custom",
+        database_layer="validation_fixture",
+    )
+    _completed_run_with_artifact(
+        cfg,
+        tmp_path,
+        run_id="run_database_fixture",
+        run_spec=_production_run_spec(
+            cfg,
+            resource_bindings={"taxonomy": {"databaseId": "db_real", "templateId": "custom"}},
+        ),
+    )
+
+    try:
+        mark_registered_tool_production_enabled(
+            cfg,
+            "conda-forge::production-ready",
+            {
+                "runId": "run_database_fixture",
+                "message": "Accepted.",
+                "evidenceType": "real-database-acceptance",
+                "databaseId": "db_real",
+                "templateId": "custom",
+                "role": "taxonomy",
+            },
+        )
+    except ToolRegistryError as exc:
+        assert str(exc) == "TOOL_PRODUCTION_EVIDENCE_DATABASE_LAYER_UNSUPPORTED"
+    else:
+        raise AssertionError("validation fixture databases must not satisfy production evidence")
 
 
 def test_production_acceptance_rejects_empty_artifacts(tmp_path: Path) -> None:

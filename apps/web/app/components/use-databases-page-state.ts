@@ -358,9 +358,11 @@ export function useDatabasesPageState(): DatabasesPageState {
           description: form.description.trim(),
           manifestPath: form.manifestPath.trim(),
           source: "manual",
+          databaseLayer: "user_manual",
           ...(selectedEntryPath ? { selectedEntryPath } : {}),
           metadata: {
             templateId: form.templateId,
+            databaseLayer: "user_manual",
             ...(selectedEntryPath ? { selectedEntryPath } : {}),
             ...(metadataInput ? { input: metadataInput } : {}),
             sourceUrl: form.sourceUrl.trim(),

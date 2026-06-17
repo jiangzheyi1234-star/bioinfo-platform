@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .database_layers import database_layer
 from .database_runtime_paths import (
     compute_database_entry_path,
     database_resolved_config_value,
@@ -62,6 +63,7 @@ def build_workflow_resource_config(
         resources[resource_key] = {
             "resourceKey": resource_key,
             "databaseId": database["id"],
+            "databaseLayer": database_layer(database),
             "name": database["name"],
             "type": database["type"],
             "templateId": template_id,

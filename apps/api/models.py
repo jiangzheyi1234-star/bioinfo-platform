@@ -154,6 +154,7 @@ class DatabaseManifestRequest(ApiRequest):
     version: str | None = None
     path: str = Field(min_length=1)
     selectedEntryPath: str | None = None
+    databaseLayer: str | None = None
     description: str | None = None
     source: str | None = None
     manifestPath: str | None = None

@@ -25,6 +25,11 @@ def test_all_production_templates_publish_stable_runtime_contract() -> None:
 
     for template_id, template in templates.items():
         assert template["supportLevel"] == "stable", template_id
+        assert template["supportedLayers"] == [
+            "production_full",
+            "user_manual",
+            "validation_fixture",
+        ], template_id
         assert template["select"]["allowDirectory"] is True or template["select"]["allowFile"] is True, template_id
         assert template["resolve"]["strategy"], template_id
         assert template["validation"]["structureCheck"], template_id

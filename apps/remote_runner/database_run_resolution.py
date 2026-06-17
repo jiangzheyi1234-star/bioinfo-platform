@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .database_layers import database_layer
 from . import database_validation
 from .config import RemoteRunnerConfig
 from .database_runtime_paths import (
@@ -81,6 +82,7 @@ def resolve_run_databases(cfg: RemoteRunnerConfig, run_spec: dict[str, Any]) -> 
             metadata["resolved"] = database_resolved_metadata(entry_path)
         resolved[role] = {
             "id": database["id"],
+            "databaseLayer": database_layer(database),
             "name": database["name"],
             "type": database["type"],
             "templateId": str((database.get("metadata") or {}).get("templateId") or ""),

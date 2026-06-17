@@ -91,10 +91,12 @@ def build_database_payload(*, database_id: str, ready_dir: str, archive_path: st
         "path": ready_dir,
         "description": "Official GTDB-Tk R232 data package downloaded from the GTDB AAU mirror.",
         "source": GTDBTK_R232_SOURCE_URL,
+        "databaseLayer": "production_full",
         "sizeBytes": GTDBTK_R232_ARCHIVE_BYTES,
         "checksum": f"md5:{GTDBTK_R232_MD5}",
         "metadata": {
             "templateId": "gtdbtk",
+            "databaseLayer": "production_full",
             "sourceMirror": "GTDB AAU Europe",
             "sourceUrl": GTDBTK_R232_SOURCE_URL,
             "archivePath": archive_path,

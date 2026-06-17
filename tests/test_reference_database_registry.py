@@ -48,6 +48,92 @@ def test_reference_database_registry_checks_remote_path(tmp_path: Path, monkeypa
     assert list_reference_databases(cfg) == []
 
 
+def test_reference_database_records_include_database_layer_metadata(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    manual_dir = tmp_path / "manual"
+    manual_dir.mkdir()
+    (manual_dir / "data.txt").write_text("manual", encoding="utf-8")
+
+    manual = add_reference_database(
+        cfg,
+        {
+            "id": "manual-db",
+            "name": "Manual DB",
+            "templateId": "custom",
+            "path": str(manual_dir),
+        },
+    )
+
+    assert manual["databaseLayer"] == "user_manual"
+    assert manual["metadata"]["databaseLayer"] == "user_manual"
+    assert manual["metadata"]["productionEligible"] is True
+
+    fixture_dir = _make_kraken2_database(tmp_path / "kraken2-fixture")
+    fixture = add_reference_database(
+        cfg,
+        {
+            "id": "fixture-db",
+            "name": "Fixture DB",
+            "templateId": "kraken2",
+            "path": str(fixture_dir),
+            "source": "minimal-real-smoke",
+            "metadata": {
+                "databaseLayer": "validation_fixture",
+                "fixtureScope": "template-smoke",
+            },
+        },
+    )
+
+    assert fixture["databaseLayer"] == "validation_fixture"
+    assert fixture["metadata"]["databaseLayer"] == "validation_fixture"
+    assert fixture["metadata"]["fixtureScope"] == "template-smoke"
+    assert fixture["metadata"]["productionEligible"] is False
+
+
+def test_reference_database_rejects_unsupported_database_layer(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    database_dir = tmp_path / "unsupported-layer"
+    database_dir.mkdir()
+
+    try:
+        add_reference_database(
+            cfg,
+            {
+                "id": "unsupported-layer",
+                "name": "Unsupported Layer",
+                "templateId": "custom",
+                "path": str(database_dir),
+                "metadata": {"databaseLayer": "mini_realish"},
+            },
+        )
+    except DatabaseRegistryError as exc:
+        assert str(exc) == "DATABASE_LAYER_UNSUPPORTED"
+    else:
+        raise AssertionError("unsupported database layers should fail loudly")
+
+
+def test_downloadable_pack_layer_is_not_registered_as_installed_database(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    database_dir = tmp_path / "downloadable-pack"
+    database_dir.mkdir()
+
+    try:
+        add_reference_database(
+            cfg,
+            {
+                "id": "downloadable-pack",
+                "name": "Downloadable Pack",
+                "templateId": "custom",
+                "path": str(database_dir),
+                "metadata": {"databaseLayer": "downloadable_pack"},
+            },
+        )
+    except DatabaseRegistryError as exc:
+        assert str(exc) == "DATABASE_LAYER_DOWNLOADABLE_PACK_NOT_REGISTERABLE"
+    else:
+        raise AssertionError("downloadable packs should be catalog entries, not installed database records")
+
+
 def test_verified_reference_database_add_rejects_invalid_kraken2_database(tmp_path: Path, monkeypatch) -> None:
     cfg = _cfg(tmp_path)
     database_dir = _make_kraken2_database(tmp_path / "kraken2-incomplete", complete=False)

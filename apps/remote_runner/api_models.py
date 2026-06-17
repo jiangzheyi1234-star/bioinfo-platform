@@ -90,6 +90,7 @@ class DatabaseManifestRequest(RemoteRunnerRequest):
     type: str | None = None
     version: str | None = None
     path: str = Field(min_length=1)
+    databaseLayer: str | None = None
     description: str | None = None
     source: str | None = None
     manifestPath: str | None = None

@@ -14,8 +14,11 @@ export type DatabasePathInput = {
   fields?: Record<string, string>;
 };
 
+export type DatabaseLayer = "production_full" | "validation_fixture" | "user_manual" | "downloadable_pack" | "unspecified";
+
 export type DatabaseItem = {
   id: string; name: string; type: string; version: string; path: string; description: string; source: string; manifestPath: string; checksum: string;
+  databaseLayer?: DatabaseLayer;
   inputPath?: string;
   entryPath?: string;
   pathMode?: PathKind;
@@ -30,6 +33,10 @@ export type DatabaseItem = {
     dbParams?: string;
     expectedFiles?: string[];
     availableReadLengths?: number[];
+    databaseLayer?: DatabaseLayer;
+    productionEligible?: boolean;
+    fixtureScope?: string;
+    packId?: string;
   };
   status: string; message: string; updatedAt: string;
   lastCheckedAt: string | null;
@@ -96,6 +103,7 @@ export type DatabaseTemplateField = {
 export type DatabaseTemplate = {
   id: string; name: string; type: string;
   supportLevel?: "stable";
+  supportedLayers?: DatabaseLayer[];
   category?: string;
   icon: "taxonomy" | "index" | "amr" | "custom";
   pathKind?: PathKind;

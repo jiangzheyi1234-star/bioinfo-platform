@@ -125,6 +125,11 @@ def test_template_model_keeps_path_kind_and_stable_template_contract() -> None:
     _assert_contains(
         source,
         'type PathKind = "directory" | "file" | "prefix" | "primary_with_sidecars" | "composite"',
+        'type DatabaseLayer = "production_full" | "validation_fixture" | "user_manual" | "downloadable_pack" | "unspecified"',
+        "databaseLayer?: DatabaseLayer",
+        "productionEligible?: boolean",
+        "fixtureScope?: string",
+        "supportedLayers?: DatabaseLayer[]",
         "fields?: Record<string, DatabaseTemplateField>",
         'supportLevel?: "stable"',
         "复合数据库需要填写多个路径字段。",

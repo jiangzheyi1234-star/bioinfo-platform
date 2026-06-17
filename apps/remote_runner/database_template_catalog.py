@@ -2,6 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from .database_layers import (
+    DATABASE_LAYER_PRODUCTION_FULL,
+    DATABASE_LAYER_USER_MANUAL,
+    DATABASE_LAYER_VALIDATION_FIXTURE,
+)
+
 
 _PATH_KIND_DEFAULTS: dict[str, dict[str, str]] = {
     "directory": {"pathLabel": "数据库目录", "runtimeValue": "selected_path"},
@@ -45,6 +51,7 @@ def build_database_template_catalog(templates: dict[str, dict[str, Any]]) -> lis
             "id": template_id,
             "name": str(template.get("label") or template_id),
             "supportLevel": str(template.get("supportLevel") or "stable"),
+            "supportedLayers": _template_supported_layers(template),
             "type": str(template.get("type") or "reference"),
             "category": _template_category(template),
             "icon": str(template.get("icon") or "custom"),
@@ -85,6 +92,17 @@ def database_template_runtime_shape(template: dict[str, Any]) -> dict[str, Any]:
 
 def database_template_capabilities(template: dict[str, Any]) -> list[str]:
     return _template_capabilities(template)
+
+
+def _template_supported_layers(template: dict[str, Any]) -> list[str]:
+    raw = template.get("supportedLayers")
+    if isinstance(raw, list):
+        return [str(item).strip() for item in raw if str(item).strip()]
+    return [
+        DATABASE_LAYER_PRODUCTION_FULL,
+        DATABASE_LAYER_USER_MANUAL,
+        DATABASE_LAYER_VALIDATION_FIXTURE,
+    ]
 
 
 def _template_category(template: dict[str, Any]) -> str:

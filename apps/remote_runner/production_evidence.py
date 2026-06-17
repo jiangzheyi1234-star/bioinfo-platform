@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .config import RemoteRunnerConfig
+from .database_layers import production_evidence_database_layer_supported
 from .databases import fetch_reference_database
 from .generated_workflow_constants import GENERATED_TOOL_RUN_PIPELINE_ID
 from .storage import fetch_run, fetch_run_results
@@ -99,6 +100,8 @@ def _validate_database_evidence(cfg: RemoteRunnerConfig, evidence: dict[str, Any
     database = fetch_reference_database(cfg, database_id)
     if str((database or {}).get("status") or "") != "available":
         raise ToolProductionConflictError("TOOL_PRODUCTION_EVIDENCE_DATABASE_UNAVAILABLE")
+    if not production_evidence_database_layer_supported(database or {}):
+        raise ToolProductionConflictError("TOOL_PRODUCTION_EVIDENCE_DATABASE_LAYER_UNSUPPORTED")
     registered_template_id = str(((database or {}).get("metadata") or {}).get("templateId") or "").strip().lower()
     if registered_template_id != template_id.lower():
         raise ToolProductionConflictError("TOOL_PRODUCTION_EVIDENCE_DATABASE_MISMATCH")
