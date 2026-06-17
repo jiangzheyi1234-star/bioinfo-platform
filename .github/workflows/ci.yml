@@ -1,6 +1,6 @@
 name: CI
 
-on:
+"on":
   pull_request:
   push:
     branches:
@@ -125,13 +125,18 @@ jobs:
 
   ci_green:
     name: required / ci-green
-    if: always()
+    if: ${{ always() }}
     needs:
       - diff_hygiene
       - python_windows
       - web_windows
       - linux_parity_smoke
     runs-on: ubuntu-24.04
+    env:
+      DIFF_HYGIENE_RESULT: ${{ needs.diff_hygiene.result }}
+      PYTHON_WINDOWS_RESULT: ${{ needs.python_windows.result }}
+      WEB_WINDOWS_RESULT: ${{ needs.web_windows.result }}
+      LINUX_PARITY_SMOKE_RESULT: ${{ needs.linux_parity_smoke.result }}
     steps:
       - name: Verify required jobs
         shell: bash
@@ -139,10 +144,10 @@ jobs:
           set -euo pipefail
           failed=0
           for job in \
-            "diff-hygiene:${{ needs.diff_hygiene.result }}" \
-            "python-windows:${{ needs.python_windows.result }}" \
-            "web-windows:${{ needs.web_windows.result }}" \
-            "linux-parity-smoke:${{ needs.linux_parity_smoke.result }}"
+            "diff-hygiene:${DIFF_HYGIENE_RESULT}" \
+            "python-windows:${PYTHON_WINDOWS_RESULT}" \
+            "web-windows:${WEB_WINDOWS_RESULT}" \
+            "linux-parity-smoke:${LINUX_PARITY_SMOKE_RESULT}"
           do
             name="${job%%:*}"
             result="${job#*:}"

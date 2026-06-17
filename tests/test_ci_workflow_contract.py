@@ -11,16 +11,17 @@ CI_WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml"
 def test_ci_workflow_provides_required_mainline_gates() -> None:
     source = CI_WORKFLOW.read_text(encoding="utf-8")
 
+    assert '"on":' in source
     assert "pull_request:" in source
     assert "push:" in source
     assert "merge_group:" in source
     assert "workflow_dispatch:" in source
     assert "permissions:\n  contents: read" in source
     assert "name: required / ci-green" in source
-    assert "needs.diff_hygiene.result" in source
-    assert "needs.python_windows.result" in source
-    assert "needs.web_windows.result" in source
-    assert "needs.linux_parity_smoke.result" in source
+    assert "DIFF_HYGIENE_RESULT: ${{ needs.diff_hygiene.result }}" in source
+    assert "PYTHON_WINDOWS_RESULT: ${{ needs.python_windows.result }}" in source
+    assert "WEB_WINDOWS_RESULT: ${{ needs.web_windows.result }}" in source
+    assert "LINUX_PARITY_SMOKE_RESULT: ${{ needs.linux_parity_smoke.result }}" in source
 
 
 def test_ci_workflow_runs_locked_python_and_web_quality_gates() -> None:
