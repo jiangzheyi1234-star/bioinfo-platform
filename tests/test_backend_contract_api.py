@@ -344,6 +344,17 @@ def test_server_actions_update_server_state(monkeypatch, tmp_path: Path) -> None
         "core.app_runtime.service.store_runner_token",
         lambda **kwargs: "runner://srv_test_local",
     )
+    trusted_host_key = SimpleNamespace(
+        ok=True,
+        message="SSH host key trusted",
+        key_type="ssh-ed25519",
+        fingerprint_sha256="SHA256:test-fingerprint",
+        known_hosts_path=str(tmp_path / "known_hosts"),
+    )
+    monkeypatch.setattr(
+        "core.app_runtime.service.trust_ssh_host_key",
+        lambda host, port, timeout: trusted_host_key,
+    )
     patch_runtime_service(monkeypatch, service)
 
     server = asyncio.run(list_servers())["data"]["items"][0]
@@ -351,6 +362,9 @@ def test_server_actions_update_server_state(monkeypatch, tmp_path: Path) -> None
 
     accepted = asyncio.run(accept_server_host_key(server_id))
     assert accepted["data"]["hostKeyTrusted"] is True
+    assert accepted["data"]["hostKeyType"] == "ssh-ed25519"
+    assert accepted["data"]["hostKeyFingerprintSha256"] == "SHA256:test-fingerprint"
+    assert accepted["data"]["knownHostsPath"] == str(tmp_path / "known_hosts")
 
     rotated = asyncio.run(rotate_server_token(server_id))
     assert rotated["data"]["tokenRotated"] is True

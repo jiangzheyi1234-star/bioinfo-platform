@@ -69,7 +69,7 @@ jobs:
   security_governance:
     name: security / governance
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     env:
       npm_config_registry: https://registry.npmjs.org
     steps:
@@ -81,15 +81,30 @@ jobs:
         with:
           node-version: 22
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
       - name: Run security governance audit
         run: python scripts/security_governance_audit.py
 
-      - name: Audit root production npm lockfile
-        run: npm audit --registry=https://registry.npmjs.org --audit-level=high --package-lock-only --omit=dev
+      - name: Audit Python dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          export UV_CACHE_DIR="$RUNNER_TEMP/uv-cache"
+          export UV_PROJECT_ENVIRONMENT="$RUNNER_TEMP/bio-ui-uv-venv"
+          export UV_PYTHON_INSTALL_DIR="$RUNNER_TEMP/uv-python"
+          unset UV_PYTHON
+          uv python install 3.12
+          uv export --frozen --group dev --format requirements-txt --no-emit-project --output-file "$RUNNER_TEMP/requirements-audit.txt"
+          uvx pip-audit -r "$RUNNER_TEMP/requirements-audit.txt" --progress-spinner off --strict --ignore-vuln CVE-2026-44405
 
-      - name: Audit web production npm lockfile
+      - name: Audit root npm lockfile
+        run: npm audit --registry=https://registry.npmjs.org --audit-level=moderate --package-lock-only
+
+      - name: Audit web npm lockfile
         working-directory: apps/web
-        run: npm audit --registry=https://registry.npmjs.org --audit-level=high --package-lock-only --omit=dev
+        run: npm audit --registry=https://registry.npmjs.org --audit-level=moderate --package-lock-only
 
   web_windows:
     name: web / windows

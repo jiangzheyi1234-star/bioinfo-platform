@@ -26,8 +26,10 @@ def test_security_governance_doc_is_current_contract() -> None:
         "Dependency And Supply-Chain Gates",
         "Remote Operation Audit",
         "Release Checklist",
-        "Accepted P0-10 Risks",
-        "SSH host-key trust",
+        "Scoped Runtime Limits",
+        "known_hosts",
+        "SSH_HOST_KEY_UNTRUSTED",
+        "pip-audit",
         "scripts/remote_exec.py",
         "0.0.0.0",
         "constant-time",
@@ -66,6 +68,9 @@ def test_security_governance_audit_script_contract() -> None:
     assert "cors-wildcard" in source
     assert "dangerous-workflow-trigger" in source
     assert "unpinned-action" in source
+    assert "ssh-auto-add-host-key" in source
+    assert "ssh-host-key-reject-policy" in source
+    assert "ssh-sha1-rsa-enabled" in source
 
     result = subprocess.run(
         [sys.executable, "scripts/security_governance_audit.py"],
@@ -96,9 +101,14 @@ def test_debug_remote_exec_stays_out_of_launchers_and_ci() -> None:
 def test_remote_runner_auth_and_deployment_security_contracts_are_locked() -> None:
     route_utils = _source("apps/remote_runner/route_utils.py")
     deployment = _source("core/deployment_mode.py")
+    ssh_connector = _source("core/remote/ssh_connector.py")
 
     assert "import hmac" in route_utils
     assert 'scheme.lower() != "bearer"' in route_utils
     assert "hmac.compare_digest(" in route_utils
     assert "Desktop mode does not allow binding to 0.0.0.0" in deployment
     assert "trusted intranet" in deployment
+    assert "AutoAddPolicy" not in ssh_connector
+    assert "RejectPolicy" in ssh_connector
+    assert "SSH_SHA1_DISABLED_ALGORITHMS" in ssh_connector
+    assert "SSH_HOST_KEY_UNTRUSTED" in ssh_connector

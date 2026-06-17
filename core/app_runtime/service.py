@@ -6,8 +6,11 @@ import uuid
 from typing import Any, Optional
 
 from config import (
+    normalize_ssh_config,
+    resolve_ssh_config_target,
     store_runner_token,
 )
+from core.app_runtime import runtime_config
 from core.app_runtime.managers.database import DatabaseManager
 from core.app_runtime.managers.execution import ExecutionManager
 from core.app_runtime.managers.file import FileManager
@@ -15,6 +18,7 @@ from core.app_runtime.managers.runner import RunnerManager
 from core.app_runtime.managers.tool import ToolManager
 from core.app_runtime.managers.workflow import WorkflowManager
 from core.remote.ssh_service import SSHService, TerminalSession
+from core.remote.ssh_connector import trust_ssh_host_key
 from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerError
 from core.app_runtime.errors import RuntimeServiceError
 from core.app_runtime.runner_ops import RunnerOperationsMixin
@@ -247,13 +251,40 @@ class RuntimeService(
     def accept_server_host_key(self, server_id: str) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
+            current = runtime_config.get_runtime_config()
+            ssh_cfg = normalize_ssh_config(current.get("ssh", {}))
+            auth_mode = str(ssh_cfg.get("auth_mode", "password_ref") or "password_ref")
+            resolved = resolve_ssh_config_target(ssh_cfg) if auth_mode == "ssh_config" else ssh_cfg
             ssh_status = self._get_ssh_status_unlocked()
             server = self._build_primary_server_identity(ssh_status=ssh_status)
             if server is None or server["serverId"] != server_id:
                 raise RuntimeServiceError(f"Server not found: {server_id}")
+
+            host = str(resolved.get("host", "") or "").strip()
+            port = int(resolved.get("port", 22) or 22)
+            timeout = int(resolved.get("timeout_sec", 5) or 5)
+
+        if not host:
+            raise RuntimeServiceError("ssh.host required before accepting an SSH host key")
+
+        trusted = trust_ssh_host_key(host, port, timeout=timeout)
+        if not trusted.ok:
+            raise RuntimeServiceError(trusted.message)
+
+        with self._lock:
             state = self._server_action_state.setdefault(server_id, {})
             state["host_key_trusted"] = True
-            return {"data": {"serverId": server_id, "hostKeyTrusted": True}}
+            state["host_key_fingerprint_sha256"] = trusted.fingerprint_sha256
+            state["known_hosts_path"] = trusted.known_hosts_path
+            return {
+                "data": {
+                    "serverId": server_id,
+                    "hostKeyTrusted": True,
+                    "hostKeyType": trusted.key_type,
+                    "hostKeyFingerprintSha256": trusted.fingerprint_sha256,
+                    "knownHostsPath": trusted.known_hosts_path,
+                }
+            }
 
     def rotate_server_token(self, server_id: str) -> dict[str, Any]:
         with self._lock:

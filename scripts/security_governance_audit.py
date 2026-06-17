@@ -138,6 +138,35 @@ def scan_security_contracts() -> list[Finding]:
     if 'allow_headers=["*"]' in api_main:
         findings.append(Finding("cors-header-wildcard", "apps/api/main.py", 0, "CORS headers must be explicit"))
 
+    ssh_connector = (ROOT / "core" / "remote" / "ssh_connector.py").read_text(encoding="utf-8")
+    if "AutoAddPolicy" in ssh_connector:
+        findings.append(
+            Finding(
+                "ssh-auto-add-host-key",
+                "core/remote/ssh_connector.py",
+                0,
+                "SSH must not auto-trust unknown host keys",
+            )
+        )
+    if "RejectPolicy" not in ssh_connector:
+        findings.append(
+            Finding(
+                "ssh-host-key-reject-policy",
+                "core/remote/ssh_connector.py",
+                0,
+                "SSH clients must reject unknown host keys by default",
+            )
+        )
+    if "SSH_SHA1_DISABLED_ALGORITHMS" not in ssh_connector or '"ssh-rsa"' not in ssh_connector:
+        findings.append(
+            Finding(
+                "ssh-sha1-rsa-enabled",
+                "core/remote/ssh_connector.py",
+                0,
+                "Paramiko must disable SHA1 RSA ssh-rsa host/user key algorithms",
+            )
+        )
+
     workflow_root = ROOT / ".github" / "workflows"
     for workflow in workflow_root.glob("*.yml"):
         source = workflow.read_text(encoding="utf-8")

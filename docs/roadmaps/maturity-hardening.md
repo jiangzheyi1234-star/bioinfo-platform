@@ -51,11 +51,11 @@ The closure target is a pragmatic security baseline for the supported Desktop/lo
 Closure requires:
 
 1. CI includes a required `security / governance` job in the stable `required / ci-green` aggregate.
-2. The security job runs the repository secret/config audit and high-severity production npm audits against the official npm registry.
+2. The security job runs the repository secret/config audit, moderate npm audits, and Python `pip-audit` against locked dependencies.
 3. Local API CORS uses explicit origins, methods, and headers.
 4. Remote runner bearer token validation parses the scheme and uses constant-time token comparison.
 5. Desktop deployment mode rejects `0.0.0.0`; server-single-user bind-all remains warning-only and trusted-intranet scoped.
-6. Current accepted risks are documented, including SSH host-key trust, Python audit gating, moderate npm findings, and unfinished multi-user/public deployment hardening.
+6. SSH host-key trust is strict by default, dependency audit gates are active, and the remaining scoped limits are documented with removal triggers.
 
 ## P1 Sequence
 

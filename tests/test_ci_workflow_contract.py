@@ -48,8 +48,25 @@ def test_ci_workflow_runs_security_governance_gate() -> None:
     assert "name: security / governance" in source
     assert "npm_config_registry: https://registry.npmjs.org" in source
     assert "python scripts/security_governance_audit.py" in source
-    assert "npm audit --registry=https://registry.npmjs.org --audit-level=high --package-lock-only --omit=dev" in source
+    assert "uv export --frozen --group dev --format requirements-txt" in source
+    assert "uvx pip-audit" in source
+    assert re.findall(r"--ignore-vuln\s+([A-Z0-9-]+)", source) == ["CVE-2026-44405"]
+
+    audit_commands = re.findall(
+        r"run: (npm audit --registry=https://registry\.npmjs\.org --audit-level=\w+ --package-lock-only(?: --omit=dev)?)",
+        source,
+    )
+    assert audit_commands == [
+        "npm audit --registry=https://registry.npmjs.org --audit-level=moderate --package-lock-only",
+        "npm audit --registry=https://registry.npmjs.org --audit-level=moderate --package-lock-only",
+    ]
     assert "working-directory: apps/web" in source
+
+    security_doc = (REPOSITORY_ROOT / "docs" / "security-governance.md").read_text(
+        encoding="utf-8"
+    )
+    assert "CVE-2026-44405" in security_doc
+    assert "Remove this ignore when" in security_doc
 
 
 def test_ci_workflow_uses_sha_pinned_actions() -> None:

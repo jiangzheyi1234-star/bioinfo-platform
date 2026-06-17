@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from config import get_ssh_key_dir, make_ssh_password_ref, resolve_ssh_password
+from config import get_ssh_key_dir, get_ssh_known_hosts_path, make_ssh_password_ref, resolve_ssh_password
 from core.app_runtime.service import RuntimeService, ServiceLocator
 from core.remote.ssh_service import SSHService
 
@@ -331,6 +331,14 @@ def test_get_ssh_key_dir_uses_app_data_root() -> None:
     key_dir = get_ssh_key_dir()
     assert key_dir.name == "ssh"
     assert key_dir.parent.name in {".h2ometa", "H2OMeta"}
+
+
+def test_get_ssh_known_hosts_path_can_be_overridden(monkeypatch, tmp_path: Path) -> None:
+    known_hosts = tmp_path / "known_hosts"
+
+    monkeypatch.setenv("H2OMETA_SSH_KNOWN_HOSTS", str(known_hosts))
+
+    assert get_ssh_known_hosts_path() == known_hosts
 
 
 def test_connect_ssh_persists_password_ref_for_password_auth() -> None:

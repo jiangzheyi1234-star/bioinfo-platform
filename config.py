@@ -46,6 +46,13 @@ def get_ssh_key_dir() -> Path:
     return get_app_data_dir() / "ssh"
 
 
+def get_ssh_known_hosts_path() -> Path:
+    explicit = str(os.getenv("H2OMETA_SSH_KNOWN_HOSTS", "") or "").strip()
+    if explicit:
+        return _native_path(explicit)
+    return get_ssh_key_dir() / "known_hosts"
+
+
 def resolve_ssh_keygen_executable() -> str:
     candidate = shutil.which("ssh-keygen")
     if candidate:

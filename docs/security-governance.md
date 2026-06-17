@@ -20,7 +20,7 @@ Trusted boundaries:
 1. The local API is a localhost-only, single-user Desktop boundary. It is not safe to expose directly to a public network.
 2. The web UI and desktop shell are trusted local clients. CORS origins, methods, and headers must stay explicitly allowlisted.
 3. The remote runner API is protected by a bearer token. The token is never part of public diagnostics or catalog metadata.
-4. SSH is an operator-controlled bridge to a trusted host. Unknown-host-key trust is an accepted P0-10 risk and must be replaced by known_hosts or fingerprint approval before public/server production.
+4. SSH is an operator-controlled bridge to a trusted host. Unknown host keys are rejected by default, and trusted keys must come from system known_hosts or the H2OMeta application known_hosts file.
 
 Out of scope for the current supported product:
 
@@ -60,12 +60,19 @@ Out of scope for the current supported product:
 - Operator bundles and remote runner execution diagnostics must include a redaction policy marker.
 - Debug scripts must print redacted payloads by default.
 
+### SSH Host-Key Trust
+
+- SSH clients must use `RejectPolicy` and must not use `AutoAddPolicy`.
+- Unknown or changed host keys fail as `SSH_HOST_KEY_UNTRUSTED`.
+- SSH clients must disable SHA1 `ssh-rsa` host/user key algorithms.
+- The server host-key acceptance API scans the presented key and writes it to the H2OMeta application `known_hosts` file before later SSH connections trust it.
+
 ### Dependency And Supply-Chain Gates
 
 - GitHub Actions used by repository workflows must be pinned to full commit SHAs.
 - Default workflow permissions must stay least-privilege, with `contents: read` unless a job explicitly needs more.
-- CI requires root and web production npm lockfiles to pass high-severity audit using the official npm registry.
-- Moderate npm findings and Python vulnerability audit findings are tracked risks until the dependency ecosystem has a low-noise, actionable gate for this repository.
+- CI requires root and web npm lockfiles to pass moderate-or-higher audit using the official npm registry.
+- CI requires `pip-audit` for locked Python dependencies. Any ignore must be scoped to a single vulnerability ID and documented in this file with a removal trigger.
 - Remote runner production promotion must continue to require release artifact integrity evidence, including manifest, digest, SBOM, provenance, and attestation where available.
 
 ### Remote Operation Audit
@@ -86,18 +93,18 @@ Before treating a build as production-ready:
 
 1. `required / ci-green` is green for the exact commit.
 2. `security / governance` is green for the exact commit.
-3. Web high/critical production dependency audit is clean.
+3. Web and root moderate-or-higher npm audits are clean.
 4. No committed-secret findings are present.
 5. Diagnostics redaction tests include current token/path/header canaries.
-6. Remote runner release artifacts include manifest, digest, SBOM, provenance, and attestation evidence.
-7. Any accepted security risk is listed in this document or the maturity roadmap with an owner and next closure point.
+6. Python `pip-audit` is clean except for explicitly scoped ignores listed below.
+7. SSH host keys are trusted through known_hosts and unknown keys fail with `SSH_HOST_KEY_UNTRUSTED`.
+8. Remote runner release artifacts include manifest, digest, SBOM, provenance, and attestation evidence.
+9. Any scoped runtime limit is listed in this document or the maturity roadmap with an owner and removal trigger.
 
-## Accepted P0-10 Risks
+## Scoped Runtime Limits
 
-1. SSH host-key trust still uses automatic unknown-host acceptance in the lower-level connector. This is acceptable only for local research/development and must be closed before public/server production.
-2. Python vulnerability audit is not a required CI gate yet because current upstream findings include dependencies without a clean fixed-version path for this product shape.
-3. Web production npm audit is required only at `high` severity for P0-10. Moderate findings remain visible but are not the stable required gate.
-4. Server multi-user mode remains planned, not implemented. Public deployment requires auth, RBAC, tenant isolation, audited admin actions, TLS, and production image hardening.
+1. `pip-audit` currently ignores only `CVE-2026-44405` for Paramiko because no fixed release is available in the advisory feed. Runtime SSH mitigations are active: `ssh-rsa` host/user key algorithms are disabled, unknown host keys are rejected, and accepted keys are written to known_hosts. Remove this ignore when a Paramiko release containing the upstream fix is available.
+2. Server multi-user mode remains planned, not implemented. Public deployment requires auth, RBAC, tenant isolation, audited admin actions, TLS, and production image hardening.
 
 ## Practice Baseline
 

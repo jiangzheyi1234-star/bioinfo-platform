@@ -1,10 +1,20 @@
 """SSH 连接工具."""
 
+import base64
+import hashlib
 import socket
 from dataclasses import dataclass
 from typing import Optional
 
 import paramiko
+
+from config import get_ssh_known_hosts_path
+
+
+SSH_SHA1_DISABLED_ALGORITHMS = {
+    "keys": ["ssh-rsa", "ssh-rsa-cert-v01@openssh.com"],
+    "pubkeys": ["ssh-rsa", "ssh-rsa-cert-v01@openssh.com"],
+}
 
 
 @dataclass
@@ -14,6 +24,49 @@ class ConnectResult:
     client: Optional[paramiko.SSHClient] = None
     code: str = ""
     phase: str = ""
+
+
+@dataclass
+class HostKeyTrustResult:
+    ok: bool
+    message: str
+    host: str
+    port: int
+    key_type: str = ""
+    fingerprint_sha256: str = ""
+    known_hosts_path: str = ""
+    code: str = ""
+    key: Optional[paramiko.PKey] = None
+
+
+def _disabled_algorithms() -> dict[str, list[str]]:
+    return {key: list(values) for key, values in SSH_SHA1_DISABLED_ALGORITHMS.items()}
+
+
+def _known_hosts_hostname(host: str, port: int) -> str:
+    return host if port == 22 else f"[{host}]:{port}"
+
+
+def _fingerprint_sha256(key: paramiko.PKey) -> str:
+    digest = hashlib.sha256(key.asbytes()).digest()
+    return "SHA256:" + base64.b64encode(digest).decode("ascii").rstrip("=")
+
+
+def _configure_host_key_policy(client: paramiko.SSHClient) -> None:
+    client.load_system_host_keys()
+    known_hosts_path = get_ssh_known_hosts_path()
+    if known_hosts_path.exists():
+        client.load_host_keys(str(known_hosts_path))
+    client.set_missing_host_key_policy(paramiko.RejectPolicy())
+
+
+def _is_host_key_failure(exc: Exception) -> bool:
+    if isinstance(exc, paramiko.BadHostKeyException):
+        return True
+    message = str(exc).strip().lower()
+    if "not found in known_hosts" in message:
+        return True
+    return "host key" in message and any(marker in message for marker in ("not found", "mismatch", "verify"))
 
 
 def _tcp_failure_message(exc: Exception) -> tuple[str, str]:
@@ -32,6 +85,8 @@ def _tcp_failure_message(exc: Exception) -> tuple[str, str]:
 
 
 def _ssh_failure_message(exc: Exception) -> tuple[str, str, str]:
+    if _is_host_key_failure(exc):
+        return "host_key", "SSH_HOST_KEY_UNTRUSTED", "SSH 主机密钥未受信任，请先接受主机密钥或写入 known_hosts。"
     if isinstance(exc, paramiko.AuthenticationException):
         return "auth", "SSH_AUTH_FAILED", "SSH 认证失败，请检查用户名、密码、密钥或 agent。"
     message = str(exc).strip()
@@ -64,7 +119,7 @@ def ssh_connect(
         return ConnectResult(False, message, code=code, phase="tcp_connect")
 
     client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    _configure_host_key_policy(client)
 
     try:
         kwargs = {
@@ -78,6 +133,7 @@ def ssh_connect(
             "channel_timeout": timeout,
             "allow_agent": use_agent,
             "look_for_keys": use_agent,
+            "disabled_algorithms": _disabled_algorithms(),
         }
         if key_file:
             kwargs["key_filename"] = key_file
@@ -94,6 +150,57 @@ def ssh_connect(
         t.set_keepalive(30)
 
     return ConnectResult(True, "Connected", client)
+
+
+def scan_ssh_host_key(ip: str, port: int, timeout: int = 5) -> HostKeyTrustResult:
+    timeout = max(1, int(timeout))
+    sock = None
+    transport = None
+    try:
+        sock = socket.create_connection((ip, port), timeout=timeout)
+        transport = paramiko.Transport(sock, disabled_algorithms=_disabled_algorithms())
+        transport.banner_timeout = timeout
+        transport.auth_timeout = timeout
+        transport.start_client(timeout=timeout)
+        key = transport.get_remote_server_key()
+        return HostKeyTrustResult(
+            True,
+            "SSH host key scanned",
+            ip,
+            port,
+            key_type=key.get_name(),
+            fingerprint_sha256=_fingerprint_sha256(key),
+            known_hosts_path=str(get_ssh_known_hosts_path()),
+            key=key,
+        )
+    except OSError as e:
+        code, message = _tcp_failure_message(e)
+        return HostKeyTrustResult(False, message, ip, port, code=code)
+    except paramiko.SSHException as e:
+        _phase, code, message = _ssh_failure_message(e)
+        return HostKeyTrustResult(False, message, ip, port, code=code)
+    finally:
+        if transport is not None:
+            transport.close()
+        elif sock is not None:
+            sock.close()
+
+
+def trust_ssh_host_key(ip: str, port: int, timeout: int = 5) -> HostKeyTrustResult:
+    scanned = scan_ssh_host_key(ip, port, timeout=timeout)
+    if not scanned.ok or scanned.key is None:
+        return scanned
+
+    known_hosts_path = get_ssh_known_hosts_path()
+    known_hosts_path.parent.mkdir(parents=True, exist_ok=True)
+    host_keys = paramiko.HostKeys()
+    if known_hosts_path.exists():
+        host_keys.load(str(known_hosts_path))
+    host_keys.add(_known_hosts_hostname(ip, port), scanned.key.get_name(), scanned.key)
+    host_keys.save(str(known_hosts_path))
+    scanned.known_hosts_path = str(known_hosts_path)
+    scanned.message = "SSH host key trusted"
+    return scanned
 
 
 def run_diagnostics(
@@ -121,7 +228,7 @@ def run_diagnostics(
     # SSH handshake
     try:
         sock = socket.create_connection((ip, port), timeout=5)
-        t = paramiko.Transport(sock)
+        t = paramiko.Transport(sock, disabled_algorithms=_disabled_algorithms())
         t.banner_timeout = 5
         t.auth_timeout = 5
         t.connect()
@@ -136,7 +243,7 @@ def run_diagnostics(
     # Auth
     try:
         c = paramiko.SSHClient()
-        c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        _configure_host_key_policy(c)
         kwargs = {
             "hostname": ip,
             "port": port,
@@ -147,6 +254,7 @@ def run_diagnostics(
             "channel_timeout": 5,
             "allow_agent": use_agent,
             "look_for_keys": use_agent,
+            "disabled_algorithms": _disabled_algorithms(),
         }
         if key_file:
             kwargs["key_filename"] = key_file
