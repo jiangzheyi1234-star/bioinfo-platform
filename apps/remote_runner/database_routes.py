@@ -11,6 +11,7 @@ from .database_service import (
     add_database_from_request,
     check_database_from_request,
     delete_database_from_request,
+    list_database_packs_from_request,
     list_database_templates_from_request,
     list_databases_from_request,
     update_database_from_request,
@@ -29,6 +30,11 @@ async def get_databases(authorization: AuthorizationHeader = None) -> dict[str, 
 @router.get("/api/v1/database-templates")
 async def get_database_templates(authorization: AuthorizationHeader = None) -> dict[str, Any]:
     return await list_database_templates_from_request(authorization)
+
+
+@router.get("/api/v1/database-packs")
+async def get_database_packs(authorization: AuthorizationHeader = None) -> dict[str, Any]:
+    return await list_database_packs_from_request(authorization)
 
 
 @router.post("/api/v1/databases", status_code=201)

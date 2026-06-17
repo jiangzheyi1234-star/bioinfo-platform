@@ -4,6 +4,8 @@ import { cachedAsync, invalidateAsyncCache, invalidateAsyncCachePrefix, peekAsyn
 import {
   REMOTE_BROWSER_PAGE_SIZE,
   type DatabaseItem,
+  type DatabasePack,
+  type DatabasePacksResponse,
   type DatabaseTemplate,
   type DatabasesResponse,
   type DatabaseTemplatesResponse,
@@ -16,8 +18,10 @@ type FetchOptions = {
 
 const DATABASES_CACHE_KEY = "workflow:databases";
 const DATABASE_TEMPLATES_CACHE_KEY = "databases:templates";
+const DATABASE_PACKS_CACHE_KEY = "databases:packs";
 const DATABASES_CACHE_TTL_MS = 30_000;
 const DATABASE_TEMPLATES_CACHE_TTL_MS = 60_000;
+const DATABASE_PACKS_CACHE_TTL_MS = 60_000;
 const DATABASE_VALIDATION_REQUEST_TIMEOUT_MS = 35 * 60 * 1000;
 
 function refreshQuery(options: FetchOptions) {
@@ -85,12 +89,29 @@ export async function fetchDatabaseTemplates(options: FetchOptions = {}): Promis
   });
 }
 
+export async function fetchDatabasePacks(options: FetchOptions = {}): Promise<DatabasePack[]> {
+  return cachedAsync(DATABASE_PACKS_CACHE_KEY, DATABASE_PACKS_CACHE_TTL_MS, async () => {
+    const response = await requestLocalApiJson<DatabasePacksResponse>(
+      "GET",
+      `/api/v1/database-packs${refreshQuery(options)}`,
+      { cache: "no-store" }
+    );
+    return response.data.items || [];
+  }, {
+    forceRefresh: options.forceRefresh,
+  });
+}
+
 export function getCachedDatabases(): DatabaseItem[] | undefined {
   return peekAsyncCache<DatabaseItem[]>(DATABASES_CACHE_KEY);
 }
 
 export function getCachedDatabaseTemplates(): DatabaseTemplate[] | undefined {
   return peekAsyncCache<DatabaseTemplate[]>(DATABASE_TEMPLATES_CACHE_KEY);
+}
+
+export function getCachedDatabasePacks(): DatabasePack[] | undefined {
+  return peekAsyncCache<DatabasePack[]>(DATABASE_PACKS_CACHE_KEY);
 }
 
 export async function browseRemoteFiles({

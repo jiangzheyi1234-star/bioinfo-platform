@@ -2,7 +2,7 @@
 
 Status: Current
 
-Last reviewed: 2026-06-17
+Last reviewed: 2026-06-18
 
 ## Baseline
 
@@ -17,6 +17,18 @@ The remaining gap is production maturity: routine CI, branch protection, securit
 3. Configure branch protection or GitHub Rulesets to require PR review and the stable `required / ci-green` check before merging to `main`.
 4. Finish P0-9 database layering: `production_full`, `validation_fixture`, `user_manual`, and `downloadable_pack` must be distinct in API contracts, UI, run evidence, and release/download paths.
 5. Add a security posture checklist for auth/RBAC, SSH host-key trust, secret handling, dependency review, SAST, diagnostics redaction, and remote-operation audit.
+
+## Current GitHub Protection Status
+
+The `required / ci-green` check exists and has passed on `main`, but repository-level enforcement is not active yet.
+The repository is currently private under GitHub Free, and GitHub returned 403 for both branch protection and rulesets with the message that the repository must be public or the account must upgrade to a plan that supports private-repository protection.
+
+Until that platform constraint changes, treat `main` as manually protected:
+
+1. Merge through PRs only.
+2. Require the `required / ci-green` check to be green before merge.
+3. Record the CI run URL and reviewer sign-off in the PR.
+4. After upgrade, organization migration, or public release, configure `main` to require PR review and the exact `required / ci-green` status check.
 
 ## P1 Sequence
 

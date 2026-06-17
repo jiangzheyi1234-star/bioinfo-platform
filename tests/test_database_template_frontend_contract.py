@@ -131,6 +131,10 @@ def test_template_model_keeps_path_kind_and_stable_template_contract() -> None:
         "fixtureScope?: string",
         "supportedLayers?: DatabaseLayer[]",
         "fields?: Record<string, DatabaseTemplateField>",
+        "type DatabasePack = {",
+        'databaseLayer: "downloadable_pack"',
+        "archiveSizeBytes: number",
+        "type DatabasePacksResponse",
         'supportLevel?: "stable"',
         "复合数据库需要填写多个路径字段。",
         "runtimeValue",
@@ -139,6 +143,41 @@ def test_template_model_keeps_path_kind_and_stable_template_contract() -> None:
         "runtimeHint(",
     )
     _assert_not_contains(source, "复合数据库暂未支持，请先使用单路径模板。")
+
+
+def test_downloadable_pack_frontend_contract_stays_read_only() -> None:
+    model_source = _source("model")
+    api_source = _source("api")
+    create_input = api_source.split("export type CreateDatabaseInput", 1)[1].split(
+        "export type UpdateDatabaseInput",
+        1,
+    )[0]
+
+    _assert_contains(
+        model_source,
+        "type DatabasePack = {",
+        'databaseLayer: "downloadable_pack"',
+        "sourceUrl: string",
+        "checksum: string",
+        "archiveSizeBytes: number",
+        "installedLayer: DatabaseLayer",
+        "type DatabasePacksResponse",
+        "contractVersion: string",
+        "summary: {",
+    )
+    _assert_contains(
+        api_source,
+        "DATABASE_PACKS_CACHE_KEY",
+        "fetchDatabasePacks(",
+        "getCachedDatabasePacks(",
+        "/api/v1/database-packs",
+    )
+    _assert_not_contains(
+        api_source,
+        "installDatabasePack",
+        "downloadDatabasePack",
+    )
+    _assert_not_contains(create_input, '"downloadable_pack"', "DatabasePack")
 
 
 def test_add_form_supports_composite_fields_and_submits_multi_database_metadata() -> None:

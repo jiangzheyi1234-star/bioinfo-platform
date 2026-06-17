@@ -17,6 +17,14 @@ class RemoteRunnerCatalogMixin:
         )
         return client.get_json("/api/v1/database-templates")["data"]["items"]
 
+    def list_database_packs(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+        )
+        return client.get_json("/api/v1/database-packs")["data"]
+
     def list_databases(self, **kwargs) -> list[dict[str, Any]]:
         client = self._get_client(
             server_id=str(kwargs["server_id"]),

@@ -27,6 +27,16 @@ async def list_database_templates_from_request(refresh: bool) -> dict[str, Any]:
     )
 
 
+async def list_database_packs_from_request(refresh: bool) -> dict[str, Any]:
+    return await cached_runtime_payload(
+        "database_packs",
+        60,
+        runtime_service().list_database_packs,
+        wrapper="raw",
+        force_refresh=refresh,
+    )
+
+
 async def add_database_from_request(request: DatabaseManifestRequest) -> dict[str, Any]:
     result = await run_runtime_payload(
         lambda: runtime_service().add_database(request_payload(request)),

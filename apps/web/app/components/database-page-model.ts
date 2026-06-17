@@ -54,6 +54,39 @@ export type DatabaseTemplatesResponse = {
   };
 };
 
+export type DatabasePack = {
+  packId: string;
+  templateId: string;
+  databaseLayer: "downloadable_pack";
+  name: string;
+  version: string;
+  type: string;
+  category?: string;
+  supportLevel?: "stable";
+  pathKind?: PathKind;
+  pathLabel?: string;
+  runtimeValue?: string;
+  runtimeShape?: Record<string, unknown>;
+  capabilities?: string[];
+  expectedFiles: string[];
+  sourceUrl: string;
+  checksum: string;
+  archiveSizeBytes: number;
+  installedLayer: DatabaseLayer;
+  license?: string;
+  citations?: string[];
+};
+
+export type DatabasePacksResponse = {
+  data: {
+    contractVersion: string;
+    items: DatabasePack[];
+    summary: {
+      total: number;
+    };
+  };
+};
+
 export type RemoteFileItem = {
   name: string; path: string; type: string; isDirectory: boolean; hidden?: boolean; mtime?: number;
 };

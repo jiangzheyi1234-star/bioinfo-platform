@@ -10,6 +10,7 @@ from apps.api.database_service import (
     add_database_from_request,
     check_database_from_request,
     delete_database_from_request,
+    list_database_packs_from_request,
     list_database_templates_from_request,
     list_databases_from_request,
     update_database_from_request,
@@ -28,6 +29,11 @@ async def list_databases_api(refresh: bool = False) -> dict[str, Any]:
 @router.get("/api/v1/database-templates")
 async def list_database_templates_api(refresh: bool = False) -> dict[str, Any]:
     return await list_database_templates_from_request(refresh)
+
+
+@router.get("/api/v1/database-packs")
+async def list_database_packs_api(refresh: bool = False) -> dict[str, Any]:
+    return await list_database_packs_from_request(refresh)
 
 
 @router.post("/api/v1/databases", status_code=201)
