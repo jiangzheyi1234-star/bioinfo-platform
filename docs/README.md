@@ -2,7 +2,7 @@
 
 Status: Current
 
-Last reviewed: 2026-06-09
+Last reviewed: 2026-06-18
 
 This directory keeps current operating contracts, accepted architecture decisions, and runbooks. Historical implementation plans are intentionally not kept as source-of-truth documents; use git history when an old execution note is needed for provenance.
 
@@ -11,6 +11,7 @@ This directory keeps current operating contracts, accepted architecture decision
 - `local-startup.md`: Windows launcher and local development startup.
 - `windows-agent-command-guide.md`: Windows command syntax, sandbox, proof, and cleanup guidance for Codex agents.
 - `managed-workflow-runtime-runbook.md`: remote runner and managed Snakemake runtime release path.
+- `reference-database-pack-lifecycle.md`: reference database pack catalog, manual installation, registration handoff, and evidence policy.
 - `workflow-template-structure.md`: bundled pipeline and Snakemake template layout.
 - `workflow-design-draft-v1.md`: persisted WorkflowDesignDraft contract, plan, compile, and submit boundary.
 - `snakemake-tool-integration-spec.md`: tool contract progression into generated Snakemake workflows.

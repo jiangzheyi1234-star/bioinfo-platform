@@ -7,6 +7,12 @@ from apps.remote_runner.databases import add_reference_database
 from apps.remote_runner.storage import create_run_record, fetch_tool, persist_artifact, update_run_state, upsert_tool
 from apps.remote_runner.tool_revisions import publish_tool_revision
 from apps.remote_runner.tools import ToolRegistryError, add_registered_tool, mark_registered_tool_production_enabled
+from scripts.register_gtdbtk_r232_database import (
+    DEFAULT_PACK_ID,
+    GTDBTK_R232_ARCHIVE_BYTES,
+    GTDBTK_R232_MD5,
+    GTDBTK_R232_SOURCE_URL,
+)
 from tests.generated_workflow_test_helpers import generated_workflow_node, generated_workflow_run_spec
 
 
@@ -447,6 +453,73 @@ def test_real_database_acceptance_rejects_validation_fixture_database(tmp_path: 
         assert str(exc) == "TOOL_PRODUCTION_EVIDENCE_DATABASE_LAYER_UNSUPPORTED"
     else:
         raise AssertionError("validation fixture databases must not satisfy production evidence")
+
+
+def test_real_database_acceptance_pack_claim_must_match_registered_lineage(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    _ready_tool(cfg)
+    database_dir = tmp_path / "db-gtdbtk-pack"
+    database_dir.mkdir(parents=True, exist_ok=True)
+    add_reference_database(
+        cfg,
+        {
+            "id": "db_real",
+            "name": "GTDB-Tk Pack",
+            "templateId": "gtdbtk",
+            "type": "taxonomy",
+            "version": "R232",
+            "path": str(database_dir),
+            "source": GTDBTK_R232_SOURCE_URL,
+            "databaseLayer": "production_full",
+            "sizeBytes": GTDBTK_R232_ARCHIVE_BYTES,
+            "checksum": f"md5:{GTDBTK_R232_MD5}",
+            "status": "available",
+            "metadata": {"installedFromPackId": DEFAULT_PACK_ID},
+        },
+    )
+    _completed_run_with_artifact(
+        cfg,
+        tmp_path,
+        run_id="run_database_pack",
+        run_spec=_production_run_spec(cfg, resource_bindings={"taxonomy": {"databaseId": "db_real", "templateId": "gtdbtk"}}),
+    )
+
+    try:
+        mark_registered_tool_production_enabled(
+            cfg,
+            "conda-forge::production-ready",
+            {
+                "runId": "run_database_pack",
+                "message": "Accepted.",
+                "evidenceType": "real-database-acceptance",
+                "databaseId": "db_real",
+                "templateId": "gtdbtk",
+                "role": "taxonomy",
+                "packId": DEFAULT_PACK_ID,
+                "packChecksum": "md5:wrong",
+            },
+        )
+    except ToolRegistryError as exc:
+        assert str(exc) == "TOOL_PRODUCTION_EVIDENCE_DATABASE_PACK_MISMATCH"
+    else:
+        raise AssertionError("pack-derived evidence should match registered pack checksum")
+
+    accepted = mark_registered_tool_production_enabled(
+        cfg,
+        "conda-forge::production-ready",
+        {
+            "runId": "run_database_pack",
+            "message": "Accepted.",
+            "evidenceType": "real-database-acceptance",
+            "databaseId": "db_real",
+            "templateId": "gtdbtk",
+            "role": "taxonomy",
+            "packId": DEFAULT_PACK_ID,
+            "packChecksum": f"md5:{GTDBTK_R232_MD5}",
+        },
+    )
+    assert accepted["toolContract"]["state"] == "ProductionEnabled"
 
 
 def test_production_acceptance_rejects_empty_artifacts(tmp_path: Path) -> None:

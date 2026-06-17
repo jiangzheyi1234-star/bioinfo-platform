@@ -22,6 +22,12 @@ from tests.helpers.reference_database import (
     make_kraken2_database as _make_kraken2_database,
     materialize_template_path as _materialize_template_path,
 )
+from scripts.register_gtdbtk_r232_database import (
+    DEFAULT_PACK_ID,
+    GTDBTK_R232_ARCHIVE_BYTES,
+    GTDBTK_R232_MD5,
+    GTDBTK_R232_SOURCE_URL,
+)
 
 
 def test_reference_database_registry_checks_remote_path(tmp_path: Path, monkeypatch) -> None:
@@ -88,6 +94,73 @@ def test_reference_database_records_include_database_layer_metadata(tmp_path: Pa
     assert fixture["metadata"]["databaseLayer"] == "validation_fixture"
     assert fixture["metadata"]["fixtureScope"] == "template-smoke"
     assert fixture["metadata"]["productionEligible"] is False
+
+
+def test_pack_lineage_registration_metadata_must_match_catalog(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    database_dir = tmp_path / "gtdbtk-pack"
+    database_dir.mkdir()
+
+    saved = add_reference_database(
+        cfg,
+        {
+            "id": "gtdbtk-pack",
+            "name": "GTDB-Tk Pack",
+            "templateId": "gtdbtk",
+            "type": "taxonomy",
+            "version": "R232",
+            "path": str(database_dir),
+            "source": GTDBTK_R232_SOURCE_URL,
+            "databaseLayer": "production_full",
+            "sizeBytes": GTDBTK_R232_ARCHIVE_BYTES,
+            "checksum": f"md5:{GTDBTK_R232_MD5}",
+            "metadata": {
+                "packId": DEFAULT_PACK_ID,
+                "installedFromPackId": DEFAULT_PACK_ID,
+            },
+        },
+    )
+
+    assert saved["databaseLayer"] == "production_full"
+    assert saved["metadata"]["packId"] == DEFAULT_PACK_ID
+    assert saved["metadata"]["installedFromPackId"] == DEFAULT_PACK_ID
+    assert saved["metadata"]["packSourceUrl"] == GTDBTK_R232_SOURCE_URL
+    assert saved["metadata"]["packChecksum"] == f"md5:{GTDBTK_R232_MD5}"
+    assert saved["metadata"]["packArchiveSizeBytes"] == GTDBTK_R232_ARCHIVE_BYTES
+    assert saved["metadata"]["installationMethod"] == "manual_external"
+
+
+def test_pack_lineage_registration_rejects_catalog_mismatch(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    database_dir = tmp_path / "gtdbtk-pack-mismatch"
+    database_dir.mkdir()
+
+    invalid_cases = [
+        ("source", {"source": "https://example.invalid/gtdbtk.tar.gz"}, "DATABASE_PACK_SOURCE_MISMATCH"),
+        ("checksum", {"checksum": "md5:bad"}, "DATABASE_PACK_CHECKSUM_MISMATCH"),
+        ("size", {"sizeBytes": GTDBTK_R232_ARCHIVE_BYTES + 1}, "DATABASE_PACK_SIZE_MISMATCH"),
+        ("layer", {"databaseLayer": "user_manual"}, "DATABASE_PACK_LAYER_MISMATCH"),
+    ]
+
+    for label, override, expected in invalid_cases:
+        payload = {
+            "id": f"gtdbtk-pack-{label}",
+            "name": f"GTDB-Tk Pack {label}",
+            "templateId": "gtdbtk",
+            "path": str(database_dir),
+            "source": GTDBTK_R232_SOURCE_URL,
+            "databaseLayer": "production_full",
+            "sizeBytes": GTDBTK_R232_ARCHIVE_BYTES,
+            "checksum": f"md5:{GTDBTK_R232_MD5}",
+            "metadata": {"installedFromPackId": DEFAULT_PACK_ID},
+            **override,
+        }
+        try:
+            add_reference_database(cfg, payload)
+        except DatabaseRegistryError as exc:
+            assert str(exc) == expected
+        else:
+            raise AssertionError(f"pack mismatch case {label!r} should fail")
 
 
 def test_reference_database_rejects_unsupported_database_layer(tmp_path: Path) -> None:

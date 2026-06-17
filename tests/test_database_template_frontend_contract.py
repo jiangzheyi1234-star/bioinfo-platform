@@ -10,6 +10,7 @@ COMPONENTS = ROOT / "apps" / "web" / "app" / "components"
 
 CONTRACT_FILES = {
     "page": COMPONENTS / "databases-page.tsx",
+    "pack_section": COMPONENTS / "database-pack-section.tsx",
     "add_panel": COMPONENTS / "databases-add-panel.tsx",
     "item_list": COMPONENTS / "databases-item-list.tsx",
     "state": COMPONENTS / "use-databases-page-state.ts",
@@ -132,8 +133,15 @@ def test_template_model_keeps_path_kind_and_stable_template_contract() -> None:
         "supportedLayers?: DatabaseLayer[]",
         "fields?: Record<string, DatabaseTemplateField>",
         "type DatabasePack = {",
+        'lifecycleContractVersion: "database-pack-lifecycle-v1"',
+        'installMode: "manual_external"',
+        "operatorActionRequired: true",
+        "noAutomaticExecution: true",
         'databaseLayer: "downloadable_pack"',
         "archiveSizeBytes: number",
+        "manualInstall: DatabasePackManualInstall",
+        "registrationHandoff: DatabasePackRegistrationHandoff",
+        "evidencePolicy: DatabasePackEvidencePolicy",
         "type DatabasePacksResponse",
         'supportLevel?: "stable"',
         "复合数据库需要填写多个路径字段。",
@@ -148,6 +156,9 @@ def test_template_model_keeps_path_kind_and_stable_template_contract() -> None:
 def test_downloadable_pack_frontend_contract_stays_read_only() -> None:
     model_source = _source("model")
     api_source = _source("api")
+    page_source = _source("page")
+    state_source = _source("state")
+    pack_section_source = _source("pack_section")
     create_input = api_source.split("export type CreateDatabaseInput", 1)[1].split(
         "export type UpdateDatabaseInput",
         1,
@@ -155,14 +166,28 @@ def test_downloadable_pack_frontend_contract_stays_read_only() -> None:
 
     _assert_contains(
         model_source,
+        "type DatabasePackManualInstall = {",
+        "type DatabasePackRegistrationHandoff = {",
+        "type DatabasePackEvidencePolicy = {",
         "type DatabasePack = {",
+        'installMode: "manual_external"',
+        "operatorActionRequired: true",
+        "noAutomaticExecution: true",
         'databaseLayer: "downloadable_pack"',
         "sourceUrl: string",
         "checksum: string",
+        "checksumAlgorithm: string",
+        "checksumValue: string",
         "archiveSizeBytes: number",
-        "installedLayer: DatabaseLayer",
+        "installedLayer:",
+        "manualInstall: DatabasePackManualInstall",
+        "registrationHandoff: DatabasePackRegistrationHandoff",
+        "evidencePolicy: DatabasePackEvidencePolicy",
+        "databasePackManualText(",
+        "databasePackRegistrationCommand(",
         "type DatabasePacksResponse",
         "contractVersion: string",
+        "lifecycleContractVersion: string",
         "summary: {",
     )
     _assert_contains(
@@ -172,12 +197,40 @@ def test_downloadable_pack_frontend_contract_stays_read_only() -> None:
         "getCachedDatabasePacks(",
         "/api/v1/database-packs",
     )
+    _assert_contains(
+        state_source,
+        "packs: DatabasePack[]",
+        "packLoading: boolean",
+        "packError: string",
+        "fetchDatabasePacks(",
+        "getCachedDatabasePacks(",
+        "const startAddingFromPack",
+        'databaseLayer: pack.installedLayer',
+        'installationMethod: "manual_external"',
+        "installedFromPackId",
+    )
+    _assert_contains(
+        page_source,
+        "DatabasePackSection",
+        "onStartAddingFromPack={state.startAddingFromPack}",
+        "onCopyText={(text) => void state.copyDatabaseText(text)}",
+    )
+    _assert_contains(
+        pack_section_source,
+        "databasePackManualText(pack)",
+        "databasePackRegistrationCommand(pack)",
+        "手动步骤",
+        "登记命令",
+        "手动登记",
+    )
     _assert_not_contains(
-        api_source,
+        api_source + state_source + page_source + pack_section_source,
         "installDatabasePack",
         "downloadDatabasePack",
+        "registerDatabasePack",
     )
-    _assert_not_contains(create_input, '"downloadable_pack"', "DatabasePack")
+    _assert_contains(create_input, 'Exclude<DatabaseLayer, "downloadable_pack" | "unspecified">')
+    _assert_not_contains(create_input, 'databaseLayer: "downloadable_pack"', "DatabasePack")
 
 
 def test_add_form_supports_composite_fields_and_submits_multi_database_metadata() -> None:

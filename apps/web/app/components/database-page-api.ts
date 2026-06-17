@@ -4,6 +4,7 @@ import { cachedAsync, invalidateAsyncCache, invalidateAsyncCachePrefix, peekAsyn
 import {
   REMOTE_BROWSER_PAGE_SIZE,
   type DatabaseItem,
+  type DatabaseLayer,
   type DatabasePack,
   type DatabasePacksResponse,
   type DatabaseTemplate,
@@ -43,17 +44,26 @@ export type CreateDatabaseInput = {
   path: string;
   description: string;
   manifestPath: string;
-  source: "manual";
-  databaseLayer: "user_manual";
+  source: string;
+  databaseLayer: Exclude<DatabaseLayer, "downloadable_pack" | "unspecified">;
+  sizeBytes?: number;
+  checksum?: string;
   selectedEntryPath?: string;
   metadata: {
     templateId: string;
-    databaseLayer: "user_manual";
+    databaseLayer: Exclude<DatabaseLayer, "downloadable_pack" | "unspecified">;
     selectedEntryPath?: string;
     input?: {
       kind: "multi";
       fields: Record<string, string>;
     };
+    packId?: string;
+    installedFromPackId?: string;
+    packVersion?: string;
+    packSourceUrl?: string;
+    packChecksum?: string;
+    packArchiveSizeBytes?: number;
+    installationMethod?: "manual_external";
     sourceUrl: string;
     buildCommand: string;
     dbParams: string;

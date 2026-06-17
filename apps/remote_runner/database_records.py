@@ -5,6 +5,7 @@ from typing import Any
 
 from .database_errors import DatabaseRegistryError
 from .database_layers import database_layer, layer_metadata, normalize_database_layer
+from .database_pack_catalog import downloadable_database_pack_by_id
 from .database_runtime_paths import (
     compute_database_entry_path,
     database_input_metadata,
@@ -45,6 +46,7 @@ def normalize_database_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if template_id:
         metadata["templateId"] = template_id
         metadata["templateLabel"] = str(template.get("label") or template_id)
+    metadata = _with_pack_lineage_metadata(payload, metadata, database_layer_value, template_id)
     db_type = str(payload.get("type") or (template or {}).get("type") or "reference").strip()
     version = str(payload.get("version") or "").strip()
     database_id = str(payload.get("id") or "").strip() or _default_id(name=name, version=version, db_type=db_type)
@@ -84,3 +86,44 @@ def _with_database_path_semantics(item: dict[str, Any]) -> dict[str, Any]:
 def _default_id(*, name: str, version: str, db_type: str) -> str:
     raw = "::".join(part for part in [db_type, name, version] if part)
     return "".join(char.lower() if char.isalnum() else "-" for char in raw).strip("-") or "database"
+
+
+def _with_pack_lineage_metadata(
+    payload: dict[str, Any],
+    metadata: dict[str, Any],
+    database_layer_value: str,
+    template_id: str,
+) -> dict[str, Any]:
+    pack_id = str(metadata.get("installedFromPackId") or metadata.get("packId") or "").strip()
+    if not pack_id:
+        return metadata
+    pack = downloadable_database_pack_by_id(pack_id)
+    if pack is None:
+        raise DatabaseRegistryError("DATABASE_PACK_UNKNOWN")
+    if database_layer_value != pack["installedLayer"]:
+        raise DatabaseRegistryError("DATABASE_PACK_LAYER_MISMATCH")
+    if template_id != pack["templateId"]:
+        raise DatabaseRegistryError("DATABASE_PACK_TEMPLATE_MISMATCH")
+    if str(payload.get("source") or "").strip() != pack["sourceUrl"]:
+        raise DatabaseRegistryError("DATABASE_PACK_SOURCE_MISMATCH")
+    if str(payload.get("checksum") or "").strip() != pack["checksum"]:
+        raise DatabaseRegistryError("DATABASE_PACK_CHECKSUM_MISMATCH")
+    try:
+        size_bytes = int(payload.get("sizeBytes"))
+    except (TypeError, ValueError) as exc:
+        raise DatabaseRegistryError("DATABASE_PACK_SIZE_REQUIRED") from exc
+    if size_bytes != int(pack["archiveSizeBytes"]):
+        raise DatabaseRegistryError("DATABASE_PACK_SIZE_MISMATCH")
+    normalized = dict(metadata)
+    normalized.update(
+        {
+            "packId": pack_id,
+            "installedFromPackId": pack_id,
+            "packVersion": pack["version"],
+            "packSourceUrl": pack["sourceUrl"],
+            "packChecksum": pack["checksum"],
+            "packArchiveSizeBytes": pack["archiveSizeBytes"],
+            "installationMethod": pack["installMode"],
+        }
+    )
+    return normalized

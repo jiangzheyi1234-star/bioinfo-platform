@@ -17,7 +17,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.register_gtdbtk_r232_database import DEFAULT_DATABASE_ID
+from scripts.register_gtdbtk_r232_database import DEFAULT_DATABASE_ID  # noqa: E402
 
 
 EXPECTED_PROFILE_COUNT = 123

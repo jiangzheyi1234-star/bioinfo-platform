@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 import { DatabaseValidationDetailsDialog } from "./database-validation-details-dialog";
+import { DatabasePackSection } from "./database-pack-section";
 import { DatabasesAddPanel } from "./databases-add-panel";
 import { DatabaseItemList } from "./databases-item-list";
 import { useDatabasesPageState } from "./use-databases-page-state";
@@ -52,6 +53,15 @@ export function DatabasesPage() {
         ) : null}
 
         {state.adding ? <DatabasesAddPanel state={state} /> : null}
+        {!state.adding ? (
+          <DatabasePackSection
+            packs={state.packs}
+            loading={state.packLoading}
+            error={state.packError}
+            onCopyText={(text) => void state.copyDatabaseText(text)}
+            onStartAddingFromPack={state.startAddingFromPack}
+          />
+        ) : null}
 
         <Dialog open={Boolean(state.editingItem)} onOpenChange={(open) => (!open ? state.closeEditDialog() : null)}>
           <DialogContent className="max-w-lg">

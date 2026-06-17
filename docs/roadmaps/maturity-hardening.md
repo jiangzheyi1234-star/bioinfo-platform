@@ -30,6 +30,19 @@ Until that platform constraint changes, treat `main` as manually protected:
 3. Record the CI run URL and reviewer sign-off in the PR.
 4. After upgrade, organization migration, or public release, configure `main` to require PR review and the exact `required / ci-green` status check.
 
+## P0-9 Database Pack Lifecycle Criteria
+
+The P0-9 lifecycle contract is defined in `docs/reference-database-pack-lifecycle.md`.
+Database packs are catalog declarations plus operator-executed manual acquisition and registration handoff. They are not release artifacts installed by the launcher or remote bootstrap flow, and they must not introduce automatic download/install routes or UI actions.
+
+Closure requires:
+
+1. `downloadable_pack` catalog metadata is distinct from installed registry records.
+2. Pack-derived registrations use a registerable installed layer such as `production_full`.
+3. Pack lineage metadata matches catalog source URL, checksum, archive size, template, and layer.
+4. Production evidence accepts only available real database records with supported evidence layers.
+5. `validation_fixture` and catalog-only `downloadable_pack` records cannot satisfy production evidence.
+
 ## P1 Sequence
 
 1. Split frontend hotspots so no new TS/TSX file exceeds 800 lines and known oversized files only shrink.

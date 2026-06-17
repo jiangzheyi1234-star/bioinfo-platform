@@ -9,8 +9,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from config import get_config, normalize_ssh_config, resolve_ssh_config_target, resolve_ssh_password
-from core.remote.ssh_connector import ssh_connect
+from config import get_config, normalize_ssh_config, resolve_ssh_config_target, resolve_ssh_password  # noqa: E402
+from core.remote.ssh_connector import ssh_connect  # noqa: E402
 
 
 def main() -> int:

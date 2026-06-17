@@ -6,8 +6,10 @@ import {
   createDatabase,
   deleteDatabase,
   fetchDatabases,
+  fetchDatabasePacks,
   fetchDatabaseTemplates,
   getCachedDatabases,
+  getCachedDatabasePacks,
   getCachedDatabaseTemplates,
   updateDatabaseRecord,
 } from "./database-page-api";
@@ -20,6 +22,7 @@ import {
   remoteBrowserErrorMessage,
   type DatabaseCandidateDetail,
   type DatabaseItem,
+  type DatabasePack,
   type DatabaseTemplate,
   type PathSelectionMode,
   type RemoteFileItem,
@@ -36,11 +39,14 @@ type DatabaseEditForm = ReturnType<typeof editForm>;
 
 export type DatabasesPageState = {
   templates: DatabaseTemplate[];
+  packs: DatabasePack[];
   items: DatabaseItem[];
   loading: boolean;
   error: string;
   templateError: string;
+  packError: string;
   templateLoading: boolean;
+  packLoading: boolean;
   adding: boolean;
   saving: boolean;
   checkingId: string;
@@ -75,6 +81,7 @@ export type DatabasesPageState = {
   selectBrowserPath: (path: string) => void;
   selectBrowserPathForCompositeField: (key: string, path: string) => void;
   selectTemplate: (templateId: string) => void;
+  startAddingFromPack: (packId: string) => void;
   setSelectionMode: (mode: PathSelectionMode) => void;
   setActiveCompositeField: (field: string) => void;
   submitDatabase: (selectedEntryPath?: string) => Promise<void>;
@@ -84,6 +91,7 @@ export type DatabasesPageState = {
   updateEditValue: (field: keyof DatabaseEditForm, value: string) => void;
   updateDatabase: () => Promise<void>;
   copyDatabasePath: (path: string) => Promise<void>;
+  copyDatabaseText: (text: string) => Promise<void>;
   removeDatabase: (id: string) => Promise<void>;
   startAdding: () => void;
   cancelAdding: () => void;
@@ -99,14 +107,19 @@ function templateByIdUtil(templates: DatabaseTemplate[]) {
 export function useDatabasesPageState(): DatabasesPageState {
   const [initialCachedItems] = useState(() => getCachedDatabases());
   const [initialCachedTemplates] = useState(() => getCachedDatabaseTemplates());
+  const [initialCachedPacks] = useState(() => getCachedDatabasePacks());
   const [templates, setTemplates] = useState<DatabaseTemplate[]>(() => initialCachedTemplates || []);
+  const [packs, setPacks] = useState<DatabasePack[]>(() => initialCachedPacks || []);
   const [items, setItems] = useState<DatabaseItem[]>(() => initialCachedItems || []);
   const itemsRef = useRef<DatabaseItem[]>(initialCachedItems || []);
   const templatesRef = useRef<DatabaseTemplate[]>(initialCachedTemplates || []);
+  const packsRef = useRef<DatabasePack[]>(initialCachedPacks || []);
   const [loading, setLoading] = useState(() => !initialCachedItems);
   const [error, setError] = useState("");
   const [templateError, setTemplateError] = useState("");
+  const [packError, setPackError] = useState("");
   const [templateLoading, setTemplateLoading] = useState(() => !initialCachedTemplates);
+  const [packLoading, setPackLoading] = useState(() => !initialCachedPacks);
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
   const [checkingId, setCheckingId] = useState("");
@@ -207,10 +220,40 @@ export function useDatabasesPageState(): DatabasesPageState {
     }
   }, []);
 
+  const loadDatabasePacks = useCallback(async (options: { forceRefresh?: boolean; silent?: boolean } = {}) => {
+    const showLoading = !options.silent && packsRef.current.length === 0;
+    if (showLoading) {
+      setPackLoading(true);
+    }
+    setPackError("");
+    try {
+      const nextPacks = await fetchDatabasePacks({ forceRefresh: options.forceRefresh });
+      packsRef.current = nextPacks;
+      setPacks(nextPacks);
+    } catch (err) {
+      if (packsRef.current.length === 0) {
+        setPacks([]);
+      }
+      setPackError(databaseErrorMessage(err, "读取数据库包失败"));
+    } finally {
+      if (showLoading) {
+        setPackLoading(false);
+      }
+    }
+  }, []);
+
   useEffect(() => {
     void loadDatabases({ silent: Boolean(initialCachedItems) });
     void loadDatabaseTemplates({ silent: Boolean(initialCachedTemplates) });
-  }, [initialCachedItems, initialCachedTemplates, loadDatabases, loadDatabaseTemplates]);
+    void loadDatabasePacks({ silent: Boolean(initialCachedPacks) });
+  }, [
+    initialCachedItems,
+    initialCachedPacks,
+    initialCachedTemplates,
+    loadDatabasePacks,
+    loadDatabases,
+    loadDatabaseTemplates,
+  ]);
 
   const updateForm = useCallback((key: keyof DatabaseForm, value: string) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -316,6 +359,8 @@ export function useDatabasesPageState(): DatabasesPageState {
         ...current,
         templateId: template.id,
         type: template.type,
+        databaseLayer: "user_manual",
+        packId: "",
         description: current.description || template.description,
         path: "",
       }));
@@ -323,6 +368,39 @@ export function useDatabasesPageState(): DatabasesPageState {
       setActiveCompositeField(compositeFieldEntries(template)[0]?.[0] || "");
       setSelectionMode("none");
       setError("");
+    },
+    [templateById]
+  );
+
+  const startAddingFromPack = useCallback(
+    (packId: string) => {
+      const pack = packsRef.current.find((item) => item.packId === packId);
+      const template = pack ? templateById[pack.templateId] : null;
+      if (!pack || !template) {
+        setPackError("数据库包对应的模板不可用，请刷新后重试。");
+        return;
+      }
+      setForm({
+        ...emptyForm(template),
+        name: pack.name,
+        templateId: template.id,
+        type: pack.type,
+        version: pack.version,
+        databaseLayer: pack.installedLayer,
+        packId: pack.packId,
+        description: `${pack.name} installed manually from ${pack.packId}.`,
+        sourceUrl: pack.sourceUrl,
+        buildCommand: pack.registrationHandoff.scriptPath,
+        dbParams: pack.registrationHandoff.defaultRemoteRoot,
+        expectedFiles: pack.expectedFiles.join(", "),
+      });
+      setCompositeFields(Object.fromEntries(compositeFieldEntries(template).map(([key]) => [key, ""])));
+      setActiveCompositeField(compositeFieldEntries(template)[0]?.[0] || "");
+      setSelectionMode("none");
+      setCandidateDetail(null);
+      setError("");
+      setPackError("");
+      setAdding(true);
     },
     [templateById]
   );
@@ -346,6 +424,8 @@ export function useDatabasesPageState(): DatabasesPageState {
       }
       const name = form.name.trim() || defaultDatabaseName(selectedTemplate, path);
       const metadataInput = isComposite ? { kind: "multi" as const, fields: compositeInputFields(selectedTemplate, compositeFields) } : undefined;
+      const selectedPack = form.packId ? packsRef.current.find((item) => item.packId === form.packId) : null;
+      const databaseLayer = selectedPack?.installedLayer || form.databaseLayer || "user_manual";
       setSaving(true);
       setError("");
       try {
@@ -357,14 +437,26 @@ export function useDatabasesPageState(): DatabasesPageState {
           path,
           description: form.description.trim(),
           manifestPath: form.manifestPath.trim(),
-          source: "manual",
-          databaseLayer: "user_manual",
+          source: selectedPack?.sourceUrl || "manual",
+          databaseLayer,
           ...(selectedEntryPath ? { selectedEntryPath } : {}),
+          ...(selectedPack ? { sizeBytes: selectedPack.archiveSizeBytes, checksum: selectedPack.checksum } : {}),
           metadata: {
             templateId: form.templateId,
-            databaseLayer: "user_manual",
+            databaseLayer,
             ...(selectedEntryPath ? { selectedEntryPath } : {}),
             ...(metadataInput ? { input: metadataInput } : {}),
+            ...(selectedPack
+              ? {
+                  packId: selectedPack.packId,
+                  installedFromPackId: selectedPack.packId,
+                  packVersion: selectedPack.version,
+                  packSourceUrl: selectedPack.sourceUrl,
+                  packChecksum: selectedPack.checksum,
+                  packArchiveSizeBytes: selectedPack.archiveSizeBytes,
+                  installationMethod: "manual_external" as const,
+                }
+              : {}),
             sourceUrl: form.sourceUrl.trim(),
             buildCommand: form.buildCommand.trim(),
             dbParams: form.dbParams.trim(),
@@ -476,6 +568,17 @@ export function useDatabasesPageState(): DatabasesPageState {
     }
   }, []);
 
+  const copyDatabaseText = useCallback(async (text: string) => {
+    if (!text) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (err) {
+      setError(databaseErrorMessage(err, "复制内容失败"));
+    }
+  }, []);
+
   const removeDatabase = useCallback(async (id: string) => {
     setError("");
     try {
@@ -506,11 +609,14 @@ export function useDatabasesPageState(): DatabasesPageState {
 
   return {
     templates,
+    packs,
     items,
     loading,
     error,
     templateError,
+    packError,
     templateLoading,
+    packLoading,
     adding,
     saving,
     checkingId,
@@ -547,6 +653,7 @@ export function useDatabasesPageState(): DatabasesPageState {
     setSelectionMode,
     setActiveCompositeField,
     selectTemplate,
+    startAddingFromPack,
     submitDatabase,
     addDatabase,
     checkDatabase,
@@ -554,6 +661,7 @@ export function useDatabasesPageState(): DatabasesPageState {
     updateEditValue,
     updateDatabase,
     copyDatabasePath,
+    copyDatabaseText,
     removeDatabase,
     startAdding,
     cancelAdding,

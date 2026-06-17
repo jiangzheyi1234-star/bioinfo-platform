@@ -54,9 +54,56 @@ export type DatabaseTemplatesResponse = {
   };
 };
 
+export type DatabasePackOperatorStep = {
+  step: string;
+  instruction: string;
+  command?: string;
+};
+
+export type DatabasePackManualInstall = {
+  mode: "manual_external";
+  remoteRoot: string;
+  archivePath: string;
+  readyDirHint: string;
+  statusFile: string;
+  operatorSteps: DatabasePackOperatorStep[];
+};
+
+export type DatabasePackRegistrationHandoff = {
+  mode: string;
+  scriptPath: string;
+  apiEndpoint: "/api/v1/databases";
+  databaseLayer: "production_full" | "validation_fixture" | "user_manual";
+  defaultDatabaseId: string;
+  defaultRemoteRoot: string;
+};
+
+export type DatabasePackEvidencePolicy = {
+  productionEvidenceAllowed: boolean;
+  acceptedEvidenceType: "real-database-acceptance";
+  requiresRegisteredStatus: "available";
+  requiresTemplateId: string;
+  requiresDatabaseLayer: "production_full" | "validation_fixture" | "user_manual";
+  requiresRunResourceBinding: boolean;
+  rejectsCatalogLayerAsEvidence: boolean;
+  validationFixtureAccepted: boolean;
+};
+
+export type DatabasePackLayerSeparation = {
+  catalogLayer: "downloadable_pack";
+  registrationLayer: "production_full" | "validation_fixture" | "user_manual";
+  manualUserLayer: "user_manual";
+  validationFixtureLayer: "validation_fixture";
+  catalogRegistryMutation: "none";
+};
+
 export type DatabasePack = {
   packId: string;
   templateId: string;
+  lifecycleContractVersion: "database-pack-lifecycle-v1";
+  installMode: "manual_external";
+  operatorActionRequired: true;
+  noAutomaticExecution: true;
   databaseLayer: "downloadable_pack";
   name: string;
   version: string;
@@ -71,8 +118,14 @@ export type DatabasePack = {
   expectedFiles: string[];
   sourceUrl: string;
   checksum: string;
+  checksumAlgorithm: string;
+  checksumValue: string;
   archiveSizeBytes: number;
-  installedLayer: DatabaseLayer;
+  installedLayer: "production_full" | "validation_fixture" | "user_manual";
+  manualInstall: DatabasePackManualInstall;
+  registrationHandoff: DatabasePackRegistrationHandoff;
+  evidencePolicy: DatabasePackEvidencePolicy;
+  layerSeparation: DatabasePackLayerSeparation;
   license?: string;
   citations?: string[];
 };
@@ -80,6 +133,7 @@ export type DatabasePack = {
 export type DatabasePacksResponse = {
   data: {
     contractVersion: string;
+    lifecycleContractVersion: string;
     items: DatabasePack[];
     summary: {
       total: number;
@@ -160,6 +214,8 @@ export type DatabaseForm = {
   type: string;
   version: string;
   path: string;
+  databaseLayer: "production_full" | "validation_fixture" | "user_manual";
+  packId: string;
   description: string;
   manifestPath: string;
   sourceUrl: string;
@@ -270,6 +326,8 @@ export function emptyForm(template?: DatabaseTemplate): DatabaseForm {
     type: template?.type || "",
     version: "",
     path: "",
+    databaseLayer: "user_manual",
+    packId: "",
     description: "",
     manifestPath: "",
     sourceUrl: "",
@@ -347,4 +405,20 @@ function templateCheckItems(template: DatabaseTemplate | null) {
 
 export function templateCheckItemList(template: DatabaseTemplate | null) {
   return templateCheckItems(template).split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+export function databasePackSizeText(pack: DatabasePack) {
+  const gb = pack.archiveSizeBytes / 1024 / 1024 / 1024;
+  return `${gb.toFixed(gb >= 10 ? 1 : 2)} GB`;
+}
+
+export function databasePackManualText(pack: DatabasePack) {
+  return pack.manualInstall.operatorSteps
+    .map((step) => [step.step, step.instruction, step.command].filter(Boolean).join("\n"))
+    .join("\n\n");
+}
+
+export function databasePackRegistrationCommand(pack: DatabasePack) {
+  const handoff = pack.registrationHandoff;
+  return `python ${handoff.scriptPath} --remote-root ${handoff.defaultRemoteRoot} --database-id ${handoff.defaultDatabaseId}`;
 }

@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import posixpath
 import shlex
 import sys
 import tarfile

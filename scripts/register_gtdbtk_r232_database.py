@@ -18,6 +18,8 @@ from typing import Any
 
 DEFAULT_REMOTE_ROOT = "/home/zyserver/databases/gtdbtk-r232-official"
 DEFAULT_DATABASE_ID = "p0-8c-gtdbtk-r232-official"
+DEFAULT_PACK_ID = "h2ometa-gtdbtk-r232-official"
+DEFAULT_PACK_VERSION = "R232"
 GTDBTK_R232_MD5 = "25a59e0352b1fd150c589f56559767d4"
 GTDBTK_R232_ARCHIVE_BYTES = 60806405195
 GTDBTK_R232_SOURCE_URL = (
@@ -87,7 +89,7 @@ def build_database_payload(*, database_id: str, ready_dir: str, archive_path: st
         "name": "P0-8C GTDB-Tk R232 official reference",
         "templateId": "gtdbtk",
         "type": "taxonomy",
-        "version": "R232",
+        "version": DEFAULT_PACK_VERSION,
         "path": ready_dir,
         "description": "Official GTDB-Tk R232 data package downloaded from the GTDB AAU mirror.",
         "source": GTDBTK_R232_SOURCE_URL,
@@ -97,6 +99,14 @@ def build_database_payload(*, database_id: str, ready_dir: str, archive_path: st
         "metadata": {
             "templateId": "gtdbtk",
             "databaseLayer": "production_full",
+            "packId": DEFAULT_PACK_ID,
+            "installedFromPackId": DEFAULT_PACK_ID,
+            "packVersion": DEFAULT_PACK_VERSION,
+            "packSourceUrl": GTDBTK_R232_SOURCE_URL,
+            "packChecksum": f"md5:{GTDBTK_R232_MD5}",
+            "packArchiveSizeBytes": GTDBTK_R232_ARCHIVE_BYTES,
+            "installationMethod": "manual_external",
+            "installationEvidence": "status.tsv ready state verified before registration",
             "sourceMirror": "GTDB AAU Europe",
             "sourceUrl": GTDBTK_R232_SOURCE_URL,
             "archivePath": archive_path,

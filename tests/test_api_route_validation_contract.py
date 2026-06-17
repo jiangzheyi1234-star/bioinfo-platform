@@ -350,6 +350,10 @@ def test_database_routes_delegate_request_dumping_to_service() -> None:
     assert "list_databases_from_request" in route_source
     assert "list_database_templates_from_request" in route_source
     assert "list_database_packs_from_request" in route_source
+    assert '@router.get("/api/v1/database-packs")' in route_source
+    assert '@router.post("/api/v1/database-packs' not in route_source
+    assert '@router.patch("/api/v1/database-packs' not in route_source
+    assert '@router.delete("/api/v1/database-packs' not in route_source
     assert "add_database_from_request" in route_source
     assert "update_database_from_request" in route_source
     assert "delete_database_from_request" in route_source

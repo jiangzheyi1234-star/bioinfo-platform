@@ -102,9 +102,26 @@ def _validate_database_evidence(cfg: RemoteRunnerConfig, evidence: dict[str, Any
         raise ToolProductionConflictError("TOOL_PRODUCTION_EVIDENCE_DATABASE_UNAVAILABLE")
     if not production_evidence_database_layer_supported(database or {}):
         raise ToolProductionConflictError("TOOL_PRODUCTION_EVIDENCE_DATABASE_LAYER_UNSUPPORTED")
-    registered_template_id = str(((database or {}).get("metadata") or {}).get("templateId") or "").strip().lower()
+    metadata = (database or {}).get("metadata") or {}
+    registered_template_id = str(metadata.get("templateId") or "").strip().lower()
     if registered_template_id != template_id.lower():
         raise ToolProductionConflictError("TOOL_PRODUCTION_EVIDENCE_DATABASE_MISMATCH")
+    _validate_pack_database_evidence(evidence, metadata)
+
+
+def _validate_pack_database_evidence(evidence: dict[str, Any], metadata: Any) -> None:
+    expected_pack_id = str(evidence.get("packId") or evidence.get("installedFromPackId") or "").strip()
+    if not expected_pack_id:
+        return
+    registered_metadata = metadata if isinstance(metadata, dict) else {}
+    registered_pack_id = str(
+        registered_metadata.get("installedFromPackId") or registered_metadata.get("packId") or ""
+    ).strip()
+    if registered_pack_id != expected_pack_id:
+        raise ToolProductionConflictError("TOOL_PRODUCTION_EVIDENCE_DATABASE_PACK_MISMATCH")
+    expected_checksum = str(evidence.get("packChecksum") or "").strip()
+    if expected_checksum and str(registered_metadata.get("packChecksum") or "").strip() != expected_checksum:
+        raise ToolProductionConflictError("TOOL_PRODUCTION_EVIDENCE_DATABASE_PACK_MISMATCH")
 
 
 def _run_database_bindings(run_spec: Any) -> dict[str, dict[str, Any]]:

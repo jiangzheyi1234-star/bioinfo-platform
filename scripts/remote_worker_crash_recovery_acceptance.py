@@ -14,10 +14,7 @@ from typing import Any
 
 import remote_pipeline_common
 import remote_smoke
-from remote_worker_crash_recovery_evidence import (
-    EXPECTED_ARTIFACT_COUNT,
-    validate_recovery_evidence,
-)
+from remote_worker_crash_recovery_evidence import validate_recovery_evidence
 
 
 DEFAULT_API_BASE = remote_smoke.DEFAULT_API_BASE
