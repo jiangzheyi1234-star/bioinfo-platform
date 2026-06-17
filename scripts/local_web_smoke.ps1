@@ -64,15 +64,19 @@ function Assert-PageText {
 }
 
 function Assert-NextStaticAsset {
-    param([object]$Response)
-    $match = [regex]::Match($Response.Content, 'href="(?<path>/_next/static/css/[^"?]+(?:\?[^" ]*)?)"')
+    param(
+        [object]$Response,
+        [string]$Kind,
+        [string]$Pattern
+    )
+    $match = [regex]::Match($Response.Content, $Pattern)
     if (-not $match.Success) {
-        Fail-Smoke "Web page did not include a Next static CSS asset"
+        Fail-Smoke "Web page did not include a Next static $Kind asset"
     }
     $assetUrl = "$WebBase$($match.Groups['path'].Value)"
     $asset = Get-Page $assetUrl
     if ($asset.StatusCode -ne 200) {
-        Fail-Smoke "Next static CSS asset returned HTTP $($asset.StatusCode): $assetUrl"
+        Fail-Smoke "Next static $Kind asset returned HTTP $($asset.StatusCode): $assetUrl"
     }
 }
 
@@ -117,7 +121,8 @@ foreach ($route in $routes) {
     Assert-PageText $page $route.Path $route.Text
 }
 
-Assert-NextStaticAsset $firstPage
+Assert-NextStaticAsset $firstPage "CSS" 'href="(?<path>/_next/static/css/[^"?]+(?:\?[^" ]*)?)"'
+Assert-NextStaticAsset $firstPage "JS" 'src="(?<path>/_next/static/(?:chunks|app)/[^"?]+\.js(?:\?[^" ]*)?)"'
 
 $summary = [ordered]@{
     apiBase = $ApiBase

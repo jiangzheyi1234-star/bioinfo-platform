@@ -33,4 +33,7 @@ def test_local_web_smoke_checks_api_routes_web_routes_and_next_assets() -> None:
     assert "generated-tool-run-v1" in source
     assert "app/workflows/results/page.js" in source
     assert "Assert-NextStaticAsset" in source
+    assert 'Assert-NextStaticAsset $firstPage "CSS"' in source
+    assert 'Assert-NextStaticAsset $firstPage "JS"' in source
+    assert "/_next/static/(?:chunks|app)/" in source
     assert "LOCAL_WEB_SMOKE_FAILED" in source

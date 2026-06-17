@@ -1,0 +1,154 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUTF8: "1"
+
+jobs:
+  diff-hygiene:
+    name: diff / whitespace
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Check whitespace in changed diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            git fetch --no-tags --depth=1 origin "${GITHUB_BASE_REF}"
+            git diff --check "origin/${GITHUB_BASE_REF}...HEAD"
+          else
+            git diff-tree --check --no-commit-id --root -r "${GITHUB_SHA}"
+          fi
+
+  python-windows:
+    name: python / windows
+    runs-on: windows-2022
+    env:
+      UV_CACHE_DIR: ${{ runner.temp }}\uv-cache
+      UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}\bio-ui-uv-venv
+      UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}\uv-python
+      APPDATA: ${{ runner.temp }}\appdata\Roaming
+      LOCALAPPDATA: ${{ runner.temp }}\appdata\Local
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
+      - name: Run Python quality gates
+        shell: pwsh
+        run: |
+          Remove-Item Env:\UV_PYTHON -ErrorAction SilentlyContinue
+          uv python install 3.12
+          uv sync --frozen --group dev
+          uv run --frozen ruff check apps core scripts tests
+          uv run --frozen python -m pytest -q
+
+  web-windows:
+    name: web / windows
+    runs-on: windows-2022
+    defaults:
+      run:
+        working-directory: apps/web
+    env:
+      CI: "true"
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install web dependencies
+        run: npm ci
+
+      - name: Lint web
+        run: npm run lint
+
+      - name: Typecheck web
+        run: npm run typecheck
+
+      - name: Build web
+        run: npm run build
+
+  linux-parity-smoke:
+    name: python / linux parity
+    runs-on: ubuntu-24.04
+    env:
+      UV_CACHE_DIR: ${{ runner.temp }}/uv-cache
+      UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/bio-ui-uv-venv
+      UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
+      - name: Run Linux parity smoke tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          unset UV_PYTHON
+          uv python install 3.12
+          uv sync --frozen --group dev
+          uv run --frozen python -m pytest -q \
+            tests/test_remote_runner_install_lock.py \
+            tests/test_release_manifest_traceability.py \
+            tests/test_workflow_runtime_artifact_build_script.py \
+            tests/test_update_remote_runner_release_manifest.py
+
+  ci-green:
+    name: required / ci-green
+    if: always()
+    needs:
+      - diff-hygiene
+      - python-windows
+      - web-windows
+      - linux-parity-smoke
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Verify required jobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          failed=0
+          for job in \
+            "diff-hygiene:${{ needs.diff-hygiene.result }}" \
+            "python-windows:${{ needs.python-windows.result }}" \
+            "web-windows:${{ needs.web-windows.result }}" \
+            "linux-parity-smoke:${{ needs.linux-parity-smoke.result }}"
+          do
+            name="${job%%:*}"
+            result="${job#*:}"
+            echo "$name => $result"
+            if [[ "$result" != "success" ]]; then
+              failed=1
+            fi
+          done
+          exit "$failed"

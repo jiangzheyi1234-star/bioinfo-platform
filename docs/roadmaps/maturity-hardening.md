@@ -1,0 +1,37 @@
+# Maturity Hardening Roadmap
+
+Status: Current
+
+Last reviewed: 2026-06-17
+
+## Baseline
+
+The repository has strong local and remote-runner engineering foundations: Windows launcher rules, explicit uv and npm lockfiles, typed FastAPI/Next contracts, focused acceptance tests, release artifact manifests, SBOM/provenance fields, and remote-runner promotion gates.
+
+The remaining gap is production maturity: routine CI, branch protection, security verification, release default hardening, frontend maintainability, and the Production Database Pack lifecycle.
+
+## P0 Sequence
+
+1. Preserve working baselines before adding new product scope. P0-8C/P0-9 closure should be committed and pushed before database pack work expands.
+2. Add ordinary PR/push CI with a stable required check, Windows Python gates, Windows web gates, narrow Linux parity, and whitespace hygiene.
+3. Configure branch protection or GitHub Rulesets to require PR review and the stable `required / ci-green` check before merging to `main`.
+4. Finish P0-9 database layering: `production_full`, `validation_fixture`, `user_manual`, and `downloadable_pack` must be distinct in API contracts, UI, run evidence, and release/download paths.
+5. Add a security posture checklist for auth/RBAC, SSH host-key trust, secret handling, dependency review, SAST, diagnostics redaction, and remote-operation audit.
+
+## P1 Sequence
+
+1. Split frontend hotspots so no new TS/TSX file exceeds 800 lines and known oversized files only shrink.
+2. Add Dependency Review, CodeQL, OpenSSF Scorecard, and secret scanning or documented repository settings.
+3. Make production release checks require supply-chain evidence by default for production runtime handoff.
+4. Harden Docker Compose from experimental single-user draft into a tested deployment profile only after auth, secrets, non-root containers, reverse proxy/TLS, and image scanning are resolved.
+5. Extend release artifacts with product-level SBOM/provenance where web, desktop, database packs, and runtime bundles leave the local development machine.
+
+## External Practice Anchors
+
+- GitHub Rulesets and required status checks: https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets
+- GitHub Actions secure use and token permissions: https://docs.github.com/en/actions/reference/security/secure-use
+- OpenSSF Scorecard checks: https://github.com/ossf/scorecard/blob/main/docs/checks.md
+- OWASP SAMM model: https://owaspsamm.org/model/
+- OWASP ASVS: https://owasp.org/www-project-application-security-verification-standard/
+- SLSA build provenance: https://slsa.dev/spec/v1.2/build-provenance
+- GitHub artifact attestations: https://docs.github.com/en/actions/concepts/security/artifact-attestations
