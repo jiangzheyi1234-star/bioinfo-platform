@@ -19,7 +19,7 @@ env:
   PYTHONUTF8: "1"
 
 jobs:
-  diff-hygiene:
+  diff_hygiene:
     name: diff / whitespace
     runs-on: ubuntu-24.04
     steps:
@@ -39,7 +39,7 @@ jobs:
             git diff-tree --check --no-commit-id --root -r "${GITHUB_SHA}"
           fi
 
-  python-windows:
+  python_windows:
     name: python / windows
     runs-on: windows-2022
     env:
@@ -64,7 +64,7 @@ jobs:
           uv run --frozen ruff check apps core scripts tests
           uv run --frozen python -m pytest -q
 
-  web-windows:
+  web_windows:
     name: web / windows
     runs-on: windows-2022
     defaults:
@@ -96,7 +96,7 @@ jobs:
       - name: Build web
         run: npm run build
 
-  linux-parity-smoke:
+  linux_parity_smoke:
     name: python / linux parity
     runs-on: ubuntu-24.04
     env:
@@ -123,14 +123,14 @@ jobs:
             tests/test_workflow_runtime_artifact_build_script.py \
             tests/test_update_remote_runner_release_manifest.py
 
-  ci-green:
+  ci_green:
     name: required / ci-green
     if: always()
     needs:
-      - diff-hygiene
-      - python-windows
-      - web-windows
-      - linux-parity-smoke
+      - diff_hygiene
+      - python_windows
+      - web_windows
+      - linux_parity_smoke
     runs-on: ubuntu-24.04
     steps:
       - name: Verify required jobs
@@ -139,10 +139,10 @@ jobs:
           set -euo pipefail
           failed=0
           for job in \
-            "diff-hygiene:${{ needs.diff-hygiene.result }}" \
-            "python-windows:${{ needs.python-windows.result }}" \
-            "web-windows:${{ needs.web-windows.result }}" \
-            "linux-parity-smoke:${{ needs.linux-parity-smoke.result }}"
+            "diff-hygiene:${{ needs.diff_hygiene.result }}" \
+            "python-windows:${{ needs.python_windows.result }}" \
+            "web-windows:${{ needs.web_windows.result }}" \
+            "linux-parity-smoke:${{ needs.linux_parity_smoke.result }}"
           do
             name="${job%%:*}"
             result="${job#*:}"

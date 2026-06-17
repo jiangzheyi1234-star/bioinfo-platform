@@ -17,10 +17,10 @@ def test_ci_workflow_provides_required_mainline_gates() -> None:
     assert "workflow_dispatch:" in source
     assert "permissions:\n  contents: read" in source
     assert "name: required / ci-green" in source
-    assert "needs.diff-hygiene.result" in source
-    assert "needs.python-windows.result" in source
-    assert "needs.web-windows.result" in source
-    assert "needs.linux-parity-smoke.result" in source
+    assert "needs.diff_hygiene.result" in source
+    assert "needs.python_windows.result" in source
+    assert "needs.web_windows.result" in source
+    assert "needs.linux_parity_smoke.result" in source
 
 
 def test_ci_workflow_runs_locked_python_and_web_quality_gates() -> None:
