@@ -43,11 +43,11 @@ jobs:
     name: python / windows
     runs-on: windows-2022
     env:
-      UV_CACHE_DIR: ${{ runner.temp }}\uv-cache
-      UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}\bio-ui-uv-venv
-      UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}\uv-python
-      APPDATA: ${{ runner.temp }}\appdata\Roaming
-      LOCALAPPDATA: ${{ runner.temp }}\appdata\Local
+      UV_CACHE_DIR: ${{ runner.temp }}/uv-cache
+      UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/bio-ui-uv-venv
+      UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python
+      APPDATA: ${{ runner.temp }}/appdata/Roaming
+      LOCALAPPDATA: ${{ runner.temp }}/appdata/Local
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
