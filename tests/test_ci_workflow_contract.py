@@ -28,6 +28,8 @@ def test_ci_workflow_runs_locked_python_and_web_quality_gates() -> None:
     source = CI_WORKFLOW.read_text(encoding="utf-8")
 
     assert "uv sync --frozen --group dev" in source
+    assert 'Join-Path $env:RUNNER_TEMP "uv-cache"' in source
+    assert 'export UV_CACHE_DIR="$RUNNER_TEMP/uv-cache"' in source
     assert "uv run --frozen ruff check apps core scripts tests" in source
     assert "uv run --frozen python -m pytest -q" in source
     assert "npm ci" in source
