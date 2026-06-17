@@ -29,8 +29,9 @@ def _profile_row(profile: ToolProfile) -> dict[str, Any]:
         "sourceDeclared": bool(profile.source_refs),
         "licenseDeclared": bool(profile.license),
         "citationsDeclared": bool(profile.citations),
+        "packageIdentityLocked": bool(profile.package_source and profile.package_name and profile.package_version),
         "ruleRenderable": _rule_renderable(profile.rule_template),
-        "environmentLocked": _environment_locked(profile.rule_template),
+        "environmentLocked": _environment_locked(profile.rule_template, profile.package_source),
         "smokeFixturePresent": _smoke_fixture_present(profile.rule_template),
         "semanticPortsDeclared": _semantic_ports_declared(profile.rule_template),
         "reportSchemaBound": _report_schema_bound(profile),
@@ -59,14 +60,15 @@ def _rule_renderable(template: dict[str, Any]) -> bool:
     )
 
 
-def _environment_locked(template: dict[str, Any]) -> bool:
+def _environment_locked(template: dict[str, Any], package_source: str) -> bool:
     conda = ((template.get("environment") or {}).get("conda") or {})
     channels = [str(item).strip() for item in conda.get("channels") or [] if str(item).strip()]
     dependencies = [str(item).strip() for item in conda.get("dependencies") or [] if str(item).strip()]
+    source = str(package_source or "").strip()
+    if not source or source not in channels or "conda-forge" not in channels:
+        return False
     return (
-        "conda-forge" in channels
-        and "bioconda" in channels
-        and channels.index("conda-forge") < channels.index("bioconda")
+        ("bioconda" not in channels or channels.index("conda-forge") < channels.index("bioconda"))
         and bool(dependencies)
     )
 

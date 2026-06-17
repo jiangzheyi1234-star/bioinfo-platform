@@ -203,6 +203,12 @@ class SSHService:
             self._tunnels[name] = tunnel
             return tunnel
 
+    def close_local_tunnel(self, name: str) -> None:
+        with self._lock:
+            tunnel = self._tunnels.pop(str(name or ""), None)
+            if tunnel is not None:
+                tunnel.close()
+
     def close(self) -> None:
         if self._reconnector:
             self._reconnector.cancel()

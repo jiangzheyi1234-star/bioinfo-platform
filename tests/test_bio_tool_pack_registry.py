@@ -31,21 +31,23 @@ def test_bio_tool_pack_import_enable_surfaces_external_profiles() -> None:
     imported = import_bio_tool_pack_manifest(manifest, enable=False)
     assert imported["pack"]["status"] == "Imported"
     assert enabled_bio_tool_pack_profiles() == ()
-    assert catalog_tool_profiles(query="sourmash", page=1, page_size=10)["total"] == 0
+    assert not _catalog_has_profile("sourmash-sketch")
 
     enabled = enable_bio_tool_pack("h2ometa-sourmash-pack")
     assert enabled["pack"]["status"] == "Enabled"
     assert list_bio_tool_packs()["summary"] == {"total": 1, "enabled": 1, "imported": 0}
     assert [profile.profile_id for profile in enabled_bio_tool_pack_profiles()] == ["sourmash-sketch"]
 
-    catalog = catalog_tool_profiles(query="sourmash", page=1, page_size=10)
-    item = catalog["items"][0]
+    catalog = catalog_tool_profiles(query="sourmash-sketch", page=1, page_size=10)
+    item = next(item for item in catalog["items"] if item["profileId"] == "sourmash-sketch")
     assert item["profileId"] == "sourmash-sketch"
     assert item["packId"] == "h2ometa-sourmash-pack"
-    assert item["preparePayload"]["id"] == "bioconda::sourmash"
+    assert item["preparePayload"]["id"] == "bioconda::sourmash-sketch"
+    assert item["preparePayload"]["packageName"] == "sourmash"
+    assert item["preparePayload"]["validationTarget"] == "sourmash-sketch"
     assert item["preparePayload"]["ruleSpecDraft"]["requiresUserCompletion"] is False
 
-    assert "bioconda::sourmash" in validation_queue_tool_ids()
+    assert "bioconda::sourmash-sketch" in validation_queue_tool_ids()
     assert "sourmash-sketch" in {row["profileId"] for row in reliability_acceptance_matrix()["rows"]}
     assert "sourmash-sketch" in {
         node["profileId"]
@@ -67,17 +69,23 @@ def test_bio_tool_pack_import_rejects_profile_id_collisions() -> None:
 
 def test_bio_tool_pack_enable_can_be_reversed() -> None:
     from apps.api.bio_tool_pack_store import disable_bio_tool_pack, enable_bio_tool_pack, import_bio_tool_pack_manifest
-    from apps.api.tool_profile_catalog import catalog_tool_profiles
 
     import_bio_tool_pack_manifest(_custom_pack_manifest(), enable=True)
-    assert catalog_tool_profiles(query="sourmash", page=1, page_size=10)["total"] == 1
+    assert _catalog_has_profile("sourmash-sketch")
 
     disabled = disable_bio_tool_pack("h2ometa-sourmash-pack")
     assert disabled["pack"]["enabled"] is False
-    assert catalog_tool_profiles(query="sourmash", page=1, page_size=10)["total"] == 0
+    assert not _catalog_has_profile("sourmash-sketch")
 
     enable_bio_tool_pack("h2ometa-sourmash-pack")
-    assert catalog_tool_profiles(query="sourmash", page=1, page_size=10)["total"] == 1
+    assert _catalog_has_profile("sourmash-sketch")
+
+
+def _catalog_has_profile(profile_id: str) -> bool:
+    from apps.api.tool_profile_catalog import catalog_tool_profiles
+
+    catalog = catalog_tool_profiles(query=profile_id, page=1, page_size=10)
+    return any(item["profileId"] == profile_id for item in catalog["items"])
 
 
 def _custom_pack_manifest() -> dict:
@@ -95,6 +103,8 @@ def _custom_pack_manifest() -> dict:
                 "version": 1,
                 "toolNames": ["sourmash", "sourmash sketch"],
                 "packageName": "sourmash",
+                "packageSource": "bioconda",
+                "packageVersion": "4.9.4",
                 "workflowStage": "read-qc",
                 "operation": "sequence-sketching",
                 "ruleTemplate": {

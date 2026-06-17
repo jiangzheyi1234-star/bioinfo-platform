@@ -42,6 +42,7 @@ def test_tools_page_has_focused_support_modules() -> None:
     hook = (COMPONENTS / "use-tools-page-state.ts").read_text(encoding="utf-8")
     library = (COMPONENTS / "tools-page-library-section.tsx").read_text(encoding="utf-8")
     model = (COMPONENTS / "tools-page-model.ts").read_text(encoding="utf-8")
+    package_lock = (COMPONENTS / "tools-page-package-lock.ts").read_text(encoding="utf-8")
     completion = (COMPONENTS / "tools-page-rule-spec-completion.ts").read_text(encoding="utf-8")
     editor = (COMPONENTS / "tools-page-rule-spec-editor.tsx").read_text(encoding="utf-8")
     readiness = (COMPONENTS / "tool-rule-readiness.ts").read_text(encoding="utf-8")
@@ -118,6 +119,9 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "snakemakeWrappers?: ToolProfileWrapperEvidence[]" in model
     assert "snakemakeWrapperCount?: number" in model
     assert "export type ToolCandidatePreparePayload" in model
+    assert "profileId?: string" in _type_body(model, "ToolCandidatePreparePayload")
+    assert "packageName?: string" in _type_body(model, "ToolCandidatePreparePayload")
+    assert "validationTarget?: string" in _type_body(model, "ToolCandidatePreparePayload")
     assert "preparePayload?: ToolCandidatePreparePayload" in _type_body(model, "ToolSearchItem")
     assert "preparePayload?: ToolCandidatePreparePayload" in _type_body(model, "ToolProfileCandidate")
     assert "preparePayload?: ToolCandidatePreparePayload" in _type_body(model, "ToolCatalogValidationQueueItem")
@@ -157,13 +161,18 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "evidenceType" in library
     assert "databaseId" in library
     assert "templateId" in library
+    assert "CapabilityBundleStatusChip" in library
+    assert "tool.capabilityBundleStatus" in library
+    assert "blockedReasons" in library
+    assert "nextAction" in library
     assert "schedulerResources?: Record" in model
     assert "export type RuleSpecLock" in model
     assert "ruleTemplate?: RuleSpecTemplate" in model
     assert "module?: RuleSpecModule" in model
     assert "moduleAssets?: Array<{ path: string; content: string }>" in model
     assert "lock?: RuleSpecLock" in model
-    assert "export function packageSpecLocked" in model
+    assert "packageSpecLocked" in model
+    assert "export function packageSpecLocked" in package_lock
     assert "applySelectedWrapperLock" in model
     assert "buildExecutableRuleSpecForSelectedTool" in model
     assert "isExecutableRuleSpec" in model
@@ -179,7 +188,8 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "requiresUserCompletion" in completion
     assert "outputPathSpecified" in completion
     assert 'Object.prototype.hasOwnProperty.call(options, "outputPath")' in completion
-    assert "export function uniqueDependencies" in model
+    assert "uniqueDependencies" in model
+    assert "export function uniqueDependencies" in package_lock
     assert 'title="工具"' in page
     assert "添加工具" in page
     assert "返回工具库" in page
@@ -404,6 +414,10 @@ def test_tools_page_surfaces_target_validation_queue_priority() -> None:
     assert "CapabilityBundleGatePanel" in capability_gate
     assert "DATABASE_RESOURCE_REQUIRED" in capability_gate
     assert "acceptedTemplates" in capability_gate
+    assert "blockedTools.slice(0, 4)" not in capability_gate
+    assert "visibleBlockedTools" in capability_gate
+    assert "showAllBlocked" in capability_gate
+    assert "capabilityReasonCounts" in capability_gate
     assert "capabilityGraph={state.capabilityGraph}" in page
     assert "validationQueueItems" in ui
     assert "targetAcceptance?.validationQueue?.items ?? []" in ui
@@ -421,7 +435,9 @@ def test_tools_page_surfaces_target_validation_queue_priority() -> None:
     assert "prepare job queue" in validation_queue
     assert "prepareQueueMetricItems" in validation_queue
     assert "submit-production-evidence" in validation_queue
-    assert "visibleItems = items.slice(0, 3)" in validation_queue
+    assert "visibleLimit, setVisibleLimit" in validation_queue
+    assert "visibleItems = items.slice(0, visibleLimit)" in validation_queue
+    assert "hiddenItemCount" in validation_queue
     assert "items.map((item)" not in validation_queue
     assert "createToolPrepareJob(tool)" in validation_queue
     assert "prepareToolValidationQueue(Math.min(items.length, 30))" in validation_queue

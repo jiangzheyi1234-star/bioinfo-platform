@@ -14,6 +14,8 @@ class ToolProfile:
     rule_template: dict[str, Any]
     preferred_wrapper_paths: tuple[str, ...] = ()
     package_name: str = ""
+    package_source: str = ""
+    package_version: str = ""
     pack_id: str = ""
     workflow_stage: str = ""
     operation: str = ""

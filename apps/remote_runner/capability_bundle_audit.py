@@ -6,6 +6,87 @@ from typing import Any
 CAPABILITY_BUNDLE_VERSION = "capability-bundle-v1"
 
 
+def validate_capability_bundle_gate(
+    tool: dict[str, Any],
+    *,
+    step_id: str = "",
+    resource_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    audit = capability_bundle_audit_for_tool(tool, step_id=step_id, resource_context=resource_context)
+    reasons = capability_bundle_blocking_reasons(audit, tool=tool)
+    if reasons:
+        raise ValueError(f"CAPABILITY_BUNDLE_NOT_SELECTABLE: {','.join(reasons)}")
+    return audit
+
+
+def capability_bundle_blocking_reasons(audit: dict[str, Any], *, tool: dict[str, Any] | None = None) -> list[str]:
+    reasons: list[str] = []
+    tool_id = str((tool or {}).get("id") or (tool or {}).get("toolId") or audit.get("toolId") or "").strip()
+    tool_revision_id = str(audit.get("toolRevisionId") or "").strip()
+    if not tool_revision_id or tool_revision_id == tool_id:
+        reasons.append("EXACT_TOOL_REVISION_REQUIRED")
+    if not str(audit.get("toolVersion") or "").strip():
+        reasons.append("TOOL_VERSION_REQUIRED")
+    rule_template = (tool or {}).get("ruleTemplate") if isinstance((tool or {}).get("ruleTemplate"), dict) else {}
+    inputs = _bundle_ports(rule_template.get("inputs"))
+    outputs = _bundle_ports(rule_template.get("outputs"))
+    if not inputs:
+        reasons.append("CAPABILITY_INPUT_SCHEMA_REQUIRED")
+    if not outputs:
+        reasons.append("CAPABILITY_OUTPUT_SCHEMA_REQUIRED")
+    if not _ports_have_schema(inputs):
+        reasons.append("CAPABILITY_INPUT_PORT_SCHEMA_INCOMPLETE")
+    if not _ports_have_schema(outputs):
+        reasons.append("CAPABILITY_OUTPUT_PORT_SCHEMA_INCOMPLETE")
+    environment_lock = audit.get("environmentLock") if isinstance(audit.get("environmentLock"), dict) else {}
+    dependencies = [str(item).strip() for item in environment_lock.get("dependencies") or [] if str(item or "").strip()]
+    if not dependencies:
+        reasons.append("ENVIRONMENT_LOCK_REQUIRED")
+    if any("{packageSpec}" in item for item in dependencies):
+        reasons.append("ENVIRONMENT_LOCK_UNRESOLVED")
+    validation_evidence = audit.get("validationEvidence") if isinstance(audit.get("validationEvidence"), dict) else {}
+    if validation_evidence.get("status") != "passed":
+        reasons.append("VALIDATION_EVIDENCE_REQUIRED")
+    if not str(validation_evidence.get("validationResultId") or "").strip():
+        reasons.append("VALIDATION_RESULT_ID_REQUIRED")
+    if not str(validation_evidence.get("evidenceId") or "").strip():
+        reasons.append("VALIDATION_EVIDENCE_ID_REQUIRED")
+    fixture = validation_evidence.get("fixture") if isinstance(validation_evidence.get("fixture"), dict) else {}
+    if not fixture.get("inputs"):
+        reasons.append("SMOKE_FIXTURE_REQUIRED")
+    if not fixture.get("expectedArtifacts"):
+        reasons.append("EXPECTED_ARTIFACT_REQUIRED")
+    approval = audit.get("approval") if isinstance(audit.get("approval"), dict) else {}
+    if approval.get("required") is True and approval.get("approved") is not True:
+        reasons.append("CAPABILITY_APPROVAL_REQUIRED")
+    return _unique_strings(reasons)
+
+
+def _bundle_ports(value: Any) -> list[dict[str, Any]]:
+    ports: list[dict[str, Any]] = []
+    for item in value or []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        ports.append(
+            {
+                "name": name,
+                "type": str(item.get("type") or "").strip(),
+                "kind": str(item.get("kind") or "").strip(),
+                "mimeType": str(item.get("mimeType") or "").strip(),
+                "data": str(item.get("data") or item.get("edamData") or "").strip(),
+                "format": str(item.get("format") or item.get("edamFormat") or "").strip(),
+            }
+        )
+    return ports
+
+
+def _ports_have_schema(ports: list[dict[str, Any]]) -> bool:
+    return all(port.get("name") and any(port.get(key) for key in ("type", "kind", "data", "format", "mimeType")) for port in ports)
+
+
 def capability_bundle_audit_for_tool(
     tool: dict[str, Any],
     *,
@@ -278,3 +359,14 @@ def _version_from_package_spec(package_spec: str) -> str:
     if "=" in text:
         return text.split("=", 1)[1].strip()
     return ""
+
+
+def _unique_strings(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for value in values:
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        unique.append(value)
+    return unique

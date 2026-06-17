@@ -7,6 +7,7 @@ from typing import Any
 from .config import RemoteRunnerConfig
 from .storage import get_connection, now_iso
 from .tool_contract import build_tool_contract
+from .tool_platform_storage import latest_validation_summary_for_tool_revision
 
 
 def publish_tool_revision(cfg: RemoteRunnerConfig, tool: dict[str, Any]) -> dict[str, Any]:
@@ -115,7 +116,18 @@ def fetch_tool_revision(cfg: RemoteRunnerConfig, tool_revision_id: str) -> dict[
             "SELECT tool_json FROM tool_revisions WHERE tool_revision_id = ?",
             (normalized,),
         ).fetchone()
-    if row is None:
-        return None
-    tool = json.loads(row["tool_json"] or "{}")
-    return tool if isinstance(tool, dict) else None
+        if row is None:
+            return None
+        tool = json.loads(row["tool_json"] or "{}")
+        if not isinstance(tool, dict):
+            return None
+        summary = latest_validation_summary_for_tool_revision(
+            connection,
+            tool_revision_id=normalized,
+            tool_id=str(tool.get("id") or tool.get("toolId") or "").strip(),
+        )
+    if summary:
+        tool["validationSummary"] = summary
+        tool["validationResultId"] = str(summary.get("latestResultId") or "").strip()
+        tool["evidenceId"] = str(summary.get("evidenceId") or "").strip()
+    return tool

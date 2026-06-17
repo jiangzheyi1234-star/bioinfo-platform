@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from core.contracts.rule_ports import mismatched_compatibility_field, port_spec_from_rule_item
@@ -110,6 +111,11 @@ def _workflow_ready_tools_by_name(tools: list[dict[str, Any]]) -> dict[str, dict
         contract = tool.get("toolContract") if isinstance(tool.get("toolContract"), dict) else {}
         if not (contract.get("workflowReady") or contract.get("state") == "ProductionEnabled"):
             continue
+        draft = tool.get("ruleSpecDraft") if isinstance(tool.get("ruleSpecDraft"), dict) else {}
+        lock = draft.get("lock") if isinstance(draft.get("lock"), dict) else {}
+        locked_profile_id = _normalize_name(lock.get("profileId"))
+        if locked_profile_id:
+            indexed.setdefault(locked_profile_id, tool)
         for name in (tool.get("name"), tool.get("id"), tool.get("toolId"), tool.get("toolRevisionId")):
             normalized = _normalize_name(name)
             if normalized:
@@ -118,7 +124,7 @@ def _workflow_ready_tools_by_name(tools: list[dict[str, Any]]) -> dict[str, dict
 
 
 def _matching_ready_tool(profile: ToolProfile, ready_by_name: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
-    for name in (profile.profile_id, profile.package_name, *profile.tool_names):
+    for name in (profile.profile_id, *profile.tool_names):
         normalized = _normalize_name(name)
         if normalized in ready_by_name:
             return ready_by_name[normalized]
@@ -131,7 +137,9 @@ def _normalize_name(value: Any) -> str:
         text = text.rsplit("::", 1)[-1]
     if "@" in text:
         text = text.split("@", 1)[0]
-    return text
+    if "#" in text:
+        text = text.split("#", 1)[0]
+    return re.sub(r"[^a-z0-9.+-]+", "-", text).strip("-")
 
 
 def _node_id(*parts: str) -> str:

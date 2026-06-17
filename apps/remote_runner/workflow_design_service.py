@@ -5,7 +5,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .capability_bundle_audit import capability_bundle_manifest_entry
 from .api_models import (
     WorkflowDesignDraftCreateRequest,
     WorkflowDesignDraftForkRequest,
@@ -207,10 +206,7 @@ def _tool_revision_manifest_entry(
     audit = bundle_audit_by_revision.get(tool_revision_id)
     if audit is not None:
         return dict(audit)
-    tool = node.get("tool") if isinstance(node.get("tool"), dict) else {}
-    if tool:
-        return capability_bundle_manifest_entry(tool, step_id=str(node.get("id") or ""))
-    return {"toolRevisionId": tool_revision_id}
+    raise ValueError(f"CAPABILITY_BUNDLE_AUDIT_REQUIRED: {tool_revision_id}")
 
 
 def _workflow_revision_graph_snapshot(compiled: dict[str, Any]) -> dict[str, Any]:

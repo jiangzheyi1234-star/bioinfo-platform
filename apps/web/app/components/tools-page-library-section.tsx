@@ -136,6 +136,7 @@ function ToolContractRow({
   const rowState = waitingResource ? { ...state, kind: "waiting-resource" as const, label: "等待数据库" as const, waitingResources } : state;
   const canCheck = waitingResource || state.kind === "validation-pending" || state.kind === "workflow-ready";
   const checkTitle = waitingResource ? "补齐数据库后重试 prepare" : canCheck ? "验证工具" : "先补全 RuleSpec 和 env";
+  const bundleStatus = tool.capabilityBundleStatus;
   return (
     <article
       data-node-state={rowState.kind}
@@ -150,6 +151,7 @@ function ToolContractRow({
           <div className="mt-1 flex min-w-0 items-center gap-2 text-[11px] text-slate-400">
             <span className="shrink-0">{tool.sourceLabel}</span>
             <span className="min-w-0 truncate font-mono">{tool.selectedPackageSpec}</span>
+            {bundleStatus ? <CapabilityBundleStatusChip status={bundleStatus} /> : null}
           </div>
         </button>
 
@@ -229,6 +231,41 @@ function ToolContractRow({
       ) : null}
     </article>
   );
+}
+
+function CapabilityBundleStatusChip({ status }: { status: NonNullable<AddedTool["capabilityBundleStatus"]> }) {
+  const reasons = status.blockedReasons || [];
+  const selectable = status.agentSelectable === true;
+  const label = selectable ? "agent 可选" : capabilityBundleBlockedLabel(reasons);
+  const title = selectable ? "capability-bundle-v1 agentSelectable=true" : `${reasons.join(", ") || "CAPABILITY_BUNDLE_NOT_SELECTABLE"} · ${status.nextAction || "prepare-tool"}`;
+  return (
+    <span
+      className={cn(
+        "shrink-0 rounded border px-1.5 py-0.5",
+        selectable ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"
+      )}
+      title={title}
+    >
+      {label}
+      {!selectable && status.nextAction ? <span className="ml-1 text-slate-500">{capabilityBundleActionLabel(status.nextAction)}</span> : null}
+    </span>
+  );
+}
+
+function capabilityBundleBlockedLabel(reasons: string[]) {
+  if (reasons.includes("DATABASE_RESOURCE_REQUIRED")) return "缺数据库";
+  if (reasons.includes("CAPABILITY_APPROVAL_REQUIRED")) return "待审批";
+  if (reasons.includes("VALIDATION_EVIDENCE_REQUIRED")) return "待验证";
+  if (reasons.includes("SMOKE_FIXTURE_REQUIRED")) return "缺 fixture";
+  return reasons[0] || "bundle blocked";
+}
+
+function capabilityBundleActionLabel(action: string) {
+  if (action === "add-database") return "添加数据库";
+  if (action === "request-approval") return "请求审批";
+  if (action === "run-validation") return "运行验证";
+  if (action === "complete-capability-bundle") return "补齐 bundle";
+  return action;
 }
 
 function WaitingResourcePanel({ resources }: { resources: MissingToolResource[] }) {

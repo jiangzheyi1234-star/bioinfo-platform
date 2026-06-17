@@ -54,7 +54,11 @@ def _remote_http_status_code(detail: str) -> int | None:
 
 def classify_runtime_service_status(*, detail: str, fallback: int) -> int:
     lowered = detail.lower()
-    if "workflow_tool_not_ready" in lowered or "workflow tool not ready" in lowered:
+    if (
+        "workflow_tool_not_ready" in lowered
+        or "workflow tool not ready" in lowered
+        or "capability_bundle_not_selectable" in lowered
+    ):
         return 409
     readiness_markers = (
         "not ready",

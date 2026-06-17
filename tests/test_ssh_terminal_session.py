@@ -225,6 +225,38 @@ def test_named_tunnel_is_recreated_when_remote_port_changes(monkeypatch) -> None
     assert closes == [39967]
 
 
+def test_close_local_tunnel_closes_named_tunnel(monkeypatch) -> None:
+    class FakeTransport:
+        def is_active(self) -> bool:
+            return True
+
+    class FakeClient:
+        def get_transport(self):
+            return FakeTransport()
+
+    closes: list[str] = []
+
+    def fake_start(self: LocalTunnel) -> None:
+        self._thread = object()
+        self._server = object()
+
+    def fake_close(self: LocalTunnel) -> None:
+        closes.append(self.name)
+        self._thread = None
+        self._server = None
+
+    monkeypatch.setattr(LocalTunnel, "start", fake_start)
+    monkeypatch.setattr(LocalTunnel, "close", fake_close)
+    monkeypatch.setattr(LocalTunnel, "is_active", property(lambda self: self._server is not None))
+
+    service = SSHService(initial_client=FakeClient())
+    service.ensure_local_tunnel("runner-test", remote_host="127.0.0.1", remote_port=39967)
+    service.close_local_tunnel("runner-test")
+    service.ensure_local_tunnel("runner-test", remote_host="127.0.0.1", remote_port=39967)
+
+    assert closes == ["runner-test"]
+
+
 def test_list_directory_uses_sftp_and_returns_directory_metadata() -> None:
     class FakeSftp:
         def __init__(self) -> None:

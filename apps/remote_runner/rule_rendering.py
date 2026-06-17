@@ -83,6 +83,7 @@ def _render_step_rule_block(
         env_path=step.env_path,
         output_dir=output_dir,
         runtime=step.runtime,
+        output_parent_dirs=_rule_output_parent_dirs(step.outputs),
         shell_command=command,
     )
     return (
@@ -227,6 +228,17 @@ def _output_command_replacement(path: Path | SnakemakeExpression, token: str) ->
     if isinstance(path, SnakemakeExpression):
         return token
     return shlex.quote(str(path))
+
+
+def _rule_output_parent_dirs(outputs: dict[str, Path | SnakemakeExpression]) -> list[str]:
+    parents: set[str] = set()
+    for path in outputs.values():
+        if isinstance(path, SnakemakeExpression):
+            continue
+        parent = path.parent
+        if str(parent) != ".":
+            parents.add(parent.as_posix())
+    return sorted(parents)
 
 
 def _safe_identifier(value: str) -> str:

@@ -6,7 +6,7 @@ import re
 from typing import Any
 
 
-SUPPORTED_CONDA_SOURCES = {"bioconda", "conda-forge"}
+SUPPORTED_CONDA_SOURCES = {"bioconda", "conda-forge", "qiime2"}
 RANGE_OPERATORS = (">=", "<=", ">", "<", "~=", "!=")
 
 

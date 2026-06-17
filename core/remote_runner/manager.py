@@ -322,14 +322,48 @@ class RemoteRunnerManager(
                     client = RemoteRunnerHttpClient(
                         base_url=f"http://127.0.0.1:{tunnel.local_port}",
                         token=token,
-                        timeout=5,
+                        timeout=30,
                     )
                     health = self._wait_for_runner_health(client)
-                    self._run_bootstrap_canary(
-                        client=client,
-                        server_id=server_id,
-                        bootstrap_metadata=bootstrap_metadata,
-                    )
+                    try:
+                        self._run_bootstrap_canary(
+                            client=client,
+                            server_id=server_id,
+                            bootstrap_metadata=bootstrap_metadata,
+                        )
+                    except RemoteRunnerManagerError as exc:
+                        if not self._canary_failure_needs_fresh_tunnel_retry(str(exc)):
+                            raise
+                        runtime_state = self._wait_for_runtime_state(
+                            ssh_service=ssh_service,
+                            remote_runtime_state=paths.runtime_state,
+                            version=version,
+                        )
+                        remote_port = int(runtime_state["bindPort"])
+                        close_tunnel = getattr(ssh_service, "close_local_tunnel", None)
+                        if callable(close_tunnel):
+                            close_tunnel(f"runner-{server_id}")
+                        tunnel = ssh_service.ensure_local_tunnel(
+                            f"runner-{server_id}",
+                            remote_host="127.0.0.1",
+                            remote_port=remote_port,
+                        )
+                        client = RemoteRunnerHttpClient(
+                            base_url=f"http://127.0.0.1:{tunnel.local_port}",
+                            token=token,
+                            timeout=30,
+                        )
+                        health = self._wait_for_runner_health(client)
+                        bootstrap_metadata["canary_retry"] = {
+                            "reason": str(exc),
+                            "servicePort": remote_port,
+                            "tunnelPort": tunnel.local_port,
+                        }
+                        self._run_bootstrap_canary(
+                            client=client,
+                            server_id=server_id,
+                            bootstrap_metadata=bootstrap_metadata,
+                        )
                     release_switch["active_release"] = paths.release
                     bootstrap_metadata["release_switch"] = release_switch
                 except (RemoteRunnerManagerError, RemoteRunnerClientError) as exc:

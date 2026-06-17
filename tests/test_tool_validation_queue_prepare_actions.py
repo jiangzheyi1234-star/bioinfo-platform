@@ -68,6 +68,34 @@ def test_prepare_validation_queue_skips_waiting_resource_jobs(monkeypatch) -> No
 
     runtime = Runtime()
     monkeypatch.setattr(tool_capability_service, "runtime_service", lambda: runtime)
+    monkeypatch.setattr(
+        tool_capability_service,
+        "_target_acceptance_with_runtime_state",
+        lambda *, runtime, target_platform: {
+            "targetPlatform": target_platform,
+            "targets": {"workflowReady": {"remaining": 2}},
+            "validationQueue": {
+                "items": [
+                    {
+                        "candidateId": "candidate-waiting-a",
+                        "profileId": "waiting-a",
+                        "preparePayload": {
+                            "id": "bioconda::waiting-a",
+                            "name": "waiting-a",
+                        },
+                    },
+                    {
+                        "candidateId": "candidate-waiting-b",
+                        "profileId": "waiting-b",
+                        "preparePayload": {
+                            "id": "bioconda::waiting-b",
+                            "name": "waiting-b",
+                        },
+                    },
+                ]
+            },
+        },
+    )
 
     result = asyncio.run(
         tool_capability_service.prepare_tool_validation_queue_from_request(

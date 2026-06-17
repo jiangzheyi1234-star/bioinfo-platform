@@ -214,6 +214,19 @@ class RemoteRunnerBootstrapActivationMixin:
                 bootstrap_metadata=bootstrap_metadata,
             ) from exc
 
+    @staticmethod
+    def _canary_failure_needs_fresh_tunnel_retry(detail: str) -> bool:
+        lowered = str(detail or "").lower()
+        return (
+            "connection refused" in lowered
+            or "actively refused" in lowered
+            or "无法连接" in lowered
+            or "10054" in lowered
+            or "强迫关闭" in lowered
+            or "forcibly closed" in lowered
+            or "runner unreachable" in lowered
+        )
+
     @classmethod
     def _wait_for_terminal_run(
         cls,

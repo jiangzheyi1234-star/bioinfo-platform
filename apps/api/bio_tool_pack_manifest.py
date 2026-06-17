@@ -7,6 +7,7 @@ from pathlib import PurePosixPath
 from typing import Any
 
 from .tool_profile_model import ToolProfile
+from .tool_profile_identity import profile_tool_name
 from .tool_profile_semantics import enrich_rule_template_semantics
 
 
@@ -34,6 +35,8 @@ _PROFILE_KEYS = {
     "version",
     "toolNames",
     "packageName",
+    "packageSource",
+    "packageVersion",
     "preferredWrapperPaths",
     "workflowStage",
     "operation",
@@ -74,7 +77,10 @@ def load_bio_tool_pack_manifest(manifest: dict[str, Any]) -> tuple[ToolProfile, 
         seen_profile_ids.add(profile_id)
         profile_version = int(_required_text(raw_profile.get("version"), "BIO_TOOL_PACK_PROFILE_VERSION_REQUIRED"))
         tool_names = tuple(_required_strings(raw_profile.get("toolNames"), "BIO_TOOL_PACK_TOOL_NAMES_REQUIRED"))
-        rule_template = _validated_rule_template(raw_profile.get("ruleTemplate"))
+        package_name = _required_text(raw_profile.get("packageName"), "BIO_TOOL_PACK_PROFILE_PACKAGE_NAME_REQUIRED")
+        package_source = _required_text(raw_profile.get("packageSource"), "BIO_TOOL_PACK_PROFILE_PACKAGE_SOURCE_REQUIRED")
+        package_version = _required_text(raw_profile.get("packageVersion"), "BIO_TOOL_PACK_PROFILE_PACKAGE_VERSION_REQUIRED")
+        rule_template = _validated_rule_template(raw_profile.get("ruleTemplate"), package_source=package_source)
         report_schemas = tuple(_validated_report_schemas(raw_profile.get("reportSchemas"), rule_template))
         loaded.append(
             ToolProfile(
@@ -83,7 +89,9 @@ def load_bio_tool_pack_manifest(manifest: dict[str, Any]) -> tuple[ToolProfile, 
                 tool_names=tool_names,
                 rule_template=rule_template,
                 preferred_wrapper_paths=tuple(_strings(raw_profile.get("preferredWrapperPaths"))),
-                package_name=str(raw_profile.get("packageName") or tool_names[0]).strip(),
+                package_name=package_name,
+                package_source=package_source,
+                package_version=package_version,
                 pack_id=pack_id,
                 workflow_stage=str(raw_profile.get("workflowStage") or _infer_workflow_stage(rule_template)).strip(),
                 operation=str(raw_profile.get("operation") or _infer_operation(profile_id, rule_template)).strip(),
@@ -93,6 +101,7 @@ def load_bio_tool_pack_manifest(manifest: dict[str, Any]) -> tuple[ToolProfile, 
                 report_schemas=report_schemas,
             )
         )
+    _validate_profile_tool_id_uniqueness(loaded, "BIO_TOOL_PACK_PROFILE_TOOL_ID_DUPLICATE")
     _ = version
     return tuple(loaded)
 
@@ -108,6 +117,7 @@ def load_bio_tool_pack_manifests(manifests: list[dict[str, Any]] | tuple[dict[st
                 raise BioToolPackManifestError("BIO_TOOL_PACK_MERGED_PROFILE_DUPLICATE")
             seen_profile_ids.add(profile.profile_id)
             loaded.append(profile)
+    _validate_profile_tool_id_uniqueness(loaded, "BIO_TOOL_PACK_MERGED_PROFILE_TOOL_ID_DUPLICATE")
     return tuple(loaded)
 
 
@@ -143,6 +153,8 @@ def _manifest_profile(profile: ToolProfile) -> dict[str, Any]:
         "version": profile.version,
         "toolNames": list(profile.tool_names),
         "packageName": profile.package_name,
+        "packageSource": profile.package_source,
+        "packageVersion": profile.package_version,
         "preferredWrapperPaths": list(profile.preferred_wrapper_paths),
         "workflowStage": profile.workflow_stage or _infer_workflow_stage(rule_template),
         "operation": profile.operation or _infer_operation(profile.profile_id, rule_template),
@@ -152,7 +164,19 @@ def _manifest_profile(profile: ToolProfile) -> dict[str, Any]:
     }
 
 
-def _validated_rule_template(value: Any) -> dict[str, Any]:
+def _validate_profile_tool_id_uniqueness(profiles: list[ToolProfile], code: str) -> None:
+    seen: dict[str, str] = {}
+    for profile in profiles:
+        key = profile_tool_name(profile)
+        if not key:
+            raise BioToolPackManifestError("BIO_TOOL_PACK_PROFILE_TOOL_ID_REQUIRED")
+        existing = seen.get(key)
+        if existing is not None and existing != profile.profile_id:
+            raise BioToolPackManifestError(f"{code}: {key}")
+        seen[key] = profile.profile_id
+
+
+def _validated_rule_template(value: Any, *, package_source: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise BioToolPackManifestError("BIO_TOOL_PACK_RULE_TEMPLATE_REQUIRED")
     template = enrich_rule_template_semantics(deepcopy(value))
@@ -172,7 +196,7 @@ def _validated_rule_template(value: Any) -> dict[str, Any]:
         raise BioToolPackManifestError("BIO_TOOL_PACK_RESOURCES_REQUIRED")
     if not str(template.get("log") or "").strip():
         raise BioToolPackManifestError("BIO_TOOL_PACK_LOG_REQUIRED")
-    _validate_environment(template)
+    _validate_environment(template, package_source=package_source)
     _validate_smoke_fixture(template, inputs)
     complete_ports = [
         item
@@ -219,13 +243,16 @@ def _fallback_format(port: dict[str, Any]) -> str:
     return EDAM_GENERIC_FORMAT
 
 
-def _validate_environment(template: dict[str, Any]) -> None:
+def _validate_environment(template: dict[str, Any], *, package_source: str) -> None:
     conda = ((template.get("environment") or {}).get("conda") or {})
     channels = [str(item).strip() for item in conda.get("channels") or [] if str(item).strip()]
     dependencies = [str(item).strip() for item in conda.get("dependencies") or [] if str(item).strip()]
-    if "conda-forge" not in channels or "bioconda" not in channels:
+    source = str(package_source or "").strip()
+    if not source or source not in channels:
+        raise BioToolPackManifestError("BIO_TOOL_PACK_ENV_PACKAGE_SOURCE_CHANNEL_REQUIRED")
+    if "conda-forge" not in channels:
         raise BioToolPackManifestError("BIO_TOOL_PACK_ENV_CHANNELS_REQUIRED")
-    if channels.index("conda-forge") > channels.index("bioconda"):
+    if "bioconda" in channels and channels.index("conda-forge") > channels.index("bioconda"):
         raise BioToolPackManifestError("BIO_TOOL_PACK_ENV_CHANNEL_ORDER_REQUIRED")
     if not dependencies:
         raise BioToolPackManifestError("BIO_TOOL_PACK_ENV_DEPENDENCIES_REQUIRED")

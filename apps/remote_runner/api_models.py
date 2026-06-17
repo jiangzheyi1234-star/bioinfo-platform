@@ -47,6 +47,12 @@ class ToolManifestRequest(RemoteRunnerRequest):
     name: str = Field(min_length=1)
     source: str = Field(min_length=1)
     sourceLabel: str | None = None
+    profileId: str | None = None
+    profileVersion: int | None = None
+    packId: str | None = None
+    packageName: str | None = None
+    validationTarget: str | None = None
+    latestVersion: str | None = None
     version: str | None = None
     packageSpec: str | None = None
     summary: str | None = None

@@ -13,6 +13,7 @@ Use this file when a task matches a failure mode that has already happened in `b
 - Historical artifact-edge duplicates during runner upgrade
 - Staging deploy direct health payload mismatch
 - Two-slot acceptance leaving production defaults changed
+- GTDB-Tk R232 data download stalls
 
 ## Windows Codex `pytest` Isolation Failures
 
@@ -138,3 +139,22 @@ What to do:
 
 Why this exists:
 - P0-3B deliberately opens a normally-disabled multi-slot gate for real Snakemake concurrency proof. Release evidence is incomplete unless the gate also proves cleanup back to production defaults.
+
+## GTDB-Tk R232 Data Download Stalls
+
+Symptom:
+- `gtdbtk-classify` remains in `waiting_resource` / `RESOURCE_BINDING_MISSING` because no `gtdbtk` reference database is registered.
+- The only local-looking GTDB path is `~/.h2ometa/runner/shared/data/database-mvp/gtdbtk`, but it is a tiny MVP placeholder, not a real GTDB-Tk reference release.
+- Official R232 full-package downloads from `data.ace.uq.edu.au` or `data.gtdb.ecogenomic.org` connect but transfer at unusable speeds from the remote runner. Range-based tools such as `aria2c` may show `0B/0B`; split-package parallel downloads can still be too slow.
+- On `zyserver`, June 16, 2026 remote Range probes found `data.gtdb.ecogenomic.org` timing out at SSL/connect, UQ `data.ace.uq.edu.au` transferring below 1 KiB/s to 1 KiB/s scale, and AAU Europe returning reliable `206` responses but heavily throttled per connection.
+
+What to do:
+- Do not register the MVP placeholder or a synthetic directory as `gtdbtk`; it must not satisfy the capability bundle gate.
+- First search for an existing real release directory with `markers`, `masks`, `metadata`, `mrca_red`, `msa`, `pplacer`, `radii`, `skani`, `split`, `taxonomy`, and a recursive `metadata.txt`.
+- If no real release exists, ask for a pre-provisioned GTDB-Tk data directory or a faster mirror reachable from the runner, then register that directory through the database API.
+- For R232 on `zyserver`, `https://data.gtdb.aau.ecogenomic.org/releases/` was the fastest official HTTP mirror found. Single-stream downloads were still slow, but bounded HTTP Range segment downloads against the full package reached usable throughput. In P0-8C, preserving interrupted `.tmp` segment prefixes and restarting from 32 to 256 curl workers improved throughput without changing the official source or checksum gate. Keep the official MD5 check (`25a59e0352b1fd150c589f56559767d4`) before extraction or registration.
+- Keep `gtdbtk check_install` in the tool smoke command so incomplete databases fail loudly before `classify_wf`.
+- Clean stalled partial downloads and background transfer processes rather than leaving long-lived network jobs.
+
+Why this exists:
+- GTDB-Tk R232 requires roughly 100 GB of external reference data, and P0-8C cannot honestly mark `gtdbtk-classify` WorkflowReady without a complete real database resource.

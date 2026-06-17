@@ -215,6 +215,67 @@ def test_generated_workflow_renders_step_params_directive(tmp_path: Path) -> Non
     assert "    params:\n        limit=5,\n" in snakefile
 
 
+def test_generated_workflow_creates_output_parent_dirs_for_shell_rules(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    upsert_tool(
+        cfg,
+        {
+            "id": "conda-forge::nested-output",
+            "name": "nested-output",
+            "source": "conda-forge",
+            "sourceLabel": "conda-forge",
+            "version": "9.5",
+            "packageSpec": "conda-forge::coreutils=9.5",
+            "targetPlatform": "linux-64",
+            "targetPlatformSupported": True,
+            "ruleTemplate": {
+                "commandTemplate": "wc -c {input.primary:q} > {output.report:q}",
+                "inputs": [{"name": "primary", "type": "file", "required": True}],
+                "outputs": [
+                    {
+                        "name": "report",
+                        "path": "reports/nested-output.txt",
+                        "kind": "report",
+                        "mimeType": "text/plain",
+                    }
+                ],
+            },
+            "status": "declared",
+            "message": "Tool declared.",
+        },
+    )
+    reads = tmp_path / "reads.txt"
+    reads.write_text("ACGT\n", encoding="utf-8")
+
+    generated = prepare_generated_tool_workflow(
+        cfg,
+        run_id="run_generated_nested_output",
+        request_id="req_generated_nested_output",
+        run_spec={
+            "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
+            "workflow": generated_workflow_graph(
+                [
+                    generated_workflow_node(
+                        "conda-forge::nested-output",
+                        node_id="nested",
+                        inputs={"primary": {"fromInput": "reads"}},
+                    )
+                ],
+            ),
+        },
+        resolved_inputs=[{"path": str(reads), "role": "reads", "filename": "reads.txt"}],
+        work_dir=tmp_path / "work",
+        result_dir=tmp_path / "results",
+    )
+
+    snakefile = generated.snakefile.read_text(encoding="utf-8")
+    output_parent = (tmp_path / "results" / "reports").as_posix()
+    command_index = snakefile.index("wc -c")
+    mkdir_index = snakefile.index(f"mkdir -p {output_parent}")
+    assert mkdir_index < command_index
+
+
 def test_generated_workflow_renders_runtime_directives(tmp_path: Path, monkeypatch) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)

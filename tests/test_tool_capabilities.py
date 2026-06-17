@@ -324,20 +324,21 @@ def test_tool_search_applies_non_database_profile_overlay(monkeypatch) -> None:
 
 
 @pytest.mark.parametrize(
-    ("name", "version", "profile_id", "resource_key", "accepted_templates"),
+    ("name", "candidate_version", "locked_version", "profile_id", "resource_key", "accepted_templates"),
     [
-        ("bracken", "2.9", "bracken", "bracken_db", ["bracken"]),
-        ("fastp", "0.24.1", "fastp", "", []),
-        ("fastqc", "0.12.1", "fastqc", "", []),
-        ("kraken2", "2.1.3", "kraken2", "kraken2_db", ["kraken2"]),
-        ("multiqc", "1.25", "multiqc", "", []),
-        ("seqkit", "2.13.0", "seqkit-stats", "", []),
+        ("bracken", "2.9", "3.1", "bracken", "bracken_db", ["bracken"]),
+        ("fastp", "0.24.1", "1.3.3", "fastp", "", []),
+        ("fastqc", "0.12.1", "0.12.1", "fastqc", "", []),
+        ("kraken2", "2.1.3", "2.17.1", "kraken2", "kraken2_db", ["kraken2"]),
+        ("multiqc", "1.25", "1.35", "multiqc", "", []),
+        ("seqkit", "2.13.0", "2.13.0", "seqkit-stats", "", []),
     ],
 )
 def test_tool_search_returns_h2ometa_profile_for_p0_tools(
     monkeypatch,
     name: str,
-    version: str,
+    candidate_version: str,
+    locked_version: str,
     profile_id: str,
     resource_key: str,
     accepted_templates: list[str],
@@ -351,13 +352,13 @@ def test_tool_search_returns_h2ometa_profile_for_p0_tools(
             "items": [
                 {
                     "id": f"bioconda::{name}",
-                    "name": name,
-                    "summary": f"{name} summary",
-                    "source": "bioconda",
-                    "sourceLabel": "Bioconda",
-                    "packageSpec": f"bioconda::{name}={version}",
-                    "latestVersion": version,
-                    "versions": [version],
+                        "name": name,
+                        "summary": f"{name} summary",
+                        "source": "bioconda",
+                        "sourceLabel": "Bioconda",
+                        "packageSpec": f"bioconda::{name}={candidate_version}",
+                        "latestVersion": candidate_version,
+                        "versions": [candidate_version],
                     "sourceUrl": f"https://anaconda.org/bioconda/{name}",
                     "platforms": ["linux-64"],
                     "targetPlatform": target_platform,
@@ -379,7 +380,7 @@ def test_tool_search_returns_h2ometa_profile_for_p0_tools(
     assert draft["source"] == "h2ometa-tool-profile"
     assert draft["requiresUserCompletion"] is False
     assert draft["lock"]["profileId"] == profile_id
-    assert draft["lock"]["packageSpec"] == f"bioconda::{name}={version}"
+    assert draft["lock"]["packageSpec"] == f"bioconda::{name}={locked_version}"
     if resource_key:
         assert draft["ruleTemplate"]["resources"][resource_key]["acceptedTemplates"] == accepted_templates
 

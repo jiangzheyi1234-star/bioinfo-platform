@@ -137,6 +137,12 @@ def test_gtdbtk_template_requires_reference_bundle(tmp_path: Path, monkeypatch) 
     for dirname in ("markers", "masks", "metadata", "mrca_red", "msa", "pplacer", "radii", "skani", "split", "taxonomy"):
         (database_dir / dirname).mkdir()
 
+    missing_metadata = check_reference_database(cfg, saved["id"])
+    assert missing_metadata["status"] == "missing"
+    assert "metadata.txt" in missing_metadata["message"]
+
+    (database_dir / "metadata" / "metadata.txt").write_text("metadata", encoding="utf-8")
+
     checked = check_reference_database(cfg, saved["id"])
     assert checked["status"] == "available"
 
@@ -192,11 +198,17 @@ def test_eggnog_mapper_template_requires_annotation_and_search_databases(tmp_pat
 def test_interproscan_template_requires_data_structure(tmp_path: Path, monkeypatch) -> None:
     cfg = _cfg(tmp_path)
     database_dir = tmp_path / "interproscan-data"
-    database_dir.mkdir()
-    (database_dir / "interpro.xml").write_text("xml", encoding="utf-8")
-    (database_dir / "match_complete.xml").write_text("xml", encoding="utf-8")
+    pfam_dir = database_dir / "pfam" / "35.0"
+    pfam_dir.mkdir(parents=True)
+    (pfam_dir / "pfam_a.hmm").write_text("hmm", encoding="utf-8")
 
     saved = add_reference_database(cfg, {"id": "interproscan", "name": "InterProScan", "templateId": "interproscan", "path": str(database_dir)})
+
+    missing = check_reference_database(cfg, saved["id"])
+    assert missing["status"] == "missing"
+    assert "pfam_a.dat" in missing["message"]
+
+    (pfam_dir / "pfam_a.dat").write_text("dat", encoding="utf-8")
 
     checked = check_reference_database(cfg, saved["id"])
     assert checked["status"] == "available"

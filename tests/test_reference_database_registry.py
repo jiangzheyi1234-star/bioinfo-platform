@@ -367,6 +367,7 @@ def test_all_database_templates_publish_consistent_selection_contract() -> None:
                 "anyPatterns",
                 "anyIndexPatterns",
                 "anyFiles",
+                "requiredRecursiveFiles",
                 "primaryExtensions",
                 "sidecars",
                 "anyPatternSets",

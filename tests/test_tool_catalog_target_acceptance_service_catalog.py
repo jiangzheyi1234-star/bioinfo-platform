@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 
 
-def test_target_acceptance_service_includes_unified_catalog_candidates(monkeypatch) -> None:
+def test_target_acceptance_service_includes_unified_catalog_candidates(
+    monkeypatch,
+) -> None:
     from apps.api import tool_candidate_target_acceptance, tool_capability_service
 
     requested_page_sizes: list[int] = []
@@ -18,8 +20,20 @@ def test_target_acceptance_service_includes_unified_catalog_candidates(monkeypat
         "targetPlatformSupported": True,
         "ruleSpecDraft": {"requiresUserCompletion": False},
         "ruleTemplate": {
-            "inputs": [{"name": "reads", "kind": "sequence_reads", "format": "http://edamontology.org/format_1930"}],
-            "outputs": [{"name": "html", "path": "results/report.html", "format": "http://edamontology.org/format_2331"}],
+            "inputs": [
+                {
+                    "name": "reads",
+                    "kind": "sequence_reads",
+                    "format": "http://edamontology.org/format_1930",
+                }
+            ],
+            "outputs": [
+                {
+                    "name": "html",
+                    "path": "results/report.html",
+                    "format": "http://edamontology.org/format_2331",
+                }
+            ],
             "commandTemplate": "aaa-ready {input.reads:q}",
         },
     }
@@ -28,7 +42,9 @@ def test_target_acceptance_service_includes_unified_catalog_candidates(monkeypat
         def list_tools(self) -> dict[str, object]:
             return {"data": {"items": []}}
 
-        def list_latest_tool_prepare_jobs(self, tool_ids: list[str]) -> dict[str, object]:
+        def list_latest_tool_prepare_jobs(
+            self, tool_ids: list[str]
+        ) -> dict[str, object]:
             assert tool_ids
             latest_prepare_tool_ids.extend(tool_ids)
             return {
@@ -64,7 +80,9 @@ def test_target_acceptance_service_includes_unified_catalog_candidates(monkeypat
         ) -> dict[str, object]:
             return {"data": {"items": [], "total": 0, "hasMore": False}}
 
-    def fake_search_tool_candidates(query: str, *, target_platform: str, page: int, page_size: int) -> dict[str, object]:
+    def fake_search_tool_candidates(
+        query: str, *, target_platform: str, page: int, page_size: int
+    ) -> dict[str, object]:
         requested_page_sizes.append(page_size)
         items = []
         if page_size >= 100:
@@ -86,13 +104,32 @@ def test_target_acceptance_service_includes_unified_catalog_candidates(monkeypat
             "page": page,
             "pageSize": page_size,
             "hasMore": False,
-            "sourceCounts": {"condaPackages": 12398, "snakemakeWrappers": 466, "toolProfiles": 30},
-            "addableDraftCounts": {"condaPackages": 12398, "snakemakeWrappers": 466, "toolProfiles": 30, "total": 12894},
-            "qualityCounts": {"discovered": 12894, "draftRunnable": 31, "workflowReady": 0, "productionEnabled": 0},
+            "sourceCounts": {
+                "condaPackages": 12398,
+                "snakemakeWrappers": 466,
+                "toolProfiles": 30,
+            },
+            "addableDraftCounts": {
+                "condaPackages": 12398,
+                "snakemakeWrappers": 466,
+                "toolProfiles": 30,
+                "total": 12894,
+            },
+            "qualityCounts": {
+                "discovered": 12894,
+                "draftRunnable": 31,
+                "workflowReady": 0,
+                "productionEnabled": 0,
+            },
         }
 
     monkeypatch.setattr(tool_capability_service, "runtime_service", lambda: Runtime())
-    monkeypatch.setattr(tool_capability_service, "search_tool_candidates", fake_search_tool_candidates)
+    monkeypatch.setattr(
+        tool_capability_service, "search_tool_candidates", fake_search_tool_candidates
+    )
+    monkeypatch.setattr(
+        tool_candidate_target_acceptance, "all_tool_profiles", lambda: ()
+    )
     monkeypatch.setattr(
         tool_candidate_target_acceptance,
         "catalog_tool_profiles",
@@ -108,13 +145,19 @@ def test_target_acceptance_service_includes_unified_catalog_candidates(monkeypat
     assert "bioconda::aaa-ready" in latest_prepare_tool_ids
     queued_ids = {item["candidateId"] for item in result["validationQueue"]["items"]}
     assert "aaa-conda::ready" in queued_ids
-    queue_item = next(item for item in result["validationQueue"]["items"] if item["candidateId"] == "aaa-conda::ready")
+    queue_item = next(
+        item
+        for item in result["validationQueue"]["items"]
+        if item["candidateId"] == "aaa-conda::ready"
+    )
     assert queue_item["latestPrepareJob"]["jobId"] == "toolprep_aaa"
     assert queue_item["action"] == "wait-for-tool-validation"
     assert "preparePayload" not in queue_item
 
 
-def test_target_acceptance_service_includes_prepare_job_queue_status(monkeypatch) -> None:
+def test_target_acceptance_service_includes_prepare_job_queue_status(
+    monkeypatch,
+) -> None:
     from apps.api import tool_candidate_target_acceptance, tool_capability_service
 
     queue_requests: list[dict[str, object]] = []
@@ -123,7 +166,9 @@ def test_target_acceptance_service_includes_prepare_job_queue_status(monkeypatch
         def list_tools(self) -> dict[str, object]:
             return {"data": {"items": []}}
 
-        def list_latest_tool_prepare_jobs(self, tool_ids: list[str]) -> dict[str, object]:
+        def list_latest_tool_prepare_jobs(
+            self, tool_ids: list[str]
+        ) -> dict[str, object]:
             assert tool_ids
             return {"data": {"byToolId": {}}}
 
@@ -172,6 +217,35 @@ def test_target_acceptance_service_includes_prepare_job_queue_status(monkeypatch
             return {"data": {"items": [], "total": 0, "hasMore": False}}
 
     monkeypatch.setattr(tool_capability_service, "runtime_service", lambda: Runtime())
+    monkeypatch.setattr(
+        tool_capability_service,
+        "search_tool_candidates",
+        lambda query, *, target_platform, page, page_size: {
+            "items": [],
+            "query": query,
+            "total": 0,
+            "page": page,
+            "pageSize": page_size,
+            "hasMore": False,
+            "sourceCounts": {
+                "condaPackages": 0,
+                "snakemakeWrappers": 0,
+                "toolProfiles": 0,
+            },
+            "addableDraftCounts": {
+                "condaPackages": 0,
+                "snakemakeWrappers": 0,
+                "toolProfiles": 0,
+                "total": 0,
+            },
+            "qualityCounts": {
+                "discovered": 0,
+                "draftRunnable": 0,
+                "workflowReady": 0,
+                "productionEnabled": 0,
+            },
+        },
+    )
     monkeypatch.setattr(
         tool_candidate_target_acceptance,
         "catalog_tool_profiles",

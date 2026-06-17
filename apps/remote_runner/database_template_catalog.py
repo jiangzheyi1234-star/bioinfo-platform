@@ -220,6 +220,7 @@ def _template_expected_files(template: dict[str, Any]) -> list[str]:
         "anyPatterns",
         "anyIndexPatterns",
         "anyFiles",
+        "requiredRecursiveFiles",
         "primaryExtensions",
         "sidecars",
         "indexSuffixes",
@@ -231,4 +232,4 @@ def _template_expected_files(template: dict[str, Any]) -> list[str]:
     values.extend(str(item) for item in template.get("companionSuffixes", []) if str(item).strip())
     for pattern_set in template.get("anyPatternSets", []):
         values.append(" / ".join(str(item) for item in pattern_set if str(item).strip()))
-    return values
+    return list(dict.fromkeys(values))

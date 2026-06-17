@@ -1,11 +1,18 @@
+"use client";
+
+import { useState } from "react";
 import { Check, Database } from "lucide-react";
 
 import type { CapabilityBundleGate } from "./tools-page-model";
 
 export function CapabilityBundleGatePanel({ gate }: { gate?: CapabilityBundleGate | null }) {
+  const [showAllBlocked, setShowAllBlocked] = useState(false);
   const total = gate?.total ?? 0;
   if (total <= 0) return null;
   const blockedTools = gate?.blockedTools ?? [];
+  const visibleBlockedTools = showAllBlocked ? blockedTools : blockedTools.slice(0, 10);
+  const hiddenBlockedCount = Math.max(0, blockedTools.length - visibleBlockedTools.length);
+  const reasonCounts = capabilityReasonCounts(blockedTools);
   return (
     <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
@@ -24,7 +31,14 @@ export function CapabilityBundleGatePanel({ gate }: { gate?: CapabilityBundleGat
       </div>
       {blockedTools.length > 0 ? (
         <div className="mt-2 grid gap-1.5">
-          {blockedTools.slice(0, 4).map((tool) => {
+          <div className="flex min-w-0 flex-wrap gap-1">
+            {reasonCounts.map(([reason, count]) => (
+              <span key={reason} className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] text-slate-500">
+                {capabilityBlockedReasonLabel([reason])} <span className="font-mono text-slate-700">{count}</span>
+              </span>
+            ))}
+          </div>
+          {visibleBlockedTools.map((tool) => {
             const databaseHref = databaseAdmissionHref(tool);
             return (
               <div
@@ -49,10 +63,28 @@ export function CapabilityBundleGatePanel({ gate }: { gate?: CapabilityBundleGat
               </div>
             );
           })}
+          {hiddenBlockedCount > 0 || showAllBlocked ? (
+            <button
+              type="button"
+              className="w-fit text-[11px] font-medium text-blue-700 hover:text-blue-900"
+              onClick={() => setShowAllBlocked((current) => !current)}
+            >
+              {showAllBlocked ? "收起 blocked tools" : `显示全部 blocked tools · 还有 ${hiddenBlockedCount} 个`}
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>
   );
+}
+
+function capabilityReasonCounts(tools: NonNullable<CapabilityBundleGate["blockedTools"]>) {
+  const counts = new Map<string, number>();
+  tools.forEach((tool) => {
+    const reason = tool.blockedReasons?.[0] || "CAPABILITY_BUNDLE_NOT_SELECTABLE";
+    counts.set(reason, (counts.get(reason) || 0) + 1);
+  });
+  return Array.from(counts.entries()).sort((left, right) => right[1] - left[1]);
 }
 
 function databaseAdmissionHref(tool: NonNullable<CapabilityBundleGate["blockedTools"]>[number]) {

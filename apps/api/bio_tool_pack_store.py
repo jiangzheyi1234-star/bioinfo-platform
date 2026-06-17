@@ -14,6 +14,7 @@ from .bio_tool_pack_acceptance import reliability_acceptance_matrix
 from .bio_tool_pack_capability_graph import semantic_capability_graph
 from .bio_tool_pack_manifest import BioToolPackManifestError, load_bio_tool_pack_manifest
 from .tool_profile_definitions import TOOL_PROFILES
+from .tool_profile_identity import profile_tool_name
 from .tool_profile_model import ToolProfile
 
 
@@ -135,13 +136,20 @@ def _assert_unique_profile_ids(
     registry: dict[str, Any],
 ) -> None:
     reserved = {profile.profile_id for profile in TOOL_PROFILES}
+    reserved_tool_ids = {profile_tool_name(profile) for profile in TOOL_PROFILES}
     for record in _records(registry):
         if str(record.get("packId") or "") == pack_id:
             continue
         reserved.update(str(value) for value in record.get("profileIds") or [] if str(value or ""))
+        reserved_manifest = _record_manifest(record)
+        for profile in load_bio_tool_pack_manifest(reserved_manifest):
+            reserved_tool_ids.add(profile_tool_name(profile))
     duplicates = sorted(profile.profile_id for profile in profiles if profile.profile_id in reserved)
     if duplicates:
         raise BioToolPackManifestError(f"BIO_TOOL_PACK_PROFILE_ID_DUPLICATE: {duplicates[0]}")
+    tool_id_duplicates = sorted(profile_tool_name(profile) for profile in profiles if profile_tool_name(profile) in reserved_tool_ids)
+    if tool_id_duplicates:
+        raise BioToolPackManifestError(f"BIO_TOOL_PACK_PROFILE_TOOL_ID_DUPLICATE: {tool_id_duplicates[0]}")
 
 
 def _read_registry(path: Path, *, missing_ok: bool = False) -> dict[str, Any]:

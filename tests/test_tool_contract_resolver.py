@@ -62,7 +62,7 @@ def test_bracken_profile_overlay_returns_workflow_rule_spec() -> None:
     assert draft["status"] == "ready-for-validation"
     assert draft["requiresUserCompletion"] is False
     assert draft["lock"]["profileId"] == "bracken"
-    assert draft["lock"]["packageSpec"] == "bioconda::bracken=2.9"
+    assert draft["lock"]["packageSpec"] == "bioconda::bracken=3.1"
     assert template["resources"]["bracken_db"] == {
         "type": "database",
         "required": True,
@@ -70,7 +70,7 @@ def test_bracken_profile_overlay_returns_workflow_rule_spec() -> None:
         "configKey": "bracken_db",
     }
     assert "{config.bracken_db:q}" in template["commandTemplate"]
-    assert template["environment"]["conda"]["dependencies"] == ["bioconda::bracken=2.9"]
+    assert template["environment"]["conda"]["dependencies"] == ["bioconda::bracken=3.1"]
     assert template["smokeTest"]["inputs"]["kraken_report"]["filename"] == "kraken.report"
     assert template["smokeTest"]["params"] == {"read_length": 100, "level": "S"}
 

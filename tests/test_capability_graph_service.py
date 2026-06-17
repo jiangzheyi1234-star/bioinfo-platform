@@ -27,11 +27,12 @@ def test_capability_bundle_contract_fails_loudly_on_missing_required_field() -> 
         )
 
 
-def test_capability_graph_service_marks_workflow_ready_profiles_agent_selectable() -> None:
+def test_capability_graph_service_marks_workflow_ready_profiles_agent_selectable() -> (
+    None
+):
     from apps.api.capability_graph_service import CapabilityGraphService
-    from apps.api.tool_candidate_catalog import search_tool_candidates
 
-    catalog = search_tool_candidates("fastqc", target_platform="linux-64", page=1, page_size=10)
+    catalog = _empty_catalog(query="fastqc")
     snapshot = CapabilityGraphService().snapshot(
         query="fastqc",
         target_platform="linux-64",
@@ -43,7 +44,10 @@ def test_capability_graph_service_marks_workflow_ready_profiles_agent_selectable
 
     assert snapshot["contractVersion"] == "capability-graph-snapshot-v1"
     assert snapshot["capabilityBundleVersion"] == "capability-bundle-v1"
-    assert snapshot["selectionPolicy"]["canAddStepStates"] == ["WorkflowReady", "ProductionEnabled"]
+    assert snapshot["selectionPolicy"]["canAddStepStates"] == [
+        "WorkflowReady",
+        "ProductionEnabled",
+    ]
     assert snapshot["selectionPolicy"]["bundleSourceOfTruth"] == "capability-bundle-v1"
     assert "fastqc" in snapshot["agentSelectableProfileIds"]
     fastqc = next(
@@ -53,16 +57,29 @@ def test_capability_graph_service_marks_workflow_ready_profiles_agent_selectable
     )
     assert fastqc["agentSelectable"] is True
     assert fastqc["toolRevisionId"] == "bioconda::fastqc@0.12.1"
-    assert fastqc["capabilityBundle"]["capabilityBundleVersion"] == "capability-bundle-v1"
+    assert (
+        fastqc["capabilityBundle"]["capabilityBundleVersion"] == "capability-bundle-v1"
+    )
     assert fastqc["capabilityBundle"]["capabilityId"]
     assert snapshot["registeredTools"][0]["toolRevisionId"] == "bioconda::fastqc@0.12.1"
-    assert snapshot["registeredTools"][0]["capabilityBundle"]["validationEvidence"]["status"] == "passed"
-    assert snapshot["agentSelectableTools"][0]["toolRevisionId"] == "bioconda::fastqc@0.12.1"
-    assert snapshot["agentSelectableTools"][0]["capabilityBundle"]["environmentLock"]["dependencies"] == [
-        "bioconda::fastqc=0.12.1"
-    ]
+    assert (
+        snapshot["registeredTools"][0]["capabilityBundle"]["validationEvidence"][
+            "status"
+        ]
+        == "passed"
+    )
+    assert (
+        snapshot["agentSelectableTools"][0]["toolRevisionId"]
+        == "bioconda::fastqc@0.12.1"
+    )
+    assert snapshot["agentSelectableTools"][0]["capabilityBundle"]["environmentLock"][
+        "dependencies"
+    ] == ["bioconda::fastqc=0.12.1"]
     assert snapshot["selectionPolicy"]["sourceOfTruth"] == "CapabilityGraphSnapshot"
-    assert snapshot["selectionPolicy"]["readinessSourceOfTruth"] == "registeredTool.toolContract"
+    assert (
+        snapshot["selectionPolicy"]["readinessSourceOfTruth"]
+        == "registeredTool.toolContract"
+    )
     assert snapshot["capabilityBundleGate"]["selectable"] == 1
     assert snapshot["capabilityBundleGate"]["blocked"] == 0
 
@@ -74,7 +91,9 @@ def test_capability_graph_rejects_workflow_ready_tool_without_bundle_evidence() 
     missing_evidence.pop("validationSummary")
     missing_evidence["toolContract"] = {"state": "WorkflowReady", "workflowReady": True}
 
-    snapshot = CapabilityGraphService().snapshot(registered_tools=[missing_evidence], catalog=_empty_catalog())
+    snapshot = CapabilityGraphService().snapshot(
+        registered_tools=[missing_evidence], catalog=_empty_catalog()
+    )
 
     assert snapshot["agentSelectableTools"] == []
     assert snapshot["agentSelectableProfileIds"] == []
@@ -83,7 +102,10 @@ def test_capability_graph_rejects_workflow_ready_tool_without_bundle_evidence() 
     assert "VALIDATION_EVIDENCE_REQUIRED" in status["blockedReasons"]
     assert status["nextAction"] == "run-validation"
     assert snapshot["capabilityBundleGate"]["blocked"] == 1
-    assert snapshot["capabilityBundleGate"]["blockedTools"][0]["nextAction"] == "run-validation"
+    assert (
+        snapshot["capabilityBundleGate"]["blockedTools"][0]["nextAction"]
+        == "run-validation"
+    )
 
 
 def test_capability_graph_builds_three_fixture_backed_bundles() -> None:
@@ -99,21 +121,142 @@ def test_capability_graph_builds_three_fixture_backed_bundles() -> None:
     )
 
     bundles = snapshot["capabilityBundles"]
-    assert {bundle["profileId"] for bundle in bundles} == {"fastqc", "fastp", "seqkit-stats"}
-    assert all(bundle["capabilityBundleVersion"] == "capability-bundle-v1" for bundle in bundles)
+    assert {bundle["profileId"] for bundle in bundles} == {
+        "fastqc",
+        "fastp",
+        "seqkit-stats",
+    }
+    assert all(
+        bundle["capabilityBundleVersion"] == "capability-bundle-v1"
+        for bundle in bundles
+    )
     assert all(bundle["toolRevisionId"] for bundle in bundles)
     assert all(bundle["inputs"] and bundle["outputs"] for bundle in bundles)
     assert all(bundle["environmentLock"]["dependencies"] for bundle in bundles)
     assert all(bundle["validationEvidence"]["fixture"]["inputs"] for bundle in bundles)
-    assert all(bundle["validationEvidence"]["fixture"]["expectedArtifacts"] for bundle in bundles)
+    assert all(
+        bundle["validationEvidence"]["fixture"]["expectedArtifacts"]
+        for bundle in bundles
+    )
     assert all(bundle["agentSelectable"] is True for bundle in bundles)
+
+
+def test_capability_graph_profile_nodes_are_not_limited_by_catalog_page(
+    monkeypatch,
+) -> None:
+    from apps.api import capability_graph_service
+    from apps.api.capability_graph_service import CapabilityGraphService
+    from apps.api.tool_profile_catalog import catalog_tool_profiles
+    from apps.api.tool_profile_sources import all_tool_profiles
+
+    profiles = all_tool_profiles()
+
+    def paged_catalog(
+        query: str, *, target_platform: str, page: int, page_size: int
+    ) -> dict[str, object]:
+        catalog = catalog_tool_profiles(query=query, page=page, page_size=page_size)
+        return {
+            **catalog,
+            "sourceCounts": {
+                "condaPackages": 0,
+                "snakemakeWrappers": 0,
+                "toolProfiles": len(profiles),
+            },
+            "addableDraftCounts": {
+                "condaPackages": 0,
+                "snakemakeWrappers": 0,
+                "toolProfiles": len(profiles),
+                "total": len(profiles),
+            },
+            "qualityCounts": {
+                "discovered": len(profiles),
+                "draftRunnable": len(profiles),
+                "workflowReady": 0,
+                "productionEnabled": 0,
+            },
+        }
+
+    monkeypatch.setattr(
+        capability_graph_service, "search_tool_candidates", paged_catalog
+    )
+
+    snapshot = CapabilityGraphService().snapshot(
+        query="", target_platform="linux-64", page=1, page_size=50
+    )
+    node_profile_ids = {
+        node["profileId"]
+        for node in snapshot["semanticGraph"]["nodes"]
+        if node.get("kind") == "ToolProfile"
+    }
+
+    assert snapshot["profileCount"] == len(profiles) >= 100
+    assert node_profile_ids == {profile.profile_id for profile in profiles}
+    assert snapshot["catalog"]["sourceCounts"]["toolProfiles"] >= 100
+    assert snapshot["catalog"]["pageSize"] == 50
+    assert len(snapshot["catalog"]["items"]) == 50
+    assert snapshot["catalog"]["hasMore"] is True
+
+
+def test_capability_graph_matches_same_package_profiles_by_profile_identity(
+    monkeypatch,
+) -> None:
+    from apps.api import capability_graph_service
+    from apps.api.capability_graph_service import CapabilityGraphService
+    from apps.api.tool_profile_model import ToolProfile
+
+    profiles = (
+        ToolProfile(
+            profile_id="samtools-sort",
+            version=1,
+            tool_names=("samtools-sort", "samtools sort"),
+            package_name="samtools",
+            package_version="1.23.1",
+            rule_template=_profile_rule_template("samtools-sort"),
+        ),
+        ToolProfile(
+            profile_id="samtools-index",
+            version=1,
+            tool_names=("samtools-index", "samtools index"),
+            package_name="samtools",
+            package_version="1.23.1",
+            rule_template=_profile_rule_template("samtools-index"),
+        ),
+    )
+    monkeypatch.setattr(capability_graph_service, "all_tool_profiles", lambda: profiles)
+    ready_sort = {
+        **_ready_tool("samtools-sort", "1.22"),
+        "id": "bioconda::samtools-sort",
+        "name": "samtools-sort",
+        "packageSpec": "bioconda::samtools=1.22",
+        "toolRevisionId": "bioconda::samtools-sort#ready",
+        "ruleSpecDraft": {
+            "lock": {
+                "profileId": "samtools-sort",
+                "packageSpec": "bioconda::samtools=1.22",
+            }
+        },
+    }
+
+    snapshot = CapabilityGraphService().snapshot(
+        registered_tools=[ready_sort], catalog=_empty_catalog()
+    )
+
+    assert snapshot["agentSelectableProfileIds"] == ["samtools-sort"]
+    selectable_nodes = {
+        node["profileId"]: node["agentSelectable"]
+        for node in snapshot["semanticGraph"]["nodes"]
+        if node["kind"] == "ToolProfile"
+    }
+    assert selectable_nodes == {"samtools-sort": True, "samtools-index": False}
 
 
 def test_capability_graph_requires_approval_for_risky_bundle_permissions() -> None:
     from apps.api.capability_graph_service import CapabilityGraphService
 
     bracken = _ready_tool("bracken", "2.9")
-    snapshot = CapabilityGraphService().snapshot(registered_tools=[bracken], catalog=_empty_catalog())
+    snapshot = CapabilityGraphService().snapshot(
+        registered_tools=[bracken], catalog=_empty_catalog()
+    )
 
     assert snapshot["agentSelectableTools"] == []
     status = snapshot["registeredTools"][0]["capabilityBundleStatus"]
@@ -128,9 +271,13 @@ def test_capability_graph_requires_approval_for_risky_bundle_permissions() -> No
         "policyVersion": "capability-approval-v1",
         "reason": "database path reviewed",
     }
-    approved_snapshot = CapabilityGraphService().snapshot(registered_tools=[approved], catalog=_empty_catalog())
+    approved_snapshot = CapabilityGraphService().snapshot(
+        registered_tools=[approved], catalog=_empty_catalog()
+    )
 
-    assert approved_snapshot["agentSelectableTools"][0]["capabilityBundle"]["approval"] == {
+    assert approved_snapshot["agentSelectableTools"][0]["capabilityBundle"][
+        "approval"
+    ] == {
         "required": True,
         "approved": True,
         "policyVersion": "capability-approval-v1",
@@ -138,7 +285,9 @@ def test_capability_graph_requires_approval_for_risky_bundle_permissions() -> No
     }
 
 
-def test_capability_graph_uses_validated_database_resource_as_admission_evidence() -> None:
+def test_capability_graph_uses_validated_database_resource_as_admission_evidence() -> (
+    None
+):
     from apps.api.capability_graph_service import CapabilityGraphService
 
     bracken = _ready_tool("bracken", "2.9")
@@ -156,12 +305,24 @@ def test_capability_graph_uses_validated_database_resource_as_admission_evidence
         "policyVersion": "capability-admission-v1",
         "reason": "validated-database-resource",
     }
-    assert bundle["admissionEvidence"]["databaseResources"][0]["resourceKey"] == "bracken_db"
-    assert bundle["admissionEvidence"]["databaseResources"][0]["databaseIds"] == ["db_bracken"]
-    assert bundle["admissionEvidence"]["databaseResources"][0]["databases"][0]["templateId"] == "bracken"
+    assert (
+        bundle["admissionEvidence"]["databaseResources"][0]["resourceKey"]
+        == "bracken_db"
+    )
+    assert bundle["admissionEvidence"]["databaseResources"][0]["databaseIds"] == [
+        "db_bracken"
+    ]
+    assert (
+        bundle["admissionEvidence"]["databaseResources"][0]["databases"][0][
+            "templateId"
+        ]
+        == "bracken"
+    )
 
 
-def test_capability_graph_reports_missing_database_resource_before_manual_approval() -> None:
+def test_capability_graph_reports_missing_database_resource_before_manual_approval() -> (
+    None
+):
     from apps.api.capability_graph_service import CapabilityGraphService
 
     snapshot = CapabilityGraphService().snapshot(
@@ -177,8 +338,13 @@ def test_capability_graph_reports_missing_database_resource_before_manual_approv
     blocked = snapshot["capabilityBundleGate"]["blockedTools"][0]
     assert blocked["blockedReasons"] == ["DATABASE_RESOURCE_REQUIRED"]
     assert blocked["nextAction"] == "add-database"
-    assert blocked["admissionEvidence"]["missingResources"][0]["resourceKey"] == "bracken_db"
-    assert blocked["admissionEvidence"]["missingResources"][0]["acceptedTemplates"] == ["bracken"]
+    assert (
+        blocked["admissionEvidence"]["missingResources"][0]["resourceKey"]
+        == "bracken_db"
+    )
+    assert blocked["admissionEvidence"]["missingResources"][0]["acceptedTemplates"] == [
+        "bracken"
+    ]
 
 
 def test_capability_graph_snapshot_endpoint_uses_remote_tool_index(monkeypatch) -> None:
@@ -220,7 +386,9 @@ def test_capability_graph_snapshot_endpoint_uses_remote_tool_index(monkeypatch) 
                 return {"data": {"items": [item], "total": 1, "hasMore": False}}
             return {"data": {"items": [item], "total": 1, "hasMore": False}}
 
-        def list_latest_tool_prepare_jobs(self, tool_ids: list[str]) -> dict[str, object]:
+        def list_latest_tool_prepare_jobs(
+            self, tool_ids: list[str]
+        ) -> dict[str, object]:
             return {"data": {"byToolId": {}}}
 
         def list_tool_prepare_job_queue(
@@ -251,9 +419,23 @@ def test_capability_graph_snapshot_endpoint_uses_remote_tool_index(monkeypatch) 
             "page": page,
             "pageSize": page_size,
             "hasMore": False,
-            "sourceCounts": {"condaPackages": 0, "snakemakeWrappers": 0, "toolProfiles": 0},
-            "addableDraftCounts": {"condaPackages": 0, "snakemakeWrappers": 0, "toolProfiles": 0, "total": 0},
-            "qualityCounts": {"discovered": 0, "draftRunnable": 0, "workflowReady": 0, "productionEnabled": 0},
+            "sourceCounts": {
+                "condaPackages": 0,
+                "snakemakeWrappers": 0,
+                "toolProfiles": 0,
+            },
+            "addableDraftCounts": {
+                "condaPackages": 0,
+                "snakemakeWrappers": 0,
+                "toolProfiles": 0,
+                "total": 0,
+            },
+            "qualityCounts": {
+                "discovered": 0,
+                "draftRunnable": 0,
+                "workflowReady": 0,
+                "productionEnabled": 0,
+            },
         },
     )
 
@@ -271,16 +453,28 @@ def test_capability_graph_snapshot_endpoint_uses_remote_tool_index(monkeypatch) 
     assert snapshot["catalog"]["sourceCounts"]["registeredToolIndex"] == 1
     assert snapshot["registeredToolCounts"]["workflowReady"] == 1
     assert snapshot["registeredTools"][0]["toolRevisionId"] == "bioconda::fastqc@0.12.1"
-    assert snapshot["agentSelectableTools"][0]["toolRevisionId"] == "bioconda::fastqc@0.12.1"
+    assert (
+        snapshot["agentSelectableTools"][0]["toolRevisionId"]
+        == "bioconda::fastqc@0.12.1"
+    )
     assert snapshot["agentSelectableTools"][0]["capabilityBundle"]["capabilityId"]
     assert snapshot["agentSelectableProfileIds"] == ["fastqc"]
-    assert snapshot["targetAcceptance"]["catalog"]["registeredToolCounts"]["workflowReady"] == 1
+    assert (
+        snapshot["targetAcceptance"]["catalog"]["registeredToolCounts"]["workflowReady"]
+        == 1
+    )
     assert snapshot["validationQueue"]["target"] == "workflowReady"
     assert snapshot["prepareJobQueue"]["total"] == 0
-    assert {node["profileId"] for node in snapshot["semanticGraph"]["nodes"] if node["kind"] == "ToolProfile"} == {"fastqc"}
+    assert {
+        node["profileId"]
+        for node in snapshot["semanticGraph"]["nodes"]
+        if node["kind"] == "ToolProfile"
+    } == {"fastqc"}
 
 
-def test_capability_graph_snapshot_endpoint_admits_database_backed_tool_from_runtime_state(monkeypatch) -> None:
+def test_capability_graph_snapshot_endpoint_admits_database_backed_tool_from_runtime_state(
+    monkeypatch,
+) -> None:
     from apps.api import tool_capability_service
 
     class Runtime:
@@ -288,7 +482,11 @@ def test_capability_graph_snapshot_endpoint_admits_database_backed_tool_from_run
             return {"data": {"items": [_ready_tool("bracken", "2.9")]}}
 
         def list_databases(self) -> dict[str, object]:
-            return {"data": {"items": [_available_database("db_bracken", template_id="bracken")]}}
+            return {
+                "data": {
+                    "items": [_available_database("db_bracken", template_id="bracken")]
+                }
+            }
 
         def list_tool_index(
             self,
@@ -301,7 +499,9 @@ def test_capability_graph_snapshot_endpoint_admits_database_backed_tool_from_run
         ) -> dict[str, object]:
             return {"data": {"items": [], "total": 0, "hasMore": False}}
 
-        def list_latest_tool_prepare_jobs(self, tool_ids: list[str]) -> dict[str, object]:
+        def list_latest_tool_prepare_jobs(
+            self, tool_ids: list[str]
+        ) -> dict[str, object]:
             return {"data": {"byToolId": {}}}
 
         def list_tool_prepare_job_queue(
@@ -340,19 +540,27 @@ def test_capability_graph_snapshot_endpoint_admits_database_backed_tool_from_run
 
     snapshot = result["data"]
     assert snapshot["agentSelectableProfileIds"] == ["bracken"]
-    assert snapshot["agentSelectableTools"][0]["capabilityBundle"]["approval"]["reason"] == "validated-database-resource"
+    assert (
+        snapshot["agentSelectableTools"][0]["capabilityBundle"]["approval"]["reason"]
+        == "validated-database-resource"
+    )
     assert snapshot["capabilityBundleGate"]["blocked"] == 0
 
 
 def test_capability_graph_database_admission_accepts_every_database_template() -> None:
     from apps.api.capability_graph_service import CapabilityGraphService
-    from apps.remote_runner.database_templates import DATABASE_TEMPLATES, database_template_capabilities
+    from apps.remote_runner.database_templates import (
+        DATABASE_TEMPLATES,
+        database_template_capabilities,
+    )
 
     registered_tools = []
     databases = []
     for template_id, template in DATABASE_TEMPLATES.items():
         capabilities = database_template_capabilities(template)
-        registered_tools.append(_ready_database_template_tool(template_id, capabilities=capabilities))
+        registered_tools.append(
+            _ready_database_template_tool(template_id, capabilities=capabilities)
+        )
         databases.append(
             _available_database(
                 f"db_{template_id}",
@@ -384,7 +592,9 @@ def test_capability_graph_database_admission_accepts_every_database_template() -
         assert resource["databases"][0]["templateId"] == template_id
 
 
-def _ready_tool(profile_id: str, version: str, *, name: str | None = None) -> dict[str, object]:
+def _ready_tool(
+    profile_id: str, version: str, *, name: str | None = None
+) -> dict[str, object]:
     tool_name = name or profile_id
     package_name = "seqkit" if profile_id == "seqkit" else profile_id
     package_spec = f"bioconda::{package_name}={version}"
@@ -421,7 +631,9 @@ def _ready_tool(profile_id: str, version: str, *, name: str | None = None) -> di
     }
 
 
-def _ready_database_template_tool(template_id: str, *, capabilities: list[str]) -> dict[str, object]:
+def _ready_database_template_tool(
+    template_id: str, *, capabilities: list[str]
+) -> dict[str, object]:
     tool = _ready_tool(f"template-{template_id}", "1.0")
     tool["ruleTemplate"] = {
         "commandTemplate": "printf ok > {output.report:q}",
@@ -474,6 +686,47 @@ def _ready_database_template_tool(template_id: str, *, capabilities: list[str]) 
     return tool
 
 
+def _profile_rule_template(profile_id: str) -> dict[str, object]:
+    return {
+        "commandTemplate": f"printf {profile_id} > {{output.report:q}}",
+        "inputs": [
+            {
+                "name": "reads",
+                "type": "file",
+                "kind": "reads",
+                "mimeType": "text/plain",
+                "required": True,
+            }
+        ],
+        "outputs": [
+            {
+                "name": "report",
+                "path": f"results/{profile_id}.txt",
+                "kind": "report",
+                "mimeType": "text/plain",
+            }
+        ],
+        "params": {},
+        "resources": {"threads": {"default": 1}, "mem_mb": {"default": 128}},
+        "environment": {
+            "conda": {
+                "channels": ["conda-forge", "bioconda"],
+                "dependencies": ["{packageSpec}"],
+            }
+        },
+        "log": f"logs/{profile_id}.log",
+        "smokeTest": {
+            "inputs": {
+                "reads": {
+                    "filename": "reads.txt",
+                    "content": "fixture\n",
+                    "mimeType": "text/plain",
+                }
+            }
+        },
+    }
+
+
 def _available_database(
     database_id: str,
     *,
@@ -498,15 +751,25 @@ def _available_database(
     }
 
 
-def _empty_catalog() -> dict[str, object]:
+def _empty_catalog(*, query: str = "") -> dict[str, object]:
     return {
         "items": [],
-        "query": "",
+        "query": query,
         "total": 0,
         "page": 1,
         "pageSize": 10,
         "hasMore": False,
         "sourceCounts": {"condaPackages": 0, "snakemakeWrappers": 0, "toolProfiles": 0},
-        "addableDraftCounts": {"condaPackages": 0, "snakemakeWrappers": 0, "toolProfiles": 0, "total": 0},
-        "qualityCounts": {"discovered": 0, "draftRunnable": 0, "workflowReady": 0, "productionEnabled": 0},
+        "addableDraftCounts": {
+            "condaPackages": 0,
+            "snakemakeWrappers": 0,
+            "toolProfiles": 0,
+            "total": 0,
+        },
+        "qualityCounts": {
+            "discovered": 0,
+            "draftRunnable": 0,
+            "workflowReady": 0,
+            "productionEnabled": 0,
+        },
     }

@@ -46,6 +46,9 @@ def validate_template_files(
     missing = missing_named_files(data_path, [*template.get("requiredFiles", []), *expected_files])
     if missing:
         return missing
+    missing_recursive = missing_recursive_files(data_path, template.get("requiredRecursiveFiles", []))
+    if missing_recursive:
+        return missing_recursive
     for pattern in template.get("requiredPatterns", []):
         if not any(data_path.glob(str(pattern))):
             return f"Database template {template_id} requires a file matching {pattern} in {data_path}"
@@ -235,6 +238,7 @@ def template_file_matches(data_path: Path, template: dict[str, Any]) -> list[Pat
     patterns: list[str] = []
     patterns.extend(str(pattern) for pattern in template.get("anyPatterns", []) if str(pattern).strip())
     patterns.extend(str(pattern) for pattern in template.get("requiredPatterns", []) if str(pattern).strip())
+    patterns.extend(str(filename) for filename in template.get("requiredRecursiveFiles", []) if str(filename).strip())
     patterns.extend(str(pattern) for pattern in template.get("anyIndexPatterns", []) if str(pattern).strip())
     patterns.extend(str(filename) for filename in template.get("anyFiles", []) if str(filename).strip())
     for pattern_set in template.get("anyPatternSets", []):
@@ -354,3 +358,20 @@ def missing_named_files(data_path: Path, filenames: list[str]) -> str:
     if not missing:
         return ""
     return f"Database path is missing required file(s): {', '.join(missing)}"
+
+
+def missing_recursive_files(data_path: Path, filenames: list[str]) -> str:
+    missing: list[str] = []
+    for raw_filename in filenames:
+        filename = str(raw_filename).strip()
+        if not filename:
+            continue
+        if (data_path / filename).exists():
+            continue
+        basename = Path(filename).name
+        if basename and any(data_path.glob(f"**/{basename}")):
+            continue
+        missing.append(filename)
+    if not missing:
+        return ""
+    return f"Database path is missing required recursive file(s): {', '.join(missing)}"

@@ -27,15 +27,17 @@ def resolve_tool_profile_record(
     *,
     wrappers: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    package_spec = _clean(tool.get("packageSpec")) or _package_spec_from_identity(tool)
+    package_identity = _profile_package_identity(profile)
+    package_spec = package_identity["packageSpec"]
     matched_wrapper = _matched_wrapper(profile, wrappers or [])
     lock: dict[str, Any] = {
         "type": "h2ometa-tool-profile",
         "profileId": profile.profile_id,
         "profileVersion": profile.version,
         "packageSpec": package_spec,
-        "version": _package_version(package_spec) or _clean(tool.get("latestVersion") or tool.get("version")),
-        "source": _clean(tool.get("source")) or "bioconda",
+        "version": package_identity["version"],
+        "source": package_identity["source"],
+        "packageName": package_identity["packageName"],
     }
     profile_wrapper = _profile_wrapper_lock(profile)
     if profile_wrapper:
@@ -116,21 +118,22 @@ def _split_wrapper_identifier(wrapper: str) -> tuple[str, str]:
     return parts[0], "/".join(parts[1:])
 
 
-def _package_spec_from_identity(tool: dict[str, Any]) -> str:
-    source = _clean(tool.get("source")) or "bioconda"
-    name = _clean(tool.get("name")) or "tool"
-    version = _clean(tool.get("latestVersion") or tool.get("version"))
-    return f"{source}::{name}={version}" if version else f"{source}::{name}"
-
-
-def _package_version(package_spec: str) -> str:
-    package = _clean(package_spec).rsplit("::", 1)[-1]
-    if not package or any(operator in package for operator in (">", "<", "*")):
-        return ""
-    for operator in ("==", "="):
-        if operator in package:
-            return package.split(operator, 1)[1].split("=", 1)[0].strip()
-    return ""
+def _profile_package_identity(profile: ToolProfile) -> dict[str, str]:
+    source = _clean(profile.package_source)
+    package_name = _clean(profile.package_name)
+    version = _clean(profile.package_version)
+    if not source:
+        raise ValueError("BIO_TOOL_PROFILE_PACKAGE_SOURCE_REQUIRED")
+    if not package_name:
+        raise ValueError("BIO_TOOL_PROFILE_PACKAGE_NAME_REQUIRED")
+    if not version:
+        raise ValueError("BIO_TOOL_PROFILE_PACKAGE_VERSION_REQUIRED")
+    return {
+        "source": source,
+        "packageName": package_name,
+        "version": version,
+        "packageSpec": f"{source}::{package_name}={version}",
+    }
 
 
 def _normalize_tool_name(value: Any) -> str:

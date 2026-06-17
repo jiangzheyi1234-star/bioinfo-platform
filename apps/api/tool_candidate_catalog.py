@@ -40,22 +40,29 @@ def search_tool_candidates(
     normalized_query = str(query or "").strip()
     bounded_page = max(1, int(page or 1))
     bounded_page_size = max(1, min(int(page_size or 50), 100))
-    source_page_size = min(max(bounded_page * bounded_page_size, bounded_page_size), 100)
-    profile_catalog = catalog_tool_profiles(query=normalized_query, page=1, page_size=source_page_size)
-    wrapper_catalog = catalog_snakemake_wrappers(query=normalized_query, page=1, page_size=source_page_size)
-    conda_catalog = _conda_candidate_catalog(
-        normalized_query,
-        target_platform=target_platform,
-        page_size=source_page_size,
+    offset = (bounded_page - 1) * bounded_page_size
+    required_source_items = offset + bounded_page_size
+    profile_catalog, profile_items = _collect_source_catalog(
+        lambda source_page: catalog_tool_profiles(query=normalized_query, page=source_page, page_size=100),
+        required_items=required_source_items,
     )
-    profile_items = _payload_items(profile_catalog)
-    wrapper_items = _payload_items(wrapper_catalog)
-    conda_items = _payload_items(conda_catalog)
+    wrapper_catalog, wrapper_items = _collect_source_catalog(
+        lambda source_page: catalog_snakemake_wrappers(query=normalized_query, page=source_page, page_size=100),
+        required_items=required_source_items,
+    )
+    conda_catalog, conda_items = _collect_source_catalog(
+        lambda source_page: _conda_candidate_catalog(
+            normalized_query,
+            target_platform=target_platform,
+            page=source_page,
+            page_size=100,
+        ),
+        required_items=required_source_items,
+    )
     items = sorted(
         [*profile_items, *wrapper_items, *conda_items],
         key=lambda item: (SOURCE_ORDER.get(str(item.get("candidateKind") or ""), 99), str(item.get("candidateId") or "")),
     )
-    offset = (bounded_page - 1) * bounded_page_size
     conda_total = _source_total(conda_catalog, conda_items)
     wrapper_total = _source_total(wrapper_catalog, wrapper_items)
     profile_total = _source_total(profile_catalog, profile_items)
@@ -89,13 +96,27 @@ def search_tool_candidates(
     }
 
 
-def _conda_candidate_catalog(query: str, *, target_platform: str, page_size: int) -> dict[str, Any]:
+def _conda_candidate_catalog(query: str, *, target_platform: str, page: int, page_size: int) -> dict[str, Any]:
     return catalog_conda_package_candidates(
         query=query,
         target_platform=target_platform,
-        page=1,
+        page=page,
         page_size=page_size,
     )
+
+
+def _collect_source_catalog(fetch_page: Any, *, required_items: int) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    items: list[dict[str, Any]] = []
+    page = 1
+    catalog: dict[str, Any] = {}
+    while True:
+        catalog = fetch_page(page)
+        page_items = _payload_items(catalog)
+        items.extend(page_items)
+        if len(items) >= required_items or not bool(catalog.get("hasMore")) or not page_items:
+            break
+        page += 1
+    return {**catalog, "items": items}, items
 
 
 def catalog_conda_package_candidates(

@@ -5,11 +5,18 @@ from __future__ import annotations
 from typing import Any
 
 from apps.api.tool_candidate_catalog import search_tool_candidates
-from apps.api.tool_profile_external_refs import profile_snakemake_wrappers
+from apps.api.tool_candidate_target_acceptance_evidence import (
+    catalog_validation_evidence as _catalog_validation_evidence,
+)
+from apps.api.tool_candidate_target_acceptance_evidence import (
+    validation_evidence as _validation_evidence,
+)
+from apps.api.tool_candidate_target_acceptance_evidence import (
+    validation_priority as _validation_priority,
+)
 from apps.api.tool_profile_catalog import catalog_tool_profiles
 from apps.api.tool_profile_model import ToolProfile
 from apps.api.tool_profile_prepare_payload import profile_prepare_payload
-from apps.api.tool_profile_semantics import enrich_rule_template_semantics
 from apps.api.tool_profile_sources import all_tool_profiles
 from apps.api.tool_validation_plan import workflow_ready_validation_plan
 
@@ -17,8 +24,8 @@ from apps.api.tool_validation_plan import workflow_ready_validation_plan
 CATALOG_TARGETS = {
     "discovered": 500,
     "addableDraft": 100,
-    "snakemakeRenderable": 30,
-    "workflowReady": 30,
+    "snakemakeRenderable": 100,
+    "workflowReady": 100,
     "productionEnabled": 10,
 }
 
@@ -30,38 +37,62 @@ def bio_agent_catalog_target_acceptance(
     latest_prepare_jobs_by_tool_id: dict[str, Any] | None = None,
     catalog: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    normalized_target_platform = str(target_platform or "linux-64").strip() or "linux-64"
+    normalized_target_platform = (
+        str(target_platform or "linux-64").strip() or "linux-64"
+    )
     registered = registered_tools or []
     registered_counts = _registered_tool_counts(registered)
-    catalog_payload = catalog if isinstance(catalog, dict) else search_tool_candidates(
-        "",
-        target_platform=normalized_target_platform,
-        page=1,
-        page_size=100,
+    catalog_payload = (
+        catalog
+        if isinstance(catalog, dict)
+        else search_tool_candidates(
+            "",
+            target_platform=normalized_target_platform,
+            page=1,
+            page_size=100,
+        )
     )
     profile_catalog = catalog_tool_profiles(query="", page=1, page_size=100)
+    profile_target = max(
+        CATALOG_TARGETS["workflowReady"],
+        _profile_catalog_total(profile_catalog),
+    )
     quality_counts = _record_value(catalog_payload.get("qualityCounts"))
     addable_counts = _record_value(catalog_payload.get("addableDraftCounts"))
     targets = {
-        "discovered": _target_result(actual=_count_value(quality_counts.get("discovered")), target=CATALOG_TARGETS["discovered"]),
-        "addableDraft": _target_result(actual=_count_value(addable_counts.get("total")), target=CATALOG_TARGETS["addableDraft"]),
+        "discovered": _target_result(
+            actual=_count_value(quality_counts.get("discovered")),
+            target=CATALOG_TARGETS["discovered"],
+        ),
+        "addableDraft": _target_result(
+            actual=_count_value(addable_counts.get("total")),
+            target=CATALOG_TARGETS["addableDraft"],
+        ),
         "snakemakeRenderable": _target_result(
             actual=max(
                 _count_value(quality_counts.get("draftRunnable")),
-                _contract_state_count(profile_catalog, "SnakemakeRenderable"),
+                _profile_catalog_contract_ready_count(profile_catalog),
             ),
-            target=CATALOG_TARGETS["snakemakeRenderable"],
+            target=max(CATALOG_TARGETS["snakemakeRenderable"], profile_target),
         ),
         "workflowReady": _target_result(
-            actual=max(_count_value(quality_counts.get("workflowReady")), registered_counts["workflowReady"]),
-            target=CATALOG_TARGETS["workflowReady"],
+            actual=max(
+                _count_value(quality_counts.get("workflowReady")),
+                registered_counts["workflowReady"],
+            ),
+            target=profile_target,
         ),
         "productionEnabled": _target_result(
-            actual=max(_count_value(quality_counts.get("productionEnabled")), registered_counts["productionEnabled"]),
+            actual=max(
+                _count_value(quality_counts.get("productionEnabled")),
+                registered_counts["productionEnabled"],
+            ),
             target=CATALOG_TARGETS["productionEnabled"],
         ),
     }
-    blocked_targets = [name for name, result in targets.items() if result["passed"] is not True]
+    blocked_targets = [
+        name for name, result in targets.items() if result["passed"] is not True
+    ]
     validation_queue = _validation_queue(
         registered_tools=registered,
         remaining=targets["workflowReady"]["remaining"],
@@ -131,28 +162,62 @@ def _contract_state_count(catalog: dict[str, Any], state: str) -> int:
     items = catalog.get("items")
     if not isinstance(items, list):
         return 0
-    return sum(1 for item in items if isinstance(item, dict) and item.get("contractState") == state)
+    return sum(
+        1
+        for item in items
+        if isinstance(item, dict) and item.get("contractState") == state
+    )
+
+
+def _profile_catalog_total(catalog: dict[str, Any]) -> int:
+    total = _count_value(catalog.get("total"))
+    if total > 0:
+        return total
+    items = catalog.get("items")
+    return len(items) if isinstance(items, list) else 0
+
+
+def _profile_catalog_contract_ready_count(catalog: dict[str, Any]) -> int:
+    quality_counts = (
+        catalog.get("qualityCounts") if isinstance(catalog.get("qualityCounts"), dict) else {}
+    )
+    draft_runnable = _count_value(quality_counts.get("draftRunnable"))
+    if draft_runnable > 0:
+        return draft_runnable
+    return _contract_state_count(catalog, "SnakemakeRenderable")
 
 
 def _payload_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
     items = payload.get("items") if isinstance(payload, dict) else None
-    return [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
+    return (
+        [item for item in items if isinstance(item, dict)]
+        if isinstance(items, list)
+        else []
+    )
 
 
 def _registered_tool_counts(tools: list[dict[str, Any]]) -> dict[str, int]:
     valid_tools = [tool for tool in tools if isinstance(tool, dict)]
     return {
         "total": len(valid_tools),
-        "workflowReady": sum(1 for tool in valid_tools if _registered_tool_workflow_ready(tool)),
-        "productionEnabled": sum(1 for tool in valid_tools if _registered_tool_production_enabled(tool)),
+        "workflowReady": sum(
+            1 for tool in valid_tools if _registered_tool_workflow_ready(tool)
+        ),
+        "productionEnabled": sum(
+            1 for tool in valid_tools if _registered_tool_production_enabled(tool)
+        ),
     }
 
 
-def _production_queue(*, registered_tools: list[dict[str, Any]], remaining: int) -> dict[str, Any]:
+def _production_queue(
+    *, registered_tools: list[dict[str, Any]], remaining: int
+) -> dict[str, Any]:
     candidates = [
         _production_queue_item(tool)
         for tool in registered_tools
-        if isinstance(tool, dict) and _registered_tool_workflow_ready(tool) and not _registered_tool_production_enabled(tool)
+        if isinstance(tool, dict)
+        and _registered_tool_workflow_ready(tool)
+        and not _registered_tool_production_enabled(tool)
     ]
     candidates.sort(key=lambda item: str(item["toolId"]))
     bounded_remaining = max(0, int(remaining or 0))
@@ -166,12 +231,20 @@ def _production_queue(*, registered_tools: list[dict[str, Any]], remaining: int)
 
 
 def _production_queue_item(tool: dict[str, Any]) -> dict[str, Any]:
-    contract = tool.get("toolContract") if isinstance(tool.get("toolContract"), dict) else {}
-    tool_id = str(tool.get("id") or tool.get("toolId") or tool.get("name") or "").strip()
+    contract = (
+        tool.get("toolContract") if isinstance(tool.get("toolContract"), dict) else {}
+    )
+    tool_id = str(
+        tool.get("id") or tool.get("toolId") or tool.get("name") or ""
+    ).strip()
     return {
         "toolId": tool_id,
-        "toolRevisionId": str(tool.get("toolRevisionId") or contract.get("toolRevisionId") or "").strip(),
-        "toolName": str(tool.get("name") or _tool_name_from_identifier(tool_id)).strip(),
+        "toolRevisionId": str(
+            tool.get("toolRevisionId") or contract.get("toolRevisionId") or ""
+        ).strip(),
+        "toolName": str(
+            tool.get("name") or _tool_name_from_identifier(tool_id)
+        ).strip(),
         "currentState": str(contract.get("state") or "WorkflowReady"),
         "requiredState": "ProductionEnabled",
         "action": "submit-production-evidence",
@@ -232,7 +305,11 @@ def validation_queue_tool_ids(
     for item in catalog_items or []:
         if not _catalog_candidate_needs_validation(item, workflow_ready_names):
             continue
-        prepare_payload = item.get("preparePayload") if isinstance(item.get("preparePayload"), dict) else {}
+        prepare_payload = (
+            item.get("preparePayload")
+            if isinstance(item.get("preparePayload"), dict)
+            else {}
+        )
         tool_id = str(prepare_payload.get("id") or "").strip()
         if tool_id and tool_id not in ids:
             ids.append(tool_id)
@@ -248,16 +325,25 @@ def _validation_queue(
 ) -> dict[str, Any]:
     workflow_ready_names = _workflow_ready_tool_names(registered_tools)
     candidates = [
-        _validation_queue_item(profile, latest_prepare_jobs_by_tool_id=latest_prepare_jobs_by_tool_id)
+        _validation_queue_item(
+            profile, latest_prepare_jobs_by_tool_id=latest_prepare_jobs_by_tool_id
+        )
         for profile in all_tool_profiles()
         if not _profile_registered_workflow_ready(profile, workflow_ready_names)
     ]
     candidates.extend(
-        _catalog_validation_queue_item(item, latest_prepare_jobs_by_tool_id=latest_prepare_jobs_by_tool_id)
+        _catalog_validation_queue_item(
+            item, latest_prepare_jobs_by_tool_id=latest_prepare_jobs_by_tool_id
+        )
         for item in catalog_items or []
         if _catalog_candidate_needs_validation(item, workflow_ready_names)
     )
-    candidates.sort(key=lambda item: (-_count_value(item["priority"]["score"]), str(item["candidateId"])))
+    candidates.sort(
+        key=lambda item: (
+            -_count_value(item["priority"]["score"]),
+            str(item["candidateId"]),
+        )
+    )
     bounded_remaining = max(0, int(remaining or 0))
     return {
         "target": "workflowReady",
@@ -268,7 +354,9 @@ def _validation_queue(
     }
 
 
-def _catalog_candidate_needs_validation(item: dict[str, Any], workflow_ready_names: set[str]) -> bool:
+def _catalog_candidate_needs_validation(
+    item: dict[str, Any], workflow_ready_names: set[str]
+) -> bool:
     if str(item.get("candidateKind") or "") == "h2ometa-tool-profile":
         return False
     if _catalog_candidate_contract_state(item) != "SnakemakeRenderable":
@@ -276,7 +364,10 @@ def _catalog_candidate_needs_validation(item: dict[str, Any], workflow_ready_nam
     prepare_payload = item.get("preparePayload")
     if not isinstance(prepare_payload, dict):
         return False
-    return not any(_normalized_tool_name(name) in workflow_ready_names for name in _catalog_candidate_tool_names(item))
+    return not any(
+        _normalized_tool_name(name) in workflow_ready_names
+        for name in _catalog_candidate_tool_names(item)
+    )
 
 
 def _catalog_candidate_contract_state(item: dict[str, Any]) -> str:
@@ -294,8 +385,14 @@ def _catalog_candidate_tool_names(item: dict[str, Any]) -> list[str]:
     names: list[str] = []
     raw_names = item.get("toolNames")
     if isinstance(raw_names, list):
-        names.extend(str(value).strip() for value in raw_names if str(value or "").strip())
-    prepare_payload = item.get("preparePayload") if isinstance(item.get("preparePayload"), dict) else {}
+        names.extend(
+            str(value).strip() for value in raw_names if str(value or "").strip()
+        )
+    prepare_payload = (
+        item.get("preparePayload")
+        if isinstance(item.get("preparePayload"), dict)
+        else {}
+    )
     for value in (
         item.get("name"),
         item.get("toolName"),
@@ -309,11 +406,15 @@ def _catalog_candidate_tool_names(item: dict[str, Any]) -> list[str]:
     return _unique_strings(names)
 
 
-def _catalog_validation_queue_item(item: dict[str, Any], *, latest_prepare_jobs_by_tool_id: dict[str, Any]) -> dict[str, Any]:
+def _catalog_validation_queue_item(
+    item: dict[str, Any], *, latest_prepare_jobs_by_tool_id: dict[str, Any]
+) -> dict[str, Any]:
     prepare_payload = dict(item.get("preparePayload") or {})
     evidence = _catalog_validation_evidence(item=item, prepare_payload=prepare_payload)
     priority = _validation_priority(evidence=evidence, prepare_payload=prepare_payload)
-    candidate_id = str(item.get("candidateId") or prepare_payload.get("id") or "").strip()
+    candidate_id = str(
+        item.get("candidateId") or prepare_payload.get("id") or ""
+    ).strip()
     queue_item = {
         "candidateId": candidate_id,
         "candidateKind": str(item.get("candidateKind") or "tool-candidate"),
@@ -333,17 +434,23 @@ def _catalog_validation_queue_item(item: dict[str, Any], *, latest_prepare_jobs_
     quality_tier = str(item.get("qualityTier") or "").strip()
     if quality_tier:
         queue_item["qualityTier"] = quality_tier
-    latest_prepare_job = _safe_latest_prepare_job(latest_prepare_jobs_by_tool_id.get(str(prepare_payload.get("id") or "")))
+    latest_prepare_job = _safe_latest_prepare_job(
+        latest_prepare_jobs_by_tool_id.get(str(prepare_payload.get("id") or ""))
+    )
     if latest_prepare_job is not None:
         queue_item["latestPrepareJob"] = latest_prepare_job
     if _active_prepare_job(latest_prepare_job):
         queue_item["action"] = "wait-for-tool-validation"
-        queue_item["executionGate"] = _active_prepare_job_execution_gate(latest_prepare_job)
+        queue_item["executionGate"] = _active_prepare_job_execution_gate(
+            latest_prepare_job
+        )
         queue_item.pop("preparePayload", None)
     return queue_item
 
 
-def _validation_queue_item(profile: ToolProfile, *, latest_prepare_jobs_by_tool_id: dict[str, Any]) -> dict[str, Any]:
+def _validation_queue_item(
+    profile: ToolProfile, *, latest_prepare_jobs_by_tool_id: dict[str, Any]
+) -> dict[str, Any]:
     prepare_payload = profile_prepare_payload(profile)
     evidence = _validation_evidence(profile=profile, prepare_payload=prepare_payload)
     priority = _validation_priority(evidence=evidence, prepare_payload=prepare_payload)
@@ -363,7 +470,9 @@ def _validation_queue_item(profile: ToolProfile, *, latest_prepare_jobs_by_tool_
         "validationPlan": _validation_plan(),
         "preparePayload": prepare_payload,
     }
-    latest_prepare_job = _safe_latest_prepare_job(latest_prepare_jobs_by_tool_id.get(str(prepare_payload.get("id") or "")))
+    latest_prepare_job = _safe_latest_prepare_job(
+        latest_prepare_jobs_by_tool_id.get(str(prepare_payload.get("id") or ""))
+    )
     if latest_prepare_job is not None:
         item["latestPrepareJob"] = latest_prepare_job
     if _active_prepare_job(latest_prepare_job):
@@ -416,7 +525,9 @@ def _active_prepare_job(value: dict[str, Any] | None) -> bool:
     return str(value.get("status") or "").strip() in {"queued", "running"}
 
 
-def _active_prepare_job_execution_gate(latest_prepare_job: dict[str, Any]) -> dict[str, Any]:
+def _active_prepare_job_execution_gate(
+    latest_prepare_job: dict[str, Any],
+) -> dict[str, Any]:
     return {
         "currentState": "SnakemakeRenderable",
         "requiredState": "WorkflowReady",
@@ -433,190 +544,6 @@ def _validation_plan() -> dict[str, Any]:
     return workflow_ready_validation_plan()
 
 
-def _validation_evidence(*, profile: ToolProfile, prepare_payload: dict[str, Any]) -> dict[str, Any]:
-    wrappers = profile_snakemake_wrappers(profile)
-    semantic = _semantic_port_summary(prepare_payload)
-    return {
-        "snakemakeWrapperCount": len(wrappers),
-        "snakemakeWrapperPaths": [str(item.get("wrapperPath") or "") for item in wrappers if str(item.get("wrapperPath") or "")],
-        **_wrapper_contract_hint_summary(wrappers),
-        **semantic,
-        **_required_resource_summary(prepare_payload),
-        **_smoke_fixture_quality_summary(prepare_payload),
-    }
-
-
-def _catalog_validation_evidence(*, item: dict[str, Any], prepare_payload: dict[str, Any]) -> dict[str, Any]:
-    wrapper_paths: list[str] = []
-    wrappers = item.get("snakemakeWrappers")
-    if isinstance(wrappers, list):
-        wrapper_paths.extend(
-            str(wrapper.get("wrapperPath") or "").strip()
-            for wrapper in wrappers
-            if isinstance(wrapper, dict) and str(wrapper.get("wrapperPath") or "").strip()
-        )
-    wrapper_path = str(item.get("wrapperPath") or "").strip()
-    if wrapper_path:
-        wrapper_paths.append(wrapper_path)
-    wrapper_count = _count_value(item.get("snakemakeWrapperCount"))
-    if wrapper_count <= 0:
-        wrapper_count = len(wrapper_paths)
-    return {
-        "snakemakeWrapperCount": wrapper_count,
-        "snakemakeWrapperPaths": _unique_strings(wrapper_paths),
-        "wrapperContractHintCount": _count_value(item.get("wrapperContractHintCount")),
-        "wrapperContractHintFields": _string_list(item.get("wrapperContractHintFields")),
-        "wrapperCondaDependencies": _string_list(item.get("wrapperCondaDependencies")),
-        **_semantic_port_summary(prepare_payload),
-        **_required_resource_summary(prepare_payload),
-        **_smoke_fixture_quality_summary(prepare_payload),
-    }
-
-
-def _wrapper_contract_hint_summary(wrappers: list[dict[str, Any]]) -> dict[str, Any]:
-    hint_count = 0
-    fields: set[str] = set()
-    dependencies: set[str] = set()
-    for wrapper in wrappers:
-        hints = wrapper.get("wrapperContractHints") if isinstance(wrapper, dict) else None
-        if not isinstance(hints, dict) or not hints:
-            continue
-        hint_count += 1
-        fields.update(_contract_hint_fields(hints))
-        dependencies.update(_contract_hint_conda_dependencies(hints))
-    return {
-        "wrapperContractHintCount": hint_count,
-        "wrapperContractHintFields": sorted(fields),
-        "wrapperCondaDependencies": sorted(dependencies),
-    }
-
-
-def _contract_hint_fields(hints: dict[str, Any]) -> set[str]:
-    return {
-        key
-        for key in ("name", "description", "url", "authors", "input", "output", "params", "notes", "environment")
-        if hints.get(key)
-    }
-
-
-def _contract_hint_conda_dependencies(hints: dict[str, Any]) -> set[str]:
-    environment = hints.get("environment") if isinstance(hints.get("environment"), dict) else {}
-    conda = environment.get("conda") if isinstance(environment.get("conda"), dict) else {}
-    dependencies = conda.get("dependencies") if isinstance(conda.get("dependencies"), list) else []
-    return {str(dependency).strip() for dependency in dependencies if str(dependency or "").strip()}
-
-
-def _validation_priority(*, evidence: dict[str, Any], prepare_payload: dict[str, Any]) -> dict[str, Any]:
-    score = 0
-    reasons: list[str] = []
-    if _count_value(evidence.get("snakemakeWrapperCount")) > 0:
-        score += 40
-        reasons.append("snakemake-wrapper-evidence")
-    if evidence.get("semanticPortFields"):
-        score += 30
-        reasons.append("edam-port-semantics")
-    rule_draft = prepare_payload.get("ruleSpecDraft") if isinstance(prepare_payload.get("ruleSpecDraft"), dict) else {}
-    if rule_draft.get("requiresUserCompletion") is False:
-        score += 20
-        reasons.append("ready-prepare-payload")
-    if _semantic_format_count(evidence) >= 2:
-        score += 10
-        reasons.append("multi-port-format-coverage")
-    if evidence.get("requiredResourceKeys"):
-        reasons.append("required-resources-pending")
-    elif evidence.get("smokeFixtureQuality") == "materialized":
-        score += 15
-        reasons.append("self-contained-smoke")
-    elif evidence.get("smokeFixtureQuality") == "placeholder":
-        reasons.append("smoke-fixture-placeholder")
-    else:
-        reasons.append("smoke-fixture-missing")
-    return {"score": score, "reasons": reasons}
-
-
-def _semantic_port_summary(prepare_payload: dict[str, Any]) -> dict[str, Any]:
-    template = prepare_payload.get("ruleTemplate") if isinstance(prepare_payload.get("ruleTemplate"), dict) else {}
-    enriched = enrich_rule_template_semantics(template)
-    fields: set[str] = set()
-    data_terms: set[str] = set()
-    format_terms: set[str] = set()
-    for section in ("inputs", "outputs"):
-        for port in enriched.get(section) or []:
-            if not isinstance(port, dict):
-                continue
-            data = str(port.get("data") or port.get("edamData") or "").strip()
-            format_id = str(port.get("format") or port.get("edamFormat") or "").strip()
-            if data:
-                fields.add("data")
-                data_terms.add(data)
-            if format_id:
-                fields.add("format")
-                format_terms.add(format_id)
-    return {
-        "semanticPortFields": sorted(fields),
-        "semanticData": sorted(data_terms),
-        "semanticFormats": sorted(format_terms),
-    }
-
-
-def _semantic_format_count(evidence: dict[str, Any]) -> int:
-    formats = evidence.get("semanticFormats")
-    return len(formats) if isinstance(formats, list) else 0
-
-
-def _required_resource_summary(prepare_payload: dict[str, Any]) -> dict[str, Any]:
-    template = prepare_payload.get("ruleTemplate") if isinstance(prepare_payload.get("ruleTemplate"), dict) else {}
-    resources = template.get("resources") if isinstance(template.get("resources"), dict) else {}
-    required_keys: list[str] = []
-    for key, value in resources.items():
-        if not isinstance(value, dict) or not value.get("required"):
-            continue
-        required_keys.append(str(key))
-    return {"requiredResourceKeys": sorted(required_keys)}
-
-
-def _smoke_fixture_quality_summary(prepare_payload: dict[str, Any]) -> dict[str, Any]:
-    template = prepare_payload.get("ruleTemplate") if isinstance(prepare_payload.get("ruleTemplate"), dict) else {}
-    smoke_test = template.get("smokeTest") if isinstance(template.get("smokeTest"), dict) else {}
-    inputs = _smoke_fixture_inputs(smoke_test.get("inputs"))
-    if not inputs:
-        return {"smokeFixtureQuality": "missing", "smokeFixtureIssues": ["missing-smoke-inputs"]}
-
-    issues: list[str] = []
-    materialized_count = 0
-    for index, (input_name, raw_input) in enumerate(inputs):
-        if not isinstance(raw_input, dict):
-            issues.append(f"input-{index}:invalid-smoke-input")
-            continue
-        content = str(raw_input.get("content") or "")
-        filename = str(raw_input.get("filename") or raw_input.get("name") or input_name or f"input-{index}").strip()
-        mime_type = str(raw_input.get("mimeType") or raw_input.get("mime") or "").strip().lower()
-        if _looks_like_placeholder_fixture(content=content, filename=filename, mime_type=mime_type):
-            issues.append(f"{filename}:placeholder-content")
-            continue
-        if content:
-            materialized_count += 1
-
-    if issues:
-        return {"smokeFixtureQuality": "placeholder", "smokeFixtureIssues": issues}
-    if materialized_count == 0:
-        return {"smokeFixtureQuality": "missing", "smokeFixtureIssues": ["missing-smoke-input-content"]}
-    return {"smokeFixtureQuality": "materialized", "smokeFixtureIssues": []}
-
-
-def _smoke_fixture_inputs(value: Any) -> list[tuple[str, Any]]:
-    if isinstance(value, dict):
-        return [(str(key or "").strip(), item) for key, item in value.items()]
-    if isinstance(value, list):
-        return [("", item) for item in value]
-    return []
-
-
-def _looks_like_placeholder_fixture(*, content: str, filename: str, mime_type: str) -> bool:
-    searchable = f"{filename}\n{mime_type}\n{content}".lower()
-    return "placeholder" in searchable
-
-
 def _workflow_ready_tool_names(tools: list[dict[str, Any]]) -> set[str]:
     names: set[str] = set()
     for tool in tools:
@@ -630,13 +557,21 @@ def _workflow_ready_tool_names(tools: list[dict[str, Any]]) -> set[str]:
 
 
 def _profile_registered_workflow_ready(profile: ToolProfile, names: set[str]) -> bool:
-    return any(_normalized_tool_name(name) in names for name in (profile.profile_id, *profile.tool_names))
+    return any(
+        _normalized_tool_name(name) in names
+        for name in (profile.profile_id, *profile.tool_names)
+    )
 
 
 def _registered_tool_workflow_ready(tool: dict[str, Any]) -> bool:
-    contract = tool.get("toolContract") if isinstance(tool.get("toolContract"), dict) else {}
+    contract = (
+        tool.get("toolContract") if isinstance(tool.get("toolContract"), dict) else {}
+    )
     state = str(contract.get("state") or "")
-    return bool(contract.get("workflowReady")) or state in {"WorkflowReady", "ProductionEnabled"}
+    return bool(contract.get("workflowReady")) or state in {
+        "WorkflowReady",
+        "ProductionEnabled",
+    }
 
 
 def _tool_name_from_identifier(value: Any) -> str:
@@ -652,12 +587,6 @@ def _normalized_tool_name(value: Any) -> str:
     return str(value or "").strip().lower()
 
 
-def _string_list(value: Any) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return _unique_strings(str(item).strip() for item in value if str(item or "").strip())
-
-
 def _unique_strings(values: Any) -> list[str]:
     seen: set[str] = set()
     unique: list[str] = []
@@ -671,8 +600,14 @@ def _unique_strings(values: Any) -> list[str]:
 
 
 def _registered_tool_production_enabled(tool: dict[str, Any]) -> bool:
-    contract = tool.get("toolContract") if isinstance(tool.get("toolContract"), dict) else {}
-    requirements = contract.get("requirements") if isinstance(contract.get("requirements"), dict) else {}
+    contract = (
+        tool.get("toolContract") if isinstance(tool.get("toolContract"), dict) else {}
+    )
+    requirements = (
+        contract.get("requirements")
+        if isinstance(contract.get("requirements"), dict)
+        else {}
+    )
     return (
         bool(contract.get("productionEnabled"))
         or bool(requirements.get("productionEnabled"))

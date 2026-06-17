@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .capability_bundle_audit import validate_capability_bundle_gate
 from .config import RemoteRunnerConfig
 from .errors import WorkflowToolNotReadyError
 from .generated_workflow_constants import GENERATED_TOOL_RUN_PIPELINE_ID
@@ -22,6 +23,8 @@ class RunPreflightError(ValueError):
     def from_value_error(cls, exc: ValueError) -> "RunPreflightError":
         if isinstance(exc, WorkflowToolNotReadyError):
             return cls(str(exc), status_code=exc.status_code)
+        if str(exc).startswith("CAPABILITY_BUNDLE_NOT_SELECTABLE"):
+            return cls(str(exc), status_code=409)
         return cls(str(exc))
 
 
@@ -66,11 +69,17 @@ def _preflight_generated_workflow(cfg: RemoteRunnerConfig, run_spec: dict[str, A
             outputs_by_step_id=plan.outputs_by_step_id,
         )
         resource_specs = collect_workflow_resource_specs([step.rule_template for step in plan.steps])
-        build_workflow_resource_config(
+        resource_config = build_workflow_resource_config(
             cfg,
             workflow_resource_spec=resource_specs,
             bindings=dict(plan.run_spec.get("resourceBindings") or {}),
         )
+        for step in plan.steps:
+            validate_capability_bundle_gate(
+                step.tool,
+                step_id=step.step_id,
+                resource_context=resource_config["resources"],
+            )
     except ValueError as exc:
         raise RunPreflightError.from_value_error(exc) from exc
 

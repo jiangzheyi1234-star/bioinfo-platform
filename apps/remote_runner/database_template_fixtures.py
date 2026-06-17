@@ -26,15 +26,18 @@ def example_name_for_pattern(pattern: str) -> str:
         "*.zip": "archive.zip",
         "*.msh": "db.msh",
         "*.hmm": "Pfam-A.hmm",
-        "*.h3f": "Pfam-A.h3f",
-        "*.h3i": "Pfam-A.h3i",
-        "*.h3m": "Pfam-A.h3m",
-        "*.h3p": "Pfam-A.h3p",
+        "*.h3f": "Pfam-A.hmm.h3f",
+        "*.h3i": "Pfam-A.hmm.h3i",
+        "*.h3m": "Pfam-A.hmm.h3m",
+        "*.h3p": "Pfam-A.hmm.h3p",
         "*.idx": "transcriptome.idx",
         "*.qza": "silva.qza",
         "*.fasta": "reference.fasta",
         "*.fa": "reference.fa",
         "*.fna": "reference.fna",
+        "*.gtf": "genes.gtf",
+        "*.gff": "genes.gff",
+        "*.gff3": "genes.gff3",
         "*.ffn": "genes.ffn",
         "*.faa": "proteins.faa",
         "*.pkl": "db.pkl",
@@ -51,6 +54,8 @@ def example_name_for_pattern(pattern: str) -> str:
         "utility_mapping/map_*": "utility_mapping/map_uniref90_name.txt.gz",
         "uniref100.KO*.dmnd": "uniref100.KO.1.dmnd",
         "eggnog_proteins.dmnd": "eggnog_proteins.dmnd",
+        "pfam_a.hmm": "pfam/35.0/pfam_a.hmm",
+        "pfam_a.dat": "pfam/35.0/pfam_a.dat",
     }
     if pattern in examples:
         return examples[pattern]
@@ -149,7 +154,14 @@ def _write_template_directory_contract(container: Path, template: Mapping[str, o
     for filename in template.get("requiredFiles", []):
         path = container / str(filename)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(filename, encoding="utf-8")
+        if "." not in str(filename):
+            path.mkdir(exist_ok=True)
+        else:
+            path.write_text(filename, encoding="utf-8")
+    for filename in template.get("requiredRecursiveFiles", []):
+        path = container / example_name_for_pattern(str(filename))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(str(filename), encoding="utf-8")
     for pattern in template.get("requiredPatterns", []):
         path = container / example_name_for_pattern(str(pattern))
         path.parent.mkdir(parents=True, exist_ok=True)

@@ -354,6 +354,119 @@ def test_bootstrap_installs_when_artifact_sha_marker_is_missing(monkeypatch) -> 
     assert any("tar -xzf" in cmd for cmd in executed)
     assert any("printf" in cmd and "artifact.sha256" in cmd for cmd in executed)
 
+
+def test_bootstrap_retries_canary_once_with_fresh_tunnel_after_connection_refused(monkeypatch) -> None:
+    manager = RemoteRunnerManager()
+    executed: list[str] = []
+    tunnel_ports: list[int] = []
+    closed_tunnels: list[str] = []
+    canary_calls = 0
+
+    class FakeArtifact:
+        archive_path = Path(__file__)
+        platform = "linux-64"
+        sha256 = "c" * 64
+
+    class FakeTunnel:
+        def __init__(self, local_port: int) -> None:
+            self.local_port = local_port
+
+    class FakeSSH:
+        def run(self, cmd: str, timeout: int = 10):
+            executed.append(cmd)
+            if 'printf "%s" "$HOME"' in cmd:
+                return 0, "/home/tester", ""
+            if 'printf "%s:%s" "$(uname -s)" "$(uname -m)"' in cmd:
+                return 0, "Linux:x86_64", ""
+            if "systemctl --user show-environment" in cmd:
+                return 0, "background_process\n", ""
+            if "readlink -f /home/tester/.h2ometa/runner/current" in cmd:
+                return 1, "", "No such file"
+            if "cat /home/tester/.h2ometa/runner/shared/config/runner.json" in cmd:
+                return 1, "", "No such file"
+            if "mkdir -p" in cmd:
+                return 0, "", ""
+            if "pkill -f '[r]emote_runner.run'" in cmd and "runner-state.json" in cmd:
+                return 0, "", ""
+            if "tar -xzf" in cmd:
+                return 0, "", ""
+            if "printf" in cmd and "artifact.sha256" in cmd:
+                return 0, "", ""
+            if "runtime/bin/python -c \"from remote_runner.config import load_remote_runner_config, ensure_runtime_layout; ensure_runtime_layout(load_remote_runner_config())\"" in cmd:
+                return 0, "", ""
+            if "workflow-env/bin/snakemake" in cmd and "--version" in cmd:
+                return 0, "9.19.0\n", ""
+            if "rm -f /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
+                return 0, "", ""
+            if "bash /home/tester/.h2ometa/runner/current/start_service.sh" in cmd:
+                return 0, "", ""
+            if "cat /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
+                return 0, _runtime_state_json(), ""
+            if "kill -0 123" in cmd:
+                return 0, "", ""
+            if _is_remote_current_release_switch(cmd):
+                return 0, "", ""
+            if _is_remote_bundle_cleanup(cmd) or _is_remote_config_atomic_move(cmd):
+                return 0, "", ""
+            if "rm -rf" in cmd and "/locks/install-" in cmd:
+                return 0, "", ""
+            if "owner.json" in cmd and "printf %s" in cmd:
+                return 0, "", ""
+            raise AssertionError(f"unexpected command: {cmd}")
+
+        def upload(self, local: str, remote: str) -> None:
+            return None
+
+        def ensure_local_tunnel(self, *args, **kwargs):
+            tunnel_ports.append(int(kwargs["remote_port"]))
+            return FakeTunnel(18000 + len(tunnel_ports))
+
+        def close_local_tunnel(self, name: str) -> None:
+            closed_tunnels.append(name)
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            return None
+
+        def get_health(self) -> dict[str, object]:
+            return {
+                "startup": {"ok": True, "message": "Remote runner config loaded."},
+                "live": {"ok": True, "message": "Remote runner process is alive."},
+                "ready": {"ok": True, "message": "Remote runner control plane is ready."},
+                "reasonCode": "",
+                "checkedAt": "2026-04-22T00:00:00Z",
+            }
+
+    def flaky_canary(*, client, server_id, bootstrap_metadata):
+        nonlocal canary_calls
+        canary_calls += 1
+        if canary_calls == 1:
+            raise RemoteRunnerManagerError(
+                "bootstrap canary failed: [WinError 10054] 远程主机强迫关闭了一个现有的连接。"
+            )
+        bootstrap_metadata["canary"] = {"ok": True, "status": "passed"}
+        return bootstrap_metadata["canary"]
+
+    with patch.object(manager, "_artifact_provider", SimpleNamespace(resolve=lambda **kwargs: FakeArtifact())), patch(
+        "core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient
+    ), patch.object(manager, "_run_bootstrap_canary", flaky_canary), patch(
+        "core.remote_runner.manager.store_runner_token", lambda **kwargs: "runner://srv_test"
+    ):
+        result = manager.bootstrap(
+            server_id="srv_test",
+            server={"label": "demo"},
+            ssh_service=FakeSSH(),
+            server_record={},
+        )
+
+    assert canary_calls == 2
+    assert tunnel_ports == [43127, 43127]
+    assert closed_tunnels == ["runner-srv_test"]
+    assert result["health"]["ready"]["ok"] is True
+    assert result["bootstrap_metadata"]["canary_retry"]["servicePort"] == 43127
+    assert result["bootstrap_metadata"]["canary"] == {"ok": True, "status": "passed"}
+
+
 def test_bootstrap_fails_fast_when_artifact_cannot_be_resolved() -> None:
     manager = RemoteRunnerManager()
 

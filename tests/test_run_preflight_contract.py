@@ -48,11 +48,25 @@ def upsert_tool(cfg: RemoteRunnerConfig, tool: dict) -> dict:
             {"conda": {"channels": ["conda-forge", "bioconda"], "dependencies": [tool["packageSpec"]]}},
         )
     tool.setdefault("contractStatus", {key: dict(value) for key, value in READY_CONTRACT_STATUS.items()})
+    tool.setdefault("validationSummary", _test_validation_summary(tool))
     published = publish_tool_revision(cfg, tool)
+    published.setdefault("validationSummary", tool["validationSummary"])
+    published.setdefault("validationResultId", tool["validationSummary"]["latestResultId"])
+    published.setdefault("evidenceId", tool["validationSummary"]["evidenceId"])
     published["status"] = "published"
     saved = _upsert_tool(cfg, published)
     _TOOL_REVISIONS[str(saved.get("id") or "")] = str(saved.get("toolRevisionId") or "")
     return saved
+
+
+def _test_validation_summary(tool: dict) -> dict[str, str]:
+    tool_id = str(tool.get("id") or "tool").replace("::", "_").replace("/", "_").replace("=", "_")
+    return {
+        "latestResultId": f"toolval_test_{tool_id}",
+        "latestStatus": "passed",
+        "evidenceId": f"evid_test_{tool_id}",
+        "updatedAt": "2026-01-01T00:00:00Z",
+    }
 
 
 def _register_tool(cfg: RemoteRunnerConfig, tool_id: str, output_name: str = "out") -> None:

@@ -12,7 +12,7 @@ import uuid
 
 import yaml
 
-from .capability_bundle_audit import capability_bundle_audit_for_tool
+from .capability_bundle_audit import capability_bundle_audit_for_tool, validate_capability_bundle_gate
 from .config import RemoteRunnerConfig
 from .generated_workflow import GENERATED_TOOL_RUN_VERSION
 from .generated_workflow_outputs import resolve_exposed_outputs
@@ -55,6 +55,7 @@ def compile_workflow_design_project(
         workflow_resource_spec=collect_workflow_resource_specs([step.rule_template for step in plan.steps]),
         bindings=design.resources.bindings,
     )
+    _validate_capability_bundle_gate(plan.steps, resource_context=resource_config["resources"])
     exposed_outputs = resolve_exposed_outputs(
         workflow_spec=plan.workflow_spec,
         steps=plan.steps,
@@ -217,6 +218,15 @@ def _run_config(
         },
         "outputs": final_outputs,
     }
+
+
+def _validate_capability_bundle_gate(steps: list[Any], *, resource_context: dict[str, Any]) -> None:
+    for step in steps:
+        validate_capability_bundle_gate(
+            step.tool,
+            step_id=step.step_id,
+            resource_context=resource_context,
+        )
 
 
 def _snakefile_entry(final_outputs: dict[str, str]) -> str:

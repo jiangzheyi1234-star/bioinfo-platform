@@ -109,7 +109,7 @@ def _profile_wrapper_contract_hints(profile: ToolProfile, *, wrapper_path: str) 
 
 def _static_dependency(dependency: str, profile: ToolProfile) -> str:
     if dependency == "{packageSpec}":
-        return _profile_package_name(profile)
+        return _profile_package_spec(profile)
     return dependency
 
 
@@ -159,28 +159,32 @@ def _wrapper_evidence(wrapper: dict[str, Any]) -> dict[str, Any]:
 
 def _package_registry_refs(profile: ToolProfile) -> list[dict[str, Any]]:
     package_name = _profile_package_name(profile)
+    package_source = _profile_package_source(profile)
     if not package_name:
         return []
     biotools_id = _biotools_id(profile)
     refs = [
         {
-            "type": "bioconda-package",
-            "channel": "bioconda",
+            "type": "bioconda-package" if package_source == "bioconda" else "conda-package",
+            "channel": package_source,
             "name": package_name,
-            "url": f"https://anaconda.org/bioconda/{package_name}",
+            "url": f"https://anaconda.org/{package_source}/{package_name}",
             "verified": True,
-        },
-        {
-            "type": "biocontainers-container",
-            "registry": "quay.io",
-            "namespace": "biocontainers",
-            "name": package_name,
-            "image": f"quay.io/biocontainers/{package_name}",
-            "registryUrl": "https://biocontainers.pro/",
-            "verified": False,
-            "derivation": "bioconda-package-name",
-        },
+        }
     ]
+    if package_source == "bioconda":
+        refs.append(
+            {
+                "type": "biocontainers-container",
+                "registry": "quay.io",
+                "namespace": "biocontainers",
+                "name": package_name,
+                "image": f"quay.io/biocontainers/{package_name}",
+                "registryUrl": "https://biocontainers.pro/",
+                "verified": False,
+                "derivation": "bioconda-package-name",
+            }
+        )
     if biotools_id:
         refs.append(
             {
@@ -196,6 +200,17 @@ def _package_registry_refs(profile: ToolProfile) -> list[dict[str, Any]]:
 
 def _profile_package_name(profile: ToolProfile) -> str:
     return str(profile.package_name or (profile.tool_names[0] if profile.tool_names else profile.profile_id)).strip()
+
+
+def _profile_package_source(profile: ToolProfile) -> str:
+    return str(profile.package_source or "").strip()
+
+
+def _profile_package_spec(profile: ToolProfile) -> str:
+    source = _profile_package_source(profile)
+    package_name = _profile_package_name(profile)
+    version = str(profile.package_version or "").strip()
+    return f"{source}::{package_name}={version}" if version else f"{source}::{package_name}"
 
 
 def _wrapper_external_ref(wrapper: dict[str, Any]) -> dict[str, Any]:

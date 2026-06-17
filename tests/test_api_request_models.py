@@ -45,6 +45,33 @@ def test_tool_manifest_request_rejects_extra_fields() -> None:
     assert exc_info.value.errors()[0]["type"] == "extra_forbidden"
 
 
+def test_tool_manifest_request_accepts_profile_prepare_payload_identity() -> None:
+    payload = ToolManifestRequest.model_validate(
+        {
+            "serverId": "srv_demo",
+            "id": "bioconda::fastqc",
+            "name": "fastqc",
+            "source": "bioconda",
+            "sourceLabel": "Bioconda",
+            "profileId": "fastqc",
+            "profileVersion": 1,
+            "packId": "h2ometa-metagenomics-core",
+            "packageName": "fastqc",
+            "validationTarget": "fastqc",
+            "latestVersion": "0.12.1",
+            "version": "0.12.1",
+            "packageSpec": "bioconda::fastqc=0.12.1",
+            "targetPlatform": "linux-64",
+            "targetPlatformSupported": True,
+            "ruleTemplate": {"commandTemplate": "fastqc {input.reads:q}"},
+            "ruleSpecDraft": {"source": "h2ometa-tool-profile"},
+        }
+    )
+
+    assert payload.profileId == "fastqc"
+    assert payload.validationTarget == "fastqc"
+
+
 def test_run_submit_request_rejects_top_level_pipeline_id_as_extra_field() -> None:
     with pytest.raises(ValidationError) as exc_info:
         RunSubmitRequest.model_validate(

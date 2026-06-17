@@ -133,3 +133,26 @@ def test_added_dependency_rejects_name_that_conflicts_with_package_spec_name(tmp
         assert str(exc) == "TOOL_PACKAGE_NAME_MISMATCH"
     else:
         raise AssertionError("AddedDependency should keep name and packageSpec package aligned.")
+
+
+def test_added_dependency_accepts_profile_tool_id_with_explicit_package_name(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+
+    saved = add_registered_tool(
+        cfg,
+        {
+            "id": "bioconda::samtools-sort",
+            "name": "samtools-sort",
+            "packageName": "samtools",
+            "source": "bioconda",
+            "packageSpec": "bioconda::samtools=1.22",
+            "targetPlatform": "linux-64",
+            "targetPlatformSupported": True,
+        },
+    )
+
+    assert saved["id"] == "bioconda::samtools-sort"
+    assert saved["name"] == "samtools-sort"
+    assert saved["version"] == "1.22"
+    assert saved["packageSpec"] == "bioconda::samtools=1.22"

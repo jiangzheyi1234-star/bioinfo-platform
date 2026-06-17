@@ -14,7 +14,7 @@ from .tool_package_identity import normalize_package_identity
 from .tools_errors import ToolNotFoundError, ToolProductionConflictError, ToolRegistryError
 
 
-ALLOWED_SOURCES = {"bioconda", "conda-forge"}
+ALLOWED_SOURCES = {"bioconda", "conda-forge", "qiime2"}
 
 
 def list_registered_tools(cfg: RemoteRunnerConfig) -> list[dict[str, Any]]:
@@ -190,14 +190,17 @@ def _record_production_evidence_event(
 def _normalize_tool_manifest(payload: dict[str, Any]) -> dict[str, Any]:
     source = str(payload.get("source") or "").strip()
     name = str(payload.get("name") or "").strip()
+    package_name = str(payload.get("packageName") or name).strip()
     if source not in ALLOWED_SOURCES:
         raise ToolRegistryError("TOOL_SOURCE_UNSUPPORTED")
     if not name:
         raise ToolRegistryError("TOOL_NAME_REQUIRED")
+    if not package_name:
+        raise ToolRegistryError("TOOL_PACKAGE_NAME_REQUIRED")
 
     package_identity = normalize_package_identity(
         source=source,
-        name=name,
+        package_name=package_name,
         version=str(payload.get("version") or ""),
         package_spec=str(payload.get("packageSpec") or ""),
     )
@@ -206,6 +209,7 @@ def _normalize_tool_manifest(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": tool_id,
         "name": name,
+        "packageName": package_name,
         "source": source,
         "sourceLabel": str(payload.get("sourceLabel") or source),
         "version": package_identity["version"],

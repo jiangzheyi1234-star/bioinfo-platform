@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .capability_bundle_audit import capability_bundle_audit_for_tool
+from .capability_bundle_audit import capability_bundle_audit_for_tool, validate_capability_bundle_gate
 from .config import RemoteRunnerConfig
 from .generated_workflow_constants import GENERATED_TOOL_RUN_PIPELINE_ID
 from .generated_workflow_graph import workflow_graph_config
@@ -87,6 +87,8 @@ def prepare_generated_tool_workflow(
         workflow_resource_spec=collect_workflow_resource_specs([step.rule_template for step in generated_steps]),
         bindings=dict(run_spec.get("resourceBindings") or {}),
     )
+    if require_workflow_ready:
+        _validate_capability_bundle_gate(generated_steps, resource_context=workflow_resource_config["resources"])
     databases_config = workflow_resource_config["config"]
 
     exposed_outputs = resolve_exposed_outputs(
@@ -161,6 +163,19 @@ def prepare_generated_tool_workflow(
         outputs=final_outputs,
         output_schema={"type": "object", "artifacts": final_artifacts},
     )
+
+
+def _validate_capability_bundle_gate(
+    steps: list[GeneratedWorkflowStepPlan],
+    *,
+    resource_context: dict[str, Any],
+) -> None:
+    for step in steps:
+        validate_capability_bundle_gate(
+            step.tool,
+            step_id=step.step_id,
+            resource_context=resource_context,
+        )
 
 
 def _config_tool(

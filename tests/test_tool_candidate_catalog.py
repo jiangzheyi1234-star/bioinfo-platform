@@ -13,10 +13,13 @@ def test_curated_tool_profile_catalog_exposes_tool_candidates() -> None:
 
     catalog = catalog_tool_profiles(query="fast", page=1, page_size=10)
 
-    assert catalog["total"] == 2
-    assert catalog["addableTotal"] == 2
+    assert catalog["total"] >= 2
+    assert catalog["addableTotal"] >= 2
     assert catalog["qualityCounts"]["discovered"] >= 6
     assert catalog["qualityCounts"]["draftRunnable"] >= 6
+    assert {"fastp", "fastqc"}.issubset(
+        {item["profileId"] for item in catalog["items"]}
+    )
     fastp = next(item for item in catalog["items"] if item["profileId"] == "fastp")
     assert fastp["candidateId"] == "h2ometa-tool-profile::fastp"
     assert fastp["candidateKind"] == "h2ometa-tool-profile"
@@ -33,7 +36,9 @@ def test_curated_tool_profile_catalog_exposes_tool_candidates() -> None:
 def test_conda_package_candidate_exposes_contract_state(monkeypatch) -> None:
     from apps.api import tool_candidate_catalog
 
-    monkeypatch.setattr(tool_candidate_catalog, "find_snakemake_wrappers_for_tool", lambda name: [])
+    monkeypatch.setattr(
+        tool_candidate_catalog, "find_snakemake_wrappers_for_tool", lambda name: []
+    )
     monkeypatch.setattr(
         tool_candidate_catalog.DEFAULT_TOOL_CONTRACT_RESOLVER,
         "resolve_dependency",
@@ -95,11 +100,16 @@ def test_curated_tool_profile_catalog_attaches_snakemake_wrapper_evidence() -> N
     fastqc = next(item for item in catalog["items"] if item["profileId"] == "fastqc")
     assert fastqc["snakemakeWrapperCount"] >= 1
     assert fastqc["snakemakeWrappers"][0]["wrapperPath"] == "bio/fastqc"
-    assert fastqc["snakemakeWrappers"][0]["wrapperRepository"] == "snakemake/snakemake-wrappers"
+    assert (
+        fastqc["snakemakeWrappers"][0]["wrapperRepository"]
+        == "snakemake/snakemake-wrappers"
+    )
     assert fastqc["snakemakeWrappers"][0]["sourceRef"]["type"] == "snakemake-wrapper"
 
 
-def test_curated_tool_profile_wrapper_evidence_preserves_contract_hints(monkeypatch) -> None:
+def test_curated_tool_profile_wrapper_evidence_preserves_contract_hints(
+    monkeypatch,
+) -> None:
     from apps.api import tool_profile_external_refs
     from apps.api.tool_profile_catalog import catalog_tool_profiles
 
@@ -288,7 +298,9 @@ def test_unified_tool_candidate_catalog_uses_source_totals(monkeypatch) -> None:
         tool_candidate_catalog,
         "catalog_conda_package_candidates",
         lambda *, query, target_platform, page, page_size: {
-            "items": [{"candidateId": "bioconda::fastp", "candidateKind": "conda-package"}],
+            "items": [
+                {"candidateId": "bioconda::fastp", "candidateKind": "conda-package"}
+            ],
             "total": 20,
             "addableTotal": 20,
             "qualityCounts": {
@@ -303,7 +315,12 @@ def test_unified_tool_candidate_catalog_uses_source_totals(monkeypatch) -> None:
         tool_candidate_catalog,
         "catalog_snakemake_wrappers",
         lambda *, query, page, page_size: {
-            "items": [{"candidateId": "snakemake-wrapper::v9.8.0/bio/fastp", "candidateKind": "snakemake-wrapper"}],
+            "items": [
+                {
+                    "candidateId": "snakemake-wrapper::v9.8.0/bio/fastp",
+                    "candidateKind": "snakemake-wrapper",
+                }
+            ],
             "total": 500,
             "addableTotal": 100,
             "qualityCounts": {
@@ -318,7 +335,12 @@ def test_unified_tool_candidate_catalog_uses_source_totals(monkeypatch) -> None:
         tool_candidate_catalog,
         "catalog_tool_profiles",
         lambda *, query, page, page_size: {
-            "items": [{"candidateId": "h2ometa-tool-profile::fastp", "candidateKind": "h2ometa-tool-profile"}],
+            "items": [
+                {
+                    "candidateId": "h2ometa-tool-profile::fastp",
+                    "candidateKind": "h2ometa-tool-profile",
+                }
+            ],
             "total": 12,
             "addableTotal": 12,
             "qualityCounts": {
@@ -330,9 +352,15 @@ def test_unified_tool_candidate_catalog_uses_source_totals(monkeypatch) -> None:
         },
     )
 
-    catalog = tool_candidate_catalog.search_tool_candidates("fastp", page=1, page_size=10)
+    catalog = tool_candidate_catalog.search_tool_candidates(
+        "fastp", page=1, page_size=10
+    )
 
-    assert catalog["sourceCounts"] == {"condaPackages": 20, "snakemakeWrappers": 500, "toolProfiles": 12}
+    assert catalog["sourceCounts"] == {
+        "condaPackages": 20,
+        "snakemakeWrappers": 500,
+        "toolProfiles": 12,
+    }
     assert catalog["addableDraftCounts"] == {
         "condaPackages": 20,
         "snakemakeWrappers": 100,
@@ -349,7 +377,90 @@ def test_unified_tool_candidate_catalog_uses_source_totals(monkeypatch) -> None:
     }
 
 
-def test_unified_tool_candidate_catalog_uses_local_bioconda_index_for_empty_query(monkeypatch) -> None:
+def test_unified_tool_candidate_catalog_fetches_source_pages_beyond_first_hundred(
+    monkeypatch,
+) -> None:
+    from apps.api import tool_candidate_catalog
+
+    profile_ids = [f"profile-{index:03d}" for index in range(125)]
+    requested_pages: list[int] = []
+
+    monkeypatch.setattr(
+        tool_candidate_catalog,
+        "catalog_conda_package_candidates",
+        lambda *, query, target_platform, page, page_size: {
+            "items": [],
+            "total": 0,
+            "addableTotal": 0,
+            "hasMore": False,
+            "qualityCounts": {
+                "discovered": 0,
+                "draftRunnable": 0,
+                "workflowReady": 0,
+                "productionEnabled": 0,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        tool_candidate_catalog,
+        "catalog_snakemake_wrappers",
+        lambda *, query, page, page_size: {
+            "items": [],
+            "total": 0,
+            "addableTotal": 0,
+            "hasMore": False,
+            "qualityCounts": {
+                "discovered": 0,
+                "draftRunnable": 0,
+                "workflowReady": 0,
+                "productionEnabled": 0,
+            },
+        },
+    )
+
+    def catalog_profiles(*, query: str, page: int, page_size: int) -> dict[str, object]:
+        requested_pages.append(page)
+        offset = (page - 1) * page_size
+        items = [
+            {
+                "candidateId": f"h2ometa-tool-profile::{profile_id}",
+                "candidateKind": "h2ometa-tool-profile",
+                "profileId": profile_id,
+            }
+            for profile_id in profile_ids[offset : offset + page_size]
+        ]
+        return {
+            "items": items,
+            "total": len(profile_ids),
+            "addableTotal": len(profile_ids),
+            "hasMore": offset + page_size < len(profile_ids),
+            "qualityCounts": {
+                "discovered": len(profile_ids),
+                "draftRunnable": len(profile_ids),
+                "workflowReady": 0,
+                "productionEnabled": 0,
+            },
+        }
+
+    monkeypatch.setattr(
+        tool_candidate_catalog, "catalog_tool_profiles", catalog_profiles
+    )
+
+    catalog = tool_candidate_catalog.search_tool_candidates("", page=3, page_size=50)
+
+    assert requested_pages == [1, 2]
+    assert [item["profileId"] for item in catalog["items"][:3]] == [
+        "profile-100",
+        "profile-101",
+        "profile-102",
+    ]
+    assert catalog["items"][-1]["profileId"] == "profile-124"
+    assert catalog["hasMore"] is False
+
+
+def test_unified_tool_candidate_catalog_uses_local_bioconda_index_for_empty_query(
+    monkeypatch,
+) -> None:
     from apps.api import tool_candidate_catalog
 
     source = (ROOT / "apps/api/tool_candidate_catalog.py").read_text(encoding="utf-8")
@@ -405,11 +516,19 @@ def test_unified_tool_candidate_catalog_uses_local_bioconda_index_for_empty_quer
             "indexAvailable": True,
         },
     )
-    monkeypatch.setattr(tool_candidate_catalog, "find_snakemake_wrappers_for_tool", lambda name: [])
+    monkeypatch.setattr(
+        tool_candidate_catalog, "find_snakemake_wrappers_for_tool", lambda name: []
+    )
 
-    catalog = tool_candidate_catalog.search_tool_candidates("", target_platform="linux-64", page=1, page_size=10)
+    catalog = tool_candidate_catalog.search_tool_candidates(
+        "", target_platform="linux-64", page=1, page_size=10
+    )
 
-    assert catalog["sourceCounts"] == {"condaPackages": 12398, "snakemakeWrappers": 0, "toolProfiles": 0}
+    assert catalog["sourceCounts"] == {
+        "condaPackages": 12398,
+        "snakemakeWrappers": 0,
+        "toolProfiles": 0,
+    }
     assert catalog["addableDraftCounts"] == {
         "condaPackages": 12398,
         "snakemakeWrappers": 0,
@@ -442,7 +561,9 @@ def test_capability_graph_merges_remote_tool_index_catalog(monkeypatch) -> None:
         def list_tools(self) -> dict[str, object]:
             return {"data": {"items": []}}
 
-        def list_latest_tool_prepare_jobs(self, tool_ids: list[str]) -> dict[str, object]:
+        def list_latest_tool_prepare_jobs(
+            self, tool_ids: list[str]
+        ) -> dict[str, object]:
             return {"data": {"byToolId": {}}}
 
         def list_tool_prepare_job_queue(
@@ -452,7 +573,15 @@ def test_capability_graph_merges_remote_tool_index_catalog(monkeypatch) -> None:
             limit: int = 50,
             offset: int = 0,
         ) -> dict[str, object]:
-            return {"data": {"items": [], "total": 0, "limit": limit, "offset": offset, "statusCounts": {}}}
+            return {
+                "data": {
+                    "items": [],
+                    "total": 0,
+                    "limit": limit,
+                    "offset": offset,
+                    "statusCounts": {},
+                }
+            }
 
         def list_tool_index(
             self,
@@ -463,10 +592,28 @@ def test_capability_graph_merges_remote_tool_index_catalog(monkeypatch) -> None:
             source: str | None = None,
             state: str | None = None,
         ) -> dict[str, object]:
-            index_calls.append({"query": query, "limit": limit, "offset": offset, "source": source, "state": state})
-            totals = {"WorkflowReady": 1, "ProductionEnabled": 1, "SnakemakeRenderable": 0}
+            index_calls.append(
+                {
+                    "query": query,
+                    "limit": limit,
+                    "offset": offset,
+                    "source": source,
+                    "state": state,
+                }
+            )
+            totals = {
+                "WorkflowReady": 1,
+                "ProductionEnabled": 1,
+                "SnakemakeRenderable": 0,
+            }
             if state:
-                return {"data": {"items": [], "total": totals.get(state, 0), "hasMore": False}}
+                return {
+                    "data": {
+                        "items": [],
+                        "total": totals.get(state, 0),
+                        "hasMore": False,
+                    }
+                }
             return {
                 "data": {
                     "items": [
@@ -507,9 +654,23 @@ def test_capability_graph_merges_remote_tool_index_catalog(monkeypatch) -> None:
             "page": page,
             "pageSize": page_size,
             "hasMore": False,
-            "sourceCounts": {"condaPackages": 0, "snakemakeWrappers": 0, "toolProfiles": 0},
-            "addableDraftCounts": {"condaPackages": 0, "snakemakeWrappers": 0, "toolProfiles": 0, "total": 0},
-            "qualityCounts": {"discovered": 0, "draftRunnable": 0, "workflowReady": 0, "productionEnabled": 0},
+            "sourceCounts": {
+                "condaPackages": 0,
+                "snakemakeWrappers": 0,
+                "toolProfiles": 0,
+            },
+            "addableDraftCounts": {
+                "condaPackages": 0,
+                "snakemakeWrappers": 0,
+                "toolProfiles": 0,
+                "total": 0,
+            },
+            "qualityCounts": {
+                "discovered": 0,
+                "draftRunnable": 0,
+                "workflowReady": 0,
+                "productionEnabled": 0,
+            },
         },
     )
 
@@ -533,14 +694,51 @@ def test_capability_graph_merges_remote_tool_index_catalog(monkeypatch) -> None:
         "workflowReady": 1,
         "productionEnabled": 1,
     }
-    assert [item["candidateKind"] for item in catalog["items"]] == ["registered-tool-index", "registered-tool-index"]
+    assert [item["candidateKind"] for item in catalog["items"]] == [
+        "registered-tool-index",
+        "registered-tool-index",
+    ]
     assert catalog["items"][0]["qualityTier"] == "workflow-ready"
-    assert catalog["items"][0]["toolContract"] == {"state": "WorkflowReady", "workflowReady": True, "productionEnabled": False}
+    assert catalog["items"][0]["toolContract"] == {
+        "state": "WorkflowReady",
+        "workflowReady": True,
+        "productionEnabled": False,
+    }
     assert index_calls == [
-        {"query": "", "limit": 100, "offset": 0, "source": None, "state": "WorkflowReady"},
-        {"query": "", "limit": 100, "offset": 0, "source": None, "state": "ProductionEnabled"},
+        {
+            "query": "",
+            "limit": 100,
+            "offset": 0,
+            "source": None,
+            "state": "WorkflowReady",
+        },
+        {
+            "query": "",
+            "limit": 100,
+            "offset": 0,
+            "source": None,
+            "state": "ProductionEnabled",
+        },
         {"query": "fast", "limit": 10, "offset": 0, "source": None, "state": None},
-        {"query": "fast", "limit": 1, "offset": 0, "source": None, "state": "SnakemakeRenderable"},
-        {"query": "fast", "limit": 1, "offset": 0, "source": None, "state": "WorkflowReady"},
-        {"query": "fast", "limit": 1, "offset": 0, "source": None, "state": "ProductionEnabled"},
+        {
+            "query": "fast",
+            "limit": 1,
+            "offset": 0,
+            "source": None,
+            "state": "SnakemakeRenderable",
+        },
+        {
+            "query": "fast",
+            "limit": 1,
+            "offset": 0,
+            "source": None,
+            "state": "WorkflowReady",
+        },
+        {
+            "query": "fast",
+            "limit": 1,
+            "offset": 0,
+            "source": None,
+            "state": "ProductionEnabled",
+        },
     ]

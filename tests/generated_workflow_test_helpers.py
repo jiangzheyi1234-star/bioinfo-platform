@@ -206,7 +206,11 @@ def upsert_ready_tool(cfg: RemoteRunnerConfig, tool: dict[str, Any]) -> dict[str
         manifest["ruleTemplate"] = normalize_rule_template(completed_template, required=True)
 
     manifest["contractStatus"] = deepcopy(READY_CONTRACT_STATUS)
+    manifest.setdefault("validationSummary", _test_validation_summary(manifest))
     published = publish_tool_revision(cfg, manifest)
+    published.setdefault("validationSummary", manifest["validationSummary"])
+    published.setdefault("validationResultId", manifest["validationSummary"]["latestResultId"])
+    published.setdefault("evidenceId", manifest["validationSummary"]["evidenceId"])
     published["status"] = "published"
     saved = upsert_tool(cfg, published)
     _TEST_TOOL_REVISIONS[str(saved.get("id") or "")] = str(saved.get("toolRevisionId") or "")
@@ -250,6 +254,16 @@ def _default_smoke_inputs(rule_template: dict[str, Any]) -> dict[str, dict[str, 
                 "content": "fixture\n",
             }
     return smoke_inputs
+
+
+def _test_validation_summary(manifest: dict[str, Any]) -> dict[str, str]:
+    tool_id = str(manifest.get("id") or "tool").replace("::", "_").replace("/", "_").replace("=", "_")
+    return {
+        "latestResultId": f"toolval_test_{tool_id}",
+        "latestStatus": "passed",
+        "evidenceId": f"evid_test_{tool_id}",
+        "updatedAt": "2026-01-01T00:00:00Z",
+    }
 
 
 def _has_threads(rule_template: dict[str, Any]) -> bool:

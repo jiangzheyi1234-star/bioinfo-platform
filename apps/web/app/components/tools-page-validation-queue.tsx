@@ -30,8 +30,10 @@ export function ToolCatalogValidationQueueStrip({
   const [batchPreparing, setBatchPreparing] = useState(false);
   const [batchStatus, setBatchStatus] = useState("");
   const [error, setError] = useState("");
+  const [visibleLimit, setVisibleLimit] = useState(10);
   const { trackToolPrepareJob } = useToolPrepareTasks();
-  const visibleItems = items.slice(0, 3);
+  const visibleItems = items.slice(0, visibleLimit);
+  const hiddenItemCount = Math.max(0, items.length - visibleItems.length);
   const prepareQueueActive = Boolean((prepareJobQueue?.total ?? 0) > 0 || prepareJobQueue?.items?.length);
 
   if (items.length === 0 && !productionQueue?.items?.length && !prepareQueueActive) {
@@ -90,7 +92,10 @@ export function ToolCatalogValidationQueueStrip({
       {items.length > 0 ? (
         <div aria-label="validation queue" className={prepareQueueActive ? "mt-3" : ""}>
           <div className="mb-2 flex items-center justify-between gap-3">
-            <div className="text-xs font-medium text-slate-800">待验证候选</div>
+            <div className="text-xs font-medium text-slate-800">
+              待验证候选
+              <span className="ml-2 font-mono text-slate-500">{visibleItems.length}/{items.length}</span>
+            </div>
             <Button
               type="button"
               variant="outline"
@@ -148,8 +153,14 @@ export function ToolCatalogValidationQueueStrip({
               );
             })}
           </div>
-          {items.length > visibleItems.length ? (
-            <div className="mt-1 text-[11px] text-slate-400">还有 {items.length - visibleItems.length} 个候选未显示</div>
+          {hiddenItemCount > 0 || visibleLimit > 10 ? (
+            <button
+              type="button"
+              className="mt-1 text-[11px] font-medium text-blue-700 hover:text-blue-900"
+              onClick={() => setVisibleLimit((current) => (hiddenItemCount > 0 ? current + 10 : 10))}
+            >
+              {hiddenItemCount > 0 ? `再显示 10 个 · 还有 ${hiddenItemCount} 个` : "收起验证候选"}
+            </button>
           ) : null}
         </div>
       ) : null}
@@ -233,7 +244,37 @@ function validationEvidenceSummary(item: ToolCatalogValidationQueueItem): string
   if (semanticFields) {
     parts.push(semanticFields);
   }
+  const resourceSummary = validationResourceSummary(evidence as unknown as ValidationResourceEvidence);
+  if (resourceSummary) {
+    parts.push(resourceSummary);
+  }
   return parts.join(" · ");
+}
+
+type ValidationResourceEvidence = {
+  requiredResources?: Array<{
+    resourceKey?: string;
+    acceptedTemplates?: string[];
+    acceptedCapabilities?: string[];
+    nextAction?: string;
+  }>;
+  requiredResourceKeys?: string[];
+};
+
+function validationResourceSummary(evidence: ValidationResourceEvidence): string {
+  const resources = Array.isArray(evidence.requiredResources) ? evidence.requiredResources : [];
+  if (resources.length) {
+    return resources
+      .slice(0, 2)
+      .map((resource) => {
+        const templates = resource.acceptedTemplates?.filter(Boolean).join("|") || resource.acceptedCapabilities?.filter(Boolean).join("|");
+        return templates ? `${resource.resourceKey}:${templates}` : String(resource.resourceKey || "");
+      })
+      .filter(Boolean)
+      .join(" ");
+  }
+  const keys = Array.isArray(evidence.requiredResourceKeys) ? evidence.requiredResourceKeys : [];
+  return keys.length ? `resources ${keys.slice(0, 2).join(" ")}` : "";
 }
 
 function isActivePrepareJob(item: ToolCatalogValidationQueueItem): boolean {

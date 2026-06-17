@@ -10,6 +10,7 @@ from .tool_platform_storage import delete_tool_index, upsert_tool_index
 
 
 def _tool_row_to_dict(row) -> dict[str, Any]:
+    validation_summary = _row_json_object(row, "validation_summary_json")
     item = {
         "id": row["tool_id"],
         "toolRevisionId": row["tool_revision_id"],
@@ -38,19 +39,36 @@ def _tool_row_to_dict(row) -> dict[str, Any]:
         "publishedAt": row["published_at"],
         "lastCheckedAt": row["last_checked_at"],
     }
+    if validation_summary:
+        item["validationSummary"] = validation_summary
     item["toolContract"] = build_tool_contract(item)
     return item
 
 
 def list_tools(cfg: RemoteRunnerConfig) -> list[dict[str, Any]]:
     with get_connection(cfg) as connection:
-        rows = connection.execute("SELECT * FROM tools ORDER BY updated_at DESC, name ASC").fetchall()
+        rows = connection.execute(
+            """
+            SELECT tools.*, tool_index.validation_summary_json AS validation_summary_json
+            FROM tools
+            LEFT JOIN tool_index ON tool_index.tool_id = tools.tool_id
+            ORDER BY tools.updated_at DESC, tools.name ASC
+            """
+        ).fetchall()
     return [_tool_row_to_dict(row) for row in rows]
 
 
 def fetch_tool(cfg: RemoteRunnerConfig, tool_id: str) -> dict[str, Any] | None:
     with get_connection(cfg) as connection:
-        row = connection.execute("SELECT * FROM tools WHERE tool_id = ?", (tool_id,)).fetchone()
+        row = connection.execute(
+            """
+            SELECT tools.*, tool_index.validation_summary_json AS validation_summary_json
+            FROM tools
+            LEFT JOIN tool_index ON tool_index.tool_id = tools.tool_id
+            WHERE tools.tool_id = ?
+            """,
+            (tool_id,),
+        ).fetchone()
     return _tool_row_to_dict(row) if row is not None else None
 
 
@@ -161,3 +179,10 @@ def _latest_contract_checked_at(contract_status: dict[str, dict[str, str]]) -> s
         if isinstance(item, dict) and str(item.get("checkedAt") or "").strip()
     ]
     return max(values) if values else None
+
+
+def _row_json_object(row: Any, column: str) -> dict[str, Any]:
+    if column not in row.keys():
+        return {}
+    value = json.loads(row[column] or "{}")
+    return value if isinstance(value, dict) else {}

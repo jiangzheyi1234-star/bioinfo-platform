@@ -4,35 +4,25 @@ from __future__ import annotations
 
 from typing import Any
 
-from apps.api.bioconda_tool_index import search_bioconda_index_page
 from apps.api.tool_candidate_dependencies import (
-    conda_dependency_from_environment_hints,
-    normalize_package_name,
     package_spec_from_conda_dependency,
 )
 from apps.api.tool_profile_external_refs import profile_snakemake_wrappers
+from apps.api.tool_profile_identity import profile_tool_id
 from apps.api.tool_profile_model import ToolProfile
 from apps.api.tool_profiles import resolve_tool_profile_record
 
 
 def profile_prepare_payload(profile: ToolProfile) -> dict[str, Any]:
     tool_name = str(profile.tool_names[0] if profile.tool_names else profile.profile_id).strip()
-    source = "bioconda"
     package_name = str(profile.package_name or tool_name).strip()
-    package_spec = f"{source}::{package_name}"
+    dependency = _profile_locked_dependency(profile, preferred_name=package_name)
+    source = dependency["source"]
+    package_name = dependency["name"]
+    version = dependency["version"]
+    package_spec = package_spec_from_conda_dependency(dependency)
     wrappers = profile_snakemake_wrappers(profile)
-    dependency = _profile_primary_dependency(profile, wrappers, preferred_name=package_name)
-    if dependency is None:
-        dependency = _profile_manifest_dependency(profile, preferred_name=package_name)
-    if dependency is None and not profile.pack_id:
-        dependency = _bioconda_dependency_from_index(package_name)
-    version = ""
-    if dependency is not None:
-        source = dependency["source"]
-        package_name = dependency["name"]
-        version = dependency["version"]
-        package_spec = package_spec_from_conda_dependency(dependency)
-    tool_id = f"{source}::{package_name}"
+    tool_id = profile_tool_id(profile, source=source)
     draft = resolve_tool_profile_record(
         profile,
         {
@@ -48,6 +38,11 @@ def profile_prepare_payload(profile: ToolProfile) -> dict[str, Any]:
     payload = {
         "id": tool_id,
         "name": tool_name,
+        "profileId": profile.profile_id,
+        "profileVersion": profile.version,
+        "packId": profile.pack_id,
+        "packageName": package_name,
+        "validationTarget": profile.profile_id,
         "source": source,
         "sourceLabel": _source_label(source),
         "packageSpec": package_spec,
@@ -64,62 +59,17 @@ def profile_prepare_payload(profile: ToolProfile) -> dict[str, Any]:
     return payload
 
 
-def _profile_primary_dependency(
-    profile: ToolProfile,
-    wrappers: list[dict[str, Any]],
-    *,
-    preferred_name: str,
-) -> dict[str, str] | None:
-    preferred_paths = set(profile.preferred_wrapper_paths)
-    for wrapper in wrappers:
-        if preferred_paths and str(wrapper.get("wrapperPath") or "").strip() not in preferred_paths:
-            continue
-        dependency = _wrapper_dependency(wrapper, preferred_name=preferred_name)
-        if dependency is not None:
-            return dependency
-    for wrapper in wrappers:
-        dependency = _wrapper_dependency(wrapper, preferred_name=preferred_name)
-        if dependency is not None:
-            return dependency
-    return None
-
-
-def _profile_manifest_dependency(profile: ToolProfile, *, preferred_name: str) -> dict[str, str] | None:
-    if not profile.pack_id:
-        return None
-    environment = profile.rule_template.get("environment") if isinstance(profile.rule_template.get("environment"), dict) else {}
-    conda = environment.get("conda") if isinstance(environment.get("conda"), dict) else {}
-    channels = [str(item).strip() for item in conda.get("channels", []) if str(item or "").strip()]
-    dependencies = [
-        preferred_name if str(item or "").strip() == "{packageSpec}" else str(item or "").strip()
-        for item in conda.get("dependencies", [])
-        if str(item or "").strip()
-    ]
-    hints = {"environment": {"conda": {"channels": channels, "dependencies": dependencies}}}
-    return conda_dependency_from_environment_hints(hints, preferred_name=preferred_name)
-
-
-def _wrapper_dependency(wrapper: dict[str, Any], *, preferred_name: str) -> dict[str, str] | None:
-    hints = wrapper.get("wrapperContractHints") if isinstance(wrapper.get("wrapperContractHints"), dict) else {}
-    return conda_dependency_from_environment_hints(hints, preferred_name=preferred_name)
-
-
-def _bioconda_dependency_from_index(package_name: str) -> dict[str, str] | None:
-    normalized_package_name = normalize_package_name(package_name)
-    if not normalized_package_name:
-        return None
-    page = search_bioconda_index_page(package_name, page=1, page_size=10)
-    items = page.get("items") if isinstance(page, dict) else None
-    if not isinstance(items, list):
-        return None
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        name = str(item.get("name") or "").strip()
-        version = str(item.get("latestVersion") or "").strip()
-        if normalize_package_name(name) == normalized_package_name and version:
-            return {"source": "bioconda", "name": name, "version": version}
-    return None
+def _profile_locked_dependency(profile: ToolProfile, *, preferred_name: str) -> dict[str, str]:
+    source = str(profile.package_source or "").strip()
+    package_name = str(profile.package_name or preferred_name).strip()
+    version = str(profile.package_version or "").strip()
+    if not source:
+        raise ValueError("BIO_TOOL_PROFILE_PACKAGE_SOURCE_REQUIRED")
+    if not package_name:
+        raise ValueError("BIO_TOOL_PROFILE_PACKAGE_NAME_REQUIRED")
+    if not version:
+        raise ValueError("BIO_TOOL_PROFILE_PACKAGE_VERSION_REQUIRED")
+    return {"source": source, "name": package_name, "version": version}
 
 
 def _source_label(source: str) -> str:

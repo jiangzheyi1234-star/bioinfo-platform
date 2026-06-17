@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from apps.api.bio_tool_pack_capability_graph import semantic_capability_graph
@@ -311,6 +312,10 @@ def _bundle_blocking_reasons(
         reasons.append("EXPECTED_ARTIFACT_REQUIRED")
     if validation_evidence.get("status") != "passed":
         reasons.append("VALIDATION_EVIDENCE_REQUIRED")
+    if not str(validation_evidence.get("validationResultId") or "").strip():
+        reasons.append("VALIDATION_RESULT_ID_REQUIRED")
+    if not str(validation_evidence.get("evidenceId") or "").strip():
+        reasons.append("VALIDATION_EVIDENCE_ID_REQUIRED")
     if approval.get("required") is True and approval.get("approved") is not True:
         if approval.get("reason") == "database-resource-required":
             reasons.append("DATABASE_RESOURCE_REQUIRED")
@@ -690,13 +695,20 @@ def _database_evidence(database: dict[str, Any], *, resource_key: str, spec: dic
 
 
 def _matching_profile(tool: dict[str, Any], profiles: tuple[ToolProfile, ...]) -> ToolProfile | None:
+    draft = tool.get("ruleSpecDraft") if isinstance(tool.get("ruleSpecDraft"), dict) else {}
+    lock = draft.get("lock") if isinstance(draft.get("lock"), dict) else {}
+    locked_profile_id = _normalize_name(lock.get("profileId"))
+    if locked_profile_id:
+        for profile in profiles:
+            if _normalize_name(profile.profile_id) == locked_profile_id:
+                return profile
     names = {
         _normalize_name(value)
         for value in (tool.get("name"), tool.get("id"), tool.get("toolId"), tool.get("toolRevisionId"))
         if _normalize_name(value)
     }
     for profile in profiles:
-        profile_names = {_normalize_name(value) for value in (profile.profile_id, profile.package_name, *profile.tool_names)}
+        profile_names = {_normalize_name(value) for value in (profile.profile_id, *profile.tool_names)}
         if names & profile_names:
             return profile
     return None
@@ -732,13 +744,13 @@ def _tool_name_from_identifier(value: Any) -> str:
 
 
 def _normalize_name(value: Any) -> str:
-    return _tool_name_from_identifier(value).strip().lower()
+    return re.sub(r"[^a-z0-9.+-]+", "-", _tool_name_from_identifier(value).strip().lower()).strip("-")
 
 
 def _bundle_next_action(reasons: list[str]) -> str:
     if not reasons:
         return "add-step"
-    if "VALIDATION_EVIDENCE_REQUIRED" in reasons:
+    if any(reason in reasons for reason in ("VALIDATION_EVIDENCE_REQUIRED", "VALIDATION_RESULT_ID_REQUIRED", "VALIDATION_EVIDENCE_ID_REQUIRED")):
         return "run-validation"
     if "DATABASE_RESOURCE_REQUIRED" in reasons:
         return "add-database"

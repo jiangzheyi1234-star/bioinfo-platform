@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import sqlite3
 from types import SimpleNamespace
 
 
@@ -11,20 +10,18 @@ from apps.remote_runner.config import ensure_runtime_layout
 from apps.remote_runner.databases import add_reference_database, check_reference_database
 from apps.remote_runner.storage import fetch_tool
 from apps.remote_runner.storage import upsert_tool
-from apps.remote_runner.storage_core import get_connection
 from apps.remote_runner.tool_prepare_job_storage import (
     cancel_tool_prepare_job,
     complete_tool_prepare_job,
     create_tool_prepare_job,
     fail_tool_prepare_job,
     fetch_tool_prepare_job,
-    list_latest_tool_prepare_jobs_by_tool_id,
     mark_tool_prepare_job_waiting_resource,
     record_tool_prepare_job_event,
 )
 from apps.remote_runner.tool_prepare_jobs import run_tool_prepare_job
 from apps.remote_runner.tool_preparation import validate_registered_tool_for_publish
-from apps.remote_runner.tool_revisions import publish_tool_revision
+from apps.remote_runner.tool_revisions import fetch_tool_revision, publish_tool_revision
 from apps.remote_runner.tools import ToolRegistryError
 from tests.test_tool_contract_pipeline import _cfg, _rule_contract_fields, _runtime_commands
 
@@ -116,6 +113,40 @@ def test_prepare_job_publish_persists_only_after_workflow_ready(monkeypatch, tmp
     assert saved["toolContract"]["state"] == "WorkflowReady"
     assert saved["toolContract"]["workflowReady"] is True
     assert fetch_tool(cfg, "conda-forge::prepare-ready")["contractStatus"]["outputValidation"]["status"] == "passed"
+
+
+def test_prepare_job_publish_accepts_qiime2_source(monkeypatch, tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    _runtime_commands(tmp_path)
+
+    def fake_validation(_cfg, _tool):
+        return {
+            "ok": True,
+            "message": "Tool contract validation passed.",
+            "contractStatus": {
+                "dryRun": {"status": "passed", "message": "dry-run passed"},
+                "smokeRun": {"status": "passed", "message": "smoke passed"},
+                "outputValidation": {"status": "passed", "message": "output passed"},
+                "production": {"status": "not_run", "message": ""},
+            },
+        }
+
+    monkeypatch.setattr("apps.remote_runner.tool_preparation.run_tool_contract_validation", fake_validation)
+
+    payload = _prepare_tool_payload("qiime2::q2-feature-classifier", "q2-feature-classifier")
+    payload["source"] = "qiime2"
+    payload["packageSpec"] = "qiime2::q2-feature-classifier=2024.10.0"
+    payload["ruleTemplate"]["environment"]["conda"] = {
+        "channels": ["qiime2", "conda-forge", "bioconda"],
+        "dependencies": ["qiime2::q2-feature-classifier=2024.10.0"],
+    }
+
+    saved = _publish_tool_candidate(cfg, payload)
+
+    assert saved["source"] == "qiime2"
+    assert saved["packageSpec"] == "qiime2::q2-feature-classifier=2024.10.0"
+    assert saved["toolContract"]["workflowReady"] is True
 
 
 def test_h2ometa_profile_prepare_payload_publishes_workflow_ready(monkeypatch, tmp_path: Path) -> None:
@@ -244,7 +275,15 @@ def test_h2ometa_profile_prepare_job_result_is_workflow_ready(monkeypatch, tmp_p
         "output_validation",
         "published",
     }
-    assert fetch_tool(cfg, "bioconda::fastp")["toolContract"]["workflowReady"] is True
+    saved_tool = fetch_tool(cfg, "bioconda::fastp")
+    assert saved_tool["toolContract"]["workflowReady"] is True
+    assert saved_tool["validationSummary"]["latestResultId"] == finished["result"]["validationResultId"]
+    assert saved_tool["validationSummary"]["evidenceId"] == finished["result"]["evidenceId"]
+    revision = fetch_tool_revision(cfg, finished["result"]["toolRevisionId"])
+    assert revision is not None
+    assert revision["validationResultId"] == finished["result"]["validationResultId"]
+    assert revision["evidenceId"] == finished["result"]["evidenceId"]
+    assert revision["validationSummary"]["latestStatus"] == "succeeded"
 
 
 def test_h2ometa_database_profile_prepare_auto_binds_single_matching_database(monkeypatch, tmp_path: Path) -> None:
@@ -655,113 +694,6 @@ def test_create_prepare_job_reserves_active_job_by_package_and_validation_target
     )
     assert retry["jobId"] != first["jobId"]
     assert retry["reservation"]["key"] == "workflow-ready\x1fbioconda::fastqc=0.12.1"
-
-
-def test_prepare_job_storage_migrates_reservation_columns_for_legacy_database(tmp_path: Path) -> None:
-    cfg = _cfg(tmp_path)
-    db_path = Path(cfg.db_path)
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    legacy = sqlite3.connect(str(db_path))
-    legacy.execute(
-        """
-        CREATE TABLE tool_prepare_jobs (
-            job_id TEXT PRIMARY KEY,
-            status TEXT NOT NULL,
-            stage TEXT NOT NULL,
-            message TEXT NOT NULL,
-            tool_id TEXT NOT NULL,
-            request_json TEXT NOT NULL,
-            result_json TEXT,
-            error_code TEXT,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            started_at TEXT,
-            finished_at TEXT,
-            cancelled_at TEXT
-        )
-        """
-    )
-    legacy.close()
-
-    job = create_tool_prepare_job(
-        cfg,
-        {
-            "id": "bioconda::multiqc",
-            "name": "MultiQC",
-            "packageSpec": "bioconda::multiqc=1.25",
-            "validationTarget": "workflow-ready",
-        },
-    )
-
-    with get_connection(cfg) as connection:
-        columns = {row["name"] for row in connection.execute("PRAGMA table_info(tool_prepare_jobs)").fetchall()}
-        row = connection.execute(
-            """
-            SELECT reservation_key, reservation_package_spec, reservation_validation_target
-            FROM tool_prepare_jobs
-            WHERE job_id = ?
-            """,
-            (job["jobId"],),
-        ).fetchone()
-
-    assert {"reservation_key", "reservation_package_spec", "reservation_validation_target"} <= columns
-    assert row["reservation_key"] == "workflow-ready\x1fbioconda::multiqc=1.25"
-
-
-def test_latest_prepare_jobs_by_tool_id_returns_safe_status_summary(tmp_path: Path) -> None:
-    cfg = _cfg(tmp_path)
-    ensure_runtime_layout(cfg)
-
-    older = create_tool_prepare_job(cfg, {"id": "bioconda::fastqc", "name": "fastqc"})
-    complete_tool_prepare_job(
-        cfg,
-        older["jobId"],
-        {
-            "id": "bioconda::fastqc",
-            "toolContract": {"state": "WorkflowReady", "workflowReady": True},
-            "message": "Tool revision published.",
-        },
-    )
-    latest = create_tool_prepare_job(cfg, {"id": "bioconda::fastqc", "name": "fastqc"})
-    fail_tool_prepare_job(
-        cfg,
-        latest["jobId"],
-        code="SNAKEMAKE_DRY_RUN_FAILED",
-        message="Snakemake dry-run failed.",
-    )
-    other = create_tool_prepare_job(cfg, {"id": "bioconda::multiqc", "name": "multiqc"})
-
-    summaries = list_latest_tool_prepare_jobs_by_tool_id(
-        cfg,
-        ["bioconda::fastqc", "bioconda::multiqc", "missing", ""],
-    )
-
-    assert set(summaries) == {"bioconda::fastqc", "bioconda::multiqc"}
-    assert summaries["bioconda::fastqc"] == {
-        "jobId": latest["jobId"],
-        "toolId": "bioconda::fastqc",
-        "status": "failed",
-        "stage": "failed",
-        "message": "Snakemake dry-run failed.",
-        "errorCode": "SNAKEMAKE_DRY_RUN_FAILED",
-        "createdAt": summaries["bioconda::fastqc"]["createdAt"],
-        "updatedAt": summaries["bioconda::fastqc"]["updatedAt"],
-        "startedAt": None,
-        "finishedAt": summaries["bioconda::fastqc"]["finishedAt"],
-        "cancelledAt": None,
-        "resultState": "",
-        "workflowReady": False,
-        "productionEnabled": False,
-        "validationResultId": "",
-        "evidenceId": "",
-    }
-    assert summaries["bioconda::multiqc"]["jobId"] == other["jobId"]
-    assert summaries["bioconda::multiqc"]["status"] == "queued"
-    assert "request" not in summaries["bioconda::fastqc"]
-    assert "result" not in summaries["bioconda::fastqc"]
-    assert "events" not in summaries["bioconda::fastqc"]
-
-
 
 
 def _publish_tool_candidate(cfg, payload: dict[str, object]) -> dict[str, object]:

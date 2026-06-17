@@ -184,6 +184,7 @@ def record_prepare_job_validation_result(
         tool_id=tool_id,
         summary={
             "latestResultId": validation_result_id,
+            "evidenceId": evidence["eventId"],
             "latestJobId": job_id,
             "latestStage": str(stage or ""),
             "latestStatus": str(status or ""),
@@ -305,6 +306,29 @@ def _update_tool_index_validation_summary(connection: Any, *, tool_id: str, summ
     )
 
 
+def latest_validation_summary_for_tool_revision(
+    connection: Any,
+    *,
+    tool_revision_id: str,
+    tool_id: str = "",
+) -> dict[str, Any]:
+    revision_id = str(tool_revision_id or "").strip()
+    if revision_id:
+        row = connection.execute(
+            """
+            SELECT *
+            FROM tool_validation_results
+            WHERE tool_revision_id = ?
+            ORDER BY created_at DESC, validation_result_id DESC
+            LIMIT 1
+            """,
+            (revision_id,),
+        ).fetchone()
+        if row is not None:
+            return _validation_summary_from_result_row(row)
+    return _latest_validation_summary(connection, str(tool_id or "").strip()) if str(tool_id or "").strip() else {}
+
+
 def _latest_validation_summary(connection: Any, tool_id: str) -> dict[str, Any]:
     row = connection.execute(
         """
@@ -318,6 +342,10 @@ def _latest_validation_summary(connection: Any, tool_id: str) -> dict[str, Any]:
     ).fetchone()
     if row is None:
         return {}
+    return _validation_summary_from_result_row(row)
+
+
+def _validation_summary_from_result_row(row: Any) -> dict[str, Any]:
     return {
         "latestResultId": row["validation_result_id"],
         "evidenceId": row["evidence_id"],

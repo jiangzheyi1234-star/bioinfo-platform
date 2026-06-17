@@ -87,6 +87,7 @@ def render_rule_action_lines(
     env_path: Path,
     output_dir: str,
     runtime: RuleRuntimeDirectives,
+    output_parent_dirs: list[str] | None = None,
     shell_command: str,
 ) -> str:
     wrapper = str(rule_template.get("wrapper") or "").strip()
@@ -98,14 +99,27 @@ def render_rule_action_lines(
     if script:
         return conda_lines + f"    script:\n        {script!r}\n"
 
-    log_mkdir_lines = "".join(f"        mkdir -p {shlex.quote(path)}\n" for path in runtime_log_parent_dirs(runtime))
+    mkdir_lines = _mkdir_lines(
+        [output_dir, *runtime_log_parent_dirs(runtime), *(output_parent_dirs or [])]
+    )
     return (
         conda_lines
         + "    shell:\n"
         + "        r\"\"\"\n"
         + "        set -euo pipefail\n"
-        + f"        mkdir -p {shlex.quote(output_dir)}\n"
-        + f"{log_mkdir_lines}"
+        + f"{mkdir_lines}"
         + f"        {shell_command}\n"
         + "        \"\"\"\n"
     )
+
+
+def _mkdir_lines(paths: list[str]) -> str:
+    seen: set[str] = set()
+    lines: list[str] = []
+    for value in paths:
+        path = str(value or "").strip()
+        if not path or path == "." or path in seen:
+            continue
+        seen.add(path)
+        lines.append(f"        mkdir -p {shlex.quote(path)}\n")
+    return "".join(lines)

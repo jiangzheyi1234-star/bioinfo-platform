@@ -113,6 +113,8 @@ def _custom_pack_manifest() -> dict[str, object]:
                 "version": 1,
                 "toolNames": ["sourmash", "sourmash sketch"],
                 "packageName": "sourmash",
+                "packageSource": "bioconda",
+                "packageVersion": "4.9.4",
                 "workflowStage": "sketching",
                 "operation": "genome-sketching",
                 "ruleTemplate": {

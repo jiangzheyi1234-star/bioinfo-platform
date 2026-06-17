@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -12,6 +13,7 @@ from apps.remote_runner.api_models import WorkflowDesignDraftCreateRequest, Work
 from apps.remote_runner.databases import add_reference_database
 from apps.remote_runner.pipeline import get_pipeline
 from apps.remote_runner.preflight import RunPreflightError, preflight_run_spec
+from apps.remote_runner.storage import get_connection
 from core.contracts.workflow_design import workflow_design_graph, workflow_design_to_generated_run_spec
 from apps.remote_runner.workflow_design_compiler import compile_workflow_design_project
 from apps.remote_runner.workflow_design_planner import plan_workflow_design_draft
@@ -440,6 +442,36 @@ def test_workflow_design_plan_blocks_unready_tools(tmp_path: Path) -> None:
     assert plan["runSpec"] == {}
 
 
+def test_workflow_design_plan_rechecks_capability_bundle_gate(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    saved_tool = upsert_ready_tool(cfg, _tool_manifest())
+    _rewrite_tool_revision(
+        cfg,
+        saved_tool["toolRevisionId"],
+        lambda tool: tool["ruleTemplate"].pop("smokeTest", None),
+    )
+    saved = create_workflow_design_draft(cfg, _draft())
+
+    plan = plan_workflow_design_draft(cfg, saved["draft"], preview_root=tmp_path / "preview")
+
+    assert plan["valid"] is False
+    assert plan["validationIssues"][0]["code"] == "CAPABILITY_BUNDLE_NOT_SELECTABLE"
+    assert "SMOKE_FIXTURE_REQUIRED" in plan["validationIssues"][0]["message"]
+    assert plan["previews"]["snakefile"] == ""
+    assert plan["runSpec"] == {}
+
+    with pytest.raises(ValueError, match="CAPABILITY_BUNDLE_NOT_SELECTABLE: SMOKE_FIXTURE_REQUIRED"):
+        compile_workflow_design_project(
+            cfg,
+            saved["draft"],
+            export_dir=tmp_path / "blocked-export",
+            draft_id=saved["draftId"],
+            revision=saved["revision"],
+        )
+
+    assert not (tmp_path / "blocked-export" / "workflow" / "Snakefile").exists()
+
+
 def test_generated_tool_run_preflight_requires_saved_workflow_design_draft(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     upsert_ready_tool(cfg, _tool_manifest())
@@ -502,6 +534,27 @@ def test_generated_tool_run_preflight_requires_saved_workflow_design_draft(tmp_p
     null_pipeline_version["pipelineVersion"] = None
     with pytest.raises(RunPreflightError, match="WORKFLOW_DESIGN_RUN_SPEC_MISMATCH: pipelineVersion"):
         preflight_run_spec(cfg, pipeline, null_pipeline_version)
+
+
+def test_generated_tool_run_preflight_rechecks_capability_bundle_gate(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    saved_tool = upsert_ready_tool(cfg, _tool_manifest())
+    saved = create_workflow_design_draft(cfg, _draft())
+    pipeline = get_pipeline(cfg, GENERATED_TOOL_RUN_PIPELINE_ID)
+    compiled = compile_workflow_design_draft_export(cfg, saved["draftId"])
+    run_spec = dict(compiled["runSpec"])
+    run_spec["inputs"] = [{"role": "input", "uploadId": "upl_reads", "filename": "reads.fastq"}]
+
+    _rewrite_tool_revision(
+        cfg,
+        saved_tool["toolRevisionId"],
+        lambda tool: tool["ruleTemplate"].pop("smokeTest", None),
+    )
+
+    with pytest.raises(RunPreflightError, match="CAPABILITY_BUNDLE_NOT_SELECTABLE: SMOKE_FIXTURE_REQUIRED") as exc_info:
+        preflight_run_spec(cfg, pipeline, run_spec)
+
+    assert exc_info.value.status_code == 409
 
 
 def test_generated_workflow_planner_rejects_legacy_direct_shapes(tmp_path: Path) -> None:
@@ -614,3 +667,20 @@ def test_generated_workflow_planner_rejects_legacy_direct_shapes(tmp_path: Path)
             resolved_inputs=resolved_inputs,
             result_dir=tmp_path / "results",
         )
+
+
+def _rewrite_tool_revision(cfg: Any, tool_revision_id: str, mutate: Any) -> None:
+    with get_connection(cfg) as connection:
+        row = connection.execute(
+            "SELECT tool_json FROM tool_revisions WHERE tool_revision_id = ?",
+            (tool_revision_id,),
+        ).fetchone()
+        if row is None:
+            raise AssertionError(f"missing tool revision fixture: {tool_revision_id}")
+        tool = json.loads(row["tool_json"] or "{}")
+        mutate(tool)
+        connection.execute(
+            "UPDATE tool_revisions SET tool_json = ? WHERE tool_revision_id = ?",
+            (json.dumps(tool, ensure_ascii=False, sort_keys=True), tool_revision_id),
+        )
+        connection.commit()

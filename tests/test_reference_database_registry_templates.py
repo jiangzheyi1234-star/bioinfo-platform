@@ -28,7 +28,7 @@ def test_hmmer_pfam_template_accepts_hmmpress_index(tmp_path: Path, monkeypatch)
     hmm_path = database_dir / "Pfam-A.hmm"
     hmm_path.write_text("hmm", encoding="utf-8")
     for suffix in ("h3f", "h3i", "h3m"):
-        (database_dir / f"Pfam-A.{suffix}").write_text("index", encoding="utf-8")
+        (database_dir / f"Pfam-A.hmm.{suffix}").write_text("index", encoding="utf-8")
 
     saved = add_reference_database(
         cfg,
@@ -44,7 +44,7 @@ def test_hmmer_pfam_template_accepts_hmmpress_index(tmp_path: Path, monkeypatch)
     assert missing["status"] == "missing"
     assert "h3p" in missing["message"]
 
-    (database_dir / "Pfam-A.h3p").write_text("index", encoding="utf-8")
+    (database_dir / "Pfam-A.hmm.h3p").write_text("index", encoding="utf-8")
     checked = check_reference_database(cfg, saved["id"])
     assert checked["status"] == "available"
 
