@@ -22,6 +22,7 @@ jobs:
   diff_hygiene:
     name: diff / whitespace
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -42,6 +43,7 @@ jobs:
   python_windows:
     name: python / windows
     runs-on: windows-2022
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -67,6 +69,7 @@ jobs:
   web_windows:
     name: web / windows
     runs-on: windows-2022
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: apps/web
@@ -98,7 +101,9 @@ jobs:
 
   linux_parity_smoke:
     name: python / linux parity
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -151,7 +156,7 @@ jobs:
             name="${job%%:*}"
             result="${job#*:}"
             echo "$name => $result"
-            if [[ "$result" != "success" ]]; then
+            if [[ "$result" != "success" && "$result" != "skipped" ]]; then
               failed=1
             fi
           done

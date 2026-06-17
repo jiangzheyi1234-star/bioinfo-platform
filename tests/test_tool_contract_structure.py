@@ -100,7 +100,7 @@ def test_h2ometa_tool_profile_registry_lives_outside_profile_resolver() -> None:
     resolver_source = resolver_path.read_text(encoding="utf-8")
     assert len(resolver_source.splitlines()) <= 150
     assert registry_path.exists()
-    assert "from .tool_profile_registry import TOOL_PROFILES, ToolProfile" in resolver_source
+    assert "from .tool_profile_sources import all_tool_profiles" in resolver_source
     assert "TOOL_PROFILES: tuple[ToolProfile, ...]" not in resolver_source
 
     registry_source = registry_path.read_text(encoding="utf-8")

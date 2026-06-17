@@ -9,6 +9,9 @@ from apps.remote_runner.tools import ToolRegistryError, add_registered_tool, mar
 from tests.helpers.tool_contract_pipeline import _cfg, _rule_contract_fields, _validate_registered_tool
 
 
+TOOL_REVISION_ID = "conda-forge::coreutils#production-acceptance"
+
+
 def test_production_acceptance_requires_output_validation_and_records_evidence(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)
@@ -19,6 +22,7 @@ def test_production_acceptance_requires_output_validation_and_records_evidence(t
             "name": "coreutils",
             "source": "conda-forge",
             "packageSpec": "conda-forge::coreutils=9.5",
+            "toolRevisionId": TOOL_REVISION_ID,
             "targetPlatform": "linux-64",
             "targetPlatformSupported": True,
             "ruleTemplate": {
@@ -50,6 +54,7 @@ def test_production_acceptance_requires_output_validation_and_records_evidence(t
     checked["contractStatus"]["dryRun"] = {"status": "passed", "message": "Snakemake dry-run passed."}
     checked["contractStatus"]["smokeRun"] = {"status": "passed", "message": "Snakemake smoke run passed."}
     checked["contractStatus"]["outputValidation"] = {"status": "passed", "message": "Output validation passed."}
+    checked["toolRevisionId"] = TOOL_REVISION_ID
     upsert_tool(cfg, checked)
     result_dir = tmp_path / "production-result"
     result_dir.mkdir()
@@ -64,7 +69,7 @@ def test_production_acceptance_requires_output_validation_and_records_evidence(t
             "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
             "workflow": {
                 "contractVersion": "rule-contract-v1",
-                "nodes": [{"id": "run_tool", "tool": {"id": "conda-forge::coreutils"}}],
+                "nodes": [{"id": "run_tool", "toolRevisionId": TOOL_REVISION_ID}],
                 "edges": [],
             },
         },

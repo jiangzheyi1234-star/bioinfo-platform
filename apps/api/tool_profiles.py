@@ -113,9 +113,7 @@ def _profile_wrapper_lock(profile: ToolProfile) -> dict[str, str]:
 
 def _split_wrapper_identifier(wrapper: str) -> tuple[str, str]:
     parts = [part for part in _clean(wrapper).split("/") if part]
-    if len(parts) < 2:
-        return "", ""
-    return parts[0], "/".join(parts[1:])
+    return ("", "") if len(parts) < 2 else (parts[0], "/".join(parts[1:]))
 
 
 def _profile_package_identity(profile: ToolProfile) -> dict[str, str]:
