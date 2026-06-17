@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hmac
+
 from core.async_boundary import run_sync
 from core.api_payloads import request_payload
 from core.api_responses import data_response
@@ -13,8 +15,8 @@ __all__ = ["data_response", "request_payload", "run_sync"]
 
 
 def require_auth(authorization: str | None, token: str) -> None:
-    expected = f"Bearer {token}"
-    if not token or authorization != expected:
+    scheme, _, provided = str(authorization or "").partition(" ")
+    if not token or scheme.lower() != "bearer" or not hmac.compare_digest(provided.strip(), token):
         raise RemoteRunnerAuthError("runner authentication failed")
 
 

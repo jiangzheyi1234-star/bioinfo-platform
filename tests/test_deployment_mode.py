@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from unittest.mock import patch
 
+import pytest
+
 from core.deployment_mode import (
     DeploymentMode,
     get_deployment_config,
@@ -94,6 +96,20 @@ def test_validate_network_binding_rejects_external():
             assert False, "Should have raised ValueError"
         except ValueError as exc:
             assert "does not allow binding" in str(exc)
+
+
+def test_validate_network_binding_desktop_rejects_bind_all():
+    with patch.dict(os.environ, {"H2OMETA_DEPLOYMENT_MODE": "desktop"}):
+        config = get_deployment_config()
+        with pytest.raises(ValueError, match="Desktop mode does not allow binding"):
+            config.validate_network_binding("0.0.0.0")
+
+
+def test_validate_network_binding_single_user_bind_all_warns():
+    with patch.dict(os.environ, {"H2OMETA_DEPLOYMENT_MODE": "server-single-user"}):
+        config = get_deployment_config()
+        with pytest.warns(UserWarning, match="trusted intranet"):
+            config.validate_network_binding("0.0.0.0")
 
 
 def test_validate_security_desktop_no_warnings():

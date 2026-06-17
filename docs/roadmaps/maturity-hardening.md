@@ -43,10 +43,24 @@ Closure requires:
 4. Production evidence accepts only available real database records with supported evidence layers.
 5. `validation_fixture` and catalog-only `downloadable_pack` records cannot satisfy production evidence.
 
+## P0-10 Security Governance Criteria
+
+The P0-10 security governance contract is defined in `docs/security-governance.md`.
+The closure target is a pragmatic security baseline for the supported Desktop/local single-user product shape plus authenticated remote runner, not a claim that public multi-user production hosting is complete.
+
+Closure requires:
+
+1. CI includes a required `security / governance` job in the stable `required / ci-green` aggregate.
+2. The security job runs the repository secret/config audit and high-severity production npm audits against the official npm registry.
+3. Local API CORS uses explicit origins, methods, and headers.
+4. Remote runner bearer token validation parses the scheme and uses constant-time token comparison.
+5. Desktop deployment mode rejects `0.0.0.0`; server-single-user bind-all remains warning-only and trusted-intranet scoped.
+6. Current accepted risks are documented, including SSH host-key trust, Python audit gating, moderate npm findings, and unfinished multi-user/public deployment hardening.
+
 ## P1 Sequence
 
 1. Split frontend hotspots so no new TS/TSX file exceeds 800 lines and known oversized files only shrink.
-2. Add Dependency Review, CodeQL, OpenSSF Scorecard, and secret scanning or documented repository settings.
+2. Add Dependency Review, CodeQL, OpenSSF Scorecard, Dependabot security updates, and documented repository security settings when platform permissions allow.
 3. Make production release checks require supply-chain evidence by default for production runtime handoff.
 4. Harden Docker Compose from experimental single-user draft into a tested deployment profile only after auth, secrets, non-root containers, reverse proxy/TLS, and image scanning are resolved.
 5. Extend release artifacts with product-level SBOM/provenance where web, desktop, database packs, and runtime bundles leave the local development machine.

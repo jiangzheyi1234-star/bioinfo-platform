@@ -20,8 +20,11 @@ def test_ci_workflow_provides_required_mainline_gates() -> None:
     assert "name: required / ci-green" in source
     assert "DIFF_HYGIENE_RESULT: ${{ needs.diff_hygiene.result }}" in source
     assert "PYTHON_WINDOWS_RESULT: ${{ needs.python_windows.result }}" in source
+    assert "SECURITY_GOVERNANCE_RESULT: ${{ needs.security_governance.result }}" in source
     assert "WEB_WINDOWS_RESULT: ${{ needs.web_windows.result }}" in source
     assert "LINUX_PARITY_SMOKE_RESULT: ${{ needs.linux_parity_smoke.result }}" in source
+    assert "- security_governance" in source
+    assert "security-governance:${SECURITY_GOVERNANCE_RESULT}" in source
 
 
 def test_ci_workflow_runs_locked_python_and_web_quality_gates() -> None:
@@ -37,6 +40,16 @@ def test_ci_workflow_runs_locked_python_and_web_quality_gates() -> None:
     assert "npm run typecheck" in source
     assert "npm run build" in source
     assert "NEXT_TELEMETRY_DISABLED" in source
+
+
+def test_ci_workflow_runs_security_governance_gate() -> None:
+    source = CI_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "name: security / governance" in source
+    assert "npm_config_registry: https://registry.npmjs.org" in source
+    assert "python scripts/security_governance_audit.py" in source
+    assert "npm audit --registry=https://registry.npmjs.org --audit-level=high --package-lock-only --omit=dev" in source
+    assert "working-directory: apps/web" in source
 
 
 def test_ci_workflow_uses_sha_pinned_actions() -> None:

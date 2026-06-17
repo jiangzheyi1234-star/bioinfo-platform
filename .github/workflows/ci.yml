@@ -66,6 +66,31 @@ jobs:
           uv run --frozen ruff check apps core scripts tests
           uv run --frozen python -m pytest -q
 
+  security_governance:
+    name: security / governance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      npm_config_registry: https://registry.npmjs.org
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Run security governance audit
+        run: python scripts/security_governance_audit.py
+
+      - name: Audit root production npm lockfile
+        run: npm audit --registry=https://registry.npmjs.org --audit-level=high --package-lock-only --omit=dev
+
+      - name: Audit web production npm lockfile
+        working-directory: apps/web
+        run: npm audit --registry=https://registry.npmjs.org --audit-level=high --package-lock-only --omit=dev
+
   web_windows:
     name: web / windows
     runs-on: windows-2022
@@ -133,12 +158,14 @@ jobs:
     needs:
       - diff_hygiene
       - python_windows
+      - security_governance
       - web_windows
       - linux_parity_smoke
     runs-on: ubuntu-24.04
     env:
       DIFF_HYGIENE_RESULT: ${{ needs.diff_hygiene.result }}
       PYTHON_WINDOWS_RESULT: ${{ needs.python_windows.result }}
+      SECURITY_GOVERNANCE_RESULT: ${{ needs.security_governance.result }}
       WEB_WINDOWS_RESULT: ${{ needs.web_windows.result }}
       LINUX_PARITY_SMOKE_RESULT: ${{ needs.linux_parity_smoke.result }}
     steps:
@@ -150,6 +177,7 @@ jobs:
           for job in \
             "diff-hygiene:${DIFF_HYGIENE_RESULT}" \
             "python-windows:${PYTHON_WINDOWS_RESULT}" \
+            "security-governance:${SECURITY_GOVERNANCE_RESULT}" \
             "web-windows:${WEB_WINDOWS_RESULT}" \
             "linux-parity-smoke:${LINUX_PARITY_SMOKE_RESULT}"
           do

@@ -34,12 +34,23 @@ from apps.remote_runner.health_routes import (
     health_workers,
 )
 from apps.remote_runner.pipeline_routes import get_pipeline_api, get_pipelines
+from apps.remote_runner.route_utils import require_auth
 from apps.remote_runner.run_worker_storage import register_run_worker
 from apps.remote_runner.submission_routes import create_run, create_upload
 from apps.remote_runner.workflow_run_storage import create_run_record
 from tests.helpers.remote_runner_control_plane import (
     _write_file_summary_pipeline,
 )
+
+
+def test_remote_runner_auth_requires_bearer_token_contract() -> None:
+    require_auth("Bearer phase1-token", "phase1-token")
+    require_auth("bearer phase1-token", "phase1-token")
+
+    for authorization in (None, "", "Basic phase1-token", "Bearer wrong-token", "phase1-token"):
+        with pytest.raises(RemoteRunnerAuthError, match="runner authentication failed"):
+            require_auth(authorization, "phase1-token")
+
 
 def test_remote_runner_health_endpoints_require_auth_and_do_not_mutate_runtime(
     tmp_path: Path, monkeypatch

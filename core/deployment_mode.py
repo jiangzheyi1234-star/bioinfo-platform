@@ -44,6 +44,11 @@ class DeploymentConfig:
                     f"Deployment mode '{self.mode}' does not allow binding to '{host}'. "
                     f"Use a reverse proxy for external access."
                 )
+            if host == "0.0.0.0" and self.mode == DeploymentMode.DESKTOP:
+                raise ValueError(
+                    "Desktop mode does not allow binding to 0.0.0.0. "
+                    "Use 127.0.0.1, localhost, or ::1."
+                )
             if host == "0.0.0.0" and self.mode == DeploymentMode.SERVER_SINGLE_USER:
                 import warnings
                 warnings.warn(

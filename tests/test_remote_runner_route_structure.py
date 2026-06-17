@@ -226,6 +226,9 @@ def test_auth_errors_are_domain_errors_handled_by_problem_layer() -> None:
 
     assert "HTTPException" not in helper_source
     assert "RemoteRunnerAuthError" in helper_source
+    assert "import hmac" in helper_source
+    assert "hmac.compare_digest(" in helper_source
+    assert 'scheme.lower() != "bearer"' in helper_source
     assert "class RemoteRunnerAuthError(ValueError)" in errors_source
     assert "RemoteRunnerAuthError(ValueError):\n    status_code = 401" in errors_source
     assert "RemoteRunnerAuthError," in route_errors_source
