@@ -59,7 +59,7 @@ Run these steps for a production runtime release:
 4. Manually dispatch `.github/workflows/release-remote-runner-artifacts.yml`.
 5. Set `source_ref` to the full 40-character commit SHA.
 6. Set `publish_release=true` and `release_tag=h2ometa-runtime-vX.Y.Z`.
-7. For tarball-changing releases, set new `remote_runner_version` and `workflow_runtime_version` values instead of publishing new bytes under the old artifact filenames.
+7. For tarball-changing releases, set new `remote_runner_version` and `workflow_runtime_version` values instead of publishing new bytes under the old artifact filenames. The publish workflow fails if an artifact digest or size changes while keeping the checked-in manifest version.
 8. Leave `hosted_attestations=false` for this user-owned private repository unless the repository is public or the GitHub plan supports hosted attestations.
 9. Wait for CI to build and publish all assets.
 10. Download `release-artifacts-metadata.json`, `release-attestations.json`, `release-github-attestations.json`, and `release-published-assets.json` from the workflow artifacts.
