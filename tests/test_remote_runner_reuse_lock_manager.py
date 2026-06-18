@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
+from core.remote_runner.artifact import WORKFLOW_RUNTIME_VERSION
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
 from core.remote_runner.client import RemoteRunnerClientError
 from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerError
@@ -47,6 +48,7 @@ def test_bootstrap_reuses_existing_runner_when_artifact_sha_matches(monkeypatch)
     manager = RemoteRunnerManager()
     executed: list[str] = []
     uploads: list[tuple[str, str]] = []
+    workflow_runtime_dir = f"/home/tester/.h2ometa/runner/tools/workflow-runtime-{WORKFLOW_RUNTIME_VERSION}-linux-64"
 
     class FakeArtifact:
         archive_path = Path(__file__)
@@ -54,7 +56,7 @@ def test_bootstrap_reuses_existing_runner_when_artifact_sha_matches(monkeypatch)
         sha256 = "b" * 64
 
     class FakeWorkflowArtifact:
-        version = "0.1.0"
+        version = WORKFLOW_RUNTIME_VERSION
         platform = "linux-64"
         sha256 = "f" * 64
         manifest = {"packages": {"snakemake": "9.19.0"}}
@@ -92,17 +94,17 @@ def test_bootstrap_reuses_existing_runner_when_artifact_sha_matches(monkeypatch)
                 return 0, _runtime_state_json(), ""
             if "kill -0 123" in cmd:
                 return 0, "", ""
-            if "cat /home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/artifact.sha256" in cmd:
+            if f"cat {workflow_runtime_dir}/artifact.sha256" in cmd:
                 return 0, "f" * 64, ""
             if "cat /home/tester/.h2ometa/runner/shared/config/runner.json" in cmd:
                 return 0, json.dumps(
                     {
-                        "managed_conda_command": "/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/workflow-env/bin/conda",
-                        "managed_conda_root_prefix": "/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/micromamba-root",
+                        "managed_conda_command": f"{workflow_runtime_dir}/workflow-env/bin/conda",
+                        "managed_conda_root_prefix": f"{workflow_runtime_dir}/micromamba-root",
                         "workflow_runtime_provider": "conda-pack",
                         "workflow_runtime_source": "artifact",
-                        "workflow_runtime_version": "0.1.0",
-                        "snakemake_command": "/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/workflow-env/bin/snakemake",
+                        "workflow_runtime_version": WORKFLOW_RUNTIME_VERSION,
+                        "snakemake_command": f"{workflow_runtime_dir}/workflow-env/bin/snakemake",
                         "snakemake_version": "9.19.0",
                     }
                 ), ""
@@ -179,7 +181,7 @@ def test_bootstrap_reuses_existing_runner_when_artifact_sha_matches(monkeypatch)
                     "tooling": {
                         "workflow_runtime": {
                             "artifact_sha": "stale-workflow-runtime-sha",
-                            "snakemake_command": "/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/workflow-env/bin/snakemake",
+                            "snakemake_command": f"{workflow_runtime_dir}/workflow-env/bin/snakemake",
                         }
                     },
                 },
@@ -206,7 +208,7 @@ def test_bootstrap_reuses_existing_runner_when_artifact_sha_matches(monkeypatch)
     assert workflow_runtime["snakemake_command"].endswith("/workflow-env/bin/snakemake")
     assert result["bootstrap_metadata"]["workflow_runtime"] == {
         "action": "reused",
-        "path": "/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64",
+        "path": workflow_runtime_dir,
         "artifact_sha": "f" * 64,
     }
     assert uploads == []

@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from core.remote_runner.artifact import WorkflowRuntimeArtifact
+from core.remote_runner.artifact import WORKFLOW_RUNTIME_VERSION, WorkflowRuntimeArtifact
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
 from core.remote_runner.manager import RemoteRunnerManager
 
@@ -25,13 +25,13 @@ def _runtime_state_json(port: int = 43127) -> str:
 
 def _fake_workflow_artifact() -> WorkflowRuntimeArtifact:
     return WorkflowRuntimeArtifact(
-        version="0.1.0",
+        version=WORKFLOW_RUNTIME_VERSION,
         platform="linux-64",
         archive_path=Path(__file__),
         sha256="f" * 64,
         manifest={
             "service": "h2ometa-workflow-runtime",
-            "version": "0.1.0",
+            "version": WORKFLOW_RUNTIME_VERSION,
             "platform": "linux-64",
             "provider": "conda-pack",
             "entrypoints": {
@@ -54,6 +54,7 @@ def test_bootstrap_repairs_partial_install_with_existing_workflow_runtime() -> N
     executed: list[str] = []
     uploads: list[tuple[str, str]] = []
     uploaded_config: dict[str, object] = {}
+    workflow_runtime_dir = f"/home/zyserver/.h2ometa/runner/tools/workflow-runtime-{WORKFLOW_RUNTIME_VERSION}-linux-64"
 
     class FakeArtifact:
         archive_path = Path(__file__)
@@ -86,7 +87,7 @@ def test_bootstrap_repairs_partial_install_with_existing_workflow_runtime() -> N
                 return 0, "", ""
             if "artifact.sha256" in cmd and f"/releases/{REMOTE_RUNNER_VERSION}/artifact.sha256" in cmd:
                 return 0, "", ""
-            if "cat /home/zyserver/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/artifact.sha256" in cmd:
+            if f"cat {workflow_runtime_dir}/artifact.sha256" in cmd:
                 return 0, "f" * 64, ""
             if "cat /home/zyserver/.h2ometa/runner/shared/config/runner.json" in cmd:
                 return 0, json.dumps(uploaded_config), ""
@@ -167,10 +168,8 @@ def test_bootstrap_repairs_partial_install_with_existing_workflow_runtime() -> N
     assert any(f"rm -f /home/zyserver/.h2ometa/runner/bundle-{REMOTE_RUNNER_VERSION}.tar.gz" in cmd for cmd in executed)
     assert uploaded_config["workflow_runtime_provider"] == "conda-pack"
     assert uploaded_config["workflow_runtime_source"] == "artifact"
-    assert uploaded_config["workflow_runtime_version"] == "0.1.0"
-    assert uploaded_config["snakemake_command"] == (
-        "/home/zyserver/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/workflow-env/bin/snakemake"
-    )
+    assert uploaded_config["workflow_runtime_version"] == WORKFLOW_RUNTIME_VERSION
+    assert uploaded_config["snakemake_command"] == f"{workflow_runtime_dir}/workflow-env/bin/snakemake"
     assert uploaded_config["snakemake_version"] == "9.19.0"
     assert any("shared/config/runner.json" in remote for _local, remote in uploads)
     assert any("current.tmp" in cmd and "mv -Tf" in cmd for cmd in executed)

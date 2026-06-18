@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 
-from core.remote_runner.artifact import RemoteRunnerArtifactError
+from core.remote_runner.artifact import RemoteRunnerArtifactError, WORKFLOW_RUNTIME_VERSION
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
 from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerError
 from tests.helpers.remote_runner_control_plane import (
@@ -247,6 +247,10 @@ def test_bootstrap_registers_remote_workflow_runtime_when_local_artifact_is_miss
     executed: list[str] = []
     uploads: list[tuple[str, str]] = []
     uploaded_config: dict[str, object] = {}
+    workflow_runtime_dir = f"/home/tester/.h2ometa/runner/tools/workflow-runtime-{WORKFLOW_RUNTIME_VERSION}-linux-64"
+    workflow_runtime_bundle = f"{workflow_runtime_dir}.tar.gz"
+    workflow_manifest = dict(_fake_workflow_artifact().manifest)
+    workflow_manifest["version"] = WORKFLOW_RUNTIME_VERSION
 
     class FakeBundle:
         archive_path = Path(__file__)
@@ -264,12 +268,12 @@ def test_bootstrap_registers_remote_workflow_runtime_when_local_artifact_is_miss
             executed.append(cmd)
             if 'printf "%s" "$HOME"' in cmd:
                 return 0, "/home/tester", ""
-            if "cat /home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/bootstrap_manifest.json" in cmd:
-                return 0, json.dumps(_fake_workflow_artifact().manifest), ""
-            if "cat /home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/artifact.sha256" in cmd:
+            if f"cat {workflow_runtime_dir}/bootstrap_manifest.json" in cmd:
+                return 0, json.dumps(workflow_manifest), ""
+            if f"cat {workflow_runtime_dir}/artifact.sha256" in cmd:
                 return 1, "", "missing"
-            if "sha256sum /home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64.tar.gz" in cmd:
-                return 0, "f" * 64 + "  /home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64.tar.gz\n", ""
+            if f"sha256sum {workflow_runtime_bundle}" in cmd:
+                return 0, "f" * 64 + f"  {workflow_runtime_bundle}\n", ""
             if 'printf "%s:%s" "$(uname -s)" "$(uname -m)"' in cmd:
                 return 0, "Linux:x86_64", ""
             if "systemctl --user show-environment" in cmd:
@@ -346,9 +350,9 @@ def test_bootstrap_registers_remote_workflow_runtime_when_local_artifact_is_miss
 
     remote_uploads = [remote for _local, remote in uploads]
     assert "/home/tester/.h2ometa/runner/shared/config/runner.json.tmp" in remote_uploads
-    assert "/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64.tar.gz" not in remote_uploads
+    assert workflow_runtime_bundle not in remote_uploads
     assert any(f"ln -sfn /home/tester/.h2ometa/runner/releases/{REMOTE_RUNNER_VERSION} /home/tester/.h2ometa/runner/current" in cmd for cmd in executed)
-    assert any("printf" in cmd and "workflow-runtime-0.1.0-linux-64/artifact.sha256" in cmd for cmd in executed)
+    assert any("printf" in cmd and f"{workflow_runtime_dir}/artifact.sha256" in cmd for cmd in executed)
     assert result["bootstrap_metadata"]["workflow_runtime"]["action"] == "registered"
     assert result["health"]["ready"]["ok"] is True
 
