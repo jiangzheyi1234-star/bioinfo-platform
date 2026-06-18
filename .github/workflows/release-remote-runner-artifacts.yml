@@ -18,9 +18,9 @@ on:
         default: false
         type: boolean
       hosted_attestations:
-        description: Generate GitHub-hosted Sigstore attestations for runtime artifacts and SBOMs.
+        description: Generate GitHub-hosted Sigstore attestations for runtime artifacts and SBOMs. Only works for public repositories or supported GitHub Enterprise plans.
         required: true
-        default: true
+        default: false
         type: boolean
       release_tag:
         description: Existing GitHub Release tag, named h2ometa-runtime-vX.Y.Z, to receive the built assets when publish_release is true.

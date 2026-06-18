@@ -215,6 +215,10 @@ def test_ci_builder_uses_controlled_linux_builder_not_ssh(monkeypatch) -> None:
     assert "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683" in workflow
     assert "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" in workflow
     assert "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093" in workflow
+    assert "Only works for public repositories or supported GitHub Enterprise plans" in workflow
+    assert "hosted_attestations:\n        description:" in workflow
+    assert "hosted_attestations:\n        description: Generate GitHub-hosted Sigstore attestations" in workflow
+    assert "default: false\n        type: boolean\n      release_tag:" in workflow
     assert "actions/attest@281a49d4cbb0a72c9575a50d18f6deb515a11deb" in workflow
     assert "id-token: write" in workflow
     assert "attestations: write" in workflow
@@ -249,5 +253,7 @@ def test_ci_builder_uses_controlled_linux_builder_not_ssh(monkeypatch) -> None:
     assert "release_artifact_run_id" in promotion_workflow
     assert "gh run download \"$RELEASE_ARTIFACT_RUN_ID\"" in promotion_workflow
     assert "--github-attestations dist/remote-runner/release-github-attestations.json" in promotion_workflow
+    assert "require_github_attestations:\n        description:" in promotion_workflow
+    assert "default: false\n        type: boolean\n      platform:" in promotion_workflow
     assert "scripts/promote_remote_runner_release.py" in promotion_workflow
     assert "dist/remote-runner/release-promotion-summary.json" in promotion_workflow

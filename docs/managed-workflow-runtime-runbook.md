@@ -97,7 +97,7 @@ The repository entrypoint for that build is:
 uv run --frozen python scripts/build_release_artifacts_in_ci.py --source-ref <40-character-commit-sha> --platform linux-64 --output-dir dist/remote-runner
 ```
 
-The GitHub Actions workflow `.github/workflows/release-remote-runner-artifacts.yml` runs the same script on `ubuntu-24.04` and uploads the tarballs/checksums/SBOMs/metadata as workflow artifacts. By default it also creates GitHub-hosted Sigstore attestations with `actions/attest` for the runtime artifacts and their SBOMs, then verifies those attestations with `gh attestation verify`. The CI script still writes local in-toto-style provenance/SBOM attestation bundles and publishes those bundles as release assets so the release has an explicit fallback evidence trail. If the repository plan cannot use GitHub hosted attestations, dispatch the workflow with `hosted_attestations=false` and record the release as local-bundle attestation only; do not describe that release as GitHub-hosted/Sigstore attested. The workflow writes:
+The GitHub Actions workflow `.github/workflows/release-remote-runner-artifacts.yml` runs the same script on `ubuntu-24.04` and uploads the tarballs/checksums/SBOMs/metadata as workflow artifacts. The CI script writes local in-toto-style provenance/SBOM attestation bundles and publishes those bundles as release assets; for this user-owned private repository, those local bundles are the supported attestation evidence. Public repositories or supported GitHub Enterprise plans may dispatch with `hosted_attestations=true` to additionally create GitHub-hosted Sigstore attestations with `actions/attest` and verify those attestations with `gh attestation verify`. If hosted attestations are disabled or unavailable, record the release as local-bundle attestation only; do not describe that release as GitHub-hosted/Sigstore attested. The workflow writes:
 
 - `release-artifacts-metadata.json`: full builder, source, lock, artifact, and SBOM metadata.
 - `release-manifest-metadata.json`: compact values intended for `config/remote-runner-release-manifest.json`.
@@ -115,7 +115,6 @@ uv run --frozen python scripts/check_remote_runner_release_readiness.py \
   --manifest-metadata dist/remote-runner/release-manifest-metadata.json \
   --attestations dist/remote-runner/release-attestations.json \
   --github-attestations dist/remote-runner/release-github-attestations.json \
-  --require-github-attestations \
   --output-json dist/remote-runner/release-readiness-summary.json
 ```
 
