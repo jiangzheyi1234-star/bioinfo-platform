@@ -71,6 +71,9 @@ def test_security_governance_audit_script_contract() -> None:
     assert "ssh-auto-add-host-key" in source
     assert "ssh-host-key-reject-policy" in source
     assert "ssh-sha1-rsa-enabled" in source
+    assert "scan_forbidden_security_text" in source
+    assert "ssh-strict-host-key-checking-disabled" in source
+    assert "ssh-known-hosts-file-disabled" in source
 
     result = subprocess.run(
         [sys.executable, "scripts/security_governance_audit.py"],
@@ -81,6 +84,13 @@ def test_security_governance_audit_script_contract() -> None:
     )
     assert result.returncode == 0, result.stderr
     assert "Security governance audit passed." in result.stdout
+
+
+def test_docs_do_not_recommend_disabling_ssh_host_key_checks() -> None:
+    docs = "\n".join(path.read_text(encoding="utf-8") for path in (ROOT / "docs").rglob("*.md"))
+
+    assert "StrictHostKeyChecking=" + "no" not in docs
+    assert "UserKnownHostsFile=" + "/dev/null" not in docs
 
 
 def test_debug_remote_exec_stays_out_of_launchers_and_ci() -> None:

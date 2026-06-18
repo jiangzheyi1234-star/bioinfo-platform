@@ -35,6 +35,8 @@ def test_release_candidate_operating_loop_doc_defines_handoff_contract() -> None
         "scripts/local_web_smoke.ps1",
         "scripts/check_remote_runner_release_readiness.py",
         "database-pack-lifecycle-v1",
+        "Runtime manifest drift gate",
+        "runtimeManifestDrift.hasDrift",
     ):
         assert token in source
 
@@ -72,6 +74,11 @@ def test_release_candidate_script_collects_required_evidence_gates() -> None:
         "tests/test_reference_database_pack_catalog.py",
         "tests/test_reference_database_registry_templates.py",
         "tests/test_tool_contract_production_evidence.py",
+        "Get-RuntimeManifestDrift",
+        "runtime-manifest-drift",
+        "release-scoped sources changed after the runtime manifest source commit",
+        "config/remote-runner-release-manifest.json",
+        "runtimeManifestDrift = $runtimeManifestDrift",
         "handoffEligible",
     ):
         assert token in source
@@ -88,10 +95,13 @@ def test_release_candidate_script_keeps_optional_gates_explicit() -> None:
     assert "pass -DesktopStartupEvidence after starting run.bat --desktop" in source
     assert "[string]$ReleaseGateEvidence" in source
     assert "[switch]$RequireReleaseGateEvidence" in source
-    assert "$runtimeGateRequired = (" in source
+    assert "$runtimeGateRequired = $runtimeGateRequested" in source
     assert "$RequireRuntimeManifestArtifacts.IsPresent" in source
     assert "$RequireRuntimeSupplyChain.IsPresent" in source
     assert "[bool]$ReleaseTag" in source
+    assert "$runtimeGateRequested = (" in source
+    assert "$runtimeManifestArtifactsRequired = $true" in source
+    assert "$runtimeSupplyChainRequired = $true" in source
     assert "Required $runtimeGateRequired" in source
     assert "pass -ReleaseGateEvidence for runtime artifact production readiness" in source
     assert "scripts\\check_remote_runner_release_readiness.py" in source
