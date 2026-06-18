@@ -61,6 +61,7 @@ logs/
 # Release artifacts are published outside Git and resolved from the manifest.
 resources/remote-runner/*.tar.gz
 resources/remote-runner/*.tar.gz.sha256
+release-evidence/
 
 # Temporary test/debug files
 .tmp_*
