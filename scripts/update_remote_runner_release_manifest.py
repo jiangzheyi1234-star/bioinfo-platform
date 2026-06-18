@@ -328,6 +328,7 @@ def update_manifest(
         spec = artifacts.get(artifact_key)
         if not isinstance(spec, dict):
             raise SystemExit(f"release manifest missing artifact: {artifact_key}")
+        artifact_version = require_text(item, "version", context=f"{artifact_key} metadata")
         lock = item.get("lock") if isinstance(item.get("lock"), dict) else {}
         sbom = item.get("sbom") if isinstance(item.get("sbom"), dict) else {}
         download_url = download_urls.get((artifact_key, platform), "")
@@ -344,6 +345,7 @@ def update_manifest(
         )
         if not artifact_attestation_url:
             raise SystemExit(f"release attestations missing attestationUrl for {artifact_key}")
+        spec["version"] = artifact_version
         spec.setdefault("sha256", {})[platform] = require_text(item, "sha256", context=f"{artifact_key} metadata")
         spec.setdefault("size_bytes", {})[platform] = int(item.get("sizeBytes") or 0)
         spec.setdefault("lock_sha256", {})[platform] = require_text(lock, "sha256", context=f"{artifact_key} lock metadata")

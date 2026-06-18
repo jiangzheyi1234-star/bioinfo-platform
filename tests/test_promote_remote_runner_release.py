@@ -193,6 +193,7 @@ def _artifact(
 ) -> dict[str, Any]:
     return {
         "artifactKey": key,
+        "version": "0.1.1-control-plane" if key == "remote_runner" else "0.1.0",
         "platform": "linux-64",
         "path": str(path),
         "sha256Path": str(path) + ".sha256",

@@ -142,6 +142,7 @@ def test_update_manifest_writes_release_metadata_and_supply_chain_fields() -> No
     )
 
     spec = updated["artifacts"]["remote_runner"]
+    assert spec["version"] == "0.1.1-control-plane"
     assert spec["sha256"]["linux-64"] == "b" * 64
     assert spec["size_bytes"]["linux-64"] == 123
     assert spec["lock_sha256"]["linux-64"] == "c" * 64
@@ -153,6 +154,24 @@ def test_update_manifest_writes_release_metadata_and_supply_chain_fields() -> No
     assert spec["builder_ids"]["linux-64"].endswith("@refs/tags/v0.1.1")
     assert spec["source_refs"]["linux-64"] == "refs/tags/v0.1.1"
     assert spec["source_commits"]["linux-64"] == "a" * 40
+
+
+def test_update_manifest_writes_artifact_version_from_release_metadata() -> None:
+    metadata = _metadata()
+    metadata["artifacts"][0]["version"] = "0.1.2-control-plane"
+
+    updated = updater.update_manifest(
+        _manifest(),
+        metadata=metadata,
+        attestations=_attestations(),
+        download_urls={("remote_runner", "linux-64"): "https://api.github.com/repos/owner/repo/releases/assets/1"},
+        sbom_urls={
+            ("remote_runner", "linux-64"): "https://api.github.com/repos/owner/repo/releases/assets/2"
+        },
+        published_assets=_published_assets(),
+    )
+
+    assert updated["artifacts"]["remote_runner"]["version"] == "0.1.2-control-plane"
 
 
 def test_update_manifest_prefers_github_hosted_attestation_urls() -> None:

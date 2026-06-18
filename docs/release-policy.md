@@ -59,10 +59,11 @@ Run these steps for a production runtime release:
 4. Manually dispatch `.github/workflows/release-remote-runner-artifacts.yml`.
 5. Set `source_ref` to the full 40-character commit SHA.
 6. Set `publish_release=true` and `release_tag=h2ometa-runtime-vX.Y.Z`.
-7. Leave `hosted_attestations=false` for this user-owned private repository unless the repository is public or the GitHub plan supports hosted attestations.
-8. Wait for CI to build and publish all assets.
-9. Download `release-artifacts-metadata.json`, `release-attestations.json`, `release-github-attestations.json`, and `release-published-assets.json` from the workflow artifacts.
-10. Update the manifest:
+7. For tarball-changing releases, set new `remote_runner_version` and `workflow_runtime_version` values instead of publishing new bytes under the old artifact filenames.
+8. Leave `hosted_attestations=false` for this user-owned private repository unless the repository is public or the GitHub plan supports hosted attestations.
+9. Wait for CI to build and publish all assets.
+10. Download `release-artifacts-metadata.json`, `release-attestations.json`, `release-github-attestations.json`, and `release-published-assets.json` from the workflow artifacts.
+11. Update the manifest:
 
 ```powershell
 uv run python scripts\update_remote_runner_release_manifest.py `
@@ -72,7 +73,7 @@ uv run python scripts\update_remote_runner_release_manifest.py `
   --published-assets dist\remote-runner\release-published-assets.json
 ```
 
-11. Validate the release handoff:
+12. Validate the release handoff:
 
 ```powershell
 uv run python scripts\check_release_manifest_traceability.py --release-tag h2ometa-runtime-vX.Y.Z
@@ -83,7 +84,7 @@ uv run python scripts\check_remote_runner_release_readiness.py `
   --require-supply-chain
 ```
 
-12. Run the production promotion gate with the CI metadata, published asset map, and real release gate evidence:
+13. Run the production promotion gate with the CI metadata, published asset map, and real release gate evidence:
 
 ```powershell
 uv run python scripts\promote_remote_runner_release.py `
@@ -100,8 +101,8 @@ uv run python scripts\promote_remote_runner_release.py `
 
 For this user-owned private repository, `release-github-attestations.json` is normally a disabled summary and promotion falls back to the local in-toto bundles in `release-attestations.json`. Add `--require-github-attestations` only for a release workflow run that was dispatched with `hosted_attestations=true` and successfully produced hosted GitHub/Sigstore URLs.
 
-13. Review `release-promotion-summary.json` and `promoted-release-manifest.json`.
-14. Commit the promoted manifest update and any release documentation updates.
+14. Review `release-promotion-summary.json` and `promoted-release-manifest.json`.
+15. Commit the promoted manifest update and any release documentation updates.
 
 For runtime releases that change remote-runner execution control-plane behavior, the required staged acceptance gate is:
 
