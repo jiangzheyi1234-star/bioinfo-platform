@@ -1,0 +1,250 @@
+name: Register Remote Runner Release Gate Evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Runtime release tag, named h2ometa-runtime-vX.Y.Z.
+        required: true
+        default: ""
+      release_artifact_run_id:
+        description: Release workflow run id that built and published the runtime assets.
+        required: true
+        default: ""
+      release_gate_evidence_asset:
+        description: GitHub Release asset name containing release-gate-evidence.json from the real remote gate.
+        required: true
+        default: release-gate-evidence.json
+      release_gate_evidence_artifact:
+        description: Workflow artifact name to upload for protected promotion.
+        required: true
+        default: h2ometa-remote-runner-release-gate-evidence
+      platform:
+        description: Target Linux platform.
+        required: true
+        default: linux-64
+        type: choice
+        options:
+          - linux-64
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  register:
+    name: Validate and register release gate evidence
+    runs-on: ubuntu-24.04
+    env:
+      PLATFORM: ${{ github.event.inputs.platform || 'linux-64' }}
+      RELEASE_TAG: ${{ github.event.inputs.release_tag }}
+      RELEASE_ARTIFACT_RUN_ID: ${{ github.event.inputs.release_artifact_run_id }}
+      RELEASE_GATE_EVIDENCE_ASSET: ${{ github.event.inputs.release_gate_evidence_asset }}
+      RELEASE_GATE_EVIDENCE_ARTIFACT: ${{ github.event.inputs.release_gate_evidence_artifact }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+
+      - name: Validate registration inputs
+        run: |
+          if ! printf '%s' "$RELEASE_TAG" | grep -Eq '^h2ometa-runtime-v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$'; then
+            echo "release_tag must be named h2ometa-runtime-vX.Y.Z." >&2
+            exit 1
+          fi
+          if ! printf '%s' "$RELEASE_ARTIFACT_RUN_ID" | grep -Eq '^[0-9]+$'; then
+            echo "release_artifact_run_id must be a GitHub Actions run id." >&2
+            exit 1
+          fi
+          if [ -z "$RELEASE_GATE_EVIDENCE_ASSET" ]; then
+            echo "release_gate_evidence_asset is required." >&2
+            exit 1
+          fi
+          if [ -z "$RELEASE_GATE_EVIDENCE_ARTIFACT" ]; then
+            echo "release_gate_evidence_artifact is required." >&2
+            exit 1
+          fi
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
+      - name: Download published release build proof
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download "$RELEASE_ARTIFACT_RUN_ID" \
+            --name "h2ometa-remote-runner-release-${PLATFORM}" \
+            --dir dist/remote-runner
+          gh run download "$RELEASE_ARTIFACT_RUN_ID" \
+            --name "h2ometa-remote-runner-release-published-assets-${PLATFORM}" \
+            --dir dist/remote-runner
+          test -f dist/remote-runner/release-artifacts-metadata.json
+          test -f dist/remote-runner/release-manifest-metadata.json
+          test -f dist/remote-runner/release-attestations.json
+          test -f dist/remote-runner/release-published-assets.json
+
+      - name: Verify release build run identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run view "$RELEASE_ARTIFACT_RUN_ID" \
+            --repo "$GH_REPO" \
+            --json conclusion,event,headSha,status,url,workflowName,workflowDatabaseId \
+            > dist/remote-runner/release-build-run.json
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          dist = Path("dist/remote-runner")
+          metadata = json.loads((dist / "release-artifacts-metadata.json").read_text(encoding="utf-8"))
+          run = json.loads((dist / "release-build-run.json").read_text(encoding="utf-8"))
+          source_commit = str(metadata.get("sourceCommit") or "").strip().lower()
+          if len(source_commit) != 40 or any(ch not in "0123456789abcdef" for ch in source_commit):
+              raise SystemExit("metadata.sourceCommit must be a full 40-character commit SHA")
+          if str(run.get("workflowName") or "") != "Release Remote Runner Artifacts":
+              raise SystemExit("release_artifact_run_id must be a Release Remote Runner Artifacts run")
+          if str(run.get("event") or "") != "workflow_dispatch":
+              raise SystemExit("release artifact run must be workflow_dispatch")
+          if str(run.get("status") or "") != "completed" or str(run.get("conclusion") or "") != "success":
+              raise SystemExit("release artifact run must be completed successfully")
+          if str(run.get("headSha") or "").strip().lower() != source_commit:
+              raise SystemExit("release artifact run headSha must match metadata.sourceCommit")
+          builder = metadata.get("builder") if isinstance(metadata.get("builder"), dict) else {}
+          run_url = str(run.get("url") or "").rstrip("/")
+          builder_run_url = str(builder.get("runUrl") or "").rstrip("/")
+          expected_suffix = "/actions/runs/" + os.environ["RELEASE_ARTIFACT_RUN_ID"]
+          if not builder_run_url.endswith(expected_suffix):
+              raise SystemExit("metadata.builder.runUrl does not reference release_artifact_run_id")
+          if run_url and builder_run_url and run_url != builder_run_url:
+              raise SystemExit("release artifact run URL mismatch")
+          PY
+
+      - name: Download release gate evidence asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$RELEASE_TAG" \
+            --repo "$GH_REPO" \
+            --pattern "$RELEASE_GATE_EVIDENCE_ASSET" \
+            --dir dist/remote-runner \
+            --clobber
+          if [ "$RELEASE_GATE_EVIDENCE_ASSET" != "release-gate-evidence.json" ]; then
+            cp "dist/remote-runner/${RELEASE_GATE_EVIDENCE_ASSET}" \
+              dist/remote-runner/release-gate-evidence.json
+          fi
+          test -f dist/remote-runner/release-gate-evidence.json
+
+      - name: Validate release build and gate evidence
+        run: |
+          github_attestation_args=""
+          if [ -f dist/remote-runner/release-github-attestations.json ]; then
+            github_attestation_args="--github-attestations dist/remote-runner/release-github-attestations.json"
+          fi
+          uv run --frozen python scripts/check_remote_runner_release_readiness.py \
+            --ci-build-metadata dist/remote-runner/release-artifacts-metadata.json \
+            --manifest-metadata dist/remote-runner/release-manifest-metadata.json \
+            --attestations dist/remote-runner/release-attestations.json \
+            $github_attestation_args \
+            --release-gate-evidence dist/remote-runner/release-gate-evidence.json \
+            --output-json dist/remote-runner/release-gate-readiness-summary.json
+
+      - name: Verify release gate identity
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          from scripts import update_remote_runner_release_manifest as updater
+
+          dist = Path("dist/remote-runner")
+          metadata = json.loads((dist / "release-artifacts-metadata.json").read_text(encoding="utf-8"))
+          manifest_metadata = json.loads((dist / "release-manifest-metadata.json").read_text(encoding="utf-8"))
+          published_assets = json.loads((dist / "release-published-assets.json").read_text(encoding="utf-8"))
+          gate = json.loads((dist / "release-gate-evidence.json").read_text(encoding="utf-8"))
+
+          def require_commit(value, field):
+              text = str(value or "").strip().lower()
+              if len(text) != 40 or any(ch not in "0123456789abcdef" for ch in text):
+                  raise SystemExit(f"{field} must be a full 40-character commit SHA")
+              return text
+
+          def require_sha256(value, field):
+              text = str(value or "").strip().lower()
+              if len(text) != 64 or any(ch not in "0123456789abcdef" for ch in text):
+                  raise SystemExit(f"{field} must be a SHA-256 digest")
+              return text
+
+          release_tag = os.environ["RELEASE_TAG"]
+          source_commit = require_commit(metadata.get("sourceCommit"), "metadata.sourceCommit")
+          source_ref = require_commit(metadata.get("sourceRef"), "metadata.sourceRef")
+          if source_ref != source_commit:
+              raise SystemExit("metadata.sourceRef must equal metadata.sourceCommit")
+          if require_commit(manifest_metadata.get("sourceCommit"), "manifestMetadata.sourceCommit") != source_commit:
+              raise SystemExit("manifest metadata sourceCommit mismatch")
+          if require_commit(gate.get("sourceCommit"), "releaseGate.sourceCommit") != source_commit:
+              raise SystemExit("release gate sourceCommit mismatch")
+          tag_commit = subprocess.check_output(
+              ["git", "rev-parse", f"{release_tag}^{{commit}}"],
+              text=True,
+          ).strip().lower()
+          if tag_commit != source_commit:
+              raise SystemExit(f"release tag points at {tag_commit}, not {source_commit}")
+          if str(published_assets.get("releaseTag") or "").strip() != release_tag:
+              raise SystemExit("published assets releaseTag mismatch")
+
+          artifacts = metadata.get("artifacts")
+          if not isinstance(artifacts, list):
+              raise SystemExit("metadata.artifacts must be a list")
+          runners = [
+              item for item in artifacts
+              if isinstance(item, dict) and str(item.get("artifactKey") or "") == "remote_runner"
+          ]
+          if len(runners) != 1:
+              raise SystemExit("metadata must include exactly one remote_runner artifact")
+          runner_sha = require_sha256(runners[0].get("sha256"), "metadata.remote_runner.sha256")
+          bundle = gate.get("remoteRunnerBundle")
+          if not isinstance(bundle, dict):
+              raise SystemExit("release gate remoteRunnerBundle must be an object")
+          gate_sha = require_sha256(bundle.get("sha256"), "releaseGate.remoteRunnerBundle.sha256")
+          if gate_sha != runner_sha:
+              raise SystemExit("release gate remoteRunnerBundle sha256 mismatch")
+          updater.merge_published_asset_urls(
+              metadata=metadata,
+              published_assets=published_assets,
+              download_urls={},
+              sbom_urls={},
+          )
+
+          registration = {
+              "schemaVersion": "h2ometa-release-gate-evidence-registration.v1",
+              "ok": True,
+              "repository": os.environ.get("GH_REPO", ""),
+              "releaseTag": release_tag,
+              "releaseArtifactRunId": os.environ["RELEASE_ARTIFACT_RUN_ID"],
+              "releaseGateEvidenceAsset": os.environ["RELEASE_GATE_EVIDENCE_ASSET"],
+              "releaseGateEvidenceArtifact": os.environ["RELEASE_GATE_EVIDENCE_ARTIFACT"],
+              "sourceCommit": source_commit,
+              "remoteRunnerSha256": runner_sha,
+          }
+          (dist / "release-gate-evidence-registration.json").write_text(
+              json.dumps(registration, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload release gate evidence artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ env.RELEASE_GATE_EVIDENCE_ARTIFACT }}
+          path: |
+            dist/remote-runner/release-gate-evidence.json
+            dist/remote-runner/release-gate-readiness-summary.json
+            dist/remote-runner/release-gate-evidence-registration.json
+          if-no-files-found: error
+          retention-days: 14

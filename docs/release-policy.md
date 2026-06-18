@@ -94,12 +94,28 @@ uv run python scripts\promote_remote_runner_release.py `
   --github-attestations dist\remote-runner\release-github-attestations.json `
   --published-assets dist\remote-runner\release-published-assets.json `
   --release-gate-evidence dist\remote-runner\release-gate-evidence.json `
+  --release-gate-registration dist\remote-runner\release-gate-evidence-registration.json `
   --release-tag h2ometa-runtime-vX.Y.Z `
   --output-manifest dist\remote-runner\promoted-release-manifest.json `
   --summary-json dist\remote-runner\release-promotion-summary.json
 ```
 
 For this user-owned private repository, `release-github-attestations.json` is normally a disabled summary and promotion falls back to the local in-toto bundles in `release-attestations.json`. Add `--require-github-attestations` only for a release workflow run that was dispatched with `hosted_attestations=true` and successfully produced hosted GitHub/Sigstore URLs.
+
+For GitHub-driven promotion, first attach the real gate evidence to the runtime Release and register it as a workflow artifact:
+
+```powershell
+gh release upload h2ometa-runtime-vX.Y.Z `
+  dist\remote-runner\release-gate-evidence.json `
+  --clobber
+gh workflow run ".github/workflows/register-remote-runner-release-gate-evidence.yml" `
+  --ref h2ometa-runtime-vX.Y.Z `
+  -f release_tag=h2ometa-runtime-vX.Y.Z `
+  -f release_artifact_run_id=<release-build-run-id> `
+  -f release_gate_evidence_asset=release-gate-evidence.json
+```
+
+Wait for the registration workflow to upload `h2ometa-remote-runner-release-gate-evidence`, then dispatch `.github/workflows/promote-remote-runner-release.yml` with the release build run id plus that registration workflow run id. The registration workflow does not run the destructive remote gate; it verifies that the release build run succeeded from the release workflow, the evidence asset belongs to the same release tag, source commit, published asset map, and CI-built remote-runner SHA-256, then writes `release-gate-evidence-registration.json` next to `release-gate-evidence.json` for protected promotion.
 
 14. Review `release-promotion-summary.json` and `promoted-release-manifest.json`.
 15. Commit the promoted manifest update and any release documentation updates.
@@ -148,7 +164,7 @@ soak result.
 
 For controlled CI builds, `.github/workflows/release-remote-runner-artifacts.yml` runs `scripts\check_remote_runner_release_readiness.py` immediately after artifact build with the generated `release-artifacts-metadata.json`, `release-manifest-metadata.json`, `release-attestations.json`, and `release-github-attestations.json`. This user-owned private repository currently uses the local in-toto-style bundles declared by `release-attestations.json`; hosted GitHub/Sigstore attestations may be enabled only when the repository visibility or plan supports them. That CI path is intentionally non-destructive: it validates artifact, checksum, SBOM, manifest metadata, source commit, and attestation consistency, but it does not connect to or kill a remote runner. Real remote acceptance remains a separate explicit release gate and is represented by `release-gate-evidence.json`.
 
-Production promotion is stricter than staging readiness. `scripts\promote_remote_runner_release.py` rejects mismatched source commits, release tags that do not point at the promoted source commit, missing real release gate evidence, a release-gate bundle SHA-256 that does not match the controlled CI `remote_runner` artifact, mismatched published asset digests or sizes, and any production manifest field that still contains `pending:` or `pending-release-asset:`. The GitHub path for this is the protected `.github/workflows/promote-remote-runner-release.yml` workflow, not a second build/publish run. Callers must provide the original build/publish run id and the workflow run id/artifact name that contain `release-gate-evidence.json`.
+Production promotion is stricter than staging readiness. `scripts\promote_remote_runner_release.py` rejects mismatched source commits, release tags that do not point at the promoted source commit, missing real release gate evidence, a release-gate bundle SHA-256 that does not match the controlled CI `remote_runner` artifact, mismatched published asset digests or sizes, a missing or mismatched gate evidence registration proof in the protected workflow path, and any production manifest field that still contains `pending:` or `pending-release-asset:`. The GitHub path for this is the protected `.github/workflows/promote-remote-runner-release.yml` workflow, not a second build/publish run. Callers must provide the original build/publish run id and the registration workflow run id/artifact name that contain `release-gate-evidence.json` plus `release-gate-evidence-registration.json`; `.github/workflows/register-remote-runner-release-gate-evidence.yml` is the supported bridge from a locally generated real gate evidence Release asset to that workflow artifact.
 
 ## Traceability Requirements
 

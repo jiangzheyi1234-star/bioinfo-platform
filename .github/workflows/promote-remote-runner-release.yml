@@ -48,6 +48,7 @@ jobs:
       RELEASE_GATE_EVIDENCE_RUN_ID: ${{ github.event.inputs.release_gate_evidence_run_id }}
       RELEASE_GATE_EVIDENCE_ARTIFACT: ${{ github.event.inputs.release_gate_evidence_artifact }}
       REQUIRE_GITHUB_ATTESTATIONS: ${{ github.event.inputs.require_github_attestations }}
+      GH_REPO: ${{ github.repository }}
     steps:
       - name: Checkout release tag
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -96,6 +97,41 @@ jobs:
             --name "$RELEASE_GATE_EVIDENCE_ARTIFACT" \
             --dir dist/remote-runner
           test -f dist/remote-runner/release-gate-evidence.json
+          test -f dist/remote-runner/release-gate-evidence-registration.json
+
+      - name: Verify release gate evidence run identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run view "$RELEASE_GATE_EVIDENCE_RUN_ID" \
+            --repo "$GH_REPO" \
+            --json conclusion,event,headSha,status,url,workflowName,workflowDatabaseId \
+            > dist/remote-runner/release-gate-evidence-run.json
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          dist = Path("dist/remote-runner")
+          metadata = json.loads((dist / "release-artifacts-metadata.json").read_text(encoding="utf-8"))
+          registration = json.loads((dist / "release-gate-evidence-registration.json").read_text(encoding="utf-8"))
+          run = json.loads((dist / "release-gate-evidence-run.json").read_text(encoding="utf-8"))
+          source_commit = str(metadata.get("sourceCommit") or "").strip().lower()
+          if len(source_commit) != 40 or any(ch not in "0123456789abcdef" for ch in source_commit):
+              raise SystemExit("metadata.sourceCommit must be a full 40-character commit SHA")
+          if str(run.get("workflowName") or "") != "Register Remote Runner Release Gate Evidence":
+              raise SystemExit("release_gate_evidence_run_id must be a registration workflow run")
+          if str(run.get("event") or "") != "workflow_dispatch":
+              raise SystemExit("release gate evidence run must be workflow_dispatch")
+          if str(run.get("status") or "") != "completed" or str(run.get("conclusion") or "") != "success":
+              raise SystemExit("release gate evidence run must be completed successfully")
+          if str(run.get("headSha") or "").strip().lower() != source_commit:
+              raise SystemExit("release gate evidence run headSha must match metadata.sourceCommit")
+          if str(registration.get("releaseArtifactRunId") or "") != os.environ["RELEASE_ARTIFACT_RUN_ID"]:
+              raise SystemExit("release gate registration releaseArtifactRunId mismatch")
+          if str(registration.get("releaseTag") or "") != os.environ["RELEASE_TAG"]:
+              raise SystemExit("release gate registration releaseTag mismatch")
+          PY
 
       - name: Validate promotion evidence
         run: |
@@ -116,6 +152,9 @@ jobs:
             $github_attestation_args \
             --published-assets dist/remote-runner/release-published-assets.json \
             --release-gate-evidence dist/remote-runner/release-gate-evidence.json \
+            --release-gate-registration dist/remote-runner/release-gate-evidence-registration.json \
+            --release-artifact-run-id "$RELEASE_ARTIFACT_RUN_ID" \
+            --repository "$GH_REPO" \
             --release-tag "$RELEASE_TAG" \
             --output-manifest dist/remote-runner/promoted-release-manifest.json \
             --summary-json dist/remote-runner/release-promotion-summary.json

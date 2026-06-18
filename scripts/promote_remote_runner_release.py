@@ -25,6 +25,7 @@ DEFAULT_MANIFEST = REPO_ROOT / "config" / "remote-runner-release-manifest.json"
 RELEASE_TAG_RE = re.compile(r"^h2ometa-runtime-v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$")
 GITHUB_RELEASE_ASSET_RE = re.compile(r"^https://api\.github\.com/repos/[^/]+/[^/]+/releases/assets/\d+$")
 REQUIRED_ARTIFACT_KEYS = {"remote_runner", "workflow_runtime"}
+GATE_REGISTRATION_SCHEMA = "h2ometa-release-gate-evidence-registration.v1"
 PRODUCTION_REQUIRED_FIELDS = (
     "sha256",
     "size_bytes",
@@ -58,6 +59,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--published-assets", required=True, help="Path to release-published-assets.json.")
     parser.add_argument("--release-gate-evidence", required=True, help="Path to release-gate-evidence.json.")
+    parser.add_argument(
+        "--release-gate-registration",
+        required=True,
+        help="Registration proof emitted by register-remote-runner-release-gate-evidence.yml.",
+    )
+    parser.add_argument(
+        "--release-artifact-run-id",
+        default="",
+        help="Expected release artifact workflow run id when --release-gate-registration is provided.",
+    )
+    parser.add_argument(
+        "--repository",
+        default="",
+        help="Expected owner/name repository when --release-gate-registration is provided.",
+    )
     parser.add_argument("--release-tag", required=True, help="Runtime release tag, for example h2ometa-runtime-v0.1.2.")
     parser.add_argument(
         "--output-manifest",
@@ -98,6 +114,7 @@ def promote_release(args: argparse.Namespace, results: list[dict[str, Any]]) -> 
     github_attestations_path = Path(args.github_attestations) if args.github_attestations else None
     published_assets_path = Path(args.published_assets)
     release_gate_path = Path(args.release_gate_evidence)
+    release_gate_registration_path = Path(args.release_gate_registration)
     manifest_path = Path(args.manifest)
     output_manifest_path = Path(args.output_manifest) if args.output_manifest else Path("dist") / "remote-runner" / "promoted-release-manifest.json"
 
@@ -107,6 +124,7 @@ def promote_release(args: argparse.Namespace, results: list[dict[str, Any]]) -> 
     github_attestations = load_json(github_attestations_path) if github_attestations_path is not None else None
     published_assets = load_json(published_assets_path)
     gate_evidence = load_json(release_gate_path)
+    gate_registration = load_json(release_gate_registration_path)
     current_manifest = load_json(manifest_path)
 
     source_commit = require_release_identity(
@@ -143,6 +161,15 @@ def promote_release(args: argparse.Namespace, results: list[dict[str, Any]]) -> 
 
     readiness.validate_release_gate_evidence(release_gate_path)
     results.append({"name": "release-gate-evidence", "ok": True})
+    validate_release_gate_registration(
+        gate_registration,
+        metadata=metadata,
+        gate_evidence=gate_evidence,
+        release_tag=str(args.release_tag),
+        release_artifact_run_id=str(args.release_artifact_run_id or ""),
+        repository=str(args.repository or ""),
+    )
+    results.append({"name": "release-gate-registration", "ok": True})
 
     download_urls, sbom_urls = updater.merge_published_asset_urls(
         metadata=metadata,
@@ -214,6 +241,44 @@ def require_release_identity(
     if tag_commit != source_commit:
         raise ValueError(f"release tag {release_tag} points at {tag_commit}, not {source_commit}")
     return source_commit
+
+
+def validate_release_gate_registration(
+    registration: dict[str, Any],
+    *,
+    metadata: dict[str, Any],
+    gate_evidence: dict[str, Any],
+    release_tag: str,
+    release_artifact_run_id: str = "",
+    repository: str = "",
+) -> None:
+    if registration.get("schemaVersion") != GATE_REGISTRATION_SCHEMA:
+        raise ValueError("release gate registration has wrong schemaVersion")
+    if registration.get("ok") is not True:
+        raise ValueError("release gate registration must be ok")
+    if str(registration.get("releaseTag") or "").strip() != release_tag:
+        raise ValueError("release gate registration releaseTag mismatch")
+    if release_artifact_run_id:
+        if not release_artifact_run_id.isdigit():
+            raise ValueError("--release-artifact-run-id must be numeric")
+        if str(registration.get("releaseArtifactRunId") or "").strip() != release_artifact_run_id:
+            raise ValueError("release gate registration releaseArtifactRunId mismatch")
+    if repository and str(registration.get("repository") or "").strip() != repository:
+        raise ValueError("release gate registration repository mismatch")
+    source_commit = require_commit(metadata.get("sourceCommit"), "metadata.sourceCommit")
+    if require_commit(registration.get("sourceCommit"), "registration.sourceCommit") != source_commit:
+        raise ValueError("release gate registration sourceCommit mismatch")
+    runner_sha = require_sha256(
+        require_artifact(metadata, "remote_runner").get("sha256"),
+        "metadata.remote_runner.sha256",
+    )
+    if require_sha256(registration.get("remoteRunnerSha256"), "registration.remoteRunnerSha256") != runner_sha:
+        raise ValueError("release gate registration remoteRunnerSha256 mismatch")
+    gate_bundle = gate_evidence.get("remoteRunnerBundle")
+    if not isinstance(gate_bundle, dict):
+        raise ValueError("release gate remoteRunnerBundle must be an object")
+    if require_sha256(gate_bundle.get("sha256"), "releaseGate.remoteRunnerBundle.sha256") != runner_sha:
+        raise ValueError("release gate registration does not match release gate bundle sha256")
 
 
 def require_artifact(metadata: dict[str, Any], artifact_key: str) -> dict[str, Any]:
