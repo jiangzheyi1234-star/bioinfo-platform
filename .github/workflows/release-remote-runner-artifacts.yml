@@ -26,6 +26,14 @@ on:
         description: Existing GitHub Release tag, named h2ometa-runtime-vX.Y.Z, to receive the built assets when publish_release is true.
         required: false
         default: ""
+      remote_runner_version:
+        description: Optional remote-runner artifact version override. Leave blank to use the checked-out manifest version.
+        required: false
+        default: ""
+      workflow_runtime_version:
+        description: Optional workflow-runtime artifact version override. Leave blank to use the checked-out manifest version.
+        required: false
+        default: ""
       release_gate_evidence_run_id:
         description: Workflow run id containing release-gate-evidence.json as an artifact for protected promotion.
         required: false
@@ -57,6 +65,8 @@ jobs:
     env:
       SOURCE_REF: ${{ github.event.inputs.source_ref || github.sha }}
       PLATFORM: ${{ github.event.inputs.platform || 'linux-64' }}
+      REMOTE_RUNNER_ARTIFACT_VERSION: ${{ github.event.inputs.remote_runner_version }}
+      WORKFLOW_RUNTIME_ARTIFACT_VERSION: ${{ github.event.inputs.workflow_runtime_version }}
       GH_REPO: ${{ github.repository }}
     steps:
       - name: Checkout source ref
@@ -75,6 +85,14 @@ jobs:
         run: |
           if ! printf '%s' "$SOURCE_REF" | grep -Eq '^[0-9a-fA-F]{40}$'; then
             echo "source_ref must be a full 40-character commit SHA." >&2
+            exit 1
+          fi
+          if [ -n "$REMOTE_RUNNER_ARTIFACT_VERSION" ] && ! printf '%s' "$REMOTE_RUNNER_ARTIFACT_VERSION" | grep -Eq '^[0-9][0-9A-Za-z._+-]*$'; then
+            echo "remote_runner_version must be a release version string such as 0.1.2-control-plane." >&2
+            exit 1
+          fi
+          if [ -n "$WORKFLOW_RUNTIME_ARTIFACT_VERSION" ] && ! printf '%s' "$WORKFLOW_RUNTIME_ARTIFACT_VERSION" | grep -Eq '^[0-9][0-9A-Za-z._+-]*$'; then
+            echo "workflow_runtime_version must be a release version string such as 0.1.1." >&2
             exit 1
           fi
           if [ "$PUBLISH_RELEASE" = "true" ]; then
@@ -100,10 +118,18 @@ jobs:
 
       - name: Build artifacts from explicit specs
         run: |
+          version_args=()
+          if [ -n "$REMOTE_RUNNER_ARTIFACT_VERSION" ]; then
+            version_args+=(--remote-runner-version "$REMOTE_RUNNER_ARTIFACT_VERSION")
+          fi
+          if [ -n "$WORKFLOW_RUNTIME_ARTIFACT_VERSION" ]; then
+            version_args+=(--workflow-runtime-version "$WORKFLOW_RUNTIME_ARTIFACT_VERSION")
+          fi
           uv run --frozen python scripts/build_release_artifacts_in_ci.py \
             --source-ref "$SOURCE_REF" \
             --platform "$PLATFORM" \
-            --output-dir dist/remote-runner
+            --output-dir dist/remote-runner \
+            "${version_args[@]}"
 
       - name: Validate release readiness metadata
         run: |

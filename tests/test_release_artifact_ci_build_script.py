@@ -202,6 +202,73 @@ def test_ci_builder_records_github_builder_identity(monkeypatch) -> None:
     assert metadata["sourceCommit"] == "a" * 40
 
 
+def test_ci_builder_passes_artifact_version_overrides(monkeypatch, tmp_path: Path) -> None:
+    calls: list[tuple[str, str]] = []
+
+    def fake_remote_artifact(**kwargs):
+        version = str(kwargs["version"])
+        calls.append(("remote_runner", version))
+        return {
+            "artifactKey": "remote_runner",
+            "version": version,
+            "platform": "linux-64",
+            "path": str(tmp_path / f"h2ometa-remote-runner-{version}-linux-64.tar.gz"),
+            "sha256": "a" * 64,
+            "sizeBytes": 123,
+            "lock": {"sha256": "b" * 64},
+            "sbom": {"path": str(tmp_path / "runner.spdx.json"), "sha256": "c" * 64},
+            "sourceRef": "d" * 40,
+            "sourceCommit": "d" * 40,
+        }
+
+    def fake_workflow_artifact(**kwargs):
+        version = str(kwargs["version"])
+        calls.append(("workflow_runtime", version))
+        return {
+            "artifactKey": "workflow_runtime",
+            "version": version,
+            "platform": "linux-64",
+            "path": str(tmp_path / f"h2ometa-workflow-runtime-{version}-linux-64.tar.gz"),
+            "sha256": "e" * 64,
+            "sizeBytes": 456,
+            "lock": {"sha256": "f" * 64},
+            "sbom": {"path": str(tmp_path / "workflow.spdx.json"), "sha256": "1" * 64},
+            "sourceRef": "d" * 40,
+            "sourceCommit": "d" * 40,
+        }
+
+    monkeypatch.setattr(ci_builder, "ensure_source_ref_checked_out", lambda source_ref: "d" * 40)
+    monkeypatch.setattr(ci_builder, "build_remote_runner_artifact", fake_remote_artifact)
+    monkeypatch.setattr(ci_builder, "build_workflow_runtime_artifact", fake_workflow_artifact)
+    monkeypatch.setattr(ci_builder, "write_release_attestations", lambda metadata, output_dir: None)
+
+    assert (
+        ci_builder.main(
+            [
+                "--source-ref",
+                "d" * 40,
+                "--output-dir",
+                str(tmp_path),
+                "--remote-runner-version",
+                "0.1.2-control-plane",
+                "--workflow-runtime-version",
+                "0.1.1",
+            ]
+        )
+        == 0
+    )
+
+    metadata = ci_builder.json.loads((tmp_path / "release-artifacts-metadata.json").read_text(encoding="utf-8"))
+    manifest_metadata = ci_builder.json.loads(
+        (tmp_path / "release-manifest-metadata.json").read_text(encoding="utf-8")
+    )
+    assert calls == [("remote_runner", "0.1.2-control-plane"), ("workflow_runtime", "0.1.1")]
+    assert metadata["artifacts"][0]["version"] == "0.1.2-control-plane"
+    assert metadata["artifacts"][1]["version"] == "0.1.1"
+    assert manifest_metadata["artifacts"]["remote_runner"]["linux-64"]["version"] == "0.1.2-control-plane"
+    assert manifest_metadata["artifacts"]["workflow_runtime"]["linux-64"]["version"] == "0.1.1"
+
+
 def test_ci_builder_uses_controlled_linux_builder_not_ssh(monkeypatch) -> None:
     source = Path("scripts/build_release_artifacts_in_ci.py").read_text(encoding="utf-8")
     workflow = Path(".github/workflows/release-remote-runner-artifacts.yml").read_text(encoding="utf-8")
@@ -231,6 +298,10 @@ def test_ci_builder_uses_controlled_linux_builder_not_ssh(monkeypatch) -> None:
     assert "dist/remote-runner/release-attestations.json" in workflow
     assert "dist/remote-runner/release-github-attestations.json" in workflow
     assert "dist/remote-runner/attestation-bundles/*.intoto.json" in workflow
+    assert "remote_runner_version:" in workflow
+    assert "workflow_runtime_version:" in workflow
+    assert "--remote-runner-version" in workflow
+    assert "--workflow-runtime-version" in workflow
     assert "release-published-assets.json" in workflow
     assert "scripts/check_remote_runner_release_readiness.py" in workflow
     assert "--require-github-attestations" in workflow

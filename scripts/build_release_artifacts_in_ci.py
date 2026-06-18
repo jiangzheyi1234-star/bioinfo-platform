@@ -321,6 +321,7 @@ def build_remote_runner_artifact(
     source_ref: str,
     work_root: Path,
     source_commit: str,
+    version: str,
 ) -> dict[str, Any]:
     build_root = work_root / "remote-runner"
     build_root.mkdir(parents=True, exist_ok=True)
@@ -329,7 +330,7 @@ def build_remote_runner_artifact(
     shutil.copy2(lock_file, build_root / "explicit.txt")
     lock_sha256 = sha256_text(lock_file)
     plan = runner_builder.build_remote_script_plan(
-        version=REMOTE_RUNNER_VERSION,
+        version=version,
         platform=platform,
         runtime_source="lockfile",
         lock_file_name=lock_file.name,
@@ -341,7 +342,7 @@ def build_remote_runner_artifact(
     artifact.update(
         {
             "artifactKey": REMOTE_RUNNER_ARTIFACT.key,
-            "version": REMOTE_RUNNER_VERSION,
+            "version": version,
             "platform": platform,
             "lock": {"path": str(lock_file), "sha256": lock_sha256},
             "sourceRef": source_ref,
@@ -359,6 +360,7 @@ def build_workflow_runtime_artifact(
     source_ref: str,
     work_root: Path,
     source_commit: str,
+    version: str,
 ) -> dict[str, Any]:
     build_root = work_root / "workflow-runtime"
     build_root.mkdir(parents=True, exist_ok=True)
@@ -371,7 +373,7 @@ def build_workflow_runtime_artifact(
     shutil.copy2(lock_file, build_root / "explicit.txt")
     lock_sha256 = sha256_text(lock_file)
     plan = workflow_builder.build_remote_script_plan(
-        version=WORKFLOW_RUNTIME_VERSION,
+        version=version,
         platform=platform,
         snakemake_version="",
         runtime_source="lockfile",
@@ -389,7 +391,7 @@ def build_workflow_runtime_artifact(
     artifact.update(
         {
             "artifactKey": WORKFLOW_RUNTIME_ARTIFACT.key,
-            "version": WORKFLOW_RUNTIME_VERSION,
+            "version": version,
             "platform": platform,
             "lock": {"path": str(lock_file), "sha256": lock_sha256},
             "sourceRef": source_ref,
@@ -576,6 +578,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--platform", default="linux-64", choices=("linux-64", "linux-aarch64"))
     parser.add_argument("--source-ref", default=str(os.environ.get("GITHUB_SHA", "") or ""))
     parser.add_argument("--output-dir", default=str(Path("dist") / "remote-runner"))
+    parser.add_argument(
+        "--remote-runner-version",
+        default=REMOTE_RUNNER_VERSION,
+        help="Version string to embed in the remote-runner artifact filename and bundle manifest.",
+    )
+    parser.add_argument(
+        "--workflow-runtime-version",
+        default=WORKFLOW_RUNTIME_VERSION,
+        help="Version string to embed in the workflow-runtime artifact filename and manifest.",
+    )
     parser.add_argument("--metadata-name", default="release-artifacts-metadata.json")
     parser.add_argument("--manifest-metadata-name", default="release-manifest-metadata.json")
     return parser.parse_args(argv)
@@ -585,6 +597,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     output_dir = Path(args.output_dir)
     source_ref = str(args.source_ref or "HEAD").strip()
+    remote_runner_version = str(args.remote_runner_version or "").strip()
+    workflow_runtime_version = str(args.workflow_runtime_version or "").strip()
+    if not remote_runner_version:
+        raise SystemExit("--remote-runner-version must not be empty")
+    if not workflow_runtime_version:
+        raise SystemExit("--workflow-runtime-version must not be empty")
     source_commit = ensure_source_ref_checked_out(source_ref)
     with tempfile.TemporaryDirectory(prefix="h2ometa-release-artifacts-") as raw_work_root:
         work_root = Path(raw_work_root)
@@ -595,6 +613,7 @@ def main(argv: list[str] | None = None) -> int:
                 source_ref=source_ref,
                 work_root=work_root,
                 source_commit=source_commit,
+                version=remote_runner_version,
             ),
             build_workflow_runtime_artifact(
                 output_dir=output_dir,
@@ -602,6 +621,7 @@ def main(argv: list[str] | None = None) -> int:
                 source_ref=source_ref,
                 work_root=work_root,
                 source_commit=source_commit,
+                version=workflow_runtime_version,
             ),
         ]
     metadata = build_metadata(artifacts=artifacts, source_ref=source_ref, source_commit=source_commit)
