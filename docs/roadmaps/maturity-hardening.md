@@ -17,6 +17,7 @@ The remaining gap is production maturity: routine CI, branch protection, securit
 3. Configure branch protection or GitHub Rulesets to require PR review and the stable `required / ci-green` check before merging to `main`.
 4. Finish P0-9 database layering: `production_full`, `validation_fixture`, `user_manual`, and `downloadable_pack` must be distinct in API contracts, UI, run evidence, and release/download paths.
 5. Add a security posture checklist for auth/RBAC, SSH host-key trust, secret handling, dependency review, SAST, diagnostics redaction, and remote-operation audit.
+6. Add the P0-11 Release Candidate operating loop so each deliverable commit has repeatable local evidence, green CI, and explicit optional-gate status.
 
 ## Current GitHub Protection Status
 
@@ -56,6 +57,20 @@ Closure requires:
 4. Remote runner bearer token validation parses the scheme and uses constant-time token comparison.
 5. Desktop deployment mode rejects `0.0.0.0`; server-single-user bind-all remains warning-only and trusted-intranet scoped.
 6. SSH host-key trust is strict by default, dependency audit gates are active, and the remaining scoped limits are documented with removal triggers.
+
+## P0-11 Release Candidate Operating Loop Criteria
+
+The P0-11 release candidate contract is defined in `docs/release-candidate-operating-loop.md`.
+The closure target is a repeatable evidence bundle for commits that are candidates for handoff, not a replacement for the remote-runner runtime release policy.
+
+Closure requires:
+
+1. `scripts/verify_release_candidate.ps1` writes `h2ometa-release-candidate-evidence.v1` JSON under `release-evidence/<commit>/`.
+2. The script requires a clean working tree unless the operator explicitly allows dirty development proof.
+3. Production handoff evidence requires `-CiRunUrl`, `-RunNpmCi`, and `handoffEligible: true`.
+4. Required gates cover Python tests/ruff, clean web install, web lint/typecheck/build, security audits, and database pack lifecycle contracts.
+5. Optional local launcher smoke, desktop startup evidence, and runtime release evidence are explicit switches and are recorded as skipped when not run.
+6. The docs state that no RC evidence means no production handoff.
 
 ## P1 Sequence
 
