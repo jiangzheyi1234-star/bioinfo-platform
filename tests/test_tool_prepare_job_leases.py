@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sqlite3
 
 from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
+from apps.remote_runner.sqlite_migrations import initialize_or_migrate_runtime_db
 from apps.remote_runner.storage_core import get_connection
 from apps.remote_runner.tool_prepare_job_storage import (
     claim_next_tool_prepare_job,
@@ -195,11 +197,10 @@ def test_tool_prepare_worker_failure_retries_then_exhausts(tmp_path: Path) -> No
 
 
 def test_tool_prepare_job_migrates_lease_columns_for_legacy_database(tmp_path: Path) -> None:
-    cfg = _config(tmp_path)
+    cfg = _config(tmp_path, initialize=False)
     db_path = Path(cfg.db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    with get_connection(cfg) as connection:
-        connection.execute("DROP TABLE tool_prepare_jobs")
+    with sqlite3.connect(str(db_path)) as connection:
         connection.execute(
             """
             CREATE TABLE tool_prepare_jobs (
@@ -221,6 +222,7 @@ def test_tool_prepare_job_migrates_lease_columns_for_legacy_database(tmp_path: P
         )
         connection.commit()
 
+    initialize_or_migrate_runtime_db(cfg.db_path)
     job = create_tool_prepare_job(
         cfg,
         {"id": "bioconda::multiqc", "name": "multiqc", "maxAttempts": 4},
@@ -243,7 +245,7 @@ def test_tool_prepare_job_migrates_lease_columns_for_legacy_database(tmp_path: P
     assert job["lease"]["maxAttempts"] == 4
 
 
-def _config(tmp_path: Path) -> RemoteRunnerConfig:
+def _config(tmp_path: Path, *, initialize: bool = True) -> RemoteRunnerConfig:
     (tmp_path / "release" / "snakemake_wrappers").mkdir(parents=True)
     cfg = RemoteRunnerConfig(
         token="prepare-lease-token",
@@ -255,5 +257,6 @@ def _config(tmp_path: Path) -> RemoteRunnerConfig:
         logs_dir=str(tmp_path / "shared" / "logs"),
         release_dir=str(tmp_path / "release"),
     )
-    ensure_runtime_layout(cfg)
+    if initialize:
+        ensure_runtime_layout(cfg)
     return cfg

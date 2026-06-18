@@ -6,13 +6,14 @@ import sqlite3
 import pytest
 
 from apps.remote_runner.api_models import RunCreateRequest
-from apps.remote_runner.config import RemoteRunnerConfig
+from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
 from apps.remote_runner.errors import IdempotencyKeyReusedError
+from apps.remote_runner.sqlite_migrations import initialize_or_migrate_runtime_db
 from apps.remote_runner.storage_core import get_connection
 from apps.remote_runner.storage import create_run_record, fetch_run
 from apps.remote_runner.submission_service import create_run_from_request
 from tests.helpers.remote_runner_control_plane import _write_file_summary_pipeline
-from tests.helpers.reference_database import make_configured_remote_runner
+from tests.helpers.reference_database import make_configured_remote_runner, make_remote_runner_config
 
 
 def _run_spec(run_id: str) -> dict[str, str]:
@@ -52,7 +53,8 @@ def test_idempotency_key_reuse_with_different_payload_raises_domain_error(tmp_pa
 
 
 def test_run_storage_migrates_workflow_revision_id_column(tmp_path: Path) -> None:
-    cfg = make_configured_remote_runner(tmp_path)
+    cfg = make_remote_runner_config(tmp_path)
+    Path(cfg.db_path).parent.mkdir(parents=True, exist_ok=True)
     legacy = sqlite3.connect(str(cfg.db_path))
     legacy.executescript(
         """
@@ -80,6 +82,7 @@ def test_run_storage_migrates_workflow_revision_id_column(tmp_path: Path) -> Non
     )
     legacy.close()
 
+    initialize_or_migrate_runtime_db(cfg.db_path)
     with get_connection(cfg) as connection:
         columns = {row["name"] for row in connection.execute("PRAGMA table_info(runs)").fetchall()}
 
@@ -163,6 +166,8 @@ def test_submission_records_durable_job_without_starting_executor(
         managed_conda_command="python",
         snakemake_command="snakemake",
     )
+    (Path(cfg.release_dir) / "snakemake_wrappers").mkdir(parents=True)
+    ensure_runtime_layout(cfg)
     _write_file_summary_pipeline(Path(cfg.release_dir))
 
     monkeypatch.setattr("apps.remote_runner.submission_service.ensure_submission_ready", lambda cfg: None)

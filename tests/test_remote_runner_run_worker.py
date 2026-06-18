@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from apps.remote_runner.config import RemoteRunnerConfig
+from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
 from apps.remote_runner.reconciler import run_active_reconciler_once
 from apps.remote_runner.resource_pool import ResourcePool, ResourcePoolConfig, ResourceRequest
 from apps.remote_runner.run_execution_storage import claim_next_run_job, request_run_cancel
@@ -25,7 +25,7 @@ class FakeClock:
 
 def _config(tmp_path: Path) -> RemoteRunnerConfig:
     (tmp_path / "release" / "snakemake_wrappers").mkdir(parents=True)
-    return RemoteRunnerConfig(
+    cfg = RemoteRunnerConfig(
         token="phase2-token",
         data_root=str(tmp_path / "shared"),
         db_path=str(tmp_path / "shared" / "data" / "runner.db"),
@@ -37,6 +37,8 @@ def _config(tmp_path: Path) -> RemoteRunnerConfig:
         managed_conda_command="python",
         snakemake_command="snakemake",
     )
+    ensure_runtime_layout(cfg)
+    return cfg
 
 
 def _create_queued_run(

@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from apps.remote_runner.config import RemoteRunnerConfig
+from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
 from apps.remote_runner.resource_pool import ResourceRequest
 from apps.remote_runner.run_execution_storage import claim_next_run_job, request_run_cancel
 from apps.remote_runner.run_worker_storage import build_run_worker_health
@@ -503,6 +503,8 @@ def _config(tmp_path: Path, **overrides: Any) -> RemoteRunnerConfig:
         "snakemake_command": "snakemake",
     }
     values.update(overrides)
-    return RemoteRunnerConfig(
+    cfg = RemoteRunnerConfig(
         **values,
     )
+    ensure_runtime_layout(cfg)
+    return cfg

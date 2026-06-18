@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sqlite3
 
 import pytest
 
@@ -13,10 +14,11 @@ from apps.remote_runner.artifact_ledger_storage import (
 from apps.remote_runner.evidence_storage import list_evidence_events
 from apps.remote_runner.reconciler import run_active_reconciler_once
 from apps.remote_runner.run_execution_storage import claim_next_run_job
+from apps.remote_runner.sqlite_migrations import initialize_or_migrate_runtime_db
 from apps.remote_runner.storage import create_run_record, persist_artifact
 from apps.remote_runner.storage_core import get_connection
 from apps.remote_runner.workflow_run_storage import StaleRunAttemptError
-from tests.helpers.reference_database import make_configured_remote_runner
+from tests.helpers.reference_database import make_configured_remote_runner, make_remote_runner_config
 
 
 def _create_run(cfg, run_id: str, *, execution: dict | None = None) -> None:
@@ -166,9 +168,10 @@ def test_stale_attempt_cannot_publish_official_artifact(tmp_path: Path) -> None:
 
 
 def test_legacy_artifact_table_gets_storage_columns(tmp_path: Path) -> None:
-    cfg = make_configured_remote_runner(tmp_path)
-    with get_connection(cfg) as connection:
-        connection.execute("DROP TABLE artifacts")
+    cfg = make_remote_runner_config(tmp_path)
+    db_path = Path(cfg.db_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(str(db_path)) as connection:
         connection.execute(
             """
             CREATE TABLE artifacts (
@@ -185,6 +188,7 @@ def test_legacy_artifact_table_gets_storage_columns(tmp_path: Path) -> None:
         )
         connection.commit()
 
+    initialize_or_migrate_runtime_db(cfg.db_path)
     with get_connection(cfg) as connection:
         columns = {row["name"] for row in connection.execute("PRAGMA table_info(artifacts)").fetchall()}
 

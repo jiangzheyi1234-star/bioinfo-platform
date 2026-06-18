@@ -5,13 +5,21 @@ from pathlib import Path
 
 import pytest
 
+from apps.remote_runner import sqlite_migrations
+from apps.remote_runner.config import ensure_runtime_layout
+from apps.remote_runner.sqlite_migrations import (
+    CURRENT_SCHEMA_VERSION,
+    RemoteRunnerSQLiteSchemaError,
+    initialize_or_migrate_runtime_db,
+)
 from apps.remote_runner.storage_core import get_connection
 from apps.remote_runner.storage_schema import SCHEMA_SQL
-from tests.helpers.reference_database import make_configured_remote_runner
+from tests.helpers.reference_database import make_remote_runner_config
 
 
 def test_output_edge_uniqueness_migration_preserves_legacy_duplicates(tmp_path: Path) -> None:
-    cfg = make_configured_remote_runner(tmp_path)
+    cfg = make_remote_runner_config(tmp_path)
+    Path(cfg.db_path).parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(cfg.db_path) as legacy:
         legacy.executescript(SCHEMA_SQL)
         legacy.executemany(
@@ -29,6 +37,7 @@ def test_output_edge_uniqueness_migration_preserves_legacy_duplicates(tmp_path: 
             ],
         )
 
+    initialize_or_migrate_runtime_db(cfg.db_path)
     with get_connection(cfg) as migrated:
         rows = migrated.execute(
             """
@@ -76,3 +85,108 @@ def test_output_edge_uniqueness_migration_preserves_legacy_duplicates(tmp_path: 
                 """
             )
     assert replayed_port_name == "report#legacy-aredge_later"
+
+
+def test_runtime_layout_records_schema_version_and_migration_ledger(tmp_path: Path) -> None:
+    cfg = make_remote_runner_config(tmp_path)
+
+    ensure_runtime_layout(cfg)
+
+    with sqlite3.connect(cfg.db_path) as connection:
+        user_version = connection.execute("PRAGMA user_version").fetchone()[0]
+        migration = connection.execute(
+            "SELECT version, name, checksum FROM schema_migrations WHERE version = ?",
+            (CURRENT_SCHEMA_VERSION,),
+        ).fetchone()
+        reference_table = connection.execute(
+            """
+            SELECT 1
+            FROM sqlite_master
+            WHERE type = 'table' AND name = 'reference_databases'
+            """
+        ).fetchone()
+
+    assert user_version == CURRENT_SCHEMA_VERSION
+    assert migration is not None
+    assert migration[0] == CURRENT_SCHEMA_VERSION
+    assert migration[1] == "001_baseline_remote_runner_schema"
+    assert migration[2]
+    assert reference_table is not None
+
+
+def test_runtime_schema_rejects_future_user_version(tmp_path: Path) -> None:
+    cfg = make_remote_runner_config(tmp_path)
+    db_path = Path(cfg.db_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION + 1}")
+
+    with pytest.raises(RemoteRunnerSQLiteSchemaError, match="REMOTE_RUNNER_SQLITE_SCHEMA_TOO_NEW"):
+        get_connection(cfg)
+
+
+def test_storage_connection_requires_explicit_schema_migration_for_v0_database(tmp_path: Path) -> None:
+    cfg = make_remote_runner_config(tmp_path)
+    db_path = Path(cfg.db_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("CREATE TABLE runs (run_id TEXT PRIMARY KEY)")
+
+    with pytest.raises(RemoteRunnerSQLiteSchemaError, match="REMOTE_RUNNER_SQLITE_SCHEMA_MIGRATION_REQUIRED"):
+        get_connection(cfg)
+
+    initialize_or_migrate_runtime_db(cfg.db_path)
+    with get_connection(cfg) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == CURRENT_SCHEMA_VERSION
+
+
+def test_runtime_schema_rejects_latest_with_tampered_migration_checksum(tmp_path: Path) -> None:
+    cfg = make_remote_runner_config(tmp_path)
+    ensure_runtime_layout(cfg)
+    with sqlite3.connect(cfg.db_path) as connection:
+        connection.execute(
+            "UPDATE schema_migrations SET checksum = 'tampered' WHERE version = ?",
+            (CURRENT_SCHEMA_VERSION,),
+        )
+
+    with pytest.raises(RemoteRunnerSQLiteSchemaError, match="REMOTE_RUNNER_SQLITE_SCHEMA_LEDGER_CHECKSUM_MISMATCH"):
+        get_connection(cfg)
+
+
+def test_runtime_schema_rejects_latest_with_missing_baseline_object(tmp_path: Path) -> None:
+    cfg = make_remote_runner_config(tmp_path)
+    ensure_runtime_layout(cfg)
+    with sqlite3.connect(cfg.db_path) as connection:
+        connection.execute("DROP TABLE reference_databases")
+
+    with pytest.raises(RemoteRunnerSQLiteSchemaError, match="REMOTE_RUNNER_SQLITE_SCHEMA_OBJECT_MISSING"):
+        get_connection(cfg)
+
+
+def test_runtime_schema_migration_rolls_back_failed_baseline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_remote_runner_config(tmp_path)
+    db_path = Path(cfg.db_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def fail_baseline(_connection: sqlite3.Connection) -> None:
+        raise RuntimeError("forced baseline failure")
+
+    monkeypatch.setattr(sqlite_migrations, "_apply_baseline_schema_migration", fail_baseline)
+    with sqlite3.connect(db_path) as connection:
+        sqlite_migrations.configure_runtime_connection(connection)
+        with pytest.raises(RuntimeError, match="forced baseline failure"):
+            sqlite_migrations.migrate_runtime_schema(connection)
+        user_version = connection.execute("PRAGMA user_version").fetchone()[0]
+        runs_table = connection.execute(
+            """
+            SELECT 1
+            FROM sqlite_master
+            WHERE type = 'table' AND name = 'runs'
+            """
+        ).fetchone()
+
+    assert user_version == 0
+    assert runs_table is None

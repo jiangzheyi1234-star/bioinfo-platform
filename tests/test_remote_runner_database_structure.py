@@ -10,10 +10,13 @@ REMOTE_RUNNER = ROOT / "apps" / "remote_runner"
 def test_database_registry_schema_lives_outside_database_module() -> None:
     schema = (REMOTE_RUNNER / "database_registry_schema.py").read_text(encoding="utf-8")
     databases = (REMOTE_RUNNER / "databases.py").read_text(encoding="utf-8")
+    sqlite_migrations = (REMOTE_RUNNER / "sqlite_migrations.py").read_text(encoding="utf-8")
 
     assert "REFERENCE_DATABASE_SCHEMA_SQL" in schema
     assert "CREATE TABLE IF NOT EXISTS reference_databases" in schema
-    assert "from .database_registry_schema import REFERENCE_DATABASE_SCHEMA_SQL" in databases
+    assert "from .database_registry_schema import REFERENCE_DATABASE_SCHEMA_SQL" in sqlite_migrations
+    assert "ensure_runtime_schema_current(connection)" in databases
+    assert "executescript(REFERENCE_DATABASE_SCHEMA_SQL)" not in databases
     assert '_SCHEMA_SQL = """' not in databases
 
 

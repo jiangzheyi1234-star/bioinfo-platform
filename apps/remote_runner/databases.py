@@ -8,10 +8,10 @@ from typing import Any
 from . import database_validation
 from .database_candidates import resolve_candidate_payload
 from .database_errors import DatabaseCandidateConflictError, DatabaseNotFoundError, DatabaseRegistryError
-from .database_registry_schema import REFERENCE_DATABASE_SCHEMA_SQL
 from .config import RemoteRunnerConfig
 from .database_records import database_row_to_dict, normalize_database_payload
 from .database_run_resolution import resolve_run_databases
+from .sqlite_migrations import ensure_runtime_schema_current
 from .database_runtime_paths import (
     _composite_input_metadata,
     _composite_resolved_metadata,
@@ -260,7 +260,7 @@ def check_reference_database(cfg: RemoteRunnerConfig, database_id: str) -> dict[
 
 
 def _ensure_schema(connection) -> None:
-    connection.executescript(REFERENCE_DATABASE_SCHEMA_SQL)
+    ensure_runtime_schema_current(connection)
 
 
 def _update_status(

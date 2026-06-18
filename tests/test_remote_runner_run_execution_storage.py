@@ -8,6 +8,7 @@ import pytest
 
 from apps.remote_runner.execution_query_storage import fetch_run
 from apps.remote_runner.reconciler import run_active_reconciler_once
+from apps.remote_runner.sqlite_migrations import initialize_or_migrate_runtime_db
 from apps.remote_runner.workflow_run_storage import StaleRunAttemptError, update_run_state
 from apps.remote_runner.run_execution_storage import (
     claim_next_run_job,
@@ -20,7 +21,7 @@ from apps.remote_runner.run_execution_storage import (
 from apps.remote_runner.resource_pool import ResourceRequest
 from apps.remote_runner.storage import create_run_record
 from apps.remote_runner.storage_core import get_connection
-from tests.helpers.reference_database import make_configured_remote_runner
+from tests.helpers.reference_database import make_configured_remote_runner, make_remote_runner_config
 
 
 def _run_spec(run_id: str) -> dict:
@@ -143,7 +144,8 @@ def test_create_run_record_persists_explicit_execution_policy(tmp_path):
 
 
 def test_run_execution_storage_migrates_retry_timeout_and_publish_columns(tmp_path):
-    cfg = make_configured_remote_runner(tmp_path)
+    cfg = make_remote_runner_config(tmp_path)
+    Path(cfg.db_path).parent.mkdir(parents=True, exist_ok=True)
     legacy = sqlite3.connect(str(cfg.db_path))
     legacy.executescript(
         """
@@ -177,6 +179,7 @@ def test_run_execution_storage_migrates_retry_timeout_and_publish_columns(tmp_pa
     )
     legacy.close()
 
+    initialize_or_migrate_runtime_db(cfg.db_path)
     with get_connection(cfg) as connection:
         job_columns = _column_names(connection, "run_jobs")
         attempt_columns = _column_names(connection, "run_attempts")
