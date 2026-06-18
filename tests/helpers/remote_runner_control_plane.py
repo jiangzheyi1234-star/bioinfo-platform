@@ -43,11 +43,11 @@ def _is_remote_runner_config_read(cmd: str) -> bool:
     return cmd.startswith("cat ") and cmd.endswith("/.h2ometa/runner/shared/config/runner.json")
 
 
-def _runtime_state_json(port: int = 43127) -> str:
+def _runtime_state_json(port: int = 43127, *, version: str = REMOTE_RUNNER_VERSION) -> str:
     return json.dumps(
         {
             "service": "h2ometa-remote",
-            "version": REMOTE_RUNNER_VERSION,
+            "version": version,
             "pid": 123,
             "bindHost": "127.0.0.1",
             "bindPort": port,

@@ -90,9 +90,11 @@ class RemoteRunnerManager(
             server_record = kwargs.get("server_record") or {}
             version = REMOTE_RUNNER_VERSION
             home_dir = self._resolve_remote_home(ssh_service)
+            remote_platform = self._detect_remote_platform(ssh_service)
+            artifact = self._artifact_provider.resolve(version=version, platform=remote_platform)
+            version = str(getattr(artifact, "version", "") or version)
             paths = remote_runner_bootstrap_layout(home_dir, version)
             requested_remote_port = 0
-            remote_platform = self._detect_remote_platform(ssh_service)
             previous_release = self._read_current_release_target(ssh_service, paths.current)
             fast_platform = platform_from_metadata(server_record) or remote_platform
             workflow_runtime_dir = paths.workflow_runtime_dir(version=WORKFLOW_RUNTIME_VERSION, platform=fast_platform)
@@ -105,8 +107,6 @@ class RemoteRunnerManager(
                 remote_bundle=remote_workflow_bundle,
             )
             remote_workflow_artifact_sha = f"{workflow_runtime_dir}/artifact.sha256"
-            artifact = self._artifact_provider.resolve(version=version, platform=remote_platform)
-
             fast_reuse_metadata = build_fast_reuse_metadata(
                 server_record=server_record,
                 version=version,
