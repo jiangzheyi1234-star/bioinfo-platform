@@ -154,6 +154,7 @@ uv run python scripts\promote_remote_runner_release.py `
   --github-attestations dist\remote-runner\release-github-attestations.json `
   --published-assets dist\remote-runner\release-published-assets.json `
   --release-gate-evidence dist\remote-runner\release-gate-evidence.json `
+  --release-gate-registration dist\remote-runner\release-gate-evidence-registration.json `
   --release-tag h2ometa-runtime-vX.Y.Z `
   --output-manifest dist\remote-runner\promoted-release-manifest.json `
   --summary-json dist\remote-runner\release-promotion-summary.json
@@ -181,6 +182,31 @@ After the destructive release gate writes evidence, validate the evidence contra
 uv run python scripts\check_remote_runner_release_readiness.py `
   --release-gate-evidence dist\remote-runner\release-gate-evidence.json
 ```
+
+For GitHub-driven promotion, upload the validated evidence to the same runtime
+Release and register it as a workflow artifact:
+
+```powershell
+gh release upload h2ometa-runtime-vX.Y.Z `
+  dist\remote-runner\release-gate-evidence.json `
+  --clobber
+gh workflow run ".github/workflows/register-remote-runner-release-gate-evidence.yml" `
+  --ref h2ometa-runtime-vX.Y.Z `
+  -f release_tag=h2ometa-runtime-vX.Y.Z `
+  -f release_artifact_run_id=<release-build-run-id> `
+  -f release_gate_evidence_asset=release-gate-evidence.json
+```
+
+The registration workflow downloads the CI build proof and the Release evidence
+asset, validates `release-gate-evidence.json`, checks that the release build
+run succeeded from the release workflow, checks that the release tag, source
+commit, published asset map, and `remoteRunnerBundle.sha256` match the CI-built
+`remote_runner` artifact, then uploads
+`h2ometa-remote-runner-release-gate-evidence` for the protected promotion
+workflow. That artifact includes `release-gate-evidence-registration.json`,
+which the protected promotion workflow requires and revalidates. It is a
+registration and identity gate, not a substitute for running the destructive
+remote acceptance locally from Windows.
 
 For execution-control-plane changes that need longer stability proof, run the
 explicit soak/stress/fault-injection harness after the staged Local API/Web
@@ -216,7 +242,7 @@ uv run python scripts\remote_runner_release_gate.py `
   --evidence-json dist\remote-runner\release-gate-evidence.json
 ```
 
-For GitHub-driven production promotion, dispatch `.github/workflows/promote-remote-runner-release.yml` with the runtime release tag, the build/publish workflow run id, and the workflow run id/artifact name that contain `release-gate-evidence.json`. The promotion job runs in the protected `production-runtime` environment, downloads the already published build metadata, published asset map, hosted attestation summary, and real gate evidence, then uploads `release-promotion-summary.json` plus `promoted-release-manifest.json` for review. Do not rerun the build/publish workflow just to promote an already published release; that can rebuild and clobber assets before promotion proof exists.
+For GitHub-driven production promotion, dispatch `.github/workflows/promote-remote-runner-release.yml` with the runtime release tag, the build/publish workflow run id, and the registration workflow run id/artifact name that contain `release-gate-evidence.json`. The promotion job runs in the protected `production-runtime` environment, downloads the already published build metadata, published asset map, hosted attestation summary, and real gate evidence, then uploads `release-promotion-summary.json` plus `promoted-release-manifest.json` for review. Do not rerun the build/publish workflow just to promote an already published release; that can rebuild and clobber assets before promotion proof exists.
 
 ## Dev/Staging Control Plane Build
 

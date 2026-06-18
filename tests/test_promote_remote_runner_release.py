@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 
 def _load_module() -> Any:
     script = Path("scripts/promote_remote_runner_release.py")
@@ -53,6 +55,7 @@ def _fixture(tmp_path: Path) -> dict[str, Path]:
         "github_attestations": tmp_path / "release-github-attestations.json",
         "published_assets": tmp_path / "release-published-assets.json",
         "gate": tmp_path / "release-gate-evidence.json",
+        "registration": tmp_path / "release-gate-evidence-registration.json",
         "summary": tmp_path / "release-promotion-summary.json",
         "candidate": tmp_path / "promoted-manifest.json",
     }
@@ -160,6 +163,7 @@ def _fixture(tmp_path: Path) -> dict[str, Path]:
         },
     )
     _write_json(paths["gate"], _release_gate(source_commit, runner_sha))
+    _write_json(paths["registration"], _registration(source_commit, runner_sha))
     return paths
 
 
@@ -261,6 +265,20 @@ def _release_gate(source_commit: str, runner_sha: str) -> dict[str, Any]:
     }
 
 
+def _registration(source_commit: str, runner_sha: str) -> dict[str, Any]:
+    return {
+        "schemaVersion": "h2ometa-release-gate-evidence-registration.v1",
+        "ok": True,
+        "repository": "owner/repo",
+        "releaseTag": "h2ometa-runtime-v0.1.2",
+        "releaseArtifactRunId": "12345",
+        "releaseGateEvidenceAsset": "release-gate-evidence.json",
+        "releaseGateEvidenceArtifact": "h2ometa-remote-runner-release-gate-evidence",
+        "sourceCommit": source_commit,
+        "remoteRunnerSha256": runner_sha,
+    }
+
+
 def _argv(paths: dict[str, Path]) -> list[str]:
     return [
         "--manifest",
@@ -275,6 +293,8 @@ def _argv(paths: dict[str, Path]) -> list[str]:
         str(paths["published_assets"]),
         "--release-gate-evidence",
         str(paths["gate"]),
+        "--release-gate-registration",
+        str(paths["registration"]),
         "--release-tag",
         "h2ometa-runtime-v0.1.2",
         "--output-manifest",
@@ -299,6 +319,66 @@ def test_promote_release_generates_candidate_manifest_and_summary(tmp_path: Path
     assert candidate["artifacts"]["remote_runner"]["download_urls"]["linux-64"].endswith("/1")
     assert candidate["artifacts"]["workflow_runtime"]["attestation_urls"]["linux-64"].endswith("/7")
     assert "pending-release-asset:" not in json.dumps(candidate)
+
+
+def test_promote_release_requires_registered_gate_evidence(tmp_path: Path, monkeypatch) -> None:
+    promote = _load_module()
+    paths = _fixture(tmp_path)
+    monkeypatch.setattr(promote, "git_commit", lambda ref: "a" * 40)
+    argv = _argv(paths)
+    registration_index = argv.index("--release-gate-registration")
+    argv_without_registration = argv[:registration_index] + argv[registration_index + 2 :]
+
+    with pytest.raises(SystemExit) as exc:
+        promote.main(argv_without_registration)
+
+    assert exc.value.code == 2
+
+
+def test_promote_release_accepts_registered_gate_evidence(tmp_path: Path, monkeypatch) -> None:
+    promote = _load_module()
+    paths = _fixture(tmp_path)
+    monkeypatch.setattr(promote, "git_commit", lambda ref: "a" * 40)
+
+    assert (
+        promote.main(
+            [
+                *_argv(paths),
+                "--release-artifact-run-id",
+                "12345",
+                "--repository",
+                "owner/repo",
+            ]
+        )
+        == 0
+    )
+
+    summary = json.loads(paths["summary"].read_text(encoding="utf-8"))
+    assert summary["ok"] is True
+    assert any(check["name"] == "release-gate-registration" for check in summary["checks"])
+
+
+def test_promote_release_rejects_gate_registration_run_mismatch(tmp_path: Path, monkeypatch) -> None:
+    promote = _load_module()
+    paths = _fixture(tmp_path)
+    monkeypatch.setattr(promote, "git_commit", lambda ref: "a" * 40)
+
+    assert (
+        promote.main(
+            [
+                *_argv(paths),
+                "--release-artifact-run-id",
+                "99999",
+                "--repository",
+                "owner/repo",
+            ]
+        )
+        == 1
+    )
+
+    summary = json.loads(paths["summary"].read_text(encoding="utf-8"))
+    assert summary["ok"] is False
+    assert "release gate registration releaseArtifactRunId mismatch" in json.dumps(summary)
 
 
 def test_promote_release_prefers_github_hosted_attestation_urls(tmp_path: Path, monkeypatch) -> None:
