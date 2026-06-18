@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 from core.remote_runner.artifact_io import (
@@ -26,6 +27,8 @@ from core.remote_runner.remote_runner_artifact_validation import REQUIRED_WRAPPE
 from core.remote_runner.remote_runner_artifact_validation import verify_bundled_runtime_entrypoints
 from core.remote_runner.remote_runner_artifact_validation import verify_required_wrapper_assets
 from core.remote_runner.workflow_runtime_artifact_validation import verify_workflow_runtime_contents
+
+_SAFE_ARTIFACT_VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 class RemoteRunnerArtifactProvider:
@@ -68,10 +71,12 @@ class RemoteRunnerArtifactProvider:
                 archive_path=archive_path,
                 sha256=actual,
             )
+        staging_runner_bundle_allowed = _explicit_staging_runner_bundle_allowed(archive_path)
         manifest = read_manifest(archive_path)
         if str(manifest.get("service") or "") != REMOTE_RUNNER_ARTIFACT.service:
             raise RemoteRunnerArtifactError(f"remote runner artifact manifest has unexpected service: {archive_path}")
-        if str(manifest.get("version") or "") != version:
+        manifest_version = _validated_remote_runner_manifest_version(manifest, archive_path)
+        if manifest_version != version and not staging_runner_bundle_allowed:
             raise RemoteRunnerArtifactError(f"remote runner artifact manifest version mismatch: {archive_path}")
         if str(manifest.get("platform") or "") != platform:
             raise RemoteRunnerArtifactError(f"remote runner artifact manifest platform mismatch: {archive_path}")
@@ -81,7 +86,7 @@ class RemoteRunnerArtifactProvider:
         verify_bundled_runtime_entrypoints(archive_path)
         verify_required_wrapper_assets(archive_path)
         return RemoteRunnerArtifact(
-            version=version,
+            version=manifest_version if staging_runner_bundle_allowed else version,
             platform=platform,
             archive_path=archive_path,
             sha256=actual,
@@ -100,6 +105,16 @@ def _explicit_staging_runner_bundle_allowed(archive_path: Path) -> bool:
         return Path(explicit).resolve() == archive_path.resolve()
     except OSError:
         return False
+
+
+def _validated_remote_runner_manifest_version(manifest: dict[str, object], archive_path: Path) -> str:
+    raw = manifest.get("version")
+    version = raw if isinstance(raw, str) else ""
+    if not version:
+        raise RemoteRunnerArtifactError(f"remote runner artifact manifest missing version: {archive_path}")
+    if version.strip() != version or ".." in version or not _SAFE_ARTIFACT_VERSION.fullmatch(version):
+        raise RemoteRunnerArtifactError(f"remote runner artifact manifest has unsafe version: {archive_path}")
+    return version
 
 
 class WorkflowRuntimeArtifactProvider:

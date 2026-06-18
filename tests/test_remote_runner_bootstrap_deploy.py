@@ -133,6 +133,110 @@ def test_bootstrap_extract_step_marks_remote_scripts_executable(monkeypatch) -> 
     assert result["bootstrap_metadata"]["tooling"]["service_runtime"]["provider"] == "bundled"
     assert result["bootstrap_metadata"]["tooling"]["service_runtime"]["source"] == "artifact"
 
+
+def test_bootstrap_uses_staged_artifact_version_for_release_layout(monkeypatch) -> None:
+    manager = RemoteRunnerManager()
+    staged_version = "0.1.4-control-plane"
+    executed: list[str] = []
+    uploaded_config: dict[str, object] = {}
+
+    class FakeArtifact:
+        archive_path = Path(__file__)
+        version = staged_version
+        platform = "linux-64"
+        sha256 = "d" * 64
+
+    class FakeTunnel:
+        local_port = 18765
+
+    class FakeSSH:
+        def run(self, cmd: str, timeout: int = 10):
+            executed.append(cmd)
+            if 'printf "%s" "$HOME"' in cmd:
+                return 0, "/home/tester", ""
+            if 'printf "%s:%s" "$(uname -s)" "$(uname -m)"' in cmd:
+                return 0, "Linux:x86_64", ""
+            if "systemctl --user show-environment" in cmd:
+                return 0, "background_process\n", ""
+            if "mkdir -p" in cmd:
+                return 0, "", ""
+            if "pkill -f '[r]emote_runner.run'" in cmd and "runner-state.json" in cmd:
+                return 0, "", ""
+            if "tar -xzf" in cmd and f"bundle-{staged_version}.tar.gz" in cmd:
+                return 0, "", ""
+            if "printf" in cmd and f"releases/{staged_version}/artifact.sha256" in cmd:
+                return 0, "", ""
+            if "cat /home/tester/.h2ometa/runner/shared/config/runner.json" in cmd:
+                return 0, json.dumps(uploaded_config), ""
+            if f"releases/{staged_version}/runtime/bin/python" in cmd and "ensure_runtime_layout" in cmd:
+                return 0, "", ""
+            if "rm -f /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
+                return 0, "", ""
+            if "bash /home/tester/.h2ometa/runner/current/start_service.sh" in cmd:
+                return 0, "", ""
+            if "cat /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
+                return 0, _runtime_state_json(version=staged_version), ""
+            if "kill -0 123" in cmd:
+                return 0, "", ""
+            if "cat /home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/artifact.sha256" in cmd:
+                return 0, "f" * 64, ""
+            if "workflow-env/bin/snakemake" in cmd and "--version" in cmd:
+                return 0, "9.19.0\n", ""
+            if _is_remote_current_release_read(cmd):
+                return 1, "", "No such file"
+            if _is_remote_current_release_switch(cmd):
+                assert f"releases/{staged_version}" in cmd
+                return 0, "", ""
+            if _is_remote_runner_config_read(cmd):
+                return 1, "", "No such file"
+            if _is_remote_bundle_cleanup(cmd) or _is_remote_config_atomic_move(cmd):
+                return 0, "", ""
+            if "rm -rf" in cmd and f"/locks/install-{staged_version}" in cmd:
+                return 0, "", ""
+            if "owner.json" in cmd and "printf %s" in cmd:
+                return 0, "", ""
+            raise AssertionError(f"unexpected command: {cmd}")
+
+        def upload(self, local: str, remote: str) -> None:
+            if remote == "/home/tester/.h2ometa/runner/shared/config/runner.json.tmp":
+                uploaded_config.update(json.loads(Path(local).read_text(encoding="utf-8")))
+
+        def ensure_local_tunnel(self, *args, **kwargs):
+            assert kwargs["remote_port"] == 43127
+            return FakeTunnel()
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            return None
+
+        def get_health(self) -> dict[str, object]:
+            return {
+                "startup": {"ok": True, "message": "Remote runner config loaded."},
+                "live": {"ok": True, "message": "Remote runner process is alive."},
+                "ready": {"ok": True, "message": "Remote runner control plane is ready."},
+                "reasonCode": "",
+                "checkedAt": "2026-04-22T00:00:00Z",
+            }
+
+    with patch.object(manager, "_artifact_provider", SimpleNamespace(resolve=lambda **kwargs: FakeArtifact())), patch(
+        "core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient
+    ), patch(
+        "core.remote_runner.manager.store_runner_token", lambda **kwargs: "runner://srv_test"
+    ):
+        result = manager.bootstrap(
+            server_id="srv_test",
+            server={"label": "demo"},
+            ssh_service=FakeSSH(),
+            server_record={},
+        )
+
+    assert result["bootstrap_version"] == staged_version
+    assert uploaded_config["version"] == staged_version
+    assert uploaded_config["runner_python"].endswith(f"/releases/{staged_version}/runtime/bin/python")
+    assert any(f"bundle-{staged_version}.tar.gz" in cmd for cmd in executed)
+    assert any(f"releases/{staged_version}" in cmd for cmd in executed)
+
+
 def test_bootstrap_registers_remote_workflow_runtime_when_local_artifact_is_missing(monkeypatch) -> None:
     monkeypatch.setenv("H2OMETA_ALLOW_REMOTE_WORKFLOW_RUNTIME_REGISTRATION", "1")
     monkeypatch.setattr(

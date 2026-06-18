@@ -214,6 +214,103 @@ def test_bootstrap_reuses_existing_runner_when_artifact_sha_matches(monkeypatch)
     assert not any("pkill -f" in cmd for cmd in executed)
     store_token.assert_not_called()
 
+
+def test_fast_reuse_accepts_staged_runner_version(monkeypatch) -> None:
+    manager = RemoteRunnerManager()
+    staged_version = "0.1.4-control-plane"
+    metadata = {
+        "preflight": {"platform": "linux-64"},
+        "tooling": {
+            "workflow_runtime": {
+                "artifact_sha": "f" * 64,
+                "snakemake_command": "/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/workflow-env/bin/snakemake",
+            }
+        },
+    }
+
+    class FakeSSH:
+        def run(self, cmd: str, timeout: int = 10):
+            if "readlink -f /home/tester/.h2ometa/runner/current" in cmd:
+                return 0, f"/home/tester/.h2ometa/runner/releases/{staged_version}\n", ""
+            if f"cat /home/tester/.h2ometa/runner/releases/{staged_version}/bootstrap_manifest.json" in cmd:
+                return 0, json.dumps(
+                    {
+                        "service": "h2ometa-remote",
+                        "version": staged_version,
+                        "platform": "linux-64",
+                        "runtime": {"provider": "bundled", "python": "runtime/bin/python"},
+                    }
+                ), ""
+            if f"cat /home/tester/.h2ometa/runner/releases/{staged_version}/artifact.sha256" in cmd:
+                return 0, "d" * 64, ""
+            if "cat /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
+                return 0, _runtime_state_json(version=staged_version), ""
+            if "kill -0 123" in cmd:
+                return 0, "", ""
+            if "cat /home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/artifact.sha256" in cmd:
+                return 0, "f" * 64, ""
+            if "cat /home/tester/.h2ometa/runner/shared/config/runner.json" in cmd:
+                return 0, json.dumps(
+                    {
+                        "managed_conda_command": "/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/workflow-env/bin/conda",
+                        "managed_conda_root_prefix": "/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/micromamba-root",
+                        "workflow_runtime_provider": "conda-pack",
+                        "workflow_runtime_source": "artifact",
+                        "workflow_runtime_version": "0.1.0",
+                        "snakemake_command": "/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/workflow-env/bin/snakemake",
+                        "snakemake_version": "9.19.0",
+                    }
+                ), ""
+            if "workflow-env/bin/snakemake" in cmd and "--version" in cmd:
+                return 0, "9.19.0\n", ""
+            raise AssertionError(f"unexpected command: {cmd}")
+
+        def ensure_local_tunnel(self, *args, **kwargs):
+            class FakeTunnel:
+                local_port = 18765
+
+            assert kwargs["remote_port"] == 43127
+            return FakeTunnel()
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            return None
+
+        def get_health(self) -> dict[str, object]:
+            return {"ready": {"ok": True}}
+
+        def get_json(self, path: str) -> dict[str, object]:
+            assert path == "/api/v1/database-templates"
+            return {"data": {"items": [{"category": "db", "pathLabel": "path", "runtimeValue": "/db"}]}}
+
+    monkeypatch.setattr("core.remote_runner.reuse.resolve_runner_token", lambda token_ref: "phase2-token")
+    monkeypatch.setattr("core.remote_runner.reuse.RemoteRunnerHttpClient", FakeClient)
+    result = manager._try_reuse_existing_runner_fast(
+        server_id="srv_test",
+        ssh_service=FakeSSH(),
+        server_record={
+            "bootstrap_version": staged_version,
+            "runner_mode": "systemd_user",
+            "token_ref": "runner://srv_test",
+        },
+        version=staged_version,
+        remote_release=f"/home/tester/.h2ometa/runner/releases/{staged_version}",
+        remote_current="/home/tester/.h2ometa/runner/current",
+        remote_runtime_state="/home/tester/.h2ometa/runner/shared/runtime/runner-state.json",
+        remote_config="/home/tester/.h2ometa/runner/shared/config/runner.json",
+        remote_artifact_sha=f"/home/tester/.h2ometa/runner/releases/{staged_version}/artifact.sha256",
+        artifact_sha="d" * 64,
+        workflow_artifact=_fake_workflow_artifact(),
+        workflow_runtime_dir="/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64",
+        remote_workflow_artifact_sha="/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/artifact.sha256",
+        bootstrap_metadata=metadata,
+    )
+
+    assert result is not None
+    assert result["bootstrap_version"] == staged_version
+    assert result["bootstrap_metadata"]["deployment_action"] == "reused"
+
+
 def test_fast_reuse_rejects_runner_when_workflow_runtime_marker_is_missing(monkeypatch) -> None:
     manager = RemoteRunnerManager()
     metadata = {
