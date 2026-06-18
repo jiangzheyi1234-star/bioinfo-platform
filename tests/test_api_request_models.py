@@ -11,6 +11,7 @@ from apps.api.models import (
     TerminalResizeMessage,
     TerminalSessionSnapshot,
     ToolManifestRequest,
+    ToolProductionEvidenceRequest,
     UploadSubmitRequest,
     WorkflowDesignDraftCompileRequest,
 )
@@ -70,6 +71,36 @@ def test_tool_manifest_request_accepts_profile_prepare_payload_identity() -> Non
 
     assert payload.profileId == "fastqc"
     assert payload.validationTarget == "fastqc"
+
+
+def test_tool_production_evidence_request_accepts_scoped_attestation_fields() -> None:
+    payload = ToolProductionEvidenceRequest.model_validate(
+        {
+            "serverId": "srv_demo",
+            "runId": "run_real_data",
+            "message": "Accepted against real remote data.",
+            "evidenceType": "real-database-acceptance",
+            "targetPlatform": "linux-64",
+            "environmentLock": {"manager": "conda"},
+            "inputScope": {"inputs": [{"role": "reads", "filename": "reads.fastq"}]},
+            "artifactDigest": "sha256:abc123",
+            "policyVersion": "tool-production-policy-v1",
+            "databaseId": "db_real",
+            "templateId": "gtdbtk",
+            "role": "taxonomy",
+            "artifactName": "report.txt",
+            "packId": "gtdbtk-r232",
+            "packChecksum": "md5:abc123",
+        }
+    )
+
+    assert payload.inputScope == {"inputs": [{"role": "reads", "filename": "reads.fastq"}]}
+    assert payload.packChecksum == "md5:abc123"
+
+    with pytest.raises(ValidationError) as exc_info:
+        ToolProductionEvidenceRequest.model_validate({"runId": "run_real_data", "legacyEvidence": {}})
+
+    assert exc_info.value.errors()[0]["type"] == "extra_forbidden"
 
 
 def test_run_submit_request_rejects_top_level_pipeline_id_as_extra_field() -> None:

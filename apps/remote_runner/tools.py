@@ -125,10 +125,15 @@ def mark_registered_tool_production_enabled(
     for key in (
         "logPath",
         "evidenceType",
+        "targetPlatform",
+        "artifactDigest",
+        "policyVersion",
         "databaseId",
         "templateId",
         "role",
         "artifactName",
+        "packId",
+        "packChecksum",
     ):
         value = str(accepted.get(key) or "").strip()
         if value:
@@ -166,6 +171,8 @@ def _record_production_evidence_event(
         "templateId": str(accepted.get("templateId") or ""),
         "role": str(accepted.get("role") or ""),
         "artifactName": str(accepted.get("artifactName") or ""),
+        "packId": str(accepted.get("packId") or ""),
+        "packChecksum": str(accepted.get("packChecksum") or ""),
         "targetPlatform": str(accepted.get("targetPlatform") or ""),
         "environmentLock": accepted.get("environmentLock") if isinstance(accepted.get("environmentLock"), dict) else {},
         "inputScope": accepted.get("inputScope") if isinstance(accepted.get("inputScope"), dict) else {},

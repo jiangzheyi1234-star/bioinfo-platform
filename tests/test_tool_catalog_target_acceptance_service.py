@@ -316,6 +316,16 @@ def test_target_acceptance_service_uses_tool_index_for_production_queue(
     assert production_queue["items"][0]["toolId"] == "bioconda::fastqc"
     assert production_queue["items"][0]["toolRevisionId"] == "bioconda::fastqc@0.12.1"
     assert production_queue["items"][0]["action"] == "submit-production-evidence"
+    assert production_queue["items"][0]["productionPlan"]["requiredEvidenceFields"] == [
+        "runId",
+        "evidenceType",
+        "message",
+    ]
+    assert production_queue["items"][0]["productionPlan"]["acceptedEvidenceTypes"] == [
+        "real-data-acceptance",
+        "real-database-acceptance",
+    ]
+    assert "packChecksum" in production_queue["items"][0]["productionPlan"]["scopedAttestation"]
     assert (
         production_queue["items"][0]["executionGate"]["sourceOfTruth"]
         == "registeredTool.toolContract"

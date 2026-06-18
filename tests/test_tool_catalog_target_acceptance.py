@@ -281,10 +281,19 @@ def test_bio_agent_catalog_target_acceptance_counts_registered_tool_contracts(
         == "/api/v1/tools/{toolId}/production"
     )
     assert "runId" in first_production_item["productionPlan"]["requiredEvidenceFields"]
+    assert "message" in first_production_item["productionPlan"]["requiredEvidenceFields"]
     assert (
         "real-data-acceptance"
         in first_production_item["productionPlan"]["acceptedEvidenceTypes"]
     )
+    assert (
+        "real-database-acceptance"
+        in first_production_item["productionPlan"]["acceptedEvidenceTypes"]
+    )
+    assert "targetPlatform" in first_production_item["productionPlan"]["scopedAttestation"]
+    assert "environmentLock" in first_production_item["productionPlan"]["scopedAttestation"]
+    assert "inputScope" in first_production_item["productionPlan"]["scopedAttestation"]
+    assert "packChecksum" in first_production_item["productionPlan"]["scopedAttestation"]
 
 
 def test_validation_queue_prioritizes_wrapper_evidence_and_semantic_ports(

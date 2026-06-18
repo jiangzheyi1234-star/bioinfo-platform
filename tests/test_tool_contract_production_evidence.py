@@ -520,6 +520,9 @@ def test_real_database_acceptance_pack_claim_must_match_registered_lineage(tmp_p
         },
     )
     assert accepted["toolContract"]["state"] == "ProductionEnabled"
+    production = accepted["contractStatus"]["production"]
+    assert production["packId"] == DEFAULT_PACK_ID
+    assert production["packChecksum"] == f"md5:{GTDBTK_R232_MD5}"
 
 
 def test_production_acceptance_rejects_empty_artifacts(tmp_path: Path) -> None:

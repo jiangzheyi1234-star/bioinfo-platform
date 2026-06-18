@@ -146,6 +146,7 @@ export type WorkflowRun = {
     workflowDesign?: { draftId?: string; revision?: number };
     inputs?: Array<{ filename?: string; role?: string; uploadId?: string }>;
     params?: Record<string, unknown>;
+    resourceBindings?: Record<string, string | { databaseId?: string; id?: string; templateId?: string }>;
   };
 };
 

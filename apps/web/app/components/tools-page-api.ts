@@ -139,6 +139,34 @@ export async function prepareToolValidationQueue(maxItems: number): Promise<Tool
   return response.data;
 }
 
+export type ToolProductionEvidencePayload = {
+  runId: string;
+  evidenceType: string;
+  message: string;
+  artifactName?: string;
+  logPath?: string;
+  targetPlatform?: string;
+  environmentLock?: Record<string, unknown>;
+  inputScope?: Record<string, unknown>;
+  artifactDigest?: string;
+  policyVersion?: string;
+  databaseId?: string;
+  templateId?: string;
+  role?: string;
+  packId?: string;
+  packChecksum?: string;
+};
+
+export async function submitToolProductionEvidence(toolId: string, payload: ToolProductionEvidencePayload): Promise<AddedTool> {
+  const response = await requestLocalApiJson<{ data: AddedTool }>(
+    "POST",
+    `/api/v1/tools/${encodeURIComponent(toolId)}/production`,
+    { body: payload }
+  );
+  invalidateWorkflowToolCaches();
+  return response.data;
+}
+
 export async function fetchToolPrepareJob(jobId: string): Promise<ToolPrepareJob> {
   const response = await requestLocalApiJson<ToolPrepareJobResponse>("GET", `/api/v1/tools/prepare-jobs/${encodeURIComponent(jobId)}`, {
     cache: "no-store",
