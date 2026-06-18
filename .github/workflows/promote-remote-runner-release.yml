@@ -22,7 +22,7 @@ on:
       require_github_attestations:
         description: Require release-github-attestations.json and hosted GitHub attestation URLs.
         required: true
-        default: true
+        default: false
         type: boolean
       platform:
         description: Target Linux platform.
