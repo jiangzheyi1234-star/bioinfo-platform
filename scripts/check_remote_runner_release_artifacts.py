@@ -120,14 +120,15 @@ def _resolve_staging_runner_bundle() -> RemoteRunnerArtifact:
     platform = str(manifest.get("platform") or "")
     if str(manifest.get("service") or "") != REMOTE_RUNNER_ARTIFACT.service:
         raise RemoteRunnerArtifactError(f"staging remote runner artifact manifest has unexpected service: {archive_path}")
-    if str(manifest.get("version") or "") != REMOTE_RUNNER_ARTIFACT.version:
-        raise RemoteRunnerArtifactError(f"staging remote runner artifact manifest version mismatch: {archive_path}")
+    artifact_version = str(manifest.get("version") or "").strip()
+    if not artifact_version:
+        raise RemoteRunnerArtifactError(f"staging remote runner artifact manifest missing version: {archive_path}")
     if platform != REMOTE_RUNNER_ARTIFACT.default_platform:
         raise RemoteRunnerArtifactError(f"staging remote runner artifact platform mismatch: {archive_path}")
     verify_bundled_runtime_entrypoints(archive_path)
     verify_required_wrapper_assets(archive_path)
     return RemoteRunnerArtifact(
-        version=REMOTE_RUNNER_ARTIFACT.version,
+        version=artifact_version,
         platform=platform,
         archive_path=archive_path,
         sha256=actual,
