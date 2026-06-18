@@ -68,10 +68,14 @@ class RemoteRunnerArtifactProvider:
                 archive_path=archive_path,
                 sha256=actual,
             )
+        staging_runner_bundle_allowed = _explicit_staging_runner_bundle_allowed(archive_path)
         manifest = read_manifest(archive_path)
         if str(manifest.get("service") or "") != REMOTE_RUNNER_ARTIFACT.service:
             raise RemoteRunnerArtifactError(f"remote runner artifact manifest has unexpected service: {archive_path}")
-        if str(manifest.get("version") or "") != version:
+        manifest_version = str(manifest.get("version") or "").strip()
+        if not manifest_version:
+            raise RemoteRunnerArtifactError(f"remote runner artifact manifest missing version: {archive_path}")
+        if manifest_version != version and not staging_runner_bundle_allowed:
             raise RemoteRunnerArtifactError(f"remote runner artifact manifest version mismatch: {archive_path}")
         if str(manifest.get("platform") or "") != platform:
             raise RemoteRunnerArtifactError(f"remote runner artifact manifest platform mismatch: {archive_path}")
@@ -81,7 +85,7 @@ class RemoteRunnerArtifactProvider:
         verify_bundled_runtime_entrypoints(archive_path)
         verify_required_wrapper_assets(archive_path)
         return RemoteRunnerArtifact(
-            version=version,
+            version=manifest_version if staging_runner_bundle_allowed else version,
             platform=platform,
             archive_path=archive_path,
             sha256=actual,
