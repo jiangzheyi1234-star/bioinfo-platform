@@ -315,6 +315,57 @@ def test_promote_release_prefers_github_hosted_attestation_urls(tmp_path: Path, 
     assert candidate["artifacts"]["workflow_runtime"]["attestation_urls"]["linux-64"].endswith("/attestations/103")
 
 
+def test_promote_release_accepts_disabled_github_attestation_summary(tmp_path: Path, monkeypatch) -> None:
+    promote = _load_module()
+    paths = _fixture(tmp_path)
+    payload = json.loads(paths["github_attestations"].read_text(encoding="utf-8"))
+    payload["mode"] = "disabled-by-input"
+    payload["provenance"]["attestationId"] = ""
+    payload["provenance"]["attestationUrl"] = ""
+    for entry in payload["sbom"].values():
+        entry["attestationId"] = ""
+        entry["attestationUrl"] = ""
+    _write_json(paths["github_attestations"], payload)
+    monkeypatch.setattr(promote, "git_commit", lambda ref: "a" * 40)
+
+    assert promote.main([*_argv(paths), "--github-attestations", str(paths["github_attestations"])]) == 0
+
+    summary = json.loads(paths["summary"].read_text(encoding="utf-8"))
+    candidate = json.loads(paths["candidate"].read_text(encoding="utf-8"))
+    assert summary["ok"] is True
+    assert any(
+        check["name"] == "github-attestations-summary" and check["mode"] == "disabled-by-input"
+        for check in summary["checks"]
+    )
+    assert candidate["artifacts"]["remote_runner"]["provenance_urls"]["linux-64"].endswith("/5")
+    assert candidate["artifacts"]["workflow_runtime"]["attestation_urls"]["linux-64"].endswith("/7")
+
+
+def test_promote_release_can_require_github_hosted_attestations(tmp_path: Path, monkeypatch) -> None:
+    promote = _load_module()
+    paths = _fixture(tmp_path)
+    payload = json.loads(paths["github_attestations"].read_text(encoding="utf-8"))
+    payload["mode"] = "disabled-by-input"
+    _write_json(paths["github_attestations"], payload)
+    monkeypatch.setattr(promote, "git_commit", lambda ref: "a" * 40)
+
+    assert (
+        promote.main(
+            [
+                *_argv(paths),
+                "--github-attestations",
+                str(paths["github_attestations"]),
+                "--require-github-attestations",
+            ]
+        )
+        == 1
+    )
+
+    summary = json.loads(paths["summary"].read_text(encoding="utf-8"))
+    assert summary["ok"] is False
+    assert "does not contain hosted GitHub attestations" in json.dumps(summary)
+
+
 def test_promote_release_rejects_release_gate_source_mismatch(tmp_path: Path, monkeypatch) -> None:
     promote = _load_module()
     paths = _fixture(tmp_path)

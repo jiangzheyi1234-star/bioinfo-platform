@@ -100,11 +100,14 @@ jobs:
       - name: Validate promotion evidence
         run: |
           github_attestation_args=""
-          if [ -f dist/remote-runner/release-github-attestations.json ]; then
+          if [ "$REQUIRE_GITHUB_ATTESTATIONS" = "true" ]; then
+            if [ ! -f dist/remote-runner/release-github-attestations.json ]; then
+              echo "release-github-attestations.json is required for production promotion." >&2
+              exit 1
+            fi
+            github_attestation_args="--github-attestations dist/remote-runner/release-github-attestations.json --require-github-attestations"
+          elif [ -f dist/remote-runner/release-github-attestations.json ]; then
             github_attestation_args="--github-attestations dist/remote-runner/release-github-attestations.json"
-          elif [ "$REQUIRE_GITHUB_ATTESTATIONS" = "true" ]; then
-            echo "release-github-attestations.json is required for production promotion." >&2
-            exit 1
           fi
           uv run --frozen python scripts/promote_remote_runner_release.py \
             --metadata dist/remote-runner/release-artifacts-metadata.json \
