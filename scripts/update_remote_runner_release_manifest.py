@@ -211,7 +211,11 @@ def attestation_url(
     artifact_key: str,
     *,
     published_assets: dict[str, dict[str, Any]] | None = None,
+    github_attestations: dict[str, Any] | None = None,
 ) -> str:
+    hosted_url = hosted_attestation_url(github_attestations, artifact_key)
+    if hosted_url:
+        return hosted_url
     if artifact_key == "remote_runner":
         sbom = (attestations.get("sbom") or {}).get("remote_runner") if isinstance(attestations.get("sbom"), dict) else {}
     elif artifact_key == "workflow_runtime":
@@ -241,7 +245,11 @@ def provenance_url(
     attestations: dict[str, Any],
     *,
     published_assets: dict[str, dict[str, Any]] | None = None,
+    github_attestations: dict[str, Any] | None = None,
 ) -> str:
+    hosted_url = hosted_provenance_url(github_attestations)
+    if hosted_url:
+        return hosted_url
     provenance = attestations.get("provenance") if isinstance(attestations.get("provenance"), dict) else {}
     url = str(provenance.get("attestationUrl") or "").strip()
     if not url:
@@ -259,6 +267,35 @@ def provenance_url(
     )
 
 
+def hosted_attestations_enabled(github_attestations: dict[str, Any] | None) -> bool:
+    return bool(
+        isinstance(github_attestations, dict)
+        and github_attestations.get("schemaVersion") == "h2ometa-release-github-attestations.v1"
+        and github_attestations.get("mode") == "github-hosted-sigstore"
+    )
+
+
+def hosted_provenance_url(github_attestations: dict[str, Any] | None) -> str:
+    if not hosted_attestations_enabled(github_attestations):
+        return ""
+    provenance = github_attestations.get("provenance")
+    if not isinstance(provenance, dict):
+        return ""
+    return str(provenance.get("attestationUrl") or "").strip()
+
+
+def hosted_attestation_url(github_attestations: dict[str, Any] | None, artifact_key: str) -> str:
+    if not hosted_attestations_enabled(github_attestations):
+        return ""
+    sbom = github_attestations.get("sbom")
+    if not isinstance(sbom, dict):
+        return ""
+    entry = sbom.get(artifact_key)
+    if not isinstance(entry, dict):
+        return ""
+    return str(entry.get("attestationUrl") or "").strip()
+
+
 def update_manifest(
     manifest: dict[str, Any],
     *,
@@ -267,6 +304,7 @@ def update_manifest(
     download_urls: dict[tuple[str, str], str],
     sbom_urls: dict[tuple[str, str], str],
     published_assets: dict[str, Any] | None = None,
+    github_attestations: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     updated = deepcopy(manifest)
     artifacts = updated.get("artifacts")
@@ -277,7 +315,11 @@ def update_manifest(
     source_ref = require_text(metadata, "sourceRef", context="release metadata")
     source_commit = require_text(metadata, "sourceCommit", context="release metadata")
     resolved_published_assets = published_assets_by_name(published_assets) if published_assets is not None else None
-    provenance = provenance_url(attestations, published_assets=resolved_published_assets)
+    provenance = provenance_url(
+        attestations,
+        published_assets=resolved_published_assets,
+        github_attestations=github_attestations,
+    )
     if not provenance:
         raise SystemExit("release attestations missing provenance attestationUrl")
     for item in artifact_metadata_items(metadata):
@@ -298,6 +340,7 @@ def update_manifest(
             attestations,
             artifact_key,
             published_assets=resolved_published_assets,
+            github_attestations=github_attestations,
         )
         if not artifact_attestation_url:
             raise SystemExit(f"release attestations missing attestationUrl for {artifact_key}")
@@ -330,6 +373,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--metadata", required=True, help="Path to release-artifacts-metadata.json.")
     parser.add_argument("--attestations", required=True, help="Path to release-attestations.json.")
     parser.add_argument(
+        "--github-attestations",
+        default="",
+        help="Optional path to release-github-attestations.json emitted by hosted GitHub attestation steps.",
+    )
+    parser.add_argument(
         "--published-assets",
         default="",
         help="Path to release-published-assets.json emitted by the publish job.",
@@ -356,6 +404,7 @@ def main(argv: list[str] | None = None) -> int:
     output_path = Path(args.output) if args.output else manifest_path
     metadata = load_json(Path(args.metadata))
     published_assets = load_json(Path(args.published_assets)) if args.published_assets else None
+    github_attestations = load_json(Path(args.github_attestations)) if args.github_attestations else None
     download_urls, sbom_urls = merge_published_asset_urls(
         metadata=metadata,
         published_assets=published_assets,
@@ -369,6 +418,7 @@ def main(argv: list[str] | None = None) -> int:
         download_urls=download_urls,
         sbom_urls=sbom_urls,
         published_assets=published_assets,
+        github_attestations=github_attestations,
     )
     output_path.write_text(json.dumps(updated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return 0

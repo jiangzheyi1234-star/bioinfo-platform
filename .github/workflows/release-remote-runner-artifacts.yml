@@ -13,9 +13,14 @@ on:
         default: false
         type: boolean
       promote_release:
-        description: Run the protected production promotion gate after publish. Requires release gate evidence artifact inputs.
+        description: Deprecated safety guard; use Promote Remote Runner Release after build/publish.
         required: true
         default: false
+        type: boolean
+      hosted_attestations:
+        description: Generate GitHub-hosted Sigstore attestations for runtime artifacts and SBOMs.
+        required: true
+        default: true
         type: boolean
       release_tag:
         description: Existing GitHub Release tag, named h2ometa-runtime-vX.Y.Z, to receive the built assets when publish_release is true.
@@ -44,9 +49,15 @@ jobs:
   build:
     name: Build Linux release artifacts
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     env:
       SOURCE_REF: ${{ github.event.inputs.source_ref || github.sha }}
       PLATFORM: ${{ github.event.inputs.platform || 'linux-64' }}
+      GH_REPO: ${{ github.repository }}
     steps:
       - name: Checkout source ref
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -57,6 +68,7 @@ jobs:
       - name: Validate release workflow inputs
         env:
           PUBLISH_RELEASE: ${{ github.event.inputs.publish_release }}
+          PROMOTE_RELEASE: ${{ github.event.inputs.promote_release }}
           RELEASE_TAG: ${{ github.event.inputs.release_tag }}
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
@@ -78,6 +90,10 @@ jobs:
             fi
             gh release view "$RELEASE_TAG" --repo "$GH_REPO" --json tagName >/dev/null
           fi
+          if [ "$PROMOTE_RELEASE" = "true" ]; then
+            echo "promote_release is disabled in the build/publish workflow. Use promote-remote-runner-release.yml with the published build run id and release gate evidence." >&2
+            exit 1
+          fi
 
       - name: Install uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
@@ -97,6 +113,151 @@ jobs:
             --attestations dist/remote-runner/release-attestations.json \
             --output-json dist/remote-runner/release-readiness-summary.json
 
+      - name: Locate hosted attestation subjects
+        id: attestation-subjects
+        run: |
+          set -euo pipefail
+          remote_runner="$(find dist/remote-runner -maxdepth 1 -type f -name 'h2ometa-remote-runner-*-linux-64.tar.gz' | sort | head -n 1)"
+          workflow_runtime="$(find dist/remote-runner -maxdepth 1 -type f -name 'h2ometa-workflow-runtime-*-linux-64.tar.gz' | sort | head -n 1)"
+          test -n "$remote_runner"
+          test -n "$workflow_runtime"
+          test -f "${remote_runner}.spdx.json"
+          test -f "${workflow_runtime}.spdx.json"
+          {
+            echo "remote_runner=$remote_runner"
+            echo "remote_runner_sbom=${remote_runner}.spdx.json"
+            echo "workflow_runtime=$workflow_runtime"
+            echo "workflow_runtime_sbom=${workflow_runtime}.spdx.json"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create hosted provenance attestation
+        if: ${{ github.event.inputs.hosted_attestations == 'true' }}
+        id: attest-provenance
+        uses: actions/attest@281a49d4cbb0a72c9575a50d18f6deb515a11deb # v4
+        with:
+          subject-path: |
+            ${{ steps.attestation-subjects.outputs.remote_runner }}
+            ${{ steps.attestation-subjects.outputs.workflow_runtime }}
+
+      - name: Create hosted remote-runner SBOM attestation
+        if: ${{ github.event.inputs.hosted_attestations == 'true' }}
+        id: attest-remote-runner-sbom
+        uses: actions/attest@281a49d4cbb0a72c9575a50d18f6deb515a11deb # v4
+        with:
+          subject-path: ${{ steps.attestation-subjects.outputs.remote_runner }}
+          sbom-path: ${{ steps.attestation-subjects.outputs.remote_runner_sbom }}
+
+      - name: Create hosted workflow-runtime SBOM attestation
+        if: ${{ github.event.inputs.hosted_attestations == 'true' }}
+        id: attest-workflow-runtime-sbom
+        uses: actions/attest@281a49d4cbb0a72c9575a50d18f6deb515a11deb # v4
+        with:
+          subject-path: ${{ steps.attestation-subjects.outputs.workflow_runtime }}
+          sbom-path: ${{ steps.attestation-subjects.outputs.workflow_runtime_sbom }}
+
+      - name: Write hosted attestation summary
+        env:
+          HOSTED_ATTESTATIONS: ${{ github.event.inputs.hosted_attestations }}
+          PROVENANCE_ID: ${{ steps.attest-provenance.outputs.attestation-id }}
+          PROVENANCE_URL: ${{ steps.attest-provenance.outputs.attestation-url }}
+          PROVENANCE_BUNDLE: ${{ steps.attest-provenance.outputs.bundle-path }}
+          REMOTE_RUNNER_SBOM_ID: ${{ steps.attest-remote-runner-sbom.outputs.attestation-id }}
+          REMOTE_RUNNER_SBOM_URL: ${{ steps.attest-remote-runner-sbom.outputs.attestation-url }}
+          REMOTE_RUNNER_SBOM_BUNDLE: ${{ steps.attest-remote-runner-sbom.outputs.bundle-path }}
+          WORKFLOW_RUNTIME_SBOM_ID: ${{ steps.attest-workflow-runtime-sbom.outputs.attestation-id }}
+          WORKFLOW_RUNTIME_SBOM_URL: ${{ steps.attest-workflow-runtime-sbom.outputs.attestation-url }}
+          WORKFLOW_RUNTIME_SBOM_BUNDLE: ${{ steps.attest-workflow-runtime-sbom.outputs.bundle-path }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          dist = Path("dist/remote-runner")
+          metadata = json.loads((dist / "release-artifacts-metadata.json").read_text(encoding="utf-8"))
+          artifacts = {
+              str(item.get("artifactKey")): item
+              for item in metadata.get("artifacts", [])
+              if isinstance(item, dict)
+          }
+
+          def subject(item):
+              return {
+                  "name": Path(str(item.get("path") or "")).name,
+                  "digest": {"sha256": str(item.get("sha256") or "")},
+              }
+
+          def sbom_entry(env_prefix, item):
+              sbom = item.get("sbom") if isinstance(item.get("sbom"), dict) else {}
+              return {
+                  "attestationId": os.environ.get(f"{env_prefix}_ID", ""),
+                  "attestationUrl": os.environ.get(f"{env_prefix}_URL", ""),
+                  "bundlePath": os.environ.get(f"{env_prefix}_BUNDLE", ""),
+                  "subject": subject(item),
+                  "sbomFilename": Path(str(sbom.get("path") or "")).name,
+                  "sbomSha256": str(sbom.get("sha256") or ""),
+              }
+
+          payload = {
+              "schemaVersion": "h2ometa-release-github-attestations.v1",
+              "mode": "github-hosted-sigstore" if os.environ.get("HOSTED_ATTESTATIONS") == "true" else "disabled-by-input",
+              "repository": os.environ.get("GITHUB_REPOSITORY", ""),
+              "runId": os.environ.get("GITHUB_RUN_ID", ""),
+              "sourceCommit": str(metadata.get("sourceCommit") or ""),
+              "provenance": {
+                  "attestationId": os.environ.get("PROVENANCE_ID", ""),
+                  "attestationUrl": os.environ.get("PROVENANCE_URL", ""),
+                  "bundlePath": os.environ.get("PROVENANCE_BUNDLE", ""),
+                  "subjects": [subject(artifacts[key]) for key in ("remote_runner", "workflow_runtime") if key in artifacts],
+              },
+              "sbom": {},
+          }
+          if "remote_runner" in artifacts:
+              payload["sbom"]["remote_runner"] = sbom_entry("REMOTE_RUNNER_SBOM", artifacts["remote_runner"])
+          if "workflow_runtime" in artifacts:
+              payload["sbom"]["workflow_runtime"] = sbom_entry("WORKFLOW_RUNTIME_SBOM", artifacts["workflow_runtime"])
+          (dist / "release-github-attestations.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+          PY
+
+      - name: Validate hosted attestation summary
+        run: |
+          if [ "${{ github.event.inputs.hosted_attestations }}" = "true" ]; then
+            github_attestation_args="--github-attestations dist/remote-runner/release-github-attestations.json --require-github-attestations"
+          else
+            github_attestation_args="--github-attestations dist/remote-runner/release-github-attestations.json"
+          fi
+          uv run --frozen python scripts/check_remote_runner_release_readiness.py \
+            --ci-build-metadata dist/remote-runner/release-artifacts-metadata.json \
+            --manifest-metadata dist/remote-runner/release-manifest-metadata.json \
+            --attestations dist/remote-runner/release-attestations.json \
+            $github_attestation_args \
+            --output-json dist/remote-runner/release-readiness-summary.json
+
+      - name: Verify hosted artifact attestations
+        if: ${{ github.event.inputs.hosted_attestations == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          signer_workflow="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release-remote-runner-artifacts.yml"
+          gh attestation verify "${{ steps.attestation-subjects.outputs.remote_runner }}" \
+            --repo "$GH_REPO" \
+            --signer-workflow "$signer_workflow" \
+            --source-digest "$SOURCE_REF"
+          gh attestation verify "${{ steps.attestation-subjects.outputs.workflow_runtime }}" \
+            --repo "$GH_REPO" \
+            --signer-workflow "$signer_workflow" \
+            --source-digest "$SOURCE_REF"
+          gh attestation verify "${{ steps.attestation-subjects.outputs.remote_runner }}" \
+            --repo "$GH_REPO" \
+            --signer-workflow "$signer_workflow" \
+            --source-digest "$SOURCE_REF" \
+            --predicate-type https://spdx.dev/Document
+          gh attestation verify "${{ steps.attestation-subjects.outputs.workflow_runtime }}" \
+            --repo "$GH_REPO" \
+            --signer-workflow "$signer_workflow" \
+            --source-digest "$SOURCE_REF" \
+            --predicate-type https://spdx.dev/Document
+
       - name: Upload release artifact bundle
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -109,6 +270,7 @@ jobs:
             dist/remote-runner/release-artifacts-metadata.json
             dist/remote-runner/release-manifest-metadata.json
             dist/remote-runner/release-attestations.json
+            dist/remote-runner/release-github-attestations.json
             dist/remote-runner/release-readiness-summary.json
           if-no-files-found: error
           retention-days: 14
@@ -144,6 +306,8 @@ jobs:
             dist/remote-runner/release-artifacts-metadata.json \
             dist/remote-runner/release-manifest-metadata.json \
             dist/remote-runner/release-attestations.json \
+            dist/remote-runner/release-github-attestations.json \
+            dist/remote-runner/release-readiness-summary.json \
             --repo "$GH_REPO" \
             --clobber
 
@@ -208,73 +372,5 @@ jobs:
         with:
           name: h2ometa-remote-runner-release-published-assets-${{ env.PLATFORM }}
           path: dist/remote-runner/release-published-assets.json
-          if-no-files-found: error
-          retention-days: 14
-
-  promote:
-    name: Verify production promotion gate
-    if: ${{ github.event.inputs.publish_release == 'true' && github.event.inputs.promote_release == 'true' }}
-    needs: publish
-    runs-on: ubuntu-24.04
-    environment: production-runtime
-    env:
-      PLATFORM: ${{ github.event.inputs.platform || 'linux-64' }}
-      RELEASE_TAG: ${{ github.event.inputs.release_tag }}
-      RELEASE_GATE_EVIDENCE_RUN_ID: ${{ github.event.inputs.release_gate_evidence_run_id }}
-      RELEASE_GATE_EVIDENCE_ARTIFACT: ${{ github.event.inputs.release_gate_evidence_artifact }}
-    steps:
-      - name: Checkout source ref
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          ref: ${{ github.event.inputs.source_ref || github.sha }}
-          fetch-depth: 0
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
-
-      - name: Download release artifact bundle
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: h2ometa-remote-runner-release-${{ env.PLATFORM }}
-          path: dist/remote-runner
-
-      - name: Download published asset map
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: h2ometa-remote-runner-release-published-assets-${{ env.PLATFORM }}
-          path: dist/remote-runner
-
-      - name: Download release gate evidence
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if [ -z "$RELEASE_GATE_EVIDENCE_RUN_ID" ]; then
-            echo "release_gate_evidence_run_id is required when promote_release is true." >&2
-            exit 1
-          fi
-          gh run download "$RELEASE_GATE_EVIDENCE_RUN_ID" \
-            --name "$RELEASE_GATE_EVIDENCE_ARTIFACT" \
-            --dir dist/remote-runner
-          test -f dist/remote-runner/release-gate-evidence.json
-
-      - name: Validate promotion evidence
-        run: |
-          uv run --frozen python scripts/promote_remote_runner_release.py \
-            --metadata dist/remote-runner/release-artifacts-metadata.json \
-            --manifest-metadata dist/remote-runner/release-manifest-metadata.json \
-            --attestations dist/remote-runner/release-attestations.json \
-            --published-assets dist/remote-runner/release-published-assets.json \
-            --release-gate-evidence dist/remote-runner/release-gate-evidence.json \
-            --release-tag "$RELEASE_TAG" \
-            --output-manifest dist/remote-runner/promoted-release-manifest.json \
-            --summary-json dist/remote-runner/release-promotion-summary.json
-
-      - name: Upload promotion proof
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: h2ometa-remote-runner-release-promotion-${{ env.PLATFORM }}
-          path: |
-            dist/remote-runner/release-promotion-summary.json
-            dist/remote-runner/promoted-release-manifest.json
           if-no-files-found: error
           retention-days: 14

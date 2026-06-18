@@ -205,6 +205,7 @@ def test_ci_builder_records_github_builder_identity(monkeypatch) -> None:
 def test_ci_builder_uses_controlled_linux_builder_not_ssh(monkeypatch) -> None:
     source = Path("scripts/build_release_artifacts_in_ci.py").read_text(encoding="utf-8")
     workflow = Path(".github/workflows/release-remote-runner-artifacts.yml").read_text(encoding="utf-8")
+    promotion_workflow = Path(".github/workflows/promote-remote-runner-release.yml").read_text(encoding="utf-8")
 
     assert "ssh_connect" not in source
     assert "connect()" not in source
@@ -214,24 +215,26 @@ def test_ci_builder_uses_controlled_linux_builder_not_ssh(monkeypatch) -> None:
     assert "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683" in workflow
     assert "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" in workflow
     assert "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093" in workflow
-    assert "actions/attest@" not in workflow
-    assert "attestations: write" not in workflow
-    assert "artifact-metadata: write" not in workflow
+    assert "actions/attest@281a49d4cbb0a72c9575a50d18f6deb515a11deb" in workflow
+    assert "id-token: write" in workflow
+    assert "attestations: write" in workflow
+    assert "artifact-metadata: write" in workflow
+    assert "gh attestation verify" in workflow
     assert "ATTESTATION_BUNDLE_FILENAMES" in source
     assert "pending-release-asset:" in source
     assert "dist/remote-runner/*.spdx.json" in workflow
     assert "dist/remote-runner/release-manifest-metadata.json" in workflow
     assert "dist/remote-runner/release-attestations.json" in workflow
+    assert "dist/remote-runner/release-github-attestations.json" in workflow
     assert "dist/remote-runner/attestation-bundles/*.intoto.json" in workflow
     assert "release-published-assets.json" in workflow
     assert "scripts/check_remote_runner_release_readiness.py" in workflow
+    assert "--require-github-attestations" in workflow
     assert "dist/remote-runner/release-readiness-summary.json" in workflow
     assert "promote_release" in workflow
-    assert "production-runtime" in workflow
-    assert "scripts/promote_remote_runner_release.py" in workflow
-    assert "release_gate_evidence_run_id" in workflow
-    assert "gh run download \"$RELEASE_GATE_EVIDENCE_RUN_ID\"" in workflow
-    assert "dist/remote-runner/release-promotion-summary.json" in workflow
+    assert "promote_release is disabled" in workflow
+    assert "production-runtime" not in workflow
+    assert "scripts/promote_remote_runner_release.py" not in workflow
     assert 'dist.rglob("*")' in workflow
     assert "h2ometa-remote-runner-release-published-assets-${{ env.PLATFORM }}" in workflow
     assert "published release is missing expected assets" in workflow
@@ -240,3 +243,11 @@ def test_ci_builder_uses_controlled_linux_builder_not_ssh(monkeypatch) -> None:
     assert "contents: write" in workflow
     assert "gh release upload" in workflow
     assert "uv run --frozen python scripts/build_release_artifacts_in_ci.py" in workflow
+    assert "Promote Remote Runner Release" in promotion_workflow
+    assert "production-runtime" in promotion_workflow
+    assert "actions: read" in promotion_workflow
+    assert "release_artifact_run_id" in promotion_workflow
+    assert "gh run download \"$RELEASE_ARTIFACT_RUN_ID\"" in promotion_workflow
+    assert "--github-attestations dist/remote-runner/release-github-attestations.json" in promotion_workflow
+    assert "scripts/promote_remote_runner_release.py" in promotion_workflow
+    assert "dist/remote-runner/release-promotion-summary.json" in promotion_workflow

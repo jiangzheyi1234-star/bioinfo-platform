@@ -44,6 +44,7 @@ The GitHub Release must contain the CI-built assets for every manifest-declared 
 - `release-artifacts-metadata.json`
 - `release-manifest-metadata.json`
 - `release-attestations.json`
+- `release-github-attestations.json`
 - `release-published-assets.json` when `publish_release=true`
 
 `resources/remote-runner` and `dist/remote-runner` are local cache or override locations. They are not the production release handoff.
@@ -59,13 +60,14 @@ Run these steps for a production runtime release:
 5. Set `source_ref` to the full 40-character commit SHA.
 6. Set `publish_release=true` and `release_tag=h2ometa-runtime-vX.Y.Z`.
 7. Wait for CI to build and publish all assets.
-8. Download `release-artifacts-metadata.json`, `release-attestations.json`, and `release-published-assets.json` from the workflow artifacts.
+8. Download `release-artifacts-metadata.json`, `release-attestations.json`, `release-github-attestations.json`, and `release-published-assets.json` from the workflow artifacts.
 9. Update the manifest:
 
 ```powershell
 uv run python scripts\update_remote_runner_release_manifest.py `
   --metadata dist\remote-runner\release-artifacts-metadata.json `
   --attestations dist\remote-runner\release-attestations.json `
+  --github-attestations dist\remote-runner\release-github-attestations.json `
   --published-assets dist\remote-runner\release-published-assets.json
 ```
 
@@ -87,6 +89,7 @@ uv run python scripts\promote_remote_runner_release.py `
   --metadata dist\remote-runner\release-artifacts-metadata.json `
   --manifest-metadata dist\remote-runner\release-manifest-metadata.json `
   --attestations dist\remote-runner\release-attestations.json `
+  --github-attestations dist\remote-runner\release-github-attestations.json `
   --published-assets dist\remote-runner\release-published-assets.json `
   --release-gate-evidence dist\remote-runner\release-gate-evidence.json `
   --release-tag h2ometa-runtime-vX.Y.Z `
@@ -139,9 +142,9 @@ invariants. Warnings such as slot saturation are acceptable during deliberate
 stress, but failed execution-observability SLOs or missing categories block the
 soak result.
 
-For controlled CI builds, `.github/workflows/release-remote-runner-artifacts.yml` runs `scripts\check_remote_runner_release_readiness.py` immediately after artifact build with the generated `release-artifacts-metadata.json`, `release-manifest-metadata.json`, and `release-attestations.json`. That CI path is intentionally non-destructive: it validates artifact, checksum, SBOM, manifest metadata, source commit, and attestation consistency, but it does not connect to or kill a remote runner. Real remote acceptance remains a separate explicit release gate and is represented by `release-gate-evidence.json`.
+For controlled CI builds, `.github/workflows/release-remote-runner-artifacts.yml` runs `scripts\check_remote_runner_release_readiness.py` immediately after artifact build with the generated `release-artifacts-metadata.json`, `release-manifest-metadata.json`, `release-attestations.json`, and, when enabled, `release-github-attestations.json` with `--require-github-attestations`. That CI path is intentionally non-destructive: it validates artifact, checksum, SBOM, manifest metadata, source commit, and attestation consistency, but it does not connect to or kill a remote runner. Real remote acceptance remains a separate explicit release gate and is represented by `release-gate-evidence.json`.
 
-Production promotion is stricter than staging readiness. `scripts\promote_remote_runner_release.py` rejects mismatched source commits, release tags that do not point at the promoted source commit, missing real release gate evidence, a release-gate bundle SHA-256 that does not match the controlled CI `remote_runner` artifact, mismatched published asset digests or sizes, and any production manifest field that still contains `pending:` or `pending-release-asset:`. The GitHub workflow exposes this as a protected `promote_release=true` path using the `production-runtime` environment; callers must provide the workflow run id and artifact name that contain `release-gate-evidence.json`.
+Production promotion is stricter than staging readiness. `scripts\promote_remote_runner_release.py` rejects mismatched source commits, release tags that do not point at the promoted source commit, missing real release gate evidence, a release-gate bundle SHA-256 that does not match the controlled CI `remote_runner` artifact, mismatched published asset digests or sizes, and any production manifest field that still contains `pending:` or `pending-release-asset:`. The GitHub path for this is the protected `.github/workflows/promote-remote-runner-release.yml` workflow, not a second build/publish run. Callers must provide the original build/publish run id and the workflow run id/artifact name that contain `release-gate-evidence.json`.
 
 ## Traceability Requirements
 

@@ -46,6 +46,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--metadata", required=True, help="Path to release-artifacts-metadata.json.")
     parser.add_argument("--manifest-metadata", required=True, help="Path to release-manifest-metadata.json.")
     parser.add_argument("--attestations", required=True, help="Path to release-attestations.json.")
+    parser.add_argument(
+        "--github-attestations",
+        default="",
+        help="Optional path to release-github-attestations.json emitted by hosted GitHub attestation steps.",
+    )
     parser.add_argument("--published-assets", required=True, help="Path to release-published-assets.json.")
     parser.add_argument("--release-gate-evidence", required=True, help="Path to release-gate-evidence.json.")
     parser.add_argument("--release-tag", required=True, help="Runtime release tag, for example h2ometa-runtime-v0.1.2.")
@@ -85,6 +90,7 @@ def promote_release(args: argparse.Namespace, results: list[dict[str, Any]]) -> 
     metadata_path = Path(args.metadata)
     manifest_metadata_path = Path(args.manifest_metadata)
     attestations_path = Path(args.attestations)
+    github_attestations_path = Path(args.github_attestations) if args.github_attestations else None
     published_assets_path = Path(args.published_assets)
     release_gate_path = Path(args.release_gate_evidence)
     manifest_path = Path(args.manifest)
@@ -93,6 +99,7 @@ def promote_release(args: argparse.Namespace, results: list[dict[str, Any]]) -> 
     metadata = load_json(metadata_path)
     manifest_metadata = load_json(manifest_metadata_path)
     attestations = load_json(attestations_path)
+    github_attestations = load_json(github_attestations_path) if github_attestations_path is not None else None
     published_assets = load_json(published_assets_path)
     gate_evidence = load_json(release_gate_path)
     current_manifest = load_json(manifest_path)
@@ -113,6 +120,14 @@ def promote_release(args: argparse.Namespace, results: list[dict[str, Any]]) -> 
     )
     results.append({"name": "ci-build-metadata", "ok": True})
 
+    if github_attestations_path is not None:
+        readiness.validate_github_attestations(
+            github_attestations_path,
+            metadata_path=metadata_path,
+            require_hosted=True,
+        )
+        results.append({"name": "github-hosted-attestations", "ok": True})
+
     readiness.validate_release_gate_evidence(release_gate_path)
     results.append({"name": "release-gate-evidence", "ok": True})
 
@@ -129,6 +144,7 @@ def promote_release(args: argparse.Namespace, results: list[dict[str, Any]]) -> 
         download_urls=download_urls,
         sbom_urls=sbom_urls,
         published_assets=published_assets,
+        github_attestations=github_attestations,
     )
     validate_production_manifest(candidate_manifest, source_commit=source_commit, release_tag=str(args.release_tag))
     results.append({"name": "production-manifest", "ok": True})

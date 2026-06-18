@@ -1,0 +1,128 @@
+name: Promote Remote Runner Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Runtime release tag, named h2ometa-runtime-vX.Y.Z.
+        required: true
+        default: ""
+      release_artifact_run_id:
+        description: Release workflow run id that built and published the runtime assets.
+        required: true
+        default: ""
+      release_gate_evidence_run_id:
+        description: Workflow run id containing release-gate-evidence.json as an artifact.
+        required: true
+        default: ""
+      release_gate_evidence_artifact:
+        description: Artifact name containing release-gate-evidence.json.
+        required: true
+        default: h2ometa-remote-runner-release-gate-evidence
+      require_github_attestations:
+        description: Require release-github-attestations.json and hosted GitHub attestation URLs.
+        required: true
+        default: true
+        type: boolean
+      platform:
+        description: Target Linux platform.
+        required: true
+        default: linux-64
+        type: choice
+        options:
+          - linux-64
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  promote:
+    name: Verify production promotion gate
+    runs-on: ubuntu-24.04
+    environment: production-runtime
+    env:
+      PLATFORM: ${{ github.event.inputs.platform || 'linux-64' }}
+      RELEASE_TAG: ${{ github.event.inputs.release_tag }}
+      RELEASE_ARTIFACT_RUN_ID: ${{ github.event.inputs.release_artifact_run_id }}
+      RELEASE_GATE_EVIDENCE_RUN_ID: ${{ github.event.inputs.release_gate_evidence_run_id }}
+      RELEASE_GATE_EVIDENCE_ARTIFACT: ${{ github.event.inputs.release_gate_evidence_artifact }}
+      REQUIRE_GITHUB_ATTESTATIONS: ${{ github.event.inputs.require_github_attestations }}
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+
+      - name: Validate promotion inputs
+        run: |
+          if ! printf '%s' "$RELEASE_TAG" | grep -Eq '^h2ometa-runtime-v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$'; then
+            echo "release_tag must be named h2ometa-runtime-vX.Y.Z." >&2
+            exit 1
+          fi
+          if ! printf '%s' "$RELEASE_ARTIFACT_RUN_ID" | grep -Eq '^[0-9]+$'; then
+            echo "release_artifact_run_id must be a GitHub Actions run id." >&2
+            exit 1
+          fi
+          if ! printf '%s' "$RELEASE_GATE_EVIDENCE_RUN_ID" | grep -Eq '^[0-9]+$'; then
+            echo "release_gate_evidence_run_id must be a GitHub Actions run id." >&2
+            exit 1
+          fi
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
+      - name: Download published release build proof
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download "$RELEASE_ARTIFACT_RUN_ID" \
+            --name "h2ometa-remote-runner-release-${PLATFORM}" \
+            --dir dist/remote-runner
+          gh run download "$RELEASE_ARTIFACT_RUN_ID" \
+            --name "h2ometa-remote-runner-release-published-assets-${PLATFORM}" \
+            --dir dist/remote-runner
+          test -f dist/remote-runner/release-artifacts-metadata.json
+          test -f dist/remote-runner/release-manifest-metadata.json
+          test -f dist/remote-runner/release-attestations.json
+          test -f dist/remote-runner/release-published-assets.json
+
+      - name: Download release gate evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download "$RELEASE_GATE_EVIDENCE_RUN_ID" \
+            --name "$RELEASE_GATE_EVIDENCE_ARTIFACT" \
+            --dir dist/remote-runner
+          test -f dist/remote-runner/release-gate-evidence.json
+
+      - name: Validate promotion evidence
+        run: |
+          github_attestation_args=""
+          if [ -f dist/remote-runner/release-github-attestations.json ]; then
+            github_attestation_args="--github-attestations dist/remote-runner/release-github-attestations.json"
+          elif [ "$REQUIRE_GITHUB_ATTESTATIONS" = "true" ]; then
+            echo "release-github-attestations.json is required for production promotion." >&2
+            exit 1
+          fi
+          uv run --frozen python scripts/promote_remote_runner_release.py \
+            --metadata dist/remote-runner/release-artifacts-metadata.json \
+            --manifest-metadata dist/remote-runner/release-manifest-metadata.json \
+            --attestations dist/remote-runner/release-attestations.json \
+            $github_attestation_args \
+            --published-assets dist/remote-runner/release-published-assets.json \
+            --release-gate-evidence dist/remote-runner/release-gate-evidence.json \
+            --release-tag "$RELEASE_TAG" \
+            --output-manifest dist/remote-runner/promoted-release-manifest.json \
+            --summary-json dist/remote-runner/release-promotion-summary.json
+
+      - name: Upload promotion proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: h2ometa-remote-runner-release-promotion-${{ env.PLATFORM }}
+          path: |
+            dist/remote-runner/release-promotion-summary.json
+            dist/remote-runner/promoted-release-manifest.json
+          if-no-files-found: error
+          retention-days: 14
