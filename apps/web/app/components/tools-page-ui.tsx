@@ -201,7 +201,7 @@ export function ToolCatalogQualityStrip({
           ))}
         </div>
         {queueTotal > 0 ? (
-          <details className="group mt-3 rounded-md border border-slate-200 bg-slate-50">
+          <details data-testid="tool-processing-queue" className="group mt-3 rounded-md border border-slate-200 bg-slate-50">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-xs">
               <span className="font-medium text-slate-800">处理队列</span>
               <span className="flex min-w-0 items-center gap-2 text-slate-500">

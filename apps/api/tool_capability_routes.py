@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Query
 
 from apps.api.tool_capability_service import (
+    delete_bio_tool_pack_from_request,
     disable_bio_tool_pack_from_request,
     enable_bio_tool_pack_from_request,
     get_capability_graph_snapshot_from_request,
@@ -122,6 +123,11 @@ async def enable_bio_tool_pack_api(pack_id: str) -> dict[str, Any]:
 @router.post("/api/v1/tool-capabilities/tool-packs/{pack_id}/disable", operation_id="disableBioToolPack")
 async def disable_bio_tool_pack_api(pack_id: str) -> dict[str, Any]:
     return await disable_bio_tool_pack_from_request(pack_id)
+
+
+@router.delete("/api/v1/tool-capabilities/tool-packs/{pack_id}", operation_id="deleteBioToolPack")
+async def delete_bio_tool_pack_api(pack_id: str) -> dict[str, Any]:
+    return await delete_bio_tool_pack_from_request(pack_id)
 
 
 @router.get("/api/v1/tool-capabilities/index/status", operation_id="getToolCapabilitiesIndexStatus")

@@ -87,7 +87,7 @@ export function GeneratedWorkflowBuilder({
         <div className="flex flex-wrap items-center gap-2">
           {designDrafts.length > 0 && onOpenDesignDraft ? (
             <Select value={activeDesignDraft?.draftId || ""} onValueChange={onOpenDesignDraft}>
-              <SelectTrigger className="h-8 w-[190px] bg-white text-xs">
+              <SelectTrigger data-testid="workflow-design-draft-select" className="h-8 w-[190px] bg-white text-xs">
                 <SelectValue placeholder="打开设计草稿" />
               </SelectTrigger>
               <SelectContent>

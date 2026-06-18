@@ -109,6 +109,21 @@ def disable_bio_tool_pack(pack_id: str, *, registry_path: Path | None = None) ->
     return {"pack": _public_record(record)}
 
 
+def delete_bio_tool_pack(pack_id: str, *, registry_path: Path | None = None) -> dict[str, Any]:
+    path = registry_path or get_bio_tool_pack_registry_path()
+    registry = _read_registry(path)
+    wanted = str(pack_id or "").strip()
+    packs = registry.setdefault("packs", [])
+    for index, record in enumerate(_records(registry)):
+        if str(record.get("packId") or "") != wanted:
+            continue
+        removed = _public_record(record)
+        del packs[index]
+        _write_registry(path, registry)
+        return {"pack": removed}
+    raise BioToolPackRegistryError("BIO_TOOL_PACK_NOT_FOUND")
+
+
 def list_bio_tool_packs(*, registry_path: Path | None = None) -> dict[str, Any]:
     registry = _read_registry(registry_path or get_bio_tool_pack_registry_path())
     items = [_public_record(record) for record in _records(registry)]

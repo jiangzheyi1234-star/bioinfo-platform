@@ -17,6 +17,7 @@ def test_bio_tool_pack_routes_pin_review_import_enable_contracts() -> None:
         "import_bio_tool_pack_from_request",
         "enable_bio_tool_pack_from_request",
         "disable_bio_tool_pack_from_request",
+        "delete_bio_tool_pack_from_request",
     ]:
         assert service_name in route_source
         assert f"def {service_name}(" in service_source
@@ -28,6 +29,7 @@ def test_bio_tool_pack_routes_pin_review_import_enable_contracts() -> None:
         ('@router.post("/api/v1/tool-capabilities/tool-packs"', "importBioToolPack"),
         ('@router.post("/api/v1/tool-capabilities/tool-packs/{pack_id}/enable"', "enableBioToolPack"),
         ('@router.post("/api/v1/tool-capabilities/tool-packs/{pack_id}/disable"', "disableBioToolPack"),
+        ('@router.delete("/api/v1/tool-capabilities/tool-packs/{pack_id}"', "deleteBioToolPack"),
     ]:
         assert route in route_source
         assert f'operation_id="{operation_id}"' in route_source

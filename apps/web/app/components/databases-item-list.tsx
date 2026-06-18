@@ -50,6 +50,7 @@ export function DatabaseItemList({
         return (
           <div
             key={item.id}
+            data-testid={`database-row-${item.id}`}
             className="group flex items-center rounded-lg border border-transparent bg-white px-3 py-3 transition-colors hover:border-slate-200 hover:bg-slate-50 focus-within:border-slate-200 focus-within:bg-slate-50"
           >
             <Database strokeWidth={1.5} className="mr-3 h-4 w-4 flex-shrink-0 text-zinc-500" />

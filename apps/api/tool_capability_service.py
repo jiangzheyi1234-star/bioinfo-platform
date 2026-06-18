@@ -4,6 +4,7 @@ from typing import Any
 
 from apps.api.bioconda_tool_index import bioconda_index_status, refresh_bioconda_index
 from apps.api.bio_tool_pack_store import (
+    delete_bio_tool_pack,
     disable_bio_tool_pack,
     enable_bio_tool_pack,
     import_bio_tool_pack_manifest,
@@ -755,6 +756,10 @@ async def enable_bio_tool_pack_from_request(pack_id: str) -> dict[str, Any]:
 
 async def disable_bio_tool_pack_from_request(pack_id: str) -> dict[str, Any]:
     return await run_sync(lambda: {"data": disable_bio_tool_pack(pack_id)})
+
+
+async def delete_bio_tool_pack_from_request(pack_id: str) -> dict[str, Any]:
+    return await run_sync(lambda: {"data": delete_bio_tool_pack(pack_id)})
 
 
 async def refresh_tool_capabilities_index_from_request() -> dict[str, Any]:
