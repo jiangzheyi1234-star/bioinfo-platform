@@ -114,6 +114,99 @@ function Add-SkippedStep {
     }
 }
 
+function Get-RuntimeManifestSourceCommits {
+    param([object]$Manifest)
+
+    $commits = New-Object System.Collections.Generic.List[string]
+    foreach ($artifactKey in @("remote_runner", "workflow_runtime")) {
+        $artifact = $Manifest.artifacts.$artifactKey
+        if (-not $artifact -or -not $artifact.source_commits) {
+            continue
+        }
+        foreach ($property in $artifact.source_commits.PSObject.Properties) {
+            $value = [string]$property.Value
+            if (-not [string]::IsNullOrWhiteSpace($value)) {
+                $commits.Add($value.Trim()) | Out-Null
+            }
+        }
+    }
+    return @($commits | Select-Object -Unique)
+}
+
+function Get-RuntimeManifestDrift {
+    param(
+        [string]$RepoRoot,
+        [string]$HeadCommit
+    )
+
+    $manifestRelativePath = "config/remote-runner-release-manifest.json"
+    $manifestPath = Join-Path $RepoRoot $manifestRelativePath
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    $releaseScopePaths = @(
+        "apps/remote_runner",
+        "core/__init__.py",
+        "core/async_boundary.py",
+        "core/api_payloads.py",
+        "core/api_responses.py",
+        "core/logging_config.py",
+        "core/problem_responses.py",
+        "core/problem_status.py",
+        "core/contracts",
+        "config/remote-runner-conda-specs",
+        "config/remote-runner-release-manifest.json",
+        "scripts/build_release_artifacts_in_ci.py",
+        "scripts/build_remote_runner_artifact_on_server.py",
+        "scripts/build_workflow_runtime_artifact_on_server.py",
+        "scripts/check_remote_runner_release_artifacts.py",
+        "scripts/check_remote_runner_release_readiness.py",
+        "scripts/promote_remote_runner_release.py",
+        "scripts/update_remote_runner_release_manifest.py",
+        ".github/workflows/release-remote-runner-artifacts.yml"
+    )
+    $sourceCommits = @(Get-RuntimeManifestSourceCommits -Manifest $manifest)
+    $changedCommits = New-Object System.Collections.Generic.List[string]
+    $missingCommits = New-Object System.Collections.Generic.List[string]
+
+    foreach ($sourceCommit in $sourceCommits) {
+        & git -C $RepoRoot cat-file -e "$sourceCommit^{commit}" *> $null
+        if ($LASTEXITCODE -ne 0) {
+            $missingCommits.Add($sourceCommit) | Out-Null
+            continue
+        }
+        & git -C $RepoRoot diff --quiet $sourceCommit $HeadCommit -- @releaseScopePaths *> $null
+        $diffExitCode = $LASTEXITCODE
+        if ($diffExitCode -eq 1) {
+            $changedCommits.Add($sourceCommit) | Out-Null
+        } elseif ($diffExitCode -ne 0) {
+            throw "runtime manifest drift check failed for $sourceCommit"
+        }
+    }
+
+    $hasMissing = $missingCommits.Count -gt 0
+    $hasChanged = $changedCommits.Count -gt 0
+    $hasNoSourceCommit = $sourceCommits.Count -eq 0
+    $hasDrift = $hasNoSourceCommit -or $hasMissing -or $hasChanged
+    $message = if ($hasNoSourceCommit) {
+        "runtime manifest has no source commits"
+    } elseif ($hasMissing) {
+        "runtime manifest source commit is missing from this checkout"
+    } elseif ($hasChanged) {
+        "release-scoped sources changed after the runtime manifest source commit"
+    } else {
+        "runtime manifest source commits match release-scoped sources"
+    }
+
+    return [ordered]@{
+        hasDrift = $hasDrift
+        message = $message
+        manifestPath = $manifestRelativePath
+        sourceCommits = @($sourceCommits)
+        changedSourceCommits = @($changedCommits)
+        missingSourceCommits = @($missingCommits)
+        releaseScopePaths = $releaseScopePaths
+    }
+}
+
 function Write-RcSummary {
     param(
         [string]$EvidenceDir,
@@ -169,12 +262,24 @@ New-Item -ItemType Directory -Force -Path $env:APPDATA, $env:LOCALAPPDATA | Out-
 $steps = New-Object System.Collections.Generic.List[object]
 $ok = $true
 $failure = ""
-$runtimeGateRequired = (
+$runtimeManifestDrift = [ordered]@{
+    hasDrift = $false
+    message = "runtime manifest drift check did not run"
+    manifestPath = "config/remote-runner-release-manifest.json"
+    sourceCommits = @()
+    changedSourceCommits = @()
+    missingSourceCommits = @()
+    releaseScopePaths = @()
+}
+$runtimeGateRequested = (
     $RequireReleaseGateEvidence.IsPresent -or
     $RequireRuntimeManifestArtifacts.IsPresent -or
     $RequireRuntimeSupplyChain.IsPresent -or
     [bool]$ReleaseTag
 )
+$runtimeGateRequired = $runtimeGateRequested
+$runtimeManifestArtifactsRequired = $RequireRuntimeManifestArtifacts.IsPresent
+$runtimeSupplyChainRequired = $RequireRuntimeSupplyChain.IsPresent
 
 try {
     Invoke-RcStep -Steps $steps -Name "git-clean-worktree" -Required $true -EvidenceDir $evidenceDir -Body {
@@ -186,6 +291,24 @@ try {
         Write-Host "sourceCommit=$commit"
         Write-Host "sourceBranch=$branch"
         Write-Host "allowDirty=$($AllowDirty.IsPresent)"
+    }
+
+    $runtimeManifestDrift = Get-RuntimeManifestDrift -RepoRoot $repoRoot -HeadCommit $commit
+    if ($runtimeManifestDrift.hasDrift -and -not $DevelopmentOnly.IsPresent) {
+        $runtimeGateRequired = $true
+        $runtimeManifestArtifactsRequired = $true
+        $runtimeSupplyChainRequired = $true
+    }
+    Invoke-RcStep -Steps $steps -Name "runtime-manifest-drift" -Required $false -EvidenceDir $evidenceDir -Body {
+        Write-Host "hasDrift=$($runtimeManifestDrift.hasDrift)"
+        Write-Host "message=$($runtimeManifestDrift.message)"
+        Write-Host "manifestPath=$($runtimeManifestDrift.manifestPath)"
+        Write-Host "sourceCommits=$($runtimeManifestDrift.sourceCommits -join ',')"
+        Write-Host "changedSourceCommits=$($runtimeManifestDrift.changedSourceCommits -join ',')"
+        Write-Host "missingSourceCommits=$($runtimeManifestDrift.missingSourceCommits -join ',')"
+        if ($runtimeManifestDrift.hasDrift -and -not $DevelopmentOnly.IsPresent) {
+            Write-Host "runtime release evidence, manifest artifacts, and supply chain checks are required for production handoff"
+        }
     }
 
     if ($CiRunUrl) {
@@ -265,10 +388,10 @@ try {
                 "--release-gate-evidence", $ReleaseGateEvidence,
                 "--output-json", $readinessSummary
             )
-            if ($RequireRuntimeManifestArtifacts) {
+            if ($runtimeManifestArtifactsRequired) {
                 $readinessArgs += "--require-manifest-artifacts"
             }
-            if ($RequireRuntimeSupplyChain) {
+            if ($runtimeSupplyChainRequired) {
                 $readinessArgs += "--require-supply-chain"
             }
             if ($ReleaseTag) {
@@ -305,10 +428,11 @@ $summary = [ordered]@{
     developmentOnly = $DevelopmentOnly.IsPresent
     runNpmCi = $RunNpmCi.IsPresent
     handoffEligible = ($ok -and -not $DevelopmentOnly.IsPresent -and [bool]$CiRunUrl -and $RunNpmCi.IsPresent)
+    runtimeManifestDrift = $runtimeManifestDrift
     steps = $steps
     scopedRuntimeLimits = @(
         "Server multi-user mode is not implemented; see docs/security-governance.md.",
-        "Runtime release evidence is optional unless this RC claims remote-runner artifact production readiness.",
+        "Runtime release evidence is required when release-scoped sources drift after the runtime manifest source commit.",
         "Paramiko CVE-2026-44405 is scoped to the documented pip-audit ignore until an upstream fixed release is available."
     )
     failure = $failure

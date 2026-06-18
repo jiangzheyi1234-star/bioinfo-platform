@@ -41,6 +41,18 @@ SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         ),
     ),
 )
+FORBIDDEN_SECURITY_TEXT_PATTERNS: tuple[tuple[str, re.Pattern[str], str], ...] = (
+    (
+        "ssh-strict-host-key-checking-disabled",
+        re.compile(r"StrictHostKeyChecking\s*=\s*n[oO]\b", re.IGNORECASE),
+        "docs and source must not instruct operators to disable SSH host-key checking",
+    ),
+    (
+        "ssh-known-hosts-file-disabled",
+        re.compile(r"UserKnownHostsFile\s*=\s*/dev/null\b", re.IGNORECASE),
+        "docs and source must not bypass SSH known_hosts verification",
+    ),
+)
 
 
 @dataclass(frozen=True)
@@ -189,8 +201,26 @@ def scan_security_contracts() -> list[Finding]:
     return findings
 
 
+def scan_forbidden_security_text(paths: list[Path]) -> list[Finding]:
+    findings: list[Finding] = []
+    for path in paths:
+        relative = path.relative_to(ROOT).as_posix()
+        text = read_text(path)
+        if text is None:
+            continue
+        for code, pattern, detail in FORBIDDEN_SECURITY_TEXT_PATTERNS:
+            for match in pattern.finditer(text):
+                findings.append(Finding(code, relative, line_number(text, match.start()), detail))
+    return findings
+
+
 def main() -> int:
-    findings = [*scan_secrets(tracked_files()), *scan_security_contracts()]
+    paths = tracked_files()
+    findings = [
+        *scan_secrets(paths),
+        *scan_forbidden_security_text(paths),
+        *scan_security_contracts(),
+    ]
     if findings:
         print("Security governance audit failed:", file=sys.stderr)
         for finding in findings:

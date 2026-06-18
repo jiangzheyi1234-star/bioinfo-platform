@@ -230,8 +230,8 @@ curl http://localhost:8765/health
 # 检查 SSH 配置
 docker compose exec api env | grep SSH
 
-# 测试 SSH 连接
-docker compose exec api ssh -o StrictHostKeyChecking=no $H2OMETA_SSH_USER@$H2OMETA_SSH_HOST
+# 测试 SSH 连接（使用已信任的 known_hosts）
+docker compose exec api ssh -o StrictHostKeyChecking=yes $H2OMETA_SSH_USER@$H2OMETA_SSH_HOST
 ```
 
 ### 数据持久化问题
