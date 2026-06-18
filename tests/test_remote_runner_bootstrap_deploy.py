@@ -571,6 +571,12 @@ def test_bootstrap_retries_canary_once_with_fresh_tunnel_after_connection_refuse
     assert result["bootstrap_metadata"]["canary"] == {"ok": True, "status": "passed"}
 
 
+def test_canary_retry_covers_remote_end_closed_response() -> None:
+    assert RemoteRunnerManager._canary_failure_needs_fresh_tunnel_retry(
+        "bootstrap canary failed: Remote end closed connection without response"
+    )
+
+
 def test_bootstrap_fails_fast_when_artifact_cannot_be_resolved() -> None:
     manager = RemoteRunnerManager()
 
