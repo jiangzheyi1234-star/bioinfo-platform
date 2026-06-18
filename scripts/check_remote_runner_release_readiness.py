@@ -537,7 +537,11 @@ def _resolve_path(base: Path, raw: object) -> Path:
     value = _require_text(raw, "path")
     path = Path(value)
     if not path.is_absolute():
-        path = base / path
+        candidates = [base / path, REPO_ROOT / path, Path.cwd() / path, path]
+        for candidate in candidates:
+            if candidate.is_file():
+                return candidate
+        path = candidates[0]
     _require(path.is_file(), f"file not found: {path}")
     return path
 

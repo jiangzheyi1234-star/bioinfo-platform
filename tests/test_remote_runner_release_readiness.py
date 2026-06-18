@@ -154,6 +154,87 @@ def test_release_readiness_validates_ci_build_metadata(tmp_path: Path) -> None:
     assert set(result.detail["artifacts"]) == {"remote_runner", "workflow_runtime"}
 
 
+def test_release_readiness_resolves_repo_relative_ci_metadata_paths(tmp_path: Path, monkeypatch) -> None:
+    readiness = _load_module()
+    monkeypatch.setattr(readiness, "REPO_ROOT", tmp_path)
+    source_commit = "a" * 40
+    output_dir = tmp_path / "dist" / "remote-runner"
+    runner = output_dir / "h2ometa-remote-runner.tar.gz"
+    workflow = output_dir / "h2ometa-workflow-runtime.tar.gz"
+    runner_sha = _write(runner, b"runner")
+    workflow_sha = _write(workflow, b"workflow")
+    runner.with_suffix(runner.suffix + ".sha256").write_text(f"{runner_sha}  {runner.name}\n", encoding="utf-8")
+    workflow.with_suffix(workflow.suffix + ".sha256").write_text(
+        f"{workflow_sha}  {workflow.name}\n",
+        encoding="utf-8",
+    )
+    runner_sbom = output_dir / "runner.spdx.json"
+    workflow_sbom = output_dir / "workflow.spdx.json"
+    runner_sbom_sha = _write(runner_sbom, b'{"spdxVersion":"SPDX-2.3"}')
+    workflow_sbom_sha = _write(workflow_sbom, b'{"spdxVersion":"SPDX-2.3"}')
+    metadata_path = output_dir / "release-artifacts-metadata.json"
+    manifest_metadata_path = output_dir / "release-manifest-metadata.json"
+    attestations_path = output_dir / "release-attestations.json"
+    _write_json(
+        metadata_path,
+        {
+            "schemaVersion": "h2ometa-release-artifacts-ci.v1",
+            "sourceCommit": source_commit,
+            "artifacts": [
+                {
+                    "artifactKey": "remote_runner",
+                    "platform": "linux-64",
+                    "path": "dist/remote-runner/h2ometa-remote-runner.tar.gz",
+                    "sha256Path": "dist/remote-runner/h2ometa-remote-runner.tar.gz.sha256",
+                    "sha256": runner_sha,
+                    "sizeBytes": runner.stat().st_size,
+                    "sbom": {"path": "dist/remote-runner/runner.spdx.json", "sha256": runner_sbom_sha},
+                },
+                {
+                    "artifactKey": "workflow_runtime",
+                    "platform": "linux-64",
+                    "path": "dist/remote-runner/h2ometa-workflow-runtime.tar.gz",
+                    "sha256Path": "dist/remote-runner/h2ometa-workflow-runtime.tar.gz.sha256",
+                    "sha256": workflow_sha,
+                    "sizeBytes": workflow.stat().st_size,
+                    "sbom": {"path": "dist/remote-runner/workflow.spdx.json", "sha256": workflow_sbom_sha},
+                },
+            ],
+        },
+    )
+    _write_json(
+        manifest_metadata_path,
+        {
+            "schemaVersion": "h2ometa-release-manifest-metadata.v1",
+            "sourceCommit": source_commit,
+            "artifacts": {
+                "remote_runner": {"linux-64": {"sha256": runner_sha, "sourceCommit": source_commit}},
+                "workflow_runtime": {"linux-64": {"sha256": workflow_sha, "sourceCommit": source_commit}},
+            },
+        },
+    )
+    _write_json(
+        attestations_path,
+        {
+            "schemaVersion": "h2ometa-release-attestations.v1",
+            "provenance": {"attestationId": "p"},
+            "sbom": {
+                "remote_runner": {"attestationId": "r"},
+                "workflow_runtime": {"attestationId": "w"},
+            },
+        },
+    )
+
+    result = readiness.validate_ci_build_outputs(
+        metadata_path=metadata_path,
+        manifest_metadata_path=manifest_metadata_path,
+        attestations_path=attestations_path,
+    )
+
+    assert result.ok is True
+    assert result.detail["artifacts"]["remote_runner"]["path"].endswith("h2ometa-remote-runner.tar.gz")
+
+
 def test_release_readiness_validates_github_hosted_attestations(tmp_path: Path) -> None:
     readiness = _load_module()
     source_commit = "a" * 40
