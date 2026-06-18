@@ -97,11 +97,12 @@ The repository entrypoint for that build is:
 uv run --frozen python scripts/build_release_artifacts_in_ci.py --source-ref <40-character-commit-sha> --platform linux-64 --output-dir dist/remote-runner
 ```
 
-The GitHub Actions workflow `.github/workflows/release-remote-runner-artifacts.yml` runs the same script on `ubuntu-24.04` and uploads the tarballs/checksums/SBOMs/metadata as workflow artifacts. For this user-owned private repository, GitHub hosted artifact attestations are not available, so the CI script writes local in-toto-style provenance/SBOM attestation bundles and publishes those bundles as release assets. The workflow writes:
+The GitHub Actions workflow `.github/workflows/release-remote-runner-artifacts.yml` runs the same script on `ubuntu-24.04` and uploads the tarballs/checksums/SBOMs/metadata as workflow artifacts. By default it also creates GitHub-hosted Sigstore attestations with `actions/attest` for the runtime artifacts and their SBOMs, then verifies those attestations with `gh attestation verify`. The CI script still writes local in-toto-style provenance/SBOM attestation bundles and publishes those bundles as release assets so the release has an explicit fallback evidence trail. If the repository plan cannot use GitHub hosted attestations, dispatch the workflow with `hosted_attestations=false` and record the release as local-bundle attestation only; do not describe that release as GitHub-hosted/Sigstore attested. The workflow writes:
 
 - `release-artifacts-metadata.json`: full builder, source, lock, artifact, and SBOM metadata.
 - `release-manifest-metadata.json`: compact values intended for `config/remote-runner-release-manifest.json`.
 - `release-attestations.json`: local in-toto-style attestation bundle IDs, URLs, and published bundle paths emitted by the workflow.
+- `release-github-attestations.json`: GitHub-hosted attestation IDs, URLs, local bundle paths, and subject digests when `hosted_attestations=true`; otherwise an explicit disabled summary.
 - `attestation-bundles/*.intoto.json`: local provenance and SBOM attestation bundles emitted by the CI builder.
 - `release-published-assets.json`: published GitHub Release asset API URLs, digests, and sizes emitted by the publish job.
 - `release-readiness-summary.json`: non-destructive CI readiness proof that the generated artifacts, sidecars, SBOMs, manifest metadata, source commit, and attestation records agree.
@@ -113,10 +114,12 @@ uv run --frozen python scripts/check_remote_runner_release_readiness.py \
   --ci-build-metadata dist/remote-runner/release-artifacts-metadata.json \
   --manifest-metadata dist/remote-runner/release-manifest-metadata.json \
   --attestations dist/remote-runner/release-attestations.json \
+  --github-attestations dist/remote-runner/release-github-attestations.json \
+  --require-github-attestations \
   --output-json dist/remote-runner/release-readiness-summary.json
 ```
 
-After publishing those assets to the release location, replace the manifest's `pending:` supply-chain fields with the real SBOM, attestation, builder, and source-ref values from those metadata files and the GitHub attestation records. When `publish_release` is enabled, the workflow uploads the built assets and metadata to the existing GitHub Release tag passed as `release_tag`, then writes and uploads `release-published-assets.json` so the manifest update can use published asset metadata without a hand lookup. The manifest must still be updated in source control and validated with `--require-supply-chain`.
+After publishing those assets to the release location, replace the manifest's `pending:` supply-chain fields with the real SBOM, attestation, builder, and source-ref values from those metadata files and the GitHub attestation records. When `publish_release` is enabled, the workflow uploads the built assets and metadata to the existing GitHub Release tag passed as `release_tag`, then writes and uploads `release-published-assets.json` so the manifest update can use published asset metadata without a hand lookup. The build/publish workflow does not run production promotion; use `.github/workflows/promote-remote-runner-release.yml` after real release-gate evidence exists. The manifest must still be updated in source control and validated with `--require-supply-chain`.
 Production runtime releases should use tags named `h2ometa-runtime-vX.Y.Z`. The tag must point at the same full commit SHA passed as the workflow `source_ref`.
 
 Use the manifest update helper after downloading the workflow's release metadata artifacts:
@@ -125,6 +128,7 @@ Use the manifest update helper after downloading the workflow's release metadata
 uv run python scripts\update_remote_runner_release_manifest.py `
   --metadata dist\remote-runner\release-artifacts-metadata.json `
   --attestations dist\remote-runner\release-attestations.json `
+  --github-attestations dist\remote-runner\release-github-attestations.json `
   --published-assets dist\remote-runner\release-published-assets.json
 ```
 
@@ -148,6 +152,7 @@ uv run python scripts\promote_remote_runner_release.py `
   --metadata dist\remote-runner\release-artifacts-metadata.json `
   --manifest-metadata dist\remote-runner\release-manifest-metadata.json `
   --attestations dist\remote-runner\release-attestations.json `
+  --github-attestations dist\remote-runner\release-github-attestations.json `
   --published-assets dist\remote-runner\release-published-assets.json `
   --release-gate-evidence dist\remote-runner\release-gate-evidence.json `
   --release-tag h2ometa-runtime-vX.Y.Z `
@@ -210,7 +215,7 @@ uv run python scripts\remote_runner_release_gate.py `
   --evidence-json dist\remote-runner\release-gate-evidence.json
 ```
 
-For GitHub-driven production promotion, dispatch `.github/workflows/release-remote-runner-artifacts.yml` with `publish_release=true`, `promote_release=true`, the runtime release tag, and the workflow run id/artifact name that contain `release-gate-evidence.json`. The promotion job runs in the protected `production-runtime` environment, downloads the published asset map and real gate evidence, then uploads `release-promotion-summary.json` plus `promoted-release-manifest.json` for review.
+For GitHub-driven production promotion, dispatch `.github/workflows/promote-remote-runner-release.yml` with the runtime release tag, the build/publish workflow run id, and the workflow run id/artifact name that contain `release-gate-evidence.json`. The promotion job runs in the protected `production-runtime` environment, downloads the already published build metadata, published asset map, hosted attestation summary, and real gate evidence, then uploads `release-promotion-summary.json` plus `promoted-release-manifest.json` for review. Do not rerun the build/publish workflow just to promote an already published release; that can rebuild and clobber assets before promotion proof exists.
 
 ## Dev/Staging Control Plane Build
 

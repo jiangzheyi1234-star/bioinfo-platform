@@ -154,6 +154,109 @@ def test_release_readiness_validates_ci_build_metadata(tmp_path: Path) -> None:
     assert set(result.detail["artifacts"]) == {"remote_runner", "workflow_runtime"}
 
 
+def test_release_readiness_validates_github_hosted_attestations(tmp_path: Path) -> None:
+    readiness = _load_module()
+    source_commit = "a" * 40
+    runner = tmp_path / "h2ometa-remote-runner.tar.gz"
+    workflow = tmp_path / "h2ometa-workflow-runtime.tar.gz"
+    runner_sha = _write(runner, b"runner")
+    workflow_sha = _write(workflow, b"workflow")
+    runner_sbom = tmp_path / "h2ometa-remote-runner.tar.gz.spdx.json"
+    workflow_sbom = tmp_path / "h2ometa-workflow-runtime.tar.gz.spdx.json"
+    runner_sbom_sha = _write(runner_sbom, b"runner-sbom")
+    workflow_sbom_sha = _write(workflow_sbom, b"workflow-sbom")
+    metadata_path = tmp_path / "release-artifacts-metadata.json"
+    github_attestations_path = tmp_path / "release-github-attestations.json"
+    _write_json(
+        metadata_path,
+        {
+            "schemaVersion": "h2ometa-release-artifacts-ci.v1",
+            "sourceCommit": source_commit,
+            "artifacts": [
+                {
+                    "artifactKey": "remote_runner",
+                    "platform": "linux-64",
+                    "path": str(runner),
+                    "sha256": runner_sha,
+                    "sbom": {"path": str(runner_sbom), "sha256": runner_sbom_sha},
+                },
+                {
+                    "artifactKey": "workflow_runtime",
+                    "platform": "linux-64",
+                    "path": str(workflow),
+                    "sha256": workflow_sha,
+                    "sbom": {"path": str(workflow_sbom), "sha256": workflow_sbom_sha},
+                },
+            ],
+        },
+    )
+    _write_json(
+        github_attestations_path,
+        {
+            "schemaVersion": "h2ometa-release-github-attestations.v1",
+            "mode": "github-hosted-sigstore",
+            "sourceCommit": source_commit,
+            "provenance": {
+                "attestationId": "101",
+                "attestationUrl": "https://github.com/owner/repo/attestations/101",
+                "bundlePath": "/tmp/provenance.json",
+                "subjects": [
+                    {"name": runner.name, "digest": {"sha256": runner_sha}},
+                    {"name": workflow.name, "digest": {"sha256": workflow_sha}},
+                ],
+            },
+            "sbom": {
+                "remote_runner": {
+                    "attestationId": "102",
+                    "attestationUrl": "https://github.com/owner/repo/attestations/102",
+                    "bundlePath": "/tmp/runner-sbom.json",
+                    "subject": {"name": runner.name, "digest": {"sha256": runner_sha}},
+                    "sbomFilename": runner_sbom.name,
+                    "sbomSha256": runner_sbom_sha,
+                },
+                "workflow_runtime": {
+                    "attestationId": "103",
+                    "attestationUrl": "https://github.com/owner/repo/attestations/103",
+                    "bundlePath": "/tmp/workflow-sbom.json",
+                    "subject": {"name": workflow.name, "digest": {"sha256": workflow_sha}},
+                    "sbomFilename": workflow_sbom.name,
+                    "sbomSha256": workflow_sbom_sha,
+                },
+            },
+        },
+    )
+
+    result = readiness.validate_github_attestations(
+        github_attestations_path,
+        metadata_path=metadata_path,
+        require_hosted=True,
+    )
+
+    assert result.ok is True
+    assert result.name == "github-hosted-attestations"
+    assert result.detail["provenanceUrl"].endswith("/101")
+    assert result.detail["sbom"]["remote_runner"]["attestationUrl"].endswith("/102")
+
+
+def test_release_readiness_rejects_disabled_github_attestations_when_required(tmp_path: Path) -> None:
+    readiness = _load_module()
+    github_attestations_path = tmp_path / "release-github-attestations.json"
+    _write_json(
+        github_attestations_path,
+        {
+            "schemaVersion": "h2ometa-release-github-attestations.v1",
+            "mode": "disabled-by-input",
+        },
+    )
+
+    try:
+        readiness.validate_github_attestations(github_attestations_path, require_hosted=True)
+    except ValueError as exc:
+        assert "does not contain hosted GitHub attestations" in str(exc)
+    else:
+        raise AssertionError("disabled hosted attestations were accepted when required")
+
+
 def test_release_readiness_validates_required_release_gate_labels(tmp_path: Path) -> None:
     readiness = _load_module()
     evidence_path = tmp_path / "release-gate-evidence.json"

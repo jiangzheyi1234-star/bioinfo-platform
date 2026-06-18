@@ -16,6 +16,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 from typing import Any
@@ -26,7 +27,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 CI_METADATA_SCHEMA = "h2ometa-release-artifacts-ci.v1"
 MANIFEST_METADATA_SCHEMA = "h2ometa-release-manifest-metadata.v1"
 ATTESTATIONS_SCHEMA = "h2ometa-release-attestations.v1"
+GITHUB_ATTESTATIONS_SCHEMA = "h2ometa-release-github-attestations.v1"
 RELEASE_GATE_SCHEMA = "remote-runner-release-gate.v1"
+GITHUB_ATTESTATION_URL_RE = re.compile(r"^https://github\.com/[^/]+/[^/]+/attestations/[^/]+$")
 
 EXPECTED_ARTIFACT_KEYS = {"remote_runner", "workflow_runtime"}
 EXPECTED_GATE_LABELS = {
@@ -103,6 +106,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Validate release-attestations.json emitted by the controlled CI builder.",
     )
     parser.add_argument(
+        "--github-attestations",
+        type=Path,
+        help="Validate release-github-attestations.json emitted after GitHub hosted attestations are created.",
+    )
+    parser.add_argument(
+        "--require-github-attestations",
+        action="store_true",
+        help="Require release-github-attestations.json to contain hosted GitHub/Sigstore attestation URLs.",
+    )
+    parser.add_argument(
         "--release-gate-evidence",
         type=Path,
         help="Validate a machine-readable JSON file written by remote_runner_release_gate.py.",
@@ -163,6 +176,16 @@ def main(argv: list[str] | None = None) -> int:
                     metadata_path=args.ci_build_metadata,
                     manifest_metadata_path=args.manifest_metadata,
                     attestations_path=args.attestations,
+                )
+            )
+        if args.github_attestations or args.require_github_attestations:
+            if not args.github_attestations:
+                raise ValueError("--require-github-attestations requires --github-attestations")
+            results.append(
+                validate_github_attestations(
+                    args.github_attestations,
+                    metadata_path=args.ci_build_metadata,
+                    require_hosted=args.require_github_attestations,
                 )
             )
         if args.run_real_release_gate:
@@ -263,6 +286,72 @@ def validate_ci_build_outputs(
         ok=True,
         detail={"sourceCommit": source_commit, "artifacts": artifact_details},
     )
+
+
+def validate_github_attestations(
+    path: Path,
+    *,
+    metadata_path: Path | None = None,
+    require_hosted: bool = False,
+) -> CheckResult:
+    payload = _read_json(path)
+    _require(payload.get("schemaVersion") == GITHUB_ATTESTATIONS_SCHEMA, f"{path} has wrong schemaVersion")
+    mode = _require_text(payload.get("mode"), "githubAttestations.mode")
+    if mode != "github-hosted-sigstore":
+        if require_hosted:
+            raise ValueError(f"{path} does not contain hosted GitHub attestations: mode={mode}")
+        return CheckResult(name="github-hosted-attestations", ok=True, detail={"path": str(path), "mode": mode})
+
+    expected_subjects: dict[str, dict[str, Any]] = {}
+    source_commit = ""
+    if metadata_path is not None:
+        metadata = _read_json(metadata_path)
+        source_commit = _require_commit(metadata.get("sourceCommit"), "metadata.sourceCommit")
+        artifacts = _artifact_map(metadata)
+        for artifact_key, artifact in artifacts.items():
+            expected_subjects[artifact_key] = {
+                "name": Path(str(artifact.get("path") or "")).name,
+                "digest": {"sha256": _require_sha256(artifact.get("sha256"), f"{artifact_key}.sha256")},
+            }
+            sbom = artifact.get("sbom") if isinstance(artifact.get("sbom"), dict) else {}
+            expected_subjects[f"{artifact_key}:sbom"] = {
+                "filename": Path(str(sbom.get("path") or "")).name,
+                "sha256": _require_sha256(sbom.get("sha256"), f"{artifact_key}.sbom.sha256"),
+            }
+    payload_source_commit = str(payload.get("sourceCommit") or "").strip().lower()
+    if source_commit:
+        _require(payload_source_commit == source_commit, "github attestations sourceCommit mismatch")
+
+    provenance = payload.get("provenance")
+    _require(isinstance(provenance, dict), "githubAttestations.provenance must be an object")
+    _validate_hosted_attestation_entry(provenance, context="github provenance")
+    provenance_subjects = provenance.get("subjects")
+    _require(isinstance(provenance_subjects, list), "github provenance subjects must be a list")
+    for artifact_key in EXPECTED_ARTIFACT_KEYS:
+        expected = expected_subjects.get(artifact_key)
+        if expected:
+            _require(
+                any(_subject_matches(raw_subject, expected) for raw_subject in provenance_subjects),
+                f"github provenance missing subject for {artifact_key}",
+            )
+
+    sbom = payload.get("sbom")
+    _require(isinstance(sbom, dict), "githubAttestations.sbom must be an object")
+    details: dict[str, Any] = {"path": str(path), "mode": mode, "sourceCommit": payload_source_commit, "sbom": {}}
+    for artifact_key in EXPECTED_ARTIFACT_KEYS:
+        entry = sbom.get(artifact_key)
+        _require(isinstance(entry, dict), f"githubAttestations.sbom missing {artifact_key}")
+        _validate_hosted_attestation_entry(entry, context=f"github {artifact_key} SBOM")
+        expected_subject = expected_subjects.get(artifact_key)
+        if expected_subject:
+            _require(_subject_matches(entry.get("subject"), expected_subject), f"github {artifact_key} SBOM subject mismatch")
+        expected_sbom = expected_subjects.get(f"{artifact_key}:sbom")
+        if expected_sbom:
+            _require(entry.get("sbomFilename") == expected_sbom["filename"], f"github {artifact_key} SBOM filename mismatch")
+            _require(entry.get("sbomSha256") == expected_sbom["sha256"], f"github {artifact_key} SBOM sha256 mismatch")
+        details["sbom"][artifact_key] = {"attestationUrl": entry.get("attestationUrl")}
+    details["provenanceUrl"] = provenance.get("attestationUrl")
+    return CheckResult(name="github-hosted-attestations", ok=True, detail=details)
 
 
 def validate_release_gate_evidence(path: Path) -> CheckResult:
@@ -424,6 +513,24 @@ def _single_payload(step: dict[str, Any], label: str) -> dict[str, Any]:
     ]
     _require(len(payloads) == 1, f"{step.get('name')} must contain exactly one {label} payload")
     return payloads[0]
+
+
+def _validate_hosted_attestation_entry(entry: dict[str, Any], *, context: str) -> None:
+    attestation_id = _require_text(entry.get("attestationId"), f"{context}.attestationId")
+    attestation_url = _require_text(entry.get("attestationUrl"), f"{context}.attestationUrl")
+    bundle_path = _require_text(entry.get("bundlePath"), f"{context}.bundlePath")
+    _require(bool(attestation_id), f"{context}.attestationId is required")
+    _require(GITHUB_ATTESTATION_URL_RE.fullmatch(attestation_url) is not None, f"{context}.attestationUrl is not a GitHub attestation URL")
+    _require(bool(bundle_path), f"{context}.bundlePath is required")
+
+
+def _subject_matches(raw_subject: object, expected: dict[str, Any]) -> bool:
+    if not isinstance(raw_subject, dict):
+        return False
+    digest = raw_subject.get("digest")
+    if not isinstance(digest, dict):
+        return False
+    return raw_subject.get("name") == expected.get("name") and digest.get("sha256") == expected.get("digest", {}).get("sha256")
 
 
 def _resolve_path(base: Path, raw: object) -> Path:

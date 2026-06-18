@@ -50,6 +50,7 @@ def _fixture(tmp_path: Path) -> dict[str, Path]:
         "metadata": tmp_path / "release-artifacts-metadata.json",
         "manifest_metadata": tmp_path / "release-manifest-metadata.json",
         "attestations": tmp_path / "release-attestations.json",
+        "github_attestations": tmp_path / "release-github-attestations.json",
         "published_assets": tmp_path / "release-published-assets.json",
         "gate": tmp_path / "release-gate-evidence.json",
         "summary": tmp_path / "release-promotion-summary.json",
@@ -102,6 +103,41 @@ def _fixture(tmp_path: Path) -> dict[str, Path]:
                     "attestationId": "d" * 64,
                     "attestationUrl": "pending-release-asset:h2ometa-workflow-runtime-sbom.intoto.json",
                     "bundleSha256": "d" * 64,
+                },
+            },
+        },
+    )
+    _write_json(
+        paths["github_attestations"],
+        {
+            "schemaVersion": "h2ometa-release-github-attestations.v1",
+            "mode": "github-hosted-sigstore",
+            "sourceCommit": source_commit,
+            "provenance": {
+                "attestationId": "101",
+                "attestationUrl": "https://github.com/owner/repo/attestations/101",
+                "bundlePath": "/tmp/provenance.json",
+                "subjects": [
+                    {"name": runner.name, "digest": {"sha256": runner_sha}},
+                    {"name": workflow.name, "digest": {"sha256": workflow_sha}},
+                ],
+            },
+            "sbom": {
+                "remote_runner": {
+                    "attestationId": "102",
+                    "attestationUrl": "https://github.com/owner/repo/attestations/102",
+                    "bundlePath": "/tmp/runner-sbom.json",
+                    "subject": {"name": runner.name, "digest": {"sha256": runner_sha}},
+                    "sbomFilename": runner_sbom.name,
+                    "sbomSha256": runner_sbom_sha,
+                },
+                "workflow_runtime": {
+                    "attestationId": "103",
+                    "attestationUrl": "https://github.com/owner/repo/attestations/103",
+                    "bundlePath": "/tmp/workflow-sbom.json",
+                    "subject": {"name": workflow.name, "digest": {"sha256": workflow_sha}},
+                    "sbomFilename": workflow_sbom.name,
+                    "sbomSha256": workflow_sbom_sha,
                 },
             },
         },
@@ -262,6 +298,21 @@ def test_promote_release_generates_candidate_manifest_and_summary(tmp_path: Path
     assert candidate["artifacts"]["remote_runner"]["download_urls"]["linux-64"].endswith("/1")
     assert candidate["artifacts"]["workflow_runtime"]["attestation_urls"]["linux-64"].endswith("/7")
     assert "pending-release-asset:" not in json.dumps(candidate)
+
+
+def test_promote_release_prefers_github_hosted_attestation_urls(tmp_path: Path, monkeypatch) -> None:
+    promote = _load_module()
+    paths = _fixture(tmp_path)
+    monkeypatch.setattr(promote, "git_commit", lambda ref: "a" * 40)
+
+    assert promote.main([*_argv(paths), "--github-attestations", str(paths["github_attestations"])]) == 0
+
+    summary = json.loads(paths["summary"].read_text(encoding="utf-8"))
+    candidate = json.loads(paths["candidate"].read_text(encoding="utf-8"))
+    assert summary["ok"] is True
+    assert any(check["name"] == "github-hosted-attestations" for check in summary["checks"])
+    assert candidate["artifacts"]["remote_runner"]["provenance_urls"]["linux-64"].endswith("/attestations/101")
+    assert candidate["artifacts"]["workflow_runtime"]["attestation_urls"]["linux-64"].endswith("/attestations/103")
 
 
 def test_promote_release_rejects_release_gate_source_mismatch(tmp_path: Path, monkeypatch) -> None:

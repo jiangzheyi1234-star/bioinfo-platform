@@ -109,6 +109,26 @@ def _direct_attestations() -> dict:
     }
 
 
+def _github_attestations() -> dict:
+    return {
+        "schemaVersion": "h2ometa-release-github-attestations.v1",
+        "mode": "github-hosted-sigstore",
+        "sourceCommit": "a" * 40,
+        "provenance": {
+            "attestationId": "101",
+            "attestationUrl": "https://github.com/owner/repo/attestations/101",
+            "bundlePath": "/tmp/provenance.json",
+        },
+        "sbom": {
+            "remote_runner": {
+                "attestationId": "102",
+                "attestationUrl": "https://github.com/owner/repo/attestations/102",
+                "bundlePath": "/tmp/runner-sbom.json",
+            }
+        },
+    }
+
+
 def test_update_manifest_writes_release_metadata_and_supply_chain_fields() -> None:
     updated = updater.update_manifest(
         _manifest(),
@@ -133,6 +153,25 @@ def test_update_manifest_writes_release_metadata_and_supply_chain_fields() -> No
     assert spec["builder_ids"]["linux-64"].endswith("@refs/tags/v0.1.1")
     assert spec["source_refs"]["linux-64"] == "refs/tags/v0.1.1"
     assert spec["source_commits"]["linux-64"] == "a" * 40
+
+
+def test_update_manifest_prefers_github_hosted_attestation_urls() -> None:
+    updated = updater.update_manifest(
+        _manifest(),
+        metadata=_metadata(),
+        attestations=_attestations(),
+        github_attestations=_github_attestations(),
+        download_urls={("remote_runner", "linux-64"): "https://api.github.com/repos/owner/repo/releases/assets/1"},
+        sbom_urls={
+            ("remote_runner", "linux-64"): "https://api.github.com/repos/owner/repo/releases/assets/2"
+        },
+        published_assets=_published_assets(),
+    )
+
+    spec = updated["artifacts"]["remote_runner"]
+    assert spec["provenance_urls"]["linux-64"].endswith("/attestations/101")
+    assert spec["attestation_urls"]["linux-64"].endswith("/attestations/102")
+    assert spec["signature_urls"]["linux-64"].endswith("/attestations/102")
 
 
 def test_update_manifest_can_use_published_release_asset_map() -> None:
