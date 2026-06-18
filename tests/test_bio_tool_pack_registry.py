@@ -81,6 +81,19 @@ def test_bio_tool_pack_enable_can_be_reversed() -> None:
     assert _catalog_has_profile("sourmash-sketch")
 
 
+def test_bio_tool_pack_imported_pack_can_be_deleted() -> None:
+    from apps.api.bio_tool_pack_store import delete_bio_tool_pack, import_bio_tool_pack_manifest, list_bio_tool_packs
+
+    import_bio_tool_pack_manifest(_custom_pack_manifest(), enable=True)
+    assert _catalog_has_profile("sourmash-sketch")
+
+    deleted = delete_bio_tool_pack("h2ometa-sourmash-pack")
+
+    assert deleted["pack"]["packId"] == "h2ometa-sourmash-pack"
+    assert list_bio_tool_packs()["summary"] == {"total": 0, "enabled": 0, "imported": 0}
+    assert not _catalog_has_profile("sourmash-sketch")
+
+
 def _catalog_has_profile(profile_id: str) -> bool:
     from apps.api.tool_profile_catalog import catalog_tool_profiles
 

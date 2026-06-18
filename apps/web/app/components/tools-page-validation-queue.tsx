@@ -101,6 +101,7 @@ export function ToolCatalogValidationQueueStrip({
               type="button"
               variant="outline"
               className="h-7 bg-white px-2 text-[11px]"
+              data-testid="tool-validation-queue-batch-validate"
               disabled={batchPreparing}
               onClick={() => void prepareTopValidationCandidates()}
             >
@@ -115,6 +116,7 @@ export function ToolCatalogValidationQueueStrip({
               return (
                 <div
                   key={item.candidateId}
+                  data-testid={`tool-validation-queue-item-${item.candidateId}`}
                   className="grid gap-3 border-b border-slate-100 px-3 py-2 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_minmax(220px,0.9fr)_auto]"
                   title={item.validationPlan?.readinessBoundary || (item.priority?.reasons || []).join(", ")}
                 >
@@ -144,6 +146,7 @@ export function ToolCatalogValidationQueueStrip({
                     type="button"
                     variant="outline"
                     className="h-8 bg-white px-2 text-xs"
+                    data-testid={`tool-validation-queue-validate-${item.candidateId}`}
                     disabled={preparing || activePrepareJob || !item.preparePayload}
                     onClick={() => void prepareValidationCandidate(item)}
                   >

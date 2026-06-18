@@ -39,11 +39,11 @@ export function WorkflowResultsPage() {
   const [error, setError] = useState("");
   const [filter, setFilter] = useState("all");
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (forceRefresh = false) => {
     setLoading(true);
     setError("");
     try {
-      const items = await fetchRunsList();
+      const items = await fetchRunsList({ forceRefresh });
       setRuns(items);
     } catch (err) {
       setError(workflowErrorMessage(err, "读取运行记录失败"));
@@ -80,7 +80,7 @@ export function WorkflowResultsPage() {
               variant="outline"
               className="h-9 bg-white px-3 text-slate-600"
               disabled={loading}
-              onClick={() => void load()}
+              onClick={() => void load(true)}
             >
               <RefreshCw strokeWidth={1.5} className={loading ? "mr-2 h-4 w-4 animate-spin" : "mr-2 h-4 w-4"} />
               刷新

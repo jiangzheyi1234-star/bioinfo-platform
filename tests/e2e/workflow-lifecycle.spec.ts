@@ -1,4 +1,4 @@
-import { test, expect, APIRequestContext } from "@playwright/test";
+import { test, expect, APIRequestContext, type Page } from "@playwright/test";
 import {
   createApiClient,
   waitForApiReady,
@@ -71,6 +71,7 @@ test.describe("Run Submission and Status", () => {
   test("completed fixture run appears in results page", async ({ page }) => {
     await page.goto("/workflows/results");
     await expect(page.getByRole("heading", { name: "运行记录" })).toBeVisible({ timeout: 10_000 });
+    await waitForResultsPageLoaded(page);
     await expect(page.getByText(completedRun.runId).first()).toBeVisible({ timeout: 15_000 });
   });
 
@@ -98,6 +99,7 @@ test.describe("Run Submission and Status", () => {
   test("filter and refresh runs list", async ({ page }) => {
     await page.goto("/workflows/results");
     await expect(page.getByRole("heading", { name: "运行记录" })).toBeVisible({ timeout: 10_000 });
+    await waitForResultsPageLoaded(page);
 
     for (const filter of ["全部", "运行中", "已完成", "失败"]) {
       await page.getByRole("button", { name: filter, exact: true }).click();
@@ -160,6 +162,7 @@ test.describe("Design Draft and WorkflowRevision Lifecycle", () => {
   test("results list shows fixture runs", async ({ page }) => {
     await page.goto("/workflows/results");
     await expect(page.getByRole("heading", { name: "运行记录" })).toBeVisible({ timeout: 10_000 });
+    await waitForResultsPageLoaded(page);
 
     const runs = await fetchRuns(api);
     expect(runs.some((run: any) => run.runId === completedRun.runId)).toBeTruthy();
@@ -168,3 +171,8 @@ test.describe("Design Draft and WorkflowRevision Lifecycle", () => {
     await expect(page.getByText(designRun.runId).first()).toBeVisible({ timeout: 10_000 });
   });
 });
+
+async function waitForResultsPageLoaded(page: Page): Promise<void> {
+  await expect(page.getByText("正在读取运行记录")).toBeHidden({ timeout: 45_000 });
+  await expect(page.getByRole("button", { name: "刷新", exact: true })).toBeEnabled({ timeout: 5_000 });
+}

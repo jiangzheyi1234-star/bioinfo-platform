@@ -4,6 +4,18 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+COMPONENTS = ROOT / "apps" / "web" / "app" / "components"
+
+
+def _tools_page_model_source() -> str:
+    return "\n".join(
+        (COMPONENTS / filename).read_text(encoding="utf-8")
+        for filename in (
+            "tools-page-model.ts",
+            "tools-page-core-model.ts",
+            "tools-page-catalog-model.ts",
+        )
+    )
 
 
 def test_prepare_uses_async_job_contract_across_api_layers() -> None:
@@ -120,7 +132,7 @@ def test_waiting_resource_prepare_job_is_terminal_and_visible() -> None:
     task_context = (ROOT / "apps" / "web" / "app" / "components" / "tool-prepare-task-context.tsx").read_text(encoding="utf-8")
     task_bar = (ROOT / "apps" / "web" / "app" / "components" / "tool-prepare-task-bar.tsx").read_text(encoding="utf-8")
     frontend_state = (ROOT / "apps" / "web" / "app" / "components" / "use-tools-page-state.ts").read_text(encoding="utf-8")
-    model = (ROOT / "apps" / "web" / "app" / "components" / "tools-page-model.ts").read_text(encoding="utf-8")
+    model = _tools_page_model_source()
 
     assert '"waiting_resource"' in job_storage
     assert 'job.status === "waiting_resource"' in task_context
@@ -131,7 +143,7 @@ def test_waiting_resource_prepare_job_is_terminal_and_visible() -> None:
 
 
 def test_waiting_resource_database_details_are_visible_in_tools_ui() -> None:
-    model = (ROOT / "apps" / "web" / "app" / "components" / "tools-page-model.ts").read_text(encoding="utf-8")
+    model = _tools_page_model_source()
     state = (ROOT / "apps" / "web" / "app" / "components" / "use-tools-page-state.ts").read_text(encoding="utf-8")
     page = (ROOT / "apps" / "web" / "app" / "components" / "tools-page.tsx").read_text(encoding="utf-8")
     library = (ROOT / "apps" / "web" / "app" / "components" / "tools-page-library-section.tsx").read_text(encoding="utf-8")

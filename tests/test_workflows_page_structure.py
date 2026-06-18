@@ -7,6 +7,27 @@ ROOT = Path(__file__).resolve().parents[1]
 COMPONENTS = ROOT / "apps" / "web" / "app" / "components"
 
 
+def _tools_page_model_source() -> str:
+    return "\n".join(
+        (COMPONENTS / filename).read_text(encoding="utf-8")
+        for filename in (
+            "tools-page-model.ts",
+            "tools-page-core-model.ts",
+            "tools-page-catalog-model.ts",
+        )
+    )
+
+
+def _tools_page_ui_source() -> str:
+    return "\n".join(
+        (COMPONENTS / filename).read_text(encoding="utf-8")
+        for filename in (
+            "tools-page-ui.tsx",
+            "tools-page-catalog-quality-strip.tsx",
+        )
+    )
+
+
 def _function_body(source: str, name: str) -> str:
     start = source.index(f"function {name}")
     parameters_start = source.index("(", start)
@@ -605,8 +626,8 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
 
 
 def test_tools_page_surfaces_snakemake_wrapper_matches() -> None:
-    model = (COMPONENTS / "tools-page-model.ts").read_text(encoding="utf-8")
-    ui = (COMPONENTS / "tools-page-ui.tsx").read_text(encoding="utf-8")
+    model = _tools_page_model_source()
+    ui = _tools_page_ui_source()
     api = (COMPONENTS / "tools-page-api.ts").read_text(encoding="utf-8")
 
     assert "SnakemakeWrapperMatch" in model

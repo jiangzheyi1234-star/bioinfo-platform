@@ -75,6 +75,7 @@ export function DatabasesAddPanel({ state }: DatabasesAddPanelProps) {
                 <button
                   key={template.id}
                   type="button"
+                  data-testid={`database-template-${template.id}`}
                   className={cn(
                     "flex min-h-16 w-full items-start rounded-md border bg-white px-3 py-2 text-left transition-colors hover:border-blue-300 hover:bg-blue-50/40",
                     form.templateId === template.id ? "border-blue-400 bg-blue-50" : "border-slate-200"

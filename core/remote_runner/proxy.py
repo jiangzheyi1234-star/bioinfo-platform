@@ -278,6 +278,7 @@ class RemoteRunnerProxyMixin:
             server_id=str(kwargs["server_id"]),
             ssh_service=kwargs["ssh_service"],
             record=kwargs["server_record"],
+            timeout=20,
         )
         return client.get_json("/api/v1/runs")["data"]["items"]
 
