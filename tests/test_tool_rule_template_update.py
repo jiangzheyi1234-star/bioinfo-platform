@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from apps.remote_runner.config import RemoteRunnerConfig
+from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
 from apps.remote_runner.storage import fetch_tool
 from apps.remote_runner.tools import ToolRegistryError, add_registered_tool, update_registered_tool_rule_template
 
 
 def _cfg(tmp_path: Path) -> RemoteRunnerConfig:
-    return RemoteRunnerConfig(
+    cfg = RemoteRunnerConfig(
         token="phase-tool-token",
         data_root=str(tmp_path / "shared"),
         db_path=str(tmp_path / "shared" / "data" / "runner.db"),
@@ -18,6 +18,8 @@ def _cfg(tmp_path: Path) -> RemoteRunnerConfig:
         logs_dir=str(tmp_path / "shared" / "logs"),
         release_dir=str(Path.cwd() / "apps" / "remote_runner"),
     )
+    ensure_runtime_layout(cfg)
+    return cfg
 
 
 def _add_fastq_tool(cfg: RemoteRunnerConfig) -> dict:

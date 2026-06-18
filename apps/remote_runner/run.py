@@ -5,7 +5,7 @@ import socket
 
 import uvicorn
 
-from .config import load_remote_runner_config, write_runtime_state
+from .config import ensure_runtime_layout, load_remote_runner_config, write_runtime_state
 from .main import app
 
 
@@ -20,6 +20,7 @@ def _set_process_name(name: str = "h2ometa-remote") -> None:
 def main() -> None:
     _set_process_name()
     cfg = load_remote_runner_config()
+    ensure_runtime_layout(cfg)
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind((cfg.bind_host, int(cfg.bind_port)))

@@ -11,14 +11,29 @@ def test_storage_schema_lives_outside_storage_module() -> None:
     schema = (REMOTE_RUNNER / "storage_schema.py").read_text(encoding="utf-8")
     storage = (REMOTE_RUNNER / "storage.py").read_text(encoding="utf-8")
     storage_core = (REMOTE_RUNNER / "storage_core.py").read_text(encoding="utf-8")
+    sqlite_migrations = (REMOTE_RUNNER / "sqlite_migrations.py").read_text(encoding="utf-8")
 
     assert "SCHEMA_SQL" in schema
     assert "CREATE TABLE IF NOT EXISTS runs" in schema
-    assert "from .storage_schema import SCHEMA_SQL" in storage_core
+    assert "from .storage_schema import SCHEMA_SQL" in sqlite_migrations
+    assert "PRAGMA user_version" in sqlite_migrations
+    assert "schema_migrations" in sqlite_migrations
+    assert "configure_runtime_connection" in storage_core
+    assert "ensure_runtime_schema_current" in storage_core
+    assert "ensure_runtime_layout(cfg)" not in storage_core
     assert "from .storage_core import (" in storage
     assert "get_connection," in storage
     assert "now_iso," in storage
     assert 'SCHEMA_SQL = """' not in storage
+    assert "ALTER TABLE" not in storage_core
+
+
+def test_remote_runner_startup_runs_explicit_schema_migration_before_listening() -> None:
+    run_source = (REMOTE_RUNNER / "run.py").read_text(encoding="utf-8")
+
+    assert "from .config import ensure_runtime_layout" in run_source
+    assert "ensure_runtime_layout(cfg)" in run_source
+    assert run_source.index("ensure_runtime_layout(cfg)") < run_source.index("socket.socket(")
 
 
 def test_tool_storage_lives_outside_general_storage_module() -> None:
@@ -49,7 +64,7 @@ def test_tool_storage_lives_outside_general_storage_module() -> None:
 
     assert "def get_connection(" in storage_core
     assert "def now_iso(" in storage_core
-    assert "def _ensure_tools_columns(" in storage_core
+    assert "def _ensure_tools_columns(" in (REMOTE_RUNNER / "sqlite_migrations.py").read_text(encoding="utf-8")
 
 
 def test_tool_platform_storage_lives_outside_tool_storage_module() -> None:

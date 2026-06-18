@@ -7,6 +7,7 @@ import sqlite3
 import pytest
 
 from apps.remote_runner import event_contracts
+from apps.remote_runner.sqlite_migrations import initialize_or_migrate_runtime_db
 from apps.remote_runner.storage_core import get_connection
 from apps.remote_runner.storage_schema import SCHEMA_SQL
 from tests.helpers.reference_database import make_remote_runner_config
@@ -246,6 +247,7 @@ def test_storage_connection_migrates_legacy_run_events_table_before_index_creati
     legacy.commit()
     legacy.close()
 
+    initialize_or_migrate_runtime_db(cfg.db_path)
     with get_connection(cfg) as connection:
         columns = {row["name"] for row in connection.execute("PRAGMA table_info(run_events)").fetchall()}
         event_contracts.append_run_event_v2(

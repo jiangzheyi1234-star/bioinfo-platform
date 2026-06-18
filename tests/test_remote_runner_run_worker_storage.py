@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
 import sqlite3
 
 from apps.remote_runner.run_execution_storage import claim_next_run_job
+from apps.remote_runner.sqlite_migrations import initialize_or_migrate_runtime_db
 from apps.remote_runner.run_worker_storage import (
     build_run_worker_health,
     heartbeat_run_worker,
@@ -15,15 +17,17 @@ from apps.remote_runner.run_worker_storage import (
 )
 from apps.remote_runner.storage import create_run_record
 from apps.remote_runner.storage_core import get_connection
-from tests.helpers.reference_database import make_configured_remote_runner
+from tests.helpers.reference_database import make_configured_remote_runner, make_remote_runner_config
 
 
 def test_run_worker_storage_migrates_legacy_worker_rows(tmp_path) -> None:
-    cfg = make_configured_remote_runner(tmp_path)
+    cfg = make_remote_runner_config(tmp_path)
+    Path(cfg.db_path).parent.mkdir(parents=True, exist_ok=True)
     legacy = sqlite3.connect(str(cfg.db_path))
     legacy.execute("CREATE TABLE run_workers (worker_id TEXT PRIMARY KEY)")
     legacy.close()
 
+    initialize_or_migrate_runtime_db(cfg.db_path)
     with get_connection(cfg) as connection:
         columns = {row["name"] for row in connection.execute("PRAGMA table_info(run_workers)").fetchall()}
 

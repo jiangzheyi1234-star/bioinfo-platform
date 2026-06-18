@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import json
 import os
-import sqlite3
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
 from .worker_resource_config import apply_run_worker_env_overrides
+from .sqlite_migrations import initialize_or_migrate_runtime_db
 
 from .workflow_runtime_config import (
     DEFAULT_CONDA_PREFIX_DIRNAME,
@@ -162,16 +162,7 @@ def ensure_runtime_layout(cfg: RemoteRunnerConfig) -> dict[str, bool]:
     ):
         directory.mkdir(parents=True, exist_ok=True)
 
-    with sqlite3.connect(str(db_path)) as connection:
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS service_state (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            )
-            """
-        )
-        connection.commit()
+    initialize_or_migrate_runtime_db(db_path)
 
     profile_content = workflow_profile_path.read_text(encoding="utf-8") if workflow_profile_path.exists() else ""
     wrapper_prefix = resolve_default_wrapper_prefix(cfg)

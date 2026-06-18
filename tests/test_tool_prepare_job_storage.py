@@ -4,6 +4,7 @@ from pathlib import Path
 import sqlite3
 
 from apps.remote_runner.config import ensure_runtime_layout
+from apps.remote_runner.sqlite_migrations import initialize_or_migrate_runtime_db
 from apps.remote_runner.storage_core import get_connection
 from apps.remote_runner.tool_prepare_job_storage import (
     complete_tool_prepare_job,
@@ -42,6 +43,7 @@ def test_prepare_job_storage_migrates_reservation_columns_for_legacy_database(
     )
     legacy.close()
 
+    initialize_or_migrate_runtime_db(cfg.db_path)
     job = create_tool_prepare_job(
         cfg,
         {
