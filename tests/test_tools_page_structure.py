@@ -7,6 +7,25 @@ ROOT = Path(__file__).resolve().parents[1]
 COMPONENTS = ROOT / "apps" / "web" / "app" / "components"
 
 
+def _component_source(*names: str) -> str:
+    return "\n".join((COMPONENTS / name).read_text(encoding="utf-8") for name in names)
+
+
+def _tools_page_model_source() -> str:
+    return _component_source(
+        "tools-page-core-model.ts",
+        "tools-page-catalog-model.ts",
+        "tools-page-model.ts",
+    )
+
+
+def _tools_page_ui_source() -> str:
+    return _component_source(
+        "tools-page-ui.tsx",
+        "tools-page-catalog-quality-strip.tsx",
+    )
+
+
 def _type_body(source: str, name: str) -> str:
     start = source.index(f"export type {name} = {{")
     brace = source.index("{", start)
@@ -41,12 +60,12 @@ def test_tools_page_has_focused_support_modules() -> None:
     api = (COMPONENTS / "tools-page-api.ts").read_text(encoding="utf-8")
     hook = (COMPONENTS / "use-tools-page-state.ts").read_text(encoding="utf-8")
     library = (COMPONENTS / "tools-page-library-section.tsx").read_text(encoding="utf-8")
-    model = (COMPONENTS / "tools-page-model.ts").read_text(encoding="utf-8")
+    model = _tools_page_model_source()
     package_lock = (COMPONENTS / "tools-page-package-lock.ts").read_text(encoding="utf-8")
     completion = (COMPONENTS / "tools-page-rule-spec-completion.ts").read_text(encoding="utf-8")
     editor = (COMPONENTS / "tools-page-rule-spec-editor.tsx").read_text(encoding="utf-8")
     readiness = (COMPONENTS / "tool-rule-readiness.ts").read_text(encoding="utf-8")
-    ui = (COMPONENTS / "tools-page-ui.tsx").read_text(encoding="utf-8")
+    ui = _tools_page_ui_source()
     wrapper_selector = (COMPONENTS / "tools-page-wrapper-selector.tsx").read_text(encoding="utf-8")
     task_context = (COMPONENTS / "tool-prepare-task-context.tsx").read_text(encoding="utf-8")
     task_bar = (COMPONENTS / "tool-prepare-task-bar.tsx").read_text(encoding="utf-8")
@@ -236,6 +255,7 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "qc_dir" not in readiness
     assert "export function ToolSearchResults" in ui
     assert "export function ToolCatalogQualityStrip" in ui
+    assert 'export { ToolCatalogQualityStrip } from "./tools-page-catalog-quality-strip";' in ui
     assert "discovered" in ui
     assert "draft-runnable" in ui
     assert "workflow-ready" in ui
@@ -338,9 +358,9 @@ def test_tools_page_has_focused_support_modules() -> None:
 def test_tools_search_surfaces_unified_candidate_catalog() -> None:
     api = (COMPONENTS / "tools-page-api.ts").read_text(encoding="utf-8")
     hook = (COMPONENTS / "use-tools-page-state.ts").read_text(encoding="utf-8")
-    model = (COMPONENTS / "tools-page-model.ts").read_text(encoding="utf-8")
+    model = _tools_page_model_source()
     page = (COMPONENTS / "tools-page.tsx").read_text(encoding="utf-8")
-    ui = (COMPONENTS / "tools-page-ui.tsx").read_text(encoding="utf-8")
+    ui = _tools_page_ui_source()
 
     assert "signal?: AbortSignal" in api
     assert "fetchCapabilityGraphSnapshot" in hook
@@ -373,8 +393,8 @@ def test_tools_search_surfaces_unified_candidate_catalog() -> None:
 def test_tools_page_surfaces_target_validation_queue_priority() -> None:
     page = (COMPONENTS / "tools-page.tsx").read_text(encoding="utf-8")
     hook = (COMPONENTS / "use-tools-page-state.ts").read_text(encoding="utf-8")
-    model = (COMPONENTS / "tools-page-model.ts").read_text(encoding="utf-8")
-    ui = (COMPONENTS / "tools-page-ui.tsx").read_text(encoding="utf-8")
+    model = _tools_page_model_source()
+    ui = _tools_page_ui_source()
     capability_gate = (COMPONENTS / "tools-page-capability-gate.tsx").read_text(encoding="utf-8")
     validation_queue = (COMPONENTS / "tools-page-validation-queue.tsx").read_text(encoding="utf-8")
     production_evidence = (COMPONENTS / "tools-page-production-evidence.tsx").read_text(encoding="utf-8")
@@ -492,7 +512,7 @@ def test_tools_page_surfaces_target_validation_queue_priority() -> None:
 
 
 def test_tools_page_candidate_catalog_knows_registered_tool_index_source() -> None:
-    model = (ROOT / "apps/web/app/components/tools-page-model.ts").read_text(encoding="utf-8")
+    model = _tools_page_model_source()
 
     assert "registeredToolIndex?: number" in model
     assert "RegisteredToolIndexCandidate" in model
