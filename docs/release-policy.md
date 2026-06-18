@@ -98,6 +98,8 @@ uv run python scripts\promote_remote_runner_release.py `
   --summary-json dist\remote-runner\release-promotion-summary.json
 ```
 
+For this user-owned private repository, `release-github-attestations.json` is normally a disabled summary and promotion falls back to the local in-toto bundles in `release-attestations.json`. Add `--require-github-attestations` only for a release workflow run that was dispatched with `hosted_attestations=true` and successfully produced hosted GitHub/Sigstore URLs.
+
 13. Review `release-promotion-summary.json` and `promoted-release-manifest.json`.
 14. Commit the promoted manifest update and any release documentation updates.
 

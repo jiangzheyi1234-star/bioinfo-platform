@@ -51,6 +51,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="",
         help="Optional path to release-github-attestations.json emitted by hosted GitHub attestation steps.",
     )
+    parser.add_argument(
+        "--require-github-attestations",
+        action="store_true",
+        help="Require --github-attestations to contain hosted GitHub/Sigstore attestation URLs.",
+    )
     parser.add_argument("--published-assets", required=True, help="Path to release-published-assets.json.")
     parser.add_argument("--release-gate-evidence", required=True, help="Path to release-gate-evidence.json.")
     parser.add_argument("--release-tag", required=True, help="Runtime release tag, for example h2ometa-runtime-v0.1.2.")
@@ -120,13 +125,21 @@ def promote_release(args: argparse.Namespace, results: list[dict[str, Any]]) -> 
     )
     results.append({"name": "ci-build-metadata", "ok": True})
 
+    if args.require_github_attestations and github_attestations_path is None:
+        raise ValueError("--require-github-attestations requires --github-attestations")
     if github_attestations_path is not None:
         readiness.validate_github_attestations(
             github_attestations_path,
             metadata_path=metadata_path,
-            require_hosted=True,
+            require_hosted=bool(args.require_github_attestations),
         )
-        results.append({"name": "github-hosted-attestations", "ok": True})
+        mode = str((github_attestations or {}).get("mode") or "").strip()
+        check_name = (
+            "github-hosted-attestations"
+            if updater.hosted_attestations_enabled(github_attestations)
+            else "github-attestations-summary"
+        )
+        results.append({"name": check_name, "ok": True, "mode": mode})
 
     readiness.validate_release_gate_evidence(release_gate_path)
     results.append({"name": "release-gate-evidence", "ok": True})

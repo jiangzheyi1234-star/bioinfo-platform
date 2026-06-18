@@ -253,6 +253,7 @@ def test_ci_builder_uses_controlled_linux_builder_not_ssh(monkeypatch) -> None:
     assert "release_artifact_run_id" in promotion_workflow
     assert "gh run download \"$RELEASE_ARTIFACT_RUN_ID\"" in promotion_workflow
     assert "--github-attestations dist/remote-runner/release-github-attestations.json" in promotion_workflow
+    assert "--require-github-attestations" in promotion_workflow
     assert "require_github_attestations:\n        description:" in promotion_workflow
     assert "default: false\n        type: boolean\n      platform:" in promotion_workflow
     assert "scripts/promote_remote_runner_release.py" in promotion_workflow

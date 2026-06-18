@@ -159,6 +159,8 @@ uv run python scripts\promote_remote_runner_release.py `
   --summary-json dist\remote-runner\release-promotion-summary.json
 ```
 
+For this user-owned private repository, `release-github-attestations.json` is normally a disabled summary and promotion falls back to the local in-toto bundles in `release-attestations.json`. Use `--require-github-attestations` only when the release workflow was explicitly run with `hosted_attestations=true` and hosted GitHub/Sigstore URLs were produced and verified.
+
 The promotion gate writes `release-promotion-summary.json` and a candidate promoted manifest. It fails production promotion when the release tag, CI source commit, manifest metadata, published asset digests, SBOM/attestation records, or real gate evidence disagree. It also requires `release-gate-evidence.json` to include `remoteRunnerBundle.sha256`, and that digest must match the controlled CI `remote_runner` artifact digest. It also rejects `pending:` and `pending-release-asset:` supply-chain values in the production manifest. Use `--apply` only after reviewing the candidate manifest; otherwise the checked-in manifest is left untouched.
 
 For a local staging control-plane tarball that has not been promoted into the release manifest, start the Local API/Web launcher with an explicit staging gate before running destructive acceptance:
