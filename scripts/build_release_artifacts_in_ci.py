@@ -44,6 +44,13 @@ ATTESTATION_BUNDLE_FILENAMES = {
 CORE_RUNTIME_HELPER_FILES = runner_builder.CORE_RUNTIME_HELPER_FILES
 
 
+def _release_specs_by_key() -> dict[str, Any]:
+    return {
+        REMOTE_RUNNER_ARTIFACT.key: REMOTE_RUNNER_ARTIFACT,
+        WORKFLOW_RUNTIME_ARTIFACT.key: WORKFLOW_RUNTIME_ARTIFACT,
+    }
+
+
 def print_json(label: str, payload: Any) -> None:
     print(f"{label}: {json.dumps(payload, ensure_ascii=False, sort_keys=True)}")
 
@@ -573,6 +580,38 @@ def release_manifest_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def validate_version_bump_for_changed_artifacts(
+    metadata: dict[str, Any],
+    *,
+    specs_by_key: dict[str, Any] | None = None,
+) -> None:
+    specs = specs_by_key or _release_specs_by_key()
+    for artifact in metadata.get("artifacts") or []:
+        if not isinstance(artifact, dict):
+            continue
+        artifact_key = str(artifact.get("artifactKey") or "").strip()
+        platform = str(artifact.get("platform") or "").strip()
+        spec = specs.get(artifact_key)
+        if spec is None or not platform:
+            continue
+        built_version = str(artifact.get("version") or "").strip()
+        manifest_version = str(getattr(spec, "version", "") or "").strip()
+        if built_version != manifest_version:
+            continue
+        built_sha = str(artifact.get("sha256") or "").strip().lower()
+        manifest_sha = str((getattr(spec, "sha256", {}) or {}).get(platform) or "").strip().lower()
+        built_size = int(artifact.get("sizeBytes") or 0)
+        manifest_size = int((getattr(spec, "size_bytes", {}) or {}).get(platform) or 0)
+        changed = bool(manifest_sha and built_sha and built_sha != manifest_sha) or bool(
+            manifest_size and built_size and built_size != manifest_size
+        )
+        if changed:
+            raise SystemExit(
+                f"{artifact_key}/{platform} changed but still uses artifact version {built_version}; "
+                "set a new release artifact version before publishing."
+            )
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build H2OMeta release artifacts on Linux CI.")
     parser.add_argument("--platform", default="linux-64", choices=("linux-64", "linux-aarch64"))
@@ -590,6 +629,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--metadata-name", default="release-artifacts-metadata.json")
     parser.add_argument("--manifest-metadata-name", default="release-manifest-metadata.json")
+    parser.add_argument(
+        "--enforce-version-bump-for-changed-artifacts",
+        action="store_true",
+        help="Fail if a changed artifact is built with the checked-in manifest version.",
+    )
     return parser.parse_args(argv)
 
 
@@ -625,6 +669,8 @@ def main(argv: list[str] | None = None) -> int:
             ),
         ]
     metadata = build_metadata(artifacts=artifacts, source_ref=source_ref, source_commit=source_commit)
+    if args.enforce_version_bump_for_changed_artifacts:
+        validate_version_bump_for_changed_artifacts(metadata)
     metadata_path = output_dir / args.metadata_name
     metadata_path.parent.mkdir(parents=True, exist_ok=True)
     metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

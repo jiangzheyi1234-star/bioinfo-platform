@@ -150,6 +150,57 @@ def test_ci_builder_release_manifest_metadata_uses_resolved_source_commit(tmp_pa
     assert release_item["sourceCommit"] == "d" * 40
 
 
+def test_ci_builder_publish_policy_rejects_changed_artifact_without_version_bump() -> None:
+    metadata = {
+        "artifacts": [
+            {
+                "artifactKey": "remote_runner",
+                "version": "0.1.1-control-plane",
+                "platform": "linux-64",
+                "sha256": "a" * 64,
+                "sizeBytes": 456,
+            }
+        ]
+    }
+    specs = {
+        "remote_runner": SimpleNamespace(
+            version="0.1.1-control-plane",
+            sha256={"linux-64": "b" * 64},
+            size_bytes={"linux-64": 123},
+        )
+    }
+
+    try:
+        ci_builder.validate_version_bump_for_changed_artifacts(metadata, specs_by_key=specs)
+    except SystemExit as exc:
+        assert "changed but still uses artifact version" in str(exc)
+    else:
+        raise AssertionError("changed artifact without version bump was accepted")
+
+
+def test_ci_builder_publish_policy_accepts_changed_artifact_with_version_bump() -> None:
+    metadata = {
+        "artifacts": [
+            {
+                "artifactKey": "remote_runner",
+                "version": "0.1.2-control-plane",
+                "platform": "linux-64",
+                "sha256": "a" * 64,
+                "sizeBytes": 456,
+            }
+        ]
+    }
+    specs = {
+        "remote_runner": SimpleNamespace(
+            version="0.1.1-control-plane",
+            sha256={"linux-64": "b" * 64},
+            size_bytes={"linux-64": 123},
+        )
+    }
+
+    ci_builder.validate_version_bump_for_changed_artifacts(metadata, specs_by_key=specs)
+
+
 def test_ci_builder_spdx_sbom_records_conda_explicit_packages(tmp_path: Path) -> None:
     artifact_path = tmp_path / "artifact.tar.gz"
     artifact_path.write_bytes(b"artifact")
@@ -302,6 +353,7 @@ def test_ci_builder_uses_controlled_linux_builder_not_ssh(monkeypatch) -> None:
     assert "workflow_runtime_version:" in workflow
     assert "--remote-runner-version" in workflow
     assert "--workflow-runtime-version" in workflow
+    assert "--enforce-version-bump-for-changed-artifacts" in workflow
     assert "release-published-assets.json" in workflow
     assert "scripts/check_remote_runner_release_readiness.py" in workflow
     assert "--require-github-attestations" in workflow

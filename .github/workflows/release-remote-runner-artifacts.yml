@@ -64,6 +64,7 @@ jobs:
       artifact-metadata: write
     env:
       SOURCE_REF: ${{ github.event.inputs.source_ref || github.sha }}
+      PUBLISH_RELEASE: ${{ github.event.inputs.publish_release }}
       PLATFORM: ${{ github.event.inputs.platform || 'linux-64' }}
       REMOTE_RUNNER_ARTIFACT_VERSION: ${{ github.event.inputs.remote_runner_version }}
       WORKFLOW_RUNTIME_ARTIFACT_VERSION: ${{ github.event.inputs.workflow_runtime_version }}
@@ -124,6 +125,9 @@ jobs:
           fi
           if [ -n "$WORKFLOW_RUNTIME_ARTIFACT_VERSION" ]; then
             version_args+=(--workflow-runtime-version "$WORKFLOW_RUNTIME_ARTIFACT_VERSION")
+          fi
+          if [ "$PUBLISH_RELEASE" = "true" ]; then
+            version_args+=(--enforce-version-bump-for-changed-artifacts)
           fi
           uv run --frozen python scripts/build_release_artifacts_in_ci.py \
             --source-ref "$SOURCE_REF" \
