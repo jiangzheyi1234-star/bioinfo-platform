@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from apps.remote_runner.api_models import (
     RunCreateRequest,
     ToolManifestRequest,
+    ToolProductionEvidenceRequest,
     UploadCreateRequest,
     WorkflowDesignDraftCompileRequest,
 )
@@ -62,6 +63,35 @@ def test_remote_runner_tool_manifest_accepts_profile_prepare_payload_identity() 
 
     assert payload.profileId == "fastqc"
     assert payload.validationTarget == "fastqc"
+
+
+def test_remote_runner_tool_production_evidence_accepts_scoped_attestation_fields() -> None:
+    payload = ToolProductionEvidenceRequest.model_validate(
+        {
+            "runId": "run_real_data",
+            "message": "Accepted against real remote data.",
+            "evidenceType": "real-database-acceptance",
+            "targetPlatform": "linux-64",
+            "environmentLock": {"manager": "conda"},
+            "inputScope": {"inputs": [{"role": "reads", "filename": "reads.fastq"}]},
+            "artifactDigest": "sha256:abc123",
+            "policyVersion": "tool-production-policy-v1",
+            "databaseId": "db_real",
+            "templateId": "gtdbtk",
+            "role": "taxonomy",
+            "artifactName": "report.txt",
+            "packId": "gtdbtk-r232",
+            "packChecksum": "md5:abc123",
+        }
+    )
+
+    assert payload.environmentLock == {"manager": "conda"}
+    assert payload.packId == "gtdbtk-r232"
+
+    with pytest.raises(ValidationError) as exc_info:
+        ToolProductionEvidenceRequest.model_validate({"runId": "run_real_data", "serverId": "srv_legacy"})
+
+    assert exc_info.value.errors()[0]["type"] == "extra_forbidden"
 
 
 def test_remote_runner_run_request_requires_top_level_server_id() -> None:

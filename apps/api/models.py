@@ -139,10 +139,17 @@ class ToolProductionEvidenceRequest(ApiRequest):
     message: str | None = None
     logPath: str | None = None
     evidenceType: str | None = None
+    targetPlatform: str | None = None
+    environmentLock: dict[str, Any] | None = None
+    inputScope: dict[str, Any] | None = None
+    artifactDigest: str | None = None
+    policyVersion: str | None = None
     databaseId: str | None = None
     templateId: str | None = None
     role: str | None = None
     artifactName: str | None = None
+    packId: str | None = None
+    packChecksum: str | None = None
 
 
 class DatabaseManifestRequest(ApiRequest):

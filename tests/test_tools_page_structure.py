@@ -377,6 +377,7 @@ def test_tools_page_surfaces_target_validation_queue_priority() -> None:
     ui = (COMPONENTS / "tools-page-ui.tsx").read_text(encoding="utf-8")
     capability_gate = (COMPONENTS / "tools-page-capability-gate.tsx").read_text(encoding="utf-8")
     validation_queue = (COMPONENTS / "tools-page-validation-queue.tsx").read_text(encoding="utf-8")
+    production_evidence = (COMPONENTS / "tools-page-production-evidence.tsx").read_text(encoding="utf-8")
 
     assert "export type ToolCatalogValidationQueueItem" in model
     assert "priority?: ToolCatalogValidationPriority" in model
@@ -430,11 +431,31 @@ def test_tools_page_surfaces_target_validation_queue_priority() -> None:
     assert "loadTargetAcceptance({ silent: true })" in hook
     assert "validation queue" in validation_queue
     assert "productionQueue" in validation_queue
-    assert "production evidence queue" in validation_queue
+    assert "production evidence queue" in production_evidence
     assert "prepareJobQueue" in validation_queue
     assert "prepare job queue" in validation_queue
     assert "prepareQueueMetricItems" in validation_queue
-    assert "submit-production-evidence" in validation_queue
+    assert 'import { ToolProductionEvidencePanel } from "./tools-page-production-evidence";' in validation_queue
+    assert "ToolProductionEvidencePanel productionQueue={productionQueue}" in validation_queue
+    assert "submit-production-evidence" in production_evidence
+    assert "submitToolProductionEvidence" in production_evidence
+    assert "fetchRunsList({ forceRefresh: true })" in production_evidence
+    assert "fetchWorkflowRunDetail" in production_evidence
+    assert "GENERATED_TOOL_RUN_PIPELINE_ID" in production_evidence
+    assert "real-database-acceptance" in production_evidence
+    assert "runDetailReady" in production_evidence
+    assert "missingSubmitField(form, activeRunId, runDetailReady)" in production_evidence
+    assert "artifact.artifactId" in production_evidence
+    assert "artifactEvidenceName" in production_evidence
+    assert "firstDatabaseBindingPatch" in production_evidence
+    assert "resourceBindings" in production_evidence
+    assert "data-field=\"production-evidence-message\"" in production_evidence
+    assert "data-field=\"production-evidence-artifact\"" in production_evidence
+    assert "inputScopeFromRun" in production_evidence
+    assert "payload.inputScope = inputScope" in production_evidence
+    assert "artifactDigest" in production_evidence
+    assert "policyVersion" in production_evidence
+    assert "packChecksum" in production_evidence
     assert "visibleLimit, setVisibleLimit" in validation_queue
     assert "visibleItems = items.slice(0, visibleLimit)" in validation_queue
     assert "hiddenItemCount" in validation_queue

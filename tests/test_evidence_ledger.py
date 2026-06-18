@@ -99,7 +99,11 @@ def test_production_promotion_appends_scoped_evidence_event(tmp_path: Path) -> N
             "artifactName": "report.txt",
             "targetPlatform": "linux-64",
             "environmentLock": {"manager": "conda", "packageSpec": "conda-forge::production-ready=9.5"},
+            "inputScope": {"inputs": [{"role": "primary", "filename": "real.fastq"}]},
+            "artifactDigest": "sha256:artifact",
             "policyVersion": "tool-production-policy-v1",
+            "packId": "manual-pack",
+            "packChecksum": "sha256:pack",
         },
     )
 
@@ -110,6 +114,7 @@ def test_production_promotion_appends_scoped_evidence_event(tmp_path: Path) -> N
     )
 
     assert accepted["contractStatus"]["production"]["evidenceId"] == events[-1]["eventId"]
+    assert accepted["contractStatus"]["production"]["artifactDigest"] == "sha256:artifact"
     assert events[-1]["eventType"] == "tool.production.acceptance.v1"
     assert events[-1]["schema"]["name"] == "ToolProductionAcceptanceEvidence"
     assert events[-1]["payload"]["toolId"] == "conda-forge::production-ready"
@@ -119,7 +124,13 @@ def test_production_promotion_appends_scoped_evidence_event(tmp_path: Path) -> N
         "manager": "conda",
         "packageSpec": "conda-forge::production-ready=9.5",
     }
+    assert events[-1]["payload"]["inputScope"] == {
+        "inputs": [{"role": "primary", "filename": "real.fastq"}]
+    }
     assert events[-1]["payload"]["policyVersion"] == "tool-production-policy-v1"
+    assert events[-1]["payload"]["artifactDigest"] == "sha256:artifact"
+    assert events[-1]["payload"]["packId"] == "manual-pack"
+    assert events[-1]["payload"]["packChecksum"] == "sha256:pack"
 
 
 def test_production_promotion_event_records_current_tool_revision(tmp_path: Path) -> None:

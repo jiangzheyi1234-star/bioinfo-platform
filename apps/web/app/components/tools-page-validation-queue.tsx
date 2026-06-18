@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 import { createToolPrepareJob, prepareToolValidationQueue } from "./tools-page-api";
+import { ToolProductionEvidencePanel } from "./tools-page-production-evidence";
 import {
   type AddedTool,
   type ToolPrepareJobQueue,
@@ -164,33 +165,7 @@ export function ToolCatalogValidationQueueStrip({
           ) : null}
         </div>
       ) : null}
-      {productionQueue?.items?.length ? (
-        <div
-          aria-label="production evidence queue"
-          data-action="submit-production-evidence"
-          className="mt-3 rounded-md border border-emerald-100 bg-white px-3 py-2"
-        >
-          <div className="mb-2 flex items-center justify-between gap-3 text-xs">
-            <span className="font-medium text-emerald-800">生产证据</span>
-            <span className="text-slate-500">{productionQueue.available} 可提交 · {productionQueue.remaining} 待处理</span>
-          </div>
-          <div className="grid gap-1.5">
-            {productionQueue.items.slice(0, 3).map((item) => (
-              <div
-                key={item.toolId}
-                className="flex min-w-0 items-center justify-between gap-3 text-[11px]"
-                title={item.productionPlan?.acceptedEvidenceTypes?.join(", ") || item.executionGate?.reason || ""}
-              >
-                <span className="min-w-0 truncate font-medium text-slate-800">{item.toolName || item.toolId}</span>
-                <span className="shrink-0 text-slate-500">
-                  <span className="font-mono text-emerald-700">{item.currentState}</span>
-                  <span className="ml-1">{item.productionPlan?.requiredEvidenceFields?.length ?? 0} 字段</span>
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
+      <ToolProductionEvidencePanel productionQueue={productionQueue} onQueueChanged={onQueueChanged} />
       {batchStatus ? <div className="mt-1 text-[11px] text-slate-500">{batchStatus}</div> : null}
       {error ? <div className="mt-1 text-[11px] text-red-600">{error}</div> : null}
     </>
