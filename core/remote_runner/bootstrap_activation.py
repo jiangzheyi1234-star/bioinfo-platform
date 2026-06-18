@@ -224,6 +224,7 @@ class RemoteRunnerBootstrapActivationMixin:
             or "10054" in lowered
             or "强迫关闭" in lowered
             or "forcibly closed" in lowered
+            or "remote end closed" in lowered
             or "runner unreachable" in lowered
         )
 
