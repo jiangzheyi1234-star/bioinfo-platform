@@ -72,3 +72,43 @@ def test_explicit_staged_runner_bundle_allows_unpromoted_manifest_version(
 
     assert resolved.archive_path == bundle
     assert resolved.version == "0.1.4-control-plane"
+
+
+@pytest.mark.parametrize(
+    "unsafe_version",
+    [
+        "../evil",
+        "0.1.4/control-plane",
+        "0.1.4\\control-plane",
+        " 0.1.4-control-plane",
+        "0.1.4-control-plane\n",
+    ],
+)
+def test_explicit_staged_runner_bundle_rejects_unsafe_manifest_version(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    unsafe_version: str,
+) -> None:
+    bundle = tmp_path / "h2ometa-remote-runner-staged-linux-64.tar.gz"
+    _write_minimal_runner_artifact(bundle, version=unsafe_version)
+    monkeypatch.setenv("H2OMETA_REMOTE_RUNNER_BUNDLE", str(bundle))
+    monkeypatch.setenv("H2OMETA_ALLOW_STAGING_REMOTE_RUNNER_BUNDLE", "1")
+
+    with pytest.raises(RemoteRunnerArtifactError, match="unsafe version"):
+        RemoteRunnerArtifactProvider(search_roots=[]).resolve(REMOTE_RUNNER_VERSION, platform="linux-64")
+
+
+def test_staging_gate_without_explicit_bundle_keeps_declared_artifact_metadata_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle = tmp_path / REMOTE_RUNNER_ARTIFACT.archive_filename("linux-64")
+    _write_minimal_runner_artifact(bundle)
+    monkeypatch.setenv("H2OMETA_ALLOW_STAGING_REMOTE_RUNNER_BUNDLE", "1")
+    monkeypatch.delenv("H2OMETA_REMOTE_RUNNER_BUNDLE", raising=False)
+    monkeypatch.setattr(
+        "core.remote_runner.artifact.resolve_archive_path",
+        lambda *_args, **_kwargs: bundle,
+    )
+
+    with pytest.raises(RemoteRunnerArtifactError, match="manifest sha256 mismatch"):
+        RemoteRunnerArtifactProvider(search_roots=[]).resolve(REMOTE_RUNNER_VERSION, platform="linux-64")
