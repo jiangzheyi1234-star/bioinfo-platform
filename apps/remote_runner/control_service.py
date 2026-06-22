@@ -30,6 +30,7 @@ from .storage import (
     fetch_log_lines,
     fetch_result,
     fetch_run_events,
+    fetch_run_execution_context,
     fetch_run_results,
     fetch_run_rules,
     list_results,
@@ -198,6 +199,12 @@ async def get_run_events_from_request(run_id: str, authorization: str | None) ->
     cfg = await _authorized_config_from_request(authorization)
     events = await run_sync(fetch_run_events, cfg, run_id)
     return data_response({"items": events})
+
+
+async def get_run_execution_context_from_request(run_id: str, authorization: str | None) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization)
+    context = await run_sync(fetch_run_execution_context, cfg, run_id)
+    return data_response(context)
 
 
 async def get_run_logs_from_request(

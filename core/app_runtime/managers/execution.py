@@ -125,6 +125,9 @@ class ExecutionManager(BaseRuntimeManager):
     def get_run_events(self, run_id: str) -> dict[str, Any]:
         return {"data": self.call_runner("get_run_events", run_id=run_id)}
 
+    def get_run_execution_context(self, run_id: str) -> dict[str, Any]:
+        return {"data": self.call_runner("get_run_execution_context", run_id=run_id)}
+
     def get_run_logs(
         self,
         run_id: str,

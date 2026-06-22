@@ -188,11 +188,11 @@ Delivered foundation:
 - Added a Snakemake 9 logger-plugin event path (`--logger h2ometa`) that writes structured JSONL job events, then projects `JOB_INFO`, `JOB_STARTED`, `SHELLCMD`, `JOB_FINISHED`, and `JOB_ERROR` through the existing fenced rule-state storage.
 - Structured Snakemake event projection now records rule command summaries, inputs, outputs, logs, wildcards, started/finished timestamps, and explicit `blocked`/`skipped` states for rules that did not reach a terminal job event.
 - Added run detail `规则` tab plus DAG node status projection using `runtimeStatusKey`, then `stepId`, then `ruleName`.
+- Added read-only run execution context projection for attempts, active/current lease, retry policy, retry eligibility, and explicit `resumeSupported: false`; surfaced it in run detail before enabling operator controls.
 
 Still pending before this phase is complete:
 
 - Stream or poll the Snakemake logger event file during execution instead of projecting it only after the Snakemake process returns, so running rule transitions become live.
-- Add a read-only run execution context API for attempts, active lease, retry policy, retry eligibility, and explicit `resumeSupported: false` before exposing operator controls.
 - Add operator actions for rule-level retry/resume once retry policy and attempt selection are exposed in the UI.
 
 Recommended sequence:

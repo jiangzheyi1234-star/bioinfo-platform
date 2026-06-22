@@ -12,6 +12,7 @@ from .execution_query_storage import (
     list_runs,
     require_run,
 )
+from .run_execution_context_storage import fetch_run_execution_context
 from .log_storage import (
     append_log_lines,
     fetch_log_lines,
@@ -72,6 +73,7 @@ __all__ = [
     "enqueue_reconcile", "fetch_log_lines",
     "fetch_result", "fetch_run",
     "fetch_run_events",
+    "fetch_run_execution_context",
     "fetch_run_results",
     "fetch_run_rules",
     "fetch_run_worker_slot",

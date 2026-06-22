@@ -76,6 +76,7 @@ def test_run_result_routes_delegate_runtime_calls_to_service() -> None:
     assert "get_run_from_request" in detail_routes
     assert "cancel_run_from_request" in detail_routes
     assert "get_run_events_from_request" in detail_routes
+    assert "get_run_execution_context_from_request" in detail_routes
     assert "get_run_logs_from_request" in detail_routes
     assert "get_run_results_from_request" in detail_routes
     assert "get_run_rules_from_request" in detail_routes
@@ -89,6 +90,7 @@ def test_run_result_routes_delegate_runtime_calls_to_service() -> None:
     assert "def get_run_from_request(" in service_source
     assert "def cancel_run_from_request(" in service_source
     assert "def get_run_events_from_request(" in service_source
+    assert "def get_run_execution_context_from_request(" in service_source
     assert "def get_run_logs_from_request(" in service_source
     assert "def get_run_results_from_request(" in service_source
     assert "def get_run_rules_from_request(" in service_source

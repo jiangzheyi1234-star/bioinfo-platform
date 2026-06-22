@@ -57,6 +57,9 @@ class RunnerExecutionOperationsMixin:
     def get_run_events(self, run_id: str) -> dict[str, Any]:
         return self.execution.get_run_events(run_id)
 
+    def get_run_execution_context(self, run_id: str) -> dict[str, Any]:
+        return self.execution.get_run_execution_context(run_id)
+
     def get_run_logs(
         self,
         run_id: str,

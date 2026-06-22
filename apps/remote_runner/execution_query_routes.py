@@ -13,6 +13,7 @@ from .control_service import (
     get_result_audit_from_request,
     export_result_package_from_request,
     get_run_events_from_request,
+    get_run_execution_context_from_request,
     get_run_from_request,
     get_run_logs_from_request,
     get_run_results_from_request,
@@ -48,6 +49,11 @@ async def cancel_run_api(run_id: str, authorization: AuthorizationHeader = None)
 @router.get("/api/v1/runs/{run_id}/events")
 async def get_run_events_api(run_id: str, authorization: AuthorizationHeader = None) -> dict[str, Any]:
     return await get_run_events_from_request(run_id, authorization)
+
+
+@router.get("/api/v1/runs/{run_id}/execution-context")
+async def get_run_execution_context_api(run_id: str, authorization: AuthorizationHeader = None) -> dict[str, Any]:
+    return await get_run_execution_context_from_request(run_id, authorization)
 
 
 @router.get("/api/v1/runs/{run_id}/logs")

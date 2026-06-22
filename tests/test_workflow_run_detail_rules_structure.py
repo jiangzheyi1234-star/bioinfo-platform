@@ -19,12 +19,18 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "export type WorkflowRunRuleEvent" in model
     assert "export type WorkflowRunRule" in model
     assert "export type WorkflowRunRules" in model
+    assert "export type WorkflowRunExecutionContext" in model
     assert "rules?: WorkflowRunRules" in model
+    assert "executionContext?: WorkflowRunExecutionContext" in model
     assert '"rules": _unwrap_data(rules, {})' in catalog_service
+    assert '"executionContext": _unwrap_data(execution_context, {})' in catalog_service
     assert "runtime.get_run_rules(run_id)" in catalog_service
+    assert "runtime.get_run_execution_context(run_id)" in catalog_service
 
     assert 'type TabKey = "overview" | "rules" | "artifacts" | "stdout" | "stderr"' in panel
     assert '{ key: "rules", label: "规则" }' in panel
+    assert "WorkflowRunExecutionContextPanel" in panel
+    assert "context={detail.executionContext}" in panel
     assert "function RunRules" in panel
     assert "detail.rules?.items || []" in panel
     assert "<RunRules rules={rules} />" in panel

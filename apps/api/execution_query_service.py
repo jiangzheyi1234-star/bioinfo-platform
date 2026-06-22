@@ -40,6 +40,13 @@ async def get_run_events_from_request(run_id: str) -> dict[str, Any]:
     )
 
 
+async def get_run_execution_context_from_request(run_id: str) -> dict[str, Any]:
+    return await run_runtime_payload(
+        lambda: runtime_service().get_run_execution_context(run_id),
+        wrapper="raw",
+    )
+
+
 async def get_run_logs_from_request(
     run_id: str,
     *,

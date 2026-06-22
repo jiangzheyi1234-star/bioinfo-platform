@@ -353,6 +353,7 @@ def test_runtime_execution_operations_live_in_dedicated_mixin() -> None:
         "list_workflow_trigger_events",
         "get_run",
         "get_run_events",
+        "get_run_execution_context",
         "get_run_logs",
         "get_run_results",
         "get_run_rules",
@@ -387,9 +388,11 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "self._require_runner_ready(" not in execution_ops_source
     assert "self.execution.submit_run(" in execution_ops_source
     assert "self.execution.create_workflow_trigger(" in execution_ops_source
+    assert "self.execution.get_run_execution_context(" in execution_ops_source
     assert "manager.submit_workflow_trigger_event" in execution_manager_source
     assert "self.execution.get_result_audit(" in execution_ops_source
     assert "self.execution.export_result_package(" in execution_ops_source
+    assert "self.call_runner(\"get_run_execution_context\"" in execution_manager_source
     assert "self.call_runner(\"get_result_audit\"" in execution_manager_source
     assert "self.call_runner(\"export_result_package\"" in execution_manager_source
 

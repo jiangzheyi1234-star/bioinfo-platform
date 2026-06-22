@@ -226,6 +226,93 @@ export type WorkflowRunRules = {
   items?: WorkflowRunRule[];
 };
 
+export type WorkflowRunExecutionJob = {
+  jobId?: string;
+  runId?: string;
+  state?: string;
+  queueName?: string;
+  priority?: number;
+  availableAt?: string;
+  waitReason?: Record<string, unknown>;
+  attemptCount?: number;
+  maxAttempts?: number;
+  retryPolicy?: Record<string, unknown>;
+  timeoutPolicy?: Record<string, unknown>;
+  deadLetteredAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type WorkflowRunExecutionAttempt = {
+  attemptId?: string;
+  runId?: string;
+  jobId?: string;
+  leaseGeneration?: number;
+  attemptNumber?: number;
+  state?: string;
+  workerId?: string;
+  sessionId?: string;
+  slotId?: string;
+  cancelRequestedAt?: string | null;
+  killedAt?: string | null;
+  outputAdoptionState?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  exitCode?: number | null;
+  fencedReason?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type WorkflowRunExecutionLease = {
+  runId?: string;
+  attemptId?: string;
+  leaseGeneration?: number;
+  workerId?: string;
+  sessionId?: string;
+  slotId?: string;
+  heartbeatAt?: string;
+  expiresAt?: string;
+  state?: string;
+  updatedAt?: string;
+};
+
+export type WorkflowRunRetryEligibility = {
+  eligible?: boolean;
+  eligibleNow?: boolean;
+  remainingAttempts?: number;
+  nextAttemptAt?: string | null;
+  reasonCode?: string;
+};
+
+export type WorkflowRunExecutionContext = {
+  schemaVersion?: string;
+  runId?: string;
+  generatedAt?: string;
+  run?: {
+    status?: string;
+    stage?: string;
+    stateVersion?: number;
+    message?: string;
+    startedAt?: string;
+    finishedAt?: string;
+    lastUpdatedAt?: string;
+  };
+  job?: WorkflowRunExecutionJob | null;
+  attempts?: WorkflowRunExecutionAttempt[];
+  currentLease?: WorkflowRunExecutionLease | null;
+  activeLease?: WorkflowRunExecutionLease | null;
+  retryPolicy?: Record<string, unknown> | null;
+  timeoutPolicy?: Record<string, unknown> | null;
+  retryEligibility?: WorkflowRunRetryEligibility;
+  resumeSupported?: boolean;
+  resumeEligibility?: {
+    eligible?: boolean;
+    reasonCode?: string;
+    message?: string;
+  };
+};
+
 export type WorkflowArtifact = {
   artifactId: string;
   kind: string;
@@ -263,6 +350,7 @@ export type WorkflowRunDetail = {
   };
   results?: WorkflowResultDetail;
   rules?: WorkflowRunRules;
+  executionContext?: WorkflowRunExecutionContext;
   previews?: WorkflowArtifactPreview[];
 };
 

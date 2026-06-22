@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
+import { WorkflowRunExecutionContextPanel } from "./workflow-run-execution-context";
 import { fetchArtifactPreview } from "./workflows-page-api";
 import type {
   WorkflowArtifact,
@@ -640,6 +641,7 @@ export function WorkflowRunDetailPanel({
         {tab === "overview" && (
           <div className="space-y-4">
             <RunDiagnosis run={run} events={events} rules={rules} stderrLines={stderr} />
+            <WorkflowRunExecutionContextPanel context={detail.executionContext} />
             <TablePreview preview={tablePreview} />
             {!tablePreview && textPreview ? (
               <div className="rounded-lg border border-slate-200 bg-white">
