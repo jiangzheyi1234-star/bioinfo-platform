@@ -61,6 +61,51 @@ CREATE TABLE IF NOT EXISTS run_events (
     details_json TEXT
 );
 
+CREATE TABLE IF NOT EXISTS run_rules (
+    run_rule_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    rule_name TEXT NOT NULL,
+    step_id TEXT NOT NULL DEFAULT '',
+    runtime_status_key TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL,
+    attempt_id TEXT NOT NULL DEFAULT '',
+    lease_generation INTEGER NOT NULL DEFAULT 0,
+    attempt_number INTEGER,
+    started_at TEXT,
+    finished_at TEXT,
+    exit_code INTEGER,
+    message TEXT NOT NULL DEFAULT '',
+    command_summary TEXT NOT NULL DEFAULT '',
+    inputs_json TEXT NOT NULL DEFAULT '[]',
+    outputs_json TEXT NOT NULL DEFAULT '[]',
+    wildcards_json TEXT NOT NULL DEFAULT '{}',
+    logs_json TEXT NOT NULL DEFAULT '[]',
+    updated_at TEXT NOT NULL,
+    UNIQUE(run_id, rule_name, attempt_id, lease_generation)
+);
+
+CREATE INDEX IF NOT EXISTS idx_run_rules_run_status
+ON run_rules(run_id, status, updated_at);
+
+CREATE TABLE IF NOT EXISTS run_rule_events (
+    rule_event_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    run_rule_id TEXT NOT NULL,
+    rule_name TEXT NOT NULL,
+    step_id TEXT NOT NULL DEFAULT '',
+    event_type TEXT NOT NULL,
+    status TEXT NOT NULL,
+    attempt_id TEXT NOT NULL,
+    lease_generation INTEGER NOT NULL,
+    attempt_number INTEGER,
+    message TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    details_json TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_run_rule_events_run_rule
+ON run_rule_events(run_id, rule_name, created_at);
+
 CREATE TABLE IF NOT EXISTS run_commands (
     command_id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL,

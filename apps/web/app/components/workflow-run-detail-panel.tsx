@@ -31,12 +31,14 @@ import type {
   WorkflowRun,
   WorkflowRunDetail,
   WorkflowRunEvent,
+  WorkflowRunRule,
 } from "./workflows-page-model";
 
-type TabKey = "overview" | "artifacts" | "stdout" | "stderr";
+type TabKey = "overview" | "rules" | "artifacts" | "stdout" | "stderr";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "overview", label: "概览" },
+  { key: "rules", label: "规则" },
   { key: "artifacts", label: "产物" },
   { key: "stdout", label: "stdout" },
   { key: "stderr", label: "stderr" },
@@ -77,17 +79,23 @@ function RunTimeline({ events }: { events: WorkflowRunEvent[] }) {
 function RunDiagnosis({
   run,
   events,
+  rules,
   stderrLines,
 }: {
   run: WorkflowRun;
   events: WorkflowRunEvent[];
+  rules: WorkflowRunRule[];
   stderrLines: string[];
 }) {
   const failed = run.status === "failed" || run.status === "error";
   if (!failed) return null;
 
   const messages: string[] = [];
+  const failedRule = rules.find((rule) => isFailedStatus(rule.status));
   if (run.message) messages.push(run.message);
+  if (failedRule) {
+    messages.push(`失败 rule：${failedRule.ruleName}${failedRule.message ? `，${failedRule.message}` : ""}`);
+  }
   const failureEvent = events.find((e) => e.status === "failed" || e.status === "error");
   if (failureEvent?.message && !messages.includes(failureEvent.message)) {
     messages.push(failureEvent.message);
@@ -121,6 +129,24 @@ function RunDiagnosis({
           <pre className="max-h-48 overflow-auto whitespace-pre-wrap text-xs text-red-100">{lastStderr.join("\n")}</pre>
         </div>
       )}
+      {failedRule ? (
+        <div className="rounded-lg border border-red-200 bg-white p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold text-red-700">{failedRule.ruleName}</div>
+              <div className="mt-1 font-mono text-[11px] text-slate-400">{failedRule.runRuleId || failedRule.stepId || "rule"}</div>
+            </div>
+            <span className="rounded border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-700">
+              {failedRule.exitCode === null || failedRule.exitCode === undefined ? "exit —" : `exit ${failedRule.exitCode}`}
+            </span>
+          </div>
+          {failedRule.commandSummary ? (
+            <pre className="mt-3 max-h-32 overflow-auto whitespace-pre-wrap rounded-md bg-slate-950 p-3 text-xs text-red-100">
+              {failedRule.commandSummary}
+            </pre>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -305,6 +331,117 @@ function LogBlock({ title, lines }: { title: string; lines: string[] }) {
   );
 }
 
+/* ─── Rule view ─── */
+
+function isFailedStatus(status: string | undefined) {
+  const s = String(status || "").toLowerCase();
+  return s === "failed" || s === "error";
+}
+
+function ruleStatusStyle(status: string | undefined) {
+  const s = String(status || "").toLowerCase();
+  if (s === "completed" || s === "success" || s === "succeeded") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+  if (isFailedStatus(s)) return "border-red-200 bg-red-50 text-red-700";
+  if (s === "running" || s === "started") return "border-blue-200 bg-blue-50 text-blue-700";
+  return "border-slate-200 bg-slate-50 text-slate-600";
+}
+
+function RuleValueList({ title, values }: { title: string; values: string[] }) {
+  if (values.length === 0) return null;
+  return (
+    <div className="min-w-0">
+      <div className="mb-1 text-[11px] font-medium text-slate-400">{title}</div>
+      <div className="space-y-1">
+        {values.slice(0, 6).map((value, index) => (
+          <div key={`${title}-${index}`} className="truncate font-mono text-[11px] text-slate-600">
+            {value}
+          </div>
+        ))}
+        {values.length > 6 ? <div className="text-[11px] text-slate-400">+{values.length - 6}</div> : null}
+      </div>
+    </div>
+  );
+}
+
+function RunRules({ rules }: { rules: WorkflowRunRule[] }) {
+  if (rules.length === 0) {
+    return <div className="py-8 text-center text-sm text-slate-400">暂无 rule 状态</div>;
+  }
+  return (
+    <div className="space-y-3">
+      {rules.map((rule) => {
+        const events = rule.events || [];
+        const wildcards = rule.wildcards && Object.keys(rule.wildcards).length > 0 ? JSON.stringify(rule.wildcards) : "";
+        return (
+          <div key={rule.runRuleId || `${rule.ruleName}-${rule.attemptId}`} className="rounded-lg border border-slate-200 bg-white p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <span className={cn("rounded border px-2 py-0.5 text-xs font-medium", ruleStatusStyle(rule.status))}>
+                    {rule.status || "unknown"}
+                  </span>
+                  <div className="truncate text-sm font-semibold text-slate-900">{rule.ruleName}</div>
+                </div>
+                <div className="mt-1 flex min-w-0 flex-wrap gap-x-3 gap-y-1 font-mono text-[11px] text-slate-400">
+                  {rule.stepId ? <span className="truncate">step {rule.stepId}</span> : null}
+                  {rule.runtimeStatusKey ? <span className="truncate">{rule.runtimeStatusKey}</span> : null}
+                  {rule.runRuleId ? <span className="truncate">{rule.runRuleId}</span> : null}
+                </div>
+              </div>
+              <div className="grid shrink-0 grid-cols-2 gap-x-4 gap-y-1 text-right text-[11px] text-slate-500">
+                <span>attempt</span>
+                <span className="font-mono text-slate-700">{rule.attemptNumber ?? "—"}</span>
+                <span>lease</span>
+                <span className="font-mono text-slate-700">{rule.leaseGeneration ?? "—"}</span>
+                <span>exit</span>
+                <span className="font-mono text-slate-700">{rule.exitCode ?? "—"}</span>
+                <span>耗时</span>
+                <span className="font-mono text-slate-700">{durationText(rule.startedAt, rule.finishedAt)}</span>
+              </div>
+            </div>
+
+            {rule.message ? <div className="mt-3 text-xs text-slate-600">{rule.message}</div> : null}
+            {wildcards ? <div className="mt-2 truncate font-mono text-[11px] text-slate-400">{wildcards}</div> : null}
+            {rule.commandSummary ? (
+              <pre className="mt-3 max-h-32 overflow-auto whitespace-pre-wrap rounded-md bg-slate-950 p-3 text-xs text-slate-100">
+                {rule.commandSummary}
+              </pre>
+            ) : null}
+
+            <div className="mt-3 grid gap-4 md:grid-cols-3">
+              <RuleValueList title="inputs" values={rule.inputs || []} />
+              <RuleValueList title="outputs" values={rule.outputs || []} />
+              <RuleValueList title="logs" values={rule.logs || []} />
+            </div>
+
+            {events.length > 0 ? (
+              <div className="mt-4 border-t border-slate-100 pt-3">
+                <div className="mb-2 text-[11px] font-medium text-slate-400">events</div>
+                <div className="space-y-1.5">
+                  {events.slice(-5).map((event) => (
+                    <div key={event.ruleEventId || `${event.createdAt}-${event.eventType}`} className="flex min-w-0 items-center gap-2 text-xs text-slate-600">
+                      <Clock strokeWidth={1.5} className="h-3 w-3 shrink-0 text-slate-300" />
+                      <span className="shrink-0 font-mono text-[11px] text-slate-400">
+                        {event.createdAt ? new Date(event.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "--"}
+                      </span>
+                      <span className={cn("shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium", ruleStatusStyle(event.status))}>
+                        {event.eventType || event.status || "event"}
+                      </span>
+                      <span className="min-w-0 truncate">{event.message || "—"}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function SummaryMetric({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
@@ -424,6 +561,7 @@ export function WorkflowRunDetailPanel({
   const artifacts = detail.results?.artifacts || [];
   const previews = detail.previews || [];
   const events = detail.events || [];
+  const rules = detail.rules?.items || [];
   const stdout = detail.logs.stdout?.lines || [];
   const stderr = detail.logs.stderr?.lines || [];
   const tablePreview = preferredTablePreview(previews);
@@ -462,11 +600,12 @@ export function WorkflowRunDetailPanel({
               </div>
             ) : null}
           </div>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4 lg:border-l lg:border-slate-100 lg:pl-8">
+          <div className="grid grid-cols-2 gap-x-5 gap-y-4 sm:grid-cols-5 lg:border-l lg:border-slate-100 lg:pl-8">
             <SummaryMetric label="阶段" value={run.stage || "—"} />
             <SummaryMetric label="耗时" value={durationText(run.startedAt, run.finishedAt)} />
             <SummaryMetric label="提交时间" value={formatDateTime(run.submittedAt || run.createdAt)} />
             <SummaryMetric label="产物" value={`${artifacts.length} 个`} />
+            <SummaryMetric label="规则" value={`${rules.length} 个`} />
           </div>
         </div>
       </div>
@@ -500,7 +639,7 @@ export function WorkflowRunDetailPanel({
       <div className="min-h-[200px]">
         {tab === "overview" && (
           <div className="space-y-4">
-            <RunDiagnosis run={run} events={events} stderrLines={stderr} />
+            <RunDiagnosis run={run} events={events} rules={rules} stderrLines={stderr} />
             <TablePreview preview={tablePreview} />
             {!tablePreview && textPreview ? (
               <div className="rounded-lg border border-slate-200 bg-white">
@@ -534,6 +673,8 @@ export function WorkflowRunDetailPanel({
         {tab === "artifacts" && (
           <RunArtifacts resultId={detail.results?.resultId} artifacts={artifacts} previews={previews} />
         )}
+
+        {tab === "rules" && <RunRules rules={rules} />}
 
         {tab === "stdout" && <LogBlock title="stdout" lines={stdout} />}
 

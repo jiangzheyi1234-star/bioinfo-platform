@@ -62,6 +62,13 @@ async def get_run_results_from_request(run_id: str) -> dict[str, Any]:
     )
 
 
+async def get_run_rules_from_request(run_id: str) -> dict[str, Any]:
+    return await run_runtime_payload(
+        lambda: runtime_service().get_run_rules(run_id),
+        wrapper="raw",
+    )
+
+
 async def list_results_from_request() -> dict[str, Any]:
     return await run_runtime_payload(
         runtime_service().list_results,

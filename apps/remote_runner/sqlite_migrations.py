@@ -10,8 +10,9 @@ from .storage_schema import SCHEMA_SQL
 from .tool_prepare_reservations import json_object, tool_prepare_job_reservation
 
 
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
 BASELINE_MIGRATION_NAME = "001_baseline_remote_runner_schema"
+RULE_LEVEL_RUN_STATE_MIGRATION_NAME = "002_rule_level_run_state"
 DATABASE_MISSING_ERROR = "REMOTE_RUNNER_SQLITE_DATABASE_MISSING"
 SCHEMA_MIGRATION_REQUIRED_ERROR = "REMOTE_RUNNER_SQLITE_SCHEMA_MIGRATION_REQUIRED"
 SCHEMA_TOO_NEW_ERROR = "REMOTE_RUNNER_SQLITE_SCHEMA_TOO_NEW"
@@ -38,6 +39,8 @@ _REQUIRED_TABLES = {
     "run_events",
     "run_jobs",
     "run_leases",
+    "run_rule_events",
+    "run_rules",
     "run_resource_allocations",
     "run_worker_slots",
     "run_workers",
@@ -71,6 +74,8 @@ _REQUIRED_INDEXES = {
     "idx_run_events_run_seq",
     "idx_run_jobs_claimable",
     "idx_run_leases_active_expiry",
+    "idx_run_rule_events_run_rule",
+    "idx_run_rules_run_status",
     "idx_run_resource_allocations_active",
     "idx_run_workers_state_heartbeat",
     "idx_tool_index_search",
@@ -112,6 +117,9 @@ def migrate_runtime_schema(connection: sqlite3.Connection) -> None:
     if version == CURRENT_SCHEMA_VERSION:
         _assert_current_schema_contract(connection)
         return
+    if version == 1:
+        _migrate_from_v1_to_v2(connection)
+        return
     if version != 0:
         raise RemoteRunnerSQLiteSchemaError(f"REMOTE_RUNNER_SQLITE_SCHEMA_MIGRATION_MISSING: {version}")
 
@@ -119,7 +127,7 @@ def migrate_runtime_schema(connection: sqlite3.Connection) -> None:
         connection.executescript(f"BEGIN IMMEDIATE;\n{SCHEMA_SQL}\n{REFERENCE_DATABASE_SCHEMA_SQL}")
         _ensure_schema_migrations_table(connection)
         _apply_baseline_schema_migration(connection)
-        _record_migration(connection, CURRENT_SCHEMA_VERSION, BASELINE_MIGRATION_NAME)
+        _record_migration(connection, CURRENT_SCHEMA_VERSION, RULE_LEVEL_RUN_STATE_MIGRATION_NAME)
         connection.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
         connection.commit()
     except Exception:
@@ -192,7 +200,7 @@ def _record_migration(connection: sqlite3.Connection, version: int, name: str) -
 
 
 def _baseline_checksum() -> str:
-    payload = f"{CURRENT_SCHEMA_VERSION}:{BASELINE_MIGRATION_NAME}:{SCHEMA_SQL}:{REFERENCE_DATABASE_SCHEMA_SQL}"
+    payload = f"{CURRENT_SCHEMA_VERSION}:{RULE_LEVEL_RUN_STATE_MIGRATION_NAME}:{SCHEMA_SQL}:{REFERENCE_DATABASE_SCHEMA_SQL}"
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
@@ -221,10 +229,84 @@ def _apply_baseline_schema_migration(connection: sqlite3.Connection) -> None:
     _ensure_run_columns(connection)
     _ensure_run_event_columns(connection)
     _ensure_run_execution_columns(connection)
+    _ensure_rule_level_run_state(connection)
     _ensure_candidate_output_columns(connection)
     _ensure_tools_columns(connection)
     _ensure_tool_prepare_job_columns(connection)
     _ensure_artifact_columns(connection)
+
+
+def _migrate_from_v1_to_v2(connection: sqlite3.Connection) -> None:
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        _ensure_schema_migrations_table(connection)
+        _ensure_rule_level_run_state(connection)
+        _record_migration(connection, CURRENT_SCHEMA_VERSION, RULE_LEVEL_RUN_STATE_MIGRATION_NAME)
+        connection.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+
+
+def _ensure_rule_level_run_state(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS run_rules (
+            run_rule_id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            rule_name TEXT NOT NULL,
+            step_id TEXT NOT NULL DEFAULT '',
+            runtime_status_key TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL,
+            attempt_id TEXT NOT NULL DEFAULT '',
+            lease_generation INTEGER NOT NULL DEFAULT 0,
+            attempt_number INTEGER,
+            started_at TEXT,
+            finished_at TEXT,
+            exit_code INTEGER,
+            message TEXT NOT NULL DEFAULT '',
+            command_summary TEXT NOT NULL DEFAULT '',
+            inputs_json TEXT NOT NULL DEFAULT '[]',
+            outputs_json TEXT NOT NULL DEFAULT '[]',
+            wildcards_json TEXT NOT NULL DEFAULT '{}',
+            logs_json TEXT NOT NULL DEFAULT '[]',
+            updated_at TEXT NOT NULL,
+            UNIQUE(run_id, rule_name, attempt_id, lease_generation)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_run_rules_run_status
+        ON run_rules(run_id, status, updated_at)
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS run_rule_events (
+            rule_event_id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            run_rule_id TEXT NOT NULL,
+            rule_name TEXT NOT NULL,
+            step_id TEXT NOT NULL DEFAULT '',
+            event_type TEXT NOT NULL,
+            status TEXT NOT NULL,
+            attempt_id TEXT NOT NULL,
+            lease_generation INTEGER NOT NULL,
+            attempt_number INTEGER,
+            message TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            details_json TEXT NOT NULL DEFAULT '{}'
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_run_rule_events_run_rule
+        ON run_rule_events(run_id, rule_name, created_at)
+        """
+    )
 
 
 def _ensure_adopted_output_edge_uniqueness(connection: sqlite3.Connection) -> None:

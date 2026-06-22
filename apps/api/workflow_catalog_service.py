@@ -71,6 +71,7 @@ async def load_run_detail(run_id: str) -> dict[str, Any]:
         )
     )
     results = await run_sync(lambda: runtime.get_run_results(run_id))
+    rules = await run_sync(lambda: runtime.get_run_rules(run_id))
 
     result_data = _unwrap_data(results, {})
     if isinstance(result_data, dict) and not result_data.get("resultId"):
@@ -85,6 +86,7 @@ async def load_run_detail(run_id: str) -> dict[str, Any]:
                 "stderr": _unwrap_data(stderr, {}),
             },
             "results": result_data,
+            "rules": _unwrap_data(rules, {}),
             "previews": await _load_previews(runtime, result_data),
         }
     }

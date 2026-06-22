@@ -182,6 +182,50 @@ export type WorkflowLogLines = {
   nextCursor?: string;
 };
 
+export type WorkflowRunRuleEvent = {
+  ruleEventId?: string;
+  runId?: string;
+  runRuleId?: string;
+  ruleName?: string;
+  stepId?: string;
+  eventType?: string;
+  status?: string;
+  attemptId?: string;
+  leaseGeneration?: number;
+  attemptNumber?: number;
+  message?: string;
+  createdAt?: string;
+  details?: Record<string, unknown>;
+};
+
+export type WorkflowRunRule = {
+  runRuleId?: string;
+  runId?: string;
+  ruleName: string;
+  stepId?: string;
+  runtimeStatusKey?: string;
+  status: string;
+  attemptId?: string;
+  leaseGeneration?: number;
+  attemptNumber?: number;
+  startedAt?: string;
+  finishedAt?: string;
+  exitCode?: number | null;
+  message?: string;
+  commandSummary?: string;
+  inputs?: string[];
+  outputs?: string[];
+  wildcards?: Record<string, unknown>;
+  logs?: string[];
+  updatedAt?: string;
+  events?: WorkflowRunRuleEvent[];
+};
+
+export type WorkflowRunRules = {
+  runId?: string;
+  items?: WorkflowRunRule[];
+};
+
 export type WorkflowArtifact = {
   artifactId: string;
   kind: string;
@@ -218,6 +262,7 @@ export type WorkflowRunDetail = {
     stderr?: WorkflowLogLines;
   };
   results?: WorkflowResultDetail;
+  rules?: WorkflowRunRules;
   previews?: WorkflowArtifactPreview[];
 };
 

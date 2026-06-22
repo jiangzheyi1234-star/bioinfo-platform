@@ -34,11 +34,8 @@ from .run_execution_storage import (
     request_run_cancel,
     run_attempt_cancel_requested,
 )
-from .run_worker_storage import (
-    fetch_run_worker_slot,
-    heartbeat_run_worker_slot,
-    register_run_worker_slot,
-)
+from .run_worker_storage import fetch_run_worker_slot, heartbeat_run_worker_slot, register_run_worker_slot
+from .rule_execution_storage import append_run_rule_event, fetch_run_rules, upsert_run_rule_state
 from .workflow_run_storage import (
     canonical_payload_hash,
     create_run_record,
@@ -63,6 +60,7 @@ from .upload_storage import (
 __all__ = [
     "MAX_UPLOAD_BYTES",
     "append_log_lines",
+    "append_run_rule_event",
     "apply_resource",
     "canonical_payload_hash",
     "claim_reconcile_item", "claim_next_run_job",
@@ -73,6 +71,7 @@ __all__ = [
     "fetch_result", "fetch_run",
     "fetch_run_events",
     "fetch_run_results",
+    "fetch_run_rules",
     "fetch_run_worker_slot",
     "fetch_tool",
     "fetch_upload", "get_connection",
@@ -93,5 +92,6 @@ __all__ = [
     "now_iso",
     "update_resource_status",
     "update_run_state",
+    "upsert_run_rule_state",
     "upsert_tool",
 ]

@@ -14,6 +14,7 @@ from apps.remote_runner.sqlite_migrations import (
 )
 from apps.remote_runner.storage_core import get_connection
 from apps.remote_runner.storage_schema import SCHEMA_SQL
+from apps.remote_runner.database_registry_schema import REFERENCE_DATABASE_SCHEMA_SQL
 from tests.helpers.reference_database import make_remote_runner_config
 
 
@@ -109,9 +110,56 @@ def test_runtime_layout_records_schema_version_and_migration_ledger(tmp_path: Pa
     assert user_version == CURRENT_SCHEMA_VERSION
     assert migration is not None
     assert migration[0] == CURRENT_SCHEMA_VERSION
-    assert migration[1] == "001_baseline_remote_runner_schema"
+    assert migration[1] == sqlite_migrations.RULE_LEVEL_RUN_STATE_MIGRATION_NAME
     assert migration[2]
     assert reference_table is not None
+
+
+def test_runtime_schema_migrates_v1_rule_level_run_state_tables(tmp_path: Path) -> None:
+    cfg = make_remote_runner_config(tmp_path)
+    db_path = Path(cfg.db_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        connection.executescript(f"{SCHEMA_SQL}\n{REFERENCE_DATABASE_SCHEMA_SQL}")
+        sqlite_migrations._apply_baseline_schema_migration(connection)
+        connection.execute("DROP INDEX IF EXISTS idx_run_rule_events_run_rule")
+        connection.execute("DROP INDEX IF EXISTS idx_run_rules_run_status")
+        connection.execute("DROP TABLE IF EXISTS run_rule_events")
+        connection.execute("DROP TABLE IF EXISTS run_rules")
+        sqlite_migrations._ensure_schema_migrations_table(connection)
+        connection.execute(
+            """
+            INSERT INTO schema_migrations (version, name, checksum, applied_at)
+            VALUES (1, '001_baseline_remote_runner_schema', 'legacy-v1', '2099-06-07T10:00:00Z')
+            """
+        )
+        connection.execute("PRAGMA user_version = 1")
+
+    initialize_or_migrate_runtime_db(cfg.db_path)
+    with get_connection(cfg) as connection:
+        user_version = connection.execute("PRAGMA user_version").fetchone()[0]
+        table_names = {
+            row["name"]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'run_rule%'"
+            ).fetchall()
+        }
+        index_names = {
+            row["name"]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'idx_run_rule%'"
+            ).fetchall()
+        }
+        migration = connection.execute(
+            "SELECT name FROM schema_migrations WHERE version = ?",
+            (CURRENT_SCHEMA_VERSION,),
+        ).fetchone()
+
+    assert user_version == CURRENT_SCHEMA_VERSION
+    assert {"run_rules", "run_rule_events"} <= table_names
+    assert {"idx_run_rules_run_status", "idx_run_rule_events_run_rule"} <= index_names
+    assert migration["name"] == sqlite_migrations.RULE_LEVEL_RUN_STATE_MIGRATION_NAME
 
 
 def test_runtime_schema_rejects_future_user_version(tmp_path: Path) -> None:

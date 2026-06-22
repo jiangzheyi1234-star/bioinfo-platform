@@ -351,6 +351,7 @@ def test_runtime_execution_operations_live_in_dedicated_mixin() -> None:
         "get_run_events",
         "get_run_logs",
         "get_run_results",
+        "get_run_rules",
         "list_results",
         "get_result",
         "get_result_preview",

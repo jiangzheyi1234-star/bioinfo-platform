@@ -12,6 +12,7 @@ from .control_service import (
     get_run_from_request,
     get_run_logs_from_request,
     get_run_results_from_request,
+    get_run_rules_from_request,
     list_results_from_request,
     list_runs_from_request,
 )
@@ -54,6 +55,11 @@ async def get_run_logs_api(
 @router.get("/api/v1/runs/{run_id}/results")
 async def get_run_results_api(run_id: str, authorization: AuthorizationHeader = None) -> dict[str, Any]:
     return await get_run_results_from_request(run_id, authorization)
+
+
+@router.get("/api/v1/runs/{run_id}/rules")
+async def get_run_rules_api(run_id: str, authorization: AuthorizationHeader = None) -> dict[str, Any]:
+    return await get_run_rules_from_request(run_id, authorization)
 
 
 @router.get("/api/v1/results")

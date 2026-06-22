@@ -19,6 +19,7 @@ from .storage import (
     fetch_result,
     fetch_run_events,
     fetch_run_results,
+    fetch_run_rules,
     list_results,
     list_runs,
     require_run,
@@ -147,6 +148,12 @@ async def get_run_results_from_request(run_id: str, authorization: str | None) -
     cfg = await _authorized_config_from_request(authorization)
     results = await run_sync(fetch_run_results, cfg, run_id)
     return data_response(results)
+
+
+async def get_run_rules_from_request(run_id: str, authorization: str | None) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization)
+    rules = await run_sync(fetch_run_rules, cfg, run_id)
+    return data_response(rules)
 
 
 async def list_results_from_request(authorization: str | None) -> dict[str, Any]:

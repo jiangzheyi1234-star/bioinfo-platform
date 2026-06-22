@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
-import type { JsonSchemaProperty, WorkflowCatalogItem, WorkflowRunDetail, WorkflowUpload } from "./workflows-page-model";
+import type { JsonSchemaProperty, WorkflowCatalogItem, WorkflowRunDetail, WorkflowRunRule, WorkflowUpload } from "./workflows-page-model";
 
 type WorkflowDagPreviewProps = {
   workflow: WorkflowCatalogItem | null;
@@ -259,7 +259,19 @@ function buildMainFlowNodes(graph: WorkflowGraph, workflow: WorkflowCatalogItem)
   ];
 }
 
-function FlowNodeButton({ index, node, onSelect, selected }: { index: number; node: GraphNode; onSelect: () => void; selected: boolean }) {
+function FlowNodeButton({
+  index,
+  node,
+  onSelect,
+  rule,
+  selected,
+}: {
+  index: number;
+  node: GraphNode;
+  onSelect: () => void;
+  rule?: WorkflowRunRule;
+  selected: boolean;
+}) {
   const group = groupConfig(node.group || node.kind);
   const isEndpoint = node.kind === "input" || node.kind === "output";
   const paramCount = node.params?.length || 0;
@@ -296,6 +308,7 @@ function FlowNodeButton({ index, node, onSelect, selected }: { index: number; no
         <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <span className="min-w-0 truncate text-sm font-semibold leading-5 text-slate-950">{node.title || node.label}</span>
           <span className={cn("rounded border px-1.5 py-0.5 text-[10px]", group.tone)}>{nodeKindLabel(node)}</span>
+          {rule ? <span className={cn("rounded border px-1.5 py-0.5 text-[10px]", runRuleStatusTone(rule.status))}>{rule.status}</span> : null}
         </span>
         <span className="mt-1 block truncate font-mono text-[11px] text-slate-400">{node.label}</span>
         <span className="mt-2 block line-clamp-1 text-xs leading-5 text-slate-600">{node.description || node.detail}</span>
@@ -332,7 +345,17 @@ function FlowSummary({ flowNodes }: { flowNodes: GraphNode[] }) {
   );
 }
 
-function FlowRoadmap({ flowNodes, selectedId, onSelect }: { flowNodes: GraphNode[]; selectedId: string; onSelect: (nodeId: string) => void }) {
+function FlowRoadmap({
+  flowNodes,
+  onSelect,
+  ruleByNodeId,
+  selectedId,
+}: {
+  flowNodes: GraphNode[];
+  onSelect: (nodeId: string) => void;
+  ruleByNodeId: Map<string, WorkflowRunRule>;
+  selectedId: string;
+}) {
   const selectedIndex = flowNodes.findIndex((node) => node.id === selectedId);
   return (
     <div className="rounded-xl border border-slate-100 bg-slate-50/40 p-4" data-testid="dag-flow-roadmap">
@@ -340,7 +363,7 @@ function FlowRoadmap({ flowNodes, selectedId, onSelect }: { flowNodes: GraphNode
       <div className="grid min-w-0 grid-cols-1">
         {flowNodes.map((node, index) => (
           <div key={node.id} className="min-w-0" data-testid={`dag-roadmap-step-${index + 1}`}>
-            <FlowNodeButton index={index} node={node} selected={selectedId === node.id} onSelect={() => onSelect(node.id)} />
+            <FlowNodeButton index={index} node={node} rule={ruleByNodeId.get(node.id)} selected={selectedId === node.id} onSelect={() => onSelect(node.id)} />
             {index < flowNodes.length - 1 ? <FlowConnector done={index < selectedIndex} /> : null}
           </div>
         ))}
@@ -365,8 +388,10 @@ function WorkflowRuleGraph({
     graph: WorkflowGraph;
 }) {
   const flowNodes = useMemo(() => buildMainFlowNodes(graph, workflow), [graph, workflow]);
+  const ruleByNodeId = useMemo(() => runRulesByGraphNode(flowNodes, runDetail), [flowNodes, runDetail]);
   const [selectedId, setSelectedId] = useState(() => flowNodes.find((node) => node.kind === "rule")?.id || flowNodes[0]?.id || "");
   const selectedNode = flowNodes.find((node) => node.id === selectedId) || flowNodes[0];
+  const selectedRule = selectedNode ? ruleByNodeId.get(selectedNode.id) : undefined;
   const ruleCount = graph.nodes.filter((node) => node.kind === "rule").length;
   const run = runDetail?.run || null;
 
@@ -385,7 +410,7 @@ function WorkflowRuleGraph({
       </div>
 
       <div className="mt-5">
-        <FlowRoadmap flowNodes={flowNodes} selectedId={selectedNode?.id || ""} onSelect={setSelectedId} />
+        <FlowRoadmap flowNodes={flowNodes} ruleByNodeId={ruleByNodeId} selectedId={selectedNode?.id || ""} onSelect={setSelectedId} />
       </div>
 
       {selectedNode ? (
@@ -395,6 +420,7 @@ function WorkflowRuleGraph({
           onLoadSampleData={onLoadSampleData}
           onParamsChange={onParamsChange}
           params={params}
+          rule={selectedRule}
           runDetail={runDetail}
           sampleLoading={sampleLoading}
           sampleUploads={sampleUploads}
@@ -434,6 +460,7 @@ function NodeInspector({
   onLoadSampleData,
   onParamsChange,
   params,
+  rule,
   runDetail,
   sampleLoading,
   sampleUploads,
@@ -444,6 +471,7 @@ function NodeInspector({
   onLoadSampleData?: () => void;
   onParamsChange?: (values: Record<string, unknown>) => void;
   params: Record<string, unknown>;
+  rule?: WorkflowRunRule;
   runDetail?: WorkflowRunDetail | null;
   sampleLoading: boolean;
   sampleUploads: WorkflowUpload[];
@@ -467,6 +495,8 @@ function NodeInspector({
         <span className={cn("rounded-md border px-2 py-1 text-xs", group.tone)}>{node.kind === "rule" ? "Snakemake rule" : group.title}</span>
       </div>
 
+      <RuleRunStatus rule={rule} />
+
       {node.kind === "input" ? (
         <InputInspector files={files} node={node} onLoadSampleData={onLoadSampleData} sampleLoading={sampleLoading} sampleUploads={sampleUploads} />
       ) : node.kind === "output" ? (
@@ -476,6 +506,56 @@ function NodeInspector({
       )}
 
       <NodeMetadata node={node} />
+    </div>
+  );
+}
+
+function runRulesByGraphNode(nodes: GraphNode[], runDetail?: WorkflowRunDetail | null) {
+  const rules = runDetail?.rules?.items || [];
+  const byRuntimeStatusKey = new Map(rules.filter((rule) => rule.runtimeStatusKey).map((rule) => [rule.runtimeStatusKey as string, rule]));
+  const byStepId = new Map(rules.filter((rule) => rule.stepId).map((rule) => [rule.stepId as string, rule]));
+  const byRuleName = new Map(rules.map((rule) => [rule.ruleName, rule]));
+  const matched = new Map<string, WorkflowRunRule>();
+  for (const node of nodes) {
+    const rule =
+      (node.runtimeStatusKey ? byRuntimeStatusKey.get(node.runtimeStatusKey) : undefined) ||
+      byStepId.get(node.id) ||
+      byStepId.get(node.label) ||
+      byRuleName.get(node.id) ||
+      byRuleName.get(node.label) ||
+      byRuleName.get(node.title || "");
+    if (rule) matched.set(node.id, rule);
+  }
+  return matched;
+}
+
+function runRuleStatusTone(status?: string) {
+  const normalized = String(status || "").toLowerCase();
+  if (normalized === "completed" || normalized === "success" || normalized === "succeeded") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (normalized === "failed" || normalized === "error") return "border-red-200 bg-red-50 text-red-700";
+  if (normalized === "running" || normalized === "started") return "border-blue-200 bg-blue-50 text-blue-700";
+  return "border-slate-200 bg-slate-50 text-slate-600";
+}
+
+function RuleRunStatus({ rule }: { rule?: WorkflowRunRule }) {
+  if (!rule) return null;
+  const latest = (rule.events || []).slice(-1)[0];
+  return (
+    <div className="mt-4 rounded-lg border border-slate-200 bg-white p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <span className={cn("rounded border px-2 py-0.5 text-xs font-medium", runRuleStatusTone(rule.status))}>{rule.status}</span>
+            <span className="truncate font-mono text-[11px] text-slate-500">{rule.ruleName}</span>
+          </div>
+          {rule.message || latest?.message ? <div className="mt-1 truncate text-xs text-slate-600">{rule.message || latest?.message}</div> : null}
+        </div>
+        <div className="grid grid-cols-3 gap-2 text-right text-[11px] text-slate-500">
+          <span>attempt <b className="font-mono font-normal text-slate-700">{rule.attemptNumber ?? "—"}</b></span>
+          <span>lease <b className="font-mono font-normal text-slate-700">{rule.leaseGeneration ?? "—"}</b></span>
+          <span>exit <b className="font-mono font-normal text-slate-700">{rule.exitCode ?? "—"}</b></span>
+        </div>
+      </div>
     </div>
   );
 }

@@ -171,6 +171,19 @@ Exit criteria:
 
 Purpose: show every Snakemake rule/node status, logs, retry/resume context, and failure location.
 
+Delivered foundation:
+
+- Added fenced rule-state storage with `run_rules` and `run_rule_events`; rule publication requires the current `attemptId` and `leaseGeneration`.
+- Added v2 SQLite migration coverage for the rule-level read model.
+- Added remote/local `/api/v1/runs/{run_id}/rules` query path and included `rules` in run detail aggregation.
+- Added executor projection from bundled manifest graph/generated workflow config into rule states, with success/failure updates per attempt.
+- Added run detail `规则` tab plus DAG node status projection using `runtimeStatusKey`, then `stepId`, then `ruleName`.
+
+Still pending before this phase is complete:
+
+- Replace post-process projection with a pinned Snakemake logger/plugin event source for live rule start/finish/error/resource events.
+- Add operator actions for rule-level retry/resume once retry policy and attempt selection are exposed in the UI.
+
 Recommended sequence:
 
 1. Expose stable attempt/slot/lease read APIs before adding new Snakemake telemetry.

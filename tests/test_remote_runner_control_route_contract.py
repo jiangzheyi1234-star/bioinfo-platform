@@ -108,6 +108,7 @@ def test_remote_runner_control_plane_services_use_async_thread_boundary() -> Non
         "get_run_events_from_request",
         "get_run_logs_from_request",
         "get_run_results_from_request",
+        "get_run_rules_from_request",
         "list_results_from_request",
         "get_result_from_request",
         "get_result_preview_from_request",
@@ -211,6 +212,7 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
     assert "get_run_events_from_request" not in main_source
     assert "get_run_logs_from_request" not in main_source
     assert "get_run_results_from_request" not in main_source
+    assert "get_run_rules_from_request" not in main_source
     assert "list_results_from_request" not in main_source
     assert "get_result_from_request" not in main_source
     assert "get_result_preview_from_request" not in main_source
@@ -277,6 +279,7 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
     assert "get_run_events_from_request" in execution_query_route_source
     assert "get_run_logs_from_request" in execution_query_route_source
     assert "get_run_results_from_request" in execution_query_route_source
+    assert "get_run_rules_from_request" in execution_query_route_source
     assert "list_results_from_request" in execution_query_route_source
     assert "get_result_from_request" in execution_query_route_source
     assert "get_result_preview_from_request" in execution_query_route_source
@@ -298,6 +301,7 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
         "get_run_events_from_request",
         "get_run_logs_from_request",
         "get_run_results_from_request",
+        "get_run_rules_from_request",
         "list_results_from_request",
         "get_result_from_request",
         "get_result_preview_from_request",

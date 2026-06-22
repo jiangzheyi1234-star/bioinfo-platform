@@ -12,6 +12,13 @@ from .executor_outcomes import _mark_cancelled, _mark_failed
 from .generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID, prepare_generated_tool_workflow
 from .pipeline import PipelineRegistryError, get_pipeline, validate_run_spec_for_pipeline
 from .run_execution_storage import record_run_attempt_process_group
+from .rule_execution_projection import (
+    mark_run_rules_failed,
+    mark_run_rules_running,
+    mark_run_rules_succeeded,
+    seed_run_rules_from_config,
+    seed_run_rules_from_graph,
+)
 from .workflow_resources import build_workflow_resource_config
 from .storage import (
     append_log_lines,
@@ -35,6 +42,7 @@ def run_snakemake_execution(
     run_spec: dict,
     attempt_id: str | None = None,
     lease_generation: int | None = None,
+    attempt_number: int | None = None,
     attempt_work_dir: str | None = None,
     should_cancel_attempt: Callable[[], bool] | None = None,
     resource_pool: ResourcePool | None = None,
@@ -52,6 +60,7 @@ def run_snakemake_execution(
             run_spec=run_spec,
             attempt_id=attempt_id,
             lease_generation=lease_generation,
+            attempt_number=attempt_number,
             attempt_work_dir=attempt_work_dir,
             should_cancel_attempt=should_cancel_attempt,
         )
@@ -67,6 +76,7 @@ def _execute_snakemake_workflow(
     run_spec: dict,
     attempt_id: str | None = None,
     lease_generation: int | None = None,
+    attempt_number: int | None = None,
     attempt_work_dir: str | None = None,
     should_cancel_attempt: Callable[[], bool] | None = None,
 ) -> None:
@@ -133,6 +143,14 @@ def _execute_snakemake_workflow(
             config_path = generated.config_path
             output_schema = generated.output_schema
             run_outputs = generated.outputs
+            seed_run_rules_from_config(
+                cfg,
+                run_id=run_id,
+                attempt_id=attempt_id,
+                lease_generation=lease_generation,
+                attempt_number=attempt_number,
+                config_path=config_path,
+            )
         else:
             pipeline = get_pipeline(cfg, pipeline_id)
             validate_run_spec_for_pipeline(pipeline, run_spec)
@@ -164,6 +182,14 @@ def _execute_snakemake_workflow(
                 ),
                 encoding="utf-8",
             )
+            seed_run_rules_from_graph(
+                cfg,
+                run_id=run_id,
+                attempt_id=attempt_id,
+                lease_generation=lease_generation,
+                attempt_number=attempt_number,
+                graph=dict(pipeline.ui_schema.get("graph") or {}),
+            )
         update_run_state(
             cfg,
             run_id=run_id,
@@ -194,6 +220,14 @@ def _execute_snakemake_workflow(
                     lease_generation=lease_generation,
                 )
                 return
+            mark_run_rules_failed(
+                cfg,
+                run_id=run_id,
+                attempt_id=attempt_id,
+                lease_generation=lease_generation,
+                attempt_number=attempt_number,
+                stderr=dry_run.stderr,
+            )
             _mark_failed(
                 cfg,
                 run_id=run_id,
@@ -215,6 +249,13 @@ def _execute_snakemake_workflow(
             request_id=request_id,
             attempt_id=attempt_id,
             lease_generation=lease_generation,
+        )
+        mark_run_rules_running(
+            cfg,
+            run_id=run_id,
+            attempt_id=attempt_id,
+            lease_generation=lease_generation,
+            attempt_number=attempt_number,
         )
         engine_stage = "run"
         run_result = engine.run(
@@ -238,6 +279,14 @@ def _execute_snakemake_workflow(
                     lease_generation=lease_generation,
                 )
                 return
+            mark_run_rules_failed(
+                cfg,
+                run_id=run_id,
+                attempt_id=attempt_id,
+                lease_generation=lease_generation,
+                attempt_number=attempt_number,
+                stderr=run_result.stderr,
+            )
             _mark_failed(
                 cfg,
                 run_id=run_id,
@@ -251,6 +300,13 @@ def _execute_snakemake_workflow(
             )
             return
 
+        mark_run_rules_succeeded(
+            cfg,
+            run_id=run_id,
+            attempt_id=attempt_id,
+            lease_generation=lease_generation,
+            attempt_number=attempt_number,
+        )
         _collect_artifacts(
             cfg,
             run_id,

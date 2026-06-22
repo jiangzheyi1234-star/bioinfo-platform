@@ -181,6 +181,9 @@ class RemoteRunnerHttpClient:
     def get_run_results(self, run_id: str) -> dict[str, Any]:
         return self.get_json(f"/api/v1/runs/{run_id}/results")["data"]
 
+    def get_run_rules(self, run_id: str) -> dict[str, Any]:
+        return self.get_json(f"/api/v1/runs/{run_id}/rules")["data"]
+
     def get_result(self, result_id: str) -> dict[str, Any]:
         return self.get_json(f"/api/v1/results/{result_id}")["data"]
 
