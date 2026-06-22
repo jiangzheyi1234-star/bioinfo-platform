@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+from types import SimpleNamespace
+from typing import Any
 
 from core.logging_config import (
     JsonFormatter,
@@ -25,6 +27,7 @@ def test_json_formatter_produces_valid_json():
     output = formatter.format(record)
     parsed = json.loads(output)
     assert parsed["level"] == "INFO"
+    assert parsed["component"] == "test.logger"
     assert parsed["logger"] == "test.logger"
     assert parsed["message"] == "test message"
     assert "timestamp" in parsed
@@ -76,6 +79,81 @@ def test_configure_structured_logging():
     assert root.level == logging.DEBUG
     assert len(root.handlers) == 1
     assert isinstance(root.handlers[0].formatter, JsonFormatter)
+
+
+def test_local_api_runner_uses_structured_logging(monkeypatch):
+    from apps.api import run as api_run
+
+    captured: dict[str, Any] = {}
+
+    def fake_uvicorn_run(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+
+    monkeypatch.delenv("H2OMETA_API_ACCESS_LOG", raising=False)
+    monkeypatch.setattr(api_run.uvicorn, "run", fake_uvicorn_run)
+
+    api_run.main()
+
+    root = logging.getLogger()
+    assert isinstance(root.handlers[0].formatter, JsonFormatter)
+    assert captured["args"] == ("apps.api.main:app",)
+    assert captured["kwargs"]["log_config"] is None
+    assert captured["kwargs"]["access_log"] is False
+
+
+def test_remote_runner_uses_structured_logging(monkeypatch):
+    from apps.remote_runner import run as remote_run
+
+    captured: dict[str, Any] = {}
+
+    class FakeSocket:
+        def setsockopt(self, *_args):
+            return None
+
+        def bind(self, address):
+            captured["bound"] = address
+
+        def listen(self, backlog):
+            captured["backlog"] = backlog
+
+        def getsockname(self):
+            return ("127.0.0.1", 43210)
+
+        def fileno(self):
+            return 123
+
+    class FakeServer:
+        def __init__(self, config):
+            captured["server_config"] = config
+
+        def run(self, *, sockets):
+            captured["server_sockets"] = sockets
+
+    def fake_config(*args, **kwargs):
+        captured["config_args"] = args
+        captured["config_kwargs"] = kwargs
+        return SimpleNamespace(kwargs=kwargs)
+
+    fake_socket = FakeSocket()
+    cfg = SimpleNamespace(bind_host="127.0.0.1", bind_port=0)
+    monkeypatch.setattr(remote_run, "_set_process_name", lambda: None)
+    monkeypatch.setattr(remote_run, "load_remote_runner_config", lambda: cfg)
+    monkeypatch.setattr(remote_run, "ensure_runtime_layout", lambda _cfg: None)
+    monkeypatch.setattr(remote_run, "write_runtime_state", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(remote_run.socket, "socket", lambda *_args, **_kwargs: fake_socket)
+    monkeypatch.setattr(remote_run.uvicorn, "Config", fake_config)
+    monkeypatch.setattr(remote_run.uvicorn, "Server", FakeServer)
+
+    remote_run.main()
+
+    root = logging.getLogger()
+    assert isinstance(root.handlers[0].formatter, JsonFormatter)
+    assert captured["bound"] == ("127.0.0.1", 0)
+    assert captured["backlog"] == 2048
+    assert captured["config_kwargs"]["log_config"] is None
+    assert captured["config_kwargs"]["fd"] == 123
+    assert captured["server_sockets"] == [fake_socket]
 
 
 def test_set_and_clear_log_context():

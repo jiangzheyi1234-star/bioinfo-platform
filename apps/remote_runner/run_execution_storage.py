@@ -11,6 +11,7 @@ from .config import RemoteRunnerConfig
 from .event_contracts import append_run_event_v2, record_run_command
 from .execution_policy import heartbeat_timeout_seconds_for_job
 from .execution_decision_logging import log_admission_wait, log_claim_accepted
+from .metrics import record_run_attempt_claimed, record_run_attempt_completed
 from .admission_storage import (
     admission_wait_reason,
     mark_worker_slot_idle,
@@ -327,6 +328,7 @@ def claim_next_run_job(
             "SELECT * FROM run_jobs WHERE job_id = ?",
             (job["job_id"],),
         ).fetchone()
+        record_run_attempt_claimed(queued_at=str(claimed_job["created_at"] or ""), claimed_at=claimed_at)
         return _claim_to_dict(claimed_job, attempt, lease)
 
 
@@ -593,6 +595,7 @@ def complete_run_attempt(
             occurred_at=finished_at,
         )
         connection.commit()
+        record_run_attempt_completed(started_at=str(attempt["started_at"] or ""), finished_at=finished_at, terminal_state=terminal_job_state)
         return {"accepted": True, "state": normalized_state}
 
 

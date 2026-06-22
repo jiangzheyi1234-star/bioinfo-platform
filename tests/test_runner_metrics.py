@@ -14,9 +14,12 @@ from apps.remote_runner.metrics import (
     record_sqlite_busy_error,
     reset_metrics,
 )
+from apps.remote_runner.reconciler import run_active_reconciler_once
 from apps.remote_runner.resource_pool import ResourceRequest
 from apps.remote_runner.run_execution_storage import claim_next_run_job, complete_run_attempt
+from apps.remote_runner.run_worker_storage import heartbeat_run_worker, register_run_worker
 from apps.remote_runner.storage import create_run_record
+from apps.remote_runner.storage_core import get_connection
 from tests.helpers.reference_database import make_configured_remote_runner
 
 
@@ -93,6 +96,91 @@ def test_get_and_reset_metrics():
     reset_metrics()
     m3 = get_metrics()
     assert m3 is not m1
+
+
+def test_run_lifecycle_records_live_metrics(tmp_path):
+    reset_metrics()
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_live_metrics")
+    with get_connection(cfg) as connection:
+        connection.execute(
+            """
+            UPDATE run_jobs
+            SET created_at = ?, available_at = ?
+            WHERE run_id = ?
+            """,
+            ("2099-06-07T09:59:55Z", "2099-06-07T09:59:55Z", "run_live_metrics"),
+        )
+        connection.commit()
+
+    claim = claim_next_run_job(
+        cfg,
+        worker_id="worker-live-metrics",
+        now="2099-06-07T10:00:00Z",
+        lease_seconds=30,
+    )
+    assert claim is not None
+    claimed_snapshot = get_metrics().snapshot()
+
+    complete_run_attempt(
+        cfg,
+        claim["attemptId"],
+        lease_generation=claim["leaseGeneration"],
+        state="succeeded",
+        exit_code=0,
+        now="2099-06-07T10:00:15Z",
+    )
+    completed_snapshot = get_metrics().snapshot()
+
+    assert claimed_snapshot["activeRuns"] == 1
+    assert claimed_snapshot["queueWaitSeconds"]["count"] == 1
+    assert claimed_snapshot["queueWaitSeconds"]["max"] == 5.0
+    assert completed_snapshot["activeRuns"] == 0
+    assert completed_snapshot["completedRuns"] == 1
+    assert completed_snapshot["failedRuns"] == 0
+    assert completed_snapshot["runDurationSeconds"]["count"] == 1
+    assert completed_snapshot["runDurationSeconds"]["max"] == 15.0
+
+
+def test_reconciler_and_worker_heartbeat_record_live_metrics(tmp_path):
+    reset_metrics()
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_expiry_metrics")
+    claim = claim_next_run_job(
+        cfg,
+        worker_id="worker-expiry-metrics",
+        session_id="session-expiry-metrics",
+        now="2099-06-07T10:00:00Z",
+        lease_seconds=10,
+    )
+    assert claim is not None
+    register_run_worker(
+        cfg,
+        worker_id="worker-expiry-metrics",
+        session_id="session-expiry-metrics",
+        pid=123,
+        hostname="host-expiry-metrics",
+        now="2099-06-07T10:00:00Z",
+    )
+
+    heartbeat_run_worker(
+        cfg,
+        worker_id="worker-expiry-metrics",
+        session_id="session-expiry-metrics",
+        state="running",
+        current_attempt_id=claim["attemptId"],
+        now="2099-06-07T10:00:05Z",
+    )
+    run_active_reconciler_once(
+        cfg,
+        now="2099-06-07T10:00:11Z",
+        retry_delay_seconds=0,
+    )
+    snapshot = get_metrics().snapshot()
+
+    assert snapshot["workerHeartbeats"] == 1
+    assert snapshot["leaseExpiries"] == 1
+    assert snapshot["activeRuns"] == 0
 
 
 def test_collect_disk_metrics(tmp_path):

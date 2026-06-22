@@ -15,6 +15,7 @@ from .execution_policy import (
     queue_ttl_seconds_for_job,
     retry_backoff_seconds_for_job,
 )
+from .metrics import record_run_attempt_fenced, record_run_job_dead_lettered
 from .storage_core import now_iso
 
 
@@ -79,6 +80,7 @@ def fence_expired_attempt(
         payload={"attemptId": attempt_id, "leaseGeneration": int(generation), "reason": reason},
         occurred_at=occurred_at,
     )
+    record_run_attempt_fenced(reason=reason)
     return {"fenced": True, "attemptId": attempt_id, "reason": reason}
 
 
@@ -355,6 +357,7 @@ def dead_letter_job(
             },
             occurred_at=timestamp,
         )
+    record_run_job_dead_lettered()
     return {"deadLettered": True, "jobId": job_id, "reason": reason}
 
 

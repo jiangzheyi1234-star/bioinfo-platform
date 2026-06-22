@@ -32,6 +32,10 @@ class _MetricValue:
         with self._lock:
             self._value -= amount
 
+    def dec_to_floor(self, amount: float = 1.0, floor: float = 0.0) -> None:
+        with self._lock:
+            self._value = max(floor, self._value - amount)
+
 
 class _Histogram:
     __slots__ = ("_values", "_lock", "_count", "_sum", "_min", "_max")
@@ -116,6 +120,49 @@ def reset_metrics() -> None:
     global _METRICS
     with _METRICS_LOCK:
         _METRICS = None
+
+
+def record_run_attempt_claimed(*, queued_at: str | None, claimed_at: str) -> None:
+    metrics = get_metrics()
+    metrics.active_runs.inc()
+    wait_seconds = _duration_seconds(queued_at, claimed_at)
+    if wait_seconds is not None:
+        metrics.queue_wait_seconds.observe(wait_seconds)
+
+
+def record_run_attempt_completed(
+    *,
+    started_at: str | None,
+    finished_at: str,
+    terminal_state: str,
+) -> None:
+    metrics = get_metrics()
+    metrics.active_runs.dec_to_floor()
+    duration_seconds = _duration_seconds(started_at, finished_at)
+    if duration_seconds is not None:
+        metrics.run_duration_seconds.observe(duration_seconds)
+    normalized_state = str(terminal_state or "").strip().lower()
+    if normalized_state == "completed":
+        metrics.completed_runs.inc()
+    elif normalized_state == "failed":
+        metrics.failed_runs.inc()
+
+
+def record_run_attempt_fenced(*, reason: str) -> None:
+    metrics = get_metrics()
+    metrics.active_runs.dec_to_floor()
+    if reason == "lease_expired":
+        metrics.lease_expiries.inc()
+
+
+def record_run_job_dead_lettered() -> None:
+    metrics = get_metrics()
+    metrics.dead_lettered_jobs.inc()
+    metrics.failed_runs.inc()
+
+
+def record_run_worker_heartbeat() -> None:
+    get_metrics().worker_heartbeats.inc()
 
 
 def collect_disk_metrics(path: str) -> dict[str, Any]:
@@ -301,6 +348,17 @@ def _age_seconds(value: str | None, now_text: str) -> int | None:
     except ValueError:
         return None
     return max(0, int((now - started).total_seconds()))
+
+
+def _duration_seconds(started_at: str | None, finished_at: str | None) -> float | None:
+    if not started_at or not finished_at:
+        return None
+    try:
+        started = datetime.strptime(started_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        finished = datetime.strptime(finished_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    return max(0.0, (finished - started).total_seconds())
 
 
 def _json_object(value: str | None) -> dict[str, Any]:

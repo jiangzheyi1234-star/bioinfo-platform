@@ -5,6 +5,7 @@ import json
 from typing import Any
 
 from .config import RemoteRunnerConfig
+from .metrics import record_run_worker_heartbeat
 from .storage_core import get_connection, now_iso
 
 
@@ -119,6 +120,7 @@ def heartbeat_run_worker(
                 "currentSessionId": str(row["session_id"]),
             }
         connection.commit()
+        record_run_worker_heartbeat()
     return fetch_run_worker(cfg, normalized_worker_id)
 
 

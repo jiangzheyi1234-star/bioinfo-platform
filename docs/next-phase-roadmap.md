@@ -287,8 +287,10 @@ uv run pytest tests/test_reconciler_active.py tests/test_reconciler_actions.py t
   汇总 queue metrics、worker/slot health、SQLite WAL/busy timeout、active lease、
   allocation、resource-wait、recent events 和不变量；runtime release gate 可写
   `release-gate-evidence.json`。
-- `configure_structured_logging()` 尚未接入 API/Runner 启动入口。
-- completed、failed、lease expiry、heartbeat 和时长等计数器尚未在真实事件点更新。
+- `configure_structured_logging()` 已接入 Local API 和 Remote Runner 启动入口，
+  并禁用 Uvicorn 默认 `log_config`，避免启动时覆盖 JSON formatter。
+- completed、failed/dead-letter、lease expiry、worker heartbeat、queue wait 和
+  run duration 的最小真实事件点已接入指标容器。
 - Local API readiness 仍需加入队列深度、磁盘余量和 worker 状态阈值。
 - 并发启用前先完成最小集：slot/attempt 状态、资源等待、lease expiry、
   SQLite busy、运行成功/失败和 worker heartbeat 指标。

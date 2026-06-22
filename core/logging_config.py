@@ -21,6 +21,7 @@ class JsonFormatter(logging.Formatter):
         payload: dict[str, Any] = {
             "timestamp": _format_timestamp(record.created),
             "level": record.levelname,
+            "component": record.name,
             "logger": record.name,
             "message": record.getMessage(),
         }
