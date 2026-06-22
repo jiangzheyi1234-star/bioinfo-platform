@@ -152,6 +152,7 @@ def _record_artifact_ledger(
         upstream_run_id=upstream_run_id,
         attempt_id=attempt_id,
     )
+    workflow_revision_id = _workflow_revision_id_for_run(cfg, str(artifact["runId"]))
     lineage_edge = record_lineage_edge(
         cfg,
         subject_kind="run",
@@ -161,6 +162,7 @@ def _record_artifact_ledger(
         object_id=blob["artifactBlobId"],
         run_id=str(artifact["runId"]),
         attempt_id=attempt_id,
+        workflow_revision_id=workflow_revision_id,
         evidence_event_id=evidence_event["eventId"],
         payload={
             "artifactId": artifact["artifactId"],
@@ -175,12 +177,25 @@ def _record_artifact_ledger(
         content_hash=blob["sha256"],
         created_at=str(artifact["createdAt"]),
     )
+    from .artifact_cache_storage import record_artifact_cache_entry
+
+    cache_entry = record_artifact_cache_entry(
+        cfg,
+        artifact=artifact,
+        artifact_key=normalized_key,
+        role=str(role or "output").strip() or "output",
+        step_id=step_id,
+        artifact_blob_id=blob["artifactBlobId"],
+        materialization_id=materialization["materializationId"],
+        created_at=str(artifact["createdAt"]),
+    )
     return {
         "artifactBlobId": blob["artifactBlobId"],
         "materializationId": materialization["materializationId"],
         "runArtifactEdgeId": edge["edgeId"],
         "lineageEdgeId": lineage_edge["lineageEdgeId"],
         "evidenceEventId": evidence_event["eventId"],
+        **_cache_entry_payload(cache_entry),
     }
 
 
@@ -227,3 +242,28 @@ def _record_artifact_materialization_evidence(
         )
         connection.commit()
     return event
+
+
+def _cache_entry_payload(cache_entry: dict[str, Any]) -> dict[str, Any]:
+    if cache_entry.get("cacheEligible") is False:
+        return {
+            "artifactCacheEligible": False,
+            "artifactCacheIneligibleReason": str(cache_entry.get("cacheIneligibleReason") or ""),
+            **({"artifactCacheKey": str(cache_entry["cacheKey"])} if cache_entry.get("cacheKey") else {}),
+        }
+    return {
+        "artifactCacheEligible": True,
+        "artifactCacheEntryId": str(cache_entry["cacheEntryId"]),
+        "artifactCacheKey": str(cache_entry["cacheKey"]),
+    }
+
+
+def _workflow_revision_id_for_run(cfg: RemoteRunnerConfig, run_id: str) -> str | None:
+    with get_connection(cfg) as connection:
+        row = connection.execute(
+            "SELECT workflow_revision_id FROM runs WHERE run_id = ?",
+            (run_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    return str(row["workflow_revision_id"] or "").strip() or None

@@ -6,102 +6,30 @@ import time
 from pathlib import Path
 
 from .database_registry_schema import REFERENCE_DATABASE_SCHEMA_SQL
-from .sqlite_artifact_migrations import ensure_artifact_lifecycle, ensure_artifact_storage_columns
+from .sqlite_artifact_migrations import (
+    ensure_artifact_cache,
+    ensure_artifact_lifecycle,
+    ensure_artifact_storage_columns,
+    migrate_artifact_cache_schema,
+    migrate_artifact_lifecycle_schema,
+)
+from .sqlite_schema_contract import REQUIRED_INDEXES, REQUIRED_TABLES, REQUIRED_TRIGGERS
 from .storage_schema import SCHEMA_SQL
 from .tool_prepare_reservations import json_object, tool_prepare_job_reservation
 
 
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 5
 BASELINE_MIGRATION_NAME = "001_baseline_remote_runner_schema"
 RULE_LEVEL_RUN_STATE_MIGRATION_NAME = "002_rule_level_run_state"
 SCHEDULER_TRIGGER_MIGRATION_NAME = "003_scheduler_triggers"
 ARTIFACT_LIFECYCLE_MIGRATION_NAME = "004_artifact_lifecycle"
+ARTIFACT_CACHE_MIGRATION_NAME = "005_artifact_cache"
 DATABASE_MISSING_ERROR = "REMOTE_RUNNER_SQLITE_DATABASE_MISSING"
 SCHEMA_MIGRATION_REQUIRED_ERROR = "REMOTE_RUNNER_SQLITE_SCHEMA_MIGRATION_REQUIRED"
 SCHEMA_TOO_NEW_ERROR = "REMOTE_RUNNER_SQLITE_SCHEMA_TOO_NEW"
 SCHEMA_LEDGER_MISSING_ERROR = "REMOTE_RUNNER_SQLITE_SCHEMA_LEDGER_MISSING"
 SCHEMA_LEDGER_CHECKSUM_ERROR = "REMOTE_RUNNER_SQLITE_SCHEMA_LEDGER_CHECKSUM_MISMATCH"
 SCHEMA_OBJECT_MISSING_ERROR = "REMOTE_RUNNER_SQLITE_SCHEMA_OBJECT_MISSING"
-
-_REQUIRED_TABLES = {
-    "artifact_blobs",
-    "artifact_materializations",
-    "artifacts",
-    "candidate_outputs",
-    "evidence_events",
-    "evidence_schemas",
-    "idempotency",
-    "lineage_edges",
-    "reconcile_queue",
-    "reference_databases",
-    "resource_events",
-    "resources",
-    "run_artifact_edges",
-    "run_attempts",
-    "run_commands",
-    "run_events",
-    "run_jobs",
-    "run_leases",
-    "run_rule_events",
-    "run_rules",
-    "run_resource_allocations",
-    "run_worker_slots",
-    "run_workers",
-    "runs",
-    "schema_migrations",
-    "service_state",
-    "tool_index",
-    "tool_prepare_job_events",
-    "tool_prepare_jobs",
-    "tool_revisions",
-    "tool_runtime_profiles",
-    "tool_validation_results",
-    "tools",
-    "uploads",
-    "workflow_design_drafts",
-    "workflow_revisions",
-    "workflow_trigger_dispatches",
-    "workflow_trigger_events",
-    "workflow_triggers",
-}
-_REQUIRED_INDEXES = {
-    "idx_artifact_materializations_lifecycle",
-    "idx_artifacts_lifecycle",
-    "idx_candidate_outputs_attempt_generation_key",
-    "idx_evidence_events_chain",
-    "idx_evidence_events_subject",
-    "idx_evidence_events_type_seq",
-    "idx_lineage_edges_object",
-    "idx_lineage_edges_run",
-    "idx_lineage_edges_subject",
-    "idx_run_artifact_edges_adopted_output",
-    "idx_run_artifact_edges_blob",
-    "idx_run_artifact_edges_run",
-    "idx_run_commands_run",
-    "idx_run_events_hash_chain",
-    "idx_run_events_run_seq",
-    "idx_run_jobs_claimable",
-    "idx_run_leases_active_expiry",
-    "idx_run_rule_events_run_rule",
-    "idx_run_rules_run_status",
-    "idx_run_resource_allocations_active",
-    "idx_run_workers_state_heartbeat",
-    "idx_tool_index_search",
-    "idx_tool_index_source_quality",
-    "idx_tool_index_state_quality",
-    "idx_tool_prepare_jobs_active_reservation",
-    "idx_tool_runtime_profiles_hash",
-    "idx_tool_runtime_profiles_revision",
-    "idx_tool_validation_results_job",
-    "idx_tool_validation_results_tool",
-    "idx_workflow_trigger_dispatches_run",
-    "idx_workflow_trigger_dispatches_state",
-    "idx_workflow_trigger_events_external",
-    "idx_workflow_trigger_events_trigger_created",
-    "idx_workflow_triggers_source_enabled",
-}
-_REQUIRED_TRIGGERS = {"workflow_revisions_no_update"}
-
 
 class RemoteRunnerSQLiteSchemaError(RuntimeError):
     pass
@@ -137,7 +65,20 @@ def migrate_runtime_schema(connection: sqlite3.Connection) -> None:
         _migrate_from_v2_to_v3(connection)
         version = read_schema_version(connection)
     if version == 3:
-        _migrate_from_v3_to_v4(connection)
+        migrate_artifact_lifecycle_schema(
+            connection,
+            record_migration=_record_migration,
+            version=4,
+            name=ARTIFACT_LIFECYCLE_MIGRATION_NAME,
+        )
+        version = read_schema_version(connection)
+    if version == 4:
+        migrate_artifact_cache_schema(
+            connection,
+            record_migration=_record_migration,
+            version=CURRENT_SCHEMA_VERSION,
+            name=ARTIFACT_CACHE_MIGRATION_NAME,
+        )
         return
     if version != 0:
         raise RemoteRunnerSQLiteSchemaError(f"REMOTE_RUNNER_SQLITE_SCHEMA_MIGRATION_MISSING: {version}")
@@ -146,7 +87,7 @@ def migrate_runtime_schema(connection: sqlite3.Connection) -> None:
         connection.executescript(f"BEGIN IMMEDIATE;\n{SCHEMA_SQL}\n{REFERENCE_DATABASE_SCHEMA_SQL}")
         _ensure_schema_migrations_table(connection)
         _apply_baseline_schema_migration(connection)
-        _record_migration(connection, CURRENT_SCHEMA_VERSION, ARTIFACT_LIFECYCLE_MIGRATION_NAME)
+        _record_migration(connection, CURRENT_SCHEMA_VERSION, ARTIFACT_CACHE_MIGRATION_NAME)
         connection.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
         connection.commit()
     except Exception:
@@ -219,7 +160,7 @@ def _record_migration(connection: sqlite3.Connection, version: int, name: str) -
 
 
 def _baseline_checksum() -> str:
-    payload = f"{CURRENT_SCHEMA_VERSION}:{ARTIFACT_LIFECYCLE_MIGRATION_NAME}:{SCHEMA_SQL}:{REFERENCE_DATABASE_SCHEMA_SQL}"
+    payload = f"{CURRENT_SCHEMA_VERSION}:{ARTIFACT_CACHE_MIGRATION_NAME}:{SCHEMA_SQL}:{REFERENCE_DATABASE_SCHEMA_SQL}"
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
@@ -233,9 +174,9 @@ def _missing_required_schema_objects(connection: sqlite3.Connection) -> list[str
     ).fetchall()
     existing = {(str(row["type"]), str(row["name"])) for row in rows}
     missing: list[str] = []
-    missing.extend(f"table:{name}" for name in sorted(_REQUIRED_TABLES) if ("table", name) not in existing)
-    missing.extend(f"index:{name}" for name in sorted(_REQUIRED_INDEXES) if ("index", name) not in existing)
-    missing.extend(f"trigger:{name}" for name in sorted(_REQUIRED_TRIGGERS) if ("trigger", name) not in existing)
+    missing.extend(f"table:{name}" for name in sorted(REQUIRED_TABLES) if ("table", name) not in existing)
+    missing.extend(f"index:{name}" for name in sorted(REQUIRED_INDEXES) if ("index", name) not in existing)
+    missing.extend(f"trigger:{name}" for name in sorted(REQUIRED_TRIGGERS) if ("trigger", name) not in existing)
     return missing
 
 
@@ -255,6 +196,7 @@ def _apply_baseline_schema_migration(connection: sqlite3.Connection) -> None:
     _ensure_tool_prepare_job_columns(connection)
     ensure_artifact_storage_columns(connection)
     ensure_artifact_lifecycle(connection)
+    ensure_artifact_cache(connection)
 
 
 def _migrate_from_v1_to_v2(connection: sqlite3.Connection) -> None:
@@ -277,19 +219,6 @@ def _migrate_from_v2_to_v3(connection: sqlite3.Connection) -> None:
         _ensure_scheduler_triggers(connection)
         _record_migration(connection, 3, SCHEDULER_TRIGGER_MIGRATION_NAME)
         connection.execute("PRAGMA user_version = 3")
-        connection.commit()
-    except Exception:
-        connection.rollback()
-        raise
-
-
-def _migrate_from_v3_to_v4(connection: sqlite3.Connection) -> None:
-    try:
-        connection.execute("BEGIN IMMEDIATE")
-        _ensure_schema_migrations_table(connection)
-        ensure_artifact_lifecycle(connection)
-        _record_migration(connection, CURRENT_SCHEMA_VERSION, ARTIFACT_LIFECYCLE_MIGRATION_NAME)
-        connection.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
         connection.commit()
     except Exception:
         connection.rollback()

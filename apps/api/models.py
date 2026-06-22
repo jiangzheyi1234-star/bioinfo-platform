@@ -130,6 +130,18 @@ class ArtifactGcRunRequest(ArtifactGcPreviewRequest):
     confirmation: str = Field(min_length=1)
 
 
+class ArtifactCacheLookupRequest(ApiRequest):
+    serverId: str | None = None
+    workflowRevisionId: str = Field(min_length=1)
+    artifactKey: str = Field(min_length=1)
+    stepId: str | None = None
+    role: str = Field(default="output", min_length=1)
+    inputs: list[dict[str, Any]] | dict[str, Any] | None = None
+    params: dict[str, Any] | None = None
+    resourceBindings: dict[str, Any] | None = None
+    execution: dict[str, Any] | None = None
+
+
 class UploadSubmitRequest(ApiRequest):
     serverId: str | None = None
     filename: str = Field(min_length=1)

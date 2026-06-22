@@ -13,16 +13,24 @@ from apps.remote_runner.artifact_ledger_storage import (
     list_artifact_materializations,
     list_run_artifact_edges,
 )
+from apps.remote_runner.artifact_cache_storage import list_artifact_cache_entries
 from apps.remote_runner.execution_query_storage import fetch_run_results
 from apps.remote_runner.reconciler import run_active_reconciler_once
 from apps.remote_runner.run_execution_storage import claim_next_run_job
 from apps.remote_runner.storage import create_run_record
 from apps.remote_runner.storage_core import get_connection
 from apps.remote_runner.workflow_run_storage import StaleRunAttemptError
+from apps.remote_runner.workflow_revision_storage import create_or_fetch_workflow_revision
 from tests.helpers.reference_database import make_configured_remote_runner
 
 
-def _create_attempt(cfg, run_id: str = "run_candidate", *, execution: dict | None = None):
+def _create_attempt(
+    cfg,
+    run_id: str = "run_candidate",
+    *,
+    execution: dict | None = None,
+    workflow_revision_id: str | None = None,
+):
     run_spec = {
         "runId": run_id,
         "projectId": "proj_candidate",
@@ -30,6 +38,8 @@ def _create_attempt(cfg, run_id: str = "run_candidate", *, execution: dict | Non
         "pipelineVersion": "0.1.0",
         "runSpecVersion": "2026-04-21",
     }
+    if workflow_revision_id:
+        run_spec["workflowRevisionId"] = workflow_revision_id
     if execution is not None:
         run_spec["execution"] = execution
     create_run_record(
@@ -59,6 +69,18 @@ def _expected_report(path: Path, sha256: str | None = None) -> dict[str, dict[st
     if sha256 is not None:
         spec["sha256"] = sha256
     return {"report": spec}
+
+
+def _create_revision(cfg):
+    return create_or_fetch_workflow_revision(
+        cfg,
+        draft_id="draft_candidate",
+        draft_revision=1,
+        manifest={"files": [{"path": "workflow/Snakefile", "sha256": "candidate"}]},
+        graph_snapshot={"nodes": [{"id": "summarize", "toolRevisionId": "tool#candidate"}]},
+        runtime_lock={"snakemake": "9.23.1"},
+        compiler={"name": "h2ometa", "version": "candidate-test"},
+    )
 
 
 def test_candidate_output_must_be_verified_before_adoption(tmp_path: Path) -> None:
@@ -133,7 +155,12 @@ def test_candidate_output_must_be_verified_before_adoption(tmp_path: Path) -> No
 
 def test_candidate_output_adoption_preserves_lineage_metadata(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
-    claim = _create_attempt(cfg, "run_candidate_lineage")
+    workflow_revision = _create_revision(cfg)
+    claim = _create_attempt(
+        cfg,
+        "run_candidate_lineage",
+        workflow_revision_id=workflow_revision["workflowRevisionId"],
+    )
     output = tmp_path / "report.txt"
     output.write_text("candidate output\n", encoding="utf-8")
     candidate = record_candidate_output(
@@ -182,6 +209,13 @@ def test_candidate_output_adoption_preserves_lineage_metadata(tmp_path: Path) ->
     assert len(result_bundle["lineageEdges"]) == 1
     assert result_bundle["lineageEdges"][0]["runId"] == claim["runId"]
     assert result_bundle["lineageEdges"][0]["predicate"] == "prov:generated"
+    assert result_bundle["lineageEdges"][0]["workflowRevisionId"] == workflow_revision["workflowRevisionId"]
+    cache_entries = list_artifact_cache_entries(cfg, workflow_revision_id=workflow_revision["workflowRevisionId"])[
+        "items"
+    ]
+    assert len(cache_entries) == 1
+    assert cache_entries[0]["artifactKey"] == "report"
+    assert cache_entries[0]["artifactId"] == result_bundle["artifacts"][0]["artifactId"]
 
 
 def test_candidate_output_verification_rejects_checksum_mismatch_and_missing_expected(tmp_path: Path) -> None:

@@ -259,6 +259,9 @@ Progress:
 - Artifact lifecycle state is now explicit on artifact and materialization rows. `/api/v1/artifacts/lifecycle/usage` reports active/deleted bytes and optional quota overage, `/gc/preview` produces a protected deletion plan, and `/gc/run` requires the `delete-artifact-payloads` confirmation before deleting managed local files or managed S3/MinIO objects.
 - GC keeps metadata, lineage, and evidence append-only. It tombstones physical payload lifecycle state, writes `artifact.gc.v1` evidence, and records governance audit events.
 - Current GC protection covers non-terminal runs, active jobs/leases/attempts, pending candidate outputs, exported result packages, production-evidence runs, unmanaged local paths, unmanaged S3 prefixes, unsupported storage backends, and directory payloads.
+- Artifact cache indexing now records conservative exact cache keys for WorkflowRevision-backed artifacts. Keys include workflow revision, artifact key, role/step, content digests for upload-backed inputs, and digests of params, resource bindings, and execution options. `/api/v1/artifacts/cache/entries` lists entries, and `/cache/lookup` verifies the referenced object still exists and matches size/SHA-256 before returning a hit.
+- Artifact lineage now stamps `workflow_revision_id` for direct persist and candidate-adoption artifact publication, so cache and result audit surfaces can join a blob back to the immutable workflow contract.
+- Cache lookup is traceable through `artifact.cache.lookup.v1` evidence. Executor-level automatic rule skipping remains pending until per-rule cache eligibility, cache pinning, and restore/materialization semantics are explicit.
 
 Recommended sequence:
 
@@ -267,7 +270,7 @@ Recommended sequence:
 3. Add artifact download/preview through adapters instead of direct local path reads.
 4. Implement S3/MinIO-compatible adapter after local adapter tests pass. File artifact support is in place; directory manifest/package support remains pending.
 5. Anchor lineage to WorkflowRevision and input artifact edges.
-6. Define cache keys from WorkflowRevision, tool revision, inputs, params, resources, and runtime lock.
+6. Extend cache lookup into opt-in rule restore only after cache eligibility, cache pinning, and restore materialization are represented in run events.
 7. Extend lifecycle from manual usage/preview/run into a background TTL/quota controller once durable package and cache-pin policies are finalized.
 8. Add evidence package export with manifest, runSpec, WorkflowRevision, lineage, events, artifact checksums, and optional artifacts.
 
@@ -288,6 +291,7 @@ Exit criteria:
 - Checksum audit detects corruption and blocks unsafe preview/export.
 - GC never deletes active run, WorkflowRevision, production evidence, or export-protected artifacts.
 - GC deletion is previewable, requires explicit confirmation, tombstones lifecycle state, and emits hash-chained evidence/audit records.
+- Cache hit/miss is verified against live payload size and checksum before it is surfaced as reusable.
 - Cache hit/miss is traceable and does not weaken reproducibility.
 
 ## Phase 6: Production Governance

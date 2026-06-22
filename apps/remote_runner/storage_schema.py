@@ -352,6 +352,35 @@ CREATE TABLE IF NOT EXISTS artifact_materializations (
     UNIQUE(artifact_blob_id, storage_backend, storage_uri)
 );
 
+CREATE TABLE IF NOT EXISTS artifact_cache_entries (
+    cache_entry_id TEXT PRIMARY KEY,
+    cache_key TEXT NOT NULL UNIQUE,
+    cache_key_schema TEXT NOT NULL,
+    key_payload_json TEXT NOT NULL,
+    workflow_revision_id TEXT NOT NULL,
+    artifact_key TEXT NOT NULL,
+    step_id TEXT NOT NULL DEFAULT '',
+    role TEXT NOT NULL DEFAULT 'output',
+    run_id TEXT NOT NULL,
+    artifact_id TEXT NOT NULL,
+    artifact_blob_id TEXT NOT NULL,
+    materialization_id TEXT NOT NULL DEFAULT '',
+    storage_backend TEXT NOT NULL,
+    storage_uri TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    sha256 TEXT NOT NULL,
+    lifecycle_state TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL,
+    last_used_at TEXT,
+    hit_count INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_artifact_cache_entries_revision
+ON artifact_cache_entries(workflow_revision_id, artifact_key, step_id, role);
+
+CREATE INDEX IF NOT EXISTS idx_artifact_cache_entries_blob
+ON artifact_cache_entries(artifact_blob_id, lifecycle_state, created_at);
+
 CREATE TABLE IF NOT EXISTS run_artifact_edges (
     edge_id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL,

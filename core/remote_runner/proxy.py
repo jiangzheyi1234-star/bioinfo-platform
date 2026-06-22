@@ -458,6 +458,28 @@ class RemoteRunnerProxyMixin:
         )
         return client.post_json("/api/v1/artifacts/lifecycle/gc/run", dict(kwargs.get("payload") or {}))["data"]
 
+    def list_artifact_cache_entries(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+        )
+        query = urlencode(
+            {
+                "workflowRevisionId": kwargs.get("workflow_revision_id") or "",
+                "limit": int(kwargs.get("limit") or 100),
+            }
+        )
+        return client.get_json(f"/api/v1/artifacts/cache/entries?{query}")["data"]
+
+    def lookup_artifact_cache(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+        )
+        return client.post_json("/api/v1/artifacts/cache/lookup", dict(kwargs.get("payload") or {}))["data"]
+
     def _open_runner_tunnel(self, *, server_id: str, ssh_service, remote_port: int):
         try:
             return ssh_service.ensure_local_tunnel(

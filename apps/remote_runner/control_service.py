@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from .api_models import (
+    ArtifactCacheLookupRequest,
     ArtifactGcPreviewRequest,
     ArtifactGcRunRequest,
     RunCreateRequest,
@@ -12,6 +13,7 @@ from .api_models import (
 )
 from .config import RemoteRunnerConfig, dump_public_config
 from .execution_diagnostics import build_execution_diagnostics
+from .artifact_cache_storage import list_artifact_cache_entries, lookup_artifact_cache_entry
 from .artifact_lifecycle_service import build_artifact_lifecycle_usage, preview_artifact_gc, run_artifact_gc
 from .artifact_product_service import build_result_artifact_audit, export_result_package
 from .governance_audit import record_governance_audit_event
@@ -279,4 +281,32 @@ async def run_artifact_gc_from_request(
 ) -> dict[str, Any]:
     cfg = await _authorized_config_from_request(authorization)
     result = await run_sync(run_artifact_gc, cfg, request.model_dump(mode="json", exclude_none=True))
+    return data_response(result)
+
+
+async def list_artifact_cache_entries_from_request(
+    workflow_revision_id: str | None,
+    limit: int,
+    authorization: str | None,
+) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization)
+    entries = await run_sync(
+        list_artifact_cache_entries,
+        cfg,
+        workflow_revision_id=workflow_revision_id,
+        limit=limit,
+    )
+    return data_response(entries)
+
+
+async def lookup_artifact_cache_from_request(
+    request: ArtifactCacheLookupRequest,
+    authorization: str | None,
+) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization)
+    result = await run_sync(
+        lookup_artifact_cache_entry,
+        cfg,
+        request.model_dump(mode="json", exclude_none=True),
+    )
     return data_response(result)

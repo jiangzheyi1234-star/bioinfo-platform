@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from apps.api.models import ArtifactGcPreviewRequest, ArtifactGcRunRequest
+from apps.api.models import ArtifactCacheLookupRequest, ArtifactGcPreviewRequest, ArtifactGcRunRequest
 from apps.api.response_cache import invalidate_response_cache
 from apps.api.route_utils import cached_runtime_payload, request_payload, run_runtime_payload, runtime_service
 
@@ -144,3 +144,28 @@ async def run_artifact_gc_from_request(request: ArtifactGcRunRequest) -> dict[st
     )
     await invalidate_response_cache("runs")
     return result
+
+
+async def list_artifact_cache_entries_from_request(
+    *,
+    server_id: str | None = None,
+    workflow_revision_id: str | None = None,
+    limit: int = 100,
+) -> dict[str, Any]:
+    return await run_runtime_payload(
+        lambda: runtime_service().list_artifact_cache_entries(
+            server_id=server_id,
+            workflow_revision_id=workflow_revision_id,
+            limit=limit,
+        ),
+        wrapper="raw",
+    )
+
+
+async def lookup_artifact_cache_from_request(request: ArtifactCacheLookupRequest) -> dict[str, Any]:
+    payload = request_payload(request)
+    server_id = str(payload.pop("serverId", "") or "").strip() or None
+    return await run_runtime_payload(
+        lambda: runtime_service().lookup_artifact_cache(payload, server_id=server_id),
+        wrapper="raw",
+    )

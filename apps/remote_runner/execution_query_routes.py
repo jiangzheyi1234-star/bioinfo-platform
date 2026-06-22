@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter
 
-from .api_models import ArtifactGcPreviewRequest, ArtifactGcRunRequest
+from .api_models import ArtifactCacheLookupRequest, ArtifactGcPreviewRequest, ArtifactGcRunRequest
 from .control_service import (
     cancel_run_from_request,
     get_artifact_lifecycle_usage_from_request,
@@ -17,8 +17,10 @@ from .control_service import (
     get_run_logs_from_request,
     get_run_results_from_request,
     get_run_rules_from_request,
+    list_artifact_cache_entries_from_request,
     list_results_from_request,
     list_runs_from_request,
+    lookup_artifact_cache_from_request,
     preview_artifact_gc_from_request,
     run_artifact_gc_from_request,
 )
@@ -119,3 +121,20 @@ async def run_artifact_gc_api(
     authorization: AuthorizationHeader = None,
 ) -> dict[str, Any]:
     return await run_artifact_gc_from_request(request, authorization)
+
+
+@router.get("/api/v1/artifacts/cache/entries")
+async def list_artifact_cache_entries_api(
+    workflowRevisionId: str | None = None,
+    limit: int = 100,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await list_artifact_cache_entries_from_request(workflowRevisionId, limit, authorization)
+
+
+@router.post("/api/v1/artifacts/cache/lookup")
+async def lookup_artifact_cache_api(
+    request: ArtifactCacheLookupRequest,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await lookup_artifact_cache_from_request(request, authorization)

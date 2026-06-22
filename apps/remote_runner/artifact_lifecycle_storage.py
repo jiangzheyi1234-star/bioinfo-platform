@@ -173,6 +173,15 @@ def mark_lifecycle_deleted(
         """,
         (deleted_at, reason, retention_until, storage_backend, storage_uri, sha256),
     )
+    from .artifact_cache_storage import mark_artifact_cache_entries_deleted
+
+    mark_artifact_cache_entries_deleted(
+        connection,
+        artifact_ids=artifact_ids,
+        storage_backend=storage_backend,
+        storage_uri=storage_uri,
+        sha256=sha256,
+    )
 
 
 def _artifact_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:

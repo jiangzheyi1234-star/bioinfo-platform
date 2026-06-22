@@ -463,6 +463,11 @@ def _adopt_artifact(
         occurred_at=created_at,
     )
     lineage_id = f"lin_{uuid.uuid4().hex[:12]}"
+    run_row = connection.execute(
+        "SELECT workflow_revision_id FROM runs WHERE run_id = ?",
+        (run_id,),
+    ).fetchone()
+    workflow_revision_id = str((run_row or {})["workflow_revision_id"] or "").strip() if run_row is not None else ""
     lineage_payload = {
         "artifactId": artifact_id,
         "artifactKey": artifact_key,
@@ -479,7 +484,7 @@ def _adopt_artifact(
             lineage_edge_id, subject_kind, subject_id, predicate, object_kind, object_id,
             run_id, attempt_id, workflow_revision_id, evidence_event_id,
             payload_json, content_hash, created_at
-        ) VALUES (?, 'run', ?, 'prov:generated', 'artifact_blob', ?, ?, ?, NULL, ?, ?, ?, ?)
+        ) VALUES (?, 'run', ?, 'prov:generated', 'artifact_blob', ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             lineage_id,
@@ -487,11 +492,31 @@ def _adopt_artifact(
             blob_id,
             run_id,
             attempt_id,
+            workflow_revision_id or None,
             evidence["eventId"],
             _stable_json(lineage_payload),
             sha256,
             created_at,
         ),
+    )
+    from .artifact_cache_storage import record_artifact_cache_entry_record
+
+    cache_entry = record_artifact_cache_entry_record(
+        connection,
+        artifact={
+            "artifactId": artifact_id,
+            "runId": run_id,
+            "storageBackend": location["storageBackend"],
+            "storageUri": location["storageUri"],
+            "sizeBytes": size_bytes,
+            "sha256": sha256,
+        },
+        artifact_key=artifact_key,
+        role="output",
+        step_id=step_id,
+        artifact_blob_id=blob_id,
+        materialization_id=str(materialization["materialization_id"]),
+        created_at=created_at,
     )
     return {
         "artifactId": artifact_id,
@@ -500,6 +525,7 @@ def _adopt_artifact(
         "runArtifactEdgeId": edge_id,
         "lineageEdgeId": lineage_id,
         "evidenceEventId": evidence["eventId"],
+        **_cache_entry_payload(cache_entry),
     }
 
 
@@ -577,6 +603,20 @@ def _normalize_expected_outputs(expected_outputs: dict[str, dict[str, Any]]) -> 
 
 def _stable_json(value: dict[str, Any]) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _cache_entry_payload(cache_entry: dict[str, Any]) -> dict[str, Any]:
+    if cache_entry.get("cacheEligible") is False:
+        return {
+            "artifactCacheEligible": False,
+            "artifactCacheIneligibleReason": str(cache_entry.get("cacheIneligibleReason") or ""),
+            **({"artifactCacheKey": str(cache_entry["cacheKey"])} if cache_entry.get("cacheKey") else {}),
+        }
+    return {
+        "artifactCacheEligible": True,
+        "artifactCacheEntryId": str(cache_entry["cacheEntryId"]),
+        "artifactCacheKey": str(cache_entry["cacheKey"]),
+    }
 
 
 def _required_text(value: object, code: str) -> str:

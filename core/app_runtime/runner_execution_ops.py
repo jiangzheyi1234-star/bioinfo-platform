@@ -116,3 +116,24 @@ class RunnerExecutionOperationsMixin:
         server_id: Optional[str] = None,
     ) -> dict[str, Any]:
         return self.execution.run_artifact_gc(payload, server_id=server_id)
+
+    def list_artifact_cache_entries(
+        self,
+        *,
+        server_id: Optional[str] = None,
+        workflow_revision_id: Optional[str] = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        return self.execution.list_artifact_cache_entries(
+            server_id=server_id,
+            workflow_revision_id=workflow_revision_id,
+            limit=limit,
+        )
+
+    def lookup_artifact_cache(
+        self,
+        payload: Optional[dict[str, Any]] = None,
+        *,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return self.execution.lookup_artifact_cache(payload, server_id=server_id)

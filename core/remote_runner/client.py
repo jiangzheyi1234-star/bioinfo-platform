@@ -243,6 +243,23 @@ class RemoteRunnerHttpClient:
     def run_artifact_gc(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         return self.post_json("/api/v1/artifacts/lifecycle/gc/run", dict(payload or {}))["data"]
 
+    def list_artifact_cache_entries(
+        self,
+        *,
+        workflow_revision_id: str | None = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        query = urllib.parse.urlencode(
+            {
+                "workflowRevisionId": str(workflow_revision_id or ""),
+                "limit": int(limit),
+            }
+        )
+        return self.get_json(f"/api/v1/artifacts/cache/entries?{query}")["data"]
+
+    def lookup_artifact_cache(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        return self.post_json("/api/v1/artifacts/cache/lookup", dict(payload or {}))["data"]
+
     def get_health(self) -> dict[str, Any]:
         startup = self.get_json("/health/startup", accepted_statuses={200, 503})
         live = self.get_json("/health/live")

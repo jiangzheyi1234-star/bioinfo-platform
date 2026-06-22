@@ -212,3 +212,33 @@ class ExecutionManager(BaseRuntimeManager):
                 payload=dict(payload or {}),
             )
         }
+
+    def list_artifact_cache_entries(
+        self,
+        *,
+        server_id: Optional[str] = None,
+        workflow_revision_id: Optional[str] = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        return {
+            "data": self.call_existing_runner(
+                "list_artifact_cache_entries",
+                preferred_server_id=server_id,
+                workflow_revision_id=workflow_revision_id,
+                limit=limit,
+            )
+        }
+
+    def lookup_artifact_cache(
+        self,
+        payload: Optional[dict[str, Any]] = None,
+        *,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return {
+            "data": self.call_existing_runner(
+                "lookup_artifact_cache",
+                preferred_server_id=server_id,
+                payload=dict(payload or {}),
+            )
+        }
