@@ -185,11 +185,14 @@ Delivered foundation:
 - Added v2 SQLite migration coverage for the rule-level read model.
 - Added remote/local `/api/v1/runs/{run_id}/rules` query path and included `rules` in run detail aggregation.
 - Added executor projection from bundled manifest graph/generated workflow config into rule states, with success/failure updates per attempt.
+- Added a Snakemake 9 logger-plugin event path (`--logger h2ometa`) that writes structured JSONL job events, then projects `JOB_INFO`, `JOB_STARTED`, `SHELLCMD`, `JOB_FINISHED`, and `JOB_ERROR` through the existing fenced rule-state storage.
+- Structured Snakemake event projection now records rule command summaries, inputs, outputs, logs, wildcards, started/finished timestamps, and explicit `blocked`/`skipped` states for rules that did not reach a terminal job event.
 - Added run detail `规则` tab plus DAG node status projection using `runtimeStatusKey`, then `stepId`, then `ruleName`.
 
 Still pending before this phase is complete:
 
-- Replace post-process projection with a pinned Snakemake logger/plugin event source for live rule start/finish/error/resource events.
+- Stream or poll the Snakemake logger event file during execution instead of projecting it only after the Snakemake process returns, so running rule transitions become live.
+- Add a read-only run execution context API for attempts, active lease, retry policy, retry eligibility, and explicit `resumeSupported: false` before exposing operator controls.
 - Add operator actions for rule-level retry/resume once retry policy and attempt selection are exposed in the UI.
 
 Recommended sequence:

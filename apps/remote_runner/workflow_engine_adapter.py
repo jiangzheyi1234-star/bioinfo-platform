@@ -26,6 +26,7 @@ class WorkflowEngineAdapter(Protocol):
         snakefile: Path,
         work_dir: Path,
         config_path: Path,
+        event_log_path: Path | None = None,
     ) -> Any:
         ...
 
@@ -63,9 +64,15 @@ class SnakemakeEngineAdapter:
         snakefile: Path,
         work_dir: Path,
         config_path: Path,
+        event_log_path: Path | None = None,
     ) -> Any:
         return self._execute(
-            self._execution_args(snakefile=snakefile, work_dir=work_dir, config_path=config_path)
+            self._execution_args(
+                snakefile=snakefile,
+                work_dir=work_dir,
+                config_path=config_path,
+                event_log_path=event_log_path,
+            )
         )
 
     def _execute(self, command: list[str]) -> Any:
@@ -91,6 +98,7 @@ class SnakemakeEngineAdapter:
         snakefile: Path,
         work_dir: Path,
         config_path: Path,
+        event_log_path: Path | None = None,
     ) -> list[str]:
         profile_args = self._profile_args()
         command = [
@@ -105,6 +113,16 @@ class SnakemakeEngineAdapter:
         else:
             command.extend(["--cores", "1", "--use-conda"])
         command.extend(["--configfile", str(config_path)])
+        if event_log_path is not None:
+            command.extend(
+                [
+                    "--show-failed-logs",
+                    "--logger",
+                    "h2ometa",
+                    "--logger-h2ometa-event-path",
+                    str(event_log_path),
+                ]
+            )
         return command
 
     def _snakemake_command(self) -> list[str]:

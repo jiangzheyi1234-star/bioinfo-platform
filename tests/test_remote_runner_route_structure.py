@@ -488,6 +488,7 @@ def test_executor_startup_failure_boundary_uses_declared_runtime_errors() -> Non
 def test_executor_delegates_snakemake_invocation_to_engine_adapter() -> None:
     source = _source("apps/remote_runner/executor.py")
     adapter_source = _source("apps/remote_runner/workflow_engine_adapter.py")
+    rule_event_source = _source("apps/remote_runner/executor_rule_events.py")
 
     assert "from .workflow_engine_adapter import (" in source
     assert "SnakemakeEngineAdapter" in source
@@ -497,7 +498,8 @@ def test_executor_delegates_snakemake_invocation_to_engine_adapter() -> None:
     assert "def run(" in adapter_source
     assert "subprocess.run(" not in source
     assert "dry_run = engine.dry_run(" in source
-    assert "run_result = engine.run(" in source
+    assert "run_result, rule_event_projection = run_snakemake_with_rule_events(" in source
+    assert "result = engine.run(" in rule_event_source
 
 
 def test_executor_artifact_collection_lives_outside_execution_flow() -> None:

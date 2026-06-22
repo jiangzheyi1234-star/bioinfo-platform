@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from apps.remote_runner.rule_execution_projection import (
@@ -9,6 +10,7 @@ from apps.remote_runner.rule_execution_projection import (
 )
 from apps.remote_runner.rule_execution_storage import fetch_run_rules
 from apps.remote_runner.run_execution_storage import claim_next_run_job
+from apps.remote_runner.snakemake_rule_event_projection import project_snakemake_rule_events
 from apps.remote_runner.storage import create_run_record
 from tests.helpers.reference_database import make_configured_remote_runner
 
@@ -91,3 +93,128 @@ def test_rule_projection_seeds_graph_rules_and_marks_failed_rule_by_stderr(tmp_p
     assert rules["summarize"]["status"] == "failed"
     assert rules["summarize"]["exitCode"] == 1
     assert rules["summarize"]["events"][-1]["eventType"] == "rule_failed"
+
+
+def test_snakemake_logger_events_project_rule_status_and_metadata(tmp_path: Path) -> None:
+    cfg, claim = _claim_for_projection(tmp_path)
+    run_id = str(claim["runId"])
+    attempt_id = str(claim["attemptId"])
+    lease_generation = int(claim["leaseGeneration"])
+    attempt_number = int(claim["attempt"]["attemptNumber"])
+    seed_run_rules_from_graph(
+        cfg,
+        run_id=run_id,
+        attempt_id=attempt_id,
+        lease_generation=lease_generation,
+        attempt_number=attempt_number,
+        graph={
+            "nodes": [
+                {"id": "quality_control", "label": "quality_control", "kind": "rule"},
+                {"id": "summarize", "label": "summarize", "kind": "rule"},
+                {"id": "report", "label": "report", "kind": "rule"},
+            ]
+        },
+    )
+    event_log = tmp_path / "snakemake-events.jsonl"
+    records = [
+        {
+            "event": "JOB_INFO",
+            "jobId": 1,
+            "ruleName": "quality_control",
+            "input": ["reads.fastq.gz"],
+            "output": ["qc.tsv"],
+            "log": ["logs/qc.log"],
+            "wildcards": {"sample": "S1"},
+            "createdAt": "2099-06-07T10:00:01Z",
+        },
+        {"event": "JOB_STARTED", "jobIds": [1], "createdAt": "2099-06-07T10:00:02Z"},
+        {
+            "event": "SHELLCMD",
+            "jobId": 1,
+            "ruleName": "quality_control",
+            "shellcmd": "fastqc reads.fastq.gz",
+            "createdAt": "2099-06-07T10:00:03Z",
+        },
+        {"event": "JOB_FINISHED", "jobId": 1, "createdAt": "2099-06-07T10:00:04Z"},
+        {
+            "event": "JOB_INFO",
+            "jobId": 2,
+            "ruleName": "summarize",
+            "input": ["qc.tsv"],
+            "output": ["summary.tsv"],
+            "createdAt": "2099-06-07T10:00:05Z",
+        },
+        {"event": "JOB_STARTED", "jobIds": [2], "createdAt": "2099-06-07T10:00:06Z"},
+        {"event": "JOB_ERROR", "jobId": 2, "message": "Error in rule summarize", "createdAt": "2099-06-07T10:00:07Z"},
+    ]
+    event_log.write_text("\n".join(json.dumps(record) for record in records), encoding="utf-8")
+
+    result = project_snakemake_rule_events(
+        cfg,
+        run_id=run_id,
+        attempt_id=attempt_id,
+        lease_generation=lease_generation,
+        attempt_number=attempt_number,
+        event_log_path=event_log,
+        workflow_succeeded=False,
+    )
+
+    rules = {item["ruleName"]: item for item in fetch_run_rules(cfg, run_id)["items"]}
+    assert result["projected"] is True
+    assert rules["quality_control"]["status"] == "succeeded"
+    assert rules["quality_control"]["startedAt"] == "2099-06-07T10:00:02Z"
+    assert rules["quality_control"]["finishedAt"] == "2099-06-07T10:00:04Z"
+    assert rules["quality_control"]["commandSummary"] == "fastqc reads.fastq.gz"
+    assert rules["quality_control"]["wildcards"] == {"sample": "S1"}
+    assert rules["summarize"]["status"] == "failed"
+    assert rules["summarize"]["exitCode"] == 1
+    assert rules["report"]["status"] == "blocked"
+    assert [event["eventType"] for event in rules["quality_control"]["events"][-3:]] == [
+        "rule_started",
+        "rule_command",
+        "rule_finished",
+    ]
+    assert rules["summarize"]["events"][-1]["eventType"] == "rule_failed"
+
+
+def test_snakemake_logger_events_mark_unexecuted_rules_skipped_on_success(tmp_path: Path) -> None:
+    cfg, claim = _claim_for_projection(tmp_path)
+    run_id = str(claim["runId"])
+    attempt_id = str(claim["attemptId"])
+    lease_generation = int(claim["leaseGeneration"])
+    attempt_number = int(claim["attempt"]["attemptNumber"])
+    seed_run_rules_from_graph(
+        cfg,
+        run_id=run_id,
+        attempt_id=attempt_id,
+        lease_generation=lease_generation,
+        attempt_number=attempt_number,
+        graph={"nodes": [{"id": "report", "label": "report", "kind": "rule"}]},
+    )
+    event_log = tmp_path / "empty-job-events.jsonl"
+    event_log.write_text(
+        "\n".join(
+            json.dumps(record)
+            for record in [
+                {"event": "JOB_INFO", "jobId": 1, "ruleName": "other", "createdAt": "2099-06-07T10:00:01Z"},
+                {"event": "JOB_STARTED", "jobIds": [1], "createdAt": "2099-06-07T10:00:02Z"},
+                {"event": "JOB_FINISHED", "jobId": 1, "createdAt": "2099-06-07T10:00:03Z"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    project_snakemake_rule_events(
+        cfg,
+        run_id=run_id,
+        attempt_id=attempt_id,
+        lease_generation=lease_generation,
+        attempt_number=attempt_number,
+        event_log_path=event_log,
+        workflow_succeeded=True,
+    )
+
+    rules = {item["ruleName"]: item for item in fetch_run_rules(cfg, run_id)["items"]}
+    assert rules["report"]["status"] == "skipped"
+    assert rules["report"]["events"][-1]["eventType"] == "rule_skipped"
+    assert rules["other"]["status"] == "succeeded"

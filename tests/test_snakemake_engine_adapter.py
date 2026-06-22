@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
@@ -22,6 +23,7 @@ def test_snakemake_engine_adapter_builds_profiled_dry_run_and_run_commands(tmp_p
     (Path(cfg.release_dir) / "snakemake_wrappers").mkdir(parents=True, exist_ok=True)
     ensure_runtime_layout(cfg)
     calls: list[list[str]] = []
+    envs: list[dict[str, str]] = []
 
     class Result:
         returncode = 0
@@ -30,6 +32,7 @@ def test_snakemake_engine_adapter_builds_profiled_dry_run_and_run_commands(tmp_p
 
     def fake_run(cmd, **_kwargs):
         calls.append(list(cmd))
+        envs.append(dict(_kwargs.get("env") or {}))
         return Result()
 
     adapter = SnakemakeEngineAdapter(cfg, run_command=fake_run)
@@ -42,6 +45,7 @@ def test_snakemake_engine_adapter_builds_profiled_dry_run_and_run_commands(tmp_p
         snakefile=tmp_path / "workflow" / "Snakefile",
         work_dir=tmp_path / "work",
         config_path=tmp_path / "work" / "run-config.json",
+        event_log_path=tmp_path / "logs" / "snakemake-events.jsonl",
     )
 
     assert calls[0][0] == str(snakemake_command)
@@ -50,3 +54,9 @@ def test_snakemake_engine_adapter_builds_profiled_dry_run_and_run_commands(tmp_p
     assert "-n" in calls[0]
     assert "--workflow-profile" in calls[1]
     assert "-n" not in calls[1]
+    assert "--show-failed-logs" in calls[1]
+    assert "--logger" in calls[1]
+    assert "h2ometa" in calls[1]
+    assert "--logger-h2ometa-event-path" in calls[1]
+    assert str(tmp_path / "logs" / "snakemake-events.jsonl") in calls[1]
+    assert str(Path(cfg.release_dir)) in envs[1]["PYTHONPATH"].split(os.pathsep)

@@ -339,6 +339,102 @@ def test_executor_records_attempt_process_group_when_process_starts(tmp_path: Pa
     assert attempt["process_group_id"] == "4242"
 
 
+def test_executor_projects_snakemake_logger_events_into_rule_view(tmp_path: Path, monkeypatch) -> None:
+    snakemake_command = tmp_path / "tooling" / "workflow-env" / "bin" / "snakemake"
+    cfg = RemoteRunnerConfig(
+        token="phase3-token",
+        data_root=str(tmp_path / "shared"),
+        db_path=str(tmp_path / "shared" / "data" / "runner.db"),
+        uploads_dir=str(tmp_path / "shared" / "uploads"),
+        results_dir=str(tmp_path / "shared" / "results"),
+        work_dir=str(tmp_path / "shared" / "work"),
+        logs_dir=str(tmp_path / "shared" / "logs"),
+        release_dir=str(tmp_path / "release"),
+        snakemake_command=str(snakemake_command),
+    )
+    snakemake_command.parent.mkdir(parents=True, exist_ok=True)
+    snakemake_command.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    _write_file_summary_pipeline(Path(cfg.release_dir))
+    ensure_runtime_layout(cfg)
+
+    from apps.remote_runner.rule_execution_storage import fetch_run_rules
+    from apps.remote_runner.run_execution_storage import claim_next_run_job
+    from apps.remote_runner.storage import create_run_record, persist_upload
+
+    upload = persist_upload(
+        cfg,
+        filename="reads.fastq",
+        content_base64="QHJlYWQxCkFDR1QKKwohISEhCg==",
+        mime_type="text/plain",
+    )
+    run_spec = {
+        "runId": "run_snakemake_logger_events",
+        "projectId": "proj_demo",
+        "pipelineId": "file-summary-v1",
+        "inputs": [{"uploadId": upload["uploadId"], "filename": "reads.fastq", "role": "reads"}],
+    }
+    create_run_record(
+        cfg,
+        server_id="srv_demo",
+        request_id="req_snakemake_logger_events",
+        run_spec=run_spec,
+        idempotency_key="idem_snakemake_logger_events",
+        payload_hash="h" * 64,
+    )
+    claim = claim_next_run_job(
+        cfg,
+        worker_id="worker_snakemake_logger_events",
+        now="2099-06-07T10:00:00Z",
+        lease_seconds=30,
+    )
+    assert claim is not None
+
+    calls: list[list[str]] = []
+
+    class Result:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    def fake_run(cmd, **_kwargs):
+        calls.append(list(cmd))
+        if "--logger-h2ometa-event-path" in cmd:
+            event_path = Path(cmd[cmd.index("--logger-h2ometa-event-path") + 1])
+            event_path.write_text(
+                "\n".join(
+                    json.dumps(record)
+                    for record in [
+                        {"event": "JOB_INFO", "jobId": 1, "ruleName": "all", "createdAt": "2099-06-07T10:00:01Z"},
+                        {"event": "JOB_STARTED", "jobIds": [1], "createdAt": "2099-06-07T10:00:02Z"},
+                        {"event": "JOB_FINISHED", "jobId": 1, "createdAt": "2099-06-07T10:00:03Z"},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+        return Result()
+
+    monkeypatch.setattr("apps.remote_runner.executor.subprocess.run", fake_run)
+    monkeypatch.setattr("apps.remote_runner.executor._collect_artifacts", lambda *_args, **_kwargs: [])
+
+    run_snakemake_execution(
+        cfg,
+        run_id="run_snakemake_logger_events",
+        request_id="req_snakemake_logger_events",
+        run_spec=run_spec,
+        attempt_id=str(claim["attemptId"]),
+        lease_generation=int(claim["leaseGeneration"]),
+        attempt_number=int(claim["attempt"]["attemptNumber"]),
+        attempt_work_dir=str(claim["attempt"]["workDir"]),
+    )
+
+    rules = fetch_run_rules(cfg, "run_snakemake_logger_events")["items"]
+    assert len(calls) == 2
+    assert "--logger-h2ometa-event-path" in calls[1]
+    assert rules[0]["ruleName"] == "all"
+    assert rules[0]["status"] == "succeeded"
+    assert rules[0]["events"][-1]["eventType"] == "rule_finished"
+
+
 def test_run_worker_adopts_artifact_cache_hit_after_dry_run(tmp_path: Path, monkeypatch) -> None:
     snakemake_command = tmp_path / "tooling" / "workflow-env" / "bin" / "snakemake"
     cfg = RemoteRunnerConfig(

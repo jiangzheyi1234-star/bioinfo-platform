@@ -82,7 +82,20 @@ def build_workflow_runtime_environment(cfg: Any) -> dict[str, str]:
     managed_conda_root_prefix = str(cfg.managed_conda_root_prefix or "").strip()
     if managed_conda_root_prefix:
         env["MAMBA_ROOT_PREFIX"] = managed_conda_root_prefix
+    release_dir = str(cfg.release_dir or "").strip()
+    if release_dir:
+        env["PYTHONPATH"] = _prepend_env_path([release_dir], env.get("PYTHONPATH", ""))
     return env
+
+
+def _prepend_env_path(entries: list[str], existing: str) -> str:
+    seen: set[str] = set()
+    merged = []
+    for entry in [*entries, *str(existing or "").split(os.pathsep)]:
+        if entry and entry not in seen:
+            seen.add(entry)
+            merged.append(entry)
+    return os.pathsep.join(merged)
 
 
 def get_workflow_profile_dir(cfg: Any) -> Path | None:

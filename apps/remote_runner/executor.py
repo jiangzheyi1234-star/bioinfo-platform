@@ -15,6 +15,7 @@ from .executor_paths import (
     _resolve_execution_result_dir,
     _resolve_execution_work_dir,
 )
+from .executor_rule_events import run_snakemake_with_rule_events
 from .generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID, prepare_generated_tool_workflow
 from .pipeline import PipelineRegistryError, get_pipeline, validate_run_spec_for_pipeline
 from .rule_execution_projection import (
@@ -24,20 +25,15 @@ from .rule_execution_projection import (
     seed_run_rules_from_config,
     seed_run_rules_from_graph,
 )
+from .storage import append_log_lines, update_run_state
 from .workflow_resources import build_workflow_resource_config
-from .storage import (
-    append_log_lines,
-    update_run_state,
-)
 from .resource_pool import ResourcePool, ResourceRequest, get_default_resource_pool
 from .workflow_engine_adapter import (
     SnakemakeEngineAdapter,
     WorkflowRuntimeCommandError,
 )
 
-
 _ORIGINAL_SUBPROCESS_RUN = getattr(subprocess, "run")
-
 
 def run_snakemake_execution(
     cfg: RemoteRunnerConfig,
@@ -72,7 +68,6 @@ def run_snakemake_execution(
     finally:
         pool.release(task_id)
 
-
 def _execute_snakemake_workflow(
     cfg: RemoteRunnerConfig,
     *,
@@ -103,6 +98,7 @@ def _execute_snakemake_workflow(
     log_stem = f"{run_id}.{attempt_id}" if attempt_id else run_id
     stdout_log = logs_dir / f"{log_stem}.stdout.log"
     stderr_log = logs_dir / f"{log_stem}.stderr.log"
+    snakemake_event_log = logs_dir / f"{log_stem}.snakemake-events.jsonl"
     engine_stage: str | None = None
     output_schema: dict | None = None
     run_outputs: dict[str, str] | None = None
@@ -120,6 +116,7 @@ def _execute_snakemake_workflow(
         result_dir.mkdir(parents=True, exist_ok=True)
         work_dir.mkdir(parents=True, exist_ok=True)
         logs_dir.mkdir(parents=True, exist_ok=True)
+        snakemake_event_log.unlink(missing_ok=True)
 
         update_run_state(
             cfg,
@@ -278,15 +275,20 @@ def _execute_snakemake_workflow(
             attempt_number=attempt_number,
         )
         engine_stage = "run"
-        run_result = engine.run(
+        run_result, rule_event_projection = run_snakemake_with_rule_events(
+            cfg,
+            engine,
             snakefile=snakefile,
             work_dir=work_dir,
             config_path=config_path,
+            event_log_path=snakemake_event_log,
+            stdout_log=stdout_log,
+            stderr_log=stderr_log,
+            run_id=run_id,
+            attempt_id=attempt_id,
+            lease_generation=lease_generation,
+            attempt_number=attempt_number,
         )
-        stdout_log.write_text(run_result.stdout or "", encoding="utf-8")
-        stderr_log.write_text(run_result.stderr or "", encoding="utf-8")
-        append_log_lines(cfg, run_id, "stdout", [line for line in run_result.stdout.splitlines() if line])
-        append_log_lines(cfg, run_id, "stderr", [line for line in run_result.stderr.splitlines() if line])
         if run_result.returncode != 0:
             if should_cancel_attempt is not None and should_cancel_attempt():
                 _mark_cancelled(
@@ -299,14 +301,15 @@ def _execute_snakemake_workflow(
                     lease_generation=lease_generation,
                 )
                 return
-            mark_run_rules_failed(
-                cfg,
-                run_id=run_id,
-                attempt_id=attempt_id,
-                lease_generation=lease_generation,
-                attempt_number=attempt_number,
-                stderr=run_result.stderr,
-            )
+            if not rule_event_projection["projected"]:
+                mark_run_rules_failed(
+                    cfg,
+                    run_id=run_id,
+                    attempt_id=attempt_id,
+                    lease_generation=lease_generation,
+                    attempt_number=attempt_number,
+                    stderr=run_result.stderr,
+                )
             _mark_failed(
                 cfg,
                 run_id=run_id,
@@ -320,13 +323,14 @@ def _execute_snakemake_workflow(
             )
             return
 
-        mark_run_rules_succeeded(
-            cfg,
-            run_id=run_id,
-            attempt_id=attempt_id,
-            lease_generation=lease_generation,
-            attempt_number=attempt_number,
-        )
+        if not rule_event_projection["projected"]:
+            mark_run_rules_succeeded(
+                cfg,
+                run_id=run_id,
+                attempt_id=attempt_id,
+                lease_generation=lease_generation,
+                attempt_number=attempt_number,
+            )
         _collect_artifacts(
             cfg,
             run_id,
@@ -388,7 +392,6 @@ def _execute_snakemake_workflow(
             attempt_id=attempt_id,
             lease_generation=lease_generation,
         )
-
 
 def _patched_subprocess_run_command() -> Callable[..., object] | None:
     current = getattr(subprocess, "run")
