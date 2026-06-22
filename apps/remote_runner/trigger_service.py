@@ -4,7 +4,7 @@ import json
 import uuid
 from typing import Any
 
-from .api_models import WorkflowTriggerCreateRequest, WorkflowTriggerEventRequest
+from .api_models import WorkflowTriggerCreateRequest, WorkflowTriggerEventRequest, WorkflowTriggerInboxEventRequest
 from .config import RemoteRunnerConfig
 from .generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
 from .governance_audit import record_governance_audit_event
@@ -107,16 +107,17 @@ def submit_workflow_trigger_event_from_request(
         record_governance_audit_event(
             cfg,
             action="workflow_trigger.dispatch",
+            actor=_dispatch_actor(event.get("payload") if isinstance(event.get("payload"), dict) else {}),
             subject_kind="workflow_trigger_event",
             subject_id=str(event["triggerEventId"]),
-            details={
-                "triggerId": trigger_id,
-                "sourceType": source_type,
-                "eventType": event["eventType"],
-                "runId": str(dispatch["runId"]),
-                "dispatchState": str(dispatch.get("state") or ""),
-                "replayed": True,
-            },
+            details=_dispatch_details(
+                trigger_id=trigger_id,
+                source_type=source_type,
+                event=event,
+                run_id=str(dispatch["runId"]),
+                dispatch_state=str(dispatch.get("state") or ""),
+                replayed=True,
+            ),
         )
         return {
             "data": {
@@ -159,16 +160,17 @@ def submit_workflow_trigger_event_from_request(
         record_governance_audit_event(
             cfg,
             action="workflow_trigger.dispatch",
+            actor=_dispatch_actor(event.get("payload") if isinstance(event.get("payload"), dict) else {}),
             subject_kind="workflow_trigger_event",
             subject_id=str(event["triggerEventId"]),
-            details={
-                "triggerId": trigger_id,
-                "sourceType": source_type,
-                "eventType": event["eventType"],
-                "runId": str(run_create.run["runId"]),
-                "dispatchState": "submitted",
-                "replayed": not run_create.created,
-            },
+            details=_dispatch_details(
+                trigger_id=trigger_id,
+                source_type=source_type,
+                event=event,
+                run_id=str(run_create.run["runId"]),
+                dispatch_state="submitted",
+                replayed=not run_create.created,
+            ),
         )
         return {
             "data": {
@@ -194,19 +196,36 @@ def submit_workflow_trigger_event_from_request(
         record_governance_audit_event(
             cfg,
             action="workflow_trigger.dispatch",
+            actor=_dispatch_actor(event.get("payload") if isinstance(event.get("payload"), dict) else {}),
             subject_kind="workflow_trigger_event",
             subject_id=str(event["triggerEventId"]),
             decision="error",
             reason_code="WORKFLOW_TRIGGER_DISPATCH_FAILED",
-            details={
-                "triggerId": trigger_id,
-                "sourceType": source_type,
-                "eventType": event["eventType"],
-                "dispatchState": "failed",
-                "errorType": exc.__class__.__name__,
-            },
+            details=_dispatch_details(
+                trigger_id=trigger_id,
+                source_type=source_type,
+                event=event,
+                dispatch_state="failed",
+                error_type=exc.__class__.__name__,
+            ),
         )
         raise
+
+
+def submit_workflow_trigger_inbox_event_from_request(
+    cfg: RemoteRunnerConfig,
+    trigger_id: str,
+    request: WorkflowTriggerInboxEventRequest,
+) -> dict[str, Any]:
+    trigger = require_workflow_trigger(cfg, trigger_id)
+    source_type = str(trigger.get("sourceType") or "")
+    if source_type != "webhook":
+        raise ValueError(f"WORKFLOW_TRIGGER_INBOX_SOURCE_MISMATCH: {source_type}")
+    return submit_workflow_trigger_event_from_request(
+        cfg,
+        trigger_id,
+        _inbox_event_request(request),
+    )
 
 
 def _validate_trigger_run_spec(cfg: RemoteRunnerConfig, run_spec: dict[str, Any]):
@@ -237,3 +256,77 @@ def _enforce_payload_size(payload: dict[str, Any]) -> None:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     if len(encoded) > TRIGGER_EVENT_PAYLOAD_MAX_BYTES:
         raise ValueError("WORKFLOW_TRIGGER_EVENT_PAYLOAD_TOO_LARGE")
+
+
+def _inbox_event_request(request: WorkflowTriggerInboxEventRequest) -> WorkflowTriggerEventRequest:
+    source = _required_text(request.source, "WORKFLOW_TRIGGER_INBOX_SOURCE_REQUIRED")
+    event_id = _required_text(request.eventId, "WORKFLOW_TRIGGER_INBOX_EVENT_ID_REQUIRED")
+    correlation_id = str(request.correlationId or "").strip()
+    actor = str(request.actor or "").strip()
+    external_event_id = f"{source}:{event_id}"
+    context = {
+        "source": source,
+        "eventId": event_id,
+        **({"correlationId": correlation_id} if correlation_id else {}),
+        **({"actor": actor} if actor else {}),
+    }
+    return WorkflowTriggerEventRequest(
+        eventType=str(request.eventType or "webhook"),
+        externalEventId=external_event_id,
+        idempotencyKey=f"webhook:{source}:{event_id}",
+        cursor=str(request.cursor or external_event_id),
+        payload={
+            "eventContext": context,
+            "payload": request_payload(request).get("payload") or {},
+        },
+    )
+
+
+def _event_context_from_payload(payload: dict[str, Any]) -> dict[str, str]:
+    raw = payload.get("eventContext") if isinstance(payload, dict) else None
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        key: value
+        for key in ("source", "eventId", "correlationId", "actor")
+        if (value := str(raw.get(key) or "").strip())
+    }
+
+
+def _dispatch_actor(payload: dict[str, Any]) -> str:
+    return _event_context_from_payload(payload).get("actor") or "remote-runner-api"
+
+
+def _dispatch_details(
+    *,
+    trigger_id: str,
+    source_type: str,
+    event: dict[str, Any],
+    dispatch_state: str,
+    replayed: bool | None = None,
+    run_id: str | None = None,
+    error_type: str | None = None,
+) -> dict[str, Any]:
+    details: dict[str, Any] = {
+        "triggerId": trigger_id,
+        "sourceType": source_type,
+        "eventType": event["eventType"],
+        "dispatchState": dispatch_state,
+    }
+    if run_id:
+        details["runId"] = run_id
+    if replayed is not None:
+        details["replayed"] = replayed
+    if error_type:
+        details["errorType"] = error_type
+    event_context = _event_context_from_payload(event.get("payload") if isinstance(event.get("payload"), dict) else {})
+    if event_context:
+        details["eventContext"] = event_context
+    return details
+
+
+def _required_text(value: Any, code: str) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        raise ValueError(code)
+    return normalized

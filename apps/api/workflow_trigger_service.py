@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from apps.api.models import WorkflowTriggerCreateRequest, WorkflowTriggerEventRequest
+from apps.api.models import WorkflowTriggerCreateRequest, WorkflowTriggerEventRequest, WorkflowTriggerInboxEventRequest
 from apps.api.response_cache import invalidate_response_cache
 from apps.api.route_utils import cached_runtime_payload, request_payload, run_runtime_payload, runtime_service
 
@@ -83,6 +83,31 @@ async def submit_workflow_trigger_event_from_request(
     )
 
 
+async def submit_workflow_trigger_inbox_event_from_request(
+    trigger_id: str,
+    request: WorkflowTriggerInboxEventRequest,
+    *,
+    server_id: str | None,
+) -> WorkflowTriggerDispatch:
+    result = await run_runtime_payload(
+        lambda: runtime_service().submit_workflow_trigger_inbox_event(
+            trigger_id,
+            request_payload(request),
+            server_id=server_id,
+        ),
+        wrapper="raw",
+    )
+    await invalidate_response_cache("runs", prefixes=("workflow_trigger_events",))
+    return WorkflowTriggerDispatch(
+        payload=result,
+        headers={
+            "Location": str(result["location"]),
+            "Retry-After": str(result["retryAfter"]),
+            "X-Request-Id": str(result["requestId"]),
+        },
+    )
+
+
 async def submit_workflow_trigger_event_response_from_request(
     trigger_id: str,
     request: WorkflowTriggerEventRequest,
@@ -91,6 +116,22 @@ async def submit_workflow_trigger_event_response_from_request(
     server_id: str | None,
 ) -> dict[str, Any]:
     dispatch = await submit_workflow_trigger_event_from_request(
+        trigger_id,
+        request,
+        server_id=server_id,
+    )
+    response.headers.update(dispatch.headers)
+    return dispatch.payload
+
+
+async def submit_workflow_trigger_inbox_event_response_from_request(
+    trigger_id: str,
+    request: WorkflowTriggerInboxEventRequest,
+    response: ResponseWithHeaders,
+    *,
+    server_id: str | None,
+) -> dict[str, Any]:
+    dispatch = await submit_workflow_trigger_inbox_event_from_request(
         trigger_id,
         request,
         server_id=server_id,

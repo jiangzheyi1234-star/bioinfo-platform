@@ -24,6 +24,14 @@ class RunnerExecutionOperationsMixin:
     ) -> dict[str, Any]:
         return self.execution.submit_workflow_trigger_event(trigger_id, payload, server_id)
 
+    def submit_workflow_trigger_inbox_event(
+        self,
+        trigger_id: str,
+        payload: Optional[dict[str, Any]] = None,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return self.execution.submit_workflow_trigger_inbox_event(trigger_id, payload, server_id)
+
     def list_workflow_trigger_events(
         self,
         trigger_id: str,

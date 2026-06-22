@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from apps.remote_runner.api_models import WorkflowTriggerCreateRequest, WorkflowTriggerEventRequest
+from apps.remote_runner.api_models import (
+    WorkflowTriggerCreateRequest,
+    WorkflowTriggerEventRequest,
+    WorkflowTriggerInboxEventRequest,
+)
 from apps.remote_runner.errors import IdempotencyKeyReusedError
 from apps.remote_runner.execution_query_storage import fetch_run
 from apps.remote_runner.governance_audit import list_governance_audit_events
@@ -11,6 +15,7 @@ from apps.remote_runner.trigger_service import (
     create_workflow_trigger_from_request,
     list_workflow_trigger_events_from_storage,
     submit_workflow_trigger_event_from_request,
+    submit_workflow_trigger_inbox_event_from_request,
 )
 from tests.helpers.reference_database import make_configured_remote_runner
 
@@ -224,6 +229,114 @@ def test_trigger_event_dedupe_key_rejects_different_payload(
                 cursor=request.cursor,
                 payload={"scheduledAt": "2026-06-23T02:00:00Z", "changed": True},
             ),
+        )
+
+
+def test_webhook_inbox_event_dispatches_run_with_context_and_dedupes(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_execution_admission_ready", lambda _cfg: None)
+
+    trigger = _create_trigger(
+        cfg,
+        source_type="webhook",
+        trigger_spec={"provider": "instrument-qc"},
+    )
+    request = WorkflowTriggerInboxEventRequest(
+        eventType="dataset.ready",
+        source="instrument-qc",
+        eventId="evt_001",
+        correlationId="batch_42",
+        actor="instrument-agent",
+        cursor="batch_42:evt_001",
+        payload={"dataset": "reads.fastq"},
+    )
+
+    first = submit_workflow_trigger_inbox_event_from_request(cfg, trigger["triggerId"], request)
+    event = first["data"]["event"]
+    run_id = first["data"]["run"]["runId"]
+
+    assert first["data"]["replayed"] is False
+    assert event["sourceType"] == "webhook"
+    assert event["eventType"] == "dataset.ready"
+    assert event["externalEventId"] == "instrument-qc:evt_001"
+    assert event["idempotencyKey"] == "webhook:instrument-qc:evt_001"
+    assert event["cursor"] == "batch_42:evt_001"
+    assert event["payload"] == {
+        "eventContext": {
+            "source": "instrument-qc",
+            "eventId": "evt_001",
+            "correlationId": "batch_42",
+            "actor": "instrument-agent",
+        },
+        "payload": {"dataset": "reads.fastq"},
+    }
+    run = fetch_run(cfg, run_id)
+    assert run is not None
+    assert run["trigger"] == {
+        "triggerId": trigger["triggerId"],
+        "triggerEventId": event["triggerEventId"],
+        "source": "webhook",
+        "cursor": "batch_42:evt_001",
+    }
+
+    replay = submit_workflow_trigger_inbox_event_from_request(cfg, trigger["triggerId"], request)
+    assert replay["data"]["replayed"] is True
+    assert replay["data"]["event"]["triggerEventId"] == event["triggerEventId"]
+    assert replay["data"]["run"]["runId"] == run_id
+
+    dispatch_audit_events = list_governance_audit_events(cfg, action="workflow_trigger.dispatch")["items"]
+    assert [item["actor"] for item in dispatch_audit_events] == ["instrument-agent", "instrument-agent"]
+    assert [item["details"]["replayed"] for item in dispatch_audit_events] == [False, True]
+    assert dispatch_audit_events[0]["details"]["eventContext"] == {
+        "source": "instrument-qc",
+        "eventId": "evt_001",
+        "correlationId": "batch_42",
+        "actor": "instrument-agent",
+    }
+
+
+@pytest.mark.parametrize(
+    ("source_type", "trigger_spec"),
+    [
+        ("manual", {"mode": "manual"}),
+        ("cron", {"cron": "0 2 * * *", "timezone": "UTC"}),
+    ],
+)
+def test_webhook_inbox_rejects_non_webhook_trigger(
+    source_type: str,
+    trigger_spec: dict[str, object],
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+
+    trigger = _create_trigger(cfg, source_type=source_type, trigger_spec=trigger_spec)
+    with pytest.raises(ValueError, match=f"WORKFLOW_TRIGGER_INBOX_SOURCE_MISMATCH: {source_type}"):
+        submit_workflow_trigger_inbox_event_from_request(
+            cfg,
+            trigger["triggerId"],
+            WorkflowTriggerInboxEventRequest(source="instrument-qc", eventId="evt_001"),
+        )
+
+
+def test_webhook_inbox_rejects_missing_identity(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+
+    webhook_trigger = _create_trigger(cfg, source_type="webhook", trigger_spec={"provider": "instrument-qc"})
+    with pytest.raises(ValueError, match="WORKFLOW_TRIGGER_INBOX_EVENT_ID_REQUIRED"):
+        submit_workflow_trigger_inbox_event_from_request(
+            cfg,
+            webhook_trigger["triggerId"],
+            WorkflowTriggerInboxEventRequest(source="instrument-qc", eventId=" "),
         )
 
 

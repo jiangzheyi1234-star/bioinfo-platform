@@ -6,12 +6,13 @@ from typing import Any
 
 from fastapi import APIRouter, Response
 
-from apps.api.models import WorkflowTriggerCreateRequest, WorkflowTriggerEventRequest
+from apps.api.models import WorkflowTriggerCreateRequest, WorkflowTriggerEventRequest, WorkflowTriggerInboxEventRequest
 from apps.api.workflow_trigger_service import (
     create_workflow_trigger_from_request,
     list_workflow_trigger_events_from_request,
     list_workflow_triggers_from_request,
     submit_workflow_trigger_event_response_from_request,
+    submit_workflow_trigger_inbox_event_response_from_request,
 )
 
 
@@ -55,6 +56,21 @@ async def submit_workflow_trigger_event(
     serverId: str | None = None,
 ) -> dict[str, Any]:
     return await submit_workflow_trigger_event_response_from_request(
+        trigger_id,
+        payload,
+        response,
+        server_id=serverId,
+    )
+
+
+@router.post("/api/v1/workflow-triggers/{trigger_id}/inbox", status_code=202)
+async def submit_workflow_trigger_inbox_event(
+    trigger_id: str,
+    payload: WorkflowTriggerInboxEventRequest,
+    response: Response,
+    serverId: str | None = None,
+) -> dict[str, Any]:
+    return await submit_workflow_trigger_inbox_event_response_from_request(
         trigger_id,
         payload,
         response,

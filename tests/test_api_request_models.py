@@ -16,6 +16,7 @@ from apps.api.models import (
     WorkflowDesignDraftCompileRequest,
     WorkflowTriggerCreateRequest,
     WorkflowTriggerEventRequest,
+    WorkflowTriggerInboxEventRequest,
 )
 
 
@@ -209,6 +210,32 @@ def test_workflow_trigger_event_request_rejects_unknown_delivery_fields() -> Non
         WorkflowTriggerEventRequest.model_validate({"eventType": "manual", "legacyPayload": {}})
 
     assert exc_info.value.errors()[0]["type"] == "extra_forbidden"
+
+
+def test_workflow_trigger_inbox_event_request_is_strict_and_requires_event_identity() -> None:
+    request = WorkflowTriggerInboxEventRequest.model_validate(
+        {
+            "eventType": "dataset.ready",
+            "source": "instrument-qc",
+            "eventId": "evt_001",
+            "correlationId": "batch_42",
+            "actor": "instrument-agent",
+            "cursor": "batch_42:evt_001",
+            "payload": {"dataset": "reads.fastq"},
+        }
+    )
+
+    assert request.source == "instrument-qc"
+    assert request.eventId == "evt_001"
+    assert request.correlationId == "batch_42"
+    assert request.payload == {"dataset": "reads.fastq"}
+
+    with pytest.raises(ValidationError) as exc_info:
+        WorkflowTriggerInboxEventRequest.model_validate({"source": "instrument-qc", "legacyPayload": {}})
+
+    errors = exc_info.value.errors()
+    assert any(error["type"] == "missing" and error["loc"] == ("eventId",) for error in errors)
+    assert any(error["type"] == "extra_forbidden" and error["loc"] == ("legacyPayload",) for error in errors)
 
 
 def test_workflow_design_compile_request_is_strict() -> None:

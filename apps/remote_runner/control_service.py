@@ -10,6 +10,7 @@ from .api_models import (
     UploadCreateRequest,
     WorkflowTriggerCreateRequest,
     WorkflowTriggerEventRequest,
+    WorkflowTriggerInboxEventRequest,
 )
 from .config import RemoteRunnerConfig, dump_public_config
 from .execution_diagnostics import build_execution_diagnostics
@@ -44,6 +45,7 @@ from .trigger_service import (
     list_workflow_trigger_events_from_storage,
     list_workflow_triggers_from_storage,
     submit_workflow_trigger_event_from_request,
+    submit_workflow_trigger_inbox_event_from_request,
 )
 from .upload_service import persist_upload_from_request
 
@@ -153,6 +155,15 @@ async def submit_workflow_trigger_event_request(
 ) -> dict[str, Any]:
     cfg = await _authorized_config_from_request(authorization)
     return await run_sync(submit_workflow_trigger_event_from_request, cfg, trigger_id, payload)
+
+
+async def submit_workflow_trigger_inbox_event_request(
+    trigger_id: str,
+    payload: WorkflowTriggerInboxEventRequest,
+    authorization: str | None,
+) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization)
+    return await run_sync(submit_workflow_trigger_inbox_event_from_request, cfg, trigger_id, payload)
 
 
 async def list_workflow_trigger_events_request(

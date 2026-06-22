@@ -235,6 +235,7 @@ Progress:
 - Manual and triggered run submission share the same durable run creation, admission, run job enqueue, and trigger provenance stamping path.
 - Cron trigger definitions can now be evaluated by a remote-runner scheduler supervisor. Each due cron tick creates a stable immutable trigger event keyed by trigger id and scheduled UTC instant, then dispatches through the existing workflow trigger service.
 - Cron tick replay is deduplicated by the existing trigger event and run idempotency stores; repeated scheduler evaluation for the same scheduled instant returns the existing event/run rather than creating another run.
+- Webhook/event inbox ingestion now has a dedicated strict API route that requires `source` and `eventId`, keeps `correlationId` as grouping metadata, records an immutable trigger event envelope, and dispatches through the same workflow trigger service path.
 - Dataset, file, and database-ready trigger launches still fail loudly until sensor/cursor/resource readiness semantics are modeled instead of guessed.
 
 Recommended sequence:
@@ -247,6 +248,7 @@ Recommended sequence:
 6. Defer dataset/file/database-ready watchers until Phase 5 has stable artifact identity, lineage anchoring, and cache keys.
 7. Defer backfill launch beyond manual preview until artifact lineage and trigger provenance are stable enough to deduplicate safely.
 8. Add backfill preview and launch model with ranges, partitions/windows, concurrency limits, and provenance only after those prerequisites are met.
+9. Add a first-class inbox table, provider signature adapters, event matching rules, replay/dead-letter UI, and rate-limit/retry policy only after the thin webhook envelope proves stable.
 
 Representative files:
 

@@ -124,6 +124,7 @@ def test_remote_runner_control_plane_services_use_async_thread_boundary() -> Non
         "create_workflow_trigger_request",
         "list_workflow_triggers_request",
         "submit_workflow_trigger_event_request",
+        "submit_workflow_trigger_inbox_event_request",
         "list_workflow_trigger_events_request",
     )
 
@@ -163,17 +164,20 @@ def test_workflow_trigger_routes_delegate_to_service() -> None:
     assert "create_run_record" not in route_source
     assert "return await create_workflow_trigger_request(" in route_source
     assert "return await submit_workflow_trigger_event_request(" in route_source
+    assert "return await submit_workflow_trigger_inbox_event_request(" in route_source
 
     for name in (
         "create_workflow_trigger_request",
         "list_workflow_triggers_request",
         "submit_workflow_trigger_event_request",
+        "submit_workflow_trigger_inbox_event_request",
         "list_workflow_trigger_events_request",
     ):
         assert f"async def {name}(" in control_source
 
     assert "def create_workflow_trigger_from_request(" in service_source
     assert "def submit_workflow_trigger_event_from_request(" in service_source
+    assert "def submit_workflow_trigger_inbox_event_from_request(" in service_source
     assert "record_workflow_trigger_event(" in service_source
     assert "create_run_record(" in service_source
     assert "WORKFLOW_TRIGGER_SOURCE_LAUNCH_UNSUPPORTED" in service_source

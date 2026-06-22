@@ -114,6 +114,16 @@ class WorkflowTriggerEventRequest(ApiRequest):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class WorkflowTriggerInboxEventRequest(ApiRequest):
+    eventType: str = Field(default="webhook", min_length=1)
+    source: str = Field(min_length=1)
+    eventId: str = Field(min_length=1)
+    correlationId: str | None = None
+    actor: str | None = None
+    cursor: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
 class ArtifactGcPreviewRequest(ApiRequest):
     serverId: str | None = None
     retentionDays: int = Field(default=30, ge=0)

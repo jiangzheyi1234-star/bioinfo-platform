@@ -9,6 +9,7 @@ from apps.remote_runner.api_models import (
     ToolProductionEvidenceRequest,
     UploadCreateRequest,
     WorkflowDesignDraftCompileRequest,
+    WorkflowTriggerInboxEventRequest,
 )
 
 
@@ -145,6 +146,30 @@ def test_remote_runner_run_request_preserves_run_spec_extensions() -> None:
     assert request.runSpec.pipelineId == "file-summary-v1"
     assert request.model_dump()["runSpec"]["inputs"] == []
     assert request.model_dump()["runSpec"]["workflowRevisionId"] == "wfrev_demo"
+
+
+def test_remote_runner_workflow_trigger_inbox_event_request_is_strict() -> None:
+    request = WorkflowTriggerInboxEventRequest.model_validate(
+        {
+            "eventType": "dataset.ready",
+            "source": "instrument-qc",
+            "eventId": "evt_001",
+            "correlationId": "batch_42",
+            "actor": "instrument-agent",
+            "payload": {"dataset": "reads.fastq"},
+        }
+    )
+
+    assert request.source == "instrument-qc"
+    assert request.eventId == "evt_001"
+    assert request.payload == {"dataset": "reads.fastq"}
+
+    with pytest.raises(ValidationError) as exc_info:
+        WorkflowTriggerInboxEventRequest.model_validate({"eventId": "evt_001", "legacyPayload": {}})
+
+    errors = exc_info.value.errors()
+    assert any(error["type"] == "missing" and error["loc"] == ("source",) for error in errors)
+    assert any(error["type"] == "extra_forbidden" and error["loc"] == ("legacyPayload",) for error in errors)
 
 
 def test_remote_runner_workflow_design_compile_request_rejects_server_id() -> None:
