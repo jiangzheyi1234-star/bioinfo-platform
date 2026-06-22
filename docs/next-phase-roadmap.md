@@ -117,6 +117,12 @@ uv run pytest tests/test_reconciler_active.py tests/test_reconciler_actions.py t
 ### 状态
 
 - Windows 本地核心 UI Gate 已通过（2026-06-14）：18 passed、0 failed、0 skipped。
+- Windows 本地可运行证明已补齐（2026-06-22）：`run.bat --web` 启动成功，API
+  `/health` OK，Web root HTTP 200；`scripts\local_web_smoke.ps1` 通过（workflowCount=7，
+  toolCount=123，databaseCount=29，backendSource=`run.bat:web`）；`npm run test:e2e`
+  21 passed；`npm run lint`、`npm run typecheck`、`npm run build` 通过。
+- 长 Draft 下拉已收敛为可滚动列表，核心 E2E 改用精确 option 选择，避免超长
+  Radix Select 内容溢出视口导致 draft 选择不稳定。
 - 核心 Playwright suite 现在自行创建前置数据：要求 ready runner、`file-summary-v1`
   workflow、WorkflowReady tool；缺失时用 `P0_2_*` 错误显式失败，不再跳过。
 - Draft plan/compile 必须成功并生成 `workflowRevisionId`，再提交并完成对应

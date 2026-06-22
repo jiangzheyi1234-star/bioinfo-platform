@@ -116,8 +116,7 @@ test.describe("Critical UI Workflow Closure", () => {
     await page.goto(`/workflows/detail?workflow=${encodeURIComponent(GENERATED_TOOL_RUN_PIPELINE_ID)}`);
     await expect(page.getByText("工具工作流")).toBeVisible({ timeout: 20_000 });
     await page.getByTestId("workflow-design-draft-select").click();
-    await page.keyboard.type(draftName);
-    await page.keyboard.press("Enter");
+    await page.getByRole("option", { name: draftName, exact: true }).click();
     await expect(page.getByText(record.draftId).first()).toBeVisible({ timeout: 10_000 });
 
     await page.locator("#workflow-files").setInputFiles({
