@@ -170,6 +170,29 @@ def mark_run_rules_succeeded(
     )
 
 
+def mark_run_rules_cached(
+    cfg: RemoteRunnerConfig,
+    *,
+    run_id: str,
+    attempt_id: str | None,
+    lease_generation: int | None,
+    attempt_number: int | None,
+    occurred_at: str | None = None,
+) -> None:
+    _mark_existing_rules(
+        cfg,
+        run_id=run_id,
+        attempt_id=attempt_id,
+        lease_generation=lease_generation,
+        attempt_number=attempt_number,
+        status="succeeded",
+        event_type="rule_cache_hit",
+        message="Rule satisfied from artifact cache.",
+        exit_code=0,
+        occurred_at=occurred_at,
+    )
+
+
 def mark_run_rules_failed(
     cfg: RemoteRunnerConfig,
     *,

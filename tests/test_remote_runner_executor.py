@@ -6,6 +6,8 @@ from pathlib import Path
 
 from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
 from apps.remote_runner.executor import run_snakemake_execution
+from apps.remote_runner.execution_query_storage import fetch_run_results
+from apps.remote_runner.run_worker import process_next_run_job
 from tests.helpers.remote_runner_control_plane import (
     _write_file_summary_pipeline,
 )
@@ -335,3 +337,146 @@ def test_executor_records_attempt_process_group_when_process_starts(tmp_path: Pa
             (claim["attemptId"],),
         ).fetchone()
     assert attempt["process_group_id"] == "4242"
+
+
+def test_run_worker_adopts_artifact_cache_hit_after_dry_run(tmp_path: Path, monkeypatch) -> None:
+    snakemake_command = tmp_path / "tooling" / "workflow-env" / "bin" / "snakemake"
+    cfg = RemoteRunnerConfig(
+        token="phase2-token",
+        data_root=str(tmp_path / "shared"),
+        db_path=str(tmp_path / "shared" / "data" / "runner.db"),
+        uploads_dir=str(tmp_path / "shared" / "uploads"),
+        results_dir=str(tmp_path / "shared" / "results"),
+        work_dir=str(tmp_path / "shared" / "work"),
+        logs_dir=str(tmp_path / "shared" / "logs"),
+        release_dir=str(tmp_path / "release"),
+        snakemake_command=str(snakemake_command),
+    )
+    snakemake_command.parent.mkdir(parents=True, exist_ok=True)
+    snakemake_command.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    _write_file_summary_pipeline(Path(cfg.release_dir))
+    ensure_runtime_layout(cfg)
+
+    from apps.remote_runner.storage import create_run_record, persist_artifact, persist_upload
+    from apps.remote_runner.storage_core import get_connection
+    from apps.remote_runner.workflow_revision_storage import create_or_fetch_workflow_revision
+
+    revision = create_or_fetch_workflow_revision(
+        cfg,
+        draft_id="draft_executor_cache",
+        draft_revision=1,
+        manifest={"files": [{"path": "workflow/Snakefile", "sha256": "executor-cache"}]},
+        graph_snapshot={"nodes": [{"id": "summary", "toolRevisionId": "file-summary#1"}]},
+        runtime_lock={"snakemake": "9.23.1"},
+        compiler={"name": "h2ometa", "version": "executor-cache-test"},
+    )
+    source_upload = persist_upload(
+        cfg,
+        filename="source.fastq",
+        content_base64="QHJlYWQxCkFDR1QKKwohISEhCg==",
+        mime_type="text/plain",
+    )
+    target_upload = persist_upload(
+        cfg,
+        filename="target.fastq",
+        content_base64="QHJlYWQxCkFDR1QKKwohISEhCg==",
+        mime_type="text/plain",
+    )
+    source_spec = {
+        "runId": "run_executor_cache_source",
+        "projectId": "proj_demo",
+        "pipelineId": "file-summary-v1",
+        "workflowRevisionId": revision["workflowRevisionId"],
+        "inputs": [{"uploadId": source_upload["uploadId"], "filename": "source.fastq", "role": "reads"}],
+    }
+    create_run_record(
+        cfg,
+        server_id="srv_demo",
+        request_id="req_executor_cache_source",
+        run_spec=source_spec,
+        idempotency_key="idem_executor_cache_source",
+        payload_hash="source-cache",
+    )
+    source_path = Path(cfg.results_dir) / "run_executor_cache_source" / "done.txt"
+    source_path.parent.mkdir(parents=True)
+    source_path.write_text("cached summary\n", encoding="utf-8")
+    source_artifact = persist_artifact(
+        cfg,
+        run_id="run_executor_cache_source",
+        kind="report",
+        path=source_path,
+        mime_type="text/plain",
+        artifact_key="summary",
+    )
+    with get_connection(cfg) as connection:
+        connection.execute(
+            """
+            UPDATE runs
+            SET status = 'completed',
+                stage = 'complete',
+                finished_at = '2099-06-07T10:00:00Z',
+                last_updated_at = '2099-06-07T10:00:00Z'
+            WHERE run_id = ?
+            """,
+            ("run_executor_cache_source",),
+        )
+        connection.execute(
+            "UPDATE run_jobs SET state = 'completed', updated_at = '2099-06-07T10:00:00Z' WHERE run_id = ?",
+            ("run_executor_cache_source",),
+        )
+        connection.commit()
+    target_spec = {
+        "runId": "run_executor_cache_target",
+        "projectId": "proj_demo",
+        "pipelineId": "file-summary-v1",
+        "workflowRevisionId": revision["workflowRevisionId"],
+        "inputs": [{"uploadId": target_upload["uploadId"], "filename": "target.fastq", "role": "reads"}],
+    }
+    create_run_record(
+        cfg,
+        server_id="srv_demo",
+        request_id="req_executor_cache_target",
+        run_spec=target_spec,
+        idempotency_key="idem_executor_cache_target",
+        payload_hash="target-cache",
+    )
+    calls: list[list[str]] = []
+
+    class Result:
+        returncode = 0
+        stdout = "dry run ok"
+        stderr = ""
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return Result()
+
+    monkeypatch.setattr("apps.remote_runner.executor.subprocess.run", fake_run)
+
+    worker_result = process_next_run_job(
+        cfg,
+        worker_id="worker_cache_hit",
+        heartbeat_interval_seconds=0,
+    )
+
+    results = fetch_run_results(cfg, "run_executor_cache_target")
+    with get_connection(cfg) as connection:
+        run = connection.execute(
+            "SELECT status, stage FROM runs WHERE run_id = ?",
+            ("run_executor_cache_target",),
+        ).fetchone()
+        attempt = connection.execute(
+            "SELECT state, output_adoption_state FROM run_attempts WHERE run_id = ?",
+            ("run_executor_cache_target",),
+        ).fetchone()
+
+    assert worker_result["claimed"] is True
+    assert worker_result["attemptCompletion"]["state"] == "succeeded"
+    assert len(calls) == 1
+    assert "-n" in calls[0]
+    assert run["status"] == "completed"
+    assert run["stage"] == "cache"
+    assert attempt["state"] == "succeeded"
+    assert attempt["output_adoption_state"] == "adopted"
+    assert results["artifacts"][0]["artifactId"] != source_artifact["artifactId"]
+    assert results["artifacts"][0]["sha256"] == source_artifact["sha256"]

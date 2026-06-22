@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .config import RemoteRunnerConfig
 from .executor_artifacts import _collect_artifacts
+from .executor_cache import try_complete_from_artifact_cache
 from .executor_inputs import _build_run_outputs, _resolve_run_inputs
 from .executor_outcomes import _mark_cancelled, _mark_failed
 from .executor_paths import (
@@ -242,6 +243,21 @@ def _execute_snakemake_workflow(
                 attempt_id=attempt_id,
                 lease_generation=lease_generation,
             )
+            return
+
+        cache_adoption = try_complete_from_artifact_cache(
+            cfg,
+            run_id=run_id,
+            request_id=request_id,
+            run_spec=run_spec,
+            output_schema=output_schema,
+            run_outputs=run_outputs,
+            attempt_id=attempt_id,
+            lease_generation=lease_generation,
+            attempt_number=attempt_number,
+            result_dir=str(result_dir),
+        )
+        if cache_adoption["adopted"]:
             return
 
         update_run_state(

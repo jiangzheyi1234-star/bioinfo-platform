@@ -261,7 +261,7 @@ Progress:
 - Current GC protection covers non-terminal runs, active jobs/leases/attempts, pending candidate outputs, exported result packages, production-evidence runs, unmanaged local paths, unmanaged S3 prefixes, unsupported storage backends, and directory payloads.
 - Artifact cache indexing now records conservative exact cache keys for WorkflowRevision-backed artifacts. Keys include workflow revision, artifact key, role/step, content digests for upload-backed inputs, and digests of params, resource bindings, and execution options. `/api/v1/artifacts/cache/entries` lists entries, and `/cache/lookup` verifies the referenced object still exists and matches size/SHA-256 before returning a hit.
 - Artifact lineage now stamps `workflow_revision_id` for direct persist and candidate-adoption artifact publication, so cache and result audit surfaces can join a blob back to the immutable workflow contract.
-- Cache lookup is traceable through `artifact.cache.lookup.v1` evidence. Executor-level automatic rule skipping remains pending until per-rule cache eligibility, cache pinning, and restore/materialization semantics are explicit.
+- Cache lookup is traceable through `artifact.cache.lookup.v1` evidence. After a successful dry-run, the worker can now adopt a full set of cache-hit output artifacts into the current attempt, write `artifact.cache.adopt.v1` evidence, mark rules as cache-hit succeeded, and skip the expensive Snakemake run. Per-rule partial restore, downstream file staging, cache pinning, and directory package restore semantics remain pending.
 
 Recommended sequence:
 
@@ -270,7 +270,7 @@ Recommended sequence:
 3. Add artifact download/preview through adapters instead of direct local path reads.
 4. Implement S3/MinIO-compatible adapter after local adapter tests pass. File artifact support is in place; directory manifest/package support remains pending.
 5. Anchor lineage to WorkflowRevision and input artifact edges.
-6. Extend cache lookup into opt-in rule restore only after cache eligibility, cache pinning, and restore materialization are represented in run events.
+6. Extend full-output cache adoption into per-rule restore only after per-rule cache eligibility, cache pinning, and downstream file staging/materialization are represented in run events.
 7. Extend lifecycle from manual usage/preview/run into a background TTL/quota controller once durable package and cache-pin policies are finalized.
 8. Add evidence package export with manifest, runSpec, WorkflowRevision, lineage, events, artifact checksums, and optional artifacts.
 

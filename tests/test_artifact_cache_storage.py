@@ -4,15 +4,21 @@ import base64
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from apps.remote_runner.artifact_cache_storage import (
     list_artifact_cache_entries,
     lookup_artifact_cache_entry,
 )
+from apps.remote_runner.artifact_cache_adoption import try_adopt_cached_outputs
 from apps.remote_runner.artifact_lifecycle_service import ARTIFACT_GC_CONFIRMATION, run_artifact_gc
 from apps.remote_runner.evidence_storage import list_evidence_events
+from apps.remote_runner.execution_query_storage import fetch_run_results
+from apps.remote_runner.run_execution_storage import claim_next_run_job
 from apps.remote_runner.storage import create_run_record, persist_artifact
 from apps.remote_runner.upload_storage import persist_upload
 from apps.remote_runner.storage_core import get_connection
+from apps.remote_runner.workflow_run_storage import StaleRunAttemptError
 from apps.remote_runner.workflow_revision_storage import create_or_fetch_workflow_revision
 from tests.helpers.reference_database import make_configured_remote_runner
 
@@ -188,6 +194,139 @@ def test_artifact_cache_marks_entry_deleted_after_gc(tmp_path: Path) -> None:
     assert lookup["reason"] == "cache_entry_not_active"
 
 
+def test_artifact_cache_hit_adopts_cached_artifact_for_current_attempt(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    revision = _create_revision(cfg)
+    source_spec = _run_spec("run_cache_source", revision["workflowRevisionId"])
+    target_spec = _run_spec("run_cache_adopt", revision["workflowRevisionId"])
+    _create_terminal_run(cfg, source_spec)
+    source = persist_artifact(
+        cfg,
+        run_id="run_cache_source",
+        kind="report",
+        path=_managed_report(cfg, "run_cache_source", b"reused output\n"),
+        mime_type="text/plain",
+        artifact_key="report",
+        step_id="summarize",
+    )
+    claim = _create_active_attempt(cfg, target_spec)
+
+    adopted = try_adopt_cached_outputs(
+        cfg,
+        run_id="run_cache_adopt",
+        request_id="req_run_cache_adopt",
+        run_spec=target_spec,
+        output_schema=_output_schema(),
+        outputs={"report": str(Path(cfg.results_dir) / "run_cache_adopt" / "report.txt")},
+        attempt_id=claim["attemptId"],
+        lease_generation=claim["leaseGeneration"],
+        result_dir=str(Path(cfg.results_dir) / "run_cache_adopt"),
+    )
+
+    results = fetch_run_results(cfg, "run_cache_adopt")
+    events = list_evidence_events(cfg, event_type="artifact.cache.adopt.v1")
+    with get_connection(cfg) as connection:
+        run = connection.execute(
+            "SELECT status, stage FROM runs WHERE run_id = ?",
+            ("run_cache_adopt",),
+        ).fetchone()
+        attempt = connection.execute(
+            "SELECT output_adoption_state FROM run_attempts WHERE attempt_id = ?",
+            (claim["attemptId"],),
+        ).fetchone()
+        lineage = connection.execute(
+            "SELECT predicate, workflow_revision_id FROM lineage_edges WHERE run_id = ?",
+            ("run_cache_adopt",),
+        ).fetchone()
+
+    assert adopted["adopted"] is True
+    assert adopted["reason"] == "cache_hit"
+    assert adopted["artifactIds"] == [results["artifacts"][0]["artifactId"]]
+    assert results["artifacts"][0]["artifactId"] != source["artifactId"]
+    assert results["artifacts"][0]["sha256"] == source["sha256"]
+    assert results["artifacts"][0]["storageUri"] == source["storageUri"]
+    assert run["status"] == "completed"
+    assert run["stage"] == "cache"
+    assert attempt["output_adoption_state"] == "adopted"
+    assert lineage["predicate"] == "h2ometa:cache_adopted"
+    assert lineage["workflow_revision_id"] == revision["workflowRevisionId"]
+    assert events[-1]["payload"]["sourceArtifactId"] == source["artifactId"]
+    assert events[-1]["payload"]["artifactId"] == results["artifacts"][0]["artifactId"]
+
+
+def test_artifact_cache_adoption_skips_when_cached_payload_is_unavailable(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    revision = _create_revision(cfg)
+    source_spec = _run_spec("run_cache_source_missing_payload", revision["workflowRevisionId"])
+    target_spec = _run_spec("run_cache_adopt_missing_payload", revision["workflowRevisionId"])
+    _create_terminal_run(cfg, source_spec)
+    source_path = _managed_report(cfg, "run_cache_source_missing_payload", b"missing later\n")
+    persist_artifact(
+        cfg,
+        run_id="run_cache_source_missing_payload",
+        kind="report",
+        path=source_path,
+        mime_type="text/plain",
+        artifact_key="report",
+        step_id="summarize",
+    )
+    source_path.unlink()
+    claim = _create_active_attempt(cfg, target_spec)
+
+    adopted = try_adopt_cached_outputs(
+        cfg,
+        run_id="run_cache_adopt_missing_payload",
+        request_id="req_run_cache_adopt_missing_payload",
+        run_spec=target_spec,
+        output_schema=_output_schema(),
+        outputs={"report": str(Path(cfg.results_dir) / "run_cache_adopt_missing_payload" / "report.txt")},
+        attempt_id=claim["attemptId"],
+        lease_generation=claim["leaseGeneration"],
+        result_dir=str(Path(cfg.results_dir) / "run_cache_adopt_missing_payload"),
+    )
+
+    assert adopted["adopted"] is False
+    assert adopted["reason"] == "cache_miss"
+    assert adopted["misses"][0]["reason"] == "artifact_unavailable"
+    assert fetch_run_results(cfg, "run_cache_adopt_missing_payload")["artifacts"] == []
+
+
+def test_artifact_cache_adoption_rejects_stale_lease_before_lookup(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    revision = _create_revision(cfg)
+    source_spec = _run_spec("run_cache_source_stale", revision["workflowRevisionId"])
+    target_spec = _run_spec("run_cache_adopt_stale", revision["workflowRevisionId"])
+    _create_terminal_run(cfg, source_spec)
+    persist_artifact(
+        cfg,
+        run_id="run_cache_source_stale",
+        kind="report",
+        path=_managed_report(cfg, "run_cache_source_stale", b"stale lease\n"),
+        mime_type="text/plain",
+        artifact_key="report",
+        step_id="summarize",
+    )
+    claim = _create_active_attempt(cfg, target_spec)
+    before_events = list_evidence_events(cfg, event_type="artifact.cache.lookup.v1")
+
+    with pytest.raises(StaleRunAttemptError, match="RUN_ATTEMPT_STALE"):
+        try_adopt_cached_outputs(
+            cfg,
+            run_id="run_cache_adopt_stale",
+            request_id="req_run_cache_adopt_stale",
+            run_spec=target_spec,
+            output_schema=_output_schema(),
+            outputs={"report": str(Path(cfg.results_dir) / "run_cache_adopt_stale" / "report.txt")},
+            attempt_id=claim["attemptId"],
+            lease_generation=claim["leaseGeneration"] + 1,
+            result_dir=str(Path(cfg.results_dir) / "run_cache_adopt_stale"),
+        )
+
+    after_events = list_evidence_events(cfg, event_type="artifact.cache.lookup.v1")
+    assert after_events == before_events
+    assert fetch_run_results(cfg, "run_cache_adopt_stale")["artifacts"] == []
+
+
 def _create_revision(cfg) -> dict[str, Any]:
     return create_or_fetch_workflow_revision(
         cfg,
@@ -227,6 +366,19 @@ def _lookup_payload(workflow_revision_id: str, *, inputs: list[dict[str, Any]] |
     }
 
 
+def _output_schema() -> dict[str, Any]:
+    return {
+        "artifacts": [
+            {
+                "key": "report",
+                "kind": "report",
+                "mimeType": "text/plain",
+                "stepId": "summarize",
+            }
+        ]
+    }
+
+
 def _create_terminal_run(cfg, run_spec: dict[str, Any]) -> None:
     create_run_record(
         cfg,
@@ -253,6 +405,25 @@ def _create_terminal_run(cfg, run_spec: dict[str, Any]) -> None:
             (run_spec["runId"],),
         )
         connection.commit()
+
+
+def _create_active_attempt(cfg, run_spec: dict[str, Any]) -> dict[str, Any]:
+    create_run_record(
+        cfg,
+        server_id="srv_cache",
+        request_id=f"req_{run_spec['runId']}",
+        run_spec=run_spec,
+        idempotency_key=f"idem_{run_spec['runId']}",
+        payload_hash=f"hash_{run_spec['runId']}",
+    )
+    claim = claim_next_run_job(
+        cfg,
+        worker_id="worker_cache",
+        now="2099-06-07T10:00:00Z",
+        lease_seconds=30,
+    )
+    assert claim is not None
+    return claim
 
 
 def _managed_report(cfg, run_id: str, payload: bytes) -> Path:
