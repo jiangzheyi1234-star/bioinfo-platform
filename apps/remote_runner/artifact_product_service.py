@@ -7,7 +7,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from .artifact_io import artifact_local_path, artifact_payload_stats, iter_artifact_file_payloads
+from .artifact_io import artifact_record_exists, artifact_record_stats, iter_artifact_file_payloads
 from .config import RemoteRunnerConfig
 from .execution_query_storage import fetch_result, fetch_run_results
 from .governance_audit import record_governance_audit_event
@@ -20,7 +20,7 @@ RESULT_PACKAGE_SCHEMA_VERSION = "h2ometa.result-package.v1"
 def build_result_artifact_audit(cfg: RemoteRunnerConfig, result_id: str) -> dict[str, Any]:
     result = fetch_result(cfg, result_id)
     checked_at = now_iso()
-    audited = [_audit_artifact(artifact) for artifact in result["artifacts"]]
+    audited = [_audit_artifact(cfg, artifact) for artifact in result["artifacts"]]
     failed = [item for item in audited if item["status"] != "passed"]
     return {
         "resultId": result_id,
@@ -52,7 +52,12 @@ def export_result_package(cfg: RemoteRunnerConfig, result_id: str) -> dict[str, 
         created_at=created_at,
     )
     try:
-        _write_result_package(temp_path, manifest=manifest, artifacts=result["artifacts"])
+        _write_result_package(
+            cfg,
+            temp_path,
+            manifest=manifest,
+            artifacts=result["artifacts"],
+        )
         temp_path.replace(package_path)
     except Exception:
         temp_path.unlink(missing_ok=True)
@@ -84,19 +89,18 @@ def export_result_package(cfg: RemoteRunnerConfig, result_id: str) -> dict[str, 
     }
 
 
-def _audit_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
-    path = artifact_local_path(artifact)
+def _audit_artifact(cfg: RemoteRunnerConfig, artifact: dict[str, Any]) -> dict[str, Any]:
     expected_size = int(artifact.get("sizeBytes") or 0)
     expected_sha = str(artifact.get("sha256") or "")
-    exists = path.exists()
+    exists = False
     actual_size: int | None = None
     actual_sha: str | None = None
     error = ""
-    if exists:
-        try:
-            actual_size, actual_sha = artifact_payload_stats(path)
-        except ValueError as exc:
-            error = str(exc)
+    try:
+        exists = artifact_record_exists(cfg, artifact)
+        actual_size, actual_sha = artifact_record_stats(cfg, artifact)
+    except ValueError as exc:
+        error = str(exc)
     status = (
         "passed"
         if exists and not error and actual_size == expected_size and actual_sha == expected_sha
@@ -104,7 +108,7 @@ def _audit_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
     )
     return {
         "artifactId": artifact["artifactId"],
-        "path": str(path),
+        "path": str(artifact.get("path") or ""),
         "storageBackend": artifact["storageBackend"],
         "storageUri": artifact["storageUri"],
         "exists": exists,
@@ -155,6 +159,7 @@ def _result_package_manifest(
 
 
 def _write_result_package(
+    cfg: RemoteRunnerConfig,
     package_path: Path,
     *,
     manifest: dict[str, Any],
@@ -167,12 +172,16 @@ def _write_result_package(
             json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2).encode("utf-8"),
         )
         for artifact in artifacts:
-            _write_artifact_to_zip(archive, artifact)
+            _write_artifact_to_zip(cfg, archive, artifact)
 
 
-def _write_artifact_to_zip(archive: zipfile.ZipFile, artifact: dict[str, Any]) -> None:
+def _write_artifact_to_zip(
+    cfg: RemoteRunnerConfig,
+    archive: zipfile.ZipFile,
+    artifact: dict[str, Any],
+) -> None:
     root = _package_artifact_root(artifact)
-    for relative_path, payload in iter_artifact_file_payloads(artifact):
+    for relative_path, payload in iter_artifact_file_payloads(cfg, artifact):
         _write_zip_bytes(archive, f"{root}/{relative_path}", payload)
 
 

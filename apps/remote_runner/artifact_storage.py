@@ -4,7 +4,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .artifact_io import artifact_payload_stats, local_artifact_location
+from .artifact_io import artifact_payload_stats, persist_artifact_location
 from .config import RemoteRunnerConfig
 from .evidence_storage import append_evidence_event
 from .storage_core import get_connection, now_iso
@@ -27,9 +27,18 @@ def persist_artifact(
 ) -> dict[str, Any]:
     size_bytes, sha256 = artifact_payload_stats(path)
     created_at = now_iso()
-    location = local_artifact_location(path)
+    artifact_id = f"art_{uuid.uuid4().hex[:10]}"
+    location = persist_artifact_location(
+        cfg,
+        path=path,
+        run_id=run_id,
+        artifact_id=artifact_id,
+        sha256=sha256,
+        size_bytes=size_bytes,
+        mime_type=mime_type,
+    )
     artifact = {
-        "artifactId": f"art_{uuid.uuid4().hex[:10]}",
+        "artifactId": artifact_id,
         "runId": run_id,
         "kind": kind,
         "path": str(path),
@@ -117,7 +126,7 @@ def _record_artifact_ledger(
         artifact_blob_id=blob["artifactBlobId"],
         storage_backend=str(artifact["storageBackend"]),
         storage_uri=str(artifact["storageUri"]),
-        local_path=path,
+        local_path=path if artifact["storageBackend"] == "local" else None,
         created_at=str(artifact["createdAt"]),
     )
     edge = record_run_artifact_edge(

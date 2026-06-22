@@ -79,6 +79,14 @@ class RemoteRunnerConfig:
     run_worker_attempt_memory_mb: int = 0
     run_worker_attempt_disk_mb: int = 0
     run_worker_attempt_gpu: int = 0
+    artifact_storage_backend: str = "local"
+    artifact_s3_endpoint: str = ""
+    artifact_s3_bucket: str = ""
+    artifact_s3_region: str = ""
+    artifact_s3_access_key: str = ""
+    artifact_s3_secret_key: str = ""
+    artifact_s3_secure: bool = True
+    artifact_s3_prefix: str = "h2ometa"
 
 def get_config_path() -> Path:
     raw = str(os.environ.get("H2OMETA_REMOTE_CONFIG", "") or "").strip()
@@ -92,7 +100,26 @@ def load_remote_runner_config() -> RemoteRunnerConfig:
         raw = json.loads(path.read_text(encoding="utf-8"))
     cfg = RemoteRunnerConfig(**{key: value for key, value in raw.items() if key in RemoteRunnerConfig.__dataclass_fields__})
     apply_run_worker_env_overrides(cfg)
+    apply_artifact_storage_env_overrides(cfg)
     return cfg
+
+
+def apply_artifact_storage_env_overrides(cfg: RemoteRunnerConfig) -> None:
+    overrides = {
+        "artifact_storage_backend": os.environ.get("H2OMETA_ARTIFACT_STORAGE_BACKEND"),
+        "artifact_s3_endpoint": os.environ.get("H2OMETA_ARTIFACT_S3_ENDPOINT"),
+        "artifact_s3_bucket": os.environ.get("H2OMETA_ARTIFACT_S3_BUCKET"),
+        "artifact_s3_region": os.environ.get("H2OMETA_ARTIFACT_S3_REGION"),
+        "artifact_s3_access_key": os.environ.get("H2OMETA_ARTIFACT_S3_ACCESS_KEY"),
+        "artifact_s3_secret_key": os.environ.get("H2OMETA_ARTIFACT_S3_SECRET_KEY"),
+        "artifact_s3_prefix": os.environ.get("H2OMETA_ARTIFACT_S3_PREFIX"),
+    }
+    for field_name, value in overrides.items():
+        if str(value or "").strip():
+            setattr(cfg, field_name, str(value or "").strip())
+    secure = os.environ.get("H2OMETA_ARTIFACT_S3_SECURE")
+    if str(secure or "").strip():
+        cfg.artifact_s3_secure = str(secure).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def get_runtime_state_path(cfg: RemoteRunnerConfig) -> Path:
@@ -206,4 +233,6 @@ def inspect_runtime_layout(cfg: RemoteRunnerConfig) -> dict[str, bool]:
 def dump_public_config(cfg: RemoteRunnerConfig) -> dict[str, Any]:
     data = asdict(cfg)
     data.pop("token", None)
+    data.pop("artifact_s3_access_key", None)
+    data.pop("artifact_s3_secret_key", None)
     return data

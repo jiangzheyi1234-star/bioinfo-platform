@@ -8,7 +8,7 @@ import sqlite3
 import uuid
 from typing import Any
 
-from .artifact_io import artifact_payload_stats, local_artifact_location
+from .artifact_io import artifact_payload_stats, persist_artifact_location
 from .config import RemoteRunnerConfig
 from .evidence_storage import append_evidence_event
 from .event_contracts import append_run_event_v2
@@ -204,6 +204,7 @@ def adopt_verified_candidate_outputs(
             if expected_sha256 and sha256 != expected_sha256:
                 raise ValueError(f"CANDIDATE_OUTPUT_CHECKSUM_MISMATCH: {output_key}")
             artifact = _adopt_artifact(
+                cfg,
                 connection,
                 run_id=normalized_run_id,
                 attempt_id=normalized_attempt_id,
@@ -317,6 +318,7 @@ def _require_active_lease(
 
 
 def _adopt_artifact(
+    cfg: RemoteRunnerConfig,
     connection: sqlite3.Connection,
     *,
     run_id: str,
@@ -346,7 +348,15 @@ def _adopt_artifact(
         raise ValueError(f"RUN_OUTPUT_ALREADY_ADOPTED: {artifact_key}")
 
     artifact_id = f"art_{uuid.uuid4().hex[:10]}"
-    location = local_artifact_location(path)
+    location = persist_artifact_location(
+        cfg,
+        path=path,
+        run_id=run_id,
+        artifact_id=artifact_id,
+        sha256=sha256,
+        size_bytes=size_bytes,
+        mime_type=mime_type,
+    )
     connection.execute(
         """
         INSERT INTO artifacts (
@@ -396,7 +406,7 @@ def _adopt_artifact(
             blob_id,
             location["storageBackend"],
             location["storageUri"],
-            location["localPath"],
+            location["localPath"] if location["storageBackend"] == "local" else None,
             created_at,
         ),
     )
@@ -445,7 +455,7 @@ def _adopt_artifact(
             "upstreamRunId": str(upstream_run_id or ""),
             "storageBackend": location["storageBackend"],
             "storageUri": location["storageUri"],
-            "localPath": location["localPath"],
+            "localPath": location["localPath"] if location["storageBackend"] == "local" else "",
             "mimeType": mime_type,
             "sizeBytes": size_bytes,
             "sha256": sha256,

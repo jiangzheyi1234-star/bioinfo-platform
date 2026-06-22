@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+from pathlib import PurePosixPath
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
+
+from .config import RemoteRunnerConfig
 
 
 def local_artifact_location(path: Path) -> dict[str, str]:
@@ -13,6 +16,39 @@ def local_artifact_location(path: Path) -> dict[str, str]:
         "storageUri": resolved.as_uri(),
         "localPath": str(resolved),
     }
+
+
+def persist_artifact_location(
+    cfg: RemoteRunnerConfig,
+    *,
+    path: Path,
+    run_id: str,
+    artifact_id: str,
+    sha256: str,
+    size_bytes: int,
+    mime_type: str,
+) -> dict[str, str]:
+    backend = artifact_storage_backend(cfg)
+    if backend == "local":
+        return local_artifact_location(path)
+    if backend == "s3":
+        return _persist_s3_artifact(
+            cfg,
+            path=path,
+            run_id=run_id,
+            artifact_id=artifact_id,
+            sha256=sha256,
+            size_bytes=size_bytes,
+            mime_type=mime_type,
+        )
+    raise ValueError(f"ARTIFACT_STORAGE_BACKEND_UNSUPPORTED: {backend}")
+
+
+def artifact_storage_backend(cfg: RemoteRunnerConfig) -> str:
+    backend = str(cfg.artifact_storage_backend or "local").strip().lower()
+    if backend not in {"local", "s3"}:
+        raise ValueError(f"ARTIFACT_STORAGE_BACKEND_UNSUPPORTED: {backend or 'missing'}")
+    return backend
 
 
 def artifact_local_path(record: dict[str, Any]) -> Path:
@@ -28,15 +64,22 @@ def artifact_local_path(record: dict[str, Any]) -> Path:
     raise ValueError("ARTIFACT_STORAGE_URI_REQUIRED")
 
 
-def read_artifact_preview_text(record: dict[str, Any], *, limit: int) -> tuple[str, bool]:
-    path = artifact_local_path(record)
-    with path.open("rb") as handle:
-        payload = handle.read(limit + 1)
+def read_artifact_preview_text(
+    cfg: RemoteRunnerConfig,
+    record: dict[str, Any],
+    *,
+    limit: int,
+) -> tuple[str, bool]:
+    payload = read_artifact_bytes(cfg, record, limit=limit + 1)
     truncated = len(payload) > limit
     return payload[:limit].decode("utf-8", errors="ignore"), truncated
 
 
-def iter_artifact_file_payloads(record: dict[str, Any]):
+def iter_artifact_file_payloads(cfg: RemoteRunnerConfig, record: dict[str, Any]):
+    storage_backend = str(record.get("storageBackend") or record.get("storage_backend") or "local")
+    if storage_backend == "s3":
+        yield _artifact_filename(record), read_artifact_bytes(cfg, record)
+        return
     path = artifact_local_path(record)
     if path.is_file():
         yield path.name or "artifact", path.read_bytes()
@@ -46,6 +89,46 @@ def iter_artifact_file_payloads(record: dict[str, Any]):
     for child in sorted(path.rglob("*"), key=lambda item: item.relative_to(path).as_posix()):
         if child.is_file():
             yield child.relative_to(path).as_posix(), child.read_bytes()
+
+
+def read_artifact_bytes(
+    cfg: RemoteRunnerConfig,
+    record: dict[str, Any],
+    *,
+    limit: int | None = None,
+) -> bytes:
+    storage_backend = str(record.get("storageBackend") or record.get("storage_backend") or "local")
+    if storage_backend == "local":
+        path = artifact_local_path(record)
+        with path.open("rb") as handle:
+            return handle.read(limit if limit is not None else -1)
+    if storage_backend == "s3":
+        return _read_s3_artifact_bytes(cfg, record, limit=limit)
+    raise ValueError(f"ARTIFACT_STORAGE_BACKEND_UNSUPPORTED: {storage_backend}")
+
+
+def artifact_record_stats(cfg: RemoteRunnerConfig, record: dict[str, Any]) -> tuple[int, str]:
+    storage_backend = str(record.get("storageBackend") or record.get("storage_backend") or "local")
+    if storage_backend == "local":
+        return artifact_payload_stats(artifact_local_path(record))
+    if storage_backend == "s3":
+        payload = _read_s3_artifact_bytes(cfg, record)
+        return len(payload), hashlib.sha256(payload).hexdigest()
+    raise ValueError(f"ARTIFACT_STORAGE_BACKEND_UNSUPPORTED: {storage_backend}")
+
+
+def artifact_record_exists(cfg: RemoteRunnerConfig, record: dict[str, Any]) -> bool:
+    storage_backend = str(record.get("storageBackend") or record.get("storage_backend") or "local")
+    if storage_backend == "local":
+        try:
+            return artifact_local_path(record).exists()
+        except ValueError:
+            return False
+    if storage_backend == "s3":
+        bucket, object_name = _parse_s3_uri(record)
+        _stat_s3_object(cfg, bucket, object_name)
+        return True
+    raise ValueError(f"ARTIFACT_STORAGE_BACKEND_UNSUPPORTED: {storage_backend}")
 
 
 def artifact_payload_stats(path: Path) -> tuple[int, str]:
@@ -97,3 +180,136 @@ def _path_from_file_uri(storage_uri: str) -> Path:
     elif len(path) >= 3 and path[0] == "/" and path[2] == ":":
         path = path[1:]
     return Path(path)
+
+
+def _persist_s3_artifact(
+    cfg: RemoteRunnerConfig,
+    *,
+    path: Path,
+    run_id: str,
+    artifact_id: str,
+    sha256: str,
+    size_bytes: int,
+    mime_type: str,
+) -> dict[str, str]:
+    artifact_path = Path(path)
+    if not artifact_path.is_file():
+        raise ValueError("ARTIFACT_S3_DIRECTORY_UNSUPPORTED")
+    bucket = _required_s3_value(cfg.artifact_s3_bucket, "ARTIFACT_S3_BUCKET_REQUIRED")
+    object_name = _artifact_s3_object_name(cfg, sha256=sha256)
+    metadata = {
+        "X-Amz-Meta-H2OMeta-Artifact-Id": str(artifact_id),
+        "X-Amz-Meta-H2OMeta-Run-Id": str(run_id),
+        "X-Amz-Meta-H2OMeta-Sha256": str(sha256),
+        "X-Amz-Meta-H2OMeta-Size-Bytes": str(int(size_bytes)),
+    }
+    _build_s3_client(cfg).fput_object(
+        bucket,
+        object_name,
+        str(artifact_path),
+        content_type=str(mime_type or "application/octet-stream"),
+        metadata=metadata,
+    )
+    return {
+        "storageBackend": "s3",
+        "storageUri": f"s3://{bucket}/{object_name}",
+        "localPath": "",
+    }
+
+
+def _read_s3_artifact_bytes(
+    cfg: RemoteRunnerConfig,
+    record: dict[str, Any],
+    *,
+    limit: int | None = None,
+) -> bytes:
+    bucket, object_name = _parse_s3_uri(record)
+    response = _get_s3_object(cfg, bucket, object_name)
+    try:
+        if limit is not None:
+            return response.read(limit)
+        chunks: list[bytes] = []
+        while True:
+            chunk = response.read(1024 * 1024)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        return b"".join(chunks)
+    finally:
+        close = getattr(response, "close", None)
+        if callable(close):
+            close()
+        release = getattr(response, "release_conn", None)
+        if callable(release):
+            release()
+
+
+def _stat_s3_object(cfg: RemoteRunnerConfig, bucket: str, object_name: str) -> Any:
+    try:
+        return _build_s3_client(cfg).stat_object(bucket, object_name)
+    except Exception as exc:
+        raise ValueError(f"ARTIFACT_S3_OBJECT_UNAVAILABLE: {exc.__class__.__name__}") from exc
+
+
+def _get_s3_object(cfg: RemoteRunnerConfig, bucket: str, object_name: str) -> Any:
+    try:
+        return _build_s3_client(cfg).get_object(bucket, object_name)
+    except Exception as exc:
+        raise ValueError(f"ARTIFACT_S3_READ_FAILED: {exc.__class__.__name__}") from exc
+
+
+def _artifact_s3_object_name(cfg: RemoteRunnerConfig, *, sha256: str) -> str:
+    prefix = _normalized_s3_prefix(cfg.artifact_s3_prefix)
+    key = f"artifacts/sha256/{sha256[:2]}/{sha256}"
+    return f"{prefix}/{key}" if prefix else key
+
+
+def _normalized_s3_prefix(value: str) -> str:
+    return str(value or "").strip().strip("/")
+
+
+def _parse_s3_uri(record: dict[str, Any]) -> tuple[str, str]:
+    storage_uri = str(record.get("storageUri") or record.get("storage_uri") or "").strip()
+    parsed = urlparse(storage_uri)
+    if parsed.scheme != "s3":
+        raise ValueError(f"ARTIFACT_STORAGE_URI_UNSUPPORTED: {parsed.scheme or 'missing'}")
+    bucket = str(parsed.netloc or "").strip()
+    object_name = unquote(str(parsed.path or "").lstrip("/"))
+    if not bucket or not object_name:
+        raise ValueError("ARTIFACT_STORAGE_URI_REQUIRED")
+    return bucket, object_name
+
+
+def _artifact_filename(record: dict[str, Any]) -> str:
+    local_path = str(record.get("path") or record.get("localPath") or "").strip()
+    if local_path:
+        name = Path(local_path).name
+        if name:
+            return name
+    _, object_name = _parse_s3_uri(record)
+    return PurePosixPath(object_name).name or "artifact"
+
+
+def _build_s3_client(cfg: RemoteRunnerConfig):
+    try:
+        from minio import Minio
+    except ImportError as exc:
+        raise RuntimeError("ARTIFACT_S3_CLIENT_UNAVAILABLE") from exc
+    endpoint = _required_s3_value(cfg.artifact_s3_endpoint, "ARTIFACT_S3_ENDPOINT_REQUIRED")
+    access_key = _required_s3_value(cfg.artifact_s3_access_key, "ARTIFACT_S3_ACCESS_KEY_REQUIRED")
+    secret_key = _required_s3_value(cfg.artifact_s3_secret_key, "ARTIFACT_S3_SECRET_KEY_REQUIRED")
+    region = str(cfg.artifact_s3_region or "").strip() or None
+    return Minio(
+        endpoint,
+        access_key=access_key,
+        secret_key=secret_key,
+        secure=bool(cfg.artifact_s3_secure),
+        region=region,
+    )
+
+
+def _required_s3_value(value: object, code: str) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        raise ValueError(code)
+    return normalized

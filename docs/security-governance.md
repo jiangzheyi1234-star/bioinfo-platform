@@ -57,6 +57,7 @@ of falling back to Desktop.
 - Tracked `.env`, private key, certificate key, or SSH identity files are forbidden unless they are explicit examples.
 - CI runs `scripts/security_governance_audit.py` to scan for high-confidence secret patterns such as private key blocks, cloud keys, GitHub tokens, Slack tokens, and quoted secret assignments.
 - Test canaries and examples are allowed only when they are visibly placeholders.
+- S3/MinIO artifact access keys and secret keys are configuration secrets. Public config, diagnostics, evidence events, and result package manifests must contain only stable object locations such as `s3://bucket/key`, never presigned URLs or raw credentials.
 
 ### Diagnostics Redaction
 

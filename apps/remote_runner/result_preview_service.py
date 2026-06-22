@@ -18,7 +18,7 @@ def build_result_preview_data(
 ) -> dict[str, Any]:
     result = fetch_result(cfg, result_id)
     artifact = _select_preview_artifact(result["artifacts"], artifact_id)
-    preview = _build_artifact_preview(artifact)
+    preview = _build_artifact_preview(cfg, artifact)
     return {
         "resultId": result_id,
         "artifactId": artifact["artifactId"],
@@ -37,10 +37,10 @@ def _select_preview_artifact(artifacts: list[dict[str, Any]], artifact_id: str |
     return selected
 
 
-def _build_artifact_preview(artifact: dict[str, Any]) -> dict[str, Any]:
+def _build_artifact_preview(cfg: RemoteRunnerConfig, artifact: dict[str, Any]) -> dict[str, Any]:
     mime_type = artifact["mimeType"]
     if mime_type == "text/tab-separated-values":
-        raw, truncated = _read_preview_text(artifact)
+        raw, truncated = _read_preview_text(cfg, artifact)
         rows = raw.splitlines()
         columns = rows[0].split("\t") if rows else []
         preview_rows = [row.split("\t") for row in rows[1 : 1 + MAX_PREVIEW_TABLE_ROWS]]
@@ -51,11 +51,16 @@ def _build_artifact_preview(artifact: dict[str, Any]) -> dict[str, Any]:
             "truncated": truncated or max(0, len(rows) - 1) > MAX_PREVIEW_TABLE_ROWS,
         }
     if mime_type.startswith("text/html"):
-        content, truncated = _read_preview_text(artifact)
+        content, truncated = _read_preview_text(cfg, artifact)
         return {"kind": "html", "content": content, "truncated": truncated}
-    content, truncated = _read_preview_text(artifact)
+    content, truncated = _read_preview_text(cfg, artifact)
     return {"kind": "text", "content": content, "truncated": truncated}
 
 
-def _read_preview_text(artifact: dict[str, Any], *, limit: int = MAX_PREVIEW_BYTES) -> tuple[str, bool]:
-    return read_artifact_preview_text(artifact, limit=limit)
+def _read_preview_text(
+    cfg: RemoteRunnerConfig,
+    artifact: dict[str, Any],
+    *,
+    limit: int = MAX_PREVIEW_BYTES,
+) -> tuple[str, bool]:
+    return read_artifact_preview_text(cfg, artifact, limit=limit)

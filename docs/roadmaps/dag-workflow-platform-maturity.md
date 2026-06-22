@@ -250,12 +250,19 @@ Exit criteria:
 
 Purpose: turn existing artifact ledger foundations into a production lifecycle.
 
+Progress:
+
+- Local artifact adapter is the default path for files and directories.
+- File artifacts can now use the S3/MinIO-compatible adapter through the same persist, preview, checksum audit, export, materialization, evidence, and candidate adoption paths.
+- S3/MinIO artifact keys are content-addressed by SHA-256 and use stable `s3://bucket/key` URIs; access keys and secret keys are excluded from public config and evidence.
+- Directory artifacts on S3/MinIO fail loudly until a canonical multi-object manifest or package format preserves the existing directory checksum contract.
+
 Recommended sequence:
 
 1. Introduce a storage adapter interface and keep local adapter behavior first.
 2. Extend result APIs to expose blob/materialization/edge/workflowRevision metadata.
 3. Add artifact download/preview through adapters instead of direct local path reads.
-4. Implement S3/MinIO-compatible adapter after local adapter tests pass.
+4. Implement S3/MinIO-compatible adapter after local adapter tests pass. File artifact support is in place; directory manifest/package support remains pending.
 5. Anchor lineage to WorkflowRevision and input artifact edges.
 6. Define cache keys from WorkflowRevision, tool revision, inputs, params, resources, and runtime lock.
 7. Add GC/retention/quota/checksum-audit models and background jobs.
