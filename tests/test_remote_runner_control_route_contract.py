@@ -18,6 +18,8 @@ def test_result_preview_file_io_lives_in_service_not_route() -> None:
     assert "from .result_preview_service import build_result_preview_data" not in main_source
     assert "build_result_preview_data(" not in main_source
     assert "run_sync(build_result_preview_data, cfg, result_id, artifact_id)" in control_source
+    assert "run_sync(build_result_artifact_audit, cfg, result_id)" in control_source
+    assert "run_sync(export_result_package, cfg, result_id)" in control_source
     assert "_read_preview_text" not in main_source
     assert "Path(path)" not in main_source
     assert "MAX_PREVIEW_BYTES" not in main_source
@@ -25,6 +27,7 @@ def test_result_preview_file_io_lives_in_service_not_route() -> None:
     assert "def build_result_preview_data(" in service_source
     assert "def _read_preview_text(" in service_source
     assert "MAX_PREVIEW_BYTES = 256 * 1024" in service_source
+    assert "from .artifact_product_service import build_result_artifact_audit, export_result_package" in control_source
 
 
 def test_run_create_route_delegates_submission_to_service() -> None:
@@ -113,6 +116,8 @@ def test_remote_runner_control_plane_services_use_async_thread_boundary() -> Non
         "list_results_from_request",
         "get_result_from_request",
         "get_result_preview_from_request",
+        "get_result_audit_from_request",
+        "export_result_package_from_request",
         "create_workflow_trigger_request",
         "list_workflow_triggers_request",
         "submit_workflow_trigger_event_request",
@@ -307,6 +312,8 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
     assert '@router.get("/api/v1/results")' in execution_query_route_source
     assert '@router.get("/api/v1/results/{result_id}")' in execution_query_route_source
     assert '@router.get("/api/v1/results/{result_id}/preview")' in execution_query_route_source
+    assert '@router.get("/api/v1/results/{result_id}/audit")' in execution_query_route_source
+    assert '@router.post("/api/v1/results/{result_id}/export")' in execution_query_route_source
     assert "list_runs_from_request" in execution_query_route_source
     assert "get_run_from_request" in execution_query_route_source
     assert "cancel_run_from_request" in execution_query_route_source
@@ -317,6 +324,8 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
     assert "list_results_from_request" in execution_query_route_source
     assert "get_result_from_request" in execution_query_route_source
     assert "get_result_preview_from_request" in execution_query_route_source
+    assert "get_result_audit_from_request" in execution_query_route_source
+    assert "export_result_package_from_request" in execution_query_route_source
 
     for name in (
         "health_startup_from_request",
@@ -339,5 +348,7 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
         "list_results_from_request",
         "get_result_from_request",
         "get_result_preview_from_request",
+        "get_result_audit_from_request",
+        "export_result_package_from_request",
     ):
         assert f"async def {name}(" in control_source

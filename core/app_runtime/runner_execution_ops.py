@@ -66,3 +66,9 @@ class RunnerExecutionOperationsMixin:
         artifact_id: Optional[str] = None,
     ) -> dict[str, Any]:
         return self.execution.get_result_preview(result_id, artifact_id)
+
+    def get_result_audit(self, result_id: str) -> dict[str, Any]:
+        return self.execution.get_result_audit(result_id)
+
+    def export_result_package(self, result_id: str) -> dict[str, Any]:
+        return self.execution.export_result_package(result_id)

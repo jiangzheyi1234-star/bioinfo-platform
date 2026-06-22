@@ -10,6 +10,8 @@ from apps.api.execution_query_service import (
     cancel_run_from_request,
     get_result_from_request,
     get_result_preview_from_request,
+    get_result_audit_from_request,
+    export_result_package_from_request,
     get_run_events_from_request,
     get_run_from_request,
     get_run_logs_from_request,
@@ -75,3 +77,13 @@ async def get_result(result_id: str) -> dict[str, Any]:
 @router.get("/api/v1/results/{result_id}/preview")
 async def get_result_preview(result_id: str, artifact_id: str | None = None) -> dict[str, Any]:
     return await get_result_preview_from_request(result_id, artifact_id=artifact_id)
+
+
+@router.get("/api/v1/results/{result_id}/audit")
+async def get_result_audit(result_id: str) -> dict[str, Any]:
+    return await get_result_audit_from_request(result_id)
+
+
+@router.post("/api/v1/results/{result_id}/export")
+async def export_result_package(result_id: str) -> dict[str, Any]:
+    return await export_result_package_from_request(result_id)

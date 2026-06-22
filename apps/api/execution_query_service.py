@@ -95,3 +95,17 @@ async def get_result_preview_from_request(
         ),
         wrapper="raw",
     )
+
+
+async def get_result_audit_from_request(result_id: str) -> dict[str, Any]:
+    return await run_runtime_payload(
+        lambda: runtime_service().get_result_audit(result_id),
+        wrapper="raw",
+    )
+
+
+async def export_result_package_from_request(result_id: str) -> dict[str, Any]:
+    return await run_runtime_payload(
+        lambda: runtime_service().export_result_package(result_id),
+        wrapper="raw",
+    )

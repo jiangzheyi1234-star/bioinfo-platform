@@ -10,6 +10,7 @@ from .api_models import (
 )
 from .config import RemoteRunnerConfig, dump_public_config
 from .execution_diagnostics import build_execution_diagnostics
+from .artifact_product_service import build_result_artifact_audit, export_result_package
 from .health_service import (
     build_health_live_payload,
     build_health_ready_payload,
@@ -222,3 +223,15 @@ async def get_result_preview_from_request(
     cfg = await _authorized_config_from_request(authorization)
     preview = await run_sync(build_result_preview_data, cfg, result_id, artifact_id)
     return data_response(preview)
+
+
+async def get_result_audit_from_request(result_id: str, authorization: str | None) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization)
+    audit = await run_sync(build_result_artifact_audit, cfg, result_id)
+    return data_response(audit)
+
+
+async def export_result_package_from_request(result_id: str, authorization: str | None) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization)
+    package = await run_sync(export_result_package, cfg, result_id)
+    return data_response(package)

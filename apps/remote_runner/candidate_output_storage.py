@@ -8,7 +8,7 @@ import sqlite3
 import uuid
 from typing import Any
 
-from .artifact_storage import artifact_payload_stats
+from .artifact_io import artifact_payload_stats, local_artifact_location
 from .config import RemoteRunnerConfig
 from .evidence_storage import append_evidence_event
 from .event_contracts import append_run_event_v2
@@ -346,7 +346,7 @@ def _adopt_artifact(
         raise ValueError(f"RUN_OUTPUT_ALREADY_ADOPTED: {artifact_key}")
 
     artifact_id = f"art_{uuid.uuid4().hex[:10]}"
-    storage_uri = path.resolve().as_uri()
+    location = local_artifact_location(path)
     connection.execute(
         """
         INSERT INTO artifacts (
@@ -359,8 +359,8 @@ def _adopt_artifact(
             run_id,
             kind,
             str(path),
-            "local",
-            storage_uri,
+            location["storageBackend"],
+            location["storageUri"],
             size_bytes,
             sha256,
             mime_type,
@@ -388,17 +388,24 @@ def _adopt_artifact(
         INSERT INTO artifact_materializations (
             materialization_id, artifact_blob_id, storage_backend,
             storage_uri, local_path, created_at
-        ) VALUES (?, ?, 'local', ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(artifact_blob_id, storage_backend, storage_uri) DO NOTHING
         """,
-        (materialization_id, blob_id, storage_uri, str(path), created_at),
+        (
+            materialization_id,
+            blob_id,
+            location["storageBackend"],
+            location["storageUri"],
+            location["localPath"],
+            created_at,
+        ),
     )
     materialization = connection.execute(
         """
         SELECT * FROM artifact_materializations
-        WHERE artifact_blob_id = ? AND storage_backend = 'local' AND storage_uri = ?
+        WHERE artifact_blob_id = ? AND storage_backend = ? AND storage_uri = ?
         """,
-        (blob_id, storage_uri),
+        (blob_id, location["storageBackend"], location["storageUri"]),
     ).fetchone()
     edge_id = f"aredge_{uuid.uuid4().hex[:12]}"
     connection.execute(
@@ -436,9 +443,9 @@ def _adopt_artifact(
             "role": "output",
             "stepId": str(step_id or ""),
             "upstreamRunId": str(upstream_run_id or ""),
-            "storageBackend": "local",
-            "storageUri": storage_uri,
-            "localPath": str(path),
+            "storageBackend": location["storageBackend"],
+            "storageUri": location["storageUri"],
+            "localPath": location["localPath"],
             "mimeType": mime_type,
             "sizeBytes": size_bytes,
             "sha256": sha256,

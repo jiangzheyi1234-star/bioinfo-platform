@@ -359,6 +359,8 @@ def test_runtime_execution_operations_live_in_dedicated_mixin() -> None:
         "list_results",
         "get_result",
         "get_result_preview",
+        "get_result_audit",
+        "export_result_package",
     ):
         assert f"def {method_name}(" in execution_ops_source
         assert f"def {method_name}(" not in runner_ops_source
@@ -386,6 +388,10 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "self.execution.submit_run(" in execution_ops_source
     assert "self.execution.create_workflow_trigger(" in execution_ops_source
     assert "manager.submit_workflow_trigger_event" in execution_manager_source
+    assert "self.execution.get_result_audit(" in execution_ops_source
+    assert "self.execution.export_result_package(" in execution_ops_source
+    assert "self.call_runner(\"get_result_audit\"" in execution_manager_source
+    assert "self.call_runner(\"export_result_package\"" in execution_manager_source
 
 
 def test_runtime_file_operations_live_in_dedicated_mixin() -> None:

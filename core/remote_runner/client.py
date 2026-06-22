@@ -208,6 +208,12 @@ class RemoteRunnerHttpClient:
             path += f"?artifact_id={artifact_id}"
         return self.get_json(path)["data"]
 
+    def get_result_audit(self, result_id: str) -> dict[str, Any]:
+        return self.get_json(f"/api/v1/results/{result_id}/audit")["data"]
+
+    def export_result_package(self, result_id: str) -> dict[str, Any]:
+        return self.post_json(f"/api/v1/results/{result_id}/export", {})["data"]
+
     def get_health(self) -> dict[str, Any]:
         startup = self.get_json("/health/startup", accepted_statuses={200, 503})
         live = self.get_json("/health/live")

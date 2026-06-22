@@ -8,6 +8,8 @@ from .control_service import (
     cancel_run_from_request,
     get_result_from_request,
     get_result_preview_from_request,
+    get_result_audit_from_request,
+    export_result_package_from_request,
     get_run_events_from_request,
     get_run_from_request,
     get_run_logs_from_request,
@@ -79,3 +81,13 @@ async def get_result_preview_api(
     authorization: AuthorizationHeader = None,
 ) -> dict[str, Any]:
     return await get_result_preview_from_request(result_id, artifact_id, authorization)
+
+
+@router.get("/api/v1/results/{result_id}/audit")
+async def get_result_audit_api(result_id: str, authorization: AuthorizationHeader = None) -> dict[str, Any]:
+    return await get_result_audit_from_request(result_id, authorization)
+
+
+@router.post("/api/v1/results/{result_id}/export")
+async def export_result_package_api(result_id: str, authorization: AuthorizationHeader = None) -> dict[str, Any]:
+    return await export_result_package_from_request(result_id, authorization)

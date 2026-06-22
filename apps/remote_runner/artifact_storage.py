@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import hashlib
 import uuid
 from pathlib import Path
 from typing import Any
 
+from .artifact_io import artifact_payload_stats, local_artifact_location
 from .config import RemoteRunnerConfig
 from .evidence_storage import append_evidence_event
 from .storage_core import get_connection, now_iso
@@ -27,15 +27,14 @@ def persist_artifact(
 ) -> dict[str, Any]:
     size_bytes, sha256 = artifact_payload_stats(path)
     created_at = now_iso()
-    storage_backend = "local"
-    storage_uri = path.resolve().as_uri()
+    location = local_artifact_location(path)
     artifact = {
         "artifactId": f"art_{uuid.uuid4().hex[:10]}",
         "runId": run_id,
         "kind": kind,
         "path": str(path),
-        "storageBackend": storage_backend,
-        "storageUri": storage_uri,
+        "storageBackend": location["storageBackend"],
+        "storageUri": location["storageUri"],
         "sizeBytes": size_bytes,
         "sha256": sha256,
         "mimeType": mime_type,
@@ -219,24 +218,3 @@ def _record_artifact_materialization_evidence(
         )
         connection.commit()
     return event
-
-
-def artifact_payload_stats(path: Path) -> tuple[int, str]:
-    if path.is_file():
-        content = path.read_bytes()
-        return len(content), hashlib.sha256(content).hexdigest()
-    if path.is_dir():
-        digest = hashlib.sha256()
-        size_bytes = 0
-        for child in sorted(path.rglob("*"), key=lambda item: item.relative_to(path).as_posix()):
-            relative = child.relative_to(path).as_posix()
-            if child.is_dir():
-                digest.update(f"D\t{relative}\0".encode("utf-8"))
-                continue
-            if child.is_file():
-                content = child.read_bytes()
-                digest.update(f"F\t{relative}\0".encode("utf-8"))
-                digest.update(content)
-                size_bytes += len(content)
-        return size_bytes, digest.hexdigest()
-    raise ValueError("OUTPUT_ARTIFACT_PATH_INVALID")

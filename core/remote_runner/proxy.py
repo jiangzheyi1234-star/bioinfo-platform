@@ -400,6 +400,22 @@ class RemoteRunnerProxyMixin:
             path += f"?artifact_id={artifact_id}"
         return client.get_json(path)["data"]
 
+    def get_result_audit(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+        )
+        return client.get_json(f"/api/v1/results/{kwargs['result_id']}/audit")["data"]
+
+    def export_result_package(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+        )
+        return client.post_json(f"/api/v1/results/{kwargs['result_id']}/export", {})["data"]
+
     def _open_runner_tunnel(self, *, server_id: str, ssh_service, remote_port: int):
         try:
             return ssh_service.ensure_local_tunnel(
