@@ -6,6 +6,7 @@ from typing import Any
 from .api_models import RunCreateRequest
 from .config import RemoteRunnerConfig
 from .generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
+from .governance_audit import record_governance_audit_event
 from .health_service import ensure_execution_admission_ready, ensure_submission_ready
 from .pipeline import get_pipeline, validate_run_spec_for_pipeline
 from .preflight import preflight_run_spec
@@ -46,6 +47,22 @@ def create_run_from_request(
         payload_hash=payload_hash,
     )
     run = run_create.run
+    record_governance_audit_event(
+        cfg,
+        action="run.submit",
+        subject_kind="run",
+        subject_id=str(run["runId"]),
+        details={
+            "serverId": server_id,
+            "requestId": run["requestId"],
+            "pipelineId": pipeline_id,
+            "pipelineVersion": str(run_spec.get("pipelineVersion") or ""),
+            "projectId": str(run_spec.get("projectId") or ""),
+            "runSpecVersion": str(run_spec.get("runSpecVersion") or ""),
+            "workflowRevisionId": str(run_spec.get("workflowRevisionId") or ""),
+            "idempotencyReplay": not run_create.created,
+        },
+    )
     return {
         "data": {
             "requestId": run["requestId"],

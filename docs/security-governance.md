@@ -29,6 +29,10 @@ Out of scope for the current supported product:
 3. Production Docker Compose deployment.
 4. Automatic installation of downloadable database packs.
 
+`H2OMETA_DEPLOYMENT_MODE=server-multi-user` is not implemented and is rejected
+at Local API startup. Invalid deployment mode values also fail closed instead
+of falling back to Desktop.
+
 ## Required Controls
 
 ### Local API And CORS
@@ -77,7 +81,9 @@ Out of scope for the current supported product:
 
 ### Remote Operation Audit
 
-Security-relevant operator actions must be represented in tests, diagnostics, release evidence, or run/event records:
+Security-relevant operator actions must be represented in tests, diagnostics, release evidence, run/event records, or queryable hash-chained governance audit events.
+
+The remote runner records `governance.operator_action.v1` events in the existing evidence ledger for accepted high-value operator actions. Public audit reads project only safe action metadata such as actor, action, decision, subject, timestamps, hashes, and non-secret details; token, password, secret, private key, and authorization fields are forbidden in governance audit details.
 
 1. SSH connect, disconnect, diagnostics, host-key acceptance, and startup auto-connect.
 2. Remote runner bootstrap, reuse, stop, recovery, and token rotation.
@@ -104,7 +110,7 @@ Before treating a build as production-ready:
 ## Scoped Runtime Limits
 
 1. `pip-audit` currently ignores only `CVE-2026-44405` for Paramiko because no fixed release is available in the advisory feed. Runtime SSH mitigations are active: `ssh-rsa` host/user key algorithms are disabled, unknown host keys are rejected, and accepted keys are written to known_hosts. Remove this ignore when a Paramiko release containing the upstream fix is available.
-2. Server multi-user mode remains planned, not implemented. Public deployment requires auth, RBAC, tenant isolation, audited admin actions, TLS, and production image hardening.
+2. Server multi-user mode remains planned, not implemented, and fail-closed at startup. Public deployment requires auth, RBAC, tenant isolation, audited admin actions, TLS, and production image hardening.
 
 ## Practice Baseline
 

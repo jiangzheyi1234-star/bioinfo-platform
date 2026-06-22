@@ -20,6 +20,14 @@ class DeploymentMode(str, Enum):
     SERVER_MULTI_USER = "server-multi-user"
 
 
+class DeploymentModeError(ValueError):
+    pass
+
+
+class UnsupportedDeploymentModeError(RuntimeError):
+    pass
+
+
 @dataclass(frozen=True)
 class DeploymentConfig:
     mode: DeploymentMode
@@ -95,13 +103,22 @@ DEPLOYMENT_CONFIGS: dict[DeploymentMode, DeploymentConfig] = {
 }
 
 
+SUPPORTED_DEPLOYMENT_MODES = {
+    DeploymentMode.DESKTOP,
+    DeploymentMode.SERVER_SINGLE_USER,
+}
+
+
 def get_deployment_mode() -> DeploymentMode:
     """从环境变量获取当前部署模式。"""
     mode_str = os.environ.get("H2OMETA_DEPLOYMENT_MODE", "desktop").strip().lower()
     try:
         return DeploymentMode(mode_str)
-    except ValueError:
-        return DeploymentMode.DESKTOP
+    except ValueError as exc:
+        allowed = ", ".join(mode.value for mode in DeploymentMode)
+        raise DeploymentModeError(
+            f"Invalid H2OMETA_DEPLOYMENT_MODE '{mode_str}'. Expected one of: {allowed}."
+        ) from exc
 
 
 def get_deployment_config() -> DeploymentConfig:
@@ -110,10 +127,22 @@ def get_deployment_config() -> DeploymentConfig:
     return DEPLOYMENT_CONFIGS[mode]
 
 
+def require_supported_deployment_mode() -> DeploymentConfig:
+    """Fail closed for modes whose security boundary is not implemented."""
+    config = get_deployment_config()
+    if config.mode not in SUPPORTED_DEPLOYMENT_MODES:
+        raise UnsupportedDeploymentModeError(
+            "H2OMETA_DEPLOYMENT_MODE=server-multi-user is not implemented. "
+            "Do not enable it until authentication, RBAC, tenant isolation, "
+            "secret vault integration, and organization audit boundaries are complete."
+        )
+    return config
+
+
 def validate_deployment_security() -> list[str]:
     """验证部署安全配置，返回警告列表。"""
     warnings: list[str] = []
-    config = get_deployment_config()
+    config = require_supported_deployment_mode()
 
     if config.mode == DeploymentMode.SERVER_SINGLE_USER:
         host = os.environ.get("H2OMETA_API_HOST", "127.0.0.1")
@@ -127,12 +156,6 @@ def validate_deployment_security() -> list[str]:
             warnings.append(
                 "server-single-user 模式未设置 H2OMETA_RUNNER_TOKEN，"
                 "Remote Runner API 将无法认证"
-            )
-
-    if config.mode == DeploymentMode.SERVER_MULTI_USER:
-        if not os.environ.get("H2OMETA_AUTH_SECRET"):
-            warnings.append(
-                "server-multi-user 模式需要设置 H2OMETA_AUTH_SECRET 用于 JWT 签名"
             )
 
     return warnings

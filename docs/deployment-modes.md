@@ -5,6 +5,9 @@ H2OMeta 支持三种部署模式，适用于不同的使用场景和安全需求
 > 当前支持并验收的运行方式是 Desktop 模式。Server Single-User 的
 > Docker Compose 文件为实验性草案，尚未完成镜像构建、网络安全和远程浏览器
 > API 访问验收，不应作为生产部署方案使用。
+> `server-multi-user` 尚未实现；设置
+> `H2OMETA_DEPLOYMENT_MODE=server-multi-user` 会在 Local API 启动时失败。
+> 非法的 `H2OMETA_DEPLOYMENT_MODE` 值同样会失败，不再回退到 Desktop。
 
 ## 部署模式对比
 
@@ -12,7 +15,7 @@ H2OMeta 支持三种部署模式，适用于不同的使用场景和安全需求
 |------|------|----------|----------|----------|
 | `desktop` | 无 | OS Keyring | 仅 localhost | 单用户本地开发 |
 | `server-single-user` | 无/简单 Token | 环境变量 | 仅内网 | 单用户服务器部署 |
-| `server-multi-user` | 完整认证 + RBAC | 加密数据库 | 可公网 | 多用户团队协作 |
+| `server-multi-user` | 完整认证 + RBAC | 加密数据库 | 可公网 | 规划中，当前不可选择 |
 
 ## Desktop 模式
 
@@ -121,6 +124,9 @@ server {
 
 **状态**：🚧 **规划中**，尚未实现。
 
+当前版本 fail closed：选择此模式会启动失败。只有在认证、RBAC、租户隔离、
+secret vault、PostgreSQL、对象存储和组织级审计边界完成后，才允许启用。
+
 **计划功能**：
 - 用户注册和登录
 - 角色和权限管理（Admin / Developer / Viewer）
@@ -157,7 +163,7 @@ server {
 | `H2OMETA_REMOTE_RUN_WORKER_TOTAL_DISK_MB` | Remote Worker workflow 级临时磁盘 admission 总量 | ❌ (0) |
 | `H2OMETA_REMOTE_RUN_WORKER_TOTAL_GPU` | Remote Worker workflow 级 GPU admission 总量 | ❌ (0) |
 
-### Server Multi-User 变量（计划）
+### Server Multi-User 变量（计划，当前不可启用）
 
 | 变量 | 说明 | 必需 |
 |------|------|------|

@@ -11,6 +11,7 @@ from .api_models import (
 from .config import RemoteRunnerConfig, dump_public_config
 from .execution_diagnostics import build_execution_diagnostics
 from .artifact_product_service import build_result_artifact_audit, export_result_package
+from .governance_audit import record_governance_audit_event
 from .health_service import (
     build_health_live_payload,
     build_health_ready_payload,
@@ -171,6 +172,20 @@ async def get_run_from_request(run_id: str, authorization: str | None) -> dict[s
 async def cancel_run_from_request(run_id: str, authorization: str | None) -> dict[str, Any]:
     cfg = await _authorized_config_from_request(authorization)
     result = await run_sync(request_run_cancel, cfg, run_id, actor="remote-runner-api")
+    await run_sync(
+        record_governance_audit_event,
+        cfg,
+        action="run.cancel",
+        subject_kind="run",
+        subject_id=run_id,
+        details={
+            "status": result["status"],
+            "stage": result["stage"],
+            "commandId": result["commandId"],
+            "attemptId": str(result.get("attemptId") or ""),
+            "cancelRequestedAt": result["cancelRequestedAt"],
+        },
+    )
     return data_response(result)
 
 

@@ -7,6 +7,7 @@ from typing import Any
 from .api_models import WorkflowTriggerCreateRequest, WorkflowTriggerEventRequest
 from .config import RemoteRunnerConfig
 from .generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
+from .governance_audit import record_governance_audit_event
 from .health_service import ensure_execution_admission_ready, ensure_submission_ready
 from .pipeline import get_pipeline, validate_run_spec_for_pipeline
 from .preflight import preflight_run_spec
@@ -51,6 +52,19 @@ def create_workflow_trigger_from_request(
         enabled=bool(request.enabled),
         actor=actor,
     )
+    record_governance_audit_event(
+        cfg,
+        action="workflow_trigger.create",
+        actor=actor,
+        subject_kind="workflow_trigger",
+        subject_id=str(trigger["triggerId"]),
+        details={
+            "serverId": trigger["serverId"],
+            "pipelineId": trigger["pipelineId"],
+            "sourceType": trigger["sourceType"],
+            "enabled": bool(trigger["enabled"]),
+        },
+    )
     return {"data": trigger}
 
 
@@ -90,6 +104,20 @@ def submit_workflow_trigger_event_from_request(
     )
     dispatch = event.get("dispatch") if isinstance(event.get("dispatch"), dict) else {}
     if dispatch.get("state") == "submitted" and dispatch.get("runId"):
+        record_governance_audit_event(
+            cfg,
+            action="workflow_trigger.dispatch",
+            subject_kind="workflow_trigger_event",
+            subject_id=str(event["triggerEventId"]),
+            details={
+                "triggerId": trigger_id,
+                "sourceType": source_type,
+                "eventType": event["eventType"],
+                "runId": str(dispatch["runId"]),
+                "dispatchState": str(dispatch.get("state") or ""),
+                "replayed": True,
+            },
+        )
         return {
             "data": {
                 "event": event,
@@ -128,6 +156,20 @@ def submit_workflow_trigger_event_from_request(
             trigger_event_id=str(event["triggerEventId"]),
             run_id=str(run_create.run["runId"]),
         )
+        record_governance_audit_event(
+            cfg,
+            action="workflow_trigger.dispatch",
+            subject_kind="workflow_trigger_event",
+            subject_id=str(event["triggerEventId"]),
+            details={
+                "triggerId": trigger_id,
+                "sourceType": source_type,
+                "eventType": event["eventType"],
+                "runId": str(run_create.run["runId"]),
+                "dispatchState": "submitted",
+                "replayed": not run_create.created,
+            },
+        )
         return {
             "data": {
                 "event": event,
@@ -148,6 +190,21 @@ def submit_workflow_trigger_event_from_request(
             cfg,
             trigger_event_id=str(event["triggerEventId"]),
             error={"errorType": exc.__class__.__name__, "message": str(exc)},
+        )
+        record_governance_audit_event(
+            cfg,
+            action="workflow_trigger.dispatch",
+            subject_kind="workflow_trigger_event",
+            subject_id=str(event["triggerEventId"]),
+            decision="error",
+            reason_code="WORKFLOW_TRIGGER_DISPATCH_FAILED",
+            details={
+                "triggerId": trigger_id,
+                "sourceType": source_type,
+                "eventType": event["eventType"],
+                "dispatchState": "failed",
+                "errorType": exc.__class__.__name__,
+            },
         )
         raise
 

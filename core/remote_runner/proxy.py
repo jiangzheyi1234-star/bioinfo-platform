@@ -310,6 +310,23 @@ class RemoteRunnerProxyMixin:
         )
         return client.get_json(f"/api/v1/workflow-triggers/{kwargs['trigger_id']}/events")["data"]
 
+    def list_governance_audit_events(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+            timeout=20,
+        )
+        query = urlencode(
+            {
+                "subjectKind": kwargs.get("subject_kind") or "",
+                "subjectId": kwargs.get("subject_id") or "",
+                "action": kwargs.get("action") or "",
+                "limit": int(kwargs.get("limit") or 100),
+            }
+        )
+        return client.get_json(f"/api/v1/audit/events?{query}")["data"]
+
     def list_runs(self, **kwargs) -> list[dict[str, Any]]:
         client = self._get_client(
             server_id=str(kwargs["server_id"]),

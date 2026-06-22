@@ -96,6 +96,26 @@ class ExecutionManager(BaseRuntimeManager):
             )
         }
 
+    def list_governance_audit_events(
+        self,
+        *,
+        server_id: Optional[str] = None,
+        subject_kind: Optional[str] = None,
+        subject_id: Optional[str] = None,
+        action: Optional[str] = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        return {
+            "data": self.call_existing_runner(
+                "list_governance_audit_events",
+                preferred_server_id=server_id,
+                subject_kind=subject_kind,
+                subject_id=subject_id,
+                action=action,
+                limit=limit,
+            )
+        }
+
     def get_run(self, run_id: str) -> dict[str, Any]:
         return {"data": self.call_runner("get_run", run_id=run_id)}
 

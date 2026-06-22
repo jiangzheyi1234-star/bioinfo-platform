@@ -10,6 +10,7 @@ from typing import Any
 from .artifact_io import artifact_local_path, artifact_payload_stats, iter_artifact_file_payloads
 from .config import RemoteRunnerConfig
 from .execution_query_storage import fetch_result, fetch_run_results
+from .governance_audit import record_governance_audit_event
 from .storage_core import now_iso
 
 
@@ -58,6 +59,18 @@ def export_result_package(cfg: RemoteRunnerConfig, result_id: str) -> dict[str, 
         raise
 
     size_bytes, sha256 = _file_stats(package_path)
+    record_governance_audit_event(
+        cfg,
+        action="result.export",
+        subject_kind="result",
+        subject_id=result_id,
+        details={
+            "runId": str(result["runId"]),
+            "artifactCount": len(result["artifacts"]),
+            "sizeBytes": size_bytes,
+            "packageSha256": sha256,
+        },
+    )
     return {
         "resultId": result_id,
         "runId": result["runId"],

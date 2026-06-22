@@ -31,6 +31,23 @@ class RunnerExecutionOperationsMixin:
     ) -> dict[str, Any]:
         return self.execution.list_workflow_trigger_events(trigger_id, server_id)
 
+    def list_governance_audit_events(
+        self,
+        *,
+        server_id: Optional[str] = None,
+        subject_kind: Optional[str] = None,
+        subject_id: Optional[str] = None,
+        action: Optional[str] = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        return self.execution.list_governance_audit_events(
+            server_id=server_id,
+            subject_kind=subject_kind,
+            subject_id=subject_id,
+            action=action,
+            limit=limit,
+        )
+
     def get_run(self, run_id: str) -> dict[str, Any]:
         return self.execution.get_run(run_id)
 

@@ -10,6 +10,7 @@ from apps.remote_runner.artifact_product_service import (
     build_result_artifact_audit,
     export_result_package,
 )
+from apps.remote_runner.governance_audit import list_governance_audit_events
 from apps.remote_runner.storage import create_run_record, persist_artifact
 from tests.helpers.reference_database import make_configured_remote_runner
 
@@ -65,6 +66,14 @@ def test_result_package_export_includes_manifest_artifacts_and_lineage(tmp_path:
     assert package["manifest"]["audit"]["status"] == "passed"
     assert package["manifest"]["artifacts"][0]["artifactId"] == artifact["artifactId"]
     assert package["manifest"]["lineageEdges"][0]["predicate"] == "prov:generated"
+    audit_events = list_governance_audit_events(
+        cfg,
+        subject_kind="result",
+        subject_id="res_run_export",
+        action="result.export",
+    )["items"]
+    assert audit_events[0]["details"]["artifactCount"] == 1
+    assert audit_events[0]["details"]["packageSha256"] == package["sha256"]
     with zipfile.ZipFile(package_path) as archive:
         names = sorted(archive.namelist())
         manifest = json.loads(archive.read("manifest.json").decode("utf-8"))

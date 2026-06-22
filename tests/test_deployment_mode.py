@@ -7,8 +7,11 @@ import pytest
 
 from core.deployment_mode import (
     DeploymentMode,
+    DeploymentModeError,
+    UnsupportedDeploymentModeError,
     get_deployment_config,
     get_deployment_mode,
+    require_supported_deployment_mode,
     validate_deployment_security,
 )
 
@@ -31,10 +34,10 @@ def test_get_deployment_mode_from_env():
         assert mode == DeploymentMode.SERVER_SINGLE_USER
 
 
-def test_get_deployment_mode_invalid_falls_back():
+def test_get_deployment_mode_invalid_fails_loudly():
     with patch.dict(os.environ, {"H2OMETA_DEPLOYMENT_MODE": "invalid-mode"}):
-        mode = get_deployment_mode()
-        assert mode == DeploymentMode.DESKTOP
+        with pytest.raises(DeploymentModeError, match="Invalid H2OMETA_DEPLOYMENT_MODE"):
+            get_deployment_mode()
 
 
 def test_deployment_config_desktop():
@@ -68,6 +71,12 @@ def test_deployment_config_server_multi_user():
         assert config.credential_storage == "database-encrypted"
         assert config.is_single_user is False
         assert config.is_server_mode is True
+
+
+def test_require_supported_deployment_mode_rejects_unimplemented_multi_user():
+    with patch.dict(os.environ, {"H2OMETA_DEPLOYMENT_MODE": "server-multi-user"}):
+        with pytest.raises(UnsupportedDeploymentModeError, match="not implemented"):
+            require_supported_deployment_mode()
 
 
 def test_deployment_config_to_dict():
@@ -142,14 +151,14 @@ def test_validate_security_single_user_with_token():
         assert len(token_warnings) == 0
 
 
-def test_validate_security_multi_user_missing_secret():
+def test_validate_security_multi_user_is_fail_closed():
     with patch.dict(
         os.environ,
         {"H2OMETA_DEPLOYMENT_MODE": "server-multi-user"},
         clear=True,
     ):
-        warnings = validate_deployment_security()
-        assert any("H2OMETA_AUTH_SECRET" in w for w in warnings)
+        with pytest.raises(UnsupportedDeploymentModeError, match="server-multi-user"):
+            validate_deployment_security()
 
 
 def test_validate_security_single_user_bind_all():

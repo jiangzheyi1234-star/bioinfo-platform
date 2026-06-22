@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from apps.api.audit_routes import router as audit_router
 from apps.api.database_routes import router as database_router
 from apps.api.execution_query_routes import router as execution_query_router
 from apps.api.lifespan import lifespan
@@ -55,4 +56,5 @@ app.include_router(workflow_catalog_router)
 app.include_router(workflow_design_router)
 app.include_router(workflow_sample_data_router)
 app.include_router(workflow_trigger_router)
+app.include_router(audit_router)
 app.include_router(database_router)

@@ -25,6 +25,8 @@ def test_security_governance_doc_is_current_contract() -> None:
         "Diagnostics Redaction",
         "Dependency And Supply-Chain Gates",
         "Remote Operation Audit",
+        "governance.operator_action.v1",
+        "hash-chained governance audit events",
         "Release Checklist",
         "Scoped Runtime Limits",
         "known_hosts",
@@ -117,6 +119,9 @@ def test_remote_runner_auth_and_deployment_security_contracts_are_locked() -> No
     assert 'scheme.lower() != "bearer"' in route_utils
     assert "hmac.compare_digest(" in route_utils
     assert "Desktop mode does not allow binding to 0.0.0.0" in deployment
+    assert "Invalid H2OMETA_DEPLOYMENT_MODE" in deployment
+    assert "server-multi-user is not implemented" in deployment
+    assert "require_supported_deployment_mode()" in _source("apps/api/lifespan.py")
     assert "trusted intranet" in deployment
     assert "AutoAddPolicy" not in ssh_connector
     assert "RejectPolicy" in ssh_connector

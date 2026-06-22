@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from .audit_routes import router as audit_router
 from .database_routes import router as database_router
 from .execution_query_routes import router as execution_query_router
 from .health_routes import router as health_router
@@ -45,3 +46,4 @@ app.include_router(database_router)
 app.include_router(tool_router)
 app.include_router(workflow_design_router)
 app.include_router(workflow_trigger_router)
+app.include_router(audit_router)
