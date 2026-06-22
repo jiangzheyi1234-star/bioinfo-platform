@@ -6,6 +6,7 @@ from .api_models import (
     ArtifactCacheLookupRequest,
     ArtifactGcPreviewRequest,
     ArtifactGcRunRequest,
+    ResultPackageExportRequest,
     RunCreateRequest,
     RunRetryRequest,
     UploadCreateRequest,
@@ -334,9 +335,19 @@ async def get_result_audit_from_request(result_id: str, authorization: str | Non
     return data_response(audit)
 
 
-async def export_result_package_from_request(result_id: str, authorization: str | None) -> dict[str, Any]:
+async def export_result_package_from_request(
+    result_id: str,
+    request: ResultPackageExportRequest,
+    authorization: str | None,
+) -> dict[str, Any]:
     cfg = await _authorized_config_from_request(authorization)
-    package = await run_sync(export_result_package, cfg, result_id)
+    package = await run_sync(
+        export_result_package,
+        cfg,
+        result_id,
+        include_artifacts=request.includeArtifacts,
+        actor=request.actor,
+    )
     return data_response(package)
 
 

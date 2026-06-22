@@ -49,7 +49,7 @@ def test_artifact_gc_preview_reports_usage_and_protection_reasons(tmp_path: Path
     active = _persist_managed_artifact(cfg, "run_gc_active", status="running")
     exported = _persist_managed_artifact(cfg, "run_gc_exported", status="completed")
     production = _persist_managed_artifact(cfg, "run_gc_production", status="completed")
-    package = export_result_package(cfg, "res_run_gc_exported")
+    package = export_result_package(cfg, "res_run_gc_exported", include_artifacts=True)
     Path(package["packagePath"]).unlink()
     _protect_run_as_production_evidence(cfg, "run_gc_production")
 

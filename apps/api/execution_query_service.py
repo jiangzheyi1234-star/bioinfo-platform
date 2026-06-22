@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from apps.api.models import ArtifactCacheLookupRequest, ArtifactGcPreviewRequest, ArtifactGcRunRequest, RunRetryRequest
+from apps.api.models import (
+    ArtifactCacheLookupRequest,
+    ArtifactGcPreviewRequest,
+    ArtifactGcRunRequest,
+    ResultPackageExportRequest,
+    RunRetryRequest,
+)
 from apps.api.response_cache import invalidate_response_cache
 from apps.api.route_utils import cached_runtime_payload, request_payload, run_runtime_payload, runtime_service
 
@@ -121,9 +127,18 @@ async def get_result_audit_from_request(result_id: str) -> dict[str, Any]:
     )
 
 
-async def export_result_package_from_request(result_id: str) -> dict[str, Any]:
+async def export_result_package_from_request(
+    result_id: str,
+    request: ResultPackageExportRequest,
+) -> dict[str, Any]:
+    payload = request.model_dump(mode="json", exclude_none=True)
+    server_id = payload.pop("serverId", None)
     return await run_runtime_payload(
-        lambda: runtime_service().export_result_package(result_id),
+        lambda: runtime_service().export_result_package(
+            result_id,
+            payload=payload,
+            server_id=server_id,
+        ),
         wrapper="raw",
     )
 

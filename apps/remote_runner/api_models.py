@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from core.contracts.workflow_design import WorkflowDesignDraftV1
 
@@ -46,6 +46,11 @@ class RunRetryRequest(RemoteRunnerRequest):
     scope: Literal["run"] = "run"
     actor: str | None = None
     reason: str | None = None
+
+
+class ResultPackageExportRequest(RemoteRunnerRequest):
+    includeArtifacts: StrictBool
+    actor: str | None = None
 
 
 TriggerSourceType = Literal["manual", "cron", "webhook", "dataset", "file", "database_ready", "backfill"]

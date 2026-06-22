@@ -246,8 +246,21 @@ class ExecutionManager(BaseRuntimeManager):
     def get_result_audit(self, result_id: str) -> dict[str, Any]:
         return {"data": self.call_runner("get_result_audit", result_id=result_id)}
 
-    def export_result_package(self, result_id: str) -> dict[str, Any]:
-        return {"data": self.call_runner("export_result_package", result_id=result_id)}
+    def export_result_package(
+        self,
+        result_id: str,
+        *,
+        payload: dict[str, Any] | None = None,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return {
+            "data": self.call_runner(
+                "export_result_package",
+                preferred_server_id=server_id,
+                result_id=result_id,
+                payload=dict(payload or {}),
+            )
+        }
 
     def get_artifact_lifecycle_usage(
         self,

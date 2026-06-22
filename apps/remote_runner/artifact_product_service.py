@@ -23,6 +23,8 @@ RESULT_PACKAGE_PROFILE = "h2ometa.result-evidence-package.v1"
 RESULT_EXPORT_EVENT_TYPE = "result.export.v1"
 RESULT_EXPORT_SCHEMA_NAME = "ResultPackageExportEvent"
 RESULT_EXPORTABLE_RUN_STATUSES = {"completed", "failed"}
+ARTIFACT_PAYLOAD_MODE_INCLUDED = "included"
+ARTIFACT_PAYLOAD_MODE_METADATA_ONLY = "metadata-only"
 _SENSITIVE_KEY_PARTS = (
     "access_key",
     "accesskey",
@@ -37,15 +39,27 @@ _SENSITIVE_KEY_PARTS = (
 )
 
 
-def build_result_artifact_audit(cfg: RemoteRunnerConfig, result_id: str) -> dict[str, Any]:
+def build_result_artifact_audit(
+    cfg: RemoteRunnerConfig,
+    result_id: str,
+    *,
+    verify_payload: bool = True,
+) -> dict[str, Any]:
+    verify_payload = _require_bool(verify_payload, "RESULT_ARTIFACT_AUDIT_VERIFY_PAYLOAD_BOOL_REQUIRED")
     result_id = _require_result_id(result_id)
     result = fetch_result(cfg, result_id)
     checked_at = now_iso()
-    audited = [_audit_artifact(cfg, artifact) for artifact in result["artifacts"]]
+    audited = [
+        _audit_artifact(cfg, artifact, verify_payload=verify_payload)
+        for artifact in result["artifacts"]
+    ]
     failed = [item for item in audited if item["status"] != "passed"]
     return {
         "resultId": result_id,
         "runId": result["runId"],
+        "verificationMode": (
+            "payload-checksum" if verify_payload else ARTIFACT_PAYLOAD_MODE_METADATA_ONLY
+        ),
         "status": "failed" if failed else "passed",
         "checkedAt": checked_at,
         "artifactCount": len(audited),
@@ -54,7 +68,13 @@ def build_result_artifact_audit(cfg: RemoteRunnerConfig, result_id: str) -> dict
     }
 
 
-def export_result_package(cfg: RemoteRunnerConfig, result_id: str) -> dict[str, Any]:
+def export_result_package(
+    cfg: RemoteRunnerConfig,
+    result_id: str,
+    *,
+    include_artifacts: bool,
+    actor: str | None = None,
+) -> dict[str, Any]:
     result_id = _require_result_id(result_id)
     result = fetch_result(cfg, result_id)
     _require_canonical_result_id(result_id, result)
@@ -62,7 +82,12 @@ def export_result_package(cfg: RemoteRunnerConfig, result_id: str) -> dict[str, 
     workflow_revision = _require_workflow_revision(cfg, run)
     _require_exportable_run(run)
     result_bundle = fetch_run_results(cfg, str(result["runId"]))
-    audit = build_result_artifact_audit(cfg, result_id)
+    payload_mode = _artifact_payload_mode(include_artifacts)
+    audit = build_result_artifact_audit(
+        cfg,
+        result_id,
+        verify_payload=include_artifacts,
+    )
     if audit["status"] != "passed":
         raise ValueError("RESULT_ARTIFACT_AUDIT_FAILED")
 
@@ -88,7 +113,7 @@ def export_result_package(cfg: RemoteRunnerConfig, result_id: str) -> dict[str, 
     metadata_index = _metadata_index(metadata_files)
     export_dir = Path(cfg.results_dir) / "packages" / result_id
     export_dir.mkdir(parents=True, exist_ok=True)
-    package_path = export_dir / f"{result_id}.zip"
+    package_path = export_dir / _package_filename(result_id, payload_mode)
     temp_path = export_dir / f".{package_path.name}.{uuid.uuid4().hex}.tmp"
     manifest = _result_package_manifest(
         result=result,
@@ -100,6 +125,8 @@ def export_result_package(cfg: RemoteRunnerConfig, result_id: str) -> dict[str, 
         rule_bundle=rule_bundle,
         evidence_events=evidence_events,
         metadata_index=metadata_index,
+        include_artifacts=include_artifacts,
+        artifact_payload_mode=payload_mode,
         redacted_secret_paths=redacted_paths,
         created_at=created_at,
     )
@@ -115,6 +142,7 @@ def export_result_package(cfg: RemoteRunnerConfig, result_id: str) -> dict[str, 
             ro_crate_metadata=ro_crate_metadata,
             metadata_files=metadata_files,
             artifacts=result["artifacts"],
+            include_artifacts=include_artifacts,
         )
         temp_path.replace(package_path)
     except Exception:
@@ -133,6 +161,8 @@ def export_result_package(cfg: RemoteRunnerConfig, result_id: str) -> dict[str, 
         sha256=sha256,
         manifest_sha256=manifest_sha256,
         artifact_count=len(result["artifacts"]),
+        include_artifacts=include_artifacts,
+        artifact_payload_mode=payload_mode,
         created_at=created_at,
     )
     package_uri = package_path.resolve().as_uri()
@@ -149,6 +179,8 @@ def export_result_package(cfg: RemoteRunnerConfig, result_id: str) -> dict[str, 
             manifest_sha256=manifest_sha256,
             evidence_event_id=evidence["eventId"],
             artifact_ids=[str(artifact["artifactId"]) for artifact in result["artifacts"]],
+            include_artifacts=include_artifacts,
+            artifact_payload_mode=payload_mode,
             created_at=created_at,
         )
     except Exception as exc:
@@ -158,9 +190,12 @@ def export_result_package(cfg: RemoteRunnerConfig, result_id: str) -> dict[str, 
         action="result.export",
         subject_kind="result",
         subject_id=result_id,
+        actor=str(actor or "remote-runner-api").strip() or "remote-runner-api",
         details={
             "runId": str(result["runId"]),
             "workflowRevisionId": str(workflow_revision["workflowRevisionId"]),
+            "includeArtifacts": include_artifacts,
+            "artifactPayloadMode": payload_mode,
             "artifactCount": len(result["artifacts"]),
             "sizeBytes": size_bytes,
             "packageSha256": sha256,
@@ -176,6 +211,8 @@ def export_result_package(cfg: RemoteRunnerConfig, result_id: str) -> dict[str, 
         "packageExportId": export_record["packageExportId"],
         "schemaVersion": RESULT_PACKAGE_SCHEMA_VERSION,
         "packageProfile": RESULT_PACKAGE_PROFILE,
+        "includeArtifacts": include_artifacts,
+        "artifactPayloadMode": payload_mode,
         "packagePath": str(package_path),
         "packageUri": package_uri,
         "sizeBytes": size_bytes,
@@ -187,16 +224,23 @@ def export_result_package(cfg: RemoteRunnerConfig, result_id: str) -> dict[str, 
     }
 
 
-def _audit_artifact(cfg: RemoteRunnerConfig, artifact: dict[str, Any]) -> dict[str, Any]:
+def _audit_artifact(
+    cfg: RemoteRunnerConfig,
+    artifact: dict[str, Any],
+    *,
+    verify_payload: bool,
+) -> dict[str, Any]:
     expected_size = int(artifact.get("sizeBytes") or 0)
     expected_sha = str(artifact.get("sha256") or "")
     lifecycle_state = str(artifact.get("lifecycleState") or "active")
+    verification_mode = "payload-checksum" if verify_payload else ARTIFACT_PAYLOAD_MODE_METADATA_ONLY
     if lifecycle_state == "deleted":
         return {
             "artifactId": artifact["artifactId"],
             "path": str(artifact.get("path") or ""),
             "storageBackend": artifact["storageBackend"],
             "storageUri": artifact["storageUri"],
+            "verificationMode": verification_mode,
             "exists": False,
             "expectedSizeBytes": expected_size,
             "actualSizeBytes": None,
@@ -208,35 +252,72 @@ def _audit_artifact(cfg: RemoteRunnerConfig, artifact: dict[str, Any]) -> dict[s
             "deletedAt": artifact.get("deletedAt"),
             "gcReason": str(artifact.get("gcReason") or ""),
         }
+    missing_metadata = _missing_artifact_metadata(artifact)
+    if missing_metadata:
+        return {
+            "artifactId": artifact.get("artifactId"),
+            "path": str(artifact.get("path") or ""),
+            "storageBackend": str(artifact.get("storageBackend") or ""),
+            "storageUri": str(artifact.get("storageUri") or ""),
+            "verificationMode": verification_mode,
+            "exists": False,
+            "expectedSizeBytes": expected_size,
+            "actualSizeBytes": None,
+            "expectedSha256": expected_sha,
+            "actualSha256": None,
+            "sizeOk": False if verify_payload else None,
+            "checksumOk": False if verify_payload else None,
+            "status": "failed",
+            "error": f"RESULT_ARTIFACT_METADATA_INCOMPLETE: {', '.join(missing_metadata)}",
+        }
     exists = False
     actual_size: int | None = None
     actual_sha: str | None = None
     error = ""
     try:
         exists = artifact_record_exists(cfg, artifact)
-        actual_size, actual_sha = artifact_record_stats(cfg, artifact)
+        if verify_payload:
+            actual_size, actual_sha = artifact_record_stats(cfg, artifact)
     except ValueError as exc:
         error = str(exc)
-    status = (
-        "passed"
-        if exists and not error and actual_size == expected_size and actual_sha == expected_sha
-        else "failed"
-    )
+    if verify_payload:
+        passed = exists and not error and actual_size == expected_size and actual_sha == expected_sha
+        size_ok: bool | None = actual_size == expected_size
+        checksum_ok: bool | None = actual_sha == expected_sha
+    else:
+        passed = exists and not error
+        size_ok = None
+        checksum_ok = None
+    status = "passed" if passed else "failed"
     return {
         "artifactId": artifact["artifactId"],
         "path": str(artifact.get("path") or ""),
         "storageBackend": artifact["storageBackend"],
         "storageUri": artifact["storageUri"],
+        "verificationMode": verification_mode,
         "exists": exists,
         "expectedSizeBytes": expected_size,
         "actualSizeBytes": actual_size,
         "expectedSha256": expected_sha,
         "actualSha256": actual_sha,
-        "sizeOk": actual_size == expected_size,
-        "checksumOk": actual_sha == expected_sha,
+        "sizeOk": size_ok,
+        "checksumOk": checksum_ok,
         "status": status,
         **({"error": error} if error else {}),
     }
+
+
+def _missing_artifact_metadata(artifact: dict[str, Any]) -> list[str]:
+    required = (
+        "artifactId",
+        "kind",
+        "mimeType",
+        "sizeBytes",
+        "sha256",
+        "storageBackend",
+        "storageUri",
+    )
+    return [key for key in required if artifact.get(key) in (None, "")]
 
 
 def _result_package_manifest(
@@ -250,6 +331,8 @@ def _result_package_manifest(
     rule_bundle: dict[str, Any],
     evidence_events: list[dict[str, Any]],
     metadata_index: list[dict[str, Any]],
+    include_artifacts: bool,
+    artifact_payload_mode: str,
     redacted_secret_paths: list[str],
     created_at: str,
 ) -> dict[str, Any]:
@@ -265,8 +348,9 @@ def _result_package_manifest(
                 "sha256": artifact["sha256"],
                 "storageBackend": artifact["storageBackend"],
                 "storageUri": artifact["storageUri"],
-                "packagePath": _package_artifact_root(artifact),
-                "includedInPackage": True,
+                "packagePath": _package_artifact_root(artifact) if include_artifacts else None,
+                "externalUri": artifact["storageUri"],
+                "includedInPackage": include_artifacts,
             }
         )
     return {
@@ -277,6 +361,8 @@ def _result_package_manifest(
         "workflowRevisionId": workflow_revision["workflowRevisionId"],
         "pipelineId": result["pipelineId"],
         "createdAt": created_at,
+        "includeArtifacts": include_artifacts,
+        "artifactPayloadMode": artifact_payload_mode,
         "standards": {
             "roCrate": "https://w3id.org/ro/crate/1.1",
             "w3cProv": "https://www.w3.org/TR/prov-o/",
@@ -343,6 +429,7 @@ def _write_result_package(
     ro_crate_metadata: dict[str, Any],
     metadata_files: dict[str, Any],
     artifacts: list[dict[str, Any]],
+    include_artifacts: bool,
 ) -> None:
     with zipfile.ZipFile(package_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         _write_zip_bytes(
@@ -357,8 +444,9 @@ def _write_result_package(
         )
         for name, payload in sorted(metadata_files.items()):
             _write_zip_bytes(archive, name, _json_bytes(payload))
-        for artifact in artifacts:
-            _write_artifact_to_zip(cfg, archive, artifact)
+        if include_artifacts:
+            for artifact in artifacts:
+                _write_artifact_to_zip(cfg, archive, artifact)
 
 
 def _write_artifact_to_zip(
@@ -380,6 +468,14 @@ def _write_zip_bytes(archive: zipfile.ZipFile, name: str, payload: bytes) -> Non
 
 def _package_artifact_root(artifact: dict[str, Any]) -> str:
     return f"artifacts/{artifact['artifactId']}"
+
+
+def _package_filename(result_id: str, artifact_payload_mode: str) -> str:
+    if artifact_payload_mode == ARTIFACT_PAYLOAD_MODE_INCLUDED:
+        return f"{result_id}.zip"
+    if artifact_payload_mode == ARTIFACT_PAYLOAD_MODE_METADATA_ONLY:
+        return f"{result_id}.metadata-only.zip"
+    raise ValueError(f"RESULT_PACKAGE_ARTIFACT_PAYLOAD_MODE_UNSUPPORTED: {artifact_payload_mode}")
 
 
 def _file_stats(path: Path) -> tuple[int, str]:
@@ -422,6 +518,20 @@ def _require_exportable_run(run: dict[str, Any]) -> None:
     status = str(run.get("status") or "").strip()
     if status not in RESULT_EXPORTABLE_RUN_STATUSES:
         raise ValueError(f"RESULT_RUN_NOT_TERMINAL: {status or 'unknown'}")
+
+
+def _artifact_payload_mode(include_artifacts: bool) -> str:
+    include_artifacts = _require_bool(
+        include_artifacts,
+        "RESULT_PACKAGE_INCLUDE_ARTIFACTS_BOOL_REQUIRED",
+    )
+    return ARTIFACT_PAYLOAD_MODE_INCLUDED if include_artifacts else ARTIFACT_PAYLOAD_MODE_METADATA_ONLY
+
+
+def _require_bool(value: object, code: str) -> bool:
+    if type(value) is not bool:
+        raise ValueError(code)
+    return value
 
 
 def _metadata_payloads(
@@ -511,10 +621,7 @@ def _ro_crate_metadata(
     manifest: dict[str, Any],
     metadata_index: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    artifact_parts = [
-        {"@id": f"{artifact['packagePath']}/"}
-        for artifact in manifest["artifacts"]
-    ]
+    artifact_parts = [{"@id": _artifact_ro_crate_id(artifact)} for artifact in manifest["artifacts"]]
     metadata_parts = [{"@id": "manifest.json"}, *[{"@id": item["path"]} for item in metadata_index]]
     graph: list[dict[str, Any]] = [
         {
@@ -569,13 +676,16 @@ def _ro_crate_metadata(
     for artifact in manifest["artifacts"]:
         graph.append(
             {
-                "@id": f"{artifact['packagePath']}/",
+                "@id": _artifact_ro_crate_id(artifact),
                 "@type": "Dataset",
                 "name": artifact["kind"],
                 "encodingFormat": artifact["mimeType"],
                 "contentSize": artifact["sizeBytes"],
                 "sha256": artifact["sha256"],
                 "identifier": artifact["artifactId"],
+                "h2ometa:includedInPackage": artifact["includedInPackage"],
+                "h2ometa:storageBackend": artifact["storageBackend"],
+                "h2ometa:storageUri": artifact["storageUri"],
                 "about": {"@id": f"#run-{manifest['runId']}"},
             }
         )
@@ -583,6 +693,12 @@ def _ro_crate_metadata(
         "@context": "https://w3id.org/ro/crate/1.1/context",
         "@graph": graph,
     }
+
+
+def _artifact_ro_crate_id(artifact: dict[str, Any]) -> str:
+    if artifact.get("includedInPackage"):
+        return f"{artifact['packagePath']}/"
+    return str(artifact["externalUri"])
 
 
 def _record_result_export_evidence(
@@ -596,6 +712,8 @@ def _record_result_export_evidence(
     sha256: str,
     manifest_sha256: str,
     artifact_count: int,
+    include_artifacts: bool,
+    artifact_payload_mode: str,
     created_at: str,
 ) -> dict[str, Any]:
     payload = {
@@ -609,6 +727,8 @@ def _record_result_export_evidence(
         "sizeBytes": size_bytes,
         "sha256": sha256,
         "manifestSha256": manifest_sha256,
+        "includeArtifacts": include_artifacts,
+        "artifactPayloadMode": artifact_payload_mode,
         "artifactCount": artifact_count,
         "createdAt": created_at,
     }

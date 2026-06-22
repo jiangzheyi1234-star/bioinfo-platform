@@ -38,7 +38,9 @@ def test_result_package_file_io_lives_in_remote_service_not_routes() -> None:
     assert "def get_result_audit(self, **kwargs) -> dict[str, Any]:" in proxy_source
     assert "def export_result_package(self, **kwargs) -> dict[str, Any]:" in proxy_source
     assert 'client.get_json(f"/api/v1/results/{kwargs[\'result_id\']}/audit")["data"]' in proxy_source
-    assert 'client.post_json(f"/api/v1/results/{kwargs[\'result_id\']}/export", {})["data"]' in proxy_source
+    assert "dict(kwargs.get(\"payload\") or {})" in proxy_source
+    assert 'self.post_json(f"/api/v1/results/{result_id}/export", dict(payload or {}))["data"]' in client_source
 
     assert "def get_result_audit(self, result_id: str) -> dict[str, Any]:" in client_source
-    assert "def export_result_package(self, result_id: str) -> dict[str, Any]:" in client_source
+    assert "def export_result_package(" in client_source
+    assert "payload: dict[str, Any] | None = None" in client_source

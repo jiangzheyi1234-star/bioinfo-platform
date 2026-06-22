@@ -4,7 +4,13 @@ from typing import Any, Literal
 
 from fastapi import APIRouter
 
-from .api_models import ArtifactCacheLookupRequest, ArtifactGcPreviewRequest, ArtifactGcRunRequest, RunRetryRequest
+from .api_models import (
+    ArtifactCacheLookupRequest,
+    ArtifactGcPreviewRequest,
+    ArtifactGcRunRequest,
+    ResultPackageExportRequest,
+    RunRetryRequest,
+)
 from .control_service import (
     cancel_run_from_request,
     get_artifact_lifecycle_usage_from_request,
@@ -111,8 +117,12 @@ async def get_result_audit_api(result_id: str, authorization: AuthorizationHeade
 
 
 @router.post("/api/v1/results/{result_id}/export")
-async def export_result_package_api(result_id: str, authorization: AuthorizationHeader = None) -> dict[str, Any]:
-    return await export_result_package_from_request(result_id, authorization)
+async def export_result_package_api(
+    result_id: str,
+    request: ResultPackageExportRequest,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await export_result_package_from_request(result_id, request, authorization)
 
 
 @router.get("/api/v1/artifacts/lifecycle/usage")

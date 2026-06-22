@@ -409,7 +409,8 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "self.call_runner(\"get_run_execution_context\"" in execution_manager_source
     assert "self.call_runner(\"retry_run\"" in execution_manager_source
     assert "self.call_runner(\"get_result_audit\"" in execution_manager_source
-    assert "self.call_runner(\"export_result_package\"" in execution_manager_source
+    assert 'self.call_runner(\n                "export_result_package",' in execution_manager_source
+    assert "preferred_server_id=server_id" in execution_manager_source
 
 
 def test_runtime_file_operations_live_in_dedicated_mixin() -> None:

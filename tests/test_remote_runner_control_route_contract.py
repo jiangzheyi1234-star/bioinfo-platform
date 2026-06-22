@@ -19,7 +19,9 @@ def test_result_preview_file_io_lives_in_service_not_route() -> None:
     assert "build_result_preview_data(" not in main_source
     assert "run_sync(build_result_preview_data, cfg, result_id, artifact_id)" in control_source
     assert "run_sync(build_result_artifact_audit, cfg, result_id)" in control_source
-    assert "run_sync(export_result_package, cfg, result_id)" in control_source
+    assert "ResultPackageExportRequest" in control_source
+    assert "include_artifacts=request.includeArtifacts" in control_source
+    assert "actor=request.actor" in control_source
     assert "_read_preview_text" not in main_source
     assert "Path(path)" not in main_source
     assert "MAX_PREVIEW_BYTES" not in main_source

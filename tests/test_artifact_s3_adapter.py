@@ -43,6 +43,7 @@ class FakeS3Stat:
 class FakeS3Client:
     def __init__(self) -> None:
         self.objects: dict[tuple[str, str], dict[str, Any]] = {}
+        self.get_object_calls = 0
 
     def fput_object(
         self,
@@ -66,6 +67,7 @@ class FakeS3Client:
         return FakeS3Stat(size=len(item["payload"]), metadata=dict(item["metadata"]))
 
     def get_object(self, bucket: str, object_name: str) -> FakeS3Object:
+        self.get_object_calls += 1
         return FakeS3Object(self.objects[(bucket, object_name)]["payload"])
 
 
@@ -92,7 +94,7 @@ def test_s3_artifact_round_trips_through_preview_audit_and_export(
     materialization = list_artifact_materializations(cfg, artifact["artifactBlobId"])[0]
     preview = build_result_preview_data(cfg, "res_run_s3")
     audit = build_result_artifact_audit(cfg, "res_run_s3")
-    package = export_result_package(cfg, "res_run_s3")
+    package = export_result_package(cfg, "res_run_s3", include_artifacts=True)
 
     assert artifact["storageBackend"] == "s3"
     assert artifact["storageUri"] == f"s3://h2ometa-artifacts/{object_name}"
@@ -114,6 +116,40 @@ def test_s3_artifact_round_trips_through_preview_audit_and_export(
     failed = build_result_artifact_audit(cfg, "res_run_s3")
     assert failed["status"] == "failed"
     assert failed["artifacts"][0]["checksumOk"] is False
+
+
+def test_s3_metadata_only_result_package_does_not_fetch_payload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeS3Client()
+    monkeypatch.setattr("apps.remote_runner.artifact_io._build_s3_client", lambda _cfg: fake)
+    cfg = _s3_config(tmp_path)
+    _create_run(cfg, "run_s3_metadata_only")
+    artifact_path = tmp_path / "report.txt"
+    artifact_path.write_bytes(b"accepted\n")
+
+    artifact = persist_artifact(
+        cfg,
+        run_id="run_s3_metadata_only",
+        kind="report",
+        path=artifact_path,
+        mime_type="text/plain",
+        artifact_key="report",
+    )
+    fake.get_object_calls = 0
+
+    package = export_result_package(cfg, "res_run_s3_metadata_only", include_artifacts=False)
+
+    assert fake.get_object_calls == 0
+    assert package["artifactPayloadMode"] == "metadata-only"
+    with zipfile.ZipFile(package["packagePath"]) as archive:
+        names = set(archive.namelist())
+        manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
+
+    assert f"artifacts/{artifact['artifactId']}/report.txt" not in names
+    assert manifest["artifacts"][0]["externalUri"] == artifact["storageUri"]
+    assert manifest["audit"]["verificationMode"] == "metadata-only"
 
 
 def test_s3_directory_artifact_fails_loudly_before_ledger_write(

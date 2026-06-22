@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from apps.api.models import (
+    ResultPackageExportRequest,
     RunSubmitRequest,
     RunRetryRequest,
     TERMINAL_CLIENT_MESSAGE_ADAPTER,
@@ -184,6 +185,28 @@ def test_run_retry_request_is_strict_and_run_scoped() -> None:
     errors = exc_info.value.errors()
     assert any(error["type"] == "literal_error" and error["loc"] == ("scope",) for error in errors)
     assert any(error["type"] == "extra_forbidden" and error["loc"] == ("ruleName",) for error in errors)
+
+
+def test_result_package_export_request_requires_explicit_payload_mode_and_is_strict() -> None:
+    request = ResultPackageExportRequest.model_validate(
+        {"serverId": "srv_demo", "includeArtifacts": False, "actor": "operator"}
+    )
+
+    assert request.includeArtifacts is False
+    assert request.serverId == "srv_demo"
+
+    with pytest.raises(ValidationError) as missing:
+        ResultPackageExportRequest.model_validate({"actor": "operator"})
+    with pytest.raises(ValidationError) as extra:
+        ResultPackageExportRequest.model_validate({"includeArtifacts": True, "legacyMode": "full"})
+    with pytest.raises(ValidationError) as non_boolean:
+        ResultPackageExportRequest.model_validate({"includeArtifacts": "false"})
+
+    assert missing.value.errors()[0]["loc"] == ("includeArtifacts",)
+    assert extra.value.errors()[0]["type"] == "extra_forbidden"
+    assert extra.value.errors()[0]["loc"] == ("legacyMode",)
+    assert non_boolean.value.errors()[0]["loc"] == ("includeArtifacts",)
+    assert non_boolean.value.errors()[0]["type"] == "bool_type"
 
 
 def test_workflow_trigger_create_request_is_strict_and_keeps_run_spec_nested() -> None:

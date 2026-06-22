@@ -125,8 +125,18 @@ class RunnerExecutionOperationsMixin:
     def get_result_audit(self, result_id: str) -> dict[str, Any]:
         return self.execution.get_result_audit(result_id)
 
-    def export_result_package(self, result_id: str) -> dict[str, Any]:
-        return self.execution.export_result_package(result_id)
+    def export_result_package(
+        self,
+        result_id: str,
+        *,
+        payload: dict[str, Any] | None = None,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return self.execution.export_result_package(
+            result_id,
+            payload=payload,
+            server_id=server_id,
+        )
 
     def get_artifact_lifecycle_usage(
         self,

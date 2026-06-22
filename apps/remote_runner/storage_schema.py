@@ -451,6 +451,8 @@ CREATE TABLE IF NOT EXISTS result_package_exports (
     manifest_sha256 TEXT NOT NULL,
     evidence_event_id TEXT NOT NULL,
     artifact_ids_json TEXT NOT NULL DEFAULT '[]',
+    include_artifacts INTEGER NOT NULL DEFAULT 1,
+    artifact_payload_mode TEXT NOT NULL DEFAULT 'included',
     lifecycle_state TEXT NOT NULL DEFAULT 'active',
     created_at TEXT NOT NULL,
     UNIQUE(result_id, sha256, manifest_sha256)

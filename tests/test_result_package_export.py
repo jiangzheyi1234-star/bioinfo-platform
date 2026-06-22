@@ -64,7 +64,7 @@ def test_result_package_export_includes_manifest_artifacts_and_lineage(tmp_path:
         step_id="summarize",
     )
 
-    package = export_result_package(cfg, "res_run_export")
+    package = export_result_package(cfg, "res_run_export", include_artifacts=True)
     package_path = Path(package["packagePath"])
 
     assert package["schemaVersion"] == "h2ometa.result-package.v2"
@@ -165,7 +165,7 @@ def test_result_package_export_refuses_failed_checksum_audit(tmp_path: Path) -> 
     report.write_bytes(b"tampered\n")
 
     with pytest.raises(ValueError, match="RESULT_ARTIFACT_AUDIT_FAILED"):
-        export_result_package(cfg, "res_run_export_failed")
+        export_result_package(cfg, "res_run_export_failed", include_artifacts=True)
 
 
 def test_result_package_export_requires_workflow_revision(tmp_path: Path) -> None:
@@ -195,14 +195,32 @@ def test_result_package_export_requires_workflow_revision(tmp_path: Path) -> Non
     )
 
     with pytest.raises(ValueError, match="RESULT_WORKFLOW_REVISION_REQUIRED"):
-        export_result_package(cfg, "res_run_export_unversioned")
+        export_result_package(cfg, "res_run_export_unversioned", include_artifacts=True)
 
 
 def test_result_package_export_rejects_invalid_result_id(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
 
     with pytest.raises(ValueError, match="RESULT_ID_INVALID"):
-        export_result_package(cfg, "res_../escape")
+        export_result_package(cfg, "res_../escape", include_artifacts=True)
+
+
+def test_result_package_export_rejects_non_boolean_include_artifacts(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_export_non_bool")
+    report = tmp_path / "report.txt"
+    report.write_bytes(b"accepted\n")
+    persist_artifact(
+        cfg,
+        run_id="run_export_non_bool",
+        kind="report",
+        path=report,
+        mime_type="text/plain",
+        artifact_key="report",
+    )
+
+    with pytest.raises(ValueError, match="RESULT_PACKAGE_INCLUDE_ARTIFACTS_BOOL_REQUIRED"):
+        export_result_package(cfg, "res_run_export_non_bool", include_artifacts="false")  # type: ignore[arg-type]
 
 
 def test_result_package_export_rejects_non_terminal_run(tmp_path: Path) -> None:
@@ -220,7 +238,7 @@ def test_result_package_export_rejects_non_terminal_run(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ValueError, match="RESULT_RUN_NOT_TERMINAL: queued"):
-        export_result_package(cfg, "res_run_export_running")
+        export_result_package(cfg, "res_run_export_running", include_artifacts=True)
 
 
 def test_result_package_export_redacts_secret_run_spec_fields(tmp_path: Path) -> None:
@@ -241,7 +259,7 @@ def test_result_package_export_redacts_secret_run_spec_fields(tmp_path: Path) ->
         artifact_key="report",
     )
 
-    package = export_result_package(cfg, "res_run_export_secret")
+    package = export_result_package(cfg, "res_run_export_secret", include_artifacts=True)
     with zipfile.ZipFile(package["packagePath"]) as archive:
         run_metadata = json.loads(archive.read("metadata/run.json").decode("utf-8"))
 
@@ -250,6 +268,90 @@ def test_result_package_export_redacts_secret_run_spec_fields(tmp_path: Path) ->
     assert package["manifest"]["runSpec"]["params"]["threshold"] == 7
     assert package["manifest"]["redactedSecretPaths"] == ["runSpec.params.apiToken"]
     assert run_metadata["runSpec"]["params"]["apiToken"] == "<redacted>"
+
+
+def test_result_package_metadata_only_export_references_artifacts_without_payloads(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    revision = _create_run(cfg, "run_export_metadata_only")
+    report = tmp_path / "metadata-only-report.txt"
+    report.write_bytes(b"accepted\n")
+    artifact = persist_artifact(
+        cfg,
+        run_id="run_export_metadata_only",
+        kind="report",
+        path=report,
+        mime_type="text/plain",
+        artifact_key="report",
+    )
+
+    package = export_result_package(
+        cfg,
+        "res_run_export_metadata_only",
+        include_artifacts=False,
+        actor="operator@example.test",
+    )
+
+    assert package["includeArtifacts"] is False
+    assert package["artifactPayloadMode"] == "metadata-only"
+    assert package["workflowRevisionId"] == revision["workflowRevisionId"]
+    manifest_artifact = package["manifest"]["artifacts"][0]
+    assert manifest_artifact["includedInPackage"] is False
+    assert manifest_artifact["packagePath"] is None
+    assert manifest_artifact["externalUri"] == artifact["storageUri"]
+    assert manifest_artifact["sha256"] == artifact["sha256"]
+    with get_connection(cfg) as connection:
+        export_row = connection.execute(
+            "SELECT include_artifacts, artifact_payload_mode FROM result_package_exports WHERE package_export_id = ?",
+            (package["packageExportId"],),
+        ).fetchone()
+    assert export_row["include_artifacts"] == 0
+    assert export_row["artifact_payload_mode"] == "metadata-only"
+    with zipfile.ZipFile(package["packagePath"]) as archive:
+        names = set(archive.namelist())
+        ro_crate = json.loads(archive.read("ro-crate-metadata.json").decode("utf-8"))
+
+    assert f"artifacts/{artifact['artifactId']}/metadata-only-report.txt" not in names
+    assert "manifest.json" in names
+    assert "metadata/artifact-audit.json" in names
+    graph_by_id = {item["@id"]: item for item in ro_crate["@graph"]}
+    assert artifact["storageUri"] in graph_by_id
+    assert graph_by_id[artifact["storageUri"]]["h2ometa:includedInPackage"] is False
+
+
+def test_result_package_full_and_metadata_only_exports_do_not_overwrite_each_other(
+    tmp_path: Path,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_export_modes")
+    report = tmp_path / "report.txt"
+    report.write_bytes(b"accepted\n")
+    artifact = persist_artifact(
+        cfg,
+        run_id="run_export_modes",
+        kind="report",
+        path=report,
+        mime_type="text/plain",
+        artifact_key="report",
+    )
+
+    full_package = export_result_package(cfg, "res_run_export_modes", include_artifacts=True)
+    metadata_package = export_result_package(cfg, "res_run_export_modes", include_artifacts=False)
+
+    assert Path(full_package["packagePath"]).name == "res_run_export_modes.zip"
+    assert Path(metadata_package["packagePath"]).name == "res_run_export_modes.metadata-only.zip"
+    assert Path(full_package["packagePath"]).is_file()
+    assert Path(metadata_package["packagePath"]).is_file()
+    with zipfile.ZipFile(full_package["packagePath"]) as archive:
+        full_names = set(archive.namelist())
+    with zipfile.ZipFile(metadata_package["packagePath"]) as archive:
+        metadata_names = set(archive.namelist())
+    assert f"artifacts/{artifact['artifactId']}/report.txt" in full_names
+    assert f"artifacts/{artifact['artifactId']}/report.txt" not in metadata_names
+    with get_connection(cfg) as connection:
+        export_count = connection.execute(
+            "SELECT COUNT(*) FROM result_package_exports WHERE result_id = 'res_run_export_modes'"
+        ).fetchone()[0]
+    assert export_count == 2
 
 
 def _create_run(

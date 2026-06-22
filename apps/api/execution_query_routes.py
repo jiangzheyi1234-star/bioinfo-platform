@@ -6,7 +6,13 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from apps.api.models import ArtifactCacheLookupRequest, ArtifactGcPreviewRequest, ArtifactGcRunRequest, RunRetryRequest
+from apps.api.models import (
+    ArtifactCacheLookupRequest,
+    ArtifactGcPreviewRequest,
+    ArtifactGcRunRequest,
+    ResultPackageExportRequest,
+    RunRetryRequest,
+)
 from apps.api.execution_query_service import (
     cancel_run_from_request,
     get_artifact_lifecycle_usage_from_request,
@@ -103,8 +109,11 @@ async def get_result_audit(result_id: str) -> dict[str, Any]:
 
 
 @router.post("/api/v1/results/{result_id}/export")
-async def export_result_package(result_id: str) -> dict[str, Any]:
-    return await export_result_package_from_request(result_id)
+async def export_result_package(
+    result_id: str,
+    request: ResultPackageExportRequest,
+) -> dict[str, Any]:
+    return await export_result_package_from_request(result_id, request)
 
 
 @router.get("/api/v1/artifacts/lifecycle/usage")

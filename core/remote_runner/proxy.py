@@ -491,7 +491,10 @@ class RemoteRunnerProxyMixin:
             ssh_service=kwargs["ssh_service"],
             record=kwargs["server_record"],
         )
-        return client.post_json(f"/api/v1/results/{kwargs['result_id']}/export", {})["data"]
+        return client.post_json(
+            f"/api/v1/results/{kwargs['result_id']}/export",
+            dict(kwargs.get("payload") or {}),
+        )["data"]
 
     def get_artifact_lifecycle_usage(self, **kwargs) -> dict[str, Any]:
         client = self._get_client(

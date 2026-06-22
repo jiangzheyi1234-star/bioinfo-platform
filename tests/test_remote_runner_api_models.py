@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from apps.remote_runner.api_models import (
+    ResultPackageExportRequest,
     RunCreateRequest,
     RunRetryRequest,
     ToolManifestRequest,
@@ -164,6 +165,28 @@ def test_remote_runner_run_retry_request_is_strict() -> None:
     errors = exc_info.value.errors()
     assert any(error["type"] == "literal_error" and error["loc"] == ("scope",) for error in errors)
     assert any(error["type"] == "extra_forbidden" and error["loc"] == ("stepId",) for error in errors)
+
+
+def test_remote_runner_result_package_export_request_requires_explicit_payload_mode() -> None:
+    request = ResultPackageExportRequest.model_validate(
+        {"includeArtifacts": True, "actor": "operator"}
+    )
+
+    assert request.includeArtifacts is True
+    assert request.actor == "operator"
+
+    with pytest.raises(ValidationError) as missing:
+        ResultPackageExportRequest.model_validate({"actor": "operator"})
+    with pytest.raises(ValidationError) as extra:
+        ResultPackageExportRequest.model_validate({"includeArtifacts": False, "mode": "metadata"})
+    with pytest.raises(ValidationError) as non_boolean:
+        ResultPackageExportRequest.model_validate({"includeArtifacts": 0})
+
+    assert missing.value.errors()[0]["loc"] == ("includeArtifacts",)
+    assert extra.value.errors()[0]["type"] == "extra_forbidden"
+    assert extra.value.errors()[0]["loc"] == ("mode",)
+    assert non_boolean.value.errors()[0]["loc"] == ("includeArtifacts",)
+    assert non_boolean.value.errors()[0]["type"] == "bool_type"
 
 
 def test_remote_runner_workflow_trigger_inbox_event_request_is_strict() -> None:

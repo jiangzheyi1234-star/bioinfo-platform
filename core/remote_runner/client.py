@@ -245,8 +245,12 @@ class RemoteRunnerHttpClient:
     def get_result_audit(self, result_id: str) -> dict[str, Any]:
         return self.get_json(f"/api/v1/results/{result_id}/audit")["data"]
 
-    def export_result_package(self, result_id: str) -> dict[str, Any]:
-        return self.post_json(f"/api/v1/results/{result_id}/export", {})["data"]
+    def export_result_package(
+        self,
+        result_id: str,
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self.post_json(f"/api/v1/results/{result_id}/export", dict(payload or {}))["data"]
 
     def get_artifact_lifecycle_usage(self, *, quota_bytes: int | None = None) -> dict[str, Any]:
         query = urllib.parse.urlencode({"quotaBytes": quota_bytes if quota_bytes is not None else ""})

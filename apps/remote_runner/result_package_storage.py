@@ -9,6 +9,9 @@ from .config import RemoteRunnerConfig
 from .storage_core import get_connection
 
 
+SUPPORTED_ARTIFACT_PAYLOAD_MODES = {"included", "metadata-only"}
+
+
 def record_result_package_export(
     cfg: RemoteRunnerConfig,
     *,
@@ -22,8 +25,18 @@ def record_result_package_export(
     manifest_sha256: str,
     evidence_event_id: str,
     artifact_ids: list[str],
+    include_artifacts: bool,
+    artifact_payload_mode: str,
     created_at: str,
 ) -> dict[str, Any]:
+    normalized_mode = _required_text(
+        artifact_payload_mode,
+        "RESULT_PACKAGE_ARTIFACT_PAYLOAD_MODE_REQUIRED",
+    )
+    if normalized_mode not in SUPPORTED_ARTIFACT_PAYLOAD_MODES:
+        raise ValueError(f"RESULT_PACKAGE_ARTIFACT_PAYLOAD_MODE_UNSUPPORTED: {normalized_mode}")
+    if type(include_artifacts) is not bool:
+        raise ValueError("RESULT_PACKAGE_INCLUDE_ARTIFACTS_BOOL_REQUIRED")
     normalized = {
         "result_id": _required_text(result_id, "RESULT_ID_REQUIRED"),
         "run_id": _required_text(run_id, "RUN_ID_REQUIRED"),
@@ -38,6 +51,8 @@ def record_result_package_export(
         "manifest_sha256": _required_text(manifest_sha256, "RESULT_PACKAGE_MANIFEST_SHA256_REQUIRED"),
         "evidence_event_id": _required_text(evidence_event_id, "RESULT_PACKAGE_EVIDENCE_ID_REQUIRED"),
         "artifact_ids_json": json.dumps(sorted(set(artifact_ids)), ensure_ascii=False),
+        "include_artifacts": 1 if include_artifacts else 0,
+        "artifact_payload_mode": normalized_mode,
         "created_at": _required_text(created_at, "RESULT_PACKAGE_CREATED_AT_REQUIRED"),
     }
     export_id = _export_id(normalized)
@@ -47,14 +62,17 @@ def record_result_package_export(
             INSERT INTO result_package_exports (
                 package_export_id, result_id, run_id, workflow_revision_id,
                 package_path, package_uri, size_bytes, sha256, manifest_sha256,
-                evidence_event_id, artifact_ids_json, lifecycle_state, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
+                evidence_event_id, artifact_ids_json, include_artifacts,
+                artifact_payload_mode, lifecycle_state, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
             ON CONFLICT(result_id, sha256, manifest_sha256) DO UPDATE SET
                 package_path = excluded.package_path,
                 package_uri = excluded.package_uri,
                 size_bytes = excluded.size_bytes,
                 evidence_event_id = excluded.evidence_event_id,
                 artifact_ids_json = excluded.artifact_ids_json,
+                include_artifacts = excluded.include_artifacts,
+                artifact_payload_mode = excluded.artifact_payload_mode,
                 lifecycle_state = 'active'
             """,
             (
@@ -69,6 +87,8 @@ def record_result_package_export(
                 normalized["manifest_sha256"],
                 normalized["evidence_event_id"],
                 normalized["artifact_ids_json"],
+                normalized["include_artifacts"],
+                normalized["artifact_payload_mode"],
                 normalized["created_at"],
             ),
         )
@@ -101,6 +121,8 @@ def _row_to_dict(row: Any) -> dict[str, Any]:
         "manifestSha256": row["manifest_sha256"],
         "evidenceEventId": row["evidence_event_id"],
         "artifactIds": json.loads(row["artifact_ids_json"] or "[]"),
+        "includeArtifacts": bool(row["include_artifacts"]),
+        "artifactPayloadMode": row["artifact_payload_mode"],
         "lifecycleState": row["lifecycle_state"],
         "createdAt": row["created_at"],
     }
