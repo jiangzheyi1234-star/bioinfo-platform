@@ -5,6 +5,10 @@ import { useEffect, useMemo, useReducer } from "react";
 import type { DatabaseItem } from "./database-page-model";
 import type { AddedTool } from "./tools-page-model";
 import {
+  buildConverterInsertionPatch,
+  type RulePortConverterInsertionRequest,
+} from "./generated-workflow-converter-recommendation";
+import {
   createGeneratedWorkflowGraphDraft,
   createStepDraft,
   createStepParams,
@@ -36,6 +40,7 @@ type BuilderAction =
   | { type: "load_graph_draft"; draft: GeneratedWorkflowGraphDraft }
   | { type: "load_resource_bindings"; selectedResourceIds: Record<string, string> }
   | { type: "add_step"; tool: AddedTool; tools: AddedTool[] }
+  | { type: "insert_converter"; converterTool: AddedTool; request: RulePortConverterInsertionRequest }
   | { type: "remove_step"; stepId: string }
   | { type: "set_step_id"; stepId: string; nextId: string }
   | { type: "set_step_tool"; stepId: string; tool: AddedTool; tools: AddedTool[] }
@@ -123,6 +128,10 @@ export function useGeneratedWorkflowBuilder(tools: AddedTool[], availableResourc
       const tool = toolByRevisionId.get(toolRevisionId);
       if (tool) dispatch({ type: "add_step", tool, tools });
     },
+    insertConverter: (request: RulePortConverterInsertionRequest) => {
+      const converterTool = toolByRevisionId.get(request.converter.converterToolRevisionId);
+      if (converterTool) dispatch({ type: "insert_converter", converterTool, request });
+    },
     removeStep: (stepId: string) => dispatch({ type: "remove_step", stepId }),
     setStepId: (stepId: string, nextId: string) => dispatch({ type: "set_step_id", stepId, nextId }),
     setStepTool: (stepId: string, toolRevisionId: string) => {
@@ -162,6 +171,16 @@ function builderReducer(state: BuilderState, action: BuilderAction): BuilderStat
     const draft = graphDraftToGeneratedWorkflowDraft(state.graphDraft);
     const nextStep = createStepDraft(action.tool, draft.steps.map((step) => step.id), draft.steps, action.tools);
     return updateStepDraft(state, (current) => ({ ...current, steps: [...current.steps, nextStep] }));
+  }
+  if (action.type === "insert_converter") {
+    return {
+      ...state,
+      graphDraft: buildConverterInsertionPatch({
+        converterTool: action.converterTool,
+        graphDraft: state.graphDraft,
+        request: action.request,
+      }),
+    };
   }
   if (action.type === "remove_step") {
     return updateStepDraft(state, (draft) => ({

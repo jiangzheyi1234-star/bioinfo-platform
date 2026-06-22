@@ -1,5 +1,7 @@
 "use client";
 
+import { Plus } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
@@ -43,6 +45,7 @@ export function GeneratedWorkflowPortBindingsEditor({
   inputCount,
   node,
   onBind,
+  onInsertConverter,
   outputCandidates,
   tool,
   tools,
@@ -51,6 +54,7 @@ export function GeneratedWorkflowPortBindingsEditor({
   inputCount: number;
   node: GeneratedWorkflowBuilderController["graphDraft"]["nodes"][number];
   onBind: (inputName: string, binding: GeneratedWorkflowInputBinding) => void;
+  onInsertConverter: (inputName: string, suggestion: OutputConverterSuggestion) => void;
   outputCandidates: GeneratedWorkflowOutputCandidate[];
   tool: AddedTool | undefined;
   tools: AddedTool[];
@@ -88,6 +92,7 @@ export function GeneratedWorkflowPortBindingsEditor({
             inputCount={inputCount}
             outputCandidates={candidates}
             onChange={(nextBinding) => onBind(input.name, nextBinding)}
+            onInsertConverter={(suggestion) => onInsertConverter(input.name, suggestion)}
           />
         );
       })}
@@ -102,6 +107,7 @@ function PortBindingRow({
   inputCount,
   outputCandidates,
   onChange,
+  onInsertConverter,
 }: {
   binding: GeneratedWorkflowInputBinding | undefined;
   converterSuggestions: OutputConverterSuggestion[];
@@ -109,6 +115,7 @@ function PortBindingRow({
   inputCount: number;
   outputCandidates: GeneratedWorkflowOutputCandidate[];
   onChange: (binding: GeneratedWorkflowInputBinding) => void;
+  onInsertConverter: (suggestion: OutputConverterSuggestion) => void;
 }) {
   const type = bindingKind(binding);
   const required = input.required !== false;
@@ -182,9 +189,23 @@ function PortBindingRow({
         <div className="grid gap-1 rounded-md bg-sky-50 px-2 py-2 text-[11px] text-sky-800">
           <div className="font-medium">一跳转换建议</div>
           {converterSuggestions.slice(0, 3).map((suggestion) => (
-            <div key={`${suggestion.sourceValue}.${suggestion.converterToolRevisionId}.${suggestion.inputName}.${suggestion.outputName}`}>
-              {suggestion.sourceLabel} -&gt; {suggestion.converterToolName}.{suggestion.inputName}/{suggestion.outputName}
-              <span className="text-sky-600"> · {suggestion.reason}</span>
+            <div
+              key={`${suggestion.sourceValue}.${suggestion.converterToolRevisionId}.${suggestion.inputName}.${suggestion.outputName}`}
+              className="grid gap-1 rounded-sm bg-white/70 px-2 py-1.5"
+            >
+              <div className="min-w-0 break-words">
+                {suggestion.sourceLabel} -&gt; {suggestion.converterToolName}.{suggestion.inputName}/{suggestion.outputName}
+                <span className="text-sky-600"> · {suggestion.reason}</span>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-7 justify-self-start bg-white px-2 text-[11px]"
+                onClick={() => onInsertConverter(suggestion)}
+              >
+                <Plus strokeWidth={1.5} className="mr-1 h-3.5 w-3.5" />
+                插入转换
+              </Button>
             </div>
           ))}
         </div>
@@ -285,6 +306,8 @@ function rankOutputCandidates(candidates: GeneratedWorkflowOutputCandidate[]) {
 
 type OutputConverterSuggestion = RulePortConverterCandidate & {
   sourceLabel: string;
+  sourceOutput: string;
+  sourceStepId: string;
   sourceValue: string;
 };
 
@@ -309,6 +332,8 @@ function converterSuggestionsForInput({
       }).map((converter) => ({
         ...converter,
         sourceLabel: candidate.label,
+        sourceOutput: candidate.output,
+        sourceStepId: candidate.stepId,
         sourceValue: candidate.value,
       }))
     )

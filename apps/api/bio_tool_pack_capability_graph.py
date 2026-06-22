@@ -116,7 +116,12 @@ def one_hop_converter_candidates(
         rule_template = complete_rule_template_semantics(profile.rule_template)
         if _requires_database_resource(rule_template):
             continue
-        for converter_input in _rule_ports(rule_template, "inputs"):
+        converter_inputs = _rule_ports(rule_template, "inputs")
+        required_inputs = [item for item in converter_inputs if item.get("required", True) is not False]
+        for converter_input in converter_inputs:
+            converter_input_name = str(converter_input.get("name") or "").strip()
+            if any(str(item.get("name") or "").strip() != converter_input_name for item in required_inputs):
+                continue
             input_decision = port_compatibility_decision(port_spec_from_rule_item(converter_input), source_spec)
             if input_decision["compatible"] is not True:
                 continue

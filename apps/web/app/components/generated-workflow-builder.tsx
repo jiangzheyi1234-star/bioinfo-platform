@@ -407,6 +407,15 @@ function WorkflowGraphWorkbench({
                 tool={selectedTool}
                 tools={tools}
                 onBind={(inputName, binding) => builder.setInputBinding(selectedNode.id, inputName, binding)}
+                onInsertConverter={(inputName, suggestion) =>
+                  builder.insertConverter({
+                    sourceStepId: suggestion.sourceStepId,
+                    sourceOutput: suggestion.sourceOutput,
+                    targetStepId: selectedNode.id,
+                    targetInput: inputName,
+                    converter: suggestion,
+                  })
+                }
               />
             </div>
           ) : (

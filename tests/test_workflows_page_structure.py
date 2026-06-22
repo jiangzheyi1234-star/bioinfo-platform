@@ -318,8 +318,13 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "mismatchedPortCompatibilityField" in port_contract
     assert "export function findOneHopPortConverters" in converter_contract
     assert "RulePortConverterCandidate" in converter_contract
+    assert "RulePortConverterInsertionRequest" in converter_contract
+    assert "export function buildConverterInsertionPatch" in converter_contract
+    assert "generatedWorkflowDraftToGraphDraft" in converter_contract
+    assert "graphDraftToGeneratedWorkflowDraft" in converter_contract
     assert "matchedPortCompatibilityFields(converterInput, output)" in converter_contract
     assert "matchedPortCompatibilityFields(input, converterOutput)" in converter_contract
+    assert "requiredInputs.some" in converter_contract
     assert "buildConverterInsertionPatch" not in model
     assert "converterPath" not in design_model
     assert "COMPATIBILITY_FIELDS" not in model
@@ -408,6 +413,9 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "resourceBindings" in builder_hook
     assert "setStepRuntime" in builder_hook
     assert "audit: manualEdgeAudit()" in builder_hook
+    assert "buildConverterInsertionPatch" in builder_hook
+    assert "insertConverter" in builder_hook
+    assert "type: \"insert_converter\"" in builder_hook
 
     assert "GeneratedWorkflowBuilder" in builder_ui
     assert "WorkflowGraphWorkbench" in builder_ui
@@ -563,7 +571,12 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "compatibilityScore" in port_bindings_editor_ui
     assert "converterSuggestionsForInput" in port_bindings_editor_ui
     assert "一跳转换建议" in port_bindings_editor_ui
+    assert "插入转换" in port_bindings_editor_ui
     assert "findOneHopPortConverters" in port_bindings_editor_ui
+    assert "onInsertConverter" in port_bindings_editor_ui
+    assert "builder.insertConverter" in builder_ui
+    assert "sourceStepId: suggestion.sourceStepId" in builder_ui
+    assert "targetStepId: selectedNode.id" in builder_ui
     assert "tools={tools}" in builder_ui
     assert "应用推荐" in port_bindings_editor_ui
     assert "autoEdgeAudit(recommended.recommendation)" in port_bindings_editor_ui

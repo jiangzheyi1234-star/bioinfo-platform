@@ -1,13 +1,19 @@
 import type { AddedTool } from "./tools-page-model";
 import { matchedPortCompatibilityFields } from "./generated-workflow-port-contract";
 import {
+  createStepParams,
+  generatedWorkflowDraftToGraphDraft,
+  graphDraftToGeneratedWorkflowDraft,
   portCompatibilityScore,
   readRuleInputs,
   readRuleOutputs,
+  uniqueStepId,
   workflowToolRevisionId,
+  type GeneratedWorkflowGraphDraft,
   type RuleInputSpec,
   type RuleOutputSpec,
 } from "./generated-workflow-model";
+import type { RulePortEdgeAudit } from "./generated-workflow-recommendation-contract";
 import { displayRuleTemplateForTool, ruleSpecReadinessForTool } from "./tool-rule-readiness";
 
 export type RulePortConverterCandidate = {
@@ -21,6 +27,14 @@ export type RulePortConverterCandidate = {
   operation?: string;
   workflowStage?: string;
   reason: string;
+};
+
+export type RulePortConverterInsertionRequest = {
+  sourceStepId: string;
+  sourceOutput: string;
+  targetStepId: string;
+  targetInput: string;
+  converter: RulePortConverterCandidate;
 };
 
 export function findOneHopPortConverters({
@@ -57,8 +71,10 @@ function converterCandidatesForTool({
   if (!revisionId || converterInputs.length === 0 || converterOutputs.length === 0) return [];
 
   const metadata = converterToolMetadata(tool);
+  const requiredInputs = converterInputs.filter((candidate) => candidate.required !== false);
   const candidates: RulePortConverterCandidate[] = [];
   for (const converterInput of converterInputs) {
+    if (requiredInputs.some((candidate) => candidate.name !== converterInput.name)) continue;
     const inputScore = portCompatibilityScore(converterInput, output);
     if (inputScore === null) continue;
     if (matchedPortCompatibilityFields(converterInput, output).length === 0) continue;
@@ -81,6 +97,62 @@ function converterCandidatesForTool({
     }
   }
   return candidates;
+}
+
+export function buildConverterInsertionPatch({
+  converterTool,
+  graphDraft,
+  request,
+}: {
+  converterTool: AddedTool;
+  graphDraft: GeneratedWorkflowGraphDraft;
+  request: RulePortConverterInsertionRequest;
+}): GeneratedWorkflowGraphDraft {
+  const draft = graphDraftToGeneratedWorkflowDraft(graphDraft);
+  const sourceStep = draft.steps.find((step) => step.id === request.sourceStepId);
+  const targetStep = draft.steps.find((step) => step.id === request.targetStepId);
+  if (!sourceStep || !targetStep) {
+    throw new Error("WORKFLOW_CONVERTER_INSERTION_STEP_UNKNOWN");
+  }
+  const converterToolRevisionId = workflowToolRevisionId(converterTool);
+  if (!converterToolRevisionId || converterToolRevisionId !== request.converter.converterToolRevisionId) {
+    throw new Error("WORKFLOW_CONVERTER_INSERTION_TOOL_MISMATCH");
+  }
+  const converterStepId = uniqueStepId(
+    `${request.converter.converterToolName || converterTool.name || "converter"}_converter`,
+    draft.steps.map((step) => step.id)
+  );
+  const converterStep = {
+    id: converterStepId,
+    toolRevisionId: converterToolRevisionId,
+    inputs: {
+      [request.converter.inputName]: {
+        fromStep: request.sourceStepId,
+        output: request.sourceOutput,
+        audit: converterEdgeAudit(request.converter, "source-output-to-converter-input"),
+      },
+    },
+    params: createStepParams(converterTool),
+    runtime: {},
+  };
+  const targetIndex = draft.steps.findIndex((step) => step.id === targetStep.id);
+  const updatedSteps = draft.steps.map((step) =>
+    step.id === targetStep.id
+      ? {
+          ...step,
+          inputs: {
+            ...step.inputs,
+            [request.targetInput]: {
+              fromStep: converterStepId,
+              output: request.converter.outputName,
+              audit: converterEdgeAudit(request.converter, "converter-output-to-target-input"),
+            },
+          },
+        }
+      : step
+  );
+  updatedSteps.splice(targetIndex, 0, converterStep);
+  return generatedWorkflowDraftToGraphDraft({ ...draft, steps: updatedSteps });
 }
 
 function converterToolMetadata(tool: AddedTool): { operation?: string; workflowStage?: string } {
@@ -122,6 +194,23 @@ function converterReason({
     `score ${inputScore}+${outputScore}`,
     ...labels,
   ].join("；");
+}
+
+function converterEdgeAudit(converter: RulePortConverterCandidate, edge: string): RulePortEdgeAudit {
+  const confidence = Math.min(0.95, Number((0.45 + Math.min(converter.totalScore, 20) * 0.02).toFixed(2)));
+  return {
+    source: "auto",
+    decision: "recommended",
+    hardChecks: ["one-hop-converter", edge],
+    evidence: [
+      converter.reason,
+      `converterToolRevisionId ${converter.converterToolRevisionId}`,
+      `converterInput ${converter.inputName}`,
+      `converterOutput ${converter.outputName}`,
+    ],
+    confidence,
+    reason: `一跳转换: ${converter.converterToolName}`,
+  };
 }
 
 function stringValue(value: unknown): string {

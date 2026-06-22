@@ -16,6 +16,31 @@ def _source_tool() -> dict[str, Any]:
     return tool
 
 
+def _converter_tool() -> dict[str, Any]:
+    tool = _tool_manifest("bioconda::sam-to-bam=1.0")
+    tool["name"] = "sam-to-bam"
+    tool["ruleTemplate"]["commandTemplate"] = "cp {input.reads:q} {output.bam:q}"
+    tool["ruleTemplate"]["inputs"] = [{"name": "reads", "required": True, "kind": "reads", "format": "fastq"}]
+    tool["ruleTemplate"]["outputs"] = [
+        {
+            "name": "bam",
+            "path": "converted.bam",
+            "kind": "alignment_bam",
+            "format": "bam",
+            "mimeType": "application/octet-stream",
+        }
+    ]
+    return tool
+
+
+def _bam_consumer_tool() -> dict[str, Any]:
+    tool = _tool_manifest("bioconda::bam-qc=1.0")
+    tool["name"] = "bam-qc"
+    tool["ruleTemplate"]["inputs"][0]["kind"] = "alignment_bam"
+    tool["ruleTemplate"]["inputs"][0]["format"] = "bam"
+    return tool
+
+
 def _two_step_draft(*, edge_output: str = "report", exposed_output: str = "report") -> dict[str, Any]:
     draft = _draft("bioconda::source=1.0")
     draft["nodes"][0]["id"] = "source"
@@ -41,6 +66,85 @@ def _two_step_draft(*, edge_output: str = "report", exposed_output: str = "repor
     ]
     draft["outputs"] = [{"from": {"nodeId": "copy", "port": exposed_output}, "as": "copied_report"}]
     return draft
+
+
+def _converter_inserted_draft() -> dict[str, Any]:
+    draft = _draft("bioconda::source=1.0")
+    draft["nodes"][0]["id"] = "source"
+    draft["nodes"][0]["toolRevisionId"] = test_tool_revision_id("bioconda::source=1.0")
+    draft["nodes"].append(
+        {
+            "id": "sam_to_bam_converter",
+            "toolRevisionId": test_tool_revision_id("bioconda::sam-to-bam=1.0"),
+            "inputs": {},
+            "params": {"min_len": 50},
+            "runtime": {"threads": 1, "schedulerResources": {"mem_mb": 128}},
+            "resources": {},
+            "outputs": {},
+            "metadata": {},
+            "provenance": {},
+        }
+    )
+    draft["nodes"].append(
+        {
+            "id": "target",
+            "toolRevisionId": test_tool_revision_id("bioconda::bam-qc=1.0"),
+            "inputs": {},
+            "params": {"min_len": 50},
+            "runtime": {"threads": 1, "schedulerResources": {"mem_mb": 128}},
+            "resources": {},
+            "outputs": {"report": {"expose": True}},
+            "metadata": {},
+            "provenance": {},
+        }
+    )
+    edge_audit = {
+        "source": "auto",
+        "decision": "recommended",
+        "confidence": 0.85,
+        "reason": "one-hop converter",
+        "hardChecks": "[\"one-hop-converter\"]",
+        "evidence": "[\"source -> converter -> target\"]",
+    }
+    draft["edges"] = [
+        {
+            "from": {"nodeId": "source", "port": "report"},
+            "to": {"nodeId": "sam_to_bam_converter", "port": "reads"},
+            "audit": edge_audit,
+        },
+        {
+            "from": {"nodeId": "sam_to_bam_converter", "port": "bam"},
+            "to": {"nodeId": "target", "port": "reads"},
+            "audit": edge_audit,
+        },
+    ]
+    draft["outputs"] = [{"from": {"nodeId": "target", "port": "report"}, "as": "target_report"}]
+    return draft
+
+
+def test_plan_accepts_confirmed_converter_as_plain_v1_graph(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    upsert_ready_tool(cfg, _source_tool())
+    upsert_ready_tool(cfg, _converter_tool())
+    upsert_ready_tool(cfg, _bam_consumer_tool())
+    saved = create_workflow_design_draft(cfg, _converter_inserted_draft())
+
+    plan = plan_workflow_design_draft(
+        cfg,
+        saved["draft"],
+        preview_root=tmp_path / "preview",
+        draft_id=saved["draftId"],
+        revision=saved["revision"],
+    )
+
+    assert plan["valid"] is True
+    assert plan["validationIssues"] == []
+    assert [step["id"] for step in plan["orderedSteps"]] == ["source", "sam_to_bam_converter", "target"]
+    assert [edge["to"]["nodeId"] for edge in plan["normalizedGraph"]["edges"]] == ["sam_to_bam_converter", "target"]
+    assert plan["normalizedGraph"]["edges"][0]["audit"]["source"] == "auto"
+    assert all("audit" not in edge for edge in plan["runSpec"]["workflow"]["edges"])
+    assert "converterPath" not in str(plan["normalizedGraph"])
+    assert "converterPath" not in str(plan["runSpec"])
 
 
 def test_plan_reports_graph_edge_validation_issues_without_runnable_spec(tmp_path: Path) -> None:
