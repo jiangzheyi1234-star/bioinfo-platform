@@ -26,6 +26,8 @@ def test_generated_workflow_graph_canvas_uses_deterministic_layout_helper() -> N
 
     assert 'from "./generated-workflow-graph-layout"' in canvas
     assert "layoutGeneratedWorkflowGraph({ edges, nodes })" in canvas
-    assert "layout.positions.get(edge.from.nodeId)" in canvas
-    assert "layout.positions.get(edge.to.nodeId)" in canvas
+    assert "buildFlowNodes" in canvas
+    assert "flowPositionForLayout" in canvas
+    assert "mergeFlowNodes" in canvas
+    assert "layoutRevision" in canvas
     assert "nodePositions" not in canvas

@@ -189,9 +189,11 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     design_model_path = COMPONENTS / "workflow-design-draft-model.ts"
     hook_path = COMPONENTS / "use-generated-workflow-builder.ts"
     ui_path = COMPONENTS / "generated-workflow-builder.tsx"
+    globals_path = ROOT / "apps" / "web" / "app" / "globals.css"
     history_path = COMPONENTS / "generated-workflow-history.ts"
     graph_node_path = COMPONENTS / "generated-workflow-graph-node-card.tsx"
     graph_canvas_path = COMPONENTS / "generated-workflow-graph-canvas.tsx"
+    port_connection_path = COMPONENTS / "generated-workflow-port-connection.ts"
     node_settings_path = COMPONENTS / "generated-workflow-node-settings.tsx"
     command_contract_path = COMPONENTS / "generated-workflow-command-contract.ts"
     param_contract_path = COMPONENTS / "generated-workflow-param-contract.ts"
@@ -215,9 +217,11 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert design_model_path.exists()
     assert hook_path.exists()
     assert ui_path.exists()
+    assert globals_path.exists()
     assert history_path.exists()
     assert graph_node_path.exists()
     assert graph_canvas_path.exists()
+    assert port_connection_path.exists()
     assert node_settings_path.exists()
     assert command_contract_path.exists()
     assert param_contract_path.exists()
@@ -236,9 +240,11 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     design_model = design_model_path.read_text(encoding="utf-8")
     builder_hook = hook_path.read_text(encoding="utf-8")
     builder_ui = ui_path.read_text(encoding="utf-8")
+    globals_css = globals_path.read_text(encoding="utf-8")
     history_contract = history_path.read_text(encoding="utf-8")
     graph_node_ui = graph_node_path.read_text(encoding="utf-8")
     graph_canvas_ui = graph_canvas_path.read_text(encoding="utf-8")
+    port_connection_contract = port_connection_path.read_text(encoding="utf-8")
     node_settings_ui = node_settings_path.read_text(encoding="utf-8")
     command_contract = command_contract_path.read_text(encoding="utf-8")
     param_contract = param_contract_path.read_text(encoding="utf-8")
@@ -440,6 +446,12 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "searchQuery" not in design_model
     assert "graphZoom" not in design_model
     assert "graphHistory" not in api
+    assert "evaluateGeneratedWorkflowPortConnection" in port_connection_contract
+    assert "portsCompatible(input, output)" in port_connection_contract
+    assert "wouldCreateCycle" in port_connection_contract
+    assert "manualCanvasEdgeAudit" in port_connection_contract
+    assert "WORKFLOW_GRAPH_CONNECTION_INCOMPATIBLE" in port_connection_contract
+    assert "WORKFLOW_GRAPH_CONNECTION_CYCLE" in port_connection_contract
 
     assert "GeneratedWorkflowBuilder" in builder_ui
     assert "WorkflowGraphWorkbench" in builder_ui
@@ -507,36 +519,48 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "manualOnlyCandidate" in port_bindings_editor_ui
     assert "RuleGraphNodeCard" in graph_canvas_ui
     assert "const nodeIssues = validationIssues.filter" in graph_canvas_ui
-    assert "validationIssues={nodeIssues}" in graph_canvas_ui
+    assert "validationIssues: nodeIssues" in graph_canvas_ui
+    assert "validationIssues={data.validationIssues}" in graph_canvas_ui
     assert "validationIssues={builder.validation.errors}" in builder_ui
     assert "GeneratedWorkflowGraphCanvas" in builder_ui
     assert "export function GeneratedWorkflowGraphCanvas" in graph_canvas_ui
+    assert '@import "@xyflow/react/dist/style.css";' in globals_css
     assert "graphSearchQuery" in builder_ui
-    assert "graphZoom" in builder_ui
+    assert "graphLayoutRevision" in builder_ui
     assert "builder.undo" in builder_ui
     assert "builder.redo" in builder_ui
     assert "searchQuery={graphSearchQuery}" in builder_ui
-    assert "zoom={graphZoom}" in builder_ui
+    assert "layoutRevision={graphLayoutRevision}" in builder_ui
+    assert "onBindInput={builder.setInputBinding}" in builder_ui
+    assert "@xyflow/react" in graph_canvas_ui
+    assert "ReactFlow" in graph_canvas_ui
+    assert "Background" in graph_canvas_ui
+    assert "Controls" in graph_canvas_ui
+    assert "MiniMap" in graph_canvas_ui
+    assert "applyNodeChanges" in graph_canvas_ui
+    assert "isValidConnection" in graph_canvas_ui
+    assert "onConnect" in graph_canvas_ui
+    assert "onConnectEnd" in graph_canvas_ui
+    assert "onEdgesChange" in graph_canvas_ui
+    assert "sourceHandle" in graph_canvas_ui
+    assert "targetHandle" in graph_canvas_ui
+    assert "MarkerType.ArrowClosed" in graph_canvas_ui
+    assert "evaluateGeneratedWorkflowPortConnection" in graph_canvas_ui
+    assert "reactFlowConnectionToGraphConnection" in graph_canvas_ui
+    assert "data-workflow-react-flow-canvas" in graph_canvas_ui
+    assert "fitView" in graph_canvas_ui
     assert "matchedGraphNodeIds" in graph_canvas_ui
     assert "nodeIssues.length === 0" in graph_canvas_ui
     assert "ring-2 ring-amber-300" in graph_canvas_ui
-    assert "generated-workflow-graph-viewport" in graph_canvas_ui
     assert "从工具库添加 RuleSpec 节点" in graph_canvas_ui
-    assert "WorkflowGraphEdgeLayer" in graph_canvas_ui
-    assert "data-workflow-graph-edge-layer" in graph_canvas_ui
-    assert "data-workflow-graph-edge" in graph_canvas_ui
-    assert "data-from-port" in graph_canvas_ui
-    assert "data-to-port" in graph_canvas_ui
-    assert "markerEnd" in graph_canvas_ui
-    assert "viewBox" in graph_canvas_ui
-    assert "readRuleInputs" in graph_canvas_ui
-    assert "readRuleOutputs" in graph_canvas_ui
-    assert "portAnchorForEdge" in graph_canvas_ui
-    assert "portOffset" in graph_canvas_ui
-    assert "edgePath" in graph_canvas_ui
     assert "edges={edges}" in builder_ui
     assert "function RuleGraphNodeCard" not in builder_ui
     assert "export function RuleGraphNodeCard" in graph_node_ui
+    assert "Handle" in graph_node_ui
+    assert "Position.Left" in graph_node_ui
+    assert "Position.Right" in graph_node_ui
+    assert "isConnectableStart" in graph_node_ui
+    assert "isConnectableEnd" in graph_node_ui
     assert "RulePortColumn" in graph_node_ui
     assert "GeneratedWorkflowValidationIssue" in graph_node_ui
     assert "unknownInputIssues" in graph_node_ui

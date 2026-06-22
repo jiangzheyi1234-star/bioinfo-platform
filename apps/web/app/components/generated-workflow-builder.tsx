@@ -16,8 +16,6 @@ import {
   Trash2,
   Undo2,
   Workflow,
-  ZoomIn,
-  ZoomOut,
 } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -282,7 +280,7 @@ function WorkflowGraphWorkbench({
   const toolByRevisionId = new Map(workflowToolRevisionEntries(tools));
   const [selectedNodeId, setSelectedNodeId] = useState("");
   const [graphSearchQuery, setGraphSearchQuery] = useState("");
-  const [graphZoom, setGraphZoom] = useState(1);
+  const [graphLayoutRevision, setGraphLayoutRevision] = useState(0);
   const selectedNode = useMemo(
     () => nodes.find((node) => node.id === selectedNodeId) || nodes[0],
     [nodes, selectedNodeId]
@@ -291,7 +289,6 @@ function WorkflowGraphWorkbench({
   const removeGraphEdge = (edge: GeneratedWorkflowBuilderController["graphDraft"]["edges"][number]) => {
     builder.setInputBinding(edge.to.nodeId, edge.to.port, "");
   };
-  const updateGraphZoom = (nextZoom: number) => setGraphZoom(Math.min(1.5, Math.max(0.65, Number(nextZoom.toFixed(2)))));
   return (
     <div className="rounded-lg border border-slate-200 bg-white px-3 py-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -362,30 +359,9 @@ function WorkflowGraphWorkbench({
                 type="button"
                 variant="outline"
                 className="h-8 w-8 bg-white p-0"
-                onClick={() => updateGraphZoom(graphZoom - 0.1)}
-                aria-label="缩小"
-                title="缩小"
-              >
-                <ZoomOut strokeWidth={1.5} className="h-3.5 w-3.5" />
-              </Button>
-              <div className="w-10 text-center font-mono text-[11px] text-slate-500">{Math.round(graphZoom * 100)}%</div>
-              <Button
-                type="button"
-                variant="outline"
-                className="h-8 w-8 bg-white p-0"
-                onClick={() => updateGraphZoom(graphZoom + 0.1)}
-                aria-label="放大"
-                title="放大"
-              >
-                <ZoomIn strokeWidth={1.5} className="h-3.5 w-3.5" />
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="h-8 w-8 bg-white p-0"
-                onClick={() => updateGraphZoom(1)}
-                aria-label="重置缩放"
-                title="重置缩放"
+                onClick={() => setGraphLayoutRevision((value) => value + 1)}
+                aria-label="自动布局"
+                title="自动布局"
               >
                 <RotateCcw strokeWidth={1.5} className="h-3.5 w-3.5" />
               </Button>
@@ -393,13 +369,14 @@ function WorkflowGraphWorkbench({
           </div>
           <GeneratedWorkflowGraphCanvas
             edges={edges}
+            layoutRevision={graphLayoutRevision}
             nodes={nodes}
+            onBindInput={builder.setInputBinding}
             onSelectNode={setSelectedNodeId}
             searchQuery={graphSearchQuery}
             selectedNodeId={selectedNode?.id || ""}
             tools={tools}
             validationIssues={builder.validation.errors}
-            zoom={graphZoom}
           />
           <div className="mt-3 grid gap-1.5">
             {edges.length === 0 ? (

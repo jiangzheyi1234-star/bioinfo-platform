@@ -1,3 +1,7 @@
+"use client";
+
+import { Handle, Position } from "@xyflow/react";
+
 import { cn } from "@/lib/utils";
 
 import type { AddedTool } from "./tools-page-model";
@@ -34,14 +38,21 @@ export function RuleGraphNodeCard({
 }) {
   const hasIssues = validationIssues.length > 0;
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       className={cn(
-        "grid min-h-28 gap-2 rounded-md border bg-white px-3 py-2 text-left",
+        "grid min-h-28 gap-2 rounded-md border bg-white px-3 py-2 text-left shadow-sm",
         hasIssues ? "border-red-200 bg-red-50/40" : "border-slate-200",
         selected ? "ring-2 ring-blue-100" : ""
       )}
       onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
       data-node-state={hasIssues ? "error" : "ready"}
       data-testid="rule-graph-node-card"
     >
@@ -54,7 +65,7 @@ export function RuleGraphNodeCard({
         <RulePortColumn direction="input" edges={edges} node={node} ports={readRuleInputs(tool)} validationIssues={validationIssues} />
         <RulePortColumn direction="output" edges={edges} node={node} ports={readRuleOutputs(tool)} validationIssues={validationIssues} />
       </span>
-    </button>
+    </div>
   );
 }
 
@@ -71,7 +82,7 @@ function RulePortColumn({
   ports: Array<RuleInputSpec | RuleOutputSpec>;
   validationIssues: GeneratedWorkflowValidationIssue[];
 }) {
-  const visiblePorts = ports.slice(0, 3);
+  const visiblePorts = ports;
   const unknownInputIssues = direction === "input" ? inputIssuesWithoutPorts(validationIssues, visiblePorts) : [];
   return (
     <span className="min-w-0">
@@ -93,12 +104,25 @@ function RulePortColumn({
               <span
                 key={port.name}
                 className={cn(
-                  "grid min-w-0 grid-cols-[6px_minmax(0,1fr)] items-center gap-1 rounded px-1.5 py-1",
+                  "relative grid min-w-0 grid-cols-[6px_minmax(0,1fr)] items-center gap-1 rounded px-1.5 py-1",
                   state.state === "error" ? "bg-red-50" : "bg-slate-50"
                 )}
                 data-port-error={state.issue?.code || ""}
                 data-port-state={state.state}
               >
+                <Handle
+                  id={port.name}
+                  type={direction === "input" ? "target" : "source"}
+                  position={direction === "input" ? Position.Left : Position.Right}
+                  isConnectableStart={direction === "output"}
+                  isConnectableEnd={direction === "input"}
+                  className={cn(
+                    "!h-2.5 !w-2.5 !border-2 !border-white",
+                    direction === "input" ? "!bg-blue-500" : "!bg-emerald-500"
+                  )}
+                  data-port-direction={direction}
+                  data-port-handle={port.name}
+                />
                 <span
                   className={cn(
                     "h-1.5 w-1.5 rounded-full",

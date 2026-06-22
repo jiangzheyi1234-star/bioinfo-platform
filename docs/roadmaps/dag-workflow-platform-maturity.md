@@ -1,8 +1,8 @@
 # DAG Workflow Platform Maturity Roadmap
 
-Status: Draft for architecture review
+Status: In progress
 
-Last reviewed: 2026-06-22
+Last reviewed: 2026-06-23
 
 Baseline: `main`, `HEAD=a4b4dca54afc390fcc3735c33395bc1989f1a6d0`.
 
@@ -105,6 +105,13 @@ Exit criteria:
 ## Phase 1: Graph Editor Foundation
 
 Purpose: upgrade the graph editor without changing the persisted contract.
+
+Progress:
+
+- Deterministic graph layout, undo/redo history, search, and graph viewport controls have landed.
+- React Flow `@xyflow/react` is the selected graph editing surface for drag, pan, zoom, handles, edge deletion, minimap, and future subflow/group support.
+- React Flow node positions are currently editor-local state seeded from the deterministic layout helper; `GeneratedWorkflowGraphDraft` remains the save/compile source.
+- Direct canvas port connections now route through the same semantic compatibility and audit helpers used by inspector binding.
 
 Recommended sequence:
 
