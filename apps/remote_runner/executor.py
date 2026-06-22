@@ -9,9 +9,13 @@ from .config import RemoteRunnerConfig
 from .executor_artifacts import _collect_artifacts
 from .executor_inputs import _build_run_outputs, _resolve_run_inputs
 from .executor_outcomes import _mark_cancelled, _mark_failed
+from .executor_paths import (
+    _process_group_recorder,
+    _resolve_execution_result_dir,
+    _resolve_execution_work_dir,
+)
 from .generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID, prepare_generated_tool_workflow
 from .pipeline import PipelineRegistryError, get_pipeline, validate_run_spec_for_pipeline
-from .run_execution_storage import record_run_attempt_process_group
 from .rule_execution_projection import (
     mark_run_rules_failed,
     mark_run_rules_running,
@@ -373,63 +377,3 @@ def _execute_snakemake_workflow(
 def _patched_subprocess_run_command() -> Callable[..., object] | None:
     current = getattr(subprocess, "run")
     return current if current is not _ORIGINAL_SUBPROCESS_RUN else None
-
-
-def _process_group_recorder(
-    cfg: RemoteRunnerConfig,
-    *,
-    attempt_id: str | None,
-    lease_generation: int | None,
-) -> Callable[[int], None] | None:
-    if not str(attempt_id or "").strip() or lease_generation is None:
-        return None
-
-    def record(process_group_id: int) -> None:
-        record_run_attempt_process_group(
-            cfg,
-            str(attempt_id),
-            lease_generation=int(lease_generation),
-            process_group_id=str(process_group_id),
-        )
-
-    return record
-
-
-def _resolve_execution_work_dir(
-    cfg: RemoteRunnerConfig,
-    *,
-    run_id: str,
-    attempt_id: str | None,
-    lease_generation: int | None,
-    attempt_work_dir: str | None,
-) -> Path:
-    has_attempt_context = any(
-        value is not None and str(value).strip()
-        for value in (attempt_id, lease_generation, attempt_work_dir)
-    )
-    if not has_attempt_context:
-        return Path(cfg.work_dir) / run_id
-    if not str(attempt_id or "").strip():
-        raise ValueError("RUN_ATTEMPT_ID_REQUIRED")
-    if lease_generation is None:
-        raise ValueError("RUN_LEASE_GENERATION_REQUIRED")
-    normalized_work_dir = str(attempt_work_dir or "").strip()
-    if not normalized_work_dir:
-        raise ValueError("RUN_ATTEMPT_WORK_DIR_REQUIRED")
-    return Path(normalized_work_dir)
-
-
-def _resolve_execution_result_dir(
-    cfg: RemoteRunnerConfig,
-    *,
-    run_id: str,
-    attempt_id: str | None,
-    lease_generation: int | None,
-) -> Path:
-    if attempt_id is None and lease_generation is None:
-        return Path(cfg.results_dir) / run_id
-    if not str(attempt_id or "").strip():
-        raise ValueError("RUN_ATTEMPT_ID_REQUIRED")
-    if lease_generation is None:
-        raise ValueError("RUN_LEASE_GENERATION_REQUIRED")
-    return Path(cfg.results_dir) / "attempts" / str(attempt_id) / f"generation-{int(lease_generation)}"

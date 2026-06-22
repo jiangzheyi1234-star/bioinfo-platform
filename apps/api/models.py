@@ -94,6 +94,26 @@ class RunSubmitRequest(ApiRequest):
     runSpec: RunSpecRequest
 
 
+TriggerSourceType = Literal["manual", "cron", "webhook", "dataset", "file", "database_ready", "backfill"]
+
+
+class WorkflowTriggerCreateRequest(ApiRequest):
+    name: str = Field(min_length=1)
+    sourceType: TriggerSourceType
+    serverId: str = Field(min_length=1)
+    runSpec: RunSpecRequest
+    triggerSpec: dict[str, Any] = Field(default_factory=dict)
+    enabled: bool = True
+
+
+class WorkflowTriggerEventRequest(ApiRequest):
+    eventType: str = Field(default="manual", min_length=1)
+    externalEventId: str | None = None
+    idempotencyKey: str | None = Field(default=None, min_length=1)
+    cursor: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
 class UploadSubmitRequest(ApiRequest):
     serverId: str | None = None
     filename: str = Field(min_length=1)

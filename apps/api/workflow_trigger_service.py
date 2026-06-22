@@ -1,0 +1,99 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Protocol
+
+from apps.api.models import WorkflowTriggerCreateRequest, WorkflowTriggerEventRequest
+from apps.api.response_cache import invalidate_response_cache
+from apps.api.route_utils import cached_runtime_payload, request_payload, run_runtime_payload, runtime_service
+
+
+@dataclass(frozen=True)
+class WorkflowTriggerDispatch:
+    payload: dict[str, Any]
+    headers: dict[str, str]
+
+
+class ResponseWithHeaders(Protocol):
+    headers: Any
+
+
+async def list_workflow_triggers_from_request(
+    *,
+    refresh: bool,
+    server_id: str | None,
+) -> dict[str, Any]:
+    return await cached_runtime_payload(
+        f"workflow_triggers:{server_id or 'default'}",
+        10,
+        lambda: runtime_service().list_workflow_triggers(server_id=server_id),
+        wrapper="raw",
+        force_refresh=refresh,
+    )
+
+
+async def create_workflow_trigger_from_request(
+    request: WorkflowTriggerCreateRequest,
+) -> dict[str, Any]:
+    result = await run_runtime_payload(
+        lambda: runtime_service().create_workflow_trigger(request_payload(request)),
+        wrapper="raw",
+    )
+    await invalidate_response_cache(prefixes=("workflow_triggers",))
+    return result
+
+
+async def list_workflow_trigger_events_from_request(
+    trigger_id: str,
+    *,
+    refresh: bool,
+    server_id: str | None,
+) -> dict[str, Any]:
+    return await cached_runtime_payload(
+        f"workflow_trigger_events:{server_id or 'default'}:{trigger_id}",
+        10,
+        lambda: runtime_service().list_workflow_trigger_events(trigger_id, server_id=server_id),
+        wrapper="raw",
+        force_refresh=refresh,
+    )
+
+
+async def submit_workflow_trigger_event_from_request(
+    trigger_id: str,
+    request: WorkflowTriggerEventRequest,
+    *,
+    server_id: str | None,
+) -> WorkflowTriggerDispatch:
+    result = await run_runtime_payload(
+        lambda: runtime_service().submit_workflow_trigger_event(
+            trigger_id,
+            request_payload(request),
+            server_id=server_id,
+        ),
+        wrapper="raw",
+    )
+    await invalidate_response_cache("runs", prefixes=("workflow_trigger_events",))
+    return WorkflowTriggerDispatch(
+        payload=result,
+        headers={
+            "Location": str(result["location"]),
+            "Retry-After": str(result["retryAfter"]),
+            "X-Request-Id": str(result["requestId"]),
+        },
+    )
+
+
+async def submit_workflow_trigger_event_response_from_request(
+    trigger_id: str,
+    request: WorkflowTriggerEventRequest,
+    response: ResponseWithHeaders,
+    *,
+    server_id: str | None,
+) -> dict[str, Any]:
+    dispatch = await submit_workflow_trigger_event_from_request(
+        trigger_id,
+        request,
+        server_id=server_id,
+    )
+    response.headers.update(dispatch.headers)
+    return dispatch.payload

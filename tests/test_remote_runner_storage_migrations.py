@@ -110,12 +110,12 @@ def test_runtime_layout_records_schema_version_and_migration_ledger(tmp_path: Pa
     assert user_version == CURRENT_SCHEMA_VERSION
     assert migration is not None
     assert migration[0] == CURRENT_SCHEMA_VERSION
-    assert migration[1] == sqlite_migrations.RULE_LEVEL_RUN_STATE_MIGRATION_NAME
+    assert migration[1] == sqlite_migrations.SCHEDULER_TRIGGER_MIGRATION_NAME
     assert migration[2]
     assert reference_table is not None
 
 
-def test_runtime_schema_migrates_v1_rule_level_run_state_tables(tmp_path: Path) -> None:
+def test_runtime_schema_migrates_v1_to_current_scheduler_trigger_tables(tmp_path: Path) -> None:
     cfg = make_remote_runner_config(tmp_path)
     db_path = Path(cfg.db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -142,13 +142,21 @@ def test_runtime_schema_migrates_v1_rule_level_run_state_tables(tmp_path: Path) 
         table_names = {
             row["name"]
             for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'run_rule%'"
+                """
+                SELECT name
+                FROM sqlite_master
+                WHERE type = 'table' AND (name LIKE 'run_rule%' OR name LIKE 'workflow_trigger%')
+                """
             ).fetchall()
         }
         index_names = {
             row["name"]
             for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'idx_run_rule%'"
+                """
+                SELECT name
+                FROM sqlite_master
+                WHERE type = 'index' AND (name LIKE 'idx_run_rule%' OR name LIKE 'idx_workflow_trigger%')
+                """
             ).fetchall()
         }
         migration = connection.execute(
@@ -157,9 +165,68 @@ def test_runtime_schema_migrates_v1_rule_level_run_state_tables(tmp_path: Path) 
         ).fetchone()
 
     assert user_version == CURRENT_SCHEMA_VERSION
-    assert {"run_rules", "run_rule_events"} <= table_names
-    assert {"idx_run_rules_run_status", "idx_run_rule_events_run_rule"} <= index_names
-    assert migration["name"] == sqlite_migrations.RULE_LEVEL_RUN_STATE_MIGRATION_NAME
+    assert {
+        "run_rules",
+        "run_rule_events",
+        "workflow_triggers",
+        "workflow_trigger_events",
+        "workflow_trigger_dispatches",
+    } <= table_names
+    assert {
+        "idx_run_rules_run_status",
+        "idx_run_rule_events_run_rule",
+        "idx_workflow_triggers_source_enabled",
+        "idx_workflow_trigger_events_trigger_created",
+        "idx_workflow_trigger_dispatches_state",
+    } <= index_names
+    assert migration["name"] == sqlite_migrations.SCHEDULER_TRIGGER_MIGRATION_NAME
+
+
+def test_runtime_schema_migrates_v2_scheduler_trigger_tables(tmp_path: Path) -> None:
+    cfg = make_remote_runner_config(tmp_path)
+    db_path = Path(cfg.db_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        connection.executescript(f"{SCHEMA_SQL}\n{REFERENCE_DATABASE_SCHEMA_SQL}")
+        sqlite_migrations._apply_baseline_schema_migration(connection)
+        connection.execute("DROP INDEX IF EXISTS idx_workflow_trigger_dispatches_run")
+        connection.execute("DROP INDEX IF EXISTS idx_workflow_trigger_dispatches_state")
+        connection.execute("DROP INDEX IF EXISTS idx_workflow_trigger_events_external")
+        connection.execute("DROP INDEX IF EXISTS idx_workflow_trigger_events_trigger_created")
+        connection.execute("DROP INDEX IF EXISTS idx_workflow_triggers_source_enabled")
+        connection.execute("DROP TABLE IF EXISTS workflow_trigger_dispatches")
+        connection.execute("DROP TABLE IF EXISTS workflow_trigger_events")
+        connection.execute("DROP TABLE IF EXISTS workflow_triggers")
+        sqlite_migrations._ensure_schema_migrations_table(connection)
+        connection.execute(
+            """
+            INSERT INTO schema_migrations (version, name, checksum, applied_at)
+            VALUES (2, '002_rule_level_run_state', 'legacy-v2', '2099-06-07T10:00:00Z')
+            """
+        )
+        connection.execute("PRAGMA user_version = 2")
+
+    initialize_or_migrate_runtime_db(cfg.db_path)
+    with get_connection(cfg) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == CURRENT_SCHEMA_VERSION
+        trigger_tables = {
+            row["name"]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'workflow_trigger%'"
+            ).fetchall()
+        }
+        migration = connection.execute(
+            "SELECT name FROM schema_migrations WHERE version = ?",
+            (CURRENT_SCHEMA_VERSION,),
+        ).fetchone()
+
+    assert {
+        "workflow_triggers",
+        "workflow_trigger_events",
+        "workflow_trigger_dispatches",
+    } <= trigger_tables
+    assert migration["name"] == sqlite_migrations.SCHEDULER_TRIGGER_MIGRATION_NAME
 
 
 def test_runtime_schema_rejects_future_user_version(tmp_path: Path) -> None:

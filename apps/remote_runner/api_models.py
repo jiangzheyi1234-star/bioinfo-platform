@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -40,6 +40,26 @@ class RunCreateRequest(RemoteRunnerRequest):
     serverId: str = Field(min_length=1)
     requestId: str | None = None
     runSpec: RunSpecRequest
+
+
+TriggerSourceType = Literal["manual", "cron", "webhook", "dataset", "file", "database_ready", "backfill"]
+
+
+class WorkflowTriggerCreateRequest(RemoteRunnerRequest):
+    name: str = Field(min_length=1)
+    sourceType: TriggerSourceType
+    serverId: str = Field(min_length=1)
+    runSpec: RunSpecRequest
+    triggerSpec: dict[str, Any] = Field(default_factory=dict)
+    enabled: bool = True
+
+
+class WorkflowTriggerEventRequest(RemoteRunnerRequest):
+    eventType: str = Field(default="manual", min_length=1)
+    externalEventId: str | None = None
+    idempotencyKey: str | None = Field(default=None, min_length=1)
+    cursor: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
 
 
 class ToolManifestRequest(RemoteRunnerRequest):

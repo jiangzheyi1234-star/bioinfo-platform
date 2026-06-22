@@ -10,9 +10,10 @@ from .storage_schema import SCHEMA_SQL
 from .tool_prepare_reservations import json_object, tool_prepare_job_reservation
 
 
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 BASELINE_MIGRATION_NAME = "001_baseline_remote_runner_schema"
 RULE_LEVEL_RUN_STATE_MIGRATION_NAME = "002_rule_level_run_state"
+SCHEDULER_TRIGGER_MIGRATION_NAME = "003_scheduler_triggers"
 DATABASE_MISSING_ERROR = "REMOTE_RUNNER_SQLITE_DATABASE_MISSING"
 SCHEMA_MIGRATION_REQUIRED_ERROR = "REMOTE_RUNNER_SQLITE_SCHEMA_MIGRATION_REQUIRED"
 SCHEMA_TOO_NEW_ERROR = "REMOTE_RUNNER_SQLITE_SCHEMA_TOO_NEW"
@@ -57,6 +58,9 @@ _REQUIRED_TABLES = {
     "uploads",
     "workflow_design_drafts",
     "workflow_revisions",
+    "workflow_trigger_dispatches",
+    "workflow_trigger_events",
+    "workflow_triggers",
 }
 _REQUIRED_INDEXES = {
     "idx_candidate_outputs_attempt_generation_key",
@@ -86,6 +90,11 @@ _REQUIRED_INDEXES = {
     "idx_tool_runtime_profiles_revision",
     "idx_tool_validation_results_job",
     "idx_tool_validation_results_tool",
+    "idx_workflow_trigger_dispatches_run",
+    "idx_workflow_trigger_dispatches_state",
+    "idx_workflow_trigger_events_external",
+    "idx_workflow_trigger_events_trigger_created",
+    "idx_workflow_triggers_source_enabled",
 }
 _REQUIRED_TRIGGERS = {"workflow_revisions_no_update"}
 
@@ -119,6 +128,9 @@ def migrate_runtime_schema(connection: sqlite3.Connection) -> None:
         return
     if version == 1:
         _migrate_from_v1_to_v2(connection)
+        version = read_schema_version(connection)
+    if version == 2:
+        _migrate_from_v2_to_v3(connection)
         return
     if version != 0:
         raise RemoteRunnerSQLiteSchemaError(f"REMOTE_RUNNER_SQLITE_SCHEMA_MIGRATION_MISSING: {version}")
@@ -127,7 +139,7 @@ def migrate_runtime_schema(connection: sqlite3.Connection) -> None:
         connection.executescript(f"BEGIN IMMEDIATE;\n{SCHEMA_SQL}\n{REFERENCE_DATABASE_SCHEMA_SQL}")
         _ensure_schema_migrations_table(connection)
         _apply_baseline_schema_migration(connection)
-        _record_migration(connection, CURRENT_SCHEMA_VERSION, RULE_LEVEL_RUN_STATE_MIGRATION_NAME)
+        _record_migration(connection, CURRENT_SCHEMA_VERSION, SCHEDULER_TRIGGER_MIGRATION_NAME)
         connection.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
         connection.commit()
     except Exception:
@@ -200,7 +212,7 @@ def _record_migration(connection: sqlite3.Connection, version: int, name: str) -
 
 
 def _baseline_checksum() -> str:
-    payload = f"{CURRENT_SCHEMA_VERSION}:{RULE_LEVEL_RUN_STATE_MIGRATION_NAME}:{SCHEMA_SQL}:{REFERENCE_DATABASE_SCHEMA_SQL}"
+    payload = f"{CURRENT_SCHEMA_VERSION}:{SCHEDULER_TRIGGER_MIGRATION_NAME}:{SCHEMA_SQL}:{REFERENCE_DATABASE_SCHEMA_SQL}"
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
@@ -230,6 +242,7 @@ def _apply_baseline_schema_migration(connection: sqlite3.Connection) -> None:
     _ensure_run_event_columns(connection)
     _ensure_run_execution_columns(connection)
     _ensure_rule_level_run_state(connection)
+    _ensure_scheduler_triggers(connection)
     _ensure_candidate_output_columns(connection)
     _ensure_tools_columns(connection)
     _ensure_tool_prepare_job_columns(connection)
@@ -241,12 +254,120 @@ def _migrate_from_v1_to_v2(connection: sqlite3.Connection) -> None:
         connection.execute("BEGIN IMMEDIATE")
         _ensure_schema_migrations_table(connection)
         _ensure_rule_level_run_state(connection)
-        _record_migration(connection, CURRENT_SCHEMA_VERSION, RULE_LEVEL_RUN_STATE_MIGRATION_NAME)
+        _record_migration(connection, 2, RULE_LEVEL_RUN_STATE_MIGRATION_NAME)
+        connection.execute("PRAGMA user_version = 2")
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+
+
+def _migrate_from_v2_to_v3(connection: sqlite3.Connection) -> None:
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        _ensure_schema_migrations_table(connection)
+        _ensure_scheduler_triggers(connection)
+        _record_migration(connection, CURRENT_SCHEMA_VERSION, SCHEDULER_TRIGGER_MIGRATION_NAME)
         connection.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
         connection.commit()
     except Exception:
         connection.rollback()
         raise
+
+
+def _ensure_scheduler_triggers(connection: sqlite3.Connection) -> None:
+    _ensure_columns(
+        connection,
+        "runs",
+        {
+            "trigger_id": "TEXT",
+            "trigger_event_id": "TEXT",
+            "trigger_source": "TEXT NOT NULL DEFAULT ''",
+            "trigger_cursor": "TEXT NOT NULL DEFAULT ''",
+        },
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS workflow_triggers (
+            trigger_id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            server_id TEXT NOT NULL,
+            pipeline_id TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            trigger_spec_json TEXT NOT NULL DEFAULT '{}',
+            run_spec_template_json TEXT NOT NULL,
+            created_by TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_workflow_triggers_source_enabled
+        ON workflow_triggers(source_type, enabled, updated_at)
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS workflow_trigger_events (
+            trigger_event_id TEXT PRIMARY KEY,
+            trigger_id TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            external_event_id TEXT NOT NULL DEFAULT '',
+            idempotency_key TEXT NOT NULL,
+            payload_hash TEXT NOT NULL,
+            payload_json TEXT NOT NULL DEFAULT '{}',
+            cursor TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            UNIQUE(trigger_id, idempotency_key)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_workflow_trigger_events_trigger_created
+        ON workflow_trigger_events(trigger_id, created_at)
+        """
+    )
+    connection.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_trigger_events_external
+        ON workflow_trigger_events(trigger_id, source_type, external_event_id)
+        WHERE external_event_id <> ''
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS workflow_trigger_dispatches (
+            dispatch_id TEXT PRIMARY KEY,
+            trigger_event_id TEXT NOT NULL,
+            trigger_id TEXT NOT NULL,
+            state TEXT NOT NULL,
+            run_id TEXT,
+            request_id TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL,
+            error_json TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(trigger_event_id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_workflow_trigger_dispatches_state
+        ON workflow_trigger_dispatches(state, updated_at)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_workflow_trigger_dispatches_run
+        ON workflow_trigger_dispatches(run_id)
+        """
+    )
 
 
 def _ensure_rule_level_run_state(connection: sqlite3.Connection) -> None:

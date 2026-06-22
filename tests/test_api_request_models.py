@@ -14,6 +14,8 @@ from apps.api.models import (
     ToolProductionEvidenceRequest,
     UploadSubmitRequest,
     WorkflowDesignDraftCompileRequest,
+    WorkflowTriggerCreateRequest,
+    WorkflowTriggerEventRequest,
 )
 
 
@@ -157,6 +159,56 @@ def test_run_submit_request_accepts_explicit_execution_queue() -> None:
     )
 
     assert request.model_dump()["runSpec"]["execution"] == {"queueName": "short"}
+
+
+def test_workflow_trigger_create_request_is_strict_and_keeps_run_spec_nested() -> None:
+    request = WorkflowTriggerCreateRequest.model_validate(
+        {
+            "serverId": "srv_demo",
+            "name": "Nightly summary",
+            "sourceType": "cron",
+            "triggerSpec": {"cron": "0 2 * * *", "timezone": "UTC"},
+            "runSpec": {
+                "pipelineId": "file-summary-standard-v1",
+                "inputs": [{"uploadId": "upl_reads"}],
+            },
+        }
+    )
+
+    assert request.sourceType == "cron"
+    assert request.runSpec.pipelineId == "file-summary-standard-v1"
+
+    with pytest.raises(ValidationError) as exc_info:
+        WorkflowTriggerCreateRequest.model_validate(
+            {
+                "serverId": "srv_demo",
+                "name": "Legacy summary",
+                "sourceType": "manual",
+                "pipelineId": "file-summary-standard-v1",
+                "runSpec": {"inputs": []},
+            }
+        )
+
+    assert any(error["type"] == "extra_forbidden" and error["loc"] == ("pipelineId",) for error in exc_info.value.errors())
+
+
+def test_workflow_trigger_event_request_rejects_unknown_delivery_fields() -> None:
+    request = WorkflowTriggerEventRequest.model_validate(
+        {
+            "eventType": "manual",
+            "externalEventId": "evt_ready",
+            "idempotencyKey": "manual:evt_ready",
+            "cursor": "ready:evt_ready",
+            "payload": {"dataset": "reads.fastq"},
+        }
+    )
+
+    assert request.payload == {"dataset": "reads.fastq"}
+
+    with pytest.raises(ValidationError) as exc_info:
+        WorkflowTriggerEventRequest.model_validate({"eventType": "manual", "legacyPayload": {}})
+
+    assert exc_info.value.errors()[0]["type"] == "extra_forbidden"
 
 
 def test_workflow_design_compile_request_is_strict() -> None:

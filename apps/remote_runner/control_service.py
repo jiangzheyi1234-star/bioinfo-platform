@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from .api_models import RunCreateRequest, UploadCreateRequest
+from .api_models import (
+    RunCreateRequest,
+    UploadCreateRequest,
+    WorkflowTriggerCreateRequest,
+    WorkflowTriggerEventRequest,
+)
 from .config import RemoteRunnerConfig, dump_public_config
 from .execution_diagnostics import build_execution_diagnostics
 from .health_service import (
@@ -26,6 +31,12 @@ from .storage import (
     request_run_cancel,
 )
 from .submission_service import create_run_from_request as create_run_submission_from_request
+from .trigger_service import (
+    create_workflow_trigger_from_request,
+    list_workflow_trigger_events_from_storage,
+    list_workflow_triggers_from_storage,
+    submit_workflow_trigger_event_from_request,
+)
 from .upload_service import persist_upload_from_request
 
 
@@ -107,6 +118,41 @@ async def create_run_from_request(
         idempotency_key=idempotency_key,
         x_request_id=x_request_id,
     )
+
+
+async def create_workflow_trigger_request(
+    payload: WorkflowTriggerCreateRequest,
+    authorization: str | None,
+) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization)
+    return await run_sync(
+        create_workflow_trigger_from_request,
+        cfg,
+        payload,
+        actor="remote-runner-api",
+    )
+
+
+async def list_workflow_triggers_request(authorization: str | None) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization)
+    return await run_sync(list_workflow_triggers_from_storage, cfg)
+
+
+async def submit_workflow_trigger_event_request(
+    trigger_id: str,
+    payload: WorkflowTriggerEventRequest,
+    authorization: str | None,
+) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization)
+    return await run_sync(submit_workflow_trigger_event_from_request, cfg, trigger_id, payload)
+
+
+async def list_workflow_trigger_events_request(
+    trigger_id: str,
+    authorization: str | None,
+) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization)
+    return await run_sync(list_workflow_trigger_events_from_storage, cfg, trigger_id)
 
 
 async def list_runs_from_request(authorization: str | None) -> dict[str, Any]:

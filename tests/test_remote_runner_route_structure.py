@@ -247,6 +247,7 @@ def test_authorization_header_binding_lives_in_shared_route_type() -> None:
         "apps/remote_runner/execution_query_routes.py",
         "apps/remote_runner/database_routes.py",
         "apps/remote_runner/workflow_design_routes.py",
+        "apps/remote_runner/workflow_trigger_routes.py",
         "apps/remote_runner/tool_routes.py",
     )
 

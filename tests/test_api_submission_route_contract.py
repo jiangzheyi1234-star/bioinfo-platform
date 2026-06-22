@@ -95,6 +95,41 @@ def test_run_result_routes_delegate_runtime_calls_to_service() -> None:
     assert "def get_result_preview_from_request(" in service_source
 
 
+def test_workflow_trigger_routes_delegate_runtime_calls_to_service() -> None:
+    main_source = _source("apps/api/main.py")
+    route_source = _source("apps/api/workflow_trigger_routes.py")
+    service_path = ROOT / "apps/api/workflow_trigger_service.py"
+
+    assert service_path.exists()
+    service_source = service_path.read_text(encoding="utf-8")
+
+    assert "from apps.api.workflow_trigger_routes import router as workflow_trigger_router" in main_source
+    assert "app.include_router(workflow_trigger_router)" in main_source
+    assert '@app.get("/api/v1/workflow-triggers")' not in main_source
+    assert '@app.post("/api/v1/workflow-triggers", status_code=201)' not in main_source
+
+    assert "from apps.api.route_utils" not in route_source
+    assert "runtime_service()" not in route_source
+    assert "response.headers" not in route_source
+    assert "list_workflow_triggers_from_request" in route_source
+    assert "create_workflow_trigger_from_request" in route_source
+    assert "list_workflow_trigger_events_from_request" in route_source
+    assert "submit_workflow_trigger_event_response_from_request" in route_source
+
+    for name in (
+        "list_workflow_triggers_from_request",
+        "create_workflow_trigger_from_request",
+        "list_workflow_trigger_events_from_request",
+        "submit_workflow_trigger_event_from_request",
+        "submit_workflow_trigger_event_response_from_request",
+    ):
+        assert f"def {name}(" in service_source
+
+    assert "runtime_service().create_workflow_trigger(" in service_source
+    assert "runtime_service().submit_workflow_trigger_event(" in service_source
+    assert "invalidate_response_cache(\"runs\", prefixes=(\"workflow_trigger_events\",))" in service_source
+
+
 def test_local_api_tests_patch_service_runtime_providers() -> None:
     backend_contract_path = ROOT / "tests/test_backend_contract_api.py"
     generated_tool_snakemake_path = ROOT / "tests/test_generated_tool_snakemake.py"

@@ -33,6 +33,16 @@ def fetch_run(cfg: RemoteRunnerConfig, run_id: str) -> dict[str, Any] | None:
         "lastUpdatedAt": row["last_updated_at"],
         "requestId": row["request_id"],
         "submittedAt": row["submitted_at"],
+        "trigger": (
+            {
+                "triggerId": row["trigger_id"],
+                "triggerEventId": row["trigger_event_id"],
+                "source": row["trigger_source"],
+                "cursor": row["trigger_cursor"],
+            }
+            if row["trigger_id"] or row["trigger_event_id"] or row["trigger_source"] or row["trigger_cursor"]
+            else None
+        ),
         "resumeSupported": False,
         "runSpec": json.loads(row["run_spec_json"]),
     }

@@ -13,6 +13,7 @@ from .worker_supervisor import start_configured_run_worker_supervisor, start_con
 from .submission_routes import router as submission_router
 from .tool_routes import router as tool_router
 from .workflow_design_routes import router as workflow_design_router
+from .workflow_trigger_routes import router as workflow_trigger_router
 
 
 @asynccontextmanager
@@ -43,3 +44,4 @@ app.include_router(execution_query_router)
 app.include_router(database_router)
 app.include_router(tool_router)
 app.include_router(workflow_design_router)
+app.include_router(workflow_trigger_router)

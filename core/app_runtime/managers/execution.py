@@ -40,6 +40,62 @@ class ExecutionManager(BaseRuntimeManager):
             request_id=request_id,
         )
 
+    def list_workflow_triggers(self, server_id: Optional[str] = None) -> dict[str, Any]:
+        return {
+            "data": self.call_runner(
+                "list_workflow_triggers",
+                preferred_server_id=server_id,
+            )
+        }
+
+    def create_workflow_trigger(self, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        body = dict(payload or {})
+        server_id_hint = str(body.get("serverId") or "").strip()
+        if not server_id_hint:
+            raise RuntimeServiceError("serverId is required")
+        manager, server_id, ssh, record = self._runner_context(preferred_server_id=server_id_hint)
+        body["serverId"] = server_id
+        return {
+            "data": self._service._call_remote_runner(
+                manager.create_workflow_trigger,
+                server_id=server_id,
+                ssh_service=ssh,
+                server_record=record,
+                payload=body,
+            )
+        }
+
+    def submit_workflow_trigger_event(
+        self,
+        trigger_id: str,
+        payload: Optional[dict[str, Any]] = None,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        body = dict(payload or {})
+        server_id_hint = str(body.pop("serverId", None) or server_id or "").strip() or None
+        manager, resolved_server_id, ssh, record = self._runner_context(preferred_server_id=server_id_hint)
+        return self._service._call_remote_runner(
+            manager.submit_workflow_trigger_event,
+            server_id=resolved_server_id,
+            ssh_service=ssh,
+            server_record=record,
+            trigger_id=trigger_id,
+            payload=body,
+        )
+
+    def list_workflow_trigger_events(
+        self,
+        trigger_id: str,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return {
+            "data": self.call_runner(
+                "list_workflow_trigger_events",
+                preferred_server_id=server_id,
+                trigger_id=trigger_id,
+            )
+        }
+
     def get_run(self, run_id: str) -> dict[str, Any]:
         return {"data": self.call_runner("get_run", run_id=run_id)}
 

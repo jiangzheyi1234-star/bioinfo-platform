@@ -175,6 +175,18 @@ class RemoteRunnerHttpClient:
             },
         )
 
+    def list_workflow_triggers(self) -> dict[str, Any]:
+        return self.get_json("/api/v1/workflow-triggers")["data"]
+
+    def create_workflow_trigger(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.post_json("/api/v1/workflow-triggers", payload)["data"]
+
+    def submit_workflow_trigger_event(self, trigger_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.post_json(f"/api/v1/workflow-triggers/{trigger_id}/events", payload)
+
+    def list_workflow_trigger_events(self, trigger_id: str) -> dict[str, Any]:
+        return self.get_json(f"/api/v1/workflow-triggers/{trigger_id}/events")["data"]
+
     def get_run(self, run_id: str) -> dict[str, Any]:
         return self.get_json(f"/api/v1/runs/{run_id}")["data"]
 

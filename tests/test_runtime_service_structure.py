@@ -347,6 +347,10 @@ def test_runtime_execution_operations_live_in_dedicated_mixin() -> None:
     for method_name in (
         "list_runs",
         "submit_run",
+        "list_workflow_triggers",
+        "create_workflow_trigger",
+        "submit_workflow_trigger_event",
+        "list_workflow_trigger_events",
         "get_run",
         "get_run_events",
         "get_run_logs",
@@ -380,6 +384,8 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "self._call_remote_runner(" not in execution_ops_source
     assert "self._require_runner_ready(" not in execution_ops_source
     assert "self.execution.submit_run(" in execution_ops_source
+    assert "self.execution.create_workflow_trigger(" in execution_ops_source
+    assert "manager.submit_workflow_trigger_event" in execution_manager_source
 
 
 def test_runtime_file_operations_live_in_dedicated_mixin() -> None:

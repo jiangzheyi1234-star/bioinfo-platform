@@ -90,6 +90,7 @@ def test_remote_runner_control_plane_services_use_async_thread_boundary() -> Non
         _source("apps/remote_runner/pipeline_routes.py"),
         _source("apps/remote_runner/submission_routes.py"),
         _source("apps/remote_runner/execution_query_routes.py"),
+        _source("apps/remote_runner/workflow_trigger_routes.py"),
     ]
     service_names = (
         "health_startup_from_request",
@@ -112,6 +113,10 @@ def test_remote_runner_control_plane_services_use_async_thread_boundary() -> Non
         "list_results_from_request",
         "get_result_from_request",
         "get_result_preview_from_request",
+        "create_workflow_trigger_request",
+        "list_workflow_triggers_request",
+        "submit_workflow_trigger_event_request",
+        "list_workflow_trigger_events_request",
     )
 
     assert "from .route_utils import authorized_config, data_response, run_sync" in control_source
@@ -135,6 +140,35 @@ def test_run_log_stream_query_is_validated_by_type_annotation() -> None:
     assert 'stream: Literal["stdout", "stderr"] = "stdout"' in route_source
     assert "normalized_stream" not in route_source
     assert ".lower()" not in route_source
+
+
+def test_workflow_trigger_routes_delegate_to_service() -> None:
+    main_source = _source("apps/remote_runner/main.py")
+    route_source = _source("apps/remote_runner/workflow_trigger_routes.py")
+    control_source = _source("apps/remote_runner/control_service.py")
+    service_source = _source("apps/remote_runner/trigger_service.py")
+
+    assert "from .workflow_trigger_routes import router as workflow_trigger_router" in main_source
+    assert "app.include_router(workflow_trigger_router)" in main_source
+    assert "payload.runSpec" not in route_source
+    assert "record_workflow_trigger_event" not in route_source
+    assert "create_run_record" not in route_source
+    assert "return await create_workflow_trigger_request(" in route_source
+    assert "return await submit_workflow_trigger_event_request(" in route_source
+
+    for name in (
+        "create_workflow_trigger_request",
+        "list_workflow_triggers_request",
+        "submit_workflow_trigger_event_request",
+        "list_workflow_trigger_events_request",
+    ):
+        assert f"async def {name}(" in control_source
+
+    assert "def create_workflow_trigger_from_request(" in service_source
+    assert "def submit_workflow_trigger_event_from_request(" in service_source
+    assert "record_workflow_trigger_event(" in service_source
+    assert "create_run_record(" in service_source
+    assert "WORKFLOW_TRIGGER_SOURCE_LAUNCH_UNSUPPORTED" in service_source
 
 
 def test_health_inspection_logic_lives_in_service_not_route() -> None:

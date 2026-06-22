@@ -273,6 +273,43 @@ class RemoteRunnerProxyMixin:
             },
         )
 
+    def list_workflow_triggers(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+            timeout=20,
+        )
+        return client.get_json("/api/v1/workflow-triggers")["data"]
+
+    def create_workflow_trigger(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+        )
+        return client.post_json("/api/v1/workflow-triggers", kwargs["payload"])["data"]
+
+    def submit_workflow_trigger_event(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+        )
+        return client.post_json(
+            f"/api/v1/workflow-triggers/{kwargs['trigger_id']}/events",
+            kwargs["payload"],
+        )
+
+    def list_workflow_trigger_events(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+            timeout=20,
+        )
+        return client.get_json(f"/api/v1/workflow-triggers/{kwargs['trigger_id']}/events")["data"]
+
     def list_runs(self, **kwargs) -> list[dict[str, Any]]:
         client = self._get_client(
             server_id=str(kwargs["server_id"]),
