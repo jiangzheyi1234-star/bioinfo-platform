@@ -25,6 +25,7 @@ def test_security_governance_doc_is_current_contract() -> None:
         "Diagnostics Redaction",
         "Dependency And Supply-Chain Gates",
         "Remote Operation Audit",
+        "machine-readable policy catalog",
         "governance.operator_action.v1",
         "hash-chained governance audit events",
         "Release Checklist",
@@ -76,6 +77,9 @@ def test_security_governance_audit_script_contract() -> None:
     assert "scan_forbidden_security_text" in source
     assert "ssh-strict-host-key-checking-disabled" in source
     assert "ssh-known-hosts-file-disabled" in source
+    assert "HIGH_RISK_API_POLICIES" in source
+    assert "scan_governance_policy_contracts" in source
+    assert "governance-policy-audit-action-missing" in source
 
     result = subprocess.run(
         [sys.executable, "scripts/security_governance_audit.py"],

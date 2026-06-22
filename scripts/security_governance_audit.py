@@ -8,6 +8,11 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from core.governance_policy import HIGH_RISK_API_POLICIES, validate_governance_policy  # noqa: E402
+
 MAX_TEXT_BYTES = 2_000_000
 
 SECRET_PATH_RE = re.compile(
@@ -201,6 +206,64 @@ def scan_security_contracts() -> list[Finding]:
     return findings
 
 
+def scan_governance_policy_contracts(paths: list[Path]) -> list[Finding]:
+    findings: list[Finding] = []
+    for error in validate_governance_policy():
+        findings.append(Finding("governance-policy-invalid", "core/governance_policy.py", 0, error))
+
+    tracked_texts: dict[str, str] = {}
+    for path in paths:
+        text = read_text(path)
+        if text is None:
+            continue
+        tracked_texts[path.relative_to(ROOT).as_posix()] = text
+
+    implementation_text = "\n".join(
+        text for relative, text in tracked_texts.items() if relative.startswith("apps/remote_runner/")
+    )
+    for policy in HIGH_RISK_API_POLICIES:
+        route_source = tracked_texts.get(policy.route_source)
+        if route_source is None:
+            findings.append(
+                Finding(
+                    "governance-policy-route-source-missing",
+                    policy.route_source,
+                    0,
+                    f"{policy.key} references a missing or unreadable route source",
+                )
+            )
+            continue
+        if f'"{policy.route}"' not in route_source:
+            findings.append(
+                Finding(
+                    "governance-policy-route-missing",
+                    policy.route_source,
+                    0,
+                    f"{policy.key} route is not declared in its source file",
+                )
+            )
+        route_decorator = "websocket" if policy.method == "WEBSOCKET" else policy.method.lower()
+        if f"@router.{route_decorator}(" not in route_source:
+            findings.append(
+                Finding(
+                    "governance-policy-route-method-missing",
+                    policy.route_source,
+                    0,
+                    f"{policy.key} method decorator is not present",
+                )
+            )
+        if policy.audit_status == "implemented" and f'action="{policy.action}"' not in implementation_text:
+            findings.append(
+                Finding(
+                    "governance-policy-audit-action-missing",
+                    "core/governance_policy.py",
+                    0,
+                    f"{policy.key} is marked implemented but {policy.action} is not recorded",
+                )
+            )
+    return findings
+
+
 def scan_forbidden_security_text(paths: list[Path]) -> list[Finding]:
     findings: list[Finding] = []
     for path in paths:
@@ -220,6 +283,7 @@ def main() -> int:
         *scan_secrets(paths),
         *scan_forbidden_security_text(paths),
         *scan_security_contracts(),
+        *scan_governance_policy_contracts(paths),
     ]
     if findings:
         print("Security governance audit failed:", file=sys.stderr)

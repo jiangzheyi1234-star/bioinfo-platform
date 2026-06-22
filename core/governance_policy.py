@@ -1,0 +1,312 @@
+"""Machine-readable governance policy for high-risk API actions."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+SUPPORTED_BOUNDARIES = {"desktop-localhost-only", "remote-runner-bearer-token"}
+SUPPORTED_AUDIT_STATUS = {"implemented", "required-before-multi-user"}
+SUPPORTED_ROLES = {
+    "artifact-curator",
+    "auditor",
+    "data-steward",
+    "platform-admin",
+    "tool-curator",
+    "workflow-operator",
+}
+SECRET_DETAIL_KEY_PARTS = (
+    "api_key",
+    "apikey",
+    "authorization",
+    "bearer",
+    "key",
+    "password",
+    "private",
+    "secret",
+    "token",
+)
+
+
+@dataclass(frozen=True)
+class ApiGovernancePolicy:
+    surface: str
+    method: str
+    route: str
+    route_source: str
+    action: str
+    subject_kind: str
+    current_boundary: str
+    future_roles: tuple[str, ...]
+    audit_status: str
+    standards: tuple[str, ...]
+    safe_detail_keys: tuple[str, ...] = ()
+    multi_user_ready: bool = False
+
+    @property
+    def key(self) -> str:
+        return f"{self.surface}:{self.method}:{self.route}"
+
+
+def local_policy(method: str, route: str, action: str, subject_kind: str, *roles: str) -> ApiGovernancePolicy:
+    return ApiGovernancePolicy(
+        surface="local-api",
+        method=method,
+        route=route,
+        route_source="apps/api/ssh_routes.py",
+        action=action,
+        subject_kind=subject_kind,
+        current_boundary="desktop-localhost-only",
+        future_roles=tuple(roles),
+        audit_status="required-before-multi-user",
+        standards=("OWASP-ASVS-5", "OWASP-Logging"),
+        safe_detail_keys=("serverId", "requestId", "outcome"),
+    )
+
+
+def remote_policy(
+    method: str,
+    route: str,
+    source: str,
+    action: str,
+    subject_kind: str,
+    audit_status: str,
+    *roles: str,
+) -> ApiGovernancePolicy:
+    return ApiGovernancePolicy(
+        surface="remote-runner-api",
+        method=method,
+        route=route,
+        route_source=source,
+        action=action,
+        subject_kind=subject_kind,
+        current_boundary="remote-runner-bearer-token",
+        future_roles=tuple(roles),
+        audit_status=audit_status,
+        standards=("OWASP-ASVS-5", "OWASP-Logging"),
+        safe_detail_keys=("serverId", "requestId", "actor", "decision", "reasonCode"),
+    )
+
+
+HIGH_RISK_API_POLICIES: tuple[ApiGovernancePolicy, ...] = (
+    local_policy("POST", "/api/v1/ssh/connect", "ssh.connect", "server", "platform-admin"),
+    local_policy("POST", "/api/v1/ssh/test", "ssh.test", "server", "platform-admin"),
+    local_policy("POST", "/api/v1/ssh/remote-service/stop", "remote_runner.stop", "server", "platform-admin"),
+    local_policy("POST", "/api/v1/servers/{server_id}/ensure-runner", "remote_runner.ensure", "server", "platform-admin"),
+    local_policy("POST", "/api/v1/servers/{server_id}/host-key/accept", "ssh.host_key.accept", "server", "platform-admin"),
+    local_policy("POST", "/api/v1/servers/{server_id}/token/rotate", "remote_runner.token.rotate", "server", "platform-admin"),
+    local_policy("GET", "/api/v1/servers/{server_id}/operator-diagnostics", "diagnostics.operator.read", "server", "auditor"),
+    local_policy("GET", "/api/v1/ssh/files", "remote_file.list", "server", "workflow-operator", "auditor"),
+    local_policy("POST", "/api/v1/ssh/terminal/sessions", "ssh.terminal.create", "server", "platform-admin"),
+    local_policy("WEBSOCKET", "/api/v1/ssh/terminal/sessions/{session_id}/stream", "ssh.terminal.stream", "server", "platform-admin"),
+    remote_policy(
+        "POST",
+        "/api/v1/runs",
+        "apps/remote_runner/submission_routes.py",
+        "run.submit",
+        "run",
+        "implemented",
+        "workflow-operator",
+    ),
+    remote_policy(
+        "POST",
+        "/api/v1/runs/{run_id}/cancel",
+        "apps/remote_runner/execution_query_routes.py",
+        "run.cancel",
+        "run",
+        "implemented",
+        "workflow-operator",
+    ),
+    remote_policy(
+        "POST",
+        "/api/v1/runs/{run_id}/retry",
+        "apps/remote_runner/execution_query_routes.py",
+        "run.retry",
+        "run",
+        "implemented",
+        "workflow-operator",
+    ),
+    remote_policy(
+        "POST",
+        "/api/v1/results/{result_id}/export",
+        "apps/remote_runner/execution_query_routes.py",
+        "result.export",
+        "result",
+        "implemented",
+        "artifact-curator",
+        "auditor",
+    ),
+    remote_policy(
+        "POST",
+        "/api/v1/artifacts/lifecycle/gc/preview",
+        "apps/remote_runner/execution_query_routes.py",
+        "artifact.gc.preview",
+        "artifact_gc",
+        "implemented",
+        "artifact-curator",
+    ),
+    remote_policy(
+        "POST",
+        "/api/v1/artifacts/lifecycle/gc/run",
+        "apps/remote_runner/execution_query_routes.py",
+        "artifact.gc.run",
+        "artifact_gc",
+        "implemented",
+        "artifact-curator",
+    ),
+    remote_policy(
+        "POST",
+        "/api/v1/workflow-triggers",
+        "apps/remote_runner/workflow_trigger_routes.py",
+        "workflow_trigger.create",
+        "workflow_trigger",
+        "implemented",
+        "workflow-operator",
+    ),
+    remote_policy(
+        "POST",
+        "/api/v1/workflow-triggers/{trigger_id}/events",
+        "apps/remote_runner/workflow_trigger_routes.py",
+        "workflow_trigger.dispatch",
+        "workflow_trigger_event",
+        "implemented",
+        "workflow-operator",
+    ),
+    remote_policy(
+        "POST",
+        "/api/v1/workflow-triggers/{trigger_id}/inbox",
+        "apps/remote_runner/workflow_trigger_routes.py",
+        "workflow_trigger.dispatch",
+        "workflow_trigger_event",
+        "implemented",
+        "workflow-operator",
+    ),
+    remote_policy(
+        "POST",
+        "/api/v1/workflow-triggers/{trigger_id}/readiness",
+        "apps/remote_runner/workflow_trigger_routes.py",
+        "workflow_trigger.dispatch",
+        "workflow_trigger_event",
+        "implemented",
+        "workflow-operator",
+    ),
+    remote_policy(
+        "POST",
+        "/api/v1/workflow-triggers/{trigger_id}/backfill/preview",
+        "apps/remote_runner/workflow_trigger_routes.py",
+        "workflow_trigger.backfill_preview",
+        "workflow_trigger",
+        "implemented",
+        "workflow-operator",
+    ),
+    remote_policy(
+        "POST",
+        "/api/v1/workflow-triggers/{trigger_id}/backfill/launch",
+        "apps/remote_runner/workflow_trigger_routes.py",
+        "workflow_trigger.backfill_launch",
+        "workflow_backfill_launch",
+        "implemented",
+        "workflow-operator",
+    ),
+    remote_policy(
+        "POST",
+        "/api/v1/tools",
+        "apps/remote_runner/tool_routes.py",
+        "tool.create",
+        "tool",
+        "required-before-multi-user",
+        "tool-curator",
+    ),
+    remote_policy(
+        "POST",
+        "/api/v1/tools/prepare-jobs",
+        "apps/remote_runner/tool_routes.py",
+        "tool.prepare",
+        "tool_prepare_job",
+        "required-before-multi-user",
+        "tool-curator",
+    ),
+    remote_policy(
+        "PATCH",
+        "/api/v1/tools/{tool_id}/rule-template",
+        "apps/remote_runner/tool_routes.py",
+        "tool.rule_template.update",
+        "tool",
+        "required-before-multi-user",
+        "tool-curator",
+        "platform-admin",
+    ),
+    remote_policy(
+        "POST",
+        "/api/v1/tools/{tool_id}/production",
+        "apps/remote_runner/tool_routes.py",
+        "tool.production.enable",
+        "tool",
+        "required-before-multi-user",
+        "tool-curator",
+        "platform-admin",
+    ),
+    remote_policy(
+        "DELETE",
+        "/api/v1/tools/{tool_id}",
+        "apps/remote_runner/tool_routes.py",
+        "tool.delete",
+        "tool",
+        "required-before-multi-user",
+        "tool-curator",
+        "platform-admin",
+    ),
+    remote_policy(
+        "POST",
+        "/api/v1/databases",
+        "apps/remote_runner/database_routes.py",
+        "database.create",
+        "database",
+        "required-before-multi-user",
+        "data-steward",
+    ),
+    remote_policy(
+        "PATCH",
+        "/api/v1/databases/{database_id}",
+        "apps/remote_runner/database_routes.py",
+        "database.update",
+        "database",
+        "required-before-multi-user",
+        "data-steward",
+    ),
+    remote_policy(
+        "DELETE",
+        "/api/v1/databases/{database_id}",
+        "apps/remote_runner/database_routes.py",
+        "database.delete",
+        "database",
+        "required-before-multi-user",
+        "data-steward",
+        "platform-admin",
+    ),
+)
+
+
+def validate_governance_policy(policies: tuple[ApiGovernancePolicy, ...] = HIGH_RISK_API_POLICIES) -> list[str]:
+    errors: list[str] = []
+    seen_keys: set[str] = set()
+    for policy in policies:
+        if policy.key in seen_keys:
+            errors.append(f"duplicate policy key: {policy.key}")
+        seen_keys.add(policy.key)
+        if policy.current_boundary not in SUPPORTED_BOUNDARIES:
+            errors.append(f"{policy.key} has unsupported boundary: {policy.current_boundary}")
+        if policy.audit_status not in SUPPORTED_AUDIT_STATUS:
+            errors.append(f"{policy.key} has unsupported audit status: {policy.audit_status}")
+        if not policy.future_roles:
+            errors.append(f"{policy.key} must declare future RBAC roles")
+        for role in policy.future_roles:
+            if role not in SUPPORTED_ROLES:
+                errors.append(f"{policy.key} has unsupported future role: {role}")
+        if policy.multi_user_ready:
+            errors.append(f"{policy.key} must stay blocked until auth/RBAC enforcement exists")
+        for key in policy.safe_detail_keys:
+            normalized = key.lower().replace("-", "_")
+            if any(part in normalized for part in SECRET_DETAIL_KEY_PARTS):
+                errors.append(f"{policy.key} declares secret-like audit detail key: {key}")
+    return errors

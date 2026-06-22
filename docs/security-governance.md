@@ -92,6 +92,15 @@ Security-relevant operator actions must be represented in tests, diagnostics, re
 
 The remote runner records `governance.operator_action.v1` events in the existing evidence ledger for accepted high-value operator actions. Public audit reads project only safe action metadata such as actor, action, decision, subject, timestamps, hashes, and non-secret details; token, password, secret, private key, and authorization fields are forbidden in governance audit details.
 
+`core/governance_policy.py` is the machine-readable policy catalog for high-risk
+API actions. Each entry names the current supported boundary, future RBAC roles,
+audit action, subject kind, source route, and whether the audit path is already
+implemented or remains required before multi-user mode can be enabled. CI runs
+`scripts/security_governance_audit.py` to fail if a policy references a missing
+route, declares secret-like audit detail keys, marks multi-user ready before
+auth/RBAC enforcement exists, or claims an implemented audit action that cannot
+be found in source.
+
 1. SSH connect, disconnect, diagnostics, host-key acceptance, and startup auto-connect.
 2. Remote runner bootstrap, reuse, stop, recovery, and token rotation.
 3. Run submission, cancellation, worker execution, resource admission, and artifact collection.
@@ -120,6 +129,7 @@ Before treating a build as production-ready:
 1. `pip-audit` currently ignores only `CVE-2026-44405` for Paramiko because no fixed release is available in the advisory feed. Runtime SSH mitigations are active: `ssh-rsa` host/user key algorithms are disabled, unknown host keys are rejected, and accepted keys are written to known_hosts. Remove this ignore when a Paramiko release containing the upstream fix is available.
 2. Server single-user bind-all remains unsupported and fail-closed until an authenticated reverse-proxy/container profile is implemented and tested.
 3. Server multi-user mode remains planned, not implemented, and fail-closed at startup. Public deployment requires auth, RBAC, tenant isolation, audited admin actions, TLS, and production image hardening.
+4. High-risk API policies that are marked `required-before-multi-user` must gain route-level auth/RBAC enforcement and hash-chained audit evidence before `server-multi-user` can move into `SUPPORTED_DEPLOYMENT_MODES`.
 
 ## Practice Baseline
 
