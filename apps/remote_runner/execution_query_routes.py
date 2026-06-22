@@ -4,8 +4,10 @@ from typing import Any, Literal
 
 from fastapi import APIRouter
 
+from .api_models import ArtifactGcPreviewRequest, ArtifactGcRunRequest
 from .control_service import (
     cancel_run_from_request,
+    get_artifact_lifecycle_usage_from_request,
     get_result_from_request,
     get_result_preview_from_request,
     get_result_audit_from_request,
@@ -17,6 +19,8 @@ from .control_service import (
     get_run_rules_from_request,
     list_results_from_request,
     list_runs_from_request,
+    preview_artifact_gc_from_request,
+    run_artifact_gc_from_request,
 )
 from .route_headers import AuthorizationHeader
 
@@ -91,3 +95,27 @@ async def get_result_audit_api(result_id: str, authorization: AuthorizationHeade
 @router.post("/api/v1/results/{result_id}/export")
 async def export_result_package_api(result_id: str, authorization: AuthorizationHeader = None) -> dict[str, Any]:
     return await export_result_package_from_request(result_id, authorization)
+
+
+@router.get("/api/v1/artifacts/lifecycle/usage")
+async def get_artifact_lifecycle_usage_api(
+    quotaBytes: int | None = None,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await get_artifact_lifecycle_usage_from_request(quotaBytes, authorization)
+
+
+@router.post("/api/v1/artifacts/lifecycle/gc/preview")
+async def preview_artifact_gc_api(
+    request: ArtifactGcPreviewRequest,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await preview_artifact_gc_from_request(request, authorization)
+
+
+@router.post("/api/v1/artifacts/lifecycle/gc/run")
+async def run_artifact_gc_api(
+    request: ArtifactGcRunRequest,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await run_artifact_gc_from_request(request, authorization)

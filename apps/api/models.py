@@ -114,6 +114,22 @@ class WorkflowTriggerEventRequest(ApiRequest):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class ArtifactGcPreviewRequest(ApiRequest):
+    serverId: str | None = None
+    retentionDays: int = Field(default=30, ge=0)
+    eligibleRunStatuses: list[str] = Field(
+        default_factory=lambda: ["completed", "failed", "canceled", "cancelled"],
+        min_length=1,
+    )
+    maxDeleteBytes: int | None = Field(default=None, ge=1)
+    reason: str = Field(default="retention_expired", min_length=1)
+    actor: str | None = None
+
+
+class ArtifactGcRunRequest(ArtifactGcPreviewRequest):
+    confirmation: str = Field(min_length=1)
+
+
 class UploadSubmitRequest(ApiRequest):
     serverId: str | None = None
     filename: str = Field(min_length=1)

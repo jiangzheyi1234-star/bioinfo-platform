@@ -92,6 +92,24 @@ def export_result_package(cfg: RemoteRunnerConfig, result_id: str) -> dict[str, 
 def _audit_artifact(cfg: RemoteRunnerConfig, artifact: dict[str, Any]) -> dict[str, Any]:
     expected_size = int(artifact.get("sizeBytes") or 0)
     expected_sha = str(artifact.get("sha256") or "")
+    lifecycle_state = str(artifact.get("lifecycleState") or "active")
+    if lifecycle_state == "deleted":
+        return {
+            "artifactId": artifact["artifactId"],
+            "path": str(artifact.get("path") or ""),
+            "storageBackend": artifact["storageBackend"],
+            "storageUri": artifact["storageUri"],
+            "exists": False,
+            "expectedSizeBytes": expected_size,
+            "actualSizeBytes": None,
+            "expectedSha256": expected_sha,
+            "actualSha256": None,
+            "sizeOk": False,
+            "checksumOk": False,
+            "status": "deleted",
+            "deletedAt": artifact.get("deletedAt"),
+            "gcReason": str(artifact.get("gcReason") or ""),
+        }
     exists = False
     actual_size: int | None = None
     actual_sha: str | None = None

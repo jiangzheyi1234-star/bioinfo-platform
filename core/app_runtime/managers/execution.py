@@ -170,3 +170,45 @@ class ExecutionManager(BaseRuntimeManager):
 
     def export_result_package(self, result_id: str) -> dict[str, Any]:
         return {"data": self.call_runner("export_result_package", result_id=result_id)}
+
+    def get_artifact_lifecycle_usage(
+        self,
+        *,
+        server_id: Optional[str] = None,
+        quota_bytes: Optional[int] = None,
+    ) -> dict[str, Any]:
+        return {
+            "data": self.call_existing_runner(
+                "get_artifact_lifecycle_usage",
+                preferred_server_id=server_id,
+                quota_bytes=quota_bytes,
+            )
+        }
+
+    def preview_artifact_gc(
+        self,
+        payload: Optional[dict[str, Any]] = None,
+        *,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return {
+            "data": self.call_existing_runner(
+                "preview_artifact_gc",
+                preferred_server_id=server_id,
+                payload=dict(payload or {}),
+            )
+        }
+
+    def run_artifact_gc(
+        self,
+        payload: Optional[dict[str, Any]] = None,
+        *,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return {
+            "data": self.call_existing_runner(
+                "run_artifact_gc",
+                preferred_server_id=server_id,
+                payload=dict(payload or {}),
+            )
+        }

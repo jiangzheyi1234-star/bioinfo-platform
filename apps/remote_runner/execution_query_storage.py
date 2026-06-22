@@ -116,6 +116,10 @@ def fetch_run_results(cfg: RemoteRunnerConfig, run_id: str) -> dict[str, Any]:
             "sha256": row["sha256"],
             "mimeType": row["mime_type"],
             "createdAt": row["created_at"],
+            "lifecycleState": row["lifecycle_state"],
+            "deletedAt": row["deleted_at"],
+            "gcReason": row["gc_reason"],
+            "retentionUntil": row["retention_until"],
         }
         for row in rows
     ]

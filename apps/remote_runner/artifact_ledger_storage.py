@@ -293,6 +293,10 @@ def _materialization_row_to_dict(row) -> dict[str, Any]:
         "storageUri": row["storage_uri"],
         "localPath": row["local_path"],
         "createdAt": row["created_at"],
+        "lifecycleState": row["lifecycle_state"],
+        "deletedAt": row["deleted_at"],
+        "gcReason": row["gc_reason"],
+        "retentionUntil": row["retention_until"],
     }
 
 

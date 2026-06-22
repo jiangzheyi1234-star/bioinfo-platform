@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from apps.api.models import ArtifactGcPreviewRequest, ArtifactGcRunRequest
 from apps.api.response_cache import invalidate_response_cache
-from apps.api.route_utils import cached_runtime_payload, run_runtime_payload, runtime_service
+from apps.api.route_utils import cached_runtime_payload, request_payload, run_runtime_payload, runtime_service
 
 
 async def list_runs_from_request(refresh: bool) -> dict[str, Any]:
@@ -109,3 +110,37 @@ async def export_result_package_from_request(result_id: str) -> dict[str, Any]:
         lambda: runtime_service().export_result_package(result_id),
         wrapper="raw",
     )
+
+
+async def get_artifact_lifecycle_usage_from_request(
+    *,
+    server_id: str | None = None,
+    quota_bytes: int | None = None,
+) -> dict[str, Any]:
+    return await run_runtime_payload(
+        lambda: runtime_service().get_artifact_lifecycle_usage(
+            server_id=server_id,
+            quota_bytes=quota_bytes,
+        ),
+        wrapper="raw",
+    )
+
+
+async def preview_artifact_gc_from_request(request: ArtifactGcPreviewRequest) -> dict[str, Any]:
+    payload = request_payload(request)
+    server_id = str(payload.pop("serverId", "") or "").strip() or None
+    return await run_runtime_payload(
+        lambda: runtime_service().preview_artifact_gc(payload, server_id=server_id),
+        wrapper="raw",
+    )
+
+
+async def run_artifact_gc_from_request(request: ArtifactGcRunRequest) -> dict[str, Any]:
+    payload = request_payload(request)
+    server_id = str(payload.pop("serverId", "") or "").strip() or None
+    result = await run_runtime_payload(
+        lambda: runtime_service().run_artifact_gc(payload, server_id=server_id),
+        wrapper="raw",
+    )
+    await invalidate_response_cache("runs")
+    return result

@@ -233,6 +233,16 @@ class RemoteRunnerHttpClient:
     def export_result_package(self, result_id: str) -> dict[str, Any]:
         return self.post_json(f"/api/v1/results/{result_id}/export", {})["data"]
 
+    def get_artifact_lifecycle_usage(self, *, quota_bytes: int | None = None) -> dict[str, Any]:
+        query = urllib.parse.urlencode({"quotaBytes": quota_bytes if quota_bytes is not None else ""})
+        return self.get_json(f"/api/v1/artifacts/lifecycle/usage?{query}")["data"]
+
+    def preview_artifact_gc(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        return self.post_json("/api/v1/artifacts/lifecycle/gc/preview", dict(payload or {}))["data"]
+
+    def run_artifact_gc(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        return self.post_json("/api/v1/artifacts/lifecycle/gc/run", dict(payload or {}))["data"]
+
     def get_health(self) -> dict[str, Any]:
         startup = self.get_json("/health/startup", accepted_statuses={200, 503})
         live = self.get_json("/health/live")

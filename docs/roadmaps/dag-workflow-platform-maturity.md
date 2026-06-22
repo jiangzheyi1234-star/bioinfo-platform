@@ -256,6 +256,9 @@ Progress:
 - File artifacts can now use the S3/MinIO-compatible adapter through the same persist, preview, checksum audit, export, materialization, evidence, and candidate adoption paths.
 - S3/MinIO artifact keys are content-addressed by SHA-256 and use stable `s3://bucket/key` URIs; access keys and secret keys are excluded from public config and evidence.
 - Directory artifacts on S3/MinIO fail loudly until a canonical multi-object manifest or package format preserves the existing directory checksum contract.
+- Artifact lifecycle state is now explicit on artifact and materialization rows. `/api/v1/artifacts/lifecycle/usage` reports active/deleted bytes and optional quota overage, `/gc/preview` produces a protected deletion plan, and `/gc/run` requires the `delete-artifact-payloads` confirmation before deleting managed local files or managed S3/MinIO objects.
+- GC keeps metadata, lineage, and evidence append-only. It tombstones physical payload lifecycle state, writes `artifact.gc.v1` evidence, and records governance audit events.
+- Current GC protection covers non-terminal runs, active jobs/leases/attempts, pending candidate outputs, exported result packages, production-evidence runs, unmanaged local paths, unmanaged S3 prefixes, unsupported storage backends, and directory payloads.
 
 Recommended sequence:
 
@@ -265,7 +268,7 @@ Recommended sequence:
 4. Implement S3/MinIO-compatible adapter after local adapter tests pass. File artifact support is in place; directory manifest/package support remains pending.
 5. Anchor lineage to WorkflowRevision and input artifact edges.
 6. Define cache keys from WorkflowRevision, tool revision, inputs, params, resources, and runtime lock.
-7. Add GC/retention/quota/checksum-audit models and background jobs.
+7. Extend lifecycle from manual usage/preview/run into a background TTL/quota controller once durable package and cache-pin policies are finalized.
 8. Add evidence package export with manifest, runSpec, WorkflowRevision, lineage, events, artifact checksums, and optional artifacts.
 
 Representative files:
@@ -284,6 +287,7 @@ Exit criteria:
 - Local and S3/MinIO artifacts round-trip through the same API.
 - Checksum audit detects corruption and blocks unsafe preview/export.
 - GC never deletes active run, WorkflowRevision, production evidence, or export-protected artifacts.
+- GC deletion is previewable, requires explicit confirmation, tombstones lifecycle state, and emits hash-chained evidence/audit records.
 - Cache hit/miss is traceable and does not weaken reproducibility.
 
 ## Phase 6: Production Governance

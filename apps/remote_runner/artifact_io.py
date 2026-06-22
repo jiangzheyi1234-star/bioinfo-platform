@@ -131,6 +131,39 @@ def artifact_record_exists(cfg: RemoteRunnerConfig, record: dict[str, Any]) -> b
     raise ValueError(f"ARTIFACT_STORAGE_BACKEND_UNSUPPORTED: {storage_backend}")
 
 
+def delete_artifact_payload(cfg: RemoteRunnerConfig, record: dict[str, Any]) -> dict[str, Any]:
+    storage_backend = str(record.get("storageBackend") or record.get("storage_backend") or "local")
+    storage_uri = str(record.get("storageUri") or record.get("storage_uri") or "").strip()
+    if storage_backend == "local":
+        path = artifact_local_path(record).resolve()
+        if path.is_dir():
+            raise ValueError("ARTIFACT_GC_DIRECTORY_UNSUPPORTED")
+        if not path.exists():
+            return {
+                "deleted": False,
+                "storageBackend": "local",
+                "storageUri": storage_uri or path.as_uri(),
+            }
+        if not path.is_file():
+            raise ValueError("ARTIFACT_GC_LOCAL_PATH_UNSUPPORTED")
+        path.unlink()
+        return {
+            "deleted": True,
+            "storageBackend": "local",
+            "storageUri": storage_uri or path.as_uri(),
+        }
+    if storage_backend == "s3":
+        bucket, object_name = _parse_s3_uri(record)
+        _assert_managed_s3_object(cfg, bucket, object_name)
+        _remove_s3_object(cfg, bucket, object_name)
+        return {
+            "deleted": True,
+            "storageBackend": "s3",
+            "storageUri": f"s3://{bucket}/{object_name}",
+        }
+    raise ValueError(f"ARTIFACT_STORAGE_BACKEND_UNSUPPORTED: {storage_backend}")
+
+
 def artifact_payload_stats(path: Path) -> tuple[int, str]:
     artifact_path = Path(path)
     if artifact_path.is_file():
@@ -256,6 +289,23 @@ def _get_s3_object(cfg: RemoteRunnerConfig, bucket: str, object_name: str) -> An
         return _build_s3_client(cfg).get_object(bucket, object_name)
     except Exception as exc:
         raise ValueError(f"ARTIFACT_S3_READ_FAILED: {exc.__class__.__name__}") from exc
+
+
+def _remove_s3_object(cfg: RemoteRunnerConfig, bucket: str, object_name: str) -> None:
+    try:
+        _build_s3_client(cfg).remove_object(bucket, object_name)
+    except Exception as exc:
+        raise ValueError(f"ARTIFACT_S3_DELETE_FAILED: {exc.__class__.__name__}") from exc
+
+
+def _assert_managed_s3_object(cfg: RemoteRunnerConfig, bucket: str, object_name: str) -> None:
+    expected_bucket = str(cfg.artifact_s3_bucket or "").strip()
+    if expected_bucket and bucket != expected_bucket:
+        raise ValueError("ARTIFACT_S3_BUCKET_MISMATCH")
+    prefix = _normalized_s3_prefix(cfg.artifact_s3_prefix)
+    managed_prefix = f"{prefix}/artifacts/sha256/" if prefix else "artifacts/sha256/"
+    if not object_name.startswith(managed_prefix):
+        raise ValueError("ARTIFACT_S3_PREFIX_UNMANAGED")
 
 
 def _artifact_s3_object_name(cfg: RemoteRunnerConfig, *, sha256: str) -> str:

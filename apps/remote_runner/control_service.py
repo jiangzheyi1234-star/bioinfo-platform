@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from .api_models import (
+    ArtifactGcPreviewRequest,
+    ArtifactGcRunRequest,
     RunCreateRequest,
     UploadCreateRequest,
     WorkflowTriggerCreateRequest,
@@ -10,6 +12,7 @@ from .api_models import (
 )
 from .config import RemoteRunnerConfig, dump_public_config
 from .execution_diagnostics import build_execution_diagnostics
+from .artifact_lifecycle_service import build_artifact_lifecycle_usage, preview_artifact_gc, run_artifact_gc
 from .artifact_product_service import build_result_artifact_audit, export_result_package
 from .governance_audit import record_governance_audit_event
 from .health_service import (
@@ -250,3 +253,30 @@ async def export_result_package_from_request(result_id: str, authorization: str 
     cfg = await _authorized_config_from_request(authorization)
     package = await run_sync(export_result_package, cfg, result_id)
     return data_response(package)
+
+
+async def get_artifact_lifecycle_usage_from_request(
+    quota_bytes: int | None,
+    authorization: str | None,
+) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization)
+    usage = await run_sync(build_artifact_lifecycle_usage, cfg, quota_bytes=quota_bytes)
+    return data_response(usage)
+
+
+async def preview_artifact_gc_from_request(
+    request: ArtifactGcPreviewRequest,
+    authorization: str | None,
+) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization)
+    plan = await run_sync(preview_artifact_gc, cfg, request.model_dump(mode="json", exclude_none=True))
+    return data_response(plan)
+
+
+async def run_artifact_gc_from_request(
+    request: ArtifactGcRunRequest,
+    authorization: str | None,
+) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization)
+    result = await run_sync(run_artifact_gc, cfg, request.model_dump(mode="json", exclude_none=True))
+    return data_response(result)

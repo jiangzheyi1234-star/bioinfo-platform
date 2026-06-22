@@ -322,7 +322,11 @@ CREATE TABLE IF NOT EXISTS artifacts (
     size_bytes INTEGER NOT NULL,
     sha256 TEXT NOT NULL,
     mime_type TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    lifecycle_state TEXT NOT NULL DEFAULT 'active',
+    deleted_at TEXT,
+    gc_reason TEXT NOT NULL DEFAULT '',
+    retention_until TEXT
 );
 
 CREATE TABLE IF NOT EXISTS artifact_blobs (
@@ -341,6 +345,10 @@ CREATE TABLE IF NOT EXISTS artifact_materializations (
     storage_uri TEXT NOT NULL,
     local_path TEXT,
     created_at TEXT NOT NULL,
+    lifecycle_state TEXT NOT NULL DEFAULT 'active',
+    deleted_at TEXT,
+    gc_reason TEXT NOT NULL DEFAULT '',
+    retention_until TEXT,
     UNIQUE(artifact_blob_id, storage_backend, storage_uri)
 );
 

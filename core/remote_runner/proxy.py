@@ -433,6 +433,31 @@ class RemoteRunnerProxyMixin:
         )
         return client.post_json(f"/api/v1/results/{kwargs['result_id']}/export", {})["data"]
 
+    def get_artifact_lifecycle_usage(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+        )
+        query = urlencode({"quotaBytes": kwargs.get("quota_bytes") or ""})
+        return client.get_json(f"/api/v1/artifacts/lifecycle/usage?{query}")["data"]
+
+    def preview_artifact_gc(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+        )
+        return client.post_json("/api/v1/artifacts/lifecycle/gc/preview", dict(kwargs.get("payload") or {}))["data"]
+
+    def run_artifact_gc(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+        )
+        return client.post_json("/api/v1/artifacts/lifecycle/gc/run", dict(kwargs.get("payload") or {}))["data"]
+
     def _open_runner_tunnel(self, *, server_id: str, ssh_service, remote_port: int):
         try:
             return ssh_service.ensure_local_tunnel(

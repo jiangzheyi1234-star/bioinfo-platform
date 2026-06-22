@@ -58,6 +58,7 @@ of falling back to Desktop.
 - CI runs `scripts/security_governance_audit.py` to scan for high-confidence secret patterns such as private key blocks, cloud keys, GitHub tokens, Slack tokens, and quoted secret assignments.
 - Test canaries and examples are allowed only when they are visibly placeholders.
 - S3/MinIO artifact access keys and secret keys are configuration secrets. Public config, diagnostics, evidence events, and result package manifests must contain only stable object locations such as `s3://bucket/key`, never presigned URLs or raw credentials.
+- Artifact GC may delete only managed local artifact files under the runner results/work roots or managed S3/MinIO objects under the configured artifact prefix. Directory payload deletion, unmanaged local paths, unmanaged S3 prefixes, active runs, exported result packages, and production evidence are protected until explicit lifecycle policies cover them.
 
 ### Diagnostics Redaction
 
@@ -89,8 +90,9 @@ The remote runner records `governance.operator_action.v1` events in the existing
 1. SSH connect, disconnect, diagnostics, host-key acceptance, and startup auto-connect.
 2. Remote runner bootstrap, reuse, stop, recovery, and token rotation.
 3. Run submission, cancellation, worker execution, resource admission, and artifact collection.
-4. Release artifact build, publish, and promotion.
-5. Reference database registration, validation fixture use, and manual database pack handoff.
+4. Artifact lifecycle preview, GC deletion, result export, and checksum audit decisions.
+5. Release artifact build, publish, and promotion.
+6. Reference database registration, validation fixture use, and manual database pack handoff.
 
 Operator/debug-only scripts such as `scripts/remote_exec.py` may execute arbitrary remote commands only when invoked explicitly by an operator. Launchers, CI, and normal UI paths must not call them implicitly.
 

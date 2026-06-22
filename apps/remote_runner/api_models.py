@@ -62,6 +62,21 @@ class WorkflowTriggerEventRequest(RemoteRunnerRequest):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class ArtifactGcPreviewRequest(RemoteRunnerRequest):
+    retentionDays: int = Field(default=30, ge=0)
+    eligibleRunStatuses: list[str] = Field(
+        default_factory=lambda: ["completed", "failed", "canceled", "cancelled"],
+        min_length=1,
+    )
+    maxDeleteBytes: int | None = Field(default=None, ge=1)
+    reason: str = Field(default="retention_expired", min_length=1)
+    actor: str | None = None
+
+
+class ArtifactGcRunRequest(ArtifactGcPreviewRequest):
+    confirmation: str = Field(min_length=1)
+
+
 class ToolManifestRequest(RemoteRunnerRequest):
     id: str | None = None
     name: str = Field(min_length=1)

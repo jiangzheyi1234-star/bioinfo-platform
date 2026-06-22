@@ -89,3 +89,30 @@ class RunnerExecutionOperationsMixin:
 
     def export_result_package(self, result_id: str) -> dict[str, Any]:
         return self.execution.export_result_package(result_id)
+
+    def get_artifact_lifecycle_usage(
+        self,
+        *,
+        server_id: Optional[str] = None,
+        quota_bytes: Optional[int] = None,
+    ) -> dict[str, Any]:
+        return self.execution.get_artifact_lifecycle_usage(
+            server_id=server_id,
+            quota_bytes=quota_bytes,
+        )
+
+    def preview_artifact_gc(
+        self,
+        payload: Optional[dict[str, Any]] = None,
+        *,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return self.execution.preview_artifact_gc(payload, server_id=server_id)
+
+    def run_artifact_gc(
+        self,
+        payload: Optional[dict[str, Any]] = None,
+        *,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return self.execution.run_artifact_gc(payload, server_id=server_id)

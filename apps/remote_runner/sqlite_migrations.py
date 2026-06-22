@@ -6,14 +6,16 @@ import time
 from pathlib import Path
 
 from .database_registry_schema import REFERENCE_DATABASE_SCHEMA_SQL
+from .sqlite_artifact_migrations import ensure_artifact_lifecycle, ensure_artifact_storage_columns
 from .storage_schema import SCHEMA_SQL
 from .tool_prepare_reservations import json_object, tool_prepare_job_reservation
 
 
-CURRENT_SCHEMA_VERSION = 3
+CURRENT_SCHEMA_VERSION = 4
 BASELINE_MIGRATION_NAME = "001_baseline_remote_runner_schema"
 RULE_LEVEL_RUN_STATE_MIGRATION_NAME = "002_rule_level_run_state"
 SCHEDULER_TRIGGER_MIGRATION_NAME = "003_scheduler_triggers"
+ARTIFACT_LIFECYCLE_MIGRATION_NAME = "004_artifact_lifecycle"
 DATABASE_MISSING_ERROR = "REMOTE_RUNNER_SQLITE_DATABASE_MISSING"
 SCHEMA_MIGRATION_REQUIRED_ERROR = "REMOTE_RUNNER_SQLITE_SCHEMA_MIGRATION_REQUIRED"
 SCHEMA_TOO_NEW_ERROR = "REMOTE_RUNNER_SQLITE_SCHEMA_TOO_NEW"
@@ -63,6 +65,8 @@ _REQUIRED_TABLES = {
     "workflow_triggers",
 }
 _REQUIRED_INDEXES = {
+    "idx_artifact_materializations_lifecycle",
+    "idx_artifacts_lifecycle",
     "idx_candidate_outputs_attempt_generation_key",
     "idx_evidence_events_chain",
     "idx_evidence_events_subject",
@@ -131,6 +135,9 @@ def migrate_runtime_schema(connection: sqlite3.Connection) -> None:
         version = read_schema_version(connection)
     if version == 2:
         _migrate_from_v2_to_v3(connection)
+        version = read_schema_version(connection)
+    if version == 3:
+        _migrate_from_v3_to_v4(connection)
         return
     if version != 0:
         raise RemoteRunnerSQLiteSchemaError(f"REMOTE_RUNNER_SQLITE_SCHEMA_MIGRATION_MISSING: {version}")
@@ -139,7 +146,7 @@ def migrate_runtime_schema(connection: sqlite3.Connection) -> None:
         connection.executescript(f"BEGIN IMMEDIATE;\n{SCHEMA_SQL}\n{REFERENCE_DATABASE_SCHEMA_SQL}")
         _ensure_schema_migrations_table(connection)
         _apply_baseline_schema_migration(connection)
-        _record_migration(connection, CURRENT_SCHEMA_VERSION, SCHEDULER_TRIGGER_MIGRATION_NAME)
+        _record_migration(connection, CURRENT_SCHEMA_VERSION, ARTIFACT_LIFECYCLE_MIGRATION_NAME)
         connection.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
         connection.commit()
     except Exception:
@@ -212,7 +219,7 @@ def _record_migration(connection: sqlite3.Connection, version: int, name: str) -
 
 
 def _baseline_checksum() -> str:
-    payload = f"{CURRENT_SCHEMA_VERSION}:{SCHEDULER_TRIGGER_MIGRATION_NAME}:{SCHEMA_SQL}:{REFERENCE_DATABASE_SCHEMA_SQL}"
+    payload = f"{CURRENT_SCHEMA_VERSION}:{ARTIFACT_LIFECYCLE_MIGRATION_NAME}:{SCHEMA_SQL}:{REFERENCE_DATABASE_SCHEMA_SQL}"
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
@@ -246,7 +253,8 @@ def _apply_baseline_schema_migration(connection: sqlite3.Connection) -> None:
     _ensure_candidate_output_columns(connection)
     _ensure_tools_columns(connection)
     _ensure_tool_prepare_job_columns(connection)
-    _ensure_artifact_columns(connection)
+    ensure_artifact_storage_columns(connection)
+    ensure_artifact_lifecycle(connection)
 
 
 def _migrate_from_v1_to_v2(connection: sqlite3.Connection) -> None:
@@ -267,7 +275,20 @@ def _migrate_from_v2_to_v3(connection: sqlite3.Connection) -> None:
         connection.execute("BEGIN IMMEDIATE")
         _ensure_schema_migrations_table(connection)
         _ensure_scheduler_triggers(connection)
-        _record_migration(connection, CURRENT_SCHEMA_VERSION, SCHEDULER_TRIGGER_MIGRATION_NAME)
+        _record_migration(connection, 3, SCHEDULER_TRIGGER_MIGRATION_NAME)
+        connection.execute("PRAGMA user_version = 3")
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+
+
+def _migrate_from_v3_to_v4(connection: sqlite3.Connection) -> None:
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        _ensure_schema_migrations_table(connection)
+        ensure_artifact_lifecycle(connection)
+        _record_migration(connection, CURRENT_SCHEMA_VERSION, ARTIFACT_LIFECYCLE_MIGRATION_NAME)
         connection.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
         connection.commit()
     except Exception:
@@ -772,11 +793,3 @@ def _backfill_tool_prepare_job_reservations(connection: sqlite3.Connection) -> N
                 row["job_id"],
             ),
         )
-
-
-def _ensure_artifact_columns(connection: sqlite3.Connection) -> None:
-    columns = {row["name"] for row in connection.execute("PRAGMA table_info(artifacts)").fetchall()}
-    if "storage_backend" not in columns:
-        connection.execute("ALTER TABLE artifacts ADD COLUMN storage_backend TEXT NOT NULL DEFAULT 'local'")
-    if "storage_uri" not in columns:
-        connection.execute("ALTER TABLE artifacts ADD COLUMN storage_uri TEXT NOT NULL DEFAULT ''")

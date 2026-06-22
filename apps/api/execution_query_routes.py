@@ -6,8 +6,10 @@ from typing import Any
 
 from fastapi import APIRouter
 
+from apps.api.models import ArtifactGcPreviewRequest, ArtifactGcRunRequest
 from apps.api.execution_query_service import (
     cancel_run_from_request,
+    get_artifact_lifecycle_usage_from_request,
     get_result_from_request,
     get_result_preview_from_request,
     get_result_audit_from_request,
@@ -19,6 +21,8 @@ from apps.api.execution_query_service import (
     get_run_rules_from_request,
     list_results_from_request,
     list_runs_from_request,
+    preview_artifact_gc_from_request,
+    run_artifact_gc_from_request,
 )
 
 
@@ -87,3 +91,21 @@ async def get_result_audit(result_id: str) -> dict[str, Any]:
 @router.post("/api/v1/results/{result_id}/export")
 async def export_result_package(result_id: str) -> dict[str, Any]:
     return await export_result_package_from_request(result_id)
+
+
+@router.get("/api/v1/artifacts/lifecycle/usage")
+async def get_artifact_lifecycle_usage(
+    serverId: str | None = None,
+    quotaBytes: int | None = None,
+) -> dict[str, Any]:
+    return await get_artifact_lifecycle_usage_from_request(server_id=serverId, quota_bytes=quotaBytes)
+
+
+@router.post("/api/v1/artifacts/lifecycle/gc/preview")
+async def preview_artifact_gc(request: ArtifactGcPreviewRequest) -> dict[str, Any]:
+    return await preview_artifact_gc_from_request(request)
+
+
+@router.post("/api/v1/artifacts/lifecycle/gc/run")
+async def run_artifact_gc(request: ArtifactGcRunRequest) -> dict[str, Any]:
+    return await run_artifact_gc_from_request(request)
