@@ -9,6 +9,7 @@ from .api_models import (
     RunCreateRequest,
     RunRetryRequest,
     UploadCreateRequest,
+    WorkflowTriggerBackfillLaunchRequest,
     WorkflowTriggerBackfillPreviewRequest,
     WorkflowTriggerCreateRequest,
     WorkflowTriggerEventRequest,
@@ -48,6 +49,7 @@ from .trigger_service import (
     create_workflow_trigger_from_request,
     list_workflow_trigger_events_from_storage,
     list_workflow_triggers_from_storage,
+    launch_workflow_trigger_backfill_from_request,
     preview_workflow_trigger_backfill_from_request,
     submit_workflow_trigger_event_from_request,
     submit_workflow_trigger_inbox_event_from_request,
@@ -188,6 +190,15 @@ async def preview_workflow_trigger_backfill_request(
 ) -> dict[str, Any]:
     cfg = await _authorized_config_from_request(authorization)
     return await run_sync(preview_workflow_trigger_backfill_from_request, cfg, trigger_id, payload)
+
+
+async def launch_workflow_trigger_backfill_request(
+    trigger_id: str,
+    payload: WorkflowTriggerBackfillLaunchRequest,
+    authorization: str | None,
+) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization)
+    return await run_sync(launch_workflow_trigger_backfill_from_request, cfg, trigger_id, payload)
 
 
 async def list_workflow_trigger_events_request(

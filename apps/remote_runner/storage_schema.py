@@ -182,6 +182,64 @@ ON workflow_trigger_dispatches(state, updated_at);
 CREATE INDEX IF NOT EXISTS idx_workflow_trigger_dispatches_run
 ON workflow_trigger_dispatches(run_id);
 
+CREATE TABLE IF NOT EXISTS workflow_backfill_launches (
+    launch_id TEXT PRIMARY KEY,
+    trigger_id TEXT NOT NULL,
+    preview_id TEXT NOT NULL,
+    source_type TEXT NOT NULL DEFAULT 'backfill',
+    range_start TEXT NOT NULL,
+    range_end TEXT NOT NULL,
+    timezone TEXT NOT NULL,
+    partition_unit TEXT NOT NULL,
+    run_order TEXT NOT NULL,
+    reprocess_behavior TEXT NOT NULL,
+    partition_count INTEGER NOT NULL,
+    state TEXT NOT NULL,
+    actor TEXT NOT NULL DEFAULT '',
+    request_json TEXT NOT NULL DEFAULT '{}',
+    payload_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(trigger_id, preview_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_workflow_backfill_launches_trigger_created
+ON workflow_backfill_launches(trigger_id, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_workflow_backfill_launches_state
+ON workflow_backfill_launches(state, updated_at);
+
+CREATE TABLE IF NOT EXISTS workflow_backfill_partitions (
+    partition_id TEXT PRIMARY KEY,
+    launch_id TEXT NOT NULL,
+    trigger_id TEXT NOT NULL,
+    partition_key TEXT NOT NULL,
+    partition_index INTEGER NOT NULL,
+    window_start TEXT NOT NULL,
+    window_end TEXT NOT NULL,
+    cursor TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    trigger_event_id TEXT,
+    run_id TEXT,
+    state TEXT NOT NULL,
+    run_spec_hash TEXT NOT NULL,
+    run_spec_json TEXT NOT NULL,
+    error_json TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(trigger_id, partition_id),
+    UNIQUE(launch_id, partition_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_workflow_backfill_partitions_launch_state
+ON workflow_backfill_partitions(launch_id, state, partition_index);
+
+CREATE INDEX IF NOT EXISTS idx_workflow_backfill_partitions_run
+ON workflow_backfill_partitions(run_id);
+
+CREATE INDEX IF NOT EXISTS idx_workflow_backfill_partitions_event
+ON workflow_backfill_partitions(trigger_event_id);
+
 CREATE TABLE IF NOT EXISTS run_jobs (
     job_id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL,

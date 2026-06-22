@@ -5,6 +5,7 @@ import asyncio
 from fastapi import Response
 
 from apps.api.models import (
+    WorkflowTriggerBackfillLaunchRequest,
     WorkflowTriggerBackfillPreviewRequest,
     WorkflowTriggerCreateRequest,
     WorkflowTriggerEventRequest,
@@ -14,6 +15,7 @@ from apps.api.models import (
 from apps.api.response_cache import invalidate_response_cache
 from apps.api.workflow_trigger_routes import (
     create_workflow_trigger,
+    launch_workflow_trigger_backfill,
     list_workflow_trigger_events,
     list_workflow_triggers,
     preview_workflow_trigger_backfill,
@@ -97,6 +99,25 @@ def test_workflow_trigger_routes_preserve_runtime_wrappers_and_submit_headers(mo
             serverId="srv_primary",
         )
     )
+    backfill_launch = asyncio.run(
+        launch_workflow_trigger_backfill(
+            "wtr_demo",
+            WorkflowTriggerBackfillLaunchRequest(
+                rangeStart="2026-06-01",
+                rangeEnd="2026-06-03",
+                partitionUnit="day",
+                timezone="UTC",
+                maxPartitions=2,
+                concurrencyLimit=2,
+                runOrder="forward",
+                reprocessBehavior="none",
+                params={"sampleBatch": "batch_42"},
+                confirmation="launch-backfill",
+                actor="operator",
+            ),
+            serverId="srv_primary",
+        )
+    )
 
     assert triggers == {"data": {"items": [{"triggerId": "wtr_demo"}]}}
     assert created == {"data": {"triggerId": "wtr_demo", "sourceType": "manual"}}
@@ -116,8 +137,16 @@ def test_workflow_trigger_routes_preserve_runtime_wrappers_and_submit_headers(mo
     assert backfill_preview == {
         "data": {
             "triggerId": "wtr_demo",
-            "launchSupported": False,
+            "launchSupported": True,
             "estimatedRunCount": 2,
+            "partitions": [],
+        }
+    }
+    assert backfill_launch == {
+        "data": {
+            "launchId": "bfl_demo",
+            "triggerId": "wtr_demo",
+            "launchedRunCount": 2,
             "partitions": [],
         }
     }
@@ -216,8 +245,33 @@ class FakeTriggerRuntime:
         return {
             "data": {
                 "triggerId": "wtr_demo",
-                "launchSupported": False,
+                "launchSupported": True,
                 "estimatedRunCount": 2,
+                "partitions": [],
+            }
+        }
+
+    def launch_workflow_trigger_backfill(self, trigger_id, payload, *, server_id=None):
+        assert trigger_id == "wtr_demo"
+        assert payload == {
+            "rangeStart": "2026-06-01",
+            "rangeEnd": "2026-06-03",
+            "partitionUnit": "day",
+            "timezone": "UTC",
+            "maxPartitions": 2,
+            "concurrencyLimit": 2,
+            "runOrder": "forward",
+            "reprocessBehavior": "none",
+            "params": {"sampleBatch": "batch_42"},
+            "confirmation": "launch-backfill",
+            "actor": "operator",
+        }
+        assert server_id == "srv_primary"
+        return {
+            "data": {
+                "launchId": "bfl_demo",
+                "triggerId": "wtr_demo",
+                "launchedRunCount": 2,
                 "partitions": [],
             }
         }

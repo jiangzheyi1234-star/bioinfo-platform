@@ -48,6 +48,14 @@ class RunnerExecutionOperationsMixin:
     ) -> dict[str, Any]:
         return self.execution.preview_workflow_trigger_backfill(trigger_id, payload, server_id)
 
+    def launch_workflow_trigger_backfill(
+        self,
+        trigger_id: str,
+        payload: Optional[dict[str, Any]] = None,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return self.execution.launch_workflow_trigger_backfill(trigger_id, payload, server_id)
+
     def list_workflow_trigger_events(
         self,
         trigger_id: str,

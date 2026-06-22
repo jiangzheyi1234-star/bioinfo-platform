@@ -111,6 +111,11 @@ class WorkflowTriggerBackfillPreviewRequest(RemoteRunnerRequest):
     params: dict[str, Any] = Field(default_factory=dict)
 
 
+class WorkflowTriggerBackfillLaunchRequest(WorkflowTriggerBackfillPreviewRequest):
+    confirmation: Literal["launch-backfill"]
+    actor: str | None = None
+
+
 class ArtifactGcPreviewRequest(RemoteRunnerRequest):
     retentionDays: int = Field(default=30, ge=0)
     eligibleRunStatuses: list[str] = Field(

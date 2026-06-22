@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Response
 
 from apps.api.models import (
+    WorkflowTriggerBackfillLaunchRequest,
     WorkflowTriggerBackfillPreviewRequest,
     WorkflowTriggerCreateRequest,
     WorkflowTriggerEventRequest,
@@ -17,6 +18,7 @@ from apps.api.workflow_trigger_service import (
     create_workflow_trigger_from_request,
     list_workflow_trigger_events_from_request,
     list_workflow_triggers_from_request,
+    launch_workflow_trigger_backfill_from_request,
     preview_workflow_trigger_backfill_from_request,
     submit_workflow_trigger_event_response_from_request,
     submit_workflow_trigger_inbox_event_response_from_request,
@@ -108,6 +110,19 @@ async def preview_workflow_trigger_backfill(
     serverId: str | None = None,
 ) -> dict[str, Any]:
     return await preview_workflow_trigger_backfill_from_request(
+        trigger_id,
+        payload,
+        server_id=serverId,
+    )
+
+
+@router.post("/api/v1/workflow-triggers/{trigger_id}/backfill/launch", status_code=202)
+async def launch_workflow_trigger_backfill(
+    trigger_id: str,
+    payload: WorkflowTriggerBackfillLaunchRequest,
+    serverId: str | None = None,
+) -> dict[str, Any]:
+    return await launch_workflow_trigger_backfill_from_request(
         trigger_id,
         payload,
         server_id=serverId,

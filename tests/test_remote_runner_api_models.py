@@ -10,6 +10,7 @@ from apps.remote_runner.api_models import (
     ToolProductionEvidenceRequest,
     UploadCreateRequest,
     WorkflowDesignDraftCompileRequest,
+    WorkflowTriggerBackfillLaunchRequest,
     WorkflowTriggerBackfillPreviewRequest,
     WorkflowTriggerInboxEventRequest,
     WorkflowTriggerReadinessEventRequest,
@@ -229,6 +230,34 @@ def test_remote_runner_workflow_trigger_backfill_preview_request_is_strict() -> 
     assert any(error["type"] == "literal_error" and error["loc"] == ("reprocessBehavior",) for error in errors)
     assert any(error["type"] == "greater_than_equal" and error["loc"] == ("maxPartitions",) for error in errors)
     assert any(error["type"] == "less_than_equal" and error["loc"] == ("concurrencyLimit",) for error in errors)
+    assert any(error["type"] == "extra_forbidden" and error["loc"] == ("legacyLaunch",) for error in errors)
+
+
+def test_remote_runner_workflow_trigger_backfill_launch_request_requires_confirmation() -> None:
+    request = WorkflowTriggerBackfillLaunchRequest.model_validate(
+        {
+            "rangeStart": "2026-06-01",
+            "rangeEnd": "2026-06-02",
+            "confirmation": "launch-backfill",
+            "actor": "operator",
+        }
+    )
+
+    assert request.confirmation == "launch-backfill"
+    assert request.actor == "operator"
+
+    with pytest.raises(ValidationError) as exc_info:
+        WorkflowTriggerBackfillLaunchRequest.model_validate(
+            {
+                "rangeStart": "2026-06-01",
+                "rangeEnd": "2026-06-02",
+                "confirmation": "launch",
+                "legacyLaunch": True,
+            }
+        )
+
+    errors = exc_info.value.errors()
+    assert any(error["type"] == "literal_error" and error["loc"] == ("confirmation",) for error in errors)
     assert any(error["type"] == "extra_forbidden" and error["loc"] == ("legacyLaunch",) for error in errors)
 
 

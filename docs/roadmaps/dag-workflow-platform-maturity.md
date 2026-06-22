@@ -239,8 +239,8 @@ Progress:
 - Cron tick replay is deduplicated by the existing trigger event and run idempotency stores; repeated scheduler evaluation for the same scheduled instant returns the existing event/run rather than creating another run.
 - Webhook/event inbox ingestion now has a dedicated strict API route that requires `source` and `eventId`, keeps `correlationId` as grouping metadata, records an immutable trigger event envelope, and dispatches through the same workflow trigger service path.
 - Dataset, file, and database-ready triggers now use a dedicated readiness push API. Trigger definitions must declare an explicit `triggerSpec.resource`, incoming ready events must match resource type/id/URI, and dispatch reuses the existing durable trigger event, idempotency, admission, run creation, run provenance, and governance audit path.
-- Backfill triggers now support a strict preview-only API that expands a half-open time range into deterministic partition windows, stable cursor/idempotency keys, concurrency estimates, and per-partition `runSpecPreview` provenance without creating trigger events or runs.
-- Generic `/events` launch remains closed for resource-ready sources; dataset/file/database-ready dispatch must go through the readiness API, and backfill launch still fails loudly beyond preview.
+- Backfill triggers now support strict preview and confirmation-based launch APIs. Preview expands a half-open time range into deterministic partition windows, stable cursor/idempotency keys, concurrency estimates, and per-partition `runSpecPreview`; launch requires `confirmation: "launch-backfill"`, records durable launch/partition state, creates one immutable trigger event per partition, and dispatches each partition through the same run creation, idempotency, provenance, and audit path as other triggers.
+- Generic `/events` launch remains closed for resource-ready sources and backfill partitions; dataset/file/database-ready dispatch must go through the readiness API, and backfill dispatch must go through the dedicated launch API.
 
 Recommended sequence:
 
@@ -250,9 +250,8 @@ Recommended sequence:
 4. Add webhook/event inbox with deduplication, correlation id, actor/source, and idempotency key derivation.
 5. Stamp triggered runs with `triggerId`, `triggerEventId`, `source`, and `cursor`.
 6. Keep dataset/file/database-ready watcher polling deferred until Phase 5 has stable artifact identity, lineage anchoring, and cache keys; accept explicit push readiness events first.
-7. Keep backfill launch disabled beyond dry-run preview until artifact lineage and trigger provenance are stable enough to deduplicate safely.
-8. Extend the backfill preview model into launch only after partition state, existing-run detection, cancellation, and resume semantics are productized.
-9. Add a first-class inbox table, provider signature adapters, event matching rules, replay/dead-letter UI, and rate-limit/retry policy only after the thin webhook envelope proves stable.
+7. Extend backfill launch from durable one-run-per-partition submission into per-backfill cancellation, replay/dead-letter UI, existing-run policy controls, and a hard backfill-specific concurrency controller.
+8. Add a first-class inbox table, provider signature adapters, event matching rules, replay/dead-letter UI, and rate-limit/retry policy only after the thin webhook envelope proves stable.
 
 Representative files:
 

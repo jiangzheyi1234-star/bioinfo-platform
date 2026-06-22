@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import APIRouter
 
 from .api_models import (
+    WorkflowTriggerBackfillLaunchRequest,
     WorkflowTriggerBackfillPreviewRequest,
     WorkflowTriggerCreateRequest,
     WorkflowTriggerEventRequest,
@@ -15,6 +16,7 @@ from .control_service import (
     create_workflow_trigger_request,
     list_workflow_trigger_events_request,
     list_workflow_triggers_request,
+    launch_workflow_trigger_backfill_request,
     preview_workflow_trigger_backfill_request,
     submit_workflow_trigger_event_request,
     submit_workflow_trigger_inbox_event_request,
@@ -81,3 +83,12 @@ async def preview_workflow_trigger_backfill(
     authorization: AuthorizationHeader = None,
 ) -> dict[str, Any]:
     return await preview_workflow_trigger_backfill_request(trigger_id, payload, authorization)
+
+
+@router.post("/api/v1/workflow-triggers/{trigger_id}/backfill/launch", status_code=202)
+async def launch_workflow_trigger_backfill(
+    trigger_id: str,
+    payload: WorkflowTriggerBackfillLaunchRequest,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await launch_workflow_trigger_backfill_request(trigger_id, payload, authorization)

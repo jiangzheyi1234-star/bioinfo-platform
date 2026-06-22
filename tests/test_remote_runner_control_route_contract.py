@@ -127,6 +127,7 @@ def test_remote_runner_control_plane_services_use_async_thread_boundary() -> Non
         "submit_workflow_trigger_event_request",
         "submit_workflow_trigger_inbox_event_request",
         "submit_workflow_trigger_readiness_event_request",
+        "launch_workflow_trigger_backfill_request",
         "preview_workflow_trigger_backfill_request",
         "list_workflow_trigger_events_request",
     )
@@ -169,6 +170,7 @@ def test_workflow_trigger_routes_delegate_to_service() -> None:
     assert "return await submit_workflow_trigger_event_request(" in route_source
     assert "return await submit_workflow_trigger_inbox_event_request(" in route_source
     assert "return await submit_workflow_trigger_readiness_event_request(" in route_source
+    assert "return await launch_workflow_trigger_backfill_request(" in route_source
     assert "return await preview_workflow_trigger_backfill_request(" in route_source
 
     for name in (
@@ -177,6 +179,7 @@ def test_workflow_trigger_routes_delegate_to_service() -> None:
         "submit_workflow_trigger_event_request",
         "submit_workflow_trigger_inbox_event_request",
         "submit_workflow_trigger_readiness_event_request",
+        "launch_workflow_trigger_backfill_request",
         "preview_workflow_trigger_backfill_request",
         "list_workflow_trigger_events_request",
     ):
@@ -186,11 +189,12 @@ def test_workflow_trigger_routes_delegate_to_service() -> None:
     assert "def submit_workflow_trigger_event_from_request(" in service_source
     assert "def submit_workflow_trigger_inbox_event_from_request(" in service_source
     assert "def submit_workflow_trigger_readiness_event_from_request(" in service_source
+    assert "def launch_workflow_trigger_backfill_from_request(" in service_source
     assert "def preview_workflow_trigger_backfill_from_request(" in service_source
     assert "record_workflow_trigger_event(" in service_source
     assert "create_run_record(" in service_source
     assert "WORKFLOW_TRIGGER_SOURCE_LAUNCH_UNSUPPORTED" in service_source
-    assert "WORKFLOW_BACKFILL_LAUNCH_UNSUPPORTED_UNTIL_PROVENANCE_STABLE" in service_source
+    assert "WORKFLOW_BACKFILL_LAUNCH_TRUNCATED" in service_source
 
 
 def test_health_inspection_logic_lives_in_service_not_route() -> None:

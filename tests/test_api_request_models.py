@@ -15,6 +15,7 @@ from apps.api.models import (
     ToolProductionEvidenceRequest,
     UploadSubmitRequest,
     WorkflowDesignDraftCompileRequest,
+    WorkflowTriggerBackfillLaunchRequest,
     WorkflowTriggerBackfillPreviewRequest,
     WorkflowTriggerCreateRequest,
     WorkflowTriggerEventRequest,
@@ -302,6 +303,34 @@ def test_workflow_trigger_backfill_preview_request_is_strict_and_bounded() -> No
     assert any(error["type"] == "less_than_equal" and error["loc"] == ("maxPartitions",) for error in errors)
     assert any(error["type"] == "greater_than_equal" and error["loc"] == ("concurrencyLimit",) for error in errors)
     assert any(error["type"] == "extra_forbidden" and error["loc"] == ("launch",) for error in errors)
+
+
+def test_workflow_trigger_backfill_launch_request_requires_confirmation() -> None:
+    request = WorkflowTriggerBackfillLaunchRequest.model_validate(
+        {
+            "rangeStart": "2026-06-01",
+            "rangeEnd": "2026-06-02",
+            "confirmation": "launch-backfill",
+            "actor": "operator",
+        }
+    )
+
+    assert request.confirmation == "launch-backfill"
+    assert request.actor == "operator"
+
+    with pytest.raises(ValidationError) as exc_info:
+        WorkflowTriggerBackfillLaunchRequest.model_validate(
+            {
+                "rangeStart": "2026-06-01",
+                "rangeEnd": "2026-06-02",
+                "confirmation": "preview-only",
+                "legacyMode": True,
+            }
+        )
+
+    errors = exc_info.value.errors()
+    assert any(error["type"] == "literal_error" and error["loc"] == ("confirmation",) for error in errors)
+    assert any(error["type"] == "extra_forbidden" and error["loc"] == ("legacyMode",) for error in errors)
 
 
 def test_workflow_trigger_readiness_event_request_is_strict_and_typed() -> None:

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from apps.api.models import (
+    WorkflowTriggerBackfillLaunchRequest,
     WorkflowTriggerBackfillPreviewRequest,
     WorkflowTriggerCreateRequest,
     WorkflowTriggerEventRequest,
@@ -153,6 +154,24 @@ async def preview_workflow_trigger_backfill_from_request(
         ),
         wrapper="raw",
     )
+
+
+async def launch_workflow_trigger_backfill_from_request(
+    trigger_id: str,
+    request: WorkflowTriggerBackfillLaunchRequest,
+    *,
+    server_id: str | None,
+) -> dict[str, Any]:
+    result = await run_runtime_payload(
+        lambda: runtime_service().launch_workflow_trigger_backfill(
+            trigger_id,
+            request_payload(request),
+            server_id=server_id,
+        ),
+        wrapper="raw",
+    )
+    await invalidate_response_cache("runs", prefixes=("workflow_trigger_events",))
+    return result
 
 
 async def submit_workflow_trigger_event_response_from_request(

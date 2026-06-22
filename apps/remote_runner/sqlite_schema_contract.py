@@ -37,6 +37,8 @@ REQUIRED_TABLES = {
     "tools",
     "uploads",
     "workflow_design_drafts",
+    "workflow_backfill_launches",
+    "workflow_backfill_partitions",
     "workflow_revisions",
     "workflow_trigger_dispatches",
     "workflow_trigger_events",
@@ -80,6 +82,11 @@ REQUIRED_INDEXES = {
     "idx_workflow_trigger_events_external",
     "idx_workflow_trigger_events_trigger_created",
     "idx_workflow_triggers_source_enabled",
+    "idx_workflow_backfill_launches_state",
+    "idx_workflow_backfill_launches_trigger_created",
+    "idx_workflow_backfill_partitions_event",
+    "idx_workflow_backfill_partitions_launch_state",
+    "idx_workflow_backfill_partitions_run",
 }
 
 REQUIRED_TRIGGERS = {"workflow_revisions_no_update"}

@@ -18,12 +18,13 @@ from .storage_schema import SCHEMA_SQL
 from .tool_prepare_reservations import json_object, tool_prepare_job_reservation
 
 
-CURRENT_SCHEMA_VERSION = 5
+CURRENT_SCHEMA_VERSION = 6
 BASELINE_MIGRATION_NAME = "001_baseline_remote_runner_schema"
 RULE_LEVEL_RUN_STATE_MIGRATION_NAME = "002_rule_level_run_state"
 SCHEDULER_TRIGGER_MIGRATION_NAME = "003_scheduler_triggers"
 ARTIFACT_LIFECYCLE_MIGRATION_NAME = "004_artifact_lifecycle"
 ARTIFACT_CACHE_MIGRATION_NAME = "005_artifact_cache"
+BACKFILL_LAUNCH_MIGRATION_NAME = "006_backfill_launch"
 DATABASE_MISSING_ERROR = "REMOTE_RUNNER_SQLITE_DATABASE_MISSING"
 SCHEMA_MIGRATION_REQUIRED_ERROR = "REMOTE_RUNNER_SQLITE_SCHEMA_MIGRATION_REQUIRED"
 SCHEMA_TOO_NEW_ERROR = "REMOTE_RUNNER_SQLITE_SCHEMA_TOO_NEW"
@@ -76,9 +77,12 @@ def migrate_runtime_schema(connection: sqlite3.Connection) -> None:
         migrate_artifact_cache_schema(
             connection,
             record_migration=_record_migration,
-            version=CURRENT_SCHEMA_VERSION,
+            version=5,
             name=ARTIFACT_CACHE_MIGRATION_NAME,
         )
+        version = read_schema_version(connection)
+    if version == 5:
+        _migrate_from_v5_to_v6(connection)
         return
     if version != 0:
         raise RemoteRunnerSQLiteSchemaError(f"REMOTE_RUNNER_SQLITE_SCHEMA_MIGRATION_MISSING: {version}")
@@ -87,7 +91,7 @@ def migrate_runtime_schema(connection: sqlite3.Connection) -> None:
         connection.executescript(f"BEGIN IMMEDIATE;\n{SCHEMA_SQL}\n{REFERENCE_DATABASE_SCHEMA_SQL}")
         _ensure_schema_migrations_table(connection)
         _apply_baseline_schema_migration(connection)
-        _record_migration(connection, CURRENT_SCHEMA_VERSION, ARTIFACT_CACHE_MIGRATION_NAME)
+        _record_migration(connection, CURRENT_SCHEMA_VERSION, BACKFILL_LAUNCH_MIGRATION_NAME)
         connection.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
         connection.commit()
     except Exception:
@@ -160,7 +164,7 @@ def _record_migration(connection: sqlite3.Connection, version: int, name: str) -
 
 
 def _baseline_checksum() -> str:
-    payload = f"{CURRENT_SCHEMA_VERSION}:{ARTIFACT_CACHE_MIGRATION_NAME}:{SCHEMA_SQL}:{REFERENCE_DATABASE_SCHEMA_SQL}"
+    payload = f"{CURRENT_SCHEMA_VERSION}:{BACKFILL_LAUNCH_MIGRATION_NAME}:{SCHEMA_SQL}:{REFERENCE_DATABASE_SCHEMA_SQL}"
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
@@ -191,6 +195,7 @@ def _apply_baseline_schema_migration(connection: sqlite3.Connection) -> None:
     _ensure_run_execution_columns(connection)
     _ensure_rule_level_run_state(connection)
     _ensure_scheduler_triggers(connection)
+    _ensure_backfill_launches(connection)
     _ensure_candidate_output_columns(connection)
     _ensure_tools_columns(connection)
     _ensure_tool_prepare_job_columns(connection)
@@ -219,6 +224,19 @@ def _migrate_from_v2_to_v3(connection: sqlite3.Connection) -> None:
         _ensure_scheduler_triggers(connection)
         _record_migration(connection, 3, SCHEDULER_TRIGGER_MIGRATION_NAME)
         connection.execute("PRAGMA user_version = 3")
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+
+
+def _migrate_from_v5_to_v6(connection: sqlite3.Connection) -> None:
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        _ensure_schema_migrations_table(connection)
+        _ensure_backfill_launches(connection)
+        _record_migration(connection, 6, BACKFILL_LAUNCH_MIGRATION_NAME)
+        connection.execute("PRAGMA user_version = 6")
         connection.commit()
     except Exception:
         connection.rollback()
@@ -316,6 +334,88 @@ def _ensure_scheduler_triggers(connection: sqlite3.Connection) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_workflow_trigger_dispatches_run
         ON workflow_trigger_dispatches(run_id)
+        """
+    )
+
+
+def _ensure_backfill_launches(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS workflow_backfill_launches (
+            launch_id TEXT PRIMARY KEY,
+            trigger_id TEXT NOT NULL,
+            preview_id TEXT NOT NULL,
+            source_type TEXT NOT NULL DEFAULT 'backfill',
+            range_start TEXT NOT NULL,
+            range_end TEXT NOT NULL,
+            timezone TEXT NOT NULL,
+            partition_unit TEXT NOT NULL,
+            run_order TEXT NOT NULL,
+            reprocess_behavior TEXT NOT NULL,
+            partition_count INTEGER NOT NULL,
+            state TEXT NOT NULL,
+            actor TEXT NOT NULL DEFAULT '',
+            request_json TEXT NOT NULL DEFAULT '{}',
+            payload_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(trigger_id, preview_id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_workflow_backfill_launches_trigger_created
+        ON workflow_backfill_launches(trigger_id, created_at)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_workflow_backfill_launches_state
+        ON workflow_backfill_launches(state, updated_at)
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS workflow_backfill_partitions (
+            partition_id TEXT PRIMARY KEY,
+            launch_id TEXT NOT NULL,
+            trigger_id TEXT NOT NULL,
+            partition_key TEXT NOT NULL,
+            partition_index INTEGER NOT NULL,
+            window_start TEXT NOT NULL,
+            window_end TEXT NOT NULL,
+            cursor TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL,
+            trigger_event_id TEXT,
+            run_id TEXT,
+            state TEXT NOT NULL,
+            run_spec_hash TEXT NOT NULL,
+            run_spec_json TEXT NOT NULL,
+            error_json TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(trigger_id, partition_id),
+            UNIQUE(launch_id, partition_index)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_workflow_backfill_partitions_launch_state
+        ON workflow_backfill_partitions(launch_id, state, partition_index)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_workflow_backfill_partitions_run
+        ON workflow_backfill_partitions(run_id)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_workflow_backfill_partitions_event
+        ON workflow_backfill_partitions(trigger_event_id)
         """
     )
 

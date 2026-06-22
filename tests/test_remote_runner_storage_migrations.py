@@ -110,7 +110,7 @@ def test_runtime_layout_records_schema_version_and_migration_ledger(tmp_path: Pa
     assert user_version == CURRENT_SCHEMA_VERSION
     assert migration is not None
     assert migration[0] == CURRENT_SCHEMA_VERSION
-    assert migration[1] == sqlite_migrations.ARTIFACT_CACHE_MIGRATION_NAME
+    assert migration[1] == sqlite_migrations.BACKFILL_LAUNCH_MIGRATION_NAME
     assert migration[2]
     assert reference_table is not None
 
@@ -179,7 +179,7 @@ def test_runtime_schema_migrates_v1_to_current_scheduler_trigger_tables(tmp_path
         "idx_workflow_trigger_events_trigger_created",
         "idx_workflow_trigger_dispatches_state",
     } <= index_names
-    assert migration["name"] == sqlite_migrations.ARTIFACT_CACHE_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.BACKFILL_LAUNCH_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v2_scheduler_trigger_tables(tmp_path: Path) -> None:
@@ -226,7 +226,7 @@ def test_runtime_schema_migrates_v2_scheduler_trigger_tables(tmp_path: Path) -> 
         "workflow_trigger_events",
         "workflow_trigger_dispatches",
     } <= trigger_tables
-    assert migration["name"] == sqlite_migrations.ARTIFACT_CACHE_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.BACKFILL_LAUNCH_MIGRATION_NAME
 
 
 def test_runtime_schema_rejects_future_user_version(tmp_path: Path) -> None:

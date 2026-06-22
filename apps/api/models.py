@@ -163,6 +163,11 @@ class WorkflowTriggerBackfillPreviewRequest(ApiRequest):
     params: dict[str, Any] = Field(default_factory=dict)
 
 
+class WorkflowTriggerBackfillLaunchRequest(WorkflowTriggerBackfillPreviewRequest):
+    confirmation: Literal["launch-backfill"]
+    actor: str | None = None
+
+
 class ArtifactGcPreviewRequest(ApiRequest):
     serverId: str | None = None
     retentionDays: int = Field(default=30, ge=0)
