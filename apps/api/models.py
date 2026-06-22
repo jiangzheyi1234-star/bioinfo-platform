@@ -98,6 +98,8 @@ TriggerSourceType = Literal["manual", "cron", "webhook", "dataset", "file", "dat
 BackfillPartitionUnit = Literal["hour", "day"]
 BackfillRunOrder = Literal["forward", "backward"]
 BackfillReprocessBehavior = Literal["none", "failed", "completed"]
+ReadinessResourceType = Literal["dataset", "file", "database"]
+ReadinessState = Literal["ready"]
 
 
 class WorkflowTriggerCreateRequest(ApiRequest):
@@ -124,6 +126,22 @@ class WorkflowTriggerInboxEventRequest(ApiRequest):
     correlationId: str | None = None
     actor: str | None = None
     cursor: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkflowTriggerReadinessEventRequest(ApiRequest):
+    source: str = Field(min_length=1)
+    eventId: str = Field(min_length=1)
+    resourceType: ReadinessResourceType
+    resourceId: str = Field(min_length=1)
+    state: ReadinessState = "ready"
+    uri: str | None = None
+    version: str | None = None
+    checksum: str | None = None
+    observedAt: str | None = None
+    cursor: str | None = None
+    actor: str | None = None
+    labels: dict[str, str] = Field(default_factory=dict)
     payload: dict[str, Any] = Field(default_factory=dict)
 
 

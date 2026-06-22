@@ -18,6 +18,7 @@ from apps.api.models import (
     WorkflowTriggerCreateRequest,
     WorkflowTriggerEventRequest,
     WorkflowTriggerInboxEventRequest,
+    WorkflowTriggerReadinessEventRequest,
 )
 
 
@@ -279,6 +280,46 @@ def test_workflow_trigger_backfill_preview_request_is_strict_and_bounded() -> No
     assert any(error["type"] == "literal_error" and error["loc"] == ("reprocessBehavior",) for error in errors)
     assert any(error["type"] == "less_than_equal" and error["loc"] == ("maxPartitions",) for error in errors)
     assert any(error["type"] == "greater_than_equal" and error["loc"] == ("concurrencyLimit",) for error in errors)
+    assert any(error["type"] == "extra_forbidden" and error["loc"] == ("launch",) for error in errors)
+
+
+def test_workflow_trigger_readiness_event_request_is_strict_and_typed() -> None:
+    request = WorkflowTriggerReadinessEventRequest.model_validate(
+        {
+            "source": "lakehouse",
+            "eventId": "evt_dataset_ready_001",
+            "resourceType": "dataset",
+            "resourceId": "dataset:reads",
+            "state": "ready",
+            "uri": "s3://lab-bucket/reads.fastq",
+            "version": "2026-06-24",
+            "checksum": "sha256:abc123",
+            "observedAt": "2026-06-24T02:00:00Z",
+            "actor": "lakehouse-agent",
+            "labels": {"assay": "rna-seq"},
+            "payload": {"partition": "2026-06-24"},
+        }
+    )
+
+    assert request.resourceType == "dataset"
+    assert request.state == "ready"
+    assert request.labels == {"assay": "rna-seq"}
+
+    with pytest.raises(ValidationError) as exc_info:
+        WorkflowTriggerReadinessEventRequest.model_validate(
+            {
+                "source": "lakehouse",
+                "eventId": "evt_dataset_ready_001",
+                "resourceType": "table",
+                "resourceId": "dataset:reads",
+                "state": "changed",
+                "launch": True,
+            }
+        )
+
+    errors = exc_info.value.errors()
+    assert any(error["type"] == "literal_error" and error["loc"] == ("resourceType",) for error in errors)
+    assert any(error["type"] == "literal_error" and error["loc"] == ("state",) for error in errors)
     assert any(error["type"] == "extra_forbidden" and error["loc"] == ("launch",) for error in errors)
 
 

@@ -13,6 +13,7 @@ from .api_models import (
     WorkflowTriggerCreateRequest,
     WorkflowTriggerEventRequest,
     WorkflowTriggerInboxEventRequest,
+    WorkflowTriggerReadinessEventRequest,
 )
 from .config import RemoteRunnerConfig
 from .generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
@@ -36,6 +37,12 @@ from .workflow_run_storage import create_run_record
 
 TRIGGER_EVENT_PAYLOAD_MAX_BYTES = 256 * 1024
 LAUNCH_SUPPORTED_TRIGGER_SOURCES = {"manual", "cron", "webhook"}
+READINESS_TRIGGER_SOURCES = {"dataset", "file", "database_ready"}
+READINESS_RESOURCE_TYPES_BY_SOURCE = {
+    "dataset": "dataset",
+    "file": "file",
+    "database_ready": "database",
+}
 BACKFILL_LAUNCH_DISABLED_REASON = "WORKFLOW_BACKFILL_LAUNCH_UNSUPPORTED_UNTIL_PROVENANCE_STABLE"
 
 
@@ -47,7 +54,11 @@ def create_workflow_trigger_from_request(
 ) -> dict[str, Any]:
     run_spec = request_payload(request.runSpec)
     pipeline = _validate_trigger_run_spec(cfg, run_spec)
-    if request.sourceType not in LAUNCH_SUPPORTED_TRIGGER_SOURCES and request.enabled:
+    trigger_payload = request_payload(request)
+    trigger_spec = trigger_payload.get("triggerSpec") or {}
+    if request.sourceType in READINESS_TRIGGER_SOURCES:
+        _validate_readiness_trigger_resource_spec(request.sourceType, trigger_spec)
+    if request.sourceType not in (LAUNCH_SUPPORTED_TRIGGER_SOURCES | READINESS_TRIGGER_SOURCES) and request.enabled:
         raise ValueError(f"WORKFLOW_TRIGGER_SOURCE_LAUNCH_UNSUPPORTED: {request.sourceType}")
     if request.runSpec.pipelineId != GENERATED_TOOL_RUN_PIPELINE_ID and not str(request.runSpec.pipelineVersion or "").strip():
         run_spec["pipelineVersion"] = pipeline.version
@@ -58,7 +69,7 @@ def create_workflow_trigger_from_request(
         server_id=request.serverId,
         pipeline_id=request.runSpec.pipelineId,
         run_spec=run_spec,
-        trigger_spec=request_payload(request).get("triggerSpec") or {},
+        trigger_spec=trigger_spec,
         enabled=bool(request.enabled),
         actor=actor,
     )
@@ -91,13 +102,15 @@ def submit_workflow_trigger_event_from_request(
     cfg: RemoteRunnerConfig,
     trigger_id: str,
     request: WorkflowTriggerEventRequest,
+    *,
+    supported_sources: set[str] | None = None,
 ) -> dict[str, Any]:
     ensure_submission_ready(cfg)
     trigger = require_workflow_trigger(cfg, trigger_id)
     if not trigger.get("enabled"):
         raise ValueError("WORKFLOW_TRIGGER_DISABLED")
     source_type = str(trigger.get("sourceType") or "")
-    if source_type not in LAUNCH_SUPPORTED_TRIGGER_SOURCES:
+    if source_type not in (supported_sources or LAUNCH_SUPPORTED_TRIGGER_SOURCES):
         raise ValueError(f"WORKFLOW_TRIGGER_SOURCE_LAUNCH_UNSUPPORTED: {source_type}")
 
     payload = request_payload(request).get("payload") or {}
@@ -235,6 +248,23 @@ def submit_workflow_trigger_inbox_event_from_request(
         cfg,
         trigger_id,
         _inbox_event_request(request),
+    )
+
+
+def submit_workflow_trigger_readiness_event_from_request(
+    cfg: RemoteRunnerConfig,
+    trigger_id: str,
+    request: WorkflowTriggerReadinessEventRequest,
+) -> dict[str, Any]:
+    trigger = require_workflow_trigger(cfg, trigger_id)
+    source_type = str(trigger.get("sourceType") or "")
+    if source_type not in READINESS_TRIGGER_SOURCES:
+        raise ValueError(f"WORKFLOW_TRIGGER_READINESS_SOURCE_MISMATCH: {source_type}")
+    return submit_workflow_trigger_event_from_request(
+        cfg,
+        trigger_id,
+        _readiness_event_request(trigger, request),
+        supported_sources=READINESS_TRIGGER_SOURCES,
     )
 
 
@@ -380,13 +410,106 @@ def _inbox_event_request(request: WorkflowTriggerInboxEventRequest) -> WorkflowT
     )
 
 
+def _readiness_event_request(
+    trigger: dict[str, Any],
+    request: WorkflowTriggerReadinessEventRequest,
+) -> WorkflowTriggerEventRequest:
+    source_type = str(trigger.get("sourceType") or "")
+    expected_resource_type = READINESS_RESOURCE_TYPES_BY_SOURCE.get(source_type)
+    if not expected_resource_type:
+        raise ValueError(f"WORKFLOW_TRIGGER_READINESS_SOURCE_MISMATCH: {source_type}")
+    if request.resourceType != expected_resource_type:
+        raise ValueError(
+            f"WORKFLOW_TRIGGER_READINESS_RESOURCE_TYPE_MISMATCH: {expected_resource_type} != {request.resourceType}"
+        )
+    expected_resource = _readiness_trigger_resource(trigger, expected_resource_type)
+    source = _required_text(request.source, "WORKFLOW_TRIGGER_READINESS_SOURCE_REQUIRED")
+    event_id = _required_text(request.eventId, "WORKFLOW_TRIGGER_READINESS_EVENT_ID_REQUIRED")
+    resource_id = _required_text(request.resourceId, "WORKFLOW_TRIGGER_READINESS_RESOURCE_ID_REQUIRED")
+    if resource_id != expected_resource["id"]:
+        raise ValueError(f"WORKFLOW_TRIGGER_READINESS_RESOURCE_MISMATCH: {resource_id}")
+    uri = str(request.uri or "").strip()
+    expected_uri = str(expected_resource.get("uri") or "").strip()
+    if uri and expected_uri and uri != expected_uri:
+        raise ValueError(f"WORKFLOW_TRIGGER_READINESS_RESOURCE_URI_MISMATCH: {uri}")
+    actor = str(request.actor or "").strip()
+    version = str(request.version or "").strip()
+    checksum = str(request.checksum or "").strip()
+    observed_at = str(request.observedAt or "").strip()
+    external_event_id = f"{source}:{resource_id}:{event_id}"
+    resource = {
+        "type": request.resourceType,
+        "id": resource_id,
+        **({"uri": uri} if uri else {}),
+        **({"version": version} if version else {}),
+        **({"checksum": checksum} if checksum else {}),
+        **({"labels": dict(request.labels)} if request.labels else {}),
+    }
+    context = {
+        "source": source,
+        "eventId": event_id,
+        "resourceType": request.resourceType,
+        "resourceId": resource_id,
+        **({"actor": actor} if actor else {}),
+    }
+    return WorkflowTriggerEventRequest(
+        eventType=f"{request.resourceType}.ready",
+        externalEventId=external_event_id,
+        idempotencyKey=f"readiness:{trigger['triggerId']}:{source}:{resource_id}:{event_id}",
+        cursor=str(request.cursor or f"{resource_id}@{version or event_id}"),
+        payload={
+            "eventContext": context,
+            "resource": resource,
+            "state": request.state,
+            **({"observedAt": observed_at} if observed_at else {}),
+            "payload": request_payload(request).get("payload") or {},
+        },
+    )
+
+
+def _readiness_trigger_resource(trigger: dict[str, Any], expected_resource_type: str) -> dict[str, str]:
+    trigger_spec = trigger.get("triggerSpec") if isinstance(trigger.get("triggerSpec"), dict) else {}
+    return _validate_readiness_trigger_resource_spec(
+        str(trigger.get("sourceType") or ""),
+        trigger_spec,
+        expected_resource_type=expected_resource_type,
+    )
+
+
+def _validate_readiness_trigger_resource_spec(
+    source_type: str,
+    trigger_spec: dict[str, Any],
+    *,
+    expected_resource_type: str | None = None,
+) -> dict[str, str]:
+    resource_type_for_source = READINESS_RESOURCE_TYPES_BY_SOURCE.get(source_type)
+    if not resource_type_for_source:
+        raise ValueError(f"WORKFLOW_TRIGGER_READINESS_SOURCE_MISMATCH: {source_type}")
+    expected_type = expected_resource_type or resource_type_for_source
+    if expected_type != resource_type_for_source:
+        raise ValueError(
+            f"WORKFLOW_TRIGGER_READINESS_TRIGGER_RESOURCE_TYPE_MISMATCH: {resource_type_for_source} != {expected_type}"
+        )
+    raw_resource = trigger_spec.get("resource") if isinstance(trigger_spec, dict) else None
+    if not isinstance(raw_resource, dict):
+        raise ValueError("WORKFLOW_TRIGGER_READINESS_RESOURCE_SPEC_REQUIRED")
+    resource_type = _required_text(raw_resource.get("type"), "WORKFLOW_TRIGGER_READINESS_RESOURCE_TYPE_REQUIRED")
+    if resource_type != expected_type:
+        raise ValueError(
+            f"WORKFLOW_TRIGGER_READINESS_TRIGGER_RESOURCE_TYPE_MISMATCH: {expected_type} != {resource_type}"
+        )
+    resource_id = _required_text(raw_resource.get("id"), "WORKFLOW_TRIGGER_READINESS_RESOURCE_ID_REQUIRED")
+    uri = str(raw_resource.get("uri") or "").strip()
+    return {"type": resource_type, "id": resource_id, **({"uri": uri} if uri else {})}
+
+
 def _event_context_from_payload(payload: dict[str, Any]) -> dict[str, str]:
     raw = payload.get("eventContext") if isinstance(payload, dict) else None
     if not isinstance(raw, dict):
         return {}
     return {
         key: value
-        for key in ("source", "eventId", "correlationId", "actor")
+        for key in ("source", "eventId", "correlationId", "actor", "resourceType", "resourceId")
         if (value := str(raw.get(key) or "").strip())
     }
 

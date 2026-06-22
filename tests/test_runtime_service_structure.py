@@ -351,6 +351,7 @@ def test_runtime_execution_operations_live_in_dedicated_mixin() -> None:
         "create_workflow_trigger",
         "submit_workflow_trigger_event",
         "submit_workflow_trigger_inbox_event",
+        "submit_workflow_trigger_readiness_event",
         "preview_workflow_trigger_backfill",
         "list_workflow_trigger_events",
         "get_run",
@@ -391,10 +392,12 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "self.execution.submit_run(" in execution_ops_source
     assert "self.execution.create_workflow_trigger(" in execution_ops_source
     assert "self.execution.submit_workflow_trigger_inbox_event(" in execution_ops_source
+    assert "self.execution.submit_workflow_trigger_readiness_event(" in execution_ops_source
     assert "self.execution.preview_workflow_trigger_backfill(" in execution_ops_source
     assert "self.execution.get_run_execution_context(" in execution_ops_source
     assert "manager.submit_workflow_trigger_event" in execution_manager_source
     assert "manager.submit_workflow_trigger_inbox_event" in execution_manager_source
+    assert "manager.submit_workflow_trigger_readiness_event" in execution_manager_source
     assert "manager.preview_workflow_trigger_backfill" in execution_manager_source
     assert "self.execution.get_result_audit(" in execution_ops_source
     assert "self.execution.export_result_package(" in execution_ops_source

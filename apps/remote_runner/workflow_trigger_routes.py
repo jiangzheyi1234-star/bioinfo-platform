@@ -9,6 +9,7 @@ from .api_models import (
     WorkflowTriggerCreateRequest,
     WorkflowTriggerEventRequest,
     WorkflowTriggerInboxEventRequest,
+    WorkflowTriggerReadinessEventRequest,
 )
 from .control_service import (
     create_workflow_trigger_request,
@@ -17,6 +18,7 @@ from .control_service import (
     preview_workflow_trigger_backfill_request,
     submit_workflow_trigger_event_request,
     submit_workflow_trigger_inbox_event_request,
+    submit_workflow_trigger_readiness_event_request,
 )
 from .route_headers import AuthorizationHeader
 
@@ -61,6 +63,15 @@ async def submit_workflow_trigger_inbox_event(
     authorization: AuthorizationHeader = None,
 ) -> dict[str, Any]:
     return await submit_workflow_trigger_inbox_event_request(trigger_id, payload, authorization)
+
+
+@router.post("/api/v1/workflow-triggers/{trigger_id}/readiness", status_code=202)
+async def submit_workflow_trigger_readiness_event(
+    trigger_id: str,
+    payload: WorkflowTriggerReadinessEventRequest,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await submit_workflow_trigger_readiness_event_request(trigger_id, payload, authorization)
 
 
 @router.post("/api/v1/workflow-triggers/{trigger_id}/backfill/preview")

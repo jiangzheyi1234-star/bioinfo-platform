@@ -188,6 +188,9 @@ class RemoteRunnerHttpClient:
     def submit_workflow_trigger_inbox_event(self, trigger_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self.post_json(f"/api/v1/workflow-triggers/{trigger_id}/inbox", payload)
 
+    def submit_workflow_trigger_readiness_event(self, trigger_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.post_json(f"/api/v1/workflow-triggers/{trigger_id}/readiness", payload)
+
     def preview_workflow_trigger_backfill(self, trigger_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self.post_json(f"/api/v1/workflow-triggers/{trigger_id}/backfill/preview", payload)
 

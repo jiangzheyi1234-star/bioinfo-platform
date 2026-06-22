@@ -11,6 +11,7 @@ from apps.remote_runner.api_models import (
     WorkflowDesignDraftCompileRequest,
     WorkflowTriggerBackfillPreviewRequest,
     WorkflowTriggerInboxEventRequest,
+    WorkflowTriggerReadinessEventRequest,
 )
 
 
@@ -214,6 +215,41 @@ def test_remote_runner_workflow_trigger_backfill_preview_request_is_strict() -> 
     assert any(error["type"] == "greater_than_equal" and error["loc"] == ("maxPartitions",) for error in errors)
     assert any(error["type"] == "less_than_equal" and error["loc"] == ("concurrencyLimit",) for error in errors)
     assert any(error["type"] == "extra_forbidden" and error["loc"] == ("legacyLaunch",) for error in errors)
+
+
+def test_remote_runner_workflow_trigger_readiness_event_request_is_strict() -> None:
+    request = WorkflowTriggerReadinessEventRequest.model_validate(
+        {
+            "source": "watcher",
+            "eventId": "evt_file_ready_001",
+            "resourceType": "file",
+            "resourceId": "file:/incoming/reads.fastq",
+            "state": "ready",
+            "cursor": "file:/incoming/reads.fastq@sha256:abc",
+            "payload": {"size": 128},
+        }
+    )
+
+    assert request.resourceType == "file"
+    assert request.cursor == "file:/incoming/reads.fastq@sha256:abc"
+    assert request.payload == {"size": 128}
+
+    with pytest.raises(ValidationError) as exc_info:
+        WorkflowTriggerReadinessEventRequest.model_validate(
+            {
+                "source": "watcher",
+                "eventId": "evt_file_ready_001",
+                "resourceType": "directory",
+                "resourceId": "file:/incoming/reads.fastq",
+                "state": "missing",
+                "legacyPayload": {},
+            }
+        )
+
+    errors = exc_info.value.errors()
+    assert any(error["type"] == "literal_error" and error["loc"] == ("resourceType",) for error in errors)
+    assert any(error["type"] == "literal_error" and error["loc"] == ("state",) for error in errors)
+    assert any(error["type"] == "extra_forbidden" and error["loc"] == ("legacyPayload",) for error in errors)
 
 
 def test_remote_runner_workflow_design_compile_request_rejects_server_id() -> None:

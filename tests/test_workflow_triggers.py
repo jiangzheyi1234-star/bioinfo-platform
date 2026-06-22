@@ -7,6 +7,7 @@ from apps.remote_runner.api_models import (
     WorkflowTriggerCreateRequest,
     WorkflowTriggerEventRequest,
     WorkflowTriggerInboxEventRequest,
+    WorkflowTriggerReadinessEventRequest,
 )
 from apps.remote_runner.errors import IdempotencyKeyReusedError
 from apps.remote_runner.execution_query_storage import fetch_run, list_runs
@@ -18,6 +19,7 @@ from apps.remote_runner.trigger_service import (
     preview_workflow_trigger_backfill_from_request,
     submit_workflow_trigger_event_from_request,
     submit_workflow_trigger_inbox_event_from_request,
+    submit_workflow_trigger_readiness_event_from_request,
 )
 from tests.helpers.reference_database import make_configured_remote_runner
 
@@ -342,6 +344,168 @@ def test_webhook_inbox_rejects_missing_identity(
         )
 
 
+@pytest.mark.parametrize(
+    ("source_type", "resource_type", "resource_id", "resource_uri"),
+    [
+        ("dataset", "dataset", "dataset:reads", "s3://lab-bucket/reads.fastq"),
+        ("file", "file", "file:/incoming/reads.fastq", "file:///incoming/reads.fastq"),
+        ("database_ready", "database", "database:blast-nt", "s3://reference-dbs/blast/nt"),
+    ],
+)
+def test_readiness_event_dispatches_run_with_resource_provenance_and_dedupes(
+    source_type: str,
+    resource_type: str,
+    resource_id: str,
+    resource_uri: str,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_execution_admission_ready", lambda _cfg: None)
+
+    trigger = _create_trigger(
+        cfg,
+        source_type=source_type,
+        trigger_spec={
+            "resource": {
+                "type": resource_type,
+                "id": resource_id,
+                "uri": resource_uri,
+            }
+        },
+    )
+    request = WorkflowTriggerReadinessEventRequest(
+        source="lakehouse",
+        eventId="evt_dataset_ready_001",
+        resourceType=resource_type,
+        resourceId=resource_id,
+        uri=resource_uri,
+        version="2026-06-24",
+        checksum="sha256:abc123",
+        observedAt="2026-06-24T02:00:00Z",
+        actor="lakehouse-agent",
+        labels={"assay": "rna-seq"},
+        payload={"partition": "2026-06-24"},
+    )
+
+    first = submit_workflow_trigger_readiness_event_from_request(cfg, trigger["triggerId"], request)
+    event = first["data"]["event"]
+    run_id = first["data"]["run"]["runId"]
+
+    assert first["data"]["replayed"] is False
+    assert event["sourceType"] == source_type
+    assert event["eventType"] == f"{resource_type}.ready"
+    assert event["externalEventId"] == f"lakehouse:{resource_id}:evt_dataset_ready_001"
+    assert event["idempotencyKey"] == f"readiness:{trigger['triggerId']}:lakehouse:{resource_id}:evt_dataset_ready_001"
+    assert event["cursor"] == f"{resource_id}@2026-06-24"
+    assert event["payload"] == {
+        "eventContext": {
+            "source": "lakehouse",
+            "eventId": "evt_dataset_ready_001",
+            "resourceType": resource_type,
+            "resourceId": resource_id,
+            "actor": "lakehouse-agent",
+        },
+        "resource": {
+            "type": resource_type,
+            "id": resource_id,
+            "uri": resource_uri,
+            "version": "2026-06-24",
+            "checksum": "sha256:abc123",
+            "labels": {"assay": "rna-seq"},
+        },
+        "state": "ready",
+        "observedAt": "2026-06-24T02:00:00Z",
+        "payload": {"partition": "2026-06-24"},
+    }
+    run = fetch_run(cfg, run_id)
+    assert run is not None
+    assert run["trigger"] == {
+        "triggerId": trigger["triggerId"],
+        "triggerEventId": event["triggerEventId"],
+        "source": source_type,
+        "cursor": f"{resource_id}@2026-06-24",
+    }
+
+    replay = submit_workflow_trigger_readiness_event_from_request(cfg, trigger["triggerId"], request)
+    assert replay["data"]["replayed"] is True
+    assert replay["data"]["event"]["triggerEventId"] == event["triggerEventId"]
+    assert replay["data"]["run"]["runId"] == run_id
+
+    dispatch_audit_events = list_governance_audit_events(cfg, action="workflow_trigger.dispatch")["items"]
+    assert [item["actor"] for item in dispatch_audit_events] == ["lakehouse-agent", "lakehouse-agent"]
+    assert dispatch_audit_events[0]["details"]["eventContext"] == {
+        "source": "lakehouse",
+        "eventId": "evt_dataset_ready_001",
+        "actor": "lakehouse-agent",
+        "resourceType": resource_type,
+        "resourceId": resource_id,
+    }
+
+
+def test_readiness_event_keeps_generic_event_route_closed_for_resource_sources(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+
+    trigger = _create_trigger(
+        cfg,
+        source_type="file",
+        trigger_spec={"resource": {"type": "file", "id": "file:/incoming/reads.fastq"}},
+    )
+
+    with pytest.raises(ValueError, match="WORKFLOW_TRIGGER_SOURCE_LAUNCH_UNSUPPORTED: file"):
+        submit_workflow_trigger_event_from_request(
+            cfg,
+            trigger["triggerId"],
+            WorkflowTriggerEventRequest(
+                eventType="file.ready",
+                externalEventId="evt_file_ready",
+                idempotencyKey="file:ready",
+                cursor="file:/incoming/reads.fastq",
+                payload={"resourceId": "file:/incoming/reads.fastq"},
+            ),
+        )
+
+
+def test_readiness_event_rejects_wrong_source_and_resource(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+
+    manual_trigger = _create_trigger(cfg, source_type="manual", trigger_spec={"mode": "manual"})
+    with pytest.raises(ValueError, match="WORKFLOW_TRIGGER_READINESS_SOURCE_MISMATCH: manual"):
+        submit_workflow_trigger_readiness_event_from_request(
+            cfg,
+            manual_trigger["triggerId"],
+            WorkflowTriggerReadinessEventRequest(
+                source="lakehouse",
+                eventId="evt_dataset_ready_001",
+                resourceType="dataset",
+                resourceId="dataset:reads",
+            ),
+        )
+
+    file_trigger = _create_trigger(
+        cfg,
+        source_type="file",
+        trigger_spec={"resource": {"type": "file", "id": "file:/incoming/reads.fastq"}},
+    )
+    with pytest.raises(ValueError, match="WORKFLOW_TRIGGER_READINESS_RESOURCE_MISMATCH: file:/other.fastq"):
+        submit_workflow_trigger_readiness_event_from_request(
+            cfg,
+            file_trigger["triggerId"],
+            WorkflowTriggerReadinessEventRequest(
+                source="watcher",
+                eventId="evt_file_ready_001",
+                resourceType="file",
+                resourceId="file:/other.fastq",
+            ),
+        )
+
+
 def test_backfill_preview_returns_partition_plan_without_launching(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
@@ -488,7 +652,7 @@ def test_backfill_preview_rejects_wrong_source_and_invalid_range(tmp_path, monke
         )
 
 
-@pytest.mark.parametrize("source_type", ["dataset", "file", "database_ready", "backfill"])
+@pytest.mark.parametrize("source_type", ["backfill"])
 def test_unsupported_ready_trigger_launch_fails_loudly_until_sensor_dispatch_exists(
     source_type: str,
     tmp_path,
@@ -509,6 +673,45 @@ def test_unsupported_ready_trigger_launch_fails_loudly_until_sensor_dispatch_exi
                     "inputs": [{"uploadId": "upl_reads", "filename": "reads.fastq"}],
                 },
                 triggerSpec={"assetKey": "reads.fastq"},
+                enabled=True,
+            ),
+            actor="pytest",
+        )
+
+
+@pytest.mark.parametrize(
+    ("source_type", "trigger_spec", "message"),
+    [
+        ("dataset", {"assetKey": "reads.fastq"}, "WORKFLOW_TRIGGER_READINESS_RESOURCE_SPEC_REQUIRED"),
+        (
+            "database_ready",
+            {"resource": {"type": "file", "id": "db:blast"}},
+            "WORKFLOW_TRIGGER_READINESS_TRIGGER_RESOURCE_TYPE_MISMATCH: database != file",
+        ),
+    ],
+)
+def test_readiness_trigger_creation_requires_explicit_resource_identity(
+    source_type: str,
+    trigger_spec: dict[str, object],
+    message: str,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+
+    with pytest.raises(ValueError, match=message):
+        create_workflow_trigger_from_request(
+            cfg,
+            WorkflowTriggerCreateRequest(
+                name="Ready FASTQ summary",
+                sourceType=source_type,
+                serverId="srv_primary",
+                runSpec={
+                    "pipelineId": "file-summary-standard-v1",
+                    "inputs": [{"uploadId": "upl_reads", "filename": "reads.fastq"}],
+                },
+                triggerSpec=trigger_spec,
                 enabled=True,
             ),
             actor="pytest",

@@ -9,6 +9,7 @@ from apps.api.models import (
     WorkflowTriggerCreateRequest,
     WorkflowTriggerEventRequest,
     WorkflowTriggerInboxEventRequest,
+    WorkflowTriggerReadinessEventRequest,
 )
 from apps.api.response_cache import invalidate_response_cache
 from apps.api.workflow_trigger_routes import (
@@ -18,6 +19,7 @@ from apps.api.workflow_trigger_routes import (
     preview_workflow_trigger_backfill,
     submit_workflow_trigger_event,
     submit_workflow_trigger_inbox_event,
+    submit_workflow_trigger_readiness_event,
 )
 
 
@@ -62,6 +64,22 @@ def test_workflow_trigger_routes_preserve_runtime_wrappers_and_submit_headers(mo
             serverId="srv_primary",
         )
     )
+    readiness_response = Response()
+    readiness_submitted = asyncio.run(
+        submit_workflow_trigger_readiness_event(
+            "wtr_demo",
+            WorkflowTriggerReadinessEventRequest(
+                source="lakehouse",
+                eventId="evt_dataset_ready_001",
+                resourceType="dataset",
+                resourceId="dataset:reads",
+                version="2026-06-24",
+                actor="lakehouse-agent",
+            ),
+            readiness_response,
+            serverId="srv_primary",
+        )
+    )
     backfill_preview = asyncio.run(
         preview_workflow_trigger_backfill(
             "wtr_demo",
@@ -91,6 +109,10 @@ def test_workflow_trigger_routes_preserve_runtime_wrappers_and_submit_headers(mo
     assert inbox_response.headers["Location"] == "/api/v1/runs/run_inbox_demo"
     assert inbox_response.headers["Retry-After"] == "2"
     assert inbox_response.headers["X-Request-Id"] == "req_wte_inbox"
+    assert readiness_submitted["data"]["run"]["runId"] == "run_readiness_demo"
+    assert readiness_response.headers["Location"] == "/api/v1/runs/run_readiness_demo"
+    assert readiness_response.headers["Retry-After"] == "2"
+    assert readiness_response.headers["X-Request-Id"] == "req_wte_readiness"
     assert backfill_preview == {
         "data": {
             "triggerId": "wtr_demo",
@@ -150,6 +172,31 @@ class FakeTriggerRuntime:
             "location": "/api/v1/runs/run_inbox_demo",
             "retryAfter": 2,
             "requestId": "req_wte_inbox",
+        }
+
+    def submit_workflow_trigger_readiness_event(self, trigger_id, payload, *, server_id=None):
+        assert trigger_id == "wtr_demo"
+        assert payload == {
+            "source": "lakehouse",
+            "eventId": "evt_dataset_ready_001",
+            "resourceType": "dataset",
+            "resourceId": "dataset:reads",
+            "version": "2026-06-24",
+            "actor": "lakehouse-agent",
+            "labels": {},
+            "payload": {},
+            "state": "ready",
+        }
+        assert server_id == "srv_primary"
+        return {
+            "data": {
+                "event": {"triggerEventId": "wte_readiness"},
+                "run": {"runId": "run_readiness_demo"},
+                "replayed": False,
+            },
+            "location": "/api/v1/runs/run_readiness_demo",
+            "retryAfter": 2,
+            "requestId": "req_wte_readiness",
         }
 
     def preview_workflow_trigger_backfill(self, trigger_id, payload, *, server_id=None):

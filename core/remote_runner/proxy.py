@@ -312,6 +312,17 @@ class RemoteRunnerProxyMixin:
             kwargs["payload"],
         )
 
+    def submit_workflow_trigger_readiness_event(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+        )
+        return client.post_json(
+            f"/api/v1/workflow-triggers/{kwargs['trigger_id']}/readiness",
+            kwargs["payload"],
+        )
+
     def preview_workflow_trigger_backfill(self, **kwargs) -> dict[str, Any]:
         client = self._get_client(
             server_id=str(kwargs["server_id"]),
