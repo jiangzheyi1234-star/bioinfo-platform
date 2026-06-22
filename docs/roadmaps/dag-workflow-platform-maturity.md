@@ -288,6 +288,7 @@ Progress:
 - Cache lookup is traceable through `artifact.cache.lookup.v1` evidence. After a successful dry-run, the worker can now adopt a full set of cache-hit output artifacts into the current attempt, write `artifact.cache.adopt.v1` evidence, mark rules as cache-hit succeeded, and skip the expensive Snakemake run. Per-rule partial restore, downstream file staging, cache pinning, and directory package restore semantics remain pending.
 - Result package export is now a v2 evidence package rather than a bare artifact ZIP. Export requires a terminal run with a stored WorkflowRevision, passes checksum audit first, includes `manifest.json`, `ro-crate-metadata.json`, runSpec, WorkflowRevision, run events, rule states/events, lineage, evidence events, artifact checksums, and optional payload files, then records `result.export.v1` evidence plus a durable `result_package_exports` record.
 - GC export protection is metadata-backed through active result package export records, so deleting or moving the ZIP does not make exported artifact payloads eligible for collection.
+- Run detail now exposes result package export controls that default to metadata-only packages, keep full-payload export explicit, and surface package URI/path, checksums, manifest hash, and export evidence without pretending a browser streaming download route exists.
 
 Recommended sequence:
 

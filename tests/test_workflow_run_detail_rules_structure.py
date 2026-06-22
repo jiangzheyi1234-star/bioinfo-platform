@@ -13,24 +13,38 @@ def _component_source(filename: str) -> str:
 
 def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     model = _component_source("workflows-page-model.ts")
+    api = _component_source("workflows-page-api.ts")
     panel = _component_source("workflow-run-detail-panel.tsx")
+    package_panel = _component_source("workflow-result-package-panel.tsx")
     catalog_service = (ROOT / "apps" / "api" / "workflow_catalog_service.py").read_text(encoding="utf-8")
 
     assert "export type WorkflowRunRuleEvent" in model
     assert "export type WorkflowRunRule" in model
     assert "export type WorkflowRunRules" in model
     assert "export type WorkflowRunExecutionContext" in model
+    assert "export type WorkflowResultPackageExport" in model
+    assert "export type WorkflowResultPackageExportResponse" in model
+    assert "packageExportId?: string" in model
+    assert "exportId?: string" not in model
     assert "rules?: WorkflowRunRules" in model
     assert "executionContext?: WorkflowRunExecutionContext" in model
+    assert "exportWorkflowResultPackage" in api
+    assert "`/api/v1/results/${encodeURIComponent(resultId)}/export`" in api
+    assert 'actor: "workflow-ui"' in api
+    assert "includeArtifacts" in api
     assert '"rules": _unwrap_data(rules, {})' in catalog_service
     assert '"executionContext": _unwrap_data(execution_context, {})' in catalog_service
+    assert '_canonical_result_id_for_run(str(result_data.get("runId") or run_id))' in catalog_service
     assert "runtime.get_run_rules(run_id)" in catalog_service
     assert "runtime.get_run_execution_context(run_id)" in catalog_service
 
     assert 'type TabKey = "overview" | "rules" | "artifacts" | "stdout" | "stderr"' in panel
     assert '{ key: "rules", label: "规则" }' in panel
     assert "WorkflowRunExecutionContextPanel" in panel
+    assert "WorkflowResultPackagePanel" in panel
     assert "context={detail.executionContext}" in panel
+    assert "resultId={detail.results?.resultId}" in panel
+    assert "workflowRevisionId={workflowRevisionId}" in panel
     assert "function RunRules" in panel
     assert "detail.rules?.items || []" in panel
     assert "<RunRules rules={rules} />" in panel
@@ -38,6 +52,25 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "rule.attemptNumber" in panel
     assert "rule.leaseGeneration" in panel
     assert "rule.events || []" in panel
+
+    assert "export function WorkflowResultPackagePanel" in package_panel
+    assert "exportWorkflowResultPackage(resultId, mode === \"full\")" in package_panel
+    assert "resultPackageDisabledReason" in package_panel
+    assert "isResultPackageExportableRunStatus(run.status)" in package_panel
+    assert 'status === "completed" || status === "failed"' in package_panel
+    assert "metadata-only" in package_panel
+    assert "含产物文件" in package_panel
+    assert "仅 completed/failed 运行可导出" in package_panel
+    assert "缺少 WorkflowRevision" in package_panel
+    assert "packageUri" in package_panel
+    assert "packagePath" in package_panel
+    assert "packageExportId" in package_panel
+    assert "sha256" in package_panel
+    assert "manifestSha256" in package_panel
+    assert "evidenceId" in package_panel
+    assert "download" not in package_panel.lower()
+    assert "window.open" not in package_panel
+    assert "HTMLAnchorElement" not in package_panel
 
 
 def test_workflow_dag_preview_maps_rule_status_to_graph_nodes() -> None:

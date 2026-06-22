@@ -76,7 +76,7 @@ async def load_run_detail(run_id: str) -> dict[str, Any]:
 
     result_data = _unwrap_data(results, {})
     if isinstance(result_data, dict) and not result_data.get("resultId"):
-        result_data = {**result_data, "resultId": str(result_data.get("runId") or run_id)}
+        result_data = {**result_data, "resultId": _canonical_result_id_for_run(str(result_data.get("runId") or run_id))}
 
     return {
         "data": {
@@ -132,6 +132,11 @@ def _preferred_preview_artifacts(artifacts: list[Any]) -> list[dict[str, Any]]:
         return 9, name
 
     return sorted(valid, key=score)[:3]
+
+
+def _canonical_result_id_for_run(run_id: str) -> str:
+    normalized = run_id.strip()
+    return normalized if normalized.startswith("res_") else f"res_{normalized}"
 
 
 def _catalog_item_from_pipeline(item: dict[str, Any]) -> dict[str, Any]:

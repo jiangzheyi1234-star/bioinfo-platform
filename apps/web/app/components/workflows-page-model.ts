@@ -330,6 +330,26 @@ export type WorkflowResultDetail = {
   artifacts?: WorkflowArtifact[];
 };
 
+export type WorkflowResultPackageExport = {
+  packageExportId?: string;
+  resultId?: string;
+  runId?: string;
+  workflowRevisionId?: string;
+  includeArtifacts?: boolean;
+  artifactPayloadMode?: string;
+  packagePath?: string;
+  packageUri?: string;
+  sizeBytes?: number;
+  sha256?: string;
+  manifestSha256?: string;
+  evidenceId?: string;
+  createdAt?: string;
+};
+
+export type WorkflowResultPackageExportResponse = {
+  data: WorkflowResultPackageExport;
+};
+
 export type WorkflowArtifactPreview = {
   artifact?: WorkflowArtifact;
   preview?: {

@@ -25,6 +25,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { WorkflowRunExecutionContextPanel } from "./workflow-run-execution-context";
+import { WorkflowResultPackagePanel } from "./workflow-result-package-panel";
 import { fetchArtifactPreview, retryWorkflowRun } from "./workflows-page-api";
 import { workflowErrorMessage } from "./workflows-page-model";
 import type {
@@ -701,7 +702,14 @@ export function WorkflowRunDetailPanel({
         )}
 
         {tab === "artifacts" && (
-          <RunArtifacts resultId={detail.results?.resultId} artifacts={artifacts} previews={previews} />
+          <div className="space-y-3">
+            <WorkflowResultPackagePanel
+              resultId={detail.results?.resultId}
+              run={run}
+              workflowRevisionId={workflowRevisionId}
+            />
+            <RunArtifacts resultId={detail.results?.resultId} artifacts={artifacts} previews={previews} />
+          </div>
         )}
 
         {tab === "rules" && <RunRules rules={rules} />}

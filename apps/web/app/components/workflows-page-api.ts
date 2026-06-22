@@ -27,6 +27,8 @@ import {
   type WorkflowRun,
   type WorkflowRunDetail,
   type WorkflowRunDetailResponse,
+  type WorkflowResultPackageExport,
+  type WorkflowResultPackageExportResponse,
   type WorkflowRunResponse,
   type WorkflowRunRetryResponse,
   type WorkflowRunRetryResult,
@@ -665,6 +667,24 @@ export async function fetchArtifactPreview(resultId: string, artifactId: string)
     "GET",
     `/api/v1/results/${resultId}/preview?artifact_id=${encodeURIComponent(artifactId)}`,
     { cache: "no-store" }
+  );
+  return response.data;
+}
+
+export async function exportWorkflowResultPackage(
+  resultId: string,
+  includeArtifacts: boolean
+): Promise<WorkflowResultPackageExport> {
+  const response = await requestLocalApiJson<WorkflowResultPackageExportResponse>(
+    "POST",
+    `/api/v1/results/${encodeURIComponent(resultId)}/export`,
+    {
+      body: {
+        actor: "workflow-ui",
+        includeArtifacts,
+      },
+      cache: "no-store",
+    }
   );
   return response.data;
 }

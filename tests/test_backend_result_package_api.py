@@ -29,6 +29,27 @@ def test_result_package_routes_preserve_runtime_wrappers(monkeypatch) -> None:
     }
 
 
+def test_result_package_route_passes_server_id_outside_export_payload(monkeypatch) -> None:
+    runtime = FakeResultPackageRuntimeWithServerId()
+    monkeypatch.setattr("apps.api.execution_query_service.runtime_service", lambda: runtime)
+
+    package = asyncio.run(
+        export_result_package(
+            "res_run_demo",
+            ResultPackageExportRequest(serverId="srv_remote", includeArtifacts=True, actor="operator"),
+        )
+    )
+
+    assert runtime.calls == [
+        (
+            "res_run_demo",
+            {"includeArtifacts": True, "actor": "operator"},
+            "srv_remote",
+        )
+    ]
+    assert package["data"]["packageExportId"] == "rpex_demo"
+
+
 class FakeResultPackageRuntime:
     def get_result_audit(self, result_id):
         assert result_id == "res_run_demo"
@@ -45,5 +66,21 @@ class FakeResultPackageRuntime:
                 "artifactPayloadMode": "metadata-only",
                 "packageUri": "file:///tmp/res_run_demo.zip",
                 "sha256": "a" * 64,
+            }
+        }
+
+
+class FakeResultPackageRuntimeWithServerId:
+    def __init__(self) -> None:
+        self.calls = []
+
+    def export_result_package(self, result_id, *, payload, server_id=None):
+        self.calls.append((result_id, payload, server_id))
+        return {
+            "data": {
+                "packageExportId": "rpex_demo",
+                "resultId": result_id,
+                "includeArtifacts": True,
+                "artifactPayloadMode": "included",
             }
         }
