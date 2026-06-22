@@ -10,6 +10,7 @@ from .execution_query_routes import router as execution_query_router
 from .health_routes import router as health_router
 from .pipeline_routes import router as pipeline_router
 from .route_errors import register_exception_handlers
+from .trigger_scheduler import start_configured_workflow_trigger_scheduler_supervisor
 from .worker_supervisor import start_configured_run_worker_supervisor, start_configured_tool_prepare_worker_supervisor
 from .submission_routes import router as submission_router
 from .tool_routes import router as tool_router
@@ -24,6 +25,7 @@ async def lifespan(app: FastAPI):
         for supervisor in (
             start_configured_run_worker_supervisor(),
             start_configured_tool_prepare_worker_supervisor(),
+            start_configured_workflow_trigger_scheduler_supervisor(),
         )
         if supervisor is not None
     ]

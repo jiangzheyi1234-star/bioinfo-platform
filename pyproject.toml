@@ -3,6 +3,7 @@ name = "bio-ui"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
+    "croniter>=6.0.0",
     "fastapi>=0.115.0",
     "jinja2>=3.1.0",
     "keyring>=25.0.0",
@@ -10,6 +11,7 @@ dependencies = [
     "paramiko>=3.0.0,<4",
     "pydantic>=2.10.0",
     "PyYAML>=6.0.2",
+    "tzdata>=2025.2",
     "uvicorn[standard]>=0.34.0",
     "websockets>=12.0",
 ]

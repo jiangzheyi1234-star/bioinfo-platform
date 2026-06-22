@@ -65,6 +65,27 @@ def list_workflow_triggers(cfg: RemoteRunnerConfig) -> dict[str, Any]:
     return {"items": [_trigger_row_to_dict(row) for row in rows]}
 
 
+def list_workflow_triggers_by_source(
+    cfg: RemoteRunnerConfig,
+    source_type: str,
+    *,
+    enabled_only: bool = False,
+) -> dict[str, Any]:
+    source = _required_text(source_type, "TRIGGER_SOURCE_TYPE_REQUIRED")
+    with get_connection(cfg) as connection:
+        rows = connection.execute(
+            """
+            SELECT *
+            FROM workflow_triggers
+            WHERE source_type = ?
+              AND (? = 0 OR enabled = 1)
+            ORDER BY updated_at ASC, trigger_id ASC
+            """,
+            (source, 1 if enabled_only else 0),
+        ).fetchall()
+    return {"items": [_trigger_row_to_dict(row) for row in rows]}
+
+
 def fetch_workflow_trigger(cfg: RemoteRunnerConfig, trigger_id: str) -> dict[str, Any] | None:
     with get_connection(cfg) as connection:
         row = connection.execute(

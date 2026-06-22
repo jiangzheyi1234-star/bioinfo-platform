@@ -230,6 +230,13 @@ Exit criteria:
 
 Purpose: support manual, cron, webhook/event, dataset/file/database-ready triggers, and backfill without bypassing run submission.
 
+Progress:
+
+- Manual and triggered run submission share the same durable run creation, admission, run job enqueue, and trigger provenance stamping path.
+- Cron trigger definitions can now be evaluated by a remote-runner scheduler supervisor. Each due cron tick creates a stable immutable trigger event keyed by trigger id and scheduled UTC instant, then dispatches through the existing workflow trigger service.
+- Cron tick replay is deduplicated by the existing trigger event and run idempotency stores; repeated scheduler evaluation for the same scheduled instant returns the existing event/run rather than creating another run.
+- Dataset, file, and database-ready trigger launches still fail loudly until sensor/cursor/resource readiness semantics are modeled instead of guessed.
+
 Recommended sequence:
 
 1. Keep manual submission as the base path.
