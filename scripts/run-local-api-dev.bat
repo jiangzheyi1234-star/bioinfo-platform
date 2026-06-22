@@ -34,6 +34,8 @@ if not "%H2OMETA_WINDOWS_UV_PROJECT_ENVIRONMENT%"=="" (
 set "UV_PYTHON_INSTALL_DIR=%H2OMETA_WORKDIR%\.codex-uv-python"
 echo [INFO] UV project environment: %UV_PROJECT_ENVIRONMENT%
 
+set "H2OMETA_DEPLOYMENT_MODE=desktop"
+set "H2OMETA_API_HOST=127.0.0.1"
 call uv run --frozen python -m apps.api.run
 set "APP_EXIT=%ERRORLEVEL%"
 :after_run

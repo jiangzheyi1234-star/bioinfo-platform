@@ -293,6 +293,8 @@ fn spawn_explicit_backend(cmd_spec: BackendCommand) -> Result<SpawnedBackend, St
 
     let mut cmd = Command::new(&cmd_spec.program);
     cmd.args(cmd_spec.args.iter())
+        .env("H2OMETA_DEPLOYMENT_MODE", "desktop")
+        .env("H2OMETA_API_HOST", "127.0.0.1")
         .env("H2OMETA_RUNTIME_BUILD_ID", TERMINAL_RUNTIME_BUILD_ID)
         .env("H2OMETA_BACKEND_SOURCE", &cmd_spec.source)
         .env("WSL_UTF8", "1")
@@ -331,6 +333,8 @@ fn spawn_repo_backend(workdir: PathBuf) -> Result<SpawnedBackend, String> {
             .arg("-m")
             .arg("apps.api.run")
             .current_dir(&workdir)
+            .env("H2OMETA_DEPLOYMENT_MODE", "desktop")
+            .env("H2OMETA_API_HOST", "127.0.0.1")
             .env("H2OMETA_RUNTIME_BUILD_ID", TERMINAL_RUNTIME_BUILD_ID)
             .env("H2OMETA_BACKEND_SOURCE", "repo")
             .env("UV_CACHE_DIR", uv_cache_dir)

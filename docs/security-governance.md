@@ -2,7 +2,7 @@
 
 Status: Current
 
-Last reviewed: 2026-06-18
+Last reviewed: 2026-06-23
 
 This document defines the current security boundary for H2OMeta. It is scoped to the supported Desktop/local single-user product shape plus the authenticated remote runner. It is not a claim that public multi-user production hosting is complete.
 
@@ -29,9 +29,12 @@ Out of scope for the current supported product:
 3. Production Docker Compose deployment.
 4. Automatic installation of downloadable database packs.
 
-`H2OMETA_DEPLOYMENT_MODE=server-multi-user` is not implemented and is rejected
-at Local API startup. Invalid deployment mode values also fail closed instead
-of falling back to Desktop.
+`H2OMETA_DEPLOYMENT_MODE` is required on every supported startup path. The
+Windows launchers and desktop backend spawn set `desktop` explicitly; Compose
+drafts set `server-single-user` explicitly. Missing, blank, invalid, or
+unimplemented deployment mode values fail closed instead of falling back to
+Desktop. `H2OMETA_DEPLOYMENT_MODE=server-multi-user` is not implemented and is
+rejected at Local API startup.
 
 ## Required Controls
 
@@ -39,7 +42,9 @@ of falling back to Desktop.
 
 - Desktop mode must bind only to `127.0.0.1`, `localhost`, or `::1`.
 - `0.0.0.0` is rejected in Desktop mode.
-- `server-single-user` may bind `0.0.0.0` only with an explicit trusted-intranet warning.
+- `server-single-user` must also bind the API only to localhost addresses until
+  an authenticated reverse-proxy/container profile is implemented and tested.
+  Binding the API to `0.0.0.0` fails closed.
 - Local API CORS must not use wildcard origins, methods, or headers.
 - Sensitive local routes such as SSH connect, terminal websocket, token rotation, host-key acceptance, remote stop, and remote file browsing remain localhost-only Desktop operations.
 
@@ -113,7 +118,8 @@ Before treating a build as production-ready:
 ## Scoped Runtime Limits
 
 1. `pip-audit` currently ignores only `CVE-2026-44405` for Paramiko because no fixed release is available in the advisory feed. Runtime SSH mitigations are active: `ssh-rsa` host/user key algorithms are disabled, unknown host keys are rejected, and accepted keys are written to known_hosts. Remove this ignore when a Paramiko release containing the upstream fix is available.
-2. Server multi-user mode remains planned, not implemented, and fail-closed at startup. Public deployment requires auth, RBAC, tenant isolation, audited admin actions, TLS, and production image hardening.
+2. Server single-user bind-all remains unsupported and fail-closed until an authenticated reverse-proxy/container profile is implemented and tested.
+3. Server multi-user mode remains planned, not implemented, and fail-closed at startup. Public deployment requires auth, RBAC, tenant isolation, audited admin actions, TLS, and production image hardening.
 
 ## Practice Baseline
 

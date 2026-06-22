@@ -325,6 +325,10 @@ Exit criteria:
 
 Purpose: harden supported deployment modes and prepare, but not fake, multi-user production.
 
+Progress:
+
+- Deployment mode selection now fails closed when `H2OMETA_DEPLOYMENT_MODE` is missing, blank, invalid, or set to the unimplemented multi-user mode. Supported launchers set `desktop` explicitly, and `server-single-user` API bind-all is rejected until an authenticated reverse-proxy/container profile is implemented and tested.
+
 Recommended sequence:
 
 1. Preserve current supported boundary: desktop/local single-user plus authenticated remote runner.

@@ -9,6 +9,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 def test_windows_api_launcher_uses_windows_owned_uv_environment() -> None:
     launcher = (REPO_ROOT / "scripts" / "run-local-api-dev.bat").read_text(encoding="utf-8")
 
+    assert 'set "H2OMETA_DEPLOYMENT_MODE=desktop"' in launcher
+    assert 'set "H2OMETA_API_HOST=127.0.0.1"' in launcher
     assert 'set "H2OMETA_WINDOWS_UV_PROJECT_ENVIRONMENT=%H2OMETA_WORKDIR%\\.venv-win"' in launcher
     assert 'if not "%H2OMETA_WINDOWS_UV_PROJECT_ENVIRONMENT%"==""' in launcher
     assert 'set "UV_PROJECT_ENVIRONMENT=%H2OMETA_WINDOWS_UV_PROJECT_ENVIRONMENT%"' in launcher
@@ -65,6 +67,8 @@ def test_github_release_auth_configuration_script_is_documented() -> None:
 def test_root_launcher_normalizes_windows_uv_before_artifact_resolution() -> None:
     run_bat = (REPO_ROOT / "run.bat").read_text(encoding="utf-8")
 
+    assert run_bat.count('set "H2OMETA_DEPLOYMENT_MODE=desktop"') == 3
+    assert run_bat.count('set "H2OMETA_API_HOST=127.0.0.1"') == 3
     assert ":prepare_windows_uv_environment" in run_bat
     assert 'set "H2OMETA_WINDOWS_UV_PROJECT_ENVIRONMENT=%REPO_ROOT%\\.venv-win"' in run_bat
     assert 'set "UV_PROJECT_ENVIRONMENT=%H2OMETA_WINDOWS_UV_PROJECT_ENVIRONMENT%"' in run_bat
@@ -79,9 +83,26 @@ def test_desktop_repo_backend_uses_windows_owned_uv_environment() -> None:
     )
 
     assert 'const DEFAULT_WINDOWS_UV_ENV_DIR: &str = ".venv-win";' in main_rs
+    assert '.env("H2OMETA_DEPLOYMENT_MODE", "desktop")' in main_rs
+    assert '.env("H2OMETA_API_HOST", "127.0.0.1")' in main_rs
     assert 'env::var("H2OMETA_WINDOWS_UV_PROJECT_ENVIRONMENT")' in main_rs
     assert 'workdir.join(DEFAULT_WINDOWS_UV_ENV_DIR)' in main_rs
     assert '.env("UV_PROJECT_ENVIRONMENT", workdir.join(".venv"))' not in main_rs
+
+
+def test_container_draft_declares_unsupported_bind_all_explicitly() -> None:
+    dockerfile = (REPO_ROOT / "Dockerfile.api").read_text(encoding="utf-8")
+    compose = (REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    bind_all_cmd = (
+        'CMD ["uv", "run", "uvicorn", "apps.api.main:app", '
+        '"--host", "0.0.0.0", "--port", "8765"]'
+    )
+
+    assert "ENV H2OMETA_DEPLOYMENT_MODE=server-single-user" in dockerfile
+    assert "ENV H2OMETA_API_HOST=0.0.0.0" in dockerfile
+    assert bind_all_cmd in dockerfile
+    assert "H2OMETA_DEPLOYMENT_MODE=server-single-user" in compose
+    assert "H2OMETA_API_HOST=0.0.0.0" in compose
 
 
 def test_hidden_web_stack_launcher_normalizes_duplicate_path_environment() -> None:

@@ -22,10 +22,16 @@ def test_deployment_mode_enum_values():
     assert DeploymentMode.SERVER_MULTI_USER.value == "server-multi-user"
 
 
-def test_get_deployment_mode_default():
+def test_get_deployment_mode_missing_fails_closed():
     with patch.dict(os.environ, {}, clear=True):
-        mode = get_deployment_mode()
-        assert mode == DeploymentMode.DESKTOP
+        with pytest.raises(DeploymentModeError, match="H2OMETA_DEPLOYMENT_MODE is required"):
+            get_deployment_mode()
+
+
+def test_get_deployment_mode_blank_fails_closed():
+    with patch.dict(os.environ, {"H2OMETA_DEPLOYMENT_MODE": "  "}):
+        with pytest.raises(DeploymentModeError, match="H2OMETA_DEPLOYMENT_MODE is required"):
+            get_deployment_mode()
 
 
 def test_get_deployment_mode_from_env():
@@ -114,10 +120,10 @@ def test_validate_network_binding_desktop_rejects_bind_all():
             config.validate_network_binding("0.0.0.0")
 
 
-def test_validate_network_binding_single_user_bind_all_warns():
+def test_validate_network_binding_single_user_rejects_bind_all():
     with patch.dict(os.environ, {"H2OMETA_DEPLOYMENT_MODE": "server-single-user"}):
         config = get_deployment_config()
-        with pytest.warns(UserWarning, match="trusted intranet"):
+        with pytest.raises(ValueError, match="server-single-user mode does not allow binding to 0.0.0.0"):
             config.validate_network_binding("0.0.0.0")
 
 
@@ -161,7 +167,7 @@ def test_validate_security_multi_user_is_fail_closed():
             validate_deployment_security()
 
 
-def test_validate_security_single_user_bind_all():
+def test_validate_security_single_user_bind_all_fails_closed():
     with patch.dict(
         os.environ,
         {
@@ -171,5 +177,5 @@ def test_validate_security_single_user_bind_all():
         },
         clear=True,
     ):
-        warnings = validate_deployment_security()
-        assert any("0.0.0.0" in w for w in warnings)
+        with pytest.raises(ValueError, match="server-single-user mode does not allow binding to 0.0.0.0"):
+            validate_deployment_security()

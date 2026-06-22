@@ -12,6 +12,7 @@ services:
       - h2ometa-logs:/app/logs
     environment:
       - H2OMETA_DEPLOYMENT_MODE=server-single-user
+      - H2OMETA_API_HOST=0.0.0.0
       - H2OMETA_DATA_ROOT=/data
       - H2OMETA_BACKEND_SOURCE=docker-compose
       - H2OMETA_RUNTIME_BUILD_ID=${H2OMETA_RUNTIME_BUILD_ID:-docker-compose-local}

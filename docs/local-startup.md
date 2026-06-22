@@ -2,6 +2,11 @@
 
 Use the repo launcher instead of starting the API and web server by hand.
 
+The launcher sets `H2OMETA_DEPLOYMENT_MODE=desktop` and
+`H2OMETA_API_HOST=127.0.0.1` explicitly. Direct manual backend starts must set
+an explicit supported deployment mode; missing or blank deployment mode values
+fail closed instead of falling back to Desktop.
+
 ## Web UI
 
 From a real Windows PowerShell or `cmd.exe` session:

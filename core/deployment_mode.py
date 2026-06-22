@@ -46,24 +46,23 @@ class DeploymentConfig:
 
     def validate_network_binding(self, host: str) -> None:
         """验证网络绑定是否符合安全策略。"""
+        normalized_host = host.strip().lower()
         if not self.allows_public_network:
-            if host not in ("127.0.0.1", "localhost", "::1", "0.0.0.0"):
+            if normalized_host not in ("127.0.0.1", "localhost", "::1", "0.0.0.0"):
                 raise ValueError(
                     f"Deployment mode '{self.mode}' does not allow binding to '{host}'. "
                     f"Use a reverse proxy for external access."
                 )
-            if host == "0.0.0.0" and self.mode == DeploymentMode.DESKTOP:
+            if normalized_host == "0.0.0.0" and self.mode == DeploymentMode.DESKTOP:
                 raise ValueError(
                     "Desktop mode does not allow binding to 0.0.0.0. "
                     "Use 127.0.0.1, localhost, or ::1."
                 )
-            if host == "0.0.0.0" and self.mode == DeploymentMode.SERVER_SINGLE_USER:
-                import warnings
-                warnings.warn(
-                    f"Deployment mode '{self.mode}' is bound to 0.0.0.0. "
-                    "This mode is intended for trusted intranet only. "
-                    "Do not expose to public internet without proper authentication.",
-                    stacklevel=2,
+            if normalized_host == "0.0.0.0" and self.mode == DeploymentMode.SERVER_SINGLE_USER:
+                raise ValueError(
+                    "server-single-user mode does not allow binding to 0.0.0.0. "
+                    "Bind the API to 127.0.0.1, localhost, or ::1 and put any network access "
+                    "behind an authenticated reverse proxy."
                 )
 
     def to_dict(self) -> dict[str, Any]:
@@ -111,7 +110,12 @@ SUPPORTED_DEPLOYMENT_MODES = {
 
 def get_deployment_mode() -> DeploymentMode:
     """从环境变量获取当前部署模式。"""
-    mode_str = os.environ.get("H2OMETA_DEPLOYMENT_MODE", "desktop").strip().lower()
+    raw_mode = os.environ.get("H2OMETA_DEPLOYMENT_MODE")
+    mode_str = raw_mode.strip().lower() if raw_mode is not None else ""
+    if not mode_str:
+        raise DeploymentModeError(
+            "H2OMETA_DEPLOYMENT_MODE is required. Set it explicitly to desktop or server-single-user."
+        )
     try:
         return DeploymentMode(mode_str)
     except ValueError as exc:
@@ -143,15 +147,10 @@ def validate_deployment_security() -> list[str]:
     """验证部署安全配置，返回警告列表。"""
     warnings: list[str] = []
     config = require_supported_deployment_mode()
+    host = os.environ.get("H2OMETA_API_HOST", "127.0.0.1")
+    config.validate_network_binding(host)
 
     if config.mode == DeploymentMode.SERVER_SINGLE_USER:
-        host = os.environ.get("H2OMETA_API_HOST", "127.0.0.1")
-        if host == "0.0.0.0":
-            warnings.append(
-                "server-single-user 模式绑定到 0.0.0.0，请确保仅在内网访问，"
-                "不要直接暴露到公网"
-            )
-
         if not os.environ.get("H2OMETA_RUNNER_TOKEN"):
             warnings.append(
                 "server-single-user 模式未设置 H2OMETA_RUNNER_TOKEN，"

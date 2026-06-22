@@ -55,7 +55,7 @@ Closure requires:
 2. The security job runs the repository secret/config audit, moderate npm audits, and Python `pip-audit` against locked dependencies.
 3. Local API CORS uses explicit origins, methods, and headers.
 4. Remote runner bearer token validation parses the scheme and uses constant-time token comparison.
-5. Desktop deployment mode rejects `0.0.0.0`; server-single-user bind-all remains warning-only and trusted-intranet scoped.
+5. Deployment mode selection is explicit on supported launch paths; missing or invalid values fail closed, and both Desktop and server-single-user reject API bind-all until an authenticated reverse-proxy/container profile is implemented and tested.
 6. SSH host-key trust is strict by default, dependency audit gates are active, and the remaining scoped limits are documented with removal triggers.
 
 ## P0-11 Release Candidate Operating Loop Criteria

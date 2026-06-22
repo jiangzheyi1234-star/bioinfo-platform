@@ -5,12 +5,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from apps.api.runtime import get_runtime_service
-from core.deployment_mode import require_supported_deployment_mode
+from core.deployment_mode import require_supported_deployment_mode, validate_deployment_security
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     require_supported_deployment_mode()
+    validate_deployment_security()
     get_runtime_service()
     try:
         yield
