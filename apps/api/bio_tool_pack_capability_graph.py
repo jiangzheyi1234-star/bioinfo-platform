@@ -62,10 +62,14 @@ def semantic_capability_graph(
                 edges.append({"from": profile_node, "to": port_node, "kind": edge_kind})
                 _connect_literal(nodes, edges, port_node, "edamData", spec.get("data", ""), "hasData")
                 _connect_literal(nodes, edges, port_node, "edamFormat", spec.get("format", ""), "hasFormat")
+                _connect_literal(nodes, edges, port_node, "edamOperation", spec.get("operation", ""), "hasOperation")
+                _connect_literal(nodes, edges, port_node, "resource", spec.get("resource", ""), "hasResource")
         for resource_key, spec in (rule_template.get("resources") or {}).items():
             if isinstance(spec, dict) and str(spec.get("type") or "") == "database":
                 for template_id in spec.get("acceptedTemplates") or []:
                     _connect_literal(nodes, edges, profile_node, "databaseTemplate", str(template_id), "requires")
+                for capability in spec.get("acceptedCapabilities") or []:
+                    _connect_literal(nodes, edges, profile_node, "databaseCapability", str(capability), "requiresCapability")
         for report_schema in profile.report_schemas:
             if isinstance(report_schema, dict):
                 _connect_literal(
@@ -125,13 +129,13 @@ def one_hop_converter_candidates(
             input_decision = port_compatibility_decision(port_spec_from_rule_item(converter_input), source_spec)
             if input_decision["compatible"] is not True:
                 continue
-            if not input_decision.get("matchedFields"):
+            if not _has_strong_port_evidence(input_decision):
                 continue
             for converter_output in _rule_ports(rule_template, "outputs"):
                 output_decision = port_compatibility_decision(target_spec, port_spec_from_rule_item(converter_output))
                 if output_decision["compatible"] is not True:
                     continue
-                if not output_decision.get("matchedFields"):
+                if not _has_strong_port_evidence(output_decision):
                     continue
                 input_score = int(input_decision.get("score") or 0)
                 output_score = int(output_decision.get("score") or 0)
@@ -171,6 +175,10 @@ def _connect_literal(
     target = _node_id(kind, normalized)
     nodes.setdefault(target, {"id": target, "kind": kind, "value": normalized})
     edges.append({"from": source, "to": target, "kind": edge_kind})
+
+
+def _has_strong_port_evidence(decision: dict[str, Any]) -> bool:
+    return any(str(field) != "type" for field in decision.get("matchedFields") or [])
 
 
 def _rule_ports(rule_template: dict[str, Any], key: str) -> list[dict[str, Any]]:

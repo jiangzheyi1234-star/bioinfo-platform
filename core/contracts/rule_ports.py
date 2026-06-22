@@ -8,6 +8,37 @@ HARD_COMPATIBILITY_FIELDS = ["type", "kind", "mimeType", "data", "format", "reso
 ADVISORY_COMPATIBILITY_FIELDS = ["operation"]
 COMPATIBILITY_FIELDS = [*HARD_COMPATIBILITY_FIELDS, *ADVISORY_COMPATIBILITY_FIELDS]
 EDAM_COMPATIBILITY_FIELDS = {"data", "format", "operation"}
+GENERIC_EDAM_VALUES = {
+    "data": {"data_0006"},
+    "format": {"format_1915"},
+}
+EDAM_ALIASES = {
+    "data": {
+        "alignment": "data_0863",
+        "sequence_alignment": "data_0863",
+        "sequence-alignments": "data_0863",
+        "reads": "data_2044",
+        "sequence": "data_2044",
+        "sequence_reads": "data_2044",
+        "sequences": "data_2044",
+    },
+    "format": {
+        "bam": "format_2572",
+        "csv": "format_3752",
+        "fa": "format_1929",
+        "fasta": "format_1929",
+        "fastq": "format_1930",
+        "fna": "format_1929",
+        "fq": "format_1930",
+        "gff": "format_1975",
+        "gff3": "format_1975",
+        "gtf": "format_2306",
+        "json": "format_3464",
+        "sam": "format_2573",
+        "tabular": "format_3475",
+        "tsv": "format_3475",
+    },
+}
 
 
 def build_output_port_specs(rule_template: dict[str, Any]) -> dict[str, dict[str, str]]:
@@ -79,13 +110,15 @@ def ports_compatible(input_spec: dict[str, str], output_spec: dict[str, str]) ->
 def port_compatibility_decision(input_spec: dict[str, str], output_spec: dict[str, str]) -> dict[str, Any]:
     mismatch = mismatched_compatibility_field(input_spec, output_spec)
     score = port_compatibility_score(input_spec, output_spec)
+    generic_fields = generic_compatibility_fields(input_spec, output_spec)
     return {
         "compatible": score is not None,
         "score": score,
         "matchedFields": matched_compatibility_fields(input_spec, output_spec),
+        "genericFields": generic_fields,
         "advisoryFields": matched_advisory_compatibility_fields(input_spec, output_spec),
         "mismatchedField": mismatch,
-        "hardChecks": ["port-direction:output-to-input", "semantic-fields-compatible" if not mismatch else f"{mismatch}-compatible"],
+        "hardChecks": _hard_checks(mismatch=mismatch, generic_fields=generic_fields),
         "inputSpec": dict(input_spec),
         "outputSpec": dict(output_spec),
     }
@@ -96,10 +129,13 @@ def port_compatibility_score(input_spec: dict[str, str], output_spec: dict[str, 
     for key in HARD_COMPATIBILITY_FIELDS:
         input_value = normalized_compatibility_value(key, input_spec.get(key))
         output_value = normalized_compatibility_value(key, output_spec.get(key))
-        if input_value and output_value and input_value != output_value:
+        relation = _compatibility_relation(key, input_value, output_value)
+        if relation == "conflict":
             return None
-        if input_value and output_value:
+        if relation == "exact":
             score += 4
+        elif relation == "generic":
+            score += 2
         elif input_value or output_value:
             score += 1
     return score
@@ -114,11 +150,24 @@ def matched_compatibility_fields(input_spec: dict[str, str], output_spec: dict[s
     ]
 
 
+def generic_compatibility_fields(input_spec: dict[str, str], output_spec: dict[str, str]) -> list[str]:
+    return [
+        key
+        for key in HARD_COMPATIBILITY_FIELDS
+        if _compatibility_relation(
+            key,
+            normalized_compatibility_value(key, input_spec.get(key)),
+            normalized_compatibility_value(key, output_spec.get(key)),
+        )
+        == "generic"
+    ]
+
+
 def mismatched_compatibility_field(input_spec: dict[str, str], output_spec: dict[str, str]) -> str:
     for key in HARD_COMPATIBILITY_FIELDS:
         input_value = normalized_compatibility_value(key, input_spec.get(key))
         output_value = normalized_compatibility_value(key, output_spec.get(key))
-        if input_value and output_value and input_value != output_value:
+        if _compatibility_relation(key, input_value, output_value) == "conflict":
             return key
     return ""
 
@@ -140,7 +189,30 @@ def normalized_compatibility_value(field: str, value: Any) -> str:
         return text
     if "/" in text:
         text = text.rsplit("/", 1)[-1]
-    return re.sub(r"^EDAM:", "", text, flags=re.IGNORECASE)
+    normalized = re.sub(r"^EDAM:", "", text, flags=re.IGNORECASE)
+    return EDAM_ALIASES.get(field, {}).get(normalized.lower(), normalized)
+
+
+def _compatibility_relation(field: str, input_value: str, output_value: str) -> str:
+    if input_value and output_value and input_value == output_value:
+        return "exact"
+    if input_value and output_value and _is_generic_edam_value(field, input_value, output_value):
+        return "generic"
+    if input_value and output_value:
+        return "conflict"
+    return "missing"
+
+
+def _is_generic_edam_value(field: str, left: str, right: str) -> bool:
+    return left in GENERIC_EDAM_VALUES.get(field, set()) or right in GENERIC_EDAM_VALUES.get(field, set())
+
+
+def _hard_checks(*, mismatch: str, generic_fields: list[str]) -> list[str]:
+    if mismatch:
+        return ["port-direction:output-to-input", f"{mismatch}:conflict"]
+    checks = ["port-direction:output-to-input", "semantic-fields-compatible"]
+    checks.extend(f"{field}:generic-compatible" for field in generic_fields)
+    return checks
 
 
 def _rule_io_items(rule_template: dict[str, Any], key: str) -> list[dict[str, Any]]:

@@ -47,7 +47,8 @@ export function explainPortRecommendation(
   }
 
   const matched = compatibilityDecision.matchedFields;
-  const hasStrongEvidence = matched.length > 0;
+  const strongMatched = matched.filter((field) => field !== "type");
+  const hasStrongEvidence = strongMatched.length > 0;
   const evidence = [
     hasStrongEvidence ? compatibility : "类型证据不足，保留为手动连接",
     hasStrongEvidence ? portNameEvidence(input, output) : "",
@@ -59,7 +60,7 @@ export function explainPortRecommendation(
     hardChecks: compatibilityDecision.hardChecks,
     evidence,
     confidence: hasStrongEvidence
-      ? recommendationConfidence({ matchedFields: matched.length, required: input.required !== false })
+      ? recommendationConfidence({ matchedFields: strongMatched.length, required: input.required !== false })
       : 0.2,
     reason: compatibility,
   };

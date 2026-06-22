@@ -69,6 +69,7 @@ function converterCandidatesForTool({
   const converterOutputs = readRuleOutputs(tool);
   const revisionId = workflowToolRevisionId(tool);
   if (!revisionId || converterInputs.length === 0 || converterOutputs.length === 0) return [];
+  if (requiresDatabaseResource(tool)) return [];
 
   const metadata = converterToolMetadata(tool);
   const requiredInputs = converterInputs.filter((candidate) => candidate.required !== false);
@@ -77,11 +78,11 @@ function converterCandidatesForTool({
     if (requiredInputs.some((candidate) => candidate.name !== converterInput.name)) continue;
     const inputScore = portCompatibilityScore(converterInput, output);
     if (inputScore === null) continue;
-    if (matchedPortCompatibilityFields(converterInput, output).length === 0) continue;
+    if (!hasStrongPortEvidence(converterInput, output)) continue;
     for (const converterOutput of converterOutputs) {
       const outputScore = portCompatibilityScore(input, converterOutput);
       if (outputScore === null) continue;
-      if (matchedPortCompatibilityFields(input, converterOutput).length === 0) continue;
+      if (!hasStrongPortEvidence(input, converterOutput)) continue;
       candidates.push({
         converterToolRevisionId: revisionId,
         converterToolName: tool.name || revisionId,
@@ -97,6 +98,16 @@ function converterCandidatesForTool({
     }
   }
   return candidates;
+}
+
+function hasStrongPortEvidence(input: RuleInputSpec, output: RuleOutputSpec): boolean {
+  return matchedPortCompatibilityFields(input, output).some((field) => field !== "type");
+}
+
+function requiresDatabaseResource(tool: AddedTool): boolean {
+  const template = displayRuleTemplateForTool(tool) as Record<string, unknown>;
+  const resources = objectValue(template.resources);
+  return Object.values(resources).some((resource) => objectValue(resource).type === "database");
 }
 
 export function buildConverterInsertionPatch({
@@ -215,4 +226,8 @@ function converterEdgeAudit(converter: RulePortConverterCandidate, edge: string)
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function objectValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }

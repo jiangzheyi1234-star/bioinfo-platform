@@ -307,7 +307,7 @@ function capabilityInputPortsByProfileNode(
 function matchedCapabilityFields(inputPort: CapabilityGraphSemanticNode, outputPort: RuleOutputSpec): string[] {
   const decision = portCompatibilityDecision(capabilityPortSpec(inputPort), outputPort);
   if (!decision.compatible) return [];
-  return decision.matchedFields;
+  return decision.matchedFields.filter((field) => field !== "type");
 }
 
 function capabilityPortSpec(inputPort: CapabilityGraphSemanticNode) {

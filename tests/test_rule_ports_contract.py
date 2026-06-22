@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from core.contracts.rule_ports import (
+    generic_compatibility_fields,
     matched_advisory_compatibility_fields,
     matched_compatibility_fields,
     mismatched_compatibility_field,
@@ -50,6 +51,37 @@ def test_port_compatibility_normalizes_edam_uri_and_curie_aliases() -> None:
     assert decision["score"] == 12
     assert decision["matchedFields"] == ["type", "data", "format"]
     assert decision["advisoryFields"] == ["operation"]
+
+
+def test_port_compatibility_normalizes_common_edam_format_and_data_aliases() -> None:
+    input_spec = {"type": "file", "data": "sequence_reads", "format": "fastq"}
+    output_spec = {
+        "type": "file",
+        "data": "http://edamontology.org/data_2044",
+        "format": "EDAM:format_1930",
+    }
+
+    decision = port_compatibility_decision(input_spec, output_spec)
+
+    assert decision["compatible"] is True
+    assert decision["score"] == 12
+    assert decision["matchedFields"] == ["type", "data", "format"]
+    assert decision["genericFields"] == []
+
+
+def test_generic_edam_roots_are_weak_compatible_not_recommendation_evidence() -> None:
+    input_spec = {"type": "file", "data": "data_2044", "format": "format_1930"}
+    output_spec = {"type": "file", "data": "data_0006", "format": "format_1915"}
+
+    decision = port_compatibility_decision(input_spec, output_spec)
+
+    assert decision["compatible"] is True
+    assert decision["score"] == 8
+    assert decision["matchedFields"] == ["type"]
+    assert decision["genericFields"] == ["data", "format"]
+    assert "data:generic-compatible" in decision["hardChecks"]
+    assert "format:generic-compatible" in decision["hardChecks"]
+    assert generic_compatibility_fields(input_spec, output_spec) == ["data", "format"]
 
 
 def test_operation_is_advisory_and_resource_conflict_is_hard_blocker() -> None:

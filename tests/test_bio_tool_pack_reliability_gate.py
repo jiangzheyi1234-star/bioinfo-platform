@@ -141,9 +141,26 @@ def test_capability_graph_converter_discovery_rejects_zero_evidence_paths() -> N
     assert one_hop_converter_candidates(output_port={"name": "unknown"}, input_port={"name": "target"}, profiles=(profile,)) == []
 
 
+def test_capability_graph_converter_discovery_rejects_generic_only_evidence() -> None:
+    profile = _generic_converter_profile()
+
+    assert one_hop_converter_candidates(
+        output_port={"name": "source", "format": "format_1930", "data": "data_2044"},
+        input_port={"name": "target", "format": "format_2572", "data": "data_0863"},
+        profiles=(profile,),
+    ) == []
+
+
 def test_semantic_capability_graph_exposes_declared_database_resource_requirements() -> None:
     profile = _sam_to_bam_converter_profile()
     template = dict(profile.rule_template)
+    template["inputs"] = [
+        {
+            **template["inputs"][0],
+            "operation": "operation_0335",
+            "resource": "reference_sequence",
+        }
+    ]
     template["resources"] = {
         "reference": {
             "type": "database",
@@ -165,6 +182,7 @@ def test_semantic_capability_graph_exposes_declared_database_resource_requiremen
         )
     )
     node = next(item for item in graph["nodes"] if item["kind"] == "ToolProfile")
+    edges = {(edge["from"], edge["kind"], edge["to"]) for edge in graph["edges"]}
 
     assert node["resourceRequirements"] == [
         {
@@ -176,6 +194,9 @@ def test_semantic_capability_graph_exposes_declared_database_resource_requiremen
             "acceptedCapabilities": ["reference_sequence"],
         }
     ]
+    assert any(edge[1:] == ("requiresCapability", "databaseCapability:reference_sequence") for edge in edges)
+    assert any(edge[1:] == ("hasOperation", "edamOperation:operation_0335") for edge in edges)
+    assert any(edge[1:] == ("hasResource", "resource:reference_sequence") for edge in edges)
 
 
 def _sam_to_bam_converter_profile() -> ToolProfile:
@@ -238,6 +259,43 @@ def _sam_to_bam_converter_profile() -> ToolProfile:
                 "assertions": ["exists"],
             },
         ),
+    )
+
+
+def _generic_converter_profile() -> ToolProfile:
+    return ToolProfile(
+        pack_id="h2ometa-test",
+        profile_id="generic-converter",
+        version=1,
+        tool_names=["generic-converter"],
+        package_name="generic-converter",
+        operation="format-conversion",
+        workflow_stage="format-conversion",
+        rule_template={
+            "commandTemplate": "cp {input.source:q} {output.target:q}",
+            "inputs": [
+                {
+                    "name": "source",
+                    "type": "file",
+                    "data": "data_0006",
+                    "format": "format_1915",
+                    "kind": "artifact",
+                    "mimeType": "text/plain",
+                }
+            ],
+            "outputs": [
+                {
+                    "name": "target",
+                    "type": "file",
+                    "data": "data_0006",
+                    "format": "format_1915",
+                    "kind": "artifact",
+                    "mimeType": "text/plain",
+                }
+            ],
+            "smokeTest": {"inputs": {"source": "fixture.txt"}},
+        },
+        report_schemas=[{"kind": "artifact", "artifact": "target"}],
     )
 
 

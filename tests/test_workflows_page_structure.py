@@ -331,8 +331,11 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "export function buildConverterInsertionPatch" in converter_contract
     assert "generatedWorkflowDraftToGraphDraft" in converter_contract
     assert "graphDraftToGeneratedWorkflowDraft" in converter_contract
-    assert "matchedPortCompatibilityFields(converterInput, output)" in converter_contract
-    assert "matchedPortCompatibilityFields(input, converterOutput)" in converter_contract
+    assert "hasStrongPortEvidence(converterInput, output)" in converter_contract
+    assert "hasStrongPortEvidence(input, converterOutput)" in converter_contract
+    assert "matchedPortCompatibilityFields(input, output)" in converter_contract
+    assert 'field !== "type"' in converter_contract
+    assert "requiresDatabaseResource(tool)" in converter_contract
     assert "requiredInputs.some" in converter_contract
     assert "buildConverterInsertionPatch" not in model
     assert "converterPath" not in design_model
@@ -341,6 +344,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "portCompatibilityDecision" in recommendation_contract
     assert "compatibilityDecision.matchedFields" in recommendation_contract
     assert "compatibilityDecision.mismatchedField" in recommendation_contract
+    assert 'field !== "type"' in recommendation_contract
     assert "COMPATIBILITY_FIELDS" not in recommendation_contract
     assert "export type RulePortRecommendationDecision" in recommendation_contract
     assert "export type RulePortRecommendation" in recommendation_contract
