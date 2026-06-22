@@ -5,6 +5,13 @@ param(
     [switch]$DevelopmentOnly,
     [switch]$RunNpmCi,
     [switch]$RunLocalWebSmoke,
+    [switch]$StartLocalWeb,
+    [switch]$UseUserAppStateForLocalWeb,
+    [switch]$RunWebE2E,
+    [ValidateRange(1, 10)]
+    [int]$WebE2ERepeat = 1,
+    [string]$ApiBase = $(if ($env:H2OMETA_API_BASE) { $env:H2OMETA_API_BASE } else { "http://127.0.0.1:8765" }),
+    [string]$WebBase = $(if ($env:H2OMETA_WEB_BASE) { $env:H2OMETA_WEB_BASE } else { "http://127.0.0.1:3765" }),
     [string]$DesktopStartupEvidence = "",
     [string]$ReleaseGateEvidence = "",
     [switch]$RequireReleaseGateEvidence,
@@ -43,6 +50,268 @@ function Invoke-Native {
     } finally {
         $ErrorActionPreference = $previousErrorActionPreference
         Pop-Location
+    }
+}
+
+function Invoke-NativeWithRetry {
+    param(
+        [string]$File,
+        [string[]]$Arguments,
+        [string]$WorkingDirectory,
+        [int]$Attempts = 3
+    )
+
+    for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+        try {
+            Invoke-Native $File $Arguments $WorkingDirectory
+            return
+        } catch {
+            if ($attempt -ge $Attempts) {
+                throw
+            }
+            Write-Host "$File attempt $attempt/$Attempts failed: $($_.Exception.Message)"
+            Start-Sleep -Seconds (5 * $attempt)
+        }
+    }
+}
+
+function Restore-EnvironmentValue {
+    param(
+        [string]$Name,
+        [bool]$Exists,
+        [string]$Value
+    )
+    if ($Exists) {
+        [Environment]::SetEnvironmentVariable($Name, $Value, "Process")
+    } else {
+        [Environment]::SetEnvironmentVariable($Name, $null, "Process")
+    }
+}
+
+function Invoke-WithWebEnvironment {
+    param(
+        [string]$ApiBase,
+        [string]$WebBase,
+        [scriptblock]$Body
+    )
+
+    $names = @("H2OMETA_API_BASE", "H2OMETA_WEB_BASE", "E2E_API_BASE", "E2E_WEB_BASE")
+    $previous = @{}
+    foreach ($name in $names) {
+        $previous[$name] = [ordered]@{
+            exists = Test-Path -LiteralPath "Env:\$name"
+            value = [Environment]::GetEnvironmentVariable($name, "Process")
+        }
+    }
+
+    try {
+        $env:H2OMETA_API_BASE = $ApiBase
+        $env:H2OMETA_WEB_BASE = $WebBase
+        $env:E2E_API_BASE = $ApiBase
+        $env:E2E_WEB_BASE = $WebBase
+        & $Body
+    } finally {
+        foreach ($name in $names) {
+            Restore-EnvironmentValue -Name $name -Exists $previous[$name].exists -Value $previous[$name].value
+        }
+    }
+}
+
+function Invoke-WithLocalWebAppState {
+    param(
+        [bool]$UseUserAppState,
+        [string]$OriginalAppData,
+        [string]$OriginalLocalAppData,
+        [scriptblock]$Body
+    )
+
+    if (-not $UseUserAppState) {
+        & $Body
+        return
+    }
+
+    $hadAppData = Test-Path -LiteralPath "Env:\APPDATA"
+    $hadLocalAppData = Test-Path -LiteralPath "Env:\LOCALAPPDATA"
+    $currentAppData = [Environment]::GetEnvironmentVariable("APPDATA", "Process")
+    $currentLocalAppData = [Environment]::GetEnvironmentVariable("LOCALAPPDATA", "Process")
+    try {
+        if ($OriginalAppData) {
+            $env:APPDATA = $OriginalAppData
+        }
+        if ($OriginalLocalAppData) {
+            $env:LOCALAPPDATA = $OriginalLocalAppData
+        }
+        & $Body
+    } finally {
+        Restore-EnvironmentValue -Name "APPDATA" -Exists $hadAppData -Value $currentAppData
+        Restore-EnvironmentValue -Name "LOCALAPPDATA" -Exists $hadLocalAppData -Value $currentLocalAppData
+    }
+}
+
+function Invoke-HeadlessLocalWebLaunch {
+    param([string]$RepoRoot)
+
+    $launcher = Join-Path $RepoRoot "run.bat"
+    $launcherOut = Join-Path ([System.IO.Path]::GetTempPath()) "h2ometa-run-bat-$PID-$([guid]::NewGuid()).out.log"
+    $launcherErr = Join-Path ([System.IO.Path]::GetTempPath()) "h2ometa-run-bat-$PID-$([guid]::NewGuid()).err.log"
+    $hadHeadlessFlag = Test-Path -LiteralPath "Env:\H2OMETA_HEADLESS_LAUNCH"
+    $previousHeadlessFlag = [Environment]::GetEnvironmentVariable("H2OMETA_HEADLESS_LAUNCH", "Process")
+    try {
+        $env:H2OMETA_HEADLESS_LAUNCH = "1"
+        $process = Start-Process `
+            -FilePath "cmd.exe" `
+            -ArgumentList @("/c", "`"$launcher`" --web") `
+            -WorkingDirectory $RepoRoot `
+            -RedirectStandardOutput $launcherOut `
+            -RedirectStandardError $launcherErr `
+            -WindowStyle Hidden `
+            -PassThru
+        if (-not $process.WaitForExit(120000)) {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            throw "run.bat --web did not exit within 120 seconds"
+        }
+        $process.Refresh()
+        if (Test-Path -LiteralPath $launcherOut) {
+            Get-Content -LiteralPath $launcherOut | ForEach-Object { Write-Host $_ }
+        }
+        if (Test-Path -LiteralPath $launcherErr) {
+            Get-Content -LiteralPath $launcherErr | ForEach-Object { Write-Host $_ }
+        }
+        $exitCode = if ($null -eq $process.ExitCode) { 0 } else { [int]$process.ExitCode }
+        if ($exitCode -ne 0) {
+            throw "$launcher exited with code $exitCode"
+        }
+    } finally {
+        Restore-EnvironmentValue -Name "H2OMETA_HEADLESS_LAUNCH" -Exists $hadHeadlessFlag -Value $previousHeadlessFlag
+        Remove-Item -LiteralPath $launcherOut, $launcherErr -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Wait-LocalWebStack {
+    param(
+        [string]$ApiBase,
+        [string]$WebBase,
+        [int]$TimeoutSeconds = 120
+    )
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $lastError = ""
+    do {
+        try {
+            $health = Invoke-RestMethod -Uri "$ApiBase/health" -TimeoutSec 5
+            if ($health.status -ne "ok") {
+                throw "API health status was $($health.status)"
+            }
+            $serviceInfo = Invoke-RestMethod -Uri "$ApiBase/api/v1/service-info" -TimeoutSec 5
+            if ($serviceInfo.item.readiness.status -ne "ready") {
+                throw "API readiness status was $($serviceInfo.item.readiness.status)"
+            }
+            $page = Invoke-WebRequest -Uri $WebBase -UseBasicParsing -TimeoutSec 5
+            if ($page.StatusCode -ne 200) {
+                throw "Web root returned HTTP $($page.StatusCode)"
+            }
+            Write-Host "apiBase=$ApiBase"
+            Write-Host "webBase=$WebBase"
+            Write-Host "apiHealthStatus=$($health.status)"
+            Write-Host "apiReadinessStatus=$($serviceInfo.item.readiness.status)"
+            Write-Host "webStatusCode=$($page.StatusCode)"
+            return
+        } catch {
+            $lastError = $_.Exception.Message
+            Start-Sleep -Seconds 2
+        }
+    } while ((Get-Date) -lt $deadline)
+
+    throw "local web stack did not become ready within $TimeoutSeconds seconds: $lastError"
+}
+
+function Stop-LocalWebStack {
+    param(
+        [int[]]$Ports,
+        [string]$RepoRoot = ""
+    )
+
+    $processIds = @()
+    if (-not (Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue)) {
+        Write-Host "Get-NetTCPConnection is unavailable; local web stack cleanup skipped"
+    } else {
+        foreach ($port in $Ports) {
+            $connections = @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)
+            foreach ($connection in $connections) {
+                if ($connection.OwningProcess -gt 0) {
+                    $processIds += [int]$connection.OwningProcess
+                }
+            }
+        }
+    }
+
+    if ($RepoRoot -and (Get-Command Get-CimInstance -ErrorAction SilentlyContinue)) {
+        $processes = @(Get-CimInstance Win32_Process | Where-Object {
+            $commandLine = [string]$_.CommandLine
+            $commandLine -and
+                $commandLine.Contains($RepoRoot) -and
+                (
+                    $commandLine.Contains("scripts\run-local-api-dev.bat") -or
+                    $commandLine.Contains("scripts\run-web-dev.bat") -or
+                    $commandLine.Contains("apps.api.run") -or
+                    $commandLine.Contains("next dev")
+                )
+        })
+        foreach ($process in $processes) {
+            if ($process.ProcessId -gt 0) {
+                $processIds += [int]$process.ProcessId
+            }
+        }
+    }
+
+    foreach ($processId in ($processIds | Select-Object -Unique)) {
+        try {
+            Stop-Process -Id $processId -Force -ErrorAction Stop
+            Write-Host "stopped local web stack process $processId"
+        } catch {
+            Write-Host "failed to stop process ${processId}: $($_.Exception.Message)"
+        }
+    }
+}
+
+function Save-LocalWebStackLogs {
+    param(
+        [string]$RepoRoot,
+        [string]$EvidenceDir
+    )
+
+    $logNames = @(
+        ".h2ometa-api.out.log",
+        ".h2ometa-api.err.log",
+        ".h2ometa-web.out.log",
+        ".h2ometa-web.err.log"
+    )
+    foreach ($logName in $logNames) {
+        $source = Join-Path $RepoRoot $logName
+        if (-not (Test-Path -LiteralPath $source)) {
+            continue
+        }
+        $cleanName = $logName.TrimStart([char]'.')
+        $destination = Join-Path $EvidenceDir "local-web-stack-$cleanName"
+        $saved = $false
+        for ($attempt = 1; $attempt -le 5; $attempt++) {
+            try {
+                Copy-Item -LiteralPath $source -Destination $destination -Force
+                Remove-Item -LiteralPath $source -Force
+                Write-Host "saved local web stack log $destination"
+                $saved = $true
+                break
+            } catch {
+                if ($attempt -lt 5) {
+                    Start-Sleep -Seconds 1
+                    continue
+                }
+                Write-Host "failed to save local web stack log ${source}: $($_.Exception.Message)"
+            }
+        }
+        if (-not $saved -and -not (Test-Path -LiteralPath $source)) {
+            Write-Host "local web stack log disappeared before save: $source"
+        }
     }
 }
 
@@ -245,6 +514,8 @@ $branch = (& git -C $repoRoot rev-parse --abbrev-ref HEAD).Trim()
 $evidenceDir = Join-Path (Join-Path $repoRoot $EvidenceRoot) $commit
 New-Item -ItemType Directory -Force -Path $evidenceDir | Out-Null
 
+$originalAppData = $env:APPDATA
+$originalLocalAppData = $env:LOCALAPPDATA
 $runStateRoot = Join-Path ([System.IO.Path]::GetTempPath()) "h2ometa-rc-$commit"
 if (Test-Path -LiteralPath $runStateRoot) {
     Remove-Item -LiteralPath $runStateRoot -Recurse -Force
@@ -257,6 +528,13 @@ $env:UV_PROJECT_ENVIRONMENT = if ($env:H2OMETA_WINDOWS_UV_PROJECT_ENVIRONMENT) {
 $env:UV_PYTHON_INSTALL_DIR = Join-Path $repoRoot ".codex-uv-python"
 $env:APPDATA = Join-Path $runStateRoot "AppData\Roaming"
 $env:LOCALAPPDATA = Join-Path $runStateRoot "AppData\Local"
+$env:H2OMETA_DEV_CACHE_ROOT = if ($env:H2OMETA_DEV_CACHE_ROOT) {
+    $env:H2OMETA_DEV_CACHE_ROOT
+} elseif ($originalLocalAppData) {
+    Join-Path $originalLocalAppData "H2OMeta\dev-cache"
+} else {
+    Join-Path $runStateRoot "dev-cache"
+}
 New-Item -ItemType Directory -Force -Path $env:APPDATA, $env:LOCALAPPDATA | Out-Null
 
 $steps = New-Object System.Collections.Generic.List[object]
@@ -280,6 +558,7 @@ $runtimeGateRequested = (
 $runtimeGateRequired = $runtimeGateRequested
 $runtimeManifestArtifactsRequired = $RequireRuntimeManifestArtifacts.IsPresent
 $runtimeSupplyChainRequired = $RequireRuntimeSupplyChain.IsPresent
+$startedLocalWebStack = $false
 
 try {
     Invoke-RcStep -Steps $steps -Name "git-clean-worktree" -Required $true -EvidenceDir $evidenceDir -Body {
@@ -346,11 +625,11 @@ try {
 
     Invoke-RcStep -Steps $steps -Name "security-audit" -Required $true -EvidenceDir $evidenceDir -Body {
         Invoke-Native "uv" @("run", "--frozen", "python", "scripts\security_governance_audit.py") $repoRoot
-        Invoke-Native "npm" @("audit", "--registry=https://registry.npmjs.org", "--audit-level=moderate", "--package-lock-only") $repoRoot
-        Invoke-Native "npm" @("audit", "--registry=https://registry.npmjs.org", "--audit-level=moderate", "--package-lock-only") (Join-Path $repoRoot "apps\web")
+        Invoke-NativeWithRetry "npm" @("audit", "--registry=https://registry.npmjs.org", "--audit-level=moderate", "--package-lock-only") $repoRoot
+        Invoke-NativeWithRetry "npm" @("audit", "--registry=https://registry.npmjs.org", "--audit-level=moderate", "--package-lock-only") (Join-Path $repoRoot "apps\web")
         $requirements = Join-Path $evidenceDir "requirements-audit.txt"
         Invoke-Native "uv" @("export", "--frozen", "--group", "dev", "--format", "requirements-txt", "--no-emit-project", "--output-file", $requirements) $repoRoot
-        Invoke-Native "uvx" @("pip-audit", "-r", $requirements, "--progress-spinner", "off", "--strict", "--ignore-vuln", "CVE-2026-44405") $repoRoot
+        Invoke-NativeWithRetry "uvx" @("pip-audit", "-r", $requirements, "--progress-spinner", "off", "--strict", "--ignore-vuln", "CVE-2026-44405") $repoRoot
     }
 
     Invoke-RcStep -Steps $steps -Name "database-lifecycle-contracts" -Required $true -EvidenceDir $evidenceDir -Body {
@@ -363,12 +642,43 @@ try {
         ) $repoRoot
     }
 
-    if ($RunLocalWebSmoke) {
+    if ($StartLocalWeb) {
+        $startedLocalWebStack = $true
+        Invoke-RcStep -Steps $steps -Name "local-web-launcher" -Required $true -EvidenceDir $evidenceDir -Body {
+            Invoke-WithLocalWebAppState -UseUserAppState $UseUserAppStateForLocalWeb.IsPresent -OriginalAppData $originalAppData -OriginalLocalAppData $originalLocalAppData -Body {
+                Invoke-HeadlessLocalWebLaunch -RepoRoot $repoRoot
+                Wait-LocalWebStack -ApiBase $ApiBase -WebBase $WebBase
+            }
+        }
+    } else {
+        Add-SkippedStep -Steps $steps -Name "local-web-launcher" -Required $false -Message "pass -StartLocalWeb to launch run.bat --web headlessly"
+    }
+
+    if ($RunLocalWebSmoke -or $StartLocalWeb) {
         Invoke-RcStep -Steps $steps -Name "local-web-smoke" -Required $true -EvidenceDir $evidenceDir -Body {
-            Invoke-Native "powershell" @("-ExecutionPolicy", "Bypass", "-File", (Join-Path $repoRoot "scripts\local_web_smoke.ps1")) $repoRoot
+            Invoke-WithLocalWebAppState -UseUserAppState $UseUserAppStateForLocalWeb.IsPresent -OriginalAppData $originalAppData -OriginalLocalAppData $originalLocalAppData -Body {
+                Invoke-WithWebEnvironment -ApiBase $ApiBase -WebBase $WebBase -Body {
+                    Invoke-Native "powershell" @("-ExecutionPolicy", "Bypass", "-File", (Join-Path $repoRoot "scripts\local_web_smoke.ps1")) $repoRoot
+                }
+            }
         }
     } else {
         Add-SkippedStep -Steps $steps -Name "local-web-smoke" -Required $false -Message "pass -RunLocalWebSmoke after starting run.bat --web"
+    }
+
+    if ($RunWebE2E) {
+        Invoke-RcStep -Steps $steps -Name "web-e2e" -Required $true -EvidenceDir $evidenceDir -Body {
+            Invoke-WithLocalWebAppState -UseUserAppState $UseUserAppStateForLocalWeb.IsPresent -OriginalAppData $originalAppData -OriginalLocalAppData $originalLocalAppData -Body {
+                Invoke-WithWebEnvironment -ApiBase $ApiBase -WebBase $WebBase -Body {
+                    for ($iteration = 1; $iteration -le $WebE2ERepeat; $iteration++) {
+                        Write-Host "webE2EIteration=$iteration/$WebE2ERepeat"
+                        Invoke-Native "npm" @("run", "test:e2e") $repoRoot
+                    }
+                }
+            }
+        }
+    } else {
+        Add-SkippedStep -Steps $steps -Name "web-e2e" -Required $false -Message "pass -RunWebE2E to execute Playwright; use -WebE2ERepeat 3 for flaky-test burn-in"
     }
 
     if ($DesktopStartupEvidence) {
@@ -406,6 +716,10 @@ try {
     $ok = $false
     $failure = $_.Exception.Message
 } finally {
+    if ($startedLocalWebStack) {
+        Stop-LocalWebStack -Ports @(8765, 3765) -RepoRoot $repoRoot
+        Save-LocalWebStackLogs -RepoRoot $repoRoot -EvidenceDir $evidenceDir
+    }
     if (Test-Path -LiteralPath $runStateRoot) {
         Remove-Item -LiteralPath $runStateRoot -Recurse -Force
     }
@@ -426,8 +740,16 @@ $summary = [ordered]@{
     ciRunUrl = $CiRunUrl
     allowDirty = $AllowDirty.IsPresent
     developmentOnly = $DevelopmentOnly.IsPresent
+    apiBase = $ApiBase
+    webBase = $WebBase
+    devCacheRoot = $env:H2OMETA_DEV_CACHE_ROOT
     runNpmCi = $RunNpmCi.IsPresent
+    startLocalWeb = $StartLocalWeb.IsPresent
+    useUserAppStateForLocalWeb = $UseUserAppStateForLocalWeb.IsPresent
+    runWebE2E = $RunWebE2E.IsPresent
+    webE2ERepeat = $WebE2ERepeat
     handoffEligible = ($ok -and -not $DevelopmentOnly.IsPresent -and [bool]$CiRunUrl -and $RunNpmCi.IsPresent)
+    localSingleUserProofEligible = ($ok -and -not $AllowDirty.IsPresent -and $StartLocalWeb.IsPresent -and $RunWebE2E.IsPresent -and (($RunLocalWebSmoke.IsPresent) -or $StartLocalWeb.IsPresent))
     runtimeManifestDrift = $runtimeManifestDrift
     steps = $steps
     scopedRuntimeLimits = @(

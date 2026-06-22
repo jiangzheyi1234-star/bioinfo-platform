@@ -2,7 +2,7 @@
 
 Status: Current
 
-Last reviewed: 2026-06-18
+Last reviewed: 2026-06-22
 
 ## Contract
 
@@ -26,7 +26,7 @@ The directory must include:
 - `release-candidate-summary.md`
 - one log file per executed gate
 
-The JSON summary must record the source commit, branch, generated timestamp, script path, CI run URL, handoff eligibility, gate results, skipped optional gates, and known scoped limits. Development-only proof may omit the CI URL, but it must report `handoffEligible: false`.
+The JSON summary must record the source commit, branch, generated timestamp, script path, CI run URL, API/Web bases, launcher dev-cache root, handoff eligibility, local single-user proof eligibility, gate results, skipped optional gates, and known scoped limits. Development-only proof may omit the CI URL, but it must report `handoffEligible: false`.
 
 ## Required Gates
 
@@ -45,11 +45,30 @@ These gates are local proof. The matching remote proof is the GitHub `required /
 
 Use `-DevelopmentOnly` only for pre-commit or dirty-branch proof. Development-only evidence may be useful while building, but it cannot be used for production handoff.
 
+## Single-User Local Proof
+
+The local Desktop/single-user proof is intentionally below production handoff but above an ad hoc smoke test. It proves that the checked commit can launch the supported Windows web stack and complete live UI workflows.
+
+Use this command from a clean Windows working tree:
+
+```powershell
+scripts\verify_release_candidate.ps1 -DevelopmentOnly -StartLocalWeb -UseUserAppStateForLocalWeb -RunWebE2E -WebE2ERepeat 3
+```
+
+This command launches `run.bat --web` headlessly, waits for API `/health` and the Web root to return OK, runs `scripts/local_web_smoke.ps1`, and executes Playwright through `npm run test:e2e` for the requested repeat count. The summary reports `localSingleUserProofEligible: true` only when the run is clean, passes the launcher/smoke/E2E gates, and does not rely on `-AllowDirty`.
+
+The script isolates `APPDATA` and `LOCALAPPDATA` for Python/test runtime state, while `H2OMETA_DEV_CACHE_ROOT` defaults to the normal Windows H2OMeta dev cache so `run.bat` can reuse manifest-resolved runtime artifacts instead of redownloading them on every proof run. `-UseUserAppStateForLocalWeb` intentionally switches only the launcher/smoke/E2E portion back to the operator's real Windows app state, because the local API readiness check includes the configured remote-runner connection.
+
+Use `-WebE2ERepeat 1` for fast development proof and `-WebE2ERepeat 3` before calling a UI workflow stable.
+
 ## Optional Gates
 
 Optional gates are explicit, never silent:
 
-- Local launcher smoke: start the app with `run.bat --web`, then run `scripts/local_web_smoke.ps1` through `-RunLocalWebSmoke`.
+- Local launcher startup: pass `-StartLocalWeb` to launch `run.bat --web` headlessly and wait for API/Web readiness.
+- Local app state: pass `-UseUserAppStateForLocalWeb` when the proof must use the operator's configured SSH/runner state instead of an isolated empty runtime profile.
+- Local launcher smoke: start the app with `run.bat --web`, or pass `-StartLocalWeb`, then run `scripts/local_web_smoke.ps1` through `-RunLocalWebSmoke`.
+- Live UI E2E: pass `-RunWebE2E`; use `-WebE2ERepeat 3` for flaky-test burn-in.
 - Desktop startup: start with `run.bat --desktop` and pass `-DesktopStartupEvidence "<operator note or artifact path>"`.
 - Runtime release evidence: pass `-ReleaseGateEvidence <path>` to validate `release-gate-evidence.json` with `scripts/check_remote_runner_release_readiness.py`.
 - Runtime manifest supply chain: use `-RequireRuntimeManifestArtifacts` and `-RequireRuntimeSupplyChain` only when the RC includes remote-runner runtime artifact promotion.
