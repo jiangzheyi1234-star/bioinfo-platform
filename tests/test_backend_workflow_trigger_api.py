@@ -4,12 +4,18 @@ import asyncio
 
 from fastapi import Response
 
-from apps.api.models import WorkflowTriggerCreateRequest, WorkflowTriggerEventRequest, WorkflowTriggerInboxEventRequest
+from apps.api.models import (
+    WorkflowTriggerBackfillPreviewRequest,
+    WorkflowTriggerCreateRequest,
+    WorkflowTriggerEventRequest,
+    WorkflowTriggerInboxEventRequest,
+)
 from apps.api.response_cache import invalidate_response_cache
 from apps.api.workflow_trigger_routes import (
     create_workflow_trigger,
     list_workflow_trigger_events,
     list_workflow_triggers,
+    preview_workflow_trigger_backfill,
     submit_workflow_trigger_event,
     submit_workflow_trigger_inbox_event,
 )
@@ -56,6 +62,23 @@ def test_workflow_trigger_routes_preserve_runtime_wrappers_and_submit_headers(mo
             serverId="srv_primary",
         )
     )
+    backfill_preview = asyncio.run(
+        preview_workflow_trigger_backfill(
+            "wtr_demo",
+            WorkflowTriggerBackfillPreviewRequest(
+                rangeStart="2026-06-01",
+                rangeEnd="2026-06-03",
+                partitionUnit="day",
+                timezone="UTC",
+                maxPartitions=2,
+                concurrencyLimit=2,
+                runOrder="forward",
+                reprocessBehavior="none",
+                params={"sampleBatch": "batch_42"},
+            ),
+            serverId="srv_primary",
+        )
+    )
 
     assert triggers == {"data": {"items": [{"triggerId": "wtr_demo"}]}}
     assert created == {"data": {"triggerId": "wtr_demo", "sourceType": "manual"}}
@@ -68,6 +91,14 @@ def test_workflow_trigger_routes_preserve_runtime_wrappers_and_submit_headers(mo
     assert inbox_response.headers["Location"] == "/api/v1/runs/run_inbox_demo"
     assert inbox_response.headers["Retry-After"] == "2"
     assert inbox_response.headers["X-Request-Id"] == "req_wte_inbox"
+    assert backfill_preview == {
+        "data": {
+            "triggerId": "wtr_demo",
+            "launchSupported": False,
+            "estimatedRunCount": 2,
+            "partitions": [],
+        }
+    }
 
 
 class FakeTriggerRuntime:
@@ -119,4 +150,27 @@ class FakeTriggerRuntime:
             "location": "/api/v1/runs/run_inbox_demo",
             "retryAfter": 2,
             "requestId": "req_wte_inbox",
+        }
+
+    def preview_workflow_trigger_backfill(self, trigger_id, payload, *, server_id=None):
+        assert trigger_id == "wtr_demo"
+        assert payload == {
+            "rangeStart": "2026-06-01",
+            "rangeEnd": "2026-06-03",
+            "partitionUnit": "day",
+            "timezone": "UTC",
+            "maxPartitions": 2,
+            "concurrencyLimit": 2,
+            "runOrder": "forward",
+            "reprocessBehavior": "none",
+            "params": {"sampleBatch": "batch_42"},
+        }
+        assert server_id == "srv_primary"
+        return {
+            "data": {
+                "triggerId": "wtr_demo",
+                "launchSupported": False,
+                "estimatedRunCount": 2,
+                "partitions": [],
+            }
         }

@@ -101,6 +101,24 @@ class ExecutionManager(BaseRuntimeManager):
             payload=body,
         )
 
+    def preview_workflow_trigger_backfill(
+        self,
+        trigger_id: str,
+        payload: Optional[dict[str, Any]] = None,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        body = dict(payload or {})
+        server_id_hint = str(body.pop("serverId", None) or server_id or "").strip() or None
+        manager, resolved_server_id, ssh, record = self._runner_context(preferred_server_id=server_id_hint)
+        return self._service._call_remote_runner(
+            manager.preview_workflow_trigger_backfill,
+            server_id=resolved_server_id,
+            ssh_service=ssh,
+            server_record=record,
+            trigger_id=trigger_id,
+            payload=body,
+        )
+
     def list_workflow_trigger_events(
         self,
         trigger_id: str,

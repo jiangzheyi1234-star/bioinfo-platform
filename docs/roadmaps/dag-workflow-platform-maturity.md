@@ -236,7 +236,8 @@ Progress:
 - Cron trigger definitions can now be evaluated by a remote-runner scheduler supervisor. Each due cron tick creates a stable immutable trigger event keyed by trigger id and scheduled UTC instant, then dispatches through the existing workflow trigger service.
 - Cron tick replay is deduplicated by the existing trigger event and run idempotency stores; repeated scheduler evaluation for the same scheduled instant returns the existing event/run rather than creating another run.
 - Webhook/event inbox ingestion now has a dedicated strict API route that requires `source` and `eventId`, keeps `correlationId` as grouping metadata, records an immutable trigger event envelope, and dispatches through the same workflow trigger service path.
-- Dataset, file, and database-ready trigger launches still fail loudly until sensor/cursor/resource readiness semantics are modeled instead of guessed.
+- Backfill triggers now support a strict preview-only API that expands a half-open time range into deterministic partition windows, stable cursor/idempotency keys, concurrency estimates, and per-partition `runSpecPreview` provenance without creating trigger events or runs.
+- Dataset, file, database-ready, and backfill launches still fail loudly until sensor/cursor/resource readiness and backfill launch semantics are modeled instead of guessed.
 
 Recommended sequence:
 
@@ -246,8 +247,8 @@ Recommended sequence:
 4. Add webhook/event inbox with deduplication, correlation id, actor/source, and idempotency key derivation.
 5. Stamp triggered runs with `triggerId`, `triggerEventId`, `source`, and `cursor`.
 6. Defer dataset/file/database-ready watchers until Phase 5 has stable artifact identity, lineage anchoring, and cache keys.
-7. Defer backfill launch beyond manual preview until artifact lineage and trigger provenance are stable enough to deduplicate safely.
-8. Add backfill preview and launch model with ranges, partitions/windows, concurrency limits, and provenance only after those prerequisites are met.
+7. Keep backfill launch disabled beyond dry-run preview until artifact lineage and trigger provenance are stable enough to deduplicate safely.
+8. Extend the backfill preview model into launch only after partition state, existing-run detection, cancellation, and resume semantics are productized.
 9. Add a first-class inbox table, provider signature adapters, event matching rules, replay/dead-letter UI, and rate-limit/retry policy only after the thin webhook envelope proves stable.
 
 Representative files:

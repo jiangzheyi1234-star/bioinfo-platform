@@ -3,7 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from apps.api.models import WorkflowTriggerCreateRequest, WorkflowTriggerEventRequest, WorkflowTriggerInboxEventRequest
+from apps.api.models import (
+    WorkflowTriggerBackfillPreviewRequest,
+    WorkflowTriggerCreateRequest,
+    WorkflowTriggerEventRequest,
+    WorkflowTriggerInboxEventRequest,
+)
 from apps.api.response_cache import invalidate_response_cache
 from apps.api.route_utils import cached_runtime_payload, request_payload, run_runtime_payload, runtime_service
 
@@ -105,6 +110,22 @@ async def submit_workflow_trigger_inbox_event_from_request(
             "Retry-After": str(result["retryAfter"]),
             "X-Request-Id": str(result["requestId"]),
         },
+    )
+
+
+async def preview_workflow_trigger_backfill_from_request(
+    trigger_id: str,
+    request: WorkflowTriggerBackfillPreviewRequest,
+    *,
+    server_id: str | None,
+) -> dict[str, Any]:
+    return await run_runtime_payload(
+        lambda: runtime_service().preview_workflow_trigger_backfill(
+            trigger_id,
+            request_payload(request),
+            server_id=server_id,
+        ),
+        wrapper="raw",
     )
 
 

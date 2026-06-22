@@ -3,17 +3,19 @@ from __future__ import annotations
 import pytest
 
 from apps.remote_runner.api_models import (
+    WorkflowTriggerBackfillPreviewRequest,
     WorkflowTriggerCreateRequest,
     WorkflowTriggerEventRequest,
     WorkflowTriggerInboxEventRequest,
 )
 from apps.remote_runner.errors import IdempotencyKeyReusedError
-from apps.remote_runner.execution_query_storage import fetch_run
+from apps.remote_runner.execution_query_storage import fetch_run, list_runs
 from apps.remote_runner.governance_audit import list_governance_audit_events
 from apps.remote_runner.trigger_scheduler import run_workflow_trigger_scheduler_once
 from apps.remote_runner.trigger_service import (
     create_workflow_trigger_from_request,
     list_workflow_trigger_events_from_storage,
+    preview_workflow_trigger_backfill_from_request,
     submit_workflow_trigger_event_from_request,
     submit_workflow_trigger_inbox_event_from_request,
 )
@@ -340,7 +342,153 @@ def test_webhook_inbox_rejects_missing_identity(
         )
 
 
-@pytest.mark.parametrize("source_type", ["dataset", "file", "database_ready"])
+def test_backfill_preview_returns_partition_plan_without_launching(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+
+    trigger = _create_trigger(
+        cfg,
+        source_type="backfill",
+        trigger_spec={"partitionUnit": "day"},
+        enabled=False,
+    )
+
+    response = preview_workflow_trigger_backfill_from_request(
+        cfg,
+        trigger["triggerId"],
+        WorkflowTriggerBackfillPreviewRequest(
+            rangeStart="2026-06-01",
+            rangeEnd="2026-06-04",
+            partitionUnit="day",
+            timezone="UTC",
+            maxPartitions=2,
+            concurrencyLimit=2,
+            runOrder="forward",
+            reprocessBehavior="none",
+            params={"sampleBatch": "batch_42"},
+        ),
+    )
+
+    data = response["data"]
+    assert data["schemaVersion"] == "workflow-trigger-backfill-preview.v1"
+    assert data["triggerId"] == trigger["triggerId"]
+    assert data["sourceType"] == "backfill"
+    assert data["triggerEnabled"] is False
+    assert data["launchSupported"] is False
+    assert data["reason"] == "BACKFILL_PREVIEW_ONLY"
+    assert data["launchDisabledReason"] == "WORKFLOW_BACKFILL_LAUNCH_UNSUPPORTED_UNTIL_PROVENANCE_STABLE"
+    assert data["range"] == {
+        "start": "2026-06-01T00:00:00Z",
+        "end": "2026-06-04T00:00:00Z",
+        "timezone": "UTC",
+        "partitionUnit": "day",
+        "semantics": "half-open",
+        "runOrder": "forward",
+    }
+    assert data["estimatedRunCount"] == 3
+    assert data["returnedRunCount"] == 2
+    assert data["truncated"] is True
+    assert data["concurrency"] == {"limit": 2, "partitionCount": 3, "estimatedBatches": 2}
+
+    first = data["partitions"][0]
+    expected_identity = f"backfill:{trigger['triggerId']}:day:2026-06-01T00:00:00Z:2026-06-02T00:00:00Z"
+    assert first["partitionId"] == expected_identity
+    assert first["partitionKey"] == "2026-06-01"
+    assert first["index"] == 0
+    assert first["window"] == {
+        "start": "2026-06-01T00:00:00Z",
+        "end": "2026-06-02T00:00:00Z",
+        "timezone": "UTC",
+        "semantics": "half-open",
+    }
+    assert first["cursor"] == expected_identity
+    assert first["idempotencyKey"] == expected_identity
+    assert first["provenance"] == {
+        "triggerId": trigger["triggerId"],
+        "pipelineId": trigger["pipelineId"],
+        "sourceType": "backfill",
+        "partitionUnit": "day",
+        "partitionKey": "2026-06-01",
+    }
+    assert first["runSpecPreview"]["params"]["sampleBatch"] == "batch_42"
+    assert first["runSpecPreview"]["params"]["backfill"] == {
+        "partitionKey": "2026-06-01",
+        "windowStart": "2026-06-01T00:00:00Z",
+        "windowEnd": "2026-06-02T00:00:00Z",
+        "timezone": "UTC",
+        "reprocessBehavior": "none",
+    }
+    assert list_workflow_trigger_events_from_storage(cfg, trigger["triggerId"])["data"]["items"] == []
+    assert list_runs(cfg) == []
+
+    preview_audit_events = list_governance_audit_events(
+        cfg,
+        subject_kind="workflow_trigger",
+        subject_id=trigger["triggerId"],
+        action="workflow_trigger.backfill_preview",
+    )["items"]
+    assert preview_audit_events[0]["details"]["estimatedRunCount"] == 3
+    assert preview_audit_events[0]["details"]["launchSupported"] is False
+
+
+def test_backfill_preview_supports_backward_hourly_windows(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+
+    trigger = _create_trigger(
+        cfg,
+        source_type="backfill",
+        trigger_spec={"partitionUnit": "hour"},
+        enabled=False,
+    )
+
+    response = preview_workflow_trigger_backfill_from_request(
+        cfg,
+        trigger["triggerId"],
+        WorkflowTriggerBackfillPreviewRequest(
+            rangeStart="2026-06-01T00:00:00Z",
+            rangeEnd="2026-06-01T03:00:00Z",
+            partitionUnit="hour",
+            timezone="UTC",
+            maxPartitions=2,
+            runOrder="backward",
+        ),
+    )
+
+    assert [item["partitionKey"] for item in response["data"]["partitions"]] == [
+        "2026-06-01T02",
+        "2026-06-01T01",
+    ]
+    assert [item["index"] for item in response["data"]["partitions"]] == [2, 1]
+
+
+def test_backfill_preview_rejects_wrong_source_and_invalid_range(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+
+    manual_trigger = _create_trigger(cfg, source_type="manual", trigger_spec={"mode": "manual"})
+    with pytest.raises(ValueError, match="WORKFLOW_BACKFILL_PREVIEW_SOURCE_MISMATCH: manual"):
+        preview_workflow_trigger_backfill_from_request(
+            cfg,
+            manual_trigger["triggerId"],
+            WorkflowTriggerBackfillPreviewRequest(rangeStart="2026-06-01", rangeEnd="2026-06-02"),
+        )
+
+    backfill_trigger = _create_trigger(
+        cfg,
+        source_type="backfill",
+        trigger_spec={"partitionUnit": "day"},
+        enabled=False,
+    )
+    with pytest.raises(ValueError, match="WORKFLOW_BACKFILL_RANGE_INVALID"):
+        preview_workflow_trigger_backfill_from_request(
+            cfg,
+            backfill_trigger["triggerId"],
+            WorkflowTriggerBackfillPreviewRequest(rangeStart="2026-06-02", rangeEnd="2026-06-01"),
+        )
+
+
+@pytest.mark.parametrize("source_type", ["dataset", "file", "database_ready", "backfill"])
 def test_unsupported_ready_trigger_launch_fails_loudly_until_sensor_dispatch_exists(
     source_type: str,
     tmp_path,

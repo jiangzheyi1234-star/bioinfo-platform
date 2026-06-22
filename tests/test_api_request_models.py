@@ -14,6 +14,7 @@ from apps.api.models import (
     ToolProductionEvidenceRequest,
     UploadSubmitRequest,
     WorkflowDesignDraftCompileRequest,
+    WorkflowTriggerBackfillPreviewRequest,
     WorkflowTriggerCreateRequest,
     WorkflowTriggerEventRequest,
     WorkflowTriggerInboxEventRequest,
@@ -236,6 +237,49 @@ def test_workflow_trigger_inbox_event_request_is_strict_and_requires_event_ident
     errors = exc_info.value.errors()
     assert any(error["type"] == "missing" and error["loc"] == ("eventId",) for error in errors)
     assert any(error["type"] == "extra_forbidden" and error["loc"] == ("legacyPayload",) for error in errors)
+
+
+def test_workflow_trigger_backfill_preview_request_is_strict_and_bounded() -> None:
+    request = WorkflowTriggerBackfillPreviewRequest.model_validate(
+        {
+            "rangeStart": "2026-06-01",
+            "rangeEnd": "2026-06-04",
+            "partitionUnit": "day",
+            "timezone": "UTC",
+            "maxPartitions": 50,
+            "concurrencyLimit": 4,
+            "runOrder": "forward",
+            "reprocessBehavior": "failed",
+            "params": {"sampleBatch": "batch_42"},
+        }
+    )
+
+    assert request.partitionUnit == "day"
+    assert request.runOrder == "forward"
+    assert request.reprocessBehavior == "failed"
+    assert request.params == {"sampleBatch": "batch_42"}
+
+    with pytest.raises(ValidationError) as exc_info:
+        WorkflowTriggerBackfillPreviewRequest.model_validate(
+            {
+                "rangeStart": "2026-06-01",
+                "rangeEnd": "2026-06-04",
+                "partitionUnit": "week",
+                "runOrder": "reverse",
+                "reprocessBehavior": "always",
+                "maxPartitions": 1001,
+                "concurrencyLimit": 0,
+                "launch": True,
+            }
+        )
+
+    errors = exc_info.value.errors()
+    assert any(error["type"] == "literal_error" and error["loc"] == ("partitionUnit",) for error in errors)
+    assert any(error["type"] == "literal_error" and error["loc"] == ("runOrder",) for error in errors)
+    assert any(error["type"] == "literal_error" and error["loc"] == ("reprocessBehavior",) for error in errors)
+    assert any(error["type"] == "less_than_equal" and error["loc"] == ("maxPartitions",) for error in errors)
+    assert any(error["type"] == "greater_than_equal" and error["loc"] == ("concurrencyLimit",) for error in errors)
+    assert any(error["type"] == "extra_forbidden" and error["loc"] == ("launch",) for error in errors)
 
 
 def test_workflow_design_compile_request_is_strict() -> None:

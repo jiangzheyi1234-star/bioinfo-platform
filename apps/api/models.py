@@ -95,6 +95,9 @@ class RunSubmitRequest(ApiRequest):
 
 
 TriggerSourceType = Literal["manual", "cron", "webhook", "dataset", "file", "database_ready", "backfill"]
+BackfillPartitionUnit = Literal["hour", "day"]
+BackfillRunOrder = Literal["forward", "backward"]
+BackfillReprocessBehavior = Literal["none", "failed", "completed"]
 
 
 class WorkflowTriggerCreateRequest(ApiRequest):
@@ -122,6 +125,18 @@ class WorkflowTriggerInboxEventRequest(ApiRequest):
     actor: str | None = None
     cursor: str | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkflowTriggerBackfillPreviewRequest(ApiRequest):
+    rangeStart: str = Field(min_length=1)
+    rangeEnd: str = Field(min_length=1)
+    partitionUnit: BackfillPartitionUnit = "day"
+    timezone: str = Field(default="UTC", min_length=1)
+    maxPartitions: int = Field(default=100, ge=1, le=1000)
+    concurrencyLimit: int = Field(default=1, ge=1, le=100)
+    runOrder: BackfillRunOrder = "forward"
+    reprocessBehavior: BackfillReprocessBehavior = "none"
+    params: dict[str, Any] = Field(default_factory=dict)
 
 
 class ArtifactGcPreviewRequest(ApiRequest):

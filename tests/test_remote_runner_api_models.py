@@ -9,6 +9,7 @@ from apps.remote_runner.api_models import (
     ToolProductionEvidenceRequest,
     UploadCreateRequest,
     WorkflowDesignDraftCompileRequest,
+    WorkflowTriggerBackfillPreviewRequest,
     WorkflowTriggerInboxEventRequest,
 )
 
@@ -170,6 +171,49 @@ def test_remote_runner_workflow_trigger_inbox_event_request_is_strict() -> None:
     errors = exc_info.value.errors()
     assert any(error["type"] == "missing" and error["loc"] == ("source",) for error in errors)
     assert any(error["type"] == "extra_forbidden" and error["loc"] == ("legacyPayload",) for error in errors)
+
+
+def test_remote_runner_workflow_trigger_backfill_preview_request_is_strict() -> None:
+    request = WorkflowTriggerBackfillPreviewRequest.model_validate(
+        {
+            "rangeStart": "2026-06-01T00:00:00Z",
+            "rangeEnd": "2026-06-01T03:00:00Z",
+            "partitionUnit": "hour",
+            "timezone": "UTC",
+            "maxPartitions": 2,
+            "concurrencyLimit": 1,
+            "runOrder": "backward",
+            "reprocessBehavior": "completed",
+            "params": {"sampleBatch": "batch_42"},
+        }
+    )
+
+    assert request.partitionUnit == "hour"
+    assert request.runOrder == "backward"
+    assert request.reprocessBehavior == "completed"
+    assert request.maxPartitions == 2
+
+    with pytest.raises(ValidationError) as exc_info:
+        WorkflowTriggerBackfillPreviewRequest.model_validate(
+            {
+                "rangeStart": "2026-06-01",
+                "rangeEnd": "2026-06-04",
+                "partitionUnit": "week",
+                "runOrder": "reverse",
+                "reprocessBehavior": "always",
+                "maxPartitions": 0,
+                "concurrencyLimit": 101,
+                "legacyLaunch": {},
+            }
+        )
+
+    errors = exc_info.value.errors()
+    assert any(error["type"] == "literal_error" and error["loc"] == ("partitionUnit",) for error in errors)
+    assert any(error["type"] == "literal_error" and error["loc"] == ("runOrder",) for error in errors)
+    assert any(error["type"] == "literal_error" and error["loc"] == ("reprocessBehavior",) for error in errors)
+    assert any(error["type"] == "greater_than_equal" and error["loc"] == ("maxPartitions",) for error in errors)
+    assert any(error["type"] == "less_than_equal" and error["loc"] == ("concurrencyLimit",) for error in errors)
+    assert any(error["type"] == "extra_forbidden" and error["loc"] == ("legacyLaunch",) for error in errors)
 
 
 def test_remote_runner_workflow_design_compile_request_rejects_server_id() -> None:
