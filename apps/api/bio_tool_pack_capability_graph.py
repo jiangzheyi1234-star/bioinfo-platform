@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from core.contracts.rule_ports import mismatched_compatibility_field, port_spec_from_rule_item
+from core.contracts.rule_ports import port_compatibility_decision, port_spec_from_rule_item
 
 from .bio_tool_pack_manifest import complete_rule_template_semantics
 from .tool_profile_model import ToolProfile
@@ -27,6 +27,7 @@ def semantic_capability_graph(
         if agent_selectable_only and not agent_selectable:
             continue
         profile_node = _node_id("profile", profile.pack_id, profile.profile_id)
+        rule_template = complete_rule_template_semantics(profile.rule_template)
         nodes[profile_node] = {
             "id": profile_node,
             "kind": "ToolProfile",
@@ -36,8 +37,8 @@ def semantic_capability_graph(
             "operation": profile.operation,
             "agentSelectable": agent_selectable,
             "toolRevisionId": str((ready_tool or {}).get("toolRevisionId") or ""),
+            "resourceRequirements": _resource_requirements(rule_template),
         }
-        rule_template = complete_rule_template_semantics(profile.rule_template)
         _connect_literal(nodes, edges, profile_node, "operation", profile.operation, "performs")
         _connect_literal(nodes, edges, profile_node, "workflowStage", profile.workflow_stage, "belongsToStage")
         for direction, edge_kind in (("inputs", "consumes"), ("outputs", "produces")):
@@ -49,11 +50,13 @@ def semantic_capability_graph(
                     continue
                 port_node = _node_id("port", profile.pack_id, profile.profile_id, direction[:-1], port_name)
                 spec = port_spec_from_rule_item(port)
+                port_kind = spec.pop("kind", "")
                 nodes[port_node] = {
                     "id": port_node,
                     "kind": "InputPort" if direction == "inputs" else "OutputPort",
                     "profileId": profile.profile_id,
                     "name": port_name,
+                    "kindLabel": port_kind,
                     **spec,
                 }
                 edges.append({"from": profile_node, "to": port_node, "kind": edge_kind})
@@ -86,7 +89,67 @@ def semantic_capability_graph(
 
 
 def ports_can_connect(output_port: dict[str, Any], input_port: dict[str, Any]) -> bool:
-    return mismatched_compatibility_field(port_spec_from_rule_item(input_port), port_spec_from_rule_item(output_port)) == ""
+    return port_compatibility_decision(port_spec_from_rule_item(input_port), port_spec_from_rule_item(output_port))[
+        "compatible"
+    ] is True
+
+
+def one_hop_converter_candidates(
+    *,
+    output_port: dict[str, Any],
+    input_port: dict[str, Any],
+    profiles: tuple[ToolProfile, ...] | None = None,
+    registered_tools: list[dict[str, Any]] | None = None,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    selected_profiles = profiles if profiles is not None else _default_profiles()
+    ready_by_name = _workflow_ready_tools_by_name(registered_tools or []) if registered_tools is not None else {}
+    source_spec = port_spec_from_rule_item(output_port)
+    target_spec = port_spec_from_rule_item(input_port)
+    candidates: list[dict[str, Any]] = []
+    for profile in selected_profiles:
+        ready_tool = _matching_ready_tool(profile, ready_by_name) if registered_tools is not None else None
+        if registered_tools is not None and ready_tool is None:
+            continue
+        if ready_tool is not None and _tool_blocked_reasons(ready_tool):
+            continue
+        rule_template = complete_rule_template_semantics(profile.rule_template)
+        if _requires_database_resource(rule_template):
+            continue
+        for converter_input in _rule_ports(rule_template, "inputs"):
+            input_decision = port_compatibility_decision(port_spec_from_rule_item(converter_input), source_spec)
+            if input_decision["compatible"] is not True:
+                continue
+            if not input_decision.get("matchedFields"):
+                continue
+            for converter_output in _rule_ports(rule_template, "outputs"):
+                output_decision = port_compatibility_decision(target_spec, port_spec_from_rule_item(converter_output))
+                if output_decision["compatible"] is not True:
+                    continue
+                if not output_decision.get("matchedFields"):
+                    continue
+                input_score = int(input_decision.get("score") or 0)
+                output_score = int(output_decision.get("score") or 0)
+                candidates.append(
+                    {
+                        "profileId": profile.profile_id,
+                        "packId": profile.pack_id,
+                        "toolRevisionId": str((ready_tool or {}).get("toolRevisionId") or ""),
+                        "operation": profile.operation,
+                        "workflowStage": profile.workflow_stage,
+                        "inputPort": str(converter_input.get("name") or "").strip(),
+                        "outputPort": str(converter_output.get("name") or "").strip(),
+                        "score": input_score + output_score + _converter_specificity_score(profile),
+                        "inputDecision": input_decision,
+                        "outputDecision": output_decision,
+                        "hardChecks": [
+                            "source-output-to-converter-input",
+                            "converter-output-to-target-input",
+                            "no-database-resource-required",
+                        ],
+                    }
+                )
+    return sorted(candidates, key=lambda item: (-int(item["score"]), str(item["profileId"])))[: max(limit, 0)]
 
 
 def _connect_literal(
@@ -103,6 +166,60 @@ def _connect_literal(
     target = _node_id(kind, normalized)
     nodes.setdefault(target, {"id": target, "kind": kind, "value": normalized})
     edges.append({"from": source, "to": target, "kind": edge_kind})
+
+
+def _rule_ports(rule_template: dict[str, Any], key: str) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in rule_template.get(key) or []
+        if isinstance(item, dict) and str(item.get("name") or "").strip()
+    ]
+
+
+def _requires_database_resource(rule_template: dict[str, Any]) -> bool:
+    resources = rule_template.get("resources") if isinstance(rule_template.get("resources"), dict) else {}
+    return any(
+        isinstance(spec, dict) and str(spec.get("type") or "") == "database"
+        for spec in resources.values()
+    )
+
+
+def _resource_requirements(rule_template: dict[str, Any]) -> list[dict[str, Any]]:
+    resources = rule_template.get("resources") if isinstance(rule_template.get("resources"), dict) else {}
+    requirements: list[dict[str, Any]] = []
+    for key, spec in resources.items():
+        if not isinstance(spec, dict) or str(spec.get("type") or "") != "database":
+            continue
+        requirements.append(
+            {
+                "resourceKey": str(key),
+                "type": "database",
+                "required": bool(spec.get("required", True)),
+                "configKey": str(spec.get("configKey") or key).strip(),
+                "acceptedTemplates": [str(item).strip() for item in spec.get("acceptedTemplates") or [] if str(item).strip()],
+                "acceptedCapabilities": [
+                    str(item).strip() for item in spec.get("acceptedCapabilities") or [] if str(item).strip()
+                ],
+            }
+        )
+    return requirements
+
+
+def _tool_blocked_reasons(tool: dict[str, Any]) -> list[str]:
+    status = tool.get("capabilityBundleStatus") if isinstance(tool.get("capabilityBundleStatus"), dict) else {}
+    bundle = tool.get("capabilityBundle") if isinstance(tool.get("capabilityBundle"), dict) else {}
+    return [
+        str(reason)
+        for reason in list(status.get("blockedReasons") or []) + list(bundle.get("blockedReasons") or [])
+        if str(reason or "").strip()
+    ]
+
+
+def _converter_specificity_score(profile: ToolProfile) -> int:
+    text = f"{profile.operation} {profile.workflow_stage}".lower()
+    if re.search(r"(convert|conversion|format|transform|normalize|sort|index)", text):
+        return 3
+    return 0
 
 
 def _workflow_ready_tools_by_name(tools: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:

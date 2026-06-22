@@ -1,7 +1,6 @@
 import {
   describePortCompatibility,
-  matchedPortCompatibilityFields,
-  mismatchedPortCompatibilityField,
+  portCompatibilityDecision,
   type RulePortCompatibilityField,
   type RulePortCompatibilitySpec,
 } from "./generated-workflow-port-contract";
@@ -35,28 +34,29 @@ export function explainPortRecommendation(
   output: RulePortRecommendationPort
 ): RulePortRecommendation {
   const compatibility = describePortCompatibility(input, output);
-  const mismatch = mismatchedPortCompatibilityField(input, output);
+  const compatibilityDecision = portCompatibilityDecision(input, output);
+  const mismatch = compatibilityDecision.mismatchedField;
   if (mismatch) {
     return {
       decision: "blocked",
-      hardChecks: ["端口方向 output -> input", `${compatibilityFieldLabel(mismatch)} 字段必须兼容`],
+      hardChecks: compatibilityDecision.hardChecks,
       evidence: [compatibility],
       confidence: 0,
       reason: compatibility,
     };
   }
 
-  const matched = matchedPortCompatibilityFields(input, output);
+  const matched = compatibilityDecision.matchedFields;
   const hasStrongEvidence = matched.length > 0;
   const evidence = [
     hasStrongEvidence ? compatibility : "类型证据不足，保留为手动连接",
     hasStrongEvidence ? portNameEvidence(input, output) : "",
     hasStrongEvidence ? (input.required !== false ? "目标 input 为必填端口" : "目标 input 为可选端口") : "",
   ].filter((value): value is string => Boolean(value));
-  const decision = hasStrongEvidence ? "recommended" : "ambiguous";
+  const recommendationDecision = hasStrongEvidence ? "recommended" : "ambiguous";
   return {
-    decision,
-    hardChecks: ["端口方向 output -> input", "类型字段无冲突"],
+    decision: recommendationDecision,
+    hardChecks: compatibilityDecision.hardChecks,
     evidence,
     confidence: hasStrongEvidence
       ? recommendationConfidence({ matchedFields: matched.length, required: input.required !== false })

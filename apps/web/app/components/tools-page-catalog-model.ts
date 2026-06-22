@@ -259,11 +259,21 @@ export type CapabilityGraphSemanticNode = {
   value?: string;
   type?: string;
   kindLabel?: string;
+  mimeType?: string;
   data?: string;
   format?: string;
+  resource?: string;
   required?: boolean;
   capabilityId?: string;
   capabilityBundle?: CapabilityBundleSummary;
+  resourceRequirements?: Array<{
+    resourceKey?: string;
+    type?: string;
+    required?: boolean;
+    configKey?: string;
+    acceptedTemplates?: string[];
+    acceptedCapabilities?: string[];
+  }>;
 };
 
 export type CapabilityGraphSnapshot = {

@@ -3,6 +3,7 @@ import { cachedAsync, invalidateAsyncCache, invalidateAsyncCachePrefix, peekAsyn
 
 import type { DatabaseItem, DatabasesResponse } from "./database-page-model";
 import type { RuleOutputSpec } from "./generated-workflow-model";
+import { portCompatibilityDecision } from "./generated-workflow-port-contract";
 import { fetchCapabilityGraphSnapshot } from "./tools-page-api";
 import type {
   AddedTool,
@@ -271,7 +272,8 @@ function workflowRecommendationsFromCapabilityGraph({
       (inputPortsByProfileNode.get(node.id) || []).flatMap((inputPort) => {
         const matchedFields = matchedCapabilityFields(inputPort, outputPort);
         if (matchedFields.length === 0) return [];
-        return [capabilityGraphRecommendation(node, inputPort, matchedFields, node.capabilityBundle)];
+        const hardChecks = portCompatibilityDecision(capabilityPortSpec(inputPort), outputPort).hardChecks;
+        return [capabilityGraphRecommendation(node, inputPort, matchedFields, hardChecks, node.capabilityBundle)];
       })
     )
     .sort((left, right) => right.confidence - left.confidence || recommendationName(left).localeCompare(recommendationName(right)));
@@ -303,18 +305,27 @@ function capabilityInputPortsByProfileNode(
 }
 
 function matchedCapabilityFields(inputPort: CapabilityGraphSemanticNode, outputPort: RuleOutputSpec): string[] {
-  const fields: Array<keyof RuleOutputSpec> = ["type", "kind", "mimeType", "data", "format"];
-  return fields.filter((field) => {
-    const left = String(inputPort[field as keyof CapabilityGraphSemanticNode] || "").trim();
-    const right = String(outputPort[field] || "").trim();
-    return left.length > 0 && right.length > 0 && left === right;
-  });
+  const decision = portCompatibilityDecision(capabilityPortSpec(inputPort), outputPort);
+  if (!decision.compatible) return [];
+  return decision.matchedFields;
+}
+
+function capabilityPortSpec(inputPort: CapabilityGraphSemanticNode) {
+  return {
+    type: String(inputPort.type || ""),
+    kind: String(inputPort.kindLabel || ""),
+    mimeType: String(inputPort.mimeType || ""),
+    data: String(inputPort.data || ""),
+    format: String(inputPort.format || ""),
+    resource: String(inputPort.resource || ""),
+  };
 }
 
 function capabilityGraphRecommendation(
   profileNode: CapabilityGraphSemanticNode,
   inputPort: CapabilityGraphSemanticNode,
   matchedFields: string[],
+  hardChecks: string[],
   capabilityBundle?: CapabilityBundleSummary
 ): WorkflowToolRecommendationItem {
   const profileId = String(profileNode.profileId || "").trim();
@@ -351,7 +362,7 @@ function capabilityGraphRecommendation(
     },
     matchedFields,
     confidence: Math.min(1, 0.45 + matchedFields.length * 0.15),
-    hardChecks: ["capability-bundle-v1 agentSelectable=true", "端口方向 output -> input", "类型字段无冲突"],
+    hardChecks: ["capability-bundle-v1 agentSelectable=true", ...hardChecks],
     evidence: [
       `capabilityId ${capabilityId}`,
       `toolRevisionId ${toolRevisionId}`,

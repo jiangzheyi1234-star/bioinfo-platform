@@ -1,7 +1,19 @@
-export const COMPATIBILITY_FIELDS = ["type", "kind", "mimeType", "data", "format"] as const;
+export const HARD_COMPATIBILITY_FIELDS = ["type", "kind", "mimeType", "data", "format", "resource"] as const;
+export const ADVISORY_COMPATIBILITY_FIELDS = ["operation"] as const;
+export const COMPATIBILITY_FIELDS = [...HARD_COMPATIBILITY_FIELDS, ...ADVISORY_COMPATIBILITY_FIELDS] as const;
+
+const EDAM_COMPATIBILITY_FIELDS = new Set<RulePortCompatibilityField>(["data", "format", "operation"]);
 
 export type RulePortCompatibilityField = (typeof COMPATIBILITY_FIELDS)[number];
 export type RulePortCompatibilitySpec = Partial<Record<RulePortCompatibilityField, string>>;
+export type RulePortCompatibilityDecision = {
+  compatible: boolean;
+  score: number | null;
+  matchedFields: RulePortCompatibilityField[];
+  advisoryFields: RulePortCompatibilityField[];
+  mismatchedField?: RulePortCompatibilityField;
+  hardChecks: string[];
+};
 
 export function readPortCompatibility(item: Record<string, unknown>): RulePortCompatibilitySpec {
   const spec: RulePortCompatibilitySpec = {};
@@ -17,6 +29,14 @@ export function readPortCompatibility(item: Record<string, unknown>): RulePortCo
     const value = stringValue(item.edamData);
     if (value) spec.data = value;
   }
+  if (!spec.operation) {
+    const value = stringValue(item.edamOperation);
+    if (value) spec.operation = value;
+  }
+  if (!spec.resource) {
+    const value = stringValue(item.edamResource);
+    if (value) spec.resource = value;
+  }
   return spec;
 }
 
@@ -30,7 +50,7 @@ export function describePortCompatibility(
   }
   const matched = matchedPortCompatibilityFields(input, output);
   const referenced: RulePortCompatibilityField[] = [];
-  for (const field of COMPATIBILITY_FIELDS) {
+  for (const field of HARD_COMPATIBILITY_FIELDS) {
     const inputValue = stringValue(input[field]);
     const outputValue = stringValue(output[field]);
     if (Boolean(inputValue) !== Boolean(outputValue)) referenced.push(field);
@@ -45,7 +65,26 @@ export function describePortCompatibility(
 }
 
 export function portsCompatible(input: RulePortCompatibilitySpec, output: RulePortCompatibilitySpec): boolean {
-  return portCompatibilityScore(input, output) !== null;
+  return portCompatibilityDecision(input, output).compatible;
+}
+
+export function portCompatibilityDecision(
+  input: RulePortCompatibilitySpec,
+  output: RulePortCompatibilitySpec
+): RulePortCompatibilityDecision {
+  const mismatchedField = mismatchedPortCompatibilityField(input, output);
+  const score = portCompatibilityScore(input, output);
+  return {
+    compatible: score !== null,
+    score,
+    matchedFields: matchedPortCompatibilityFields(input, output),
+    advisoryFields: matchedAdvisoryPortCompatibilityFields(input, output),
+    ...(mismatchedField ? { mismatchedField } : {}),
+    hardChecks: [
+      "port-direction:output-to-input",
+      mismatchedField ? `${mismatchedField}:conflict` : "semantic-fields-compatible",
+    ],
+  };
 }
 
 export function portCompatibilityScore(
@@ -53,9 +92,9 @@ export function portCompatibilityScore(
   output: RulePortCompatibilitySpec
 ): number | null {
   let score = 0;
-  for (const field of COMPATIBILITY_FIELDS) {
-    const inputValue = stringValue(input[field]);
-    const outputValue = stringValue(output[field]);
+  for (const field of HARD_COMPATIBILITY_FIELDS) {
+    const inputValue = normalizedCompatibilityValue(field, input[field]);
+    const outputValue = normalizedCompatibilityValue(field, output[field]);
     if (inputValue && outputValue && inputValue !== outputValue) return null;
     if (inputValue && outputValue) score += 4;
     else if (inputValue || outputValue) score += 1;
@@ -67,9 +106,19 @@ export function matchedPortCompatibilityFields(
   input: RulePortCompatibilitySpec,
   output: RulePortCompatibilitySpec
 ): RulePortCompatibilityField[] {
-  return COMPATIBILITY_FIELDS.filter((field) => {
-    const inputValue = stringValue(input[field]);
-    return Boolean(inputValue && inputValue === stringValue(output[field]));
+  return HARD_COMPATIBILITY_FIELDS.filter((field) => {
+    const inputValue = normalizedCompatibilityValue(field, input[field]);
+    return Boolean(inputValue && inputValue === normalizedCompatibilityValue(field, output[field]));
+  });
+}
+
+export function matchedAdvisoryPortCompatibilityFields(
+  input: RulePortCompatibilitySpec,
+  output: RulePortCompatibilitySpec
+): RulePortCompatibilityField[] {
+  return ADVISORY_COMPATIBILITY_FIELDS.filter((field) => {
+    const inputValue = normalizedCompatibilityValue(field, input[field]);
+    return Boolean(inputValue && inputValue === normalizedCompatibilityValue(field, output[field]));
   });
 }
 
@@ -77,11 +126,19 @@ export function mismatchedPortCompatibilityField(
   input: RulePortCompatibilitySpec,
   output: RulePortCompatibilitySpec
 ): RulePortCompatibilityField | undefined {
-  return COMPATIBILITY_FIELDS.find((field) => {
-    const inputValue = stringValue(input[field]);
-    const outputValue = stringValue(output[field]);
+  return HARD_COMPATIBILITY_FIELDS.find((field) => {
+    const inputValue = normalizedCompatibilityValue(field, input[field]);
+    const outputValue = normalizedCompatibilityValue(field, output[field]);
     return Boolean(inputValue && outputValue && inputValue !== outputValue);
   });
+}
+
+export function normalizedCompatibilityValue(field: RulePortCompatibilityField, value: unknown): string {
+  const text = stringValue(value);
+  if (!text) return "";
+  if (!EDAM_COMPATIBILITY_FIELDS.has(field)) return text;
+  const withoutUri = text.includes("/") ? text.split("/").at(-1) || text : text;
+  return withoutUri.replace(/^EDAM:/i, "");
 }
 
 function stringValue(value: unknown): string {

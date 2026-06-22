@@ -4,7 +4,10 @@ import re
 from typing import Any
 
 
-COMPATIBILITY_FIELDS = ["type", "kind", "mimeType", "data", "format"]
+HARD_COMPATIBILITY_FIELDS = ["type", "kind", "mimeType", "data", "format", "resource"]
+ADVISORY_COMPATIBILITY_FIELDS = ["operation"]
+COMPATIBILITY_FIELDS = [*HARD_COMPATIBILITY_FIELDS, *ADVISORY_COMPATIBILITY_FIELDS]
+EDAM_COMPATIBILITY_FIELDS = {"data", "format", "operation"}
 
 
 def build_output_port_specs(rule_template: dict[str, Any]) -> dict[str, dict[str, str]]:
@@ -58,18 +61,41 @@ def port_spec_from_rule_item(rule_item: dict[str, Any]) -> dict[str, str]:
         edam_data = str(rule_item.get("edamData") or "").strip()
         if edam_data:
             spec["data"] = edam_data
+    if "operation" not in spec:
+        edam_operation = str(rule_item.get("edamOperation") or "").strip()
+        if edam_operation:
+            spec["operation"] = edam_operation
+    if "resource" not in spec:
+        edam_resource = str(rule_item.get("edamResource") or "").strip()
+        if edam_resource:
+            spec["resource"] = edam_resource
     return spec
 
 
 def ports_compatible(input_spec: dict[str, str], output_spec: dict[str, str]) -> bool:
-    return port_compatibility_score(input_spec, output_spec) is not None
+    return port_compatibility_decision(input_spec, output_spec)["compatible"] is True
+
+
+def port_compatibility_decision(input_spec: dict[str, str], output_spec: dict[str, str]) -> dict[str, Any]:
+    mismatch = mismatched_compatibility_field(input_spec, output_spec)
+    score = port_compatibility_score(input_spec, output_spec)
+    return {
+        "compatible": score is not None,
+        "score": score,
+        "matchedFields": matched_compatibility_fields(input_spec, output_spec),
+        "advisoryFields": matched_advisory_compatibility_fields(input_spec, output_spec),
+        "mismatchedField": mismatch,
+        "hardChecks": ["port-direction:output-to-input", "semantic-fields-compatible" if not mismatch else f"{mismatch}-compatible"],
+        "inputSpec": dict(input_spec),
+        "outputSpec": dict(output_spec),
+    }
 
 
 def port_compatibility_score(input_spec: dict[str, str], output_spec: dict[str, str]) -> int | None:
     score = 0
-    for key in COMPATIBILITY_FIELDS:
-        input_value = input_spec.get(key)
-        output_value = output_spec.get(key)
+    for key in HARD_COMPATIBILITY_FIELDS:
+        input_value = normalized_compatibility_value(key, input_spec.get(key))
+        output_value = normalized_compatibility_value(key, output_spec.get(key))
         if input_value and output_value and input_value != output_value:
             return None
         if input_value and output_value:
@@ -82,18 +108,39 @@ def port_compatibility_score(input_spec: dict[str, str], output_spec: dict[str, 
 def matched_compatibility_fields(input_spec: dict[str, str], output_spec: dict[str, str]) -> list[str]:
     return [
         key
-        for key in COMPATIBILITY_FIELDS
-        if input_spec.get(key) and output_spec.get(key) and input_spec.get(key) == output_spec.get(key)
+        for key in HARD_COMPATIBILITY_FIELDS
+        if normalized_compatibility_value(key, input_spec.get(key))
+        and normalized_compatibility_value(key, input_spec.get(key)) == normalized_compatibility_value(key, output_spec.get(key))
     ]
 
 
 def mismatched_compatibility_field(input_spec: dict[str, str], output_spec: dict[str, str]) -> str:
-    for key in COMPATIBILITY_FIELDS:
-        input_value = input_spec.get(key)
-        output_value = output_spec.get(key)
+    for key in HARD_COMPATIBILITY_FIELDS:
+        input_value = normalized_compatibility_value(key, input_spec.get(key))
+        output_value = normalized_compatibility_value(key, output_spec.get(key))
         if input_value and output_value and input_value != output_value:
             return key
     return ""
+
+
+def matched_advisory_compatibility_fields(input_spec: dict[str, str], output_spec: dict[str, str]) -> list[str]:
+    return [
+        key
+        for key in ADVISORY_COMPATIBILITY_FIELDS
+        if normalized_compatibility_value(key, input_spec.get(key))
+        and normalized_compatibility_value(key, input_spec.get(key)) == normalized_compatibility_value(key, output_spec.get(key))
+    ]
+
+
+def normalized_compatibility_value(field: str, value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if field not in EDAM_COMPATIBILITY_FIELDS:
+        return text
+    if "/" in text:
+        text = text.rsplit("/", 1)[-1]
+    return re.sub(r"^EDAM:", "", text, flags=re.IGNORECASE)
 
 
 def _rule_io_items(rule_template: dict[str, Any], key: str) -> list[dict[str, Any]]:

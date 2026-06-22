@@ -107,6 +107,8 @@ export type RuleInputSpec = {
   mimeType?: string;
   data?: string;
   format?: string;
+  operation?: string;
+  resource?: string;
   multiple?: boolean;
 };
 
@@ -118,6 +120,8 @@ export type RuleOutputSpec = {
   mimeType?: string;
   data?: string;
   format?: string;
+  operation?: string;
+  resource?: string;
   temp?: boolean;
   protected?: boolean;
   directory?: boolean;
@@ -459,6 +463,8 @@ export function describePortSpec(port: RuleInputSpec | RuleOutputSpec): string {
     port.mimeType,
     port.format,
     port.data,
+    port.operation,
+    port.resource,
     port.type,
     ...outputSemanticTags(port),
   ].filter((value): value is string => Boolean(value));

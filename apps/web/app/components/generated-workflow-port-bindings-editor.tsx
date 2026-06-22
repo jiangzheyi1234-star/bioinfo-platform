@@ -6,6 +6,10 @@ import { cn } from "@/lib/utils";
 
 import type { AddedTool } from "./tools-page-model";
 import {
+  findOneHopPortConverters,
+  type RulePortConverterCandidate,
+} from "./generated-workflow-converter-recommendation";
+import {
   describePortSpec,
   portCompatibilityScore,
   portsCompatible,
@@ -41,6 +45,7 @@ export function GeneratedWorkflowPortBindingsEditor({
   onBind,
   outputCandidates,
   tool,
+  tools,
 }: {
   edges: GeneratedWorkflowBuilderController["graphDraft"]["edges"];
   inputCount: number;
@@ -48,6 +53,7 @@ export function GeneratedWorkflowPortBindingsEditor({
   onBind: (inputName: string, binding: GeneratedWorkflowInputBinding) => void;
   outputCandidates: GeneratedWorkflowOutputCandidate[];
   tool: AddedTool | undefined;
+  tools: AddedTool[];
 }) {
   const inputs = readRuleInputs(tool);
   if (inputs.length === 0) {
@@ -77,6 +83,7 @@ export function GeneratedWorkflowPortBindingsEditor({
           <PortBindingRow
             key={input.name}
             binding={binding}
+            converterSuggestions={converterSuggestionsForInput({ candidates, input, nodeToolRevisionId: node.toolRevisionId, tools })}
             input={input}
             inputCount={inputCount}
             outputCandidates={candidates}
@@ -90,12 +97,14 @@ export function GeneratedWorkflowPortBindingsEditor({
 
 function PortBindingRow({
   binding,
+  converterSuggestions,
   input,
   inputCount,
   outputCandidates,
   onChange,
 }: {
   binding: GeneratedWorkflowInputBinding | undefined;
+  converterSuggestions: OutputConverterSuggestion[];
   input: RuleInputSpec;
   inputCount: number;
   outputCandidates: GeneratedWorkflowOutputCandidate[];
@@ -167,6 +176,17 @@ function PortBindingRow({
       {!recommended && manualOnlyCandidate?.recommendation ? (
         <div className="truncate text-[11px] text-slate-500">
           手动连接提示: {manualOnlyCandidate.recommendation.evidence.join(" · ")}
+        </div>
+      ) : null}
+      {!recommended && converterSuggestions.length > 0 ? (
+        <div className="grid gap-1 rounded-md bg-sky-50 px-2 py-2 text-[11px] text-sky-800">
+          <div className="font-medium">一跳转换建议</div>
+          {converterSuggestions.slice(0, 3).map((suggestion) => (
+            <div key={`${suggestion.sourceValue}.${suggestion.converterToolRevisionId}.${suggestion.inputName}.${suggestion.outputName}`}>
+              {suggestion.sourceLabel} -&gt; {suggestion.converterToolName}.{suggestion.inputName}/{suggestion.outputName}
+              <span className="text-sky-600"> · {suggestion.reason}</span>
+            </div>
+          ))}
         </div>
       ) : null}
     </div>
@@ -261,6 +281,38 @@ function defaultBinding(type: string, recommendedCandidates: GeneratedWorkflowOu
 
 function rankOutputCandidates(candidates: GeneratedWorkflowOutputCandidate[]) {
   return [...candidates].sort((left, right) => (right.compatibilityScore ?? -1) - (left.compatibilityScore ?? -1));
+}
+
+type OutputConverterSuggestion = RulePortConverterCandidate & {
+  sourceLabel: string;
+  sourceValue: string;
+};
+
+function converterSuggestionsForInput({
+  candidates,
+  input,
+  nodeToolRevisionId,
+  tools,
+}: {
+  candidates: GeneratedWorkflowOutputCandidate[];
+  input: RuleInputSpec;
+  nodeToolRevisionId: string;
+  tools: AddedTool[];
+}): OutputConverterSuggestion[] {
+  return candidates
+    .flatMap((candidate) =>
+      findOneHopPortConverters({
+        input,
+        output: candidate.port,
+        tools,
+        excludeToolRevisionIds: [nodeToolRevisionId],
+      }).map((converter) => ({
+        ...converter,
+        sourceLabel: candidate.label,
+        sourceValue: candidate.value,
+      }))
+    )
+    .sort((left, right) => right.totalScore - left.totalScore || left.sourceValue.localeCompare(right.sourceValue));
 }
 
 function formatRecommendationConfidence(confidence: number) {

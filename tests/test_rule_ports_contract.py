@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from core.contracts.rule_ports import (
+    matched_advisory_compatibility_fields,
     matched_compatibility_fields,
     mismatched_compatibility_field,
+    port_compatibility_decision,
     port_compatibility_score,
     port_spec_from_rule_item,
     ports_compatible,
@@ -28,6 +30,35 @@ def test_port_compatibility_score_blocks_conflicting_fields() -> None:
     assert mismatched_compatibility_field(input_spec, output_spec) == "format"
 
 
+def test_port_compatibility_normalizes_edam_uri_and_curie_aliases() -> None:
+    input_spec = {
+        "type": "file",
+        "format": "EDAM:format_2572",
+        "data": "http://edamontology.org/data_0863",
+        "operation": "EDAM:operation_0004",
+    }
+    output_spec = {
+        "type": "file",
+        "format": "http://edamontology.org/format_2572",
+        "data": "data_0863",
+        "operation": "operation_0004",
+    }
+
+    decision = port_compatibility_decision(input_spec, output_spec)
+
+    assert decision["compatible"] is True
+    assert decision["score"] == 12
+    assert decision["matchedFields"] == ["type", "data", "format"]
+    assert decision["advisoryFields"] == ["operation"]
+
+
+def test_operation_is_advisory_and_resource_conflict_is_hard_blocker() -> None:
+    assert port_compatibility_score({"operation": "trim"}, {"operation": "qc"}) == 0
+    assert matched_advisory_compatibility_fields({"operation": "trim"}, {"operation": "trim"}) == ["operation"]
+    assert port_compatibility_score({"resource": "db_a"}, {"resource": "db_b"}) is None
+    assert mismatched_compatibility_field({"resource": "db_a"}, {"resource": "db_b"}) == "resource"
+
+
 def test_port_compatibility_score_keeps_one_sided_evidence_manual() -> None:
     assert port_compatibility_score({"type": "file", "format": "format_2572"}, {"type": "file"}) == 5
     assert port_compatibility_score({"format": "format_2572"}, {}) == 1
@@ -43,4 +74,3 @@ def test_port_spec_from_rule_item_accepts_edam_aliases() -> None:
             "edamData": "data_2044",
         }
     ) == {"type": "file", "data": "data_2044", "format": "format_2572"}
-

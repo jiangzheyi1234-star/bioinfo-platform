@@ -112,6 +112,10 @@ def test_generated_workflow_builder_uses_server_tool_recommendations() -> None:
     assert "fetchCapabilityGraphSnapshot" in api
     assert "/api/v1/tool-capabilities/candidate-recommendations" not in api
     assert "workflowRecommendationsFromCapabilityGraph" in api
+    assert "portCompatibilityDecision" in api
+    assert "capabilityPortSpec" in api
+    assert "decision.matchedFields" in api
+    assert "const fields: Array<keyof RuleOutputSpec>" not in api
     assert "agentSelectable === true" in api
     assert "node.capabilityBundle?.capabilityId" in api
     assert "candidateKind: \"capability-bundle\"" in api
@@ -191,6 +195,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     command_contract_path = COMPONENTS / "generated-workflow-command-contract.ts"
     param_contract_path = COMPONENTS / "generated-workflow-param-contract.ts"
     port_contract_path = COMPONENTS / "generated-workflow-port-contract.ts"
+    converter_contract_path = COMPONENTS / "generated-workflow-converter-recommendation.ts"
     recommendation_contract_path = COMPONENTS / "generated-workflow-recommendation-contract.ts"
     rule_action_contract_path = COMPONENTS / "generated-workflow-rule-action-contract.ts"
     snakefile_preview_path = COMPONENTS / "generated-workflow-snakefile-preview.tsx"
@@ -215,6 +220,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert command_contract_path.exists()
     assert param_contract_path.exists()
     assert port_contract_path.exists()
+    assert converter_contract_path.exists()
     assert recommendation_contract_path.exists()
     assert rule_action_contract_path.exists()
     assert snakefile_preview_path.exists()
@@ -234,6 +240,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     command_contract = command_contract_path.read_text(encoding="utf-8")
     param_contract = param_contract_path.read_text(encoding="utf-8")
     port_contract = port_contract_path.read_text(encoding="utf-8")
+    converter_contract = converter_contract_path.read_text(encoding="utf-8")
     recommendation_contract = recommendation_contract_path.read_text(encoding="utf-8")
     rule_action_contract = rule_action_contract_path.read_text(encoding="utf-8")
     snakefile_preview_ui = snakefile_preview_path.read_text(encoding="utf-8")
@@ -303,13 +310,23 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "validateStepRuntime" in model
     assert "readPortCompatibility" in port_contract
     assert "describePortCompatibility" in port_contract
+    assert "HARD_COMPATIBILITY_FIELDS" in port_contract
+    assert "ADVISORY_COMPATIBILITY_FIELDS" in port_contract
+    assert "normalizedCompatibilityValue" in port_contract
     assert "portCompatibilityScore" in port_contract
     assert "matchedPortCompatibilityFields" in port_contract
     assert "mismatchedPortCompatibilityField" in port_contract
+    assert "export function findOneHopPortConverters" in converter_contract
+    assert "RulePortConverterCandidate" in converter_contract
+    assert "matchedPortCompatibilityFields(converterInput, output)" in converter_contract
+    assert "matchedPortCompatibilityFields(input, converterOutput)" in converter_contract
+    assert "buildConverterInsertionPatch" not in model
+    assert "converterPath" not in design_model
     assert "COMPATIBILITY_FIELDS" not in model
     assert "portCompatibilityScore as scorePortCompatibility" in model
-    assert "matchedPortCompatibilityFields" in recommendation_contract
-    assert "mismatchedPortCompatibilityField" in recommendation_contract
+    assert "portCompatibilityDecision" in recommendation_contract
+    assert "compatibilityDecision.matchedFields" in recommendation_contract
+    assert "compatibilityDecision.mismatchedField" in recommendation_contract
     assert "COMPATIBILITY_FIELDS" not in recommendation_contract
     assert "export type RulePortRecommendationDecision" in recommendation_contract
     assert "export type RulePortRecommendation" in recommendation_contract
@@ -544,6 +561,10 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "手动连接提示" in port_bindings_editor_ui
     assert "confidence" in port_bindings_editor_ui
     assert "compatibilityScore" in port_bindings_editor_ui
+    assert "converterSuggestionsForInput" in port_bindings_editor_ui
+    assert "一跳转换建议" in port_bindings_editor_ui
+    assert "findOneHopPortConverters" in port_bindings_editor_ui
+    assert "tools={tools}" in builder_ui
     assert "应用推荐" in port_bindings_editor_ui
     assert "autoEdgeAudit(recommended.recommendation)" in port_bindings_editor_ui
     assert "（推荐）" in port_bindings_editor_ui

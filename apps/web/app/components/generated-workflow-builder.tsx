@@ -405,6 +405,7 @@ function WorkflowGraphWorkbench({
                 node={selectedNode}
                 outputCandidates={outputCandidates}
                 tool={selectedTool}
+                tools={tools}
                 onBind={(inputName, binding) => builder.setInputBinding(selectedNode.id, inputName, binding)}
               />
             </div>
