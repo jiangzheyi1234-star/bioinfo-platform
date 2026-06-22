@@ -84,6 +84,8 @@ rejected at Local API startup.
 - Default workflow permissions must stay least-privilege, with `contents: read` unless a job explicitly needs more.
 - CI requires root and web npm lockfiles to pass moderate-or-higher audit using the official npm registry.
 - CI requires `pip-audit` for locked Python dependencies. Any ignore must be scoped to a single vulnerability ID and documented in this file with a removal trigger.
+- CodeQL, Dependency Review, and OpenSSF Scorecard remain planned security-analysis gates until repository visibility, GitHub plan, or GitHub Advanced Security availability can run them green. When enabled, they must use SHA-pinned actions, least-privilege permissions, no `pull_request_target`, and the narrow Dependency Review shape documented in the roadmap.
+- `.github/CODEOWNERS` owns workflow files, `scripts/security_governance_audit.py`, and `core/governance_policy.py` so branch protection or rulesets can require review for security-sensitive automation changes when repository permissions allow.
 - Remote runner production promotion must continue to require release artifact integrity evidence, including manifest, digest, SBOM, provenance, and attestation where available.
 
 ### Remote Operation Audit
@@ -123,7 +125,8 @@ Before treating a build as production-ready:
 6. Python `pip-audit` is clean except for explicitly scoped ignores listed below.
 7. SSH host keys are trusted through known_hosts and unknown keys fail with `SSH_HOST_KEY_UNTRUSTED`.
 8. Remote runner release artifacts include manifest, digest, SBOM, provenance, and attestation evidence.
-9. Any scoped runtime limit is listed in this document or the maturity roadmap with an owner and removal trigger.
+9. CodeQL, Dependency Review, and Scorecard have either run green where GitHub feature availability permits or are explicitly recorded as unavailable platform gates for the handoff.
+10. Any scoped runtime limit is listed in this document or the maturity roadmap with an owner and removal trigger.
 
 ## Scoped Runtime Limits
 
@@ -131,6 +134,7 @@ Before treating a build as production-ready:
 2. Server single-user bind-all remains unsupported and fail-closed until an authenticated reverse-proxy/container profile is implemented and tested.
 3. Server multi-user mode remains planned, not implemented, and fail-closed at startup. Public deployment requires auth, RBAC, tenant isolation, audited admin actions, TLS, and production image hardening.
 4. High-risk API policies that are marked `required-before-multi-user` must gain route-level auth/RBAC enforcement and hash-chained audit evidence before `server-multi-user` can move into `SUPPORTED_DEPLOYMENT_MODES`.
+5. Private-repository CodeQL, Dependency Review, and Scorecard uploads depend on GitHub plan and repository feature availability. Do not add them as required gates until the repository can run them green.
 
 ## Practice Baseline
 

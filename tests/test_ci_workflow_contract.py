@@ -70,8 +70,26 @@ def test_ci_workflow_runs_security_governance_gate() -> None:
 
 
 def test_ci_workflow_uses_sha_pinned_actions() -> None:
-    source = CI_WORKFLOW.read_text(encoding="utf-8")
+    source = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((REPOSITORY_ROOT / ".github" / "workflows").glob("*.yml"))
+    )
     uses_lines = re.findall(r"uses:\s+[^@\s]+@([^\s#]+)", source)
 
     assert uses_lines
     assert all(re.fullmatch(r"[0-9a-f]{40}", ref) for ref in uses_lines)
+
+
+def test_workflows_do_not_use_privileged_untrusted_pr_triggers() -> None:
+    for path in sorted((REPOSITORY_ROOT / ".github" / "workflows").glob("*.yml")):
+        source = path.read_text(encoding="utf-8")
+        assert "pull_request_target:" not in source
+        assert "workflow_run:" not in source
+
+
+def test_codeowners_covers_security_sensitive_automation() -> None:
+    source = (REPOSITORY_ROOT / ".github" / "CODEOWNERS").read_text(encoding="utf-8")
+
+    assert "/.github/workflows/ @jiangzheyi1234-star" in source
+    assert "/scripts/security_governance_audit.py @jiangzheyi1234-star" in source
+    assert "/core/governance_policy.py @jiangzheyi1234-star" in source

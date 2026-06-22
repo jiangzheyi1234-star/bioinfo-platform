@@ -76,7 +76,7 @@ Closure requires:
 ## P1 Sequence
 
 1. Split frontend hotspots so no new TS/TSX file exceeds 800 lines and known oversized files only shrink.
-2. Add Dependency Review, CodeQL, OpenSSF Scorecard, Dependabot security updates, and documented repository security settings when platform permissions allow.
+2. Add Dependency Review first when platform permissions allow, using PR-only `contents: read`, SHA-pinned `actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294`, `fail-on-severity: moderate`, no PR comments, and inclusion in `required / ci-green`; then add CodeQL and OpenSSF Scorecard only after GitHub feature availability can run them green.
 3. Make production release checks require supply-chain evidence by default for production runtime handoff.
 4. Harden Docker Compose from experimental single-user draft into a tested deployment profile only after auth, secrets, non-root containers, reverse proxy/TLS, and image scanning are resolved.
 5. Extend release artifacts with product-level SBOM/provenance where web, desktop, database packs, and runtime bundles leave the local development machine.

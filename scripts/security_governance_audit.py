@@ -203,6 +203,14 @@ def scan_security_contracts() -> list[Finding]:
                         "third-party actions must be pinned to a full commit SHA",
                     )
                 )
+    codeowners = ROOT / ".github" / "CODEOWNERS"
+    if not codeowners.exists():
+        findings.append(Finding("codeowners-missing", ".github/CODEOWNERS", 0, "security-sensitive automation requires CODEOWNERS"))
+    else:
+        source = codeowners.read_text(encoding="utf-8")
+        for marker in ("/.github/workflows/", "/scripts/security_governance_audit.py", "/core/governance_policy.py"):
+            if marker not in source:
+                findings.append(Finding("codeowners-incomplete", ".github/CODEOWNERS", 0, f"CODEOWNERS missing {marker}"))
     return findings
 
 
