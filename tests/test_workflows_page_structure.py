@@ -303,6 +303,14 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "validateStepRuntime" in model
     assert "readPortCompatibility" in port_contract
     assert "describePortCompatibility" in port_contract
+    assert "portCompatibilityScore" in port_contract
+    assert "matchedPortCompatibilityFields" in port_contract
+    assert "mismatchedPortCompatibilityField" in port_contract
+    assert "COMPATIBILITY_FIELDS" not in model
+    assert "portCompatibilityScore as scorePortCompatibility" in model
+    assert "matchedPortCompatibilityFields" in recommendation_contract
+    assert "mismatchedPortCompatibilityField" in recommendation_contract
+    assert "COMPATIBILITY_FIELDS" not in recommendation_contract
     assert "export type RulePortRecommendationDecision" in recommendation_contract
     assert "export type RulePortRecommendation" in recommendation_contract
     assert "decision: RulePortRecommendationDecision" in recommendation_contract

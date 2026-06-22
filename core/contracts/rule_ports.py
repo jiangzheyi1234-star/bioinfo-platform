@@ -62,7 +62,21 @@ def port_spec_from_rule_item(rule_item: dict[str, Any]) -> dict[str, str]:
 
 
 def ports_compatible(input_spec: dict[str, str], output_spec: dict[str, str]) -> bool:
-    return mismatched_compatibility_field(input_spec, output_spec) == ""
+    return port_compatibility_score(input_spec, output_spec) is not None
+
+
+def port_compatibility_score(input_spec: dict[str, str], output_spec: dict[str, str]) -> int | None:
+    score = 0
+    for key in COMPATIBILITY_FIELDS:
+        input_value = input_spec.get(key)
+        output_value = output_spec.get(key)
+        if input_value and output_value and input_value != output_value:
+            return None
+        if input_value and output_value:
+            score += 4
+        elif input_value or output_value:
+            score += 1
+    return score
 
 
 def matched_compatibility_fields(input_spec: dict[str, str], output_spec: dict[str, str]) -> list[str]:

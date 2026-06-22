@@ -24,16 +24,16 @@ export function describePortCompatibility(
   input: RulePortCompatibilitySpec,
   output: RulePortCompatibilitySpec
 ): string {
-  const matched: RulePortCompatibilityField[] = [];
+  const mismatch = mismatchedPortCompatibilityField(input, output);
+  if (mismatch) {
+    return `不兼容: ${compatibilityFieldLabel(mismatch)} 不一致`;
+  }
+  const matched = matchedPortCompatibilityFields(input, output);
   const referenced: RulePortCompatibilityField[] = [];
   for (const field of COMPATIBILITY_FIELDS) {
     const inputValue = stringValue(input[field]);
     const outputValue = stringValue(output[field]);
-    if (inputValue && outputValue && inputValue !== outputValue) {
-      return `不兼容: ${compatibilityFieldLabel(field)} 不一致`;
-    }
-    if (inputValue && outputValue) matched.push(field);
-    else if (inputValue || outputValue) referenced.push(field);
+    if (Boolean(inputValue) !== Boolean(outputValue)) referenced.push(field);
   }
   if (matched.length > 0) {
     return `匹配 ${matched.map(compatibilityFieldLabel).join(" / ")}`;
@@ -42,6 +42,46 @@ export function describePortCompatibility(
     return `参考 ${referenced.map(compatibilityFieldLabel).join(" / ")}`;
   }
   return "未声明类型，允许手动连接";
+}
+
+export function portsCompatible(input: RulePortCompatibilitySpec, output: RulePortCompatibilitySpec): boolean {
+  return portCompatibilityScore(input, output) !== null;
+}
+
+export function portCompatibilityScore(
+  input: RulePortCompatibilitySpec,
+  output: RulePortCompatibilitySpec
+): number | null {
+  let score = 0;
+  for (const field of COMPATIBILITY_FIELDS) {
+    const inputValue = stringValue(input[field]);
+    const outputValue = stringValue(output[field]);
+    if (inputValue && outputValue && inputValue !== outputValue) return null;
+    if (inputValue && outputValue) score += 4;
+    else if (inputValue || outputValue) score += 1;
+  }
+  return score;
+}
+
+export function matchedPortCompatibilityFields(
+  input: RulePortCompatibilitySpec,
+  output: RulePortCompatibilitySpec
+): RulePortCompatibilityField[] {
+  return COMPATIBILITY_FIELDS.filter((field) => {
+    const inputValue = stringValue(input[field]);
+    return Boolean(inputValue && inputValue === stringValue(output[field]));
+  });
+}
+
+export function mismatchedPortCompatibilityField(
+  input: RulePortCompatibilitySpec,
+  output: RulePortCompatibilitySpec
+): RulePortCompatibilityField | undefined {
+  return COMPATIBILITY_FIELDS.find((field) => {
+    const inputValue = stringValue(input[field]);
+    const outputValue = stringValue(output[field]);
+    return Boolean(inputValue && outputValue && inputValue !== outputValue);
+  });
 }
 
 function stringValue(value: unknown): string {

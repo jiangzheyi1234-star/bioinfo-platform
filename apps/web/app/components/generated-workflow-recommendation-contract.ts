@@ -1,6 +1,7 @@
 import {
-  COMPATIBILITY_FIELDS,
   describePortCompatibility,
+  matchedPortCompatibilityFields,
+  mismatchedPortCompatibilityField,
   type RulePortCompatibilityField,
   type RulePortCompatibilitySpec,
 } from "./generated-workflow-port-contract";
@@ -34,7 +35,7 @@ export function explainPortRecommendation(
   output: RulePortRecommendationPort
 ): RulePortRecommendation {
   const compatibility = describePortCompatibility(input, output);
-  const mismatch = mismatchedField(input, output);
+  const mismatch = mismatchedPortCompatibilityField(input, output);
   if (mismatch) {
     return {
       decision: "blocked",
@@ -45,7 +46,7 @@ export function explainPortRecommendation(
     };
   }
 
-  const matched = matchedFields(input, output);
+  const matched = matchedPortCompatibilityFields(input, output);
   const hasStrongEvidence = matched.length > 0;
   const evidence = [
     hasStrongEvidence ? compatibility : "类型证据不足，保留为手动连接",
@@ -81,21 +82,6 @@ export function manualEdgeAudit(): RulePortEdgeAudit {
     confidence: 1,
     reason: "手动连接",
   };
-}
-
-function matchedFields(input: RulePortRecommendationPort, output: RulePortRecommendationPort): RulePortCompatibilityField[] {
-  return COMPATIBILITY_FIELDS.filter((field) => stringValue(input[field]) && stringValue(input[field]) === stringValue(output[field]));
-}
-
-function mismatchedField(
-  input: RulePortRecommendationPort,
-  output: RulePortRecommendationPort
-): RulePortCompatibilityField | undefined {
-  return COMPATIBILITY_FIELDS.find((field) => {
-    const inputValue = stringValue(input[field]);
-    const outputValue = stringValue(output[field]);
-    return Boolean(inputValue && outputValue && inputValue !== outputValue);
-  });
 }
 
 function portNameEvidence(input: RulePortRecommendationPort, output: RulePortRecommendationPort): string {

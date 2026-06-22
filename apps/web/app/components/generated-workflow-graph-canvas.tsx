@@ -1,9 +1,14 @@
 "use client";
 
-import { useMemo } from "react";
+import { type CSSProperties, useMemo } from "react";
 
 import type { AddedTool } from "./tools-page-model";
 import { RuleGraphNodeCard } from "./generated-workflow-graph-node-card";
+import {
+  layoutGeneratedWorkflowGraph,
+  type GeneratedWorkflowGraphLayout,
+  type GeneratedWorkflowGraphNodePosition,
+} from "./generated-workflow-graph-layout";
 import { readRuleInputs, readRuleOutputs, workflowToolRevisionEntries, type GeneratedWorkflowValidationIssue } from "./generated-workflow-model";
 import type { GeneratedWorkflowBuilderController } from "./use-generated-workflow-builder";
 
@@ -26,25 +31,32 @@ export function GeneratedWorkflowGraphCanvas({
   validationIssues: GeneratedWorkflowValidationIssue[];
 }) {
   const toolByRevisionId = useMemo(() => new Map(workflowToolRevisionEntries(tools)), [tools]);
+  const layout = useMemo(() => layoutGeneratedWorkflowGraph({ edges, nodes }), [edges, nodes]);
   if (nodes.length === 0) {
     return <div className="rounded-md bg-white px-3 py-2 text-xs text-slate-500">还没有规则节点。从工具库添加 RuleSpec 节点。</div>;
   }
   return (
     <div className="relative min-h-[190px] overflow-hidden rounded-md">
-      <WorkflowGraphEdgeLayer edges={edges} nodes={nodes} toolByRevisionId={toolByRevisionId} />
-      <div className="relative z-10 grid gap-2 md:grid-cols-2">
-        {nodes.map((node) => {
+      <WorkflowGraphEdgeLayer edges={edges} layout={layout} nodes={nodes} toolByRevisionId={toolByRevisionId} />
+      <GraphLayoutStyles />
+      <div
+        className="generated-workflow-graph-layout relative z-10 grid grid-cols-1 gap-2"
+        style={graphLayoutStyle(layout.columnCount)}
+      >
+        {layout.items.map((item) => {
+          const node = item.node;
           const selected = selectedNodeId === node.id;
           return (
-            <RuleGraphNodeCard
-              edges={edges}
-              key={node.id}
-              node={node}
-              onSelect={() => onSelectNode(node.id)}
-              selected={selected}
-              tool={toolByRevisionId.get(node.toolRevisionId)}
-              validationIssues={validationIssues.filter((issue) => issue.stepId === node.id)}
-            />
+            <div className="generated-workflow-graph-layout-item min-w-0" key={node.id} style={graphLayoutItemStyle(item)}>
+              <RuleGraphNodeCard
+                edges={edges}
+                node={node}
+                onSelect={() => onSelectNode(node.id)}
+                selected={selected}
+                tool={toolByRevisionId.get(node.toolRevisionId)}
+                validationIssues={validationIssues.filter((issue) => issue.stepId === node.id)}
+              />
+            </div>
           );
         })}
       </div>
@@ -54,20 +66,22 @@ export function GeneratedWorkflowGraphCanvas({
 
 function WorkflowGraphEdgeLayer({
   edges,
+  layout,
   nodes,
   toolByRevisionId,
 }: {
   edges: GraphEdge[];
+  layout: GeneratedWorkflowGraphLayout;
   nodes: GraphNode[];
   toolByRevisionId: Map<string, AddedTool>;
 }) {
-  const positions = nodePositions(nodes);
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
   const visibleEdges = edges
     .map((edge) => {
-      const fromNode = nodes.find((node) => node.id === edge.from.nodeId);
-      const toNode = nodes.find((node) => node.id === edge.to.nodeId);
-      const fromPosition = positions.get(edge.from.nodeId);
-      const toPosition = positions.get(edge.to.nodeId);
+      const fromNode = nodeById.get(edge.from.nodeId);
+      const toNode = nodeById.get(edge.to.nodeId);
+      const fromPosition = layout.positions.get(edge.from.nodeId);
+      const toPosition = layout.positions.get(edge.to.nodeId);
       if (!fromNode || !toNode || !fromPosition || !toPosition) return null;
       return {
         edge,
@@ -113,32 +127,6 @@ type GraphPoint = {
   y: number;
 };
 
-type GraphNodePosition = {
-  centerY: number;
-  inputX: number;
-  outputX: number;
-};
-
-function nodePositions(nodes: GraphNode[]) {
-  const columns = nodes.length <= 1 ? 1 : 2;
-  const rows = Math.max(1, Math.ceil(nodes.length / columns));
-  return new Map(
-    nodes.map((node, index) => {
-      const column = index % columns;
-      const row = Math.floor(index / columns);
-      const centerX = columns === 1 ? 500 : column === 0 ? 245 : 755;
-      return [
-        node.id,
-        {
-          centerY: ((row + 0.5) / rows) * 1000,
-          inputX: Math.max(40, centerX - 210),
-          outputX: Math.min(960, centerX + 210),
-        },
-      ];
-    })
-  );
-}
-
 function portAnchorForEdge({
   direction,
   edge,
@@ -149,7 +137,7 @@ function portAnchorForEdge({
   direction: "input" | "output";
   edge: GraphEdge;
   node: GraphNode;
-  position: GraphNodePosition;
+  position: GeneratedWorkflowGraphNodePosition;
   tool: AddedTool | undefined;
 }) {
   const portName = direction === "output" ? edge.from.port : edge.to.port;
@@ -175,4 +163,32 @@ function edgePath(from: GraphPoint, to: GraphPoint) {
   const fromY = from.y + (to.y > from.y ? vertical : to.y < from.y ? -vertical : 0);
   const toY = to.y + (from.y > to.y ? vertical : from.y < to.y ? -vertical : 0);
   return `M ${from.x} ${from.y} C ${from.x + fromBias} ${fromY}, ${to.x + toBias} ${toY}, ${to.x} ${to.y}`;
+}
+
+function graphLayoutStyle(columnCount: number): CSSProperties {
+  return { "--workflow-graph-columns": columnCount } as CSSProperties;
+}
+
+function graphLayoutItemStyle(item: GeneratedWorkflowGraphNodePosition): CSSProperties {
+  return {
+    "--workflow-graph-column": item.column + 1,
+    "--workflow-graph-row": item.row + 1,
+  } as CSSProperties;
+}
+
+function GraphLayoutStyles() {
+  return (
+    <style>{`
+@media (min-width: 768px) {
+  .generated-workflow-graph-layout {
+    grid-template-columns: repeat(var(--workflow-graph-columns), minmax(0, 1fr));
+  }
+
+  .generated-workflow-graph-layout-item {
+    grid-column: var(--workflow-graph-column);
+    grid-row: var(--workflow-graph-row);
+  }
+}
+`}</style>
+  );
 }

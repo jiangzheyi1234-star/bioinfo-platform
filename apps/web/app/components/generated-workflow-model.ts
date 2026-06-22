@@ -2,7 +2,8 @@ import type { AddedTool } from "./tools-page-model";
 import { validateStepCommandPortBindings } from "./generated-workflow-command-contract";
 import { validateStepParamBindings } from "./generated-workflow-param-contract";
 import {
-  COMPATIBILITY_FIELDS,
+  portCompatibilityScore as scorePortCompatibility,
+  portsCompatible as rulePortsCompatible,
   readPortCompatibility,
 } from "./generated-workflow-port-contract";
 import {
@@ -445,19 +446,11 @@ export function findCompatibleOutputBinding(
 }
 
 export function portsCompatible(input: RuleInputSpec, output: RuleOutputSpec): boolean {
-  return portCompatibilityScore(input, output) !== null;
+  return rulePortsCompatible(input, output);
 }
 
 export function portCompatibilityScore(input: RuleInputSpec, output: RuleOutputSpec): number | null {
-  let score = 0;
-  for (const field of COMPATIBILITY_FIELDS) {
-    const inputValue = input[field];
-    const outputValue = output[field];
-    if (inputValue && outputValue && inputValue !== outputValue) return null;
-    if (inputValue && outputValue) score += 4;
-    else if (inputValue || outputValue) score += 1;
-  }
-  return score;
+  return scorePortCompatibility(input, output);
 }
 
 export function describePortSpec(port: RuleInputSpec | RuleOutputSpec): string {
