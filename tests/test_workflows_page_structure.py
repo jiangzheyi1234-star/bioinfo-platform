@@ -189,6 +189,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     design_model_path = COMPONENTS / "workflow-design-draft-model.ts"
     hook_path = COMPONENTS / "use-generated-workflow-builder.ts"
     ui_path = COMPONENTS / "generated-workflow-builder.tsx"
+    history_path = COMPONENTS / "generated-workflow-history.ts"
     graph_node_path = COMPONENTS / "generated-workflow-graph-node-card.tsx"
     graph_canvas_path = COMPONENTS / "generated-workflow-graph-canvas.tsx"
     node_settings_path = COMPONENTS / "generated-workflow-node-settings.tsx"
@@ -214,6 +215,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert design_model_path.exists()
     assert hook_path.exists()
     assert ui_path.exists()
+    assert history_path.exists()
     assert graph_node_path.exists()
     assert graph_canvas_path.exists()
     assert node_settings_path.exists()
@@ -234,6 +236,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     design_model = design_model_path.read_text(encoding="utf-8")
     builder_hook = hook_path.read_text(encoding="utf-8")
     builder_ui = ui_path.read_text(encoding="utf-8")
+    history_contract = history_path.read_text(encoding="utf-8")
     graph_node_ui = graph_node_path.read_text(encoding="utf-8")
     graph_canvas_ui = graph_canvas_path.read_text(encoding="utf-8")
     node_settings_ui = node_settings_path.read_text(encoding="utf-8")
@@ -416,6 +419,27 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "buildConverterInsertionPatch" in builder_hook
     assert "insertConverter" in builder_hook
     assert "type: \"insert_converter\"" in builder_hook
+    assert "WorkflowEditorHistory" in history_contract
+    assert "commitWorkflowEditorHistory" in history_contract
+    assert "undoWorkflowEditorHistory" in history_contract
+    assert "redoWorkflowEditorHistory" in history_contract
+    assert "replaceWorkflowEditorHistory" in history_contract
+    assert "graphHistory" in builder_hook
+    assert "canUndo" in builder_hook
+    assert "canRedo" in builder_hook
+    assert "undo: () => dispatch({ type: \"undo_graph\" })" in builder_hook
+    assert "redo: () => dispatch({ type: \"redo_graph\" })" in builder_hook
+    assert "commitWorkflowEditorHistory(state.graphHistory" in builder_hook
+    assert "graphHistoryToolsAvailable" in builder_hook
+    assert "graphToolsAvailable" in builder_hook
+    assert "replaceWorkflowEditorHistory(state.graphHistory, state.graphHistory.present)" in builder_hook
+    assert "graphHistory" not in model
+    assert "searchQuery" not in model
+    assert "graphZoom" not in model
+    assert "graphHistory" not in design_model
+    assert "searchQuery" not in design_model
+    assert "graphZoom" not in design_model
+    assert "graphHistory" not in api
 
     assert "GeneratedWorkflowBuilder" in builder_ui
     assert "WorkflowGraphWorkbench" in builder_ui
@@ -482,10 +506,21 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "recommendedCandidates[0]" in port_bindings_editor_ui
     assert "manualOnlyCandidate" in port_bindings_editor_ui
     assert "RuleGraphNodeCard" in graph_canvas_ui
-    assert "validationIssues={validationIssues" in graph_canvas_ui
+    assert "const nodeIssues = validationIssues.filter" in graph_canvas_ui
+    assert "validationIssues={nodeIssues}" in graph_canvas_ui
     assert "validationIssues={builder.validation.errors}" in builder_ui
     assert "GeneratedWorkflowGraphCanvas" in builder_ui
     assert "export function GeneratedWorkflowGraphCanvas" in graph_canvas_ui
+    assert "graphSearchQuery" in builder_ui
+    assert "graphZoom" in builder_ui
+    assert "builder.undo" in builder_ui
+    assert "builder.redo" in builder_ui
+    assert "searchQuery={graphSearchQuery}" in builder_ui
+    assert "zoom={graphZoom}" in builder_ui
+    assert "matchedGraphNodeIds" in graph_canvas_ui
+    assert "nodeIssues.length === 0" in graph_canvas_ui
+    assert "ring-2 ring-amber-300" in graph_canvas_ui
+    assert "generated-workflow-graph-viewport" in graph_canvas_ui
     assert "从工具库添加 RuleSpec 节点" in graph_canvas_ui
     assert "WorkflowGraphEdgeLayer" in graph_canvas_ui
     assert "data-workflow-graph-edge-layer" in graph_canvas_ui

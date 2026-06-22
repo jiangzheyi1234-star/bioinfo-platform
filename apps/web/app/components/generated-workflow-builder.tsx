@@ -1,7 +1,24 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertCircle, Archive, CheckCircle2, Database, FileText, Loader2, Plus, Save, Trash2, Workflow } from "lucide-react";
+import {
+  AlertCircle,
+  Archive,
+  CheckCircle2,
+  Database,
+  FileText,
+  Loader2,
+  Plus,
+  Redo2,
+  RotateCcw,
+  Save,
+  Search,
+  Trash2,
+  Undo2,
+  Workflow,
+  ZoomIn,
+  ZoomOut,
+} from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -264,6 +281,8 @@ function WorkflowGraphWorkbench({
 }) {
   const toolByRevisionId = new Map(workflowToolRevisionEntries(tools));
   const [selectedNodeId, setSelectedNodeId] = useState("");
+  const [graphSearchQuery, setGraphSearchQuery] = useState("");
+  const [graphZoom, setGraphZoom] = useState(1);
   const selectedNode = useMemo(
     () => nodes.find((node) => node.id === selectedNodeId) || nodes[0],
     [nodes, selectedNodeId]
@@ -272,6 +291,7 @@ function WorkflowGraphWorkbench({
   const removeGraphEdge = (edge: GeneratedWorkflowBuilderController["graphDraft"]["edges"][number]) => {
     builder.setInputBinding(edge.to.nodeId, edge.to.port, "");
   };
+  const updateGraphZoom = (nextZoom: number) => setGraphZoom(Math.min(1.5, Math.max(0.65, Number(nextZoom.toFixed(2)))));
   return (
     <div className="rounded-lg border border-slate-200 bg-white px-3 py-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -301,17 +321,85 @@ function WorkflowGraphWorkbench({
         </div>
 
         <div className="min-h-[190px] rounded-md border border-slate-100 bg-slate-50 px-3 py-3">
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <div className="text-xs font-medium text-slate-700">画布</div>
-            <div className="font-mono text-[11px] text-slate-400">{edges.length} edges</div>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-xs font-medium text-slate-700">画布</div>
+              <div className="font-mono text-[11px] text-slate-400">{edges.length} edges</div>
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-1.5">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-8 w-8 bg-white p-0"
+                disabled={!builder.canUndo}
+                onClick={builder.undo}
+                aria-label="撤销"
+                title="撤销"
+              >
+                <Undo2 strokeWidth={1.5} className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-8 w-8 bg-white p-0"
+                disabled={!builder.canRedo}
+                onClick={builder.redo}
+                aria-label="重做"
+                title="重做"
+              >
+                <Redo2 strokeWidth={1.5} className="h-3.5 w-3.5" />
+              </Button>
+              <div className="relative">
+                <Search strokeWidth={1.5} className="pointer-events-none absolute left-2 top-2 h-3.5 w-3.5 text-slate-400" />
+                <Input
+                  value={graphSearchQuery}
+                  onChange={(event) => setGraphSearchQuery(event.target.value)}
+                  className="h-8 w-[150px] bg-white pl-7 pr-2 text-xs"
+                  placeholder="搜索节点"
+                />
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-8 w-8 bg-white p-0"
+                onClick={() => updateGraphZoom(graphZoom - 0.1)}
+                aria-label="缩小"
+                title="缩小"
+              >
+                <ZoomOut strokeWidth={1.5} className="h-3.5 w-3.5" />
+              </Button>
+              <div className="w-10 text-center font-mono text-[11px] text-slate-500">{Math.round(graphZoom * 100)}%</div>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-8 w-8 bg-white p-0"
+                onClick={() => updateGraphZoom(graphZoom + 0.1)}
+                aria-label="放大"
+                title="放大"
+              >
+                <ZoomIn strokeWidth={1.5} className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-8 w-8 bg-white p-0"
+                onClick={() => updateGraphZoom(1)}
+                aria-label="重置缩放"
+                title="重置缩放"
+              >
+                <RotateCcw strokeWidth={1.5} className="h-3.5 w-3.5" />
+              </Button>
+            </div>
           </div>
           <GeneratedWorkflowGraphCanvas
             edges={edges}
             nodes={nodes}
             onSelectNode={setSelectedNodeId}
+            searchQuery={graphSearchQuery}
             selectedNodeId={selectedNode?.id || ""}
             tools={tools}
             validationIssues={builder.validation.errors}
+            zoom={graphZoom}
           />
           <div className="mt-3 grid gap-1.5">
             {edges.length === 0 ? (

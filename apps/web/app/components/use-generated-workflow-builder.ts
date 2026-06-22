@@ -9,6 +9,14 @@ import {
   type RulePortConverterInsertionRequest,
 } from "./generated-workflow-converter-recommendation";
 import {
+  commitWorkflowEditorHistory,
+  createWorkflowEditorHistory,
+  redoWorkflowEditorHistory,
+  replaceWorkflowEditorHistory,
+  undoWorkflowEditorHistory,
+  type WorkflowEditorHistory,
+} from "./generated-workflow-history";
+import {
   createGeneratedWorkflowGraphDraft,
   createStepDraft,
   createStepParams,
@@ -39,6 +47,8 @@ type BuilderAction =
   | { type: "reset_tools"; tools: AddedTool[] }
   | { type: "load_graph_draft"; draft: GeneratedWorkflowGraphDraft }
   | { type: "load_resource_bindings"; selectedResourceIds: Record<string, string> }
+  | { type: "redo_graph" }
+  | { type: "undo_graph" }
   | { type: "add_step"; tool: AddedTool; tools: AddedTool[] }
   | { type: "insert_converter"; converterTool: AddedTool; request: RulePortConverterInsertionRequest }
   | { type: "remove_step"; stepId: string }
@@ -53,13 +63,13 @@ type BuilderAction =
   | { type: "set_resource"; resourceKey: string; resourceId: string };
 
 type BuilderState = {
-  graphDraft: GeneratedWorkflowGraphDraft;
+  graphHistory: WorkflowEditorHistory<GeneratedWorkflowGraphDraft>;
   selectedResourceIds: Record<string, string>;
 };
 
 export function useGeneratedWorkflowBuilder(tools: AddedTool[], availableResources: DatabaseItem[], inputCount = 0) {
   const [state, dispatch] = useReducer(builderReducer, {
-    graphDraft: createGeneratedWorkflowGraphDraft(tools),
+    graphHistory: createWorkflowEditorHistory(createGeneratedWorkflowGraphDraft(tools)),
     selectedResourceIds: {},
   });
 
@@ -68,7 +78,8 @@ export function useGeneratedWorkflowBuilder(tools: AddedTool[], availableResourc
   }, [tools]);
 
   const toolByRevisionId = useMemo(() => new Map(workflowToolRevisionEntries(tools)), [tools]);
-  const draft = useMemo(() => graphDraftToGeneratedWorkflowDraft(state.graphDraft), [state.graphDraft]);
+  const graphDraft = state.graphHistory.present;
+  const draft = useMemo(() => graphDraftToGeneratedWorkflowDraft(graphDraft), [graphDraft]);
   const selectedTools = useMemo(
     () => draft.steps.map((step) => toolByRevisionId.get(step.toolRevisionId)).filter((tool): tool is AddedTool => Boolean(tool)),
     [draft.steps, toolByRevisionId]
@@ -100,7 +111,7 @@ export function useGeneratedWorkflowBuilder(tools: AddedTool[], availableResourc
     [availableResources, resourceEntries, state.selectedResourceIds]
   );
   const validation = useMemo(() => {
-    const base = validateGeneratedWorkflowDraft(state.graphDraft, tools, { inputCount });
+    const base = validateGeneratedWorkflowDraft(graphDraft, tools, { inputCount });
     const resourceErrors = resourceEntries
       .filter(([key, spec]) => spec.required && !resourceBindings[key])
       .map(([key]) => ({
@@ -108,11 +119,13 @@ export function useGeneratedWorkflowBuilder(tools: AddedTool[], availableResourc
         message: `缺少必选数据库资源 ${key}`,
       }));
     return { ...base, errors: [...base.errors, ...resourceErrors] };
-  }, [inputCount, resourceBindings, resourceEntries, state.graphDraft, tools]);
+  }, [graphDraft, inputCount, resourceBindings, resourceEntries, tools]);
 
   return {
     draft,
-    graphDraft: state.graphDraft,
+    graphDraft,
+    canRedo: state.graphHistory.future.length > 0,
+    canUndo: state.graphHistory.past.length > 0,
     validation,
     resourceEntries,
     selectedResourceIds: Object.values(state.selectedResourceIds).filter(Boolean),
@@ -133,6 +146,7 @@ export function useGeneratedWorkflowBuilder(tools: AddedTool[], availableResourc
       if (converterTool) dispatch({ type: "insert_converter", converterTool, request });
     },
     removeStep: (stepId: string) => dispatch({ type: "remove_step", stepId }),
+    redo: () => dispatch({ type: "redo_graph" }),
     setStepId: (stepId: string, nextId: string) => dispatch({ type: "set_step_id", stepId, nextId }),
     setStepTool: (stepId: string, toolRevisionId: string) => {
       const tool = toolByRevisionId.get(toolRevisionId);
@@ -148,6 +162,7 @@ export function useGeneratedWorkflowBuilder(tools: AddedTool[], availableResourc
     removeExposedOutput: (index: number) => dispatch({ type: "remove_output", index }),
     setExposedOutput: (index: number, output: GeneratedWorkflowExposedOutput) => dispatch({ type: "set_output", index, output }),
     setResourceBinding: (resourceKey: string, resourceId: string) => dispatch({ type: "set_resource", resourceKey, resourceId }),
+    undo: () => dispatch({ type: "undo_graph" }),
   };
 }
 
@@ -156,31 +171,40 @@ export type GeneratedWorkflowBuilderController = ReturnType<typeof useGeneratedW
 function builderReducer(state: BuilderState, action: BuilderAction): BuilderState {
   if (action.type === "reset_tools") {
     const availableIds = new Set(action.tools.map((tool) => workflowToolRevisionId(tool)).filter(Boolean));
-    if (state.graphDraft.nodes.length > 0 && state.graphDraft.nodes.every((node) => availableIds.has(node.toolRevisionId))) {
+    if (
+      state.graphHistory.present.nodes.length > 0
+      && graphHistoryToolsAvailable(state.graphHistory, availableIds)
+    ) {
       return state;
     }
-    return { ...state, graphDraft: createGeneratedWorkflowGraphDraft(action.tools) };
+    if (graphToolsAvailable(state.graphHistory.present, availableIds)) {
+      return { ...state, graphHistory: replaceWorkflowEditorHistory(state.graphHistory, state.graphHistory.present) };
+    }
+    return { ...state, graphHistory: replaceWorkflowEditorHistory(state.graphHistory, createGeneratedWorkflowGraphDraft(action.tools)) };
   }
   if (action.type === "load_graph_draft") {
-    return { ...state, graphDraft: action.draft };
+    return { ...state, graphHistory: replaceWorkflowEditorHistory(state.graphHistory, action.draft) };
   }
   if (action.type === "load_resource_bindings") {
     return { ...state, selectedResourceIds: action.selectedResourceIds };
   }
+  if (action.type === "undo_graph") {
+    return { ...state, graphHistory: undoWorkflowEditorHistory(state.graphHistory) };
+  }
+  if (action.type === "redo_graph") {
+    return { ...state, graphHistory: redoWorkflowEditorHistory(state.graphHistory) };
+  }
   if (action.type === "add_step") {
-    const draft = graphDraftToGeneratedWorkflowDraft(state.graphDraft);
+    const draft = graphDraftToGeneratedWorkflowDraft(state.graphHistory.present);
     const nextStep = createStepDraft(action.tool, draft.steps.map((step) => step.id), draft.steps, action.tools);
     return updateStepDraft(state, (current) => ({ ...current, steps: [...current.steps, nextStep] }));
   }
   if (action.type === "insert_converter") {
-    return {
-      ...state,
-      graphDraft: buildConverterInsertionPatch({
+    return commitGraphDraft(state, buildConverterInsertionPatch({
         converterTool: action.converterTool,
-        graphDraft: state.graphDraft,
+        graphDraft: state.graphHistory.present,
         request: action.request,
-      }),
-    };
+      }));
   }
   if (action.type === "remove_step") {
     return updateStepDraft(state, (draft) => ({
@@ -229,12 +253,12 @@ function builderReducer(state: BuilderState, action: BuilderAction): BuilderStat
   if (action.type === "set_step_runtime") {
     return {
       ...state,
-      graphDraft: {
-        ...state.graphDraft,
-        nodes: state.graphDraft.nodes.map((node) =>
+      graphHistory: commitWorkflowEditorHistory(state.graphHistory, {
+        ...state.graphHistory.present,
+        nodes: state.graphHistory.present.nodes.map((node) =>
           node.id === action.stepId ? { ...node, runtime: action.runtime } : node
         ),
-      },
+      }),
     };
   }
   if (action.type === "add_output") {
@@ -284,7 +308,7 @@ function renameStep(state: BuilderState, stepId: string, nextId: string): Builde
 }
 
 function setStepTool(state: BuilderState, stepId: string, tool: AddedTool, tools: AddedTool[]): BuilderState {
-  const draft = graphDraftToGeneratedWorkflowDraft(state.graphDraft);
+  const draft = graphDraftToGeneratedWorkflowDraft(state.graphHistory.present);
   const stepIndex = draft.steps.findIndex((step) => step.id === stepId);
   const upstreamSteps = stepIndex >= 0 ? draft.steps.slice(0, stepIndex) : [];
   const inputs: Record<string, GeneratedWorkflowInputBinding> = Object.fromEntries(
@@ -302,10 +326,28 @@ function setStepTool(state: BuilderState, stepId: string, tool: AddedTool, tools
 }
 
 function updateStepDraft(state: BuilderState, update: (draft: GeneratedWorkflowDraft) => GeneratedWorkflowDraft): BuilderState {
+  return commitGraphDraft(
+    state,
+    generatedWorkflowDraftToGraphDraft(update(graphDraftToGeneratedWorkflowDraft(state.graphHistory.present)))
+  );
+}
+
+function commitGraphDraft(state: BuilderState, graphDraft: GeneratedWorkflowGraphDraft): BuilderState {
   return {
     ...state,
-    graphDraft: generatedWorkflowDraftToGraphDraft(update(graphDraftToGeneratedWorkflowDraft(state.graphDraft))),
+    graphHistory: commitWorkflowEditorHistory(state.graphHistory, graphDraft),
   };
+}
+
+function graphHistoryToolsAvailable(
+  history: WorkflowEditorHistory<GeneratedWorkflowGraphDraft>,
+  availableIds: Set<string>
+) {
+  return [history.present, ...history.past, ...history.future].every((draft) => graphToolsAvailable(draft, availableIds));
+}
+
+function graphToolsAvailable(draft: GeneratedWorkflowGraphDraft, availableIds: Set<string>) {
+  return draft.nodes.length > 0 && draft.nodes.every((node) => availableIds.has(node.toolRevisionId));
 }
 
 function isRemovedStepBinding(

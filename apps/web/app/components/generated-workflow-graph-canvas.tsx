@@ -2,6 +2,8 @@
 
 import { type CSSProperties, useMemo } from "react";
 
+import { cn } from "@/lib/utils";
+
 import type { AddedTool } from "./tools-page-model";
 import { RuleGraphNodeCard } from "./generated-workflow-graph-node-card";
 import {
@@ -19,46 +21,68 @@ export function GeneratedWorkflowGraphCanvas({
   edges,
   nodes,
   onSelectNode,
+  searchQuery = "",
   selectedNodeId,
   tools,
   validationIssues,
+  zoom = 1,
 }: {
   edges: GraphEdge[];
   nodes: GraphNode[];
   onSelectNode: (nodeId: string) => void;
+  searchQuery?: string;
   selectedNodeId: string;
   tools: AddedTool[];
   validationIssues: GeneratedWorkflowValidationIssue[];
+  zoom?: number;
 }) {
   const toolByRevisionId = useMemo(() => new Map(workflowToolRevisionEntries(tools)), [tools]);
   const layout = useMemo(() => layoutGeneratedWorkflowGraph({ edges, nodes }), [edges, nodes]);
+  const matchedNodeIds = useMemo(
+    () => matchedGraphNodeIds({ nodes, query: searchQuery, toolByRevisionId }),
+    [nodes, searchQuery, toolByRevisionId]
+  );
+  const hasSearch = searchQuery.trim().length > 0;
   if (nodes.length === 0) {
     return <div className="rounded-md bg-white px-3 py-2 text-xs text-slate-500">还没有规则节点。从工具库添加 RuleSpec 节点。</div>;
   }
   return (
-    <div className="relative min-h-[190px] overflow-hidden rounded-md">
-      <WorkflowGraphEdgeLayer edges={edges} layout={layout} nodes={nodes} toolByRevisionId={toolByRevisionId} />
-      <GraphLayoutStyles />
-      <div
-        className="generated-workflow-graph-layout relative z-10 grid grid-cols-1 gap-2"
-        style={graphLayoutStyle(layout.columnCount)}
-      >
-        {layout.items.map((item) => {
-          const node = item.node;
-          const selected = selectedNodeId === node.id;
-          return (
-            <div className="generated-workflow-graph-layout-item min-w-0" key={node.id} style={graphLayoutItemStyle(item)}>
-              <RuleGraphNodeCard
-                edges={edges}
-                node={node}
-                onSelect={() => onSelectNode(node.id)}
-                selected={selected}
-                tool={toolByRevisionId.get(node.toolRevisionId)}
-                validationIssues={validationIssues.filter((issue) => issue.stepId === node.id)}
-              />
-            </div>
-          );
-        })}
+    <div className="relative min-h-[190px] overflow-auto rounded-md">
+      <div className="generated-workflow-graph-viewport relative min-h-[190px]" style={graphViewportStyle(zoom)}>
+        <WorkflowGraphEdgeLayer edges={edges} layout={layout} nodes={nodes} toolByRevisionId={toolByRevisionId} />
+        <GraphLayoutStyles />
+        <div
+          className="generated-workflow-graph-layout relative z-10 grid grid-cols-1 gap-2"
+          style={graphLayoutStyle(layout.columnCount)}
+        >
+          {layout.items.map((item) => {
+            const node = item.node;
+            const selected = selectedNodeId === node.id;
+            const highlighted = matchedNodeIds.has(node.id);
+            const nodeIssues = validationIssues.filter((issue) => issue.stepId === node.id);
+            const dimmed = hasSearch && !highlighted && nodeIssues.length === 0;
+            return (
+              <div
+                className={cn(
+                  "generated-workflow-graph-layout-item min-w-0 rounded-md transition",
+                  dimmed ? "opacity-35" : "",
+                  highlighted ? "ring-2 ring-amber-300 ring-offset-1" : ""
+                )}
+                key={node.id}
+                style={graphLayoutItemStyle(item)}
+              >
+                <RuleGraphNodeCard
+                  edges={edges}
+                  node={node}
+                  onSelect={() => onSelectNode(node.id)}
+                  selected={selected}
+                  tool={toolByRevisionId.get(node.toolRevisionId)}
+                  validationIssues={nodeIssues}
+                />
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -176,9 +200,45 @@ function graphLayoutItemStyle(item: GeneratedWorkflowGraphNodePosition): CSSProp
   } as CSSProperties;
 }
 
+function graphViewportStyle(zoom: number): CSSProperties {
+  const clampedZoom = Math.min(1.5, Math.max(0.65, zoom));
+  return {
+    "--workflow-graph-zoom": clampedZoom,
+  } as CSSProperties;
+}
+
+function matchedGraphNodeIds({
+  nodes,
+  query,
+  toolByRevisionId,
+}: {
+  nodes: GraphNode[];
+  query: string;
+  toolByRevisionId: Map<string, AddedTool>;
+}) {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return new Set<string>();
+  return new Set(
+    nodes
+      .filter((node) => {
+        const tool = toolByRevisionId.get(node.toolRevisionId);
+        return [node.id, node.toolRevisionId, tool?.name, tool?.packageSpec]
+          .filter((value): value is string => typeof value === "string")
+          .some((value) => value.toLowerCase().includes(normalizedQuery));
+      })
+      .map((node) => node.id)
+  );
+}
+
 function GraphLayoutStyles() {
   return (
     <style>{`
+.generated-workflow-graph-viewport {
+  transform: scale(var(--workflow-graph-zoom));
+  transform-origin: top left;
+  width: calc(100% / var(--workflow-graph-zoom));
+}
+
 @media (min-width: 768px) {
   .generated-workflow-graph-layout {
     grid-template-columns: repeat(var(--workflow-graph-columns), minmax(0, 1fr));
