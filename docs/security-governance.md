@@ -107,6 +107,7 @@ be found in source.
 4. Artifact lifecycle preview, GC deletion, result export, and checksum audit decisions.
 5. Release artifact build, publish, and promotion.
 6. Reference database registration, validation fixture use, and manual database pack handoff.
+7. Tool registry mutation, validation prepare/cancel, RuleSpec update, and production enablement.
 
 Operator/debug-only scripts such as `scripts/remote_exec.py` may execute arbitrary remote commands only when invoked explicitly by an operator. Launchers, CI, and normal UI paths must not call them implicitly.
 
