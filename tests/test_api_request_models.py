@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from apps.api.models import (
     RunSubmitRequest,
+    RunRetryRequest,
     TERMINAL_CLIENT_MESSAGE_ADAPTER,
     TerminalInputMessage,
     TerminalPingMessage,
@@ -162,6 +163,26 @@ def test_run_submit_request_accepts_explicit_execution_queue() -> None:
     )
 
     assert request.model_dump()["runSpec"]["execution"] == {"queueName": "short"}
+
+
+def test_run_retry_request_is_strict_and_run_scoped() -> None:
+    request = RunRetryRequest.model_validate(
+        {
+            "scope": "run",
+            "actor": "operator",
+            "reason": "rerun after fixing input",
+        }
+    )
+
+    assert request.scope == "run"
+    assert request.actor == "operator"
+
+    with pytest.raises(ValidationError) as exc_info:
+        RunRetryRequest.model_validate({"scope": "rule", "ruleName": "align_reads"})
+
+    errors = exc_info.value.errors()
+    assert any(error["type"] == "literal_error" and error["loc"] == ("scope",) for error in errors)
+    assert any(error["type"] == "extra_forbidden" and error["loc"] == ("ruleName",) for error in errors)
 
 
 def test_workflow_trigger_create_request_is_strict_and_keeps_run_spec_nested() -> None:

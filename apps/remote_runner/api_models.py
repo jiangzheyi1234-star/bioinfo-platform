@@ -42,6 +42,12 @@ class RunCreateRequest(RemoteRunnerRequest):
     runSpec: RunSpecRequest
 
 
+class RunRetryRequest(RemoteRunnerRequest):
+    scope: Literal["run"] = "run"
+    actor: str | None = None
+    reason: str | None = None
+
+
 TriggerSourceType = Literal["manual", "cron", "webhook", "dataset", "file", "database_ready", "backfill"]
 BackfillPartitionUnit = Literal["hour", "day"]
 BackfillRunOrder = Literal["forward", "backward"]

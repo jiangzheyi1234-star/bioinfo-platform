@@ -25,7 +25,8 @@ import {
 import { cn } from "@/lib/utils";
 
 import { WorkflowRunExecutionContextPanel } from "./workflow-run-execution-context";
-import { fetchArtifactPreview } from "./workflows-page-api";
+import { fetchArtifactPreview, retryWorkflowRun } from "./workflows-page-api";
+import { workflowErrorMessage } from "./workflows-page-model";
 import type {
   WorkflowArtifact,
   WorkflowArtifactPreview,
@@ -553,11 +554,15 @@ function preferredTextPreview(previews: WorkflowArtifactPreview[]) {
 export function WorkflowRunDetailPanel({
   detail,
   error,
+  onRunChanged,
 }: {
   detail: WorkflowRunDetail;
   error: string;
+  onRunChanged?: () => Promise<void> | void;
 }) {
   const [tab, setTab] = useState<TabKey>("overview");
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState("");
   const run = detail.run;
   const artifacts = detail.results?.artifacts || [];
   const previews = detail.previews || [];
@@ -575,6 +580,19 @@ export function WorkflowRunDetailPanel({
       : typeof run.runSpec?.workflowRevisionId === "string"
         ? run.runSpec.workflowRevisionId
         : "";
+
+  async function handleRetryRun() {
+    setRetrying(true);
+    setRetryError("");
+    try {
+      await retryWorkflowRun(run.runId);
+      await onRunChanged?.();
+    } catch (err) {
+      setRetryError(workflowErrorMessage(err, "重新调度运行失败"));
+    } finally {
+      setRetrying(false);
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -618,6 +636,12 @@ export function WorkflowRunDetailPanel({
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       ) : null}
+      {retryError ? (
+        <Alert variant="destructive">
+          <AlertCircle strokeWidth={1.5} className="h-4 w-4" />
+          <AlertDescription>{retryError}</AlertDescription>
+        </Alert>
+      ) : null}
 
       {/* Tabs */}
       <div className="flex items-center gap-1 border-b border-slate-200">
@@ -641,7 +665,11 @@ export function WorkflowRunDetailPanel({
         {tab === "overview" && (
           <div className="space-y-4">
             <RunDiagnosis run={run} events={events} rules={rules} stderrLines={stderr} />
-            <WorkflowRunExecutionContextPanel context={detail.executionContext} />
+            <WorkflowRunExecutionContextPanel
+              context={detail.executionContext}
+              onRetryRun={handleRetryRun}
+              retrying={retrying}
+            />
             <TablePreview preview={tablePreview} />
             {!tablePreview && textPreview ? (
               <div className="rounded-lg border border-slate-200 bg-white">

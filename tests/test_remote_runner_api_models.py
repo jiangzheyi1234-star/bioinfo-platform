@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from apps.remote_runner.api_models import (
     RunCreateRequest,
+    RunRetryRequest,
     ToolManifestRequest,
     ToolProductionEvidenceRequest,
     UploadCreateRequest,
@@ -148,6 +149,20 @@ def test_remote_runner_run_request_preserves_run_spec_extensions() -> None:
     assert request.runSpec.pipelineId == "file-summary-v1"
     assert request.model_dump()["runSpec"]["inputs"] == []
     assert request.model_dump()["runSpec"]["workflowRevisionId"] == "wfrev_demo"
+
+
+def test_remote_runner_run_retry_request_is_strict() -> None:
+    request = RunRetryRequest.model_validate({"scope": "run", "actor": "operator"})
+
+    assert request.scope == "run"
+    assert request.actor == "operator"
+
+    with pytest.raises(ValidationError) as exc_info:
+        RunRetryRequest.model_validate({"scope": "rule", "stepId": "node_fastqc"})
+
+    errors = exc_info.value.errors()
+    assert any(error["type"] == "literal_error" and error["loc"] == ("scope",) for error in errors)
+    assert any(error["type"] == "extra_forbidden" and error["loc"] == ("stepId",) for error in errors)
 
 
 def test_remote_runner_workflow_trigger_inbox_event_request_is_strict() -> None:

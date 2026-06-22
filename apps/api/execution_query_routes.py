@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from apps.api.models import ArtifactCacheLookupRequest, ArtifactGcPreviewRequest, ArtifactGcRunRequest
+from apps.api.models import ArtifactCacheLookupRequest, ArtifactGcPreviewRequest, ArtifactGcRunRequest, RunRetryRequest
 from apps.api.execution_query_service import (
     cancel_run_from_request,
     get_artifact_lifecycle_usage_from_request,
@@ -25,6 +25,7 @@ from apps.api.execution_query_service import (
     list_runs_from_request,
     lookup_artifact_cache_from_request,
     preview_artifact_gc_from_request,
+    retry_run_from_request,
     run_artifact_gc_from_request,
 )
 
@@ -45,6 +46,11 @@ async def get_run(run_id: str) -> dict[str, Any]:
 @router.post("/api/v1/runs/{run_id}/cancel")
 async def cancel_run(run_id: str) -> dict[str, Any]:
     return await cancel_run_from_request(run_id)
+
+
+@router.post("/api/v1/runs/{run_id}/retry", status_code=202)
+async def retry_run(run_id: str, payload: RunRetryRequest) -> dict[str, Any]:
+    return await retry_run_from_request(run_id, payload)
 
 
 @router.get("/api/v1/runs/{run_id}/events")

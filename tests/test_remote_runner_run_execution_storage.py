@@ -18,6 +18,7 @@ from apps.remote_runner.run_execution_storage import (
     request_run_cancel,
     run_attempt_cancel_requested,
 )
+from apps.remote_runner.execution_retry_storage import request_run_retry
 from apps.remote_runner.resource_pool import ResourceRequest
 from apps.remote_runner.storage import create_run_record
 from apps.remote_runner.storage_core import get_connection
@@ -600,6 +601,156 @@ def test_request_run_cancel_records_command_event_and_marks_active_attempt(tmp_p
     assert attempt["cancel_requested_at"] == "2099-06-07T10:00:05Z"
     assert dict(command) == {"command_type": "cancel_run", "actor": "api-test"}
     assert dict(event) == {"event_type": "run_cancel_requested", "command_id": "cmd_cancel_run"}
+
+
+def test_request_run_retry_requeues_failed_run_for_next_attempt(tmp_path):
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(
+        cfg,
+        "run_retry",
+        execution={"retryPolicy": {"maxAttempts": 3, "backoffSeconds": 0}},
+    )
+    first = claim_next_run_job(cfg, worker_id="worker_retry_a", now="2099-06-07T10:00:00Z", lease_seconds=30)
+    assert first is not None
+    update_run_state(
+        cfg,
+        run_id="run_retry",
+        status="failed",
+        stage="execute",
+        message="First attempt failed.",
+        request_id="req_run_retry",
+        last_error={"code": "TEST_FAILURE", "message": "boom"},
+        attempt_id=first["attemptId"],
+        lease_generation=first["leaseGeneration"],
+    )
+    complete_run_attempt(
+        cfg,
+        first["attemptId"],
+        lease_generation=first["leaseGeneration"],
+        state="failed",
+        exit_code=1,
+        now="2099-06-07T10:00:10Z",
+    )
+
+    result = request_run_retry(
+        cfg,
+        "run_retry",
+        actor="api-test",
+        reason="operator_retry",
+        command_id="cmd_retry_run",
+        now="2099-06-07T10:01:00Z",
+    )
+
+    assert result == {
+        "runId": "run_retry",
+        "status": "queued",
+        "stage": "retry",
+        "commandId": "cmd_retry_run",
+        "jobId": first["jobId"],
+        "attemptCount": 1,
+        "maxAttempts": 3,
+        "remainingAttempts": 2,
+        "availableAt": "2099-06-07T10:01:00Z",
+        "retryRequestedAt": "2099-06-07T10:01:00Z",
+    }
+    with get_connection(cfg) as connection:
+        run = connection.execute(
+            """
+            SELECT status, stage, state_version, started_at, finished_at, last_error_json
+            FROM runs
+            WHERE run_id = ?
+            """,
+            ("run_retry",),
+        ).fetchone()
+        job = connection.execute(
+            "SELECT state, attempt_count, available_at FROM run_jobs WHERE run_id = ?",
+            ("run_retry",),
+        ).fetchone()
+        command = connection.execute(
+            "SELECT command_type, actor FROM run_commands WHERE command_id = ?",
+            ("cmd_retry_run",),
+        ).fetchone()
+        event = connection.execute(
+            "SELECT event_type, command_id FROM run_events WHERE event_type = ?",
+            ("run_retry_requested",),
+        ).fetchone()
+    assert dict(run) == {
+        "status": "queued",
+        "stage": "retry",
+        "state_version": 3,
+        "started_at": None,
+        "finished_at": None,
+        "last_error_json": None,
+    }
+    assert dict(job) == {
+        "state": "queued",
+        "attempt_count": 1,
+        "available_at": "2099-06-07T10:01:00Z",
+    }
+    assert dict(command) == {"command_type": "retry_run", "actor": "api-test"}
+    assert dict(event) == {"event_type": "run_retry_requested", "command_id": "cmd_retry_run"}
+
+    second = claim_next_run_job(cfg, worker_id="worker_retry_b", now="2099-06-07T10:01:00Z", lease_seconds=30)
+    assert second is not None
+    assert second["runId"] == "run_retry"
+    assert second["attempt"]["attemptNumber"] == 2
+    assert second["leaseGeneration"] == 2
+    with pytest.raises(StaleRunAttemptError, match="RUN_ATTEMPT_STALE"):
+        update_run_state(
+            cfg,
+            run_id="run_retry",
+            status="completed",
+            stage="finalize",
+            message="Old attempt must not publish after retry.",
+            request_id="req_run_retry",
+            attempt_id=first["attemptId"],
+            lease_generation=first["leaseGeneration"],
+        )
+    stale_completion = complete_run_attempt(
+        cfg,
+        first["attemptId"],
+        lease_generation=first["leaseGeneration"],
+        state="succeeded",
+        exit_code=0,
+        now="2099-06-07T10:01:01Z",
+    )
+    assert stale_completion == {"accepted": False, "reason": "stale_generation"}
+
+
+def test_request_run_retry_rejects_non_retryable_and_exhausted_runs(tmp_path):
+    cfg = make_configured_remote_runner(tmp_path / "queued")
+    _create_run(cfg, "run_retry_queued")
+    with pytest.raises(ValueError, match="RUN_RETRY_STATUS_NOT_RETRYABLE: queued"):
+        request_run_retry(cfg, "run_retry_queued")
+
+    cfg = make_configured_remote_runner(tmp_path / "exhausted")
+    _create_run(
+        cfg,
+        "run_retry_exhausted",
+        execution={"retryPolicy": {"maxAttempts": 1, "backoffSeconds": 0}},
+    )
+    first = claim_next_run_job(cfg, worker_id="worker_retry_exhausted", now="2099-06-07T10:00:00Z", lease_seconds=30)
+    assert first is not None
+    update_run_state(
+        cfg,
+        run_id="run_retry_exhausted",
+        status="failed",
+        stage="execute",
+        message="Attempt failed.",
+        request_id="req_run_retry_exhausted",
+        attempt_id=first["attemptId"],
+        lease_generation=first["leaseGeneration"],
+    )
+    complete_run_attempt(
+        cfg,
+        first["attemptId"],
+        lease_generation=first["leaseGeneration"],
+        state="failed",
+        exit_code=1,
+        now="2099-06-07T10:00:10Z",
+    )
+    with pytest.raises(ValueError, match="RUN_RETRY_MAX_ATTEMPTS_EXHAUSTED"):
+        request_run_retry(cfg, "run_retry_exhausted")
 
 
 def test_run_attempt_cancel_requested_treats_stale_generation_as_cancelled(tmp_path):

@@ -35,6 +35,7 @@ from .run_execution_storage import (
     request_run_cancel,
     run_attempt_cancel_requested,
 )
+from .execution_retry_storage import request_run_retry
 from .run_worker_storage import fetch_run_worker_slot, heartbeat_run_worker_slot, register_run_worker_slot
 from .rule_execution_storage import append_run_rule_event, fetch_run_rules, upsert_run_rule_state
 from .workflow_run_storage import (
@@ -87,6 +88,7 @@ __all__ = [
     "record_run_attempt_process_group", "record_workflow_trigger_event",
     "register_run_worker_slot", "record_reconcile_failure", "record_reconcile_success",
     "request_run_cancel",
+    "request_run_retry",
     "require_run",
     "run_attempt_cancel_requested",
     "heartbeat_run_worker_slot",

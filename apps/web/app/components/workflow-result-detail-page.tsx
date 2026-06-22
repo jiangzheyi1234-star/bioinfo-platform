@@ -75,7 +75,7 @@ export function WorkflowResultDetailPage() {
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         ) : detail ? (
-          <WorkflowRunDetailPanel detail={detail} error={error} />
+          <WorkflowRunDetailPanel detail={detail} error={error} onRunChanged={load} />
         ) : null}
       </div>
     </div>

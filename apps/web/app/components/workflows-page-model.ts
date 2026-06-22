@@ -365,6 +365,23 @@ export type WorkflowRunResponse = {
   requestId?: string;
 };
 
+export type WorkflowRunRetryResult = {
+  runId: string;
+  status: string;
+  stage: string;
+  commandId: string;
+  jobId: string;
+  attemptCount: number;
+  maxAttempts: number;
+  remainingAttempts: number;
+  availableAt: string;
+  retryRequestedAt: string;
+};
+
+export type WorkflowRunRetryResponse = {
+  data: WorkflowRunRetryResult;
+};
+
 export type WorkflowResourceBinding = {
   databaseId: string;
 };

@@ -28,6 +28,8 @@ import {
   type WorkflowRunDetail,
   type WorkflowRunDetailResponse,
   type WorkflowRunResponse,
+  type WorkflowRunRetryResponse,
+  type WorkflowRunRetryResult,
   type WorkflowServer,
   type WorkflowResourceBindings,
   type WorkflowServersResponse,
@@ -627,6 +629,23 @@ export async function fetchWorkflowRunDetail(runId: string): Promise<WorkflowRun
   const response = await requestLocalApiJson<WorkflowRunDetailResponse>("GET", `/api/v1/runs/${runId}/detail`, {
     cache: "no-store",
   });
+  return response.data;
+}
+
+export async function retryWorkflowRun(runId: string, reason = "operator_requested"): Promise<WorkflowRunRetryResult> {
+  const response = await requestLocalApiJson<WorkflowRunRetryResponse>(
+    "POST",
+    `/api/v1/runs/${encodeURIComponent(runId)}/retry`,
+    {
+      body: {
+        scope: "run",
+        actor: "workflow-ui",
+        reason,
+      },
+      cache: "no-store",
+    }
+  );
+  invalidateAsyncCache(WORKFLOW_RUNS_CACHE_KEY);
   return response.data;
 }
 

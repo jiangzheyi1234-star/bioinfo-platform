@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter
 
-from .api_models import ArtifactCacheLookupRequest, ArtifactGcPreviewRequest, ArtifactGcRunRequest
+from .api_models import ArtifactCacheLookupRequest, ArtifactGcPreviewRequest, ArtifactGcRunRequest, RunRetryRequest
 from .control_service import (
     cancel_run_from_request,
     get_artifact_lifecycle_usage_from_request,
@@ -23,6 +23,7 @@ from .control_service import (
     list_runs_from_request,
     lookup_artifact_cache_from_request,
     preview_artifact_gc_from_request,
+    retry_run_from_request,
     run_artifact_gc_from_request,
 )
 from .route_headers import AuthorizationHeader
@@ -44,6 +45,15 @@ async def get_run(run_id: str, authorization: AuthorizationHeader = None) -> dic
 @router.post("/api/v1/runs/{run_id}/cancel")
 async def cancel_run_api(run_id: str, authorization: AuthorizationHeader = None) -> dict[str, Any]:
     return await cancel_run_from_request(run_id, authorization)
+
+
+@router.post("/api/v1/runs/{run_id}/retry", status_code=202)
+async def retry_run_api(
+    run_id: str,
+    payload: RunRetryRequest,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await retry_run_from_request(run_id, payload, authorization)
 
 
 @router.get("/api/v1/runs/{run_id}/events")

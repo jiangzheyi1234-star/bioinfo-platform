@@ -24,6 +24,7 @@ from .storage_core import get_connection, now_iso
 
 
 TERMINAL_RUN_STATUSES = {"completed", "failed", "canceled", "cancelled"}
+RELEASED_LEASE_STATES = {"expired", "fenced", "failed", "canceled", "cancelled"}
 
 
 def enqueue_run_job(
@@ -185,7 +186,7 @@ def claim_next_run_job(
         if current_lease is not None:
             next_generation = int(current_lease["lease_generation"]) + 1
             lease_state = str(current_lease["state"])
-            if lease_state not in {"expired", "fenced"}:
+            if lease_state not in RELEASED_LEASE_STATES:
                 raise RuntimeError(f"RUN_JOB_LEASE_NOT_RELEASED: {lease_state}")
 
         attempt_id = f"att_{uuid.uuid4().hex[:12]}"
@@ -497,7 +498,6 @@ def request_run_cancel(
             "attemptId": attempt_id,
             "cancelRequestedAt": requested_at,
         }
-
 
 def run_attempt_cancel_requested(
     cfg: RemoteRunnerConfig,

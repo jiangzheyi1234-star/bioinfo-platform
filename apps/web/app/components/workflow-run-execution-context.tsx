@@ -1,7 +1,9 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Activity, Clock, RotateCcw, ShieldCheck } from "lucide-react";
+import { Activity, Clock, Loader2, RotateCcw, ShieldCheck } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
 
 import type { WorkflowRunExecutionAttempt, WorkflowRunExecutionContext } from "./workflows-page-model";
 
@@ -73,19 +75,45 @@ function attemptStateClass(state?: string) {
 
 export function WorkflowRunExecutionContextPanel({
   context,
+  onRetryRun,
+  retrying = false,
 }: {
   context?: WorkflowRunExecutionContext;
+  onRetryRun?: () => void;
+  retrying?: boolean;
 }) {
   if (!context) return null;
   const attempts = context.attempts || [];
   const retryBackoff = policyNumber(context.retryPolicy, "backoffSeconds");
   const lease = context.activeLease || context.currentLease;
+  const retryReason = context.retryEligibility?.reasonCode || "RUN_RETRY_UNAVAILABLE";
+  const retryEnabled = Boolean(context.retryEligibility?.eligibleNow && onRetryRun);
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div className="text-sm font-medium text-slate-900">执行上下文</div>
-        <div className="font-mono text-[11px] text-slate-400">{context.schemaVersion || "run-execution-context"}</div>
+        <div className="flex items-center gap-2">
+          {onRetryRun ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              disabled={!retryEnabled || retrying}
+              title={retryReason}
+              onClick={onRetryRun}
+            >
+              {retrying ? (
+                <Loader2 strokeWidth={1.5} className="mr-1 h-3 w-3 animate-spin" />
+              ) : (
+                <RotateCcw strokeWidth={1.5} className="mr-1 h-3 w-3" />
+              )}
+              重试
+            </Button>
+          ) : null}
+          <div className="font-mono text-[11px] text-slate-400">{context.schemaVersion || "run-execution-context"}</div>
+        </div>
       </div>
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         <ExecutionMetric label="attempt" value={attemptLabel(context)} icon={<Activity strokeWidth={1.5} className="h-3 w-3" />} />

@@ -91,3 +91,28 @@ def test_run_execution_context_reports_retry_backoff_without_mutation(tmp_path) 
         "reasonCode": "RETRY_BACKOFF",
     }
     assert context["job"]["attemptCount"] == 1
+
+
+def test_run_execution_context_reports_terminal_failed_run_retryable(tmp_path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_retryable_failed", execution={"retryPolicy": {"maxAttempts": 3, "backoffSeconds": 0}})
+    with get_connection(cfg) as connection:
+        connection.execute(
+            "UPDATE runs SET status = 'failed', stage = 'execute', state_version = 2 WHERE run_id = ?",
+            ("run_retryable_failed",),
+        )
+        connection.execute(
+            "UPDATE run_jobs SET state = 'failed', attempt_count = 1 WHERE run_id = ?",
+            ("run_retryable_failed",),
+        )
+        connection.commit()
+
+    context = fetch_run_execution_context(cfg, "run_retryable_failed")
+
+    assert context["retryEligibility"] == {
+        "eligible": True,
+        "eligibleNow": True,
+        "remainingAttempts": 2,
+        "nextAttemptAt": context["job"]["availableAt"],
+        "reasonCode": "RUN_RETRYABLE_TERMINAL",
+    }

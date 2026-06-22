@@ -14,7 +14,7 @@ from apps.remote_runner.config import (
 )
 from apps.remote_runner.errors import RemoteRunnerAuthError
 from core.contracts.pipeline_manifest import PipelineRegistryError
-from apps.remote_runner.api_models import RunCreateRequest, UploadCreateRequest
+from apps.remote_runner.api_models import RunCreateRequest, RunRetryRequest, UploadCreateRequest
 from apps.remote_runner.execution_query_routes import (
     cancel_run_api,
     get_result_api,
@@ -25,6 +25,7 @@ from apps.remote_runner.execution_query_routes import (
     get_run_results_api,
     get_runs as list_runs_api,
     list_results_api,
+    retry_run_api,
 )
 from apps.remote_runner.health_routes import (
     health_execution_diagnostics,
@@ -38,6 +39,7 @@ from apps.remote_runner.route_utils import require_auth
 from apps.remote_runner.run_worker_storage import register_run_worker
 from apps.remote_runner.submission_routes import create_run, create_upload
 from apps.remote_runner.workflow_run_storage import create_run_record
+from apps.remote_runner.storage_core import get_connection
 from tests.helpers.remote_runner_control_plane import (
     _write_file_summary_pipeline,
 )
@@ -215,6 +217,67 @@ def test_remote_runner_cancel_run_endpoint_records_cancel_command(tmp_path: Path
     assert response["data"]["status"] == "canceling"
     assert response["data"]["commandId"].startswith("cmd_")
     assert run["data"]["status"] == "canceling"
+
+
+def test_remote_runner_retry_run_endpoint_requeues_terminal_failed_run(tmp_path: Path, monkeypatch) -> None:
+    config_path = tmp_path / "runner.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "token": "phase-retry-token",
+                "data_root": str(tmp_path / "shared"),
+                "db_path": str(tmp_path / "shared" / "data" / "runner.db"),
+                "uploads_dir": str(tmp_path / "shared" / "uploads"),
+                "results_dir": str(tmp_path / "shared" / "results"),
+                "work_dir": str(tmp_path / "shared" / "work"),
+                "logs_dir": str(tmp_path / "shared" / "logs"),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("H2OMETA_REMOTE_CONFIG", str(config_path))
+    cfg = load_remote_runner_config()
+    ensure_runtime_layout(cfg)
+    create_run_record(
+        cfg,
+        server_id="srv_retry_api",
+        request_id="req_retry_api",
+        run_spec={
+            "runId": "run_retry_api",
+            "projectId": "proj_retry_api",
+            "pipelineId": "pipeline_retry_api",
+            "pipelineVersion": "0.1.0",
+            "execution": {"retryPolicy": {"maxAttempts": 3, "backoffSeconds": 0}},
+        },
+        idempotency_key="idem_retry_api",
+        payload_hash="hash_retry_api",
+    )
+    with get_connection(cfg) as connection:
+        connection.execute(
+            "UPDATE runs SET status = 'failed', stage = 'execute', state_version = 2 WHERE run_id = ?",
+            ("run_retry_api",),
+        )
+        connection.execute(
+            "UPDATE run_jobs SET state = 'failed', attempt_count = 1 WHERE run_id = ?",
+            ("run_retry_api",),
+        )
+        connection.commit()
+
+    response = asyncio.run(
+        retry_run_api(
+            "run_retry_api",
+            RunRetryRequest(scope="run", actor="operator", reason="fixed input"),
+            authorization="Bearer phase-retry-token",
+        )
+    )
+    run = asyncio.run(get_run_api("run_retry_api", authorization="Bearer phase-retry-token"))
+
+    assert response["data"]["runId"] == "run_retry_api"
+    assert response["data"]["status"] == "queued"
+    assert response["data"]["stage"] == "retry"
+    assert response["data"]["remainingAttempts"] == 2
+    assert run["data"]["status"] == "queued"
+    assert run["data"]["stage"] == "retry"
 
 
 def test_remote_runner_upload_persists_file_and_metadata(tmp_path: Path, monkeypatch) -> None:

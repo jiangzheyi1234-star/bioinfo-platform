@@ -176,6 +176,9 @@ class ExecutionManager(BaseRuntimeManager):
     def cancel_run(self, run_id: str) -> dict[str, Any]:
         return {"data": self.call_runner("cancel_run", run_id=run_id)}
 
+    def retry_run(self, run_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        return {"data": self.call_runner("retry_run", run_id=run_id, payload=dict(payload or {}))}
+
     def get_run_events(self, run_id: str) -> dict[str, Any]:
         return {"data": self.call_runner("get_run_events", run_id=run_id)}
 

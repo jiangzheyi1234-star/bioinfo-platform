@@ -7,6 +7,7 @@ from .api_models import (
     ArtifactGcPreviewRequest,
     ArtifactGcRunRequest,
     RunCreateRequest,
+    RunRetryRequest,
     UploadCreateRequest,
     WorkflowTriggerBackfillPreviewRequest,
     WorkflowTriggerCreateRequest,
@@ -40,6 +41,7 @@ from .storage import (
     list_runs,
     require_run,
     request_run_cancel,
+    request_run_retry,
 )
 from .submission_service import create_run_from_request as create_run_submission_from_request
 from .trigger_service import (
@@ -223,6 +225,36 @@ async def cancel_run_from_request(run_id: str, authorization: str | None) -> dic
             "commandId": result["commandId"],
             "attemptId": str(result.get("attemptId") or ""),
             "cancelRequestedAt": result["cancelRequestedAt"],
+        },
+    )
+    return data_response(result)
+
+
+async def retry_run_from_request(run_id: str, payload: RunRetryRequest, authorization: str | None) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization)
+    actor = str(payload.actor or "remote-runner-api")
+    result = await run_sync(
+        request_run_retry,
+        cfg,
+        run_id,
+        actor=actor,
+        reason=payload.reason,
+    )
+    await run_sync(
+        record_governance_audit_event,
+        cfg,
+        action="run.retry",
+        actor=actor,
+        subject_kind="run",
+        subject_id=run_id,
+        details={
+            "status": result["status"],
+            "stage": result["stage"],
+            "commandId": result["commandId"],
+            "jobId": result["jobId"],
+            "attemptCount": result["attemptCount"],
+            "remainingAttempts": result["remainingAttempts"],
+            "availableAt": result["availableAt"],
         },
     )
     return data_response(result)

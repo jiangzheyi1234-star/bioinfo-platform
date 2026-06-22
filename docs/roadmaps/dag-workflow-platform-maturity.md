@@ -190,10 +190,12 @@ Delivered foundation:
 - Added run detail `规则` tab plus DAG node status projection using `runtimeStatusKey`, then `stepId`, then `ruleName`.
 - Added read-only run execution context projection for attempts, active/current lease, retry policy, retry eligibility, and explicit `resumeSupported: false`; surfaced it in run detail before enabling operator controls.
 - Added live Snakemake logger JSONL polling during execution so structured rule events are incrementally projected while the workflow is running instead of only after process exit.
+- Added strict whole-run operator retry: failed/canceled runs can be requeued through `POST /api/v1/runs/{run_id}/retry` with `scope: "run"`, preserving attempt id and lease-generation fencing while recording command, event, and governance audit evidence.
+- Added a run detail retry action that is enabled only when the execution context reports `eligibleNow`; rule-level partial retry/resume remains unsupported instead of falling back silently.
 
 Still pending before this phase is complete:
 
-- Add operator actions for rule-level retry/resume once retry policy and attempt selection are exposed in the UI.
+- Add rule-level partial retry/resume only after rule-attempt selection, downstream invalidation, and cache/artifact adoption semantics are represented as explicit contracts.
 
 Recommended sequence:
 

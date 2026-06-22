@@ -9,6 +9,7 @@ from .storage_core import get_connection, now_iso
 
 
 TERMINAL_RUN_STATUSES = {"completed", "failed", "canceled", "cancelled"}
+RETRYABLE_TERMINAL_RUN_STATUSES = {"failed", "canceled", "cancelled"}
 TERMINAL_JOB_STATES = {"completed", "failed", "cancelled", "canceled"}
 
 
@@ -143,10 +144,14 @@ def _retry_eligibility(
     next_attempt_at = job.get("availableAt")
     if job.get("deadLetteredAt") or remaining <= 0:
         return _eligibility(False, False, remaining, next_attempt_at, "MAX_ATTEMPTS_EXHAUSTED")
-    if str(run.get("status") or "").lower() in TERMINAL_RUN_STATUSES or str(job.get("state") or "").lower() in TERMINAL_JOB_STATES:
-        return _eligibility(False, False, remaining, next_attempt_at, "RUN_TERMINAL")
+    run_status = str(run.get("status") or "").lower()
+    job_state = str(job.get("state") or "").lower()
     if active_lease is not None:
         return _eligibility(False, False, remaining, next_attempt_at, "ACTIVE_LEASE")
+    if run_status in RETRYABLE_TERMINAL_RUN_STATUSES and job_state in TERMINAL_JOB_STATES:
+        return _eligibility(True, True, remaining, next_attempt_at, "RUN_RETRYABLE_TERMINAL")
+    if run_status in TERMINAL_RUN_STATUSES or job_state in TERMINAL_JOB_STATES:
+        return _eligibility(False, False, remaining, next_attempt_at, "RUN_TERMINAL")
     if job["state"] == "queued":
         eligible_now = not next_attempt_at or str(next_attempt_at) <= generated_at
         return _eligibility(True, eligible_now, remaining, next_attempt_at, "QUEUED" if eligible_now else "RETRY_BACKOFF")
