@@ -11,6 +11,99 @@ RULE_TERMINAL_STATUSES = {"blocked", "failed", "skipped", "succeeded"}
 SNAKEMAKE_RULE_EVENTS = {"JOB_ERROR", "JOB_FINISHED", "JOB_INFO", "JOB_STARTED", "SHELLCMD"}
 
 
+class SnakemakeRuleEventProjector:
+    def __init__(
+        self,
+        cfg: RemoteRunnerConfig,
+        *,
+        run_id: str,
+        attempt_id: str | None,
+        lease_generation: int | None,
+        attempt_number: int | None,
+        event_log_path: Path,
+    ) -> None:
+        self._cfg = cfg
+        self._run_id = run_id
+        self._attempt_id = attempt_id
+        self._lease_generation = lease_generation
+        self._attempt_number = attempt_number
+        self._event_log_path = event_log_path
+        self._offset = 0
+        self._event_count = 0
+        self._job_rules: dict[str, str] = {}
+        self._rules_by_name: dict[str, dict[str, Any]] = {}
+        self._rules_loaded = False
+        self._last_reason = "not_polled"
+
+    def poll(self) -> dict[str, Any]:
+        return self._poll(require_complete_line=True)
+
+    def finalize(self, *, workflow_succeeded: bool) -> dict[str, Any]:
+        self._poll(require_complete_line=False)
+        if self._event_count == 0:
+            return self._result(False, self._last_reason, new_event_count=0)
+        terminal_count = _project_workflow_terminal_rules(
+            self._cfg,
+            run_id=self._run_id,
+            attempt_id=str(self._attempt_id),
+            lease_generation=int(self._lease_generation),
+            attempt_number=self._attempt_number,
+            rules_by_name=self._rules_by_name,
+            workflow_succeeded=workflow_succeeded,
+        )
+        self._event_count += terminal_count
+        return self._result(True, "snakemake_logger", new_event_count=terminal_count)
+
+    def _poll(self, *, require_complete_line: bool) -> dict[str, Any]:
+        if not _has_attempt_context(self._attempt_id, self._lease_generation):
+            return self._result(False, "attempt_context_required", new_event_count=0)
+        if not self._event_log_path.exists():
+            self._last_reason = "event_log_missing"
+            return self._result(False, self._last_reason, new_event_count=0)
+
+        self._ensure_rules_loaded()
+        records, self._offset = _read_event_records_since(
+            self._event_log_path,
+            self._offset,
+            require_complete_line=require_complete_line,
+        )
+        new_count = _project_event_records(
+            self._cfg,
+            run_id=self._run_id,
+            attempt_id=str(self._attempt_id),
+            lease_generation=int(self._lease_generation),
+            attempt_number=self._attempt_number,
+            records=records,
+            job_rules=self._job_rules,
+            rules_by_name=self._rules_by_name,
+        )
+        self._event_count += new_count
+        if new_count > 0:
+            self._last_reason = "snakemake_logger_live"
+        elif self._event_count == 0:
+            self._last_reason = "no_rule_events"
+        return self._result(self._event_count > 0, self._last_reason, new_event_count=new_count)
+
+    def _ensure_rules_loaded(self) -> None:
+        if self._rules_loaded:
+            return
+        self._rules_by_name = _attempt_rules_by_name(
+            self._cfg,
+            self._run_id,
+            str(self._attempt_id),
+            int(self._lease_generation),
+        )
+        self._rules_loaded = True
+
+    def _result(self, projected: bool, reason: str, *, new_event_count: int) -> dict[str, Any]:
+        return {
+            "projected": projected,
+            "reason": reason,
+            "eventCount": self._event_count,
+            "newEventCount": new_event_count,
+        }
+
+
 def project_snakemake_rule_events(
     cfg: RemoteRunnerConfig,
     *,
@@ -29,6 +122,41 @@ def project_snakemake_rule_events(
     records = _read_event_records(event_log_path)
     job_rules: dict[str, str] = {}
     rules_by_name = _attempt_rules_by_name(cfg, run_id, str(attempt_id), int(lease_generation))
+    projected_count = _project_event_records(
+        cfg,
+        run_id=run_id,
+        attempt_id=str(attempt_id),
+        lease_generation=int(lease_generation),
+        attempt_number=attempt_number,
+        records=records,
+        job_rules=job_rules,
+        rules_by_name=rules_by_name,
+    )
+
+    if projected_count == 0:
+        return {"projected": False, "reason": "no_rule_events", "eventCount": 0}
+    projected_count += _project_workflow_terminal_rules(
+        cfg,
+        run_id=run_id,
+        attempt_id=str(attempt_id),
+        lease_generation=int(lease_generation),
+        attempt_number=attempt_number,
+        rules_by_name=rules_by_name,
+        workflow_succeeded=workflow_succeeded,
+    )
+    return {"projected": True, "reason": "snakemake_logger", "eventCount": projected_count}
+
+def _project_event_records(
+    cfg: RemoteRunnerConfig,
+    *,
+    run_id: str,
+    attempt_id: str,
+    lease_generation: int,
+    attempt_number: int | None,
+    records: list[dict[str, Any]],
+    job_rules: dict[str, str],
+    rules_by_name: dict[str, dict[str, Any]],
+) -> int:
     projected_count = 0
     for record in records:
         event = _event_name(record)
@@ -38,8 +166,8 @@ def project_snakemake_rule_events(
             projected_count += _project_job_info(
                 cfg,
                 run_id=run_id,
-                attempt_id=str(attempt_id),
-                lease_generation=int(lease_generation),
+                attempt_id=attempt_id,
+                lease_generation=lease_generation,
                 attempt_number=attempt_number,
                 record=record,
                 job_rules=job_rules,
@@ -49,8 +177,8 @@ def project_snakemake_rule_events(
             projected_count += _project_job_started(
                 cfg,
                 run_id=run_id,
-                attempt_id=str(attempt_id),
-                lease_generation=int(lease_generation),
+                attempt_id=attempt_id,
+                lease_generation=lease_generation,
                 attempt_number=attempt_number,
                 record=record,
                 job_rules=job_rules,
@@ -60,8 +188,8 @@ def project_snakemake_rule_events(
             projected_count += _project_shellcmd(
                 cfg,
                 run_id=run_id,
-                attempt_id=str(attempt_id),
-                lease_generation=int(lease_generation),
+                attempt_id=attempt_id,
+                lease_generation=lease_generation,
                 attempt_number=attempt_number,
                 record=record,
                 job_rules=job_rules,
@@ -71,8 +199,8 @@ def project_snakemake_rule_events(
             projected_count += _project_terminal_event(
                 cfg,
                 run_id=run_id,
-                attempt_id=str(attempt_id),
-                lease_generation=int(lease_generation),
+                attempt_id=attempt_id,
+                lease_generation=lease_generation,
                 attempt_number=attempt_number,
                 record=record,
                 job_rules=job_rules,
@@ -86,8 +214,8 @@ def project_snakemake_rule_events(
             projected_count += _project_terminal_event(
                 cfg,
                 run_id=run_id,
-                attempt_id=str(attempt_id),
-                lease_generation=int(lease_generation),
+                attempt_id=attempt_id,
+                lease_generation=lease_generation,
                 attempt_number=attempt_number,
                 record=record,
                 job_rules=job_rules,
@@ -97,34 +225,44 @@ def project_snakemake_rule_events(
                 exit_code=1,
                 message=_record_message(record) or "Snakemake rule failed.",
             )
+    return projected_count
 
-    if projected_count == 0:
-        return {"projected": False, "reason": "no_rule_events", "eventCount": 0}
+
+def _project_workflow_terminal_rules(
+    cfg: RemoteRunnerConfig,
+    *,
+    run_id: str,
+    attempt_id: str,
+    lease_generation: int,
+    attempt_number: int | None,
+    rules_by_name: dict[str, dict[str, Any]],
+    workflow_succeeded: bool | None,
+) -> int:
     if workflow_succeeded is True:
-        projected_count += _mark_unfinished_rules(
+        return _mark_unfinished_rules(
             cfg,
             run_id=run_id,
-            attempt_id=str(attempt_id),
-            lease_generation=int(lease_generation),
+            attempt_id=attempt_id,
+            lease_generation=lease_generation,
             attempt_number=attempt_number,
             rules_by_name=rules_by_name,
             status="skipped",
             event_type="rule_skipped",
             message="Snakemake completed without executing this rule in this attempt.",
         )
-    elif workflow_succeeded is False:
-        projected_count += _mark_unfinished_rules(
+    if workflow_succeeded is False:
+        return _mark_unfinished_rules(
             cfg,
             run_id=run_id,
-            attempt_id=str(attempt_id),
-            lease_generation=int(lease_generation),
+            attempt_id=attempt_id,
+            lease_generation=lease_generation,
             attempt_number=attempt_number,
             rules_by_name=rules_by_name,
             status="blocked",
             event_type="rule_blocked",
             message="Workflow failed before this rule reached a terminal state.",
         )
-    return {"projected": True, "reason": "snakemake_logger", "eventCount": projected_count}
+    return 0
 
 
 def _project_job_info(
@@ -408,6 +546,40 @@ def _read_event_records(path: Path) -> list[dict[str, Any]]:
         if isinstance(payload, dict):
             records.append(payload)
     return records
+
+
+def _read_event_records_since(
+    path: Path,
+    offset: int,
+    *,
+    require_complete_line: bool,
+) -> tuple[list[dict[str, Any]], int]:
+    if not path.exists():
+        return [], 0
+    start = max(0, int(offset))
+    if path.stat().st_size < start:
+        start = 0
+    records: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as handle:
+        handle.seek(start)
+        while True:
+            line_start = handle.tell()
+            line = handle.readline()
+            if not line:
+                break
+            if require_complete_line and not line.endswith("\n"):
+                handle.seek(line_start)
+                break
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                payload = json.loads(stripped)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict):
+                records.append(payload)
+        return records, handle.tell()
 
 
 def _attempt_rules_by_name(

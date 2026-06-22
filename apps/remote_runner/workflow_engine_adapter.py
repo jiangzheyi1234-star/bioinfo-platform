@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any, Callable, Protocol
 
 from .config import RemoteRunnerConfig, build_workflow_runtime_environment, get_workflow_profile_dir
-from .process_runner import ProcessStarted, ShouldCancel, run_process
+from .process_runner import ProcessPoll, ProcessStarted, ShouldCancel, run_process
 
 
 class WorkflowRuntimeCommandError(RuntimeError):
@@ -27,6 +27,7 @@ class WorkflowEngineAdapter(Protocol):
         work_dir: Path,
         config_path: Path,
         event_log_path: Path | None = None,
+        on_poll: ProcessPoll | None = None,
     ) -> Any:
         ...
 
@@ -65,6 +66,7 @@ class SnakemakeEngineAdapter:
         work_dir: Path,
         config_path: Path,
         event_log_path: Path | None = None,
+        on_poll: ProcessPoll | None = None,
     ) -> Any:
         return self._execute(
             self._execution_args(
@@ -72,10 +74,11 @@ class SnakemakeEngineAdapter:
                 work_dir=work_dir,
                 config_path=config_path,
                 event_log_path=event_log_path,
-            )
+            ),
+            on_poll=on_poll,
         )
 
-    def _execute(self, command: list[str]) -> Any:
+    def _execute(self, command: list[str], *, on_poll: ProcessPoll | None = None) -> Any:
         env = build_workflow_runtime_environment(self._cfg)
         if self._run_command is not None:
             return self._run_command(
@@ -89,6 +92,7 @@ class SnakemakeEngineAdapter:
             env=env,
             should_cancel=self._should_cancel,
             on_process_started=self._on_process_started,
+            on_poll=on_poll,
             poll_interval_seconds=self._poll_interval_seconds,
         )
 

@@ -10,7 +10,9 @@ from apps.remote_runner.rule_execution_projection import (
 )
 from apps.remote_runner.rule_execution_storage import fetch_run_rules
 from apps.remote_runner.run_execution_storage import claim_next_run_job
+from apps.remote_runner.executor_rule_events import run_snakemake_with_rule_events
 from apps.remote_runner.snakemake_rule_event_projection import project_snakemake_rule_events
+from apps.remote_runner.snakemake_rule_event_projection import SnakemakeRuleEventProjector
 from apps.remote_runner.storage import create_run_record
 from tests.helpers.reference_database import make_configured_remote_runner
 
@@ -218,3 +220,107 @@ def test_snakemake_logger_events_mark_unexecuted_rules_skipped_on_success(tmp_pa
     assert rules["report"]["status"] == "skipped"
     assert rules["report"]["events"][-1]["eventType"] == "rule_skipped"
     assert rules["other"]["status"] == "succeeded"
+
+
+def test_snakemake_rule_event_projector_tails_complete_jsonl_lines_once(tmp_path: Path) -> None:
+    cfg, claim = _claim_for_projection(tmp_path)
+    run_id = str(claim["runId"])
+    attempt_id = str(claim["attemptId"])
+    lease_generation = int(claim["leaseGeneration"])
+    attempt_number = int(claim["attempt"]["attemptNumber"])
+    seed_run_rules_from_graph(
+        cfg,
+        run_id=run_id,
+        attempt_id=attempt_id,
+        lease_generation=lease_generation,
+        attempt_number=attempt_number,
+        graph={"nodes": [{"id": "quality_control", "label": "quality_control", "kind": "rule"}]},
+    )
+    event_log = tmp_path / "live-events.jsonl"
+    projector = SnakemakeRuleEventProjector(
+        cfg,
+        run_id=run_id,
+        attempt_id=attempt_id,
+        lease_generation=lease_generation,
+        attempt_number=attempt_number,
+        event_log_path=event_log,
+    )
+
+    assert projector.poll()["reason"] == "event_log_missing"
+    event_log.write_text(json.dumps({"event": "JOB_INFO", "jobId": 1, "ruleName": "quality_control"}), encoding="utf-8")
+    assert projector.poll()["newEventCount"] == 0
+    event_log.write_text(
+        json.dumps({"event": "JOB_INFO", "jobId": 1, "ruleName": "quality_control"}) + "\n",
+        encoding="utf-8",
+    )
+    assert projector.poll()["newEventCount"] == 1
+    with event_log.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps({"event": "JOB_STARTED", "jobIds": [1], "createdAt": "2099-06-07T10:00:02Z"}) + "\n")
+        handle.write(json.dumps({"event": "JOB_FINISHED", "jobId": 1, "createdAt": "2099-06-07T10:00:04Z"}) + "\n")
+
+    assert projector.poll()["newEventCount"] == 2
+    assert projector.poll()["newEventCount"] == 0
+    result = projector.finalize(workflow_succeeded=True)
+
+    rules = {item["ruleName"]: item for item in fetch_run_rules(cfg, run_id)["items"]}
+    event_types = [event["eventType"] for event in rules["quality_control"]["events"]]
+    assert result["projected"] is True
+    assert result["eventCount"] == 3
+    assert rules["quality_control"]["status"] == "succeeded"
+    assert event_types.count("rule_observed") == 1
+    assert event_types.count("rule_started") == 1
+    assert event_types.count("rule_finished") == 1
+
+
+def test_run_snakemake_with_rule_events_polls_logger_events_while_engine_runs(tmp_path: Path) -> None:
+    cfg, claim = _claim_for_projection(tmp_path)
+    run_id = str(claim["runId"])
+    attempt_id = str(claim["attemptId"])
+    lease_generation = int(claim["leaseGeneration"])
+    attempt_number = int(claim["attempt"]["attemptNumber"])
+    seed_run_rules_from_graph(
+        cfg,
+        run_id=run_id,
+        attempt_id=attempt_id,
+        lease_generation=lease_generation,
+        attempt_number=attempt_number,
+        graph={"nodes": [{"id": "quality_control", "label": "quality_control", "kind": "rule"}]},
+    )
+
+    class Result:
+        returncode = 0
+        stdout = "ok\n"
+        stderr = ""
+
+    class LiveEngine:
+        def run(self, *, event_log_path: Path, on_poll, **_kwargs):
+            with event_log_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps({"event": "JOB_INFO", "jobId": 1, "ruleName": "quality_control"}) + "\n")
+            on_poll()
+            live_rules = {item["ruleName"]: item for item in fetch_run_rules(cfg, run_id)["items"]}
+            assert live_rules["quality_control"]["events"][-1]["eventType"] == "rule_observed"
+            with event_log_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps({"event": "JOB_STARTED", "jobIds": [1]}) + "\n")
+                handle.write(json.dumps({"event": "JOB_FINISHED", "jobId": 1}) + "\n")
+            on_poll()
+            return Result()
+
+    _, projection = run_snakemake_with_rule_events(
+        cfg,
+        LiveEngine(),
+        snakefile=tmp_path / "Snakefile",
+        work_dir=tmp_path,
+        config_path=tmp_path / "config.json",
+        event_log_path=tmp_path / "engine-live-events.jsonl",
+        stdout_log=tmp_path / "stdout.log",
+        stderr_log=tmp_path / "stderr.log",
+        run_id=run_id,
+        attempt_id=attempt_id,
+        lease_generation=lease_generation,
+        attempt_number=attempt_number,
+    )
+
+    rules = {item["ruleName"]: item for item in fetch_run_rules(cfg, run_id)["items"]}
+    assert projection["projected"] is True
+    assert projection["eventCount"] == 3
+    assert rules["quality_control"]["status"] == "succeeded"

@@ -189,10 +189,10 @@ Delivered foundation:
 - Structured Snakemake event projection now records rule command summaries, inputs, outputs, logs, wildcards, started/finished timestamps, and explicit `blocked`/`skipped` states for rules that did not reach a terminal job event.
 - Added run detail `规则` tab plus DAG node status projection using `runtimeStatusKey`, then `stepId`, then `ruleName`.
 - Added read-only run execution context projection for attempts, active/current lease, retry policy, retry eligibility, and explicit `resumeSupported: false`; surfaced it in run detail before enabling operator controls.
+- Added live Snakemake logger JSONL polling during execution so structured rule events are incrementally projected while the workflow is running instead of only after process exit.
 
 Still pending before this phase is complete:
 
-- Stream or poll the Snakemake logger event file during execution instead of projecting it only after the Snakemake process returns, so running rule transitions become live.
 - Add operator actions for rule-level retry/resume once retry policy and attempt selection are exposed in the UI.
 
 Recommended sequence:
