@@ -30,6 +30,7 @@ export type GeneratedWorkflowGraphInputBinding = Exclude<GeneratedWorkflowInputB
 
 export type GeneratedWorkflowParamValue = string | number | boolean;
 export type GeneratedWorkflowStepParams = Record<string, GeneratedWorkflowParamValue>;
+export type GeneratedWorkflowGraphNodeMetadata = Record<string, string | number | boolean>;
 export type GeneratedWorkflowStepRuntime = {
   threads?: number;
   resources?: Record<string, string | number>;
@@ -41,6 +42,7 @@ export type GeneratedWorkflowStepDraft = {
   id: string;
   toolRevisionId: string;
   inputs: Record<string, GeneratedWorkflowInputBinding>;
+  metadata: GeneratedWorkflowGraphNodeMetadata;
   params: GeneratedWorkflowStepParams;
   runtime: GeneratedWorkflowStepRuntime;
 };
@@ -65,6 +67,7 @@ export type GeneratedWorkflowGraphNode = {
   id: string;
   toolRevisionId: string;
   inputs: Record<string, GeneratedWorkflowGraphInputBinding>;
+  metadata: GeneratedWorkflowGraphNodeMetadata;
   params: GeneratedWorkflowStepParams;
   runtime: GeneratedWorkflowStepRuntime;
 };
@@ -98,6 +101,9 @@ export type GeneratedWorkflowValidation = {
 export type ValidateGeneratedWorkflowDraftOptions = {
   inputCount?: number;
 };
+
+export const WORKFLOW_NODE_SUBFLOW_ID_METADATA_KEY = "uiSubflowId";
+export const WORKFLOW_NODE_SUBFLOW_LABEL_METADATA_KEY = "uiSubflowLabel";
 
 export type RuleInputSpec = {
   name: string;
@@ -230,6 +236,7 @@ export function createStepDraft(
     id: stepId,
     toolRevisionId: workflowToolRevisionId(tool),
     inputs,
+    metadata: {},
     params: createStepParams(tool),
     runtime: {},
   };
@@ -254,6 +261,7 @@ export function generatedWorkflowDraftToGraphDraft(draft: GeneratedWorkflowDraft
       id: step.id,
       toolRevisionId: step.toolRevisionId,
       inputs,
+      metadata: { ...(step.metadata || {}) },
       params: { ...step.params },
       runtime: { ...step.runtime },
     };
@@ -270,6 +278,7 @@ export function graphDraftToGeneratedWorkflowDraft(graphDraft: GeneratedWorkflow
     id: node.id,
     toolRevisionId: node.toolRevisionId,
     inputs: { ...node.inputs } as Record<string, GeneratedWorkflowInputBinding>,
+    metadata: { ...(node.metadata || {}) },
     params: { ...node.params },
     runtime: { ...node.runtime },
   }));
@@ -469,6 +478,30 @@ export function describePortSpec(port: RuleInputSpec | RuleOutputSpec): string {
     ...outputSemanticTags(port),
   ].filter((value): value is string => Boolean(value));
   return parts.length > 0 ? parts.join(" · ") : "any file";
+}
+
+export function graphNodeSubflowId(node: Pick<GeneratedWorkflowGraphNode, "metadata">): string {
+  return stringValue(node.metadata?.[WORKFLOW_NODE_SUBFLOW_ID_METADATA_KEY]);
+}
+
+export function graphNodeSubflowLabel(node: Pick<GeneratedWorkflowGraphNode, "metadata">): string {
+  return stringValue(node.metadata?.[WORKFLOW_NODE_SUBFLOW_LABEL_METADATA_KEY]) || graphNodeSubflowId(node);
+}
+
+export function graphNodeMetadataWithSubflow(
+  metadata: GeneratedWorkflowGraphNodeMetadata | undefined,
+  label: string
+): GeneratedWorkflowGraphNodeMetadata {
+  const next = { ...(metadata || {}) };
+  const normalizedLabel = label.trim();
+  if (!normalizedLabel) {
+    delete next[WORKFLOW_NODE_SUBFLOW_ID_METADATA_KEY];
+    delete next[WORKFLOW_NODE_SUBFLOW_LABEL_METADATA_KEY];
+    return next;
+  }
+  next[WORKFLOW_NODE_SUBFLOW_LABEL_METADATA_KEY] = normalizedLabel;
+  next[WORKFLOW_NODE_SUBFLOW_ID_METADATA_KEY] = normalizeStepId(normalizedLabel, "subflow");
+  return next;
 }
 
 export function isGeneratedWorkflowGraphDraft(

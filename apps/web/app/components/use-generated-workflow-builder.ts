@@ -22,6 +22,7 @@ import {
   createStepParams,
   findCompatibleOutputBinding,
   generatedWorkflowDraftToGraphDraft,
+  graphNodeMetadataWithSubflow,
   graphDraftToGeneratedWorkflowDraft,
   readRuleInputs,
   readRuleOutputs,
@@ -54,6 +55,7 @@ type BuilderAction =
   | { type: "remove_step"; stepId: string }
   | { type: "set_step_id"; stepId: string; nextId: string }
   | { type: "set_step_tool"; stepId: string; tool: AddedTool; tools: AddedTool[] }
+  | { type: "set_node_subflow"; stepId: string; label: string }
   | { type: "set_input"; stepId: string; inputName: string; binding: GeneratedWorkflowInputBinding }
   | { type: "set_step_param"; stepId: string; paramName: string; value: GeneratedWorkflowParamValue }
   | { type: "set_step_runtime"; stepId: string; runtime: GeneratedWorkflowStepRuntime }
@@ -152,6 +154,7 @@ export function useGeneratedWorkflowBuilder(tools: AddedTool[], availableResourc
       const tool = toolByRevisionId.get(toolRevisionId);
       if (tool) dispatch({ type: "set_step_tool", stepId, tool, tools });
     },
+    setNodeSubflow: (stepId: string, label: string) => dispatch({ type: "set_node_subflow", stepId, label }),
     setInputBinding: (stepId: string, inputName: string, binding: GeneratedWorkflowInputBinding) =>
       dispatch({ type: "set_input", stepId, inputName, binding }),
     setStepParam: (stepId: string, paramName: string, value: GeneratedWorkflowParamValue) =>
@@ -227,6 +230,19 @@ function builderReducer(state: BuilderState, action: BuilderAction): BuilderStat
   }
   if (action.type === "set_step_tool") {
     return setStepTool(state, action.stepId, action.tool, action.tools);
+  }
+  if (action.type === "set_node_subflow") {
+    return {
+      ...state,
+      graphHistory: commitWorkflowEditorHistory(state.graphHistory, {
+        ...state.graphHistory.present,
+        nodes: state.graphHistory.present.nodes.map((node) =>
+          node.id === action.stepId
+            ? { ...node, metadata: graphNodeMetadataWithSubflow(node.metadata, action.label) }
+            : node
+        ),
+      }),
+    };
   }
   if (action.type === "set_input") {
     const binding =

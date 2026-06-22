@@ -264,6 +264,10 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "export type GeneratedWorkflowGraphDraft" in model
     assert "export type GeneratedWorkflowGraphNode" in model
     assert "export type GeneratedWorkflowGraphEdge" in model
+    assert "export type GeneratedWorkflowGraphNodeMetadata" in model
+    assert "WORKFLOW_NODE_SUBFLOW_ID_METADATA_KEY" in model
+    assert "WORKFLOW_NODE_SUBFLOW_LABEL_METADATA_KEY" in model
+    assert "graphNodeMetadataWithSubflow" in model
     assert "temp?: boolean" in model
     assert "protected?: boolean" in model
     assert "directory?: boolean" in model
@@ -275,6 +279,8 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "createGeneratedWorkflowGraphDraft" in model
     assert "generatedWorkflowDraftToGraphDraft" in model
     assert "graphDraftToGeneratedWorkflowDraft" in model
+    assert "metadata: { ...(step.metadata || {}) }" in model
+    assert "metadata: { ...(node.metadata || {}) }" in model
     assert "export type GeneratedWorkflowInputBinding" in model
     assert "fromUpload" in model
     assert "fromUpload" not in design_model.split("export function buildWorkflowDesignDraft", 1)[0]
@@ -403,7 +409,8 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "item.id === node.id && item.toolRevisionId === node.toolRevisionId" in design_model
     assert "existingNodeOutputEntries" in design_model
     assert "exposedOutputNames.has(outputName)" in design_model
-    assert "metadata: existingNode?.metadata || {}" in design_model
+    assert "metadata: { ...(existingNode?.metadata || {}), ...(node.metadata || {}) }" in design_model
+    assert "metadata: node.metadata || {}" in design_model
     assert "provenance: existingNode?.provenance || { source: \"workflow-builder\" }" in design_model
     assert "metadata: existingOutput?.metadata || {}" in design_model
     assert "provenance: existingDraft?.provenance || { createdBy: \"workflow-builder\" }" in design_model
@@ -429,6 +436,9 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "buildConverterInsertionPatch" in builder_hook
     assert "insertConverter" in builder_hook
     assert "type: \"insert_converter\"" in builder_hook
+    assert "setNodeSubflow" in builder_hook
+    assert "type: \"set_node_subflow\"" in builder_hook
+    assert "graphNodeMetadataWithSubflow" in builder_hook
     assert "WorkflowEditorHistory" in history_contract
     assert "commitWorkflowEditorHistory" in history_contract
     assert "undoWorkflowEditorHistory" in history_contract
@@ -460,6 +470,9 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "GeneratedWorkflowBuilder" in builder_ui
     assert "WorkflowGraphWorkbench" in builder_ui
     assert "GeneratedWorkflowNodeSettings" in builder_ui
+    assert "graphNodeSubflowLabel" in builder_ui
+    assert "builder.setNodeSubflow" in builder_ui
+    assert "子流程" in builder_ui
     assert "StepParamsEditor" in builder_ui
     assert "function StepParamsEditor" not in builder_ui
     assert "export function StepParamsEditor" in step_params_editor_ui
@@ -538,6 +551,12 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "onBindInput={builder.setInputBinding}" in builder_ui
     assert "@xyflow/react" in graph_canvas_ui
     assert "ReactFlow" in graph_canvas_ui
+    assert "graphNodeSubflowId" in graph_canvas_ui
+    assert "graphNodeSubflowLabel" in graph_canvas_ui
+    assert "buildSubflowGroupNodes" in graph_canvas_ui
+    assert "WorkflowSubflowGroupNode" in graph_canvas_ui
+    assert "SUBFLOW_GROUP_NODE_PREFIX" in graph_canvas_ui
+    assert "subflowGroup" in graph_canvas_ui
     assert "Background" in graph_canvas_ui
     assert "Controls" in graph_canvas_ui
     assert "MiniMap" in graph_canvas_ui
@@ -560,6 +579,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "edges={edges}" in builder_ui
     assert "function RuleGraphNodeCard" not in builder_ui
     assert "export function RuleGraphNodeCard" in graph_node_ui
+    assert "graphNodeSubflowLabel" in graph_node_ui
     assert "Handle" in graph_node_ui
     assert "Position.Left" in graph_node_ui
     assert "Position.Right" in graph_node_ui

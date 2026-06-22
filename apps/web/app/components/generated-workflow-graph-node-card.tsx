@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import type { AddedTool } from "./tools-page-model";
 import {
   describePortSpec,
+  graphNodeSubflowLabel,
   readRuleInputs,
   readRuleOutputs,
   type GeneratedWorkflowValidationIssue,
@@ -37,6 +38,7 @@ export function RuleGraphNodeCard({
   validationIssues: GeneratedWorkflowValidationIssue[];
 }) {
   const hasIssues = validationIssues.length > 0;
+  const subflowLabel = graphNodeSubflowLabel(node);
   return (
     <div
       role="button"
@@ -59,6 +61,7 @@ export function RuleGraphNodeCard({
       <span className="min-w-0">
         <span className="block truncate font-mono text-xs text-slate-800">{node.id}</span>
         <span className="block truncate text-[11px] text-slate-500">{tool?.name || node.toolRevisionId}</span>
+        {subflowLabel ? <span className="block truncate text-[10px] text-sky-600">子流程 · {subflowLabel}</span> : null}
         {hasIssues ? <span className="block truncate text-[10px] text-red-500">contract error · {validationIssues.length}</span> : null}
       </span>
       <span className="grid gap-2 sm:grid-cols-2">

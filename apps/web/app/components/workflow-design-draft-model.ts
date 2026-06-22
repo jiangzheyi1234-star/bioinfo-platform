@@ -192,7 +192,7 @@ export function buildWorkflowDesignDraft({
             })
           )
         ),
-        metadata: existingNode?.metadata || {},
+        metadata: { ...(existingNode?.metadata || {}), ...(node.metadata || {}) },
         provenance: existingNode?.provenance || { source: "workflow-builder" },
       };
     }),
@@ -241,6 +241,7 @@ export function workflowDesignDraftToGraphDraft(draft: WorkflowDesignDraft): Gen
       ) as GeneratedWorkflowGraphDraft["nodes"][number]["inputs"],
       params: node.params,
       runtime: node.runtime as GeneratedWorkflowGraphDraft["nodes"][number]["runtime"],
+      metadata: node.metadata || {},
     })),
     edges: draft.edges.map((edge, index) => ({
       id: edge.id || `${edge.from.nodeId}.${edge.from.port}->${edge.to.nodeId}.${edge.to.port}:${index}`,

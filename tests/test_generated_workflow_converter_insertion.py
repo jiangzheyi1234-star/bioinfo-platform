@@ -125,6 +125,7 @@ assert.equal(patched.nodes.length, 3);
 const converterNode = patched.nodes.find((node) => node.toolRevisionId === converterTool.toolRevisionId);
 assert(converterNode);
 assert.equal(converterNode.id, "sam_to_bam_converter");
+assert.deepEqual(converterNode.metadata, {});
 assert.deepEqual(converterNode.params, { min_len: 50 });
 assert.deepEqual(converterNode.runtime, {});
 assert.equal(patched.edges.length, 2);
@@ -155,4 +156,3 @@ assert(!JSON.stringify(patched).includes("converterPath"));
     )
 
     assert completed.returncode == 0, completed.stderr + completed.stdout
-

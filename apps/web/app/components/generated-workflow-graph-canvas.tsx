@@ -32,6 +32,8 @@ import {
   type GeneratedWorkflowPortConnectionDecision,
 } from "./generated-workflow-port-connection";
 import {
+  graphNodeSubflowId,
+  graphNodeSubflowLabel,
   workflowToolRevisionEntries,
   type GeneratedWorkflowGraphDraft,
   type GeneratedWorkflowInputBinding,
@@ -53,13 +55,22 @@ type RuleFlowNodeData = Record<string, unknown> & {
   onSelect: (nodeId: string) => void;
 };
 type RuleFlowNode = Node<RuleFlowNodeData, "workflowRule">;
+type RuleFlowSubflowGroupData = Record<string, unknown> & {
+  label: string;
+  nodeCount: number;
+};
+type RuleFlowSubflowGroupNode = Node<RuleFlowSubflowGroupData, "subflowGroup">;
+type RuleFlowAnyNode = RuleFlowNode | RuleFlowSubflowGroupNode;
 type RuleFlowEdge = Edge<Record<string, unknown>>;
 
 const FLOW_NODE_WIDTH = 290;
 const FLOW_NODE_COLUMN_GAP = 120;
 const FLOW_NODE_ROW_GAP = 72;
 const FLOW_NODE_MIN_HEIGHT = 170;
-const FLOW_NODE_TYPES = { workflowRule: WorkflowRuleFlowNode };
+const SUBFLOW_GROUP_PADDING_X = 30;
+const SUBFLOW_GROUP_PADDING_Y = 34;
+const SUBFLOW_GROUP_NODE_PREFIX = "subflow:";
+const FLOW_NODE_TYPES = { workflowRule: WorkflowRuleFlowNode, subflowGroup: WorkflowSubflowGroupNode };
 
 export function GeneratedWorkflowGraphCanvas({
   edges,
@@ -92,7 +103,7 @@ export function GeneratedWorkflowGraphCanvas({
   const hasSearch = searchQuery.trim().length > 0;
   const [connectionNotice, setConnectionNotice] = useState("");
   const lastInvalidConnectionRef = useRef("");
-  const flowInstanceRef = useRef<ReactFlowInstance<RuleFlowNode, RuleFlowEdge> | null>(null);
+  const flowInstanceRef = useRef<ReactFlowInstance<RuleFlowAnyNode, RuleFlowEdge> | null>(null);
   const flowNodeDrafts = useMemo(
     () =>
       buildFlowNodes({
@@ -110,6 +121,8 @@ export function GeneratedWorkflowGraphCanvas({
   );
   const [flowNodes, setFlowNodes] = useState<RuleFlowNode[]>(flowNodeDrafts);
   const layoutRevisionRef = useRef(layoutRevision);
+  const visibleFlowNodes = flowNodes.length > 0 ? flowNodes : flowNodeDrafts;
+  const subflowGroupNodes = useMemo(() => buildSubflowGroupNodes(visibleFlowNodes), [visibleFlowNodes]);
 
   useEffect(() => {
     setFlowNodes((current) => {
@@ -162,8 +175,12 @@ export function GeneratedWorkflowGraphCanvas({
       setConnectionNotice(lastInvalidConnectionRef.current);
     }
   }, []);
-  const onNodesChange = useCallback<OnNodesChange<RuleFlowNode>>((changes: NodeChange<RuleFlowNode>[]) => {
-    setFlowNodes((current) => applyNodeChanges(changes, current));
+  const onNodesChange = useCallback<OnNodesChange<RuleFlowAnyNode>>((changes: NodeChange<RuleFlowAnyNode>[]) => {
+    const workflowNodeChanges = changes.filter((change) => {
+      const nodeId = change.type === "add" ? change.item.id : change.id;
+      return !isSubflowGroupNodeId(nodeId);
+    }) as NodeChange<RuleFlowNode>[];
+    setFlowNodes((current) => applyNodeChanges(workflowNodeChanges, current));
   }, []);
   const onEdgesChange = useCallback<OnEdgesChange<RuleFlowEdge>>(
     (changes: EdgeChange<RuleFlowEdge>[]) => {
@@ -184,7 +201,7 @@ export function GeneratedWorkflowGraphCanvas({
   return (
     <div className="relative h-[430px] overflow-hidden rounded-md border border-slate-200 bg-white" data-workflow-react-flow-canvas>
       <GraphCanvasStyles />
-      <ReactFlow<RuleFlowNode, RuleFlowEdge>
+      <ReactFlow<RuleFlowAnyNode, RuleFlowEdge>
         className="workflow-react-flow"
         colorMode="light"
         connectionLineStyle={{ stroke: "rgb(37 99 235)", strokeWidth: 2 }}
@@ -201,7 +218,7 @@ export function GeneratedWorkflowGraphCanvas({
         maxZoom={1.7}
         minZoom={0.35}
         nodeTypes={FLOW_NODE_TYPES}
-        nodes={flowNodes.length > 0 ? flowNodes : flowNodeDrafts}
+        nodes={[...subflowGroupNodes, ...visibleFlowNodes]}
         nodesConnectable
         nodesDraggable
         onConnect={onConnect}
@@ -210,7 +227,9 @@ export function GeneratedWorkflowGraphCanvas({
         onInit={(instance) => {
           flowInstanceRef.current = instance;
         }}
-        onNodeClick={(_event, node) => onSelectNode(node.id)}
+        onNodeClick={(_event, node) => {
+          if (!isSubflowGroupNodeId(node.id)) onSelectNode(node.id);
+        }}
         onNodesChange={onNodesChange}
         panOnDrag
         panOnScroll
@@ -247,6 +266,17 @@ function WorkflowRuleFlowNode({ data, selected }: NodeProps<RuleFlowNode>) {
         tool={data.tool}
         validationIssues={data.validationIssues}
       />
+    </div>
+  );
+}
+
+function WorkflowSubflowGroupNode({ data }: NodeProps<RuleFlowSubflowGroupNode>) {
+  return (
+    <div className="h-full w-full rounded-md border border-dashed border-sky-300 bg-sky-50/45">
+      <div className="inline-flex max-w-full items-center gap-2 rounded-br-md bg-white/90 px-2 py-1 text-[11px] font-medium text-sky-800 shadow-sm">
+        <span className="truncate">{data.label}</span>
+        <span className="shrink-0 text-sky-500">{data.nodeCount} nodes</span>
+      </div>
     </div>
   );
 }
@@ -292,8 +322,51 @@ function buildFlowNodes({
       selected: selectedNodeId === node.id,
       style: { width: FLOW_NODE_WIDTH },
       type: "workflowRule",
+      zIndex: 10,
     };
   });
+}
+
+function buildSubflowGroupNodes(nodes: RuleFlowNode[]): RuleFlowSubflowGroupNode[] {
+  const groups = new Map<string, { label: string; nodes: RuleFlowNode[] }>();
+  for (const node of nodes) {
+    const subflowId = graphNodeSubflowId(node.data.graphNode);
+    if (!subflowId) continue;
+    const existingGroup = groups.get(subflowId);
+    const group = existingGroup || { label: graphNodeSubflowLabel(node.data.graphNode), nodes: [] };
+    group.nodes.push(node);
+    groups.set(subflowId, group);
+  }
+  return [...groups.entries()].map(([subflowId, group]) => subflowGroupNode(subflowId, group));
+}
+
+function subflowGroupNode(
+  subflowId: string,
+  group: {
+    label: string;
+    nodes: RuleFlowNode[];
+  }
+): RuleFlowSubflowGroupNode {
+  const minX = Math.min(...group.nodes.map((node) => node.position.x));
+  const minY = Math.min(...group.nodes.map((node) => node.position.y));
+  const maxX = Math.max(...group.nodes.map((node) => node.position.x + FLOW_NODE_WIDTH));
+  const maxY = Math.max(...group.nodes.map((node) => node.position.y + FLOW_NODE_MIN_HEIGHT));
+  return {
+    id: `${SUBFLOW_GROUP_NODE_PREFIX}${subflowId}`,
+    connectable: false,
+    data: { label: group.label || subflowId, nodeCount: group.nodes.length },
+    deletable: false,
+    draggable: false,
+    focusable: false,
+    position: { x: minX - SUBFLOW_GROUP_PADDING_X, y: minY - SUBFLOW_GROUP_PADDING_Y },
+    selectable: false,
+    style: {
+      height: maxY - minY + SUBFLOW_GROUP_PADDING_Y * 2,
+      width: maxX - minX + SUBFLOW_GROUP_PADDING_X * 2,
+    },
+    type: "subflowGroup",
+    zIndex: 0,
+  };
 }
 
 function buildFlowEdges(edges: GraphEdge[]): RuleFlowEdge[] {
@@ -337,6 +410,10 @@ function mergeFlowNodes({
     const position = preservePositions ? previousPositions.get(node.id) : undefined;
     return position ? { ...node, position } : node;
   });
+}
+
+function isSubflowGroupNodeId(nodeId: string) {
+  return nodeId.startsWith(SUBFLOW_GROUP_NODE_PREFIX);
 }
 
 function reactFlowConnectionToGraphConnection(connection: Connection | RuleFlowEdge) {

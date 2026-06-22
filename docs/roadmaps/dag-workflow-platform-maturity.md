@@ -112,6 +112,7 @@ Progress:
 - React Flow `@xyflow/react` is the selected graph editing surface for drag, pan, zoom, handles, edge deletion, minimap, and future subflow/group support.
 - React Flow node positions are currently editor-local state seeded from the deterministic layout helper; `GeneratedWorkflowGraphDraft` remains the save/compile source.
 - Direct canvas port connections now route through the same semantic compatibility and audit helpers used by inspector binding.
+- Subflow grouping now uses editor node metadata (`uiSubflowId`/`uiSubflowLabel`) and display-only React Flow group nodes; the saved and compiled execution graph remains flat.
 
 Recommended sequence:
 

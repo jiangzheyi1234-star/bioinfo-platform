@@ -201,7 +201,13 @@ def test_workflow_design_draft_storage_crud_and_fork(tmp_path: Path) -> None:
 def test_workflow_design_plan_preview_and_compile_export(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     upsert_ready_tool(cfg, _tool_manifest())
-    saved = create_workflow_design_draft(cfg, _draft())
+    draft = _draft()
+    draft["nodes"][0]["metadata"] = {
+        **draft["nodes"][0]["metadata"],
+        "uiSubflowId": "qc_stage",
+        "uiSubflowLabel": "QC Stage",
+    }
+    saved = create_workflow_design_draft(cfg, draft)
 
     plan = plan_workflow_design_draft(
         cfg,
@@ -216,7 +222,12 @@ def test_workflow_design_plan_preview_and_compile_export(tmp_path: Path) -> None
     assert plan["normalizedGraph"]["contractVersion"] == "workflow-design-draft-v1"
     assert plan["normalizedGraph"]["metadata"]["description"] == "Saved workflow design fixture"
     assert plan["normalizedGraph"]["inputs"][0]["metadata"] == {"lane": "L001"}
-    assert plan["normalizedGraph"]["nodes"][0]["metadata"] == {"uiGroup": "qc"}
+    assert plan["normalizedGraph"]["nodes"][0]["metadata"] == {
+        "uiGroup": "qc",
+        "uiSubflowId": "qc_stage",
+        "uiSubflowLabel": "QC Stage",
+    }
+    assert "metadata" not in plan["runSpec"]["workflow"]["nodes"][0]
     assert plan["normalizedGraph"]["nodes"][0]["outputs"]["report"]["metadata"] == {"panel": "summary"}
     assert plan["normalizedGraph"]["nodes"][0]["provenance"] == {"source": "builder"}
     assert plan["normalizedGraph"]["resources"]["metadata"] == {"selectionMode": "manual"}

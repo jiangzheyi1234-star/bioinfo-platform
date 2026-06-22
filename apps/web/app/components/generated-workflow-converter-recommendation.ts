@@ -143,6 +143,7 @@ export function buildConverterInsertionPatch({
         audit: converterEdgeAudit(request.converter, "source-output-to-converter-input"),
       },
     },
+    metadata: {},
     params: createStepParams(converterTool),
     runtime: {},
   };
