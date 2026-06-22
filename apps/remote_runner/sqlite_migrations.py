@@ -9,32 +9,32 @@ from .database_registry_schema import REFERENCE_DATABASE_SCHEMA_SQL
 from .sqlite_artifact_migrations import (
     ensure_artifact_cache,
     ensure_artifact_lifecycle,
+    ensure_result_package_exports,
     ensure_artifact_storage_columns,
     migrate_artifact_cache_schema,
     migrate_artifact_lifecycle_schema,
+    migrate_result_package_exports_schema,
 )
 from .sqlite_schema_contract import REQUIRED_INDEXES, REQUIRED_TABLES, REQUIRED_TRIGGERS
 from .storage_schema import SCHEMA_SQL
 from .tool_prepare_reservations import json_object, tool_prepare_job_reservation
 
-
-CURRENT_SCHEMA_VERSION = 6
+CURRENT_SCHEMA_VERSION = 7
 BASELINE_MIGRATION_NAME = "001_baseline_remote_runner_schema"
 RULE_LEVEL_RUN_STATE_MIGRATION_NAME = "002_rule_level_run_state"
 SCHEDULER_TRIGGER_MIGRATION_NAME = "003_scheduler_triggers"
 ARTIFACT_LIFECYCLE_MIGRATION_NAME = "004_artifact_lifecycle"
 ARTIFACT_CACHE_MIGRATION_NAME = "005_artifact_cache"
 BACKFILL_LAUNCH_MIGRATION_NAME = "006_backfill_launch"
+RESULT_PACKAGE_EXPORT_MIGRATION_NAME = "007_result_package_exports"
 DATABASE_MISSING_ERROR = "REMOTE_RUNNER_SQLITE_DATABASE_MISSING"
 SCHEMA_MIGRATION_REQUIRED_ERROR = "REMOTE_RUNNER_SQLITE_SCHEMA_MIGRATION_REQUIRED"
 SCHEMA_TOO_NEW_ERROR = "REMOTE_RUNNER_SQLITE_SCHEMA_TOO_NEW"
 SCHEMA_LEDGER_MISSING_ERROR = "REMOTE_RUNNER_SQLITE_SCHEMA_LEDGER_MISSING"
 SCHEMA_LEDGER_CHECKSUM_ERROR = "REMOTE_RUNNER_SQLITE_SCHEMA_LEDGER_CHECKSUM_MISMATCH"
 SCHEMA_OBJECT_MISSING_ERROR = "REMOTE_RUNNER_SQLITE_SCHEMA_OBJECT_MISSING"
-
 class RemoteRunnerSQLiteSchemaError(RuntimeError):
     pass
-
 
 def initialize_or_migrate_runtime_db(db_path: str | Path) -> None:
     path = Path(db_path)
@@ -44,11 +44,9 @@ def initialize_or_migrate_runtime_db(db_path: str | Path) -> None:
         configure_runtime_connection(connection)
         migrate_runtime_schema(connection)
 
-
 def configure_runtime_connection(connection: sqlite3.Connection) -> None:
     connection.execute("PRAGMA busy_timeout = 5000")
     connection.execute("PRAGMA journal_mode = WAL")
-
 
 def migrate_runtime_schema(connection: sqlite3.Connection) -> None:
     version = read_schema_version(connection)
@@ -83,6 +81,14 @@ def migrate_runtime_schema(connection: sqlite3.Connection) -> None:
         version = read_schema_version(connection)
     if version == 5:
         _migrate_from_v5_to_v6(connection)
+        version = read_schema_version(connection)
+    if version == 6:
+        migrate_result_package_exports_schema(
+            connection,
+            record_migration=_record_migration,
+            version=7,
+            name=RESULT_PACKAGE_EXPORT_MIGRATION_NAME,
+        )
         return
     if version != 0:
         raise RemoteRunnerSQLiteSchemaError(f"REMOTE_RUNNER_SQLITE_SCHEMA_MIGRATION_MISSING: {version}")
@@ -91,13 +97,12 @@ def migrate_runtime_schema(connection: sqlite3.Connection) -> None:
         connection.executescript(f"BEGIN IMMEDIATE;\n{SCHEMA_SQL}\n{REFERENCE_DATABASE_SCHEMA_SQL}")
         _ensure_schema_migrations_table(connection)
         _apply_baseline_schema_migration(connection)
-        _record_migration(connection, CURRENT_SCHEMA_VERSION, BACKFILL_LAUNCH_MIGRATION_NAME)
+        _record_migration(connection, CURRENT_SCHEMA_VERSION, RESULT_PACKAGE_EXPORT_MIGRATION_NAME)
         connection.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
         connection.commit()
     except Exception:
         connection.rollback()
         raise
-
 
 def ensure_runtime_schema_current(connection: sqlite3.Connection) -> None:
     version = read_schema_version(connection)
@@ -111,11 +116,9 @@ def ensure_runtime_schema_current(connection: sqlite3.Connection) -> None:
         )
     _assert_current_schema_contract(connection)
 
-
 def read_schema_version(connection: sqlite3.Connection) -> int:
     row = connection.execute("PRAGMA user_version").fetchone()
     return int(row[0] or 0)
-
 
 def _ensure_schema_migrations_table(connection: sqlite3.Connection) -> None:
     connection.execute(
@@ -152,7 +155,6 @@ def _assert_current_schema_contract(connection: sqlite3.Connection) -> None:
     if missing:
         raise RemoteRunnerSQLiteSchemaError(f"{SCHEMA_OBJECT_MISSING_ERROR}: {missing[0]}")
 
-
 def _record_migration(connection: sqlite3.Connection, version: int, name: str) -> None:
     connection.execute(
         """
@@ -164,7 +166,7 @@ def _record_migration(connection: sqlite3.Connection, version: int, name: str) -
 
 
 def _baseline_checksum() -> str:
-    payload = f"{CURRENT_SCHEMA_VERSION}:{BACKFILL_LAUNCH_MIGRATION_NAME}:{SCHEMA_SQL}:{REFERENCE_DATABASE_SCHEMA_SQL}"
+    payload = f"{CURRENT_SCHEMA_VERSION}:{RESULT_PACKAGE_EXPORT_MIGRATION_NAME}:{SCHEMA_SQL}:{REFERENCE_DATABASE_SCHEMA_SQL}"
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
@@ -187,7 +189,6 @@ def _missing_required_schema_objects(connection: sqlite3.Connection) -> list[str
 def _now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
-
 def _apply_baseline_schema_migration(connection: sqlite3.Connection) -> None:
     _ensure_adopted_output_edge_uniqueness(connection)
     _ensure_run_columns(connection)
@@ -202,6 +203,7 @@ def _apply_baseline_schema_migration(connection: sqlite3.Connection) -> None:
     ensure_artifact_storage_columns(connection)
     ensure_artifact_lifecycle(connection)
     ensure_artifact_cache(connection)
+    ensure_result_package_exports(connection)
 
 
 def _migrate_from_v1_to_v2(connection: sqlite3.Connection) -> None:
@@ -216,7 +218,6 @@ def _migrate_from_v1_to_v2(connection: sqlite3.Connection) -> None:
         connection.rollback()
         raise
 
-
 def _migrate_from_v2_to_v3(connection: sqlite3.Connection) -> None:
     try:
         connection.execute("BEGIN IMMEDIATE")
@@ -229,7 +230,6 @@ def _migrate_from_v2_to_v3(connection: sqlite3.Connection) -> None:
         connection.rollback()
         raise
 
-
 def _migrate_from_v5_to_v6(connection: sqlite3.Connection) -> None:
     try:
         connection.execute("BEGIN IMMEDIATE")
@@ -241,7 +241,6 @@ def _migrate_from_v5_to_v6(connection: sqlite3.Connection) -> None:
     except Exception:
         connection.rollback()
         raise
-
 
 def _ensure_scheduler_triggers(connection: sqlite3.Connection) -> None:
     _ensure_columns(

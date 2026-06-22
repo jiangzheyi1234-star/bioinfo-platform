@@ -24,6 +24,8 @@ from apps.remote_runner.execution_query_storage import fetch_run_results
 from apps.remote_runner.result_preview_service import build_result_preview_data
 from apps.remote_runner.run_execution_storage import claim_next_run_job
 from apps.remote_runner.storage import create_run_record, persist_artifact
+from apps.remote_runner.storage_core import get_connection
+from apps.remote_runner.workflow_revision_storage import create_or_fetch_workflow_revision
 from tests.helpers.reference_database import make_configured_remote_runner
 
 
@@ -238,7 +240,8 @@ def _s3_config(tmp_path: Path) -> RemoteRunnerConfig:
     return cfg
 
 
-def _create_run(cfg: RemoteRunnerConfig, run_id: str) -> None:
+def _create_run(cfg: RemoteRunnerConfig, run_id: str, *, complete: bool = True) -> None:
+    revision = _create_revision(cfg, run_id)
     create_run_record(
         cfg,
         server_id="srv_artifact",
@@ -249,14 +252,33 @@ def _create_run(cfg: RemoteRunnerConfig, run_id: str) -> None:
             "pipelineId": "pipeline_artifact",
             "pipelineVersion": "0.1.0",
             "runSpecVersion": "2026-04-21",
+            "workflowRevisionId": revision["workflowRevisionId"],
         },
         idempotency_key=f"idem_{run_id}",
         payload_hash=f"hash_{run_id}",
     )
+    if complete:
+        _mark_run_terminal(cfg, run_id)
+
+
+def _create_revision(cfg: RemoteRunnerConfig, run_id: str) -> dict[str, object]:
+    return create_or_fetch_workflow_revision(
+        cfg,
+        draft_id=f"draft_{run_id}",
+        draft_revision=1,
+        manifest={
+            "files": [{"path": "workflow/Snakefile", "sha256": "a" * 64}],
+            "layout": {"snakefile": "workflow/Snakefile"},
+        },
+        graph_snapshot={"nodes": ["report"], "edges": [], "runSpec": {"runId": run_id}},
+        runtime_lock={"snakemake": "9.23.1"},
+        compiler={"name": "h2ometa-test", "version": "0.1.0"},
+        created_by="pytest",
+    )
 
 
 def _create_attempt(cfg: RemoteRunnerConfig, run_id: str):
-    _create_run(cfg, run_id)
+    _create_run(cfg, run_id, complete=False)
     claim = claim_next_run_job(
         cfg,
         worker_id="worker_candidate",
@@ -265,6 +287,26 @@ def _create_attempt(cfg: RemoteRunnerConfig, run_id: str):
     )
     assert claim is not None
     return claim
+
+
+def _mark_run_terminal(cfg: RemoteRunnerConfig, run_id: str) -> None:
+    with get_connection(cfg) as connection:
+        connection.execute(
+            """
+            UPDATE runs
+            SET status = 'completed',
+                stage = 'complete',
+                finished_at = '2099-06-07T10:00:00Z',
+                last_updated_at = '2099-06-07T10:00:00Z'
+            WHERE run_id = ?
+            """,
+            (run_id,),
+        )
+        connection.execute(
+            "UPDATE run_jobs SET state = 'completed', updated_at = ? WHERE run_id = ?",
+            ("2099-06-07T10:00:00Z", run_id),
+        )
+        connection.commit()
 
 
 def _bucket_and_object(storage_uri: str) -> tuple[str, str]:

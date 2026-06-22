@@ -439,6 +439,29 @@ ON artifact_cache_entries(workflow_revision_id, artifact_key, step_id, role);
 CREATE INDEX IF NOT EXISTS idx_artifact_cache_entries_blob
 ON artifact_cache_entries(artifact_blob_id, lifecycle_state, created_at);
 
+CREATE TABLE IF NOT EXISTS result_package_exports (
+    package_export_id TEXT PRIMARY KEY,
+    result_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    workflow_revision_id TEXT NOT NULL,
+    package_path TEXT NOT NULL,
+    package_uri TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    sha256 TEXT NOT NULL,
+    manifest_sha256 TEXT NOT NULL,
+    evidence_event_id TEXT NOT NULL,
+    artifact_ids_json TEXT NOT NULL DEFAULT '[]',
+    lifecycle_state TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL,
+    UNIQUE(result_id, sha256, manifest_sha256)
+);
+
+CREATE INDEX IF NOT EXISTS idx_result_package_exports_run_lifecycle
+ON result_package_exports(run_id, lifecycle_state, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_result_package_exports_result_created
+ON result_package_exports(result_id, created_at);
+
 CREATE TABLE IF NOT EXISTS run_artifact_edges (
     edge_id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL,

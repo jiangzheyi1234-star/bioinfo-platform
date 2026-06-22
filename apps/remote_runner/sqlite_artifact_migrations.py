@@ -94,6 +94,41 @@ def ensure_artifact_cache(connection: sqlite3.Connection) -> None:
     )
 
 
+def ensure_result_package_exports(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS result_package_exports (
+            package_export_id TEXT PRIMARY KEY,
+            result_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            workflow_revision_id TEXT NOT NULL,
+            package_path TEXT NOT NULL,
+            package_uri TEXT NOT NULL,
+            size_bytes INTEGER NOT NULL,
+            sha256 TEXT NOT NULL,
+            manifest_sha256 TEXT NOT NULL,
+            evidence_event_id TEXT NOT NULL,
+            artifact_ids_json TEXT NOT NULL DEFAULT '[]',
+            lifecycle_state TEXT NOT NULL DEFAULT 'active',
+            created_at TEXT NOT NULL,
+            UNIQUE(result_id, sha256, manifest_sha256)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_result_package_exports_run_lifecycle
+        ON result_package_exports(run_id, lifecycle_state, created_at)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_result_package_exports_result_created
+        ON result_package_exports(result_id, created_at)
+        """
+    )
+
+
 def migrate_artifact_lifecycle_schema(
     connection: sqlite3.Connection,
     *,
@@ -124,6 +159,25 @@ def migrate_artifact_cache_schema(
         connection.execute("BEGIN IMMEDIATE")
         _ensure_schema_migrations_table(connection)
         ensure_artifact_cache(connection)
+        record_migration(connection, version, name)
+        connection.execute(f"PRAGMA user_version = {version}")
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+
+
+def migrate_result_package_exports_schema(
+    connection: sqlite3.Connection,
+    *,
+    record_migration: RecordMigration,
+    version: int,
+    name: str,
+) -> None:
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        _ensure_schema_migrations_table(connection)
+        ensure_result_package_exports(connection)
         record_migration(connection, version, name)
         connection.execute(f"PRAGMA user_version = {version}")
         connection.commit()

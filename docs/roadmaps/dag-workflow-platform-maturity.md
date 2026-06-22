@@ -285,6 +285,8 @@ Progress:
 - Artifact cache indexing now records conservative exact cache keys for WorkflowRevision-backed artifacts. Keys include workflow revision, artifact key, role/step, content digests for upload-backed inputs, and digests of params, resource bindings, and execution options. `/api/v1/artifacts/cache/entries` lists entries, and `/cache/lookup` verifies the referenced object still exists and matches size/SHA-256 before returning a hit.
 - Artifact lineage now stamps `workflow_revision_id` for direct persist and candidate-adoption artifact publication, so cache and result audit surfaces can join a blob back to the immutable workflow contract.
 - Cache lookup is traceable through `artifact.cache.lookup.v1` evidence. After a successful dry-run, the worker can now adopt a full set of cache-hit output artifacts into the current attempt, write `artifact.cache.adopt.v1` evidence, mark rules as cache-hit succeeded, and skip the expensive Snakemake run. Per-rule partial restore, downstream file staging, cache pinning, and directory package restore semantics remain pending.
+- Result package export is now a v2 evidence package rather than a bare artifact ZIP. Export requires a terminal run with a stored WorkflowRevision, passes checksum audit first, includes `manifest.json`, `ro-crate-metadata.json`, runSpec, WorkflowRevision, run events, rule states/events, lineage, evidence events, artifact checksums, and optional payload files, then records `result.export.v1` evidence plus a durable `result_package_exports` record.
+- GC export protection is metadata-backed through active result package export records, so deleting or moving the ZIP does not make exported artifact payloads eligible for collection.
 
 Recommended sequence:
 
@@ -295,7 +297,7 @@ Recommended sequence:
 5. Anchor lineage to WorkflowRevision and input artifact edges.
 6. Extend full-output cache adoption into per-rule restore only after per-rule cache eligibility, cache pinning, and downstream file staging/materialization are represented in run events.
 7. Extend lifecycle from manual usage/preview/run into a background TTL/quota controller once durable package and cache-pin policies are finalized.
-8. Add evidence package export with manifest, runSpec, WorkflowRevision, lineage, events, artifact checksums, and optional artifacts.
+8. Extend result package export with metadata-only mode, package lifecycle/tombstone controls, UI/download affordances, and formal Workflow Run RO-Crate validation once the current v2 evidence package shape is stable.
 
 Representative files:
 
@@ -316,6 +318,7 @@ Exit criteria:
 - GC deletion is previewable, requires explicit confirmation, tombstones lifecycle state, and emits hash-chained evidence/audit records.
 - Cache hit/miss is verified against live payload size and checksum before it is surfaced as reusable.
 - Cache hit/miss is traceable and does not weaken reproducibility.
+- Result package export requires a WorkflowRevision, includes provenance metadata and checksums, records durable export evidence, and protects exported payloads from GC by metadata record rather than filesystem presence alone.
 
 ## Phase 6: Production Governance
 

@@ -129,6 +129,7 @@ def lifecycle_reference_reasons(cfg: RemoteRunnerConfig) -> dict[str, set[str]]:
             "candidate_output_pending",
         )
         _add_production_evidence_reasons(reasons, connection)
+        _add_result_package_export_reasons(reasons, connection)
     return reasons
 
 
@@ -247,6 +248,20 @@ def _add_production_evidence_reasons(reasons: dict[str, set[str]], connection: s
         run_id = str(production.get("runId") or "").strip()
         if run_id:
             reasons.setdefault(run_id, set()).add("production_evidence")
+
+
+def _add_result_package_export_reasons(reasons: dict[str, set[str]], connection: sqlite3.Connection) -> None:
+    rows = connection.execute(
+        """
+        SELECT DISTINCT run_id
+        FROM result_package_exports
+        WHERE lifecycle_state = 'active'
+        """
+    ).fetchall()
+    for row in rows:
+        run_id = str(row["run_id"] or "").strip()
+        if run_id:
+            reasons.setdefault(run_id, set()).add("export_package")
 
 
 def _json_object(payload: Any) -> dict[str, Any]:

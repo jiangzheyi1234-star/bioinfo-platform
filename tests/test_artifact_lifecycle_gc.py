@@ -17,6 +17,7 @@ from apps.remote_runner.evidence_storage import list_evidence_events
 from apps.remote_runner.governance_audit import list_governance_audit_events
 from apps.remote_runner.storage import create_run_record, fetch_run_results, persist_artifact, upsert_tool
 from apps.remote_runner.storage_core import get_connection
+from apps.remote_runner.workflow_revision_storage import create_or_fetch_workflow_revision
 from tests.helpers.reference_database import make_configured_remote_runner
 
 
@@ -48,7 +49,8 @@ def test_artifact_gc_preview_reports_usage_and_protection_reasons(tmp_path: Path
     active = _persist_managed_artifact(cfg, "run_gc_active", status="running")
     exported = _persist_managed_artifact(cfg, "run_gc_exported", status="completed")
     production = _persist_managed_artifact(cfg, "run_gc_production", status="completed")
-    export_result_package(cfg, "res_run_gc_exported")
+    package = export_result_package(cfg, "res_run_gc_exported")
+    Path(package["packagePath"]).unlink()
     _protect_run_as_production_evidence(cfg, "run_gc_production")
 
     usage = build_artifact_lifecycle_usage(cfg, quota_bytes=10)
@@ -174,6 +176,7 @@ def _persist_managed_artifact(cfg, run_id: str, *, status: str) -> dict[str, Any
 
 
 def _create_run(cfg, run_id: str, *, status: str) -> None:
+    revision = _create_revision(cfg, run_id)
     create_run_record(
         cfg,
         server_id="srv_artifact_gc",
@@ -183,6 +186,7 @@ def _create_run(cfg, run_id: str, *, status: str) -> None:
             "projectId": "proj_artifact_gc",
             "pipelineId": "pipeline_artifact_gc",
             "pipelineVersion": "0.1.0",
+            "workflowRevisionId": revision["workflowRevisionId"],
         },
         idempotency_key=f"idem_{run_id}",
         payload_hash=f"hash_{run_id}",
@@ -213,6 +217,22 @@ def _create_run(cfg, run_id: str, *, status: str) -> None:
                 (job_state, "2025-01-01T00:00:00Z", run_id),
             )
         connection.commit()
+
+
+def _create_revision(cfg, run_id: str) -> dict[str, object]:
+    return create_or_fetch_workflow_revision(
+        cfg,
+        draft_id=f"draft_{run_id}",
+        draft_revision=1,
+        manifest={
+            "files": [{"path": "workflow/Snakefile", "sha256": "a" * 64}],
+            "layout": {"snakefile": "workflow/Snakefile"},
+        },
+        graph_snapshot={"nodes": ["report"], "edges": [], "runSpec": {"runId": run_id}},
+        runtime_lock={"snakemake": "9.23.1"},
+        compiler={"name": "h2ometa-test", "version": "0.1.0"},
+        created_by="pytest",
+    )
 
 
 def _protect_run_as_production_evidence(cfg, run_id: str) -> None:

@@ -110,7 +110,7 @@ def test_runtime_layout_records_schema_version_and_migration_ledger(tmp_path: Pa
     assert user_version == CURRENT_SCHEMA_VERSION
     assert migration is not None
     assert migration[0] == CURRENT_SCHEMA_VERSION
-    assert migration[1] == sqlite_migrations.BACKFILL_LAUNCH_MIGRATION_NAME
+    assert migration[1] == sqlite_migrations.RESULT_PACKAGE_EXPORT_MIGRATION_NAME
     assert migration[2]
     assert reference_table is not None
 
@@ -179,7 +179,7 @@ def test_runtime_schema_migrates_v1_to_current_scheduler_trigger_tables(tmp_path
         "idx_workflow_trigger_events_trigger_created",
         "idx_workflow_trigger_dispatches_state",
     } <= index_names
-    assert migration["name"] == sqlite_migrations.BACKFILL_LAUNCH_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_EXPORT_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v2_scheduler_trigger_tables(tmp_path: Path) -> None:
@@ -226,7 +226,60 @@ def test_runtime_schema_migrates_v2_scheduler_trigger_tables(tmp_path: Path) -> 
         "workflow_trigger_events",
         "workflow_trigger_dispatches",
     } <= trigger_tables
-    assert migration["name"] == sqlite_migrations.BACKFILL_LAUNCH_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_EXPORT_MIGRATION_NAME
+
+
+def test_runtime_schema_migrates_v6_result_package_exports(tmp_path: Path) -> None:
+    cfg = make_remote_runner_config(tmp_path)
+    db_path = Path(cfg.db_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        connection.executescript(f"{SCHEMA_SQL}\n{REFERENCE_DATABASE_SCHEMA_SQL}")
+        sqlite_migrations._apply_baseline_schema_migration(connection)
+        connection.execute("DROP INDEX IF EXISTS idx_result_package_exports_result_created")
+        connection.execute("DROP INDEX IF EXISTS idx_result_package_exports_run_lifecycle")
+        connection.execute("DROP TABLE IF EXISTS result_package_exports")
+        sqlite_migrations._ensure_schema_migrations_table(connection)
+        connection.execute(
+            """
+            INSERT INTO schema_migrations (version, name, checksum, applied_at)
+            VALUES (6, '006_backfill_launch', 'legacy-v6', '2099-06-07T10:00:00Z')
+            """
+        )
+        connection.execute("PRAGMA user_version = 6")
+
+    initialize_or_migrate_runtime_db(cfg.db_path)
+    with get_connection(cfg) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == CURRENT_SCHEMA_VERSION
+        table = connection.execute(
+            """
+            SELECT 1
+            FROM sqlite_master
+            WHERE type = 'table' AND name = 'result_package_exports'
+            """
+        ).fetchone()
+        indexes = {
+            row["name"]
+            for row in connection.execute(
+                """
+                SELECT name
+                FROM sqlite_master
+                WHERE type = 'index' AND name LIKE 'idx_result_package_exports%'
+                """
+            ).fetchall()
+        }
+        migration = connection.execute(
+            "SELECT name FROM schema_migrations WHERE version = ?",
+            (CURRENT_SCHEMA_VERSION,),
+        ).fetchone()
+
+    assert table is not None
+    assert {
+        "idx_result_package_exports_result_created",
+        "idx_result_package_exports_run_lifecycle",
+    } <= indexes
+    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_EXPORT_MIGRATION_NAME
 
 
 def test_runtime_schema_rejects_future_user_version(tmp_path: Path) -> None:

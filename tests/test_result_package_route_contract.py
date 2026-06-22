@@ -28,6 +28,12 @@ def test_result_package_file_io_lives_in_remote_service_not_routes() -> None:
     assert "def export_result_package(" in product_source
     assert "zipfile.ZipFile(" in product_source
     assert "RESULT_ARTIFACT_AUDIT_FAILED" in product_source
+    assert 'RESULT_PACKAGE_SCHEMA_VERSION = "h2ometa.result-package.v2"' in product_source
+    assert 'RESULT_PACKAGE_PROFILE = "h2ometa.result-evidence-package.v1"' in product_source
+    assert '"ro-crate-metadata.json"' in product_source
+    assert "RESULT_WORKFLOW_REVISION_REQUIRED" in product_source
+    assert "RESULT_ID_INVALID" in product_source
+    assert "RESULT_EXPORT_EVENT_TYPE = \"result.export.v1\"" in product_source
 
     assert "def get_result_audit(self, **kwargs) -> dict[str, Any]:" in proxy_source
     assert "def export_result_package(self, **kwargs) -> dict[str, Any]:" in proxy_source
