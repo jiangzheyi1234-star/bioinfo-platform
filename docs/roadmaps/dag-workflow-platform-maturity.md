@@ -243,6 +243,7 @@ Progress:
 - Backfill triggers now support strict preview and confirmation-based launch APIs. Preview expands a half-open time range into deterministic partition windows, stable cursor/idempotency keys, concurrency estimates, and per-partition `runSpecPreview`; launch requires `confirmation: "launch-backfill"`, records durable launch/partition state, creates one immutable trigger event per partition, and dispatches each partition through the same run creation, idempotency, provenance, and audit path as other triggers.
 - Generic `/events` launch remains closed for resource-ready sources and backfill partitions; dataset/file/database-ready dispatch must go through the readiness API, and backfill dispatch must go through the dedicated launch API.
 - Backfill launch observability now exposes durable list/detail read APIs for launch state, partition summaries, linked trigger events, run ids, run status/stage, dispatch state, and runSpec hashes. The read model explicitly reports that the current `concurrencyLimit` is not yet an enforced controller, keeping the next cancel/replay/dead-letter UI honest.
+- The web UI now has a read-only backfill launch surface under the run results area. It lists launches, summarizes partitions, links each partition to its triggered run, shows dispatch/run evidence and runSpec hashes, labels idempotent replays as existing-run reuse, and surfaces requested concurrency as not enforced instead of exposing unsupported cancel/replay/dead-letter controls.
 
 Recommended sequence:
 

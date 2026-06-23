@@ -581,6 +581,7 @@ export function WorkflowRunDetailPanel({
       : typeof run.runSpec?.workflowRevisionId === "string"
         ? run.runSpec.workflowRevisionId
         : "";
+  const trigger = run.trigger;
 
   async function handleRetryRun() {
     setRetrying(true);
@@ -617,6 +618,14 @@ export function WorkflowRunDetailPanel({
                 <FileCode strokeWidth={1.5} className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
                 <span className="shrink-0 font-sans text-slate-500">WorkflowRevision</span>
                 <span className="truncate">{workflowRevisionId}</span>
+              </div>
+            ) : null}
+            {trigger ? (
+              <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[11px] text-blue-700">
+                <Clock strokeWidth={1.5} className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                <span className="shrink-0 font-sans text-slate-500">Trigger</span>
+                <span className="truncate">{trigger.triggerId || trigger.source || "trigger"}</span>
+                {trigger.triggerEventId ? <span className="truncate text-blue-500">{trigger.triggerEventId}</span> : null}
               </div>
             ) : null}
           </div>

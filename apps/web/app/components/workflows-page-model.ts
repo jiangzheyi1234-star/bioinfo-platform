@@ -127,6 +127,13 @@ export type WorkflowUpload = {
   sourceUrl?: string;
 };
 
+export type WorkflowRunTrigger = {
+  triggerId?: string;
+  triggerEventId?: string;
+  source?: string;
+  cursor?: string;
+};
+
 export type WorkflowRun = {
   runId: string;
   status: string;
@@ -140,6 +147,7 @@ export type WorkflowRun = {
   submittedAt?: string;
   createdAt?: string;
   updatedAt?: string;
+  trigger?: WorkflowRunTrigger | null;
   runSpec?: {
     pipelineId?: string;
     workflowRevisionId?: string;

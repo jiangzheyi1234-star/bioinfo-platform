@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, CheckCircle2, Clock, Loader2, RefreshCw, XCircle } from "lucide-react";
+import { ArrowRight, CalendarClock, CheckCircle2, Clock, Loader2, RefreshCw, XCircle } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
+import { fetchWorkflowBackfillLaunches } from "./workflow-backfill-api";
 import { fetchRunsList } from "./workflows-page-api";
 import { workflowErrorMessage, type WorkflowRun } from "./workflows-page-model";
 import { WorkflowPageHeader } from "./workflow-page-header";
@@ -75,16 +76,28 @@ export function WorkflowResultsPage() {
         <WorkflowPageHeader
           title="运行记录"
           actions={
-            <Button
-              type="button"
-              variant="outline"
-              className="h-9 bg-white px-3 text-slate-600"
-              disabled={loading}
-              onClick={() => void load(true)}
-            >
-              <RefreshCw strokeWidth={1.5} className={loading ? "mr-2 h-4 w-4 animate-spin" : "mr-2 h-4 w-4"} />
-              刷新
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button asChild variant="outline" className="h-9 bg-white px-3 text-slate-600">
+                <Link
+                  href="/workflows/results/backfills"
+                  onFocus={() => void fetchWorkflowBackfillLaunches().catch(() => undefined)}
+                  onPointerEnter={() => void fetchWorkflowBackfillLaunches().catch(() => undefined)}
+                >
+                  <CalendarClock strokeWidth={1.5} className="mr-2 h-4 w-4" />
+                  回填批次
+                </Link>
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 bg-white px-3 text-slate-600"
+                disabled={loading}
+                onClick={() => void load(true)}
+              >
+                <RefreshCw strokeWidth={1.5} className={loading ? "mr-2 h-4 w-4 animate-spin" : "mr-2 h-4 w-4"} />
+                刷新
+              </Button>
+            </div>
           }
         />
 
