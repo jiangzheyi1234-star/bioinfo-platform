@@ -331,6 +331,13 @@ export type WorkflowArtifact = {
   storageUri?: string;
 };
 
+export type WorkflowArtifactDirectoryPreviewEntry = {
+  path?: string;
+  kind?: "file" | "directory" | string;
+  sizeBytes?: number;
+  sha256?: string;
+};
+
 export type WorkflowResultDetail = {
   resultId?: string;
   runId?: string;
@@ -369,6 +376,13 @@ export type WorkflowArtifactPreview = {
     content?: string;
     columns?: string[];
     rows?: string[][];
+    entries?: WorkflowArtifactDirectoryPreviewEntry[];
+    fileCount?: number;
+    directoryCount?: number;
+    logicalSizeBytes?: number;
+    logicalSha256?: string;
+    packageProfile?: string;
+    schemaVersion?: string;
     truncated?: boolean;
   };
 };

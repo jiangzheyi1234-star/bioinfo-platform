@@ -28,6 +28,7 @@ import { WorkflowRunExecutionContextPanel } from "./workflow-run-execution-conte
 import { WorkflowResultPackagePanel } from "./workflow-result-package-panel";
 import { fetchArtifactPreview, retryWorkflowRun } from "./workflows-page-api";
 import { workflowErrorMessage } from "./workflows-page-model";
+import { DirectoryArtifactPreview, isDirectoryArtifactPreview } from "./workflow-artifact-directory-preview";
 import type {
   WorkflowArtifact,
   WorkflowArtifactPreview,
@@ -157,6 +158,7 @@ function RunDiagnosis({
 /* ─── Artifacts ─── */
 
 function artifactIcon(mimeType: string) {
+  if (mimeType === "inode/directory") return <Package strokeWidth={1.5} className="h-4 w-4 text-amber-500" />;
   if (mimeType.includes("html")) return <FileCode strokeWidth={1.5} className="h-4 w-4 text-blue-500" />;
   if (mimeType.includes("csv") || mimeType.includes("tsv") || mimeType.includes("tab")) return <Table strokeWidth={1.5} className="h-4 w-4 text-emerald-500" />;
   if (mimeType.includes("image")) return <ImageIcon strokeWidth={1.5} className="h-4 w-4 text-purple-500" />;
@@ -169,7 +171,7 @@ function artifactName(artifact: WorkflowArtifact) {
 }
 
 function isPreviewable(mimeType: string) {
-  return /text|html|csv|tsv|json|xml|md|log/.test(mimeType);
+  return mimeType === "inode/directory" || /text|html|csv|tsv|json|xml|md|log/.test(mimeType);
 }
 
 function isInlineTextPreview(preview: WorkflowArtifactPreview | undefined) {
@@ -209,6 +211,7 @@ function RunArtifacts({
   const [previewTitle, setPreviewTitle] = useState("");
   const [previewContent, setPreviewContent] = useState<string | null>(null);
   const [previewKind, setPreviewKind] = useState<string>("text");
+  const [selectedPreview, setSelectedPreview] = useState<WorkflowArtifactPreview | null>(null);
   const [loading, setLoading] = useState(false);
 
   const previewMap = new Map<string, WorkflowArtifactPreview>();
@@ -218,10 +221,19 @@ function RunArtifacts({
 
   async function openPreview(artifact: WorkflowArtifact) {
     const existing = previewMap.get(artifact.artifactId);
+    if (isDirectoryArtifactPreview(existing)) {
+      setPreviewTitle(artifactName(artifact));
+      setPreviewContent(null);
+      setPreviewKind("directory");
+      setSelectedPreview(existing ?? null);
+      setOpen(true);
+      return;
+    }
     if (existing?.preview?.content) {
       setPreviewTitle(artifactName(artifact));
       setPreviewContent(existing.preview.content);
       setPreviewKind(existing.preview.kind || "text");
+      setSelectedPreview(existing);
       setOpen(true);
       return;
     }
@@ -230,13 +242,15 @@ function RunArtifacts({
     try {
       const data = await fetchArtifactPreview(resultId, artifact.artifactId);
       setPreviewTitle(artifactName(artifact));
-      setPreviewContent(data.preview?.content || "（无预览内容）");
       setPreviewKind(data.preview?.kind || "text");
+      setSelectedPreview(data);
+      setPreviewContent(isDirectoryArtifactPreview(data) ? null : data.preview?.content || "（无预览内容）");
       setOpen(true);
     } catch {
       setPreviewTitle(artifactName(artifact));
       setPreviewContent("预览加载失败");
       setPreviewKind("text");
+      setSelectedPreview(null);
       setOpen(true);
     } finally {
       setLoading(false);
@@ -268,6 +282,7 @@ function RunArtifacts({
                   {inlineText}
                 </pre>
               ) : null}
+              {isDirectoryArtifactPreview(existingPreview) ? <DirectoryArtifactPreview preview={existingPreview} compact /> : null}
               <div className="mt-3 flex items-center gap-2">
                 {previewable && (
                   <Button variant="outline" size="sm" className="h-7 px-2 text-xs" disabled={loading} onClick={() => openPreview(artifact)}>
@@ -292,7 +307,9 @@ function RunArtifacts({
             <DialogTitle className="text-base">{previewTitle}</DialogTitle>
             <DialogDescription className="text-xs">产物预览</DialogDescription>
           </DialogHeader>
-          {previewKind === "html" && previewContent ? (
+          {previewKind === "directory" ? (
+            <DirectoryArtifactPreview preview={selectedPreview ?? undefined} />
+          ) : previewKind === "html" && previewContent ? (
             <div className="max-h-[60vh] overflow-auto rounded border border-slate-200 bg-white">
               <iframe title={previewTitle} srcDoc={previewContent} className="h-[50vh] w-full" sandbox="allow-same-origin" />
             </div>
