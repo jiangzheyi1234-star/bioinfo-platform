@@ -61,6 +61,10 @@ export function WorkflowBackfillLaunchesPage() {
     try {
       const data = await fetchWorkflowBackfillLaunch(selectedLaunchId, { forceRefresh });
       setDetail(data);
+      const { partitions: _partitions, ...launchSummary } = data;
+      setLaunches((current) =>
+        current.map((launch) => (launch.launchId === data.launchId ? { ...launch, ...launchSummary } : launch))
+      );
     } catch (err) {
       setDetailError(workflowErrorMessage(err, "读取回填分区失败"));
     } finally {
@@ -110,14 +114,16 @@ export function WorkflowBackfillLaunchesPage() {
 
   async function cancelLaunch(launchId: string) {
     if (!launchId || cancelingLaunchId) return;
-    const accepted = window.confirm(`请求取消回填批次 ${launchId} 下仍在活动状态的分区运行？`);
+    const accepted = window.confirm(`请求取消回填批次 ${launchId} 下仍在活动或待提交状态的分区？`);
     if (!accepted) return;
     setCancelingLaunchId(launchId);
     setNotice("");
     setDetailError("");
     try {
       const result = await cancelWorkflowBackfillLaunch(launchId);
-      setNotice(`已请求取消 ${result.requestedCancelCount ?? 0} 个分区运行，跳过 ${result.skippedPartitionCount ?? 0} 个分区。`);
+      setNotice(
+        `已请求取消 ${result.requestedCancelCount ?? 0} 个分区运行，标记 ${result.pendingCancelRequestedCount ?? 0} 个待提交分区，跳过 ${result.skippedPartitionCount ?? 0} 个分区。`
+      );
       if (result.detail) {
         setDetail(result.detail);
       }

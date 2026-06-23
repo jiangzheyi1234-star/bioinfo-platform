@@ -121,6 +121,9 @@ export function WorkflowBackfillLaunchPanel({
                       {launch.partitionSummary?.replayedPartitionCount ? (
                         <SummaryPill tone="amber" value={`${launch.partitionSummary.replayedPartitionCount} 幂等命中`} />
                       ) : null}
+                      {launch.partitionSummary?.blockedPartitionCount ? (
+                        <SummaryPill tone="amber" value={`${launch.partitionSummary.blockedPartitionCount} 并发受限`} />
+                      ) : null}
                     </div>
                   </div>
                 </button>
@@ -186,9 +189,11 @@ function BackfillDetail({
         ) : null}
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
         <DetailMetric label="分区" value={String(summary.partitionCount ?? detail.partitionCount ?? 0)} />
-        <DetailMetric label="运行" value={String(summary.submittedRunCount ?? 0)} />
+        <DetailMetric label="已提交" value={String(summary.submittedRunCount ?? 0)} />
+        <DetailMetric label="活跃" value={String(summary.activeRunCount ?? detail.concurrency?.activeRunCount ?? 0)} />
+        <DetailMetric label="并发受限" value={String(summary.blockedPartitionCount ?? detail.concurrency?.blockedPartitionCount ?? 0)} tone={summary.blockedPartitionCount ? "amber" : "slate"} />
         <DetailMetric label="失败" value={String(summary.failedPartitionCount ?? 0)} tone={summary.failedPartitionCount ? "red" : "slate"} />
         <DetailMetric label="并发" value={concurrencyLabel(detail)} tone={detail.concurrency?.enforced ? "emerald" : "amber"} />
       </div>
@@ -231,6 +236,7 @@ function BackfillDetail({
 }
 
 function PartitionRow({ partition }: { partition: WorkflowBackfillPartition }) {
+  const displayStatus = partitionDisplayStatus(partition);
   return (
     <tr>
       <td className="px-3 py-2">
@@ -238,8 +244,8 @@ function PartitionRow({ partition }: { partition: WorkflowBackfillPartition }) {
         <div className="truncate font-mono text-[10px] text-slate-400">#{partition.index ?? "—"}</div>
       </td>
       <td className="px-3 py-2">
-        <span className={cn("inline-flex items-center rounded border px-1.5 py-0.5 text-[11px]", statusStyle(partition.state))}>
-          {statusLabel(partition.state)}
+        <span className={cn("inline-flex items-center rounded border px-1.5 py-0.5 text-[11px]", statusStyle(displayStatus))}>
+          {statusLabel(displayStatus)}
         </span>
         {partition.dispatch?.state ? <div className="mt-1 truncate text-[10px] text-slate-400">dispatch {partition.dispatch.state}</div> : null}
       </td>
@@ -265,6 +271,7 @@ function PartitionRow({ partition }: { partition: WorkflowBackfillPartition }) {
       </td>
       <td className="px-3 py-2">
         <div className="truncate font-mono text-[10px] text-slate-500">{partition.triggerEventId || "no trigger event"}</div>
+        {partition.blockedReason ? <div className="mt-1 truncate text-[10px] text-amber-600">{blockedReasonLabel(partition.blockedReason)}</div> : null}
         <div className="mt-1 truncate font-mono text-[10px] text-slate-400">{shortHash(partition.runSpecHash)}</div>
       </td>
     </tr>
@@ -329,6 +336,9 @@ function StatusIcon({ status }: { status?: string }) {
   if (s === "replayed") {
     return <RotateCcw strokeWidth={1.5} className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />;
   }
+  if (s === "blocked") {
+    return <Clock strokeWidth={1.5} className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />;
+  }
   if (s === "launching" || s === "pending" || s === "canceling" || s === "cancel_requested") {
     return <Loader2 strokeWidth={1.5} className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-blue-500" />;
   }
@@ -341,6 +351,7 @@ function statusStyle(status: string | undefined) {
     return "border-emerald-200 bg-emerald-50 text-emerald-700";
   }
   if (s === "failed" || s === "error") return "border-red-200 bg-red-50 text-red-700";
+  if (s === "blocked") return "border-amber-200 bg-amber-50 text-amber-700";
   if (s === "launching" || s === "pending" || s === "running" || s === "canceling" || s === "cancel_requested") {
     return "border-blue-200 bg-blue-50 text-blue-700";
   }
@@ -352,7 +363,9 @@ function statusLabel(status: string | undefined) {
   const s = String(status || "").toLowerCase();
   if (s === "replayed") return "幂等命中";
   if (s === "submitted") return "已提交";
+  if (s === "blocked") return "并发受限";
   if (s === "pending") return "待提交";
+  if (s === "admitting") return "提交中";
   if (s === "launching") return "提交中";
   if (s === "canceling") return "取消中";
   if (s === "cancel_requested") return "取消请求已发出";
@@ -361,8 +374,22 @@ function statusLabel(status: string | undefined) {
 
 function concurrencyLabel(detail: WorkflowBackfillLaunchDetail) {
   const limit = detail.concurrency?.limit || "—";
+  const active = detail.concurrency?.activeRunCount ?? detail.partitionSummary?.activeRunCount ?? 0;
+  const available = detail.concurrency?.availableSlots ?? 0;
   const enforced = detail.concurrency?.enforced ? "强制" : "未强制";
-  return `${limit} / ${enforced}`;
+  return `${active}/${limit} 活跃 · 可用 ${available} · ${enforced}`;
+}
+
+function partitionDisplayStatus(partition: WorkflowBackfillPartition) {
+  if (partition.state === "pending" && partition.blockedReason === "concurrency_limit") {
+    return "blocked";
+  }
+  return partition.state;
+}
+
+function blockedReasonLabel(reason: string) {
+  if (reason === "concurrency_limit") return "等待并发槽位";
+  return reason;
 }
 
 function formatDate(value?: string | null) {

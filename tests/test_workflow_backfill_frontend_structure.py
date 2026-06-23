@@ -26,6 +26,9 @@ def test_backfill_launches_have_read_only_frontend_surface() -> None:
     assert "WorkflowBackfillLaunchDetail" in model
     assert "WorkflowBackfillPartitionSummary" in model
     assert "WorkflowBackfillConcurrency" in model
+    assert "activeRunCount" in model
+    assert "blockedPartitionCount" in model
+    assert "blockedReason" in model
     assert "operationCapabilities" in model
     assert "WorkflowBackfillCancelResponse" in model
     assert "fetchWorkflowBackfillLaunches" in api
@@ -45,6 +48,10 @@ def test_backfill_launches_have_read_only_frontend_surface() -> None:
     assert 'href="/workflows/results/backfills"' in results
     assert 'href={`/workflows/results/detail?run=${encodeURIComponent(partition.runId)}`}' in panel
     assert "detail.concurrency?.enforced ? \"强制\" : \"未强制\"" in panel
+    assert "并发受限" in panel
+    assert "待提交" in panel
+    assert "partition.blockedReason" in panel
+    assert "setLaunches((current) =>" in page
     assert "幂等命中" in panel
     assert "请求取消" in panel
     assert "detail.operationCapabilities?.cancel === true" in panel

@@ -2,6 +2,10 @@ export type WorkflowBackfillPartitionSummary = {
   partitionCount?: number;
   states?: Record<string, number>;
   submittedRunCount?: number;
+  activeRunCount?: number;
+  occupiedConcurrencySlotCount?: number;
+  admittingPartitionCount?: number;
+  blockedPartitionCount?: number;
   failedPartitionCount?: number;
   pendingPartitionCount?: number;
   replayedPartitionCount?: number;
@@ -13,6 +17,12 @@ export type WorkflowBackfillConcurrency = {
   limit?: number | null;
   partitionCount?: number;
   enforced?: boolean;
+  activeRunCount?: number;
+  occupiedSlotCount?: number;
+  availableSlots?: number;
+  pendingPartitionCount?: number;
+  blockedPartitionCount?: number;
+  admittingPartitionCount?: number;
 };
 
 export type WorkflowBackfillRange = {
@@ -70,6 +80,7 @@ export type WorkflowBackfillPartition = {
   triggerEventId?: string | null;
   runId?: string | null;
   state?: string;
+  blockedReason?: string | null;
   runSpecHash?: string;
   triggerEventType?: string | null;
   dispatch?: {
@@ -112,8 +123,10 @@ export type WorkflowBackfillCancelResponse = {
     triggerId?: string;
     state?: string;
     requestedCancelCount?: number;
+    pendingCancelRequestedCount?: number;
     skippedPartitionCount?: number;
     requested?: Array<Record<string, unknown>>;
+    pendingRequested?: Array<Record<string, unknown>>;
     skipped?: Array<Record<string, unknown>>;
     detail?: WorkflowBackfillLaunchDetail;
   };

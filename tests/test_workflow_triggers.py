@@ -643,15 +643,18 @@ def test_backfill_launch_creates_partition_runs_and_replays(tmp_path, monkeypatc
 
     data = first["data"]
     assert data["schemaVersion"] == "workflow-trigger-backfill-launch.v1"
-    assert data["state"] == "submitted"
-    assert data["launchedRunCount"] == 2
+    assert data["state"] == "running"
+    assert data["launchedRunCount"] == 1
+    assert data["submittedThisTick"] == 1
+    assert data["pendingPartitionCount"] == 1
     assert data["replayedRunCount"] == 0
     assert len(data["partitions"]) == 2
     assert [item["partitionKey"] for item in data["partitions"]] == ["2026-06-01", "2026-06-02"]
-    assert [item["state"] for item in data["partitions"]] == ["submitted", "submitted"]
-    assert len({item["runId"] for item in data["partitions"]}) == 2
-    assert len(events) == 2
-    assert len(runs) == 2
+    assert [item["state"] for item in data["partitions"]] == ["submitted", "pending"]
+    assert data["partitions"][1]["blockedReason"] == "concurrency_limit"
+    assert len({item["runId"] for item in data["partitions"] if item["runId"]}) == 1
+    assert len(events) == 1
+    assert len(runs) == 1
     assert all(item["dispatch"]["run"]["runId"] == item["dispatch"]["runId"] for item in events)
     assert {item["dispatch"]["run"]["status"] for item in events} == {"queued"}
     assert {item["dispatch"]["run"]["stage"] for item in events} == {"submitted"}
@@ -675,8 +678,10 @@ def test_backfill_launch_creates_partition_runs_and_replays(tmp_path, monkeypatc
 
     replay_data = replay["data"]
     assert replay_data["launchId"] == data["launchId"]
-    assert replay_data["replayedRunCount"] == 2
-    assert [item["state"] for item in replay_data["partitions"]] == ["replayed", "replayed"]
+    assert replay_data["replayedRunCount"] == 0
+    assert replay_data["submittedThisTick"] == 0
+    assert replay_data["pendingPartitionCount"] == 1
+    assert [item["state"] for item in replay_data["partitions"]] == ["submitted", "pending"]
     assert [item["runId"] for item in replay_data["partitions"]] == [item["runId"] for item in data["partitions"]]
 
     launch_audit = list_governance_audit_events(cfg, action="workflow_trigger.backfill_launch")["items"]

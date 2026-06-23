@@ -63,26 +63,44 @@ def test_backfill_launch_read_model_lists_partition_runs_and_replay_state(
     assert [item["launchId"] for item in listed["items"]] == [launched["launchId"]]
     assert listed["items"][0]["partitionSummary"] == {
         "partitionCount": 2,
-        "states": {"replayed": 2},
-        "submittedRunCount": 2,
+        "states": {"pending": 1, "submitted": 1},
+        "submittedRunCount": 1,
+        "activeRunCount": 1,
+        "occupiedConcurrencySlotCount": 1,
+        "admittingPartitionCount": 0,
+        "blockedPartitionCount": 1,
         "failedPartitionCount": 0,
-        "pendingPartitionCount": 0,
-        "replayedPartitionCount": 2,
+        "pendingPartitionCount": 1,
+        "replayedPartitionCount": 0,
         "cancelRequestedPartitionCount": 0,
-        "cancellableRunCount": 2,
+        "cancellableRunCount": 1,
     }
     assert detail["schemaVersion"] == "workflow-backfill-launch-detail.v1"
     assert detail["launchId"] == launched["launchId"] == replayed["launchId"]
     assert detail["launchStrategy"] == "one-run-per-partition"
-    assert detail["concurrency"] == {"limit": 1, "partitionCount": 2, "enforced": False}
+    assert detail["concurrency"] == {
+        "limit": 1,
+        "partitionCount": 2,
+        "enforced": True,
+        "activeRunCount": 1,
+        "occupiedSlotCount": 1,
+        "availableSlots": 0,
+        "pendingPartitionCount": 1,
+        "blockedPartitionCount": 1,
+        "admittingPartitionCount": 0,
+    }
     assert detail["range"]["semantics"] == "half-open"
     assert [item["partitionKey"] for item in detail["partitions"]] == ["2026-06-01", "2026-06-02"]
-    assert [item["state"] for item in detail["partitions"]] == ["replayed", "replayed"]
+    assert [item["state"] for item in detail["partitions"]] == ["submitted", "pending"]
+    assert detail["partitions"][1]["blockedReason"] == "concurrency_limit"
     assert [item["runId"] for item in detail["partitions"]] == [item["runId"] for item in launched["partitions"]]
-    assert all(item["run"]["status"] == "queued" for item in detail["partitions"])
-    assert all(item["run"]["stage"] == "submitted" for item in detail["partitions"])
-    assert all(item["dispatch"]["state"] == "submitted" for item in detail["partitions"])
-    assert all(item["triggerEventType"] == "backfill.partition" for item in detail["partitions"])
+    assert detail["partitions"][0]["run"]["status"] == "queued"
+    assert detail["partitions"][0]["run"]["stage"] == "submitted"
+    assert detail["partitions"][0]["dispatch"]["state"] == "submitted"
+    assert detail["partitions"][0]["triggerEventType"] == "backfill.partition"
+    assert detail["partitions"][1]["run"] is None
+    assert detail["partitions"][1]["dispatch"] is None
+    assert detail["partitions"][1]["triggerEventType"] is None
     assert all(item["runSpecHash"] for item in detail["partitions"])
     assert "runSpecPreview" not in str(detail)
 
@@ -129,26 +147,31 @@ def test_backfill_launch_cancel_requests_active_partition_runs(tmp_path, monkeyp
     assert response["schemaVersion"] == "workflow-backfill-cancel.v1"
     assert response["launchId"] == launched["launchId"]
     assert response["state"] == "canceling"
-    assert response["requestedCancelCount"] == 2
+    assert response["requestedCancelCount"] == 1
+    assert response["pendingCancelRequestedCount"] == 1
     assert response["skippedPartitionCount"] == 0
     assert {item["previousRunStatus"] for item in response["requested"]} == {"queued"}
     assert {item["status"] for item in response["requested"]} == {"canceling"}
+    assert {item["previousState"] for item in response["pendingRequested"]} == {"pending"}
     assert detail["state"] == "canceling"
     assert detail["partitionSummary"]["states"] == {"cancel_requested": 2}
     assert detail["partitionSummary"]["cancelRequestedPartitionCount"] == 2
     assert detail["partitionSummary"]["cancellableRunCount"] == 0
     assert detail["operationCapabilities"]["cancel"] is False
-    for partition in detail["partitions"]:
-        assert partition["state"] == "cancel_requested"
-        assert partition["run"]["status"] == "canceling"
-        assert partition["run"]["stage"] == "cancel"
-        assert fetch_run(cfg, partition["runId"])["status"] == "canceling"
+    active, pending = detail["partitions"]
+    assert active["state"] == "cancel_requested"
+    assert active["run"]["status"] == "canceling"
+    assert active["run"]["stage"] == "cancel"
+    assert fetch_run(cfg, active["runId"])["status"] == "canceling"
+    assert pending["state"] == "cancel_requested"
+    assert pending["run"] is None
 
     backfill_audit = list_governance_audit_events(cfg, action="workflow_trigger.backfill_cancel")["items"]
     run_cancel_audit = list_governance_audit_events(cfg, action="run.cancel")["items"]
-    assert backfill_audit[-1]["details"]["requestedCancelCount"] == 2
+    assert backfill_audit[-1]["details"]["requestedCancelCount"] == 1
+    assert backfill_audit[-1]["details"]["pendingCancelRequestedCount"] == 1
     assert backfill_audit[-1]["details"]["skippedPartitionCount"] == 0
-    assert {item["subjectId"] for item in run_cancel_audit} == {item["runId"] for item in launched["partitions"]}
+    assert {item["subjectId"] for item in run_cancel_audit} == {active["runId"]}
 
 
 def test_backfill_launch_detail_fails_closed_for_unknown_launch(tmp_path) -> None:

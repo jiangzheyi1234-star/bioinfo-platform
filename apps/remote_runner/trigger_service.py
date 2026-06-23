@@ -26,6 +26,11 @@ from .workflow_backfill_planner import (
     backfill_partition_event_payload,
     build_backfill_plan,
 )
+from .workflow_backfill_controller import (
+    advance_backfill_partitions,
+    advance_workflow_backfill_launch as _advance_workflow_backfill_launch,
+    advance_workflow_backfill_launches as _advance_workflow_backfill_launches,
+)
 from .trigger_storage import (
     create_workflow_trigger,
     list_workflow_trigger_events,
@@ -38,9 +43,7 @@ from .trigger_storage import (
 from .workflow_backfill_storage import (
     list_workflow_backfill_launches,
     mark_workflow_backfill_launch_canceling,
-    mark_workflow_backfill_launch_finished,
     mark_workflow_backfill_partition_cancel_requested,
-    mark_workflow_backfill_partition_failed,
     mark_workflow_backfill_partition_submitted,
     record_workflow_backfill_launch,
     record_workflow_backfill_partition,
@@ -140,6 +143,7 @@ def cancel_workflow_backfill_launch_from_request(
     launch = require_workflow_backfill_launch(cfg, launch_id)
     actor = str(request.actor or "remote-runner-api")
     requested: list[dict[str, Any]] = []
+    pending_requested: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     for partition in launch.get("partitions") or []:
         run = partition.get("run") if isinstance(partition.get("run"), dict) else {}
@@ -147,6 +151,18 @@ def cancel_workflow_backfill_launch_from_request(
         status = str((run or {}).get("status") or "").strip().lower()
         partition_id = str(partition.get("partitionId") or "")
         if not run_id:
+            state = str(partition.get("state") or "").strip().lower()
+            if state in {"pending", "admitting"}:
+                mark_workflow_backfill_partition_cancel_requested(cfg, partition_id=partition_id)
+                pending_requested.append(
+                    {
+                        "partitionId": partition_id,
+                        "partitionKey": partition.get("partitionKey"),
+                        "previousState": state,
+                        "status": "cancel_requested",
+                    }
+                )
+                continue
             skipped.append(_backfill_cancel_skip(partition, reason="no_run"))
             continue
         if status in BACKFILL_CANCEL_SKIP_STATUSES:
@@ -183,7 +199,7 @@ def cancel_workflow_backfill_launch_from_request(
                 "workflowBackfillPartitionId": partition_id,
             },
         )
-    if requested:
+    if requested or pending_requested:
         launch = mark_workflow_backfill_launch_canceling(cfg, launch_id=str(launch["launchId"]))
     record_governance_audit_event(
         cfg,
@@ -194,6 +210,7 @@ def cancel_workflow_backfill_launch_from_request(
         details={
             "triggerId": launch["triggerId"],
             "requestedCancelCount": len(requested),
+            "pendingCancelRequestedCount": len(pending_requested),
             "skippedPartitionCount": len(skipped),
             "launchState": launch["state"],
         },
@@ -205,8 +222,10 @@ def cancel_workflow_backfill_launch_from_request(
             "triggerId": launch["triggerId"],
             "state": launch["state"],
             "requestedCancelCount": len(requested),
+            "pendingCancelRequestedCount": len(pending_requested),
             "skippedPartitionCount": len(skipped),
             "requested": requested,
+            "pendingRequested": pending_requested,
             "skipped": skipped,
             "detail": require_workflow_backfill_launch(cfg, str(launch["launchId"])),
         }
@@ -446,92 +465,111 @@ def launch_workflow_trigger_backfill_from_request(
         actor=actor,
         request=request_for_hash,
     )
-    launched: list[dict[str, Any]] = []
-    replayed_count = 0
     for partition in partitions:
-        partition_state = record_workflow_backfill_partition(
+        record_workflow_backfill_partition(
             cfg,
             launch_id=str(launch["launchId"]),
             trigger_id=str(trigger["triggerId"]),
             partition=partition,
         )
-        try:
-            event = record_workflow_trigger_event(
-                cfg,
-                trigger=trigger,
-                event_type="backfill.partition",
-                external_event_id=str(partition["partitionId"]),
-                idempotency_key=str(partition["idempotencyKey"]),
-                cursor=str(partition["cursor"]),
-                payload=backfill_partition_event_payload(partition, actor=actor),
-            )
-            dispatch_response = _dispatch_recorded_trigger_event(
-                cfg,
-                trigger_id=str(trigger["triggerId"]),
-                trigger=trigger,
-                event=event,
-                source_type="backfill",
-                run_spec_override=dict(partition["runSpecPreview"]),
-            )
-            replayed = bool(dispatch_response["data"]["replayed"])
-            if replayed:
-                replayed_count += 1
-            submitted_partition = mark_workflow_backfill_partition_submitted(
-                cfg,
-                partition_id=str(partition["partitionId"]),
-                trigger_event_id=str(dispatch_response["data"]["event"]["triggerEventId"]),
-                run_id=str(dispatch_response["data"]["run"]["runId"]),
-                replayed=replayed,
-            )
-            launched.append(
-                {
-                    **partition,
-                    "state": submitted_partition["state"],
-                    "triggerEventId": submitted_partition["triggerEventId"],
-                    "runId": submitted_partition["runId"],
-                    "replayed": replayed,
-                }
-            )
-        except Exception as exc:
-            mark_workflow_backfill_partition_failed(
-                cfg,
-                partition_id=str(partition_state["partitionId"]),
-                error={"errorType": exc.__class__.__name__, "message": str(exc)},
-            )
-            mark_workflow_backfill_launch_finished(cfg, launch_id=str(launch["launchId"]), state="failed")
-            raise
-    launch = mark_workflow_backfill_launch_finished(cfg, launch_id=str(launch["launchId"]), state="submitted")
+    advanced = advance_backfill_partitions(
+        cfg,
+        trigger=trigger,
+        launch_id=str(launch["launchId"]),
+        actor=actor,
+        requested_limit=request.concurrencyLimit,
+        dispatch_partition=_dispatch_backfill_partition,
+        plan_partitions={str(item["partitionId"]): item for item in partitions},
+    )
+    detail = require_workflow_backfill_launch(cfg, str(launch["launchId"]))
     record_governance_audit_event(
         cfg,
         action="workflow_trigger.backfill_launch",
         actor=actor,
         subject_kind="workflow_backfill_launch",
-        subject_id=str(launch["launchId"]),
+        subject_id=str(detail["launchId"]),
         details={
             "triggerId": trigger["triggerId"],
             "previewId": plan["previewId"],
-            "partitionCount": len(launched),
-            "replayedRunCount": replayed_count,
+            "partitionCount": len(partitions),
+            "submittedRunCount": detail["partitionSummary"]["submittedRunCount"],
+            "submittedThisTick": advanced["submittedThisTick"],
+            "replayedRunCount": advanced["replayedRunCount"],
+            "pendingPartitionCount": detail["partitionSummary"]["pendingPartitionCount"],
+            "concurrencyLimit": request.concurrencyLimit,
             "range": plan["range"],
         },
     )
     return {
         "data": {
             "schemaVersion": "workflow-trigger-backfill-launch.v1",
-            "launchId": launch["launchId"],
+            "launchId": detail["launchId"],
             "previewId": plan["previewId"],
             "triggerId": trigger["triggerId"],
             "sourceType": "backfill",
-            "state": launch["state"],
+            "state": detail["state"],
             "range": plan["range"],
             "runOrder": plan["runOrder"],
             "reprocessBehavior": plan["reprocessBehavior"],
-            "launchStrategy": "one-run-per-partition",
-            "launchedRunCount": len(launched),
-            "replayedRunCount": replayed_count,
-            "partitions": launched,
+            "launchStrategy": detail["launchStrategy"],
+            "concurrency": detail["concurrency"],
+            "launchedRunCount": detail["partitionSummary"]["submittedRunCount"],
+            "submittedThisTick": advanced["submittedThisTick"],
+            "replayedRunCount": advanced["replayedRunCount"],
+            "pendingPartitionCount": detail["partitionSummary"]["pendingPartitionCount"],
+            "partitions": detail["partitions"],
         }
     }
+
+
+def advance_workflow_backfill_launches(cfg: RemoteRunnerConfig, *, limit: int = 100) -> dict[str, Any]:
+    return _advance_workflow_backfill_launches(
+        cfg,
+        dispatch_partition=_dispatch_backfill_partition,
+        limit=limit,
+    )
+
+
+def advance_workflow_backfill_launch(cfg: RemoteRunnerConfig, launch_id: str) -> dict[str, Any]:
+    return _advance_workflow_backfill_launch(
+        cfg,
+        launch_id=launch_id,
+        dispatch_partition=_dispatch_backfill_partition,
+    )
+
+
+def _dispatch_backfill_partition(
+    cfg: RemoteRunnerConfig,
+    trigger: dict[str, Any],
+    partition: dict[str, Any],
+    actor: str,
+) -> bool:
+    event = record_workflow_trigger_event(
+        cfg,
+        trigger=trigger,
+        event_type="backfill.partition",
+        external_event_id=str(partition["partitionId"]),
+        idempotency_key=str(partition["idempotencyKey"]),
+        cursor=str(partition["cursor"]),
+        payload=backfill_partition_event_payload(partition, actor=actor),
+    )
+    dispatch_response = _dispatch_recorded_trigger_event(
+        cfg,
+        trigger_id=str(trigger["triggerId"]),
+        trigger=trigger,
+        event=event,
+        source_type="backfill",
+        run_spec_override=dict(partition["runSpecPreview"]),
+    )
+    replayed = bool(dispatch_response["data"]["replayed"])
+    mark_workflow_backfill_partition_submitted(
+        cfg,
+        partition_id=str(partition["partitionId"]),
+        trigger_event_id=str(dispatch_response["data"]["event"]["triggerEventId"]),
+        run_id=str(dispatch_response["data"]["run"]["runId"]),
+        replayed=replayed,
+    )
+    return replayed
 
 
 def _backfill_cancel_skip(partition: dict[str, Any], *, reason: str) -> dict[str, Any]:

@@ -11,7 +11,10 @@ from .storage_core import get_connection, now_iso
 
 BACKFILL_LAUNCH_LIST_SCHEMA = "workflow-backfill-launch-list.v1"
 BACKFILL_LAUNCH_DETAIL_SCHEMA = "workflow-backfill-launch-detail.v1"
-TERMINAL_OR_CANCELING_RUN_STATUSES = {"completed", "failed", "canceled", "cancelled", "canceling"}
+TERMINAL_RUN_STATUSES = {"completed", "failed", "canceled", "cancelled"}
+NON_CANCELLABLE_RUN_STATUSES = TERMINAL_RUN_STATUSES | {"canceling"}
+ADMITTING_PARTITION_STATES = {"admitting"}
+ADVANCEABLE_LAUNCH_STATES = {"launching", "running", "submitted"}
 
 
 def record_workflow_backfill_launch(
@@ -292,13 +295,7 @@ def list_workflow_backfill_launches(
                 _partition_row_to_dict(item, created=None)
                 for item in _partition_rows_for_launch(connection, str(row["launch_id"]))
             ]
-            items.append(
-                {
-                    **_launch_row_to_dict(row, created=None),
-                    "partitionSummary": _partition_summary(partitions),
-                    "operationCapabilities": _operation_capabilities(partitions),
-                }
-            )
+            items.append(_launch_with_partition_observability(row, partitions, created=None))
     return {"schemaVersion": BACKFILL_LAUNCH_LIST_SCHEMA, "items": items}
 
 
@@ -315,10 +312,8 @@ def fetch_workflow_backfill_launch(cfg: RemoteRunnerConfig, launch_id: str) -> d
             for row in _partition_rows_for_launch(connection, str(launch["launch_id"]))
         ]
     return {
-        **_launch_row_to_dict(launch, created=None),
+        **_launch_with_partition_observability(launch, partitions, created=None),
         "schemaVersion": BACKFILL_LAUNCH_DETAIL_SCHEMA,
-        "partitionSummary": _partition_summary(partitions),
-        "operationCapabilities": _operation_capabilities(partitions),
         "partitions": partitions,
     }
 
@@ -328,6 +323,79 @@ def require_workflow_backfill_launch(cfg: RemoteRunnerConfig, launch_id: str) ->
     if launch is None:
         raise RemoteRunnerNotFoundError("WORKFLOW_BACKFILL_LAUNCH_NOT_FOUND")
     return launch
+
+
+def claim_workflow_backfill_partitions_for_admission(
+    cfg: RemoteRunnerConfig,
+    *,
+    launch_id: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    normalized_limit = _bounded_limit(limit)
+    timestamp = now_iso()
+    with get_connection(cfg) as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        launch = connection.execute(
+            "SELECT * FROM workflow_backfill_launches WHERE launch_id = ?",
+            (_required_text(launch_id, "WORKFLOW_BACKFILL_LAUNCH_ID_REQUIRED"),),
+        ).fetchone()
+        if launch is None:
+            raise RemoteRunnerNotFoundError("WORKFLOW_BACKFILL_LAUNCH_NOT_FOUND")
+        order_direction = _partition_order_direction(launch)
+        rows = connection.execute(
+            f"""
+            SELECT *
+            FROM workflow_backfill_partitions
+            WHERE launch_id = ? AND state = 'pending'
+            ORDER BY partition_index {order_direction}
+            LIMIT ?
+            """,
+            (launch_id, normalized_limit),
+        ).fetchall()
+        partition_ids = [str(row["partition_id"]) for row in rows]
+        if partition_ids:
+            placeholders = ",".join("?" for _ in partition_ids)
+            connection.execute(
+                f"""
+                UPDATE workflow_backfill_partitions
+                SET state = 'admitting', updated_at = ?
+                WHERE partition_id IN ({placeholders}) AND state = 'pending'
+                """,
+                (timestamp, *partition_ids),
+            )
+            rows = connection.execute(
+                f"""
+                SELECT *
+                FROM workflow_backfill_partitions
+                WHERE partition_id IN ({placeholders})
+                ORDER BY partition_index {order_direction}
+                """,
+                tuple(partition_ids),
+            ).fetchall()
+        connection.commit()
+    return [_pending_partition_row_to_dict(row, launch=launch) for row in rows]
+
+
+def list_workflow_backfill_advanceable_launch_ids(cfg: RemoteRunnerConfig, *, limit: int = 100) -> list[str]:
+    normalized_limit = _bounded_limit(limit)
+    placeholders = ",".join("?" for _ in ADVANCEABLE_LAUNCH_STATES)
+    with get_connection(cfg) as connection:
+        rows = connection.execute(
+            f"""
+            SELECT launch.launch_id
+            FROM workflow_backfill_launches launch
+            WHERE launch.state IN ({placeholders})
+              AND EXISTS (
+                  SELECT 1
+                  FROM workflow_backfill_partitions partition
+                  WHERE partition.launch_id = launch.launch_id AND partition.state = 'pending'
+              )
+            ORDER BY launch.created_at ASC, launch.launch_id ASC
+            LIMIT ?
+            """,
+            (*sorted(ADVANCEABLE_LAUNCH_STATES), normalized_limit),
+        ).fetchall()
+    return [str(row["launch_id"]) for row in rows]
 
 
 def _partition_rows_for_launch(connection: Any, launch_id: str) -> list[Any]:
@@ -386,7 +454,7 @@ def _launch_row_to_dict(row: Any, *, created: bool | None) -> dict[str, Any]:
         "concurrency": {
             "limit": _optional_int(request.get("concurrencyLimit")),
             "partitionCount": int(row["partition_count"]),
-            "enforced": False,
+            "enforced": True,
         },
     }
     if created is not None:
@@ -394,9 +462,27 @@ def _launch_row_to_dict(row: Any, *, created: bool | None) -> dict[str, Any]:
     return payload
 
 
+def _launch_with_partition_observability(
+    row: Any,
+    partitions: list[dict[str, Any]],
+    *,
+    created: bool | None,
+) -> dict[str, Any]:
+    payload = _launch_row_to_dict(row, created=created)
+    summary = _partition_summary(partitions)
+    payload["concurrency"] = {
+        **payload["concurrency"],
+        **_concurrency_observability(payload["concurrency"], summary),
+    }
+    payload["partitionSummary"] = summary
+    payload["operationCapabilities"] = _operation_capabilities(partitions)
+    return payload
+
+
 def _partition_row_to_dict(row: Any, *, created: bool | None) -> dict[str, Any]:
     run_id = row["run_id"]
     dispatch_error = _loads_json(_row_value(row, "dispatch_error_json"), None)
+    state = str(row["state"] or "")
     payload = {
         "partitionId": row["partition_id"],
         "launchId": row["launch_id"],
@@ -412,7 +498,8 @@ def _partition_row_to_dict(row: Any, *, created: bool | None) -> dict[str, Any]:
         "idempotencyKey": row["idempotency_key"],
         "triggerEventId": row["trigger_event_id"],
         "runId": row["run_id"],
-        "state": row["state"],
+        "state": state,
+        "blockedReason": "concurrency_limit" if state == "pending" else None,
         "runSpecHash": row["run_spec_hash"],
         "triggerEventType": _row_value(row, "trigger_event_type"),
         "dispatch": (
@@ -453,11 +540,28 @@ def _partition_summary(partitions: Any) -> dict[str, Any]:
         "partitionCount": len(items),
         "states": by_state,
         "submittedRunCount": sum(1 for item in items if item.get("runId")),
+        "activeRunCount": sum(1 for item in items if _partition_has_active_run(item)),
+        "occupiedConcurrencySlotCount": sum(1 for item in items if _partition_occupies_concurrency_slot(item)),
+        "admittingPartitionCount": by_state.get("admitting", 0),
+        "blockedPartitionCount": by_state.get("pending", 0),
         "failedPartitionCount": by_state.get("failed", 0),
         "pendingPartitionCount": by_state.get("pending", 0),
         "replayedPartitionCount": by_state.get("replayed", 0),
         "cancelRequestedPartitionCount": by_state.get("cancel_requested", 0),
         "cancellableRunCount": sum(1 for item in items if _partition_has_cancellable_run(item)),
+    }
+
+
+def _concurrency_observability(concurrency: dict[str, Any], summary: dict[str, Any]) -> dict[str, Any]:
+    limit = _optional_int(concurrency.get("limit")) or int(summary.get("partitionCount") or 1)
+    occupied = int(summary.get("occupiedConcurrencySlotCount") or 0)
+    return {
+        "activeRunCount": int(summary.get("activeRunCount") or 0),
+        "occupiedSlotCount": occupied,
+        "availableSlots": max(0, limit - occupied),
+        "pendingPartitionCount": int(summary.get("pendingPartitionCount") or 0),
+        "blockedPartitionCount": int(summary.get("blockedPartitionCount") or 0),
+        "admittingPartitionCount": int(summary.get("admittingPartitionCount") or 0),
     }
 
 
@@ -468,15 +572,55 @@ def _operation_capabilities(partitions: list[dict[str, Any]]) -> dict[str, Any]:
         "cancelReason": "active-partition-runs" if cancellable else "no-cancellable-partition-runs",
         "replay": False,
         "deadLetter": False,
-        "concurrencyEnforced": False,
+        "concurrencyEnforced": True,
     }
+
+
+def _partition_has_active_run(partition: dict[str, Any]) -> bool:
+    run = partition.get("run") if isinstance(partition.get("run"), dict) else {}
+    run_id = str((run or {}).get("runId") or partition.get("runId") or "").strip()
+    status = str((run or {}).get("status") or "").strip().lower()
+    return bool(run_id and status and status not in TERMINAL_RUN_STATUSES)
+
+
+def _partition_occupies_concurrency_slot(partition: dict[str, Any]) -> bool:
+    state = str(partition.get("state") or "").strip().lower()
+    return state in ADMITTING_PARTITION_STATES or _partition_has_active_run(partition)
 
 
 def _partition_has_cancellable_run(partition: dict[str, Any]) -> bool:
     run = partition.get("run") if isinstance(partition.get("run"), dict) else {}
     run_id = str((run or {}).get("runId") or partition.get("runId") or "").strip()
     status = str((run or {}).get("status") or "").strip().lower()
-    return bool(run_id and status and status not in TERMINAL_OR_CANCELING_RUN_STATUSES)
+    return bool(run_id and status and status not in NON_CANCELLABLE_RUN_STATUSES)
+
+
+def _pending_partition_row_to_dict(row: Any, *, launch: Any) -> dict[str, Any]:
+    run_spec = _loads_json(row["run_spec_json"], {})
+    return {
+        "partitionId": row["partition_id"],
+        "launchId": row["launch_id"],
+        "triggerId": row["trigger_id"],
+        "partitionKey": row["partition_key"],
+        "index": int(row["partition_index"]),
+        "window": {
+            "start": row["window_start"],
+            "end": row["window_end"],
+            "timezone": launch["timezone"],
+            "semantics": "half-open",
+        },
+        "cursor": row["cursor"],
+        "idempotencyKey": row["idempotency_key"],
+        "state": row["state"],
+        "provenance": {
+            "triggerId": row["trigger_id"],
+            "sourceType": "backfill",
+            "pipelineId": str(run_spec.get("pipelineId") or ""),
+            "partitionUnit": launch["partition_unit"],
+            "partitionKey": row["partition_key"],
+        },
+        "runSpecPreview": run_spec,
+    }
 
 
 def _payload_hash(payload: dict[str, Any]) -> str:
@@ -500,6 +644,10 @@ def _bounded_limit(value: int) -> int:
     except (TypeError, ValueError):
         parsed = 100
     return max(1, min(parsed, 500))
+
+
+def _partition_order_direction(launch: Any) -> str:
+    return "DESC" if str(launch["run_order"] or "").strip().lower() == "backward" else "ASC"
 
 
 def _optional_int(value: Any) -> int | None:

@@ -11,7 +11,7 @@ from croniter import croniter
 
 from .api_models import WorkflowTriggerEventRequest
 from .config import RemoteRunnerConfig, load_remote_runner_config
-from .trigger_service import submit_workflow_trigger_event_from_request
+from .trigger_service import advance_workflow_backfill_launches, submit_workflow_trigger_event_from_request
 from .trigger_storage import list_workflow_triggers_by_source
 
 
@@ -55,6 +55,9 @@ class WorkflowTriggerSchedulerSupervisor:
                 result = run_workflow_trigger_scheduler_once(self._cfg, limit=self._limit)
                 if result.get("errors"):
                     LOGGER.warning("Workflow trigger scheduler completed with trigger errors: %s", result["errors"])
+                backfill_errors = result.get("backfills", {}).get("errors") if isinstance(result.get("backfills"), dict) else None
+                if backfill_errors:
+                    LOGGER.warning("Workflow trigger scheduler completed with backfill errors: %s", backfill_errors)
             except Exception:  # noqa: BLE001 - the scheduler must keep polling after transient storage/runtime errors.
                 LOGGER.exception("Workflow trigger scheduler loop failed.")
             self._stop_event.wait(self._poll_interval_seconds)
@@ -103,6 +106,8 @@ def run_workflow_trigger_scheduler_once(
         else:
             submitted += 1
 
+    backfills = advance_workflow_backfill_launches(cfg, limit=limit)
+
     return {
         "checked": checked,
         "skipped": skipped,
@@ -110,6 +115,7 @@ def run_workflow_trigger_scheduler_once(
         "submitted": submitted,
         "replayed": replayed,
         "events": events,
+        "backfills": backfills,
         "errors": errors,
         "evaluatedAt": _format_utc(tick_at),
     }
