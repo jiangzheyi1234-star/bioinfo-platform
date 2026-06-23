@@ -94,7 +94,7 @@ rejected at Local API startup.
 
 Security-relevant operator actions must be represented in tests, diagnostics, release evidence, run/event records, or queryable hash-chained governance audit events.
 
-The remote runner records `governance.operator_action.v1` events in the existing evidence ledger for accepted high-value operator actions. Public audit reads project only safe action metadata such as actor, action, decision, subject, timestamps, hashes, and non-secret details; token, password, secret, private key, and authorization fields are forbidden in governance audit details.
+The remote runner records `governance.operator_action.v1` events in the existing evidence ledger for accepted high-value operator actions. Audit reads require an authenticated remote runner token with the `auditor` or `platform-admin` machine-token role and project only safe action metadata such as actor, action, decision, subject, timestamps, hashes, and non-secret details; token, password, secret, private key, and authorization fields are forbidden in governance audit details.
 
 `core/governance_policy.py` is the machine-readable policy catalog for high-risk
 API actions. Each entry names the current supported boundary, future RBAC roles,

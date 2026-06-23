@@ -343,6 +343,7 @@ Progress:
 - Security-sensitive automation now has CODEOWNERS coverage for workflow and governance policy changes, and the CI security governance audit enforces pinned workflow actions plus safe workflow triggers. CodeQL, Dependency Review, and Scorecard remain planned gates until GitHub feature availability can run them green.
 - High-risk remote-runner actions now require explicit machine-token roles after bearer authentication. Missing or wrong roles fail with `RemoteRunnerAuthorizationError`, write deny governance audit evidence where the ledger is available, and cannot proceed to mutation, dispatch, retry, export, or GC work.
 - Result package download is now a governed high-risk remote action (`result.package.download`) with artifact-curator/auditor role coverage and hash-chained audit evidence before the ZIP is streamed.
+- Governance audit reads are now a governed high-risk remote action (`audit.events.read`) with auditor/platform-admin role coverage, so safe audit metadata remains queryable without exposing the audit trail to every authenticated runner token.
 
 Recommended sequence:
 

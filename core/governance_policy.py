@@ -147,6 +147,16 @@ HIGH_RISK_API_POLICIES: tuple[ApiGovernancePolicy, ...] = (
         "auditor",
     ),
     remote_policy(
+        "GET",
+        "/api/v1/audit/events",
+        "apps/remote_runner/audit_routes.py",
+        "audit.events.read",
+        "governance_audit",
+        "implemented",
+        "auditor",
+        "platform-admin",
+    ),
+    remote_policy(
         "POST",
         "/api/v1/artifacts/lifecycle/gc/preview",
         "apps/remote_runner/execution_query_routes.py",

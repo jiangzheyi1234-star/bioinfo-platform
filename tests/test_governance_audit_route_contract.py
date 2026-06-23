@@ -26,6 +26,7 @@ def test_remote_governance_audit_route_is_authorized_and_service_owned() -> None
     assert 'alias="subjectKind"' in route_source
     assert 'alias="subjectId"' in route_source
     assert "authorized_config" in service_source
+    assert '_authorized_config_from_request(authorization, action="audit.events.read")' in service_source
     assert "data_response(events)" in service_source
     assert "list_governance_audit_events" in service_source
     assert "payload" not in route_source

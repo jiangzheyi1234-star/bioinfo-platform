@@ -14,7 +14,7 @@ async def list_governance_audit_events_request(
     action: str | None,
     limit: int,
 ) -> dict[str, Any]:
-    cfg = await run_sync(authorized_config, authorization)
+    cfg = await _authorized_config_from_request(authorization, action="audit.events.read")
     events = await run_sync(
         list_governance_audit_events,
         cfg,
@@ -24,3 +24,7 @@ async def list_governance_audit_events_request(
         limit=limit,
     )
     return data_response(events)
+
+
+async def _authorized_config_from_request(authorization: str | None, *, action: str | None = None):
+    return await run_sync(authorized_config, authorization, action=action)

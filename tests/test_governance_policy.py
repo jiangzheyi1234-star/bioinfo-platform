@@ -14,6 +14,7 @@ def _tracked_policy_sources() -> list[Path]:
     sources.update(ROOT / policy.route_source for policy in HIGH_RISK_API_POLICIES)
     sources.update(
         {
+            ROOT / "apps" / "remote_runner" / "audit_service.py",
             ROOT / "apps" / "remote_runner" / "artifact_lifecycle_service.py",
             ROOT / "apps" / "remote_runner" / "artifact_product_service.py",
             ROOT / "apps" / "remote_runner" / "control_service.py",

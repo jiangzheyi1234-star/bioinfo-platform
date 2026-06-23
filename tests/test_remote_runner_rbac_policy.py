@@ -129,6 +129,46 @@ def test_remote_runner_action_authorization_allows_matching_role(tmp_path) -> No
     assert principal.roles == ("data-steward",)
 
 
+def test_governance_audit_read_route_requires_auditor_role(tmp_path, monkeypatch) -> None:
+    cfg = make_configured_remote_runner(
+        tmp_path,
+        token="rbac-token",
+        api_token_roles=("workflow-operator",),
+    )
+    monkeypatch.setattr(route_utils, "load_remote_runner_config", lambda: cfg)
+
+    response = TestClient(app).get(
+        "/api/v1/audit/events",
+        headers={"Authorization": "Bearer rbac-token"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "runner authorization failed"
+    events = list_governance_audit_events(cfg, action="audit.events.read")["items"]
+    assert len(events) == 1
+    assert events[0]["decision"] == "deny"
+    assert events[0]["subjectKind"] == "governance_audit"
+    assert events[0]["details"]["requiredRoles"] == ["auditor", "platform-admin"]
+    assert events[0]["details"]["providedRoles"] == ["workflow-operator"]
+
+
+def test_governance_audit_read_route_allows_auditor_role(tmp_path, monkeypatch) -> None:
+    cfg = make_configured_remote_runner(
+        tmp_path,
+        token="rbac-token",
+        api_token_roles=("auditor",),
+    )
+    monkeypatch.setattr(route_utils, "load_remote_runner_config", lambda: cfg)
+
+    response = TestClient(app).get(
+        "/api/v1/audit/events",
+        headers={"Authorization": "Bearer rbac-token"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["items"] == []
+
+
 def test_database_mutation_route_denies_role_without_side_effect_or_secret_leak(
     tmp_path,
     monkeypatch,
