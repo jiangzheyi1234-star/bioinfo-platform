@@ -5,8 +5,12 @@ import json
 from typing import Any
 
 from .config import RemoteRunnerConfig
-from .errors import IdempotencyKeyReusedError
+from .errors import IdempotencyKeyReusedError, RemoteRunnerNotFoundError
 from .storage_core import get_connection, now_iso
+
+
+BACKFILL_LAUNCH_LIST_SCHEMA = "workflow-backfill-launch-list.v1"
+BACKFILL_LAUNCH_DETAIL_SCHEMA = "workflow-backfill-launch-detail.v1"
 
 
 def record_workflow_backfill_launch(
@@ -210,8 +214,100 @@ def mark_workflow_backfill_launch_finished(
         return _launch_row_to_dict(row, created=False)
 
 
-def _launch_row_to_dict(row: Any, *, created: bool) -> dict[str, Any]:
+def list_workflow_backfill_launches(
+    cfg: RemoteRunnerConfig,
+    *,
+    trigger_id: str | None = None,
+    limit: int = 100,
+) -> dict[str, Any]:
+    normalized_trigger_id = str(trigger_id or "").strip()
+    normalized_limit = _bounded_limit(limit)
+    params: list[Any] = []
+    where_clause = ""
+    if normalized_trigger_id:
+        where_clause = "WHERE trigger_id = ?"
+        params.append(normalized_trigger_id)
+    params.append(normalized_limit)
+    with get_connection(cfg) as connection:
+        launches = connection.execute(
+            f"""
+            SELECT *
+            FROM workflow_backfill_launches
+            {where_clause}
+            ORDER BY created_at DESC, launch_id ASC
+            LIMIT ?
+            """,
+            tuple(params),
+        ).fetchall()
+        items = [
+            {
+                **_launch_row_to_dict(row, created=None),
+                "partitionSummary": _partition_summary(
+                    _partition_row_to_dict(item, created=None)
+                    for item in _partition_rows_for_launch(connection, str(row["launch_id"]))
+                ),
+            }
+            for row in launches
+        ]
+    return {"schemaVersion": BACKFILL_LAUNCH_LIST_SCHEMA, "items": items}
+
+
+def fetch_workflow_backfill_launch(cfg: RemoteRunnerConfig, launch_id: str) -> dict[str, Any] | None:
+    with get_connection(cfg) as connection:
+        launch = connection.execute(
+            "SELECT * FROM workflow_backfill_launches WHERE launch_id = ?",
+            (_required_text(launch_id, "WORKFLOW_BACKFILL_LAUNCH_ID_REQUIRED"),),
+        ).fetchone()
+        if launch is None:
+            return None
+        partitions = [
+            _partition_row_to_dict(row, created=None)
+            for row in _partition_rows_for_launch(connection, str(launch["launch_id"]))
+        ]
     return {
+        **_launch_row_to_dict(launch, created=None),
+        "schemaVersion": BACKFILL_LAUNCH_DETAIL_SCHEMA,
+        "partitionSummary": _partition_summary(partitions),
+        "partitions": partitions,
+    }
+
+
+def require_workflow_backfill_launch(cfg: RemoteRunnerConfig, launch_id: str) -> dict[str, Any]:
+    launch = fetch_workflow_backfill_launch(cfg, launch_id)
+    if launch is None:
+        raise RemoteRunnerNotFoundError("WORKFLOW_BACKFILL_LAUNCH_NOT_FOUND")
+    return launch
+
+
+def _partition_rows_for_launch(connection: Any, launch_id: str) -> list[Any]:
+    return connection.execute(
+        """
+        SELECT
+            partition.*,
+            event.event_type AS trigger_event_type,
+            dispatch.state AS dispatch_state,
+            dispatch.request_id AS dispatch_request_id,
+            dispatch.error_json AS dispatch_error_json,
+            run.status AS run_status,
+            run.stage AS run_stage,
+            run.last_updated_at AS run_last_updated_at
+        FROM workflow_backfill_partitions partition
+        LEFT JOIN workflow_trigger_events event
+          ON event.trigger_event_id = partition.trigger_event_id
+        LEFT JOIN workflow_trigger_dispatches dispatch
+          ON dispatch.trigger_event_id = partition.trigger_event_id
+        LEFT JOIN runs run
+          ON run.run_id = partition.run_id
+        WHERE partition.launch_id = ?
+        ORDER BY partition.partition_index ASC
+        """,
+        (launch_id,),
+    ).fetchall()
+
+
+def _launch_row_to_dict(row: Any, *, created: bool | None) -> dict[str, Any]:
+    request = _loads_json(row["request_json"], {})
+    payload = {
         "launchId": row["launch_id"],
         "triggerId": row["trigger_id"],
         "previewId": row["preview_id"],
@@ -227,12 +323,30 @@ def _launch_row_to_dict(row: Any, *, created: bool) -> dict[str, Any]:
         "actor": row["actor"],
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
-        "created": created,
+        "range": {
+            "start": row["range_start"],
+            "end": row["range_end"],
+            "timezone": row["timezone"],
+            "partitionUnit": row["partition_unit"],
+            "semantics": "half-open",
+            "runOrder": row["run_order"],
+        },
+        "launchStrategy": "one-run-per-partition",
+        "concurrency": {
+            "limit": _optional_int(request.get("concurrencyLimit")),
+            "partitionCount": int(row["partition_count"]),
+            "enforced": False,
+        },
     }
+    if created is not None:
+        payload["created"] = created
+    return payload
 
 
-def _partition_row_to_dict(row: Any, *, created: bool) -> dict[str, Any]:
-    return {
+def _partition_row_to_dict(row: Any, *, created: bool | None) -> dict[str, Any]:
+    run_id = row["run_id"]
+    dispatch_error = _loads_json(_row_value(row, "dispatch_error_json"), None)
+    payload = {
         "partitionId": row["partition_id"],
         "launchId": row["launch_id"],
         "triggerId": row["trigger_id"],
@@ -248,10 +362,49 @@ def _partition_row_to_dict(row: Any, *, created: bool) -> dict[str, Any]:
         "triggerEventId": row["trigger_event_id"],
         "runId": row["run_id"],
         "state": row["state"],
+        "runSpecHash": row["run_spec_hash"],
+        "triggerEventType": _row_value(row, "trigger_event_type"),
+        "dispatch": (
+            {
+                "state": _row_value(row, "dispatch_state"),
+                "requestId": _row_value(row, "dispatch_request_id"),
+                "error": dispatch_error,
+            }
+            if _row_value(row, "dispatch_state")
+            else None
+        ),
+        "run": (
+            {
+                "runId": run_id,
+                "status": _row_value(row, "run_status"),
+                "stage": _row_value(row, "run_stage"),
+                "lastUpdatedAt": _row_value(row, "run_last_updated_at"),
+            }
+            if run_id and _row_value(row, "run_status")
+            else None
+        ),
         "error": _loads_json(row["error_json"], None),
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
-        "created": created,
+    }
+    if created is not None:
+        payload["created"] = created
+    return payload
+
+
+def _partition_summary(partitions: Any) -> dict[str, Any]:
+    items = list(partitions)
+    by_state: dict[str, int] = {}
+    for item in items:
+        state = str(item.get("state") or "unknown")
+        by_state[state] = by_state.get(state, 0) + 1
+    return {
+        "partitionCount": len(items),
+        "states": by_state,
+        "submittedRunCount": sum(1 for item in items if item.get("runId")),
+        "failedPartitionCount": by_state.get("failed", 0),
+        "pendingPartitionCount": by_state.get("pending", 0),
+        "replayedPartitionCount": by_state.get("replayed", 0),
     }
 
 
@@ -268,3 +421,34 @@ def _loads_json(value: str | None, default: Any) -> Any:
         return json.loads(value or "")
     except json.JSONDecodeError:
         return default
+
+
+def _bounded_limit(value: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = 100
+    return max(1, min(parsed, 500))
+
+
+def _optional_int(value: Any) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _required_text(value: str, code: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        raise ValueError(code)
+    return text
+
+
+def _row_value(row: Any, key: str, default: Any = None) -> Any:
+    try:
+        keys = row.keys()
+    except AttributeError:
+        return default
+    return row[key] if key in keys else default

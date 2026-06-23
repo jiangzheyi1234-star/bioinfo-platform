@@ -63,6 +63,26 @@ class RunnerExecutionOperationsMixin:
     ) -> dict[str, Any]:
         return self.execution.list_workflow_trigger_events(trigger_id, server_id)
 
+    def list_workflow_backfill_launches(
+        self,
+        *,
+        server_id: Optional[str] = None,
+        trigger_id: Optional[str] = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        return self.execution.list_workflow_backfill_launches(
+            server_id=server_id,
+            trigger_id=trigger_id,
+            limit=limit,
+        )
+
+    def get_workflow_backfill_launch(
+        self,
+        launch_id: str,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return self.execution.get_workflow_backfill_launch(launch_id, server_id)
+
     def list_governance_audit_events(
         self,
         *,

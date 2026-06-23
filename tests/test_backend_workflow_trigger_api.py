@@ -15,7 +15,9 @@ from apps.api.models import (
 from apps.api.response_cache import invalidate_response_cache
 from apps.api.workflow_trigger_routes import (
     create_workflow_trigger,
+    get_workflow_backfill_launch,
     launch_workflow_trigger_backfill,
+    list_workflow_backfill_launches,
     list_workflow_trigger_events,
     list_workflow_triggers,
     preview_workflow_trigger_backfill,
@@ -41,6 +43,8 @@ def test_workflow_trigger_routes_preserve_runtime_wrappers_and_submit_headers(mo
         )
     )
     events = asyncio.run(list_workflow_trigger_events("wtr_demo", serverId="srv_primary"))
+    backfill_launches = asyncio.run(list_workflow_backfill_launches(serverId="srv_primary", triggerId="wtr_demo"))
+    backfill_detail = asyncio.run(get_workflow_backfill_launch("bfl_demo", serverId="srv_primary"))
     response = Response()
     submitted = asyncio.run(
         submit_workflow_trigger_event(
@@ -122,6 +126,8 @@ def test_workflow_trigger_routes_preserve_runtime_wrappers_and_submit_headers(mo
     assert triggers == {"data": {"items": [{"triggerId": "wtr_demo"}]}}
     assert created == {"data": {"triggerId": "wtr_demo", "sourceType": "manual"}}
     assert events == {"data": {"items": [{"triggerEventId": "wte_demo"}]}}
+    assert backfill_launches == {"data": {"items": [{"launchId": "bfl_demo", "triggerId": "wtr_demo"}]}}
+    assert backfill_detail == {"data": {"launchId": "bfl_demo", "partitions": []}}
     assert submitted["data"]["run"]["runId"] == "run_trigger_demo"
     assert response.headers["Location"] == "/api/v1/runs/run_trigger_demo"
     assert response.headers["Retry-After"] == "2"
@@ -165,6 +171,17 @@ class FakeTriggerRuntime:
         assert trigger_id == "wtr_demo"
         assert server_id == "srv_primary"
         return {"data": {"items": [{"triggerEventId": "wte_demo"}]}}
+
+    def list_workflow_backfill_launches(self, *, server_id=None, trigger_id=None, limit=100):
+        assert server_id == "srv_primary"
+        assert trigger_id == "wtr_demo"
+        assert limit == 100
+        return {"data": {"items": [{"launchId": "bfl_demo", "triggerId": "wtr_demo"}]}}
+
+    def get_workflow_backfill_launch(self, launch_id, *, server_id=None):
+        assert launch_id == "bfl_demo"
+        assert server_id == "srv_primary"
+        return {"data": {"launchId": "bfl_demo", "partitions": []}}
 
     def submit_workflow_trigger_event(self, trigger_id, payload, *, server_id=None):
         assert trigger_id == "wtr_demo"

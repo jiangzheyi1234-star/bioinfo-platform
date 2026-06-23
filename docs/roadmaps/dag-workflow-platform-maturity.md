@@ -242,6 +242,7 @@ Progress:
 - Dataset, file, and database-ready triggers now use a dedicated readiness push API. Trigger definitions must declare an explicit `triggerSpec.resource`, incoming ready events must match resource type/id/URI, and dispatch reuses the existing durable trigger event, idempotency, admission, run creation, run provenance, and governance audit path.
 - Backfill triggers now support strict preview and confirmation-based launch APIs. Preview expands a half-open time range into deterministic partition windows, stable cursor/idempotency keys, concurrency estimates, and per-partition `runSpecPreview`; launch requires `confirmation: "launch-backfill"`, records durable launch/partition state, creates one immutable trigger event per partition, and dispatches each partition through the same run creation, idempotency, provenance, and audit path as other triggers.
 - Generic `/events` launch remains closed for resource-ready sources and backfill partitions; dataset/file/database-ready dispatch must go through the readiness API, and backfill dispatch must go through the dedicated launch API.
+- Backfill launch observability now exposes durable list/detail read APIs for launch state, partition summaries, linked trigger events, run ids, run status/stage, dispatch state, and runSpec hashes. The read model explicitly reports that the current `concurrencyLimit` is not yet an enforced controller, keeping the next cancel/replay/dead-letter UI honest.
 
 Recommended sequence:
 

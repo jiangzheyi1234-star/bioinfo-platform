@@ -14,6 +14,8 @@ from .api_models import (
 )
 from .control_service import (
     create_workflow_trigger_request,
+    get_workflow_backfill_launch_request,
+    list_workflow_backfill_launches_request,
     list_workflow_trigger_events_request,
     list_workflow_triggers_request,
     launch_workflow_trigger_backfill_request,
@@ -47,6 +49,27 @@ async def list_workflow_trigger_events(
     authorization: AuthorizationHeader = None,
 ) -> dict[str, Any]:
     return await list_workflow_trigger_events_request(trigger_id, authorization)
+
+
+@router.get("/api/v1/workflow-backfill-launches")
+async def list_workflow_backfill_launches(
+    triggerId: str | None = None,
+    limit: int = 100,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await list_workflow_backfill_launches_request(
+        authorization,
+        trigger_id=triggerId,
+        limit=limit,
+    )
+
+
+@router.get("/api/v1/workflow-backfill-launches/{launch_id}")
+async def get_workflow_backfill_launch(
+    launch_id: str,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await get_workflow_backfill_launch_request(launch_id, authorization)
 
 
 @router.post("/api/v1/workflow-triggers/{trigger_id}/events", status_code=202)

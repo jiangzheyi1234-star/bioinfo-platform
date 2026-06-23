@@ -132,6 +132,8 @@ def test_remote_runner_control_plane_services_use_async_thread_boundary() -> Non
         "launch_workflow_trigger_backfill_request",
         "preview_workflow_trigger_backfill_request",
         "list_workflow_trigger_events_request",
+        "list_workflow_backfill_launches_request",
+        "get_workflow_backfill_launch_request",
     )
 
     assert "from .route_utils import authorized_config, data_response, run_sync" in control_source
@@ -174,6 +176,8 @@ def test_workflow_trigger_routes_delegate_to_service() -> None:
     assert "return await submit_workflow_trigger_readiness_event_request(" in route_source
     assert "return await launch_workflow_trigger_backfill_request(" in route_source
     assert "return await preview_workflow_trigger_backfill_request(" in route_source
+    assert "return await list_workflow_backfill_launches_request(" in route_source
+    assert "return await get_workflow_backfill_launch_request(" in route_source
 
     for name in (
         "create_workflow_trigger_request",
@@ -184,10 +188,14 @@ def test_workflow_trigger_routes_delegate_to_service() -> None:
         "launch_workflow_trigger_backfill_request",
         "preview_workflow_trigger_backfill_request",
         "list_workflow_trigger_events_request",
+        "list_workflow_backfill_launches_request",
+        "get_workflow_backfill_launch_request",
     ):
         assert f"async def {name}(" in control_source
 
     assert "def create_workflow_trigger_from_request(" in service_source
+    assert "def list_workflow_backfill_launches_from_storage(" in service_source
+    assert "def get_workflow_backfill_launch_from_storage(" in service_source
     assert "def submit_workflow_trigger_event_from_request(" in service_source
     assert "def submit_workflow_trigger_inbox_event_from_request(" in service_source
     assert "def submit_workflow_trigger_readiness_event_from_request(" in service_source

@@ -16,6 +16,8 @@ from apps.api.models import (
 )
 from apps.api.workflow_trigger_service import (
     create_workflow_trigger_from_request,
+    get_workflow_backfill_launch_from_request,
+    list_workflow_backfill_launches_from_request,
     list_workflow_trigger_events_from_request,
     list_workflow_triggers_from_request,
     launch_workflow_trigger_backfill_from_request,
@@ -53,6 +55,34 @@ async def list_workflow_trigger_events(
 ) -> dict[str, Any]:
     return await list_workflow_trigger_events_from_request(
         trigger_id,
+        refresh=refresh,
+        server_id=serverId,
+    )
+
+
+@router.get("/api/v1/workflow-backfill-launches")
+async def list_workflow_backfill_launches(
+    refresh: bool = False,
+    serverId: str | None = None,
+    triggerId: str | None = None,
+    limit: int = 100,
+) -> dict[str, Any]:
+    return await list_workflow_backfill_launches_from_request(
+        refresh=refresh,
+        server_id=serverId,
+        trigger_id=triggerId,
+        limit=limit,
+    )
+
+
+@router.get("/api/v1/workflow-backfill-launches/{launch_id}")
+async def get_workflow_backfill_launch(
+    launch_id: str,
+    refresh: bool = False,
+    serverId: str | None = None,
+) -> dict[str, Any]:
+    return await get_workflow_backfill_launch_from_request(
+        launch_id,
         refresh=refresh,
         server_id=serverId,
     )

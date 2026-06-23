@@ -168,6 +168,35 @@ class ExecutionManager(BaseRuntimeManager):
             )
         }
 
+    def list_workflow_backfill_launches(
+        self,
+        *,
+        server_id: Optional[str] = None,
+        trigger_id: Optional[str] = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        return {
+            "data": self.call_runner(
+                "list_workflow_backfill_launches",
+                preferred_server_id=server_id,
+                trigger_id=trigger_id,
+                limit=limit,
+            )
+        }
+
+    def get_workflow_backfill_launch(
+        self,
+        launch_id: str,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return {
+            "data": self.call_runner(
+                "get_workflow_backfill_launch",
+                preferred_server_id=server_id,
+                launch_id=launch_id,
+            )
+        }
+
     def list_governance_audit_events(
         self,
         *,

@@ -354,6 +354,30 @@ class RemoteRunnerProxyMixin:
         )
         return client.get_json(f"/api/v1/workflow-triggers/{kwargs['trigger_id']}/events")["data"]
 
+    def list_workflow_backfill_launches(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+            timeout=20,
+        )
+        query = urlencode(
+            {
+                "triggerId": kwargs.get("trigger_id") or "",
+                "limit": int(kwargs.get("limit") or 100),
+            }
+        )
+        return client.get_json(f"/api/v1/workflow-backfill-launches?{query}")["data"]
+
+    def get_workflow_backfill_launch(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+            timeout=20,
+        )
+        return client.get_json(f"/api/v1/workflow-backfill-launches/{kwargs['launch_id']}")["data"]
+
     def list_governance_audit_events(self, **kwargs) -> dict[str, Any]:
         client = self._get_client(
             server_id=str(kwargs["server_id"]),

@@ -65,6 +65,41 @@ async def list_workflow_trigger_events_from_request(
     )
 
 
+async def list_workflow_backfill_launches_from_request(
+    *,
+    refresh: bool,
+    server_id: str | None,
+    trigger_id: str | None,
+    limit: int,
+) -> dict[str, Any]:
+    return await cached_runtime_payload(
+        f"workflow_backfill_launches:{server_id or 'default'}:{trigger_id or 'all'}:{int(limit)}",
+        10,
+        lambda: runtime_service().list_workflow_backfill_launches(
+            server_id=server_id,
+            trigger_id=trigger_id,
+            limit=limit,
+        ),
+        wrapper="raw",
+        force_refresh=refresh,
+    )
+
+
+async def get_workflow_backfill_launch_from_request(
+    launch_id: str,
+    *,
+    refresh: bool,
+    server_id: str | None,
+) -> dict[str, Any]:
+    return await cached_runtime_payload(
+        f"workflow_backfill_launch:{server_id or 'default'}:{launch_id}",
+        10,
+        lambda: runtime_service().get_workflow_backfill_launch(launch_id, server_id=server_id),
+        wrapper="raw",
+        force_refresh=refresh,
+    )
+
+
 async def submit_workflow_trigger_event_from_request(
     trigger_id: str,
     request: WorkflowTriggerEventRequest,
@@ -170,7 +205,10 @@ async def launch_workflow_trigger_backfill_from_request(
         ),
         wrapper="raw",
     )
-    await invalidate_response_cache("runs", prefixes=("workflow_trigger_events",))
+    await invalidate_response_cache(
+        "runs",
+        prefixes=("workflow_trigger_events", "workflow_backfill_launches", "workflow_backfill_launch"),
+    )
     return result
 
 

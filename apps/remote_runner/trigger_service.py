@@ -35,11 +35,13 @@ from .trigger_storage import (
     require_workflow_trigger,
 )
 from .workflow_backfill_storage import (
+    list_workflow_backfill_launches,
     mark_workflow_backfill_launch_finished,
     mark_workflow_backfill_partition_failed,
     mark_workflow_backfill_partition_submitted,
     record_workflow_backfill_launch,
     record_workflow_backfill_partition,
+    require_workflow_backfill_launch,
 )
 from .workflow_run_storage import create_run_record
 
@@ -106,6 +108,21 @@ def list_workflow_triggers_from_storage(cfg: RemoteRunnerConfig) -> dict[str, An
 def list_workflow_trigger_events_from_storage(cfg: RemoteRunnerConfig, trigger_id: str) -> dict[str, Any]:
     require_workflow_trigger(cfg, trigger_id)
     return {"data": list_workflow_trigger_events(cfg, trigger_id)}
+
+
+def list_workflow_backfill_launches_from_storage(
+    cfg: RemoteRunnerConfig,
+    *,
+    trigger_id: str | None = None,
+    limit: int = 100,
+) -> dict[str, Any]:
+    if str(trigger_id or "").strip():
+        require_workflow_trigger(cfg, str(trigger_id or ""))
+    return {"data": list_workflow_backfill_launches(cfg, trigger_id=trigger_id, limit=limit)}
+
+
+def get_workflow_backfill_launch_from_storage(cfg: RemoteRunnerConfig, launch_id: str) -> dict[str, Any]:
+    return {"data": require_workflow_backfill_launch(cfg, launch_id)}
 
 
 def submit_workflow_trigger_event_from_request(

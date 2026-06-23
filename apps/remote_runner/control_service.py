@@ -48,6 +48,8 @@ from .storage import (
 from .submission_service import create_run_from_request as create_run_submission_from_request
 from .trigger_service import (
     create_workflow_trigger_from_request,
+    get_workflow_backfill_launch_from_storage,
+    list_workflow_backfill_launches_from_storage,
     list_workflow_trigger_events_from_storage,
     list_workflow_triggers_from_storage,
     launch_workflow_trigger_backfill_from_request,
@@ -212,6 +214,29 @@ async def list_workflow_trigger_events_request(
 ) -> dict[str, Any]:
     cfg = await _authorized_config_from_request(authorization)
     return await run_sync(list_workflow_trigger_events_from_storage, cfg, trigger_id)
+
+
+async def list_workflow_backfill_launches_request(
+    authorization: str | None,
+    *,
+    trigger_id: str | None,
+    limit: int,
+) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization)
+    return await run_sync(
+        list_workflow_backfill_launches_from_storage,
+        cfg,
+        trigger_id=trigger_id,
+        limit=limit,
+    )
+
+
+async def get_workflow_backfill_launch_request(
+    launch_id: str,
+    authorization: str | None,
+) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization)
+    return await run_sync(get_workflow_backfill_launch_from_storage, cfg, launch_id)
 
 
 async def list_runs_from_request(authorization: str | None) -> dict[str, Any]:

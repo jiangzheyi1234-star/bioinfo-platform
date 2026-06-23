@@ -200,6 +200,23 @@ class RemoteRunnerHttpClient:
     def list_workflow_trigger_events(self, trigger_id: str) -> dict[str, Any]:
         return self.get_json(f"/api/v1/workflow-triggers/{trigger_id}/events")["data"]
 
+    def list_workflow_backfill_launches(
+        self,
+        *,
+        trigger_id: str | None = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        query = urllib.parse.urlencode(
+            {
+                "triggerId": str(trigger_id or ""),
+                "limit": int(limit),
+            }
+        )
+        return self.get_json(f"/api/v1/workflow-backfill-launches?{query}")["data"]
+
+    def get_workflow_backfill_launch(self, launch_id: str) -> dict[str, Any]:
+        return self.get_json(f"/api/v1/workflow-backfill-launches/{launch_id}")["data"]
+
     def list_governance_audit_events(
         self,
         *,
