@@ -313,7 +313,8 @@ def _event_with_dispatch(connection: Any, row: Any, *, created: bool) -> dict[st
         "SELECT * FROM workflow_trigger_dispatches WHERE trigger_event_id = ?",
         (event["triggerEventId"],),
     ).fetchone()
-    event["dispatch"] = _dispatch_row_to_dict(dispatch) if dispatch is not None else None
+    run = _run_status_for_dispatch(connection, dispatch) if dispatch is not None else None
+    event["dispatch"] = _dispatch_row_to_dict(dispatch, run=run) if dispatch is not None else None
     event["created"] = created
     return event
 
@@ -349,18 +350,41 @@ def _event_row_to_dict(row: Any) -> dict[str, Any]:
     }
 
 
-def _dispatch_row_to_dict(row: Any) -> dict[str, Any]:
+def _dispatch_row_to_dict(row: Any, *, run: dict[str, Any] | None) -> dict[str, Any]:
     return {
         "dispatchId": row["dispatch_id"],
         "triggerEventId": row["trigger_event_id"],
         "triggerId": row["trigger_id"],
         "state": row["state"],
         "runId": row["run_id"],
+        "run": run,
         "requestId": row["request_id"],
         "idempotencyKey": row["idempotency_key"],
         "error": _loads_json(row["error_json"], None),
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
+    }
+
+
+def _run_status_for_dispatch(connection: Any, dispatch: Any) -> dict[str, Any] | None:
+    run_id = str(dispatch["run_id"] or "").strip()
+    if not run_id:
+        return None
+    row = connection.execute(
+        """
+        SELECT run_id, status, stage, last_updated_at
+        FROM runs
+        WHERE run_id = ?
+        """,
+        (run_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    return {
+        "runId": row["run_id"],
+        "status": row["status"],
+        "stage": row["stage"],
+        "lastUpdatedAt": row["last_updated_at"],
     }
 
 

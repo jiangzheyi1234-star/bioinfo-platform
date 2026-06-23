@@ -68,12 +68,21 @@ def test_workflow_trigger_event_dispatches_run_and_records_lineage(
     assert response["data"]["event"]["dispatch"]["state"] == "submitted"
     assert response["data"]["event"]["dispatch"]["runId"] == run_id
     assert run is not None
+    expected_run_summary = {
+        "runId": run_id,
+        "status": run["status"],
+        "stage": run["stage"],
+        "lastUpdatedAt": run["lastUpdatedAt"],
+    }
+    assert response["data"]["event"]["dispatch"]["run"] == expected_run_summary
     assert run["trigger"] == {
         "triggerId": trigger["triggerId"],
         "triggerEventId": response["data"]["event"]["triggerEventId"],
         "source": "manual",
         "cursor": "ready:reads.fastq",
     }
+    events = list_workflow_trigger_events_from_storage(cfg, trigger["triggerId"])["data"]["items"]
+    assert events[0]["dispatch"]["run"] == expected_run_summary
 
     replay = submit_workflow_trigger_event_from_request(
         cfg,
@@ -88,6 +97,7 @@ def test_workflow_trigger_event_dispatches_run_and_records_lineage(
     )
     assert replay["data"]["replayed"] is True
     assert replay["data"]["run"]["runId"] == run_id
+    assert replay["data"]["event"]["dispatch"]["run"] == expected_run_summary
     create_audit_events = list_governance_audit_events(
         cfg,
         subject_kind="workflow_trigger",
@@ -140,6 +150,12 @@ def test_cron_scheduler_due_tick_dispatches_once_and_records_lineage(
 
     run = fetch_run(cfg, run_id)
     assert run is not None
+    assert event["dispatch"]["run"] == {
+        "runId": run_id,
+        "status": run["status"],
+        "stage": run["stage"],
+        "lastUpdatedAt": run["lastUpdatedAt"],
+    }
     assert run["trigger"] == {
         "triggerId": trigger["triggerId"],
         "triggerEventId": event["triggerEventId"],
@@ -636,6 +652,9 @@ def test_backfill_launch_creates_partition_runs_and_replays(tmp_path, monkeypatc
     assert len({item["runId"] for item in data["partitions"]}) == 2
     assert len(events) == 2
     assert len(runs) == 2
+    assert all(item["dispatch"]["run"]["runId"] == item["dispatch"]["runId"] for item in events)
+    assert {item["dispatch"]["run"]["status"] for item in events} == {"queued"}
+    assert {item["dispatch"]["run"]["stage"] for item in events} == {"submitted"}
 
     first_partition = data["partitions"][0]
     first_run = fetch_run(cfg, first_partition["runId"])

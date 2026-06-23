@@ -125,7 +125,24 @@ def test_workflow_trigger_routes_preserve_runtime_wrappers_and_submit_headers(mo
 
     assert triggers == {"data": {"items": [{"triggerId": "wtr_demo"}]}}
     assert created == {"data": {"triggerId": "wtr_demo", "sourceType": "manual"}}
-    assert events == {"data": {"items": [{"triggerEventId": "wte_demo"}]}}
+    assert events == {
+        "data": {
+            "items": [
+                {
+                    "triggerEventId": "wte_demo",
+                    "dispatch": {
+                        "runId": "run_trigger_demo",
+                        "run": {
+                            "runId": "run_trigger_demo",
+                            "status": "queued",
+                            "stage": "submitted",
+                            "lastUpdatedAt": "2026-06-23T10:00:00Z",
+                        },
+                    },
+                }
+            ]
+        }
+    }
     assert backfill_launches == {"data": {"items": [{"launchId": "bfl_demo", "triggerId": "wtr_demo"}]}}
     assert backfill_detail == {"data": {"launchId": "bfl_demo", "partitions": []}}
     assert submitted["data"]["run"]["runId"] == "run_trigger_demo"
@@ -170,7 +187,24 @@ class FakeTriggerRuntime:
     def list_workflow_trigger_events(self, trigger_id, *, server_id=None):
         assert trigger_id == "wtr_demo"
         assert server_id == "srv_primary"
-        return {"data": {"items": [{"triggerEventId": "wte_demo"}]}}
+        return {
+            "data": {
+                "items": [
+                    {
+                        "triggerEventId": "wte_demo",
+                        "dispatch": {
+                            "runId": "run_trigger_demo",
+                            "run": {
+                                "runId": "run_trigger_demo",
+                                "status": "queued",
+                                "stage": "submitted",
+                                "lastUpdatedAt": "2026-06-23T10:00:00Z",
+                            },
+                        },
+                    }
+                ]
+            }
+        }
 
     def list_workflow_backfill_launches(self, *, server_id=None, trigger_id=None, limit=100):
         assert server_id == "srv_primary"

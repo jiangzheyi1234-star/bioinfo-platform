@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 
 import type {
   WorkflowTrigger,
+  WorkflowTriggerDispatch,
   WorkflowTriggerEvent,
   WorkflowTriggerEventPayload,
 } from "./workflow-trigger-model";
@@ -220,17 +221,7 @@ function EventRow({ event }: { event: WorkflowTriggerEvent }) {
         {dispatch?.requestId ? <div className="mt-1 truncate font-mono text-[10px] text-slate-400">{dispatch.requestId}</div> : null}
       </td>
       <td className="px-3 py-2">
-        {dispatch?.runId ? (
-          <Link
-            href={`/workflows/results/detail?run=${encodeURIComponent(dispatch.runId)}`}
-            className="inline-flex min-w-0 max-w-full items-center gap-1 text-blue-600 hover:text-blue-700"
-          >
-            <span className="truncate font-mono">{dispatch.runId}</span>
-            <ArrowRight strokeWidth={1.5} className="h-3 w-3 shrink-0" />
-          </Link>
-        ) : (
-          <span className="text-slate-400">—</span>
-        )}
+        <RunSummary dispatch={dispatch} />
       </td>
       <td className="px-3 py-2 text-slate-600">
         <EventContext event={event} />
@@ -242,6 +233,40 @@ function EventRow({ event }: { event: WorkflowTriggerEvent }) {
         {dispatch?.error ? <div className="mt-1 truncate text-[10px] text-red-600">{errorLabel(dispatch.error)}</div> : null}
       </td>
     </tr>
+  );
+}
+
+function RunSummary({ dispatch }: { dispatch: WorkflowTriggerDispatch | null }) {
+  const run = dispatch?.run || null;
+  const runId = run?.runId || "";
+  if (!runId) return <span className="text-slate-400">—</span>;
+  return (
+    <div className="min-w-0">
+      <Link
+        href={`/workflows/results/detail?run=${encodeURIComponent(runId)}`}
+        className="inline-flex min-w-0 max-w-full items-center gap-1 text-blue-600 hover:text-blue-700"
+      >
+        <span className="truncate font-mono">{runId}</span>
+        <ArrowRight strokeWidth={1.5} className="h-3 w-3 shrink-0" />
+      </Link>
+      {run ? (
+        <div className="mt-1 space-y-1">
+          <div className="flex min-w-0 flex-wrap gap-1">
+            {run.status ? (
+              <span className={cn("inline-flex rounded border px-1.5 py-0.5 text-[10px]", runStatusStyle(run.status))}>
+                {run.status}
+              </span>
+            ) : null}
+            {run.stage ? (
+              <span className="inline-flex min-w-0 max-w-full rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] text-slate-600">
+                <span className="truncate">{run.stage}</span>
+              </span>
+            ) : null}
+          </div>
+          {run.lastUpdatedAt ? <div className="truncate text-[10px] text-slate-400">{formatDate(run.lastUpdatedAt)}</div> : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -343,6 +368,16 @@ function dispatchLabel(state: string | undefined) {
   if (state === "pending") return "待提交";
   if (state === "failed") return "失败";
   return state || "unknown";
+}
+
+function runStatusStyle(status: string | undefined) {
+  const normalized = String(status || "").toLowerCase();
+  if (["completed", "success", "succeeded"].includes(normalized)) return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (["failed", "error", "crashed"].includes(normalized)) return "border-red-200 bg-red-50 text-red-700";
+  if (["running", "started", "processing"].includes(normalized)) return "border-violet-200 bg-violet-50 text-violet-700";
+  if (["queued", "pending", "scheduled"].includes(normalized)) return "border-blue-200 bg-blue-50 text-blue-700";
+  if (["cancelled", "canceled", "canceling", "cancelling"].includes(normalized)) return "border-amber-200 bg-amber-50 text-amber-700";
+  return "border-slate-200 bg-slate-50 text-slate-600";
 }
 
 function triggerSpecLabel(trigger: WorkflowTrigger) {

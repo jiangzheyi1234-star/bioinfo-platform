@@ -24,7 +24,9 @@ def test_trigger_events_have_read_only_frontend_surface() -> None:
     assert "WorkflowTriggerObservabilityPage" in route
     assert "WorkflowTrigger" in model
     assert "WorkflowTriggerEvent" in model
+    assert "WorkflowTriggerDispatchRun" in model
     assert "WorkflowTriggerDispatch" in model
+    assert "run?: WorkflowTriggerDispatchRun | null" in model
     assert "fetchWorkflowTriggers" in api
     assert "fetchWorkflowTriggerEvents" in api
     assert "/api/v1/workflow-triggers" in api
@@ -33,7 +35,13 @@ def test_trigger_events_have_read_only_frontend_surface() -> None:
     assert "window.setInterval(() => void loadEvents(true), 5000)" in page
     assert "fetchWorkflowTriggers().catch" in results
     assert 'href="/workflows/results/triggers"' in results
-    assert 'href={`/workflows/results/detail?run=${encodeURIComponent(dispatch.runId)}`}' in panel
+    assert "RunSummary" in panel
+    assert "dispatch?.run" in panel
+    assert 'href={`/workflows/results/detail?run=${encodeURIComponent(runId)}`}' in panel
+    assert "run.status" in panel
+    assert "run.stage" in panel
+    assert "run.lastUpdatedAt" in panel
+    assert "runStatusStyle" in panel
     assert "payloadHash" in panel
     assert "eventContext" in panel
     assert "resource" in panel

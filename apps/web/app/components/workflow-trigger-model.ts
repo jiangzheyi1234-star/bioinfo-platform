@@ -31,12 +31,20 @@ export type WorkflowTriggerEventPayload = {
   payload?: unknown;
 };
 
+export type WorkflowTriggerDispatchRun = {
+  runId?: string;
+  status?: string;
+  stage?: string;
+  lastUpdatedAt?: string;
+};
+
 export type WorkflowTriggerDispatch = {
   dispatchId?: string;
   triggerEventId?: string;
   triggerId?: string;
   state?: string;
   runId?: string | null;
+  run?: WorkflowTriggerDispatchRun | null;
   requestId?: string;
   idempotencyKey?: string;
   error?: unknown;
