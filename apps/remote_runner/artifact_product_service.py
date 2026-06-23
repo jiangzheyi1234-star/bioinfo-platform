@@ -12,6 +12,15 @@ from .config import RemoteRunnerConfig
 from .evidence_storage import append_evidence_event, list_evidence_events
 from .execution_query_storage import fetch_result, fetch_run_events, fetch_run_results, require_run
 from .governance_audit import record_governance_audit_event
+from .result_package_validation import (
+    PROCESS_RUN_CRATE_PROFILE_URI,
+    RO_CRATE_CONTEXT_1_1,
+    RO_CRATE_SPEC_URI,
+    WORKFLOW_RO_CRATE_PROFILE_URI,
+    WORKFLOW_RUN_CONTEXT,
+    WORKFLOW_RUN_CRATE_PROFILE_URI,
+    validate_result_package_archive,
+)
 from .result_package_storage import record_result_package_export
 from .rule_execution_storage import fetch_run_rules
 from .storage_core import get_connection, now_iso
@@ -144,13 +153,19 @@ def export_result_package(
             artifacts=result["artifacts"],
             include_artifacts=include_artifacts,
         )
+        manifest_sha256 = _json_sha256(manifest)
+        validation = validate_result_package_archive(
+            temp_path,
+            expected_manifest_sha256=manifest_sha256,
+            expected_schema_version=RESULT_PACKAGE_SCHEMA_VERSION,
+            expected_package_profile=RESULT_PACKAGE_PROFILE,
+        )
         temp_path.replace(package_path)
     except Exception:
         temp_path.unlink(missing_ok=True)
         raise
 
     size_bytes, sha256 = _file_stats(package_path)
-    manifest_sha256 = _json_sha256(manifest)
     evidence = _record_result_export_evidence(
         cfg,
         result_id=result_id,
@@ -164,6 +179,7 @@ def export_result_package(
         include_artifacts=include_artifacts,
         artifact_payload_mode=payload_mode,
         created_at=created_at,
+        validation=validation,
     )
     package_uri = package_path.resolve().as_uri()
     try:
@@ -200,6 +216,8 @@ def export_result_package(
             "sizeBytes": size_bytes,
             "packageSha256": sha256,
             "manifestSha256": manifest_sha256,
+            "validationStatus": validation["status"],
+            "validationSchemaVersion": validation["schemaVersion"],
             "evidenceId": evidence["eventId"],
             "packageExportId": export_record["packageExportId"],
         },
@@ -218,6 +236,7 @@ def export_result_package(
         "sizeBytes": size_bytes,
         "sha256": sha256,
         "manifestSha256": manifest_sha256,
+        "validation": validation,
         "evidenceId": evidence["eventId"],
         "createdAt": created_at,
         "manifest": manifest,
@@ -364,9 +383,11 @@ def _result_package_manifest(
         "includeArtifacts": include_artifacts,
         "artifactPayloadMode": artifact_payload_mode,
         "standards": {
-            "roCrate": "https://w3id.org/ro/crate/1.1",
+            "roCrate": RO_CRATE_SPEC_URI,
             "w3cProv": "https://www.w3.org/TR/prov-o/",
-            "workflowRunCrate": "https://w3id.org/ro/wfrun",
+            "processRunCrate": PROCESS_RUN_CRATE_PROFILE_URI,
+            "workflowRunCrate": WORKFLOW_RUN_CRATE_PROFILE_URI,
+            "workflowRoCrate": WORKFLOW_RO_CRATE_PROFILE_URI,
         },
         "metadataFiles": metadata_index,
         "run": {
@@ -623,34 +644,45 @@ def _ro_crate_metadata(
 ) -> dict[str, Any]:
     artifact_parts = [{"@id": _artifact_ro_crate_id(artifact)} for artifact in manifest["artifacts"]]
     metadata_parts = [{"@id": "manifest.json"}, *[{"@id": item["path"]} for item in metadata_index]]
+    workflow_id = f"#workflow-{manifest['workflowRevisionId']}"
+    run_action_id = f"#run-{manifest['runId']}"
     graph: list[dict[str, Any]] = [
         {
             "@id": "ro-crate-metadata.json",
             "@type": "CreativeWork",
             "about": {"@id": "./"},
-            "conformsTo": {"@id": "https://w3id.org/ro/crate/1.1"},
+            "conformsTo": [
+                {"@id": RO_CRATE_SPEC_URI},
+                {"@id": WORKFLOW_RO_CRATE_PROFILE_URI},
+            ],
         },
         {
             "@id": "./",
             "@type": "Dataset",
+            "conformsTo": [
+                {"@id": PROCESS_RUN_CRATE_PROFILE_URI},
+                {"@id": WORKFLOW_RUN_CRATE_PROFILE_URI},
+                {"@id": WORKFLOW_RO_CRATE_PROFILE_URI},
+            ],
             "name": f"H2OMeta result package {manifest['resultId']}",
             "datePublished": manifest["createdAt"],
             "identifier": manifest["resultId"],
             "hasPart": [*metadata_parts, *artifact_parts],
-            "mentions": [{"@id": f"#run-{manifest['runId']}"}],
+            "mainEntity": {"@id": workflow_id},
+            "mentions": [{"@id": run_action_id}],
         },
         {
-            "@id": f"#run-{manifest['runId']}",
+            "@id": run_action_id,
             "@type": "CreateAction",
             "name": f"H2OMeta workflow run {manifest['runId']}",
             "startTime": manifest["run"]["startedAt"],
             "endTime": manifest["run"]["finishedAt"],
-            "instrument": {"@id": f"#workflow-{manifest['workflowRevisionId']}"},
+            "instrument": {"@id": workflow_id},
             "result": artifact_parts,
         },
         {
-            "@id": f"#workflow-{manifest['workflowRevisionId']}",
-            "@type": "SoftwareSourceCode",
+            "@id": workflow_id,
+            "@type": ["SoftwareSourceCode", "ComputationalWorkflow"],
             "name": f"H2OMeta WorkflowRevision {manifest['workflowRevisionId']}",
             "identifier": manifest["workflowRevisionId"],
             "sha256": manifest["workflowRevision"]["contentHash"],
@@ -670,7 +702,7 @@ def _ro_crate_metadata(
                 "encodingFormat": item["mimeType"],
                 "contentSize": item["sizeBytes"],
                 "sha256": item["sha256"],
-                "about": {"@id": f"#run-{manifest['runId']}"},
+                "about": {"@id": run_action_id},
             }
         )
     for artifact in manifest["artifacts"]:
@@ -686,11 +718,11 @@ def _ro_crate_metadata(
                 "h2ometa:includedInPackage": artifact["includedInPackage"],
                 "h2ometa:storageBackend": artifact["storageBackend"],
                 "h2ometa:storageUri": artifact["storageUri"],
-                "about": {"@id": f"#run-{manifest['runId']}"},
+                "about": {"@id": run_action_id},
             }
         )
     return {
-        "@context": "https://w3id.org/ro/crate/1.1/context",
+        "@context": [RO_CRATE_CONTEXT_1_1, WORKFLOW_RUN_CONTEXT],
         "@graph": graph,
     }
 
@@ -715,6 +747,7 @@ def _record_result_export_evidence(
     include_artifacts: bool,
     artifact_payload_mode: str,
     created_at: str,
+    validation: dict[str, Any],
 ) -> dict[str, Any]:
     payload = {
         "schemaVersion": RESULT_PACKAGE_SCHEMA_VERSION,
@@ -730,6 +763,12 @@ def _record_result_export_evidence(
         "includeArtifacts": include_artifacts,
         "artifactPayloadMode": artifact_payload_mode,
         "artifactCount": artifact_count,
+        "validation": {
+            "schemaVersion": validation["schemaVersion"],
+            "status": validation["status"],
+            "manifestSha256": validation["manifestSha256"],
+            "checkCount": len(validation["checks"]),
+        },
         "createdAt": created_at,
     }
     with get_connection(cfg) as connection:

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from apps.remote_runner import artifact_product_service
 from apps.remote_runner.artifact_product_service import (
     build_result_artifact_audit,
     export_result_package,
@@ -15,6 +16,15 @@ from apps.remote_runner.evidence_storage import list_evidence_events
 from apps.remote_runner.governance_audit import list_governance_audit_events
 from apps.remote_runner.run_execution_storage import claim_next_run_job
 from apps.remote_runner.rule_execution_storage import append_run_rule_event, upsert_run_rule_state
+from apps.remote_runner.result_package_validation import (
+    PROCESS_RUN_CRATE_PROFILE_URI,
+    RO_CRATE_CONTEXT_1_1,
+    RO_CRATE_SPEC_URI,
+    WORKFLOW_RO_CRATE_PROFILE_URI,
+    WORKFLOW_RUN_CONTEXT,
+    WORKFLOW_RUN_CRATE_PROFILE_URI,
+    validate_result_package_archive,
+)
 from apps.remote_runner.storage import create_run_record, persist_artifact
 from apps.remote_runner.storage_core import get_connection
 from apps.remote_runner.workflow_revision_storage import create_or_fetch_workflow_revision
@@ -73,7 +83,12 @@ def test_result_package_export_includes_manifest_artifacts_and_lineage(tmp_path:
     assert len(package["sha256"]) == 64
     assert package["packageProfile"] == "h2ometa.result-evidence-package.v1"
     assert package["workflowRevisionId"] == revision["workflowRevisionId"]
+    assert package["validation"]["status"] == "passed"
+    assert package["validation"]["schemaVersion"] == "h2ometa.result-package-validation.v1"
+    assert package["validation"]["manifestSha256"] == package["manifestSha256"]
     assert package["manifest"]["audit"]["status"] == "passed"
+    assert package["manifest"]["standards"]["roCrate"] == RO_CRATE_SPEC_URI
+    assert package["manifest"]["standards"]["workflowRunCrate"] == WORKFLOW_RUN_CRATE_PROFILE_URI
     assert package["manifest"]["runSpec"]["workflowRevisionId"] == revision["workflowRevisionId"]
     assert package["manifest"]["workflowRevision"]["contentHash"] == revision["contentHash"]
     assert package["manifest"]["artifacts"][0]["artifactId"] == artifact["artifactId"]
@@ -99,6 +114,7 @@ def test_result_package_export_includes_manifest_artifacts_and_lineage(tmp_path:
     )
     assert export_evidence[-1]["payload"]["sha256"] == package["sha256"]
     assert export_evidence[-1]["payload"]["manifestSha256"] == package["manifestSha256"]
+    assert export_evidence[-1]["payload"]["validation"]["status"] == "passed"
     audit_events = list_governance_audit_events(
         cfg,
         subject_kind="result",
@@ -107,6 +123,7 @@ def test_result_package_export_includes_manifest_artifacts_and_lineage(tmp_path:
     )["items"]
     assert audit_events[0]["details"]["artifactCount"] == 1
     assert audit_events[0]["details"]["packageSha256"] == package["sha256"]
+    assert audit_events[0]["details"]["validationStatus"] == "passed"
     assert audit_events[0]["details"]["evidenceId"] == package["evidenceId"]
     assert audit_events[0]["details"]["packageExportId"] == package["packageExportId"]
     with get_connection(cfg) as connection:
@@ -142,11 +159,32 @@ def test_result_package_export_includes_manifest_artifacts_and_lineage(tmp_path:
     } <= names
     assert manifest["resultId"] == "res_run_export"
     assert manifest_sha256 == package["manifestSha256"]
-    assert ro_crate["@context"] == "https://w3id.org/ro/crate/1.1/context"
-    assert ro_crate["@graph"][0]["@id"] == "ro-crate-metadata.json"
+    assert ro_crate["@context"] == [RO_CRATE_CONTEXT_1_1, WORKFLOW_RUN_CONTEXT]
+    graph_by_id = {item["@id"]: item for item in ro_crate["@graph"]}
+    descriptor = graph_by_id["ro-crate-metadata.json"]
+    root_dataset = graph_by_id["./"]
+    workflow = graph_by_id[f"#workflow-{revision['workflowRevisionId']}"]
+    run_action = graph_by_id["#run-run_export"]
+    assert {item["@id"] for item in descriptor["conformsTo"]} == {
+        RO_CRATE_SPEC_URI,
+        WORKFLOW_RO_CRATE_PROFILE_URI,
+    }
+    assert {item["@id"] for item in root_dataset["conformsTo"]} == {
+        PROCESS_RUN_CRATE_PROFILE_URI,
+        WORKFLOW_RUN_CRATE_PROFILE_URI,
+        WORKFLOW_RO_CRATE_PROFILE_URI,
+    }
+    assert root_dataset["mainEntity"] == {"@id": f"#workflow-{revision['workflowRevisionId']}"}
+    assert workflow["@type"] == ["SoftwareSourceCode", "ComputationalWorkflow"]
+    assert run_action["instrument"] == {"@id": f"#workflow-{revision['workflowRevisionId']}"}
+    assert run_action["result"] == [{"@id": f"artifacts/{artifact['artifactId']}/"}]
     assert workflow_revision["workflowRevisionId"] == revision["workflowRevisionId"]
     assert rules["items"][0]["ruleName"] == "summarize"
     assert payload == "accepted\n"
+    assert validate_result_package_archive(
+        package_path,
+        expected_manifest_sha256=package["manifestSha256"],
+    )["status"] == "passed"
 
 
 def test_result_package_export_refuses_failed_checksum_audit(tmp_path: Path) -> None:
@@ -166,6 +204,101 @@ def test_result_package_export_refuses_failed_checksum_audit(tmp_path: Path) -> 
 
     with pytest.raises(ValueError, match="RESULT_ARTIFACT_AUDIT_FAILED"):
         export_result_package(cfg, "res_run_export_failed", include_artifacts=True)
+
+
+def test_result_package_validator_rejects_missing_metadata_file(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_export_validation")
+    report = tmp_path / "report.txt"
+    report.write_bytes(b"accepted\n")
+    persist_artifact(
+        cfg,
+        run_id="run_export_validation",
+        kind="report",
+        path=report,
+        mime_type="text/plain",
+        artifact_key="report",
+    )
+    package = export_result_package(cfg, "res_run_export_validation", include_artifacts=True)
+    broken_package = tmp_path / "missing-metadata.zip"
+    _copy_zip_without_entry(
+        Path(package["packagePath"]),
+        broken_package,
+        "metadata/run.json",
+    )
+
+    with pytest.raises(ValueError, match="RESULT_PACKAGE_VALIDATION_FAILED"):
+        validate_result_package_archive(
+            broken_package,
+            expected_manifest_sha256=package["manifestSha256"],
+        )
+
+
+def test_result_package_export_validation_failure_records_nothing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_export_broken_package")
+    report = tmp_path / "report.txt"
+    report.write_bytes(b"accepted\n")
+    persist_artifact(
+        cfg,
+        run_id="run_export_broken_package",
+        kind="report",
+        path=report,
+        mime_type="text/plain",
+        artifact_key="report",
+    )
+    original_write_result_package = artifact_product_service._write_result_package
+
+    def write_package_without_run_metadata(*args, **kwargs) -> None:
+        original_write_result_package(*args, **kwargs)
+        package_path = Path(args[1])
+        broken_package = package_path.with_suffix(".broken.zip")
+        _copy_zip_without_entry(package_path, broken_package, "metadata/run.json")
+        broken_package.replace(package_path)
+
+    monkeypatch.setattr(
+        artifact_product_service,
+        "_write_result_package",
+        write_package_without_run_metadata,
+    )
+
+    with pytest.raises(ValueError, match="RESULT_PACKAGE_VALIDATION_FAILED"):
+        export_result_package(cfg, "res_run_export_broken_package", include_artifacts=True)
+
+    final_package = (
+        Path(cfg.results_dir)
+        / "packages"
+        / "res_run_export_broken_package"
+        / "res_run_export_broken_package.zip"
+    )
+    assert not final_package.exists()
+    assert (
+        list_evidence_events(
+            cfg,
+            subject_kind="result",
+            subject_id="res_run_export_broken_package",
+            event_type="result.export.v1",
+        )
+        == []
+    )
+    assert (
+        list_governance_audit_events(
+            cfg,
+            subject_kind="result",
+            subject_id="res_run_export_broken_package",
+            action="result.export",
+        )["items"]
+        == []
+    )
+    with get_connection(cfg) as connection:
+        export_count = connection.execute(
+            "SELECT COUNT(*) FROM result_package_exports WHERE result_id = ?",
+            ("res_run_export_broken_package",),
+        ).fetchone()[0]
+    assert export_count == 0
 
 
 def test_result_package_export_requires_workflow_revision(tmp_path: Path) -> None:
@@ -352,6 +485,18 @@ def test_result_package_full_and_metadata_only_exports_do_not_overwrite_each_oth
             "SELECT COUNT(*) FROM result_package_exports WHERE result_id = 'res_run_export_modes'"
         ).fetchone()[0]
     assert export_count == 2
+
+
+def _copy_zip_without_entry(source: Path, target: Path, omitted_name: str) -> None:
+    with zipfile.ZipFile(source) as source_archive, zipfile.ZipFile(
+        target,
+        "w",
+        compression=zipfile.ZIP_DEFLATED,
+    ) as target_archive:
+        for info in source_archive.infolist():
+            if info.filename == omitted_name:
+                continue
+            target_archive.writestr(info, source_archive.read(info.filename))
 
 
 def _create_run(
