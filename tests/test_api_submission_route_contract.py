@@ -86,6 +86,7 @@ def test_run_result_routes_delegate_runtime_calls_to_service() -> None:
     assert "get_result_preview_from_request" in detail_routes
     assert "get_result_audit_from_request" in detail_routes
     assert "export_result_package_from_request" in detail_routes
+    assert "download_result_package_from_request" in detail_routes
 
     assert "def list_runs_from_request(" in service_source
     assert "def get_run_from_request(" in service_source
@@ -101,8 +102,11 @@ def test_run_result_routes_delegate_runtime_calls_to_service() -> None:
     assert "def get_result_preview_from_request(" in service_source
     assert "def get_result_audit_from_request(" in service_source
     assert "def export_result_package_from_request(" in service_source
+    assert "def download_result_package_from_request(" in service_source
     assert "runtime_service().get_result_audit(" in service_source
     assert "runtime_service().export_result_package(" in service_source
+    assert "runtime_service().download_result_package(" in service_source
+    assert "from fastapi import Response" not in service_source
 
 
 def test_workflow_trigger_routes_delegate_runtime_calls_to_service() -> None:

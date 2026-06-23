@@ -558,6 +558,15 @@ class RemoteRunnerProxyMixin:
             dict(kwargs.get("payload") or {}),
         )["data"]
 
+    def download_result_package(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+            timeout=60,
+        )
+        return client.download_result_package(kwargs["result_id"], kwargs["package_export_id"])
+
     def get_artifact_lifecycle_usage(self, **kwargs) -> dict[str, Any]:
         client = self._get_client(
             server_id=str(kwargs["server_id"]),

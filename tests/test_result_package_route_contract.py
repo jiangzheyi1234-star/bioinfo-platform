@@ -13,6 +13,7 @@ def _source(path: str) -> str:
 def test_result_package_file_io_lives_in_remote_service_not_routes() -> None:
     route_source = _source("apps/remote_runner/execution_query_routes.py")
     product_source = _source("apps/remote_runner/artifact_product_service.py")
+    download_source = _source("apps/remote_runner/result_package_download_service.py")
     proxy_source = _source("core/remote_runner/proxy.py")
     client_source = _source("core/remote_runner/client.py")
 
@@ -23,6 +24,8 @@ def test_result_package_file_io_lives_in_remote_service_not_routes() -> None:
     assert "export_result_package(" not in route_source
     assert "get_result_audit_from_request" in route_source
     assert "export_result_package_from_request" in route_source
+    assert "download_result_package_from_request" in route_source
+    assert "FileResponse(" in route_source
 
     assert "def build_result_artifact_audit(" in product_source
     assert "def export_result_package(" in product_source
@@ -34,12 +37,20 @@ def test_result_package_file_io_lives_in_remote_service_not_routes() -> None:
     assert "RESULT_WORKFLOW_REVISION_REQUIRED" in product_source
     assert "RESULT_ID_INVALID" in product_source
     assert "RESULT_EXPORT_EVENT_TYPE = \"result.export.v1\"" in product_source
+    assert "def build_result_package_download(" in download_source
+    assert "fetch_result_package_export(" in download_source
+    assert "RESULT_PACKAGE_PATH_UNMANAGED" in download_source
+    assert "RESULT_PACKAGE_SIZE_MISMATCH" in download_source
+    assert "RESULT_PACKAGE_CHECKSUM_MISMATCH" in download_source
 
     assert "def get_result_audit(self, **kwargs) -> dict[str, Any]:" in proxy_source
     assert "def export_result_package(self, **kwargs) -> dict[str, Any]:" in proxy_source
+    assert "def download_result_package(self, **kwargs) -> dict[str, Any]:" in proxy_source
     assert 'client.get_json(f"/api/v1/results/{kwargs[\'result_id\']}/audit")["data"]' in proxy_source
     assert "dict(kwargs.get(\"payload\") or {})" in proxy_source
     assert 'self.post_json(f"/api/v1/results/{result_id}/export", dict(payload or {}))["data"]' in client_source
+    assert "def _request_bytes(" in client_source
+    assert "def download_result_package(self, result_id: str, package_export_id: str)" in client_source
 
     assert "def get_result_audit(self, result_id: str) -> dict[str, Any]:" in client_source
     assert "def export_result_package(" in client_source

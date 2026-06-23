@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 
 from apps.api.models import ResultPackageExportRequest
-from apps.api.execution_query_routes import export_result_package, get_result_audit
+from apps.api.execution_query_routes import download_result_package, export_result_package, get_result_audit
 
 
 def test_result_package_routes_preserve_runtime_wrappers(monkeypatch) -> None:
@@ -21,10 +21,14 @@ def test_result_package_routes_preserve_runtime_wrappers(monkeypatch) -> None:
     assert package == {
         "data": {
             "resultId": "res_run_demo",
+            "packageExportId": "rpex_demo",
             "includeArtifacts": False,
             "artifactPayloadMode": "metadata-only",
-            "packageUri": "file:///tmp/res_run_demo.zip",
             "sha256": "a" * 64,
+            "download": {
+                "href": "/api/v1/results/res_run_demo/exports/rpex_demo/download",
+                "filename": "rpex_demo.zip",
+            },
         }
     }
 
@@ -50,6 +54,26 @@ def test_result_package_route_passes_server_id_outside_export_payload(monkeypatc
     assert package["data"]["packageExportId"] == "rpex_demo"
 
 
+def test_result_package_download_route_streams_runtime_payload(monkeypatch) -> None:
+    runtime = FakeResultPackageDownloadRuntime()
+    monkeypatch.setattr("apps.api.execution_query_service.runtime_service", lambda: runtime)
+
+    response = asyncio.run(
+        download_result_package(
+            "res_run_demo",
+            "rpex_demo",
+            serverId="srv_remote",
+        )
+    )
+
+    assert runtime.calls == [("res_run_demo", "rpex_demo", "srv_remote")]
+    assert response.body == b"package-bytes"
+    assert response.media_type == "application/zip"
+    assert response.headers["content-disposition"] == 'attachment; filename="res_run_demo.zip"'
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-h2ometa-sha256"] == "b" * 64
+
+
 class FakeResultPackageRuntime:
     def get_result_audit(self, result_id):
         assert result_id == "res_run_demo"
@@ -64,7 +88,7 @@ class FakeResultPackageRuntime:
                 "resultId": result_id,
                 "includeArtifacts": False,
                 "artifactPayloadMode": "metadata-only",
-                "packageUri": "file:///tmp/res_run_demo.zip",
+                "packageExportId": "rpex_demo",
                 "sha256": "a" * 64,
             }
         }
@@ -83,4 +107,21 @@ class FakeResultPackageRuntimeWithServerId:
                 "includeArtifacts": True,
                 "artifactPayloadMode": "included",
             }
+        }
+
+
+class FakeResultPackageDownloadRuntime:
+    def __init__(self) -> None:
+        self.calls = []
+
+    def download_result_package(self, result_id, package_export_id, server_id=None):
+        self.calls.append((result_id, package_export_id, server_id))
+        return {
+            "content": b"package-bytes",
+            "headers": {
+                "content-disposition": 'attachment; filename="res_run_demo.zip"',
+                "content-type": "application/zip",
+                "x-content-type-options": "nosniff",
+                "x-h2ometa-sha256": "b" * 64,
+            },
         }

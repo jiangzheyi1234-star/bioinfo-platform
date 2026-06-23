@@ -124,6 +124,7 @@ def test_remote_runner_control_plane_services_use_async_thread_boundary() -> Non
         "get_result_preview_from_request",
         "get_result_audit_from_request",
         "export_result_package_from_request",
+        "download_result_package_from_request",
         "create_workflow_trigger_request",
         "list_workflow_triggers_request",
         "submit_workflow_trigger_event_request",
@@ -139,7 +140,7 @@ def test_remote_runner_control_plane_services_use_async_thread_boundary() -> Non
         "cancel_workflow_backfill_launch_request",
     )
 
-    assert "from .route_utils import authorized_config, data_response, run_sync" in control_source
+    assert "from .route_utils import authorized_config, data_response, remote_runner_principal, run_sync" in control_source
     assert "await run_sync(" in control_source
 
     for name in service_names:
@@ -361,6 +362,7 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
     assert '@router.get("/api/v1/results/{result_id}/preview")' in execution_query_route_source
     assert '@router.get("/api/v1/results/{result_id}/audit")' in execution_query_route_source
     assert '@router.post("/api/v1/results/{result_id}/export")' in execution_query_route_source
+    assert '@router.get("/api/v1/results/{result_id}/exports/{package_export_id}/download")' in execution_query_route_source
     assert "list_runs_from_request" in execution_query_route_source
     assert "get_run_from_request" in execution_query_route_source
     assert "cancel_run_from_request" in execution_query_route_source
@@ -375,6 +377,7 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
     assert "get_result_preview_from_request" in execution_query_route_source
     assert "get_result_audit_from_request" in execution_query_route_source
     assert "export_result_package_from_request" in execution_query_route_source
+    assert "download_result_package_from_request" in execution_query_route_source
 
     for name in (
         "health_startup_from_request",
@@ -401,5 +404,6 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
         "get_result_preview_from_request",
         "get_result_audit_from_request",
         "export_result_package_from_request",
+        "download_result_package_from_request",
     ):
         assert f"async def {name}(" in control_source

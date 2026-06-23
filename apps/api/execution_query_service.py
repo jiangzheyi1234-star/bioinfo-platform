@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import quote
 
 from apps.api.models import (
     ArtifactCacheLookupRequest,
@@ -10,7 +11,7 @@ from apps.api.models import (
     RunRetryRequest,
 )
 from apps.api.response_cache import invalidate_response_cache
-from apps.api.route_utils import cached_runtime_payload, request_payload, run_runtime_payload, runtime_service
+from apps.api.route_utils import cached_runtime_payload, request_payload, run_runtime_payload, run_sync, runtime_service
 
 
 async def list_runs_from_request(refresh: bool) -> dict[str, Any]:
@@ -133,7 +134,7 @@ async def export_result_package_from_request(
 ) -> dict[str, Any]:
     payload = request_payload(request)
     server_id = payload.pop("serverId", None)
-    return await run_runtime_payload(
+    result = await run_runtime_payload(
         lambda: runtime_service().export_result_package(
             result_id,
             payload=payload,
@@ -141,6 +142,51 @@ async def export_result_package_from_request(
         ),
         wrapper="raw",
     )
+    _attach_result_package_download(result)
+    return result
+
+
+async def download_result_package_from_request(
+    result_id: str,
+    package_export_id: str,
+    *,
+    server_id: str | None = None,
+) -> dict[str, Any]:
+    return await run_sync(
+        lambda: runtime_service().download_result_package(
+            result_id,
+            package_export_id,
+            server_id=server_id,
+        )
+    )
+
+
+def _attach_result_package_download(result: dict[str, Any]) -> None:
+    data = result.get("data") if isinstance(result, dict) else None
+    if not isinstance(data, dict):
+        return
+    result_id = str(data.get("resultId") or "").strip()
+    package_export_id = str(data.get("packageExportId") or "").strip()
+    if result_id and package_export_id and not isinstance(data.get("download"), dict):
+        data["download"] = {
+            "href": _result_package_download_href(result_id, package_export_id),
+            "filename": _result_package_download_filename(data, package_export_id),
+        }
+    data.pop("packagePath", None)
+    data.pop("packageUri", None)
+
+
+def _result_package_download_href(result_id: str, package_export_id: str) -> str:
+    return (
+        f"/api/v1/results/{quote(result_id, safe='')}/exports/"
+        f"{quote(package_export_id, safe='')}/download"
+    )
+
+
+def _result_package_download_filename(data: dict[str, Any], package_export_id: str) -> str:
+    path = str(data.get("packagePath") or "").replace("\\", "/")
+    filename = path.rsplit("/", 1)[-1] if path else ""
+    return filename or f"{package_export_id}.zip"
 
 
 async def get_artifact_lifecycle_usage_from_request(

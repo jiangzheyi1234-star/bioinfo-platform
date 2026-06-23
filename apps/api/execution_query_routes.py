@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Response
 
 from apps.api.models import (
     ArtifactCacheLookupRequest,
@@ -15,6 +15,7 @@ from apps.api.models import (
 )
 from apps.api.execution_query_service import (
     cancel_run_from_request,
+    download_result_package_from_request,
     get_artifact_lifecycle_usage_from_request,
     get_result_from_request,
     get_result_preview_from_request,
@@ -37,6 +38,16 @@ from apps.api.execution_query_service import (
 
 
 router = APIRouter()
+DOWNLOAD_HEADER_ALLOWLIST = {
+    "cache-control",
+    "content-disposition",
+    "x-content-type-options",
+    "x-h2ometa-result-id",
+    "x-h2ometa-package-export-id",
+    "x-h2ometa-sha256",
+    "x-h2ometa-manifest-sha256",
+    "x-h2ometa-artifact-payload-mode",
+}
 
 
 @router.get("/api/v1/runs")
@@ -116,6 +127,25 @@ async def export_result_package(
     return await export_result_package_from_request(result_id, request)
 
 
+@router.get("/api/v1/results/{result_id}/exports/{package_export_id}/download")
+async def download_result_package(
+    result_id: str,
+    package_export_id: str,
+    serverId: str | None = None,
+) -> Response:
+    download = await download_result_package_from_request(
+        result_id,
+        package_export_id,
+        server_id=serverId,
+    )
+    headers = _download_headers(download)
+    return Response(
+        content=download["content"],
+        media_type=_download_media_type(download),
+        headers=headers,
+    )
+
+
 @router.get("/api/v1/artifacts/lifecycle/usage")
 async def get_artifact_lifecycle_usage(
     serverId: str | None = None,
@@ -150,3 +180,20 @@ async def list_artifact_cache_entries(
 @router.post("/api/v1/artifacts/cache/lookup")
 async def lookup_artifact_cache(request: ArtifactCacheLookupRequest) -> dict[str, Any]:
     return await lookup_artifact_cache_from_request(request)
+
+
+def _download_headers(download: dict[str, Any]) -> dict[str, str]:
+    raw_headers = download.get("headers") if isinstance(download.get("headers"), dict) else {}
+    return {
+        str(key): str(value)
+        for key, value in raw_headers.items()
+        if str(key).lower() in DOWNLOAD_HEADER_ALLOWLIST and str(value)
+    }
+
+
+def _download_media_type(download: dict[str, Any]) -> str:
+    media_type = str(download.get("mediaType") or "").strip()
+    if media_type:
+        return media_type
+    headers = download.get("headers") if isinstance(download.get("headers"), dict) else {}
+    return str(headers.get("content-type") or "application/zip")

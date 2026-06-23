@@ -347,6 +347,19 @@ class ExecutionManager(BaseRuntimeManager):
             )
         }
 
+    def download_result_package(
+        self,
+        result_id: str,
+        package_export_id: str,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return self.call_runner(
+            "download_result_package",
+            preferred_server_id=server_id,
+            result_id=result_id,
+            package_export_id=package_export_id,
+        )
+
     def get_artifact_lifecycle_usage(
         self,
         *,

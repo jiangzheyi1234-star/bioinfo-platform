@@ -294,7 +294,8 @@ Progress:
 - Cache lookup is traceable through `artifact.cache.lookup.v1` evidence. After a successful dry-run, the worker can now adopt a full set of cache-hit output artifacts into the current attempt, write `artifact.cache.adopt.v1` evidence, mark rules as cache-hit succeeded, and skip the expensive Snakemake run. Per-rule partial restore, downstream file staging, cache pinning, and directory package restore semantics remain pending.
 - Result package export is now a v2 evidence package rather than a bare artifact ZIP. Export requires a terminal run with a stored WorkflowRevision, passes checksum audit first, includes `manifest.json`, Workflow Run RO-Crate metadata, runSpec, WorkflowRevision, run events, rule states/events, lineage, evidence events, artifact checksums, and optional payload files. The temporary archive must pass package/metadata checksum and Workflow Run RO-Crate shape validation before `result.export.v1` evidence or a durable `result_package_exports` record is written.
 - GC export protection is metadata-backed through active result package export records, so deleting or moving the ZIP does not make exported artifact payloads eligible for collection.
-- Run detail now exposes result package export controls that default to metadata-only packages, keep full-payload export explicit, and surface package URI/path, checksums, manifest hash, and export evidence without pretending a browser streaming download route exists.
+- Run detail now exposes result package export controls that default to metadata-only packages, keep full-payload export explicit, and surface checksums, manifest hash, export evidence, and a backend-owned download affordance without exposing raw server filesystem paths.
+- Result package exports now expose a safe browser download contract through `download.href` instead of raw server filesystem paths. The backend resolves downloads by `packageExportId`, cross-checks `resultId`, verifies the managed package root, active lifecycle state, size, and SHA-256 before streaming, and returns attachment/nosniff/no-store headers through the local API proxy.
 
 Recommended sequence:
 
@@ -339,6 +340,7 @@ Progress:
 - Remote-runner tool registry and reference database mutation paths now emit hash-chained governance audit events for create, prepare, cancel, rule-template update, production enable, delete, database create/update/check/delete, using metadata-only details that avoid command templates, manifests, package specs, database paths, and credentials.
 - Security-sensitive automation now has CODEOWNERS coverage for workflow and governance policy changes, and the CI security governance audit enforces pinned workflow actions plus safe workflow triggers. CodeQL, Dependency Review, and Scorecard remain planned gates until GitHub feature availability can run them green.
 - High-risk remote-runner actions now require explicit machine-token roles after bearer authentication. Missing or wrong roles fail with `RemoteRunnerAuthorizationError`, write deny governance audit evidence where the ledger is available, and cannot proceed to mutation, dispatch, retry, export, or GC work.
+- Result package download is now a governed high-risk remote action (`result.package.download`) with artifact-curator/auditor role coverage and hash-chained audit evidence before the ZIP is streamed.
 
 Recommended sequence:
 

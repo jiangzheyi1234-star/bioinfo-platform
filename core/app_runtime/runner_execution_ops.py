@@ -194,6 +194,18 @@ class RunnerExecutionOperationsMixin:
             server_id=server_id,
         )
 
+    def download_result_package(
+        self,
+        result_id: str,
+        package_export_id: str,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return self.execution.download_result_package(
+            result_id,
+            package_export_id,
+            server_id=server_id,
+        )
+
     def get_artifact_lifecycle_usage(
         self,
         *,

@@ -338,6 +338,11 @@ export type WorkflowResultDetail = {
   artifacts?: WorkflowArtifact[];
 };
 
+export type WorkflowResultPackageDownload = {
+  href?: string;
+  filename?: string;
+};
+
 export type WorkflowResultPackageExport = {
   packageExportId?: string;
   resultId?: string;
@@ -345,8 +350,7 @@ export type WorkflowResultPackageExport = {
   workflowRevisionId?: string;
   includeArtifacts?: boolean;
   artifactPayloadMode?: string;
-  packagePath?: string;
-  packageUri?: string;
+  download?: WorkflowResultPackageDownload;
   sizeBytes?: number;
   sha256?: string;
   manifestSha256?: string;

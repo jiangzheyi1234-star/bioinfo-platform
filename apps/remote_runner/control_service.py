@@ -32,7 +32,8 @@ from .health_service import (
 )
 from .pipeline import get_pipeline, list_pipelines
 from .result_preview_service import build_result_preview_data
-from .route_utils import authorized_config, data_response, run_sync
+from .result_package_download_service import build_result_package_download, result_package_download_url
+from .route_utils import authorized_config, data_response, remote_runner_principal, run_sync
 from .run_worker_storage import build_run_worker_health
 from .storage import (
     fetch_log_lines,
@@ -426,7 +427,58 @@ async def export_result_package_from_request(
         include_artifacts=request.includeArtifacts,
         actor=request.actor,
     )
-    return data_response(package)
+    return data_response(_public_result_package_export(package))
+
+
+def _public_result_package_export(package: dict[str, Any]) -> dict[str, Any]:
+    public = dict(package)
+    public["download"] = _result_package_download_link(package)
+    public.pop("packagePath", None)
+    public.pop("packageUri", None)
+    return public
+
+
+def _result_package_download_link(package: dict[str, Any]) -> dict[str, str]:
+    result_id = str(package["resultId"])
+    package_export_id = str(package["packageExportId"])
+    filename = str(package.get("packagePath") or "").replace("\\", "/").rsplit("/", 1)[-1]
+    return {
+        "href": result_package_download_url(result_id, package_export_id),
+        "filename": filename or f"{package_export_id}.zip",
+    }
+
+
+async def download_result_package_from_request(
+    result_id: str,
+    package_export_id: str,
+    authorization: str | None,
+) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization, action="result.package.download")
+    download = await run_sync(
+        build_result_package_download,
+        cfg,
+        result_id=result_id,
+        package_export_id=package_export_id,
+    )
+    principal = remote_runner_principal(cfg)
+    await run_sync(
+        record_governance_audit_event,
+        cfg,
+        action="result.package.download",
+        actor=principal.actor,
+        subject_kind="result_package_export",
+        subject_id=package_export_id,
+        details={
+            "resultId": download["resultId"],
+            "runId": download["runId"],
+            "packageExportId": download["packageExportId"],
+            "sizeBytes": download["sizeBytes"],
+            "packageSha256": download["sha256"],
+            "manifestSha256": download["manifestSha256"],
+            "artifactPayloadMode": download["artifactPayloadMode"],
+        },
+    )
+    return download
 
 
 async def get_artifact_lifecycle_usage_from_request(

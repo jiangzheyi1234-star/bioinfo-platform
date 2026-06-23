@@ -1,4 +1,4 @@
-import { requestLocalApiJson } from "@/app/lib/local-api-client";
+import { apiBase, requestLocalApiJson } from "@/app/lib/local-api-client";
 import { cachedAsync, invalidateAsyncCache, invalidateAsyncCachePrefix, peekAsyncCache } from "@/app/lib/async-cache";
 
 import type { DatabaseItem, DatabasesResponse } from "./database-page-model";
@@ -687,4 +687,12 @@ export async function exportWorkflowResultPackage(
     }
   );
   return response.data;
+}
+
+export function workflowResultPackageDownloadHref(item: WorkflowResultPackageExport): string {
+  const href = item.download?.href?.trim() || "";
+  if (!href.startsWith("/api/v1/") || href.includes("://") || href.startsWith("//")) {
+    return "";
+  }
+  return `${apiBase()}${href}`;
 }

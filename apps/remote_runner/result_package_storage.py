@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,7 @@ from .storage_core import get_connection
 
 
 SUPPORTED_ARTIFACT_PAYLOAD_MODES = {"included", "metadata-only"}
+RESULT_PACKAGE_EXPORT_ID_RE = re.compile(r"^rpexp_[0-9a-f]{16}$")
 
 
 def record_result_package_export(
@@ -106,6 +108,26 @@ def record_result_package_export(
             ),
         ).fetchone()
     return _row_to_dict(row)
+
+
+def fetch_result_package_export(
+    cfg: RemoteRunnerConfig,
+    *,
+    package_export_id: str,
+) -> dict[str, Any] | None:
+    normalized_export_id = _required_text(package_export_id, "RESULT_PACKAGE_EXPORT_ID_REQUIRED")
+    if not RESULT_PACKAGE_EXPORT_ID_RE.fullmatch(normalized_export_id):
+        raise ValueError("RESULT_PACKAGE_EXPORT_ID_INVALID")
+    with get_connection(cfg) as connection:
+        row = connection.execute(
+            """
+            SELECT *
+            FROM result_package_exports
+            WHERE package_export_id = ?
+            """,
+            (normalized_export_id,),
+        ).fetchone()
+    return _row_to_dict(row) if row is not None else None
 
 
 def _row_to_dict(row: Any) -> dict[str, Any]:

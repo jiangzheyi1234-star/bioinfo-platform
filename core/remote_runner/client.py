@@ -98,6 +98,32 @@ class RemoteRunnerHttpClient:
         except (http.client.RemoteDisconnected, ConnectionError, OSError) as exc:
             raise RemoteRunnerClientError(str(exc) or "runner unreachable") from exc
 
+    def _request_bytes(self, method: str, path: str) -> dict[str, Any]:
+        request = urllib.request.Request(
+            f"{self.base_url.rstrip('/')}/{path.lstrip('/')}",
+            headers={"Authorization": f"Bearer {self.token}"},
+            method=method,
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                return {
+                    "statusCode": int(response.status),
+                    "content": response.read(),
+                    "headers": {key.lower(): value for key, value in response.headers.items()},
+                }
+        except urllib.error.HTTPError as exc:
+            response_payload = exc.read().decode("utf-8", errors="replace")
+            detail_value = _http_error_detail_value(response_payload)
+            detail = _http_error_detail(response_payload)
+            message = f"runner http error {exc.code}"
+            if detail:
+                message = f"{message}: {detail}"
+            raise RemoteRunnerClientError(message, status_code=exc.code, detail=detail_value) from exc
+        except urllib.error.URLError as exc:
+            raise RemoteRunnerClientError(str(exc.reason) or "runner unreachable") from exc
+        except (http.client.RemoteDisconnected, ConnectionError, OSError) as exc:
+            raise RemoteRunnerClientError(str(exc) or "runner unreachable") from exc
+
     def get_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, Any]:
         return self._request_json("GET", path, accepted_statuses=accepted_statuses)
 
@@ -294,6 +320,14 @@ class RemoteRunnerHttpClient:
         payload: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return self.post_json(f"/api/v1/results/{result_id}/export", dict(payload or {}))["data"]
+
+    def download_result_package(self, result_id: str, package_export_id: str) -> dict[str, Any]:
+        result_part = urllib.parse.quote(result_id, safe="")
+        export_part = urllib.parse.quote(package_export_id, safe="")
+        return self._request_bytes(
+            "GET",
+            f"/api/v1/results/{result_part}/exports/{export_part}/download",
+        )
 
     def get_artifact_lifecycle_usage(self, *, quota_bytes: int | None = None) -> dict[str, Any]:
         query = urllib.parse.urlencode({"quotaBytes": quota_bytes if quota_bytes is not None else ""})

@@ -1,12 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { AlertCircle, Loader2, Package } from "lucide-react";
+import { AlertCircle, Download, Loader2, Package } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 
-import { exportWorkflowResultPackage } from "./workflows-page-api";
+import { exportWorkflowResultPackage, workflowResultPackageDownloadHref } from "./workflows-page-api";
 import { workflowErrorMessage } from "./workflows-page-model";
 import type { WorkflowResultPackageExport, WorkflowRun } from "./workflows-page-model";
 
@@ -95,16 +95,25 @@ export function WorkflowResultPackagePanel({
 }
 
 function ResultPackageSummary({ item }: { item: WorkflowResultPackageExport }) {
-  const location = item.packageUri || item.packagePath || "";
+  const downloadHref = workflowResultPackageDownloadHref(item);
   return (
     <div className="mt-3 grid gap-2 border-t border-slate-100 pt-3 text-xs">
+      {downloadHref ? (
+        <div className="flex justify-end">
+          <Button asChild variant="outline" size="sm" className="h-8 px-2 text-xs">
+            <a href={downloadHref} download={item.download?.filename || undefined}>
+              <Download strokeWidth={1.5} className="h-3 w-3" />
+              下载结果包
+            </a>
+          </Button>
+        </div>
+      ) : null}
       <PackageField label="package" value={item.packageExportId} mono />
       <PackageField label="payload" value={item.artifactPayloadMode || (item.includeArtifacts ? "full" : "metadata-only")} />
       <PackageField label="size" value={formatPackageBytes(item.sizeBytes)} />
       <PackageField label="sha256" value={item.sha256} mono />
       <PackageField label="manifest" value={item.manifestSha256} mono />
       <PackageField label="evidence" value={item.evidenceId} mono />
-      <PackageField label="location" value={location} mono />
     </div>
   );
 }

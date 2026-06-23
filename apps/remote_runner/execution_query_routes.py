@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from fastapi import APIRouter
+from fastapi.responses import FileResponse
 
 from .api_models import (
     ArtifactCacheLookupRequest,
@@ -13,6 +14,7 @@ from .api_models import (
 )
 from .control_service import (
     cancel_run_from_request,
+    download_result_package_from_request,
     get_artifact_lifecycle_usage_from_request,
     get_result_from_request,
     get_result_preview_from_request,
@@ -123,6 +125,21 @@ async def export_result_package_api(
     authorization: AuthorizationHeader = None,
 ) -> dict[str, Any]:
     return await export_result_package_from_request(result_id, request, authorization)
+
+
+@router.get("/api/v1/results/{result_id}/exports/{package_export_id}/download")
+async def download_result_package_api(
+    result_id: str,
+    package_export_id: str,
+    authorization: AuthorizationHeader = None,
+) -> FileResponse:
+    download = await download_result_package_from_request(result_id, package_export_id, authorization)
+    return FileResponse(
+        download["path"],
+        media_type=download["mediaType"],
+        filename=download["filename"],
+        headers=download["headers"],
+    )
 
 
 @router.get("/api/v1/artifacts/lifecycle/usage")

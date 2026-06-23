@@ -22,13 +22,19 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "export type WorkflowRunRule" in model
     assert "export type WorkflowRunRules" in model
     assert "export type WorkflowRunExecutionContext" in model
+    assert "export type WorkflowResultPackageDownload" in model
     assert "export type WorkflowResultPackageExport" in model
     assert "export type WorkflowResultPackageExportResponse" in model
     assert "packageExportId?: string" in model
+    assert "download?: WorkflowResultPackageDownload" in model
     assert "exportId?: string" not in model
+    assert "packagePath?: string" not in model
+    assert "packageUri?: string" not in model
     assert "rules?: WorkflowRunRules" in model
     assert "executionContext?: WorkflowRunExecutionContext" in model
     assert "exportWorkflowResultPackage" in api
+    assert "workflowResultPackageDownloadHref" in api
+    assert "href.startsWith(\"/api/v1/\")" in api
     assert "`/api/v1/results/${encodeURIComponent(resultId)}/export`" in api
     assert 'actor: "workflow-ui"' in api
     assert "includeArtifacts" in api
@@ -62,13 +68,16 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "含产物文件" in package_panel
     assert "仅 completed/failed 运行可导出" in package_panel
     assert "缺少 WorkflowRevision" in package_panel
-    assert "packageUri" in package_panel
-    assert "packagePath" in package_panel
+    assert "workflowResultPackageDownloadHref(item)" in package_panel
+    assert "Download" in package_panel
+    assert "下载结果包" in package_panel
+    assert "packageUri" not in package_panel
+    assert "packagePath" not in package_panel
+    assert "file://" not in package_panel
     assert "packageExportId" in package_panel
     assert "sha256" in package_panel
     assert "manifestSha256" in package_panel
     assert "evidenceId" in package_panel
-    assert "download" not in package_panel.lower()
     assert "window.open" not in package_panel
     assert "HTMLAnchorElement" not in package_panel
 
