@@ -13,6 +13,12 @@ from core.governance_policy import HIGH_RISK_API_POLICIES
 from .config import RemoteRunnerConfig, load_remote_runner_config
 from .errors import RemoteRunnerAuthorizationError, RemoteRunnerAuthError
 from .governance_audit import record_governance_audit_event
+from .sqlite_migrations import (
+    DATABASE_MISSING_ERROR,
+    SCHEMA_LEDGER_MISSING_ERROR,
+    SCHEMA_MIGRATION_REQUIRED_ERROR,
+    RemoteRunnerSQLiteSchemaError,
+)
 
 __all__ = ["data_response", "request_payload", "run_sync"]
 
@@ -52,9 +58,21 @@ def authorize_action(cfg: RemoteRunnerConfig, action: str) -> RemoteRunnerPrinci
     required_roles = policy.future_roles
     principal = remote_runner_principal(cfg)
     if not set(principal.roles).intersection(required_roles):
+        _record_authorization_denial(cfg, normalized_action, principal)
+        raise RemoteRunnerAuthorizationError("runner authorization failed")
+    return principal
+
+
+def _record_authorization_denial(
+    cfg: RemoteRunnerConfig,
+    action: str,
+    principal: RemoteRunnerPrincipal,
+) -> None:
+    policy = REMOTE_ACTION_POLICIES[action]
+    try:
         record_governance_audit_event(
             cfg,
-            action=normalized_action,
+            action=action,
             actor=principal.actor,
             subject_kind=policy.subject_kind,
             subject_id="authorization",
@@ -62,12 +80,25 @@ def authorize_action(cfg: RemoteRunnerConfig, action: str) -> RemoteRunnerPrinci
             reason_code="REMOTE_RUNNER_ROLE_REQUIRED",
             details={
                 "actor": principal.actor,
-                "requiredRoles": list(required_roles),
+                "requiredRoles": list(policy.future_roles),
                 "providedRoles": list(principal.roles),
             },
         )
-        raise RemoteRunnerAuthorizationError("runner authorization failed")
-    return principal
+    except RemoteRunnerSQLiteSchemaError as exc:
+        if _authorization_denial_audit_unavailable(exc):
+            return
+        raise
+
+
+def _authorization_denial_audit_unavailable(exc: RemoteRunnerSQLiteSchemaError) -> bool:
+    message = str(exc)
+    return message.startswith(
+        (
+            DATABASE_MISSING_ERROR,
+            SCHEMA_MIGRATION_REQUIRED_ERROR,
+            SCHEMA_LEDGER_MISSING_ERROR,
+        )
+    )
 
 
 def remote_runner_principal(cfg: RemoteRunnerConfig) -> RemoteRunnerPrincipal:

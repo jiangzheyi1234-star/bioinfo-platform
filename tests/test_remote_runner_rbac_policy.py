@@ -4,12 +4,14 @@ import json
 
 from fastapi.testclient import TestClient
 
-from apps.remote_runner.config import ensure_runtime_layout
+from apps.remote_runner import route_utils
+from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
 from apps.remote_runner.databases import list_reference_databases
 from apps.remote_runner.errors import RemoteRunnerAuthorizationError
 from apps.remote_runner.governance_audit import list_governance_audit_events
 from apps.remote_runner.main import app
 from apps.remote_runner.route_utils import authorize_action
+from apps.remote_runner.sqlite_migrations import SCHEMA_LEDGER_CHECKSUM_ERROR, RemoteRunnerSQLiteSchemaError
 from tests.helpers.reference_database import make_configured_remote_runner
 
 
@@ -40,6 +42,78 @@ def test_remote_runner_action_authorization_denies_unknown_and_wrong_roles(tmp_p
         assert str(exc) == "runner authorization policy missing: missing.policy"
     else:
         raise AssertionError("unknown high-risk action must fail closed")
+
+
+def test_remote_runner_authorization_denial_stays_403_when_audit_ledger_is_missing(tmp_path) -> None:
+    cfg = RemoteRunnerConfig(
+        token="rbac-token",
+        api_token_roles=("auditor",),
+        db_path=str(tmp_path / "missing" / "runner.db"),
+    )
+
+    try:
+        authorize_action(cfg, "database.create")
+    except RemoteRunnerAuthorizationError as exc:
+        assert str(exc) == "runner authorization failed"
+    else:
+        raise AssertionError("authorization denial must not depend on an initialized audit ledger")
+
+
+def test_database_mutation_route_denies_role_when_audit_ledger_is_missing(tmp_path, monkeypatch) -> None:
+    db_path = tmp_path / "missing" / "runner.db"
+    config_path = tmp_path / "runner.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "token": "rbac-token",
+                "api_token_roles": ["auditor"],
+                "data_root": str(tmp_path / "shared"),
+                "db_path": str(db_path),
+                "uploads_dir": str(tmp_path / "shared" / "uploads"),
+                "results_dir": str(tmp_path / "shared" / "results"),
+                "work_dir": str(tmp_path / "shared" / "work"),
+                "logs_dir": str(tmp_path / "shared" / "logs"),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("H2OMETA_REMOTE_CONFIG", str(config_path))
+
+    response = TestClient(app).post(
+        "/api/v1/databases",
+        headers={"Authorization": "Bearer rbac-token"},
+        json={
+            "id": "db_denied_missing_ledger",
+            "name": "Denied Missing Ledger DB",
+            "templateId": "kraken2",
+            "path": str(tmp_path / "kraken2-mini"),
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "runner authorization failed"
+    assert not db_path.exists()
+    assert "rbac-token" not in json.dumps(response.json(), sort_keys=True)
+
+
+def test_authorization_denial_does_not_hide_audit_integrity_errors(tmp_path, monkeypatch) -> None:
+    cfg = RemoteRunnerConfig(
+        token="rbac-token",
+        api_token_roles=("auditor",),
+        db_path=str(tmp_path / "runner.db"),
+    )
+
+    def fail_audit_record(*_args, **_kwargs) -> None:
+        raise RemoteRunnerSQLiteSchemaError(SCHEMA_LEDGER_CHECKSUM_ERROR)
+
+    monkeypatch.setattr(route_utils, "record_governance_audit_event", fail_audit_record)
+
+    try:
+        authorize_action(cfg, "database.create")
+    except RemoteRunnerSQLiteSchemaError as exc:
+        assert str(exc) == SCHEMA_LEDGER_CHECKSUM_ERROR
+    else:
+        raise AssertionError("audit integrity failures must not be hidden behind authorization denial")
 
 
 def test_remote_runner_action_authorization_allows_matching_role(tmp_path) -> None:
