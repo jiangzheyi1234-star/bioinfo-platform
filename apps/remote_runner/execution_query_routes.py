@@ -7,6 +7,8 @@ from fastapi.responses import FileResponse
 
 from .api_models import (
     ArtifactCacheLookupRequest,
+    ArtifactCachePinReleaseRequest,
+    ArtifactCachePinRetainRequest,
     ArtifactGcPreviewRequest,
     ArtifactGcRunRequest,
     ResultPackageExportRequest,
@@ -27,10 +29,13 @@ from .control_service import (
     get_run_results_from_request,
     get_run_rules_from_request,
     list_artifact_cache_entries_from_request,
+    list_artifact_cache_pins_from_request,
     list_results_from_request,
     list_runs_from_request,
     lookup_artifact_cache_from_request,
     preview_artifact_gc_from_request,
+    release_artifact_cache_pin_from_request,
+    retain_artifact_cache_pin_from_request,
     retry_run_from_request,
     run_artifact_gc_from_request,
 )
@@ -173,6 +178,34 @@ async def list_artifact_cache_entries_api(
     authorization: AuthorizationHeader = None,
 ) -> dict[str, Any]:
     return await list_artifact_cache_entries_from_request(workflowRevisionId, limit, authorization)
+
+
+@router.get("/api/v1/artifacts/cache/pins")
+async def list_artifact_cache_pins_api(
+    cacheEntryId: str | None = None,
+    state: str | None = None,
+    limit: int = 100,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await list_artifact_cache_pins_from_request(cacheEntryId, state, limit, authorization)
+
+
+@router.post("/api/v1/artifacts/cache/entries/{cache_entry_id}/retain")
+async def retain_artifact_cache_pin_api(
+    cache_entry_id: str,
+    request: ArtifactCachePinRetainRequest,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await retain_artifact_cache_pin_from_request(cache_entry_id, request, authorization)
+
+
+@router.post("/api/v1/artifacts/cache/pins/{cache_pin_id}/release")
+async def release_artifact_cache_pin_api(
+    cache_pin_id: str,
+    request: ArtifactCachePinReleaseRequest,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await release_artifact_cache_pin_from_request(cache_pin_id, request, authorization)
 
 
 @router.post("/api/v1/artifacts/cache/lookup")

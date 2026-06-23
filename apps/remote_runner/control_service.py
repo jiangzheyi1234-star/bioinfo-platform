@@ -4,6 +4,8 @@ from typing import Any, Literal
 
 from .api_models import (
     ArtifactCacheLookupRequest,
+    ArtifactCachePinReleaseRequest,
+    ArtifactCachePinRetainRequest,
     ArtifactGcPreviewRequest,
     ArtifactGcRunRequest,
     ResultPackageExportRequest,
@@ -21,6 +23,11 @@ from .api_models import (
 )
 from .config import RemoteRunnerConfig, dump_public_config
 from .execution_diagnostics import build_execution_diagnostics
+from .artifact_cache_pin_service import (
+    list_artifact_cache_policy_pins,
+    release_artifact_cache_policy_pin,
+    retain_artifact_cache_policy_pin,
+)
 from .artifact_cache_storage import list_artifact_cache_entries, lookup_artifact_cache_entry
 from .artifact_lifecycle_service import build_artifact_lifecycle_usage, preview_artifact_gc, run_artifact_gc
 from .artifact_product_service import build_result_artifact_audit, export_result_package
@@ -521,6 +528,49 @@ async def list_artifact_cache_entries_from_request(
         limit=limit,
     )
     return data_response(entries)
+
+
+async def list_artifact_cache_pins_from_request(
+    cache_entry_id: str | None,
+    state: str | None,
+    limit: int,
+    authorization: str | None,
+) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization)
+    pins = await run_sync(
+        list_artifact_cache_policy_pins,
+        cfg,
+        cache_entry_id=cache_entry_id,
+        state=state,
+        limit=limit,
+    )
+    return data_response(pins)
+
+
+async def retain_artifact_cache_pin_from_request(
+    cache_entry_id: str,
+    request: ArtifactCachePinRetainRequest,
+    authorization: str | None,
+) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization, action="artifact.cache_pin.retain")
+    payload = request.model_dump(mode="json", exclude_none=True)
+    principal = remote_runner_principal(cfg)
+    actor = str(payload.get("actor") or principal.actor)
+    pin = await run_sync(retain_artifact_cache_policy_pin, cfg, cache_entry_id, payload, actor=actor)
+    return data_response(pin)
+
+
+async def release_artifact_cache_pin_from_request(
+    cache_pin_id: str,
+    request: ArtifactCachePinReleaseRequest,
+    authorization: str | None,
+) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization, action="artifact.cache_pin.release")
+    payload = request.model_dump(mode="json", exclude_none=True)
+    principal = remote_runner_principal(cfg)
+    actor = str(payload.get("actor") or principal.actor)
+    pin = await run_sync(release_artifact_cache_policy_pin, cfg, cache_pin_id, payload, actor=actor)
+    return data_response(pin)
 
 
 async def lookup_artifact_cache_from_request(

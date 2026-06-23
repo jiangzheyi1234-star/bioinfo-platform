@@ -418,6 +418,56 @@ class ExecutionManager(BaseRuntimeManager):
             )
         }
 
+    def list_artifact_cache_pins(
+        self,
+        *,
+        server_id: Optional[str] = None,
+        cache_entry_id: Optional[str] = None,
+        state: Optional[str] = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        return {
+            "data": self.call_existing_runner(
+                "list_artifact_cache_pins",
+                preferred_server_id=server_id,
+                cache_entry_id=cache_entry_id,
+                state=state,
+                limit=limit,
+            )
+        }
+
+    def retain_artifact_cache_pin(
+        self,
+        cache_entry_id: str,
+        payload: Optional[dict[str, Any]] = None,
+        *,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return {
+            "data": self.call_existing_runner(
+                "retain_artifact_cache_pin",
+                preferred_server_id=server_id,
+                cache_entry_id=cache_entry_id,
+                payload=dict(payload or {}),
+            )
+        }
+
+    def release_artifact_cache_pin(
+        self,
+        cache_pin_id: str,
+        payload: Optional[dict[str, Any]] = None,
+        *,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return {
+            "data": self.call_existing_runner(
+                "release_artifact_cache_pin",
+                preferred_server_id=server_id,
+                cache_pin_id=cache_pin_id,
+                payload=dict(payload or {}),
+            )
+        }
+
     def lookup_artifact_cache(
         self,
         payload: Optional[dict[str, Any]] = None,

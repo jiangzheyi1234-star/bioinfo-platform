@@ -158,6 +158,19 @@ class ArtifactCacheLookupRequest(RemoteRunnerRequest):
     execution: dict[str, Any] | None = None
 
 
+class ArtifactCachePinRetainRequest(RemoteRunnerRequest):
+    ownerId: str | None = None
+    reason: str = Field(default="operator-retain", min_length=1)
+    expiresAt: str | None = None
+    actor: str | None = None
+
+
+class ArtifactCachePinReleaseRequest(RemoteRunnerRequest):
+    confirmation: Literal["release-artifact-cache-policy-pin"]
+    reason: str | None = None
+    actor: str | None = None
+
+
 class ToolManifestRequest(RemoteRunnerRequest):
     id: str | None = None
     name: str = Field(min_length=1)

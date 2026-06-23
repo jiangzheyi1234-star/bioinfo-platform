@@ -353,6 +353,30 @@ class RemoteRunnerHttpClient:
         )
         return self.get_json(f"/api/v1/artifacts/cache/entries?{query}")["data"]
 
+    def list_artifact_cache_pins(
+        self,
+        *,
+        cache_entry_id: str | None = None,
+        state: str | None = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        query = urllib.parse.urlencode(
+            {
+                "cacheEntryId": str(cache_entry_id or ""),
+                "state": str(state or ""),
+                "limit": int(limit),
+            }
+        )
+        return self.get_json(f"/api/v1/artifacts/cache/pins?{query}")["data"]
+
+    def retain_artifact_cache_pin(self, cache_entry_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        entry_part = urllib.parse.quote(cache_entry_id, safe="")
+        return self.post_json(f"/api/v1/artifacts/cache/entries/{entry_part}/retain", dict(payload or {}))["data"]
+
+    def release_artifact_cache_pin(self, cache_pin_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        pin_part = urllib.parse.quote(cache_pin_id, safe="")
+        return self.post_json(f"/api/v1/artifacts/cache/pins/{pin_part}/release", dict(payload or {}))["data"]
+
     def lookup_artifact_cache(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         return self.post_json("/api/v1/artifacts/cache/lookup", dict(payload or {}))["data"]
 

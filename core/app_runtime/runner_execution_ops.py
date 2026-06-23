@@ -246,6 +246,39 @@ class RunnerExecutionOperationsMixin:
             limit=limit,
         )
 
+    def list_artifact_cache_pins(
+        self,
+        *,
+        server_id: Optional[str] = None,
+        cache_entry_id: Optional[str] = None,
+        state: Optional[str] = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        return self.execution.list_artifact_cache_pins(
+            server_id=server_id,
+            cache_entry_id=cache_entry_id,
+            state=state,
+            limit=limit,
+        )
+
+    def retain_artifact_cache_pin(
+        self,
+        cache_entry_id: str,
+        payload: Optional[dict[str, Any]] = None,
+        *,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return self.execution.retain_artifact_cache_pin(cache_entry_id, payload, server_id=server_id)
+
+    def release_artifact_cache_pin(
+        self,
+        cache_pin_id: str,
+        payload: Optional[dict[str, Any]] = None,
+        *,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return self.execution.release_artifact_cache_pin(cache_pin_id, payload, server_id=server_id)
+
     def lookup_artifact_cache(
         self,
         payload: Optional[dict[str, Any]] = None,

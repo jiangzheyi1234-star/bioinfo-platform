@@ -4,6 +4,8 @@ import pytest
 from pydantic import ValidationError
 
 from apps.api.models import (
+    ArtifactCachePinReleaseRequest,
+    ArtifactCachePinRetainRequest,
     ResultPackageExportRequest,
     RunSubmitRequest,
     RunRetryRequest,
@@ -209,6 +211,38 @@ def test_result_package_export_request_requires_explicit_payload_mode_and_is_str
     assert extra.value.errors()[0]["loc"] == ("legacyMode",)
     assert non_boolean.value.errors()[0]["loc"] == ("includeArtifacts",)
     assert non_boolean.value.errors()[0]["type"] == "bool_type"
+
+
+def test_artifact_cache_pin_requests_are_strict_and_confirmation_gated() -> None:
+    retain = ArtifactCachePinRetainRequest.model_validate(
+        {
+            "serverId": "srv_demo",
+            "ownerId": "curator@example.test",
+            "reason": "retain-for-review",
+            "expiresAt": "2099-06-07T10:00:00Z",
+            "actor": "curator@example.test",
+        }
+    )
+    release = ArtifactCachePinReleaseRequest.model_validate(
+        {
+            "serverId": "srv_demo",
+            "confirmation": "release-artifact-cache-policy-pin",
+            "reason": "review-complete",
+        }
+    )
+
+    assert retain.ownerId == "curator@example.test"
+    assert release.confirmation == "release-artifact-cache-policy-pin"
+
+    with pytest.raises(ValidationError) as retain_extra:
+        ArtifactCachePinRetainRequest.model_validate({"reason": "retain", "legacy": True})
+    with pytest.raises(ValidationError) as release_confirmation:
+        ArtifactCachePinReleaseRequest.model_validate({"confirmation": "release-cache-pin"})
+
+    assert retain_extra.value.errors()[0]["type"] == "extra_forbidden"
+    assert retain_extra.value.errors()[0]["loc"] == ("legacy",)
+    assert release_confirmation.value.errors()[0]["type"] == "literal_error"
+    assert release_confirmation.value.errors()[0]["loc"] == ("confirmation",)
 
 
 def test_workflow_trigger_create_request_is_strict_and_keeps_run_spec_nested() -> None:

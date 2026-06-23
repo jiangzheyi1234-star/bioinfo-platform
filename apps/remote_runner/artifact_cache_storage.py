@@ -263,6 +263,18 @@ def list_artifact_cache_entries(
     return {"items": [_cache_entry_row_to_dict(row) for row in rows]}
 
 
+def get_artifact_cache_entry(cfg: RemoteRunnerConfig, cache_entry_id: str) -> dict[str, Any]:
+    normalized_id = _required_text(cache_entry_id, "ARTIFACT_CACHE_ENTRY_ID_REQUIRED")
+    with get_connection(cfg) as connection:
+        row = connection.execute(
+            "SELECT * FROM artifact_cache_entries WHERE cache_entry_id = ?",
+            (normalized_id,),
+        ).fetchone()
+    if row is None:
+        raise KeyError(normalized_id)
+    return _cache_entry_row_to_dict(row)
+
+
 def create_artifact_cache_pins(
     cfg: RemoteRunnerConfig,
     *,
@@ -272,10 +284,16 @@ def create_artifact_cache_pins(
     owner_id: str,
     reason: str,
     created_at: str | None = None,
+    expires_at: str | None = None,
     ttl_seconds: int | None = ARTIFACT_CACHE_RESTORE_PIN_TTL_SECONDS,
 ) -> list[dict[str, Any]]:
     occurred_at = str(created_at or now_iso())
-    expires_at = _expires_at(occurred_at, ttl_seconds) if ttl_seconds is not None else None
+    if expires_at is not None:
+        pin_expires_at = expires_at
+    elif ttl_seconds is not None:
+        pin_expires_at = _expires_at(occurred_at, ttl_seconds)
+    else:
+        pin_expires_at = None
     with get_connection(cfg) as connection:
         pins = [
             create_artifact_cache_pin_record(
@@ -286,7 +304,7 @@ def create_artifact_cache_pins(
                 owner_id=owner_id,
                 reason=reason,
                 created_at=occurred_at,
-                expires_at=expires_at,
+                expires_at=pin_expires_at,
             )
             for entry in entries
         ]
@@ -413,18 +431,23 @@ def list_artifact_cache_pins(
     *,
     cache_entry_id: str | None = None,
     state: str | None = None,
+    pin_scope: str | None = None,
     limit: int = 100,
 ) -> dict[str, Any]:
     clauses: list[str] = []
     params: list[Any] = []
     normalized_entry_id = _optional_text(cache_entry_id)
     normalized_state = _optional_text(state)
+    normalized_scope = _optional_text(pin_scope)
     if normalized_entry_id:
         clauses.append("cache_entry_id = ?")
         params.append(normalized_entry_id)
     if normalized_state:
         clauses.append("state = ?")
         params.append(normalized_state)
+    if normalized_scope:
+        clauses.append("pin_scope = ?")
+        params.append(normalized_scope)
     where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     requested_limit = min(500, max(1, int(limit)))
     with get_connection(cfg) as connection:
@@ -439,6 +462,18 @@ def list_artifact_cache_pins(
             (*params, requested_limit),
         ).fetchall()
     return {"items": [_cache_pin_row_to_dict(row) for row in rows]}
+
+
+def get_artifact_cache_pin(cfg: RemoteRunnerConfig, cache_pin_id: str) -> dict[str, Any]:
+    normalized_id = _required_text(cache_pin_id, "ARTIFACT_CACHE_PIN_ID_REQUIRED")
+    with get_connection(cfg) as connection:
+        row = connection.execute(
+            "SELECT * FROM artifact_cache_pins WHERE cache_pin_id = ?",
+            (normalized_id,),
+        ).fetchone()
+    if row is None:
+        raise KeyError(normalized_id)
+    return _cache_pin_row_to_dict(row)
 
 
 def active_artifact_cache_pin_reasons(cfg: RemoteRunnerConfig) -> dict[str, set[str]]:

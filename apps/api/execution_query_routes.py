@@ -8,6 +8,8 @@ from fastapi import APIRouter, Response
 
 from apps.api.models import (
     ArtifactCacheLookupRequest,
+    ArtifactCachePinReleaseRequest,
+    ArtifactCachePinRetainRequest,
     ArtifactGcPreviewRequest,
     ArtifactGcRunRequest,
     ResultPackageExportRequest,
@@ -28,10 +30,13 @@ from apps.api.execution_query_service import (
     get_run_results_from_request,
     get_run_rules_from_request,
     list_artifact_cache_entries_from_request,
+    list_artifact_cache_pins_from_request,
     list_results_from_request,
     list_runs_from_request,
     lookup_artifact_cache_from_request,
     preview_artifact_gc_from_request,
+    release_artifact_cache_pin_from_request,
+    retain_artifact_cache_pin_from_request,
     retry_run_from_request,
     run_artifact_gc_from_request,
 )
@@ -175,6 +180,37 @@ async def list_artifact_cache_entries(
         workflow_revision_id=workflowRevisionId,
         limit=limit,
     )
+
+
+@router.get("/api/v1/artifacts/cache/pins")
+async def list_artifact_cache_pins(
+    serverId: str | None = None,
+    cacheEntryId: str | None = None,
+    state: str | None = None,
+    limit: int = 100,
+) -> dict[str, Any]:
+    return await list_artifact_cache_pins_from_request(
+        server_id=serverId,
+        cache_entry_id=cacheEntryId,
+        state=state,
+        limit=limit,
+    )
+
+
+@router.post("/api/v1/artifacts/cache/entries/{cache_entry_id}/retain")
+async def retain_artifact_cache_pin(
+    cache_entry_id: str,
+    request: ArtifactCachePinRetainRequest,
+) -> dict[str, Any]:
+    return await retain_artifact_cache_pin_from_request(cache_entry_id, request)
+
+
+@router.post("/api/v1/artifacts/cache/pins/{cache_pin_id}/release")
+async def release_artifact_cache_pin(
+    cache_pin_id: str,
+    request: ArtifactCachePinReleaseRequest,
+) -> dict[str, Any]:
+    return await release_artifact_cache_pin_from_request(cache_pin_id, request)
 
 
 @router.post("/api/v1/artifacts/cache/lookup")

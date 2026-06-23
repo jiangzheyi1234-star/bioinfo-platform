@@ -5,6 +5,8 @@ from urllib.parse import quote
 
 from apps.api.models import (
     ArtifactCacheLookupRequest,
+    ArtifactCachePinReleaseRequest,
+    ArtifactCachePinRetainRequest,
     ArtifactGcPreviewRequest,
     ArtifactGcRunRequest,
     ResultPackageExportRequest,
@@ -234,6 +236,56 @@ async def list_artifact_cache_entries_from_request(
             server_id=server_id,
             workflow_revision_id=workflow_revision_id,
             limit=limit,
+        ),
+        wrapper="raw",
+    )
+
+
+async def list_artifact_cache_pins_from_request(
+    *,
+    server_id: str | None = None,
+    cache_entry_id: str | None = None,
+    state: str | None = None,
+    limit: int = 100,
+) -> dict[str, Any]:
+    return await run_runtime_payload(
+        lambda: runtime_service().list_artifact_cache_pins(
+            server_id=server_id,
+            cache_entry_id=cache_entry_id,
+            state=state,
+            limit=limit,
+        ),
+        wrapper="raw",
+    )
+
+
+async def retain_artifact_cache_pin_from_request(
+    cache_entry_id: str,
+    request: ArtifactCachePinRetainRequest,
+) -> dict[str, Any]:
+    payload = request_payload(request)
+    server_id = str(payload.pop("serverId", "") or "").strip() or None
+    return await run_runtime_payload(
+        lambda: runtime_service().retain_artifact_cache_pin(
+            cache_entry_id,
+            payload,
+            server_id=server_id,
+        ),
+        wrapper="raw",
+    )
+
+
+async def release_artifact_cache_pin_from_request(
+    cache_pin_id: str,
+    request: ArtifactCachePinReleaseRequest,
+) -> dict[str, Any]:
+    payload = request_payload(request)
+    server_id = str(payload.pop("serverId", "") or "").strip() or None
+    return await run_runtime_payload(
+        lambda: runtime_service().release_artifact_cache_pin(
+            cache_pin_id,
+            payload,
+            server_id=server_id,
         ),
         wrapper="raw",
     )
