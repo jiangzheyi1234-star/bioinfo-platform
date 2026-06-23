@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { Activity, ArrowLeft, Loader2 } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -117,7 +117,17 @@ export function WorkflowBackfillLaunchesPage() {
               </Link>
             </Button>
           }
-          actions={<span className="font-mono text-xs text-slate-400">{selectedLaunchId || "—"}</span>}
+          actions={
+            <div className="flex items-center gap-2">
+              <Button asChild variant="outline" className="h-9 bg-white px-3 text-slate-600">
+                <Link href="/workflows/results/triggers">
+                  <Activity strokeWidth={1.5} className="mr-2 h-4 w-4" />
+                  触发器事件
+                </Link>
+              </Button>
+              <span className="font-mono text-xs text-slate-400">{selectedLaunchId || "—"}</span>
+            </div>
+          }
         />
 
         {loading && launches.length === 0 && !error ? (

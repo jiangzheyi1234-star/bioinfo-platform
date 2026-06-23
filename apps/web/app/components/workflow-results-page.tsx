@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, CalendarClock, CheckCircle2, Clock, Loader2, RefreshCw, XCircle } from "lucide-react";
+import { Activity, ArrowRight, CalendarClock, CheckCircle2, Clock, Loader2, RefreshCw, XCircle } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import { fetchWorkflowBackfillLaunches } from "./workflow-backfill-api";
+import { fetchWorkflowTriggers } from "./workflow-trigger-api";
 import { fetchRunsList } from "./workflows-page-api";
 import { workflowErrorMessage, type WorkflowRun } from "./workflows-page-model";
 import { WorkflowPageHeader } from "./workflow-page-header";
@@ -77,6 +78,16 @@ export function WorkflowResultsPage() {
           title="运行记录"
           actions={
             <div className="flex items-center gap-2">
+              <Button asChild variant="outline" className="h-9 bg-white px-3 text-slate-600">
+                <Link
+                  href="/workflows/results/triggers"
+                  onFocus={() => void fetchWorkflowTriggers().catch(() => undefined)}
+                  onPointerEnter={() => void fetchWorkflowTriggers().catch(() => undefined)}
+                >
+                  <Activity strokeWidth={1.5} className="mr-2 h-4 w-4" />
+                  触发器事件
+                </Link>
+              </Button>
               <Button asChild variant="outline" className="h-9 bg-white px-3 text-slate-600">
                 <Link
                   href="/workflows/results/backfills"
