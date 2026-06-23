@@ -138,6 +138,46 @@ def test_artifact_gc_run_removes_managed_s3_object(tmp_path: Path, monkeypatch: 
     assert fetched["lifecycleState"] == "deleted"
 
 
+def test_artifact_gc_run_removes_managed_s3_directory_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = FakeS3Client()
+    monkeypatch.setattr("apps.remote_runner.artifact_io._build_s3_client", lambda _cfg: fake)
+    cfg = make_configured_remote_runner(tmp_path)
+    cfg.artifact_storage_backend = "s3"
+    cfg.artifact_s3_endpoint = "minio.local:9000"
+    cfg.artifact_s3_bucket = "h2ometa-artifacts"
+    cfg.artifact_s3_access_key = "access"
+    cfg.artifact_s3_secret_key = "secret"
+    cfg.artifact_s3_prefix = "tenant-a"
+    _create_run(cfg, "run_gc_s3_dir", status="failed")
+    artifact_dir = Path(cfg.results_dir) / "run_gc_s3_dir" / "directory-report"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    (artifact_dir / "report.txt").write_bytes(b"directory payload\n")
+    artifact = persist_artifact(
+        cfg,
+        run_id="run_gc_s3_dir",
+        kind="directory",
+        path=artifact_dir,
+        mime_type="inode/directory",
+        artifact_key="report",
+    )
+    bucket, object_name = _bucket_and_object(artifact["storageUri"])
+
+    result = run_artifact_gc(
+        cfg,
+        {
+            "retentionDays": 30,
+            "confirmation": ARTIFACT_GC_CONFIRMATION,
+            "eligibleRunStatuses": ["failed"],
+        },
+    )
+    fetched = fetch_run_results(cfg, "run_gc_s3_dir")["artifacts"][0]
+
+    assert result["deletedCount"] == 1
+    assert fake.removed == [(bucket, object_name)]
+    assert (bucket, object_name) not in fake.objects
+    assert fetched["lifecycleState"] == "deleted"
+
+
 def test_artifact_gc_preview_protects_unmanaged_local_paths(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     _create_run(cfg, "run_unmanaged", status="completed")

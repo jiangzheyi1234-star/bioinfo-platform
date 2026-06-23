@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .artifact_io import read_artifact_preview_text
+from .artifact_io import read_artifact_directory_preview, read_artifact_preview_text
 from .config import RemoteRunnerConfig
 from .errors import RemoteRunnerNotFoundError
 from .storage import fetch_result
@@ -39,6 +39,8 @@ def _select_preview_artifact(artifacts: list[dict[str, Any]], artifact_id: str |
 
 def _build_artifact_preview(cfg: RemoteRunnerConfig, artifact: dict[str, Any]) -> dict[str, Any]:
     mime_type = artifact["mimeType"]
+    if mime_type == "inode/directory":
+        return read_artifact_directory_preview(cfg, artifact, max_entries=MAX_PREVIEW_TABLE_ROWS)
     if mime_type == "text/tab-separated-values":
         raw, truncated = _read_preview_text(cfg, artifact)
         rows = raw.splitlines()

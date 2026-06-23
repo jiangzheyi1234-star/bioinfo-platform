@@ -286,10 +286,10 @@ Progress:
 - Local artifact adapter is the default path for files and directories.
 - File artifacts can now use the S3/MinIO-compatible adapter through the same persist, preview, checksum audit, export, materialization, evidence, and candidate adoption paths.
 - S3/MinIO artifact keys are content-addressed by SHA-256 and use stable `s3://bucket/key` URIs; access keys and secret keys are excluded from public config and evidence.
-- Directory artifacts on S3/MinIO fail loudly until a canonical multi-object manifest or package format preserves the existing directory checksum contract.
+- Directory artifacts on S3/MinIO now persist as a canonical H2OMeta BagIt-style directory package: the object key remains content-addressed by the logical directory SHA-256, the package records a deterministic manifest plus `data/` payload entries, S3 metadata stores package SHA/size, and preview, checksum audit, cache lookup, result export, and managed GC are package-aware.
 - Artifact lifecycle state is now explicit on artifact and materialization rows. `/api/v1/artifacts/lifecycle/usage` reports active/deleted bytes and optional quota overage, `/gc/preview` produces a protected deletion plan, and `/gc/run` requires the `delete-artifact-payloads` confirmation before deleting managed local files or managed S3/MinIO objects.
 - GC keeps metadata, lineage, and evidence append-only. It tombstones physical payload lifecycle state, writes `artifact.gc.v1` evidence, and records governance audit events.
-- Current GC protection covers non-terminal runs, active jobs/leases/attempts, pending candidate outputs, exported result packages, production-evidence runs, unmanaged local paths, unmanaged S3 prefixes, unsupported storage backends, and directory payloads.
+- Current GC protection covers non-terminal runs, active jobs/leases/attempts, pending candidate outputs, exported result packages, production-evidence runs, unmanaged local paths, unmanaged S3 prefixes, unsupported storage backends, and unsupported local directory payload deletion. Managed S3/MinIO directory packages are collected as normal managed objects.
 - Artifact cache indexing now records conservative exact cache keys for WorkflowRevision-backed artifacts. Keys include workflow revision, artifact key, role/step, content digests for upload-backed inputs, and digests of params, resource bindings, and execution options. `/api/v1/artifacts/cache/entries` lists entries, and `/cache/lookup` verifies the referenced object still exists and matches size/SHA-256 before returning a hit.
 - Artifact lineage now stamps `workflow_revision_id` for direct persist and candidate-adoption artifact publication, so cache and result audit surfaces can join a blob back to the immutable workflow contract.
 - Cache lookup is traceable through `artifact.cache.lookup.v1` evidence. After a successful dry-run, the worker can now adopt a full set of cache-hit output artifacts into the current attempt, write `artifact.cache.adopt.v1` evidence, mark rules as cache-hit succeeded, and skip the expensive Snakemake run. Per-rule partial restore, downstream file staging, cache pinning, and directory package restore semantics remain pending.
@@ -303,7 +303,7 @@ Recommended sequence:
 1. Introduce a storage adapter interface and keep local adapter behavior first.
 2. Extend result APIs to expose blob/materialization/edge/workflowRevision metadata.
 3. Add artifact download/preview through adapters instead of direct local path reads.
-4. Implement S3/MinIO-compatible adapter after local adapter tests pass. File artifact support is in place; directory manifest/package support remains pending.
+4. Implement S3/MinIO-compatible adapter after local adapter tests pass. File artifacts and managed directory package artifacts are in place; raw multi-object directory trees remain intentionally unsupported.
 5. Anchor lineage to WorkflowRevision and input artifact edges.
 6. Extend full-output cache adoption into per-rule restore only after per-rule cache eligibility, cache pinning, and downstream file staging/materialization are represented in run events.
 7. Extend lifecycle from manual usage/preview/run into a background TTL/quota controller once durable package and cache-pin policies are finalized.
@@ -312,6 +312,7 @@ Recommended sequence:
 Representative files:
 
 - `apps/remote_runner/artifact_storage.py`
+- `apps/remote_runner/artifact_directory_package.py`
 - `apps/remote_runner/artifact_ledger_storage.py`
 - `apps/remote_runner/candidate_output_storage.py`
 - `apps/remote_runner/execution_query_storage.py`

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import zipfile
@@ -8,7 +9,9 @@ from typing import Any
 
 import pytest
 
+from apps.remote_runner.artifact_cache_storage import lookup_artifact_cache_entry
 from apps.remote_runner.artifact_ledger_storage import list_artifact_materializations
+from apps.remote_runner.artifact_io import artifact_payload_stats
 from apps.remote_runner.artifact_product_service import build_result_artifact_audit, export_result_package
 from apps.remote_runner.candidate_output_storage import (
     adopt_verified_candidate_outputs,
@@ -152,7 +155,7 @@ def test_s3_metadata_only_result_package_does_not_fetch_payload(
     assert manifest["audit"]["verificationMode"] == "metadata-only"
 
 
-def test_s3_directory_artifact_fails_loudly_before_ledger_write(
+def test_s3_directory_artifact_round_trips_as_manifest_package(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -162,20 +165,64 @@ def test_s3_directory_artifact_fails_loudly_before_ledger_write(
     _create_run(cfg, "run_s3_dir")
     artifact_dir = tmp_path / "artifact-dir"
     artifact_dir.mkdir()
-    (artifact_dir / "report.txt").write_text("accepted\n", encoding="utf-8")
+    nested = artifact_dir / "nested"
+    nested.mkdir()
+    (nested / "report.txt").write_bytes(b"accepted\n")
+    expected_size, expected_sha = artifact_payload_stats(artifact_dir)
 
-    with pytest.raises(ValueError, match="ARTIFACT_S3_DIRECTORY_UNSUPPORTED"):
-        persist_artifact(
-            cfg,
-            run_id="run_s3_dir",
-            kind="report",
-            path=artifact_dir,
-            mime_type="text/plain",
-            artifact_key="report",
-        )
+    artifact = persist_artifact(
+        cfg,
+        run_id="run_s3_dir",
+        kind="report",
+        path=artifact_dir,
+        mime_type="inode/directory",
+        artifact_key="report",
+    )
+    bucket, object_name = _bucket_and_object(artifact["storageUri"])
+    package_payload = fake.objects[(bucket, object_name)]["payload"]
+    materialization = list_artifact_materializations(cfg, artifact["artifactBlobId"])[0]
+    preview = build_result_preview_data(cfg, "res_run_s3_dir", artifact["artifactId"])
+    audit = build_result_artifact_audit(cfg, "res_run_s3_dir")
+    workflow_revision_id = _workflow_revision_id(cfg, "run_s3_dir")
+    lookup = lookup_artifact_cache_entry(
+        cfg,
+        {
+            "workflowRevisionId": workflow_revision_id,
+            "artifactKey": "report",
+            "role": "output",
+            "inputs": [],
+            "params": {},
+            "resourceBindings": {},
+            "execution": {},
+        },
+    )
+    package = export_result_package(cfg, "res_run_s3_dir", include_artifacts=True)
 
-    assert fetch_run_results(cfg, "run_s3_dir")["artifacts"] == []
-    assert fake.objects == {}
+    assert artifact["storageBackend"] == "s3"
+    assert artifact["sizeBytes"] == expected_size
+    assert artifact["sha256"] == expected_sha
+    assert fake.objects[(bucket, object_name)]["contentType"] == "application/zip"
+    assert fake.objects[(bucket, object_name)]["metadata"]["X-Amz-Meta-H2OMeta-Package-Type"] == "h2ometa.directory-artifact-package.v1"
+    assert materialization["localPath"] is None
+    assert preview["preview"]["kind"] == "directory"
+    assert preview["preview"]["logicalSha256"] == expected_sha
+    assert {"path": "nested/report.txt", "kind": "file", "sizeBytes": 9, "sha256": hashlib.sha256(b"accepted\n").hexdigest()} in preview["preview"]["entries"]
+    assert audit["status"] == "passed"
+    assert audit["artifacts"][0]["checksumOk"] is True
+    assert lookup["hit"] is True
+    assert lookup["entry"]["sha256"] == expected_sha
+    with zipfile.ZipFile(io.BytesIO(package_payload)) as archive:
+        assert archive.read("bagit.txt") == b"BagIt-Version: 1.0\nTag-File-Character-Encoding: UTF-8\n"
+        manifest = json.loads(archive.read("h2ometa-directory-manifest.json").decode("utf-8"))
+    assert manifest["logicalSha256"] == expected_sha
+    with zipfile.ZipFile(package["packagePath"]) as archive:
+        payload = archive.read(f"artifacts/{artifact['artifactId']}/nested/report.txt")
+    assert payload == b"accepted\n"
+
+    fake.objects[(bucket, object_name)]["payload"] = b"not-a-valid-directory-package"
+    failed = build_result_artifact_audit(cfg, "res_run_s3_dir")
+    assert failed["status"] == "failed"
+    assert failed["artifacts"][0]["checksumOk"] is False
 
 
 def test_candidate_output_adoption_uses_s3_materialization(
@@ -349,3 +396,10 @@ def _bucket_and_object(storage_uri: str) -> tuple[str, str]:
     _, rest = storage_uri.split("s3://", 1)
     bucket, object_name = rest.split("/", 1)
     return bucket, object_name
+
+
+def _workflow_revision_id(cfg: RemoteRunnerConfig, run_id: str) -> str:
+    with get_connection(cfg) as connection:
+        row = connection.execute("SELECT workflow_revision_id FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+    assert row is not None
+    return str(row["workflow_revision_id"])

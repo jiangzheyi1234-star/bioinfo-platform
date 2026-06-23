@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 import hashlib
-from pathlib import PurePosixPath
-from pathlib import Path
+import tempfile
+from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import unquote, urlparse
 
+from .artifact_directory_package import (
+    DIRECTORY_PACKAGE_SCHEMA_VERSION,
+    create_directory_artifact_package,
+    directory_package_preview,
+    directory_package_stats,
+    iter_directory_package_payloads,
+)
 from .config import RemoteRunnerConfig
 
 
@@ -78,6 +85,9 @@ def read_artifact_preview_text(
 def iter_artifact_file_payloads(cfg: RemoteRunnerConfig, record: dict[str, Any]):
     storage_backend = str(record.get("storageBackend") or record.get("storage_backend") or "local")
     if storage_backend == "s3":
+        if _artifact_is_directory(record):
+            yield from iter_directory_package_payloads(read_artifact_bytes(cfg, record))
+            return
         yield _artifact_filename(record), read_artifact_bytes(cfg, record)
         return
     path = artifact_local_path(record)
@@ -107,12 +117,49 @@ def read_artifact_bytes(
     raise ValueError(f"ARTIFACT_STORAGE_BACKEND_UNSUPPORTED: {storage_backend}")
 
 
+def read_artifact_directory_preview(
+    cfg: RemoteRunnerConfig,
+    record: dict[str, Any],
+    *,
+    max_entries: int = 200,
+) -> dict[str, Any]:
+    storage_backend = str(record.get("storageBackend") or record.get("storage_backend") or "local")
+    if storage_backend == "s3":
+        return directory_package_preview(read_artifact_bytes(cfg, record), max_entries=max_entries)
+    path = artifact_local_path(record)
+    if not path.is_dir():
+        raise ValueError("ARTIFACT_DIRECTORY_PREVIEW_PATH_INVALID")
+    entries = []
+    for child in sorted(path.rglob("*"), key=lambda item: item.relative_to(path).as_posix()):
+        relative = child.relative_to(path).as_posix()
+        if child.is_dir():
+            entries.append({"path": relative, "kind": "directory", "sizeBytes": 0, "sha256": ""})
+        elif child.is_file():
+            size, sha256 = _file_payload_stats(child)
+            entries.append({"path": relative, "kind": "file", "sizeBytes": size, "sha256": sha256})
+    size_bytes, sha256 = artifact_payload_stats(path)
+    return {
+        "kind": "directory",
+        "packageProfile": "local-directory",
+        "schemaVersion": "h2ometa.local-directory-preview.v1",
+        "fileCount": sum(1 for item in entries if item["kind"] == "file"),
+        "directoryCount": sum(1 for item in entries if item["kind"] == "directory"),
+        "logicalSizeBytes": size_bytes,
+        "logicalSha256": sha256,
+        "entries": entries[:max_entries],
+        "truncated": len(entries) > max_entries,
+    }
+
+
 def artifact_record_stats(cfg: RemoteRunnerConfig, record: dict[str, Any]) -> tuple[int, str]:
     storage_backend = str(record.get("storageBackend") or record.get("storage_backend") or "local")
     if storage_backend == "local":
         return artifact_payload_stats(artifact_local_path(record))
     if storage_backend == "s3":
         payload = _read_s3_artifact_bytes(cfg, record)
+        if _artifact_is_directory(record) or _s3_object_is_directory_package(cfg, record):
+            _assert_s3_package_checksum(cfg, record, payload)
+            return directory_package_stats(payload)
         return len(payload), hashlib.sha256(payload).hexdigest()
     raise ValueError(f"ARTIFACT_STORAGE_BACKEND_UNSUPPORTED: {storage_backend}")
 
@@ -226,21 +273,80 @@ def _persist_s3_artifact(
     mime_type: str,
 ) -> dict[str, str]:
     artifact_path = Path(path)
+    package_info: dict[str, Any] = {}
+    upload_path = artifact_path
+    content_type = str(mime_type or "application/octet-stream")
+    if artifact_path.is_dir():
+        with tempfile.TemporaryDirectory(prefix="h2ometa-artifact-dir-") as temp_dir:
+            package_path = Path(temp_dir) / f"{artifact_id}.zip"
+            package_info = create_directory_artifact_package(
+                artifact_path,
+                package_path,
+                logical_sha256=sha256,
+                logical_size_bytes=size_bytes,
+            )
+            return _upload_s3_artifact_object(
+                cfg,
+                path=package_path,
+                bucket=_required_s3_value(cfg.artifact_s3_bucket, "ARTIFACT_S3_BUCKET_REQUIRED"),
+                object_name=_artifact_s3_object_name(cfg, sha256=sha256),
+                artifact_id=artifact_id,
+                run_id=run_id,
+                sha256=sha256,
+                size_bytes=size_bytes,
+                content_type="application/zip",
+                package_info=package_info,
+            )
     if not artifact_path.is_file():
-        raise ValueError("ARTIFACT_S3_DIRECTORY_UNSUPPORTED")
+        raise ValueError("OUTPUT_ARTIFACT_PATH_INVALID")
     bucket = _required_s3_value(cfg.artifact_s3_bucket, "ARTIFACT_S3_BUCKET_REQUIRED")
     object_name = _artifact_s3_object_name(cfg, sha256=sha256)
+    return _upload_s3_artifact_object(
+        cfg,
+        path=upload_path,
+        bucket=bucket,
+        object_name=object_name,
+        artifact_id=artifact_id,
+        run_id=run_id,
+        sha256=sha256,
+        size_bytes=size_bytes,
+        content_type=content_type,
+        package_info=package_info,
+    )
+
+
+def _upload_s3_artifact_object(
+    cfg: RemoteRunnerConfig,
+    *,
+    path: Path,
+    bucket: str,
+    object_name: str,
+    artifact_id: str,
+    run_id: str,
+    sha256: str,
+    size_bytes: int,
+    content_type: str,
+    package_info: dict[str, Any],
+) -> dict[str, str]:
     metadata = {
         "X-Amz-Meta-H2OMeta-Artifact-Id": str(artifact_id),
         "X-Amz-Meta-H2OMeta-Run-Id": str(run_id),
         "X-Amz-Meta-H2OMeta-Sha256": str(sha256),
         "X-Amz-Meta-H2OMeta-Size-Bytes": str(int(size_bytes)),
     }
+    if package_info:
+        metadata.update(
+            {
+                "X-Amz-Meta-H2OMeta-Package-Type": DIRECTORY_PACKAGE_SCHEMA_VERSION,
+                "X-Amz-Meta-H2OMeta-Package-Sha256": str(package_info["packageSha256"]),
+                "X-Amz-Meta-H2OMeta-Package-Size-Bytes": str(int(package_info["packageSizeBytes"])),
+            }
+        )
     _build_s3_client(cfg).fput_object(
         bucket,
         object_name,
-        str(artifact_path),
-        content_type=str(mime_type or "application/octet-stream"),
+        str(path),
+        content_type=content_type,
         metadata=metadata,
     )
     return {
@@ -338,6 +444,39 @@ def _artifact_filename(record: dict[str, Any]) -> str:
             return name
     _, object_name = _parse_s3_uri(record)
     return PurePosixPath(object_name).name or "artifact"
+
+
+def _artifact_is_directory(record: dict[str, Any]) -> bool:
+    mime_type = str(record.get("mimeType") or record.get("mime_type") or "").strip()
+    kind = str(record.get("kind") or "").strip().lower()
+    return mime_type == "inode/directory" or kind == "directory" or bool(record.get("directory"))
+
+
+def _assert_s3_package_checksum(cfg: RemoteRunnerConfig, record: dict[str, Any], payload: bytes) -> None:
+    expected = _s3_package_metadata(cfg, record).get("packageSha256", "")
+    if expected and hashlib.sha256(payload).hexdigest() != expected:
+        raise ValueError("ARTIFACT_S3_PACKAGE_SHA256_MISMATCH")
+
+
+def _s3_object_is_directory_package(cfg: RemoteRunnerConfig, record: dict[str, Any]) -> bool:
+    return _s3_package_metadata(cfg, record).get("packageType") == DIRECTORY_PACKAGE_SCHEMA_VERSION
+
+
+def _s3_package_metadata(cfg: RemoteRunnerConfig, record: dict[str, Any]) -> dict[str, str]:
+    bucket, object_name = _parse_s3_uri(record)
+    metadata = dict(getattr(_stat_s3_object(cfg, bucket, object_name), "metadata", {}) or {})
+    return {
+        "packageType": str(
+            metadata.get("X-Amz-Meta-H2OMeta-Package-Type")
+            or metadata.get("x-amz-meta-h2ometa-package-type")
+            or ""
+        ).strip(),
+        "packageSha256": str(
+            metadata.get("X-Amz-Meta-H2OMeta-Package-Sha256")
+            or metadata.get("x-amz-meta-h2ometa-package-sha256")
+            or ""
+        ).strip(),
+    }
 
 
 def _build_s3_client(cfg: RemoteRunnerConfig):
