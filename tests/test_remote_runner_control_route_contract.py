@@ -128,6 +128,7 @@ def test_remote_runner_control_plane_services_use_async_thread_boundary() -> Non
         "list_workflow_triggers_request",
         "submit_workflow_trigger_event_request",
         "submit_workflow_trigger_inbox_event_request",
+        "replay_workflow_trigger_inbox_event_request",
         "submit_workflow_trigger_readiness_event_request",
         "launch_workflow_trigger_backfill_request",
         "preview_workflow_trigger_backfill_request",
@@ -166,6 +167,8 @@ def test_workflow_trigger_routes_delegate_to_service() -> None:
     route_source = _source("apps/remote_runner/workflow_trigger_routes.py")
     control_source = _source("apps/remote_runner/control_service.py")
     service_source = _source("apps/remote_runner/trigger_service.py")
+    inbox_source = _source("apps/remote_runner/trigger_inbox_service.py")
+    replay_source = _source("apps/remote_runner/trigger_inbox_replay_service.py")
 
     assert "from .workflow_trigger_routes import router as workflow_trigger_router" in main_source
     assert "app.include_router(workflow_trigger_router)" in main_source
@@ -175,6 +178,7 @@ def test_workflow_trigger_routes_delegate_to_service() -> None:
     assert "return await create_workflow_trigger_request(" in route_source
     assert "return await submit_workflow_trigger_event_request(" in route_source
     assert "return await submit_workflow_trigger_inbox_event_request(" in route_source
+    assert "return await replay_workflow_trigger_inbox_event_request(" in route_source
     assert "return await list_workflow_trigger_inbox_events_request(" in route_source
     assert "return await submit_workflow_trigger_readiness_event_request(" in route_source
     assert "return await launch_workflow_trigger_backfill_request(" in route_source
@@ -188,6 +192,7 @@ def test_workflow_trigger_routes_delegate_to_service() -> None:
         "list_workflow_triggers_request",
         "submit_workflow_trigger_event_request",
         "submit_workflow_trigger_inbox_event_request",
+        "replay_workflow_trigger_inbox_event_request",
         "submit_workflow_trigger_readiness_event_request",
         "launch_workflow_trigger_backfill_request",
         "preview_workflow_trigger_backfill_request",
@@ -201,11 +206,12 @@ def test_workflow_trigger_routes_delegate_to_service() -> None:
 
     assert "def create_workflow_trigger_from_request(" in service_source
     assert "def list_workflow_backfill_launches_from_storage(" in service_source
-    assert "def list_workflow_trigger_inbox_events_from_storage(" in service_source
+    assert "def list_workflow_trigger_inbox_events_from_storage(" in inbox_source
     assert "def get_workflow_backfill_launch_from_storage(" in service_source
     assert "def cancel_workflow_backfill_launch_from_request(" in service_source
     assert "def submit_workflow_trigger_event_from_request(" in service_source
-    assert "def submit_workflow_trigger_inbox_event_from_request(" in service_source
+    assert "def submit_workflow_trigger_inbox_event_from_request(" in inbox_source
+    assert "def replay_workflow_trigger_inbox_event_from_request(" in replay_source
     assert "def submit_workflow_trigger_readiness_event_from_request(" in service_source
     assert "def launch_workflow_trigger_backfill_from_request(" in service_source
     assert "def preview_workflow_trigger_backfill_from_request(" in service_source

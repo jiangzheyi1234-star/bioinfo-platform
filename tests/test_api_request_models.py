@@ -22,6 +22,7 @@ from apps.api.models import (
     WorkflowTriggerCreateRequest,
     WorkflowTriggerEventRequest,
     WorkflowTriggerInboxEventRequest,
+    WorkflowTriggerInboxReplayRequest,
     WorkflowTriggerReadinessEventRequest,
 )
 
@@ -284,6 +285,31 @@ def test_workflow_trigger_inbox_event_request_is_strict_and_requires_event_ident
     errors = exc_info.value.errors()
     assert any(error["type"] == "missing" and error["loc"] == ("eventId",) for error in errors)
     assert any(error["type"] == "extra_forbidden" and error["loc"] == ("legacyPayload",) for error in errors)
+
+
+def test_workflow_trigger_inbox_replay_request_requires_confirmation() -> None:
+    request = WorkflowTriggerInboxReplayRequest.model_validate(
+        {
+            "confirmation": "replay-dead-lettered-inbox-event",
+            "actor": "operator",
+            "reason": "queue restored",
+        }
+    )
+
+    assert request.confirmation == "replay-dead-lettered-inbox-event"
+    assert request.actor == "operator"
+
+    with pytest.raises(ValidationError) as exc_info:
+        WorkflowTriggerInboxReplayRequest.model_validate(
+            {
+                "confirmation": "retry",
+                "force": True,
+            }
+        )
+
+    errors = exc_info.value.errors()
+    assert any(error["type"] == "literal_error" and error["loc"] == ("confirmation",) for error in errors)
+    assert any(error["type"] == "extra_forbidden" and error["loc"] == ("force",) for error in errors)
 
 
 def test_workflow_trigger_backfill_preview_request_is_strict_and_bounded() -> None:

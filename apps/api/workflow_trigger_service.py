@@ -10,6 +10,7 @@ from apps.api.models import (
     WorkflowTriggerCreateRequest,
     WorkflowTriggerEventRequest,
     WorkflowTriggerInboxEventRequest,
+    WorkflowTriggerInboxReplayRequest,
     WorkflowTriggerReadinessEventRequest,
 )
 from apps.api.response_cache import invalidate_response_cache
@@ -196,6 +197,33 @@ async def submit_workflow_trigger_inbox_event_from_request(
     )
 
 
+async def replay_workflow_trigger_inbox_event_from_request(
+    trigger_id: str,
+    inbox_event_id: str,
+    request: WorkflowTriggerInboxReplayRequest,
+    *,
+    server_id: str | None,
+) -> WorkflowTriggerDispatch:
+    result = await run_runtime_payload(
+        lambda: runtime_service().replay_workflow_trigger_inbox_event(
+            trigger_id,
+            inbox_event_id,
+            request_payload(request),
+            server_id=server_id,
+        ),
+        wrapper="raw",
+    )
+    await invalidate_response_cache("runs", prefixes=("workflow_trigger_events", "workflow_trigger_inbox"))
+    return WorkflowTriggerDispatch(
+        payload=result,
+        headers={
+            "Location": str(result["location"]),
+            "Retry-After": str(result["retryAfter"]),
+            "X-Request-Id": str(result["requestId"]),
+        },
+    )
+
+
 async def submit_workflow_trigger_readiness_event_from_request(
     trigger_id: str,
     request: WorkflowTriggerReadinessEventRequest,
@@ -283,6 +311,24 @@ async def submit_workflow_trigger_inbox_event_response_from_request(
 ) -> dict[str, Any]:
     dispatch = await submit_workflow_trigger_inbox_event_from_request(
         trigger_id,
+        request,
+        server_id=server_id,
+    )
+    response.headers.update(dispatch.headers)
+    return dispatch.payload
+
+
+async def replay_workflow_trigger_inbox_event_response_from_request(
+    trigger_id: str,
+    inbox_event_id: str,
+    request: WorkflowTriggerInboxReplayRequest,
+    response: ResponseWithHeaders,
+    *,
+    server_id: str | None,
+) -> dict[str, Any]:
+    dispatch = await replay_workflow_trigger_inbox_event_from_request(
+        trigger_id,
+        inbox_event_id,
         request,
         server_id=server_id,
     )

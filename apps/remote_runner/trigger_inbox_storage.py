@@ -35,7 +35,8 @@ def record_workflow_trigger_inbox_event(
     provider_event_id = _required_text(provider_event_id, "WORKFLOW_TRIGGER_INBOX_EVENT_ID_REQUIRED")
     dedupe_key = _required_text(dedupe_key, "WORKFLOW_TRIGGER_INBOX_DEDUPE_KEY_REQUIRED")
     payload_hash = _payload_hash(payload)
-    payload_size_bytes = len(_stable_json(payload).encode("utf-8"))
+    payload_json = _stable_json(payload)
+    payload_size_bytes = len(payload_json.encode("utf-8"))
     timestamp = now_iso()
     with get_connection(cfg) as connection:
         existing = connection.execute(
@@ -67,10 +68,10 @@ def record_workflow_trigger_inbox_event(
             INSERT INTO workflow_trigger_inbox_events (
                 inbox_event_id, trigger_id, source_type, source, event_type,
                 provider_event_id, correlation_id, cursor, dedupe_key, payload_hash,
-                payload_size_bytes, signature_state, state, delivery_count,
+                payload_json, payload_size_bytes, signature_state, state, delivery_count,
                 trigger_event_id, run_id, failure_code, error_json,
                 received_at, updated_at, dead_lettered_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 inbox_event_id,
@@ -83,6 +84,7 @@ def record_workflow_trigger_inbox_event(
                 str(cursor or ""),
                 dedupe_key,
                 payload_hash,
+                payload_json,
                 payload_size_bytes,
                 INBOX_SIGNATURE_STATE_UNSUPPORTED,
                 INBOX_STATE_ACCEPTED,
@@ -155,6 +157,26 @@ def mark_workflow_trigger_inbox_dead_lettered(
     )
 
 
+def mark_workflow_trigger_inbox_replay_failed(
+    cfg: RemoteRunnerConfig,
+    *,
+    inbox_event_id: str,
+    trigger_event_id: str,
+    failure_code: str,
+    error: dict[str, Any],
+) -> dict[str, Any]:
+    return _mark_inbox(
+        cfg,
+        inbox_event_id=inbox_event_id,
+        state=INBOX_STATE_DEAD_LETTERED,
+        trigger_event_id=trigger_event_id,
+        run_id=None,
+        failure_code=_required_text(failure_code, "WORKFLOW_TRIGGER_INBOX_FAILURE_CODE_REQUIRED"),
+        error=error,
+        dead_lettered=True,
+    )
+
+
 def fetch_workflow_trigger_inbox_event(
     cfg: RemoteRunnerConfig,
     inbox_event_id: str,
@@ -167,6 +189,25 @@ def fetch_workflow_trigger_inbox_event(
     if row is None:
         raise RemoteRunnerNotFoundError("WORKFLOW_TRIGGER_INBOX_EVENT_NOT_FOUND")
     return _inbox_row_to_dict(row)
+
+
+def fetch_workflow_trigger_inbox_payload(
+    cfg: RemoteRunnerConfig,
+    inbox_event_id: str,
+) -> dict[str, Any]:
+    with get_connection(cfg) as connection:
+        row = connection.execute(
+            "SELECT payload_hash, payload_json FROM workflow_trigger_inbox_events WHERE inbox_event_id = ?",
+            (_required_text(inbox_event_id, "WORKFLOW_TRIGGER_INBOX_EVENT_ID_REQUIRED"),),
+        ).fetchone()
+    if row is None:
+        raise RemoteRunnerNotFoundError("WORKFLOW_TRIGGER_INBOX_EVENT_NOT_FOUND")
+    payload = _loads_json(row["payload_json"], {})
+    if not isinstance(payload, dict):
+        raise ValueError("WORKFLOW_TRIGGER_INBOX_PAYLOAD_INVALID")
+    if _payload_hash(payload) != str(row["payload_hash"] or ""):
+        raise ValueError("WORKFLOW_TRIGGER_INBOX_PAYLOAD_HASH_MISMATCH")
+    return payload
 
 
 def list_workflow_trigger_inbox_events(
@@ -246,7 +287,11 @@ def _mark_inbox(
                 failure_code = ?,
                 error_json = ?,
                 updated_at = ?,
-                dead_lettered_at = CASE WHEN ? = 1 THEN ? ELSE dead_lettered_at END
+                dead_lettered_at = CASE
+                    WHEN ? = 1 THEN ?
+                    WHEN ? = 'submitted' THEN NULL
+                    ELSE dead_lettered_at
+                END
             WHERE inbox_event_id = ?
             """,
             (
@@ -258,6 +303,7 @@ def _mark_inbox(
                 timestamp,
                 1 if dead_lettered else 0,
                 timestamp,
+                state,
                 _required_text(inbox_event_id, "WORKFLOW_TRIGGER_INBOX_EVENT_ID_REQUIRED"),
             ),
         )

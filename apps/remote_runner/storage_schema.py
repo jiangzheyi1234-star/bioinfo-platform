@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS service_state (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
-
 CREATE TABLE IF NOT EXISTS uploads (
     upload_id TEXT PRIMARY KEY,
     filename TEXT NOT NULL,
@@ -16,7 +14,6 @@ CREATE TABLE IF NOT EXISTS uploads (
     mime_type TEXT NOT NULL,
     uploaded_at TEXT NOT NULL
 );
-
 CREATE TABLE IF NOT EXISTS runs (
     run_id TEXT PRIMARY KEY,
     server_id TEXT NOT NULL,
@@ -42,7 +39,6 @@ CREATE TABLE IF NOT EXISTS runs (
     trigger_cursor TEXT NOT NULL DEFAULT '',
     run_spec_json TEXT NOT NULL
 );
-
 CREATE TABLE IF NOT EXISTS run_events (
     event_id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL,
@@ -64,7 +60,6 @@ CREATE TABLE IF NOT EXISTS run_events (
     created_at TEXT NOT NULL,
     details_json TEXT
 );
-
 CREATE TABLE IF NOT EXISTS run_rules (
     run_rule_id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL,
@@ -87,10 +82,8 @@ CREATE TABLE IF NOT EXISTS run_rules (
     updated_at TEXT NOT NULL,
     UNIQUE(run_id, rule_name, attempt_id, lease_generation)
 );
-
 CREATE INDEX IF NOT EXISTS idx_run_rules_run_status
 ON run_rules(run_id, status, updated_at);
-
 CREATE TABLE IF NOT EXISTS run_rule_events (
     rule_event_id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL,
@@ -106,10 +99,8 @@ CREATE TABLE IF NOT EXISTS run_rule_events (
     created_at TEXT NOT NULL,
     details_json TEXT NOT NULL DEFAULT '{}'
 );
-
 CREATE INDEX IF NOT EXISTS idx_run_rule_events_run_rule
 ON run_rule_events(run_id, rule_name, created_at);
-
 CREATE TABLE IF NOT EXISTS run_commands (
     command_id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL,
@@ -120,7 +111,6 @@ CREATE TABLE IF NOT EXISTS run_commands (
     payload_hash TEXT NOT NULL,
     requested_at TEXT NOT NULL
 );
-
 CREATE INDEX IF NOT EXISTS idx_run_commands_run
 ON run_commands(run_id, requested_at);
 
@@ -173,6 +163,7 @@ CREATE TABLE IF NOT EXISTS workflow_trigger_inbox_events (
     cursor TEXT NOT NULL DEFAULT '',
     dedupe_key TEXT NOT NULL,
     payload_hash TEXT NOT NULL,
+    payload_json TEXT NOT NULL DEFAULT '{}',
     payload_size_bytes INTEGER NOT NULL DEFAULT 0,
     signature_state TEXT NOT NULL DEFAULT 'unsupported',
     state TEXT NOT NULL,

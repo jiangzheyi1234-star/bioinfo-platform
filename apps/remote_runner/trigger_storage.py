@@ -241,6 +241,23 @@ def fetch_workflow_trigger_event(cfg: RemoteRunnerConfig, trigger_event_id: str)
         return _event_with_dispatch(connection, row, created=False)
 
 
+def fetch_workflow_trigger_event_for_dedupe(
+    cfg: RemoteRunnerConfig,
+    *,
+    trigger_id: str,
+    idempotency_key: str,
+    external_event_id: str,
+) -> dict[str, Any] | None:
+    with get_connection(cfg) as connection:
+        row = _existing_event_for_dedupe(
+            connection,
+            trigger_id=_required_text(trigger_id, "TRIGGER_ID_REQUIRED"),
+            idempotency_key=_required_text(idempotency_key, "TRIGGER_EVENT_IDEMPOTENCY_KEY_REQUIRED"),
+            external_event_id=str(external_event_id or ""),
+        )
+        return _event_with_dispatch(connection, row, created=False) if row is not None else None
+
+
 def list_workflow_trigger_events(cfg: RemoteRunnerConfig, trigger_id: str) -> dict[str, Any]:
     with get_connection(cfg) as connection:
         rows = connection.execute(

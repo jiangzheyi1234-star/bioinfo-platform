@@ -16,6 +16,7 @@ from .api_models import (
     WorkflowTriggerCreateRequest,
     WorkflowTriggerEventRequest,
     WorkflowTriggerInboxEventRequest,
+    WorkflowTriggerInboxReplayRequest,
     WorkflowTriggerReadinessEventRequest,
 )
 from .config import RemoteRunnerConfig, dump_public_config
@@ -53,14 +54,17 @@ from .trigger_service import (
     get_workflow_backfill_launch_from_storage,
     list_workflow_backfill_launches_from_storage,
     list_workflow_trigger_events_from_storage,
-    list_workflow_trigger_inbox_events_from_storage,
     list_workflow_triggers_from_storage,
     launch_workflow_trigger_backfill_from_request,
     preview_workflow_trigger_backfill_from_request,
     submit_workflow_trigger_event_from_request,
-    submit_workflow_trigger_inbox_event_from_request,
     submit_workflow_trigger_readiness_event_from_request,
 )
+from .trigger_inbox_service import (
+    list_workflow_trigger_inbox_events_from_storage,
+    submit_workflow_trigger_inbox_event_from_request,
+)
+from .trigger_inbox_replay_service import replay_workflow_trigger_inbox_event_from_request
 from .upload_service import persist_upload_from_request
 
 
@@ -182,6 +186,22 @@ async def submit_workflow_trigger_inbox_event_request(
 ) -> dict[str, Any]:
     cfg = await _authorized_config_from_request(authorization, action="workflow_trigger.dispatch")
     return await run_sync(submit_workflow_trigger_inbox_event_from_request, cfg, trigger_id, payload)
+
+
+async def replay_workflow_trigger_inbox_event_request(
+    trigger_id: str,
+    inbox_event_id: str,
+    payload: WorkflowTriggerInboxReplayRequest,
+    authorization: str | None,
+) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization, action="workflow_trigger.dispatch")
+    return await run_sync(
+        replay_workflow_trigger_inbox_event_from_request,
+        cfg,
+        trigger_id,
+        inbox_event_id,
+        payload,
+    )
 
 
 async def submit_workflow_trigger_readiness_event_request(

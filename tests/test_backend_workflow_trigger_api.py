@@ -11,6 +11,7 @@ from apps.api.models import (
     WorkflowTriggerCreateRequest,
     WorkflowTriggerEventRequest,
     WorkflowTriggerInboxEventRequest,
+    WorkflowTriggerInboxReplayRequest,
     WorkflowTriggerReadinessEventRequest,
 )
 from apps.api.response_cache import invalidate_response_cache
@@ -24,6 +25,7 @@ from apps.api.workflow_trigger_routes import (
     list_workflow_trigger_inbox_events,
     list_workflow_triggers,
     preview_workflow_trigger_backfill,
+    replay_workflow_trigger_inbox_event,
     submit_workflow_trigger_event,
     submit_workflow_trigger_inbox_event,
     submit_workflow_trigger_readiness_event,
@@ -78,6 +80,20 @@ def test_workflow_trigger_routes_preserve_runtime_wrappers_and_submit_headers(mo
                 payload={"dataset": "reads.fastq"},
             ),
             inbox_response,
+            serverId="srv_primary",
+        )
+    )
+    inbox_replay_response = Response()
+    inbox_replayed = asyncio.run(
+        replay_workflow_trigger_inbox_event(
+            "wtr_demo",
+            "wti_demo",
+            WorkflowTriggerInboxReplayRequest(
+                confirmation="replay-dead-lettered-inbox-event",
+                actor="operator",
+                reason="queue restored",
+            ),
+            inbox_replay_response,
             serverId="srv_primary",
         )
     )
@@ -177,6 +193,10 @@ def test_workflow_trigger_routes_preserve_runtime_wrappers_and_submit_headers(mo
     assert inbox_response.headers["Location"] == "/api/v1/runs/run_inbox_demo"
     assert inbox_response.headers["Retry-After"] == "2"
     assert inbox_response.headers["X-Request-Id"] == "req_wte_inbox"
+    assert inbox_replayed["data"]["run"]["runId"] == "run_inbox_replay"
+    assert inbox_replay_response.headers["Location"] == "/api/v1/runs/run_inbox_replay"
+    assert inbox_replay_response.headers["Retry-After"] == "2"
+    assert inbox_replay_response.headers["X-Request-Id"] == "req_wte_inbox_replay"
     assert readiness_submitted["data"]["run"]["runId"] == "run_readiness_demo"
     assert readiness_response.headers["Location"] == "/api/v1/runs/run_readiness_demo"
     assert readiness_response.headers["Retry-After"] == "2"
@@ -296,6 +316,26 @@ class FakeTriggerRuntime:
             "location": "/api/v1/runs/run_inbox_demo",
             "retryAfter": 2,
             "requestId": "req_wte_inbox",
+        }
+
+    def replay_workflow_trigger_inbox_event(self, trigger_id, inbox_event_id, payload, *, server_id=None):
+        assert trigger_id == "wtr_demo"
+        assert inbox_event_id == "wti_demo"
+        assert payload == {
+            "confirmation": "replay-dead-lettered-inbox-event",
+            "actor": "operator",
+            "reason": "queue restored",
+        }
+        assert server_id == "srv_primary"
+        return {
+            "data": {
+                "event": {"triggerEventId": "wte_inbox"},
+                "run": {"runId": "run_inbox_replay"},
+                "replayed": False,
+            },
+            "location": "/api/v1/runs/run_inbox_replay",
+            "retryAfter": 2,
+            "requestId": "req_wte_inbox_replay",
         }
 
     def submit_workflow_trigger_readiness_event(self, trigger_id, payload, *, server_id=None):

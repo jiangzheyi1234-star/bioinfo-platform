@@ -11,6 +11,7 @@ from .api_models import (
     WorkflowTriggerCreateRequest,
     WorkflowTriggerEventRequest,
     WorkflowTriggerInboxEventRequest,
+    WorkflowTriggerInboxReplayRequest,
     WorkflowTriggerReadinessEventRequest,
 )
 from .control_service import (
@@ -23,6 +24,7 @@ from .control_service import (
     list_workflow_triggers_request,
     launch_workflow_trigger_backfill_request,
     preview_workflow_trigger_backfill_request,
+    replay_workflow_trigger_inbox_event_request,
     submit_workflow_trigger_event_request,
     submit_workflow_trigger_inbox_event_request,
     submit_workflow_trigger_readiness_event_request,
@@ -115,6 +117,21 @@ async def submit_workflow_trigger_inbox_event(
     authorization: AuthorizationHeader = None,
 ) -> dict[str, Any]:
     return await submit_workflow_trigger_inbox_event_request(trigger_id, payload, authorization)
+
+
+@router.post("/api/v1/workflow-triggers/{trigger_id}/inbox/{inbox_event_id}/replay", status_code=202)
+async def replay_workflow_trigger_inbox_event(
+    trigger_id: str,
+    inbox_event_id: str,
+    payload: WorkflowTriggerInboxReplayRequest,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await replay_workflow_trigger_inbox_event_request(
+        trigger_id,
+        inbox_event_id,
+        payload,
+        authorization,
+    )
 
 
 @router.post("/api/v1/workflow-triggers/{trigger_id}/readiness", status_code=202)

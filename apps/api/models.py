@@ -141,6 +141,12 @@ class WorkflowTriggerInboxEventRequest(ApiRequest):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class WorkflowTriggerInboxReplayRequest(ApiRequest):
+    confirmation: Literal["replay-dead-lettered-inbox-event"]
+    actor: str | None = None
+    reason: str | None = None
+
+
 class WorkflowTriggerReadinessEventRequest(ApiRequest):
     source: str = Field(min_length=1)
     eventId: str = Field(min_length=1)

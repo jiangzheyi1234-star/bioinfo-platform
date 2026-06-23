@@ -22,6 +22,8 @@ def test_remote_runner_trigger_client_and_proxy_keep_response_shapes() -> None:
     assert 'return self.post_json(f"/api/v1/workflow-triggers/{trigger_id}/events", payload)' in client_source
     assert "def submit_workflow_trigger_inbox_event(self, trigger_id: str, payload: dict[str, Any])" in client_source
     assert 'return self.post_json(f"/api/v1/workflow-triggers/{trigger_id}/inbox", payload)' in client_source
+    assert "def replay_workflow_trigger_inbox_event(" in client_source
+    assert 'f"/api/v1/workflow-triggers/{trigger_id}/inbox/{inbox_event_id}/replay"' in client_source
     assert "def submit_workflow_trigger_readiness_event(self, trigger_id: str, payload: dict[str, Any])" in client_source
     assert 'return self.post_json(f"/api/v1/workflow-triggers/{trigger_id}/readiness", payload)' in client_source
     assert "def preview_workflow_trigger_backfill(self, trigger_id: str, payload: dict[str, Any])" in client_source
@@ -42,6 +44,7 @@ def test_remote_runner_trigger_client_and_proxy_keep_response_shapes() -> None:
     assert "def create_workflow_trigger(self, **kwargs) -> dict[str, Any]:" in proxy_source
     assert "def submit_workflow_trigger_event(self, **kwargs) -> dict[str, Any]:" in proxy_source
     assert "def submit_workflow_trigger_inbox_event(self, **kwargs) -> dict[str, Any]:" in proxy_source
+    assert "def replay_workflow_trigger_inbox_event(self, **kwargs) -> dict[str, Any]:" in proxy_source
     assert "def submit_workflow_trigger_readiness_event(self, **kwargs) -> dict[str, Any]:" in proxy_source
     assert "def preview_workflow_trigger_backfill(self, **kwargs) -> dict[str, Any]:" in proxy_source
     assert "def launch_workflow_trigger_backfill(self, **kwargs) -> dict[str, Any]:" in proxy_source
@@ -54,6 +57,7 @@ def test_remote_runner_trigger_client_and_proxy_keep_response_shapes() -> None:
     assert 'client.post_json("/api/v1/workflow-triggers", kwargs["payload"])["data"]' in proxy_source
     assert 'client.post_json(\n            f"/api/v1/workflow-triggers/{kwargs[\'trigger_id\']}/events"' in proxy_source
     assert 'client.post_json(\n            f"/api/v1/workflow-triggers/{kwargs[\'trigger_id\']}/inbox"' in proxy_source
+    assert 'f"/api/v1/workflow-triggers/{kwargs[\'trigger_id\']}/inbox/{kwargs[\'inbox_event_id\']}/replay"' in proxy_source
     assert 'client.post_json(\n            f"/api/v1/workflow-triggers/{kwargs[\'trigger_id\']}/readiness"' in proxy_source
     assert 'client.post_json(\n            f"/api/v1/workflow-triggers/{kwargs[\'trigger_id\']}/backfill/preview"' in proxy_source
     assert 'client.post_json(\n            f"/api/v1/workflow-triggers/{kwargs[\'trigger_id\']}/backfill/launch"' in proxy_source

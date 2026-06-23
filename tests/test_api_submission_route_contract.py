@@ -132,6 +132,7 @@ def test_workflow_trigger_routes_delegate_runtime_calls_to_service() -> None:
     assert "preview_workflow_trigger_backfill_from_request" in route_source
     assert "submit_workflow_trigger_event_response_from_request" in route_source
     assert "submit_workflow_trigger_inbox_event_response_from_request" in route_source
+    assert "replay_workflow_trigger_inbox_event_response_from_request" in route_source
     assert "submit_workflow_trigger_readiness_event_response_from_request" in route_source
 
     for name in (
@@ -148,6 +149,8 @@ def test_workflow_trigger_routes_delegate_runtime_calls_to_service() -> None:
         "submit_workflow_trigger_event_response_from_request",
         "submit_workflow_trigger_inbox_event_from_request",
         "submit_workflow_trigger_inbox_event_response_from_request",
+        "replay_workflow_trigger_inbox_event_from_request",
+        "replay_workflow_trigger_inbox_event_response_from_request",
         "submit_workflow_trigger_readiness_event_from_request",
         "submit_workflow_trigger_readiness_event_response_from_request",
     ):
@@ -161,8 +164,10 @@ def test_workflow_trigger_routes_delegate_runtime_calls_to_service() -> None:
     assert "runtime_service().preview_workflow_trigger_backfill(" in service_source
     assert "runtime_service().submit_workflow_trigger_event(" in service_source
     assert "runtime_service().submit_workflow_trigger_inbox_event(" in service_source
+    assert "runtime_service().replay_workflow_trigger_inbox_event(" in service_source
     assert "runtime_service().list_workflow_trigger_inbox_events(" in service_source
     assert "runtime_service().submit_workflow_trigger_readiness_event(" in service_source
+    assert 'prefixes=("workflow_trigger_events", "workflow_trigger_inbox")' in service_source
     assert 'prefixes=("workflow_trigger_events", "workflow_backfill_launches", "workflow_backfill_launch")' in service_source
 
 

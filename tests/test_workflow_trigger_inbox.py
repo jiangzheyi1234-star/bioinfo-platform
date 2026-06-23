@@ -2,13 +2,18 @@ from __future__ import annotations
 
 import pytest
 
-from apps.remote_runner.api_models import WorkflowTriggerCreateRequest, WorkflowTriggerInboxEventRequest
+from apps.remote_runner.api_models import (
+    WorkflowTriggerCreateRequest,
+    WorkflowTriggerInboxEventRequest,
+    WorkflowTriggerInboxReplayRequest,
+)
 from apps.remote_runner.governance_audit import list_governance_audit_events
-from apps.remote_runner.trigger_service import (
-    create_workflow_trigger_from_request,
+from apps.remote_runner.trigger_inbox_service import (
     list_workflow_trigger_inbox_events_from_storage,
     submit_workflow_trigger_inbox_event_from_request,
 )
+from apps.remote_runner.trigger_inbox_replay_service import replay_workflow_trigger_inbox_event_from_request
+from apps.remote_runner.trigger_service import create_workflow_trigger_from_request
 from apps.remote_runner.trigger_storage import list_workflow_trigger_events
 from apps.remote_runner.storage_core import get_connection
 from tests.helpers.reference_database import make_configured_remote_runner
@@ -114,6 +119,208 @@ def test_webhook_inbox_dead_letters_dispatch_failure(tmp_path, monkeypatch: pyte
     assert inbox["deadLetteredAt"]
     trigger_events = list_workflow_trigger_events(cfg, trigger["triggerId"])["items"]
     assert trigger_events[0]["dispatch"]["state"] == "failed"
+
+
+def test_webhook_inbox_replay_resubmits_dead_lettered_dispatch(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    closed = {"value": True}
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+
+    def admission(_cfg) -> None:
+        if closed["value"]:
+            raise ValueError("QUEUE_CLOSED")
+
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_execution_admission_ready", admission)
+    trigger = _create_trigger(cfg, source_type="webhook", trigger_spec={"provider": "instrument-qc"})
+    request = WorkflowTriggerInboxEventRequest(
+        eventType="dataset.ready",
+        source="instrument-qc",
+        eventId="evt_replay",
+        actor="instrument-agent",
+        payload={"dataset": "reads.fastq"},
+    )
+
+    with pytest.raises(ValueError, match="QUEUE_CLOSED"):
+        submit_workflow_trigger_inbox_event_from_request(cfg, trigger["triggerId"], request)
+    inbox = list_workflow_trigger_inbox_events_from_storage(
+        cfg,
+        trigger["triggerId"],
+        state="dead_lettered",
+    )["data"]["items"][0]
+    trigger_event_id = inbox["triggerEventId"]
+
+    closed["value"] = False
+    replayed = replay_workflow_trigger_inbox_event_from_request(
+        cfg,
+        trigger["triggerId"],
+        inbox["inboxEventId"],
+        WorkflowTriggerInboxReplayRequest(
+            confirmation="replay-dead-lettered-inbox-event",
+            actor="operator",
+            reason="queue restored",
+        ),
+    )
+    updated = list_workflow_trigger_inbox_events_from_storage(
+        cfg,
+        trigger["triggerId"],
+        state="submitted",
+    )["data"]["items"][0]
+    trigger_events = list_workflow_trigger_events(cfg, trigger["triggerId"])["items"]
+    replay_audit = list_governance_audit_events(cfg, action="workflow_trigger.inbox_replay")["items"]
+
+    assert replayed["data"]["schemaVersion"] == "workflow-trigger-inbox-replay.v1"
+    assert replayed["data"]["inbox"]["state"] == "submitted"
+    assert updated["inboxEventId"] == inbox["inboxEventId"]
+    assert updated["triggerEventId"] == trigger_event_id
+    assert updated["runId"] == replayed["data"]["run"]["runId"]
+    assert updated["failureCode"] == ""
+    assert updated["deadLetteredAt"] is None
+    assert len(trigger_events) == 1
+    assert trigger_events[0]["triggerEventId"] == trigger_event_id
+    assert trigger_events[0]["dispatch"]["state"] == "submitted"
+    assert replay_audit[0]["details"]["reason"] == "queue restored"
+
+
+def test_webhook_inbox_replay_requires_confirmation_without_changing_state(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+    monkeypatch.setattr(
+        "apps.remote_runner.trigger_service.ensure_execution_admission_ready",
+        lambda _cfg: (_ for _ in ()).throw(ValueError("QUEUE_CLOSED")),
+    )
+    trigger = _create_trigger(cfg, source_type="webhook", trigger_spec={"provider": "instrument-qc"})
+
+    with pytest.raises(ValueError, match="QUEUE_CLOSED"):
+        submit_workflow_trigger_inbox_event_from_request(
+            cfg,
+            trigger["triggerId"],
+            WorkflowTriggerInboxEventRequest(source="instrument-qc", eventId="evt_confirmation"),
+        )
+    inbox = list_workflow_trigger_inbox_events_from_storage(
+        cfg,
+        trigger["triggerId"],
+        state="dead_lettered",
+    )["data"]["items"][0]
+
+    with pytest.raises(ValueError, match="WORKFLOW_TRIGGER_INBOX_REPLAY_CONFIRMATION_REQUIRED"):
+        replay_workflow_trigger_inbox_event_from_request(
+            cfg,
+            trigger["triggerId"],
+            inbox["inboxEventId"],
+            WorkflowTriggerInboxReplayRequest.model_construct(confirmation="wrong"),
+        )
+
+    unchanged = list_workflow_trigger_inbox_events_from_storage(
+        cfg,
+        trigger["triggerId"],
+        state="dead_lettered",
+    )["data"]["items"][0]
+    assert unchanged["inboxEventId"] == inbox["inboxEventId"]
+    assert unchanged["state"] == "dead_lettered"
+
+
+def test_webhook_inbox_replay_rejects_submitted_state(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_execution_admission_ready", lambda _cfg: None)
+    trigger = _create_trigger(cfg, source_type="webhook", trigger_spec={"provider": "instrument-qc"})
+    submitted = submit_workflow_trigger_inbox_event_from_request(
+        cfg,
+        trigger["triggerId"],
+        WorkflowTriggerInboxEventRequest(source="instrument-qc", eventId="evt_submitted"),
+    )
+
+    with pytest.raises(ValueError, match="WORKFLOW_TRIGGER_INBOX_REPLAY_STATE_UNSUPPORTED: submitted"):
+        replay_workflow_trigger_inbox_event_from_request(
+            cfg,
+            trigger["triggerId"],
+            submitted["data"]["inbox"]["inboxEventId"],
+            WorkflowTriggerInboxReplayRequest(confirmation="replay-dead-lettered-inbox-event"),
+        )
+
+    inbox = list_workflow_trigger_inbox_events_from_storage(cfg, trigger["triggerId"])["data"]["items"][0]
+    assert inbox["state"] == "submitted"
+
+
+def test_webhook_inbox_replay_fails_loudly_without_trigger_event(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+    trigger = _create_trigger(cfg, source_type="webhook", trigger_spec={"provider": "instrument-qc"})
+    monkeypatch.setattr(
+        "apps.remote_runner.trigger_service.ensure_submission_ready",
+        lambda _cfg: (_ for _ in ()).throw(ValueError("SUBMISSION_CLOSED")),
+    )
+
+    with pytest.raises(ValueError, match="SUBMISSION_CLOSED"):
+        submit_workflow_trigger_inbox_event_from_request(
+            cfg,
+            trigger["triggerId"],
+            WorkflowTriggerInboxEventRequest(source="instrument-qc", eventId="evt_missing"),
+        )
+    inbox = list_workflow_trigger_inbox_events_from_storage(
+        cfg,
+        trigger["triggerId"],
+        state="dead_lettered",
+    )["data"]["items"][0]
+
+    with pytest.raises(ValueError, match="WORKFLOW_TRIGGER_INBOX_REPLAY_EVENT_NOT_FOUND"):
+        replay_workflow_trigger_inbox_event_from_request(
+            cfg,
+            trigger["triggerId"],
+            inbox["inboxEventId"],
+            WorkflowTriggerInboxReplayRequest(confirmation="replay-dead-lettered-inbox-event"),
+        )
+
+    assert inbox["triggerEventId"] is None
+    assert list_workflow_trigger_events(cfg, trigger["triggerId"])["items"] == []
+
+
+def test_webhook_inbox_replay_failure_keeps_dead_letter_state(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    queue_state = {"message": "QUEUE_CLOSED"}
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+    monkeypatch.setattr(
+        "apps.remote_runner.trigger_service.ensure_execution_admission_ready",
+        lambda _cfg: (_ for _ in ()).throw(ValueError(queue_state["message"])),
+    )
+    trigger = _create_trigger(cfg, source_type="webhook", trigger_spec={"provider": "instrument-qc"})
+
+    with pytest.raises(ValueError, match="QUEUE_CLOSED"):
+        submit_workflow_trigger_inbox_event_from_request(
+            cfg,
+            trigger["triggerId"],
+            WorkflowTriggerInboxEventRequest(source="instrument-qc", eventId="evt_still_closed"),
+        )
+    inbox = list_workflow_trigger_inbox_events_from_storage(
+        cfg,
+        trigger["triggerId"],
+        state="dead_lettered",
+    )["data"]["items"][0]
+
+    queue_state["message"] = "QUEUE_STILL_CLOSED"
+    with pytest.raises(ValueError, match="QUEUE_STILL_CLOSED"):
+        replay_workflow_trigger_inbox_event_from_request(
+            cfg,
+            trigger["triggerId"],
+            inbox["inboxEventId"],
+            WorkflowTriggerInboxReplayRequest(confirmation="replay-dead-lettered-inbox-event"),
+        )
+
+    failed = list_workflow_trigger_inbox_events_from_storage(
+        cfg,
+        trigger["triggerId"],
+        state="dead_lettered",
+    )["data"]["items"][0]
+    assert failed["state"] == "dead_lettered"
+    assert failed["triggerEventId"] == inbox["triggerEventId"]
+    assert failed["failureCode"] == "WORKFLOW_TRIGGER_INBOX_REPLAY_FAILED"
+    assert failed["error"]["message"] == "QUEUE_STILL_CLOSED"
 
 
 def test_webhook_inbox_rejects_non_webhook_without_inbox_row(

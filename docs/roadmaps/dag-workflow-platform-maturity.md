@@ -247,6 +247,7 @@ Progress:
 - The trigger/event observability read model and web UI now expose each submitted dispatch's linked run status, stage, and last update time next to the run link, while keeping dispatch state separate from run lifecycle state and still omitting raw payloads, runSpec JSON, create/enable/disable/pause/resume/replay/catchup/concurrency controls, and other unsupported scheduler operations.
 - Backfill launch cancellation now has an explicit confirmation-gated control path. It requests cancellation for non-terminal partition runs through the existing fenced run cancel command, records run-level and backfill-level governance audit evidence, marks the launch as `canceling` and affected partitions as `cancel_requested`, and keeps replay/dead-letter/partial retry/concurrency-controller operations unsupported until their contracts are explicit.
 - Webhook inbox submission now records provider-neutral inbound deliveries in a durable `workflow_trigger_inbox_events` table before dispatch, using `triggerId + source + eventId` dedupe, payload hashes, delivery counts, explicit `unsupported` signature state, linked trigger event/run ids, and `dead_lettered` failure state. The route still reuses the existing trigger event/dispatch path for run creation instead of creating a parallel scheduler.
+- Dead-lettered webhook inbox deliveries now have a confirmation-gated backend replay path. Replay reconstructs the original inbound request from the stored inbox payload, requires the same trigger/event identity, re-dispatches the existing trigger event, repairs submitted inbox rows without creating duplicate runs, and records governance audit evidence.
 
 Recommended sequence:
 
@@ -257,7 +258,7 @@ Recommended sequence:
 5. Stamp triggered runs with `triggerId`, `triggerEventId`, `source`, and `cursor`.
 6. Keep dataset/file/database-ready watcher polling deferred until Phase 5 has stable artifact identity, lineage anchoring, and cache keys; accept explicit push readiness events first.
 7. Extend backfill launch from durable one-run-per-partition submission into per-backfill cancellation, replay/dead-letter UI, existing-run policy controls, and a hard backfill-specific concurrency controller.
-8. Add provider signature adapters, event matching rules, replay/dead-letter UI, and rate-limit/retry policy after the provider-neutral inbox table proves stable.
+8. Add provider signature adapters, event matching rules, replay/dead-letter UI, bulk replay controls, and rate-limit/retry policy after the provider-neutral inbox table proves stable.
 
 Representative files:
 

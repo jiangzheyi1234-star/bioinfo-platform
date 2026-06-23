@@ -14,13 +14,13 @@ from apps.remote_runner.errors import IdempotencyKeyReusedError
 from apps.remote_runner.execution_query_storage import fetch_run, list_runs
 from apps.remote_runner.governance_audit import list_governance_audit_events
 from apps.remote_runner.trigger_scheduler import run_workflow_trigger_scheduler_once
+from apps.remote_runner.trigger_inbox_service import submit_workflow_trigger_inbox_event_from_request
 from apps.remote_runner.trigger_service import (
     create_workflow_trigger_from_request,
     launch_workflow_trigger_backfill_from_request,
     list_workflow_trigger_events_from_storage,
     preview_workflow_trigger_backfill_from_request,
     submit_workflow_trigger_event_from_request,
-    submit_workflow_trigger_inbox_event_from_request,
     submit_workflow_trigger_readiness_event_from_request,
 )
 from tests.helpers.reference_database import make_configured_remote_runner

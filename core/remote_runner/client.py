@@ -188,6 +188,14 @@ class RemoteRunnerHttpClient:
     def submit_workflow_trigger_inbox_event(self, trigger_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self.post_json(f"/api/v1/workflow-triggers/{trigger_id}/inbox", payload)
 
+    def replay_workflow_trigger_inbox_event(
+        self,
+        trigger_id: str,
+        inbox_event_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self.post_json(f"/api/v1/workflow-triggers/{trigger_id}/inbox/{inbox_event_id}/replay", payload)
+
     def submit_workflow_trigger_readiness_event(self, trigger_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self.post_json(f"/api/v1/workflow-triggers/{trigger_id}/readiness", payload)
 
