@@ -168,6 +168,24 @@ class ExecutionManager(BaseRuntimeManager):
             )
         }
 
+    def list_workflow_trigger_inbox_events(
+        self,
+        trigger_id: str,
+        *,
+        server_id: Optional[str] = None,
+        state: Optional[str] = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        return {
+            "data": self.call_runner(
+                "list_workflow_trigger_inbox_events",
+                preferred_server_id=server_id,
+                trigger_id=trigger_id,
+                state=state,
+                limit=limit,
+            )
+        }
+
     def list_workflow_backfill_launches(
         self,
         *,

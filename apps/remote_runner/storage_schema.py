@@ -162,6 +162,40 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_trigger_events_external
 ON workflow_trigger_events(trigger_id, source_type, external_event_id)
 WHERE external_event_id <> '';
 
+CREATE TABLE IF NOT EXISTS workflow_trigger_inbox_events (
+    inbox_event_id TEXT PRIMARY KEY,
+    trigger_id TEXT NOT NULL,
+    source_type TEXT NOT NULL DEFAULT 'webhook',
+    source TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    provider_event_id TEXT NOT NULL,
+    correlation_id TEXT NOT NULL DEFAULT '',
+    cursor TEXT NOT NULL DEFAULT '',
+    dedupe_key TEXT NOT NULL,
+    payload_hash TEXT NOT NULL,
+    payload_size_bytes INTEGER NOT NULL DEFAULT 0,
+    signature_state TEXT NOT NULL DEFAULT 'unsupported',
+    state TEXT NOT NULL,
+    delivery_count INTEGER NOT NULL DEFAULT 1,
+    trigger_event_id TEXT,
+    run_id TEXT,
+    failure_code TEXT NOT NULL DEFAULT '',
+    error_json TEXT,
+    received_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    dead_lettered_at TEXT,
+    UNIQUE(trigger_id, dedupe_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_workflow_trigger_inbox_trigger_received
+ON workflow_trigger_inbox_events(trigger_id, received_at);
+
+CREATE INDEX IF NOT EXISTS idx_workflow_trigger_inbox_state
+ON workflow_trigger_inbox_events(state, updated_at);
+
+CREATE INDEX IF NOT EXISTS idx_workflow_trigger_inbox_trigger_event
+ON workflow_trigger_inbox_events(trigger_event_id);
+
 CREATE TABLE IF NOT EXISTS workflow_trigger_dispatches (
     dispatch_id TEXT PRIMARY KEY,
     trigger_event_id TEXT NOT NULL,

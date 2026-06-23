@@ -53,6 +53,7 @@ from .trigger_service import (
     get_workflow_backfill_launch_from_storage,
     list_workflow_backfill_launches_from_storage,
     list_workflow_trigger_events_from_storage,
+    list_workflow_trigger_inbox_events_from_storage,
     list_workflow_triggers_from_storage,
     launch_workflow_trigger_backfill_from_request,
     preview_workflow_trigger_backfill_from_request,
@@ -225,6 +226,23 @@ async def list_workflow_trigger_events_request(
 ) -> dict[str, Any]:
     cfg = await _authorized_config_from_request(authorization)
     return await run_sync(list_workflow_trigger_events_from_storage, cfg, trigger_id)
+
+
+async def list_workflow_trigger_inbox_events_request(
+    trigger_id: str,
+    authorization: str | None,
+    *,
+    state: str | None = None,
+    limit: int = 100,
+) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization)
+    return await run_sync(
+        list_workflow_trigger_inbox_events_from_storage,
+        cfg,
+        trigger_id,
+        state=state,
+        limit=limit,
+    )
 
 
 async def list_workflow_backfill_launches_request(

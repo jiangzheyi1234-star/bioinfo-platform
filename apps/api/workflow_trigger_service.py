@@ -66,6 +66,28 @@ async def list_workflow_trigger_events_from_request(
     )
 
 
+async def list_workflow_trigger_inbox_events_from_request(
+    trigger_id: str,
+    *,
+    refresh: bool,
+    server_id: str | None,
+    state: str | None,
+    limit: int,
+) -> dict[str, Any]:
+    return await cached_runtime_payload(
+        f"workflow_trigger_inbox:{server_id or 'default'}:{trigger_id}:{state or 'all'}:{int(limit)}",
+        10,
+        lambda: runtime_service().list_workflow_trigger_inbox_events(
+            trigger_id,
+            server_id=server_id,
+            state=state,
+            limit=limit,
+        ),
+        wrapper="raw",
+        force_refresh=refresh,
+    )
+
+
 async def list_workflow_backfill_launches_from_request(
     *,
     refresh: bool,
@@ -163,7 +185,7 @@ async def submit_workflow_trigger_inbox_event_from_request(
         ),
         wrapper="raw",
     )
-    await invalidate_response_cache("runs", prefixes=("workflow_trigger_events",))
+    await invalidate_response_cache("runs", prefixes=("workflow_trigger_events", "workflow_trigger_inbox"))
     return WorkflowTriggerDispatch(
         payload=result,
         headers={

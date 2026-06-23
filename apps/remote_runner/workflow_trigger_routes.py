@@ -19,6 +19,7 @@ from .control_service import (
     get_workflow_backfill_launch_request,
     list_workflow_backfill_launches_request,
     list_workflow_trigger_events_request,
+    list_workflow_trigger_inbox_events_request,
     list_workflow_triggers_request,
     launch_workflow_trigger_backfill_request,
     preview_workflow_trigger_backfill_request,
@@ -51,6 +52,21 @@ async def list_workflow_trigger_events(
     authorization: AuthorizationHeader = None,
 ) -> dict[str, Any]:
     return await list_workflow_trigger_events_request(trigger_id, authorization)
+
+
+@router.get("/api/v1/workflow-triggers/{trigger_id}/inbox")
+async def list_workflow_trigger_inbox_events(
+    trigger_id: str,
+    state: str | None = None,
+    limit: int = 100,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await list_workflow_trigger_inbox_events_request(
+        trigger_id,
+        authorization,
+        state=state,
+        limit=limit,
+    )
 
 
 @router.get("/api/v1/workflow-backfill-launches")

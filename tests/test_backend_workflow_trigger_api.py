@@ -21,6 +21,7 @@ from apps.api.workflow_trigger_routes import (
     launch_workflow_trigger_backfill,
     list_workflow_backfill_launches,
     list_workflow_trigger_events,
+    list_workflow_trigger_inbox_events,
     list_workflow_triggers,
     preview_workflow_trigger_backfill,
     submit_workflow_trigger_event,
@@ -30,7 +31,7 @@ from apps.api.workflow_trigger_routes import (
 
 
 def test_workflow_trigger_routes_preserve_runtime_wrappers_and_submit_headers(monkeypatch) -> None:
-    asyncio.run(invalidate_response_cache(prefixes=("workflow_triggers", "workflow_trigger_events")))
+    asyncio.run(invalidate_response_cache(prefixes=("workflow_triggers", "workflow_trigger_events", "workflow_trigger_inbox")))
     monkeypatch.setattr("apps.api.workflow_trigger_service.runtime_service", lambda: FakeTriggerRuntime())
 
     triggers = asyncio.run(list_workflow_triggers(serverId="srv_primary"))
@@ -45,6 +46,14 @@ def test_workflow_trigger_routes_preserve_runtime_wrappers_and_submit_headers(mo
         )
     )
     events = asyncio.run(list_workflow_trigger_events("wtr_demo", serverId="srv_primary"))
+    inbox_events = asyncio.run(
+        list_workflow_trigger_inbox_events(
+            "wtr_demo",
+            serverId="srv_primary",
+            state="submitted",
+            limit=25,
+        )
+    )
     backfill_launches = asyncio.run(list_workflow_backfill_launches(serverId="srv_primary", triggerId="wtr_demo"))
     backfill_detail = asyncio.run(get_workflow_backfill_launch("bfl_demo", serverId="srv_primary"))
     response = Response()
@@ -153,6 +162,12 @@ def test_workflow_trigger_routes_preserve_runtime_wrappers_and_submit_headers(mo
         }
     }
     assert backfill_launches == {"data": {"items": [{"launchId": "bfl_demo", "triggerId": "wtr_demo"}]}}
+    assert inbox_events == {
+        "data": {
+            "schemaVersion": "workflow-trigger-inbox-list.v1",
+            "items": [{"inboxEventId": "wti_demo", "state": "submitted"}],
+        }
+    }
     assert backfill_detail == {"data": {"launchId": "bfl_demo", "partitions": []}}
     assert submitted["data"]["run"]["runId"] == "run_trigger_demo"
     assert response.headers["Location"] == "/api/v1/runs/run_trigger_demo"
@@ -220,6 +235,18 @@ class FakeTriggerRuntime:
                         },
                     }
                 ]
+            }
+        }
+
+    def list_workflow_trigger_inbox_events(self, trigger_id, *, server_id=None, state=None, limit=100):
+        assert trigger_id == "wtr_demo"
+        assert server_id == "srv_primary"
+        assert state == "submitted"
+        assert limit == 25
+        return {
+            "data": {
+                "schemaVersion": "workflow-trigger-inbox-list.v1",
+                "items": [{"inboxEventId": "wti_demo", "state": "submitted"}],
             }
         }
 

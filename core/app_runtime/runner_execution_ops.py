@@ -63,6 +63,20 @@ class RunnerExecutionOperationsMixin:
     ) -> dict[str, Any]:
         return self.execution.list_workflow_trigger_events(trigger_id, server_id)
 
+    def list_workflow_trigger_inbox_events(
+        self,
+        trigger_id: str,
+        server_id: Optional[str] = None,
+        state: Optional[str] = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        return self.execution.list_workflow_trigger_inbox_events(
+            trigger_id,
+            server_id=server_id,
+            state=state,
+            limit=limit,
+        )
+
     def list_workflow_backfill_launches(
         self,
         *,
