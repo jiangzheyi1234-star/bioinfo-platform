@@ -422,13 +422,13 @@ native → conda → apptainer → docker（可选）
 | 模式 | 部署方式 | 认证 | 凭据存储 | 网络暴露 |
 |------|----------|------|----------|----------|
 | `desktop` | 本地安装 | 无（单用户） | OS keyring | 仅 localhost |
-| `server-single-user` | Docker Compose | 无或简单 token | 环境变量 | 仅内网 |
+| `server-single-user` | Docker Compose 草案 | 后续反向代理/Token 目标 | 环境变量 | 当前仅 localhost；草案未验收 |
 | `server-multi-user` | Docker Compose / K8s | 登录 + RBAC | 加密数据库 | 可公网 |
 
 ### 具体工作
 
 1. ✅ 正式定义三种模式的配置入口和边界（`core/deployment_mode.py`）。
-2. 🟡 Docker Compose 版本明确标记为"单用户可信内网部署"，尚未完成镜像验收。
+2. 🟡 Docker Compose 版本明确标记为单用户服务器草案，当前不可作为内网或公网可验收部署。
 3. 🟡 已提供网络安全验证函数，尚未接入启动阻断和默认 localhost 端口绑定。
 4. ✅ 部署模式集成到 API `service-info` 响应。
 5. ✅ 完整部署文档和反向代理配置示例。

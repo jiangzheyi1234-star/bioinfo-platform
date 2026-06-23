@@ -54,7 +54,7 @@ async def add_tool_from_request(
     payload: ToolManifestRequest,
     authorization: str | None,
 ) -> dict[str, Any]:
-    cfg = authorized_config(authorization)
+    cfg = authorized_config(authorization, action="tool.create")
     item = await run_sync(add_registered_tool, cfg, request_payload(payload))
     await _record_tool_governance_event(cfg, action="tool.create", item=item)
     return data_response(item)
@@ -64,7 +64,7 @@ async def create_tool_prepare_job_response_from_request(
     payload: ToolManifestRequest,
     authorization: str | None,
 ) -> dict[str, Any]:
-    cfg = authorized_config(authorization)
+    cfg = authorized_config(authorization, action="tool.prepare")
     job = await run_sync(create_tool_prepare_job, cfg, request_payload(payload))
     await run_sync(
         record_governance_audit_event,
@@ -126,7 +126,7 @@ async def cancel_tool_prepare_job_from_request(
     job_id: str,
     authorization: str | None,
 ) -> dict[str, Any]:
-    cfg = authorized_config(authorization)
+    cfg = authorized_config(authorization, action="tool.prepare.cancel")
     job = await run_sync(cancel_tool_prepare_job, cfg, job_id)
     await run_sync(
         record_governance_audit_event,
@@ -152,7 +152,7 @@ async def update_tool_rule_template_from_request(
     payload: ToolRuleTemplateRequest,
     authorization: str | None,
 ) -> dict[str, Any]:
-    cfg = authorized_config(authorization)
+    cfg = authorized_config(authorization, action="tool.rule_template.update")
     item = await run_sync(
         update_registered_tool_rule_template,
         cfg,
@@ -172,7 +172,7 @@ async def delete_tool_from_request(
     tool_id: str,
     authorization: str | None,
 ) -> dict[str, Any]:
-    cfg = authorized_config(authorization)
+    cfg = authorized_config(authorization, action="tool.delete")
     await run_sync(remove_registered_tool, cfg, tool_id)
     await run_sync(
         record_governance_audit_event,
@@ -191,7 +191,7 @@ async def mark_tool_production_from_request(
     payload: ToolProductionEvidenceRequest,
     authorization: str | None,
 ) -> dict[str, Any]:
-    cfg = authorized_config(authorization)
+    cfg = authorized_config(authorization, action="tool.production.enable")
     item = await run_sync(
         mark_registered_tool_production_enabled,
         cfg,

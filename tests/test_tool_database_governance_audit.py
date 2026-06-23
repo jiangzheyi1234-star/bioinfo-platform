@@ -32,7 +32,7 @@ from tests.helpers.reference_database import make_configured_remote_runner, make
 
 def test_tool_mutations_record_governance_audit_events(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     cfg = make_configured_remote_runner(tmp_path, token="governance-audit-token")
-    monkeypatch.setattr("apps.remote_runner.tool_service.authorized_config", lambda _authorization: cfg)
+    monkeypatch.setattr("apps.remote_runner.tool_service.authorized_config", lambda _authorization, **_kwargs: cfg)
 
     tool_request = ToolManifestRequest(
         id="bioconda::audit-tool",
@@ -112,7 +112,7 @@ def test_tool_mutations_record_governance_audit_events(tmp_path: Path, monkeypat
 
 def test_database_mutations_record_governance_audit_events(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     cfg = make_configured_remote_runner(tmp_path, token="governance-audit-token")
-    monkeypatch.setattr("apps.remote_runner.database_service.authorized_config", lambda _authorization: cfg)
+    monkeypatch.setattr("apps.remote_runner.database_service.authorized_config", lambda _authorization, **_kwargs: cfg)
     database_dir = make_kraken2_database(tmp_path / "kraken2-mini")
 
     asyncio.run(
@@ -161,8 +161,8 @@ def test_failed_tool_database_mutations_do_not_record_allow_events(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     cfg = make_configured_remote_runner(tmp_path, token="governance-audit-token")
-    monkeypatch.setattr("apps.remote_runner.tool_service.authorized_config", lambda _authorization: cfg)
-    monkeypatch.setattr("apps.remote_runner.database_service.authorized_config", lambda _authorization: cfg)
+    monkeypatch.setattr("apps.remote_runner.tool_service.authorized_config", lambda _authorization, **_kwargs: cfg)
+    monkeypatch.setattr("apps.remote_runner.database_service.authorized_config", lambda _authorization, **_kwargs: cfg)
 
     with pytest.raises(Exception):
         asyncio.run(

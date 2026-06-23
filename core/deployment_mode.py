@@ -2,7 +2,7 @@
 
 定义三种产品模式：
 - desktop: 单用户本地桌面应用
-- server-single-user: 单用户可信内网服务器部署
+- server-single-user: 单用户服务器草案，当前仅允许 localhost/API 反向代理边界
 - server-multi-user: 多用户服务器部署（需要完整认证和 RBAC）
 """
 
@@ -90,7 +90,7 @@ DEPLOYMENT_CONFIGS: dict[DeploymentMode, DeploymentConfig] = {
         requires_auth=False,
         allows_public_network=False,
         credential_storage="env-secret",
-        description="单用户可信内网服务器部署，使用环境变量存储敏感信息，禁止公网暴露",
+        description="单用户服务器草案，API 当前仅允许 localhost 绑定，外部访问需先完成认证反向代理验收",
     ),
     DeploymentMode.SERVER_MULTI_USER: DeploymentConfig(
         mode=DeploymentMode.SERVER_MULTI_USER,

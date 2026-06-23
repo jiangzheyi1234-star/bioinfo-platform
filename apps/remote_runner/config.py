@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from .api_token_config import apply_api_token_env_overrides, normalize_api_token_roles
 from .worker_resource_config import apply_run_worker_env_overrides
 from .sqlite_migrations import initialize_or_migrate_runtime_db
 
@@ -52,6 +53,8 @@ class RemoteRunnerConfig:
     bind_host: str = "127.0.0.1"
     bind_port: int = 0
     token: str = ""
+    api_token_actor: str = "remote-runner-api"
+    api_token_roles: tuple[str, ...] = ()
     data_root: str = str(DEFAULT_DATA_ROOT)
     db_path: str = str(DEFAULT_DB_PATH)
     runtime_state_path: str = str(DEFAULT_RUNTIME_STATE_PATH)
@@ -99,10 +102,12 @@ def load_remote_runner_config() -> RemoteRunnerConfig:
     if path.exists():
         raw = json.loads(path.read_text(encoding="utf-8"))
     cfg = RemoteRunnerConfig(**{key: value for key, value in raw.items() if key in RemoteRunnerConfig.__dataclass_fields__})
+    cfg.api_token_actor = str(cfg.api_token_actor or "remote-runner-api").strip() or "remote-runner-api"
+    cfg.api_token_roles = normalize_api_token_roles(cfg.api_token_roles)
     apply_run_worker_env_overrides(cfg)
     apply_artifact_storage_env_overrides(cfg)
+    apply_api_token_env_overrides(cfg)
     return cfg
-
 
 def apply_artifact_storage_env_overrides(cfg: RemoteRunnerConfig) -> None:
     overrides = {
@@ -233,6 +238,8 @@ def inspect_runtime_layout(cfg: RemoteRunnerConfig) -> dict[str, bool]:
 def dump_public_config(cfg: RemoteRunnerConfig) -> dict[str, Any]:
     data = asdict(cfg)
     data.pop("token", None)
+    data.pop("api_token_actor", None)
+    data.pop("api_token_roles", None)
     data.pop("artifact_s3_access_key", None)
     data.pop("artifact_s3_secret_key", None)
     return data

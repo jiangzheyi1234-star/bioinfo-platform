@@ -59,8 +59,12 @@ from .trigger_service import (
 from .upload_service import persist_upload_from_request
 
 
-async def _authorized_config_from_request(authorization: str | None) -> RemoteRunnerConfig:
-    return await run_sync(authorized_config, authorization)
+async def _authorized_config_from_request(
+    authorization: str | None,
+    *,
+    action: str | None = None,
+) -> RemoteRunnerConfig:
+    return await run_sync(authorized_config, authorization, action=action)
 
 
 async def health_startup_from_request(authorization: str | None) -> dict[str, Any]:
@@ -129,7 +133,7 @@ async def create_run_from_request(
     idempotency_key: str | None,
     x_request_id: str | None,
 ) -> dict[str, Any]:
-    cfg = await _authorized_config_from_request(authorization)
+    cfg = await _authorized_config_from_request(authorization, action="run.submit")
     return await run_sync(
         create_run_submission_from_request,
         cfg,
@@ -143,7 +147,7 @@ async def create_workflow_trigger_request(
     payload: WorkflowTriggerCreateRequest,
     authorization: str | None,
 ) -> dict[str, Any]:
-    cfg = await _authorized_config_from_request(authorization)
+    cfg = await _authorized_config_from_request(authorization, action="workflow_trigger.create")
     return await run_sync(
         create_workflow_trigger_from_request,
         cfg,
@@ -162,7 +166,7 @@ async def submit_workflow_trigger_event_request(
     payload: WorkflowTriggerEventRequest,
     authorization: str | None,
 ) -> dict[str, Any]:
-    cfg = await _authorized_config_from_request(authorization)
+    cfg = await _authorized_config_from_request(authorization, action="workflow_trigger.dispatch")
     return await run_sync(submit_workflow_trigger_event_from_request, cfg, trigger_id, payload)
 
 
@@ -171,7 +175,7 @@ async def submit_workflow_trigger_inbox_event_request(
     payload: WorkflowTriggerInboxEventRequest,
     authorization: str | None,
 ) -> dict[str, Any]:
-    cfg = await _authorized_config_from_request(authorization)
+    cfg = await _authorized_config_from_request(authorization, action="workflow_trigger.dispatch")
     return await run_sync(submit_workflow_trigger_inbox_event_from_request, cfg, trigger_id, payload)
 
 
@@ -180,7 +184,7 @@ async def submit_workflow_trigger_readiness_event_request(
     payload: WorkflowTriggerReadinessEventRequest,
     authorization: str | None,
 ) -> dict[str, Any]:
-    cfg = await _authorized_config_from_request(authorization)
+    cfg = await _authorized_config_from_request(authorization, action="workflow_trigger.dispatch")
     return await run_sync(submit_workflow_trigger_readiness_event_from_request, cfg, trigger_id, payload)
 
 
@@ -189,7 +193,7 @@ async def preview_workflow_trigger_backfill_request(
     payload: WorkflowTriggerBackfillPreviewRequest,
     authorization: str | None,
 ) -> dict[str, Any]:
-    cfg = await _authorized_config_from_request(authorization)
+    cfg = await _authorized_config_from_request(authorization, action="workflow_trigger.backfill_preview")
     return await run_sync(preview_workflow_trigger_backfill_from_request, cfg, trigger_id, payload)
 
 
@@ -198,7 +202,7 @@ async def launch_workflow_trigger_backfill_request(
     payload: WorkflowTriggerBackfillLaunchRequest,
     authorization: str | None,
 ) -> dict[str, Any]:
-    cfg = await _authorized_config_from_request(authorization)
+    cfg = await _authorized_config_from_request(authorization, action="workflow_trigger.backfill_launch")
     return await run_sync(launch_workflow_trigger_backfill_from_request, cfg, trigger_id, payload)
 
 
@@ -223,7 +227,7 @@ async def get_run_from_request(run_id: str, authorization: str | None) -> dict[s
 
 
 async def cancel_run_from_request(run_id: str, authorization: str | None) -> dict[str, Any]:
-    cfg = await _authorized_config_from_request(authorization)
+    cfg = await _authorized_config_from_request(authorization, action="run.cancel")
     result = await run_sync(request_run_cancel, cfg, run_id, actor="remote-runner-api")
     await run_sync(
         record_governance_audit_event,
@@ -243,7 +247,7 @@ async def cancel_run_from_request(run_id: str, authorization: str | None) -> dic
 
 
 async def retry_run_from_request(run_id: str, payload: RunRetryRequest, authorization: str | None) -> dict[str, Any]:
-    cfg = await _authorized_config_from_request(authorization)
+    cfg = await _authorized_config_from_request(authorization, action="run.retry")
     actor = str(payload.actor or "remote-runner-api")
     result = await run_sync(
         request_run_retry,
@@ -340,7 +344,7 @@ async def export_result_package_from_request(
     request: ResultPackageExportRequest,
     authorization: str | None,
 ) -> dict[str, Any]:
-    cfg = await _authorized_config_from_request(authorization)
+    cfg = await _authorized_config_from_request(authorization, action="result.export")
     package = await run_sync(
         export_result_package,
         cfg,
@@ -364,7 +368,7 @@ async def preview_artifact_gc_from_request(
     request: ArtifactGcPreviewRequest,
     authorization: str | None,
 ) -> dict[str, Any]:
-    cfg = await _authorized_config_from_request(authorization)
+    cfg = await _authorized_config_from_request(authorization, action="artifact.gc.preview")
     plan = await run_sync(preview_artifact_gc, cfg, request.model_dump(mode="json", exclude_none=True))
     return data_response(plan)
 
@@ -373,7 +377,7 @@ async def run_artifact_gc_from_request(
     request: ArtifactGcRunRequest,
     authorization: str | None,
 ) -> dict[str, Any]:
-    cfg = await _authorized_config_from_request(authorization)
+    cfg = await _authorized_config_from_request(authorization, action="artifact.gc.run")
     result = await run_sync(run_artifact_gc, cfg, request.model_dump(mode="json", exclude_none=True))
     return data_response(result)
 

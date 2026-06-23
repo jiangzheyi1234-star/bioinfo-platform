@@ -54,6 +54,8 @@ rejected at Local API startup.
 - The authorization scheme must be `Bearer`.
 - Token comparison uses constant-time comparison.
 - Missing, malformed, or wrong tokens fail with `RemoteRunnerAuthError`.
+- High-risk remote-runner actions are deny-by-default after authentication. The runner token must declare explicit `api_token_roles`, and service-layer authorization checks the requested action against the machine-readable governance policy catalog before mutation, dispatch, retry, export, or GC work starts.
+- Unsupported roles fail loudly with `REMOTE_RUNNER_TOKEN_ROLE_UNSUPPORTED`; missing or wrong roles fail with `RemoteRunnerAuthorizationError` and a hash-chained `decision=deny` governance audit event where the evidence ledger is available.
 - Token rotation is an operator action and must not leak raw token values into diagnostics, logs, or UI state.
 
 ### Secrets
@@ -100,8 +102,9 @@ audit action, subject kind, source route, and whether the audit path is already
 implemented or remains required before multi-user mode can be enabled. CI runs
 `scripts/security_governance_audit.py` to fail if a policy references a missing
 route, declares secret-like audit detail keys, marks multi-user ready before
-auth/RBAC enforcement exists, or claims an implemented audit action that cannot
-be found in source.
+auth/RBAC enforcement exists, claims an implemented audit action that cannot
+be found in source, or marks a remote-runner action implemented without a
+matching authorization guard.
 
 1. SSH connect, disconnect, diagnostics, host-key acceptance, and startup auto-connect.
 2. Remote runner bootstrap, reuse, stop, recovery, and token rotation.
@@ -135,6 +138,7 @@ Before treating a build as production-ready:
 3. Server multi-user mode remains planned, not implemented, and fail-closed at startup. Public deployment requires auth, RBAC, tenant isolation, audited admin actions, TLS, and production image hardening.
 4. High-risk API policies that are marked `required-before-multi-user` must gain route-level auth/RBAC enforcement and hash-chained audit evidence before `server-multi-user` can move into `SUPPORTED_DEPLOYMENT_MODES`.
 5. Private-repository CodeQL, Dependency Review, and Scorecard uploads depend on GitHub plan and repository feature availability. Do not add them as required gates until the repository can run them green.
+6. Current remote-runner RBAC is a single machine-token role boundary for the authenticated runner API. It is not a per-user, tenant, or project authorization model; object-level tenant/project resource resolvers remain required before public multi-user hosting.
 
 ## Practice Baseline
 

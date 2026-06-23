@@ -51,6 +51,15 @@ def test_high_risk_governance_policy_routes_and_implemented_audit_actions_exist(
         assert f"@router.{route_decorator}(" in route_source
         if policy.audit_status == "implemented":
             assert f'action="{policy.action}"' in implementation_source
+            if policy.surface == "remote-runner-api":
+                assert (
+                    f'action="{policy.action}"' in implementation_source
+                    and (
+                        f'authorized_config(authorization, action="{policy.action}")' in implementation_source
+                        or f'_authorized_config_from_request(authorization, action="{policy.action}")'
+                        in implementation_source
+                    )
+                )
 
 
 def test_security_governance_audit_enforces_governance_policy_contracts() -> None:

@@ -38,7 +38,7 @@ async def add_database_from_request(
     payload: DatabaseManifestRequest,
     authorization: str | None,
 ) -> dict[str, Any]:
-    cfg = authorized_config(authorization)
+    cfg = authorized_config(authorization, action="database.create")
     item = await run_sync(add_verified_reference_database, cfg, request_payload(payload))
     await _record_database_governance_event(cfg, action="database.create", item=item)
     return data_response(item)
@@ -48,7 +48,7 @@ async def delete_database_from_request(
     database_id: str,
     authorization: str | None,
 ) -> dict[str, Any]:
-    cfg = authorized_config(authorization)
+    cfg = authorized_config(authorization, action="database.delete")
     await run_sync(remove_reference_database, cfg, database_id)
     await run_sync(
         record_governance_audit_event,
@@ -67,7 +67,7 @@ async def update_database_from_request(
     payload: DatabaseUpdateRequest,
     authorization: str | None,
 ) -> dict[str, Any]:
-    cfg = authorized_config(authorization)
+    cfg = authorized_config(authorization, action="database.update")
     body = request_payload(payload)
     item = await run_sync(update_reference_database, cfg, database_id, body)
     await _record_database_governance_event(
@@ -83,7 +83,7 @@ async def check_database_from_request(
     database_id: str,
     authorization: str | None,
 ) -> dict[str, Any]:
-    cfg = authorized_config(authorization)
+    cfg = authorized_config(authorization, action="database.check")
     item = await run_sync(check_reference_database, cfg, database_id)
     await _record_database_governance_event(cfg, action="database.check", item=item)
     return data_response(item)

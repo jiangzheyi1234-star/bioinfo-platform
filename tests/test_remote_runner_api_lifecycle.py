@@ -183,6 +183,7 @@ def test_remote_runner_cancel_run_endpoint_records_cancel_command(tmp_path: Path
         json.dumps(
             {
                 "token": "phase-cancel-token",
+                "api_token_roles": ["workflow-operator"],
                 "data_root": str(tmp_path / "shared"),
                 "db_path": str(tmp_path / "shared" / "data" / "runner.db"),
                 "uploads_dir": str(tmp_path / "shared" / "uploads"),
@@ -225,6 +226,7 @@ def test_remote_runner_retry_run_endpoint_requeues_terminal_failed_run(tmp_path:
         json.dumps(
             {
                 "token": "phase-retry-token",
+                "api_token_roles": ["workflow-operator"],
                 "data_root": str(tmp_path / "shared"),
                 "db_path": str(tmp_path / "shared" / "data" / "runner.db"),
                 "uploads_dir": str(tmp_path / "shared" / "uploads"),
@@ -286,6 +288,7 @@ def test_remote_runner_upload_persists_file_and_metadata(tmp_path: Path, monkeyp
         json.dumps(
             {
                 "token": "phase2-token",
+                "api_token_roles": ["workflow-operator"],
                 "data_root": str(tmp_path / "shared"),
                 "db_path": str(tmp_path / "shared" / "data" / "runner.db"),
                 "uploads_dir": str(tmp_path / "shared" / "uploads"),
@@ -316,6 +319,7 @@ def test_remote_runner_pipeline_api_lists_registered_pipelines(tmp_path: Path, m
         json.dumps(
             {
                 "token": "phase2-token",
+                "api_token_roles": ["workflow-operator"],
                 "data_root": str(tmp_path / "shared"),
                 "db_path": str(tmp_path / "shared" / "data" / "runner.db"),
                 "uploads_dir": str(tmp_path / "shared" / "uploads"),
@@ -351,6 +355,7 @@ def test_remote_runner_health_ready_surfaces_invalid_pipeline_manifest(tmp_path:
         json.dumps(
             {
                 "token": "phase2-token",
+                "api_token_roles": ["workflow-operator"],
                 "data_root": str(tmp_path / "shared"),
                 "db_path": str(tmp_path / "shared" / "data" / "runner.db"),
                 "uploads_dir": str(tmp_path / "shared" / "uploads"),
@@ -379,6 +384,7 @@ def test_remote_runner_create_run_rejects_unknown_pipeline(tmp_path: Path, monke
         json.dumps(
             {
                 "token": "phase2-token",
+                "api_token_roles": ["workflow-operator"],
                 "data_root": str(tmp_path / "shared"),
                 "db_path": str(tmp_path / "shared" / "data" / "runner.db"),
                 "uploads_dir": str(tmp_path / "shared" / "uploads"),
@@ -419,6 +425,7 @@ def test_remote_runner_create_run_rejects_invalid_pipeline_params(tmp_path: Path
         json.dumps(
             {
                 "token": "phase2-token",
+                "api_token_roles": ["workflow-operator"],
                 "data_root": str(tmp_path / "shared"),
                 "db_path": str(tmp_path / "shared" / "data" / "runner.db"),
                 "uploads_dir": str(tmp_path / "shared" / "uploads"),
@@ -464,6 +471,7 @@ def test_remote_runner_run_lifecycle_produces_events_logs_and_results(tmp_path: 
         json.dumps(
             {
                 "token": "phase2-token",
+                "api_token_roles": ["workflow-operator"],
                 "data_root": str(tmp_path / "shared"),
                 "db_path": str(tmp_path / "shared" / "data" / "runner.db"),
                 "uploads_dir": str(tmp_path / "shared" / "uploads"),

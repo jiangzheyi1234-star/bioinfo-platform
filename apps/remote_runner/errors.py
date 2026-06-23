@@ -5,6 +5,10 @@ class RemoteRunnerAuthError(ValueError):
     status_code = 401
 
 
+class RemoteRunnerAuthorizationError(ValueError):
+    status_code = 403
+
+
 class RemoteRunnerNotFoundError(ValueError):
     status_code = 404
 

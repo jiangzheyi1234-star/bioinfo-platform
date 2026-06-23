@@ -231,7 +231,10 @@ def test_auth_errors_are_domain_errors_handled_by_problem_layer() -> None:
     assert 'scheme.lower() != "bearer"' in helper_source
     assert "class RemoteRunnerAuthError(ValueError)" in errors_source
     assert "RemoteRunnerAuthError(ValueError):\n    status_code = 401" in errors_source
+    assert "class RemoteRunnerAuthorizationError(ValueError)" in errors_source
+    assert "RemoteRunnerAuthorizationError(ValueError):\n    status_code = 403" in errors_source
     assert "RemoteRunnerAuthError," in route_errors_source
+    assert "RemoteRunnerAuthorizationError," in route_errors_source
     assert "detail_response(401, str(exc))" not in route_errors_source
     assert "from fastapi import HTTPException" not in lifecycle_source
     assert "except HTTPException" not in lifecycle_source

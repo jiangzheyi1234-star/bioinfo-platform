@@ -332,6 +332,7 @@ Progress:
 - High-risk local API and remote-runner API actions now have a machine-readable governance policy catalog that records the current supported boundary, future RBAC roles, audit subject/action, source route, and multi-user readiness. CI security governance audit checks policy validity, source route coverage, secret-safe audit detail keys, and implemented audit action evidence while keeping multi-user mode fail-closed.
 - Remote-runner tool registry and reference database mutation paths now emit hash-chained governance audit events for create, prepare, cancel, rule-template update, production enable, delete, database create/update/check/delete, using metadata-only details that avoid command templates, manifests, package specs, database paths, and credentials.
 - Security-sensitive automation now has CODEOWNERS coverage for workflow and governance policy changes, and the CI security governance audit enforces pinned workflow actions plus safe workflow triggers. CodeQL, Dependency Review, and Scorecard remain planned gates until GitHub feature availability can run them green.
+- High-risk remote-runner actions now require explicit machine-token roles after bearer authentication. Missing or wrong roles fail with `RemoteRunnerAuthorizationError`, write deny governance audit evidence where the ledger is available, and cannot proceed to mutation, dispatch, retry, export, or GC work.
 
 Recommended sequence:
 

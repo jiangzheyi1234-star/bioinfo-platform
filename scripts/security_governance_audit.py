@@ -269,6 +269,22 @@ def scan_governance_policy_contracts(paths: list[Path]) -> list[Finding]:
                     f"{policy.key} is marked implemented but {policy.action} is not recorded",
                 )
             )
+        if (
+            policy.surface == "remote-runner-api"
+            and policy.audit_status == "implemented"
+            and not re.search(
+                rf"(?:authorized_config|_authorized_config_from_request)\([^)]*action=\"{re.escape(policy.action)}\"",
+                implementation_text,
+            )
+        ):
+            findings.append(
+                Finding(
+                    "governance-policy-authz-action-missing",
+                    "core/governance_policy.py",
+                    0,
+                    f"{policy.key} is marked implemented but {policy.action} is not enforced",
+                )
+            )
     return findings
 
 

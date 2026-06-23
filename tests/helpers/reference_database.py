@@ -12,6 +12,7 @@ from apps.remote_runner.database_template_fixtures import (
     materialize_template_selection,
 )
 from apps.remote_runner.databases import DATABASE_TEMPLATES
+from core.governance_policy import SUPPORTED_ROLES
 
 
 __all__ = [
@@ -53,9 +54,11 @@ def make_remote_runner_config(
     tmp_path: Path,
     *,
     token: str = "database-registry-token",
+    api_token_roles: tuple[str, ...] | None = None,
 ) -> RemoteRunnerConfig:
     return RemoteRunnerConfig(
         token=token,
+        api_token_roles=tuple(sorted(SUPPORTED_ROLES)) if api_token_roles is None else api_token_roles,
         data_root=str(tmp_path / "shared"),
         db_path=str(tmp_path / "shared" / "data" / "runner.db"),
         uploads_dir=str(tmp_path / "shared" / "uploads"),
@@ -72,8 +75,9 @@ def make_configured_remote_runner(
     tmp_path: Path,
     *,
     token: str = "database-registry-token",
+    api_token_roles: tuple[str, ...] | None = None,
 ) -> RemoteRunnerConfig:
-    cfg = make_remote_runner_config(tmp_path, token=token)
+    cfg = make_remote_runner_config(tmp_path, token=token, api_token_roles=api_token_roles)
     ensure_runtime_layout(cfg)
     return cfg
 

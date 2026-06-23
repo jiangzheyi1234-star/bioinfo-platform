@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from apps.remote_runner.config import (
+    dump_public_config,
     ensure_runtime_layout,
     get_runtime_state_path,
     inspect_workflow_runtime,
@@ -31,6 +32,7 @@ def test_remote_runner_config_defaults_to_dynamic_loopback_port() -> None:
 
     assert cfg.bind_host == "127.0.0.1"
     assert cfg.bind_port == 0
+    assert cfg.api_token_roles == ()
     assert Path(cfg.runtime_state_path).parts[-2:] == ("runtime", "runner-state.json")
 
 def test_workflow_runtime_config_helpers_live_outside_config_module() -> None:
@@ -154,6 +156,45 @@ def test_load_remote_runner_config_preserves_workflow_runtime_metadata(tmp_path:
     assert cfg.workflow_runtime_source == "managed"
     assert cfg.snakemake_command == str(snakemake_command)
     assert cfg.snakemake_version == "9.1.0"
+
+
+def test_remote_runner_config_loads_explicit_api_token_roles_and_redacts_public_config(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config_path = tmp_path / "runner.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "token": "phase2-token",
+                "api_token_actor": "operator-machine",
+                "api_token_roles": ["workflow-operator", "data-steward"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("H2OMETA_REMOTE_CONFIG", str(config_path))
+
+    cfg = load_remote_runner_config()
+    public = dump_public_config(cfg)
+
+    assert cfg.api_token_actor == "operator-machine"
+    assert cfg.api_token_roles == ("workflow-operator", "data-steward")
+    assert "token" not in public
+    assert "api_token_actor" not in public
+    assert "api_token_roles" not in public
+
+
+def test_remote_runner_config_rejects_unsupported_api_token_roles(tmp_path: Path, monkeypatch) -> None:
+    config_path = tmp_path / "runner.json"
+    config_path.write_text(
+        json.dumps({"token": "phase2-token", "api_token_roles": ["super-admin"]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("H2OMETA_REMOTE_CONFIG", str(config_path))
+
+    with pytest.raises(ValueError, match="REMOTE_RUNNER_TOKEN_ROLE_UNSUPPORTED: super-admin"):
+        load_remote_runner_config()
 
 
 def test_load_remote_runner_config_preserves_and_overrides_worker_capacity(tmp_path: Path, monkeypatch) -> None:

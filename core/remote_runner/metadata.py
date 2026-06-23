@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.governance_policy import SUPPORTED_ROLES
 from core.remote_runner.artifact import WorkflowRuntimeArtifact
 
 
@@ -270,6 +271,8 @@ def build_remote_config_payload(
         "bind_host": "127.0.0.1",
         "bind_port": remote_port,
         "token": token,
+        "api_token_actor": "remote-runner-api",
+        "api_token_roles": sorted(SUPPORTED_ROLES),
         "data_root": f"{remote_shared}",
         "db_path": f"{remote_shared}/data/runner.db",
         "runtime_state_path": remote_runtime_state,
