@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import shutil
 import tempfile
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -12,6 +13,7 @@ from .artifact_directory_package import (
     directory_package_preview,
     directory_package_stats,
     iter_directory_package_payloads,
+    restore_directory_package_payload,
 )
 from .config import RemoteRunnerConfig
 
@@ -151,6 +153,47 @@ def read_artifact_directory_preview(
     }
 
 
+def restore_artifact_payload(
+    cfg: RemoteRunnerConfig,
+    record: dict[str, Any],
+    destination: Path,
+) -> dict[str, Any]:
+    target = Path(destination)
+    storage_backend = str(record.get("storageBackend") or record.get("storage_backend") or "local")
+    if storage_backend == "local":
+        source = artifact_local_path(record)
+        if source.is_dir() or _artifact_is_directory(record):
+            _restore_local_directory(source, target)
+        elif source.is_file():
+            _restore_file_bytes(source.read_bytes(), target)
+        else:
+            raise ValueError("ARTIFACT_RESTORE_SOURCE_UNAVAILABLE")
+    elif storage_backend == "s3":
+        payload = read_artifact_bytes(cfg, record)
+        if _artifact_is_directory(record) or _s3_object_is_directory_package(cfg, record):
+            _assert_s3_package_checksum(cfg, record, payload)
+            restore_directory_package_payload(payload, target)
+        else:
+            _restore_file_bytes(payload, target)
+    else:
+        raise ValueError(f"ARTIFACT_STORAGE_BACKEND_UNSUPPORTED: {storage_backend}")
+
+    size_bytes, sha256 = artifact_payload_stats(target)
+    expected_size = int(record.get("sizeBytes") or record.get("size_bytes") or size_bytes)
+    expected_sha = str(record.get("sha256") or sha256)
+    if int(size_bytes) != expected_size or sha256 != expected_sha:
+        raise ValueError("ARTIFACT_RESTORE_CHECKSUM_MISMATCH")
+    resolved = target.resolve()
+    return {
+        "path": str(resolved),
+        "storageBackend": "local",
+        "storageUri": resolved.as_uri(),
+        "localPath": str(resolved),
+        "sizeBytes": size_bytes,
+        "sha256": sha256,
+    }
+
+
 def artifact_record_stats(cfg: RemoteRunnerConfig, record: dict[str, Any]) -> tuple[int, str]:
     storage_backend = str(record.get("storageBackend") or record.get("storage_backend") or "local")
     if storage_backend == "local":
@@ -248,6 +291,28 @@ def _update_digest_with_file(digest: Any, path: Path) -> int:
             size_bytes += len(chunk)
             digest.update(chunk)
     return size_bytes
+
+
+def _restore_file_bytes(payload: bytes, destination: Path) -> None:
+    target = Path(destination)
+    if target.exists():
+        raise ValueError("ARTIFACT_RESTORE_DESTINATION_EXISTS")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(payload)
+
+
+def _restore_local_directory(source: Path, destination: Path) -> None:
+    if not source.is_dir():
+        raise ValueError("ARTIFACT_RESTORE_SOURCE_NOT_DIRECTORY")
+    target = Path(destination)
+    if target.exists():
+        if not target.is_dir():
+            raise ValueError("ARTIFACT_RESTORE_DESTINATION_NOT_DIRECTORY")
+        if any(target.iterdir()):
+            raise ValueError("ARTIFACT_RESTORE_DESTINATION_NOT_EMPTY")
+        shutil.rmtree(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(source, target)
 
 
 def _path_from_file_uri(storage_uri: str) -> Path:

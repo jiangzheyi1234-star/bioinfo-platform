@@ -64,6 +64,21 @@ def iter_directory_package_payloads(payload: bytes):
         yield str(item["path"]), files[str(item["path"])]
 
 
+def restore_directory_package_payload(payload: bytes, destination: Path) -> None:
+    manifest, files = _validated_directory_package(payload, include_payloads=True)
+    root = Path(destination)
+    _require_empty_restore_directory(root)
+    for directory in manifest["directories"]:
+        root.joinpath(str(directory["path"])).mkdir(parents=True, exist_ok=True)
+    for item in manifest["files"]:
+        relative = str(item["path"])
+        target = root.joinpath(relative)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            raise ValueError(f"ARTIFACT_DIRECTORY_PACKAGE_RESTORE_COLLISION: {relative}")
+        target.write_bytes(files[relative])
+
+
 def directory_package_preview(payload: bytes, *, max_entries: int = 200) -> dict[str, Any]:
     manifest, _files = _validated_directory_package(payload, include_payloads=False)
     files = list(manifest["files"])
@@ -262,3 +277,13 @@ def _file_stats(path: Path) -> tuple[int, str]:
 
 def _json_bytes(value: dict[str, Any]) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def _require_empty_restore_directory(path: Path) -> None:
+    if path.exists():
+        if not path.is_dir():
+            raise ValueError("ARTIFACT_DIRECTORY_PACKAGE_RESTORE_DESTINATION_NOT_DIRECTORY")
+        if any(path.iterdir()):
+            raise ValueError("ARTIFACT_DIRECTORY_PACKAGE_RESTORE_DESTINATION_NOT_EMPTY")
+        return
+    path.mkdir(parents=True, exist_ok=False)

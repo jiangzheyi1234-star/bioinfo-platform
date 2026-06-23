@@ -11,6 +11,7 @@ from apps.remote_runner.artifact_cache_storage import (
     lookup_artifact_cache_entry,
 )
 from apps.remote_runner.artifact_cache_adoption import try_adopt_cached_outputs
+from apps.remote_runner.artifact_ledger_storage import list_artifact_materializations
 from apps.remote_runner.artifact_lifecycle_service import ARTIFACT_GC_CONFIRMATION, run_artifact_gc
 from apps.remote_runner.evidence_storage import list_evidence_events
 from apps.remote_runner.execution_query_storage import fetch_run_results
@@ -223,8 +224,10 @@ def test_artifact_cache_hit_adopts_cached_artifact_for_current_attempt(tmp_path:
         result_dir=str(Path(cfg.results_dir) / "run_cache_adopt"),
     )
 
+    restored_path = Path(cfg.results_dir) / "run_cache_adopt" / "report.txt"
     results = fetch_run_results(cfg, "run_cache_adopt")
     events = list_evidence_events(cfg, event_type="artifact.cache.adopt.v1")
+    materializations = list_artifact_materializations(cfg, source["artifactBlobId"])
     with get_connection(cfg) as connection:
         run = connection.execute(
             "SELECT status, stage FROM runs WHERE run_id = ?",
@@ -244,7 +247,11 @@ def test_artifact_cache_hit_adopts_cached_artifact_for_current_attempt(tmp_path:
     assert adopted["artifactIds"] == [results["artifacts"][0]["artifactId"]]
     assert results["artifacts"][0]["artifactId"] != source["artifactId"]
     assert results["artifacts"][0]["sha256"] == source["sha256"]
-    assert results["artifacts"][0]["storageUri"] == source["storageUri"]
+    assert results["artifacts"][0]["path"] == str(restored_path.resolve())
+    assert results["artifacts"][0]["storageBackend"] == "local"
+    assert results["artifacts"][0]["storageUri"] == restored_path.resolve().as_uri()
+    assert restored_path.read_bytes() == b"reused output\n"
+    assert any(item["localPath"] == str(restored_path.resolve()) for item in materializations)
     assert run["status"] == "completed"
     assert run["stage"] == "cache"
     assert attempt["output_adoption_state"] == "adopted"
@@ -252,6 +259,8 @@ def test_artifact_cache_hit_adopts_cached_artifact_for_current_attempt(tmp_path:
     assert lineage["workflow_revision_id"] == revision["workflowRevisionId"]
     assert events[-1]["payload"]["sourceArtifactId"] == source["artifactId"]
     assert events[-1]["payload"]["artifactId"] == results["artifacts"][0]["artifactId"]
+    assert events[-1]["payload"]["sourceStorageUri"] == source["storageUri"]
+    assert events[-1]["payload"]["localPath"] == str(restored_path.resolve())
 
 
 def test_artifact_cache_adoption_skips_when_cached_payload_is_unavailable(tmp_path: Path) -> None:

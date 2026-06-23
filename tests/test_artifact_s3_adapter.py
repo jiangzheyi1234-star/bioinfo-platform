@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 
 from apps.remote_runner.artifact_cache_storage import lookup_artifact_cache_entry
+from apps.remote_runner.artifact_cache_adoption import try_adopt_cached_outputs
 from apps.remote_runner.artifact_ledger_storage import list_artifact_materializations
 from apps.remote_runner.artifact_io import artifact_payload_stats
 from apps.remote_runner.artifact_product_service import build_result_artifact_audit, export_result_package
@@ -225,6 +226,56 @@ def test_s3_directory_artifact_round_trips_as_manifest_package(
     assert failed["artifacts"][0]["checksumOk"] is False
 
 
+def test_s3_directory_cache_hit_restores_declared_output_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeS3Client()
+    monkeypatch.setattr("apps.remote_runner.artifact_io._build_s3_client", lambda _cfg: fake)
+    cfg = _s3_config(tmp_path)
+    revision = _create_revision(cfg, "shared_s3_dir_cache")
+    _create_run(cfg, "run_s3_dir_cache_source", revision=revision)
+    artifact_dir = tmp_path / "artifact-dir-cache-source"
+    artifact_dir.mkdir()
+    nested = artifact_dir / "nested"
+    nested.mkdir()
+    (nested / "report.txt").write_bytes(b"cached directory\n")
+    source = persist_artifact(
+        cfg,
+        run_id="run_s3_dir_cache_source",
+        kind="directory",
+        path=artifact_dir,
+        mime_type="inode/directory",
+        artifact_key="report",
+        step_id="summarize",
+    )
+    target_spec = _run_spec("run_s3_dir_cache_target", revision["workflowRevisionId"])
+    claim = _create_attempt(cfg, target_spec)
+    restored_dir = Path(cfg.results_dir) / "run_s3_dir_cache_target" / "report-dir"
+
+    adopted = try_adopt_cached_outputs(
+        cfg,
+        run_id="run_s3_dir_cache_target",
+        request_id="req_run_s3_dir_cache_target",
+        run_spec=target_spec,
+        output_schema=_output_schema("inode/directory"),
+        outputs={"report": str(restored_dir)},
+        attempt_id=claim["attemptId"],
+        lease_generation=claim["leaseGeneration"],
+        result_dir=str(Path(cfg.results_dir) / "run_s3_dir_cache_target"),
+    )
+
+    results = fetch_run_results(cfg, "run_s3_dir_cache_target")
+    materializations = list_artifact_materializations(cfg, source["artifactBlobId"])
+
+    assert adopted["adopted"] is True
+    assert (restored_dir / "nested" / "report.txt").read_bytes() == b"cached directory\n"
+    assert results["artifacts"][0]["storageBackend"] == "local"
+    assert results["artifacts"][0]["storageUri"] == restored_dir.resolve().as_uri()
+    assert results["artifacts"][0]["sha256"] == source["sha256"]
+    assert any(item["localPath"] == str(restored_dir.resolve()) for item in materializations)
+
+
 def test_candidate_output_adoption_uses_s3_materialization(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -323,8 +374,14 @@ def _s3_config(tmp_path: Path) -> RemoteRunnerConfig:
     return cfg
 
 
-def _create_run(cfg: RemoteRunnerConfig, run_id: str, *, complete: bool = True) -> None:
-    revision = _create_revision(cfg, run_id)
+def _create_run(
+    cfg: RemoteRunnerConfig,
+    run_id: str,
+    *,
+    complete: bool = True,
+    revision: dict[str, object] | None = None,
+) -> None:
+    selected_revision = revision or _create_revision(cfg, run_id)
     create_run_record(
         cfg,
         server_id="srv_artifact",
@@ -335,7 +392,7 @@ def _create_run(cfg: RemoteRunnerConfig, run_id: str, *, complete: bool = True) 
             "pipelineId": "pipeline_artifact",
             "pipelineVersion": "0.1.0",
             "runSpecVersion": "2026-04-21",
-            "workflowRevisionId": revision["workflowRevisionId"],
+            "workflowRevisionId": selected_revision["workflowRevisionId"],
         },
         idempotency_key=f"idem_{run_id}",
         payload_hash=f"hash_{run_id}",
@@ -360,8 +417,29 @@ def _create_revision(cfg: RemoteRunnerConfig, run_id: str) -> dict[str, object]:
     )
 
 
-def _create_attempt(cfg: RemoteRunnerConfig, run_id: str):
-    _create_run(cfg, run_id, complete=False)
+def _run_spec(run_id: str, workflow_revision_id: object) -> dict[str, object]:
+    return {
+        "runId": run_id,
+        "projectId": "proj_artifact",
+        "pipelineId": "pipeline_artifact",
+        "pipelineVersion": "0.1.0",
+        "runSpecVersion": "2026-04-21",
+        "workflowRevisionId": str(workflow_revision_id),
+    }
+
+
+def _create_attempt(cfg: RemoteRunnerConfig, run_or_spec: str | dict[str, object]):
+    if isinstance(run_or_spec, dict):
+        create_run_record(
+            cfg,
+            server_id="srv_artifact",
+            request_id=f"req_{run_or_spec['runId']}",
+            run_spec=run_or_spec,
+            idempotency_key=f"idem_{run_or_spec['runId']}",
+            payload_hash=f"hash_{run_or_spec['runId']}",
+        )
+    else:
+        _create_run(cfg, run_or_spec, complete=False)
     claim = claim_next_run_job(
         cfg,
         worker_id="worker_candidate",
@@ -370,6 +448,19 @@ def _create_attempt(cfg: RemoteRunnerConfig, run_id: str):
     )
     assert claim is not None
     return claim
+
+
+def _output_schema(mime_type: str = "text/plain") -> dict[str, object]:
+    return {
+        "artifacts": [
+            {
+                "key": "report",
+                "kind": "report",
+                "mimeType": mime_type,
+                "stepId": "summarize",
+            }
+        ]
+    }
 
 
 def _mark_run_terminal(cfg: RemoteRunnerConfig, run_id: str) -> None:

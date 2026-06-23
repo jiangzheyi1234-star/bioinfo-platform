@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
 import uuid
+from pathlib import Path
 from typing import Any
 
 from .artifact_cache_storage import lookup_artifact_cache_entry
-from .artifact_io import artifact_local_path, artifact_record_exists, artifact_record_stats
+from .artifact_io import artifact_record_exists, artifact_record_stats, restore_artifact_payload
 from .config import RemoteRunnerConfig
 from .event_contracts import append_run_event_v2
 from .evidence_storage import append_evidence_event
@@ -89,29 +91,36 @@ def try_adopt_cached_outputs(
             raise KeyError(run_id)
         if str(run["workflow_revision_id"] or "") != workflow_revision_id:
             raise ValueError("ARTIFACT_CACHE_WORKFLOW_REVISION_MISMATCH")
-        artifacts = [
-            _adopt_cached_artifact(
-                cfg,
+        artifacts: list[dict[str, str]] = []
+        restored_paths: list[Path] = []
+        try:
+            for spec, lookup in zip(specs, lookups, strict=True):
+                artifact = _adopt_cached_artifact(
+                    cfg,
+                    connection,
+                    run_id=run_id,
+                    attempt_id=str(attempt_id),
+                    workflow_revision_id=workflow_revision_id,
+                    spec=spec,
+                    lookup=lookup,
+                    occurred_at=occurred_at,
+                )
+                artifacts.append(artifact)
+                restored_paths.append(Path(artifact["restoredPath"]))
+            _complete_run_from_cache(
                 connection,
+                run=run,
                 run_id=run_id,
-                attempt_id=str(attempt_id),
-                workflow_revision_id=workflow_revision_id,
-                spec=spec,
-                lookup=lookup,
+                request_id=request_id,
+                result_dir=result_dir,
+                artifact_count=len(artifacts),
                 occurred_at=occurred_at,
             )
-            for spec, lookup in zip(specs, lookups, strict=True)
-        ]
-        _complete_run_from_cache(
-            connection,
-            run=run,
-            run_id=run_id,
-            request_id=request_id,
-            result_dir=result_dir,
-            artifact_count=len(artifacts),
-            occurred_at=occurred_at,
-        )
-        connection.commit()
+            connection.commit()
+        except Exception:
+            for path in restored_paths:
+                _remove_restored_payload(path)
+            raise
     return {
         "adopted": True,
         "reason": "cache_hit",
@@ -164,108 +173,177 @@ def _adopt_cached_artifact(
     ).fetchone()
     if materialization is None:
         raise ValueError(f"ARTIFACT_CACHE_MATERIALIZATION_NOT_FOUND: {entry['materializationId']}")
-    artifact_id = f"art_{uuid.uuid4().hex[:10]}"
-    artifact_path = _artifact_path_for_entry(entry, materialization)
-    connection.execute(
-        """
-        INSERT INTO artifacts (
-            artifact_id, run_id, kind, path, storage_backend, storage_uri,
-            size_bytes, sha256, mime_type, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            artifact_id,
-            run_id,
-            spec["kind"],
-            artifact_path,
-            entry["storageBackend"],
-            entry["storageUri"],
-            int(entry["sizeBytes"]),
-            entry["sha256"],
-            spec["mimeType"],
-            occurred_at,
-        ),
-    )
-    edge_id = f"aredge_{uuid.uuid4().hex[:12]}"
-    connection.execute(
-        """
-        INSERT INTO run_artifact_edges (
-            edge_id, run_id, artifact_blob_id, role, port_name, step_id,
-            content_hash, upstream_run_id, created_at
-        ) VALUES (?, ?, ?, 'output', ?, ?, ?, NULL, ?)
-        """,
-        (
-            edge_id,
-            run_id,
-            entry["artifactBlobId"],
-            spec["artifactKey"],
-            spec["stepId"] or None,
-            entry["sha256"],
-            occurred_at,
-        ),
-    )
-    evidence = append_evidence_event(
-        connection,
-        event_type=ARTIFACT_CACHE_ADOPTION_EVENT_TYPE,
-        schema_name=ARTIFACT_CACHE_ADOPTION_SCHEMA_NAME,
-        subject_kind="artifact_cache",
-        subject_id=entry["cacheKey"],
-        payload={
-            "cacheKey": entry["cacheKey"],
-            "cacheEntryId": entry["cacheEntryId"],
-            "sourceRunId": entry["runId"],
-            "sourceArtifactId": entry["artifactId"],
-            "artifactBlobId": entry["artifactBlobId"],
-            "materializationId": entry["materializationId"],
-            "runId": run_id,
-            "attemptId": attempt_id,
+    restore: dict[str, Any] | None = None
+    try:
+        restore = restore_artifact_payload(cfg, entry, Path(spec["declaredPath"]))
+        restored_materialization_id = _record_restored_materialization(
+            connection,
+            artifact_blob_id=entry["artifactBlobId"],
+            restore=restore,
+            occurred_at=occurred_at,
+        )
+        artifact_id = f"art_{uuid.uuid4().hex[:10]}"
+        connection.execute(
+            """
+            INSERT INTO artifacts (
+                artifact_id, run_id, kind, path, storage_backend, storage_uri,
+                size_bytes, sha256, mime_type, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                artifact_id,
+                run_id,
+                spec["kind"],
+                restore["path"],
+                restore["storageBackend"],
+                restore["storageUri"],
+                int(entry["sizeBytes"]),
+                entry["sha256"],
+                spec["mimeType"],
+                occurred_at,
+            ),
+        )
+        edge_id = f"aredge_{uuid.uuid4().hex[:12]}"
+        connection.execute(
+            """
+            INSERT INTO run_artifact_edges (
+                edge_id, run_id, artifact_blob_id, role, port_name, step_id,
+                content_hash, upstream_run_id, created_at
+            ) VALUES (?, ?, ?, 'output', ?, ?, ?, NULL, ?)
+            """,
+            (
+                edge_id,
+                run_id,
+                entry["artifactBlobId"],
+                spec["artifactKey"],
+                spec["stepId"] or None,
+                entry["sha256"],
+                occurred_at,
+            ),
+        )
+        evidence = append_evidence_event(
+            connection,
+            event_type=ARTIFACT_CACHE_ADOPTION_EVENT_TYPE,
+            schema_name=ARTIFACT_CACHE_ADOPTION_SCHEMA_NAME,
+            subject_kind="artifact_cache",
+            subject_id=entry["cacheKey"],
+            payload={
+                "cacheKey": entry["cacheKey"],
+                "cacheEntryId": entry["cacheEntryId"],
+                "sourceRunId": entry["runId"],
+                "sourceArtifactId": entry["artifactId"],
+                "artifactBlobId": entry["artifactBlobId"],
+                "materializationId": entry["materializationId"],
+                "runId": run_id,
+                "attemptId": attempt_id,
+                "artifactId": artifact_id,
+                "artifactKey": spec["artifactKey"],
+                "stepId": spec["stepId"],
+                "runArtifactEdgeId": edge_id,
+                "lookupEvidenceId": lookup["evidenceId"],
+                "sourceStorageBackend": entry["storageBackend"],
+                "sourceStorageUri": entry["storageUri"],
+                "storageBackend": restore["storageBackend"],
+                "storageUri": restore["storageUri"],
+                "localPath": restore["localPath"],
+                "restoredMaterializationId": restored_materialization_id,
+                "sizeBytes": int(entry["sizeBytes"]),
+                "sha256": entry["sha256"],
+            },
+            producer="artifact_cache_adoption",
+            occurred_at=occurred_at,
+        )
+        lineage_id = f"lin_{uuid.uuid4().hex[:12]}"
+        lineage_payload = {
             "artifactId": artifact_id,
             "artifactKey": spec["artifactKey"],
-            "stepId": spec["stepId"],
+            "cacheKey": entry["cacheKey"],
+            "cacheEntryId": entry["cacheEntryId"],
+            "sourceArtifactId": entry["artifactId"],
+            "sourceRunId": entry["runId"],
+            "sourceStorageBackend": entry["storageBackend"],
+            "sourceStorageUri": entry["storageUri"],
+            "restoredPath": restore["path"],
+            "restoredMaterializationId": restored_materialization_id,
+            "evidenceEventId": evidence["eventId"],
             "runArtifactEdgeId": edge_id,
-            "lookupEvidenceId": lookup["evidenceId"],
-            "storageBackend": entry["storageBackend"],
-            "storageUri": entry["storageUri"],
-            "sizeBytes": int(entry["sizeBytes"]),
-            "sha256": entry["sha256"],
-        },
-        producer="artifact_cache_adoption",
-        occurred_at=occurred_at,
-    )
-    lineage_id = f"lin_{uuid.uuid4().hex[:12]}"
-    lineage_payload = {
+            **({"stepId": spec["stepId"]} if spec["stepId"] else {}),
+        }
+        connection.execute(
+            """
+            INSERT INTO lineage_edges (
+                lineage_edge_id, subject_kind, subject_id, predicate, object_kind, object_id,
+                run_id, attempt_id, workflow_revision_id, evidence_event_id,
+                payload_json, content_hash, created_at
+            ) VALUES (?, 'run', ?, 'h2ometa:cache_adopted', 'artifact_blob', ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                lineage_id,
+                run_id,
+                entry["artifactBlobId"],
+                run_id,
+                attempt_id,
+                workflow_revision_id,
+                evidence["eventId"],
+                _stable_json(lineage_payload),
+                entry["sha256"],
+                occurred_at,
+            ),
+        )
+    except Exception:
+        if restore is not None:
+            _remove_restored_payload(Path(restore["path"]))
+        raise
+    return {
         "artifactId": artifact_id,
-        "artifactKey": spec["artifactKey"],
-        "cacheKey": entry["cacheKey"],
-        "cacheEntryId": entry["cacheEntryId"],
-        "sourceArtifactId": entry["artifactId"],
-        "sourceRunId": entry["runId"],
-        "evidenceEventId": evidence["eventId"],
         "runArtifactEdgeId": edge_id,
-        **({"stepId": spec["stepId"]} if spec["stepId"] else {}),
+        "lineageEdgeId": lineage_id,
+        "restoredPath": str(restore["path"]),
     }
+
+
+def _record_restored_materialization(
+    connection: sqlite3.Connection,
+    *,
+    artifact_blob_id: str,
+    restore: dict[str, Any],
+    occurred_at: str,
+) -> str:
+    existing = connection.execute(
+        """
+        SELECT materialization_id
+        FROM artifact_materializations
+        WHERE artifact_blob_id = ? AND storage_backend = ? AND storage_uri = ?
+        """,
+        (artifact_blob_id, restore["storageBackend"], restore["storageUri"]),
+    ).fetchone()
+    if existing is not None:
+        return str(existing["materialization_id"])
+    materialization_id = f"amat_{uuid.uuid4().hex[:12]}"
     connection.execute(
         """
-        INSERT INTO lineage_edges (
-            lineage_edge_id, subject_kind, subject_id, predicate, object_kind, object_id,
-            run_id, attempt_id, workflow_revision_id, evidence_event_id,
-            payload_json, content_hash, created_at
-        ) VALUES (?, 'run', ?, 'h2ometa:cache_adopted', 'artifact_blob', ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO artifact_materializations (
+            materialization_id, artifact_blob_id, storage_backend,
+            storage_uri, local_path, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?)
         """,
         (
-            lineage_id,
-            run_id,
-            entry["artifactBlobId"],
-            run_id,
-            attempt_id,
-            workflow_revision_id,
-            evidence["eventId"],
-            _stable_json(lineage_payload),
-            entry["sha256"],
+            materialization_id,
+            artifact_blob_id,
+            restore["storageBackend"],
+            restore["storageUri"],
+            restore["localPath"],
             occurred_at,
         ),
     )
-    return {"artifactId": artifact_id, "runArtifactEdgeId": edge_id, "lineageEdgeId": lineage_id}
+    return materialization_id
+
+
+def _remove_restored_payload(path: Path) -> None:
+    if path.is_dir():
+        shutil.rmtree(path)
+    elif path.exists():
+        path.unlink()
 
 
 def _complete_run_from_cache(
@@ -412,14 +490,6 @@ def _require_current_run_revision_and_lease(
             raise KeyError(run_id)
         if str(run["workflow_revision_id"] or "") != workflow_revision_id:
             raise ValueError("ARTIFACT_CACHE_WORKFLOW_REVISION_MISMATCH")
-
-
-def _artifact_path_for_entry(entry: dict[str, Any], materialization: sqlite3.Row | None) -> str:
-    if entry["storageBackend"] != "local":
-        return str(entry["storageUri"])
-    if materialization is not None and str(materialization["local_path"] or "").strip():
-        return str(materialization["local_path"])
-    return str(artifact_local_path(entry))
 
 
 def _require_cache_payload_available(cfg: RemoteRunnerConfig, entry: dict[str, Any]) -> None:
