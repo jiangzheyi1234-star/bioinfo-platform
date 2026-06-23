@@ -131,7 +131,7 @@ async def export_result_package_from_request(
     result_id: str,
     request: ResultPackageExportRequest,
 ) -> dict[str, Any]:
-    payload = request.model_dump(mode="json", exclude_none=True)
+    payload = request_payload(request)
     server_id = payload.pop("serverId", None)
     return await run_runtime_payload(
         lambda: runtime_service().export_result_package(

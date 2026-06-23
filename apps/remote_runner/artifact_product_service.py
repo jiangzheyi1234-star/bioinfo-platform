@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import uuid
 import zipfile
 from pathlib import Path
 from typing import Any
 
 from .artifact_io import artifact_record_exists, artifact_record_stats, iter_artifact_file_payloads
+from .artifact_product_payloads import json_bytes, json_sha256, redacted_run
 from .config import RemoteRunnerConfig
 from .evidence_storage import append_evidence_event, list_evidence_events
 from .execution_query_storage import fetch_result, fetch_run_events, fetch_run_results, require_run
@@ -34,18 +34,6 @@ RESULT_EXPORT_SCHEMA_NAME = "ResultPackageExportEvent"
 RESULT_EXPORTABLE_RUN_STATUSES = {"completed", "failed"}
 ARTIFACT_PAYLOAD_MODE_INCLUDED = "included"
 ARTIFACT_PAYLOAD_MODE_METADATA_ONLY = "metadata-only"
-_SENSITIVE_KEY_PARTS = (
-    "access_key",
-    "accesskey",
-    "api_key",
-    "apikey",
-    "authorization",
-    "bearer",
-    "password",
-    "private",
-    "secret",
-    "token",
-)
 
 
 def build_result_artifact_audit(
@@ -101,7 +89,7 @@ def export_result_package(
         raise ValueError("RESULT_ARTIFACT_AUDIT_FAILED")
 
     created_at = now_iso()
-    safe_run, redacted_paths = _redacted_run(run)
+    safe_run, redacted_paths = redacted_run(run)
     lineage_edges = list(result_bundle["lineageEdges"])
     run_events = fetch_run_events(cfg, str(result["runId"]))
     rule_bundle = fetch_run_rules(cfg, str(result["runId"]))
@@ -153,7 +141,7 @@ def export_result_package(
             artifacts=result["artifacts"],
             include_artifacts=include_artifacts,
         )
-        manifest_sha256 = _json_sha256(manifest)
+        manifest_sha256 = json_sha256(manifest)
         validation = validate_result_package_archive(
             temp_path,
             expected_manifest_sha256=manifest_sha256,
@@ -456,15 +444,15 @@ def _write_result_package(
         _write_zip_bytes(
             archive,
             "manifest.json",
-            _json_bytes(manifest),
+            json_bytes(manifest),
         )
         _write_zip_bytes(
             archive,
             "ro-crate-metadata.json",
-            _json_bytes(ro_crate_metadata),
+            json_bytes(ro_crate_metadata),
         )
         for name, payload in sorted(metadata_files.items()):
-            _write_zip_bytes(archive, name, _json_bytes(payload))
+            _write_zip_bytes(archive, name, json_bytes(payload))
         if include_artifacts:
             for artifact in artifacts:
                 _write_artifact_to_zip(cfg, archive, artifact)
@@ -579,13 +567,13 @@ def _metadata_payloads(
 def _metadata_index(metadata_files: dict[str, Any]) -> list[dict[str, Any]]:
     items = []
     for path, payload in sorted(metadata_files.items()):
-        raw = _json_bytes(payload)
+        raw = json_bytes(payload)
         items.append(
             {
                 "path": path,
                 "mimeType": "application/json",
                 "sizeBytes": len(raw),
-                "sha256": hashlib.sha256(raw).hexdigest(),
+                "sha256": json_sha256(payload),
             }
         )
     return items
@@ -784,43 +772,3 @@ def _record_result_export_evidence(
         )
         connection.commit()
     return event
-
-
-def _redacted_run(run: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
-    redacted_paths: list[str] = []
-    safe_run = _redact_sensitive(run, path="", redacted_paths=redacted_paths)
-    if not isinstance(safe_run, dict):
-        raise ValueError("RESULT_RUN_METADATA_INVALID")
-    return safe_run, redacted_paths
-
-
-def _redact_sensitive(value: Any, *, path: str, redacted_paths: list[str]) -> Any:
-    if isinstance(value, dict):
-        redacted: dict[str, Any] = {}
-        for key, item in value.items():
-            child_path = f"{path}.{key}" if path else str(key)
-            if _is_sensitive_key(str(key)):
-                redacted[key] = "<redacted>"
-                redacted_paths.append(child_path)
-            else:
-                redacted[key] = _redact_sensitive(item, path=child_path, redacted_paths=redacted_paths)
-        return redacted
-    if isinstance(value, list):
-        return [
-            _redact_sensitive(item, path=f"{path}[{index}]", redacted_paths=redacted_paths)
-            for index, item in enumerate(value)
-        ]
-    return value
-
-
-def _is_sensitive_key(key: str) -> bool:
-    normalized = str(key or "").lower().replace("-", "_")
-    return any(part in normalized for part in _SENSITIVE_KEY_PARTS)
-
-
-def _json_sha256(value: dict[str, Any]) -> str:
-    return hashlib.sha256(_json_bytes(value)).hexdigest()
-
-
-def _json_bytes(value: Any, *, indent: int | None = 2) -> bytes:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, indent=indent).encode("utf-8")

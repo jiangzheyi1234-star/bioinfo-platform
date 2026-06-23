@@ -12,7 +12,9 @@ EXPECTED_ROUTES = {
     "/workflows/databases",
     "/workflows/detail",
     "/workflows/results",
+    "/workflows/results/backfills",
     "/workflows/results/detail",
+    "/workflows/results/triggers",
     "/workflows/tools",
 }
 
