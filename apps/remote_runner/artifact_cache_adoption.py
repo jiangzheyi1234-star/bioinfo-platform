@@ -7,7 +7,13 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .artifact_cache_storage import lookup_artifact_cache_entry
+from .artifact_cache_storage import (
+    ARTIFACT_CACHE_RESTORE_PIN_OWNER_KIND,
+    ARTIFACT_CACHE_RESTORE_PIN_SCOPE,
+    create_artifact_cache_pins,
+    lookup_artifact_cache_entry,
+    release_artifact_cache_pins,
+)
 from .artifact_io import artifact_record_exists, artifact_record_stats, restore_artifact_payload
 from .config import RemoteRunnerConfig
 from .event_contracts import append_run_event_v2
@@ -78,49 +84,69 @@ def try_adopt_cached_outputs(
         }
 
     occurred_at = str(adopted_at or now_iso())
-    with get_connection(cfg) as connection:
-        connection.execute("BEGIN IMMEDIATE")
-        _require_active_lease(
-            connection,
-            run_id=run_id,
-            attempt_id=str(attempt_id),
-            lease_generation=int(lease_generation),
-        )
-        run = connection.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
-        if run is None:
-            raise KeyError(run_id)
-        if str(run["workflow_revision_id"] or "") != workflow_revision_id:
-            raise ValueError("ARTIFACT_CACHE_WORKFLOW_REVISION_MISMATCH")
-        artifacts: list[dict[str, str]] = []
-        restored_paths: list[Path] = []
-        try:
-            for spec, lookup in zip(specs, lookups, strict=True):
-                artifact = _adopt_cached_artifact(
-                    cfg,
+    cache_pins = create_artifact_cache_pins(
+        cfg,
+        entries=[lookup["entry"] for lookup in lookups],
+        pin_scope=ARTIFACT_CACHE_RESTORE_PIN_SCOPE,
+        owner_kind=ARTIFACT_CACHE_RESTORE_PIN_OWNER_KIND,
+        owner_id=_restore_pin_owner_id(str(attempt_id), int(lease_generation)),
+        reason="cache_restore",
+        created_at=occurred_at,
+    )
+    pin_ids = [pin["cachePinId"] for pin in cache_pins]
+    try:
+        with get_connection(cfg) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            _require_active_lease(
+                connection,
+                run_id=run_id,
+                attempt_id=str(attempt_id),
+                lease_generation=int(lease_generation),
+            )
+            run = connection.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+            if run is None:
+                raise KeyError(run_id)
+            if str(run["workflow_revision_id"] or "") != workflow_revision_id:
+                raise ValueError("ARTIFACT_CACHE_WORKFLOW_REVISION_MISMATCH")
+            artifacts: list[dict[str, str]] = []
+            restored_paths: list[Path] = []
+            try:
+                for spec, lookup, cache_pin in zip(specs, lookups, cache_pins, strict=True):
+                    artifact = _adopt_cached_artifact(
+                        cfg,
+                        connection,
+                        run_id=run_id,
+                        attempt_id=str(attempt_id),
+                        workflow_revision_id=workflow_revision_id,
+                        spec=spec,
+                        lookup=lookup,
+                        cache_pin=cache_pin,
+                        occurred_at=occurred_at,
+                    )
+                    artifacts.append(artifact)
+                    restored_paths.append(Path(artifact["restoredPath"]))
+                _complete_run_from_cache(
                     connection,
+                    run=run,
                     run_id=run_id,
-                    attempt_id=str(attempt_id),
-                    workflow_revision_id=workflow_revision_id,
-                    spec=spec,
-                    lookup=lookup,
+                    request_id=request_id,
+                    result_dir=result_dir,
+                    artifact_count=len(artifacts),
+                    cache_keys=[lookup["cacheKey"] for lookup in lookups],
+                    restored_paths=[artifact["restoredPath"] for artifact in artifacts],
+                    restored_materialization_ids=[
+                        artifact["restoredMaterializationId"] for artifact in artifacts
+                    ],
+                    cache_pin_ids=pin_ids,
                     occurred_at=occurred_at,
                 )
-                artifacts.append(artifact)
-                restored_paths.append(Path(artifact["restoredPath"]))
-            _complete_run_from_cache(
-                connection,
-                run=run,
-                run_id=run_id,
-                request_id=request_id,
-                result_dir=result_dir,
-                artifact_count=len(artifacts),
-                occurred_at=occurred_at,
-            )
-            connection.commit()
-        except Exception:
-            for path in restored_paths:
-                _remove_restored_payload(path)
-            raise
+                connection.commit()
+            except Exception:
+                for path in restored_paths:
+                    _remove_restored_payload(path)
+                raise
+    finally:
+        release_artifact_cache_pins(cfg, pin_ids=pin_ids)
     return {
         "adopted": True,
         "reason": "cache_hit",
@@ -129,6 +155,7 @@ def try_adopt_cached_outputs(
         "leaseGeneration": int(lease_generation),
         "artifactIds": [artifact["artifactId"] for artifact in artifacts],
         "cacheKeys": [lookup["cacheKey"] for lookup in lookups],
+        "cachePinIds": pin_ids,
         "lookups": _lookup_summaries(lookups),
         "adoptedAt": occurred_at,
     }
@@ -143,6 +170,7 @@ def _adopt_cached_artifact(
     workflow_revision_id: str,
     spec: dict[str, str],
     lookup: dict[str, Any],
+    cache_pin: dict[str, Any],
     occurred_at: str,
 ) -> dict[str, str]:
     entry = lookup["entry"]
@@ -230,6 +258,7 @@ def _adopt_cached_artifact(
             payload={
                 "cacheKey": entry["cacheKey"],
                 "cacheEntryId": entry["cacheEntryId"],
+                "cachePinId": cache_pin["cachePinId"],
                 "sourceRunId": entry["runId"],
                 "sourceArtifactId": entry["artifactId"],
                 "artifactBlobId": entry["artifactBlobId"],
@@ -259,6 +288,7 @@ def _adopt_cached_artifact(
             "artifactKey": spec["artifactKey"],
             "cacheKey": entry["cacheKey"],
             "cacheEntryId": entry["cacheEntryId"],
+            "cachePinId": cache_pin["cachePinId"],
             "sourceArtifactId": entry["artifactId"],
             "sourceRunId": entry["runId"],
             "sourceStorageBackend": entry["storageBackend"],
@@ -299,6 +329,8 @@ def _adopt_cached_artifact(
         "runArtifactEdgeId": edge_id,
         "lineageEdgeId": lineage_id,
         "restoredPath": str(restore["path"]),
+        "restoredMaterializationId": restored_materialization_id,
+        "cachePinId": cache_pin["cachePinId"],
     }
 
 
@@ -354,6 +386,10 @@ def _complete_run_from_cache(
     request_id: str,
     result_dir: str,
     artifact_count: int,
+    cache_keys: list[str],
+    restored_paths: list[str],
+    restored_materialization_ids: list[str],
+    cache_pin_ids: list[str],
     occurred_at: str,
 ) -> None:
     next_state_version = int(run["state_version"]) + 1
@@ -387,9 +423,19 @@ def _complete_run_from_cache(
         state_version=next_state_version,
         message="Workflow outputs adopted from artifact cache.",
         request_id=request_id,
-        payload={"artifactCount": artifact_count},
+        payload={
+            "artifactCount": artifact_count,
+            "cacheKeys": cache_keys,
+            "restoredPaths": restored_paths,
+            "restoredMaterializationIds": restored_materialization_ids,
+            "cachePinIds": cache_pin_ids,
+        },
         occurred_at=occurred_at,
     )
+
+
+def _restore_pin_owner_id(attempt_id: str, lease_generation: int) -> str:
+    return f"{attempt_id}:{lease_generation}"
 
 
 def _declared_output_specs(

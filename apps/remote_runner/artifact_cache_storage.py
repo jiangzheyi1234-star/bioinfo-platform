@@ -4,6 +4,7 @@ import hashlib
 import json
 import sqlite3
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .artifact_io import artifact_record_exists, artifact_record_stats
@@ -15,6 +16,10 @@ from .storage_core import get_connection, now_iso
 ARTIFACT_CACHE_KEY_SCHEMA = "h2ometa.artifact-cache-key.v1"
 ARTIFACT_CACHE_LOOKUP_SCHEMA_NAME = "ArtifactCacheLookupEvent"
 ARTIFACT_CACHE_LOOKUP_EVENT_TYPE = "artifact.cache.lookup.v1"
+ARTIFACT_CACHE_PIN_PROTECTION_REASON = "artifact_cache_pin"
+ARTIFACT_CACHE_RESTORE_PIN_SCOPE = "restore"
+ARTIFACT_CACHE_RESTORE_PIN_OWNER_KIND = "run_attempt"
+ARTIFACT_CACHE_RESTORE_PIN_TTL_SECONDS = 3600
 
 
 def build_artifact_cache_key_payload(
@@ -258,6 +263,207 @@ def list_artifact_cache_entries(
     return {"items": [_cache_entry_row_to_dict(row) for row in rows]}
 
 
+def create_artifact_cache_pins(
+    cfg: RemoteRunnerConfig,
+    *,
+    entries: list[dict[str, Any]],
+    pin_scope: str,
+    owner_kind: str,
+    owner_id: str,
+    reason: str,
+    created_at: str | None = None,
+    ttl_seconds: int | None = ARTIFACT_CACHE_RESTORE_PIN_TTL_SECONDS,
+) -> list[dict[str, Any]]:
+    occurred_at = str(created_at or now_iso())
+    expires_at = _expires_at(occurred_at, ttl_seconds) if ttl_seconds is not None else None
+    with get_connection(cfg) as connection:
+        pins = [
+            create_artifact_cache_pin_record(
+                connection,
+                entry=entry,
+                pin_scope=pin_scope,
+                owner_kind=owner_kind,
+                owner_id=owner_id,
+                reason=reason,
+                created_at=occurred_at,
+                expires_at=expires_at,
+            )
+            for entry in entries
+        ]
+        connection.commit()
+    return pins
+
+
+def create_artifact_cache_pin_record(
+    connection: sqlite3.Connection,
+    *,
+    entry: dict[str, Any],
+    pin_scope: str,
+    owner_kind: str,
+    owner_id: str,
+    reason: str,
+    created_at: str,
+    expires_at: str | None = None,
+) -> dict[str, Any]:
+    cache_entry_id = _required_text(entry.get("cacheEntryId"), "ARTIFACT_CACHE_PIN_ENTRY_REQUIRED")
+    normalized_scope = _required_text(pin_scope, "ARTIFACT_CACHE_PIN_SCOPE_REQUIRED")
+    normalized_owner_kind = _required_text(owner_kind, "ARTIFACT_CACHE_PIN_OWNER_KIND_REQUIRED")
+    normalized_owner_id = _required_text(owner_id, "ARTIFACT_CACHE_PIN_OWNER_ID_REQUIRED")
+    existing = connection.execute(
+        """
+        SELECT cache_pin_id
+        FROM artifact_cache_pins
+        WHERE cache_entry_id = ? AND pin_scope = ? AND owner_kind = ? AND owner_id = ?
+        """,
+        (cache_entry_id, normalized_scope, normalized_owner_kind, normalized_owner_id),
+    ).fetchone()
+    cache_pin_id = str(existing["cache_pin_id"]) if existing is not None else f"acpin_{uuid.uuid4().hex[:12]}"
+    if existing is None:
+        connection.execute(
+            """
+            INSERT INTO artifact_cache_pins (
+                cache_pin_id, cache_entry_id, cache_key, artifact_blob_id,
+                storage_backend, storage_uri, sha256, pin_scope, owner_kind,
+                owner_id, reason, state, created_at, released_at, expires_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, NULL, ?)
+            """,
+            (
+                cache_pin_id,
+                cache_entry_id,
+                _required_text(entry.get("cacheKey"), "ARTIFACT_CACHE_PIN_KEY_REQUIRED"),
+                _required_text(entry.get("artifactBlobId"), "ARTIFACT_CACHE_PIN_BLOB_REQUIRED"),
+                _required_text(entry.get("storageBackend"), "ARTIFACT_CACHE_PIN_BACKEND_REQUIRED"),
+                _required_text(entry.get("storageUri"), "ARTIFACT_CACHE_PIN_URI_REQUIRED"),
+                _required_text(entry.get("sha256"), "ARTIFACT_CACHE_PIN_SHA_REQUIRED"),
+                normalized_scope,
+                normalized_owner_kind,
+                normalized_owner_id,
+                str(reason or "").strip(),
+                created_at,
+                expires_at,
+            ),
+        )
+    else:
+        connection.execute(
+            """
+            UPDATE artifact_cache_pins
+            SET cache_key = ?,
+                artifact_blob_id = ?,
+                storage_backend = ?,
+                storage_uri = ?,
+                sha256 = ?,
+                reason = ?,
+                state = 'active',
+                created_at = ?,
+                released_at = NULL,
+                expires_at = ?
+            WHERE cache_pin_id = ?
+            """,
+            (
+                _required_text(entry.get("cacheKey"), "ARTIFACT_CACHE_PIN_KEY_REQUIRED"),
+                _required_text(entry.get("artifactBlobId"), "ARTIFACT_CACHE_PIN_BLOB_REQUIRED"),
+                _required_text(entry.get("storageBackend"), "ARTIFACT_CACHE_PIN_BACKEND_REQUIRED"),
+                _required_text(entry.get("storageUri"), "ARTIFACT_CACHE_PIN_URI_REQUIRED"),
+                _required_text(entry.get("sha256"), "ARTIFACT_CACHE_PIN_SHA_REQUIRED"),
+                str(reason or "").strip(),
+                created_at,
+                expires_at,
+                cache_pin_id,
+            ),
+        )
+    row = connection.execute(
+        "SELECT * FROM artifact_cache_pins WHERE cache_pin_id = ?",
+        (cache_pin_id,),
+    ).fetchone()
+    return _cache_pin_row_to_dict(row)
+
+
+def release_artifact_cache_pins(
+    cfg: RemoteRunnerConfig,
+    *,
+    pin_ids: list[str],
+    released_at: str | None = None,
+) -> None:
+    with get_connection(cfg) as connection:
+        release_artifact_cache_pins_record(connection, pin_ids=pin_ids, released_at=str(released_at or now_iso()))
+        connection.commit()
+
+
+def release_artifact_cache_pins_record(
+    connection: sqlite3.Connection,
+    *,
+    pin_ids: list[str],
+    released_at: str,
+) -> None:
+    normalized_ids = sorted({_optional_text(pin_id) for pin_id in pin_ids} - {None})
+    if not normalized_ids:
+        return
+    connection.executemany(
+        """
+        UPDATE artifact_cache_pins
+        SET state = 'released', released_at = ?
+        WHERE cache_pin_id = ? AND state = 'active'
+        """,
+        [(released_at, pin_id) for pin_id in normalized_ids],
+    )
+
+
+def list_artifact_cache_pins(
+    cfg: RemoteRunnerConfig,
+    *,
+    cache_entry_id: str | None = None,
+    state: str | None = None,
+    limit: int = 100,
+) -> dict[str, Any]:
+    clauses: list[str] = []
+    params: list[Any] = []
+    normalized_entry_id = _optional_text(cache_entry_id)
+    normalized_state = _optional_text(state)
+    if normalized_entry_id:
+        clauses.append("cache_entry_id = ?")
+        params.append(normalized_entry_id)
+    if normalized_state:
+        clauses.append("state = ?")
+        params.append(normalized_state)
+    where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    requested_limit = min(500, max(1, int(limit)))
+    with get_connection(cfg) as connection:
+        rows = connection.execute(
+            f"""
+            SELECT *
+            FROM artifact_cache_pins
+            {where_sql}
+            ORDER BY created_at DESC, cache_pin_id DESC
+            LIMIT ?
+            """,
+            (*params, requested_limit),
+        ).fetchall()
+    return {"items": [_cache_pin_row_to_dict(row) for row in rows]}
+
+
+def active_artifact_cache_pin_reasons(cfg: RemoteRunnerConfig) -> dict[str, set[str]]:
+    checked_at = now_iso()
+    reasons: dict[str, set[str]] = {}
+    with get_connection(cfg) as connection:
+        rows = connection.execute(
+            """
+            SELECT storage_backend, storage_uri, sha256
+            FROM artifact_cache_pins
+            WHERE state = 'active'
+              AND (expires_at IS NULL OR expires_at = '' OR expires_at > ?)
+            """,
+            (checked_at,),
+        ).fetchall()
+    for row in rows:
+        storage_key = artifact_cache_storage_ref_key(row["storage_backend"], row["storage_uri"], row["sha256"])
+        reasons.setdefault(storage_key, set()).add(ARTIFACT_CACHE_PIN_PROTECTION_REASON)
+    return reasons
+
+
+def artifact_cache_storage_ref_key(storage_backend: str, storage_uri: str, sha256: str) -> str:
+    return f"{storage_backend}\n{storage_uri}\n{sha256}"
+
+
 def mark_artifact_cache_entries_deleted(
     connection: sqlite3.Connection,
     *,
@@ -387,6 +593,34 @@ def _cache_entry_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "lastUsedAt": row["last_used_at"],
         "hitCount": int(row["hit_count"] or 0),
     }
+
+
+def _cache_pin_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "cachePinId": row["cache_pin_id"],
+        "cacheEntryId": row["cache_entry_id"],
+        "cacheKey": row["cache_key"],
+        "artifactBlobId": row["artifact_blob_id"],
+        "storageBackend": row["storage_backend"],
+        "storageUri": row["storage_uri"],
+        "sha256": row["sha256"],
+        "pinScope": row["pin_scope"],
+        "ownerKind": row["owner_kind"],
+        "ownerId": row["owner_id"],
+        "reason": row["reason"],
+        "state": row["state"],
+        "createdAt": row["created_at"],
+        "releasedAt": row["released_at"],
+        "expiresAt": row["expires_at"],
+    }
+
+
+def _expires_at(created_at: str, ttl_seconds: int) -> str:
+    try:
+        base = datetime.strptime(created_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        base = datetime.now(timezone.utc)
+    return (base + timedelta(seconds=max(0, int(ttl_seconds)))).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _digest_json(value: Any) -> str:

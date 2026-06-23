@@ -3,6 +3,7 @@ from __future__ import annotations
 REQUIRED_TABLES = {
     "artifact_blobs",
     "artifact_cache_entries",
+    "artifact_cache_pins",
     "artifact_materializations",
     "artifacts",
     "candidate_outputs",
@@ -51,6 +52,8 @@ REQUIRED_INDEXES = {
     "idx_artifact_materializations_lifecycle",
     "idx_artifact_cache_entries_blob",
     "idx_artifact_cache_entries_revision",
+    "idx_artifact_cache_pins_entry_state",
+    "idx_artifact_cache_pins_object",
     "idx_artifacts_lifecycle",
     "idx_candidate_outputs_attempt_generation_key",
     "idx_evidence_events_chain",

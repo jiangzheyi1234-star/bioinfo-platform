@@ -110,7 +110,7 @@ def test_runtime_layout_records_schema_version_and_migration_ledger(tmp_path: Pa
     assert user_version == CURRENT_SCHEMA_VERSION
     assert migration is not None
     assert migration[0] == CURRENT_SCHEMA_VERSION
-    assert migration[1] == sqlite_migrations.WORKFLOW_TRIGGER_INBOX_PAYLOAD_MIGRATION_NAME
+    assert migration[1] == sqlite_migrations.ARTIFACT_CACHE_PIN_MIGRATION_NAME
     assert migration[2]
     assert reference_table is not None
 
@@ -181,7 +181,7 @@ def test_runtime_schema_migrates_v1_to_current_scheduler_trigger_tables(tmp_path
         "idx_workflow_trigger_events_trigger_created",
         "idx_workflow_trigger_dispatches_state",
     } <= index_names
-    assert migration["name"] == sqlite_migrations.WORKFLOW_TRIGGER_INBOX_PAYLOAD_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.ARTIFACT_CACHE_PIN_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v2_scheduler_trigger_tables(tmp_path: Path) -> None:
@@ -233,7 +233,7 @@ def test_runtime_schema_migrates_v2_scheduler_trigger_tables(tmp_path: Path) -> 
         "workflow_trigger_events",
         "workflow_trigger_dispatches",
     } <= trigger_tables
-    assert migration["name"] == sqlite_migrations.WORKFLOW_TRIGGER_INBOX_PAYLOAD_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.ARTIFACT_CACHE_PIN_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v6_result_package_exports(tmp_path: Path) -> None:
@@ -286,7 +286,7 @@ def test_runtime_schema_migrates_v6_result_package_exports(tmp_path: Path) -> No
         "idx_result_package_exports_result_created",
         "idx_result_package_exports_run_lifecycle",
     } <= indexes
-    assert migration["name"] == sqlite_migrations.WORKFLOW_TRIGGER_INBOX_PAYLOAD_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.ARTIFACT_CACHE_PIN_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v7_result_package_payload_mode(tmp_path: Path) -> None:
@@ -376,7 +376,7 @@ def test_runtime_schema_migrates_v7_result_package_payload_mode(tmp_path: Path) 
     assert {"include_artifacts", "artifact_payload_mode"} <= columns
     assert legacy_row["include_artifacts"] == 1
     assert legacy_row["artifact_payload_mode"] == "included"
-    assert migration["name"] == sqlite_migrations.WORKFLOW_TRIGGER_INBOX_PAYLOAD_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.ARTIFACT_CACHE_PIN_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v8_workflow_trigger_inbox(tmp_path: Path) -> None:
@@ -436,7 +436,7 @@ def test_runtime_schema_migrates_v8_workflow_trigger_inbox(tmp_path: Path) -> No
         "idx_workflow_trigger_inbox_trigger_received",
     } <= indexes
     assert "payload_json" in columns
-    assert migration["name"] == sqlite_migrations.WORKFLOW_TRIGGER_INBOX_PAYLOAD_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.ARTIFACT_CACHE_PIN_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v9_workflow_trigger_inbox_payload(tmp_path: Path) -> None:
@@ -520,7 +520,59 @@ def test_runtime_schema_migrates_v9_workflow_trigger_inbox_payload(tmp_path: Pat
         ).fetchone()
 
     assert "payload_json" in columns
-    assert migration["name"] == sqlite_migrations.WORKFLOW_TRIGGER_INBOX_PAYLOAD_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.ARTIFACT_CACHE_PIN_MIGRATION_NAME
+
+
+def test_runtime_schema_migrates_v10_artifact_cache_pins(tmp_path: Path) -> None:
+    cfg = make_remote_runner_config(tmp_path)
+    db_path = Path(cfg.db_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        connection.executescript(f"{SCHEMA_SQL}\n{REFERENCE_DATABASE_SCHEMA_SQL}")
+        sqlite_migrations._apply_baseline_schema_migration(connection)
+        connection.execute("DROP TABLE IF EXISTS artifact_cache_pins")
+        sqlite_migrations._ensure_schema_migrations_table(connection)
+        connection.execute("DELETE FROM schema_migrations")
+        connection.execute(
+            """
+            INSERT INTO schema_migrations (version, name, checksum, applied_at)
+            VALUES (10, '010_workflow_trigger_inbox_payload', 'legacy-v10', '2099-06-07T10:00:00Z')
+            """
+        )
+        connection.execute("PRAGMA user_version = 10")
+
+    initialize_or_migrate_runtime_db(cfg.db_path)
+    with get_connection(cfg) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == CURRENT_SCHEMA_VERSION
+        table = connection.execute(
+            """
+            SELECT name
+            FROM sqlite_master
+            WHERE type = 'table' AND name = 'artifact_cache_pins'
+            """
+        ).fetchone()
+        index_names = {
+            row["name"]
+            for row in connection.execute(
+                """
+                SELECT name
+                FROM sqlite_master
+                WHERE type = 'index' AND name LIKE 'idx_artifact_cache_pins%'
+                """
+            ).fetchall()
+        }
+        migration = connection.execute(
+            "SELECT name FROM schema_migrations WHERE version = ?",
+            (CURRENT_SCHEMA_VERSION,),
+        ).fetchone()
+
+    assert table is not None
+    assert {
+        "idx_artifact_cache_pins_entry_state",
+        "idx_artifact_cache_pins_object",
+    } <= index_names
+    assert migration["name"] == sqlite_migrations.ARTIFACT_CACHE_PIN_MIGRATION_NAME
 
 
 def test_runtime_schema_rejects_future_user_version(tmp_path: Path) -> None:

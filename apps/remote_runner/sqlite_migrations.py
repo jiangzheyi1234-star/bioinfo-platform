@@ -8,12 +8,16 @@ from pathlib import Path
 from .database_registry_schema import REFERENCE_DATABASE_SCHEMA_SQL
 from .sqlite_artifact_migrations import (
     ensure_artifact_cache,
+    ensure_artifact_cache_pins,
     ensure_artifact_lifecycle,
     ensure_artifact_storage_columns,
-    ensure_result_package_export_payload_mode, ensure_result_package_exports,
+    ensure_result_package_export_payload_mode,
+    ensure_result_package_exports,
+    migrate_artifact_cache_pin_schema,
     migrate_artifact_cache_schema,
     migrate_artifact_lifecycle_schema,
-    migrate_result_package_payload_mode_schema, migrate_result_package_exports_schema,
+    migrate_result_package_payload_mode_schema,
+    migrate_result_package_exports_schema,
 )
 from .sqlite_schema_contract import REQUIRED_INDEXES, REQUIRED_TABLES, REQUIRED_TRIGGERS
 from .sqlite_trigger_migrations import ensure_scheduler_triggers
@@ -26,7 +30,7 @@ from .sqlite_trigger_inbox_migrations import (
 from .storage_schema import SCHEMA_SQL
 from .tool_prepare_reservations import json_object, tool_prepare_job_reservation
 
-CURRENT_SCHEMA_VERSION = 10
+CURRENT_SCHEMA_VERSION = 11
 BASELINE_MIGRATION_NAME = "001_baseline_remote_runner_schema"
 RULE_LEVEL_RUN_STATE_MIGRATION_NAME = "002_rule_level_run_state"
 SCHEDULER_TRIGGER_MIGRATION_NAME = "003_scheduler_triggers"
@@ -37,6 +41,7 @@ RESULT_PACKAGE_EXPORT_MIGRATION_NAME = "007_result_package_exports"
 RESULT_PACKAGE_PAYLOAD_MODE_MIGRATION_NAME = "008_result_package_payload_mode"
 WORKFLOW_TRIGGER_INBOX_MIGRATION_NAME = "009_workflow_trigger_inbox"
 WORKFLOW_TRIGGER_INBOX_PAYLOAD_MIGRATION_NAME = "010_workflow_trigger_inbox_payload"
+ARTIFACT_CACHE_PIN_MIGRATION_NAME = "011_artifact_cache_pins"
 DATABASE_MISSING_ERROR = "REMOTE_RUNNER_SQLITE_DATABASE_MISSING"
 SCHEMA_MIGRATION_REQUIRED_ERROR = "REMOTE_RUNNER_SQLITE_SCHEMA_MIGRATION_REQUIRED"
 SCHEMA_TOO_NEW_ERROR = "REMOTE_RUNNER_SQLITE_SCHEMA_TOO_NEW"
@@ -117,6 +122,14 @@ def migrate_runtime_schema(connection: sqlite3.Connection) -> None:
             connection, record_migration=_record_migration, version=10,
             name=WORKFLOW_TRIGGER_INBOX_PAYLOAD_MIGRATION_NAME,
         )
+        version = read_schema_version(connection)
+    if version == 10:
+        migrate_artifact_cache_pin_schema(
+            connection,
+            record_migration=_record_migration,
+            version=11,
+            name=ARTIFACT_CACHE_PIN_MIGRATION_NAME,
+        )
         return
     if version != 0:
         raise RemoteRunnerSQLiteSchemaError(f"REMOTE_RUNNER_SQLITE_SCHEMA_MIGRATION_MISSING: {version}")
@@ -125,7 +138,7 @@ def migrate_runtime_schema(connection: sqlite3.Connection) -> None:
         connection.executescript(f"BEGIN IMMEDIATE;\n{SCHEMA_SQL}\n{REFERENCE_DATABASE_SCHEMA_SQL}")
         _ensure_schema_migrations_table(connection)
         _apply_baseline_schema_migration(connection)
-        _record_migration(connection, CURRENT_SCHEMA_VERSION, WORKFLOW_TRIGGER_INBOX_PAYLOAD_MIGRATION_NAME)
+        _record_migration(connection, CURRENT_SCHEMA_VERSION, ARTIFACT_CACHE_PIN_MIGRATION_NAME)
         connection.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
         connection.commit()
     except Exception:
@@ -192,7 +205,7 @@ def _record_migration(connection: sqlite3.Connection, version: int, name: str) -
     )
 
 def _baseline_checksum() -> str:
-    payload = f"{CURRENT_SCHEMA_VERSION}:{WORKFLOW_TRIGGER_INBOX_PAYLOAD_MIGRATION_NAME}:{SCHEMA_SQL}:{REFERENCE_DATABASE_SCHEMA_SQL}"
+    payload = f"{CURRENT_SCHEMA_VERSION}:{ARTIFACT_CACHE_PIN_MIGRATION_NAME}:{SCHEMA_SQL}:{REFERENCE_DATABASE_SCHEMA_SQL}"
     return hashlib.sha256(payload.encode()).hexdigest()
 
 def _missing_required_schema_objects(connection: sqlite3.Connection) -> list[str]:
@@ -227,6 +240,7 @@ def _apply_baseline_schema_migration(connection: sqlite3.Connection) -> None:
     ensure_artifact_storage_columns(connection)
     ensure_artifact_lifecycle(connection)
     ensure_artifact_cache(connection)
+    ensure_artifact_cache_pins(connection)
     ensure_result_package_exports(connection)
     ensure_result_package_export_payload_mode(connection)
     ensure_workflow_trigger_inbox(connection)

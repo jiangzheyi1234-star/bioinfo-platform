@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
+from .artifact_cache_storage import active_artifact_cache_pin_reasons, artifact_cache_storage_ref_key
 from .artifact_io import artifact_local_path, delete_artifact_payload
 from .artifact_lifecycle_storage import (
     TERMINAL_RUN_STATUSES,
@@ -120,6 +121,7 @@ def run_artifact_gc(cfg: RemoteRunnerConfig, payload: dict[str, Any] | None = No
     executed_at = now_iso()
     for item in plan["candidates"]:
         try:
+            _require_candidate_not_pinned(cfg, item)
             deletion = delete_artifact_payload(cfg, item)
             _mark_candidate_deleted(cfg, item, deleted_at=executed_at, reason=policy.reason)
             deleted.append({**item, "payloadDeleted": bool(deletion["deleted"])})
@@ -181,6 +183,7 @@ def _build_gc_plan(cfg: RemoteRunnerConfig, policy: GcPolicy) -> dict[str, Any]:
     cutoff = _utc_now() - timedelta(days=policy.retention_days)
     rows = list_artifact_lifecycle_rows(cfg)
     ref_reasons = lifecycle_reference_reasons(cfg)
+    cache_pin_reasons = active_artifact_cache_pin_reasons(cfg)
     groups = _unique_storage_groups(rows)
     candidates: list[dict[str, Any]] = []
     protected: list[dict[str, Any]] = []
@@ -199,6 +202,7 @@ def _build_gc_plan(cfg: RemoteRunnerConfig, policy: GcPolicy) -> dict[str, Any]:
                     policy=policy,
                     cutoff=cutoff,
                     ref_reasons=ref_reasons,
+                    cache_pin_reasons=cache_pin_reasons,
                 )
             }
         )
@@ -240,6 +244,7 @@ def _record_protection_reasons(
     policy: GcPolicy,
     cutoff: datetime,
     ref_reasons: dict[str, set[str]],
+    cache_pin_reasons: dict[str, set[str]],
 ) -> list[str]:
     reasons: list[str] = []
     run_id = str(row.get("runId") or "").strip()
@@ -251,6 +256,7 @@ def _record_protection_reasons(
     elif run_status not in policy.run_statuses:
         reasons.append("status_not_selected")
     reasons.extend(sorted(ref_reasons.get(run_id, set())))
+    reasons.extend(sorted(cache_pin_reasons.get(_storage_ref_key(row), set())))
     terminal_at = _terminal_at(row)
     if terminal_at is None:
         reasons.append("terminal_time_missing")
@@ -263,6 +269,19 @@ def _record_protection_reasons(
         reasons.append("materialization_not_active")
     reasons.extend(_storage_safety_reasons(cfg, row))
     return reasons
+
+
+def _require_candidate_not_pinned(cfg: RemoteRunnerConfig, item: dict[str, Any]) -> None:
+    reasons = active_artifact_cache_pin_reasons(cfg).get(
+        artifact_cache_storage_ref_key(
+            str(item.get("storageBackend") or ""),
+            str(item.get("storageUri") or ""),
+            str(item.get("sha256") or ""),
+        ),
+        set(),
+    )
+    if reasons:
+        raise ValueError(f"ARTIFACT_GC_CANDIDATE_PINNED: {','.join(sorted(reasons))}")
 
 
 def _storage_safety_reasons(cfg: RemoteRunnerConfig, row: dict[str, Any]) -> list[str]:
@@ -282,6 +301,14 @@ def _storage_safety_reasons(cfg: RemoteRunnerConfig, row: dict[str, Any]) -> lis
     if backend == "s3":
         return [] if _is_managed_s3_uri(cfg, str(row.get("storageUri") or "")) else ["unmanaged_s3_object"]
     return ["storage_backend_unsupported"]
+
+
+def _storage_ref_key(row: dict[str, Any]) -> str:
+    return artifact_cache_storage_ref_key(
+        str(row.get("storageBackend") or ""),
+        str(row.get("storageUri") or ""),
+        str(row.get("sha256") or ""),
+    )
 
 
 def _candidate_item(group: dict[str, Any], *, policy: GcPolicy) -> dict[str, Any]:

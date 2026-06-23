@@ -1,18 +1,24 @@
 from __future__ import annotations
 
 import base64
+import json
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from apps.remote_runner.artifact_cache_storage import (
+    ARTIFACT_CACHE_PIN_PROTECTION_REASON,
+    ARTIFACT_CACHE_RESTORE_PIN_OWNER_KIND,
+    ARTIFACT_CACHE_RESTORE_PIN_SCOPE,
+    create_artifact_cache_pins,
     list_artifact_cache_entries,
+    list_artifact_cache_pins,
     lookup_artifact_cache_entry,
 )
 from apps.remote_runner.artifact_cache_adoption import try_adopt_cached_outputs
 from apps.remote_runner.artifact_ledger_storage import list_artifact_materializations
-from apps.remote_runner.artifact_lifecycle_service import ARTIFACT_GC_CONFIRMATION, run_artifact_gc
+from apps.remote_runner.artifact_lifecycle_service import ARTIFACT_GC_CONFIRMATION, preview_artifact_gc, run_artifact_gc
 from apps.remote_runner.evidence_storage import list_evidence_events
 from apps.remote_runner.execution_query_storage import fetch_run_results
 from apps.remote_runner.run_execution_storage import claim_next_run_job
@@ -195,6 +201,39 @@ def test_artifact_cache_marks_entry_deleted_after_gc(tmp_path: Path) -> None:
     assert lookup["reason"] == "cache_entry_not_active"
 
 
+def test_artifact_cache_pin_protects_cached_storage_object_from_gc(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    revision = _create_revision(cfg)
+    run_spec = _run_spec("run_cache_pin_gc", revision["workflowRevisionId"])
+    _create_terminal_run(cfg, run_spec)
+    persist_artifact(
+        cfg,
+        run_id="run_cache_pin_gc",
+        kind="report",
+        path=_managed_report(cfg, "run_cache_pin_gc", b"pinned cache\n"),
+        mime_type="text/plain",
+        artifact_key="report",
+        step_id="summarize",
+    )
+    lookup = lookup_artifact_cache_entry(cfg, _lookup_payload(revision["workflowRevisionId"]))
+    pins = create_artifact_cache_pins(
+        cfg,
+        entries=[lookup["entry"]],
+        pin_scope="policy",
+        owner_kind="operator",
+        owner_id="retain-cache-object",
+        reason="operator-retain",
+        ttl_seconds=None,
+    )
+
+    plan = preview_artifact_gc(cfg, {"retentionDays": 30})
+
+    assert pins[0]["state"] == "active"
+    assert plan["candidateCount"] == 0
+    assert plan["protected"][0]["storageUri"] == lookup["entry"]["storageUri"]
+    assert ARTIFACT_CACHE_PIN_PROTECTION_REASON in plan["protected"][0]["reasons"]
+
+
 def test_artifact_cache_hit_adopts_cached_artifact_for_current_attempt(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     revision = _create_revision(cfg)
@@ -228,6 +267,7 @@ def test_artifact_cache_hit_adopts_cached_artifact_for_current_attempt(tmp_path:
     results = fetch_run_results(cfg, "run_cache_adopt")
     events = list_evidence_events(cfg, event_type="artifact.cache.adopt.v1")
     materializations = list_artifact_materializations(cfg, source["artifactBlobId"])
+    pins = list_artifact_cache_pins(cfg, cache_entry_id=events[-1]["payload"]["cacheEntryId"])["items"]
     with get_connection(cfg) as connection:
         run = connection.execute(
             "SELECT status, stage FROM runs WHERE run_id = ?",
@@ -241,6 +281,17 @@ def test_artifact_cache_hit_adopts_cached_artifact_for_current_attempt(tmp_path:
             "SELECT predicate, workflow_revision_id FROM lineage_edges WHERE run_id = ?",
             ("run_cache_adopt",),
         ).fetchone()
+        run_event = connection.execute(
+            """
+            SELECT details_json
+            FROM run_events
+            WHERE run_id = ? AND event_type = 'status-transition'
+            ORDER BY seq DESC
+            LIMIT 1
+            """,
+            ("run_cache_adopt",),
+        ).fetchone()
+    run_event_payload = json.loads(run_event["details_json"])["payload"]
 
     assert adopted["adopted"] is True
     assert adopted["reason"] == "cache_hit"
@@ -261,6 +312,18 @@ def test_artifact_cache_hit_adopts_cached_artifact_for_current_attempt(tmp_path:
     assert events[-1]["payload"]["artifactId"] == results["artifacts"][0]["artifactId"]
     assert events[-1]["payload"]["sourceStorageUri"] == source["storageUri"]
     assert events[-1]["payload"]["localPath"] == str(restored_path.resolve())
+    assert adopted["cachePinIds"] == [pins[0]["cachePinId"]]
+    assert pins[0]["pinScope"] == ARTIFACT_CACHE_RESTORE_PIN_SCOPE
+    assert pins[0]["ownerKind"] == ARTIFACT_CACHE_RESTORE_PIN_OWNER_KIND
+    assert pins[0]["ownerId"] == f"{claim['attemptId']}:{claim['leaseGeneration']}"
+    assert pins[0]["state"] == "released"
+    assert pins[0]["releasedAt"]
+    assert events[-1]["payload"]["cachePinId"] == pins[0]["cachePinId"]
+    assert run_event_payload["cachePinIds"] == adopted["cachePinIds"]
+    assert run_event_payload["restoredPaths"] == [str(restored_path.resolve())]
+    assert run_event_payload["restoredMaterializationIds"] == [
+        events[-1]["payload"]["restoredMaterializationId"]
+    ]
 
 
 def test_artifact_cache_adoption_skips_when_cached_payload_is_unavailable(tmp_path: Path) -> None:
