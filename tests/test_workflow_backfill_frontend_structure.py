@@ -26,18 +26,30 @@ def test_backfill_launches_have_read_only_frontend_surface() -> None:
     assert "WorkflowBackfillLaunchDetail" in model
     assert "WorkflowBackfillPartitionSummary" in model
     assert "WorkflowBackfillConcurrency" in model
+    assert "operationCapabilities" in model
+    assert "WorkflowBackfillCancelResponse" in model
     assert "fetchWorkflowBackfillLaunches" in api
     assert "fetchWorkflowBackfillLaunch(" in api
+    assert "cancelWorkflowBackfillLaunch" in api
     assert "/api/v1/workflow-backfill-launches" in api
+    assert "/cancel" in api
+    assert '"cancel-backfill"' in api
     assert "requestLocalApiJson<WorkflowBackfillLaunchListResponse>" in api
     assert "requestLocalApiJson<WorkflowBackfillLaunchDetailResponse>" in api
+    assert "requestLocalApiJson<WorkflowBackfillCancelResponse>" in api
     assert "limit: 50" in page
     assert "window.setInterval(() => void loadDetail(true), 5000)" in page
+    assert "cancelWorkflowBackfillLaunch(launchId)" in page
+    assert "window.confirm" in page
     assert "fetchWorkflowBackfillLaunches().catch" in results
     assert 'href="/workflows/results/backfills"' in results
     assert 'href={`/workflows/results/detail?run=${encodeURIComponent(partition.runId)}`}' in panel
     assert "detail.concurrency?.enforced ? \"强制\" : \"未强制\"" in panel
     assert "幂等命中" in panel
+    assert "请求取消" in panel
+    assert "detail.operationCapabilities?.cancel === true" in panel
+    assert "canceling" in panel
+    assert "cancel_requested" in panel
     assert "runSpecHash" in panel
     assert "triggerEventId" in panel
 

@@ -15,6 +15,7 @@ from apps.api.models import (
     ToolManifestRequest,
     ToolProductionEvidenceRequest,
     UploadSubmitRequest,
+    WorkflowBackfillCancelRequest,
     WorkflowDesignDraftCompileRequest,
     WorkflowTriggerBackfillLaunchRequest,
     WorkflowTriggerBackfillPreviewRequest,
@@ -354,6 +355,32 @@ def test_workflow_trigger_backfill_launch_request_requires_confirmation() -> Non
     errors = exc_info.value.errors()
     assert any(error["type"] == "literal_error" and error["loc"] == ("confirmation",) for error in errors)
     assert any(error["type"] == "extra_forbidden" and error["loc"] == ("legacyMode",) for error in errors)
+
+
+def test_workflow_backfill_cancel_request_requires_confirmation() -> None:
+    request = WorkflowBackfillCancelRequest.model_validate(
+        {
+            "serverId": "srv_primary",
+            "confirmation": "cancel-backfill",
+            "actor": "operator",
+        }
+    )
+
+    assert request.serverId == "srv_primary"
+    assert request.confirmation == "cancel-backfill"
+    assert request.actor == "operator"
+
+    with pytest.raises(ValidationError) as exc_info:
+        WorkflowBackfillCancelRequest.model_validate(
+            {
+                "confirmation": "cancel",
+                "legacyCancel": True,
+            }
+        )
+
+    errors = exc_info.value.errors()
+    assert any(error["type"] == "literal_error" and error["loc"] == ("confirmation",) for error in errors)
+    assert any(error["type"] == "extra_forbidden" and error["loc"] == ("legacyCancel",) for error in errors)
 
 
 def test_workflow_trigger_readiness_event_request_is_strict_and_typed() -> None:

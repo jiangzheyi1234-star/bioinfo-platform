@@ -25,20 +25,26 @@ import type {
 } from "./workflow-backfill-model";
 
 export function WorkflowBackfillLaunchPanel({
+  cancelingLaunchId,
   detail,
   detailLoading,
   error,
   launches,
   loading,
+  notice,
+  onCancelLaunch,
   onRefresh,
   onSelectLaunch,
   selectedLaunchId,
 }: {
+  cancelingLaunchId: string;
   detail: WorkflowBackfillLaunchDetail | null;
   detailLoading: boolean;
   error: string;
   launches: WorkflowBackfillLaunch[];
   loading: boolean;
+  notice: string;
+  onCancelLaunch: (launchId: string) => void;
   onRefresh: () => void;
   onSelectLaunch: (launchId: string) => void;
   selectedLaunchId: string;
@@ -64,6 +70,15 @@ export function WorkflowBackfillLaunchPanel({
           <Alert variant="destructive">
             <AlertCircle strokeWidth={1.5} className="h-4 w-4" />
             <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        </div>
+      ) : null}
+
+      {notice ? (
+        <div className="px-4 pt-4">
+          <Alert>
+            <CheckCircle2 strokeWidth={1.5} className="h-4 w-4" />
+            <AlertDescription>{notice}</AlertDescription>
           </Alert>
         </div>
       ) : null}
@@ -120,7 +135,11 @@ export function WorkflowBackfillLaunchPanel({
                 正在读取分区状态
               </div>
             ) : detail ? (
-              <BackfillDetail detail={detail} />
+              <BackfillDetail
+                canceling={cancelingLaunchId === detail.launchId}
+                detail={detail}
+                onCancelLaunch={onCancelLaunch}
+              />
             ) : (
               <div className="py-12 text-center text-sm text-slate-400">选择一个回填批次</div>
             )}
@@ -131,11 +150,42 @@ export function WorkflowBackfillLaunchPanel({
   );
 }
 
-function BackfillDetail({ detail }: { detail: WorkflowBackfillLaunchDetail }) {
+function BackfillDetail({
+  canceling,
+  detail,
+  onCancelLaunch,
+}: {
+  canceling: boolean;
+  detail: WorkflowBackfillLaunchDetail;
+  onCancelLaunch: (launchId: string) => void;
+}) {
   const summary = detail.partitionSummary || {};
   const partitions = detail.partitions || [];
+  const canCancel = detail.operationCapabilities?.cancel === true;
   return (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="font-mono text-xs font-medium text-slate-700">{detail.launchId}</div>
+        </div>
+        {canCancel ? (
+          <Button
+            type="button"
+            variant="outline"
+            className="h-8 border-red-200 bg-white px-2.5 text-xs text-red-700 hover:bg-red-50 hover:text-red-800"
+            disabled={canceling}
+            onClick={() => onCancelLaunch(detail.launchId)}
+          >
+            {canceling ? (
+              <Loader2 strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <XCircle strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            请求取消
+          </Button>
+        ) : null}
+      </div>
+
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <DetailMetric label="分区" value={String(summary.partitionCount ?? detail.partitionCount ?? 0)} />
         <DetailMetric label="运行" value={String(summary.submittedRunCount ?? 0)} />
@@ -279,7 +329,7 @@ function StatusIcon({ status }: { status?: string }) {
   if (s === "replayed") {
     return <RotateCcw strokeWidth={1.5} className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />;
   }
-  if (s === "launching" || s === "pending") {
+  if (s === "launching" || s === "pending" || s === "canceling" || s === "cancel_requested") {
     return <Loader2 strokeWidth={1.5} className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-blue-500" />;
   }
   return <Clock strokeWidth={1.5} className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />;
@@ -291,7 +341,9 @@ function statusStyle(status: string | undefined) {
     return "border-emerald-200 bg-emerald-50 text-emerald-700";
   }
   if (s === "failed" || s === "error") return "border-red-200 bg-red-50 text-red-700";
-  if (s === "launching" || s === "pending" || s === "running") return "border-blue-200 bg-blue-50 text-blue-700";
+  if (s === "launching" || s === "pending" || s === "running" || s === "canceling" || s === "cancel_requested") {
+    return "border-blue-200 bg-blue-50 text-blue-700";
+  }
   if (s === "replayed") return "border-amber-200 bg-amber-50 text-amber-700";
   return "border-slate-200 bg-slate-50 text-slate-600";
 }
@@ -302,6 +354,8 @@ function statusLabel(status: string | undefined) {
   if (s === "submitted") return "已提交";
   if (s === "pending") return "待提交";
   if (s === "launching") return "提交中";
+  if (s === "canceling") return "取消中";
+  if (s === "cancel_requested") return "取消请求已发出";
   return status || "unknown";
 }
 

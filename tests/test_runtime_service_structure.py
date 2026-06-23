@@ -357,6 +357,7 @@ def test_runtime_execution_operations_live_in_dedicated_mixin() -> None:
         "list_workflow_trigger_events",
         "list_workflow_backfill_launches",
         "get_workflow_backfill_launch",
+        "cancel_workflow_backfill_launch",
         "get_run",
         "retry_run",
         "get_run_events",
@@ -399,6 +400,7 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "self.execution.submit_workflow_trigger_readiness_event(" in execution_ops_source
     assert "self.execution.launch_workflow_trigger_backfill(" in execution_ops_source
     assert "self.execution.preview_workflow_trigger_backfill(" in execution_ops_source
+    assert "self.execution.cancel_workflow_backfill_launch(" in execution_ops_source
     assert "self.execution.list_workflow_backfill_launches(" in execution_ops_source
     assert "self.execution.get_workflow_backfill_launch(" in execution_ops_source
     assert "self.execution.retry_run(" in execution_ops_source
@@ -408,6 +410,7 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "manager.submit_workflow_trigger_readiness_event" in execution_manager_source
     assert "manager.launch_workflow_trigger_backfill" in execution_manager_source
     assert "manager.preview_workflow_trigger_backfill" in execution_manager_source
+    assert "manager.cancel_workflow_backfill_launch" in execution_manager_source
     assert 'self.call_runner(\n                "list_workflow_backfill_launches",' in execution_manager_source
     assert 'self.call_runner(\n                "get_workflow_backfill_launch",' in execution_manager_source
     assert "self.execution.get_result_audit(" in execution_ops_source

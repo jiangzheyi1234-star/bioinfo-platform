@@ -210,6 +210,15 @@ HIGH_RISK_API_POLICIES: tuple[ApiGovernancePolicy, ...] = (
     ),
     remote_policy(
         "POST",
+        "/api/v1/workflow-backfill-launches/{launch_id}/cancel",
+        "apps/remote_runner/workflow_trigger_routes.py",
+        "workflow_trigger.backfill_cancel",
+        "workflow_backfill_launch",
+        "implemented",
+        "workflow-operator",
+    ),
+    remote_policy(
+        "POST",
         "/api/v1/tools",
         "apps/remote_runner/tool_routes.py",
         "tool.create",

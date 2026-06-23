@@ -5,6 +5,7 @@ import uuid
 from typing import Any
 
 from .api_models import (
+    WorkflowBackfillCancelRequest,
     WorkflowTriggerBackfillLaunchRequest,
     WorkflowTriggerBackfillPreviewRequest,
     WorkflowTriggerCreateRequest,
@@ -19,6 +20,7 @@ from .health_service import ensure_execution_admission_ready, ensure_submission_
 from .pipeline import get_pipeline, validate_run_spec_for_pipeline
 from .preflight import preflight_run_spec
 from .route_utils import request_payload
+from .run_execution_storage import request_run_cancel
 from .storage import canonical_payload_hash
 from .workflow_backfill_planner import (
     backfill_launch_id,
@@ -36,7 +38,9 @@ from .trigger_storage import (
 )
 from .workflow_backfill_storage import (
     list_workflow_backfill_launches,
+    mark_workflow_backfill_launch_canceling,
     mark_workflow_backfill_launch_finished,
+    mark_workflow_backfill_partition_cancel_requested,
     mark_workflow_backfill_partition_failed,
     mark_workflow_backfill_partition_submitted,
     record_workflow_backfill_launch,
@@ -56,6 +60,8 @@ READINESS_RESOURCE_TYPES_BY_SOURCE = {
     "database_ready": "database",
 }
 BACKFILL_LAUNCH_CONFIRMATION = "launch-backfill"
+BACKFILL_CANCEL_CONFIRMATION = "cancel-backfill"
+BACKFILL_CANCEL_SKIP_STATUSES = {"completed", "failed", "canceled", "cancelled", "canceling"}
 
 
 def create_workflow_trigger_from_request(
@@ -123,6 +129,89 @@ def list_workflow_backfill_launches_from_storage(
 
 def get_workflow_backfill_launch_from_storage(cfg: RemoteRunnerConfig, launch_id: str) -> dict[str, Any]:
     return {"data": require_workflow_backfill_launch(cfg, launch_id)}
+
+
+def cancel_workflow_backfill_launch_from_request(
+    cfg: RemoteRunnerConfig,
+    launch_id: str,
+    request: WorkflowBackfillCancelRequest,
+) -> dict[str, Any]:
+    if request.confirmation != BACKFILL_CANCEL_CONFIRMATION:
+        raise ValueError("WORKFLOW_BACKFILL_CANCEL_CONFIRMATION_REQUIRED")
+    launch = require_workflow_backfill_launch(cfg, launch_id)
+    actor = str(request.actor or "remote-runner-api")
+    requested: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    for partition in launch.get("partitions") or []:
+        run = partition.get("run") if isinstance(partition.get("run"), dict) else {}
+        run_id = str((run or {}).get("runId") or partition.get("runId") or "").strip()
+        status = str((run or {}).get("status") or "").strip().lower()
+        partition_id = str(partition.get("partitionId") or "")
+        if not run_id:
+            skipped.append(_backfill_cancel_skip(partition, reason="no_run"))
+            continue
+        if status in BACKFILL_CANCEL_SKIP_STATUSES:
+            skipped.append(_backfill_cancel_skip(partition, reason=f"run_{status or 'unknown'}"))
+            continue
+        cancel = request_run_cancel(cfg, run_id, actor=actor)
+        mark_workflow_backfill_partition_cancel_requested(cfg, partition_id=partition_id)
+        requested.append(
+            {
+                "partitionId": partition_id,
+                "partitionKey": partition.get("partitionKey"),
+                "runId": run_id,
+                "previousRunStatus": status,
+                "status": cancel["status"],
+                "stage": cancel["stage"],
+                "commandId": cancel["commandId"],
+                "attemptId": cancel.get("attemptId"),
+                "cancelRequestedAt": cancel["cancelRequestedAt"],
+            }
+        )
+        record_governance_audit_event(
+            cfg,
+            action="run.cancel",
+            actor=actor,
+            subject_kind="run",
+            subject_id=run_id,
+            details={
+                "status": cancel["status"],
+                "stage": cancel["stage"],
+                "commandId": cancel["commandId"],
+                "attemptId": str(cancel.get("attemptId") or ""),
+                "cancelRequestedAt": cancel["cancelRequestedAt"],
+                "workflowBackfillLaunchId": launch["launchId"],
+                "workflowBackfillPartitionId": partition_id,
+            },
+        )
+    if requested:
+        launch = mark_workflow_backfill_launch_canceling(cfg, launch_id=str(launch["launchId"]))
+    record_governance_audit_event(
+        cfg,
+        action="workflow_trigger.backfill_cancel",
+        actor=actor,
+        subject_kind="workflow_backfill_launch",
+        subject_id=str(launch["launchId"]),
+        details={
+            "triggerId": launch["triggerId"],
+            "requestedCancelCount": len(requested),
+            "skippedPartitionCount": len(skipped),
+            "launchState": launch["state"],
+        },
+    )
+    return {
+        "data": {
+            "schemaVersion": "workflow-backfill-cancel.v1",
+            "launchId": launch["launchId"],
+            "triggerId": launch["triggerId"],
+            "state": launch["state"],
+            "requestedCancelCount": len(requested),
+            "skippedPartitionCount": len(skipped),
+            "requested": requested,
+            "skipped": skipped,
+            "detail": require_workflow_backfill_launch(cfg, str(launch["launchId"])),
+        }
+    }
 
 
 def submit_workflow_trigger_event_from_request(
@@ -459,6 +548,17 @@ def launch_workflow_trigger_backfill_from_request(
             "replayedRunCount": replayed_count,
             "partitions": launched,
         }
+    }
+
+
+def _backfill_cancel_skip(partition: dict[str, Any], *, reason: str) -> dict[str, Any]:
+    run = partition.get("run") if isinstance(partition.get("run"), dict) else {}
+    return {
+        "partitionId": partition.get("partitionId"),
+        "partitionKey": partition.get("partitionKey"),
+        "runId": (run or {}).get("runId") or partition.get("runId"),
+        "runStatus": (run or {}).get("status"),
+        "reason": reason,
     }
 
 

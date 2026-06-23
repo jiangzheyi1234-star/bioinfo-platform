@@ -121,6 +121,11 @@ class WorkflowTriggerBackfillLaunchRequest(WorkflowTriggerBackfillPreviewRequest
     actor: str | None = None
 
 
+class WorkflowBackfillCancelRequest(RemoteRunnerRequest):
+    confirmation: Literal["cancel-backfill"]
+    actor: str | None = None
+
+
 class ArtifactGcPreviewRequest(RemoteRunnerRequest):
     retentionDays: int = Field(default=30, ge=0)
     eligibleRunStatuses: list[str] = Field(

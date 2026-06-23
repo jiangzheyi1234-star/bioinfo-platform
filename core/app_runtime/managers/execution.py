@@ -197,6 +197,24 @@ class ExecutionManager(BaseRuntimeManager):
             )
         }
 
+    def cancel_workflow_backfill_launch(
+        self,
+        launch_id: str,
+        payload: Optional[dict[str, Any]] = None,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        body = dict(payload or {})
+        server_id_hint = str(body.pop("serverId", None) or server_id or "").strip() or None
+        manager, resolved_server_id, ssh, record = self._runner_context(preferred_server_id=server_id_hint)
+        return self._service._call_remote_runner(
+            manager.cancel_workflow_backfill_launch,
+            server_id=resolved_server_id,
+            ssh_service=ssh,
+            server_record=record,
+            launch_id=launch_id,
+            payload=body,
+        )
+
     def list_governance_audit_events(
         self,
         *,

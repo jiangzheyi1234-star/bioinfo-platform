@@ -217,6 +217,9 @@ class RemoteRunnerHttpClient:
     def get_workflow_backfill_launch(self, launch_id: str) -> dict[str, Any]:
         return self.get_json(f"/api/v1/workflow-backfill-launches/{launch_id}")["data"]
 
+    def cancel_workflow_backfill_launch(self, launch_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.post_json(f"/api/v1/workflow-backfill-launches/{launch_id}/cancel", payload)["data"]
+
     def list_governance_audit_events(
         self,
         *,

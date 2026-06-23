@@ -5,6 +5,7 @@ import asyncio
 from fastapi import Response
 
 from apps.api.models import (
+    WorkflowBackfillCancelRequest,
     WorkflowTriggerBackfillLaunchRequest,
     WorkflowTriggerBackfillPreviewRequest,
     WorkflowTriggerCreateRequest,
@@ -14,6 +15,7 @@ from apps.api.models import (
 )
 from apps.api.response_cache import invalidate_response_cache
 from apps.api.workflow_trigger_routes import (
+    cancel_workflow_backfill_launch,
     create_workflow_trigger,
     get_workflow_backfill_launch,
     launch_workflow_trigger_backfill,
@@ -122,6 +124,13 @@ def test_workflow_trigger_routes_preserve_runtime_wrappers_and_submit_headers(mo
             serverId="srv_primary",
         )
     )
+    backfill_cancel = asyncio.run(
+        cancel_workflow_backfill_launch(
+            "bfl_demo",
+            WorkflowBackfillCancelRequest(confirmation="cancel-backfill", actor="operator"),
+            serverId="srv_primary",
+        )
+    )
 
     assert triggers == {"data": {"items": [{"triggerId": "wtr_demo"}]}}
     assert created == {"data": {"triggerId": "wtr_demo", "sourceType": "manual"}}
@@ -171,6 +180,14 @@ def test_workflow_trigger_routes_preserve_runtime_wrappers_and_submit_headers(mo
             "triggerId": "wtr_demo",
             "launchedRunCount": 2,
             "partitions": [],
+        }
+    }
+    assert backfill_cancel == {
+        "data": {
+            "schemaVersion": "workflow-backfill-cancel.v1",
+            "launchId": "bfl_demo",
+            "requestedCancelCount": 1,
+            "skippedPartitionCount": 0,
         }
     }
 
@@ -324,5 +341,18 @@ class FakeTriggerRuntime:
                 "triggerId": "wtr_demo",
                 "launchedRunCount": 2,
                 "partitions": [],
+            }
+        }
+
+    def cancel_workflow_backfill_launch(self, launch_id, payload, *, server_id=None):
+        assert launch_id == "bfl_demo"
+        assert payload == {"confirmation": "cancel-backfill", "actor": "operator"}
+        assert server_id == "srv_primary"
+        return {
+            "data": {
+                "schemaVersion": "workflow-backfill-cancel.v1",
+                "launchId": "bfl_demo",
+                "requestedCancelCount": 1,
+                "skippedPartitionCount": 0,
             }
         }

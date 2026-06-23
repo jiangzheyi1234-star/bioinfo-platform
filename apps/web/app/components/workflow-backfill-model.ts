@@ -5,6 +5,8 @@ export type WorkflowBackfillPartitionSummary = {
   failedPartitionCount?: number;
   pendingPartitionCount?: number;
   replayedPartitionCount?: number;
+  cancelRequestedPartitionCount?: number;
+  cancellableRunCount?: number;
 };
 
 export type WorkflowBackfillConcurrency = {
@@ -43,6 +45,13 @@ export type WorkflowBackfillLaunch = {
   launchStrategy?: string;
   concurrency?: WorkflowBackfillConcurrency;
   partitionSummary?: WorkflowBackfillPartitionSummary;
+  operationCapabilities?: {
+    cancel?: boolean;
+    cancelReason?: string;
+    replay?: boolean;
+    deadLetter?: boolean;
+    concurrencyEnforced?: boolean;
+  };
 };
 
 export type WorkflowBackfillPartition = {
@@ -94,4 +103,18 @@ export type WorkflowBackfillLaunchListResponse = {
 
 export type WorkflowBackfillLaunchDetailResponse = {
   data: WorkflowBackfillLaunchDetail;
+};
+
+export type WorkflowBackfillCancelResponse = {
+  data: {
+    schemaVersion?: string;
+    launchId: string;
+    triggerId?: string;
+    state?: string;
+    requestedCancelCount?: number;
+    skippedPartitionCount?: number;
+    requested?: Array<Record<string, unknown>>;
+    skipped?: Array<Record<string, unknown>>;
+    detail?: WorkflowBackfillLaunchDetail;
+  };
 };

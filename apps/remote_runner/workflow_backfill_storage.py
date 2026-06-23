@@ -11,6 +11,7 @@ from .storage_core import get_connection, now_iso
 
 BACKFILL_LAUNCH_LIST_SCHEMA = "workflow-backfill-launch-list.v1"
 BACKFILL_LAUNCH_DETAIL_SCHEMA = "workflow-backfill-launch-detail.v1"
+TERMINAL_OR_CANCELING_RUN_STATUSES = {"completed", "failed", "canceled", "cancelled", "canceling"}
 
 
 def record_workflow_backfill_launch(
@@ -190,6 +191,29 @@ def mark_workflow_backfill_partition_failed(
         return _partition_row_to_dict(row, created=False)
 
 
+def mark_workflow_backfill_partition_cancel_requested(
+    cfg: RemoteRunnerConfig,
+    *,
+    partition_id: str,
+) -> dict[str, Any]:
+    timestamp = now_iso()
+    with get_connection(cfg) as connection:
+        connection.execute(
+            """
+            UPDATE workflow_backfill_partitions
+            SET state = 'cancel_requested', updated_at = ?
+            WHERE partition_id = ?
+            """,
+            (timestamp, partition_id),
+        )
+        connection.commit()
+        row = connection.execute(
+            "SELECT * FROM workflow_backfill_partitions WHERE partition_id = ?",
+            (partition_id,),
+        ).fetchone()
+        return _partition_row_to_dict(row, created=False)
+
+
 def mark_workflow_backfill_launch_finished(
     cfg: RemoteRunnerConfig,
     *,
@@ -205,6 +229,29 @@ def mark_workflow_backfill_launch_finished(
             WHERE launch_id = ?
             """,
             (state, timestamp, launch_id),
+        )
+        connection.commit()
+        row = connection.execute(
+            "SELECT * FROM workflow_backfill_launches WHERE launch_id = ?",
+            (launch_id,),
+        ).fetchone()
+        return _launch_row_to_dict(row, created=False)
+
+
+def mark_workflow_backfill_launch_canceling(
+    cfg: RemoteRunnerConfig,
+    *,
+    launch_id: str,
+) -> dict[str, Any]:
+    timestamp = now_iso()
+    with get_connection(cfg) as connection:
+        connection.execute(
+            """
+            UPDATE workflow_backfill_launches
+            SET state = 'canceling', updated_at = ?
+            WHERE launch_id = ?
+            """,
+            (timestamp, launch_id),
         )
         connection.commit()
         row = connection.execute(
@@ -239,16 +286,19 @@ def list_workflow_backfill_launches(
             """,
             tuple(params),
         ).fetchall()
-        items = [
-            {
-                **_launch_row_to_dict(row, created=None),
-                "partitionSummary": _partition_summary(
-                    _partition_row_to_dict(item, created=None)
-                    for item in _partition_rows_for_launch(connection, str(row["launch_id"]))
-                ),
-            }
-            for row in launches
-        ]
+        items = []
+        for row in launches:
+            partitions = [
+                _partition_row_to_dict(item, created=None)
+                for item in _partition_rows_for_launch(connection, str(row["launch_id"]))
+            ]
+            items.append(
+                {
+                    **_launch_row_to_dict(row, created=None),
+                    "partitionSummary": _partition_summary(partitions),
+                    "operationCapabilities": _operation_capabilities(partitions),
+                }
+            )
     return {"schemaVersion": BACKFILL_LAUNCH_LIST_SCHEMA, "items": items}
 
 
@@ -268,6 +318,7 @@ def fetch_workflow_backfill_launch(cfg: RemoteRunnerConfig, launch_id: str) -> d
         **_launch_row_to_dict(launch, created=None),
         "schemaVersion": BACKFILL_LAUNCH_DETAIL_SCHEMA,
         "partitionSummary": _partition_summary(partitions),
+        "operationCapabilities": _operation_capabilities(partitions),
         "partitions": partitions,
     }
 
@@ -405,7 +456,27 @@ def _partition_summary(partitions: Any) -> dict[str, Any]:
         "failedPartitionCount": by_state.get("failed", 0),
         "pendingPartitionCount": by_state.get("pending", 0),
         "replayedPartitionCount": by_state.get("replayed", 0),
+        "cancelRequestedPartitionCount": by_state.get("cancel_requested", 0),
+        "cancellableRunCount": sum(1 for item in items if _partition_has_cancellable_run(item)),
     }
+
+
+def _operation_capabilities(partitions: list[dict[str, Any]]) -> dict[str, Any]:
+    cancellable = any(_partition_has_cancellable_run(item) for item in partitions)
+    return {
+        "cancel": cancellable,
+        "cancelReason": "active-partition-runs" if cancellable else "no-cancellable-partition-runs",
+        "replay": False,
+        "deadLetter": False,
+        "concurrencyEnforced": False,
+    }
+
+
+def _partition_has_cancellable_run(partition: dict[str, Any]) -> bool:
+    run = partition.get("run") if isinstance(partition.get("run"), dict) else {}
+    run_id = str((run or {}).get("runId") or partition.get("runId") or "").strip()
+    status = str((run or {}).get("status") or "").strip().lower()
+    return bool(run_id and status and status not in TERMINAL_OR_CANCELING_RUN_STATUSES)
 
 
 def _payload_hash(payload: dict[str, Any]) -> str:

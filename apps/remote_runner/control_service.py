@@ -10,6 +10,7 @@ from .api_models import (
     RunCreateRequest,
     RunRetryRequest,
     UploadCreateRequest,
+    WorkflowBackfillCancelRequest,
     WorkflowTriggerBackfillLaunchRequest,
     WorkflowTriggerBackfillPreviewRequest,
     WorkflowTriggerCreateRequest,
@@ -47,6 +48,7 @@ from .storage import (
 )
 from .submission_service import create_run_from_request as create_run_submission_from_request
 from .trigger_service import (
+    cancel_workflow_backfill_launch_from_request,
     create_workflow_trigger_from_request,
     get_workflow_backfill_launch_from_storage,
     list_workflow_backfill_launches_from_storage,
@@ -206,6 +208,15 @@ async def launch_workflow_trigger_backfill_request(
 ) -> dict[str, Any]:
     cfg = await _authorized_config_from_request(authorization, action="workflow_trigger.backfill_launch")
     return await run_sync(launch_workflow_trigger_backfill_from_request, cfg, trigger_id, payload)
+
+
+async def cancel_workflow_backfill_launch_request(
+    launch_id: str,
+    payload: WorkflowBackfillCancelRequest,
+    authorization: str | None,
+) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization, action="workflow_trigger.backfill_cancel")
+    return await run_sync(cancel_workflow_backfill_launch_from_request, cfg, launch_id, payload)
 
 
 async def list_workflow_trigger_events_request(

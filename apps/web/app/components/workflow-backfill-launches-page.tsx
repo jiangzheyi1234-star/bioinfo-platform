@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 
 import { WorkflowPageHeader } from "./workflow-page-header";
 import {
+  cancelWorkflowBackfillLaunch,
   fetchWorkflowBackfillLaunch,
   fetchWorkflowBackfillLaunches,
 } from "./workflow-backfill-api";
@@ -30,6 +31,8 @@ export function WorkflowBackfillLaunchesPage() {
   const [detail, setDetail] = useState<WorkflowBackfillLaunchDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [cancelingLaunchId, setCancelingLaunchId] = useState("");
+  const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [detailError, setDetailError] = useState("");
 
@@ -100,8 +103,31 @@ export function WorkflowBackfillLaunchesPage() {
   }
 
   function refresh() {
+    setNotice("");
     void loadLaunches(true);
     void loadDetail(true);
+  }
+
+  async function cancelLaunch(launchId: string) {
+    if (!launchId || cancelingLaunchId) return;
+    const accepted = window.confirm(`请求取消回填批次 ${launchId} 下仍在活动状态的分区运行？`);
+    if (!accepted) return;
+    setCancelingLaunchId(launchId);
+    setNotice("");
+    setDetailError("");
+    try {
+      const result = await cancelWorkflowBackfillLaunch(launchId);
+      setNotice(`已请求取消 ${result.requestedCancelCount ?? 0} 个分区运行，跳过 ${result.skippedPartitionCount ?? 0} 个分区。`);
+      if (result.detail) {
+        setDetail(result.detail);
+      }
+      await loadLaunches(true);
+      await loadDetail(true);
+    } catch (err) {
+      setDetailError(workflowErrorMessage(err, "请求取消回填失败"));
+    } finally {
+      setCancelingLaunchId("");
+    }
   }
 
   return (
@@ -141,11 +167,14 @@ export function WorkflowBackfillLaunchesPage() {
           </Alert>
         ) : (
           <WorkflowBackfillLaunchPanel
+            cancelingLaunchId={cancelingLaunchId}
             detail={detail}
             detailLoading={detailLoading}
             error={error || detailError}
             launches={launches}
             loading={loading}
+            notice={notice}
+            onCancelLaunch={cancelLaunch}
             onRefresh={refresh}
             onSelectLaunch={selectLaunch}
             selectedLaunchId={selectedLaunchId}

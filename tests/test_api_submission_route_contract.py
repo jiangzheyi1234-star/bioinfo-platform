@@ -126,6 +126,7 @@ def test_workflow_trigger_routes_delegate_runtime_calls_to_service() -> None:
     assert "list_workflow_trigger_events_from_request" in route_source
     assert "list_workflow_backfill_launches_from_request" in route_source
     assert "get_workflow_backfill_launch_from_request" in route_source
+    assert "cancel_workflow_backfill_launch_from_request" in route_source
     assert "launch_workflow_trigger_backfill_from_request" in route_source
     assert "preview_workflow_trigger_backfill_from_request" in route_source
     assert "submit_workflow_trigger_event_response_from_request" in route_source
@@ -138,6 +139,7 @@ def test_workflow_trigger_routes_delegate_runtime_calls_to_service() -> None:
         "list_workflow_trigger_events_from_request",
         "list_workflow_backfill_launches_from_request",
         "get_workflow_backfill_launch_from_request",
+        "cancel_workflow_backfill_launch_from_request",
         "launch_workflow_trigger_backfill_from_request",
         "preview_workflow_trigger_backfill_from_request",
         "submit_workflow_trigger_event_from_request",
@@ -152,6 +154,7 @@ def test_workflow_trigger_routes_delegate_runtime_calls_to_service() -> None:
     assert "runtime_service().create_workflow_trigger(" in service_source
     assert "runtime_service().list_workflow_backfill_launches(" in service_source
     assert "runtime_service().get_workflow_backfill_launch(" in service_source
+    assert "runtime_service().cancel_workflow_backfill_launch(" in service_source
     assert "runtime_service().launch_workflow_trigger_backfill(" in service_source
     assert "runtime_service().preview_workflow_trigger_backfill(" in service_source
     assert "runtime_service().submit_workflow_trigger_event(" in service_source

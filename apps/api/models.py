@@ -174,6 +174,12 @@ class WorkflowTriggerBackfillLaunchRequest(WorkflowTriggerBackfillPreviewRequest
     actor: str | None = None
 
 
+class WorkflowBackfillCancelRequest(ApiRequest):
+    serverId: str | None = None
+    confirmation: Literal["cancel-backfill"]
+    actor: str | None = None
+
+
 class ArtifactGcPreviewRequest(ApiRequest):
     serverId: str | None = None
     retentionDays: int = Field(default=30, ge=0)

@@ -4,6 +4,7 @@ import { cachedAsync } from "@/app/lib/async-cache";
 import { requestLocalApiJson } from "@/app/lib/local-api-client";
 
 import type {
+  WorkflowBackfillCancelResponse,
   WorkflowBackfillLaunchDetail,
   WorkflowBackfillLaunchDetailResponse,
   WorkflowBackfillLaunchList,
@@ -65,6 +66,25 @@ export async function fetchWorkflowBackfillLaunch(
   }, {
     forceRefresh: options.forceRefresh,
   });
+}
+
+export async function cancelWorkflowBackfillLaunch(
+  launchId: string,
+  options: Omit<WorkflowBackfillFetchOptions, "triggerId" | "limit"> = {}
+): Promise<WorkflowBackfillCancelResponse["data"]> {
+  const normalizedLaunchId = launchId.trim();
+  if (!normalizedLaunchId) {
+    throw new Error("WORKFLOW_BACKFILL_LAUNCH_ID_REQUIRED");
+  }
+  const response = await requestLocalApiJson<WorkflowBackfillCancelResponse>(
+    "POST",
+    `/api/v1/workflow-backfill-launches/${encodeURIComponent(normalizedLaunchId)}/cancel${backfillQuery(options)}`,
+    {
+      body: { confirmation: "cancel-backfill" },
+      cache: "no-store",
+    }
+  );
+  return response.data;
 }
 
 function backfillQuery(options: WorkflowBackfillFetchOptions) {
