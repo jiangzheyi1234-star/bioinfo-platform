@@ -16,7 +16,9 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     api = _component_source("workflows-page-api.ts")
     panel = _component_source("workflow-run-detail-panel.tsx")
     execution_panel = _component_source("workflow-run-execution-context.tsx")
+    rule_failure_diagnostics = _component_source("workflow-rule-failure-diagnostics.tsx")
     package_panel = _component_source("workflow-result-package-panel.tsx")
+    dag_preview = _component_source("workflow-dag-preview.tsx")
     catalog_service = (ROOT / "apps" / "api" / "workflow_catalog_service.py").read_text(encoding="utf-8")
 
     assert "export type WorkflowRunRuleEvent" in model
@@ -35,6 +37,8 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "rules?: WorkflowRunRules" in model
     assert "executionContext?: WorkflowRunExecutionContext" in model
     assert "ruleRetryPlan?: WorkflowRunRuleRetryPlan" in model
+    assert "logs?: string[]" in model
+    assert "details?: Record<string, unknown>" in model
     assert "exportWorkflowResultPackage" in api
     assert "workflowResultPackageDownloadHref" in api
     assert "href.startsWith(\"/api/v1/\")" in api
@@ -58,10 +62,16 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "function RunRules" in panel
     assert "detail.rules?.items || []" in panel
     assert "<RunRules rules={rules} />" in panel
+    assert "WorkflowRuleFailureDiagnostics" in panel
     assert "失败 rule：" in panel
     assert "rule.attemptNumber" in panel
     assert "rule.leaseGeneration" in panel
     assert "rule.events || []" in panel
+    assert "失败定位" in rule_failure_diagnostics
+    assert "log paths" in rule_failure_diagnostics
+    assert "scalarDetails(failedEvent?.details)" in rule_failure_diagnostics
+    assert "[...(rule.events || [])].reverse().find(isFailureEvent)" in rule_failure_diagnostics
+    assert "WorkflowRuleFailureDiagnostics({ rule }: { rule?: WorkflowRunRule })" in rule_failure_diagnostics
     assert "context.ruleRetryPlan" in execution_panel
     assert "RuleRetryPlanSummary" in execution_panel
     assert "规则级重试计划仅供诊断" in execution_panel
@@ -70,6 +80,10 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "retryRule" not in execution_panel
     assert "onRetryRule" not in panel
     assert "retryRule" not in panel
+    assert "onRetryRule" not in rule_failure_diagnostics
+    assert "retryRule" not in rule_failure_diagnostics
+    assert "onRetryRule" not in dag_preview
+    assert "retryRule" not in dag_preview
 
     assert "export function WorkflowResultPackagePanel" in package_panel
     assert "exportWorkflowResultPackage(resultId, mode === \"full\")" in package_panel

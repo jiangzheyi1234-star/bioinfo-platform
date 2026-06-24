@@ -29,6 +29,7 @@ import { WorkflowResultPackagePanel } from "./workflow-result-package-panel";
 import { fetchArtifactPreview, retryWorkflowRun } from "./workflows-page-api";
 import { workflowErrorMessage } from "./workflows-page-model";
 import { DirectoryArtifactPreview, isDirectoryArtifactPreview } from "./workflow-artifact-directory-preview";
+import { WorkflowRuleFailureDiagnostics } from "./workflow-rule-failure-diagnostics";
 import type {
   WorkflowArtifact,
   WorkflowArtifactPreview,
@@ -137,6 +138,7 @@ function RunDiagnosis({
         <div className="rounded-lg border border-red-200 bg-white p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="min-w-0">
+              <div className="mb-1 text-[11px] font-medium text-red-400">失败定位</div>
               <div className="truncate text-sm font-semibold text-red-700">{failedRule.ruleName}</div>
               <div className="mt-1 font-mono text-[11px] text-slate-400">{failedRule.runRuleId || failedRule.stepId || "rule"}</div>
             </div>
@@ -144,6 +146,7 @@ function RunDiagnosis({
               {failedRule.exitCode === null || failedRule.exitCode === undefined ? "exit —" : `exit ${failedRule.exitCode}`}
             </span>
           </div>
+          <WorkflowRuleFailureDiagnostics rule={failedRule} />
           {failedRule.commandSummary ? (
             <pre className="mt-3 max-h-32 overflow-auto whitespace-pre-wrap rounded-md bg-slate-950 p-3 text-xs text-red-100">
               {failedRule.commandSummary}
@@ -424,6 +427,7 @@ function RunRules({ rules }: { rules: WorkflowRunRule[] }) {
 
             {rule.message ? <div className="mt-3 text-xs text-slate-600">{rule.message}</div> : null}
             {wildcards ? <div className="mt-2 truncate font-mono text-[11px] text-slate-400">{wildcards}</div> : null}
+            <WorkflowRuleFailureDiagnostics rule={rule} />
             {rule.commandSummary ? (
               <pre className="mt-3 max-h-32 overflow-auto whitespace-pre-wrap rounded-md bg-slate-950 p-3 text-xs text-slate-100">
                 {rule.commandSummary}
