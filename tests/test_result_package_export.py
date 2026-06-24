@@ -26,7 +26,7 @@ from apps.remote_runner.result_package_validation import (
     WORKFLOW_RUN_CRATE_PROFILE_URI,
     validate_result_package_archive,
 )
-from apps.remote_runner.storage import create_run_record, persist_artifact, persist_upload
+from apps.remote_runner.storage import create_run_record, persist_artifact
 from apps.remote_runner.storage_core import get_connection
 from apps.remote_runner.workflow_revision_storage import create_or_fetch_workflow_revision
 from tests.helpers.reference_database import make_configured_remote_runner
@@ -63,25 +63,35 @@ def test_result_package_export_includes_manifest_artifacts_and_lineage(tmp_path:
     revision = _create_run(cfg, "run_export", complete=False)
     _seed_rule_state(cfg, "run_export")
     _mark_run_terminal(cfg, "run_export")
-    upload = persist_upload(
+    source_reads = _managed_artifact_file(cfg, "run_source_input", "reads.fastq")
+    source_reads.write_bytes(b"reads\n")
+    source_artifact = persist_artifact(
         cfg,
-        filename="reads.fastq",
-        content_base64="cmVhZHMK",
+        run_id="run_source_input",
+        kind="reads",
+        path=source_reads,
         mime_type="text/plain",
+        artifact_key="reads",
     )
     input_records = record_run_input_artifact_lineage(
         cfg,
         run_id="run_export",
         resolved_inputs=[
             {
-                "uploadId": upload["uploadId"],
+                "sourceType": "artifact",
+                "sourceId": source_artifact["artifactId"],
+                "artifactId": source_artifact["artifactId"],
+                "artifactBlobId": source_artifact["artifactBlobId"],
+                "sourceMaterializationId": source_artifact["materializationId"],
+                "sourceStorageBackend": source_artifact["storageBackend"],
+                "upstreamRunId": "run_source_input",
                 "name": "reads",
-                "filename": upload["filename"],
+                "filename": "reads.fastq",
                 "role": "reads",
-                "path": upload["path"],
-                "sizeBytes": upload["sizeBytes"],
-                "sha256": upload["sha256"],
-                "mimeType": upload["mimeType"],
+                "path": str(source_reads),
+                "sizeBytes": source_artifact["sizeBytes"],
+                "sha256": source_artifact["sha256"],
+                "mimeType": source_artifact["mimeType"],
                 "index": 0,
             }
         ],
@@ -217,18 +227,20 @@ def test_result_package_export_includes_manifest_artifacts_and_lineage(tmp_path:
     input_entity = graph_by_id[input_ro_crate_id]
     assert input_entity["@type"] == "Dataset"
     assert input_entity["identifier"] == input_records[0]["artifactBlobId"]
-    assert input_entity["sha256"] == upload["sha256"]
+    assert input_entity["sha256"] == source_artifact["sha256"]
     assert input_entity["encodingFormat"] == "text/plain"
     assert "storageUri" not in input_entity
     assert "localPath" not in input_entity
     assert workflow_revision["workflowRevisionId"] == revision["workflowRevisionId"]
     assert rules["items"][0]["ruleName"] == "summarize"
     used_edge = next(edge for edge in lineage["items"] if edge["predicate"] == "prov:used")
-    input_evidence = next(
-        event for event in evidence_events["items"] if event["eventType"] == "artifact.input.v1"
-    )
-    assert used_edge["payload"]["uploadId"] == upload["uploadId"]
+    input_evidence = next(event for event in evidence_events["items"] if event["eventType"] == "artifact.input.v1")
+    assert used_edge["payload"]["sourceType"] == "artifact"
+    assert used_edge["payload"]["artifactId"] == source_artifact["artifactId"]
+    assert used_edge["payload"]["upstreamRunId"] == "run_source_input"
     assert input_evidence["payload"]["runArtifactEdgeId"] == input_records[0]["runArtifactEdgeId"]
+    assert input_evidence["payload"]["artifactId"] == source_artifact["artifactId"]
+    assert input_evidence["payload"]["sourceMaterializationId"] == source_artifact["materializationId"]
     for input_payload in (used_edge["payload"], input_evidence["payload"]):
         assert "path" not in input_payload
         assert "storageUri" not in input_payload

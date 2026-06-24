@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from .artifact_cache_inputs import normalize_cache_inputs
 from .artifact_io import (
     artifact_record_exists,
     artifact_record_stats,
@@ -47,7 +48,7 @@ def build_artifact_cache_key_payload(
         "artifactKey": normalized_artifact_key,
         "role": normalized_role,
         "stepId": _optional_text(step_id) or "",
-        "inputDigest": _digest_json(_normalize_cache_inputs(connection, inputs or [])),
+        "inputDigest": _digest_json(normalize_cache_inputs(connection, inputs or [])),
         "paramsDigest": _digest_json(params or {}),
         "resourceBindingsDigest": _digest_json(resource_bindings or {}),
         "executionDigest": _digest_json(execution or {}),
@@ -690,34 +691,6 @@ def _normalize(value: Any) -> Any:
     if isinstance(value, list):
         return [_normalize(item) for item in value if item not in (None, "", [], {})]
     return value
-
-
-def _normalize_cache_inputs(connection: sqlite3.Connection | None, value: Any) -> Any:
-    if isinstance(value, list):
-        return [_normalize_cache_inputs(connection, item) for item in value if item not in (None, "", [], {})]
-    if not isinstance(value, dict):
-        return _normalize(value)
-    upload_id = str(value.get("uploadId") or "").strip()
-    normalized = {
-        str(key): _normalize_cache_inputs(connection, item)
-        for key, item in sorted(value.items())
-        if item not in (None, "", [], {}) and key not in {"uploadId", "path", "filename"}
-    }
-    if upload_id and connection is not None:
-        upload = connection.execute(
-            "SELECT sha256, size_bytes, mime_type FROM uploads WHERE upload_id = ?",
-            (upload_id,),
-        ).fetchone()
-        if upload is not None:
-            normalized["content"] = {
-                "sha256": str(upload["sha256"]),
-                "sizeBytes": int(upload["size_bytes"]),
-                "mimeType": str(upload["mime_type"]),
-            }
-            return normalized
-    if upload_id:
-        normalized["uploadId"] = upload_id
-    return normalized
 
 
 def _json_object(payload: Any) -> dict[str, Any]:

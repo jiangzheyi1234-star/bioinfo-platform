@@ -158,6 +158,20 @@ def validate_run_spec_for_pipeline(pipeline: PipelineDefinition, run_spec: dict[
 def _validate_schema_value(value: Any, schema: dict[str, Any], *, code: str, path: str) -> None:
     if not schema:
         return
+    one_of = schema.get("oneOf")
+    if isinstance(one_of, list):
+        matches = 0
+        for option in one_of:
+            if not isinstance(option, dict):
+                continue
+            try:
+                _validate_schema_value(value, option, code=code, path=path)
+            except PipelineRegistryError:
+                continue
+            matches += 1
+        if matches != 1:
+            raise PipelineRegistryError(code)
+        return
     expected_type = schema.get("type")
     if expected_type == "array":
         if not isinstance(value, list):

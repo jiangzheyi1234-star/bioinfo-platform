@@ -202,6 +202,75 @@ def test_input_artifact_lineage_records_prov_used_without_path_leak(tmp_path: Pa
         assert "storageUri" not in payload
 
 
+def test_input_artifact_lineage_records_artifact_source_and_upstream_run(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    input_path = tmp_path / "results" / "source" / "summary.tsv"
+    input_path.parent.mkdir(parents=True)
+    input_path.write_text("sample\tcount\nA\t1\n", encoding="utf-8")
+    blob = record_artifact_blob_for_path(
+        cfg,
+        path=input_path,
+        media_type="text/tab-separated-values",
+        created_at="2099-06-07T10:00:00Z",
+    )
+    materialization = record_artifact_materialization(
+        cfg,
+        artifact_blob_id=blob["artifactBlobId"],
+        storage_backend="local",
+        storage_uri=input_path.resolve().as_uri(),
+        local_path=input_path,
+        created_at="2099-06-07T10:00:01Z",
+    )
+
+    records = record_run_input_artifact_lineage(
+        cfg,
+        run_id="run_downstream",
+        resolved_inputs=[
+            {
+                "sourceType": "artifact",
+                "sourceId": "art_source",
+                "artifactId": "art_source",
+                "artifactBlobId": blob["artifactBlobId"],
+                "materializationId": materialization["materializationId"],
+                "upstreamRunId": "run_source",
+                "name": "summary",
+                "filename": "summary.tsv",
+                "role": "summary",
+                "path": str(input_path),
+                "sizeBytes": blob["sizeBytes"],
+                "sha256": blob["sha256"],
+                "mimeType": blob["mediaType"],
+                "index": 0,
+            }
+        ],
+        created_at="2099-06-07T10:00:02Z",
+    )
+
+    run_edges = list_run_artifact_edges(cfg, "run_downstream")
+    lineage_edges = list_lineage_edges_for_run(cfg, "run_downstream")
+    evidence_events = list_evidence_events(
+        cfg,
+        subject_kind="artifact_blob",
+        subject_id=blob["artifactBlobId"],
+        event_type="artifact.input.v1",
+    )
+
+    assert records[0]["sourceType"] == "artifact"
+    assert records[0]["artifactId"] == "art_source"
+    assert run_edges[0]["upstreamRunId"] == "run_source"
+    assert lineage_edges[0]["payload"]["sourceType"] == "artifact"
+    assert lineage_edges[0]["payload"]["sourceId"] == "art_source"
+    assert lineage_edges[0]["payload"]["artifactId"] == "art_source"
+    assert lineage_edges[0]["payload"]["upstreamRunId"] == "run_source"
+    assert "uploadId" not in lineage_edges[0]["payload"]
+    assert evidence_events[0]["payload"]["artifactId"] == "art_source"
+    assert evidence_events[0]["payload"]["upstreamRunId"] == "run_source"
+    for payload in (lineage_edges[0]["payload"], evidence_events[0]["payload"]):
+        assert "path" not in payload
+        assert "localPath" not in payload
+        assert "storageUri" not in payload
+
+
 def test_input_artifact_lineage_rejects_digest_mismatch_before_recording(
     tmp_path: Path,
 ) -> None:

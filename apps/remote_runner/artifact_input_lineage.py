@@ -50,7 +50,18 @@ def _record_one_input(
     input_path = Path(_required_text(resolved_input.get("path"), "INPUT_PATH_REQUIRED"))
     expected_sha256 = _required_text(resolved_input.get("sha256"), "INPUT_SHA256_REQUIRED")
     expected_size = _required_int(resolved_input.get("sizeBytes"), "INPUT_SIZE_BYTES_REQUIRED")
-    upload_id = _required_text(resolved_input.get("uploadId"), "INPUT_UPLOAD_ID_REQUIRED")
+    source_type = _optional_text(resolved_input.get("sourceType")) or (
+        "upload" if _optional_text(resolved_input.get("uploadId")) else "artifact"
+    )
+    source_id = _optional_text(resolved_input.get("sourceId"))
+    upload_id = _optional_text(resolved_input.get("uploadId"))
+    source_artifact_id = _optional_text(
+        resolved_input.get("artifactId") or resolved_input.get("sourceArtifactId")
+    )
+    expected_blob_id = _optional_text(resolved_input.get("artifactBlobId"))
+    expected_materialization_id = _optional_text(resolved_input.get("materializationId"))
+    source_materialization_id = _optional_text(resolved_input.get("sourceMaterializationId"))
+    source_storage_backend = _optional_text(resolved_input.get("sourceStorageBackend"))
     filename = _required_text(resolved_input.get("filename"), "INPUT_FILENAME_REQUIRED")
     mime_type = _required_text(
         resolved_input.get("mimeType") or "application/octet-stream",
@@ -83,6 +94,8 @@ def _record_one_input(
         media_type=mime_type,
         created_at=created_at,
     )
+    if expected_blob_id and blob["artifactBlobId"] != expected_blob_id:
+        raise ValueError("INPUT_ARTIFACT_BLOB_MISMATCH")
     materialization = record_artifact_materialization(
         cfg,
         artifact_blob_id=blob["artifactBlobId"],
@@ -91,6 +104,8 @@ def _record_one_input(
         local_path=input_path,
         created_at=created_at,
     )
+    if expected_materialization_id and materialization["materializationId"] != expected_materialization_id:
+        raise ValueError("INPUT_ARTIFACT_MATERIALIZATION_MISMATCH")
     edge = _existing_input_edge(
         list_run_artifact_edges(cfg, run_id),
         artifact_blob_id=blob["artifactBlobId"],
@@ -139,6 +154,13 @@ def _record_one_input(
         input_index=input_index,
         input_name=input_name,
         input_role=input_role,
+        source_type=source_type,
+        source_id=source_id or upload_id or source_artifact_id or blob["artifactBlobId"],
+        upload_id=upload_id,
+        source_artifact_id=source_artifact_id,
+        source_materialization_id=source_materialization_id,
+        source_storage_backend=source_storage_backend,
+        upstream_run_id=upstream_run_id,
         created_at=created_at,
     )
     lineage_edge = record_lineage_edge(
@@ -153,7 +175,12 @@ def _record_one_input(
         workflow_revision_id=_workflow_revision_id_for_run(cfg, run_id),
         evidence_event_id=evidence_event["eventId"],
         payload={
-            "uploadId": upload_id,
+            "sourceType": source_type,
+            "sourceId": source_id or upload_id or source_artifact_id or blob["artifactBlobId"],
+            **({"uploadId": upload_id} if upload_id else {}),
+            **({"artifactId": source_artifact_id} if source_artifact_id else {}),
+            **({"sourceMaterializationId": source_materialization_id} if source_materialization_id else {}),
+            **({"sourceStorageBackend": source_storage_backend} if source_storage_backend else {}),
             "filename": filename,
             "inputName": input_name or "",
             "inputRole": input_role,
@@ -196,12 +223,24 @@ def _record_artifact_input_evidence(
     input_index: int,
     input_name: str | None,
     input_role: str,
+    source_type: str,
+    source_id: str,
+    upload_id: str | None,
+    source_artifact_id: str | None,
+    source_materialization_id: str | None,
+    source_storage_backend: str | None,
+    upstream_run_id: str | None,
     created_at: str,
 ) -> dict[str, Any]:
     payload = {
         "runId": run_id,
         "attemptId": str(attempt_id or ""),
-        "uploadId": str(resolved_input["uploadId"]),
+        "sourceType": source_type,
+        "sourceId": source_id,
+        "uploadId": str(upload_id or ""),
+        "artifactId": str(source_artifact_id or ""),
+        "sourceMaterializationId": str(source_materialization_id or ""),
+        "sourceStorageBackend": str(source_storage_backend or ""),
         "filename": str(resolved_input["filename"]),
         "inputName": str(input_name or ""),
         "inputRole": input_role,
@@ -214,6 +253,7 @@ def _record_artifact_input_evidence(
         "sizeBytes": int(resolved_input["sizeBytes"]),
         "sha256": str(blob["sha256"]),
         "role": "input",
+        "upstreamRunId": str(upstream_run_id or ""),
     }
     with get_connection(cfg) as connection:
         event = append_evidence_event(
@@ -240,8 +280,23 @@ def _input_record(
     port_name: str,
     input_index: int,
 ) -> dict[str, Any]:
+    source_type = str(
+        resolved_input.get("sourceType")
+        or ("upload" if resolved_input.get("uploadId") else "artifact")
+    )
+    source_id = str(
+        resolved_input.get("sourceId")
+        or resolved_input.get("uploadId")
+        or resolved_input.get("artifactId")
+        or resolved_input.get("sourceArtifactId")
+        or blob["artifactBlobId"]
+    )
     return {
-        "uploadId": str(resolved_input["uploadId"]),
+        "sourceType": source_type,
+        "sourceId": source_id,
+        "uploadId": str(resolved_input.get("uploadId") or ""),
+        "artifactId": str(resolved_input.get("artifactId") or resolved_input.get("sourceArtifactId") or ""),
+        "sourceMaterializationId": str(resolved_input.get("sourceMaterializationId") or ""),
         "filename": str(resolved_input["filename"]),
         "portName": port_name,
         "inputIndex": input_index,

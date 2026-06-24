@@ -3,11 +3,19 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
 from apps.remote_runner.executor import run_snakemake_execution
+from apps.remote_runner.executor_inputs import _resolve_run_inputs
 from apps.remote_runner.generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID
-from apps.remote_runner.pipeline import list_pipelines
-from apps.remote_runner.storage import persist_upload
+from apps.remote_runner.pipeline import (
+    PipelineRegistryError,
+    get_pipeline,
+    list_pipelines,
+    validate_run_spec_for_pipeline,
+)
+from apps.remote_runner.storage import persist_artifact, persist_upload
 from apps.remote_runner.tools import ToolRegistryError, add_registered_tool
 from tests.generated_workflow_test_helpers import (
     generated_workflow_graph,
@@ -113,6 +121,142 @@ def test_generated_tool_run_writes_snakefile_and_per_rule_conda_env(tmp_path: Pa
     assert run_config["tool"]["id"] == "conda-forge::coreutils"
     assert run_config["tool"]["ruleTemplate"]["commandTemplate"] == "wc -c {input.primary:q} > {output.count:q}"
     assert run_config["outputs"]["count"].endswith("wc-count.txt")
+
+
+def test_generated_tool_run_accepts_artifact_input_reference(tmp_path: Path, monkeypatch) -> None:
+    cfg = _cfg(tmp_path)
+    ensure_runtime_layout(cfg)
+    upsert_tool(
+        cfg,
+        {
+            "id": "conda-forge::coreutils",
+            "name": "coreutils",
+            "source": "conda-forge",
+            "sourceLabel": "conda-forge",
+            "version": "9.5",
+            "packageSpec": "conda-forge::coreutils=9.5",
+            "targetPlatform": "linux-64",
+            "targetPlatformSupported": True,
+            "testCommand": "wc --version",
+            "ruleTemplate": {
+                "commandTemplate": "wc -c {input.primary:q} > {output.count:q}",
+                "inputs": [{"name": "primary", "type": "file", "required": True}],
+                "outputs": [{"name": "count", "path": "wc-count.txt", "kind": "log", "mimeType": "text/plain"}],
+            },
+            "status": "declared",
+            "message": "Tool declared.",
+        },
+    )
+    source_path = Path(cfg.results_dir) / "run_source_artifact" / "reads.txt"
+    source_path.parent.mkdir(parents=True)
+    source_path.write_text("ABCDEF\n", encoding="utf-8")
+    source_artifact = persist_artifact(
+        cfg,
+        run_id="run_source_artifact",
+        kind="reads",
+        path=source_path,
+        mime_type="text/plain",
+        artifact_key="reads",
+    )
+    run_spec = {
+        "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
+        "projectId": "proj_demo",
+        "inputs": [
+            {
+                "artifactId": source_artifact["artifactId"],
+                "filename": "reads.txt",
+                "role": "input",
+            }
+        ],
+        "workflow": generated_workflow_graph(
+            [
+                generated_workflow_node(
+                    "conda-forge::coreutils",
+                    node_id="coreutils",
+                    inputs={"primary": {"fromInput": "input"}},
+                )
+            ],
+            outputs=[{"from": {"nodeId": "coreutils", "port": "count"}, "as": "count"}],
+        ),
+    }
+    validate_run_spec_for_pipeline(get_pipeline(cfg, GENERATED_TOOL_RUN_PIPELINE_ID), run_spec)
+
+    calls: list[list[str]] = []
+
+    class Result:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    def fake_run(cmd, **_kwargs):
+        calls.append(cmd)
+        return Result()
+
+    monkeypatch.setattr("apps.remote_runner.executor.subprocess.run", fake_run)
+    monkeypatch.setattr("apps.remote_runner.executor._collect_artifacts", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr("apps.remote_runner.executor.update_run_state", lambda *args, **kwargs: None)
+    monkeypatch.setattr("apps.remote_runner.executor.append_log_lines", lambda *args, **kwargs: None)
+
+    run_snakemake_execution(
+        cfg,
+        run_id="run_artifact_input",
+        request_id="req_artifact_input",
+        run_spec=run_spec,
+    )
+
+    from apps.remote_runner.artifact_ledger_storage import (
+        list_lineage_edges_for_run,
+        list_run_artifact_edges,
+    )
+
+    work_dir = Path(cfg.work_dir) / "run_artifact_input"
+    run_config = json.loads((work_dir / "run-config.json").read_text(encoding="utf-8"))
+    run_edges = list_run_artifact_edges(cfg, "run_artifact_input")
+    lineage_edges = list_lineage_edges_for_run(cfg, "run_artifact_input")
+
+    assert len(calls) == 2
+    assert run_config["inputs"][0]["sourceType"] == "artifact"
+    assert run_config["inputs"][0]["artifactId"] == source_artifact["artifactId"]
+    assert run_config["inputs"][0]["artifactBlobId"] == source_artifact["artifactBlobId"]
+    assert run_config["inputs"][0]["sourceMaterializationId"] == source_artifact["materializationId"]
+    assert run_config["inputs"][0]["sourceStorageBackend"] == "local"
+    assert run_config["inputs"][0]["inputStorageBackend"] == "local"
+    assert run_config["inputs"][0]["upstreamRunId"] == "run_source_artifact"
+    assert run_config["inputs"][0]["path"] == str(work_dir / "inputs" / "001-reads.txt")
+    assert Path(run_config["inputs"][0]["path"]).read_text(encoding="utf-8") == source_path.read_text(
+        encoding="utf-8"
+    )
+    assert run_edges[0]["role"] == "input"
+    assert run_edges[0]["upstreamRunId"] == "run_source_artifact"
+    assert lineage_edges[0]["predicate"] == "prov:used"
+    assert lineage_edges[0]["payload"]["sourceType"] == "artifact"
+    assert lineage_edges[0]["payload"]["artifactId"] == source_artifact["artifactId"]
+    assert lineage_edges[0]["payload"]["upstreamRunId"] == "run_source_artifact"
+    assert "uploadId" not in lineage_edges[0]["payload"]
+
+
+def test_generated_tool_run_schema_rejects_mixed_input_sources(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    pipeline = get_pipeline(cfg, GENERATED_TOOL_RUN_PIPELINE_ID)
+    run_spec = {
+        "pipelineId": GENERATED_TOOL_RUN_PIPELINE_ID,
+        "inputs": [{"uploadId": "upload_1", "artifactId": "art_1", "filename": "reads.txt"}],
+        "workflow": generated_workflow_graph([]),
+    }
+
+    with pytest.raises(PipelineRegistryError, match="INPUT_SCHEMA_INVALID"):
+        validate_run_spec_for_pipeline(pipeline, run_spec)
+
+
+def test_generated_tool_run_input_resolution_requires_artifact_materialization(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+
+    with pytest.raises(ValueError, match="INPUT_ARTIFACT_MATERIALIZATION_REQUIRED"):
+        _resolve_run_inputs(
+            cfg,
+            {"inputs": [{"artifactBlobId": "ablob_missing"}]},
+            input_work_dir=tmp_path / "inputs",
+        )
 
 
 def test_tool_rule_template_is_persisted(tmp_path: Path) -> None:

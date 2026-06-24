@@ -125,6 +125,60 @@ def test_artifact_cache_key_uses_upload_content_digest_for_inputs(tmp_path: Path
     assert lookup["reason"] == "hit"
 
 
+def test_artifact_cache_key_uses_artifact_content_digest_for_inputs(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    revision = _create_revision(cfg)
+    upload = _upload(cfg, "reads.fastq", b"same reads\n")
+    cached_run_spec = _run_spec(
+        "run_cache_upload_source",
+        revision["workflowRevisionId"],
+        inputs=[{"name": "reads", "uploadId": upload["uploadId"], "filename": "reads.fastq"}],
+    )
+    _create_terminal_run(cfg, cached_run_spec)
+    persist_artifact(
+        cfg,
+        run_id="run_cache_upload_source",
+        kind="report",
+        path=_managed_report(cfg, "run_cache_upload_source", b"content keyed\n"),
+        mime_type="text/plain",
+        artifact_key="report",
+        step_id="summarize",
+    )
+    artifact_source_spec = _run_spec(
+        "run_cache_artifact_source",
+        revision["workflowRevisionId"],
+        inputs=[{"name": "seed", "sha256": "seed"}],
+    )
+    _create_terminal_run(cfg, artifact_source_spec)
+    source_input = persist_artifact(
+        cfg,
+        run_id="run_cache_artifact_source",
+        kind="reads",
+        path=_managed_report(cfg, "run_cache_artifact_source", b"same reads\n"),
+        mime_type="text/plain",
+        artifact_key="reads",
+        step_id="prepare_reads",
+    )
+
+    lookup = lookup_artifact_cache_entry(
+        cfg,
+        _lookup_payload(
+            revision["workflowRevisionId"],
+            inputs=[
+                {
+                    "name": "reads",
+                    "artifactId": source_input["artifactId"],
+                    "filename": "source.fastq",
+                    "upstreamRunId": "run_cache_artifact_source",
+                }
+            ],
+        ),
+    )
+
+    assert lookup["hit"] is True
+    assert lookup["reason"] == "hit"
+
+
 def test_artifact_cache_key_conflict_does_not_overwrite_existing_entry(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     revision = _create_revision(cfg)
