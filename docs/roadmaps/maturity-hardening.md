@@ -78,7 +78,7 @@ Closure requires:
 1. Split frontend hotspots so no new TS/TSX file exceeds 800 lines and known oversized files only shrink.
 2. Dependency Review is now wired into `required / ci-green` as a PR-only job with `contents: read`, SHA-pinned `actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294`, `fail-on-severity: moderate`, and no PR comments. Dependabot version updates now cover GitHub Actions, root `uv`, root npm, `apps/web` npm, and `apps/desktop` npm with grouped weekly PRs. CodeQL and OpenSSF Scorecard now run from an independent, non-required `Security Analysis` workflow so their platform availability can be proven before they become branch-protection gates.
 3. Make production release checks require supply-chain evidence by default for production runtime handoff.
-4. Harden Docker Compose from experimental single-user draft into a tested deployment profile only after auth, secrets, non-root containers, reverse proxy/TLS, and image scanning are resolved.
+4. Container image scanning now has a non-required target policy and workflow. Harden Docker Compose from experimental single-user draft into a tested deployment profile only after auth, secrets, non-root containers, reverse proxy/TLS, resource limits, and repeated clean image-scan evidence are resolved.
 5. Extend release artifacts with product-level SBOM/provenance where web, desktop, database packs, and runtime bundles leave the local development machine.
 
 ## External Practice Anchors

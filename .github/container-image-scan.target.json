@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "h2ometa-container-image-scan-policy.v1",
+  "status": "target-policy",
+  "productionReadyClaim": false,
+  "requiredStatusCheck": false,
+  "workflow": ".github/workflows/container-image-scan.yml",
+  "composeFile": "docker-compose.yml",
+  "knownRuntimeLimit": "Docker Compose remains an unsupported server-single-user draft until auth, secret mounts, non-root runtime, reverse proxy/TLS, resource limits, and remote image-scan proof are complete.",
+  "scanner": {
+    "tool": "trivy",
+    "action": "aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8",
+    "versionComment": "v0.36.0"
+  },
+  "triggers": [
+    "push-main",
+    "schedule",
+    "workflow_dispatch"
+  ],
+  "failOnSeverity": [
+    "HIGH",
+    "CRITICAL"
+  ],
+  "sarifUpload": true,
+  "artifactRetentionDaysMax": 2,
+  "images": [
+    {
+      "id": "api",
+      "dockerfile": "Dockerfile.api",
+      "imageRef": "h2ometa-api:${{ github.sha }}",
+      "sarif": "scan-results/trivy-api.sarif"
+    },
+    {
+      "id": "web",
+      "dockerfile": "Dockerfile.web",
+      "imageRef": "h2ometa-web:${{ github.sha }}",
+      "sarif": "scan-results/trivy-web.sarif"
+    }
+  ]
+}

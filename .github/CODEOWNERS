@@ -1,7 +1,9 @@
 # Security-sensitive automation and governance policy.
 /.github/workflows/ @jiangzheyi1234-star
+/.github/container-image-scan.target.json @jiangzheyi1234-star
 /.github/rulesets/ @jiangzheyi1234-star
 /.github/dependabot.yml @jiangzheyi1234-star
+/scripts/container_image_scan_governance.py @jiangzheyi1234-star
 /scripts/dependabot_governance.py @jiangzheyi1234-star
 /scripts/github_ruleset_governance.py @jiangzheyi1234-star
 /scripts/security_governance_audit.py @jiangzheyi1234-star

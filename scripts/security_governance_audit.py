@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from core.governance_policy import HIGH_RISK_API_POLICIES, validate_governance_policy  # noqa: E402
+from scripts.container_image_scan_governance import CONTAINER_IMAGE_SCAN_POLICY, CONTAINER_IMAGE_SCAN_WORKFLOW, scan_container_image_scan_policy as _scan_container_image_scan_policy  # noqa: E402
 from scripts.dependabot_governance import scan_dependabot_version_updates_contract as _scan_dependabot_version_updates_contract  # noqa: E402
 from scripts.github_ruleset_governance import GITHUB_MAIN_BRANCH_RULESET, scan_github_main_branch_ruleset_contract as _scan_github_main_branch_ruleset_contract  # noqa: E402
 from scripts.security_analysis_governance import (  # noqa: E402
@@ -70,25 +71,9 @@ DEPENDENCY_REVIEW_ACTION = (
 )
 WORKFLOW_PERMISSION_KEYS_ALLOWED_AT_TOP = {"actions", "contents"}
 WORKFLOW_JOB_WRITE_PERMISSION_ALLOWLIST: dict[str, dict[str, dict[str, str]]] = {
-    ".github/workflows/release-remote-runner-artifacts.yml": {
-        "build": {
-            "attestations": "write",
-            "artifact-metadata": "write",
-            "id-token": "write",
-        },
-        "publish": {
-            "contents": "write",
-        },
-    },
-    SECURITY_ANALYSIS_WORKFLOW: {
-        "codeql": {
-            "security-events": "write",
-        },
-        "scorecard": {
-            "id-token": "write",
-            "security-events": "write",
-        },
-    },
+    ".github/workflows/release-remote-runner-artifacts.yml": {"build": {"attestations": "write", "artifact-metadata": "write", "id-token": "write"}, "publish": {"contents": "write"}},
+    SECURITY_ANALYSIS_WORKFLOW: {"codeql": {"security-events": "write"}, "scorecard": {"id-token": "write", "security-events": "write"}},
+    CONTAINER_IMAGE_SCAN_WORKFLOW: {"scan": {"security-events": "write"}},
 }
 
 
@@ -235,12 +220,17 @@ def scan_security_contracts() -> list[Finding]:
     ruleset_source = ruleset_path.read_text(encoding="utf-8") if ruleset_path.exists() else ""
     for item in _scan_github_main_branch_ruleset_contract(GITHUB_MAIN_BRANCH_RULESET, ruleset_source):
         findings.append(Finding(item.code, item.path, item.line, item.detail))
+    policy_path = ROOT / CONTAINER_IMAGE_SCAN_POLICY
+    policy_source = policy_path.read_text(encoding="utf-8") if policy_path.exists() else ""
+    workflow_source = (ROOT / CONTAINER_IMAGE_SCAN_WORKFLOW).read_text(encoding="utf-8") if (ROOT / CONTAINER_IMAGE_SCAN_WORKFLOW).exists() else ""
+    for item in _scan_container_image_scan_policy(CONTAINER_IMAGE_SCAN_POLICY, policy_source, workflow_source):
+        findings.append(Finding(item.code, item.path, item.line, item.detail))
     codeowners = ROOT / ".github" / "CODEOWNERS"
     if not codeowners.exists():
         findings.append(Finding("codeowners-missing", ".github/CODEOWNERS", 0, "security-sensitive automation requires CODEOWNERS"))
     else:
         source = codeowners.read_text(encoding="utf-8")
-        for marker in ("/.github/rulesets/", "/.github/workflows/", "/.github/dependabot.yml", "/scripts/dependabot_governance.py", "/scripts/github_ruleset_governance.py", "/scripts/security_governance_audit.py", "/scripts/security_analysis_governance.py", "/core/governance_policy.py"):
+        for marker in ("/.github/container-image-scan.target.json", "/.github/rulesets/", "/.github/workflows/", "/.github/dependabot.yml", "/scripts/container_image_scan_governance.py", "/scripts/dependabot_governance.py", "/scripts/github_ruleset_governance.py", "/scripts/security_governance_audit.py", "/scripts/security_analysis_governance.py", "/core/governance_policy.py"):
             if marker not in source:
                 findings.append(Finding("codeowners-incomplete", ".github/CODEOWNERS", 0, f"CODEOWNERS missing {marker}"))
 

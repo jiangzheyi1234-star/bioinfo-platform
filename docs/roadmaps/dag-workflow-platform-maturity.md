@@ -380,6 +380,7 @@ Progress:
 - GitHub Actions checkout steps now set `persist-credentials: false`, and the CI security governance audit rejects future checkout steps that would leave `github.token` credentials in local git config.
 - Dependabot version updates now cover GitHub Actions, root `uv`, root npm, `apps/web` npm, and `apps/desktop` npm surfaces with weekly grouped updates and a five-open-PR cap. The security governance audit rejects missing, unapproved, or noisy Dependabot entries so dependency upkeep remains part of the production gate instead of an ad hoc operator task.
 - The desired GitHub main-branch ruleset is now source-controlled as `.github/rulesets/main-branch-ruleset.target.json` and enforced by the security governance audit as a target policy: no bypass actors, PR/code-owner/review-thread gates, linear history, deletion/force-push protection, and only the stable `required / ci-green` aggregate as a required status check until optional Security Analysis gates are proven available.
+- Container image scanning is now source-controlled as `.github/container-image-scan.target.json` plus an independent, non-required `.github/workflows/container-image-scan.yml` workflow. The workflow builds both Dockerfiles, runs pinned Trivy scans for HIGH/CRITICAL OS/library vulnerabilities, uploads two-day SARIF evidence, and stays out of `required / ci-green` until the unsupported Compose draft is replaced by a hardened server profile.
 
 Recommended sequence:
 
