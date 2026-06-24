@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .artifact_io import read_artifact_directory_preview, read_artifact_preview_text
+from .artifact_io import artifact_record_stats, read_artifact_directory_preview, read_artifact_preview_text
 from .config import RemoteRunnerConfig
 from .errors import RemoteRunnerNotFoundError
 from .storage import fetch_result
@@ -18,6 +18,7 @@ def build_result_preview_data(
 ) -> dict[str, Any]:
     result = fetch_result(cfg, result_id)
     artifact = _select_preview_artifact(result["artifacts"], artifact_id)
+    _verify_preview_artifact_integrity(cfg, artifact)
     preview = _build_artifact_preview(cfg, artifact)
     return {
         "resultId": result_id,
@@ -35,6 +36,36 @@ def _select_preview_artifact(artifacts: list[dict[str, Any]], artifact_id: str |
     if selected is None:
         raise RemoteRunnerNotFoundError("RESULT_NOT_FOUND")
     return selected
+
+
+def _verify_preview_artifact_integrity(cfg: RemoteRunnerConfig, artifact: dict[str, Any]) -> None:
+    lifecycle_state = str(artifact.get("lifecycleState") or "active")
+    if lifecycle_state != "active":
+        raise ValueError("RESULT_ARTIFACT_NOT_ACTIVE")
+    missing = _missing_preview_metadata(artifact)
+    if missing:
+        raise ValueError(f"RESULT_ARTIFACT_METADATA_INCOMPLETE: {', '.join(missing)}")
+    expected_size = int(artifact["sizeBytes"])
+    expected_sha = str(artifact["sha256"])
+    try:
+        actual_size, actual_sha = artifact_record_stats(cfg, artifact)
+    except Exception as exc:  # noqa: BLE001 - preview must fail closed on storage/package verification errors.
+        raise ValueError(f"RESULT_ARTIFACT_CHECKSUM_AUDIT_FAILED: {type(exc).__name__}") from exc
+    if actual_size != expected_size or actual_sha != expected_sha:
+        raise ValueError("RESULT_ARTIFACT_CHECKSUM_AUDIT_FAILED")
+
+
+def _missing_preview_metadata(artifact: dict[str, Any]) -> list[str]:
+    required = (
+        "artifactId",
+        "kind",
+        "mimeType",
+        "sizeBytes",
+        "sha256",
+        "storageBackend",
+        "storageUri",
+    )
+    return [key for key in required if artifact.get(key) in (None, "")]
 
 
 def _build_artifact_preview(cfg: RemoteRunnerConfig, artifact: dict[str, Any]) -> dict[str, Any]:

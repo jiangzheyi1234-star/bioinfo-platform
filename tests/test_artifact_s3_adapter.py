@@ -120,6 +120,8 @@ def test_s3_artifact_round_trips_through_preview_audit_and_export(
     failed = build_result_artifact_audit(cfg, "res_run_s3")
     assert failed["status"] == "failed"
     assert failed["artifacts"][0]["checksumOk"] is False
+    with pytest.raises(ValueError, match="RESULT_ARTIFACT_CHECKSUM_AUDIT_FAILED"):
+        build_result_preview_data(cfg, "res_run_s3", artifact["artifactId"])
 
 
 def test_s3_metadata_only_result_package_does_not_fetch_payload(
@@ -224,6 +226,8 @@ def test_s3_directory_artifact_round_trips_as_manifest_package(
     failed = build_result_artifact_audit(cfg, "res_run_s3_dir")
     assert failed["status"] == "failed"
     assert failed["artifacts"][0]["checksumOk"] is False
+    with pytest.raises(ValueError, match="RESULT_ARTIFACT_CHECKSUM_AUDIT_FAILED"):
+        build_result_preview_data(cfg, "res_run_s3_dir", artifact["artifactId"])
 
 
 def test_s3_directory_cache_hit_restores_declared_output_directory(
