@@ -445,6 +445,8 @@ def launch_workflow_trigger_backfill_from_request(
     if not trigger.get("enabled"):
         raise ValueError("WORKFLOW_TRIGGER_DISABLED")
     plan = build_backfill_plan_with_reprocessing_policy(cfg, trigger=trigger, request=request)
+    if request.previewId != plan["previewId"]:
+        raise ValueError("WORKFLOW_BACKFILL_PREVIEW_ID_MISMATCH")
     if plan["truncated"]:
         raise ValueError("WORKFLOW_BACKFILL_LAUNCH_TRUNCATED")
     partitions = list(plan["partitions"])

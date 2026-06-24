@@ -190,6 +190,7 @@ class WorkflowTriggerBackfillPreviewRequest(ApiRequest):
 
 
 class WorkflowTriggerBackfillLaunchRequest(WorkflowTriggerBackfillPreviewRequest):
+    previewId: str = Field(min_length=1)
     confirmation: Literal["launch-backfill"]
     actor: str | None = None
 

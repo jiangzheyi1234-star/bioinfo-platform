@@ -5,6 +5,7 @@ import pytest
 from apps.remote_runner.api_models import (
     WorkflowBackfillCancelRequest,
     WorkflowTriggerBackfillLaunchRequest,
+    WorkflowTriggerBackfillPreviewRequest,
     WorkflowTriggerCreateRequest,
 )
 from apps.remote_runner.execution_query_storage import list_runs
@@ -16,6 +17,7 @@ from apps.remote_runner.trigger_service import (
     get_workflow_backfill_launch_from_storage,
     launch_workflow_trigger_backfill_from_request,
     list_workflow_trigger_events_from_storage,
+    preview_workflow_trigger_backfill_from_request,
 )
 from tests.helpers.reference_database import make_configured_remote_runner
 
@@ -31,7 +33,7 @@ def test_scheduler_advances_backfill_pending_partitions_with_concurrency_limit(
     launched = launch_workflow_trigger_backfill_from_request(
         cfg,
         trigger["triggerId"],
-        _launch_request(range_end="2026-06-04"),
+        _launch_request(cfg, trigger, range_end="2026-06-04"),
     )["data"]
 
     assert launched["state"] == "running"
@@ -85,7 +87,7 @@ def test_backfill_cancel_marks_pending_partitions_and_blocks_future_admission(
     launched = launch_workflow_trigger_backfill_from_request(
         cfg,
         trigger["triggerId"],
-        _launch_request(range_end="2026-06-04"),
+        _launch_request(cfg, trigger, range_end="2026-06-04"),
     )["data"]
 
     canceled = cancel_workflow_backfill_launch_from_request(
@@ -116,7 +118,7 @@ def test_backfill_admission_respects_backward_run_order(
     launched = launch_workflow_trigger_backfill_from_request(
         cfg,
         trigger["triggerId"],
-        _launch_request(range_end="2026-06-04", run_order="backward"),
+        _launch_request(cfg, trigger, range_end="2026-06-04", run_order="backward"),
     )["data"]
 
     assert [item["partitionKey"] for item in launched["partitions"]] == [
@@ -151,8 +153,8 @@ def _create_backfill_trigger(cfg) -> dict[str, object]:
     )["data"]
 
 
-def _launch_request(*, range_end: str, run_order: str = "forward") -> WorkflowTriggerBackfillLaunchRequest:
-    return WorkflowTriggerBackfillLaunchRequest(
+def _preview_request(*, range_end: str, run_order: str = "forward") -> WorkflowTriggerBackfillPreviewRequest:
+    return WorkflowTriggerBackfillPreviewRequest(
         rangeStart="2026-06-01",
         rangeEnd=range_end,
         partitionUnit="day",
@@ -161,6 +163,25 @@ def _launch_request(*, range_end: str, run_order: str = "forward") -> WorkflowTr
         concurrencyLimit=1,
         runOrder=run_order,
         reprocessBehavior="none",
+    )
+
+
+def _launch_request(
+    cfg,
+    trigger: dict[str, object],
+    *,
+    range_end: str,
+    run_order: str = "forward",
+) -> WorkflowTriggerBackfillLaunchRequest:
+    preview_request = _preview_request(range_end=range_end, run_order=run_order)
+    preview = preview_workflow_trigger_backfill_from_request(
+        cfg,
+        str(trigger["triggerId"]),
+        preview_request,
+    )["data"]
+    return WorkflowTriggerBackfillLaunchRequest(
+        **preview_request.model_dump(),
+        previewId=str(preview["previewId"]),
         confirmation="launch-backfill",
         actor="operator",
     )

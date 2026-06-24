@@ -652,7 +652,7 @@ def test_backfill_launch_creates_partition_runs_and_replays(tmp_path, monkeypatc
         source_type="backfill",
         trigger_spec={"partitionUnit": "day"},
     )
-    request = WorkflowTriggerBackfillLaunchRequest(
+    preview_request = WorkflowTriggerBackfillPreviewRequest(
         rangeStart="2026-06-01",
         rangeEnd="2026-06-03",
         partitionUnit="day",
@@ -662,6 +662,11 @@ def test_backfill_launch_creates_partition_runs_and_replays(tmp_path, monkeypatc
         runOrder="forward",
         reprocessBehavior="none",
         params={"sampleBatch": "batch_42"},
+    )
+    preview = preview_workflow_trigger_backfill_from_request(cfg, trigger["triggerId"], preview_request)["data"]
+    request = WorkflowTriggerBackfillLaunchRequest(
+        **preview_request.model_dump(),
+        previewId=str(preview["previewId"]),
         confirmation="launch-backfill",
         actor="operator",
     )
@@ -673,6 +678,7 @@ def test_backfill_launch_creates_partition_runs_and_replays(tmp_path, monkeypatc
 
     data = first["data"]
     assert data["schemaVersion"] == "workflow-trigger-backfill-launch.v1"
+    assert data["previewId"] == preview["previewId"]
     assert data["state"] == "running"
     assert data["launchedRunCount"] == 1
     assert data["submittedThisTick"] == 1

@@ -5,6 +5,7 @@ import pytest
 from apps.remote_runner.api_models import (
     WorkflowBackfillCancelRequest,
     WorkflowTriggerBackfillLaunchRequest,
+    WorkflowTriggerBackfillPreviewRequest,
     WorkflowTriggerCreateRequest,
 )
 from apps.remote_runner.errors import RemoteRunnerNotFoundError
@@ -18,6 +19,7 @@ from apps.remote_runner.trigger_service import (
     get_workflow_backfill_launch_from_storage,
     launch_workflow_trigger_backfill_from_request,
     list_workflow_backfill_launches_from_storage,
+    preview_workflow_trigger_backfill_from_request,
 )
 from tests.helpers.reference_database import make_configured_remote_runner
 
@@ -43,18 +45,7 @@ def test_backfill_launch_read_model_lists_partition_runs_and_replay_state(
         ),
         actor="pytest",
     )["data"]
-    request = WorkflowTriggerBackfillLaunchRequest(
-        rangeStart="2026-06-01",
-        rangeEnd="2026-06-03",
-        partitionUnit="day",
-        timezone="UTC",
-        maxPartitions=2,
-        concurrencyLimit=1,
-        runOrder="forward",
-        reprocessBehavior="none",
-        confirmation="launch-backfill",
-        actor="operator",
-    )
+    request = _launch_request(cfg, trigger)
 
     launched = launch_workflow_trigger_backfill_from_request(cfg, trigger["triggerId"], request)["data"]
     replayed = launch_workflow_trigger_backfill_from_request(cfg, trigger["triggerId"], request)["data"]
@@ -149,18 +140,7 @@ def test_backfill_launch_cancel_requests_active_partition_runs(tmp_path, monkeyp
         ),
         actor="pytest",
     )["data"]
-    request = WorkflowTriggerBackfillLaunchRequest(
-        rangeStart="2026-06-01",
-        rangeEnd="2026-06-03",
-        partitionUnit="day",
-        timezone="UTC",
-        maxPartitions=2,
-        concurrencyLimit=1,
-        runOrder="forward",
-        reprocessBehavior="none",
-        confirmation="launch-backfill",
-        actor="operator",
-    )
+    request = _launch_request(cfg, trigger)
     launched = launch_workflow_trigger_backfill_from_request(cfg, trigger["triggerId"], request)["data"]
 
     response = cancel_workflow_backfill_launch_from_request(
@@ -205,6 +185,30 @@ def test_backfill_launch_detail_fails_closed_for_unknown_launch(tmp_path) -> Non
 
     with pytest.raises(RemoteRunnerNotFoundError, match="WORKFLOW_BACKFILL_LAUNCH_NOT_FOUND"):
         get_workflow_backfill_launch_from_storage(cfg, "bfl_missing")
+
+
+def _launch_request(cfg, trigger: dict[str, object]) -> WorkflowTriggerBackfillLaunchRequest:
+    preview_request = WorkflowTriggerBackfillPreviewRequest(
+        rangeStart="2026-06-01",
+        rangeEnd="2026-06-03",
+        partitionUnit="day",
+        timezone="UTC",
+        maxPartitions=2,
+        concurrencyLimit=1,
+        runOrder="forward",
+        reprocessBehavior="none",
+    )
+    preview = preview_workflow_trigger_backfill_from_request(
+        cfg,
+        str(trigger["triggerId"]),
+        preview_request,
+    )["data"]
+    return WorkflowTriggerBackfillLaunchRequest(
+        **preview_request.model_dump(),
+        previewId=str(preview["previewId"]),
+        confirmation="launch-backfill",
+        actor="operator",
+    )
 
 
 def _expected_admission_summary(run: dict[str, object] | None) -> dict[str, object]:

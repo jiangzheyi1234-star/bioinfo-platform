@@ -448,6 +448,7 @@ def test_workflow_trigger_backfill_preview_request_is_strict_and_bounded() -> No
 def test_workflow_trigger_backfill_launch_request_requires_confirmation() -> None:
     request = WorkflowTriggerBackfillLaunchRequest.model_validate(
         {
+            "previewId": "bfprev_demo",
             "rangeStart": "2026-06-01",
             "rangeEnd": "2026-06-02",
             "confirmation": "launch-backfill",
@@ -455,12 +456,14 @@ def test_workflow_trigger_backfill_launch_request_requires_confirmation() -> Non
         }
     )
 
+    assert request.previewId == "bfprev_demo"
     assert request.confirmation == "launch-backfill"
     assert request.actor == "operator"
 
     with pytest.raises(ValidationError) as exc_info:
         WorkflowTriggerBackfillLaunchRequest.model_validate(
             {
+                "previewId": "bfprev_demo",
                 "rangeStart": "2026-06-01",
                 "rangeEnd": "2026-06-02",
                 "confirmation": "preview-only",
@@ -471,6 +474,17 @@ def test_workflow_trigger_backfill_launch_request_requires_confirmation() -> Non
     errors = exc_info.value.errors()
     assert any(error["type"] == "literal_error" and error["loc"] == ("confirmation",) for error in errors)
     assert any(error["type"] == "extra_forbidden" and error["loc"] == ("legacyMode",) for error in errors)
+
+    with pytest.raises(ValidationError) as missing_preview:
+        WorkflowTriggerBackfillLaunchRequest.model_validate(
+            {
+                "rangeStart": "2026-06-01",
+                "rangeEnd": "2026-06-02",
+                "confirmation": "launch-backfill",
+            }
+        )
+
+    assert any(error["type"] == "missing" and error["loc"] == ("previewId",) for error in missing_preview.value.errors())
 
 
 def test_workflow_backfill_cancel_request_requires_confirmation() -> None:

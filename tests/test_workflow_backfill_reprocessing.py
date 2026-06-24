@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from apps.remote_runner.api_models import WorkflowTriggerBackfillLaunchRequest, WorkflowTriggerCreateRequest
+from apps.remote_runner.api_models import (
+    WorkflowTriggerBackfillLaunchRequest,
+    WorkflowTriggerBackfillPreviewRequest,
+    WorkflowTriggerCreateRequest,
+)
 from apps.remote_runner.execution_query_storage import list_runs
 from apps.remote_runner.storage_core import get_connection
 from apps.remote_runner.trigger_service import (
@@ -24,19 +28,19 @@ def test_backfill_failed_reprocessing_creates_new_run_only_for_failed_partition(
     first = launch_workflow_trigger_backfill_from_request(
         cfg,
         trigger["triggerId"],
-        _launch_request(reprocess_behavior="none"),
+        _launch_request(cfg, trigger, reprocess_behavior="none"),
     )["data"]
     _mark_run_status(cfg, first["partitions"][0]["runId"], status="failed", stage="failed")
 
     preview = preview_workflow_trigger_backfill_from_request(
         cfg,
         trigger["triggerId"],
-        _launch_request(reprocess_behavior="failed"),
+        _preview_request(reprocess_behavior="failed"),
     )["data"]
     relaunched = launch_workflow_trigger_backfill_from_request(
         cfg,
         trigger["triggerId"],
-        _launch_request(reprocess_behavior="failed"),
+        _launch_request(cfg, trigger, reprocess_behavior="failed"),
     )["data"]
 
     assert preview["partitions"][0]["action"] == "create"
@@ -60,14 +64,14 @@ def test_backfill_none_reprocessing_skips_existing_completed_partition(
     first = launch_workflow_trigger_backfill_from_request(
         cfg,
         trigger["triggerId"],
-        _launch_request(reprocess_behavior="completed"),
+        _launch_request(cfg, trigger, reprocess_behavior="completed"),
     )["data"]
     _mark_run_status(cfg, first["partitions"][0]["runId"], status="completed", stage="complete")
 
     skipped = launch_workflow_trigger_backfill_from_request(
         cfg,
         trigger["triggerId"],
-        _launch_request(reprocess_behavior="none"),
+        _launch_request(cfg, trigger, reprocess_behavior="none"),
     )["data"]
 
     assert skipped["state"] == "submitted"
@@ -92,14 +96,14 @@ def test_backfill_completed_reprocessing_creates_new_run_for_completed_partition
     first = launch_workflow_trigger_backfill_from_request(
         cfg,
         trigger["triggerId"],
-        _launch_request(reprocess_behavior="none"),
+        _launch_request(cfg, trigger, reprocess_behavior="none"),
     )["data"]
     _mark_run_status(cfg, first["partitions"][0]["runId"], status="completed", stage="complete")
 
     relaunched = launch_workflow_trigger_backfill_from_request(
         cfg,
         trigger["triggerId"],
-        _launch_request(reprocess_behavior="completed"),
+        _launch_request(cfg, trigger, reprocess_behavior="completed"),
     )["data"]
 
     assert relaunched["partitions"][0]["action"] == "create"
@@ -120,14 +124,14 @@ def test_backfill_failed_reprocessing_skips_completed_partition(
     first = launch_workflow_trigger_backfill_from_request(
         cfg,
         trigger["triggerId"],
-        _launch_request(reprocess_behavior="none"),
+        _launch_request(cfg, trigger, reprocess_behavior="none"),
     )["data"]
     _mark_run_status(cfg, first["partitions"][0]["runId"], status="completed", stage="complete")
 
     skipped = launch_workflow_trigger_backfill_from_request(
         cfg,
         trigger["triggerId"],
-        _launch_request(reprocess_behavior="failed"),
+        _launch_request(cfg, trigger, reprocess_behavior="failed"),
     )["data"]
 
     assert skipped["partitions"][0]["action"] == "skip"
@@ -147,12 +151,12 @@ def test_backfill_reprocessing_never_duplicates_active_partition_run(
     launch_workflow_trigger_backfill_from_request(
         cfg,
         trigger["triggerId"],
-        _launch_request(reprocess_behavior="none"),
+        _launch_request(cfg, trigger, reprocess_behavior="none"),
     )
     blocked = launch_workflow_trigger_backfill_from_request(
         cfg,
         trigger["triggerId"],
-        _launch_request(reprocess_behavior="completed"),
+        _launch_request(cfg, trigger, reprocess_behavior="completed"),
     )["data"]
 
     assert blocked["launchedRunCount"] == 0
@@ -179,8 +183,8 @@ def _create_backfill_trigger(cfg):
     )["data"]
 
 
-def _launch_request(*, reprocess_behavior: str) -> WorkflowTriggerBackfillLaunchRequest:
-    return WorkflowTriggerBackfillLaunchRequest(
+def _preview_request(*, reprocess_behavior: str) -> WorkflowTriggerBackfillPreviewRequest:
+    return WorkflowTriggerBackfillPreviewRequest(
         rangeStart="2026-06-01",
         rangeEnd="2026-06-02",
         partitionUnit="day",
@@ -189,6 +193,18 @@ def _launch_request(*, reprocess_behavior: str) -> WorkflowTriggerBackfillLaunch
         concurrencyLimit=1,
         runOrder="forward",
         reprocessBehavior=reprocess_behavior,
+    )
+
+
+def _launch_request(cfg, trigger: dict[str, object], *, reprocess_behavior: str) -> WorkflowTriggerBackfillLaunchRequest:
+    preview = preview_workflow_trigger_backfill_from_request(
+        cfg,
+        str(trigger["triggerId"]),
+        _preview_request(reprocess_behavior=reprocess_behavior),
+    )["data"]
+    return WorkflowTriggerBackfillLaunchRequest(
+        **_preview_request(reprocess_behavior=reprocess_behavior).model_dump(),
+        previewId=str(preview["previewId"]),
         confirmation="launch-backfill",
         actor="operator",
     )

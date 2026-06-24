@@ -106,24 +106,54 @@ def test_backfill_launch_rejects_disabled_truncated_and_generic_event_route(
         launch_workflow_trigger_backfill_from_request(
             cfg,
             disabled_trigger["triggerId"],
-            WorkflowTriggerBackfillLaunchRequest(
-                rangeStart="2026-06-01",
-                rangeEnd="2026-06-02",
-                confirmation="launch-backfill",
-            ),
+            _launch_request(cfg, disabled_trigger, range_end="2026-06-02"),
         )
 
     with pytest.raises(ValueError, match="WORKFLOW_BACKFILL_LAUNCH_TRUNCATED"):
         launch_workflow_trigger_backfill_from_request(
             cfg,
             enabled_trigger["triggerId"],
-            WorkflowTriggerBackfillLaunchRequest(
-                rangeStart="2026-06-01",
-                rangeEnd="2026-06-04",
-                maxPartitions=2,
-                confirmation="launch-backfill",
-            ),
+            _launch_request(cfg, enabled_trigger, range_end="2026-06-04", max_partitions=2),
         )
+
+
+def test_backfill_launch_rejects_mismatched_preview_id(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_execution_admission_ready", lambda _cfg: None)
+    trigger = _create_trigger(cfg, source_type="backfill", trigger_spec={"partitionUnit": "day"})
+
+    request = _launch_request(cfg, trigger, range_end="2026-06-02")
+    tampered = WorkflowTriggerBackfillLaunchRequest(
+        **{**request.model_dump(), "previewId": "bfprev_wrong"},
+    )
+
+    with pytest.raises(ValueError, match="WORKFLOW_BACKFILL_PREVIEW_ID_MISMATCH"):
+        launch_workflow_trigger_backfill_from_request(cfg, trigger["triggerId"], tampered)
+
+
+def _launch_request(
+    cfg,
+    trigger: dict[str, object],
+    *,
+    range_end: str,
+    max_partitions: int = 100,
+) -> WorkflowTriggerBackfillLaunchRequest:
+    preview_request = WorkflowTriggerBackfillPreviewRequest(
+        rangeStart="2026-06-01",
+        rangeEnd=range_end,
+        maxPartitions=max_partitions,
+    )
+    preview = preview_workflow_trigger_backfill_from_request(
+        cfg,
+        str(trigger["triggerId"]),
+        preview_request,
+    )["data"]
+    return WorkflowTriggerBackfillLaunchRequest(
+        **preview_request.model_dump(),
+        previewId=str(preview["previewId"]),
+        confirmation="launch-backfill",
+    )
 
 
 def _create_trigger(

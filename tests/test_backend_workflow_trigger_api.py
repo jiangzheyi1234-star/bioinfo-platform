@@ -160,6 +160,7 @@ def test_workflow_trigger_routes_preserve_runtime_wrappers_and_submit_headers(mo
                 runOrder="forward",
                 reprocessBehavior="none",
                 params={"sampleBatch": "batch_42"},
+                previewId="bfprev_demo",
                 confirmation="launch-backfill",
                 actor="operator",
             ),
@@ -247,6 +248,7 @@ def test_workflow_trigger_routes_preserve_runtime_wrappers_and_submit_headers(mo
             "triggerId": "wtr_demo",
             "launchSupported": True,
             "estimatedRunCount": 2,
+            "previewId": "bfprev_demo",
             "partitions": [],
         }
     }
@@ -517,6 +519,7 @@ class FakeTriggerRuntime:
                 "triggerId": "wtr_demo",
                 "launchSupported": True,
                 "estimatedRunCount": 2,
+                "previewId": "bfprev_demo",
                 "partitions": [],
             }
         }
@@ -533,6 +536,7 @@ class FakeTriggerRuntime:
             "runOrder": "forward",
             "reprocessBehavior": "none",
             "params": {"sampleBatch": "batch_42"},
+            "previewId": "bfprev_demo",
             "confirmation": "launch-backfill",
             "actor": "operator",
         }

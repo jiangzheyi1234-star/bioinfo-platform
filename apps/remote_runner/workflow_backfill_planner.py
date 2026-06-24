@@ -254,9 +254,24 @@ def _backfill_preview_id(
         "triggerId": trigger_id,
         "rangeStart": _format_utc(range_start),
         "rangeEnd": _format_utc(range_end),
-        "request": request_payload(request),
+        "request": _backfill_preview_request_payload(request),
     }
     return f"bfprev_{hashlib.sha256(_stable_json(payload).encode('utf-8')).hexdigest()[:16]}"
+
+
+def _backfill_preview_request_payload(request: WorkflowTriggerBackfillPreviewRequest) -> dict[str, Any]:
+    payload = request_payload(request)
+    return {
+        "rangeStart": payload.get("rangeStart"),
+        "rangeEnd": payload.get("rangeEnd"),
+        "partitionUnit": payload.get("partitionUnit"),
+        "timezone": payload.get("timezone"),
+        "maxPartitions": payload.get("maxPartitions"),
+        "concurrencyLimit": payload.get("concurrencyLimit"),
+        "runOrder": payload.get("runOrder"),
+        "reprocessBehavior": payload.get("reprocessBehavior"),
+        "params": payload.get("params") or {},
+    }
 
 
 def _format_utc(value: datetime) -> str:
