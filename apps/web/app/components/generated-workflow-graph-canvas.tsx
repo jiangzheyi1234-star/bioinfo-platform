@@ -39,6 +39,7 @@ import {
   type GeneratedWorkflowPortConnectionDecision,
 } from "./generated-workflow-port-connection";
 import {
+  graphNodePosition,
   graphNodeSubflowId,
   graphNodeSubflowLabel,
   workflowToolRevisionEntries,
@@ -90,6 +91,8 @@ export function GeneratedWorkflowGraphCanvas({
   nodes,
   onBindInput,
   onInsertConverter,
+  onNodePositionChange,
+  onNodePositionsChange,
   onSelectNode,
   searchQuery = "",
   selectedNodeId,
@@ -101,6 +104,8 @@ export function GeneratedWorkflowGraphCanvas({
   nodes: GraphNode[];
   onBindInput: (stepId: string, inputName: string, binding: GeneratedWorkflowInputBinding) => void;
   onInsertConverter: (request: RulePortConverterInsertionRequest) => void;
+  onNodePositionChange: (nodeId: string, position: { x: number; y: number }) => void;
+  onNodePositionsChange: (positions: Record<string, { x: number; y: number }>) => void;
   onSelectNode: (nodeId: string) => void;
   searchQuery?: string;
   selectedNodeId: string;
@@ -118,10 +123,13 @@ export function GeneratedWorkflowGraphCanvas({
   const [connectionNotice, setConnectionNotice] = useState<ConnectionNotice | null>(null);
   const lastInvalidConnectionRef = useRef<ConnectionNotice | null>(null);
   const flowInstanceRef = useRef<ReactFlowInstance<RuleFlowAnyNode, RuleFlowEdge> | null>(null);
+  const layoutRevisionRef = useRef(layoutRevision);
+  const layoutRequested = layoutRevisionRef.current !== layoutRevision;
   const flowNodeDrafts = useMemo(
     () =>
       buildFlowNodes({
         edges,
+        forceLayout: layoutRequested,
         hasSearch,
         layout,
         matchedNodeIds,
@@ -131,20 +139,22 @@ export function GeneratedWorkflowGraphCanvas({
         toolByRevisionId,
         validationIssues,
       }),
-    [edges, hasSearch, layout, matchedNodeIds, nodes, onSelectNode, selectedNodeId, toolByRevisionId, validationIssues]
+    [edges, hasSearch, layout, layoutRequested, matchedNodeIds, nodes, onSelectNode, selectedNodeId, toolByRevisionId, validationIssues]
   );
   const [flowNodes, setFlowNodes] = useState<RuleFlowNode[]>(flowNodeDrafts);
-  const layoutRevisionRef = useRef(layoutRevision);
   const visibleFlowNodes = flowNodes.length > 0 ? flowNodes : flowNodeDrafts;
   const subflowGroupNodes = useMemo(() => buildSubflowGroupNodes(visibleFlowNodes), [visibleFlowNodes]);
 
   useEffect(() => {
+    const preservePositions = layoutRevisionRef.current === layoutRevision;
+    if (!preservePositions && flowNodeDrafts.length > 0) {
+      onNodePositionsChange(flowNodePositions(flowNodeDrafts));
+    }
+    layoutRevisionRef.current = layoutRevision;
     setFlowNodes((current) => {
-      const preservePositions = layoutRevisionRef.current === layoutRevision;
-      layoutRevisionRef.current = layoutRevision;
       return mergeFlowNodes({ next: flowNodeDrafts, preservePositions, previous: current });
     });
-  }, [flowNodeDrafts, layoutRevision]);
+  }, [flowNodeDrafts, layoutRevision, onNodePositionsChange]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -254,6 +264,9 @@ export function GeneratedWorkflowGraphCanvas({
         onNodeClick={(_event, node) => {
           if (!isSubflowGroupNodeId(node.id)) onSelectNode(node.id);
         }}
+        onNodeDragStop={(_event, node) => {
+          if (!isSubflowGroupNodeId(node.id)) onNodePositionChange(node.id, node.position);
+        }}
         onNodesChange={onNodesChange}
         panOnDrag
         panOnScroll
@@ -324,6 +337,7 @@ function WorkflowSubflowGroupNode({ data }: NodeProps<RuleFlowSubflowGroupNode>)
 
 function buildFlowNodes({
   edges,
+  forceLayout = false,
   hasSearch,
   layout,
   matchedNodeIds,
@@ -334,6 +348,7 @@ function buildFlowNodes({
   validationIssues,
 }: {
   edges: GraphEdge[];
+  forceLayout?: boolean;
   hasSearch: boolean;
   layout: ReturnType<typeof layoutGeneratedWorkflowGraph>;
   matchedNodeIds: Set<string>;
@@ -359,7 +374,7 @@ function buildFlowNodes({
         tool: toolByRevisionId.get(node.toolRevisionId),
         validationIssues: nodeIssues,
       },
-      position: flowPositionForLayout(item?.item, item?.index ?? index),
+      position: flowPositionForNode(node, item?.item, item?.index ?? index, forceLayout),
       selected: selectedNodeId === node.id,
       style: { width: FLOW_NODE_WIDTH },
       type: "workflowRule",
@@ -424,10 +439,14 @@ function buildFlowEdges(edges: GraphEdge[]): RuleFlowEdge[] {
   }));
 }
 
-function flowPositionForLayout(
+function flowPositionForNode(
+  node: GraphNode,
   item: ReturnType<typeof layoutGeneratedWorkflowGraph>["items"][number] | undefined,
-  index: number
+  index: number,
+  forceLayout = false
 ) {
+  const position = forceLayout ? null : graphNodePosition(node);
+  if (position) return position;
   if (!item) {
     return { x: 0, y: index * (FLOW_NODE_MIN_HEIGHT + FLOW_NODE_ROW_GAP) };
   }
@@ -448,9 +467,14 @@ function mergeFlowNodes({
 }) {
   const previousPositions = new Map(previous.map((node) => [node.id, node.position]));
   return next.map((node) => {
+    if (graphNodePosition(node.data.graphNode)) return node;
     const position = preservePositions ? previousPositions.get(node.id) : undefined;
     return position ? { ...node, position } : node;
   });
+}
+
+function flowNodePositions(nodes: RuleFlowNode[]) {
+  return Object.fromEntries(nodes.map((node) => [node.id, node.position]));
 }
 
 function isSubflowGroupNodeId(nodeId: string) {

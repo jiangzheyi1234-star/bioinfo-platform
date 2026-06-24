@@ -104,6 +104,8 @@ export type ValidateGeneratedWorkflowDraftOptions = {
 
 export const WORKFLOW_NODE_SUBFLOW_ID_METADATA_KEY = "uiSubflowId";
 export const WORKFLOW_NODE_SUBFLOW_LABEL_METADATA_KEY = "uiSubflowLabel";
+export const WORKFLOW_NODE_POSITION_X_METADATA_KEY = "uiPositionX";
+export const WORKFLOW_NODE_POSITION_Y_METADATA_KEY = "uiPositionY";
 
 export type RuleInputSpec = {
   name: string;
@@ -504,6 +506,22 @@ export function graphNodeMetadataWithSubflow(
   return next;
 }
 
+export function graphNodePosition(node: { metadata?: GeneratedWorkflowGraphNodeMetadata }): { x: number; y: number } | null {
+  const x = numberValue(node.metadata?.[WORKFLOW_NODE_POSITION_X_METADATA_KEY]);
+  const y = numberValue(node.metadata?.[WORKFLOW_NODE_POSITION_Y_METADATA_KEY]);
+  return x === null || y === null ? null : { x, y };
+}
+
+export function graphNodeMetadataWithPosition(
+  metadata: GeneratedWorkflowGraphNodeMetadata | undefined,
+  position: { x: number; y: number }
+): GeneratedWorkflowGraphNodeMetadata {
+  const next = { ...(metadata || {}) };
+  next[WORKFLOW_NODE_POSITION_X_METADATA_KEY] = stablePositionCoordinate(position.x);
+  next[WORKFLOW_NODE_POSITION_Y_METADATA_KEY] = stablePositionCoordinate(position.y);
+  return next;
+}
+
 export function isGeneratedWorkflowGraphDraft(
   draft: GeneratedWorkflowDraft | GeneratedWorkflowGraphDraft
 ): draft is GeneratedWorkflowGraphDraft {
@@ -617,6 +635,15 @@ function normalizeParamValue(value: unknown): GeneratedWorkflowParamValue | unde
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function numberValue(value: unknown): number | null {
+  const parsed = typeof value === "number" || typeof value === "string" ? Number(value) : NaN;
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function stablePositionCoordinate(value: number): number {
+  return Math.round(value);
 }
 
 function isStepBinding(binding: GeneratedWorkflowInputBinding | undefined): binding is { fromStep: string; output: string } {

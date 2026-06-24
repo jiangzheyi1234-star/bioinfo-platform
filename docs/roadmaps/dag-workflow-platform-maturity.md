@@ -110,7 +110,7 @@ Progress:
 
 - Deterministic graph layout, undo/redo history, search, and graph viewport controls have landed.
 - React Flow `@xyflow/react` is the selected graph editing surface for drag, pan, zoom, handles, edge deletion, minimap, and future subflow/group support.
-- React Flow node positions are currently editor-local state seeded from the deterministic layout helper; `GeneratedWorkflowGraphDraft` remains the save/compile source.
+- React Flow node positions now persist as scalar UI metadata (`uiPositionX`/`uiPositionY`) committed through graph history on drag stop and auto-layout; saved and compiled execution semantics remain unchanged.
 - Direct canvas port connections now route through the same semantic compatibility and audit helpers used by inspector binding.
 - Subflow grouping now uses editor node metadata (`uiSubflowId`/`uiSubflowLabel`) and display-only React Flow group nodes; the saved and compiled execution graph remains flat.
 - Incompatible canvas port drops now reuse the shared one-hop converter recommendation policy used by the inspector, surface a stale-safe explicit confirmation prompt, and call the existing converter insertion path only after user confirmation.

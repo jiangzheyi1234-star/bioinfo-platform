@@ -374,6 +374,8 @@ function WorkflowGraphWorkbench({
             nodes={nodes}
             onBindInput={builder.setInputBinding}
             onInsertConverter={builder.insertConverter}
+            onNodePositionChange={builder.setNodePosition}
+            onNodePositionsChange={builder.setNodePositions}
             onSelectNode={setSelectedNodeId}
             searchQuery={graphSearchQuery}
             selectedNodeId={selectedNode?.id || ""}

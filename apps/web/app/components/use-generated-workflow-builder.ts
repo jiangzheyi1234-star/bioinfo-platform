@@ -22,6 +22,8 @@ import {
   createStepParams,
   findCompatibleOutputBinding,
   generatedWorkflowDraftToGraphDraft,
+  graphNodePosition,
+  graphNodeMetadataWithPosition,
   graphNodeMetadataWithSubflow,
   graphDraftToGeneratedWorkflowDraft,
   readRuleInputs,
@@ -44,6 +46,8 @@ import {
 import { manualEdgeAudit } from "./generated-workflow-recommendation-contract";
 import { autoBindGeneratedWorkflowResources } from "./generated-workflow-resource-binding";
 
+type GraphNodePosition = { x: number; y: number };
+
 type BuilderAction =
   | { type: "reset_tools"; tools: AddedTool[] }
   | { type: "load_graph_draft"; draft: GeneratedWorkflowGraphDraft }
@@ -56,6 +60,8 @@ type BuilderAction =
   | { type: "set_step_id"; stepId: string; nextId: string }
   | { type: "set_step_tool"; stepId: string; tool: AddedTool; tools: AddedTool[] }
   | { type: "set_node_subflow"; stepId: string; label: string }
+  | { type: "set_node_position"; stepId: string; position: GraphNodePosition }
+  | { type: "set_node_positions"; positions: Record<string, GraphNodePosition> }
   | { type: "set_input"; stepId: string; inputName: string; binding: GeneratedWorkflowInputBinding }
   | { type: "set_step_param"; stepId: string; paramName: string; value: GeneratedWorkflowParamValue }
   | { type: "set_step_runtime"; stepId: string; runtime: GeneratedWorkflowStepRuntime }
@@ -155,6 +161,10 @@ export function useGeneratedWorkflowBuilder(tools: AddedTool[], availableResourc
       if (tool) dispatch({ type: "set_step_tool", stepId, tool, tools });
     },
     setNodeSubflow: (stepId: string, label: string) => dispatch({ type: "set_node_subflow", stepId, label }),
+    setNodePosition: (stepId: string, position: GraphNodePosition) =>
+      dispatch({ type: "set_node_position", stepId, position }),
+    setNodePositions: (positions: Record<string, GraphNodePosition>) =>
+      dispatch({ type: "set_node_positions", positions }),
     setInputBinding: (stepId: string, inputName: string, binding: GeneratedWorkflowInputBinding) =>
       dispatch({ type: "set_input", stepId, inputName, binding }),
     setStepParam: (stepId: string, paramName: string, value: GeneratedWorkflowParamValue) =>
@@ -243,6 +253,18 @@ function builderReducer(state: BuilderState, action: BuilderAction): BuilderStat
         ),
       }),
     };
+  }
+  if (action.type === "set_node_position") {
+    return commitGraphDraftIfChanged(
+      state,
+      graphDraftWithNodePosition(state.graphHistory.present, action.stepId, action.position)
+    );
+  }
+  if (action.type === "set_node_positions") {
+    return commitGraphDraftIfChanged(
+      state,
+      graphDraftWithNodePositions(state.graphHistory.present, action.positions)
+    );
   }
   if (action.type === "set_input") {
     const binding =
@@ -353,6 +375,53 @@ function commitGraphDraft(state: BuilderState, graphDraft: GeneratedWorkflowGrap
     ...state,
     graphHistory: commitWorkflowEditorHistory(state.graphHistory, graphDraft),
   };
+}
+
+function commitGraphDraftIfChanged(state: BuilderState, graphDraft: GeneratedWorkflowGraphDraft): BuilderState {
+  return graphDraft === state.graphHistory.present ? state : commitGraphDraft(state, graphDraft);
+}
+
+function graphDraftWithNodePosition(
+  draft: GeneratedWorkflowGraphDraft,
+  stepId: string,
+  position: GraphNodePosition
+): GeneratedWorkflowGraphDraft {
+  let changed = false;
+  const nodes = draft.nodes.map((node) => {
+    if (node.id !== stepId) return node;
+    if (graphNodePositionMatches(node.metadata, position)) return node;
+    changed = true;
+    return { ...node, metadata: graphNodeMetadataWithPosition(node.metadata, position) };
+  });
+  return changed ? { ...draft, nodes } : draft;
+}
+
+function graphDraftWithNodePositions(
+  draft: GeneratedWorkflowGraphDraft,
+  positions: Record<string, GraphNodePosition>
+): GeneratedWorkflowGraphDraft {
+  let changed = false;
+  const nodes = draft.nodes.map((node) => {
+    const position = positions[node.id];
+    if (!position || graphNodePositionMatches(node.metadata, position)) return node;
+    changed = true;
+    return { ...node, metadata: graphNodeMetadataWithPosition(node.metadata, position) };
+  });
+  return changed ? { ...draft, nodes } : draft;
+}
+
+function graphNodePositionMatches(
+  metadata: GeneratedWorkflowGraphDraft["nodes"][number]["metadata"] | undefined,
+  position: GraphNodePosition
+) {
+  const currentPosition = graphNodePosition({ metadata });
+  const nextPosition = graphNodePosition({ metadata: graphNodeMetadataWithPosition(metadata, position) });
+  return Boolean(
+    currentPosition
+    && nextPosition
+    && currentPosition.x === nextPosition.x
+    && currentPosition.y === nextPosition.y
+  );
 }
 
 function graphHistoryToolsAvailable(

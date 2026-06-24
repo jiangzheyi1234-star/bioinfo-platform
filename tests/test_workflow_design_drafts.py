@@ -206,6 +206,8 @@ def test_workflow_design_plan_preview_and_compile_export(tmp_path: Path) -> None
         **draft["nodes"][0]["metadata"],
         "uiSubflowId": "qc_stage",
         "uiSubflowLabel": "QC Stage",
+        "uiPositionX": 120,
+        "uiPositionY": 260,
     }
     saved = create_workflow_design_draft(cfg, draft)
 
@@ -224,6 +226,8 @@ def test_workflow_design_plan_preview_and_compile_export(tmp_path: Path) -> None
     assert plan["normalizedGraph"]["inputs"][0]["metadata"] == {"lane": "L001"}
     assert plan["normalizedGraph"]["nodes"][0]["metadata"] == {
         "uiGroup": "qc",
+        "uiPositionX": 120,
+        "uiPositionY": 260,
         "uiSubflowId": "qc_stage",
         "uiSubflowLabel": "QC Stage",
     }
