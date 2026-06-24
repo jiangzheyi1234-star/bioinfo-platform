@@ -64,7 +64,9 @@ def test_local_api_cors_stays_explicit_and_desktop_scoped() -> None:
 
 def test_security_governance_audit_script_contract() -> None:
     source = _source("scripts/security_governance_audit.py")
+    security_analysis_source = _source("scripts/security_analysis_governance.py")
     dependabot_source = _source("scripts/dependabot_governance.py")
+    combined_source = source + "\n" + security_analysis_source
 
     assert "git" in source and "ls-files" in source
     assert "private-key-block" in source
@@ -86,10 +88,22 @@ def test_security_governance_audit_script_contract() -> None:
     assert "WORKFLOW_JOB_WRITE_PERMISSION_ALLOWLIST" in source
     assert "workflow-permission-write-unapproved" in source
     assert "DEPENDENCY_REVIEW_ACTION" in source
+    assert "SECURITY_ANALYSIS_WORKFLOW" in combined_source
+    assert "CODEQL_ACTION_SHA" in combined_source
+    assert "SCORECARD_ACTION_SHA" in combined_source
     assert "scan_dependency_review_workflow_contract" in source
+    assert "scan_security_analysis_workflow_contract" in combined_source
     assert "dependency-review-severity" in source
     assert "dependency-review-pr-comments" in source
     assert "dependency-review-warn-only" in source
+    assert "security-analysis-soft-fail" in combined_source
+    assert "security-analysis-scorecard-permissions" in combined_source
+    assert "_scan_scorecard_publish_job_restrictions" in combined_source
+    assert "security-analysis-scorecard-job-restriction" in combined_source
+    assert "security-analysis-scorecard-action-unapproved" in combined_source
+    assert "security-analysis-scorecard-runner" in combined_source
+    assert "scan_required_ci_security_analysis_contract" in combined_source
+    assert "security-analysis-required-gate" in combined_source
     assert "dependabot_governance" in source
     assert "DEPENDABOT_REQUIRED_UPDATE_GROUPS" in dependabot_source
     assert "scan_dependabot_version_updates_contract" in source
@@ -266,6 +280,172 @@ jobs:
         env:
           persist-credentials: false
 """
+    security_analysis_soft_fail = """
+name: Security Analysis
+"on":
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "34 3 * * 2"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  codeql:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: github/codeql-action/init@8aad20d150bbac5944a9f9d289da16a4b0d87c1e
+      - uses: github/codeql-action/analyze@8aad20d150bbac5944a9f9d289da16a4b0d87c1e
+        continue-on-error: true
+  scorecard:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      security-events: write
+    steps:
+      - uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: false
+"""
+    security_analysis_pr_upload = """
+name: Security Analysis
+"on":
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  scorecard:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      security-events: write
+    steps:
+      - uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+"""
+    security_analysis_disallowed_scorecard_job = """
+name: Security Analysis
+"on":
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "34 3 * * 2"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  codeql:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: github/codeql-action/init@8aad20d150bbac5944a9f9d289da16a4b0d87c1e
+        with:
+          languages: python
+          queries: +security-extended,security-and-quality
+      - uses: github/codeql-action/analyze@8aad20d150bbac5944a9f9d289da16a4b0d87c1e
+  scorecard:
+    runs-on: ubuntu-24.04
+    env:
+      SCORECARD_EXAMPLE: unsafe
+    container: ubuntu:24.04
+    permissions:
+      contents: read
+      id-token: write
+      security-events: write
+    steps:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      - run: echo unsafe
+      - uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+      - uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e
+        with:
+          sarif_file: results.sarif
+"""
+    security_analysis_top_level_inline_env = """
+name: Security Analysis
+"on":
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "34 3 * * 2"
+  workflow_dispatch:
+permissions:
+  contents: read
+env: {FOO: bar}
+jobs:
+  scorecard:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      security-events: write
+    steps:
+      - uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+"""
+    security_analysis_windows_scorecard = """
+name: Security Analysis
+"on":
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "34 3 * * 2"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  scorecard:
+    runs-on: windows-2022
+    permissions:
+      contents: read
+      id-token: write
+      security-events: write
+    steps:
+      - uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+"""
+    ci_with_required_scorecard = """
+name: CI
+"on":
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  scorecard:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a
+  ci_green:
+    needs: [scorecard]
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo done
+"""
 
     assert "unpinned-action" in _finding_codes(
         audit.scan_workflow_security_contract(".github/workflows/unsafe.yml", unversioned_action)
@@ -324,6 +504,61 @@ jobs:
             checkout_persist_credentials_env_spoof,
         )
     )
+    security_analysis_codes = _finding_codes(
+        audit.scan_workflow_security_contract(
+            ".github/workflows/security-analysis.yml",
+            security_analysis_soft_fail,
+        )
+    )
+    assert "security-analysis-soft-fail" in security_analysis_codes
+    assert "security-analysis-scorecard-contract" in security_analysis_codes
+    assert "security-analysis-codeql-contract" in security_analysis_codes
+    assert "security-analysis-scorecard-contract" in _finding_codes(
+        audit.scan_workflow_security_contract(
+            ".github/workflows/security-analysis.yml",
+            security_analysis_pr_upload,
+        )
+    )
+    assert "security-analysis-untrusted-trigger" in _finding_codes(
+        audit.scan_workflow_security_contract(
+            ".github/workflows/security-analysis.yml",
+            security_analysis_pr_upload,
+        )
+    )
+    disallowed_scorecard_codes = _finding_codes(
+        audit.scan_workflow_security_contract(
+            ".github/workflows/security-analysis.yml",
+            security_analysis_disallowed_scorecard_job,
+        )
+    )
+    assert "security-analysis-scorecard-job-restriction" in disallowed_scorecard_codes
+    assert "security-analysis-scorecard-action-unapproved" in disallowed_scorecard_codes
+    assert any(
+        finding.code == "security-analysis-scorecard-job-restriction"
+        and "container" in finding.detail
+        for finding in audit.scan_workflow_security_contract(
+            ".github/workflows/security-analysis.yml",
+            security_analysis_disallowed_scorecard_job,
+        )
+    )
+    assert "security-analysis-workflow-restriction" in _finding_codes(
+        audit.scan_workflow_security_contract(
+            ".github/workflows/security-analysis.yml",
+            security_analysis_top_level_inline_env,
+        )
+    )
+    assert "security-analysis-scorecard-runner" in _finding_codes(
+        audit.scan_workflow_security_contract(
+            ".github/workflows/security-analysis.yml",
+            security_analysis_windows_scorecard,
+        )
+    )
+    assert "security-analysis-required-gate" in _finding_codes(
+        audit.scan_workflow_security_contract(
+            ".github/workflows/ci.yml",
+            ci_with_required_scorecard,
+        )
+    )
 
 
 def test_security_governance_audit_accepts_release_permission_allowlist() -> None:
@@ -361,6 +596,17 @@ jobs:
 
     findings = audit.scan_workflow_security_contract(
         ".github/workflows/dependency-review.yml",
+        workflow,
+    )
+
+    assert [finding.format() for finding in findings] == []
+
+
+def test_security_governance_audit_accepts_security_analysis_workflow() -> None:
+    workflow = _source(".github/workflows/security-analysis.yml")
+
+    findings = audit.scan_workflow_security_contract(
+        ".github/workflows/security-analysis.yml",
         workflow,
     )
 

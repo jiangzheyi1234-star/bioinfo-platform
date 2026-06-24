@@ -3,4 +3,5 @@
 /.github/dependabot.yml @jiangzheyi1234-star
 /scripts/dependabot_governance.py @jiangzheyi1234-star
 /scripts/security_governance_audit.py @jiangzheyi1234-star
+/scripts/security_analysis_governance.py @jiangzheyi1234-star
 /core/governance_policy.py @jiangzheyi1234-star

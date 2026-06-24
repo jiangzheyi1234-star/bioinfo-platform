@@ -6,6 +6,7 @@ from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 CI_WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml"
+SECURITY_ANALYSIS_WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "security-analysis.yml"
 
 
 def test_ci_workflow_provides_required_mainline_gates() -> None:
@@ -28,6 +29,10 @@ def test_ci_workflow_provides_required_mainline_gates() -> None:
     assert "- dependency_review" in source
     assert "security-governance:${SECURITY_GOVERNANCE_RESULT}" in source
     assert "dependency-review:${DEPENDENCY_REVIEW_RESULT}" in source
+    assert "CODEQL_RESULT" not in source
+    assert "SCORECARD_RESULT" not in source
+    assert "security / codeql" not in source
+    assert "security / scorecard" not in source
 
 
 def test_ci_workflow_runs_locked_python_and_web_quality_gates() -> None:
@@ -87,6 +92,34 @@ def test_ci_workflow_runs_dependency_review_as_pr_only_gate() -> None:
     assert "fail-on-severity: moderate" in source
     assert "comment-summary-in-pr: never" in source
     assert "pull-requests: write" not in source
+
+
+def test_security_analysis_workflow_is_optional_and_governed() -> None:
+    ci_source = CI_WORKFLOW.read_text(encoding="utf-8")
+    source = SECURITY_ANALYSIS_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "name: Security Analysis" in source
+    assert "push:" in source
+    assert "schedule:" in source
+    assert "workflow_dispatch:" in source
+    assert "pull_request:" not in source
+    assert "merge_group:" not in source
+    assert "workflow_run:" not in source
+    assert "permissions:\n  contents: read" in source
+    assert "name: security / codeql" in source
+    assert "name: security / scorecard" in source
+    assert "github/codeql-action/init@8aad20d150bbac5944a9f9d289da16a4b0d87c1e" in source
+    assert "github/codeql-action/analyze@8aad20d150bbac5944a9f9d289da16a4b0d87c1e" in source
+    assert "github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e" in source
+    assert "ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a" in source
+    assert "queries: +security-extended,security-and-quality" in source
+    assert "results_file: results.sarif" in source
+    assert "results_format: sarif" in source
+    assert "publish_results: true" in source
+    assert "security-events: write" in source
+    assert "id-token: write" in source
+    assert "continue-on-error" not in source
+    assert "security-analysis" not in ci_source
 
 
 def test_ci_workflow_uses_sha_pinned_actions() -> None:
@@ -179,4 +212,5 @@ def test_codeowners_covers_security_sensitive_automation() -> None:
     assert "/.github/dependabot.yml @jiangzheyi1234-star" in source
     assert "/scripts/dependabot_governance.py @jiangzheyi1234-star" in source
     assert "/scripts/security_governance_audit.py @jiangzheyi1234-star" in source
+    assert "/scripts/security_analysis_governance.py @jiangzheyi1234-star" in source
     assert "/core/governance_policy.py @jiangzheyi1234-star" in source

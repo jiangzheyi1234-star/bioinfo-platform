@@ -5,17 +5,18 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-
-
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-
 from core.governance_policy import HIGH_RISK_API_POLICIES, validate_governance_policy  # noqa: E402
 from scripts.dependabot_governance import (  # noqa: E402
     scan_dependabot_version_updates_contract as _scan_dependabot_version_updates_contract,
 )
-
+from scripts.security_analysis_governance import (  # noqa: E402
+    SECURITY_ANALYSIS_WORKFLOW,
+    scan_required_ci_security_analysis_contract as _scan_required_ci_security_analysis_contract,
+    scan_security_analysis_workflow_contract as _scan_security_analysis_workflow_contract,
+)
 MAX_TEXT_BYTES = 2_000_000
 
 SECRET_PATH_RE = re.compile(
@@ -78,6 +79,15 @@ WORKFLOW_JOB_WRITE_PERMISSION_ALLOWLIST: dict[str, dict[str, dict[str, str]]] = 
         },
         "publish": {
             "contents": "write",
+        },
+    },
+    SECURITY_ANALYSIS_WORKFLOW: {
+        "codeql": {
+            "security-events": "write",
+        },
+        "scorecard": {
+            "id-token": "write",
+            "security-events": "write",
         },
     },
 }
@@ -208,6 +218,16 @@ def scan_security_contracts() -> list[Finding]:
         )
 
     workflow_root = ROOT / ".github" / "workflows"
+    security_analysis = workflow_root / "security-analysis.yml"
+    if not security_analysis.exists():
+        findings.append(
+            Finding(
+                "security-analysis-workflow-missing",
+                SECURITY_ANALYSIS_WORKFLOW,
+                0,
+                "CodeQL and Scorecard optional analysis workflow must be present and governed",
+            )
+        )
     for workflow in workflow_root.glob("*.yml"):
         source = workflow.read_text(encoding="utf-8")
         relative = workflow.relative_to(ROOT).as_posix()
@@ -222,6 +242,7 @@ def scan_security_contracts() -> list[Finding]:
             "/.github/dependabot.yml",
             "/scripts/dependabot_governance.py",
             "/scripts/security_governance_audit.py",
+            "/scripts/security_analysis_governance.py",
             "/core/governance_policy.py",
         ):
             if marker not in source:
@@ -258,6 +279,14 @@ def scan_workflow_security_contract(relative: str, source: str) -> list[Finding]
     findings.extend(scan_workflow_artifact_retention(relative, source))
     findings.extend(scan_workflow_permissions(relative, source))
     findings.extend(scan_dependency_review_workflow_contract(relative, source))
+    findings.extend(
+        Finding(item.code, item.path, item.line, item.detail)
+        for item in _scan_security_analysis_workflow_contract(relative, source)
+    )
+    findings.extend(
+        Finding(item.code, item.path, item.line, item.detail)
+        for item in _scan_required_ci_security_analysis_contract(relative, source)
+    )
     return findings
 
 
