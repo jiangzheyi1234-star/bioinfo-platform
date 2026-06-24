@@ -256,6 +256,7 @@ Progress:
 - Dead-lettered webhook inbox deliveries now have a confirmation-gated backend replay path. Replay reconstructs the original inbound request from the stored inbox payload, requires the same trigger/event identity, re-dispatches the existing trigger event, repairs submitted inbox rows without creating duplicate runs, and records governance audit evidence.
 - Internal webhook signature verification now has a pure provider contract for GitHub, Slack, and Stripe style HMAC signatures using raw request bodies, case-insensitive headers, timestamp tolerance for replay-prone providers, and secret-free verification results. It is intentionally not wired into inbox routes until secret provider storage and trigger signature policy are explicit.
 - Webhook trigger signature policy now has a pure resolver that separates source labels from verification providers, requires `secretRef` for GitHub/Slack/Stripe HMAC policies, rejects inline secret-like fields and provider conflicts, exposes only secret-free policy details, and keeps generic provider-neutral inbox delivery marked `unsupported` until raw-request and secret-provider wiring are explicit.
+- Webhook raw request handling now has a pure envelope contract that preserves the exact raw body bytes, normalizes headers without retaining signature values in safe details, parses only JSON object payloads for the existing inbox model, and proves future signature verification can avoid reserialized-body mismatches before route wiring changes.
 
 Recommended sequence:
 
