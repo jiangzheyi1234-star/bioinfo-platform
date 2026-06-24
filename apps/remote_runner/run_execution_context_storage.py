@@ -5,6 +5,7 @@ from typing import Any
 from .config import RemoteRunnerConfig
 from .execution_policy import retry_policy_from_job, timeout_policy_from_job
 from .execution_query_storage import require_run
+from .rule_retry_plan import build_rule_retry_plan
 from .storage_core import get_connection, now_iso
 
 
@@ -55,6 +56,7 @@ def fetch_run_execution_context(cfg: RemoteRunnerConfig, run_id: str) -> dict[st
             "reasonCode": "RESUME_UNSUPPORTED",
             "message": "Run resume is not supported until durable artifact reuse is proven.",
         },
+        "ruleRetryPlan": build_rule_retry_plan(cfg, run),
     }
 
 

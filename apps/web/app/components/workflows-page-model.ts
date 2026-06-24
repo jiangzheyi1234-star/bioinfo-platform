@@ -293,6 +293,45 @@ export type WorkflowRunRetryEligibility = {
   reasonCode?: string;
 };
 
+export type WorkflowRunRuleRetryPlanRuleRef = {
+  ruleName?: string;
+  stepId?: string;
+  runtimeStatusKey?: string;
+  status?: string;
+  attemptId?: string;
+  leaseGeneration?: number;
+  attemptNumber?: number;
+};
+
+export type WorkflowRunRuleRetryPlanItem = WorkflowRunRuleRetryPlanRuleRef & {
+  eligible?: boolean;
+  eligibleNow?: boolean;
+  reasonCode?: string;
+  downstreamInvalidation?: {
+    ruleCount?: number;
+    rules?: WorkflowRunRuleRetryPlanRuleRef[];
+  };
+  rerunScope?: {
+    ruleCount?: number;
+    rules?: WorkflowRunRuleRetryPlanRuleRef[];
+  };
+};
+
+export type WorkflowRunRuleRetryPlan = {
+  schemaVersion?: string;
+  runId?: string;
+  workflowRevisionId?: string | null;
+  supported?: boolean;
+  eligible?: boolean;
+  eligibleNow?: boolean;
+  ruleCount?: number;
+  failedRuleCount?: number;
+  invalidationPlanAvailable?: boolean;
+  reasonCode?: string;
+  message?: string;
+  rules?: WorkflowRunRuleRetryPlanItem[];
+};
+
 export type WorkflowRunExecutionContext = {
   schemaVersion?: string;
   runId?: string;
@@ -313,6 +352,7 @@ export type WorkflowRunExecutionContext = {
   retryPolicy?: Record<string, unknown> | null;
   timeoutPolicy?: Record<string, unknown> | null;
   retryEligibility?: WorkflowRunRetryEligibility;
+  ruleRetryPlan?: WorkflowRunRuleRetryPlan;
   resumeSupported?: boolean;
   resumeEligibility?: {
     eligible?: boolean;

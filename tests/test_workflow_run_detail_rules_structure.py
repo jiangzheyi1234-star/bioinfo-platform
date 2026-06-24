@@ -22,6 +22,7 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "export type WorkflowRunRule" in model
     assert "export type WorkflowRunRules" in model
     assert "export type WorkflowRunExecutionContext" in model
+    assert "export type WorkflowRunRuleRetryPlan" in model
     assert "export type WorkflowResultPackageDownload" in model
     assert "export type WorkflowResultPackageExport" in model
     assert "export type WorkflowResultPackageExportResponse" in model
@@ -32,6 +33,7 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "packageUri?: string" not in model
     assert "rules?: WorkflowRunRules" in model
     assert "executionContext?: WorkflowRunExecutionContext" in model
+    assert "ruleRetryPlan?: WorkflowRunRuleRetryPlan" in model
     assert "exportWorkflowResultPackage" in api
     assert "workflowResultPackageDownloadHref" in api
     assert "href.startsWith(\"/api/v1/\")" in api
