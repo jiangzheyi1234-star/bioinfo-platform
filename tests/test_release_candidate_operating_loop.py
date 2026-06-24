@@ -6,6 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DOC = ROOT / "docs" / "release-candidate-operating-loop.md"
 SCRIPT = ROOT / "scripts" / "verify_release_candidate.ps1"
+PLATFORM_EVIDENCE_HELPER = ROOT / "scripts" / "rc_platform_evidence.ps1"
 
 
 def _source(path: str) -> str:
@@ -28,7 +29,10 @@ def test_release_candidate_operating_loop_doc_defines_handoff_contract() -> None
         "-CiRunUrl",
         "-SecurityAnalysisRunUrl",
         "-SecurityAnalysisUnavailableReason",
+        "-ContainerImageScanRunUrl",
+        "-ContainerImageScanUnavailableReason",
         "Security Analysis evidence mode",
+        "Container Image Scan evidence mode",
         "-RunNpmCi",
         "-DevelopmentOnly",
         "scripts/verify_release_candidate.ps1",
@@ -54,6 +58,8 @@ def test_release_candidate_operating_loop_doc_defines_handoff_contract() -> None
 
 def test_release_candidate_script_collects_required_evidence_gates() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
+    helper_source = PLATFORM_EVIDENCE_HELPER.read_text(encoding="utf-8")
+    combined_source = source + "\n" + helper_source
 
     for token in (
         "h2ometa-release-candidate-evidence.v1",
@@ -70,15 +76,25 @@ def test_release_candidate_script_collects_required_evidence_gates() -> None:
         "requiredCheck=required / ci-green",
         "[string]$SecurityAnalysisRunUrl",
         "[string]$SecurityAnalysisUnavailableReason",
+        "[string]$ContainerImageScanRunUrl",
+        "[string]$ContainerImageScanUnavailableReason",
+        "rc_platform_evidence.ps1",
+        "Invoke-PlatformWorkflowEvidence",
         "security-analysis-platform-evidence",
-        "SecurityAnalysisRunUrl and SecurityAnalysisUnavailableReason are mutually exclusive",
-        "SecurityAnalysisRunUrl must point to a GitHub Actions run URL",
-        "workflow=Security Analysis",
+        "container-image-scan-platform-evidence",
+        "$RunUrlParameterName and $UnavailableReasonParameterName are mutually exclusive",
+        "$RunUrlParameterName must point to a GitHub Actions run URL",
+        "ContainerImageScanRunUrl",
+        "Container Image Scan",
+        'Write-Host "workflow=$WorkflowName"',
+        '-WorkflowName "Security Analysis"',
         "securityAnalysisEvidenceRecorded",
         "securityAnalysisEvidenceMode",
-        '$securityAnalysisEvidenceMode = "green"',
-        "production handoff requires -SecurityAnalysisRunUrl or -SecurityAnalysisUnavailableReason",
-        "-and $securityAnalysisEvidenceRecorded",
+        "containerImageScanEvidenceRecorded",
+        "containerImageScanEvidenceMode",
+        '$result["mode"] = "green"',
+        "production handoff requires -$RunUrlParameterName or -$UnavailableReasonParameterName",
+        "-and $securityAnalysisEvidence.recorded -and $containerImageScanEvidence.recorded",
         'Invoke-Native "uv" @("run", "--frozen", "ruff", "check", "apps", "core", "scripts", "tests")',
         'Invoke-Native "uv" @("run", "--frozen", "python", "-m", "pytest", "-q")',
         "clean-install-proof",
@@ -106,11 +122,12 @@ def test_release_candidate_script_collects_required_evidence_gates() -> None:
         "localSingleUserProofEligible",
         "handoffEligible",
     ):
-        assert token in source
+        assert token in combined_source
 
 
 def test_release_candidate_script_keeps_optional_gates_explicit() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
+    helper_source = PLATFORM_EVIDENCE_HELPER.read_text(encoding="utf-8")
 
     assert "[switch]$RunLocalWebSmoke" in source
     assert "[switch]$StartLocalWeb" in source
@@ -140,7 +157,7 @@ def test_release_candidate_script_keeps_optional_gates_explicit() -> None:
     assert "desktop-startup-evidence" in source
     assert "pass -DesktopStartupEvidence after starting run.bat --desktop" in source
     assert "[string]$ReleaseGateEvidence" in source
-    assert 'Add-StepResult -Steps $steps -Name "security-analysis-platform-evidence" -Status "unavailable"' in source
+    assert 'Add-StepResult -Steps $Steps -Name $Name -Status "unavailable"' in helper_source
     assert "[switch]$RequireReleaseGateEvidence" in source
     assert "$runtimeGateRequired = $runtimeGateRequested" in source
     assert "$RequireRuntimeManifestArtifacts.IsPresent" in source

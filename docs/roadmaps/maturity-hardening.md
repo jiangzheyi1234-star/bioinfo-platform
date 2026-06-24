@@ -67,7 +67,7 @@ Closure requires:
 
 1. `scripts/verify_release_candidate.ps1` writes `h2ometa-release-candidate-evidence.v1` JSON under `release-evidence/<commit>/`.
 2. The script requires a clean working tree unless the operator explicitly allows dirty development proof.
-3. Production handoff evidence requires `-CiRunUrl`, `-RunNpmCi`, and `handoffEligible: true`.
+3. Production handoff evidence requires `-CiRunUrl`, `-RunNpmCi`, explicit Security Analysis and Container Image Scan platform evidence, and `handoffEligible: true`.
 4. Required gates cover Python tests/ruff, clean web install, web lint/typecheck/build, security audits, and database pack lifecycle contracts.
 5. Local single-user proof is explicit: `-StartLocalWeb` launches `run.bat --web`, `-UseUserAppStateForLocalWeb` opts into the operator's configured SSH/runner state, `-RunWebE2E` runs Playwright, and `-WebE2ERepeat 3` is the burn-in target before calling UI workflows stable.
 6. Optional local launcher smoke, desktop startup evidence, and runtime release evidence are explicit switches and are recorded as skipped when not run.

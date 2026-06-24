@@ -2,11 +2,11 @@
 
 Status: Current
 
-Last reviewed: 2026-06-25
+Last reviewed: 2026-06-26
 
 ## Contract
 
-The release candidate loop is the product-level readiness gate before a commit is treated as deliverable outside normal development. It is intentionally above the remote-runner runtime release flow in `docs/release-policy.md`: the runtime flow proves packaged Linux artifacts, while this loop proves that the source commit has a repeatable local, web, security, Security Analysis platform, database-lifecycle, and optional remote-runtime evidence bundle.
+The release candidate loop is the product-level readiness gate before a commit is treated as deliverable outside normal development. It is intentionally above the remote-runner runtime release flow in `docs/release-policy.md`: the runtime flow proves packaged Linux artifacts, while this loop proves that the source commit has a repeatable local, web, security, Security Analysis platform, container image scan platform, database-lifecycle, and optional remote-runtime evidence bundle.
 
 The machine-readable evidence schema is `h2ometa-release-candidate-evidence.v1`.
 
@@ -26,7 +26,7 @@ The directory must include:
 - `release-candidate-summary.md`
 - one log file per executed gate
 
-The JSON summary must record the source commit, branch, generated timestamp, script path, CI run URL, Security Analysis evidence mode, API/Web bases, launcher dev-cache root, handoff eligibility, local single-user proof eligibility, gate results, skipped optional gates, and known scoped limits. Development-only proof may omit the CI URL and Security Analysis evidence, but it must report `handoffEligible: false`.
+The JSON summary must record the source commit, branch, generated timestamp, script path, CI run URL, Security Analysis evidence mode, Container Image Scan evidence mode, API/Web bases, launcher dev-cache root, handoff eligibility, local single-user proof eligibility, gate results, skipped optional gates, and known scoped limits. Development-only proof may omit the CI URL and platform evidence, but it must report `handoffEligible: false`.
 
 ## Required Gates
 
@@ -35,12 +35,13 @@ Run `scripts/verify_release_candidate.ps1` from a real Windows PowerShell sessio
 1. Git identity and clean-worktree check.
 2. CI proof: `-CiRunUrl` for the green GitHub `required / ci-green` run.
 3. Security Analysis evidence record: `-SecurityAnalysisRunUrl <security-analysis-run-url>` when CodeQL and Scorecard ran green, or `-SecurityAnalysisUnavailableReason "<reason>"` when repository plan or code-scanning feature availability prevents a valid run.
-4. Python quality gate: `ruff` plus full `pytest`.
-5. Clean install proof: `-RunNpmCi` runs `npm ci` in `apps/web`.
-6. Web quality gate: lint, typecheck, and production build in `apps/web`.
-7. Security gate: `scripts/security_governance_audit.py`, root/web/desktop moderate npm audit, and Python `pip-audit`.
-8. Database pack lifecycle contract tests, including `database-pack-lifecycle-v1` manual-only pack policy and production-evidence layer separation.
-9. Runtime manifest drift gate: when release-scoped remote-runtime sources have changed after the source commit recorded in `config/remote-runner-release-manifest.json`, production handoff requires runtime release evidence, manifest artifact checks, and supply-chain checks.
+4. Container Image Scan evidence record: `-ContainerImageScanRunUrl <container-image-scan-run-url>` when the independent image scan workflow ran green, or `-ContainerImageScanUnavailableReason "<reason>"` when GitHub code-scanning or runner feature availability prevents a valid run.
+5. Python quality gate: `ruff` plus full `pytest`.
+6. Clean install proof: `-RunNpmCi` runs `npm ci` in `apps/web`.
+7. Web quality gate: lint, typecheck, and production build in `apps/web`.
+8. Security gate: `scripts/security_governance_audit.py`, root/web/desktop moderate npm audit, and Python `pip-audit`.
+9. Database pack lifecycle contract tests, including `database-pack-lifecycle-v1` manual-only pack policy and production-evidence layer separation.
+10. Runtime manifest drift gate: when release-scoped remote-runtime sources have changed after the source commit recorded in `config/remote-runner-release-manifest.json`, production handoff requires runtime release evidence, manifest artifact checks, and supply-chain checks.
 
 These gates are local proof. The matching remote proof is the GitHub `required / ci-green` check for the same commit.
 
@@ -72,6 +73,7 @@ Optional gates are explicit, never silent:
 - Live UI E2E: pass `-RunWebE2E`; use `-WebE2ERepeat 3` for flaky-test burn-in.
 - Desktop startup: start with `run.bat --desktop` and pass `-DesktopStartupEvidence "<operator note or artifact path>"`.
 - Security Analysis platform gate: pass `-SecurityAnalysisRunUrl <security-analysis-run-url>` for the independent `Security Analysis` workflow when CodeQL and Scorecard ran green for the exact commit, or pass `-SecurityAnalysisUnavailableReason "<reason>"` to record private-repository plan or feature unavailability. Missing Security Analysis evidence keeps `handoffEligible: false`.
+- Container Image Scan platform gate: pass `-ContainerImageScanRunUrl <container-image-scan-run-url>` for the independent `Container Image Scan` workflow when Trivy image scanning ran green for the exact commit, or pass `-ContainerImageScanUnavailableReason "<reason>"` to record code-scanning, runner, or platform unavailability. Missing Container Image Scan evidence keeps `handoffEligible: false`.
 - Runtime release evidence: pass `-ReleaseGateEvidence <path>` to validate `release-gate-evidence.json` with `scripts/check_remote_runner_release_readiness.py`.
 - Runtime manifest supply chain: use `-RequireRuntimeManifestArtifacts` and `-RequireRuntimeSupplyChain` only when the RC includes remote-runner runtime artifact promotion.
 
@@ -87,7 +89,7 @@ For a mature handoff, the RC run must prove web dependencies can be recreated fr
 scripts\verify_release_candidate.ps1 -RunNpmCi -CiRunUrl <required-ci-green-url>
 ```
 
-Add either `-SecurityAnalysisRunUrl <security-analysis-run-url>` or `-SecurityAnalysisUnavailableReason "<reason>"` before using the summary for handoff. This proves the web dependency tree can be installed from `apps/web/package-lock.json` and records the independent CodeQL/Scorecard platform gate status. Remote runtime releases still require the separate release flow in `docs/release-policy.md`.
+Add either `-SecurityAnalysisRunUrl <security-analysis-run-url>` or `-SecurityAnalysisUnavailableReason "<reason>"`, and either `-ContainerImageScanRunUrl <container-image-scan-run-url>` or `-ContainerImageScanUnavailableReason "<reason>"`, before using the summary for handoff. This proves the web dependency tree can be installed from `apps/web/package-lock.json` and records the independent CodeQL/Scorecard and Trivy image-scan platform gate status. Remote runtime releases still require the separate release flow in `docs/release-policy.md`.
 
 ## Promotion Rule
 
@@ -97,9 +99,10 @@ A commit can be treated as an RC only when:
 2. GitHub `required / ci-green` is green for the exact commit.
 3. `scripts/verify_release_candidate.ps1 -RunNpmCi -CiRunUrl <required-ci-green-url>` produced an `ok: true` JSON summary for the exact commit.
 4. The run included either `-SecurityAnalysisRunUrl` for a green independent `Security Analysis` workflow run or `-SecurityAnalysisUnavailableReason` for a documented unavailable optional platform gate.
-5. The JSON summary reports `handoffEligible: true`.
-6. The summary lists any skipped optional gates and they are acceptable for the intended handoff.
-7. Scoped runtime limits are documented in `docs/security-governance.md` or this document with a removal trigger.
-8. `runtimeManifestDrift.hasDrift` is false, or the RC includes passing runtime release evidence with manifest artifact and supply-chain checks.
+5. The run included either `-ContainerImageScanRunUrl` for a green independent `Container Image Scan` workflow run or `-ContainerImageScanUnavailableReason` for a documented unavailable optional platform gate.
+6. The JSON summary reports `handoffEligible: true`.
+7. The summary lists any skipped optional gates and they are acceptable for the intended handoff.
+8. Scoped runtime limits are documented in `docs/security-governance.md` or this document with a removal trigger.
+9. `runtimeManifestDrift.hasDrift` is false, or the RC includes passing runtime release evidence with manifest artifact and supply-chain checks.
 
 For private repositories where branch protection is unavailable, keep the manual rule from `docs/roadmaps/maturity-hardening.md`: PR review plus green `required / ci-green` plus RC evidence before merging or handing off.
