@@ -201,6 +201,7 @@ Delivered foundation:
 - Snakemake engine adapter now has an internal rule-rerun command contract for future partial retry execution: explicit `--rerun-incomplete` plus `--forcerun <rule>` arguments are supported for dry-run/run commands, unsafe broad-force flags remain absent, and public retry API/UI stays whole-run only until output restoration and cache/artifact adoption are proven.
 - Internal rule retry execution planning now maps a valid `ruleRetryPlan` to a blocked Snakemake options preview (`--rerun-incomplete --forcerun <selected failed rule>`), rejects missing selected attempts or unsafe rule names, preserves downstream invalidation scope for audit, and keeps `executionEnabled: false`.
 - Run execution context and the run detail UI now expose the blocked `ruleRetryExecutionPlan`, including selected failed rules, downstream rerun scope, Snakemake args preview, prohibited unsafe flags, and cache/artifact/adoption blockers, while keeping rule-level mutation APIs and UI actions disabled.
+- Run detail now includes a normalized `failureLocator` read model for failed runs, connecting the failed rule, latest failure event, stderr tail, related artifacts, and lineage edges. The fallback stderr projection also terminalizes non-failed rules as `blocked` instead of leaving stale `running` child states under a failed run.
 
 Still pending before this phase is complete:
 

@@ -420,6 +420,42 @@ export type WorkflowRunRuleRetryExecutionPlan = {
   message?: string;
 };
 
+export type WorkflowRunFailureLocator = {
+  schemaVersion?: string;
+  runId?: string;
+  status?: string;
+  stage?: string;
+  workflowRevisionId?: string;
+  available?: boolean;
+  reasonCode?: "RUN_NOT_FAILED" | "RUN_FAILED_NO_RULE" | "FAILED_RULE" | string;
+  message?: string;
+  failedRule?: WorkflowRunRuleRetryPlanRuleRef & {
+    startedAt?: string;
+    finishedAt?: string;
+    exitCode?: number | null;
+    message?: string;
+    commandSummary?: string;
+    inputs?: string[];
+    outputs?: string[];
+    logs?: string[];
+    wildcards?: Record<string, unknown>;
+    latestFailureEvent?: WorkflowRunRuleEvent | null;
+  };
+  runEvent?: WorkflowRunRuleEvent | null;
+  logContext?: {
+    stdoutLineCount?: number;
+    stderrLineCount?: number;
+    stderrTail?: string[];
+  };
+  artifactContext?: {
+    artifactCount?: number;
+    relatedArtifactCount?: number;
+    relatedArtifacts?: WorkflowArtifact[];
+    lineageEdgeCount?: number;
+    lineageEdges?: unknown[];
+  };
+};
+
 export type WorkflowRunExecutionContext = {
   schemaVersion?: string;
   runId?: string;
@@ -526,6 +562,7 @@ export type WorkflowRunDetail = {
   results?: WorkflowResultDetail;
   rules?: WorkflowRunRules;
   executionContext?: WorkflowRunExecutionContext;
+  failureLocator?: WorkflowRunFailureLocator;
   previews?: WorkflowArtifactPreview[];
 };
 

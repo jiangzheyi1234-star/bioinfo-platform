@@ -91,9 +91,50 @@ def test_rule_projection_seeds_graph_rules_and_marks_failed_rule_by_stderr(tmp_p
 
     rules = {item["ruleName"]: item for item in fetch_run_rules(cfg, str(claim["runId"]))["items"]}
 
-    assert rules["quality_control"]["status"] == "running"
+    assert rules["quality_control"]["status"] == "blocked"
+    assert rules["quality_control"]["events"][-1]["eventType"] == "rule_blocked"
     assert rules["summarize"]["status"] == "failed"
     assert rules["summarize"]["exitCode"] == 1
+    assert rules["summarize"]["events"][-1]["eventType"] == "rule_failed"
+
+
+def test_rule_projection_marks_all_rules_failed_when_stderr_has_no_rule_locator(tmp_path: Path) -> None:
+    cfg, claim = _claim_for_projection(tmp_path)
+
+    seed_run_rules_from_graph(
+        cfg,
+        run_id=str(claim["runId"]),
+        attempt_id=str(claim["attemptId"]),
+        lease_generation=int(claim["leaseGeneration"]),
+        attempt_number=int(claim["attempt"]["attemptNumber"]),
+        graph={
+            "nodes": [
+                {"id": "quality_control", "label": "quality_control", "kind": "rule"},
+                {"id": "summarize", "label": "summarize", "kind": "rule"},
+            ]
+        },
+    )
+    mark_run_rules_running(
+        cfg,
+        run_id=str(claim["runId"]),
+        attempt_id=str(claim["attemptId"]),
+        lease_generation=int(claim["leaseGeneration"]),
+        attempt_number=int(claim["attempt"]["attemptNumber"]),
+    )
+    mark_run_rules_failed(
+        cfg,
+        run_id=str(claim["runId"]),
+        attempt_id=str(claim["attemptId"]),
+        lease_generation=int(claim["leaseGeneration"]),
+        attempt_number=int(claim["attempt"]["attemptNumber"]),
+        stderr="WorkflowError: scheduler crashed before reporting a rule name",
+    )
+
+    rules = {item["ruleName"]: item for item in fetch_run_rules(cfg, str(claim["runId"]))["items"]}
+
+    assert rules["quality_control"]["status"] == "failed"
+    assert rules["summarize"]["status"] == "failed"
+    assert rules["quality_control"]["events"][-1]["eventType"] == "rule_failed"
     assert rules["summarize"]["events"][-1]["eventType"] == "rule_failed"
 
 

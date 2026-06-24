@@ -28,6 +28,7 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "export type WorkflowRunRuleRetryPlan" in model
     assert "export type WorkflowRunRuleRetryExecutionPlan" in model
     assert "export type WorkflowRunRuleRetrySnakemakeOptions" in model
+    assert "export type WorkflowRunFailureLocator" in model
     assert "export type WorkflowResultPackageDownload" in model
     assert "export type WorkflowResultPackageExport" in model
     assert "export type WorkflowResultPackageExportResponse" in model
@@ -38,6 +39,8 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "packageUri?: string" not in model
     assert "rules?: WorkflowRunRules" in model
     assert "executionContext?: WorkflowRunExecutionContext" in model
+    assert "failureLocator?: WorkflowRunFailureLocator" in model
+    assert "reasonCode?: \"RUN_NOT_FAILED\" | \"RUN_FAILED_NO_RULE\" | \"FAILED_RULE\" | string" in model
     assert "ruleRetryPlan?: WorkflowRunRuleRetryPlan" in model
     assert "ruleRetryExecutionPlan?: WorkflowRunRuleRetryExecutionPlan" in model
     assert "executionEnabled?: boolean" in model
@@ -57,8 +60,12 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "`/api/v1/results/${encodeURIComponent(resultId)}/export`" in api
     assert 'actor: "workflow-ui"' in api
     assert "includeArtifacts" in api
-    assert '"rules": _unwrap_data(rules, {})' in catalog_service
-    assert '"executionContext": _unwrap_data(execution_context, {})' in catalog_service
+    assert "rules_data = _unwrap_data(rules, {})" in catalog_service
+    assert "execution_context_data = _unwrap_data(execution_context, {})" in catalog_service
+    assert '"rules": rules_data' in catalog_service
+    assert '"executionContext": execution_context_data' in catalog_service
+    assert '"failureLocator": _build_failure_locator(' in catalog_service
+    assert '"schemaVersion": "run-failure-locator.v1"' in catalog_service
     assert '_canonical_result_id_for_run(str(result_data.get("runId") or run_id))' in catalog_service
     assert "runtime.get_run_rules(run_id)" in catalog_service
     assert "runtime.get_run_execution_context(run_id)" in catalog_service
@@ -75,6 +82,9 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "detail.rules?.items || []" in panel
     assert "<RunRules rules={rules} />" in panel
     assert "WorkflowRuleFailureDiagnostics" in panel
+    assert "failureLocator={detail.failureLocator}" in panel
+    assert "failureLocator?.failedRule?.runRuleId" in panel
+    assert "failureLocator?.logContext?.stderrTail" in panel
     assert "失败 rule：" in panel
     assert "rule.attemptNumber" in panel
     assert "rule.leaseGeneration" in panel

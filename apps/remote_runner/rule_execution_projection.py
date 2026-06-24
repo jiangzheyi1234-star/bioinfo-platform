@@ -210,8 +210,8 @@ def mark_run_rules_failed(
     for rule in rules:
         rule_name = str(rule.get("ruleName") or "")
         failed = not failed_names or rule_name in failed_names
-        status = "failed" if failed else "running"
-        message = _failure_message(stderr, rule_name) if failed else "Rule status unknown after workflow failure."
+        status = "failed" if failed else "blocked"
+        message = _failure_message(stderr, rule_name) if failed else "Rule blocked after another rule failed."
         upsert_run_rule_state(
             cfg,
             run_id=run_id,
@@ -229,20 +229,19 @@ def mark_run_rules_failed(
             logs=_string_list(rule.get("logs")),
             occurred_at=occurred_at,
         )
-        if failed:
-            append_run_rule_event(
-                cfg,
-                run_id=run_id,
-                rule_name=rule_name,
-                step_id=str(rule.get("stepId") or ""),
-                event_type="rule_failed",
-                status="failed",
-                attempt_id=str(attempt_id),
-                lease_generation=int(lease_generation),
-                attempt_number=attempt_number,
-                message=message,
-                occurred_at=occurred_at,
-            )
+        append_run_rule_event(
+            cfg,
+            run_id=run_id,
+            rule_name=rule_name,
+            step_id=str(rule.get("stepId") or ""),
+            event_type="rule_failed" if failed else "rule_blocked",
+            status=status,
+            attempt_id=str(attempt_id),
+            lease_generation=int(lease_generation),
+            attempt_number=attempt_number,
+            message=message,
+            occurred_at=occurred_at,
+        )
 
 
 def _mark_existing_rules(

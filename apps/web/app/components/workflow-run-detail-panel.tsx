@@ -36,6 +36,7 @@ import type {
   WorkflowRun,
   WorkflowRunDetail,
   WorkflowRunEvent,
+  WorkflowRunFailureLocator,
   WorkflowRunRule,
 } from "./workflows-page-model";
 
@@ -86,18 +87,24 @@ function RunDiagnosis({
   events,
   rules,
   stderrLines,
+  failureLocator,
 }: {
   run: WorkflowRun;
   events: WorkflowRunEvent[];
   rules: WorkflowRunRule[];
   stderrLines: string[];
+  failureLocator?: WorkflowRunFailureLocator;
 }) {
   const failed = run.status === "failed" || run.status === "error";
   if (!failed) return null;
 
   const messages: string[] = [];
-  const failedRule = rules.find((rule) => isFailedStatus(rule.status));
+  const locatorRuleId = failureLocator?.failedRule?.runRuleId;
+  const failedRule =
+    (locatorRuleId ? rules.find((rule) => rule.runRuleId === locatorRuleId) : undefined) ||
+    rules.find((rule) => isFailedStatus(rule.status));
   if (run.message) messages.push(run.message);
+  if (failureLocator?.message && !messages.includes(failureLocator.message)) messages.push(failureLocator.message);
   if (failedRule) {
     messages.push(`失败 rule：${failedRule.ruleName}${failedRule.message ? `，${failedRule.message}` : ""}`);
   }
@@ -109,7 +116,8 @@ function RunDiagnosis({
   else if (run.stage === "submitted") messages.push("任务提交到远程 runner 失败，请确认远程服务已就绪。");
   else if (run.stage === "running") messages.push("Snakemake 运行失败，请查看 stderr 日志和输入文件格式。");
 
-  const lastStderr = stderrLines.slice(-30);
+  const locatorStderr = failureLocator?.logContext?.stderrTail || [];
+  const lastStderr = locatorStderr.length > 0 ? locatorStderr : stderrLines.slice(-30);
 
   return (
     <div className="space-y-3">
@@ -695,7 +703,13 @@ export function WorkflowRunDetailPanel({
       <div className="min-h-[200px]">
         {tab === "overview" && (
           <div className="space-y-4">
-            <RunDiagnosis run={run} events={events} rules={rules} stderrLines={stderr} />
+            <RunDiagnosis
+              run={run}
+              events={events}
+              rules={rules}
+              stderrLines={stderr}
+              failureLocator={detail.failureLocator}
+            />
             <WorkflowRunExecutionContextPanel
               context={detail.executionContext}
               onRetryRun={handleRetryRun}
