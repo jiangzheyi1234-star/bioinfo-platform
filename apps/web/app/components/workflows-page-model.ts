@@ -545,6 +545,10 @@ export type WorkflowResultPackageExport = {
   runId?: string;
   workflowRevisionId?: string;
   lifecycleState?: string;
+  packageBytesState?: string;
+  packageBytesDeletedAt?: string;
+  packageBytesGcReason?: string;
+  packageFileDeleted?: boolean;
   includeArtifacts?: boolean;
   artifactPayloadMode?: string;
   download?: WorkflowResultPackageDownload;

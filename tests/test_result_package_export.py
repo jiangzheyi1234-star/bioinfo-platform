@@ -115,6 +115,8 @@ def test_result_package_export_includes_manifest_artifacts_and_lineage(tmp_path:
     assert export_evidence[-1]["payload"]["sha256"] == package["sha256"]
     assert export_evidence[-1]["payload"]["manifestSha256"] == package["manifestSha256"]
     assert export_evidence[-1]["payload"]["validation"]["status"] == "passed"
+    assert "packagePath" not in export_evidence[-1]["payload"]
+    assert "packageUri" not in export_evidence[-1]["payload"]
     audit_events = list_governance_audit_events(
         cfg,
         subject_kind="result",
@@ -204,6 +206,56 @@ def test_result_package_export_refuses_failed_checksum_audit(tmp_path: Path) -> 
 
     with pytest.raises(ValueError, match="RESULT_ARTIFACT_AUDIT_FAILED"):
         export_result_package(cfg, "res_run_export_failed", include_artifacts=True)
+
+
+def test_result_package_export_record_failure_rolls_back_zip_and_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_export_record_failure", complete=True)
+    report = _managed_artifact_file(cfg, "run_export_record_failure", "report.txt")
+    report.write_bytes(b"accepted\n")
+    persist_artifact(
+        cfg,
+        run_id="run_export_record_failure",
+        kind="report",
+        path=report,
+        mime_type="text/plain",
+        artifact_key="report",
+    )
+    package_path = (
+        Path(cfg.results_dir)
+        / "packages"
+        / "res_run_export_record_failure"
+        / "res_run_export_record_failure.zip"
+    )
+
+    def fail_record(*args, **kwargs):
+        raise RuntimeError("forced record failure")
+
+    monkeypatch.setattr(
+        "apps.remote_runner.artifact_product_service.record_result_package_export_in_connection",
+        fail_record,
+    )
+    with pytest.raises(RuntimeError, match="RESULT_PACKAGE_EXPORT_RECORD_FAILED"):
+        export_result_package(cfg, "res_run_export_record_failure", include_artifacts=True)
+
+    assert not package_path.exists()
+    assert list(package_path.parent.glob("*.tmp")) == []
+    assert list(package_path.parent.glob(".*.tmp")) == []
+    assert list_evidence_events(
+        cfg,
+        subject_kind="result",
+        subject_id="res_run_export_record_failure",
+        event_type="result.export.v1",
+    ) == []
+    with get_connection(cfg) as connection:
+        row = connection.execute(
+            "SELECT 1 FROM result_package_exports WHERE result_id = ?",
+            ("res_run_export_record_failure",),
+        ).fetchone()
+    assert row is None
 
 
 def test_result_package_export_refuses_unmanaged_local_artifact_path(tmp_path: Path) -> None:

@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from apps.remote_runner.api_models import (
     ArtifactCachePinReleaseRequest,
     ArtifactCachePinRetainRequest,
+    ResultPackageByteDeleteRequest,
     ResultPackageExportRequest,
     ResultPackageRetireRequest,
     RunCreateRequest,
@@ -213,6 +214,32 @@ def test_remote_runner_result_package_retire_request_is_confirmation_gated() -> 
     with pytest.raises(ValidationError) as extra:
         ResultPackageRetireRequest.model_validate(
             {"confirmation": "retire-result-package-export", "deletePayload": True}
+        )
+
+    assert missing.value.errors()[0]["loc"] == ("confirmation",)
+    assert wrong.value.errors()[0]["type"] == "literal_error"
+    assert extra.value.errors()[0]["type"] == "extra_forbidden"
+
+
+def test_remote_runner_result_package_byte_delete_request_is_confirmation_gated() -> None:
+    request = ResultPackageByteDeleteRequest.model_validate(
+        {
+            "confirmation": "delete-result-package-export-bytes",
+            "actor": "operator",
+            "reason": "quota",
+        }
+    )
+
+    assert request.confirmation == "delete-result-package-export-bytes"
+    assert request.actor == "operator"
+
+    with pytest.raises(ValidationError) as missing:
+        ResultPackageByteDeleteRequest.model_validate({"actor": "operator"})
+    with pytest.raises(ValidationError) as wrong:
+        ResultPackageByteDeleteRequest.model_validate({"confirmation": "delete-result-package"})
+    with pytest.raises(ValidationError) as extra:
+        ResultPackageByteDeleteRequest.model_validate(
+            {"confirmation": "delete-result-package-export-bytes", "deleteMetadata": True}
         )
 
     assert missing.value.errors()[0]["loc"] == ("confirmation",)

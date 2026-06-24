@@ -78,6 +78,24 @@ def test_result_package_download_rejects_result_mismatch_and_inactive_record(tmp
             package_export_id=package["packageExportId"],
         )
 
+    with get_connection(cfg) as connection:
+        connection.execute(
+            """
+            UPDATE result_package_exports
+            SET lifecycle_state = 'active', package_bytes_state = 'deleted'
+            WHERE package_export_id = ?
+            """,
+            (package["packageExportId"],),
+        )
+        connection.commit()
+
+    with pytest.raises(ValueError, match="RESULT_PACKAGE_EXPORT_BYTES_UNAVAILABLE: deleted"):
+        build_result_package_download(
+            cfg,
+            result_id="res_run_download_state",
+            package_export_id=package["packageExportId"],
+        )
+
 
 def test_result_package_download_rejects_unmanaged_or_missing_package_path(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)

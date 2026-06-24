@@ -149,11 +149,15 @@ def ensure_result_package_exports(connection: sqlite3.Connection) -> None:
             include_artifacts INTEGER NOT NULL DEFAULT 1,
             artifact_payload_mode TEXT NOT NULL DEFAULT 'included',
             lifecycle_state TEXT NOT NULL DEFAULT 'active',
+            package_bytes_state TEXT NOT NULL DEFAULT 'available',
+            package_bytes_deleted_at TEXT,
+            package_bytes_gc_reason TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL,
             UNIQUE(result_id, sha256, manifest_sha256)
         )
         """
     )
+    ensure_result_package_export_byte_state(connection)
     connection.execute(
         """
         CREATE INDEX IF NOT EXISTS idx_result_package_exports_run_lifecycle
@@ -175,6 +179,18 @@ def ensure_result_package_export_payload_mode(connection: sqlite3.Connection) ->
         {
             "include_artifacts": "INTEGER NOT NULL DEFAULT 1",
             "artifact_payload_mode": "TEXT NOT NULL DEFAULT 'included'",
+        },
+    )
+
+
+def ensure_result_package_export_byte_state(connection: sqlite3.Connection) -> None:
+    _ensure_columns(
+        connection,
+        "result_package_exports",
+        {
+            "package_bytes_state": "TEXT NOT NULL DEFAULT 'available'",
+            "package_bytes_deleted_at": "TEXT",
+            "package_bytes_gc_reason": "TEXT NOT NULL DEFAULT ''",
         },
     )
 
@@ -266,6 +282,25 @@ def migrate_result_package_payload_mode_schema(
         connection.execute("BEGIN IMMEDIATE")
         _ensure_schema_migrations_table(connection)
         ensure_result_package_export_payload_mode(connection)
+        record_migration(connection, version, name)
+        connection.execute(f"PRAGMA user_version = {version}")
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+
+
+def migrate_result_package_byte_state_schema(
+    connection: sqlite3.Connection,
+    *,
+    record_migration: RecordMigration,
+    version: int,
+    name: str,
+) -> None:
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        _ensure_schema_migrations_table(connection)
+        ensure_result_package_export_byte_state(connection)
         record_migration(connection, version, name)
         connection.execute(f"PRAGMA user_version = {version}")
         connection.commit()

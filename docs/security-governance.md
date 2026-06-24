@@ -2,7 +2,7 @@
 
 Status: Current
 
-Last reviewed: 2026-06-23
+Last reviewed: 2026-06-24
 
 This document defines the current security boundary for H2OMeta. It is scoped to the supported Desktop/local single-user product shape plus the authenticated remote runner. It is not a claim that public multi-user production hosting is complete.
 
@@ -66,7 +66,7 @@ rejected at Local API startup.
 - Test canaries and examples are allowed only when they are visibly placeholders.
 - S3/MinIO artifact access keys and secret keys are configuration secrets. Public config, diagnostics, evidence events, and result package manifests must contain only stable object locations such as `s3://bucket/key`, never presigned URLs or raw credentials. Preview, result export audit, cache lookup, and cache adoption may only read or endorse objects under the configured managed artifact prefix.
 - Remote-runner secret references must be resolved through an explicit provider boundary. Safe metadata may include only a reference hash, scheme, provider kind, purpose, and version; raw `secretRef` values and secret bytes must not appear in diagnostics, audit details, trigger read models, or result packages.
-- Artifact GC may delete only managed local artifact files under the runner results/work roots or managed S3/MinIO objects under the configured artifact prefix. Directory payload deletion, unmanaged local paths, unmanaged S3 prefixes, active runs, exported result packages, and production evidence are protected until explicit lifecycle policies cover them.
+- Artifact GC may delete only managed local artifact files under the runner results/work roots or managed S3/MinIO objects under the configured artifact prefix. Directory payload deletion, unmanaged local paths, unmanaged S3 prefixes, active runs, exported result packages, and production evidence are protected until explicit lifecycle policies cover them. Retired result package ZIP bytes have a separate confirmation-gated `result.package.bytes.delete` action that keeps metadata, lineage, and underlying run artifacts intact.
 
 ### Diagnostics Redaction
 

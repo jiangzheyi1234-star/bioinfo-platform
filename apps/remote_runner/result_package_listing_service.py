@@ -35,7 +35,7 @@ def list_result_package_exports(
 def _public_result_package_export(item: dict[str, Any]) -> dict[str, Any]:
     public = dict(item)
     public["evidenceId"] = public.pop("evidenceEventId", "")
-    if public.get("lifecycleState") == "active":
+    if public.get("lifecycleState") == "active" and public.get("packageBytesState") == "available":
         public["download"] = {
             "href": result_package_download_url(public["resultId"], public["packageExportId"]),
             "filename": _result_package_filename(public),

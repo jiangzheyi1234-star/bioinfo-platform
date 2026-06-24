@@ -9,6 +9,7 @@ from apps.api.models import (
     ArtifactCachePinRetainRequest,
     ArtifactGcPreviewRequest,
     ArtifactGcRunRequest,
+    ResultPackageByteDeleteRequest,
     ResultPackageExportRequest,
     ResultPackageRetireRequest,
     RunRetryRequest,
@@ -125,10 +126,12 @@ async def get_result_preview_from_request(
 
 
 async def get_result_audit_from_request(result_id: str) -> dict[str, Any]:
-    return await run_runtime_payload(
+    result = await run_runtime_payload(
         lambda: runtime_service().get_result_audit(result_id),
         wrapper="raw",
     )
+    _strip_result_artifact_audit_paths(result)
+    return result
 
 
 async def export_result_package_from_request(
@@ -204,6 +207,26 @@ async def retire_result_package_from_request(
     return result
 
 
+async def delete_result_package_bytes_from_request(
+    result_id: str,
+    package_export_id: str,
+    request: ResultPackageByteDeleteRequest,
+) -> dict[str, Any]:
+    payload = request_payload(request)
+    server_id = payload.pop("serverId", None)
+    result = await run_runtime_payload(
+        lambda: runtime_service().delete_result_package_bytes(
+            result_id,
+            package_export_id,
+            payload=payload,
+            server_id=server_id,
+        ),
+        wrapper="raw",
+    )
+    _strip_result_package_paths(result)
+    return result
+
+
 def _attach_result_package_download(result: dict[str, Any]) -> None:
     data = result.get("data") if isinstance(result, dict) else None
     if not isinstance(data, dict):
@@ -211,16 +234,24 @@ def _attach_result_package_download(result: dict[str, Any]) -> None:
     result_id = str(data.get("resultId") or "").strip()
     package_export_id = str(data.get("packageExportId") or "").strip()
     lifecycle_state = str(data.get("lifecycleState") or "active").strip() or "active"
-    if lifecycle_state == "active" and result_id and package_export_id and not isinstance(data.get("download"), dict):
+    byte_state = str(data.get("packageBytesState") or "available").strip() or "available"
+    if (
+        lifecycle_state == "active"
+        and byte_state == "available"
+        and result_id
+        and package_export_id
+        and not isinstance(data.get("download"), dict)
+    ):
         data["download"] = {
             "href": _result_package_download_href(result_id, package_export_id),
             "filename": _result_package_download_filename(data, package_export_id),
         }
-    if lifecycle_state != "active":
+    if lifecycle_state != "active" or byte_state != "available":
         data.pop("download", None)
     evidence_event_id = data.pop("evidenceEventId", None)
     if "evidenceId" not in data and evidence_event_id:
         data["evidenceId"] = evidence_event_id
+    data.pop("manifest", None)
     data.pop("packagePath", None)
     data.pop("packageUri", None)
 
@@ -238,8 +269,23 @@ def _attach_result_package_downloads(result: dict[str, Any]) -> None:
 def _strip_result_package_paths(result: dict[str, Any]) -> None:
     data = result.get("data") if isinstance(result, dict) else None
     if isinstance(data, dict):
+        data.pop("manifest", None)
         data.pop("packagePath", None)
         data.pop("packageUri", None)
+
+
+def _strip_result_artifact_audit_paths(result: dict[str, Any]) -> None:
+    data = result.get("data") if isinstance(result, dict) else None
+    artifacts = data.get("artifacts") if isinstance(data, dict) else None
+    if not isinstance(artifacts, list):
+        return
+    for item in artifacts:
+        if isinstance(item, dict):
+            item.pop("path", None)
+            item.pop("storageUri", None)
+            item.pop("externalUri", None)
+            item.pop("packagePath", None)
+            item.pop("packageUri", None)
 
 
 def _result_package_download_href(result_id: str, package_export_id: str) -> str:

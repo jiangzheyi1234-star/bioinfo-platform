@@ -35,6 +35,8 @@ def build_result_package_download(
         raise ValueError("RESULT_PACKAGE_EXPORT_RESULT_MISMATCH")
     if record["lifecycleState"] != "active":
         raise ValueError(f"RESULT_PACKAGE_EXPORT_NOT_ACTIVE: {record['lifecycleState']}")
+    if record["packageBytesState"] != "available":
+        raise ValueError(f"RESULT_PACKAGE_EXPORT_BYTES_UNAVAILABLE: {record['packageBytesState']}")
 
     package_path = Path(str(record["packagePath"] or "")).resolve()
     managed_root = (Path(cfg.results_dir) / "packages").resolve()

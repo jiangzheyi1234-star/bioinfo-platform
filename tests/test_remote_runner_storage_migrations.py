@@ -119,7 +119,7 @@ def test_runtime_layout_records_schema_version_and_migration_ledger(tmp_path: Pa
     assert user_version == CURRENT_SCHEMA_VERSION
     assert migration is not None
     assert migration[0] == CURRENT_SCHEMA_VERSION
-    assert migration[1] == sqlite_migrations.WORKFLOW_TRIGGER_READINESS_WATCHER_MIGRATION_NAME
+    assert migration[1] == sqlite_migrations.RESULT_PACKAGE_BYTE_STATE_MIGRATION_NAME
     assert migration[2]
     assert reference_table is not None
 
@@ -190,7 +190,7 @@ def test_runtime_schema_migrates_v1_to_current_scheduler_trigger_tables(tmp_path
         "idx_workflow_trigger_events_trigger_created",
         "idx_workflow_trigger_dispatches_state",
     } <= index_names
-    assert migration["name"] == sqlite_migrations.WORKFLOW_TRIGGER_READINESS_WATCHER_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_BYTE_STATE_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v2_scheduler_trigger_tables(tmp_path: Path) -> None:
@@ -242,7 +242,7 @@ def test_runtime_schema_migrates_v2_scheduler_trigger_tables(tmp_path: Path) -> 
         "workflow_trigger_events",
         "workflow_trigger_dispatches",
     } <= trigger_tables
-    assert migration["name"] == sqlite_migrations.WORKFLOW_TRIGGER_READINESS_WATCHER_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_BYTE_STATE_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v6_result_package_exports(tmp_path: Path) -> None:
@@ -295,7 +295,7 @@ def test_runtime_schema_migrates_v6_result_package_exports(tmp_path: Path) -> No
         "idx_result_package_exports_result_created",
         "idx_result_package_exports_run_lifecycle",
     } <= indexes
-    assert migration["name"] == sqlite_migrations.WORKFLOW_TRIGGER_READINESS_WATCHER_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_BYTE_STATE_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v7_result_package_payload_mode(tmp_path: Path) -> None:
@@ -385,7 +385,7 @@ def test_runtime_schema_migrates_v7_result_package_payload_mode(tmp_path: Path) 
     assert {"include_artifacts", "artifact_payload_mode"} <= columns
     assert legacy_row["include_artifacts"] == 1
     assert legacy_row["artifact_payload_mode"] == "included"
-    assert migration["name"] == sqlite_migrations.WORKFLOW_TRIGGER_READINESS_WATCHER_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_BYTE_STATE_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v8_workflow_trigger_inbox(tmp_path: Path) -> None:
@@ -446,7 +446,7 @@ def test_runtime_schema_migrates_v8_workflow_trigger_inbox(tmp_path: Path) -> No
     } <= indexes
     assert "payload_json" in columns
     assert INBOX_SIGNATURE_METADATA_COLUMNS <= columns
-    assert migration["name"] == sqlite_migrations.WORKFLOW_TRIGGER_READINESS_WATCHER_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_BYTE_STATE_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v9_workflow_trigger_inbox_payload(tmp_path: Path) -> None:
@@ -531,7 +531,7 @@ def test_runtime_schema_migrates_v9_workflow_trigger_inbox_payload(tmp_path: Pat
 
     assert "payload_json" in columns
     assert INBOX_SIGNATURE_METADATA_COLUMNS <= columns
-    assert migration["name"] == sqlite_migrations.WORKFLOW_TRIGGER_READINESS_WATCHER_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_BYTE_STATE_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v10_artifact_cache_pins(tmp_path: Path) -> None:
@@ -588,7 +588,7 @@ def test_runtime_schema_migrates_v10_artifact_cache_pins(tmp_path: Path) -> None
         "idx_artifact_cache_pins_object",
     } <= index_names
     assert INBOX_SIGNATURE_METADATA_COLUMNS <= columns
-    assert migration["name"] == sqlite_migrations.WORKFLOW_TRIGGER_READINESS_WATCHER_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_BYTE_STATE_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v11_workflow_trigger_inbox_signature_metadata(tmp_path: Path) -> None:
@@ -683,7 +683,7 @@ def test_runtime_schema_migrates_v11_workflow_trigger_inbox_signature_metadata(t
         "raw_content_type": "",
         "raw_header_names_json": "[]",
     }
-    assert migration["name"] == sqlite_migrations.WORKFLOW_TRIGGER_READINESS_WATCHER_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_BYTE_STATE_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v12_workflow_trigger_readiness_watcher(tmp_path: Path) -> None:
@@ -737,7 +737,104 @@ def test_runtime_schema_migrates_v12_workflow_trigger_readiness_watcher(tmp_path
         "idx_workflow_trigger_readiness_observations_event",
         "idx_workflow_trigger_readiness_observations_state",
     } <= index_names
-    assert migration["name"] == sqlite_migrations.WORKFLOW_TRIGGER_READINESS_WATCHER_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_BYTE_STATE_MIGRATION_NAME
+
+
+def test_runtime_schema_migrates_v13_result_package_byte_state(tmp_path: Path) -> None:
+    cfg = make_remote_runner_config(tmp_path)
+    db_path = Path(cfg.db_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        connection.executescript(f"{SCHEMA_SQL}\n{REFERENCE_DATABASE_SCHEMA_SQL}")
+        sqlite_migrations._apply_baseline_schema_migration(connection)
+        connection.execute("DROP TABLE IF EXISTS result_package_exports")
+        connection.execute(
+            """
+            CREATE TABLE result_package_exports (
+                package_export_id TEXT PRIMARY KEY,
+                result_id TEXT NOT NULL,
+                run_id TEXT NOT NULL,
+                workflow_revision_id TEXT NOT NULL,
+                package_path TEXT NOT NULL,
+                package_uri TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL,
+                sha256 TEXT NOT NULL,
+                manifest_sha256 TEXT NOT NULL,
+                evidence_event_id TEXT NOT NULL,
+                artifact_ids_json TEXT NOT NULL DEFAULT '[]',
+                include_artifacts INTEGER NOT NULL DEFAULT 1,
+                artifact_payload_mode TEXT NOT NULL DEFAULT 'included',
+                lifecycle_state TEXT NOT NULL DEFAULT 'active',
+                created_at TEXT NOT NULL,
+                UNIQUE(result_id, sha256, manifest_sha256)
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO result_package_exports (
+                package_export_id, result_id, run_id, workflow_revision_id,
+                package_path, package_uri, size_bytes, sha256, manifest_sha256,
+                evidence_event_id, artifact_ids_json, include_artifacts,
+                artifact_payload_mode, lifecycle_state, created_at
+            ) VALUES (
+                'rpexp_legacy_bytes', 'res_run_legacy_bytes', 'run_legacy_bytes', 'wfrev_legacy',
+                'C:/packages/res_run_legacy_bytes.zip', 'file:///C:/packages/res_run_legacy_bytes.zip',
+                42, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+                'ev_legacy', '[]', 1, 'included', 'retired', '2099-06-07T10:00:00Z'
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX idx_result_package_exports_run_lifecycle
+            ON result_package_exports(run_id, lifecycle_state, created_at)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX idx_result_package_exports_result_created
+            ON result_package_exports(result_id, created_at)
+            """
+        )
+        sqlite_migrations._ensure_schema_migrations_table(connection)
+        connection.execute("DELETE FROM schema_migrations")
+        connection.execute(
+            """
+            INSERT INTO schema_migrations (version, name, checksum, applied_at)
+            VALUES (13, '013_workflow_trigger_readiness_watcher', 'legacy-v13', '2099-06-07T10:00:00Z')
+            """
+        )
+        connection.execute("PRAGMA user_version = 13")
+
+    initialize_or_migrate_runtime_db(cfg.db_path)
+    with get_connection(cfg) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == CURRENT_SCHEMA_VERSION
+        columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(result_package_exports)").fetchall()
+        }
+        row = connection.execute(
+            """
+            SELECT package_bytes_state, package_bytes_deleted_at, package_bytes_gc_reason
+            FROM result_package_exports
+            WHERE package_export_id = 'rpexp_legacy_bytes'
+            """
+        ).fetchone()
+        migration = connection.execute(
+            "SELECT name FROM schema_migrations WHERE version = ?",
+            (CURRENT_SCHEMA_VERSION,),
+        ).fetchone()
+
+    assert {"package_bytes_state", "package_bytes_deleted_at", "package_bytes_gc_reason"} <= columns
+    assert dict(row) == {
+        "package_bytes_state": "available",
+        "package_bytes_deleted_at": None,
+        "package_bytes_gc_reason": "",
+    }
+    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_BYTE_STATE_MIGRATION_NAME
 
 
 def test_runtime_schema_rejects_future_user_version(tmp_path: Path) -> None:

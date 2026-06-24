@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import asyncio
 
-from apps.api.models import ResultPackageExportRequest, ResultPackageRetireRequest
+from apps.api.models import (
+    ResultPackageByteDeleteRequest,
+    ResultPackageExportRequest,
+    ResultPackageRetireRequest,
+)
 from apps.api.execution_query_routes import (
+    delete_result_package_bytes,
     download_result_package,
     export_result_package,
     get_result_audit,
@@ -23,7 +28,19 @@ def test_result_package_routes_preserve_runtime_wrappers(monkeypatch) -> None:
         )
     )
 
-    assert audit == {"data": {"resultId": "res_run_demo", "status": "passed"}}
+    assert audit == {
+        "data": {
+            "resultId": "res_run_demo",
+            "status": "passed",
+            "artifacts": [
+                {
+                    "artifactId": "art_demo",
+                    "storageBackend": "file",
+                    "status": "passed",
+                }
+            ],
+        }
+    }
     assert package == {
         "data": {
             "resultId": "res_run_demo",
@@ -159,10 +176,65 @@ def test_result_package_retire_route_passes_server_id_outside_payload(monkeypatc
     }
 
 
+def test_result_package_byte_delete_route_passes_server_id_outside_payload(monkeypatch) -> None:
+    runtime = FakeResultPackageByteDeleteRuntime()
+    monkeypatch.setattr("apps.api.execution_query_service.runtime_service", lambda: runtime)
+
+    result = asyncio.run(
+        delete_result_package_bytes(
+            "res_run_demo",
+            "rpex_demo",
+            ResultPackageByteDeleteRequest(
+                serverId="srv_remote",
+                confirmation="delete-result-package-export-bytes",
+                actor="operator",
+                reason="quota",
+            ),
+        )
+    )
+
+    assert runtime.calls == [
+        (
+            "res_run_demo",
+            "rpex_demo",
+            {
+                "confirmation": "delete-result-package-export-bytes",
+                "actor": "operator",
+                "reason": "quota",
+            },
+            "srv_remote",
+        )
+    ]
+    assert result == {
+        "data": {
+            "schemaVersion": "h2ometa.result-package-bytes-delete.v1",
+            "resultId": "res_run_demo",
+            "packageExportId": "rpex_demo",
+            "lifecycleState": "retired",
+            "packageBytesState": "deleted",
+        }
+    }
+
+
 class FakeResultPackageRuntime:
     def get_result_audit(self, result_id):
         assert result_id == "res_run_demo"
-        return {"data": {"resultId": result_id, "status": "passed"}}
+        return {
+            "data": {
+                "resultId": result_id,
+                "status": "passed",
+                "artifacts": [
+                    {
+                        "artifactId": "art_demo",
+                        "path": "C:/secret/artifact.txt",
+                        "storageBackend": "file",
+                        "storageUri": "file:///C:/secret/artifact.txt",
+                        "externalUri": "file:///C:/secret/artifact.txt",
+                        "status": "passed",
+                    }
+                ],
+            }
+        }
 
     def export_result_package(self, result_id, *, payload, server_id=None):
         assert result_id == "res_run_demo"
@@ -174,7 +246,17 @@ class FakeResultPackageRuntime:
                 "includeArtifacts": False,
                 "artifactPayloadMode": "metadata-only",
                 "packageExportId": "rpex_demo",
+                "packagePath": "C:/secret/rpex_demo.zip",
+                "packageUri": "file:///C:/secret/rpex_demo.zip",
                 "sha256": "a" * 64,
+                "manifest": {
+                    "artifacts": [
+                        {
+                            "storageUri": "file:///C:/secret/artifact.txt",
+                            "externalUri": "file:///C:/secret/artifact.txt",
+                        }
+                    ]
+                },
             }
         }
 
@@ -235,6 +317,14 @@ class FakeResultPackageListRuntime:
                         "packageExportId": "rpex_active",
                         "lifecycleState": "active",
                         "evidenceEventId": "ev_active",
+                        "manifest": {
+                            "artifacts": [
+                                {
+                                    "storageUri": "file:///C:/secret/artifact.txt",
+                                    "externalUri": "file:///C:/secret/artifact.txt",
+                                }
+                            ]
+                        },
                         "packagePath": "C:/secret/rpex_active.zip",
                         "packageUri": "file:///C:/secret/rpex_active.zip",
                     },
@@ -267,6 +357,27 @@ class FakeResultPackageRetireRuntime:
                 "resultId": result_id,
                 "packageExportId": package_export_id,
                 "lifecycleState": "retired",
+                "manifest": {"artifacts": [{"storageUri": "file:///C:/secret/artifact.txt"}]},
+                "packagePath": "C:/secret/package.zip",
+                "packageUri": "file:///C:/secret/package.zip",
+            }
+        }
+
+
+class FakeResultPackageByteDeleteRuntime:
+    def __init__(self) -> None:
+        self.calls = []
+
+    def delete_result_package_bytes(self, result_id, package_export_id, *, payload, server_id=None):
+        self.calls.append((result_id, package_export_id, payload, server_id))
+        return {
+            "data": {
+                "schemaVersion": "h2ometa.result-package-bytes-delete.v1",
+                "resultId": result_id,
+                "packageExportId": package_export_id,
+                "lifecycleState": "retired",
+                "packageBytesState": "deleted",
+                "manifest": {"artifacts": [{"storageUri": "file:///C:/secret/artifact.txt"}]},
                 "packagePath": "C:/secret/package.zip",
                 "packageUri": "file:///C:/secret/package.zip",
             }

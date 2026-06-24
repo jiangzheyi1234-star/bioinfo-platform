@@ -12,6 +12,7 @@ from .storage_core import get_connection
 
 SUPPORTED_ARTIFACT_PAYLOAD_MODES = {"included", "metadata-only"}
 SUPPORTED_RESULT_PACKAGE_LIFECYCLE_STATES = {"active", "retired"}
+SUPPORTED_RESULT_PACKAGE_BYTE_STATES = {"available", "deleting", "deleted"}
 RESULT_PACKAGE_EXPORT_ID_RE = re.compile(r"^rpexp_[0-9a-f]{16}$")
 
 
@@ -32,6 +33,168 @@ def record_result_package_export(
     artifact_payload_mode: str,
     created_at: str,
 ) -> dict[str, Any]:
+    normalized, export_id = _normalize_result_package_export(
+        result_id=result_id,
+        run_id=run_id,
+        workflow_revision_id=workflow_revision_id,
+        package_path=package_path,
+        package_uri=package_uri,
+        size_bytes=size_bytes,
+        sha256=sha256,
+        manifest_sha256=manifest_sha256,
+        evidence_event_id=evidence_event_id,
+        artifact_ids=artifact_ids,
+        include_artifacts=include_artifacts,
+        artifact_payload_mode=artifact_payload_mode,
+        created_at=created_at,
+    )
+    with get_connection(cfg) as connection:
+        row = _record_normalized_result_package_export(connection, normalized=normalized, export_id=export_id)
+        connection.commit()
+    return row
+
+
+def record_result_package_export_in_connection(
+    connection: Any,
+    *,
+    result_id: str,
+    run_id: str,
+    workflow_revision_id: str,
+    package_path: Path,
+    package_uri: str,
+    size_bytes: int,
+    sha256: str,
+    manifest_sha256: str,
+    evidence_event_id: str,
+    artifact_ids: list[str],
+    include_artifacts: bool,
+    artifact_payload_mode: str,
+    created_at: str,
+) -> dict[str, Any]:
+    normalized, export_id = _normalize_result_package_export(
+        result_id=result_id,
+        run_id=run_id,
+        workflow_revision_id=workflow_revision_id,
+        package_path=package_path,
+        package_uri=package_uri,
+        size_bytes=size_bytes,
+        sha256=sha256,
+        manifest_sha256=manifest_sha256,
+        evidence_event_id=evidence_event_id,
+        artifact_ids=artifact_ids,
+        include_artifacts=include_artifacts,
+        artifact_payload_mode=artifact_payload_mode,
+        created_at=created_at,
+    )
+    return _record_normalized_result_package_export(connection, normalized=normalized, export_id=export_id)
+
+
+def _record_normalized_result_package_export(
+    connection: Any,
+    *,
+    normalized: dict[str, Any],
+    export_id: str,
+) -> dict[str, Any]:
+    _ensure_result_package_export_recordable(
+        connection,
+        result_id=normalized["result_id"],
+        artifact_payload_mode=normalized["artifact_payload_mode"],
+    )
+    existing = connection.execute(
+        """
+        SELECT lifecycle_state, package_bytes_state
+        FROM result_package_exports
+        WHERE result_id = ? AND sha256 = ? AND manifest_sha256 = ?
+        """,
+        (
+            normalized["result_id"],
+            normalized["sha256"],
+            normalized["manifest_sha256"],
+        ),
+    ).fetchone()
+    if existing is not None and str(existing["lifecycle_state"] or "") != "active":
+        raise ValueError(f"RESULT_PACKAGE_EXPORT_NOT_ACTIVE: {existing['lifecycle_state']}")
+    if existing is not None and str(existing["package_bytes_state"] or "") != "available":
+        raise ValueError(f"RESULT_PACKAGE_EXPORT_BYTES_UNAVAILABLE: {existing['package_bytes_state']}")
+    connection.execute(
+        """
+        INSERT INTO result_package_exports (
+            package_export_id, result_id, run_id, workflow_revision_id,
+            package_path, package_uri, size_bytes, sha256, manifest_sha256,
+            evidence_event_id, artifact_ids_json, include_artifacts,
+            artifact_payload_mode, lifecycle_state, package_bytes_state,
+            package_bytes_deleted_at, package_bytes_gc_reason, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'available', NULL, '', ?)
+        """,
+        (
+            export_id,
+            normalized["result_id"],
+            normalized["run_id"],
+            normalized["workflow_revision_id"],
+            normalized["package_path"],
+            normalized["package_uri"],
+            normalized["size_bytes"],
+            normalized["sha256"],
+            normalized["manifest_sha256"],
+            normalized["evidence_event_id"],
+            normalized["artifact_ids_json"],
+            normalized["include_artifacts"],
+            normalized["artifact_payload_mode"],
+            normalized["created_at"],
+        ),
+    )
+    row = connection.execute(
+        """
+        SELECT *
+        FROM result_package_exports
+        WHERE result_id = ? AND sha256 = ? AND manifest_sha256 = ?
+        """,
+        (
+            normalized["result_id"],
+            normalized["sha256"],
+            normalized["manifest_sha256"],
+        ),
+    ).fetchone()
+    return _row_to_dict(row)
+
+
+def ensure_result_package_export_recordable(
+    cfg: RemoteRunnerConfig,
+    *,
+    result_id: str,
+    artifact_payload_mode: str,
+) -> None:
+    normalized_result_id = _required_text(result_id, "RESULT_ID_REQUIRED")
+    normalized_mode = _required_text(
+        artifact_payload_mode,
+        "RESULT_PACKAGE_ARTIFACT_PAYLOAD_MODE_REQUIRED",
+    )
+    if normalized_mode not in SUPPORTED_ARTIFACT_PAYLOAD_MODES:
+        raise ValueError(f"RESULT_PACKAGE_ARTIFACT_PAYLOAD_MODE_UNSUPPORTED: {normalized_mode}")
+    with get_connection(cfg) as connection:
+        _ensure_result_package_export_recordable(
+            connection,
+            result_id=normalized_result_id,
+            artifact_payload_mode=normalized_mode,
+        )
+
+
+def _normalize_result_package_export(
+    *,
+    result_id: str,
+    run_id: str,
+    workflow_revision_id: str,
+    package_path: Path,
+    package_uri: str,
+    size_bytes: int,
+    sha256: str,
+    manifest_sha256: str,
+    evidence_event_id: str,
+    artifact_ids: list[str],
+    include_artifacts: bool,
+    artifact_payload_mode: str,
+    created_at: str,
+) -> tuple[dict[str, Any], str]:
     normalized_mode = _required_text(
         artifact_payload_mode,
         "RESULT_PACKAGE_ARTIFACT_PAYLOAD_MODE_REQUIRED",
@@ -58,71 +221,7 @@ def record_result_package_export(
         "artifact_payload_mode": normalized_mode,
         "created_at": _required_text(created_at, "RESULT_PACKAGE_CREATED_AT_REQUIRED"),
     }
-    export_id = _export_id(normalized)
-    with get_connection(cfg) as connection:
-        existing = connection.execute(
-            """
-            SELECT lifecycle_state
-            FROM result_package_exports
-            WHERE result_id = ? AND sha256 = ? AND manifest_sha256 = ?
-            """,
-            (
-                normalized["result_id"],
-                normalized["sha256"],
-                normalized["manifest_sha256"],
-            ),
-        ).fetchone()
-        if existing is not None and str(existing["lifecycle_state"] or "") != "active":
-            raise ValueError(f"RESULT_PACKAGE_EXPORT_NOT_ACTIVE: {existing['lifecycle_state']}")
-        connection.execute(
-            """
-            INSERT INTO result_package_exports (
-                package_export_id, result_id, run_id, workflow_revision_id,
-                package_path, package_uri, size_bytes, sha256, manifest_sha256,
-                evidence_event_id, artifact_ids_json, include_artifacts,
-                artifact_payload_mode, lifecycle_state, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
-            ON CONFLICT(result_id, sha256, manifest_sha256) DO UPDATE SET
-                package_path = excluded.package_path,
-                package_uri = excluded.package_uri,
-                size_bytes = excluded.size_bytes,
-                evidence_event_id = excluded.evidence_event_id,
-                artifact_ids_json = excluded.artifact_ids_json,
-                include_artifacts = excluded.include_artifacts,
-                artifact_payload_mode = excluded.artifact_payload_mode,
-                lifecycle_state = 'active'
-            """,
-            (
-                export_id,
-                normalized["result_id"],
-                normalized["run_id"],
-                normalized["workflow_revision_id"],
-                normalized["package_path"],
-                normalized["package_uri"],
-                normalized["size_bytes"],
-                normalized["sha256"],
-                normalized["manifest_sha256"],
-                normalized["evidence_event_id"],
-                normalized["artifact_ids_json"],
-                normalized["include_artifacts"],
-                normalized["artifact_payload_mode"],
-                normalized["created_at"],
-            ),
-        )
-        connection.commit()
-        row = connection.execute(
-            """
-            SELECT *
-            FROM result_package_exports
-            WHERE result_id = ? AND sha256 = ? AND manifest_sha256 = ?
-            """,
-            (
-                normalized["result_id"],
-                normalized["sha256"],
-                normalized["manifest_sha256"],
-            ),
-        ).fetchone()
-    return _row_to_dict(row)
+    return normalized, _export_id(normalized)
 
 
 def fetch_result_package_export(
@@ -186,6 +285,32 @@ def list_result_package_exports(
     return [_row_to_dict(row) for row in rows]
 
 
+def _ensure_result_package_export_recordable(
+    connection: Any,
+    *,
+    result_id: str,
+    artifact_payload_mode: str,
+) -> None:
+    existing_mode = connection.execute(
+        """
+        SELECT package_export_id, lifecycle_state, package_bytes_state
+        FROM result_package_exports
+        WHERE result_id = ? AND artifact_payload_mode = ?
+        ORDER BY created_at DESC, package_export_id DESC
+        LIMIT 1
+        """,
+        (result_id, artifact_payload_mode),
+    ).fetchone()
+    if existing_mode is not None and str(existing_mode["lifecycle_state"] or "") != "active":
+        raise ValueError(f"RESULT_PACKAGE_EXPORT_NOT_ACTIVE: {existing_mode['lifecycle_state']}")
+    if existing_mode is not None and str(existing_mode["package_bytes_state"] or "") != "available":
+        raise ValueError(
+            f"RESULT_PACKAGE_EXPORT_BYTES_UNAVAILABLE: {existing_mode['package_bytes_state']}"
+        )
+    if existing_mode is not None:
+        raise ValueError(f"RESULT_PACKAGE_EXPORT_ALREADY_EXISTS: {existing_mode['package_export_id']}")
+
+
 def mark_result_package_export_retired(connection: Any, *, package_export_id: str) -> dict[str, Any]:
     normalized_export_id = _required_text(package_export_id, "RESULT_PACKAGE_EXPORT_ID_REQUIRED")
     if not RESULT_PACKAGE_EXPORT_ID_RE.fullmatch(normalized_export_id):
@@ -221,7 +346,138 @@ def mark_result_package_export_retired(connection: Any, *, package_export_id: st
     return _row_to_dict(updated)
 
 
+def mark_result_package_export_bytes_deleting(
+    connection: Any,
+    *,
+    package_export_id: str,
+    deleted_at: str,
+    reason: str,
+) -> dict[str, Any]:
+    normalized_export_id = _required_text(package_export_id, "RESULT_PACKAGE_EXPORT_ID_REQUIRED")
+    if not RESULT_PACKAGE_EXPORT_ID_RE.fullmatch(normalized_export_id):
+        raise ValueError("RESULT_PACKAGE_EXPORT_ID_INVALID")
+    normalized_deleted_at = _required_text(
+        deleted_at,
+        "RESULT_PACKAGE_BYTES_DELETED_AT_REQUIRED",
+    )
+    row = connection.execute(
+        """
+        SELECT *
+        FROM result_package_exports
+        WHERE package_export_id = ?
+        """,
+        (normalized_export_id,),
+    ).fetchone()
+    if row is None:
+        raise ValueError("RESULT_PACKAGE_EXPORT_NOT_FOUND")
+    if str(row["lifecycle_state"] or "") != "retired":
+        raise ValueError(f"RESULT_PACKAGE_EXPORT_NOT_RETIRED: {row['lifecycle_state']}")
+    byte_state = str(row["package_bytes_state"] or "")
+    if byte_state == "deleted":
+        raise ValueError("RESULT_PACKAGE_EXPORT_BYTES_ALREADY_DELETED")
+    if byte_state != "available":
+        raise ValueError(f"RESULT_PACKAGE_EXPORT_BYTES_STATE_UNSUPPORTED: {byte_state}")
+    cursor = connection.execute(
+        """
+        UPDATE result_package_exports
+        SET package_bytes_state = 'deleting',
+            package_bytes_deleted_at = ?,
+            package_bytes_gc_reason = ?
+        WHERE package_export_id = ?
+          AND package_bytes_state = 'available'
+        """,
+        (normalized_deleted_at, str(reason or "").strip(), normalized_export_id),
+    )
+    if cursor.rowcount != 1:
+        _raise_result_package_byte_state_conflict(connection, normalized_export_id)
+    updated = connection.execute(
+        """
+        SELECT *
+        FROM result_package_exports
+        WHERE package_export_id = ?
+        """,
+        (normalized_export_id,),
+    ).fetchone()
+    return _row_to_dict(updated)
+
+
+def mark_result_package_export_bytes_deleted(
+    connection: Any,
+    *,
+    package_export_id: str,
+    deleted_at: str,
+    reason: str,
+) -> dict[str, Any]:
+    normalized_export_id = _required_text(package_export_id, "RESULT_PACKAGE_EXPORT_ID_REQUIRED")
+    if not RESULT_PACKAGE_EXPORT_ID_RE.fullmatch(normalized_export_id):
+        raise ValueError("RESULT_PACKAGE_EXPORT_ID_INVALID")
+    normalized_deleted_at = _required_text(
+        deleted_at,
+        "RESULT_PACKAGE_BYTES_DELETED_AT_REQUIRED",
+    )
+    row = connection.execute(
+        """
+        SELECT *
+        FROM result_package_exports
+        WHERE package_export_id = ?
+        """,
+        (normalized_export_id,),
+    ).fetchone()
+    if row is None:
+        raise ValueError("RESULT_PACKAGE_EXPORT_NOT_FOUND")
+    if str(row["lifecycle_state"] or "") != "retired":
+        raise ValueError(f"RESULT_PACKAGE_EXPORT_NOT_RETIRED: {row['lifecycle_state']}")
+    byte_state = str(row["package_bytes_state"] or "")
+    if byte_state == "deleted":
+        raise ValueError("RESULT_PACKAGE_EXPORT_BYTES_ALREADY_DELETED")
+    if byte_state != "deleting":
+        raise ValueError(f"RESULT_PACKAGE_EXPORT_BYTES_STATE_UNSUPPORTED: {byte_state}")
+    cursor = connection.execute(
+        """
+        UPDATE result_package_exports
+        SET package_bytes_state = 'deleted',
+            package_bytes_deleted_at = ?,
+            package_bytes_gc_reason = ?
+        WHERE package_export_id = ?
+          AND package_bytes_state = 'deleting'
+        """,
+        (normalized_deleted_at, str(reason or "").strip(), normalized_export_id),
+    )
+    if cursor.rowcount != 1:
+        _raise_result_package_byte_state_conflict(connection, normalized_export_id)
+    updated = connection.execute(
+        """
+        SELECT *
+        FROM result_package_exports
+        WHERE package_export_id = ?
+        """,
+        (normalized_export_id,),
+    ).fetchone()
+    return _row_to_dict(updated)
+
+
+def _raise_result_package_byte_state_conflict(
+    connection: Any,
+    package_export_id: str,
+) -> None:
+    row = connection.execute(
+        """
+        SELECT package_bytes_state
+        FROM result_package_exports
+        WHERE package_export_id = ?
+        """,
+        (package_export_id,),
+    ).fetchone()
+    if row is None:
+        raise ValueError("RESULT_PACKAGE_EXPORT_NOT_FOUND")
+    byte_state = str(row["package_bytes_state"] or "")
+    if byte_state == "deleted":
+        raise ValueError("RESULT_PACKAGE_EXPORT_BYTES_ALREADY_DELETED")
+    raise ValueError(f"RESULT_PACKAGE_EXPORT_BYTES_STATE_UNSUPPORTED: {byte_state}")
+
+
 def _row_to_dict(row: Any) -> dict[str, Any]:
+    package_bytes_state = row["package_bytes_state"]
     return {
         "packageExportId": row["package_export_id"],
         "resultId": row["result_id"],
@@ -237,6 +493,10 @@ def _row_to_dict(row: Any) -> dict[str, Any]:
         "includeArtifacts": bool(row["include_artifacts"]),
         "artifactPayloadMode": row["artifact_payload_mode"],
         "lifecycleState": row["lifecycle_state"],
+        "packageBytesState": package_bytes_state,
+        "packageBytesDeletedAt": row["package_bytes_deleted_at"],
+        "packageBytesGcReason": row["package_bytes_gc_reason"],
+        "packageFileDeleted": package_bytes_state == "deleted",
         "createdAt": row["created_at"],
     }
 

@@ -2,7 +2,7 @@
 
 Status: In progress
 
-Last reviewed: 2026-06-23
+Last reviewed: 2026-06-24
 
 Baseline: `main`, `HEAD=a4b4dca54afc390fcc3735c33395bc1989f1a6d0`.
 
@@ -324,6 +324,7 @@ Progress:
 - Result package exports now expose a safe browser download contract through `download.href` instead of raw server filesystem paths. The backend resolves downloads by `packageExportId`, cross-checks `resultId`, verifies the managed package root, active lifecycle state, size, and SHA-256 before streaming, and returns attachment/nosniff/no-store headers through the local API proxy.
 - Result package exports now have confirmation-gated retire/tombstone controls. Retire verifies the active package record through the same managed-path, size, and SHA-256 checks used by download, marks the durable export record `retired`, blocks future downloads, releases GC `export_package` protection, and records `result.package.retire.v1` evidence plus governance audit without deleting the package ZIP or underlying run artifacts.
 - Result package exports now have a lifecycle-aware inventory surface. Operators can rediscover active and retired export records after navigation, see checksums/provenance/payload mode, receive download affordances only for active records, and audit retired records without exposing raw server paths or inferring lifecycle from package ZIP presence.
+- Retired result package exports now support an explicit, confirmation-gated package-byte deletion operation. The operation is single-export, managed-root-only, size/SHA-256 verified, RBAC governed, evidence/audit recorded, and keeps export metadata, lineage, and underlying run artifacts intact while marking `packageBytesState=deleted`.
 - Artifact lifecycle now has an explicit opt-in preview-only controller supervisor that evaluates TTL/quota policy, produces a GC preview plan, and records controller evidence/audit without deleting payloads or bypassing the explicit GC confirmation gate.
 - Result artifact preview and result package export audit now share a managed-storage gate before any payload read or export. Selected active artifacts must have complete metadata, point at a managed local result/work path or configured S3/MinIO artifact prefix, and pass live size/SHA-256 verification; corrupted local files, unmanaged paths/objects, symlinked local directory payloads, corrupted S3/MinIO directory packages, and unmanaged metadata-only exports are rejected with explicit audit/storage errors.
 
@@ -336,7 +337,7 @@ Recommended sequence:
 5. Anchor lineage to WorkflowRevision and input artifact edges.
 6. Extend full-output cache adoption into per-rule restore only after per-rule cache eligibility, downstream invalidation, and staged-file policy controls are represented in run events.
 7. Extend lifecycle from manual usage/preview/run into a background TTL/quota controller once durable package and cache-pin policies are finalized.
-8. Extend retired result package handling from inventory into explicit package-byte GC controls after the tombstone contract has production mileage.
+8. Extend explicit single-export result-package byte deletion into policy-driven quota/TTL planning only after operator UX, retention holds, and batch safety contracts are represented as durable evidence.
 
 Representative files:
 

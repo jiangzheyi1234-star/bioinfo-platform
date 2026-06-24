@@ -34,6 +34,32 @@ def record_governance_audit_event(
     reason_code: str = "",
     details: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    with get_connection(cfg) as connection:
+        event = append_governance_audit_event(
+            connection,
+            action=action,
+            subject_kind=subject_kind,
+            subject_id=subject_id,
+            actor=actor,
+            decision=decision,
+            reason_code=reason_code,
+            details=details,
+        )
+        connection.commit()
+    return event
+
+
+def append_governance_audit_event(
+    connection,
+    *,
+    action: str,
+    subject_kind: str,
+    subject_id: str,
+    actor: str = "remote-runner-api",
+    decision: str = "allow",
+    reason_code: str = "",
+    details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     normalized_details = _safe_details(details or {})
     normalized_decision = str(decision or "").strip().lower()
     if normalized_decision not in _ALLOWED_DECISIONS:
@@ -50,16 +76,14 @@ def record_governance_audit_event(
         "subjectId": _required_text(subject_id, "GOVERNANCE_AUDIT_SUBJECT_ID_REQUIRED"),
         "details": normalized_details,
     }
-    with get_connection(cfg) as connection:
-        event = append_evidence_event(
-            connection,
-            event_type=GOVERNANCE_AUDIT_EVENT_TYPE,
-            schema_name=GOVERNANCE_AUDIT_SCHEMA_NAME,
-            subject_kind=payload["subjectKind"],
-            subject_id=payload["subjectId"],
-            payload=payload,
-        )
-        connection.commit()
+    event = append_evidence_event(
+        connection,
+        event_type=GOVERNANCE_AUDIT_EVENT_TYPE,
+        schema_name=GOVERNANCE_AUDIT_SCHEMA_NAME,
+        subject_kind=payload["subjectKind"],
+        subject_id=payload["subjectId"],
+        payload=payload,
+    )
     return _audit_event_from_evidence(event)
 
 

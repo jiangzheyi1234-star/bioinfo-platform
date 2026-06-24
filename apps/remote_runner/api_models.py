@@ -59,6 +59,12 @@ class ResultPackageRetireRequest(RemoteRunnerRequest):
     reason: str | None = None
 
 
+class ResultPackageByteDeleteRequest(RemoteRunnerRequest):
+    confirmation: Literal["delete-result-package-export-bytes"]
+    actor: str | None = None
+    reason: str | None = None
+
+
 TriggerSourceType = Literal["manual", "cron", "webhook", "dataset", "file", "database_ready", "backfill"]
 BackfillPartitionUnit = Literal["hour", "day"]
 BackfillRunOrder = Literal["forward", "backward"]

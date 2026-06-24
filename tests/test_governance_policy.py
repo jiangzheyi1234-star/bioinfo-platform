@@ -19,6 +19,7 @@ def _tracked_policy_sources() -> list[Path]:
             ROOT / "apps" / "remote_runner" / "artifact_product_service.py",
             ROOT / "apps" / "remote_runner" / "control_service.py",
             ROOT / "apps" / "remote_runner" / "database_service.py",
+            ROOT / "apps" / "remote_runner" / "result_package_byte_gc_service.py",
             ROOT / "apps" / "remote_runner" / "result_package_lifecycle_service.py",
             ROOT / "apps" / "remote_runner" / "submission_service.py",
             ROOT / "apps" / "remote_runner" / "tool_service.py",

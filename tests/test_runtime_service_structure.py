@@ -375,6 +375,7 @@ def test_runtime_execution_operations_live_in_dedicated_mixin() -> None:
         "list_result_package_exports",
         "download_result_package",
         "retire_result_package",
+        "delete_result_package_bytes",
     ):
         assert f"def {method_name}(" in execution_ops_source
         assert f"def {method_name}(" not in runner_ops_source
@@ -427,6 +428,7 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "self.execution.list_result_package_exports(" in execution_ops_source
     assert "self.execution.download_result_package(" in execution_ops_source
     assert "self.execution.retire_result_package(" in execution_ops_source
+    assert "self.execution.delete_result_package_bytes(" in execution_ops_source
     assert "self.call_runner(\"get_run_execution_context\"" in execution_manager_source
     assert "self.call_runner(\"retry_run\"" in execution_manager_source
     assert "self.call_runner(\"get_result_audit\"" in execution_manager_source
@@ -434,6 +436,7 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert 'self.call_runner(\n                "list_result_package_exports",' in execution_manager_source
     assert 'self.call_runner(\n            "download_result_package",' in execution_manager_source
     assert 'self.call_runner(\n            "retire_result_package",' in execution_manager_source
+    assert 'self.call_runner(\n            "delete_result_package_bytes",' in execution_manager_source
     assert "preferred_server_id=server_id" in execution_manager_source
 
 

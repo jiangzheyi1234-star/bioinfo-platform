@@ -26,7 +26,10 @@ from .result_package_validation import (
     WORKFLOW_RUN_CRATE_PROFILE_URI,
     validate_result_package_archive,
 )
-from .result_package_storage import record_result_package_export
+from .result_package_storage import (
+    ensure_result_package_export_recordable,
+    record_result_package_export_in_connection,
+)
 from .rule_execution_storage import fetch_run_rules
 from .storage_core import get_connection, now_iso
 from .workflow_revision_storage import fetch_workflow_revision
@@ -85,6 +88,11 @@ def export_result_package(
     _require_exportable_run(run)
     result_bundle = fetch_run_results(cfg, str(result["runId"]))
     payload_mode = _artifact_payload_mode(include_artifacts)
+    ensure_result_package_export_recordable(
+        cfg,
+        result_id=result_id,
+        artifact_payload_mode=payload_mode,
+    )
     audit = build_result_artifact_audit(
         cfg,
         result_id,
@@ -153,46 +161,54 @@ def export_result_package(
             expected_schema_version=RESULT_PACKAGE_SCHEMA_VERSION,
             expected_package_profile=RESULT_PACKAGE_PROFILE,
         )
-        temp_path.replace(package_path)
     except Exception:
         temp_path.unlink(missing_ok=True)
         raise
 
-    size_bytes, sha256 = _file_stats(package_path)
-    evidence = _record_result_export_evidence(
-        cfg,
-        result_id=result_id,
-        run_id=str(result["runId"]),
-        workflow_revision_id=str(workflow_revision["workflowRevisionId"]),
-        package_path=package_path,
-        size_bytes=size_bytes,
-        sha256=sha256,
-        manifest_sha256=manifest_sha256,
-        artifact_count=len(result["artifacts"]),
-        include_artifacts=include_artifacts,
-        artifact_payload_mode=payload_mode,
-        created_at=created_at,
-        validation=validation,
-    )
+    size_bytes, sha256 = _file_stats(temp_path)
     package_uri = package_path.resolve().as_uri()
+    published = False
     try:
-        export_record = record_result_package_export(
-            cfg,
-            result_id=result_id,
-            run_id=str(result["runId"]),
-            workflow_revision_id=str(workflow_revision["workflowRevisionId"]),
-            package_path=package_path,
-            package_uri=package_uri,
-            size_bytes=size_bytes,
-            sha256=sha256,
-            manifest_sha256=manifest_sha256,
-            evidence_event_id=evidence["eventId"],
-            artifact_ids=[str(artifact["artifactId"]) for artifact in result["artifacts"]],
-            include_artifacts=include_artifacts,
-            artifact_payload_mode=payload_mode,
-            created_at=created_at,
-        )
+        with get_connection(cfg) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            evidence = _append_result_export_evidence(
+                connection,
+                result_id=result_id,
+                run_id=str(result["runId"]),
+                workflow_revision_id=str(workflow_revision["workflowRevisionId"]),
+                size_bytes=size_bytes,
+                sha256=sha256,
+                manifest_sha256=manifest_sha256,
+                artifact_count=len(result["artifacts"]),
+                include_artifacts=include_artifacts,
+                artifact_payload_mode=payload_mode,
+                created_at=created_at,
+                validation=validation,
+            )
+            export_record = record_result_package_export_in_connection(
+                connection,
+                result_id=result_id,
+                run_id=str(result["runId"]),
+                workflow_revision_id=str(workflow_revision["workflowRevisionId"]),
+                package_path=package_path,
+                package_uri=package_uri,
+                size_bytes=size_bytes,
+                sha256=sha256,
+                manifest_sha256=manifest_sha256,
+                evidence_event_id=evidence["eventId"],
+                artifact_ids=[str(artifact["artifactId"]) for artifact in result["artifacts"]],
+                include_artifacts=include_artifacts,
+                artifact_payload_mode=payload_mode,
+                created_at=created_at,
+            )
+            temp_path.replace(package_path)
+            published = True
+            connection.commit()
     except Exception as exc:
+        if published:
+            package_path.unlink(missing_ok=True)
+        else:
+            temp_path.unlink(missing_ok=True)
         raise RuntimeError(f"RESULT_PACKAGE_EXPORT_RECORD_FAILED: {exc}") from exc
     record_governance_audit_event(
         cfg,
@@ -728,13 +744,12 @@ def _artifact_ro_crate_id(artifact: dict[str, Any]) -> str:
     return str(artifact["externalUri"])
 
 
-def _record_result_export_evidence(
-    cfg: RemoteRunnerConfig,
+def _append_result_export_evidence(
+    connection: Any,
     *,
     result_id: str,
     run_id: str,
     workflow_revision_id: str,
-    package_path: Path,
     size_bytes: int,
     sha256: str,
     manifest_sha256: str,
@@ -750,8 +765,6 @@ def _record_result_export_evidence(
         "resultId": result_id,
         "runId": run_id,
         "workflowRevisionId": workflow_revision_id,
-        "packagePath": str(package_path),
-        "packageUri": package_path.resolve().as_uri(),
         "sizeBytes": size_bytes,
         "sha256": sha256,
         "manifestSha256": manifest_sha256,
@@ -766,16 +779,13 @@ def _record_result_export_evidence(
         },
         "createdAt": created_at,
     }
-    with get_connection(cfg) as connection:
-        event = append_evidence_event(
-            connection,
-            event_type=RESULT_EXPORT_EVENT_TYPE,
-            schema_name=RESULT_EXPORT_SCHEMA_NAME,
-            subject_kind="result",
-            subject_id=result_id,
-            payload=payload,
-            producer="artifact_product_service",
-            occurred_at=created_at,
-        )
-        connection.commit()
-    return event
+    return append_evidence_event(
+        connection,
+        event_type=RESULT_EXPORT_EVENT_TYPE,
+        schema_name=RESULT_EXPORT_SCHEMA_NAME,
+        subject_kind="result",
+        subject_id=result_id,
+        payload=payload,
+        producer="artifact_product_service",
+        occurred_at=created_at,
+    )
