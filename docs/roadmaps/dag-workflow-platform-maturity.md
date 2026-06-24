@@ -319,6 +319,7 @@ Progress:
 - GC export protection is now exclusively metadata-backed through active result package export records for both full-payload and metadata-only exports. Deleting or moving the ZIP does not make exported artifact payloads eligible for collection; download paths still independently validate managed package location, active lifecycle state, size, and SHA-256.
 - Run detail now exposes result package export controls that default to metadata-only packages, keep full-payload export explicit, and surface checksums, manifest hash, export evidence, and a backend-owned download affordance without exposing raw server filesystem paths.
 - Result package exports now expose a safe browser download contract through `download.href` instead of raw server filesystem paths. The backend resolves downloads by `packageExportId`, cross-checks `resultId`, verifies the managed package root, active lifecycle state, size, and SHA-256 before streaming, and returns attachment/nosniff/no-store headers through the local API proxy.
+- Result package exports now have confirmation-gated retire/tombstone controls. Retire verifies the active package record through the same managed-path, size, and SHA-256 checks used by download, marks the durable export record `retired`, blocks future downloads, releases GC `export_package` protection, and records `result.package.retire.v1` evidence plus governance audit without deleting the package ZIP or underlying run artifacts.
 - Artifact lifecycle now has an explicit opt-in preview-only controller supervisor that evaluates TTL/quota policy, produces a GC preview plan, and records controller evidence/audit without deleting payloads or bypassing the explicit GC confirmation gate.
 
 Recommended sequence:
@@ -330,7 +331,7 @@ Recommended sequence:
 5. Anchor lineage to WorkflowRevision and input artifact edges.
 6. Extend full-output cache adoption into per-rule restore only after per-rule cache eligibility, downstream invalidation, and staged-file policy controls are represented in run events.
 7. Extend lifecycle from manual usage/preview/run into a background TTL/quota controller once durable package and cache-pin policies are finalized.
-8. Extend result package export with package lifecycle/tombstone controls and real download affordances after the validated v2 evidence package shape has more production mileage.
+8. Extend retired result package handling into explicit package-byte GC/listing controls after the tombstone contract has production mileage.
 
 Representative files:
 

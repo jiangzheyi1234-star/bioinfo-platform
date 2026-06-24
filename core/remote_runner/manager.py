@@ -44,6 +44,7 @@ from core.remote_runner.metadata import (
 from core.remote_runner.proxy import RemoteRunnerProxyMixin
 from core.remote_runner.readiness import RemoteRunnerReadinessMixin
 from core.remote_runner.remote_io import RemoteRunnerRemoteIoMixin
+from core.remote_runner.result_package_proxy import RemoteRunnerResultPackageProxyMixin
 from core.remote_runner.reuse import RemoteRunnerReuseMixin
 from core.remote_runner.token_rotation import RemoteRunnerTokenRotationMixin
 from core.remote_runner.workflow_runtime import RemoteRunnerWorkflowRuntimeMixin
@@ -54,6 +55,7 @@ class RemoteRunnerManager(
     RemoteRunnerInstallLockMixin,
     RemoteRunnerRemoteIoMixin,
     RemoteRunnerReadinessMixin,
+    RemoteRunnerResultPackageProxyMixin,
     RemoteRunnerProxyMixin,
     RemoteRunnerTokenRotationMixin,
     RemoteRunnerCatalogMixin,

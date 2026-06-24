@@ -13,6 +13,7 @@ from apps.api.models import (
     ArtifactGcPreviewRequest,
     ArtifactGcRunRequest,
     ResultPackageExportRequest,
+    ResultPackageRetireRequest,
     RunRetryRequest,
 )
 from apps.api.execution_query_service import (
@@ -37,6 +38,7 @@ from apps.api.execution_query_service import (
     preview_artifact_gc_from_request,
     release_artifact_cache_pin_from_request,
     retain_artifact_cache_pin_from_request,
+    retire_result_package_from_request,
     retry_run_from_request,
     run_artifact_gc_from_request,
 )
@@ -149,6 +151,15 @@ async def download_result_package(
         media_type=_download_media_type(download),
         headers=headers,
     )
+
+
+@router.post("/api/v1/results/{result_id}/exports/{package_export_id}/retire")
+async def retire_result_package(
+    result_id: str,
+    package_export_id: str,
+    request: ResultPackageRetireRequest,
+) -> dict[str, Any]:
+    return await retire_result_package_from_request(result_id, package_export_id, request)
 
 
 @router.get("/api/v1/artifacts/lifecycle/usage")

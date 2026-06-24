@@ -59,6 +59,20 @@ def record_result_package_export(
     }
     export_id = _export_id(normalized)
     with get_connection(cfg) as connection:
+        existing = connection.execute(
+            """
+            SELECT lifecycle_state
+            FROM result_package_exports
+            WHERE result_id = ? AND sha256 = ? AND manifest_sha256 = ?
+            """,
+            (
+                normalized["result_id"],
+                normalized["sha256"],
+                normalized["manifest_sha256"],
+            ),
+        ).fetchone()
+        if existing is not None and str(existing["lifecycle_state"] or "") != "active":
+            raise ValueError(f"RESULT_PACKAGE_EXPORT_NOT_ACTIVE: {existing['lifecycle_state']}")
         connection.execute(
             """
             INSERT INTO result_package_exports (
@@ -128,6 +142,41 @@ def fetch_result_package_export(
             (normalized_export_id,),
         ).fetchone()
     return _row_to_dict(row) if row is not None else None
+
+
+def mark_result_package_export_retired(connection: Any, *, package_export_id: str) -> dict[str, Any]:
+    normalized_export_id = _required_text(package_export_id, "RESULT_PACKAGE_EXPORT_ID_REQUIRED")
+    if not RESULT_PACKAGE_EXPORT_ID_RE.fullmatch(normalized_export_id):
+        raise ValueError("RESULT_PACKAGE_EXPORT_ID_INVALID")
+    row = connection.execute(
+        """
+        SELECT *
+        FROM result_package_exports
+        WHERE package_export_id = ?
+        """,
+        (normalized_export_id,),
+    ).fetchone()
+    if row is None:
+        raise ValueError("RESULT_PACKAGE_EXPORT_NOT_FOUND")
+    if str(row["lifecycle_state"] or "") != "active":
+        raise ValueError(f"RESULT_PACKAGE_EXPORT_NOT_ACTIVE: {row['lifecycle_state']}")
+    connection.execute(
+        """
+        UPDATE result_package_exports
+        SET lifecycle_state = 'retired'
+        WHERE package_export_id = ?
+        """,
+        (normalized_export_id,),
+    )
+    updated = connection.execute(
+        """
+        SELECT *
+        FROM result_package_exports
+        WHERE package_export_id = ?
+        """,
+        (normalized_export_id,),
+    ).fetchone()
+    return _row_to_dict(updated)
 
 
 def _row_to_dict(row: Any) -> dict[str, Any]:

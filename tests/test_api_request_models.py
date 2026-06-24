@@ -7,6 +7,7 @@ from apps.api.models import (
     ArtifactCachePinReleaseRequest,
     ArtifactCachePinRetainRequest,
     ResultPackageExportRequest,
+    ResultPackageRetireRequest,
     RunSubmitRequest,
     RunRetryRequest,
     TERMINAL_CLIENT_MESSAGE_ADAPTER,
@@ -211,6 +212,33 @@ def test_result_package_export_request_requires_explicit_payload_mode_and_is_str
     assert extra.value.errors()[0]["loc"] == ("legacyMode",)
     assert non_boolean.value.errors()[0]["loc"] == ("includeArtifacts",)
     assert non_boolean.value.errors()[0]["type"] == "bool_type"
+
+
+def test_result_package_retire_request_is_confirmation_gated_and_strict() -> None:
+    request = ResultPackageRetireRequest.model_validate(
+        {
+            "serverId": "srv_demo",
+            "confirmation": "retire-result-package-export",
+            "actor": "operator",
+            "reason": "superseded",
+        }
+    )
+
+    assert request.serverId == "srv_demo"
+    assert request.confirmation == "retire-result-package-export"
+
+    with pytest.raises(ValidationError) as missing:
+        ResultPackageRetireRequest.model_validate({"actor": "operator"})
+    with pytest.raises(ValidationError) as wrong:
+        ResultPackageRetireRequest.model_validate({"confirmation": "delete-result-package"})
+    with pytest.raises(ValidationError) as extra:
+        ResultPackageRetireRequest.model_validate(
+            {"confirmation": "retire-result-package-export", "deletePayload": True}
+        )
+
+    assert missing.value.errors()[0]["loc"] == ("confirmation",)
+    assert wrong.value.errors()[0]["type"] == "literal_error"
+    assert extra.value.errors()[0]["type"] == "extra_forbidden"
 
 
 def test_artifact_cache_pin_requests_are_strict_and_confirmation_gated() -> None:

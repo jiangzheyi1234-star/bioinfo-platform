@@ -11,6 +11,7 @@ from .api_models import (
     ArtifactGcPreviewRequest,
     ArtifactGcRunRequest,
     ResultPackageExportRequest,
+    ResultPackageRetireRequest,
     RunCreateRequest,
     RunRetryRequest,
     UploadCreateRequest,
@@ -42,6 +43,7 @@ from .health_service import (
 from .pipeline import get_pipeline, list_pipelines
 from .result_preview_service import build_result_preview_data
 from .result_package_download_service import build_result_package_download, result_package_download_url
+from .result_package_lifecycle_service import retire_result_package_export
 from .route_utils import authorized_config, data_response, remote_runner_principal, run_sync
 from .run_worker_storage import build_run_worker_health
 from .storage import (
@@ -521,6 +523,25 @@ async def download_result_package_from_request(
         },
     )
     return download
+
+
+async def retire_result_package_from_request(
+    result_id: str,
+    package_export_id: str,
+    request: ResultPackageRetireRequest,
+    authorization: str | None,
+) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization, action="result.package.retire")
+    result = await run_sync(
+        retire_result_package_export,
+        cfg,
+        result_id,
+        package_export_id,
+        confirmation=request.confirmation,
+        actor=request.actor,
+        reason=request.reason,
+    )
+    return data_response(result)
 
 
 async def get_artifact_lifecycle_usage_from_request(

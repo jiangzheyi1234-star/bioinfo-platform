@@ -214,6 +214,21 @@ class RunnerExecutionOperationsMixin:
             server_id=server_id,
         )
 
+    def retire_result_package(
+        self,
+        result_id: str,
+        package_export_id: str,
+        *,
+        payload: dict[str, Any] | None = None,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return self.execution.retire_result_package(
+            result_id,
+            package_export_id,
+            payload=payload,
+            server_id=server_id,
+        )
+
     def get_artifact_lifecycle_usage(
         self,
         *,

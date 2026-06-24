@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import asyncio
 
-from apps.api.models import ResultPackageExportRequest
-from apps.api.execution_query_routes import download_result_package, export_result_package, get_result_audit
+from apps.api.models import ResultPackageExportRequest, ResultPackageRetireRequest
+from apps.api.execution_query_routes import (
+    download_result_package,
+    export_result_package,
+    get_result_audit,
+    retire_result_package,
+)
 
 
 def test_result_package_routes_preserve_runtime_wrappers(monkeypatch) -> None:
@@ -74,6 +79,45 @@ def test_result_package_download_route_streams_runtime_payload(monkeypatch) -> N
     assert response.headers["x-h2ometa-sha256"] == "b" * 64
 
 
+def test_result_package_retire_route_passes_server_id_outside_payload(monkeypatch) -> None:
+    runtime = FakeResultPackageRetireRuntime()
+    monkeypatch.setattr("apps.api.execution_query_service.runtime_service", lambda: runtime)
+
+    result = asyncio.run(
+        retire_result_package(
+            "res_run_demo",
+            "rpex_demo",
+            ResultPackageRetireRequest(
+                serverId="srv_remote",
+                confirmation="retire-result-package-export",
+                actor="operator",
+                reason="superseded",
+            ),
+        )
+    )
+
+    assert runtime.calls == [
+        (
+            "res_run_demo",
+            "rpex_demo",
+            {
+                "confirmation": "retire-result-package-export",
+                "actor": "operator",
+                "reason": "superseded",
+            },
+            "srv_remote",
+        )
+    ]
+    assert result == {
+        "data": {
+            "schemaVersion": "h2ometa.result-package-retire.v1",
+            "resultId": "res_run_demo",
+            "packageExportId": "rpex_demo",
+            "lifecycleState": "retired",
+        }
+    }
+
+
 class FakeResultPackageRuntime:
     def get_result_audit(self, result_id):
         assert result_id == "res_run_demo"
@@ -124,4 +168,22 @@ class FakeResultPackageDownloadRuntime:
                 "x-content-type-options": "nosniff",
                 "x-h2ometa-sha256": "b" * 64,
             },
+        }
+
+
+class FakeResultPackageRetireRuntime:
+    def __init__(self) -> None:
+        self.calls = []
+
+    def retire_result_package(self, result_id, package_export_id, *, payload, server_id=None):
+        self.calls.append((result_id, package_export_id, payload, server_id))
+        return {
+            "data": {
+                "schemaVersion": "h2ometa.result-package-retire.v1",
+                "resultId": result_id,
+                "packageExportId": package_export_id,
+                "lifecycleState": "retired",
+                "packagePath": "C:/secret/package.zip",
+                "packageUri": "file:///C:/secret/package.zip",
+            }
         }

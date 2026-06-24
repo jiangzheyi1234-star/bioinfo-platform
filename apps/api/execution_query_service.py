@@ -10,6 +10,7 @@ from apps.api.models import (
     ArtifactGcPreviewRequest,
     ArtifactGcRunRequest,
     ResultPackageExportRequest,
+    ResultPackageRetireRequest,
     RunRetryRequest,
 )
 from apps.api.response_cache import invalidate_response_cache
@@ -163,6 +164,26 @@ async def download_result_package_from_request(
     )
 
 
+async def retire_result_package_from_request(
+    result_id: str,
+    package_export_id: str,
+    request: ResultPackageRetireRequest,
+) -> dict[str, Any]:
+    payload = request_payload(request)
+    server_id = payload.pop("serverId", None)
+    result = await run_runtime_payload(
+        lambda: runtime_service().retire_result_package(
+            result_id,
+            package_export_id,
+            payload=payload,
+            server_id=server_id,
+        ),
+        wrapper="raw",
+    )
+    _strip_result_package_paths(result)
+    return result
+
+
 def _attach_result_package_download(result: dict[str, Any]) -> None:
     data = result.get("data") if isinstance(result, dict) else None
     if not isinstance(data, dict):
@@ -176,6 +197,13 @@ def _attach_result_package_download(result: dict[str, Any]) -> None:
         }
     data.pop("packagePath", None)
     data.pop("packageUri", None)
+
+
+def _strip_result_package_paths(result: dict[str, Any]) -> None:
+    data = result.get("data") if isinstance(result, dict) else None
+    if isinstance(data, dict):
+        data.pop("packagePath", None)
+        data.pop("packageUri", None)
 
 
 def _result_package_download_href(result_id: str, package_export_id: str) -> str:

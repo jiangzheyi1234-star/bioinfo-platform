@@ -7,6 +7,7 @@ from apps.remote_runner.api_models import (
     ArtifactCachePinReleaseRequest,
     ArtifactCachePinRetainRequest,
     ResultPackageExportRequest,
+    ResultPackageRetireRequest,
     RunCreateRequest,
     RunRetryRequest,
     ToolManifestRequest,
@@ -191,6 +192,32 @@ def test_remote_runner_result_package_export_request_requires_explicit_payload_m
     assert extra.value.errors()[0]["loc"] == ("mode",)
     assert non_boolean.value.errors()[0]["loc"] == ("includeArtifacts",)
     assert non_boolean.value.errors()[0]["type"] == "bool_type"
+
+
+def test_remote_runner_result_package_retire_request_is_confirmation_gated() -> None:
+    request = ResultPackageRetireRequest.model_validate(
+        {
+            "confirmation": "retire-result-package-export",
+            "actor": "operator",
+            "reason": "superseded",
+        }
+    )
+
+    assert request.confirmation == "retire-result-package-export"
+    assert request.actor == "operator"
+
+    with pytest.raises(ValidationError) as missing:
+        ResultPackageRetireRequest.model_validate({"actor": "operator"})
+    with pytest.raises(ValidationError) as wrong:
+        ResultPackageRetireRequest.model_validate({"confirmation": "delete-result-package"})
+    with pytest.raises(ValidationError) as extra:
+        ResultPackageRetireRequest.model_validate(
+            {"confirmation": "retire-result-package-export", "deletePayload": True}
+        )
+
+    assert missing.value.errors()[0]["loc"] == ("confirmation",)
+    assert wrong.value.errors()[0]["type"] == "literal_error"
+    assert extra.value.errors()[0]["type"] == "extra_forbidden"
 
 
 def test_remote_runner_artifact_cache_pin_requests_are_strict_and_confirmation_gated() -> None:

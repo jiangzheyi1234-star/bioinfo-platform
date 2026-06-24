@@ -106,6 +106,13 @@ class ResultPackageExportRequest(ApiRequest):
     actor: str | None = None
 
 
+class ResultPackageRetireRequest(ApiRequest):
+    serverId: str | None = None
+    confirmation: Literal["retire-result-package-export"]
+    actor: str | None = None
+    reason: str | None = None
+
+
 TriggerSourceType = Literal["manual", "cron", "webhook", "dataset", "file", "database_ready", "backfill"]
 BackfillPartitionUnit = Literal["hour", "day"]
 BackfillRunOrder = Literal["forward", "backward"]

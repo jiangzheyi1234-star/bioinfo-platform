@@ -357,6 +357,19 @@ class RemoteRunnerHttpClient:
             f"/api/v1/results/{result_part}/exports/{export_part}/download",
         )
 
+    def retire_result_package(
+        self,
+        result_id: str,
+        package_export_id: str,
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        result_part = urllib.parse.quote(result_id, safe="")
+        export_part = urllib.parse.quote(package_export_id, safe="")
+        return self.post_json(
+            f"/api/v1/results/{result_part}/exports/{export_part}/retire",
+            dict(payload or {}),
+        )["data"]
+
     def get_artifact_lifecycle_usage(self, *, quota_bytes: int | None = None) -> dict[str, Any]:
         query = urllib.parse.urlencode({"quotaBytes": quota_bytes if quota_bytes is not None else ""})
         return self.get_json(f"/api/v1/artifacts/lifecycle/usage?{query}")["data"]
