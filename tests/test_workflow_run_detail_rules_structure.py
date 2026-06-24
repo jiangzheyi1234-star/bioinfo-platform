@@ -15,6 +15,7 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     model = _component_source("workflows-page-model.ts")
     api = _component_source("workflows-page-api.ts")
     panel = _component_source("workflow-run-detail-panel.tsx")
+    execution_panel = _component_source("workflow-run-execution-context.tsx")
     package_panel = _component_source("workflow-result-package-panel.tsx")
     catalog_service = (ROOT / "apps" / "api" / "workflow_catalog_service.py").read_text(encoding="utf-8")
 
@@ -51,6 +52,7 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "WorkflowRunExecutionContextPanel" in panel
     assert "WorkflowResultPackagePanel" in panel
     assert "context={detail.executionContext}" in panel
+    assert "ruleRetryPlan" not in panel
     assert "resultId={detail.results?.resultId}" in panel
     assert "workflowRevisionId={workflowRevisionId}" in panel
     assert "function RunRules" in panel
@@ -60,6 +62,14 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "rule.attemptNumber" in panel
     assert "rule.leaseGeneration" in panel
     assert "rule.events || []" in panel
+    assert "context.ruleRetryPlan" in execution_panel
+    assert "RuleRetryPlanSummary" in execution_panel
+    assert "规则级重试计划仅供诊断" in execution_panel
+    assert "当前重试按钮会重新调度整个 run" in execution_panel
+    assert "onRetryRule" not in execution_panel
+    assert "retryRule" not in execution_panel
+    assert "onRetryRule" not in panel
+    assert "retryRule" not in panel
 
     assert "export function WorkflowResultPackagePanel" in package_panel
     assert "exportWorkflowResultPackage(resultId, mode === \"full\")" in package_panel

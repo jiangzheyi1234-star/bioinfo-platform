@@ -5,7 +5,11 @@ import { Activity, Clock, Loader2, RotateCcw, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
-import type { WorkflowRunExecutionAttempt, WorkflowRunExecutionContext } from "./workflows-page-model";
+import type {
+  WorkflowRunExecutionAttempt,
+  WorkflowRunExecutionContext,
+  WorkflowRunRuleRetryPlanRuleRef,
+} from "./workflows-page-model";
 
 type MetricProps = {
   label: string;
@@ -71,6 +75,69 @@ function attemptStateClass(state?: string) {
   if (normalized === "failed" || normalized === "fenced") return "border-red-200 bg-red-50 text-red-700";
   if (normalized === "running") return "border-blue-200 bg-blue-50 text-blue-700";
   return "border-slate-200 bg-slate-50 text-slate-600";
+}
+
+function ruleRefKey(rule: WorkflowRunRuleRetryPlanRuleRef) {
+  return rule.runtimeStatusKey || rule.stepId || rule.ruleName || "";
+}
+
+function uniqueRuleRefs(rules: WorkflowRunRuleRetryPlanRuleRef[]) {
+  const seen = new Set<string>();
+  return rules.filter((rule) => {
+    const key = ruleRefKey(rule);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function ruleNameList(rules: WorkflowRunRuleRetryPlanRuleRef[]) {
+  return uniqueRuleRefs(rules)
+    .map((rule) => rule.ruleName || rule.stepId || rule.runtimeStatusKey)
+    .filter(Boolean)
+    .slice(0, 4)
+    .join(", ");
+}
+
+function RuleRetryPlanSummary({ context }: { context: WorkflowRunExecutionContext }) {
+  const plan = context.ruleRetryPlan;
+  if (!plan || !plan.failedRuleCount) return null;
+  const plannedRules = plan.rules || [];
+  const downstreamRules = uniqueRuleRefs(plannedRules.flatMap((rule) => rule.downstreamInvalidation?.rules || []));
+  const rerunRules = uniqueRuleRefs(plannedRules.flatMap((rule) => rule.rerunScope?.rules || [rule]));
+  const reason = plan.reasonCode || plannedRules[0]?.reasonCode || "—";
+  const downstreamLabel = downstreamRules.length > 0 ? ruleNameList(downstreamRules) : "—";
+  const scopeLabel = rerunRules.length > 0 ? ruleNameList(rerunRules) : "—";
+
+  return (
+    <div className="mt-3 rounded-md border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-900">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <RotateCcw strokeWidth={1.5} className="h-3.5 w-3.5 shrink-0" />
+          <span className="font-medium">rule retry plan</span>
+          <span className="truncate font-mono text-[11px] text-amber-700">{plan.schemaVersion || "rule-retry-plan"}</span>
+        </div>
+        <span className="rounded border border-amber-300 bg-white/60 px-1.5 py-0.5 font-mono text-[11px] text-amber-800">
+          {plan.invalidationPlanAvailable ? "invalidation planned" : "blocked"}
+        </span>
+      </div>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <ExecutionMetric label="failed" value={String(plan.failedRuleCount || 0)} />
+        <ExecutionMetric label="scope" value={String(rerunRules.length)} />
+        <ExecutionMetric label="downstream" value={String(downstreamRules.length)} />
+        <ExecutionMetric label="reason" value={reason} />
+      </div>
+      <p className="mt-2 text-[11px] leading-5 text-amber-800">
+        规则级重试计划仅供诊断；当前重试按钮会重新调度整个 run。
+      </p>
+      <div className="mt-2 grid gap-1 text-[11px] sm:grid-cols-[96px_minmax(0,1fr)]">
+        <span className="text-amber-700">downstream</span>
+        <span className="truncate font-mono">{downstreamLabel}</span>
+        <span className="text-amber-700">rerun scope</span>
+        <span className="truncate font-mono">{scopeLabel}</span>
+      </div>
+    </div>
+  );
 }
 
 export function WorkflowRunExecutionContextPanel({
@@ -164,6 +231,7 @@ export function WorkflowRunExecutionContextPanel({
           </div>
         </div>
       </div>
+      <RuleRetryPlanSummary context={context} />
     </div>
   );
 }
