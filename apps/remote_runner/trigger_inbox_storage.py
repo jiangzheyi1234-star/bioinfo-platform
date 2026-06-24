@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from collections.abc import Mapping
 from typing import Any
 
 from .config import RemoteRunnerConfig
@@ -92,7 +93,7 @@ def record_workflow_trigger_inbox_event(
                 payload_hash,
                 payload_json,
                 payload_size_bytes,
-                INBOX_SIGNATURE_STATE_UNSUPPORTED,
+                str(metadata["signatureState"]),
                 _stable_json(metadata["signatureDetails"]),
                 str(metadata.get("rawBodySha256") or ""),
                 int(metadata.get("rawBodySizeBytes") or 0),
@@ -365,16 +366,23 @@ def _payload_hash(payload: dict[str, Any]) -> str:
 def _signature_metadata(metadata: dict[str, Any] | None) -> dict[str, Any]:
     raw = dict(metadata or {})
     header_names = [str(name) for name in raw.get("rawHeaderNames") or []]
+    signature_state = str(raw.get("signatureState") or INBOX_SIGNATURE_STATE_UNSUPPORTED)
+    supplied_details = raw.get("signatureDetails")
     details = {
         "schemaVersion": INBOX_SIGNATURE_METADATA_SCHEMA,
-        "signatureState": INBOX_SIGNATURE_STATE_UNSUPPORTED,
+        "signatureState": signature_state,
         **({"rawBodySha256": str(raw.get("rawBodySha256") or "")} if raw.get("rawBodySha256") else {}),
         **({"rawBodySizeBytes": int(raw.get("rawBodySizeBytes") or 0)} if raw.get("rawBodySizeBytes") else {}),
         **({"contentType": str(raw.get("rawContentType") or "")} if raw.get("rawContentType") else {}),
         **({"receivedAt": str(raw.get("receivedAt") or "")} if raw.get("receivedAt") else {}),
         **({"headerNames": header_names} if header_names else {}),
     }
+    if isinstance(supplied_details, Mapping):
+        details.update(dict(supplied_details))
+        details["schemaVersion"] = INBOX_SIGNATURE_METADATA_SCHEMA
+        details["signatureState"] = signature_state
     return {
+        "signatureState": signature_state,
         "rawBodySha256": str(raw.get("rawBodySha256") or ""),
         "rawBodySizeBytes": int(raw.get("rawBodySizeBytes") or 0),
         "rawContentType": str(raw.get("rawContentType") or ""),

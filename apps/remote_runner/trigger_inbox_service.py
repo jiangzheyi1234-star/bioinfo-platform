@@ -6,6 +6,12 @@ from typing import Any
 from .api_models import WorkflowTriggerEventRequest, WorkflowTriggerInboxEventRequest
 from .config import RemoteRunnerConfig
 from .route_utils import request_payload
+from .secret_provider import (
+    SecretProvider,
+    SecretProviderError,
+    default_webhook_secret_provider,
+    resolve_secret_ref,
+)
 from .trigger_inbox_storage import (
     inbox_event_summary,
     list_workflow_trigger_inbox_events,
@@ -17,7 +23,17 @@ from .trigger_inbox_storage import (
 )
 from .trigger_service import submit_workflow_trigger_event_from_request
 from .trigger_storage import fetch_workflow_trigger_event_for_dedupe, require_workflow_trigger
-from .webhook_raw_request import WebhookRawRequestEnvelope
+from .webhook_raw_request import WebhookRawRequestEnvelope, webhook_verification_input_from_envelope
+from .webhook_signature_policy import (
+    WebhookTriggerSignaturePolicy,
+    WebhookTriggerSignaturePolicyError,
+    resolve_webhook_trigger_signature_policy,
+)
+from .webhook_signature_verification import (
+    WebhookSignatureVerificationError,
+    WebhookSignatureVerificationResult,
+    verify_webhook_signature,
+)
 
 
 TRIGGER_EVENT_PAYLOAD_MAX_BYTES = 256 * 1024
@@ -40,6 +56,8 @@ def submit_workflow_trigger_inbox_event_from_request(
     request: WorkflowTriggerInboxEventRequest,
     *,
     raw_envelope: WebhookRawRequestEnvelope | None = None,
+    secret_provider: SecretProvider | None = None,
+    signature_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     trigger = require_workflow_trigger(cfg, trigger_id)
     source_type = str(trigger.get("sourceType") or "")
@@ -48,17 +66,19 @@ def submit_workflow_trigger_inbox_event_from_request(
     source = _required_text(request.source, "WORKFLOW_TRIGGER_INBOX_SOURCE_REQUIRED")
     event_id = _required_text(request.eventId, "WORKFLOW_TRIGGER_INBOX_EVENT_ID_REQUIRED")
     _enforce_payload_size(request_payload(request).get("payload") or {})
-    inbox = record_workflow_trigger_inbox_event(
+    if signature_metadata is None:
+        signature_metadata = _signature_metadata_for_trigger(
+            trigger,
+            raw_envelope=raw_envelope,
+            secret_provider=secret_provider,
+        )
+    inbox = _record_inbox_event(
         cfg,
         trigger=trigger,
+        request=request,
         source=source,
-        event_type=str(request.eventType or "webhook"),
-        provider_event_id=event_id,
-        correlation_id=str(request.correlationId or "").strip(),
-        cursor=str(request.cursor or "").strip(),
-        dedupe_key=_inbox_dedupe_key(trigger, source=source, event_id=event_id),
-        payload=request_payload(request),
-        signature_metadata=_signature_metadata_from_envelope(raw_envelope),
+        event_id=event_id,
+        signature_metadata=signature_metadata,
     )
     try:
         mark_workflow_trigger_inbox_dispatching(cfg, inbox_event_id=str(inbox["inboxEventId"]))
@@ -119,6 +139,83 @@ def _inbox_dedupe_key(trigger: dict[str, Any], *, source: str, event_id: str) ->
     return f"webhook:{trigger['triggerId']}:{source}:{event_id}"
 
 
+def verify_workflow_trigger_inbox_envelope_signature(
+    cfg: RemoteRunnerConfig,
+    trigger_id: str,
+    envelope: WebhookRawRequestEnvelope,
+    *,
+    secret_provider: SecretProvider | None = None,
+) -> dict[str, Any] | None:
+    trigger = require_workflow_trigger(cfg, trigger_id)
+    source_type = str(trigger.get("sourceType") or "")
+    if source_type != "webhook":
+        raise ValueError(f"WORKFLOW_TRIGGER_INBOX_SOURCE_MISMATCH: {source_type}")
+    return _signature_metadata_for_trigger(
+        trigger,
+        raw_envelope=envelope,
+        secret_provider=secret_provider,
+    )
+
+
+def _record_inbox_event(
+    cfg: RemoteRunnerConfig,
+    *,
+    trigger: dict[str, Any],
+    request: WorkflowTriggerInboxEventRequest,
+    source: str,
+    event_id: str,
+    signature_metadata: dict[str, Any] | None,
+) -> dict[str, Any]:
+    return record_workflow_trigger_inbox_event(
+        cfg,
+        trigger=trigger,
+        source=source,
+        event_type=str(request.eventType or "webhook"),
+        provider_event_id=event_id,
+        correlation_id=str(request.correlationId or "").strip(),
+        cursor=str(request.cursor or "").strip(),
+        dedupe_key=_inbox_dedupe_key(trigger, source=source, event_id=event_id),
+        payload=request_payload(request),
+        signature_metadata=signature_metadata,
+    )
+
+
+def _signature_metadata_for_trigger(
+    trigger: dict[str, Any],
+    *,
+    raw_envelope: WebhookRawRequestEnvelope | None,
+    secret_provider: SecretProvider | None,
+) -> dict[str, Any] | None:
+    base_metadata = _signature_metadata_from_envelope(raw_envelope)
+    try:
+        policy = resolve_webhook_trigger_signature_policy(trigger.get("triggerSpec") or {})
+    except WebhookTriggerSignaturePolicyError as exc:
+        _reject_signature(exc.code)
+    if policy.mode != "required":
+        return base_metadata
+    if raw_envelope is None:
+        _reject_signature("WORKFLOW_TRIGGER_SIGNATURE_RAW_ENVELOPE_REQUIRED")
+    provider = secret_provider or default_webhook_secret_provider()
+    try:
+        secret = resolve_secret_ref(provider, policy.secret_ref, purpose="webhook-signing-secret")
+        result = verify_webhook_signature(
+            webhook_verification_input_from_envelope(raw_envelope, policy=policy, secret=secret)
+        )
+    except SecretProviderError:
+        _reject_signature("WORKFLOW_TRIGGER_SIGNATURE_SECRET_RESOLUTION_FAILED")
+    except WebhookSignatureVerificationError as exc:
+        _reject_signature(exc.code)
+    metadata = dict(base_metadata or {})
+    metadata["signatureState"] = "verified"
+    metadata["signatureDetails"] = _signature_details(
+        "verified",
+        policy=policy,
+        verification=_verification_details(result),
+        credential_ref=secret.safe_details(),
+    )
+    return metadata
+
+
 def _signature_metadata_from_envelope(envelope: WebhookRawRequestEnvelope | None) -> dict[str, Any] | None:
     if envelope is None:
         return None
@@ -128,6 +225,39 @@ def _signature_metadata_from_envelope(envelope: WebhookRawRequestEnvelope | None
         "rawContentType": envelope.content_type or "",
         "rawHeaderNames": list(envelope.header_names),
         "receivedAt": envelope.received_at.isoformat(),
+    }
+
+
+def _reject_signature(
+    code: str,
+) -> None:
+    raise ValueError(code)
+
+
+def _signature_details(
+    signature_state: str,
+    *,
+    policy: WebhookTriggerSignaturePolicy | None = None,
+    verification: dict[str, Any] | None = None,
+    credential_ref: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "signatureState": signature_state,
+        **({"policy": policy.safe_details()} if policy else {}),
+        **({"verification": verification} if verification else {}),
+        **({"credentialRef": credential_ref} if credential_ref else {}),
+    }
+
+
+def _verification_details(result: WebhookSignatureVerificationResult) -> dict[str, Any]:
+    return {
+        "provider": result.provider,
+        "algorithm": result.algorithm,
+        "signatureHeader": result.signature_header,
+        "timestampHeader": result.timestamp_header,
+        "timestamp": result.timestamp,
+        "toleranceSeconds": result.tolerance_seconds,
+        "signedPayloadSha256": result.signed_payload_sha256,
     }
 
 

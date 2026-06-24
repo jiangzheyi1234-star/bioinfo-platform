@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 import hashlib
+import os
 import re
 from typing import Literal, NoReturn, Protocol, cast
 from urllib.parse import urlsplit
@@ -104,6 +105,23 @@ class SchemeSecretProvider:
         if provider is None:
             _raise("SECRET_PROVIDER_UNAVAILABLE", state="unsupported", descriptor=descriptor)
         return provider.resolve_secret(descriptor)
+
+
+class EnvironmentSecretProvider:
+    def __init__(self, environ: Mapping[str, str] | None = None) -> None:
+        self._environ = environ
+
+    def resolve_secret(self, descriptor: SecretRefDescriptor) -> bytes | str | SecretProviderRecord:
+        if descriptor.scheme != "env":
+            _raise("SECRET_PROVIDER_UNAVAILABLE", state="unsupported", descriptor=descriptor)
+        value = (self._environ if self._environ is not None else os.environ).get(descriptor.secret_id)
+        if not value:
+            _raise("SECRET_NOT_FOUND", state="missing", descriptor=descriptor)
+        return value
+
+
+def default_webhook_secret_provider() -> SecretProvider:
+    return SchemeSecretProvider({"env": EnvironmentSecretProvider()})
 
 
 def parse_secret_ref(ref: object, *, purpose: str) -> SecretRefDescriptor:

@@ -7,6 +7,7 @@ import hmac
 import pytest
 
 from apps.remote_runner.secret_provider import (
+    EnvironmentSecretProvider,
     MappingSecretProvider,
     SecretProviderError,
     SecretProviderRecord,
@@ -104,6 +105,18 @@ def test_mapping_secret_provider_resolves_bytes_without_value_or_ref_leak() -> N
     assert "github-secret" not in repr(resolved)
     assert "secret://webhooks/github/main" not in repr(resolved)
     assert "secret://webhooks/github/main" not in repr(resolved.safe_details())
+
+
+def test_environment_secret_provider_resolves_env_refs_without_value_leak() -> None:
+    provider = EnvironmentSecretProvider({"H2OMETA_WEBHOOK_SECRET": "github-secret"})
+
+    resolved = resolve_secret_ref(provider, "env://H2OMETA_WEBHOOK_SECRET", purpose="webhook-signing-secret")
+
+    assert resolved.value == b"github-secret"
+    assert resolved.descriptor.scheme == "env"
+    assert resolved.safe_details()["providerKind"] == "environment"
+    assert "github-secret" not in repr(resolved)
+    assert "H2OMETA_WEBHOOK_SECRET" not in repr(resolved.safe_details())
 
 
 @pytest.mark.parametrize(

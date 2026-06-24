@@ -73,6 +73,7 @@ from .trigger_service import (
 from .trigger_inbox_service import (
     list_workflow_trigger_inbox_events_from_storage,
     submit_workflow_trigger_inbox_event_from_request,
+    verify_workflow_trigger_inbox_envelope_signature,
 )
 from .webhook_raw_request import WebhookRawRequestEnvelope, json_payload_from_envelope
 from .trigger_inbox_replay_service import replay_workflow_trigger_inbox_event_from_request
@@ -210,6 +211,12 @@ async def submit_workflow_trigger_inbox_event_envelope_request(
     authorization: str | None,
 ) -> dict[str, Any]:
     cfg = await _authorized_config_from_request(authorization, action="workflow_trigger.dispatch")
+    signature_metadata = await run_sync(
+        verify_workflow_trigger_inbox_envelope_signature,
+        cfg,
+        trigger_id,
+        envelope,
+    )
     try:
         payload = WorkflowTriggerInboxEventRequest.model_validate(json_payload_from_envelope(envelope))
     except ValidationError as exc:
@@ -220,6 +227,7 @@ async def submit_workflow_trigger_inbox_event_envelope_request(
         trigger_id,
         payload,
         raw_envelope=envelope,
+        signature_metadata=signature_metadata,
     )
 
 
