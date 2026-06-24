@@ -10,6 +10,8 @@ from apps.remote_runner.api_models import (
 from apps.remote_runner.errors import RemoteRunnerNotFoundError
 from apps.remote_runner.execution_query_storage import fetch_run
 from apps.remote_runner.governance_audit import list_governance_audit_events
+from apps.remote_runner.resource_pool import ResourceRequest
+from apps.remote_runner.run_execution_storage import claim_next_run_job
 from apps.remote_runner.trigger_service import (
     cancel_workflow_backfill_launch_from_request,
     create_workflow_trigger_from_request,
@@ -96,6 +98,8 @@ def test_backfill_launch_read_model_lists_partition_runs_and_replay_state(
     assert [item["runId"] for item in detail["partitions"]] == [item["runId"] for item in launched["partitions"]]
     assert detail["partitions"][0]["run"]["status"] == "queued"
     assert detail["partitions"][0]["run"]["stage"] == "submitted"
+    detail_run = fetch_run(cfg, detail["partitions"][0]["runId"])
+    assert detail["partitions"][0]["run"]["admission"] == _expected_admission_summary(detail_run)
     assert detail["partitions"][0]["dispatch"]["state"] == "submitted"
     assert detail["partitions"][0]["triggerEventType"] == "backfill.partition"
     assert detail["partitions"][1]["run"] is None
@@ -103,6 +107,28 @@ def test_backfill_launch_read_model_lists_partition_runs_and_replay_state(
     assert detail["partitions"][1]["triggerEventType"] is None
     assert all(item["runSpecHash"] for item in detail["partitions"])
     assert "runSpecPreview" not in str(detail)
+
+    claim_now = str(detail_run["submittedAt"])
+    claim = claim_next_run_job(
+        cfg,
+        worker_id="worker-limited",
+        slot_id="slot-0",
+        resource_request=ResourceRequest(memory_mb=8192),
+        resource_capacity=ResourceRequest(memory_mb=1024),
+        max_active_slots=1,
+        now=claim_now,
+    )
+    waited = get_workflow_backfill_launch_from_storage(cfg, launched["launchId"])["data"]
+    waited_admission = waited["partitions"][0]["run"]["admission"]
+    assert claim is None
+    assert waited_admission["waitReason"] == {
+        "code": "ADMISSION_RESOURCES_UNAVAILABLE",
+        "resource": "memory_mb",
+        "available": 1024,
+        "requested": 8192,
+    }
+    assert waited_admission["waitReasonCode"] == "ADMISSION_RESOURCES_UNAVAILABLE"
+    assert waited_admission["updatedAt"] == claim_now
 
 
 def test_backfill_launch_cancel_requests_active_partition_runs(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -179,3 +205,19 @@ def test_backfill_launch_detail_fails_closed_for_unknown_launch(tmp_path) -> Non
 
     with pytest.raises(RemoteRunnerNotFoundError, match="WORKFLOW_BACKFILL_LAUNCH_NOT_FOUND"):
         get_workflow_backfill_launch_from_storage(cfg, "bfl_missing")
+
+
+def _expected_admission_summary(run: dict[str, object] | None) -> dict[str, object]:
+    assert run is not None
+    return {
+        "schemaVersion": "run-admission-summary.v1",
+        "jobState": "queued",
+        "queueName": "default",
+        "availableAt": run["submittedAt"],
+        "attemptCount": 0,
+        "maxAttempts": 3,
+        "waitReasonCode": "",
+        "waitReason": None,
+        "deadLetteredAt": None,
+        "updatedAt": run["submittedAt"],
+    }

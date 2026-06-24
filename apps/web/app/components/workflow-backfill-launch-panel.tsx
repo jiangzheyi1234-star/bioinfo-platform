@@ -22,6 +22,7 @@ import type {
   WorkflowBackfillLaunchDetail,
   WorkflowBackfillPartition,
   WorkflowBackfillPartitionSummary,
+  WorkflowRunAdmissionSummary,
 } from "./workflow-backfill-model";
 
 export function WorkflowBackfillLaunchPanel({
@@ -268,6 +269,7 @@ function PartitionRow({ partition }: { partition: WorkflowBackfillPartition }) {
         {partition.run?.status ? (
           <div className="mt-1 truncate text-[10px] text-slate-500">{partition.run.status} / {partition.run.stage || "—"}</div>
         ) : null}
+        <AdmissionSummary admission={partition.run?.admission} />
       </td>
       <td className="px-3 py-2">
         <div className="truncate font-mono text-[10px] text-slate-500">{partition.triggerEventId || "no trigger event"}</div>
@@ -283,6 +285,40 @@ function PartitionRow({ partition }: { partition: WorkflowBackfillPartition }) {
         <div className="mt-1 truncate font-mono text-[10px] text-slate-400">{shortHash(partition.runSpecHash)}</div>
       </td>
     </tr>
+  );
+}
+
+function AdmissionSummary({ admission }: { admission?: WorkflowRunAdmissionSummary | null }) {
+  if (!admission) return null;
+  const wait = admission.waitReason || null;
+  return (
+    <div className="mt-1 flex min-w-0 flex-wrap gap-1">
+      {admission.jobState ? (
+        <span className="inline-flex max-w-full rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] text-slate-600">
+          <span className="truncate">job {admission.jobState}</span>
+        </span>
+      ) : null}
+      {admission.queueName ? (
+        <span className="inline-flex max-w-full rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] text-slate-600">
+          <span className="truncate">queue {admission.queueName}</span>
+        </span>
+      ) : null}
+      {admission.maxAttempts ? (
+        <span className="inline-flex max-w-full rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] text-slate-600">
+          <span className="truncate">attempt {admission.attemptCount ?? 0}/{admission.maxAttempts}</span>
+        </span>
+      ) : null}
+      {admission.availableAt ? (
+        <span className="inline-flex max-w-full rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] text-slate-600">
+          <span className="truncate">available {formatDate(admission.availableAt)}</span>
+        </span>
+      ) : null}
+      {wait?.code ? (
+        <span className="inline-flex max-w-full rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700">
+          <span className="truncate">{admissionWaitLabel(wait)}</span>
+        </span>
+      ) : null}
+    </div>
   );
 }
 
@@ -403,6 +439,19 @@ function blockedReasonLabel(reason: string) {
   if (reason === "existing-active-run") return "已有活跃运行，按策略跳过";
   if (reason === "existing-run-not-completed-or-failed") return "已有非终态运行，按策略跳过";
   return reason;
+}
+
+function admissionWaitLabel(wait: NonNullable<WorkflowRunAdmissionSummary["waitReason"]>) {
+  if (wait.code === "ADMISSION_RESOURCES_UNAVAILABLE") {
+    return `等待资源 ${wait.resource || "unknown"} ${wait.requested ?? 0}/${wait.available ?? 0}`;
+  }
+  if (wait.code === "ADMISSION_SLOT_UNAVAILABLE") {
+    return `等待槽位 max ${wait.maxActiveSlots ?? 0}`;
+  }
+  if (wait.code === "ADMISSION_SLOT_BUSY") {
+    return "等待 worker 槽位";
+  }
+  return "等待 admission";
 }
 
 function reprocessDecisionLabel(decision: NonNullable<WorkflowBackfillPartition["reprocessDecision"]>) {

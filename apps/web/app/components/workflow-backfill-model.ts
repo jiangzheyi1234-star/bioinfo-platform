@@ -34,6 +34,28 @@ export type WorkflowBackfillRange = {
   runOrder?: string;
 };
 
+export type WorkflowRunAdmissionWaitReason = {
+  code?: string;
+  resource?: string;
+  available?: number;
+  requested?: number;
+  maxActiveSlots?: number;
+  slotIdPresent?: boolean;
+};
+
+export type WorkflowRunAdmissionSummary = {
+  schemaVersion?: string;
+  jobState?: string;
+  queueName?: string;
+  availableAt?: string;
+  attemptCount?: number;
+  maxAttempts?: number;
+  waitReasonCode?: string;
+  waitReason?: WorkflowRunAdmissionWaitReason | null;
+  deadLetteredAt?: string | null;
+  updatedAt?: string;
+};
+
 export type WorkflowBackfillLaunch = {
   schemaVersion?: string;
   launchId: string;
@@ -108,6 +130,7 @@ export type WorkflowBackfillPartition = {
     status?: string;
     stage?: string;
     lastUpdatedAt?: string;
+    admission?: WorkflowRunAdmissionSummary | null;
   } | null;
   error?: unknown;
   createdAt?: string;

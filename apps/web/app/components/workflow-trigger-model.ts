@@ -31,11 +31,34 @@ export type WorkflowTriggerEventPayload = {
   payload?: unknown;
 };
 
+export type WorkflowRunAdmissionWaitReason = {
+  code?: string;
+  resource?: string;
+  available?: number;
+  requested?: number;
+  maxActiveSlots?: number;
+  slotIdPresent?: boolean;
+};
+
+export type WorkflowRunAdmissionSummary = {
+  schemaVersion?: string;
+  jobState?: string;
+  queueName?: string;
+  availableAt?: string;
+  attemptCount?: number;
+  maxAttempts?: number;
+  waitReasonCode?: string;
+  waitReason?: WorkflowRunAdmissionWaitReason | null;
+  deadLetteredAt?: string | null;
+  updatedAt?: string;
+};
+
 export type WorkflowTriggerDispatchRun = {
   runId?: string;
   status?: string;
   stage?: string;
   lastUpdatedAt?: string;
+  admission?: WorkflowRunAdmissionSummary | null;
 };
 
 export type WorkflowTriggerDispatch = {

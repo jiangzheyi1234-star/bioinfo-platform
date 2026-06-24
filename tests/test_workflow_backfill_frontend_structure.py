@@ -26,6 +26,9 @@ def test_backfill_launches_have_read_only_frontend_surface() -> None:
     assert "WorkflowBackfillLaunchDetail" in model
     assert "WorkflowBackfillPartitionSummary" in model
     assert "WorkflowBackfillConcurrency" in model
+    assert "WorkflowRunAdmissionSummary" in model
+    assert "waitReasonCode?: string" in model
+    assert "admission?: WorkflowRunAdmissionSummary | null" in model
     assert "activeRunCount" in model
     assert "blockedPartitionCount" in model
     assert "blockedReason" in model
@@ -53,6 +56,14 @@ def test_backfill_launches_have_read_only_frontend_surface() -> None:
     assert "并发受限" in panel
     assert "待提交" in panel
     assert "partition.blockedReason" in panel
+    assert "partition.run?.admission" in panel
+    assert "AdmissionSummary" in panel
+    assert "admissionWaitLabel" in panel
+    assert "admission.availableAt" in panel
+    assert "admission.attemptCount" in panel
+    assert "admission.maxAttempts" in panel
+    assert "ADMISSION_RESOURCES_UNAVAILABLE" in panel
+    assert "ADMISSION_WAIT_UNSUPPORTED" not in panel
     assert "partition.reprocessDecision" in panel
     assert "partition.existingState?.runStatus" in panel
     assert "reprocessDecisionLabel" in panel

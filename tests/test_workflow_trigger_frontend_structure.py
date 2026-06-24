@@ -31,6 +31,9 @@ def test_trigger_events_have_read_only_frontend_surface() -> None:
     assert "WorkflowTriggerInboxReplayResult" in model
     assert "WorkflowTriggerReadinessObservation" in model
     assert "WorkflowTriggerReadinessObservationResponse" in model
+    assert "WorkflowRunAdmissionSummary" in model
+    assert "waitReasonCode?: string" in model
+    assert "admission?: WorkflowRunAdmissionSummary | null" in model
     assert "resourceIdentity?: {" in model
     assert "idHash?: string" in model
     assert "resourceUriPresent?: boolean" in model
@@ -76,6 +79,13 @@ def test_trigger_events_have_read_only_frontend_surface() -> None:
     assert "run.status" in panel
     assert "run.stage" in panel
     assert "run.lastUpdatedAt" in panel
+    assert "AdmissionSummary" in panel
+    assert "admissionWaitLabel" in panel
+    assert "admission.availableAt" in panel
+    assert "admission.attemptCount" in panel
+    assert "admission.maxAttempts" in panel
+    assert "ADMISSION_RESOURCES_UNAVAILABLE" in panel
+    assert "ADMISSION_WAIT_UNSUPPORTED" not in panel
     assert "runStatusStyle" in panel
     assert "payloadHash" in panel
     assert "eventContext" in panel

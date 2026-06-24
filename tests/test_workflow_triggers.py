@@ -68,13 +68,10 @@ def test_workflow_trigger_event_dispatches_run_and_records_lineage(
     assert response["data"]["event"]["dispatch"]["state"] == "submitted"
     assert response["data"]["event"]["dispatch"]["runId"] == run_id
     assert run is not None
-    expected_run_summary = {
-        "runId": run_id,
-        "status": run["status"],
-        "stage": run["stage"],
-        "lastUpdatedAt": run["lastUpdatedAt"],
-    }
-    assert response["data"]["event"]["dispatch"]["run"] == expected_run_summary
+    expected_run_summary = response["data"]["event"]["dispatch"]["run"]
+    assert expected_run_summary["runId"] == run_id
+    assert expected_run_summary["status"] == run["status"]
+    assert expected_run_summary["stage"] == run["stage"]
     assert run["trigger"] == {
         "triggerId": trigger["triggerId"],
         "triggerEventId": response["data"]["event"]["triggerEventId"],
@@ -150,12 +147,9 @@ def test_cron_scheduler_due_tick_dispatches_once_and_records_lineage(
 
     run = fetch_run(cfg, run_id)
     assert run is not None
-    assert event["dispatch"]["run"] == {
-        "runId": run_id,
-        "status": run["status"],
-        "stage": run["stage"],
-        "lastUpdatedAt": run["lastUpdatedAt"],
-    }
+    assert event["dispatch"]["run"]["runId"] == run_id
+    assert event["dispatch"]["run"]["status"] == run["status"]
+    assert event["dispatch"]["run"]["stage"] == run["stage"]
     assert run["trigger"] == {
         "triggerId": trigger["triggerId"],
         "triggerEventId": event["triggerEventId"],

@@ -22,6 +22,7 @@ import type {
   WorkflowTriggerEventPayload,
   WorkflowTriggerInboxEvent,
   WorkflowTriggerReadinessObservation,
+  WorkflowRunAdmissionSummary,
 } from "./workflow-trigger-model";
 import { WorkflowTriggerInboxPanel } from "./workflow-trigger-inbox-panel";
 
@@ -369,11 +370,59 @@ function RunSummary({ dispatch }: { dispatch: WorkflowTriggerDispatch | null }) 
               </span>
             ) : null}
           </div>
+          <AdmissionSummary admission={run.admission} />
           {run.lastUpdatedAt ? <div className="truncate text-[10px] text-slate-400">{formatDate(run.lastUpdatedAt)}</div> : null}
         </div>
       ) : null}
     </div>
   );
+}
+
+function AdmissionSummary({ admission }: { admission?: WorkflowRunAdmissionSummary | null }) {
+  if (!admission) return null;
+  const wait = admission.waitReason || null;
+  return (
+    <div className="flex min-w-0 flex-wrap gap-1">
+      {admission.jobState ? (
+        <span className="inline-flex max-w-full rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] text-slate-600">
+          <span className="truncate">job {admission.jobState}</span>
+        </span>
+      ) : null}
+      {admission.queueName ? (
+        <span className="inline-flex max-w-full rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] text-slate-600">
+          <span className="truncate">queue {admission.queueName}</span>
+        </span>
+      ) : null}
+      {admission.maxAttempts ? (
+        <span className="inline-flex max-w-full rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] text-slate-600">
+          <span className="truncate">attempt {admission.attemptCount ?? 0}/{admission.maxAttempts}</span>
+        </span>
+      ) : null}
+      {admission.availableAt ? (
+        <span className="inline-flex max-w-full rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] text-slate-600">
+          <span className="truncate">available {formatDate(admission.availableAt)}</span>
+        </span>
+      ) : null}
+      {wait?.code ? (
+        <span className="inline-flex max-w-full rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700">
+          <span className="truncate">{admissionWaitLabel(wait)}</span>
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function admissionWaitLabel(wait: NonNullable<WorkflowRunAdmissionSummary["waitReason"]>) {
+  if (wait.code === "ADMISSION_RESOURCES_UNAVAILABLE") {
+    return `等待资源 ${wait.resource || "unknown"} ${wait.requested ?? 0}/${wait.available ?? 0}`;
+  }
+  if (wait.code === "ADMISSION_SLOT_UNAVAILABLE") {
+    return `等待槽位 max ${wait.maxActiveSlots ?? 0}`;
+  }
+  if (wait.code === "ADMISSION_SLOT_BUSY") {
+    return "等待 worker 槽位";
+  }
+  return "等待 admission";
 }
 
 function EventContext({ event }: { event: WorkflowTriggerEvent }) {

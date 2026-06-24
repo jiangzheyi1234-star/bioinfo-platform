@@ -7,6 +7,7 @@ from typing import Any
 
 from .config import RemoteRunnerConfig
 from .errors import IdempotencyKeyReusedError, RemoteRunnerNotFoundError
+from .run_admission_read_model import fetch_run_admission_summary
 from .storage_core import get_connection, now_iso
 
 
@@ -402,6 +403,7 @@ def _run_status_for_dispatch(connection: Any, dispatch: Any) -> dict[str, Any] |
         "status": row["status"],
         "stage": row["stage"],
         "lastUpdatedAt": row["last_updated_at"],
+        "admission": fetch_run_admission_summary(connection, str(row["run_id"])),
     }
 
 

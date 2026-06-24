@@ -6,6 +6,7 @@ from typing import Any
 
 from .config import RemoteRunnerConfig
 from .errors import IdempotencyKeyReusedError, RemoteRunnerNotFoundError
+from .run_admission_read_model import admission_summary_from_prefixed_row
 from .storage_core import get_connection, now_iso
 
 
@@ -457,7 +458,16 @@ def _partition_rows_for_launch(connection: Any, launch_id: str) -> list[Any]:
             dispatch.error_json AS dispatch_error_json,
             run.status AS run_status,
             run.stage AS run_stage,
-            run.last_updated_at AS run_last_updated_at
+            run.last_updated_at AS run_last_updated_at,
+            job.job_id AS admission_job_id,
+            job.state AS admission_state,
+            job.queue_name AS admission_queue_name,
+            job.available_at AS admission_available_at,
+            job.wait_reason_json AS admission_wait_reason_json,
+            job.attempt_count AS admission_attempt_count,
+            job.max_attempts AS admission_max_attempts,
+            job.dead_lettered_at AS admission_dead_lettered_at,
+            job.updated_at AS admission_updated_at
         FROM workflow_backfill_partitions partition
         LEFT JOIN workflow_trigger_events event
           ON event.trigger_event_id = partition.trigger_event_id
@@ -465,6 +475,8 @@ def _partition_rows_for_launch(connection: Any, launch_id: str) -> list[Any]:
           ON dispatch.trigger_event_id = partition.trigger_event_id
         LEFT JOIN runs run
           ON run.run_id = partition.run_id
+        LEFT JOIN run_jobs job
+          ON job.run_id = partition.run_id
         WHERE partition.launch_id = ?
         ORDER BY partition.partition_index ASC
         """,
@@ -571,6 +583,7 @@ def _partition_row_to_dict(row: Any, *, created: bool | None) -> dict[str, Any]:
                 "status": _row_value(row, "run_status"),
                 "stage": _row_value(row, "run_stage"),
                 "lastUpdatedAt": _row_value(row, "run_last_updated_at"),
+                "admission": admission_summary_from_prefixed_row(row, prefix="admission_"),
             }
             if run_id and _row_value(row, "run_status")
             else None
