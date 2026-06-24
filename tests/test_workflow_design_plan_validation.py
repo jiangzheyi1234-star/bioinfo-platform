@@ -3,6 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
+
+from apps.remote_runner.workflow_design_compiler import compile_workflow_design_project
 from apps.remote_runner.workflow_design_planner import plan_workflow_design_draft
 from apps.remote_runner.workflow_design_storage import create_workflow_design_draft
 from tests.generated_workflow_test_helpers import test_tool_revision_id, upsert_ready_tool
@@ -145,6 +148,83 @@ def test_plan_accepts_confirmed_converter_as_plain_v1_graph(tmp_path: Path) -> N
     assert all("audit" not in edge for edge in plan["runSpec"]["workflow"]["edges"])
     assert "converterPath" not in str(plan["normalizedGraph"])
     assert "converterPath" not in str(plan["runSpec"])
+
+
+def test_plan_validates_declared_workflow_input_semantics(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    tool = _tool_manifest("bioconda::qc=1.0")
+    tool["ruleTemplate"]["inputs"][0].update(
+        {
+            "type": "file",
+            "kind": "reads",
+            "data": "data_2044",
+            "format": "fastq",
+        }
+    )
+    upsert_ready_tool(cfg, tool)
+    draft = _draft("bioconda::qc=1.0")
+    draft["inputs"][0].update(
+        {
+            "type": "file",
+            "kind": "reads",
+            "data": "http://edamontology.org/data_2044",
+            "format": "EDAM:format_1930",
+        }
+    )
+    saved = create_workflow_design_draft(cfg, draft)
+
+    plan = plan_workflow_design_draft(
+        cfg,
+        saved["draft"],
+        preview_root=tmp_path / "preview",
+        draft_id=saved["draftId"],
+        revision=saved["revision"],
+    )
+
+    assert plan["valid"] is True
+    assert plan["validationIssues"] == []
+    assert plan["normalizedGraph"]["inputs"][0]["format"] == "EDAM:format_1930"
+    assert plan["runSpec"]["inputs"][0] == {"role": "input", "filename": "reads.fastq"}
+    assert '"format": "EDAM:format_1930"' in plan["previews"]["config"]
+
+
+def test_plan_and_compile_reject_declared_workflow_input_semantic_conflict(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    upsert_ready_tool(cfg, _bam_consumer_tool())
+    draft = _draft("bioconda::bam-qc=1.0")
+    draft["inputs"][0].update(
+        {
+            "type": "file",
+            "kind": "reads",
+            "data": "data_2044",
+            "format": "fastq",
+        }
+    )
+    saved = create_workflow_design_draft(cfg, draft)
+
+    plan = plan_workflow_design_draft(
+        cfg,
+        saved["draft"],
+        preview_root=tmp_path / "preview",
+        draft_id=saved["draftId"],
+        revision=saved["revision"],
+    )
+
+    assert plan["valid"] is False
+    assert plan["validationIssues"] == [
+        {
+            "code": "WORKFLOW_STEP_INPUT_OUTPUT_INCOMPATIBLE",
+            "message": "WORKFLOW_STEP_INPUT_OUTPUT_INCOMPATIBLE: input.input -> reads",
+        }
+    ]
+    with pytest.raises(ValueError, match="WORKFLOW_STEP_INPUT_OUTPUT_INCOMPATIBLE: input.input -> reads"):
+        compile_workflow_design_project(
+            cfg,
+            saved["draft"],
+            export_dir=tmp_path / "export",
+            draft_id=saved["draftId"],
+            revision=saved["revision"],
+        )
 
 
 def test_plan_reports_graph_edge_validation_issues_without_runnable_spec(tmp_path: Path) -> None:

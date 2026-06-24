@@ -54,21 +54,35 @@ def validate_input_binding_compatibility(
     input_name: str,
     binding: Any,
     rule_template: dict[str, Any],
+    resolved_inputs: list[dict[str, Any]],
     upstream_output_specs: dict[str, dict[str, dict[str, str]]],
 ) -> None:
     if not isinstance(binding, dict):
         return
-    from_step = str(binding.get("fromStep") or "").strip()
-    if not from_step:
-        return
-    output_name = str(binding.get("output") or "").strip()
-    if not output_name:
-        raise ValueError("WORKFLOW_STEP_INPUT_BINDING_INVALID")
-    source_specs = upstream_output_specs.get(_safe_identifier(from_step)) or {}
-    output_spec = source_specs.get(output_name) or {}
     input_spec = _input_port_spec(rule_template, input_name)
-    if not ports_compatible(input_spec, output_spec):
-        raise ValueError(f"WORKFLOW_STEP_INPUT_OUTPUT_INCOMPATIBLE: {from_step}.{output_name} -> {input_name}")
+    from_step = str(binding.get("fromStep") or "").strip()
+    if from_step:
+        output_name = str(binding.get("output") or "").strip()
+        if not output_name:
+            raise ValueError("WORKFLOW_STEP_INPUT_BINDING_INVALID")
+        source_specs = upstream_output_specs.get(_safe_identifier(from_step)) or {}
+        source_spec = source_specs.get(output_name) or {}
+        source_label = f"{from_step}.{output_name}"
+    else:
+        from_input = str(binding.get("fromInput") or "").strip()
+        if not from_input:
+            return
+        source_spec = _workflow_input_port_spec(resolved_inputs, from_input)
+        source_label = f"input.{from_input}"
+    if not ports_compatible(input_spec, source_spec):
+        raise ValueError(f"WORKFLOW_STEP_INPUT_OUTPUT_INCOMPATIBLE: {source_label} -> {input_name}")
+
+
+def _workflow_input_port_spec(resolved_inputs: list[dict[str, Any]], role: str) -> dict[str, str]:
+    for item in resolved_inputs:
+        if str(item.get("role") or "").strip() == role:
+            return port_spec_from_rule_item(item)
+    return {}
 
 
 def _input_port_spec(rule_template: dict[str, Any], input_name: str) -> dict[str, str]:

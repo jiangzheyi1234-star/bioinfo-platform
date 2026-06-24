@@ -116,6 +116,7 @@ def resolve_explicit_step_inputs(
             input_name=input_name,
             binding=binding,
             rule_template=rule_template,
+            resolved_inputs=resolved_inputs,
             upstream_output_specs=output_port_specs_by_step_id,
         )
         mapped[input_name] = resolve_input_binding(

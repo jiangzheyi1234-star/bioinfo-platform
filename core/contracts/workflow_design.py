@@ -37,7 +37,13 @@ class WorkflowDesignInput(WorkflowDesignModel):
     role: str = Field(min_length=1)
     path: str = Field(min_length=1)
     filename: str | None = None
+    type: str = "file"
+    kind: str = ""
     mimeType: str = "application/octet-stream"
+    data: str = ""
+    format: str = ""
+    operation: str = ""
+    resource: str = ""
     metadata: dict[str, WorkflowDesignScalar] = Field(default_factory=dict)
 
 
@@ -145,16 +151,30 @@ class WorkflowDesignDraftV1(WorkflowDesignModel):
 
 
 def normalize_workflow_design_draft(draft: WorkflowDesignDraftV1 | dict[str, Any]) -> dict[str, Any]:
-    return WorkflowDesignDraftV1.model_validate(draft).model_dump(
+    payload = WorkflowDesignDraftV1.model_validate(draft).model_dump(
         by_alias=True,
         exclude_none=True,
         mode="json",
     )
+    for item in payload.get("inputs") or []:
+        if isinstance(item, dict):
+            _drop_empty_text_fields(item, ("kind", "data", "format", "operation", "resource"))
+    return payload
 
 
 def workflow_design_resolved_inputs(draft: WorkflowDesignDraftV1) -> list[dict[str, str]]:
     return [
-        {
+        _compact_text_fields(
+            {
+                "type": item.type,
+                "kind": item.kind,
+                "data": item.data,
+                "format": item.format,
+                "operation": item.operation,
+                "resource": item.resource,
+            }
+        )
+        | {
             "role": item.role,
             "path": item.path,
             "filename": item.filename or Path(item.path).name,
@@ -264,6 +284,16 @@ def _ensure_unique(values: Any, code: str) -> None:
         if key in seen:
             raise ValueError(f"{code}: {key}")
         seen.add(key)
+
+
+def _compact_text_fields(payload: dict[str, str]) -> dict[str, str]:
+    return {key: value for key, value in payload.items() if str(value or "").strip()}
+
+
+def _drop_empty_text_fields(payload: dict[str, Any], keys: tuple[str, ...]) -> None:
+    for key in keys:
+        if not str(payload.get(key) or "").strip():
+            payload.pop(key, None)
 
 
 def _workflow_design_run_metadata(

@@ -155,6 +155,7 @@ Progress:
 - The semantic capability graph now exposes port operation/resource literals and database accepted-capability edges for better explainability.
 - Canvas and inspector converter advice now share `generated-workflow-port-advice.ts`, so incompatible port drops can recommend the same workflow-ready/no-database/single-input/strong-evidence converter path without auto-mutating the graph.
 - Capability bundles now preserve full semantic port metadata across API/frontend boundaries, including `operation` as advisory evidence and `resource` as hard compatibility evidence, so workflow recommendations and port audits do not lose EDAM/resource context after serialization.
+- WorkflowDesignDraft external inputs now declare first-class `type`, `kind`, `data`, `format`, `operation`, and `resource` semantics. Plan/compile resolve those declarations into the same EDAM-aware hard compatibility gate used for step-to-step edges, while executable runSpec inputs remain file-binding payloads instead of carrying design-only port metadata.
 
 Recommended sequence:
 
