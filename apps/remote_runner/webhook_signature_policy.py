@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-import re
 from typing import Any, Literal, cast
 
+from .secret_provider import SecretProviderError, parse_secret_ref
 from .webhook_signature_verification import WebhookSignatureProvider, WEBHOOK_SIGNATURE_TOLERANCE_SECONDS
 
 
@@ -12,8 +12,6 @@ WebhookTriggerSignaturePolicyMode = Literal["required", "unsupported"]
 WebhookTriggerSignaturePolicyState = Literal["configured", "missing", "malformed", "unsupported"]
 _ALGORITHM = "hmac-sha256"
 _MAX_TOLERANCE_SECONDS = 3600
-_SECRET_REF_MAX_LENGTH = 255
-_SECRET_REF_PATTERN = re.compile(r"^[a-z][a-z0-9+.-]*://[^\s]+$")
 _SIGNATURE_FIELDS = frozenset({"provider", "secretRef", "toleranceSeconds", "required"})
 _INLINE_SECRET_FIELD_TOKENS = frozenset(
     {
@@ -160,10 +158,14 @@ def _verification_provider(*, provider: str, value: object) -> WebhookSignatureP
 def _secret_ref(value: object) -> str:
     if not isinstance(value, str) or not value.strip():
         _raise("WORKFLOW_TRIGGER_SIGNATURE_SECRET_REF_REQUIRED", state="missing", field="signature.secretRef")
-    secret_ref = value.strip()
-    if len(secret_ref) > _SECRET_REF_MAX_LENGTH or not _SECRET_REF_PATTERN.fullmatch(secret_ref):
-        _raise("WORKFLOW_TRIGGER_SIGNATURE_SECRET_REF_MALFORMED", state="malformed", field="signature.secretRef")
-    return secret_ref
+    try:
+        return parse_secret_ref(value, purpose="webhook-signing-secret").canonical_ref
+    except SecretProviderError as exc:
+        _raise(
+            "WORKFLOW_TRIGGER_SIGNATURE_SECRET_REF_MALFORMED",
+            state="malformed" if exc.state != "unsupported" else "unsupported",
+            field="signature.secretRef",
+        )
 
 
 def _tolerance_seconds(signature: Mapping[str, Any], *, timestamp_header: str | None) -> int | None:

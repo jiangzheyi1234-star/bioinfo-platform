@@ -351,6 +351,7 @@ Progress:
 - High-risk remote-runner actions now require explicit machine-token roles after bearer authentication. Missing or wrong roles fail with `RemoteRunnerAuthorizationError`, write deny governance audit evidence where the ledger is available, and cannot proceed to mutation, dispatch, retry, export, or GC work.
 - Result package download is now a governed high-risk remote action (`result.package.download`) with artifact-curator/auditor role coverage and hash-chained audit evidence before the ZIP is streamed.
 - Governance audit reads are now a governed high-risk remote action (`audit.events.read`) with auditor/platform-admin role coverage, so safe audit metadata remains queryable without exposing the audit trail to every authenticated runner token.
+- Remote-runner secret references now have a pure provider contract for `env://`, `keyring://`, `secret://`, and `vault://` references that resolves only through an injected provider, exposes hash-only safe details, rejects inline/raw secret values, and gives webhook signature verification a secret-safe bridge without wiring trigger storage or routes yet.
 
 Recommended sequence:
 

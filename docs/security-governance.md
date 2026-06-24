@@ -65,6 +65,7 @@ rejected at Local API startup.
 - CI runs `scripts/security_governance_audit.py` to scan for high-confidence secret patterns such as private key blocks, cloud keys, GitHub tokens, Slack tokens, and quoted secret assignments.
 - Test canaries and examples are allowed only when they are visibly placeholders.
 - S3/MinIO artifact access keys and secret keys are configuration secrets. Public config, diagnostics, evidence events, and result package manifests must contain only stable object locations such as `s3://bucket/key`, never presigned URLs or raw credentials.
+- Remote-runner secret references must be resolved through an explicit provider boundary. Safe metadata may include only a reference hash, scheme, provider kind, purpose, and version; raw `secretRef` values and secret bytes must not appear in diagnostics, audit details, trigger read models, or result packages.
 - Artifact GC may delete only managed local artifact files under the runner results/work roots or managed S3/MinIO objects under the configured artifact prefix. Directory payload deletion, unmanaged local paths, unmanaged S3 prefixes, active runs, exported result packages, and production evidence are protected until explicit lifecycle policies cover them.
 
 ### Diagnostics Redaction

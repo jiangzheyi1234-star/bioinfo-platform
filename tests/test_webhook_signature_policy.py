@@ -13,7 +13,7 @@ def test_supported_provider_policy_resolves_without_secret_ref_leak() -> None:
         {
             "provider": " GitHub ",
             "signature": {
-                "secretRef": "webhook://github/main",
+                "secretRef": "secret://webhooks/github/main",
             },
         }
     )
@@ -28,9 +28,9 @@ def test_supported_provider_policy_resolves_without_secret_ref_leak() -> None:
     assert policy.tolerance_seconds is None
     assert policy.raw_body_required is True
     assert policy.replay_protection_required is False
-    assert policy.secret_ref == "webhook://github/main"
-    assert "webhook://github/main" not in repr(policy)
-    assert "webhook://github/main" not in repr(policy.safe_details())
+    assert policy.secret_ref == "secret://webhooks/github/main"
+    assert "secret://webhooks/github/main" not in repr(policy)
+    assert "secret://webhooks/github/main" not in repr(policy.safe_details())
 
 
 def test_signature_provider_supports_generic_source_label() -> None:
@@ -74,13 +74,13 @@ def test_generic_provider_without_signature_policy_is_explicitly_unsupported() -
 @pytest.mark.parametrize("provider", ["slack", "stripe"])
 def test_timestamped_provider_tolerance_defaults_and_accepts_decimal_string(provider: str) -> None:
     default_policy = resolve_webhook_trigger_signature_policy(
-        {"provider": provider, "signature": {"secretRef": f"webhook://{provider}/main"}}
+        {"provider": provider, "signature": {"secretRef": f"secret://webhooks/{provider}/main"}}
     )
     custom_policy = resolve_webhook_trigger_signature_policy(
         {
             "provider": provider,
             "signature": {
-                "secretRef": f"webhook://{provider}/main",
+                "secretRef": f"secret://webhooks/{provider}/main",
                 "toleranceSeconds": "120",
             },
         }
@@ -96,7 +96,7 @@ def test_timestamped_provider_rejects_malformed_tolerance(value: object) -> None
         {
             "provider": "slack",
             "signature": {
-                "secretRef": "webhook://slack/main",
+                "secretRef": "secret://webhooks/slack/main",
                 "toleranceSeconds": value,
             },
         },
@@ -116,7 +116,7 @@ def test_github_rejects_tolerance_because_no_timestamp_header_is_verified() -> N
         {
             "provider": "github",
             "signature": {
-                "secretRef": "webhook://github/main",
+                "secretRef": "secret://webhooks/github/main",
                 "toleranceSeconds": 300,
             },
         },
@@ -139,7 +139,7 @@ def test_inline_secret_like_fields_are_forbidden_without_value_leak() -> None:
             "provider": "instrument-qc",
             "signature": {
                 "provider": "github",
-                "secretRef": "webhook://github/main",
+                "secretRef": "secret://webhooks/github/main",
             },
             "headers": {
                 "signingSecret": secret_value,
@@ -156,7 +156,7 @@ def test_provider_conflict_and_unknown_explicit_provider_fail_loudly() -> None:
             "provider": "github",
             "signature": {
                 "provider": "slack",
-                "secretRef": "webhook://github/main",
+                "secretRef": "secret://webhooks/github/main",
             },
         },
         "WORKFLOW_TRIGGER_SIGNATURE_PROVIDER_CONFLICT",
@@ -166,7 +166,7 @@ def test_provider_conflict_and_unknown_explicit_provider_fail_loudly() -> None:
             "provider": "instrument-qc",
             "signature": {
                 "provider": "unknown",
-                "secretRef": "webhook://unknown/main",
+                "secretRef": "secret://webhooks/unknown/main",
             },
         },
         "WORKFLOW_TRIGGER_SIGNATURE_PROVIDER_UNSUPPORTED",
@@ -185,11 +185,11 @@ def test_provider_conflict_and_unknown_explicit_provider_fail_loudly() -> None:
             "WORKFLOW_TRIGGER_SIGNATURE_SECRET_REF_MALFORMED",
         ),
         (
-            {"provider": "github", "signature": {"secretRef": "webhook://github/main", "extra": True}},
+            {"provider": "github", "signature": {"secretRef": "secret://webhooks/github/main", "extra": True}},
             "WORKFLOW_TRIGGER_SIGNATURE_POLICY_FIELD_UNSUPPORTED",
         ),
         (
-            {"provider": "github", "signature": {"secretRef": "webhook://github/main", "required": False}},
+            {"provider": "github", "signature": {"secretRef": "secret://webhooks/github/main", "required": False}},
             "WORKFLOW_TRIGGER_SIGNATURE_REQUIRED_CANNOT_BE_DISABLED",
         ),
     ],
