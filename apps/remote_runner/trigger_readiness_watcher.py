@@ -5,12 +5,14 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 import threading
 from typing import Any
 from urllib.parse import unquote, urlparse
 
 from .api_models import WorkflowTriggerReadinessEventRequest
 from .config import RemoteRunnerConfig, load_remote_runner_config
+from .databases import fetch_reference_database
 from .storage_core import now_iso
 from .trigger_readiness_watcher_storage import fetch_readiness_observation, upsert_readiness_observation
 from .trigger_service import READINESS_RESOURCE_TYPES_BY_SOURCE, READINESS_TRIGGER_SOURCES
@@ -90,7 +92,7 @@ def run_workflow_trigger_readiness_watcher_once(
             if plan is None:
                 skipped += 1
                 continue
-            observation = _observe_watch_plan(plan)
+            observation = _observe_watch_plan(cfg, plan)
             if observation["state"] == "missing":
                 missing += 1
                 observations.append(_record_observation(cfg, trigger=trigger, plan=plan, observation=observation))
@@ -187,10 +189,21 @@ def _watch_plan(trigger: dict[str, Any]) -> dict[str, Any] | None:
     if not _watch_enabled(watch):
         return None
     adapter = str(watch.get("adapter") or "").strip()
-    if adapter != "local_path":
-        raise ValueError(f"WORKFLOW_TRIGGER_READINESS_WATCHER_ADAPTER_UNSUPPORTED: {adapter or '<missing>'}")
     resource_id = _required_text(resource.get("id"), "WORKFLOW_TRIGGER_READINESS_RESOURCE_ID_REQUIRED")
     resource_uri = str(resource.get("uri") or "").strip()
+    if adapter == "database_registry":
+        if source_type != "database_ready":
+            raise ValueError("WORKFLOW_TRIGGER_READINESS_WATCHER_DATABASE_REGISTRY_SOURCE_REQUIRED")
+        return {
+            "adapter": adapter,
+            "sourceType": source_type,
+            "resourceType": resource_type,
+            "resourceId": resource_id,
+            "resourceUri": resource_uri,
+            "labels": _safe_labels(watch.get("labels") if isinstance(watch.get("labels"), dict) else {}),
+        }
+    if adapter != "local_path":
+        raise ValueError(f"WORKFLOW_TRIGGER_READINESS_WATCHER_ADAPTER_UNSUPPORTED: {adapter or '<missing>'}")
     return {
         "adapter": adapter,
         "sourceType": source_type,
@@ -202,7 +215,11 @@ def _watch_plan(trigger: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def _observe_watch_plan(plan: dict[str, Any]) -> dict[str, Any]:
+def _observe_watch_plan(cfg: RemoteRunnerConfig, plan: dict[str, Any]) -> dict[str, Any]:
+    if plan["adapter"] == "database_registry":
+        return _observe_database_registry(cfg, plan)
+    if plan["adapter"] != "local_path":
+        raise ValueError(f"WORKFLOW_TRIGGER_READINESS_WATCHER_ADAPTER_UNSUPPORTED: {plan['adapter']}")
     path = Path(plan["path"]).expanduser()
     observed_at = now_iso()
     if not path.exists():
@@ -238,6 +255,67 @@ def _observe_watch_plan(plan: dict[str, Any]) -> dict[str, Any]:
             "fileCount": stats["fileCount"],
         },
     }
+
+
+def _observe_database_registry(cfg: RemoteRunnerConfig, plan: dict[str, Any]) -> dict[str, Any]:
+    observed_at = now_iso()
+    database = fetch_reference_database(cfg, plan["resourceId"])
+    if database is None:
+        resource_hash = _stable_hash({"resourceType": "database", "resourceId": plan["resourceId"]})
+        return {
+            "state": "missing",
+            "version": "",
+            "checksum": "",
+            "hash": _stable_hash({"state": "missing", "databaseHash": resource_hash}),
+            "observedAt": observed_at,
+            "safeDetails": {"databaseHash": resource_hash, "exists": False},
+        }
+    safe_identity = _database_safe_identity(database)
+    identity_hash = _stable_hash(safe_identity)
+    if str(database.get("status") or "") != "available":
+        return {
+            "state": "missing",
+            "version": "",
+            "checksum": "",
+            "hash": _stable_hash({"state": "missing", "databaseHash": identity_hash}),
+            "observedAt": observed_at,
+            "safeDetails": {**safe_identity, "exists": True},
+        }
+    return {
+        "state": "ready",
+        "version": f"database:{identity_hash}",
+        "checksum": f"sha256:{_database_observation_checksum(database, identity_hash)}",
+        "hash": identity_hash,
+        "observedAt": observed_at,
+        "safeDetails": {**safe_identity, "exists": True},
+    }
+
+
+def _database_safe_identity(database: dict[str, Any]) -> dict[str, Any]:
+    metadata = database.get("metadata") if isinstance(database.get("metadata"), dict) else {}
+    return {
+        "databaseHash": _stable_hash(str(database.get("id") or "")),
+        "type": str(database.get("type") or ""),
+        "version": str(database.get("version") or ""),
+        "status": str(database.get("status") or ""),
+        "databaseLayer": str(database.get("databaseLayer") or ""),
+        "templateId": str(metadata.get("templateId") or ""),
+        "pathMode": str(database.get("pathMode") or metadata.get("pathMode") or ""),
+        "sizeBytes": int(database.get("sizeBytes") or 0),
+        "checksumHash": _stable_hash(str(database.get("checksum") or "")),
+        "packId": str(metadata.get("packId") or metadata.get("installedFromPackId") or ""),
+        "packVersion": str(metadata.get("packVersion") or ""),
+        "packChecksumHash": _stable_hash(str(metadata.get("packChecksum") or "")),
+        "runtimeShapeHash": _stable_hash(metadata.get("runtimeShape") if isinstance(metadata.get("runtimeShape"), dict) else {}),
+        "capabilitiesHash": _stable_hash(metadata.get("capabilities") if isinstance(metadata.get("capabilities"), dict) else {}),
+    }
+
+
+def _database_observation_checksum(database: dict[str, Any], identity_hash: str) -> str:
+    checksum = str(database.get("checksum") or "").strip().lower()
+    if re.fullmatch(r"[0-9a-f]{64}", checksum):
+        return checksum
+    return identity_hash
 
 
 def _readiness_request(

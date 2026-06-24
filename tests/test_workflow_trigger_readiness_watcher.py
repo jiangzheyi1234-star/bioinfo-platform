@@ -9,6 +9,7 @@ import pytest
 
 from apps.remote_runner import trigger_readiness_watcher as watcher
 from apps.remote_runner.api_models import WorkflowTriggerCreateRequest
+from apps.remote_runner.databases import add_reference_database
 from apps.remote_runner.governance_audit import list_governance_audit_events
 from apps.remote_runner.trigger_readiness_watcher import run_workflow_trigger_readiness_watcher_once
 from apps.remote_runner.trigger_readiness_watcher_storage import fetch_readiness_observation
@@ -85,6 +86,133 @@ def test_readiness_watcher_dispatches_changed_version(
     assert tick["submitted"] == 1
     assert len(events) == 2
     assert events[0]["payload"]["resource"]["checksum"] != events[1]["payload"]["resource"]["checksum"]
+
+
+def test_readiness_watcher_dispatches_database_registry_record_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_execution_admission_ready", lambda _cfg: None)
+    database_path = tmp_path / "db" / "kraken2"
+    database_path.mkdir(parents=True)
+    database = _add_available_database(cfg, database_path, version="2026.06", checksum="a" * 64)
+    trigger = _create_database_ready_trigger(cfg, database["id"])
+
+    first = run_workflow_trigger_readiness_watcher_once(cfg)
+    first_events = list_workflow_trigger_events(cfg, trigger["triggerId"])["items"]
+    second = run_workflow_trigger_readiness_watcher_once(cfg)
+    second_events = list_workflow_trigger_events(cfg, trigger["triggerId"])["items"]
+
+    assert first["checked"] == 1
+    assert first["ready"] == 1
+    assert first["submitted"] == 1
+    assert second["unchanged"] == 1
+    assert len(first_events) == 1
+    assert [item["triggerEventId"] for item in second_events] == [first_events[0]["triggerEventId"]]
+    payload = first_events[0]["payload"]
+    assert payload["resource"]["type"] == "database"
+    assert payload["resource"]["id"] == database["id"]
+    assert payload["resource"]["version"].startswith("database:")
+    assert payload["resource"]["checksum"] == f"sha256:{'a' * 64}"
+    assert payload["payload"]["watcher"]["adapter"] == "database_registry"
+    assert payload["payload"]["watcher"]["databaseHash"]
+    assert str(database_path) not in repr(payload)
+
+
+def test_readiness_watcher_dispatches_database_registry_record_change(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_execution_admission_ready", lambda _cfg: None)
+    database_path = tmp_path / "db" / "kraken2"
+    database_path.mkdir(parents=True)
+    _add_available_database(cfg, database_path, version="2026.06", checksum="a" * 64)
+    trigger = _create_database_ready_trigger(cfg, "db_kraken2")
+    run_workflow_trigger_readiness_watcher_once(cfg)
+
+    _add_available_database(cfg, database_path, version="2026.07", checksum="b" * 64)
+    tick = run_workflow_trigger_readiness_watcher_once(cfg)
+    events = list_workflow_trigger_events(cfg, trigger["triggerId"])["items"]
+
+    assert tick["ready"] == 1
+    assert tick["submitted"] == 1
+    assert len(events) == 2
+    assert {
+        event["payload"]["resource"]["checksum"]
+        for event in events
+    } == {f"sha256:{'a' * 64}", f"sha256:{'b' * 64}"}
+    assert len({event["payload"]["resource"]["version"] for event in events}) == 2
+
+
+def test_readiness_watcher_ignores_database_registry_display_and_path_changes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_execution_admission_ready", lambda _cfg: None)
+    first_path = tmp_path / "db" / "kraken2-a"
+    second_path = tmp_path / "db" / "kraken2-b"
+    first_path.mkdir(parents=True)
+    second_path.mkdir(parents=True)
+    _add_available_database(cfg, first_path, version="2026.06", checksum="a" * 64)
+    trigger = _create_database_ready_trigger(cfg, "db_kraken2")
+    run_workflow_trigger_readiness_watcher_once(cfg)
+
+    add_reference_database(
+        cfg,
+        {
+            "id": "db_kraken2",
+            "name": "Kraken2 renamed",
+            "templateId": "kraken2",
+            "type": "taxonomy",
+            "version": "2026.06",
+            "path": str(second_path),
+            "checksum": "a" * 64,
+            "sizeBytes": 42,
+            "status": "available",
+            "message": "Display-only registry fields changed.",
+            "metadata": {
+                "templateId": "kraken2",
+                "pathMode": "directory",
+                "inputPath": str(second_path),
+                "entryPath": str(second_path),
+                "resolvedPath": {"kind": "directory", "path": str(second_path)},
+            },
+        },
+    )
+    tick = run_workflow_trigger_readiness_watcher_once(cfg)
+    events = list_workflow_trigger_events(cfg, trigger["triggerId"])["items"]
+
+    assert tick["ready"] == 0
+    assert tick["submitted"] == 0
+    assert tick["unchanged"] == 1
+    assert len(events) == 1
+
+
+def test_readiness_watcher_database_registry_records_unavailable_without_dispatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+    database_path = tmp_path / "db" / "kraken2"
+    _add_database(cfg, database_path, status="missing", checksum="")
+    trigger = _create_database_ready_trigger(cfg, "db_kraken2")
+
+    tick = run_workflow_trigger_readiness_watcher_once(cfg)
+
+    assert tick["checked"] == 1
+    assert tick["missing"] == 1
+    assert tick["submitted"] == 0
+    assert list_workflow_trigger_events(cfg, trigger["triggerId"])["items"] == []
+    observation = fetch_readiness_observation(cfg, trigger["triggerId"])
+    assert observation["watcherAdapter"] == "database_registry"
+    assert observation["observedState"] == "missing"
 
 
 def test_readiness_watcher_records_missing_and_unsupported_without_dispatch(
@@ -183,9 +311,64 @@ def test_readiness_watcher_source_boundary_uses_existing_readiness_submission() 
     source = (ROOT / "apps" / "remote_runner" / "trigger_readiness_watcher.py").read_text(encoding="utf-8")
 
     assert "submit_workflow_trigger_readiness_event_from_request" in source
+    assert "fetch_reference_database" in source
     assert "create_run_record" not in source
     assert "mark_workflow_trigger_dispatch_submitted" not in source
     assert "record_workflow_trigger_event(" not in source
+
+
+def _add_available_database(cfg, database_path: Path, *, version: str, checksum: str) -> dict[str, Any]:
+    return _add_database(cfg, database_path, version=version, status="available", checksum=checksum)
+
+
+def _add_database(
+    cfg,
+    database_path: Path,
+    *,
+    version: str = "2026.06",
+    status: str,
+    checksum: str,
+) -> dict[str, Any]:
+    return add_reference_database(
+        cfg,
+        {
+            "id": "db_kraken2",
+            "name": "Kraken2 mini",
+            "templateId": "kraken2",
+            "type": "taxonomy",
+            "version": version,
+            "path": str(database_path),
+            "checksum": checksum,
+            "sizeBytes": 42,
+            "status": status,
+            "message": f"Database is {status}.",
+            "metadata": {"templateId": "kraken2", "pathMode": "directory"},
+        },
+    )
+
+
+def _create_database_ready_trigger(cfg, database_id: str) -> dict[str, Any]:
+    return create_workflow_trigger_from_request(
+        cfg,
+        WorkflowTriggerCreateRequest(
+            name="Watched database",
+            sourceType="database_ready",
+            serverId="srv_primary",
+            runSpec={
+                "pipelineId": "file-summary-standard-v1",
+                "inputs": [{"uploadId": "upl_reads", "filename": "reads.fastq"}],
+            },
+            triggerSpec={
+                "resource": {
+                    "type": "database",
+                    "id": database_id,
+                    "uri": f"h2ometa://database/{database_id}",
+                    "watch": {"enabled": True, "adapter": "database_registry"},
+                }
+            },
+        ),
+        actor="pytest",
+    )["data"]
 
 
 def _create_file_trigger(cfg, watched: Path) -> dict[str, Any]:

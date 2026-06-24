@@ -273,6 +273,7 @@ Progress:
 - Webhook trigger definitions now require an explicit `eventMatch` policy. Inbox delivery must match `triggerSpec.provider`, allowed event types, and optional action allowlists before any inbox row, trigger event, or run is created; no-match deliveries record safe governance deny audit evidence. The generic `/events` path no longer dispatches webhook triggers, and dead-letter inbox replay re-checks the current match policy instead of bypassing it.
 - The trigger observability UI now surfaces webhook inbox deliveries, delivery counts, signature state, safe raw request metadata, dead-letter failures, linked trigger events/runs, and confirmation-backed single-delivery replay, while keeping raw payload/body material and bulk replay controls out of the product surface.
 - Dataset, file, and database-ready triggers now have an explicit opt-in readiness watcher supervisor. It polls configured local resource paths, records durable observation cursors, dispatches only changed ready versions through the existing readiness event path, and skips unchanged observations without creating replay audit noise.
+- Database-ready triggers now also support an explicit `database_registry` readiness watcher adapter. It observes validated reference database registry records by stable non-path identity, dispatches only `available` database versions through the existing readiness event path, skips display-only/path relocation changes, and keeps raw database paths, manifest paths, source URLs, and path hashes out of readiness payloads.
 
 Recommended sequence:
 
@@ -281,7 +282,7 @@ Recommended sequence:
 3. Add a scheduler service loop for cron and delayed enqueue using existing queue/admission semantics.
 4. Add webhook/event inbox with deduplication, correlation id, actor/source, and idempotency key derivation.
 5. Stamp triggered runs with `triggerId`, `triggerEventId`, `source`, and `cursor`.
-6. Extend dataset/file/database-ready watcher polling from the initial opt-in local-path adapter into additional explicit adapters only after each adapter has stable resource identity, version/checksum semantics, and cursor tests.
+6. Extend dataset/file/database-ready watcher polling from the opt-in local-path and database-registry adapters into additional explicit adapters only after each adapter has stable resource identity, version/checksum semantics, and cursor tests.
 7. Extend backfill launch from durable one-run-per-partition submission into explicit existing-run policy controls plus replay/dead-letter/partial retry UI once their contracts are explicit.
 8. Add provider signature adapters, event matching rules, replay/dead-letter UI, bulk replay controls, and rate-limit/retry policy after the provider-neutral inbox table proves stable.
 
