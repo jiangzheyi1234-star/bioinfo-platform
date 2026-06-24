@@ -32,6 +32,7 @@ import { RuleGraphNodeCard } from "./generated-workflow-graph-node-card";
 import { readWorkflowToolDrop } from "./generated-workflow-graph-drag-drop";
 import { layoutGeneratedWorkflowGraph } from "./generated-workflow-graph-layout";
 import {
+  automaticConverterInsertionRequestForConnection,
   converterSuggestionsForConnection,
   type OutputConverterSuggestion,
 } from "./generated-workflow-port-advice";
@@ -72,6 +73,7 @@ type RuleFlowSubflowGroupNode = Node<RuleFlowSubflowGroupData, "subflowGroup">;
 type RuleFlowAnyNode = RuleFlowNode | RuleFlowSubflowGroupNode;
 type RuleFlowEdge = Edge<Record<string, unknown>>;
 type ConnectionNotice = {
+  autoInsertionRequest?: RulePortConverterInsertionRequest | null;
   message: string;
   request?: RulePortConverterInsertionRequest;
   suggestion?: OutputConverterSuggestion;
@@ -207,11 +209,23 @@ export function GeneratedWorkflowGraphCanvas({
     },
     [evaluateConnection, graphDraft, onBindInput, tools]
   );
-  const onConnectEnd = useCallback<OnConnectEnd>((_event, connectionState) => {
-    if (connectionState.isValid === false && lastInvalidConnectionRef.current) {
-      setConnectionNotice(lastInvalidConnectionRef.current);
-    }
-  }, []);
+  const onConnectEnd = useCallback<OnConnectEnd>(
+    (_event, connectionState) => {
+      if (connectionState.isValid === false && lastInvalidConnectionRef.current) {
+        const notice = lastInvalidConnectionRef.current;
+        lastInvalidConnectionRef.current = null;
+        if (notice.autoInsertionRequest) {
+          onInsertConverter(notice.autoInsertionRequest);
+          setConnectionNotice({
+            message: `已自动插入转换节点 ${notice.suggestion?.converterToolName || "converter"}，请复核新增连线。`,
+          });
+          return;
+        }
+        setConnectionNotice(notice);
+      }
+    },
+    [onInsertConverter]
+  );
   const onNodesChange = useCallback<OnNodesChange<RuleFlowAnyNode>>((changes: NodeChange<RuleFlowAnyNode>[]) => {
     const workflowNodeChanges = changes.filter((change) => {
       const nodeId = change.type === "add" ? change.item.id : change.id;
@@ -526,6 +540,11 @@ function connectionNoticeForDecision({
   if (!decision.ok && decision.code === "WORKFLOW_GRAPH_CONNECTION_INCOMPATIBLE" && graphConnection) {
     const suggestion = converterSuggestionsForConnection({ connection: graphConnection, graphDraft, tools })[0];
     if (suggestion) {
+      const autoInsertionRequest = automaticConverterInsertionRequestForConnection({
+        connection: graphConnection,
+        graphDraft,
+        tools,
+      });
       const replacementNote = graphDraft.edges.some(
         (edge) => edge.to.nodeId === graphConnection.to.nodeId && edge.to.port === graphConnection.to.port
       )
@@ -533,6 +552,7 @@ function connectionNoticeForDecision({
         : "";
       return {
         message: `${decision.reason}。可插入转换 ${suggestion.converterToolName} · 需确认，不会自动插入。${replacementNote}`,
+        autoInsertionRequest,
         request: {
           sourceStepId: suggestion.sourceStepId,
           sourceOutput: suggestion.sourceOutput,

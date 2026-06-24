@@ -19,8 +19,8 @@ import { displayRuleTemplateForTool, ruleSpecReadinessForTool } from "./tool-rul
 export type RulePortConverterCandidate = {
   converterToolRevisionId: string;
   converterToolName: string;
-  confirmationRequired: true;
-  insertionMode: "explicit-user-confirmed";
+  confirmationRequired: boolean;
+  insertionMode: "explicit-user-confirmed" | "automatic-unambiguous";
   autoInsertionBlockedReasons: string[];
   hardChecks: string[];
   evidence: string[];

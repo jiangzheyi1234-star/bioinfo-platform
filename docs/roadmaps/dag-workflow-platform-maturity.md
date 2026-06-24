@@ -154,6 +154,7 @@ Progress:
 - One-hop converter suggestions now carry machine-readable insertion guardrails: hard checks, evidence, `confirmationRequired`, explicit-user-confirmed insertion mode, auto-insertion blocked reasons, and visible “需确认，不会自动插入” UI copy.
 - The semantic capability graph now exposes port operation/resource literals and database accepted-capability edges for better explainability.
 - Canvas and inspector converter advice now share `generated-workflow-port-advice.ts`, so incompatible port drops can recommend the same workflow-ready/no-database/single-input/strong-evidence converter path without auto-mutating the graph.
+- Incompatible canvas port drops now auto-insert a converter only when exactly one workflow-ready, no-database, strong-evidence one-hop converter exists and the target input has no current binding; ambiguous, replacement, or inspector paths stay explicit-confirmation flows.
 - Capability bundles now preserve full semantic port metadata across API/frontend boundaries, including `operation` as advisory evidence and `resource` as hard compatibility evidence, so workflow recommendations and port audits do not lose EDAM/resource context after serialization.
 - WorkflowDesignDraft external inputs now declare first-class `type`, `kind`, `data`, `format`, `operation`, and `resource` semantics. Plan/compile resolve those declarations into the same EDAM-aware hard compatibility gate used for step-to-step edges, while executable runSpec inputs remain file-binding payloads instead of carrying design-only port metadata.
 
@@ -164,7 +165,7 @@ Recommended sequence:
 3. Add resource/database compatibility as a hard filter or visible blocker, not just UI decoration.
 4. Keep recommendation audit scalar at the WorkflowDesignDraft boundary.
 5. Add one-hop converter search: output -> converter -> target input.
-6. Insert converter nodes only after an explicit user confirmation until test coverage proves the path safe.
+6. Auto-insert converter nodes only after centralized tests prove a single unambiguous converter path and no target-input replacement risk.
 
 Representative files:
 
