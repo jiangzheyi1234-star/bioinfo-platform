@@ -135,7 +135,7 @@ Before treating a build as production-ready:
 7. SSH host keys are trusted through known_hosts and unknown keys fail with `SSH_HOST_KEY_UNTRUSTED`.
 8. Remote runner release artifacts include manifest, digest, SBOM, provenance, and attestation evidence.
 9. Actions artifact handoff files are retained for no more than 2 days; durable deliverables are in release assets or an approved registry/object store.
-10. Dependency Review has run green in `required / ci-green`; CodeQL and Scorecard have either run green in the independent `Security Analysis` workflow where GitHub feature availability permits or are explicitly recorded as unavailable optional platform gates for the handoff.
+10. Dependency Review has run green in `required / ci-green`; CodeQL and Scorecard have either run green in the independent `Security Analysis` workflow and are recorded with `-SecurityAnalysisRunUrl`, or are explicitly recorded as unavailable optional platform gates with `-SecurityAnalysisUnavailableReason` for the handoff.
 11. Any scoped runtime limit is listed in this document or the maturity roadmap with an owner and removal trigger.
 
 ## Scoped Runtime Limits

@@ -17,7 +17,7 @@ param(
     [switch]$RequireReleaseGateEvidence,
     [switch]$RequireRuntimeManifestArtifacts,
     [switch]$RequireRuntimeSupplyChain,
-    [string]$ReleaseTag = ""
+    [string]$ReleaseTag = "", [string]$SecurityAnalysisRunUrl = "", [string]$SecurityAnalysisUnavailableReason = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -549,15 +549,14 @@ $runtimeManifestDrift = [ordered]@{
     missingSourceCommits = @()
     releaseScopePaths = @()
 }
-$runtimeGateRequested = (
-    $RequireReleaseGateEvidence.IsPresent -or
-    $RequireRuntimeManifestArtifacts.IsPresent -or
-    $RequireRuntimeSupplyChain.IsPresent -or
-    [bool]$ReleaseTag
-)
+$runtimeGateRequested = ($RequireReleaseGateEvidence.IsPresent -or $RequireRuntimeManifestArtifacts.IsPresent -or $RequireRuntimeSupplyChain.IsPresent -or [bool]$ReleaseTag)
 $runtimeGateRequired = $runtimeGateRequested
 $runtimeManifestArtifactsRequired = $RequireRuntimeManifestArtifacts.IsPresent
 $runtimeSupplyChainRequired = $RequireRuntimeSupplyChain.IsPresent
+$SecurityAnalysisRunUrl = $SecurityAnalysisRunUrl.Trim()
+$SecurityAnalysisUnavailableReason = $SecurityAnalysisUnavailableReason.Trim()
+$securityAnalysisEvidenceRecorded = $false
+$securityAnalysisEvidenceMode = "missing"
 $startedLocalWebStack = $false
 
 try {
@@ -601,6 +600,28 @@ try {
         }
     } else {
         Add-SkippedStep -Steps $steps -Name "ci-proof" -Required (-not $DevelopmentOnly.IsPresent) -Message "production handoff requires -CiRunUrl for green required / ci-green evidence"
+    }
+
+    if ($SecurityAnalysisRunUrl -and $SecurityAnalysisUnavailableReason) {
+        Invoke-RcStep -Steps $steps -Name "security-analysis-platform-evidence" -Required $true -EvidenceDir $evidenceDir -Body { throw "SecurityAnalysisRunUrl and SecurityAnalysisUnavailableReason are mutually exclusive" }
+    } elseif ($SecurityAnalysisRunUrl -and $SecurityAnalysisRunUrl -notmatch "^https://github\.com/.+/actions/runs/\d+") {
+        Invoke-RcStep -Steps $steps -Name "security-analysis-platform-evidence" -Required $true -EvidenceDir $evidenceDir -Body { throw "SecurityAnalysisRunUrl must point to a GitHub Actions run URL" }
+    } elseif ($SecurityAnalysisRunUrl) {
+        $securityAnalysisEvidenceRecorded = $true
+        $securityAnalysisEvidenceMode = "green"
+        Invoke-RcStep -Steps $steps -Name "security-analysis-platform-evidence" -Required $true -EvidenceDir $evidenceDir -Body {
+            Write-Host "securityAnalysisRunUrl=$SecurityAnalysisRunUrl"
+            Write-Host "workflow=Security Analysis"
+            Write-Host "expectedJobs=security / codeql (python); security / codeql (javascript-typescript); security / scorecard"
+            Write-Host "sourceCommit=$commit"
+        }
+    } elseif ($SecurityAnalysisUnavailableReason) {
+        $securityAnalysisEvidenceRecorded = $true
+        $securityAnalysisEvidenceMode = "unavailable"
+        $message = "Security Analysis unavailable platform gate recorded: $SecurityAnalysisUnavailableReason"
+        Add-StepResult -Steps $steps -Name "security-analysis-platform-evidence" -Status "unavailable" -Required $false -LogPath "" -DurationSeconds 0 -Message $message
+    } else {
+        Add-SkippedStep -Steps $steps -Name "security-analysis-platform-evidence" -Required $false -Message "production handoff requires -SecurityAnalysisRunUrl or -SecurityAnalysisUnavailableReason; handoffEligible will be false"
     }
 
     Invoke-RcStep -Steps $steps -Name "python-quality" -Required $true -EvidenceDir $evidenceDir -Body {
@@ -749,7 +770,11 @@ $summary = [ordered]@{
     useUserAppStateForLocalWeb = $UseUserAppStateForLocalWeb.IsPresent
     runWebE2E = $RunWebE2E.IsPresent
     webE2ERepeat = $WebE2ERepeat
-    handoffEligible = ($ok -and -not $DevelopmentOnly.IsPresent -and [bool]$CiRunUrl -and $RunNpmCi.IsPresent)
+    securityAnalysisEvidenceRecorded = $securityAnalysisEvidenceRecorded
+    securityAnalysisEvidenceMode = $securityAnalysisEvidenceMode
+    securityAnalysisRunUrl = $SecurityAnalysisRunUrl
+    securityAnalysisUnavailableReason = $SecurityAnalysisUnavailableReason
+    handoffEligible = ($ok -and -not $DevelopmentOnly.IsPresent -and [bool]$CiRunUrl -and $RunNpmCi.IsPresent -and $securityAnalysisEvidenceRecorded)
     localSingleUserProofEligible = ($ok -and -not $AllowDirty.IsPresent -and $StartLocalWeb.IsPresent -and $RunWebE2E.IsPresent -and (($RunLocalWebSmoke.IsPresent) -or $StartLocalWeb.IsPresent))
     runtimeManifestDrift = $runtimeManifestDrift
     steps = $steps

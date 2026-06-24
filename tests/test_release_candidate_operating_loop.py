@@ -26,6 +26,9 @@ def test_release_candidate_operating_loop_doc_defines_handoff_contract() -> None
         "handoffEligible: false",
         "required / ci-green",
         "-CiRunUrl",
+        "-SecurityAnalysisRunUrl",
+        "-SecurityAnalysisUnavailableReason",
+        "Security Analysis evidence mode",
         "-RunNpmCi",
         "-DevelopmentOnly",
         "scripts/verify_release_candidate.ps1",
@@ -65,6 +68,17 @@ def test_release_candidate_script_collects_required_evidence_gates() -> None:
         "ci-proof",
         "production handoff requires -CiRunUrl",
         "requiredCheck=required / ci-green",
+        "[string]$SecurityAnalysisRunUrl",
+        "[string]$SecurityAnalysisUnavailableReason",
+        "security-analysis-platform-evidence",
+        "SecurityAnalysisRunUrl and SecurityAnalysisUnavailableReason are mutually exclusive",
+        "SecurityAnalysisRunUrl must point to a GitHub Actions run URL",
+        "workflow=Security Analysis",
+        "securityAnalysisEvidenceRecorded",
+        "securityAnalysisEvidenceMode",
+        '$securityAnalysisEvidenceMode = "green"',
+        "production handoff requires -SecurityAnalysisRunUrl or -SecurityAnalysisUnavailableReason",
+        "-and $securityAnalysisEvidenceRecorded",
         'Invoke-Native "uv" @("run", "--frozen", "ruff", "check", "apps", "core", "scripts", "tests")',
         'Invoke-Native "uv" @("run", "--frozen", "python", "-m", "pytest", "-q")',
         "clean-install-proof",
@@ -126,6 +140,7 @@ def test_release_candidate_script_keeps_optional_gates_explicit() -> None:
     assert "desktop-startup-evidence" in source
     assert "pass -DesktopStartupEvidence after starting run.bat --desktop" in source
     assert "[string]$ReleaseGateEvidence" in source
+    assert 'Add-StepResult -Steps $steps -Name "security-analysis-platform-evidence" -Status "unavailable"' in source
     assert "[switch]$RequireReleaseGateEvidence" in source
     assert "$runtimeGateRequired = $runtimeGateRequested" in source
     assert "$RequireRuntimeManifestArtifacts.IsPresent" in source
