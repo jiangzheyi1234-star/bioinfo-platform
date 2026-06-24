@@ -62,6 +62,9 @@ USES_LINE_RE = re.compile(r"^\s*(?:-\s*)?uses:\s+([^\s#]+)", re.MULTILINE)
 UPLOAD_ARTIFACT_USES_RE = re.compile(r"^(?P<indent>\s*)(?:-\s*)?uses:\s+(?P<action>[^\s#]+)")
 RETENTION_DAYS_RE = re.compile(r"^\s*retention-days:\s*(.+?)\s*(?:#.*)?$")
 MAX_WORKFLOW_ARTIFACT_RETENTION_DAYS = 2
+DEPENDENCY_REVIEW_ACTION = (
+    "actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294"
+)
 WORKFLOW_PERMISSION_KEYS_ALLOWED_AT_TOP = {"actions", "contents"}
 WORKFLOW_JOB_WRITE_PERMISSION_ALLOWLIST: dict[str, dict[str, dict[str, str]]] = {
     ".github/workflows/release-remote-runner-artifacts.yml": {
@@ -226,6 +229,7 @@ def scan_workflow_security_contract(relative: str, source: str) -> list[Finding]
     findings.extend(scan_workflow_action_pinning(relative, source))
     findings.extend(scan_workflow_artifact_retention(relative, source))
     findings.extend(scan_workflow_permissions(relative, source))
+    findings.extend(scan_dependency_review_workflow_contract(relative, source))
     return findings
 
 
@@ -394,6 +398,59 @@ def scan_workflow_permissions(relative: str, source: str) -> list[Finding]:
                 relative,
                 0,
                 "workflow with pull_request or merge_group trigger must not declare write permissions",
+            )
+        )
+    return findings
+
+
+def scan_dependency_review_workflow_contract(relative: str, source: str) -> list[Finding]:
+    if "actions/dependency-review-action@" not in source:
+        return []
+
+    findings: list[Finding] = []
+    if DEPENDENCY_REVIEW_ACTION not in source:
+        findings.append(
+            Finding(
+                "dependency-review-action-ref",
+                relative,
+                0,
+                "Dependency Review must use the reviewed SHA-pinned action ref",
+            )
+        )
+    if "pull_request:" not in source or "if: ${{ github.event_name == 'pull_request' }}" not in source:
+        findings.append(
+            Finding(
+                "dependency-review-pr-only",
+                relative,
+                0,
+                "Dependency Review must be guarded as a pull_request-only job",
+            )
+        )
+    if not re.search(r"^\s*fail-on-severity:\s*moderate\s*(?:#.*)?$", source, re.MULTILINE):
+        findings.append(
+            Finding(
+                "dependency-review-severity",
+                relative,
+                0,
+                "Dependency Review must fail on moderate-or-higher vulnerabilities",
+            )
+        )
+    if not re.search(r"^\s*comment-summary-in-pr:\s*never\s*(?:#.*)?$", source, re.MULTILINE):
+        findings.append(
+            Finding(
+                "dependency-review-pr-comments",
+                relative,
+                0,
+                "Dependency Review must not request pull request comment permissions",
+            )
+        )
+    if re.search(r"^\s*warn-only:\s*true\s*(?:#.*)?$", source, re.MULTILINE):
+        findings.append(
+            Finding(
+                "dependency-review-warn-only",
+                relative,
+                0,
+                "Dependency Review must block instead of warning only",
             )
         )
     return findings

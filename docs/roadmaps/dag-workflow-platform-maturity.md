@@ -366,7 +366,7 @@ Progress:
 - Deployment mode selection now fails closed when `H2OMETA_DEPLOYMENT_MODE` is missing, blank, invalid, or set to the unimplemented multi-user mode. Supported launchers set `desktop` explicitly, and `server-single-user` API bind-all is rejected until an authenticated reverse-proxy/container profile is implemented and tested.
 - High-risk local API and remote-runner API actions now have a machine-readable governance policy catalog that records the current supported boundary, future RBAC roles, audit subject/action, source route, and multi-user readiness. CI security governance audit checks policy validity, source route coverage, secret-safe audit detail keys, and implemented audit action evidence while keeping multi-user mode fail-closed.
 - Remote-runner tool registry and reference database mutation paths now emit hash-chained governance audit events for create, prepare, cancel, rule-template update, production enable, delete, database create/update/check/delete, using metadata-only details that avoid command templates, manifests, package specs, database paths, and credentials.
-- Security-sensitive automation now has CODEOWNERS coverage for workflow and governance policy changes, and the CI security governance audit enforces pinned workflow actions plus safe workflow triggers. CodeQL, Dependency Review, and Scorecard remain planned gates until GitHub feature availability can run them green.
+- Security-sensitive automation now has CODEOWNERS coverage for workflow and governance policy changes, and the CI security governance audit enforces pinned workflow actions plus safe workflow triggers. Dependency Review is now a PR-only `security / dependency-review` gate inside `required / ci-green`; CodeQL and Scorecard remain planned gates until GitHub feature availability can run them green.
 - High-risk remote-runner actions now require explicit machine-token roles after bearer authentication. Missing or wrong roles fail with `RemoteRunnerAuthorizationError`, write deny governance audit evidence where the ledger is available, and cannot proceed to mutation, dispatch, retry, export, or GC work.
 - Result package download is now a governed high-risk remote action (`result.package.download`) with artifact-curator/auditor role coverage and hash-chained audit evidence before the ZIP is streamed.
 - Governance audit reads are now a governed high-risk remote action (`audit.events.read`) with auditor/platform-admin role coverage, so safe audit metadata remains queryable without exposing the audit trail to every authenticated runner token.
@@ -383,7 +383,7 @@ Recommended sequence:
 5. Add identity/session, RBAC policy matrix, project/tenant model, audit event schema, and secret provider interface before enabling server multi-user.
 6. Add Postgres only after repository/transaction boundaries are clear.
 7. Add S3/MinIO storage only through the artifact adapter layer.
-8. Add CodeQL, Dependency Review, Scorecard, image scanning, branch protection/ruleset, release attestations, and RC evidence gates.
+8. Add CodeQL, Scorecard, image scanning, branch protection/ruleset, release attestations, and RC evidence gates.
 
 Representative files:
 

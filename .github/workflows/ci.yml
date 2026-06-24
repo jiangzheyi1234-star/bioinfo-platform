@@ -106,6 +106,21 @@ jobs:
         working-directory: apps/web
         run: npm audit --registry=https://registry.npmjs.org --audit-level=moderate --package-lock-only
 
+  dependency_review:
+    name: security / dependency-review
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294
+        with:
+          fail-on-severity: moderate
+          comment-summary-in-pr: never
+
   web_windows:
     name: web / windows
     runs-on: windows-2022
@@ -174,6 +189,7 @@ jobs:
       - diff_hygiene
       - python_windows
       - security_governance
+      - dependency_review
       - web_windows
       - linux_parity_smoke
     runs-on: ubuntu-24.04
@@ -181,6 +197,7 @@ jobs:
       DIFF_HYGIENE_RESULT: ${{ needs.diff_hygiene.result }}
       PYTHON_WINDOWS_RESULT: ${{ needs.python_windows.result }}
       SECURITY_GOVERNANCE_RESULT: ${{ needs.security_governance.result }}
+      DEPENDENCY_REVIEW_RESULT: ${{ needs.dependency_review.result }}
       WEB_WINDOWS_RESULT: ${{ needs.web_windows.result }}
       LINUX_PARITY_SMOKE_RESULT: ${{ needs.linux_parity_smoke.result }}
     steps:
@@ -193,6 +210,7 @@ jobs:
             "diff-hygiene:${DIFF_HYGIENE_RESULT}" \
             "python-windows:${PYTHON_WINDOWS_RESULT}" \
             "security-governance:${SECURITY_GOVERNANCE_RESULT}" \
+            "dependency-review:${DEPENDENCY_REVIEW_RESULT}" \
             "web-windows:${WEB_WINDOWS_RESULT}" \
             "linux-parity-smoke:${LINUX_PARITY_SMOKE_RESULT}"
           do

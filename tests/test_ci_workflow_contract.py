@@ -21,10 +21,13 @@ def test_ci_workflow_provides_required_mainline_gates() -> None:
     assert "DIFF_HYGIENE_RESULT: ${{ needs.diff_hygiene.result }}" in source
     assert "PYTHON_WINDOWS_RESULT: ${{ needs.python_windows.result }}" in source
     assert "SECURITY_GOVERNANCE_RESULT: ${{ needs.security_governance.result }}" in source
+    assert "DEPENDENCY_REVIEW_RESULT: ${{ needs.dependency_review.result }}" in source
     assert "WEB_WINDOWS_RESULT: ${{ needs.web_windows.result }}" in source
     assert "LINUX_PARITY_SMOKE_RESULT: ${{ needs.linux_parity_smoke.result }}" in source
     assert "- security_governance" in source
+    assert "- dependency_review" in source
     assert "security-governance:${SECURITY_GOVERNANCE_RESULT}" in source
+    assert "dependency-review:${DEPENDENCY_REVIEW_RESULT}" in source
 
 
 def test_ci_workflow_runs_locked_python_and_web_quality_gates() -> None:
@@ -67,6 +70,21 @@ def test_ci_workflow_runs_security_governance_gate() -> None:
     )
     assert "CVE-2026-44405" in security_doc
     assert "Remove this ignore when" in security_doc
+
+
+def test_ci_workflow_runs_dependency_review_as_pr_only_gate() -> None:
+    source = CI_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "dependency_review:" in source
+    assert "name: security / dependency-review" in source
+    assert "if: ${{ github.event_name == 'pull_request' }}" in source
+    assert (
+        "actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294"
+        in source
+    )
+    assert "fail-on-severity: moderate" in source
+    assert "comment-summary-in-pr: never" in source
+    assert "pull-requests: write" not in source
 
 
 def test_ci_workflow_uses_sha_pinned_actions() -> None:

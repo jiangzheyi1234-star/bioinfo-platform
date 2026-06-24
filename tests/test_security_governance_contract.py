@@ -81,6 +81,11 @@ def test_security_governance_audit_script_contract() -> None:
     assert "scan_workflow_security_contract" in source
     assert "WORKFLOW_JOB_WRITE_PERMISSION_ALLOWLIST" in source
     assert "workflow-permission-write-unapproved" in source
+    assert "DEPENDENCY_REVIEW_ACTION" in source
+    assert "scan_dependency_review_workflow_contract" in source
+    assert "dependency-review-severity" in source
+    assert "dependency-review-pr-comments" in source
+    assert "dependency-review-warn-only" in source
     assert "ssh-auto-add-host-key" in source
     assert "ssh-host-key-reject-policy" in source
     assert "ssh-sha1-rsa-enabled" in source
@@ -193,6 +198,22 @@ jobs:
           path: logs/
           retention-days: ${{ inputs.retention_days }}
 """
+    dependency_review_warn_only = """
+name: Dependency Review
+"on":
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  dependency_review:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure
+          warn-only: true
+"""
 
     assert "unpinned-action" in _finding_codes(
         audit.scan_workflow_security_contract(".github/workflows/unsafe.yml", unversioned_action)
@@ -223,6 +244,16 @@ jobs:
             upload_artifact_expression_retention,
         )
     )
+    dependency_review_codes = _finding_codes(
+        audit.scan_workflow_security_contract(
+            ".github/workflows/unsafe.yml",
+            dependency_review_warn_only,
+        )
+    )
+    assert "dependency-review-pr-only" in dependency_review_codes
+    assert "dependency-review-severity" in dependency_review_codes
+    assert "dependency-review-pr-comments" in dependency_review_codes
+    assert "dependency-review-warn-only" in dependency_review_codes
 
 
 def test_security_governance_audit_accepts_release_permission_allowlist() -> None:
@@ -230,6 +261,34 @@ def test_security_governance_audit_accepts_release_permission_allowlist() -> Non
 
     findings = audit.scan_workflow_security_contract(
         ".github/workflows/release-remote-runner-artifacts.yml",
+        workflow,
+    )
+
+    assert [finding.format() for finding in findings] == []
+
+
+def test_security_governance_audit_accepts_dependency_review_pr_gate() -> None:
+    workflow = """
+name: Dependency Review
+"on":
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  dependency_review:
+    name: security / dependency-review
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294
+        with:
+          fail-on-severity: moderate
+          comment-summary-in-pr: never
+"""
+
+    findings = audit.scan_workflow_security_contract(
+        ".github/workflows/dependency-review.yml",
         workflow,
     )
 
