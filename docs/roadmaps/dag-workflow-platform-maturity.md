@@ -258,6 +258,7 @@ Progress:
 - Webhook trigger signature policy now has a pure resolver that separates source labels from verification providers, requires `secretRef` for GitHub/Slack/Stripe HMAC policies, rejects inline secret-like fields and provider conflicts, exposes only secret-free policy details, and keeps generic provider-neutral inbox delivery marked `unsupported` until raw-request and secret-provider wiring are explicit.
 - Webhook raw request handling now has a pure envelope contract that preserves the exact raw body bytes, normalizes headers without retaining signature values in safe details, parses only JSON object payloads for the existing inbox model, and proves future signature verification can avoid reserialized-body mismatches before route wiring changes.
 - Workflow trigger create/list read models now redact `triggerSpec.secretRef` and other secret-like trigger fields while preserving raw internal storage for schedulers, readiness matching, backfill, and future verifier wiring.
+- The webhook inbox FastAPI route now captures the raw request body, headers, and receipt time into the raw envelope before validating the existing inbox JSON payload, so later signature verification can use exact signed bytes while current storage still records `unsupported` signature state until verified metadata columns are added.
 
 Recommended sequence:
 

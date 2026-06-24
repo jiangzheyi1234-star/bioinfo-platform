@@ -128,6 +128,7 @@ def test_remote_runner_control_plane_services_use_async_thread_boundary() -> Non
         "create_workflow_trigger_request",
         "list_workflow_triggers_request",
         "submit_workflow_trigger_event_request",
+        "submit_workflow_trigger_inbox_event_envelope_request",
         "submit_workflow_trigger_inbox_event_request",
         "replay_workflow_trigger_inbox_event_request",
         "submit_workflow_trigger_readiness_event_request",
@@ -178,7 +179,11 @@ def test_workflow_trigger_routes_delegate_to_service() -> None:
     assert "create_run_record" not in route_source
     assert "return await create_workflow_trigger_request(" in route_source
     assert "return await submit_workflow_trigger_event_request(" in route_source
-    assert "return await submit_workflow_trigger_inbox_event_request(" in route_source
+    assert "Request" in route_source
+    assert "await request.body()" in route_source
+    assert "request.headers.raw" in route_source
+    assert "build_webhook_raw_request_envelope(" in route_source
+    assert "return await submit_workflow_trigger_inbox_event_envelope_request(" in route_source
     assert "return await replay_workflow_trigger_inbox_event_request(" in route_source
     assert "return await list_workflow_trigger_inbox_events_request(" in route_source
     assert "return await submit_workflow_trigger_readiness_event_request(" in route_source
@@ -192,6 +197,7 @@ def test_workflow_trigger_routes_delegate_to_service() -> None:
         "create_workflow_trigger_request",
         "list_workflow_triggers_request",
         "submit_workflow_trigger_event_request",
+        "submit_workflow_trigger_inbox_event_envelope_request",
         "submit_workflow_trigger_inbox_event_request",
         "replay_workflow_trigger_inbox_event_request",
         "submit_workflow_trigger_readiness_event_request",

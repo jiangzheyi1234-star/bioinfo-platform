@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from .api_models import (
     WorkflowBackfillCancelRequest,
@@ -10,7 +11,6 @@ from .api_models import (
     WorkflowTriggerBackfillPreviewRequest,
     WorkflowTriggerCreateRequest,
     WorkflowTriggerEventRequest,
-    WorkflowTriggerInboxEventRequest,
     WorkflowTriggerInboxReplayRequest,
     WorkflowTriggerReadinessEventRequest,
 )
@@ -26,10 +26,11 @@ from .control_service import (
     preview_workflow_trigger_backfill_request,
     replay_workflow_trigger_inbox_event_request,
     submit_workflow_trigger_event_request,
-    submit_workflow_trigger_inbox_event_request,
+    submit_workflow_trigger_inbox_event_envelope_request,
     submit_workflow_trigger_readiness_event_request,
 )
 from .route_headers import AuthorizationHeader
+from .webhook_raw_request import WebhookRawRequestEnvelope, build_webhook_raw_request_envelope
 
 
 router = APIRouter()
@@ -113,10 +114,11 @@ async def submit_workflow_trigger_event(
 @router.post("/api/v1/workflow-triggers/{trigger_id}/inbox", status_code=202)
 async def submit_workflow_trigger_inbox_event(
     trigger_id: str,
-    payload: WorkflowTriggerInboxEventRequest,
+    request: Request,
     authorization: AuthorizationHeader = None,
 ) -> dict[str, Any]:
-    return await submit_workflow_trigger_inbox_event_request(trigger_id, payload, authorization)
+    envelope = await build_webhook_inbox_envelope_from_request(request)
+    return await submit_workflow_trigger_inbox_event_envelope_request(trigger_id, envelope, authorization)
 
 
 @router.post("/api/v1/workflow-triggers/{trigger_id}/inbox/{inbox_event_id}/replay", status_code=202)
@@ -132,6 +134,21 @@ async def replay_workflow_trigger_inbox_event(
         payload,
         authorization,
     )
+
+
+async def build_webhook_inbox_envelope_from_request(request: Request) -> WebhookRawRequestEnvelope:
+    return build_webhook_raw_request_envelope(
+        raw_body=await request.body(),
+        headers=_request_header_items(request),
+        received_at=datetime.now(timezone.utc),
+    )
+
+
+def _request_header_items(request: Request) -> list[tuple[str, str]]:
+    return [
+        (name.decode("latin-1"), value.decode("latin-1"))
+        for name, value in request.headers.raw
+    ]
 
 
 @router.post("/api/v1/workflow-triggers/{trigger_id}/readiness", status_code=202)

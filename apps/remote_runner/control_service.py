@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
+from pydantic import ValidationError
+
 from .api_models import (
     ArtifactCacheLookupRequest,
     ArtifactCachePinReleaseRequest,
@@ -72,6 +74,7 @@ from .trigger_inbox_service import (
     list_workflow_trigger_inbox_events_from_storage,
     submit_workflow_trigger_inbox_event_from_request,
 )
+from .webhook_raw_request import WebhookRawRequestEnvelope, json_payload_from_envelope
 from .trigger_inbox_replay_service import replay_workflow_trigger_inbox_event_from_request
 from .upload_service import persist_upload_from_request
 
@@ -193,6 +196,19 @@ async def submit_workflow_trigger_inbox_event_request(
     authorization: str | None,
 ) -> dict[str, Any]:
     cfg = await _authorized_config_from_request(authorization, action="workflow_trigger.dispatch")
+    return await run_sync(submit_workflow_trigger_inbox_event_from_request, cfg, trigger_id, payload)
+
+
+async def submit_workflow_trigger_inbox_event_envelope_request(
+    trigger_id: str,
+    envelope: WebhookRawRequestEnvelope,
+    authorization: str | None,
+) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization, action="workflow_trigger.dispatch")
+    try:
+        payload = WorkflowTriggerInboxEventRequest.model_validate(json_payload_from_envelope(envelope))
+    except ValidationError as exc:
+        raise ValueError("WORKFLOW_TRIGGER_INBOX_PAYLOAD_INVALID") from exc
     return await run_sync(submit_workflow_trigger_inbox_event_from_request, cfg, trigger_id, payload)
 
 
