@@ -6,6 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from .config import RemoteRunnerConfig
+from .artifact_input_lineage import record_run_input_artifact_lineage
 from .executor_artifacts import _collect_artifacts
 from .executor_cache import try_complete_from_artifact_cache
 from .executor_inputs import _build_run_outputs, _resolve_run_inputs
@@ -131,6 +132,12 @@ def _execute_snakemake_workflow(
         pipeline_id = str(run_spec.get("pipelineId") or "")
         if pipeline_id == GENERATED_TOOL_RUN_PIPELINE_ID:
             resolved_inputs = _resolve_run_inputs(cfg, run_spec)
+            record_run_input_artifact_lineage(
+                cfg,
+                run_id=run_id,
+                resolved_inputs=resolved_inputs,
+                attempt_id=attempt_id,
+            )
             generated = prepare_generated_tool_workflow(
                 cfg,
                 run_id=run_id,
@@ -157,6 +164,12 @@ def _execute_snakemake_workflow(
             pipeline = get_pipeline(cfg, pipeline_id)
             validate_run_spec_for_pipeline(pipeline, run_spec)
             resolved_inputs = _resolve_run_inputs(cfg, run_spec)
+            record_run_input_artifact_lineage(
+                cfg,
+                run_id=run_id,
+                resolved_inputs=resolved_inputs,
+                attempt_id=attempt_id,
+            )
             workflow_resource_config = build_workflow_resource_config(
                 cfg,
                 workflow_resource_spec=pipeline.resource_schema,

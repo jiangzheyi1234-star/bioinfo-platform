@@ -78,6 +78,20 @@ def test_executor_invokes_snakemake_cli_with_use_conda(tmp_path: Path, monkeypat
     assert run_config["pipeline_id"] == "file-summary-v1"
     assert run_config["inputs"][0]["path"] == upload["path"]
     assert run_config["inputs"][0]["sha256"] == upload["sha256"]
+    from apps.remote_runner.artifact_ledger_storage import (
+        list_lineage_edges_for_run,
+        list_run_artifact_edges,
+    )
+
+    input_edges = list_run_artifact_edges(cfg, "run_phase2")
+    input_lineage = list_lineage_edges_for_run(cfg, "run_phase2")
+    assert len(input_edges) == 1
+    assert input_edges[0]["role"] == "input"
+    assert input_edges[0]["portName"] == "reads"
+    assert input_edges[0]["contentHash"] == upload["sha256"]
+    assert len(input_lineage) == 1
+    assert input_lineage[0]["predicate"] == "prov:used"
+    assert input_lineage[0]["payload"]["uploadId"] == upload["uploadId"]
 
 def test_executor_fails_when_upload_input_is_missing(tmp_path: Path, monkeypatch) -> None:
     cfg = RemoteRunnerConfig(
@@ -576,3 +590,7 @@ def test_run_worker_adopts_artifact_cache_hit_after_dry_run(tmp_path: Path, monk
     assert attempt["output_adoption_state"] == "adopted"
     assert results["artifacts"][0]["artifactId"] != source_artifact["artifactId"]
     assert results["artifacts"][0]["sha256"] == source_artifact["sha256"]
+    predicates = {edge["predicate"] for edge in results["lineageEdges"]}
+    assert {"prov:used", "h2ometa:cache_adopted"} <= predicates
+    used_edge = next(edge for edge in results["lineageEdges"] if edge["predicate"] == "prov:used")
+    assert used_edge["payload"]["uploadId"] == target_upload["uploadId"]

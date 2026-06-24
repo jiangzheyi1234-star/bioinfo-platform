@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from apps.remote_runner.artifact_input_lineage import record_run_input_artifact_lineage
 from apps.remote_runner import artifact_product_service
 from apps.remote_runner.artifact_product_service import (
     build_result_artifact_audit,
@@ -25,7 +26,7 @@ from apps.remote_runner.result_package_validation import (
     WORKFLOW_RUN_CRATE_PROFILE_URI,
     validate_result_package_archive,
 )
-from apps.remote_runner.storage import create_run_record, persist_artifact
+from apps.remote_runner.storage import create_run_record, persist_artifact, persist_upload
 from apps.remote_runner.storage_core import get_connection
 from apps.remote_runner.workflow_revision_storage import create_or_fetch_workflow_revision
 from tests.helpers.reference_database import make_configured_remote_runner
@@ -62,6 +63,30 @@ def test_result_package_export_includes_manifest_artifacts_and_lineage(tmp_path:
     revision = _create_run(cfg, "run_export", complete=False)
     _seed_rule_state(cfg, "run_export")
     _mark_run_terminal(cfg, "run_export")
+    upload = persist_upload(
+        cfg,
+        filename="reads.fastq",
+        content_base64="cmVhZHMK",
+        mime_type="text/plain",
+    )
+    input_records = record_run_input_artifact_lineage(
+        cfg,
+        run_id="run_export",
+        resolved_inputs=[
+            {
+                "uploadId": upload["uploadId"],
+                "name": "reads",
+                "filename": upload["filename"],
+                "role": "reads",
+                "path": upload["path"],
+                "sizeBytes": upload["sizeBytes"],
+                "sha256": upload["sha256"],
+                "mimeType": upload["mimeType"],
+                "index": 0,
+            }
+        ],
+        created_at="2099-06-07T10:00:00Z",
+    )
     report = _managed_artifact_file(cfg, "run_export", "report.txt")
     report.write_bytes(b"accepted\n")
     artifact = persist_artifact(
@@ -92,7 +117,11 @@ def test_result_package_export_includes_manifest_artifacts_and_lineage(tmp_path:
     assert package["manifest"]["runSpec"]["workflowRevisionId"] == revision["workflowRevisionId"]
     assert package["manifest"]["workflowRevision"]["contentHash"] == revision["contentHash"]
     assert package["manifest"]["artifacts"][0]["artifactId"] == artifact["artifactId"]
-    assert package["manifest"]["lineageEdges"][0]["predicate"] == "prov:generated"
+    assert package["manifest"]["inputArtifacts"][0]["artifactBlobId"] == input_records[0]["artifactBlobId"]
+    assert {edge["predicate"] for edge in package["manifest"]["lineageEdges"]} >= {
+        "prov:generated",
+        "prov:used",
+    }
     assert package["manifest"]["eventCounts"]["runEvents"] >= 2
     assert package["manifest"]["eventCounts"]["rules"] == 1
     assert package["manifest"]["eventCounts"]["ruleEvents"] == 1
@@ -144,6 +173,8 @@ def test_result_package_export_includes_manifest_artifacts_and_lineage(tmp_path:
         manifest_sha256 = hashlib.sha256(manifest_raw).hexdigest()
         ro_crate = json.loads(archive.read("ro-crate-metadata.json").decode("utf-8"))
         rules = json.loads(archive.read("metadata/rules.json").decode("utf-8"))
+        lineage = json.loads(archive.read("metadata/lineage.json").decode("utf-8"))
+        evidence_events = json.loads(archive.read("metadata/evidence-events.json").decode("utf-8"))
         workflow_revision = json.loads(archive.read("metadata/workflow-revision.json").decode("utf-8"))
         payload = archive.read(f"artifacts/{artifact['artifactId']}/report.txt").decode("utf-8")
 
@@ -167,6 +198,7 @@ def test_result_package_export_includes_manifest_artifacts_and_lineage(tmp_path:
     root_dataset = graph_by_id["./"]
     workflow = graph_by_id[f"#workflow-{revision['workflowRevisionId']}"]
     run_action = graph_by_id["#run-run_export"]
+    input_ro_crate_id = f"urn:h2ometa:artifact-blob:{input_records[0]['artifactBlobId']}"
     assert {item["@id"] for item in descriptor["conformsTo"]} == {
         RO_CRATE_SPEC_URI,
         WORKFLOW_RO_CRATE_PROFILE_URI,
@@ -177,11 +209,30 @@ def test_result_package_export_includes_manifest_artifacts_and_lineage(tmp_path:
         WORKFLOW_RO_CRATE_PROFILE_URI,
     }
     assert root_dataset["mainEntity"] == {"@id": f"#workflow-{revision['workflowRevisionId']}"}
+    assert {"@id": input_ro_crate_id} in root_dataset["hasPart"]
     assert workflow["@type"] == ["SoftwareSourceCode", "ComputationalWorkflow"]
     assert run_action["instrument"] == {"@id": f"#workflow-{revision['workflowRevisionId']}"}
+    assert run_action["object"] == [{"@id": input_ro_crate_id}]
     assert run_action["result"] == [{"@id": f"artifacts/{artifact['artifactId']}/"}]
+    input_entity = graph_by_id[input_ro_crate_id]
+    assert input_entity["@type"] == "Dataset"
+    assert input_entity["identifier"] == input_records[0]["artifactBlobId"]
+    assert input_entity["sha256"] == upload["sha256"]
+    assert input_entity["encodingFormat"] == "text/plain"
+    assert "storageUri" not in input_entity
+    assert "localPath" not in input_entity
     assert workflow_revision["workflowRevisionId"] == revision["workflowRevisionId"]
     assert rules["items"][0]["ruleName"] == "summarize"
+    used_edge = next(edge for edge in lineage["items"] if edge["predicate"] == "prov:used")
+    input_evidence = next(
+        event for event in evidence_events["items"] if event["eventType"] == "artifact.input.v1"
+    )
+    assert used_edge["payload"]["uploadId"] == upload["uploadId"]
+    assert input_evidence["payload"]["runArtifactEdgeId"] == input_records[0]["runArtifactEdgeId"]
+    for input_payload in (used_edge["payload"], input_evidence["payload"]):
+        assert "path" not in input_payload
+        assert "storageUri" not in input_payload
+        assert "localPath" not in input_payload
     assert payload == "accepted\n"
     assert validate_result_package_archive(
         package_path,

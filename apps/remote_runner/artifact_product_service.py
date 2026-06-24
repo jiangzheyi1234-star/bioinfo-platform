@@ -7,12 +7,16 @@ from pathlib import Path
 from typing import Any
 
 from .artifact_io import (
-    artifact_record_exists,
-    artifact_record_stats,
     assert_managed_artifact_storage,
     iter_artifact_file_payloads,
 )
+from .artifact_product_audit import audit_artifact
 from .artifact_product_payloads import json_bytes, json_sha256, redacted_run
+from .artifact_product_lineage import (
+    input_artifact_name,
+    input_artifact_ro_crate_id,
+    input_artifacts_from_lineage,
+)
 from .config import RemoteRunnerConfig
 from .evidence_storage import append_evidence_event, list_evidence_events
 from .execution_query_storage import fetch_result, fetch_run_events, fetch_run_results, require_run
@@ -55,7 +59,7 @@ def build_result_artifact_audit(
     result = fetch_result(cfg, result_id)
     checked_at = now_iso()
     audited = [
-        _audit_artifact(cfg, artifact, verify_payload=verify_payload)
+        audit_artifact(cfg, artifact, verify_payload=verify_payload)
         for artifact in result["artifacts"]
     ]
     failed = [item for item in audited if item["status"] != "passed"]
@@ -252,103 +256,6 @@ def export_result_package(
     }
 
 
-def _audit_artifact(
-    cfg: RemoteRunnerConfig,
-    artifact: dict[str, Any],
-    *,
-    verify_payload: bool,
-) -> dict[str, Any]:
-    expected_size = int(artifact.get("sizeBytes") or 0)
-    expected_sha = str(artifact.get("sha256") or "")
-    lifecycle_state = str(artifact.get("lifecycleState") or "active")
-    verification_mode = "payload-checksum" if verify_payload else ARTIFACT_PAYLOAD_MODE_METADATA_ONLY
-    if lifecycle_state == "deleted":
-        return {
-            "artifactId": artifact["artifactId"],
-            "path": str(artifact.get("path") or ""),
-            "storageBackend": artifact["storageBackend"],
-            "storageUri": artifact["storageUri"],
-            "verificationMode": verification_mode,
-            "exists": False,
-            "expectedSizeBytes": expected_size,
-            "actualSizeBytes": None,
-            "expectedSha256": expected_sha,
-            "actualSha256": None,
-            "sizeOk": False,
-            "checksumOk": False,
-            "status": "deleted",
-            "deletedAt": artifact.get("deletedAt"),
-            "gcReason": str(artifact.get("gcReason") or ""),
-        }
-    missing_metadata = _missing_artifact_metadata(artifact)
-    if missing_metadata:
-        return {
-            "artifactId": artifact.get("artifactId"),
-            "path": str(artifact.get("path") or ""),
-            "storageBackend": str(artifact.get("storageBackend") or ""),
-            "storageUri": str(artifact.get("storageUri") or ""),
-            "verificationMode": verification_mode,
-            "exists": False,
-            "expectedSizeBytes": expected_size,
-            "actualSizeBytes": None,
-            "expectedSha256": expected_sha,
-            "actualSha256": None,
-            "sizeOk": False if verify_payload else None,
-            "checksumOk": False if verify_payload else None,
-            "status": "failed",
-            "error": f"RESULT_ARTIFACT_METADATA_INCOMPLETE: {', '.join(missing_metadata)}",
-        }
-    exists = False
-    actual_size: int | None = None
-    actual_sha: str | None = None
-    error = ""
-    try:
-        assert_managed_artifact_storage(cfg, artifact)
-        exists = artifact_record_exists(cfg, artifact)
-        if verify_payload:
-            actual_size, actual_sha = artifact_record_stats(cfg, artifact)
-    except ValueError as exc:
-        error = str(exc)
-    if verify_payload:
-        passed = exists and not error and actual_size == expected_size and actual_sha == expected_sha
-        size_ok: bool | None = actual_size == expected_size
-        checksum_ok: bool | None = actual_sha == expected_sha
-    else:
-        passed = exists and not error
-        size_ok = None
-        checksum_ok = None
-    status = "passed" if passed else "failed"
-    return {
-        "artifactId": artifact["artifactId"],
-        "path": str(artifact.get("path") or ""),
-        "storageBackend": artifact["storageBackend"],
-        "storageUri": artifact["storageUri"],
-        "verificationMode": verification_mode,
-        "exists": exists,
-        "expectedSizeBytes": expected_size,
-        "actualSizeBytes": actual_size,
-        "expectedSha256": expected_sha,
-        "actualSha256": actual_sha,
-        "sizeOk": size_ok,
-        "checksumOk": checksum_ok,
-        "status": status,
-        **({"error": error} if error else {}),
-    }
-
-
-def _missing_artifact_metadata(artifact: dict[str, Any]) -> list[str]:
-    required = (
-        "artifactId",
-        "kind",
-        "mimeType",
-        "sizeBytes",
-        "sha256",
-        "storageBackend",
-        "storageUri",
-    )
-    return [key for key in required if artifact.get(key) in (None, "")]
-
-
 def _result_package_manifest(
     *,
     result: dict[str, Any],
@@ -382,6 +289,7 @@ def _result_package_manifest(
                 "includedInPackage": include_artifacts,
             }
         )
+    input_artifacts = input_artifacts_from_lineage(result_bundle["lineageEdges"])
     return {
         "schemaVersion": RESULT_PACKAGE_SCHEMA_VERSION,
         "packageProfile": RESULT_PACKAGE_PROFILE,
@@ -426,6 +334,8 @@ def _result_package_manifest(
         },
         "artifactCount": len(package_artifacts),
         "artifacts": package_artifacts,
+        "inputArtifactCount": len(input_artifacts),
+        "inputArtifacts": input_artifacts,
         "lineageEdges": result_bundle["lineageEdges"],
         "eventCounts": {
             "runEvents": len(run_events),
@@ -440,7 +350,10 @@ def _result_package_manifest(
                 "startedAt": run["startedAt"],
                 "endedAt": run["finishedAt"],
                 "wasAssociatedWith": "h2ometa.remote_runner",
-                "used": [f"workflowRevision:{workflow_revision['workflowRevisionId']}"],
+                "used": [
+                    f"workflowRevision:{workflow_revision['workflowRevisionId']}",
+                    *[f"artifactBlob:{artifact['artifactBlobId']}" for artifact in input_artifacts],
+                ],
                 "generated": [f"artifact:{artifact['artifactId']}" for artifact in result["artifacts"]],
             },
             "agent": {
@@ -654,6 +567,11 @@ def _ro_crate_metadata(
     metadata_index: list[dict[str, Any]],
 ) -> dict[str, Any]:
     artifact_parts = [{"@id": _artifact_ro_crate_id(artifact)} for artifact in manifest["artifacts"]]
+    input_parts = [
+        {"@id": input_artifact_ro_crate_id(artifact)}
+        for artifact in manifest.get("inputArtifacts", [])
+        if str(artifact.get("artifactBlobId") or "").strip()
+    ]
     metadata_parts = [{"@id": "manifest.json"}, *[{"@id": item["path"]} for item in metadata_index]]
     workflow_id = f"#workflow-{manifest['workflowRevisionId']}"
     run_action_id = f"#run-{manifest['runId']}"
@@ -678,7 +596,7 @@ def _ro_crate_metadata(
             "name": f"H2OMeta result package {manifest['resultId']}",
             "datePublished": manifest["createdAt"],
             "identifier": manifest["resultId"],
-            "hasPart": [*metadata_parts, *artifact_parts],
+            "hasPart": [*metadata_parts, *artifact_parts, *input_parts],
             "mainEntity": {"@id": workflow_id},
             "mentions": [{"@id": run_action_id}],
         },
@@ -689,6 +607,7 @@ def _ro_crate_metadata(
             "startTime": manifest["run"]["startedAt"],
             "endTime": manifest["run"]["finishedAt"],
             "instrument": {"@id": workflow_id},
+            **({"object": input_parts} if input_parts else {}),
             "result": artifact_parts,
         },
         {
@@ -729,6 +648,23 @@ def _ro_crate_metadata(
                 "h2ometa:includedInPackage": artifact["includedInPackage"],
                 "h2ometa:storageBackend": artifact["storageBackend"],
                 "h2ometa:storageUri": artifact["storageUri"],
+                "about": {"@id": run_action_id},
+            }
+        )
+    for artifact in manifest.get("inputArtifacts", []):
+        if not str(artifact.get("artifactBlobId") or "").strip():
+            continue
+        graph.append(
+            {
+                "@id": input_artifact_ro_crate_id(artifact),
+                "@type": "Dataset",
+                "name": input_artifact_name(artifact),
+                "encodingFormat": artifact.get("mimeType") or "application/octet-stream",
+                "contentSize": artifact.get("sizeBytes"),
+                "sha256": artifact.get("sha256"),
+                "identifier": artifact["artifactBlobId"],
+                "h2ometa:role": "input",
+                "h2ometa:ports": artifact.get("ports") or [],
                 "about": {"@id": run_action_id},
             }
         )

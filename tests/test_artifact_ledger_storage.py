@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
+import pytest
+
+from apps.remote_runner.artifact_input_lineage import record_run_input_artifact_lineage
 from apps.remote_runner.artifact_ledger_storage import (
     list_artifact_materializations,
     list_lineage_edges_for_run,
@@ -11,6 +15,7 @@ from apps.remote_runner.artifact_ledger_storage import (
     record_lineage_edge,
     record_run_artifact_edge,
 )
+from apps.remote_runner.evidence_storage import list_evidence_events
 from tests.helpers.reference_database import make_configured_remote_runner
 
 
@@ -137,3 +142,91 @@ def test_lineage_edges_record_canonical_prov_relation(tmp_path: Path) -> None:
     assert edge["payload"] == {"portName": "bam", "stepId": "align"}
     assert edge["contentHash"] == "sha256:demo"
     assert list_lineage_edges_for_run(cfg, "run_align") == [edge]
+
+
+def test_input_artifact_lineage_records_prov_used_without_path_leak(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    input_path = tmp_path / "uploads" / "reads.fastq"
+    input_path.parent.mkdir()
+    input_path.write_text("@read1\nACGT\n+\n!!!!\n", encoding="utf-8")
+    sha256 = hashlib.sha256(input_path.read_bytes()).hexdigest()
+    resolved_input = {
+        "uploadId": "upl_reads",
+        "name": "reads",
+        "filename": "reads.fastq",
+        "role": "reads",
+        "path": str(input_path),
+        "sizeBytes": input_path.stat().st_size,
+        "sha256": sha256,
+        "mimeType": "text/plain",
+        "index": 0,
+    }
+
+    records = record_run_input_artifact_lineage(
+        cfg,
+        run_id="run_input",
+        resolved_inputs=[resolved_input],
+        created_at="2099-06-07T10:00:00Z",
+    )
+    replay = record_run_input_artifact_lineage(
+        cfg,
+        run_id="run_input",
+        resolved_inputs=[resolved_input],
+        created_at="2099-06-07T10:00:01Z",
+    )
+
+    run_edges = list_run_artifact_edges(cfg, "run_input")
+    lineage_edges = list_lineage_edges_for_run(cfg, "run_input")
+    evidence_events = list_evidence_events(
+        cfg,
+        subject_kind="artifact_blob",
+        subject_id=records[0]["artifactBlobId"],
+        event_type="artifact.input.v1",
+    )
+
+    assert replay[0]["runArtifactEdgeId"] == records[0]["runArtifactEdgeId"]
+    assert len(run_edges) == 1
+    assert run_edges[0]["role"] == "input"
+    assert run_edges[0]["portName"] == "reads"
+    assert run_edges[0]["contentHash"] == sha256
+    assert len(lineage_edges) == 1
+    assert lineage_edges[0]["predicate"] == "prov:used"
+    assert lineage_edges[0]["payload"]["uploadId"] == "upl_reads"
+    assert lineage_edges[0]["payload"]["portName"] == "reads"
+    assert len(evidence_events) == 1
+    assert evidence_events[0]["payload"]["sha256"] == sha256
+    assert evidence_events[0]["payload"]["runArtifactEdgeId"] == run_edges[0]["edgeId"]
+    for payload in (lineage_edges[0]["payload"], evidence_events[0]["payload"]):
+        assert "path" not in payload
+        assert "localPath" not in payload
+        assert "storageUri" not in payload
+
+
+def test_input_artifact_lineage_rejects_digest_mismatch_before_recording(
+    tmp_path: Path,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    input_path = tmp_path / "uploads" / "reads.fastq"
+    input_path.parent.mkdir()
+    input_path.write_text("changed\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="INPUT_ARTIFACT_DIGEST_MISMATCH: upl_reads"):
+        record_run_input_artifact_lineage(
+            cfg,
+            run_id="run_bad_input",
+            resolved_inputs=[
+                {
+                    "uploadId": "upl_reads",
+                    "filename": "reads.fastq",
+                    "role": "reads",
+                    "path": str(input_path),
+                    "sizeBytes": input_path.stat().st_size,
+                    "sha256": "0" * 64,
+                    "mimeType": "text/plain",
+                    "index": 0,
+                }
+            ],
+        )
+
+    assert list_run_artifact_edges(cfg, "run_bad_input") == []
+    assert list_lineage_edges_for_run(cfg, "run_bad_input") == []

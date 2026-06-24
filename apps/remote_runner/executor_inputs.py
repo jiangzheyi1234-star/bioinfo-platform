@@ -45,6 +45,7 @@ def _resolve_run_inputs(cfg: RemoteRunnerConfig, run_spec: dict) -> list[dict]:
         resolved.append(
             {
                 "uploadId": upload["uploadId"],
+                "name": str(item.get("name") or "").strip(),
                 "filename": str(item.get("filename") or upload["filename"]),
                 "role": str(item.get("role") or "input"),
                 "path": str(path),
