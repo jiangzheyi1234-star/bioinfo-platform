@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .api_token_config import apply_api_token_env_overrides, normalize_api_token_roles
+from .database_backend_config import apply_database_backend_env_overrides, assert_supported_database_backend
 from .worker_resource_config import apply_run_worker_env_overrides
 from .sqlite_migrations import initialize_or_migrate_runtime_db
 
@@ -55,6 +56,8 @@ class RemoteRunnerConfig:
     token: str = ""
     api_token_actor: str = "remote-runner-api"
     api_token_roles: tuple[str, ...] = ()
+    database_backend: str = "sqlite"
+    database_url: str = ""
     data_root: str = str(DEFAULT_DATA_ROOT)
     db_path: str = str(DEFAULT_DB_PATH)
     runtime_state_path: str = str(DEFAULT_RUNTIME_STATE_PATH)
@@ -107,6 +110,7 @@ def load_remote_runner_config() -> RemoteRunnerConfig:
     apply_run_worker_env_overrides(cfg)
     apply_artifact_storage_env_overrides(cfg)
     apply_api_token_env_overrides(cfg)
+    apply_database_backend_env_overrides(cfg)
     return cfg
 
 def apply_artifact_storage_env_overrides(cfg: RemoteRunnerConfig) -> None:
@@ -168,6 +172,7 @@ def write_runtime_state(
 
 
 def ensure_runtime_layout(cfg: RemoteRunnerConfig) -> dict[str, bool]:
+    assert_supported_database_backend(cfg)
     data_root = Path(cfg.data_root)
     db_path = Path(cfg.db_path)
     uploads_dir = Path(cfg.uploads_dir)
@@ -216,6 +221,7 @@ def ensure_runtime_layout(cfg: RemoteRunnerConfig) -> dict[str, bool]:
 
 
 def inspect_runtime_layout(cfg: RemoteRunnerConfig) -> dict[str, bool]:
+    assert_supported_database_backend(cfg)
     db_path = Path(cfg.db_path)
     uploads_dir = Path(cfg.uploads_dir)
     results_dir = Path(cfg.results_dir)
@@ -240,6 +246,7 @@ def dump_public_config(cfg: RemoteRunnerConfig) -> dict[str, Any]:
     data.pop("token", None)
     data.pop("api_token_actor", None)
     data.pop("api_token_roles", None)
+    data.pop("database_url", None)
     data.pop("artifact_s3_access_key", None)
     data.pop("artifact_s3_secret_key", None)
     return data

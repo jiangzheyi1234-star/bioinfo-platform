@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import RemoteRunnerConfig
+from .database_backend_config import assert_supported_database_backend
 from .sqlite_migrations import (
     DATABASE_MISSING_ERROR,
     RemoteRunnerSQLiteSchemaError,
@@ -19,6 +20,7 @@ def now_iso() -> str:
 
 
 def get_connection(cfg: RemoteRunnerConfig) -> sqlite3.Connection:
+    assert_supported_database_backend(cfg)
     db_path = Path(cfg.db_path)
     if not db_path.is_file():
         raise RemoteRunnerSQLiteSchemaError(DATABASE_MISSING_ERROR)

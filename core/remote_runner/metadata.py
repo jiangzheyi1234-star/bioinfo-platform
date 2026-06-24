@@ -273,6 +273,7 @@ def build_remote_config_payload(
         "token": token,
         "api_token_actor": "remote-runner-api",
         "api_token_roles": sorted(SUPPORTED_ROLES),
+        "database_backend": "sqlite",
         "data_root": f"{remote_shared}",
         "db_path": f"{remote_shared}/data/runner.db",
         "runtime_state_path": remote_runtime_state,

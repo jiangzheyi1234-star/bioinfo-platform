@@ -47,6 +47,7 @@ class RemoteRunnerEnvironmentMixin:
             "bind_port",
             "token",
             "data_root",
+            "database_backend",
             "db_path",
             "runtime_state_path",
             "release_dir",
