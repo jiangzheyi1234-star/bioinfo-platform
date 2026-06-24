@@ -13,7 +13,8 @@ from tests.helpers.reference_database import make_configured_remote_runner
 def test_result_preview_blocks_corrupted_local_artifact(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     _create_run(cfg, "run_preview_corrupt")
-    artifact_path = tmp_path / "report.txt"
+    artifact_path = Path(cfg.results_dir) / "run_preview_corrupt" / "report.txt"
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
     artifact_path.write_text("accepted\n", encoding="utf-8")
     artifact = persist_artifact(
         cfg,
@@ -31,7 +32,8 @@ def test_result_preview_blocks_corrupted_local_artifact(tmp_path: Path) -> None:
 def test_result_preview_requires_checksum_metadata(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     _create_run(cfg, "run_preview_missing_metadata")
-    artifact_path = tmp_path / "report.txt"
+    artifact_path = Path(cfg.results_dir) / "run_preview_missing_metadata" / "report.txt"
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
     artifact_path.write_text("accepted\n", encoding="utf-8")
     artifact = persist_artifact(
         cfg,
@@ -49,6 +51,23 @@ def test_result_preview_requires_checksum_metadata(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="RESULT_ARTIFACT_METADATA_INCOMPLETE: sha256"):
         build_result_preview_data(cfg, "res_run_preview_missing_metadata", artifact["artifactId"])
+
+
+def test_result_preview_rejects_unmanaged_local_artifact_path(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_preview_unmanaged")
+    artifact_path = tmp_path / "outside-managed.txt"
+    artifact_path.write_text("outside\n", encoding="utf-8")
+    artifact = persist_artifact(
+        cfg,
+        run_id="run_preview_unmanaged",
+        kind="report",
+        path=artifact_path,
+        mime_type="text/plain",
+    )
+
+    with pytest.raises(ValueError, match="RESULT_ARTIFACT_STORAGE_UNMANAGED: unmanaged_local_path"):
+        build_result_preview_data(cfg, "res_run_preview_unmanaged", artifact["artifactId"])
 
 
 def _create_run(cfg, run_id: str) -> None:

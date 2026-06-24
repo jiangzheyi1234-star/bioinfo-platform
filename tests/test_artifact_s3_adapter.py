@@ -158,6 +158,36 @@ def test_s3_metadata_only_result_package_does_not_fetch_payload(
     assert manifest["audit"]["verificationMode"] == "metadata-only"
 
 
+def test_s3_result_preview_rejects_unmanaged_object_prefix(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeS3Client()
+    monkeypatch.setattr("apps.remote_runner.artifact_io._build_s3_client", lambda _cfg: fake)
+    cfg = _s3_config(tmp_path)
+    _create_run(cfg, "run_s3_unmanaged_preview")
+    artifact_path = tmp_path / "report.txt"
+    artifact_path.write_bytes(b"accepted\n")
+    artifact = persist_artifact(
+        cfg,
+        run_id="run_s3_unmanaged_preview",
+        kind="report",
+        path=artifact_path,
+        mime_type="text/plain",
+        artifact_key="report",
+    )
+    unmanaged_uri = "s3://h2ometa-artifacts/tenant-a/unmanaged/report.txt"
+    with get_connection(cfg) as connection:
+        connection.execute(
+            "UPDATE artifacts SET storage_uri = ? WHERE artifact_id = ?",
+            (unmanaged_uri, artifact["artifactId"]),
+        )
+        connection.commit()
+
+    with pytest.raises(ValueError, match="RESULT_ARTIFACT_STORAGE_UNMANAGED: unmanaged_s3_object"):
+        build_result_preview_data(cfg, "res_run_s3_unmanaged_preview", artifact["artifactId"])
+
+
 def test_s3_directory_artifact_round_trips_as_manifest_package(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
