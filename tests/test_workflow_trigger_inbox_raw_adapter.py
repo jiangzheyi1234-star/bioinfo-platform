@@ -13,6 +13,7 @@ from apps.remote_runner.control_service import (
     submit_workflow_trigger_inbox_event_envelope_request,
     submit_workflow_trigger_inbox_event_request,
 )
+from apps.remote_runner.governance_audit import list_governance_audit_events
 from apps.remote_runner.trigger_inbox_service import list_workflow_trigger_inbox_events_from_storage
 from apps.remote_runner.trigger_service import create_workflow_trigger_from_request
 from apps.remote_runner.trigger_storage import list_workflow_trigger_events
@@ -272,6 +273,21 @@ def test_control_service_rejects_bad_signature_without_dispatching_run(
 
     assert list_workflow_trigger_inbox_events_from_storage(cfg, trigger["triggerId"])["data"]["items"] == []
     assert list_workflow_trigger_events(cfg, trigger["triggerId"])["items"] == []
+    deny = _latest_signature_deny_audit(cfg, trigger["triggerId"])
+    assert deny["reasonCode"] == "WEBHOOK_SIGNATURE_MISMATCH"
+    assert deny["subjectKind"] == "workflow_trigger_event"
+    assert str(deny["subjectId"]).startswith(f"rejected:{trigger['triggerId']}:{envelope.body_sha256[:12]}")
+    assert deny["details"]["schemaVersion"] == "workflow-trigger-signature-rejection-audit.v1"
+    assert deny["details"]["failureStage"] == "webhook_signature_verification"
+    assert deny["details"]["signatureState"] == "mismatch"
+    assert deny["details"]["bodySha256"] == envelope.body_sha256
+    assert deny["details"]["bodySizeBytes"] == envelope.body_size_bytes
+    assert deny["details"]["provider"] == "github"
+    assert deny["details"]["verificationProvider"] == "github"
+    assert deny["details"]["header"] == "X-Hub-Signature-256"
+    assert "headerNames" not in deny["details"]
+    assert "github-secret" not in repr(deny)
+    assert "sha256=" not in repr(deny)
 
 
 def test_signed_control_service_plain_inbox_event_path_requires_raw_envelope(
@@ -299,6 +315,11 @@ def test_signed_control_service_plain_inbox_event_path_requires_raw_envelope(
 
     assert list_workflow_trigger_inbox_events_from_storage(cfg, trigger["triggerId"])["data"]["items"] == []
     assert list_workflow_trigger_events(cfg, trigger["triggerId"])["items"] == []
+    deny = _latest_signature_deny_audit(cfg, trigger["triggerId"])
+    assert deny["reasonCode"] == "WORKFLOW_TRIGGER_SIGNATURE_RAW_ENVELOPE_REQUIRED"
+    assert deny["subjectId"] == f"rejected:{trigger['triggerId']}:missing-envelope"
+    assert deny["details"]["signatureState"] == "missing"
+    assert "bodySha256" not in deny["details"]
 
 
 def test_bad_signature_duplicate_does_not_mutate_existing_verified_inbox(
@@ -337,6 +358,9 @@ def test_bad_signature_duplicate_does_not_mutate_existing_verified_inbox(
     assert inbox["signatureState"] == "verified"
     assert inbox["deliveryCount"] == 1
     assert len(list_workflow_trigger_events(cfg, trigger["triggerId"])["items"]) == 1
+    deny = _latest_signature_deny_audit(cfg, trigger["triggerId"])
+    assert deny["reasonCode"] == "WEBHOOK_SIGNATURE_MISMATCH"
+    assert deny["details"]["bodySha256"] == bad_envelope.body_sha256
 
 
 def test_signed_invalid_payload_verifies_signature_before_payload_validation(
@@ -366,6 +390,9 @@ def test_signed_invalid_payload_verifies_signature_before_payload_validation(
     assert "payload-secret" not in repr(exc_info.value)
     assert list_workflow_trigger_inbox_events_from_storage(cfg, trigger["triggerId"])["data"]["items"] == []
     assert list_workflow_trigger_events(cfg, trigger["triggerId"])["items"] == []
+    deny = _latest_signature_deny_audit(cfg, trigger["triggerId"])
+    assert deny["reasonCode"] == "WEBHOOK_SIGNATURE_MISMATCH"
+    assert "payload-secret" not in repr(deny)
 
 
 def test_signed_inbox_missing_env_secret_fails_without_inbox_row_or_ref_leak(
@@ -397,6 +424,12 @@ def test_signed_inbox_missing_env_secret_fails_without_inbox_row_or_ref_leak(
     assert "github-secret" not in repr(exc_info.value)
     assert list_workflow_trigger_inbox_events_from_storage(cfg, trigger["triggerId"])["data"]["items"] == []
     assert list_workflow_trigger_events(cfg, trigger["triggerId"])["items"] == []
+    deny = _latest_signature_deny_audit(cfg, trigger["triggerId"])
+    assert deny["reasonCode"] == "WORKFLOW_TRIGGER_SIGNATURE_SECRET_RESOLUTION_FAILED"
+    assert deny["details"]["signatureState"] == "missing"
+    assert "credential" not in deny["details"]
+    assert "H2OMETA_TEST_WEBHOOK_SECRET" not in repr(deny)
+    assert "github-secret" not in repr(deny)
 
 
 def _create_signed_trigger(cfg) -> dict[str, object]:
@@ -417,6 +450,20 @@ def _create_signed_trigger(cfg) -> dict[str, object]:
         ),
         actor="pytest",
     )["data"]
+
+
+def _latest_signature_deny_audit(cfg, trigger_id: str) -> dict[str, object]:
+    events = list_governance_audit_events(
+        cfg,
+        action="workflow_trigger.dispatch",
+    )["items"]
+    denies = [
+        event
+        for event in events
+        if event["decision"] == "deny" and event["details"].get("triggerId") == trigger_id
+    ]
+    assert denies
+    return denies[-1]
 
 
 def _skip_runtime_readiness(monkeypatch: pytest.MonkeyPatch) -> None:

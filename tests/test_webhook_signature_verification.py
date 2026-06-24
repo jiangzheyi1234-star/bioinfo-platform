@@ -184,6 +184,25 @@ def test_signature_verification_uses_raw_body_bytes_not_reserialized_json() -> N
     )
 
 
+def test_signature_mismatch_reports_safe_header_context() -> None:
+    with pytest.raises(WebhookSignatureVerificationError) as exc_info:
+        verify_webhook_signature(
+            WebhookSignatureVerificationInput(
+                provider="github",
+                headers={"X-Hub-Signature-256": "sha256=" + "0" * 64},
+                raw_body=b"{}",
+                secret=b"github-secret",
+                received_at=RECEIVED_AT,
+            )
+        )
+
+    error = exc_info.value
+    assert error.code == "WEBHOOK_SIGNATURE_MISMATCH"
+    assert error.safe_details == {"header": "X-Hub-Signature-256"}
+    assert "github-secret" not in repr(error.safe_details)
+    assert "sha256=" not in repr(error.safe_details)
+
+
 def test_signature_verification_rejects_duplicate_conflicting_headers_without_secret_leak() -> None:
     input = WebhookSignatureVerificationInput(
         provider="github",

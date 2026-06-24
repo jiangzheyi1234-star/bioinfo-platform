@@ -5,6 +5,7 @@ from typing import Any
 
 from .api_models import WorkflowTriggerEventRequest, WorkflowTriggerInboxEventRequest
 from .config import RemoteRunnerConfig
+from .governance_audit import record_governance_audit_event
 from .route_utils import request_payload
 from .secret_provider import (
     SecretProvider,
@@ -68,6 +69,7 @@ def submit_workflow_trigger_inbox_event_from_request(
     _enforce_payload_size(request_payload(request).get("payload") or {})
     if signature_metadata is None:
         signature_metadata = _signature_metadata_for_trigger(
+            cfg,
             trigger,
             raw_envelope=raw_envelope,
             secret_provider=secret_provider,
@@ -151,6 +153,7 @@ def verify_workflow_trigger_inbox_envelope_signature(
     if source_type != "webhook":
         raise ValueError(f"WORKFLOW_TRIGGER_INBOX_SOURCE_MISMATCH: {source_type}")
     return _signature_metadata_for_trigger(
+        cfg,
         trigger,
         raw_envelope=envelope,
         secret_provider=secret_provider,
@@ -181,6 +184,7 @@ def _record_inbox_event(
 
 
 def _signature_metadata_for_trigger(
+    cfg: RemoteRunnerConfig,
     trigger: dict[str, Any],
     *,
     raw_envelope: WebhookRawRequestEnvelope | None,
@@ -190,21 +194,50 @@ def _signature_metadata_for_trigger(
     try:
         policy = resolve_webhook_trigger_signature_policy(trigger.get("triggerSpec") or {})
     except WebhookTriggerSignaturePolicyError as exc:
-        _reject_signature(exc.code)
+        _reject_signature(
+            cfg,
+            trigger,
+            exc.code,
+            verification_state=exc.policy_state,
+            base_metadata=base_metadata,
+            policy_state=exc.policy_state,
+        )
     if policy.mode != "required":
         return base_metadata
     if raw_envelope is None:
-        _reject_signature("WORKFLOW_TRIGGER_SIGNATURE_RAW_ENVELOPE_REQUIRED")
+        _reject_signature(
+            cfg,
+            trigger,
+            "WORKFLOW_TRIGGER_SIGNATURE_RAW_ENVELOPE_REQUIRED",
+            verification_state="missing",
+            base_metadata=base_metadata,
+            policy=policy,
+        )
     provider = secret_provider or default_webhook_secret_provider()
     try:
         secret = resolve_secret_ref(provider, policy.secret_ref, purpose="webhook-signing-secret")
         result = verify_webhook_signature(
             webhook_verification_input_from_envelope(raw_envelope, policy=policy, secret=secret)
         )
-    except SecretProviderError:
-        _reject_signature("WORKFLOW_TRIGGER_SIGNATURE_SECRET_RESOLUTION_FAILED")
+    except SecretProviderError as exc:
+        _reject_signature(
+            cfg,
+            trigger,
+            "WORKFLOW_TRIGGER_SIGNATURE_SECRET_RESOLUTION_FAILED",
+            verification_state=_secret_error_verification_state(exc),
+            base_metadata=base_metadata,
+            policy=policy,
+        )
     except WebhookSignatureVerificationError as exc:
-        _reject_signature(exc.code)
+        _reject_signature(
+            cfg,
+            trigger,
+            exc.code,
+            verification_state=exc.signature_state,
+            base_metadata=base_metadata,
+            policy=policy,
+            verification_error=exc.safe_details,
+        )
     metadata = dict(base_metadata or {})
     metadata["signatureState"] = "verified"
     metadata["signatureDetails"] = _signature_details(
@@ -229,9 +262,81 @@ def _signature_metadata_from_envelope(envelope: WebhookRawRequestEnvelope | None
 
 
 def _reject_signature(
+    cfg: RemoteRunnerConfig,
+    trigger: dict[str, Any],
     code: str,
+    *,
+    verification_state: str,
+    base_metadata: dict[str, Any] | None,
+    policy: WebhookTriggerSignaturePolicy | None = None,
+    policy_state: str | None = None,
+    verification_error: dict[str, Any] | None = None,
 ) -> None:
+    record_governance_audit_event(
+        cfg,
+        action="workflow_trigger.dispatch",
+        actor=str(cfg.api_token_actor or "remote-runner-api"),
+        subject_kind="workflow_trigger_event",
+        subject_id=_rejected_delivery_subject_id(trigger, base_metadata),
+        decision="deny",
+        reason_code=code,
+        details=_signature_rejection_audit_details(
+            trigger,
+            verification_state=verification_state,
+            base_metadata=base_metadata,
+            policy=policy,
+            policy_state=policy_state,
+            verification_error=verification_error,
+        ),
+    )
     raise ValueError(code)
+
+
+def _rejected_delivery_subject_id(trigger: dict[str, Any], base_metadata: dict[str, Any] | None) -> str:
+    body_hash = str((base_metadata or {}).get("rawBodySha256") or "").strip()
+    suffix = body_hash[:12] if body_hash else "missing-envelope"
+    return f"rejected:{trigger['triggerId']}:{suffix}"
+
+
+def _signature_rejection_audit_details(
+    trigger: dict[str, Any],
+    *,
+    verification_state: str,
+    base_metadata: dict[str, Any] | None,
+    policy: WebhookTriggerSignaturePolicy | None,
+    policy_state: str | None,
+    verification_error: dict[str, Any] | None,
+) -> dict[str, Any]:
+    metadata = dict(base_metadata or {})
+    details: dict[str, Any] = {
+        "schemaVersion": "workflow-trigger-signature-rejection-audit.v1",
+        "triggerId": str(trigger["triggerId"]),
+        "failureStage": "webhook_signature_verification",
+        "signatureState": verification_state,
+    }
+    for source_key, target_key in (
+        ("rawBodySha256", "bodySha256"),
+        ("rawBodySizeBytes", "bodySizeBytes"),
+        ("rawContentType", "contentType"),
+        ("receivedAt", "receivedAt"),
+    ):
+        value = metadata.get(source_key)
+        if value not in (None, "", []):
+            details[target_key] = value
+    if policy is not None:
+        safe_policy = policy.safe_details()
+        details["provider"] = safe_policy.get("provider")
+        details["policyMode"] = safe_policy.get("mode")
+        details["verificationProvider"] = safe_policy.get("verificationProvider")
+        details["algorithm"] = safe_policy.get("algorithm")
+        details["replayProtectionRequired"] = safe_policy.get("replayProtectionRequired")
+    if policy_state:
+        details["policyState"] = policy_state
+    if verification_error:
+        header = verification_error.get("header")
+        if header:
+            details["header"] = header
+    return details
 
 
 def _signature_details(
@@ -259,6 +364,12 @@ def _verification_details(result: WebhookSignatureVerificationResult) -> dict[st
         "toleranceSeconds": result.tolerance_seconds,
         "signedPayloadSha256": result.signed_payload_sha256,
     }
+
+
+def _secret_error_verification_state(exc: SecretProviderError) -> str:
+    if exc.state in {"missing", "malformed", "unsupported"}:
+        return exc.state
+    return "missing"
 
 
 def _mark_inbox_dispatch_dead_lettered(

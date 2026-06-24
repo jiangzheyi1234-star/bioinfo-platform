@@ -78,7 +78,7 @@ def _verify_github(input: WebhookSignatureVerificationInput) -> WebhookSignature
     if not signature.startswith("sha256=") or len(signature) != len("sha256=") + 64:
         _raise("WEBHOOK_SIGNATURE_MALFORMED", input=input, state="malformed", header="X-Hub-Signature-256")
     expected = "sha256=" + hmac.new(input.secret, input.raw_body, hashlib.sha256).hexdigest()
-    _require_match(signature, expected, input=input)
+    _require_match(signature, expected, input=input, header="X-Hub-Signature-256")
     return _verified_result(input, signature_header="X-Hub-Signature-256", timestamp_header=None, timestamp=None)
 
 
@@ -90,7 +90,7 @@ def _verify_slack(input: WebhookSignatureVerificationInput) -> WebhookSignatureV
         _raise("WEBHOOK_SIGNATURE_MALFORMED", input=input, state="malformed", header="X-Slack-Signature")
     base = b"v0:" + timestamp_value.encode("utf-8") + b":" + input.raw_body
     expected = "v0=" + hmac.new(input.secret, base, hashlib.sha256).hexdigest()
-    _require_match(signature, expected, input=input)
+    _require_match(signature, expected, input=input, header="X-Slack-Signature")
     return _verified_result(
         input,
         signature_header="X-Slack-Signature",
@@ -112,7 +112,7 @@ def _verify_stripe(input: WebhookSignatureVerificationInput) -> WebhookSignature
     signed_payload = timestamp_value.encode("utf-8") + b"." + input.raw_body
     expected = hmac.new(input.secret, signed_payload, hashlib.sha256).hexdigest()
     if not any(hmac.compare_digest(candidate, expected) for candidate in signatures):
-        _raise("WEBHOOK_SIGNATURE_MISMATCH", input=input, state="mismatch")
+        _raise("WEBHOOK_SIGNATURE_MISMATCH", input=input, state="mismatch", header="Stripe-Signature")
     return _verified_result(
         input,
         signature_header="Stripe-Signature",
@@ -177,9 +177,15 @@ def _stripe_signature_parts(value: str) -> dict[str, list[str]]:
     return parts
 
 
-def _require_match(provided: str, expected: str, *, input: WebhookSignatureVerificationInput) -> None:
+def _require_match(
+    provided: str,
+    expected: str,
+    *,
+    input: WebhookSignatureVerificationInput,
+    header: str,
+) -> None:
     if not hmac.compare_digest(provided, expected):
-        _raise("WEBHOOK_SIGNATURE_MISMATCH", input=input, state="mismatch")
+        _raise("WEBHOOK_SIGNATURE_MISMATCH", input=input, state="mismatch", header=header)
 
 
 def _verified_result(

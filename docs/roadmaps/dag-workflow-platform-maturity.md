@@ -261,6 +261,7 @@ Progress:
 - The webhook inbox FastAPI route now captures the raw request body, headers, and receipt time into the raw envelope before validating the existing inbox JSON payload, so later signature verification can use exact signed bytes while current storage still records `unsupported` signature state until verified metadata columns are added.
 - Webhook inbox storage now persists safe raw request and signature audit metadata: raw body hash, raw body size, content type, header names, receipt time, and schema-tagged `signatureDetails`, while keeping `signatureState` as `unsupported` until secret-provider-backed verification is wired.
 - Signed webhook inbox delivery now verifies required GitHub/Slack/Stripe-style policies from the raw envelope before JSON payload validation and dispatch when the trigger references an `env://` signing secret. Verified deliveries persist `signatureState: verified` and safe policy/credential/verification metadata; failed signatures are rejected before inbox persistence and do not create trigger events or runs.
+- Rejected signed webhook deliveries now record hash-chained governance deny audit evidence with safe raw-envelope metadata and provider/policy context, while still avoiding persisted inbox payloads, raw body bytes, signature header values, and secret references.
 
 Recommended sequence:
 
