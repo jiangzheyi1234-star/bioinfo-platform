@@ -12,6 +12,10 @@ from apps.remote_runner.artifact_lifecycle_service import (
     preview_artifact_gc,
     run_artifact_gc,
 )
+from apps.remote_runner.artifact_lifecycle_controller import (
+    ARTIFACT_LIFECYCLE_CONTROLLER_EVENT_TYPE,
+    evaluate_artifact_lifecycle_controller_tick,
+)
 from apps.remote_runner.artifact_product_service import build_result_artifact_audit, export_result_package
 from apps.remote_runner.evidence_storage import list_evidence_events
 from apps.remote_runner.governance_audit import list_governance_audit_events
@@ -67,6 +71,80 @@ def test_artifact_gc_preview_reports_usage_and_protection_reasons(tmp_path: Path
     assert "run_not_terminal" in protected_by_artifact[active["artifactId"]]
     assert "export_package" in protected_by_artifact[exported["artifactId"]]
     assert "production_evidence" in protected_by_artifact[production["artifactId"]]
+
+
+def test_artifact_lifecycle_controller_tick_previews_without_deleting_payloads(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    artifact = _persist_managed_artifact(cfg, "run_gc_controller", status="completed")
+    artifact_path = Path(artifact["path"])
+
+    tick = evaluate_artifact_lifecycle_controller_tick(
+        cfg,
+        {
+            "retentionDays": 30,
+            "quotaBytes": 0,
+            "actor": "artifact-supervisor",
+        },
+    )
+    fetched = fetch_run_results(cfg, "run_gc_controller")["artifacts"][0]
+    evidence = list_evidence_events(
+        cfg,
+        subject_kind="artifact_lifecycle_controller",
+        subject_id=tick["tickId"],
+        event_type=ARTIFACT_LIFECYCLE_CONTROLLER_EVENT_TYPE,
+    )
+    gc_evidence = list_evidence_events(
+        cfg,
+        subject_kind="artifact_gc",
+        subject_id=tick["gcPreview"]["planId"],
+        event_type="artifact.gc.v1",
+    )
+    governance = list_governance_audit_events(
+        cfg,
+        subject_kind="artifact_lifecycle_controller",
+        subject_id=tick["tickId"],
+        action="artifact.lifecycle.controller_tick",
+    )["items"]
+
+    assert tick["schemaVersion"] == "h2ometa.artifact-lifecycle-controller-tick.v1"
+    assert tick["executionMode"] == "preview-only"
+    assert tick["deleteConfirmationRequired"] is True
+    assert tick["quotaOverageBytes"] == artifact["sizeBytes"]
+    assert tick["wouldDeleteCount"] == 1
+    assert tick["gcPreview"]["candidateCount"] == 1
+    assert tick["gcPreview"]["candidates"][0]["artifactIds"] == [artifact["artifactId"]]
+    assert artifact_path.is_file()
+    assert fetched["lifecycleState"] == "active"
+    assert fetched["deletedAt"] is None
+    assert evidence[-1]["eventType"] == ARTIFACT_LIFECYCLE_CONTROLLER_EVENT_TYPE
+    assert evidence[-1]["payload"]["deleteConfirmationRequired"] is True
+    assert "storageUri" not in repr(evidence[-1]["payload"])
+    assert "path" not in repr(evidence[-1]["payload"])
+    assert gc_evidence == []
+    assert governance[-1]["actor"] == "artifact-supervisor"
+    assert governance[-1]["details"]["planId"] == tick["gcPreview"]["planId"]
+    assert governance[-1]["details"]["deleteConfirmationRequired"] is True
+
+
+def test_artifact_lifecycle_controller_quota_overage_does_not_broaden_gc_eligibility(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    active = _persist_managed_artifact(cfg, "run_gc_controller_active", status="running")
+
+    tick = evaluate_artifact_lifecycle_controller_tick(
+        cfg,
+        {
+            "retentionDays": 30,
+            "quotaBytes": 0,
+            "actor": "artifact-supervisor",
+        },
+    )
+
+    assert tick["quotaOverageBytes"] == active["sizeBytes"]
+    assert tick["wouldDeleteCount"] == 0
+    assert tick["gcPreview"]["candidateCount"] == 0
+    assert tick["gcPreview"]["deleteBytes"] == 0
+    assert tick["gcPreview"]["protected"][0]["artifactIds"] == [active["artifactId"]]
+    assert "run_not_terminal" in tick["gcPreview"]["protected"][0]["reasons"]
 
 
 def test_artifact_gc_run_deletes_local_payload_and_records_tombstone_evidence_and_audit(tmp_path: Path) -> None:

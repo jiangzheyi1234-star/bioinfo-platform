@@ -315,6 +315,7 @@ Progress:
 - GC export protection is metadata-backed through active result package export records, so deleting or moving the ZIP does not make exported artifact payloads eligible for collection.
 - Run detail now exposes result package export controls that default to metadata-only packages, keep full-payload export explicit, and surface checksums, manifest hash, export evidence, and a backend-owned download affordance without exposing raw server filesystem paths.
 - Result package exports now expose a safe browser download contract through `download.href` instead of raw server filesystem paths. The backend resolves downloads by `packageExportId`, cross-checks `resultId`, verifies the managed package root, active lifecycle state, size, and SHA-256 before streaming, and returns attachment/nosniff/no-store headers through the local API proxy.
+- Artifact lifecycle now has an explicit opt-in preview-only controller supervisor that evaluates TTL/quota policy, produces a GC preview plan, and records controller evidence/audit without deleting payloads or bypassing the explicit GC confirmation gate.
 
 Recommended sequence:
 

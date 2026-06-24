@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from .audit_routes import router as audit_router
+from .artifact_lifecycle_controller import start_configured_artifact_lifecycle_controller_supervisor
 from .database_routes import router as database_router
 from .execution_query_routes import router as execution_query_router
 from .health_routes import router as health_router
@@ -26,6 +27,7 @@ async def lifespan(app: FastAPI):
             start_configured_run_worker_supervisor(),
             start_configured_tool_prepare_worker_supervisor(),
             start_configured_workflow_trigger_scheduler_supervisor(),
+            start_configured_artifact_lifecycle_controller_supervisor(),
         )
         if supervisor is not None
     ]

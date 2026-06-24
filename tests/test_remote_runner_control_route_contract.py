@@ -81,12 +81,14 @@ def test_remote_runner_app_lifespan_starts_durable_worker_supervisor() -> None:
     assert "from .worker_supervisor import start_configured_run_worker_supervisor" in main_source
     assert "start_configured_tool_prepare_worker_supervisor" in main_source
     assert "from .trigger_scheduler import start_configured_workflow_trigger_scheduler_supervisor" in main_source
+    assert "from .artifact_lifecycle_controller import start_configured_artifact_lifecycle_controller_supervisor" in main_source
     assert "@asynccontextmanager" in main_source
     assert "async def lifespan(" in main_source
     assert "FastAPI(title=\"H2OMeta Remote Runner\", version=\"0.1.1-control-plane\", lifespan=lifespan)" in main_source
     assert "start_configured_run_worker_supervisor()" in main_source
     assert "start_configured_tool_prepare_worker_supervisor()" in main_source
     assert "start_configured_workflow_trigger_scheduler_supervisor()" in main_source
+    assert "start_configured_artifact_lifecycle_controller_supervisor()" in main_source
     assert "supervisor.stop()" in main_source
 
 
