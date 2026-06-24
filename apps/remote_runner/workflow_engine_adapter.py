@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+import re
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
@@ -10,6 +12,9 @@ class WorkflowRuntimeCommandError(RuntimeError):
     pass
 
 
+RULE_RERUN_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
 class WorkflowEngineAdapter(Protocol):
     def dry_run(
         self,
@@ -17,6 +22,8 @@ class WorkflowEngineAdapter(Protocol):
         snakefile: Path,
         work_dir: Path,
         config_path: Path,
+        forcerun_rules: list[str] | None = None,
+        rerun_incomplete: bool = False,
     ) -> Any:
         ...
 
@@ -27,6 +34,8 @@ class WorkflowEngineAdapter(Protocol):
         work_dir: Path,
         config_path: Path,
         event_log_path: Path | None = None,
+        forcerun_rules: list[str] | None = None,
+        rerun_incomplete: bool = False,
         on_poll: ProcessPoll | None = None,
     ) -> Any:
         ...
@@ -54,9 +63,20 @@ class SnakemakeEngineAdapter:
         snakefile: Path,
         work_dir: Path,
         config_path: Path,
+        forcerun_rules: list[str] | None = None,
+        rerun_incomplete: bool = False,
     ) -> Any:
         return self._execute(
-            [*self._execution_args(snakefile=snakefile, work_dir=work_dir, config_path=config_path), "-n"]
+            [
+                *self._execution_args(
+                    snakefile=snakefile,
+                    work_dir=work_dir,
+                    config_path=config_path,
+                    forcerun_rules=forcerun_rules,
+                    rerun_incomplete=rerun_incomplete,
+                ),
+                "-n",
+            ]
         )
 
     def run(
@@ -66,6 +86,8 @@ class SnakemakeEngineAdapter:
         work_dir: Path,
         config_path: Path,
         event_log_path: Path | None = None,
+        forcerun_rules: list[str] | None = None,
+        rerun_incomplete: bool = False,
         on_poll: ProcessPoll | None = None,
     ) -> Any:
         return self._execute(
@@ -74,6 +96,8 @@ class SnakemakeEngineAdapter:
                 work_dir=work_dir,
                 config_path=config_path,
                 event_log_path=event_log_path,
+                forcerun_rules=forcerun_rules,
+                rerun_incomplete=rerun_incomplete,
             ),
             on_poll=on_poll,
         )
@@ -103,8 +127,11 @@ class SnakemakeEngineAdapter:
         work_dir: Path,
         config_path: Path,
         event_log_path: Path | None = None,
+        forcerun_rules: list[str] | None = None,
+        rerun_incomplete: bool = False,
     ) -> list[str]:
         profile_args = self._profile_args()
+        normalized_forcerun_rules = _normalized_forcerun_rules(forcerun_rules)
         command = [
             *self._snakemake_command(),
             "--snakefile",
@@ -117,6 +144,10 @@ class SnakemakeEngineAdapter:
         else:
             command.extend(["--cores", "1", "--use-conda"])
         command.extend(["--configfile", str(config_path)])
+        if rerun_incomplete:
+            command.append("--rerun-incomplete")
+        if normalized_forcerun_rules:
+            command.extend(["--forcerun", *normalized_forcerun_rules])
         if event_log_path is not None:
             command.extend(
                 [
@@ -140,3 +171,18 @@ class SnakemakeEngineAdapter:
         if workflow_profile_dir is None:
             return []
         return ["--workflow-profile", str(workflow_profile_dir)]
+
+
+def _normalized_forcerun_rules(rules: list[str] | None) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw_rule in rules or []:
+        rule = str(raw_rule or "").strip()
+        if not rule:
+            raise WorkflowRuntimeCommandError("SNAKEMAKE_FORCERUN_RULE_REQUIRED")
+        if not RULE_RERUN_NAME_RE.fullmatch(rule):
+            raise WorkflowRuntimeCommandError(f"SNAKEMAKE_FORCERUN_RULE_INVALID: {rule}")
+        if rule not in seen:
+            normalized.append(rule)
+            seen.add(rule)
+    return normalized

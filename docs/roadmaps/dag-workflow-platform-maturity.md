@@ -196,6 +196,7 @@ Delivered foundation:
 - Added a run detail retry action that is enabled only when the execution context reports `eligibleNow`; rule-level partial retry/resume remains unsupported instead of falling back silently.
 - Added a read-only `ruleRetryPlan` contract to run execution context that computes failed-rule downstream invalidation/rerun scope from the immutable WorkflowRevision graph, selects the latest failed rule attempt for planning, and exposes cache/artifact adoption boundaries while keeping partial rule retry unsupported until execution semantics are safe.
 - Added read-only failed-rule diagnostics in the run detail surface, grouping failed rule identity, attempt/lease, latest failure event, event details, log paths, stderr context, and command summary without adding per-rule retry/resume actions.
+- Snakemake engine adapter now has an internal rule-rerun command contract for future partial retry execution: explicit `--rerun-incomplete` plus `--forcerun <rule>` arguments are supported for dry-run/run commands, unsafe broad-force flags remain absent, and public retry API/UI stays whole-run only until output restoration and cache/artifact adoption are proven.
 
 Still pending before this phase is complete:
 
