@@ -227,9 +227,44 @@ def scan_workflow_security_contract(relative: str, source: str) -> list[Finding]
     if "workflow_run:" in source:
         findings.append(Finding("dangerous-workflow-trigger", relative, 0, "workflow_run is not allowed"))
     findings.extend(scan_workflow_action_pinning(relative, source))
+    findings.extend(scan_workflow_checkout_credentials(relative, source))
     findings.extend(scan_workflow_artifact_retention(relative, source))
     findings.extend(scan_workflow_permissions(relative, source))
     findings.extend(scan_dependency_review_workflow_contract(relative, source))
+    return findings
+
+
+def scan_workflow_checkout_credentials(relative: str, source: str) -> list[Finding]:
+    findings: list[Finding] = []
+    lines = source.splitlines()
+    for index, line in enumerate(lines):
+        match = UPLOAD_ARTIFACT_USES_RE.match(line)
+        if not match:
+            continue
+        action_ref = match.group("action").strip().strip("'\"")
+        if not action_ref.lower().startswith("actions/checkout@"):
+            continue
+        step_indent = _workflow_step_indent(line)
+        with_indent = _workflow_step_child_block_indent(lines, index + 1, step_indent, "with")
+        setting_line, setting_value = (
+            _workflow_mapping_literal_setting(
+                lines,
+                with_indent[0] + 1,
+                with_indent[1],
+                "persist-credentials",
+            )
+            if with_indent is not None
+            else (None, None)
+        )
+        if setting_value != "false":
+            findings.append(
+                Finding(
+                    "workflow-checkout-persist-credentials",
+                    relative,
+                    setting_line or index + 1,
+                    "actions/checkout steps must set persist-credentials: false",
+                )
+            )
     return findings
 
 
@@ -334,6 +369,47 @@ def _upload_artifact_retention(
         match = RETENTION_DAYS_RE.match(line)
         if match:
             return index + 1, match.group(1).strip()
+    return None, None
+
+
+def _workflow_step_child_block_indent(
+    lines: list[str],
+    start: int,
+    step_indent: int,
+    key: str,
+) -> tuple[int, int] | None:
+    block_re = re.compile(rf"^\s*{re.escape(key)}:\s*(?:#.*)?$")
+    for index in range(start, len(lines)):
+        line = lines[index]
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        if indent <= step_indent:
+            break
+        if block_re.match(line):
+            return index, indent
+    return None
+
+
+def _workflow_mapping_literal_setting(
+    lines: list[str],
+    start: int,
+    mapping_indent: int,
+    key: str,
+) -> tuple[int | None, str | None]:
+    setting_re = re.compile(rf"^\s*{re.escape(key)}:\s*(.+?)\s*(?:#.*)?$")
+    for index in range(start, len(lines)):
+        line = lines[index]
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        if indent <= mapping_indent:
+            break
+        if indent != mapping_indent + 2:
+            continue
+        match = setting_re.match(line)
+        if match:
+            return index + 1, match.group(1).strip().strip("'\"").lower()
     return None, None
 
 

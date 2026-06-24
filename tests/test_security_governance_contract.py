@@ -77,6 +77,8 @@ def test_security_governance_audit_script_contract() -> None:
     assert "scan_workflow_artifact_retention" in source
     assert "workflow-artifact-retention-missing" in source
     assert "workflow-artifact-retention-too-long" in source
+    assert "scan_workflow_checkout_credentials" in source
+    assert "workflow-checkout-persist-credentials" in source
     assert "workflow_run is not allowed" in source
     assert "scan_workflow_security_contract" in source
     assert "WORKFLOW_JOB_WRITE_PERMISSION_ALLOWLIST" in source
@@ -214,6 +216,46 @@ jobs:
           comment-summary-in-pr: on-failure
           warn-only: true
 """
+    checkout_persist_credentials = """
+name: Checkout Token
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+"""
+    checkout_persist_credentials_true = """
+name: Checkout Token True
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: true
+"""
+    checkout_persist_credentials_env_spoof = """
+name: Checkout Token Env Spoof
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        env:
+          persist-credentials: false
+"""
 
     assert "unpinned-action" in _finding_codes(
         audit.scan_workflow_security_contract(".github/workflows/unsafe.yml", unversioned_action)
@@ -254,6 +296,24 @@ jobs:
     assert "dependency-review-severity" in dependency_review_codes
     assert "dependency-review-pr-comments" in dependency_review_codes
     assert "dependency-review-warn-only" in dependency_review_codes
+    assert "workflow-checkout-persist-credentials" in _finding_codes(
+        audit.scan_workflow_security_contract(
+            ".github/workflows/unsafe.yml",
+            checkout_persist_credentials,
+        )
+    )
+    assert "workflow-checkout-persist-credentials" in _finding_codes(
+        audit.scan_workflow_security_contract(
+            ".github/workflows/unsafe.yml",
+            checkout_persist_credentials_true,
+        )
+    )
+    assert "workflow-checkout-persist-credentials" in _finding_codes(
+        audit.scan_workflow_security_contract(
+            ".github/workflows/unsafe.yml",
+            checkout_persist_credentials_env_spoof,
+        )
+    )
 
 
 def test_security_governance_audit_accepts_release_permission_allowlist() -> None:
@@ -281,6 +341,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294
         with:
           fail-on-severity: moderate

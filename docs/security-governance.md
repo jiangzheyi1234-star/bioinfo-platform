@@ -86,6 +86,7 @@ rejected at Local API startup.
 - GitHub Actions used by repository workflows must be pinned to full commit SHAs.
 - Default workflow permissions must stay least-privilege, with `contents: read` unless a job explicitly needs more.
 - CI governance audit parses workflow permission blocks and rejects unapproved write permissions, unversioned external actions, `pull_request_target`, `workflow_run` triggers, and `actions/upload-artifact` retention above 2 days. Current write-permission exceptions are limited to release artifact attestations and explicit GitHub Release asset publishing.
+- GitHub Actions checkout steps must set `persist-credentials: false`; jobs that need GitHub API access must pass the least-privilege `github.token` explicitly to the command that needs it instead of leaving credentials in local git config.
 - GitHub Actions artifacts are short-lived handoff/debug files only. Durable release deliverables must live in GitHub Release assets, a registry, or an explicitly selected object store with integrity metadata.
 - CI requires root and web npm lockfiles to pass moderate-or-higher audit using the official npm registry.
 - CI requires `pip-audit` for locked Python dependencies. Any ignore must be scoped to a single vulnerability ID and documented in this file with a removal trigger.
