@@ -9,9 +9,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from core.governance_policy import HIGH_RISK_API_POLICIES, validate_governance_policy  # noqa: E402
-from scripts.dependabot_governance import (  # noqa: E402
-    scan_dependabot_version_updates_contract as _scan_dependabot_version_updates_contract,
-)
+from scripts.dependabot_governance import scan_dependabot_version_updates_contract as _scan_dependabot_version_updates_contract  # noqa: E402
+from scripts.github_ruleset_governance import GITHUB_MAIN_BRANCH_RULESET, scan_github_main_branch_ruleset_contract as _scan_github_main_branch_ruleset_contract  # noqa: E402
 from scripts.security_analysis_governance import (  # noqa: E402
     SECURITY_ANALYSIS_WORKFLOW,
     scan_required_ci_security_analysis_contract as _scan_required_ci_security_analysis_contract,
@@ -232,19 +231,16 @@ def scan_security_contracts() -> list[Finding]:
         source = workflow.read_text(encoding="utf-8")
         relative = workflow.relative_to(ROOT).as_posix()
         findings.extend(scan_workflow_security_contract(relative, source))
+    ruleset_path = ROOT / GITHUB_MAIN_BRANCH_RULESET
+    ruleset_source = ruleset_path.read_text(encoding="utf-8") if ruleset_path.exists() else ""
+    for item in _scan_github_main_branch_ruleset_contract(GITHUB_MAIN_BRANCH_RULESET, ruleset_source):
+        findings.append(Finding(item.code, item.path, item.line, item.detail))
     codeowners = ROOT / ".github" / "CODEOWNERS"
     if not codeowners.exists():
         findings.append(Finding("codeowners-missing", ".github/CODEOWNERS", 0, "security-sensitive automation requires CODEOWNERS"))
     else:
         source = codeowners.read_text(encoding="utf-8")
-        for marker in (
-            "/.github/workflows/",
-            "/.github/dependabot.yml",
-            "/scripts/dependabot_governance.py",
-            "/scripts/security_governance_audit.py",
-            "/scripts/security_analysis_governance.py",
-            "/core/governance_policy.py",
-        ):
+        for marker in ("/.github/rulesets/", "/.github/workflows/", "/.github/dependabot.yml", "/scripts/dependabot_governance.py", "/scripts/github_ruleset_governance.py", "/scripts/security_governance_audit.py", "/scripts/security_analysis_governance.py", "/core/governance_policy.py"):
             if marker not in source:
                 findings.append(Finding("codeowners-incomplete", ".github/CODEOWNERS", 0, f"CODEOWNERS missing {marker}"))
 

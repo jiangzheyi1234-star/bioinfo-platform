@@ -36,6 +36,8 @@ def test_security_governance_doc_is_current_contract() -> None:
         "SSH_HOST_KEY_UNTRUSTED",
         "pip-audit",
         "Dependabot",
+        "GitHub ruleset target policies",
+        "main-branch ruleset",
         "scripts/remote_exec.py",
         "0.0.0.0",
         "constant-time",
@@ -65,8 +67,9 @@ def test_local_api_cors_stays_explicit_and_desktop_scoped() -> None:
 def test_security_governance_audit_script_contract() -> None:
     source = _source("scripts/security_governance_audit.py")
     security_analysis_source = _source("scripts/security_analysis_governance.py")
+    github_ruleset_source = _source("scripts/github_ruleset_governance.py")
     dependabot_source = _source("scripts/dependabot_governance.py")
-    combined_source = source + "\n" + security_analysis_source
+    combined_source = source + "\n" + security_analysis_source + "\n" + github_ruleset_source
 
     assert "git" in source and "ls-files" in source
     assert "private-key-block" in source
@@ -112,6 +115,11 @@ def test_security_governance_audit_script_contract() -> None:
     assert "dependabot-open-pr-limit" in dependabot_source
     assert "dependabot-update-group" in dependabot_source
     assert "dependabot-update-unapproved" in dependabot_source
+    assert "github_ruleset_governance" in source
+    assert "GITHUB_MAIN_BRANCH_RULESET" in combined_source
+    assert "scan_github_main_branch_ruleset_contract" in combined_source
+    assert "github-ruleset-status-checks" in combined_source
+    assert "github-ruleset-optional-security-required" in combined_source
     assert "ssh-auto-add-host-key" in source
     assert "ssh-host-key-reject-policy" in source
     assert "ssh-sha1-rsa-enabled" in source

@@ -379,6 +379,7 @@ Progress:
 - CI security governance audit now models GitHub Actions workflow permissions, rejects unversioned external actions and privileged follow-up triggers, caps `actions/upload-artifact` retention at 2 days for handoff/debug files, and allowlists only the explicit release-attestation and release-publishing write scopes needed by current workflows.
 - GitHub Actions checkout steps now set `persist-credentials: false`, and the CI security governance audit rejects future checkout steps that would leave `github.token` credentials in local git config.
 - Dependabot version updates now cover GitHub Actions, root `uv`, root npm, `apps/web` npm, and `apps/desktop` npm surfaces with weekly grouped updates and a five-open-PR cap. The security governance audit rejects missing, unapproved, or noisy Dependabot entries so dependency upkeep remains part of the production gate instead of an ad hoc operator task.
+- The desired GitHub main-branch ruleset is now source-controlled as `.github/rulesets/main-branch-ruleset.target.json` and enforced by the security governance audit as a target policy: no bypass actors, PR/code-owner/review-thread gates, linear history, deletion/force-push protection, and only the stable `required / ci-green` aggregate as a required status check until optional Security Analysis gates are proven available.
 
 Recommended sequence:
 

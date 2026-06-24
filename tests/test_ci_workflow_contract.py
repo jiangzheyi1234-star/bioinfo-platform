@@ -209,8 +209,10 @@ def test_codeowners_covers_security_sensitive_automation() -> None:
     source = (REPOSITORY_ROOT / ".github" / "CODEOWNERS").read_text(encoding="utf-8")
 
     assert "/.github/workflows/ @jiangzheyi1234-star" in source
+    assert "/.github/rulesets/ @jiangzheyi1234-star" in source
     assert "/.github/dependabot.yml @jiangzheyi1234-star" in source
     assert "/scripts/dependabot_governance.py @jiangzheyi1234-star" in source
+    assert "/scripts/github_ruleset_governance.py @jiangzheyi1234-star" in source
     assert "/scripts/security_governance_audit.py @jiangzheyi1234-star" in source
     assert "/scripts/security_analysis_governance.py @jiangzheyi1234-star" in source
     assert "/core/governance_policy.py @jiangzheyi1234-star" in source

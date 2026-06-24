@@ -93,7 +93,8 @@ rejected at Local API startup.
 - Dependency Review is enabled as a PR-only `security / dependency-review` job in the stable `required / ci-green` aggregate. It uses a SHA-pinned `actions/dependency-review-action`, least-privilege `contents: read`, `fail-on-severity: moderate`, no PR comments, and no `pull_request_target`.
 - Dependabot version updates are enabled for GitHub Actions, root `uv`, root npm, `apps/web` npm, and `apps/desktop` npm dependency surfaces. Each update entry is weekly, grouped by ecosystem/directory, and capped at five open PRs so dependency drift stays visible without flooding release work. Workflow update PRs must not be auto-merged; reviewers must verify full-SHA action updates against the intended upstream release because version comments are only hints.
 - CodeQL and OpenSSF Scorecard are wired as an independent, non-required `Security Analysis` workflow for `main` pushes, weekly scheduled runs, and explicit manual runs. The workflow uses SHA-pinned actions, job-scoped least-privilege `security-events: write`/`id-token: write` permissions only where result upload requires them, avoids untrusted PR upload triggers, and is enforced by `scripts/security_governance_audit.py`. Do not add these jobs to `required / ci-green` or branch protection until repository feature availability has proven them green on the target repository.
-- `.github/CODEOWNERS` owns workflow files, `.github/dependabot.yml`, `scripts/dependabot_governance.py`, `scripts/security_governance_audit.py`, and `core/governance_policy.py` so branch protection or rulesets can require review for security-sensitive automation changes when repository permissions allow.
+- `.github/CODEOWNERS` owns workflow files, GitHub ruleset target policies, `.github/dependabot.yml`, `scripts/dependabot_governance.py`, `scripts/github_ruleset_governance.py`, `scripts/security_governance_audit.py`, and `core/governance_policy.py` so branch protection or rulesets can require review for security-sensitive automation changes when repository permissions allow.
+- `.github/rulesets/main-branch-ruleset.target.json` is the versioned target policy for the GitHub main-branch ruleset. It targets `refs/heads/main`, uses `enforcement: active`, disallows bypass actors, blocks deletion and force pushes, requires pull requests with code-owner review and resolved review threads, enforces linear history, and requires only the stable aggregate `required / ci-green` status check until optional Security Analysis platform gates are proven available. `scripts/security_governance_audit.py` validates this file; applying it to GitHub remains a manual repository-administration action, not an implicit CI side effect.
 - Remote runner production promotion must continue to require release artifact integrity evidence, including manifest, digest, SBOM, provenance, and attestation where available.
 
 ### Remote Operation Audit
@@ -136,7 +137,8 @@ Before treating a build as production-ready:
 8. Remote runner release artifacts include manifest, digest, SBOM, provenance, and attestation evidence.
 9. Actions artifact handoff files are retained for no more than 2 days; durable deliverables are in release assets or an approved registry/object store.
 10. Dependency Review has run green in `required / ci-green`; CodeQL and Scorecard have either run green in the independent `Security Analysis` workflow and are recorded with `-SecurityAnalysisRunUrl`, or are explicitly recorded as unavailable optional platform gates with `-SecurityAnalysisUnavailableReason` for the handoff.
-11. Any scoped runtime limit is listed in this document or the maturity roadmap with an owner and removal trigger.
+11. The versioned GitHub main-branch ruleset target policy is audit-clean, and any gap between the target policy and actual repository enforcement is recorded as repository-administration handoff evidence.
+12. Any scoped runtime limit is listed in this document or the maturity roadmap with an owner and removal trigger.
 
 ## Scoped Runtime Limits
 
@@ -145,7 +147,8 @@ Before treating a build as production-ready:
 3. Server multi-user mode remains planned, not implemented, and fail-closed at startup. Public deployment requires auth, RBAC, tenant isolation, audited admin actions, TLS, and production image hardening.
 4. High-risk API policies that are marked `required-before-multi-user` must gain route-level auth/RBAC enforcement and hash-chained audit evidence before `server-multi-user` can move into `SUPPORTED_DEPLOYMENT_MODES`.
 5. Private-repository CodeQL and Scorecard uploads depend on GitHub plan and repository feature availability. They are intentionally independent from `required / ci-green`; do not add them as required gates until the repository can run them green.
-6. Current remote-runner RBAC is a single machine-token role boundary for the authenticated runner API. It is not a per-user, tenant, or project authorization model; object-level tenant/project resource resolvers remain required before public multi-user hosting.
+6. GitHub ruleset enforcement depends on repository plan and administrator permissions. Until the target ruleset is applied and verified remotely, the checked-in ruleset JSON plus governance audit is the source-controlled target policy, not proof of remote enforcement.
+7. Current remote-runner RBAC is a single machine-token role boundary for the authenticated runner API. It is not a per-user, tenant, or project authorization model; object-level tenant/project resource resolvers remain required before public multi-user hosting.
 
 ## Practice Baseline
 
