@@ -428,6 +428,8 @@ def _bundle_ports(value: Any) -> list[dict[str, Any]]:
             "mimeType": str(item.get("mimeType") or "").strip(),
             "data": str(item.get("data") or item.get("edamData") or "").strip(),
             "format": str(item.get("format") or item.get("edamFormat") or "").strip(),
+            "operation": str(item.get("operation") or item.get("edamOperation") or "").strip(),
+            "resource": str(item.get("resource") or item.get("edamResource") or "").strip(),
             "required": bool(item.get("required")),
         }
         path = str(item.get("path") or "").strip()

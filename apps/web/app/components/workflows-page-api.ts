@@ -145,6 +145,8 @@ export type WorkflowToolRecommendationItem = {
     mimeType?: string;
     data?: string;
     format?: string;
+    operation?: string;
+    resource?: string;
   };
   matchedFields: string[];
   confidence: number;
@@ -361,8 +363,11 @@ function capabilityGraphRecommendation(
       required: inputPort.required,
       type: String(inputPort.type || ""),
       kind: String(inputPort.kindLabel || inputPort.kind || ""),
+      mimeType: String(inputPort.mimeType || ""),
       data: String(inputPort.data || ""),
       format: String(inputPort.format || ""),
+      operation: String(inputPort.operation || ""),
+      resource: String(inputPort.resource || ""),
     },
     matchedFields,
     confidence: Math.min(1, 0.45 + matchedFields.length * 0.15),

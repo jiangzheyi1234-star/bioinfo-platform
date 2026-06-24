@@ -111,14 +111,16 @@ def port_compatibility_decision(input_spec: dict[str, str], output_spec: dict[st
     mismatch = mismatched_compatibility_field(input_spec, output_spec)
     score = port_compatibility_score(input_spec, output_spec)
     generic_fields = generic_compatibility_fields(input_spec, output_spec)
+    advisory_fields = matched_advisory_compatibility_fields(input_spec, output_spec)
     return {
         "compatible": score is not None,
         "score": score,
         "matchedFields": matched_compatibility_fields(input_spec, output_spec),
         "genericFields": generic_fields,
-        "advisoryFields": matched_advisory_compatibility_fields(input_spec, output_spec),
+        "advisoryFields": advisory_fields,
         "mismatchedField": mismatch,
         "hardChecks": _hard_checks(mismatch=mismatch, generic_fields=generic_fields),
+        "advisoryChecks": _advisory_checks(advisory_fields),
         "inputSpec": dict(input_spec),
         "outputSpec": dict(output_spec),
     }
@@ -213,6 +215,10 @@ def _hard_checks(*, mismatch: str, generic_fields: list[str]) -> list[str]:
     checks = ["port-direction:output-to-input", "semantic-fields-compatible"]
     checks.extend(f"{field}:generic-compatible" for field in generic_fields)
     return checks
+
+
+def _advisory_checks(fields: list[str]) -> list[str]:
+    return [f"{field}:advisory-compatible" for field in fields]
 
 
 def _rule_io_items(rule_template: dict[str, Any], key: str) -> list[dict[str, Any]]:

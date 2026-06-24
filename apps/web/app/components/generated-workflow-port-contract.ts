@@ -45,6 +45,7 @@ export type RulePortCompatibilityDecision = {
   advisoryFields: RulePortCompatibilityField[];
   mismatchedField?: RulePortCompatibilityField;
   hardChecks: string[];
+  advisoryChecks: string[];
 };
 
 export function readPortCompatibility(item: Record<string, unknown>): RulePortCompatibilitySpec {
@@ -107,14 +108,16 @@ export function portCompatibilityDecision(
   const mismatchedField = mismatchedPortCompatibilityField(input, output);
   const score = portCompatibilityScore(input, output);
   const genericFields = genericPortCompatibilityFields(input, output);
+  const advisoryFields = matchedAdvisoryPortCompatibilityFields(input, output);
   return {
     compatible: score !== null,
     score,
     matchedFields: matchedPortCompatibilityFields(input, output),
     genericFields,
-    advisoryFields: matchedAdvisoryPortCompatibilityFields(input, output),
+    advisoryFields,
     ...(mismatchedField ? { mismatchedField } : {}),
     hardChecks: hardCompatibilityChecks(mismatchedField, genericFields),
+    advisoryChecks: advisoryCompatibilityChecks(advisoryFields),
   };
 }
 
@@ -212,6 +215,10 @@ function hardCompatibilityChecks(
     "semantic-fields-compatible",
     ...genericFields.map((field) => `${field}:generic-compatible`),
   ];
+}
+
+function advisoryCompatibilityChecks(advisoryFields: RulePortCompatibilityField[]): string[] {
+  return advisoryFields.map((field) => `${field}:advisory-compatible`);
 }
 
 function stringValue(value: unknown): string {

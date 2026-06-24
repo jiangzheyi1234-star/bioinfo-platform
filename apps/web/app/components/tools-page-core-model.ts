@@ -54,8 +54,12 @@ export type ToolCapabilitySlot = {
   mimeType?: string;
   data?: string;
   format?: string;
+  operation?: string;
+  resource?: string;
   edamData?: string;
   edamFormat?: string;
+  edamOperation?: string;
+  edamResource?: string;
   required?: boolean;
   primary?: boolean;
 };

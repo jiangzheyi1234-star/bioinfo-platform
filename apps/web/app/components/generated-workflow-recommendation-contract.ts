@@ -53,6 +53,7 @@ export function explainPortRecommendation(
     hasStrongEvidence ? compatibility : "类型证据不足，保留为手动连接",
     hasStrongEvidence ? portNameEvidence(input, output) : "",
     hasStrongEvidence ? (input.required !== false ? "目标 input 为必填端口" : "目标 input 为可选端口") : "",
+    hasStrongEvidence ? advisoryEvidence(compatibilityDecision.advisoryChecks) : "",
   ].filter((value): value is string => Boolean(value));
   const recommendationDecision = hasStrongEvidence ? "recommended" : "ambiguous";
   return {
@@ -90,6 +91,11 @@ function portNameEvidence(input: RulePortRecommendationPort, output: RulePortRec
   const outputName = stringValue(output.name);
   if (!inputName || !outputName || inputName !== outputName) return "";
   return `端口名相同: ${inputName}`;
+}
+
+function advisoryEvidence(checks: string[]): string {
+  if (checks.length === 0) return "";
+  return `辅助语义匹配: ${checks.join(" / ")}`;
 }
 
 function recommendationConfidence({
