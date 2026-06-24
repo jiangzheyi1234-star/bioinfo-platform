@@ -47,6 +47,7 @@ import { manualEdgeAudit } from "./generated-workflow-recommendation-contract";
 import { autoBindGeneratedWorkflowResources } from "./generated-workflow-resource-binding";
 
 type GraphNodePosition = { x: number; y: number };
+type AddStepOptions = { position?: GraphNodePosition };
 
 type BuilderAction =
   | { type: "reset_tools"; tools: AddedTool[] }
@@ -54,7 +55,7 @@ type BuilderAction =
   | { type: "load_resource_bindings"; selectedResourceIds: Record<string, string> }
   | { type: "redo_graph" }
   | { type: "undo_graph" }
-  | { type: "add_step"; tool: AddedTool; tools: AddedTool[] }
+  | { type: "add_step"; position?: GraphNodePosition; tool: AddedTool; tools: AddedTool[] }
   | { type: "insert_converter"; converterTool: AddedTool; request: RulePortConverterInsertionRequest }
   | { type: "remove_step"; stepId: string }
   | { type: "set_step_id"; stepId: string; nextId: string }
@@ -145,9 +146,9 @@ export function useGeneratedWorkflowBuilder(tools: AddedTool[], availableResourc
     loadGraphDraft: (draft: GeneratedWorkflowGraphDraft) => dispatch({ type: "load_graph_draft", draft }),
     loadResourceBindings: (selectedResourceIds: Record<string, string>) =>
       dispatch({ type: "load_resource_bindings", selectedResourceIds }),
-    addStep: (toolRevisionId: string) => {
+    addStep: (toolRevisionId: string, options: AddStepOptions = {}) => {
       const tool = toolByRevisionId.get(toolRevisionId);
-      if (tool) dispatch({ type: "add_step", tool, tools });
+      if (tool) dispatch({ type: "add_step", position: options.position, tool, tools });
     },
     insertConverter: (request: RulePortConverterInsertionRequest) => {
       const converterTool = toolByRevisionId.get(request.converter.converterToolRevisionId);
@@ -210,7 +211,10 @@ function builderReducer(state: BuilderState, action: BuilderAction): BuilderStat
   if (action.type === "add_step") {
     const draft = graphDraftToGeneratedWorkflowDraft(state.graphHistory.present);
     const nextStep = createStepDraft(action.tool, draft.steps.map((step) => step.id), draft.steps, action.tools);
-    return updateStepDraft(state, (current) => ({ ...current, steps: [...current.steps, nextStep] }));
+    const positionedStep = action.position
+      ? { ...nextStep, metadata: graphNodeMetadataWithPosition(nextStep.metadata, action.position) }
+      : nextStep;
+    return updateStepDraft(state, (current) => ({ ...current, steps: [...current.steps, positionedStep] }));
   }
   if (action.type === "insert_converter") {
     return commitGraphDraft(state, buildConverterInsertionPatch({

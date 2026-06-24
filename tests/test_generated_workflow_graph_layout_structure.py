@@ -32,7 +32,7 @@ def test_generated_workflow_graph_canvas_uses_deterministic_layout_helper() -> N
     assert "graphNodeSubflowId" in canvas
     assert "graphNodeSubflowLabel" in canvas
     assert "SUBFLOW_GROUP_NODE_PREFIX" in canvas
-    assert "flowPositionForLayout" in canvas
+    assert "flowPositionForNode" in canvas
     assert "mergeFlowNodes" in canvas
     assert "visibleFlowNodes" in canvas
     assert "nodes={[...subflowGroupNodes, ...visibleFlowNodes]}" in canvas

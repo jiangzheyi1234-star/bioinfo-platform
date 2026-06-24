@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { Plus } from "lucide-react";
 import {
   Background,
@@ -29,6 +29,7 @@ import { cn } from "@/lib/utils";
 import type { AddedTool } from "./tools-page-model";
 import type { RulePortConverterInsertionRequest } from "./generated-workflow-converter-recommendation";
 import { RuleGraphNodeCard } from "./generated-workflow-graph-node-card";
+import { readWorkflowToolDrop } from "./generated-workflow-graph-drag-drop";
 import { layoutGeneratedWorkflowGraph } from "./generated-workflow-graph-layout";
 import {
   converterSuggestionsForConnection,
@@ -90,6 +91,7 @@ export function GeneratedWorkflowGraphCanvas({
   layoutRevision = 0,
   nodes,
   onBindInput,
+  onDropTool,
   onInsertConverter,
   onNodePositionChange,
   onNodePositionsChange,
@@ -103,6 +105,7 @@ export function GeneratedWorkflowGraphCanvas({
   layoutRevision?: number;
   nodes: GraphNode[];
   onBindInput: (stepId: string, inputName: string, binding: GeneratedWorkflowInputBinding) => void;
+  onDropTool: (toolRevisionId: string, position: { x: number; y: number }) => void;
   onInsertConverter: (request: RulePortConverterInsertionRequest) => void;
   onNodePositionChange: (nodeId: string, position: { x: number; y: number }) => void;
   onNodePositionsChange: (positions: Record<string, { x: number; y: number }>) => void;
@@ -226,14 +229,29 @@ export function GeneratedWorkflowGraphCanvas({
     },
     [edges, onBindInput]
   );
+  const onDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  }, []);
+  const onDrop = useCallback((event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const toolRevisionId = readWorkflowToolDrop(event.dataTransfer);
+    const flow = flowInstanceRef.current;
+    if (!toolRevisionId || !flow) return;
+    onDropTool(
+      toolRevisionId,
+      flow.screenToFlowPosition({ x: event.clientX, y: event.clientY })
+    );
+  }, [onDropTool]);
   const flowEdges = useMemo(() => buildFlowEdges(edges), [edges]);
 
-  if (nodes.length === 0) {
-    return <div className="rounded-md bg-white px-3 py-2 text-xs text-slate-500">还没有规则节点。从工具库添加 RuleSpec 节点。</div>;
-  }
-
   return (
-    <div className="relative h-[430px] overflow-hidden rounded-md border border-slate-200 bg-white" data-workflow-react-flow-canvas>
+    <div
+      className="relative h-[430px] overflow-hidden rounded-md border border-slate-200 bg-white"
+      data-workflow-react-flow-canvas
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+    >
       <GraphCanvasStyles />
       <ReactFlow<RuleFlowAnyNode, RuleFlowEdge>
         className="workflow-react-flow"
@@ -277,6 +295,11 @@ export function GeneratedWorkflowGraphCanvas({
         <Controls showInteractive={false} />
         <MiniMap className="!bg-white/90" pannable zoomable />
       </ReactFlow>
+      {nodes.length === 0 ? (
+        <div className="pointer-events-none absolute inset-x-3 top-3 rounded-md border border-dashed border-slate-200 bg-white/90 px-3 py-2 text-xs text-slate-500">
+          还没有规则节点。从工具库添加 RuleSpec 节点。
+        </div>
+      ) : null}
       {connectionNotice ? (
         <div className="absolute bottom-2 left-2 grid max-w-[76%] gap-1 rounded border border-slate-200 bg-white/95 px-2 py-1.5 text-[11px] text-slate-600 shadow-sm">
           <div className="min-w-0 break-words">{connectionNotice.message}</div>

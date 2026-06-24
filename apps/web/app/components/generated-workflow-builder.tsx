@@ -34,6 +34,7 @@ import {
   workflowToolRevisionEntries,
   workflowToolRevisionId,
 } from "./generated-workflow-model";
+import { WORKFLOW_TOOL_DRAG_MIME, workflowToolDragPayload } from "./generated-workflow-graph-drag-drop";
 import { GeneratedWorkflowGraphCanvas } from "./generated-workflow-graph-canvas";
 import { GeneratedWorkflowNodeSettings } from "./generated-workflow-node-settings";
 import {
@@ -287,6 +288,9 @@ function WorkflowGraphWorkbench({
     [nodes, selectedNodeId]
   );
   const selectedTool = selectedNode ? toolByRevisionId.get(selectedNode.toolRevisionId) : undefined;
+  const addToolAtPosition = (toolRevisionId: string, position: { x: number; y: number }) => {
+    builder.addStep(toolRevisionId, { position });
+  };
   const removeGraphEdge = (edge: GeneratedWorkflowBuilderController["graphDraft"]["edges"][number]) => {
     builder.setInputBinding(edge.to.nodeId, edge.to.port, "");
   };
@@ -373,6 +377,7 @@ function WorkflowGraphWorkbench({
             layoutRevision={graphLayoutRevision}
             nodes={nodes}
             onBindInput={builder.setInputBinding}
+            onDropTool={addToolAtPosition}
             onInsertConverter={builder.insertConverter}
             onNodePositionChange={builder.setNodePosition}
             onNodePositionsChange={builder.setNodePositions}
@@ -512,12 +517,21 @@ function RulePaletteCard({ onClick, tool }: { onClick: () => void; tool: AddedTo
   const action = ruleActionLabelForTool(tool);
   const ports = rulePortsLabelForTool(tool);
   const environment = ruleEnvironmentLabelForTool(tool);
+  const toolRevisionId = workflowToolRevisionId(tool);
   return (
     <Button
       type="button"
       variant="outline"
       className="h-auto w-full items-start justify-start gap-2 bg-white px-2 py-2 text-left text-xs"
+      data-workflow-tool-revision-id={toolRevisionId}
+      draggable={Boolean(toolRevisionId)}
       onClick={onClick}
+      onDragStart={(event) => {
+        const payload = workflowToolDragPayload(toolRevisionId);
+        if (!payload) return;
+        event.dataTransfer.effectAllowed = "copy";
+        event.dataTransfer.setData(WORKFLOW_TOOL_DRAG_MIME, payload);
+      }}
     >
       <Plus strokeWidth={1.5} className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-500" />
       <span className="grid min-w-0 flex-1 gap-1">
