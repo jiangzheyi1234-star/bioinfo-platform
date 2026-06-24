@@ -34,6 +34,11 @@ from .result_package_storage import (
     ensure_result_package_export_recordable,
     record_result_package_export_in_connection,
 )
+from .result_package_trigger_provenance import (
+    fetch_run_trigger_provenance,
+    trigger_ro_crate_entity,
+    trigger_ro_crate_id,
+)
 from .rule_execution_storage import fetch_run_rules
 from .storage_core import get_connection, now_iso
 from .workflow_revision_storage import fetch_workflow_revision
@@ -110,6 +115,7 @@ def export_result_package(
     lineage_edges = list(result_bundle["lineageEdges"])
     run_events = fetch_run_events(cfg, str(result["runId"]))
     rule_bundle = fetch_run_rules(cfg, str(result["runId"]))
+    trigger_provenance = fetch_run_trigger_provenance(cfg, str(result["runId"]))
     evidence_events = _collect_result_package_evidence(
         cfg,
         run_id=str(result["runId"]),
@@ -142,6 +148,7 @@ def export_result_package(
         include_artifacts=include_artifacts,
         artifact_payload_mode=payload_mode,
         redacted_secret_paths=redacted_paths,
+        trigger_provenance=trigger_provenance,
         created_at=created_at,
     )
     ro_crate_metadata = _ro_crate_metadata(
@@ -186,6 +193,7 @@ def export_result_package(
                 artifact_count=len(result["artifacts"]),
                 include_artifacts=include_artifacts,
                 artifact_payload_mode=payload_mode,
+                trigger_provenance=trigger_provenance,
                 created_at=created_at,
                 validation=validation,
             )
@@ -270,6 +278,7 @@ def _result_package_manifest(
     include_artifacts: bool,
     artifact_payload_mode: str,
     redacted_secret_paths: list[str],
+    trigger_provenance: dict[str, Any] | None,
     created_at: str,
 ) -> dict[str, Any]:
     package_artifacts = []
@@ -290,6 +299,21 @@ def _result_package_manifest(
             }
         )
     input_artifacts = input_artifacts_from_lineage(result_bundle["lineageEdges"])
+    activity = {
+        "id": f"run:{result['runId']}",
+        "type": "prov:Activity",
+        "startedAt": run["startedAt"],
+        "endedAt": run["finishedAt"],
+        "wasAssociatedWith": "h2ometa.remote_runner",
+        "used": [
+            f"workflowRevision:{workflow_revision['workflowRevisionId']}",
+            *[f"artifactBlob:{artifact['artifactBlobId']}" for artifact in input_artifacts],
+        ],
+        "generated": [f"artifact:{artifact['artifactId']}" for artifact in result["artifacts"]],
+    }
+    if trigger_provenance is not None:
+        activity["wasStartedBy"] = f"triggerEvent:{trigger_provenance['triggerEventId']}"
+
     return {
         "schemaVersion": RESULT_PACKAGE_SCHEMA_VERSION,
         "packageProfile": RESULT_PACKAGE_PROFILE,
@@ -322,6 +346,7 @@ def _result_package_manifest(
             "submittedAt": run["submittedAt"],
             "trigger": run.get("trigger"),
         },
+        "triggerProvenance": trigger_provenance,
         "runSpec": run["runSpec"],
         "redactedSecretPaths": redacted_secret_paths,
         "workflowRevision": {
@@ -344,18 +369,7 @@ def _result_package_manifest(
             "evidenceEvents": len(evidence_events),
         },
         "provenance": {
-            "activity": {
-                "id": f"run:{result['runId']}",
-                "type": "prov:Activity",
-                "startedAt": run["startedAt"],
-                "endedAt": run["finishedAt"],
-                "wasAssociatedWith": "h2ometa.remote_runner",
-                "used": [
-                    f"workflowRevision:{workflow_revision['workflowRevisionId']}",
-                    *[f"artifactBlob:{artifact['artifactBlobId']}" for artifact in input_artifacts],
-                ],
-                "generated": [f"artifact:{artifact['artifactId']}" for artifact in result["artifacts"]],
-            },
+            "activity": activity,
             "agent": {
                 "id": "h2ometa.remote_runner",
                 "type": "prov:SoftwareAgent",
@@ -575,6 +589,12 @@ def _ro_crate_metadata(
     metadata_parts = [{"@id": "manifest.json"}, *[{"@id": item["path"]} for item in metadata_index]]
     workflow_id = f"#workflow-{manifest['workflowRevisionId']}"
     run_action_id = f"#run-{manifest['runId']}"
+    trigger_provenance = manifest.get("triggerProvenance")
+    trigger_part = (
+        {"@id": trigger_ro_crate_id(trigger_provenance)}
+        if isinstance(trigger_provenance, dict)
+        else None
+    )
     graph: list[dict[str, Any]] = [
         {
             "@id": "ro-crate-metadata.json",
@@ -598,7 +618,10 @@ def _ro_crate_metadata(
             "identifier": manifest["resultId"],
             "hasPart": [*metadata_parts, *artifact_parts, *input_parts],
             "mainEntity": {"@id": workflow_id},
-            "mentions": [{"@id": run_action_id}],
+            "mentions": [
+                {"@id": run_action_id},
+                *([trigger_part] if trigger_part else []),
+            ],
         },
         {
             "@id": run_action_id,
@@ -608,6 +631,7 @@ def _ro_crate_metadata(
             "endTime": manifest["run"]["finishedAt"],
             "instrument": {"@id": workflow_id},
             **({"object": input_parts} if input_parts else {}),
+            **({"h2ometa:triggerEvent": trigger_part} if trigger_part else {}),
             "result": artifact_parts,
         },
         {
@@ -624,6 +648,8 @@ def _ro_crate_metadata(
             "about": {"@id": "./"},
         },
     ]
+    if isinstance(trigger_provenance, dict):
+        graph.append(trigger_ro_crate_entity(trigger_provenance))
     for item in metadata_index:
         graph.append(
             {
@@ -692,6 +718,7 @@ def _append_result_export_evidence(
     artifact_count: int,
     include_artifacts: bool,
     artifact_payload_mode: str,
+    trigger_provenance: dict[str, Any] | None,
     created_at: str,
     validation: dict[str, Any],
 ) -> dict[str, Any]:
@@ -715,6 +742,8 @@ def _append_result_export_evidence(
         },
         "createdAt": created_at,
     }
+    if trigger_provenance is not None:
+        payload["triggerProvenance"] = trigger_provenance
     return append_evidence_event(
         connection,
         event_type=RESULT_EXPORT_EVENT_TYPE,
