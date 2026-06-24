@@ -21,6 +21,7 @@ _FORBIDDEN_DETAIL_KEY_PARTS = (
     "token",
 )
 _ALLOWED_DECISIONS = {"allow", "deny", "error"}
+_CONTEXT_FIELDS = ("requestId", "correlationId", "projectId", "tenantId")
 
 
 def record_governance_audit_event(
@@ -32,6 +33,10 @@ def record_governance_audit_event(
     actor: str = "remote-runner-api",
     decision: str = "allow",
     reason_code: str = "",
+    request_id: str = "",
+    correlation_id: str = "",
+    project_id: str = "",
+    tenant_id: str = "",
     details: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     with get_connection(cfg) as connection:
@@ -43,6 +48,10 @@ def record_governance_audit_event(
             actor=actor,
             decision=decision,
             reason_code=reason_code,
+            request_id=request_id,
+            correlation_id=correlation_id,
+            project_id=project_id,
+            tenant_id=tenant_id,
             details=details,
         )
         connection.commit()
@@ -58,9 +67,20 @@ def append_governance_audit_event(
     actor: str = "remote-runner-api",
     decision: str = "allow",
     reason_code: str = "",
+    request_id: str = "",
+    correlation_id: str = "",
+    project_id: str = "",
+    tenant_id: str = "",
     details: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     normalized_details = _safe_details(details or {})
+    context = _audit_context(
+        normalized_details,
+        request_id=request_id,
+        correlation_id=correlation_id,
+        project_id=project_id,
+        tenant_id=tenant_id,
+    )
     normalized_decision = str(decision or "").strip().lower()
     if normalized_decision not in _ALLOWED_DECISIONS:
         raise ValueError("GOVERNANCE_AUDIT_DECISION_INVALID")
@@ -69,6 +89,10 @@ def append_governance_audit_event(
         "actor": _required_text(actor, "GOVERNANCE_AUDIT_ACTOR_REQUIRED"),
         "decision": normalized_decision,
         "reasonCode": str(reason_code or "").strip(),
+        "requestId": context["requestId"],
+        "correlationId": context["correlationId"],
+        "projectId": context["projectId"],
+        "tenantId": context["tenantId"],
         "subjectKind": _required_text(
             subject_kind,
             "GOVERNANCE_AUDIT_SUBJECT_KIND_REQUIRED",
@@ -125,6 +149,10 @@ def _audit_event_from_evidence(event: dict[str, Any]) -> dict[str, Any]:
         "actor": str(payload.get("actor") or ""),
         "decision": str(payload.get("decision") or ""),
         "reasonCode": str(payload.get("reasonCode") or ""),
+        "requestId": str(payload.get("requestId") or ""),
+        "correlationId": str(payload.get("correlationId") or ""),
+        "projectId": str(payload.get("projectId") or ""),
+        "tenantId": str(payload.get("tenantId") or ""),
         "details": dict(details),
         "payloadHash": event["payloadHash"],
         "eventHash": event["eventHash"],
@@ -138,6 +166,40 @@ def _safe_details(value: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("GOVERNANCE_AUDIT_DETAILS_MUST_BE_OBJECT")
     _reject_secret_detail_keys(value)
     return dict(value)
+
+
+def _audit_context(
+    details: dict[str, Any],
+    *,
+    request_id: str = "",
+    correlation_id: str = "",
+    project_id: str = "",
+    tenant_id: str = "",
+) -> dict[str, str]:
+    explicit = {
+        "requestId": request_id,
+        "correlationId": correlation_id,
+        "projectId": project_id,
+        "tenantId": tenant_id,
+    }
+    context = {key: _optional_text(explicit[key]) or _context_value(details, key) or "" for key in _CONTEXT_FIELDS}
+    return context
+
+
+def _context_value(details: dict[str, Any], key: str) -> str:
+    direct = _context_text(details.get(key))
+    if direct:
+        return direct
+    if key != "correlationId":
+        return ""
+    event_context = details.get("eventContext") if isinstance(details.get("eventContext"), dict) else {}
+    return _context_text(event_context.get(key)) or ""
+
+
+def _context_text(value: Any) -> str:
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        return ""
+    return _optional_text(value) or ""
 
 
 def _reject_secret_detail_keys(value: Any, *, path: str = "details") -> None:

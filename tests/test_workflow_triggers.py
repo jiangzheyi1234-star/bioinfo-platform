@@ -313,6 +313,7 @@ def test_webhook_inbox_event_dispatches_run_with_context_and_dedupes(
     dispatch_audit_events = list_governance_audit_events(cfg, action="workflow_trigger.dispatch")["items"]
     assert [item["actor"] for item in dispatch_audit_events] == ["instrument-agent", "instrument-agent"]
     assert [item["details"]["replayed"] for item in dispatch_audit_events] == [False, True]
+    assert [item["correlationId"] for item in dispatch_audit_events] == ["batch_42", "batch_42"]
     assert dispatch_audit_events[0]["details"]["eventContext"] == {
         "source": "instrument-qc",
         "eventId": "evt_001",
