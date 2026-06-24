@@ -204,6 +204,7 @@ Delivered foundation:
 - Internal rule retry execution planning now maps a valid `ruleRetryPlan` to a blocked Snakemake options preview (`--rerun-incomplete --forcerun <selected failed rule>`), rejects missing selected attempts or unsafe rule names, preserves downstream invalidation scope for audit, and keeps `executionEnabled: false`.
 - Run execution context and the run detail UI now expose the blocked `ruleRetryExecutionPlan`, including selected failed rules, downstream rerun scope, Snakemake args preview, prohibited unsafe flags, and cache/artifact/adoption blockers, while keeping rule-level mutation APIs and UI actions disabled.
 - Run detail now includes a normalized `failureLocator` read model for failed runs, connecting the failed rule, latest failure event, stderr tail, related artifacts, and lineage edges. The fallback stderr projection also terminalizes non-failed rules as `blocked` instead of leaving stale `running` child states under a failed run.
+- Failed-rule diagnostics now resolve rule log paths only through managed result artifacts and artifact preview APIs, expose capped rule-log tails when a matching log artifact exists, return explicit `PATH_REFERENCE_ONLY`/unavailable reason codes when only raw path references exist, and match durable lineage edges through `payload.artifactId`.
 
 Still pending before this phase is complete:
 

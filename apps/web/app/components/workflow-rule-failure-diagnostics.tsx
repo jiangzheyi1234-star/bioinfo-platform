@@ -1,6 +1,6 @@
 "use client";
 
-import type { WorkflowRunRule, WorkflowRunRuleEvent } from "./workflows-page-model";
+import type { WorkflowRunRule, WorkflowRunRuleEvent, WorkflowRunRuleLogContext } from "./workflows-page-model";
 
 function isFailedStatus(status?: string) {
   const normalized = String(status || "").toLowerCase();
@@ -29,11 +29,19 @@ function ruleLocator(rule: WorkflowRunRule) {
     .join(" · ");
 }
 
-export function WorkflowRuleFailureDiagnostics({ rule }: { rule?: WorkflowRunRule }) {
+export function WorkflowRuleFailureDiagnostics({
+  rule,
+  ruleLogContext,
+}: {
+  rule?: WorkflowRunRule;
+  ruleLogContext?: WorkflowRunRuleLogContext;
+}) {
   if (!rule || !isFailedStatus(rule.status)) return null;
   const failedEvent = [...(rule.events || [])].reverse().find(isFailureEvent);
   const logs = rule.logs || [];
   const detailItems = scalarDetails(failedEvent?.details);
+  const logTail = ruleLogContext?.tail || [];
+  const selectedLogArtifact = ruleLogContext?.selectedArtifact;
 
   return (
     <div className="mt-3 border-l-2 border-red-300 bg-red-50/70 py-2 pl-3 pr-2 text-xs text-red-900">
@@ -53,6 +61,16 @@ export function WorkflowRuleFailureDiagnostics({ rule }: { rule?: WorkflowRunRul
         <span className="truncate">{failedEvent?.message || rule.message || "—"}</span>
         <span className="text-red-500">log paths</span>
         <span className="truncate font-mono">{logs.length > 0 ? logs.slice(0, 4).join(", ") : "—"}</span>
+        {ruleLogContext ? (
+          <>
+            <span className="text-red-500">log evidence</span>
+            <span className="truncate font-mono">{ruleLogContext.reasonCode || ruleLogContext.status || "—"}</span>
+            <span className="text-red-500">artifact</span>
+            <span className="truncate font-mono">
+              {selectedLogArtifact?.artifactId || selectedLogArtifact?.path || ruleLogContext.message || "—"}
+            </span>
+          </>
+        ) : null}
         {detailItems.length > 0 ? (
           <>
             <span className="text-red-500">details</span>
@@ -60,6 +78,11 @@ export function WorkflowRuleFailureDiagnostics({ rule }: { rule?: WorkflowRunRul
           </>
         ) : null}
       </div>
+      {logTail.length > 0 ? (
+        <pre className="mt-2 max-h-36 overflow-auto whitespace-pre-wrap rounded-md bg-slate-950 p-2 text-[11px] text-red-100">
+          {logTail.join("\n")}
+        </pre>
+      ) : null}
     </div>
   );
 }

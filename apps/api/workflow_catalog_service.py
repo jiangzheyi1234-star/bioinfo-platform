@@ -85,6 +85,21 @@ async def load_run_detail(run_id: str) -> dict[str, Any]:
     rules_data = _unwrap_data(rules, {})
     execution_context_data = _unwrap_data(execution_context, {})
 
+    failure_locator = _build_failure_locator(
+        run_id=run_id,
+        run=run_data,
+        events=event_items,
+        stdout=stdout_data,
+        stderr=stderr_data,
+        results=result_data,
+        rules=rules_data,
+    )
+    failure_locator["ruleLogContext"] = await _load_rule_log_context(
+        runtime=runtime,
+        result_data=result_data,
+        failure_locator=failure_locator,
+    )
+
     return {
         "data": {
             "run": run_data,
@@ -96,15 +111,7 @@ async def load_run_detail(run_id: str) -> dict[str, Any]:
             "results": result_data,
             "rules": rules_data,
             "executionContext": execution_context_data,
-            "failureLocator": _build_failure_locator(
-                run_id=run_id,
-                run=run_data,
-                events=event_items,
-                stdout=stdout_data,
-                stderr=stderr_data,
-                results=result_data,
-                rules=rules_data,
-            ),
+            "failureLocator": failure_locator,
             "previews": await _load_previews(runtime, result_data),
         }
     }
@@ -148,6 +155,106 @@ def _preferred_preview_artifacts(artifacts: list[Any]) -> list[dict[str, Any]]:
         return 9, name
 
     return sorted(valid, key=score)[:3]
+
+
+async def _load_rule_log_context(
+    *,
+    runtime: Any,
+    result_data: Any,
+    failure_locator: dict[str, Any],
+) -> dict[str, Any]:
+    base = {
+        "schemaVersion": "run-rule-log-context.v1",
+        "status": "unavailable",
+        "reasonCode": "NO_FAILED_RULE",
+        "logPaths": [],
+        "matchedArtifactCount": 0,
+        "matchedArtifacts": [],
+        "tail": [],
+    }
+    failed_rule = failure_locator.get("failedRule")
+    if not isinstance(failed_rule, dict):
+        return {**base, "message": "No failed rule was identified for rule log lookup."}
+
+    log_paths = [str(value) for value in failed_rule.get("logs") or [] if str(value or "").strip()]
+    if not log_paths:
+        return {
+            **base,
+            "reasonCode": "NO_RULE_LOGS",
+            "message": "The failed rule did not report managed log paths.",
+        }
+
+    result = result_data if isinstance(result_data, dict) else {}
+    artifacts = _dict_items(result.get("artifacts"))
+    matched = _matched_log_artifacts(log_paths, artifacts)
+    matched_summaries = [_artifact_log_summary(artifact) for artifact in matched]
+    if not matched:
+        return {
+            **base,
+            "reasonCode": "PATH_REFERENCE_ONLY",
+            "logPaths": log_paths,
+            "message": "Rule log paths were reported, but no managed result artifact matched them.",
+        }
+
+    previewable = [artifact for artifact in matched if _is_log_previewable_artifact(artifact)]
+    if not previewable:
+        return {
+            **base,
+            "reasonCode": "MATCHED_ARTIFACT_NOT_PREVIEWABLE",
+            "logPaths": log_paths,
+            "matchedArtifactCount": len(matched),
+            "matchedArtifacts": matched_summaries,
+            "message": "Matched rule log artifacts are not text-previewable.",
+        }
+
+    result_id = str(result.get("resultId") or "").strip()
+    selected = _preferred_rule_log_artifact(previewable)
+    if not result_id:
+        return {
+            **base,
+            "reasonCode": "RESULT_ID_MISSING",
+            "logPaths": log_paths,
+            "matchedArtifactCount": len(matched),
+            "matchedArtifacts": matched_summaries,
+            "selectedArtifact": _artifact_log_summary(selected),
+            "message": "Result id is required before rule log artifact preview can be loaded.",
+        }
+
+    artifact_id = str(selected.get("artifactId") or "")
+    try:
+        preview_response = await run_sync(
+            lambda: runtime.get_result_preview(
+                result_id=result_id,
+                artifact_id=artifact_id,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 - keep failure locator usable when preview storage is unavailable.
+        return {
+            **base,
+            "reasonCode": "PREVIEW_UNAVAILABLE",
+            "logPaths": log_paths,
+            "matchedArtifactCount": len(matched),
+            "matchedArtifacts": matched_summaries,
+            "selectedArtifact": _artifact_log_summary(selected),
+            "message": f"Rule log artifact preview is unavailable: {type(exc).__name__}",
+        }
+
+    preview_data = _unwrap_data(preview_response, {})
+    preview = preview_data.get("preview") if isinstance(preview_data, dict) else {}
+    lines = _preview_text_lines(preview)
+    return {
+        **base,
+        "status": "available",
+        "reasonCode": "PREVIEW_AVAILABLE",
+        "logPaths": log_paths,
+        "matchedArtifactCount": len(matched),
+        "matchedArtifacts": matched_summaries,
+        "selectedArtifact": _artifact_log_summary(selected),
+        "previewKind": preview.get("kind") if isinstance(preview, dict) else None,
+        "lineCount": len(lines),
+        "tail": lines[-30:],
+        "truncated": bool(preview.get("truncated")) if isinstance(preview, dict) else False,
+    }
 
 
 def _canonical_result_id_for_run(run_id: str) -> str:
@@ -326,10 +433,89 @@ def _related_lineage_edges(value: Any, related_artifact_ids: set[str]) -> list[d
     return [
         edge
         for edge in edges
-        if str(edge.get("sourceArtifactId") or "") in related_artifact_ids
-        or str(edge.get("targetArtifactId") or "") in related_artifact_ids
-        or str(edge.get("artifactId") or "") in related_artifact_ids
+        if _lineage_edge_artifact_ids(edge) & related_artifact_ids
     ]
+
+
+def _lineage_edge_artifact_ids(edge: dict[str, Any]) -> set[str]:
+    ids = {
+        str(edge.get("sourceArtifactId") or ""),
+        str(edge.get("targetArtifactId") or ""),
+        str(edge.get("artifactId") or ""),
+    }
+    payload = edge.get("payload")
+    if isinstance(payload, dict):
+        ids.update(
+            {
+                str(payload.get("sourceArtifactId") or ""),
+                str(payload.get("targetArtifactId") or ""),
+                str(payload.get("artifactId") or ""),
+            }
+        )
+    return {value for value in ids if value}
+
+
+def _matched_log_artifacts(log_paths: list[str], artifacts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized_logs = {_normalize_path(path) for path in log_paths if _normalize_path(path)}
+    if not normalized_logs:
+        return []
+    return [
+        artifact
+        for artifact in artifacts
+        if _normalize_path(artifact.get("path")) in normalized_logs or _normalize_path(artifact.get("storageUri")) in normalized_logs
+    ]
+
+
+def _artifact_log_summary(artifact: dict[str, Any]) -> dict[str, Any]:
+    allowed = ("artifactId", "path", "kind", "mimeType", "sizeBytes", "sha256", "lifecycleState")
+    return {key: artifact.get(key) for key in allowed if artifact.get(key) not in (None, "")}
+
+
+def _is_log_previewable_artifact(artifact: dict[str, Any]) -> bool:
+    path = _normalize_path(artifact.get("path")).lower()
+    mime_type = str(artifact.get("mimeType") or "").lower()
+    return (
+        mime_type.startswith("text/")
+        or "json" in mime_type
+        or "xml" in mime_type
+        or "log" in mime_type
+        or path.endswith((".log", ".txt", ".out", ".err", ".stderr", ".stdout"))
+    )
+
+
+def _preferred_rule_log_artifact(artifacts: list[dict[str, Any]]) -> dict[str, Any]:
+    def score(artifact: dict[str, Any]) -> tuple[int, str]:
+        path = _normalize_path(artifact.get("path")).lower()
+        mime_type = str(artifact.get("mimeType") or "").lower()
+        if path.endswith((".log", ".stderr", ".err")):
+            return (0, path)
+        if "log" in mime_type:
+            return (1, path)
+        if mime_type.startswith("text/"):
+            return (2, path)
+        return (9, path)
+
+    return sorted(artifacts, key=score)[0]
+
+
+def _preview_text_lines(preview: Any) -> list[str]:
+    if not isinstance(preview, dict):
+        return []
+    content = preview.get("content")
+    if isinstance(content, str):
+        return content.splitlines()
+    rows = preview.get("rows")
+    if isinstance(rows, list):
+        columns = preview.get("columns")
+        lines: list[str] = []
+        if isinstance(columns, list):
+            lines.append("\t".join(str(value) for value in columns))
+        lines.extend(
+            "\t".join(str(value) for value in row) if isinstance(row, list) else str(row)
+            for row in rows
+        )
+        return lines
+    return []
 
 
 def _normalize_path(value: Any) -> str:

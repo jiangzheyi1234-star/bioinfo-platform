@@ -42,6 +42,10 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "rules?: WorkflowRunRules" in model
     assert "executionContext?: WorkflowRunExecutionContext" in model
     assert "failureLocator?: WorkflowRunFailureLocator" in model
+    assert "ruleLogContext?: WorkflowRunRuleLogContext" in model
+    assert "export type WorkflowRunRuleLogContext" in model
+    assert '"PATH_REFERENCE_ONLY"' in model
+    assert '"PREVIEW_AVAILABLE"' in model
     assert "reasonCode?: \"RUN_NOT_FAILED\" | \"RUN_FAILED_NO_RULE\" | \"FAILED_RULE\" | string" in model
     assert "ruleRetryPlan?: WorkflowRunRuleRetryPlan" in model
     assert "ruleRetryExecutionPlan?: WorkflowRunRuleRetryExecutionPlan" in model
@@ -66,7 +70,9 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "execution_context_data = _unwrap_data(execution_context, {})" in catalog_service
     assert '"rules": rules_data' in catalog_service
     assert '"executionContext": execution_context_data' in catalog_service
-    assert '"failureLocator": _build_failure_locator(' in catalog_service
+    assert "failure_locator = _build_failure_locator(" in catalog_service
+    assert '"failureLocator": failure_locator' in catalog_service
+    assert '_load_rule_log_context(' in catalog_service
     assert '"schemaVersion": "run-failure-locator.v1"' in catalog_service
     assert '_canonical_result_id_for_run(str(result_data.get("runId") or run_id))' in catalog_service
     assert "runtime.get_run_rules(run_id)" in catalog_service
@@ -87,15 +93,19 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "failureLocator={detail.failureLocator}" in panel
     assert "failureLocator?.failedRule?.runRuleId" in panel
     assert "failureLocator?.logContext?.stderrTail" in panel
+    assert "ruleLogContext={failureLocator?.ruleLogContext}" in panel
     assert "失败 rule：" in panel
     assert "rule.attemptNumber" in panel
     assert "rule.leaseGeneration" in panel
     assert "rule.events || []" in panel
     assert "失败定位" in rule_failure_diagnostics
     assert "log paths" in rule_failure_diagnostics
+    assert "log evidence" in rule_failure_diagnostics
+    assert "selectedLogArtifact?.artifactId" in rule_failure_diagnostics
+    assert "logTail.join" in rule_failure_diagnostics
     assert "scalarDetails(failedEvent?.details)" in rule_failure_diagnostics
     assert "[...(rule.events || [])].reverse().find(isFailureEvent)" in rule_failure_diagnostics
-    assert "WorkflowRuleFailureDiagnostics({ rule }: { rule?: WorkflowRunRule })" in rule_failure_diagnostics
+    assert "ruleLogContext?: WorkflowRunRuleLogContext" in rule_failure_diagnostics
     assert "context.ruleRetryPlan" in execution_panel
     assert "context.ruleRetryExecutionPlan" in execution_panel
     assert "RuleRetryPlanSummary" in execution_panel

@@ -447,6 +447,7 @@ export type WorkflowRunFailureLocator = {
     stderrLineCount?: number;
     stderrTail?: string[];
   };
+  ruleLogContext?: WorkflowRunRuleLogContext;
   artifactContext?: {
     artifactCount?: number;
     relatedArtifactCount?: number;
@@ -454,6 +455,29 @@ export type WorkflowRunFailureLocator = {
     lineageEdgeCount?: number;
     lineageEdges?: unknown[];
   };
+};
+
+export type WorkflowRunRuleLogContext = {
+  schemaVersion?: string;
+  status?: "available" | "unavailable" | string;
+  reasonCode?:
+    | "PREVIEW_AVAILABLE"
+    | "NO_FAILED_RULE"
+    | "NO_RULE_LOGS"
+    | "PATH_REFERENCE_ONLY"
+    | "MATCHED_ARTIFACT_NOT_PREVIEWABLE"
+    | "RESULT_ID_MISSING"
+    | "PREVIEW_UNAVAILABLE"
+    | string;
+  message?: string;
+  logPaths?: string[];
+  matchedArtifactCount?: number;
+  matchedArtifacts?: WorkflowArtifact[];
+  selectedArtifact?: WorkflowArtifact;
+  previewKind?: string;
+  lineCount?: number;
+  tail?: string[];
+  truncated?: boolean;
 };
 
 export type WorkflowRunExecutionContext = {
