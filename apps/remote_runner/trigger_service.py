@@ -40,6 +40,7 @@ from .trigger_storage import (
     record_workflow_trigger_event,
     require_workflow_trigger,
 )
+from .trigger_read_model import trigger_for_read_model, trigger_list_for_read_model
 from .workflow_backfill_storage import (
     list_workflow_backfill_launches,
     mark_workflow_backfill_launch_canceling,
@@ -106,11 +107,11 @@ def create_workflow_trigger_from_request(
             "enabled": bool(trigger["enabled"]),
         },
     )
-    return {"data": trigger}
+    return {"data": trigger_for_read_model(trigger)}
 
 
 def list_workflow_triggers_from_storage(cfg: RemoteRunnerConfig) -> dict[str, Any]:
-    return {"data": list_workflow_triggers(cfg)}
+    return {"data": trigger_list_for_read_model(list_workflow_triggers(cfg))}
 
 
 def list_workflow_trigger_events_from_storage(cfg: RemoteRunnerConfig, trigger_id: str) -> dict[str, Any]:
