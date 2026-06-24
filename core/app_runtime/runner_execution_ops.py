@@ -29,8 +29,16 @@ class RunnerExecutionOperationsMixin:
         trigger_id: str,
         payload: Optional[dict[str, Any]] = None,
         server_id: Optional[str] = None,
+        raw_body: bytes | None = None,
+        headers: Optional[dict[str, str]] = None,
     ) -> dict[str, Any]:
-        return self.execution.submit_workflow_trigger_inbox_event(trigger_id, payload, server_id)
+        return self.execution.submit_workflow_trigger_inbox_event(
+            trigger_id,
+            payload,
+            server_id,
+            raw_body=raw_body,
+            headers=headers,
+        )
 
     def replay_workflow_trigger_inbox_event(
         self,

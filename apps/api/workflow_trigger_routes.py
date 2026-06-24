@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Request, Response
 
 from apps.api.models import (
     WorkflowBackfillCancelRequest,
@@ -12,7 +12,6 @@ from apps.api.models import (
     WorkflowTriggerBackfillPreviewRequest,
     WorkflowTriggerCreateRequest,
     WorkflowTriggerEventRequest,
-    WorkflowTriggerInboxEventRequest,
     WorkflowTriggerInboxReplayRequest,
     WorkflowTriggerReadinessEventRequest,
 )
@@ -28,7 +27,7 @@ from apps.api.workflow_trigger_service import (
     preview_workflow_trigger_backfill_from_request,
     replay_workflow_trigger_inbox_event_response_from_request,
     submit_workflow_trigger_event_response_from_request,
-    submit_workflow_trigger_inbox_event_response_from_request,
+    submit_workflow_trigger_inbox_event_response_from_raw_request,
     submit_workflow_trigger_readiness_event_response_from_request,
 )
 
@@ -141,13 +140,14 @@ async def submit_workflow_trigger_event(
 @router.post("/api/v1/workflow-triggers/{trigger_id}/inbox", status_code=202)
 async def submit_workflow_trigger_inbox_event(
     trigger_id: str,
-    payload: WorkflowTriggerInboxEventRequest,
+    request: Request,
     response: Response,
     serverId: str | None = None,
 ) -> dict[str, Any]:
-    return await submit_workflow_trigger_inbox_event_response_from_request(
+    return await submit_workflow_trigger_inbox_event_response_from_raw_request(
         trigger_id,
-        payload,
+        await request.body(),
+        request.headers.raw,
         response,
         server_id=serverId,
     )

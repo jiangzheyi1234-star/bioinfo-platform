@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
 from fastapi import Response
+from fastapi.testclient import TestClient
 
 from apps.api.models import (
     WorkflowBackfillCancelRequest,
@@ -10,10 +12,10 @@ from apps.api.models import (
     WorkflowTriggerBackfillPreviewRequest,
     WorkflowTriggerCreateRequest,
     WorkflowTriggerEventRequest,
-    WorkflowTriggerInboxEventRequest,
     WorkflowTriggerInboxReplayRequest,
     WorkflowTriggerReadinessEventRequest,
 )
+from apps.api.main import app
 from apps.api.response_cache import invalidate_response_cache
 from apps.api.workflow_trigger_routes import (
     cancel_workflow_backfill_launch,
@@ -27,9 +29,9 @@ from apps.api.workflow_trigger_routes import (
     preview_workflow_trigger_backfill,
     replay_workflow_trigger_inbox_event,
     submit_workflow_trigger_event,
-    submit_workflow_trigger_inbox_event,
     submit_workflow_trigger_readiness_event,
 )
+from apps.api.workflow_trigger_service import submit_workflow_trigger_inbox_event_response_from_raw_request
 
 
 def test_workflow_trigger_routes_preserve_runtime_wrappers_and_submit_headers(monkeypatch) -> None:
@@ -69,18 +71,20 @@ def test_workflow_trigger_routes_preserve_runtime_wrappers_and_submit_headers(mo
     )
     inbox_response = Response()
     inbox_submitted = asyncio.run(
-        submit_workflow_trigger_inbox_event(
+        submit_workflow_trigger_inbox_event_response_from_raw_request(
             "wtr_demo",
-            WorkflowTriggerInboxEventRequest(
-                eventType="dataset.ready",
-                source="instrument-qc",
-                eventId="evt_001",
-                correlationId="batch_42",
-                actor="instrument-agent",
-                payload={"dataset": "reads.fastq"},
+            (
+                b'{"eventType":"dataset.ready","source":"instrument-qc","eventId":"evt_001",'
+                b'"payload":{"dataset":"reads.fastq"}}'
+            ),
+            (
+                ("Content-Type", "application/json"),
+                ("Authorization", "Bearer local-api"),
+                ("Cookie", "local-session=secret"),
+                ("X-Hub-Signature-256", "sha256=runner-signature"),
             ),
             inbox_response,
-            serverId="srv_primary",
+            server_id="srv_primary",
         )
     )
     inbox_replay_response = Response()
@@ -227,6 +231,63 @@ def test_workflow_trigger_routes_preserve_runtime_wrappers_and_submit_headers(mo
     }
 
 
+def test_workflow_trigger_inbox_local_route_preserves_raw_body_and_safe_headers(monkeypatch) -> None:
+    runtime = FakeRawInboxRuntime()
+    monkeypatch.setattr("apps.api.workflow_trigger_service.runtime_service", lambda: runtime)
+
+    raw_body = b'{\n  "source": "github",\n  "eventId": "evt_push"\n}'
+    response = TestClient(app).post(
+        "/api/v1/workflow-triggers/wtr_raw/inbox?serverId=srv_primary",
+        headers={
+            "Authorization": "Bearer local-api-token",
+            "Cookie": "session=local-secret",
+            "Content-Type": "application/json",
+            "X-GitHub-Delivery": "delivery-1",
+            "X-GitHub-Event": "push",
+            "X-Hub-Signature-256": "sha256=runner-signature",
+        },
+        content=raw_body,
+    )
+
+    assert response.status_code == 202
+    assert response.headers["Location"] == "/api/v1/runs/run_raw_inbox"
+    assert runtime.raw_body == raw_body
+    assert runtime.headers == {
+        "Content-Type": "application/json",
+        "X-GitHub-Delivery": "delivery-1",
+        "X-GitHub-Event": "push",
+        "X-Hub-Signature-256": "sha256=runner-signature",
+    }
+    assert "local-api-token" not in repr(runtime.headers)
+    assert "local-secret" not in repr(runtime.headers)
+
+
+def test_workflow_trigger_inbox_local_route_rejects_conflicting_forward_headers(monkeypatch) -> None:
+    runtime = FakeRawInboxRuntime()
+    monkeypatch.setattr("apps.api.workflow_trigger_service.runtime_service", lambda: runtime)
+    response = Response()
+
+    with pytest.raises(ValueError) as exc_info:
+        asyncio.run(
+            submit_workflow_trigger_inbox_event_response_from_raw_request(
+                "wtr_raw",
+                b'{"source":"github","eventId":"evt_conflict"}',
+                (
+                    ("Content-Type", "application/json"),
+                    ("X-Hub-Signature-256", "sha256=one"),
+                    ("x-hub-signature-256", "sha256=two"),
+                ),
+                response,
+                server_id="srv_primary",
+            )
+        )
+
+    assert "WORKFLOW_TRIGGER_INBOX_FORWARD_HEADER_CONFLICT" in str(exc_info.value)
+    assert "sha256=one" not in str(exc_info.value)
+    assert "sha256=two" not in str(exc_info.value)
+    assert runtime.raw_body is None
+
+
 class FakeTriggerRuntime:
     def list_workflow_triggers(self, *, server_id=None):
         assert server_id == "srv_primary"
@@ -296,15 +357,24 @@ class FakeTriggerRuntime:
             "requestId": "req_wte_demo",
         }
 
-    def submit_workflow_trigger_inbox_event(self, trigger_id, payload, *, server_id=None):
+    def submit_workflow_trigger_inbox_event(
+        self,
+        trigger_id,
+        payload=None,
+        *,
+        server_id=None,
+        raw_body=None,
+        headers=None,
+    ):
         assert trigger_id == "wtr_demo"
-        assert payload == {
-            "eventType": "dataset.ready",
-            "source": "instrument-qc",
-            "eventId": "evt_001",
-            "correlationId": "batch_42",
-            "actor": "instrument-agent",
-            "payload": {"dataset": "reads.fastq"},
+        assert payload is None
+        assert raw_body == (
+            b'{"eventType":"dataset.ready","source":"instrument-qc","eventId":"evt_001",'
+            b'"payload":{"dataset":"reads.fastq"}}'
+        )
+        assert headers == {
+            "Content-Type": "application/json",
+            "X-Hub-Signature-256": "sha256=runner-signature",
         }
         assert server_id == "srv_primary"
         return {
@@ -422,4 +492,31 @@ class FakeTriggerRuntime:
                 "requestedCancelCount": 1,
                 "skippedPartitionCount": 0,
             }
+        }
+
+
+class FakeRawInboxRuntime:
+    def __init__(self) -> None:
+        self.raw_body: bytes | None = None
+        self.headers: dict[str, str] | None = None
+
+    def submit_workflow_trigger_inbox_event(
+        self,
+        trigger_id,
+        payload=None,
+        *,
+        server_id=None,
+        raw_body=None,
+        headers=None,
+    ):
+        assert trigger_id == "wtr_raw"
+        assert payload is None
+        assert server_id == "srv_primary"
+        self.raw_body = raw_body
+        self.headers = headers
+        return {
+            "data": {"event": {"triggerEventId": "wte_raw"}, "run": {"runId": "run_raw_inbox"}},
+            "location": "/api/v1/runs/run_raw_inbox",
+            "retryAfter": 2,
+            "requestId": "req_wte_raw",
         }

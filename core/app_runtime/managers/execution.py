@@ -88,6 +88,8 @@ class ExecutionManager(BaseRuntimeManager):
         trigger_id: str,
         payload: Optional[dict[str, Any]] = None,
         server_id: Optional[str] = None,
+        raw_body: bytes | None = None,
+        headers: Optional[dict[str, str]] = None,
     ) -> dict[str, Any]:
         body = dict(payload or {})
         server_id_hint = str(body.pop("serverId", None) or server_id or "").strip() or None
@@ -99,6 +101,8 @@ class ExecutionManager(BaseRuntimeManager):
             server_record=record,
             trigger_id=trigger_id,
             payload=body,
+            raw_body=raw_body,
+            headers=headers,
         )
 
     def replay_workflow_trigger_inbox_event(

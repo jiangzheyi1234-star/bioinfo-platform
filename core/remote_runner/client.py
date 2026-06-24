@@ -58,17 +58,26 @@ class RemoteRunnerHttpClient:
         path: str,
         *,
         payload: dict[str, Any] | None = None,
+        raw_body: bytes | None = None,
         extra_headers: dict[str, str] | None = None,
         accepted_statuses: set[int] | None = None,
     ) -> dict[str, Any]:
         accepted = accepted_statuses or {200}
-        body = json.dumps(payload).encode("utf-8") if payload is not None else None
+        if payload is not None and raw_body is not None:
+            raise ValueError("REMOTE_RUNNER_REQUEST_BODY_AMBIGUOUS")
+        body = None
+        if raw_body is not None:
+            body = bytes(raw_body)
+        elif payload is not None:
+            body = json.dumps(payload).encode("utf-8")
         headers = {
             "Authorization": f"Bearer {self.token}",
         }
-        if body is not None:
+        if payload is not None:
             headers["Content-Type"] = "application/json"
         if extra_headers:
+            if any(str(key).lower() == "authorization" for key in extra_headers):
+                raise ValueError("REMOTE_RUNNER_EXTRA_HEADER_FORBIDDEN: Authorization")
             headers.update(extra_headers)
         request = urllib.request.Request(
             f"{self.base_url.rstrip('/')}/{path.lstrip('/')}",
@@ -164,6 +173,15 @@ class RemoteRunnerHttpClient:
     ) -> dict[str, Any]:
         return self._request_json("POST", path, payload=payload, extra_headers=extra_headers)
 
+    def post_bytes_json(
+        self,
+        path: str,
+        body: bytes,
+        *,
+        extra_headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        return self._request_json("POST", path, raw_body=bytes(body), extra_headers=extra_headers)
+
     def patch_json(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self._request_json("PATCH", path, payload=payload)
 
@@ -211,8 +229,18 @@ class RemoteRunnerHttpClient:
     def submit_workflow_trigger_event(self, trigger_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self.post_json(f"/api/v1/workflow-triggers/{trigger_id}/events", payload)
 
-    def submit_workflow_trigger_inbox_event(self, trigger_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        return self.post_json(f"/api/v1/workflow-triggers/{trigger_id}/inbox", payload)
+    def submit_workflow_trigger_inbox_event(
+        self,
+        trigger_id: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        raw_body: bytes | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        path = f"/api/v1/workflow-triggers/{trigger_id}/inbox"
+        if raw_body is not None:
+            return self.post_bytes_json(path, raw_body, extra_headers=headers)
+        return self.post_json(path, dict(payload or {}))
 
     def replay_workflow_trigger_inbox_event(
         self,

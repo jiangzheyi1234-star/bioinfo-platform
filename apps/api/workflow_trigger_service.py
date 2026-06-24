@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Iterable, Protocol
 
 from apps.api.models import (
     WorkflowBackfillCancelRequest,
@@ -25,6 +25,17 @@ class WorkflowTriggerDispatch:
 
 class ResponseWithHeaders(Protocol):
     headers: Any
+
+
+WEBHOOK_INBOX_FORWARD_HEADERS = {
+    "content-type": "Content-Type",
+    "stripe-signature": "Stripe-Signature",
+    "x-github-delivery": "X-GitHub-Delivery",
+    "x-github-event": "X-GitHub-Event",
+    "x-hub-signature-256": "X-Hub-Signature-256",
+    "x-slack-request-timestamp": "X-Slack-Request-Timestamp",
+    "x-slack-signature": "X-Slack-Signature",
+}
 
 
 async def list_workflow_triggers_from_request(
@@ -197,6 +208,33 @@ async def submit_workflow_trigger_inbox_event_from_request(
     )
 
 
+async def submit_workflow_trigger_inbox_event_from_raw_request(
+    trigger_id: str,
+    raw_body: bytes,
+    raw_headers: Iterable[tuple[str | bytes, str | bytes]],
+    *,
+    server_id: str | None,
+) -> WorkflowTriggerDispatch:
+    result = await run_runtime_payload(
+        lambda: runtime_service().submit_workflow_trigger_inbox_event(
+            trigger_id,
+            server_id=server_id,
+            raw_body=bytes(raw_body),
+            headers=_webhook_inbox_forward_headers(raw_headers),
+        ),
+        wrapper="raw",
+    )
+    await invalidate_response_cache("runs", prefixes=("workflow_trigger_events", "workflow_trigger_inbox"))
+    return WorkflowTriggerDispatch(
+        payload=result,
+        headers={
+            "Location": str(result["location"]),
+            "Retry-After": str(result["retryAfter"]),
+            "X-Request-Id": str(result["requestId"]),
+        },
+    )
+
+
 async def replay_workflow_trigger_inbox_event_from_request(
     trigger_id: str,
     inbox_event_id: str,
@@ -318,6 +356,24 @@ async def submit_workflow_trigger_inbox_event_response_from_request(
     return dispatch.payload
 
 
+async def submit_workflow_trigger_inbox_event_response_from_raw_request(
+    trigger_id: str,
+    raw_body: bytes,
+    raw_headers: Iterable[tuple[str | bytes, str | bytes]],
+    response: ResponseWithHeaders,
+    *,
+    server_id: str | None,
+) -> dict[str, Any]:
+    dispatch = await submit_workflow_trigger_inbox_event_from_raw_request(
+        trigger_id,
+        raw_body,
+        raw_headers,
+        server_id=server_id,
+    )
+    response.headers.update(dispatch.headers)
+    return dispatch.payload
+
+
 async def replay_workflow_trigger_inbox_event_response_from_request(
     trigger_id: str,
     inbox_event_id: str,
@@ -334,6 +390,25 @@ async def replay_workflow_trigger_inbox_event_response_from_request(
     )
     response.headers.update(dispatch.headers)
     return dispatch.payload
+
+
+def _webhook_inbox_forward_headers(raw_headers: Iterable[tuple[str | bytes, str | bytes]]) -> dict[str, str]:
+    headers: dict[str, str] = {}
+    for raw_name, raw_value in raw_headers:
+        name = _header_text(raw_name)
+        canonical = WEBHOOK_INBOX_FORWARD_HEADERS.get(name.lower())
+        if not canonical:
+            continue
+        value = _header_text(raw_value)
+        existing = headers.get(canonical)
+        if existing is not None and existing != value:
+            raise ValueError(f"WORKFLOW_TRIGGER_INBOX_FORWARD_HEADER_CONFLICT: {canonical}")
+        headers[canonical] = value
+    return headers
+
+
+def _header_text(value: str | bytes) -> str:
+    return value.decode("latin-1") if isinstance(value, bytes) else str(value)
 
 
 async def submit_workflow_trigger_readiness_event_response_from_request(

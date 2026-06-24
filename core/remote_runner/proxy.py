@@ -307,9 +307,11 @@ class RemoteRunnerProxyMixin:
             ssh_service=kwargs["ssh_service"],
             record=kwargs["server_record"],
         )
-        return client.post_json(
-            f"/api/v1/workflow-triggers/{kwargs['trigger_id']}/inbox",
-            kwargs["payload"],
+        return client.submit_workflow_trigger_inbox_event(
+            str(kwargs["trigger_id"]),
+            kwargs.get("payload"),
+            raw_body=kwargs.get("raw_body"),
+            headers=kwargs.get("headers"),
         )
 
     def replay_workflow_trigger_inbox_event(self, **kwargs) -> dict[str, Any]:
