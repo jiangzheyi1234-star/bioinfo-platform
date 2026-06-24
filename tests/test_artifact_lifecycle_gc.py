@@ -51,16 +51,23 @@ def test_artifact_gc_preview_reports_usage_and_protection_reasons(tmp_path: Path
     cfg = make_configured_remote_runner(tmp_path)
     candidate = _persist_managed_artifact(cfg, "run_gc_candidate", status="completed")
     active = _persist_managed_artifact(cfg, "run_gc_active", status="running")
-    exported = _persist_managed_artifact(cfg, "run_gc_exported", status="completed")
+    exported_full = _persist_managed_artifact(cfg, "run_gc_exported_full", status="completed")
+    exported_metadata = _persist_managed_artifact(cfg, "run_gc_exported_metadata", status="completed")
     production = _persist_managed_artifact(cfg, "run_gc_production", status="completed")
-    package = export_result_package(cfg, "res_run_gc_exported", include_artifacts=True)
-    Path(package["packagePath"]).unlink()
+    full_package = export_result_package(cfg, "res_run_gc_exported_full", include_artifacts=True)
+    metadata_package = export_result_package(
+        cfg,
+        "res_run_gc_exported_metadata",
+        include_artifacts=False,
+    )
+    Path(full_package["packagePath"]).unlink()
+    Path(metadata_package["packagePath"]).unlink()
     _protect_run_as_production_evidence(cfg, "run_gc_production")
 
     usage = build_artifact_lifecycle_usage(cfg, quota_bytes=10)
     plan = preview_artifact_gc(cfg, {"retentionDays": 30})
 
-    assert usage["activeArtifactCount"] == 4
+    assert usage["activeArtifactCount"] == 5
     assert usage["quota"]["overageBytes"] > 0
     assert [item["artifactIds"] for item in plan["candidates"]] == [[candidate["artifactId"]]]
     protected_by_artifact = {
@@ -69,7 +76,8 @@ def test_artifact_gc_preview_reports_usage_and_protection_reasons(tmp_path: Path
         for artifact_id in item["artifactIds"]
     }
     assert "run_not_terminal" in protected_by_artifact[active["artifactId"]]
-    assert "export_package" in protected_by_artifact[exported["artifactId"]]
+    assert protected_by_artifact[exported_full["artifactId"]] == {"export_package"}
+    assert protected_by_artifact[exported_metadata["artifactId"]] == {"export_package"}
     assert "production_evidence" in protected_by_artifact[production["artifactId"]]
 
 

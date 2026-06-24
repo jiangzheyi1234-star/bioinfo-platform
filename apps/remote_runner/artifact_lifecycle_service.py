@@ -262,8 +262,6 @@ def _record_protection_reasons(
         reasons.append("terminal_time_missing")
     elif terminal_at > cutoff:
         reasons.append("retention_window")
-    if _result_package_path(cfg, run_id).is_file():
-        reasons.append("export_package")
     materialization_state = str(row.get("materializationLifecycleState") or "")
     if materialization_state and materialization_state != "active":
         reasons.append("materialization_not_active")
@@ -515,11 +513,6 @@ def _utc_now() -> datetime:
 
 def _format_dt(value: datetime) -> str:
     return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
-def _result_package_path(cfg: RemoteRunnerConfig, run_id: str) -> Path:
-    result_id = f"res_{run_id}"
-    return Path(cfg.results_dir) / "packages" / result_id / f"{result_id}.zip"
 
 
 def _is_managed_local_path(cfg: RemoteRunnerConfig, path: Path) -> bool:
