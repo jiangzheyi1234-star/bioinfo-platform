@@ -24,6 +24,8 @@ def create_directory_artifact_package(
     logical_size_bytes: int,
 ) -> dict[str, Any]:
     source = Path(source_dir)
+    if source.is_symlink():
+        raise ValueError("ARTIFACT_DIRECTORY_PACKAGE_SYMLINK_UNSUPPORTED: .")
     if not source.is_dir():
         raise ValueError("ARTIFACT_DIRECTORY_PACKAGE_SOURCE_REQUIRED")
     manifest = _directory_manifest(
@@ -120,6 +122,8 @@ def _directory_manifest(
     files: list[dict[str, Any]] = []
     for child in sorted(source.rglob("*"), key=lambda item: item.relative_to(source).as_posix()):
         relative = _safe_relative_path(child.relative_to(source).as_posix())
+        if child.is_symlink():
+            raise ValueError(f"ARTIFACT_DIRECTORY_PACKAGE_SYMLINK_UNSUPPORTED: {relative}")
         if child.is_dir():
             directories.append({"path": relative})
         elif child.is_file():

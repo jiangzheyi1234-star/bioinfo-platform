@@ -6,7 +6,12 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from .artifact_io import artifact_record_exists, artifact_record_stats, iter_artifact_file_payloads
+from .artifact_io import (
+    artifact_record_exists,
+    artifact_record_stats,
+    assert_managed_artifact_storage,
+    iter_artifact_file_payloads,
+)
 from .artifact_product_payloads import json_bytes, json_sha256, redacted_run
 from .config import RemoteRunnerConfig
 from .evidence_storage import append_evidence_event, list_evidence_events
@@ -282,6 +287,7 @@ def _audit_artifact(
     actual_sha: str | None = None
     error = ""
     try:
+        assert_managed_artifact_storage(cfg, artifact)
         exists = artifact_record_exists(cfg, artifact)
         if verify_payload:
             actual_size, actual_sha = artifact_record_stats(cfg, artifact)
@@ -463,6 +469,7 @@ def _write_artifact_to_zip(
     archive: zipfile.ZipFile,
     artifact: dict[str, Any],
 ) -> None:
+    assert_managed_artifact_storage(cfg, artifact)
     root = _package_artifact_root(artifact)
     for relative_path, payload in iter_artifact_file_payloads(cfg, artifact):
         _write_zip_bytes(archive, f"{root}/{relative_path}", payload)

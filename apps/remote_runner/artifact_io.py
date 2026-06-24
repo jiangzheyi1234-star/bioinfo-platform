@@ -73,6 +73,31 @@ def artifact_local_path(record: dict[str, Any]) -> Path:
     raise ValueError("ARTIFACT_STORAGE_URI_REQUIRED")
 
 
+def assert_managed_artifact_storage(cfg: RemoteRunnerConfig, record: dict[str, Any]) -> None:
+    storage_backend = str(record.get("storageBackend") or record.get("storage_backend") or "").strip()
+    if storage_backend == "local":
+        try:
+            path = artifact_local_path(record).resolve()
+        except ValueError as exc:
+            raise ValueError("RESULT_ARTIFACT_STORAGE_UNMANAGED: unmanaged_local_path") from exc
+        roots = [Path(cfg.results_dir).resolve(), Path(cfg.work_dir).resolve()]
+        if not any(_is_relative_to(path, root) for root in roots):
+            raise ValueError("RESULT_ARTIFACT_STORAGE_UNMANAGED: unmanaged_local_path")
+        return
+    if storage_backend == "s3":
+        try:
+            bucket, object_name = _parse_s3_uri(record)
+        except ValueError as exc:
+            raise ValueError("RESULT_ARTIFACT_STORAGE_UNMANAGED: unmanaged_s3_object") from exc
+        expected_bucket = str(cfg.artifact_s3_bucket or "").strip()
+        prefix = _normalized_s3_prefix(cfg.artifact_s3_prefix)
+        managed_prefix = f"{prefix}/artifacts/sha256/" if prefix else "artifacts/sha256/"
+        if (expected_bucket and bucket != expected_bucket) or not object_name.startswith(managed_prefix):
+            raise ValueError("RESULT_ARTIFACT_STORAGE_UNMANAGED: unmanaged_s3_object")
+        return
+    raise ValueError(f"RESULT_ARTIFACT_STORAGE_UNSUPPORTED: {storage_backend or 'missing'}")
+
+
 def read_artifact_preview_text(
     cfg: RemoteRunnerConfig,
     record: dict[str, Any],
@@ -93,12 +118,13 @@ def iter_artifact_file_payloads(cfg: RemoteRunnerConfig, record: dict[str, Any])
         yield _artifact_filename(record), read_artifact_bytes(cfg, record)
         return
     path = artifact_local_path(record)
+    _assert_local_payload_has_no_symlinks(path)
     if path.is_file():
         yield path.name or "artifact", path.read_bytes()
         return
     if not path.is_dir():
         raise ValueError("RESULT_ARTIFACT_PATH_INVALID")
-    for child in sorted(path.rglob("*"), key=lambda item: item.relative_to(path).as_posix()):
+    for child in _iter_local_directory_children(path):
         if child.is_file():
             yield child.relative_to(path).as_posix(), child.read_bytes()
 
@@ -112,6 +138,7 @@ def read_artifact_bytes(
     storage_backend = str(record.get("storageBackend") or record.get("storage_backend") or "local")
     if storage_backend == "local":
         path = artifact_local_path(record)
+        _assert_local_payload_has_no_symlinks(path)
         with path.open("rb") as handle:
             return handle.read(limit if limit is not None else -1)
     if storage_backend == "s3":
@@ -132,7 +159,7 @@ def read_artifact_directory_preview(
     if not path.is_dir():
         raise ValueError("ARTIFACT_DIRECTORY_PREVIEW_PATH_INVALID")
     entries = []
-    for child in sorted(path.rglob("*"), key=lambda item: item.relative_to(path).as_posix()):
+    for child in _iter_local_directory_children(path):
         relative = child.relative_to(path).as_posix()
         if child.is_dir():
             entries.append({"path": relative, "kind": "directory", "sizeBytes": 0, "sha256": ""})
@@ -162,6 +189,7 @@ def restore_artifact_payload(
     storage_backend = str(record.get("storageBackend") or record.get("storage_backend") or "local")
     if storage_backend == "local":
         source = artifact_local_path(record)
+        _assert_local_payload_has_no_symlinks(source)
         if source.is_dir() or _artifact_is_directory(record):
             _restore_local_directory(source, target)
         elif source.is_file():
@@ -211,9 +239,13 @@ def artifact_record_exists(cfg: RemoteRunnerConfig, record: dict[str, Any]) -> b
     storage_backend = str(record.get("storageBackend") or record.get("storage_backend") or "local")
     if storage_backend == "local":
         try:
-            return artifact_local_path(record).exists()
+            path = artifact_local_path(record)
         except ValueError:
             return False
+        if not path.exists():
+            return False
+        _assert_local_payload_has_no_symlinks(path)
+        return True
     if storage_backend == "s3":
         bucket, object_name = _parse_s3_uri(record)
         _stat_s3_object(cfg, bucket, object_name)
@@ -225,7 +257,10 @@ def delete_artifact_payload(cfg: RemoteRunnerConfig, record: dict[str, Any]) -> 
     storage_backend = str(record.get("storageBackend") or record.get("storage_backend") or "local")
     storage_uri = str(record.get("storageUri") or record.get("storage_uri") or "").strip()
     if storage_backend == "local":
-        path = artifact_local_path(record).resolve()
+        assert_managed_artifact_storage(cfg, record)
+        raw_path = artifact_local_path(record)
+        _assert_local_payload_has_no_symlinks(raw_path)
+        path = raw_path.resolve()
         if path.is_dir():
             raise ValueError("ARTIFACT_GC_DIRECTORY_UNSUPPORTED")
         if not path.exists():
@@ -256,6 +291,8 @@ def delete_artifact_payload(cfg: RemoteRunnerConfig, record: dict[str, Any]) -> 
 
 def artifact_payload_stats(path: Path) -> tuple[int, str]:
     artifact_path = Path(path)
+    if artifact_path.is_symlink():
+        raise ValueError("OUTPUT_ARTIFACT_SYMLINK_UNSUPPORTED: .")
     if artifact_path.is_file():
         return _file_payload_stats(artifact_path)
     if artifact_path.is_dir():
@@ -266,7 +303,7 @@ def artifact_payload_stats(path: Path) -> tuple[int, str]:
 def _directory_payload_stats(path: Path) -> tuple[int, str]:
     digest = hashlib.sha256()
     size_bytes = 0
-    for child in sorted(path.rglob("*"), key=lambda item: item.relative_to(path).as_posix()):
+    for child in _iter_local_directory_children(path):
         relative = child.relative_to(path).as_posix()
         if child.is_dir():
             digest.update(f"D\t{relative}\0".encode("utf-8"))
@@ -304,6 +341,7 @@ def _restore_file_bytes(payload: bytes, destination: Path) -> None:
 def _restore_local_directory(source: Path, destination: Path) -> None:
     if not source.is_dir():
         raise ValueError("ARTIFACT_RESTORE_SOURCE_NOT_DIRECTORY")
+    _assert_local_payload_has_no_symlinks(source)
     target = Path(destination)
     if target.exists():
         if not target.is_dir():
@@ -313,6 +351,27 @@ def _restore_local_directory(source: Path, destination: Path) -> None:
         shutil.rmtree(target)
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(source, target)
+
+
+def _iter_local_directory_children(path: Path):
+    root = Path(path)
+    if root.is_symlink():
+        raise ValueError("OUTPUT_ARTIFACT_SYMLINK_UNSUPPORTED: .")
+    for child in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
+        if child.is_symlink():
+            raise ValueError(
+                f"OUTPUT_ARTIFACT_SYMLINK_UNSUPPORTED: {child.relative_to(root).as_posix()}"
+            )
+        yield child
+
+
+def _assert_local_payload_has_no_symlinks(path: Path) -> None:
+    payload = Path(path)
+    if payload.is_symlink():
+        raise ValueError("OUTPUT_ARTIFACT_SYMLINK_UNSUPPORTED: .")
+    if payload.is_dir():
+        for _child in _iter_local_directory_children(payload):
+            pass
 
 
 def _path_from_file_uri(storage_uri: str) -> Path:
@@ -325,6 +384,14 @@ def _path_from_file_uri(storage_uri: str) -> Path:
     elif len(path) >= 3 and path[0] == "/" and path[2] == ":":
         path = path[1:]
     return Path(path)
+
+
+def _is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
 
 
 def _persist_s3_artifact(

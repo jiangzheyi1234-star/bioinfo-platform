@@ -14,7 +14,7 @@ from tests.helpers.reference_database import make_configured_remote_runner
 
 def test_result_package_download_validates_record_and_checksum(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
-    _create_exportable_result(cfg, tmp_path, "run_download")
+    _create_exportable_result(cfg, "run_download")
     package = export_result_package(cfg, "res_run_download", include_artifacts=True)
 
     download = build_result_package_download(
@@ -54,7 +54,7 @@ def test_result_package_download_rejects_unknown_or_invalid_export_id(tmp_path: 
 
 def test_result_package_download_rejects_result_mismatch_and_inactive_record(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
-    _create_exportable_result(cfg, tmp_path, "run_download_state")
+    _create_exportable_result(cfg, "run_download_state")
     package = export_result_package(cfg, "res_run_download_state", include_artifacts=True)
 
     with pytest.raises(ValueError, match="RESULT_PACKAGE_EXPORT_RESULT_MISMATCH"):
@@ -81,7 +81,7 @@ def test_result_package_download_rejects_result_mismatch_and_inactive_record(tmp
 
 def test_result_package_download_rejects_unmanaged_or_missing_package_path(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
-    _create_exportable_result(cfg, tmp_path, "run_download_path")
+    _create_exportable_result(cfg, "run_download_path")
     package = export_result_package(cfg, "res_run_download_path", include_artifacts=True)
 
     with get_connection(cfg) as connection:
@@ -114,7 +114,7 @@ def test_result_package_download_rejects_unmanaged_or_missing_package_path(tmp_p
 
 def test_result_package_download_rejects_size_or_checksum_drift(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
-    _create_exportable_result(cfg, tmp_path, "run_download_drift")
+    _create_exportable_result(cfg, "run_download_drift")
     package = export_result_package(cfg, "res_run_download_drift", include_artifacts=True)
     package_path = Path(package["packagePath"])
 
@@ -138,7 +138,7 @@ def test_result_package_download_rejects_size_or_checksum_drift(tmp_path: Path) 
         )
 
 
-def _create_exportable_result(cfg, tmp_path: Path, run_id: str) -> None:
+def _create_exportable_result(cfg, run_id: str) -> None:
     revision = create_or_fetch_workflow_revision(
         cfg,
         draft_id=f"draft_{run_id}",
@@ -166,7 +166,8 @@ def _create_exportable_result(cfg, tmp_path: Path, run_id: str) -> None:
         idempotency_key=f"idem_{run_id}",
         payload_hash=f"hash_{run_id}",
     )
-    report = tmp_path / f"{run_id}.txt"
+    report = Path(cfg.results_dir) / run_id / f"{run_id}.txt"
+    report.parent.mkdir(parents=True, exist_ok=True)
     report.write_bytes(b"accepted\n")
     persist_artifact(
         cfg,

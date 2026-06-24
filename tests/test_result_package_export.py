@@ -34,7 +34,7 @@ from tests.helpers.reference_database import make_configured_remote_runner
 def test_result_artifact_audit_detects_checksum_drift(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     _create_run(cfg, "run_audit")
-    report = tmp_path / "report.txt"
+    report = _managed_artifact_file(cfg, "run_audit", "report.txt")
     report.write_bytes(b"accepted\n")
     artifact = persist_artifact(
         cfg,
@@ -62,7 +62,7 @@ def test_result_package_export_includes_manifest_artifacts_and_lineage(tmp_path:
     revision = _create_run(cfg, "run_export", complete=False)
     _seed_rule_state(cfg, "run_export")
     _mark_run_terminal(cfg, "run_export")
-    report = tmp_path / "report.txt"
+    report = _managed_artifact_file(cfg, "run_export", "report.txt")
     report.write_bytes(b"accepted\n")
     artifact = persist_artifact(
         cfg,
@@ -190,7 +190,7 @@ def test_result_package_export_includes_manifest_artifacts_and_lineage(tmp_path:
 def test_result_package_export_refuses_failed_checksum_audit(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     _create_run(cfg, "run_export_failed")
-    report = tmp_path / "report.txt"
+    report = _managed_artifact_file(cfg, "run_export_failed", "report.txt")
     report.write_bytes(b"accepted\n")
     persist_artifact(
         cfg,
@@ -206,10 +206,83 @@ def test_result_package_export_refuses_failed_checksum_audit(tmp_path: Path) -> 
         export_result_package(cfg, "res_run_export_failed", include_artifacts=True)
 
 
+def test_result_package_export_refuses_unmanaged_local_artifact_path(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_export_unmanaged")
+    report = tmp_path / "outside-managed-export.txt"
+    report.write_bytes(b"accepted\n")
+    persist_artifact(
+        cfg,
+        run_id="run_export_unmanaged",
+        kind="report",
+        path=report,
+        mime_type="text/plain",
+        artifact_key="report",
+    )
+
+    audit = build_result_artifact_audit(cfg, "res_run_export_unmanaged")
+    metadata_audit = build_result_artifact_audit(
+        cfg,
+        "res_run_export_unmanaged",
+        verify_payload=False,
+    )
+
+    assert audit["status"] == "failed"
+    assert audit["artifacts"][0]["error"] == "RESULT_ARTIFACT_STORAGE_UNMANAGED: unmanaged_local_path"
+    assert metadata_audit["status"] == "failed"
+    assert metadata_audit["artifacts"][0]["error"] == "RESULT_ARTIFACT_STORAGE_UNMANAGED: unmanaged_local_path"
+    with pytest.raises(ValueError, match="RESULT_ARTIFACT_AUDIT_FAILED"):
+        export_result_package(cfg, "res_run_export_unmanaged", include_artifacts=True)
+    with pytest.raises(ValueError, match="RESULT_ARTIFACT_AUDIT_FAILED"):
+        export_result_package(cfg, "res_run_export_unmanaged", include_artifacts=False)
+
+
+def test_result_package_export_refuses_local_directory_symlink_payload(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_export_symlink")
+    artifact_dir = Path(cfg.results_dir) / "run_export_symlink" / "artifact-dir"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    nested_report = artifact_dir / "report.txt"
+    nested_report.write_bytes(b"accepted\n")
+    persist_artifact(
+        cfg,
+        run_id="run_export_symlink",
+        kind="directory",
+        path=artifact_dir,
+        mime_type="inode/directory",
+        artifact_key="report",
+    )
+    outside = tmp_path / "outside-secret.txt"
+    outside.write_bytes(b"outside\n")
+    nested_report.unlink()
+    try:
+        nested_report.symlink_to(outside)
+    except (NotImplementedError, OSError) as exc:
+        pytest.skip(f"symlink creation unavailable: {exc}")
+
+    audit = build_result_artifact_audit(cfg, "res_run_export_symlink")
+    metadata_audit = build_result_artifact_audit(
+        cfg,
+        "res_run_export_symlink",
+        verify_payload=False,
+    )
+
+    assert audit["status"] == "failed"
+    assert audit["artifacts"][0]["error"].startswith("OUTPUT_ARTIFACT_SYMLINK_UNSUPPORTED: report.txt")
+    assert metadata_audit["status"] == "failed"
+    assert metadata_audit["artifacts"][0]["error"].startswith(
+        "OUTPUT_ARTIFACT_SYMLINK_UNSUPPORTED: report.txt"
+    )
+    with pytest.raises(ValueError, match="RESULT_ARTIFACT_AUDIT_FAILED"):
+        export_result_package(cfg, "res_run_export_symlink", include_artifacts=True)
+    with pytest.raises(ValueError, match="RESULT_ARTIFACT_AUDIT_FAILED"):
+        export_result_package(cfg, "res_run_export_symlink", include_artifacts=False)
+
+
 def test_result_package_validator_rejects_missing_metadata_file(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     _create_run(cfg, "run_export_validation")
-    report = tmp_path / "report.txt"
+    report = _managed_artifact_file(cfg, "run_export_validation", "report.txt")
     report.write_bytes(b"accepted\n")
     persist_artifact(
         cfg,
@@ -240,7 +313,7 @@ def test_result_package_export_validation_failure_records_nothing(
 ) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     _create_run(cfg, "run_export_broken_package")
-    report = tmp_path / "report.txt"
+    report = _managed_artifact_file(cfg, "run_export_broken_package", "report.txt")
     report.write_bytes(b"accepted\n")
     persist_artifact(
         cfg,
@@ -316,7 +389,7 @@ def test_result_package_export_requires_workflow_revision(tmp_path: Path) -> Non
         idempotency_key="idem_run_export_unversioned",
         payload_hash="hash_run_export_unversioned",
     )
-    report = tmp_path / "report.txt"
+    report = _managed_artifact_file(cfg, "run_export_unversioned", "report.txt")
     report.write_bytes(b"accepted\n")
     persist_artifact(
         cfg,
@@ -341,7 +414,7 @@ def test_result_package_export_rejects_invalid_result_id(tmp_path: Path) -> None
 def test_result_package_export_rejects_non_boolean_include_artifacts(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     _create_run(cfg, "run_export_non_bool")
-    report = tmp_path / "report.txt"
+    report = _managed_artifact_file(cfg, "run_export_non_bool", "report.txt")
     report.write_bytes(b"accepted\n")
     persist_artifact(
         cfg,
@@ -359,7 +432,7 @@ def test_result_package_export_rejects_non_boolean_include_artifacts(tmp_path: P
 def test_result_package_export_rejects_non_terminal_run(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     _create_run(cfg, "run_export_running", complete=False)
-    report = tmp_path / "running-report.txt"
+    report = _managed_artifact_file(cfg, "run_export_running", "running-report.txt")
     report.write_bytes(b"accepted\n")
     persist_artifact(
         cfg,
@@ -381,7 +454,7 @@ def test_result_package_export_redacts_secret_run_spec_fields(tmp_path: Path) ->
         "run_export_secret",
         params={"apiToken": "secret-token", "artifactKey": "report", "threshold": 7},
     )
-    report = tmp_path / "secret-report.txt"
+    report = _managed_artifact_file(cfg, "run_export_secret", "secret-report.txt")
     report.write_bytes(b"accepted\n")
     persist_artifact(
         cfg,
@@ -406,7 +479,7 @@ def test_result_package_export_redacts_secret_run_spec_fields(tmp_path: Path) ->
 def test_result_package_metadata_only_export_references_artifacts_without_payloads(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     revision = _create_run(cfg, "run_export_metadata_only")
-    report = tmp_path / "metadata-only-report.txt"
+    report = _managed_artifact_file(cfg, "run_export_metadata_only", "metadata-only-report.txt")
     report.write_bytes(b"accepted\n")
     artifact = persist_artifact(
         cfg,
@@ -456,7 +529,7 @@ def test_result_package_full_and_metadata_only_exports_do_not_overwrite_each_oth
 ) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     _create_run(cfg, "run_export_modes")
-    report = tmp_path / "report.txt"
+    report = _managed_artifact_file(cfg, "run_export_modes", "report.txt")
     report.write_bytes(b"accepted\n")
     artifact = persist_artifact(
         cfg,
@@ -485,6 +558,12 @@ def test_result_package_full_and_metadata_only_exports_do_not_overwrite_each_oth
             "SELECT COUNT(*) FROM result_package_exports WHERE result_id = 'res_run_export_modes'"
         ).fetchone()[0]
     assert export_count == 2
+
+
+def _managed_artifact_file(cfg, run_id: str, filename: str) -> Path:
+    path = Path(cfg.results_dir) / run_id / filename
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def _copy_zip_without_entry(source: Path, target: Path, omitted_name: str) -> None:
