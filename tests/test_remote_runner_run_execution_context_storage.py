@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from apps.remote_runner.run_execution_context_storage import fetch_run_execution_context
 from apps.remote_runner.run_execution_storage import claim_next_run_job, complete_run_attempt
 from apps.remote_runner.rule_execution_storage import upsert_run_rule_state
@@ -155,6 +158,16 @@ def test_run_execution_context_previews_snakemake_resume_without_enabling_execut
         lease_seconds=30,
     )
     assert claim is not None
+    work_dir = Path(str(claim["attempt"]["workDir"]))
+    result_dir = Path(cfg.results_dir) / "resume-results"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    result_dir.mkdir(parents=True, exist_ok=True)
+    present_output = result_dir / "present.txt"
+    present_output.write_text("ok\n", encoding="utf-8")
+    (work_dir / "run-config.json").write_text(
+        json.dumps({"outputs": {"present": str(present_output), "missing": str(result_dir / "missing.txt")}}),
+        encoding="utf-8",
+    )
     complete_run_attempt(
         cfg,
         claim["attemptId"],
@@ -170,11 +183,12 @@ def test_run_execution_context_previews_snakemake_resume_without_enabling_execut
             SET status = 'failed',
                 stage = 'execute',
                 state_version = 2,
+                result_dir = ?,
                 finished_at = '2099-06-07T10:00:03Z',
                 last_updated_at = '2099-06-07T10:00:03Z'
             WHERE run_id = ?
             """,
-            ("run_resume_failed",),
+            (str(result_dir), "run_resume_failed"),
         )
         connection.commit()
 
@@ -199,7 +213,16 @@ def test_run_execution_context_previews_snakemake_resume_without_enabling_execut
         "pathExposed": False,
         "reasonCode": "WORKDIR_REUSE_POLICY_UNPROVEN",
     }
-    assert context["resumePlan"]["incompleteOutputAudit"]["reasonCode"] == "INCOMPLETE_OUTPUT_AUDIT_UNPROVEN"
+    assert context["resumePlan"]["incompleteOutputAudit"]["schemaVersion"] == "run-output-audit.v1"
+    assert context["resumePlan"]["incompleteOutputAudit"]["available"] is True
+    assert context["resumePlan"]["incompleteOutputAudit"]["pathExposed"] is False
+    assert context["resumePlan"]["incompleteOutputAudit"]["expectedOutputCount"] == 2
+    assert context["resumePlan"]["incompleteOutputAudit"]["checkedOutputCount"] == 2
+    assert context["resumePlan"]["incompleteOutputAudit"]["existingOutputCount"] == 1
+    assert context["resumePlan"]["incompleteOutputAudit"]["missingOutputCount"] == 1
+    assert context["resumePlan"]["incompleteOutputAudit"]["unsafeOutputCount"] == 0
+    assert context["resumePlan"]["incompleteOutputAudit"]["reasonCode"] == "OUTPUT_AUDIT_MISSING_OUTPUTS"
+    assert all("path" not in item for item in context["resumePlan"]["incompleteOutputAudit"]["outputs"])
     assert context["resumePlan"]["artifactAdoptionBoundary"]["reasonCode"] == "ARTIFACT_ADOPTION_UNPROVEN"
     assert context["resumePlan"]["snakemakeOptions"] == {
         "schemaVersion": "snakemake-run-resume-options.v1",

@@ -453,9 +453,25 @@ export type WorkflowRunResumePlan = {
     reasonCode?: string;
   };
   incompleteOutputAudit?: {
+    schemaVersion?: string;
     available?: boolean;
+    pathExposed?: boolean;
+    configAvailable?: boolean;
+    expectedOutputCount?: number;
     checkedOutputCount?: number;
+    existingOutputCount?: number;
+    missingOutputCount?: number;
+    unsafeOutputCount?: number;
+    uncheckedOutputCount?: number;
     unverifiedOutputCount?: number;
+    outputs?: Array<{
+      key?: string;
+      state?: string;
+      pathExposed?: boolean;
+      reasonCode?: string;
+      sizeBytes?: number;
+      directory?: boolean;
+    }>;
     reasonCode?: string;
   };
   artifactAdoptionBoundary?: WorkflowRunAdoptionBoundary;

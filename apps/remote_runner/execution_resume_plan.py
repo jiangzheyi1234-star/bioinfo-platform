@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .execution_output_audit import build_attempt_output_audit
+
 
 RUN_RESUME_PLAN_SCHEMA_VERSION = "run-resume-plan.v1"
 SNAKEMAKE_RUN_RESUME_OPTIONS_SCHEMA_VERSION = "snakemake-run-resume-options.v1"
@@ -24,8 +26,16 @@ def build_run_resume_plan(
     job: dict[str, Any] | None,
     attempts: list[dict[str, Any]],
     active_lease: dict[str, Any] | None,
+    managed_work_dir: str,
+    managed_results_dir: str,
 ) -> dict[str, Any]:
-    base = _base_plan(run, job=job, attempts=attempts)
+    base = _base_plan(
+        run,
+        job=job,
+        attempts=attempts,
+        managed_work_dir=managed_work_dir,
+        managed_results_dir=managed_results_dir,
+    )
     latest_attempt = base["latestAttempt"]
     if active_lease is not None:
         return _blocked(base, "ACTIVE_LEASE")
@@ -65,6 +75,8 @@ def _base_plan(
     *,
     job: dict[str, Any] | None,
     attempts: list[dict[str, Any]],
+    managed_work_dir: str,
+    managed_results_dir: str,
 ) -> dict[str, Any]:
     return {
         "schemaVersion": RUN_RESUME_PLAN_SCHEMA_VERSION,
@@ -82,7 +94,12 @@ def _base_plan(
         "attemptCount": len(attempts),
         "latestAttempt": _latest_attempt(attempts),
         "workdirEvidence": _workdir_evidence(attempts),
-        "incompleteOutputAudit": _incomplete_output_audit(),
+        "incompleteOutputAudit": build_attempt_output_audit(
+            run=run,
+            attempts=attempts,
+            managed_work_dir=managed_work_dir,
+            managed_results_dir=managed_results_dir,
+        ),
         "artifactAdoptionBoundary": _artifact_adoption_boundary(),
         "blockedReasonCodes": list(RUN_RESUME_EXECUTION_BLOCKERS),
         "requiresBeforeExecution": list(RUN_RESUME_EXECUTION_BLOCKERS),
@@ -138,15 +155,6 @@ def _workdir_evidence(attempts: list[dict[str, Any]]) -> dict[str, Any]:
         "workDirReusable": False,
         "pathExposed": False,
         "reasonCode": "WORKDIR_REUSE_POLICY_UNPROVEN" if workdir_present else "WORKDIR_EVIDENCE_MISSING",
-    }
-
-
-def _incomplete_output_audit() -> dict[str, Any]:
-    return {
-        "available": False,
-        "checkedOutputCount": 0,
-        "unverifiedOutputCount": 0,
-        "reasonCode": "INCOMPLETE_OUTPUT_AUDIT_UNPROVEN",
     }
 
 

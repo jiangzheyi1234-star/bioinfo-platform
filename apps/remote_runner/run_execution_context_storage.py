@@ -38,7 +38,11 @@ def fetch_run_execution_context(cfg: RemoteRunnerConfig, run_id: str) -> dict[st
     rule_retry_plan = build_rule_retry_plan(cfg, run)
     attempts_payload = [_attempt_context(row) for row in attempts]
     resume_attempts = [
-        {**_attempt_context(row), "workDirPresent": bool(str(row["work_dir"] or "").strip())}
+        {
+            **_attempt_context(row),
+            "workDir": str(row["work_dir"] or ""),
+            "workDirPresent": bool(str(row["work_dir"] or "").strip()),
+        }
         for row in attempts
     ]
     resume_plan = build_run_resume_plan(
@@ -46,6 +50,8 @@ def fetch_run_execution_context(cfg: RemoteRunnerConfig, run_id: str) -> dict[st
         job=job_payload,
         attempts=resume_attempts,
         active_lease=active_lease,
+        managed_work_dir=cfg.work_dir,
+        managed_results_dir=cfg.results_dir,
     )
     return {
         "schemaVersion": "run-execution-context.v1",

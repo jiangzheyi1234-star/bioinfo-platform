@@ -54,6 +54,12 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "resumePlan?: WorkflowRunResumePlan" in model
     assert "workdirEvidence?:" in model
     assert "incompleteOutputAudit?:" in model
+    assert "expectedOutputCount?: number" in model
+    assert "checkedOutputCount?: number" in model
+    assert "existingOutputCount?: number" in model
+    assert "missingOutputCount?: number" in model
+    assert "unsafeOutputCount?: number" in model
+    assert "pathExposed?: boolean" in model
     assert "artifactAdoptionBoundary?: WorkflowRunAdoptionBoundary" in model
     assert "executionEnabled?: boolean" in model
     assert "commandPreviewAvailable?: boolean" in model
@@ -119,6 +125,8 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "RuleRetryPlanSummary" in execution_panel
     assert "RuleRetryExecutionPlanPreview" in execution_panel
     assert "RunResumePlanPreview" in execution_panel
+    assert "outputAuditLabel" in execution_panel
+    assert "expected ${outputAudit.expectedOutputCount" in execution_panel
     assert "plan.selectedAttemptCount" in execution_panel
     assert "planned only" in execution_panel
     assert "not enabled" in execution_panel

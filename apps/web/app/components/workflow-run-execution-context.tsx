@@ -226,6 +226,9 @@ function RunResumePlanPreview({ plan }: { plan?: WorkflowRunResumePlan }) {
   const latestLabel = latest?.attemptId
     ? `#${latest.attemptNumber ?? "—"} gen ${latest.leaseGeneration ?? "—"} · ${latest.state || latest.status || "unknown"}`
     : "—";
+  const outputAuditLabel = outputAudit
+    ? `${outputAudit.reasonCode || "—"} · expected ${outputAudit.expectedOutputCount ?? 0} · present ${outputAudit.existingOutputCount ?? 0} · missing ${outputAudit.missingOutputCount ?? 0} · unsafe ${outputAudit.unsafeOutputCount ?? 0}`
+    : "—";
 
   return (
     <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
@@ -253,7 +256,7 @@ function RunResumePlanPreview({ plan }: { plan?: WorkflowRunResumePlan }) {
         <span className="text-slate-500">workdir evidence</span>
         <span className="truncate font-mono text-slate-800">{workdir?.reasonCode || "—"}</span>
         <span className="text-slate-500">output audit</span>
-        <span className="truncate font-mono text-slate-800">{outputAudit?.reasonCode || "—"}</span>
+        <span className="truncate font-mono text-slate-800">{outputAuditLabel}</span>
         <span className="text-slate-500">artifact adoption</span>
         <span className="truncate font-mono text-slate-800">{adoption?.reasonCode || "—"}</span>
         <span className="text-slate-500">blockers</span>
