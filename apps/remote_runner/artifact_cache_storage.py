@@ -7,7 +7,11 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from .artifact_io import artifact_record_exists, artifact_record_stats
+from .artifact_io import (
+    artifact_record_exists,
+    artifact_record_stats,
+    assert_managed_artifact_storage,
+)
 from .config import RemoteRunnerConfig
 from .evidence_storage import append_evidence_event
 from .storage_core import get_connection, now_iso
@@ -90,6 +94,7 @@ def record_artifact_cache_entry(
     with get_connection(cfg) as connection:
         entry = record_artifact_cache_entry_record(
             connection,
+            cfg=cfg,
             artifact=artifact,
             artifact_key=artifact_key,
             role=role,
@@ -105,6 +110,7 @@ def record_artifact_cache_entry(
 def record_artifact_cache_entry_record(
     connection: sqlite3.Connection,
     *,
+    cfg: RemoteRunnerConfig,
     artifact: dict[str, Any],
     artifact_key: str,
     role: str,
@@ -122,6 +128,15 @@ def record_artifact_cache_entry_record(
     workflow_revision_id = str(run["workflow_revision_id"] or "").strip()
     if not workflow_revision_id:
         return {"cacheEligible": False, "cacheIneligibleReason": "workflow_revision_missing"}
+    try:
+        assert_managed_artifact_storage(
+            cfg,
+            {"storageBackend": artifact["storageBackend"], "storageUri": artifact["storageUri"]},
+        )
+    except ValueError as exc:
+        if str(exc).startswith("RESULT_ARTIFACT_STORAGE_UNMANAGED"):
+            return {"cacheEligible": False, "cacheIneligibleReason": "artifact_unmanaged"}
+        raise
     run_spec = _json_object(run["run_spec_json"])
     key_payload = build_artifact_cache_key_payload(
         workflow_revision_id=workflow_revision_id,
@@ -540,9 +555,12 @@ def _verify_cache_entry_payload(cfg: RemoteRunnerConfig, entry: dict[str, Any]) 
         "path": "",
     }
     try:
+        assert_managed_artifact_storage(cfg, record)
         exists = artifact_record_exists(cfg, record)
         actual_size, actual_sha = artifact_record_stats(cfg, record)
-    except ValueError:
+    except ValueError as exc:
+        if str(exc).startswith("RESULT_ARTIFACT_STORAGE_UNMANAGED"):
+            return False, "artifact_unmanaged"
         return False, "artifact_unavailable"
     if not exists:
         return False, "artifact_unavailable"

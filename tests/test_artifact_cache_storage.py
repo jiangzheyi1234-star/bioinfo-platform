@@ -178,6 +178,29 @@ def test_artifact_cache_does_not_index_outputs_without_workflow_revision(tmp_pat
     assert list_artifact_cache_entries(cfg)["items"] == []
 
 
+def test_artifact_cache_does_not_index_unmanaged_local_payload(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    revision = _create_revision(cfg)
+    run_spec = _run_spec("run_cache_unmanaged_index", revision["workflowRevisionId"])
+    _create_terminal_run(cfg, run_spec)
+    outside = tmp_path / "outside-cache-index.txt"
+    outside.write_bytes(b"outside cache\n")
+
+    artifact = persist_artifact(
+        cfg,
+        run_id="run_cache_unmanaged_index",
+        kind="report",
+        path=outside,
+        mime_type="text/plain",
+        artifact_key="report",
+        step_id="summarize",
+    )
+
+    assert artifact["artifactCacheEligible"] is False
+    assert artifact["artifactCacheIneligibleReason"] == "artifact_unmanaged"
+    assert list_artifact_cache_entries(cfg)["items"] == []
+
+
 def test_artifact_cache_marks_entry_deleted_after_gc(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     revision = _create_revision(cfg)
@@ -458,6 +481,56 @@ def test_artifact_cache_adoption_skips_when_cached_payload_is_unavailable(tmp_pa
     assert adopted["reason"] == "cache_miss"
     assert adopted["misses"][0]["reason"] == "artifact_unavailable"
     assert fetch_run_results(cfg, "run_cache_adopt_missing_payload")["artifacts"] == []
+
+
+def test_artifact_cache_lookup_and_adoption_reject_unmanaged_local_payload(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    revision = _create_revision(cfg)
+    source_spec = _run_spec("run_cache_source_unmanaged", revision["workflowRevisionId"])
+    target_spec = _run_spec("run_cache_adopt_unmanaged", revision["workflowRevisionId"])
+    _create_terminal_run(cfg, source_spec)
+    source = persist_artifact(
+        cfg,
+        run_id="run_cache_source_unmanaged",
+        kind="report",
+        path=_managed_report(cfg, "run_cache_source_unmanaged", b"cached outside\n"),
+        mime_type="text/plain",
+        artifact_key="report",
+        step_id="summarize",
+    )
+    outside = tmp_path / "outside-cache-hit.txt"
+    outside.write_bytes(b"cached outside\n")
+    with get_connection(cfg) as connection:
+        connection.execute(
+            """
+            UPDATE artifact_cache_entries
+            SET storage_uri = ?
+            WHERE artifact_id = ?
+            """,
+            (outside.resolve().as_uri(), source["artifactId"]),
+        )
+        connection.commit()
+    lookup = lookup_artifact_cache_entry(cfg, _lookup_payload(revision["workflowRevisionId"]))
+    claim = _create_active_attempt(cfg, target_spec)
+
+    adopted = try_adopt_cached_outputs(
+        cfg,
+        run_id="run_cache_adopt_unmanaged",
+        request_id="req_run_cache_adopt_unmanaged",
+        run_spec=target_spec,
+        output_schema=_output_schema(),
+        outputs={"report": str(Path(cfg.results_dir) / "run_cache_adopt_unmanaged" / "report.txt")},
+        attempt_id=claim["attemptId"],
+        lease_generation=claim["leaseGeneration"],
+        result_dir=str(Path(cfg.results_dir) / "run_cache_adopt_unmanaged"),
+    )
+
+    assert lookup["hit"] is False
+    assert lookup["reason"] == "artifact_unmanaged"
+    assert adopted["adopted"] is False
+    assert adopted["reason"] == "cache_miss"
+    assert adopted["misses"][0]["reason"] == "artifact_unmanaged"
+    assert fetch_run_results(cfg, "run_cache_adopt_unmanaged")["artifacts"] == []
 
 
 def test_artifact_cache_adoption_rejects_stale_lease_before_lookup(tmp_path: Path) -> None:

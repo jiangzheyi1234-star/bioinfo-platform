@@ -158,6 +158,122 @@ def test_s3_metadata_only_result_package_does_not_fetch_payload(
     assert manifest["audit"]["verificationMode"] == "metadata-only"
 
 
+def test_s3_artifact_cache_lookup_rejects_unmanaged_object_prefix(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeS3Client()
+    monkeypatch.setattr("apps.remote_runner.artifact_io._build_s3_client", lambda _cfg: fake)
+    cfg = _s3_config(tmp_path)
+    _create_run(cfg, "run_s3_unmanaged_cache")
+    artifact_path = tmp_path / "report.txt"
+    artifact_path.write_bytes(b"accepted\n")
+    artifact = persist_artifact(
+        cfg,
+        run_id="run_s3_unmanaged_cache",
+        kind="report",
+        path=artifact_path,
+        mime_type="text/plain",
+        artifact_key="report",
+    )
+    unmanaged_object = "tenant-a/unmanaged/cache-report.txt"
+    fake.objects[("h2ometa-artifacts", unmanaged_object)] = {
+        "payload": b"accepted\n",
+        "contentType": "text/plain",
+        "metadata": {},
+    }
+    workflow_revision_id = _workflow_revision_id(cfg, "run_s3_unmanaged_cache")
+    with get_connection(cfg) as connection:
+        connection.execute(
+            """
+            UPDATE artifact_cache_entries
+            SET storage_uri = ?
+            WHERE artifact_id = ?
+            """,
+            (f"s3://h2ometa-artifacts/{unmanaged_object}", artifact["artifactId"]),
+        )
+        connection.commit()
+    fake.get_object_calls = 0
+
+    lookup = lookup_artifact_cache_entry(
+        cfg,
+        {
+            "workflowRevisionId": workflow_revision_id,
+            "artifactKey": "report",
+            "role": "output",
+            "inputs": [],
+            "params": {},
+            "resourceBindings": {},
+            "execution": {},
+        },
+    )
+
+    assert lookup["hit"] is False
+    assert lookup["reason"] == "artifact_unmanaged"
+    assert fake.get_object_calls == 0
+
+
+def test_s3_artifact_cache_adoption_rejects_unmanaged_object_prefix(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeS3Client()
+    monkeypatch.setattr("apps.remote_runner.artifact_io._build_s3_client", lambda _cfg: fake)
+    cfg = _s3_config(tmp_path)
+    revision = _create_revision(cfg, "shared_s3_unmanaged_cache_adopt")
+    _create_run(cfg, "run_s3_unmanaged_cache_adopt_source", revision=revision)
+    artifact_path = tmp_path / "report.txt"
+    artifact_path.write_bytes(b"accepted\n")
+    artifact = persist_artifact(
+        cfg,
+        run_id="run_s3_unmanaged_cache_adopt_source",
+        kind="report",
+        path=artifact_path,
+        mime_type="text/plain",
+        artifact_key="report",
+        step_id="summarize",
+    )
+    unmanaged_object = "tenant-a/unmanaged/cache-adopt-report.txt"
+    fake.objects[("h2ometa-artifacts", unmanaged_object)] = {
+        "payload": b"accepted\n",
+        "contentType": "text/plain",
+        "metadata": {},
+    }
+    with get_connection(cfg) as connection:
+        connection.execute(
+            """
+            UPDATE artifact_cache_entries
+            SET storage_uri = ?
+            WHERE artifact_id = ?
+            """,
+            (f"s3://h2ometa-artifacts/{unmanaged_object}", artifact["artifactId"]),
+        )
+        connection.commit()
+    target_spec = _run_spec("run_s3_unmanaged_cache_adopt_target", revision["workflowRevisionId"])
+    claim = _create_attempt(cfg, target_spec)
+    fake.get_object_calls = 0
+
+    adopted = try_adopt_cached_outputs(
+        cfg,
+        run_id="run_s3_unmanaged_cache_adopt_target",
+        request_id="req_run_s3_unmanaged_cache_adopt_target",
+        run_spec=target_spec,
+        output_schema=_output_schema(),
+        outputs={
+            "report": str(Path(cfg.results_dir) / "run_s3_unmanaged_cache_adopt_target" / "report.txt")
+        },
+        attempt_id=claim["attemptId"],
+        lease_generation=claim["leaseGeneration"],
+        result_dir=str(Path(cfg.results_dir) / "run_s3_unmanaged_cache_adopt_target"),
+    )
+
+    assert adopted["adopted"] is False
+    assert adopted["reason"] == "cache_miss"
+    assert adopted["misses"][0]["reason"] == "artifact_unmanaged"
+    assert fake.get_object_calls == 0
+    assert fetch_run_results(cfg, "run_s3_unmanaged_cache_adopt_target")["artifacts"] == []
+
+
 def test_s3_result_preview_rejects_unmanaged_object_prefix(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

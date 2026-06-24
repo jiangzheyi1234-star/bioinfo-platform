@@ -14,7 +14,12 @@ from .artifact_cache_storage import (
     lookup_artifact_cache_entry,
     release_artifact_cache_pins,
 )
-from .artifact_io import artifact_record_exists, artifact_record_stats, restore_artifact_payload
+from .artifact_io import (
+    artifact_record_exists,
+    artifact_record_stats,
+    assert_managed_artifact_storage,
+    restore_artifact_payload,
+)
 from .config import RemoteRunnerConfig
 from .event_contracts import append_run_event_v2
 from .evidence_storage import append_evidence_event
@@ -546,6 +551,12 @@ def _require_cache_payload_available(cfg: RemoteRunnerConfig, entry: dict[str, A
         "sha256": entry["sha256"],
         "path": "",
     }
+    try:
+        assert_managed_artifact_storage(cfg, record)
+    except ValueError as exc:
+        if str(exc).startswith("RESULT_ARTIFACT_STORAGE_UNMANAGED"):
+            raise ValueError(f"ARTIFACT_CACHE_PAYLOAD_UNMANAGED: {entry['cacheEntryId']}") from exc
+        raise
     if not artifact_record_exists(cfg, record):
         raise ValueError(f"ARTIFACT_CACHE_PAYLOAD_UNAVAILABLE: {entry['cacheEntryId']}")
     actual_size, actual_sha = artifact_record_stats(cfg, record)

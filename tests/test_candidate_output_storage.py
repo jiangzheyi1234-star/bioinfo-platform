@@ -86,7 +86,8 @@ def _create_revision(cfg):
 def test_candidate_output_must_be_verified_before_adoption(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     claim = _create_attempt(cfg)
-    output = tmp_path / "report.txt"
+    output = Path(cfg.work_dir) / claim["runId"] / "report.txt"
+    output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text("candidate output\n", encoding="utf-8")
 
     candidate = record_candidate_output(
@@ -161,7 +162,8 @@ def test_candidate_output_adoption_preserves_lineage_metadata(tmp_path: Path) ->
         "run_candidate_lineage",
         workflow_revision_id=workflow_revision["workflowRevisionId"],
     )
-    output = tmp_path / "report.txt"
+    output = Path(cfg.work_dir) / claim["runId"] / "report.txt"
+    output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text("candidate output\n", encoding="utf-8")
     candidate = record_candidate_output(
         cfg,

@@ -503,6 +503,7 @@ def _adopt_artifact(
 
     cache_entry = record_artifact_cache_entry_record(
         connection,
+        cfg=cfg,
         artifact={
             "artifactId": artifact_id,
             "runId": run_id,
