@@ -237,7 +237,7 @@ async def replay_workflow_trigger_inbox_event_request(
     payload: WorkflowTriggerInboxReplayRequest,
     authorization: str | None,
 ) -> dict[str, Any]:
-    cfg = await _authorized_config_from_request(authorization, action="workflow_trigger.dispatch")
+    cfg = await _authorized_config_from_request(authorization, action="workflow_trigger.inbox_replay")
     return await run_sync(
         replay_workflow_trigger_inbox_event_from_request,
         cfg,

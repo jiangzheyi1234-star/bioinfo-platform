@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
 import json
 
 import pytest
@@ -27,7 +28,7 @@ def test_webhook_inbox_records_delivery_and_links_dispatch(tmp_path, monkeypatch
     cfg = make_configured_remote_runner(tmp_path)
     monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
     monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_execution_admission_ready", lambda _cfg: None)
-    trigger = _create_trigger(cfg, source_type="webhook", trigger_spec={"provider": "instrument-qc"})
+    trigger = _create_trigger(cfg, source_type="webhook", trigger_spec=_webhook_trigger_spec())
     request = WorkflowTriggerInboxEventRequest(
         eventType="dataset.ready",
         source="instrument-qc",
@@ -80,7 +81,7 @@ def test_webhook_inbox_rejects_duplicate_identity_with_different_payload(
     cfg = make_configured_remote_runner(tmp_path)
     monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
     monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_execution_admission_ready", lambda _cfg: None)
-    trigger = _create_trigger(cfg, source_type="webhook", trigger_spec={"provider": "instrument-qc"})
+    trigger = _create_trigger(cfg, source_type="webhook", trigger_spec=_webhook_trigger_spec())
     first = WorkflowTriggerInboxEventRequest(
         source="instrument-qc",
         eventId="evt_001",
@@ -109,7 +110,7 @@ def test_webhook_inbox_rejects_duplicate_identity_with_different_raw_body_hash(
     cfg = make_configured_remote_runner(tmp_path)
     monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
     monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_execution_admission_ready", lambda _cfg: None)
-    trigger = _create_trigger(cfg, source_type="webhook", trigger_spec={"provider": "instrument-qc"})
+    trigger = _create_trigger(cfg, source_type="webhook", trigger_spec=_webhook_trigger_spec())
     first_body = b'{"source":"instrument-qc","eventId":"evt_raw","payload":{"dataset":"reads.fastq"}}'
     changed_raw_body = b'{\n  "source": "instrument-qc",\n  "eventId": "evt_raw",\n  "payload": {"dataset": "reads.fastq"}\n}'
     first_request = WorkflowTriggerInboxEventRequest.model_validate(json.loads(first_body))
@@ -145,6 +146,73 @@ def test_webhook_inbox_rejects_duplicate_identity_with_different_raw_body_hash(
     assert inbox_list["items"][0]["deliveryCount"] == 1
 
 
+@pytest.mark.parametrize(
+    ("inbox_request", "code"),
+    [
+        (
+            WorkflowTriggerInboxEventRequest(
+                eventType="dataset.ready",
+                source="wrong-source",
+                eventId="evt_wrong_source",
+                payload={"dataset": "reads.fastq"},
+            ),
+            "WORKFLOW_TRIGGER_WEBHOOK_SOURCE_MISMATCH",
+        ),
+        (
+            WorkflowTriggerInboxEventRequest(
+                eventType="sample.deleted",
+                source="instrument-qc",
+                eventId="evt_wrong_event",
+                payload={"dataset": "reads.fastq"},
+            ),
+            "WORKFLOW_TRIGGER_WEBHOOK_EVENT_TYPE_UNSUPPORTED",
+        ),
+        (
+            WorkflowTriggerInboxEventRequest(
+                eventType="dataset.ready",
+                source="instrument-qc",
+                eventId="evt_wrong_action",
+                payload={"action": "delete", "token": "payload-secret"},
+            ),
+            "WORKFLOW_TRIGGER_WEBHOOK_ACTION_UNSUPPORTED",
+        ),
+    ],
+)
+def test_webhook_inbox_rejects_unmatched_delivery_before_inbox_or_dispatch(
+    inbox_request: WorkflowTriggerInboxEventRequest,
+    code: str,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_execution_admission_ready", lambda _cfg: None)
+    trigger = _create_trigger(
+        cfg,
+        source_type="webhook",
+        trigger_spec=_webhook_trigger_spec(actions=["create"]),
+    )
+
+    with pytest.raises(ValueError, match=code):
+        submit_workflow_trigger_inbox_event_from_request(cfg, trigger["triggerId"], inbox_request)
+
+    with get_connection(cfg) as connection:
+        count = connection.execute("SELECT COUNT(*) FROM workflow_trigger_inbox_events").fetchone()[0]
+    assert count == 0
+    assert list_workflow_trigger_events(cfg, trigger["triggerId"])["items"] == []
+    deny = _latest_match_deny_audit(cfg, trigger["triggerId"])
+    assert deny["reasonCode"] == code
+    assert deny["subjectKind"] == "workflow_trigger_event"
+    assert deny["subjectId"].startswith(f"rejected:{trigger['triggerId']}:match:")
+    assert deny["details"]["schemaVersion"] == "workflow-trigger-webhook-match-rejection-audit.v1"
+    assert deny["details"]["failureStage"] == "webhook_event_matching"
+    assert deny["details"]["triggerId"] == trigger["triggerId"]
+    assert deny["details"]["eventIdHash"] == hashlib.sha256(inbox_request.eventId.encode("utf-8")).hexdigest()
+    assert deny["details"]["eventIdLength"] == len(inbox_request.eventId)
+    assert inbox_request.eventId not in repr(deny)
+    assert "payload-secret" not in repr(deny)
+
+
 def test_webhook_inbox_dead_letters_dispatch_failure(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
@@ -152,7 +220,7 @@ def test_webhook_inbox_dead_letters_dispatch_failure(tmp_path, monkeypatch: pyte
         "apps.remote_runner.trigger_service.ensure_execution_admission_ready",
         lambda _cfg: (_ for _ in ()).throw(ValueError("QUEUE_CLOSED")),
     )
-    trigger = _create_trigger(cfg, source_type="webhook", trigger_spec={"provider": "instrument-qc"})
+    trigger = _create_trigger(cfg, source_type="webhook", trigger_spec=_webhook_trigger_spec())
 
     with pytest.raises(ValueError, match="QUEUE_CLOSED"):
         submit_workflow_trigger_inbox_event_from_request(
@@ -186,7 +254,7 @@ def test_webhook_inbox_replay_resubmits_dead_lettered_dispatch(tmp_path, monkeyp
             raise ValueError("QUEUE_CLOSED")
 
     monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_execution_admission_ready", admission)
-    trigger = _create_trigger(cfg, source_type="webhook", trigger_spec={"provider": "instrument-qc"})
+    trigger = _create_trigger(cfg, source_type="webhook", trigger_spec=_webhook_trigger_spec())
     request = WorkflowTriggerInboxEventRequest(
         eventType="dataset.ready",
         source="instrument-qc",
@@ -236,6 +304,74 @@ def test_webhook_inbox_replay_resubmits_dead_lettered_dispatch(tmp_path, monkeyp
     assert replay_audit[0]["details"]["reason"] == "queue restored"
 
 
+def test_webhook_inbox_replay_rechecks_current_event_match_policy(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    closed = {"value": True}
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+
+    def admission(_cfg) -> None:
+        if closed["value"]:
+            raise ValueError("QUEUE_CLOSED")
+
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_execution_admission_ready", admission)
+    trigger = _create_trigger(cfg, source_type="webhook", trigger_spec=_webhook_trigger_spec())
+    request = WorkflowTriggerInboxEventRequest(
+        eventType="dataset.ready",
+        source="instrument-qc",
+        eventId="evt_policy_changed",
+        actor="instrument-agent",
+        payload={"dataset": "reads.fastq"},
+    )
+
+    with pytest.raises(ValueError, match="QUEUE_CLOSED"):
+        submit_workflow_trigger_inbox_event_from_request(cfg, trigger["triggerId"], request)
+    inbox = list_workflow_trigger_inbox_events_from_storage(
+        cfg,
+        trigger["triggerId"],
+        state="dead_lettered",
+    )["data"]["items"][0]
+    with get_connection(cfg) as connection:
+        connection.execute(
+            """
+            UPDATE workflow_triggers
+            SET trigger_spec_json = ?
+            WHERE trigger_id = ?
+            """,
+            (
+                json.dumps(_webhook_trigger_spec(event_types=["webhook"]), sort_keys=True, separators=(",", ":")),
+                trigger["triggerId"],
+            ),
+        )
+        connection.commit()
+
+    closed["value"] = False
+    with pytest.raises(ValueError, match="WORKFLOW_TRIGGER_WEBHOOK_EVENT_TYPE_UNSUPPORTED"):
+        replay_workflow_trigger_inbox_event_from_request(
+            cfg,
+            trigger["triggerId"],
+            inbox["inboxEventId"],
+            WorkflowTriggerInboxReplayRequest(
+                confirmation="replay-dead-lettered-inbox-event",
+                actor="operator",
+                reason="policy changed",
+            ),
+        )
+
+    unchanged = list_workflow_trigger_inbox_events_from_storage(
+        cfg,
+        trigger["triggerId"],
+        state="dead_lettered",
+    )["data"]["items"][0]
+    assert unchanged["state"] == "dead_lettered"
+    assert unchanged["runId"] is None
+    deny = _latest_match_deny_audit(cfg, trigger["triggerId"])
+    assert deny["reasonCode"] == "WORKFLOW_TRIGGER_WEBHOOK_EVENT_TYPE_UNSUPPORTED"
+    assert deny["actor"] == "operator"
+
+
 def test_webhook_inbox_replay_requires_confirmation_without_changing_state(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
@@ -246,7 +382,7 @@ def test_webhook_inbox_replay_requires_confirmation_without_changing_state(
         "apps.remote_runner.trigger_service.ensure_execution_admission_ready",
         lambda _cfg: (_ for _ in ()).throw(ValueError("QUEUE_CLOSED")),
     )
-    trigger = _create_trigger(cfg, source_type="webhook", trigger_spec={"provider": "instrument-qc"})
+    trigger = _create_trigger(cfg, source_type="webhook", trigger_spec=_webhook_trigger_spec())
 
     with pytest.raises(ValueError, match="QUEUE_CLOSED"):
         submit_workflow_trigger_inbox_event_from_request(
@@ -281,7 +417,7 @@ def test_webhook_inbox_replay_rejects_submitted_state(tmp_path, monkeypatch: pyt
     cfg = make_configured_remote_runner(tmp_path)
     monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
     monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_execution_admission_ready", lambda _cfg: None)
-    trigger = _create_trigger(cfg, source_type="webhook", trigger_spec={"provider": "instrument-qc"})
+    trigger = _create_trigger(cfg, source_type="webhook", trigger_spec=_webhook_trigger_spec())
     submitted = submit_workflow_trigger_inbox_event_from_request(
         cfg,
         trigger["triggerId"],
@@ -306,7 +442,7 @@ def test_webhook_inbox_replay_fails_loudly_without_trigger_event(
 ) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
-    trigger = _create_trigger(cfg, source_type="webhook", trigger_spec={"provider": "instrument-qc"})
+    trigger = _create_trigger(cfg, source_type="webhook", trigger_spec=_webhook_trigger_spec())
     monkeypatch.setattr(
         "apps.remote_runner.trigger_service.ensure_submission_ready",
         lambda _cfg: (_ for _ in ()).throw(ValueError("SUBMISSION_CLOSED")),
@@ -344,7 +480,7 @@ def test_webhook_inbox_replay_failure_keeps_dead_letter_state(tmp_path, monkeypa
         "apps.remote_runner.trigger_service.ensure_execution_admission_ready",
         lambda _cfg: (_ for _ in ()).throw(ValueError(queue_state["message"])),
     )
-    trigger = _create_trigger(cfg, source_type="webhook", trigger_spec={"provider": "instrument-qc"})
+    trigger = _create_trigger(cfg, source_type="webhook", trigger_spec=_webhook_trigger_spec())
 
     with pytest.raises(ValueError, match="QUEUE_CLOSED"):
         submit_workflow_trigger_inbox_event_from_request(
@@ -396,6 +532,30 @@ def test_webhook_inbox_rejects_non_webhook_without_inbox_row(
     with get_connection(cfg) as connection:
         count = connection.execute("SELECT COUNT(*) FROM workflow_trigger_inbox_events").fetchone()[0]
     assert count == 0
+
+
+def _webhook_trigger_spec(
+    *,
+    event_types: list[str] | None = None,
+    actions: list[str] | None = None,
+) -> dict[str, object]:
+    event_match: dict[str, object] = {"eventTypes": event_types or ["webhook", "dataset.ready"]}
+    if actions is not None:
+        event_match["actions"] = actions
+    return {"provider": "instrument-qc", "eventMatch": event_match}
+
+
+def _latest_match_deny_audit(cfg, trigger_id: str) -> dict[str, object]:
+    events = list_governance_audit_events(cfg, action="workflow_trigger.dispatch")["items"]
+    denies = [
+        event
+        for event in events
+        if event["decision"] == "deny"
+        and event["details"].get("triggerId") == trigger_id
+        and event["details"].get("failureStage") == "webhook_event_matching"
+    ]
+    assert denies
+    return denies[-1]
 
 
 def _create_trigger(

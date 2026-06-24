@@ -31,6 +31,7 @@ from .workflow_backfill_controller import (
     advance_workflow_backfill_launch as _advance_workflow_backfill_launch,
     advance_workflow_backfill_launches as _advance_workflow_backfill_launches,
 )
+from .webhook_event_matching import resolve_webhook_trigger_event_match_policy
 from .trigger_storage import (
     create_workflow_trigger,
     list_workflow_trigger_events,
@@ -54,9 +55,9 @@ from .workflow_run_storage import create_run_record
 
 
 TRIGGER_EVENT_PAYLOAD_MAX_BYTES = 256 * 1024
-LAUNCH_SUPPORTED_TRIGGER_SOURCES = {"manual", "cron", "webhook"}
+LAUNCH_SUPPORTED_TRIGGER_SOURCES = {"manual", "cron"}
 READINESS_TRIGGER_SOURCES = {"dataset", "file", "database_ready"}
-ENABLED_TRIGGER_SOURCES = LAUNCH_SUPPORTED_TRIGGER_SOURCES | READINESS_TRIGGER_SOURCES | {"backfill"}
+ENABLED_TRIGGER_SOURCES = LAUNCH_SUPPORTED_TRIGGER_SOURCES | READINESS_TRIGGER_SOURCES | {"backfill", "webhook"}
 READINESS_RESOURCE_TYPES_BY_SOURCE = {
     "dataset": "dataset",
     "file": "file",
@@ -79,6 +80,8 @@ def create_workflow_trigger_from_request(
     trigger_spec = trigger_payload.get("triggerSpec") or {}
     if request.sourceType in READINESS_TRIGGER_SOURCES:
         _validate_readiness_trigger_resource_spec(request.sourceType, trigger_spec)
+    if request.sourceType == "webhook":
+        resolve_webhook_trigger_event_match_policy(trigger_spec)
     if request.sourceType not in ENABLED_TRIGGER_SOURCES and request.enabled:
         raise ValueError(f"WORKFLOW_TRIGGER_SOURCE_LAUNCH_UNSUPPORTED: {request.sourceType}")
     if request.runSpec.pipelineId != GENERATED_TOOL_RUN_PIPELINE_ID and not str(request.runSpec.pipelineVersion or "").strip():

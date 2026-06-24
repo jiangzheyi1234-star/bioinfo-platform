@@ -219,6 +219,7 @@ def test_workflow_trigger_routes_delegate_to_service() -> None:
     assert "def submit_workflow_trigger_event_from_request(" in service_source
     assert "def submit_workflow_trigger_inbox_event_from_request(" in inbox_source
     assert "def replay_workflow_trigger_inbox_event_from_request(" in replay_source
+    assert '_authorized_config_from_request(authorization, action="workflow_trigger.inbox_replay")' in control_source
     assert "def submit_workflow_trigger_readiness_event_from_request(" in service_source
     assert "def launch_workflow_trigger_backfill_from_request(" in service_source
     assert "def preview_workflow_trigger_backfill_from_request(" in service_source

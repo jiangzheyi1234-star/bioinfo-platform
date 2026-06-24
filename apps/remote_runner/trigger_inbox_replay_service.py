@@ -13,7 +13,7 @@ from .trigger_inbox_storage import (
     mark_workflow_trigger_inbox_replay_failed,
     mark_workflow_trigger_inbox_submitted,
 )
-from .trigger_inbox_service import find_workflow_trigger_inbox_trigger_event
+from .trigger_inbox_service import enforce_workflow_trigger_inbox_event_match, find_workflow_trigger_inbox_trigger_event
 from .trigger_service import _dispatch_recorded_trigger_event
 from .trigger_storage import require_workflow_trigger
 
@@ -41,11 +41,12 @@ def replay_workflow_trigger_inbox_event_from_request(
         raise ValueError(f"WORKFLOW_TRIGGER_INBOX_REPLAY_STATE_UNSUPPORTED: {inbox.get('state') or 'unknown'}")
     payload = fetch_workflow_trigger_inbox_payload(cfg, str(inbox["inboxEventId"]))
     inbox_request = WorkflowTriggerInboxEventRequest(**payload)
+    actor = str(request.actor or "remote-runner-api").strip() or "remote-runner-api"
+    reason = str(request.reason or "").strip()
+    enforce_workflow_trigger_inbox_event_match(cfg, trigger=trigger, request=inbox_request, actor=actor)
     event = find_workflow_trigger_inbox_trigger_event(cfg, trigger=trigger, request=inbox_request)
     if event is None:
         raise ValueError("WORKFLOW_TRIGGER_INBOX_REPLAY_EVENT_NOT_FOUND")
-    actor = str(request.actor or "remote-runner-api").strip() or "remote-runner-api"
-    reason = str(request.reason or "").strip()
     mark_workflow_trigger_inbox_dispatching(cfg, inbox_event_id=str(inbox["inboxEventId"]))
     try:
         response = _dispatch_recorded_trigger_event(

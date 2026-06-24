@@ -43,7 +43,7 @@ def test_control_service_submits_webhook_inbox_event_from_raw_envelope(
                 "pipelineId": "file-summary-standard-v1",
                 "inputs": [{"uploadId": "upl_reads", "filename": "reads.fastq"}],
             },
-            triggerSpec={"provider": "instrument-qc"},
+            triggerSpec={"provider": "instrument-qc", "eventMatch": {"eventTypes": ["dataset.ready"]}},
         ),
         actor="pytest",
     )["data"]
@@ -116,7 +116,7 @@ def test_control_service_rejects_invalid_raw_envelope_payload_with_safe_error(
                 "pipelineId": "file-summary-standard-v1",
                 "inputs": [{"uploadId": "upl_reads", "filename": "reads.fastq"}],
             },
-            triggerSpec={"provider": "instrument-qc"},
+            triggerSpec={"provider": "instrument-qc", "eventMatch": {"eventTypes": ["webhook"]}},
         ),
         actor="pytest",
     )["data"]
@@ -162,7 +162,7 @@ def test_control_service_plain_inbox_event_path_does_not_require_raw_envelope(
                 "pipelineId": "file-summary-standard-v1",
                 "inputs": [{"uploadId": "upl_reads", "filename": "reads.fastq"}],
             },
-            triggerSpec={"provider": "instrument-qc"},
+            triggerSpec={"provider": "instrument-qc", "eventMatch": {"eventTypes": ["webhook"]}},
         ),
         actor="pytest",
     )["data"]
@@ -236,6 +236,52 @@ def test_control_service_verifies_signed_github_inbox_event_before_dispatch(
     assert "refHash" in details["credentialRef"]
     assert "github-secret" not in repr(inbox)
     assert signature not in repr(inbox)
+
+
+def test_signed_webhook_rejects_valid_signature_for_unmatched_source_without_inbox(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    _skip_runtime_readiness(monkeypatch)
+    monkeypatch.setenv("H2OMETA_TEST_WEBHOOK_SECRET", "github-secret")
+
+    async def authorized_config(_authorization: str | None, *, action: str | None = None):
+        assert action == "workflow_trigger.dispatch"
+        return cfg
+
+    monkeypatch.setattr("apps.remote_runner.control_service._authorized_config_from_request", authorized_config)
+    trigger = _create_signed_trigger(cfg)
+    raw_body = b'{"eventType":"push","source":"slack","eventId":"evt_sig_wrong_source","payload":{"ref":"main"}}'
+    signature = "sha256=" + hmac.new(b"github-secret", raw_body, hashlib.sha256).hexdigest()
+    envelope = build_webhook_raw_request_envelope(
+        raw_body=raw_body,
+        headers={
+            "Content-Type": "application/json",
+            "X-Hub-Signature-256": signature,
+        },
+        received_at=datetime.fromtimestamp(1_700_000_000, tz=timezone.utc),
+    )
+
+    with pytest.raises(ValueError, match="WORKFLOW_TRIGGER_WEBHOOK_SOURCE_MISMATCH"):
+        asyncio.run(
+            submit_workflow_trigger_inbox_event_envelope_request(
+                trigger["triggerId"],
+                envelope,
+                "Bearer test-token",
+            )
+        )
+
+    assert list_workflow_trigger_inbox_events_from_storage(cfg, trigger["triggerId"])["data"]["items"] == []
+    assert list_workflow_trigger_events(cfg, trigger["triggerId"])["items"] == []
+    deny = _latest_match_deny_audit(cfg, trigger["triggerId"])
+    assert deny["reasonCode"] == "WORKFLOW_TRIGGER_WEBHOOK_SOURCE_MISMATCH"
+    assert deny["details"]["failureStage"] == "webhook_event_matching"
+    assert deny["details"]["source"] == "slack"
+    assert deny["details"]["provider"] == "github"
+    assert "evt_sig_wrong_source" not in repr(deny)
+    assert "github-secret" not in repr(deny)
+    assert signature not in repr(deny)
 
 
 def test_control_service_rejects_bad_signature_without_dispatching_run(
@@ -445,6 +491,7 @@ def _create_signed_trigger(cfg) -> dict[str, object]:
             },
             triggerSpec={
                 "provider": "github",
+                "eventMatch": {"eventTypes": ["push"]},
                 "signature": {"secretRef": "env://H2OMETA_TEST_WEBHOOK_SECRET"},
             },
         ),
@@ -461,6 +508,22 @@ def _latest_signature_deny_audit(cfg, trigger_id: str) -> dict[str, object]:
         event
         for event in events
         if event["decision"] == "deny" and event["details"].get("triggerId") == trigger_id
+    ]
+    assert denies
+    return denies[-1]
+
+
+def _latest_match_deny_audit(cfg, trigger_id: str) -> dict[str, object]:
+    events = list_governance_audit_events(
+        cfg,
+        action="workflow_trigger.dispatch",
+    )["items"]
+    denies = [
+        event
+        for event in events
+        if event["decision"] == "deny"
+        and event["details"].get("triggerId") == trigger_id
+        and event["details"].get("failureStage") == "webhook_event_matching"
     ]
     assert denies
     return denies[-1]

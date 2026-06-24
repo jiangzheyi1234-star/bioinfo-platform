@@ -262,6 +262,7 @@ Progress:
 - Webhook inbox storage now persists safe raw request and signature audit metadata: raw body hash, raw body size, content type, header names, receipt time, and schema-tagged `signatureDetails`, while keeping `signatureState` as `unsupported` until secret-provider-backed verification is wired.
 - Signed webhook inbox delivery now verifies required GitHub/Slack/Stripe-style policies from the raw envelope before JSON payload validation and dispatch when the trigger references an `env://` signing secret. Verified deliveries persist `signatureState: verified` and safe policy/credential/verification metadata; failed signatures are rejected before inbox persistence and do not create trigger events or runs.
 - Rejected signed webhook deliveries now record hash-chained governance deny audit evidence with safe raw-envelope metadata and provider/policy context, while still avoiding persisted inbox payloads, raw body bytes, signature header values, and secret references.
+- Webhook trigger definitions now require an explicit `eventMatch` policy. Inbox delivery must match `triggerSpec.provider`, allowed event types, and optional action allowlists before any inbox row, trigger event, or run is created; no-match deliveries record safe governance deny audit evidence. The generic `/events` path no longer dispatches webhook triggers, and dead-letter inbox replay re-checks the current match policy instead of bypassing it.
 
 Recommended sequence:
 
@@ -357,7 +358,8 @@ Progress:
 - High-risk remote-runner actions now require explicit machine-token roles after bearer authentication. Missing or wrong roles fail with `RemoteRunnerAuthorizationError`, write deny governance audit evidence where the ledger is available, and cannot proceed to mutation, dispatch, retry, export, or GC work.
 - Result package download is now a governed high-risk remote action (`result.package.download`) with artifact-curator/auditor role coverage and hash-chained audit evidence before the ZIP is streamed.
 - Governance audit reads are now a governed high-risk remote action (`audit.events.read`) with auditor/platform-admin role coverage, so safe audit metadata remains queryable without exposing the audit trail to every authenticated runner token.
-- Remote-runner secret references now have a pure provider contract for `env://`, `keyring://`, `secret://`, and `vault://` references that resolves only through an injected provider, exposes hash-only safe details, rejects inline/raw secret values, and gives webhook signature verification a secret-safe bridge without wiring trigger storage or routes yet.
+- Remote-runner secret references now have a pure provider contract for `env://`, `keyring://`, `secret://`, and `vault://` references that resolves only through an injected provider, exposes hash-only safe details, rejects inline/raw secret values, and backs signed webhook verification without exposing secret references in trigger read models, diagnostics, inbox metadata, or audit details.
+- Webhook inbox replay is now a distinct governed remote action (`workflow_trigger.inbox_replay`) with workflow-operator role coverage, while replay dispatch reuses the existing trigger event and still records hash-chained replay audit evidence.
 
 Recommended sequence:
 

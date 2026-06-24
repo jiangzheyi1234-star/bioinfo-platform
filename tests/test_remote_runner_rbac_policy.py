@@ -129,6 +129,31 @@ def test_remote_runner_action_authorization_allows_matching_role(tmp_path) -> No
     assert principal.roles == ("data-steward",)
 
 
+def test_inbox_replay_action_uses_workflow_operator_role(tmp_path) -> None:
+    denied = make_configured_remote_runner(
+        tmp_path / "denied",
+        token="rbac-token",
+        api_token_roles=("auditor",),
+    )
+    allowed = make_configured_remote_runner(
+        tmp_path / "allowed",
+        token="rbac-token",
+        api_token_roles=("workflow-operator",),
+    )
+
+    try:
+        authorize_action(denied, "workflow_trigger.inbox_replay")
+    except RemoteRunnerAuthorizationError as exc:
+        assert str(exc) == "runner authorization failed"
+    else:
+        raise AssertionError("workflow_trigger.inbox_replay must require workflow-operator")
+
+    deny_events = list_governance_audit_events(denied, action="workflow_trigger.inbox_replay")["items"]
+    assert deny_events[0]["decision"] == "deny"
+    assert deny_events[0]["details"]["requiredRoles"] == ["workflow-operator"]
+    assert authorize_action(allowed, "workflow_trigger.inbox_replay").roles == ("workflow-operator",)
+
+
 def test_governance_audit_read_route_requires_auditor_role(tmp_path, monkeypatch) -> None:
     cfg = make_configured_remote_runner(
         tmp_path,

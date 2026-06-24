@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any
 
@@ -25,6 +26,11 @@ from .trigger_inbox_storage import (
 from .trigger_service import submit_workflow_trigger_event_from_request
 from .trigger_storage import fetch_workflow_trigger_event_for_dedupe, require_workflow_trigger
 from .webhook_raw_request import WebhookRawRequestEnvelope, webhook_verification_input_from_envelope
+from .webhook_event_matching import (
+    WebhookTriggerEventMatch,
+    WebhookTriggerEventMatchError,
+    require_webhook_trigger_event_match,
+)
 from .webhook_signature_policy import (
     WebhookTriggerSignaturePolicy,
     WebhookTriggerSignaturePolicyError,
@@ -74,6 +80,13 @@ def submit_workflow_trigger_inbox_event_from_request(
             raw_envelope=raw_envelope,
             secret_provider=secret_provider,
         )
+    enforce_workflow_trigger_inbox_event_match(
+        cfg,
+        trigger=trigger,
+        request=request,
+        source=source,
+        event_id=event_id,
+    )
     inbox = _record_inbox_event(
         cfg,
         trigger=trigger,
@@ -84,7 +97,12 @@ def submit_workflow_trigger_inbox_event_from_request(
     )
     try:
         mark_workflow_trigger_inbox_dispatching(cfg, inbox_event_id=str(inbox["inboxEventId"]))
-        response = submit_workflow_trigger_event_from_request(cfg, trigger_id, _inbox_event_request(request))
+        response = submit_workflow_trigger_event_from_request(
+            cfg,
+            trigger_id,
+            _inbox_event_request(request),
+            supported_sources={"webhook"},
+        )
         event = response["data"]["event"]
         run = response["data"]["run"]
         inbox = mark_workflow_trigger_inbox_submitted(
@@ -135,6 +153,83 @@ def _inbox_event_request(request: WorkflowTriggerInboxEventRequest) -> WorkflowT
         cursor=str(request.cursor or external_event_id),
         payload={"eventContext": context, "payload": request_payload(request).get("payload") or {}},
     )
+
+
+def enforce_workflow_trigger_inbox_event_match(
+    cfg: RemoteRunnerConfig,
+    *,
+    trigger: dict[str, Any],
+    request: WorkflowTriggerInboxEventRequest,
+    source: str | None = None,
+    event_id: str | None = None,
+    actor: str | None = None,
+) -> WebhookTriggerEventMatch:
+    matched_source = source if source is not None else _required_text(request.source, "WORKFLOW_TRIGGER_INBOX_SOURCE_REQUIRED")
+    matched_event_id = (
+        event_id if event_id is not None else _required_text(request.eventId, "WORKFLOW_TRIGGER_INBOX_EVENT_ID_REQUIRED")
+    )
+    payload = request_payload(request).get("payload") or {}
+    try:
+        return require_webhook_trigger_event_match(
+            trigger.get("triggerSpec") if isinstance(trigger.get("triggerSpec"), dict) else {},
+            source=matched_source,
+            event_type=str(request.eventType or "webhook"),
+            payload=payload,
+        )
+    except WebhookTriggerEventMatchError as exc:
+        _reject_event_match(
+            cfg,
+            trigger,
+            exc.code,
+            source=matched_source,
+            event_id=matched_event_id,
+            event_type=str(request.eventType or "webhook"),
+            actor=str(actor or request.actor or cfg.api_token_actor or "remote-runner-api"),
+            safe_details=exc.safe_details,
+        )
+
+
+def _reject_event_match(
+    cfg: RemoteRunnerConfig,
+    trigger: dict[str, Any],
+    code: str,
+    *,
+    source: str,
+    event_id: str,
+    event_type: str,
+    actor: str,
+    safe_details: dict[str, Any],
+) -> None:
+    details = {
+        "schemaVersion": "workflow-trigger-webhook-match-rejection-audit.v1",
+        "triggerId": str(trigger["triggerId"]),
+        "failureStage": "webhook_event_matching",
+        "source": source,
+        "eventIdHash": _safe_hash(event_id),
+        "eventIdLength": len(event_id),
+        "eventType": event_type,
+        **safe_details,
+    }
+    record_governance_audit_event(
+        cfg,
+        action="workflow_trigger.dispatch",
+        actor=actor,
+        subject_kind="workflow_trigger_event",
+        subject_id=_rejected_event_match_subject_id(trigger, source=source, event_id=event_id),
+        decision="deny",
+        reason_code=code,
+        details=details,
+    )
+    raise ValueError(code)
+
+
+def _rejected_event_match_subject_id(trigger: dict[str, Any], *, source: str, event_id: str) -> str:
+    digest = _safe_hash(f"{source}:{event_id}")[:12]
+    return f"rejected:{trigger['triggerId']}:match:{digest}"
+
+
+def _safe_hash(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def _inbox_dedupe_key(trigger: dict[str, Any], *, source: str, event_id: str) -> str:

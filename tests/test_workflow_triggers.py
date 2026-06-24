@@ -265,7 +265,7 @@ def test_webhook_inbox_event_dispatches_run_with_context_and_dedupes(
     trigger = _create_trigger(
         cfg,
         source_type="webhook",
-        trigger_spec={"provider": "instrument-qc"},
+        trigger_spec=_webhook_trigger_spec(),
     )
     request = WorkflowTriggerInboxEventRequest(
         eventType="dataset.ready",
@@ -321,6 +321,30 @@ def test_webhook_inbox_event_dispatches_run_with_context_and_dedupes(
     }
 
 
+def test_generic_trigger_event_route_rejects_webhook_trigger_without_inbox(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_execution_admission_ready", lambda _cfg: None)
+    trigger = _create_trigger(cfg, source_type="webhook", trigger_spec=_webhook_trigger_spec())
+
+    with pytest.raises(ValueError, match="WORKFLOW_TRIGGER_SOURCE_LAUNCH_UNSUPPORTED: webhook"):
+        submit_workflow_trigger_event_from_request(
+            cfg,
+            trigger["triggerId"],
+            WorkflowTriggerEventRequest(
+                eventType="dataset.ready",
+                externalEventId="instrument-qc:evt_bypass",
+                idempotencyKey="webhook:instrument-qc:evt_bypass",
+                payload={"eventContext": {"source": "instrument-qc", "eventId": "evt_bypass"}},
+            ),
+        )
+
+    assert list_workflow_trigger_events_from_storage(cfg, trigger["triggerId"])["data"]["items"] == []
+
+
 @pytest.mark.parametrize(
     ("source_type", "trigger_spec"),
     [
@@ -353,13 +377,24 @@ def test_webhook_inbox_rejects_missing_identity(
     cfg = make_configured_remote_runner(tmp_path)
     monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
 
-    webhook_trigger = _create_trigger(cfg, source_type="webhook", trigger_spec={"provider": "instrument-qc"})
+    webhook_trigger = _create_trigger(cfg, source_type="webhook", trigger_spec=_webhook_trigger_spec())
     with pytest.raises(ValueError, match="WORKFLOW_TRIGGER_INBOX_EVENT_ID_REQUIRED"):
         submit_workflow_trigger_inbox_event_from_request(
             cfg,
             webhook_trigger["triggerId"],
             WorkflowTriggerInboxEventRequest(source="instrument-qc", eventId=" "),
         )
+
+
+def test_webhook_trigger_creation_requires_event_match_policy(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+
+    with pytest.raises(ValueError, match="WORKFLOW_TRIGGER_WEBHOOK_EVENT_MATCH_REQUIRED"):
+        _create_trigger(cfg, source_type="webhook", trigger_spec={"provider": "instrument-qc"})
 
 
 @pytest.mark.parametrize(
@@ -726,6 +761,13 @@ def test_readiness_trigger_creation_requires_explicit_resource_identity(
             ),
             actor="pytest",
         )
+
+
+def _webhook_trigger_spec() -> dict[str, object]:
+    return {
+        "provider": "instrument-qc",
+        "eventMatch": {"eventTypes": ["dataset.ready"]},
+    }
 
 
 def _create_trigger(

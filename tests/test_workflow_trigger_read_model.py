@@ -30,6 +30,7 @@ def test_webhook_trigger_read_model_redacts_secret_ref_on_create_and_list(
             },
             triggerSpec={
                 "provider": "github",
+                "eventMatch": {"eventTypes": ["push"]},
                 "signature": {
                     "secretRef": raw_secret_ref,
                 },
@@ -88,6 +89,7 @@ def test_trigger_storage_keeps_raw_trigger_spec_for_internal_scheduler_and_verif
             },
             triggerSpec={
                 "provider": "slack",
+                "eventMatch": {"eventTypes": ["app_mention"]},
                 "signature": {
                     "secretRef": raw_secret_ref,
                 },
@@ -108,6 +110,7 @@ def test_trigger_read_model_redacts_nested_secret_like_fields_without_hashing_se
     redacted = redact_trigger_spec_for_read(
         {
             "provider": "instrument-qc",
+            "eventMatch": {"eventTypes": ["dataset.ready"]},
             "headers": {
                 "Authorization": raw_secret,
                 "bearer": raw_secret,
