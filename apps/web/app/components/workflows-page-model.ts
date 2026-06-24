@@ -384,6 +384,42 @@ export type WorkflowRunRuleRetryPlan = {
   rules?: WorkflowRunRuleRetryPlanItem[];
 };
 
+export type WorkflowRunRuleRetrySnakemakeOptions = {
+  schemaVersion?: string;
+  rerunIncomplete?: boolean;
+  forcerunRules?: string[];
+  argsPreview?: string[];
+  unsafeFlagsProhibited?: string[];
+};
+
+export type WorkflowRunRuleRetryExecutionPlan = {
+  schemaVersion?: string;
+  sourcePlanSchemaVersion?: string;
+  runId?: string;
+  workflowRevisionId?: string | null;
+  supported?: boolean;
+  eligible?: boolean;
+  eligibleNow?: boolean;
+  executionEnabled?: boolean;
+  executionReasonCode?: string;
+  commandPreviewAvailable?: boolean;
+  attemptSelection?: Record<string, unknown>;
+  cacheAdoptionBoundary?: WorkflowRunAdoptionBoundary;
+  artifactAdoptionBoundary?: WorkflowRunAdoptionBoundary;
+  sourceReasonCode?: string;
+  sourceBlockedReasonCodes?: string[];
+  blockedReasonCodes?: string[];
+  requiresBeforeExecution?: string[];
+  selectedRules?: Array<WorkflowRunRuleRetryPlanRuleRef & { selectedAttempt?: WorkflowRunRuleSelectedAttempt }>;
+  rerunScope?: {
+    ruleCount?: number;
+    rules?: WorkflowRunRuleRetryPlanRuleRef[];
+  };
+  snakemakeOptions?: WorkflowRunRuleRetrySnakemakeOptions;
+  reasonCode?: string;
+  message?: string;
+};
+
 export type WorkflowRunExecutionContext = {
   schemaVersion?: string;
   runId?: string;
@@ -405,6 +441,7 @@ export type WorkflowRunExecutionContext = {
   timeoutPolicy?: Record<string, unknown> | null;
   retryEligibility?: WorkflowRunRetryEligibility;
   ruleRetryPlan?: WorkflowRunRuleRetryPlan;
+  ruleRetryExecutionPlan?: WorkflowRunRuleRetryExecutionPlan;
   resumeSupported?: boolean;
   resumeEligibility?: {
     eligible?: boolean;

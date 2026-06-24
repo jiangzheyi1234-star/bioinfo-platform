@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import type {
   WorkflowRunExecutionAttempt,
   WorkflowRunExecutionContext,
+  WorkflowRunRuleRetryExecutionPlan,
   WorkflowRunRuleRetryPlanRuleRef,
 } from "./workflows-page-model";
 
@@ -99,6 +100,13 @@ function ruleNameList(rules: WorkflowRunRuleRetryPlanRuleRef[]) {
     .join(", ");
 }
 
+function compactList(values: string[] | undefined, fallback = "—") {
+  const items = (values || []).filter(Boolean);
+  if (items.length === 0) return fallback;
+  const shown = items.slice(0, 4).join(", ");
+  return items.length > 4 ? `${shown}, +${items.length - 4}` : shown;
+}
+
 function RuleRetryPlanSummary({ context }: { context: WorkflowRunExecutionContext }) {
   const plan = context.ruleRetryPlan;
   if (!plan || !plan.failedRuleCount) return null;
@@ -149,6 +157,56 @@ function RuleRetryPlanSummary({ context }: { context: WorkflowRunExecutionContex
         <span className="truncate font-mono">{downstreamLabel}</span>
         <span className="text-amber-700">rerun scope</span>
         <span className="truncate font-mono">{scopeLabel}</span>
+      </div>
+    </div>
+  );
+}
+
+function RuleRetryExecutionPlanPreview({ plan }: { plan?: WorkflowRunRuleRetryExecutionPlan }) {
+  if (!plan) return null;
+  const options = plan.snakemakeOptions;
+  const argsPreview = options?.argsPreview || [];
+  const forcerunRules = options?.forcerunRules || [];
+  const unsafeFlags = options?.unsafeFlagsProhibited || [];
+  const selectedRules = plan.selectedRules || [];
+  const rerunRules = uniqueRuleRefs(plan.rerunScope?.rules || []);
+  const blockers = plan.blockedReasonCodes || [];
+  const commandLabel = argsPreview.length > 0 ? argsPreview.join(" ") : "—";
+  const selectedLabel = ruleNameList(selectedRules) || "—";
+  const scopeLabel = ruleNameList(rerunRules) || "—";
+
+  return (
+    <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <ShieldCheck strokeWidth={1.5} className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+          <span className="font-medium text-slate-900">rule retry execution plan</span>
+          <span className="truncate font-mono text-[11px] text-slate-500">{plan.schemaVersion || "rule-retry-execution-plan"}</span>
+        </div>
+        <span className="rounded border border-slate-300 bg-white px-1.5 py-0.5 font-mono text-[11px] text-slate-600">
+          {plan.commandPreviewAvailable ? "preview only" : "blocked"}
+        </span>
+      </div>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <ExecutionMetric label="selected" value={String(selectedRules.length)} />
+        <ExecutionMetric label="scope" value={String(rerunRules.length)} />
+        <ExecutionMetric label="forcerun" value={String(forcerunRules.length)} />
+        <ExecutionMetric label="reason" value={plan.reasonCode || "—"} />
+      </div>
+      <p className="mt-2 text-[11px] leading-5 text-slate-500">
+        局部规则重试执行仍关闭；这里仅展示 Snakemake 命令语义和执行前必须解除的阻断项。
+      </p>
+      <div className="mt-2 grid gap-1 text-[11px] sm:grid-cols-[116px_minmax(0,1fr)]">
+        <span className="text-slate-500">command preview</span>
+        <span className="truncate font-mono text-slate-800">{commandLabel}</span>
+        <span className="text-slate-500">selected rules</span>
+        <span className="truncate font-mono text-slate-800">{selectedLabel}</span>
+        <span className="text-slate-500">rerun scope</span>
+        <span className="truncate font-mono text-slate-800">{scopeLabel}</span>
+        <span className="text-slate-500">blockers</span>
+        <span className="truncate font-mono text-slate-800">{compactList(blockers)}</span>
+        <span className="text-slate-500">unsafe flags</span>
+        <span className="truncate font-mono text-slate-800">{compactList(unsafeFlags)}</span>
       </div>
     </div>
   );
@@ -246,6 +304,7 @@ export function WorkflowRunExecutionContextPanel({
         </div>
       </div>
       <RuleRetryPlanSummary context={context} />
+      <RuleRetryExecutionPlanPreview plan={context.ruleRetryExecutionPlan} />
     </div>
   );
 }

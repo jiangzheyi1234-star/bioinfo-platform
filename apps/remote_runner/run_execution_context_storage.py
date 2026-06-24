@@ -5,6 +5,7 @@ from typing import Any
 from .config import RemoteRunnerConfig
 from .execution_policy import retry_policy_from_job, timeout_policy_from_job
 from .execution_query_storage import require_run
+from .rule_retry_execution_plan import build_rule_retry_execution_plan
 from .rule_retry_plan import build_rule_retry_plan
 from .storage_core import get_connection, now_iso
 
@@ -33,6 +34,7 @@ def fetch_run_execution_context(cfg: RemoteRunnerConfig, run_id: str) -> dict[st
     job_payload = _job_context(job) if job is not None else None
     current_lease = _lease_context(lease) if lease is not None else None
     active_lease = current_lease if current_lease and current_lease["state"] == "active" else None
+    rule_retry_plan = build_rule_retry_plan(cfg, run)
     return {
         "schemaVersion": "run-execution-context.v1",
         "runId": run_id,
@@ -56,7 +58,8 @@ def fetch_run_execution_context(cfg: RemoteRunnerConfig, run_id: str) -> dict[st
             "reasonCode": "RESUME_UNSUPPORTED",
             "message": "Run resume is not supported until durable artifact reuse is proven.",
         },
-        "ruleRetryPlan": build_rule_retry_plan(cfg, run),
+        "ruleRetryPlan": rule_retry_plan,
+        "ruleRetryExecutionPlan": build_rule_retry_execution_plan(rule_retry_plan),
     }
 
 

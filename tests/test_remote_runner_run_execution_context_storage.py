@@ -174,6 +174,7 @@ def test_run_execution_context_reports_rule_retry_downstream_invalidation_plan(t
     context = fetch_run_execution_context(cfg, "run_rule_retry_plan")
 
     plan = context["ruleRetryPlan"]
+    execution_plan = context["ruleRetryExecutionPlan"]
     assert plan["schemaVersion"] == "rule-retry-plan.v1"
     assert plan["supported"] is False
     assert plan["eligible"] is False
@@ -206,6 +207,22 @@ def test_run_execution_context_reports_rule_retry_downstream_invalidation_plan(t
     assert plan["rules"][0]["downstreamInvalidation"]["ruleCount"] == 1
     assert plan["rules"][0]["downstreamInvalidation"]["rules"][0]["ruleName"] == "report"
     assert [item["ruleName"] for item in plan["rules"][0]["rerunScope"]["rules"]] == ["align", "report"]
+    assert execution_plan["schemaVersion"] == "rule-retry-execution-plan.v1"
+    assert execution_plan["sourcePlanSchemaVersion"] == "rule-retry-plan.v1"
+    assert execution_plan["supported"] is False
+    assert execution_plan["eligible"] is False
+    assert execution_plan["eligibleNow"] is False
+    assert execution_plan["executionEnabled"] is False
+    assert execution_plan["executionReasonCode"] == "RULE_RETRY_EXECUTION_DISABLED"
+    assert execution_plan["commandPreviewAvailable"] is True
+    assert execution_plan["reasonCode"] == "PARTIAL_RULE_RETRY_UNSUPPORTED"
+    assert [item["ruleName"] for item in execution_plan["selectedRules"]] == ["align"]
+    assert [item["ruleName"] for item in execution_plan["rerunScope"]["rules"]] == ["align", "report"]
+    assert execution_plan["snakemakeOptions"]["argsPreview"] == ["--rerun-incomplete", "--forcerun", "align"]
+    assert execution_plan["snakemakeOptions"]["forcerunRules"] == ["align"]
+    assert "--forceall" in execution_plan["snakemakeOptions"]["unsafeFlagsProhibited"]
+    assert "RULE_RETRY_MUTATION_API_DISABLED" in execution_plan["blockedReasonCodes"]
+    assert "CACHE_ADOPTION_UNPROVEN" in execution_plan["blockedReasonCodes"]
 
 
 def test_run_execution_context_blocks_rule_retry_plan_without_workflow_revision(tmp_path) -> None:
@@ -237,6 +254,9 @@ def test_run_execution_context_blocks_rule_retry_plan_without_workflow_revision(
     assert context["ruleRetryPlan"]["invalidationPlanAvailable"] is False
     assert context["ruleRetryPlan"]["reasonCode"] == "WORKFLOW_REVISION_MISSING"
     assert context["ruleRetryPlan"]["failedRuleCount"] == 1
+    assert context["ruleRetryExecutionPlan"]["commandPreviewAvailable"] is False
+    assert context["ruleRetryExecutionPlan"]["reasonCode"] == "WORKFLOW_REVISION_MISSING"
+    assert context["ruleRetryExecutionPlan"]["snakemakeOptions"]["argsPreview"] == []
 
 
 def test_run_execution_context_rule_retry_plan_uses_latest_rule_attempt(tmp_path) -> None:
