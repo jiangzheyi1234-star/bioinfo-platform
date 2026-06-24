@@ -196,7 +196,12 @@ async def submit_workflow_trigger_inbox_event_request(
     authorization: str | None,
 ) -> dict[str, Any]:
     cfg = await _authorized_config_from_request(authorization, action="workflow_trigger.dispatch")
-    return await run_sync(submit_workflow_trigger_inbox_event_from_request, cfg, trigger_id, payload)
+    return await run_sync(
+        submit_workflow_trigger_inbox_event_from_request,
+        cfg,
+        trigger_id,
+        payload,
+    )
 
 
 async def submit_workflow_trigger_inbox_event_envelope_request(
@@ -209,7 +214,13 @@ async def submit_workflow_trigger_inbox_event_envelope_request(
         payload = WorkflowTriggerInboxEventRequest.model_validate(json_payload_from_envelope(envelope))
     except ValidationError as exc:
         raise ValueError("WORKFLOW_TRIGGER_INBOX_PAYLOAD_INVALID") from exc
-    return await run_sync(submit_workflow_trigger_inbox_event_from_request, cfg, trigger_id, payload)
+    return await run_sync(
+        submit_workflow_trigger_inbox_event_from_request,
+        cfg,
+        trigger_id,
+        payload,
+        raw_envelope=envelope,
+    )
 
 
 async def replay_workflow_trigger_inbox_event_request(

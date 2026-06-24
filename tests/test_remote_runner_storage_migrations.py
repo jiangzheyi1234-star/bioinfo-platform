@@ -18,6 +18,15 @@ from apps.remote_runner.database_registry_schema import REFERENCE_DATABASE_SCHEM
 from tests.helpers.reference_database import make_remote_runner_config
 
 
+INBOX_SIGNATURE_METADATA_COLUMNS = {
+    "signature_details_json",
+    "raw_body_sha256",
+    "raw_body_size_bytes",
+    "raw_content_type",
+    "raw_header_names_json",
+}
+
+
 def test_output_edge_uniqueness_migration_preserves_legacy_duplicates(tmp_path: Path) -> None:
     cfg = make_remote_runner_config(tmp_path)
     Path(cfg.db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -110,7 +119,7 @@ def test_runtime_layout_records_schema_version_and_migration_ledger(tmp_path: Pa
     assert user_version == CURRENT_SCHEMA_VERSION
     assert migration is not None
     assert migration[0] == CURRENT_SCHEMA_VERSION
-    assert migration[1] == sqlite_migrations.ARTIFACT_CACHE_PIN_MIGRATION_NAME
+    assert migration[1] == sqlite_migrations.WORKFLOW_TRIGGER_INBOX_SIGNATURE_METADATA_MIGRATION_NAME
     assert migration[2]
     assert reference_table is not None
 
@@ -181,7 +190,7 @@ def test_runtime_schema_migrates_v1_to_current_scheduler_trigger_tables(tmp_path
         "idx_workflow_trigger_events_trigger_created",
         "idx_workflow_trigger_dispatches_state",
     } <= index_names
-    assert migration["name"] == sqlite_migrations.ARTIFACT_CACHE_PIN_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.WORKFLOW_TRIGGER_INBOX_SIGNATURE_METADATA_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v2_scheduler_trigger_tables(tmp_path: Path) -> None:
@@ -233,7 +242,7 @@ def test_runtime_schema_migrates_v2_scheduler_trigger_tables(tmp_path: Path) -> 
         "workflow_trigger_events",
         "workflow_trigger_dispatches",
     } <= trigger_tables
-    assert migration["name"] == sqlite_migrations.ARTIFACT_CACHE_PIN_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.WORKFLOW_TRIGGER_INBOX_SIGNATURE_METADATA_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v6_result_package_exports(tmp_path: Path) -> None:
@@ -286,7 +295,7 @@ def test_runtime_schema_migrates_v6_result_package_exports(tmp_path: Path) -> No
         "idx_result_package_exports_result_created",
         "idx_result_package_exports_run_lifecycle",
     } <= indexes
-    assert migration["name"] == sqlite_migrations.ARTIFACT_CACHE_PIN_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.WORKFLOW_TRIGGER_INBOX_SIGNATURE_METADATA_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v7_result_package_payload_mode(tmp_path: Path) -> None:
@@ -376,7 +385,7 @@ def test_runtime_schema_migrates_v7_result_package_payload_mode(tmp_path: Path) 
     assert {"include_artifacts", "artifact_payload_mode"} <= columns
     assert legacy_row["include_artifacts"] == 1
     assert legacy_row["artifact_payload_mode"] == "included"
-    assert migration["name"] == sqlite_migrations.ARTIFACT_CACHE_PIN_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.WORKFLOW_TRIGGER_INBOX_SIGNATURE_METADATA_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v8_workflow_trigger_inbox(tmp_path: Path) -> None:
@@ -436,7 +445,8 @@ def test_runtime_schema_migrates_v8_workflow_trigger_inbox(tmp_path: Path) -> No
         "idx_workflow_trigger_inbox_trigger_received",
     } <= indexes
     assert "payload_json" in columns
-    assert migration["name"] == sqlite_migrations.ARTIFACT_CACHE_PIN_MIGRATION_NAME
+    assert INBOX_SIGNATURE_METADATA_COLUMNS <= columns
+    assert migration["name"] == sqlite_migrations.WORKFLOW_TRIGGER_INBOX_SIGNATURE_METADATA_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v9_workflow_trigger_inbox_payload(tmp_path: Path) -> None:
@@ -520,7 +530,8 @@ def test_runtime_schema_migrates_v9_workflow_trigger_inbox_payload(tmp_path: Pat
         ).fetchone()
 
     assert "payload_json" in columns
-    assert migration["name"] == sqlite_migrations.ARTIFACT_CACHE_PIN_MIGRATION_NAME
+    assert INBOX_SIGNATURE_METADATA_COLUMNS <= columns
+    assert migration["name"] == sqlite_migrations.WORKFLOW_TRIGGER_INBOX_SIGNATURE_METADATA_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v10_artifact_cache_pins(tmp_path: Path) -> None:
@@ -562,6 +573,10 @@ def test_runtime_schema_migrates_v10_artifact_cache_pins(tmp_path: Path) -> None
                 """
             ).fetchall()
         }
+        columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(workflow_trigger_inbox_events)").fetchall()
+        }
         migration = connection.execute(
             "SELECT name FROM schema_migrations WHERE version = ?",
             (CURRENT_SCHEMA_VERSION,),
@@ -572,7 +587,103 @@ def test_runtime_schema_migrates_v10_artifact_cache_pins(tmp_path: Path) -> None
         "idx_artifact_cache_pins_entry_state",
         "idx_artifact_cache_pins_object",
     } <= index_names
-    assert migration["name"] == sqlite_migrations.ARTIFACT_CACHE_PIN_MIGRATION_NAME
+    assert INBOX_SIGNATURE_METADATA_COLUMNS <= columns
+    assert migration["name"] == sqlite_migrations.WORKFLOW_TRIGGER_INBOX_SIGNATURE_METADATA_MIGRATION_NAME
+
+
+def test_runtime_schema_migrates_v11_workflow_trigger_inbox_signature_metadata(tmp_path: Path) -> None:
+    cfg = make_remote_runner_config(tmp_path)
+    db_path = Path(cfg.db_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        connection.executescript(f"{SCHEMA_SQL}\n{REFERENCE_DATABASE_SCHEMA_SQL}")
+        sqlite_migrations._apply_baseline_schema_migration(connection)
+        connection.execute("DROP INDEX IF EXISTS idx_workflow_trigger_inbox_trigger_event")
+        connection.execute("DROP INDEX IF EXISTS idx_workflow_trigger_inbox_state")
+        connection.execute("DROP INDEX IF EXISTS idx_workflow_trigger_inbox_trigger_received")
+        connection.execute("DROP TABLE IF EXISTS workflow_trigger_inbox_events")
+        connection.execute(
+            """
+            CREATE TABLE workflow_trigger_inbox_events (
+                inbox_event_id TEXT PRIMARY KEY,
+                trigger_id TEXT NOT NULL,
+                source_type TEXT NOT NULL DEFAULT 'webhook',
+                source TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                provider_event_id TEXT NOT NULL,
+                correlation_id TEXT NOT NULL DEFAULT '',
+                cursor TEXT NOT NULL DEFAULT '',
+                dedupe_key TEXT NOT NULL,
+                payload_hash TEXT NOT NULL,
+                payload_json TEXT NOT NULL DEFAULT '{}',
+                payload_size_bytes INTEGER NOT NULL DEFAULT 0,
+                signature_state TEXT NOT NULL DEFAULT 'unsupported',
+                state TEXT NOT NULL,
+                delivery_count INTEGER NOT NULL DEFAULT 1,
+                trigger_event_id TEXT,
+                run_id TEXT,
+                failure_code TEXT NOT NULL DEFAULT '',
+                error_json TEXT,
+                received_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                dead_lettered_at TEXT,
+                UNIQUE(trigger_id, dedupe_key)
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO workflow_trigger_inbox_events (
+                inbox_event_id, trigger_id, source, event_type, provider_event_id,
+                dedupe_key, payload_hash, payload_json, state, received_at, updated_at
+            ) VALUES (
+                'wti_legacy', 'wtr_legacy', 'instrument-qc', 'dataset.ready', 'evt_legacy',
+                'webhook:wtr_legacy:instrument-qc:evt_legacy',
+                'legacy-payload-hash', '{}', 'submitted',
+                '2099-06-07T10:00:00Z', '2099-06-07T10:00:00Z'
+            )
+            """
+        )
+        sqlite_migrations._ensure_schema_migrations_table(connection)
+        connection.execute("DELETE FROM schema_migrations")
+        connection.execute(
+            """
+            INSERT INTO schema_migrations (version, name, checksum, applied_at)
+            VALUES (11, '011_artifact_cache_pins', 'legacy-v11', '2099-06-07T10:00:00Z')
+            """
+        )
+        connection.execute("PRAGMA user_version = 11")
+
+    initialize_or_migrate_runtime_db(cfg.db_path)
+    with get_connection(cfg) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == CURRENT_SCHEMA_VERSION
+        columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(workflow_trigger_inbox_events)").fetchall()
+        }
+        row = connection.execute(
+            """
+            SELECT signature_details_json, raw_body_sha256, raw_body_size_bytes,
+                   raw_content_type, raw_header_names_json
+            FROM workflow_trigger_inbox_events
+            WHERE inbox_event_id = 'wti_legacy'
+            """
+        ).fetchone()
+        migration = connection.execute(
+            "SELECT name FROM schema_migrations WHERE version = ?",
+            (CURRENT_SCHEMA_VERSION,),
+        ).fetchone()
+
+    assert INBOX_SIGNATURE_METADATA_COLUMNS <= columns
+    assert dict(row) == {
+        "signature_details_json": "{}",
+        "raw_body_sha256": "",
+        "raw_body_size_bytes": 0,
+        "raw_content_type": "",
+        "raw_header_names_json": "[]",
+    }
+    assert migration["name"] == sqlite_migrations.WORKFLOW_TRIGGER_INBOX_SIGNATURE_METADATA_MIGRATION_NAME
 
 
 def test_runtime_schema_rejects_future_user_version(tmp_path: Path) -> None:

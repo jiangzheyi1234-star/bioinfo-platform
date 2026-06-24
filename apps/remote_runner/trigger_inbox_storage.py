@@ -16,6 +16,7 @@ INBOX_STATE_ACCEPTED = "accepted"
 INBOX_STATE_DISPATCHING = "dispatching"
 INBOX_STATE_SUBMITTED = "submitted"
 INBOX_STATE_DEAD_LETTERED = "dead_lettered"
+INBOX_SIGNATURE_METADATA_SCHEMA = "workflow-trigger-inbox-signature-metadata.v1"
 
 
 def record_workflow_trigger_inbox_event(
@@ -29,6 +30,7 @@ def record_workflow_trigger_inbox_event(
     cursor: str,
     dedupe_key: str,
     payload: dict[str, Any],
+    signature_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     trigger_id = _required_text(str(trigger.get("triggerId") or ""), "TRIGGER_ID_REQUIRED")
     source = _required_text(source, "WORKFLOW_TRIGGER_INBOX_SOURCE_REQUIRED")
@@ -37,7 +39,9 @@ def record_workflow_trigger_inbox_event(
     payload_hash = _payload_hash(payload)
     payload_json = _stable_json(payload)
     payload_size_bytes = len(payload_json.encode("utf-8"))
+    metadata = _signature_metadata(signature_metadata)
     timestamp = now_iso()
+    received_at = str(metadata.get("receivedAt") or timestamp)
     with get_connection(cfg) as connection:
         existing = connection.execute(
             """
@@ -50,6 +54,7 @@ def record_workflow_trigger_inbox_event(
         if existing is not None:
             if str(existing["payload_hash"]) != payload_hash:
                 raise IdempotencyKeyReusedError("WORKFLOW_TRIGGER_INBOX_DEDUPE_KEY_REUSED_WITH_DIFFERENT_PAYLOAD")
+            _raise_if_raw_body_hash_changed(existing, metadata)
             connection.execute(
                 """
                 UPDATE workflow_trigger_inbox_events
@@ -68,10 +73,11 @@ def record_workflow_trigger_inbox_event(
             INSERT INTO workflow_trigger_inbox_events (
                 inbox_event_id, trigger_id, source_type, source, event_type,
                 provider_event_id, correlation_id, cursor, dedupe_key, payload_hash,
-                payload_json, payload_size_bytes, signature_state, state, delivery_count,
+                payload_json, payload_size_bytes, signature_state, signature_details_json,
+                raw_body_sha256, raw_body_size_bytes, raw_content_type, raw_header_names_json, state, delivery_count,
                 trigger_event_id, run_id, failure_code, error_json,
                 received_at, updated_at, dead_lettered_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 inbox_event_id,
@@ -87,13 +93,18 @@ def record_workflow_trigger_inbox_event(
                 payload_json,
                 payload_size_bytes,
                 INBOX_SIGNATURE_STATE_UNSUPPORTED,
+                _stable_json(metadata["signatureDetails"]),
+                str(metadata.get("rawBodySha256") or ""),
+                int(metadata.get("rawBodySizeBytes") or 0),
+                str(metadata.get("rawContentType") or ""),
+                _stable_json(metadata.get("rawHeaderNames") or []),
                 INBOX_STATE_ACCEPTED,
                 1,
                 None,
                 None,
                 "",
                 None,
-                timestamp,
+                received_at,
                 timestamp,
                 None,
             ),
@@ -253,6 +264,11 @@ def inbox_event_summary(event: dict[str, Any]) -> dict[str, Any]:
         "payloadHash": event["payloadHash"],
         "payloadSizeBytes": event["payloadSizeBytes"],
         "signatureState": event["signatureState"],
+        "signatureDetails": event["signatureDetails"],
+        "rawBodySha256": event["rawBodySha256"],
+        "rawBodySizeBytes": event["rawBodySizeBytes"],
+        "rawContentType": event["rawContentType"],
+        "rawHeaderNames": event["rawHeaderNames"],
         "state": event["state"],
         "deliveryCount": event["deliveryCount"],
         "triggerEventId": event["triggerEventId"],
@@ -325,6 +341,11 @@ def _inbox_row_to_dict(row: Any) -> dict[str, Any]:
         "payloadHash": row["payload_hash"],
         "payloadSizeBytes": int(row["payload_size_bytes"] or 0),
         "signatureState": row["signature_state"],
+        "signatureDetails": _loads_json(row["signature_details_json"], {}),
+        "rawBodySha256": row["raw_body_sha256"],
+        "rawBodySizeBytes": int(row["raw_body_size_bytes"] or 0),
+        "rawContentType": row["raw_content_type"],
+        "rawHeaderNames": _loads_json(row["raw_header_names_json"], []),
         "state": row["state"],
         "deliveryCount": int(row["delivery_count"] or 0),
         "triggerEventId": row["trigger_event_id"],
@@ -339,6 +360,35 @@ def _inbox_row_to_dict(row: Any) -> dict[str, Any]:
 
 def _payload_hash(payload: dict[str, Any]) -> str:
     return hashlib.sha256(_stable_json(payload).encode("utf-8")).hexdigest()
+
+
+def _signature_metadata(metadata: dict[str, Any] | None) -> dict[str, Any]:
+    raw = dict(metadata or {})
+    header_names = [str(name) for name in raw.get("rawHeaderNames") or []]
+    details = {
+        "schemaVersion": INBOX_SIGNATURE_METADATA_SCHEMA,
+        "signatureState": INBOX_SIGNATURE_STATE_UNSUPPORTED,
+        **({"rawBodySha256": str(raw.get("rawBodySha256") or "")} if raw.get("rawBodySha256") else {}),
+        **({"rawBodySizeBytes": int(raw.get("rawBodySizeBytes") or 0)} if raw.get("rawBodySizeBytes") else {}),
+        **({"contentType": str(raw.get("rawContentType") or "")} if raw.get("rawContentType") else {}),
+        **({"receivedAt": str(raw.get("receivedAt") or "")} if raw.get("receivedAt") else {}),
+        **({"headerNames": header_names} if header_names else {}),
+    }
+    return {
+        "rawBodySha256": str(raw.get("rawBodySha256") or ""),
+        "rawBodySizeBytes": int(raw.get("rawBodySizeBytes") or 0),
+        "rawContentType": str(raw.get("rawContentType") or ""),
+        "rawHeaderNames": header_names,
+        "receivedAt": str(raw.get("receivedAt") or ""),
+        "signatureDetails": details,
+    }
+
+
+def _raise_if_raw_body_hash_changed(existing: Any, metadata: dict[str, Any]) -> None:
+    existing_hash = str(existing["raw_body_sha256"] or "")
+    incoming_hash = str(metadata.get("rawBodySha256") or "")
+    if existing_hash and incoming_hash and existing_hash != incoming_hash:
+        raise IdempotencyKeyReusedError("WORKFLOW_TRIGGER_INBOX_DEDUPE_KEY_REUSED_WITH_DIFFERENT_RAW_BODY")
 
 
 def _stable_json(value: Any) -> str:

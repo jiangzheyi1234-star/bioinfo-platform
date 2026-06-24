@@ -21,6 +21,11 @@ def ensure_workflow_trigger_inbox(connection: sqlite3.Connection) -> None:
             payload_json TEXT NOT NULL DEFAULT '{}',
             payload_size_bytes INTEGER NOT NULL DEFAULT 0,
             signature_state TEXT NOT NULL DEFAULT 'unsupported',
+            signature_details_json TEXT NOT NULL DEFAULT '{}',
+            raw_body_sha256 TEXT NOT NULL DEFAULT '',
+            raw_body_size_bytes INTEGER NOT NULL DEFAULT 0,
+            raw_content_type TEXT NOT NULL DEFAULT '',
+            raw_header_names_json TEXT NOT NULL DEFAULT '[]',
             state TEXT NOT NULL,
             delivery_count INTEGER NOT NULL DEFAULT 1,
             trigger_event_id TEXT,
@@ -82,6 +87,21 @@ def ensure_workflow_trigger_inbox_payload(connection: sqlite3.Connection) -> Non
         )
 
 
+def ensure_workflow_trigger_inbox_signature_metadata(connection: sqlite3.Connection) -> None:
+    ensure_workflow_trigger_inbox_payload(connection)
+    columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(workflow_trigger_inbox_events)").fetchall()}
+    column_definitions = {
+        "signature_details_json": "TEXT NOT NULL DEFAULT '{}'",
+        "raw_body_sha256": "TEXT NOT NULL DEFAULT ''",
+        "raw_body_size_bytes": "INTEGER NOT NULL DEFAULT 0",
+        "raw_content_type": "TEXT NOT NULL DEFAULT ''",
+        "raw_header_names_json": "TEXT NOT NULL DEFAULT '[]'",
+    }
+    for column, definition in column_definitions.items():
+        if column not in columns:
+            connection.execute(f"ALTER TABLE workflow_trigger_inbox_events ADD COLUMN {column} {definition}")
+
+
 def migrate_workflow_trigger_inbox_payload_schema(
     connection: sqlite3.Connection,
     *,
@@ -93,6 +113,25 @@ def migrate_workflow_trigger_inbox_payload_schema(
         connection.execute("BEGIN IMMEDIATE")
         _ensure_schema_migrations_table(connection)
         ensure_workflow_trigger_inbox_payload(connection)
+        record_migration(connection, version, name)
+        connection.execute(f"PRAGMA user_version = {version}")
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+
+
+def migrate_workflow_trigger_inbox_signature_metadata_schema(
+    connection: sqlite3.Connection,
+    *,
+    record_migration: Callable[[sqlite3.Connection, int, str], None],
+    version: int,
+    name: str,
+) -> None:
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        _ensure_schema_migrations_table(connection)
+        ensure_workflow_trigger_inbox_signature_metadata(connection)
         record_migration(connection, version, name)
         connection.execute(f"PRAGMA user_version = {version}")
         connection.commit()

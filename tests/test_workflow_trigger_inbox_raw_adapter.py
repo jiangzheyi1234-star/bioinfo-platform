@@ -6,8 +6,11 @@ import json
 
 import pytest
 
-from apps.remote_runner.api_models import WorkflowTriggerCreateRequest
-from apps.remote_runner.control_service import submit_workflow_trigger_inbox_event_envelope_request
+from apps.remote_runner.api_models import WorkflowTriggerCreateRequest, WorkflowTriggerInboxEventRequest
+from apps.remote_runner.control_service import (
+    submit_workflow_trigger_inbox_event_envelope_request,
+    submit_workflow_trigger_inbox_event_request,
+)
 from apps.remote_runner.trigger_service import create_workflow_trigger_from_request
 from apps.remote_runner.webhook_raw_request import build_webhook_raw_request_envelope
 from tests.helpers.reference_database import make_configured_remote_runner
@@ -43,7 +46,11 @@ def test_control_service_submits_webhook_inbox_event_from_raw_envelope(
     compact_body = json.dumps(json.loads(raw_body), separators=(",", ":"), sort_keys=True).encode("utf-8")
     envelope = build_webhook_raw_request_envelope(
         raw_body=raw_body,
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Authorization": "Bearer route-secret",
+            "Content-Type": "application/json",
+            "X-Hub-Signature-256": "sha256=signature-secret",
+        },
         received_at=datetime.fromtimestamp(1_700_000_000, tz=timezone.utc),
     )
 
@@ -60,6 +67,21 @@ def test_control_service_submits_webhook_inbox_event_from_raw_envelope(
     assert envelope.raw_body != compact_body
     assert inbox["state"] == "submitted"
     assert inbox["signatureState"] == "unsupported"
+    assert inbox["rawBodySha256"] == envelope.body_sha256
+    assert inbox["rawBodySizeBytes"] == envelope.body_size_bytes
+    assert inbox["rawContentType"] == "application/json"
+    assert "Content-Type" in inbox["rawHeaderNames"]
+    assert "route-secret" not in repr(inbox)
+    assert "signature-secret" not in repr(inbox)
+    assert inbox["signatureDetails"] == {
+        "schemaVersion": "workflow-trigger-inbox-signature-metadata.v1",
+        "signatureState": "unsupported",
+        "rawBodySha256": envelope.body_sha256,
+        "rawBodySizeBytes": envelope.body_size_bytes,
+        "contentType": "application/json",
+        "receivedAt": envelope.received_at.isoformat(),
+        "headerNames": list(envelope.header_names),
+    }
     assert inbox["dedupeKey"] == f"webhook:{trigger['triggerId']}:instrument-qc:evt_001"
     assert response["data"]["event"]["payload"]["eventContext"] == {
         "source": "instrument-qc",
@@ -96,6 +118,55 @@ def test_control_service_rejects_invalid_raw_envelope_payload_with_safe_error(
 
     assert str(exc_info.value) == "WORKFLOW_TRIGGER_INBOX_PAYLOAD_INVALID"
     assert "payload-secret" not in repr(exc_info.value)
+
+
+def test_control_service_plain_inbox_event_path_does_not_require_raw_envelope(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    _skip_runtime_readiness(monkeypatch)
+
+    async def authorized_config(_authorization: str | None, *, action: str | None = None):
+        assert action == "workflow_trigger.dispatch"
+        return cfg
+
+    monkeypatch.setattr("apps.remote_runner.control_service._authorized_config_from_request", authorized_config)
+    trigger = create_workflow_trigger_from_request(
+        cfg,
+        WorkflowTriggerCreateRequest(
+            name="Instrument webhook",
+            sourceType="webhook",
+            serverId="srv_primary",
+            runSpec={
+                "pipelineId": "file-summary-standard-v1",
+                "inputs": [{"uploadId": "upl_reads", "filename": "reads.fastq"}],
+            },
+            triggerSpec={"provider": "instrument-qc"},
+        ),
+        actor="pytest",
+    )["data"]
+
+    response = asyncio.run(
+        submit_workflow_trigger_inbox_event_request(
+            trigger["triggerId"],
+            WorkflowTriggerInboxEventRequest(
+                source="instrument-qc",
+                eventId="evt_plain",
+                payload={"dataset": "reads.fastq"},
+            ),
+            "Bearer test-token",
+        )
+    )
+
+    inbox = response["data"]["inbox"]
+    assert inbox["state"] == "submitted"
+    assert inbox["rawBodySha256"] == ""
+    assert inbox["rawContentType"] == ""
+    assert inbox["signatureDetails"] == {
+        "schemaVersion": "workflow-trigger-inbox-signature-metadata.v1",
+        "signatureState": "unsupported",
+    }
 
 
 def _skip_runtime_readiness(monkeypatch: pytest.MonkeyPatch) -> None:

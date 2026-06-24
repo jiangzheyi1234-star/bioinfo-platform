@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+import json
+
 import pytest
 
 from apps.remote_runner.api_models import (
@@ -16,6 +19,7 @@ from apps.remote_runner.trigger_inbox_replay_service import replay_workflow_trig
 from apps.remote_runner.trigger_service import create_workflow_trigger_from_request
 from apps.remote_runner.trigger_storage import list_workflow_trigger_events
 from apps.remote_runner.storage_core import get_connection
+from apps.remote_runner.webhook_raw_request import build_webhook_raw_request_envelope
 from tests.helpers.reference_database import make_configured_remote_runner
 
 
@@ -47,6 +51,14 @@ def test_webhook_inbox_records_delivery_and_links_dispatch(tmp_path, monkeypatch
     replay_inbox = replay["data"]["inbox"]
     assert inbox["state"] == "submitted"
     assert inbox["signatureState"] == "unsupported"
+    assert inbox["signatureDetails"] == {
+        "schemaVersion": "workflow-trigger-inbox-signature-metadata.v1",
+        "signatureState": "unsupported",
+    }
+    assert inbox["rawBodySha256"] == ""
+    assert inbox["rawBodySizeBytes"] == 0
+    assert inbox["rawContentType"] == ""
+    assert inbox["rawHeaderNames"] == []
     assert inbox["dedupeKey"] == f"webhook:{trigger['triggerId']}:instrument-qc:evt_001"
     assert inbox["triggerEventId"] == first["data"]["event"]["triggerEventId"]
     assert inbox["runId"] == first["data"]["run"]["runId"]
@@ -88,6 +100,49 @@ def test_webhook_inbox_rejects_duplicate_identity_with_different_payload(
     assert len(inbox_list["items"]) == 1
     assert inbox_list["items"][0]["deliveryCount"] == 1
     assert len(list_workflow_trigger_events(cfg, trigger["triggerId"])["items"]) == 1
+
+
+def test_webhook_inbox_rejects_duplicate_identity_with_different_raw_body_hash(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_execution_admission_ready", lambda _cfg: None)
+    trigger = _create_trigger(cfg, source_type="webhook", trigger_spec={"provider": "instrument-qc"})
+    first_body = b'{"source":"instrument-qc","eventId":"evt_raw","payload":{"dataset":"reads.fastq"}}'
+    changed_raw_body = b'{\n  "source": "instrument-qc",\n  "eventId": "evt_raw",\n  "payload": {"dataset": "reads.fastq"}\n}'
+    first_request = WorkflowTriggerInboxEventRequest.model_validate(json.loads(first_body))
+    replay_request = WorkflowTriggerInboxEventRequest.model_validate(json.loads(changed_raw_body))
+    first_envelope = build_webhook_raw_request_envelope(
+        raw_body=first_body,
+        headers={"Content-Type": "application/json"},
+        received_at=datetime.fromtimestamp(1_700_000_000, tz=timezone.utc),
+    )
+    changed_envelope = build_webhook_raw_request_envelope(
+        raw_body=changed_raw_body,
+        headers={"Content-Type": "application/json"},
+        received_at=datetime.fromtimestamp(1_700_000_001, tz=timezone.utc),
+    )
+
+    submit_workflow_trigger_inbox_event_from_request(
+        cfg,
+        trigger["triggerId"],
+        first_request,
+        raw_envelope=first_envelope,
+    )
+    with pytest.raises(ValueError, match="WORKFLOW_TRIGGER_INBOX_DEDUPE_KEY_REUSED_WITH_DIFFERENT_RAW_BODY"):
+        submit_workflow_trigger_inbox_event_from_request(
+            cfg,
+            trigger["triggerId"],
+            replay_request,
+            raw_envelope=changed_envelope,
+        )
+
+    inbox_list = list_workflow_trigger_inbox_events_from_storage(cfg, trigger["triggerId"])["data"]
+    assert len(inbox_list["items"]) == 1
+    assert inbox_list["items"][0]["rawBodySha256"] == first_envelope.body_sha256
+    assert inbox_list["items"][0]["deliveryCount"] == 1
 
 
 def test_webhook_inbox_dead_letters_dispatch_failure(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:

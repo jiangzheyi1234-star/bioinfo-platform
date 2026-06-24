@@ -17,6 +17,7 @@ from .trigger_inbox_storage import (
 )
 from .trigger_service import submit_workflow_trigger_event_from_request
 from .trigger_storage import fetch_workflow_trigger_event_for_dedupe, require_workflow_trigger
+from .webhook_raw_request import WebhookRawRequestEnvelope
 
 
 TRIGGER_EVENT_PAYLOAD_MAX_BYTES = 256 * 1024
@@ -37,6 +38,8 @@ def submit_workflow_trigger_inbox_event_from_request(
     cfg: RemoteRunnerConfig,
     trigger_id: str,
     request: WorkflowTriggerInboxEventRequest,
+    *,
+    raw_envelope: WebhookRawRequestEnvelope | None = None,
 ) -> dict[str, Any]:
     trigger = require_workflow_trigger(cfg, trigger_id)
     source_type = str(trigger.get("sourceType") or "")
@@ -55,6 +58,7 @@ def submit_workflow_trigger_inbox_event_from_request(
         cursor=str(request.cursor or "").strip(),
         dedupe_key=_inbox_dedupe_key(trigger, source=source, event_id=event_id),
         payload=request_payload(request),
+        signature_metadata=_signature_metadata_from_envelope(raw_envelope),
     )
     try:
         mark_workflow_trigger_inbox_dispatching(cfg, inbox_event_id=str(inbox["inboxEventId"]))
@@ -113,6 +117,18 @@ def _inbox_event_request(request: WorkflowTriggerInboxEventRequest) -> WorkflowT
 
 def _inbox_dedupe_key(trigger: dict[str, Any], *, source: str, event_id: str) -> str:
     return f"webhook:{trigger['triggerId']}:{source}:{event_id}"
+
+
+def _signature_metadata_from_envelope(envelope: WebhookRawRequestEnvelope | None) -> dict[str, Any] | None:
+    if envelope is None:
+        return None
+    return {
+        "rawBodySha256": envelope.body_sha256,
+        "rawBodySizeBytes": envelope.body_size_bytes,
+        "rawContentType": envelope.content_type or "",
+        "rawHeaderNames": list(envelope.header_names),
+        "receivedAt": envelope.received_at.isoformat(),
+    }
 
 
 def _mark_inbox_dispatch_dead_lettered(
