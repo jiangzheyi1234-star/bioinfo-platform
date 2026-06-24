@@ -80,7 +80,22 @@ export type WorkflowBackfillPartition = {
   triggerEventId?: string | null;
   runId?: string | null;
   state?: string;
+  action?: "create" | "skip" | string;
   blockedReason?: string | null;
+  existingState?: {
+    partitionId?: string;
+    launchId?: string;
+    partitionKey?: string;
+    state?: string;
+    runId?: string | null;
+    runStatus?: string | null;
+    runStage?: string | null;
+    updatedAt?: string;
+  } | null;
+  reprocessDecision?: {
+    behavior?: string;
+    reason?: string;
+  } | null;
   runSpecHash?: string;
   triggerEventType?: string | null;
   dispatch?: {

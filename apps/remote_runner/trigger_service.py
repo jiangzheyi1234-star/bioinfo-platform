@@ -21,10 +21,10 @@ from .preflight import preflight_run_spec
 from .route_utils import request_payload
 from .run_execution_storage import request_run_cancel
 from .storage import canonical_payload_hash
-from .workflow_backfill_planner import (
-    backfill_launch_id,
-    backfill_partition_event_payload,
-    build_backfill_plan,
+from .workflow_backfill_planner import backfill_launch_id, backfill_partition_event_payload
+from .workflow_backfill_reprocessing import (
+    backfill_partition_policy_metadata,
+    build_backfill_plan_with_reprocessing_policy,
 )
 from .workflow_backfill_controller import (
     advance_backfill_partitions,
@@ -414,7 +414,7 @@ def preview_workflow_trigger_backfill_from_request(
     request: WorkflowTriggerBackfillPreviewRequest,
 ) -> dict[str, Any]:
     trigger = require_workflow_trigger(cfg, trigger_id)
-    plan = build_backfill_plan(trigger=trigger, request=request)
+    plan = build_backfill_plan_with_reprocessing_policy(cfg, trigger=trigger, request=request)
     record_governance_audit_event(
         cfg,
         action="workflow_trigger.backfill_preview",
@@ -444,12 +444,13 @@ def launch_workflow_trigger_backfill_from_request(
     trigger = require_workflow_trigger(cfg, trigger_id)
     if not trigger.get("enabled"):
         raise ValueError("WORKFLOW_TRIGGER_DISABLED")
-    plan = build_backfill_plan(trigger=trigger, request=request)
+    plan = build_backfill_plan_with_reprocessing_policy(cfg, trigger=trigger, request=request)
     if plan["truncated"]:
         raise ValueError("WORKFLOW_BACKFILL_LAUNCH_TRUNCATED")
     partitions = list(plan["partitions"])
     ensure_execution_admission_ready(cfg)
-    for partition in partitions:
+    create_partitions = [partition for partition in partitions if partition["action"] == "create"]
+    for partition in create_partitions:
         _validate_trigger_run_spec(cfg, dict(partition["runSpecPreview"]))
     actor = str(request.actor or "remote-runner-api")
     request_for_hash = request_payload(request)
@@ -469,13 +470,17 @@ def launch_workflow_trigger_backfill_from_request(
         actor=actor,
         request=request_for_hash,
     )
-    for partition in partitions:
-        record_workflow_backfill_partition(
-            cfg,
-            launch_id=str(launch["launchId"]),
-            trigger_id=str(trigger["triggerId"]),
-            partition=partition,
-        )
+    plan_partitions = {str(item["partitionId"]): item for item in partitions} if launch.get("created") else None
+    if launch.get("created"):
+        for partition in partitions:
+            record_workflow_backfill_partition(
+                cfg,
+                launch_id=str(launch["launchId"]),
+                trigger_id=str(trigger["triggerId"]),
+                partition=partition,
+                initial_state="pending" if partition["action"] == "create" else "skipped",
+                error=backfill_partition_policy_metadata(partition),
+            )
     advanced = advance_backfill_partitions(
         cfg,
         trigger=trigger,
@@ -483,7 +488,7 @@ def launch_workflow_trigger_backfill_from_request(
         actor=actor,
         requested_limit=request.concurrencyLimit,
         dispatch_partition=_dispatch_backfill_partition,
-        plan_partitions={str(item["partitionId"]): item for item in partitions},
+        plan_partitions=plan_partitions,
     )
     detail = require_workflow_backfill_launch(cfg, str(launch["launchId"]))
     record_governance_audit_event(
@@ -500,6 +505,9 @@ def launch_workflow_trigger_backfill_from_request(
             "submittedThisTick": advanced["submittedThisTick"],
             "replayedRunCount": advanced["replayedRunCount"],
             "pendingPartitionCount": detail["partitionSummary"]["pendingPartitionCount"],
+            "creationRunCount": plan["creationRunCount"],
+            "skippedRunCount": plan["skippedRunCount"],
+            "blockedActiveRunCount": plan["blockedActiveRunCount"],
             "concurrencyLimit": request.concurrencyLimit,
             "range": plan["range"],
         },
@@ -521,6 +529,9 @@ def launch_workflow_trigger_backfill_from_request(
             "submittedThisTick": advanced["submittedThisTick"],
             "replayedRunCount": advanced["replayedRunCount"],
             "pendingPartitionCount": detail["partitionSummary"]["pendingPartitionCount"],
+            "creationRunCount": plan["creationRunCount"],
+            "skippedRunCount": plan["skippedRunCount"],
+            "blockedActiveRunCount": plan["blockedActiveRunCount"],
             "partitions": detail["partitions"],
         }
     }

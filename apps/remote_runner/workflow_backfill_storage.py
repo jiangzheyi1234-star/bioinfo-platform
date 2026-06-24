@@ -90,6 +90,8 @@ def record_workflow_backfill_partition(
     launch_id: str,
     trigger_id: str,
     partition: dict[str, Any],
+    initial_state: str = "pending",
+    error: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     run_spec = partition.get("runSpecPreview") if isinstance(partition.get("runSpecPreview"), dict) else {}
     run_spec_hash = _payload_hash(run_spec)
@@ -127,10 +129,10 @@ def record_workflow_backfill_partition(
                 partition["idempotencyKey"],
                 None,
                 None,
-                "pending",
+                initial_state,
                 run_spec_hash,
                 _stable_json(run_spec),
-                None,
+                _stable_json(error) if error else None,
                 timestamp,
                 timestamp,
             ),
@@ -154,13 +156,23 @@ def mark_workflow_backfill_partition_submitted(
     timestamp = now_iso()
     state = "replayed" if replayed else "submitted"
     with get_connection(cfg) as connection:
+        current = connection.execute(
+            "SELECT error_json FROM workflow_backfill_partitions WHERE partition_id = ?",
+            (partition_id,),
+        ).fetchone()
+        current_detail = _loads_json(current["error_json"], None) if current is not None else None
+        retained_policy_json = (
+            current["error_json"]
+            if isinstance(current_detail, dict) and "action" in current_detail
+            else None
+        )
         connection.execute(
             """
             UPDATE workflow_backfill_partitions
-            SET state = ?, trigger_event_id = ?, run_id = ?, error_json = NULL, updated_at = ?
+            SET state = ?, trigger_event_id = ?, run_id = ?, error_json = ?, updated_at = ?
             WHERE partition_id = ?
             """,
-            (state, trigger_event_id, run_id, timestamp, partition_id),
+            (state, trigger_event_id, run_id, retained_policy_json, timestamp, partition_id),
         )
         connection.commit()
         row = connection.execute(
@@ -325,6 +337,42 @@ def require_workflow_backfill_launch(cfg: RemoteRunnerConfig, launch_id: str) ->
     return launch
 
 
+def latest_workflow_backfill_partitions_by_window(
+    cfg: RemoteRunnerConfig,
+    *,
+    trigger_id: str,
+    windows: list[tuple[str, str]],
+) -> dict[tuple[str, str], dict[str, Any]]:
+    if not windows:
+        return {}
+    normalized_trigger_id = _required_text(trigger_id, "TRIGGER_ID_REQUIRED")
+    result: dict[tuple[str, str], dict[str, Any]] = {}
+    with get_connection(cfg) as connection:
+        for window_start, window_end in windows:
+            row = connection.execute(
+                """
+                SELECT
+                    partition.*,
+                    run.status AS run_status,
+                    run.stage AS run_stage,
+                    run.last_updated_at AS run_last_updated_at
+                FROM workflow_backfill_partitions partition
+                LEFT JOIN runs run
+                  ON run.run_id = partition.run_id
+                WHERE partition.trigger_id = ?
+                  AND partition.window_start = ?
+                  AND partition.window_end = ?
+                  AND partition.state != 'skipped'
+                ORDER BY partition.created_at DESC, partition.updated_at DESC, partition.partition_id DESC
+                LIMIT 1
+                """,
+                (normalized_trigger_id, window_start, window_end),
+            ).fetchone()
+            if row is not None:
+                result[(window_start, window_end)] = _partition_row_to_dict(row, created=None)
+    return result
+
+
 def claim_workflow_backfill_partitions_for_admission(
     cfg: RemoteRunnerConfig,
     *,
@@ -482,6 +530,12 @@ def _launch_with_partition_observability(
 def _partition_row_to_dict(row: Any, *, created: bool | None) -> dict[str, Any]:
     run_id = row["run_id"]
     dispatch_error = _loads_json(_row_value(row, "dispatch_error_json"), None)
+    partition_detail = _loads_json(row["error_json"], None)
+    policy_detail = (
+        partition_detail
+        if isinstance(partition_detail, dict) and "action" in partition_detail
+        else None
+    )
     state = str(row["state"] or "")
     payload = {
         "partitionId": row["partition_id"],
@@ -499,7 +553,7 @@ def _partition_row_to_dict(row: Any, *, created: bool | None) -> dict[str, Any]:
         "triggerEventId": row["trigger_event_id"],
         "runId": row["run_id"],
         "state": state,
-        "blockedReason": "concurrency_limit" if state == "pending" else None,
+        "blockedReason": _partition_blocked_reason(state, policy_detail or partition_detail),
         "runSpecHash": row["run_spec_hash"],
         "triggerEventType": _row_value(row, "trigger_event_type"),
         "dispatch": (
@@ -521,12 +575,18 @@ def _partition_row_to_dict(row: Any, *, created: bool | None) -> dict[str, Any]:
             if run_id and _row_value(row, "run_status")
             else None
         ),
-        "error": _loads_json(row["error_json"], None),
+        "error": None if policy_detail else partition_detail,
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
     if created is not None:
         payload["created"] = created
+    if policy_detail:
+        payload["action"] = policy_detail.get("action")
+        payload["existingState"] = policy_detail.get("existingState")
+        payload["reprocessDecision"] = policy_detail.get("reprocessDecision")
+    else:
+        payload["action"] = "skip" if state == "skipped" else "create"
     return payload
 
 
@@ -593,6 +653,14 @@ def _partition_has_cancellable_run(partition: dict[str, Any]) -> bool:
     run_id = str((run or {}).get("runId") or partition.get("runId") or "").strip()
     status = str((run or {}).get("status") or "").strip().lower()
     return bool(run_id and status and status not in NON_CANCELLABLE_RUN_STATUSES)
+
+
+def _partition_blocked_reason(state: str, error: Any) -> str | None:
+    if state == "pending":
+        return "concurrency_limit"
+    if state == "skipped" and isinstance(error, dict):
+        return str(error.get("reason") or "skipped")
+    return None
 
 
 def _pending_partition_row_to_dict(row: Any, *, launch: Any) -> dict[str, Any]:

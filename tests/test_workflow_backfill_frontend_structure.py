@@ -29,6 +29,8 @@ def test_backfill_launches_have_read_only_frontend_surface() -> None:
     assert "activeRunCount" in model
     assert "blockedPartitionCount" in model
     assert "blockedReason" in model
+    assert "existingState" in model
+    assert "reprocessDecision" in model
     assert "operationCapabilities" in model
     assert "WorkflowBackfillCancelResponse" in model
     assert "fetchWorkflowBackfillLaunches" in api
@@ -51,6 +53,9 @@ def test_backfill_launches_have_read_only_frontend_surface() -> None:
     assert "并发受限" in panel
     assert "待提交" in panel
     assert "partition.blockedReason" in panel
+    assert "partition.reprocessDecision" in panel
+    assert "partition.existingState?.runStatus" in panel
+    assert "reprocessDecisionLabel" in panel
     assert "setLaunches((current) =>" in page
     assert "幂等命中" in panel
     assert "请求取消" in panel

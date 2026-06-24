@@ -272,6 +272,14 @@ function PartitionRow({ partition }: { partition: WorkflowBackfillPartition }) {
       <td className="px-3 py-2">
         <div className="truncate font-mono text-[10px] text-slate-500">{partition.triggerEventId || "no trigger event"}</div>
         {partition.blockedReason ? <div className="mt-1 truncate text-[10px] text-amber-600">{blockedReasonLabel(partition.blockedReason)}</div> : null}
+        {partition.reprocessDecision ? (
+          <div className="mt-1 truncate text-[10px] text-slate-500">
+            {reprocessDecisionLabel(partition.reprocessDecision)}
+          </div>
+        ) : null}
+        {partition.existingState?.runStatus ? (
+          <div className="mt-1 truncate text-[10px] text-slate-400">existing {partition.existingState.runStatus}</div>
+        ) : null}
         <div className="mt-1 truncate font-mono text-[10px] text-slate-400">{shortHash(partition.runSpecHash)}</div>
       </td>
     </tr>
@@ -365,6 +373,7 @@ function statusLabel(status: string | undefined) {
   if (s === "submitted") return "已提交";
   if (s === "blocked") return "并发受限";
   if (s === "pending") return "待提交";
+  if (s === "skipped") return "已跳过";
   if (s === "admitting") return "提交中";
   if (s === "launching") return "提交中";
   if (s === "canceling") return "取消中";
@@ -389,7 +398,15 @@ function partitionDisplayStatus(partition: WorkflowBackfillPartition) {
 
 function blockedReasonLabel(reason: string) {
   if (reason === "concurrency_limit") return "等待并发槽位";
+  if (reason === "existing-run") return "已有运行，按策略跳过";
+  if (reason === "existing-run-not-failed") return "已有非失败运行，按策略跳过";
+  if (reason === "existing-active-run") return "已有活跃运行，按策略跳过";
+  if (reason === "existing-run-not-completed-or-failed") return "已有非终态运行，按策略跳过";
   return reason;
+}
+
+function reprocessDecisionLabel(decision: NonNullable<WorkflowBackfillPartition["reprocessDecision"]>) {
+  return `policy ${decision.behavior || "none"} · ${decision.reason || "unspecified"}`;
 }
 
 function formatDate(value?: string | null) {
