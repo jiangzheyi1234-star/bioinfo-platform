@@ -263,6 +263,7 @@ Progress:
 - Signed webhook inbox delivery now verifies required GitHub/Slack/Stripe-style policies from the raw envelope before JSON payload validation and dispatch when the trigger references an `env://` signing secret. Verified deliveries persist `signatureState: verified` and safe policy/credential/verification metadata; failed signatures are rejected before inbox persistence and do not create trigger events or runs.
 - Rejected signed webhook deliveries now record hash-chained governance deny audit evidence with safe raw-envelope metadata and provider/policy context, while still avoiding persisted inbox payloads, raw body bytes, signature header values, and secret references.
 - Webhook trigger definitions now require an explicit `eventMatch` policy. Inbox delivery must match `triggerSpec.provider`, allowed event types, and optional action allowlists before any inbox row, trigger event, or run is created; no-match deliveries record safe governance deny audit evidence. The generic `/events` path no longer dispatches webhook triggers, and dead-letter inbox replay re-checks the current match policy instead of bypassing it.
+- The trigger observability UI now surfaces webhook inbox deliveries, delivery counts, signature state, safe raw request metadata, dead-letter failures, linked trigger events/runs, and confirmation-backed single-delivery replay, while keeping raw payload/body material and bulk replay controls out of the product surface.
 
 Recommended sequence:
 

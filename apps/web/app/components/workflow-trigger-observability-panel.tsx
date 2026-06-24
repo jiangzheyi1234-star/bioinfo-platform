@@ -6,11 +6,9 @@ import {
   AlertCircle,
   ArrowRight,
   CheckCircle2,
-  Clock,
   Loader2,
   RefreshCw,
   ToggleLeft,
-  XCircle,
 } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -22,15 +20,22 @@ import type {
   WorkflowTriggerDispatch,
   WorkflowTriggerEvent,
   WorkflowTriggerEventPayload,
+  WorkflowTriggerInboxEvent,
 } from "./workflow-trigger-model";
+import { WorkflowTriggerInboxPanel } from "./workflow-trigger-inbox-panel";
 
 export function WorkflowTriggerObservabilityPanel({
   error,
   events,
   eventsLoading,
+  inboxEvents,
+  inboxLoading,
   loading,
+  notice,
   onRefresh,
+  onReplayInboxEvent,
   onSelectTrigger,
+  replayingInboxEventId,
   selectedTrigger,
   selectedTriggerId,
   triggers,
@@ -38,9 +43,14 @@ export function WorkflowTriggerObservabilityPanel({
   error: string;
   events: WorkflowTriggerEvent[];
   eventsLoading: boolean;
+  inboxEvents: WorkflowTriggerInboxEvent[];
+  inboxLoading: boolean;
   loading: boolean;
+  notice: string;
   onRefresh: () => void;
+  onReplayInboxEvent: (inboxEventId: string) => void;
   onSelectTrigger: (triggerId: string) => void;
+  replayingInboxEventId: string;
   selectedTrigger: WorkflowTrigger | null;
   selectedTriggerId: string;
   triggers: WorkflowTrigger[];
@@ -70,6 +80,15 @@ export function WorkflowTriggerObservabilityPanel({
         </div>
       ) : null}
 
+      {notice ? (
+        <div className="px-4 pt-4">
+          <Alert>
+            <CheckCircle2 strokeWidth={1.5} className="h-4 w-4" />
+            <AlertDescription>{notice}</AlertDescription>
+          </Alert>
+        </div>
+      ) : null}
+
       {loading && triggers.length === 0 ? (
         <div className="flex h-28 items-center justify-center text-sm text-slate-400">
           <Loader2 strokeWidth={1.5} className="mr-2 h-4 w-4 animate-spin" />
@@ -86,7 +105,15 @@ export function WorkflowTriggerObservabilityPanel({
           />
           <div className="min-w-0 p-4">
             {selectedTrigger ? (
-              <TriggerDetail trigger={selectedTrigger} events={events} eventsLoading={eventsLoading} />
+              <TriggerDetail
+                trigger={selectedTrigger}
+                events={events}
+                eventsLoading={eventsLoading}
+                inboxEvents={inboxEvents}
+                inboxLoading={inboxLoading}
+                onReplayInboxEvent={onReplayInboxEvent}
+                replayingInboxEventId={replayingInboxEventId}
+              />
             ) : (
               <div className="py-12 text-center text-sm text-slate-400">选择一个触发器</div>
             )}
@@ -144,12 +171,21 @@ function TriggerList({
 function TriggerDetail({
   events,
   eventsLoading,
+  inboxEvents,
+  inboxLoading,
+  onReplayInboxEvent,
+  replayingInboxEventId,
   trigger,
 }: {
   events: WorkflowTriggerEvent[];
   eventsLoading: boolean;
+  inboxEvents: WorkflowTriggerInboxEvent[];
+  inboxLoading: boolean;
+  onReplayInboxEvent: (inboxEventId: string) => void;
+  replayingInboxEventId: string;
   trigger: WorkflowTrigger;
 }) {
+  const isWebhook = trigger.sourceType === "webhook";
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -167,6 +203,15 @@ function TriggerDetail({
         <LabelValue label={triggerSpecLabel(trigger)} value={triggerSpecSummary(trigger)} />
         <LabelValue label="Resource" value={triggerResourceLabel(trigger)} />
       </div>
+
+      {isWebhook ? (
+        <WorkflowTriggerInboxPanel
+          inboxEvents={inboxEvents}
+          inboxLoading={inboxLoading}
+          onReplayInboxEvent={onReplayInboxEvent}
+          replayingInboxEventId={replayingInboxEventId}
+        />
+      ) : null}
 
       {eventsLoading ? (
         <div className="flex h-32 items-center justify-center text-sm text-slate-400">

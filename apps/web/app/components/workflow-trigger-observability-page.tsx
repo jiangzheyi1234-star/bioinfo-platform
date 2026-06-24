@@ -9,9 +9,14 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 
 import { WorkflowPageHeader } from "./workflow-page-header";
-import { fetchWorkflowTriggerEvents, fetchWorkflowTriggers } from "./workflow-trigger-api";
+import {
+  fetchWorkflowTriggerEvents,
+  fetchWorkflowTriggerInboxEvents,
+  fetchWorkflowTriggers,
+  replayWorkflowTriggerInboxEvent,
+} from "./workflow-trigger-api";
 import { WorkflowTriggerObservabilityPanel } from "./workflow-trigger-observability-panel";
-import type { WorkflowTrigger, WorkflowTriggerEvent } from "./workflow-trigger-model";
+import type { WorkflowTrigger, WorkflowTriggerEvent, WorkflowTriggerInboxEvent } from "./workflow-trigger-model";
 import { workflowErrorMessage } from "./workflows-page-model";
 
 export function WorkflowTriggerObservabilityPage() {
@@ -21,9 +26,13 @@ export function WorkflowTriggerObservabilityPage() {
 
   const [triggers, setTriggers] = useState<WorkflowTrigger[]>([]);
   const [events, setEvents] = useState<WorkflowTriggerEvent[]>([]);
+  const [inboxEvents, setInboxEvents] = useState<WorkflowTriggerInboxEvent[]>([]);
   const [selectedTriggerId, setSelectedTriggerId] = useState(triggerFromQuery);
   const [loading, setLoading] = useState(true);
   const [eventsLoading, setEventsLoading] = useState(false);
+  const [inboxLoading, setInboxLoading] = useState(false);
+  const [replayingInboxEventId, setReplayingInboxEventId] = useState("");
+  const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [eventError, setEventError] = useState("");
 
@@ -64,6 +73,25 @@ export function WorkflowTriggerObservabilityPage() {
     }
   }, [selectedTriggerId]);
 
+  const loadInbox = useCallback(async (forceRefresh = false) => {
+    if (!selectedTriggerId || selectedTrigger?.sourceType !== "webhook") {
+      setInboxEvents([]);
+      return;
+    }
+    if (!forceRefresh) {
+      setInboxLoading(true);
+    }
+    setEventError("");
+    try {
+      const data = await fetchWorkflowTriggerInboxEvents(selectedTriggerId, { forceRefresh, limit: 100 });
+      setInboxEvents(data.items || []);
+    } catch (err) {
+      setEventError(workflowErrorMessage(err, "读取 webhook inbox 失败"));
+    } finally {
+      setInboxLoading(false);
+    }
+  }, [selectedTrigger?.sourceType, selectedTriggerId]);
+
   useEffect(() => {
     void loadTriggers();
   }, [loadTriggers]);
@@ -71,11 +99,13 @@ export function WorkflowTriggerObservabilityPage() {
   useEffect(() => {
     if (triggerFromQuery && triggerFromQuery !== selectedTriggerId) {
       setEvents([]);
+      setInboxEvents([]);
       setSelectedTriggerId(triggerFromQuery);
       return;
     }
     if (!selectedTriggerId && triggers[0]?.triggerId) {
       setEvents([]);
+      setInboxEvents([]);
       setSelectedTriggerId(triggers[0].triggerId);
     }
   }, [selectedTriggerId, triggerFromQuery, triggers]);
@@ -85,13 +115,22 @@ export function WorkflowTriggerObservabilityPage() {
   }, [loadEvents]);
 
   useEffect(() => {
+    void loadInbox();
+  }, [loadInbox]);
+
+  useEffect(() => {
     if (!selectedTriggerId) return;
-    const timer = window.setInterval(() => void loadEvents(true), 5000);
+    const timer = window.setInterval(() => {
+      void loadEvents(true);
+      void loadInbox(true);
+    }, 5000);
     return () => window.clearInterval(timer);
-  }, [loadEvents, selectedTriggerId]);
+  }, [loadEvents, loadInbox, selectedTriggerId]);
 
   function selectTrigger(triggerId: string) {
     setEvents([]);
+    setInboxEvents([]);
+    setNotice("");
     setSelectedTriggerId(triggerId);
     const params = new URLSearchParams(searchParams.toString());
     params.set("trigger", triggerId);
@@ -101,6 +140,23 @@ export function WorkflowTriggerObservabilityPage() {
   function refresh() {
     void loadTriggers(true);
     void loadEvents(true);
+    void loadInbox(true);
+  }
+
+  async function replayInboxEvent(inboxEventId: string) {
+    if (!selectedTriggerId || !inboxEventId || replayingInboxEventId) return;
+    setReplayingInboxEventId(inboxEventId);
+    setEventError("");
+    setNotice("");
+    try {
+      const result = await replayWorkflowTriggerInboxEvent(selectedTriggerId, inboxEventId);
+      setNotice(result.run?.runId ? `已重放 inbox delivery，关联运行 ${result.run.runId}` : "已重放 inbox delivery");
+      await Promise.all([loadEvents(true), loadInbox(true)]);
+    } catch (err) {
+      setEventError(workflowErrorMessage(err, "重放 inbox delivery 失败"));
+    } finally {
+      setReplayingInboxEventId("");
+    }
   }
 
   return (
@@ -133,9 +189,14 @@ export function WorkflowTriggerObservabilityPage() {
             error={error || eventError}
             events={events}
             eventsLoading={eventsLoading}
+            inboxEvents={inboxEvents}
+            inboxLoading={inboxLoading}
             loading={loading}
+            notice={notice}
             onRefresh={refresh}
+            onReplayInboxEvent={replayInboxEvent}
             onSelectTrigger={selectTrigger}
+            replayingInboxEventId={replayingInboxEventId}
             selectedTrigger={selectedTrigger}
             selectedTriggerId={selectedTriggerId}
             triggers={triggers}

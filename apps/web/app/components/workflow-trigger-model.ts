@@ -67,6 +67,35 @@ export type WorkflowTriggerEvent = {
   created?: boolean;
 };
 
+export type WorkflowTriggerInboxEvent = {
+  inboxEventId: string;
+  triggerId?: string;
+  sourceType?: string;
+  source?: string;
+  eventType?: string;
+  eventId?: string;
+  correlationId?: string | null;
+  cursor?: string | null;
+  dedupeKey?: string;
+  payloadHash?: string;
+  payloadSizeBytes?: number;
+  signatureState?: string;
+  signatureDetails?: Record<string, unknown>;
+  rawBodySha256?: string;
+  rawBodySizeBytes?: number;
+  rawContentType?: string;
+  rawHeaderNames?: string[];
+  state?: string;
+  deliveryCount?: number;
+  triggerEventId?: string | null;
+  runId?: string | null;
+  failureCode?: string | null;
+  error?: unknown;
+  receivedAt?: string;
+  updatedAt?: string;
+  deadLetteredAt?: string | null;
+};
+
 export type WorkflowTriggerList = {
   items: WorkflowTrigger[];
 };
@@ -75,10 +104,31 @@ export type WorkflowTriggerEventList = {
   items: WorkflowTriggerEvent[];
 };
 
+export type WorkflowTriggerInboxEventList = {
+  schemaVersion?: string;
+  items: WorkflowTriggerInboxEvent[];
+};
+
+export type WorkflowTriggerInboxReplayResult = {
+  schemaVersion?: string;
+  inbox?: WorkflowTriggerInboxEvent;
+  event?: WorkflowTriggerEvent;
+  run?: WorkflowTriggerDispatchRun;
+  replayed?: boolean;
+};
+
 export type WorkflowTriggerListResponse = {
   data: WorkflowTriggerList;
 };
 
 export type WorkflowTriggerEventListResponse = {
   data: WorkflowTriggerEventList;
+};
+
+export type WorkflowTriggerInboxEventListResponse = {
+  data: WorkflowTriggerInboxEventList;
+};
+
+export type WorkflowTriggerInboxReplayResponse = {
+  data: WorkflowTriggerInboxReplayResult;
 };
