@@ -131,7 +131,7 @@ class SnakemakeEngineAdapter:
         rerun_incomplete: bool = False,
     ) -> list[str]:
         profile_args = self._profile_args()
-        normalized_forcerun_rules = _normalized_forcerun_rules(forcerun_rules)
+        normalized_forcerun_rules = normalize_forcerun_rules(forcerun_rules)
         command = [
             *self._snakemake_command(),
             "--snakefile",
@@ -173,7 +173,7 @@ class SnakemakeEngineAdapter:
         return ["--workflow-profile", str(workflow_profile_dir)]
 
 
-def _normalized_forcerun_rules(rules: list[str] | None) -> list[str]:
+def normalize_forcerun_rules(rules: list[str] | None) -> list[str]:
     normalized: list[str] = []
     seen: set[str] = set()
     for raw_rule in rules or []:
