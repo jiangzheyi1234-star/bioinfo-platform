@@ -8,9 +8,9 @@ import { cn } from "@/lib/utils";
 
 import type { AddedTool } from "./tools-page-model";
 import {
-  findOneHopPortConverters,
-  type RulePortConverterCandidate,
-} from "./generated-workflow-converter-recommendation";
+  converterSuggestionsForInput,
+  type OutputConverterSuggestion,
+} from "./generated-workflow-port-advice";
 import {
   describePortSpec,
   portCompatibilityScore,
@@ -306,42 +306,6 @@ function defaultBinding(type: string, recommendedCandidates: GeneratedWorkflowOu
 
 function rankOutputCandidates(candidates: GeneratedWorkflowOutputCandidate[]) {
   return [...candidates].sort((left, right) => (right.compatibilityScore ?? -1) - (left.compatibilityScore ?? -1));
-}
-
-type OutputConverterSuggestion = RulePortConverterCandidate & {
-  sourceLabel: string;
-  sourceOutput: string;
-  sourceStepId: string;
-  sourceValue: string;
-};
-
-function converterSuggestionsForInput({
-  candidates,
-  input,
-  nodeToolRevisionId,
-  tools,
-}: {
-  candidates: GeneratedWorkflowOutputCandidate[];
-  input: RuleInputSpec;
-  nodeToolRevisionId: string;
-  tools: AddedTool[];
-}): OutputConverterSuggestion[] {
-  return candidates
-    .flatMap((candidate) =>
-      findOneHopPortConverters({
-        input,
-        output: candidate.port,
-        tools,
-        excludeToolRevisionIds: [nodeToolRevisionId],
-      }).map((converter) => ({
-        ...converter,
-        sourceLabel: candidate.label,
-        sourceOutput: candidate.output,
-        sourceStepId: candidate.stepId,
-        sourceValue: candidate.value,
-      }))
-    )
-    .sort((left, right) => right.totalScore - left.totalScore || left.sourceValue.localeCompare(right.sourceValue));
 }
 
 function formatRecommendationConfidence(confidence: number) {

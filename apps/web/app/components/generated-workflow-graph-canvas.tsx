@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Plus } from "lucide-react";
 import {
   Background,
   Controls,
@@ -22,11 +23,17 @@ import {
   type ReactFlowInstance,
 } from "@xyflow/react";
 
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import type { AddedTool } from "./tools-page-model";
+import type { RulePortConverterInsertionRequest } from "./generated-workflow-converter-recommendation";
 import { RuleGraphNodeCard } from "./generated-workflow-graph-node-card";
 import { layoutGeneratedWorkflowGraph } from "./generated-workflow-graph-layout";
+import {
+  converterSuggestionsForConnection,
+  type OutputConverterSuggestion,
+} from "./generated-workflow-port-advice";
 import {
   evaluateGeneratedWorkflowPortConnection,
   type GeneratedWorkflowPortConnectionDecision,
@@ -62,6 +69,11 @@ type RuleFlowSubflowGroupData = Record<string, unknown> & {
 type RuleFlowSubflowGroupNode = Node<RuleFlowSubflowGroupData, "subflowGroup">;
 type RuleFlowAnyNode = RuleFlowNode | RuleFlowSubflowGroupNode;
 type RuleFlowEdge = Edge<Record<string, unknown>>;
+type ConnectionNotice = {
+  message: string;
+  request?: RulePortConverterInsertionRequest;
+  suggestion?: OutputConverterSuggestion;
+};
 
 const FLOW_NODE_WIDTH = 290;
 const FLOW_NODE_COLUMN_GAP = 120;
@@ -77,6 +89,7 @@ export function GeneratedWorkflowGraphCanvas({
   layoutRevision = 0,
   nodes,
   onBindInput,
+  onInsertConverter,
   onSelectNode,
   searchQuery = "",
   selectedNodeId,
@@ -87,6 +100,7 @@ export function GeneratedWorkflowGraphCanvas({
   layoutRevision?: number;
   nodes: GraphNode[];
   onBindInput: (stepId: string, inputName: string, binding: GeneratedWorkflowInputBinding) => void;
+  onInsertConverter: (request: RulePortConverterInsertionRequest) => void;
   onSelectNode: (nodeId: string) => void;
   searchQuery?: string;
   selectedNodeId: string;
@@ -101,8 +115,8 @@ export function GeneratedWorkflowGraphCanvas({
     [nodes, searchQuery, toolByRevisionId]
   );
   const hasSearch = searchQuery.trim().length > 0;
-  const [connectionNotice, setConnectionNotice] = useState("");
-  const lastInvalidConnectionRef = useRef("");
+  const [connectionNotice, setConnectionNotice] = useState<ConnectionNotice | null>(null);
+  const lastInvalidConnectionRef = useRef<ConnectionNotice | null>(null);
   const flowInstanceRef = useRef<ReactFlowInstance<RuleFlowAnyNode, RuleFlowEdge> | null>(null);
   const flowNodeDrafts = useMemo(
     () =>
@@ -139,6 +153,11 @@ export function GeneratedWorkflowGraphCanvas({
     return () => window.cancelAnimationFrame(frame);
   }, [layoutRevision, nodes.length]);
 
+  useEffect(() => {
+    lastInvalidConnectionRef.current = null;
+    setConnectionNotice((current) => (current?.request ? null : current));
+  }, [graphDraft, tools]);
+
   const evaluateConnection = useCallback(
     (connection: Connection | RuleFlowEdge): GeneratedWorkflowPortConnectionDecision => {
       const graphConnection = reactFlowConnectionToGraphConnection(connection);
@@ -151,24 +170,29 @@ export function GeneratedWorkflowGraphCanvas({
   );
   const isValidConnection = useCallback<IsValidConnection<RuleFlowEdge>>(
     (connection) => {
+      const graphConnection = reactFlowConnectionToGraphConnection(connection);
       const decision = evaluateConnection(connection);
-      if (!decision.ok) lastInvalidConnectionRef.current = decision.reason;
+      if (!decision.ok) {
+        lastInvalidConnectionRef.current = connectionNoticeForDecision({ decision, graphConnection, graphDraft, tools });
+      }
       return decision.ok;
     },
-    [evaluateConnection]
+    [evaluateConnection, graphDraft, tools]
   );
   const onConnect = useCallback<OnConnect>(
     (connection) => {
       const graphConnection = reactFlowConnectionToGraphConnection(connection);
       const decision = evaluateConnection(connection);
       if (!graphConnection || !decision.ok) {
-        setConnectionNotice(decision.reason);
+        setConnectionNotice(connectionNoticeForDecision({ decision, graphConnection, graphDraft, tools }));
         return;
       }
       onBindInput(graphConnection.to.nodeId, graphConnection.to.port, decision.binding);
-      setConnectionNotice(`已连接 ${graphConnection.from.nodeId}.${graphConnection.from.port} -> ${graphConnection.to.nodeId}.${graphConnection.to.port}`);
+      setConnectionNotice({
+        message: `已连接 ${graphConnection.from.nodeId}.${graphConnection.from.port} -> ${graphConnection.to.nodeId}.${graphConnection.to.port}`,
+      });
     },
-    [evaluateConnection, onBindInput]
+    [evaluateConnection, graphDraft, onBindInput, tools]
   );
   const onConnectEnd = useCallback<OnConnectEnd>((_event, connectionState) => {
     if (connectionState.isValid === false && lastInvalidConnectionRef.current) {
@@ -241,8 +265,25 @@ export function GeneratedWorkflowGraphCanvas({
         <MiniMap className="!bg-white/90" pannable zoomable />
       </ReactFlow>
       {connectionNotice ? (
-        <div className="pointer-events-none absolute bottom-2 left-2 max-w-[70%] rounded border border-slate-200 bg-white/95 px-2 py-1 text-[11px] text-slate-600 shadow-sm">
-          {connectionNotice}
+        <div className="absolute bottom-2 left-2 grid max-w-[76%] gap-1 rounded border border-slate-200 bg-white/95 px-2 py-1.5 text-[11px] text-slate-600 shadow-sm">
+          <div className="min-w-0 break-words">{connectionNotice.message}</div>
+          {connectionNotice.suggestion ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-7 justify-self-start bg-white px-2 text-[11px]"
+              onClick={() => {
+                if (!connectionNotice.request) return;
+                onInsertConverter(connectionNotice.request);
+                setConnectionNotice({
+                  message: `已插入转换节点 ${connectionNotice.suggestion?.converterToolName || "converter"}，请复核新增连线。`,
+                });
+              }}
+            >
+              <Plus strokeWidth={1.5} className="mr-1 h-3.5 w-3.5" />
+              确认插入转换
+            </Button>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -422,6 +463,41 @@ function reactFlowConnectionToGraphConnection(connection: Connection | RuleFlowE
     from: { nodeId: connection.source, port: connection.sourceHandle },
     to: { nodeId: connection.target, port: connection.targetHandle },
   };
+}
+
+function connectionNoticeForDecision({
+  decision,
+  graphConnection,
+  graphDraft,
+  tools,
+}: {
+  decision: GeneratedWorkflowPortConnectionDecision;
+  graphConnection: ReturnType<typeof reactFlowConnectionToGraphConnection>;
+  graphDraft: GeneratedWorkflowGraphDraft;
+  tools: AddedTool[];
+}): ConnectionNotice {
+  if (!decision.ok && decision.code === "WORKFLOW_GRAPH_CONNECTION_INCOMPATIBLE" && graphConnection) {
+    const suggestion = converterSuggestionsForConnection({ connection: graphConnection, graphDraft, tools })[0];
+    if (suggestion) {
+      const replacementNote = graphDraft.edges.some(
+        (edge) => edge.to.nodeId === graphConnection.to.nodeId && edge.to.port === graphConnection.to.port
+      )
+        ? " 将替换当前目标输入绑定。"
+        : "";
+      return {
+        message: `${decision.reason}。可插入转换 ${suggestion.converterToolName} · 需确认，不会自动插入。${replacementNote}`,
+        request: {
+          sourceStepId: suggestion.sourceStepId,
+          sourceOutput: suggestion.sourceOutput,
+          targetStepId: graphConnection.to.nodeId,
+          targetInput: graphConnection.to.port,
+          converter: suggestion,
+        },
+        suggestion,
+      };
+    }
+  }
+  return { message: decision.reason };
 }
 
 function matchedGraphNodeIds({

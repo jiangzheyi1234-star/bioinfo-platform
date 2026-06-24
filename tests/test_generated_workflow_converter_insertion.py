@@ -35,6 +35,9 @@ const {
   findOneHopPortConverters,
 } = require(path.join(root, "apps", "web", "app", "components", "generated-workflow-converter-recommendation.ts"));
 const {
+  converterSuggestionsForConnection,
+} = require(path.join(root, "apps", "web", "app", "components", "generated-workflow-port-advice.ts"));
+const {
   graphDraftToGeneratedWorkflowDraft,
   validateGeneratedWorkflowDraft,
 } = require(path.join(root, "apps", "web", "app", "components", "generated-workflow-model.ts"));
@@ -107,6 +110,91 @@ assert(converter.hardChecks.includes("source-output-to-converter-input-strong-ev
 assert(converter.hardChecks.includes("converter-output-to-target-input-strong-evidence"));
 assert(converter.evidence.includes("上游输出可进入 reads"));
 assert(converter.evidence.includes("bam 可满足目标输入"));
+
+const canvasGraphDraft = {
+  nodes: [
+    { id: "source", toolRevisionId: sourceTool.toolRevisionId, inputs: { reads: { fromUpload: 0 } }, params: {}, runtime: {} },
+    { id: "target", toolRevisionId: targetTool.toolRevisionId, inputs: {}, params: {}, runtime: {} },
+  ],
+  edges: [],
+  outputs: [],
+};
+const [canvasSuggestion] = converterSuggestionsForConnection({
+  graphDraft: canvasGraphDraft,
+  tools: [sourceTool, converterTool, targetTool],
+  connection: {
+    from: { nodeId: "source", port: "report" },
+    to: { nodeId: "target", port: "reads" },
+  },
+});
+assert.equal(canvasSuggestion.converterToolRevisionId, converterTool.toolRevisionId);
+assert.equal(canvasSuggestion.sourceStepId, "source");
+assert.equal(canvasSuggestion.sourceOutput, "report");
+assert.equal(canvasSuggestion.confirmationRequired, true);
+assert.equal(canvasSuggestion.insertionMode, "explicit-user-confirmed");
+assert(canvasSuggestion.autoInsertionBlockedReasons.includes("graph-mutation-requires-user-action"));
+
+const compatibleSuggestion = converterSuggestionsForConnection({
+  graphDraft: {
+    nodes: [
+      canvasGraphDraft.nodes[0],
+      { id: "converter", toolRevisionId: converterTool.toolRevisionId, inputs: {}, params: {}, runtime: {} },
+    ],
+    edges: [],
+    outputs: [],
+  },
+  tools: [sourceTool, converterTool],
+  connection: {
+    from: { nodeId: "source", port: "report" },
+    to: { nodeId: "converter", port: "reads" },
+  },
+});
+assert.deepEqual(compatibleSuggestion, []);
+
+const selfSuggestion = converterSuggestionsForConnection({
+  graphDraft: canvasGraphDraft,
+  tools: [sourceTool, converterTool, targetTool],
+  connection: {
+    from: { nodeId: "source", port: "report" },
+    to: { nodeId: "source", port: "reads" },
+  },
+});
+assert.deepEqual(selfSuggestion, []);
+
+const unknownNodeSuggestion = converterSuggestionsForConnection({
+  graphDraft: canvasGraphDraft,
+  tools: [sourceTool, converterTool, targetTool],
+  connection: {
+    from: { nodeId: "missing", port: "report" },
+    to: { nodeId: "target", port: "reads" },
+  },
+});
+assert.deepEqual(unknownNodeSuggestion, []);
+
+const unknownPortSuggestion = converterSuggestionsForConnection({
+  graphDraft: canvasGraphDraft,
+  tools: [sourceTool, converterTool, targetTool],
+  connection: {
+    from: { nodeId: "source", port: "missing" },
+    to: { nodeId: "target", port: "reads" },
+  },
+});
+assert.deepEqual(unknownPortSuggestion, []);
+
+const cyclicSuggestion = converterSuggestionsForConnection({
+  graphDraft: {
+    ...canvasGraphDraft,
+    edges: [
+      { id: "target.report->source.reads:0", from: { nodeId: "target", port: "report" }, to: { nodeId: "source", port: "reads" } },
+    ],
+  },
+  tools: [sourceTool, converterTool, targetTool],
+  connection: {
+    from: { nodeId: "source", port: "report" },
+    to: { nodeId: "target", port: "reads" },
+  },
+});
+assert.deepEqual(cyclicSuggestion, []);
 
 const typeOnlyConverterTool = readyTool({
   id: "bioconda::type-only-converter",

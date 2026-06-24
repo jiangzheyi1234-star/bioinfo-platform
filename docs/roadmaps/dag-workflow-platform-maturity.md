@@ -113,6 +113,7 @@ Progress:
 - React Flow node positions are currently editor-local state seeded from the deterministic layout helper; `GeneratedWorkflowGraphDraft` remains the save/compile source.
 - Direct canvas port connections now route through the same semantic compatibility and audit helpers used by inspector binding.
 - Subflow grouping now uses editor node metadata (`uiSubflowId`/`uiSubflowLabel`) and display-only React Flow group nodes; the saved and compiled execution graph remains flat.
+- Incompatible canvas port drops now reuse the shared one-hop converter recommendation policy used by the inspector, surface a stale-safe explicit confirmation prompt, and call the existing converter insertion path only after user confirmation.
 
 Recommended sequence:
 
@@ -151,6 +152,7 @@ Progress:
 - Frontend local converter discovery now skips tools with database resource requirements, matching the backend capability graph converter filter.
 - One-hop converter suggestions now carry machine-readable insertion guardrails: hard checks, evidence, `confirmationRequired`, explicit-user-confirmed insertion mode, auto-insertion blocked reasons, and visible “需确认，不会自动插入” UI copy.
 - The semantic capability graph now exposes port operation/resource literals and database accepted-capability edges for better explainability.
+- Canvas and inspector converter advice now share `generated-workflow-port-advice.ts`, so incompatible port drops can recommend the same workflow-ready/no-database/single-input/strong-evidence converter path without auto-mutating the graph.
 
 Recommended sequence:
 

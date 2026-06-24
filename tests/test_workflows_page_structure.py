@@ -667,7 +667,6 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "suggestion.insertionMode" in port_bindings_editor_ui
     assert "suggestion.autoInsertionBlockedReasons" in port_bindings_editor_ui
     assert "suggestion.evidence" in port_bindings_editor_ui
-    assert "findOneHopPortConverters" in port_bindings_editor_ui
     assert "onInsertConverter" in port_bindings_editor_ui
     assert "builder.insertConverter" in builder_ui
     assert "sourceStepId: suggestion.sourceStepId" in builder_ui
