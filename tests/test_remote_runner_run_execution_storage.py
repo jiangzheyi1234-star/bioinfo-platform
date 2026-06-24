@@ -105,6 +105,7 @@ def test_create_run_record_persists_default_execution_policy(tmp_path):
     assert job["max_attempts"] == 3
     assert '"backoffSeconds":5' in job["retry_policy_json"]
     assert '"heartbeatTimeoutSeconds":0' in job["timeout_policy_json"]
+    assert job["execution_options_json"] == "{}"
 
 
 def test_create_run_record_persists_explicit_execution_policy(tmp_path):
@@ -190,6 +191,7 @@ def test_run_execution_storage_migrates_retry_timeout_and_publish_columns(tmp_pa
         "max_attempts",
         "retry_policy_json",
         "timeout_policy_json",
+        "execution_options_json",
         "dead_lettered_at",
     }.issubset(job_columns)
     assert {

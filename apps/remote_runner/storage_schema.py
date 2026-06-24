@@ -284,6 +284,7 @@ CREATE TABLE IF NOT EXISTS run_jobs (
     max_attempts INTEGER NOT NULL DEFAULT 3,
     retry_policy_json TEXT NOT NULL DEFAULT '{}',
     timeout_policy_json TEXT NOT NULL DEFAULT '{}',
+    execution_options_json TEXT NOT NULL DEFAULT '{}',
     dead_lettered_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,

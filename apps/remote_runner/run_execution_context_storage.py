@@ -99,6 +99,7 @@ def _job_context(row: Any) -> dict[str, Any]:
         "maxAttempts": int(row["max_attempts"]),
         "retryPolicy": retry_policy,
         "timeoutPolicy": timeout_policy,
+        "executionOptions": _json_object(row["execution_options_json"]),
         "deadLetteredAt": row["dead_lettered_at"],
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],

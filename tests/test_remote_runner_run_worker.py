@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import time
 from pathlib import Path
@@ -308,6 +309,79 @@ def test_run_worker_passes_resource_plan_to_default_executor(tmp_path: Path, mon
     assert seen[0]["runId"] == run_id
     assert seen[0]["resourcePool"] is resource_pool
     assert seen[0]["resourceRequest"] is resource_request
+    assert seen[0]["cancelled"] is False
+
+
+def test_run_worker_passes_claim_execution_options_to_default_executor(tmp_path: Path, monkeypatch) -> None:
+    from apps.remote_runner import run_worker
+
+    cfg = _config(tmp_path)
+    run_id = _create_queued_run(cfg, "run_worker_execution_options")
+    execution_options = {
+        "schemaVersion": "run-job-execution-options.v1",
+        "snakemake": {
+            "schemaVersion": "snakemake-rule-rerun-options.v1",
+            "rerunIncomplete": True,
+            "forcerunRules": ["align"],
+        },
+    }
+    with get_connection(cfg) as connection:
+        connection.execute(
+            "UPDATE run_jobs SET execution_options_json = ? WHERE run_id = ?",
+            (json.dumps(execution_options), run_id),
+        )
+        connection.commit()
+
+    seen: list[dict[str, Any]] = []
+    clock = FakeClock()
+
+    def fake_executor(
+        cfg: RemoteRunnerConfig,
+        *,
+        run_id: str,
+        request_id: str,
+        run_spec: dict[str, Any],
+        attempt_id: str,
+        lease_generation: int,
+        attempt_work_dir: str,
+        execution_options: dict[str, Any],
+        should_cancel_attempt,
+    ) -> None:
+        seen.append(
+            {
+                "runId": run_id,
+                "attemptId": attempt_id,
+                "leaseGeneration": lease_generation,
+                "attemptWorkDir": attempt_work_dir,
+                "executionOptions": execution_options,
+                "runSpec": run_spec,
+                "cancelled": should_cancel_attempt(),
+            }
+        )
+        update_run_state(
+            cfg,
+            run_id=run_id,
+            status="completed",
+            stage="finalize",
+            message="Fake worker execution completed.",
+            request_id=request_id,
+            attempt_id=attempt_id,
+            lease_generation=lease_generation,
+        )
+
+    monkeypatch.setattr(run_worker, "run_snakemake_execution", fake_executor)
+
+    result = process_next_run_job(
+        cfg,
+        worker_id="worker_execution_options",
+        lease_seconds=30,
+        heartbeat_interval_seconds=0,
+        now_factory=clock,
+    )
+
+    assert result["claimed"] is True
+    assert seen[0]["runId"] == run_id
+    assert seen[0]["executionOptions"] == execution_options
     assert seen[0]["cancelled"] is False
 
 

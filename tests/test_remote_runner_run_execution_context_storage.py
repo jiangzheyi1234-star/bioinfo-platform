@@ -67,6 +67,7 @@ def test_run_execution_context_projects_attempts_and_active_lease(tmp_path) -> N
     assert context["resumePlan"]["snakemakeOptions"]["argsPreview"] == []
     assert context["job"]["attemptCount"] == 1
     assert context["job"]["maxAttempts"] == 4
+    assert context["job"]["executionOptions"] == {}
     assert context["retryPolicy"]["backoffSeconds"] == 17
     assert context["activeLease"]["attemptId"] == claim["attemptId"]
     assert context["activeLease"]["leaseGeneration"] == 1

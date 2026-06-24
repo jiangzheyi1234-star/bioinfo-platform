@@ -120,6 +120,9 @@ def process_next_run_job(
                 "lease_generation": lease_generation,
                 "attempt_work_dir": str(claim["attempt"]["workDir"]),
             }
+            execution_options = dict(claim["job"].get("executionOptions") or {})
+            if execution_options:
+                executor_kwargs["execution_options"] = execution_options
             if execute_run is None:
                 def should_cancel_attempt() -> bool:
                     return stop_heartbeat.is_set() or run_attempt_cancel_requested(

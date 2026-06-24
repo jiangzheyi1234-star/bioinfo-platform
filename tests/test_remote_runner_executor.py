@@ -93,6 +93,82 @@ def test_executor_invokes_snakemake_cli_with_use_conda(tmp_path: Path, monkeypat
     assert input_lineage[0]["predicate"] == "prov:used"
     assert input_lineage[0]["payload"]["uploadId"] == upload["uploadId"]
 
+
+def test_executor_applies_job_execution_options_to_dry_run_and_run(tmp_path: Path, monkeypatch) -> None:
+    snakemake_command = tmp_path / "tooling" / "workflow-env" / "bin" / "snakemake"
+    cfg = RemoteRunnerConfig(
+        token="phase3-token",
+        data_root=str(tmp_path / "shared"),
+        db_path=str(tmp_path / "shared" / "data" / "runner.db"),
+        uploads_dir=str(tmp_path / "shared" / "uploads"),
+        results_dir=str(tmp_path / "shared" / "results"),
+        work_dir=str(tmp_path / "shared" / "work"),
+        logs_dir=str(tmp_path / "shared" / "logs"),
+        release_dir=str(tmp_path / "release"),
+        snakemake_command=str(snakemake_command),
+    )
+    snakemake_command.parent.mkdir(parents=True, exist_ok=True)
+    snakemake_command.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    _write_file_summary_pipeline(Path(cfg.release_dir))
+    ensure_runtime_layout(cfg)
+
+    calls: list[list[str]] = []
+
+    class Result:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    def fake_run(cmd, **_kwargs):
+        calls.append(list(cmd))
+        return Result()
+
+    monkeypatch.setattr("apps.remote_runner.executor.subprocess.run", fake_run)
+    monkeypatch.setattr("apps.remote_runner.executor._collect_artifacts", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr("apps.remote_runner.executor.update_run_state", lambda *args, **kwargs: None)
+    monkeypatch.setattr("apps.remote_runner.executor.append_log_lines", lambda *args, **kwargs: None)
+
+    from apps.remote_runner.storage import persist_upload
+
+    upload = persist_upload(
+        cfg,
+        filename="reads.fastq",
+        content_base64="QHJlYWQxCkFDR1QKKwohISEhCg==",
+        mime_type="text/plain",
+    )
+
+    run_snakemake_execution(
+        cfg,
+        run_id="run_execution_options",
+        request_id="req_execution_options",
+        run_spec={
+            "pipelineId": "file-summary-v1",
+            "projectId": "proj_demo",
+            "inputs": [{"uploadId": upload["uploadId"], "filename": "reads.fastq", "role": "reads"}],
+        },
+        execution_options={
+            "schemaVersion": "run-job-execution-options.v1",
+            "snakemake": {
+                "schemaVersion": "snakemake-rule-rerun-options.v1",
+                "rerunIncomplete": True,
+                "forcerunRules": ["align", "align"],
+            },
+        },
+    )
+
+    assert len(calls) == 2
+    for command in calls:
+        assert "--rerun-incomplete" in command
+        assert "--forcerun" in command
+        assert command[command.index("--forcerun") + 1] == "align"
+        assert command.count("align") == 1
+        assert "--forceall" not in command
+        assert "--touch" not in command
+        assert "--ignore-incomplete" not in command
+    assert "-n" in calls[0]
+    assert "--logger-h2ometa-event-path" in calls[1]
+
+
 def test_executor_fails_when_upload_input_is_missing(tmp_path: Path, monkeypatch) -> None:
     cfg = RemoteRunnerConfig(
         token="phase2-token",

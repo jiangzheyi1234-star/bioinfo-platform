@@ -11,6 +11,7 @@ from .run_execution_storage import (
     _fetch_run_row,
     _optional_text,
     _required_text,
+    _stable_json,
 )
 from .storage_core import get_connection, now_iso
 
@@ -25,6 +26,7 @@ def request_run_retry(
     actor: str | None = None,
     reason: str | None = None,
     command_id: str | None = None,
+    execution_options: dict[str, Any] | None = None,
     now: str | None = None,
 ) -> dict[str, Any]:
     normalized_run_id = _required_text(run_id, "RUN_ID_REQUIRED")
@@ -63,16 +65,20 @@ def request_run_retry(
             raise ValueError("RUN_RETRY_JOB_CLAIMED")
         backoff_seconds = retry_backoff_seconds_for_job(job, fallback_seconds=0)
         available_at = _add_seconds(requested_at, backoff_seconds)
+        normalized_execution_options = execution_options or {}
+        command_payload = {
+            "runId": normalized_run_id,
+            "scope": "run",
+            "reason": normalized_reason,
+        }
+        if normalized_execution_options:
+            command_payload["executionOptions"] = normalized_execution_options
         command = record_run_command(
             connection,
             run_id=normalized_run_id,
             command_type="retry_run",
             command_id=command_id,
-            payload={
-                "runId": normalized_run_id,
-                "scope": "run",
-                "reason": normalized_reason,
-            },
+            payload=command_payload,
             actor=normalized_actor,
             requested_at=requested_at,
         )
@@ -98,11 +104,24 @@ def request_run_retry(
             """
             UPDATE run_jobs
             SET state = ?, available_at = ?, wait_reason_json = '{}',
-                dead_lettered_at = NULL, updated_at = ?
+                execution_options_json = ?, dead_lettered_at = NULL, updated_at = ?
             WHERE job_id = ?
             """,
-            ("queued", available_at, requested_at, job["job_id"]),
+            ("queued", available_at, _stable_json(normalized_execution_options), requested_at, job["job_id"]),
         )
+        event_payload = {
+            "runId": normalized_run_id,
+            "jobId": job["job_id"],
+            "scope": "run",
+            "reason": normalized_reason,
+            "attemptCount": attempt_count,
+            "maxAttempts": max_attempts,
+            "remainingAttempts": remaining_attempts,
+            "backoffSeconds": backoff_seconds,
+            "availableAt": available_at,
+        }
+        if normalized_execution_options:
+            event_payload["executionOptions"] = normalized_execution_options
         append_run_event_v2(
             connection,
             run_id=normalized_run_id,
@@ -115,22 +134,12 @@ def request_run_retry(
             request_id=str(run["request_id"]),
             command_id=command["commandId"],
             actor=normalized_actor,
-            payload={
-                "runId": normalized_run_id,
-                "jobId": job["job_id"],
-                "scope": "run",
-                "reason": normalized_reason,
-                "attemptCount": attempt_count,
-                "maxAttempts": max_attempts,
-                "remainingAttempts": remaining_attempts,
-                "backoffSeconds": backoff_seconds,
-                "availableAt": available_at,
-            },
+            payload=event_payload,
             occurred_at=requested_at,
             command_derived=True,
         )
         connection.commit()
-        return {
+        result = {
             "runId": normalized_run_id,
             "status": "queued",
             "stage": "retry",
@@ -142,3 +151,6 @@ def request_run_retry(
             "availableAt": available_at,
             "retryRequestedAt": requested_at,
         }
+        if normalized_execution_options:
+            result["executionOptions"] = normalized_execution_options
+        return result

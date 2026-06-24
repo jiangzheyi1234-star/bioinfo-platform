@@ -22,6 +22,8 @@ def run_snakemake_with_rule_events(
     attempt_id: str | None,
     lease_generation: int | None,
     attempt_number: int | None,
+    forcerun_rules: list[str] | None = None,
+    rerun_incomplete: bool = False,
 ) -> tuple[Any, dict[str, Any]]:
     projector = SnakemakeRuleEventProjector(
         cfg,
@@ -36,6 +38,8 @@ def run_snakemake_with_rule_events(
         work_dir=work_dir,
         config_path=config_path,
         event_log_path=event_log_path,
+        forcerun_rules=forcerun_rules,
+        rerun_incomplete=rerun_incomplete,
         on_poll=projector.poll,
     )
     stdout_log.write_text(result.stdout or "", encoding="utf-8")

@@ -4,6 +4,7 @@ import json
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from .config import RemoteRunnerConfig
 from .artifact_input_lineage import record_run_input_artifact_lineage
@@ -32,9 +33,12 @@ from .resource_pool import ResourcePool, ResourceRequest, get_default_resource_p
 from .workflow_engine_adapter import (
     SnakemakeEngineAdapter,
     WorkflowRuntimeCommandError,
+    normalize_forcerun_rules,
 )
 
 _ORIGINAL_SUBPROCESS_RUN = getattr(subprocess, "run")
+RUN_JOB_EXECUTION_OPTIONS_SCHEMA_VERSION = "run-job-execution-options.v1"
+SNAKEMAKE_RULE_RERUN_OPTIONS_SCHEMA_VERSION = "snakemake-rule-rerun-options.v1"
 
 def run_snakemake_execution(
     cfg: RemoteRunnerConfig,
@@ -46,6 +50,7 @@ def run_snakemake_execution(
     lease_generation: int | None = None,
     attempt_number: int | None = None,
     attempt_work_dir: str | None = None,
+    execution_options: dict | None = None,
     should_cancel_attempt: Callable[[], bool] | None = None,
     resource_pool: ResourcePool | None = None,
     resource_request: ResourceRequest | None = None,
@@ -64,6 +69,7 @@ def run_snakemake_execution(
             lease_generation=lease_generation,
             attempt_number=attempt_number,
             attempt_work_dir=attempt_work_dir,
+            execution_options=execution_options,
             should_cancel_attempt=should_cancel_attempt,
         )
     finally:
@@ -79,6 +85,7 @@ def _execute_snakemake_workflow(
     lease_generation: int | None = None,
     attempt_number: int | None = None,
     attempt_work_dir: str | None = None,
+    execution_options: dict | None = None,
     should_cancel_attempt: Callable[[], bool] | None = None,
 ) -> None:
     result_dir = _resolve_execution_result_dir(
@@ -104,6 +111,7 @@ def _execute_snakemake_workflow(
     output_schema: dict | None = None
     run_outputs: dict[str, str] | None = None
     try:
+        snakemake_execution_options = _snakemake_execution_options(execution_options)
         engine = SnakemakeEngineAdapter(
             cfg,
             run_command=_patched_subprocess_run_command(),
@@ -209,6 +217,7 @@ def _execute_snakemake_workflow(
             snakefile=snakefile,
             work_dir=work_dir,
             config_path=config_path,
+            **snakemake_execution_options,
         )
         append_log_lines(cfg, run_id, "stdout", [line for line in dry_run.stdout.splitlines() if line])
         append_log_lines(cfg, run_id, "stderr", [line for line in dry_run.stderr.splitlines() if line])
@@ -290,6 +299,7 @@ def _execute_snakemake_workflow(
             attempt_id=attempt_id,
             lease_generation=lease_generation,
             attempt_number=attempt_number,
+            **snakemake_execution_options,
         )
         if run_result.returncode != 0:
             if should_cancel_attempt is not None and should_cancel_attempt():
@@ -373,8 +383,12 @@ def _execute_snakemake_workflow(
         message = "Run executor crashed during startup."
         code = "RUN_EXECUTOR_CRASHED"
         if isinstance(exc, WorkflowRuntimeCommandError):
-            message = "Snakemake command is not configured."
-            code = "WORKFLOW_RUNTIME_MISSING"
+            if "snakemake command not configured" in lowered:
+                message = "Snakemake command is not configured."
+                code = "WORKFLOW_RUNTIME_MISSING"
+            else:
+                code = detail.split(":", 1)[0] or "WORKFLOW_RUNTIME_COMMAND_FAILED"
+                message = "Run execution options are invalid."
         elif isinstance(exc, FileNotFoundError) or "no such file or directory" in lowered:
             if engine_stage == "dry_run":
                 message = "Failed to launch Snakemake dry-run."
@@ -398,3 +412,22 @@ def _execute_snakemake_workflow(
 def _patched_subprocess_run_command() -> Callable[..., object] | None:
     current = getattr(subprocess, "run")
     return current if current is not _ORIGINAL_SUBPROCESS_RUN else None
+
+
+def _snakemake_execution_options(execution_options: dict | None) -> dict[str, Any]:
+    if not execution_options:
+        return {"forcerun_rules": None, "rerun_incomplete": False}
+    if execution_options.get("schemaVersion") != RUN_JOB_EXECUTION_OPTIONS_SCHEMA_VERSION:
+        raise WorkflowRuntimeCommandError("RUN_JOB_EXECUTION_OPTIONS_SCHEMA_UNSUPPORTED")
+    snakemake = execution_options.get("snakemake")
+    if not isinstance(snakemake, dict):
+        return {"forcerun_rules": None, "rerun_incomplete": False}
+    if snakemake.get("schemaVersion") != SNAKEMAKE_RULE_RERUN_OPTIONS_SCHEMA_VERSION:
+        raise WorkflowRuntimeCommandError("SNAKEMAKE_EXECUTION_OPTIONS_SCHEMA_UNSUPPORTED")
+    raw_rules = snakemake.get("forcerunRules")
+    if raw_rules is not None and not isinstance(raw_rules, list):
+        raise WorkflowRuntimeCommandError("SNAKEMAKE_FORCERUN_RULES_INVALID")
+    return {
+        "forcerun_rules": normalize_forcerun_rules(raw_rules),
+        "rerun_incomplete": bool(snakemake.get("rerunIncomplete")),
+    }

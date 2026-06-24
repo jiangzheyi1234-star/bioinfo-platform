@@ -20,6 +20,7 @@ from .admission_storage import (
     release_resource_allocation,
 )
 from .resource_pool import ResourceRequest
+from .execution_job_records import run_job_row_to_dict
 from .storage_core import get_connection, now_iso
 
 
@@ -38,6 +39,7 @@ def enqueue_run_job(
     max_attempts: int = 3,
     retry_policy: dict[str, Any] | None = None,
     timeout_policy: dict[str, Any] | None = None,
+    execution_options: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     queued_at = _optional_text(available_at) or now_iso()
     with get_connection(cfg) as connection:
@@ -51,9 +53,10 @@ def enqueue_run_job(
             max_attempts=max_attempts,
             retry_policy=retry_policy,
             timeout_policy=timeout_policy,
+            execution_options=execution_options,
         )
         connection.commit()
-        return _job_row_to_dict(row)
+        return run_job_row_to_dict(row)
 
 
 def enqueue_run_job_record(
@@ -67,6 +70,7 @@ def enqueue_run_job_record(
     max_attempts: int = 3,
     retry_policy: dict[str, Any] | None = None,
     timeout_policy: dict[str, Any] | None = None,
+    execution_options: dict[str, Any] | None = None,
 ) -> sqlite3.Row:
     normalized_run_id = _required_text(run_id, "RUN_ID_REQUIRED")
     normalized_queue_name = _required_text(queue_name, "QUEUE_NAME_REQUIRED")
@@ -85,8 +89,8 @@ def enqueue_run_job_record(
         INSERT INTO run_jobs (
             job_id, run_id, state, queue_name, priority, available_at,
             wait_reason_json, attempt_count, max_attempts, retry_policy_json, timeout_policy_json,
-            dead_lettered_at, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            execution_options_json, dead_lettered_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             job_id,
@@ -100,6 +104,7 @@ def enqueue_run_job_record(
             normalized_max_attempts,
             _stable_json(retry_policy or {}),
             _stable_json(timeout_policy or {}),
+            _stable_json(execution_options or {}),
             None,
             available_at,
             available_at,
@@ -682,28 +687,9 @@ def _claim_to_dict(job: sqlite3.Row, attempt: sqlite3.Row, lease: sqlite3.Row) -
         "runId": job["run_id"],
         "attemptId": attempt["attempt_id"],
         "leaseGeneration": int(lease["lease_generation"]),
-        "job": _job_row_to_dict(job),
+        "job": run_job_row_to_dict(job),
         "attempt": attempt_payload,
         "lease": lease_payload,
-    }
-
-
-def _job_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
-    return {
-        "jobId": row["job_id"],
-        "runId": row["run_id"],
-        "state": row["state"],
-        "queueName": row["queue_name"],
-        "priority": int(row["priority"]),
-        "availableAt": row["available_at"],
-        "waitReason": _json_object(row["wait_reason_json"]),
-        "attemptCount": int(row["attempt_count"]),
-        "maxAttempts": int(row["max_attempts"]),
-        "retryPolicy": _json_object(row["retry_policy_json"]),
-        "timeoutPolicy": _json_object(row["timeout_policy_json"]),
-        "deadLetteredAt": row["dead_lettered_at"],
-        "createdAt": row["created_at"],
-        "updatedAt": row["updated_at"],
     }
 
 
@@ -781,9 +767,6 @@ def _stable_json(value: dict[str, Any]) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
-def _json_object(value: str | None) -> dict[str, Any]:
-    parsed = json.loads(value or "{}")
-    return parsed if isinstance(parsed, dict) else {}
 
 
 def _optional_positive_int(value: str) -> int | None:

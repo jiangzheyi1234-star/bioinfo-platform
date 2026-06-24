@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from apps.remote_runner.execution_retry_storage import request_run_retry
@@ -201,6 +203,71 @@ def test_request_run_retry_requeues_failed_run_for_next_attempt(tmp_path):
         now="2099-06-07T10:01:01Z",
     )
     assert stale_completion == {"accepted": False, "reason": "stale_generation"}
+
+
+def test_request_run_retry_persists_next_attempt_execution_options(tmp_path):
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(
+        cfg,
+        "run_rule_options_retry",
+        execution={"retryPolicy": {"maxAttempts": 3, "backoffSeconds": 0}},
+    )
+    first = claim_next_run_job(cfg, worker_id="worker_rule_options_a", now="2099-06-07T10:00:00Z", lease_seconds=30)
+    assert first is not None
+    update_run_state(
+        cfg,
+        run_id="run_rule_options_retry",
+        status="failed",
+        stage="execute",
+        message="First attempt failed.",
+        request_id="req_run_rule_options_retry",
+        attempt_id=first["attemptId"],
+        lease_generation=first["leaseGeneration"],
+    )
+    complete_run_attempt(
+        cfg,
+        first["attemptId"],
+        lease_generation=first["leaseGeneration"],
+        state="failed",
+        exit_code=1,
+        now="2099-06-07T10:00:10Z",
+    )
+    execution_options = {
+        "schemaVersion": "run-job-execution-options.v1",
+        "snakemake": {
+            "schemaVersion": "snakemake-rule-rerun-options.v1",
+            "rerunIncomplete": True,
+            "forcerunRules": ["align"],
+        },
+    }
+
+    result = request_run_retry(
+        cfg,
+        "run_rule_options_retry",
+        actor="api-test",
+        reason="operator_rule_retry",
+        execution_options=execution_options,
+        now="2099-06-07T10:01:00Z",
+    )
+    second = claim_next_run_job(cfg, worker_id="worker_rule_options_b", now="2099-06-07T10:01:00Z", lease_seconds=30)
+
+    assert result["executionOptions"] == execution_options
+    assert second is not None
+    assert second["job"]["executionOptions"] == execution_options
+    with get_connection(cfg) as connection:
+        job = connection.execute(
+            "SELECT execution_options_json FROM run_jobs WHERE run_id = ?",
+            ("run_rule_options_retry",),
+        ).fetchone()
+        command = connection.execute(
+            "SELECT payload_json FROM run_commands WHERE command_type = 'retry_run'",
+        ).fetchone()
+        event = connection.execute(
+            "SELECT details_json FROM run_events WHERE event_type = 'run_retry_requested'",
+        ).fetchone()
+    assert json.loads(job["execution_options_json"]) == execution_options
+    assert json.loads(command["payload_json"])["executionOptions"] == execution_options
+    assert json.loads(event["details_json"])["payload"]["executionOptions"] == execution_options
 
 
 def test_request_run_retry_rejects_non_retryable_and_exhausted_runs(tmp_path):

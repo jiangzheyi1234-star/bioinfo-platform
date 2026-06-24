@@ -590,6 +590,7 @@ def _ensure_run_execution_columns(connection: sqlite3.Connection) -> None:
             "max_attempts": "INTEGER NOT NULL DEFAULT 3",
             "retry_policy_json": "TEXT NOT NULL DEFAULT '{}'",
             "timeout_policy_json": "TEXT NOT NULL DEFAULT '{}'",
+            "execution_options_json": "TEXT NOT NULL DEFAULT '{}'",
             "dead_lettered_at": "TEXT",
         },
     )
