@@ -115,6 +115,10 @@ jobs:
         working-directory: apps/web
         run: npm audit --registry=https://registry.npmjs.org --audit-level=moderate --package-lock-only
 
+      - name: Audit desktop npm lockfile
+        working-directory: apps/desktop
+        run: npm audit --registry=https://registry.npmjs.org --audit-level=moderate --package-lock-only
+
   dependency_review:
     name: security / dependency-review
     if: ${{ github.event_name == 'pull_request' }}

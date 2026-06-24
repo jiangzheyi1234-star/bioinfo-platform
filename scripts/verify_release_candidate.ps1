@@ -627,6 +627,7 @@ try {
         Invoke-Native "uv" @("run", "--frozen", "python", "scripts\security_governance_audit.py") $repoRoot
         Invoke-NativeWithRetry "npm" @("audit", "--registry=https://registry.npmjs.org", "--audit-level=moderate", "--package-lock-only") $repoRoot
         Invoke-NativeWithRetry "npm" @("audit", "--registry=https://registry.npmjs.org", "--audit-level=moderate", "--package-lock-only") (Join-Path $repoRoot "apps\web")
+        Invoke-NativeWithRetry "npm" @("audit", "--registry=https://registry.npmjs.org", "--audit-level=moderate", "--package-lock-only") (Join-Path $repoRoot "apps\desktop")
         $requirements = Join-Path $evidenceDir "requirements-audit.txt"
         Invoke-Native "uv" @("export", "--frozen", "--group", "dev", "--format", "requirements-txt", "--no-emit-project", "--output-file", $requirements) $repoRoot
         Invoke-NativeWithRetry "uvx" @("pip-audit", "-r", $requirements, "--progress-spinner", "off", "--strict", "--ignore-vuln", "CVE-2026-44405") $repoRoot

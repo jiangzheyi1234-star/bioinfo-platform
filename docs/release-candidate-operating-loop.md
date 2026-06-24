@@ -37,7 +37,7 @@ Run `scripts/verify_release_candidate.ps1` from a real Windows PowerShell sessio
 3. Python quality gate: `ruff` plus full `pytest`.
 4. Clean install proof: `-RunNpmCi` runs `npm ci` in `apps/web`.
 5. Web quality gate: lint, typecheck, and production build in `apps/web`.
-6. Security gate: `scripts/security_governance_audit.py`, root/web moderate npm audit, and Python `pip-audit`.
+6. Security gate: `scripts/security_governance_audit.py`, root/web/desktop moderate npm audit, and Python `pip-audit`.
 7. Database pack lifecycle contract tests, including `database-pack-lifecycle-v1` manual-only pack policy and production-evidence layer separation.
 8. Runtime manifest drift gate: when release-scoped remote-runtime sources have changed after the source commit recorded in `config/remote-runner-release-manifest.json`, production handoff requires runtime release evidence, manifest artifact checks, and supply-chain checks.
 

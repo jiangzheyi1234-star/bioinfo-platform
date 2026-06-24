@@ -76,6 +76,7 @@ def test_release_candidate_script_collects_required_evidence_gates() -> None:
         "scripts\\security_governance_audit.py",
         'Invoke-Native "uv" @("run", "--frozen", "python", "scripts\\security_governance_audit.py")',
         "Invoke-NativeWithRetry",
+        "apps\\desktop",
         "--audit-level=moderate",
         'Invoke-NativeWithRetry "uvx" @("pip-audit"',
         "CVE-2026-44405",

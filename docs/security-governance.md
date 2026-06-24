@@ -88,11 +88,12 @@ rejected at Local API startup.
 - CI governance audit parses workflow permission blocks and rejects unapproved write permissions, unversioned external actions, `pull_request_target`, `workflow_run` triggers, and `actions/upload-artifact` retention above 2 days. Current write-permission exceptions are limited to release artifact attestations and explicit GitHub Release asset publishing.
 - GitHub Actions checkout steps must set `persist-credentials: false`; jobs that need GitHub API access must pass the least-privilege `github.token` explicitly to the command that needs it instead of leaving credentials in local git config.
 - GitHub Actions artifacts are short-lived handoff/debug files only. Durable release deliverables must live in GitHub Release assets, a registry, or an explicitly selected object store with integrity metadata.
-- CI requires root and web npm lockfiles to pass moderate-or-higher audit using the official npm registry.
+- CI requires root, web, and desktop npm lockfiles to pass moderate-or-higher audit using the official npm registry.
 - CI requires `pip-audit` for locked Python dependencies. Any ignore must be scoped to a single vulnerability ID and documented in this file with a removal trigger.
 - Dependency Review is enabled as a PR-only `security / dependency-review` job in the stable `required / ci-green` aggregate. It uses a SHA-pinned `actions/dependency-review-action`, least-privilege `contents: read`, `fail-on-severity: moderate`, no PR comments, and no `pull_request_target`.
+- Dependabot version updates are enabled for GitHub Actions, root `uv`, root npm, `apps/web` npm, and `apps/desktop` npm dependency surfaces. Each update entry is weekly, grouped by ecosystem/directory, and capped at five open PRs so dependency drift stays visible without flooding release work. Workflow update PRs must not be auto-merged; reviewers must verify full-SHA action updates against the intended upstream release because version comments are only hints.
 - CodeQL and OpenSSF Scorecard remain planned security-analysis gates until repository visibility, GitHub plan, or GitHub Advanced Security availability can run them green. When enabled, they must use SHA-pinned actions, least-privilege permissions, and no `pull_request_target`.
-- `.github/CODEOWNERS` owns workflow files, `scripts/security_governance_audit.py`, and `core/governance_policy.py` so branch protection or rulesets can require review for security-sensitive automation changes when repository permissions allow.
+- `.github/CODEOWNERS` owns workflow files, `.github/dependabot.yml`, `scripts/dependabot_governance.py`, `scripts/security_governance_audit.py`, and `core/governance_policy.py` so branch protection or rulesets can require review for security-sensitive automation changes when repository permissions allow.
 - Remote runner production promotion must continue to require release artifact integrity evidence, including manifest, digest, SBOM, provenance, and attestation where available.
 
 ### Remote Operation Audit
@@ -127,7 +128,7 @@ Before treating a build as production-ready:
 
 1. `required / ci-green` is green for the exact commit.
 2. `security / governance` is green for the exact commit.
-3. Web and root moderate-or-higher npm audits are clean.
+3. Web, desktop, and root moderate-or-higher npm audits are clean.
 4. No committed-secret findings are present.
 5. Diagnostics redaction tests include current token/path/header canaries.
 6. Python `pip-audit` is clean except for explicitly scoped ignores listed below.

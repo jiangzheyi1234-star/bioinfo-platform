@@ -62,8 +62,10 @@ def test_ci_workflow_runs_security_governance_gate() -> None:
     assert audit_commands == [
         "npm audit --registry=https://registry.npmjs.org --audit-level=moderate --package-lock-only",
         "npm audit --registry=https://registry.npmjs.org --audit-level=moderate --package-lock-only",
+        "npm audit --registry=https://registry.npmjs.org --audit-level=moderate --package-lock-only",
     ]
     assert "working-directory: apps/web" in source
+    assert "working-directory: apps/desktop" in source
 
     security_doc = (REPOSITORY_ROOT / "docs" / "security-governance.md").read_text(
         encoding="utf-8"
@@ -107,6 +109,23 @@ def test_workflow_checkouts_do_not_persist_github_token_credentials() -> None:
         checkout_count = source.count("actions/checkout@")
 
         assert checkout_count == source.count("persist-credentials: false"), path
+
+
+def test_dependabot_updates_cover_managed_dependency_surfaces() -> None:
+    source = (REPOSITORY_ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8")
+
+    assert "version: 2" in source
+    assert 'package-ecosystem: "github-actions"' in source
+    assert 'package-ecosystem: "uv"' in source
+    assert source.count('package-ecosystem: "npm"') == 3
+    assert 'directory: "/"' in source
+    assert 'directory: "/apps/web"' in source
+    assert 'directory: "/apps/desktop"' in source
+    assert source.count('interval: "weekly"') == 5
+    assert source.count("open-pull-requests-limit: 5") == 5
+    for group in ("github-actions", "python-uv", "root-npm", "web-npm", "desktop-npm"):
+        assert f"      {group}:" in source
+    assert source.count('          - "*"') == 5
 
 
 def test_workflow_upload_artifacts_are_short_lived_handoff_files() -> None:
@@ -157,5 +176,7 @@ def test_codeowners_covers_security_sensitive_automation() -> None:
     source = (REPOSITORY_ROOT / ".github" / "CODEOWNERS").read_text(encoding="utf-8")
 
     assert "/.github/workflows/ @jiangzheyi1234-star" in source
+    assert "/.github/dependabot.yml @jiangzheyi1234-star" in source
+    assert "/scripts/dependabot_governance.py @jiangzheyi1234-star" in source
     assert "/scripts/security_governance_audit.py @jiangzheyi1234-star" in source
     assert "/core/governance_policy.py @jiangzheyi1234-star" in source

@@ -12,6 +12,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from core.governance_policy import HIGH_RISK_API_POLICIES, validate_governance_policy  # noqa: E402
+from scripts.dependabot_governance import (  # noqa: E402
+    scan_dependabot_version_updates_contract as _scan_dependabot_version_updates_contract,
+)
 
 MAX_TEXT_BYTES = 2_000_000
 
@@ -214,9 +217,33 @@ def scan_security_contracts() -> list[Finding]:
         findings.append(Finding("codeowners-missing", ".github/CODEOWNERS", 0, "security-sensitive automation requires CODEOWNERS"))
     else:
         source = codeowners.read_text(encoding="utf-8")
-        for marker in ("/.github/workflows/", "/scripts/security_governance_audit.py", "/core/governance_policy.py"):
+        for marker in (
+            "/.github/workflows/",
+            "/.github/dependabot.yml",
+            "/scripts/dependabot_governance.py",
+            "/scripts/security_governance_audit.py",
+            "/core/governance_policy.py",
+        ):
             if marker not in source:
                 findings.append(Finding("codeowners-incomplete", ".github/CODEOWNERS", 0, f"CODEOWNERS missing {marker}"))
+
+    dependabot = ROOT / ".github" / "dependabot.yml"
+    if not dependabot.exists():
+        findings.append(
+            Finding(
+                "dependabot-version-updates-missing",
+                ".github/dependabot.yml",
+                0,
+                "Dependabot version updates must cover managed dependency surfaces",
+            )
+        )
+    else:
+        findings.extend(
+            scan_dependabot_version_updates_contract(
+                dependabot.relative_to(ROOT).as_posix(),
+                dependabot.read_text(encoding="utf-8"),
+            )
+        )
     return findings
 
 
@@ -530,6 +557,13 @@ def scan_dependency_review_workflow_contract(relative: str, source: str) -> list
             )
         )
     return findings
+
+
+def scan_dependabot_version_updates_contract(relative: str, source: str) -> list[Finding]:
+    return [
+        Finding(item.code, item.path, item.line, item.detail)
+        for item in _scan_dependabot_version_updates_contract(relative, source)
+    ]
 
 
 @dataclass(frozen=True)

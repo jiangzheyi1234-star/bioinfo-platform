@@ -35,6 +35,7 @@ def test_security_governance_doc_is_current_contract() -> None:
         "known_hosts",
         "SSH_HOST_KEY_UNTRUSTED",
         "pip-audit",
+        "Dependabot",
         "scripts/remote_exec.py",
         "0.0.0.0",
         "constant-time",
@@ -63,6 +64,7 @@ def test_local_api_cors_stays_explicit_and_desktop_scoped() -> None:
 
 def test_security_governance_audit_script_contract() -> None:
     source = _source("scripts/security_governance_audit.py")
+    dependabot_source = _source("scripts/dependabot_governance.py")
 
     assert "git" in source and "ls-files" in source
     assert "private-key-block" in source
@@ -88,6 +90,14 @@ def test_security_governance_audit_script_contract() -> None:
     assert "dependency-review-severity" in source
     assert "dependency-review-pr-comments" in source
     assert "dependency-review-warn-only" in source
+    assert "dependabot_governance" in source
+    assert "DEPENDABOT_REQUIRED_UPDATE_GROUPS" in dependabot_source
+    assert "scan_dependabot_version_updates_contract" in source
+    assert "dependabot-version-updates-missing" in dependabot_source
+    assert "dependabot-update-schedule" in dependabot_source
+    assert "dependabot-open-pr-limit" in dependabot_source
+    assert "dependabot-update-group" in dependabot_source
+    assert "dependabot-update-unapproved" in dependabot_source
     assert "ssh-auto-add-host-key" in source
     assert "ssh-host-key-reject-policy" in source
     assert "ssh-sha1-rsa-enabled" in source
@@ -355,6 +365,78 @@ jobs:
     )
 
     assert [finding.format() for finding in findings] == []
+
+
+def test_security_governance_audit_accepts_dependabot_version_updates() -> None:
+    source = _source(".github/dependabot.yml")
+
+    findings = audit.scan_dependabot_version_updates_contract(
+        ".github/dependabot.yml",
+        source,
+    )
+
+    assert [finding.format() for finding in findings] == []
+
+
+def test_security_governance_audit_rejects_unsafe_dependabot_fixtures() -> None:
+    missing_uv_and_no_group = """
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    open-pull-requests-limit: 20
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      root-npm:
+        patterns:
+          - "*"
+  - package-ecosystem: "npm"
+    directory: "/apps/web"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      web-npm:
+        patterns:
+          - "*"
+  - package-ecosystem: "npm"
+    directory: "/apps/desktop"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      desktop-npm:
+        patterns:
+          - "*"
+  - package-ecosystem: "cargo"
+    directory: "/apps/desktop/src-tauri"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      desktop-cargo:
+        patterns:
+          - "*"
+"""
+
+    codes = _finding_codes(
+        audit.scan_dependabot_version_updates_contract(
+            ".github/dependabot.yml",
+            missing_uv_and_no_group,
+        )
+    )
+
+    assert "dependabot-version-updates-missing" in codes
+    assert "dependabot-update-schedule" in codes
+    assert "dependabot-open-pr-limit" in codes
+    assert "dependabot-update-group" in codes
+    assert "dependabot-update-unapproved" in codes
 
 
 def test_docs_do_not_recommend_disabling_ssh_host_key_checks() -> None:
