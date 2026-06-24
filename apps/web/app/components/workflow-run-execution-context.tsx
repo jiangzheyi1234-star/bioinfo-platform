@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import type {
   WorkflowRunExecutionAttempt,
   WorkflowRunExecutionContext,
+  WorkflowRunResumePlan,
   WorkflowRunRuleRetryExecutionPlan,
   WorkflowRunRuleRetryPlanRuleRef,
 } from "./workflows-page-model";
@@ -212,6 +213,58 @@ function RuleRetryExecutionPlanPreview({ plan }: { plan?: WorkflowRunRuleRetryEx
   );
 }
 
+function RunResumePlanPreview({ plan }: { plan?: WorkflowRunResumePlan }) {
+  if (!plan) return null;
+  const argsPreview = plan.snakemakeOptions?.argsPreview || [];
+  const unsafeFlags = plan.snakemakeOptions?.unsafeFlagsProhibited || [];
+  const blockers = plan.blockedReasonCodes || [];
+  const commandLabel = argsPreview.length > 0 ? argsPreview.join(" ") : "—";
+  const latest = plan.latestAttempt;
+  const workdir = plan.workdirEvidence;
+  const outputAudit = plan.incompleteOutputAudit;
+  const adoption = plan.artifactAdoptionBoundary;
+  const latestLabel = latest?.attemptId
+    ? `#${latest.attemptNumber ?? "—"} gen ${latest.leaseGeneration ?? "—"} · ${latest.state || latest.status || "unknown"}`
+    : "—";
+
+  return (
+    <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <RotateCcw strokeWidth={1.5} className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+          <span className="font-medium text-slate-900">run resume plan</span>
+          <span className="truncate font-mono text-[11px] text-slate-500">{plan.schemaVersion || "run-resume-plan"}</span>
+        </div>
+        <span className="rounded border border-slate-300 bg-white px-1.5 py-0.5 font-mono text-[11px] text-slate-600">
+          {plan.commandPreviewAvailable ? "preview only" : "blocked"}
+        </span>
+      </div>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <ExecutionMetric label="strategy" value={plan.strategy || "—"} />
+        <ExecutionMetric label="attempts" value={String(plan.attemptCount ?? 0)} />
+        <ExecutionMetric label="rerun incomplete" value={plan.snakemakeOptions?.rerunIncomplete ? "yes" : "no"} />
+        <ExecutionMetric label="workdir" value={workdir?.available ? "present" : "missing"} />
+      </div>
+      <div className="mt-2 grid gap-1 text-[11px] sm:grid-cols-[116px_minmax(0,1fr)]">
+        <span className="text-slate-500">command preview</span>
+        <span className="truncate font-mono text-slate-800">{commandLabel}</span>
+        <span className="text-slate-500">latest attempt</span>
+        <span className="truncate font-mono text-slate-800">{latestLabel}</span>
+        <span className="text-slate-500">workdir evidence</span>
+        <span className="truncate font-mono text-slate-800">{workdir?.reasonCode || "—"}</span>
+        <span className="text-slate-500">output audit</span>
+        <span className="truncate font-mono text-slate-800">{outputAudit?.reasonCode || "—"}</span>
+        <span className="text-slate-500">artifact adoption</span>
+        <span className="truncate font-mono text-slate-800">{adoption?.reasonCode || "—"}</span>
+        <span className="text-slate-500">blockers</span>
+        <span className="truncate font-mono text-slate-800">{compactList(blockers)}</span>
+        <span className="text-slate-500">unsafe flags</span>
+        <span className="truncate font-mono text-slate-800">{compactList(unsafeFlags)}</span>
+      </div>
+    </div>
+  );
+}
+
 export function WorkflowRunExecutionContextPanel({
   context,
   onRetryRun,
@@ -303,6 +356,7 @@ export function WorkflowRunExecutionContextPanel({
           </div>
         </div>
       </div>
+      <RunResumePlanPreview plan={context.resumePlan} />
       <RuleRetryPlanSummary context={context} />
       <RuleRetryExecutionPlanPreview plan={context.ruleRetryExecutionPlan} />
     </div>

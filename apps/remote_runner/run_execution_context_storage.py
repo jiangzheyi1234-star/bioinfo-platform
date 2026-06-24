@@ -5,6 +5,7 @@ from typing import Any
 from .config import RemoteRunnerConfig
 from .execution_policy import retry_policy_from_job, timeout_policy_from_job
 from .execution_query_storage import require_run
+from .execution_resume_plan import build_run_resume_plan
 from .rule_retry_execution_plan import build_rule_retry_execution_plan
 from .rule_retry_plan import build_rule_retry_plan
 from .storage_core import get_connection, now_iso
@@ -35,13 +36,24 @@ def fetch_run_execution_context(cfg: RemoteRunnerConfig, run_id: str) -> dict[st
     current_lease = _lease_context(lease) if lease is not None else None
     active_lease = current_lease if current_lease and current_lease["state"] == "active" else None
     rule_retry_plan = build_rule_retry_plan(cfg, run)
+    attempts_payload = [_attempt_context(row) for row in attempts]
+    resume_attempts = [
+        {**_attempt_context(row), "workDirPresent": bool(str(row["work_dir"] or "").strip())}
+        for row in attempts
+    ]
+    resume_plan = build_run_resume_plan(
+        run=run,
+        job=job_payload,
+        attempts=resume_attempts,
+        active_lease=active_lease,
+    )
     return {
         "schemaVersion": "run-execution-context.v1",
         "runId": run_id,
         "generatedAt": generated_at,
         "run": _run_context(run),
         "job": job_payload,
-        "attempts": [_attempt_context(row) for row in attempts],
+        "attempts": attempts_payload,
         "currentLease": current_lease,
         "activeLease": active_lease,
         "retryPolicy": job_payload.get("retryPolicy") if job_payload else None,
@@ -52,12 +64,9 @@ def fetch_run_execution_context(cfg: RemoteRunnerConfig, run_id: str) -> dict[st
             active_lease=active_lease,
             generated_at=generated_at,
         ),
-        "resumeSupported": False,
-        "resumeEligibility": {
-            "eligible": False,
-            "reasonCode": "RESUME_UNSUPPORTED",
-            "message": "Run resume is not supported until durable artifact reuse is proven.",
-        },
+        "resumeSupported": bool(resume_plan.get("executionEnabled")),
+        "resumeEligibility": _resume_eligibility(resume_plan),
+        "resumePlan": resume_plan,
         "ruleRetryPlan": rule_retry_plan,
         "ruleRetryExecutionPlan": build_rule_retry_execution_plan(rule_retry_plan),
     }
@@ -178,6 +187,15 @@ def _eligibility(
         "remainingAttempts": remaining_attempts,
         "nextAttemptAt": next_attempt_at,
         "reasonCode": reason_code,
+    }
+
+
+def _resume_eligibility(plan: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "eligible": bool(plan.get("eligible")),
+        "eligibleNow": bool(plan.get("eligibleNow")),
+        "reasonCode": plan.get("reasonCode"),
+        "message": plan.get("message"),
     }
 
 

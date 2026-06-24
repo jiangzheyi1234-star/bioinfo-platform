@@ -28,6 +28,8 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "export type WorkflowRunRuleRetryPlan" in model
     assert "export type WorkflowRunRuleRetryExecutionPlan" in model
     assert "export type WorkflowRunRuleRetrySnakemakeOptions" in model
+    assert "export type WorkflowRunResumePlan" in model
+    assert "export type WorkflowRunResumeSnakemakeOptions" in model
     assert "export type WorkflowRunFailureLocator" in model
     assert "export type WorkflowResultPackageDownload" in model
     assert "export type WorkflowResultPackageExport" in model
@@ -49,9 +51,14 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "reasonCode?: \"RUN_NOT_FAILED\" | \"RUN_FAILED_NO_RULE\" | \"FAILED_RULE\" | string" in model
     assert "ruleRetryPlan?: WorkflowRunRuleRetryPlan" in model
     assert "ruleRetryExecutionPlan?: WorkflowRunRuleRetryExecutionPlan" in model
+    assert "resumePlan?: WorkflowRunResumePlan" in model
+    assert "workdirEvidence?:" in model
+    assert "incompleteOutputAudit?:" in model
+    assert "artifactAdoptionBoundary?: WorkflowRunAdoptionBoundary" in model
     assert "executionEnabled?: boolean" in model
     assert "commandPreviewAvailable?: boolean" in model
     assert "snakemakeOptions?: WorkflowRunRuleRetrySnakemakeOptions" in model
+    assert "snakemakeOptions?: WorkflowRunResumeSnakemakeOptions" in model
     assert "unsafeFlagsProhibited?: string[]" in model
     assert "selectedAttempt?: WorkflowRunRuleSelectedAttempt" in model
     assert "cacheAdoptionBoundary?: WorkflowRunAdoptionBoundary" in model
@@ -108,20 +115,28 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "ruleLogContext?: WorkflowRunRuleLogContext" in rule_failure_diagnostics
     assert "context.ruleRetryPlan" in execution_panel
     assert "context.ruleRetryExecutionPlan" in execution_panel
+    assert "context.resumePlan" in execution_panel
     assert "RuleRetryPlanSummary" in execution_panel
     assert "RuleRetryExecutionPlanPreview" in execution_panel
+    assert "RunResumePlanPreview" in execution_panel
     assert "plan.selectedAttemptCount" in execution_panel
     assert "planned only" in execution_panel
     assert "not enabled" in execution_panel
     assert "规则级重试计划仅供诊断" in execution_panel
     assert "当前重试按钮会重新调度整个 run" in execution_panel
     assert "rule retry execution plan" in execution_panel
+    assert "run resume plan" in execution_panel
+    assert "workdir evidence" in execution_panel
+    assert "output audit" in execution_panel
+    assert "artifact adoption" in execution_panel
     assert "command preview" in execution_panel
     assert "preview only" in execution_panel
     assert "局部规则重试执行仍关闭" in execution_panel
     assert "unsafe flags" in execution_panel
+    assert "onResumeRun" not in execution_panel
     assert "onRetryRule" not in execution_panel
     assert "retryRule" not in execution_panel
+    assert "resumeRun" not in execution_panel
     assert "onRetryRule" not in panel
     assert "retryRule" not in panel
     assert "onRetryRule" not in rule_failure_diagnostics

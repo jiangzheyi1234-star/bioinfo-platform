@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from apps.remote_runner.run_execution_context_storage import fetch_run_execution_context
-from apps.remote_runner.run_execution_storage import claim_next_run_job
+from apps.remote_runner.run_execution_storage import claim_next_run_job, complete_run_attempt
 from apps.remote_runner.rule_execution_storage import upsert_run_rule_state
 from apps.remote_runner.storage import create_run_record
 from apps.remote_runner.storage_core import get_connection
@@ -62,7 +62,9 @@ def test_run_execution_context_projects_attempts_and_active_lease(tmp_path) -> N
     assert context["schemaVersion"] == "run-execution-context.v1"
     assert context["runId"] == "run_execution_context"
     assert context["resumeSupported"] is False
-    assert context["resumeEligibility"]["reasonCode"] == "RESUME_UNSUPPORTED"
+    assert context["resumeEligibility"]["reasonCode"] == "ACTIVE_LEASE"
+    assert context["resumePlan"]["commandPreviewAvailable"] is False
+    assert context["resumePlan"]["snakemakeOptions"]["argsPreview"] == []
     assert context["job"]["attemptCount"] == 1
     assert context["job"]["maxAttempts"] == 4
     assert context["retryPolicy"]["backoffSeconds"] == 17
@@ -126,6 +128,86 @@ def test_run_execution_context_reports_terminal_failed_run_retryable(tmp_path) -
         "nextAttemptAt": context["job"]["availableAt"],
         "reasonCode": "RUN_RETRYABLE_TERMINAL",
     }
+
+
+def test_run_execution_context_previews_snakemake_resume_without_enabling_execution(tmp_path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    revision = _create_workflow_revision(
+        cfg,
+        {
+            "schemaVersion": "workflow-graph-snapshot.v1",
+            "nodes": [{"id": "summarize", "kind": "rule"}],
+            "edges": [],
+        },
+    )
+    _create_run(
+        cfg,
+        "run_resume_failed",
+        execution={"retryPolicy": {"maxAttempts": 3, "backoffSeconds": 0}},
+        workflow_revision_id=revision["workflowRevisionId"],
+    )
+    claim = claim_next_run_job(
+        cfg,
+        worker_id="worker_resume",
+        slot_id="slot-resume",
+        now="2099-06-07T10:00:00Z",
+        lease_seconds=30,
+    )
+    assert claim is not None
+    complete_run_attempt(
+        cfg,
+        claim["attemptId"],
+        lease_generation=claim["leaseGeneration"],
+        state="failed",
+        exit_code=1,
+        now="2099-06-07T10:00:03Z",
+    )
+    with get_connection(cfg) as connection:
+        connection.execute(
+            """
+            UPDATE runs
+            SET status = 'failed',
+                stage = 'execute',
+                state_version = 2,
+                finished_at = '2099-06-07T10:00:03Z',
+                last_updated_at = '2099-06-07T10:00:03Z'
+            WHERE run_id = ?
+            """,
+            ("run_resume_failed",),
+        )
+        connection.commit()
+
+    context = fetch_run_execution_context(cfg, "run_resume_failed")
+
+    assert context["resumeSupported"] is False
+    assert context["resumeEligibility"] == {
+        "eligible": False,
+        "eligibleNow": False,
+        "reasonCode": "RUN_RESUME_PREVIEW_AVAILABLE",
+        "message": context["resumePlan"]["message"],
+    }
+    assert context["resumePlan"]["schemaVersion"] == "run-resume-plan.v1"
+    assert context["resumePlan"]["supported"] is False
+    assert context["resumePlan"]["executionEnabled"] is False
+    assert context["resumePlan"]["commandPreviewAvailable"] is True
+    assert context["resumePlan"]["latestAttempt"]["attemptId"] == claim["attemptId"]
+    assert context["resumePlan"]["latestAttempt"]["state"] == "failed"
+    assert context["resumePlan"]["workdirEvidence"] == {
+        "available": True,
+        "workDirReusable": False,
+        "pathExposed": False,
+        "reasonCode": "WORKDIR_REUSE_POLICY_UNPROVEN",
+    }
+    assert context["resumePlan"]["incompleteOutputAudit"]["reasonCode"] == "INCOMPLETE_OUTPUT_AUDIT_UNPROVEN"
+    assert context["resumePlan"]["artifactAdoptionBoundary"]["reasonCode"] == "ARTIFACT_ADOPTION_UNPROVEN"
+    assert context["resumePlan"]["snakemakeOptions"] == {
+        "schemaVersion": "snakemake-run-resume-options.v1",
+        "rerunIncomplete": True,
+        "argsPreview": ["--rerun-incomplete"],
+        "unsafeFlagsProhibited": ["--forceall", "--touch", "--ignore-incomplete"],
+    }
+    assert "RUN_RESUME_MUTATION_API_DISABLED" in context["resumePlan"]["blockedReasonCodes"]
+    assert "INCOMPLETE_OUTPUT_AUDIT_UNPROVEN" in context["resumePlan"]["blockedReasonCodes"]
 
 
 def test_run_execution_context_reports_rule_retry_downstream_invalidation_plan(tmp_path) -> None:

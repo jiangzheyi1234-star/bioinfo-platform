@@ -420,6 +420,52 @@ export type WorkflowRunRuleRetryExecutionPlan = {
   message?: string;
 };
 
+export type WorkflowRunResumeSnakemakeOptions = {
+  schemaVersion?: string;
+  rerunIncomplete?: boolean;
+  argsPreview?: string[];
+  unsafeFlagsProhibited?: string[];
+};
+
+export type WorkflowRunResumePlan = {
+  schemaVersion?: string;
+  runId?: string;
+  workflowRevisionId?: string | null;
+  strategy?: string;
+  supported?: boolean;
+  eligible?: boolean;
+  eligibleNow?: boolean;
+  executionEnabled?: boolean;
+  executionReasonCode?: string;
+  commandPreviewAvailable?: boolean;
+  runStatus?: string;
+  jobState?: string | null;
+  attemptCount?: number;
+  latestAttempt?: WorkflowRunRuleSelectedAttempt & {
+    state?: string;
+    exitCode?: number | null;
+    finishedAt?: string | null;
+  } | null;
+  workdirEvidence?: {
+    available?: boolean;
+    workDirReusable?: boolean;
+    pathExposed?: boolean;
+    reasonCode?: string;
+  };
+  incompleteOutputAudit?: {
+    available?: boolean;
+    checkedOutputCount?: number;
+    unverifiedOutputCount?: number;
+    reasonCode?: string;
+  };
+  artifactAdoptionBoundary?: WorkflowRunAdoptionBoundary;
+  blockedReasonCodes?: string[];
+  requiresBeforeExecution?: string[];
+  snakemakeOptions?: WorkflowRunResumeSnakemakeOptions;
+  reasonCode?: string;
+  message?: string;
+};
+
 export type WorkflowRunFailureLocator = {
   schemaVersion?: string;
   runId?: string;
@@ -505,9 +551,11 @@ export type WorkflowRunExecutionContext = {
   resumeSupported?: boolean;
   resumeEligibility?: {
     eligible?: boolean;
+    eligibleNow?: boolean;
     reasonCode?: string;
     message?: string;
   };
+  resumePlan?: WorkflowRunResumePlan;
 };
 
 export type WorkflowArtifact = {
