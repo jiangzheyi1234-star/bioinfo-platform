@@ -193,7 +193,7 @@ Delivered foundation:
 - Added live Snakemake logger JSONL polling during execution so structured rule events are incrementally projected while the workflow is running instead of only after process exit.
 - Added strict whole-run operator retry: failed/canceled runs can be requeued through `POST /api/v1/runs/{run_id}/retry` with `scope: "run"`, preserving attempt id and lease-generation fencing while recording command, event, and governance audit evidence.
 - Added a run detail retry action that is enabled only when the execution context reports `eligibleNow`; rule-level partial retry/resume remains unsupported instead of falling back silently.
-- Added a read-only `ruleRetryPlan` contract to run execution context that computes failed-rule downstream invalidation/rerun scope from the immutable WorkflowRevision graph while keeping partial rule retry unsupported until execution semantics are safe.
+- Added a read-only `ruleRetryPlan` contract to run execution context that computes failed-rule downstream invalidation/rerun scope from the immutable WorkflowRevision graph, selects the latest failed rule attempt for planning, and exposes cache/artifact adoption boundaries while keeping partial rule retry unsupported until execution semantics are safe.
 - Added read-only failed-rule diagnostics in the run detail surface, grouping failed rule identity, attempt/lease, latest failure event, event details, log paths, stderr context, and command summary without adding per-rule retry/resume actions.
 
 Still pending before this phase is complete:

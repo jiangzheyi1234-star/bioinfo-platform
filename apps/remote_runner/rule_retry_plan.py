@@ -10,6 +10,8 @@ from .workflow_revision_storage import fetch_workflow_revision
 
 
 RULE_RETRY_PLAN_SCHEMA_VERSION = "rule-retry-plan.v1"
+RULE_ATTEMPT_SELECTION_SCHEMA_VERSION = "rule-attempt-selection.v1"
+RULE_ADOPTION_BOUNDARY_SCHEMA_VERSION = "rule-adoption-boundary.v1"
 FAILED_RULE_STATUSES = {"failed", "error"}
 PARTIAL_RETRY_UNSUPPORTED = "PARTIAL_RULE_RETRY_UNSUPPORTED"
 
@@ -32,7 +34,9 @@ def build_rule_retry_plan(cfg: RemoteRunnerConfig, run: dict[str, Any]) -> dict[
     run_id = str(run.get("runId") or "").strip()
     workflow_revision_id = str(run.get("workflowRevisionId") or "").strip()
     rules = list(fetch_run_rules(cfg, run_id).get("items", []))
-    failed_rules = [_rule for _rule in rules if _is_failed_rule(_rule)]
+    latest_rules = _latest_rules(rules)
+    failed_rules = [_rule for _rule in latest_rules if _is_failed_rule(_rule)]
+    selected_attempt_count = _selected_attempt_count(failed_rules)
     base = {
         "schemaVersion": RULE_RETRY_PLAN_SCHEMA_VERSION,
         "runId": run_id,
@@ -40,9 +44,21 @@ def build_rule_retry_plan(cfg: RemoteRunnerConfig, run: dict[str, Any]) -> dict[
         "supported": False,
         "eligible": False,
         "eligibleNow": False,
+        "executionEnabled": False,
+        "executionReasonCode": "RULE_RETRY_EXECUTION_DISABLED",
+        "selectionMode": "failed-rule-attempts",
         "ruleCount": len(rules),
         "failedRuleCount": len(failed_rules),
+        "selectedAttemptCount": selected_attempt_count,
         "invalidationPlanAvailable": False,
+        "attemptSelection": _attempt_selection_summary(failed_rules),
+        "cacheAdoptionBoundary": _adoption_boundary("cache"),
+        "artifactAdoptionBoundary": _adoption_boundary("artifact"),
+        "preservedRules": [],
+        "invalidatedRules": [],
+        "adoptedArtifacts": [],
+        "adoptedCacheEntries": [],
+        "blockedReasonCodes": ["CACHE_ADOPTION_UNPROVEN", "ARTIFACT_ADOPTION_UNPROVEN"],
         "rules": [],
     }
     if not failed_rules:
@@ -63,14 +79,19 @@ def build_rule_retry_plan(cfg: RemoteRunnerConfig, run: dict[str, Any]) -> dict[
         graph_index = _build_graph_index(graph)
     except ValueError as exc:
         return _unsupported(base, str(exc))
-    rule_by_key = _rules_by_key(rules)
+    rule_by_key = _rules_by_key(latest_rules)
     planned_rules = [
         _failed_rule_plan(rule, graph_index=graph_index, rule_by_key=rule_by_key)
         for rule in failed_rules
     ]
+    invalidated_rules = _invalidated_rules(planned_rules)
     return {
         **base,
         "invalidationPlanAvailable": True,
+        "attemptSelection": _attempt_selection_summary(planned_rules),
+        "selectedAttemptCount": _selected_attempt_count(planned_rules),
+        "preservedRules": _preserved_rules(latest_rules, invalidated_rules),
+        "invalidatedRules": invalidated_rules,
         "reasonCode": PARTIAL_RETRY_UNSUPPORTED,
         "message": "Rule-level retry is blocked until rerun execution can invalidate downstream outputs and adopt cache safely.",
         "rules": planned_rules,
@@ -104,6 +125,11 @@ def _failed_rule_plan(
         "eligible": False,
         "eligibleNow": False,
         "reasonCode": PARTIAL_RETRY_UNSUPPORTED if start_node is not None else "WORKFLOW_GRAPH_RULE_UNMATCHED",
+        "selectionReasonCode": _selection_reason_code(rule),
+        "selectedAttempt": _selected_attempt(rule),
+        "invalidatesOwnOutputs": True,
+        "attemptSelection": _attempt_selection(rule),
+        "adoptionBoundary": _rule_adoption_boundary(),
         "downstreamInvalidation": {
             "ruleCount": len(downstream_rules),
             "rules": downstream_rules,
@@ -113,6 +139,113 @@ def _failed_rule_plan(
             "rules": rerun_scope,
         },
     }
+
+
+def _attempt_selection_summary(rules: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "schemaVersion": RULE_ATTEMPT_SELECTION_SCHEMA_VERSION,
+        "strategy": "latest_failed_rule_attempt",
+        "available": bool(rules),
+        "selectedRuleCount": len(rules),
+        "reasonCode": "FAILED_RULE_ATTEMPT_SELECTION_AVAILABLE" if rules else "NO_FAILED_RULES",
+    }
+
+
+def _attempt_selection(rule: dict[str, Any]) -> dict[str, Any]:
+    selected = bool(str(rule.get("attemptId") or "").strip() and rule.get("leaseGeneration") is not None)
+    return {
+        "schemaVersion": RULE_ATTEMPT_SELECTION_SCHEMA_VERSION,
+        "strategy": "latest_failed_rule_attempt",
+        "selected": selected,
+        "reasonCode": _selection_reason_code(rule),
+        "runRuleId": rule.get("runRuleId"),
+        "ruleName": rule.get("ruleName"),
+        "stepId": rule.get("stepId"),
+        "runtimeStatusKey": rule.get("runtimeStatusKey"),
+        "status": rule.get("status"),
+        "attemptId": rule.get("attemptId"),
+        "leaseGeneration": rule.get("leaseGeneration"),
+        "attemptNumber": rule.get("attemptNumber"),
+    }
+
+
+def _selected_attempt(rule: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "attemptId": rule.get("attemptId"),
+        "attemptNumber": rule.get("attemptNumber"),
+        "leaseGeneration": rule.get("leaseGeneration"),
+        "status": rule.get("status"),
+    }
+
+
+def _selection_reason_code(rule: dict[str, Any]) -> str:
+    if not str(rule.get("attemptId") or "").strip():
+        return "RULE_ATTEMPT_ID_MISSING"
+    if rule.get("leaseGeneration") is None:
+        return "RULE_ATTEMPT_LEASE_GENERATION_MISSING"
+    return "RULE_ATTEMPT_SELECTED_FOR_PLANNING"
+
+
+def _adoption_boundary(kind: str) -> dict[str, Any]:
+    cache = kind == "cache"
+    return {
+        "schemaVersion": RULE_ADOPTION_BOUNDARY_SCHEMA_VERSION,
+        "kind": "cache" if cache else "artifact",
+        "enabled": False,
+        "adoptedArtifacts": [],
+        "adoptedCacheEntries": [],
+        "reasonCode": "CACHE_ADOPTION_UNPROVEN" if cache else "ARTIFACT_ADOPTION_UNPROVEN",
+        "message": (
+            "Per-rule cache adoption is disabled until exact cache verification and staged-file policy controls are proven."
+            if cache
+            else "Per-rule artifact adoption is disabled until selected/downstream output invalidation is proven."
+        ),
+        "requires": [
+            "exact_workflow_revision",
+            "verified_payload_checksum",
+            "downstream_invalidation",
+            "staged_file_policy",
+        ],
+    }
+
+
+def _rule_adoption_boundary() -> dict[str, Any]:
+    return {
+        "cacheAdoptionAllowed": False,
+        "artifactAdoptionAllowed": False,
+        "upstreamArtifactsPreserved": True,
+        "downstreamArtifactsInvalidated": True,
+        "adoptedArtifacts": [],
+        "adoptedCacheEntries": [],
+        "blockedReasonCodes": [
+            "DOWNSTREAM_INVALIDATION_REQUIRED",
+            "SELECTED_RULE_OUTPUTS_REQUIRE_INVALIDATION",
+            "CACHE_ADOPTION_UNPROVEN",
+            "ARTIFACT_ADOPTION_UNPROVEN",
+            "UPSTREAM_ADOPTION_BOUNDARY_READ_ONLY",
+        ],
+    }
+
+
+def _selected_attempt_count(rules: list[dict[str, Any]]) -> int:
+    return sum(1 for rule in rules if str(rule.get("attemptId") or "").strip() and rule.get("leaseGeneration") is not None)
+
+
+def _invalidated_rules(planned_rules: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    invalidated: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for rule in planned_rules:
+        for ref in (rule.get("rerunScope") or {}).get("rules", []):
+            key = _rule_ref_identity(ref)
+            if key and key not in seen:
+                invalidated.append(ref)
+                seen.add(key)
+    return invalidated
+
+
+def _preserved_rules(latest_rules: list[dict[str, Any]], invalidated_rules: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    invalidated_keys = {_rule_ref_identity(rule) for rule in invalidated_rules}
+    return [_rule_ref(rule) for rule in latest_rules if _rule_ref_identity(rule) not in invalidated_keys]
 
 
 def _downstream_rules(
@@ -256,6 +389,33 @@ def _node_for_rule(rule: dict[str, Any], graph_index: _GraphIndex) -> _GraphNode
     return None
 
 
+def _latest_rules(rules: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    latest_by_key: dict[str, dict[str, Any]] = {}
+    for rule in rules:
+        key = _rule_identity(rule)
+        existing = latest_by_key.get(key)
+        if existing is None or _rule_attempt_sort_key(rule) > _rule_attempt_sort_key(existing):
+            latest_by_key[key] = rule
+    return list(latest_by_key.values())
+
+
+def _rule_identity(rule: dict[str, Any]) -> str:
+    return (
+        str(rule.get("runtimeStatusKey") or "").strip()
+        or str(rule.get("stepId") or "").strip()
+        or str(rule.get("ruleName") or "").strip()
+        or str(rule.get("runRuleId") or id(rule))
+    )
+
+
+def _rule_attempt_sort_key(rule: dict[str, Any]) -> tuple[int, int, str]:
+    return (
+        _optional_int(rule.get("attemptNumber")),
+        _optional_int(rule.get("leaseGeneration")),
+        str(rule.get("updatedAt") or ""),
+    )
+
+
 def _rule_for_node(node: _GraphNode, rule_by_key: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
     for key in node.keys:
         rule = rule_by_key.get(key)
@@ -286,6 +446,7 @@ def _rule_keys(rule: dict[str, Any]) -> frozenset[str]:
 
 def _rule_ref(rule: dict[str, Any]) -> dict[str, Any]:
     return {
+        "runRuleId": rule.get("runRuleId"),
         "ruleName": rule.get("ruleName"),
         "stepId": rule.get("stepId"),
         "runtimeStatusKey": rule.get("runtimeStatusKey"),
@@ -296,8 +457,24 @@ def _rule_ref(rule: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _rule_ref_identity(rule: dict[str, Any]) -> str:
+    return (
+        str(rule.get("runtimeStatusKey") or "").strip()
+        or str(rule.get("stepId") or "").strip()
+        or str(rule.get("ruleName") or "").strip()
+        or str(rule.get("runRuleId") or "").strip()
+    )
+
+
 def _is_failed_rule(rule: dict[str, Any]) -> bool:
     return str(rule.get("status") or "").lower() in FAILED_RULE_STATUSES
+
+
+def _optional_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _first_text(value: dict[str, Any], keys: tuple[str, ...]) -> str:

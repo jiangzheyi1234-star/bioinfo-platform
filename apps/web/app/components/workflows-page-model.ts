@@ -294,6 +294,7 @@ export type WorkflowRunRetryEligibility = {
 };
 
 export type WorkflowRunRuleRetryPlanRuleRef = {
+  runRuleId?: string;
   ruleName?: string;
   stepId?: string;
   runtimeStatusKey?: string;
@@ -303,10 +304,39 @@ export type WorkflowRunRuleRetryPlanRuleRef = {
   attemptNumber?: number;
 };
 
+export type WorkflowRunRuleSelectedAttempt = {
+  attemptId?: string;
+  attemptNumber?: number;
+  leaseGeneration?: number;
+  status?: string;
+};
+
+export type WorkflowRunRuleAttemptSelection = WorkflowRunRuleRetryPlanRuleRef & {
+  schemaVersion?: string;
+  strategy?: string;
+  selected?: boolean;
+  reasonCode?: string;
+};
+
+export type WorkflowRunRuleAdoptionBoundary = {
+  cacheAdoptionAllowed?: boolean;
+  artifactAdoptionAllowed?: boolean;
+  upstreamArtifactsPreserved?: boolean;
+  downstreamArtifactsInvalidated?: boolean;
+  adoptedArtifacts?: unknown[];
+  adoptedCacheEntries?: unknown[];
+  blockedReasonCodes?: string[];
+};
+
 export type WorkflowRunRuleRetryPlanItem = WorkflowRunRuleRetryPlanRuleRef & {
   eligible?: boolean;
   eligibleNow?: boolean;
   reasonCode?: string;
+  selectionReasonCode?: string;
+  selectedAttempt?: WorkflowRunRuleSelectedAttempt;
+  invalidatesOwnOutputs?: boolean;
+  attemptSelection?: WorkflowRunRuleAttemptSelection;
+  adoptionBoundary?: WorkflowRunRuleAdoptionBoundary;
   downstreamInvalidation?: {
     ruleCount?: number;
     rules?: WorkflowRunRuleRetryPlanRuleRef[];
@@ -317,6 +347,17 @@ export type WorkflowRunRuleRetryPlanItem = WorkflowRunRuleRetryPlanRuleRef & {
   };
 };
 
+export type WorkflowRunAdoptionBoundary = {
+  schemaVersion?: string;
+  kind?: string;
+  enabled?: boolean;
+  adoptedArtifacts?: unknown[];
+  adoptedCacheEntries?: unknown[];
+  reasonCode?: string;
+  message?: string;
+  requires?: string[];
+};
+
 export type WorkflowRunRuleRetryPlan = {
   schemaVersion?: string;
   runId?: string;
@@ -324,9 +365,20 @@ export type WorkflowRunRuleRetryPlan = {
   supported?: boolean;
   eligible?: boolean;
   eligibleNow?: boolean;
+  executionEnabled?: boolean;
+  executionReasonCode?: string;
+  selectionMode?: string;
   ruleCount?: number;
   failedRuleCount?: number;
+  selectedAttemptCount?: number;
   invalidationPlanAvailable?: boolean;
+  cacheAdoptionBoundary?: WorkflowRunAdoptionBoundary;
+  artifactAdoptionBoundary?: WorkflowRunAdoptionBoundary;
+  preservedRules?: WorkflowRunRuleRetryPlanRuleRef[];
+  invalidatedRules?: WorkflowRunRuleRetryPlanRuleRef[];
+  adoptedArtifacts?: unknown[];
+  adoptedCacheEntries?: unknown[];
+  blockedReasonCodes?: string[];
   reasonCode?: string;
   message?: string;
   rules?: WorkflowRunRuleRetryPlanItem[];

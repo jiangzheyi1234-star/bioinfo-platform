@@ -176,10 +176,33 @@ def test_run_execution_context_reports_rule_retry_downstream_invalidation_plan(t
     plan = context["ruleRetryPlan"]
     assert plan["schemaVersion"] == "rule-retry-plan.v1"
     assert plan["supported"] is False
+    assert plan["eligible"] is False
+    assert plan["eligibleNow"] is False
+    assert plan["executionEnabled"] is False
+    assert plan["executionReasonCode"] == "RULE_RETRY_EXECUTION_DISABLED"
+    assert plan["selectionMode"] == "failed-rule-attempts"
+    assert plan["selectedAttemptCount"] == 1
     assert plan["invalidationPlanAvailable"] is True
     assert plan["reasonCode"] == "PARTIAL_RULE_RETRY_UNSUPPORTED"
+    assert plan["cacheAdoptionBoundary"]["enabled"] is False
+    assert plan["cacheAdoptionBoundary"]["reasonCode"] == "CACHE_ADOPTION_UNPROVEN"
+    assert plan["artifactAdoptionBoundary"]["reasonCode"] == "ARTIFACT_ADOPTION_UNPROVEN"
+    assert plan["adoptedArtifacts"] == []
+    assert plan["adoptedCacheEntries"] == []
     assert plan["failedRuleCount"] == 1
     assert [item["ruleName"] for item in plan["rules"]] == ["align"]
+    assert [item["ruleName"] for item in plan["preservedRules"]] == ["trim_reads"]
+    assert [item["ruleName"] for item in plan["invalidatedRules"]] == ["align", "report"]
+    assert plan["rules"][0]["selectionReasonCode"] == "RULE_ATTEMPT_SELECTED_FOR_PLANNING"
+    assert plan["rules"][0]["selectedAttempt"] == {
+        "attemptId": claim["attemptId"],
+        "attemptNumber": claim["attempt"]["attemptNumber"],
+        "leaseGeneration": claim["leaseGeneration"],
+        "status": "failed",
+    }
+    assert plan["rules"][0]["invalidatesOwnOutputs"] is True
+    assert plan["rules"][0]["adoptionBoundary"]["cacheAdoptionAllowed"] is False
+    assert plan["rules"][0]["adoptionBoundary"]["artifactAdoptionAllowed"] is False
     assert plan["rules"][0]["downstreamInvalidation"]["ruleCount"] == 1
     assert plan["rules"][0]["downstreamInvalidation"]["rules"][0]["ruleName"] == "report"
     assert [item["ruleName"] for item in plan["rules"][0]["rerunScope"]["rules"]] == ["align", "report"]
@@ -214,6 +237,132 @@ def test_run_execution_context_blocks_rule_retry_plan_without_workflow_revision(
     assert context["ruleRetryPlan"]["invalidationPlanAvailable"] is False
     assert context["ruleRetryPlan"]["reasonCode"] == "WORKFLOW_REVISION_MISSING"
     assert context["ruleRetryPlan"]["failedRuleCount"] == 1
+
+
+def test_run_execution_context_rule_retry_plan_uses_latest_rule_attempt(tmp_path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    revision = _create_workflow_revision(
+        cfg,
+        {
+            "schemaVersion": "workflow-graph-snapshot.v1",
+            "nodes": [{"id": "align", "kind": "rule"}],
+            "edges": [],
+        },
+    )
+    _create_run(cfg, "run_rule_retry_latest_attempt", workflow_revision_id=revision["workflowRevisionId"])
+    claim = claim_next_run_job(
+        cfg,
+        worker_id="worker_rule_retry",
+        slot_id="slot-rule-retry",
+        now="2099-06-07T10:00:00Z",
+        lease_seconds=30,
+    )
+    assert claim is not None
+    upsert_run_rule_state(
+        cfg,
+        run_id="run_rule_retry_latest_attempt",
+        rule_name="align",
+        step_id="align",
+        runtime_status_key="rule:align",
+        status="failed",
+        attempt_id=str(claim["attemptId"]),
+        lease_generation=int(claim["leaseGeneration"]),
+        attempt_number=int(claim["attempt"]["attemptNumber"]),
+    )
+    with get_connection(cfg) as connection:
+        connection.execute(
+            """
+            INSERT INTO run_rules (
+                run_rule_id, run_id, rule_name, step_id, runtime_status_key, status,
+                attempt_id, lease_generation, attempt_number, started_at, finished_at,
+                exit_code, message, command_summary, inputs_json, outputs_json,
+                wildcards_json, logs_json, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "rr_align_latest_success",
+                "run_rule_retry_latest_attempt",
+                "align",
+                "align",
+                "rule:align",
+                "succeeded",
+                "attempt_latest_success",
+                2,
+                2,
+                None,
+                None,
+                0,
+                "",
+                "",
+                "[]",
+                "[]",
+                "{}",
+                "[]",
+                "2099-06-07T10:05:00Z",
+            ),
+        )
+        connection.commit()
+
+    context = fetch_run_execution_context(cfg, "run_rule_retry_latest_attempt")
+
+    assert context["ruleRetryPlan"]["reasonCode"] == "NO_FAILED_RULES"
+    assert context["ruleRetryPlan"]["failedRuleCount"] == 0
+    assert context["ruleRetryPlan"]["selectedAttemptCount"] == 0
+    assert context["ruleRetryPlan"]["rules"] == []
+
+
+def test_run_execution_context_rule_retry_plan_reports_missing_attempt_id(tmp_path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    revision = _create_workflow_revision(
+        cfg,
+        {
+            "schemaVersion": "workflow-graph-snapshot.v1",
+            "nodes": [{"id": "align", "kind": "rule"}],
+            "edges": [],
+        },
+    )
+    _create_run(cfg, "run_rule_retry_missing_attempt", workflow_revision_id=revision["workflowRevisionId"])
+    claim = claim_next_run_job(
+        cfg,
+        worker_id="worker_rule_retry",
+        slot_id="slot-rule-retry",
+        now="2099-06-07T10:00:00Z",
+        lease_seconds=30,
+    )
+    assert claim is not None
+    upsert_run_rule_state(
+        cfg,
+        run_id="run_rule_retry_missing_attempt",
+        rule_name="align",
+        step_id="align",
+        runtime_status_key="rule:align",
+        status="failed",
+        attempt_id=str(claim["attemptId"]),
+        lease_generation=int(claim["leaseGeneration"]),
+        attempt_number=int(claim["attempt"]["attemptNumber"]),
+    )
+    with get_connection(cfg) as connection:
+        connection.execute(
+            """
+            UPDATE run_rules
+            SET attempt_id = '', lease_generation = 0, attempt_number = NULL
+            WHERE run_id = ? AND rule_name = ?
+            """,
+            ("run_rule_retry_missing_attempt", "align"),
+        )
+        connection.commit()
+
+    context = fetch_run_execution_context(cfg, "run_rule_retry_missing_attempt")
+
+    plan = context["ruleRetryPlan"]
+    assert plan["supported"] is False
+    assert plan["eligible"] is False
+    assert plan["eligibleNow"] is False
+    assert plan["executionEnabled"] is False
+    assert plan["selectedAttemptCount"] == 0
+    assert plan["rules"][0]["selectionReasonCode"] == "RULE_ATTEMPT_ID_MISSING"
+    assert plan["rules"][0]["attemptSelection"]["selected"] is False
+    assert plan["rules"][0]["selectedAttempt"]["attemptId"] == ""
 
 
 def _create_workflow_revision(cfg, graph_snapshot: dict) -> dict:

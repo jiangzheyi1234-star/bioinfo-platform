@@ -108,6 +108,15 @@ function RuleRetryPlanSummary({ context }: { context: WorkflowRunExecutionContex
   const reason = plan.reasonCode || plannedRules[0]?.reasonCode || "—";
   const downstreamLabel = downstreamRules.length > 0 ? ruleNameList(downstreamRules) : "—";
   const scopeLabel = rerunRules.length > 0 ? ruleNameList(rerunRules) : "—";
+  const selectedAttemptCount = plan.selectedAttemptCount ?? plannedRules.filter((rule) => rule.selectedAttempt?.attemptId).length;
+  const adoptionEnabled = Boolean(plan.cacheAdoptionBoundary?.enabled || plan.artifactAdoptionBoundary?.enabled);
+  const selectedAttemptLabel =
+    plannedRules
+      .map((rule) => rule.selectedAttempt)
+      .filter((attempt) => attempt?.attemptId)
+      .slice(0, 3)
+      .map((attempt) => `#${attempt?.attemptNumber ?? "—"} gen ${attempt?.leaseGeneration ?? "—"}`)
+      .join(", ") || "—";
 
   return (
     <div className="mt-3 rounded-md border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-900">
@@ -121,8 +130,9 @@ function RuleRetryPlanSummary({ context }: { context: WorkflowRunExecutionContex
           {plan.invalidationPlanAvailable ? "invalidation planned" : "blocked"}
         </span>
       </div>
-      <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
         <ExecutionMetric label="failed" value={String(plan.failedRuleCount || 0)} />
+        <ExecutionMetric label="selected" value={String(selectedAttemptCount)} />
         <ExecutionMetric label="scope" value={String(rerunRules.length)} />
         <ExecutionMetric label="downstream" value={String(downstreamRules.length)} />
         <ExecutionMetric label="reason" value={reason} />
@@ -131,6 +141,10 @@ function RuleRetryPlanSummary({ context }: { context: WorkflowRunExecutionContex
         规则级重试计划仅供诊断；当前重试按钮会重新调度整个 run。
       </p>
       <div className="mt-2 grid gap-1 text-[11px] sm:grid-cols-[96px_minmax(0,1fr)]">
+        <span className="text-amber-700">selection</span>
+        <span className="truncate font-mono">planned only · {selectedAttemptLabel}</span>
+        <span className="text-amber-700">adoption</span>
+        <span className="truncate font-mono">{adoptionEnabled ? "enabled" : "not enabled"}</span>
         <span className="text-amber-700">downstream</span>
         <span className="truncate font-mono">{downstreamLabel}</span>
         <span className="text-amber-700">rerun scope</span>
