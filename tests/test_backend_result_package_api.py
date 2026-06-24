@@ -7,6 +7,7 @@ from apps.api.execution_query_routes import (
     download_result_package,
     export_result_package,
     get_result_audit,
+    list_result_package_exports,
     retire_result_package,
 )
 
@@ -77,6 +78,46 @@ def test_result_package_download_route_streams_runtime_payload(monkeypatch) -> N
     assert response.headers["content-disposition"] == 'attachment; filename="res_run_demo.zip"'
     assert response.headers["x-content-type-options"] == "nosniff"
     assert response.headers["x-h2ometa-sha256"] == "b" * 64
+
+
+def test_result_package_list_route_sanitizes_runtime_inventory(monkeypatch) -> None:
+    runtime = FakeResultPackageListRuntime()
+    monkeypatch.setattr("apps.api.execution_query_service.runtime_service", lambda: runtime)
+
+    result = asyncio.run(
+        list_result_package_exports(
+            "res_run_demo",
+            serverId="srv_remote",
+            lifecycleState="retired",
+            limit=25,
+        )
+    )
+
+    assert runtime.calls == [("res_run_demo", "srv_remote", "retired", 25)]
+    assert result == {
+        "data": {
+            "schemaVersion": "h2ometa.result-package-export-list.v1",
+            "resultId": "res_run_demo",
+            "items": [
+                {
+                    "resultId": "res_run_demo",
+                    "packageExportId": "rpex_active",
+                    "lifecycleState": "active",
+                    "evidenceId": "ev_active",
+                    "download": {
+                        "href": "/api/v1/results/res_run_demo/exports/rpex_active/download",
+                        "filename": "rpex_active.zip",
+                    },
+                },
+                {
+                    "resultId": "res_run_demo",
+                    "packageExportId": "rpex_retired",
+                    "lifecycleState": "retired",
+                    "evidenceId": "ev_retired",
+                },
+            ],
+        }
+    }
 
 
 def test_result_package_retire_route_passes_server_id_outside_payload(monkeypatch) -> None:
@@ -168,6 +209,49 @@ class FakeResultPackageDownloadRuntime:
                 "x-content-type-options": "nosniff",
                 "x-h2ometa-sha256": "b" * 64,
             },
+        }
+
+
+class FakeResultPackageListRuntime:
+    def __init__(self) -> None:
+        self.calls = []
+
+    def list_result_package_exports(
+        self,
+        result_id,
+        *,
+        server_id=None,
+        lifecycle_state=None,
+        limit=100,
+    ):
+        self.calls.append((result_id, server_id, lifecycle_state, limit))
+        return {
+            "data": {
+                "schemaVersion": "h2ometa.result-package-export-list.v1",
+                "resultId": result_id,
+                "items": [
+                    {
+                        "resultId": result_id,
+                        "packageExportId": "rpex_active",
+                        "lifecycleState": "active",
+                        "evidenceEventId": "ev_active",
+                        "packagePath": "C:/secret/rpex_active.zip",
+                        "packageUri": "file:///C:/secret/rpex_active.zip",
+                    },
+                    {
+                        "resultId": result_id,
+                        "packageExportId": "rpex_retired",
+                        "lifecycleState": "retired",
+                        "evidenceEventId": "ev_retired",
+                        "download": {
+                            "href": "/api/v1/results/res_run_demo/exports/rpex_retired/download",
+                            "filename": "rpex_retired.zip",
+                        },
+                        "packagePath": "C:/secret/retired.zip",
+                        "packageUri": "file:///C:/secret/retired.zip",
+                    },
+                ],
+            }
         }
 
 

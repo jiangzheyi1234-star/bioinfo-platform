@@ -179,6 +179,37 @@ def test_result_package_retire_action_uses_artifact_curator_role(tmp_path) -> No
     assert authorize_action(allowed, "result.package.retire").roles == ("artifact-curator",)
 
 
+def test_result_package_list_action_allows_auditor_and_artifact_curator_roles(tmp_path) -> None:
+    denied = make_configured_remote_runner(
+        tmp_path / "denied",
+        token="rbac-token",
+        api_token_roles=("workflow-operator",),
+    )
+    auditor = make_configured_remote_runner(
+        tmp_path / "auditor",
+        token="rbac-token",
+        api_token_roles=("auditor",),
+    )
+    curator = make_configured_remote_runner(
+        tmp_path / "curator",
+        token="rbac-token",
+        api_token_roles=("artifact-curator",),
+    )
+
+    try:
+        authorize_action(denied, "result.package.list")
+    except RemoteRunnerAuthorizationError as exc:
+        assert str(exc) == "runner authorization failed"
+    else:
+        raise AssertionError("result.package.list must require auditor or artifact-curator")
+
+    deny_events = list_governance_audit_events(denied, action="result.package.list")["items"]
+    assert deny_events[0]["decision"] == "deny"
+    assert deny_events[0]["details"]["requiredRoles"] == ["artifact-curator", "auditor"]
+    assert authorize_action(auditor, "result.package.list").roles == ("auditor",)
+    assert authorize_action(curator, "result.package.list").roles == ("artifact-curator",)
+
+
 def test_governance_audit_read_route_requires_auditor_role(tmp_path, monkeypatch) -> None:
     cfg = make_configured_remote_runner(
         tmp_path,

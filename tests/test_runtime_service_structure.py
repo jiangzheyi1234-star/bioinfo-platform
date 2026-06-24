@@ -372,6 +372,7 @@ def test_runtime_execution_operations_live_in_dedicated_mixin() -> None:
         "get_result_preview",
         "get_result_audit",
         "export_result_package",
+        "list_result_package_exports",
         "download_result_package",
         "retire_result_package",
     ):
@@ -423,12 +424,14 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert 'self.call_runner(\n                "get_workflow_backfill_launch",' in execution_manager_source
     assert "self.execution.get_result_audit(" in execution_ops_source
     assert "self.execution.export_result_package(" in execution_ops_source
+    assert "self.execution.list_result_package_exports(" in execution_ops_source
     assert "self.execution.download_result_package(" in execution_ops_source
     assert "self.execution.retire_result_package(" in execution_ops_source
     assert "self.call_runner(\"get_run_execution_context\"" in execution_manager_source
     assert "self.call_runner(\"retry_run\"" in execution_manager_source
     assert "self.call_runner(\"get_result_audit\"" in execution_manager_source
     assert 'self.call_runner(\n                "export_result_package",' in execution_manager_source
+    assert 'self.call_runner(\n                "list_result_package_exports",' in execution_manager_source
     assert 'self.call_runner(\n            "download_result_package",' in execution_manager_source
     assert 'self.call_runner(\n            "retire_result_package",' in execution_manager_source
     assert "preferred_server_id=server_id" in execution_manager_source

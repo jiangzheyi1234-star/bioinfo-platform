@@ -149,6 +149,26 @@ async def export_result_package_from_request(
     return result
 
 
+async def list_result_package_exports_from_request(
+    result_id: str,
+    *,
+    server_id: str | None = None,
+    lifecycle_state: str | None = None,
+    limit: int = 100,
+) -> dict[str, Any]:
+    result = await run_runtime_payload(
+        lambda: runtime_service().list_result_package_exports(
+            result_id,
+            server_id=server_id,
+            lifecycle_state=lifecycle_state,
+            limit=limit,
+        ),
+        wrapper="raw",
+    )
+    _attach_result_package_downloads(result)
+    return result
+
+
 async def download_result_package_from_request(
     result_id: str,
     package_export_id: str,
@@ -190,13 +210,29 @@ def _attach_result_package_download(result: dict[str, Any]) -> None:
         return
     result_id = str(data.get("resultId") or "").strip()
     package_export_id = str(data.get("packageExportId") or "").strip()
-    if result_id and package_export_id and not isinstance(data.get("download"), dict):
+    lifecycle_state = str(data.get("lifecycleState") or "active").strip() or "active"
+    if lifecycle_state == "active" and result_id and package_export_id and not isinstance(data.get("download"), dict):
         data["download"] = {
             "href": _result_package_download_href(result_id, package_export_id),
             "filename": _result_package_download_filename(data, package_export_id),
         }
+    if lifecycle_state != "active":
+        data.pop("download", None)
+    evidence_event_id = data.pop("evidenceEventId", None)
+    if "evidenceId" not in data and evidence_event_id:
+        data["evidenceId"] = evidence_event_id
     data.pop("packagePath", None)
     data.pop("packageUri", None)
+
+
+def _attach_result_package_downloads(result: dict[str, Any]) -> None:
+    data = result.get("data") if isinstance(result, dict) else None
+    items = data.get("items") if isinstance(data, dict) else None
+    if not isinstance(items, list):
+        return
+    for item in items:
+        if isinstance(item, dict):
+            _attach_result_package_download({"data": item})
 
 
 def _strip_result_package_paths(result: dict[str, Any]) -> None:

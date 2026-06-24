@@ -351,6 +351,24 @@ class ExecutionManager(BaseRuntimeManager):
             )
         }
 
+    def list_result_package_exports(
+        self,
+        result_id: str,
+        *,
+        server_id: Optional[str] = None,
+        lifecycle_state: Optional[str] = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        return {
+            "data": self.call_runner(
+                "list_result_package_exports",
+                preferred_server_id=server_id,
+                result_id=result_id,
+                lifecycle_state=lifecycle_state,
+                limit=limit,
+            )
+        }
+
     def download_result_package(
         self,
         result_id: str,

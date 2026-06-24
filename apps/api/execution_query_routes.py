@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Query, Response
 
 from apps.api.models import (
     ArtifactCacheLookupRequest,
@@ -32,6 +32,7 @@ from apps.api.execution_query_service import (
     get_run_rules_from_request,
     list_artifact_cache_entries_from_request,
     list_artifact_cache_pins_from_request,
+    list_result_package_exports_from_request,
     list_results_from_request,
     list_runs_from_request,
     lookup_artifact_cache_from_request,
@@ -132,6 +133,21 @@ async def export_result_package(
     request: ResultPackageExportRequest,
 ) -> dict[str, Any]:
     return await export_result_package_from_request(result_id, request)
+
+
+@router.get("/api/v1/results/{result_id}/exports")
+async def list_result_package_exports(
+    result_id: str,
+    serverId: str | None = None,
+    lifecycleState: str | None = None,
+    limit: int = Query(default=100, ge=1, le=500),
+) -> dict[str, Any]:
+    return await list_result_package_exports_from_request(
+        result_id,
+        server_id=serverId,
+        lifecycle_state=lifecycleState,
+        limit=limit,
+    )
 
 
 @router.get("/api/v1/results/{result_id}/exports/{package_export_id}/download")

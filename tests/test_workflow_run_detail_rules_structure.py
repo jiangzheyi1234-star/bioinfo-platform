@@ -31,8 +31,10 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "export type WorkflowRunFailureLocator" in model
     assert "export type WorkflowResultPackageDownload" in model
     assert "export type WorkflowResultPackageExport" in model
+    assert "export type WorkflowResultPackageExportListResponse" in model
     assert "export type WorkflowResultPackageExportResponse" in model
     assert "packageExportId?: string" in model
+    assert "lifecycleState?: string" in model
     assert "download?: WorkflowResultPackageDownload" in model
     assert "exportId?: string" not in model
     assert "packagePath?: string" not in model
@@ -118,7 +120,9 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "retryRule" not in dag_preview
 
     assert "export function WorkflowResultPackagePanel" in package_panel
+    assert "fetchWorkflowResultPackageExports(resultId)" in package_panel
     assert "exportWorkflowResultPackage(resultId, mode === \"full\")" in package_panel
+    assert "mergeResultPackageExport(item, current)" in package_panel
     assert "resultPackageDisabledReason" in package_panel
     assert "isResultPackageExportableRunStatus(run.status)" in package_panel
     assert 'status === "completed" || status === "failed"' in package_panel
@@ -127,6 +131,9 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "仅 completed/failed 运行可导出" in package_panel
     assert "缺少 WorkflowRevision" in package_panel
     assert "workflowResultPackageDownloadHref(item)" in package_panel
+    assert "lifecycleState" in package_panel
+    assert "导出记录" in package_panel
+    assert "fetchWorkflowResultPackageExports" in api
     assert "Download" in package_panel
     assert "下载结果包" in package_panel
     assert "packageUri" not in package_panel

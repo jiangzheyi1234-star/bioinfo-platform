@@ -1,12 +1,16 @@
 "use client";
 
-import { useState } from "react";
-import { AlertCircle, Download, Loader2, Package } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { AlertCircle, Download, Loader2, Package, RefreshCw } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 
-import { exportWorkflowResultPackage, workflowResultPackageDownloadHref } from "./workflows-page-api";
+import {
+  exportWorkflowResultPackage,
+  fetchWorkflowResultPackageExports,
+  workflowResultPackageDownloadHref,
+} from "./workflows-page-api";
 import { workflowErrorMessage } from "./workflows-page-model";
 import type { WorkflowResultPackageExport, WorkflowRun } from "./workflows-page-model";
 
@@ -23,16 +27,40 @@ export function WorkflowResultPackagePanel({
 }) {
   const [exportingMode, setExportingMode] = useState<ExportMode | "">("");
   const [exportError, setExportError] = useState("");
-  const [exportResult, setExportResult] = useState<WorkflowResultPackageExport | null>(null);
+  const [packageExports, setPackageExports] = useState<WorkflowResultPackageExport[]>([]);
+  const [listLoading, setListLoading] = useState(false);
+  const [listError, setListError] = useState("");
   const disabledReason = resultPackageDisabledReason({ resultId, run, workflowRevisionId });
   const canExport = disabledReason.length === 0;
+
+  const loadPackageExports = useCallback(async () => {
+    if (!resultId) {
+      setPackageExports([]);
+      setListError("");
+      return;
+    }
+    setListLoading(true);
+    setListError("");
+    try {
+      setPackageExports(await fetchWorkflowResultPackageExports(resultId));
+    } catch (err) {
+      setListError(workflowErrorMessage(err, "结果包记录加载失败"));
+    } finally {
+      setListLoading(false);
+    }
+  }, [resultId]);
+
+  useEffect(() => {
+    void loadPackageExports();
+  }, [loadPackageExports]);
 
   async function handleExport(mode: ExportMode) {
     if (!resultId || !canExport) return;
     setExportingMode(mode);
     setExportError("");
     try {
-      setExportResult(await exportWorkflowResultPackage(resultId, mode === "full"));
+      const item = await exportWorkflowResultPackage(resultId, mode === "full");
+      setPackageExports((current) => mergeResultPackageExport(item, current));
     } catch (err) {
       setExportError(workflowErrorMessage(err, "结果包导出失败"));
     } finally {
@@ -89,31 +117,66 @@ export function WorkflowResultPackagePanel({
         </Alert>
       ) : null}
 
-      {exportResult ? <ResultPackageSummary item={exportResult} /> : null}
+      <div className="mt-3 border-t border-slate-100 pt-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-xs font-medium text-slate-500">导出记录</div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            disabled={!resultId || listLoading}
+            onClick={() => void loadPackageExports()}
+          >
+            <RefreshCw strokeWidth={1.5} className={listLoading ? "h-3 w-3 animate-spin" : "h-3 w-3"} />
+            刷新
+          </Button>
+        </div>
+        {listError ? (
+          <Alert variant="destructive" className="mt-3">
+            <AlertCircle strokeWidth={1.5} className="h-4 w-4" />
+            <AlertDescription>{listError}</AlertDescription>
+          </Alert>
+        ) : null}
+        {packageExports.length > 0 ? (
+          <div className="mt-2 divide-y divide-slate-100">
+            {packageExports.map((item) => (
+              <ResultPackageSummary key={item.packageExportId || `${item.sha256}-${item.createdAt}`} item={item} />
+            ))}
+          </div>
+        ) : (
+          <div className="mt-2 text-xs text-slate-400">{listLoading ? "加载中..." : "暂无结果包记录"}</div>
+        )}
+      </div>
     </div>
   );
 }
 
 function ResultPackageSummary({ item }: { item: WorkflowResultPackageExport }) {
   const downloadHref = workflowResultPackageDownloadHref(item);
+  const lifecycleState = item.lifecycleState || "active";
   return (
-    <div className="mt-3 grid gap-2 border-t border-slate-100 pt-3 text-xs">
-      {downloadHref ? (
-        <div className="flex justify-end">
+    <div className="grid gap-2 py-3 text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className={lifecycleState === "active" ? "font-medium text-emerald-700" : "font-medium text-slate-500"}>
+          {lifecycleState}
+        </span>
+        {downloadHref ? (
           <Button asChild variant="outline" size="sm" className="h-8 px-2 text-xs">
             <a href={downloadHref} download={item.download?.filename || undefined}>
               <Download strokeWidth={1.5} className="h-3 w-3" />
               下载结果包
             </a>
           </Button>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
       <PackageField label="package" value={item.packageExportId} mono />
       <PackageField label="payload" value={item.artifactPayloadMode || (item.includeArtifacts ? "full" : "metadata-only")} />
       <PackageField label="size" value={formatPackageBytes(item.sizeBytes)} />
       <PackageField label="sha256" value={item.sha256} mono />
       <PackageField label="manifest" value={item.manifestSha256} mono />
       <PackageField label="evidence" value={item.evidenceId} mono />
+      <PackageField label="artifacts" value={formatPackageArtifactCount(item.artifactIds)} />
+      <PackageField label="created" value={item.createdAt} mono />
     </div>
   );
 }
@@ -153,4 +216,18 @@ function formatPackageBytes(bytes: number | undefined): string {
   const sizes = ["B", "KB", "MB", "GB"];
   const i = Math.min(sizes.length - 1, Math.floor(Math.log(bytes) / Math.log(k)));
   return `${parseFloat((bytes / k ** i).toFixed(2))} ${sizes[i]}`;
+}
+
+function formatPackageArtifactCount(artifactIds: string[] | undefined): string {
+  if (!artifactIds?.length) return "";
+  return `${artifactIds.length}`;
+}
+
+function mergeResultPackageExport(
+  item: WorkflowResultPackageExport,
+  current: WorkflowResultPackageExport[]
+): WorkflowResultPackageExport[] {
+  const packageExportId = item.packageExportId || "";
+  if (!packageExportId) return [item, ...current];
+  return [item, ...current.filter((existing) => existing.packageExportId !== packageExportId)];
 }

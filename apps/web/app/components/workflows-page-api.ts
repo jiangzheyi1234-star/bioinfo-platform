@@ -28,6 +28,7 @@ import {
   type WorkflowRunDetail,
   type WorkflowRunDetailResponse,
   type WorkflowResultPackageExport,
+  type WorkflowResultPackageExportListResponse,
   type WorkflowResultPackageExportResponse,
   type WorkflowRunResponse,
   type WorkflowRunRetryResponse,
@@ -694,7 +695,19 @@ export async function exportWorkflowResultPackage(
   return response.data;
 }
 
+export async function fetchWorkflowResultPackageExports(resultId: string): Promise<WorkflowResultPackageExport[]> {
+  const response = await requestLocalApiJson<WorkflowResultPackageExportListResponse>(
+    "GET",
+    `/api/v1/results/${encodeURIComponent(resultId)}/exports`,
+    { cache: "no-store" }
+  );
+  return response.data.items || [];
+}
+
 export function workflowResultPackageDownloadHref(item: WorkflowResultPackageExport): string {
+  if (item.lifecycleState && item.lifecycleState !== "active") {
+    return "";
+  }
   const href = item.download?.href?.trim() || "";
   if (!href.startsWith("/api/v1/") || href.includes("://") || href.startsWith("//")) {
     return "";

@@ -520,6 +520,7 @@ export type WorkflowResultPackageExport = {
   resultId?: string;
   runId?: string;
   workflowRevisionId?: string;
+  lifecycleState?: string;
   includeArtifacts?: boolean;
   artifactPayloadMode?: string;
   download?: WorkflowResultPackageDownload;
@@ -527,11 +528,21 @@ export type WorkflowResultPackageExport = {
   sha256?: string;
   manifestSha256?: string;
   evidenceId?: string;
+  artifactIds?: string[];
   createdAt?: string;
 };
 
 export type WorkflowResultPackageExportResponse = {
   data: WorkflowResultPackageExport;
+};
+
+export type WorkflowResultPackageExportListResponse = {
+  data: {
+    schemaVersion?: string;
+    resultId?: string;
+    lifecycleState?: string;
+    items?: WorkflowResultPackageExport[];
+  };
 };
 
 export type WorkflowArtifactPreview = {

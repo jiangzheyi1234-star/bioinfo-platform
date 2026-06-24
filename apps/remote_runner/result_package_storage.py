@@ -11,6 +11,7 @@ from .storage_core import get_connection
 
 
 SUPPORTED_ARTIFACT_PAYLOAD_MODES = {"included", "metadata-only"}
+SUPPORTED_RESULT_PACKAGE_LIFECYCLE_STATES = {"active", "retired"}
 RESULT_PACKAGE_EXPORT_ID_RE = re.compile(r"^rpexp_[0-9a-f]{16}$")
 
 
@@ -144,6 +145,47 @@ def fetch_result_package_export(
     return _row_to_dict(row) if row is not None else None
 
 
+def list_result_package_exports(
+    cfg: RemoteRunnerConfig,
+    *,
+    result_id: str,
+    lifecycle_state: str | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    normalized_result_id = _required_text(result_id, "RESULT_ID_REQUIRED")
+    normalized_lifecycle_state = str(lifecycle_state or "").strip() or None
+    if (
+        normalized_lifecycle_state is not None
+        and normalized_lifecycle_state not in SUPPORTED_RESULT_PACKAGE_LIFECYCLE_STATES
+    ):
+        raise ValueError(f"RESULT_PACKAGE_LIFECYCLE_STATE_UNSUPPORTED: {normalized_lifecycle_state}")
+    bounded_limit = _bounded_limit(limit)
+    with get_connection(cfg) as connection:
+        if normalized_lifecycle_state is None:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM result_package_exports
+                WHERE result_id = ?
+                ORDER BY created_at DESC, package_export_id DESC
+                LIMIT ?
+                """,
+                (normalized_result_id, bounded_limit),
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM result_package_exports
+                WHERE result_id = ? AND lifecycle_state = ?
+                ORDER BY created_at DESC, package_export_id DESC
+                LIMIT ?
+                """,
+                (normalized_result_id, normalized_lifecycle_state, bounded_limit),
+            ).fetchall()
+    return [_row_to_dict(row) for row in rows]
+
+
 def mark_result_package_export_retired(connection: Any, *, package_export_id: str) -> dict[str, Any]:
     normalized_export_id = _required_text(package_export_id, "RESULT_PACKAGE_EXPORT_ID_REQUIRED")
     if not RESULT_PACKAGE_EXPORT_ID_RE.fullmatch(normalized_export_id):
@@ -217,3 +259,13 @@ def _required_text(value: object, code: str) -> str:
     if not normalized:
         raise ValueError(code)
     return normalized
+
+
+def _bounded_limit(value: object) -> int:
+    try:
+        limit = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("RESULT_PACKAGE_EXPORT_LIST_LIMIT_INVALID") from exc
+    if limit < 1 or limit > 500:
+        raise ValueError("RESULT_PACKAGE_EXPORT_LIST_LIMIT_INVALID")
+    return limit

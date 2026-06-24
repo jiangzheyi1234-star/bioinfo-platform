@@ -43,6 +43,7 @@ from .health_service import (
 from .pipeline import get_pipeline, list_pipelines
 from .result_preview_service import build_result_preview_data
 from .result_package_download_service import build_result_package_download, result_package_download_url
+from .result_package_listing_service import list_result_package_exports
 from .result_package_lifecycle_service import retire_result_package_export
 from .route_utils import authorized_config, data_response, remote_runner_principal, run_sync
 from .run_worker_storage import build_run_worker_health
@@ -456,6 +457,24 @@ async def get_result_audit_from_request(result_id: str, authorization: str | Non
     cfg = await _authorized_config_from_request(authorization)
     audit = await run_sync(build_result_artifact_audit, cfg, result_id)
     return data_response(audit)
+
+
+async def list_result_package_exports_from_request(
+    result_id: str,
+    authorization: str | None,
+    *,
+    lifecycle_state: str | None = None,
+    limit: int = 100,
+) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization, action="result.package.list")
+    exports = await run_sync(
+        list_result_package_exports,
+        cfg,
+        result_id=result_id,
+        lifecycle_state=lifecycle_state,
+        limit=limit,
+    )
+    return data_response(exports)
 
 
 async def export_result_package_from_request(

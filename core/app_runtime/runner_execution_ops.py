@@ -202,6 +202,21 @@ class RunnerExecutionOperationsMixin:
             server_id=server_id,
         )
 
+    def list_result_package_exports(
+        self,
+        result_id: str,
+        *,
+        server_id: Optional[str] = None,
+        lifecycle_state: Optional[str] = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        return self.execution.list_result_package_exports(
+            result_id,
+            server_id=server_id,
+            lifecycle_state=lifecycle_state,
+            limit=limit,
+        )
+
     def download_result_package(
         self,
         result_id: str,

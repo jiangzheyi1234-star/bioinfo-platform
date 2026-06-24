@@ -4,6 +4,18 @@ from typing import Any
 
 
 class RemoteRunnerResultPackageProxyMixin:
+    def list_result_package_exports(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+        )
+        return client.list_result_package_exports(
+            str(kwargs["result_id"]),
+            lifecycle_state=kwargs.get("lifecycle_state"),
+            limit=int(kwargs.get("limit") or 100),
+        )
+
     def retire_result_package(self, **kwargs) -> dict[str, Any]:
         client = self._get_client(
             server_id=str(kwargs["server_id"]),

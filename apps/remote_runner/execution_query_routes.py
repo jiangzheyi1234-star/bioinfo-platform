@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from fastapi.responses import FileResponse
 
 from .api_models import (
@@ -31,6 +31,7 @@ from .control_service import (
     get_run_rules_from_request,
     list_artifact_cache_entries_from_request,
     list_artifact_cache_pins_from_request,
+    list_result_package_exports_from_request,
     list_results_from_request,
     list_runs_from_request,
     lookup_artifact_cache_from_request,
@@ -132,6 +133,21 @@ async def export_result_package_api(
     authorization: AuthorizationHeader = None,
 ) -> dict[str, Any]:
     return await export_result_package_from_request(result_id, request, authorization)
+
+
+@router.get("/api/v1/results/{result_id}/exports")
+async def list_result_package_exports_api(
+    result_id: str,
+    lifecycleState: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await list_result_package_exports_from_request(
+        result_id,
+        authorization,
+        lifecycle_state=lifecycleState,
+        limit=limit,
+    )
 
 
 @router.get("/api/v1/results/{result_id}/exports/{package_export_id}/download")
