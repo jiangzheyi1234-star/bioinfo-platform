@@ -45,6 +45,8 @@ def test_result_package_routes_preserve_runtime_wrappers(monkeypatch) -> None:
         "data": {
             "resultId": "res_run_demo",
             "packageExportId": "rpex_demo",
+            "lifecycleState": "active",
+            "packageBytesState": "available",
             "includeArtifacts": False,
             "artifactPayloadMode": "metadata-only",
             "sha256": "a" * 64,
@@ -120,6 +122,7 @@ def test_result_package_list_route_sanitizes_runtime_inventory(monkeypatch) -> N
                     "resultId": "res_run_demo",
                     "packageExportId": "rpex_active",
                     "lifecycleState": "active",
+                    "packageBytesState": "available",
                     "evidenceId": "ev_active",
                     "download": {
                         "href": "/api/v1/results/res_run_demo/exports/rpex_active/download",
@@ -130,7 +133,21 @@ def test_result_package_list_route_sanitizes_runtime_inventory(monkeypatch) -> N
                     "resultId": "res_run_demo",
                     "packageExportId": "rpex_retired",
                     "lifecycleState": "retired",
+                    "packageBytesState": "available",
                     "evidenceId": "ev_retired",
+                },
+                {
+                    "resultId": "res_run_demo",
+                    "packageExportId": "rpex_bytes_deleted",
+                    "lifecycleState": "active",
+                    "packageBytesState": "deleted",
+                    "evidenceId": "ev_bytes_deleted",
+                },
+                {
+                    "resultId": "res_run_demo",
+                    "packageExportId": "rpex_missing_byte_state",
+                    "lifecycleState": "active",
+                    "evidenceId": "ev_missing_byte_state",
                 },
             ],
         }
@@ -246,6 +263,8 @@ class FakeResultPackageRuntime:
                 "includeArtifacts": False,
                 "artifactPayloadMode": "metadata-only",
                 "packageExportId": "rpex_demo",
+                "lifecycleState": "active",
+                "packageBytesState": "available",
                 "packagePath": "C:/secret/rpex_demo.zip",
                 "packageUri": "file:///C:/secret/rpex_demo.zip",
                 "sha256": "a" * 64,
@@ -271,6 +290,8 @@ class FakeResultPackageRuntimeWithServerId:
             "data": {
                 "packageExportId": "rpex_demo",
                 "resultId": result_id,
+                "lifecycleState": "active",
+                "packageBytesState": "available",
                 "includeArtifacts": True,
                 "artifactPayloadMode": "included",
             }
@@ -316,6 +337,7 @@ class FakeResultPackageListRuntime:
                         "resultId": result_id,
                         "packageExportId": "rpex_active",
                         "lifecycleState": "active",
+                        "packageBytesState": "available",
                         "evidenceEventId": "ev_active",
                         "manifest": {
                             "artifacts": [
@@ -332,6 +354,7 @@ class FakeResultPackageListRuntime:
                         "resultId": result_id,
                         "packageExportId": "rpex_retired",
                         "lifecycleState": "retired",
+                        "packageBytesState": "available",
                         "evidenceEventId": "ev_retired",
                         "download": {
                             "href": "/api/v1/results/res_run_demo/exports/rpex_retired/download",
@@ -339,6 +362,31 @@ class FakeResultPackageListRuntime:
                         },
                         "packagePath": "C:/secret/retired.zip",
                         "packageUri": "file:///C:/secret/retired.zip",
+                    },
+                    {
+                        "resultId": result_id,
+                        "packageExportId": "rpex_bytes_deleted",
+                        "lifecycleState": "active",
+                        "packageBytesState": "deleted",
+                        "evidenceEventId": "ev_bytes_deleted",
+                        "download": {
+                            "href": "/api/v1/results/res_run_demo/exports/rpex_bytes_deleted/download",
+                            "filename": "rpex_bytes_deleted.zip",
+                        },
+                        "packagePath": "C:/secret/deleted.zip",
+                        "packageUri": "file:///C:/secret/deleted.zip",
+                    },
+                    {
+                        "resultId": result_id,
+                        "packageExportId": "rpex_missing_byte_state",
+                        "lifecycleState": "active",
+                        "evidenceEventId": "ev_missing_byte_state",
+                        "download": {
+                            "href": "/api/v1/results/res_run_demo/exports/rpex_missing_byte_state/download",
+                            "filename": "rpex_missing_byte_state.zip",
+                        },
+                        "packagePath": "C:/secret/missing-byte.zip",
+                        "packageUri": "file:///C:/secret/missing-byte.zip",
                     },
                 ],
             }

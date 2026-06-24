@@ -233,8 +233,8 @@ def _attach_result_package_download(result: dict[str, Any]) -> None:
         return
     result_id = str(data.get("resultId") or "").strip()
     package_export_id = str(data.get("packageExportId") or "").strip()
-    lifecycle_state = str(data.get("lifecycleState") or "active").strip() or "active"
-    byte_state = str(data.get("packageBytesState") or "available").strip() or "available"
+    lifecycle_state = str(data.get("lifecycleState") or "").strip()
+    byte_state = str(data.get("packageBytesState") or "").strip()
     if (
         lifecycle_state == "active"
         and byte_state == "available"

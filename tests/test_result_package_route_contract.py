@@ -78,6 +78,8 @@ def test_result_package_file_io_lives_in_remote_service_not_routes() -> None:
     assert "AND package_bytes_state = 'deleting'" in result_package_storage_source
     assert "_raise_result_package_byte_state_conflict(" in result_package_storage_source
     assert "def _public_result_package_export(" in control_source
+    assert 'package.get("lifecycleState") == "active"' in control_source
+    assert 'package.get("packageBytesState") == "available"' in control_source
     assert 'public.pop("manifest", None)' in control_source
     assert "def _public_result_artifact_audit(" in control_source
     assert 'public.pop("storageUri", None)' in control_source

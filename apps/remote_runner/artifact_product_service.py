@@ -252,6 +252,8 @@ def export_result_package(
         "packageProfile": RESULT_PACKAGE_PROFILE,
         "includeArtifacts": include_artifacts,
         "artifactPayloadMode": payload_mode,
+        "lifecycleState": export_record["lifecycleState"],
+        "packageBytesState": export_record["packageBytesState"],
         "packagePath": str(package_path),
         "packageUri": package_uri,
         "sizeBytes": size_bytes,

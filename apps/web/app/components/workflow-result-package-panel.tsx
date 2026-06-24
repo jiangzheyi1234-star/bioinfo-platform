@@ -1,20 +1,36 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, Download, Loader2, Package, RefreshCw } from "lucide-react";
+import { AlertCircle, Archive, Download, Loader2, Package, RefreshCw, Trash2 } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 
 import {
+  deleteWorkflowResultPackageBytes,
   exportWorkflowResultPackage,
   fetchWorkflowResultPackageExports,
+  retireWorkflowResultPackage,
   workflowResultPackageDownloadHref,
 } from "./workflows-page-api";
+import {
+  canDeleteResultPackageBytes,
+  canRetireResultPackage,
+  resultPackageActionConfirmation,
+  resultPackageBytesState,
+  resultPackageLifecycleState,
+  type ResultPackageLifecycleAction,
+} from "./workflow-result-package-state";
 import { workflowErrorMessage } from "./workflows-page-model";
 import type { WorkflowResultPackageExport, WorkflowRun } from "./workflows-page-model";
 
 type ExportMode = "full" | "metadata";
+type PendingLifecycleAction = {
+  action: ResultPackageLifecycleAction;
+  item: WorkflowResultPackageExport;
+};
 
 export function WorkflowResultPackagePanel({
   resultId,
@@ -30,6 +46,10 @@ export function WorkflowResultPackagePanel({
   const [packageExports, setPackageExports] = useState<WorkflowResultPackageExport[]>([]);
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState("");
+  const [pendingLifecycleAction, setPendingLifecycleAction] = useState<PendingLifecycleAction | null>(null);
+  const [confirmationValue, setConfirmationValue] = useState("");
+  const [lifecycleActionError, setLifecycleActionError] = useState("");
+  const [lifecycleActionBusyKey, setLifecycleActionBusyKey] = useState("");
   const disabledReason = resultPackageDisabledReason({ resultId, run, workflowRevisionId });
   const canExport = disabledReason.length === 0;
 
@@ -65,6 +85,47 @@ export function WorkflowResultPackagePanel({
       setExportError(workflowErrorMessage(err, "结果包导出失败"));
     } finally {
       setExportingMode("");
+    }
+  }
+
+  function openLifecycleAction(action: ResultPackageLifecycleAction, item: WorkflowResultPackageExport) {
+    setPendingLifecycleAction({ action, item });
+    setConfirmationValue("");
+    setLifecycleActionError("");
+  }
+
+  function closeLifecycleAction() {
+    if (lifecycleActionBusyKey) return;
+    setPendingLifecycleAction(null);
+    setConfirmationValue("");
+    setLifecycleActionError("");
+  }
+
+  async function handleLifecycleAction() {
+    if (!resultId || !pendingLifecycleAction) return;
+    const packageExportId = pendingLifecycleAction.item.packageExportId || "";
+    const confirmation = resultPackageActionConfirmation(pendingLifecycleAction.action);
+    if (!packageExportId || confirmationValue.trim() !== confirmation) return;
+    const busyKey = lifecycleActionKey(pendingLifecycleAction.action, packageExportId);
+    setLifecycleActionBusyKey(busyKey);
+    setLifecycleActionError("");
+    try {
+      const updated =
+        pendingLifecycleAction.action === "retire"
+          ? await retireWorkflowResultPackage(resultId, packageExportId)
+          : await deleteWorkflowResultPackageBytes(resultId, packageExportId);
+      setPackageExports((current) => mergeResultPackageExport(updated, current));
+      setPendingLifecycleAction(null);
+      setConfirmationValue("");
+    } catch (err) {
+      setLifecycleActionError(
+        workflowErrorMessage(
+          err,
+          pendingLifecycleAction.action === "retire" ? "结果包退役失败" : "结果包字节删除失败"
+        )
+      );
+    } finally {
+      setLifecycleActionBusyKey("");
     }
   }
 
@@ -140,44 +201,171 @@ export function WorkflowResultPackagePanel({
         {packageExports.length > 0 ? (
           <div className="mt-2 divide-y divide-slate-100">
             {packageExports.map((item) => (
-              <ResultPackageSummary key={item.packageExportId || `${item.sha256}-${item.createdAt}`} item={item} />
+              <ResultPackageSummary
+                key={item.packageExportId || `${item.sha256}-${item.createdAt}`}
+                item={item}
+                actionBusyKey={lifecycleActionBusyKey}
+                onLifecycleAction={openLifecycleAction}
+              />
             ))}
           </div>
         ) : (
           <div className="mt-2 text-xs text-slate-400">{listLoading ? "加载中..." : "暂无结果包记录"}</div>
         )}
       </div>
+      <ResultPackageLifecycleDialog
+        pending={pendingLifecycleAction}
+        confirmationValue={confirmationValue}
+        error={lifecycleActionError}
+        busy={Boolean(lifecycleActionBusyKey)}
+        onConfirm={() => void handleLifecycleAction()}
+        onConfirmationChange={setConfirmationValue}
+        onClose={closeLifecycleAction}
+      />
     </div>
   );
 }
 
-function ResultPackageSummary({ item }: { item: WorkflowResultPackageExport }) {
+function ResultPackageSummary({
+  actionBusyKey,
+  item,
+  onLifecycleAction,
+}: {
+  actionBusyKey: string;
+  item: WorkflowResultPackageExport;
+  onLifecycleAction: (action: ResultPackageLifecycleAction, item: WorkflowResultPackageExport) => void;
+}) {
   const downloadHref = workflowResultPackageDownloadHref(item);
-  const lifecycleState = item.lifecycleState || "active";
+  const lifecycleState = resultPackageLifecycleState(item);
+  const bytesState = resultPackageBytesState(item);
+  const lifecycleLabel = lifecycleState || "unknown";
+  const bytesLabel = bytesState || "unknown";
+  const packageExportId = item.packageExportId || "";
+  const retireBusy = actionBusyKey === lifecycleActionKey("retire", packageExportId);
+  const deleteBytesBusy = actionBusyKey === lifecycleActionKey("deleteBytes", packageExportId);
   return (
     <div className="grid gap-2 py-3 text-xs">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className={lifecycleState === "active" ? "font-medium text-emerald-700" : "font-medium text-slate-500"}>
-          {lifecycleState}
+          {lifecycleLabel}
         </span>
-        {downloadHref ? (
-          <Button asChild variant="outline" size="sm" className="h-8 px-2 text-xs">
-            <a href={downloadHref} download={item.download?.filename || undefined}>
-              <Download strokeWidth={1.5} className="h-3 w-3" />
-              下载结果包
-            </a>
-          </Button>
-        ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          {downloadHref ? (
+            <Button asChild variant="outline" size="sm" className="h-8 px-2 text-xs">
+              <a href={downloadHref} download={item.download?.filename || undefined}>
+                <Download strokeWidth={1.5} className="h-3 w-3" />
+                下载结果包
+              </a>
+            </Button>
+          ) : null}
+          {canRetireResultPackage(item) ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 px-2 text-xs"
+              disabled={!packageExportId || Boolean(actionBusyKey)}
+              onClick={() => onLifecycleAction("retire", item)}
+            >
+              {retireBusy ? <Loader2 strokeWidth={1.5} className="h-3 w-3 animate-spin" /> : <Archive strokeWidth={1.5} className="h-3 w-3" />}
+              退役
+            </Button>
+          ) : null}
+          {canDeleteResultPackageBytes(item) ? (
+            <Button
+              variant="destructive"
+              size="sm"
+              className="h-8 px-2 text-xs"
+              disabled={!packageExportId || Boolean(actionBusyKey)}
+              onClick={() => onLifecycleAction("deleteBytes", item)}
+            >
+              {deleteBytesBusy ? <Loader2 strokeWidth={1.5} className="h-3 w-3 animate-spin" /> : <Trash2 strokeWidth={1.5} className="h-3 w-3" />}
+              删除包字节
+            </Button>
+          ) : null}
+        </div>
       </div>
       <PackageField label="package" value={item.packageExportId} mono />
+      <PackageField label="bytes" value={bytesLabel} />
       <PackageField label="payload" value={item.artifactPayloadMode || (item.includeArtifacts ? "full" : "metadata-only")} />
       <PackageField label="size" value={formatPackageBytes(item.sizeBytes)} />
       <PackageField label="sha256" value={item.sha256} mono />
       <PackageField label="manifest" value={item.manifestSha256} mono />
       <PackageField label="evidence" value={item.evidenceId} mono />
       <PackageField label="artifacts" value={formatPackageArtifactCount(item.artifactIds)} />
+      <PackageField label="bytes deleted" value={item.packageBytesDeletedAt} mono />
       <PackageField label="created" value={item.createdAt} mono />
     </div>
+  );
+}
+
+function ResultPackageLifecycleDialog({
+  busy,
+  confirmationValue,
+  error,
+  onClose,
+  onConfirm,
+  onConfirmationChange,
+  pending,
+}: {
+  busy: boolean;
+  confirmationValue: string;
+  error: string;
+  onClose: () => void;
+  onConfirm: () => void;
+  onConfirmationChange: (value: string) => void;
+  pending: PendingLifecycleAction | null;
+}) {
+  const confirmation = pending ? resultPackageActionConfirmation(pending.action) : "";
+  const canConfirm = Boolean(pending) && confirmationValue.trim() === confirmation && !busy;
+  return (
+    <Dialog open={Boolean(pending)} onOpenChange={(open) => (!open ? onClose() : null)}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="text-base">{pending ? lifecycleActionTitle(pending.action) : "结果包生命周期"}</DialogTitle>
+          <DialogDescription className="text-xs">
+            {pending ? lifecycleActionDescription(pending.action) : ""}
+          </DialogDescription>
+        </DialogHeader>
+        {pending ? (
+          <div className="grid gap-3 text-xs">
+            <div className="grid gap-1">
+              <span className="text-slate-400">package</span>
+              <span className="break-all font-mono text-[11px] text-slate-700">{pending.item.packageExportId}</span>
+            </div>
+            <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2">
+              <span className="text-slate-500">输入确认码 </span>
+              <span className="break-all font-mono text-[11px] text-slate-800">{confirmation}</span>
+            </div>
+            <Input
+              value={confirmationValue}
+              disabled={busy}
+              placeholder={confirmation}
+              onChange={(event) => onConfirmationChange(event.target.value)}
+            />
+            {error ? (
+              <Alert variant="destructive">
+                <AlertCircle strokeWidth={1.5} className="h-4 w-4" />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            ) : null}
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" disabled={busy} onClick={onClose}>
+                取消
+              </Button>
+              <Button
+                variant={pending.action === "deleteBytes" ? "destructive" : "default"}
+                size="sm"
+                disabled={!canConfirm}
+                onClick={onConfirm}
+              >
+                {busy ? <Loader2 strokeWidth={1.5} className="h-3 w-3 animate-spin" /> : lifecycleActionIcon(pending.action)}
+                确认
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -223,11 +411,35 @@ function formatPackageArtifactCount(artifactIds: string[] | undefined): string {
   return `${artifactIds.length}`;
 }
 
+function lifecycleActionKey(action: ResultPackageLifecycleAction, packageExportId: string): string {
+  return `${action}:${packageExportId}`;
+}
+
+function lifecycleActionTitle(action: ResultPackageLifecycleAction): string {
+  return action === "retire" ? "退役结果包" : "删除结果包字节";
+}
+
+function lifecycleActionDescription(action: ResultPackageLifecycleAction): string {
+  return action === "retire"
+    ? "退役会保留导出记录和审计证据，并停止该结果包下载。"
+    : "删除只移除已退役结果包 ZIP 字节，保留导出记录、谱系和底层运行产物。";
+}
+
+function lifecycleActionIcon(action: ResultPackageLifecycleAction) {
+  return action === "retire" ? (
+    <Archive strokeWidth={1.5} className="h-3 w-3" />
+  ) : (
+    <Trash2 strokeWidth={1.5} className="h-3 w-3" />
+  );
+}
+
 function mergeResultPackageExport(
   item: WorkflowResultPackageExport,
   current: WorkflowResultPackageExport[]
 ): WorkflowResultPackageExport[] {
   const packageExportId = item.packageExportId || "";
   if (!packageExportId) return [item, ...current];
-  return [item, ...current.filter((existing) => existing.packageExportId !== packageExportId)];
+  const existing = current.find((candidate) => candidate.packageExportId === packageExportId);
+  const merged = existing ? { ...existing, ...item } : item;
+  return [merged, ...current.filter((candidate) => candidate.packageExportId !== packageExportId)];
 }

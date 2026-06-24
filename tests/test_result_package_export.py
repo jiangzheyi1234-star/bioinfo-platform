@@ -113,6 +113,8 @@ def test_result_package_export_includes_manifest_artifacts_and_lineage(tmp_path:
     package_path = Path(package["packagePath"])
 
     assert package["schemaVersion"] == "h2ometa.result-package.v2"
+    assert package["lifecycleState"] == "active"
+    assert package["packageBytesState"] == "available"
     assert package_path.is_file()
     assert package["sizeBytes"] == package_path.stat().st_size
     assert len(package["sha256"]) == 64

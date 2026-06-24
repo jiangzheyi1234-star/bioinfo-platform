@@ -506,7 +506,10 @@ async def export_result_package_from_request(
 
 def _public_result_package_export(package: dict[str, Any]) -> dict[str, Any]:
     public = dict(package)
-    public["download"] = _result_package_download_link(package)
+    if package.get("lifecycleState") == "active" and package.get("packageBytesState") == "available":
+        public["download"] = _result_package_download_link(package)
+    else:
+        public.pop("download", None)
     public.pop("manifest", None)
     public.pop("packagePath", None)
     public.pop("packageUri", None)
