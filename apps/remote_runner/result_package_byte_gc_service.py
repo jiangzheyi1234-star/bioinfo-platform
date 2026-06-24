@@ -224,6 +224,7 @@ def _finalize_result_package_byte_delete(
             connection,
             action="result.package.bytes.delete",
             actor=actor,
+            actor_roles=cfg.api_token_roles,
             subject_kind="result_package_export",
             subject_id=record["packageExportId"],
             details={

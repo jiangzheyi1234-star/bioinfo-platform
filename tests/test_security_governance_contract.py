@@ -149,6 +149,17 @@ def test_security_governance_audit_script_contract() -> None:
     assert "Security governance audit passed." in result.stdout
 
 
+def test_direct_governance_audit_append_paths_pass_actor_roles() -> None:
+    remote_runner_root = ROOT / "apps" / "remote_runner"
+    for path in remote_runner_root.rglob("*.py"):
+        if path.name == "governance_audit.py":
+            continue
+        source = path.read_text(encoding="utf-8")
+        if "append_governance_audit_event(" not in source:
+            continue
+        assert "actor_roles=" in source, f"{path.relative_to(ROOT)} must pass actor_roles to direct audit append"
+
+
 def test_security_governance_audit_rejects_unsafe_workflow_fixtures() -> None:
     unversioned_action = """
 name: Unsafe

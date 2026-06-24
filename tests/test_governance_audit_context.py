@@ -41,6 +41,55 @@ def test_governance_audit_promotes_request_project_and_tenant_context(tmp_path) 
     assert listed["tenantId"] == "tenant_context"
 
 
+def test_governance_audit_records_machine_token_actor_roles(tmp_path) -> None:
+    cfg = make_configured_remote_runner(tmp_path, api_token_roles=("workflow-operator", "auditor"))
+
+    event = record_governance_audit_event(
+        cfg,
+        action="run.submit",
+        subject_kind="run",
+        subject_id="run_actor_roles",
+        details={"requestId": "req_actor_roles"},
+    )
+
+    assert event["actorRoles"] == ["auditor", "workflow-operator"]
+    listed = list_governance_audit_events(cfg, action="run.submit")["items"][0]
+    assert listed["actorRoles"] == ["auditor", "workflow-operator"]
+
+
+def test_governance_audit_explicit_actor_roles_override_config_roles(tmp_path) -> None:
+    cfg = make_configured_remote_runner(tmp_path, api_token_roles=("workflow-operator",))
+
+    event = record_governance_audit_event(
+        cfg,
+        action="artifact.gc.preview",
+        subject_kind="artifact_gc",
+        subject_id="gc_actor_roles",
+        actor_roles=("auditor", "auditor", "artifact-curator"),
+        details={"requestId": "req_gc_actor_roles"},
+    )
+
+    assert event["actorRoles"] == ["artifact-curator", "auditor"]
+
+
+def test_governance_audit_does_not_promote_roles_from_details(tmp_path) -> None:
+    cfg = make_configured_remote_runner(tmp_path, api_token_roles=("auditor",))
+
+    event = record_governance_audit_event(
+        cfg,
+        action="workflow_trigger.dispatch",
+        subject_kind="workflow_trigger_event",
+        subject_id="trig_evt_roles",
+        details={
+            "actorRoles": ["platform-admin"],
+            "eventContext": {"actorRoles": ["platform-admin"], "correlationId": "batch_roles"},
+        },
+    )
+
+    assert event["actorRoles"] == ["auditor"]
+    assert event["correlationId"] == "batch_roles"
+
+
 def test_governance_audit_promotes_nested_event_context_correlation_id(tmp_path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
 
@@ -136,7 +185,51 @@ def test_governance_audit_read_model_defaults_missing_context_fields_for_legacy_
     assert listed["correlationId"] == ""
     assert listed["projectId"] == ""
     assert listed["tenantId"] == ""
+    assert listed["actorRoles"] == []
     assert listed["details"]["requestId"] == "req_legacy_detail"
+
+
+def test_governance_audit_read_model_defaults_malformed_legacy_actor_roles(tmp_path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    with get_connection(cfg) as connection:
+        append_evidence_event(
+            connection,
+            event_type=GOVERNANCE_AUDIT_EVENT_TYPE,
+            schema_name=GOVERNANCE_AUDIT_SCHEMA_NAME,
+            subject_kind="run",
+            subject_id="run_legacy_bad_roles",
+            payload={
+                "action": "run.submit",
+                "actor": "remote-runner-api",
+                "actorRoles": "platform-admin",
+                "decision": "allow",
+                "reasonCode": "",
+                "subjectKind": "run",
+                "subjectId": "run_legacy_bad_roles",
+                "details": {},
+            },
+        )
+        append_evidence_event(
+            connection,
+            event_type=GOVERNANCE_AUDIT_EVENT_TYPE,
+            schema_name=GOVERNANCE_AUDIT_SCHEMA_NAME,
+            subject_kind="run",
+            subject_id="run_legacy_object_roles",
+            payload={
+                "action": "run.submit",
+                "actor": "remote-runner-api",
+                "actorRoles": {"role": "platform-admin"},
+                "decision": "allow",
+                "reasonCode": "",
+                "subjectKind": "run",
+                "subjectId": "run_legacy_object_roles",
+                "details": {},
+            },
+        )
+        connection.commit()
+
+    listed = list_governance_audit_events(cfg, action="run.submit")["items"]
+    assert [item["actorRoles"] for item in listed] == [[], []]
 
 
 def test_governance_audit_explicit_context_overrides_details(tmp_path) -> None:

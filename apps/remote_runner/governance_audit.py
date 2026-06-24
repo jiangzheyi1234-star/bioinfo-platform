@@ -37,8 +37,10 @@ def record_governance_audit_event(
     correlation_id: str = "",
     project_id: str = "",
     tenant_id: str = "",
+    actor_roles: tuple[str, ...] | list[str] | None = None,
     details: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    roles = _audit_roles(actor_roles if actor_roles is not None else cfg.api_token_roles)
     with get_connection(cfg) as connection:
         event = append_governance_audit_event(
             connection,
@@ -52,6 +54,7 @@ def record_governance_audit_event(
             correlation_id=correlation_id,
             project_id=project_id,
             tenant_id=tenant_id,
+            actor_roles=roles,
             details=details,
         )
         connection.commit()
@@ -71,6 +74,7 @@ def append_governance_audit_event(
     correlation_id: str = "",
     project_id: str = "",
     tenant_id: str = "",
+    actor_roles: tuple[str, ...] | list[str] | None = None,
     details: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     normalized_details = _safe_details(details or {})
@@ -93,6 +97,7 @@ def append_governance_audit_event(
         "correlationId": context["correlationId"],
         "projectId": context["projectId"],
         "tenantId": context["tenantId"],
+        "actorRoles": _audit_roles(actor_roles),
         "subjectKind": _required_text(
             subject_kind,
             "GOVERNANCE_AUDIT_SUBJECT_KIND_REQUIRED",
@@ -153,6 +158,7 @@ def _audit_event_from_evidence(event: dict[str, Any]) -> dict[str, Any]:
         "correlationId": str(payload.get("correlationId") or ""),
         "projectId": str(payload.get("projectId") or ""),
         "tenantId": str(payload.get("tenantId") or ""),
+        "actorRoles": _audit_roles(payload.get("actorRoles") if isinstance(payload.get("actorRoles"), list) else ()),
         "details": dict(details),
         "payloadHash": event["payloadHash"],
         "eventHash": event["eventHash"],
@@ -200,6 +206,17 @@ def _context_text(value: Any) -> str:
     if isinstance(value, bool) or not isinstance(value, (str, int, float)):
         return ""
     return _optional_text(value) or ""
+
+
+def _audit_roles(value: Any) -> list[str]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    roles: list[str] = []
+    for item in value:
+        role = str(item or "").strip()
+        if role and role not in roles:
+            roles.append(role)
+    return sorted(roles)
 
 
 def _reject_secret_detail_keys(value: Any, *, path: str = "details") -> None:

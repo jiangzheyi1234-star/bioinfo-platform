@@ -35,6 +35,7 @@ def test_remote_runner_action_authorization_denies_unknown_and_wrong_roles(tmp_p
     assert deny_events[0]["reasonCode"] == "REMOTE_RUNNER_ROLE_REQUIRED"
     assert deny_events[0]["details"]["requiredRoles"] == ["data-steward"]
     assert deny_events[0]["details"]["providedRoles"] == ["auditor"]
+    assert deny_events[0]["actorRoles"] == ["auditor"]
 
     try:
         authorize_action(cfg, "missing.policy")
@@ -151,6 +152,7 @@ def test_inbox_replay_action_uses_workflow_operator_role(tmp_path) -> None:
     deny_events = list_governance_audit_events(denied, action="workflow_trigger.inbox_replay")["items"]
     assert deny_events[0]["decision"] == "deny"
     assert deny_events[0]["details"]["requiredRoles"] == ["workflow-operator"]
+    assert deny_events[0]["actorRoles"] == ["auditor"]
     assert authorize_action(allowed, "workflow_trigger.inbox_replay").roles == ("workflow-operator",)
 
 

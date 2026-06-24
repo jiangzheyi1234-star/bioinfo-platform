@@ -389,6 +389,7 @@ Progress:
 - Container image scanning is now source-controlled as `.github/container-image-scan.target.json` plus an independent, non-required `.github/workflows/container-image-scan.yml` workflow. The workflow builds both Dockerfiles, runs pinned Trivy scans for HIGH/CRITICAL OS/library vulnerabilities, uploads two-day SARIF evidence, and stays out of `required / ci-green` until the unsupported Compose draft is replaced by a hardened server profile.
 - Remote runner database backend configuration now fails closed. The supported backend is explicitly `sqlite`; `database_backend=postgres` and `H2OMETA_DATABASE_URL`/`database_url` are rejected before runtime layout or storage connection can silently initialize SQLite, keeping PostgreSQL marked as pending until repository, transaction, migration, and multi-user governance boundaries are implemented.
 - Governance audit events now expose stable request, correlation, project, and tenant context fields in the hash-chained audit payload/read model. Context is promoted from existing safe details such as run submission `requestId`/`projectId` and trigger `eventContext.correlationId`, while raw details remain secret-key guarded.
+- Governance audit events now expose stable top-level `actorRoles` from the authenticated remote-runner machine token, including authorization denials. Roles are not promoted from lower-trust business/event details, and this remains a machine-token boundary rather than per-user multi-tenant RBAC.
 
 Recommended sequence:
 
@@ -419,7 +420,7 @@ Exit criteria:
 
 - Public multi-user mode cannot be selected accidentally.
 - Auth/RBAC tests cover allow/deny for high-risk routes.
-- Audit logs include user, role, tenant/project, action, target, outcome, request/correlation ids, and tamper evidence.
+- Audit logs include actor, machine-token actorRoles, tenant/project context where available, action, target, outcome/decision, request/correlation ids, and tamper evidence.
 - Secrets are never returned by diagnostics or logs.
 - Postgres migration and S3/MinIO artifact round-trip tests pass before multi-user beta.
 - CI and release gates produce repeatable evidence.

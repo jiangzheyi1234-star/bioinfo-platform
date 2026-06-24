@@ -564,6 +564,23 @@ def test_result_package_byte_delete_rejects_unmanaged_missing_and_drifted_files(
         )
 
 
+def test_result_package_byte_delete_audit_records_actor_roles(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path, api_token_roles=("artifact-curator", "auditor"))
+    package = _retired_package(cfg, "run_package_byte_delete_actor_roles")
+
+    delete_retired_result_package_bytes(
+        cfg,
+        "res_run_package_byte_delete_actor_roles",
+        package["packageExportId"],
+        confirmation="delete-result-package-export-bytes",
+        actor="curator@example.test",
+    )
+
+    audit = list_governance_audit_events(cfg, action="result.package.bytes.delete")["items"][-1]
+    assert audit["actor"] == "curator@example.test"
+    assert audit["actorRoles"] == ["artifact-curator", "auditor"]
+
+
 def _retired_package(cfg, run_id: str) -> dict[str, object]:
     _create_exportable_result(cfg, run_id)
     package = export_result_package(cfg, f"res_{run_id}", include_artifacts=True)
