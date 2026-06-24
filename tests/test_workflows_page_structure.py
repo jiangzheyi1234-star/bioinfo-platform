@@ -334,6 +334,14 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "export function findOneHopPortConverters" in converter_contract
     assert "RulePortConverterCandidate" in converter_contract
     assert "RulePortConverterInsertionRequest" in converter_contract
+    assert "confirmationRequired: true" in converter_contract
+    assert 'insertionMode: "explicit-user-confirmed"' in converter_contract
+    assert "autoInsertionBlockedReasons" in converter_contract
+    assert "CONVERTER_CONFIRMATION_REQUIRED_REASON" in converter_contract
+    assert "CONVERTER_GRAPH_MUTATION_REQUIRES_USER_ACTION_REASON" in converter_contract
+    assert "CONVERTER_TOOL_NOT_WORKFLOW_READY_REASON" in converter_contract
+    assert "CONVERTER_DATABASE_RESOURCE_REQUIRED_REASON" in converter_contract
+    assert "export function blockedOneHopPortConverterReasons" in converter_contract
     assert "export function buildConverterInsertionPatch" in converter_contract
     assert "generatedWorkflowDraftToGraphDraft" in converter_contract
     assert "graphDraftToGeneratedWorkflowDraft" in converter_contract
@@ -654,7 +662,11 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "compatibilityScore" in port_bindings_editor_ui
     assert "converterSuggestionsForInput" in port_bindings_editor_ui
     assert "一跳转换建议" in port_bindings_editor_ui
-    assert "插入转换" in port_bindings_editor_ui
+    assert "需确认，不会自动插入" in port_bindings_editor_ui
+    assert "确认插入转换" in port_bindings_editor_ui
+    assert "suggestion.insertionMode" in port_bindings_editor_ui
+    assert "suggestion.autoInsertionBlockedReasons" in port_bindings_editor_ui
+    assert "suggestion.evidence" in port_bindings_editor_ui
     assert "findOneHopPortConverters" in port_bindings_editor_ui
     assert "onInsertConverter" in port_bindings_editor_ui
     assert "builder.insertConverter" in builder_ui

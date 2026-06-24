@@ -187,7 +187,7 @@ function PortBindingRow({
       ) : null}
       {!recommended && converterSuggestions.length > 0 ? (
         <div className="grid gap-1 rounded-md bg-sky-50 px-2 py-2 text-[11px] text-sky-800">
-          <div className="font-medium">一跳转换建议</div>
+          <div className="font-medium">一跳转换建议 · 需确认，不会自动插入</div>
           {converterSuggestions.slice(0, 3).map((suggestion) => (
             <div
               key={`${suggestion.sourceValue}.${suggestion.converterToolRevisionId}.${suggestion.inputName}.${suggestion.outputName}`}
@@ -197,6 +197,10 @@ function PortBindingRow({
                 {suggestion.sourceLabel} -&gt; {suggestion.converterToolName}.{suggestion.inputName}/{suggestion.outputName}
                 <span className="text-sky-600"> · {suggestion.reason}</span>
               </div>
+              <div className="min-w-0 break-words text-sky-700" title={suggestion.insertionMode}>
+                插入策略: 需确认，不会自动插入 · {suggestion.autoInsertionBlockedReasons.join(" · ")}
+              </div>
+              <div className="min-w-0 break-words text-sky-700">证据: {suggestion.evidence.join(" · ")}</div>
               <Button
                 type="button"
                 variant="outline"
@@ -204,7 +208,7 @@ function PortBindingRow({
                 onClick={() => onInsertConverter(suggestion)}
               >
                 <Plus strokeWidth={1.5} className="mr-1 h-3.5 w-3.5" />
-                插入转换
+                确认插入转换
               </Button>
             </div>
           ))}

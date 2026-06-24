@@ -19,6 +19,11 @@ import { displayRuleTemplateForTool, ruleSpecReadinessForTool } from "./tool-rul
 export type RulePortConverterCandidate = {
   converterToolRevisionId: string;
   converterToolName: string;
+  confirmationRequired: true;
+  insertionMode: "explicit-user-confirmed";
+  autoInsertionBlockedReasons: string[];
+  hardChecks: string[];
+  evidence: string[];
   inputName: string;
   outputName: string;
   inputScore: number;
@@ -28,6 +33,12 @@ export type RulePortConverterCandidate = {
   workflowStage?: string;
   reason: string;
 };
+
+export const CONVERTER_CONFIRMATION_REQUIRED_REASON = "confirmation-required";
+export const CONVERTER_GRAPH_MUTATION_REQUIRES_USER_ACTION_REASON = "graph-mutation-requires-user-action";
+export const CONVERTER_TOOL_NOT_WORKFLOW_READY_REASON = "converter-tool-not-workflow-ready";
+export const CONVERTER_DATABASE_RESOURCE_REQUIRED_REASON = "database-resource-required";
+export const CONVERTER_PORT_CONTRACT_NOT_SATISFIED_REASON = "converter-port-contract-not-satisfied";
 
 export type RulePortConverterInsertionRequest = {
   sourceStepId: string;
@@ -56,6 +67,22 @@ export function findOneHopPortConverters({
     .sort((left, right) => right.totalScore - left.totalScore || left.converterToolName.localeCompare(right.converterToolName));
 }
 
+export function blockedOneHopPortConverterReasons({
+  input,
+  output,
+  tool,
+}: {
+  input: RuleInputSpec;
+  output: RuleOutputSpec;
+  tool: AddedTool;
+}): string[] {
+  const toolBlockers = converterToolBlockedReasons(tool);
+  if (toolBlockers.length > 0) return toolBlockers;
+  return converterCandidatesForTool({ input, output, tool }).length > 0
+    ? []
+    : [CONVERTER_PORT_CONTRACT_NOT_SATISFIED_REASON];
+}
+
 function converterCandidatesForTool({
   input,
   output,
@@ -69,7 +96,7 @@ function converterCandidatesForTool({
   const converterOutputs = readRuleOutputs(tool);
   const revisionId = workflowToolRevisionId(tool);
   if (!revisionId || converterInputs.length === 0 || converterOutputs.length === 0) return [];
-  if (requiresDatabaseResource(tool)) return [];
+  if (converterToolBlockedReasons(tool).length > 0) return [];
 
   const metadata = converterToolMetadata(tool);
   const requiredInputs = converterInputs.filter((candidate) => candidate.required !== false);
@@ -83,9 +110,24 @@ function converterCandidatesForTool({
       const outputScore = portCompatibilityScore(input, converterOutput);
       if (outputScore === null) continue;
       if (!hasStrongPortEvidence(input, converterOutput)) continue;
+      const evidence = converterEvidence({ converterInput, converterOutput, inputScore, metadata, outputScore });
       candidates.push({
         converterToolRevisionId: revisionId,
         converterToolName: tool.name || revisionId,
+        confirmationRequired: true,
+        insertionMode: "explicit-user-confirmed",
+        autoInsertionBlockedReasons: [
+          CONVERTER_CONFIRMATION_REQUIRED_REASON,
+          CONVERTER_GRAPH_MUTATION_REQUIRES_USER_ACTION_REASON,
+        ],
+        hardChecks: [
+          "workflow-ready-converter",
+          "single-required-input",
+          "converter-has-no-database-resource",
+          "source-output-to-converter-input-strong-evidence",
+          "converter-output-to-target-input-strong-evidence",
+        ],
+        evidence,
         inputName: converterInput.name,
         outputName: converterOutput.name,
         inputScore,
@@ -93,7 +135,7 @@ function converterCandidatesForTool({
         totalScore: inputScore + outputScore + converterSpecificityScore(metadata),
         operation: metadata.operation,
         workflowStage: metadata.workflowStage,
-        reason: converterReason({ converterInput, converterOutput, inputScore, metadata, outputScore }),
+        reason: evidence.join("；"),
       });
     }
   }
@@ -108,6 +150,12 @@ function requiresDatabaseResource(tool: AddedTool): boolean {
   const template = displayRuleTemplateForTool(tool) as Record<string, unknown>;
   const resources = objectValue(template.resources);
   return Object.values(resources).some((resource) => objectValue(resource).type === "database");
+}
+
+function converterToolBlockedReasons(tool: AddedTool): string[] {
+  if (!ruleSpecReadinessForTool(tool).workflowReady) return [CONVERTER_TOOL_NOT_WORKFLOW_READY_REASON];
+  if (requiresDatabaseResource(tool)) return [CONVERTER_DATABASE_RESOURCE_REQUIRED_REASON];
+  return [];
 }
 
 export function buildConverterInsertionPatch({
@@ -183,7 +231,7 @@ function converterSpecificityScore(metadata: { operation?: string; workflowStage
   return 0;
 }
 
-function converterReason({
+function converterEvidence({
   converterInput,
   converterOutput,
   inputScore,
@@ -205,7 +253,7 @@ function converterReason({
     `${converterOutput.name} 可满足目标输入`,
     `score ${inputScore}+${outputScore}`,
     ...labels,
-  ].join("；");
+  ];
 }
 
 function converterEdgeAudit(converter: RulePortConverterCandidate, edge: string): RulePortEdgeAudit {
@@ -213,9 +261,9 @@ function converterEdgeAudit(converter: RulePortConverterCandidate, edge: string)
   return {
     source: "auto",
     decision: "recommended",
-    hardChecks: ["one-hop-converter", edge],
+    hardChecks: ["one-hop-converter", edge, ...converter.hardChecks],
     evidence: [
-      converter.reason,
+      ...converter.evidence,
       `converterToolRevisionId ${converter.converterToolRevisionId}`,
       `converterInput ${converter.inputName}`,
       `converterOutput ${converter.outputName}`,

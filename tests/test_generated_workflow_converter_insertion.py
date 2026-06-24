@@ -30,6 +30,7 @@ require.extensions[".ts"] = function compileTypescript(module, filename) {
 };
 
 const {
+  blockedOneHopPortConverterReasons,
   buildConverterInsertionPatch,
   findOneHopPortConverters,
 } = require(path.join(root, "apps", "web", "app", "components", "generated-workflow-converter-recommendation.ts"));
@@ -97,6 +98,47 @@ const [converter] = findOneHopPortConverters({
   excludeToolRevisionIds: [targetTool.toolRevisionId],
 });
 assert.equal(converter.converterToolRevisionId, converterTool.toolRevisionId);
+assert.equal(converter.confirmationRequired, true);
+assert.equal(converter.insertionMode, "explicit-user-confirmed");
+assert(converter.autoInsertionBlockedReasons.includes("confirmation-required"));
+assert(converter.autoInsertionBlockedReasons.includes("graph-mutation-requires-user-action"));
+assert(converter.hardChecks.includes("converter-has-no-database-resource"));
+assert(converter.hardChecks.includes("source-output-to-converter-input-strong-evidence"));
+assert(converter.hardChecks.includes("converter-output-to-target-input-strong-evidence"));
+assert(converter.evidence.includes("上游输出可进入 reads"));
+assert(converter.evidence.includes("bam 可满足目标输入"));
+
+const typeOnlyConverterTool = readyTool({
+  id: "bioconda::type-only-converter",
+  name: "type-only-converter",
+  inputs: [{ name: "input", required: true, type: "file" }],
+  outputs: [{ name: "output", path: "output.txt", type: "file" }],
+});
+const typeOnlySuggestions = findOneHopPortConverters({
+  input: { name: "reads", type: "file" },
+  output: { name: "report", type: "file" },
+  tools: [typeOnlyConverterTool],
+});
+assert.deepEqual(typeOnlySuggestions, []);
+
+const databaseConverterTool = readyTool({
+  id: "bioconda::db-converter",
+  name: "db-converter",
+  inputs: [{ name: "reads", required: true, kind: "reads", format: "fastq", type: "file" }],
+  outputs: [{ name: "bam", path: "converted.bam", kind: "alignment_bam", format: "bam", type: "file" }],
+});
+databaseConverterTool.ruleTemplate.resources = { reference: { type: "database", capabilities: ["alignment_index"] } };
+const databaseSuggestions = findOneHopPortConverters({
+  input: { name: "reads", kind: "alignment_bam", format: "bam", type: "file" },
+  output: { name: "report", kind: "reads", format: "fastq", type: "file" },
+  tools: [databaseConverterTool],
+});
+assert.deepEqual(databaseSuggestions, []);
+assert(blockedOneHopPortConverterReasons({
+  input: { name: "reads", kind: "alignment_bam", format: "bam", type: "file" },
+  output: { name: "report", kind: "reads", format: "fastq", type: "file" },
+  tool: databaseConverterTool,
+}).includes("database-resource-required"));
 
 const graphDraft = {
   nodes: [

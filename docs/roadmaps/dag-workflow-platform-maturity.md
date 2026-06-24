@@ -149,6 +149,7 @@ Progress:
 - EDAM generic roots such as `data_0006` and `format_1915` are treated as weak compatible evidence, not hard conflicts and not automatic recommendation evidence.
 - Recommendations and one-hop converter discovery now require stronger evidence than `type=file`; type-only and generic-only paths remain manual/ambiguous.
 - Frontend local converter discovery now skips tools with database resource requirements, matching the backend capability graph converter filter.
+- One-hop converter suggestions now carry machine-readable insertion guardrails: hard checks, evidence, `confirmationRequired`, explicit-user-confirmed insertion mode, auto-insertion blocked reasons, and visible “需确认，不会自动插入” UI copy.
 - The semantic capability graph now exposes port operation/resource literals and database accepted-capability edges for better explainability.
 
 Recommended sequence:
