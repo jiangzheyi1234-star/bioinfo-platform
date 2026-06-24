@@ -167,4 +167,4 @@ jobs:
             dist/remote-runner/release-promotion-summary.json
             dist/remote-runner/promoted-release-manifest.json
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 2

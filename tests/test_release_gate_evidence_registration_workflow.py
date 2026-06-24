@@ -20,6 +20,7 @@ def test_release_gate_evidence_registration_workflow_contract() -> None:
     assert "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683" in workflow
     assert "astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b" in workflow
     assert "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" in workflow
+    assert "retention-days: 2" in workflow
     assert 'gh run download "$RELEASE_ARTIFACT_RUN_ID"' in workflow
     assert 'gh run view "$RELEASE_ARTIFACT_RUN_ID"' in workflow
     assert "Release Remote Runner Artifacts" in workflow
@@ -53,3 +54,4 @@ def test_promotion_workflow_requires_registered_gate_evidence() -> None:
     assert "--release-gate-registration dist/remote-runner/release-gate-evidence-registration.json" in workflow
     assert '--release-artifact-run-id "$RELEASE_ARTIFACT_RUN_ID"' in workflow
     assert '--repository "$GH_REPO"' in workflow
+    assert "retention-days: 2" in workflow

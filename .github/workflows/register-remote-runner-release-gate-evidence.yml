@@ -247,4 +247,4 @@ jobs:
             dist/remote-runner/release-gate-readiness-summary.json
             dist/remote-runner/release-gate-evidence-registration.json
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 2

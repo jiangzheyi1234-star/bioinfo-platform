@@ -73,6 +73,10 @@ def test_security_governance_audit_script_contract() -> None:
     assert "cors-wildcard" in source
     assert "dangerous-workflow-trigger" in source
     assert "unpinned-action" in source
+    assert "MAX_WORKFLOW_ARTIFACT_RETENTION_DAYS = 2" in source
+    assert "scan_workflow_artifact_retention" in source
+    assert "workflow-artifact-retention-missing" in source
+    assert "workflow-artifact-retention-too-long" in source
     assert "workflow_run is not allowed" in source
     assert "scan_workflow_security_contract" in source
     assert "WORKFLOW_JOB_WRITE_PERMISSION_ALLOWLIST" in source
@@ -139,6 +143,56 @@ jobs:
     steps:
       - run: echo unsafe
 """
+    upload_artifact_missing_retention = """
+name: Missing Retention
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  collect:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Upload logs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: logs
+          path: logs/
+"""
+    upload_artifact_long_retention = """
+name: Long Retention
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  collect:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Upload logs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: logs
+          path: logs/
+          retention-days: 14
+"""
+    upload_artifact_expression_retention = """
+name: Dynamic Retention
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  collect:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Upload logs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: logs
+          path: logs/
+          retention-days: ${{ inputs.retention_days }}
+"""
 
     assert "unpinned-action" in _finding_codes(
         audit.scan_workflow_security_contract(".github/workflows/unsafe.yml", unversioned_action)
@@ -150,6 +204,24 @@ jobs:
     assert "workflow-write-permission-on-pr" in write_codes
     assert "dangerous-workflow-trigger" in _finding_codes(
         audit.scan_workflow_security_contract(".github/workflows/unsafe.yml", workflow_run)
+    )
+    assert "workflow-artifact-retention-missing" in _finding_codes(
+        audit.scan_workflow_security_contract(
+            ".github/workflows/unsafe.yml",
+            upload_artifact_missing_retention,
+        )
+    )
+    assert "workflow-artifact-retention-too-long" in _finding_codes(
+        audit.scan_workflow_security_contract(
+            ".github/workflows/unsafe.yml",
+            upload_artifact_long_retention,
+        )
+    )
+    assert "workflow-artifact-retention-invalid" in _finding_codes(
+        audit.scan_workflow_security_contract(
+            ".github/workflows/unsafe.yml",
+            upload_artifact_expression_retention,
+        )
     )
 
 

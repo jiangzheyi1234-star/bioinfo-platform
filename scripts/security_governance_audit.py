@@ -59,6 +59,9 @@ FORBIDDEN_SECURITY_TEXT_PATTERNS: tuple[tuple[str, re.Pattern[str], str], ...] =
     ),
 )
 USES_LINE_RE = re.compile(r"^\s*(?:-\s*)?uses:\s+([^\s#]+)", re.MULTILINE)
+UPLOAD_ARTIFACT_USES_RE = re.compile(r"^(?P<indent>\s*)(?:-\s*)?uses:\s+(?P<action>[^\s#]+)")
+RETENTION_DAYS_RE = re.compile(r"^\s*retention-days:\s*(.+?)\s*(?:#.*)?$")
+MAX_WORKFLOW_ARTIFACT_RETENTION_DAYS = 2
 WORKFLOW_PERMISSION_KEYS_ALLOWED_AT_TOP = {"actions", "contents"}
 WORKFLOW_JOB_WRITE_PERMISSION_ALLOWLIST: dict[str, dict[str, dict[str, str]]] = {
     ".github/workflows/release-remote-runner-artifacts.yml": {
@@ -221,6 +224,7 @@ def scan_workflow_security_contract(relative: str, source: str) -> list[Finding]
     if "workflow_run:" in source:
         findings.append(Finding("dangerous-workflow-trigger", relative, 0, "workflow_run is not allowed"))
     findings.extend(scan_workflow_action_pinning(relative, source))
+    findings.extend(scan_workflow_artifact_retention(relative, source))
     findings.extend(scan_workflow_permissions(relative, source))
     return findings
 
@@ -252,6 +256,81 @@ def scan_workflow_action_pinning(relative: str, source: str) -> list[Finding]:
                 )
             )
     return findings
+
+
+def scan_workflow_artifact_retention(relative: str, source: str) -> list[Finding]:
+    findings: list[Finding] = []
+    lines = source.splitlines()
+    for index, line in enumerate(lines):
+        match = UPLOAD_ARTIFACT_USES_RE.match(line)
+        if not match:
+            continue
+        action_ref = match.group("action").strip().strip("'\"")
+        if not action_ref.lower().startswith("actions/upload-artifact@"):
+            continue
+        uses_line = index + 1
+        step_indent = _workflow_step_indent(line)
+        retention_line, retention_value = _upload_artifact_retention(lines, index + 1, step_indent)
+        if retention_value is None:
+            findings.append(
+                Finding(
+                    "workflow-artifact-retention-missing",
+                    relative,
+                    uses_line,
+                    f"actions/upload-artifact steps must set retention-days <= {MAX_WORKFLOW_ARTIFACT_RETENTION_DAYS}",
+                )
+            )
+            continue
+        try:
+            retention_days = int(retention_value.strip("'\""))
+        except ValueError:
+            findings.append(
+                Finding(
+                    "workflow-artifact-retention-invalid",
+                    relative,
+                    retention_line or uses_line,
+                    "actions/upload-artifact retention-days must be a literal integer",
+                )
+            )
+            continue
+        if retention_days < 1 or retention_days > MAX_WORKFLOW_ARTIFACT_RETENTION_DAYS:
+            findings.append(
+                Finding(
+                    "workflow-artifact-retention-too-long",
+                    relative,
+                    retention_line or uses_line,
+                    (
+                        "actions/upload-artifact retention-days must be between 1 and "
+                        f"{MAX_WORKFLOW_ARTIFACT_RETENTION_DAYS}; durable deliverables belong in release assets"
+                    ),
+                )
+            )
+    return findings
+
+
+def _workflow_step_indent(line: str) -> int:
+    indent = len(line) - len(line.lstrip(" "))
+    if line.lstrip(" ").startswith("- "):
+        return indent
+    return max(0, indent - 2)
+
+
+def _upload_artifact_retention(
+    lines: list[str],
+    start: int,
+    step_indent: int,
+) -> tuple[int | None, str | None]:
+    for index in range(start, len(lines)):
+        line = lines[index]
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        if indent <= step_indent:
+            break
+        match = RETENTION_DAYS_RE.match(line)
+        if match:
+            return index + 1, match.group(1).strip()
+    return None, None
 
 
 def scan_workflow_permissions(relative: str, source: str) -> list[Finding]:

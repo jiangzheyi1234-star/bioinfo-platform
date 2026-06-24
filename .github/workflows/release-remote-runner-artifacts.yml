@@ -295,7 +295,7 @@ jobs:
             dist/remote-runner/release-github-attestations.json
             dist/remote-runner/release-readiness-summary.json
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 2
 
   publish:
     name: Publish GitHub Release assets
@@ -395,4 +395,4 @@ jobs:
           name: h2ometa-remote-runner-release-published-assets-${{ env.PLATFORM }}
           path: dist/remote-runner/release-published-assets.json
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 2

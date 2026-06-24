@@ -83,6 +83,18 @@ def test_ci_workflow_uses_sha_pinned_actions() -> None:
     assert all(re.fullmatch(r"[0-9a-f]{40}", ref) for ref in uses_lines)
 
 
+def test_workflow_upload_artifacts_are_short_lived_handoff_files() -> None:
+    for path in sorted((REPOSITORY_ROOT / ".github" / "workflows").glob("*.yml")):
+        source = path.read_text(encoding="utf-8")
+        upload_count = source.count("actions/upload-artifact@")
+        retentions = [int(value) for value in re.findall(r"retention-days:\s*(\d+)", source)]
+
+        assert "retention-days: 14" not in source
+        if upload_count:
+            assert len(retentions) == upload_count, path
+            assert all(1 <= days <= 2 for days in retentions), path
+
+
 def test_workflows_do_not_use_privileged_untrusted_pr_triggers() -> None:
     for path in sorted((REPOSITORY_ROOT / ".github" / "workflows").glob("*.yml")):
         source = path.read_text(encoding="utf-8")
