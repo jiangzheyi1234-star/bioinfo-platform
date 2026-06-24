@@ -192,6 +192,19 @@ class ExecutionManager(BaseRuntimeManager):
             )
         }
 
+    def get_workflow_trigger_readiness_observation(
+        self,
+        trigger_id: str,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return {
+            "data": self.call_runner(
+                "get_workflow_trigger_readiness_observation",
+                preferred_server_id=server_id,
+                trigger_id=trigger_id,
+            )
+        }
+
     def list_workflow_trigger_inbox_events(
         self,
         trigger_id: str,

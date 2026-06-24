@@ -367,6 +367,15 @@ class RemoteRunnerProxyMixin:
         )
         return client.get_json(f"/api/v1/workflow-triggers/{kwargs['trigger_id']}/events")["data"]
 
+    def get_workflow_trigger_readiness_observation(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+            timeout=20,
+        )
+        return client.get_json(f"/api/v1/workflow-triggers/{kwargs['trigger_id']}/readiness-observation")["data"]
+
     def list_workflow_trigger_inbox_events(self, **kwargs) -> dict[str, Any]:
         client = self._get_client(
             server_id=str(kwargs["server_id"]),

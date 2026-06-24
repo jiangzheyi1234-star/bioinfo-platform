@@ -29,12 +29,21 @@ def test_trigger_events_have_read_only_frontend_surface() -> None:
     assert "WorkflowTriggerDispatch" in model
     assert "WorkflowTriggerInboxEvent" in model
     assert "WorkflowTriggerInboxReplayResult" in model
+    assert "WorkflowTriggerReadinessObservation" in model
+    assert "WorkflowTriggerReadinessObservationResponse" in model
+    assert "resourceIdentity?: {" in model
+    assert "idHash?: string" in model
+    assert "resourceUriPresent?: boolean" in model
+    assert "resourceId?: string" not in model
     assert "run?: WorkflowTriggerDispatchRun | null" in model
     assert "fetchWorkflowTriggers" in api
     assert "fetchWorkflowTriggerEvents" in api
     assert "fetchWorkflowTriggerInboxEvents" in api
     assert "replayWorkflowTriggerInboxEvent" in api
+    assert "fetchWorkflowTriggerReadinessObservation" in api
+    assert "WORKFLOW_TRIGGER_READINESS_OBSERVATION_CACHE_KEY" in api
     assert "/api/v1/workflow-triggers" in api
+    assert "/readiness-observation" in api
     assert "/inbox" in api
     assert "/replay" in api
     assert 'confirmation: "replay-dead-lettered-inbox-event"' in api
@@ -44,16 +53,24 @@ def test_trigger_events_have_read_only_frontend_surface() -> None:
     assert "requestLocalApiJson<WorkflowTriggerEventListResponse>" in api
     assert "requestLocalApiJson<WorkflowTriggerInboxEventListResponse>" in api
     assert "requestLocalApiJson<WorkflowTriggerInboxReplayResponse>" in api
+    assert "requestLocalApiJson<WorkflowTriggerReadinessObservationResponse>" in api
     assert "window.setInterval(() => {" in page
     assert "void loadEvents(true)" in page
+    assert "void loadReadinessObservation(true)" in page
     assert "fetchWorkflowTriggerInboxEvents(selectedTriggerId" in page
+    assert "fetchWorkflowTriggerReadinessObservation(selectedTriggerId" in page
     assert "replayWorkflowTriggerInboxEvent(selectedTriggerId, inboxEventId)" in page
     assert "void loadInbox(true)" in page
+    assert "readinessObservation={readinessObservation}" in page
+    assert "isReadinessSource" in page
     assert "fetchWorkflowTriggers().catch" in results
     assert 'href="/workflows/results/triggers"' in results
     assert "RunSummary" in panel
     assert "WorkflowTriggerInboxPanel" in panel
+    assert "ReadinessObservationPanel" in panel
     assert "inboxEvents={inboxEvents}" in panel
+    assert "readinessObservation={readinessObservation}" in panel
+    assert "observationStateStyle" in panel
     assert "dispatch?.run" in panel
     assert 'href={`/workflows/results/detail?run=${encodeURIComponent(runId)}`}' in panel
     assert "run.status" in panel
@@ -71,6 +88,13 @@ def test_trigger_events_have_read_only_frontend_surface() -> None:
     assert "triggerResourceLabel" in panel
     assert "triggerRunSpecLabel" in panel
     assert "dispatchLabel" in panel
+    assert "observedState" in panel
+    assert "resourceIdentity" in panel
+    assert "watcherAdapter" in panel
+    assert "observedChecksum" in panel
+    assert "observation.resourceId ||" not in panel
+    assert "observation.resourceId]" not in panel
+    assert '"resourceId"' not in panel
     assert "database-ready" in panel
     assert "definition enabled" in panel
     assert "scheduledAt" in panel

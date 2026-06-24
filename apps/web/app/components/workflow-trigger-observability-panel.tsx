@@ -21,6 +21,7 @@ import type {
   WorkflowTriggerEvent,
   WorkflowTriggerEventPayload,
   WorkflowTriggerInboxEvent,
+  WorkflowTriggerReadinessObservation,
 } from "./workflow-trigger-model";
 import { WorkflowTriggerInboxPanel } from "./workflow-trigger-inbox-panel";
 
@@ -35,6 +36,7 @@ export function WorkflowTriggerObservabilityPanel({
   onRefresh,
   onReplayInboxEvent,
   onSelectTrigger,
+  readinessObservation,
   replayingInboxEventId,
   selectedTrigger,
   selectedTriggerId,
@@ -50,6 +52,7 @@ export function WorkflowTriggerObservabilityPanel({
   onRefresh: () => void;
   onReplayInboxEvent: (inboxEventId: string) => void;
   onSelectTrigger: (triggerId: string) => void;
+  readinessObservation: WorkflowTriggerReadinessObservation | null;
   replayingInboxEventId: string;
   selectedTrigger: WorkflowTrigger | null;
   selectedTriggerId: string;
@@ -112,6 +115,7 @@ export function WorkflowTriggerObservabilityPanel({
                 inboxEvents={inboxEvents}
                 inboxLoading={inboxLoading}
                 onReplayInboxEvent={onReplayInboxEvent}
+                readinessObservation={readinessObservation}
                 replayingInboxEventId={replayingInboxEventId}
               />
             ) : (
@@ -174,6 +178,7 @@ function TriggerDetail({
   inboxEvents,
   inboxLoading,
   onReplayInboxEvent,
+  readinessObservation,
   replayingInboxEventId,
   trigger,
 }: {
@@ -182,10 +187,12 @@ function TriggerDetail({
   inboxEvents: WorkflowTriggerInboxEvent[];
   inboxLoading: boolean;
   onReplayInboxEvent: (inboxEventId: string) => void;
+  readinessObservation: WorkflowTriggerReadinessObservation | null;
   replayingInboxEventId: string;
   trigger: WorkflowTrigger;
 }) {
   const isWebhook = trigger.sourceType === "webhook";
+  const isReadiness = isReadinessSourceType(trigger.sourceType);
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -213,6 +220,8 @@ function TriggerDetail({
         />
       ) : null}
 
+      {isReadiness ? <ReadinessObservationPanel observation={readinessObservation} /> : null}
+
       {eventsLoading ? (
         <div className="flex h-32 items-center justify-center text-sm text-slate-400">
           <Loader2 strokeWidth={1.5} className="mr-2 h-4 w-4 animate-spin" />
@@ -223,6 +232,58 @@ function TriggerDetail({
       ) : (
         <EventTable events={events} />
       )}
+    </div>
+  );
+}
+
+function ReadinessObservationPanel({ observation }: { observation: WorkflowTriggerReadinessObservation | null }) {
+  if (!observation) {
+    return (
+      <div className="rounded-lg border border-slate-200 bg-white px-3 py-3 text-xs text-slate-500">
+        <div className="font-medium text-slate-700">Readiness watcher</div>
+        <div className="mt-1">暂无观察记录</div>
+      </div>
+    );
+  }
+  const runId = observation.runId || "";
+  const resourceIdentity = observation.resourceIdentity || {};
+  const resourceType = resourceIdentity.type || observation.resourceType || "";
+  const resourceLabel = [
+    resourceType,
+    resourceIdentity.idHash ? `id ${shortIdentity(resourceIdentity.idHash, "")}` : "",
+  ].filter(Boolean).join(" / ") || (resourceIdentity.idPresent ? "id present" : "—");
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white px-3 py-3">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="text-xs font-medium text-slate-700">Readiness watcher</div>
+        <span className={cn("inline-flex rounded border px-1.5 py-0.5 text-[11px]", observationStateStyle(observation.observedState))}>
+          {observationStateLabel(observation.observedState)}
+        </span>
+      </div>
+      <div className="grid gap-2 text-xs text-slate-600 md:grid-cols-2">
+        <LabelValue label="Adapter" value={observation.watcherAdapter || "—"} />
+        <LabelValue label="Resource" value={resourceLabel} />
+        <LabelValue label="Version" value={shortIdentity(observation.observedVersion, "—")} />
+        <LabelValue label="Checksum" value={shortIdentity(observation.observedChecksum, "—")} />
+        <LabelValue label="Observed" value={formatDate(observation.observedAt)} />
+        <LabelValue label="Dispatch" value={dispatchLabel(observation.dispatchState)} />
+        <LabelValue label="Trigger event" value={shortIdentity(observation.triggerEventId || "", "—")} />
+        {runId ? (
+          <div className="min-w-0">
+            <span className="text-slate-400">Run</span>
+            <Link
+              href={`/workflows/results/detail?run=${encodeURIComponent(runId)}`}
+              className="ml-2 inline-flex min-w-0 max-w-full items-center gap-1 text-blue-600 hover:text-blue-700"
+            >
+              <span className="truncate font-mono">{runId}</span>
+              <ArrowRight strokeWidth={1.5} className="h-3 w-3 shrink-0" />
+            </Link>
+          </div>
+        ) : (
+          <LabelValue label="Run" value="—" />
+        )}
+        {observation.error ? <LabelValue label="Error" value={observation.error.reasonCode || observation.error.errorType || "—"} /> : null}
+      </div>
     </div>
   );
 }
@@ -320,8 +381,8 @@ function EventContext({ event }: { event: WorkflowTriggerEvent }) {
   const context = recordValue(payload.eventContext);
   const resource = recordValue(payload.resource);
   const schedule = recordValue(payload.schedule);
-  const contextItems = compactEntries(context, ["source", "eventId", "correlationId", "resourceType", "resourceId"]);
-  const resourceItems = compactEntries(resource, ["type", "id", "version", "checksum"]);
+  const contextItems = compactEntries(context, ["source", "eventId", "correlationId", "resourceType"]);
+  const resourceItems = compactEntries(resource, ["type", "version", "checksum"]);
   const scheduleItems = compactEntries(schedule, ["cron", "timezone"]);
   const scheduledAt = stringValue(payload.scheduledAt);
   const scheduleVersion = stringValue(payload.scheduleVersion);
@@ -400,6 +461,10 @@ function sourceStyle(sourceType: string | undefined) {
   return "border-slate-200 bg-slate-50 text-slate-600";
 }
 
+function isReadinessSourceType(sourceType: string | undefined) {
+  return sourceType === "dataset" || sourceType === "file" || sourceType === "database_ready";
+}
+
 function dispatchStyle(state: string | undefined) {
   const normalized = String(state || "").toLowerCase();
   if (normalized === "submitted") return "border-emerald-200 bg-emerald-50 text-emerald-700";
@@ -412,6 +477,21 @@ function dispatchLabel(state: string | undefined) {
   if (state === "submitted") return "已提交";
   if (state === "pending") return "待提交";
   if (state === "failed") return "失败";
+  return state || "unknown";
+}
+
+function observationStateStyle(state: string | undefined) {
+  const normalized = String(state || "").toLowerCase();
+  if (normalized === "ready") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (normalized === "missing") return "border-amber-200 bg-amber-50 text-amber-700";
+  if (normalized === "error") return "border-red-200 bg-red-50 text-red-700";
+  return "border-slate-200 bg-slate-50 text-slate-600";
+}
+
+function observationStateLabel(state: string | undefined) {
+  if (state === "ready") return "ready";
+  if (state === "missing") return "missing";
+  if (state === "error") return "error";
   return state || "unknown";
 }
 
@@ -439,7 +519,7 @@ function triggerSpecSummary(trigger: WorkflowTrigger) {
   if (source === "cron") return triggerScheduleLabel(trigger);
   if (source === "webhook") return triggerInboxLabel(trigger);
   if (source === "backfill") return triggerPartitionPolicyLabel(trigger);
-  if (source === "dataset" || source === "file" || source === "database_ready") return triggerResourceLabel(trigger);
+  if (isReadinessSourceType(source)) return triggerResourceLabel(trigger);
   return "—";
 }
 
@@ -466,6 +546,9 @@ function triggerPartitionPolicyLabel(trigger: WorkflowTrigger) {
 function triggerResourceLabel(trigger: WorkflowTrigger) {
   const resource = recordValue(recordValue(trigger.triggerSpec).resource);
   const type = stringValue(resource.type);
+  if (isReadinessSourceType(trigger.sourceType)) {
+    return type ? `${type} / id redacted` : "id redacted";
+  }
   const id = stringValue(resource.id);
   return [type, id].filter(Boolean).join(" / ") || "—";
 }

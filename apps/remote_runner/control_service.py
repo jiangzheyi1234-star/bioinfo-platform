@@ -75,6 +75,7 @@ from .trigger_service import (
     submit_workflow_trigger_event_from_request,
     submit_workflow_trigger_readiness_event_from_request,
 )
+from .trigger_readiness_read_model import get_workflow_trigger_readiness_observation_from_storage
 from .trigger_inbox_service import (
     list_workflow_trigger_inbox_events_from_storage,
     submit_workflow_trigger_inbox_event_from_request,
@@ -294,6 +295,14 @@ async def list_workflow_trigger_events_request(
 ) -> dict[str, Any]:
     cfg = await _authorized_config_from_request(authorization)
     return await run_sync(list_workflow_trigger_events_from_storage, cfg, trigger_id)
+
+
+async def get_workflow_trigger_readiness_observation_request(
+    trigger_id: str,
+    authorization: str | None,
+) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization)
+    return await run_sync(get_workflow_trigger_readiness_observation_from_storage, cfg, trigger_id)
 
 
 async def list_workflow_trigger_inbox_events_request(

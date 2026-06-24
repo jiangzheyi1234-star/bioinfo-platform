@@ -12,11 +12,17 @@ import { WorkflowPageHeader } from "./workflow-page-header";
 import {
   fetchWorkflowTriggerEvents,
   fetchWorkflowTriggerInboxEvents,
+  fetchWorkflowTriggerReadinessObservation,
   fetchWorkflowTriggers,
   replayWorkflowTriggerInboxEvent,
 } from "./workflow-trigger-api";
 import { WorkflowTriggerObservabilityPanel } from "./workflow-trigger-observability-panel";
-import type { WorkflowTrigger, WorkflowTriggerEvent, WorkflowTriggerInboxEvent } from "./workflow-trigger-model";
+import type {
+  WorkflowTrigger,
+  WorkflowTriggerEvent,
+  WorkflowTriggerInboxEvent,
+  WorkflowTriggerReadinessObservation,
+} from "./workflow-trigger-model";
 import { workflowErrorMessage } from "./workflows-page-model";
 
 export function WorkflowTriggerObservabilityPage() {
@@ -27,6 +33,7 @@ export function WorkflowTriggerObservabilityPage() {
   const [triggers, setTriggers] = useState<WorkflowTrigger[]>([]);
   const [events, setEvents] = useState<WorkflowTriggerEvent[]>([]);
   const [inboxEvents, setInboxEvents] = useState<WorkflowTriggerInboxEvent[]>([]);
+  const [readinessObservation, setReadinessObservation] = useState<WorkflowTriggerReadinessObservation | null>(null);
   const [selectedTriggerId, setSelectedTriggerId] = useState(triggerFromQuery);
   const [loading, setLoading] = useState(true);
   const [eventsLoading, setEventsLoading] = useState(false);
@@ -92,6 +99,20 @@ export function WorkflowTriggerObservabilityPage() {
     }
   }, [selectedTrigger?.sourceType, selectedTriggerId]);
 
+  const loadReadinessObservation = useCallback(async (forceRefresh = false) => {
+    if (!selectedTriggerId || !isReadinessSource(selectedTrigger?.sourceType)) {
+      setReadinessObservation(null);
+      return;
+    }
+    setEventError("");
+    try {
+      const data = await fetchWorkflowTriggerReadinessObservation(selectedTriggerId, { forceRefresh });
+      setReadinessObservation(data.observation || null);
+    } catch (err) {
+      setEventError(workflowErrorMessage(err, "读取 readiness observation 失败"));
+    }
+  }, [selectedTrigger?.sourceType, selectedTriggerId]);
+
   useEffect(() => {
     void loadTriggers();
   }, [loadTriggers]);
@@ -100,12 +121,14 @@ export function WorkflowTriggerObservabilityPage() {
     if (triggerFromQuery && triggerFromQuery !== selectedTriggerId) {
       setEvents([]);
       setInboxEvents([]);
+      setReadinessObservation(null);
       setSelectedTriggerId(triggerFromQuery);
       return;
     }
     if (!selectedTriggerId && triggers[0]?.triggerId) {
       setEvents([]);
       setInboxEvents([]);
+      setReadinessObservation(null);
       setSelectedTriggerId(triggers[0].triggerId);
     }
   }, [selectedTriggerId, triggerFromQuery, triggers]);
@@ -119,17 +142,23 @@ export function WorkflowTriggerObservabilityPage() {
   }, [loadInbox]);
 
   useEffect(() => {
+    void loadReadinessObservation();
+  }, [loadReadinessObservation]);
+
+  useEffect(() => {
     if (!selectedTriggerId) return;
     const timer = window.setInterval(() => {
       void loadEvents(true);
       void loadInbox(true);
+      void loadReadinessObservation(true);
     }, 5000);
     return () => window.clearInterval(timer);
-  }, [loadEvents, loadInbox, selectedTriggerId]);
+  }, [loadEvents, loadInbox, loadReadinessObservation, selectedTriggerId]);
 
   function selectTrigger(triggerId: string) {
     setEvents([]);
     setInboxEvents([]);
+    setReadinessObservation(null);
     setNotice("");
     setSelectedTriggerId(triggerId);
     const params = new URLSearchParams(searchParams.toString());
@@ -141,6 +170,7 @@ export function WorkflowTriggerObservabilityPage() {
     void loadTriggers(true);
     void loadEvents(true);
     void loadInbox(true);
+    void loadReadinessObservation(true);
   }
 
   async function replayInboxEvent(inboxEventId: string) {
@@ -196,6 +226,7 @@ export function WorkflowTriggerObservabilityPage() {
             onRefresh={refresh}
             onReplayInboxEvent={replayInboxEvent}
             onSelectTrigger={selectTrigger}
+            readinessObservation={readinessObservation}
             replayingInboxEventId={replayingInboxEventId}
             selectedTrigger={selectedTrigger}
             selectedTriggerId={selectedTriggerId}
@@ -205,4 +236,8 @@ export function WorkflowTriggerObservabilityPage() {
       </div>
     </div>
   );
+}
+
+function isReadinessSource(sourceType?: string) {
+  return sourceType === "dataset" || sourceType === "file" || sourceType === "database_ready";
 }

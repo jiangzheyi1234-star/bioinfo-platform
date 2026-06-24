@@ -18,6 +18,7 @@ from apps.api.models import (
 from apps.api.workflow_trigger_service import (
     cancel_workflow_backfill_launch_from_request,
     create_workflow_trigger_from_request,
+    get_workflow_trigger_readiness_observation_from_request,
     get_workflow_backfill_launch_from_request,
     list_workflow_backfill_launches_from_request,
     list_workflow_trigger_events_from_request,
@@ -58,6 +59,19 @@ async def list_workflow_trigger_events(
     serverId: str | None = None,
 ) -> dict[str, Any]:
     return await list_workflow_trigger_events_from_request(
+        trigger_id,
+        refresh=refresh,
+        server_id=serverId,
+    )
+
+
+@router.get("/api/v1/workflow-triggers/{trigger_id}/readiness-observation")
+async def get_workflow_trigger_readiness_observation(
+    trigger_id: str,
+    refresh: bool = False,
+    serverId: str | None = None,
+) -> dict[str, Any]:
+    return await get_workflow_trigger_readiness_observation_from_request(
         trigger_id,
         refresh=refresh,
         server_id=serverId,

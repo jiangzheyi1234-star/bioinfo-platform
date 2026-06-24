@@ -21,6 +21,7 @@ from apps.api.workflow_trigger_routes import (
     cancel_workflow_backfill_launch,
     create_workflow_trigger,
     get_workflow_backfill_launch,
+    get_workflow_trigger_readiness_observation,
     launch_workflow_trigger_backfill,
     list_workflow_backfill_launches,
     list_workflow_trigger_events,
@@ -35,7 +36,16 @@ from apps.api.workflow_trigger_service import submit_workflow_trigger_inbox_even
 
 
 def test_workflow_trigger_routes_preserve_runtime_wrappers_and_submit_headers(monkeypatch) -> None:
-    asyncio.run(invalidate_response_cache(prefixes=("workflow_triggers", "workflow_trigger_events", "workflow_trigger_inbox")))
+    asyncio.run(
+        invalidate_response_cache(
+            prefixes=(
+                "workflow_triggers",
+                "workflow_trigger_events",
+                "workflow_trigger_inbox",
+                "workflow_trigger_readiness_observation",
+            )
+        )
+    )
     monkeypatch.setattr("apps.api.workflow_trigger_service.runtime_service", lambda: FakeTriggerRuntime())
 
     triggers = asyncio.run(list_workflow_triggers(serverId="srv_primary"))
@@ -50,6 +60,9 @@ def test_workflow_trigger_routes_preserve_runtime_wrappers_and_submit_headers(mo
         )
     )
     events = asyncio.run(list_workflow_trigger_events("wtr_demo", serverId="srv_primary"))
+    readiness_observation = asyncio.run(
+        get_workflow_trigger_readiness_observation("wtr_demo", serverId="srv_primary")
+    )
     inbox_events = asyncio.run(
         list_workflow_trigger_inbox_events(
             "wtr_demo",
@@ -179,6 +192,30 @@ def test_workflow_trigger_routes_preserve_runtime_wrappers_and_submit_headers(mo
                     },
                 }
             ]
+        }
+    }
+    assert readiness_observation == {
+        "data": {
+            "schemaVersion": "workflow-trigger-readiness-observation.v1",
+            "triggerId": "wtr_demo",
+            "sourceType": "file",
+            "observation": {
+                "triggerId": "wtr_demo",
+                "sourceType": "file",
+                "resourceType": "file",
+                "resourceIdentity": {
+                    "type": "file",
+                    "idPresent": True,
+                    "idLength": 26,
+                    "idHash": "a" * 64,
+                },
+                "watcherAdapter": "local_path",
+                "observedState": "ready",
+                "dispatchState": "submitted",
+                "triggerEventId": "wte_demo",
+                "runId": "run_trigger_demo",
+                "resourceUriPresent": True,
+            },
         }
     }
     assert backfill_launches == {"data": {"items": [{"launchId": "bfl_demo", "triggerId": "wtr_demo"}]}}
@@ -316,6 +353,34 @@ class FakeTriggerRuntime:
                         },
                     }
                 ]
+            }
+        }
+
+    def get_workflow_trigger_readiness_observation(self, trigger_id, *, server_id=None):
+        assert trigger_id == "wtr_demo"
+        assert server_id == "srv_primary"
+        return {
+            "data": {
+                "schemaVersion": "workflow-trigger-readiness-observation.v1",
+                "triggerId": "wtr_demo",
+                "sourceType": "file",
+                "observation": {
+                    "triggerId": "wtr_demo",
+                    "sourceType": "file",
+                    "resourceType": "file",
+                    "resourceIdentity": {
+                        "type": "file",
+                        "idPresent": True,
+                        "idLength": 26,
+                        "idHash": "a" * 64,
+                    },
+                    "watcherAdapter": "local_path",
+                    "observedState": "ready",
+                    "dispatchState": "submitted",
+                    "triggerEventId": "wte_demo",
+                    "runId": "run_trigger_demo",
+                    "resourceUriPresent": True,
+                },
             }
         }
 

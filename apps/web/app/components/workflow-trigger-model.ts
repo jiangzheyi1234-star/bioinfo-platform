@@ -96,6 +96,41 @@ export type WorkflowTriggerInboxEvent = {
   deadLetteredAt?: string | null;
 };
 
+export type WorkflowTriggerReadinessObservation = {
+  triggerId?: string;
+  sourceType?: string;
+  resourceType?: string;
+  resourceIdentity?: {
+    type?: string;
+    idPresent?: boolean;
+    idLength?: number;
+    idHash?: string;
+  };
+  watcherAdapter?: string;
+  observationHash?: string;
+  observedVersion?: string;
+  observedChecksum?: string;
+  observedState?: string;
+  dispatchState?: string;
+  triggerEventId?: string | null;
+  runId?: string | null;
+  error?: {
+    errorType?: string;
+    reasonCode?: string;
+  } | null;
+  observedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  resourceUriPresent?: boolean;
+};
+
+export type WorkflowTriggerReadinessObservationEnvelope = {
+  schemaVersion?: string;
+  triggerId?: string;
+  sourceType?: string;
+  observation?: WorkflowTriggerReadinessObservation | null;
+};
+
 export type WorkflowTriggerList = {
   items: WorkflowTrigger[];
 };
@@ -107,6 +142,10 @@ export type WorkflowTriggerEventList = {
 export type WorkflowTriggerInboxEventList = {
   schemaVersion?: string;
   items: WorkflowTriggerInboxEvent[];
+};
+
+export type WorkflowTriggerReadinessObservationResponse = {
+  data: WorkflowTriggerReadinessObservationEnvelope;
 };
 
 export type WorkflowTriggerInboxReplayResult = {

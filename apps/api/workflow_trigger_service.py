@@ -78,6 +78,24 @@ async def list_workflow_trigger_events_from_request(
     )
 
 
+async def get_workflow_trigger_readiness_observation_from_request(
+    trigger_id: str,
+    *,
+    refresh: bool,
+    server_id: str | None,
+) -> dict[str, Any]:
+    return await cached_runtime_payload(
+        f"workflow_trigger_readiness_observation:{server_id or 'default'}:{trigger_id}",
+        10,
+        lambda: runtime_service().get_workflow_trigger_readiness_observation(
+            trigger_id,
+            server_id=server_id,
+        ),
+        wrapper="raw",
+        force_refresh=refresh,
+    )
+
+
 async def list_workflow_trigger_inbox_events_from_request(
     trigger_id: str,
     *,

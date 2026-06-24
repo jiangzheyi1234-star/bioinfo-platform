@@ -85,6 +85,13 @@ class RunnerExecutionOperationsMixin:
     ) -> dict[str, Any]:
         return self.execution.list_workflow_trigger_events(trigger_id, server_id)
 
+    def get_workflow_trigger_readiness_observation(
+        self,
+        trigger_id: str,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return self.execution.get_workflow_trigger_readiness_observation(trigger_id, server_id)
+
     def list_workflow_trigger_inbox_events(
         self,
         trigger_id: str,

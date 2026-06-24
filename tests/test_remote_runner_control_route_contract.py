@@ -138,6 +138,7 @@ def test_remote_runner_control_plane_services_use_async_thread_boundary() -> Non
         "submit_workflow_trigger_inbox_event_request",
         "replay_workflow_trigger_inbox_event_request",
         "submit_workflow_trigger_readiness_event_request",
+        "get_workflow_trigger_readiness_observation_request",
         "launch_workflow_trigger_backfill_request",
         "preview_workflow_trigger_backfill_request",
         "list_workflow_trigger_events_request",
@@ -177,6 +178,7 @@ def test_workflow_trigger_routes_delegate_to_service() -> None:
     service_source = _source("apps/remote_runner/trigger_service.py")
     inbox_source = _source("apps/remote_runner/trigger_inbox_service.py")
     replay_source = _source("apps/remote_runner/trigger_inbox_replay_service.py")
+    readiness_read_model_source = _source("apps/remote_runner/trigger_readiness_read_model.py")
 
     assert "from .workflow_trigger_routes import router as workflow_trigger_router" in main_source
     assert "app.include_router(workflow_trigger_router)" in main_source
@@ -193,6 +195,7 @@ def test_workflow_trigger_routes_delegate_to_service() -> None:
     assert "return await replay_workflow_trigger_inbox_event_request(" in route_source
     assert "return await list_workflow_trigger_inbox_events_request(" in route_source
     assert "return await submit_workflow_trigger_readiness_event_request(" in route_source
+    assert "return await get_workflow_trigger_readiness_observation_request(" in route_source
     assert "return await launch_workflow_trigger_backfill_request(" in route_source
     assert "return await preview_workflow_trigger_backfill_request(" in route_source
     assert "return await list_workflow_backfill_launches_request(" in route_source
@@ -207,6 +210,7 @@ def test_workflow_trigger_routes_delegate_to_service() -> None:
         "submit_workflow_trigger_inbox_event_request",
         "replay_workflow_trigger_inbox_event_request",
         "submit_workflow_trigger_readiness_event_request",
+        "get_workflow_trigger_readiness_observation_request",
         "launch_workflow_trigger_backfill_request",
         "preview_workflow_trigger_backfill_request",
         "list_workflow_trigger_events_request",
@@ -227,6 +231,9 @@ def test_workflow_trigger_routes_delegate_to_service() -> None:
     assert "def replay_workflow_trigger_inbox_event_from_request(" in replay_source
     assert '_authorized_config_from_request(authorization, action="workflow_trigger.inbox_replay")' in control_source
     assert "def submit_workflow_trigger_readiness_event_from_request(" in service_source
+    assert "from .trigger_readiness_read_model import get_workflow_trigger_readiness_observation_from_storage" in control_source
+    assert "def get_workflow_trigger_readiness_observation_from_storage(" in readiness_read_model_source
+    assert "fetch_readiness_observation(cfg, trigger_id)" in readiness_read_model_source
     assert "def launch_workflow_trigger_backfill_from_request(" in service_source
     assert "def preview_workflow_trigger_backfill_from_request(" in service_source
     assert "record_workflow_trigger_event(" in service_source

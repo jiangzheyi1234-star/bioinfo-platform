@@ -262,6 +262,9 @@ class RemoteRunnerHttpClient:
     def list_workflow_trigger_events(self, trigger_id: str) -> dict[str, Any]:
         return self.get_json(f"/api/v1/workflow-triggers/{trigger_id}/events")["data"]
 
+    def get_workflow_trigger_readiness_observation(self, trigger_id: str) -> dict[str, Any]:
+        return self.get_json(f"/api/v1/workflow-triggers/{trigger_id}/readiness-observation")["data"]
+
     def list_workflow_trigger_inbox_events(
         self,
         trigger_id: str,

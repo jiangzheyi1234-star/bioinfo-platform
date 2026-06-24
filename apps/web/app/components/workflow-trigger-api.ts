@@ -12,6 +12,8 @@ import type {
   WorkflowTriggerInboxReplayResult,
   WorkflowTriggerList,
   WorkflowTriggerListResponse,
+  WorkflowTriggerReadinessObservationEnvelope,
+  WorkflowTriggerReadinessObservationResponse,
 } from "./workflow-trigger-model";
 
 type WorkflowTriggerFetchOptions = {
@@ -24,6 +26,7 @@ type WorkflowTriggerFetchOptions = {
 const WORKFLOW_TRIGGERS_CACHE_KEY = "workflow:triggers";
 const WORKFLOW_TRIGGER_EVENTS_CACHE_KEY = "workflow:trigger-events";
 const WORKFLOW_TRIGGER_INBOX_CACHE_KEY = "workflow:trigger-inbox";
+const WORKFLOW_TRIGGER_READINESS_OBSERVATION_CACHE_KEY = "workflow:trigger-readiness-observation";
 
 export async function fetchWorkflowTriggers(
   options: WorkflowTriggerFetchOptions = {}
@@ -88,6 +91,36 @@ export async function fetchWorkflowTriggerInboxEvents(
       { cache: "no-store" }
     );
     return { schemaVersion: response.data.schemaVersion, items: response.data.items || [] };
+  }, {
+    forceRefresh: options.forceRefresh,
+  });
+}
+
+export async function fetchWorkflowTriggerReadinessObservation(
+  triggerId: string,
+  options: WorkflowTriggerFetchOptions = {}
+): Promise<WorkflowTriggerReadinessObservationEnvelope> {
+  const normalizedTriggerId = triggerId.trim();
+  if (!normalizedTriggerId) {
+    throw new Error("WORKFLOW_TRIGGER_ID_REQUIRED");
+  }
+  const key = [
+    WORKFLOW_TRIGGER_READINESS_OBSERVATION_CACHE_KEY,
+    options.serverId || "default",
+    normalizedTriggerId,
+  ].join(":");
+  return cachedAsync(key, 10_000, async () => {
+    const response = await requestLocalApiJson<WorkflowTriggerReadinessObservationResponse>(
+      "GET",
+      `/api/v1/workflow-triggers/${encodeURIComponent(normalizedTriggerId)}/readiness-observation${triggerQuery(options)}`,
+      { cache: "no-store" }
+    );
+    return {
+      schemaVersion: response.data.schemaVersion,
+      triggerId: response.data.triggerId,
+      sourceType: response.data.sourceType,
+      observation: response.data.observation || null,
+    };
   }, {
     forceRefresh: options.forceRefresh,
   });

@@ -11,6 +11,7 @@ from apps.remote_runner import trigger_readiness_watcher as watcher
 from apps.remote_runner.api_models import WorkflowTriggerCreateRequest
 from apps.remote_runner.databases import add_reference_database
 from apps.remote_runner.governance_audit import list_governance_audit_events
+from apps.remote_runner.trigger_readiness_read_model import get_workflow_trigger_readiness_observation_from_storage
 from apps.remote_runner.trigger_readiness_watcher import run_workflow_trigger_readiness_watcher_once
 from apps.remote_runner.trigger_readiness_watcher_storage import fetch_readiness_observation
 from apps.remote_runner.trigger_service import create_workflow_trigger_from_request
@@ -38,6 +39,7 @@ def test_readiness_watcher_dispatches_local_path_once_and_skips_unchanged(
     first_events = list_workflow_trigger_events(cfg, trigger["triggerId"])["items"]
     first_dispatch_audit = list_governance_audit_events(cfg, action="workflow_trigger.dispatch")["items"]
     observation = fetch_readiness_observation(cfg, trigger["triggerId"])
+    public_read = get_workflow_trigger_readiness_observation_from_storage(cfg, trigger["triggerId"])
     second = run_workflow_trigger_readiness_watcher_once(cfg)
     second_events = list_workflow_trigger_events(cfg, trigger["triggerId"])["items"]
     second_dispatch_audit = list_governance_audit_events(cfg, action="workflow_trigger.dispatch")["items"]
@@ -53,6 +55,21 @@ def test_readiness_watcher_dispatches_local_path_once_and_skips_unchanged(
     assert observation["dispatchState"] == "submitted"
     assert observation["triggerEventId"] == first_events[0]["triggerEventId"]
     assert observation["runId"] == first_events[0]["dispatch"]["runId"]
+    assert public_read["data"]["schemaVersion"] == "workflow-trigger-readiness-observation.v1"
+    public_observation = public_read["data"]["observation"]
+    assert public_observation["observedState"] == "ready"
+    assert public_observation["dispatchState"] == "submitted"
+    assert public_observation["triggerEventId"] == first_events[0]["triggerEventId"]
+    assert public_observation["runId"] == first_events[0]["dispatch"]["runId"]
+    assert public_observation["observedChecksum"].startswith("sha256:")
+    assert public_observation["resourceIdentity"]["type"] == "file"
+    assert public_observation["resourceIdentity"]["idPresent"] is True
+    assert len(public_observation["resourceIdentity"]["idHash"]) == 64
+    assert public_observation["resourceUriPresent"] is True
+    assert "resourceId" not in public_observation
+    assert "resourceUri" not in public_observation
+    assert str(watched) not in repr(public_read)
+    assert "file:/incoming/reads.fastq" not in repr(public_read)
     assert first_events[0]["eventType"] == "file.ready"
     assert first_events[0]["payload"]["resource"]["checksum"].startswith("sha256:")
     assert first_events[0]["payload"]["payload"]["watcher"]["pathHash"]
@@ -86,6 +103,27 @@ def test_readiness_watcher_dispatches_changed_version(
     assert tick["submitted"] == 1
     assert len(events) == 2
     assert events[0]["payload"]["resource"]["checksum"] != events[1]["payload"]["resource"]["checksum"]
+
+
+def test_readiness_observation_read_model_returns_null_before_first_observation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_execution_admission_ready", lambda _cfg: None)
+    trigger = _create_file_trigger(cfg, tmp_path / "not-observed.fastq")
+
+    public_read = get_workflow_trigger_readiness_observation_from_storage(cfg, trigger["triggerId"])
+
+    assert public_read == {
+        "data": {
+            "schemaVersion": "workflow-trigger-readiness-observation.v1",
+            "triggerId": trigger["triggerId"],
+            "sourceType": "file",
+            "observation": None,
+        }
+    }
 
 
 def test_readiness_watcher_dispatches_database_registry_record_once(
@@ -213,6 +251,11 @@ def test_readiness_watcher_database_registry_records_unavailable_without_dispatc
     observation = fetch_readiness_observation(cfg, trigger["triggerId"])
     assert observation["watcherAdapter"] == "database_registry"
     assert observation["observedState"] == "missing"
+    public_read = get_workflow_trigger_readiness_observation_from_storage(cfg, trigger["triggerId"])
+    assert public_read["data"]["observation"]["observedState"] == "missing"
+    assert public_read["data"]["observation"]["resourceUriPresent"] is True
+    assert "resourceId" not in public_read["data"]["observation"]
+    assert "resourceUri" not in public_read["data"]["observation"]
 
 
 def test_readiness_watcher_records_missing_and_unsupported_without_dispatch(
@@ -254,6 +297,49 @@ def test_readiness_watcher_records_missing_and_unsupported_without_dispatch(
     assert list_workflow_trigger_events(cfg, missing["triggerId"])["items"] == []
     assert fetch_readiness_observation(cfg, missing["triggerId"])["observedState"] == "missing"
     assert fetch_readiness_observation(cfg, unsupported["triggerId"])["observedState"] == "error"
+    missing_public = get_workflow_trigger_readiness_observation_from_storage(cfg, missing["triggerId"])
+    unsupported_public = get_workflow_trigger_readiness_observation_from_storage(cfg, unsupported["triggerId"])
+    assert missing_public["data"]["observation"]["observedState"] == "missing"
+    assert "resourceId" not in missing_public["data"]["observation"]
+    assert "resourceUri" not in missing_public["data"]["observation"]
+    assert str(missing_path) not in repr(missing_public)
+    assert unsupported_public["data"]["observation"]["observedState"] == "error"
+    assert unsupported_public["data"]["observation"]["error"] == {
+        "errorType": "ValueError",
+        "reasonCode": "WORKFLOW_TRIGGER_READINESS_WATCHER_ADAPTER_UNSUPPORTED",
+    }
+
+
+def test_readiness_observation_read_model_hashes_unsafe_resource_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_execution_admission_ready", lambda _cfg: None)
+    watched = tmp_path / "incoming" / "secret-token.fastq"
+    watched.parent.mkdir()
+    watched.write_text("secret\n", encoding="utf-8")
+    unsafe_resource_id = f"{watched}?token=super-secret"
+    trigger = _create_file_trigger_with_resource_id(cfg, watched, unsafe_resource_id)
+
+    tick = run_workflow_trigger_readiness_watcher_once(cfg)
+    public_read = get_workflow_trigger_readiness_observation_from_storage(cfg, trigger["triggerId"])
+    public_observation = public_read["data"]["observation"]
+
+    assert tick["submitted"] == 1
+    assert public_observation["observedState"] == "ready"
+    assert public_observation["resourceIdentity"] == {
+        "type": "file",
+        "idPresent": True,
+        "idLength": len(unsafe_resource_id),
+        "idHash": public_observation["resourceIdentity"]["idHash"],
+    }
+    assert len(public_observation["resourceIdentity"]["idHash"]) == 64
+    assert "resourceId" not in public_observation
+    assert str(watched) not in repr(public_read)
+    assert watched.as_uri() not in repr(public_read)
+    assert "super-secret" not in repr(public_read)
 
 
 def test_configured_readiness_watcher_is_explicit_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -372,6 +458,10 @@ def _create_database_ready_trigger(cfg, database_id: str) -> dict[str, Any]:
 
 
 def _create_file_trigger(cfg, watched: Path) -> dict[str, Any]:
+    return _create_file_trigger_with_resource_id(cfg, watched, "file:/incoming/reads.fastq")
+
+
+def _create_file_trigger_with_resource_id(cfg, watched: Path, resource_id: str) -> dict[str, Any]:
     return create_workflow_trigger_from_request(
         cfg,
         WorkflowTriggerCreateRequest(
@@ -385,7 +475,7 @@ def _create_file_trigger(cfg, watched: Path) -> dict[str, Any]:
             triggerSpec={
                 "resource": {
                     "type": "file",
-                    "id": "file:/incoming/reads.fastq",
+                    "id": resource_id,
                     "uri": watched.as_uri(),
                     "watch": {"enabled": True, "adapter": "local_path", "path": str(watched)},
                 }
