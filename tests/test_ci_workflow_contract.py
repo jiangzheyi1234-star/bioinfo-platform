@@ -74,8 +74,11 @@ def test_ci_workflow_uses_sha_pinned_actions() -> None:
         path.read_text(encoding="utf-8")
         for path in sorted((REPOSITORY_ROOT / ".github" / "workflows").glob("*.yml"))
     )
+    uses_specs = re.findall(r"^\s*(?:-\s*)?uses:\s+([^\s#]+)", source, flags=re.MULTILINE)
     uses_lines = re.findall(r"uses:\s+[^@\s]+@([^\s#]+)", source)
 
+    assert uses_specs
+    assert all(spec.startswith("./") or "@" in spec for spec in uses_specs)
     assert uses_lines
     assert all(re.fullmatch(r"[0-9a-f]{40}", ref) for ref in uses_lines)
 
@@ -85,6 +88,31 @@ def test_workflows_do_not_use_privileged_untrusted_pr_triggers() -> None:
         source = path.read_text(encoding="utf-8")
         assert "pull_request_target:" not in source
         assert "workflow_run:" not in source
+
+
+def test_release_workflows_keep_write_permissions_explicit_and_narrow() -> None:
+    release = (REPOSITORY_ROOT / ".github" / "workflows" / "release-remote-runner-artifacts.yml").read_text(
+        encoding="utf-8"
+    )
+    register = (
+        REPOSITORY_ROOT / ".github" / "workflows" / "register-remote-runner-release-gate-evidence.yml"
+    ).read_text(encoding="utf-8")
+    promote = (REPOSITORY_ROOT / ".github" / "workflows" / "promote-remote-runner-release.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "release_gate_evidence_run_id:" not in release
+    assert "release_gate_evidence_artifact:" not in release
+    assert "release_gate_evidence_artifact:" in register
+    assert "release_gate_evidence_run_id:" in promote
+
+    assert "permissions:\n  contents: read" in release
+    assert "      id-token: write" in release
+    assert "      attestations: write" in release
+    assert "      artifact-metadata: write" in release
+    assert "      contents: write" in release
+    assert "permissions:\n  contents: read\n  actions: read" in register
+    assert "permissions:\n  contents: read\n  actions: read" in promote
 
 
 def test_codeowners_covers_security_sensitive_automation() -> None:

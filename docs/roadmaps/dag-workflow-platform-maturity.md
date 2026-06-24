@@ -364,6 +364,7 @@ Progress:
 - Governance audit reads are now a governed high-risk remote action (`audit.events.read`) with auditor/platform-admin role coverage, so safe audit metadata remains queryable without exposing the audit trail to every authenticated runner token.
 - Remote-runner secret references now have a pure provider contract for `env://`, `keyring://`, `secret://`, and `vault://` references that resolves only through an injected provider, exposes hash-only safe details, rejects inline/raw secret values, and backs signed webhook verification without exposing secret references in trigger read models, diagnostics, inbox metadata, or audit details.
 - Webhook inbox replay is now a distinct governed remote action (`workflow_trigger.inbox_replay`) with workflow-operator role coverage, while replay dispatch reuses the existing trigger event and still records hash-chained replay audit evidence.
+- CI security governance audit now models GitHub Actions workflow permissions, rejects unversioned external actions and privileged follow-up triggers, and allowlists only the explicit release-attestation and release-publishing write scopes needed by current workflows.
 
 Recommended sequence:
 

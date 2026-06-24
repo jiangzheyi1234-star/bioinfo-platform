@@ -85,6 +85,7 @@ rejected at Local API startup.
 
 - GitHub Actions used by repository workflows must be pinned to full commit SHAs.
 - Default workflow permissions must stay least-privilege, with `contents: read` unless a job explicitly needs more.
+- CI governance audit parses workflow permission blocks and rejects unapproved write permissions, unversioned external actions, `pull_request_target`, and `workflow_run` triggers. Current write-permission exceptions are limited to release artifact attestations and explicit GitHub Release asset publishing.
 - CI requires root and web npm lockfiles to pass moderate-or-higher audit using the official npm registry.
 - CI requires `pip-audit` for locked Python dependencies. Any ignore must be scoped to a single vulnerability ID and documented in this file with a removal trigger.
 - CodeQL, Dependency Review, and OpenSSF Scorecard remain planned security-analysis gates until repository visibility, GitHub plan, or GitHub Advanced Security availability can run them green. When enabled, they must use SHA-pinned actions, least-privilege permissions, no `pull_request_target`, and the narrow Dependency Review shape documented in the roadmap.

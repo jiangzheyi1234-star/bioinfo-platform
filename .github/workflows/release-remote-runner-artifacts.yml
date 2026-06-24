@@ -34,14 +34,6 @@ on:
         description: Optional workflow-runtime artifact version override. Leave blank to use the checked-out manifest version.
         required: false
         default: ""
-      release_gate_evidence_run_id:
-        description: Workflow run id containing release-gate-evidence.json as an artifact for protected promotion.
-        required: false
-        default: ""
-      release_gate_evidence_artifact:
-        description: Artifact name containing release-gate-evidence.json.
-        required: false
-        default: h2ometa-remote-runner-release-gate-evidence
       platform:
         description: Target Linux platform.
         required: true

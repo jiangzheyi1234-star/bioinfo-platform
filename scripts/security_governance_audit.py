@@ -58,6 +58,20 @@ FORBIDDEN_SECURITY_TEXT_PATTERNS: tuple[tuple[str, re.Pattern[str], str], ...] =
         "docs and source must not bypass SSH known_hosts verification",
     ),
 )
+USES_LINE_RE = re.compile(r"^\s*(?:-\s*)?uses:\s+([^\s#]+)", re.MULTILINE)
+WORKFLOW_PERMISSION_KEYS_ALLOWED_AT_TOP = {"actions", "contents"}
+WORKFLOW_JOB_WRITE_PERMISSION_ALLOWLIST: dict[str, dict[str, dict[str, str]]] = {
+    ".github/workflows/release-remote-runner-artifacts.yml": {
+        "build": {
+            "attestations": "write",
+            "artifact-metadata": "write",
+            "id-token": "write",
+        },
+        "publish": {
+            "contents": "write",
+        },
+    },
+}
 
 
 @dataclass(frozen=True)
@@ -188,21 +202,7 @@ def scan_security_contracts() -> list[Finding]:
     for workflow in workflow_root.glob("*.yml"):
         source = workflow.read_text(encoding="utf-8")
         relative = workflow.relative_to(ROOT).as_posix()
-        if "pull_request_target:" in source:
-            findings.append(Finding("dangerous-workflow-trigger", relative, 0, "pull_request_target is not allowed"))
-        if "permissions:\n  contents: read" not in source:
-            findings.append(Finding("workflow-permissions", relative, 0, "workflow must declare least-privilege contents: read"))
-        for match in re.finditer(r"uses:\s+[^@\s]+@([^\s#]+)", source):
-            ref = match.group(1)
-            if not re.fullmatch(r"[0-9a-f]{40}", ref):
-                findings.append(
-                    Finding(
-                        "unpinned-action",
-                        relative,
-                        line_number(source, match.start()),
-                        "third-party actions must be pinned to a full commit SHA",
-                    )
-                )
+        findings.extend(scan_workflow_security_contract(relative, source))
     codeowners = ROOT / ".github" / "CODEOWNERS"
     if not codeowners.exists():
         findings.append(Finding("codeowners-missing", ".github/CODEOWNERS", 0, "security-sensitive automation requires CODEOWNERS"))
@@ -212,6 +212,208 @@ def scan_security_contracts() -> list[Finding]:
             if marker not in source:
                 findings.append(Finding("codeowners-incomplete", ".github/CODEOWNERS", 0, f"CODEOWNERS missing {marker}"))
     return findings
+
+
+def scan_workflow_security_contract(relative: str, source: str) -> list[Finding]:
+    findings: list[Finding] = []
+    if "pull_request_target:" in source:
+        findings.append(Finding("dangerous-workflow-trigger", relative, 0, "pull_request_target is not allowed"))
+    if "workflow_run:" in source:
+        findings.append(Finding("dangerous-workflow-trigger", relative, 0, "workflow_run is not allowed"))
+    findings.extend(scan_workflow_action_pinning(relative, source))
+    findings.extend(scan_workflow_permissions(relative, source))
+    return findings
+
+
+def scan_workflow_action_pinning(relative: str, source: str) -> list[Finding]:
+    findings: list[Finding] = []
+    for match in USES_LINE_RE.finditer(source):
+        action_ref = match.group(1).strip().strip("'\"")
+        if action_ref.startswith("./"):
+            continue
+        if "@" not in action_ref:
+            findings.append(
+                Finding(
+                    "unpinned-action",
+                    relative,
+                    line_number(source, match.start()),
+                    "third-party actions must include an immutable full commit SHA ref",
+                )
+            )
+            continue
+        ref = action_ref.rsplit("@", 1)[1]
+        if not re.fullmatch(r"[0-9a-f]{40}", ref):
+            findings.append(
+                Finding(
+                    "unpinned-action",
+                    relative,
+                    line_number(source, match.start()),
+                    "third-party actions must be pinned to a full commit SHA",
+                )
+            )
+    return findings
+
+
+def scan_workflow_permissions(relative: str, source: str) -> list[Finding]:
+    findings: list[Finding] = []
+    lines = source.splitlines()
+    top_permissions = _simple_yaml_mapping_after_key(lines, "permissions", 0)
+    if top_permissions is None:
+        return [Finding("workflow-permissions", relative, 0, "workflow must declare explicit top-level permissions")]
+    if top_permissions.line_errors:
+        findings.extend(
+            Finding("workflow-permissions", relative, line, detail)
+            for line, detail in top_permissions.line_errors
+        )
+    if top_permissions.values.get("contents") != "read":
+        findings.append(Finding("workflow-permissions", relative, top_permissions.line, "workflow must declare contents: read"))
+    for permission, value in sorted(top_permissions.values.items()):
+        if permission not in WORKFLOW_PERMISSION_KEYS_ALLOWED_AT_TOP:
+            findings.append(
+                Finding(
+                    "workflow-permission-unapproved",
+                    relative,
+                    top_permissions.value_lines.get(permission, top_permissions.line),
+                    f"top-level workflow permission {permission} is not approved",
+                )
+            )
+        if value != "read":
+            findings.append(
+                Finding(
+                    "workflow-permission-write-unapproved",
+                    relative,
+                    top_permissions.value_lines.get(permission, top_permissions.line),
+                    f"top-level workflow permission {permission}: {value} is not approved",
+                )
+            )
+
+    for job_id, permission_block in _workflow_job_permission_blocks(lines).items():
+        allowed_writes = WORKFLOW_JOB_WRITE_PERMISSION_ALLOWLIST.get(relative, {}).get(job_id, {})
+        if permission_block.line_errors:
+            findings.extend(
+                Finding("workflow-permissions", relative, line, f"job {job_id}: {detail}")
+                for line, detail in permission_block.line_errors
+            )
+        for permission, value in sorted(permission_block.values.items()):
+            line = permission_block.value_lines.get(permission, permission_block.line)
+            if value == "read":
+                continue
+            if allowed_writes.get(permission) == value:
+                continue
+            findings.append(
+                Finding(
+                    "workflow-permission-write-unapproved",
+                    relative,
+                    line,
+                    f"job {job_id} declares unapproved permission {permission}: {value}",
+                )
+            )
+    if _workflow_has_untrusted_pr_trigger(source) and _workflow_declares_write_permissions(lines):
+        findings.append(
+            Finding(
+                "workflow-write-permission-on-pr",
+                relative,
+                0,
+                "workflow with pull_request or merge_group trigger must not declare write permissions",
+            )
+        )
+    return findings
+
+
+@dataclass(frozen=True)
+class SimpleYamlMapping:
+    line: int
+    line_errors: tuple[tuple[int, str], ...]
+    values: dict[str, str]
+    value_lines: dict[str, int]
+
+
+def _simple_yaml_mapping_after_key(lines: list[str], key: str, indent: int) -> SimpleYamlMapping | None:
+    key_re = re.compile(rf"^ {{{indent}}}{re.escape(key)}:\s*(.*?)\s*(?:#.*)?$")
+    for index, line in enumerate(lines):
+        match = key_re.match(line)
+        if not match:
+            continue
+        inline_value = match.group(1).strip()
+        if inline_value:
+            return SimpleYamlMapping(
+                line=index + 1,
+                line_errors=((index + 1, f"{key} must be a mapping block, not {inline_value!r}"),),
+                values={},
+                value_lines={},
+            )
+        return _read_simple_yaml_mapping(lines, start=index + 1, parent_indent=indent, parent_line=index + 1)
+    return None
+
+
+def _read_simple_yaml_mapping(
+    lines: list[str],
+    *,
+    start: int,
+    parent_indent: int,
+    parent_line: int,
+) -> SimpleYamlMapping:
+    values: dict[str, str] = {}
+    value_lines: dict[str, int] = {}
+    errors: list[tuple[int, str]] = []
+    child_indent = parent_indent + 2
+    for index in range(start, len(lines)):
+        line = lines[index]
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        if indent <= parent_indent:
+            break
+        if indent != child_indent:
+            errors.append((index + 1, "permission mapping must use one indentation level"))
+            continue
+        match = re.match(r"^\s*([A-Za-z0-9_-]+):\s*([A-Za-z-]+)\s*(?:#.*)?$", line)
+        if not match:
+            errors.append((index + 1, "permission entry must be a simple key: value pair"))
+            continue
+        values[match.group(1)] = match.group(2)
+        value_lines[match.group(1)] = index + 1
+    return SimpleYamlMapping(line=parent_line, line_errors=tuple(errors), values=values, value_lines=value_lines)
+
+
+def _workflow_job_permission_blocks(lines: list[str]) -> dict[str, SimpleYamlMapping]:
+    blocks: dict[str, SimpleYamlMapping] = {}
+    in_jobs = False
+    current_job: str | None = None
+    for index, line in enumerate(lines):
+        if re.match(r"^jobs:\s*(?:#.*)?$", line):
+            in_jobs = True
+            current_job = None
+            continue
+        if not in_jobs:
+            continue
+        if line.strip() and not line.startswith(" "):
+            break
+        job_match = re.match(r"^  ([A-Za-z0-9_-]+):\s*(?:#.*)?$", line)
+        if job_match:
+            current_job = job_match.group(1)
+            continue
+        if current_job and re.match(r"^    permissions:\s*(.*?)\s*(?:#.*)?$", line):
+            block = _simple_yaml_mapping_after_key(lines[index:], "permissions", 4)
+            if block is not None:
+                blocks[current_job] = SimpleYamlMapping(
+                    line=block.line + index,
+                    line_errors=tuple((line_no + index, detail) for line_no, detail in block.line_errors),
+                    values=block.values,
+                    value_lines={key: value + index for key, value in block.value_lines.items()},
+                )
+    return blocks
+
+
+def _workflow_has_untrusted_pr_trigger(source: str) -> bool:
+    return "pull_request:" in source or "merge_group:" in source
+
+
+def _workflow_declares_write_permissions(lines: list[str]) -> bool:
+    for line in lines:
+        if re.match(r"^\s*[A-Za-z0-9_-]+:\s*write\s*(?:#.*)?$", line):
+            return True
+    return False
 
 
 def scan_governance_policy_contracts(paths: list[Path]) -> list[Finding]:

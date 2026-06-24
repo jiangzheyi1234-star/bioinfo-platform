@@ -4,6 +4,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from scripts import security_governance_audit as audit
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -71,6 +73,10 @@ def test_security_governance_audit_script_contract() -> None:
     assert "cors-wildcard" in source
     assert "dangerous-workflow-trigger" in source
     assert "unpinned-action" in source
+    assert "workflow_run is not allowed" in source
+    assert "scan_workflow_security_contract" in source
+    assert "WORKFLOW_JOB_WRITE_PERMISSION_ALLOWLIST" in source
+    assert "workflow-permission-write-unapproved" in source
     assert "ssh-auto-add-host-key" in source
     assert "ssh-host-key-reject-policy" in source
     assert "ssh-sha1-rsa-enabled" in source
@@ -90,6 +96,72 @@ def test_security_governance_audit_script_contract() -> None:
     )
     assert result.returncode == 0, result.stderr
     assert "Security governance audit passed." in result.stdout
+
+
+def test_security_governance_audit_rejects_unsafe_workflow_fixtures() -> None:
+    unversioned_action = """
+name: Unsafe
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout
+"""
+    write_on_pr = """
+name: Unsafe Write
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - run: echo unsafe
+"""
+    workflow_run = """
+name: Unsafe Trigger
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+permissions:
+  contents: read
+jobs:
+  followup:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo unsafe
+"""
+
+    assert "unpinned-action" in _finding_codes(
+        audit.scan_workflow_security_contract(".github/workflows/unsafe.yml", unversioned_action)
+    )
+    write_codes = _finding_codes(
+        audit.scan_workflow_security_contract(".github/workflows/unsafe.yml", write_on_pr)
+    )
+    assert "workflow-permission-write-unapproved" in write_codes
+    assert "workflow-write-permission-on-pr" in write_codes
+    assert "dangerous-workflow-trigger" in _finding_codes(
+        audit.scan_workflow_security_contract(".github/workflows/unsafe.yml", workflow_run)
+    )
+
+
+def test_security_governance_audit_accepts_release_permission_allowlist() -> None:
+    workflow = _source(".github/workflows/release-remote-runner-artifacts.yml")
+
+    findings = audit.scan_workflow_security_contract(
+        ".github/workflows/release-remote-runner-artifacts.yml",
+        workflow,
+    )
+
+    assert [finding.format() for finding in findings] == []
 
 
 def test_docs_do_not_recommend_disabling_ssh_host_key_checks() -> None:
@@ -135,3 +207,7 @@ def test_remote_runner_auth_and_deployment_security_contracts_are_locked() -> No
     assert "RejectPolicy" in ssh_connector
     assert "SSH_SHA1_DISABLED_ALGORITHMS" in ssh_connector
     assert "SSH_HOST_KEY_UNTRUSTED" in ssh_connector
+
+
+def _finding_codes(findings: list[audit.Finding]) -> set[str]:
+    return {finding.code for finding in findings}
