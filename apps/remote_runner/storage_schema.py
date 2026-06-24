@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .artifact_cache_pin_schema import ARTIFACT_CACHE_PIN_SCHEMA_SQL
+from .sqlite_trigger_readiness_watcher_migrations import WORKFLOW_TRIGGER_READINESS_WATCHER_SCHEMA_SQL
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS service_state (
     key TEXT PRIMARY KEY,
@@ -801,4 +802,4 @@ CREATE TABLE IF NOT EXISTS reconcile_queue (
     updated_at TEXT NOT NULL,
     UNIQUE(dedup_key)
 );
-""" + ARTIFACT_CACHE_PIN_SCHEMA_SQL
+""" + ARTIFACT_CACHE_PIN_SCHEMA_SQL + WORKFLOW_TRIGGER_READINESS_WATCHER_SCHEMA_SQL
