@@ -7,7 +7,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils";
 
 import type { AddedTool } from "./tools-page-model";
+import type { RulePortConverterInsertionRequest } from "./generated-workflow-converter-recommendation";
 import {
+  backendPlanConverterInsertionForSuggestion,
   converterSuggestionsForInput,
   type OutputConverterSuggestion,
 } from "./generated-workflow-port-advice";
@@ -27,6 +29,7 @@ import {
   type RulePortRecommendation,
 } from "./generated-workflow-recommendation-contract";
 import type { GeneratedWorkflowBuilderController } from "./use-generated-workflow-builder";
+import type { WorkflowDesignSemanticPortPlan } from "./workflow-design-draft-model";
 
 export type GeneratedWorkflowOutputCandidate = {
   value: string;
@@ -47,6 +50,7 @@ export function GeneratedWorkflowPortBindingsEditor({
   onBind,
   onInsertConverter,
   outputCandidates,
+  semanticPortPlan,
   tool,
   tools,
 }: {
@@ -54,8 +58,9 @@ export function GeneratedWorkflowPortBindingsEditor({
   inputCount: number;
   node: GeneratedWorkflowBuilderController["graphDraft"]["nodes"][number];
   onBind: (inputName: string, binding: GeneratedWorkflowInputBinding) => void;
-  onInsertConverter: (inputName: string, suggestion: OutputConverterSuggestion) => void;
+  onInsertConverter: (request: RulePortConverterInsertionRequest) => void;
   outputCandidates: GeneratedWorkflowOutputCandidate[];
+  semanticPortPlan?: WorkflowDesignSemanticPortPlan | null;
   tool: AddedTool | undefined;
   tools: AddedTool[];
 }) {
@@ -91,8 +96,10 @@ export function GeneratedWorkflowPortBindingsEditor({
             input={input}
             inputCount={inputCount}
             outputCandidates={candidates}
+            semanticPortPlan={semanticPortPlan}
+            targetStepId={node.id}
             onChange={(nextBinding) => onBind(input.name, nextBinding)}
-            onInsertConverter={(suggestion) => onInsertConverter(input.name, suggestion)}
+            onInsertConverter={onInsertConverter}
           />
         );
       })}
@@ -106,6 +113,8 @@ function PortBindingRow({
   input,
   inputCount,
   outputCandidates,
+  semanticPortPlan,
+  targetStepId,
   onChange,
   onInsertConverter,
 }: {
@@ -114,8 +123,10 @@ function PortBindingRow({
   input: RuleInputSpec;
   inputCount: number;
   outputCandidates: GeneratedWorkflowOutputCandidate[];
+  semanticPortPlan?: WorkflowDesignSemanticPortPlan | null;
+  targetStepId: string;
   onChange: (binding: GeneratedWorkflowInputBinding) => void;
-  onInsertConverter: (suggestion: OutputConverterSuggestion) => void;
+  onInsertConverter: (request: RulePortConverterInsertionRequest) => void;
 }) {
   const type = bindingKind(binding);
   const required = input.required !== false;
@@ -188,30 +199,44 @@ function PortBindingRow({
       {!recommended && converterSuggestions.length > 0 ? (
         <div className="grid gap-1 rounded-md bg-sky-50 px-2 py-2 text-[11px] text-sky-800">
           <div className="font-medium">一跳转换建议 · 需确认，不会自动插入</div>
-          {converterSuggestions.slice(0, 3).map((suggestion) => (
-            <div
-              key={`${suggestion.sourceValue}.${suggestion.converterToolRevisionId}.${suggestion.inputName}.${suggestion.outputName}`}
-              className="grid gap-1 rounded-sm bg-white/70 px-2 py-1.5"
-            >
-              <div className="min-w-0 break-words">
-                {suggestion.sourceLabel} -&gt; {suggestion.converterToolName}.{suggestion.inputName}/{suggestion.outputName}
-                <span className="text-sky-600"> · {suggestion.reason}</span>
-              </div>
-              <div className="min-w-0 break-words text-sky-700" title={suggestion.insertionMode}>
-                插入策略: 需确认，不会自动插入 · {suggestion.autoInsertionBlockedReasons.join(" · ")}
-              </div>
-              <div className="min-w-0 break-words text-sky-700">证据: {suggestion.evidence.join(" · ")}</div>
-              <Button
-                type="button"
-                variant="outline"
-                className="h-7 justify-self-start bg-white px-2 text-[11px]"
-                onClick={() => onInsertConverter(suggestion)}
+          {converterSuggestions.slice(0, 3).map((suggestion) => {
+            const backendInsertion = backendPlanConverterInsertionForSuggestion({
+              plan: semanticPortPlan,
+              sourceOutput: suggestion.sourceOutput,
+              sourceStepId: suggestion.sourceStepId,
+              suggestion,
+              targetInput: input.name,
+              targetStepId,
+            });
+            return (
+              <div
+                key={`${suggestion.sourceValue}.${suggestion.converterToolRevisionId}.${suggestion.inputName}.${suggestion.outputName}`}
+                className="grid gap-1 rounded-sm bg-white/70 px-2 py-1.5"
               >
-                <Plus strokeWidth={1.5} className="mr-1 h-3.5 w-3.5" />
-                确认插入转换
-              </Button>
-            </div>
-          ))}
+                <div className="min-w-0 break-words">
+                  {suggestion.sourceLabel} -&gt; {suggestion.converterToolName}.{suggestion.inputName}/{suggestion.outputName}
+                  <span className="text-sky-600"> · {suggestion.reason}</span>
+                </div>
+                <div className="min-w-0 break-words text-sky-700" title={suggestion.insertionMode}>
+                  插入策略: 需确认，不会自动插入 · {suggestion.autoInsertionBlockedReasons.join(" · ")}
+                </div>
+                <div className="min-w-0 break-words text-sky-700">证据: {suggestion.evidence.join(" · ")}</div>
+                {backendInsertion ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-7 justify-self-start bg-white px-2 text-[11px]"
+                    onClick={() => onInsertConverter(backendInsertion.request)}
+                  >
+                    <Plus strokeWidth={1.5} className="mr-1 h-3.5 w-3.5" />
+                    确认插入转换
+                  </Button>
+                ) : (
+                  <div className="text-[11px] text-amber-700">保存并验证后可使用后端转换建议</div>
+                )}
+              </div>
+            );
+          })}
         </div>
       ) : null}
     </div>

@@ -35,6 +35,7 @@ const {
   findOneHopPortConverters,
 } = require(path.join(root, "apps", "web", "app", "components", "generated-workflow-converter-recommendation.ts"));
 const {
+  backendPlanConverterInsertionForSuggestion,
   converterSuggestionsForConnection,
 } = require(path.join(root, "apps", "web", "app", "components", "generated-workflow-port-advice.ts"));
 const {
@@ -133,6 +134,77 @@ assert.equal(canvasSuggestion.sourceOutput, "report");
 assert.equal(canvasSuggestion.confirmationRequired, true);
 assert.equal(canvasSuggestion.insertionMode, "explicit-user-confirmed");
 assert(canvasSuggestion.autoInsertionBlockedReasons.includes("graph-mutation-requires-user-action"));
+
+const backendSemanticPortPlan = {
+  schemaVersion: "h2ometa.workflow-design-semantic-port-plan.v1",
+  edgeCount: 1,
+  compatibleEdgeCount: 0,
+  blockedEdgeCount: 1,
+  converterCandidateCount: 1,
+  edges: [
+    {
+      from: { nodeId: "source", port: "report" },
+      to: { nodeId: "target", port: "reads" },
+      decision: { compatible: false, score: null, matchedFields: [], genericFields: [], advisoryFields: [], mismatchedField: "format", hardChecks: [], advisoryChecks: [], inputSpec: {}, outputSpec: {} },
+      recommendation: { action: "insert-converter", reasonCode: "ONE_HOP_CONVERTER_AVAILABLE", confidence: 0.9, hardChecks: [], evidence: [], converterCandidateCount: 1 },
+      converterCandidates: [
+        {
+          converterToolRevisionId: converterTool.toolRevisionId,
+          converterToolId: converterTool.id,
+          converterToolName: converterTool.name,
+          inputPort: canvasSuggestion.inputName,
+          outputPort: canvasSuggestion.outputName,
+          inputScore: canvasSuggestion.inputScore,
+          outputScore: canvasSuggestion.outputScore,
+          totalScore: canvasSuggestion.totalScore,
+          confirmationRequired: true,
+          insertionMode: "explicit-user-confirmed",
+          autoInsertionBlockedReasons: canvasSuggestion.autoInsertionBlockedReasons,
+          hardChecks: canvasSuggestion.hardChecks,
+          evidence: canvasSuggestion.evidence,
+          inputDecision: { compatible: true },
+          outputDecision: { compatible: true },
+          reason: canvasSuggestion.reason,
+        },
+      ],
+    },
+  ],
+};
+const backendInsertion = backendPlanConverterInsertionForSuggestion({
+  plan: backendSemanticPortPlan,
+  sourceStepId: "source",
+  sourceOutput: "report",
+  targetStepId: "target",
+  targetInput: "reads",
+  suggestion: canvasSuggestion,
+});
+assert(backendInsertion);
+assert.equal(backendInsertion.request.sourceStepId, "source");
+assert.equal(backendInsertion.request.sourceOutput, "report");
+assert.equal(backendInsertion.request.targetStepId, "target");
+assert.equal(backendInsertion.request.targetInput, "reads");
+assert.equal(backendInsertion.request.converter.converterToolRevisionId, converterTool.toolRevisionId);
+assert.equal(backendInsertion.request.converter.inputName, canvasSuggestion.inputName);
+assert.equal(backendInsertion.request.converter.outputName, canvasSuggestion.outputName);
+
+const localOnlyInsertion = backendPlanConverterInsertionForSuggestion({
+  plan: null,
+  sourceStepId: "source",
+  sourceOutput: "report",
+  targetStepId: "target",
+  targetInput: "reads",
+  suggestion: canvasSuggestion,
+});
+assert.equal(localOnlyInsertion, null);
+const staleBackendInsertion = backendPlanConverterInsertionForSuggestion({
+  plan: { ...backendSemanticPortPlan, edges: [{ ...backendSemanticPortPlan.edges[0], to: { nodeId: "other", port: "reads" } }] },
+  sourceStepId: "source",
+  sourceOutput: "report",
+  targetStepId: "target",
+  targetInput: "reads",
+  suggestion: canvasSuggestion,
+});
+assert.equal(staleBackendInsertion, null);
 
 const compatibleSuggestion = converterSuggestionsForConnection({
   graphDraft: {

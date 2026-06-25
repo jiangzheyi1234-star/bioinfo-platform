@@ -1,6 +1,7 @@
 import type { AddedTool } from "./tools-page-model";
 import {
   findOneHopPortConverters,
+  type RulePortConverterInsertionRequest,
   type RulePortConverterCandidate,
 } from "./generated-workflow-converter-recommendation";
 import {
@@ -14,6 +15,11 @@ import {
   type RuleInputSpec,
   type RuleOutputSpec,
 } from "./generated-workflow-model";
+import type {
+  WorkflowDesignSemanticPortCandidate,
+  WorkflowDesignSemanticPortEdgePlan,
+  WorkflowDesignSemanticPortPlan,
+} from "./workflow-design-draft-model";
 
 export type GeneratedWorkflowOutputPortCandidate = {
   value: string;
@@ -28,6 +34,12 @@ export type OutputConverterSuggestion = RulePortConverterCandidate & {
   sourceOutput: string;
   sourceStepId: string;
   sourceValue: string;
+};
+
+export type BackendPlanConverterInsertion = {
+  candidate: WorkflowDesignSemanticPortCandidate;
+  edge: WorkflowDesignSemanticPortEdgePlan;
+  request: RulePortConverterInsertionRequest;
 };
 
 export function converterSuggestionsForInput({
@@ -94,6 +106,70 @@ export function converterSuggestionsForConnection({
     nodeToolRevisionId: targetNode.toolRevisionId,
     tools,
   });
+}
+
+export function backendPlanConverterInsertionForSuggestion({
+  plan,
+  sourceOutput,
+  sourceStepId,
+  suggestion,
+  targetInput,
+  targetStepId,
+}: {
+  plan: WorkflowDesignSemanticPortPlan | null | undefined;
+  sourceOutput: string;
+  sourceStepId: string;
+  suggestion: OutputConverterSuggestion;
+  targetInput: string;
+  targetStepId: string;
+}): BackendPlanConverterInsertion | null {
+  if (!plan) return null;
+  const edge = plan.edges.find(
+    (item) =>
+      item.from.nodeId === sourceStepId
+      && item.from.port === sourceOutput
+      && item.to.nodeId === targetStepId
+      && item.to.port === targetInput
+  );
+  const candidate = edge?.converterCandidates.find(
+    (item) =>
+      item.converterToolRevisionId === suggestion.converterToolRevisionId
+      && item.inputPort === suggestion.inputName
+      && item.outputPort === suggestion.outputName
+      && item.confirmationRequired === true
+      && item.insertionMode === "explicit-user-confirmed"
+  );
+  if (!edge || !candidate || edge.recommendation.action !== "insert-converter") return null;
+  return { candidate, edge, request: insertionRequestForBackendCandidate(edge, candidate) };
+}
+
+export function insertionRequestForBackendCandidate(
+  edge: WorkflowDesignSemanticPortEdgePlan,
+  candidate: WorkflowDesignSemanticPortCandidate
+): RulePortConverterInsertionRequest {
+  return {
+    sourceStepId: edge.from.nodeId,
+    sourceOutput: edge.from.port,
+    targetStepId: edge.to.nodeId,
+    targetInput: edge.to.port,
+    converter: {
+      converterToolRevisionId: candidate.converterToolRevisionId,
+      converterToolName: candidate.converterToolName,
+      confirmationRequired: true,
+      insertionMode: "explicit-user-confirmed",
+      autoInsertionBlockedReasons: candidate.autoInsertionBlockedReasons,
+      hardChecks: candidate.hardChecks,
+      evidence: candidate.evidence,
+      inputName: candidate.inputPort,
+      outputName: candidate.outputPort,
+      inputScore: candidate.inputScore,
+      outputScore: candidate.outputScore,
+      totalScore: candidate.totalScore,
+      reason: candidate.reason,
+      ...(candidate.operation ? { operation: candidate.operation } : {}),
+      ...(candidate.workflowStage ? { workflowStage: candidate.workflowStage } : {}),
+    },
+  };
 }
 
 function wouldCreateCycle({

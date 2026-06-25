@@ -36,7 +36,11 @@ import {
   reactFlowConnectionToGraphConnection,
   type WorkflowRuleFlowEdge,
 } from "./generated-workflow-react-flow-adapter";
-import { converterSuggestionsForConnection, type OutputConverterSuggestion } from "./generated-workflow-port-advice";
+import {
+  backendPlanConverterInsertionForSuggestion,
+  converterSuggestionsForConnection,
+  type OutputConverterSuggestion,
+} from "./generated-workflow-port-advice";
 import {
   evaluateGeneratedWorkflowPortConnection,
   type GeneratedWorkflowPortConnectionDecision,
@@ -51,6 +55,7 @@ import {
   type GeneratedWorkflowValidationIssue,
 } from "./generated-workflow-model";
 import type { GeneratedWorkflowBuilderController } from "./use-generated-workflow-builder";
+import type { WorkflowDesignSemanticPortPlan } from "./workflow-design-draft-model";
 
 type GraphNode = GeneratedWorkflowBuilderController["graphDraft"]["nodes"][number];
 type GraphEdge = GeneratedWorkflowBuilderController["graphDraft"]["edges"][number];
@@ -102,6 +107,7 @@ export function GeneratedWorkflowGraphCanvas({
   onSelectNode,
   searchQuery = "",
   selectedNodeId,
+  semanticPortPlan,
   tools,
   validationIssues,
 }: {
@@ -117,6 +123,7 @@ export function GeneratedWorkflowGraphCanvas({
   onSelectNode: (nodeId: string) => void;
   searchQuery?: string;
   selectedNodeId: string;
+  semanticPortPlan?: WorkflowDesignSemanticPortPlan | null;
   tools: AddedTool[];
   validationIssues: GeneratedWorkflowValidationIssue[];
 }) {
@@ -188,7 +195,7 @@ export function GeneratedWorkflowGraphCanvas({
   useEffect(() => {
     lastInvalidConnectionRef.current = null;
     setConnectionNotice((current) => (current?.request ? null : current));
-  }, [graphDraft, tools]);
+  }, [graphDraft, semanticPortPlan, tools]);
 
   const evaluateConnection = useCallback(
     (connection: Connection | RuleFlowEdge): GeneratedWorkflowPortConnectionDecision => {
@@ -205,18 +212,18 @@ export function GeneratedWorkflowGraphCanvas({
       const graphConnection = reactFlowConnectionToGraphConnection(connection);
       const decision = evaluateConnection(connection);
       if (!decision.ok) {
-        lastInvalidConnectionRef.current = connectionNoticeForDecision({ decision, graphConnection, graphDraft, tools });
+        lastInvalidConnectionRef.current = connectionNoticeForDecision({ decision, graphConnection, graphDraft, semanticPortPlan, tools });
       }
       return decision.ok;
     },
-    [evaluateConnection, graphDraft, tools]
+    [evaluateConnection, graphDraft, semanticPortPlan, tools]
   );
   const onConnect = useCallback<OnConnect>(
     (connection) => {
       const graphConnection = reactFlowConnectionToGraphConnection(connection);
       const decision = evaluateConnection(connection);
       if (!graphConnection || !decision.ok) {
-        setConnectionNotice(connectionNoticeForDecision({ decision, graphConnection, graphDraft, tools }));
+        setConnectionNotice(connectionNoticeForDecision({ decision, graphConnection, graphDraft, semanticPortPlan, tools }));
         return;
       }
       onBindInput(graphConnection.to.nodeId, graphConnection.to.port, decision.binding);
@@ -224,7 +231,7 @@ export function GeneratedWorkflowGraphCanvas({
         message: `已连接 ${graphConnection.from.nodeId}.${graphConnection.from.port} -> ${graphConnection.to.nodeId}.${graphConnection.to.port}`,
       });
     },
-    [evaluateConnection, graphDraft, onBindInput, tools]
+    [evaluateConnection, graphDraft, onBindInput, semanticPortPlan, tools]
   );
   const onConnectEnd = useCallback<OnConnectEnd>(
     (_event, connectionState) => {
@@ -332,24 +339,31 @@ export function GeneratedWorkflowGraphCanvas({
         </div>
       ) : null}
       {connectionNotice ? (
-        <div className="absolute bottom-2 left-2 grid max-w-[76%] gap-1 rounded border border-slate-200 bg-white/95 px-2 py-1.5 text-[11px] text-slate-600 shadow-sm">
+        <div
+          className="absolute bottom-2 left-2 grid max-w-[76%] gap-1 rounded border border-slate-200 bg-white/95 px-2 py-1.5 text-[11px] text-slate-600 shadow-sm"
+          data-testid="workflow-graph-connection-notice"
+        >
           <div className="min-w-0 break-words">{connectionNotice.message}</div>
           {connectionNotice.suggestion ? (
-            <Button
-              type="button"
-              variant="outline"
-              className="h-7 justify-self-start bg-white px-2 text-[11px]"
-              onClick={() => {
-                if (!connectionNotice.request) return;
-                onInsertConverter(connectionNotice.request);
-                setConnectionNotice({
-                  message: `已插入转换节点 ${connectionNotice.suggestion?.converterToolName || "converter"}，请复核新增连线。`,
-                });
-              }}
-            >
-              <Plus strokeWidth={1.5} className="mr-1 h-3.5 w-3.5" />
-              确认插入转换
-            </Button>
+            connectionNotice.request ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="h-7 justify-self-start bg-white px-2 text-[11px]"
+                onClick={() => {
+                  if (!connectionNotice.request) return;
+                  onInsertConverter(connectionNotice.request);
+                  setConnectionNotice({
+                    message: `已插入转换节点 ${connectionNotice.suggestion?.converterToolName || "converter"}，请复核新增连线。`,
+                  });
+                }}
+              >
+                <Plus strokeWidth={1.5} className="mr-1 h-3.5 w-3.5" />
+                确认插入转换
+              </Button>
+            ) : (
+              <div className="text-[11px] text-amber-700">保存并验证后可使用后端转换建议</div>
+            )
           ) : null}
         </div>
       ) : null}
@@ -532,11 +546,13 @@ function connectionNoticeForDecision({
   decision,
   graphConnection,
   graphDraft,
+  semanticPortPlan,
   tools,
 }: {
   decision: GeneratedWorkflowPortConnectionDecision;
   graphConnection: ReturnType<typeof reactFlowConnectionToGraphConnection>;
   graphDraft: GeneratedWorkflowGraphDraft;
+  semanticPortPlan?: WorkflowDesignSemanticPortPlan | null;
   tools: AddedTool[];
 }): ConnectionNotice {
   if (!decision.ok && decision.code === "WORKFLOW_GRAPH_CONNECTION_INCOMPATIBLE" && graphConnection) {
@@ -547,15 +563,17 @@ function connectionNoticeForDecision({
       )
         ? " 将替换当前目标输入绑定。"
         : "";
+      const backendInsertion = backendPlanConverterInsertionForSuggestion({
+        plan: semanticPortPlan,
+        sourceOutput: suggestion.sourceOutput,
+        sourceStepId: suggestion.sourceStepId,
+        suggestion,
+        targetInput: graphConnection.to.port,
+        targetStepId: graphConnection.to.nodeId,
+      });
       return {
-        message: `${decision.reason}。可插入转换 ${suggestion.converterToolName} · 需确认，不会自动插入。${replacementNote}`,
-        request: {
-          sourceStepId: suggestion.sourceStepId,
-          sourceOutput: suggestion.sourceOutput,
-          targetStepId: graphConnection.to.nodeId,
-          targetInput: graphConnection.to.port,
-          converter: suggestion,
-        },
+        message: `${decision.reason}。本地发现转换 ${suggestion.converterToolName}；后端 semanticPortPlan 背书后才可插入，且需确认，不会自动插入。${replacementNote}`,
+        request: backendInsertion?.request,
         suggestion,
       };
     }

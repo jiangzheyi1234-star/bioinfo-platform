@@ -134,7 +134,7 @@ Representative files:
 - `apps/web/app/components/generated-workflow-graph-node-card.tsx`
 - `apps/web/app/components/generated-workflow-builder.tsx`
 - `apps/web/app/components/use-generated-workflow-builder.ts`
-- New pure helpers such as `generated-workflow-graph-layout.ts`, `generated-workflow-history.ts`, and `generated-workflow-compatibility.ts`
+- New pure helpers such as `generated-workflow-graph-layout.ts`, `generated-workflow-history.ts`, and `generated-workflow-port-contract.ts`
 
 Exit criteria:
 
@@ -162,6 +162,7 @@ Progress:
 - Frontend draft creation now preserves external input semantic fields when replacing upload files, and Python/TypeScript port compatibility share golden EDAM/resource/advisory parity cases so UI recommendations cannot drift from backend compile validation unnoticed.
 - WorkflowDesignDraft plan responses now include a backend `semanticPortPlan` read model for every graph edge. It reports EDAM/resource compatibility decisions and one-hop converter candidates with hard checks, evidence, confirmation requirements, and no executable templates, paths, or automatic graph mutation.
 - The workflow builder now renders the backend `semanticPortPlan` as the semantic edge diagnostics surface, including compatible/blocked edge counts, mismatch evidence, and converter candidates that map into the existing converter insertion path only after explicit user confirmation.
+- Canvas and inspector converter insertion CTAs now require an exact backend `semanticPortPlan` candidate match for the source edge, target input, converter revision, and converter ports. Local TypeScript discovery remains visible only as a non-authoritative hint until the current draft has been saved and validated.
 
 Recommended sequence:
 

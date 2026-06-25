@@ -682,8 +682,13 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "suggestion.evidence" in port_bindings_editor_ui
     assert "onInsertConverter" in port_bindings_editor_ui
     assert "builder.insertConverter" in builder_ui
-    assert "sourceStepId: suggestion.sourceStepId" in builder_ui
-    assert "targetStepId: selectedNode.id" in builder_ui
+    assert "semanticPortPlan={semanticPortPlan}" in builder_ui
+    assert "onInsertConverter={builder.insertConverter}" in builder_ui
+    assert "sourceStepId: suggestion.sourceStepId" not in builder_ui
+    assert "targetStepId: selectedNode.id" not in builder_ui
+    assert "backendPlanConverterInsertionForSuggestion" in port_bindings_editor_ui
+    assert "onInsertConverter(backendInsertion.request)" in port_bindings_editor_ui
+    assert "保存并验证后可使用后端转换建议" in port_bindings_editor_ui
     assert "tools={tools}" in builder_ui
     assert "应用推荐" in port_bindings_editor_ui
     assert "autoEdgeAudit(recommended.recommendation)" in port_bindings_editor_ui

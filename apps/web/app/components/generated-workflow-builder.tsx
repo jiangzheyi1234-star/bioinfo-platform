@@ -203,6 +203,7 @@ export function GeneratedWorkflowBuilder({
         edges={builder.graphDraft.edges}
         inputCount={inputCount}
         outputCandidates={outputCandidates}
+        semanticPortPlan={designPlan?.semanticPortPlan || null}
         tools={workflowReadyTools}
       />
 
@@ -279,6 +280,7 @@ function WorkflowGraphWorkbench({
   edges,
   inputCount,
   outputCandidates,
+  semanticPortPlan,
   tools,
 }: {
   builder: GeneratedWorkflowBuilderController;
@@ -286,6 +288,7 @@ function WorkflowGraphWorkbench({
   edges: GeneratedWorkflowBuilderController["graphDraft"]["edges"];
   inputCount: number;
   outputCandidates: GeneratedWorkflowOutputCandidate[];
+  semanticPortPlan: WorkflowDesignPlan["semanticPortPlan"] | null;
   tools: AddedTool[];
 }) {
   const toolByRevisionId = useMemo(() => new Map(workflowToolRevisionEntries(tools)), [tools]);
@@ -454,6 +457,7 @@ function WorkflowGraphWorkbench({
             onSelectNode={setSelectedNodeId}
             searchQuery={graphSearchQuery}
             selectedNodeId={selectedNode?.id || ""}
+            semanticPortPlan={semanticPortPlan}
             tools={tools}
             validationIssues={builder.validation.errors}
           />
@@ -549,18 +553,11 @@ function WorkflowGraphWorkbench({
                 inputCount={inputCount}
                 node={selectedNode}
                 outputCandidates={outputCandidates}
+                semanticPortPlan={semanticPortPlan}
                 tool={selectedTool}
                 tools={tools}
                 onBind={(inputName, binding) => builder.setInputBinding(selectedNode.id, inputName, binding)}
-                onInsertConverter={(inputName, suggestion) =>
-                  builder.insertConverter({
-                    sourceStepId: suggestion.sourceStepId,
-                    sourceOutput: suggestion.sourceOutput,
-                    targetStepId: selectedNode.id,
-                    targetInput: inputName,
-                    converter: suggestion,
-                  })
-                }
+                onInsertConverter={builder.insertConverter}
               />
             </div>
           ) : (

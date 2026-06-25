@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 
 import type { AddedTool } from "./tools-page-model";
 import type { RulePortConverterInsertionRequest } from "./generated-workflow-converter-recommendation";
+import { insertionRequestForBackendCandidate } from "./generated-workflow-port-advice";
 import { workflowToolRevisionId } from "./generated-workflow-model";
 import type {
   WorkflowDesignSemanticPortCandidate,
@@ -203,33 +204,4 @@ function decisionEvidence(decision: WorkflowDesignSemanticPortDecision): string[
 
 function candidateKey(candidate: WorkflowDesignSemanticPortCandidate) {
   return `${candidate.converterToolRevisionId}.${candidate.inputPort}.${candidate.outputPort}`;
-}
-
-function insertionRequestForBackendCandidate(
-  edge: WorkflowDesignSemanticPortEdgePlan,
-  candidate: WorkflowDesignSemanticPortCandidate
-): RulePortConverterInsertionRequest {
-  return {
-    sourceStepId: edge.from.nodeId,
-    sourceOutput: edge.from.port,
-    targetStepId: edge.to.nodeId,
-    targetInput: edge.to.port,
-    converter: {
-      converterToolRevisionId: candidate.converterToolRevisionId,
-      converterToolName: candidate.converterToolName,
-      confirmationRequired: true,
-      insertionMode: "explicit-user-confirmed",
-      autoInsertionBlockedReasons: candidate.autoInsertionBlockedReasons,
-      hardChecks: candidate.hardChecks,
-      evidence: candidate.evidence,
-      inputName: candidate.inputPort,
-      outputName: candidate.outputPort,
-      inputScore: candidate.inputScore,
-      outputScore: candidate.outputScore,
-      totalScore: candidate.totalScore,
-      reason: candidate.reason,
-      ...(candidate.operation ? { operation: candidate.operation } : {}),
-      ...(candidate.workflowStage ? { workflowStage: candidate.workflowStage } : {}),
-    },
-  };
 }

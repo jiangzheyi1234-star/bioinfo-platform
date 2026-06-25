@@ -19,16 +19,23 @@ def test_canvas_converter_advice_requires_explicit_confirmation() -> None:
     assert "automatic-unambiguous" not in port_advice_contract
     assert "targetInputAlreadyBound" not in port_advice_contract
     assert "findOneHopPortConverters" in port_advice_contract
+    assert "backendPlanConverterInsertionForSuggestion" in port_advice_contract
+    assert "insertionRequestForBackendCandidate" in port_advice_contract
     assert "portsCompatible(input, output)" in port_advice_contract
     assert "wouldCreateCycle" in port_advice_contract
 
     assert "onInsertConverter={builder.insertConverter}" in builder_ui
+    assert "semanticPortPlan={semanticPortPlan}" in builder_ui
     assert "automaticConverterInsertionRequestForConnection" not in graph_canvas_ui
     assert "converterSuggestionsForConnection" in graph_canvas_ui
     assert "connectionNoticeForDecision" in graph_canvas_ui
     assert "RulePortConverterInsertionRequest" in graph_canvas_ui
+    assert 'data-testid="workflow-graph-connection-notice"' in graph_canvas_ui
     assert "确认插入转换" in graph_canvas_ui
     assert "需确认，不会自动插入" in graph_canvas_ui
+    assert "保存并验证后可使用后端转换建议" in graph_canvas_ui
+    assert "backendPlanConverterInsertionForSuggestion" in graph_canvas_ui
+    assert "request: backendInsertion?.request" in graph_canvas_ui
     assert "已自动插入转换节点" not in graph_canvas_ui
     assert "将替换当前目标输入绑定" in graph_canvas_ui
     assert "lastInvalidConnectionRef.current = null" in graph_canvas_ui
@@ -44,4 +51,8 @@ def test_canvas_converter_advice_requires_explicit_confirmation() -> None:
 
     assert "generated-workflow-port-advice" in port_bindings_editor_ui
     assert "converterSuggestionsForInput" in port_bindings_editor_ui
+    assert "backendPlanConverterInsertionForSuggestion" in port_bindings_editor_ui
+    assert "onInsertConverter(backendInsertion.request)" in port_bindings_editor_ui
+    assert "onInsertConverter(suggestion)" not in port_bindings_editor_ui
+    assert "保存并验证后可使用后端转换建议" in port_bindings_editor_ui
     assert "findOneHopPortConverters" not in port_bindings_editor_ui

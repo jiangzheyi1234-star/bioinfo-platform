@@ -10,10 +10,13 @@ COMPONENTS = ROOT / "apps" / "web" / "app" / "components"
 def test_workflow_design_semantic_port_plan_is_rendered_from_backend_plan() -> None:
     builder = (COMPONENTS / "generated-workflow-builder.tsx").read_text(encoding="utf-8")
     component = (COMPONENTS / "workflow-design-semantic-port-plan.tsx").read_text(encoding="utf-8")
+    port_advice = (COMPONENTS / "generated-workflow-port-advice.ts").read_text(encoding="utf-8")
     model = (COMPONENTS / "workflow-design-draft-model.ts").read_text(encoding="utf-8")
 
     assert "WorkflowDesignSemanticPortPlanPreview" in builder
     assert "plan={designPlan?.semanticPortPlan || null}" in builder
+    assert "semanticPortPlan={designPlan?.semanticPortPlan || null}" in builder
+    assert "semanticPortPlan={semanticPortPlan}" in builder
     assert "onInsertConverter={builder.insertConverter}" in builder
     assert "tools={workflowReadyTools}" in builder
     assert "export type WorkflowDesignSemanticPortPlan" in model
@@ -28,13 +31,18 @@ def test_workflow_design_semantic_port_plan_is_rendered_from_backend_plan() -> N
     assert "candidate.insertionMode" in component
     assert "insertionRequestForBackendCandidate" in component
     assert "onInsertConverter(insertionRequestForBackendCandidate(edge, candidate))" in component
-    assert "inputName: candidate.inputPort" in component
-    assert "outputName: candidate.outputPort" in component
+    assert "inputName: candidate.inputPort" in port_advice
+    assert "outputName: candidate.outputPort" in port_advice
     assert "decision.matchedFields" in component
     assert "decision.genericFields.map" in component
     assert "需确认，不会自动插入" in component
     assert "确认插入转换" in component
     assert "候选工具不在当前可用工具库" in component
+
+    assert "export function backendPlanConverterInsertionForSuggestion" in port_advice
+    assert "export function insertionRequestForBackendCandidate" in port_advice
+    assert 'item.insertionMode === "explicit-user-confirmed"' in port_advice
+    assert 'edge.recommendation.action !== "insert-converter"' in port_advice
 
     assert "ruleTemplate" not in component
     assert "commandTemplate" not in component
