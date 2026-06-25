@@ -8,6 +8,7 @@ from typing import Any
 
 from apps.api.response_cache import cached_response
 from apps.api.route_utils import run_sync, runtime_service
+from core.app_runtime.errors import RuntimeServiceError, runtime_service_detail, runtime_service_status_code
 from core.contracts.pipeline_manifest import validate_pipeline_manifest
 
 
@@ -71,9 +72,18 @@ async def load_run_detail(run_id: str) -> dict[str, Any]:
         )
     )
     results = await run_sync(lambda: runtime.get_run_results(run_id))
-    rules = await run_sync(lambda: runtime.get_run_rules(run_id))
-    execution_context = await run_sync(lambda: runtime.get_run_execution_context(run_id))
-    failure_locator = await run_sync(lambda: runtime.get_run_failure_locator(run_id))
+    rules = await _optional_run_projection(
+        lambda: runtime.get_run_rules(run_id),
+        unavailable=_unavailable_rules(run_id),
+    )
+    execution_context = await _optional_run_projection(
+        lambda: runtime.get_run_execution_context(run_id),
+        unavailable=_unavailable_execution_context(run_id),
+    )
+    failure_locator = await _optional_run_projection(
+        lambda: runtime.get_run_failure_locator(run_id),
+        unavailable=_unavailable_failure_locator(run_id),
+    )
 
     run_data = _unwrap_data(run, {})
     events_data = _unwrap_data(events, {})
@@ -101,6 +111,49 @@ async def load_run_detail(run_id: str) -> dict[str, Any]:
             "failureLocator": failure_locator_data,
             "previews": await _load_previews(runtime, result_data),
         }
+    }
+
+
+async def _optional_run_projection(loader: Any, *, unavailable: dict[str, Any]) -> Any:
+    try:
+        return await run_sync(loader)
+    except RuntimeServiceError as exc:
+        if runtime_service_status_code(exc) != 404:
+            raise
+        return {"data": {**unavailable, "message": runtime_service_detail(exc)}}
+
+
+def _unavailable_rules(run_id: str) -> dict[str, Any]:
+    return {
+        "schemaVersion": "run-rules.unavailable.v1",
+        "runId": run_id,
+        "available": False,
+        "reasonCode": "RUN_RULES_PROJECTION_UNAVAILABLE",
+        "items": [],
+        "summary": {
+            "schemaVersion": "run-rules-summary.unavailable.v1",
+            "ruleCount": 0,
+            "ruleEventCount": 0,
+            "statusCounts": {},
+        },
+    }
+
+
+def _unavailable_execution_context(run_id: str) -> dict[str, Any]:
+    return {
+        "schemaVersion": "run-execution-context.unavailable.v1",
+        "runId": run_id,
+        "available": False,
+        "reasonCode": "RUN_EXECUTION_CONTEXT_UNAVAILABLE",
+    }
+
+
+def _unavailable_failure_locator(run_id: str) -> dict[str, Any]:
+    return {
+        "schemaVersion": "run-failure-locator.unavailable.v1",
+        "runId": run_id,
+        "available": False,
+        "reasonCode": "RUN_FAILURE_LOCATOR_UNAVAILABLE",
     }
 
 

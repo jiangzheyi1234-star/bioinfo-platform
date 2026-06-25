@@ -130,7 +130,7 @@ export function WorkflowResultPackagePanel({
   }
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
+    <div className="rounded-lg border border-slate-200 bg-white p-4" data-testid="workflow-result-package-panel">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
@@ -148,6 +148,7 @@ export function WorkflowResultPackagePanel({
             className="h-8 px-2 text-xs"
             disabled={!canExport || Boolean(exportingMode)}
             onClick={() => handleExport("metadata")}
+            data-testid="workflow-result-package-export-metadata"
           >
             {exportingMode === "metadata" ? <Loader2 strokeWidth={1.5} className="mr-1 h-3 w-3 animate-spin" /> : null}
             metadata-only
@@ -158,6 +159,7 @@ export function WorkflowResultPackagePanel({
             className="h-8 px-2 text-xs"
             disabled={!canExport || Boolean(exportingMode)}
             onClick={() => handleExport("full")}
+            data-testid="workflow-result-package-export-full"
           >
             {exportingMode === "full" ? <Loader2 strokeWidth={1.5} className="mr-1 h-3 w-3 animate-spin" /> : null}
             含产物文件
@@ -244,7 +246,15 @@ function ResultPackageSummary({
   const retireBusy = actionBusyKey === lifecycleActionKey("retire", packageExportId);
   const deleteBytesBusy = actionBusyKey === lifecycleActionKey("deleteBytes", packageExportId);
   return (
-    <div className="grid gap-2 py-3 text-xs">
+    <div
+      className="grid gap-2 py-3 text-xs"
+      data-testid="workflow-result-package-export-row"
+      data-package-bytes-state={bytesState}
+      data-package-download-available={downloadHref ? "true" : "false"}
+      data-package-export-id={packageExportId}
+      data-package-lifecycle-state={lifecycleState}
+      data-package-payload-mode={item.artifactPayloadMode || (item.includeArtifacts ? "full" : "metadata-only")}
+    >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className={lifecycleState === "active" ? "font-medium text-emerald-700" : "font-medium text-slate-500"}>
           {lifecycleLabel}
@@ -252,7 +262,7 @@ function ResultPackageSummary({
         <div className="flex flex-wrap items-center gap-2">
           {downloadHref ? (
             <Button asChild variant="outline" size="sm" className="h-8 px-2 text-xs">
-              <a href={downloadHref} download={item.download?.filename || undefined}>
+              <a href={downloadHref} download={item.download?.filename || undefined} data-testid="workflow-result-package-download">
                 <Download strokeWidth={1.5} className="h-3 w-3" />
                 下载结果包
               </a>

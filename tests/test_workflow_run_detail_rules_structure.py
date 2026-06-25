@@ -220,6 +220,14 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "retryRule" not in rules_panel
 
     assert "export function WorkflowResultPackagePanel" in package_panel
+    assert 'data-testid="workflow-result-package-panel"' in package_panel
+    assert 'data-testid="workflow-result-package-export-metadata"' in package_panel
+    assert 'data-testid="workflow-result-package-export-full"' in package_panel
+    assert 'data-testid="workflow-result-package-export-row"' in package_panel
+    assert 'data-package-export-id={packageExportId}' in package_panel
+    assert 'data-package-payload-mode={item.artifactPayloadMode || (item.includeArtifacts ? "full" : "metadata-only")}' in package_panel
+    assert 'data-package-download-available={downloadHref ? "true" : "false"}' in package_panel
+    assert 'data-testid="workflow-result-package-download"' in package_panel
     assert "fetchWorkflowResultPackageExports(resultId)" in package_panel
     assert "exportWorkflowResultPackage(resultId, mode === \"full\")" in package_panel
     assert "retireWorkflowResultPackage(resultId, packageExportId)" in package_panel

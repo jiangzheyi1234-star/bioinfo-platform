@@ -9,6 +9,7 @@ import {
   fetchRunResults,
   fetchRunResultBundle,
   fetchResultPreview,
+  fetchResultPackageExports,
   fetchRuns,
   createAndCompletePipelineRun,
   createWorkflowDesignFixture,
@@ -23,7 +24,8 @@ let completedRun: any;
 let designRun: any;
 let workflowRevisionId = "";
 
-test.beforeAll(async () => {
+test.beforeAll(async ({}, testInfo) => {
+  testInfo.setTimeout(300_000);
   api = await createApiClient();
   await waitForApiReady(api);
   fixture = await prepareE2EFixture(api);
@@ -157,6 +159,56 @@ test.describe("Design Draft and WorkflowRevision Lifecycle", () => {
     await page.goto(`/workflows/results/detail?run=${encodeURIComponent(designRun.runId)}`);
     await expect(page.getByText(designRun.runId).first()).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText(workflowRevisionId).first()).toBeVisible({ timeout: 10_000 });
+  });
+
+  test("run detail exports metadata-only result package with audit evidence", async ({ page }) => {
+    const resultId = `res_${designRun.runId}`;
+    try {
+      await fetchResultPackageExports(api, resultId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes(" 404 ")) {
+        test.skip(
+          true,
+          "Connected remote runner does not expose result package exports; deploy the current runner artifact before running this browser proof."
+        );
+      }
+      throw err;
+    }
+
+    await page.goto(`/workflows/results/detail?run=${encodeURIComponent(designRun.runId)}`);
+    await expect(page.getByText(designRun.runId).first()).toBeVisible({ timeout: 10_000 });
+    await page.getByRole("button", { name: "产物" }).click();
+
+    const packagePanel = page.getByTestId("workflow-result-package-panel");
+    await expect(packagePanel).toBeVisible({ timeout: 10_000 });
+    const metadataExport = page.getByTestId("workflow-result-package-export-metadata");
+    await expect(metadataExport).toBeEnabled({ timeout: 10_000 });
+    await metadataExport.click();
+
+    const exportRow = page.getByTestId("workflow-result-package-export-row").first();
+    await expect(exportRow).toHaveAttribute("data-package-payload-mode", "metadata-only", { timeout: 30_000 });
+    await expect(exportRow).toHaveAttribute("data-package-lifecycle-state", "active");
+    await expect(exportRow).toHaveAttribute("data-package-bytes-state", "available");
+    await expect(exportRow).toHaveAttribute("data-package-download-available", "true");
+    await expect(exportRow.getByTestId("workflow-result-package-download")).toHaveAttribute(
+      "href",
+      new RegExp(`/api/v1/results/${resultId}/exports/.+/download$`)
+    );
+
+    const packageExportId = await exportRow.getAttribute("data-package-export-id");
+    expect(packageExportId).toBeTruthy();
+    let packageExports: any[] = [];
+    await expect
+      .poll(async () => {
+        packageExports = await fetchResultPackageExports(api, resultId);
+        return packageExports.some((item) => item.packageExportId === packageExportId);
+      }, { timeout: 30_000 })
+      .toBe(true);
+    const exported = packageExports.find((item: any) => item.packageExportId === packageExportId);
+    expect(exported?.artifactPayloadMode).toBe("metadata-only");
+    expect(exported?.manifestSha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(exported?.evidenceId).toBeTruthy();
   });
 
   test("results list shows fixture runs", async ({ page }) => {

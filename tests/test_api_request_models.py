@@ -20,6 +20,7 @@ from apps.api.models import (
     ToolProductionEvidenceRequest,
     UploadSubmitRequest,
     WorkflowBackfillCancelRequest,
+    WorkflowDesignDraftCreateRequest,
     WorkflowDesignDraftCompileRequest,
     WorkflowTriggerBackfillLaunchRequest,
     WorkflowTriggerBackfillPreviewRequest,
@@ -562,6 +563,40 @@ def test_workflow_design_compile_request_is_strict() -> None:
         WorkflowDesignDraftCompileRequest.model_validate({"serverId": "srv_demo", "legacyRunSpec": {}})
 
     assert exc_info.value.errors()[0]["type"] == "extra_forbidden"
+
+
+def test_workflow_design_create_runtime_payload_omits_local_default_input_semantics() -> None:
+    request = WorkflowDesignDraftCreateRequest.model_validate(
+        {
+            "serverId": "srv_demo",
+            "draft": {
+                "contractVersion": "workflow-design-draft-v1",
+                "engine": "snakemake",
+                "metadata": {"name": "QC workflow"},
+                "inputs": [
+                    {
+                        "id": "reads",
+                        "role": "input",
+                        "path": "inputs/reads.fastq",
+                        "filename": "reads.fastq",
+                        "mimeType": "text/plain",
+                    }
+                ],
+            },
+        }
+    )
+
+    payload = request.runtime_payload()
+    assert payload["serverId"] == "srv_demo"
+    assert payload["draft"]["inputs"][0] == {
+        "id": "reads",
+        "role": "input",
+        "path": "inputs/reads.fastq",
+        "filename": "reads.fastq",
+        "mimeType": "text/plain",
+    }
+    for local_default in ("type", "kind", "data", "format", "operation", "resource"):
+        assert local_default not in payload["draft"]["inputs"][0]
 
 
 def test_terminal_client_message_adapter_uses_pydantic_discriminated_models() -> None:

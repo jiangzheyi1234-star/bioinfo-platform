@@ -4,6 +4,7 @@ import asyncio
 from typing import Any
 
 from apps.api.workflow_catalog_service import load_run_detail
+from core.app_runtime.errors import RuntimeServiceError
 
 
 def test_run_detail_normalizes_missing_result_id_to_exportable_id(monkeypatch) -> None:
@@ -73,6 +74,27 @@ def test_run_detail_marks_rule_log_paths_without_managed_artifact_as_reference_o
     assert context["tail"] == []
 
 
+def test_run_detail_keeps_base_payload_when_optional_rule_projections_404(monkeypatch) -> None:
+    runtime = FakeRunDetailRuntimeWithoutOptionalProjections()
+    monkeypatch.setattr("apps.api.workflow_catalog_service.runtime_service", lambda: runtime)
+
+    payload = asyncio.run(load_run_detail("run_partial"))
+
+    data = payload["data"]
+    assert data["run"]["runId"] == "run_partial"
+    assert data["results"]["resultId"] == "res_run_partial"
+    assert data["previews"][0]["resultId"] == "res_run_partial"
+    assert data["rules"]["available"] is False
+    assert data["rules"]["reasonCode"] == "RUN_RULES_PROJECTION_UNAVAILABLE"
+    assert data["rules"]["items"] == []
+    assert "missing rules projection" in data["rules"]["message"]
+    assert data["executionContext"]["available"] is False
+    assert data["executionContext"]["reasonCode"] == "RUN_EXECUTION_CONTEXT_UNAVAILABLE"
+    assert data["failureLocator"]["available"] is False
+    assert data["failureLocator"]["reasonCode"] == "RUN_FAILURE_LOCATOR_UNAVAILABLE"
+    assert runtime.preview_calls == [("res_run_partial", "art_summary")]
+
+
 class FakeRunDetailRuntime:
     def __init__(self) -> None:
         self.preview_calls: list[tuple[str, str]] = []
@@ -126,6 +148,17 @@ class FakeRunDetailRuntime:
     def get_result_preview(self, *, result_id: str, artifact_id: str) -> dict[str, Any]:
         self.preview_calls.append((result_id, artifact_id))
         return {"data": {"resultId": result_id, "artifactId": artifact_id, "content": "sample\tcount\nA\t1\n"}}
+
+
+class FakeRunDetailRuntimeWithoutOptionalProjections(FakeRunDetailRuntime):
+    def get_run_rules(self, run_id: str) -> dict[str, Any]:
+        raise RuntimeServiceError("missing rules projection", status_code=404)
+
+    def get_run_execution_context(self, run_id: str) -> dict[str, Any]:
+        raise RuntimeServiceError("missing execution context projection", status_code=404)
+
+    def get_run_failure_locator(self, run_id: str) -> dict[str, Any]:
+        raise RuntimeServiceError("missing failure locator projection", status_code=404)
 
 
 class FakeFailedRunDetailRuntime(FakeRunDetailRuntime):

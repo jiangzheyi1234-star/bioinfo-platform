@@ -65,6 +65,13 @@ export async function fetchRuns(api: APIRequestContext): Promise<any[]> {
   return body.data?.items || [];
 }
 
+export async function fetchRunSummary(api: APIRequestContext, runId: string): Promise<any> {
+  const runs = await fetchRuns(api);
+  const run = runs.find((item: any) => item.runId === runId);
+  if (!run) throw new Error(`Run ${runId} is not visible in /api/v1/runs`);
+  return run;
+}
+
 export async function fetchRunDetail(api: APIRequestContext, runId: string): Promise<any> {
   const response = await api.get(`/api/v1/runs/${encodeURIComponent(runId)}/detail`);
   if (!response.ok()) throw new Error(`Failed to fetch run detail: ${response.status()}`);
@@ -96,6 +103,13 @@ export async function fetchResultPreview(api: APIRequestContext, resultId: strin
   if (!response.ok()) throw new Error(`Failed to fetch preview: ${response.status()}`);
   const body = await response.json();
   return body.data;
+}
+
+export async function fetchResultPackageExports(api: APIRequestContext, resultId: string): Promise<any[]> {
+  const response = await api.get(`/api/v1/results/${encodeURIComponent(resultId)}/exports`);
+  if (!response.ok()) throw new Error(`Failed to fetch result package exports: ${response.status()} ${await response.text()}`);
+  const body = await response.json();
+  return body.data?.items || [];
 }
 
 export async function fetchWorkflowCatalog(api: APIRequestContext): Promise<any[]> {
@@ -277,12 +291,20 @@ export async function waitForRunTerminal(
 ): Promise<any> {
   const terminalStatuses = new Set(["completed", "failed", "canceled", "cancelled"]);
   const deadline = Date.now() + timeoutMs;
+  let lastError: unknown;
   while (Date.now() < deadline) {
-    const detail = await fetchRunDetail(api, runId);
-    if (terminalStatuses.has(String(detail.status || "").toLowerCase())) {
-      return detail;
+    try {
+      const detail = await fetchRunSummary(api, runId);
+      if (terminalStatuses.has(String(detail.status || "").toLowerCase())) {
+        return detail;
+      }
+    } catch (err) {
+      lastError = err;
     }
     await new Promise((r) => setTimeout(r, 2_000));
+  }
+  if (lastError) {
+    throw new Error(`Run ${runId} did not become readable before timeout: ${String(lastError)}`);
   }
   throw new Error(`Run ${runId} did not reach terminal state within ${timeoutMs}ms`);
 }

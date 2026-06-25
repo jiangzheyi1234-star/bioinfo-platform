@@ -331,7 +331,7 @@ class WorkflowDesignRequest(ApiRequest):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     def runtime_payload(self) -> dict[str, Any]:
-        return self.model_dump(by_alias=True, exclude_none=True, mode="json")
+        return self.model_dump(by_alias=True, exclude_defaults=True, exclude_none=True, mode="json")
 
 
 class WorkflowDesignDraftCreateRequest(WorkflowDesignRequest):

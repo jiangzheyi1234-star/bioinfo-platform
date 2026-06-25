@@ -333,6 +333,7 @@ def test_workflow_design_routes_delegate_request_dumping_to_service() -> None:
     assert "by_alias=True" not in service_source
     assert "request_payload(" in service_source
     assert "def runtime_payload(self) -> dict[str, Any]:" in models_source
+    assert "exclude_defaults=True" in models_source
     assert "from core.api_payloads import request_payload" in route_utils_source
     assert "request.runtime_payload()" not in route_utils_source
 
@@ -633,15 +634,22 @@ def test_workflow_sample_data_service_uses_runtime_infrastructure() -> None:
 
 def test_workflow_catalog_service_fails_loudly_on_invalid_manifests() -> None:
     service_source = _source("apps/api/workflow_catalog_service.py")
+    manifest_start = service_source.index("def list_bundled_pipeline_manifests(")
+    manifest_end = service_source.index("\n\nasync def load_run_detail(")
+    manifest_source = service_source[manifest_start:manifest_end]
 
     assert "from core.contracts.pipeline_manifest import validate_pipeline_manifest" in service_source
-    assert "PipelineRegistryError" not in service_source
-    assert "json.JSONDecodeError" not in service_source
-    assert "errors = []" not in service_source
-    assert "pipelineError" not in service_source
-    assert "return items, errors" not in service_source
-    assert "RuntimeServiceError" not in service_source
-    assert "except RuntimeServiceError" not in service_source
+    assert "PipelineRegistryError" not in manifest_source
+    assert "json.JSONDecodeError" not in manifest_source
+    assert "errors = []" not in manifest_source
+    assert "pipelineError" not in manifest_source
+    assert "return items, errors" not in manifest_source
+    assert "RuntimeServiceError" not in manifest_source
+    assert "except RuntimeServiceError" not in manifest_source
+    assert "async def _optional_run_projection(" in service_source
+    assert "except RuntimeServiceError as exc:" in service_source
+    assert "runtime_service_status_code(exc) != 404" in service_source
+    assert "RUN_RULES_PROJECTION_UNAVAILABLE" in service_source
 
 
 def test_tool_routes_delegate_request_dumping_to_service() -> None:
