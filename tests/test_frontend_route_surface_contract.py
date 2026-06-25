@@ -14,6 +14,7 @@ EXPECTED_ROUTES = {
     "/workflows/results",
     "/workflows/results/backfills",
     "/workflows/results/detail",
+    "/workflows/results/lifecycle",
     "/workflows/results/triggers",
     "/workflows/tools",
 }

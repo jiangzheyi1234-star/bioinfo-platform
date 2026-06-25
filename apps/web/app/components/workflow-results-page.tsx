@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Activity, ArrowRight, CalendarClock, CheckCircle2, Clock, Loader2, RefreshCw, XCircle } from "lucide-react";
+import { Activity, Archive, ArrowRight, CalendarClock, CheckCircle2, Clock, Loader2, RefreshCw, XCircle } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
+import { fetchArtifactLifecycleControllerTicks, fetchArtifactLifecycleUsage } from "./workflow-artifact-lifecycle-api";
 import { fetchWorkflowBackfillLaunches } from "./workflow-backfill-api";
 import { fetchWorkflowTriggers } from "./workflow-trigger-api";
 import { fetchRunsList, fetchWorkflowResultsList } from "./workflows-page-api";
@@ -89,40 +90,51 @@ export function WorkflowResultsPage() {
         <WorkflowPageHeader
           title="运行记录"
           actions={
-            <div className="flex items-center gap-2">
-              <Button asChild variant="outline" className="h-9 bg-white px-3 text-slate-600">
-                <Link
-                  href="/workflows/results/triggers"
-                  onFocus={() => void fetchWorkflowTriggers().catch(() => undefined)}
-                  onPointerEnter={() => void fetchWorkflowTriggers().catch(() => undefined)}
-                >
-                  <Activity strokeWidth={1.5} className="mr-2 h-4 w-4" />
-                  触发器事件
-                </Link>
-              </Button>
-              <Button asChild variant="outline" className="h-9 bg-white px-3 text-slate-600">
-                <Link
-                  href="/workflows/results/backfills"
-                  onFocus={() => void fetchWorkflowBackfillLaunches().catch(() => undefined)}
-                  onPointerEnter={() => void fetchWorkflowBackfillLaunches().catch(() => undefined)}
-                >
-                  <CalendarClock strokeWidth={1.5} className="mr-2 h-4 w-4" />
-                  回填批次
-                </Link>
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="h-9 bg-white px-3 text-slate-600"
-                disabled={loading}
-                onClick={() => void load(true)}
-              >
-                <RefreshCw strokeWidth={1.5} className={loading ? "mr-2 h-4 w-4 animate-spin" : "mr-2 h-4 w-4"} />
-                刷新
-              </Button>
-            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-9 bg-white px-3 text-slate-600"
+              disabled={loading}
+              onClick={() => void load(true)}
+            >
+              <RefreshCw strokeWidth={1.5} className={loading ? "mr-2 h-4 w-4 animate-spin" : "mr-2 h-4 w-4"} />
+              刷新
+            </Button>
           }
         />
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button asChild variant="outline" className="h-9 bg-white px-3 text-slate-600">
+            <Link
+              href="/workflows/results/triggers"
+              onFocus={() => void fetchWorkflowTriggers().catch(() => undefined)}
+              onPointerEnter={() => void fetchWorkflowTriggers().catch(() => undefined)}
+            >
+              <Activity strokeWidth={1.5} className="mr-2 h-4 w-4" />
+              触发器事件
+            </Link>
+          </Button>
+          <Button asChild variant="outline" className="h-9 bg-white px-3 text-slate-600">
+            <Link
+              href="/workflows/results/backfills"
+              onFocus={() => void fetchWorkflowBackfillLaunches().catch(() => undefined)}
+              onPointerEnter={() => void fetchWorkflowBackfillLaunches().catch(() => undefined)}
+            >
+              <CalendarClock strokeWidth={1.5} className="mr-2 h-4 w-4" />
+              回填批次
+            </Link>
+          </Button>
+          <Button asChild variant="outline" className="h-9 bg-white px-3 text-slate-600">
+            <Link
+              href="/workflows/results/lifecycle"
+              onFocus={() => void prefetchArtifactLifecycle()}
+              onPointerEnter={() => void prefetchArtifactLifecycle()}
+            >
+              <Archive strokeWidth={1.5} className="mr-2 h-4 w-4" />
+              产物生命周期
+            </Link>
+          </Button>
+        </div>
 
         {error ? (
           <Alert variant="destructive">
@@ -208,6 +220,13 @@ export function WorkflowResultsPage() {
       </div>
     </div>
   );
+}
+
+async function prefetchArtifactLifecycle() {
+  await Promise.all([
+    fetchArtifactLifecycleUsage().catch(() => undefined),
+    fetchArtifactLifecycleControllerTicks().catch(() => undefined),
+  ]);
 }
 
 function ResultLineageSummary({ result }: { result?: WorkflowResultSummary }) {
