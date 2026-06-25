@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from typing import Any
 
 from .artifact_cache_storage import preview_artifact_cache_entry
 from .config import RemoteRunnerConfig
+from .execution_plan_hash import attach_plan_hash
 from .rule_execution_storage import fetch_run_rules
 from .rule_retry_plan import RULE_RETRY_PLAN_SCHEMA_VERSION
 
@@ -97,6 +99,7 @@ def _base_plan(rule_retry_plan: dict[str, Any]) -> dict[str, Any]:
         "restoreEnabled": False,
         "sideEffectFree": True,
         "pathExposed": False,
+        "redactionPolicy": _cache_restore_redaction_policy(),
         "restoreScope": {
             "selectedRuleCount": len(selected),
             "invalidatedRuleCount": len(invalidated),
@@ -156,21 +159,23 @@ def _finalize_plan(
     cache_hit_count: int = 0,
 ) -> dict[str, Any]:
     cache_miss_count = max(0, output_count - cache_hit_count)
-    return {
-        **base,
-        "reasonCode": reason_code,
-        "message": f"Per-rule cache restore is blocked: {reason_code}.",
-        "outputCount": output_count,
-        "cacheHitCount": cache_hit_count,
-        "cacheMissCount": cache_miss_count,
-        "cacheEligibility": {
-            **base["cacheEligibility"],
-            "previewAvailable": output_count > 0,
-            "hitCount": cache_hit_count,
-            "missCount": cache_miss_count,
-        },
-        "rules": rules,
-    }
+    return attach_plan_hash(
+        {
+            **base,
+            "reasonCode": reason_code,
+            "message": f"Per-rule cache restore is blocked: {reason_code}.",
+            "outputCount": output_count,
+            "cacheHitCount": cache_hit_count,
+            "cacheMissCount": cache_miss_count,
+            "cacheEligibility": {
+                **base["cacheEligibility"],
+                "previewAvailable": output_count > 0,
+                "hitCount": cache_hit_count,
+                "missCount": cache_miss_count,
+            },
+            "rules": rules,
+        }
+    )
 
 
 def _rule_restore_plan(
@@ -232,12 +237,14 @@ def _output_restore_previews(
 
 
 def _output_preview(index: int, artifact_key: str, step_id: str, preview: dict[str, Any]) -> dict[str, Any]:
+    cache_key = str(preview.get("cacheKey") or "")
     return {
         "outputOrdinal": index,
         "artifactKey": artifact_key,
         "stepId": step_id,
         "role": "output",
-        "cacheKey": preview.get("cacheKey"),
+        "cacheKeyPresent": bool(cache_key),
+        "cacheKeyFingerprint": _short_digest(cache_key) if cache_key else "",
         "cacheHit": bool(preview.get("hit")),
         "cacheReason": preview.get("reason"),
         "cacheEntry": _safe_cache_entry(preview.get("entry")),
@@ -253,7 +260,8 @@ def _unmapped_output(index: int, step_id: str) -> dict[str, Any]:
         "artifactKey": None,
         "stepId": step_id,
         "role": "output",
-        "cacheKey": "",
+        "cacheKeyPresent": False,
+        "cacheKeyFingerprint": "",
         "cacheHit": False,
         "cacheReason": "rule_output_artifact_key_unmapped",
         "cacheEntry": None,
@@ -313,6 +321,20 @@ def _pin_policy() -> dict[str, Any]:
         "pinCreated": False,
         "reasonCode": "RESTORE_PIN_NOT_CREATED_IN_READ_MODEL",
     }
+
+
+def _cache_restore_redaction_policy() -> dict[str, bool]:
+    return {
+        "cacheKeysExposed": False,
+        "cacheKeyFingerprintsExposed": True,
+        "keyPayloadsExposed": False,
+        "storageUrisExposed": False,
+        "pathsExposed": False,
+    }
+
+
+def _short_digest(value: str) -> str:
+    return f"sha256:{hashlib.sha256(value.encode('utf-8')).hexdigest()[:16]}"
 
 
 def _output_blockers(preview: dict[str, Any]) -> list[str]:

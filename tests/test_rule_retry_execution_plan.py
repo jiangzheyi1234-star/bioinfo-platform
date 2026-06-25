@@ -34,7 +34,11 @@ def test_rule_retry_execution_plan_previews_snakemake_forcerun_options_without_e
     assert "CACHE_ADOPTION_UNPROVEN" in plan["blockedReasonCodes"]
     assert "STAGED_FILE_POLICY_UNREPRESENTED" in plan["blockedReasonCodes"]
     assert plan["cacheRestorePlan"]["schemaVersion"] == "rule-cache-restore-plan.v1"
+    assert len(plan["cacheRestorePlan"]["planHash"]) == 64
+    assert plan["cacheRestorePlan"]["planHash"] == stable_plan_hash(plan["cacheRestorePlan"])
     assert plan["cacheRestorePlan"]["reasonCode"] == "PER_RULE_CACHE_PREFLIGHT_UNAVAILABLE"
+    assert plan["cacheRestorePlan"]["redactionPolicy"]["cacheKeysExposed"] is False
+    assert plan["cacheRestorePlan"]["redactionPolicy"]["cacheKeyFingerprintsExposed"] is True
     assert plan["cacheRestorePlan"]["stagedFilePolicy"]["overwriteAllowed"] is False
 
 

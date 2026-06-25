@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from apps.remote_runner.artifact_ledger_storage import record_artifact_blob_for_path, record_run_artifact_edge
+from apps.remote_runner.execution_plan_hash import stable_plan_hash
 from apps.remote_runner.run_execution_context_storage import fetch_run_execution_context
 from apps.remote_runner.run_execution_storage import claim_next_run_job, complete_run_attempt
 from apps.remote_runner.rule_execution_storage import upsert_run_rule_state
@@ -379,8 +380,17 @@ def test_run_execution_context_reports_rule_retry_downstream_invalidation_plan(t
     assert "STAGED_FILE_POLICY_UNREPRESENTED" in execution_plan["blockedReasonCodes"]
     assert execution_plan["cacheRestorePlan"] == cache_restore_plan
     assert cache_restore_plan["schemaVersion"] == "rule-cache-restore-plan.v1"
+    assert len(cache_restore_plan["planHash"]) == 64
+    assert cache_restore_plan["planHash"] == stable_plan_hash(cache_restore_plan)
     assert cache_restore_plan["sideEffectFree"] is True
     assert cache_restore_plan["restoreEnabled"] is False
+    assert cache_restore_plan["redactionPolicy"] == {
+        "cacheKeysExposed": False,
+        "cacheKeyFingerprintsExposed": True,
+        "keyPayloadsExposed": False,
+        "storageUrisExposed": False,
+        "pathsExposed": False,
+    }
     assert cache_restore_plan["outputCount"] == 1
     assert cache_restore_plan["cacheHitCount"] == 1
     assert cache_restore_plan["cacheMissCount"] == 0
@@ -390,8 +400,12 @@ def test_run_execution_context_reports_rule_retry_downstream_invalidation_plan(t
     assert restore_rule["ruleName"] == "align"
     assert restore_rule["reasonCode"] == "PER_RULE_CACHE_RESTORE_UNPROVEN"
     assert restore_rule["outputs"][0]["cacheEntry"]["artifactId"] == cached_artifact["artifactId"]
+    assert restore_rule["outputs"][0]["cacheKeyPresent"] is True
+    assert restore_rule["outputs"][0]["cacheKeyFingerprint"].startswith("sha256:")
     assert restore_rule["outputs"][0]["restoreTarget"]["pathExposed"] is False
-    assert "storageUri" not in json.dumps(cache_restore_plan, sort_keys=True)
+    serialized_cache_restore_plan = json.dumps(cache_restore_plan, sort_keys=True)
+    assert '"cacheKey":' not in serialized_cache_restore_plan
+    assert '"storageUri":' not in serialized_cache_restore_plan
     assert output_invalidation_plan["schemaVersion"] == "rule-output-invalidation-plan.v1"
     assert output_invalidation_plan["sideEffectFree"] is True
     assert output_invalidation_plan["invalidationEnabled"] is False
