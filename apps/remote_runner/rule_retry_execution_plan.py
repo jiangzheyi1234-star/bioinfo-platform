@@ -5,6 +5,7 @@ from typing import Any
 from .execution_plan_hash import attach_plan_hash
 from .rule_cache_restore_plan import blocked_rule_cache_restore_plan
 from .rule_output_invalidation_plan import blocked_rule_output_invalidation_plan
+from .rule_restore_staging_policy import STAGED_FILE_POLICY_UNREPRESENTED, staged_file_policy_blocker
 from .rule_retry_plan import PARTIAL_RETRY_UNSUPPORTED, RULE_RETRY_PLAN_SCHEMA_VERSION
 from .workflow_engine_adapter import WorkflowRuntimeCommandError, normalize_forcerun_rules
 
@@ -17,7 +18,6 @@ DOWNSTREAM_OUTPUT_INVALIDATION_APPLY_REQUIRED = "DOWNSTREAM_OUTPUT_INVALIDATION_
 RULE_RETRY_EXECUTION_BASE_BLOCKERS = [
     "ATTEMPT_OUTPUT_RESTORE_UNPROVEN",
     "PER_RULE_CACHE_ELIGIBILITY_UNPROVEN",
-    "STAGED_FILE_POLICY_UNREPRESENTED",
     "PARTIAL_RESTORE_EXECUTOR_UNAVAILABLE",
     "CACHE_ADOPTION_UNPROVEN",
     "ARTIFACT_ADOPTION_UNPROVEN",
@@ -26,6 +26,7 @@ RULE_RETRY_EXECUTION_BASE_BLOCKERS = [
 RULE_RETRY_EXECUTION_BLOCKERS = [
     RULE_RETRY_EXECUTION_BASE_BLOCKERS[0],
     DOWNSTREAM_OUTPUT_INVALIDATION_APPLY_REQUIRED,
+    STAGED_FILE_POLICY_UNREPRESENTED,
     *RULE_RETRY_EXECUTION_BASE_BLOCKERS[1:],
 ]
 
@@ -35,8 +36,11 @@ def build_rule_retry_execution_plan(
     cache_restore_plan: dict[str, Any] | None = None,
     output_invalidation_plan: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    resolved_cache_restore_plan = cache_restore_plan or blocked_rule_cache_restore_plan(rule_retry_plan)
     resolved_output_invalidation_plan = output_invalidation_plan or blocked_rule_output_invalidation_plan(rule_retry_plan)
+    resolved_cache_restore_plan = cache_restore_plan or blocked_rule_cache_restore_plan(
+        rule_retry_plan,
+        output_invalidation_applied=_output_invalidation_applied(resolved_output_invalidation_plan),
+    )
     base = _base_plan(
         rule_retry_plan,
         cache_restore_plan=resolved_cache_restore_plan,
@@ -187,16 +191,28 @@ def _disabled_reason(rule_retry_execution_plan: dict[str, Any]) -> str:
 
 
 def _execution_blockers(*, output_invalidation_plan: dict[str, Any]) -> list[str]:
-    blockers = list(RULE_RETRY_EXECUTION_BASE_BLOCKERS)
+    applied = _output_invalidation_applied(output_invalidation_plan)
+    blockers = [
+        "ATTEMPT_OUTPUT_RESTORE_UNPROVEN",
+        "PER_RULE_CACHE_ELIGIBILITY_UNPROVEN",
+        staged_file_policy_blocker(output_invalidation_applied=applied),
+        "PARTIAL_RESTORE_EXECUTOR_UNAVAILABLE",
+        "CACHE_ADOPTION_UNPROVEN",
+        "ARTIFACT_ADOPTION_UNPROVEN",
+        "RULE_RETRY_MUTATION_API_DISABLED",
+    ]
+    if not applied:
+        blockers.insert(1, DOWNSTREAM_OUTPUT_INVALIDATION_APPLY_REQUIRED)
+    return blockers
+
+
+def _output_invalidation_applied(output_invalidation_plan: dict[str, Any]) -> bool:
     state = output_invalidation_plan.get("outputInvalidationState")
-    applied = (
+    return (
         isinstance(state, dict)
         and state.get("state") == "applied"
         and _safe_int(state.get("appliedOutputEdgeCount")) > 0
     )
-    if not applied:
-        blockers.insert(1, DOWNSTREAM_OUTPUT_INVALIDATION_APPLY_REQUIRED)
-    return blockers
 
 
 def _attempt_selected(rule: dict[str, Any]) -> bool:

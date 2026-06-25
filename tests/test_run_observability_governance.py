@@ -153,6 +153,17 @@ def test_run_observability_routes_record_safe_allow_audit(tmp_path, monkeypatch)
                     "storageUrisExposed": False,
                     "pathsExposed": False,
                 },
+                "stagedFilePolicy": {
+                    "previewAvailable": True,
+                    "targetCount": 2,
+                    "managedTargetCount": 2,
+                    "cacheHitTargetCount": 1,
+                    "cacheMissTargetCount": 1,
+                    "unmappedTargetCount": 0,
+                    "pathExposed": False,
+                    "storageUriExposed": False,
+                    "cacheKeyExposed": False,
+                },
                 "rules": [
                     {
                         "ruleName": "align",
@@ -286,6 +297,15 @@ def test_run_observability_routes_record_safe_allow_audit(tmp_path, monkeypatch)
         "ruleCacheRestoreRawIdentifiersExposed": False,
         "ruleCacheRestoreFingerprintsExposed": True,
         "ruleCacheRestoreStorageUrisExposed": False,
+        "ruleCacheRestorePathsExposed": False,
+        "stagedFilePolicyPreviewAvailable": True,
+        "stagedFilePolicyTargetCount": 2,
+        "stagedFilePolicyManagedTargetCount": 2,
+        "stagedFilePolicyCacheHitTargetCount": 1,
+        "stagedFilePolicyCacheMissTargetCount": 1,
+        "stagedFilePolicyUnmappedTargetCount": 0,
+        "stagedFilePolicyPathsExposed": False,
+        "stagedFilePolicyStorageUrisExposed": False,
     }
     assert list_governance_audit_events(cfg, action="run.attempts.read")["items"][-1]["details"] == {
         "attemptCount": 1,

@@ -394,6 +394,10 @@ def test_run_execution_context_reports_rule_retry_downstream_invalidation_plan(t
     assert cache_restore_plan["outputCount"] == 1
     assert cache_restore_plan["cacheHitCount"] == 1
     assert cache_restore_plan["cacheMissCount"] == 0
+    assert cache_restore_plan["stagedFilePolicy"]["previewAvailable"] is False
+    assert cache_restore_plan["stagedFilePolicy"]["reasonCode"] == "STAGED_FILE_POLICY_UNREPRESENTED"
+    assert cache_restore_plan["stagedFilePolicy"]["targetCount"] == 1
+    assert cache_restore_plan["stagedFilePolicy"]["cacheHitTargetCount"] == 1
     assert cache_restore_plan["stagedFilePolicy"]["overwriteAllowed"] is False
     assert cache_restore_plan["stagedFilePolicy"]["pathExposed"] is False
     restore_rule = cache_restore_plan["rules"][0]

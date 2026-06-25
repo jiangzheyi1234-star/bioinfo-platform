@@ -268,6 +268,7 @@ function RuleOutputInvalidationPlanPreview({
 function RuleRetryExecutionPlanPreview({ plan }: { plan?: WorkflowRunRuleRetryExecutionPlan }) {
   if (!plan) return null;
   const cacheRestore = plan.cacheRestorePlan;
+  const stagedFilePolicy = cacheRestore?.stagedFilePolicy;
   const options = plan.snakemakeOptions;
   const argsPreview = options?.argsPreview || [];
   const forcerunRules = options?.forcerunRules || [];
@@ -280,6 +281,11 @@ function RuleRetryExecutionPlanPreview({ plan }: { plan?: WorkflowRunRuleRetryEx
   const scopeLabel = ruleNameList(rerunRules) || "—";
   const cacheLabel = cacheRestore
     ? `${cacheRestore.cacheHitCount || 0} / ${cacheRestore.outputCount || 0}`
+    : "—";
+  const stagedFileLabel = stagedFilePolicy
+    ? `${stagedFilePolicy.reasonCode || "—"} · targets ${stagedFilePolicy.targetCount || 0} · hit ${
+        stagedFilePolicy.cacheHitTargetCount || 0
+      } · miss ${stagedFilePolicy.cacheMissTargetCount || 0} · unmapped ${stagedFilePolicy.unmappedTargetCount || 0}`
     : "—";
   const cacheFingerprints = (cacheRestore?.rules || [])
     .flatMap((rule) => rule.outputs || [])
@@ -336,9 +342,12 @@ function RuleRetryExecutionPlanPreview({ plan }: { plan?: WorkflowRunRuleRetryEx
             <span className="text-slate-500">cache fingerprints</span>
             <span className="truncate font-mono text-slate-800">{cacheFingerprintLabel}</span>
             <span className="text-slate-500">staged files</span>
+            <span className="truncate font-mono text-slate-800">{stagedFileLabel}</span>
+            <span className="text-slate-500">staged policy</span>
             <span className="truncate font-mono text-slate-800">
-              {cacheRestore.stagedFilePolicy?.reasonCode || "—"} · overwrite{" "}
-              {cacheRestore.stagedFilePolicy?.overwriteAllowed ? "yes" : "no"}
+              preview {stagedFilePolicy?.previewAvailable ? "yes" : "no"} · overwrite{" "}
+              {stagedFilePolicy?.overwriteAllowed ? "yes" : "no"} · paths{" "}
+              {stagedFilePolicy?.pathExposed ? "exposed" : "redacted"}
             </span>
           </>
         ) : null}

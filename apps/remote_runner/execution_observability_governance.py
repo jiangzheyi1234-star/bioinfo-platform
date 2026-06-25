@@ -34,6 +34,7 @@ def record_run_execution_context_read_audit(
         rule_retry_execution_plan.get("cacheRestorePlan")
     )
     rule_cache_restore_redaction = _dict_value(rule_cache_restore_plan.get("redactionPolicy"))
+    staged_file_policy = _dict_value(rule_cache_restore_plan.get("stagedFilePolicy"))
     record_governance_audit_event(
         cfg,
         action="run.execution_context.read",
@@ -60,6 +61,15 @@ def record_run_execution_context_read_audit(
                 rule_cache_restore_redaction.get("cacheKeyFingerprintsExposed")
             ),
             "ruleCacheRestoreStorageUrisExposed": bool(rule_cache_restore_redaction.get("storageUrisExposed")),
+            "ruleCacheRestorePathsExposed": bool(rule_cache_restore_redaction.get("pathsExposed")),
+            "stagedFilePolicyPreviewAvailable": bool(staged_file_policy.get("previewAvailable")),
+            "stagedFilePolicyTargetCount": _safe_int(staged_file_policy.get("targetCount")),
+            "stagedFilePolicyManagedTargetCount": _safe_int(staged_file_policy.get("managedTargetCount")),
+            "stagedFilePolicyCacheHitTargetCount": _safe_int(staged_file_policy.get("cacheHitTargetCount")),
+            "stagedFilePolicyCacheMissTargetCount": _safe_int(staged_file_policy.get("cacheMissTargetCount")),
+            "stagedFilePolicyUnmappedTargetCount": _safe_int(staged_file_policy.get("unmappedTargetCount")),
+            "stagedFilePolicyPathsExposed": bool(staged_file_policy.get("pathExposed")),
+            "stagedFilePolicyStorageUrisExposed": bool(staged_file_policy.get("storageUriExposed")),
         },
     )
 

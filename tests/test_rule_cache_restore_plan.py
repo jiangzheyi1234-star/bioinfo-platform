@@ -65,6 +65,12 @@ def test_rule_cache_restore_plan_uses_output_invalidation_edges_without_rule_out
     assert plan["outputCount"] == 2
     assert plan["cacheHitCount"] == 2
     assert plan["cacheMissCount"] == 0
+    assert plan["stagedFilePolicy"]["previewAvailable"] is False
+    assert plan["stagedFilePolicy"]["reasonCode"] == "STAGED_FILE_POLICY_UNREPRESENTED"
+    assert plan["stagedFilePolicy"]["targetCount"] == 2
+    assert plan["stagedFilePolicy"]["cacheHitTargetCount"] == 2
+    assert plan["stagedFilePolicy"]["pathExposed"] is False
+    assert plan["stagedFilePolicy"]["storageUriExposed"] is False
     assert [rule["ruleName"] for rule in plan["rules"]] == ["align", "report"]
     assert [rule["invalidationRole"] for rule in plan["rules"]] == ["selected_failed_rule", "downstream_rule"]
     assert [output["artifactKey"] for rule in plan["rules"] for output in rule["outputs"]] == ["bam", "html"]
@@ -143,13 +149,106 @@ def test_rule_cache_restore_plan_keeps_applied_invalidation_scope_without_apply_
     assert plan["outputCount"] == 2
     assert plan["cacheHitCount"] == 2
     assert "OUTPUT_EDGE_INVALIDATION_APPLY_REQUIRED" not in plan["blockedReasonCodes"]
-    assert "STAGED_FILE_POLICY_UNREPRESENTED" in plan["blockedReasonCodes"]
+    assert "STAGED_FILE_POLICY_UNREPRESENTED" not in plan["blockedReasonCodes"]
+    assert "STAGED_FILE_POLICY_EXECUTION_DISABLED" in plan["blockedReasonCodes"]
     assert "PARTIAL_RESTORE_EXECUTOR_UNAVAILABLE" in plan["blockedReasonCodes"]
+    assert plan["stagedFilePolicy"]["previewAvailable"] is True
+    assert plan["stagedFilePolicy"]["enabled"] is False
+    assert plan["stagedFilePolicy"]["reasonCode"] == "STAGED_FILE_POLICY_PREVIEW_ONLY"
+    assert plan["stagedFilePolicy"]["blockedReasonCodes"] == ["STAGED_FILE_POLICY_EXECUTION_DISABLED"]
+    assert plan["stagedFilePolicy"]["overwriteAllowed"] is False
+    assert plan["stagedFilePolicy"]["deleteUnknownOutputs"] is False
+    assert plan["stagedFilePolicy"]["pinCreationAllowed"] is False
+    assert plan["stagedFilePolicy"]["pathExposed"] is False
+    assert plan["stagedFilePolicy"]["storageUriExposed"] is False
+    assert plan["stagedFilePolicy"]["cacheKeyExposed"] is False
+    assert plan["stagedFilePolicy"]["unknownOutputHandling"] == "refuse"
+    assert plan["stagedFilePolicy"]["unknownOutputScanAvailable"] is False
+    assert plan["stagedFilePolicy"]["targetCount"] == 2
+    assert plan["stagedFilePolicy"]["managedTargetCount"] == 2
+    assert plan["stagedFilePolicy"]["selectedOutputCount"] == 1
+    assert plan["stagedFilePolicy"]["downstreamOutputCount"] == 1
+    assert plan["stagedFilePolicy"]["cacheHitTargetCount"] == 2
+    assert plan["stagedFilePolicy"]["cacheMissTargetCount"] == 0
+    assert plan["stagedFilePolicy"]["unmappedTargetCount"] == 0
+    assert plan["stagedFilePolicy"]["restorePinnedCount"] == 0
     for rule in plan["rules"]:
         assert "OUTPUT_EDGE_INVALIDATION_APPLY_REQUIRED" not in rule["blockedReasonCodes"]
+        assert "STAGED_FILE_POLICY_EXECUTION_DISABLED" in rule["blockedReasonCodes"]
         for output in rule["outputs"]:
             assert output["cacheHit"] is True
             assert "OUTPUT_EDGE_INVALIDATION_APPLY_REQUIRED" not in output["blockedReasonCodes"]
+            assert "STAGED_FILE_POLICY_EXECUTION_DISABLED" in output["blockedReasonCodes"]
+            assert output["restoreTarget"]["reasonCode"] == "STAGED_FILE_POLICY_PREVIEW_ONLY"
+    serialized = json.dumps(plan, sort_keys=True)
+    assert '"cacheKey":' not in serialized
+    assert '"storageUri":' not in serialized
+    assert str(tmp_path) not in serialized
+
+
+def test_rule_cache_restore_plan_staged_policy_counts_mixed_applied_outputs(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    revision = _create_revision(cfg)
+    workflow_revision_id = str(revision["workflowRevisionId"])
+    source_run = _create_run(cfg, "run_cache_restore_mixed_source", workflow_revision_id=workflow_revision_id)
+    current_run = _create_run(cfg, "run_cache_restore_mixed_current", workflow_revision_id=workflow_revision_id)
+    persist_artifact(
+        cfg,
+        run_id=source_run["runId"],
+        kind="bam",
+        path=_managed_output(cfg, source_run["runId"], "align.bam", b"cached align\n"),
+        mime_type="application/octet-stream",
+        artifact_key="bam",
+        step_id="align",
+    )
+    _output_edge(cfg, tmp_path, run_id=current_run["runId"], step_id="align", port_name="bam")
+    _output_edge(cfg, tmp_path, run_id=current_run["runId"], step_id="align", port_name="unsafe/path")
+    _output_edge(cfg, tmp_path, run_id=current_run["runId"], step_id="report", port_name="html")
+    rule_retry_plan = _rule_retry_plan(current_run["runId"], workflow_revision_id)
+    output_invalidation_plan = build_rule_output_invalidation_plan(
+        cfg,
+        run=current_run,
+        rule_retry_plan=rule_retry_plan,
+    )
+    apply_rule_output_invalidation_plan(
+        cfg,
+        output_invalidation_plan,
+        plan_hash=output_invalidation_plan["planHash"],
+        now="2099-06-07T10:02:00Z",
+    )
+    applied_invalidation_plan = build_rule_output_invalidation_plan(
+        cfg,
+        run=current_run,
+        rule_retry_plan=rule_retry_plan,
+    )
+
+    plan = build_rule_cache_restore_plan(
+        cfg,
+        run=current_run,
+        rule_retry_plan=rule_retry_plan,
+        output_invalidation_plan=applied_invalidation_plan,
+    )
+
+    assert plan["outputCount"] == 3
+    assert plan["cacheHitCount"] == 1
+    assert plan["cacheMissCount"] == 2
+    assert plan["stagedFilePolicy"]["previewAvailable"] is True
+    assert plan["stagedFilePolicy"]["targetCount"] == 3
+    assert plan["stagedFilePolicy"]["managedTargetCount"] == 3
+    assert plan["stagedFilePolicy"]["selectedOutputCount"] == 2
+    assert plan["stagedFilePolicy"]["downstreamOutputCount"] == 1
+    assert plan["stagedFilePolicy"]["cacheHitTargetCount"] == 1
+    assert plan["stagedFilePolicy"]["cacheMissTargetCount"] == 1
+    assert plan["stagedFilePolicy"]["unmappedTargetCount"] == 1
+    assert plan["stagedFilePolicy"]["unknownOutputCount"] == 0
+    assert plan["stagedFilePolicy"]["pathExposed"] is False
+    assert plan["stagedFilePolicy"]["storageUriExposed"] is False
+    assert plan["stagedFilePolicy"]["cacheKeyExposed"] is False
+    outputs = [output for rule in plan["rules"] for output in rule["outputs"]]
+    by_artifact_key = {output["artifactKey"]: output for output in outputs}
+    assert by_artifact_key["bam"]["cacheHit"] is True
+    assert by_artifact_key["html"]["cacheHit"] is False
+    assert any(output["cacheReason"] == "rule_output_artifact_key_unmapped" for output in outputs)
     serialized = json.dumps(plan, sort_keys=True)
     assert '"cacheKey":' not in serialized
     assert '"storageUri":' not in serialized
@@ -210,7 +309,8 @@ def _managed_output(cfg, run_id: str, filename: str, payload: bytes) -> Path:
 
 
 def _output_edge(cfg, tmp_path: Path, *, run_id: str, step_id: str, port_name: str) -> dict[str, Any]:
-    path = tmp_path / f"{run_id}-{step_id}-{port_name}.txt"
+    safe_port = port_name.replace("/", "_").replace("\\", "_")
+    path = tmp_path / f"{run_id}-{step_id}-{safe_port}.txt"
     path.write_text(f"{step_id}:{port_name}\n", encoding="utf-8")
     blob = record_artifact_blob_for_path(
         cfg,

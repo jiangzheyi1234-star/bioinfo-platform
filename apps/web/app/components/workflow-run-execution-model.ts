@@ -183,8 +183,25 @@ export type WorkflowRunRuleCacheRestorePlan = {
   };
   stagedFilePolicy?: {
     reasonCode?: string;
+    previewAvailable?: boolean;
+    blockedReasonCodes?: string[];
     overwriteAllowed?: boolean;
+    deleteUnknownOutputs?: boolean;
+    pinCreationAllowed?: boolean;
     pathExposed?: boolean;
+    storageUriExposed?: boolean;
+    cacheKeyExposed?: boolean;
+    unknownOutputHandling?: string;
+    unknownOutputScanAvailable?: boolean;
+    managedTargetCount?: number;
+    targetCount?: number;
+    selectedOutputCount?: number;
+    downstreamOutputCount?: number;
+    cacheHitTargetCount?: number;
+    cacheMissTargetCount?: number;
+    unmappedTargetCount?: number;
+    unknownOutputCount?: number;
+    restorePinnedCount?: number;
   };
   rules?: Array<
     WorkflowRunRuleRetryPlanRuleRef & {

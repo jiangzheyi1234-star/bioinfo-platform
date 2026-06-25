@@ -8,32 +8,30 @@ from .artifact_cache_storage import preview_artifact_cache_entry
 from .config import RemoteRunnerConfig
 from .execution_plan_hash import attach_plan_hash
 from .rule_execution_storage import fetch_run_rules
+from .rule_restore_staging_policy import (
+    STAGED_FILE_POLICY_PLAN_SCHEMA_VERSION,
+    build_staged_file_policy_plan,
+    staged_file_policy_blocker,
+    staged_restore_target_reason,
+)
 from .rule_retry_plan import RULE_RETRY_PLAN_SCHEMA_VERSION
 
 
 RULE_CACHE_RESTORE_PLAN_SCHEMA_VERSION = "rule-cache-restore-plan.v1"
 PER_RULE_CACHE_ELIGIBILITY_SCHEMA_VERSION = "per-rule-cache-eligibility.v1"
-STAGED_FILE_POLICY_PLAN_SCHEMA_VERSION = "staged-file-policy-plan.v1"
 PARTIAL_RESTORE_EXECUTOR_SCHEMA_VERSION = "partial-restore-executor-plan.v1"
 OUTPUT_EDGE_INVALIDATION_APPLY_REQUIRED = "OUTPUT_EDGE_INVALIDATION_APPLY_REQUIRED"
-PER_RULE_CACHE_RESTORE_BASE_BLOCKERS = [
-    "PER_RULE_CACHE_ELIGIBILITY_UNPROVEN",
-    "STAGED_FILE_POLICY_UNREPRESENTED",
-    "PARTIAL_RESTORE_EXECUTOR_UNAVAILABLE",
-]
-PER_RULE_CACHE_RESTORE_BLOCKERS = [
-    *PER_RULE_CACHE_RESTORE_BASE_BLOCKERS,
-    OUTPUT_EDGE_INVALIDATION_APPLY_REQUIRED,
-]
 _SAFE_OUTPUT_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 
 
 def blocked_rule_cache_restore_plan(
     rule_retry_plan: dict[str, Any],
     reason_code: str = "PER_RULE_CACHE_PREFLIGHT_UNAVAILABLE",
+    *,
+    output_invalidation_applied: bool = False,
 ) -> dict[str, Any]:
     return _finalize_plan(
-        _base_plan(rule_retry_plan),
+        _base_plan(rule_retry_plan, output_invalidation_applied=output_invalidation_applied),
         reason_code=reason_code,
         rules=[],
         output_count=0,
@@ -208,6 +206,10 @@ def _finalize_plan(
                 "hitCount": cache_hit_count,
                 "missCount": cache_miss_count,
             },
+            "stagedFilePolicy": build_staged_file_policy_plan(
+                rules,
+                output_invalidation_applied=bool(base["cacheEligibility"].get("outputInvalidationApplied")),
+            ),
             "rules": rules,
         }
     )
@@ -316,7 +318,9 @@ def _output_preview(
         "cacheHit": bool(preview.get("hit")),
         "cacheReason": preview.get("reason"),
         "cacheEntry": _safe_cache_entry(preview.get("entry")),
-        "restoreTarget": _restore_target_policy("STAGED_FILE_POLICY_UNREPRESENTED"),
+        "restoreTarget": _restore_target_policy(
+            staged_restore_target_reason(output_invalidation_applied=output_invalidation_applied)
+        ),
         "pinPolicy": _pin_policy(),
         "blockedReasonCodes": _output_blockers(
             preview,
@@ -525,7 +529,11 @@ def _rule_blockers(
 
 
 def _restore_blockers(*, output_invalidation_applied: bool) -> list[str]:
-    blockers = list(PER_RULE_CACHE_RESTORE_BASE_BLOCKERS)
+    blockers = [
+        "PER_RULE_CACHE_ELIGIBILITY_UNPROVEN",
+        staged_file_policy_blocker(output_invalidation_applied=output_invalidation_applied),
+        "PARTIAL_RESTORE_EXECUTOR_UNAVAILABLE",
+    ]
     if not output_invalidation_applied:
         blockers.insert(1, OUTPUT_EDGE_INVALIDATION_APPLY_REQUIRED)
     return blockers

@@ -86,6 +86,12 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "cacheKeyPresent?: boolean" in model_contract
     assert "cacheKeyFingerprint?: string" in model_contract
     assert "cacheKeyFingerprintsExposed?: boolean" in model_contract
+    assert "previewAvailable?: boolean" in model_contract
+    assert "managedTargetCount?: number" in model_contract
+    assert "cacheHitTargetCount?: number" in model_contract
+    assert "unmappedTargetCount?: number" in model_contract
+    assert "storageUriExposed?: boolean" in model_contract
+    assert "cacheKeyExposed?: boolean" in model_contract
     assert "resumePlan?: WorkflowRunResumePlan" in model_contract
     assert "planHash?: string" in model_contract
     assert "workdirEvidence?:" in model_contract
@@ -243,6 +249,10 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "cache fingerprints" in execution_panel
     assert "digest-only" in execution_panel
     assert "cacheRestore.planHash ? cacheRestore.planHash.slice(0, 12)" in execution_panel
+    assert "stagedFileLabel" in execution_panel
+    assert "cacheHitTargetCount" in execution_panel
+    assert "unmappedTargetCount" in execution_panel
+    assert "paths" in execution_panel
     assert "run resume plan" in execution_panel
     assert "workdir evidence" in execution_panel
     assert "output audit" in execution_panel
