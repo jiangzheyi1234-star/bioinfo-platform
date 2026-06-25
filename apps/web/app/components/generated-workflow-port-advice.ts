@@ -2,7 +2,6 @@ import type { AddedTool } from "./tools-page-model";
 import {
   findOneHopPortConverters,
   type RulePortConverterCandidate,
-  type RulePortConverterInsertionRequest,
 } from "./generated-workflow-converter-recommendation";
 import {
   describePortSpec,
@@ -95,49 +94,6 @@ export function converterSuggestionsForConnection({
     nodeToolRevisionId: targetNode.toolRevisionId,
     tools,
   });
-}
-
-export function automaticConverterInsertionRequestForConnection({
-  connection,
-  graphDraft,
-  tools,
-}: {
-  connection: { from: GeneratedWorkflowGraphPortRef; to: GeneratedWorkflowGraphPortRef };
-  graphDraft: GeneratedWorkflowGraphDraft;
-  tools: AddedTool[];
-}): RulePortConverterInsertionRequest | null {
-  if (targetInputAlreadyBound({ connection, graphDraft })) return null;
-  const suggestions = converterSuggestionsForConnection({ connection, graphDraft, tools });
-  if (suggestions.length !== 1) return null;
-  const suggestion = suggestions[0];
-  return {
-    sourceStepId: suggestion.sourceStepId,
-    sourceOutput: suggestion.sourceOutput,
-    targetStepId: connection.to.nodeId,
-    targetInput: connection.to.port,
-    converter: {
-      ...suggestion,
-      confirmationRequired: false,
-      insertionMode: "automatic-unambiguous",
-      autoInsertionBlockedReasons: [],
-    },
-  };
-}
-
-function targetInputAlreadyBound({
-  connection,
-  graphDraft,
-}: {
-  connection: { from: GeneratedWorkflowGraphPortRef; to: GeneratedWorkflowGraphPortRef };
-  graphDraft: GeneratedWorkflowGraphDraft;
-}) {
-  const existingEdge = graphDraft.edges.some(
-    (edge) => edge.to.nodeId === connection.to.nodeId && edge.to.port === connection.to.port
-  );
-  if (existingEdge) return true;
-  const targetNode = graphDraft.nodes.find((node) => node.id === connection.to.nodeId);
-  const binding = targetNode?.inputs[connection.to.port];
-  return binding !== undefined && binding !== "";
 }
 
 function wouldCreateCycle({

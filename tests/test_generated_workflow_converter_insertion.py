@@ -35,7 +35,6 @@ const {
   findOneHopPortConverters,
 } = require(path.join(root, "apps", "web", "app", "components", "generated-workflow-converter-recommendation.ts"));
 const {
-  automaticConverterInsertionRequestForConnection,
   converterSuggestionsForConnection,
 } = require(path.join(root, "apps", "web", "app", "components", "generated-workflow-port-advice.ts"));
 const {
@@ -88,13 +87,6 @@ const converterTool = readyTool({
   outputs: [{ name: "bam", path: "converted.bam", kind: "alignment_bam", format: "bam", type: "file" }],
   commandTemplate: "cp {input.reads:q} {output.bam:q}",
 });
-const secondConverterTool = readyTool({
-  id: "bioconda::sam-to-bam-alt",
-  name: "sam-to-bam-alt",
-  inputs: [{ name: "reads", required: true, kind: "reads", format: "fastq", type: "file" }],
-  outputs: [{ name: "bam", path: "converted.bam", kind: "alignment_bam", format: "bam", type: "file" }],
-  commandTemplate: "cp {input.reads:q} {output.bam:q}",
-});
 const targetTool = readyTool({
   id: "bioconda::target",
   name: "target",
@@ -142,65 +134,6 @@ assert.equal(canvasSuggestion.confirmationRequired, true);
 assert.equal(canvasSuggestion.insertionMode, "explicit-user-confirmed");
 assert(canvasSuggestion.autoInsertionBlockedReasons.includes("graph-mutation-requires-user-action"));
 
-const autoInsertionRequest = automaticConverterInsertionRequestForConnection({
-  graphDraft: canvasGraphDraft,
-  tools: [sourceTool, converterTool, targetTool],
-  connection: {
-    from: { nodeId: "source", port: "report" },
-    to: { nodeId: "target", port: "reads" },
-  },
-});
-assert(autoInsertionRequest);
-assert.equal(autoInsertionRequest.sourceStepId, "source");
-assert.equal(autoInsertionRequest.sourceOutput, "report");
-assert.equal(autoInsertionRequest.targetStepId, "target");
-assert.equal(autoInsertionRequest.targetInput, "reads");
-assert.equal(autoInsertionRequest.converter.converterToolRevisionId, converterTool.toolRevisionId);
-assert.equal(autoInsertionRequest.converter.confirmationRequired, false);
-assert.equal(autoInsertionRequest.converter.insertionMode, "automatic-unambiguous");
-assert.deepEqual(autoInsertionRequest.converter.autoInsertionBlockedReasons, []);
-
-const ambiguousAutoInsertionRequest = automaticConverterInsertionRequestForConnection({
-  graphDraft: canvasGraphDraft,
-  tools: [sourceTool, converterTool, secondConverterTool, targetTool],
-  connection: {
-    from: { nodeId: "source", port: "report" },
-    to: { nodeId: "target", port: "reads" },
-  },
-});
-assert.equal(ambiguousAutoInsertionRequest, null);
-
-const occupiedInputAutoInsertionRequest = automaticConverterInsertionRequestForConnection({
-  graphDraft: {
-    ...canvasGraphDraft,
-    nodes: [
-      canvasGraphDraft.nodes[0],
-      { ...canvasGraphDraft.nodes[1], inputs: { reads: { fromUpload: 1 } } },
-    ],
-  },
-  tools: [sourceTool, converterTool, targetTool],
-  connection: {
-    from: { nodeId: "source", port: "report" },
-    to: { nodeId: "target", port: "reads" },
-  },
-});
-assert.equal(occupiedInputAutoInsertionRequest, null);
-
-const replacementAutoInsertionRequest = automaticConverterInsertionRequestForConnection({
-  graphDraft: {
-    ...canvasGraphDraft,
-    edges: [
-      { id: "source.report->target.reads:0", from: { nodeId: "source", port: "report" }, to: { nodeId: "target", port: "reads" } },
-    ],
-  },
-  tools: [sourceTool, converterTool, targetTool],
-  connection: {
-    from: { nodeId: "source", port: "report" },
-    to: { nodeId: "target", port: "reads" },
-  },
-});
-assert.equal(replacementAutoInsertionRequest, null);
-
 const compatibleSuggestion = converterSuggestionsForConnection({
   graphDraft: {
     nodes: [
@@ -217,22 +150,6 @@ const compatibleSuggestion = converterSuggestionsForConnection({
   },
 });
 assert.deepEqual(compatibleSuggestion, []);
-const compatibleAutoInsertionRequest = automaticConverterInsertionRequestForConnection({
-  graphDraft: {
-    nodes: [
-      canvasGraphDraft.nodes[0],
-      { id: "converter", toolRevisionId: converterTool.toolRevisionId, inputs: {}, params: {}, runtime: {} },
-    ],
-    edges: [],
-    outputs: [],
-  },
-  tools: [sourceTool, converterTool],
-  connection: {
-    from: { nodeId: "source", port: "report" },
-    to: { nodeId: "converter", port: "reads" },
-  },
-});
-assert.equal(compatibleAutoInsertionRequest, null);
 
 const selfSuggestion = converterSuggestionsForConnection({
   graphDraft: canvasGraphDraft,

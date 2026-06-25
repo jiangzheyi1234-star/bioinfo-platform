@@ -47,6 +47,7 @@ import {
   GeneratedWorkflowGraphSnakefilePreview,
   GeneratedWorkflowSnakefilePreview,
 } from "./generated-workflow-snakefile-preview";
+import { WorkflowDesignSemanticPortPlanPreview } from "./workflow-design-semantic-port-plan";
 import { StepParamsEditor } from "./generated-workflow-step-params-editor";
 import { GeneratedWorkflowToolRecommendations } from "./generated-workflow-tool-recommendations";
 import type { GeneratedWorkflowBuilderController } from "./use-generated-workflow-builder";
@@ -209,6 +210,11 @@ export function GeneratedWorkflowBuilder({
         onAddTool={onAddRecommendedTool || builder.addStep}
       />
       <GeneratedResourceBindings builder={builder} availableDatabases={availableDatabases} />
+      <WorkflowDesignSemanticPortPlanPreview
+        onInsertConverter={builder.insertConverter}
+        plan={designPlan?.semanticPortPlan || null}
+        tools={workflowReadyTools}
+      />
       <WorkflowDesignPlanPreview plan={designPlan || null} />
       <WorkflowDesignCompileSummary result={compileResult || null} />
     </div>

@@ -36,11 +36,7 @@ import {
   reactFlowConnectionToGraphConnection,
   type WorkflowRuleFlowEdge,
 } from "./generated-workflow-react-flow-adapter";
-import {
-  automaticConverterInsertionRequestForConnection,
-  converterSuggestionsForConnection,
-  type OutputConverterSuggestion,
-} from "./generated-workflow-port-advice";
+import { converterSuggestionsForConnection, type OutputConverterSuggestion } from "./generated-workflow-port-advice";
 import {
   evaluateGeneratedWorkflowPortConnection,
   type GeneratedWorkflowPortConnectionDecision,
@@ -78,7 +74,6 @@ type RuleFlowSubflowGroupNode = Node<RuleFlowSubflowGroupData, "subflowGroup">;
 type RuleFlowAnyNode = RuleFlowNode | RuleFlowSubflowGroupNode;
 type RuleFlowEdge = WorkflowRuleFlowEdge;
 type ConnectionNotice = {
-  autoInsertionRequest?: RulePortConverterInsertionRequest | null;
   message: string;
   request?: RulePortConverterInsertionRequest;
   suggestion?: OutputConverterSuggestion;
@@ -219,17 +214,10 @@ export function GeneratedWorkflowGraphCanvas({
       if (connectionState.isValid === false && lastInvalidConnectionRef.current) {
         const notice = lastInvalidConnectionRef.current;
         lastInvalidConnectionRef.current = null;
-        if (notice.autoInsertionRequest) {
-          onInsertConverter(notice.autoInsertionRequest);
-          setConnectionNotice({
-            message: `已自动插入转换节点 ${notice.suggestion?.converterToolName || "converter"}，请复核新增连线。`,
-          });
-          return;
-        }
         setConnectionNotice(notice);
       }
     },
-    [onInsertConverter]
+    []
   );
   const onNodesChange = useCallback<OnNodesChange<RuleFlowAnyNode>>((changes: NodeChange<RuleFlowAnyNode>[]) => {
     const workflowNodeChanges = changes.filter((change) => {
@@ -530,11 +518,6 @@ function connectionNoticeForDecision({
   if (!decision.ok && decision.code === "WORKFLOW_GRAPH_CONNECTION_INCOMPATIBLE" && graphConnection) {
     const suggestion = converterSuggestionsForConnection({ connection: graphConnection, graphDraft, tools })[0];
     if (suggestion) {
-      const autoInsertionRequest = automaticConverterInsertionRequestForConnection({
-        connection: graphConnection,
-        graphDraft,
-        tools,
-      });
       const replacementNote = graphDraft.edges.some(
         (edge) => edge.to.nodeId === graphConnection.to.nodeId && edge.to.port === graphConnection.to.port
       )
@@ -542,7 +525,6 @@ function connectionNoticeForDecision({
         : "";
       return {
         message: `${decision.reason}。可插入转换 ${suggestion.converterToolName} · 需确认，不会自动插入。${replacementNote}`,
-        autoInsertionRequest,
         request: {
           sourceStepId: suggestion.sourceStepId,
           sourceOutput: suggestion.sourceOutput,

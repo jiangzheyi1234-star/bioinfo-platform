@@ -20,7 +20,7 @@ export type RulePortConverterCandidate = {
   converterToolRevisionId: string;
   converterToolName: string;
   confirmationRequired: boolean;
-  insertionMode: "explicit-user-confirmed" | "automatic-unambiguous";
+  insertionMode: "explicit-user-confirmed";
   autoInsertionBlockedReasons: string[];
   hardChecks: string[];
   evidence: string[];
