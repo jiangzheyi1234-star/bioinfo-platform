@@ -126,7 +126,7 @@ def test_generated_workflow_builder_uses_server_tool_recommendations() -> None:
     assert "GeneratedWorkflowToolRecommendations" in builder_ui
     assert "outputCandidates={outputCandidates}" in builder_ui
     assert "onAddTool={onAddRecommendedTool || builder.addStep}" in builder_ui
-    assert "onAddRecommendedTool?: (toolRevisionId: string) => void" in builder_ui
+    assert "onAddRecommendedTool?: (toolRevisionId: string, options?: GeneratedWorkflowAddStepOptions) => void" in builder_ui
     assert "fetchWorkflowToolRecommendations" in recommendations_ui
     assert "createToolPrepareJob" in recommendations_ui
     assert "useToolPrepareTasks" in recommendations_ui
@@ -163,7 +163,7 @@ def test_generated_workflow_builder_uses_server_tool_recommendations() -> None:
     assert "recommendationAddStepRevisionId" in recommendations_ui
     assert "const addStepRevisionId = recommendationAddStepRevisionId(recommendation, tool)" in recommendations_ui
     assert "const canAddStep = Boolean(recommendation.executionGate?.canAddStep && addStepRevisionId)" in recommendations_ui
-    assert "onAddTool(addStepRevisionId)" in recommendations_ui
+    assert "onAddTool(addStepRevisionId, {" in recommendations_ui
     assert "recommendation.preparePayload || recommendation.candidate.preparePayload" in _function_body(
         recommendations_ui,
         "addedToolFromRecommendation",
@@ -746,7 +746,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "useGeneratedWorkflowBuilder" in page_hook
     assert "addRecommendedWorkflowTool" in page_hook
     assert "fetchWorkflowTools({ forceRefresh: true })" in page_hook
-    assert "generatedBuilder.addStep(toolRevisionId)" in page_hook
+    assert "generatedBuilder.addStep(toolRevisionId, options)" in page_hook
     assert "setTools(nextTools)" in page_hook
     assert "buildWorkflowDesignDraft" in page_hook
     assert "existingDraft: activeWorkflowDesignDraft?.draft" in page_hook

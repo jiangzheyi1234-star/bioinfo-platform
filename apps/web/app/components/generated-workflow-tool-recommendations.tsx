@@ -16,13 +16,14 @@ import {
   fetchWorkflowToolRecommendations,
   type WorkflowToolRecommendationItem,
 } from "./workflows-page-api";
+import type { GeneratedWorkflowAddStepOptions } from "./use-generated-workflow-builder";
 
 export function GeneratedWorkflowToolRecommendations({
   onAddTool,
   outputCandidates,
   tools,
 }: {
-  onAddTool: (toolRevisionId: string) => void;
+  onAddTool: (toolRevisionId: string, options?: GeneratedWorkflowAddStepOptions) => void;
   outputCandidates: GeneratedWorkflowOutputCandidate[];
   tools: AddedTool[];
 }) {
@@ -167,7 +168,13 @@ export function GeneratedWorkflowToolRecommendations({
                   type="button"
                   variant="outline"
                   className="h-8 bg-white px-2.5 text-xs"
-                  onClick={() => onAddTool(addStepRevisionId)}
+                  onClick={() => onAddTool(addStepRevisionId, {
+                    preferredSourceOutput: {
+                      output: selectedOutputCandidate.output,
+                      stepId: selectedOutputCandidate.stepId,
+                      targetInput: recommendation.inputPort.name,
+                    },
+                  })}
                 >
                   <Plus strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5" />
                   添加步骤

@@ -38,9 +38,14 @@ def test_palette_cards_drag_tool_revision_ids_to_react_flow_canvas() -> None:
 def test_dropped_steps_persist_position_through_single_history_commit() -> None:
     hook = _component_source("use-generated-workflow-builder.ts")
 
-    assert 'type AddStepOptions = { position?: GraphNodePosition }' in hook
-    assert 'addStep: (toolRevisionId: string, options: AddStepOptions = {})' in hook
-    assert 'dispatch({ type: "add_step", position: options.position, tool, tools })' in hook
+    assert "export type GeneratedWorkflowAddStepOptions" in hook
+    assert "position?: GraphNodePosition" in hook
+    assert "preferredSourceOutput?: GeneratedWorkflowPreferredSourceOutput" in hook
+    assert "addStep: (toolRevisionId: string, options: GeneratedWorkflowAddStepOptions = {})" in hook
+    assert 'type: "add_step"' in hook
+    assert "position: options.position" in hook
+    assert "tool," in hook
+    assert "tools," in hook
     assert 'graphNodeMetadataWithPosition(nextStep.metadata, action.position)' in hook
     assert 'steps: [...current.steps, positionedStep]' in hook
     assert "commitWorkflowEditorHistory(state.graphHistory, graphDraft)" in hook

@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { DatabaseItem } from "./database-page-model";
 import type { AddedTool } from "./tools-page-model";
 import { GENERATED_TOOL_RUN_PIPELINE_ID, workflowToolRevisionId } from "./generated-workflow-model";
-import { useGeneratedWorkflowBuilder } from "./use-generated-workflow-builder";
+import { useGeneratedWorkflowBuilder, type GeneratedWorkflowAddStepOptions } from "./use-generated-workflow-builder";
 import { workflowInputRoleForIndex } from "./workflow-artifact-input-recommendation";
 import {
   fetchRunsList,
@@ -76,7 +76,10 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
   const [workflowDesignCompileResult, setWorkflowDesignCompileResult] = useState<WorkflowDesignCompileResult | null>(null);
   const [workflowDesignBusy, setWorkflowDesignBusy] = useState(false);
   const [workflowDesignError, setWorkflowDesignError] = useState("");
-  const [pendingRecommendedToolRevisionId, setPendingRecommendedToolRevisionId] = useState("");
+  const [pendingRecommendedTool, setPendingRecommendedTool] = useState<{
+    options?: GeneratedWorkflowAddStepOptions;
+    toolRevisionId: string;
+  } | null>(null);
   const [params, setParams] = useState<Record<string, unknown>>({});
   const [activeRunId, setActiveRunId] = useState<string>("");
 
@@ -179,34 +182,37 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     ? Math.max(files.length, activeWorkflowDesignDraft.draft.inputs.length)
     : files.length;
   const generatedBuilder = useGeneratedWorkflowBuilder(runnableTools, availableDatabases, generatedInputCount);
-  const addRecommendedWorkflowTool = useCallback(async (toolRevisionId: string) => {
+  const addRecommendedWorkflowTool = useCallback(async (
+    toolRevisionId: string,
+    options: GeneratedWorkflowAddStepOptions = {}
+  ) => {
     const normalizedRevisionId = String(toolRevisionId || "").trim();
     if (!normalizedRevisionId) return;
     if (runnableTools.some((tool) => workflowToolRevisionId(tool) === normalizedRevisionId)) {
-      generatedBuilder.addStep(toolRevisionId);
+      generatedBuilder.addStep(toolRevisionId, options);
       return;
     }
-    setPendingRecommendedToolRevisionId(normalizedRevisionId);
+    setPendingRecommendedTool({ options, toolRevisionId: normalizedRevisionId });
     setWorkflowDesignError("");
     try {
       const nextTools = await fetchWorkflowTools({ forceRefresh: true });
       setTools(nextTools);
       if (!selectableTools(nextTools).some((tool) => workflowToolRevisionId(tool) === normalizedRevisionId)) {
-        setPendingRecommendedToolRevisionId((current) => current === normalizedRevisionId ? "" : current);
+        setPendingRecommendedTool((current) => current?.toolRevisionId === normalizedRevisionId ? null : current);
         setWorkflowDesignError("推荐工具还未进入可添加工具列表，请稍后刷新工具库。");
       }
     } catch (err) {
-      setPendingRecommendedToolRevisionId((current) => current === normalizedRevisionId ? "" : current);
+      setPendingRecommendedTool((current) => current?.toolRevisionId === normalizedRevisionId ? null : current);
       setWorkflowDesignError(workflowErrorMessage(err, "刷新推荐工具失败"));
     }
   }, [generatedBuilder, runnableTools]);
   useEffect(() => {
-    const toolRevisionId = pendingRecommendedToolRevisionId;
+    const toolRevisionId = pendingRecommendedTool?.toolRevisionId || "";
     if (!toolRevisionId) return;
     if (!runnableTools.some((tool) => workflowToolRevisionId(tool) === toolRevisionId)) return;
-    generatedBuilder.addStep(toolRevisionId);
-    setPendingRecommendedToolRevisionId("");
-  }, [generatedBuilder, pendingRecommendedToolRevisionId, runnableTools]);
+    generatedBuilder.addStep(toolRevisionId, pendingRecommendedTool?.options);
+    setPendingRecommendedTool((current) => current?.toolRevisionId === toolRevisionId ? null : current);
+  }, [generatedBuilder, pendingRecommendedTool, runnableTools]);
   const currentWorkflowDesignDraftResult = useMemo(() => {
     if (!isGeneratedToolRun) return { draft: null, error: "" };
     try {

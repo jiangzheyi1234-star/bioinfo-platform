@@ -45,15 +45,12 @@ import {
 } from "./generated-workflow-port-bindings-editor";
 import { GeneratedWorkflowRuleSpecPanel } from "./generated-workflow-rule-spec-panel";
 import { GeneratedWorkflowRuntimeEditor } from "./generated-workflow-runtime-editor";
-import {
-  GeneratedWorkflowGraphSnakefilePreview,
-  GeneratedWorkflowSnakefilePreview,
-} from "./generated-workflow-snakefile-preview";
+import { GeneratedWorkflowGraphSnakefilePreview, GeneratedWorkflowSnakefilePreview } from "./generated-workflow-snakefile-preview";
 import { GeneratedWorkflowSubflowControls } from "./generated-workflow-subflow-controls";
 import { WorkflowDesignSemanticPortPlanPreview } from "./workflow-design-semantic-port-plan";
 import { StepParamsEditor } from "./generated-workflow-step-params-editor";
 import { GeneratedWorkflowToolRecommendations } from "./generated-workflow-tool-recommendations";
-import type { GeneratedWorkflowBuilderController } from "./use-generated-workflow-builder";
+import type { GeneratedWorkflowAddStepOptions, GeneratedWorkflowBuilderController } from "./use-generated-workflow-builder";
 import type { WorkflowDesignCompileResult, WorkflowDesignDraftRecord, WorkflowDesignPlan } from "./workflow-design-draft-model";
 import { databaseMatchesWorkflowResource } from "./workflows-page-model";
 import { displayRuleTemplateForTool, ruleSpecReadinessForTool } from "./tool-rule-readiness";
@@ -70,7 +67,7 @@ type GeneratedWorkflowBuilderProps = {
   designError?: string;
   designPlan?: WorkflowDesignPlan | null;
   onCompile?: () => void;
-  onAddRecommendedTool?: (toolRevisionId: string) => void;
+  onAddRecommendedTool?: (toolRevisionId: string, options?: GeneratedWorkflowAddStepOptions) => void;
   onOpenDesignDraft?: (draftId: string) => void;
   onSaveAndValidate?: () => void;
 };

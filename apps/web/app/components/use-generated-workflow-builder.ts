@@ -28,6 +28,7 @@ import {
   graphDraftToGeneratedWorkflowDraft,
   readRuleInputs,
   readRuleOutputs,
+  portsCompatible,
   validateGeneratedWorkflowDraft,
   workflowToolRevisionEntries,
   workflowToolRevisionId,
@@ -43,11 +44,19 @@ import {
   generatedToolResourceEntries,
   type WorkflowResourceBindings,
 } from "./workflows-page-model";
-import { manualEdgeAudit } from "./generated-workflow-recommendation-contract";
+import { autoEdgeAudit, explainPortRecommendation, manualEdgeAudit } from "./generated-workflow-recommendation-contract";
 import { autoBindGeneratedWorkflowResources } from "./generated-workflow-resource-binding";
 
 type GraphNodePosition = { x: number; y: number };
-type AddStepOptions = { position?: GraphNodePosition };
+export type GeneratedWorkflowPreferredSourceOutput = {
+  output: string;
+  stepId: string;
+  targetInput?: string;
+};
+export type GeneratedWorkflowAddStepOptions = {
+  position?: GraphNodePosition;
+  preferredSourceOutput?: GeneratedWorkflowPreferredSourceOutput;
+};
 
 type BuilderAction =
   | { type: "reset_tools"; tools: AddedTool[] }
@@ -55,7 +64,13 @@ type BuilderAction =
   | { type: "load_resource_bindings"; selectedResourceIds: Record<string, string> }
   | { type: "redo_graph" }
   | { type: "undo_graph" }
-  | { type: "add_step"; position?: GraphNodePosition; tool: AddedTool; tools: AddedTool[] }
+  | {
+      type: "add_step";
+      position?: GraphNodePosition;
+      preferredSourceOutput?: GeneratedWorkflowPreferredSourceOutput;
+      tool: AddedTool;
+      tools: AddedTool[];
+    }
   | { type: "insert_converter"; converterTool: AddedTool; request: RulePortConverterInsertionRequest }
   | { type: "remove_step"; stepId: string }
   | { type: "set_step_id"; stepId: string; nextId: string }
@@ -146,9 +161,17 @@ export function useGeneratedWorkflowBuilder(tools: AddedTool[], availableResourc
     loadGraphDraft: (draft: GeneratedWorkflowGraphDraft) => dispatch({ type: "load_graph_draft", draft }),
     loadResourceBindings: (selectedResourceIds: Record<string, string>) =>
       dispatch({ type: "load_resource_bindings", selectedResourceIds }),
-    addStep: (toolRevisionId: string, options: AddStepOptions = {}) => {
+    addStep: (toolRevisionId: string, options: GeneratedWorkflowAddStepOptions = {}) => {
       const tool = toolByRevisionId.get(toolRevisionId);
-      if (tool) dispatch({ type: "add_step", position: options.position, tool, tools });
+      if (tool) {
+        dispatch({
+          type: "add_step",
+          position: options.position,
+          preferredSourceOutput: options.preferredSourceOutput,
+          tool,
+          tools,
+        });
+      }
     },
     insertConverter: (request: RulePortConverterInsertionRequest) => {
       const converterTool = toolByRevisionId.get(request.converter.converterToolRevisionId);
@@ -210,7 +233,12 @@ function builderReducer(state: BuilderState, action: BuilderAction): BuilderStat
   }
   if (action.type === "add_step") {
     const draft = graphDraftToGeneratedWorkflowDraft(state.graphHistory.present);
-    const nextStep = createStepDraft(action.tool, draft.steps.map((step) => step.id), draft.steps, action.tools);
+    const nextStep = applyPreferredSourceOutputBinding({
+      preferredSourceOutput: action.preferredSourceOutput,
+      step: createStepDraft(action.tool, draft.steps.map((step) => step.id), draft.steps, action.tools),
+      tools: action.tools,
+      upstreamSteps: draft.steps,
+    });
     const positionedStep = action.position
       ? { ...nextStep, metadata: graphNodeMetadataWithPosition(nextStep.metadata, action.position) }
       : nextStep;
@@ -358,6 +386,42 @@ function setStepTool(state: BuilderState, stepId: string, tool: AddedTool, tools
     steps: current.steps.map((step) => step.id === stepId ? { ...step, toolRevisionId: workflowToolRevisionId(tool), inputs, params } : step),
     outputs: current.outputs.filter((output) => output.fromStep !== stepId || outputNames.has(output.output)),
   }));
+}
+
+function applyPreferredSourceOutputBinding({
+  preferredSourceOutput,
+  step,
+  tools,
+  upstreamSteps,
+}: {
+  preferredSourceOutput: GeneratedWorkflowPreferredSourceOutput | undefined;
+  step: GeneratedWorkflowDraft["steps"][number];
+  tools: AddedTool[];
+  upstreamSteps: GeneratedWorkflowDraft["steps"];
+}): GeneratedWorkflowDraft["steps"][number] {
+  if (!preferredSourceOutput) return step;
+  const toolByRevisionId = new Map(workflowToolRevisionEntries(tools));
+  const sourceStep = upstreamSteps.find((candidate) => candidate.id === preferredSourceOutput.stepId);
+  const sourceOutput = readRuleOutputs(toolByRevisionId.get(sourceStep?.toolRevisionId || ""))
+    .find((output) => output.name === preferredSourceOutput.output);
+  if (!sourceOutput) return step;
+
+  const targetInputs = readRuleInputs(toolByRevisionId.get(step.toolRevisionId))
+    .filter((input) => !preferredSourceOutput.targetInput || input.name === preferredSourceOutput.targetInput);
+  const targetInput = targetInputs.find((input) => portsCompatible(input, sourceOutput));
+  if (!targetInput) return step;
+
+  return {
+    ...step,
+    inputs: {
+      ...step.inputs,
+      [targetInput.name]: {
+        fromStep: preferredSourceOutput.stepId,
+        output: preferredSourceOutput.output,
+        audit: autoEdgeAudit(explainPortRecommendation(targetInput, sourceOutput)),
+      },
+    },
+  };
 }
 
 function updateStepDraft(state: BuilderState, update: (draft: GeneratedWorkflowDraft) => GeneratedWorkflowDraft): BuilderState {
