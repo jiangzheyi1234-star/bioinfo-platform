@@ -76,9 +76,69 @@ export type WorkflowDesignDraftRecord = {
   updatedAt: string;
 };
 
+export type WorkflowDesignSemanticPortDecision = {
+  compatible: boolean;
+  score: number | null;
+  matchedFields: string[];
+  genericFields: string[];
+  advisoryFields: string[];
+  mismatchedField: string;
+  hardChecks: string[];
+  advisoryChecks: string[];
+  inputSpec: Record<string, string>;
+  outputSpec: Record<string, string>;
+};
+
+export type WorkflowDesignSemanticPortCandidate = {
+  converterToolRevisionId: string;
+  converterToolId: string;
+  converterToolName: string;
+  inputPort: string;
+  outputPort: string;
+  inputScore: number;
+  outputScore: number;
+  totalScore: number;
+  operation?: string;
+  workflowStage?: string;
+  confirmationRequired: boolean;
+  insertionMode: "explicit-user-confirmed";
+  autoInsertionBlockedReasons: string[];
+  hardChecks: string[];
+  evidence: string[];
+  inputDecision: WorkflowDesignSemanticPortDecision;
+  outputDecision: WorkflowDesignSemanticPortDecision;
+  reason: string;
+};
+
+export type WorkflowDesignSemanticPortEdgePlan = {
+  edgeId?: string;
+  from: { nodeId: string; port: string };
+  to: { nodeId: string; port: string };
+  decision: WorkflowDesignSemanticPortDecision;
+  recommendation: {
+    action: "connect" | "insert-converter" | "block";
+    reasonCode: string;
+    confidence: number;
+    hardChecks: string[];
+    evidence: string[];
+    converterCandidateCount: number;
+  };
+  converterCandidates: WorkflowDesignSemanticPortCandidate[];
+};
+
+export type WorkflowDesignSemanticPortPlan = {
+  schemaVersion: "h2ometa.workflow-design-semantic-port-plan.v1";
+  edgeCount: number;
+  compatibleEdgeCount: number;
+  blockedEdgeCount: number;
+  converterCandidateCount: number;
+  edges: WorkflowDesignSemanticPortEdgePlan[];
+};
+
 export type WorkflowDesignPlan = {
   valid: boolean;
   normalizedGraph: Record<string, unknown>;
+  semanticPortPlan?: WorkflowDesignSemanticPortPlan;
   orderedSteps: Array<Record<string, unknown>>;
   resolvedPorts: Record<string, unknown>;
   requiredResources: Record<string, unknown>;

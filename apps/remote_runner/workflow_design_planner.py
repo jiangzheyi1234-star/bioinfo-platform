@@ -14,6 +14,10 @@ from .generated_workflow_plan import plan_generated_workflow_steps
 from .rule_outputs import output_spec_metadata, rule_output_metadata
 from .rule_rendering import render_generated_workflow_snakefile
 from .rule_runtime import runtime_config
+from .workflow_design_semantic_ports import (
+    build_workflow_design_semantic_port_plan,
+    empty_workflow_design_semantic_port_plan,
+)
 from core.contracts.workflow_design import (
     WorkflowDesignDraftV1,
     workflow_design_graph,
@@ -32,9 +36,10 @@ def plan_workflow_design_draft(
     revision: int | None = None,
 ) -> dict[str, Any]:
     design = WorkflowDesignDraftV1.model_validate(draft)
+    semantic_port_plan = build_workflow_design_semantic_port_plan(cfg, design)
     resolved_inputs = workflow_design_resolved_inputs(design)
     if not resolved_inputs:
-        return _invalid_plan(design, "INPUT_REQUIRED")
+        return _invalid_plan(design, "INPUT_REQUIRED", semantic_port_plan=semantic_port_plan)
     result_dir = preview_root / "results"
     run_spec = workflow_design_to_generated_run_spec(design, draft_id=draft_id, revision=revision)
     try:
@@ -46,12 +51,12 @@ def plan_workflow_design_draft(
             require_workflow_ready=True,
         )
     except ValueError as exc:
-        return _invalid_plan(design, str(exc))
+        return _invalid_plan(design, str(exc), semantic_port_plan=semantic_port_plan)
 
     try:
         resource_specs = collect_workflow_resource_specs([step.rule_template for step in plan.steps])
     except ValueError as exc:
-        return _invalid_plan(design, str(exc))
+        return _invalid_plan(design, str(exc), semantic_port_plan=semantic_port_plan)
 
     try:
         resource_config = build_workflow_resource_config(
@@ -61,7 +66,12 @@ def plan_workflow_design_draft(
         )
         _validate_capability_bundle_gate(plan.steps, resource_context=resource_config["resources"])
     except ValueError as exc:
-        return _invalid_plan(design, str(exc), required_resources=resource_specs)
+        return _invalid_plan(
+            design,
+            str(exc),
+            required_resources=resource_specs,
+            semantic_port_plan=semantic_port_plan,
+        )
 
     try:
         exposed_outputs = resolve_exposed_outputs(
@@ -94,10 +104,12 @@ def plan_workflow_design_draft(
             str(exc),
             required_resources=resource_specs,
             required_databases=resource_config["resources"],
+            semantic_port_plan=semantic_port_plan,
         )
     return {
         "valid": True,
         "normalizedGraph": workflow_design_graph(design),
+        "semanticPortPlan": semantic_port_plan,
         "orderedSteps": [_step_summary(step) for step in plan.steps],
         "resolvedPorts": {
             step.step_id: {
@@ -132,10 +144,12 @@ def _invalid_plan(
     *,
     required_resources: dict[str, Any] | None = None,
     required_databases: dict[str, Any] | None = None,
+    semantic_port_plan: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "valid": False,
         "normalizedGraph": workflow_design_graph(design),
+        "semanticPortPlan": semantic_port_plan or empty_workflow_design_semantic_port_plan(),
         "orderedSteps": [],
         "resolvedPorts": {},
         "requiredResources": required_resources or {},

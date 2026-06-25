@@ -159,6 +159,7 @@ Progress:
 - Capability bundles now preserve full semantic port metadata across API/frontend boundaries, including `operation` as advisory evidence and `resource` as hard compatibility evidence, so workflow recommendations and port audits do not lose EDAM/resource context after serialization.
 - WorkflowDesignDraft external inputs now declare first-class `type`, `kind`, `data`, `format`, `operation`, and `resource` semantics. Plan/compile resolve those declarations into the same EDAM-aware hard compatibility gate used for step-to-step edges, while executable runSpec inputs remain file-binding payloads instead of carrying design-only port metadata.
 - Frontend draft creation now preserves external input semantic fields when replacing upload files, and Python/TypeScript port compatibility share golden EDAM/resource/advisory parity cases so UI recommendations cannot drift from backend compile validation unnoticed.
+- WorkflowDesignDraft plan responses now include a backend `semanticPortPlan` read model for every graph edge. It reports EDAM/resource compatibility decisions and one-hop converter candidates with hard checks, evidence, confirmation requirements, and no executable templates, paths, or automatic graph mutation.
 
 Recommended sequence:
 
