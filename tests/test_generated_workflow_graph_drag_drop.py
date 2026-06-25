@@ -30,6 +30,8 @@ def test_palette_cards_drag_tool_revision_ids_to_react_flow_canvas() -> None:
     assert "onDropTool(" in canvas
     assert "onDragOver={onDragOver}" in canvas
     assert "onDrop={onDrop}" in canvas
+    assert "无法添加工具：拖拽数据缺少工具修订 ID。" in canvas
+    assert "无法添加工具：画布尚未初始化。" in canvas
     assert "pointer-events-none" in canvas
 
 

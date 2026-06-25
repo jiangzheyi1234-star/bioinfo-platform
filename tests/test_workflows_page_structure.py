@@ -193,6 +193,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     history_path = COMPONENTS / "generated-workflow-history.ts"
     graph_node_path = COMPONENTS / "generated-workflow-graph-node-card.tsx"
     graph_canvas_path = COMPONENTS / "generated-workflow-graph-canvas.tsx"
+    graph_adapter_path = COMPONENTS / "generated-workflow-react-flow-adapter.ts"
     port_connection_path = COMPONENTS / "generated-workflow-port-connection.ts"
     node_settings_path = COMPONENTS / "generated-workflow-node-settings.tsx"
     command_contract_path = COMPONENTS / "generated-workflow-command-contract.ts"
@@ -244,6 +245,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     history_contract = history_path.read_text(encoding="utf-8")
     graph_node_ui = graph_node_path.read_text(encoding="utf-8")
     graph_canvas_ui = graph_canvas_path.read_text(encoding="utf-8")
+    graph_adapter_ui = graph_adapter_path.read_text(encoding="utf-8")
     port_connection_contract = port_connection_path.read_text(encoding="utf-8")
     node_settings_ui = node_settings_path.read_text(encoding="utf-8")
     command_contract = command_contract_path.read_text(encoding="utf-8")
@@ -573,14 +575,17 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "onConnect" in graph_canvas_ui
     assert "onConnectEnd" in graph_canvas_ui
     assert "onEdgesChange" in graph_canvas_ui
-    assert "sourceHandle" in graph_canvas_ui
-    assert "targetHandle" in graph_canvas_ui
+    assert "sourceHandle" in graph_adapter_ui
+    assert "targetHandle" in graph_adapter_ui
     assert "MarkerType.ArrowClosed" in graph_canvas_ui
     assert "evaluateGeneratedWorkflowPortConnection" in graph_canvas_ui
     assert "reactFlowConnectionToGraphConnection" in graph_canvas_ui
+    assert "generated-workflow-react-flow-adapter" in graph_canvas_ui
     assert "data-workflow-react-flow-canvas" in graph_canvas_ui
     assert "fitView" in graph_canvas_ui
     assert "matchedGraphNodeIds" in graph_canvas_ui
+    assert "无法添加工具：拖拽数据缺少工具修订 ID。" in graph_canvas_ui
+    assert "无法添加工具：画布尚未初始化。" in graph_canvas_ui
     assert "nodeIssues.length === 0" in graph_canvas_ui
     assert "ring-2 ring-amber-300" in graph_canvas_ui
     assert "从工具库添加 RuleSpec 节点" in graph_canvas_ui
@@ -598,6 +603,9 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "unknownInputIssues" in graph_node_ui
     assert "data-port-error" in graph_node_ui
     assert "data-node-state" in graph_node_ui
+    assert "data-rule-node-id" in graph_node_ui
+    assert "rule-graph-handle-" in graph_node_ui
+    assert "rule-graph-port-" in graph_node_ui
     assert "未知输入端口" in graph_node_ui
     assert "portBindingState" in graph_node_ui
     assert "outputFanoutCount" in graph_node_ui

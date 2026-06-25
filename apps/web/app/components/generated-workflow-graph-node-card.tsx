@@ -56,6 +56,7 @@ export function RuleGraphNodeCard({
         }
       }}
       data-node-state={hasIssues ? "error" : "ready"}
+      data-rule-node-id={node.id}
       data-testid="rule-graph-node-card"
     >
       <span className="min-w-0">
@@ -111,7 +112,10 @@ function RulePortColumn({
                   state.state === "error" ? "bg-red-50" : "bg-slate-50"
                 )}
                 data-port-error={state.issue?.code || ""}
+                data-port-name={port.name}
                 data-port-state={state.state}
+                data-rule-node-id={node.id}
+                data-testid={`rule-graph-port-${direction}-${node.id}-${port.name}`}
               >
                 <Handle
                   id={port.name}
@@ -125,6 +129,9 @@ function RulePortColumn({
                   )}
                   data-port-direction={direction}
                   data-port-handle={port.name}
+                  data-port-name={port.name}
+                  data-rule-node-id={node.id}
+                  data-testid={`rule-graph-handle-${direction}-${node.id}-${port.name}`}
                 />
                 <span
                   className={cn(
@@ -154,7 +161,10 @@ function RulePortColumn({
               key={`${issue.code}-${issue.inputName}`}
               className="grid min-w-0 grid-cols-[6px_minmax(0,1fr)] items-center gap-1 rounded bg-red-50 px-1.5 py-1"
               data-port-error={issue.code}
+              data-port-name={issue.inputName}
               data-port-state="error"
+              data-rule-node-id={node.id}
+              data-testid={`rule-graph-port-input-${node.id}-${issue.inputName}`}
             >
               <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
               <span className="min-w-0">

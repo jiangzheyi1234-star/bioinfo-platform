@@ -115,6 +115,7 @@ Progress:
 - Subflow grouping now uses editor node metadata (`uiSubflowId`/`uiSubflowLabel`) and display-only React Flow group nodes; the saved and compiled execution graph remains flat.
 - Incompatible canvas port drops now reuse the shared one-hop converter recommendation policy used by the inspector, surface a stale-safe explicit confirmation prompt, and call the existing converter insertion path only after user confirmation.
 - Workflow-ready tools can now be dragged from the palette onto the React Flow canvas. Drop coordinates are converted with the React Flow viewport transform and persisted only as scalar `uiPositionX`/`uiPositionY` metadata in the existing history model; execution graph semantics and edge inference remain unchanged.
+- React Flow edge projection, handle-to-graph connection translation, and search matching now live behind a tested adapter module. Invalid canvas drops report explicit operator notices instead of silently doing nothing, and graph nodes/ports/handles expose stable non-visual selectors for future Playwright interaction proof.
 
 Recommended sequence:
 

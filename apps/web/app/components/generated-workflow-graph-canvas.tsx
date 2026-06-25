@@ -10,7 +10,6 @@ import {
   ReactFlow,
   applyNodeChanges,
   type Connection,
-  type Edge,
   type EdgeChange,
   type IsValidConnection,
   type Node,
@@ -31,6 +30,12 @@ import type { RulePortConverterInsertionRequest } from "./generated-workflow-con
 import { RuleGraphNodeCard } from "./generated-workflow-graph-node-card";
 import { readWorkflowToolDrop } from "./generated-workflow-graph-drag-drop";
 import { layoutGeneratedWorkflowGraph } from "./generated-workflow-graph-layout";
+import {
+  buildFlowEdges,
+  matchedGraphNodeIds,
+  reactFlowConnectionToGraphConnection,
+  type WorkflowRuleFlowEdge,
+} from "./generated-workflow-react-flow-adapter";
 import {
   automaticConverterInsertionRequestForConnection,
   converterSuggestionsForConnection,
@@ -71,7 +76,7 @@ type RuleFlowSubflowGroupData = Record<string, unknown> & {
 };
 type RuleFlowSubflowGroupNode = Node<RuleFlowSubflowGroupData, "subflowGroup">;
 type RuleFlowAnyNode = RuleFlowNode | RuleFlowSubflowGroupNode;
-type RuleFlowEdge = Edge<Record<string, unknown>>;
+type RuleFlowEdge = WorkflowRuleFlowEdge;
 type ConnectionNotice = {
   autoInsertionRequest?: RulePortConverterInsertionRequest | null;
   message: string;
@@ -251,7 +256,14 @@ export function GeneratedWorkflowGraphCanvas({
     event.preventDefault();
     const toolRevisionId = readWorkflowToolDrop(event.dataTransfer);
     const flow = flowInstanceRef.current;
-    if (!toolRevisionId || !flow) return;
+    if (!toolRevisionId) {
+      setConnectionNotice({ message: "无法添加工具：拖拽数据缺少工具修订 ID。" });
+      return;
+    }
+    if (!flow) {
+      setConnectionNotice({ message: "无法添加工具：画布尚未初始化。" });
+      return;
+    }
     onDropTool(
       toolRevisionId,
       flow.screenToFlowPosition({ x: event.clientX, y: event.clientY })
@@ -462,20 +474,6 @@ function subflowGroupNode(
   };
 }
 
-function buildFlowEdges(edges: GraphEdge[]): RuleFlowEdge[] {
-  return edges.map((edge) => ({
-    id: edge.id,
-    source: edge.from.nodeId,
-    sourceHandle: edge.from.port,
-    target: edge.to.nodeId,
-    targetHandle: edge.to.port,
-    data: edge.audit ? { auditSource: edge.audit.source, auditReason: edge.audit.reason } : {},
-    markerEnd: { type: MarkerType.ArrowClosed, color: "rgb(37 99 235)" },
-    style: { stroke: "rgb(37 99 235)", strokeWidth: 2 },
-    type: "smoothstep",
-  }));
-}
-
 function flowPositionForNode(
   node: GraphNode,
   item: ReturnType<typeof layoutGeneratedWorkflowGraph>["items"][number] | undefined,
@@ -518,14 +516,6 @@ function isSubflowGroupNodeId(nodeId: string) {
   return nodeId.startsWith(SUBFLOW_GROUP_NODE_PREFIX);
 }
 
-function reactFlowConnectionToGraphConnection(connection: Connection | RuleFlowEdge) {
-  if (!connection.source || !connection.target || !connection.sourceHandle || !connection.targetHandle) return null;
-  return {
-    from: { nodeId: connection.source, port: connection.sourceHandle },
-    to: { nodeId: connection.target, port: connection.targetHandle },
-  };
-}
-
 function connectionNoticeForDecision({
   decision,
   graphConnection,
@@ -565,29 +555,6 @@ function connectionNoticeForDecision({
     }
   }
   return { message: decision.reason };
-}
-
-function matchedGraphNodeIds({
-  nodes,
-  query,
-  toolByRevisionId,
-}: {
-  nodes: GraphNode[];
-  query: string;
-  toolByRevisionId: Map<string, AddedTool>;
-}) {
-  const normalizedQuery = query.trim().toLowerCase();
-  if (!normalizedQuery) return new Set<string>();
-  return new Set(
-    nodes
-      .filter((node) => {
-        const tool = toolByRevisionId.get(node.toolRevisionId);
-        return [node.id, node.toolRevisionId, tool?.name, tool?.packageSpec]
-          .filter((value): value is string => typeof value === "string")
-          .some((value) => value.toLowerCase().includes(normalizedQuery));
-      })
-      .map((node) => node.id)
-  );
 }
 
 function GraphCanvasStyles() {
