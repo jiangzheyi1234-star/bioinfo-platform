@@ -372,6 +372,97 @@ def test_webhook_inbox_replay_rechecks_current_event_match_policy(
     assert deny["actor"] == "operator"
 
 
+def test_webhook_inbox_replay_rejects_unsigned_delivery_after_signature_policy_upgrade(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    closed = {"value": True}
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+
+    def admission(_cfg) -> None:
+        if closed["value"]:
+            raise ValueError("QUEUE_CLOSED")
+
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_execution_admission_ready", admission)
+    trigger = _create_trigger(cfg, source_type="webhook", trigger_spec=_webhook_trigger_spec())
+    request = WorkflowTriggerInboxEventRequest(
+        eventType="dataset.ready",
+        source="instrument-qc",
+        eventId="evt_signature_upgrade",
+        actor="instrument-agent",
+        payload={"dataset": "reads.fastq"},
+    )
+
+    with pytest.raises(ValueError, match="QUEUE_CLOSED"):
+        submit_workflow_trigger_inbox_event_from_request(cfg, trigger["triggerId"], request)
+    inbox = list_workflow_trigger_inbox_events_from_storage(
+        cfg,
+        trigger["triggerId"],
+        state="dead_lettered",
+    )["data"]["items"][0]
+    with get_connection(cfg) as connection:
+        connection.execute(
+            """
+            UPDATE workflow_triggers
+            SET trigger_spec_json = ?
+            WHERE trigger_id = ?
+            """,
+            (
+                json.dumps(
+                    {
+                        "provider": "github",
+                        "eventMatch": {"eventTypes": ["dataset.ready"]},
+                        "signature": {"secretRef": "env://H2OMETA_TEST_WEBHOOK_SECRET"},
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+                trigger["triggerId"],
+            ),
+        )
+        connection.commit()
+
+    closed["value"] = False
+    with pytest.raises(ValueError, match="WORKFLOW_TRIGGER_INBOX_REPLAY_SIGNATURE_NOT_VERIFIED"):
+        replay_workflow_trigger_inbox_event_from_request(
+            cfg,
+            trigger["triggerId"],
+            inbox["inboxEventId"],
+            WorkflowTriggerInboxReplayRequest(
+                confirmation="replay-dead-lettered-inbox-event",
+                actor="operator",
+                reason="signature policy enabled",
+            ),
+        )
+
+    unchanged = list_workflow_trigger_inbox_events_from_storage(
+        cfg,
+        trigger["triggerId"],
+        state="dead_lettered",
+    )["data"]["items"][0]
+    replay_audit = list_governance_audit_events(cfg, action="workflow_trigger.inbox_replay")["items"]
+    deny = replay_audit[-1]
+    assert unchanged["state"] == "dead_lettered"
+    assert unchanged["runId"] is None
+    assert unchanged["signatureState"] == "unsupported"
+    assert deny["decision"] == "deny"
+    assert deny["reasonCode"] == "WORKFLOW_TRIGGER_INBOX_REPLAY_SIGNATURE_NOT_VERIFIED"
+    assert deny["actor"] == "operator"
+    assert deny["details"] == {
+        "triggerId": trigger["triggerId"],
+        "reason": "signature policy enabled",
+        "failureStage": "webhook_signature_replay_preflight",
+        "signatureState": "unsupported",
+        "policyMode": "required",
+        "provider": "github",
+        "verificationProvider": "github",
+        "algorithm": "hmac-sha256",
+        "rawBodyRequired": True,
+    }
+    assert "H2OMETA_TEST_WEBHOOK_SECRET" not in repr(deny)
+
+
 def test_webhook_inbox_replay_requires_confirmation_without_changing_state(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,

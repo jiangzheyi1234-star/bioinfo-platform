@@ -33,6 +33,7 @@ from .workflow_backfill_controller import (
     advance_workflow_backfill_launches as _advance_workflow_backfill_launches,
 )
 from .webhook_event_matching import resolve_webhook_trigger_event_match_policy
+from .webhook_signature_policy import resolve_webhook_trigger_signature_policy
 from .trigger_storage import (
     create_workflow_trigger,
     list_workflow_trigger_events,
@@ -85,6 +86,7 @@ def create_workflow_trigger_from_request(
         _validate_readiness_trigger_resource_spec(request.sourceType, trigger_spec)
     if request.sourceType == "webhook":
         resolve_webhook_trigger_event_match_policy(trigger_spec)
+        resolve_webhook_trigger_signature_policy(trigger_spec)
     if request.sourceType not in ENABLED_TRIGGER_SOURCES and request.enabled:
         raise ValueError(f"WORKFLOW_TRIGGER_SOURCE_LAUNCH_UNSUPPORTED: {request.sourceType}")
     if request.runSpec.pipelineId != GENERATED_TOOL_RUN_PIPELINE_ID and not str(request.runSpec.pipelineVersion or "").strip():

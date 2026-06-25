@@ -238,6 +238,64 @@ def test_control_service_verifies_signed_github_inbox_event_before_dispatch(
     assert signature not in repr(inbox)
 
 
+@pytest.mark.parametrize(
+    ("provider", "event_type"),
+    [
+        ("slack", "event_callback"),
+        ("stripe", "checkout.session.completed"),
+    ],
+)
+def test_control_service_verifies_timestamped_signed_inbox_event_before_dispatch(
+    provider: str,
+    event_type: str,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    _skip_runtime_readiness(monkeypatch)
+    monkeypatch.setenv("H2OMETA_TEST_WEBHOOK_SECRET", "provider-secret")
+
+    async def authorized_config(_authorization: str | None, *, action: str | None = None):
+        assert action == "workflow_trigger.dispatch"
+        return cfg
+
+    monkeypatch.setattr("apps.remote_runner.control_service._authorized_config_from_request", authorized_config)
+    trigger = _create_signed_trigger(cfg, provider=provider, event_type=event_type)
+    raw_body = (
+        f'{{"eventType":"{event_type}","source":"{provider}",'
+        f'"eventId":"evt_{provider}_signed","payload":{{"provider":"{provider}"}}}}'
+    ).encode("utf-8")
+    received_at = datetime.fromtimestamp(1_700_000_000, tz=timezone.utc)
+    envelope = build_webhook_raw_request_envelope(
+        raw_body=raw_body,
+        headers={
+            "Content-Type": "application/json",
+            **_timestamped_signature_headers(provider, b"provider-secret", raw_body, timestamp="1700000000"),
+        },
+        received_at=received_at,
+    )
+
+    response = asyncio.run(
+        submit_workflow_trigger_inbox_event_envelope_request(
+            trigger["triggerId"],
+            envelope,
+            "Bearer test-token",
+        )
+    )
+
+    inbox = response["data"]["inbox"]
+    details = inbox["signatureDetails"]
+    assert inbox["state"] == "submitted"
+    assert inbox["signatureState"] == "verified"
+    assert inbox["rawBodySha256"] == envelope.body_sha256
+    assert details["policy"]["verificationProvider"] == provider
+    assert details["verification"]["provider"] == provider
+    assert details["verification"]["timestamp"] == 1_700_000_000
+    assert details["verification"]["toleranceSeconds"] == 300
+    assert details["verification"]["signedPayloadSha256"] == envelope.body_sha256
+    assert "provider-secret" not in repr(inbox)
+
+
 def test_signed_webhook_rejects_valid_signature_for_unmatched_source_without_inbox(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
@@ -478,11 +536,16 @@ def test_signed_inbox_missing_env_secret_fails_without_inbox_row_or_ref_leak(
     assert "github-secret" not in repr(deny)
 
 
-def _create_signed_trigger(cfg) -> dict[str, object]:
+def _create_signed_trigger(
+    cfg,
+    *,
+    provider: str = "github",
+    event_type: str = "push",
+) -> dict[str, object]:
     return create_workflow_trigger_from_request(
         cfg,
         WorkflowTriggerCreateRequest(
-            name="Signed GitHub webhook",
+            name=f"Signed {provider} webhook",
             sourceType="webhook",
             serverId="srv_primary",
             runSpec={
@@ -490,13 +553,27 @@ def _create_signed_trigger(cfg) -> dict[str, object]:
                 "inputs": [{"uploadId": "upl_reads", "filename": "reads.fastq"}],
             },
             triggerSpec={
-                "provider": "github",
-                "eventMatch": {"eventTypes": ["push"]},
+                "provider": provider,
+                "eventMatch": {"eventTypes": [event_type]},
                 "signature": {"secretRef": "env://H2OMETA_TEST_WEBHOOK_SECRET"},
             },
         ),
         actor="pytest",
     )["data"]
+
+
+def _timestamped_signature_headers(provider: str, secret: bytes, raw_body: bytes, *, timestamp: str) -> dict[str, str]:
+    if provider == "slack":
+        base = b"v0:" + timestamp.encode("utf-8") + b":" + raw_body
+        signature = "v0=" + hmac.new(secret, base, hashlib.sha256).hexdigest()
+        return {
+            "X-Slack-Request-Timestamp": timestamp,
+            "X-Slack-Signature": signature,
+        }
+    if provider == "stripe":
+        signature = hmac.new(secret, timestamp.encode("utf-8") + b"." + raw_body, hashlib.sha256).hexdigest()
+        return {"Stripe-Signature": f"t={timestamp},v1={signature}"}
+    raise AssertionError(f"unsupported timestamped provider: {provider}")
 
 
 def _latest_signature_deny_audit(cfg, trigger_id: str) -> dict[str, object]:
