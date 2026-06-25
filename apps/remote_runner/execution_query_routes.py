@@ -15,6 +15,8 @@ from .api_models import (
     ResultPackageExportRequest,
     ResultPackageRetireRequest,
     RunResumeRequest,
+    RunRuleCacheRestorePinApplyRequest,
+    RunRuleCacheRestorePinPrepareRequest,
     RunRuleOutputInvalidationApplyRequest,
     RunRuleRetryRequest,
     RunRetryRequest,
@@ -51,7 +53,9 @@ from .control_service import (
 from .artifact_lifecycle_controller_read_api import list_artifact_lifecycle_controller_ticks_from_request
 from .run_failure_locator_read_api import get_run_failure_locator_from_request
 from .run_reexecution_service import (
+    apply_rule_cache_restore_pins_from_request,
     apply_rule_output_invalidation_from_request,
+    prepare_rule_cache_restore_pins_from_request,
     resume_run_from_request,
     retry_run_rules_from_request,
 )
@@ -101,6 +105,24 @@ async def apply_rule_output_invalidation_api(
     authorization: AuthorizationHeader = None,
 ) -> dict[str, Any]:
     return await apply_rule_output_invalidation_from_request(run_id, payload, authorization)
+
+
+@router.post("/api/v1/runs/{run_id}/rules/cache-restore/pins/prepare")
+async def prepare_rule_cache_restore_pins_api(
+    run_id: str,
+    payload: RunRuleCacheRestorePinPrepareRequest,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await prepare_rule_cache_restore_pins_from_request(run_id, payload, authorization)
+
+
+@router.post("/api/v1/runs/{run_id}/rules/cache-restore/pins/apply")
+async def apply_rule_cache_restore_pins_api(
+    run_id: str,
+    payload: RunRuleCacheRestorePinApplyRequest,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await apply_rule_cache_restore_pins_from_request(run_id, payload, authorization)
 
 
 @router.post("/api/v1/runs/{run_id}/resume", status_code=202)

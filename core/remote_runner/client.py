@@ -334,6 +334,12 @@ class RemoteRunnerHttpClient:
     def apply_rule_output_invalidation(self, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self.post_json(f"/api/v1/runs/{run_id}/rules/output-invalidation/apply", payload)["data"]
 
+    def prepare_rule_cache_restore_pins(self, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.post_json(f"/api/v1/runs/{run_id}/rules/cache-restore/pins/prepare", payload)["data"]
+
+    def apply_rule_cache_restore_pins(self, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.post_json(f"/api/v1/runs/{run_id}/rules/cache-restore/pins/apply", payload)["data"]
+
     def get_run_attempts(self, run_id: str) -> dict[str, Any]:
         return self.get_json(f"/api/v1/runs/{run_id}/attempts")["data"]
 

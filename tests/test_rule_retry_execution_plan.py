@@ -71,8 +71,8 @@ def test_rule_retry_execution_plan_drops_output_invalidation_blocker_after_apply
     assert "STAGED_FILE_POLICY_EXECUTION_DISABLED" in plan["blockedReasonCodes"]
     assert "STAGED_FILE_POLICY_EXECUTION_DISABLED" in plan["requiresBeforeExecution"]
     assert "RESTORE_PIN_POLICY_UNREPRESENTED" not in plan["blockedReasonCodes"]
-    assert "RESTORE_PIN_CREATION_DISABLED" in plan["blockedReasonCodes"]
-    assert "RESTORE_PIN_CREATION_DISABLED" in plan["requiresBeforeExecution"]
+    assert "RESTORE_PIN_ACTIVE_LEASE_REQUIRED" in plan["blockedReasonCodes"]
+    assert "RESTORE_PIN_ACTIVE_LEASE_REQUIRED" in plan["requiresBeforeExecution"]
     assert "PARTIAL_RESTORE_EXECUTOR_UNAVAILABLE" in plan["requiresBeforeExecution"]
 
 

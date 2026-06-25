@@ -4,6 +4,8 @@ from typing import Any
 
 from .api_models import (
     RunResumeRequest,
+    RunRuleCacheRestorePinApplyRequest,
+    RunRuleCacheRestorePinPrepareRequest,
     RunRuleOutputInvalidationApplyRequest,
     RunRuleRetryRequest,
 )
@@ -13,6 +15,8 @@ from .governance_audit import record_governance_audit_event
 from .route_utils import authorized_config, data_response, remote_runner_principal, run_sync
 from .run_execution_context_storage import fetch_run_execution_context
 from .rule_output_invalidation_storage import apply_rule_output_invalidation_plan
+from .rule_restore_pin_storage import apply_rule_cache_restore_pins, prepare_rule_cache_restore_pins
+from .workflow_run_storage import StaleRunAttemptError
 
 
 async def _authorized_config_from_request(
@@ -85,6 +89,128 @@ async def apply_rule_output_invalidation_from_request(
         decision="allow",
         reason_code="RULE_OUTPUT_INVALIDATION_APPLIED",
         request_reason_provided=bool(str(request.reason or "").strip()),
+        result=result,
+    )
+    return data_response(result)
+
+
+async def prepare_rule_cache_restore_pins_from_request(
+    run_id: str,
+    request: RunRuleCacheRestorePinPrepareRequest,
+    authorization: str | None,
+) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization, action="run.rule_cache_restore.pins.prepare")
+    context = await run_sync(fetch_run_execution_context, cfg, run_id)
+    plan = _plan_object(context, "ruleCacheRestorePlan")
+    mismatch = _plan_hash_mismatch(plan, request.planHash, code="RULE_CACHE_RESTORE_PLAN_HASH_MISMATCH")
+    if mismatch:
+        await _record_cache_restore_pin_audit(
+            cfg,
+            run_id,
+            plan,
+            action="run.rule_cache_restore.pins.prepare",
+            decision="deny",
+            reason_code=mismatch,
+            request_reason_provided=bool(str(request.reason or "").strip()),
+            attempt_provided=bool(str(request.attemptId or "").strip()),
+            lease_generation_provided=True,
+        )
+        raise _cache_restore_pin_blocked(plan, mismatch)
+    try:
+        result = await run_sync(
+            prepare_rule_cache_restore_pins,
+            cfg,
+            plan,
+            plan_hash=request.planHash,
+            attempt_id=request.attemptId,
+            lease_generation=request.leaseGeneration,
+        )
+    except (ValueError, StaleRunAttemptError) as exc:
+        reason_code = str(exc) or "RULE_CACHE_RESTORE_PIN_PREPARE_BLOCKED"
+        await _record_cache_restore_pin_audit(
+            cfg,
+            run_id,
+            plan,
+            action="run.rule_cache_restore.pins.prepare",
+            decision="deny",
+            reason_code=reason_code,
+            request_reason_provided=bool(str(request.reason or "").strip()),
+            attempt_provided=bool(str(request.attemptId or "").strip()),
+            lease_generation_provided=True,
+        )
+        raise _cache_restore_pin_blocked(plan, reason_code) from exc
+    await _record_cache_restore_pin_audit(
+        cfg,
+        run_id,
+        plan,
+        action="run.rule_cache_restore.pins.prepare",
+        decision="allow",
+        reason_code="RULE_CACHE_RESTORE_PINS_PREPARED",
+        request_reason_provided=bool(str(request.reason or "").strip()),
+        attempt_provided=bool(str(request.attemptId or "").strip()),
+        lease_generation_provided=True,
+        result=result,
+    )
+    return data_response(result)
+
+
+async def apply_rule_cache_restore_pins_from_request(
+    run_id: str,
+    request: RunRuleCacheRestorePinApplyRequest,
+    authorization: str | None,
+) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization, action="run.rule_cache_restore.pins.apply")
+    context = await run_sync(fetch_run_execution_context, cfg, run_id)
+    plan = _plan_object(context, "ruleCacheRestorePlan")
+    mismatch = _plan_hash_mismatch(plan, request.planHash, code="RULE_CACHE_RESTORE_PLAN_HASH_MISMATCH")
+    if mismatch:
+        await _record_cache_restore_pin_audit(
+            cfg,
+            run_id,
+            plan,
+            action="run.rule_cache_restore.pins.apply",
+            decision="deny",
+            reason_code=mismatch,
+            request_reason_provided=bool(str(request.reason or "").strip()),
+            attempt_provided=bool(str(request.attemptId or "").strip()),
+            lease_generation_provided=True,
+        )
+        raise _cache_restore_pin_blocked(plan, mismatch)
+    try:
+        result = await run_sync(
+            apply_rule_cache_restore_pins,
+            cfg,
+            plan,
+            plan_hash=request.planHash,
+            attempt_id=request.attemptId,
+            lease_generation=request.leaseGeneration,
+            actor=request.actor,
+            reason=request.reason,
+        )
+    except (ValueError, StaleRunAttemptError) as exc:
+        reason_code = str(exc) or "RULE_CACHE_RESTORE_PIN_APPLY_BLOCKED"
+        await _record_cache_restore_pin_audit(
+            cfg,
+            run_id,
+            plan,
+            action="run.rule_cache_restore.pins.apply",
+            decision="deny",
+            reason_code=reason_code,
+            request_reason_provided=bool(str(request.reason or "").strip()),
+            attempt_provided=bool(str(request.attemptId or "").strip()),
+            lease_generation_provided=True,
+        )
+        raise _cache_restore_pin_blocked(plan, reason_code) from exc
+    await _record_cache_restore_pin_audit(
+        cfg,
+        run_id,
+        plan,
+        action="run.rule_cache_restore.pins.apply",
+        decision="allow",
+        reason_code="RULE_CACHE_RESTORE_PINS_APPLIED",
+        request_reason_provided=bool(str(request.reason or "").strip()),
+        attempt_provided=bool(str(request.attemptId or "").strip()),
+        lease_generation_provided=True,
         result=result,
     )
     return data_response(result)
@@ -193,6 +319,46 @@ def _public_output_invalidation_plan(plan: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _cache_restore_pin_blocked(plan: dict[str, Any], code: str) -> RemoteRunnerOperationBlockedError:
+    return RemoteRunnerOperationBlockedError(
+        code,
+        {
+            "code": code,
+            "message": str(plan.get("message") or "ruleCacheRestorePlan is blocked."),
+            "ruleCacheRestorePlan": _public_cache_restore_pin_plan(plan),
+        },
+    )
+
+
+def _public_cache_restore_pin_plan(plan: dict[str, Any]) -> dict[str, Any]:
+    policy = plan.get("restorePinPolicy") if isinstance(plan.get("restorePinPolicy"), dict) else {}
+    eligibility = plan.get("cacheEligibility") if isinstance(plan.get("cacheEligibility"), dict) else {}
+    return {
+        "schemaVersion": "rule-cache-restore-pin-public-plan.v1",
+        "planHash": str(plan.get("planHash") or ""),
+        "runId": str(plan.get("runId") or ""),
+        "workflowRevisionIdPresent": bool(str(plan.get("workflowRevisionId") or "").strip()),
+        "previewAvailable": bool(policy.get("previewAvailable")),
+        "creationEnabled": bool(policy.get("creationEnabled")),
+        "pinCreationAllowed": bool(policy.get("pinCreationAllowed")),
+        "reasonCode": str(policy.get("reasonCode") or plan.get("reasonCode") or ""),
+        "blockedReasonCodes": _string_list(policy.get("blockedReasonCodes") or plan.get("blockedReasonCodes")),
+        "outputInvalidationApplied": bool(eligibility.get("outputInvalidationApplied")),
+        "cacheHitCount": _safe_int(plan.get("cacheHitCount")),
+        "cacheMissCount": _safe_int(plan.get("cacheMissCount")),
+        "candidatePinCount": _safe_int(policy.get("candidatePinCount")),
+        "requiredPinCount": _safe_int(policy.get("requiredPinCount")),
+        "eligiblePinCount": _safe_int(policy.get("eligiblePinCount")),
+        "blockedPinCount": _safe_int(policy.get("blockedPinCount")),
+        "ttlSeconds": _safe_int(policy.get("ttlSeconds")),
+        "attemptScoped": bool(policy.get("attemptScoped")),
+        "ownerIdExposed": bool(policy.get("ownerIdExposed")),
+        "cacheKeyExposed": bool(policy.get("cacheKeyExposed")),
+        "storageUriExposed": bool(policy.get("storageUriExposed")),
+        "pathExposed": bool(policy.get("pathExposed")),
+    }
+
+
 async def _record_rule_retry_audit(
     cfg: RemoteRunnerConfig,
     run_id: str,
@@ -249,6 +415,55 @@ async def _record_resume_audit(
             "unsafeOutputCount": _safe_int(output_audit.get("unsafeOutputCount")),
             "blockedReasonCodes": _string_list(plan.get("blockedReasonCodes")),
         },
+    )
+
+
+async def _record_cache_restore_pin_audit(
+    cfg: RemoteRunnerConfig,
+    run_id: str,
+    plan: dict[str, Any],
+    *,
+    action: str,
+    decision: str,
+    reason_code: str,
+    request_reason_provided: bool,
+    attempt_provided: bool,
+    lease_generation_provided: bool,
+    result: dict[str, Any] | None = None,
+) -> None:
+    policy = plan.get("restorePinPolicy") if isinstance(plan.get("restorePinPolicy"), dict) else {}
+    details = {
+        "planHash": str(plan.get("planHash") or ""),
+        "previewAvailable": bool(policy.get("previewAvailable")),
+        "creationEnabled": bool(policy.get("creationEnabled")),
+        "pinCreationAllowed": bool(policy.get("pinCreationAllowed")),
+        "requestReasonProvided": request_reason_provided,
+        "attemptProvided": attempt_provided,
+        "leaseGenerationProvided": lease_generation_provided,
+        "candidatePinCount": _safe_int(policy.get("candidatePinCount")),
+        "requiredPinCount": _safe_int(policy.get("requiredPinCount")),
+        "eligiblePinCount": _safe_int((result or {}).get("eligiblePinCount") or policy.get("eligiblePinCount")),
+        "blockedPinCount": _safe_int(policy.get("blockedPinCount")),
+        "blockedReasonCodes": _string_list(policy.get("blockedReasonCodes") or plan.get("blockedReasonCodes")),
+    }
+    if result is not None:
+        for key in (
+            "preparedPinCount",
+            "appliedPinCount",
+            "createdPinCount",
+            "reusedPinCount",
+            "cacheEntryCount",
+        ):
+            if key in result:
+                details[key] = _safe_int(result.get(key))
+    await _record_reexecution_audit(
+        cfg,
+        action=action,
+        subject_kind="run_rule_cache_restore_pins",
+        run_id=run_id,
+        decision=decision,
+        reason_code=reason_code,
+        details=details,
     )
 
 

@@ -11,6 +11,8 @@ from pydantic import ValidationError
 from apps.remote_runner import route_utils
 from apps.remote_runner.api_models import (
     RunResumeRequest,
+    RunRuleCacheRestorePinApplyRequest,
+    RunRuleCacheRestorePinPrepareRequest,
     RunRuleOutputInvalidationApplyRequest,
     RunRuleRetryRequest,
 )
@@ -41,12 +43,30 @@ def test_run_reexecution_requests_are_strict_and_confirmation_gated() -> None:
     output_invalidation = RunRuleOutputInvalidationApplyRequest.model_validate(
         {"confirmation": "apply-rule-output-invalidation", "planHash": "c" * 64, "actor": "operator"}
     )
+    pin_prepare = RunRuleCacheRestorePinPrepareRequest.model_validate(
+        {
+            "confirmation": "prepare-rule-cache-restore-pins",
+            "planHash": "d" * 64,
+            "attemptId": "att_1",
+            "leaseGeneration": 1,
+        }
+    )
+    pin_apply = RunRuleCacheRestorePinApplyRequest.model_validate(
+        {
+            "confirmation": "apply-rule-cache-restore-pins",
+            "planHash": "e" * 64,
+            "attemptId": "att_1",
+            "leaseGeneration": 1,
+        }
+    )
     resume = RunResumeRequest.model_validate(
         {"confirmation": "resume-run", "planHash": "b" * 64, "actor": "operator"}
     )
 
     assert rule_retry.planHash == "a" * 64
     assert output_invalidation.planHash == "c" * 64
+    assert pin_prepare.attemptId == "att_1"
+    assert pin_apply.leaseGeneration == 1
     assert resume.planHash == "b" * 64
     with pytest.raises(ValidationError) as wrong_confirmation:
         RunRuleRetryRequest.model_validate({"confirmation": "retry-rule", "planHash": "a" * 64})
@@ -56,6 +76,15 @@ def test_run_reexecution_requests_are_strict_and_confirmation_gated() -> None:
         )
     with pytest.raises(ValidationError) as short_hash:
         RunResumeRequest.model_validate({"confirmation": "resume-run", "planHash": "abc"})
+    with pytest.raises(ValidationError) as stale_generation:
+        RunRuleCacheRestorePinApplyRequest.model_validate(
+            {
+                "confirmation": "apply-rule-cache-restore-pins",
+                "planHash": "e" * 64,
+                "attemptId": "att_1",
+                "leaseGeneration": 0,
+            }
+        )
     with pytest.raises(ValidationError) as extra:
         RunRuleOutputInvalidationApplyRequest.model_validate(
             {
@@ -68,6 +97,7 @@ def test_run_reexecution_requests_are_strict_and_confirmation_gated() -> None:
     assert wrong_confirmation.value.errors()[0]["type"] == "literal_error"
     assert wrong_invalidation_confirmation.value.errors()[0]["type"] == "literal_error"
     assert short_hash.value.errors()[0]["type"] == "string_too_short"
+    assert stale_generation.value.errors()[0]["type"] == "greater_than_equal"
     assert extra.value.errors()[0]["type"] == "extra_forbidden"
 
 

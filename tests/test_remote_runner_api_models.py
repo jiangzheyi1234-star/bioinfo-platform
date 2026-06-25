@@ -11,6 +11,8 @@ from apps.remote_runner.api_models import (
     ResultPackageRetireRequest,
     RunCreateRequest,
     RunRetryRequest,
+    RunRuleCacheRestorePinApplyRequest,
+    RunRuleCacheRestorePinPrepareRequest,
     ToolManifestRequest,
     ToolProductionEvidenceRequest,
     UploadCreateRequest,
@@ -171,6 +173,71 @@ def test_remote_runner_run_retry_request_is_strict() -> None:
     errors = exc_info.value.errors()
     assert any(error["type"] == "literal_error" and error["loc"] == ("scope",) for error in errors)
     assert any(error["type"] == "extra_forbidden" and error["loc"] == ("stepId",) for error in errors)
+
+
+def test_remote_runner_rule_cache_restore_pin_requests_are_confirmation_and_lease_gated() -> None:
+    prepare = RunRuleCacheRestorePinPrepareRequest.model_validate(
+        {
+            "confirmation": "prepare-rule-cache-restore-pins",
+            "planHash": "d" * 64,
+            "attemptId": "att_restore",
+            "leaseGeneration": 2,
+        }
+    )
+    apply = RunRuleCacheRestorePinApplyRequest.model_validate(
+        {
+            "confirmation": "apply-rule-cache-restore-pins",
+            "planHash": "e" * 64,
+            "attemptId": "att_restore",
+            "leaseGeneration": 2,
+        }
+    )
+
+    assert prepare.leaseGeneration == 2
+    assert apply.attemptId == "att_restore"
+
+    with pytest.raises(ValidationError) as wrong_confirmation:
+        RunRuleCacheRestorePinApplyRequest.model_validate(
+            {
+                "confirmation": "prepare-rule-cache-restore-pins",
+                "planHash": "e" * 64,
+                "attemptId": "att_restore",
+                "leaseGeneration": 2,
+            }
+        )
+    with pytest.raises(ValidationError) as short_hash:
+        RunRuleCacheRestorePinPrepareRequest.model_validate(
+            {
+                "confirmation": "prepare-rule-cache-restore-pins",
+                "planHash": "abc",
+                "attemptId": "att_restore",
+                "leaseGeneration": 2,
+            }
+        )
+    with pytest.raises(ValidationError) as stale_generation:
+        RunRuleCacheRestorePinPrepareRequest.model_validate(
+            {
+                "confirmation": "prepare-rule-cache-restore-pins",
+                "planHash": "d" * 64,
+                "attemptId": "att_restore",
+                "leaseGeneration": 0,
+            }
+        )
+    with pytest.raises(ValidationError) as extra:
+        RunRuleCacheRestorePinApplyRequest.model_validate(
+            {
+                "confirmation": "apply-rule-cache-restore-pins",
+                "planHash": "e" * 64,
+                "attemptId": "att_restore",
+                "leaseGeneration": 2,
+                "pinIds": [],
+            }
+        )
+
+    assert wrong_confirmation.value.errors()[0]["type"] == "literal_error"
+    assert short_hash.value.errors()[0]["type"] == "string_too_short"
+    assert stale_generation.value.errors()[0]["type"] == "greater_than_equal"
+    assert extra.value.errors()[0]["type"] == "extra_forbidden"
 
 
 def test_remote_runner_result_package_export_request_requires_explicit_payload_mode() -> None:

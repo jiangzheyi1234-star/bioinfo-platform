@@ -14,6 +14,7 @@ RESTORE_PIN_OUTPUT_POLICY_SCHEMA_VERSION = "restore-pin-output-policy.v1"
 RESTORE_PIN_POLICY_UNREPRESENTED = "RESTORE_PIN_POLICY_UNREPRESENTED"
 RESTORE_PIN_POLICY_PREVIEW_ONLY = "RESTORE_PIN_POLICY_PREVIEW_ONLY"
 RESTORE_PIN_CREATION_DISABLED = "RESTORE_PIN_CREATION_DISABLED"
+RESTORE_PIN_ACTIVE_LEASE_REQUIRED = "RESTORE_PIN_ACTIVE_LEASE_REQUIRED"
 RESTORE_PIN_OUTPUT_INVALIDATION_REQUIRED = "RESTORE_PIN_OUTPUT_INVALIDATION_REQUIRED"
 RESTORE_PIN_CACHE_HIT_REQUIRED = "RESTORE_PIN_CACHE_HIT_REQUIRED"
 RESTORE_PIN_CACHE_ENTRY_REQUIRED = "RESTORE_PIN_CACHE_ENTRY_REQUIRED"
@@ -29,14 +30,21 @@ def build_restore_pin_policy_plan(
     eligible_count = sum(1 for output in outputs if _pin_policy(output).get("eligible") is True)
     output_count = len(outputs)
     preview_available = bool(output_invalidation_applied and output_count > 0)
+    creation_enabled = bool(preview_available and eligible_count > 0)
     return {
         "schemaVersion": RESTORE_PIN_POLICY_PLAN_SCHEMA_VERSION,
         "previewAvailable": preview_available,
-        "creationEnabled": False,
+        "creationEnabled": creation_enabled,
         "pinCreationAllowed": False,
-        "reasonCode": RESTORE_PIN_POLICY_PREVIEW_ONLY if preview_available else RESTORE_PIN_POLICY_UNREPRESENTED,
+        "reasonCode": _plan_reason_code(
+            preview_available=preview_available,
+            creation_enabled=creation_enabled,
+        ),
         "blockedReasonCodes": [
-            RESTORE_PIN_CREATION_DISABLED if preview_available else RESTORE_PIN_POLICY_UNREPRESENTED
+            _plan_blocker(
+                preview_available=preview_available,
+                creation_enabled=creation_enabled,
+            )
         ],
         "pinScope": ARTIFACT_CACHE_RESTORE_PIN_SCOPE,
         "ownerKind": ARTIFACT_CACHE_RESTORE_PIN_OWNER_KIND,
@@ -94,14 +102,34 @@ def restore_pin_output_policy(
         "storageUriExposed": False,
         "pathExposed": False,
         "reasonCode": reason_code,
-        "blockedReasonCodes": [RESTORE_PIN_CREATION_DISABLED if eligible else reason_code],
+        "blockedReasonCodes": [RESTORE_PIN_ACTIVE_LEASE_REQUIRED if eligible else reason_code],
     }
 
 
 def restore_pin_policy_blocker(*, output_invalidation_applied: bool) -> str:
     if output_invalidation_applied:
-        return RESTORE_PIN_CREATION_DISABLED
+        return RESTORE_PIN_ACTIVE_LEASE_REQUIRED
     return RESTORE_PIN_POLICY_UNREPRESENTED
+
+
+def restore_pin_owner_id(attempt_id: str, lease_generation: int) -> str:
+    return f"{str(attempt_id).strip()}:{int(lease_generation)}"
+
+
+def _plan_reason_code(*, preview_available: bool, creation_enabled: bool) -> str:
+    if not preview_available:
+        return RESTORE_PIN_POLICY_UNREPRESENTED
+    if creation_enabled:
+        return RESTORE_PIN_ACTIVE_LEASE_REQUIRED
+    return RESTORE_PIN_POLICY_PREVIEW_ONLY
+
+
+def _plan_blocker(*, preview_available: bool, creation_enabled: bool) -> str:
+    if not preview_available:
+        return RESTORE_PIN_POLICY_UNREPRESENTED
+    if creation_enabled:
+        return RESTORE_PIN_ACTIVE_LEASE_REQUIRED
+    return RESTORE_PIN_CACHE_HIT_REQUIRED
 
 
 def _output_reason_code(

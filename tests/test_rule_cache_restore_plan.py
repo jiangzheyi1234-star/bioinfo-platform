@@ -183,10 +183,10 @@ def test_rule_cache_restore_plan_keeps_applied_invalidation_scope_without_apply_
     assert plan["stagedFilePolicy"]["unmappedTargetCount"] == 0
     assert plan["stagedFilePolicy"]["restorePinnedCount"] == 0
     assert plan["restorePinPolicy"]["previewAvailable"] is True
-    assert plan["restorePinPolicy"]["creationEnabled"] is False
+    assert plan["restorePinPolicy"]["creationEnabled"] is True
     assert plan["restorePinPolicy"]["pinCreationAllowed"] is False
-    assert plan["restorePinPolicy"]["reasonCode"] == "RESTORE_PIN_POLICY_PREVIEW_ONLY"
-    assert plan["restorePinPolicy"]["blockedReasonCodes"] == ["RESTORE_PIN_CREATION_DISABLED"]
+    assert plan["restorePinPolicy"]["reasonCode"] == "RESTORE_PIN_ACTIVE_LEASE_REQUIRED"
+    assert plan["restorePinPolicy"]["blockedReasonCodes"] == ["RESTORE_PIN_ACTIVE_LEASE_REQUIRED"]
     assert plan["restorePinPolicy"]["pinScope"] == "restore"
     assert plan["restorePinPolicy"]["ownerKind"] == "run_attempt"
     assert plan["restorePinPolicy"]["ttlSeconds"] == 3600
@@ -204,12 +204,12 @@ def test_rule_cache_restore_plan_keeps_applied_invalidation_scope_without_apply_
     for rule in plan["rules"]:
         assert "OUTPUT_EDGE_INVALIDATION_APPLY_REQUIRED" not in rule["blockedReasonCodes"]
         assert "STAGED_FILE_POLICY_EXECUTION_DISABLED" in rule["blockedReasonCodes"]
-        assert "RESTORE_PIN_CREATION_DISABLED" in rule["blockedReasonCodes"]
+        assert "RESTORE_PIN_ACTIVE_LEASE_REQUIRED" in rule["blockedReasonCodes"]
         for output in rule["outputs"]:
             assert output["cacheHit"] is True
             assert "OUTPUT_EDGE_INVALIDATION_APPLY_REQUIRED" not in output["blockedReasonCodes"]
             assert "STAGED_FILE_POLICY_EXECUTION_DISABLED" in output["blockedReasonCodes"]
-            assert "RESTORE_PIN_CREATION_DISABLED" in output["blockedReasonCodes"]
+            assert "RESTORE_PIN_ACTIVE_LEASE_REQUIRED" in output["blockedReasonCodes"]
             assert output["restoreTarget"]["reasonCode"] == "STAGED_FILE_POLICY_PREVIEW_ONLY"
             assert output["restorePinPolicy"]["candidate"] is True
             assert output["restorePinPolicy"]["required"] is True

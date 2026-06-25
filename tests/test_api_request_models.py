@@ -10,6 +10,8 @@ from apps.api.models import (
     ResultPackageExportRequest,
     ResultPackageRetireRequest,
     RunResumeRequest,
+    RunRuleCacheRestorePinApplyRequest,
+    RunRuleCacheRestorePinPrepareRequest,
     RunSubmitRequest,
     RunRetryRequest,
     RunRuleOutputInvalidationApplyRequest,
@@ -266,6 +268,29 @@ def test_run_rule_output_invalidation_apply_request_requires_confirmation_and_pl
         error["type"] == "extra_forbidden" and error["loc"] == ("deleteArtifactPayloads",)
         for error in extra.value.errors()
     )
+
+
+def test_run_rule_cache_restore_pin_requests_require_confirmation_plan_hash_and_lease() -> None:
+    prepare = RunRuleCacheRestorePinPrepareRequest.model_validate(
+        {"confirmation": "prepare-rule-cache-restore-pins", "planHash": "d" * 64, "attemptId": "att_1", "leaseGeneration": 1}
+    )
+    apply = RunRuleCacheRestorePinApplyRequest.model_validate(
+        {"confirmation": "apply-rule-cache-restore-pins", "planHash": "e" * 64, "attemptId": "att_1", "leaseGeneration": 1}
+    )
+    assert prepare.confirmation == "prepare-rule-cache-restore-pins"
+    assert apply.confirmation == "apply-rule-cache-restore-pins"
+    for model, confirmation in (
+        (RunRuleCacheRestorePinPrepareRequest, "prepare-rule-cache-restore-pins"),
+        (RunRuleCacheRestorePinApplyRequest, "apply-rule-cache-restore-pins"),
+    ):
+        with pytest.raises(ValidationError):
+            model.model_validate({"confirmation": "restore-pins", "planHash": "f" * 64, "attemptId": "att_1", "leaseGeneration": 1})
+        with pytest.raises(ValidationError):
+            model.model_validate({"confirmation": confirmation, "planHash": "abc", "attemptId": "att_1", "leaseGeneration": 1})
+        with pytest.raises(ValidationError):
+            model.model_validate({"confirmation": confirmation, "planHash": "f" * 64, "attemptId": "att_1", "leaseGeneration": 0})
+        with pytest.raises(ValidationError):
+            model.model_validate({"confirmation": confirmation, "planHash": "f" * 64, "attemptId": "att_1", "leaseGeneration": 1, "pinIds": []})
 
 
 def test_run_resume_request_requires_confirmation_and_plan_hash() -> None:

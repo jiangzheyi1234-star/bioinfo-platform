@@ -114,6 +114,24 @@ class RunRuleOutputInvalidationApplyRequest(ApiRequest):
     reason: str | None = None
 
 
+class RunRuleCacheRestorePinPrepareRequest(ApiRequest):
+    confirmation: Literal["prepare-rule-cache-restore-pins"]
+    planHash: str = Field(min_length=64, max_length=64)
+    attemptId: str = Field(min_length=1)
+    leaseGeneration: int = Field(ge=1)
+    actor: str | None = None
+    reason: str | None = None
+
+
+class RunRuleCacheRestorePinApplyRequest(ApiRequest):
+    confirmation: Literal["apply-rule-cache-restore-pins"]
+    planHash: str = Field(min_length=64, max_length=64)
+    attemptId: str = Field(min_length=1)
+    leaseGeneration: int = Field(ge=1)
+    actor: str | None = None
+    reason: str | None = None
+
+
 class RunResumeRequest(ApiRequest):
     confirmation: Literal["resume-run"]
     planHash: str = Field(min_length=64, max_length=64)
