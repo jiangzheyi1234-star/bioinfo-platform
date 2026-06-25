@@ -55,15 +55,16 @@ def fetch_run_execution_context(cfg: RemoteRunnerConfig, run_id: str) -> dict[st
         managed_work_dir=cfg.work_dir,
         managed_results_dir=cfg.results_dir,
     )
-    rule_cache_restore_plan = build_rule_cache_restore_plan(
-        cfg,
-        run=run,
-        rule_retry_plan=rule_retry_plan,
-    )
     rule_output_invalidation_plan = build_rule_output_invalidation_plan(
         cfg,
         run=run,
         rule_retry_plan=rule_retry_plan,
+    )
+    rule_cache_restore_plan = build_rule_cache_restore_plan(
+        cfg,
+        run=run,
+        rule_retry_plan=rule_retry_plan,
+        output_invalidation_plan=rule_output_invalidation_plan,
     )
     return {
         "schemaVersion": "run-execution-context.v1",

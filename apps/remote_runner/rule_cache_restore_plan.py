@@ -42,6 +42,7 @@ def build_rule_cache_restore_plan(
     *,
     run: dict[str, Any],
     rule_retry_plan: dict[str, Any],
+    output_invalidation_plan: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     base = _base_plan(rule_retry_plan)
     if rule_retry_plan.get("schemaVersion") != RULE_RETRY_PLAN_SCHEMA_VERSION:
@@ -58,12 +59,34 @@ def build_rule_cache_restore_plan(
         return _finalize_plan(base, reason_code="WORKFLOW_REVISION_MISSING", rules=[])
 
     run_spec = run.get("runSpec") if isinstance(run.get("runSpec"), dict) else {}
+    output_scope_source = _output_scope_source(output_invalidation_plan)
+    base["cacheEligibility"] = {
+        **base["cacheEligibility"],
+        "outputScopeSource": output_scope_source,
+        "outputInvalidationPlanHashPresent": bool(
+            isinstance(output_invalidation_plan, dict)
+            and str(output_invalidation_plan.get("planHash") or "").strip()
+        ),
+    }
+    if output_invalidation_plan is not None and not output_invalidation_plan.get("previewAvailable"):
+        return _finalize_plan(
+            base,
+            reason_code=str(output_invalidation_plan.get("reasonCode") or "OUTPUT_EDGE_PREFLIGHT_UNAVAILABLE"),
+            rules=[],
+        )
     source_rules = _latest_rules(fetch_run_rules(cfg, str(rule_retry_plan.get("runId") or ""))["items"])
     source_by_key = _source_rules_by_key(source_rules)
+    output_edge_rules = _output_edge_rule_items(output_invalidation_plan)
+    output_edges_by_rule = _output_edges_by_rule(output_edge_rules)
+    rule_candidates = _cache_restore_rule_candidates(
+        rule_retry_plan,
+        output_edge_rules,
+        output_scope_source=output_scope_source,
+    )
     planned_rules = []
     output_count = 0
     cache_hit_count = 0
-    for rule in [item for item in rule_retry_plan.get("rules") or [] if isinstance(item, dict)]:
+    for rule in rule_candidates:
         source_rule = source_by_key.get(_rule_identity(rule), rule)
         planned = _rule_restore_plan(
             cfg,
@@ -71,6 +94,7 @@ def build_rule_cache_restore_plan(
             workflow_revision_id=workflow_revision_id,
             planned_rule=rule,
             source_rule=source_rule,
+            output_edges=output_edges_by_rule.get(_rule_identity(rule), []),
         )
         planned_rules.append(planned)
         output_count += int(planned["outputCount"])
@@ -185,6 +209,7 @@ def _rule_restore_plan(
     workflow_revision_id: str,
     planned_rule: dict[str, Any],
     source_rule: dict[str, Any],
+    output_edges: list[dict[str, Any]],
 ) -> dict[str, Any]:
     outputs = _output_restore_previews(
         cfg,
@@ -192,10 +217,12 @@ def _rule_restore_plan(
         workflow_revision_id=workflow_revision_id,
         planned_rule=planned_rule,
         source_rule=source_rule,
+        output_edges=output_edges,
     )
     hit_count = sum(1 for output in outputs if output["cacheHit"])
     return {
         **_rule_ref(planned_rule),
+        "invalidationRole": planned_rule.get("invalidationRole"),
         "eligible": False,
         "eligibleNow": False,
         "reasonCode": _rule_reason(outputs),
@@ -214,14 +241,16 @@ def _output_restore_previews(
     workflow_revision_id: str,
     planned_rule: dict[str, Any],
     source_rule: dict[str, Any],
+    output_edges: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    raw_outputs = source_rule.get("outputs") if isinstance(source_rule.get("outputs"), list) else []
+    raw_outputs = output_edges or source_rule_outputs(source_rule)
     outputs: list[dict[str, Any]] = []
     step_id = str(planned_rule.get("stepId") or source_rule.get("stepId") or "").strip()
     for index, raw_output in enumerate(raw_outputs, start=1):
+        output_step_id = _output_step_id(raw_output, step_id)
         artifact_key = _safe_artifact_key(raw_output)
         if not artifact_key:
-            outputs.append(_unmapped_output(index, step_id))
+            outputs.append(_unmapped_output(index, output_step_id, raw_output))
             continue
         preview = preview_artifact_cache_entry(
             cfg,
@@ -229,17 +258,24 @@ def _output_restore_previews(
                 run_spec,
                 workflow_revision_id=workflow_revision_id,
                 artifact_key=artifact_key,
-                step_id=step_id,
+                step_id=output_step_id,
             ),
         )
-        outputs.append(_output_preview(index, artifact_key, step_id, preview))
+        outputs.append(_output_preview(index, artifact_key, output_step_id, preview, raw_output))
     return outputs
 
 
-def _output_preview(index: int, artifact_key: str, step_id: str, preview: dict[str, Any]) -> dict[str, Any]:
+def _output_preview(
+    index: int,
+    artifact_key: str,
+    step_id: str,
+    preview: dict[str, Any],
+    raw_output: Any,
+) -> dict[str, Any]:
     cache_key = str(preview.get("cacheKey") or "")
     return {
         "outputOrdinal": index,
+        **_output_edge_ref(raw_output),
         "artifactKey": artifact_key,
         "stepId": step_id,
         "role": "output",
@@ -254,9 +290,10 @@ def _output_preview(index: int, artifact_key: str, step_id: str, preview: dict[s
     }
 
 
-def _unmapped_output(index: int, step_id: str) -> dict[str, Any]:
+def _unmapped_output(index: int, step_id: str, raw_output: Any) -> dict[str, Any]:
     return {
         "outputOrdinal": index,
+        **_output_edge_ref(raw_output),
         "artifactKey": None,
         "stepId": step_id,
         "role": "output",
@@ -288,6 +325,61 @@ def _lookup_payload(
         "resourceBindings": run_spec.get("resourceBindings") if "resourceBindings" in run_spec else {},
         "execution": run_spec.get("execution") if "execution" in run_spec else {},
     }
+
+
+def source_rule_outputs(source_rule: dict[str, Any]) -> list[Any]:
+    return source_rule.get("outputs") if isinstance(source_rule.get("outputs"), list) else []
+
+
+def _cache_restore_rule_candidates(
+    rule_retry_plan: dict[str, Any],
+    output_edge_rules: list[dict[str, Any]],
+    *,
+    output_scope_source: str,
+) -> list[dict[str, Any]]:
+    if output_scope_source == "rule-output-invalidation-plan":
+        return output_edge_rules
+    return [item for item in rule_retry_plan.get("rules") or [] if isinstance(item, dict)]
+
+
+def _output_scope_source(output_invalidation_plan: dict[str, Any] | None) -> str:
+    if isinstance(output_invalidation_plan, dict):
+        if output_invalidation_plan.get("previewAvailable"):
+            return "rule-output-invalidation-plan"
+        return "rule-output-invalidation-plan-unavailable"
+    return "run-rule-state-fallback"
+
+
+def _output_edge_rule_items(output_invalidation_plan: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(output_invalidation_plan, dict) or not output_invalidation_plan.get("previewAvailable"):
+        return []
+    return [
+        rule
+        for rule in output_invalidation_plan.get("rules") or []
+        if isinstance(rule, dict) and any(isinstance(output, dict) for output in rule.get("outputs") or [])
+    ]
+
+
+def _output_edges_by_rule(output_edge_rules: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    by_rule: dict[str, list[dict[str, Any]]] = {}
+    for rule in output_edge_rules:
+        outputs = [output for output in rule.get("outputs") or [] if isinstance(output, dict)]
+        if outputs:
+            by_rule[_rule_identity(rule)] = outputs
+    return by_rule
+
+
+def _output_step_id(value: Any, fallback: str) -> str:
+    if isinstance(value, dict):
+        return str(value.get("stepId") or fallback).strip()
+    return fallback
+
+
+def _output_edge_ref(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    edge_id = str(value.get("runArtifactEdgeId") or "").strip()
+    return {"runArtifactEdgeId": edge_id} if edge_id else {}
 
 
 def _safe_cache_entry(entry: Any) -> dict[str, Any] | None:
@@ -365,7 +457,7 @@ def _rule_blockers(outputs: list[dict[str, Any]]) -> list[str]:
 
 def _safe_artifact_key(value: Any) -> str:
     if isinstance(value, dict):
-        for key in ("artifactKey", "key", "name", "as", "port"):
+        for key in ("artifactKey", "portName", "key", "name", "as", "port"):
             candidate = str(value.get(key) or "").strip()
             if _safe_key(candidate):
                 return candidate
