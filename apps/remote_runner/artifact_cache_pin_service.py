@@ -73,7 +73,6 @@ def retain_artifact_cache_policy_pin(
             "ownerId": pin["ownerId"],
             "artifactBlobId": pin["artifactBlobId"],
             "storageBackend": pin["storageBackend"],
-            "storageUri": pin["storageUri"],
             "sha256": pin["sha256"],
             "reason": pin["reason"],
             "expiresAt": pin["expiresAt"],

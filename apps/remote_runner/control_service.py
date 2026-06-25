@@ -27,12 +27,12 @@ from .api_models import (
 )
 from .config import RemoteRunnerConfig, dump_public_config
 from .execution_diagnostics import build_execution_diagnostics
-from .artifact_cache_pin_service import (
-    list_artifact_cache_policy_pins,
-    release_artifact_cache_policy_pin,
-    retain_artifact_cache_policy_pin,
+from .artifact_cache_pin_service import release_artifact_cache_policy_pin, retain_artifact_cache_policy_pin
+from .artifact_cache_read_service import (
+    list_governed_artifact_cache_entries,
+    list_governed_artifact_cache_pins,
+    lookup_governed_artifact_cache_entry,
 )
-from .artifact_cache_storage import list_artifact_cache_entries, lookup_artifact_cache_entry
 from .artifact_lifecycle_service import build_artifact_lifecycle_usage, preview_artifact_gc, run_artifact_gc
 from .artifact_product_service import build_result_artifact_audit, export_result_package
 from .governance_audit import record_governance_audit_event
@@ -725,9 +725,9 @@ async def list_artifact_cache_entries_from_request(
     limit: int,
     authorization: str | None,
 ) -> dict[str, Any]:
-    cfg = await _authorized_config_from_request(authorization)
+    cfg = await _authorized_config_from_request(authorization, action="artifact.cache.entries.read")
     entries = await run_sync(
-        list_artifact_cache_entries,
+        list_governed_artifact_cache_entries,
         cfg,
         workflow_revision_id=workflow_revision_id,
         limit=limit,
@@ -741,9 +741,9 @@ async def list_artifact_cache_pins_from_request(
     limit: int,
     authorization: str | None,
 ) -> dict[str, Any]:
-    cfg = await _authorized_config_from_request(authorization)
+    cfg = await _authorized_config_from_request(authorization, action="artifact.cache_pins.read")
     pins = await run_sync(
-        list_artifact_cache_policy_pins,
+        list_governed_artifact_cache_pins,
         cfg,
         cache_entry_id=cache_entry_id,
         state=state,
@@ -782,9 +782,9 @@ async def lookup_artifact_cache_from_request(
     request: ArtifactCacheLookupRequest,
     authorization: str | None,
 ) -> dict[str, Any]:
-    cfg = await _authorized_config_from_request(authorization)
+    cfg = await _authorized_config_from_request(authorization, action="artifact.cache.lookup")
     result = await run_sync(
-        lookup_artifact_cache_entry,
+        lookup_governed_artifact_cache_entry,
         cfg,
         request.model_dump(mode="json", exclude_none=True),
     )

@@ -356,6 +356,7 @@ def test_artifact_cache_policy_pin_retain_and_release_controls_gc(tmp_path: Path
     assert [item["cachePinId"] for item in listed] == [pin["cachePinId"]]
     assert retain_audit[-1]["details"]["cacheEntryId"] == lookup["entry"]["cacheEntryId"]
     assert "cacheKey" not in retain_audit[-1]["details"]
+    assert "storageUri" not in retain_audit[-1]["details"]
 
     released = release_artifact_cache_policy_pin(
         cfg,
