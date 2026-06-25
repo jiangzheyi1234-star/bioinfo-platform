@@ -31,6 +31,13 @@ def test_artifact_lifecycle_frontend_surface_is_confirmation_gated_gc() -> None:
     assert "clearSavedPreview" in page
     assert "confirmationValue.trim() === GC_RUN_CONFIRMATION" in page
     assert "disabled={!canRun}" in page
+    assert "CONTROLLER_PREVIEW_REASON" in page
+    assert "previewRequestFromControllerTick" in page
+    assert "controllerTickCanPreviewPolicy" in page
+    assert "maxDeleteBytesPerTick" in page
+    assert "previewArtifactGc(request)" in page
+    assert "planFingerprint: tick.gcPreview" not in page
+    assert "planFingerprint: tick.policy" not in page
 
 
 def test_artifact_lifecycle_frontend_uses_public_projection_and_safe_preview_summary() -> None:

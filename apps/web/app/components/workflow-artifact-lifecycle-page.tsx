@@ -38,6 +38,7 @@ import { WorkflowPageHeader } from "./workflow-page-header";
 import { workflowErrorMessage } from "./workflows-page-model";
 
 const PREVIEW_REASON = "web-ui-preview";
+const CONTROLLER_PREVIEW_REASON = "web-ui-controller-preview";
 const GC_RUN_CONFIRMATION = "delete-artifact-payloads";
 const GC_DEFAULT_ELIGIBLE_STATUSES = ["completed", "failed", "canceled", "cancelled"];
 
@@ -53,6 +54,7 @@ export function WorkflowArtifactLifecyclePage() {
   const [runConfirmation, setRunConfirmation] = useState("");
   const [loading, setLoading] = useState(true);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [controllerPreviewTickId, setControllerPreviewTickId] = useState("");
   const [runLoading, setRunLoading] = useState(false);
   const [error, setError] = useState("");
   const [previewError, setPreviewError] = useState("");
@@ -104,6 +106,31 @@ export function WorkflowArtifactLifecyclePage() {
       setPreviewError(artifactLifecycleErrorMessage(err, "生成 GC 预览失败"));
     } finally {
       setPreviewLoading(false);
+    }
+  }
+
+  async function previewControllerTickPolicy(tick: WorkflowArtifactLifecycleControllerTick) {
+    const request = previewRequestFromControllerTick(tick);
+    if (!request) return;
+    setPreviewLoading(true);
+    setControllerPreviewTickId(tick.tickId || tick.evidenceId || "");
+    setPreviewError("");
+    setRunError("");
+    setRetentionDaysInput(String(request.retentionDays ?? 30));
+    setMaxDeleteBytesInput(request.maxDeleteBytes ? String(request.maxDeleteBytes) : "");
+    setPreview(null);
+    setPreviewRequest(null);
+    setRunResult(null);
+    setRunConfirmation("");
+    try {
+      const plan = await previewArtifactGc(request);
+      setPreview(plan);
+      setPreviewRequest(request);
+    } catch (err) {
+      setPreviewError(artifactLifecycleErrorMessage(err, "生成 GC 预览失败"));
+    } finally {
+      setPreviewLoading(false);
+      setControllerPreviewTickId("");
     }
   }
 
@@ -283,7 +310,11 @@ export function WorkflowArtifactLifecyclePage() {
                 </div>
                 <span className="text-xs text-slate-400">{ticks.length} 条</span>
               </div>
-              <ControllerTickList ticks={ticks} />
+              <ControllerTickList
+                busyTickId={controllerPreviewTickId}
+                ticks={ticks}
+                onPreviewPolicy={(tick) => void previewControllerTickPolicy(tick)}
+              />
             </section>
           </>
         )}
@@ -553,48 +584,100 @@ function PlanItemList({
   );
 }
 
-function ControllerTickList({ ticks }: { ticks: WorkflowArtifactLifecycleControllerTick[] }) {
+function ControllerTickList({
+  busyTickId,
+  onPreviewPolicy,
+  ticks,
+}: {
+  busyTickId: string;
+  onPreviewPolicy: (tick: WorkflowArtifactLifecycleControllerTick) => void;
+  ticks: WorkflowArtifactLifecycleControllerTick[];
+}) {
   if (ticks.length === 0) {
     return <div className="px-5 py-10 text-center text-sm text-slate-400">暂无 controller tick</div>;
   }
   return (
     <div className="divide-y divide-slate-100">
-      {ticks.map((tick) => (
-        <article key={tick.tickId || tick.evidenceId} className="px-5 py-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-mono text-xs text-slate-700">{tick.tickId || "—"}</span>
-                <DecisionBadge decision={tick.policyDecision?.decision} />
-                <span className="text-xs text-slate-400">{formatDateTime(tick.evaluatedAt || tick.occurredAt)}</span>
+      {ticks.map((tick) => {
+        const tickId = tick.tickId || tick.evidenceId || "";
+        const previewReady = controllerTickCanPreviewPolicy(tick);
+        const busy = Boolean(tickId && busyTickId === tickId);
+        return (
+          <article key={tickId} className="px-5 py-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono text-xs text-slate-700">{tick.tickId || "—"}</span>
+                  <DecisionBadge decision={tick.policyDecision?.decision} />
+                  <span className="text-xs text-slate-400">{formatDateTime(tick.evaluatedAt || tick.occurredAt)}</span>
+                </div>
+                <p className="mt-1 text-sm text-slate-600">{tick.policyDecision?.message || tick.policyDecision?.reasonCode || "—"}</p>
               </div>
-              <p className="mt-1 text-sm text-slate-600">{tick.policyDecision?.message || tick.policyDecision?.reasonCode || "—"}</p>
+              <div className="grid min-w-[280px] grid-cols-3 gap-2 text-right">
+                <Metric label="候选" value={formatCount(tick.gcPreview?.candidateCount)} compact />
+                <Metric label="候选字节" value={formatBytes(tick.gcPreview?.deleteBytes)} compact />
+                <Metric label="保护" value={formatCount(tick.gcPreview?.protectedCount)} compact />
+              </div>
             </div>
-            <div className="grid min-w-[280px] grid-cols-3 gap-2 text-right">
-              <Metric label="候选" value={formatCount(tick.gcPreview?.candidateCount)} compact />
-              <Metric label="候选字节" value={formatBytes(tick.gcPreview?.deleteBytes)} compact />
-              <Metric label="保护" value={formatCount(tick.gcPreview?.protectedCount)} compact />
+            <div className="mt-3 grid gap-3 lg:grid-cols-4">
+              <TickField label="策略" value={`${tick.policy?.retentionDays ?? "—"} 天 / ${formatBytes(tick.policy?.maxDeleteBytesPerTick)}`} />
+              <TickField label="用量" value={`${formatBytes(tick.usage?.activeBytes)} / ${formatCount(tick.usage?.activeStorageObjectCount)} 对象`} />
+              <TickField label="批安全" value={batchSafetyText(tick)} />
+              <TickField label="计划指纹" value={shortFingerprint(tick.gcPreview?.planFingerprint)} />
             </div>
-          </div>
-          <div className="mt-3 grid gap-3 lg:grid-cols-4">
-            <TickField label="策略" value={`${tick.policy?.retentionDays ?? "—"} 天 / ${formatBytes(tick.policy?.maxDeleteBytesPerTick)}`} />
-            <TickField label="用量" value={`${formatBytes(tick.usage?.activeBytes)} / ${formatCount(tick.usage?.activeStorageObjectCount)} 对象`} />
-            <TickField label="批安全" value={batchSafetyText(tick)} />
-            <TickField label="计划指纹" value={shortFingerprint(tick.gcPreview?.planFingerprint)} />
-          </div>
-          {tick.retentionHolds?.reasons?.length ? (
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {tick.retentionHolds.reasons.slice(0, 6).map((reason) => (
-                <span key={reason.reason} className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
-                  {reason.reason || "hold"} · {formatCount(reason.groupCount)} 组 · {formatBytes(reason.bytes)}
-                </span>
-              ))}
+            <div className="mt-3 flex justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-8 bg-white px-2.5 text-xs text-slate-600"
+                disabled={!previewReady || busy}
+                onClick={() => onPreviewPolicy(tick)}
+              >
+                {busy ? <Loader2 strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Eye strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5" />}
+                按策略预览
+              </Button>
             </div>
-          ) : null}
-        </article>
-      ))}
+            {tick.retentionHolds?.reasons?.length ? (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {tick.retentionHolds.reasons.slice(0, 6).map((reason) => (
+                  <span key={reason.reason} className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
+                    {reason.reason || "hold"} · {formatCount(reason.groupCount)} 组 · {formatBytes(reason.bytes)}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </article>
+        );
+      })}
     </div>
   );
+}
+
+function controllerTickCanPreviewPolicy(tick: WorkflowArtifactLifecycleControllerTick) {
+  return (
+    tick.policyDecision?.decision === "preview_ready" &&
+    (tick.gcPreview?.candidateCount || 0) > 0 &&
+    (tick.gcPreview?.deleteBytes || 0) > 0
+  );
+}
+
+function previewRequestFromControllerTick(
+  tick: WorkflowArtifactLifecycleControllerTick
+): WorkflowArtifactGcPreviewRequest | null {
+  if (!controllerTickCanPreviewPolicy(tick)) return null;
+  const policy = tick.policy || {};
+  const request: WorkflowArtifactGcPreviewRequest = {
+    retentionDays: Math.max(0, Math.floor(policy.retentionDays ?? 30)),
+    eligibleRunStatuses: policy.eligibleRunStatuses?.length
+      ? policy.eligibleRunStatuses
+      : GC_DEFAULT_ELIGIBLE_STATUSES,
+    reason: CONTROLLER_PREVIEW_REASON,
+    actor: "web-ui",
+  };
+  if (policy.maxDeleteBytesPerTick) {
+    request.maxDeleteBytes = Math.max(1, Math.floor(policy.maxDeleteBytesPerTick));
+  }
+  return request;
 }
 
 function Metric({
