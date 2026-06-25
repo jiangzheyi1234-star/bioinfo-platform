@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
-import type { JsonSchemaProperty, WorkflowCatalogItem, WorkflowRunDetail, WorkflowRunRule, WorkflowUpload } from "./workflows-page-model";
+import type { JsonSchemaProperty, WorkflowArtifact, WorkflowCatalogItem, WorkflowRunDetail, WorkflowRunRule, WorkflowUpload } from "./workflows-page-model";
 
 type WorkflowDagPreviewProps = {
   workflow: WorkflowCatalogItem | null;
@@ -719,7 +719,7 @@ function OutputInspector({ node, runDetail, workflow }: { node: GraphNode; runDe
         {actual.length > 0 ? (
           <div className="mt-3 flex flex-wrap gap-1.5">
             {actual.slice(0, 6).map((artifact) => (
-              <Chip key={artifact.artifactId} value={`${artifactName(artifact.path) || artifact.kind} · ${artifact.kind}`} />
+              <Chip key={artifact.artifactId} value={`${artifactName(artifact)} · ${artifact.kind || artifact.mimeType || "artifact"}`} />
             ))}
           </div>
         ) : (
@@ -775,9 +775,9 @@ function getParamProperties(workflow: WorkflowCatalogItem) {
   return ((schema.properties || {}) as Record<string, JsonSchemaProperty>) || {};
 }
 
-function artifactName(path?: string) {
-  if (!path) return "";
-  return path.split(/[\\/]/).filter(Boolean).at(-1) || path;
+function artifactName(artifact?: WorkflowArtifact) {
+  if (!artifact) return "artifact";
+  return artifact.kind || artifact.mimeType || artifact.artifactId || "artifact";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -55,6 +55,7 @@ rejected at Local API startup.
 - Token comparison uses constant-time comparison.
 - Missing, malformed, or wrong tokens fail with `RemoteRunnerAuthError`.
 - High-risk remote-runner actions are deny-by-default after authentication. The runner token must declare explicit `api_token_roles`, and service-layer authorization checks the requested action against the machine-readable governance policy catalog before mutation, dispatch, retry, export, or GC work starts.
+- Generic result read surfaces (`run.results.read`, `result.list`, and `result.read`) require artifact-curator/auditor roles and expose only public result, artifact, checksum, lifecycle, and input-lineage summaries. Result directories, storage URIs, raw local paths, package paths, and raw lineage edges remain internal to storage, preview, export, and audit services.
 - Unsupported roles fail loudly with `REMOTE_RUNNER_TOKEN_ROLE_UNSUPPORTED`; missing or wrong roles fail with `RemoteRunnerAuthorizationError` and a hash-chained `decision=deny` governance audit event where the evidence ledger is available.
 - Token rotation is an operator action and must not leak raw token values into diagnostics, logs, or UI state.
 

@@ -442,19 +442,18 @@ function runDetailSummary(detail: WorkflowRunDetail | null, artifacts: WorkflowA
 
 function artifactName(artifact?: WorkflowArtifact): string {
   if (!artifact) return "";
-  const path = artifact.path || "";
-  return path.split(/[\\/]/).filter(Boolean).pop() || artifact.kind || artifact.artifactId;
+  return artifact.kind || artifact.artifactId;
 }
 
 function artifactEvidenceName(artifact?: WorkflowArtifact): string {
   if (!artifact) return "";
-  return String(artifact.path || "").replace(/\\/g, "/") || artifactName(artifact);
+  return artifact.artifactId || artifactName(artifact);
 }
 
 function artifactLabel(artifact: WorkflowArtifact): string {
   const name = artifactName(artifact);
-  const path = artifactEvidenceName(artifact);
-  return path && path !== name ? `${name} · ${path}` : name;
+  const artifactId = artifactEvidenceName(artifact);
+  return artifactId && artifactId !== name ? `${name} · ${artifactId}` : name;
 }
 
 function artifactDigest(artifact?: WorkflowArtifact): string {
@@ -469,7 +468,12 @@ function selectedArtifactForForm(artifacts: WorkflowArtifact[], form: Production
   }
   const name = form.artifactName.trim();
   if (!name) return artifacts.length === 1 ? artifacts[0] : undefined;
-  return artifacts.find((artifact) => artifactEvidenceName(artifact) === name || artifactName(artifact) === name);
+  return artifacts.find(
+    (artifact) =>
+      artifactEvidenceName(artifact) === name ||
+      artifactName(artifact) === name ||
+      artifactDigest(artifact) === name,
+  );
 }
 
 function inputScopeFromRun(run?: WorkflowRun): Record<string, unknown> | undefined {

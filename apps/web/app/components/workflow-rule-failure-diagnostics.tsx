@@ -67,7 +67,7 @@ export function WorkflowRuleFailureDiagnostics({
             <span className="truncate font-mono">{ruleLogContext.reasonCode || ruleLogContext.status || "—"}</span>
             <span className="text-red-500">artifact</span>
             <span className="truncate font-mono">
-              {selectedLogArtifact?.artifactId || selectedLogArtifact?.path || ruleLogContext.message || "—"}
+              {selectedLogArtifact?.artifactId || ruleLogContext.message || "—"}
             </span>
           </>
         ) : null}

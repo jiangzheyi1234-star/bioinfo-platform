@@ -178,8 +178,7 @@ function artifactIcon(mimeType: string) {
 }
 
 function artifactName(artifact: WorkflowArtifact) {
-  const path = artifact.path || "";
-  return path.split(/[\\/]/).filter(Boolean).pop() || artifact.kind || artifact.artifactId;
+  return artifact.kind || artifact.artifactId;
 }
 
 function isPreviewable(mimeType: string) {

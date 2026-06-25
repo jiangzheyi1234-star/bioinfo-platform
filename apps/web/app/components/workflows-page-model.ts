@@ -588,9 +588,7 @@ export type WorkflowArtifact = {
   kind: string;
   mimeType: string;
   sizeBytes: number;
-  path?: string;
   sha256?: string;
-  storageUri?: string;
 };
 
 export type WorkflowInputArtifactPort = {
@@ -628,7 +626,6 @@ export type WorkflowArtifactDirectoryPreviewEntry = {
 export type WorkflowResultDetail = {
   resultId?: string;
   runId?: string;
-  resultDir?: string;
   artifacts?: WorkflowArtifact[];
   artifactCount?: number;
   inputArtifacts?: WorkflowInputArtifact[];

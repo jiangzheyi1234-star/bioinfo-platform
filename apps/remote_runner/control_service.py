@@ -47,16 +47,14 @@ from .result_package_byte_gc_service import delete_retired_result_package_bytes
 from .result_package_download_service import build_result_package_download, result_package_download_url
 from .result_package_listing_service import list_result_package_exports
 from .result_package_lifecycle_service import retire_result_package_export
+from .result_read_service import governed_fetch_result, governed_fetch_run_results, governed_list_results
 from .route_utils import authorized_config, data_response, remote_runner_principal, run_sync
 from .run_worker_storage import build_run_worker_health
 from .storage import (
     fetch_log_lines,
-    fetch_result,
     fetch_run_events,
     fetch_run_execution_context,
-    fetch_run_results,
     fetch_run_rules,
-    list_results,
     list_runs,
     require_run,
     request_run_cancel,
@@ -431,8 +429,8 @@ async def get_run_logs_from_request(
 
 
 async def get_run_results_from_request(run_id: str, authorization: str | None) -> dict[str, Any]:
-    cfg = await _authorized_config_from_request(authorization)
-    results = await run_sync(fetch_run_results, cfg, run_id)
+    cfg = await _authorized_config_from_request(authorization, action="run.results.read")
+    results = await run_sync(governed_fetch_run_results, cfg, run_id)
     return data_response(results)
 
 
@@ -443,14 +441,14 @@ async def get_run_rules_from_request(run_id: str, authorization: str | None) -> 
 
 
 async def list_results_from_request(authorization: str | None) -> dict[str, Any]:
-    cfg = await _authorized_config_from_request(authorization)
-    results = await run_sync(list_results, cfg)
+    cfg = await _authorized_config_from_request(authorization, action="result.list")
+    results = await run_sync(governed_list_results, cfg)
     return data_response({"items": results})
 
 
 async def get_result_from_request(result_id: str, authorization: str | None) -> dict[str, Any]:
-    cfg = await _authorized_config_from_request(authorization)
-    result = await run_sync(fetch_result, cfg, result_id)
+    cfg = await _authorized_config_from_request(authorization, action="result.read")
+    result = await run_sync(governed_fetch_result, cfg, result_id)
     return data_response(result)
 
 
