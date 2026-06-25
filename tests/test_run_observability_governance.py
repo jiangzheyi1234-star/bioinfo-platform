@@ -166,7 +166,16 @@ def test_run_observability_routes_record_safe_allow_audit(tmp_path, monkeypatch)
             "runId": "run_obs_safe",
             "available": True,
             "reasonCode": "FAILED_RULE",
-            "failedRule": {"ruleName": "align_reads"},
+            "failedRule": {
+                "ruleName": "align_reads",
+                "sourceLocation": {
+                    "schemaVersion": "run-source-location.v1",
+                    "fileBasename": "Snakefile",
+                    "fileHash": "sha256:1234567890abcdef",
+                    "line": 42,
+                },
+            },
+            "redactionPolicy": {"sourceLocationsSanitized": True},
             "logContext": {
                 "stderrLineCount": 40,
                 "stderrTail": ["TOKEN_SHOULD_NOT_ENTER_AUDIT", "C:/secret/run.log"],
@@ -194,12 +203,19 @@ def test_run_observability_routes_record_safe_allow_audit(tmp_path, monkeypatch)
         control_service,
         "fetch_public_run_rules",
         lambda *_args: {
+            "redactionPolicy": {"sourceLocationsSanitized": True},
             "items": [
                 {
                     "status": "failed",
                     "inputCount": 1,
                     "outputCount": 1,
                     "logReferenceCount": 1,
+                    "sourceLocation": {
+                        "schemaVersion": "run-source-location.v1",
+                        "fileBasename": "Snakefile",
+                        "fileHash": "sha256:1234567890abcdef",
+                        "line": 42,
+                    },
                     "logContext": {
                         "status": "available",
                         "reasonCode": "PREVIEW_AVAILABLE",
@@ -253,6 +269,8 @@ def test_run_observability_routes_record_safe_allow_audit(tmp_path, monkeypatch)
         "ruleEventCount": 1,
         "ruleStatuses": {"failed": 1},
         "rulesWithLogReferences": 1,
+        "rulesWithSourceLocations": 1,
+        "sourceLocationsSanitized": True,
         "ruleLogStatuses": {"available": 1},
         "ruleLogReasonCodes": {"PREVIEW_AVAILABLE": 1},
     }
@@ -260,6 +278,8 @@ def test_run_observability_routes_record_safe_allow_audit(tmp_path, monkeypatch)
         "available": True,
         "reasonCode": "FAILED_RULE",
         "failedRulePresent": True,
+        "sourceLocationPresent": True,
+        "sourceLocationsSanitized": True,
         "stderrLineCount": 40,
         "stderrTailLineCount": 2,
         "ruleLogStatus": "available",
@@ -269,6 +289,8 @@ def test_run_observability_routes_record_safe_allow_audit(tmp_path, monkeypatch)
     serialized_audit = json.dumps(list_governance_audit_events(cfg, limit=100)["items"], sort_keys=True)
     assert "TOKEN_SHOULD_NOT_ENTER_AUDIT" not in serialized_audit
     assert "C:/secret" not in serialized_audit
+    assert "Snakefile" not in serialized_audit
+    assert "sha256:1234567890abcdef" not in serialized_audit
     assert "cursor-secret-123" not in serialized_audit
     assert "commandSummary" not in serialized_audit
     assert "argsPreview" not in serialized_audit

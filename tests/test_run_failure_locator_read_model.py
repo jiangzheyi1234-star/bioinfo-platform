@@ -94,6 +94,8 @@ def test_failure_locator_projects_managed_rule_log_without_storage_locators(tmp_
         "available": True,
         "reasonCode": "FAILED_RULE",
         "failedRulePresent": True,
+        "sourceLocationPresent": True,
+        "sourceLocationsSanitized": True,
         "stderrLineCount": 35,
         "stderrTailLineCount": 30,
         "ruleLogStatus": "available",
@@ -103,6 +105,7 @@ def test_failure_locator_projects_managed_rule_log_without_storage_locators(tmp_
     serialized_audit = json.dumps(audit, sort_keys=True)
     assert "rule log" not in serialized_audit
     assert "stderr 5" not in serialized_audit
+    assert "Snakefile" not in serialized_audit
     assert str(tmp_path) not in serialized_audit
 
 

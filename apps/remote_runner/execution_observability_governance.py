@@ -98,6 +98,10 @@ def record_run_rules_read_audit(cfg: RemoteRunnerConfig, run_id: str, rules: dic
     log_contexts = [_dict_value(item.get("logContext")) for item in items if isinstance(item, dict)]
     log_reasons = Counter(str(context.get("reasonCode") or "unknown") for context in log_contexts)
     log_statuses = Counter(str(context.get("status") or "unknown") for context in log_contexts)
+    rules_with_source_locations = sum(
+        isinstance(item, dict) and isinstance(item.get("sourceLocation"), dict)
+        for item in items
+    )
     record_governance_audit_event(
         cfg,
         action="run.rules.read",
@@ -109,6 +113,8 @@ def record_run_rules_read_audit(cfg: RemoteRunnerConfig, run_id: str, rules: dic
             "ruleEventCount": event_count,
             "ruleStatuses": dict(sorted(statuses.items())),
             "rulesWithLogReferences": sum(_safe_int(item.get("logReferenceCount")) > 0 for item in items if isinstance(item, dict)),
+            "rulesWithSourceLocations": rules_with_source_locations,
+            "sourceLocationsSanitized": bool(_dict_value(rules.get("redactionPolicy")).get("sourceLocationsSanitized")),
             "ruleLogStatuses": dict(sorted(log_statuses.items())),
             "ruleLogReasonCodes": dict(sorted(log_reasons.items())),
         },
@@ -119,6 +125,7 @@ def record_run_failure_locator_read_audit(cfg: RemoteRunnerConfig, run_id: str, 
     log_context = _dict_value(locator.get("logContext"))
     rule_log_context = _dict_value(locator.get("ruleLogContext"))
     artifact_context = _dict_value(locator.get("artifactContext"))
+    failed_rule = _dict_value(locator.get("failedRule"))
     record_governance_audit_event(
         cfg,
         action="run.failure_locator.read",
@@ -129,6 +136,8 @@ def record_run_failure_locator_read_audit(cfg: RemoteRunnerConfig, run_id: str, 
             "available": bool(locator.get("available")),
             "reasonCode": str(locator.get("reasonCode") or ""),
             "failedRulePresent": isinstance(locator.get("failedRule"), dict),
+            "sourceLocationPresent": isinstance(failed_rule.get("sourceLocation"), dict),
+            "sourceLocationsSanitized": bool(_dict_value(locator.get("redactionPolicy")).get("sourceLocationsSanitized")),
             "stderrLineCount": _safe_int(log_context.get("stderrLineCount")),
             "stderrTailLineCount": len(_list_value(log_context.get("stderrTail"))),
             "ruleLogStatus": str(rule_log_context.get("status") or ""),
