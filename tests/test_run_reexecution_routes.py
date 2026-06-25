@@ -11,6 +11,8 @@ from pydantic import ValidationError
 from apps.remote_runner import route_utils
 from apps.remote_runner.api_models import (
     RunResumeRequest,
+    RunRuleCacheRestoreFinalOutputApplyRequest,
+    RunRuleCacheRestoreFinalOutputPrepareRequest,
     RunRuleCacheRestorePinApplyRequest,
     RunRuleCacheRestorePinPrepareRequest,
     RunRuleCacheRestoreStagedFileApplyRequest,
@@ -77,6 +79,22 @@ def test_run_reexecution_requests_are_strict_and_confirmation_gated() -> None:
             "leaseGeneration": 1,
         }
     )
+    final_prepare = RunRuleCacheRestoreFinalOutputPrepareRequest.model_validate(
+        {
+            "confirmation": "prepare-rule-cache-restore-final-outputs",
+            "planHash": "8" * 64,
+            "attemptId": "att_1",
+            "leaseGeneration": 1,
+        }
+    )
+    final_apply = RunRuleCacheRestoreFinalOutputApplyRequest.model_validate(
+        {
+            "confirmation": "apply-rule-cache-restore-final-outputs",
+            "planHash": "7" * 64,
+            "attemptId": "att_1",
+            "leaseGeneration": 1,
+        }
+    )
     resume = RunResumeRequest.model_validate(
         {"confirmation": "resume-run", "planHash": "b" * 64, "actor": "operator"}
     )
@@ -87,6 +105,8 @@ def test_run_reexecution_requests_are_strict_and_confirmation_gated() -> None:
     assert pin_apply.leaseGeneration == 1
     assert staged_prepare.confirmation == "prepare-rule-cache-restore-staged-files"
     assert staged_apply.confirmation == "apply-rule-cache-restore-staged-files"
+    assert final_prepare.confirmation == "prepare-rule-cache-restore-final-outputs"
+    assert final_apply.confirmation == "apply-rule-cache-restore-final-outputs"
     assert resume.planHash == "b" * 64
     with pytest.raises(ValidationError) as wrong_confirmation:
         RunRuleRetryRequest.model_validate({"confirmation": "retry-rule", "planHash": "a" * 64})
@@ -115,6 +135,16 @@ def test_run_reexecution_requests_are_strict_and_confirmation_gated() -> None:
                 "targetPath": "leak",
             }
         )
+    with pytest.raises(ValidationError) as final_extra:
+        RunRuleCacheRestoreFinalOutputApplyRequest.model_validate(
+            {
+                "confirmation": "apply-rule-cache-restore-final-outputs",
+                "planHash": "7" * 64,
+                "attemptId": "att_1",
+                "leaseGeneration": 1,
+                "targetPath": "leak",
+            }
+        )
     with pytest.raises(ValidationError) as extra:
         RunRuleOutputInvalidationApplyRequest.model_validate(
             {
@@ -129,6 +159,7 @@ def test_run_reexecution_requests_are_strict_and_confirmation_gated() -> None:
     assert short_hash.value.errors()[0]["type"] == "string_too_short"
     assert stale_generation.value.errors()[0]["type"] == "greater_than_equal"
     assert staged_extra.value.errors()[0]["type"] == "extra_forbidden"
+    assert final_extra.value.errors()[0]["type"] == "extra_forbidden"
     assert extra.value.errors()[0]["type"] == "extra_forbidden"
 
 

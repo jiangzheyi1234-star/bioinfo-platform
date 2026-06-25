@@ -38,7 +38,9 @@ def build_staged_file_policy_plan(
         "overwriteAllowed": False,
         "deleteUnknownOutputs": False,
         "pinCreationAllowed": False,
-        "finalOutputMutationAllowed": False,
+        "attemptFinalOutputPromotionAllowed": materialization_enabled,
+        "finalOutputMutationAllowed": materialization_enabled,
+        "finalOutputOverwriteAllowed": False,
         "attemptStagingAllowed": materialization_enabled,
         "stagingDirectoryManaged": materialization_enabled,
         "stagingDirectoryExposed": False,
@@ -67,6 +69,8 @@ def build_staged_file_policy_plan(
             "unknown_output_quarantine_policy",
             "restore_pin_creation_policy",
             "active_attempt_restore_pins",
+            "active_staged_materializations",
+            "current_attempt_result_dir",
         ],
     }
 

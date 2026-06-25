@@ -276,7 +276,10 @@ def _create_run(cfg, run_id: str, *, workflow_revision_id: str | None) -> None:
             "pipelineVersion": "0.1.0",
             "runSpecVersion": "2026-04-21",
             "workflowRevisionId": workflow_revision_id,
-            "execution": {"retryPolicy": {"maxAttempts": 3, "backoffSeconds": 0}},
+            "execution": {
+                "outputs": {"bam": "align.bam"},
+                "retryPolicy": {"maxAttempts": 3, "backoffSeconds": 0},
+            },
         },
         idempotency_key=f"idem_{run_id}",
         payload_hash=f"hash_{run_id}",

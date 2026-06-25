@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 
 from apps.api.execution_query_routes import (
+    apply_rule_cache_restore_final_outputs,
     apply_rule_output_invalidation,
     apply_rule_cache_restore_staged_files,
+    prepare_rule_cache_restore_final_outputs,
     prepare_rule_cache_restore_staged_files,
     resume_run,
     retry_run,
@@ -13,6 +15,8 @@ from apps.api.execution_query_routes import (
 from apps.api.models import (
     RunResumeRequest,
     RunRetryRequest,
+    RunRuleCacheRestoreFinalOutputApplyRequest,
+    RunRuleCacheRestoreFinalOutputPrepareRequest,
     RunRuleCacheRestoreStagedFileApplyRequest,
     RunRuleCacheRestoreStagedFilePrepareRequest,
     RunRuleOutputInvalidationApplyRequest,
@@ -214,12 +218,71 @@ def test_rule_staged_restore_routes_delegate_runtime_results(monkeypatch) -> Non
     assert apply_result["data"]["status"] == "applied"
 
 
+def test_rule_final_output_promotion_routes_delegate_runtime_results(monkeypatch) -> None:
+    runtime = FakeExecutionRuntime()
+    monkeypatch.setattr("apps.api.execution_query_service.runtime_service", lambda: runtime)
+
+    prepare_result = asyncio.run(
+        prepare_rule_cache_restore_final_outputs(
+            "run_final_output",
+            RunRuleCacheRestoreFinalOutputPrepareRequest(
+                confirmation="prepare-rule-cache-restore-final-outputs",
+                planHash="d" * 64,
+                attemptId="att_1",
+                leaseGeneration=1,
+                actor="operator",
+            ),
+        )
+    )
+    apply_result = asyncio.run(
+        apply_rule_cache_restore_final_outputs(
+            "run_final_output",
+            RunRuleCacheRestoreFinalOutputApplyRequest(
+                confirmation="apply-rule-cache-restore-final-outputs",
+                planHash="d" * 64,
+                attemptId="att_1",
+                leaseGeneration=1,
+                reason="reviewed",
+            ),
+        )
+    )
+
+    assert runtime.final_output_prepare_calls == [
+        (
+            "run_final_output",
+            {
+                "confirmation": "prepare-rule-cache-restore-final-outputs",
+                "planHash": "d" * 64,
+                "attemptId": "att_1",
+                "leaseGeneration": 1,
+                "actor": "operator",
+            },
+        )
+    ]
+    assert runtime.final_output_apply_calls == [
+        (
+            "run_final_output",
+            {
+                "confirmation": "apply-rule-cache-restore-final-outputs",
+                "planHash": "d" * 64,
+                "attemptId": "att_1",
+                "leaseGeneration": 1,
+                "reason": "reviewed",
+            },
+        )
+    ]
+    assert prepare_result["data"]["status"] == "ready"
+    assert apply_result["data"]["status"] == "applied"
+
+
 class FakeExecutionRuntime:
     def __init__(self) -> None:
         self.rule_retry_calls = []
         self.output_invalidation_calls = []
         self.staged_prepare_calls = []
         self.staged_apply_calls = []
+        self.final_output_prepare_calls = []
+        self.final_output_apply_calls = []
         self.resume_calls = []
 
     def retry_run(self, run_id, payload):
@@ -274,6 +337,26 @@ class FakeExecutionRuntime:
         return {
             "data": {
                 "schemaVersion": "rule-cache-restore-staged-file-apply-result.v1",
+                "runId": run_id,
+                "status": "applied",
+            }
+        }
+
+    def prepare_rule_cache_restore_final_outputs(self, run_id, payload):
+        self.final_output_prepare_calls.append((run_id, payload))
+        return {
+            "data": {
+                "schemaVersion": "rule-cache-restore-final-output-prepare-result.v1",
+                "runId": run_id,
+                "status": "ready",
+            }
+        }
+
+    def apply_rule_cache_restore_final_outputs(self, run_id, payload):
+        self.final_output_apply_calls.append((run_id, payload))
+        return {
+            "data": {
+                "schemaVersion": "rule-cache-restore-final-output-apply-result.v1",
                 "runId": run_id,
                 "status": "applied",
             }

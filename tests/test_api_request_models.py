@@ -10,6 +10,8 @@ from apps.api.models import (
     ResultPackageExportRequest,
     ResultPackageRetireRequest,
     RunResumeRequest,
+    RunRuleCacheRestoreFinalOutputApplyRequest,
+    RunRuleCacheRestoreFinalOutputPrepareRequest,
     RunRuleCacheRestorePinApplyRequest,
     RunRuleCacheRestorePinPrepareRequest,
     RunRuleCacheRestoreStagedFileApplyRequest,
@@ -322,6 +324,58 @@ def test_run_rule_cache_restore_staged_file_requests_require_confirmation_plan_h
             model.model_validate(
                 {
                     "confirmation": "restore-staged-files",
+                    "planHash": "f" * 64,
+                    "attemptId": "att_1",
+                    "leaseGeneration": 1,
+                }
+            )
+        with pytest.raises(ValidationError):
+            model.model_validate(
+                {"confirmation": confirmation, "planHash": "abc", "attemptId": "att_1", "leaseGeneration": 1}
+            )
+        with pytest.raises(ValidationError):
+            model.model_validate(
+                {"confirmation": confirmation, "planHash": "f" * 64, "attemptId": "att_1", "leaseGeneration": 0}
+            )
+        with pytest.raises(ValidationError):
+            model.model_validate(
+                {
+                    "confirmation": confirmation,
+                    "planHash": "f" * 64,
+                    "attemptId": "att_1",
+                    "leaseGeneration": 1,
+                    "targetPath": "leak",
+                }
+            )
+
+
+def test_run_rule_cache_restore_final_output_requests_require_confirmation_plan_hash_and_lease() -> None:
+    prepare = RunRuleCacheRestoreFinalOutputPrepareRequest.model_validate(
+        {
+            "confirmation": "prepare-rule-cache-restore-final-outputs",
+            "planHash": "d" * 64,
+            "attemptId": "att_1",
+            "leaseGeneration": 1,
+        }
+    )
+    apply = RunRuleCacheRestoreFinalOutputApplyRequest.model_validate(
+        {
+            "confirmation": "apply-rule-cache-restore-final-outputs",
+            "planHash": "e" * 64,
+            "attemptId": "att_1",
+            "leaseGeneration": 1,
+        }
+    )
+    assert prepare.confirmation == "prepare-rule-cache-restore-final-outputs"
+    assert apply.confirmation == "apply-rule-cache-restore-final-outputs"
+    for model, confirmation in (
+        (RunRuleCacheRestoreFinalOutputPrepareRequest, "prepare-rule-cache-restore-final-outputs"),
+        (RunRuleCacheRestoreFinalOutputApplyRequest, "apply-rule-cache-restore-final-outputs"),
+    ):
+        with pytest.raises(ValidationError):
+            model.model_validate(
+                {
+                    "confirmation": "promote-final-outputs",
                     "planHash": "f" * 64,
                     "attemptId": "att_1",
                     "leaseGeneration": 1,

@@ -20,6 +20,7 @@ from .rule_restore_staging_policy import (
     staged_restore_target_reason,
 )
 from .rule_retry_plan import RULE_RETRY_PLAN_SCHEMA_VERSION
+from .storage_core import get_connection
 
 
 RULE_CACHE_RESTORE_PLAN_SCHEMA_VERSION = "rule-cache-restore-plan.v1"
@@ -36,6 +37,7 @@ def blocked_rule_cache_restore_plan(
     output_invalidation_applied: bool = False,
 ) -> dict[str, Any]:
     return _finalize_plan(
+        None,
         _base_plan(rule_retry_plan, output_invalidation_applied=output_invalidation_applied),
         reason_code=reason_code,
         rules=[],
@@ -54,9 +56,10 @@ def build_rule_cache_restore_plan(
     output_invalidation_applied = _output_invalidation_applied(output_invalidation_plan)
     base = _base_plan(rule_retry_plan, output_invalidation_applied=output_invalidation_applied)
     if rule_retry_plan.get("schemaVersion") != RULE_RETRY_PLAN_SCHEMA_VERSION:
-        return _finalize_plan(base, reason_code="RULE_RETRY_PLAN_SCHEMA_UNSUPPORTED", rules=[])
+        return _finalize_plan(cfg, base, reason_code="RULE_RETRY_PLAN_SCHEMA_UNSUPPORTED", rules=[])
     if not rule_retry_plan.get("invalidationPlanAvailable"):
         return _finalize_plan(
+            cfg,
             base,
             reason_code=str(rule_retry_plan.get("reasonCode") or "RULE_RETRY_INVALIDATION_PLAN_UNAVAILABLE"),
             rules=[],
@@ -64,7 +67,7 @@ def build_rule_cache_restore_plan(
 
     workflow_revision_id = str(rule_retry_plan.get("workflowRevisionId") or run.get("workflowRevisionId") or "").strip()
     if not workflow_revision_id:
-        return _finalize_plan(base, reason_code="WORKFLOW_REVISION_MISSING", rules=[])
+        return _finalize_plan(cfg, base, reason_code="WORKFLOW_REVISION_MISSING", rules=[])
 
     run_spec = run.get("runSpec") if isinstance(run.get("runSpec"), dict) else {}
     output_scope_source = _output_scope_source(output_invalidation_plan)
@@ -79,6 +82,7 @@ def build_rule_cache_restore_plan(
     }
     if output_invalidation_plan is not None and not output_invalidation_plan.get("previewAvailable"):
         return _finalize_plan(
+            cfg,
             base,
             reason_code=str(output_invalidation_plan.get("reasonCode") or "OUTPUT_EDGE_PREFLIGHT_UNAVAILABLE"),
             rules=[],
@@ -111,6 +115,7 @@ def build_rule_cache_restore_plan(
         cache_hit_count += int(planned["cacheHitCount"])
 
     return _finalize_plan(
+        cfg,
         base,
         reason_code="PER_RULE_CACHE_RESTORE_UNPROVEN",
         rules=planned_rules,
@@ -189,6 +194,7 @@ def _base_plan(
 
 
 def _finalize_plan(
+    cfg: RemoteRunnerConfig | None,
     base: dict[str, Any],
     *,
     reason_code: str,
@@ -218,6 +224,11 @@ def _finalize_plan(
             "restorePinPolicy": build_restore_pin_policy_plan(
                 rules,
                 output_invalidation_applied=bool(base["cacheEligibility"].get("outputInvalidationApplied")),
+            ),
+            "finalOutputPromotionState": _final_output_promotion_state(
+                cfg,
+                run_id=str(base.get("runId") or ""),
+                rules=rules,
             ),
             "rules": rules,
         }
@@ -256,6 +267,80 @@ def _rule_restore_plan(
         "blockedReasonCodes": _rule_blockers(outputs, output_invalidation_applied=output_invalidation_applied),
         "outputs": outputs,
     }
+
+
+def _final_output_promotion_state(
+    cfg: RemoteRunnerConfig | None,
+    *,
+    run_id: str,
+    rules: list[dict[str, Any]],
+) -> dict[str, Any]:
+    target_entries = _promotion_target_entries(rules)
+    base = {
+        "schemaVersion": "rule-cache-restore-final-output-promotion-state.v1",
+        "state": "unavailable",
+        "targetCount": len(target_entries),
+        "candidateOutputCount": 0,
+        "promotedFinalOutputCount": 0,
+        "pendingFinalOutputCount": len(target_entries),
+        "adoptedCandidateOutputCount": 0,
+        "activeAttemptPresent": False,
+        "pathExposed": False,
+        "storageUriExposed": False,
+        "cacheKeyExposed": False,
+    }
+    if cfg is None or not run_id or not target_entries:
+        return base
+    with get_connection(cfg) as connection:
+        lease = connection.execute(
+            "SELECT attempt_id, lease_generation, state FROM run_leases WHERE run_id = ?",
+            (run_id,),
+        ).fetchone()
+        if lease is None or str(lease["state"]) != "active":
+            return base
+        rows = connection.execute(
+            """
+            SELECT output_key, sha256, adopted_artifact_id
+            FROM candidate_outputs
+            WHERE run_id = ? AND attempt_id = ? AND lease_generation = ?
+            """,
+            (run_id, lease["attempt_id"], int(lease["lease_generation"])),
+        ).fetchall()
+    expected = {entry["artifactKey"]: entry["sha256"] for entry in target_entries}
+    matching = [
+        row
+        for row in rows
+        if str(row["output_key"] or "") in expected and str(row["sha256"] or "") == expected[str(row["output_key"])]
+    ]
+    adopted = sum(1 for row in matching if str(row["adopted_artifact_id"] or "").strip())
+    promoted = len(matching)
+    target_count = len(expected)
+    state = "applied" if promoted == target_count else "partial" if promoted else "pending"
+    return {
+        **base,
+        "state": state,
+        "candidateOutputCount": promoted,
+        "promotedFinalOutputCount": promoted,
+        "pendingFinalOutputCount": max(0, target_count - promoted),
+        "adoptedCandidateOutputCount": adopted,
+        "activeAttemptPresent": True,
+    }
+
+
+def _promotion_target_entries(rules: list[dict[str, Any]]) -> list[dict[str, str]]:
+    entries: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for rule in rules:
+        for output in rule.get("outputs") or []:
+            if not isinstance(output, dict) or output.get("cacheHit") is not True:
+                continue
+            artifact_key = str(output.get("artifactKey") or "").strip()
+            cache_entry = output.get("cacheEntry") if isinstance(output.get("cacheEntry"), dict) else {}
+            sha256 = str(cache_entry.get("sha256") or "").strip()
+            if artifact_key and sha256 and artifact_key not in seen:
+                entries.append({"artifactKey": artifact_key, "sha256": sha256})
+                seen.add(artifact_key)
+    return entries
 
 
 def _output_restore_previews(

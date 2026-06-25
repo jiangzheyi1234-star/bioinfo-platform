@@ -170,7 +170,9 @@ def test_rule_cache_restore_plan_keeps_applied_invalidation_scope_without_apply_
     assert plan["stagedFilePolicy"]["overwriteAllowed"] is False
     assert plan["stagedFilePolicy"]["deleteUnknownOutputs"] is False
     assert plan["stagedFilePolicy"]["pinCreationAllowed"] is False
-    assert plan["stagedFilePolicy"]["finalOutputMutationAllowed"] is False
+    assert plan["stagedFilePolicy"]["attemptFinalOutputPromotionAllowed"] is True
+    assert plan["stagedFilePolicy"]["finalOutputMutationAllowed"] is True
+    assert plan["stagedFilePolicy"]["finalOutputOverwriteAllowed"] is False
     assert plan["stagedFilePolicy"]["attemptStagingAllowed"] is True
     assert plan["stagedFilePolicy"]["stagingDirectoryManaged"] is True
     assert plan["stagedFilePolicy"]["stagingDirectoryExposed"] is False

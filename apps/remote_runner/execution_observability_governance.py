@@ -36,6 +36,7 @@ def record_run_execution_context_read_audit(
     rule_cache_restore_redaction = _dict_value(rule_cache_restore_plan.get("redactionPolicy"))
     staged_file_policy = _dict_value(rule_cache_restore_plan.get("stagedFilePolicy"))
     restore_pin_policy = _dict_value(rule_cache_restore_plan.get("restorePinPolicy"))
+    final_output_promotion_state = _dict_value(rule_cache_restore_plan.get("finalOutputPromotionState"))
     record_governance_audit_event(
         cfg,
         action="run.execution_context.read",
@@ -80,6 +81,18 @@ def record_run_execution_context_read_audit(
             "restorePinPolicyOwnerIdsExposed": bool(restore_pin_policy.get("ownerIdExposed")),
             "restorePinPolicyRawIdentifiersExposed": bool(restore_pin_policy.get("cacheKeyExposed")),
             "restorePinPolicyStorageUrisExposed": bool(restore_pin_policy.get("storageUriExposed")),
+            "finalOutputPromotionTargetCount": _safe_int(final_output_promotion_state.get("targetCount")),
+            "finalOutputPromotionCandidateOutputCount": _safe_int(
+                final_output_promotion_state.get("candidateOutputCount")
+            ),
+            "finalOutputPromotionPromotedCount": _safe_int(
+                final_output_promotion_state.get("promotedFinalOutputCount")
+            ),
+            "finalOutputPromotionPendingCount": _safe_int(
+                final_output_promotion_state.get("pendingFinalOutputCount")
+            ),
+            "finalOutputPromotionPathsExposed": bool(final_output_promotion_state.get("pathExposed")),
+            "finalOutputPromotionStorageUrisExposed": bool(final_output_promotion_state.get("storageUriExposed")),
         },
     )
 

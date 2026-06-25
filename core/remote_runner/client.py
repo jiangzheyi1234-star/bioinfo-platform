@@ -346,6 +346,12 @@ class RemoteRunnerHttpClient:
     def apply_rule_cache_restore_staged_files(self, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self.post_json(f"/api/v1/runs/{run_id}/rules/cache-restore/staged-files/apply", payload)["data"]
 
+    def prepare_rule_cache_restore_final_outputs(self, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.post_json(f"/api/v1/runs/{run_id}/rules/cache-restore/final-outputs/prepare", payload)["data"]
+
+    def apply_rule_cache_restore_final_outputs(self, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.post_json(f"/api/v1/runs/{run_id}/rules/cache-restore/final-outputs/apply", payload)["data"]
+
     def get_run_attempts(self, run_id: str) -> dict[str, Any]:
         return self.get_json(f"/api/v1/runs/{run_id}/attempts")["data"]
 

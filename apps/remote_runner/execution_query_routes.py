@@ -15,6 +15,8 @@ from .api_models import (
     ResultPackageExportRequest,
     ResultPackageRetireRequest,
     RunResumeRequest,
+    RunRuleCacheRestoreFinalOutputApplyRequest,
+    RunRuleCacheRestoreFinalOutputPrepareRequest,
     RunRuleCacheRestorePinApplyRequest,
     RunRuleCacheRestorePinPrepareRequest,
     RunRuleCacheRestoreStagedFileApplyRequest,
@@ -62,6 +64,10 @@ from .run_reexecution_service import (
     prepare_rule_cache_restore_staged_files_from_request,
     resume_run_from_request,
     retry_run_rules_from_request,
+)
+from .rule_staged_restore_promotion_service import (
+    apply_rule_cache_restore_final_outputs_from_request,
+    prepare_rule_cache_restore_final_outputs_from_request,
 )
 from .route_headers import AuthorizationHeader
 
@@ -145,6 +151,24 @@ async def apply_rule_cache_restore_staged_files_api(
     authorization: AuthorizationHeader = None,
 ) -> dict[str, Any]:
     return await apply_rule_cache_restore_staged_files_from_request(run_id, payload, authorization)
+
+
+@router.post("/api/v1/runs/{run_id}/rules/cache-restore/final-outputs/prepare")
+async def prepare_rule_cache_restore_final_outputs_api(
+    run_id: str,
+    payload: RunRuleCacheRestoreFinalOutputPrepareRequest,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await prepare_rule_cache_restore_final_outputs_from_request(run_id, payload, authorization)
+
+
+@router.post("/api/v1/runs/{run_id}/rules/cache-restore/final-outputs/apply")
+async def apply_rule_cache_restore_final_outputs_api(
+    run_id: str,
+    payload: RunRuleCacheRestoreFinalOutputApplyRequest,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await apply_rule_cache_restore_final_outputs_from_request(run_id, payload, authorization)
 
 
 @router.post("/api/v1/runs/{run_id}/resume", status_code=202)

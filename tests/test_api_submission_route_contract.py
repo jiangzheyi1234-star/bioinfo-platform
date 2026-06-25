@@ -80,6 +80,8 @@ def test_run_result_routes_delegate_runtime_calls_to_service() -> None:
     assert "apply_rule_output_invalidation_from_request" in detail_routes
     assert "prepare_rule_cache_restore_staged_files_from_request" in detail_routes
     assert "apply_rule_cache_restore_staged_files_from_request" in detail_routes
+    assert "prepare_rule_cache_restore_final_outputs_from_request" in detail_routes
+    assert "apply_rule_cache_restore_final_outputs_from_request" in detail_routes
     assert "resume_run_from_request" in detail_routes
     assert "get_run_events_from_request" in detail_routes
     assert "get_run_execution_context_from_request" in detail_routes
@@ -106,6 +108,8 @@ def test_run_result_routes_delegate_runtime_calls_to_service() -> None:
     assert "def apply_rule_output_invalidation_from_request(" in service_source
     assert "def prepare_rule_cache_restore_staged_files_from_request(" in service_source
     assert "def apply_rule_cache_restore_staged_files_from_request(" in service_source
+    assert "def prepare_rule_cache_restore_final_outputs_from_request(" in service_source
+    assert "def apply_rule_cache_restore_final_outputs_from_request(" in service_source
     assert "def resume_run_from_request(" in service_source
     assert "def get_run_events_from_request(" in service_source
     assert "def get_run_execution_context_from_request(" in service_source
@@ -130,6 +134,8 @@ def test_run_result_routes_delegate_runtime_calls_to_service() -> None:
     assert "runtime_service().apply_rule_output_invalidation(" in service_source
     assert "runtime_service().prepare_rule_cache_restore_staged_files(" in service_source
     assert "runtime_service().apply_rule_cache_restore_staged_files(" in service_source
+    assert "runtime_service().prepare_rule_cache_restore_final_outputs(" in service_source
+    assert "runtime_service().apply_rule_cache_restore_final_outputs(" in service_source
     assert "runtime_service().resume_run(" in service_source
     assert "runtime_service().export_result_package(" in service_source
     assert "runtime_service().list_result_package_exports(" in service_source
