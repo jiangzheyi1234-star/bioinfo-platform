@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 
 import { WorkflowRunExecutionContextPanel } from "./workflow-run-execution-context";
 import { WorkflowResultPackagePanel } from "./workflow-result-package-panel";
+import { RuleAttemptBadge, WorkflowRunAttemptsPanel, runAttemptByRule } from "./workflow-run-attempts-panel";
 import { WorkflowRunTriggerProvenancePanel, WorkflowRunTriggerSummary } from "./workflow-run-trigger-provenance";
 import { fetchArtifactPreview, retryWorkflowRun } from "./workflows-page-api";
 import { workflowErrorMessage } from "./workflows-page-model";
@@ -41,6 +42,7 @@ import type {
   WorkflowRunFailureLocator,
   WorkflowRunRule,
 } from "./workflows-page-model";
+import type { WorkflowRunAttemptsReadModel } from "./workflow-run-attempts-model";
 
 type TabKey = "overview" | "rules" | "artifacts" | "stdout" | "stderr";
 
@@ -441,17 +443,20 @@ function RuleValueList({ title, values }: { title: string; values: string[] }) {
   );
 }
 
-function RunRules({ rules }: { rules: WorkflowRunRule[] }) {
+function RunRules({ attempts, rules }: { attempts: WorkflowRunAttemptsReadModel | null; rules: WorkflowRunRule[] }) {
   if (rules.length === 0) {
     return <div className="py-8 text-center text-sm text-slate-400">暂无 rule 状态</div>;
   }
+  const attemptByRule = runAttemptByRule(attempts, rules);
   return (
     <div className="space-y-3">
       {rules.map((rule) => {
         const events = rule.events || [];
         const wildcards = rule.wildcards && Object.keys(rule.wildcards).length > 0 ? JSON.stringify(rule.wildcards) : "";
+        const ruleKey = rule.runRuleId || `${rule.ruleName}-${rule.attemptId || rule.attemptNumber || ""}`;
+        const attempt = attemptByRule.get(ruleKey);
         return (
-          <div key={rule.runRuleId || `${rule.ruleName}-${rule.attemptId}`} className="rounded-lg border border-slate-200 bg-white p-4">
+          <div key={ruleKey} className="rounded-lg border border-slate-200 bg-white p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -466,6 +471,7 @@ function RunRules({ rules }: { rules: WorkflowRunRule[] }) {
                   {rule.runRuleId ? <span className="truncate">{rule.runRuleId}</span> : null}
                 </div>
               </div>
+              <RuleAttemptBadge attempt={attempt} rule={rule} />
               <div className="grid shrink-0 grid-cols-2 gap-x-4 gap-y-1 text-right text-[11px] text-slate-500">
                 <span>attempt</span>
                 <span className="font-mono text-slate-700">{rule.attemptNumber ?? "—"}</span>
@@ -638,12 +644,14 @@ export function WorkflowRunDetailPanel({
   const [tab, setTab] = useState<TabKey>("overview");
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState("");
+  const [runAttempts, setRunAttempts] = useState<WorkflowRunAttemptsReadModel | null>(null);
   const run = detail.run;
   const artifacts = detail.results?.artifacts || [];
   const inputArtifacts = detail.results?.inputArtifacts || [];
   const previews = detail.previews || [];
   const events = detail.events || [];
   const rules = detail.rules?.items || [];
+  const rulesAttemptCount = rules.filter((rule) => rule.attemptId || rule.attemptNumber).length;
   const stdout = detail.logs.stdout?.lines || [];
   const stderr = detail.logs.stderr?.lines || [];
   const tablePreview = preferredTablePreview(previews);
@@ -802,7 +810,19 @@ export function WorkflowRunDetailPanel({
           </div>
         )}
 
-        {tab === "rules" && <RunRules rules={rules} />}
+        {tab === "rules" && (
+          <div className="space-y-3">
+            <WorkflowRunAttemptsPanel
+              runId={run.runId}
+              rules={rules}
+              onAttemptsLoaded={setRunAttempts}
+            />
+            <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+              {rulesAttemptCount} / {rules.length} 条规则包含 attempt 元数据。
+            </div>
+            <RunRules attempts={runAttempts} rules={rules} />
+          </div>
+        )}
 
         {tab === "stdout" && <LogBlock title="stdout" lines={stdout} />}
 

@@ -122,7 +122,9 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "workflowRevisionId={workflowRevisionId}" in panel
     assert "function RunRules" in panel
     assert "detail.rules?.items || []" in panel
-    assert "<RunRules rules={rules} />" in panel
+    assert "WorkflowRunAttemptsPanel" in panel
+    assert "onAttemptsLoaded={setRunAttempts}" in panel
+    assert "<RunRules attempts={runAttempts} rules={rules} />" in panel
     assert "WorkflowRuleFailureDiagnostics" in panel
     assert "failureLocator={detail.failureLocator}" in panel
     assert "failureLocator?.failedRule?.runRuleId" in panel
