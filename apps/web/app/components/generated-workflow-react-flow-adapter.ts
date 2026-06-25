@@ -11,6 +11,11 @@ export type WorkflowGraphConnection = {
   from: { nodeId: string; port: string };
   to: { nodeId: string; port: string };
 };
+export type WorkflowGraphNodeSearchMatch = {
+  label: string;
+  matchedField: "node" | "tool" | "package";
+  nodeId: string;
+};
 
 export function buildFlowEdges(edges: GraphEdge[]): WorkflowRuleFlowEdge[] {
   return edges.map((edge) => ({
@@ -45,16 +50,36 @@ export function matchedGraphNodeIds({
   query: string;
   toolByRevisionId: Map<string, AddedTool>;
 }) {
+  return new Set(matchedGraphNodeSearchMatches({ nodes, query, toolByRevisionId }).map((match) => match.nodeId));
+}
+
+export function matchedGraphNodeSearchMatches({
+  nodes,
+  query,
+  toolByRevisionId,
+}: {
+  nodes: GraphNode[];
+  query: string;
+  toolByRevisionId: Map<string, AddedTool>;
+}): WorkflowGraphNodeSearchMatch[] {
   const normalizedQuery = query.trim().toLowerCase();
-  if (!normalizedQuery) return new Set<string>();
-  return new Set(
-    nodes
-      .filter((node) => {
-        const tool = toolByRevisionId.get(node.toolRevisionId);
-        return [node.id, node.toolRevisionId, tool?.name, tool?.packageSpec]
-          .filter((value): value is string => typeof value === "string")
-          .some((value) => value.toLowerCase().includes(normalizedQuery));
-      })
-      .map((node) => node.id)
-  );
+  if (!normalizedQuery) return [];
+  return nodes
+    .map((node): WorkflowGraphNodeSearchMatch | null => {
+      const tool = toolByRevisionId.get(node.toolRevisionId);
+      const fields: Array<{ field: WorkflowGraphNodeSearchMatch["matchedField"]; value?: string }> = [
+        { field: "node", value: node.id },
+        { field: "node", value: node.toolRevisionId },
+        { field: "tool", value: tool?.name },
+        { field: "package", value: tool?.packageSpec },
+      ];
+      const matched = fields.find(({ value }) => value?.toLowerCase().includes(normalizedQuery));
+      if (!matched) return null;
+      return {
+        label: tool?.name || node.id,
+        matchedField: matched.field,
+        nodeId: node.id,
+      };
+    })
+    .filter((match): match is WorkflowGraphNodeSearchMatch => Boolean(match));
 }

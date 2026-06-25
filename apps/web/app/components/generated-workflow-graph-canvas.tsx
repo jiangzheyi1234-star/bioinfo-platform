@@ -57,6 +57,7 @@ type GraphEdge = GeneratedWorkflowBuilderController["graphDraft"]["edges"][numbe
 type StepBinding = Extract<GeneratedWorkflowInputBinding, { fromStep: string; output: string }>;
 
 type RuleFlowNodeData = Record<string, unknown> & {
+  activeSearchResult: boolean;
   dimmed: boolean;
   edges: GraphEdge[];
   graphNode: GraphNode;
@@ -89,6 +90,7 @@ const SUBFLOW_GROUP_NODE_PREFIX = "subflow:";
 const FLOW_NODE_TYPES = { workflowRule: WorkflowRuleFlowNode, subflowGroup: WorkflowSubflowGroupNode };
 
 export function GeneratedWorkflowGraphCanvas({
+  activeSearchNodeId = "",
   edges,
   layoutRevision = 0,
   nodes,
@@ -103,6 +105,7 @@ export function GeneratedWorkflowGraphCanvas({
   tools,
   validationIssues,
 }: {
+  activeSearchNodeId?: string;
   edges: GraphEdge[];
   layoutRevision?: number;
   nodes: GraphNode[];
@@ -133,6 +136,7 @@ export function GeneratedWorkflowGraphCanvas({
   const flowNodeDrafts = useMemo(
     () =>
       buildFlowNodes({
+        activeSearchNodeId,
         edges,
         forceLayout: layoutRequested,
         hasSearch,
@@ -144,7 +148,7 @@ export function GeneratedWorkflowGraphCanvas({
         toolByRevisionId,
         validationIssues,
       }),
-    [edges, hasSearch, layout, layoutRequested, matchedNodeIds, nodes, onSelectNode, selectedNodeId, toolByRevisionId, validationIssues]
+    [activeSearchNodeId, edges, hasSearch, layout, layoutRequested, matchedNodeIds, nodes, onSelectNode, selectedNodeId, toolByRevisionId, validationIssues]
   );
   const [flowNodes, setFlowNodes] = useState<RuleFlowNode[]>(flowNodeDrafts);
   const visibleFlowNodes = flowNodes.length > 0 ? flowNodes : flowNodeDrafts;
@@ -167,6 +171,19 @@ export function GeneratedWorkflowGraphCanvas({
     });
     return () => window.cancelAnimationFrame(frame);
   }, [layoutRevision, nodes.length]);
+
+  useEffect(() => {
+    if (!activeSearchNodeId) return;
+    const frame = window.requestAnimationFrame(() => {
+      flowInstanceRef.current?.fitView({
+        duration: 180,
+        maxZoom: 1.15,
+        nodes: [{ id: activeSearchNodeId }],
+        padding: 0.38,
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeSearchNodeId, visibleFlowNodes.length]);
 
   useEffect(() => {
     lastInvalidConnectionRef.current = null;
@@ -346,8 +363,11 @@ function WorkflowRuleFlowNode({ data, selected }: NodeProps<RuleFlowNode>) {
       className={cn(
         "rounded-md transition",
         data.dimmed ? "opacity-35" : "",
-        data.highlighted ? "ring-2 ring-amber-300 ring-offset-1" : ""
+        data.activeSearchResult ? "ring-2 ring-blue-400 ring-offset-1" : "",
+        data.highlighted && !data.activeSearchResult ? "ring-2 ring-amber-300 ring-offset-1" : ""
       )}
+      data-search-state={data.activeSearchResult ? "active" : data.highlighted ? "matched" : data.dimmed ? "dimmed" : "idle"}
+      data-testid={`rule-flow-node-${data.graphNode.id}`}
     >
       <RuleGraphNodeCard
         edges={data.edges}
@@ -373,6 +393,7 @@ function WorkflowSubflowGroupNode({ data }: NodeProps<RuleFlowSubflowGroupNode>)
 }
 
 function buildFlowNodes({
+  activeSearchNodeId,
   edges,
   forceLayout = false,
   hasSearch,
@@ -384,6 +405,7 @@ function buildFlowNodes({
   toolByRevisionId,
   validationIssues,
 }: {
+  activeSearchNodeId: string;
   edges: GraphEdge[];
   forceLayout?: boolean;
   hasSearch: boolean;
@@ -400,9 +422,11 @@ function buildFlowNodes({
     const item = layoutByNodeId.get(node.id);
     const nodeIssues = validationIssues.filter((issue) => issue.stepId === node.id);
     const highlighted = matchedNodeIds.has(node.id);
+    const activeSearchResult = Boolean(activeSearchNodeId && activeSearchNodeId === node.id);
     return {
       id: node.id,
       data: {
+        activeSearchResult,
         dimmed: hasSearch && !highlighted && nodeIssues.length === 0,
         edges,
         graphNode: node,

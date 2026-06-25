@@ -1,10 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   Archive,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Database,
   FileText,
   Loader2,
@@ -36,6 +38,7 @@ import {
 } from "./generated-workflow-model";
 import { WORKFLOW_TOOL_DRAG_MIME, workflowToolDragPayload } from "./generated-workflow-graph-drag-drop";
 import { GeneratedWorkflowGraphCanvas } from "./generated-workflow-graph-canvas";
+import { matchedGraphNodeSearchMatches } from "./generated-workflow-react-flow-adapter";
 import { GeneratedWorkflowNodeSettings } from "./generated-workflow-node-settings";
 import {
   GeneratedWorkflowPortBindingsEditor,
@@ -285,10 +288,19 @@ function WorkflowGraphWorkbench({
   outputCandidates: GeneratedWorkflowOutputCandidate[];
   tools: AddedTool[];
 }) {
-  const toolByRevisionId = new Map(workflowToolRevisionEntries(tools));
+  const toolByRevisionId = useMemo(() => new Map(workflowToolRevisionEntries(tools)), [tools]);
   const [selectedNodeId, setSelectedNodeId] = useState("");
   const [graphSearchQuery, setGraphSearchQuery] = useState("");
+  const [activeGraphSearchIndex, setActiveGraphSearchIndex] = useState(0);
   const [graphLayoutRevision, setGraphLayoutRevision] = useState(0);
+  const graphSearchMatches = useMemo(
+    () => matchedGraphNodeSearchMatches({ nodes, query: graphSearchQuery, toolByRevisionId }),
+    [graphSearchQuery, nodes, toolByRevisionId]
+  );
+  const activeGraphSearchMatch =
+    graphSearchMatches.length > 0
+      ? graphSearchMatches[Math.min(activeGraphSearchIndex, graphSearchMatches.length - 1)]
+      : null;
   const selectedNode = useMemo(
     () => nodes.find((node) => node.id === selectedNodeId) || nodes[0],
     [nodes, selectedNodeId]
@@ -299,6 +311,23 @@ function WorkflowGraphWorkbench({
   };
   const removeGraphEdge = (edge: GeneratedWorkflowBuilderController["graphDraft"]["edges"][number]) => {
     builder.setInputBinding(edge.to.nodeId, edge.to.port, "");
+  };
+  useEffect(() => {
+    setActiveGraphSearchIndex(0);
+  }, [graphSearchQuery]);
+  useEffect(() => {
+    if (activeGraphSearchIndex >= graphSearchMatches.length) {
+      setActiveGraphSearchIndex(Math.max(0, graphSearchMatches.length - 1));
+    }
+  }, [activeGraphSearchIndex, graphSearchMatches.length]);
+  useEffect(() => {
+    if (activeGraphSearchMatch?.nodeId) setSelectedNodeId(activeGraphSearchMatch.nodeId);
+  }, [activeGraphSearchMatch?.nodeId]);
+  const cycleGraphSearch = (direction: -1 | 1) => {
+    setActiveGraphSearchIndex((value) => {
+      if (graphSearchMatches.length === 0) return 0;
+      return (value + direction + graphSearchMatches.length) % graphSearchMatches.length;
+    });
   };
   return (
     <div className="rounded-lg border border-slate-200 bg-white px-3 py-3">
@@ -366,6 +395,40 @@ function WorkflowGraphWorkbench({
                   placeholder="搜索节点"
                 />
               </div>
+              {graphSearchQuery.trim() ? (
+                <div className="flex h-8 items-center gap-1 rounded-md border border-slate-200 bg-white px-1">
+                  <span
+                    className="min-w-8 text-center font-mono text-[11px] text-slate-500"
+                    data-testid="workflow-graph-search-count"
+                  >
+                    {graphSearchMatches.length
+                      ? `${Math.min(activeGraphSearchIndex + 1, graphSearchMatches.length)}/${graphSearchMatches.length}`
+                      : "0/0"}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-6 w-6 bg-white p-0"
+                    disabled={graphSearchMatches.length === 0}
+                    onClick={() => cycleGraphSearch(-1)}
+                    aria-label="上一个搜索结果"
+                    title="上一个搜索结果"
+                  >
+                    <ChevronLeft strokeWidth={1.5} className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-6 w-6 bg-white p-0"
+                    disabled={graphSearchMatches.length === 0}
+                    onClick={() => cycleGraphSearch(1)}
+                    aria-label="下一个搜索结果"
+                    title="下一个搜索结果"
+                  >
+                    <ChevronRight strokeWidth={1.5} className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ) : null}
               <Button
                 type="button"
                 variant="outline"
@@ -379,6 +442,7 @@ function WorkflowGraphWorkbench({
             </div>
           </div>
           <GeneratedWorkflowGraphCanvas
+            activeSearchNodeId={activeGraphSearchMatch?.nodeId || ""}
             edges={edges}
             layoutRevision={graphLayoutRevision}
             nodes={nodes}

@@ -33,6 +33,7 @@ require.extensions[".ts"] = function compileTypescript(module, filename) {
 const {
   buildFlowEdges,
   matchedGraphNodeIds,
+  matchedGraphNodeSearchMatches,
   reactFlowConnectionToGraphConnection,
 } = require(path.join(root, "apps", "web", "app", "components", "generated-workflow-react-flow-adapter.ts"));
 
@@ -73,6 +74,10 @@ const tools = new Map([
 ]);
 assert.deepEqual([...matchedGraphNodeIds({ nodes, query: "fastq", toolByRevisionId: tools })], ["source"]);
 assert.deepEqual([...matchedGraphNodeIds({ nodes, query: "target#1", toolByRevisionId: tools })], ["target"]);
+assert.deepEqual(
+  matchedGraphNodeSearchMatches({ nodes, query: "bam", toolByRevisionId: tools }),
+  [{ label: "BAM target", matchedField: "tool", nodeId: "target" }]
+);
 assert.equal(matchedGraphNodeIds({ nodes, query: " ", toolByRevisionId: tools }).size, 0);
 """
     completed = subprocess.run(
@@ -93,6 +98,9 @@ def test_canvas_uses_react_flow_adapter_and_fails_loudly_for_invalid_drops() -> 
     assert 'from "./generated-workflow-react-flow-adapter"' in canvas
     assert "buildFlowEdges(edges)" in canvas
     assert "matchedGraphNodeIds({ nodes, query: searchQuery, toolByRevisionId })" in canvas
+    assert "activeSearchNodeId" in canvas
+    assert "flowInstanceRef.current?.fitView({" in canvas
+    assert "nodes: [{ id: activeSearchNodeId }]" in canvas
     assert "reactFlowConnectionToGraphConnection(connection)" in canvas
     assert "无法添加工具：拖拽数据缺少工具修订 ID。" in canvas
     assert "无法添加工具：画布尚未初始化。" in canvas
