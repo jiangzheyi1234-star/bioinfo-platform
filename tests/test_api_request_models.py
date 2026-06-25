@@ -9,8 +9,10 @@ from apps.api.models import (
     ResultPackageByteDeleteRequest,
     ResultPackageExportRequest,
     ResultPackageRetireRequest,
+    RunResumeRequest,
     RunSubmitRequest,
     RunRetryRequest,
+    RunRuleRetryRequest,
     TERMINAL_CLIENT_MESSAGE_ADAPTER,
     TerminalInputMessage,
     TerminalPingMessage,
@@ -192,6 +194,66 @@ def test_run_retry_request_is_strict_and_run_scoped() -> None:
     errors = exc_info.value.errors()
     assert any(error["type"] == "literal_error" and error["loc"] == ("scope",) for error in errors)
     assert any(error["type"] == "extra_forbidden" and error["loc"] == ("ruleName",) for error in errors)
+
+
+def test_run_rule_retry_request_requires_confirmation_and_plan_hash() -> None:
+    request = RunRuleRetryRequest.model_validate(
+        {
+            "confirmation": "retry-failed-rules",
+            "planHash": "a" * 64,
+            "actor": "operator",
+            "reason": "operator approved safe retry plan",
+        }
+    )
+
+    assert request.confirmation == "retry-failed-rules"
+    assert request.planHash == "a" * 64
+
+    with pytest.raises(ValidationError) as wrong_confirmation:
+        RunRuleRetryRequest.model_validate({"confirmation": "retry-rule", "planHash": "a" * 64})
+    with pytest.raises(ValidationError) as short_hash:
+        RunRuleRetryRequest.model_validate({"confirmation": "retry-failed-rules", "planHash": "abc"})
+    with pytest.raises(ValidationError) as extra:
+        RunRuleRetryRequest.model_validate(
+            {"confirmation": "retry-failed-rules", "planHash": "a" * 64, "ruleName": "align_reads"}
+        )
+
+    assert any(
+        error["type"] == "literal_error" and error["loc"] == ("confirmation",)
+        for error in wrong_confirmation.value.errors()
+    )
+    assert any(error["type"] == "string_too_short" and error["loc"] == ("planHash",) for error in short_hash.value.errors())
+    assert any(error["type"] == "extra_forbidden" and error["loc"] == ("ruleName",) for error in extra.value.errors())
+
+
+def test_run_resume_request_requires_confirmation_and_plan_hash() -> None:
+    request = RunResumeRequest.model_validate(
+        {
+            "confirmation": "resume-run",
+            "planHash": "b" * 64,
+            "actor": "operator",
+            "reason": "operator approved resume plan",
+        }
+    )
+
+    assert request.confirmation == "resume-run"
+    assert request.planHash == "b" * 64
+
+    with pytest.raises(ValidationError) as wrong_confirmation:
+        RunResumeRequest.model_validate({"confirmation": "resume", "planHash": "b" * 64})
+    with pytest.raises(ValidationError) as short_hash:
+        RunResumeRequest.model_validate({"confirmation": "resume-run", "planHash": "abc"})
+    with pytest.raises(ValidationError) as extra:
+        RunResumeRequest.model_validate(
+            {"confirmation": "resume-run", "planHash": "b" * 64, "legacyResume": True}
+        )
+
+    assert any(
+        error["type"] == "literal_error" and error["loc"] == ("confirmation",)
+        for error in wrong_confirmation.value.errors()
+    )
+    assert any(error["type"] == "string_too_short" and error["loc"] == ("planHash",) for error in short_hash.value.errors())
+    assert any(error["type"] == "extra_forbidden" and error["loc"] == ("legacyResume",) for error in extra.value.errors())
 
 
 def test_result_package_export_request_requires_explicit_payload_mode_and_is_strict() -> None:

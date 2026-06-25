@@ -76,6 +76,8 @@ def test_run_result_routes_delegate_runtime_calls_to_service() -> None:
     assert "get_run_from_request" in detail_routes
     assert "cancel_run_from_request" in detail_routes
     assert "retry_run_from_request" in detail_routes
+    assert "retry_run_rules_from_request" in detail_routes
+    assert "resume_run_from_request" in detail_routes
     assert "get_run_events_from_request" in detail_routes
     assert "get_run_execution_context_from_request" in detail_routes
     assert "get_run_attempts_from_request" in detail_routes
@@ -97,6 +99,8 @@ def test_run_result_routes_delegate_runtime_calls_to_service() -> None:
     assert "def get_run_from_request(" in service_source
     assert "def cancel_run_from_request(" in service_source
     assert "def retry_run_from_request(" in service_source
+    assert "def retry_run_rules_from_request(" in service_source
+    assert "def resume_run_from_request(" in service_source
     assert "def get_run_events_from_request(" in service_source
     assert "def get_run_execution_context_from_request(" in service_source
     assert "def get_run_attempts_from_request(" in service_source
@@ -116,6 +120,8 @@ def test_run_result_routes_delegate_runtime_calls_to_service() -> None:
     assert "runtime_service().get_result_audit(" in service_source
     assert "runtime_service().get_run_attempts(" in service_source
     assert "runtime_service().get_run_failure_locator(" in service_source
+    assert "runtime_service().retry_run_rules(" in service_source
+    assert "runtime_service().resume_run(" in service_source
     assert "runtime_service().export_result_package(" in service_source
     assert "runtime_service().list_result_package_exports(" in service_source
     assert "runtime_service().download_result_package(" in service_source

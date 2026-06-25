@@ -15,7 +15,9 @@ from apps.api.models import (
     ResultPackageByteDeleteRequest,
     ResultPackageExportRequest,
     ResultPackageRetireRequest,
+    RunResumeRequest,
     RunRetryRequest,
+    RunRuleRetryRequest,
 )
 from apps.api.execution_query_service import (
     cancel_run_from_request,
@@ -44,7 +46,9 @@ from apps.api.execution_query_service import (
     preview_artifact_gc_from_request,
     release_artifact_cache_pin_from_request,
     retain_artifact_cache_pin_from_request,
+    resume_run_from_request,
     retire_result_package_from_request,
+    retry_run_rules_from_request,
     retry_run_from_request,
     run_artifact_gc_from_request,
 )
@@ -81,6 +85,16 @@ async def cancel_run(run_id: str) -> dict[str, Any]:
 @router.post("/api/v1/runs/{run_id}/retry", status_code=202)
 async def retry_run(run_id: str, payload: RunRetryRequest) -> dict[str, Any]:
     return await retry_run_from_request(run_id, payload)
+
+
+@router.post("/api/v1/runs/{run_id}/rules/retry", status_code=202)
+async def retry_run_rules(run_id: str, payload: RunRuleRetryRequest) -> dict[str, Any]:
+    return await retry_run_rules_from_request(run_id, payload)
+
+
+@router.post("/api/v1/runs/{run_id}/resume", status_code=202)
+async def resume_run(run_id: str, payload: RunResumeRequest) -> dict[str, Any]:
+    return await resume_run_from_request(run_id, payload)
 
 
 @router.get("/api/v1/runs/{run_id}/events")

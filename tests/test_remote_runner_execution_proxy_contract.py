@@ -17,6 +17,19 @@ def test_remote_runner_execution_proxy_exposes_retry_run_path() -> None:
     assert 'client.post_json(f"/api/v1/runs/{kwargs[\'run_id\']}/retry", kwargs["payload"])["data"]' in proxy_source
 
 
+def test_remote_runner_execution_proxy_exposes_rule_retry_and_resume_paths() -> None:
+    manager_source = _source("core/remote_runner/manager.py")
+    proxy_source = _source("core/remote_runner/reexecution_proxy.py")
+
+    assert "from core.remote_runner.reexecution_proxy import RemoteRunnerReexecutionProxyMixin" in manager_source
+    assert "RemoteRunnerReexecutionProxyMixin" in manager_source
+    assert "class RemoteRunnerReexecutionProxyMixin:" in proxy_source
+    assert "def retry_run_rules(self, **kwargs) -> dict[str, Any]:" in proxy_source
+    assert 'client.post_json(f"/api/v1/runs/{kwargs[\'run_id\']}/rules/retry", kwargs["payload"])["data"]' in proxy_source
+    assert "def resume_run(self, **kwargs) -> dict[str, Any]:" in proxy_source
+    assert 'client.post_json(f"/api/v1/runs/{kwargs[\'run_id\']}/resume", kwargs["payload"])["data"]' in proxy_source
+
+
 def test_remote_runner_execution_proxy_exposes_failure_locator_path() -> None:
     proxy_source = _source("core/remote_runner/proxy.py")
     client_source = _source("core/remote_runner/client.py")

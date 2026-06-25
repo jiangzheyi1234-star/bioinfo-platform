@@ -100,6 +100,20 @@ class RunRetryRequest(ApiRequest):
     reason: str | None = None
 
 
+class RunRuleRetryRequest(ApiRequest):
+    confirmation: Literal["retry-failed-rules"]
+    planHash: str = Field(min_length=64, max_length=64)
+    actor: str | None = None
+    reason: str | None = None
+
+
+class RunResumeRequest(ApiRequest):
+    confirmation: Literal["resume-run"]
+    planHash: str = Field(min_length=64, max_length=64)
+    actor: str | None = None
+    reason: str | None = None
+
+
 class ResultPackageExportRequest(ApiRequest):
     serverId: str | None = None
     includeArtifacts: StrictBool

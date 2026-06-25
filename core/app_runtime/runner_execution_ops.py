@@ -174,6 +174,12 @@ class RunnerExecutionOperationsMixin:
     def retry_run(self, run_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         return self.execution.retry_run(run_id, payload)
 
+    def retry_run_rules(self, run_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        return self.execution.retry_run_rules(run_id, payload)
+
+    def resume_run(self, run_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        return self.execution.resume_run(run_id, payload)
+
     def get_run_events(self, run_id: str) -> dict[str, Any]:
         return self.execution.get_run_events(run_id)
 

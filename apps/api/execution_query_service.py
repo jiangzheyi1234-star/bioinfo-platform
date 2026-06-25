@@ -12,7 +12,9 @@ from apps.api.models import (
     ResultPackageByteDeleteRequest,
     ResultPackageExportRequest,
     ResultPackageRetireRequest,
+    RunResumeRequest,
     RunRetryRequest,
+    RunRuleRetryRequest,
 )
 from apps.api.response_cache import invalidate_response_cache
 from apps.api.route_utils import cached_runtime_payload, request_payload, run_runtime_payload, run_sync, runtime_service
@@ -47,6 +49,24 @@ async def cancel_run_from_request(run_id: str) -> dict[str, Any]:
 async def retry_run_from_request(run_id: str, request: RunRetryRequest) -> dict[str, Any]:
     result = await run_runtime_payload(
         lambda: runtime_service().retry_run(run_id, request_payload(request)),
+        wrapper="raw",
+    )
+    await invalidate_response_cache("runs", prefixes=(f"run_detail:{run_id}",))
+    return result
+
+
+async def retry_run_rules_from_request(run_id: str, request: RunRuleRetryRequest) -> dict[str, Any]:
+    result = await run_runtime_payload(
+        lambda: runtime_service().retry_run_rules(run_id, request_payload(request)),
+        wrapper="raw",
+    )
+    await invalidate_response_cache("runs", prefixes=(f"run_detail:{run_id}",))
+    return result
+
+
+async def resume_run_from_request(run_id: str, request: RunResumeRequest) -> dict[str, Any]:
+    result = await run_runtime_payload(
+        lambda: runtime_service().resume_run(run_id, request_payload(request)),
         wrapper="raw",
     )
     await invalidate_response_cache("runs", prefixes=(f"run_detail:{run_id}",))
