@@ -177,6 +177,9 @@ class RunnerExecutionOperationsMixin:
     def retry_run_rules(self, run_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         return self.execution.retry_run_rules(run_id, payload)
 
+    def apply_rule_output_invalidation(self, run_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        return self.execution.apply_rule_output_invalidation(run_id, payload)
+
     def resume_run(self, run_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         return self.execution.resume_run(run_id, payload)
 

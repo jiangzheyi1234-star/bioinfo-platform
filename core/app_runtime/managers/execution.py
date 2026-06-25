@@ -324,6 +324,15 @@ class ExecutionManager(BaseRuntimeManager):
     def retry_run_rules(self, run_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         return {"data": self.call_runner("retry_run_rules", run_id=run_id, payload=dict(payload or {}))}
 
+    def apply_rule_output_invalidation(self, run_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        return {
+            "data": self.call_runner(
+                "apply_rule_output_invalidation",
+                run_id=run_id,
+                payload=dict(payload or {}),
+            )
+        }
+
     def resume_run(self, run_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         return {"data": self.call_runner("resume_run", run_id=run_id, payload=dict(payload or {}))}
 

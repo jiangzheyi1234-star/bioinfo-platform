@@ -107,6 +107,13 @@ class RunRuleRetryRequest(ApiRequest):
     reason: str | None = None
 
 
+class RunRuleOutputInvalidationApplyRequest(ApiRequest):
+    confirmation: Literal["apply-rule-output-invalidation"]
+    planHash: str = Field(min_length=64, max_length=64)
+    actor: str | None = None
+    reason: str | None = None
+
+
 class RunResumeRequest(ApiRequest):
     confirmation: Literal["resume-run"]
     planHash: str = Field(min_length=64, max_length=64)

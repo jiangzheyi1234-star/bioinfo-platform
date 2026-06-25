@@ -12,6 +12,7 @@ from apps.api.models import (
     RunResumeRequest,
     RunSubmitRequest,
     RunRetryRequest,
+    RunRuleOutputInvalidationApplyRequest,
     RunRuleRetryRequest,
     TERMINAL_CLIENT_MESSAGE_ADAPTER,
     TerminalInputMessage,
@@ -224,6 +225,47 @@ def test_run_rule_retry_request_requires_confirmation_and_plan_hash() -> None:
     )
     assert any(error["type"] == "string_too_short" and error["loc"] == ("planHash",) for error in short_hash.value.errors())
     assert any(error["type"] == "extra_forbidden" and error["loc"] == ("ruleName",) for error in extra.value.errors())
+
+
+def test_run_rule_output_invalidation_apply_request_requires_confirmation_and_plan_hash() -> None:
+    request = RunRuleOutputInvalidationApplyRequest.model_validate(
+        {
+            "confirmation": "apply-rule-output-invalidation",
+            "planHash": "c" * 64,
+            "actor": "operator",
+            "reason": "operator reviewed output scope",
+        }
+    )
+
+    assert request.confirmation == "apply-rule-output-invalidation"
+    assert request.planHash == "c" * 64
+
+    with pytest.raises(ValidationError) as wrong_confirmation:
+        RunRuleOutputInvalidationApplyRequest.model_validate(
+            {"confirmation": "invalidate-output", "planHash": "c" * 64}
+        )
+    with pytest.raises(ValidationError) as short_hash:
+        RunRuleOutputInvalidationApplyRequest.model_validate(
+            {"confirmation": "apply-rule-output-invalidation", "planHash": "abc"}
+        )
+    with pytest.raises(ValidationError) as extra:
+        RunRuleOutputInvalidationApplyRequest.model_validate(
+            {
+                "confirmation": "apply-rule-output-invalidation",
+                "planHash": "c" * 64,
+                "deleteArtifactPayloads": True,
+            }
+        )
+
+    assert any(
+        error["type"] == "literal_error" and error["loc"] == ("confirmation",)
+        for error in wrong_confirmation.value.errors()
+    )
+    assert any(error["type"] == "string_too_short" and error["loc"] == ("planHash",) for error in short_hash.value.errors())
+    assert any(
+        error["type"] == "extra_forbidden" and error["loc"] == ("deleteArtifactPayloads",)
+        for error in extra.value.errors()
+    )
 
 
 def test_run_resume_request_requires_confirmation_and_plan_hash() -> None:

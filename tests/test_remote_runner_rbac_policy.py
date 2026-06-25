@@ -171,7 +171,7 @@ def test_run_reexecution_actions_use_workflow_operator_role(tmp_path) -> None:
         api_token_roles=("workflow-operator",),
     )
 
-    for action in ("run.rule_retry", "run.resume"):
+    for action in ("run.rule_retry", "run.rule_output_invalidation.apply", "run.resume"):
         try:
             authorize_action(denied, action)
         except RemoteRunnerAuthorizationError as exc:

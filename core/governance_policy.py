@@ -137,6 +137,15 @@ HIGH_RISK_API_POLICIES: tuple[ApiGovernancePolicy, ...] = (
     ),
     remote_policy(
         "POST",
+        "/api/v1/runs/{run_id}/rules/output-invalidation/apply",
+        "apps/remote_runner/execution_query_routes.py",
+        "run.rule_output_invalidation.apply",
+        "run_rule_output_invalidation",
+        "implemented",
+        "workflow-operator",
+    ),
+    remote_policy(
+        "POST",
         "/api/v1/runs/{run_id}/resume",
         "apps/remote_runner/execution_query_routes.py",
         "run.resume",

@@ -2,8 +2,18 @@ from __future__ import annotations
 
 import asyncio
 
-from apps.api.execution_query_routes import resume_run, retry_run, retry_run_rules
-from apps.api.models import RunResumeRequest, RunRetryRequest, RunRuleRetryRequest
+from apps.api.execution_query_routes import (
+    apply_rule_output_invalidation,
+    resume_run,
+    retry_run,
+    retry_run_rules,
+)
+from apps.api.models import (
+    RunResumeRequest,
+    RunRetryRequest,
+    RunRuleOutputInvalidationApplyRequest,
+    RunRuleRetryRequest,
+)
 from apps.api.response_cache import invalidate_response_cache
 
 
@@ -104,9 +114,49 @@ def test_resume_run_route_delegates_fail_closed_runtime_result(monkeypatch) -> N
     }
 
 
+def test_rule_output_invalidation_apply_route_delegates_runtime_result(monkeypatch) -> None:
+    runtime = FakeExecutionRuntime()
+    monkeypatch.setattr("apps.api.execution_query_service.runtime_service", lambda: runtime)
+
+    result = asyncio.run(
+        apply_rule_output_invalidation(
+            "run_rule_output_apply",
+            RunRuleOutputInvalidationApplyRequest(
+                confirmation="apply-rule-output-invalidation",
+                planHash="c" * 64,
+                actor="operator",
+                reason="reviewed output scope",
+            ),
+        )
+    )
+
+    assert runtime.output_invalidation_calls == [
+        (
+            "run_rule_output_apply",
+            {
+                "confirmation": "apply-rule-output-invalidation",
+                "planHash": "c" * 64,
+                "actor": "operator",
+                "reason": "reviewed output scope",
+            },
+        )
+    ]
+    assert result == {
+        "data": {
+            "schemaVersion": "rule-output-invalidation-apply-result.v1",
+            "runId": "run_rule_output_apply",
+            "status": "applied",
+            "invalidatedOutputEdgeCount": 2,
+            "invalidatedLineageEdgeCount": 2,
+            "payloadDeleted": False,
+        }
+    }
+
+
 class FakeExecutionRuntime:
     def __init__(self) -> None:
         self.rule_retry_calls = []
+        self.output_invalidation_calls = []
         self.resume_calls = []
 
     def retry_run(self, run_id, payload):
@@ -130,6 +180,19 @@ class FakeExecutionRuntime:
                 "accepted": False,
                 "blocked": True,
                 "reasonCode": "RULE_RETRY_MUTATION_API_DISABLED",
+            }
+        }
+
+    def apply_rule_output_invalidation(self, run_id, payload):
+        self.output_invalidation_calls.append((run_id, payload))
+        return {
+            "data": {
+                "schemaVersion": "rule-output-invalidation-apply-result.v1",
+                "runId": run_id,
+                "status": "applied",
+                "invalidatedOutputEdgeCount": 2,
+                "invalidatedLineageEdgeCount": 2,
+                "payloadDeleted": False,
             }
         }
 

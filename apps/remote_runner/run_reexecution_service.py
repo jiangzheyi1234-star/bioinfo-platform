@@ -2,12 +2,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from .api_models import RunResumeRequest, RunRuleRetryRequest
+from .api_models import (
+    RunResumeRequest,
+    RunRuleOutputInvalidationApplyRequest,
+    RunRuleRetryRequest,
+)
 from .config import RemoteRunnerConfig
 from .errors import RemoteRunnerOperationBlockedError
 from .governance_audit import record_governance_audit_event
-from .route_utils import authorized_config, remote_runner_principal, run_sync
+from .route_utils import authorized_config, data_response, remote_runner_principal, run_sync
 from .run_execution_context_storage import fetch_run_execution_context
+from .rule_output_invalidation_storage import apply_rule_output_invalidation_plan
 
 
 async def _authorized_config_from_request(
@@ -33,6 +38,56 @@ async def retry_run_rules_from_request(
     reason_code = str(plan.get("executionReasonCode") or "RULE_RETRY_EXECUTION_DISABLED")
     await _record_rule_retry_audit(cfg, run_id, plan, decision="deny", reason_code=reason_code)
     raise _blocked("ruleRetryExecutionPlan", plan, reason_code)
+
+
+async def apply_rule_output_invalidation_from_request(
+    run_id: str,
+    request: RunRuleOutputInvalidationApplyRequest,
+    authorization: str | None,
+) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization, action="run.rule_output_invalidation.apply")
+    context = await run_sync(fetch_run_execution_context, cfg, run_id)
+    plan = _plan_object(context, "ruleOutputInvalidationPlan")
+    mismatch = _plan_hash_mismatch(plan, request.planHash, code="RULE_OUTPUT_INVALIDATION_PLAN_HASH_MISMATCH")
+    if mismatch:
+        await _record_output_invalidation_audit(
+            cfg,
+            run_id,
+            plan,
+            decision="deny",
+            reason_code=mismatch,
+            request_reason_provided=bool(str(request.reason or "").strip()),
+        )
+        raise _output_invalidation_blocked(plan, mismatch)
+    try:
+        result = await run_sync(
+            apply_rule_output_invalidation_plan,
+            cfg,
+            plan,
+            plan_hash=request.planHash,
+            actor=request.actor,
+        )
+    except ValueError as exc:
+        reason_code = str(exc) or "RULE_OUTPUT_INVALIDATION_APPLY_BLOCKED"
+        await _record_output_invalidation_audit(
+            cfg,
+            run_id,
+            plan,
+            decision="deny",
+            reason_code=reason_code,
+            request_reason_provided=bool(str(request.reason or "").strip()),
+        )
+        raise _output_invalidation_blocked(plan, reason_code) from exc
+    await _record_output_invalidation_audit(
+        cfg,
+        run_id,
+        plan,
+        decision="allow",
+        reason_code="RULE_OUTPUT_INVALIDATION_APPLIED",
+        request_reason_provided=bool(str(request.reason or "").strip()),
+        result=result,
+    )
+    return data_response(result)
 
 
 async def resume_run_from_request(
@@ -62,11 +117,16 @@ def _plan_object(context: dict[str, Any], key: str) -> dict[str, Any]:
     return plan
 
 
-def _plan_hash_mismatch(plan: dict[str, Any], expected: str) -> str:
+def _plan_hash_mismatch(
+    plan: dict[str, Any],
+    expected: str,
+    *,
+    code: str = "RUN_REEXECUTION_PLAN_HASH_MISMATCH",
+) -> str:
     current = str(plan.get("planHash") or "").strip()
     provided = str(expected or "").strip()
     if not current or current != provided:
-        return "RUN_REEXECUTION_PLAN_HASH_MISMATCH"
+        return code
     return ""
 
 
@@ -79,6 +139,48 @@ def _blocked(plan_key: str, plan: dict[str, Any], code: str) -> RemoteRunnerOper
             plan_key: plan,
         },
     )
+
+
+def _output_invalidation_blocked(plan: dict[str, Any], code: str) -> RemoteRunnerOperationBlockedError:
+    return RemoteRunnerOperationBlockedError(
+        code,
+        {
+            "code": code,
+            "message": str(plan.get("message") or "ruleOutputInvalidationPlan is blocked."),
+            "ruleOutputInvalidationPlan": _public_output_invalidation_plan(plan),
+        },
+    )
+
+
+def _public_output_invalidation_plan(plan: dict[str, Any]) -> dict[str, Any]:
+    summary = plan.get("outputEdgeSummary") if isinstance(plan.get("outputEdgeSummary"), dict) else {}
+    return {
+        "schemaVersion": "rule-output-invalidation-public-plan.v1",
+        "planHash": str(plan.get("planHash") or ""),
+        "runId": str(plan.get("runId") or ""),
+        "workflowRevisionIdPresent": bool(str(plan.get("workflowRevisionId") or "").strip()),
+        "previewAvailable": bool(plan.get("previewAvailable")),
+        "supported": bool(plan.get("supported")),
+        "eligible": bool(plan.get("eligible")),
+        "eligibleNow": bool(plan.get("eligibleNow")),
+        "invalidationEnabled": bool(plan.get("invalidationEnabled")),
+        "pathExposed": bool(plan.get("pathExposed")),
+        "storageReferenceExposed": bool(plan.get("storageReferenceExposed")),
+        "reasonCode": str(plan.get("reasonCode") or ""),
+        "blockedReasonCodes": _string_list(plan.get("blockedReasonCodes")),
+        "outputEdgeSummary": {
+            "outputEdgeCount": _safe_int(summary.get("outputEdgeCount")),
+            "invalidatedOutputEdgeCount": _safe_int(summary.get("invalidatedOutputEdgeCount")),
+            "selectedOutputEdgeCount": _safe_int(summary.get("selectedOutputEdgeCount")),
+            "downstreamOutputEdgeCount": _safe_int(summary.get("downstreamOutputEdgeCount")),
+            "preservedOutputEdgeCount": _safe_int(summary.get("preservedOutputEdgeCount")),
+            "unmatchedOutputEdgeCount": _safe_int(summary.get("unmatchedOutputEdgeCount")),
+            "invalidatedLineageEdgeCount": _safe_int(summary.get("invalidatedLineageEdgeCount")),
+            "preservedLineageEdgeCount": _safe_int(summary.get("preservedLineageEdgeCount")),
+            "payloadDeletionAllowed": bool(summary.get("payloadDeletionAllowed")),
+            "lineageMutationAllowed": bool(summary.get("lineageMutationAllowed")),
+        },
+    }
 
 
 async def _record_rule_retry_audit(
@@ -135,6 +237,45 @@ async def _record_resume_audit(
             "expectedOutputCount": _safe_int(output_audit.get("expectedOutputCount")),
             "missingOutputCount": _safe_int(output_audit.get("missingOutputCount")),
             "unsafeOutputCount": _safe_int(output_audit.get("unsafeOutputCount")),
+            "blockedReasonCodes": _string_list(plan.get("blockedReasonCodes")),
+        },
+    )
+
+
+async def _record_output_invalidation_audit(
+    cfg: RemoteRunnerConfig,
+    run_id: str,
+    plan: dict[str, Any],
+    *,
+    decision: str,
+    reason_code: str,
+    request_reason_provided: bool,
+    result: dict[str, Any] | None = None,
+) -> None:
+    summary = plan.get("outputEdgeSummary") if isinstance(plan.get("outputEdgeSummary"), dict) else {}
+    await _record_reexecution_audit(
+        cfg,
+        action="run.rule_output_invalidation.apply",
+        subject_kind="run_rule_output_invalidation",
+        run_id=run_id,
+        decision=decision,
+        reason_code=reason_code,
+        details={
+            "planHash": str(plan.get("planHash") or ""),
+            "previewAvailable": bool(plan.get("previewAvailable")),
+            "invalidationEnabled": bool(plan.get("invalidationEnabled")),
+            "requestReasonProvided": request_reason_provided,
+            "invalidatedOutputEdgeCount": _safe_int(
+                (result or {}).get("invalidatedOutputEdgeCount")
+                if result
+                else summary.get("invalidatedOutputEdgeCount")
+            ),
+            "invalidatedLineageEdgeCount": _safe_int(
+                (result or {}).get("invalidatedLineageEdgeCount")
+                if result
+                else summary.get("invalidatedLineageEdgeCount")
+            ),
+            "payloadDeleted": bool((result or {}).get("payloadDeleted")),
             "blockedReasonCodes": _string_list(plan.get("blockedReasonCodes")),
         },
     )

@@ -363,6 +363,7 @@ def test_runtime_execution_operations_live_in_dedicated_mixin() -> None:
         "cancel_workflow_backfill_launch",
         "get_run",
         "retry_run",
+        "apply_rule_output_invalidation",
         "get_run_events",
         "get_run_execution_context",
         "get_run_attempts",
@@ -416,6 +417,7 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "self.execution.get_workflow_backfill_launch(" in execution_ops_source
     assert "self.execution.retry_run(" in execution_ops_source
     assert "self.execution.retry_run_rules(" in execution_ops_source
+    assert "self.execution.apply_rule_output_invalidation(" in execution_ops_source
     assert "self.execution.resume_run(" in execution_ops_source
     assert "self.execution.get_run_execution_context(" in execution_ops_source
     assert "self.execution.get_run_attempts(" in execution_ops_source
@@ -440,6 +442,7 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "self.call_runner(\"get_run_attempts\"" in execution_manager_source
     assert "self.call_runner(\"retry_run\"" in execution_manager_source
     assert "self.call_runner(\"retry_run_rules\"" in execution_manager_source
+    assert "self.call_runner(\n                \"apply_rule_output_invalidation\"," in execution_manager_source
     assert "self.call_runner(\"resume_run\"" in execution_manager_source
     assert "self.call_runner(\"get_result_audit\"" in execution_manager_source
     assert 'self.call_runner(\n                "export_result_package",' in execution_manager_source

@@ -207,6 +207,7 @@ export type WorkflowRunRuleCacheRestorePlan = {
 
 export type WorkflowRunRuleOutputInvalidationPlan = {
   schemaVersion?: string;
+  planHash?: string;
   reasonCode?: string;
   previewAvailable?: boolean;
   blockedReasonCodes?: string[];

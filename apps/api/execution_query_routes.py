@@ -16,10 +16,12 @@ from apps.api.models import (
     ResultPackageExportRequest,
     ResultPackageRetireRequest,
     RunResumeRequest,
+    RunRuleOutputInvalidationApplyRequest,
     RunRetryRequest,
     RunRuleRetryRequest,
 )
 from apps.api.execution_query_service import (
+    apply_rule_output_invalidation_from_request,
     cancel_run_from_request,
     delete_result_package_bytes_from_request,
     download_result_package_from_request,
@@ -90,6 +92,14 @@ async def retry_run(run_id: str, payload: RunRetryRequest) -> dict[str, Any]:
 @router.post("/api/v1/runs/{run_id}/rules/retry", status_code=202)
 async def retry_run_rules(run_id: str, payload: RunRuleRetryRequest) -> dict[str, Any]:
     return await retry_run_rules_from_request(run_id, payload)
+
+
+@router.post("/api/v1/runs/{run_id}/rules/output-invalidation/apply")
+async def apply_rule_output_invalidation(
+    run_id: str,
+    payload: RunRuleOutputInvalidationApplyRequest,
+) -> dict[str, Any]:
+    return await apply_rule_output_invalidation_from_request(run_id, payload)
 
 
 @router.post("/api/v1/runs/{run_id}/resume", status_code=202)

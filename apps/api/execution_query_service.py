@@ -13,6 +13,7 @@ from apps.api.models import (
     ResultPackageExportRequest,
     ResultPackageRetireRequest,
     RunResumeRequest,
+    RunRuleOutputInvalidationApplyRequest,
     RunRetryRequest,
     RunRuleRetryRequest,
 )
@@ -58,6 +59,18 @@ async def retry_run_from_request(run_id: str, request: RunRetryRequest) -> dict[
 async def retry_run_rules_from_request(run_id: str, request: RunRuleRetryRequest) -> dict[str, Any]:
     result = await run_runtime_payload(
         lambda: runtime_service().retry_run_rules(run_id, request_payload(request)),
+        wrapper="raw",
+    )
+    await invalidate_response_cache("runs", prefixes=(f"run_detail:{run_id}",))
+    return result
+
+
+async def apply_rule_output_invalidation_from_request(
+    run_id: str,
+    request: RunRuleOutputInvalidationApplyRequest,
+) -> dict[str, Any]:
+    result = await run_runtime_payload(
+        lambda: runtime_service().apply_rule_output_invalidation(run_id, request_payload(request)),
         wrapper="raw",
     )
     await invalidate_response_cache("runs", prefixes=(f"run_detail:{run_id}",))

@@ -26,6 +26,8 @@ def test_remote_runner_execution_proxy_exposes_rule_retry_and_resume_paths() -> 
     assert "class RemoteRunnerReexecutionProxyMixin:" in proxy_source
     assert "def retry_run_rules(self, **kwargs) -> dict[str, Any]:" in proxy_source
     assert 'client.post_json(f"/api/v1/runs/{kwargs[\'run_id\']}/rules/retry", kwargs["payload"])["data"]' in proxy_source
+    assert "def apply_rule_output_invalidation(self, **kwargs) -> dict[str, Any]:" in proxy_source
+    assert 'f"/api/v1/runs/{kwargs[\'run_id\']}/rules/output-invalidation/apply"' in proxy_source
     assert "def resume_run(self, **kwargs) -> dict[str, Any]:" in proxy_source
     assert 'client.post_json(f"/api/v1/runs/{kwargs[\'run_id\']}/resume", kwargs["payload"])["data"]' in proxy_source
 
@@ -38,3 +40,4 @@ def test_remote_runner_execution_proxy_exposes_failure_locator_path() -> None:
     assert 'client.get_json(f"/api/v1/runs/{kwargs[\'run_id\']}/failure-locator")["data"]' in proxy_source
     assert "def get_run_failure_locator(self, run_id: str) -> dict[str, Any]:" in client_source
     assert 'self.get_json(f"/api/v1/runs/{run_id}/failure-locator")["data"]' in client_source
+    assert "def apply_rule_output_invalidation(self, run_id: str, payload: dict[str, Any])" in client_source
