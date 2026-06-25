@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from apps.remote_runner.rule_retry_execution_plan import build_rule_retry_execution_plan
+import pytest
+
+from apps.remote_runner.rule_retry_execution_plan import build_rule_retry_execution_plan, rule_retry_execution_options
 
 
 def test_rule_retry_execution_plan_previews_snakemake_forcerun_options_without_enabling_execution() -> None:
@@ -27,6 +29,34 @@ def test_rule_retry_execution_plan_previews_snakemake_forcerun_options_without_e
     assert "ATTEMPT_OUTPUT_RESTORE_UNPROVEN" in plan["blockedReasonCodes"]
     assert "RULE_RETRY_MUTATION_API_DISABLED" in plan["blockedReasonCodes"]
     assert "CACHE_ADOPTION_UNPROVEN" in plan["blockedReasonCodes"]
+
+
+def test_rule_retry_execution_options_refuses_disabled_preview_plan() -> None:
+    plan = build_rule_retry_execution_plan(_rule_retry_plan())
+
+    with pytest.raises(ValueError, match="RULE_RETRY_EXECUTION_DISABLED"):
+        rule_retry_execution_options(plan)
+
+
+def test_rule_retry_execution_options_materializes_enabled_plan() -> None:
+    plan = {
+        **build_rule_retry_execution_plan(_rule_retry_plan()),
+        "supported": True,
+        "eligible": True,
+        "eligibleNow": True,
+        "executionEnabled": True,
+        "blockedReasonCodes": [],
+        "requiresBeforeExecution": [],
+    }
+
+    assert rule_retry_execution_options(plan) == {
+        "schemaVersion": "run-job-execution-options.v1",
+        "snakemake": {
+            "schemaVersion": "snakemake-rule-rerun-options.v1",
+            "rerunIncomplete": True,
+            "forcerunRules": ["align"],
+        },
+    }
 
 
 def test_rule_retry_execution_plan_blocks_without_selected_attempt() -> None:

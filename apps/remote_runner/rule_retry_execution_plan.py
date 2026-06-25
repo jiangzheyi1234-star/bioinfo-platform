@@ -7,6 +7,7 @@ from .workflow_engine_adapter import WorkflowRuntimeCommandError, normalize_forc
 
 
 RULE_RETRY_EXECUTION_PLAN_SCHEMA_VERSION = "rule-retry-execution-plan.v1"
+RUN_JOB_EXECUTION_OPTIONS_SCHEMA_VERSION = "run-job-execution-options.v1"
 SNAKEMAKE_RULE_RERUN_OPTIONS_SCHEMA_VERSION = "snakemake-rule-rerun-options.v1"
 UNSAFE_SNAKEMAKE_RULE_RETRY_FLAGS = ["--forceall", "--touch", "--ignore-incomplete"]
 RULE_RETRY_EXECUTION_BLOCKERS = [
@@ -64,6 +65,34 @@ def build_rule_retry_execution_plan(rule_retry_plan: dict[str, Any]) -> dict[str
     }
 
 
+def rule_retry_execution_options(rule_retry_execution_plan: dict[str, Any]) -> dict[str, Any]:
+    if rule_retry_execution_plan.get("schemaVersion") != RULE_RETRY_EXECUTION_PLAN_SCHEMA_VERSION:
+        raise ValueError("RULE_RETRY_EXECUTION_PLAN_SCHEMA_UNSUPPORTED")
+    if rule_retry_execution_plan.get("executionEnabled") is not True:
+        raise ValueError(_disabled_reason(rule_retry_execution_plan))
+    snakemake_options = rule_retry_execution_plan.get("snakemakeOptions")
+    if not isinstance(snakemake_options, dict):
+        raise ValueError("RULE_RETRY_SNAKEMAKE_OPTIONS_MISSING")
+    if snakemake_options.get("schemaVersion") != SNAKEMAKE_RULE_RERUN_OPTIONS_SCHEMA_VERSION:
+        raise ValueError("RULE_RETRY_SNAKEMAKE_OPTIONS_SCHEMA_UNSUPPORTED")
+    if snakemake_options.get("rerunIncomplete") is not True:
+        raise ValueError("RULE_RETRY_RERUN_INCOMPLETE_REQUIRED")
+    raw_forcerun_rules = snakemake_options.get("forcerunRules")
+    if raw_forcerun_rules is not None and not isinstance(raw_forcerun_rules, list):
+        raise ValueError("RULE_RETRY_FORCERUN_RULES_INVALID")
+    forcerun_rules = normalize_forcerun_rules(raw_forcerun_rules)
+    if not forcerun_rules:
+        raise ValueError("RULE_RETRY_FORCERUN_RULES_REQUIRED")
+    return {
+        "schemaVersion": RUN_JOB_EXECUTION_OPTIONS_SCHEMA_VERSION,
+        "snakemake": {
+            "schemaVersion": SNAKEMAKE_RULE_RERUN_OPTIONS_SCHEMA_VERSION,
+            "rerunIncomplete": True,
+            "forcerunRules": forcerun_rules,
+        },
+    }
+
+
 def _base_plan(rule_retry_plan: dict[str, Any]) -> dict[str, Any]:
     blocked = _unique_strings(
         [
@@ -107,6 +136,17 @@ def _blocked(base: dict[str, Any], reason_code: str) -> dict[str, Any]:
         "reasonCode": reason_code,
         "message": f"Rule-level retry execution planning is blocked: {reason_code}.",
     }
+
+
+def _disabled_reason(rule_retry_execution_plan: dict[str, Any]) -> str:
+    blockers = _unique_strings(
+        [
+            *[str(item) for item in rule_retry_execution_plan.get("blockedReasonCodes") or []],
+            *[str(item) for item in rule_retry_execution_plan.get("requiresBeforeExecution") or []],
+        ]
+    )
+    suffix = ",".join(blockers)
+    return f"RULE_RETRY_EXECUTION_DISABLED: {suffix}" if suffix else "RULE_RETRY_EXECUTION_DISABLED"
 
 
 def _attempt_selected(rule: dict[str, Any]) -> bool:

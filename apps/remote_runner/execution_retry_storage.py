@@ -13,6 +13,7 @@ from .run_execution_storage import (
     _required_text,
     _stable_json,
 )
+from .rule_retry_execution_plan import rule_retry_execution_options
 from .storage_core import get_connection, now_iso
 
 
@@ -27,12 +28,14 @@ def request_run_retry(
     reason: str | None = None,
     command_id: str | None = None,
     execution_options: dict[str, Any] | None = None,
+    scope: str = "run",
     now: str | None = None,
 ) -> dict[str, Any]:
     normalized_run_id = _required_text(run_id, "RUN_ID_REQUIRED")
     requested_at = _optional_text(now) or now_iso()
     normalized_actor = _optional_text(actor) or "remote-runner-api"
     normalized_reason = _optional_text(reason) or "operator_requested"
+    normalized_scope = _retry_scope(scope)
     with get_connection(cfg) as connection:
         connection.execute("BEGIN IMMEDIATE")
         run = _fetch_run_row(connection, normalized_run_id)
@@ -68,7 +71,7 @@ def request_run_retry(
         normalized_execution_options = execution_options or {}
         command_payload = {
             "runId": normalized_run_id,
-            "scope": "run",
+            "scope": normalized_scope,
             "reason": normalized_reason,
         }
         if normalized_execution_options:
@@ -112,7 +115,7 @@ def request_run_retry(
         event_payload = {
             "runId": normalized_run_id,
             "jobId": job["job_id"],
-            "scope": "run",
+            "scope": normalized_scope,
             "reason": normalized_reason,
             "attemptCount": attempt_count,
             "maxAttempts": max_attempts,
@@ -154,3 +157,55 @@ def request_run_retry(
         if normalized_execution_options:
             result["executionOptions"] = normalized_execution_options
         return result
+
+
+def request_rule_retry(
+    cfg: RemoteRunnerConfig,
+    run_id: str,
+    *,
+    actor: str | None = None,
+    reason: str | None = None,
+    command_id: str | None = None,
+    execution_plan: dict[str, Any] | None = None,
+    now: str | None = None,
+) -> dict[str, Any]:
+    normalized_run_id = _required_text(run_id, "RUN_ID_REQUIRED")
+    plan = execution_plan or _current_rule_retry_execution_plan(cfg, normalized_run_id)
+    if not isinstance(plan, dict):
+        raise ValueError("RULE_RETRY_EXECUTION_PLAN_MISSING")
+    if str(plan.get("runId") or "").strip() != normalized_run_id:
+        raise ValueError("RULE_RETRY_RUN_ID_MISMATCH")
+    execution_options = rule_retry_execution_options(plan)
+    result = request_run_retry(
+        cfg,
+        normalized_run_id,
+        actor=actor,
+        reason=reason or "operator_rule_retry",
+        command_id=command_id,
+        execution_options=execution_options,
+        scope="rule",
+        now=now,
+    )
+    return {
+        **result,
+        "scope": "rule",
+        "selectedRules": list(plan.get("selectedRules") or []),
+        "rerunScope": dict(plan.get("rerunScope") or {}),
+    }
+
+
+def _current_rule_retry_execution_plan(cfg: RemoteRunnerConfig, run_id: str) -> dict[str, Any]:
+    from .run_execution_context_storage import fetch_run_execution_context
+
+    context = fetch_run_execution_context(cfg, run_id)
+    plan = context.get("ruleRetryExecutionPlan")
+    if not isinstance(plan, dict):
+        raise ValueError("RULE_RETRY_EXECUTION_PLAN_MISSING")
+    return plan
+
+
+def _retry_scope(scope: str) -> str:
+    normalized = str(scope or "").strip()
+    if normalized not in {"run", "rule"}:
+        raise ValueError(f"RUN_RETRY_SCOPE_UNSUPPORTED: {normalized}")
+    return normalized
