@@ -397,6 +397,7 @@ Progress:
 - Remote runner database backend configuration now fails closed. The supported backend is explicitly `sqlite`; `database_backend=postgres` and `H2OMETA_DATABASE_URL`/`database_url` are rejected before runtime layout or storage connection can silently initialize SQLite, keeping PostgreSQL marked as pending until repository, transaction, migration, and multi-user governance boundaries are implemented.
 - Governance audit events now expose stable request, correlation, project, and tenant context fields in the hash-chained audit payload/read model. Context is promoted from existing safe details such as run submission `requestId`/`projectId` and trigger `eventContext.correlationId`, while raw details remain secret-key guarded.
 - Governance audit events now expose stable top-level `actorRoles` from the authenticated remote-runner machine token, including authorization denials. Roles are not promoted from lower-trust business/event details, and this remains a machine-token boundary rather than per-user multi-tenant RBAC.
+- Governance audit reads now record their own hash-chained `decision=allow` event after RBAC succeeds. The event captures actor roles, filter-presence booleans, requested limit, and returned count while deliberately excluding raw query filter values so an operator cannot accidentally copy a token or secret into the audit ledger through the read API.
 
 Recommended sequence:
 

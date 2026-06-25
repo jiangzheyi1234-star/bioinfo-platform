@@ -275,6 +275,52 @@ def test_governance_audit_read_route_allows_auditor_role(tmp_path, monkeypatch) 
 
     assert response.status_code == 200
     assert response.json()["data"]["items"] == []
+    events = list_governance_audit_events(cfg, action="audit.events.read")["items"]
+    assert len(events) == 1
+    assert events[0]["decision"] == "allow"
+    assert events[0]["subjectKind"] == "governance_audit"
+    assert events[0]["subjectId"] == "query"
+    assert events[0]["actorRoles"] == ["auditor"]
+    assert events[0]["details"] == {
+        "filteredBySubjectKind": False,
+        "filteredBySubjectId": False,
+        "filteredByAction": False,
+        "limit": 100,
+        "returnedCount": 0,
+    }
+    assert "rbac-token" not in json.dumps(events[0], sort_keys=True)
+
+
+def test_governance_audit_read_allow_event_redacts_raw_filters(tmp_path, monkeypatch) -> None:
+    cfg = make_configured_remote_runner(
+        tmp_path,
+        token="rbac-token",
+        api_token_roles=("platform-admin",),
+    )
+    monkeypatch.setattr(route_utils, "load_remote_runner_config", lambda: cfg)
+
+    response = TestClient(app).get(
+        "/api/v1/audit/events"
+        "?subjectKind=run&subjectId=canary_secret_filter_value&action=database.create&limit=25",
+        headers={"Authorization": "Bearer rbac-token"},
+    )
+
+    assert response.status_code == 200
+    events = list_governance_audit_events(cfg, action="audit.events.read")["items"]
+    assert len(events) == 1
+    assert events[0]["decision"] == "allow"
+    assert events[0]["actorRoles"] == ["platform-admin"]
+    assert events[0]["details"] == {
+        "filteredBySubjectKind": True,
+        "filteredBySubjectId": True,
+        "filteredByAction": True,
+        "limit": 25,
+        "returnedCount": 0,
+    }
+    serialized = json.dumps(events[0], sort_keys=True)
+    assert "canary_secret_filter_value" not in serialized
+    assert "database.create" not in serialized
+    assert "rbac-token" not in serialized
 
 
 def test_database_mutation_route_denies_role_without_side_effect_or_secret_leak(
