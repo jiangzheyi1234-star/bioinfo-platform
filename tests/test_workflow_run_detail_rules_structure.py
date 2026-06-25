@@ -17,6 +17,7 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     panel = _component_source("workflow-run-detail-panel.tsx")
     execution_panel = _component_source("workflow-run-execution-context.tsx")
     rule_failure_diagnostics = _component_source("workflow-rule-failure-diagnostics.tsx")
+    rule_log_evidence = _component_source("workflow-rule-log-evidence.tsx")
     package_panel = _component_source("workflow-result-package-panel.tsx")
     package_state = _component_source("workflow-result-package-state.ts")
     dag_preview = _component_source("workflow-dag-preview.tsx")
@@ -80,7 +81,14 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "artifactAdoptionBoundary?: WorkflowRunAdoptionBoundary" in model
     assert "preservedRules?: WorkflowRunRuleRetryPlanRuleRef[]" in model
     assert "invalidatedRules?: WorkflowRunRuleRetryPlanRuleRef[]" in model
-    assert "logs?: string[]" in model
+    assert "inputCount?: number" in model
+    assert "outputCount?: number" in model
+    assert "logReferenceCount?: number" in model
+    assert "logContext?: WorkflowRunRuleLogContext" in model
+    assert "commandSummary?: string" not in model
+    assert "inputs?: string[]" not in model
+    assert "outputs?: string[]" not in model
+    assert "logs?: string[]" not in model
     assert "details?: Record<string, unknown>" in model
     assert "exportWorkflowResultPackage" in api
     assert "retireWorkflowResultPackage" in api
@@ -113,6 +121,7 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert '{ key: "rules", label: "规则" }' in panel
     assert "WorkflowRunExecutionContextPanel" in panel
     assert "WorkflowResultPackagePanel" in panel
+    assert "WorkflowRuleLogEvidence" in panel
     assert "function RunInputArtifacts" in panel
     assert "inputArtifacts={inputArtifacts}" in panel
     assert "输入 lineage" in panel
@@ -127,7 +136,7 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "detail.rules?.items || []" in panel
     assert "WorkflowRunAttemptsPanel" in panel
     assert "onAttemptsLoaded={setRunAttempts}" in panel
-    assert "<RunRules attempts={runAttempts} rules={rules} />" in panel
+    assert "<RunRules attempts={runAttempts} rules={rules} rulesModel={detail.rules} />" in panel
     assert "WorkflowRuleFailureDiagnostics" in panel
     assert "failureLocator={detail.failureLocator}" in panel
     assert "failureLocator?.failedRule?.runRuleId" in panel
@@ -143,9 +152,20 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "log evidence" in rule_failure_diagnostics
     assert "selectedLogArtifact?.artifactId" in rule_failure_diagnostics
     assert "logTail.join" in rule_failure_diagnostics
+    assert "rule.logReferenceCount" in rule_failure_diagnostics
     assert "scalarDetails(failedEvent?.details)" in rule_failure_diagnostics
     assert "[...(rule.events || [])].reverse().find(isFailureEvent)" in rule_failure_diagnostics
     assert "ruleLogContext?: WorkflowRunRuleLogContext" in rule_failure_diagnostics
+    assert "export function WorkflowRuleLogEvidence" in rule_log_evidence
+    assert "rule.logContext" in rule_log_evidence
+    assert "selectedArtifact?.artifactId" in rule_log_evidence
+    assert "tail.join" in rule_log_evidence
+    assert "storageUri" not in rule_log_evidence
+    assert ".path" not in rule_log_evidence
+    assert "rule.commandSummary" not in panel
+    assert "commandSummaryExposed" in panel
+    assert "RuleValueList" not in panel
+    assert "RuleCountList" in panel
     assert "context.ruleRetryPlan" in execution_panel
     assert "context.ruleRetryExecutionPlan" in execution_panel
     assert "context.resumePlan" in execution_panel

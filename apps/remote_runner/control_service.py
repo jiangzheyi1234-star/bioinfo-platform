@@ -54,6 +54,7 @@ from .result_package_download_service import build_result_package_download, resu
 from .result_package_listing_service import list_result_package_exports
 from .result_package_lifecycle_service import retire_result_package_export
 from .result_read_service import governed_fetch_result, governed_fetch_run_results, governed_list_results
+from .rule_execution_read_model import fetch_public_run_rules
 from .execution_observability_governance import (
     record_run_attempts_read_audit,
     record_run_events_read_audit,
@@ -69,7 +70,6 @@ from .storage import (
     fetch_log_lines,
     fetch_run_events,
     fetch_run_execution_context,
-    fetch_run_rules,
     list_runs,
     require_run,
     request_run_cancel,
@@ -478,7 +478,7 @@ async def get_run_results_from_request(run_id: str, authorization: str | None) -
 
 async def get_run_rules_from_request(run_id: str, authorization: str | None) -> dict[str, Any]:
     cfg = await _authorized_config_from_request(authorization, action="run.rules.read")
-    rules = await run_sync(fetch_run_rules, cfg, run_id)
+    rules = await run_sync(fetch_public_run_rules, cfg, run_id)
     await run_sync(record_run_rules_read_audit, cfg, run_id, rules)
     return data_response(rules)
 

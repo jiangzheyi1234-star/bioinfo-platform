@@ -13,6 +13,7 @@ from apps.remote_runner.main import app
 from apps.remote_runner.rule_execution_storage import append_run_rule_event, upsert_run_rule_state
 from apps.remote_runner.run_execution_storage import claim_next_run_job
 from apps.remote_runner.run_failure_locator_read_model import fetch_run_failure_locator
+from apps.remote_runner.rule_execution_read_model import fetch_public_run_rules
 from apps.remote_runner.storage import create_run_record, update_run_state
 from tests.helpers.reference_database import make_configured_remote_runner
 
@@ -95,6 +96,52 @@ def test_failure_locator_projects_managed_rule_log_without_storage_locators(tmp_
     assert "rule log" not in serialized_audit
     assert "stderr 5" not in serialized_audit
     assert str(tmp_path) not in serialized_audit
+
+
+def test_public_run_rules_project_log_evidence_without_raw_paths_or_commands(tmp_path) -> None:
+    cfg = make_configured_remote_runner(
+        tmp_path,
+        token="rbac-token",
+        api_token_roles=("workflow-operator",),
+    )
+    _failed_rule_run_with_log_artifact(cfg, tmp_path)
+
+    rules = fetch_public_run_rules(cfg, "run_failure_locator")
+
+    assert rules["schemaVersion"] == "run-rules.v1"
+    assert rules["redactionPolicy"] == {
+        "artifactPathsExposed": False,
+        "storageUrisExposed": False,
+        "commandSummaryExposed": False,
+        "ruleInputsExposed": False,
+        "ruleOutputsExposed": False,
+        "ruleLogPathsExposed": False,
+        "eventDetailsSanitized": True,
+    }
+    rule = rules["items"][0]
+    assert rule["ruleName"] == "align_reads"
+    assert rule["inputCount"] == 1
+    assert rule["outputCount"] == 1
+    assert rule["logReferenceCount"] == 1
+    assert rule["message"] == ""
+    assert rule["events"][0]["details"] == {"exitCode": 1}
+    assert rule["logContext"]["status"] == "available"
+    assert rule["logContext"]["reasonCode"] == "PREVIEW_AVAILABLE"
+    assert rule["logContext"]["tail"][0] == "rule log 10"
+    serialized = json.dumps(rules, sort_keys=True)
+    for forbidden in (
+        '"inputs":',
+        '"outputs":',
+        '"logs":',
+        '"commandSummary":',
+        '"storageUri":',
+        '"path":',
+        "snakemake --cores 1",
+        "TOKEN_SHOULD_NOT_LEAK",
+        "TOKEN_WILDCARD_SHOULD_NOT_LEAK",
+        str(tmp_path),
+    ):
+        assert forbidden not in serialized
 
 
 def _failed_rule_run_with_log_artifact(cfg, tmp_path: Path) -> dict[str, object]:

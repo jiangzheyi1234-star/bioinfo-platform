@@ -38,8 +38,7 @@ export function WorkflowRuleFailureDiagnostics({
 }) {
   if (!rule || !isFailedStatus(rule.status)) return null;
   const failedEvent = [...(rule.events || [])].reverse().find(isFailureEvent);
-  const logs = rule.logs || [];
-  const logReferenceCount = ruleLogContext?.logReferenceCount ?? logs.length;
+  const logReferenceCount = ruleLogContext?.logReferenceCount ?? rule.logReferenceCount ?? 0;
   const detailItems = scalarDetails(failedEvent?.details);
   const logTail = ruleLogContext?.tail || [];
   const selectedLogArtifact = ruleLogContext?.selectedArtifact;

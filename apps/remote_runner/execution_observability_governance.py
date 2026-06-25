@@ -95,6 +95,9 @@ def record_run_rules_read_audit(cfg: RemoteRunnerConfig, run_id: str, rules: dic
     items = _list_value(rules.get("items"))
     statuses = Counter(str(item.get("status") or "unknown") for item in items if isinstance(item, dict))
     event_count = sum(len(_list_value(item.get("events"))) for item in items if isinstance(item, dict))
+    log_contexts = [_dict_value(item.get("logContext")) for item in items if isinstance(item, dict)]
+    log_reasons = Counter(str(context.get("reasonCode") or "unknown") for context in log_contexts)
+    log_statuses = Counter(str(context.get("status") or "unknown") for context in log_contexts)
     record_governance_audit_event(
         cfg,
         action="run.rules.read",
@@ -105,6 +108,9 @@ def record_run_rules_read_audit(cfg: RemoteRunnerConfig, run_id: str, rules: dic
             "ruleCount": len(items),
             "ruleEventCount": event_count,
             "ruleStatuses": dict(sorted(statuses.items())),
+            "rulesWithLogReferences": sum(_safe_int(item.get("logReferenceCount")) > 0 for item in items if isinstance(item, dict)),
+            "ruleLogStatuses": dict(sorted(log_statuses.items())),
+            "ruleLogReasonCodes": dict(sorted(log_reasons.items())),
         },
     )
 

@@ -229,17 +229,27 @@ export type WorkflowRunRule = {
   finishedAt?: string;
   exitCode?: number | null;
   message?: string;
-  commandSummary?: string;
-  inputs?: string[];
-  outputs?: string[];
+  inputCount?: number;
+  outputCount?: number;
+  logReferenceCount?: number;
   wildcards?: Record<string, unknown>;
-  logs?: string[];
+  logContext?: WorkflowRunRuleLogContext;
   updatedAt?: string;
   events?: WorkflowRunRuleEvent[];
 };
 
 export type WorkflowRunRules = {
+  schemaVersion?: string;
   runId?: string;
+  redactionPolicy?: {
+    artifactPathsExposed?: boolean;
+    storageUrisExposed?: boolean;
+    commandSummaryExposed?: boolean;
+    ruleInputsExposed?: boolean;
+    ruleOutputsExposed?: boolean;
+    ruleLogPathsExposed?: boolean;
+    eventDetailsSanitized?: boolean;
+  };
   items?: WorkflowRunRule[];
 };
 

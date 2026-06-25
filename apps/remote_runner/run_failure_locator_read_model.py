@@ -91,6 +91,28 @@ def fetch_run_failure_locator(cfg: RemoteRunnerConfig, run_id: str) -> dict[str,
     }
 
 
+def build_rule_log_context(
+    cfg: RemoteRunnerConfig,
+    *,
+    result_id: str,
+    rule: dict[str, Any],
+    artifacts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return _load_rule_log_context(cfg, result_id=result_id, failed_rule=rule, artifacts=artifacts)
+
+
+def public_rule_event_summary(event: dict[str, Any] | None) -> dict[str, Any] | None:
+    return _failure_event_summary(event)
+
+
+def public_rule_message(value: Any, fallback: str = "") -> str:
+    return _public_message(value, fallback)
+
+
+def safe_rule_wildcards(value: Any) -> dict[str, Any]:
+    return _safe_wildcards(value)
+
+
 def _load_rule_log_context(
     cfg: RemoteRunnerConfig,
     *,

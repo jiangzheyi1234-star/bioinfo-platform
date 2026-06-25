@@ -70,7 +70,7 @@ def test_run_observability_read_actions_allow_operator_and_auditor_roles(tmp_pat
         ),
         ("/api/v1/runs/run_obs_denied/attempts", "run.attempts.read", "run_attempts", "fetch_run_attempts_read_model"),
         ("/api/v1/runs/run_obs_denied/logs?stream=stderr&cursor=12", "run.logs.read", "run_logs", "fetch_log_lines"),
-        ("/api/v1/runs/run_obs_denied/rules", "run.rules.read", "run_rules", "fetch_run_rules"),
+        ("/api/v1/runs/run_obs_denied/rules", "run.rules.read", "run_rules", "fetch_public_run_rules"),
         (
             "/api/v1/runs/run_obs_denied/failure-locator",
             "run.failure_locator.read",
@@ -192,12 +192,19 @@ def test_run_observability_routes_record_safe_allow_audit(tmp_path, monkeypatch)
     )
     monkeypatch.setattr(
         control_service,
-        "fetch_run_rules",
+        "fetch_public_run_rules",
         lambda *_args: {
             "items": [
                 {
                     "status": "failed",
-                    "commandSummary": "cat C:/secret/input.fastq",
+                    "inputCount": 1,
+                    "outputCount": 1,
+                    "logReferenceCount": 1,
+                    "logContext": {
+                        "status": "available",
+                        "reasonCode": "PREVIEW_AVAILABLE",
+                        "tail": ["TOKEN_SHOULD_NOT_ENTER_AUDIT", "C:/secret/run.log"],
+                    },
                     "events": [{"details": {"token": "TOKEN_SHOULD_NOT_ENTER_AUDIT"}}],
                 }
             ],
@@ -245,6 +252,9 @@ def test_run_observability_routes_record_safe_allow_audit(tmp_path, monkeypatch)
         "ruleCount": 1,
         "ruleEventCount": 1,
         "ruleStatuses": {"failed": 1},
+        "rulesWithLogReferences": 1,
+        "ruleLogStatuses": {"available": 1},
+        "ruleLogReasonCodes": {"PREVIEW_AVAILABLE": 1},
     }
     assert list_governance_audit_events(cfg, action="run.failure_locator.read")["items"][-1]["details"] == {
         "available": True,

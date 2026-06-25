@@ -32,6 +32,7 @@ import { fetchArtifactPreview, retryWorkflowRun } from "./workflows-page-api";
 import { workflowErrorMessage } from "./workflows-page-model";
 import { DirectoryArtifactPreview, isDirectoryArtifactPreview } from "./workflow-artifact-directory-preview";
 import { WorkflowRuleFailureDiagnostics } from "./workflow-rule-failure-diagnostics";
+import { WorkflowRuleLogEvidence } from "./workflow-rule-log-evidence";
 import type {
   WorkflowArtifact,
   WorkflowArtifactPreview,
@@ -421,30 +422,62 @@ function ruleStatusStyle(status: string | undefined) {
   return "border-slate-200 bg-slate-50 text-slate-600";
 }
 
-function RuleValueList({ title, values }: { title: string; values: string[] }) {
-  if (values.length === 0) return null;
+function RuleCountList({
+  inputCount,
+  outputCount,
+  logReferenceCount,
+}: {
+  inputCount?: number;
+  outputCount?: number;
+  logReferenceCount?: number;
+}) {
+  const rows = [
+    ["inputs", inputCount ?? 0],
+    ["outputs", outputCount ?? 0],
+    ["log refs", logReferenceCount ?? 0],
+  ] as const;
   return (
-    <div className="min-w-0">
-      <div className="mb-1 text-[11px] font-medium text-slate-400">{title}</div>
-      <div className="space-y-1">
-        {values.slice(0, 6).map((value, index) => (
-          <div key={`${title}-${index}`} className="truncate font-mono text-[11px] text-slate-600">
-            {value}
-          </div>
-        ))}
-        {values.length > 6 ? <div className="text-[11px] text-slate-400">+{values.length - 6}</div> : null}
+    <div className="mt-3 grid gap-3 sm:grid-cols-3">
+      {rows.map(([label, value]) => (
+        <div key={label} className="min-w-0 rounded-md border border-slate-100 bg-slate-50 px-3 py-2">
+          <div className="text-[11px] font-medium text-slate-400">{label}</div>
+          <div className="mt-1 font-mono text-sm text-slate-700">{value}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function RunRulesRedactionNotice({ rules }: { rules: WorkflowRunDetail["rules"] }) {
+  const policy = rules?.redactionPolicy;
+  if (!policy) return null;
+  return (
+    <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
+      <div className="flex flex-wrap gap-x-3 gap-y-1">
+        <span>paths {policy.artifactPathsExposed || policy.ruleLogPathsExposed ? "visible" : "redacted"}</span>
+        <span>commands {policy.commandSummaryExposed ? "visible" : "redacted"}</span>
+        <span>event details {policy.eventDetailsSanitized ? "sanitized" : "raw"}</span>
       </div>
     </div>
   );
 }
 
-function RunRules({ attempts, rules }: { attempts: WorkflowRunAttemptsReadModel | null; rules: WorkflowRunRule[] }) {
+function RunRules({
+  attempts,
+  rules,
+  rulesModel,
+}: {
+  attempts: WorkflowRunAttemptsReadModel | null;
+  rules: WorkflowRunRule[];
+  rulesModel?: WorkflowRunDetail["rules"];
+}) {
   if (rules.length === 0) {
     return <div className="py-8 text-center text-sm text-slate-400">暂无 rule 状态</div>;
   }
   const attemptByRule = runAttemptByRule(attempts, rules);
   return (
     <div className="space-y-3">
+      <RunRulesRedactionNotice rules={rulesModel} />
       {rules.map((rule) => {
         const events = rule.events || [];
         const wildcards = rule.wildcards && Object.keys(rule.wildcards).length > 0 ? JSON.stringify(rule.wildcards) : "";
@@ -481,18 +514,9 @@ function RunRules({ attempts, rules }: { attempts: WorkflowRunAttemptsReadModel 
 
             {rule.message ? <div className="mt-3 text-xs text-slate-600">{rule.message}</div> : null}
             {wildcards ? <div className="mt-2 truncate font-mono text-[11px] text-slate-400">{wildcards}</div> : null}
-            <WorkflowRuleFailureDiagnostics rule={rule} />
-            {rule.commandSummary ? (
-              <pre className="mt-3 max-h-32 overflow-auto whitespace-pre-wrap rounded-md bg-slate-950 p-3 text-xs text-slate-100">
-                {rule.commandSummary}
-              </pre>
-            ) : null}
-
-            <div className="mt-3 grid gap-4 md:grid-cols-3">
-              <RuleValueList title="inputs" values={rule.inputs || []} />
-              <RuleValueList title="outputs" values={rule.outputs || []} />
-              <RuleValueList title="logs" values={rule.logs || []} />
-            </div>
+            <WorkflowRuleFailureDiagnostics rule={rule} ruleLogContext={rule.logContext} />
+            <RuleCountList inputCount={rule.inputCount} outputCount={rule.outputCount} logReferenceCount={rule.logReferenceCount} />
+            <WorkflowRuleLogEvidence rule={rule} />
 
             {events.length > 0 ? (
               <div className="mt-4 border-t border-slate-100 pt-3">
@@ -815,7 +839,7 @@ export function WorkflowRunDetailPanel({
             <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
               {rulesAttemptCount} / {rules.length} 条规则包含 attempt 元数据。
             </div>
-            <RunRules attempts={runAttempts} rules={rules} />
+            <RunRules attempts={runAttempts} rules={rules} rulesModel={detail.rules} />
           </div>
         )}
 

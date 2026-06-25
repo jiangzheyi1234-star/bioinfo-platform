@@ -45,6 +45,18 @@ def test_run_detail_includes_normalized_failure_locator(monkeypatch) -> None:
     assert locator["artifactContext"]["relatedArtifactCount"] == 2
     assert {item["artifactId"] for item in locator["artifactContext"]["relatedArtifacts"]} == {"art_bam", "art_log"}
     assert "path" not in json_dumps(locator)
+    rules = payload["data"]["rules"]
+    assert rules["schemaVersion"] == "run-rules.v1"
+    assert rules["redactionPolicy"]["commandSummaryExposed"] is False
+    assert rules["items"][0]["inputCount"] == 1
+    assert rules["items"][0]["outputCount"] == 1
+    assert rules["items"][0]["logReferenceCount"] == 1
+    assert rules["items"][0]["logContext"]["reasonCode"] == "PREVIEW_AVAILABLE"
+    serialized_rules = json_dumps(rules)
+    assert '"commandSummary":' not in serialized_rules
+    assert "inputs/reads.fastq" not in serialized_rules
+    assert "outputs/aligned.bam" not in serialized_rules
+    assert "logs/align_reads.log" not in serialized_rules
 
 
 def test_run_detail_marks_rule_log_paths_without_managed_artifact_as_reference_only(monkeypatch) -> None:
@@ -193,7 +205,17 @@ class FakeFailedRunDetailRuntime(FakeRunDetailRuntime):
     def get_run_rules(self, run_id: str) -> dict[str, Any]:
         return {
             "data": {
+                "schemaVersion": "run-rules.v1",
                 "runId": run_id,
+                "redactionPolicy": {
+                    "artifactPathsExposed": False,
+                    "storageUrisExposed": False,
+                    "commandSummaryExposed": False,
+                    "ruleInputsExposed": False,
+                    "ruleOutputsExposed": False,
+                    "ruleLogPathsExposed": False,
+                    "eventDetailsSanitized": True,
+                },
                 "items": [
                     {
                         "runRuleId": "rr_align",
@@ -209,10 +231,17 @@ class FakeFailedRunDetailRuntime(FakeRunDetailRuntime):
                         "finishedAt": "2026-01-01T00:02:00Z",
                         "exitCode": 1,
                         "message": "Command exited with status 1.",
-                        "commandSummary": "snakemake --cores 1 align_reads",
-                        "inputs": ["inputs/reads.fastq"],
-                        "outputs": ["outputs/aligned.bam"],
-                        "logs": ["logs/align_reads.log"],
+                        "inputCount": 1,
+                        "outputCount": 1,
+                        "logReferenceCount": 1,
+                        "logContext": {
+                            "schemaVersion": "run-rule-log-context.v1",
+                            "status": "available",
+                            "reasonCode": "PREVIEW_AVAILABLE",
+                            "logReferenceCount": 1,
+                            "selectedArtifact": {"artifactId": "art_log"},
+                            "tail": [f"rule log {index}" for index in range(10, 40)],
+                        },
                         "wildcards": {},
                         "events": [
                             {

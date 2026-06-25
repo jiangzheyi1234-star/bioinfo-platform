@@ -54,7 +54,7 @@ def test_run_attempts_frontend_uses_stable_read_model_endpoint() -> None:
     assert "runAttemptByRule" in detail
     assert "const [runAttempts, setRunAttempts]" in detail
     assert "onAttemptsLoaded={setRunAttempts}" in detail
-    assert "<RunRules attempts={runAttempts} rules={rules} />" in detail
+    assert "<RunRules attempts={runAttempts} rules={rules} rulesModel={detail.rules} />" in detail
 
 
 def test_run_attempts_frontend_keeps_observability_read_only_and_redacted() -> None:
