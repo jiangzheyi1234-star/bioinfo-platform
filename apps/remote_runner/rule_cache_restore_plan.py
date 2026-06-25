@@ -15,11 +15,15 @@ RULE_CACHE_RESTORE_PLAN_SCHEMA_VERSION = "rule-cache-restore-plan.v1"
 PER_RULE_CACHE_ELIGIBILITY_SCHEMA_VERSION = "per-rule-cache-eligibility.v1"
 STAGED_FILE_POLICY_PLAN_SCHEMA_VERSION = "staged-file-policy-plan.v1"
 PARTIAL_RESTORE_EXECUTOR_SCHEMA_VERSION = "partial-restore-executor-plan.v1"
-PER_RULE_CACHE_RESTORE_BLOCKERS = [
+OUTPUT_EDGE_INVALIDATION_APPLY_REQUIRED = "OUTPUT_EDGE_INVALIDATION_APPLY_REQUIRED"
+PER_RULE_CACHE_RESTORE_BASE_BLOCKERS = [
     "PER_RULE_CACHE_ELIGIBILITY_UNPROVEN",
-    "OUTPUT_EDGE_INVALIDATION_APPLY_REQUIRED",
     "STAGED_FILE_POLICY_UNREPRESENTED",
     "PARTIAL_RESTORE_EXECUTOR_UNAVAILABLE",
+]
+PER_RULE_CACHE_RESTORE_BLOCKERS = [
+    *PER_RULE_CACHE_RESTORE_BASE_BLOCKERS,
+    OUTPUT_EDGE_INVALIDATION_APPLY_REQUIRED,
 ]
 _SAFE_OUTPUT_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 
@@ -44,7 +48,8 @@ def build_rule_cache_restore_plan(
     rule_retry_plan: dict[str, Any],
     output_invalidation_plan: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    base = _base_plan(rule_retry_plan)
+    output_invalidation_applied = _output_invalidation_applied(output_invalidation_plan)
+    base = _base_plan(rule_retry_plan, output_invalidation_applied=output_invalidation_applied)
     if rule_retry_plan.get("schemaVersion") != RULE_RETRY_PLAN_SCHEMA_VERSION:
         return _finalize_plan(base, reason_code="RULE_RETRY_PLAN_SCHEMA_UNSUPPORTED", rules=[])
     if not rule_retry_plan.get("invalidationPlanAvailable"):
@@ -63,6 +68,7 @@ def build_rule_cache_restore_plan(
     base["cacheEligibility"] = {
         **base["cacheEligibility"],
         "outputScopeSource": output_scope_source,
+        "outputInvalidationApplied": output_invalidation_applied,
         "outputInvalidationPlanHashPresent": bool(
             isinstance(output_invalidation_plan, dict)
             and str(output_invalidation_plan.get("planHash") or "").strip()
@@ -95,6 +101,7 @@ def build_rule_cache_restore_plan(
             planned_rule=rule,
             source_rule=source_rule,
             output_edges=output_edges_by_rule.get(_rule_identity(rule), []),
+            output_invalidation_applied=output_invalidation_applied,
         )
         planned_rules.append(planned)
         output_count += int(planned["outputCount"])
@@ -109,7 +116,11 @@ def build_rule_cache_restore_plan(
     )
 
 
-def _base_plan(rule_retry_plan: dict[str, Any]) -> dict[str, Any]:
+def _base_plan(
+    rule_retry_plan: dict[str, Any],
+    *,
+    output_invalidation_applied: bool = False,
+) -> dict[str, Any]:
     invalidated = [item for item in rule_retry_plan.get("invalidatedRules") or [] if isinstance(item, dict)]
     preserved = [item for item in rule_retry_plan.get("preservedRules") or [] if isinstance(item, dict)]
     selected = [item for item in rule_retry_plan.get("rules") or [] if isinstance(item, dict)]
@@ -133,7 +144,7 @@ def _base_plan(rule_retry_plan: dict[str, Any]) -> dict[str, Any]:
             "preservedRules": [_rule_ref(rule) for rule in preserved],
         },
         "blockedReasonCodes": [
-            *PER_RULE_CACHE_RESTORE_BLOCKERS,
+            *_restore_blockers(output_invalidation_applied=output_invalidation_applied),
             *[str(item) for item in rule_retry_plan.get("blockedReasonCodes") or []],
         ],
         "cacheEligibility": {
@@ -210,6 +221,7 @@ def _rule_restore_plan(
     planned_rule: dict[str, Any],
     source_rule: dict[str, Any],
     output_edges: list[dict[str, Any]],
+    output_invalidation_applied: bool,
 ) -> dict[str, Any]:
     outputs = _output_restore_previews(
         cfg,
@@ -218,6 +230,7 @@ def _rule_restore_plan(
         planned_rule=planned_rule,
         source_rule=source_rule,
         output_edges=output_edges,
+        output_invalidation_applied=output_invalidation_applied,
     )
     hit_count = sum(1 for output in outputs if output["cacheHit"])
     return {
@@ -229,7 +242,7 @@ def _rule_restore_plan(
         "outputCount": len(outputs),
         "cacheHitCount": hit_count,
         "cacheMissCount": max(0, len(outputs) - hit_count),
-        "blockedReasonCodes": _rule_blockers(outputs),
+        "blockedReasonCodes": _rule_blockers(outputs, output_invalidation_applied=output_invalidation_applied),
         "outputs": outputs,
     }
 
@@ -242,6 +255,7 @@ def _output_restore_previews(
     planned_rule: dict[str, Any],
     source_rule: dict[str, Any],
     output_edges: list[dict[str, Any]],
+    output_invalidation_applied: bool,
 ) -> list[dict[str, Any]]:
     raw_outputs = output_edges or source_rule_outputs(source_rule)
     outputs: list[dict[str, Any]] = []
@@ -250,7 +264,14 @@ def _output_restore_previews(
         output_step_id = _output_step_id(raw_output, step_id)
         artifact_key = _safe_artifact_key(raw_output)
         if not artifact_key:
-            outputs.append(_unmapped_output(index, output_step_id, raw_output))
+            outputs.append(
+                _unmapped_output(
+                    index,
+                    output_step_id,
+                    raw_output,
+                    output_invalidation_applied=output_invalidation_applied,
+                )
+            )
             continue
         preview = preview_artifact_cache_entry(
             cfg,
@@ -261,7 +282,16 @@ def _output_restore_previews(
                 step_id=output_step_id,
             ),
         )
-        outputs.append(_output_preview(index, artifact_key, output_step_id, preview, raw_output))
+        outputs.append(
+            _output_preview(
+                index,
+                artifact_key,
+                output_step_id,
+                preview,
+                raw_output,
+                output_invalidation_applied=output_invalidation_applied,
+            )
+        )
     return outputs
 
 
@@ -271,6 +301,8 @@ def _output_preview(
     step_id: str,
     preview: dict[str, Any],
     raw_output: Any,
+    *,
+    output_invalidation_applied: bool,
 ) -> dict[str, Any]:
     cache_key = str(preview.get("cacheKey") or "")
     return {
@@ -286,11 +318,20 @@ def _output_preview(
         "cacheEntry": _safe_cache_entry(preview.get("entry")),
         "restoreTarget": _restore_target_policy("STAGED_FILE_POLICY_UNREPRESENTED"),
         "pinPolicy": _pin_policy(),
-        "blockedReasonCodes": _output_blockers(preview),
+        "blockedReasonCodes": _output_blockers(
+            preview,
+            output_invalidation_applied=output_invalidation_applied,
+        ),
     }
 
 
-def _unmapped_output(index: int, step_id: str, raw_output: Any) -> dict[str, Any]:
+def _unmapped_output(
+    index: int,
+    step_id: str,
+    raw_output: Any,
+    *,
+    output_invalidation_applied: bool,
+) -> dict[str, Any]:
     return {
         "outputOrdinal": index,
         **_output_edge_ref(raw_output),
@@ -304,7 +345,10 @@ def _unmapped_output(index: int, step_id: str, raw_output: Any) -> dict[str, Any
         "cacheEntry": None,
         "restoreTarget": _restore_target_policy("RULE_OUTPUT_ARTIFACT_KEY_UNMAPPED"),
         "pinPolicy": _pin_policy(),
-        "blockedReasonCodes": ["RULE_OUTPUT_ARTIFACT_KEY_UNMAPPED", *PER_RULE_CACHE_RESTORE_BLOCKERS],
+        "blockedReasonCodes": [
+            "RULE_OUTPUT_ARTIFACT_KEY_UNMAPPED",
+            *_restore_blockers(output_invalidation_applied=output_invalidation_applied),
+        ],
     }
 
 
@@ -337,17 +381,31 @@ def _cache_restore_rule_candidates(
     *,
     output_scope_source: str,
 ) -> list[dict[str, Any]]:
-    if output_scope_source == "rule-output-invalidation-plan":
+    if output_scope_source in {"rule-output-invalidation-plan", "applied-rule-output-invalidation-plan"}:
         return output_edge_rules
     return [item for item in rule_retry_plan.get("rules") or [] if isinstance(item, dict)]
 
 
 def _output_scope_source(output_invalidation_plan: dict[str, Any] | None) -> str:
     if isinstance(output_invalidation_plan, dict):
+        if _output_invalidation_applied(output_invalidation_plan):
+            return "applied-rule-output-invalidation-plan"
         if output_invalidation_plan.get("previewAvailable"):
             return "rule-output-invalidation-plan"
         return "rule-output-invalidation-plan-unavailable"
     return "run-rule-state-fallback"
+
+
+def _output_invalidation_applied(output_invalidation_plan: dict[str, Any] | None) -> bool:
+    if not isinstance(output_invalidation_plan, dict):
+        return False
+    state = output_invalidation_plan.get("outputInvalidationState")
+    if not isinstance(state, dict) or state.get("state") != "applied":
+        return False
+    try:
+        return int(state.get("appliedOutputEdgeCount") or 0) > 0
+    except (TypeError, ValueError):
+        return False
 
 
 def _output_edge_rule_items(output_invalidation_plan: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -429,8 +487,12 @@ def _short_digest(value: str) -> str:
     return f"sha256:{hashlib.sha256(value.encode('utf-8')).hexdigest()[:16]}"
 
 
-def _output_blockers(preview: dict[str, Any]) -> list[str]:
-    blockers = list(PER_RULE_CACHE_RESTORE_BLOCKERS)
+def _output_blockers(
+    preview: dict[str, Any],
+    *,
+    output_invalidation_applied: bool,
+) -> list[str]:
+    blockers = list(_restore_blockers(output_invalidation_applied=output_invalidation_applied))
     if not preview.get("hit"):
         blockers.insert(0, str(preview.get("reason") or "cache_miss").upper())
     return _unique_strings(blockers)
@@ -446,13 +508,27 @@ def _rule_reason(outputs: list[dict[str, Any]]) -> str:
     return "PER_RULE_CACHE_RESTORE_UNPROVEN"
 
 
-def _rule_blockers(outputs: list[dict[str, Any]]) -> list[str]:
-    blockers = ["PER_RULE_CACHE_ELIGIBILITY_UNPROVEN", *PER_RULE_CACHE_RESTORE_BLOCKERS]
+def _rule_blockers(
+    outputs: list[dict[str, Any]],
+    *,
+    output_invalidation_applied: bool,
+) -> list[str]:
+    blockers = [
+        "PER_RULE_CACHE_ELIGIBILITY_UNPROVEN",
+        *_restore_blockers(output_invalidation_applied=output_invalidation_applied),
+    ]
     for output in outputs:
         blockers.extend(str(item) for item in output.get("blockedReasonCodes") or [])
     if not outputs:
         blockers.append("RULE_OUTPUT_CACHE_KEY_SCOPE_UNPROVEN")
     return _unique_strings(blockers)
+
+
+def _restore_blockers(*, output_invalidation_applied: bool) -> list[str]:
+    blockers = list(PER_RULE_CACHE_RESTORE_BASE_BLOCKERS)
+    if not output_invalidation_applied:
+        blockers.insert(1, OUTPUT_EDGE_INVALIDATION_APPLY_REQUIRED)
+    return blockers
 
 
 def _safe_artifact_key(value: Any) -> str:

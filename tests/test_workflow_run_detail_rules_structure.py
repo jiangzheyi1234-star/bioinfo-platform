@@ -79,6 +79,8 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "ruleOutputInvalidationPlan?: WorkflowRunRuleOutputInvalidationPlan" in model_contract
     assert "invalidationEnabled?: boolean" in model_contract
     assert "mutationPolicy?:" in model_contract
+    assert "alreadyInvalidatedOutputEdgeCount?: number" in model_contract
+    assert "outputInvalidationState?:" in model_contract
     assert "ruleRetryExecutionPlan?: WorkflowRunRuleRetryExecutionPlan" in model_contract
     assert "cacheRestorePlan?: WorkflowRunRuleCacheRestorePlan" in model_contract
     assert "cacheKeyPresent?: boolean" in model_contract
@@ -222,6 +224,8 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "window.confirm" in execution_panel
     assert "plan.invalidationEnabled" in execution_panel
     assert "plan.eligibleNow" in execution_panel
+    assert "plan.outputInvalidationState" in execution_panel
+    assert "alreadyInvalidatedOutputEdgeCount" in execution_panel
     assert "应用失效" in execution_panel
     assert "RuleRetryExecutionPlanPreview" in execution_panel
     assert "RunResumePlanPreview" in execution_panel

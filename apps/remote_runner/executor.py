@@ -258,6 +258,7 @@ def _execute_snakemake_workflow(
             run_id=run_id,
             request_id=request_id,
             run_spec=run_spec,
+            execution_options=execution_options,
             output_schema=output_schema,
             run_outputs=run_outputs,
             attempt_id=attempt_id,

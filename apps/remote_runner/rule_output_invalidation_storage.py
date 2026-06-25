@@ -99,6 +99,10 @@ def _validate_plan(plan: dict[str, Any], *, plan_hash: str) -> None:
     if plan.get("previewAvailable") is not True:
         raise ValueError(str(plan.get("reasonCode") or "RULE_OUTPUT_INVALIDATION_PLAN_UNAVAILABLE"))
     policy = _dict(plan.get("mutationPolicy"))
+    if plan.get("invalidationEnabled") is not True:
+        raise ValueError(str(plan.get("reasonCode") or "RULE_OUTPUT_INVALIDATION_APPLY_DISABLED"))
+    if policy.get("tombstoneOutputEdges") is not True or policy.get("tombstoneLineageEdges") is not True:
+        raise ValueError("RULE_OUTPUT_INVALIDATION_MUTATION_DISABLED")
     if policy.get("deleteArtifactPayloads") is not False:
         raise ValueError("RULE_OUTPUT_INVALIDATION_PAYLOAD_DELETE_UNSAFE")
 

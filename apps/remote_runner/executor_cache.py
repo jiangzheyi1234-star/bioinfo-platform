@@ -14,6 +14,7 @@ def try_complete_from_artifact_cache(
     run_id: str,
     request_id: str,
     run_spec: dict[str, Any],
+    execution_options: dict[str, Any] | None = None,
     output_schema: dict[str, Any] | None,
     run_outputs: dict[str, str] | None,
     attempt_id: str | None,
@@ -21,6 +22,8 @@ def try_complete_from_artifact_cache(
     attempt_number: int | None,
     result_dir: str,
 ) -> dict[str, Any]:
+    if _rule_rerun_requested(execution_options):
+        return _not_adopted("rule_rerun_cache_adoption_unavailable")
     if not str(attempt_id or "").strip() or lease_generation is None:
         return _not_adopted("attempt_context_required")
     if not str(run_spec.get("workflowRevisionId") or "").strip():
@@ -72,3 +75,12 @@ def try_complete_from_artifact_cache(
 
 def _not_adopted(reason: str) -> dict[str, Any]:
     return {"adopted": False, "reason": reason}
+
+
+def _rule_rerun_requested(execution_options: dict[str, Any] | None) -> bool:
+    if not isinstance(execution_options, dict):
+        return False
+    snakemake = execution_options.get("snakemake")
+    if not isinstance(snakemake, dict):
+        return False
+    return bool(snakemake.get("rerunIncomplete") or snakemake.get("forcerunRules"))

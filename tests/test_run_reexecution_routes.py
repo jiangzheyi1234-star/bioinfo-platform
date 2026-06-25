@@ -167,7 +167,11 @@ def test_rule_output_invalidation_apply_route_tombstones_edges_and_records_safe_
     assert {edge["edgeId"] for edge in invalidated_edges} == {align["edgeId"], report["edgeId"]}
     assert all(edge["invalidationEventId"] == result["evidenceId"] for edge in invalidated_edges)
     assert len(list_lineage_edges_for_run(cfg, run_id)) == 1
-    assert fetch_run_execution_context(cfg, run_id)["ruleOutputInvalidationPlan"]["invalidationEnabled"] is False
+    applied_plan = fetch_run_execution_context(cfg, run_id)["ruleOutputInvalidationPlan"]
+    assert applied_plan["invalidationEnabled"] is False
+    assert applied_plan["reasonCode"] == "OUTPUT_EDGE_INVALIDATION_ALREADY_APPLIED"
+    assert applied_plan["outputInvalidationState"]["state"] == "applied"
+    assert applied_plan["outputEdgeSummary"]["alreadyInvalidatedOutputEdgeCount"] == 2
 
     evidence = list_evidence_events(cfg, event_type="rule.output_invalidation.applied.v1")[0]
     assert evidence["eventId"] == result["evidenceId"]
@@ -196,6 +200,34 @@ def test_rule_output_invalidation_apply_route_tombstones_edges_and_records_safe_
     assert str(tmp_path) not in serialized
     assert "storageUri" not in serialized
     assert "reviewed output scope" not in serialized
+
+    second_response = TestClient(app).post(
+        f"/api/v1/runs/{run_id}/rules/output-invalidation/apply",
+        headers={"Authorization": "Bearer rbac-token"},
+        json={
+            "confirmation": "apply-rule-output-invalidation",
+            "planHash": applied_plan["planHash"],
+            "actor": "operator",
+        },
+    )
+    assert second_response.status_code == 409
+    second_detail = second_response.json()["detail"]
+    assert second_detail["code"] == "OUTPUT_EDGE_INVALIDATION_ALREADY_APPLIED"
+    public_plan = second_detail["ruleOutputInvalidationPlan"]
+    assert public_plan["outputInvalidationState"] == {
+        "state": "applied",
+        "appliedOutputEdgeCount": 2,
+        "appliedLineageEdgeCount": 2,
+        "evidenceEventCount": 1,
+        "latestAppliedAtPresent": True,
+    }
+    assert public_plan["outputEdgeSummary"]["alreadyInvalidatedOutputEdgeCount"] == 2
+    assert public_plan["outputEdgeSummary"]["alreadyInvalidatedLineageEdgeCount"] == 2
+    second_detail_text = json.dumps(second_detail, sort_keys=True)
+    assert align["edgeId"] not in second_detail_text
+    assert report["edgeId"] not in second_detail_text
+    assert "runArtifactEdgeId" not in second_detail_text
+    assert "lineageEdgeId" not in second_detail_text
 
 
 def test_rule_output_invalidation_apply_route_rejects_stale_plan_hash_before_mutation(

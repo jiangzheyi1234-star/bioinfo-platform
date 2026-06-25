@@ -42,6 +42,32 @@ def test_rule_retry_execution_plan_previews_snakemake_forcerun_options_without_e
     assert plan["cacheRestorePlan"]["stagedFilePolicy"]["overwriteAllowed"] is False
 
 
+def test_rule_retry_execution_plan_drops_output_invalidation_blocker_after_apply() -> None:
+    plan = build_rule_retry_execution_plan(
+        _rule_retry_plan(),
+        output_invalidation_plan={
+            "schemaVersion": "rule-output-invalidation-plan.v1",
+            "planHash": "a" * 64,
+            "previewAvailable": True,
+            "reasonCode": "OUTPUT_EDGE_INVALIDATION_ALREADY_APPLIED",
+            "blockedReasonCodes": ["OUTPUT_EDGE_INVALIDATION_ALREADY_APPLIED"],
+            "outputInvalidationState": {
+                "schemaVersion": "rule-output-invalidation-state.v1",
+                "state": "applied",
+                "appliedOutputEdgeCount": 2,
+                "appliedLineageEdgeCount": 2,
+                "evidenceEventCount": 1,
+            },
+        },
+    )
+
+    assert plan["executionEnabled"] is False
+    assert "DOWNSTREAM_OUTPUT_INVALIDATION_APPLY_REQUIRED" not in plan["blockedReasonCodes"]
+    assert "DOWNSTREAM_OUTPUT_INVALIDATION_APPLY_REQUIRED" not in plan["requiresBeforeExecution"]
+    assert "STAGED_FILE_POLICY_UNREPRESENTED" in plan["blockedReasonCodes"]
+    assert "PARTIAL_RESTORE_EXECUTOR_UNAVAILABLE" in plan["requiresBeforeExecution"]
+
+
 def test_rule_retry_execution_options_refuses_disabled_preview_plan() -> None:
     plan = build_rule_retry_execution_plan(_rule_retry_plan())
 

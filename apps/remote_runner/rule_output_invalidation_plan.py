@@ -57,26 +57,20 @@ def build_rule_output_invalidation_plan(
         return _blocked(base, "RUN_ID_REQUIRED")
 
     output_edges = _output_edges(cfg, run_id)
-    lineage = _lineage_by_output(cfg, run_id)
+    lineage = _lineage_by_output(cfg, run_id, output_edges=output_edges)
     artifact_ids = _artifact_ids_by_content_hash(cfg, run_id)
     selected_keys = {_rule_identity(rule) for rule in _rule_items(rule_retry_plan.get("rules"))}
     invalidated_rules = _rule_items(rule_retry_plan.get("invalidatedRules"))
     preserved_rules = _rule_items(rule_retry_plan.get("preservedRules"))
     matched_edge_ids: set[str] = set()
-    planned_rules = []
-    for rule in invalidated_rules:
-        role = "selected_failed_rule" if _rule_identity(rule) in selected_keys else "downstream_rule"
-        outputs = _matched_outputs(rule, output_edges, lineage=lineage, artifact_ids=artifact_ids)
-        matched_edge_ids.update(str(output["runArtifactEdgeId"]) for output in outputs)
-        planned_rules.append(
-            {
-                **_rule_ref(rule),
-                "invalidationRole": role,
-                "outputEdgeCount": len(outputs),
-                "lineageEdgeCount": sum(int(output["lineageEdgeCount"]) for output in outputs),
-                "outputs": outputs,
-            }
-        )
+    planned_rules = _planned_rule_outputs(
+        invalidated_rules,
+        output_edges,
+        selected_keys=selected_keys,
+        lineage=lineage,
+        artifact_ids=artifact_ids,
+        matched_edge_ids=matched_edge_ids,
+    )
 
     preserved_outputs = []
     for rule in preserved_rules:
@@ -95,6 +89,17 @@ def build_rule_output_invalidation_plan(
         unmatched_outputs=unmatched_outputs,
     )
     mutation_ready = int(summary["invalidatedOutputEdgeCount"]) > 0
+    applied_plan = _already_applied_plan(
+        cfg,
+        base=base,
+        run_id=run_id,
+        active_output_edges=output_edges,
+        invalidated_rules=invalidated_rules,
+        selected_keys=selected_keys,
+        artifact_ids=artifact_ids,
+    )
+    if not mutation_ready and applied_plan is not None:
+        return applied_plan
     return attach_plan_hash(
         {
             **base,
@@ -118,6 +123,96 @@ def build_rule_output_invalidation_plan(
             "unmatchedOutputs": unmatched_outputs,
         }
     )
+
+
+def _already_applied_plan(
+    cfg: RemoteRunnerConfig,
+    *,
+    base: dict[str, Any],
+    run_id: str,
+    active_output_edges: list[dict[str, Any]],
+    invalidated_rules: list[dict[str, Any]],
+    selected_keys: set[str],
+    artifact_ids: dict[str, list[str]],
+) -> dict[str, Any] | None:
+    applied_edges = _applied_output_edges(cfg, run_id)
+    if not applied_edges:
+        return None
+    applied_lineage = _lineage_by_output(cfg, run_id, output_edges=applied_edges, include_inactive=True)
+    matched_edge_ids: set[str] = set()
+    planned_rules = _planned_rule_outputs(
+        invalidated_rules,
+        applied_edges,
+        selected_keys=selected_keys,
+        lineage=applied_lineage,
+        artifact_ids=artifact_ids,
+        matched_edge_ids=matched_edge_ids,
+    )
+    if not any(rule["outputs"] for rule in planned_rules):
+        return None
+    unmatched_outputs = [
+        _output_summary(edge, lineage=applied_lineage, artifact_ids=artifact_ids)
+        for edge in applied_edges
+        if str(edge["edgeId"]) not in matched_edge_ids
+    ]
+    summary = _summary(
+        output_edges=[*active_output_edges, *applied_edges],
+        rules=planned_rules,
+        preserved_outputs=[],
+        unmatched_outputs=unmatched_outputs,
+    )
+    applied_state = _applied_state(planned_rules)
+    return attach_plan_hash(
+        {
+            **base,
+            "previewAvailable": True,
+            "reasonCode": "OUTPUT_EDGE_INVALIDATION_ALREADY_APPLIED",
+            "message": "Rule output invalidation was already applied; the tombstoned output scope is retained for restore planning.",
+            "mutationPolicy": {
+                **base["mutationPolicy"],
+                "reasonCode": "OUTPUT_INVALIDATION_ALREADY_APPLIED",
+            },
+            "blockedReasonCodes": [
+                "OUTPUT_EDGE_INVALIDATION_ALREADY_APPLIED",
+                "ARTIFACT_PAYLOAD_DELETION_DISABLED",
+            ],
+            "outputInvalidationState": applied_state,
+            "outputEdgeSummary": {
+                **summary,
+                "alreadyInvalidatedOutputEdgeCount": int(applied_state["appliedOutputEdgeCount"]),
+                "alreadyInvalidatedLineageEdgeCount": int(applied_state["appliedLineageEdgeCount"]),
+            },
+            "rules": planned_rules,
+            "preservedOutputs": [],
+            "unmatchedOutputs": unmatched_outputs,
+        }
+    )
+
+
+def _planned_rule_outputs(
+    rules: list[dict[str, Any]],
+    output_edges: list[dict[str, Any]],
+    *,
+    selected_keys: set[str],
+    lineage: dict[str, list[dict[str, Any]]],
+    artifact_ids: dict[str, list[str]],
+    matched_edge_ids: set[str],
+) -> list[dict[str, Any]]:
+    planned_rules = []
+    for rule in rules:
+        role = "selected_failed_rule" if _rule_identity(rule) in selected_keys else "downstream_rule"
+        outputs = _matched_outputs(rule, output_edges, lineage=lineage, artifact_ids=artifact_ids)
+        matched_edge_ids.update(str(output["runArtifactEdgeId"]) for output in outputs)
+        planned_rules.append(
+            {
+                **_rule_ref(rule),
+                "invalidationRole": role,
+                "outputEdgeCount": len(outputs),
+                "lineageEdgeCount": sum(int(output["lineageEdgeCount"]) for output in outputs),
+                "outputs": outputs,
+            }
+        )
+    return planned_rules
 
 
 def _base_plan(rule_retry_plan: dict[str, Any]) -> dict[str, Any]:
@@ -157,6 +252,14 @@ def _base_plan(rule_retry_plan: dict[str, Any]) -> dict[str, Any]:
             ],
         },
         "blockedReasonCodes": OUTPUT_INVALIDATION_BLOCKERS,
+        "outputInvalidationState": {
+            "schemaVersion": "rule-output-invalidation-state.v1",
+            "state": "pending",
+            "appliedOutputEdgeCount": 0,
+            "appliedLineageEdgeCount": 0,
+            "evidenceEventCount": 0,
+            "latestAppliedAt": None,
+        },
     }
 
 
@@ -179,6 +282,16 @@ def _output_edges(cfg: RemoteRunnerConfig, run_id: str) -> list[dict[str, Any]]:
     return [edge for edge in list_run_artifact_edges(cfg, run_id) if str(edge.get("role") or "") == "output"]
 
 
+def _applied_output_edges(cfg: RemoteRunnerConfig, run_id: str) -> list[dict[str, Any]]:
+    return [
+        edge
+        for edge in list_run_artifact_edges(cfg, run_id, include_inactive=True)
+        if str(edge.get("role") or "") == "output"
+        and str(edge.get("lifecycleState") or "") == "invalidated"
+        and str(edge.get("invalidationEventId") or "").strip()
+    ]
+
+
 def _artifact_ids_by_content_hash(cfg: RemoteRunnerConfig, run_id: str) -> dict[str, list[str]]:
     with get_connection(cfg) as connection:
         rows = connection.execute(
@@ -196,10 +309,16 @@ def _artifact_ids_by_content_hash(cfg: RemoteRunnerConfig, run_id: str) -> dict[
     return dict(by_hash)
 
 
-def _lineage_by_output(cfg: RemoteRunnerConfig, run_id: str) -> dict[str, list[dict[str, Any]]]:
+def _lineage_by_output(
+    cfg: RemoteRunnerConfig,
+    run_id: str,
+    *,
+    output_edges: list[dict[str, Any]],
+    include_inactive: bool = False,
+) -> dict[str, list[dict[str, Any]]]:
     by_edge: dict[str, list[dict[str, Any]]] = defaultdict(list)
     by_blob: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for edge in list_lineage_edges_for_run(cfg, run_id):
+    for edge in list_lineage_edges_for_run(cfg, run_id, include_inactive=include_inactive):
         payload = edge.get("payload") if isinstance(edge.get("payload"), dict) else {}
         run_artifact_edge_id = str(payload.get("runArtifactEdgeId") or "").strip()
         if run_artifact_edge_id:
@@ -207,7 +326,6 @@ def _lineage_by_output(cfg: RemoteRunnerConfig, run_id: str) -> dict[str, list[d
         object_id = str(edge.get("objectId") or "").strip()
         if object_id:
             by_blob[object_id].append(edge)
-    output_edges = _output_edges(cfg, run_id)
     result: dict[str, list[dict[str, Any]]] = {}
     for output in output_edges:
         edge_id = str(output.get("edgeId") or "")
@@ -249,6 +367,9 @@ def _output_summary(
         "portName": edge.get("portName"),
         "stepId": edge.get("stepId"),
         "contentHashPrefix": content_hash[:12],
+        "lifecycleState": edge.get("lifecycleState"),
+        "invalidatedAt": edge.get("invalidatedAt"),
+        "invalidationEventId": edge.get("invalidationEventId"),
         "wouldTombstoneOutputEdge": True,
         "wouldDeletePayload": False,
         "lineageEdgeCount": len(edge_lineage),
@@ -267,6 +388,9 @@ def _lineage_summary(edge: dict[str, Any]) -> dict[str, Any]:
         "evidenceEventId": edge.get("evidenceEventId"),
         "workflowRevisionId": edge.get("workflowRevisionId"),
         "payloadKeys": sorted(str(key) for key in payload),
+        "lifecycleState": edge.get("lifecycleState"),
+        "invalidatedAt": edge.get("invalidatedAt"),
+        "invalidationEventId": edge.get("invalidationEventId"),
         "wouldTombstoneLineageEdge": True,
     }
 
@@ -300,8 +424,32 @@ def _summary(
         "unmatchedOutputEdgeCount": len(unmatched_outputs),
         "invalidatedLineageEdgeCount": sum(int(output["lineageEdgeCount"]) for output in invalidated_outputs),
         "preservedLineageEdgeCount": sum(int(output["lineageEdgeCount"]) for output in preserved_outputs),
+        "alreadyInvalidatedOutputEdgeCount": 0,
+        "alreadyInvalidatedLineageEdgeCount": 0,
         "payloadDeletionAllowed": False,
         "lineageMutationAllowed": bool(invalidated_outputs),
+    }
+
+
+def _applied_state(planned_rules: list[dict[str, Any]]) -> dict[str, Any]:
+    outputs = [output for rule in planned_rules for output in rule["outputs"]]
+    evidence_ids = {
+        str(output.get("invalidationEventId") or "").strip()
+        for output in outputs
+        if str(output.get("invalidationEventId") or "").strip()
+    }
+    applied_at = [
+        str(output.get("invalidatedAt") or "").strip()
+        for output in outputs
+        if str(output.get("invalidatedAt") or "").strip()
+    ]
+    return {
+        "schemaVersion": "rule-output-invalidation-state.v1",
+        "state": "applied",
+        "appliedOutputEdgeCount": len(outputs),
+        "appliedLineageEdgeCount": sum(int(output["lineageEdgeCount"]) for output in outputs),
+        "evidenceEventCount": len(evidence_ids),
+        "latestAppliedAt": max(applied_at) if applied_at else None,
     }
 
 
@@ -315,6 +463,8 @@ def _empty_summary() -> dict[str, Any]:
         "unmatchedOutputEdgeCount": 0,
         "invalidatedLineageEdgeCount": 0,
         "preservedLineageEdgeCount": 0,
+        "alreadyInvalidatedOutputEdgeCount": 0,
+        "alreadyInvalidatedLineageEdgeCount": 0,
         "payloadDeletionAllowed": False,
         "lineageMutationAllowed": False,
     }

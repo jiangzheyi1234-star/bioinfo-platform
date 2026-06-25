@@ -169,6 +169,50 @@ def test_executor_applies_job_execution_options_to_dry_run_and_run(tmp_path: Pat
     assert "--logger-h2ometa-event-path" in calls[1]
 
 
+def test_artifact_cache_adoption_skips_rule_rerun_execution_options(tmp_path: Path, monkeypatch) -> None:
+    from apps.remote_runner.executor_cache import try_complete_from_artifact_cache
+
+    cfg = RemoteRunnerConfig(
+        token="phase3-token",
+        data_root=str(tmp_path / "shared"),
+        db_path=str(tmp_path / "shared" / "data" / "runner.db"),
+        uploads_dir=str(tmp_path / "shared" / "uploads"),
+        results_dir=str(tmp_path / "shared" / "results"),
+        work_dir=str(tmp_path / "shared" / "work"),
+        logs_dir=str(tmp_path / "shared" / "logs"),
+        release_dir=str(tmp_path / "release"),
+    )
+
+    def fail_adoption(*_args, **_kwargs):
+        raise AssertionError("whole-run cache adoption must not run for rule-rerun execution options")
+
+    monkeypatch.setattr("apps.remote_runner.executor_cache.try_adopt_cached_outputs", fail_adoption)
+    monkeypatch.setattr("apps.remote_runner.executor_cache.update_run_state", fail_adoption)
+
+    result = try_complete_from_artifact_cache(
+        cfg,
+        run_id="run_rule_rerun_cache_guard",
+        request_id="req_rule_rerun_cache_guard",
+        run_spec={"workflowRevisionId": "wfrev_rule_rerun"},
+        execution_options={
+            "schemaVersion": "run-job-execution-options.v1",
+            "snakemake": {
+                "schemaVersion": "snakemake-rule-rerun-options.v1",
+                "rerunIncomplete": True,
+                "forcerunRules": ["align"],
+            },
+        },
+        output_schema={},
+        run_outputs={},
+        attempt_id="att_rule_rerun",
+        lease_generation=1,
+        attempt_number=1,
+        result_dir=str(tmp_path / "results"),
+    )
+
+    assert result == {"adopted": False, "reason": "rule_rerun_cache_adoption_unavailable"}
+
+
 def test_executor_fails_when_upload_input_is_missing(tmp_path: Path, monkeypatch) -> None:
     cfg = RemoteRunnerConfig(
         token="phase2-token",

@@ -42,7 +42,6 @@ def test_rule_output_invalidation_tombstones_active_edges_without_deleting_paylo
         reason="partial_retry_output_scope",
         now="2099-06-07T10:01:00Z",
     )
-    replacement = _output_edge(cfg, tmp_path, run_id=run_id, step_id="align", port_name="bam")
 
     assert plan["invalidationEnabled"] is True
     assert plan["mutationPolicy"]["tombstoneOutputEdges"] is True
@@ -59,10 +58,7 @@ def test_rule_output_invalidation_tombstones_active_edges_without_deleting_paylo
         "payloadDeleted": False,
         "appliedAt": "2099-06-07T10:01:00Z",
     }
-    assert {edge["edgeId"] for edge in list_run_artifact_edges(cfg, run_id)} == {
-        trim["edgeId"],
-        replacement["edgeId"],
-    }
+    assert {edge["edgeId"] for edge in list_run_artifact_edges(cfg, run_id)} == {trim["edgeId"]}
     all_edges = list_run_artifact_edges(cfg, run_id, include_inactive=True)
     invalidated_edges = [edge for edge in all_edges if edge["lifecycleState"] == "invalidated"]
     assert {edge["edgeId"] for edge in invalidated_edges} == {align["edgeId"], report["edgeId"]}
@@ -87,6 +83,34 @@ def test_rule_output_invalidation_tombstones_active_edges_without_deleting_paylo
     assert "storageUri" not in serialized_payload
     assert str(tmp_path) not in serialized_payload
 
+    applied_plan = build_rule_output_invalidation_plan(
+        cfg,
+        run={"runId": run_id, "workflowRevisionId": "wfrev_rule_output_apply"},
+        rule_retry_plan=_rule_retry_plan(run_id),
+    )
+    assert applied_plan["reasonCode"] == "OUTPUT_EDGE_INVALIDATION_ALREADY_APPLIED"
+    assert applied_plan["invalidationEnabled"] is False
+    assert applied_plan["outputInvalidationState"] == {
+        "schemaVersion": "rule-output-invalidation-state.v1",
+        "state": "applied",
+        "appliedOutputEdgeCount": 2,
+        "appliedLineageEdgeCount": 2,
+        "evidenceEventCount": 1,
+        "latestAppliedAt": "2099-06-07T10:01:00Z",
+    }
+    assert applied_plan["outputEdgeSummary"]["alreadyInvalidatedOutputEdgeCount"] == 2
+    assert applied_plan["outputEdgeSummary"]["alreadyInvalidatedLineageEdgeCount"] == 2
+    assert [rule["ruleName"] for rule in applied_plan["rules"]] == ["align", "report"]
+    assert {output["lifecycleState"] for rule in applied_plan["rules"] for output in rule["outputs"]} == {"invalidated"}
+    assert {output["invalidationEventId"] for rule in applied_plan["rules"] for output in rule["outputs"]} == {
+        result["evidenceId"]
+    }
+    replacement = _output_edge(cfg, tmp_path, run_id=run_id, step_id="align", port_name="bam")
+    assert {edge["edgeId"] for edge in list_run_artifact_edges(cfg, run_id)} == {
+        trim["edgeId"],
+        replacement["edgeId"],
+    }
+
 
 def test_rule_output_invalidation_rejects_stale_plan_after_first_apply(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
@@ -99,9 +123,16 @@ def test_rule_output_invalidation_rejects_stale_plan_after_first_apply(tmp_path:
         rule_retry_plan=_rule_retry_plan(run_id, include_report=False),
     )
     apply_rule_output_invalidation_plan(cfg, plan, plan_hash=plan["planHash"])
+    applied_plan = build_rule_output_invalidation_plan(
+        cfg,
+        run={"runId": run_id, "workflowRevisionId": "wfrev_rule_output_apply"},
+        rule_retry_plan=_rule_retry_plan(run_id, include_report=False),
+    )
 
     with pytest.raises(ValueError, match="RULE_OUTPUT_INVALIDATION_EDGE_SCOPE_STALE"):
         apply_rule_output_invalidation_plan(cfg, plan, plan_hash=plan["planHash"])
+    with pytest.raises(ValueError, match="OUTPUT_EDGE_INVALIDATION_ALREADY_APPLIED"):
+        apply_rule_output_invalidation_plan(cfg, applied_plan, plan_hash=applied_plan["planHash"])
 
 
 def test_rule_output_invalidation_rejects_plan_hash_mismatch_before_mutation(tmp_path: Path) -> None:

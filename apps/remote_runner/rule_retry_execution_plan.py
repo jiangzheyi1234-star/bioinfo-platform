@@ -13,15 +13,20 @@ RULE_RETRY_EXECUTION_PLAN_SCHEMA_VERSION = "rule-retry-execution-plan.v1"
 RUN_JOB_EXECUTION_OPTIONS_SCHEMA_VERSION = "run-job-execution-options.v1"
 SNAKEMAKE_RULE_RERUN_OPTIONS_SCHEMA_VERSION = "snakemake-rule-rerun-options.v1"
 UNSAFE_SNAKEMAKE_RULE_RETRY_FLAGS = ["--forceall", "--touch", "--ignore-incomplete"]
-RULE_RETRY_EXECUTION_BLOCKERS = [
+DOWNSTREAM_OUTPUT_INVALIDATION_APPLY_REQUIRED = "DOWNSTREAM_OUTPUT_INVALIDATION_APPLY_REQUIRED"
+RULE_RETRY_EXECUTION_BASE_BLOCKERS = [
     "ATTEMPT_OUTPUT_RESTORE_UNPROVEN",
-    "DOWNSTREAM_OUTPUT_INVALIDATION_APPLY_REQUIRED",
     "PER_RULE_CACHE_ELIGIBILITY_UNPROVEN",
     "STAGED_FILE_POLICY_UNREPRESENTED",
     "PARTIAL_RESTORE_EXECUTOR_UNAVAILABLE",
     "CACHE_ADOPTION_UNPROVEN",
     "ARTIFACT_ADOPTION_UNPROVEN",
     "RULE_RETRY_MUTATION_API_DISABLED",
+]
+RULE_RETRY_EXECUTION_BLOCKERS = [
+    RULE_RETRY_EXECUTION_BASE_BLOCKERS[0],
+    DOWNSTREAM_OUTPUT_INVALIDATION_APPLY_REQUIRED,
+    *RULE_RETRY_EXECUTION_BASE_BLOCKERS[1:],
 ]
 
 
@@ -119,9 +124,10 @@ def _base_plan(
     cache_restore_plan: dict[str, Any],
     output_invalidation_plan: dict[str, Any],
 ) -> dict[str, Any]:
+    execution_blockers = _execution_blockers(output_invalidation_plan=output_invalidation_plan)
     blocked = _unique_strings(
         [
-            *RULE_RETRY_EXECUTION_BLOCKERS,
+            *execution_blockers,
             *[str(item) for item in rule_retry_plan.get("blockedReasonCodes") or []],
             *[str(item) for item in cache_restore_plan.get("blockedReasonCodes") or []],
             *[str(item) for item in output_invalidation_plan.get("blockedReasonCodes") or []],
@@ -144,7 +150,7 @@ def _base_plan(
         "sourceReasonCode": rule_retry_plan.get("reasonCode"),
         "sourceBlockedReasonCodes": list(rule_retry_plan.get("blockedReasonCodes") or []),
         "blockedReasonCodes": blocked,
-        "requiresBeforeExecution": RULE_RETRY_EXECUTION_BLOCKERS,
+        "requiresBeforeExecution": execution_blockers,
         "selectedRules": [],
         "rerunScope": {"ruleCount": 0, "rules": []},
         "cacheRestorePlan": cache_restore_plan,
@@ -180,6 +186,19 @@ def _disabled_reason(rule_retry_execution_plan: dict[str, Any]) -> str:
     return f"RULE_RETRY_EXECUTION_DISABLED: {suffix}" if suffix else "RULE_RETRY_EXECUTION_DISABLED"
 
 
+def _execution_blockers(*, output_invalidation_plan: dict[str, Any]) -> list[str]:
+    blockers = list(RULE_RETRY_EXECUTION_BASE_BLOCKERS)
+    state = output_invalidation_plan.get("outputInvalidationState")
+    applied = (
+        isinstance(state, dict)
+        and state.get("state") == "applied"
+        and _safe_int(state.get("appliedOutputEdgeCount")) > 0
+    )
+    if not applied:
+        blockers.insert(1, DOWNSTREAM_OUTPUT_INVALIDATION_APPLY_REQUIRED)
+    return blockers
+
+
 def _attempt_selected(rule: dict[str, Any]) -> bool:
     selection = rule.get("attemptSelection") if isinstance(rule.get("attemptSelection"), dict) else {}
     return selection.get("selected") is True
@@ -190,6 +209,13 @@ def _required_rule_name(rule: dict[str, Any]) -> str:
     if not rule_name:
         raise WorkflowRuntimeCommandError("SNAKEMAKE_FORCERUN_RULE_REQUIRED")
     return rule_name
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _rule_ref(rule: dict[str, Any]) -> dict[str, Any]:

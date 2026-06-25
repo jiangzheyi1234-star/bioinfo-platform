@@ -175,7 +175,12 @@ function RuleOutputInvalidationPlanPreview({
 }) {
   if (!plan?.previewAvailable) return null;
   const summary = plan.outputEdgeSummary || {};
+  const invalidationState = plan.outputInvalidationState;
   const invalidatedOutputCount = summary.invalidatedOutputEdgeCount || 0;
+  const appliedOutputCount =
+    invalidationState?.state === "applied"
+      ? invalidationState.appliedOutputEdgeCount || summary.alreadyInvalidatedOutputEdgeCount || 0
+      : summary.alreadyInvalidatedOutputEdgeCount || 0;
   const planHash = plan.planHash;
   const applyEnabled = Boolean(
     onApply && planHash && plan.invalidationEnabled && plan.eligibleNow && invalidatedOutputCount > 0
@@ -238,11 +243,15 @@ function RuleOutputInvalidationPlanPreview({
         <ExecutionMetric label="selected" value={String(summary.selectedOutputEdgeCount || selectedRules.length)} />
         <ExecutionMetric label="downstream" value={String(summary.downstreamOutputEdgeCount || downstreamRules.length)} />
         <ExecutionMetric label="lineage" value={String(summary.invalidatedLineageEdgeCount || 0)} />
-        <ExecutionMetric label="reason" value={plan.reasonCode || "—"} />
+        <ExecutionMetric label="applied" value={String(appliedOutputCount)} />
       </div>
       <div className="mt-2 grid gap-1 text-[11px] sm:grid-cols-[116px_minmax(0,1fr)]">
         <span className="text-sky-700">outputs</span>
         <span className="truncate font-mono">{compactList(impactedOutputs)}</span>
+        <span className="text-sky-700">state</span>
+        <span className="truncate font-mono">
+          {invalidationState?.state || "pending"} · {plan.reasonCode || "—"}
+        </span>
         <span className="text-sky-700">preserved</span>
         <span className="truncate font-mono">{String(summary.preservedOutputEdgeCount || 0)}</span>
         <span className="text-sky-700">unmatched</span>

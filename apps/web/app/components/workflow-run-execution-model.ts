@@ -238,6 +238,17 @@ export type WorkflowRunRuleOutputInvalidationPlan = {
     invalidatedLineageEdgeCount?: number;
     payloadDeletionAllowed?: boolean;
     lineageMutationAllowed?: boolean;
+    preservedLineageEdgeCount?: number;
+    alreadyInvalidatedOutputEdgeCount?: number;
+    alreadyInvalidatedLineageEdgeCount?: number;
+  };
+  outputInvalidationState?: {
+    schemaVersion?: string;
+    state?: string;
+    appliedOutputEdgeCount?: number;
+    appliedLineageEdgeCount?: number;
+    evidenceEventCount?: number;
+    latestAppliedAt?: string | null;
   };
   rules?: Array<
     WorkflowRunRuleRetryPlanRuleRef & {

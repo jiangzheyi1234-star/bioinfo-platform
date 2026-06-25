@@ -154,6 +154,7 @@ def _output_invalidation_blocked(plan: dict[str, Any], code: str) -> RemoteRunne
 
 def _public_output_invalidation_plan(plan: dict[str, Any]) -> dict[str, Any]:
     summary = plan.get("outputEdgeSummary") if isinstance(plan.get("outputEdgeSummary"), dict) else {}
+    state = plan.get("outputInvalidationState") if isinstance(plan.get("outputInvalidationState"), dict) else {}
     return {
         "schemaVersion": "rule-output-invalidation-public-plan.v1",
         "planHash": str(plan.get("planHash") or ""),
@@ -177,8 +178,17 @@ def _public_output_invalidation_plan(plan: dict[str, Any]) -> dict[str, Any]:
             "unmatchedOutputEdgeCount": _safe_int(summary.get("unmatchedOutputEdgeCount")),
             "invalidatedLineageEdgeCount": _safe_int(summary.get("invalidatedLineageEdgeCount")),
             "preservedLineageEdgeCount": _safe_int(summary.get("preservedLineageEdgeCount")),
+            "alreadyInvalidatedOutputEdgeCount": _safe_int(summary.get("alreadyInvalidatedOutputEdgeCount")),
+            "alreadyInvalidatedLineageEdgeCount": _safe_int(summary.get("alreadyInvalidatedLineageEdgeCount")),
             "payloadDeletionAllowed": bool(summary.get("payloadDeletionAllowed")),
             "lineageMutationAllowed": bool(summary.get("lineageMutationAllowed")),
+        },
+        "outputInvalidationState": {
+            "state": str(state.get("state") or "unknown"),
+            "appliedOutputEdgeCount": _safe_int(state.get("appliedOutputEdgeCount")),
+            "appliedLineageEdgeCount": _safe_int(state.get("appliedLineageEdgeCount")),
+            "evidenceEventCount": _safe_int(state.get("evidenceEventCount")),
+            "latestAppliedAtPresent": bool(str(state.get("latestAppliedAt") or "").strip()),
         },
     }
 

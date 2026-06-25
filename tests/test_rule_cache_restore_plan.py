@@ -9,6 +9,7 @@ from apps.remote_runner.evidence_storage import list_evidence_events
 from apps.remote_runner.execution_plan_hash import stable_plan_hash
 from apps.remote_runner.rule_cache_restore_plan import build_rule_cache_restore_plan
 from apps.remote_runner.rule_output_invalidation_plan import build_rule_output_invalidation_plan
+from apps.remote_runner.rule_output_invalidation_storage import apply_rule_output_invalidation_plan
 from apps.remote_runner.storage import create_run_record, persist_artifact
 from apps.remote_runner.storage_core import get_connection
 from apps.remote_runner.workflow_revision_storage import create_or_fetch_workflow_revision
@@ -83,6 +84,76 @@ def test_rule_cache_restore_plan_uses_output_invalidation_edges_without_rule_out
             ).fetchall()
         ]
     assert hit_counts == [0, 0]
+
+
+def test_rule_cache_restore_plan_keeps_applied_invalidation_scope_without_apply_blocker(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    revision = _create_revision(cfg)
+    workflow_revision_id = str(revision["workflowRevisionId"])
+    source_run = _create_run(cfg, "run_cache_restore_applied_source", workflow_revision_id=workflow_revision_id)
+    current_run = _create_run(cfg, "run_cache_restore_applied_current", workflow_revision_id=workflow_revision_id)
+    persist_artifact(
+        cfg,
+        run_id=source_run["runId"],
+        kind="bam",
+        path=_managed_output(cfg, source_run["runId"], "align.bam", b"cached align\n"),
+        mime_type="application/octet-stream",
+        artifact_key="bam",
+        step_id="align",
+    )
+    persist_artifact(
+        cfg,
+        run_id=source_run["runId"],
+        kind="html",
+        path=_managed_output(cfg, source_run["runId"], "report.html", b"cached report\n"),
+        mime_type="text/html",
+        artifact_key="html",
+        step_id="report",
+    )
+    _output_edge(cfg, tmp_path, run_id=current_run["runId"], step_id="align", port_name="bam")
+    _output_edge(cfg, tmp_path, run_id=current_run["runId"], step_id="report", port_name="html")
+    rule_retry_plan = _rule_retry_plan(current_run["runId"], workflow_revision_id)
+    output_invalidation_plan = build_rule_output_invalidation_plan(
+        cfg,
+        run=current_run,
+        rule_retry_plan=rule_retry_plan,
+    )
+    apply_rule_output_invalidation_plan(
+        cfg,
+        output_invalidation_plan,
+        plan_hash=output_invalidation_plan["planHash"],
+        now="2099-06-07T10:01:00Z",
+    )
+    applied_invalidation_plan = build_rule_output_invalidation_plan(
+        cfg,
+        run=current_run,
+        rule_retry_plan=rule_retry_plan,
+    )
+
+    plan = build_rule_cache_restore_plan(
+        cfg,
+        run=current_run,
+        rule_retry_plan=rule_retry_plan,
+        output_invalidation_plan=applied_invalidation_plan,
+    )
+
+    assert applied_invalidation_plan["reasonCode"] == "OUTPUT_EDGE_INVALIDATION_ALREADY_APPLIED"
+    assert plan["cacheEligibility"]["outputScopeSource"] == "applied-rule-output-invalidation-plan"
+    assert plan["cacheEligibility"]["outputInvalidationApplied"] is True
+    assert plan["outputCount"] == 2
+    assert plan["cacheHitCount"] == 2
+    assert "OUTPUT_EDGE_INVALIDATION_APPLY_REQUIRED" not in plan["blockedReasonCodes"]
+    assert "STAGED_FILE_POLICY_UNREPRESENTED" in plan["blockedReasonCodes"]
+    assert "PARTIAL_RESTORE_EXECUTOR_UNAVAILABLE" in plan["blockedReasonCodes"]
+    for rule in plan["rules"]:
+        assert "OUTPUT_EDGE_INVALIDATION_APPLY_REQUIRED" not in rule["blockedReasonCodes"]
+        for output in rule["outputs"]:
+            assert output["cacheHit"] is True
+            assert "OUTPUT_EDGE_INVALIDATION_APPLY_REQUIRED" not in output["blockedReasonCodes"]
+    serialized = json.dumps(plan, sort_keys=True)
+    assert '"cacheKey":' not in serialized
+    assert '"storageUri":' not in serialized
+    assert str(tmp_path) not in serialized
 
 
 def _create_revision(cfg) -> dict[str, Any]:
