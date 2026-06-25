@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .execution_activation_readiness import build_run_resume_activation_readiness
 from .execution_plan_hash import attach_plan_hash
 from .execution_output_audit import build_attempt_output_audit
 
@@ -57,7 +58,7 @@ def build_run_resume_plan(
         return _blocked(base, "RUN_NOT_RESUMABLE_TERMINAL")
     if latest_state not in RESUMABLE_ATTEMPT_STATES:
         return _blocked(base, "RUN_RESUME_LATEST_ATTEMPT_NOT_RESUMABLE")
-    return attach_plan_hash(
+    return _finalize(
         {
             **base,
             "eligible": False,
@@ -111,12 +112,21 @@ def _base_plan(
 
 
 def _blocked(base: dict[str, Any], reason_code: str) -> dict[str, Any]:
-    return attach_plan_hash(
+    return _finalize(
         {
             **base,
             "reasonCode": reason_code,
             "message": f"Run resume execution planning is blocked: {reason_code}.",
             "blockedReasonCodes": _unique_strings([reason_code, *base["blockedReasonCodes"]]),
+        }
+    )
+
+
+def _finalize(plan: dict[str, Any]) -> dict[str, Any]:
+    return attach_plan_hash(
+        {
+            **plan,
+            "activationReadiness": build_run_resume_activation_readiness(resume_plan=plan),
         }
     )
 

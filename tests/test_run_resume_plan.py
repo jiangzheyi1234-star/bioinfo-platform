@@ -35,6 +35,23 @@ def test_run_resume_plan_previews_snakemake_rerun_incomplete_without_enabling_ex
     assert plan["eligible"] is False
     assert plan["eligibleNow"] is False
     assert plan["executionEnabled"] is False
+    assert plan["activationReadiness"]["schemaVersion"] == "run-resume-activation-readiness.v1"
+    assert plan["activationReadiness"]["executionReady"] is False
+    assert plan["activationReadiness"]["executionEnabled"] is False
+    assert plan["activationReadiness"]["reasonCode"] == "WORKDIR_REUSE_POLICY_UNPROVEN"
+    assert plan["activationReadiness"]["readyCheckCount"] == 2
+    assert plan["activationReadiness"]["blockedCheckCount"] == 4
+    assert plan["activationReadiness"]["summary"] == {
+        "attemptCount": 1,
+        "expectedOutputCount": 2,
+        "checkedOutputCount": 2,
+        "existingOutputCount": 1,
+        "missingOutputCount": 1,
+        "unsafeOutputCount": 0,
+        "uncheckedOutputCount": 0,
+        "unverifiedOutputCount": 2,
+    }
+    assert plan["activationReadiness"]["redactionPolicy"]["pathsExposed"] is False
     assert plan["commandPreviewAvailable"] is True
     assert plan["reasonCode"] == "RUN_RESUME_PREVIEW_AVAILABLE"
     assert plan["latestAttempt"]["state"] == "failed"

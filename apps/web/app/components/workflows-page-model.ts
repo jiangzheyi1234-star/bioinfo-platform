@@ -14,6 +14,7 @@ export type {
   WorkflowArtifact,
   WorkflowInputArtifact,
   WorkflowInputArtifactPort,
+  WorkflowRunActivationReadiness,
   WorkflowRunAdoptionBoundary,
   WorkflowRunExecutionAttempt,
   WorkflowRunExecutionContext,

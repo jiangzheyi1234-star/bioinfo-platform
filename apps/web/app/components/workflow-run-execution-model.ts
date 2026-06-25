@@ -166,6 +166,30 @@ export type WorkflowRunRuleRetrySnakemakeOptions = {
   unsafeFlagsProhibited?: string[];
 };
 
+export type WorkflowRunActivationReadiness = {
+  schemaVersion?: string;
+  runId?: string;
+  workflowRevisionId?: string | null;
+  executionReady?: boolean;
+  executionEnabled?: boolean;
+  reasonCode?: string;
+  blockedReasonCodes?: string[];
+  readyCheckCount?: number;
+  blockedCheckCount?: number;
+  checks?: Array<{
+    name?: string;
+    ready?: boolean;
+    reasonCode?: string;
+  }>;
+  summary?: Record<string, number>;
+  redactionPolicy?: {
+    rawIdentifiersExposed?: boolean;
+    fingerprintsExposed?: boolean;
+    storageUrisExposed?: boolean;
+    pathsExposed?: boolean;
+  };
+};
+
 export type WorkflowRunRuleCacheRestorePlan = {
   schemaVersion?: string;
   planHash?: string;
@@ -352,6 +376,7 @@ export type WorkflowRunRuleRetryExecutionPlan = {
   };
   snakemakeOptions?: WorkflowRunRuleRetrySnakemakeOptions;
   cacheRestorePlan?: WorkflowRunRuleCacheRestorePlan;
+  activationReadiness?: WorkflowRunActivationReadiness;
   reasonCode?: string;
   message?: string;
 };
@@ -415,6 +440,7 @@ export type WorkflowRunResumePlan = {
   blockedReasonCodes?: string[];
   requiresBeforeExecution?: string[];
   snakemakeOptions?: WorkflowRunResumeSnakemakeOptions;
+  activationReadiness?: WorkflowRunActivationReadiness;
   reasonCode?: string;
   message?: string;
 };
@@ -511,6 +537,7 @@ export type WorkflowRunExecutionContext = {
   ruleCacheRestorePlan?: WorkflowRunRuleCacheRestorePlan;
   ruleOutputInvalidationPlan?: WorkflowRunRuleOutputInvalidationPlan;
   ruleRetryExecutionPlan?: WorkflowRunRuleRetryExecutionPlan;
+  ruleRetryActivationReadiness?: WorkflowRunActivationReadiness;
   resumeSupported?: boolean;
   resumeEligibility?: {
     eligible?: boolean;
@@ -519,6 +546,7 @@ export type WorkflowRunExecutionContext = {
     message?: string;
   };
   resumePlan?: WorkflowRunResumePlan;
+  resumeActivationReadiness?: WorkflowRunActivationReadiness;
 };
 
 export type WorkflowInputArtifactPort = {

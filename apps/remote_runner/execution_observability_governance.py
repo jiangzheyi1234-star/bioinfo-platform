@@ -30,6 +30,12 @@ def record_run_execution_context_read_audit(
     attempts = _list_value(context.get("attempts"))
     rule_retry_plan = _dict_value(context.get("ruleRetryPlan"))
     rule_retry_execution_plan = _dict_value(context.get("ruleRetryExecutionPlan"))
+    rule_retry_readiness = _dict_value(context.get("ruleRetryActivationReadiness")) or _dict_value(
+        rule_retry_execution_plan.get("activationReadiness")
+    )
+    resume_readiness = _dict_value(context.get("resumeActivationReadiness")) or _dict_value(
+        _dict_value(context.get("resumePlan")).get("activationReadiness")
+    )
     rule_cache_restore_plan = _dict_value(context.get("ruleCacheRestorePlan")) or _dict_value(
         rule_retry_execution_plan.get("cacheRestorePlan")
     )
@@ -53,6 +59,12 @@ def record_run_execution_context_read_audit(
             "ruleRetryFailedRuleCount": _safe_int(rule_retry_plan.get("failedRuleCount")),
             "ruleRetrySelectedAttemptCount": _safe_int(rule_retry_plan.get("selectedAttemptCount")),
             "ruleRetryExecutionEnabled": bool(rule_retry_execution_plan.get("executionEnabled")),
+            "ruleRetryActivationReady": bool(rule_retry_readiness.get("executionReady")),
+            "ruleRetryActivationBlockedCount": _safe_int(rule_retry_readiness.get("blockedCheckCount")),
+            "ruleRetryActivationMutationEnabled": bool(rule_retry_readiness.get("executionEnabled")),
+            "resumeActivationReady": bool(resume_readiness.get("executionReady")),
+            "resumeActivationBlockedCount": _safe_int(resume_readiness.get("blockedCheckCount")),
+            "resumeActivationMutationEnabled": bool(resume_readiness.get("executionEnabled")),
             "ruleCacheRestorePlanPresent": bool(rule_cache_restore_plan),
             "ruleCacheRestorePlanHashPresent": bool(str(rule_cache_restore_plan.get("planHash") or "").strip()),
             "ruleCacheRestoreOutputCount": _safe_int(rule_cache_restore_plan.get("outputCount")),

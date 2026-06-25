@@ -6,6 +6,7 @@ import { Activity, Clock, Loader2, RotateCcw, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 import type {
+  WorkflowRunActivationReadiness,
   WorkflowRunExecutionAttempt,
   WorkflowRunExecutionContext,
   WorkflowRunResumePlan,
@@ -107,6 +108,21 @@ function compactList(values: string[] | undefined, fallback = "—") {
   if (items.length === 0) return fallback;
   const shown = items.slice(0, 4).join(", ");
   return items.length > 4 ? `${shown}, +${items.length - 4}` : shown;
+}
+
+function readinessLabel(readiness?: WorkflowRunActivationReadiness) {
+  if (!readiness) return "—";
+  return `${readiness.readyCheckCount ?? 0} ready / ${readiness.blockedCheckCount ?? 0} blocked · ${
+    readiness.reasonCode || "—"
+  }`;
+}
+
+function readinessCheckLabel(readiness?: WorkflowRunActivationReadiness) {
+  const blocked = (readiness?.checks || [])
+    .filter((check) => !check.ready)
+    .map((check) => check.name || check.reasonCode || "")
+    .filter(Boolean);
+  return compactList(blocked);
 }
 
 function RuleRetryPlanSummary({ context }: { context: WorkflowRunExecutionContext }) {
@@ -303,6 +319,7 @@ function RuleRetryExecutionPlanPreview({ plan }: { plan?: WorkflowRunRuleRetryEx
     : cacheRestore?.redactionPolicy?.cacheKeyFingerprintsExposed
       ? "digest-only"
       : "redacted";
+  const activationReadiness = plan.activationReadiness;
 
   return (
     <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
@@ -335,6 +352,10 @@ function RuleRetryExecutionPlanPreview({ plan }: { plan?: WorkflowRunRuleRetryEx
         <span className="truncate font-mono text-slate-800">{scopeLabel}</span>
         <span className="text-slate-500">blockers</span>
         <span className="truncate font-mono text-slate-800">{compactList(blockers)}</span>
+        <span className="text-slate-500">activation</span>
+        <span className="truncate font-mono text-slate-800">{readinessLabel(activationReadiness)}</span>
+        <span className="text-slate-500">readiness checks</span>
+        <span className="truncate font-mono text-slate-800">{readinessCheckLabel(activationReadiness)}</span>
         {cacheRestore ? (
           <>
             <span className="text-slate-500">cache restore</span>
@@ -388,6 +409,7 @@ function RunResumePlanPreview({ plan }: { plan?: WorkflowRunResumePlan }) {
   const outputAuditLabel = outputAudit
     ? `${outputAudit.reasonCode || "—"} · expected ${outputAudit.expectedOutputCount ?? 0} · present ${outputAudit.existingOutputCount ?? 0} · missing ${outputAudit.missingOutputCount ?? 0} · unsafe ${outputAudit.unsafeOutputCount ?? 0}`
     : "—";
+  const activationReadiness = plan.activationReadiness;
 
   return (
     <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
@@ -420,6 +442,10 @@ function RunResumePlanPreview({ plan }: { plan?: WorkflowRunResumePlan }) {
         <span className="truncate font-mono text-slate-800">{adoption?.reasonCode || "—"}</span>
         <span className="text-slate-500">blockers</span>
         <span className="truncate font-mono text-slate-800">{compactList(blockers)}</span>
+        <span className="text-slate-500">activation</span>
+        <span className="truncate font-mono text-slate-800">{readinessLabel(activationReadiness)}</span>
+        <span className="text-slate-500">readiness checks</span>
+        <span className="truncate font-mono text-slate-800">{readinessCheckLabel(activationReadiness)}</span>
         <span className="text-slate-500">unsafe flags</span>
         <span className="truncate font-mono text-slate-800">{compactList(unsafeFlags)}</span>
       </div>

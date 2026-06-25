@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .execution_activation_readiness import build_rule_retry_activation_readiness
 from .execution_plan_hash import attach_plan_hash
 from .rule_cache_restore_plan import blocked_rule_cache_restore_plan
 from .rule_output_invalidation_plan import blocked_rule_output_invalidation_plan
@@ -49,9 +50,13 @@ def build_rule_retry_execution_plan(
         output_invalidation_plan=resolved_output_invalidation_plan,
     )
     if rule_retry_plan.get("schemaVersion") != RULE_RETRY_PLAN_SCHEMA_VERSION:
-        return _blocked(base, "RULE_RETRY_PLAN_SCHEMA_UNSUPPORTED")
+        return _blocked(base, "RULE_RETRY_PLAN_SCHEMA_UNSUPPORTED", rule_retry_plan=rule_retry_plan)
     if not rule_retry_plan.get("invalidationPlanAvailable"):
-        return _blocked(base, str(rule_retry_plan.get("reasonCode") or "RULE_RETRY_INVALIDATION_PLAN_UNAVAILABLE"))
+        return _blocked(
+            base,
+            str(rule_retry_plan.get("reasonCode") or "RULE_RETRY_INVALIDATION_PLAN_UNAVAILABLE"),
+            rule_retry_plan=rule_retry_plan,
+        )
 
     rules = [rule for rule in rule_retry_plan.get("rules") or [] if isinstance(rule, dict)]
     selected_rules = [rule for rule in rules if _attempt_selected(rule)]
@@ -60,23 +65,30 @@ def build_rule_retry_execution_plan(
         None,
     )
     if blocked_rule is not None:
-        return _blocked(base, str(blocked_rule.get("reasonCode") or "RULE_RETRY_RULE_BLOCKED"))
+        return _blocked(
+            base,
+            str(blocked_rule.get("reasonCode") or "RULE_RETRY_RULE_BLOCKED"),
+            rule_retry_plan=rule_retry_plan,
+        )
     if not selected_rules:
-        return _blocked(base, "RULE_RETRY_NO_SELECTED_RULE_ATTEMPTS")
+        return _blocked(base, "RULE_RETRY_NO_SELECTED_RULE_ATTEMPTS", rule_retry_plan=rule_retry_plan)
     if len(selected_rules) != len(rules):
-        return _blocked(base, "RULE_RETRY_ATTEMPT_SELECTION_INCOMPLETE")
+        return _blocked(base, "RULE_RETRY_ATTEMPT_SELECTION_INCOMPLETE", rule_retry_plan=rule_retry_plan)
 
     try:
         forcerun_rules = normalize_forcerun_rules([_required_rule_name(rule) for rule in selected_rules])
     except WorkflowRuntimeCommandError as exc:
-        return _blocked(base, str(exc).split(":", 1)[0])
+        return _blocked(base, str(exc).split(":", 1)[0], rule_retry_plan=rule_retry_plan)
 
     args_preview = ["--rerun-incomplete", "--forcerun", *forcerun_rules]
-    return attach_plan_hash(
+    return _finalize(
         {
             **base,
             "reasonCode": PARTIAL_RETRY_UNSUPPORTED,
-            "message": "Rule-level retry command options are planned but execution remains disabled until output restoration and adoption policies are proven.",
+            "message": (
+                "Rule-level retry command options are planned but execution remains disabled until output "
+                "restoration and adoption policies are proven."
+            ),
             "commandPreviewAvailable": True,
             "selectedRules": [_rule_ref(rule) for rule in selected_rules],
             "rerunScope": {
@@ -92,7 +104,8 @@ def build_rule_retry_execution_plan(
                 "argsPreview": args_preview,
                 "unsafeFlagsProhibited": UNSAFE_SNAKEMAKE_RULE_RETRY_FLAGS,
             },
-        }
+        },
+        rule_retry_plan=rule_retry_plan,
     )
 
 
@@ -171,12 +184,25 @@ def _base_plan(
     }
 
 
-def _blocked(base: dict[str, Any], reason_code: str) -> dict[str, Any]:
-    return attach_plan_hash(
+def _blocked(base: dict[str, Any], reason_code: str, *, rule_retry_plan: dict[str, Any]) -> dict[str, Any]:
+    return _finalize(
         {
             **base,
             "reasonCode": reason_code,
             "message": f"Rule-level retry execution planning is blocked: {reason_code}.",
+        },
+        rule_retry_plan=rule_retry_plan,
+    )
+
+
+def _finalize(plan: dict[str, Any], *, rule_retry_plan: dict[str, Any]) -> dict[str, Any]:
+    return attach_plan_hash(
+        {
+            **plan,
+            "activationReadiness": build_rule_retry_activation_readiness(
+                rule_retry_plan=rule_retry_plan,
+                execution_plan=plan,
+            ),
         }
     )
 

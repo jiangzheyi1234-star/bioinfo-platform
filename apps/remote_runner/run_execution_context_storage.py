@@ -66,6 +66,11 @@ def fetch_run_execution_context(cfg: RemoteRunnerConfig, run_id: str) -> dict[st
         rule_retry_plan=rule_retry_plan,
         output_invalidation_plan=rule_output_invalidation_plan,
     )
+    rule_retry_execution_plan = build_rule_retry_execution_plan(
+        rule_retry_plan,
+        cache_restore_plan=rule_cache_restore_plan,
+        output_invalidation_plan=rule_output_invalidation_plan,
+    )
     return {
         "schemaVersion": "run-execution-context.v1",
         "runId": run_id,
@@ -86,14 +91,12 @@ def fetch_run_execution_context(cfg: RemoteRunnerConfig, run_id: str) -> dict[st
         "resumeSupported": bool(resume_plan.get("executionEnabled")),
         "resumeEligibility": _resume_eligibility(resume_plan),
         "resumePlan": resume_plan,
+        "resumeActivationReadiness": resume_plan.get("activationReadiness"),
         "ruleRetryPlan": rule_retry_plan,
         "ruleCacheRestorePlan": rule_cache_restore_plan,
         "ruleOutputInvalidationPlan": rule_output_invalidation_plan,
-        "ruleRetryExecutionPlan": build_rule_retry_execution_plan(
-            rule_retry_plan,
-            cache_restore_plan=rule_cache_restore_plan,
-            output_invalidation_plan=rule_output_invalidation_plan,
-        ),
+        "ruleRetryExecutionPlan": rule_retry_execution_plan,
+        "ruleRetryActivationReadiness": rule_retry_execution_plan.get("activationReadiness"),
     }
 
 

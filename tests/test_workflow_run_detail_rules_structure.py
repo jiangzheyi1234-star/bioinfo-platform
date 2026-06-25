@@ -36,6 +36,7 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "logEvidenceReasonCodes?: Record<string, number>" in rules_model
     assert 'from "./workflow-run-execution-model"' in model
     assert "export type WorkflowRunExecutionContext" in model_contract
+    assert "export type WorkflowRunActivationReadiness" in model_contract
     assert "export type WorkflowRunRuleRetryPlan" in model_contract
     assert "export type WorkflowRunRuleRetryExecutionPlan" in model_contract
     assert "export type WorkflowRunRuleCacheRestorePlan" in model_contract
@@ -82,6 +83,8 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "alreadyInvalidatedOutputEdgeCount?: number" in model_contract
     assert "outputInvalidationState?:" in model_contract
     assert "ruleRetryExecutionPlan?: WorkflowRunRuleRetryExecutionPlan" in model_contract
+    assert "ruleRetryActivationReadiness?: WorkflowRunActivationReadiness" in model_contract
+    assert "activationReadiness?: WorkflowRunActivationReadiness" in model_contract
     assert "cacheRestorePlan?: WorkflowRunRuleCacheRestorePlan" in model_contract
     assert "cacheKeyPresent?: boolean" in model_contract
     assert "cacheKeyFingerprint?: string" in model_contract
@@ -99,6 +102,7 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "ownerIdExposed?: boolean" in model_contract
     assert "pinCreationAllowed?: boolean" in model_contract
     assert "resumePlan?: WorkflowRunResumePlan" in model_contract
+    assert "resumeActivationReadiness?: WorkflowRunActivationReadiness" in model_contract
     assert "planHash?: string" in model_contract
     assert "workdirEvidence?:" in model_contract
     assert "incompleteOutputAudit?:" in model_contract
@@ -241,6 +245,12 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "应用失效" in execution_panel
     assert "RuleRetryExecutionPlanPreview" in execution_panel
     assert "RunResumePlanPreview" in execution_panel
+    assert "readinessLabel" in execution_panel
+    assert "readinessCheckLabel" in execution_panel
+    assert "activationReadiness" in execution_panel
+    assert "readiness checks" in execution_panel
+    assert "executionReady?: boolean" in model_contract
+    assert "blockedCheckCount?: number" in model_contract
     assert "outputAuditLabel" in execution_panel
     assert "expected ${outputAudit.expectedOutputCount" in execution_panel
     assert "plan.selectedAttemptCount" in execution_panel

@@ -212,6 +212,10 @@ def test_run_execution_context_previews_snakemake_resume_without_enabling_execut
         "message": context["resumePlan"]["message"],
     }
     assert context["resumePlan"]["schemaVersion"] == "run-resume-plan.v1"
+    assert context["resumeActivationReadiness"] == context["resumePlan"]["activationReadiness"]
+    assert context["resumeActivationReadiness"]["schemaVersion"] == "run-resume-activation-readiness.v1"
+    assert context["resumeActivationReadiness"]["executionReady"] is False
+    assert context["resumeActivationReadiness"]["reasonCode"] == "WORKDIR_REUSE_POLICY_UNPROVEN"
     assert context["resumePlan"]["supported"] is False
     assert context["resumePlan"]["executionEnabled"] is False
     assert context["resumePlan"]["commandPreviewAvailable"] is True
@@ -363,6 +367,10 @@ def test_run_execution_context_reports_rule_retry_downstream_invalidation_plan(t
     assert plan["rules"][0]["downstreamInvalidation"]["rules"][0]["ruleName"] == "report"
     assert [item["ruleName"] for item in plan["rules"][0]["rerunScope"]["rules"]] == ["align", "report"]
     assert execution_plan["schemaVersion"] == "rule-retry-execution-plan.v1"
+    assert context["ruleRetryActivationReadiness"] == execution_plan["activationReadiness"]
+    assert context["ruleRetryActivationReadiness"]["schemaVersion"] == "rule-retry-activation-readiness.v1"
+    assert context["ruleRetryActivationReadiness"]["executionReady"] is False
+    assert context["ruleRetryActivationReadiness"]["reasonCode"] == "DOWNSTREAM_OUTPUT_INVALIDATION_APPLY_REQUIRED"
     assert execution_plan["sourcePlanSchemaVersion"] == "rule-retry-plan.v1"
     assert execution_plan["supported"] is False
     assert execution_plan["eligible"] is False

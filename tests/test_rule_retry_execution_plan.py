@@ -16,6 +16,20 @@ def test_rule_retry_execution_plan_previews_snakemake_forcerun_options_without_e
     assert plan["eligibleNow"] is False
     assert plan["executionEnabled"] is False
     assert plan["executionReasonCode"] == "RULE_RETRY_EXECUTION_DISABLED"
+    assert plan["activationReadiness"]["schemaVersion"] == "rule-retry-activation-readiness.v1"
+    assert plan["activationReadiness"]["executionReady"] is False
+    assert plan["activationReadiness"]["executionEnabled"] is False
+    assert plan["activationReadiness"]["reasonCode"] == "DOWNSTREAM_OUTPUT_INVALIDATION_APPLY_REQUIRED"
+    assert plan["activationReadiness"]["readyCheckCount"] == 2
+    assert plan["activationReadiness"]["blockedCheckCount"] == 9
+    assert plan["activationReadiness"]["summary"]["selectedRuleCount"] == 1
+    assert plan["activationReadiness"]["summary"]["rerunRuleCount"] == 2
+    assert plan["activationReadiness"]["redactionPolicy"] == {
+        "rawIdentifiersExposed": False,
+        "fingerprintsExposed": True,
+        "storageUrisExposed": False,
+        "pathsExposed": False,
+    }
     assert plan["reasonCode"] == "PARTIAL_RULE_RETRY_UNSUPPORTED"
     assert plan["sourceReasonCode"] == "PARTIAL_RULE_RETRY_UNSUPPORTED"
     assert plan["sourceBlockedReasonCodes"] == ["CACHE_ADOPTION_UNPROVEN", "ARTIFACT_ADOPTION_UNPROVEN"]
@@ -65,6 +79,11 @@ def test_rule_retry_execution_plan_drops_output_invalidation_blocker_after_apply
     )
 
     assert plan["executionEnabled"] is False
+    readiness = plan["activationReadiness"]
+    checks = {item["name"]: item for item in readiness["checks"]}
+    assert readiness["executionReady"] is False
+    assert checks["outputInvalidationApplied"]["ready"] is True
+    assert checks["publicMutation"]["reasonCode"] == "RULE_RETRY_MUTATION_API_DISABLED"
     assert "DOWNSTREAM_OUTPUT_INVALIDATION_APPLY_REQUIRED" not in plan["blockedReasonCodes"]
     assert "DOWNSTREAM_OUTPUT_INVALIDATION_APPLY_REQUIRED" not in plan["requiresBeforeExecution"]
     assert "STAGED_FILE_POLICY_UNREPRESENTED" not in plan["blockedReasonCodes"]

@@ -200,6 +200,16 @@ def test_run_observability_routes_record_safe_allow_audit(tmp_path, monkeypatch)
                 "executionEnabled": False,
                 "argsPreview": ["--forcerun", "align"],
             },
+            "ruleRetryActivationReadiness": {
+                "executionReady": False,
+                "blockedCheckCount": 7,
+                "executionEnabled": False,
+            },
+            "resumeActivationReadiness": {
+                "executionReady": False,
+                "blockedCheckCount": 4,
+                "executionEnabled": False,
+            },
         },
     )
     monkeypatch.setattr(
@@ -308,6 +318,12 @@ def test_run_observability_routes_record_safe_allow_audit(tmp_path, monkeypatch)
         "ruleRetryFailedRuleCount": 2,
         "ruleRetrySelectedAttemptCount": 1,
         "ruleRetryExecutionEnabled": False,
+        "ruleRetryActivationReady": False,
+        "ruleRetryActivationBlockedCount": 7,
+        "ruleRetryActivationMutationEnabled": False,
+        "resumeActivationReady": False,
+        "resumeActivationBlockedCount": 4,
+        "resumeActivationMutationEnabled": False,
         "ruleCacheRestorePlanPresent": True,
         "ruleCacheRestorePlanHashPresent": True,
         "ruleCacheRestoreOutputCount": 2,
