@@ -32,6 +32,7 @@ def test_pipeline_artifact_input_submit_contract_is_fail_closed() -> None:
     assert "artifactInputs: selectedArtifactInputs" in submit_body
     assert "storageUri" not in _function_body(run_spec, "buildPipelineRunSpec")
     assert "cacheKey" not in _function_body(run_spec, "buildPipelineRunSpec")
+    assert "artifactKey" not in _function_body(run_spec, "buildPipelineRunSpec")
 
 
 def test_workflow_page_artifact_input_state_and_ui_are_safe() -> None:
@@ -75,6 +76,8 @@ def test_workflow_page_artifact_input_state_and_ui_are_safe() -> None:
     assert "artifactSelectDisabled = !artifactInputRunId || artifactInputLoading || availableArtifactCandidates.length === 0" in picker_body
     assert "artifactInputLabel(artifact)" in picker_body
     assert "artifactInputRunLabel(artifact)" in picker_body
+    assert "const outputLabel = safeArtifactOutputLabel(artifact.artifactKey)" in ui
+    assert 'outputLabel ? `output ${outputLabel}` : ""' in ui
     assert '推荐 ${recommendation.targetRole}' in picker_body
     assert '手动确认 ${recommendation.targetRole}' in picker_body
     assert 'artifact.upstreamRunId ? `from ${shortId(artifact.upstreamRunId)}` : ""' in ui
@@ -89,10 +92,13 @@ def test_artifact_input_role_recommendation_is_advisory_and_safe() -> None:
 
     assert "rankArtifactInputCandidates" in recommendation
     assert "recommendArtifactForRole" in recommendation
+    assert "safeArtifactOutputLabel" in recommendation
     assert 'decision: "recommended" | "manual"' in recommendation
     assert "workflowInputRoleForIndex" in recommendation
     assert 'record.group === "input" || record.kind === "input"' in recommendation
     assert 'score >= 3 ? "recommended" : "manual"' in recommendation
+    assert "artifact.artifactKey" in recommendation
+    assert "output port evidence" in recommendation
     assert "right.recommendation.score - left.recommendation.score ||\n        left.index - right.index" in recommendation
     assert 'roleTokens: ["reads", "read", "sequence", "sequences"],' in recommendation
     assert "storageUri" not in recommendation
@@ -105,8 +111,12 @@ def test_artifact_input_role_recommendation_behavior() -> None:
 
     assert result["metadata"][0]["artifact"]["artifactId"] == "art_metadata"
     assert result["metadata"][0]["recommendation"]["decision"] == "recommended"
+    assert result["portLabel"][0]["artifact"]["artifactId"] == "art_report"
+    assert result["portLabel"][0]["recommendation"]["decision"] == "recommended"
+    assert "output port evidence" in result["portLabel"][0]["recommendation"]["reasons"]
     assert result["reads"][0]["artifact"]["artifactId"] == "art_fastq"
     assert result["reads"][0]["recommendation"]["decision"] == "recommended"
+    assert result["unsafeLabel"][0]["recommendation"]["decision"] == "manual"
     assert [item["artifact"]["artifactId"] for item in result["manual"]] == ["art_z", "art_a"]
     assert all(item["recommendation"]["decision"] == "manual" for item in result["manual"])
 
@@ -178,9 +188,16 @@ const result = {{
     {{ artifactId: "art_fastq", kind: "reads", mimeType: "application/gzip", sizeBytes: 1 }},
     {{ artifactId: "art_metadata", kind: "table", mimeType: "text/tab-separated-values", sizeBytes: 1 }},
   ]),
+  portLabel: rank(workflow(["metadata"]), 0, [
+    {{ artifactId: "art_report", artifactKey: "metadata", kind: "report", mimeType: "text/html", sizeBytes: 1 }},
+    {{ artifactId: "art_plain", kind: "report", mimeType: "text/html", sizeBytes: 1 }},
+  ]),
   reads: rank(workflow(["reads"]), 0, [
     {{ artifactId: "art_table", kind: "table", mimeType: "text/tab-separated-values", sizeBytes: 1 }},
     {{ artifactId: "art_fastq", kind: "reads", mimeType: "application/gzip", sizeBytes: 1 }},
+  ]),
+  unsafeLabel: rank(workflow(["metadata"]), 0, [
+    {{ artifactId: "art_secret", artifactKey: "metadata/secret", kind: "report", mimeType: "text/html", sizeBytes: 1 }},
   ]),
   manual: rank(workflow(["input"]), 0, [
     {{ artifactId: "art_z", kind: "report", mimeType: "text/html", sizeBytes: 1 }},

@@ -30,7 +30,7 @@ import {
   type WorkflowServer,
   type WorkflowUpload,
 } from "./workflows-page-model";
-import { rankArtifactInputCandidates } from "./workflow-artifact-input-recommendation";
+import { rankArtifactInputCandidates, safeArtifactOutputLabel } from "./workflow-artifact-input-recommendation";
 import type { WorkflowArtifactRunInput } from "./workflow-pipeline-run-spec";
 
 export { WorkflowCatalogTable };
@@ -628,8 +628,10 @@ function WorkflowFilePicker({
   );
 }
 
-function artifactInputLabel(artifact: { artifactId?: string; kind?: string; mimeType?: string; sizeBytes?: number; sha256?: string }) {
+function artifactInputLabel(artifact: { artifactId?: string; artifactKey?: string; kind?: string; mimeType?: string; sizeBytes?: number; sha256?: string }) {
+  const outputLabel = safeArtifactOutputLabel(artifact.artifactKey);
   return [
+    outputLabel ? `output ${outputLabel}` : "",
     artifact.kind || "artifact",
     artifact.mimeType || "",
     typeof artifact.sizeBytes === "number" ? `${artifact.sizeBytes} B` : "",

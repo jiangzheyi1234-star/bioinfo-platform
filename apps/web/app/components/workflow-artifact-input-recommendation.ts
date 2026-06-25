@@ -12,7 +12,9 @@ export type RankedWorkflowArtifact<T extends ArtifactInputCandidate> = {
   recommendation: WorkflowArtifactInputRecommendation;
 };
 
-type ArtifactInputCandidate = Pick<WorkflowArtifact, "artifactId" | "kind" | "mimeType" | "sha256" | "sizeBytes">;
+type ArtifactInputCandidate = Pick<WorkflowArtifact, "artifactId" | "kind" | "mimeType" | "sha256" | "sizeBytes"> & {
+  artifactKey?: string;
+};
 
 export function workflowInputRoleForIndex(workflow: WorkflowCatalogItem | null, index: number): string {
   const roles = workflowInputRoles(workflow);
@@ -50,9 +52,17 @@ export function recommendArtifactForRole(
   artifact: ArtifactInputCandidate,
 ): WorkflowArtifactInputRecommendation {
   const roleTokens = tokenSet(targetRole);
-  const artifactTokens = tokenSet([artifact.artifactId, artifact.kind, artifact.mimeType].filter(Boolean).join(" "));
+  const outputLabel = safeArtifactOutputLabel(artifact.artifactKey);
+  const artifactTokens = tokenSet([artifact.artifactId, artifact.kind, artifact.mimeType, outputLabel].filter(Boolean).join(" "));
+  const outputTokens = tokenSet(outputLabel);
   const reasons: string[] = [];
   let score = 0;
+
+  const outputMatches = [...roleTokens].filter((token) => outputTokens.has(token));
+  if (outputMatches.length > 0) {
+    score += 3 + outputMatches.length;
+    reasons.push("output port evidence");
+  }
 
   for (const rule of ROLE_RECOMMENDATION_RULES) {
     if (!rule.roleTokens.some((token) => roleTokens.has(token))) continue;
@@ -111,6 +121,14 @@ function tokenSet(value: string): Set<string> {
 
 function normalizeTokenText(value: string | undefined): string {
   return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+export function safeArtifactOutputLabel(value: string | undefined): string {
+  const label = String(value || "").trim();
+  if (!label || label.length > 80) return "";
+  if (/[\\/\s]/.test(label) || label.includes("://")) return "";
+  if (/secret|token|password|credential|api[_-]?key|access[_-]?key|private/i.test(label)) return "";
+  return /^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(label) ? label : "";
 }
 
 const ROLE_RECOMMENDATION_RULES: Array<{

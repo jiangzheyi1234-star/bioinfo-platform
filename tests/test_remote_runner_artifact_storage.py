@@ -5,11 +5,12 @@ import sqlite3
 
 import pytest
 
-from apps.remote_runner.execution_query_storage import fetch_run_results
+from apps.remote_runner.execution_query_storage import fetch_result, fetch_run_results
 from apps.remote_runner.artifact_ledger_storage import (
     list_artifact_materializations,
     list_lineage_edges_for_run,
     list_run_artifact_edges,
+    record_lineage_edge,
 )
 from apps.remote_runner.evidence_storage import list_evidence_events
 from apps.remote_runner.reconciler import run_active_reconciler_once
@@ -99,6 +100,39 @@ def test_persist_artifact_records_blob_materialization_and_output_edge(tmp_path:
     assert lineage_edges[0]["contentHash"] == artifact["sha256"]
     assert lineage_edges[0]["payload"]["artifactKey"] == "report"
     assert artifact["lineageEdgeId"] == lineage_edges[0]["lineageEdgeId"]
+    assert fetch_run_results(cfg, "run_artifact_ledger")["artifacts"][0]["artifactKey"] == "report"
+    assert fetch_result(cfg, "res_run_artifact_ledger")["artifacts"][0]["artifactKey"] == "report"
+
+
+def test_result_output_label_conflict_fails_loudly(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_artifact_label_conflict")
+    artifact_path = tmp_path / "report.txt"
+    artifact_path.write_text("accepted\n", encoding="utf-8")
+
+    artifact = persist_artifact(
+        cfg,
+        run_id="run_artifact_label_conflict",
+        kind="report",
+        path=artifact_path,
+        mime_type="text/plain",
+        artifact_key="report",
+    )
+    record_lineage_edge(
+        cfg,
+        subject_kind="run",
+        subject_id="run_artifact_label_conflict",
+        predicate="prov:generated",
+        object_kind="artifact_blob",
+        object_id=artifact["artifactBlobId"],
+        run_id="run_artifact_label_conflict",
+        payload={"artifactId": artifact["artifactId"], "artifactKey": "summary"},
+        content_hash=artifact["sha256"],
+        created_at="2099-06-07T10:00:01Z",
+    )
+
+    with pytest.raises(ValueError, match=f"ARTIFACT_OUTPUT_LABEL_CONFLICT: {artifact['artifactId']}"):
+        fetch_run_results(cfg, "run_artifact_label_conflict")
 
 
 def test_persist_artifact_records_materialization_evidence_event(tmp_path: Path) -> None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from .artifact_output_labels import safe_artifact_output_label
 from .config import RemoteRunnerConfig
 from .errors import RemoteRunnerNotFoundError
 from .storage_core import get_connection
@@ -105,8 +106,11 @@ def fetch_run_results(cfg: RemoteRunnerConfig, run_id: str) -> dict[str, Any]:
             "SELECT * FROM artifacts WHERE run_id = ? ORDER BY created_at ASC",
             (run_id,),
         ).fetchall()
-    artifacts = [
-        {
+    lineage_edges = list_lineage_edges_for_run(cfg, run_id)
+    artifact_labels = _output_labels_by_artifact_id(lineage_edges)
+    artifacts = []
+    for row in rows:
+        artifact = {
             "artifactId": row["artifact_id"],
             "runId": row["run_id"],
             "kind": row["kind"],
@@ -122,9 +126,10 @@ def fetch_run_results(cfg: RemoteRunnerConfig, run_id: str) -> dict[str, Any]:
             "gcReason": row["gc_reason"],
             "retentionUntil": row["retention_until"],
         }
-        for row in rows
-    ]
-    lineage_edges = list_lineage_edges_for_run(cfg, run_id)
+        label = artifact_labels.get(str(row["artifact_id"] or ""))
+        if label:
+            artifact["artifactKey"] = label
+        artifacts.append(artifact)
     input_artifacts = input_artifacts_from_lineage(lineage_edges)
     return {
         "runId": run_id,
@@ -182,3 +187,21 @@ def fetch_result(cfg: RemoteRunnerConfig, result_id: str) -> dict[str, Any]:
         "artifacts": results["artifacts"],
         "inputArtifacts": results["inputArtifacts"],
     }
+
+
+def _output_labels_by_artifact_id(lineage_edges: list[dict[str, Any]]) -> dict[str, str]:
+    labels: dict[str, str] = {}
+    for edge in lineage_edges:
+        if edge.get("predicate") != "prov:generated" or edge.get("objectKind") != "artifact_blob":
+            continue
+        payload = edge.get("payload") if isinstance(edge.get("payload"), dict) else {}
+        artifact_id = str(payload.get("artifactId") or "").strip()
+        label = safe_artifact_output_label(payload.get("artifactKey"))
+        if not artifact_id or not label:
+            continue
+        if artifact_id in labels:
+            if label != labels[artifact_id]:
+                raise ValueError(f"ARTIFACT_OUTPUT_LABEL_CONFLICT: {artifact_id}")
+            continue
+        labels[artifact_id] = label
+    return labels

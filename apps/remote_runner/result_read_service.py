@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .artifact_output_labels import safe_artifact_output_label
 from .config import RemoteRunnerConfig
 from .execution_query_storage import fetch_result, fetch_run_results, list_results
 from .governance_audit import record_governance_audit_event
@@ -107,7 +108,13 @@ def public_result_summary(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _public_artifact(item: dict[str, Any]) -> dict[str, Any]:
-    return _without_sensitive_fields(item)
+    public = _without_sensitive_fields(item)
+    label = safe_artifact_output_label(public.get("artifactKey"))
+    if label:
+        public["artifactKey"] = label
+    else:
+        public.pop("artifactKey", None)
+    return public
 
 
 def _public_input_artifact(item: dict[str, Any]) -> dict[str, Any]:

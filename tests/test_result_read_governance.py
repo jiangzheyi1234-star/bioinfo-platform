@@ -111,6 +111,20 @@ def test_result_read_routes_record_safe_allow_audit_and_redact_public_payload(tm
     assert "storageUri" not in public_payload
     assert "resultDir" not in public_payload
     assert "lineageEdges" not in public_payload
+    assert run_results.json()["data"]["artifacts"][0]["artifactKey"] == "report"
+    assert result_detail.json()["data"]["artifacts"][0]["artifactKey"] == "report"
+    unsafe_labels = [
+        "C:/secret/token-output",
+        "s3://bucket/report",
+        "report summary",
+        "api_key_report",
+        "r" * 81,
+    ]
+    for label in unsafe_labels:
+        unsafe = result_read_service.public_run_results(
+            {"artifacts": [{"artifactId": "art_unsafe", "artifactKey": label}]}
+        )
+        assert "artifactKey" not in unsafe["artifacts"][0]
 
     run_audit = list_governance_audit_events(cfg, action="run.results.read")["items"][-1]
     list_audit = list_governance_audit_events(cfg, action="result.list")["items"][-1]
@@ -147,6 +161,7 @@ def _raw_run_results(run_id: str) -> dict:
                 "kind": "report",
                 "path": "C:/secret/results/report.txt",
                 "storageUri": "file:///secret/results/report.txt",
+                "artifactKey": "report",
                 "sizeBytes": 12,
                 "sha256": "a" * 64,
             }
