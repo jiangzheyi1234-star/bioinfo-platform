@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from apps.remote_runner.artifact_ledger_storage import record_artifact_blob_for_path, record_run_artifact_edge
 from apps.remote_runner.run_execution_context_storage import fetch_run_execution_context
 from apps.remote_runner.run_execution_storage import claim_next_run_job, complete_run_attempt
 from apps.remote_runner.rule_execution_storage import upsert_run_rule_state
@@ -283,6 +284,22 @@ def test_run_execution_context_reports_rule_retry_downstream_invalidation_plan(t
         step_id="align",
     )
     _create_run(cfg, "run_rule_retry_plan", workflow_revision_id=revision["workflowRevisionId"])
+    stale_output = _managed_report(cfg, "run_rule_retry_plan", b"stale align output\n")
+    stale_blob = record_artifact_blob_for_path(
+        cfg,
+        path=stale_output,
+        media_type="text/plain",
+        created_at="2099-06-07T09:59:00Z",
+    )
+    record_run_artifact_edge(
+        cfg,
+        run_id="run_rule_retry_plan",
+        artifact_blob_id=stale_blob["artifactBlobId"],
+        role="output",
+        port_name="report",
+        step_id="align",
+        created_at="2099-06-07T09:59:01Z",
+    )
     claim = claim_next_run_job(
         cfg,
         worker_id="worker_rule_retry",
@@ -309,6 +326,7 @@ def test_run_execution_context_reports_rule_retry_downstream_invalidation_plan(t
 
     plan = context["ruleRetryPlan"]
     cache_restore_plan = context["ruleCacheRestorePlan"]
+    output_invalidation_plan = context["ruleOutputInvalidationPlan"]
     execution_plan = context["ruleRetryExecutionPlan"]
     assert plan["schemaVersion"] == "rule-retry-plan.v1"
     assert plan["supported"] is False
@@ -374,6 +392,20 @@ def test_run_execution_context_reports_rule_retry_downstream_invalidation_plan(t
     assert restore_rule["outputs"][0]["cacheEntry"]["artifactId"] == cached_artifact["artifactId"]
     assert restore_rule["outputs"][0]["restoreTarget"]["pathExposed"] is False
     assert "storageUri" not in json.dumps(cache_restore_plan, sort_keys=True)
+    assert output_invalidation_plan["schemaVersion"] == "rule-output-invalidation-plan.v1"
+    assert output_invalidation_plan["sideEffectFree"] is True
+    assert output_invalidation_plan["invalidationEnabled"] is False
+    assert output_invalidation_plan["pathExposed"] is False
+    assert output_invalidation_plan["storageReferenceExposed"] is False
+    assert output_invalidation_plan["outputEdgeSummary"]["outputEdgeCount"] == 1
+    assert output_invalidation_plan["outputEdgeSummary"]["invalidatedOutputEdgeCount"] == 1
+    assert output_invalidation_plan["outputEdgeSummary"]["selectedOutputEdgeCount"] == 1
+    assert output_invalidation_plan["outputEdgeSummary"]["preservedOutputEdgeCount"] == 0
+    assert output_invalidation_plan["rules"][0]["ruleName"] == "align"
+    assert output_invalidation_plan["rules"][0]["outputs"][0]["portName"] == "report"
+    assert output_invalidation_plan["rules"][0]["outputs"][0]["wouldDeletePayload"] is False
+    assert "storageUri" not in json.dumps(output_invalidation_plan, sort_keys=True)
+    assert execution_plan["outputInvalidationPlan"] == output_invalidation_plan
     with get_connection(cfg) as connection:
         entry = connection.execute("SELECT hit_count FROM artifact_cache_entries WHERE artifact_id = ?", (cached_artifact["artifactId"],)).fetchone()
         lookup_events = connection.execute(

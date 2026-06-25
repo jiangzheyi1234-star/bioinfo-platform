@@ -144,6 +144,8 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "context.ruleRetryExecutionPlan" in execution_panel
     assert "context.resumePlan" in execution_panel
     assert "RuleRetryPlanSummary" in execution_panel
+    assert "ruleOutputInvalidationPlan" in execution_panel
+    assert "RuleOutputInvalidationPlanPreview" in execution_panel
     assert "RuleRetryExecutionPlanPreview" in execution_panel
     assert "RunResumePlanPreview" in execution_panel
     assert "outputAuditLabel" in execution_panel
@@ -154,6 +156,8 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "规则级重试计划仅供诊断" in execution_panel
     assert "当前重试按钮会重新调度整个 run" in execution_panel
     assert "rule retry execution plan" in execution_panel
+    assert "output invalidation plan" in execution_panel
+    assert "payload delete" in execution_panel
     assert "run resume plan" in execution_panel
     assert "workdir evidence" in execution_panel
     assert "output audit" in execution_panel

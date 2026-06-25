@@ -7,6 +7,7 @@ from .execution_policy import retry_policy_from_job, timeout_policy_from_job
 from .execution_query_storage import require_run
 from .execution_resume_plan import build_run_resume_plan
 from .rule_cache_restore_plan import build_rule_cache_restore_plan
+from .rule_output_invalidation_plan import build_rule_output_invalidation_plan
 from .rule_retry_execution_plan import build_rule_retry_execution_plan
 from .rule_retry_plan import build_rule_retry_plan
 from .storage_core import get_connection, now_iso
@@ -59,6 +60,11 @@ def fetch_run_execution_context(cfg: RemoteRunnerConfig, run_id: str) -> dict[st
         run=run,
         rule_retry_plan=rule_retry_plan,
     )
+    rule_output_invalidation_plan = build_rule_output_invalidation_plan(
+        cfg,
+        run=run,
+        rule_retry_plan=rule_retry_plan,
+    )
     return {
         "schemaVersion": "run-execution-context.v1",
         "runId": run_id,
@@ -81,9 +87,11 @@ def fetch_run_execution_context(cfg: RemoteRunnerConfig, run_id: str) -> dict[st
         "resumePlan": resume_plan,
         "ruleRetryPlan": rule_retry_plan,
         "ruleCacheRestorePlan": rule_cache_restore_plan,
+        "ruleOutputInvalidationPlan": rule_output_invalidation_plan,
         "ruleRetryExecutionPlan": build_rule_retry_execution_plan(
             rule_retry_plan,
             cache_restore_plan=rule_cache_restore_plan,
+            output_invalidation_plan=rule_output_invalidation_plan,
         ),
     }
 

@@ -121,6 +121,37 @@ type RuleCacheRestorePlanPreview = {
   };
 };
 
+type RuleOutputInvalidationPlanPreview = {
+  schemaVersion?: string;
+  reasonCode?: string;
+  previewAvailable?: boolean;
+  blockedReasonCodes?: string[];
+  outputEdgeSummary?: {
+    outputEdgeCount?: number;
+    invalidatedOutputEdgeCount?: number;
+    selectedOutputEdgeCount?: number;
+    downstreamOutputEdgeCount?: number;
+    preservedOutputEdgeCount?: number;
+    unmatchedOutputEdgeCount?: number;
+    invalidatedLineageEdgeCount?: number;
+    payloadDeletionAllowed?: boolean;
+    lineageMutationAllowed?: boolean;
+  };
+  rules?: Array<
+    WorkflowRunRuleRetryPlanRuleRef & {
+      invalidationRole?: string;
+      outputEdgeCount?: number;
+      lineageEdgeCount?: number;
+      outputs?: Array<{
+        portName?: string;
+        stepId?: string;
+        lineageEdgeCount?: number;
+        wouldDeletePayload?: boolean;
+      }>;
+    }
+  >;
+};
+
 function RuleRetryPlanSummary({ context }: { context: WorkflowRunExecutionContext }) {
   const plan = context.ruleRetryPlan;
   if (!plan || !plan.failedRuleCount) return null;
@@ -171,6 +202,51 @@ function RuleRetryPlanSummary({ context }: { context: WorkflowRunExecutionContex
         <span className="truncate font-mono">{downstreamLabel}</span>
         <span className="text-amber-700">rerun scope</span>
         <span className="truncate font-mono">{scopeLabel}</span>
+      </div>
+    </div>
+  );
+}
+
+function RuleOutputInvalidationPlanPreview({ plan }: { plan?: RuleOutputInvalidationPlanPreview }) {
+  if (!plan?.previewAvailable) return null;
+  const summary = plan.outputEdgeSummary || {};
+  const impactedOutputs = (plan.rules || [])
+    .flatMap((rule) => rule.outputs || [])
+    .map((output) => output.portName || output.stepId || "")
+    .filter(Boolean);
+  const selectedRules = (plan.rules || []).filter((rule) => rule.invalidationRole === "selected_failed_rule");
+  const downstreamRules = (plan.rules || []).filter((rule) => rule.invalidationRole === "downstream_rule");
+
+  return (
+    <div className="mt-3 rounded-md border border-sky-200 bg-sky-50/70 px-3 py-2 text-xs text-sky-900">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <ShieldCheck strokeWidth={1.5} className="h-3.5 w-3.5 shrink-0" />
+          <span className="font-medium">output invalidation plan</span>
+          <span className="truncate font-mono text-[11px] text-sky-700">{plan.schemaVersion || "rule-output-invalidation-plan"}</span>
+        </div>
+        <span className="rounded border border-sky-300 bg-white/60 px-1.5 py-0.5 font-mono text-[11px] text-sky-800">
+          preview only
+        </span>
+      </div>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+        <ExecutionMetric label="invalidated" value={String(summary.invalidatedOutputEdgeCount || 0)} />
+        <ExecutionMetric label="selected" value={String(summary.selectedOutputEdgeCount || selectedRules.length)} />
+        <ExecutionMetric label="downstream" value={String(summary.downstreamOutputEdgeCount || downstreamRules.length)} />
+        <ExecutionMetric label="lineage" value={String(summary.invalidatedLineageEdgeCount || 0)} />
+        <ExecutionMetric label="reason" value={plan.reasonCode || "—"} />
+      </div>
+      <div className="mt-2 grid gap-1 text-[11px] sm:grid-cols-[116px_minmax(0,1fr)]">
+        <span className="text-sky-700">outputs</span>
+        <span className="truncate font-mono">{compactList(impactedOutputs)}</span>
+        <span className="text-sky-700">preserved</span>
+        <span className="truncate font-mono">{String(summary.preservedOutputEdgeCount || 0)}</span>
+        <span className="text-sky-700">unmatched</span>
+        <span className="truncate font-mono">{String(summary.unmatchedOutputEdgeCount || 0)}</span>
+        <span className="text-sky-700">payload delete</span>
+        <span className="truncate font-mono">{summary.payloadDeletionAllowed ? "enabled" : "disabled"}</span>
+        <span className="text-sky-700">blockers</span>
+        <span className="truncate font-mono">{compactList(plan.blockedReasonCodes)}</span>
       </div>
     </div>
   );
@@ -315,6 +391,9 @@ export function WorkflowRunExecutionContextPanel({
   const lease = context.activeLease || context.currentLease;
   const retryReason = context.retryEligibility?.reasonCode || "RUN_RETRY_UNAVAILABLE";
   const retryEnabled = Boolean(context.retryEligibility?.eligibleNow && onRetryRun);
+  const outputInvalidationPlan = (context as WorkflowRunExecutionContext & {
+    ruleOutputInvalidationPlan?: RuleOutputInvalidationPlanPreview;
+  }).ruleOutputInvalidationPlan;
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4">
@@ -393,6 +472,7 @@ export function WorkflowRunExecutionContextPanel({
       </div>
       <RunResumePlanPreview plan={context.resumePlan} />
       <RuleRetryPlanSummary context={context} />
+      <RuleOutputInvalidationPlanPreview plan={outputInvalidationPlan} />
       <RuleRetryExecutionPlanPreview plan={context.ruleRetryExecutionPlan} />
     </div>
   );
