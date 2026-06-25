@@ -18,6 +18,8 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     execution_panel = _component_source("workflow-run-execution-context.tsx")
     rule_failure_diagnostics = _component_source("workflow-rule-failure-diagnostics.tsx")
     rule_log_evidence = _component_source("workflow-rule-log-evidence.tsx")
+    rules_panel = _component_source("workflow-run-rules-panel.tsx")
+    rules_model = _component_source("workflow-run-rules-model.ts")
     package_panel = _component_source("workflow-result-package-panel.tsx")
     package_state = _component_source("workflow-result-package-state.ts")
     dag_preview = _component_source("workflow-dag-preview.tsx")
@@ -26,6 +28,9 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "export type WorkflowRunRuleEvent" in model
     assert "export type WorkflowRunRule" in model
     assert "export type WorkflowRunRules" in model
+    assert "export type WorkflowRunRulesSummary" in rules_model
+    assert "statusCounts?: Record<string, number>" in rules_model
+    assert "logEvidenceReasonCodes?: Record<string, number>" in rules_model
     assert "export type WorkflowRunExecutionContext" in model
     assert "export type WorkflowRunRuleRetryPlan" in model
     assert "export type WorkflowRunRuleRetryExecutionPlan" in model
@@ -48,6 +53,7 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "packagePath?: string" not in model
     assert "packageUri?: string" not in model
     assert "rules?: WorkflowRunRules" in model
+    assert 'summary?: import("./workflow-run-rules-model").WorkflowRunRulesSummary' in model
     assert "executionContext?: WorkflowRunExecutionContext" in model
     assert "failureLocator?: WorkflowRunFailureLocator" in model
     assert "ruleLogContext?: WorkflowRunRuleLogContext" in model
@@ -121,7 +127,7 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert '{ key: "rules", label: "规则" }' in panel
     assert "WorkflowRunExecutionContextPanel" in panel
     assert "WorkflowResultPackagePanel" in panel
-    assert "WorkflowRuleLogEvidence" in panel
+    assert "WorkflowRunRulesPanel" in panel
     assert "function RunInputArtifacts" in panel
     assert "inputArtifacts={inputArtifacts}" in panel
     assert "输入 lineage" in panel
@@ -132,20 +138,24 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "ruleRetryPlan" not in panel
     assert "resultId={detail.results?.resultId}" in panel
     assert "workflowRevisionId={workflowRevisionId}" in panel
-    assert "function RunRules" in panel
+    assert "export function WorkflowRunRulesPanel" in rules_panel
+    assert "RunRulesSummary" in rules_panel
+    assert "rulesModel?.summary" in rules_panel
+    assert "rulesWithAvailableLogEvidence" in rules_panel
+    assert "logEvidenceReasonCodes" in rules_panel
     assert "detail.rules?.items || []" in panel
     assert "WorkflowRunAttemptsPanel" in panel
     assert "onAttemptsLoaded={setRunAttempts}" in panel
-    assert "<RunRules attempts={runAttempts} rules={rules} rulesModel={detail.rules} />" in panel
+    assert "<WorkflowRunRulesPanel attempts={runAttempts} rules={rules} rulesModel={detail.rules} />" in panel
     assert "WorkflowRuleFailureDiagnostics" in panel
     assert "failureLocator={detail.failureLocator}" in panel
     assert "failureLocator?.failedRule?.runRuleId" in panel
     assert "failureLocator?.logContext?.stderrTail" in panel
     assert "ruleLogContext={failureLocator?.ruleLogContext}" in panel
     assert "失败 rule：" in panel
-    assert "rule.attemptNumber" in panel
-    assert "rule.leaseGeneration" in panel
-    assert "rule.events || []" in panel
+    assert "rule.attemptNumber" in rules_panel
+    assert "rule.leaseGeneration" in rules_panel
+    assert "rule.events || []" in rules_panel
     assert "失败定位" in rule_failure_diagnostics
     assert "log refs" in rule_failure_diagnostics
     assert "logs.slice(0, 4).join" not in rule_failure_diagnostics
@@ -163,9 +173,13 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "storageUri" not in rule_log_evidence
     assert ".path" not in rule_log_evidence
     assert "rule.commandSummary" not in panel
-    assert "commandSummaryExposed" in panel
+    assert "rule.commandSummary" not in rules_panel
+    assert "commandSummaryExposed" in rules_panel
     assert "RuleValueList" not in panel
-    assert "RuleCountList" in panel
+    assert "RuleValueList" not in rules_panel
+    assert "RuleCountList" in rules_panel
+    assert "storageUri" not in rules_panel
+    assert ".path" not in rules_panel
     assert "context.ruleRetryPlan" in execution_panel
     assert "context.ruleRetryExecutionPlan" in execution_panel
     assert "context.resumePlan" in execution_panel
@@ -202,6 +216,8 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "retryRule" not in rule_failure_diagnostics
     assert "onRetryRule" not in dag_preview
     assert "retryRule" not in dag_preview
+    assert "onRetryRule" not in rules_panel
+    assert "retryRule" not in rules_panel
 
     assert "export function WorkflowResultPackagePanel" in package_panel
     assert "fetchWorkflowResultPackageExports(resultId)" in package_panel

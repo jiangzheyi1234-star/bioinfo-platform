@@ -109,6 +109,25 @@ def test_public_run_rules_project_log_evidence_without_raw_paths_or_commands(tmp
     rules = fetch_public_run_rules(cfg, "run_failure_locator")
 
     assert rules["schemaVersion"] == "run-rules.v1"
+    assert rules["summary"] == {
+        "schemaVersion": "run-rules-summary.v1",
+        "ruleCount": 1,
+        "ruleEventCount": 1,
+        "statusCounts": {"failed": 1},
+        "failedRuleCount": 1,
+        "runningRuleCount": 0,
+        "blockedRuleCount": 0,
+        "rulesWithAttemptMetadata": 1,
+        "inputReferenceCount": 1,
+        "outputReferenceCount": 1,
+        "logReferenceCount": 1,
+        "rulesWithLogReferences": 1,
+        "rulesWithAvailableLogEvidence": 1,
+        "rulesWithPathOnlyLogEvidence": 0,
+        "rulesWithUnavailableLogEvidence": 0,
+        "logEvidenceStatusCounts": {"available": 1},
+        "logEvidenceReasonCodes": {"PREVIEW_AVAILABLE": 1},
+    }
     assert rules["redactionPolicy"] == {
         "artifactPathsExposed": False,
         "storageUrisExposed": False,

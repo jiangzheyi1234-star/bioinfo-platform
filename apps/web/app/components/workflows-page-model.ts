@@ -241,6 +241,7 @@ export type WorkflowRunRule = {
 export type WorkflowRunRules = {
   schemaVersion?: string;
   runId?: string;
+  summary?: import("./workflow-run-rules-model").WorkflowRunRulesSummary;
   redactionPolicy?: {
     artifactPathsExposed?: boolean;
     storageUrisExposed?: boolean;
