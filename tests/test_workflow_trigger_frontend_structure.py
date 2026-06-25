@@ -29,6 +29,7 @@ def test_trigger_events_have_read_only_frontend_surface() -> None:
     assert "WorkflowTriggerDispatch" in model
     assert "WorkflowTriggerInboxEvent" in model
     assert "WorkflowTriggerInboxReplayResult" in model
+    assert "WorkflowTriggerEventSubmitResult" in model
     assert "WorkflowTriggerReadinessObservation" in model
     assert "WorkflowTriggerReadinessObservationResponse" in model
     assert "WorkflowRunAdmissionSummary" in model
@@ -43,12 +44,16 @@ def test_trigger_events_have_read_only_frontend_surface() -> None:
     assert "fetchWorkflowTriggerEvents" in api
     assert "fetchWorkflowTriggerInboxEvents" in api
     assert "replayWorkflowTriggerInboxEvent" in api
+    assert "submitManualWorkflowTriggerEvent" in api
     assert "fetchWorkflowTriggerReadinessObservation" in api
     assert "WORKFLOW_TRIGGER_READINESS_OBSERVATION_CACHE_KEY" in api
     assert "/api/v1/workflow-triggers" in api
     assert "/readiness-observation" in api
     assert "/inbox" in api
     assert "/replay" in api
+    assert "`/api/v1/workflow-triggers/${encodeURIComponent(normalizedTriggerId)}/events`" in api
+    assert 'eventType: "manual"' in api
+    assert "manual:web-ui:" in api
     assert 'confirmation: "replay-dead-lettered-inbox-event"' in api
     assert "invalidateAsyncCachePrefix(WORKFLOW_TRIGGER_EVENTS_CACHE_KEY)" in api
     assert "invalidateAsyncCachePrefix(WORKFLOW_TRIGGER_INBOX_CACHE_KEY)" in api
@@ -63,6 +68,8 @@ def test_trigger_events_have_read_only_frontend_surface() -> None:
     assert "fetchWorkflowTriggerInboxEvents(selectedTriggerId" in page
     assert "fetchWorkflowTriggerReadinessObservation(selectedTriggerId" in page
     assert "replayWorkflowTriggerInboxEvent(selectedTriggerId, inboxEventId)" in page
+    assert "submitManualWorkflowTriggerEvent(triggerId)" in page
+    assert "submittingManualTriggerId" in page
     assert "void loadInbox(true)" in page
     assert "readinessObservation={readinessObservation}" in page
     assert "isReadinessSource" in page
@@ -70,6 +77,13 @@ def test_trigger_events_have_read_only_frontend_surface() -> None:
     assert 'href="/workflows/results/triggers"' in results
     assert "RunSummary" in panel
     assert "WorkflowTriggerInboxPanel" in panel
+    assert "ManualTriggerRunControl" in panel
+    assert 'trigger.sourceType === "manual"' in panel
+    assert "onSubmitManualTrigger(trigger.triggerId)" in panel
+    assert "确认提交 manual trigger" in panel
+    assert "immutable trigger event" in panel
+    assert "定义已禁用，不能提交运行" in panel
+    assert "立即运行" in panel
     assert "ReadinessObservationPanel" in panel
     assert "inboxEvents={inboxEvents}" in panel
     assert "readinessObservation={readinessObservation}" in panel
@@ -131,11 +145,14 @@ def test_trigger_events_have_read_only_frontend_surface() -> None:
 
     forbidden_controls = (
         "createWorkflowTrigger",
-        "submitWorkflowTrigger",
         "pauseTrigger",
         "suspendTrigger",
         "catchup",
         "concurrencyPolicy",
+        "submitCronTrigger",
+        "submitWebhookTrigger",
+        "submitReadinessTrigger",
+        "launchBackfill",
         "replayAll",
         "bulkReplay",
         "raw payload",

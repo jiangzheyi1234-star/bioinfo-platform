@@ -6,6 +6,8 @@ import { requestLocalApiJson } from "@/app/lib/local-api-client";
 import type {
   WorkflowTriggerEventList,
   WorkflowTriggerEventListResponse,
+  WorkflowTriggerEventSubmitResponse,
+  WorkflowTriggerEventSubmitResult,
   WorkflowTriggerInboxEventList,
   WorkflowTriggerInboxEventListResponse,
   WorkflowTriggerInboxReplayResponse,
@@ -152,6 +154,35 @@ export async function replayWorkflowTriggerInboxEvent(
   );
   invalidateAsyncCachePrefix(WORKFLOW_TRIGGER_EVENTS_CACHE_KEY);
   invalidateAsyncCachePrefix(WORKFLOW_TRIGGER_INBOX_CACHE_KEY);
+  return response.data;
+}
+
+export async function submitManualWorkflowTriggerEvent(
+  triggerId: string
+): Promise<WorkflowTriggerEventSubmitResult> {
+  const normalizedTriggerId = triggerId.trim();
+  if (!normalizedTriggerId) {
+    throw new Error("WORKFLOW_TRIGGER_ID_REQUIRED");
+  }
+  const idempotencyKey = `manual:web-ui:${normalizedTriggerId}:${new Date().toISOString()}`;
+  const response = await requestLocalApiJson<WorkflowTriggerEventSubmitResponse>(
+    "POST",
+    `/api/v1/workflow-triggers/${encodeURIComponent(normalizedTriggerId)}/events`,
+    {
+      body: {
+        eventType: "manual",
+        idempotencyKey,
+        payload: {
+          eventContext: {
+            source: "web-ui",
+            eventId: idempotencyKey,
+          },
+        },
+      },
+      cache: "no-store",
+    }
+  );
+  invalidateAsyncCachePrefix(WORKFLOW_TRIGGER_EVENTS_CACHE_KEY);
   return response.data;
 }
 

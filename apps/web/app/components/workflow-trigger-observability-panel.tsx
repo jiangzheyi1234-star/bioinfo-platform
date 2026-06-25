@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import {
   Activity,
@@ -7,12 +8,14 @@ import {
   ArrowRight,
   CheckCircle2,
   Loader2,
+  PlayCircle,
   RefreshCw,
   ToggleLeft,
 } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 import type {
@@ -37,10 +40,12 @@ export function WorkflowTriggerObservabilityPanel({
   onRefresh,
   onReplayInboxEvent,
   onSelectTrigger,
+  onSubmitManualTrigger,
   readinessObservation,
   replayingInboxEventId,
   selectedTrigger,
   selectedTriggerId,
+  submittingManualTriggerId,
   triggers,
 }: {
   error: string;
@@ -53,10 +58,12 @@ export function WorkflowTriggerObservabilityPanel({
   onRefresh: () => void;
   onReplayInboxEvent: (inboxEventId: string) => void;
   onSelectTrigger: (triggerId: string) => void;
+  onSubmitManualTrigger: (triggerId: string) => void;
   readinessObservation: WorkflowTriggerReadinessObservation | null;
   replayingInboxEventId: string;
   selectedTrigger: WorkflowTrigger | null;
   selectedTriggerId: string;
+  submittingManualTriggerId: string;
   triggers: WorkflowTrigger[];
 }) {
   return (
@@ -116,8 +123,10 @@ export function WorkflowTriggerObservabilityPanel({
                 inboxEvents={inboxEvents}
                 inboxLoading={inboxLoading}
                 onReplayInboxEvent={onReplayInboxEvent}
+                onSubmitManualTrigger={onSubmitManualTrigger}
                 readinessObservation={readinessObservation}
                 replayingInboxEventId={replayingInboxEventId}
+                submittingManualTriggerId={submittingManualTriggerId}
               />
             ) : (
               <div className="py-12 text-center text-sm text-slate-400">选择一个触发器</div>
@@ -179,8 +188,10 @@ function TriggerDetail({
   inboxEvents,
   inboxLoading,
   onReplayInboxEvent,
+  onSubmitManualTrigger,
   readinessObservation,
   replayingInboxEventId,
+  submittingManualTriggerId,
   trigger,
 }: {
   events: WorkflowTriggerEvent[];
@@ -188,12 +199,15 @@ function TriggerDetail({
   inboxEvents: WorkflowTriggerInboxEvent[];
   inboxLoading: boolean;
   onReplayInboxEvent: (inboxEventId: string) => void;
+  onSubmitManualTrigger: (triggerId: string) => void;
   readinessObservation: WorkflowTriggerReadinessObservation | null;
   replayingInboxEventId: string;
+  submittingManualTriggerId: string;
   trigger: WorkflowTrigger;
 }) {
   const isWebhook = trigger.sourceType === "webhook";
   const isReadiness = isReadinessSourceType(trigger.sourceType);
+  const isManual = trigger.sourceType === "manual";
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -211,6 +225,14 @@ function TriggerDetail({
         <LabelValue label={triggerSpecLabel(trigger)} value={triggerSpecSummary(trigger)} />
         <LabelValue label="Resource" value={triggerResourceLabel(trigger)} />
       </div>
+
+      {isManual ? (
+        <ManualTriggerRunControl
+          submitting={submittingManualTriggerId === trigger.triggerId}
+          trigger={trigger}
+          onSubmitManualTrigger={onSubmitManualTrigger}
+        />
+      ) : null}
 
       {isWebhook ? (
         <WorkflowTriggerInboxPanel
@@ -233,6 +255,73 @@ function TriggerDetail({
       ) : (
         <EventTable events={events} />
       )}
+    </div>
+  );
+}
+
+function ManualTriggerRunControl({
+  onSubmitManualTrigger,
+  submitting,
+  trigger,
+}: {
+  onSubmitManualTrigger: (triggerId: string) => void;
+  submitting: boolean;
+  trigger: WorkflowTrigger;
+}) {
+  const [open, setOpen] = useState(false);
+  const disabled = !trigger.enabled || submitting;
+  function confirmRun() {
+    onSubmitManualTrigger(trigger.triggerId);
+    setOpen(false);
+  }
+  return (
+    <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-xs font-medium text-blue-900">Manual trigger</div>
+          <div className="mt-1 truncate text-xs text-blue-700">
+            {trigger.enabled ? "通过统一 trigger event 路径提交一次运行" : "定义已禁用，不能提交运行"}
+          </div>
+        </div>
+        <Button
+          type="button"
+          className="h-8 bg-blue-600 px-3 text-xs text-white hover:bg-blue-700"
+          disabled={disabled}
+          onClick={() => setOpen(true)}
+        >
+          {submitting ? (
+            <Loader2 strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <PlayCircle strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5" />
+          )}
+          立即运行
+        </Button>
+      </div>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-base">确认提交 manual trigger</DialogTitle>
+            <DialogDescription className="text-xs">
+              本次操作会创建一个 immutable trigger event，并通过现有 run admission 路径提交运行。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            <LabelValue label="Trigger" value={trigger.triggerId} />
+            <LabelValue label="Pipeline" value={trigger.pipelineId || "—"} />
+            <LabelValue label="RunSpec" value={triggerRunSpecLabel(trigger)} />
+          </div>
+          <div className="flex justify-end gap-2">
+            <DialogClose asChild>
+              <Button type="button" variant="ghost" className="h-8 px-3 text-xs">
+                取消
+              </Button>
+            </DialogClose>
+            <Button type="button" className="h-8 bg-blue-600 px-3 text-xs text-white hover:bg-blue-700" onClick={confirmRun}>
+              提交运行
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

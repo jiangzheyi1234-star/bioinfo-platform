@@ -179,6 +179,13 @@ export type WorkflowTriggerInboxReplayResult = {
   replayed?: boolean;
 };
 
+export type WorkflowTriggerEventSubmitResult = {
+  schemaVersion?: string;
+  event?: WorkflowTriggerEvent;
+  run?: WorkflowTriggerDispatchRun;
+  submitted?: boolean;
+};
+
 export type WorkflowTriggerListResponse = {
   data: WorkflowTriggerList;
 };
@@ -193,4 +200,8 @@ export type WorkflowTriggerInboxEventListResponse = {
 
 export type WorkflowTriggerInboxReplayResponse = {
   data: WorkflowTriggerInboxReplayResult;
+};
+
+export type WorkflowTriggerEventSubmitResponse = {
+  data: WorkflowTriggerEventSubmitResult;
 };

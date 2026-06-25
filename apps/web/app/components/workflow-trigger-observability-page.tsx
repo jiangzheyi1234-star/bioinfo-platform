@@ -15,6 +15,7 @@ import {
   fetchWorkflowTriggerReadinessObservation,
   fetchWorkflowTriggers,
   replayWorkflowTriggerInboxEvent,
+  submitManualWorkflowTriggerEvent,
 } from "./workflow-trigger-api";
 import { WorkflowTriggerObservabilityPanel } from "./workflow-trigger-observability-panel";
 import type {
@@ -38,6 +39,7 @@ export function WorkflowTriggerObservabilityPage() {
   const [loading, setLoading] = useState(true);
   const [eventsLoading, setEventsLoading] = useState(false);
   const [inboxLoading, setInboxLoading] = useState(false);
+  const [submittingManualTriggerId, setSubmittingManualTriggerId] = useState("");
   const [replayingInboxEventId, setReplayingInboxEventId] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -189,6 +191,22 @@ export function WorkflowTriggerObservabilityPage() {
     }
   }
 
+  async function submitManualTrigger(triggerId: string) {
+    if (!triggerId || submittingManualTriggerId) return;
+    setSubmittingManualTriggerId(triggerId);
+    setEventError("");
+    setNotice("");
+    try {
+      const result = await submitManualWorkflowTriggerEvent(triggerId);
+      setNotice(result.run?.runId ? `已提交 manual trigger，关联运行 ${result.run.runId}` : "已提交 manual trigger");
+      await Promise.all([loadEvents(true), loadTriggers(true)]);
+    } catch (err) {
+      setEventError(workflowErrorMessage(err, "提交 manual trigger 失败"));
+    } finally {
+      setSubmittingManualTriggerId("");
+    }
+  }
+
   return (
     <div className="relative flex-1 h-full w-full overflow-y-auto bg-white px-8 py-10 text-slate-800">
       <div className="mx-auto max-w-6xl space-y-6">
@@ -226,10 +244,12 @@ export function WorkflowTriggerObservabilityPage() {
             onRefresh={refresh}
             onReplayInboxEvent={replayInboxEvent}
             onSelectTrigger={selectTrigger}
+            onSubmitManualTrigger={submitManualTrigger}
             readinessObservation={readinessObservation}
             replayingInboxEventId={replayingInboxEventId}
             selectedTrigger={selectedTrigger}
             selectedTriggerId={selectedTriggerId}
+            submittingManualTriggerId={submittingManualTriggerId}
             triggers={triggers}
           />
         )}

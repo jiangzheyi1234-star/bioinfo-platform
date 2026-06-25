@@ -298,6 +298,7 @@ Progress:
 - Cron trigger definitions now fail closed at creation time through a shared scheduler contract: trigger specs must declare one five-field cron expression, an explicit valid IANA timezone, and only an optional object payload; malformed legacy rows remain runtime-blocked without dispatch.
 - Result package export evidence now records safe trigger provenance for triggered runs. The manifest, RO-Crate run action, and `result.export.v1` evidence link the run back to the immutable trigger event, dispatch request, optional webhook inbox delivery, and optional backfill partition/window without exporting raw trigger payloads, raw request bodies, signature header values, or secret references.
 - Run detail now exposes the same safe trigger provenance read model used by result package export. Triggered runs show source, cursor, immutable trigger event, dispatch idempotency/request context, optional backfill partition window, and optional webhook inbox signature/raw-body hash metadata while keeping raw trigger payloads, request bodies, signature header values, and replay/dead-letter controls out of the run detail surface.
+- Manual trigger definitions now have a confirmation-gated UI action that submits exactly one manual trigger event through the existing immutable trigger event, run admission, run creation, and provenance path. Cron catchup, webhook generic dispatch, readiness push, backfill launch, trigger creation, and pause/resume controls remain outside this observability surface.
 
 Recommended sequence:
 
