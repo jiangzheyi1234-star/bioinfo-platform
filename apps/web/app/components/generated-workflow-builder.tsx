@@ -465,7 +465,13 @@ function WorkflowGraphWorkbench({
             {edges.length === 0 ? (
               <div className="rounded-md bg-white px-3 py-2 text-xs text-slate-500">节点之间还没有显式连线。</div>
             ) : edges.map((edge) => (
-              <div key={edge.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md bg-white px-3 py-2">
+              <div
+                key={edge.id}
+                className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md bg-white px-3 py-2"
+                data-testid="workflow-graph-edge-row"
+                data-workflow-edge-audit-source={edge.audit?.source || "none"}
+                data-workflow-edge-id={edge.id}
+              >
                 <div className="min-w-0">
                   <div className="font-mono text-xs text-slate-700">
                     <span className="break-all">{edge.from.nodeId}.{edge.from.port}</span>
@@ -478,6 +484,8 @@ function WorkflowGraphWorkbench({
                   type="button"
                   variant="outline"
                   className="h-7 bg-white px-2 text-[11px]"
+                  data-testid="workflow-graph-edge-delete"
+                  data-workflow-edge-id={edge.id}
                   onClick={() => removeGraphEdge(edge)}
                   aria-label="删除连线"
                 >
@@ -617,7 +625,7 @@ function RulePaletteCard({ onClick, tool }: { onClick: () => void; tool: AddedTo
 function EdgeAuditBadge({ audit }: { audit: GeneratedWorkflowBuilderController["graphDraft"]["edges"][number]["audit"] }) {
   if (!audit) return null;
   return (
-    <div className="mt-1 truncate text-[10px] text-slate-500">
+    <div className="mt-1 truncate text-[10px] text-slate-500" data-testid="workflow-graph-edge-audit">
       {audit.source === "auto" ? "自动推荐" : "手动连接"} · {audit.reason}
     </div>
   );

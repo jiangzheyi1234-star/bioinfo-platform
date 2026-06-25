@@ -80,6 +80,7 @@ type RuleFlowSubflowGroupNode = Node<RuleFlowSubflowGroupData, "subflowGroup">;
 type RuleFlowAnyNode = RuleFlowNode | RuleFlowSubflowGroupNode;
 type RuleFlowEdge = WorkflowRuleFlowEdge;
 type ConnectionNotice = {
+  code?: string;
   message: string;
   request?: RulePortConverterInsertionRequest;
   suggestion?: OutputConverterSuggestion;
@@ -341,6 +342,9 @@ export function GeneratedWorkflowGraphCanvas({
       {connectionNotice ? (
         <div
           className="absolute bottom-2 left-2 grid max-w-[76%] gap-1 rounded border border-slate-200 bg-white/95 px-2 py-1.5 text-[11px] text-slate-600 shadow-sm"
+          data-connection-notice-code={connectionNotice.code || ""}
+          data-connection-notice-state={connectionNoticeState(connectionNotice)}
+          data-converter-insert-enabled={connectionNotice.request ? "true" : "false"}
           data-testid="workflow-graph-connection-notice"
         >
           <div className="min-w-0 break-words">{connectionNotice.message}</div>
@@ -542,6 +546,12 @@ function isSubflowGroupNodeId(nodeId: string) {
   return nodeId.startsWith(SUBFLOW_GROUP_NODE_PREFIX);
 }
 
+function connectionNoticeState(notice: ConnectionNotice) {
+  if (notice.request) return "backend-plan-confirmable";
+  if (notice.suggestion) return "advisory-only";
+  return "message";
+}
+
 function connectionNoticeForDecision({
   decision,
   graphConnection,
@@ -572,13 +582,14 @@ function connectionNoticeForDecision({
         targetStepId: graphConnection.to.nodeId,
       });
       return {
+        code: decision.code,
         message: `${decision.reason}。本地发现转换 ${suggestion.converterToolName}；后端 semanticPortPlan 背书后才可插入，且需确认，不会自动插入。${replacementNote}`,
         request: backendInsertion?.request,
         suggestion,
       };
     }
   }
-  return { message: decision.reason };
+  return { code: decision.ok ? undefined : decision.code, message: decision.reason };
 }
 
 function GraphCanvasStyles() {

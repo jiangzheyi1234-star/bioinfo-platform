@@ -658,6 +658,11 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "删除节点" in builder_ui
     assert "删除连线" in builder_ui
     assert "EdgeAuditBadge" in builder_ui
+    assert 'data-testid="workflow-graph-edge-row"' in builder_ui
+    assert 'data-workflow-edge-id={edge.id}' in builder_ui
+    assert 'data-workflow-edge-audit-source={edge.audit?.source || "none"}' in builder_ui
+    assert 'data-testid="workflow-graph-edge-delete"' in builder_ui
+    assert 'data-testid="workflow-graph-edge-audit"' in builder_ui
     assert "自动推荐" in builder_ui
     assert "手动连接" in builder_ui
     assert "edgeForInput" in port_bindings_editor_ui

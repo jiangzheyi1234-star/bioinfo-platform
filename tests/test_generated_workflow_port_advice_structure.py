@@ -31,6 +31,12 @@ def test_canvas_converter_advice_requires_explicit_confirmation() -> None:
     assert "connectionNoticeForDecision" in graph_canvas_ui
     assert "RulePortConverterInsertionRequest" in graph_canvas_ui
     assert 'data-testid="workflow-graph-connection-notice"' in graph_canvas_ui
+    assert 'data-connection-notice-code={connectionNotice.code || ""}' in graph_canvas_ui
+    assert "data-connection-notice-state={connectionNoticeState(connectionNotice)}" in graph_canvas_ui
+    assert 'data-converter-insert-enabled={connectionNotice.request ? "true" : "false"}' in graph_canvas_ui
+    assert "code: decision.code" in graph_canvas_ui
+    assert 'return "backend-plan-confirmable"' in graph_canvas_ui
+    assert 'return "advisory-only"' in graph_canvas_ui
     assert "确认插入转换" in graph_canvas_ui
     assert "需确认，不会自动插入" in graph_canvas_ui
     assert "保存并验证后可使用后端转换建议" in graph_canvas_ui
