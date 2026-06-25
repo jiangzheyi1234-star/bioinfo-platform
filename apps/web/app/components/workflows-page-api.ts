@@ -30,6 +30,7 @@ import {
   type WorkflowResultPackageExport,
   type WorkflowResultPackageExportListResponse,
   type WorkflowResultPackageExportResponse,
+  type WorkflowResultSummary,
   type WorkflowRunResponse,
   type WorkflowRunRetryResponse,
   type WorkflowRunRetryResult,
@@ -175,6 +176,7 @@ const WORKFLOW_DATABASES_CACHE_KEY = "workflow:databases";
 const WORKFLOW_DESIGN_DRAFTS_CACHE_KEY = "workflow:design-drafts";
 const WORKFLOW_SERVER_CACHE_KEY = "workflow:server";
 const WORKFLOW_RUNS_CACHE_KEY = "workflow:runs";
+const WORKFLOW_RESULTS_CACHE_KEY = "workflow:results";
 const WORKFLOW_SAMPLE_DATA_TIMEOUT_MS = 180_000;
 
 function refreshQuery(options: FetchOptions) {
@@ -546,6 +548,7 @@ export async function submitWorkflowDesignRun({
     },
   });
   invalidateAsyncCache(WORKFLOW_RUNS_CACHE_KEY);
+  invalidateAsyncCache(WORKFLOW_RESULTS_CACHE_KEY);
   return response.data;
 }
 
@@ -639,6 +642,7 @@ export async function submitPipelineWorkflowRun({
     },
   });
   invalidateAsyncCache(WORKFLOW_RUNS_CACHE_KEY);
+  invalidateAsyncCache(WORKFLOW_RESULTS_CACHE_KEY);
   return response.data;
 }
 
@@ -672,6 +676,7 @@ export async function retryWorkflowRun(runId: string, reason = "operator_request
     }
   );
   invalidateAsyncCache(WORKFLOW_RUNS_CACHE_KEY);
+  invalidateAsyncCache(WORKFLOW_RESULTS_CACHE_KEY);
   return response.data;
 }
 
@@ -680,6 +685,19 @@ export async function fetchRunsList(options: FetchOptions = {}): Promise<Workflo
     const response = await requestLocalApiJson<{ data: { items: WorkflowRun[] } }>("GET", `/api/v1/runs${refreshQuery(options)}`, {
       cache: "no-store",
     });
+    return response.data.items || [];
+  }, {
+    forceRefresh: options.forceRefresh,
+  });
+}
+
+export async function fetchWorkflowResultsList(options: FetchOptions = {}): Promise<WorkflowResultSummary[]> {
+  return cachedAsync(WORKFLOW_RESULTS_CACHE_KEY, 10_000, async () => {
+    const response = await requestLocalApiJson<{ data: { items: WorkflowResultSummary[] } }>(
+      "GET",
+      `/api/v1/results${refreshQuery(options)}`,
+      { cache: "no-store" }
+    );
     return response.data.items || [];
   }, {
     forceRefresh: options.forceRefresh,

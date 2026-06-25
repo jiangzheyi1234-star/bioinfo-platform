@@ -635,6 +635,16 @@ export type WorkflowResultDetail = {
   inputArtifactCount?: number;
 };
 
+export type WorkflowResultSummary = {
+  resultId?: string;
+  runId: string;
+  title?: string;
+  pipelineId?: string;
+  artifactCount?: number;
+  inputArtifactCount?: number;
+  producedAt?: string;
+};
+
 export type WorkflowResultPackageDownload = {
   href?: string;
   filename?: string;

@@ -10,8 +10,8 @@ import { cn } from "@/lib/utils";
 
 import { fetchWorkflowBackfillLaunches } from "./workflow-backfill-api";
 import { fetchWorkflowTriggers } from "./workflow-trigger-api";
-import { fetchRunsList } from "./workflows-page-api";
-import { workflowErrorMessage, type WorkflowRun } from "./workflows-page-model";
+import { fetchRunsList, fetchWorkflowResultsList } from "./workflows-page-api";
+import { workflowErrorMessage, type WorkflowResultSummary, type WorkflowRun } from "./workflows-page-model";
 import { WorkflowPageHeader } from "./workflow-page-header";
 
 function StatusBadge({ status }: { status: string }) {
@@ -37,16 +37,25 @@ const FILTERS = [
 
 export function WorkflowResultsPage() {
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
+  const [results, setResults] = useState<WorkflowResultSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [summaryError, setSummaryError] = useState("");
   const [filter, setFilter] = useState("all");
 
   const load = useCallback(async (forceRefresh = false) => {
     setLoading(true);
     setError("");
+    setSummaryError("");
     try {
       const items = await fetchRunsList({ forceRefresh });
       setRuns(items);
+      try {
+        setResults(await fetchWorkflowResultsList({ forceRefresh }));
+      } catch (summaryErr) {
+        setResults([]);
+        setSummaryError(workflowErrorMessage(summaryErr, "读取产物摘要失败"));
+      }
     } catch (err) {
       setError(workflowErrorMessage(err, "读取运行记录失败"));
     } finally {
@@ -70,6 +79,9 @@ export function WorkflowResultsPage() {
     if (filter === "all") return sorted;
     return sorted.filter((r) => r.status.toLowerCase() === filter);
   }, [sorted, filter]);
+  const resultByRunId = useMemo(() => {
+    return new Map(results.map((item) => [item.runId, item]));
+  }, [results]);
 
   return (
     <div className="relative flex-1 w-full h-full overflow-y-auto bg-white px-8 py-10 text-slate-800">
@@ -117,6 +129,11 @@ export function WorkflowResultsPage() {
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         ) : null}
+        {summaryError ? (
+          <Alert className="border-amber-200 bg-amber-50 text-amber-800">
+            <AlertDescription>{summaryError}</AlertDescription>
+          </Alert>
+        ) : null}
 
         <div className="flex items-center gap-2">
           {FILTERS.map((f) => (
@@ -152,36 +169,59 @@ export function WorkflowResultsPage() {
                   <th className="px-4 py-2 font-medium">状态</th>
                   <th className="px-4 py-2 font-medium">Run ID</th>
                   <th className="px-4 py-2 font-medium">阶段</th>
+                  <th className="px-4 py-2 font-medium">产物</th>
                   <th className="px-4 py-2 font-medium">提交时间</th>
                   <th className="px-4 py-2 font-medium text-right">操作</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filtered.map((run) => (
-                  <tr key={run.runId} className="bg-white">
-                    <td className="px-4 py-3">
-                      <StatusBadge status={run.status} />
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs text-slate-700">{run.runId}</td>
-                    <td className="px-4 py-3 text-xs text-slate-600">{run.stage || "—"}</td>
-                    <td className="px-4 py-3 text-xs text-slate-500">
-                      {run.createdAt ? new Date(run.createdAt).toLocaleString("zh-CN") : "—"}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <Link
-                        href={`/workflows/results/detail?run=${encodeURIComponent(run.runId)}`}
-                        className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700"
-                      >
-                        查看结果 <ArrowRight strokeWidth={1.5} className="h-3 w-3" />
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
+                {filtered.map((run) => {
+                  const result = resultByRunId.get(run.runId);
+                  return (
+                    <tr key={run.runId} className="bg-white">
+                      <td className="px-4 py-3">
+                        <StatusBadge status={run.status} />
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs text-slate-700">{run.runId}</td>
+                      <td className="px-4 py-3 text-xs text-slate-600">{run.stage || "—"}</td>
+                      <td className="px-4 py-3">
+                        <ResultLineageSummary result={result} />
+                      </td>
+                      <td className="px-4 py-3 text-xs text-slate-500">
+                        {run.createdAt ? new Date(run.createdAt).toLocaleString("zh-CN") : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <Link
+                          href={`/workflows/results/detail?run=${encodeURIComponent(run.runId)}`}
+                          className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700"
+                        >
+                          查看结果 <ArrowRight strokeWidth={1.5} className="h-3 w-3" />
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function ResultLineageSummary({ result }: { result?: WorkflowResultSummary }) {
+  if (!result) {
+    return <span className="text-xs text-slate-400">—</span>;
+  }
+  return (
+    <div className="flex min-w-[120px] flex-wrap gap-1.5 text-[11px]">
+      <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-slate-600">
+        输出 {result.artifactCount ?? 0}
+      </span>
+      <span className="rounded border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-indigo-700">
+        输入 {result.inputArtifactCount ?? 0}
+      </span>
     </div>
   );
 }
