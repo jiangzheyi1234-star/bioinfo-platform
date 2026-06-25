@@ -13,6 +13,8 @@ from apps.remote_runner.api_models import (
     RunRetryRequest,
     RunRuleCacheRestorePinApplyRequest,
     RunRuleCacheRestorePinPrepareRequest,
+    RunRuleCacheRestoreStagedFileApplyRequest,
+    RunRuleCacheRestoreStagedFilePrepareRequest,
     ToolManifestRequest,
     ToolProductionEvidenceRequest,
     UploadCreateRequest,
@@ -231,6 +233,71 @@ def test_remote_runner_rule_cache_restore_pin_requests_are_confirmation_and_leas
                 "attemptId": "att_restore",
                 "leaseGeneration": 2,
                 "pinIds": [],
+            }
+        )
+
+    assert wrong_confirmation.value.errors()[0]["type"] == "literal_error"
+    assert short_hash.value.errors()[0]["type"] == "string_too_short"
+    assert stale_generation.value.errors()[0]["type"] == "greater_than_equal"
+    assert extra.value.errors()[0]["type"] == "extra_forbidden"
+
+
+def test_remote_runner_rule_cache_restore_staged_file_requests_are_confirmation_and_lease_gated() -> None:
+    prepare = RunRuleCacheRestoreStagedFilePrepareRequest.model_validate(
+        {
+            "confirmation": "prepare-rule-cache-restore-staged-files",
+            "planHash": "d" * 64,
+            "attemptId": "att_restore",
+            "leaseGeneration": 2,
+        }
+    )
+    apply = RunRuleCacheRestoreStagedFileApplyRequest.model_validate(
+        {
+            "confirmation": "apply-rule-cache-restore-staged-files",
+            "planHash": "e" * 64,
+            "attemptId": "att_restore",
+            "leaseGeneration": 2,
+        }
+    )
+
+    assert prepare.leaseGeneration == 2
+    assert apply.attemptId == "att_restore"
+
+    with pytest.raises(ValidationError) as wrong_confirmation:
+        RunRuleCacheRestoreStagedFileApplyRequest.model_validate(
+            {
+                "confirmation": "prepare-rule-cache-restore-staged-files",
+                "planHash": "e" * 64,
+                "attemptId": "att_restore",
+                "leaseGeneration": 2,
+            }
+        )
+    with pytest.raises(ValidationError) as short_hash:
+        RunRuleCacheRestoreStagedFilePrepareRequest.model_validate(
+            {
+                "confirmation": "prepare-rule-cache-restore-staged-files",
+                "planHash": "abc",
+                "attemptId": "att_restore",
+                "leaseGeneration": 2,
+            }
+        )
+    with pytest.raises(ValidationError) as stale_generation:
+        RunRuleCacheRestoreStagedFilePrepareRequest.model_validate(
+            {
+                "confirmation": "prepare-rule-cache-restore-staged-files",
+                "planHash": "d" * 64,
+                "attemptId": "att_restore",
+                "leaseGeneration": 0,
+            }
+        )
+    with pytest.raises(ValidationError) as extra:
+        RunRuleCacheRestoreStagedFileApplyRequest.model_validate(
+            {
+                "confirmation": "apply-rule-cache-restore-staged-files",
+                "planHash": "e" * 64,
+                "attemptId": "att_restore",
+                "leaseGeneration": 2,
+                "targetPath": "leak",
             }
         )
 

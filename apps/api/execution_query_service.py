@@ -15,6 +15,8 @@ from apps.api.models import (
     RunResumeRequest,
     RunRuleCacheRestorePinApplyRequest,
     RunRuleCacheRestorePinPrepareRequest,
+    RunRuleCacheRestoreStagedFileApplyRequest,
+    RunRuleCacheRestoreStagedFilePrepareRequest,
     RunRuleOutputInvalidationApplyRequest,
     RunRetryRequest,
     RunRuleRetryRequest,
@@ -95,6 +97,28 @@ async def apply_rule_cache_restore_pins_from_request(
 ) -> dict[str, Any]:
     result = await run_runtime_payload(
         lambda: runtime_service().apply_rule_cache_restore_pins(run_id, request_payload(request)),
+        wrapper="raw",
+    )
+    await invalidate_response_cache("runs", prefixes=(f"run_detail:{run_id}",))
+    return result
+
+
+async def prepare_rule_cache_restore_staged_files_from_request(
+    run_id: str,
+    request: RunRuleCacheRestoreStagedFilePrepareRequest,
+) -> dict[str, Any]:
+    return await run_runtime_payload(
+        lambda: runtime_service().prepare_rule_cache_restore_staged_files(run_id, request_payload(request)),
+        wrapper="raw",
+    )
+
+
+async def apply_rule_cache_restore_staged_files_from_request(
+    run_id: str,
+    request: RunRuleCacheRestoreStagedFileApplyRequest,
+) -> dict[str, Any]:
+    result = await run_runtime_payload(
+        lambda: runtime_service().apply_rule_cache_restore_staged_files(run_id, request_payload(request)),
         wrapper="raw",
     )
     await invalidate_response_cache("runs", prefixes=(f"run_detail:{run_id}",))

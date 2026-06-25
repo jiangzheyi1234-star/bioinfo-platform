@@ -132,6 +132,24 @@ class RunRuleCacheRestorePinApplyRequest(ApiRequest):
     reason: str | None = None
 
 
+class RunRuleCacheRestoreStagedFilePrepareRequest(ApiRequest):
+    confirmation: Literal["prepare-rule-cache-restore-staged-files"]
+    planHash: str = Field(min_length=64, max_length=64)
+    attemptId: str = Field(min_length=1)
+    leaseGeneration: int = Field(ge=1)
+    actor: str | None = None
+    reason: str | None = None
+
+
+class RunRuleCacheRestoreStagedFileApplyRequest(ApiRequest):
+    confirmation: Literal["apply-rule-cache-restore-staged-files"]
+    planHash: str = Field(min_length=64, max_length=64)
+    attemptId: str = Field(min_length=1)
+    leaseGeneration: int = Field(ge=1)
+    actor: str | None = None
+    reason: str | None = None
+
+
 class RunResumeRequest(ApiRequest):
     confirmation: Literal["resume-run"]
     planHash: str = Field(min_length=64, max_length=64)

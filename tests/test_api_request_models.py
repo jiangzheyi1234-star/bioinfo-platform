@@ -12,6 +12,8 @@ from apps.api.models import (
     RunResumeRequest,
     RunRuleCacheRestorePinApplyRequest,
     RunRuleCacheRestorePinPrepareRequest,
+    RunRuleCacheRestoreStagedFileApplyRequest,
+    RunRuleCacheRestoreStagedFilePrepareRequest,
     RunSubmitRequest,
     RunRetryRequest,
     RunRuleOutputInvalidationApplyRequest,
@@ -291,6 +293,58 @@ def test_run_rule_cache_restore_pin_requests_require_confirmation_plan_hash_and_
             model.model_validate({"confirmation": confirmation, "planHash": "f" * 64, "attemptId": "att_1", "leaseGeneration": 0})
         with pytest.raises(ValidationError):
             model.model_validate({"confirmation": confirmation, "planHash": "f" * 64, "attemptId": "att_1", "leaseGeneration": 1, "pinIds": []})
+
+
+def test_run_rule_cache_restore_staged_file_requests_require_confirmation_plan_hash_and_lease() -> None:
+    prepare = RunRuleCacheRestoreStagedFilePrepareRequest.model_validate(
+        {
+            "confirmation": "prepare-rule-cache-restore-staged-files",
+            "planHash": "d" * 64,
+            "attemptId": "att_1",
+            "leaseGeneration": 1,
+        }
+    )
+    apply = RunRuleCacheRestoreStagedFileApplyRequest.model_validate(
+        {
+            "confirmation": "apply-rule-cache-restore-staged-files",
+            "planHash": "e" * 64,
+            "attemptId": "att_1",
+            "leaseGeneration": 1,
+        }
+    )
+    assert prepare.confirmation == "prepare-rule-cache-restore-staged-files"
+    assert apply.confirmation == "apply-rule-cache-restore-staged-files"
+    for model, confirmation in (
+        (RunRuleCacheRestoreStagedFilePrepareRequest, "prepare-rule-cache-restore-staged-files"),
+        (RunRuleCacheRestoreStagedFileApplyRequest, "apply-rule-cache-restore-staged-files"),
+    ):
+        with pytest.raises(ValidationError):
+            model.model_validate(
+                {
+                    "confirmation": "restore-staged-files",
+                    "planHash": "f" * 64,
+                    "attemptId": "att_1",
+                    "leaseGeneration": 1,
+                }
+            )
+        with pytest.raises(ValidationError):
+            model.model_validate(
+                {"confirmation": confirmation, "planHash": "abc", "attemptId": "att_1", "leaseGeneration": 1}
+            )
+        with pytest.raises(ValidationError):
+            model.model_validate(
+                {"confirmation": confirmation, "planHash": "f" * 64, "attemptId": "att_1", "leaseGeneration": 0}
+            )
+        with pytest.raises(ValidationError):
+            model.model_validate(
+                {
+                    "confirmation": confirmation,
+                    "planHash": "f" * 64,
+                    "attemptId": "att_1",
+                    "leaseGeneration": 1,
+                    "targetPath": "leak",
+                }
+            )
 
 
 def test_run_resume_request_requires_confirmation_and_plan_hash() -> None:

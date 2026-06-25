@@ -351,6 +351,32 @@ class ExecutionManager(BaseRuntimeManager):
             )
         }
 
+    def prepare_rule_cache_restore_staged_files(
+        self,
+        run_id: str,
+        payload: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        return {
+            "data": self.call_runner(
+                "prepare_rule_cache_restore_staged_files",
+                run_id=run_id,
+                payload=dict(payload or {}),
+            )
+        }
+
+    def apply_rule_cache_restore_staged_files(
+        self,
+        run_id: str,
+        payload: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        return {
+            "data": self.call_runner(
+                "apply_rule_cache_restore_staged_files",
+                run_id=run_id,
+                payload=dict(payload or {}),
+            )
+        }
+
     def resume_run(self, run_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         return {"data": self.call_runner("resume_run", run_id=run_id, payload=dict(payload or {}))}
 

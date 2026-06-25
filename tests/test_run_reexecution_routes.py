@@ -13,6 +13,8 @@ from apps.remote_runner.api_models import (
     RunResumeRequest,
     RunRuleCacheRestorePinApplyRequest,
     RunRuleCacheRestorePinPrepareRequest,
+    RunRuleCacheRestoreStagedFileApplyRequest,
+    RunRuleCacheRestoreStagedFilePrepareRequest,
     RunRuleOutputInvalidationApplyRequest,
     RunRuleRetryRequest,
 )
@@ -59,6 +61,22 @@ def test_run_reexecution_requests_are_strict_and_confirmation_gated() -> None:
             "leaseGeneration": 1,
         }
     )
+    staged_prepare = RunRuleCacheRestoreStagedFilePrepareRequest.model_validate(
+        {
+            "confirmation": "prepare-rule-cache-restore-staged-files",
+            "planHash": "f" * 64,
+            "attemptId": "att_1",
+            "leaseGeneration": 1,
+        }
+    )
+    staged_apply = RunRuleCacheRestoreStagedFileApplyRequest.model_validate(
+        {
+            "confirmation": "apply-rule-cache-restore-staged-files",
+            "planHash": "9" * 64,
+            "attemptId": "att_1",
+            "leaseGeneration": 1,
+        }
+    )
     resume = RunResumeRequest.model_validate(
         {"confirmation": "resume-run", "planHash": "b" * 64, "actor": "operator"}
     )
@@ -67,6 +85,8 @@ def test_run_reexecution_requests_are_strict_and_confirmation_gated() -> None:
     assert output_invalidation.planHash == "c" * 64
     assert pin_prepare.attemptId == "att_1"
     assert pin_apply.leaseGeneration == 1
+    assert staged_prepare.confirmation == "prepare-rule-cache-restore-staged-files"
+    assert staged_apply.confirmation == "apply-rule-cache-restore-staged-files"
     assert resume.planHash == "b" * 64
     with pytest.raises(ValidationError) as wrong_confirmation:
         RunRuleRetryRequest.model_validate({"confirmation": "retry-rule", "planHash": "a" * 64})
@@ -85,6 +105,16 @@ def test_run_reexecution_requests_are_strict_and_confirmation_gated() -> None:
                 "leaseGeneration": 0,
             }
         )
+    with pytest.raises(ValidationError) as staged_extra:
+        RunRuleCacheRestoreStagedFileApplyRequest.model_validate(
+            {
+                "confirmation": "apply-rule-cache-restore-staged-files",
+                "planHash": "9" * 64,
+                "attemptId": "att_1",
+                "leaseGeneration": 1,
+                "targetPath": "leak",
+            }
+        )
     with pytest.raises(ValidationError) as extra:
         RunRuleOutputInvalidationApplyRequest.model_validate(
             {
@@ -98,6 +128,7 @@ def test_run_reexecution_requests_are_strict_and_confirmation_gated() -> None:
     assert wrong_invalidation_confirmation.value.errors()[0]["type"] == "literal_error"
     assert short_hash.value.errors()[0]["type"] == "string_too_short"
     assert stale_generation.value.errors()[0]["type"] == "greater_than_equal"
+    assert staged_extra.value.errors()[0]["type"] == "extra_forbidden"
     assert extra.value.errors()[0]["type"] == "extra_forbidden"
 
 

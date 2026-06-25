@@ -4,6 +4,8 @@ import asyncio
 
 from apps.api.execution_query_routes import (
     apply_rule_output_invalidation,
+    apply_rule_cache_restore_staged_files,
+    prepare_rule_cache_restore_staged_files,
     resume_run,
     retry_run,
     retry_run_rules,
@@ -11,6 +13,8 @@ from apps.api.execution_query_routes import (
 from apps.api.models import (
     RunResumeRequest,
     RunRetryRequest,
+    RunRuleCacheRestoreStagedFileApplyRequest,
+    RunRuleCacheRestoreStagedFilePrepareRequest,
     RunRuleOutputInvalidationApplyRequest,
     RunRuleRetryRequest,
 )
@@ -153,10 +157,69 @@ def test_rule_output_invalidation_apply_route_delegates_runtime_result(monkeypat
     }
 
 
+def test_rule_staged_restore_routes_delegate_runtime_results(monkeypatch) -> None:
+    runtime = FakeExecutionRuntime()
+    monkeypatch.setattr("apps.api.execution_query_service.runtime_service", lambda: runtime)
+
+    prepare_result = asyncio.run(
+        prepare_rule_cache_restore_staged_files(
+            "run_staged",
+            RunRuleCacheRestoreStagedFilePrepareRequest(
+                confirmation="prepare-rule-cache-restore-staged-files",
+                planHash="d" * 64,
+                attemptId="att_1",
+                leaseGeneration=1,
+                actor="operator",
+            ),
+        )
+    )
+    apply_result = asyncio.run(
+        apply_rule_cache_restore_staged_files(
+            "run_staged",
+            RunRuleCacheRestoreStagedFileApplyRequest(
+                confirmation="apply-rule-cache-restore-staged-files",
+                planHash="d" * 64,
+                attemptId="att_1",
+                leaseGeneration=1,
+                reason="reviewed",
+            ),
+        )
+    )
+
+    assert runtime.staged_prepare_calls == [
+        (
+            "run_staged",
+            {
+                "confirmation": "prepare-rule-cache-restore-staged-files",
+                "planHash": "d" * 64,
+                "attemptId": "att_1",
+                "leaseGeneration": 1,
+                "actor": "operator",
+            },
+        )
+    ]
+    assert runtime.staged_apply_calls == [
+        (
+            "run_staged",
+            {
+                "confirmation": "apply-rule-cache-restore-staged-files",
+                "planHash": "d" * 64,
+                "attemptId": "att_1",
+                "leaseGeneration": 1,
+                "reason": "reviewed",
+            },
+        )
+    ]
+    assert prepare_result["data"]["status"] == "ready"
+    assert apply_result["data"]["status"] == "applied"
+
+
 class FakeExecutionRuntime:
     def __init__(self) -> None:
         self.rule_retry_calls = []
         self.output_invalidation_calls = []
+        self.staged_prepare_calls = []
+        self.staged_apply_calls = []
         self.resume_calls = []
 
     def retry_run(self, run_id, payload):
@@ -193,6 +256,26 @@ class FakeExecutionRuntime:
                 "invalidatedOutputEdgeCount": 2,
                 "invalidatedLineageEdgeCount": 2,
                 "payloadDeleted": False,
+            }
+        }
+
+    def prepare_rule_cache_restore_staged_files(self, run_id, payload):
+        self.staged_prepare_calls.append((run_id, payload))
+        return {
+            "data": {
+                "schemaVersion": "rule-cache-restore-staged-file-prepare-result.v1",
+                "runId": run_id,
+                "status": "ready",
+            }
+        }
+
+    def apply_rule_cache_restore_staged_files(self, run_id, payload):
+        self.staged_apply_calls.append((run_id, payload))
+        return {
+            "data": {
+                "schemaVersion": "rule-cache-restore-staged-file-apply-result.v1",
+                "runId": run_id,
+                "status": "applied",
             }
         }
 

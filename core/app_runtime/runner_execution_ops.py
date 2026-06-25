@@ -186,6 +186,20 @@ class RunnerExecutionOperationsMixin:
     def apply_rule_cache_restore_pins(self, run_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         return self.execution.apply_rule_cache_restore_pins(run_id, payload)
 
+    def prepare_rule_cache_restore_staged_files(
+        self,
+        run_id: str,
+        payload: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        return self.execution.prepare_rule_cache_restore_staged_files(run_id, payload)
+
+    def apply_rule_cache_restore_staged_files(
+        self,
+        run_id: str,
+        payload: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        return self.execution.apply_rule_cache_restore_staged_files(run_id, payload)
+
     def resume_run(self, run_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         return self.execution.resume_run(run_id, payload)
 

@@ -18,12 +18,15 @@ from apps.api.models import (
     RunResumeRequest,
     RunRuleCacheRestorePinApplyRequest,
     RunRuleCacheRestorePinPrepareRequest,
+    RunRuleCacheRestoreStagedFileApplyRequest,
+    RunRuleCacheRestoreStagedFilePrepareRequest,
     RunRuleOutputInvalidationApplyRequest,
     RunRetryRequest,
     RunRuleRetryRequest,
 )
 from apps.api.execution_query_service import (
     apply_rule_cache_restore_pins_from_request,
+    apply_rule_cache_restore_staged_files_from_request,
     apply_rule_output_invalidation_from_request,
     cancel_run_from_request,
     delete_result_package_bytes_from_request,
@@ -49,6 +52,7 @@ from apps.api.execution_query_service import (
     list_runs_from_request,
     lookup_artifact_cache_from_request,
     prepare_rule_cache_restore_pins_from_request,
+    prepare_rule_cache_restore_staged_files_from_request,
     preview_artifact_gc_from_request,
     release_artifact_cache_pin_from_request,
     retain_artifact_cache_pin_from_request,
@@ -120,6 +124,22 @@ async def apply_rule_cache_restore_pins(
     payload: RunRuleCacheRestorePinApplyRequest,
 ) -> dict[str, Any]:
     return await apply_rule_cache_restore_pins_from_request(run_id, payload)
+
+
+@router.post("/api/v1/runs/{run_id}/rules/cache-restore/staged-files/prepare")
+async def prepare_rule_cache_restore_staged_files(
+    run_id: str,
+    payload: RunRuleCacheRestoreStagedFilePrepareRequest,
+) -> dict[str, Any]:
+    return await prepare_rule_cache_restore_staged_files_from_request(run_id, payload)
+
+
+@router.post("/api/v1/runs/{run_id}/rules/cache-restore/staged-files/apply")
+async def apply_rule_cache_restore_staged_files(
+    run_id: str,
+    payload: RunRuleCacheRestoreStagedFileApplyRequest,
+) -> dict[str, Any]:
+    return await apply_rule_cache_restore_staged_files_from_request(run_id, payload)
 
 
 @router.post("/api/v1/runs/{run_id}/resume", status_code=202)

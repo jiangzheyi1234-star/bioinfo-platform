@@ -164,11 +164,16 @@ def test_rule_cache_restore_plan_keeps_applied_invalidation_scope_without_apply_
     assert "PARTIAL_RESTORE_EXECUTOR_UNAVAILABLE" in plan["blockedReasonCodes"]
     assert plan["stagedFilePolicy"]["previewAvailable"] is True
     assert plan["stagedFilePolicy"]["enabled"] is False
-    assert plan["stagedFilePolicy"]["reasonCode"] == "STAGED_FILE_POLICY_PREVIEW_ONLY"
-    assert plan["stagedFilePolicy"]["blockedReasonCodes"] == ["STAGED_FILE_POLICY_EXECUTION_DISABLED"]
+    assert plan["stagedFilePolicy"]["materializationEnabled"] is True
+    assert plan["stagedFilePolicy"]["reasonCode"] == "STAGED_FILE_MATERIALIZATION_PIN_REQUIRED"
+    assert plan["stagedFilePolicy"]["blockedReasonCodes"] == ["STAGED_FILE_MATERIALIZATION_PIN_REQUIRED"]
     assert plan["stagedFilePolicy"]["overwriteAllowed"] is False
     assert plan["stagedFilePolicy"]["deleteUnknownOutputs"] is False
     assert plan["stagedFilePolicy"]["pinCreationAllowed"] is False
+    assert plan["stagedFilePolicy"]["finalOutputMutationAllowed"] is False
+    assert plan["stagedFilePolicy"]["attemptStagingAllowed"] is True
+    assert plan["stagedFilePolicy"]["stagingDirectoryManaged"] is True
+    assert plan["stagedFilePolicy"]["stagingDirectoryExposed"] is False
     assert plan["stagedFilePolicy"]["pathExposed"] is False
     assert plan["stagedFilePolicy"]["storageUriExposed"] is False
     assert plan["stagedFilePolicy"]["cacheKeyExposed"] is False
@@ -271,6 +276,7 @@ def test_rule_cache_restore_plan_staged_policy_counts_mixed_applied_outputs(tmp_
     assert plan["cacheHitCount"] == 1
     assert plan["cacheMissCount"] == 2
     assert plan["stagedFilePolicy"]["previewAvailable"] is True
+    assert plan["stagedFilePolicy"]["materializationEnabled"] is True
     assert plan["stagedFilePolicy"]["targetCount"] == 3
     assert plan["stagedFilePolicy"]["managedTargetCount"] == 3
     assert plan["stagedFilePolicy"]["selectedOutputCount"] == 2
