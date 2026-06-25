@@ -509,6 +509,10 @@ CREATE TABLE IF NOT EXISTS run_artifact_edges (
     step_id TEXT,
     content_hash TEXT NOT NULL,
     upstream_run_id TEXT,
+    lifecycle_state TEXT NOT NULL DEFAULT 'active',
+    invalidated_at TEXT,
+    invalidation_reason TEXT NOT NULL DEFAULT '',
+    invalidation_event_id TEXT,
     created_at TEXT NOT NULL
 );
 
@@ -517,6 +521,9 @@ ON run_artifact_edges(run_id, role, port_name, step_id);
 
 CREATE INDEX IF NOT EXISTS idx_run_artifact_edges_blob
 ON run_artifact_edges(artifact_blob_id);
+
+CREATE INDEX IF NOT EXISTS idx_run_artifact_edges_lifecycle
+ON run_artifact_edges(run_id, lifecycle_state, role, step_id);
 
 CREATE TABLE IF NOT EXISTS lineage_edges (
     lineage_edge_id TEXT PRIMARY KEY,
@@ -531,6 +538,10 @@ CREATE TABLE IF NOT EXISTS lineage_edges (
     evidence_event_id TEXT,
     payload_json TEXT NOT NULL DEFAULT '{}',
     content_hash TEXT NOT NULL DEFAULT '',
+    lifecycle_state TEXT NOT NULL DEFAULT 'active',
+    invalidated_at TEXT,
+    invalidation_reason TEXT NOT NULL DEFAULT '',
+    invalidation_event_id TEXT,
     created_at TEXT NOT NULL
 );
 
@@ -542,6 +553,9 @@ ON lineage_edges(object_kind, object_id, predicate);
 
 CREATE INDEX IF NOT EXISTS idx_lineage_edges_run
 ON lineage_edges(run_id, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_lineage_edges_lifecycle
+ON lineage_edges(run_id, lifecycle_state, created_at);
 
 CREATE TABLE IF NOT EXISTS idempotency (
     server_id TEXT NOT NULL,

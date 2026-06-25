@@ -32,13 +32,18 @@ def test_rule_output_invalidation_plan_maps_edges_and_lineage_without_paths(tmp_
     assert plan["schemaVersion"] == "rule-output-invalidation-plan.v1"
     assert plan["planHash"] == stable_plan_hash(plan)
     assert plan["previewAvailable"] is True
-    assert plan["invalidationEnabled"] is False
+    assert plan["supported"] is True
+    assert plan["eligible"] is True
+    assert plan["eligibleNow"] is True
+    assert plan["invalidationEnabled"] is True
     assert plan["sideEffectFree"] is True
     assert plan["pathExposed"] is False
     assert plan["storageReferenceExposed"] is False
-    assert plan["reasonCode"] == "OUTPUT_EDGE_INVALIDATION_PREVIEW_ONLY"
+    assert plan["reasonCode"] == "OUTPUT_EDGE_INVALIDATION_TOMBSTONE_READY"
+    assert plan["mutationPolicy"]["tombstoneOutputEdges"] is True
+    assert plan["mutationPolicy"]["tombstoneLineageEdges"] is True
     assert plan["mutationPolicy"]["deleteArtifactPayloads"] is False
-    assert "OUTPUT_EDGE_INVALIDATION_MUTATION_DISABLED" in plan["blockedReasonCodes"]
+    assert plan["blockedReasonCodes"] == ["ARTIFACT_PAYLOAD_DELETION_DISABLED"]
     assert plan["outputEdgeSummary"] == {
         "outputEdgeCount": 4,
         "invalidatedOutputEdgeCount": 2,
@@ -49,7 +54,7 @@ def test_rule_output_invalidation_plan_maps_edges_and_lineage_without_paths(tmp_
         "invalidatedLineageEdgeCount": 2,
         "preservedLineageEdgeCount": 1,
         "payloadDeletionAllowed": False,
-        "lineageMutationAllowed": False,
+        "lineageMutationAllowed": True,
     }
     assert [rule["ruleName"] for rule in plan["rules"]] == ["align", "report"]
     assert [rule["invalidationRole"] for rule in plan["rules"]] == ["selected_failed_rule", "downstream_rule"]

@@ -408,9 +408,13 @@ def test_run_execution_context_reports_rule_retry_downstream_invalidation_plan(t
     assert '"storageUri":' not in serialized_cache_restore_plan
     assert output_invalidation_plan["schemaVersion"] == "rule-output-invalidation-plan.v1"
     assert output_invalidation_plan["sideEffectFree"] is True
-    assert output_invalidation_plan["invalidationEnabled"] is False
+    assert output_invalidation_plan["invalidationEnabled"] is True
     assert output_invalidation_plan["pathExposed"] is False
     assert output_invalidation_plan["storageReferenceExposed"] is False
+    assert output_invalidation_plan["mutationPolicy"]["tombstoneOutputEdges"] is True
+    assert output_invalidation_plan["mutationPolicy"]["tombstoneLineageEdges"] is True
+    assert output_invalidation_plan["mutationPolicy"]["deleteArtifactPayloads"] is False
+    assert output_invalidation_plan["blockedReasonCodes"] == ["ARTIFACT_PAYLOAD_DELETION_DISABLED"]
     assert output_invalidation_plan["outputEdgeSummary"]["outputEdgeCount"] == 1
     assert output_invalidation_plan["outputEdgeSummary"]["invalidatedOutputEdgeCount"] == 1
     assert output_invalidation_plan["outputEdgeSummary"]["selectedOutputEdgeCount"] == 1

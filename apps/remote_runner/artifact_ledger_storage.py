@@ -163,13 +163,20 @@ def record_run_artifact_edge(
     return _edge_row_to_dict(row)
 
 
-def list_run_artifact_edges(cfg: RemoteRunnerConfig, run_id: str) -> list[dict[str, Any]]:
+def list_run_artifact_edges(
+    cfg: RemoteRunnerConfig,
+    run_id: str,
+    *,
+    include_inactive: bool = False,
+) -> list[dict[str, Any]]:
     normalized_run_id = _required_text(run_id, "RUN_ID_REQUIRED")
+    lifecycle_clause = "" if include_inactive else "AND lifecycle_state = 'active'"
     with get_connection(cfg) as connection:
         rows = connection.execute(
-            """
+            f"""
             SELECT * FROM run_artifact_edges
             WHERE run_id = ?
+              {lifecycle_clause}
             ORDER BY created_at ASC, edge_id ASC
             """,
             (normalized_run_id,),
@@ -250,13 +257,20 @@ def record_lineage_edge(
     return _lineage_edge_row_to_dict(row)
 
 
-def list_lineage_edges_for_run(cfg: RemoteRunnerConfig, run_id: str) -> list[dict[str, Any]]:
+def list_lineage_edges_for_run(
+    cfg: RemoteRunnerConfig,
+    run_id: str,
+    *,
+    include_inactive: bool = False,
+) -> list[dict[str, Any]]:
     normalized_run_id = _required_text(run_id, "RUN_ID_REQUIRED")
+    lifecycle_clause = "" if include_inactive else "AND lifecycle_state = 'active'"
     with get_connection(cfg) as connection:
         rows = connection.execute(
-            """
+            f"""
             SELECT * FROM lineage_edges
             WHERE run_id = ?
+              {lifecycle_clause}
             ORDER BY created_at ASC, lineage_edge_id ASC
             """,
             (normalized_run_id,),
@@ -310,6 +324,10 @@ def _edge_row_to_dict(row) -> dict[str, Any]:
         "stepId": row["step_id"],
         "contentHash": row["content_hash"],
         "upstreamRunId": row["upstream_run_id"],
+        "lifecycleState": row["lifecycle_state"],
+        "invalidatedAt": row["invalidated_at"],
+        "invalidationReason": row["invalidation_reason"],
+        "invalidationEventId": row["invalidation_event_id"],
         "createdAt": row["created_at"],
     }
 
@@ -328,6 +346,10 @@ def _lineage_edge_row_to_dict(row) -> dict[str, Any]:
         "evidenceEventId": row["evidence_event_id"],
         "payload": json.loads(row["payload_json"]),
         "contentHash": row["content_hash"],
+        "lifecycleState": row["lifecycle_state"],
+        "invalidatedAt": row["invalidated_at"],
+        "invalidationReason": row["invalidation_reason"],
+        "invalidationEventId": row["invalidation_event_id"],
         "createdAt": row["created_at"],
     }
 

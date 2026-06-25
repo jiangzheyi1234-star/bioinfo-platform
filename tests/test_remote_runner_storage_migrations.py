@@ -15,6 +15,7 @@ from apps.remote_runner.sqlite_migrations import (
 from apps.remote_runner.storage_core import get_connection
 from apps.remote_runner.storage_schema import SCHEMA_SQL
 from apps.remote_runner.database_registry_schema import REFERENCE_DATABASE_SCHEMA_SQL
+from apps.remote_runner.sqlite_artifact_ledger_migrations import ensure_artifact_ledger_invalidation
 from tests.helpers.reference_database import make_remote_runner_config
 
 
@@ -95,6 +96,109 @@ def test_output_edge_uniqueness_migration_preserves_legacy_duplicates(tmp_path: 
                 """
             )
     assert replayed_port_name == "report#legacy-aredge_later"
+    assert "lifecycle_state = 'active'" in index["sql"]
+
+
+def test_artifact_ledger_invalidation_migration_adds_active_only_output_index() -> None:
+    with sqlite3.connect(":memory:") as connection:
+        connection.row_factory = sqlite3.Row
+        connection.execute(
+            """
+            CREATE TABLE run_artifact_edges (
+                edge_id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                artifact_blob_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                port_name TEXT,
+                step_id TEXT,
+                content_hash TEXT NOT NULL,
+                upstream_run_id TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE lineage_edges (
+                lineage_edge_id TEXT PRIMARY KEY,
+                subject_kind TEXT NOT NULL,
+                subject_id TEXT NOT NULL,
+                predicate TEXT NOT NULL,
+                object_kind TEXT NOT NULL,
+                object_id TEXT NOT NULL,
+                run_id TEXT,
+                attempt_id TEXT,
+                workflow_revision_id TEXT,
+                evidence_event_id TEXT,
+                payload_json TEXT NOT NULL DEFAULT '{}',
+                content_hash TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX idx_run_artifact_edges_adopted_output
+            ON run_artifact_edges(run_id, role, port_name)
+            WHERE role = 'output' AND port_name IS NOT NULL
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO run_artifact_edges (
+                edge_id, run_id, artifact_blob_id, role, port_name, step_id,
+                content_hash, upstream_run_id, created_at
+            ) VALUES (
+                'aredge_old', 'run_old', 'ablob_old', 'output', 'report',
+                'summarize', 'sha256:old', NULL, '2099-06-07T10:00:00Z'
+            )
+            """
+        )
+
+        ensure_artifact_ledger_invalidation(connection)
+        edge_columns = {row["name"] for row in connection.execute("PRAGMA table_info(run_artifact_edges)").fetchall()}
+        lineage_columns = {row["name"] for row in connection.execute("PRAGMA table_info(lineage_edges)").fetchall()}
+        index_sql = connection.execute(
+            """
+            SELECT sql
+            FROM sqlite_master
+            WHERE type = 'index' AND name = 'idx_run_artifact_edges_adopted_output'
+            """
+        ).fetchone()["sql"]
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                """
+                INSERT INTO run_artifact_edges (
+                    edge_id, run_id, artifact_blob_id, role, port_name, step_id,
+                    content_hash, upstream_run_id, created_at
+                ) VALUES (
+                    'aredge_duplicate_active', 'run_old', 'ablob_dup', 'output', 'report',
+                    'summarize', 'sha256:dup', NULL, '2099-06-07T10:00:01Z'
+                )
+                """
+            )
+        connection.execute(
+            """
+            UPDATE run_artifact_edges
+            SET lifecycle_state = 'invalidated'
+            WHERE edge_id = 'aredge_old'
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO run_artifact_edges (
+                edge_id, run_id, artifact_blob_id, role, port_name, step_id,
+                content_hash, upstream_run_id, created_at
+            ) VALUES (
+                'aredge_replacement', 'run_old', 'ablob_new', 'output', 'report',
+                'summarize', 'sha256:new', NULL, '2099-06-07T10:00:02Z'
+            )
+            """
+        )
+
+    assert {"lifecycle_state", "invalidated_at", "invalidation_reason", "invalidation_event_id"} <= edge_columns
+    assert {"lifecycle_state", "invalidated_at", "invalidation_reason", "invalidation_event_id"} <= lineage_columns
+    assert "lifecycle_state = 'active'" in index_sql
 
 
 def test_runtime_layout_records_schema_version_and_migration_ledger(tmp_path: Path) -> None:
@@ -119,7 +223,7 @@ def test_runtime_layout_records_schema_version_and_migration_ledger(tmp_path: Pa
     assert user_version == CURRENT_SCHEMA_VERSION
     assert migration is not None
     assert migration[0] == CURRENT_SCHEMA_VERSION
-    assert migration[1] == sqlite_migrations.RESULT_PACKAGE_BYTE_STATE_MIGRATION_NAME
+    assert migration[1] == sqlite_migrations.ARTIFACT_LEDGER_INVALIDATION_MIGRATION_NAME
     assert migration[2]
     assert reference_table is not None
 
@@ -190,7 +294,7 @@ def test_runtime_schema_migrates_v1_to_current_scheduler_trigger_tables(tmp_path
         "idx_workflow_trigger_events_trigger_created",
         "idx_workflow_trigger_dispatches_state",
     } <= index_names
-    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_BYTE_STATE_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.ARTIFACT_LEDGER_INVALIDATION_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v2_scheduler_trigger_tables(tmp_path: Path) -> None:
@@ -242,7 +346,7 @@ def test_runtime_schema_migrates_v2_scheduler_trigger_tables(tmp_path: Path) -> 
         "workflow_trigger_events",
         "workflow_trigger_dispatches",
     } <= trigger_tables
-    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_BYTE_STATE_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.ARTIFACT_LEDGER_INVALIDATION_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v6_result_package_exports(tmp_path: Path) -> None:
@@ -295,7 +399,7 @@ def test_runtime_schema_migrates_v6_result_package_exports(tmp_path: Path) -> No
         "idx_result_package_exports_result_created",
         "idx_result_package_exports_run_lifecycle",
     } <= indexes
-    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_BYTE_STATE_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.ARTIFACT_LEDGER_INVALIDATION_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v7_result_package_payload_mode(tmp_path: Path) -> None:
@@ -385,7 +489,7 @@ def test_runtime_schema_migrates_v7_result_package_payload_mode(tmp_path: Path) 
     assert {"include_artifacts", "artifact_payload_mode"} <= columns
     assert legacy_row["include_artifacts"] == 1
     assert legacy_row["artifact_payload_mode"] == "included"
-    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_BYTE_STATE_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.ARTIFACT_LEDGER_INVALIDATION_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v8_workflow_trigger_inbox(tmp_path: Path) -> None:
@@ -446,7 +550,7 @@ def test_runtime_schema_migrates_v8_workflow_trigger_inbox(tmp_path: Path) -> No
     } <= indexes
     assert "payload_json" in columns
     assert INBOX_SIGNATURE_METADATA_COLUMNS <= columns
-    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_BYTE_STATE_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.ARTIFACT_LEDGER_INVALIDATION_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v9_workflow_trigger_inbox_payload(tmp_path: Path) -> None:
@@ -531,7 +635,7 @@ def test_runtime_schema_migrates_v9_workflow_trigger_inbox_payload(tmp_path: Pat
 
     assert "payload_json" in columns
     assert INBOX_SIGNATURE_METADATA_COLUMNS <= columns
-    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_BYTE_STATE_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.ARTIFACT_LEDGER_INVALIDATION_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v10_artifact_cache_pins(tmp_path: Path) -> None:
@@ -588,7 +692,7 @@ def test_runtime_schema_migrates_v10_artifact_cache_pins(tmp_path: Path) -> None
         "idx_artifact_cache_pins_object",
     } <= index_names
     assert INBOX_SIGNATURE_METADATA_COLUMNS <= columns
-    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_BYTE_STATE_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.ARTIFACT_LEDGER_INVALIDATION_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v11_workflow_trigger_inbox_signature_metadata(tmp_path: Path) -> None:
@@ -683,7 +787,7 @@ def test_runtime_schema_migrates_v11_workflow_trigger_inbox_signature_metadata(t
         "raw_content_type": "",
         "raw_header_names_json": "[]",
     }
-    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_BYTE_STATE_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.ARTIFACT_LEDGER_INVALIDATION_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v12_workflow_trigger_readiness_watcher(tmp_path: Path) -> None:
@@ -737,7 +841,7 @@ def test_runtime_schema_migrates_v12_workflow_trigger_readiness_watcher(tmp_path
         "idx_workflow_trigger_readiness_observations_event",
         "idx_workflow_trigger_readiness_observations_state",
     } <= index_names
-    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_BYTE_STATE_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.ARTIFACT_LEDGER_INVALIDATION_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v13_result_package_byte_state(tmp_path: Path) -> None:
@@ -834,7 +938,7 @@ def test_runtime_schema_migrates_v13_result_package_byte_state(tmp_path: Path) -
         "package_bytes_deleted_at": None,
         "package_bytes_gc_reason": "",
     }
-    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_BYTE_STATE_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.ARTIFACT_LEDGER_INVALIDATION_MIGRATION_NAME
 
 
 def test_runtime_schema_rejects_future_user_version(tmp_path: Path) -> None:

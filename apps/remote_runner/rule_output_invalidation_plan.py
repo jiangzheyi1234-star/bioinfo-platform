@@ -94,12 +94,24 @@ def build_rule_output_invalidation_plan(
         preserved_outputs=preserved_outputs,
         unmatched_outputs=unmatched_outputs,
     )
+    mutation_ready = int(summary["invalidatedOutputEdgeCount"]) > 0
     return attach_plan_hash(
         {
             **base,
+            **({"supported": True, "eligible": True, "eligibleNow": True, "invalidationEnabled": True} if mutation_ready else {}),
             "previewAvailable": True,
-            "reasonCode": "OUTPUT_EDGE_INVALIDATION_PREVIEW_ONLY",
-            "message": "Rule output invalidation is represented as a read-only plan; mutation remains disabled.",
+            "reasonCode": (
+                "OUTPUT_EDGE_INVALIDATION_TOMBSTONE_READY"
+                if mutation_ready
+                else "OUTPUT_EDGE_INVALIDATION_SCOPE_EMPTY"
+            ),
+            "message": (
+                "Rule output invalidation can tombstone active output and lineage edges without deleting payloads."
+                if mutation_ready
+                else "Rule output invalidation has no active selected or downstream output edges to tombstone."
+            ),
+            "mutationPolicy": _mutation_policy_ready() if mutation_ready else base["mutationPolicy"],
+            "blockedReasonCodes": ["ARTIFACT_PAYLOAD_DELETION_DISABLED"] if mutation_ready else base["blockedReasonCodes"],
             "outputEdgeSummary": summary,
             "rules": planned_rules,
             "preservedOutputs": preserved_outputs,
@@ -289,7 +301,7 @@ def _summary(
         "invalidatedLineageEdgeCount": sum(int(output["lineageEdgeCount"]) for output in invalidated_outputs),
         "preservedLineageEdgeCount": sum(int(output["lineageEdgeCount"]) for output in preserved_outputs),
         "payloadDeletionAllowed": False,
-        "lineageMutationAllowed": False,
+        "lineageMutationAllowed": bool(invalidated_outputs),
     }
 
 
@@ -305,6 +317,22 @@ def _empty_summary() -> dict[str, Any]:
         "preservedLineageEdgeCount": 0,
         "payloadDeletionAllowed": False,
         "lineageMutationAllowed": False,
+    }
+
+
+def _mutation_policy_ready() -> dict[str, Any]:
+    return {
+        "schemaVersion": RULE_OUTPUT_INVALIDATION_POLICY_SCHEMA_VERSION,
+        "tombstoneOutputEdges": True,
+        "tombstoneLineageEdges": True,
+        "deleteArtifactPayloads": False,
+        "reasonCode": "OUTPUT_INVALIDATION_TOMBSTONE_READY",
+        "requires": [
+            "current_plan_hash",
+            "active_output_edge_scope",
+            "active_lineage_scope",
+            "artifact_payload_retention_policy",
+        ],
     }
 
 
