@@ -33,7 +33,7 @@ from .artifact_cache_read_service import (
     list_governed_artifact_cache_pins,
     lookup_governed_artifact_cache_entry,
 )
-from .artifact_lifecycle_service import build_artifact_lifecycle_usage, preview_artifact_gc, run_artifact_gc
+from .artifact_lifecycle_service import build_governed_artifact_lifecycle_usage, preview_artifact_gc, run_artifact_gc
 from .artifact_product_service import build_result_artifact_audit, export_result_package
 from .governance_audit import record_governance_audit_event
 from .health_service import (
@@ -702,12 +702,9 @@ async def delete_result_package_bytes_from_request(
     return data_response(result)
 
 
-async def get_artifact_lifecycle_usage_from_request(
-    quota_bytes: int | None,
-    authorization: str | None,
-) -> dict[str, Any]:
-    cfg = await _authorized_config_from_request(authorization)
-    usage = await run_sync(build_artifact_lifecycle_usage, cfg, quota_bytes=quota_bytes)
+async def get_artifact_lifecycle_usage_from_request(quota_bytes: int | None, authorization: str | None) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization, action="artifact.lifecycle.usage.read")
+    usage = await run_sync(build_governed_artifact_lifecycle_usage, cfg, quota_bytes=quota_bytes)
     return data_response(usage)
 
 

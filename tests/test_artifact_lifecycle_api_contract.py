@@ -31,6 +31,8 @@ def test_artifact_lifecycle_gc_is_exposed_through_remote_local_and_runtime_layer
     assert "list_artifact_lifecycle_controller_ticks_from_request" in remote_controller_read_api
     assert 'action="artifact.lifecycle.controller_ticks.read"' in remote_controller_read_api
     assert "get_artifact_lifecycle_usage_from_request" in remote_service
+    assert 'action="artifact.lifecycle.usage.read"' in remote_service
+    assert "build_governed_artifact_lifecycle_usage" in remote_service
     assert "preview_artifact_gc_from_request" in remote_service
     assert "run_artifact_gc_from_request" in remote_service
     assert "list_artifact_cache_entries_from_request" in remote_service

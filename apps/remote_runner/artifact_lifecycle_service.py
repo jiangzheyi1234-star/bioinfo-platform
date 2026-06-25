@@ -84,6 +84,23 @@ def build_artifact_lifecycle_usage(
     return usage
 
 
+def build_governed_artifact_lifecycle_usage(
+    cfg: RemoteRunnerConfig,
+    *,
+    quota_bytes: int | None = None,
+) -> dict[str, Any]:
+    usage = build_artifact_lifecycle_usage(cfg, quota_bytes=quota_bytes)
+    record_governance_audit_event(
+        cfg,
+        action="artifact.lifecycle.usage.read",
+        subject_kind="artifact_lifecycle_usage",
+        subject_id="usage",
+        actor=cfg.api_token_actor or "remote-runner-api",
+        details=_usage_audit_details(usage, quota_provided=quota_bytes is not None),
+    )
+    return usage
+
+
 def preview_artifact_gc(cfg: RemoteRunnerConfig, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     policy = _policy_from_payload(payload)
     plan = _build_gc_plan(cfg, policy)
@@ -467,6 +484,29 @@ def _usage_by_backend(groups: dict[str, dict[str, Any]]) -> dict[str, dict[str, 
         summary["storageObjectCount"] += 1
         summary["bytes"] += int(group["sizeBytes"])
     return by_backend
+
+
+def _usage_audit_details(usage: dict[str, Any], *, quota_provided: bool) -> dict[str, Any]:
+    details = {
+        "artifactCount": int(usage.get("artifactCount") or 0),
+        "activeArtifactCount": int(usage.get("activeArtifactCount") or 0),
+        "deletedArtifactCount": int(usage.get("deletedArtifactCount") or 0),
+        "activeStorageObjectCount": int(usage.get("activeStorageObjectCount") or 0),
+        "activeBytes": int(usage.get("activeBytes") or 0),
+        "deletedBytes": int(usage.get("deletedBytes") or 0),
+        "ledgerOnlyMaterializationCount": int(usage.get("ledgerOnlyMaterializationCount") or 0),
+        "ledgerOnlyActiveBytes": int(usage.get("ledgerOnlyActiveBytes") or 0),
+        "quotaProvided": bool(quota_provided),
+    }
+    quota = usage.get("quota") if isinstance(usage.get("quota"), dict) else {}
+    if quota:
+        details.update(
+            {
+                "quotaBytes": int(quota.get("quotaBytes") or 0),
+                "quotaOverageBytes": int(quota.get("overageBytes") or 0),
+            }
+        )
+    return details
 
 
 def _apply_max_delete_bytes(
