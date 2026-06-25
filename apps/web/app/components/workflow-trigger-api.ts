@@ -16,6 +16,8 @@ import type {
   WorkflowTriggerListResponse,
   WorkflowTriggerReadinessObservationEnvelope,
   WorkflowTriggerReadinessObservationResponse,
+  WorkflowTriggerSchedulerTickList,
+  WorkflowTriggerSchedulerTickListResponse,
 } from "./workflow-trigger-model";
 
 type WorkflowTriggerFetchOptions = {
@@ -29,6 +31,7 @@ const WORKFLOW_TRIGGERS_CACHE_KEY = "workflow:triggers";
 const WORKFLOW_TRIGGER_EVENTS_CACHE_KEY = "workflow:trigger-events";
 const WORKFLOW_TRIGGER_INBOX_CACHE_KEY = "workflow:trigger-inbox";
 const WORKFLOW_TRIGGER_READINESS_OBSERVATION_CACHE_KEY = "workflow:trigger-readiness-observation";
+const WORKFLOW_TRIGGER_SCHEDULER_TICKS_CACHE_KEY = "workflow:trigger-scheduler-ticks";
 
 export async function fetchWorkflowTriggers(
   options: WorkflowTriggerFetchOptions = {}
@@ -123,6 +126,27 @@ export async function fetchWorkflowTriggerReadinessObservation(
       sourceType: response.data.sourceType,
       observation: response.data.observation || null,
     };
+  }, {
+    forceRefresh: options.forceRefresh,
+  });
+}
+
+export async function fetchWorkflowTriggerSchedulerTicks(
+  options: WorkflowTriggerFetchOptions = {}
+): Promise<WorkflowTriggerSchedulerTickList> {
+  const limit = options.limit || 20;
+  const key = [
+    WORKFLOW_TRIGGER_SCHEDULER_TICKS_CACHE_KEY,
+    options.serverId || "default",
+    String(limit),
+  ].join(":");
+  return cachedAsync(key, 10_000, async () => {
+    const response = await requestLocalApiJson<WorkflowTriggerSchedulerTickListResponse>(
+      "GET",
+      `/api/v1/workflow-trigger-scheduler/ticks${triggerQuery({ ...options, limit })}`,
+      { cache: "no-store" }
+    );
+    return { schemaVersion: response.data.schemaVersion, items: response.data.items || [] };
   }, {
     forceRefresh: options.forceRefresh,
   });

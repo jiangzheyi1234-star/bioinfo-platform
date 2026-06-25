@@ -23,6 +23,7 @@ from apps.api.workflow_trigger_service import (
     list_workflow_backfill_launches_from_request,
     list_workflow_trigger_events_from_request,
     list_workflow_trigger_inbox_events_from_request,
+    list_workflow_trigger_scheduler_ticks_from_request,
     list_workflow_triggers_from_request,
     launch_workflow_trigger_backfill_from_request,
     preview_workflow_trigger_backfill_from_request,
@@ -91,6 +92,19 @@ async def list_workflow_trigger_inbox_events(
         refresh=refresh,
         server_id=serverId,
         state=state,
+        limit=limit,
+    )
+
+
+@router.get("/api/v1/workflow-trigger-scheduler/ticks")
+async def list_workflow_trigger_scheduler_ticks(
+    refresh: bool = False,
+    serverId: str | None = None,
+    limit: int = 20,
+) -> dict[str, Any]:
+    return await list_workflow_trigger_scheduler_ticks_from_request(
+        refresh=refresh,
+        server_id=serverId,
         limit=limit,
     )
 

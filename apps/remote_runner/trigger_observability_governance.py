@@ -6,6 +6,7 @@ from .config import RemoteRunnerConfig
 from .governance_audit import record_governance_audit_event
 from .trigger_inbox_service import list_workflow_trigger_inbox_events_from_storage
 from .trigger_readiness_read_model import get_workflow_trigger_readiness_observation_from_storage
+from .trigger_scheduler_read_model import list_governed_workflow_trigger_scheduler_ticks as _list_scheduler_ticks
 from .trigger_service import (
     get_workflow_backfill_launch_from_storage,
     list_workflow_backfill_launches_from_storage,
@@ -97,6 +98,14 @@ def list_governed_workflow_trigger_inbox_events(
         },
     )
     return result
+
+
+def list_governed_workflow_trigger_scheduler_ticks(
+    cfg: RemoteRunnerConfig,
+    *,
+    limit: int = 20,
+) -> dict[str, Any]:
+    return _list_scheduler_ticks(cfg, limit=limit)
 
 
 def list_governed_workflow_backfill_launches(

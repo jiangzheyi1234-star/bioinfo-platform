@@ -118,6 +118,24 @@ async def list_workflow_trigger_inbox_events_from_request(
     )
 
 
+async def list_workflow_trigger_scheduler_ticks_from_request(
+    *,
+    refresh: bool,
+    server_id: str | None,
+    limit: int,
+) -> dict[str, Any]:
+    return await cached_runtime_payload(
+        f"workflow_trigger_scheduler_ticks:{server_id or 'default'}:{int(limit)}",
+        10,
+        lambda: runtime_service().list_workflow_trigger_scheduler_ticks(
+            server_id=server_id,
+            limit=limit,
+        ),
+        wrapper="raw",
+        force_refresh=refresh,
+    )
+
+
 async def list_workflow_backfill_launches_from_request(
     *,
     refresh: bool,

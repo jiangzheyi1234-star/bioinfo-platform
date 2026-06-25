@@ -280,6 +280,10 @@ class RemoteRunnerHttpClient:
         )
         return self.get_json(f"/api/v1/workflow-triggers/{trigger_id}/inbox?{query}")["data"]
 
+    def list_workflow_trigger_scheduler_ticks(self, *, limit: int = 20) -> dict[str, Any]:
+        query = urllib.parse.urlencode({"limit": int(limit)})
+        return self.get_json(f"/api/v1/workflow-trigger-scheduler/ticks?{query}")["data"]
+
     def list_workflow_backfill_launches(
         self,
         *,

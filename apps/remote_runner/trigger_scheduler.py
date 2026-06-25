@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import uuid
 from datetime import UTC, datetime
 from typing import Any
 
@@ -10,12 +11,17 @@ from croniter import croniter
 
 from .api_models import WorkflowTriggerEventRequest
 from .config import RemoteRunnerConfig, load_remote_runner_config
+from .evidence_storage import append_evidence_event
+from .storage_core import get_connection
 from .trigger_cron_contract import cron_expression, cron_timezone, normalize_cron_trigger_spec
 from .trigger_service import advance_workflow_backfill_launches, submit_workflow_trigger_event_from_request
 from .trigger_storage import list_workflow_triggers_by_source
 
 
 LOGGER = logging.getLogger(__name__)
+WORKFLOW_TRIGGER_SCHEDULER_TICK_EVENT_TYPE = "workflow_trigger.scheduler_tick.v1"
+WORKFLOW_TRIGGER_SCHEDULER_TICK_SCHEMA_NAME = "WorkflowTriggerSchedulerTick"
+WORKFLOW_TRIGGER_SCHEDULER_TICK_SCHEMA = "h2ometa.workflow-trigger-scheduler-tick.v1"
 DEFAULT_CRON_SCHEDULER_POLL_INTERVAL_SECONDS = 60.0
 DEFAULT_CRON_SCHEDULER_LIMIT = 100
 
@@ -107,6 +113,20 @@ def run_workflow_trigger_scheduler_once(
             submitted += 1
 
     backfills = advance_workflow_backfill_launches(cfg, limit=limit)
+    evaluated_at = _format_utc(tick_at)
+    tick = _scheduler_tick_summary(
+        evaluated_at=evaluated_at,
+        limit=limit,
+        checked=checked,
+        skipped=skipped,
+        due=due,
+        submitted=submitted,
+        replayed=replayed,
+        events=events,
+        errors=errors,
+        backfills=backfills,
+    )
+    evidence = _record_scheduler_tick_evidence(cfg, tick)
 
     return {
         "checked": checked,
@@ -117,8 +137,130 @@ def run_workflow_trigger_scheduler_once(
         "events": events,
         "backfills": backfills,
         "errors": errors,
-        "evaluatedAt": _format_utc(tick_at),
+        "evaluatedAt": evaluated_at,
+        "tickId": tick["tickId"],
+        "evidenceId": evidence["eventId"],
     }
+
+
+def _scheduler_tick_summary(
+    *,
+    evaluated_at: str,
+    limit: int,
+    checked: int,
+    skipped: int,
+    due: int,
+    submitted: int,
+    replayed: int,
+    events: list[dict[str, Any]],
+    errors: list[dict[str, str]],
+    backfills: dict[str, Any],
+) -> dict[str, Any]:
+    cron_summary = {
+        "checked": checked,
+        "skipped": skipped,
+        "due": due,
+        "submitted": submitted,
+        "replayed": replayed,
+        "eventCount": len(events),
+        "dispatchRunCount": _dispatch_run_count(events),
+        "errorCount": len(errors),
+        "errorTypes": _error_counts(errors),
+        "reasonCodes": _reason_counts(errors),
+    }
+    backfill_summary = _backfill_summary(backfills)
+    summary = {
+        "schemaVersion": WORKFLOW_TRIGGER_SCHEDULER_TICK_SCHEMA,
+        "evaluatedAt": evaluated_at,
+        "limit": max(1, int(limit)),
+        "cron": cron_summary,
+        "backfills": backfill_summary,
+        "controlsExposed": False,
+    }
+    return {
+        **summary,
+        "tickId": f"wfts_{uuid.uuid4().hex[:12]}",
+    }
+
+
+def _record_scheduler_tick_evidence(cfg: RemoteRunnerConfig, tick: dict[str, Any]) -> dict[str, Any]:
+    payload = {
+        "schemaVersion": tick["schemaVersion"],
+        "tickId": tick["tickId"],
+        "evaluatedAt": tick["evaluatedAt"],
+        "limit": tick["limit"],
+        "cron": tick["cron"],
+        "backfills": tick["backfills"],
+        "controlsExposed": False,
+    }
+    with get_connection(cfg) as connection:
+        event = append_evidence_event(
+            connection,
+            event_type=WORKFLOW_TRIGGER_SCHEDULER_TICK_EVENT_TYPE,
+            schema_name=WORKFLOW_TRIGGER_SCHEDULER_TICK_SCHEMA_NAME,
+            subject_kind="workflow_trigger_scheduler",
+            subject_id=str(tick["tickId"]),
+            payload=payload,
+            producer="workflow_trigger_scheduler",
+            occurred_at=str(tick["evaluatedAt"]),
+        )
+        connection.commit()
+    return event
+
+
+def _dispatch_run_count(events: list[dict[str, Any]]) -> int:
+    count = 0
+    for event in events:
+        dispatch = event.get("dispatch") if isinstance(event, dict) else {}
+        if isinstance(dispatch, dict) and str(dispatch.get("runId") or "").strip():
+            count += 1
+    return count
+
+
+def _backfill_summary(backfills: dict[str, Any]) -> dict[str, Any]:
+    launches = [item for item in backfills.get("launches") or [] if isinstance(item, dict)]
+    errors = [item for item in backfills.get("errors") or [] if isinstance(item, dict)]
+    return {
+        "checked": _safe_int(backfills.get("checked")),
+        "advanced": _safe_int(backfills.get("advanced")),
+        "submitted": _safe_int(backfills.get("submitted")),
+        "replayed": _safe_int(backfills.get("replayed")),
+        "pending": _safe_int(backfills.get("pending")),
+        "launchCount": len(launches),
+        "stateCounts": _value_counts(launch.get("state") for launch in launches),
+        "errorCount": len(errors),
+        "errorTypes": _error_counts(errors),
+        "reasonCodes": _reason_counts(errors),
+    }
+
+
+def _error_counts(errors: list[dict[str, Any]]) -> dict[str, int]:
+    return _value_counts(error.get("errorType") for error in errors)
+
+
+def _reason_counts(errors: list[dict[str, Any]]) -> dict[str, int]:
+    return _value_counts(_reason_code(str(error.get("message") or "")) for error in errors)
+
+
+def _reason_code(message: str) -> str:
+    return message.split(":", 1)[0].strip() if message.strip() else ""
+
+
+def _value_counts(values) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for value in values:
+        text = str(value or "").strip()
+        if not text:
+            continue
+        counts[text] = counts.get(text, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 def build_cron_trigger_event_request(

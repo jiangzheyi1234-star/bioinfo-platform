@@ -106,6 +106,17 @@ class RunnerExecutionOperationsMixin:
             limit=limit,
         )
 
+    def list_workflow_trigger_scheduler_ticks(
+        self,
+        *,
+        server_id: Optional[str] = None,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        return self.execution.list_workflow_trigger_scheduler_ticks(
+            server_id=server_id,
+            limit=limit,
+        )
+
     def list_workflow_backfill_launches(
         self,
         *,

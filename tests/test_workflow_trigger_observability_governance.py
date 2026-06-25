@@ -20,6 +20,7 @@ TRIGGER_READ_ACTIONS = (
     "workflow_trigger.events.read",
     "workflow_trigger.readiness_observation.read",
     "workflow_trigger.inbox.read",
+    "workflow_trigger.scheduler_ticks.read",
     "workflow_trigger.backfill_launch.list",
     "workflow_trigger.backfill_launch.read",
 )
@@ -87,6 +88,12 @@ def test_workflow_trigger_observability_read_actions_allow_operator_and_auditor(
             "workflow_trigger.inbox.read",
             "list_governed_workflow_trigger_inbox_events",
             "workflow_trigger_inbox_event",
+        ),
+        (
+            "/api/v1/workflow-trigger-scheduler/ticks",
+            "workflow_trigger.scheduler_ticks.read",
+            "list_governed_workflow_trigger_scheduler_ticks",
+            "workflow_trigger_scheduler",
         ),
         (
             "/api/v1/workflow-backfill-launches",
@@ -249,11 +256,12 @@ def test_workflow_trigger_observability_routes_record_safe_allow_audit(
         client.get("/api/v1/workflow-triggers/wtr_audit/events", headers=headers),
         client.get("/api/v1/workflow-triggers/wtr_audit/readiness-observation", headers=headers),
         client.get("/api/v1/workflow-triggers/wtr_audit/inbox?state=submitted&limit=7", headers=headers),
+        client.get("/api/v1/workflow-trigger-scheduler/ticks?limit=4", headers=headers),
         client.get("/api/v1/workflow-backfill-launches?triggerId=wtr_audit&limit=3", headers=headers),
         client.get("/api/v1/workflow-backfill-launches/bfl_audit", headers=headers),
     ]
 
-    assert [response.status_code for response in responses] == [200, 200, 200, 200, 200, 200]
+    assert [response.status_code for response in responses] == [200, 200, 200, 200, 200, 200, 200]
     assert _latest_details(cfg, "workflow_trigger.list") == {
         "returnedCount": 2,
         "enabledCount": 1,
@@ -271,6 +279,14 @@ def test_workflow_trigger_observability_routes_record_safe_allow_audit(
         "filteredByState": True,
         "limit": 7,
         "returnedCount": 1,
+    }
+    assert _latest_details(cfg, "workflow_trigger.scheduler_ticks.read") == {
+        "limit": 4,
+        "returnedCount": 0,
+        "cronSubmittedCount": 0,
+        "backfillSubmittedCount": 0,
+        "errorTickCount": 0,
+        "controlsExposed": False,
     }
     assert _latest_details(cfg, "workflow_trigger.backfill_launch.list") == {
         "filteredByTrigger": True,

@@ -23,6 +23,7 @@ from apps.api.workflow_trigger_routes import (
     get_workflow_backfill_launch,
     get_workflow_trigger_readiness_observation,
     launch_workflow_trigger_backfill,
+    list_workflow_trigger_scheduler_ticks,
     list_workflow_backfill_launches,
     list_workflow_trigger_events,
     list_workflow_trigger_inbox_events,
@@ -71,6 +72,7 @@ def test_workflow_trigger_routes_preserve_runtime_wrappers_and_submit_headers(mo
             limit=25,
         )
     )
+    scheduler_ticks = asyncio.run(list_workflow_trigger_scheduler_ticks(serverId="srv_primary", limit=8))
     backfill_launches = asyncio.run(list_workflow_backfill_launches(serverId="srv_primary", triggerId="wtr_demo"))
     backfill_detail = asyncio.run(get_workflow_backfill_launch("bfl_demo", serverId="srv_primary"))
     response = Response()
@@ -224,6 +226,12 @@ def test_workflow_trigger_routes_preserve_runtime_wrappers_and_submit_headers(mo
         "data": {
             "schemaVersion": "workflow-trigger-inbox-list.v1",
             "items": [{"inboxEventId": "wti_demo", "state": "submitted"}],
+        }
+    }
+    assert scheduler_ticks == {
+        "data": {
+            "schemaVersion": "h2ometa.workflow-trigger-scheduler-tick-read-model.v1",
+            "items": [{"tickId": "wfts_demo", "cron": {"submitted": 1}, "backfills": {"submitted": 0}}],
         }
     }
     assert backfill_detail == {"data": {"launchId": "bfl_demo", "partitions": []}}
@@ -395,6 +403,16 @@ class FakeTriggerRuntime:
             "data": {
                 "schemaVersion": "workflow-trigger-inbox-list.v1",
                 "items": [{"inboxEventId": "wti_demo", "state": "submitted"}],
+            }
+        }
+
+    def list_workflow_trigger_scheduler_ticks(self, *, server_id=None, limit=20):
+        assert server_id == "srv_primary"
+        assert limit == 8
+        return {
+            "data": {
+                "schemaVersion": "h2ometa.workflow-trigger-scheduler-tick-read-model.v1",
+                "items": [{"tickId": "wfts_demo", "cron": {"submitted": 1}, "backfills": {"submitted": 0}}],
             }
         }
 

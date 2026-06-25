@@ -447,6 +447,16 @@ HIGH_RISK_API_POLICIES: tuple[ApiGovernancePolicy, ...] = (
         "auditor",
     ),
     remote_policy(
+        "GET",
+        "/api/v1/workflow-trigger-scheduler/ticks",
+        "apps/remote_runner/workflow_trigger_routes.py",
+        "workflow_trigger.scheduler_ticks.read",
+        "workflow_trigger_scheduler",
+        "implemented",
+        "workflow-operator",
+        "auditor",
+    ),
+    remote_policy(
         "POST",
         "/api/v1/workflow-triggers/{trigger_id}/inbox",
         "apps/remote_runner/workflow_trigger_routes.py",

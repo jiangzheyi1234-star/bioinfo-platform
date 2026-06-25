@@ -32,6 +32,9 @@ def test_trigger_events_have_read_only_frontend_surface() -> None:
     assert "WorkflowTriggerEventSubmitResult" in model
     assert "WorkflowTriggerReadinessObservation" in model
     assert "WorkflowTriggerReadinessObservationResponse" in model
+    assert "WorkflowTriggerSchedulerTick" in model
+    assert "WorkflowTriggerSchedulerTickListResponse" in model
+    assert "controlsExposed?: boolean" in model
     assert "WorkflowRunAdmissionSummary" in model
     assert "waitReasonCode?: string" in model
     assert "admission?: WorkflowRunAdmissionSummary | null" in model
@@ -46,8 +49,11 @@ def test_trigger_events_have_read_only_frontend_surface() -> None:
     assert "replayWorkflowTriggerInboxEvent" in api
     assert "submitManualWorkflowTriggerEvent" in api
     assert "fetchWorkflowTriggerReadinessObservation" in api
+    assert "fetchWorkflowTriggerSchedulerTicks" in api
     assert "WORKFLOW_TRIGGER_READINESS_OBSERVATION_CACHE_KEY" in api
+    assert "WORKFLOW_TRIGGER_SCHEDULER_TICKS_CACHE_KEY" in api
     assert "/api/v1/workflow-triggers" in api
+    assert "/api/v1/workflow-trigger-scheduler/ticks" in api
     assert "/readiness-observation" in api
     assert "/inbox" in api
     assert "/replay" in api
@@ -62,21 +68,30 @@ def test_trigger_events_have_read_only_frontend_surface() -> None:
     assert "requestLocalApiJson<WorkflowTriggerInboxEventListResponse>" in api
     assert "requestLocalApiJson<WorkflowTriggerInboxReplayResponse>" in api
     assert "requestLocalApiJson<WorkflowTriggerReadinessObservationResponse>" in api
+    assert "requestLocalApiJson<WorkflowTriggerSchedulerTickListResponse>" in api
     assert "window.setInterval(() => {" in page
     assert "void loadEvents(true)" in page
+    assert "void loadSchedulerTicks(true)" in page
     assert "void loadReadinessObservation(true)" in page
     assert "fetchWorkflowTriggerInboxEvents(selectedTriggerId" in page
     assert "fetchWorkflowTriggerReadinessObservation(selectedTriggerId" in page
+    assert "fetchWorkflowTriggerSchedulerTicks({ forceRefresh, limit: 20 })" in page
     assert "replayWorkflowTriggerInboxEvent(selectedTriggerId, inboxEventId)" in page
     assert "submitManualWorkflowTriggerEvent(triggerId)" in page
     assert "submittingManualTriggerId" in page
     assert "void loadInbox(true)" in page
     assert "readinessObservation={readinessObservation}" in page
+    assert "schedulerTicks={schedulerTicks}" in page
     assert "isReadinessSource" in page
     assert "fetchWorkflowTriggers().catch" in results
     assert 'href="/workflows/results/triggers"' in results
     assert "RunSummary" in panel
     assert "WorkflowTriggerInboxPanel" in panel
+    assert "SchedulerTickPanel" in panel
+    assert "SchedulerMetric" in panel
+    assert "workflow_trigger.scheduler_ticks.read" not in panel
+    assert "Cron due" in panel
+    assert "Backfill submitted" in panel
     assert "ManualTriggerRunControl" in panel
     assert 'trigger.sourceType === "manual"' in panel
     assert "onSubmitManualTrigger(trigger.triggerId)" in panel
@@ -116,6 +131,7 @@ def test_trigger_events_have_read_only_frontend_surface() -> None:
     assert "resourceIdentity" in panel
     assert "watcherAdapter" in panel
     assert "observedChecksum" in panel
+    assert "controlsExposed" not in panel
     assert "observation.resourceId ||" not in panel
     assert "observation.resourceId]" not in panel
     assert '"resourceId"' not in panel

@@ -4,7 +4,7 @@ Status: In progress
 
 Last reviewed: 2026-06-25
 
-Baseline: `main`, `HEAD=a4b4dca54afc390fcc3735c33395bc1989f1a6d0`.
+Baseline: `codex/dag-workflow-maturity-phase-2`, `HEAD=510efc863d54944e03a587cf963e08b9dc3881ee`.
 
 Existing dirty files at intake: `AGENTS.md`. Treat this as pre-existing user/integrator work. Do not revert or overwrite it from this roadmap.
 
@@ -300,6 +300,7 @@ Progress:
 - Result package export evidence now records safe trigger provenance for triggered runs. The manifest, RO-Crate run action, and `result.export.v1` evidence link the run back to the immutable trigger event, dispatch request, optional webhook inbox delivery, and optional backfill partition/window without exporting raw trigger payloads, raw request bodies, signature header values, or secret references.
 - Run detail now exposes the same safe trigger provenance read model used by result package export. Triggered runs show source, cursor, immutable trigger event, dispatch idempotency/request context, optional backfill partition window, and optional webhook inbox signature/raw-body hash metadata while keeping raw trigger payloads, request bodies, signature header values, and replay/dead-letter controls out of the run detail surface.
 - Manual trigger definitions now have a confirmation-gated UI action that submits exactly one manual trigger event through the existing immutable trigger event, run admission, run creation, and provenance path. Cron catchup, webhook generic dispatch, readiness push, backfill launch, trigger creation, and pause/resume controls remain outside this observability surface.
+- Workflow trigger scheduler ticks now persist safe hash-chained evidence and expose a governed read-only scheduler tick ledger in the trigger observability UI. The read model summarizes cron due/submitted/replayed/error counts and backfill submitted/pending/error counts without raw trigger payloads, run specs, event ids, run ids, cursor values, or scheduler controls.
 
 Recommended sequence:
 
@@ -308,9 +309,10 @@ Recommended sequence:
 3. Add a scheduler service loop for cron and delayed enqueue using existing queue/admission semantics.
 4. Add webhook/event inbox with deduplication, correlation id, actor/source, and idempotency key derivation.
 5. Stamp triggered runs with `triggerId`, `triggerEventId`, `source`, and `cursor`.
-6. Extend dataset/file/database-ready watcher polling from the opt-in local-path and database-registry adapters into additional explicit adapters only after each adapter has stable resource identity, version/checksum semantics, and cursor tests.
-7. Extend backfill launch beyond explicit existing-run policy into replay/dead-letter/partial retry UI once their contracts are explicit.
-8. Add provider signature adapters, event matching rules, replay/dead-letter UI, bulk replay controls, and rate-limit/retry policy after the provider-neutral inbox table proves stable.
+6. Persist and govern scheduler tick summaries before adding scheduler controls or additional adapters.
+7. Extend dataset/file/database-ready watcher polling from the opt-in local-path and database-registry adapters into additional explicit adapters only after each adapter has stable resource identity, version/checksum semantics, and cursor tests.
+8. Extend backfill launch beyond explicit existing-run policy into replay/dead-letter/partial retry UI once their contracts are explicit.
+9. Add provider signature adapters, event matching rules, replay/dead-letter UI, bulk replay controls, and rate-limit/retry policy after the provider-neutral inbox table proves stable.
 
 Representative files:
 
@@ -318,6 +320,9 @@ Representative files:
 - `apps/remote_runner/submission_service.py`
 - `apps/remote_runner/run_execution_storage.py`
 - New scheduler modules under `apps/remote_runner/`
+- `apps/remote_runner/trigger_scheduler.py`
+- `apps/remote_runner/trigger_scheduler_read_model.py`
+- `apps/remote_runner/trigger_observability_governance.py`
 - API routes under `apps/remote_runner` and `apps/api`
 - Frontend workflow trigger views under `apps/web/app/components`
 
@@ -430,6 +435,7 @@ Progress:
 - Dependabot version updates now cover GitHub Actions, root `uv`, root npm, `apps/web` npm, and `apps/desktop` npm surfaces with weekly grouped updates and a five-open-PR cap. The security governance audit rejects missing, unapproved, or noisy Dependabot entries so dependency upkeep remains part of the production gate instead of an ad hoc operator task.
 - The desired GitHub main-branch ruleset is now source-controlled as `.github/rulesets/main-branch-ruleset.target.json` and enforced by the security governance audit as a target policy: no bypass actors, PR/code-owner/review-thread gates, linear history, deletion/force-push protection, and only the stable `required / ci-green` aggregate as a required status check until optional Security Analysis gates are proven available.
 - Container image scanning is now source-controlled as `.github/container-image-scan.target.json` plus an independent, non-required `.github/workflows/container-image-scan.yml` workflow. The workflow builds both Dockerfiles, runs pinned Trivy scans for HIGH/CRITICAL OS/library vulnerabilities, uploads two-day SARIF evidence, and stays out of `required / ci-green` until the unsupported Compose draft is replaced by a hardened server profile.
+- Workflow trigger scheduler tick reads are now governed remote actions (`workflow_trigger.scheduler_ticks.read`) with workflow-operator/auditor role coverage and metadata-only allow audit records. Public scheduler evidence includes only aggregate cron/backfill counts, error type/reason-code counts, evidence ids, and timestamps; trigger payloads, event ids, run ids, run specs, cursor values, and scheduler controls remain unavailable.
 - Remote runner database backend configuration now fails closed. The supported backend is explicitly `sqlite`; `database_backend=postgres` and `H2OMETA_DATABASE_URL`/`database_url` are rejected before runtime layout or storage connection can silently initialize SQLite, keeping PostgreSQL marked as pending until repository, transaction, migration, and multi-user governance boundaries are implemented.
 - Governance audit events now expose stable request, correlation, project, and tenant context fields in the hash-chained audit payload/read model. Context is promoted from existing safe details such as run submission `requestId`/`projectId` and trigger `eventContext.correlationId`, while raw details remain secret-key guarded.
 - Governance audit events now expose stable top-level `actorRoles` from the authenticated remote-runner machine token, including authorization denials. Roles are not promoted from lower-trust business/event details, and this remains a machine-token boundary rather than per-user multi-tenant RBAC.

@@ -223,6 +223,20 @@ class ExecutionManager(BaseRuntimeManager):
             )
         }
 
+    def list_workflow_trigger_scheduler_ticks(
+        self,
+        *,
+        server_id: Optional[str] = None,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        return {
+            "data": self.call_runner(
+                "list_workflow_trigger_scheduler_ticks",
+                preferred_server_id=server_id,
+                limit=limit,
+            )
+        }
+
     def list_workflow_backfill_launches(
         self,
         *,

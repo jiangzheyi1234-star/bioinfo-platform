@@ -82,6 +82,7 @@ from .trigger_observability_governance import (
     list_governed_workflow_backfill_launches,
     list_governed_workflow_trigger_events,
     list_governed_workflow_trigger_inbox_events,
+    list_governed_workflow_trigger_scheduler_ticks,
     list_governed_workflow_triggers,
 )
 from .trigger_service import (
@@ -333,6 +334,19 @@ async def list_workflow_trigger_inbox_events_request(
         cfg,
         trigger_id,
         state=state,
+        limit=limit,
+    )
+
+
+async def list_workflow_trigger_scheduler_ticks_request(
+    authorization: str | None,
+    *,
+    limit: int = 20,
+) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization, action="workflow_trigger.scheduler_ticks.read")
+    return await run_sync(
+        list_governed_workflow_trigger_scheduler_ticks,
+        cfg,
         limit=limit,
     )
 

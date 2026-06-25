@@ -25,6 +25,7 @@ import type {
   WorkflowTriggerEventPayload,
   WorkflowTriggerInboxEvent,
   WorkflowTriggerReadinessObservation,
+  WorkflowTriggerSchedulerTick,
   WorkflowRunAdmissionSummary,
 } from "./workflow-trigger-model";
 import { WorkflowTriggerInboxPanel } from "./workflow-trigger-inbox-panel";
@@ -43,6 +44,7 @@ export function WorkflowTriggerObservabilityPanel({
   onSubmitManualTrigger,
   readinessObservation,
   replayingInboxEventId,
+  schedulerTicks,
   selectedTrigger,
   selectedTriggerId,
   submittingManualTriggerId,
@@ -61,6 +63,7 @@ export function WorkflowTriggerObservabilityPanel({
   onSubmitManualTrigger: (triggerId: string) => void;
   readinessObservation: WorkflowTriggerReadinessObservation | null;
   replayingInboxEventId: string;
+  schedulerTicks: WorkflowTriggerSchedulerTick[];
   selectedTrigger: WorkflowTrigger | null;
   selectedTriggerId: string;
   submittingManualTriggerId: string;
@@ -100,6 +103,8 @@ export function WorkflowTriggerObservabilityPanel({
         </div>
       ) : null}
 
+      <SchedulerTickPanel ticks={schedulerTicks} />
+
       {loading && triggers.length === 0 ? (
         <div className="flex h-28 items-center justify-center text-sm text-slate-400">
           <Loader2 strokeWidth={1.5} className="mr-2 h-4 w-4 animate-spin" />
@@ -135,6 +140,54 @@ export function WorkflowTriggerObservabilityPanel({
         </div>
       )}
     </section>
+  );
+}
+
+function SchedulerTickPanel({ ticks }: { ticks: WorkflowTriggerSchedulerTick[] }) {
+  const latest = ticks[0] || null;
+  const cron = latest?.cron || {};
+  const backfills = latest?.backfills || {};
+  return (
+    <div className="border-b border-slate-100 px-4 py-3">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="text-xs font-medium text-slate-700">Scheduler ticks</div>
+        <span className="font-mono text-[11px] text-slate-400">{latest ? shortIdentity(latest.tickId, "tick") : "no tick evidence"}</span>
+      </div>
+      {latest ? (
+        <div className="grid gap-2 text-xs sm:grid-cols-2 xl:grid-cols-4">
+          <SchedulerMetric label="Cron due" value={numberLabel(cron.due)} sub={`submitted ${numberLabel(cron.submitted)} / replayed ${numberLabel(cron.replayed)}`} />
+          <SchedulerMetric label="Cron errors" value={numberLabel(cron.errorCount)} sub={reasonSummary(cron.reasonCodes)} tone={cron.errorCount ? "red" : "slate"} />
+          <SchedulerMetric label="Backfill submitted" value={numberLabel(backfills.submitted)} sub={`pending ${numberLabel(backfills.pending)} / replayed ${numberLabel(backfills.replayed)}`} />
+          <SchedulerMetric label="Backfill errors" value={numberLabel(backfills.errorCount)} sub={reasonSummary(backfills.reasonCodes)} tone={backfills.errorCount ? "red" : "slate"} />
+          <div className="min-w-0 text-[11px] text-slate-500 sm:col-span-2 xl:col-span-4">
+            evaluated {formatDate(latest.evaluatedAt)} / evidence {shortIdentity(latest.evidenceId, "—")}
+          </div>
+        </div>
+      ) : (
+        <div className="text-xs text-slate-400">暂无 scheduler tick evidence</div>
+      )}
+    </div>
+  );
+}
+
+function SchedulerMetric({
+  label,
+  sub,
+  tone = "slate",
+  value,
+}: {
+  label: string;
+  sub: string;
+  tone?: "slate" | "red";
+  value: string;
+}) {
+  const toneClass = tone === "red" ? "border-red-200 bg-red-50 text-red-800" : "border-slate-200 bg-slate-50 text-slate-800";
+  return (
+    <div className={cn("min-w-0 rounded border px-2.5 py-2", toneClass)}>
+      <div className="text-[11px] text-slate-500">{label}</div>
+      <div className="mt-1 text-sm font-semibold">{value}</div>
+      <div className="mt-1 truncate text-[11px] text-slate-500">{sub || "no reason codes"}</div>
+    </div>
   );
 }
 
@@ -729,6 +782,16 @@ function shortHash(value?: string) {
 function shortIdentity(value: string | undefined, fallback: string) {
   if (!value) return fallback;
   return value.length > 24 ? `${value.slice(0, 12)}…${value.slice(-8)}` : value;
+}
+
+function numberLabel(value: unknown) {
+  return String(typeof value === "number" && Number.isFinite(value) ? value : 0);
+}
+
+function reasonSummary(value: Record<string, number> | undefined) {
+  const entries = Object.entries(value || {});
+  if (entries.length === 0) return "";
+  return entries.slice(0, 2).map(([key, count]) => `${key} ${count}`).join(" / ");
 }
 
 function errorLabel(value: unknown) {

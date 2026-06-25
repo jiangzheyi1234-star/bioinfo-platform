@@ -154,6 +154,35 @@ export type WorkflowTriggerReadinessObservationEnvelope = {
   observation?: WorkflowTriggerReadinessObservation | null;
 };
 
+export type WorkflowTriggerSchedulerTickCounts = {
+  checked?: number;
+  skipped?: number;
+  due?: number;
+  submitted?: number;
+  replayed?: number;
+  eventCount?: number;
+  dispatchRunCount?: number;
+  errorCount?: number;
+  advanced?: number;
+  pending?: number;
+  launchCount?: number;
+  errorTypes?: Record<string, number>;
+  reasonCodes?: Record<string, number>;
+  stateCounts?: Record<string, number>;
+};
+
+export type WorkflowTriggerSchedulerTick = {
+  tickId: string;
+  evidenceId?: string;
+  evidenceSeq?: number;
+  occurredAt?: string;
+  evaluatedAt?: string;
+  limit?: number;
+  controlsExposed?: boolean;
+  cron?: WorkflowTriggerSchedulerTickCounts;
+  backfills?: WorkflowTriggerSchedulerTickCounts;
+};
+
 export type WorkflowTriggerList = {
   items: WorkflowTrigger[];
 };
@@ -169,6 +198,15 @@ export type WorkflowTriggerInboxEventList = {
 
 export type WorkflowTriggerReadinessObservationResponse = {
   data: WorkflowTriggerReadinessObservationEnvelope;
+};
+
+export type WorkflowTriggerSchedulerTickList = {
+  schemaVersion?: string;
+  items: WorkflowTriggerSchedulerTick[];
+};
+
+export type WorkflowTriggerSchedulerTickListResponse = {
+  data: WorkflowTriggerSchedulerTickList;
 };
 
 export type WorkflowTriggerInboxReplayResult = {

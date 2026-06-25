@@ -13,6 +13,7 @@ import {
   fetchWorkflowTriggerEvents,
   fetchWorkflowTriggerInboxEvents,
   fetchWorkflowTriggerReadinessObservation,
+  fetchWorkflowTriggerSchedulerTicks,
   fetchWorkflowTriggers,
   replayWorkflowTriggerInboxEvent,
   submitManualWorkflowTriggerEvent,
@@ -23,6 +24,7 @@ import type {
   WorkflowTriggerEvent,
   WorkflowTriggerInboxEvent,
   WorkflowTriggerReadinessObservation,
+  WorkflowTriggerSchedulerTick,
 } from "./workflow-trigger-model";
 import { workflowErrorMessage } from "./workflows-page-model";
 
@@ -35,6 +37,7 @@ export function WorkflowTriggerObservabilityPage() {
   const [events, setEvents] = useState<WorkflowTriggerEvent[]>([]);
   const [inboxEvents, setInboxEvents] = useState<WorkflowTriggerInboxEvent[]>([]);
   const [readinessObservation, setReadinessObservation] = useState<WorkflowTriggerReadinessObservation | null>(null);
+  const [schedulerTicks, setSchedulerTicks] = useState<WorkflowTriggerSchedulerTick[]>([]);
   const [selectedTriggerId, setSelectedTriggerId] = useState(triggerFromQuery);
   const [loading, setLoading] = useState(true);
   const [eventsLoading, setEventsLoading] = useState(false);
@@ -115,9 +118,23 @@ export function WorkflowTriggerObservabilityPage() {
     }
   }, [selectedTrigger?.sourceType, selectedTriggerId]);
 
+  const loadSchedulerTicks = useCallback(async (forceRefresh = false) => {
+    setEventError("");
+    try {
+      const data = await fetchWorkflowTriggerSchedulerTicks({ forceRefresh, limit: 20 });
+      setSchedulerTicks(data.items || []);
+    } catch (err) {
+      setEventError(workflowErrorMessage(err, "读取 scheduler ticks 失败"));
+    }
+  }, []);
+
   useEffect(() => {
     void loadTriggers();
   }, [loadTriggers]);
+
+  useEffect(() => {
+    void loadSchedulerTicks();
+  }, [loadSchedulerTicks]);
 
   useEffect(() => {
     if (triggerFromQuery && triggerFromQuery !== selectedTriggerId) {
@@ -153,9 +170,10 @@ export function WorkflowTriggerObservabilityPage() {
       void loadEvents(true);
       void loadInbox(true);
       void loadReadinessObservation(true);
+      void loadSchedulerTicks(true);
     }, 5000);
     return () => window.clearInterval(timer);
-  }, [loadEvents, loadInbox, loadReadinessObservation, selectedTriggerId]);
+  }, [loadEvents, loadInbox, loadReadinessObservation, loadSchedulerTicks, selectedTriggerId]);
 
   function selectTrigger(triggerId: string) {
     setEvents([]);
@@ -173,6 +191,7 @@ export function WorkflowTriggerObservabilityPage() {
     void loadEvents(true);
     void loadInbox(true);
     void loadReadinessObservation(true);
+    void loadSchedulerTicks(true);
   }
 
   async function replayInboxEvent(inboxEventId: string) {
@@ -247,6 +266,7 @@ export function WorkflowTriggerObservabilityPage() {
             onSubmitManualTrigger={submitManualTrigger}
             readinessObservation={readinessObservation}
             replayingInboxEventId={replayingInboxEventId}
+            schedulerTicks={schedulerTicks}
             selectedTrigger={selectedTrigger}
             selectedTriggerId={selectedTriggerId}
             submittingManualTriggerId={submittingManualTriggerId}
