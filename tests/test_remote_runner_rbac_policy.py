@@ -466,6 +466,9 @@ def test_artifact_cache_read_routes_record_safe_allow_audit(tmp_path, monkeypatc
                 {
                     "cacheEntryId": "ace_public",
                     "cacheKey": "acache_public",
+                    "workflowRevisionId": "wrev_secret_filter",
+                    "artifactKey": "cache_secret_selector",
+                    "stepId": "step_secret_selector",
                     "artifactBlobId": "ablob_public",
                     "storageBackend": "local",
                     "storageUri": "file:///C:/secret/cache/report.txt",
@@ -542,7 +545,28 @@ def test_artifact_cache_read_routes_record_safe_allow_audit(tmp_path, monkeypatc
     assert "storageUri" not in entries_response.json()["data"]["items"][0]
     assert "storageUri" not in pins_response.json()["data"]["items"][0]
     assert "storageUri" not in lookup_response.json()["data"]["entry"]
+    assert entries_response.json()["data"]["redactionPolicy"] == {
+        "cacheKeysExposed": False,
+        "keyPayloadsExposed": False,
+        "workflowRevisionIdsExposed": False,
+        "artifactSelectorsExposed": False,
+        "storageUrisExposed": False,
+    }
+    assert lookup_response.json()["data"]["redactionPolicy"] == entries_response.json()["data"]["redactionPolicy"]
     assert lookup_response.json()["data"]["hit"] is True
+    assert lookup_response.json()["data"]["keySummary"] == {
+        "schemaVersion": "artifact-cache-key-summary-public.v1",
+        "keyPayloadFingerprint": lookup_response.json()["data"]["keySummary"]["keyPayloadFingerprint"],
+        "workflowRevisionProvided": True,
+        "artifactSelectorProvided": True,
+        "stepSelectorProvided": False,
+        "roleProvided": False,
+        "inputDigestProvided": False,
+        "paramsDigestProvided": False,
+        "resourceBindingsDigestProvided": False,
+        "executionDigestProvided": False,
+    }
+    assert lookup_response.json()["data"]["keySummary"]["keyPayloadFingerprint"].startswith("sha256:")
 
     entries_audit = list_governance_audit_events(cfg, action="artifact.cache.entries.read")["items"]
     pins_audit = list_governance_audit_events(cfg, action="artifact.cache_pins.read")["items"]
@@ -582,6 +606,12 @@ def test_artifact_cache_read_routes_record_safe_allow_audit(tmp_path, monkeypatc
     assert "step_secret_selector" not in serialized
     assert "file:///C:/secret" not in serialized
     assert "file:///C:/secret" not in public_payload
+    assert "wrev_secret_filter" not in public_payload
+    assert "wrev_secret_lookup" not in public_payload
+    assert "cache_secret_selector" not in public_payload
+    assert "step_secret_selector" not in public_payload
+    assert "acache_public" not in public_payload
+    assert "acache_lookup" not in public_payload
     assert "rbac-token" not in serialized
 
 
