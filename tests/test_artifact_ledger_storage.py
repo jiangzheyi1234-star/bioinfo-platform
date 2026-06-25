@@ -16,6 +16,8 @@ from apps.remote_runner.artifact_ledger_storage import (
     record_run_artifact_edge,
 )
 from apps.remote_runner.evidence_storage import list_evidence_events
+from apps.remote_runner.execution_query_storage import fetch_result, fetch_run_results, list_results
+from apps.remote_runner.workflow_run_storage import create_run_record, update_run_state
 from tests.helpers.reference_database import make_configured_remote_runner
 
 
@@ -269,6 +271,93 @@ def test_input_artifact_lineage_records_artifact_source_and_upstream_run(tmp_pat
         assert "path" not in payload
         assert "localPath" not in payload
         assert "storageUri" not in payload
+
+
+def test_run_result_read_model_exposes_safe_input_artifacts(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    create_run_record(
+        cfg,
+        server_id="srv_lineage_read",
+        request_id="req_lineage_read",
+        run_spec={
+            "runId": "run_lineage_read",
+            "projectId": "proj_lineage",
+            "pipelineId": "file-summary-standard-v1",
+            "inputs": [{"artifactId": "art_source", "filename": "summary.tsv", "role": "summary"}],
+        },
+        idempotency_key="idem_lineage_read",
+        payload_hash="hash_lineage_read",
+    )
+    update_run_state(
+        cfg,
+        run_id="run_lineage_read",
+        status="completed",
+        stage="completed",
+        message="Run completed",
+        request_id="req_lineage_read",
+        result_dir=str(tmp_path / "results" / "run_lineage_read"),
+    )
+    input_path = tmp_path / "results" / "source" / "summary.tsv"
+    input_path.parent.mkdir(parents=True)
+    input_path.write_text("sample\tcount\nA\t1\n", encoding="utf-8")
+    blob = record_artifact_blob_for_path(
+        cfg,
+        path=input_path,
+        media_type="text/tab-separated-values",
+        created_at="2099-06-07T10:00:00Z",
+    )
+    materialization = record_artifact_materialization(
+        cfg,
+        artifact_blob_id=blob["artifactBlobId"],
+        storage_backend="local",
+        storage_uri=input_path.resolve().as_uri(),
+        local_path=input_path,
+        created_at="2099-06-07T10:00:01Z",
+    )
+    record_run_input_artifact_lineage(
+        cfg,
+        run_id="run_lineage_read",
+        resolved_inputs=[
+            {
+                "sourceType": "artifact",
+                "sourceId": "art_source",
+                "artifactId": "art_source",
+                "artifactBlobId": blob["artifactBlobId"],
+                "sourceMaterializationId": materialization["materializationId"],
+                "sourceStorageBackend": "local",
+                "upstreamRunId": "run_source",
+                "name": "summary",
+                "filename": "summary.tsv",
+                "role": "summary",
+                "path": str(input_path),
+                "sizeBytes": blob["sizeBytes"],
+                "sha256": blob["sha256"],
+                "mimeType": blob["mediaType"],
+                "index": 0,
+            }
+        ],
+        created_at="2099-06-07T10:00:02Z",
+    )
+
+    run_results = fetch_run_results(cfg, "run_lineage_read")
+    result = fetch_result(cfg, "res_run_lineage_read")
+    listed = next(item for item in list_results(cfg) if item["runId"] == "run_lineage_read")
+    input_artifacts = run_results["inputArtifacts"]
+
+    assert run_results["inputArtifactCount"] == 1
+    assert result["inputArtifactCount"] == 1
+    assert listed["inputArtifactCount"] == 1
+    assert input_artifacts[0]["artifactBlobId"] == blob["artifactBlobId"]
+    assert input_artifacts[0]["sha256"] == blob["sha256"]
+    assert input_artifacts[0]["sizeBytes"] == blob["sizeBytes"]
+    assert input_artifacts[0]["ports"][0]["sourceType"] == "artifact"
+    assert input_artifacts[0]["ports"][0]["artifactId"] == "art_source"
+    assert input_artifacts[0]["ports"][0]["upstreamRunId"] == "run_source"
+    assert input_artifacts[0]["ports"][0]["portName"] == "summary"
+    assert result["inputArtifacts"] == input_artifacts
+    assert "path" not in repr(input_artifacts)
+    assert "storageUri" not in repr(input_artifacts)
+    assert "localPath" not in repr(input_artifacts)
 
 
 def test_input_artifact_lineage_rejects_digest_mismatch_before_recording(

@@ -95,6 +95,7 @@ def fetch_run_events(cfg: RemoteRunnerConfig, run_id: str) -> list[dict[str, Any
 
 def fetch_run_results(cfg: RemoteRunnerConfig, run_id: str) -> dict[str, Any]:
     from .artifact_ledger_storage import list_lineage_edges_for_run
+    from .artifact_product_lineage import input_artifacts_from_lineage
 
     run = fetch_run(cfg, run_id)
     if run is None:
@@ -123,11 +124,16 @@ def fetch_run_results(cfg: RemoteRunnerConfig, run_id: str) -> dict[str, Any]:
         }
         for row in rows
     ]
+    lineage_edges = list_lineage_edges_for_run(cfg, run_id)
+    input_artifacts = input_artifacts_from_lineage(lineage_edges)
     return {
         "runId": run_id,
         "resultDir": run["resultDir"],
         "artifacts": artifacts,
-        "lineageEdges": list_lineage_edges_for_run(cfg, run_id),
+        "artifactCount": len(artifacts),
+        "inputArtifacts": input_artifacts,
+        "inputArtifactCount": len(input_artifacts),
+        "lineageEdges": lineage_edges,
     }
 
 
@@ -143,7 +149,8 @@ def list_results(cfg: RemoteRunnerConfig) -> list[dict[str, Any]]:
         ).fetchall()
     items = []
     for row in rows:
-        artifacts = fetch_run_results(cfg, row["run_id"])["artifacts"]
+        results = fetch_run_results(cfg, row["run_id"])
+        artifacts = results["artifacts"]
         items.append(
             {
                 "resultId": f"res_{row['run_id']}",
@@ -151,6 +158,7 @@ def list_results(cfg: RemoteRunnerConfig) -> list[dict[str, Any]]:
                 "title": f"{row['pipeline_id']} result",
                 "pipelineId": row["pipeline_id"],
                 "artifactCount": len(artifacts),
+                "inputArtifactCount": results["inputArtifactCount"],
                 "producedAt": row["finished_at"] or row["last_updated_at"],
             }
         )
@@ -170,5 +178,7 @@ def fetch_result(cfg: RemoteRunnerConfig, result_id: str) -> dict[str, Any]:
         "pipelineId": run["pipelineId"],
         "producedAt": run["finishedAt"] or run["lastUpdatedAt"],
         "artifactCount": len(results["artifacts"]),
+        "inputArtifactCount": results["inputArtifactCount"],
         "artifacts": results["artifacts"],
+        "inputArtifacts": results["inputArtifacts"],
     }

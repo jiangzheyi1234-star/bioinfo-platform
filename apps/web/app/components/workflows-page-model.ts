@@ -593,6 +593,31 @@ export type WorkflowArtifact = {
   storageUri?: string;
 };
 
+export type WorkflowInputArtifactPort = {
+  artifactId?: string;
+  filename?: string;
+  inputIndex?: number | null;
+  inputName?: string;
+  inputRole?: string;
+  lineageEdgeId?: string;
+  portName?: string;
+  runArtifactEdgeId?: string;
+  sourceId?: string;
+  sourceMaterializationId?: string;
+  sourceStorageBackend?: string;
+  sourceType?: string;
+  upstreamRunId?: string;
+  uploadId?: string;
+};
+
+export type WorkflowInputArtifact = {
+  artifactBlobId: string;
+  mimeType?: string;
+  ports?: WorkflowInputArtifactPort[];
+  sha256?: string;
+  sizeBytes?: number | null;
+};
+
 export type WorkflowArtifactDirectoryPreviewEntry = {
   path?: string;
   kind?: "file" | "directory" | string;
@@ -605,6 +630,9 @@ export type WorkflowResultDetail = {
   runId?: string;
   resultDir?: string;
   artifacts?: WorkflowArtifact[];
+  artifactCount?: number;
+  inputArtifacts?: WorkflowInputArtifact[];
+  inputArtifactCount?: number;
 };
 
 export type WorkflowResultPackageDownload = {

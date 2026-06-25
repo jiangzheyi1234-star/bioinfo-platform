@@ -36,6 +36,10 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "export type WorkflowResultPackageExport" in model
     assert "export type WorkflowResultPackageExportListResponse" in model
     assert "export type WorkflowResultPackageExportResponse" in model
+    assert "export type WorkflowInputArtifactPort" in model
+    assert "export type WorkflowInputArtifact" in model
+    assert "inputArtifacts?: WorkflowInputArtifact[]" in model
+    assert "inputArtifactCount?: number" in model
     assert "packageExportId?: string" in model
     assert "lifecycleState?: string" in model
     assert "download?: WorkflowResultPackageDownload" in model
@@ -105,6 +109,12 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert '{ key: "rules", label: "规则" }' in panel
     assert "WorkflowRunExecutionContextPanel" in panel
     assert "WorkflowResultPackagePanel" in panel
+    assert "function RunInputArtifacts" in panel
+    assert "inputArtifacts={inputArtifacts}" in panel
+    assert "输入 lineage" in panel
+    assert "已登记的上游输入产物" in panel
+    assert "port.artifactId" in panel
+    assert "port.upstreamRunId" in panel
     assert "context={detail.executionContext}" in panel
     assert "ruleRetryPlan" not in panel
     assert "resultId={detail.results?.resultId}" in panel
@@ -200,6 +210,10 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "packageUri" not in package_panel
     assert "packagePath" not in package_panel
     assert "file://" not in package_panel
+    run_input_artifacts = panel[panel.index("function RunInputArtifacts") : panel.index("function formatBytes")]
+    assert "storageUri" not in run_input_artifacts
+    assert "localPath" not in run_input_artifacts
+    assert ".path" not in run_input_artifacts
     assert "packageExportId" in package_panel
     assert "sha256" in package_panel
     assert "manifestSha256" in package_panel
