@@ -172,6 +172,7 @@ class ArtifactGcPreviewRequest(RemoteRunnerRequest):
 
 class ArtifactGcRunRequest(ArtifactGcPreviewRequest):
     confirmation: str = Field(min_length=1)
+    planFingerprint: str = Field(min_length=1)
 
 
 class ArtifactCacheLookupRequest(RemoteRunnerRequest):

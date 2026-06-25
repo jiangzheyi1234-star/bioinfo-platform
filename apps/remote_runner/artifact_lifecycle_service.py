@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import hashlib
+import json
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
@@ -123,6 +124,7 @@ def public_artifact_gc_plan(plan: dict[str, Any]) -> dict[str, Any]:
         "planId": str(plan.get("planId") or ""),
         "plannedAt": str(plan.get("plannedAt") or ""),
         "cutoffAt": str(plan.get("cutoffAt") or ""),
+        "planFingerprint": str(plan.get("planFingerprint") or ""),
         "policy": _public_gc_policy(plan.get("policy") if isinstance(plan.get("policy"), dict) else {}),
         "candidateCount": int(plan.get("candidateCount") or 0),
         "deleteBytes": int(plan.get("deleteBytes") or 0),
@@ -153,6 +155,7 @@ def public_artifact_gc_run_result(result: dict[str, Any]) -> dict[str, Any]:
 def run_artifact_gc(cfg: RemoteRunnerConfig, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     body = dict(payload or {})
     confirmation = str(body.get("confirmation") or "").strip()
+    expected_fingerprint = str(body.get("planFingerprint") or "").strip()
     policy = _policy_from_payload(body)
     plan = _build_gc_plan(cfg, policy)
     if confirmation != ARTIFACT_GC_CONFIRMATION:
@@ -167,6 +170,24 @@ def run_artifact_gc(cfg: RemoteRunnerConfig, payload: dict[str, Any] | None = No
             details=_audit_details(plan),
         )
         raise ValueError("ARTIFACT_GC_CONFIRMATION_REQUIRED")
+    if not expected_fingerprint:
+        _record_gc_run_denial(
+            cfg,
+            plan=plan,
+            actor=policy.actor,
+            reason_code="ARTIFACT_GC_PLAN_FINGERPRINT_REQUIRED",
+            fingerprint_provided=False,
+        )
+        raise ValueError("ARTIFACT_GC_PLAN_FINGERPRINT_REQUIRED")
+    if expected_fingerprint != str(plan["planFingerprint"]):
+        _record_gc_run_denial(
+            cfg,
+            plan=plan,
+            actor=policy.actor,
+            reason_code="ARTIFACT_GC_PLAN_FINGERPRINT_MISMATCH",
+            fingerprint_provided=True,
+        )
+        raise ValueError("ARTIFACT_GC_PLAN_FINGERPRINT_MISMATCH")
 
     deleted: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
@@ -286,7 +307,34 @@ def _build_gc_plan(cfg: RemoteRunnerConfig, policy: GcPolicy) -> dict[str, Any]:
         "candidates": candidates,
         "protected": protected,
     }
+    plan["planFingerprint"] = _plan_fingerprint(policy, candidates, protected)
     return plan
+
+
+def _record_gc_run_denial(
+    cfg: RemoteRunnerConfig,
+    *,
+    plan: dict[str, Any],
+    actor: str,
+    reason_code: str,
+    fingerprint_provided: bool,
+) -> None:
+    record_governance_audit_event(
+        cfg,
+        action="artifact.gc.run",
+        subject_kind="artifact_gc",
+        subject_id=plan["planId"],
+        actor=actor,
+        decision="deny",
+        reason_code=reason_code,
+        details={
+            **_audit_details(plan),
+            "fingerprintProvided": fingerprint_provided,
+            "fingerprintMatched": False,
+            "deletedCount": 0,
+            "deletedBytes": 0,
+        },
+    )
 
 
 def _record_protection_reasons(
@@ -676,6 +724,38 @@ def _plan_id(planned_at: str, policy: GcPolicy, candidates: list[dict[str, Any]]
     return f"agcp_{hashlib.sha256(payload.encode('utf-8')).hexdigest()[:16]}"
 
 
+def _plan_fingerprint(policy: GcPolicy, candidates: list[dict[str, Any]], protected: list[dict[str, Any]]) -> str:
+    payload = {
+        "policy": {
+            "retentionDays": policy.retention_days,
+            "eligibleRunStatuses": sorted(policy.run_statuses),
+            "maxDeleteBytes": policy.max_delete_bytes,
+            "reason": policy.reason,
+        },
+        "candidates": [_fingerprint_item(item) for item in candidates],
+        "protected": [_fingerprint_item(item, include_reasons=True) for item in protected],
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return f"agcfp_{hashlib.sha256(encoded).hexdigest()}"
+
+
+def _fingerprint_item(item: dict[str, Any], *, include_reasons: bool = False) -> dict[str, Any]:
+    payload = {
+        "groupId": str(item.get("groupId") or ""),
+        "storageBackend": str(item.get("storageBackend") or ""),
+        "sha256": str(item.get("sha256") or ""),
+        "sizeBytes": int(item.get("sizeBytes") or 0),
+        "artifactIds": sorted(str(value) for value in item.get("artifactIds") or []),
+        "runIds": sorted(str(value) for value in item.get("runIds") or []),
+        "materializationIds": sorted(str(value) for value in item.get("materializationIds") or []),
+        "terminalAt": str(item.get("terminalAt") or ""),
+        "retentionUntil": str(item.get("retentionUntil") or ""),
+    }
+    if include_reasons:
+        payload["reasons"] = sorted(str(value) for value in item.get("reasons") or [])
+    return payload
+
+
 def _audit_details(plan: dict[str, Any]) -> dict[str, Any]:
     return {
         "candidateCount": int(plan["candidateCount"]),
@@ -686,4 +766,5 @@ def _audit_details(plan: dict[str, Any]) -> dict[str, Any]:
         "eligibleRunStatuses": list(plan["policy"]["eligibleRunStatuses"]),
         "maxDeleteBytes": plan["policy"]["maxDeleteBytes"],
         "reason": str(plan["policy"]["reason"]),
+        "planFingerprint": str(plan.get("planFingerprint") or ""),
     }

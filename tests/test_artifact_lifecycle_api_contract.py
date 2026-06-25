@@ -12,6 +12,9 @@ def test_artifact_lifecycle_gc_is_exposed_through_remote_local_and_runtime_layer
     remote_controller_read_api = _read("apps/remote_runner/artifact_lifecycle_controller_read_api.py")
     local_routes = _read("apps/api/execution_query_routes.py")
     local_service = _read("apps/api/execution_query_service.py")
+    remote_models = _read("apps/remote_runner/api_models.py")
+    local_models = _read("apps/api/models.py")
+    lifecycle_model = _read("apps/web/app/components/workflow-artifact-lifecycle-model.ts")
     execution_manager = _read("core/app_runtime/managers/execution.py")
     runner_ops = _read("core/app_runtime/runner_execution_ops.py")
     proxy = _read("core/remote_runner/proxy.py")
@@ -42,6 +45,9 @@ def test_artifact_lifecycle_gc_is_exposed_through_remote_local_and_runtime_layer
     assert "retain_artifact_cache_pin_from_request" in remote_service
     assert "release_artifact_cache_pin_from_request" in remote_service
     assert "lookup_artifact_cache_from_request" in remote_service
+    assert "planFingerprint" in remote_models
+    assert "planFingerprint" in local_models
+    assert "planFingerprint" in lifecycle_model
 
     assert '@router.get("/api/v1/artifacts/lifecycle/usage")' in local_routes
     assert '@router.get("/api/v1/artifacts/lifecycle/controller/ticks")' in local_routes

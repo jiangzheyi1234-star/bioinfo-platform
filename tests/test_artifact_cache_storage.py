@@ -298,11 +298,13 @@ def test_artifact_cache_marks_entry_deleted_after_gc(tmp_path: Path) -> None:
         step_id="summarize",
     )
 
+    plan = preview_artifact_gc(cfg, {"retentionDays": 30})
     run_artifact_gc(
         cfg,
         {
             "retentionDays": 30,
             "confirmation": ARTIFACT_GC_CONFIRMATION,
+            "planFingerprint": plan["planFingerprint"],
         },
     )
     lookup = lookup_artifact_cache_entry(cfg, _lookup_payload(revision["workflowRevisionId"]))

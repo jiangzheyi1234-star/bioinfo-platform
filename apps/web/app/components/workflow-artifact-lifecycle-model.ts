@@ -140,6 +140,7 @@ export type WorkflowArtifactGcPlanItem = {
 export type WorkflowArtifactGcPlan = {
   schemaVersion?: string;
   planId?: string;
+  planFingerprint?: string;
   plannedAt?: string;
   cutoffAt?: string;
   policy?: WorkflowArtifactGcPlanPolicy;
