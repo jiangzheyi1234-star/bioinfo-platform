@@ -203,6 +203,29 @@ export type WorkflowRunRuleCacheRestorePlan = {
     unknownOutputCount?: number;
     restorePinnedCount?: number;
   };
+  restorePinPolicy?: {
+    reasonCode?: string;
+    previewAvailable?: boolean;
+    blockedReasonCodes?: string[];
+    creationEnabled?: boolean;
+    pinCreationAllowed?: boolean;
+    pinScope?: string;
+    ownerKind?: string;
+    ttlSeconds?: number;
+    attemptScoped?: boolean;
+    ownerIdExposed?: boolean;
+    cacheKeyExposed?: boolean;
+    storageUriExposed?: boolean;
+    pathExposed?: boolean;
+    targetCount?: number;
+    candidatePinCount?: number;
+    requiredPinCount?: number;
+    eligiblePinCount?: number;
+    blockedPinCount?: number;
+    createdPinCount?: number;
+    activePinCount?: number;
+    releasedPinCount?: number;
+  };
   rules?: Array<
     WorkflowRunRuleRetryPlanRuleRef & {
       outputs?: Array<{
@@ -216,6 +239,15 @@ export type WorkflowRunRuleCacheRestorePlan = {
         restoreTarget?: {
           pathExposed?: boolean;
           reasonCode?: string;
+        };
+        restorePinPolicy?: {
+          candidate?: boolean;
+          required?: boolean;
+          eligible?: boolean;
+          created?: boolean;
+          pinCreationAllowed?: boolean;
+          reasonCode?: string;
+          blockedReasonCodes?: string[];
         };
       }>;
     }

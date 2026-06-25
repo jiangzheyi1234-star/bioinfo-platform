@@ -92,6 +92,12 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "unmappedTargetCount?: number" in model_contract
     assert "storageUriExposed?: boolean" in model_contract
     assert "cacheKeyExposed?: boolean" in model_contract
+    assert "restorePinPolicy?:" in model_contract
+    assert "candidatePinCount?: number" in model_contract
+    assert "requiredPinCount?: number" in model_contract
+    assert "createdPinCount?: number" in model_contract
+    assert "ownerIdExposed?: boolean" in model_contract
+    assert "pinCreationAllowed?: boolean" in model_contract
     assert "resumePlan?: WorkflowRunResumePlan" in model_contract
     assert "planHash?: string" in model_contract
     assert "workdirEvidence?:" in model_contract
@@ -253,6 +259,11 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "cacheHitTargetCount" in execution_panel
     assert "unmappedTargetCount" in execution_panel
     assert "paths" in execution_panel
+    assert "restorePinLabel" in execution_panel
+    assert "candidatePinCount" in execution_panel
+    assert "restore pins" in execution_panel
+    assert "pin policy" in execution_panel
+    assert "owner" in execution_panel
     assert "run resume plan" in execution_panel
     assert "workdir evidence" in execution_panel
     assert "output audit" in execution_panel

@@ -8,6 +8,11 @@ from .artifact_cache_storage import preview_artifact_cache_entry
 from .config import RemoteRunnerConfig
 from .execution_plan_hash import attach_plan_hash
 from .rule_execution_storage import fetch_run_rules
+from .rule_restore_pin_policy import (
+    build_restore_pin_policy_plan,
+    restore_pin_output_policy,
+    restore_pin_policy_blocker,
+)
 from .rule_restore_staging_policy import (
     STAGED_FILE_POLICY_PLAN_SCHEMA_VERSION,
     build_staged_file_policy_plan,
@@ -210,6 +215,10 @@ def _finalize_plan(
                 rules,
                 output_invalidation_applied=bool(base["cacheEligibility"].get("outputInvalidationApplied")),
             ),
+            "restorePinPolicy": build_restore_pin_policy_plan(
+                rules,
+                output_invalidation_applied=bool(base["cacheEligibility"].get("outputInvalidationApplied")),
+            ),
             "rules": rules,
         }
     )
@@ -307,6 +316,7 @@ def _output_preview(
     output_invalidation_applied: bool,
 ) -> dict[str, Any]:
     cache_key = str(preview.get("cacheKey") or "")
+    cache_entry = _safe_cache_entry(preview.get("entry"))
     return {
         "outputOrdinal": index,
         **_output_edge_ref(raw_output),
@@ -317,9 +327,14 @@ def _output_preview(
         "cacheKeyFingerprint": _short_digest(cache_key) if cache_key else "",
         "cacheHit": bool(preview.get("hit")),
         "cacheReason": preview.get("reason"),
-        "cacheEntry": _safe_cache_entry(preview.get("entry")),
+        "cacheEntry": cache_entry,
         "restoreTarget": _restore_target_policy(
             staged_restore_target_reason(output_invalidation_applied=output_invalidation_applied)
+        ),
+        "restorePinPolicy": restore_pin_output_policy(
+            cache_hit=bool(preview.get("hit")),
+            cache_entry=cache_entry,
+            output_invalidation_applied=output_invalidation_applied,
         ),
         "pinPolicy": _pin_policy(),
         "blockedReasonCodes": _output_blockers(
@@ -348,6 +363,11 @@ def _unmapped_output(
         "cacheReason": "rule_output_artifact_key_unmapped",
         "cacheEntry": None,
         "restoreTarget": _restore_target_policy("RULE_OUTPUT_ARTIFACT_KEY_UNMAPPED"),
+        "restorePinPolicy": restore_pin_output_policy(
+            cache_hit=False,
+            cache_entry=None,
+            output_invalidation_applied=output_invalidation_applied,
+        ),
         "pinPolicy": _pin_policy(),
         "blockedReasonCodes": [
             "RULE_OUTPUT_ARTIFACT_KEY_UNMAPPED",
@@ -532,6 +552,7 @@ def _restore_blockers(*, output_invalidation_applied: bool) -> list[str]:
     blockers = [
         "PER_RULE_CACHE_ELIGIBILITY_UNPROVEN",
         staged_file_policy_blocker(output_invalidation_applied=output_invalidation_applied),
+        restore_pin_policy_blocker(output_invalidation_applied=output_invalidation_applied),
         "PARTIAL_RESTORE_EXECUTOR_UNAVAILABLE",
     ]
     if not output_invalidation_applied:

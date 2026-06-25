@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from apps.remote_runner.artifact_cache_storage import list_artifact_cache_pins
 from apps.remote_runner.artifact_ledger_storage import record_artifact_blob_for_path, record_run_artifact_edge
 from apps.remote_runner.evidence_storage import list_evidence_events
 from apps.remote_runner.execution_plan_hash import stable_plan_hash
@@ -71,6 +72,14 @@ def test_rule_cache_restore_plan_uses_output_invalidation_edges_without_rule_out
     assert plan["stagedFilePolicy"]["cacheHitTargetCount"] == 2
     assert plan["stagedFilePolicy"]["pathExposed"] is False
     assert plan["stagedFilePolicy"]["storageUriExposed"] is False
+    assert plan["restorePinPolicy"]["previewAvailable"] is False
+    assert plan["restorePinPolicy"]["reasonCode"] == "RESTORE_PIN_POLICY_UNREPRESENTED"
+    assert plan["restorePinPolicy"]["candidatePinCount"] == 2
+    assert plan["restorePinPolicy"]["requiredPinCount"] == 0
+    assert plan["restorePinPolicy"]["createdPinCount"] == 0
+    assert plan["restorePinPolicy"]["pinCreationAllowed"] is False
+    assert plan["restorePinPolicy"]["ownerIdExposed"] is False
+    assert plan["restorePinPolicy"]["storageUriExposed"] is False
     assert [rule["ruleName"] for rule in plan["rules"]] == ["align", "report"]
     assert [rule["invalidationRole"] for rule in plan["rules"]] == ["selected_failed_rule", "downstream_rule"]
     assert [output["artifactKey"] for rule in plan["rules"] for output in rule["outputs"]] == ["bam", "html"]
@@ -82,6 +91,7 @@ def test_rule_cache_restore_plan_uses_output_invalidation_edges_without_rule_out
     assert '"storageUri":' not in serialized
     assert str(tmp_path) not in serialized
     assert list_evidence_events(cfg, event_type="artifact.cache.lookup.v1") == []
+    assert list_artifact_cache_pins(cfg)["items"] == []
     with get_connection(cfg) as connection:
         hit_counts = [
             row["hit_count"]
@@ -172,18 +182,46 @@ def test_rule_cache_restore_plan_keeps_applied_invalidation_scope_without_apply_
     assert plan["stagedFilePolicy"]["cacheMissTargetCount"] == 0
     assert plan["stagedFilePolicy"]["unmappedTargetCount"] == 0
     assert plan["stagedFilePolicy"]["restorePinnedCount"] == 0
+    assert plan["restorePinPolicy"]["previewAvailable"] is True
+    assert plan["restorePinPolicy"]["creationEnabled"] is False
+    assert plan["restorePinPolicy"]["pinCreationAllowed"] is False
+    assert plan["restorePinPolicy"]["reasonCode"] == "RESTORE_PIN_POLICY_PREVIEW_ONLY"
+    assert plan["restorePinPolicy"]["blockedReasonCodes"] == ["RESTORE_PIN_CREATION_DISABLED"]
+    assert plan["restorePinPolicy"]["pinScope"] == "restore"
+    assert plan["restorePinPolicy"]["ownerKind"] == "run_attempt"
+    assert plan["restorePinPolicy"]["ttlSeconds"] == 3600
+    assert plan["restorePinPolicy"]["attemptScoped"] is True
+    assert plan["restorePinPolicy"]["ownerIdExposed"] is False
+    assert plan["restorePinPolicy"]["cacheKeyExposed"] is False
+    assert plan["restorePinPolicy"]["storageUriExposed"] is False
+    assert plan["restorePinPolicy"]["pathExposed"] is False
+    assert plan["restorePinPolicy"]["targetCount"] == 2
+    assert plan["restorePinPolicy"]["candidatePinCount"] == 2
+    assert plan["restorePinPolicy"]["requiredPinCount"] == 2
+    assert plan["restorePinPolicy"]["eligiblePinCount"] == 2
+    assert plan["restorePinPolicy"]["blockedPinCount"] == 0
+    assert plan["restorePinPolicy"]["createdPinCount"] == 0
     for rule in plan["rules"]:
         assert "OUTPUT_EDGE_INVALIDATION_APPLY_REQUIRED" not in rule["blockedReasonCodes"]
         assert "STAGED_FILE_POLICY_EXECUTION_DISABLED" in rule["blockedReasonCodes"]
+        assert "RESTORE_PIN_CREATION_DISABLED" in rule["blockedReasonCodes"]
         for output in rule["outputs"]:
             assert output["cacheHit"] is True
             assert "OUTPUT_EDGE_INVALIDATION_APPLY_REQUIRED" not in output["blockedReasonCodes"]
             assert "STAGED_FILE_POLICY_EXECUTION_DISABLED" in output["blockedReasonCodes"]
+            assert "RESTORE_PIN_CREATION_DISABLED" in output["blockedReasonCodes"]
             assert output["restoreTarget"]["reasonCode"] == "STAGED_FILE_POLICY_PREVIEW_ONLY"
+            assert output["restorePinPolicy"]["candidate"] is True
+            assert output["restorePinPolicy"]["required"] is True
+            assert output["restorePinPolicy"]["eligible"] is True
+            assert output["restorePinPolicy"]["created"] is False
+            assert output["restorePinPolicy"]["pinCreationAllowed"] is False
+            assert output["restorePinPolicy"]["ownerIdExposed"] is False
     serialized = json.dumps(plan, sort_keys=True)
     assert '"cacheKey":' not in serialized
     assert '"storageUri":' not in serialized
     assert str(tmp_path) not in serialized
+    assert list_artifact_cache_pins(cfg)["items"] == []
 
 
 def test_rule_cache_restore_plan_staged_policy_counts_mixed_applied_outputs(tmp_path: Path) -> None:
@@ -244,11 +282,22 @@ def test_rule_cache_restore_plan_staged_policy_counts_mixed_applied_outputs(tmp_
     assert plan["stagedFilePolicy"]["pathExposed"] is False
     assert plan["stagedFilePolicy"]["storageUriExposed"] is False
     assert plan["stagedFilePolicy"]["cacheKeyExposed"] is False
+    assert plan["restorePinPolicy"]["previewAvailable"] is True
+    assert plan["restorePinPolicy"]["targetCount"] == 3
+    assert plan["restorePinPolicy"]["candidatePinCount"] == 1
+    assert plan["restorePinPolicy"]["requiredPinCount"] == 1
+    assert plan["restorePinPolicy"]["eligiblePinCount"] == 1
+    assert plan["restorePinPolicy"]["blockedPinCount"] == 2
+    assert plan["restorePinPolicy"]["createdPinCount"] == 0
     outputs = [output for rule in plan["rules"] for output in rule["outputs"]]
     by_artifact_key = {output["artifactKey"]: output for output in outputs}
     assert by_artifact_key["bam"]["cacheHit"] is True
+    assert by_artifact_key["bam"]["restorePinPolicy"]["candidate"] is True
+    assert by_artifact_key["bam"]["restorePinPolicy"]["eligible"] is True
     assert by_artifact_key["html"]["cacheHit"] is False
+    assert by_artifact_key["html"]["restorePinPolicy"]["candidate"] is False
     assert any(output["cacheReason"] == "rule_output_artifact_key_unmapped" for output in outputs)
+    assert any(output["restorePinPolicy"]["reasonCode"] == "RESTORE_PIN_CACHE_HIT_REQUIRED" for output in outputs)
     serialized = json.dumps(plan, sort_keys=True)
     assert '"cacheKey":' not in serialized
     assert '"storageUri":' not in serialized

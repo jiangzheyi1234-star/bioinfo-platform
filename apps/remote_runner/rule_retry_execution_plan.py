@@ -5,6 +5,7 @@ from typing import Any
 from .execution_plan_hash import attach_plan_hash
 from .rule_cache_restore_plan import blocked_rule_cache_restore_plan
 from .rule_output_invalidation_plan import blocked_rule_output_invalidation_plan
+from .rule_restore_pin_policy import RESTORE_PIN_POLICY_UNREPRESENTED, restore_pin_policy_blocker
 from .rule_restore_staging_policy import STAGED_FILE_POLICY_UNREPRESENTED, staged_file_policy_blocker
 from .rule_retry_plan import PARTIAL_RETRY_UNSUPPORTED, RULE_RETRY_PLAN_SCHEMA_VERSION
 from .workflow_engine_adapter import WorkflowRuntimeCommandError, normalize_forcerun_rules
@@ -27,6 +28,7 @@ RULE_RETRY_EXECUTION_BLOCKERS = [
     RULE_RETRY_EXECUTION_BASE_BLOCKERS[0],
     DOWNSTREAM_OUTPUT_INVALIDATION_APPLY_REQUIRED,
     STAGED_FILE_POLICY_UNREPRESENTED,
+    RESTORE_PIN_POLICY_UNREPRESENTED,
     *RULE_RETRY_EXECUTION_BASE_BLOCKERS[1:],
 ]
 
@@ -196,6 +198,7 @@ def _execution_blockers(*, output_invalidation_plan: dict[str, Any]) -> list[str
         "ATTEMPT_OUTPUT_RESTORE_UNPROVEN",
         "PER_RULE_CACHE_ELIGIBILITY_UNPROVEN",
         staged_file_policy_blocker(output_invalidation_applied=applied),
+        restore_pin_policy_blocker(output_invalidation_applied=applied),
         "PARTIAL_RESTORE_EXECUTOR_UNAVAILABLE",
         "CACHE_ADOPTION_UNPROVEN",
         "ARTIFACT_ADOPTION_UNPROVEN",

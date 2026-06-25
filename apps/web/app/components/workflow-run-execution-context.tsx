@@ -269,6 +269,7 @@ function RuleRetryExecutionPlanPreview({ plan }: { plan?: WorkflowRunRuleRetryEx
   if (!plan) return null;
   const cacheRestore = plan.cacheRestorePlan;
   const stagedFilePolicy = cacheRestore?.stagedFilePolicy;
+  const restorePinPolicy = cacheRestore?.restorePinPolicy;
   const options = plan.snakemakeOptions;
   const argsPreview = options?.argsPreview || [];
   const forcerunRules = options?.forcerunRules || [];
@@ -286,6 +287,11 @@ function RuleRetryExecutionPlanPreview({ plan }: { plan?: WorkflowRunRuleRetryEx
     ? `${stagedFilePolicy.reasonCode || "—"} · targets ${stagedFilePolicy.targetCount || 0} · hit ${
         stagedFilePolicy.cacheHitTargetCount || 0
       } · miss ${stagedFilePolicy.cacheMissTargetCount || 0} · unmapped ${stagedFilePolicy.unmappedTargetCount || 0}`
+    : "—";
+  const restorePinLabel = restorePinPolicy
+    ? `${restorePinPolicy.reasonCode || "—"} · candidate ${restorePinPolicy.candidatePinCount || 0} · required ${
+        restorePinPolicy.requiredPinCount || 0
+      } · created ${restorePinPolicy.createdPinCount || 0}`
     : "—";
   const cacheFingerprints = (cacheRestore?.rules || [])
     .flatMap((rule) => rule.outputs || [])
@@ -348,6 +354,14 @@ function RuleRetryExecutionPlanPreview({ plan }: { plan?: WorkflowRunRuleRetryEx
               preview {stagedFilePolicy?.previewAvailable ? "yes" : "no"} · overwrite{" "}
               {stagedFilePolicy?.overwriteAllowed ? "yes" : "no"} · paths{" "}
               {stagedFilePolicy?.pathExposed ? "exposed" : "redacted"}
+            </span>
+            <span className="text-slate-500">restore pins</span>
+            <span className="truncate font-mono text-slate-800">{restorePinLabel}</span>
+            <span className="text-slate-500">pin policy</span>
+            <span className="truncate font-mono text-slate-800">
+              create {restorePinPolicy?.pinCreationAllowed ? "yes" : "no"} · owner{" "}
+              {restorePinPolicy?.ownerIdExposed ? "exposed" : "redacted"} · storage{" "}
+              {restorePinPolicy?.storageUriExposed ? "exposed" : "redacted"}
             </span>
           </>
         ) : null}

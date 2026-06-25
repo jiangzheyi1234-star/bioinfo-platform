@@ -33,6 +33,7 @@ def test_rule_retry_execution_plan_previews_snakemake_forcerun_options_without_e
     assert "RULE_RETRY_MUTATION_API_DISABLED" in plan["blockedReasonCodes"]
     assert "CACHE_ADOPTION_UNPROVEN" in plan["blockedReasonCodes"]
     assert "STAGED_FILE_POLICY_UNREPRESENTED" in plan["blockedReasonCodes"]
+    assert "RESTORE_PIN_POLICY_UNREPRESENTED" in plan["blockedReasonCodes"]
     assert plan["cacheRestorePlan"]["schemaVersion"] == "rule-cache-restore-plan.v1"
     assert len(plan["cacheRestorePlan"]["planHash"]) == 64
     assert plan["cacheRestorePlan"]["planHash"] == stable_plan_hash(plan["cacheRestorePlan"])
@@ -40,6 +41,8 @@ def test_rule_retry_execution_plan_previews_snakemake_forcerun_options_without_e
     assert plan["cacheRestorePlan"]["redactionPolicy"]["cacheKeysExposed"] is False
     assert plan["cacheRestorePlan"]["redactionPolicy"]["cacheKeyFingerprintsExposed"] is True
     assert plan["cacheRestorePlan"]["stagedFilePolicy"]["overwriteAllowed"] is False
+    assert plan["cacheRestorePlan"]["restorePinPolicy"]["pinCreationAllowed"] is False
+    assert plan["cacheRestorePlan"]["restorePinPolicy"]["ownerIdExposed"] is False
 
 
 def test_rule_retry_execution_plan_drops_output_invalidation_blocker_after_apply() -> None:
@@ -67,6 +70,9 @@ def test_rule_retry_execution_plan_drops_output_invalidation_blocker_after_apply
     assert "STAGED_FILE_POLICY_UNREPRESENTED" not in plan["blockedReasonCodes"]
     assert "STAGED_FILE_POLICY_EXECUTION_DISABLED" in plan["blockedReasonCodes"]
     assert "STAGED_FILE_POLICY_EXECUTION_DISABLED" in plan["requiresBeforeExecution"]
+    assert "RESTORE_PIN_POLICY_UNREPRESENTED" not in plan["blockedReasonCodes"]
+    assert "RESTORE_PIN_CREATION_DISABLED" in plan["blockedReasonCodes"]
+    assert "RESTORE_PIN_CREATION_DISABLED" in plan["requiresBeforeExecution"]
     assert "PARTIAL_RESTORE_EXECUTOR_UNAVAILABLE" in plan["requiresBeforeExecution"]
 
 

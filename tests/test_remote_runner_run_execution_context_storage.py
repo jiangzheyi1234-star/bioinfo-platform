@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from apps.remote_runner.artifact_cache_storage import list_artifact_cache_pins
 from apps.remote_runner.artifact_ledger_storage import record_artifact_blob_for_path, record_run_artifact_edge
 from apps.remote_runner.execution_plan_hash import stable_plan_hash
 from apps.remote_runner.run_execution_context_storage import fetch_run_execution_context
@@ -378,6 +379,7 @@ def test_run_execution_context_reports_rule_retry_downstream_invalidation_plan(t
     assert "RULE_RETRY_MUTATION_API_DISABLED" in execution_plan["blockedReasonCodes"]
     assert "CACHE_ADOPTION_UNPROVEN" in execution_plan["blockedReasonCodes"]
     assert "STAGED_FILE_POLICY_UNREPRESENTED" in execution_plan["blockedReasonCodes"]
+    assert "RESTORE_PIN_POLICY_UNREPRESENTED" in execution_plan["blockedReasonCodes"]
     assert execution_plan["cacheRestorePlan"] == cache_restore_plan
     assert cache_restore_plan["schemaVersion"] == "rule-cache-restore-plan.v1"
     assert len(cache_restore_plan["planHash"]) == 64
@@ -400,6 +402,13 @@ def test_run_execution_context_reports_rule_retry_downstream_invalidation_plan(t
     assert cache_restore_plan["stagedFilePolicy"]["cacheHitTargetCount"] == 1
     assert cache_restore_plan["stagedFilePolicy"]["overwriteAllowed"] is False
     assert cache_restore_plan["stagedFilePolicy"]["pathExposed"] is False
+    assert cache_restore_plan["restorePinPolicy"]["previewAvailable"] is False
+    assert cache_restore_plan["restorePinPolicy"]["reasonCode"] == "RESTORE_PIN_POLICY_UNREPRESENTED"
+    assert cache_restore_plan["restorePinPolicy"]["candidatePinCount"] == 1
+    assert cache_restore_plan["restorePinPolicy"]["requiredPinCount"] == 0
+    assert cache_restore_plan["restorePinPolicy"]["createdPinCount"] == 0
+    assert cache_restore_plan["restorePinPolicy"]["pinCreationAllowed"] is False
+    assert cache_restore_plan["restorePinPolicy"]["ownerIdExposed"] is False
     restore_rule = cache_restore_plan["rules"][0]
     assert restore_rule["ruleName"] == "align"
     assert restore_rule["reasonCode"] == "PER_RULE_CACHE_RESTORE_UNPROVEN"
@@ -407,6 +416,11 @@ def test_run_execution_context_reports_rule_retry_downstream_invalidation_plan(t
     assert restore_rule["outputs"][0]["cacheKeyPresent"] is True
     assert restore_rule["outputs"][0]["cacheKeyFingerprint"].startswith("sha256:")
     assert restore_rule["outputs"][0]["restoreTarget"]["pathExposed"] is False
+    assert restore_rule["outputs"][0]["restorePinPolicy"]["candidate"] is True
+    assert restore_rule["outputs"][0]["restorePinPolicy"]["required"] is False
+    assert restore_rule["outputs"][0]["restorePinPolicy"]["eligible"] is False
+    assert restore_rule["outputs"][0]["restorePinPolicy"]["created"] is False
+    assert restore_rule["outputs"][0]["restorePinPolicy"]["reasonCode"] == "RESTORE_PIN_OUTPUT_INVALIDATION_REQUIRED"
     serialized_cache_restore_plan = json.dumps(cache_restore_plan, sort_keys=True)
     assert '"cacheKey":' not in serialized_cache_restore_plan
     assert '"storageUri":' not in serialized_cache_restore_plan
@@ -435,6 +449,7 @@ def test_run_execution_context_reports_rule_retry_downstream_invalidation_plan(t
         ).fetchone()
     assert entry["hit_count"] == 0
     assert lookup_events["total"] == 0
+    assert list_artifact_cache_pins(cfg)["items"] == []
 
 
 def test_run_execution_context_blocks_rule_retry_plan_without_workflow_revision(tmp_path) -> None:

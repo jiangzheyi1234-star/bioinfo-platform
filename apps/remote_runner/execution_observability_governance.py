@@ -35,6 +35,7 @@ def record_run_execution_context_read_audit(
     )
     rule_cache_restore_redaction = _dict_value(rule_cache_restore_plan.get("redactionPolicy"))
     staged_file_policy = _dict_value(rule_cache_restore_plan.get("stagedFilePolicy"))
+    restore_pin_policy = _dict_value(rule_cache_restore_plan.get("restorePinPolicy"))
     record_governance_audit_event(
         cfg,
         action="run.execution_context.read",
@@ -70,6 +71,15 @@ def record_run_execution_context_read_audit(
             "stagedFilePolicyUnmappedTargetCount": _safe_int(staged_file_policy.get("unmappedTargetCount")),
             "stagedFilePolicyPathsExposed": bool(staged_file_policy.get("pathExposed")),
             "stagedFilePolicyStorageUrisExposed": bool(staged_file_policy.get("storageUriExposed")),
+            "restorePinPolicyPreviewAvailable": bool(restore_pin_policy.get("previewAvailable")),
+            "restorePinPolicyCandidatePinCount": _safe_int(restore_pin_policy.get("candidatePinCount")),
+            "restorePinPolicyRequiredPinCount": _safe_int(restore_pin_policy.get("requiredPinCount")),
+            "restorePinPolicyEligiblePinCount": _safe_int(restore_pin_policy.get("eligiblePinCount")),
+            "restorePinPolicyBlockedPinCount": _safe_int(restore_pin_policy.get("blockedPinCount")),
+            "restorePinPolicyCreatedPinCount": _safe_int(restore_pin_policy.get("createdPinCount")),
+            "restorePinPolicyOwnerIdsExposed": bool(restore_pin_policy.get("ownerIdExposed")),
+            "restorePinPolicyRawIdentifiersExposed": bool(restore_pin_policy.get("cacheKeyExposed")),
+            "restorePinPolicyStorageUrisExposed": bool(restore_pin_policy.get("storageUriExposed")),
         },
     )
 
