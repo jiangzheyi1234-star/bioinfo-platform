@@ -502,7 +502,6 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
   async function loadArtifactInputRun(runId: string) {
     const normalizedRunId = String(runId || "").trim();
     setArtifactInputRunId(normalizedRunId);
-    setArtifactInputs([]);
     setArtifactInputError("");
     if (!normalizedRunId) {
       setArtifactInputDetail(null);

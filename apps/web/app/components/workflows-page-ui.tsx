@@ -522,8 +522,8 @@ function WorkflowFilePicker({
           <div className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-3">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <div className="text-xs font-medium text-slate-800">历史结果产物</div>
-                <div className="text-[11px] text-slate-500">按输入角色逐个添加已完成运行的 artifact</div>
+                <div className="text-xs font-medium text-slate-800">历史结果产物篮</div>
+                <div className="text-[11px] text-slate-500">已完成运行 artifact</div>
               </div>
               {artifactInputs.length > 0 ? (
                 <Button
@@ -545,7 +545,7 @@ function WorkflowFilePicker({
                   <SelectValue placeholder="选择历史运行" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__none__">不使用历史产物</SelectItem>
+                  <SelectItem value="__none__">不浏览来源运行</SelectItem>
                   {completedRuns.map((run) => (
                     <SelectItem key={run.runId} value={run.runId}>
                       {run.runId}
@@ -636,6 +636,7 @@ function artifactInputLabel(artifact: { artifactId?: string; kind?: string; mime
 
 function artifactInputRunLabel(artifact: WorkflowArtifactRunInput) {
   return [
+    artifact.upstreamRunId ? `from ${shortId(artifact.upstreamRunId)}` : "",
     artifact.kind || "artifact",
     artifact.mimeType || "",
     artifact.sha256 ? artifact.sha256.slice(0, 10) : shortId(artifact.artifactId),

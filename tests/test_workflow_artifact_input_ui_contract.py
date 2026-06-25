@@ -43,6 +43,7 @@ def test_workflow_page_artifact_input_state_and_ui_are_safe() -> None:
     assert "function selectArtifactInput" in hook
     assert "function removeArtifactInput" in hook
     assert "function clearArtifactInputs" in hook
+    assert "setArtifactInputs([])" not in _function_body(hook, "loadArtifactInputRun")
     assert "setSampleUploads([])" in _function_body(hook, "selectArtifactInput")
     assert "setFiles([])" in _function_body(hook, "selectArtifactInput")
     assert "setArtifactInputs((current) =>" in _function_body(hook, "selectArtifactInput")
@@ -62,13 +63,14 @@ def test_workflow_page_artifact_input_state_and_ui_are_safe() -> None:
     assert "onArtifactInputRemove={state.removeArtifactInput}" in detail_page
 
     picker_body = _function_body(ui, "WorkflowFilePicker")
-    assert "历史结果产物" in picker_body
-    assert "按输入角色逐个添加已完成运行的 artifact" in picker_body
+    assert "历史结果产物篮" in picker_body
+    assert "已完成运行 artifact" in picker_body
     assert "completedRuns.map" in picker_body
     assert "availableArtifactCandidates.map" in picker_body
     assert "selectedArtifactIds" in picker_body
     assert "artifactInputLabel(artifact)" in picker_body
     assert "artifactInputRunLabel(artifact)" in picker_body
+    assert 'artifact.upstreamRunId ? `from ${shortId(artifact.upstreamRunId)}` : ""' in ui
     assert "onArtifactInputRemove(artifact.artifactId)" in picker_body
     assert "storageUri" not in picker_body
     assert "cacheKey" not in picker_body
