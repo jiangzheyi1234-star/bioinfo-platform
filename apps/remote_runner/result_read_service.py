@@ -32,7 +32,6 @@ def governed_fetch_run_results(cfg: RemoteRunnerConfig, run_id: str) -> dict[str
         subject_kind="run_results",
         subject_id=str(public.get("runId") or run_id),
         details={
-            "runId": str(public.get("runId") or run_id),
             "artifactCount": _safe_int(public.get("artifactCount")),
             "inputArtifactCount": _safe_int(public.get("inputArtifactCount")),
             "lineageEdgesReturned": False,
@@ -64,8 +63,6 @@ def governed_fetch_result(cfg: RemoteRunnerConfig, result_id: str) -> dict[str, 
         subject_kind="result",
         subject_id=str(public.get("resultId") or result_id),
         details={
-            "resultId": str(public.get("resultId") or result_id),
-            "runId": str(public.get("runId") or ""),
             "artifactCount": _safe_int(public.get("artifactCount")),
             "inputArtifactCount": _safe_int(public.get("inputArtifactCount")),
         },
