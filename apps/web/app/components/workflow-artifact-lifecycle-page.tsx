@@ -576,10 +576,11 @@ function ControllerTickList({ ticks }: { ticks: WorkflowArtifactLifecycleControl
               <Metric label="保护" value={formatCount(tick.gcPreview?.protectedCount)} compact />
             </div>
           </div>
-          <div className="mt-3 grid gap-3 lg:grid-cols-3">
+          <div className="mt-3 grid gap-3 lg:grid-cols-4">
             <TickField label="策略" value={`${tick.policy?.retentionDays ?? "—"} 天 / ${formatBytes(tick.policy?.maxDeleteBytesPerTick)}`} />
             <TickField label="用量" value={`${formatBytes(tick.usage?.activeBytes)} / ${formatCount(tick.usage?.activeStorageObjectCount)} 对象`} />
             <TickField label="批安全" value={batchSafetyText(tick)} />
+            <TickField label="计划指纹" value={shortFingerprint(tick.gcPreview?.planFingerprint)} />
           </div>
           {tick.retentionHolds?.reasons?.length ? (
             <div className="mt-3 flex flex-wrap gap-1.5">
@@ -653,6 +654,12 @@ function batchSafetyText(tick: WorkflowArtifactLifecycleControllerTick) {
   if (!safety) return "—";
   const limited = safety.maxDeleteBytesApplied ? `限制 ${formatCount(safety.limitedGroupCount)} 组` : "未触发限制";
   return `${formatBytes(safety.candidateBytes)} / ${limited}`;
+}
+
+function shortFingerprint(value?: string) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return "—";
+  return normalized.length > 22 ? `${normalized.slice(0, 18)}...${normalized.slice(-6)}` : normalized;
 }
 
 function parseOptionalInteger(value: string) {

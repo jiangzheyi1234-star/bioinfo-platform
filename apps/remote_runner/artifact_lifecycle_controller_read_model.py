@@ -126,6 +126,7 @@ def _project_tick(row: Any) -> dict[str, Any]:
             _dict(payload.get("gcPreview")),
             (
                 "planId",
+                "planFingerprint",
                 "candidateCount",
                 "deleteBytes",
                 "protectedCount",

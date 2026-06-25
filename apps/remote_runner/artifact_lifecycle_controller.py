@@ -129,6 +129,7 @@ def evaluate_artifact_lifecycle_controller_tick(
         actor=policy.actor,
         details={
             "planId": plan["planId"],
+            "planFingerprint": plan["planFingerprint"],
             "candidateCount": plan["candidateCount"],
             "deleteBytes": plan["deleteBytes"],
             "protectedCount": plan["protectedCount"],
@@ -219,6 +220,7 @@ def _controller_tick(
         "batchSafety": batch_safety,
         "gcPreview": {
             "planId": plan["planId"],
+            "planFingerprint": plan["planFingerprint"],
             "candidateCount": plan["candidateCount"],
             "deleteBytes": plan["deleteBytes"],
             "protectedCount": plan["protectedCount"],

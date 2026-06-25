@@ -107,6 +107,7 @@ def test_artifact_lifecycle_controller_supervisor_runs_preview_ticks(
 def test_artifact_lifecycle_controller_source_boundary_excludes_delete_paths() -> None:
     source = (ROOT / "apps" / "remote_runner" / "artifact_lifecycle_controller.py").read_text(encoding="utf-8")
 
+    assert "planFingerprint" in source
     assert "run_artifact_gc" not in source
     assert "delete_artifact_payload" not in source
     assert "mark_lifecycle_deleted" not in source

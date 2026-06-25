@@ -45,6 +45,8 @@ def test_artifact_lifecycle_frontend_uses_public_projection_and_safe_preview_sum
     assert "retentionHolds" in page
     assert "batchSafety" in page
     assert "gcPreview" in page
+    assert "shortFingerprint(tick.gcPreview?.planFingerprint)" in page
+    assert "计划指纹" in page
     assert "activeStorageObjectCount" in page
     assert "quotaBytes" in page
     forbidden = {

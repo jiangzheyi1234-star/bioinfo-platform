@@ -79,6 +79,7 @@ export type WorkflowArtifactLifecycleBatchSafety = {
 
 export type WorkflowArtifactLifecycleGcPreviewSummary = {
   planId?: string;
+  planFingerprint?: string;
   candidateCount?: number;
   deleteBytes?: number;
   protectedCount?: number;

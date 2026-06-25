@@ -120,6 +120,8 @@ def test_artifact_lifecycle_controller_tick_previews_without_deleting_payloads(t
     assert tick["quotaOverageBytes"] == artifact["sizeBytes"]
     assert tick["wouldDeleteCount"] == 1
     assert tick["gcPreview"]["candidateCount"] == 1
+    assert tick["gcPreview"]["planFingerprint"].startswith("agcfp_")
+    assert tick["gcPreview"]["planFingerprint"] == governance[-1]["details"]["planFingerprint"]
     assert tick["policyDecision"] == {
         "decision": "preview_ready",
         "reasonCode": "DELETE_CONFIRMATION_REQUIRED",
@@ -157,12 +159,14 @@ def test_artifact_lifecycle_controller_tick_previews_without_deleting_payloads(t
     assert evidence[-1]["payload"]["deleteConfirmationRequired"] is True
     assert evidence[-1]["payload"]["policyDecision"]["deletionAuthorized"] is False
     assert evidence[-1]["payload"]["batchSafety"]["candidateArtifactCount"] == 1
+    assert evidence[-1]["payload"]["gcPreview"]["planFingerprint"] == tick["gcPreview"]["planFingerprint"]
     assert "candidateGroupIds" not in repr(evidence[-1]["payload"])
     assert "storageUri" not in repr(evidence[-1]["payload"])
     assert "path" not in repr(evidence[-1]["payload"])
     assert gc_evidence == []
     assert governance[-1]["actor"] == "artifact-supervisor"
     assert governance[-1]["details"]["planId"] == tick["gcPreview"]["planId"]
+    assert governance[-1]["details"]["planFingerprint"] == tick["gcPreview"]["planFingerprint"]
     assert governance[-1]["details"]["deleteConfirmationRequired"] is True
     assert governance[-1]["details"]["policyDecision"] == "preview_ready"
     assert governance[-1]["details"]["batchLimitApplied"] is False

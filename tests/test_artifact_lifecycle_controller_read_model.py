@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any
 
@@ -49,6 +50,7 @@ def test_artifact_lifecycle_controller_tick_read_model_is_newest_first_and_publi
     }
     assert model["items"][0]["gcPreview"] == {
         "planId": "agc_alct_new",
+        "planFingerprint": _fingerprint_for_tick("alct_new"),
         "candidateCount": 1,
         "deleteBytes": 25,
         "protectedCount": 1,
@@ -69,14 +71,61 @@ def test_artifact_lifecycle_controller_tick_read_model_is_newest_first_and_publi
         "cacheKey",
         "packagePath",
         "packageUri",
+        "artifactIds",
+        "runIds",
+        "materializationIds",
+        "sha256",
     }.intersection(keys)
     serialized = json.dumps(model, sort_keys=True)
     assert "C:/secret" not in serialized
     assert "file:///secret" not in serialized
     assert "acache_secret" not in serialized
+    assert "art_secret" not in serialized
+    assert "run_secret" not in serialized
+    assert "mat_secret" not in serialized
+    assert "f" * 64 not in serialized
 
 
-def _append_controller_tick(cfg, tick_id: str, *, evaluated_at: str) -> dict[str, Any]:
+def test_artifact_lifecycle_controller_tick_read_model_accepts_legacy_ticks_without_fingerprint(tmp_path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    _append_controller_tick(
+        cfg,
+        "alct_legacy",
+        evaluated_at="2099-01-01T00:00:00Z",
+        include_fingerprint=False,
+    )
+
+    model = list_artifact_lifecycle_controller_ticks(cfg)
+
+    assert model["items"][0]["gcPreview"]["planId"] == "agc_alct_legacy"
+    assert "planFingerprint" not in model["items"][0]["gcPreview"]
+
+
+def _append_controller_tick(
+    cfg,
+    tick_id: str,
+    *,
+    evaluated_at: str,
+    include_fingerprint: bool = True,
+) -> dict[str, Any]:
+    gc_preview = {
+        "planId": f"agc_{tick_id}",
+        "candidateCount": 1,
+        "deleteBytes": 25,
+        "protectedCount": 1,
+        "protectedBytes": 50,
+        "candidateArtifactCount": 1,
+        "candidateRunCount": 1,
+        "candidateGroupIds": ["grp_secret"],
+        "candidates": [{"path": "C:/secret/delete.txt", "cacheKey": "acache_secret"}],
+        "protected": [{"storageUri": "file:///secret/protected"}],
+        "artifactIds": ["art_secret"],
+        "runIds": ["run_secret"],
+        "materializationIds": ["mat_secret"],
+        "sha256": "f" * 64,
+    }
+    if include_fingerprint:
+        gc_preview["planFingerprint"] = _fingerprint_for_tick(tick_id)
     payload = {
         "schemaVersion": ARTIFACT_LIFECYCLE_CONTROLLER_SCHEMA,
         "tickId": tick_id,
@@ -133,18 +182,7 @@ def _append_controller_tick(cfg, tick_id: str, *, evaluated_at: str) -> dict[str
             "limitedGroupCount": 1,
             "limitedBytes": 50,
         },
-        "gcPreview": {
-            "planId": f"agc_{tick_id}",
-            "candidateCount": 1,
-            "deleteBytes": 25,
-            "protectedCount": 1,
-            "protectedBytes": 50,
-            "candidateArtifactCount": 1,
-            "candidateRunCount": 1,
-            "candidateGroupIds": ["grp_secret"],
-            "candidates": [{"path": "C:/secret/delete.txt", "cacheKey": "acache_secret"}],
-            "protected": [{"storageUri": "file:///secret/protected"}],
-        },
+        "gcPreview": gc_preview,
         "path": "C:/secret/top.txt",
         "storageUri": "file:///secret/top.txt",
     }
@@ -169,3 +207,7 @@ def _all_keys(value: Any) -> set[str]:
     if isinstance(value, list):
         return set().union(*(_all_keys(item) for item in value))
     return set()
+
+
+def _fingerprint_for_tick(tick_id: str) -> str:
+    return f"agcfp_{hashlib.sha256(tick_id.encode('utf-8')).hexdigest()}"
