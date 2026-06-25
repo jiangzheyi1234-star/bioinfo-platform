@@ -2,7 +2,7 @@
 
 Status: In progress
 
-Last reviewed: 2026-06-24
+Last reviewed: 2026-06-25
 
 Baseline: `main`, `HEAD=a4b4dca54afc390fcc3735c33395bc1989f1a6d0`.
 
@@ -286,6 +286,7 @@ Progress:
 - Readiness watcher observations now have a read-only API and trigger observability UI for dataset, file, and database-ready triggers. Operators can see observed/missing/error state, adapter, safe resource identity, version/checksum evidence, linked trigger event, and linked run without exposing raw resource URIs, local paths, or secret-bearing trigger spec fields.
 - Cron trigger definitions now fail closed at creation time through a shared scheduler contract: trigger specs must declare one five-field cron expression, an explicit valid IANA timezone, and only an optional object payload; malformed legacy rows remain runtime-blocked without dispatch.
 - Result package export evidence now records safe trigger provenance for triggered runs. The manifest, RO-Crate run action, and `result.export.v1` evidence link the run back to the immutable trigger event, dispatch request, optional webhook inbox delivery, and optional backfill partition/window without exporting raw trigger payloads, raw request bodies, signature header values, or secret references.
+- Run detail now exposes the same safe trigger provenance read model used by result package export. Triggered runs show source, cursor, immutable trigger event, dispatch idempotency/request context, optional backfill partition window, and optional webhook inbox signature/raw-body hash metadata while keeping raw trigger payloads, request bodies, signature header values, and replay/dead-letter controls out of the run detail surface.
 
 Recommended sequence:
 

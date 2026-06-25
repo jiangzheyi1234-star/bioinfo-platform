@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 
 import { WorkflowRunExecutionContextPanel } from "./workflow-run-execution-context";
 import { WorkflowResultPackagePanel } from "./workflow-result-package-panel";
+import { WorkflowRunTriggerProvenancePanel, WorkflowRunTriggerSummary } from "./workflow-run-trigger-provenance";
 import { fetchArtifactPreview, retryWorkflowRun } from "./workflows-page-api";
 import { workflowErrorMessage } from "./workflows-page-model";
 import { DirectoryArtifactPreview, isDirectoryArtifactPreview } from "./workflow-artifact-directory-preview";
@@ -694,14 +695,7 @@ export function WorkflowRunDetailPanel({
                 <span className="truncate">{workflowRevisionId}</span>
               </div>
             ) : null}
-            {trigger ? (
-              <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[11px] text-blue-700">
-                <Clock strokeWidth={1.5} className="h-3.5 w-3.5 shrink-0 text-blue-500" />
-                <span className="shrink-0 font-sans text-slate-500">Trigger</span>
-                <span className="truncate">{trigger.triggerId || trigger.source || "trigger"}</span>
-                {trigger.triggerEventId ? <span className="truncate text-blue-500">{trigger.triggerEventId}</span> : null}
-              </div>
-            ) : null}
+            <WorkflowRunTriggerSummary trigger={trigger} />
           </div>
           <div className="grid grid-cols-2 gap-x-5 gap-y-4 sm:grid-cols-3 lg:border-l lg:border-slate-100 lg:pl-8">
             <SummaryMetric label="阶段" value={run.stage || "—"} />
@@ -761,6 +755,7 @@ export function WorkflowRunDetailPanel({
               onRetryRun={handleRetryRun}
               retrying={retrying}
             />
+            <WorkflowRunTriggerProvenancePanel trigger={trigger} />
             <TablePreview preview={tablePreview} />
             {!tablePreview && textPreview ? (
               <div className="rounded-lg border border-slate-200 bg-white">

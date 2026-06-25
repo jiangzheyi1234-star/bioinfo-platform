@@ -185,7 +185,7 @@ def _trigger_dispatch(row: Any) -> dict[str, Any]:
         "updatedAt": row["updated_at"],
     }
     error = _loads_json(row["error_json"], None)
-    if error is not None:
+    if error and _is_error_state(str(row["state"])):
         payload["errorHash"] = _hash_json(error)
     return payload
 
@@ -212,7 +212,7 @@ def _backfill_partition(row: Any) -> dict[str, Any]:
         "updatedAt": row["updated_at"],
     }
     error = _loads_json(row["error_json"], None)
-    if error is not None:
+    if error and _is_error_state(str(row["state"])):
         payload["errorHash"] = _hash_json(error)
     return payload
 
@@ -264,6 +264,10 @@ def _loads_json(value: str | None, default: Any) -> Any:
     if default is None:
         return parsed
     return parsed if isinstance(parsed, type(default)) else default
+
+
+def _is_error_state(value: str) -> bool:
+    return value in {"dead_lettered", "error", "failed"}
 
 
 def _required_text(value: str, code: str) -> str:

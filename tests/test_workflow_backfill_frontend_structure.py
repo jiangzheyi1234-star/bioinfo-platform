@@ -83,12 +83,26 @@ def test_backfill_launches_have_read_only_frontend_surface() -> None:
 
 
 def test_run_detail_surfaces_trigger_provenance() -> None:
-    model = _source("workflows-page-model.ts")
+    provenance_model = _source("workflow-run-trigger-provenance-model.ts")
+    provenance_panel = _source("workflow-run-trigger-provenance.tsx")
     panel = _source("workflow-run-detail-panel.tsx")
 
-    assert "export type WorkflowRunTrigger" in model
-    assert "trigger?: WorkflowRunTrigger | null" in model
-    assert "const trigger = run.trigger" in panel
-    assert "Trigger" in panel
-    assert "trigger.triggerId" in panel
-    assert "trigger.triggerEventId" in panel
+    assert "export type WorkflowRunTriggerProvenance" in provenance_model
+    assert "backfillPartition?:" in provenance_model
+    assert "inboxDelivery?:" in provenance_model
+    assert "WorkflowRunTriggerProvenancePanel" in provenance_panel
+    assert "WorkflowRunTriggerSummary" in provenance_panel
+    assert "provenance.source || trigger.source" in provenance_panel
+    assert "event.cursor || provenance.cursor || trigger.cursor" in provenance_panel
+    assert "event.idempotencyKey || dispatch.idempotencyKey" in provenance_panel
+    assert "Payload hash" in provenance_panel
+    assert "Raw body" in provenance_panel
+    assert "rawBodySha256" in provenance_panel
+    assert "Backfill partition" in provenance_panel
+    assert "Webhook inbox" in provenance_panel
+    assert "payloadJson" not in provenance_panel
+    assert "rawBodyBytes" not in provenance_panel
+    assert "rawBodyContent" not in provenance_panel
+    assert "replayWorkflowTriggerInboxEvent" not in provenance_panel
+    assert "WorkflowRunTriggerSummary trigger={trigger}" in panel
+    assert "WorkflowRunTriggerProvenancePanel trigger={trigger}" in panel

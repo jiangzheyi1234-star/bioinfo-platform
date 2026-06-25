@@ -49,6 +49,7 @@ from .result_package_listing_service import list_result_package_exports
 from .result_package_lifecycle_service import retire_result_package_export
 from .result_read_service import governed_fetch_result, governed_fetch_run_results, governed_list_results
 from .route_utils import authorized_config, data_response, remote_runner_principal, run_sync
+from .trigger_provenance_read_model import attach_run_trigger_provenance
 from .run_worker_storage import build_run_worker_health
 from .storage import (
     fetch_log_lines,
@@ -352,6 +353,7 @@ async def list_runs_from_request(authorization: str | None) -> dict[str, Any]:
 async def get_run_from_request(run_id: str, authorization: str | None) -> dict[str, Any]:
     cfg = await _authorized_config_from_request(authorization)
     run = await run_sync(require_run, cfg, run_id)
+    run = await run_sync(attach_run_trigger_provenance, cfg, run)
     return data_response(run)
 
 
