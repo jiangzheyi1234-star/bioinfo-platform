@@ -11,6 +11,7 @@ import {
   Loader2,
   RefreshCw,
   ShieldCheck,
+  Trash2,
 } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -23,10 +24,13 @@ import {
   fetchArtifactLifecycleControllerTicks,
   fetchArtifactLifecycleUsage,
   previewArtifactGc,
+  runArtifactGc,
 } from "./workflow-artifact-lifecycle-api";
 import type {
   WorkflowArtifactGcPlan,
   WorkflowArtifactGcPlanItem,
+  WorkflowArtifactGcPreviewRequest,
+  WorkflowArtifactGcRunResult,
   WorkflowArtifactLifecycleControllerTick,
   WorkflowArtifactLifecycleUsage,
 } from "./workflow-artifact-lifecycle-model";
@@ -34,18 +38,25 @@ import { WorkflowPageHeader } from "./workflow-page-header";
 import { workflowErrorMessage } from "./workflows-page-model";
 
 const PREVIEW_REASON = "web-ui-preview";
+const GC_RUN_CONFIRMATION = "delete-artifact-payloads";
+const GC_DEFAULT_ELIGIBLE_STATUSES = ["completed", "failed", "canceled", "cancelled"];
 
 export function WorkflowArtifactLifecyclePage() {
   const [usage, setUsage] = useState<WorkflowArtifactLifecycleUsage | null>(null);
   const [ticks, setTicks] = useState<WorkflowArtifactLifecycleControllerTick[]>([]);
   const [preview, setPreview] = useState<WorkflowArtifactGcPlan | null>(null);
+  const [previewRequest, setPreviewRequest] = useState<WorkflowArtifactGcPreviewRequest | null>(null);
+  const [runResult, setRunResult] = useState<WorkflowArtifactGcRunResult | null>(null);
   const [quotaBytesInput, setQuotaBytesInput] = useState("");
   const [retentionDaysInput, setRetentionDaysInput] = useState("30");
   const [maxDeleteBytesInput, setMaxDeleteBytesInput] = useState("");
+  const [runConfirmation, setRunConfirmation] = useState("");
   const [loading, setLoading] = useState(true);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [runLoading, setRunLoading] = useState(false);
   const [error, setError] = useState("");
   const [previewError, setPreviewError] = useState("");
+  const [runError, setRunError] = useState("");
 
   const quotaBytes = useMemo(() => parseOptionalInteger(quotaBytesInput), [quotaBytesInput]);
 
@@ -74,18 +85,56 @@ export function WorkflowArtifactLifecyclePage() {
     event.preventDefault();
     setPreviewLoading(true);
     setPreviewError("");
+    setRunError("");
     try {
-      const plan = await previewArtifactGc({
+      const request: WorkflowArtifactGcPreviewRequest = {
         retentionDays: parseRequiredInteger(retentionDaysInput, 30),
-        maxDeleteBytes: parseOptionalInteger(maxDeleteBytesInput),
+        eligibleRunStatuses: GC_DEFAULT_ELIGIBLE_STATUSES,
         reason: PREVIEW_REASON,
-      });
+        actor: "web-ui",
+      };
+      const maxDeleteBytes = parseOptionalInteger(maxDeleteBytesInput);
+      if (maxDeleteBytes !== undefined) request.maxDeleteBytes = maxDeleteBytes;
+      const plan = await previewArtifactGc(request);
       setPreview(plan);
+      setPreviewRequest(request);
+      setRunResult(null);
+      setRunConfirmation("");
     } catch (err) {
       setPreviewError(artifactLifecycleErrorMessage(err, "生成 GC 预览失败"));
     } finally {
       setPreviewLoading(false);
     }
+  }
+
+  async function executePreviewGc() {
+    if (!preview || !previewRequest || !preview.planFingerprint) return;
+    setRunLoading(true);
+    setRunError("");
+    try {
+      const result = await runArtifactGc({
+        ...previewRequest,
+        confirmation: GC_RUN_CONFIRMATION,
+        planFingerprint: preview.planFingerprint,
+      });
+      setRunResult(result);
+      setPreview(null);
+      setPreviewRequest(null);
+      setRunConfirmation("");
+      await load(true);
+    } catch (err) {
+      setRunError(artifactLifecycleErrorMessage(err, "执行 GC 失败"));
+    } finally {
+      setRunLoading(false);
+    }
+  }
+
+  function clearSavedPreview() {
+    setPreview(null);
+    setPreviewRequest(null);
+    setRunResult(null);
+    setRunConfirmation("");
+    setRunError("");
   }
 
   function refresh() {
@@ -181,7 +230,10 @@ export function WorkflowArtifactLifecyclePage() {
                       id="artifact-lifecycle-retention"
                       inputMode="numeric"
                       value={retentionDaysInput}
-                      onChange={(event) => setRetentionDaysInput(event.target.value)}
+                      onChange={(event) => {
+                        setRetentionDaysInput(event.target.value);
+                        clearSavedPreview();
+                      }}
                     />
                   </div>
                   <div>
@@ -193,7 +245,10 @@ export function WorkflowArtifactLifecyclePage() {
                       inputMode="numeric"
                       placeholder="不限制"
                       value={maxDeleteBytesInput}
-                      onChange={(event) => setMaxDeleteBytesInput(event.target.value)}
+                      onChange={(event) => {
+                        setMaxDeleteBytesInput(event.target.value);
+                        clearSavedPreview();
+                      }}
                     />
                   </div>
                   <Button type="submit" className="w-full" disabled={previewLoading}>
@@ -206,7 +261,17 @@ export function WorkflowArtifactLifecyclePage() {
                     <AlertDescription>{previewError}</AlertDescription>
                   </Alert>
                 ) : null}
-                <GcPreviewSummary preview={preview} />
+                <GcPreviewSummary preview={preview} previewRequest={previewRequest} />
+                <GcRunPanel
+                  busy={runLoading}
+                  confirmationValue={runConfirmation}
+                  error={runError}
+                  preview={preview}
+                  previewRequest={previewRequest}
+                  result={runResult}
+                  onConfirmationChange={setRunConfirmation}
+                  onRun={() => void executePreviewGc()}
+                />
               </form>
             </section>
 
@@ -275,7 +340,13 @@ function BackendUsage({ usage }: { usage: WorkflowArtifactLifecycleUsage | null 
   );
 }
 
-function GcPreviewSummary({ preview }: { preview: WorkflowArtifactGcPlan | null }) {
+function GcPreviewSummary({
+  preview,
+  previewRequest,
+}: {
+  preview: WorkflowArtifactGcPlan | null;
+  previewRequest: WorkflowArtifactGcPreviewRequest | null;
+}) {
   if (!preview) {
     return (
       <div className="mt-4 rounded-lg border border-slate-100 bg-slate-50 px-3 py-4 text-sm text-slate-500">
@@ -287,6 +358,19 @@ function GcPreviewSummary({ preview }: { preview: WorkflowArtifactGcPlan | null 
   const protectedItems = preview.protected || [];
   return (
     <div className="mt-4 space-y-4">
+      <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-3 text-xs text-slate-600">
+        <div className="grid gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="font-medium text-slate-700">预览策略</span>
+            <span className="font-mono text-[11px] text-slate-500">{preview.planId || "—"}</span>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <span>保留 {previewRequest?.retentionDays ?? preview.policy?.retentionDays ?? "—"} 天</span>
+            <span>本批上限 {formatBytes(previewRequest?.maxDeleteBytes ?? preview.policy?.maxDeleteBytes)}</span>
+          </div>
+          <div className="break-all font-mono text-[11px] text-slate-500">{preview.planFingerprint || "plan fingerprint unavailable"}</div>
+        </div>
+      </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <Metric label="候选对象" value={formatCount(preview.candidateCount)} tone={preview.candidateCount ? "warn" : "default"} />
         <Metric label="候选字节" value={formatBytes(preview.deleteBytes)} tone={preview.deleteBytes ? "warn" : "default"} />
@@ -307,6 +391,119 @@ function GcPreviewSummary({ preview }: { preview: WorkflowArtifactGcPlan | null 
         </div>
         <PlanItemList items={protectedItems} emptyText="暂无受保护对象" protectedItems />
       </div>
+    </div>
+  );
+}
+
+function GcRunPanel({
+  busy,
+  confirmationValue,
+  error,
+  onConfirmationChange,
+  onRun,
+  preview,
+  previewRequest,
+  result,
+}: {
+  busy: boolean;
+  confirmationValue: string;
+  error: string;
+  onConfirmationChange: (value: string) => void;
+  onRun: () => void;
+  preview: WorkflowArtifactGcPlan | null;
+  previewRequest: WorkflowArtifactGcPreviewRequest | null;
+  result: WorkflowArtifactGcRunResult | null;
+}) {
+  const planFingerprint = preview?.planFingerprint?.trim() || "";
+  const hasRunnablePreview = Boolean(
+    preview &&
+      previewRequest &&
+      planFingerprint &&
+      (preview.candidateCount || 0) > 0 &&
+      (preview.deleteBytes || 0) > 0
+  );
+  const canRun = hasRunnablePreview && confirmationValue.trim() === GC_RUN_CONFIRMATION && !busy;
+  if (!preview && !result) return null;
+  return (
+    <div className="mt-4 space-y-3">
+      {preview ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3">
+          <div className="flex items-center gap-2 text-sm font-semibold text-amber-900">
+            <Trash2 strokeWidth={1.5} className="h-4 w-4" />
+            执行当前预览
+          </div>
+          <div className="mt-2 rounded border border-amber-200 bg-white/70 px-3 py-2 text-xs text-amber-800">
+            输入确认码 <span className="font-mono text-[11px]">{GC_RUN_CONFIRMATION}</span>
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]">
+            <Input
+              value={confirmationValue}
+              disabled={busy || !hasRunnablePreview}
+              placeholder={GC_RUN_CONFIRMATION}
+              onChange={(event) => onConfirmationChange(event.target.value)}
+            />
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={!canRun}
+              onClick={onRun}
+            >
+              {busy ? <Loader2 strokeWidth={1.5} className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 strokeWidth={1.5} className="mr-2 h-4 w-4" />}
+              执行 GC
+            </Button>
+          </div>
+          {!hasRunnablePreview ? (
+            <div className="mt-2 text-xs text-amber-700">当前预览没有可删除候选，或缺少 plan fingerprint。</div>
+          ) : null}
+        </div>
+      ) : null}
+      {error ? (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
+      <GcRunResultSummary result={result} />
+    </div>
+  );
+}
+
+function GcRunResultSummary({ result }: { result: WorkflowArtifactGcRunResult | null }) {
+  if (!result) return null;
+  const deleted = result.deleted || [];
+  const errors = result.errors || [];
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white px-3 py-3">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="text-sm font-semibold text-slate-900">GC run {result.status || "completed"}</div>
+        <span className="font-mono text-[11px] text-slate-400">{result.executedAt || "—"}</span>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Metric label="已删对象" value={formatCount(result.deletedCount)} compact />
+        <Metric label="已删字节" value={formatBytes(result.deletedBytes)} compact />
+        <Metric label="错误" value={formatCount(result.errorCount)} tone={result.errorCount ? "warn" : "default"} compact />
+      </div>
+      {result.evidenceId ? (
+        <div className="mt-3 break-all rounded bg-slate-50 px-3 py-2 font-mono text-[11px] text-slate-500">
+          evidence {result.evidenceId}
+        </div>
+      ) : null}
+      {deleted.length ? (
+        <div className="mt-3">
+          <div className="mb-2 text-xs font-medium text-slate-500">删除摘要</div>
+          <PlanItemList items={deleted} emptyText="暂无删除记录" />
+        </div>
+      ) : null}
+      {errors.length ? (
+        <div className="mt-3 space-y-2">
+          <div className="text-xs font-medium text-slate-500">错误摘要</div>
+          {errors.map((item, index) => (
+            <div key={`${item.storageBackend || "backend"}:${item.errorCode || "error"}:${index}`} className="flex flex-wrap justify-between gap-2 rounded border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-800">
+              <span>{item.storageBackend || "backend"}</span>
+              <span className="font-mono text-[11px]">{item.errorCode || "ARTIFACT_GC_DELETE_FAILED"}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

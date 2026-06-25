@@ -8,25 +8,29 @@ WEB_COMPONENTS = ROOT / "apps" / "web" / "app" / "components"
 WEB_ROUTES = ROOT / "apps" / "web" / "app" / "workflows" / "results"
 
 
-def test_artifact_lifecycle_frontend_surface_is_read_only_preview() -> None:
+def test_artifact_lifecycle_frontend_surface_is_confirmation_gated_gc() -> None:
     api = _read(WEB_COMPONENTS / "workflow-artifact-lifecycle-api.ts")
     page = _read(WEB_COMPONENTS / "workflow-artifact-lifecycle-page.tsx")
 
     assert "fetchArtifactLifecycleUsage" in api
     assert "fetchArtifactLifecycleControllerTicks" in api
     assert "previewArtifactGc" in api
+    assert "runArtifactGc" in api
     assert "/api/v1/artifacts/lifecycle/usage" in api
     assert "/api/v1/artifacts/lifecycle/controller/ticks" in api
     assert "/api/v1/artifacts/lifecycle/gc/preview" in api
+    assert "/api/v1/artifacts/lifecycle/gc/run" in api
+    assert "WorkflowArtifactGcRunRequest" in api
+    assert "WorkflowArtifactGcRunResult" in api
+    assert "response.data" in api
 
-    forbidden = {
-        "runArtifactGc",
-        "ARTIFACT_GC_CONFIRMATION",
-        "delete-artifact-payloads",
-        "/api/v1/artifacts/lifecycle/gc/run",
-    }
-    assert not forbidden.intersection(_tokens(api))
-    assert not forbidden.intersection(_tokens(page))
+    assert 'GC_RUN_CONFIRMATION = "delete-artifact-payloads"' in page
+    assert "planFingerprint: preview.planFingerprint" in page
+    assert "...previewRequest" in page
+    assert "setPreviewRequest(request)" in page
+    assert "clearSavedPreview" in page
+    assert "confirmationValue.trim() === GC_RUN_CONFIRMATION" in page
+    assert "disabled={!canRun}" in page
 
 
 def test_artifact_lifecycle_frontend_uses_public_projection_and_safe_preview_summary() -> None:
@@ -36,6 +40,8 @@ def test_artifact_lifecycle_frontend_uses_public_projection_and_safe_preview_sum
     assert "WorkflowArtifactLifecycleUsage" in model
     assert "WorkflowArtifactLifecycleControllerTick" in model
     assert "WorkflowArtifactGcPlan" in model
+    assert "WorkflowArtifactGcRunResult" in model
+    assert "planFingerprint?: string" in model
     assert "retentionHolds" in page
     assert "batchSafety" in page
     assert "gcPreview" in page

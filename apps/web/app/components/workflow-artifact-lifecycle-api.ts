@@ -6,6 +6,8 @@ import { requestLocalApiJson } from "@/app/lib/local-api-client";
 import type {
   WorkflowArtifactGcPlan,
   WorkflowArtifactGcPreviewRequest,
+  WorkflowArtifactGcRunRequest,
+  WorkflowArtifactGcRunResult,
   WorkflowArtifactLifecycleControllerTickList,
   WorkflowArtifactLifecycleUsage,
 } from "./workflow-artifact-lifecycle-model";
@@ -30,11 +32,12 @@ export async function fetchArtifactLifecycleUsage(
     quotaBytes ?? "none",
   ].join(":");
   return cachedAsync(key, 10_000, async () => {
-    return requestLocalApiJson<WorkflowArtifactLifecycleUsage>(
+    const response = await requestLocalApiJson<{ data: WorkflowArtifactLifecycleUsage }>(
       "GET",
       `/api/v1/artifacts/lifecycle/usage${artifactLifecycleQuery({ ...options, quotaBytes })}`,
       { cache: "no-store" }
     );
+    return response.data;
   }, {
     forceRefresh: options.forceRefresh,
   });
@@ -50,12 +53,12 @@ export async function fetchArtifactLifecycleControllerTicks(
     limit,
   ].join(":");
   return cachedAsync(key, 10_000, async () => {
-    const response = await requestLocalApiJson<WorkflowArtifactLifecycleControllerTickList>(
+    const response = await requestLocalApiJson<{ data: WorkflowArtifactLifecycleControllerTickList }>(
       "GET",
       `/api/v1/artifacts/lifecycle/controller/ticks${artifactLifecycleQuery({ ...options, limit })}`,
       { cache: "no-store" }
     );
-    return { schemaVersion: response.schemaVersion, items: response.items || [] };
+    return { schemaVersion: response.data.schemaVersion, items: response.data.items || [] };
   }, {
     forceRefresh: options.forceRefresh,
   });
@@ -76,7 +79,7 @@ export async function previewArtifactGc(
   const maxDeleteBytes = normalizeOptionalPositiveInteger(request.maxDeleteBytes);
   if (maxDeleteBytes !== undefined) body.maxDeleteBytes = maxDeleteBytes;
 
-  return requestLocalApiJson<WorkflowArtifactGcPlan>(
+  const response = await requestLocalApiJson<{ data: WorkflowArtifactGcPlan }>(
     "POST",
     "/api/v1/artifacts/lifecycle/gc/preview",
     {
@@ -85,6 +88,22 @@ export async function previewArtifactGc(
       timeoutMs: 20_000,
     }
   );
+  return response.data;
+}
+
+export async function runArtifactGc(
+  request: WorkflowArtifactGcRunRequest
+): Promise<WorkflowArtifactGcRunResult> {
+  const response = await requestLocalApiJson<{ data: WorkflowArtifactGcRunResult }>(
+    "POST",
+    "/api/v1/artifacts/lifecycle/gc/run",
+    {
+      body: request,
+      cache: "no-store",
+      timeoutMs: 20_000,
+    }
+  );
+  return response.data;
 }
 
 function artifactLifecycleQuery(options: ArtifactLifecycleFetchOptions) {

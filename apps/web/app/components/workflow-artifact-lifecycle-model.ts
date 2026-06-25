@@ -151,3 +151,27 @@ export type WorkflowArtifactGcPlan = {
   candidates?: WorkflowArtifactGcPlanItem[];
   protected?: WorkflowArtifactGcPlanItem[];
 };
+
+export type WorkflowArtifactGcRunRequest = WorkflowArtifactGcPreviewRequest & {
+  confirmation: string;
+  planFingerprint: string;
+};
+
+export type WorkflowArtifactGcRunError = {
+  storageBackend?: string;
+  errorCode?: string;
+};
+
+export type WorkflowArtifactGcRunResult = {
+  schemaVersion?: string;
+  planId?: string;
+  executedAt?: string;
+  status?: string;
+  deletedCount?: number;
+  deletedBytes?: number;
+  errorCount?: number;
+  evidenceId?: string;
+  deleted?: WorkflowArtifactGcPlanItem[];
+  errors?: WorkflowArtifactGcRunError[];
+  plan?: WorkflowArtifactGcPlan;
+};
