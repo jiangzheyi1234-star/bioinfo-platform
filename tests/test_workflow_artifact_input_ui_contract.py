@@ -41,26 +41,35 @@ def test_workflow_page_artifact_input_state_and_ui_are_safe() -> None:
     assert "const [artifactInputRunId, setArtifactInputRunId]" in hook
     assert "async function loadArtifactInputRun" in hook
     assert "function selectArtifactInput" in hook
+    assert "function removeArtifactInput" in hook
     assert "function clearArtifactInputs" in hook
     assert "setSampleUploads([])" in _function_body(hook, "selectArtifactInput")
     assert "setFiles([])" in _function_body(hook, "selectArtifactInput")
+    assert "setArtifactInputs((current) =>" in _function_body(hook, "selectArtifactInput")
+    assert "current.some((item) => item.artifactId === artifact.artifactId)" in _function_body(hook, "selectArtifactInput")
     assert "clearArtifactInputs()" in _function_body(hook, "updateFiles")
     assert "clearArtifactInputs()" in _function_body(hook, "loadSampleData")
-    assert "role: workflowInputRoleDefault(selectedWorkflow)" in hook
+    assert "applyWorkflowInputRoles(selectedWorkflow" in _function_body(hook, "selectArtifactInput")
+    assert "applyWorkflowInputRoles(" in _function_body(hook, "removeArtifactInput")
+    assert "function workflowInputRoles" in hook
+    assert "record.group === \"input\" || record.kind === \"input\"" in hook
 
     assert "artifactInputDetail={state.artifactInputDetail}" in detail_page
     assert "artifactInputs={state.artifactInputs}" in detail_page
     assert "runHistory={state.runHistory}" in detail_page
     assert "onArtifactInputRunChange" in detail_page
     assert "onArtifactInputSelect={state.selectArtifactInput}" in detail_page
+    assert "onArtifactInputRemove={state.removeArtifactInput}" in detail_page
 
     picker_body = _function_body(ui, "WorkflowFilePicker")
     assert "历史结果产物" in picker_body
-    assert "选择已完成运行的 artifact 作为输入" in picker_body
+    assert "按输入角色逐个添加已完成运行的 artifact" in picker_body
     assert "completedRuns.map" in picker_body
-    assert "artifactCandidates.map" in picker_body
+    assert "availableArtifactCandidates.map" in picker_body
+    assert "selectedArtifactIds" in picker_body
     assert "artifactInputLabel(artifact)" in picker_body
     assert "artifactInputRunLabel(artifact)" in picker_body
+    assert "onArtifactInputRemove(artifact.artifactId)" in picker_body
     assert "storageUri" not in picker_body
     assert "cacheKey" not in picker_body
     assert ".path" not in picker_body

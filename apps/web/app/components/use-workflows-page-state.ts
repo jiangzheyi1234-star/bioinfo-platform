@@ -525,29 +525,44 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
   function selectArtifactInput(artifactId: string) {
     const normalizedArtifactId = String(artifactId || "").trim();
     if (!normalizedArtifactId) {
-      setArtifactInputs([]);
+      setArtifactInputError("");
       return;
     }
     const artifact = artifactInputDetail?.results?.artifacts?.find((item) => item.artifactId === normalizedArtifactId);
     if (!artifact) {
-      setArtifactInputs([]);
       setArtifactInputError(`ARTIFACT_INPUT_NOT_FOUND: ${normalizedArtifactId}`);
       return;
     }
     setFiles([]);
     setSampleUploads([]);
     setArtifactInputError("");
-    setArtifactInputs([
-      {
-        artifactId: artifact.artifactId,
-        kind: artifact.kind,
-        mimeType: artifact.mimeType,
-        role: workflowInputRoleDefault(selectedWorkflow),
-        sha256: artifact.sha256,
-        sizeBytes: artifact.sizeBytes,
-        upstreamRunId: artifactInputDetail?.run?.runId,
-      },
-    ]);
+    setArtifactInputs((current) => {
+      if (current.some((item) => item.artifactId === artifact.artifactId)) {
+        return current;
+      }
+      return applyWorkflowInputRoles(selectedWorkflow, [
+        ...current,
+        {
+          artifactId: artifact.artifactId,
+          kind: artifact.kind,
+          mimeType: artifact.mimeType,
+          sha256: artifact.sha256,
+          sizeBytes: artifact.sizeBytes,
+          upstreamRunId: artifactInputDetail?.run?.runId,
+        },
+      ]);
+    });
+  }
+
+  function removeArtifactInput(artifactId: string) {
+    const normalizedArtifactId = String(artifactId || "").trim();
+    if (!normalizedArtifactId) return;
+    setArtifactInputs((current) =>
+      applyWorkflowInputRoles(
+        selectedWorkflow,
+        current.filter((artifact) => artifact.artifactId !== normalizedArtifactId)
+      )
+    );
   }
 
   function clearArtifactInputs() {
@@ -605,6 +620,7 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     server,
     selectRun,
     selectArtifactInput,
+    removeArtifactInput,
     setFiles: updateFiles,
     clearArtifactInputs,
     setParams,
@@ -628,6 +644,45 @@ function resourceIdsFromWorkflowDesignDraft(record: WorkflowDesignDraftRecord): 
       .map(([resourceKey, binding]) => [resourceKey, String(binding?.databaseId || "")])
       .filter(([, databaseId]) => databaseId)
   );
+}
+
+function applyWorkflowInputRoles(
+  workflow: WorkflowCatalogItem | null,
+  artifacts: WorkflowArtifactRunInput[]
+): WorkflowArtifactRunInput[] {
+  return artifacts.map((artifact, index) => ({
+    ...artifact,
+    role: workflowInputRoleForIndex(workflow, index),
+  }));
+}
+
+function workflowInputRoleForIndex(workflow: WorkflowCatalogItem | null, index: number): string {
+  const roles = workflowInputRoles(workflow);
+  if (roles[index]) {
+    return roles[index];
+  }
+  if (index > 0) {
+    return `${workflowInputRoleDefault(workflow)}_${index + 1}`;
+  }
+  return workflowInputRoleDefault(workflow);
+}
+
+function workflowInputRoles(workflow: WorkflowCatalogItem | null): string[] {
+  const graph = workflow?.uiSchema?.graph;
+  const nodes = graph && typeof graph === "object" && !Array.isArray(graph)
+    ? (graph as { nodes?: unknown }).nodes
+    : null;
+  if (!Array.isArray(nodes)) {
+    return [];
+  }
+  return nodes
+    .map((node) => {
+      if (!node || typeof node !== "object") return "";
+      const record = node as { group?: unknown; kind?: unknown; role?: unknown };
+      const isInput = record.group === "input" || record.kind === "input";
+      return isInput && typeof record.role === "string" ? record.role.trim() : "";
+    })
+    .filter(Boolean);
 }
 
 function workflowInputRoleDefault(workflow: WorkflowCatalogItem | null): string {

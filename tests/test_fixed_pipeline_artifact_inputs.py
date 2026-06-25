@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import runpy
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+import yaml
 
 from apps.remote_runner.artifact_ledger_storage import list_lineage_edges_for_run, list_run_artifact_edges
 from apps.remote_runner.executor import run_snakemake_execution
@@ -161,5 +165,109 @@ def test_file_summary_standard_pipeline_restores_artifact_input(tmp_path: Path, 
     assert "uploadId" not in lineage_edges[0]["payload"]
 
 
+def test_file_summary_standard_run_config_schema_declares_artifact_source_contract() -> None:
+    schema_path = (
+        Path(__file__).resolve().parents[1]
+        / "apps"
+        / "remote_runner"
+        / "pipelines"
+        / "file-summary-standard-v1"
+        / "workflow"
+        / "schemas"
+        / "config.schema.yaml"
+    )
+    schema = yaml.safe_load(schema_path.read_text(encoding="utf-8"))
+    input_item_schema = schema["properties"]["inputs"]["items"]
+
+    assert "uploadId" not in input_item_schema["required"]
+    assert {"sourceType", "sourceId", "filename", "role", "path", "sizeBytes", "sha256", "mimeType", "index"}.issubset(
+        set(input_item_schema["required"])
+    )
+    assert input_item_schema["properties"]["sourceType"]["enum"] == ["upload", "artifact"]
+    variants = input_item_schema["oneOf"]
+    upload_variant = next(variant for variant in variants if "uploadId" in variant["required"])
+    artifact_variant = next(variant for variant in variants if "artifactBlobId" in variant["required"])
+    assert upload_variant["properties"]["sourceType"]["enum"] == ["upload"]
+    assert {"artifactId", "artifactBlobId", "sourceMaterializationId"} == {
+        item["required"][0] for item in upload_variant["not"]["anyOf"]
+    }
+    assert artifact_variant["properties"]["sourceType"]["enum"] == ["artifact"]
+    assert artifact_variant["not"]["required"] == ["uploadId"]
+
+
+def test_file_summary_workflow_scripts_accept_resolved_artifact_inputs(tmp_path: Path) -> None:
+    source_path = tmp_path / "restored-artifact-input.txt"
+    source_path.write_text("sample\n", encoding="utf-8")
+    digest = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    input_item = {
+        "sourceType": "artifact",
+        "sourceId": "art_source",
+        "artifactId": "art_source",
+        "artifactBlobId": "ablob_source",
+        "sourceMaterializationId": "amat_source",
+        "upstreamRunId": "run_source",
+        "filename": "reads.txt",
+        "role": "reads",
+        "path": str(source_path),
+        "sizeBytes": source_path.stat().st_size,
+        "sha256": digest,
+        "mimeType": "text/plain",
+        "index": 0,
+    }
+
+    for pipeline_id in ("file-summary-v1", "file-summary-standard-v1"):
+        output_dir = tmp_path / pipeline_id
+        output_dir.mkdir()
+        outputs = _OutputMap(
+            summary=str(output_dir / "summary.tsv"),
+            report=str(output_dir / "report.html"),
+            raw_log=str(output_dir / "raw-log.json"),
+        )
+        script = (
+            Path(__file__).resolve().parents[1]
+            / "apps"
+            / "remote_runner"
+            / "pipelines"
+            / pipeline_id
+            / "workflow"
+            / "scripts"
+            / "generate_outputs.py"
+        )
+        runpy.run_path(
+            str(script),
+            init_globals={
+                "snakemake": SimpleNamespace(
+                    config={
+                        "run_id": f"run_{pipeline_id}",
+                        "params": {"include_content_hash": "true"},
+                        "inputs": [input_item],
+                        "outputs": dict(outputs),
+                    },
+                    output=outputs,
+                )
+            },
+        )
+
+        summary = Path(outputs.summary).read_text(encoding="utf-8")
+        raw_log = json.loads(Path(outputs.raw_log).read_text(encoding="utf-8"))
+        header = summary.splitlines()[0]
+        row = summary.splitlines()[1]
+
+        assert header.startswith("source_type\tsource_id\tfilename\trole")
+        assert "upload_id" not in header
+        assert row.startswith("artifact\tart_source\treads.txt\treads")
+        assert raw_log["files"][0]["source_type"] == "artifact"
+        assert raw_log["files"][0]["source_id"] == "art_source"
+        assert raw_log["files"][0]["artifact_id"] == "art_source"
+        assert raw_log["files"][0]["artifact_blob_id"] == "ablob_source"
+        assert "path" not in raw_log["files"][0]
+        assert "storageUri" not in repr(raw_log)
+
+
 def _min_inputs(schema: dict[str, object]) -> int:
     return max(1, int(schema.get("minItems") or 1))
+
+
+class _OutputMap(dict):
+    def __getattr__(self, name: str) -> str:
+        return self[name]

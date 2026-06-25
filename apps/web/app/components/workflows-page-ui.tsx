@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { AlertCircle, CheckCircle2, Database, Loader2, Play, UploadCloud, XCircle } from "lucide-react";
+import { AlertCircle, CheckCircle2, Database, Loader2, Play, UploadCloud, X, XCircle } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -127,6 +127,7 @@ export function WorkflowRunBuilder({
   onFilesChange,
   onArtifactInputRunChange,
   onArtifactInputSelect,
+  onArtifactInputRemove,
   onClearArtifactInputs,
   onLoadSampleData,
   onSubmit,
@@ -160,6 +161,7 @@ export function WorkflowRunBuilder({
   onFilesChange: (files: File[]) => void;
   onArtifactInputRunChange: (runId: string) => void;
   onArtifactInputSelect: (artifactId: string) => void;
+  onArtifactInputRemove: (artifactId: string) => void;
   onClearArtifactInputs: () => void;
   onLoadSampleData: () => void;
   onSubmit: () => void;
@@ -267,6 +269,7 @@ export function WorkflowRunBuilder({
               selectedWorkflow={selectedWorkflow}
               onArtifactInputRunChange={onArtifactInputRunChange}
               onArtifactInputSelect={onArtifactInputSelect}
+              onArtifactInputRemove={onArtifactInputRemove}
               onClearArtifactInputs={onClearArtifactInputs}
               onFilesChange={onFilesChange}
               onLoadSampleData={onLoadSampleData}
@@ -451,6 +454,7 @@ function WorkflowFilePicker({
   selectedWorkflow,
   onArtifactInputRunChange,
   onArtifactInputSelect,
+  onArtifactInputRemove,
   onClearArtifactInputs,
   onFilesChange,
   onLoadSampleData,
@@ -468,6 +472,7 @@ function WorkflowFilePicker({
   selectedWorkflow: WorkflowCatalogItem | null;
   onArtifactInputRunChange: (runId: string) => void;
   onArtifactInputSelect: (artifactId: string) => void;
+  onArtifactInputRemove: (artifactId: string) => void;
   onClearArtifactInputs: () => void;
   onFilesChange: (files: File[]) => void;
   onLoadSampleData: () => void;
@@ -479,7 +484,9 @@ function WorkflowFilePicker({
   const artifactCandidates = (artifactInputDetail?.results?.artifacts || []).filter(
     (artifact) => artifact.artifactId && artifact.kind !== "directory"
   );
-  const selectedArtifactId = artifactInputs[0]?.artifactId || "";
+  const selectedArtifactIds = new Set(artifactInputs.map((artifact) => artifact.artifactId));
+  const availableArtifactCandidates = artifactCandidates.filter((artifact) => !selectedArtifactIds.has(artifact.artifactId || ""));
+  const artifactSelectDisabled = !artifactInputRunId || artifactInputLoading || availableArtifactCandidates.length === 0;
   return (
     <div className="grid gap-4 px-5 py-5 md:grid-cols-[160px_minmax(0,1fr)]">
       <div>
@@ -516,7 +523,7 @@ function WorkflowFilePicker({
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-xs font-medium text-slate-800">历史结果产物</div>
-                <div className="text-[11px] text-slate-500">选择已完成运行的 artifact 作为输入</div>
+                <div className="text-[11px] text-slate-500">按输入角色逐个添加已完成运行的 artifact</div>
               </div>
               {artifactInputs.length > 0 ? (
                 <Button
@@ -547,16 +554,16 @@ function WorkflowFilePicker({
                 </SelectContent>
               </Select>
               <Select
-                value={selectedArtifactId || "__none__"}
-                disabled={!artifactInputRunId || artifactInputLoading || artifactCandidates.length === 0}
+                value="__none__"
+                disabled={artifactSelectDisabled}
                 onValueChange={(value) => onArtifactInputSelect(value === "__none__" ? "" : value)}
               >
                 <SelectTrigger className="h-9 bg-white">
-                  <SelectValue placeholder={artifactInputLoading ? "读取产物中" : "选择 artifact"} />
+                  <SelectValue placeholder={artifactInputLoading ? "读取产物中" : "添加 artifact"} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__none__">不选择 artifact</SelectItem>
-                  {artifactCandidates.map((artifact) => (
+                  <SelectItem value="__none__">{artifactInputs.length > 0 ? "继续添加 artifact" : "选择 artifact"}</SelectItem>
+                  {availableArtifactCandidates.map((artifact) => (
                     <SelectItem key={artifact.artifactId} value={artifact.artifactId}>
                       {artifactInputLabel(artifact)}
                     </SelectItem>
@@ -570,7 +577,16 @@ function WorkflowFilePicker({
                 {artifactInputs.map((artifact) => (
                   <div key={artifact.artifactId} className="flex items-center justify-between gap-3 rounded-md bg-indigo-50 px-3 py-2 text-xs text-indigo-800">
                     <span className="min-w-0 truncate font-mono">{artifactInputRunLabel(artifact)}</span>
-                    <span className="shrink-0 text-[11px] text-indigo-600">{artifact.role || "input"}</span>
+                    <span className="ml-auto shrink-0 text-[11px] text-indigo-600">{artifact.role || "input"}</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="h-6 w-6 shrink-0 px-0 text-indigo-600 hover:bg-indigo-100"
+                      onClick={() => onArtifactInputRemove(artifact.artifactId)}
+                      aria-label="移除 artifact 输入"
+                    >
+                      <X strokeWidth={1.5} className="h-3.5 w-3.5" />
+                    </Button>
                   </div>
                 ))}
               </div>

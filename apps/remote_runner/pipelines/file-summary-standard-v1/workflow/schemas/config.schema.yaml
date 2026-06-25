@@ -33,12 +33,58 @@ properties:
     items:
       type: object
       required:
-        - uploadId
+        - sourceType
+        - sourceId
         - filename
         - role
         - path
+        - sizeBytes
+        - sha256
+        - mimeType
+        - index
+      oneOf:
+        - required:
+            - uploadId
+          not:
+            anyOf:
+              - required:
+                  - artifactId
+              - required:
+                  - artifactBlobId
+              - required:
+                  - sourceMaterializationId
+          properties:
+            sourceType:
+              enum:
+                - upload
+        - required:
+            - artifactBlobId
+          not:
+            required:
+              - uploadId
+          properties:
+            sourceType:
+              enum:
+                - artifact
       properties:
+        sourceType:
+          type: string
+          enum:
+            - upload
+            - artifact
+        sourceId:
+          type: string
         uploadId:
+          type: string
+        artifactId:
+          type: string
+        artifactBlobId:
+          type: string
+        sourceMaterializationId:
+          type: string
+        upstreamRunId:
+          type: string
+        name:
           type: string
         filename:
           type: string

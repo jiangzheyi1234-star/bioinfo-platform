@@ -69,6 +69,7 @@ export function WorkflowDetailPage({ workflowId: workflowIdProp = "" }: { workfl
             runHistory={state.runHistory}
             onArtifactInputRunChange={(runId) => void state.loadArtifactInputRun(runId)}
             onArtifactInputSelect={state.selectArtifactInput}
+            onArtifactInputRemove={state.removeArtifactInput}
             onClearArtifactInputs={state.clearArtifactInputs}
             onFilesChange={state.setFiles}
             onLoadSampleData={() => void state.loadSampleData()}
