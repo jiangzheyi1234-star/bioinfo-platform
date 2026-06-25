@@ -252,6 +252,33 @@ def lookup_artifact_cache_entry(cfg: RemoteRunnerConfig, payload: dict[str, Any]
     return _lookup_result(cache_key, key["keyPayload"], hit, reason, entry, event)
 
 
+def preview_artifact_cache_entry(cfg: RemoteRunnerConfig, payload: dict[str, Any]) -> dict[str, Any]:
+    with get_connection(cfg) as connection:
+        return preview_artifact_cache_entry_record(connection, cfg=cfg, payload=payload)
+
+
+def preview_artifact_cache_entry_record(
+    connection: sqlite3.Connection,
+    *,
+    cfg: RemoteRunnerConfig,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    try:
+        key = build_artifact_cache_key_from_request_record(connection, payload)
+    except ValueError as exc:
+        return _cache_preview_result("", {}, False, str(exc), None)
+    cache_key = key["cacheKey"]
+    row = connection.execute(
+        "SELECT * FROM artifact_cache_entries WHERE cache_key = ?",
+        (cache_key,),
+    ).fetchone()
+    if row is None:
+        return _cache_preview_result(cache_key, key["keyPayload"], False, "cache_key_not_found", None)
+    entry = _cache_entry_row_to_dict(row)
+    hit, reason = _verify_cache_entry_payload(cfg, entry)
+    return _cache_preview_result(cache_key, key["keyPayload"], hit, reason, entry)
+
+
 def list_artifact_cache_entries(
     cfg: RemoteRunnerConfig,
     *,
@@ -621,6 +648,23 @@ def _lookup_result(
         "entry": entry,
         "evidenceId": event["eventId"],
         "lookedUpAt": event["occurredAt"],
+    }
+
+
+def _cache_preview_result(
+    cache_key: str,
+    key_payload: dict[str, Any],
+    hit: bool,
+    reason: str,
+    entry: dict[str, Any] | None,
+) -> dict[str, Any]:
+    return {
+        "cacheKey": cache_key,
+        "keyPayload": key_payload,
+        "hit": bool(hit),
+        "reason": reason,
+        "entry": entry,
+        "sideEffectFree": True,
     }
 
 

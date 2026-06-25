@@ -15,6 +15,7 @@ from apps.remote_runner.artifact_cache_storage import (
     list_artifact_cache_entries,
     list_artifact_cache_pins,
     lookup_artifact_cache_entry,
+    preview_artifact_cache_entry,
 )
 from apps.remote_runner.artifact_cache_adoption import try_adopt_cached_outputs
 from apps.remote_runner.artifact_cache_pin_service import (
@@ -67,6 +68,33 @@ def test_artifact_cache_records_workflow_revision_key_and_verified_lookup_hit(tm
     assert entries[0]["hitCount"] == 1
     assert events[-1]["eventType"] == "artifact.cache.lookup.v1"
     assert events[-1]["payload"]["hit"] is True
+
+
+def test_artifact_cache_preview_hit_is_side_effect_free(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    revision = _create_revision(cfg)
+    run_spec = _run_spec("run_cache_preview", revision["workflowRevisionId"])
+    _create_terminal_run(cfg, run_spec)
+    artifact = persist_artifact(
+        cfg,
+        run_id="run_cache_preview",
+        kind="report",
+        path=_managed_report(cfg, "run_cache_preview", b"cached preview\n"),
+        mime_type="text/plain",
+        artifact_key="report",
+        step_id="summarize",
+    )
+
+    preview = preview_artifact_cache_entry(cfg, _lookup_payload(revision["workflowRevisionId"]))
+    entries = list_artifact_cache_entries(cfg, workflow_revision_id=revision["workflowRevisionId"])["items"]
+    events = list_evidence_events(cfg, event_type="artifact.cache.lookup.v1")
+
+    assert preview["sideEffectFree"] is True
+    assert preview["hit"] is True
+    assert preview["reason"] == "hit"
+    assert preview["entry"]["artifactId"] == artifact["artifactId"]
+    assert entries[0]["hitCount"] == 0
+    assert events == []
 
 
 def test_artifact_cache_lookup_misses_when_relevant_inputs_change(tmp_path: Path) -> None:

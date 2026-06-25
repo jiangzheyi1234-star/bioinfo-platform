@@ -6,7 +6,7 @@ from pathlib import Path
 from apps.remote_runner.run_execution_context_storage import fetch_run_execution_context
 from apps.remote_runner.run_execution_storage import claim_next_run_job, complete_run_attempt
 from apps.remote_runner.rule_execution_storage import upsert_run_rule_state
-from apps.remote_runner.storage import create_run_record
+from apps.remote_runner.storage import create_run_record, persist_artifact
 from apps.remote_runner.storage_core import get_connection
 from apps.remote_runner.workflow_revision_storage import create_or_fetch_workflow_revision
 from tests.helpers.reference_database import make_configured_remote_runner
@@ -42,6 +42,13 @@ def _create_run(
         idempotency_key=f"idem_{run_id}",
         payload_hash=f"hash_{run_id}",
     )
+
+
+def _managed_report(cfg, run_id: str, payload: bytes) -> Path:
+    path = Path(cfg.results_dir) / run_id / "report.txt"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(payload)
+    return path
 
 
 def test_run_execution_context_projects_attempts_and_active_lease(tmp_path) -> None:
@@ -255,6 +262,26 @@ def test_run_execution_context_reports_rule_retry_downstream_invalidation_plan(t
             },
         },
     )
+    _create_run(cfg, "run_rule_retry_cache_source", workflow_revision_id=revision["workflowRevisionId"])
+    with get_connection(cfg) as connection:
+        connection.execute(
+            "UPDATE runs SET status = 'completed', stage = 'complete' WHERE run_id = ?",
+            ("run_rule_retry_cache_source",),
+        )
+        connection.execute(
+            "UPDATE run_jobs SET state = 'completed' WHERE run_id = ?",
+            ("run_rule_retry_cache_source",),
+        )
+        connection.commit()
+    cached_artifact = persist_artifact(
+        cfg,
+        run_id="run_rule_retry_cache_source",
+        kind="report",
+        path=_managed_report(cfg, "run_rule_retry_cache_source", b"cached align output\n"),
+        mime_type="text/plain",
+        artifact_key="report",
+        step_id="align",
+    )
     _create_run(cfg, "run_rule_retry_plan", workflow_revision_id=revision["workflowRevisionId"])
     claim = claim_next_run_job(
         cfg,
@@ -275,11 +302,13 @@ def test_run_execution_context_reports_rule_retry_downstream_invalidation_plan(t
             attempt_id=str(claim["attemptId"]),
             lease_generation=int(claim["leaseGeneration"]),
             attempt_number=int(claim["attempt"]["attemptNumber"]),
+            outputs=["report"] if rule_name == "align" else [],
         )
 
     context = fetch_run_execution_context(cfg, "run_rule_retry_plan")
 
     plan = context["ruleRetryPlan"]
+    cache_restore_plan = context["ruleCacheRestorePlan"]
     execution_plan = context["ruleRetryExecutionPlan"]
     assert plan["schemaVersion"] == "rule-retry-plan.v1"
     assert plan["supported"] is False
@@ -329,6 +358,29 @@ def test_run_execution_context_reports_rule_retry_downstream_invalidation_plan(t
     assert "--forceall" in execution_plan["snakemakeOptions"]["unsafeFlagsProhibited"]
     assert "RULE_RETRY_MUTATION_API_DISABLED" in execution_plan["blockedReasonCodes"]
     assert "CACHE_ADOPTION_UNPROVEN" in execution_plan["blockedReasonCodes"]
+    assert "STAGED_FILE_POLICY_UNREPRESENTED" in execution_plan["blockedReasonCodes"]
+    assert execution_plan["cacheRestorePlan"] == cache_restore_plan
+    assert cache_restore_plan["schemaVersion"] == "rule-cache-restore-plan.v1"
+    assert cache_restore_plan["sideEffectFree"] is True
+    assert cache_restore_plan["restoreEnabled"] is False
+    assert cache_restore_plan["outputCount"] == 1
+    assert cache_restore_plan["cacheHitCount"] == 1
+    assert cache_restore_plan["cacheMissCount"] == 0
+    assert cache_restore_plan["stagedFilePolicy"]["overwriteAllowed"] is False
+    assert cache_restore_plan["stagedFilePolicy"]["pathExposed"] is False
+    restore_rule = cache_restore_plan["rules"][0]
+    assert restore_rule["ruleName"] == "align"
+    assert restore_rule["reasonCode"] == "PER_RULE_CACHE_RESTORE_UNPROVEN"
+    assert restore_rule["outputs"][0]["cacheEntry"]["artifactId"] == cached_artifact["artifactId"]
+    assert restore_rule["outputs"][0]["restoreTarget"]["pathExposed"] is False
+    assert "storageUri" not in json.dumps(cache_restore_plan, sort_keys=True)
+    with get_connection(cfg) as connection:
+        entry = connection.execute("SELECT hit_count FROM artifact_cache_entries WHERE artifact_id = ?", (cached_artifact["artifactId"],)).fetchone()
+        lookup_events = connection.execute(
+            "SELECT COUNT(*) AS total FROM evidence_events WHERE event_type = 'artifact.cache.lookup.v1'"
+        ).fetchone()
+    assert entry["hit_count"] == 0
+    assert lookup_events["total"] == 0
 
 
 def test_run_execution_context_blocks_rule_retry_plan_without_workflow_revision(tmp_path) -> None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .execution_plan_hash import attach_plan_hash
+from .rule_cache_restore_plan import blocked_rule_cache_restore_plan
 from .rule_retry_plan import PARTIAL_RETRY_UNSUPPORTED, RULE_RETRY_PLAN_SCHEMA_VERSION
 from .workflow_engine_adapter import WorkflowRuntimeCommandError, normalize_forcerun_rules
 
@@ -14,14 +15,22 @@ UNSAFE_SNAKEMAKE_RULE_RETRY_FLAGS = ["--forceall", "--touch", "--ignore-incomple
 RULE_RETRY_EXECUTION_BLOCKERS = [
     "ATTEMPT_OUTPUT_RESTORE_UNPROVEN",
     "DOWNSTREAM_OUTPUT_INVALIDATION_UNPROVEN",
+    "PER_RULE_CACHE_ELIGIBILITY_UNPROVEN",
+    "OUTPUT_EDGE_INVALIDATION_UNREPRESENTED",
+    "STAGED_FILE_POLICY_UNREPRESENTED",
+    "PARTIAL_RESTORE_EXECUTOR_UNAVAILABLE",
     "CACHE_ADOPTION_UNPROVEN",
     "ARTIFACT_ADOPTION_UNPROVEN",
     "RULE_RETRY_MUTATION_API_DISABLED",
 ]
 
 
-def build_rule_retry_execution_plan(rule_retry_plan: dict[str, Any]) -> dict[str, Any]:
-    base = _base_plan(rule_retry_plan)
+def build_rule_retry_execution_plan(
+    rule_retry_plan: dict[str, Any],
+    cache_restore_plan: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    resolved_cache_restore_plan = cache_restore_plan or blocked_rule_cache_restore_plan(rule_retry_plan)
+    base = _base_plan(rule_retry_plan, cache_restore_plan=resolved_cache_restore_plan)
     if rule_retry_plan.get("schemaVersion") != RULE_RETRY_PLAN_SCHEMA_VERSION:
         return _blocked(base, "RULE_RETRY_PLAN_SCHEMA_UNSUPPORTED")
     if not rule_retry_plan.get("invalidationPlanAvailable"):
@@ -57,6 +66,7 @@ def build_rule_retry_execution_plan(rule_retry_plan: dict[str, Any]) -> dict[str
                 "ruleCount": len(rule_retry_plan.get("invalidatedRules") or []),
                 "rules": list(rule_retry_plan.get("invalidatedRules") or []),
             },
+            "cacheRestorePlan": resolved_cache_restore_plan,
             "snakemakeOptions": {
                 "schemaVersion": SNAKEMAKE_RULE_RERUN_OPTIONS_SCHEMA_VERSION,
                 "rerunIncomplete": True,
@@ -96,11 +106,12 @@ def rule_retry_execution_options(rule_retry_execution_plan: dict[str, Any]) -> d
     }
 
 
-def _base_plan(rule_retry_plan: dict[str, Any]) -> dict[str, Any]:
+def _base_plan(rule_retry_plan: dict[str, Any], *, cache_restore_plan: dict[str, Any]) -> dict[str, Any]:
     blocked = _unique_strings(
         [
             *RULE_RETRY_EXECUTION_BLOCKERS,
             *[str(item) for item in rule_retry_plan.get("blockedReasonCodes") or []],
+            *[str(item) for item in cache_restore_plan.get("blockedReasonCodes") or []],
         ]
     )
     return {
@@ -123,6 +134,7 @@ def _base_plan(rule_retry_plan: dict[str, Any]) -> dict[str, Any]:
         "requiresBeforeExecution": RULE_RETRY_EXECUTION_BLOCKERS,
         "selectedRules": [],
         "rerunScope": {"ruleCount": 0, "rules": []},
+        "cacheRestorePlan": cache_restore_plan,
         "snakemakeOptions": {
             "schemaVersion": SNAKEMAKE_RULE_RERUN_OPTIONS_SCHEMA_VERSION,
             "rerunIncomplete": False,

@@ -108,6 +108,19 @@ function compactList(values: string[] | undefined, fallback = "—") {
   return items.length > 4 ? `${shown}, +${items.length - 4}` : shown;
 }
 
+type RuleCacheRestorePlanPreview = {
+  reasonCode?: string;
+  outputCount?: number;
+  cacheHitCount?: number;
+  cacheMissCount?: number;
+  blockedReasonCodes?: string[];
+  stagedFilePolicy?: {
+    reasonCode?: string;
+    overwriteAllowed?: boolean;
+    pathExposed?: boolean;
+  };
+};
+
 function RuleRetryPlanSummary({ context }: { context: WorkflowRunExecutionContext }) {
   const plan = context.ruleRetryPlan;
   if (!plan || !plan.failedRuleCount) return null;
@@ -165,6 +178,8 @@ function RuleRetryPlanSummary({ context }: { context: WorkflowRunExecutionContex
 
 function RuleRetryExecutionPlanPreview({ plan }: { plan?: WorkflowRunRuleRetryExecutionPlan }) {
   if (!plan) return null;
+  const cacheRestore = (plan as WorkflowRunRuleRetryExecutionPlan & { cacheRestorePlan?: RuleCacheRestorePlanPreview })
+    .cacheRestorePlan;
   const options = plan.snakemakeOptions;
   const argsPreview = options?.argsPreview || [];
   const forcerunRules = options?.forcerunRules || [];
@@ -175,6 +190,9 @@ function RuleRetryExecutionPlanPreview({ plan }: { plan?: WorkflowRunRuleRetryEx
   const commandLabel = argsPreview.length > 0 ? argsPreview.join(" ") : "—";
   const selectedLabel = ruleNameList(selectedRules) || "—";
   const scopeLabel = ruleNameList(rerunRules) || "—";
+  const cacheLabel = cacheRestore
+    ? `${cacheRestore.cacheHitCount || 0} / ${cacheRestore.outputCount || 0}`
+    : "—";
 
   return (
     <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
@@ -188,10 +206,11 @@ function RuleRetryExecutionPlanPreview({ plan }: { plan?: WorkflowRunRuleRetryEx
           {plan.commandPreviewAvailable ? "preview only" : "blocked"}
         </span>
       </div>
-      <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
         <ExecutionMetric label="selected" value={String(selectedRules.length)} />
         <ExecutionMetric label="scope" value={String(rerunRules.length)} />
         <ExecutionMetric label="forcerun" value={String(forcerunRules.length)} />
+        <ExecutionMetric label="cache" value={cacheLabel} />
         <ExecutionMetric label="reason" value={plan.reasonCode || "—"} />
       </div>
       <p className="mt-2 text-[11px] leading-5 text-slate-500">
@@ -206,6 +225,19 @@ function RuleRetryExecutionPlanPreview({ plan }: { plan?: WorkflowRunRuleRetryEx
         <span className="truncate font-mono text-slate-800">{scopeLabel}</span>
         <span className="text-slate-500">blockers</span>
         <span className="truncate font-mono text-slate-800">{compactList(blockers)}</span>
+        {cacheRestore ? (
+          <>
+            <span className="text-slate-500">cache restore</span>
+            <span className="truncate font-mono text-slate-800">
+              {cacheRestore.reasonCode || "—"} · miss {cacheRestore.cacheMissCount || 0}
+            </span>
+            <span className="text-slate-500">staged files</span>
+            <span className="truncate font-mono text-slate-800">
+              {cacheRestore.stagedFilePolicy?.reasonCode || "—"} · overwrite{" "}
+              {cacheRestore.stagedFilePolicy?.overwriteAllowed ? "yes" : "no"}
+            </span>
+          </>
+        ) : null}
         <span className="text-slate-500">unsafe flags</span>
         <span className="truncate font-mono text-slate-800">{compactList(unsafeFlags)}</span>
       </div>
