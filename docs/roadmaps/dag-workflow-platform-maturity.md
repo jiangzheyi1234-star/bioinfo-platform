@@ -116,6 +116,7 @@ Progress:
 - Incompatible canvas port drops now reuse the shared one-hop converter recommendation policy used by the inspector, surface a stale-safe explicit confirmation prompt, and call the existing converter insertion path only after user confirmation.
 - Workflow-ready tools can now be dragged from the palette onto the React Flow canvas. Drop coordinates are converted with the React Flow viewport transform and persisted only as scalar `uiPositionX`/`uiPositionY` metadata in the existing history model; execution graph semantics and edge inference remain unchanged.
 - React Flow edge projection, handle-to-graph connection translation, and search matching now live behind a tested adapter module. Invalid canvas drops report explicit operator notices instead of silently doing nothing, and graph nodes/ports/handles expose stable non-visual selectors for future Playwright interaction proof.
+- Selected graph nodes now expose deliberate subflow label controls with buffered assign, clear, and undo behavior. The UI still persists only scalar `uiSubflowId`/`uiSubflowLabel` metadata and renders display-only React Flow group overlays; it does not introduce nested WorkflowDesignDraft structure or React Flow parent-child persistence.
 
 Recommended sequence:
 

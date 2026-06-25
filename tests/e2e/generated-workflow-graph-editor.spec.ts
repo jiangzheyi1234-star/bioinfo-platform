@@ -18,7 +18,7 @@ test.afterAll(async () => {
   await api?.dispose();
 });
 
-test("graph editor supports add, undo, redo, search focus, and layout", async ({ page }) => {
+test("graph editor supports add, undo, redo, search focus, layout, and subflow labels", async ({ page }) => {
   test.setTimeout(120_000);
   await prepareE2EFixture(api);
 
@@ -50,4 +50,15 @@ test("graph editor supports add, undo, redo, search focus, and layout", async ({
   await page.getByRole("button", { name: "自动布局" }).click();
   await expect(nodeCards).toHaveCount(1, { timeout: 10_000 });
   await expect(page.getByTestId(`rule-flow-node-${nodeId}`)).toBeVisible();
+
+  const subflowInput = page.getByTestId(`workflow-subflow-label-${nodeId}`);
+  await subflowInput.fill("QC Stage");
+  await page.getByRole("button", { name: "应用子流程标签" }).click();
+  await expect(page.getByText("子流程 · QC Stage")).toBeVisible({ timeout: 10_000 });
+
+  await page.getByRole("button", { name: "清除子流程标签" }).click();
+  await expect(page.getByText("子流程 · QC Stage")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "撤销" }).click();
+  await expect(page.getByText("子流程 · QC Stage")).toBeVisible({ timeout: 10_000 });
 });

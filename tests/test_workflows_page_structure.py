@@ -206,6 +206,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     runtime_contract_path = COMPONENTS / "generated-workflow-runtime-contract.ts"
     rule_spec_panel_path = COMPONENTS / "generated-workflow-rule-spec-panel.tsx"
     step_params_editor_path = COMPONENTS / "generated-workflow-step-params-editor.tsx"
+    subflow_controls_path = COMPONENTS / "generated-workflow-subflow-controls.tsx"
     runtime_editor_path = COMPONENTS / "generated-workflow-runtime-editor.tsx"
     port_bindings_editor_path = COMPONENTS / "generated-workflow-port-bindings-editor.tsx"
     page_model = (COMPONENTS / "workflows-page-model.ts").read_text(encoding="utf-8")
@@ -234,6 +235,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert runtime_contract_path.exists()
     assert rule_spec_panel_path.exists()
     assert step_params_editor_path.exists()
+    assert subflow_controls_path.exists()
     assert runtime_editor_path.exists()
     assert port_bindings_editor_path.exists()
 
@@ -258,6 +260,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     runtime_contract = runtime_contract_path.read_text(encoding="utf-8")
     rule_spec_panel_ui = rule_spec_panel_path.read_text(encoding="utf-8")
     step_params_editor_ui = step_params_editor_path.read_text(encoding="utf-8")
+    subflow_controls_ui = subflow_controls_path.read_text(encoding="utf-8")
     runtime_editor_ui = runtime_editor_path.read_text(encoding="utf-8")
     port_bindings_editor_ui = port_bindings_editor_path.read_text(encoding="utf-8")
 
@@ -480,9 +483,11 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "GeneratedWorkflowBuilder" in builder_ui
     assert "WorkflowGraphWorkbench" in builder_ui
     assert "GeneratedWorkflowNodeSettings" in builder_ui
-    assert "graphNodeSubflowLabel" in builder_ui
-    assert "builder.setNodeSubflow" in builder_ui
-    assert "子流程" in builder_ui
+    assert "GeneratedWorkflowSubflowControls" in builder_ui
+    assert "onChange={builder.setNodeSubflow}" in builder_ui
+    assert "graphNodeSubflowLabel" in subflow_controls_ui
+    assert "onBlur={commit}" in subflow_controls_ui
+    assert "子流程" in subflow_controls_ui
     assert "StepParamsEditor" in builder_ui
     assert "function StepParamsEditor" not in builder_ui
     assert "export function StepParamsEditor" in step_params_editor_ui

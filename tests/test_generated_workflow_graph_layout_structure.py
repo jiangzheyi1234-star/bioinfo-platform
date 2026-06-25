@@ -39,3 +39,7 @@ def test_generated_workflow_graph_canvas_uses_deterministic_layout_helper() -> N
     assert "isSubflowGroupNodeId" in canvas
     assert "layoutRevision" in canvas
     assert "nodePositions" not in canvas
+    assert "parentId" not in canvas
+    assert "parentNode" not in canvas
+    assert "extent: 'parent'" not in canvas
+    assert 'extent: "parent"' not in canvas

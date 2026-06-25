@@ -246,17 +246,10 @@ function builderReducer(state: BuilderState, action: BuilderAction): BuilderStat
     return setStepTool(state, action.stepId, action.tool, action.tools);
   }
   if (action.type === "set_node_subflow") {
-    return {
-      ...state,
-      graphHistory: commitWorkflowEditorHistory(state.graphHistory, {
-        ...state.graphHistory.present,
-        nodes: state.graphHistory.present.nodes.map((node) =>
-          node.id === action.stepId
-            ? { ...node, metadata: graphNodeMetadataWithSubflow(node.metadata, action.label) }
-            : node
-        ),
-      }),
-    };
+    return commitGraphDraftIfChanged(
+      state,
+      graphDraftWithNodeSubflow(state.graphHistory.present, action.stepId, action.label)
+    );
   }
   if (action.type === "set_node_position") {
     return commitGraphDraftIfChanged(
@@ -414,6 +407,22 @@ function graphDraftWithNodePositions(
   return changed ? { ...draft, nodes } : draft;
 }
 
+function graphDraftWithNodeSubflow(
+  draft: GeneratedWorkflowGraphDraft,
+  stepId: string,
+  label: string
+): GeneratedWorkflowGraphDraft {
+  let changed = false;
+  const nodes = draft.nodes.map((node) => {
+    if (node.id !== stepId) return node;
+    const metadata = graphNodeMetadataWithSubflow(node.metadata, label);
+    if (graphNodeMetadataMatches(node.metadata, metadata)) return node;
+    changed = true;
+    return { ...node, metadata };
+  });
+  return changed ? { ...draft, nodes } : draft;
+}
+
 function graphNodePositionMatches(
   metadata: GeneratedWorkflowGraphDraft["nodes"][number]["metadata"] | undefined,
   position: GraphNodePosition
@@ -426,6 +435,16 @@ function graphNodePositionMatches(
     && currentPosition.x === nextPosition.x
     && currentPosition.y === nextPosition.y
   );
+}
+
+function graphNodeMetadataMatches(
+  left: GeneratedWorkflowGraphDraft["nodes"][number]["metadata"] | undefined,
+  right: GeneratedWorkflowGraphDraft["nodes"][number]["metadata"] | undefined
+) {
+  const leftEntries = Object.entries(left || {});
+  const rightEntries = Object.entries(right || {});
+  if (leftEntries.length !== rightEntries.length) return false;
+  return leftEntries.every(([key, value]) => right?.[key] === value);
 }
 
 function graphHistoryToolsAvailable(

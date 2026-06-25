@@ -29,7 +29,6 @@ import type { DatabaseItem } from "./database-page-model";
 import type { AddedTool } from "./tools-page-model";
 import {
   describePortSpec,
-  graphNodeSubflowLabel,
   readRuleInputs,
   readRuleOutputs,
   readRuleParams,
@@ -50,6 +49,7 @@ import {
   GeneratedWorkflowGraphSnakefilePreview,
   GeneratedWorkflowSnakefilePreview,
 } from "./generated-workflow-snakefile-preview";
+import { GeneratedWorkflowSubflowControls } from "./generated-workflow-subflow-controls";
 import { WorkflowDesignSemanticPortPlanPreview } from "./workflow-design-semantic-port-plan";
 import { StepParamsEditor } from "./generated-workflow-step-params-editor";
 import { GeneratedWorkflowToolRecommendations } from "./generated-workflow-tool-recommendations";
@@ -531,15 +531,7 @@ function WorkflowGraphWorkbench({
                 onStepIdChange={(nextId: string) => builder.setStepId(selectedNode.id, nextId)}
                 onStepToolChange={(toolRevisionId: string) => builder.setStepTool(selectedNode.id, toolRevisionId)}
               />
-              <div className="grid gap-1.5 rounded bg-white px-2 py-2">
-                <div className="text-[11px] font-medium text-slate-500">子流程</div>
-                <Input
-                  value={graphNodeSubflowLabel(selectedNode)}
-                  onChange={(event) => builder.setNodeSubflow(selectedNode.id, event.target.value)}
-                  className="h-8 bg-white font-mono text-xs"
-                  placeholder="例如 qc_stage"
-                />
-              </div>
+              <GeneratedWorkflowSubflowControls node={selectedNode} onChange={builder.setNodeSubflow} />
               <GeneratedWorkflowRuleSpecPanel tool={selectedTool} />
               <StepParamsEditor
                 params={selectedNode.params || {}}
