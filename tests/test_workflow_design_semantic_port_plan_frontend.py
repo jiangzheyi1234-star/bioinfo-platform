@@ -9,6 +9,7 @@ COMPONENTS = ROOT / "apps" / "web" / "app" / "components"
 
 def test_workflow_design_semantic_port_plan_is_rendered_from_backend_plan() -> None:
     builder = (COMPONENTS / "generated-workflow-builder.tsx").read_text(encoding="utf-8")
+    canvas = (COMPONENTS / "generated-workflow-graph-canvas.tsx").read_text(encoding="utf-8")
     component = (COMPONENTS / "workflow-design-semantic-port-plan.tsx").read_text(encoding="utf-8")
     port_advice = (COMPONENTS / "generated-workflow-port-advice.ts").read_text(encoding="utf-8")
     model = (COMPONENTS / "workflow-design-draft-model.ts").read_text(encoding="utf-8")
@@ -19,6 +20,7 @@ def test_workflow_design_semantic_port_plan_is_rendered_from_backend_plan() -> N
     assert "semanticPortPlan={semanticPortPlan}" in builder
     assert "onInsertConverter={builder.insertConverter}" in builder
     assert "tools={workflowReadyTools}" in builder
+    assert "buildFlowEdges(edges, semanticPortPlan)" in canvas
     assert "export type WorkflowDesignSemanticPortPlan" in model
     assert "semanticPortPlan?: WorkflowDesignSemanticPortPlan" in model
 

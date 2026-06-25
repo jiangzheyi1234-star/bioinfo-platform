@@ -117,6 +117,7 @@ Progress:
 - Workflow-ready tools can now be dragged from the palette onto the React Flow canvas. Drop coordinates are converted with the React Flow viewport transform and persisted only as scalar `uiPositionX`/`uiPositionY` metadata in the existing history model; execution graph semantics and edge inference remain unchanged.
 - React Flow edge projection, handle-to-graph connection translation, and search matching now live behind a tested adapter module. Invalid canvas drops report explicit operator notices instead of silently doing nothing, and graph nodes/ports/handles expose stable non-visual selectors for future Playwright interaction proof.
 - Selected graph nodes now expose deliberate subflow label controls with buffered assign, clear, and undo behavior. The UI still persists only scalar `uiSubflowId`/`uiSubflowLabel` metadata and renders display-only React Flow group overlays; it does not introduce nested WorkflowDesignDraft structure or React Flow parent-child persistence.
+- React Flow edge projection now consumes the backend `semanticPortPlan` as read-only edge visual state. Compatible, blocked, converter-needed, and pending edges receive distinct labels, stroke styles, and machine-readable edge data without changing WorkflowDesignDraft v1 or auto-inserting converters.
 
 Recommended sequence:
 
@@ -163,6 +164,7 @@ Progress:
 - WorkflowDesignDraft plan responses now include a backend `semanticPortPlan` read model for every graph edge. It reports EDAM/resource compatibility decisions and one-hop converter candidates with hard checks, evidence, confirmation requirements, and no executable templates, paths, or automatic graph mutation.
 - The workflow builder now renders the backend `semanticPortPlan` as the semantic edge diagnostics surface, including compatible/blocked edge counts, mismatch evidence, and converter candidates that map into the existing converter insertion path only after explicit user confirmation.
 - Canvas and inspector converter insertion CTAs now require an exact backend `semanticPortPlan` candidate match for the source edge, target input, converter revision, and converter ports. Local TypeScript discovery remains visible only as a non-authoritative hint until the current draft has been saved and validated.
+- The React Flow graph now mirrors backend `semanticPortPlan` edge status directly on canvas edges. Local connection validation still gates drops, but compatible/blocked/converter-needed edge styling is driven by the saved draft plan rather than local advisory discovery.
 
 Recommended sequence:
 

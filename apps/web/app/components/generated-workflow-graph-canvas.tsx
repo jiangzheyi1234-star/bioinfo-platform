@@ -282,7 +282,7 @@ export function GeneratedWorkflowGraphCanvas({
       flow.screenToFlowPosition({ x: event.clientX, y: event.clientY })
     );
   }, [onDropTool]);
-  const flowEdges = useMemo(() => buildFlowEdges(edges), [edges]);
+  const flowEdges = useMemo(() => buildFlowEdges(edges, semanticPortPlan), [edges, semanticPortPlan]);
 
   return (
     <div

@@ -35,6 +35,7 @@ const {
   matchedGraphNodeIds,
   matchedGraphNodeSearchMatches,
   reactFlowConnectionToGraphConnection,
+  semanticEdgeStatusForGraphEdge,
 } = require(path.join(root, "apps", "web", "app", "components", "generated-workflow-react-flow-adapter.ts"));
 
 const graphEdges = [
@@ -44,14 +45,78 @@ const graphEdges = [
     to: { nodeId: "target", port: "reads" },
     audit: { source: "manual", reason: "exact match" },
   },
+  {
+    id: "source.report->needs_converter.reads:0",
+    from: { nodeId: "source", port: "report" },
+    to: { nodeId: "needs_converter", port: "reads" },
+  },
+  {
+    id: "source.report->blocked.reads:0",
+    from: { nodeId: "source", port: "report" },
+    to: { nodeId: "blocked", port: "reads" },
+  },
+  {
+    id: "source.report->pending.reads:0",
+    from: { nodeId: "source", port: "report" },
+    to: { nodeId: "pending", port: "reads" },
+  },
 ];
-const flowEdges = buildFlowEdges(graphEdges);
+const semanticPortPlan = {
+  schemaVersion: "h2ometa.workflow-design-semantic-port-plan.v1",
+  edgeCount: 3,
+  compatibleEdgeCount: 1,
+  blockedEdgeCount: 2,
+  converterCandidateCount: 1,
+  edges: [
+    {
+      edgeId: graphEdges[0].id,
+      from: graphEdges[0].from,
+      to: graphEdges[0].to,
+      decision: { compatible: true },
+      recommendation: { action: "connect", reasonCode: "SEMANTIC_PORTS_COMPATIBLE" },
+      converterCandidates: [],
+    },
+    {
+      from: graphEdges[1].from,
+      to: graphEdges[1].to,
+      decision: { compatible: false },
+      recommendation: { action: "insert-converter", reasonCode: "CONVERTER_AVAILABLE" },
+      converterCandidates: [{ converterToolRevisionId: "converter#1" }],
+    },
+    {
+      edgeId: graphEdges[2].id,
+      from: graphEdges[2].from,
+      to: graphEdges[2].to,
+      decision: { compatible: false },
+      recommendation: { action: "block", reasonCode: "SEMANTIC_PORTS_INCOMPATIBLE" },
+      converterCandidates: [],
+    },
+  ],
+};
+const flowEdges = buildFlowEdges(graphEdges, semanticPortPlan);
 assert.equal(flowEdges[0].source, "source");
 assert.equal(flowEdges[0].sourceHandle, "report");
 assert.equal(flowEdges[0].target, "target");
 assert.equal(flowEdges[0].targetHandle, "reads");
 assert.equal(flowEdges[0].type, "smoothstep");
-assert.deepEqual(flowEdges[0].data, { auditSource: "manual", auditReason: "exact match" });
+assert.deepEqual(flowEdges[0].data, {
+  auditSource: "manual",
+  auditReason: "exact match",
+  semanticReasonCode: "SEMANTIC_PORTS_COMPATIBLE",
+  semanticStatus: "compatible",
+});
+assert.equal(flowEdges[0].label, "compatible");
+assert.equal(flowEdges[1].data.semanticStatus, "converter-needed");
+assert.equal(flowEdges[1].label, "converter needed");
+assert.equal(flowEdges[1].style.strokeDasharray, "6 4");
+assert.equal(flowEdges[2].data.semanticStatus, "blocked");
+assert.equal(flowEdges[2].label, "blocked");
+assert.equal(flowEdges[3].data.semanticStatus, "unknown");
+assert.equal(flowEdges[3].label, "semantic pending");
+assert.equal(semanticEdgeStatusForGraphEdge(graphEdges[0], semanticPortPlan), "compatible");
+assert.equal(semanticEdgeStatusForGraphEdge(graphEdges[1], semanticPortPlan), "converter-needed");
+assert.equal(semanticEdgeStatusForGraphEdge(graphEdges[2], semanticPortPlan), "blocked");
+assert.equal(semanticEdgeStatusForGraphEdge(graphEdges[3], semanticPortPlan), "unknown");
 
 assert.deepEqual(
   reactFlowConnectionToGraphConnection({
@@ -96,7 +161,7 @@ def test_canvas_uses_react_flow_adapter_and_fails_loudly_for_invalid_drops() -> 
     adapter = (COMPONENTS / "generated-workflow-react-flow-adapter.ts").read_text(encoding="utf-8")
 
     assert 'from "./generated-workflow-react-flow-adapter"' in canvas
-    assert "buildFlowEdges(edges)" in canvas
+    assert "buildFlowEdges(edges, semanticPortPlan)" in canvas
     assert "matchedGraphNodeIds({ nodes, query: searchQuery, toolByRevisionId })" in canvas
     assert "activeSearchNodeId" in canvas
     assert "flowInstanceRef.current?.fitView({" in canvas
