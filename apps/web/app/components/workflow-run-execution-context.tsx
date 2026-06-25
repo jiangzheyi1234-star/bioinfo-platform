@@ -164,15 +164,42 @@ function RuleRetryPlanSummary({ context }: { context: WorkflowRunExecutionContex
   );
 }
 
-function RuleOutputInvalidationPlanPreview({ plan }: { plan?: WorkflowRunRuleOutputInvalidationPlan }) {
+function RuleOutputInvalidationPlanPreview({
+  plan,
+  onApply,
+  applying = false,
+}: {
+  plan?: WorkflowRunRuleOutputInvalidationPlan;
+  onApply?: (planHash: string) => void;
+  applying?: boolean;
+}) {
   if (!plan?.previewAvailable) return null;
   const summary = plan.outputEdgeSummary || {};
+  const invalidatedOutputCount = summary.invalidatedOutputEdgeCount || 0;
+  const planHash = plan.planHash;
+  const applyEnabled = Boolean(
+    onApply && planHash && plan.invalidationEnabled && plan.eligibleNow && invalidatedOutputCount > 0
+  );
+  const disabledReason = !plan.invalidationEnabled
+    ? plan.reasonCode || "invalidation disabled"
+    : !planHash
+      ? "plan hash missing"
+      : invalidatedOutputCount <= 0
+        ? "empty invalidation scope"
+        : "not eligible now";
+  const applyTitle = applyEnabled ? "应用 output invalidation tombstone" : `无法应用：${disabledReason}`;
   const impactedOutputs = (plan.rules || [])
     .flatMap((rule) => rule.outputs || [])
     .map((output) => output.portName || output.stepId || "")
     .filter(Boolean);
   const selectedRules = (plan.rules || []).filter((rule) => rule.invalidationRole === "selected_failed_rule");
   const downstreamRules = (plan.rules || []).filter((rule) => rule.invalidationRole === "downstream_rule");
+  function handleApply() {
+    if (!applyEnabled || !planHash) return;
+    if (window.confirm("确认应用 output invalidation tombstone？这会标记当前计划中的输出和 lineage 边为失效。")) {
+      onApply?.(planHash);
+    }
+  }
 
   return (
     <div className="mt-3 rounded-md border border-sky-200 bg-sky-50/70 px-3 py-2 text-xs text-sky-900">
@@ -182,12 +209,32 @@ function RuleOutputInvalidationPlanPreview({ plan }: { plan?: WorkflowRunRuleOut
           <span className="font-medium">output invalidation plan</span>
           <span className="truncate font-mono text-[11px] text-sky-700">{plan.schemaVersion || "rule-output-invalidation-plan"}</span>
         </div>
-        <span className="rounded border border-sky-300 bg-white/60 px-1.5 py-0.5 font-mono text-[11px] text-sky-800">
-          preview only
-        </span>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="rounded border border-sky-300 bg-white/60 px-1.5 py-0.5 font-mono text-[11px] text-sky-800">
+            preview only
+          </span>
+          {onApply ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 border-sky-300 bg-white/80 px-2 text-[11px] text-sky-900 hover:bg-sky-100"
+              disabled={!applyEnabled || applying}
+              title={applyTitle}
+              onClick={handleApply}
+            >
+              {applying ? (
+                <Loader2 strokeWidth={1.5} className="mr-1 h-3 w-3 animate-spin" />
+              ) : (
+                <ShieldCheck strokeWidth={1.5} className="mr-1 h-3 w-3" />
+              )}
+              应用失效
+            </Button>
+          ) : null}
+        </div>
       </div>
       <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-        <ExecutionMetric label="invalidated" value={String(summary.invalidatedOutputEdgeCount || 0)} />
+        <ExecutionMetric label="invalidated" value={String(invalidatedOutputCount)} />
         <ExecutionMetric label="selected" value={String(summary.selectedOutputEdgeCount || selectedRules.length)} />
         <ExecutionMetric label="downstream" value={String(summary.downstreamOutputEdgeCount || downstreamRules.length)} />
         <ExecutionMetric label="lineage" value={String(summary.invalidatedLineageEdgeCount || 0)} />
@@ -352,10 +399,14 @@ export function WorkflowRunExecutionContextPanel({
   context,
   onRetryRun,
   retrying = false,
+  onApplyRuleOutputInvalidation,
+  applyingOutputInvalidation = false,
 }: {
   context?: WorkflowRunExecutionContext;
   onRetryRun?: () => void;
   retrying?: boolean;
+  onApplyRuleOutputInvalidation?: (planHash: string) => void;
+  applyingOutputInvalidation?: boolean;
 }) {
   if (!context) return null;
   const attempts = context.attempts || [];
@@ -442,7 +493,11 @@ export function WorkflowRunExecutionContextPanel({
       </div>
       <RunResumePlanPreview plan={context.resumePlan} />
       <RuleRetryPlanSummary context={context} />
-      <RuleOutputInvalidationPlanPreview plan={outputInvalidationPlan} />
+      <RuleOutputInvalidationPlanPreview
+        plan={outputInvalidationPlan}
+        onApply={onApplyRuleOutputInvalidation}
+        applying={applyingOutputInvalidation}
+      />
       <RuleRetryExecutionPlanPreview plan={context.ruleRetryExecutionPlan} />
     </div>
   );

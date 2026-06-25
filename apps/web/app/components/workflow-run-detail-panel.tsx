@@ -29,7 +29,7 @@ import { WorkflowResultPackagePanel } from "./workflow-result-package-panel";
 import { WorkflowRunAttemptsPanel } from "./workflow-run-attempts-panel";
 import { WorkflowRunRulesPanel } from "./workflow-run-rules-panel";
 import { WorkflowRunTriggerProvenancePanel, WorkflowRunTriggerSummary } from "./workflow-run-trigger-provenance";
-import { fetchArtifactPreview, retryWorkflowRun } from "./workflows-page-api";
+import { applyWorkflowRuleOutputInvalidation, fetchArtifactPreview, retryWorkflowRun } from "./workflows-page-api";
 import { workflowErrorMessage } from "./workflows-page-model";
 import { DirectoryArtifactPreview, isDirectoryArtifactPreview } from "./workflow-artifact-directory-preview";
 import { WorkflowRuleFailureDiagnostics } from "./workflow-rule-failure-diagnostics";
@@ -531,6 +531,8 @@ export function WorkflowRunDetailPanel({
   const [tab, setTab] = useState<TabKey>("overview");
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState("");
+  const [outputInvalidating, setOutputInvalidating] = useState(false);
+  const [outputInvalidationError, setOutputInvalidationError] = useState("");
   const [runAttempts, setRunAttempts] = useState<WorkflowRunAttemptsReadModel | null>(null);
   const run = detail.run;
   const artifacts = detail.results?.artifacts || [];
@@ -563,6 +565,20 @@ export function WorkflowRunDetailPanel({
       setRetryError(workflowErrorMessage(err, "重新调度运行失败"));
     } finally {
       setRetrying(false);
+    }
+  }
+
+  async function handleApplyRuleOutputInvalidation(planHash: string) {
+    if (outputInvalidating) return;
+    setOutputInvalidating(true);
+    setOutputInvalidationError("");
+    try {
+      await applyWorkflowRuleOutputInvalidation(run.runId, planHash);
+      await onRunChanged?.();
+    } catch (err) {
+      setOutputInvalidationError(workflowErrorMessage(err, "应用 output invalidation 失败"));
+    } finally {
+      setOutputInvalidating(false);
     }
   }
 
@@ -616,6 +632,12 @@ export function WorkflowRunDetailPanel({
           <AlertDescription>{retryError}</AlertDescription>
         </Alert>
       ) : null}
+      {outputInvalidationError ? (
+        <Alert variant="destructive">
+          <AlertCircle strokeWidth={1.5} className="h-4 w-4" />
+          <AlertDescription>{outputInvalidationError}</AlertDescription>
+        </Alert>
+      ) : null}
 
       {/* Tabs */}
       <div className="flex items-center gap-1 border-b border-slate-200">
@@ -649,6 +671,8 @@ export function WorkflowRunDetailPanel({
               context={detail.executionContext}
               onRetryRun={handleRetryRun}
               retrying={retrying}
+              onApplyRuleOutputInvalidation={handleApplyRuleOutputInvalidation}
+              applyingOutputInvalidation={outputInvalidating}
             />
             <WorkflowRunTriggerProvenancePanel trigger={trigger} />
             <TablePreview preview={tablePreview} />

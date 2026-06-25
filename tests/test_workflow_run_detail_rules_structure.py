@@ -40,6 +40,8 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "export type WorkflowRunRuleRetryExecutionPlan" in model_contract
     assert "export type WorkflowRunRuleCacheRestorePlan" in model_contract
     assert "export type WorkflowRunRuleOutputInvalidationPlan" in model_contract
+    assert "export type WorkflowRunRuleOutputInvalidationApplyResult" in model_contract
+    assert "WorkflowRunRuleOutputInvalidationApplyResponse" in model
     assert "export type WorkflowRunRuleRetrySnakemakeOptions" in model_contract
     assert "export type WorkflowRunResumePlan" in model_contract
     assert "export type WorkflowRunResumeSnakemakeOptions" in model_contract
@@ -75,6 +77,8 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "ruleRetryPlan?: WorkflowRunRuleRetryPlan" in model_contract
     assert "ruleCacheRestorePlan?: WorkflowRunRuleCacheRestorePlan" in model_contract
     assert "ruleOutputInvalidationPlan?: WorkflowRunRuleOutputInvalidationPlan" in model_contract
+    assert "invalidationEnabled?: boolean" in model_contract
+    assert "mutationPolicy?:" in model_contract
     assert "ruleRetryExecutionPlan?: WorkflowRunRuleRetryExecutionPlan" in model_contract
     assert "cacheRestorePlan?: WorkflowRunRuleCacheRestorePlan" in model_contract
     assert "cacheKeyPresent?: boolean" in model_contract
@@ -122,6 +126,10 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "`/api/v1/results/${encodeURIComponent(resultId)}/exports/${encodeURIComponent(packageExportId)}/retire`" in api
     assert "`/api/v1/results/${encodeURIComponent(resultId)}/exports/${encodeURIComponent(packageExportId)}/bytes/delete`" in api
     assert 'actor: "workflow-ui"' in api
+    assert "applyWorkflowRuleOutputInvalidation" in api
+    assert "`/api/v1/runs/${encodeURIComponent(runId)}/rules/output-invalidation/apply`" in api
+    assert 'confirmation: "apply-rule-output-invalidation"' in api
+    assert "operator_confirmed_output_invalidation" in api
     assert "RESULT_PACKAGE_RETIRE_CONFIRMATION" in api
     assert "RESULT_PACKAGE_BYTE_DELETE_CONFIRMATION" in api
     assert "includeArtifacts" in api
@@ -140,6 +148,11 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert 'type TabKey = "overview" | "rules" | "artifacts" | "stdout" | "stderr"' in panel
     assert '{ key: "rules", label: "规则" }' in panel
     assert "WorkflowRunExecutionContextPanel" in panel
+    assert "applyWorkflowRuleOutputInvalidation" in panel
+    assert "handleApplyRuleOutputInvalidation" in panel
+    assert "outputInvalidationError" in panel
+    assert "onApplyRuleOutputInvalidation={handleApplyRuleOutputInvalidation}" in panel
+    assert "applyingOutputInvalidation={outputInvalidating}" in panel
     assert "WorkflowResultPackagePanel" in panel
     assert "WorkflowRunRulesPanel" in panel
     assert "function RunInputArtifacts" in panel
@@ -204,6 +217,12 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "RuleRetryPlanSummary" in execution_panel
     assert "ruleOutputInvalidationPlan" in execution_panel
     assert "RuleOutputInvalidationPlanPreview" in execution_panel
+    assert "onApplyRuleOutputInvalidation" in execution_panel
+    assert "applyingOutputInvalidation" in execution_panel
+    assert "window.confirm" in execution_panel
+    assert "plan.invalidationEnabled" in execution_panel
+    assert "plan.eligibleNow" in execution_panel
+    assert "应用失效" in execution_panel
     assert "RuleRetryExecutionPlanPreview" in execution_panel
     assert "RunResumePlanPreview" in execution_panel
     assert "outputAuditLabel" in execution_panel

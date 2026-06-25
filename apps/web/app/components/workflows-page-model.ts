@@ -5,6 +5,7 @@ import type {
   WorkflowInputArtifact,
   WorkflowRunExecutionContext,
   WorkflowRunFailureLocator,
+  WorkflowRunRuleOutputInvalidationApplyResult,
   WorkflowRunRuleLogContext,
 } from "./workflow-run-execution-model";
 import { displayRuleTemplateForTool, hasRuleAction, ruleSpecReadinessForTool } from "./tool-rule-readiness";
@@ -26,6 +27,7 @@ export type {
   WorkflowRunRuleAttemptSelection,
   WorkflowRunRuleCacheRestorePlan,
   WorkflowRunRuleOutputInvalidationPlan,
+  WorkflowRunRuleOutputInvalidationApplyResult,
   WorkflowRunRuleRetryExecutionPlan,
   WorkflowRunRuleRetryPlan,
   WorkflowRunRuleRetryPlanItem,
@@ -421,6 +423,10 @@ export type WorkflowRunRetryResult = {
 
 export type WorkflowRunRetryResponse = {
   data: WorkflowRunRetryResult;
+};
+
+export type WorkflowRunRuleOutputInvalidationApplyResponse = {
+  data: WorkflowRunRuleOutputInvalidationApplyResult;
 };
 
 export type WorkflowResourceBinding = {

@@ -30,6 +30,8 @@ import {
   type WorkflowResultPackageExportResponse,
   type WorkflowResultSummary,
   type WorkflowRunResponse,
+  type WorkflowRunRuleOutputInvalidationApplyResponse,
+  type WorkflowRunRuleOutputInvalidationApplyResult,
   type WorkflowRunRetryResponse,
   type WorkflowRunRetryResult,
   type WorkflowServer,
@@ -530,6 +532,28 @@ export async function retryWorkflowRun(runId: string, reason = "operator_request
         scope: "run",
         actor: "workflow-ui",
         reason,
+      },
+      cache: "no-store",
+    }
+  );
+  invalidateAsyncCache(WORKFLOW_RUNS_CACHE_KEY);
+  invalidateAsyncCache(WORKFLOW_RESULTS_CACHE_KEY);
+  return response.data;
+}
+
+export async function applyWorkflowRuleOutputInvalidation(
+  runId: string,
+  planHash: string
+): Promise<WorkflowRunRuleOutputInvalidationApplyResult> {
+  const response = await requestLocalApiJson<WorkflowRunRuleOutputInvalidationApplyResponse>(
+    "POST",
+    `/api/v1/runs/${encodeURIComponent(runId)}/rules/output-invalidation/apply`,
+    {
+      body: {
+        confirmation: "apply-rule-output-invalidation",
+        planHash,
+        actor: "workflow-ui",
+        reason: "operator_confirmed_output_invalidation",
       },
       cache: "no-store",
     }

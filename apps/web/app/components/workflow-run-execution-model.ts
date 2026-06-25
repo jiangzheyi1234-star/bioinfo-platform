@@ -207,10 +207,27 @@ export type WorkflowRunRuleCacheRestorePlan = {
 
 export type WorkflowRunRuleOutputInvalidationPlan = {
   schemaVersion?: string;
+  runId?: string;
+  workflowRevisionId?: string | null;
   planHash?: string;
+  supported?: boolean;
+  eligible?: boolean;
+  eligibleNow?: boolean;
+  invalidationEnabled?: boolean;
+  sideEffectFree?: boolean;
+  pathExposed?: boolean;
+  storageReferenceExposed?: boolean;
   reasonCode?: string;
+  message?: string;
   previewAvailable?: boolean;
   blockedReasonCodes?: string[];
+  mutationPolicy?: {
+    tombstoneOutputEdges?: boolean;
+    tombstoneLineageEdges?: boolean;
+    deleteArtifactPayloads?: boolean;
+    checksumAuditRequired?: boolean;
+    requiredGovernanceEvidence?: string[];
+  };
   outputEdgeSummary?: {
     outputEdgeCount?: number;
     invalidatedOutputEdgeCount?: number;
@@ -235,6 +252,18 @@ export type WorkflowRunRuleOutputInvalidationPlan = {
       }>;
     }
   >;
+};
+
+export type WorkflowRunRuleOutputInvalidationApplyResult = {
+  schemaVersion?: string;
+  runId?: string;
+  planHash?: string;
+  status?: string;
+  evidenceId?: string;
+  invalidatedOutputEdgeCount?: number;
+  invalidatedLineageEdgeCount?: number;
+  payloadDeleted?: boolean;
+  appliedAt?: string;
 };
 
 export type WorkflowRunRuleRetryExecutionPlan = {
