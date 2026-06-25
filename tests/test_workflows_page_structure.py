@@ -104,6 +104,7 @@ def test_workflows_page_uses_live_builder_modules() -> None:
 def test_generated_workflow_builder_uses_server_tool_recommendations() -> None:
     api = (COMPONENTS / "workflows-page-api.ts").read_text(encoding="utf-8")
     builder_ui = (COMPONENTS / "generated-workflow-builder.tsx").read_text(encoding="utf-8")
+    recommendation_engine = (COMPONENTS / "workflow-tool-recommendation-engine.ts").read_text(encoding="utf-8")
     recommendations_path = COMPONENTS / "generated-workflow-tool-recommendations.tsx"
 
     assert recommendations_path.exists()
@@ -112,17 +113,21 @@ def test_generated_workflow_builder_uses_server_tool_recommendations() -> None:
     assert "fetchCapabilityGraphSnapshot" in api
     assert "/api/v1/tool-capabilities/candidate-recommendations" not in api
     assert "workflowRecommendationsFromCapabilityGraph" in api
-    assert "portCompatibilityDecision" in api
-    assert "capabilityPortSpec" in api
-    assert "decision.matchedFields" in api
+    assert "workflow-tool-recommendation-engine" in api
+    assert "export function workflowRecommendationsFromCapabilityGraph" in recommendation_engine
+    assert "portCompatibilityDecision" in recommendation_engine
+    assert "capabilityPortSpec" in recommendation_engine
+    assert "decision.matchedFields" in recommendation_engine
+    assert "decision.advisoryFields" in recommendation_engine
+    assert "decision.advisoryChecks" in recommendation_engine
     assert "const fields: Array<keyof RuleOutputSpec>" not in api
-    assert "agentSelectable === true" in api
-    assert "node.capabilityBundle?.capabilityId" in api
-    assert "candidateKind: \"capability-bundle\"" in api
-    assert "sourceOfTruth: \"capability-bundle-v1\"" in api
+    assert "agentSelectable === true" in recommendation_engine
+    assert "node.capabilityBundle?.capabilityId" in recommendation_engine
+    assert "candidateKind: \"capability-bundle\"" in recommendation_engine
+    assert "sourceOfTruth: \"capability-bundle-v1\"" in recommendation_engine
     assert "capabilityBundle?: CapabilityBundleSummary" in api
     assert "capabilityId?: string" in api
-    assert "CapabilityGraphSemanticNode" in api
+    assert "CapabilityGraphSemanticNode" in recommendation_engine
     assert "GeneratedWorkflowToolRecommendations" in builder_ui
     assert "outputCandidates={outputCandidates}" in builder_ui
     assert "onAddTool={onAddRecommendedTool || builder.addStep}" in builder_ui
@@ -142,6 +147,8 @@ def test_generated_workflow_builder_uses_server_tool_recommendations() -> None:
     assert "sourceOfTruth?: string" in api
     assert "validationPlan?: WorkflowToolRecommendationValidationPlan" in api
     assert "latestPrepareJob?: WorkflowToolRecommendationLatestPrepareJob" in api
+    assert "advisoryFields: string[]" in api
+    assert "advisoryChecks: string[]" in api
     assert "export type WorkflowToolRecommendationLatestPrepareJob" in api
     assert "validationResultId?: string" in _type_body(api, "WorkflowToolRecommendationLatestPrepareJob")
     assert "evidenceId?: string" in _type_body(api, "WorkflowToolRecommendationLatestPrepareJob")
@@ -157,6 +164,7 @@ def test_generated_workflow_builder_uses_server_tool_recommendations() -> None:
     assert "需验证到" in recommendations_ui
     assert "recommendation.executionGate.requiredState" in recommendations_ui
     assert "recommendation.executionGate?.sourceOfTruth" in recommendations_ui
+    assert "recommendationFieldSummary" in recommendations_ui
     assert "recommendation.validationPlan?.stages?.length" in recommendations_ui
     assert "recommendation.latestPrepareJob?.status" in recommendations_ui
     assert "activePrepareJob" in recommendations_ui

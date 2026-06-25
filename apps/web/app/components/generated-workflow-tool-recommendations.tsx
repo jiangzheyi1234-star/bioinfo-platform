@@ -144,7 +144,7 @@ export function GeneratedWorkflowToolRecommendations({
                   </span>
                 </div>
                 <div className="mt-1 truncate text-[11px] text-slate-500">
-                  input {recommendation.inputPort.name} · {recommendation.matchedFields.join(" / ")}
+                  input {recommendation.inputPort.name} · {recommendationFieldSummary(recommendation)}
                 </div>
                 {!canAddStep && !tool && recommendation.executionGate?.requiredState ? (
                   <div className="mt-1 truncate text-[11px] text-amber-700">
@@ -253,6 +253,13 @@ function isActivePrepareJob(recommendation: WorkflowToolRecommendationItem): boo
 
 function recommendationLabel(recommendation: WorkflowToolRecommendationItem): string {
   return recommendationCandidateName(recommendation) || "candidate";
+}
+
+function recommendationFieldSummary(recommendation: WorkflowToolRecommendationItem): string {
+  const hardFields = recommendation.matchedFields.join(" / ");
+  const advisoryFields = (recommendation.advisoryFields || []).join(" / ");
+  if (!advisoryFields) return hardFields;
+  return `${hardFields} + advisory ${advisoryFields}`;
 }
 
 function toolSearchHref(recommendation: WorkflowToolRecommendationItem) {

@@ -67,6 +67,9 @@ def test_capability_bundle_preserves_operation_and_resource_port_metadata() -> N
 def test_frontend_semantic_port_metadata_contract_is_visible_to_recommendations() -> None:
     core_model = (ROOT / "apps/web/app/components/tools-page-core-model.ts").read_text(encoding="utf-8")
     workflow_api = (ROOT / "apps/web/app/components/workflows-page-api.ts").read_text(encoding="utf-8")
+    recommendation_engine = (
+        ROOT / "apps/web/app/components/workflow-tool-recommendation-engine.ts"
+    ).read_text(encoding="utf-8")
     port_contract = (ROOT / "apps/web/app/components/generated-workflow-port-contract.ts").read_text(encoding="utf-8")
     recommendation_contract = (
         ROOT / "apps/web/app/components/generated-workflow-recommendation-contract.ts"
@@ -76,9 +79,12 @@ def test_frontend_semantic_port_metadata_contract_is_visible_to_recommendations(
         assert field in core_model
     assert "operation?: string" in workflow_api
     assert "resource?: string" in workflow_api
-    assert "mimeType: String(inputPort.mimeType || \"\")" in workflow_api
-    assert "operation: String(inputPort.operation || \"\")" in workflow_api
-    assert "resource: String(inputPort.resource || \"\")" in workflow_api
+    assert "advisoryFields: string[]" in workflow_api
+    assert "advisoryChecks: string[]" in workflow_api
+    assert "mimeType: String(inputPort.mimeType || \"\")" in recommendation_engine
+    assert "operation: String(inputPort.operation || \"\")" in recommendation_engine
+    assert "resource: String(inputPort.resource || \"\")" in recommendation_engine
+    assert "advisoryChecks.map((check) => `advisory ${check}`)" in recommendation_engine
     assert "advisoryChecks: string[]" in port_contract
     assert "advisoryCompatibilityChecks(advisoryFields)" in port_contract
     assert "`${field}:advisory-compatible`" in port_contract
