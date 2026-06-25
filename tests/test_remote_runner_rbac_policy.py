@@ -4,6 +4,7 @@ import json
 
 from fastapi.testclient import TestClient
 
+from apps.remote_runner import control_service
 from apps.remote_runner import route_utils
 from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
 from apps.remote_runner.databases import list_reference_databases
@@ -235,6 +236,186 @@ def test_result_package_list_action_allows_auditor_and_artifact_curator_roles(tm
     assert deny_events[0]["details"]["requiredRoles"] == ["artifact-curator", "auditor"]
     assert authorize_action(auditor, "result.package.list").roles == ("auditor",)
     assert authorize_action(curator, "result.package.list").roles == ("artifact-curator",)
+
+
+def test_result_preview_and_artifact_audit_actions_allow_auditor_and_artifact_curator_roles(tmp_path) -> None:
+    denied = make_configured_remote_runner(
+        tmp_path / "denied",
+        token="rbac-token",
+        api_token_roles=("workflow-operator",),
+    )
+    auditor = make_configured_remote_runner(
+        tmp_path / "auditor",
+        token="rbac-token",
+        api_token_roles=("auditor",),
+    )
+    curator = make_configured_remote_runner(
+        tmp_path / "curator",
+        token="rbac-token",
+        api_token_roles=("artifact-curator",),
+    )
+
+    for action in ("result.artifact.preview", "result.artifact_audit.read"):
+        try:
+            authorize_action(denied, action)
+        except RemoteRunnerAuthorizationError as exc:
+            assert str(exc) == "runner authorization failed"
+        else:
+            raise AssertionError(f"{action} must require auditor or artifact-curator")
+        deny_events = list_governance_audit_events(denied, action=action)["items"]
+        assert deny_events[-1]["decision"] == "deny"
+        assert deny_events[-1]["details"]["requiredRoles"] == ["artifact-curator", "auditor"]
+        assert deny_events[-1]["details"]["providedRoles"] == ["workflow-operator"]
+        assert authorize_action(auditor, action).roles == ("auditor",)
+        assert authorize_action(curator, action).roles == ("artifact-curator",)
+
+
+def test_result_preview_route_denies_wrong_role_before_payload_read(tmp_path, monkeypatch) -> None:
+    cfg = make_configured_remote_runner(
+        tmp_path,
+        token="rbac-token",
+        api_token_roles=("workflow-operator",),
+    )
+    monkeypatch.setattr(route_utils, "load_remote_runner_config", lambda: cfg)
+
+    def fail_preview_read(*_args, **_kwargs):
+        raise AssertionError("preview payload read must not run before authorization")
+
+    monkeypatch.setattr(control_service, "build_result_preview_data", fail_preview_read)
+
+    response = TestClient(app).get(
+        "/api/v1/results/res_denied/preview",
+        headers={"Authorization": "Bearer rbac-token"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "runner authorization failed"
+    events = list_governance_audit_events(cfg, action="result.artifact.preview")["items"]
+    assert len(events) == 1
+    assert events[0]["decision"] == "deny"
+    assert events[0]["subjectKind"] == "result_artifact"
+    assert events[0]["subjectId"] == "authorization"
+
+
+def test_result_preview_route_records_safe_allow_audit(tmp_path, monkeypatch) -> None:
+    cfg = make_configured_remote_runner(
+        tmp_path,
+        token="rbac-token",
+        api_token_roles=("auditor",),
+    )
+    monkeypatch.setattr(route_utils, "load_remote_runner_config", lambda: cfg)
+
+    def preview_payload(_cfg, result_id, artifact_id=None):
+        assert result_id == "res_preview"
+        assert artifact_id == "art_report"
+        return {
+            "resultId": "res_preview",
+            "artifactId": "art_report",
+            "artifact": {
+                "artifactId": "art_report",
+                "kind": "report",
+                "mimeType": "text/plain",
+                "sizeBytes": 11,
+                "sha256": "a" * 64,
+                "path": "C:/secret/report.txt",
+                "storageUri": "file:///C:/secret/report.txt",
+            },
+            "preview": {"kind": "text", "content": "secret body", "truncated": False},
+        }
+
+    monkeypatch.setattr(control_service, "build_result_preview_data", preview_payload)
+
+    response = TestClient(app).get(
+        "/api/v1/results/res_preview/preview?artifact_id=art_report",
+        headers={"Authorization": "Bearer rbac-token"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["preview"]["content"] == "secret body"
+    events = list_governance_audit_events(cfg, action="result.artifact.preview")["items"]
+    assert len(events) == 1
+    assert events[0]["decision"] == "allow"
+    assert events[0]["subjectKind"] == "result_artifact"
+    assert events[0]["subjectId"] == "art_report"
+    assert events[0]["actorRoles"] == ["auditor"]
+    assert events[0]["details"] == {
+        "resultId": "res_preview",
+        "artifactId": "art_report",
+        "artifactKind": "report",
+        "mimeType": "text/plain",
+        "sizeBytes": 11,
+        "sha256": "a" * 64,
+        "previewKind": "text",
+        "truncated": False,
+    }
+    serialized = json.dumps(events[0], sort_keys=True)
+    assert "secret body" not in serialized
+    assert "C:/secret" not in serialized
+    assert "storageUri" not in serialized
+    assert "rbac-token" not in serialized
+
+
+def test_result_artifact_audit_route_records_safe_allow_audit_and_redacts_public_payload(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    cfg = make_configured_remote_runner(
+        tmp_path,
+        token="rbac-token",
+        api_token_roles=("artifact-curator",),
+    )
+    monkeypatch.setattr(route_utils, "load_remote_runner_config", lambda: cfg)
+
+    def audit_payload(_cfg, result_id):
+        assert result_id == "res_audit"
+        return {
+            "resultId": "res_audit",
+            "runId": "run_audit",
+            "verificationMode": "payload-checksum",
+            "status": "passed",
+            "checkedAt": "2099-06-07T10:00:00Z",
+            "artifactCount": 1,
+            "failedCount": 0,
+            "artifacts": [
+                {
+                    "artifactId": "art_report",
+                    "status": "passed",
+                    "path": "C:/secret/report.txt",
+                    "storageUri": "file:///C:/secret/report.txt",
+                    "sha256": "b" * 64,
+                }
+            ],
+        }
+
+    monkeypatch.setattr(control_service, "build_result_artifact_audit", audit_payload)
+
+    response = TestClient(app).get(
+        "/api/v1/results/res_audit/audit",
+        headers={"Authorization": "Bearer rbac-token"},
+    )
+
+    assert response.status_code == 200
+    public_artifact = response.json()["data"]["artifacts"][0]
+    assert "path" not in public_artifact
+    assert "storageUri" not in public_artifact
+    events = list_governance_audit_events(cfg, action="result.artifact_audit.read")["items"]
+    assert len(events) == 1
+    assert events[0]["decision"] == "allow"
+    assert events[0]["subjectKind"] == "result_artifact_audit"
+    assert events[0]["subjectId"] == "res_audit"
+    assert events[0]["actorRoles"] == ["artifact-curator"]
+    assert events[0]["details"] == {
+        "resultId": "res_audit",
+        "runId": "run_audit",
+        "verificationMode": "payload-checksum",
+        "status": "passed",
+        "artifactCount": 1,
+        "failedCount": 0,
+    }
+    serialized = json.dumps(events[0], sort_keys=True)
+    assert "C:/secret" not in serialized
+    assert "storageUri" not in serialized
+    assert "rbac-token" not in serialized
 
 
 def test_governance_audit_read_route_requires_auditor_role(tmp_path, monkeypatch) -> None:

@@ -459,14 +459,16 @@ async def get_result_preview_from_request(
     artifact_id: str | None,
     authorization: str | None,
 ) -> dict[str, Any]:
-    cfg = await _authorized_config_from_request(authorization)
+    cfg = await _authorized_config_from_request(authorization, action="result.artifact.preview")
     preview = await run_sync(build_result_preview_data, cfg, result_id, artifact_id)
+    await _record_result_preview_read_audit(cfg, preview)
     return data_response(preview)
 
 
 async def get_result_audit_from_request(result_id: str, authorization: str | None) -> dict[str, Any]:
-    cfg = await _authorized_config_from_request(authorization)
+    cfg = await _authorized_config_from_request(authorization, action="result.artifact_audit.read")
     audit = await run_sync(build_result_artifact_audit, cfg, result_id)
+    await _record_result_artifact_audit_read_audit(cfg, audit)
     return data_response(_public_result_artifact_audit(audit))
 
 
@@ -535,6 +537,67 @@ def _public_result_artifact_audit_item(item: dict[str, Any]) -> dict[str, Any]:
     public.pop("packagePath", None)
     public.pop("packageUri", None)
     return public
+
+
+async def _record_result_preview_read_audit(cfg: RemoteRunnerConfig, preview: dict[str, Any]) -> None:
+    principal = remote_runner_principal(cfg)
+    details = _result_preview_read_audit_details(preview)
+    await run_sync(
+        record_governance_audit_event,
+        cfg,
+        action="result.artifact.preview",
+        actor=principal.actor,
+        subject_kind="result_artifact",
+        subject_id=details["artifactId"],
+        details=details,
+    )
+
+
+async def _record_result_artifact_audit_read_audit(cfg: RemoteRunnerConfig, audit: dict[str, Any]) -> None:
+    principal = remote_runner_principal(cfg)
+    details = _result_artifact_audit_read_details(audit)
+    await run_sync(
+        record_governance_audit_event,
+        cfg,
+        action="result.artifact_audit.read",
+        actor=principal.actor,
+        subject_kind="result_artifact_audit",
+        subject_id=details["resultId"],
+        details=details,
+    )
+
+
+def _result_preview_read_audit_details(preview: dict[str, Any]) -> dict[str, Any]:
+    artifact = preview.get("artifact") if isinstance(preview.get("artifact"), dict) else {}
+    preview_body = preview.get("preview") if isinstance(preview.get("preview"), dict) else {}
+    return {
+        "resultId": str(preview.get("resultId") or ""),
+        "artifactId": str(preview.get("artifactId") or artifact.get("artifactId") or ""),
+        "artifactKind": str(artifact.get("kind") or ""),
+        "mimeType": str(artifact.get("mimeType") or ""),
+        "sizeBytes": _safe_int(artifact.get("sizeBytes")),
+        "sha256": str(artifact.get("sha256") or ""),
+        "previewKind": str(preview_body.get("kind") or ""),
+        "truncated": bool(preview_body.get("truncated")) if "truncated" in preview_body else False,
+    }
+
+
+def _result_artifact_audit_read_details(audit: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "resultId": str(audit.get("resultId") or ""),
+        "runId": str(audit.get("runId") or ""),
+        "verificationMode": str(audit.get("verificationMode") or ""),
+        "status": str(audit.get("status") or ""),
+        "artifactCount": _safe_int(audit.get("artifactCount")),
+        "failedCount": _safe_int(audit.get("failedCount")),
+    }
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _result_package_download_link(package: dict[str, Any]) -> dict[str, str]:

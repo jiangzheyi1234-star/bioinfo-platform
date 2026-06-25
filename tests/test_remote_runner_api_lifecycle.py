@@ -471,7 +471,7 @@ def test_remote_runner_run_lifecycle_produces_events_logs_and_results(tmp_path: 
         json.dumps(
             {
                 "token": "phase2-token",
-                "api_token_roles": ["workflow-operator"],
+                "api_token_roles": ["workflow-operator", "artifact-curator"],
                 "data_root": str(tmp_path / "shared"),
                 "db_path": str(tmp_path / "shared" / "data" / "runner.db"),
                 "uploads_dir": str(tmp_path / "shared" / "uploads"),
@@ -605,6 +605,7 @@ def test_result_preview_truncates_large_text_payload(tmp_path: Path, monkeypatch
         json.dumps(
             {
                 "token": "phase2-token",
+                "api_token_roles": ["artifact-curator"],
                 "data_root": str(tmp_path / "shared"),
                 "db_path": str(tmp_path / "shared" / "data" / "runner.db"),
                 "uploads_dir": str(tmp_path / "shared" / "uploads"),
