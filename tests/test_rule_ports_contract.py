@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from core.contracts.rule_ports import (
     generic_compatibility_fields,
     matched_advisory_compatibility_fields,
@@ -10,6 +13,18 @@ from core.contracts.rule_ports import (
     port_spec_from_rule_item,
     ports_compatible,
 )
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SEMANTIC_PORT_CASES = ROOT / "tests" / "fixtures" / "semantic_port_cases.json"
+
+
+def test_port_compatibility_matches_golden_cases() -> None:
+    cases = json.loads(SEMANTIC_PORT_CASES.read_text(encoding="utf-8"))
+
+    for case in cases:
+        decision = port_compatibility_decision(case["input"], case["output"])
+        assert _public_decision(decision) == case["expected"], case["name"]
 
 
 def test_port_compatibility_score_rewards_shared_semantics() -> None:
@@ -106,3 +121,16 @@ def test_port_spec_from_rule_item_accepts_edam_aliases() -> None:
             "edamData": "data_2044",
         }
     ) == {"type": "file", "data": "data_2044", "format": "format_2572"}
+
+
+def _public_decision(decision: dict) -> dict:
+    return {
+        "compatible": decision["compatible"],
+        "score": decision["score"],
+        "matchedFields": decision["matchedFields"],
+        "genericFields": decision["genericFields"],
+        "advisoryFields": decision["advisoryFields"],
+        "mismatchedField": decision["mismatchedField"],
+        "hardChecks": decision["hardChecks"],
+        "advisoryChecks": decision["advisoryChecks"],
+    }

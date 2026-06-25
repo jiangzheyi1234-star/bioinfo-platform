@@ -1,0 +1,118 @@
+[
+  {
+    "name": "edam_uri_curie_alias_and_resource_match",
+    "input": {
+      "type": "file",
+      "data": "EDAM:data_2044",
+      "format": "fastq",
+      "operation": "EDAM:operation_0335",
+      "resource": "reference_sequence"
+    },
+    "output": {
+      "type": "file",
+      "data": "http://edamontology.org/data_2044",
+      "format": "format_1930",
+      "operation": "operation_0335",
+      "resource": "reference_sequence"
+    },
+    "expected": {
+      "compatible": true,
+      "score": 16,
+      "matchedFields": ["type", "data", "format", "resource"],
+      "genericFields": [],
+      "advisoryFields": ["operation"],
+      "mismatchedField": "",
+      "hardChecks": ["port-direction:output-to-input", "semantic-fields-compatible"],
+      "advisoryChecks": ["operation:advisory-compatible"]
+    }
+  },
+  {
+    "name": "format_conflict_blocks_connection",
+    "input": {
+      "type": "file",
+      "format": "bam"
+    },
+    "output": {
+      "type": "file",
+      "format": "fastq"
+    },
+    "expected": {
+      "compatible": false,
+      "score": null,
+      "matchedFields": ["type"],
+      "genericFields": [],
+      "advisoryFields": [],
+      "mismatchedField": "format",
+      "hardChecks": ["port-direction:output-to-input", "format:conflict"],
+      "advisoryChecks": []
+    }
+  },
+  {
+    "name": "generic_edam_roots_are_weakly_compatible",
+    "input": {
+      "type": "file",
+      "data": "data_2044",
+      "format": "format_1930"
+    },
+    "output": {
+      "type": "file",
+      "data": "data_0006",
+      "format": "format_1915"
+    },
+    "expected": {
+      "compatible": true,
+      "score": 8,
+      "matchedFields": ["type"],
+      "genericFields": ["data", "format"],
+      "advisoryFields": [],
+      "mismatchedField": "",
+      "hardChecks": [
+        "port-direction:output-to-input",
+        "semantic-fields-compatible",
+        "data:generic-compatible",
+        "format:generic-compatible"
+      ],
+      "advisoryChecks": []
+    }
+  },
+  {
+    "name": "operation_only_is_advisory_not_hard",
+    "input": {
+      "operation": "operation_0335"
+    },
+    "output": {
+      "operation": "operation_2421"
+    },
+    "expected": {
+      "compatible": true,
+      "score": 0,
+      "matchedFields": [],
+      "genericFields": [],
+      "advisoryFields": [],
+      "mismatchedField": "",
+      "hardChecks": ["port-direction:output-to-input", "semantic-fields-compatible"],
+      "advisoryChecks": []
+    }
+  },
+  {
+    "name": "resource_conflict_blocks_even_when_operation_matches",
+    "input": {
+      "resource": "taxonomy_a",
+      "operation": "operation_0335"
+    },
+    "output": {
+      "resource": "taxonomy_b",
+      "operation": "EDAM:operation_0335"
+    },
+    "expected": {
+      "compatible": false,
+      "score": null,
+      "matchedFields": [],
+      "genericFields": [],
+      "advisoryFields": ["operation"],
+      "mismatchedField": "resource",
+      "hardChecks": ["port-direction:output-to-input", "resource:conflict"],
+      "advisoryChecks": ["operation:advisory-compatible"]
+    }
+  }
+]

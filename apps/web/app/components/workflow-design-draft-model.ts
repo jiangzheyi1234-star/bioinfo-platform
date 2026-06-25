@@ -23,9 +23,15 @@ export type WorkflowDesignDraft = {
   inputs: Array<{
     id: string;
     role: string;
+    type?: string;
+    kind?: string;
     path: string;
     filename?: string;
     mimeType: string;
+    data?: string;
+    format?: string;
+    operation?: string;
+    resource?: string;
     metadata?: WorkflowDesignScalarRecord;
   }>;
   nodes: Array<{
@@ -134,9 +140,10 @@ export function buildWorkflowDesignDraft({
         return {
           id: existingInput?.id || role,
           role,
+          ...workflowDesignInputSemanticsForDraft(existingInput),
           path: `inputs/${file.name || role}`,
           filename: file.name || role,
-          mimeType: file.type || "application/octet-stream",
+          mimeType: file.type || existingInput?.mimeType || "application/octet-stream",
           metadata: existingInput?.metadata || {},
         };
       })
@@ -215,6 +222,24 @@ export function buildWorkflowDesignDraft({
     }),
     provenance: existingDraft?.provenance || { createdBy: "workflow-builder" },
   };
+}
+
+function workflowDesignInputSemanticsForDraft(
+  input: WorkflowDesignDraft["inputs"][number] | undefined
+): Partial<WorkflowDesignDraft["inputs"][number]> {
+  return workflowDesignStringFields(input, ["type", "kind", "data", "format", "operation", "resource"]);
+}
+
+function workflowDesignStringFields<T extends string>(
+  source: Partial<Record<T, unknown>> | undefined,
+  fields: T[]
+): Partial<Record<T, string>> {
+  const result: Partial<Record<T, string>> = {};
+  for (const field of fields) {
+    const value = typeof source?.[field] === "string" ? source[field].trim() : "";
+    if (value) result[field] = value;
+  }
+  return result;
 }
 
 function workflowDesignRuntimeForDraft(
