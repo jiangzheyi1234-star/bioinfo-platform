@@ -231,7 +231,22 @@ def test_workflow_trigger_routes_delegate_to_service() -> None:
     assert "def replay_workflow_trigger_inbox_event_from_request(" in replay_source
     assert '_authorized_config_from_request(authorization, action="workflow_trigger.inbox_replay")' in control_source
     assert "def submit_workflow_trigger_readiness_event_from_request(" in service_source
-    assert "from .trigger_readiness_read_model import get_workflow_trigger_readiness_observation_from_storage" in control_source
+    assert "from .trigger_observability_governance import (" in control_source
+    assert '_authorized_config_from_request(authorization, action="workflow_trigger.list")' in control_source
+    assert '_authorized_config_from_request(authorization, action="workflow_trigger.events.read")' in control_source
+    assert (
+        '_authorized_config_from_request(authorization, action="workflow_trigger.readiness_observation.read")'
+        in control_source
+    )
+    assert '_authorized_config_from_request(authorization, action="workflow_trigger.inbox.read")' in control_source
+    assert (
+        '_authorized_config_from_request(authorization, action="workflow_trigger.backfill_launch.list")'
+        in control_source
+    )
+    assert (
+        '_authorized_config_from_request(authorization, action="workflow_trigger.backfill_launch.read")'
+        in control_source
+    )
     assert "def get_workflow_trigger_readiness_observation_from_storage(" in readiness_read_model_source
     assert "fetch_readiness_observation(cfg, trigger_id)" in readiness_read_model_source
     assert "def launch_workflow_trigger_backfill_from_request(" in service_source

@@ -62,21 +62,23 @@ from .storage import (
     request_run_retry,
 )
 from .submission_service import create_run_from_request as create_run_submission_from_request
+from .trigger_observability_governance import (
+    get_governed_workflow_backfill_launch,
+    get_governed_workflow_trigger_readiness_observation,
+    list_governed_workflow_backfill_launches,
+    list_governed_workflow_trigger_events,
+    list_governed_workflow_trigger_inbox_events,
+    list_governed_workflow_triggers,
+)
 from .trigger_service import (
     cancel_workflow_backfill_launch_from_request,
     create_workflow_trigger_from_request,
-    get_workflow_backfill_launch_from_storage,
-    list_workflow_backfill_launches_from_storage,
-    list_workflow_trigger_events_from_storage,
-    list_workflow_triggers_from_storage,
     launch_workflow_trigger_backfill_from_request,
     preview_workflow_trigger_backfill_from_request,
     submit_workflow_trigger_event_from_request,
     submit_workflow_trigger_readiness_event_from_request,
 )
-from .trigger_readiness_read_model import get_workflow_trigger_readiness_observation_from_storage
 from .trigger_inbox_service import (
-    list_workflow_trigger_inbox_events_from_storage,
     submit_workflow_trigger_inbox_event_from_request,
     verify_workflow_trigger_inbox_envelope_signature,
 )
@@ -183,8 +185,8 @@ async def create_workflow_trigger_request(
 
 
 async def list_workflow_triggers_request(authorization: str | None) -> dict[str, Any]:
-    cfg = await _authorized_config_from_request(authorization)
-    return await run_sync(list_workflow_triggers_from_storage, cfg)
+    cfg = await _authorized_config_from_request(authorization, action="workflow_trigger.list")
+    return await run_sync(list_governed_workflow_triggers, cfg)
 
 
 async def submit_workflow_trigger_event_request(
@@ -292,16 +294,16 @@ async def list_workflow_trigger_events_request(
     trigger_id: str,
     authorization: str | None,
 ) -> dict[str, Any]:
-    cfg = await _authorized_config_from_request(authorization)
-    return await run_sync(list_workflow_trigger_events_from_storage, cfg, trigger_id)
+    cfg = await _authorized_config_from_request(authorization, action="workflow_trigger.events.read")
+    return await run_sync(list_governed_workflow_trigger_events, cfg, trigger_id)
 
 
 async def get_workflow_trigger_readiness_observation_request(
     trigger_id: str,
     authorization: str | None,
 ) -> dict[str, Any]:
-    cfg = await _authorized_config_from_request(authorization)
-    return await run_sync(get_workflow_trigger_readiness_observation_from_storage, cfg, trigger_id)
+    cfg = await _authorized_config_from_request(authorization, action="workflow_trigger.readiness_observation.read")
+    return await run_sync(get_governed_workflow_trigger_readiness_observation, cfg, trigger_id)
 
 
 async def list_workflow_trigger_inbox_events_request(
@@ -311,9 +313,9 @@ async def list_workflow_trigger_inbox_events_request(
     state: str | None = None,
     limit: int = 100,
 ) -> dict[str, Any]:
-    cfg = await _authorized_config_from_request(authorization)
+    cfg = await _authorized_config_from_request(authorization, action="workflow_trigger.inbox.read")
     return await run_sync(
-        list_workflow_trigger_inbox_events_from_storage,
+        list_governed_workflow_trigger_inbox_events,
         cfg,
         trigger_id,
         state=state,
@@ -327,9 +329,9 @@ async def list_workflow_backfill_launches_request(
     trigger_id: str | None,
     limit: int,
 ) -> dict[str, Any]:
-    cfg = await _authorized_config_from_request(authorization)
+    cfg = await _authorized_config_from_request(authorization, action="workflow_trigger.backfill_launch.list")
     return await run_sync(
-        list_workflow_backfill_launches_from_storage,
+        list_governed_workflow_backfill_launches,
         cfg,
         trigger_id=trigger_id,
         limit=limit,
@@ -340,8 +342,8 @@ async def get_workflow_backfill_launch_request(
     launch_id: str,
     authorization: str | None,
 ) -> dict[str, Any]:
-    cfg = await _authorized_config_from_request(authorization)
-    return await run_sync(get_workflow_backfill_launch_from_storage, cfg, launch_id)
+    cfg = await _authorized_config_from_request(authorization, action="workflow_trigger.backfill_launch.read")
+    return await run_sync(get_governed_workflow_backfill_launch, cfg, launch_id)
 
 
 async def list_runs_from_request(authorization: str | None) -> dict[str, Any]:
