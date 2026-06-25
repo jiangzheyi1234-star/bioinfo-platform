@@ -40,8 +40,15 @@ def test_failure_locator_projects_managed_rule_log_without_storage_locators(tmp_
     assert locator["failedRule"]["wildcards"] == {"sample": "S1"}
     assert "commandSummary" not in locator["failedRule"]
     assert "logs" not in locator["failedRule"]
+    source = locator["failedRule"]["sourceLocation"]
+    assert source["schemaVersion"] == "run-source-location.v1"
+    assert source["sourceKind"] == "snakefile"
+    assert source["fileBasename"] == "Snakefile"
+    assert source["line"] == 42
+    assert source["fileHash"].startswith("sha256:")
     assert locator["failedRule"]["latestFailureEvent"]["message"] == ""
     assert locator["failedRule"]["latestFailureEvent"]["details"] == {"exitCode": 1}
+    assert locator["failedRule"]["latestFailureEvent"]["sourceLocation"] == source
     assert locator["message"] == "Failed rule message redacted by run-failure-locator.v1."
     assert locator["logContext"]["stderrLineCount"] == 35
     assert locator["logContext"]["stderrTail"][0] == "stderr 5"
@@ -57,6 +64,7 @@ def test_failure_locator_projects_managed_rule_log_without_storage_locators(tmp_
         "storageUrisExposed": False,
         "commandSummaryExposed": False,
         "eventDetailsSanitized": True,
+        "sourceLocationsSanitized": True,
         "runSpecExposed": False,
     }
     serialized = json.dumps(locator, sort_keys=True)
@@ -136,6 +144,7 @@ def test_public_run_rules_project_log_evidence_without_raw_paths_or_commands(tmp
         "ruleOutputsExposed": False,
         "ruleLogPathsExposed": False,
         "eventDetailsSanitized": True,
+        "sourceLocationsSanitized": True,
     }
     rule = rules["items"][0]
     assert rule["ruleName"] == "align_reads"
@@ -144,6 +153,9 @@ def test_public_run_rules_project_log_evidence_without_raw_paths_or_commands(tmp
     assert rule["logReferenceCount"] == 1
     assert rule["message"] == ""
     assert rule["events"][0]["details"] == {"exitCode": 1}
+    assert rule["sourceLocation"]["fileBasename"] == "Snakefile"
+    assert rule["sourceLocation"]["line"] == 42
+    assert rule["events"][0]["sourceLocation"] == rule["sourceLocation"]
     assert rule["logContext"]["status"] == "available"
     assert rule["logContext"]["reasonCode"] == "PREVIEW_AVAILABLE"
     assert rule["logContext"]["tail"][0] == "rule log 10"
@@ -222,6 +234,10 @@ def _failed_rule_run_with_log_artifact(cfg, tmp_path: Path) -> dict[str, object]
         details={
             "exitCode": 1,
             "command": "snakemake --cores 1 align_reads TOKEN_SHOULD_NOT_LEAK",
+            "file": str(tmp_path / "workflow" / "Snakefile"),
+            "line": 42,
+            "location": f"{tmp_path / 'workflow' / 'Snakefile'}:42",
+            "traceback": f"{tmp_path / 'workflow' / 'Snakefile'}:42 TOKEN_SHOULD_NOT_LEAK",
             "logPath": str(tmp_path / "secret" / "align_reads.log"),
         },
         occurred_at="2099-06-07T10:00:03Z",

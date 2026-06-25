@@ -199,6 +199,14 @@ export type WorkflowLogLines = {
   nextCursor?: string;
 };
 
+export type WorkflowRunSourceLocation = {
+  schemaVersion?: string;
+  sourceKind?: string;
+  fileBasename?: string;
+  fileHash?: string;
+  line?: number;
+};
+
 export type WorkflowRunRuleEvent = {
   ruleEventId?: string;
   runId?: string;
@@ -213,6 +221,7 @@ export type WorkflowRunRuleEvent = {
   message?: string;
   createdAt?: string;
   details?: Record<string, unknown>;
+  sourceLocation?: WorkflowRunSourceLocation;
 };
 
 export type WorkflowRunRule = {
@@ -235,6 +244,7 @@ export type WorkflowRunRule = {
   wildcards?: Record<string, unknown>;
   logContext?: WorkflowRunRuleLogContext;
   updatedAt?: string;
+  sourceLocation?: WorkflowRunSourceLocation;
   events?: WorkflowRunRuleEvent[];
 };
 
@@ -250,6 +260,7 @@ export type WorkflowRunRules = {
     ruleOutputsExposed?: boolean;
     ruleLogPathsExposed?: boolean;
     eventDetailsSanitized?: boolean;
+    sourceLocationsSanitized?: boolean;
   };
   items?: WorkflowRunRule[];
 };
@@ -522,6 +533,7 @@ export type WorkflowRunFailureLocator = {
     outputCount?: number;
     logReferenceCount?: number;
     wildcards?: Record<string, unknown>;
+    sourceLocation?: WorkflowRunSourceLocation | null;
     latestFailureEvent?: WorkflowRunRuleEvent | null;
   };
   runEvent?: WorkflowRunRuleEvent | null;
@@ -543,6 +555,7 @@ export type WorkflowRunFailureLocator = {
     storageUrisExposed?: boolean;
     commandSummaryExposed?: boolean;
     eventDetailsSanitized?: boolean;
+    sourceLocationsSanitized?: boolean;
     runSpecExposed?: boolean;
   };
 };

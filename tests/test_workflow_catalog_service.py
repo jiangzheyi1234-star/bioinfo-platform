@@ -32,6 +32,8 @@ def test_run_detail_includes_normalized_failure_locator(monkeypatch) -> None:
     assert locator["failedRule"]["ruleName"] == "align_reads"
     assert locator["failedRule"]["attemptId"] == "attempt_2"
     assert locator["failedRule"]["latestFailureEvent"]["eventType"] == "JOB_ERROR"
+    assert locator["failedRule"]["sourceLocation"]["fileBasename"] == "Snakefile"
+    assert locator["failedRule"]["sourceLocation"]["line"] == 42
     assert locator["failedRule"]["logReferenceCount"] == 1
     assert "logs" not in locator["failedRule"]
     assert "commandSummary" not in locator["failedRule"]
@@ -52,6 +54,8 @@ def test_run_detail_includes_normalized_failure_locator(monkeypatch) -> None:
     assert rules["items"][0]["inputCount"] == 1
     assert rules["items"][0]["outputCount"] == 1
     assert rules["items"][0]["logReferenceCount"] == 1
+    assert rules["items"][0]["sourceLocation"]["fileBasename"] == "Snakefile"
+    assert rules["items"][0]["events"][0]["sourceLocation"]["line"] == 42
     assert rules["items"][0]["logContext"]["reasonCode"] == "PREVIEW_AVAILABLE"
     serialized_rules = json_dumps(rules)
     assert '"commandSummary":' not in serialized_rules
@@ -248,6 +252,7 @@ class FakeFailedRunDetailRuntime(FakeRunDetailRuntime):
                     "ruleOutputsExposed": False,
                     "ruleLogPathsExposed": False,
                     "eventDetailsSanitized": True,
+                    "sourceLocationsSanitized": True,
                 },
                 "items": [
                     {
@@ -276,6 +281,13 @@ class FakeFailedRunDetailRuntime(FakeRunDetailRuntime):
                             "tail": [f"rule log {index}" for index in range(10, 40)],
                         },
                         "wildcards": {},
+                        "sourceLocation": {
+                            "schemaVersion": "run-source-location.v1",
+                            "sourceKind": "snakefile",
+                            "fileBasename": "Snakefile",
+                            "fileHash": "sha256:1234567890abcdef",
+                            "line": 42,
+                        },
                         "events": [
                             {
                                 "ruleEventId": "rre_error",
@@ -284,6 +296,13 @@ class FakeFailedRunDetailRuntime(FakeRunDetailRuntime):
                                 "message": "align_reads failed",
                                 "createdAt": "2026-01-01T00:02:00Z",
                                 "details": {"exitCode": 1},
+                                "sourceLocation": {
+                                    "schemaVersion": "run-source-location.v1",
+                                    "sourceKind": "snakefile",
+                                    "fileBasename": "Snakefile",
+                                    "fileHash": "sha256:1234567890abcdef",
+                                    "line": 42,
+                                },
                             }
                         ],
                     }
@@ -312,6 +331,13 @@ class FakeFailedRunDetailRuntime(FakeRunDetailRuntime):
                     "inputCount": 1,
                     "outputCount": 1,
                     "logReferenceCount": 1,
+                    "sourceLocation": {
+                        "schemaVersion": "run-source-location.v1",
+                        "sourceKind": "snakefile",
+                        "fileBasename": "Snakefile",
+                        "fileHash": "sha256:1234567890abcdef",
+                        "line": 42,
+                    },
                     "latestFailureEvent": {
                         "ruleEventId": "rre_error",
                         "eventType": "JOB_ERROR",
@@ -319,6 +345,13 @@ class FakeFailedRunDetailRuntime(FakeRunDetailRuntime):
                         "message": "align_reads failed",
                         "createdAt": "2026-01-01T00:02:00Z",
                         "details": {"exitCode": 1},
+                        "sourceLocation": {
+                            "schemaVersion": "run-source-location.v1",
+                            "sourceKind": "snakefile",
+                            "fileBasename": "Snakefile",
+                            "fileHash": "sha256:1234567890abcdef",
+                            "line": 42,
+                        },
                     },
                 },
                 "logContext": {

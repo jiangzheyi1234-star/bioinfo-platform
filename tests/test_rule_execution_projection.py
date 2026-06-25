@@ -188,7 +188,16 @@ def test_snakemake_logger_events_project_rule_status_and_metadata(tmp_path: Path
             "createdAt": "2099-06-07T10:00:05Z",
         },
         {"event": "JOB_STARTED", "jobIds": [2], "createdAt": "2099-06-07T10:00:06Z"},
-        {"event": "JOB_ERROR", "jobId": 2, "message": "Error in rule summarize", "createdAt": "2099-06-07T10:00:07Z"},
+        {
+            "event": "JOB_ERROR",
+            "jobId": 2,
+            "message": "Error in rule summarize",
+            "file": str(tmp_path / "workflow" / "Snakefile"),
+            "line": 42,
+            "location": f"{tmp_path / 'workflow' / 'Snakefile'}:42",
+            "traceback": f"{tmp_path / 'workflow' / 'Snakefile'}:42 TOKEN_SHOULD_NOT_LEAK",
+            "createdAt": "2099-06-07T10:00:07Z",
+        },
     ]
     event_log.write_text("\n".join(json.dumps(record) for record in records), encoding="utf-8")
 
@@ -217,7 +226,12 @@ def test_snakemake_logger_events_project_rule_status_and_metadata(tmp_path: Path
         "rule_command",
         "rule_finished",
     ]
-    assert rules["summarize"]["events"][-1]["eventType"] == "rule_failed"
+    failure_event = rules["summarize"]["events"][-1]
+    assert failure_event["eventType"] == "rule_failed"
+    assert failure_event["details"]["file"] == str(tmp_path / "workflow" / "Snakefile")
+    assert failure_event["details"]["line"] == 42
+    assert failure_event["details"]["location"] == f"{tmp_path / 'workflow' / 'Snakefile'}:42"
+    assert "TOKEN_SHOULD_NOT_LEAK" in failure_event["details"]["traceback"]
 
 
 def test_snakemake_logger_events_mark_unexecuted_rules_skipped_on_success(tmp_path: Path) -> None:

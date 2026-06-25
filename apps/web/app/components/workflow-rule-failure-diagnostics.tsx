@@ -1,6 +1,11 @@
 "use client";
 
-import type { WorkflowRunRule, WorkflowRunRuleEvent, WorkflowRunRuleLogContext } from "./workflows-page-model";
+import type {
+  WorkflowRunRule,
+  WorkflowRunRuleEvent,
+  WorkflowRunRuleLogContext,
+  WorkflowRunSourceLocation,
+} from "./workflows-page-model";
 
 function isFailedStatus(status?: string) {
   const normalized = String(status || "").toLowerCase();
@@ -29,6 +34,11 @@ function ruleLocator(rule: WorkflowRunRule) {
     .join(" · ");
 }
 
+function sourceLocationLabel(source?: WorkflowRunSourceLocation | null) {
+  if (!source?.fileBasename) return "";
+  return source.line ? `${source.fileBasename}:${source.line}` : source.fileBasename;
+}
+
 export function WorkflowRuleFailureDiagnostics({
   rule,
   ruleLogContext,
@@ -42,6 +52,8 @@ export function WorkflowRuleFailureDiagnostics({
   const detailItems = scalarDetails(failedEvent?.details);
   const logTail = ruleLogContext?.tail || [];
   const selectedLogArtifact = ruleLogContext?.selectedArtifact;
+  const sourceLocation = failedEvent?.sourceLocation || rule.sourceLocation;
+  const sourceLocationText = sourceLocationLabel(sourceLocation);
 
   return (
     <div className="mt-3 border-l-2 border-red-300 bg-red-50/70 py-2 pl-3 pr-2 text-xs text-red-900">
@@ -59,6 +71,12 @@ export function WorkflowRuleFailureDiagnostics({
         <span className="truncate font-mono">{failedEvent?.eventType || failedEvent?.status || "—"}</span>
         <span className="text-red-500">message</span>
         <span className="truncate">{failedEvent?.message || rule.message || "—"}</span>
+        {sourceLocationText ? (
+          <>
+            <span className="text-red-500">source</span>
+            <span className="truncate font-mono">{sourceLocationText}</span>
+          </>
+        ) : null}
         <span className="text-red-500">log refs</span>
         <span className="truncate font-mono">{logReferenceCount > 0 ? `${logReferenceCount} reference${logReferenceCount === 1 ? "" : "s"}` : "—"}</span>
         {ruleLogContext ? (

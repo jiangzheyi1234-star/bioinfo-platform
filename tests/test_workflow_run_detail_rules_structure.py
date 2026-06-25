@@ -26,6 +26,7 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     catalog_service = (ROOT / "apps" / "api" / "workflow_catalog_service.py").read_text(encoding="utf-8")
 
     assert "export type WorkflowRunRuleEvent" in model
+    assert "export type WorkflowRunSourceLocation" in model
     assert "export type WorkflowRunRule" in model
     assert "export type WorkflowRunRules" in model
     assert "export type WorkflowRunRulesSummary" in rules_model
@@ -64,6 +65,8 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "redactionPolicy?:" in model
     assert "artifactPathsExposed?: boolean" in model
     assert "logReferenceCount?: number" in model
+    assert "sourceLocation?: WorkflowRunSourceLocation" in model
+    assert "sourceLocationsSanitized?: boolean" in model
     assert "ruleRetryPlan?: WorkflowRunRuleRetryPlan" in model
     assert "ruleRetryExecutionPlan?: WorkflowRunRuleRetryExecutionPlan" in model
     assert "resumePlan?: WorkflowRunResumePlan" in model
@@ -160,6 +163,10 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "log refs" in rule_failure_diagnostics
     assert "logs.slice(0, 4).join" not in rule_failure_diagnostics
     assert "log evidence" in rule_failure_diagnostics
+    assert "sourceLocationLabel" in rule_failure_diagnostics
+    assert "failedEvent?.sourceLocation || rule.sourceLocation" in rule_failure_diagnostics
+    assert "sourceLocationText" in rule_failure_diagnostics
+    assert "source" in rule_failure_diagnostics
     assert "selectedLogArtifact?.artifactId" in rule_failure_diagnostics
     assert "logTail.join" in rule_failure_diagnostics
     assert "rule.logReferenceCount" in rule_failure_diagnostics

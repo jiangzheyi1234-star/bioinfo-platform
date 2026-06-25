@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import re
 from typing import Any
 
 from .config import RemoteRunnerConfig
@@ -28,6 +30,7 @@ def fetch_run_failure_locator(cfg: RemoteRunnerConfig, run_id: str) -> dict[str,
             "storageUrisExposed": False,
             "commandSummaryExposed": False,
             "eventDetailsSanitized": True,
+            "sourceLocationsSanitized": True,
             "runSpecExposed": False,
         },
     }
@@ -107,6 +110,10 @@ def public_rule_event_summary(event: dict[str, Any] | None) -> dict[str, Any] | 
 
 def public_rule_message(value: Any, fallback: str = "") -> str:
     return _public_message(value, fallback)
+
+
+def public_rule_source_location(event: dict[str, Any] | None) -> dict[str, Any] | None:
+    return _source_location(event)
 
 
 def safe_rule_wildcards(value: Any) -> dict[str, Any]:
@@ -190,6 +197,8 @@ def _artifact_context(artifacts: list[dict[str, Any]], related_artifacts: list[d
 
 
 def _failed_rule_summary(rule: dict[str, Any], event: dict[str, Any] | None) -> dict[str, Any]:
+    latest_failure_event = _failure_event_summary(event)
+    source_location = latest_failure_event.get("sourceLocation") if latest_failure_event else None
     return {
         "runRuleId": rule.get("runRuleId"),
         "ruleName": rule.get("ruleName"),
@@ -207,14 +216,15 @@ def _failed_rule_summary(rule: dict[str, Any], event: dict[str, Any] | None) -> 
         "outputCount": len(list(rule.get("outputs") or [])),
         "logReferenceCount": len(list(rule.get("logs") or [])),
         "wildcards": _safe_wildcards(rule.get("wildcards")),
-        "latestFailureEvent": _failure_event_summary(event),
+        "sourceLocation": source_location,
+        "latestFailureEvent": latest_failure_event,
     }
 
 
 def _failure_event_summary(event: dict[str, Any] | None) -> dict[str, Any] | None:
     if not event:
         return None
-    return {
+    summary = {
         "eventId": event.get("eventId") or event.get("ruleEventId"),
         "eventType": event.get("eventType"),
         "status": event.get("status"),
@@ -222,6 +232,96 @@ def _failure_event_summary(event: dict[str, Any] | None) -> dict[str, Any] | Non
         "createdAt": event.get("createdAt"),
         "details": _public_event_details(event.get("details") or event.get("detailsJson") or {}),
     }
+    source_location = _source_location(event)
+    if source_location:
+        summary["sourceLocation"] = source_location
+    return summary
+
+
+def _source_location(event: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(event, dict):
+        return None
+    details = _event_details(event)
+    file_text = _source_file_text(details)
+    location_text = str(details.get("location") or "")
+    if not file_text and location_text:
+        file_text = _file_from_location(location_text)
+    line = _source_line(details, location_text)
+    basename = _safe_source_basename(file_text)
+    if not basename:
+        return None
+    source = {
+        "schemaVersion": "run-source-location.v1",
+        "sourceKind": _source_kind(basename),
+        "fileBasename": basename,
+        "fileHash": _source_file_hash(file_text),
+    }
+    if line is not None:
+        source["line"] = line
+    return source
+
+
+def _event_details(event: dict[str, Any]) -> dict[str, Any]:
+    details = event.get("details") or event.get("detailsJson") or {}
+    return details if isinstance(details, dict) else {}
+
+
+def _source_file_text(details: dict[str, Any]) -> str:
+    for key in ("file", "sourceFile", "snakefile"):
+        value = str(details.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _file_from_location(location: str) -> str:
+    normalized = location.strip()
+    if not normalized:
+        return ""
+    match = re.match(r"^(?P<file>.+?)(?::\d+)?(?:\s|$)", normalized)
+    return str(match.group("file") if match else normalized).strip()
+
+
+def _source_line(details: dict[str, Any], location: str) -> int | None:
+    for key in ("line", "lineno", "lineNumber"):
+        parsed = _safe_line_number(details.get(key))
+        if parsed is not None:
+            return parsed
+    match = re.search(r":(?P<line>\d+)(?:\D|$)", location or "")
+    return _safe_line_number(match.group("line")) if match else None
+
+
+def _safe_line_number(value: Any) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if 0 < parsed < 1_000_000 else None
+
+
+def _safe_source_basename(value: str) -> str:
+    normalized = _normalize_path(value)
+    basename = normalized.rsplit("/", 1)[-1].strip()
+    if not basename or len(basename) > 80:
+        return ""
+    lowered = basename.lower()
+    if any(token in lowered for token in ("secret", "token", "password", "credential", "api_key", "access_key")):
+        return ""
+    if "/" in basename or "\\" in basename or "://" in basename:
+        return ""
+    return basename if re.fullmatch(r"[A-Za-z0-9_. -]+", basename) else ""
+
+
+def _source_kind(basename: str) -> str:
+    lowered = basename.lower()
+    if lowered == "snakefile" or lowered.endswith(".smk"):
+        return "snakefile"
+    return "rule-source"
+
+
+def _source_file_hash(value: str) -> str:
+    normalized = _normalize_path(value)
+    return f"sha256:{hashlib.sha256(normalized.encode('utf-8')).hexdigest()[:16]}"
 
 
 def _public_event_details(details: Any) -> dict[str, Any]:
@@ -230,7 +330,7 @@ def _public_event_details(details: Any) -> dict[str, Any]:
     public: dict[str, Any] = {}
     for key, value in details.items():
         normalized_key = str(key or "")
-        if _sensitive_key(normalized_key):
+        if _sensitive_key(normalized_key) or _source_location_key(normalized_key):
             continue
         if isinstance(value, bool):
             public[normalized_key] = value
@@ -386,6 +486,10 @@ def _normalize_path(value: Any) -> str:
 def _sensitive_key(key: str) -> bool:
     lowered = key.lower()
     return any(token in lowered for token in ("path", "uri", "command", "shell", "input", "output", "log", "secret", "token"))
+
+
+def _source_location_key(key: str) -> bool:
+    return key.lower() in {"file", "line", "lineno", "linenumber", "location", "sourcefile", "snakefile", "traceback"}
 
 
 def _safe_detail_text(value: str) -> bool:

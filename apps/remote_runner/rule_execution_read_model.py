@@ -39,6 +39,7 @@ def fetch_public_run_rules(cfg: RemoteRunnerConfig, run_id: str) -> dict[str, An
             "ruleOutputsExposed": False,
             "ruleLogPathsExposed": False,
             "eventDetailsSanitized": True,
+            "sourceLocationsSanitized": True,
         },
         "items": items,
     }
@@ -82,6 +83,7 @@ def _public_rule(
         for summary in (public_rule_event_summary(event) for event in _dict_items(rule.get("events")))
         if summary is not None
     ]
+    source_location = _latest_source_location(events)
     return {
         "runRuleId": rule.get("runRuleId"),
         "runId": rule.get("runId"),
@@ -101,9 +103,18 @@ def _public_rule(
         "logReferenceCount": len(list(rule.get("logs") or [])),
         "wildcards": safe_rule_wildcards(rule.get("wildcards")),
         "updatedAt": rule.get("updatedAt"),
+        "sourceLocation": source_location,
         "events": events,
         "logContext": build_rule_log_context(cfg, result_id=result_id, rule=rule, artifacts=artifacts),
     }
+
+
+def _latest_source_location(events: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for event in reversed(events):
+        source_location = event.get("sourceLocation")
+        if isinstance(source_location, dict):
+            return source_location
+    return None
 
 
 def _dict_items(value: Any) -> list[dict[str, Any]]:
