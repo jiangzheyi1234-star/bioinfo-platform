@@ -152,7 +152,16 @@ export type WorkflowRun = {
     pipelineId?: string;
     workflowRevisionId?: string;
     workflowDesign?: { draftId?: string; revision?: number };
-    inputs?: Array<{ filename?: string; role?: string; uploadId?: string }>;
+    inputs?: Array<{
+      artifactBlobId?: string;
+      artifactId?: string;
+      filename?: string;
+      materializationId?: string;
+      role?: string;
+      sourceArtifactId?: string;
+      uploadId?: string;
+      upstreamRunId?: string;
+    }>;
     params?: Record<string, unknown>;
     resourceBindings?: Record<string, string | { databaseId?: string; id?: string; templateId?: string }>;
   };
@@ -702,31 +711,6 @@ export type WorkflowResourceBinding = {
 };
 
 export type WorkflowResourceBindings = Record<string, WorkflowResourceBinding>;
-
-export type BuildPipelineRunSpecInput = {
-  projectId: string;
-  pipelineId: string;
-  uploads: WorkflowUpload[];
-  params?: Record<string, unknown>;
-  resourceBindings?: WorkflowResourceBindings;
-};
-
-export function buildPipelineRunSpec({ projectId, pipelineId, uploads, params, resourceBindings }: BuildPipelineRunSpecInput) {
-  const runSpec: Record<string, unknown> = {
-    projectId,
-    pipelineId,
-    inputs: uploads.map((upload, index) => ({
-      uploadId: upload.uploadId,
-      filename: upload.filename,
-      role: upload.role || (index === 0 ? "reads" : `reads_${index + 1}`),
-    })),
-    params: params || {},
-  };
-  if (resourceBindings && Object.keys(resourceBindings).length > 0) {
-    runSpec.resourceBindings = resourceBindings;
-  }
-  return runSpec;
-}
 
 export function generatedToolResourceEntries(tools: Pick<AddedTool, "ruleTemplate" | "ruleSpecDraft">[]) {
   const entries: [string, WorkflowResourceSpec][] = [];

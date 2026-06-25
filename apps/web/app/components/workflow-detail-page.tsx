@@ -57,10 +57,19 @@ export function WorkflowDetailPage({ workflowId: workflowIdProp = "" }: { workfl
         ) : (
           <WorkflowRunBuilder
             availableDatabases={state.availableDatabases}
+            artifactInputDetail={state.artifactInputDetail}
+            artifactInputError={state.artifactInputError}
+            artifactInputLoading={state.artifactInputLoading}
+            artifactInputRunId={state.artifactInputRunId}
+            artifactInputs={state.artifactInputs}
             canSubmit={state.canSubmit}
             files={state.files}
             sampleLoading={state.sampleLoading}
             sampleUploads={state.sampleUploads}
+            runHistory={state.runHistory}
+            onArtifactInputRunChange={(runId) => void state.loadArtifactInputRun(runId)}
+            onArtifactInputSelect={state.selectArtifactInput}
+            onClearArtifactInputs={state.clearArtifactInputs}
             onFilesChange={state.setFiles}
             onLoadSampleData={() => void state.loadSampleData()}
             onSubmit={() => void state.submitRun()}

@@ -21,22 +21,85 @@
     "type": "array",
     "minItems": 3,
     "items": {
-      "type": "object",
-      "required": [
-        "uploadId"
-      ],
-      "properties": {
-        "uploadId": {
-          "type": "string",
-          "minLength": 1
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "uploadId"
+          ],
+          "properties": {
+            "uploadId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "filename": {
+              "type": "string"
+            },
+            "role": {
+              "type": "string"
+            }
+          }
         },
-        "filename": {
-          "type": "string"
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "artifactId"
+          ],
+          "properties": {
+            "artifactId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "name": {
+              "type": "string"
+            },
+            "filename": {
+              "type": "string"
+            },
+            "role": {
+              "type": "string"
+            },
+            "upstreamRunId": {
+              "type": "string"
+            }
+          }
         },
-        "role": {
-          "type": "string"
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "artifactBlobId",
+            "materializationId"
+          ],
+          "properties": {
+            "artifactBlobId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "materializationId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sourceArtifactId": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "filename": {
+              "type": "string"
+            },
+            "role": {
+              "type": "string"
+            },
+            "upstreamRunId": {
+              "type": "string"
+            }
+          }
         }
-      }
+      ]
     }
   },
   "paramsSchema": {

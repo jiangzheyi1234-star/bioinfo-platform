@@ -19,8 +19,8 @@ import type {
   WorkflowDesignDraftRecord,
   WorkflowDesignPlan,
 } from "./workflow-design-draft-model";
+import { buildPipelineRunSpec, type WorkflowArtifactRunInput } from "./workflow-pipeline-run-spec";
 import {
-  buildPipelineRunSpec,
   type WorkflowArtifactPreview,
   type WorkflowCatalogItem,
   type WorkflowCatalogResponse,
@@ -593,6 +593,7 @@ export async function submitPipelineWorkflowRun({
   server,
   projectId,
   pipelineId,
+  artifactInputs,
   files,
   sampleUploads,
   params,
@@ -601,17 +602,29 @@ export async function submitPipelineWorkflowRun({
   server: WorkflowServer;
   projectId: string;
   pipelineId: string;
+  artifactInputs?: WorkflowArtifactRunInput[];
   files: File[];
   sampleUploads?: WorkflowUpload[];
   params?: Record<string, unknown>;
   resourceBindings?: WorkflowResourceBindings;
 }): Promise<WorkflowRun> {
-  const uploads = sampleUploads && sampleUploads.length > 0
-    ? sampleUploads
-    : await Promise.all(files.map((file) => uploadWorkflowFile(file, server.serverId)));
+  const selectedArtifactInputs = artifactInputs || [];
+  const selectedSampleUploads = sampleUploads || [];
+  const sourceCount = [files.length, selectedSampleUploads.length, selectedArtifactInputs.length].filter(
+    (count) => count > 0
+  ).length;
+  if (sourceCount !== 1) {
+    throw new Error(sourceCount > 1 ? "PIPELINE_INPUT_SOURCE_AMBIGUOUS" : "PIPELINE_INPUT_SOURCE_REQUIRED");
+  }
+  const uploads = selectedArtifactInputs.length > 0
+    ? []
+    : selectedSampleUploads.length > 0
+      ? selectedSampleUploads
+      : await Promise.all(files.map((file) => uploadWorkflowFile(file, server.serverId)));
   const runSpec = buildPipelineRunSpec({
     projectId,
     pipelineId,
+    artifactInputs: selectedArtifactInputs,
     uploads,
     params: params || {},
     resourceBindings,

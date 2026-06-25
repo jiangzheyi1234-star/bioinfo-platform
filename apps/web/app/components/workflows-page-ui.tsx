@@ -30,6 +30,7 @@ import {
   type WorkflowServer,
   type WorkflowUpload,
 } from "./workflows-page-model";
+import type { WorkflowArtifactRunInput } from "./workflow-pipeline-run-spec";
 
 export { WorkflowCatalogTable };
 
@@ -115,9 +116,18 @@ export function WorkflowRunBuilder({
   availableDatabases,
   canSubmit,
   files,
+  artifactInputDetail,
+  artifactInputError,
+  artifactInputLoading,
+  artifactInputRunId,
+  artifactInputs,
   sampleLoading,
   sampleUploads,
+  runHistory,
   onFilesChange,
+  onArtifactInputRunChange,
+  onArtifactInputSelect,
+  onClearArtifactInputs,
   onLoadSampleData,
   onSubmit,
   isGeneratedToolRun,
@@ -139,9 +149,18 @@ export function WorkflowRunBuilder({
   availableDatabases: DatabaseItem[];
   canSubmit: boolean;
   files: File[];
+  artifactInputDetail: WorkflowRunDetail | null;
+  artifactInputError: string;
+  artifactInputLoading: boolean;
+  artifactInputRunId: string;
+  artifactInputs: WorkflowArtifactRunInput[];
   sampleLoading: boolean;
   sampleUploads: WorkflowUpload[];
+  runHistory: WorkflowRun[];
   onFilesChange: (files: File[]) => void;
+  onArtifactInputRunChange: (runId: string) => void;
+  onArtifactInputSelect: (artifactId: string) => void;
+  onClearArtifactInputs: () => void;
   onLoadSampleData: () => void;
   onSubmit: () => void;
   isGeneratedToolRun: boolean;
@@ -162,7 +181,7 @@ export function WorkflowRunBuilder({
 }) {
   const currentRun = runDetail?.run || submittedRun || null;
   const ready = Boolean(server?.ready);
-  const inputCount = files.length + sampleUploads.length;
+  const inputCount = files.length + sampleUploads.length + artifactInputs.length;
   const workflowRuntime = server?.health?.workflowRuntime;
   const pipelineRegistry = server?.health?.pipelineRegistry;
   const workflowProfile = server?.runner?.bootstrapMetadata?.workflow_profile;
@@ -235,10 +254,20 @@ export function WorkflowRunBuilder({
         <div className="grid gap-0 sm:grid-cols-[minmax(0,1fr)_260px]">
           <div className="divide-y divide-slate-100">
             <WorkflowFilePicker
+              artifactInputDetail={artifactInputDetail}
+              artifactInputEnabled={!isGeneratedToolRun}
+              artifactInputError={artifactInputError}
+              artifactInputLoading={artifactInputLoading}
+              artifactInputRunId={artifactInputRunId}
+              artifactInputs={artifactInputs}
               files={files}
+              runHistory={runHistory}
               sampleLoading={sampleLoading}
               sampleUploads={sampleUploads}
               selectedWorkflow={selectedWorkflow}
+              onArtifactInputRunChange={onArtifactInputRunChange}
+              onArtifactInputSelect={onArtifactInputSelect}
+              onClearArtifactInputs={onClearArtifactInputs}
               onFilesChange={onFilesChange}
               onLoadSampleData={onLoadSampleData}
             />
@@ -409,23 +438,48 @@ function WorkflowResourceBindingsPanel({
 }
 
 function WorkflowFilePicker({
+  artifactInputDetail,
+  artifactInputEnabled,
+  artifactInputError,
+  artifactInputLoading,
+  artifactInputRunId,
+  artifactInputs,
   files,
+  runHistory,
   sampleLoading,
   sampleUploads,
   selectedWorkflow,
+  onArtifactInputRunChange,
+  onArtifactInputSelect,
+  onClearArtifactInputs,
   onFilesChange,
   onLoadSampleData,
 }: {
+  artifactInputDetail: WorkflowRunDetail | null;
+  artifactInputEnabled: boolean;
+  artifactInputError: string;
+  artifactInputLoading: boolean;
+  artifactInputRunId: string;
+  artifactInputs: WorkflowArtifactRunInput[];
   files: File[];
+  runHistory: WorkflowRun[];
   sampleLoading: boolean;
   sampleUploads: WorkflowUpload[];
   selectedWorkflow: WorkflowCatalogItem | null;
+  onArtifactInputRunChange: (runId: string) => void;
+  onArtifactInputSelect: (artifactId: string) => void;
+  onClearArtifactInputs: () => void;
   onFilesChange: (files: File[]) => void;
   onLoadSampleData: () => void;
 }) {
   const exampleDataset = (
     selectedWorkflow?.uiSchema?.inputs as { exampleDataset?: { label?: string; description?: string } } | undefined
   )?.exampleDataset;
+  const completedRuns = runHistory.filter((run) => run.runId && run.status === "completed");
+  const artifactCandidates = (artifactInputDetail?.results?.artifacts || []).filter(
+    (artifact) => artifact.artifactId && artifact.kind !== "directory"
+  );
+  const selectedArtifactId = artifactInputs[0]?.artifactId || "";
   return (
     <div className="grid gap-4 px-5 py-5 md:grid-cols-[160px_minmax(0,1fr)]">
       <div>
@@ -455,6 +509,72 @@ function WorkflowFilePicker({
               )}
               准备数据
             </Button>
+          </div>
+        ) : null}
+        {artifactInputEnabled ? (
+          <div className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-medium text-slate-800">历史结果产物</div>
+                <div className="text-[11px] text-slate-500">选择已完成运行的 artifact 作为输入</div>
+              </div>
+              {artifactInputs.length > 0 ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="h-7 px-2 text-xs text-slate-500"
+                  onClick={onClearArtifactInputs}
+                >
+                  清除
+                </Button>
+              ) : null}
+            </div>
+            <div className="grid gap-2 md:grid-cols-2">
+              <Select
+                value={artifactInputRunId || "__none__"}
+                onValueChange={(value) => onArtifactInputRunChange(value === "__none__" ? "" : value)}
+              >
+                <SelectTrigger className="h-9 bg-white">
+                  <SelectValue placeholder="选择历史运行" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">不使用历史产物</SelectItem>
+                  {completedRuns.map((run) => (
+                    <SelectItem key={run.runId} value={run.runId}>
+                      {run.runId}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={selectedArtifactId || "__none__"}
+                disabled={!artifactInputRunId || artifactInputLoading || artifactCandidates.length === 0}
+                onValueChange={(value) => onArtifactInputSelect(value === "__none__" ? "" : value)}
+              >
+                <SelectTrigger className="h-9 bg-white">
+                  <SelectValue placeholder={artifactInputLoading ? "读取产物中" : "选择 artifact"} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">不选择 artifact</SelectItem>
+                  {artifactCandidates.map((artifact) => (
+                    <SelectItem key={artifact.artifactId} value={artifact.artifactId}>
+                      {artifactInputLabel(artifact)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {artifactInputError ? <div className="text-xs text-red-600">{artifactInputError}</div> : null}
+            {artifactInputs.length > 0 ? (
+              <div className="grid gap-1.5">
+                {artifactInputs.map((artifact) => (
+                  <div key={artifact.artifactId} className="flex items-center justify-between gap-3 rounded-md bg-indigo-50 px-3 py-2 text-xs text-indigo-800">
+                    <span className="min-w-0 truncate font-mono">{artifactInputRunLabel(artifact)}</span>
+                    <span className="shrink-0 text-[11px] text-indigo-600">{artifact.role || "input"}</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
         ) : null}
         <Label htmlFor="workflow-files" className="sr-only">输入文件</Label>
@@ -487,4 +607,25 @@ function WorkflowFilePicker({
       </div>
     </div>
   );
+}
+
+function artifactInputLabel(artifact: { artifactId?: string; kind?: string; mimeType?: string; sizeBytes?: number; sha256?: string }) {
+  return [
+    artifact.kind || "artifact",
+    artifact.mimeType || "",
+    typeof artifact.sizeBytes === "number" ? `${artifact.sizeBytes} B` : "",
+    artifact.sha256 ? artifact.sha256.slice(0, 10) : shortId(artifact.artifactId),
+  ].filter(Boolean).join(" / ");
+}
+
+function artifactInputRunLabel(artifact: WorkflowArtifactRunInput) {
+  return [
+    artifact.kind || "artifact",
+    artifact.mimeType || "",
+    artifact.sha256 ? artifact.sha256.slice(0, 10) : shortId(artifact.artifactId),
+  ].filter(Boolean).join(" / ");
+}
+
+function shortId(value?: string) {
+  return String(value || "").slice(0, 12);
 }

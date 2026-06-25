@@ -30,6 +30,7 @@ import {
   type WorkflowDesignDraftRecord,
   type WorkflowDesignPlan,
 } from "./workflow-design-draft-model";
+import type { WorkflowArtifactRunInput } from "./workflow-pipeline-run-spec";
 import {
   buildWorkflowResourceBindings,
   databaseMatchesWorkflowResource,
@@ -56,6 +57,11 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
   const [selectedResourceDatabaseIds, setSelectedResourceDatabaseIds] = useState<Record<string, string>>({});
   const [files, setFiles] = useState<File[]>([]);
   const [sampleUploads, setSampleUploads] = useState<WorkflowUpload[]>([]);
+  const [artifactInputs, setArtifactInputs] = useState<WorkflowArtifactRunInput[]>([]);
+  const [artifactInputRunId, setArtifactInputRunId] = useState("");
+  const [artifactInputDetail, setArtifactInputDetail] = useState<WorkflowRunDetail | null>(null);
+  const [artifactInputLoading, setArtifactInputLoading] = useState(false);
+  const [artifactInputError, setArtifactInputError] = useState("");
   const [sampleLoading, setSampleLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
@@ -147,6 +153,10 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
   useEffect(() => {
     setSampleUploads([]);
     setFiles([]);
+    setArtifactInputs([]);
+    setArtifactInputRunId("");
+    setArtifactInputDetail(null);
+    setArtifactInputError("");
     if (selectedWorkflow?.paramsSchema && typeof selectedWorkflow.paramsSchema === "object") {
       const schema = selectedWorkflow.paramsSchema as Record<string, unknown>;
       const properties = (schema.properties || {}) as Record<string, { default?: unknown }>;
@@ -243,7 +253,7 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     () => buildWorkflowResourceBindings(selectedResourceDatabaseIds, selectedWorkflow, availableDatabases),
     [availableDatabases, selectedResourceDatabaseIds, selectedWorkflow]
   );
-  const pipelineInputCount = isGeneratedToolRun ? files.length : files.length + sampleUploads.length;
+  const pipelineInputCount = isGeneratedToolRun ? files.length : files.length + sampleUploads.length + artifactInputs.length;
   const canSubmit = Boolean(
     server?.serverId &&
       server.ready === true &&
@@ -438,6 +448,7 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
             server,
             projectId: selectedWorkflow?.id || "proj_workflow_ui",
             pipelineId: selectedPipelineId,
+            artifactInputs,
             files,
             sampleUploads,
             params,
@@ -472,6 +483,7 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
       const uploads = await uploadWorkflowSampleData(selectedPipelineId);
       setSampleUploads(uploads);
       setFiles([]);
+      clearArtifactInputs();
     } catch (err) {
       setSubmitError(workflowErrorMessage(err, "准备示例数据失败"));
     } finally {
@@ -483,7 +495,66 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     setFiles(nextFiles);
     if (nextFiles.length > 0) {
       setSampleUploads([]);
+      clearArtifactInputs();
     }
+  }
+
+  async function loadArtifactInputRun(runId: string) {
+    const normalizedRunId = String(runId || "").trim();
+    setArtifactInputRunId(normalizedRunId);
+    setArtifactInputs([]);
+    setArtifactInputError("");
+    if (!normalizedRunId) {
+      setArtifactInputDetail(null);
+      return;
+    }
+    setFiles([]);
+    setSampleUploads([]);
+    setArtifactInputLoading(true);
+    try {
+      const detail = await fetchWorkflowRunDetail(normalizedRunId);
+      setArtifactInputDetail(detail);
+    } catch (err) {
+      setArtifactInputDetail(null);
+      setArtifactInputError(workflowErrorMessage(err, "读取历史运行产物失败"));
+    } finally {
+      setArtifactInputLoading(false);
+    }
+  }
+
+  function selectArtifactInput(artifactId: string) {
+    const normalizedArtifactId = String(artifactId || "").trim();
+    if (!normalizedArtifactId) {
+      setArtifactInputs([]);
+      return;
+    }
+    const artifact = artifactInputDetail?.results?.artifacts?.find((item) => item.artifactId === normalizedArtifactId);
+    if (!artifact) {
+      setArtifactInputs([]);
+      setArtifactInputError(`ARTIFACT_INPUT_NOT_FOUND: ${normalizedArtifactId}`);
+      return;
+    }
+    setFiles([]);
+    setSampleUploads([]);
+    setArtifactInputError("");
+    setArtifactInputs([
+      {
+        artifactId: artifact.artifactId,
+        kind: artifact.kind,
+        mimeType: artifact.mimeType,
+        role: workflowInputRoleDefault(selectedWorkflow),
+        sha256: artifact.sha256,
+        sizeBytes: artifact.sizeBytes,
+        upstreamRunId: artifactInputDetail?.run?.runId,
+      },
+    ]);
+  }
+
+  function clearArtifactInputs() {
+    setArtifactInputs([]);
+    setArtifactInputRunId("");
+    setArtifactInputDetail(null);
+    setArtifactInputError("");
   }
 
   function selectRun(runId: string) {
@@ -496,12 +567,18 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
 
   return {
     activeRunId,
+    artifactInputDetail,
+    artifactInputError,
+    artifactInputLoading,
+    artifactInputRunId,
+    artifactInputs,
     availableDatabases,
     canSubmit,
     catalog,
     error,
     files,
     loadSampleData,
+    loadArtifactInputRun,
     loadWorkspace,
     loading,
     params,
@@ -527,7 +604,9 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     activeWorkflowDesignDraft,
     server,
     selectRun,
+    selectArtifactInput,
     setFiles: updateFiles,
+    clearArtifactInputs,
     setParams,
     setSelectedWorkflowId,
     setWorkflowResourceBinding,
@@ -549,6 +628,17 @@ function resourceIdsFromWorkflowDesignDraft(record: WorkflowDesignDraftRecord): 
       .map(([resourceKey, binding]) => [resourceKey, String(binding?.databaseId || "")])
       .filter(([, databaseId]) => databaseId)
   );
+}
+
+function workflowInputRoleDefault(workflow: WorkflowCatalogItem | null): string {
+  const inputs = workflow?.uiSchema?.inputs;
+  if (inputs && typeof inputs === "object" && !Array.isArray(inputs)) {
+    const role = (inputs as { roleDefault?: unknown }).roleDefault;
+    if (typeof role === "string" && role.trim()) {
+      return role.trim();
+    }
+  }
+  return "reads";
 }
 
 function workflowDesignDraftSignature(draft: unknown): string {
