@@ -5,12 +5,12 @@ import os
 import threading
 from datetime import UTC, datetime
 from typing import Any
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from croniter import croniter
 
 from .api_models import WorkflowTriggerEventRequest
 from .config import RemoteRunnerConfig, load_remote_runner_config
+from .trigger_cron_contract import cron_expression, cron_timezone, normalize_cron_trigger_spec
 from .trigger_service import advance_workflow_backfill_launches, submit_workflow_trigger_event_from_request
 from .trigger_storage import list_workflow_triggers_by_source
 
@@ -127,11 +127,12 @@ def build_cron_trigger_event_request(
     now: datetime | str | None = None,
 ) -> WorkflowTriggerEventRequest | None:
     tick_at = _coerce_utc_minute(now)
-    trigger_spec = trigger.get("triggerSpec") if isinstance(trigger.get("triggerSpec"), dict) else {}
-    cron_expression = _cron_expression(trigger_spec)
-    timezone_name, timezone = _cron_timezone(trigger_spec)
+    trigger_spec = trigger.get("triggerSpec")
+    cron_spec = normalize_cron_trigger_spec(trigger_spec)
+    expression = cron_expression(cron_spec)
+    timezone_name, timezone = cron_timezone(cron_spec)
     local_tick = tick_at.astimezone(timezone).replace(second=0, microsecond=0)
-    if not croniter.match(cron_expression, local_tick):
+    if not croniter.match(expression, local_tick):
         return None
 
     scheduled_at = _format_utc(local_tick.astimezone(UTC))
@@ -142,13 +143,13 @@ def build_cron_trigger_event_request(
     payload = {
         "scheduledAt": scheduled_at,
         "schedule": {
-            "cron": cron_expression,
+            "cron": expression,
             "timezone": timezone_name,
         },
         "scheduleVersion": str(trigger.get("updatedAt") or trigger.get("createdAt") or ""),
     }
-    extra_payload = trigger_spec.get("payload")
-    if isinstance(extra_payload, dict) and extra_payload:
+    extra_payload = cron_spec.get("payload")
+    if extra_payload:
         payload["triggerPayload"] = extra_payload
     return WorkflowTriggerEventRequest(
         eventType="cron",
@@ -183,28 +184,6 @@ def start_configured_workflow_trigger_scheduler_supervisor() -> WorkflowTriggerS
         poll_interval_seconds=_configured_poll_interval_seconds(),
         limit=_configured_limit(),
     )
-
-
-def _cron_expression(trigger_spec: dict[str, Any]) -> str:
-    if "schedules" in trigger_spec:
-        raise ValueError("CRON_TRIGGER_MULTI_SCHEDULE_UNSUPPORTED")
-    raw = trigger_spec.get("cron")
-    if not isinstance(raw, str) or not raw.strip():
-        raise ValueError("CRON_TRIGGER_CRON_REQUIRED")
-    expression = raw.strip()
-    if len(expression.split()) != 5:
-        raise ValueError("CRON_TRIGGER_FIVE_FIELD_REQUIRED")
-    if not croniter.is_valid(expression):
-        raise ValueError("CRON_TRIGGER_CRON_INVALID")
-    return expression
-
-
-def _cron_timezone(trigger_spec: dict[str, Any]) -> tuple[str, ZoneInfo]:
-    name = str(trigger_spec.get("timezone") or "UTC").strip() or "UTC"
-    try:
-        return name, ZoneInfo(name)
-    except ZoneInfoNotFoundError as exc:
-        raise ValueError(f"CRON_TRIGGER_TIMEZONE_INVALID: {name}") from exc
 
 
 def _coerce_utc_minute(value: datetime | str | None) -> datetime:

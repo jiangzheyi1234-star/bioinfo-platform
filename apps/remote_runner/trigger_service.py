@@ -21,6 +21,7 @@ from .preflight import preflight_run_spec
 from .route_utils import request_payload
 from .run_execution_storage import request_run_cancel
 from .storage import canonical_payload_hash
+from .trigger_cron_contract import normalize_cron_trigger_spec
 from .workflow_backfill_planner import backfill_launch_id, backfill_partition_event_payload
 from .workflow_backfill_reprocessing import (
     backfill_partition_policy_metadata,
@@ -78,6 +79,8 @@ def create_workflow_trigger_from_request(
     pipeline = _validate_trigger_run_spec(cfg, run_spec)
     trigger_payload = request_payload(request)
     trigger_spec = trigger_payload.get("triggerSpec") or {}
+    if request.sourceType == "cron":
+        trigger_spec = normalize_cron_trigger_spec(trigger_spec)
     if request.sourceType in READINESS_TRIGGER_SOURCES:
         _validate_readiness_trigger_resource_spec(request.sourceType, trigger_spec)
     if request.sourceType == "webhook":

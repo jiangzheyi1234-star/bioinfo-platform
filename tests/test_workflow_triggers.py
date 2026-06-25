@@ -23,6 +23,8 @@ from apps.remote_runner.trigger_service import (
     submit_workflow_trigger_event_from_request,
     submit_workflow_trigger_readiness_event_from_request,
 )
+from apps.remote_runner.trigger_storage import create_workflow_trigger as create_raw_workflow_trigger
+from apps.remote_runner.trigger_storage import list_workflow_triggers
 from tests.helpers.reference_database import make_configured_remote_runner
 
 
@@ -176,6 +178,104 @@ def test_cron_scheduler_due_tick_dispatches_once_and_records_lineage(
     assert later["due"] == 0
     assert later["submitted"] == 0
     assert later["skipped"] == 1
+
+
+@pytest.mark.parametrize(
+    ("trigger_spec", "message"),
+    [
+        ({}, "CRON_TRIGGER_CRON_REQUIRED"),
+        ({"schedules": [{"cron": "0 2 * * *", "timezone": "UTC"}]}, "CRON_TRIGGER_MULTI_SCHEDULE_UNSUPPORTED"),
+        ({"cron": "CRON_TZ=UTC 0 2 * * *", "timezone": "UTC"}, "CRON_TRIGGER_EMBEDDED_TIMEZONE_UNSUPPORTED"),
+        ({"cron": "@daily", "timezone": "UTC"}, "CRON_TRIGGER_FIVE_FIELD_REQUIRED"),
+        ({"cron": "0 2 * * * *", "timezone": "UTC"}, "CRON_TRIGGER_FIVE_FIELD_REQUIRED"),
+        ({"cron": "0 0 31 2 *", "timezone": "UTC"}, "CRON_TRIGGER_CRON_INVALID"),
+        ({"cron": "0 2 * * *"}, "CRON_TRIGGER_TIMEZONE_REQUIRED"),
+        ({"cron": "0 2 * * *", "timezone": "Mars/Base"}, "CRON_TRIGGER_TIMEZONE_INVALID"),
+        ({"cron": "0 2 * * *", "timezone": "UTC", "seconds": 0}, "CRON_TRIGGER_SPEC_UNSUPPORTED_FIELD: seconds"),
+        ({"cron": "0 2 * * *", "timezone": "UTC", "payload": []}, "CRON_TRIGGER_PAYLOAD_INVALID"),
+    ],
+)
+def test_cron_trigger_creation_requires_explicit_schedule_contract(
+    trigger_spec: dict[str, object],
+    message: str,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+
+    with pytest.raises(ValueError, match=message):
+        _create_trigger(cfg, source_type="cron", trigger_spec=trigger_spec)
+
+    assert list_workflow_triggers(cfg)["items"] == []
+
+
+def test_cron_trigger_creation_normalizes_schedule_contract_and_payload(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_execution_admission_ready", lambda _cfg: None)
+
+    trigger = _create_trigger(
+        cfg,
+        source_type="cron",
+        trigger_spec={
+            "cron": " 0 2 * * * ",
+            "timezone": " UTC ",
+            "payload": {"batch": "nightly"},
+        },
+    )
+    result = run_workflow_trigger_scheduler_once(cfg, now="2026-06-23T02:00:00Z")
+
+    assert trigger["triggerSpec"] == {
+        "cron": "0 2 * * *",
+        "timezone": "UTC",
+        "payload": {"batch": "nightly"},
+    }
+    assert result["errors"] == []
+    assert result["due"] == 1
+    assert result["events"][0]["payload"]["triggerPayload"] == {"batch": "nightly"}
+
+
+def test_cron_scheduler_keeps_runtime_guard_for_malformed_legacy_rows_without_dispatch(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_execution_admission_ready", lambda _cfg: None)
+    trigger = create_raw_workflow_trigger(
+        cfg,
+        name="Legacy cron",
+        source_type="cron",
+        server_id="srv_primary",
+        pipeline_id="file-summary-standard-v1",
+        run_spec={
+            "pipelineId": "file-summary-standard-v1",
+            "inputs": [{"uploadId": "upl_reads", "filename": "reads.fastq"}],
+        },
+        trigger_spec={"cron": "0 2 * * *"},
+        enabled=True,
+        actor="legacy",
+    )
+
+    result = run_workflow_trigger_scheduler_once(cfg, now="2026-06-23T02:00:00Z")
+
+    assert result["checked"] == 1
+    assert result["due"] == 0
+    assert result["submitted"] == 0
+    assert result["events"] == []
+    assert result["errors"] == [
+        {
+            "triggerId": trigger["triggerId"],
+            "errorType": "ValueError",
+            "message": "CRON_TRIGGER_TIMEZONE_REQUIRED",
+        }
+    ]
+    assert list_workflow_trigger_events_from_storage(cfg, trigger["triggerId"])["data"]["items"] == []
+    assert list_runs(cfg) == []
 
 
 def test_cron_scheduler_ignores_disabled_triggers_and_direct_submit_fails(
