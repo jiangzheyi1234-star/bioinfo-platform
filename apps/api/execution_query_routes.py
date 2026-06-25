@@ -22,6 +22,7 @@ from apps.api.execution_query_service import (
     delete_result_package_bytes_from_request,
     download_result_package_from_request,
     get_artifact_lifecycle_usage_from_request,
+    list_artifact_lifecycle_controller_ticks_from_request,
     get_result_from_request,
     get_result_preview_from_request,
     get_result_audit_from_request,
@@ -195,6 +196,14 @@ async def get_artifact_lifecycle_usage(
     quotaBytes: int | None = None,
 ) -> dict[str, Any]:
     return await get_artifact_lifecycle_usage_from_request(server_id=serverId, quota_bytes=quotaBytes)
+
+
+@router.get("/api/v1/artifacts/lifecycle/controller/ticks")
+async def list_artifact_lifecycle_controller_ticks(
+    serverId: str | None = None,
+    limit: int = Query(default=20, ge=1, le=100),
+) -> dict[str, Any]:
+    return await list_artifact_lifecycle_controller_ticks_from_request(server_id=serverId, limit=limit)
 
 
 @router.post("/api/v1/artifacts/lifecycle/gc/preview")

@@ -445,6 +445,20 @@ class ExecutionManager(BaseRuntimeManager):
             )
         }
 
+    def list_artifact_lifecycle_controller_ticks(
+        self,
+        *,
+        server_id: Optional[str] = None,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        return {
+            "data": self.call_existing_runner(
+                "list_artifact_lifecycle_controller_ticks",
+                preferred_server_id=server_id,
+                limit=limit,
+            )
+        }
+
     def preview_artifact_gc(
         self,
         payload: Optional[dict[str, Any]] = None,

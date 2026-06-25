@@ -406,6 +406,10 @@ class RemoteRunnerHttpClient:
         query = urllib.parse.urlencode({"quotaBytes": quota_bytes if quota_bytes is not None else ""})
         return self.get_json(f"/api/v1/artifacts/lifecycle/usage?{query}")["data"]
 
+    def list_artifact_lifecycle_controller_ticks(self, *, limit: int = 20) -> dict[str, Any]:
+        query = urllib.parse.urlencode({"limit": int(limit)})
+        return self.get_json(f"/api/v1/artifacts/lifecycle/controller/ticks?{query}")["data"]
+
     def preview_artifact_gc(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         return self.post_json("/api/v1/artifacts/lifecycle/gc/preview", dict(payload or {}))["data"]
 

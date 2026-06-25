@@ -277,6 +277,17 @@ class RunnerExecutionOperationsMixin:
             quota_bytes=quota_bytes,
         )
 
+    def list_artifact_lifecycle_controller_ticks(
+        self,
+        *,
+        server_id: Optional[str] = None,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        return self.execution.list_artifact_lifecycle_controller_ticks(
+            server_id=server_id,
+            limit=limit,
+        )
+
     def preview_artifact_gc(
         self,
         payload: Optional[dict[str, Any]] = None,

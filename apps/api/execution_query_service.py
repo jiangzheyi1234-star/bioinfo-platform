@@ -315,6 +315,20 @@ async def get_artifact_lifecycle_usage_from_request(
     )
 
 
+async def list_artifact_lifecycle_controller_ticks_from_request(
+    *,
+    server_id: str | None = None,
+    limit: int = 20,
+) -> dict[str, Any]:
+    return await run_runtime_payload(
+        lambda: runtime_service().list_artifact_lifecycle_controller_ticks(
+            server_id=server_id,
+            limit=limit,
+        ),
+        wrapper="raw",
+    )
+
+
 async def preview_artifact_gc_from_request(request: ArtifactGcPreviewRequest) -> dict[str, Any]:
     payload = request_payload(request)
     server_id = str(payload.pop("serverId", "") or "").strip() or None

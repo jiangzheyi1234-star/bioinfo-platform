@@ -46,6 +46,7 @@ from .control_service import (
     retry_run_from_request,
     run_artifact_gc_from_request,
 )
+from .artifact_lifecycle_controller_read_api import list_artifact_lifecycle_controller_ticks_from_request
 from .run_reexecution_service import resume_run_from_request, retry_run_rules_from_request
 from .route_headers import AuthorizationHeader
 
@@ -214,6 +215,14 @@ async def get_artifact_lifecycle_usage_api(
     authorization: AuthorizationHeader = None,
 ) -> dict[str, Any]:
     return await get_artifact_lifecycle_usage_from_request(quotaBytes, authorization)
+
+
+@router.get("/api/v1/artifacts/lifecycle/controller/ticks")
+async def list_artifact_lifecycle_controller_ticks_api(
+    limit: int = Query(default=20, ge=1, le=100),
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await list_artifact_lifecycle_controller_ticks_from_request(limit, authorization)
 
 
 @router.post("/api/v1/artifacts/lifecycle/gc/preview")
