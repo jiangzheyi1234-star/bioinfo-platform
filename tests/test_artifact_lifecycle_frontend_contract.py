@@ -41,8 +41,17 @@ def test_artifact_lifecycle_frontend_uses_public_projection_and_safe_preview_sum
     assert "gcPreview" in page
     assert "activeStorageObjectCount" in page
     assert "quotaBytes" in page
-    assert "storageUri" not in model
-    assert "storageUri" not in page
+    forbidden = {
+        "storageUri",
+        "localPath",
+        "groupId",
+        "artifactIds",
+        "runIds",
+        "materializationIds",
+        "sha256",
+    }
+    assert not forbidden.intersection(_tokens(model))
+    assert not forbidden.intersection(_tokens(page))
     assert '"path"' not in model
     assert '"path"' not in page
 

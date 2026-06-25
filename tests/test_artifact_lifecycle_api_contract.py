@@ -35,6 +35,8 @@ def test_artifact_lifecycle_gc_is_exposed_through_remote_local_and_runtime_layer
     assert "build_governed_artifact_lifecycle_usage" in remote_service
     assert "preview_artifact_gc_from_request" in remote_service
     assert "run_artifact_gc_from_request" in remote_service
+    assert "public_artifact_gc_plan" in remote_service
+    assert "public_artifact_gc_run_result" in remote_service
     assert "list_artifact_cache_entries_from_request" in remote_service
     assert "list_artifact_cache_pins_from_request" in remote_service
     assert "retain_artifact_cache_pin_from_request" in remote_service

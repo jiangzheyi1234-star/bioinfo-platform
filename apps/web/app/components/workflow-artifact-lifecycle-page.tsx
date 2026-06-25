@@ -327,15 +327,16 @@ function PlanItemList({
   return (
     <div className="space-y-2">
       {visibleItems.map((item, index) => (
-        <div key={`${item.sha256 || index}:${index}`} className="rounded border border-slate-100 bg-white px-2.5 py-2">
+        <div key={`${item.storageBackend || "backend"}:${item.sizeBytes || 0}:${index}`} className="rounded border border-slate-100 bg-white px-2.5 py-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="font-mono text-[11px] text-slate-500">#{index + 1}</span>
             <span className="text-xs font-medium text-slate-700">{formatBytes(item.sizeBytes)}</span>
           </div>
           <div className="mt-1 flex flex-wrap gap-1.5 text-[11px] text-slate-500">
             <span>{item.storageBackend || "backend: —"}</span>
-            <span>artifacts {formatCount(item.artifactIds?.length)}</span>
-            <span>runs {formatCount(item.runIds?.length)}</span>
+            <span>artifacts {formatCount(item.artifactCount)}</span>
+            <span>runs {formatCount(item.runCount)}</span>
+            <span>materializations {formatCount(item.materializationCount)}</span>
           </div>
           {protectedItems && item.reasons?.length ? (
             <div className="mt-1 flex flex-wrap gap-1">

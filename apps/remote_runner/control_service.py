@@ -33,7 +33,13 @@ from .artifact_cache_read_service import (
     list_governed_artifact_cache_pins,
     lookup_governed_artifact_cache_entry,
 )
-from .artifact_lifecycle_service import build_governed_artifact_lifecycle_usage, preview_artifact_gc, run_artifact_gc
+from .artifact_lifecycle_service import (
+    build_governed_artifact_lifecycle_usage,
+    preview_artifact_gc,
+    public_artifact_gc_plan,
+    public_artifact_gc_run_result,
+    run_artifact_gc,
+)
 from .artifact_product_service import build_result_artifact_audit, export_result_package
 from .governance_audit import record_governance_audit_event
 from .health_service import (
@@ -714,7 +720,7 @@ async def preview_artifact_gc_from_request(
 ) -> dict[str, Any]:
     cfg = await _authorized_config_from_request(authorization, action="artifact.gc.preview")
     plan = await run_sync(preview_artifact_gc, cfg, request.model_dump(mode="json", exclude_none=True))
-    return data_response(plan)
+    return data_response(public_artifact_gc_plan(plan))
 
 
 async def run_artifact_gc_from_request(
@@ -723,7 +729,7 @@ async def run_artifact_gc_from_request(
 ) -> dict[str, Any]:
     cfg = await _authorized_config_from_request(authorization, action="artifact.gc.run")
     result = await run_sync(run_artifact_gc, cfg, request.model_dump(mode="json", exclude_none=True))
-    return data_response(result)
+    return data_response(public_artifact_gc_run_result(result))
 
 
 async def list_artifact_cache_entries_from_request(

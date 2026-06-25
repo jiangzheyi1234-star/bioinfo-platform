@@ -27,6 +27,8 @@ ARTIFACT_GC_SCHEMA_NAME = "ArtifactGarbageCollectionEvent"
 ARTIFACT_GC_CONFIRMATION = "delete-artifact-payloads"
 ARTIFACT_LIFECYCLE_USAGE_SCHEMA = "h2ometa.artifact-lifecycle-usage.v1"
 ARTIFACT_GC_PLAN_SCHEMA = "h2ometa.artifact-gc-plan.v1"
+ARTIFACT_GC_PUBLIC_PLAN_SCHEMA = "h2ometa.artifact-gc-public-plan.v1"
+ARTIFACT_GC_PUBLIC_RUN_SCHEMA = "h2ometa.artifact-gc-public-run.v1"
 DEFAULT_GC_REASON = "retention_expired"
 
 
@@ -115,6 +117,39 @@ def preview_artifact_gc(cfg: RemoteRunnerConfig, payload: dict[str, Any] | None 
     return plan
 
 
+def public_artifact_gc_plan(plan: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schemaVersion": ARTIFACT_GC_PUBLIC_PLAN_SCHEMA,
+        "planId": str(plan.get("planId") or ""),
+        "plannedAt": str(plan.get("plannedAt") or ""),
+        "cutoffAt": str(plan.get("cutoffAt") or ""),
+        "policy": _public_gc_policy(plan.get("policy") if isinstance(plan.get("policy"), dict) else {}),
+        "candidateCount": int(plan.get("candidateCount") or 0),
+        "deleteBytes": int(plan.get("deleteBytes") or 0),
+        "protectedCount": int(plan.get("protectedCount") or 0),
+        "protectedBytes": int(plan.get("protectedBytes") or 0),
+        "candidates": [_public_gc_plan_item(item) for item in plan.get("candidates") or []],
+        "protected": [_public_gc_plan_item(item, protected_item=True) for item in plan.get("protected") or []],
+    }
+
+
+def public_artifact_gc_run_result(result: dict[str, Any]) -> dict[str, Any]:
+    plan = result.get("plan") if isinstance(result.get("plan"), dict) else {}
+    return {
+        "schemaVersion": ARTIFACT_GC_PUBLIC_RUN_SCHEMA,
+        "planId": str(result.get("planId") or ""),
+        "executedAt": str(result.get("executedAt") or ""),
+        "status": str(result.get("status") or ""),
+        "deletedCount": int(result.get("deletedCount") or 0),
+        "deletedBytes": int(result.get("deletedBytes") or 0),
+        "errorCount": len(result.get("errors") or []),
+        "evidenceId": str(result.get("evidenceId") or ""),
+        "deleted": [_public_gc_plan_item(item) for item in result.get("deleted") or []],
+        "errors": [_public_gc_error(item) for item in result.get("errors") or []],
+        "plan": public_artifact_gc_plan(plan),
+    }
+
+
 def run_artifact_gc(cfg: RemoteRunnerConfig, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     body = dict(payload or {})
     confirmation = str(body.get("confirmation") or "").strip()
@@ -191,7 +226,7 @@ def run_artifact_gc(cfg: RemoteRunnerConfig, payload: dict[str, Any] | None = No
         "plan": plan,
     }
     if errors:
-        raise ValueError(f"ARTIFACT_GC_DELETE_FAILED: {errors[0]['error']}")
+        raise ValueError("ARTIFACT_GC_DELETE_FAILED")
     return result
 
 
@@ -340,7 +375,9 @@ def _candidate_item(group: dict[str, Any], *, policy: GcPolicy) -> dict[str, Any
         "sizeBytes": group["sizeBytes"],
         "artifactIds": sorted({row["artifactId"] for row in records}),
         "runIds": sorted({row["runId"] for row in records}),
-        "materializationIds": sorted({str(row.get("materializationId") or "") for row in records if row.get("materializationId")}),
+        "materializationIds": sorted(
+            {str(row.get("materializationId") or "") for row in records if row.get("materializationId")}
+        ),
         "terminalAt": _format_dt(terminal_at) if terminal_at else "",
         "retentionUntil": retention_until,
         "reason": policy.reason,
@@ -358,6 +395,7 @@ def _protected_item(group: dict[str, Any], reasons: list[str]) -> dict[str, Any]
         "sizeBytes": group["sizeBytes"],
         "artifactIds": sorted({row["artifactId"] for row in records if row.get("artifactId")}),
         "runIds": sorted({row["runId"] for row in records if row.get("runId")}),
+        "materializationIds": sorted({str(row.get("materializationId") or "") for row in records if row.get("materializationId")}),
         "reasons": reasons,
     }
 
@@ -507,6 +545,40 @@ def _usage_audit_details(usage: dict[str, Any], *, quota_provided: bool) -> dict
             }
         )
     return details
+
+
+def _public_gc_policy(policy: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "retentionDays": int(policy.get("retentionDays") or 0),
+        "eligibleRunStatuses": [str(item) for item in policy.get("eligibleRunStatuses") or []],
+        "maxDeleteBytes": policy.get("maxDeleteBytes"),
+        "reason": str(policy.get("reason") or ""),
+    }
+
+
+def _public_gc_plan_item(item: dict[str, Any], *, protected_item: bool = False) -> dict[str, Any]:
+    public = {
+        "storageBackend": str(item.get("storageBackend") or ""),
+        "sizeBytes": int(item.get("sizeBytes") or 0),
+        "artifactCount": len(item.get("artifactIds") or []),
+        "runCount": len(item.get("runIds") or []),
+        "materializationCount": len(item.get("materializationIds") or []),
+    }
+    for key in ("terminalAt", "retentionUntil", "reason"):
+        if item.get(key):
+            public[key] = str(item[key])
+    if protected_item:
+        public["reasons"] = [str(reason) for reason in item.get("reasons") or []]
+    if "payloadDeleted" in item:
+        public["payloadDeleted"] = bool(item.get("payloadDeleted"))
+    return public
+
+
+def _public_gc_error(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "storageBackend": str(item.get("storageBackend") or ""),
+        "errorCode": "ARTIFACT_GC_DELETE_FAILED",
+    }
 
 
 def _apply_max_delete_bytes(

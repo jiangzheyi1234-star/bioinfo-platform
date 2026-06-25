@@ -126,15 +126,15 @@ export type WorkflowArtifactGcPlanPolicy = {
 
 export type WorkflowArtifactGcPlanItem = {
   storageBackend?: string;
-  sha256?: string;
   sizeBytes?: number;
-  artifactIds?: string[];
-  runIds?: string[];
-  materializationIds?: string[];
+  artifactCount?: number;
+  runCount?: number;
+  materializationCount?: number;
   terminalAt?: string;
   retentionUntil?: string;
   reason?: string;
   reasons?: string[];
+  payloadDeleted?: boolean;
 };
 
 export type WorkflowArtifactGcPlan = {
