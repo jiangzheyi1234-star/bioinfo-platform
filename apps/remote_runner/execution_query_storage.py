@@ -192,7 +192,7 @@ def fetch_result(cfg: RemoteRunnerConfig, result_id: str) -> dict[str, Any]:
 def _output_labels_by_artifact_id(lineage_edges: list[dict[str, Any]]) -> dict[str, str]:
     labels: dict[str, str] = {}
     for edge in lineage_edges:
-        if edge.get("predicate") != "prov:generated" or edge.get("objectKind") != "artifact_blob":
+        if edge.get("predicate") not in {"prov:generated", "h2ometa:cache_adopted"} or edge.get("objectKind") != "artifact_blob":
             continue
         payload = edge.get("payload") if isinstance(edge.get("payload"), dict) else {}
         artifact_id = str(payload.get("artifactId") or "").strip()

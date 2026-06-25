@@ -13,6 +13,8 @@ from apps.api.models import (
     ResultPackageExportRequest,
     ResultPackageRetireRequest,
     RunResumeRequest,
+    RunRuleCacheRestoreAdoptionApplyRequest,
+    RunRuleCacheRestoreAdoptionPrepareRequest,
     RunRuleCacheRestoreFinalOutputApplyRequest,
     RunRuleCacheRestoreFinalOutputPrepareRequest,
     RunRuleCacheRestorePinApplyRequest,
@@ -143,6 +145,28 @@ async def apply_rule_cache_restore_final_outputs_from_request(
 ) -> dict[str, Any]:
     result = await run_runtime_payload(
         lambda: runtime_service().apply_rule_cache_restore_final_outputs(run_id, request_payload(request)),
+        wrapper="raw",
+    )
+    await invalidate_response_cache("runs", prefixes=(f"run_detail:{run_id}",))
+    return result
+
+
+async def prepare_rule_cache_restore_adoption_from_request(
+    run_id: str,
+    request: RunRuleCacheRestoreAdoptionPrepareRequest,
+) -> dict[str, Any]:
+    return await run_runtime_payload(
+        lambda: runtime_service().prepare_rule_cache_restore_adoption(run_id, request_payload(request)),
+        wrapper="raw",
+    )
+
+
+async def apply_rule_cache_restore_adoption_from_request(
+    run_id: str,
+    request: RunRuleCacheRestoreAdoptionApplyRequest,
+) -> dict[str, Any]:
+    result = await run_runtime_payload(
+        lambda: runtime_service().apply_rule_cache_restore_adoption(run_id, request_payload(request)),
         wrapper="raw",
     )
     await invalidate_response_cache("runs", prefixes=(f"run_detail:{run_id}",))

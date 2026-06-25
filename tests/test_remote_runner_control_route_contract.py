@@ -394,6 +394,8 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
     assert '@router.post("/api/v1/runs/{run_id}/rules/cache-restore/staged-files/apply")' in execution_query_route_source
     assert '@router.post("/api/v1/runs/{run_id}/rules/cache-restore/final-outputs/prepare")' in execution_query_route_source
     assert '@router.post("/api/v1/runs/{run_id}/rules/cache-restore/final-outputs/apply")' in execution_query_route_source
+    assert '@router.post("/api/v1/runs/{run_id}/rules/cache-restore/adoption/prepare")' in execution_query_route_source
+    assert '@router.post("/api/v1/runs/{run_id}/rules/cache-restore/adoption/apply")' in execution_query_route_source
     assert '@router.post("/api/v1/runs/{run_id}/resume", status_code=202)' in execution_query_route_source
     assert '@router.get("/api/v1/runs/{run_id}/events")' in execution_query_route_source
     assert '@router.get("/api/v1/runs/{run_id}/execution-context")' in execution_query_route_source
@@ -419,6 +421,8 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
     assert "apply_rule_cache_restore_staged_files_from_request" in execution_query_route_source
     assert "prepare_rule_cache_restore_final_outputs_from_request" in execution_query_route_source
     assert "apply_rule_cache_restore_final_outputs_from_request" in execution_query_route_source
+    assert "prepare_rule_cache_restore_adoption_from_request" in execution_query_route_source
+    assert "apply_rule_cache_restore_adoption_from_request" in execution_query_route_source
     assert "resume_run_from_request" in execution_query_route_source
     assert "get_run_events_from_request" in execution_query_route_source
     assert "get_run_execution_context_from_request" in execution_query_route_source

@@ -10,6 +10,8 @@ from apps.api.models import (
     ResultPackageExportRequest,
     ResultPackageRetireRequest,
     RunResumeRequest,
+    RunRuleCacheRestoreAdoptionApplyRequest,
+    RunRuleCacheRestoreAdoptionPrepareRequest,
     RunRuleCacheRestoreFinalOutputApplyRequest,
     RunRuleCacheRestoreFinalOutputPrepareRequest,
     RunRuleCacheRestorePinApplyRequest,
@@ -397,6 +399,58 @@ def test_run_rule_cache_restore_final_output_requests_require_confirmation_plan_
                     "attemptId": "att_1",
                     "leaseGeneration": 1,
                     "targetPath": "leak",
+                }
+            )
+
+
+def test_run_rule_cache_restore_adoption_requests_require_confirmation_plan_hash_and_lease() -> None:
+    prepare = RunRuleCacheRestoreAdoptionPrepareRequest.model_validate(
+        {
+            "confirmation": "prepare-rule-cache-restore-adoption",
+            "planHash": "d" * 64,
+            "attemptId": "att_1",
+            "leaseGeneration": 1,
+        }
+    )
+    apply = RunRuleCacheRestoreAdoptionApplyRequest.model_validate(
+        {
+            "confirmation": "apply-rule-cache-restore-adoption",
+            "planHash": "e" * 64,
+            "attemptId": "att_1",
+            "leaseGeneration": 1,
+        }
+    )
+    assert prepare.confirmation == "prepare-rule-cache-restore-adoption"
+    assert apply.confirmation == "apply-rule-cache-restore-adoption"
+    for model, confirmation in (
+        (RunRuleCacheRestoreAdoptionPrepareRequest, "prepare-rule-cache-restore-adoption"),
+        (RunRuleCacheRestoreAdoptionApplyRequest, "apply-rule-cache-restore-adoption"),
+    ):
+        with pytest.raises(ValidationError):
+            model.model_validate(
+                {
+                    "confirmation": "adopt-cache-outputs",
+                    "planHash": "f" * 64,
+                    "attemptId": "att_1",
+                    "leaseGeneration": 1,
+                }
+            )
+        with pytest.raises(ValidationError):
+            model.model_validate(
+                {"confirmation": confirmation, "planHash": "abc", "attemptId": "att_1", "leaseGeneration": 1}
+            )
+        with pytest.raises(ValidationError):
+            model.model_validate(
+                {"confirmation": confirmation, "planHash": "f" * 64, "attemptId": "att_1", "leaseGeneration": 0}
+            )
+        with pytest.raises(ValidationError):
+            model.model_validate(
+                {
+                    "confirmation": confirmation,
+                    "planHash": "f" * 64,
+                    "attemptId": "att_1",
+                    "leaseGeneration": 1,
+                    "artifactId": "leak",
                 }
             )
 

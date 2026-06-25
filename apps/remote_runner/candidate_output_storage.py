@@ -104,6 +104,7 @@ def verify_candidate_outputs(
     attempt_id: str,
     lease_generation: int,
     expected_outputs: dict[str, dict[str, Any]],
+    output_keys: set[str] | None = None,
     verified_at: str | None = None,
 ) -> dict[str, Any]:
     normalized_run_id = _required_text(run_id, "RUN_ID_REQUIRED")
@@ -115,14 +116,13 @@ def verify_candidate_outputs(
     rejected: list[dict[str, str]] = []
 
     with get_connection(cfg) as connection:
-        rows = connection.execute(
-            """
-            SELECT * FROM candidate_outputs
-            WHERE run_id = ? AND attempt_id = ? AND lease_generation = ?
-            ORDER BY output_key ASC
-            """,
-            (normalized_run_id, normalized_attempt_id, normalized_generation),
-        ).fetchall()
+        rows = _candidate_rows_for_verification(
+            connection,
+            run_id=normalized_run_id,
+            attempt_id=normalized_attempt_id,
+            lease_generation=normalized_generation,
+            output_keys=output_keys,
+        )
         seen = {str(row["output_key"]) for row in rows}
         missing = sorted(key for key in expected if key not in seen)
         for row in rows:
@@ -156,6 +156,38 @@ def verify_candidate_outputs(
     }
 
 
+def _candidate_rows_for_verification(
+    connection,
+    *,
+    run_id: str,
+    attempt_id: str,
+    lease_generation: int,
+    output_keys: set[str] | None,
+):
+    if output_keys is None:
+        return connection.execute(
+            """
+            SELECT * FROM candidate_outputs
+            WHERE run_id = ? AND attempt_id = ? AND lease_generation = ?
+            ORDER BY output_key ASC
+            """,
+            (run_id, attempt_id, lease_generation),
+        ).fetchall()
+    normalized_keys = sorted({_required_text(key, "OUTPUT_KEY_REQUIRED") for key in output_keys})
+    if not normalized_keys:
+        raise ValueError("OUTPUT_KEYS_REQUIRED")
+    placeholders = ", ".join("?" for _ in normalized_keys)
+    return connection.execute(
+        f"""
+        SELECT * FROM candidate_outputs
+        WHERE run_id = ? AND attempt_id = ? AND lease_generation = ?
+          AND output_key IN ({placeholders})
+        ORDER BY output_key ASC
+        """,
+        (run_id, attempt_id, lease_generation, *normalized_keys),
+    ).fetchall()
+
+
 def adopt_verified_candidate_outputs(
     cfg: RemoteRunnerConfig,
     *,
@@ -167,6 +199,8 @@ def adopt_verified_candidate_outputs(
     finalize_run: bool = False,
     request_id: str | None = None,
     result_dir: str | None = None,
+    lineage_predicate: str = "prov:generated",
+    lineage_payload_extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     normalized_run_id = _required_text(run_id, "RUN_ID_REQUIRED")
     normalized_attempt_id = _required_text(attempt_id, "ATTEMPT_ID_REQUIRED")
@@ -217,6 +251,8 @@ def adopt_verified_candidate_outputs(
                 step_id=_optional_text(spec.get("stepId")),
                 upstream_run_id=_optional_text(spec.get("upstreamRunId")),
                 created_at=occurred_at,
+                lineage_predicate=lineage_predicate,
+                lineage_payload_extra=lineage_payload_extra,
             )
             connection.execute(
                 """
@@ -332,6 +368,8 @@ def _adopt_artifact(
     step_id: str | None,
     upstream_run_id: str | None,
     created_at: str,
+    lineage_predicate: str,
+    lineage_payload_extra: dict[str, Any] | None,
 ) -> dict[str, Any]:
     existing_edge = connection.execute(
         """
@@ -340,7 +378,10 @@ def _adopt_artifact(
         LEFT JOIN artifacts
           ON artifacts.run_id = edges.run_id
          AND artifacts.sha256 = edges.content_hash
-        WHERE edges.run_id = ? AND edges.role = 'output' AND edges.port_name = ?
+        WHERE edges.run_id = ?
+          AND edges.role = 'output'
+          AND edges.port_name = ?
+          AND edges.lifecycle_state = 'active'
         """,
         (run_id, artifact_key),
     ).fetchone()
@@ -475,20 +516,23 @@ def _adopt_artifact(
         "materializationId": str(materialization["materialization_id"]),
         "role": "output",
         "runArtifactEdgeId": edge_id,
+        **(lineage_payload_extra or {}),
         **({"stepId": step_id} if step_id else {}),
         **({"upstreamRunId": upstream_run_id} if upstream_run_id else {}),
     }
+    normalized_predicate = _required_text(lineage_predicate, "LINEAGE_PREDICATE_REQUIRED")
     connection.execute(
         """
         INSERT INTO lineage_edges (
             lineage_edge_id, subject_kind, subject_id, predicate, object_kind, object_id,
             run_id, attempt_id, workflow_revision_id, evidence_event_id,
             payload_json, content_hash, created_at
-        ) VALUES (?, 'run', ?, 'prov:generated', 'artifact_blob', ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, 'run', ?, ?, 'artifact_blob', ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             lineage_id,
             run_id,
+            normalized_predicate,
             blob_id,
             run_id,
             attempt_id,

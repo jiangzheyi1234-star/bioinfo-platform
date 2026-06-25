@@ -116,6 +116,24 @@ class RunRuleCacheRestoreFinalOutputApplyRequest(RemoteRunnerRequest):
     reason: str | None = None
 
 
+class RunRuleCacheRestoreAdoptionPrepareRequest(RemoteRunnerRequest):
+    confirmation: Literal["prepare-rule-cache-restore-adoption"]
+    planHash: str = Field(min_length=64, max_length=64)
+    attemptId: str = Field(min_length=1)
+    leaseGeneration: int = Field(ge=1)
+    actor: str | None = None
+    reason: str | None = None
+
+
+class RunRuleCacheRestoreAdoptionApplyRequest(RemoteRunnerRequest):
+    confirmation: Literal["apply-rule-cache-restore-adoption"]
+    planHash: str = Field(min_length=64, max_length=64)
+    attemptId: str = Field(min_length=1)
+    leaseGeneration: int = Field(ge=1)
+    actor: str | None = None
+    reason: str | None = None
+
+
 class RunResumeRequest(RemoteRunnerRequest):
     confirmation: Literal["resume-run"]
     planHash: str = Field(min_length=64, max_length=64)

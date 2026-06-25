@@ -280,6 +280,16 @@ def _create_run(cfg, run_id: str, *, workflow_revision_id: str | None) -> None:
                 "outputs": {"bam": "align.bam"},
                 "retryPolicy": {"maxAttempts": 3, "backoffSeconds": 0},
             },
+            "outputSchema": {
+                "artifacts": [
+                    {
+                        "key": "bam",
+                        "kind": "alignment",
+                        "mimeType": "text/plain",
+                        "stepId": "align",
+                    }
+                ]
+            },
         },
         idempotency_key=f"idem_{run_id}",
         payload_hash=f"hash_{run_id}",

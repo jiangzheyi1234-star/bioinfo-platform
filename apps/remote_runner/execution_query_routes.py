@@ -15,6 +15,8 @@ from .api_models import (
     ResultPackageExportRequest,
     ResultPackageRetireRequest,
     RunResumeRequest,
+    RunRuleCacheRestoreAdoptionApplyRequest,
+    RunRuleCacheRestoreAdoptionPrepareRequest,
     RunRuleCacheRestoreFinalOutputApplyRequest,
     RunRuleCacheRestoreFinalOutputPrepareRequest,
     RunRuleCacheRestorePinApplyRequest,
@@ -68,6 +70,10 @@ from .run_reexecution_service import (
 from .rule_staged_restore_promotion_service import (
     apply_rule_cache_restore_final_outputs_from_request,
     prepare_rule_cache_restore_final_outputs_from_request,
+)
+from .rule_cache_restore_adoption_service import (
+    apply_rule_cache_restore_adoption_from_request,
+    prepare_rule_cache_restore_adoption_from_request,
 )
 from .route_headers import AuthorizationHeader
 
@@ -169,6 +175,24 @@ async def apply_rule_cache_restore_final_outputs_api(
     authorization: AuthorizationHeader = None,
 ) -> dict[str, Any]:
     return await apply_rule_cache_restore_final_outputs_from_request(run_id, payload, authorization)
+
+
+@router.post("/api/v1/runs/{run_id}/rules/cache-restore/adoption/prepare")
+async def prepare_rule_cache_restore_adoption_api(
+    run_id: str,
+    payload: RunRuleCacheRestoreAdoptionPrepareRequest,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await prepare_rule_cache_restore_adoption_from_request(run_id, payload, authorization)
+
+
+@router.post("/api/v1/runs/{run_id}/rules/cache-restore/adoption/apply")
+async def apply_rule_cache_restore_adoption_api(
+    run_id: str,
+    payload: RunRuleCacheRestoreAdoptionApplyRequest,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await apply_rule_cache_restore_adoption_from_request(run_id, payload, authorization)
 
 
 @router.post("/api/v1/runs/{run_id}/resume", status_code=202)
