@@ -502,6 +502,14 @@ class RemoteRunnerProxyMixin:
         )
         return client.get_json(f"/api/v1/runs/{kwargs['run_id']}/execution-context")["data"]
 
+    def get_run_attempts(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+        )
+        return client.get_json(f"/api/v1/runs/{kwargs['run_id']}/attempts")["data"]
+
     def get_run_logs(self, **kwargs) -> dict[str, Any]:
         client = self._get_client(
             server_id=str(kwargs["server_id"]),

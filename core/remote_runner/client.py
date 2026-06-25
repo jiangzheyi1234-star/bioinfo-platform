@@ -327,6 +327,9 @@ class RemoteRunnerHttpClient:
     def get_run_execution_context(self, run_id: str) -> dict[str, Any]:
         return self.get_json(f"/api/v1/runs/{run_id}/execution-context")["data"]
 
+    def get_run_attempts(self, run_id: str) -> dict[str, Any]:
+        return self.get_json(f"/api/v1/runs/{run_id}/attempts")["data"]
+
     def get_run_results(self, run_id: str) -> dict[str, Any]:
         return self.get_json(f"/api/v1/runs/{run_id}/results")["data"]
 

@@ -218,6 +218,7 @@ Delivered foundation:
 - Rule retry execution context now includes a side-effect-free `ruleOutputInvalidationPlan` preflight. It maps the selected failed rule and downstream rerun scope to safe output artifact edges and lineage edge summaries, distinguishes preserved/unmatched outputs, exposes no paths or storage URIs, and keeps tombstone/delete mutation disabled until output and lineage invalidation policies are explicit.
 - Run detail now includes a normalized `failureLocator` read model for failed runs, connecting the failed rule, latest failure event, stderr tail, related artifacts, and lineage edges. The fallback stderr projection also terminalizes non-failed rules as `blocked` instead of leaving stale `running` child states under a failed run.
 - Failed-rule diagnostics now resolve rule log paths only through managed result artifacts and artifact preview APIs, expose capped rule-log tails when a matching log artifact exists, return explicit `PATH_REFERENCE_ONLY`/unavailable reason codes when only raw path references exist, and match durable lineage edges through `payload.artifactId`.
+- Run attempts now have a stable read-only `run-attempts.v1` API that exposes job, attempt, lease, slot, retry, timeout, and summary state while explicitly redacting work directories, process identifiers, command payloads, and runSpec content. This makes attempt/lease evidence a standalone contract before any rule-level retry/resume mutation is enabled.
 
 Still pending before this phase is complete:
 

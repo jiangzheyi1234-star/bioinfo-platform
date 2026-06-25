@@ -392,6 +392,7 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
     assert '@router.post("/api/v1/runs/{run_id}/resume", status_code=202)' in execution_query_route_source
     assert '@router.get("/api/v1/runs/{run_id}/events")' in execution_query_route_source
     assert '@router.get("/api/v1/runs/{run_id}/execution-context")' in execution_query_route_source
+    assert '@router.get("/api/v1/runs/{run_id}/attempts")' in execution_query_route_source
     assert '@router.get("/api/v1/runs/{run_id}/logs")' in execution_query_route_source
     assert '@router.get("/api/v1/runs/{run_id}/results")' in execution_query_route_source
     assert '@router.get("/api/v1/results")' in execution_query_route_source
@@ -409,6 +410,7 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
     assert "resume_run_from_request" in execution_query_route_source
     assert "get_run_events_from_request" in execution_query_route_source
     assert "get_run_execution_context_from_request" in execution_query_route_source
+    assert "get_run_attempts_from_request" in execution_query_route_source
     assert "get_run_logs_from_request" in execution_query_route_source
     assert "get_run_results_from_request" in execution_query_route_source
     assert "get_run_rules_from_request" in execution_query_route_source
@@ -438,6 +440,7 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
         "get_run_from_request",
         "get_run_events_from_request",
         "get_run_execution_context_from_request",
+        "get_run_attempts_from_request",
         "get_run_logs_from_request",
         "get_run_results_from_request",
         "get_run_rules_from_request",

@@ -49,6 +49,7 @@ from .result_package_listing_service import list_result_package_exports
 from .result_package_lifecycle_service import retire_result_package_export
 from .result_read_service import governed_fetch_result, governed_fetch_run_results, governed_list_results
 from .route_utils import authorized_config, data_response, remote_runner_principal, run_sync
+from .execution_attempt_read_model import fetch_run_attempts_read_model
 from .trigger_provenance_read_model import attach_run_trigger_provenance
 from .run_worker_storage import build_run_worker_health
 from .storage import (
@@ -419,6 +420,12 @@ async def get_run_execution_context_from_request(run_id: str, authorization: str
     cfg = await _authorized_config_from_request(authorization)
     context = await run_sync(fetch_run_execution_context, cfg, run_id)
     return data_response(context)
+
+
+async def get_run_attempts_from_request(run_id: str, authorization: str | None) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization)
+    attempts = await run_sync(fetch_run_attempts_read_model, cfg, run_id)
+    return data_response(attempts)
 
 
 async def get_run_logs_from_request(
