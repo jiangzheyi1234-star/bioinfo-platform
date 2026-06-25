@@ -30,6 +30,7 @@ import {
   type WorkflowServer,
   type WorkflowUpload,
 } from "./workflows-page-model";
+import { rankArtifactInputCandidates } from "./workflow-artifact-input-recommendation";
 import type { WorkflowArtifactRunInput } from "./workflow-pipeline-run-spec";
 
 export { WorkflowCatalogTable };
@@ -486,6 +487,7 @@ function WorkflowFilePicker({
   );
   const selectedArtifactIds = new Set(artifactInputs.map((artifact) => artifact.artifactId));
   const availableArtifactCandidates = artifactCandidates.filter((artifact) => !selectedArtifactIds.has(artifact.artifactId || ""));
+  const rankedArtifactCandidates = rankArtifactInputCandidates(selectedWorkflow, artifactInputs.length, availableArtifactCandidates);
   const artifactSelectDisabled = !artifactInputRunId || artifactInputLoading || availableArtifactCandidates.length === 0;
   return (
     <div className="grid gap-4 px-5 py-5 md:grid-cols-[160px_minmax(0,1fr)]">
@@ -563,9 +565,10 @@ function WorkflowFilePicker({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">{artifactInputs.length > 0 ? "继续添加 artifact" : "选择 artifact"}</SelectItem>
-                  {availableArtifactCandidates.map((artifact) => (
+                  {rankedArtifactCandidates.map(({ artifact, recommendation }) => (
                     <SelectItem key={artifact.artifactId} value={artifact.artifactId}>
                       {artifactInputLabel(artifact)}
+                      {recommendation.decision === "recommended" ? ` / 推荐 ${recommendation.targetRole}` : ` / 手动确认 ${recommendation.targetRole}`}
                     </SelectItem>
                   ))}
                 </SelectContent>

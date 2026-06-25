@@ -6,6 +6,7 @@ import type { DatabaseItem } from "./database-page-model";
 import type { AddedTool } from "./tools-page-model";
 import { GENERATED_TOOL_RUN_PIPELINE_ID, workflowToolRevisionId } from "./generated-workflow-model";
 import { useGeneratedWorkflowBuilder } from "./use-generated-workflow-builder";
+import { workflowInputRoleForIndex } from "./workflow-artifact-input-recommendation";
 import {
   fetchRunsList,
   fetchWorkflowCatalog,
@@ -653,46 +654,6 @@ function applyWorkflowInputRoles(
     ...artifact,
     role: workflowInputRoleForIndex(workflow, index),
   }));
-}
-
-function workflowInputRoleForIndex(workflow: WorkflowCatalogItem | null, index: number): string {
-  const roles = workflowInputRoles(workflow);
-  if (roles[index]) {
-    return roles[index];
-  }
-  if (index > 0) {
-    return `${workflowInputRoleDefault(workflow)}_${index + 1}`;
-  }
-  return workflowInputRoleDefault(workflow);
-}
-
-function workflowInputRoles(workflow: WorkflowCatalogItem | null): string[] {
-  const graph = workflow?.uiSchema?.graph;
-  const nodes = graph && typeof graph === "object" && !Array.isArray(graph)
-    ? (graph as { nodes?: unknown }).nodes
-    : null;
-  if (!Array.isArray(nodes)) {
-    return [];
-  }
-  return nodes
-    .map((node) => {
-      if (!node || typeof node !== "object") return "";
-      const record = node as { group?: unknown; kind?: unknown; role?: unknown };
-      const isInput = record.group === "input" || record.kind === "input";
-      return isInput && typeof record.role === "string" ? record.role.trim() : "";
-    })
-    .filter(Boolean);
-}
-
-function workflowInputRoleDefault(workflow: WorkflowCatalogItem | null): string {
-  const inputs = workflow?.uiSchema?.inputs;
-  if (inputs && typeof inputs === "object" && !Array.isArray(inputs)) {
-    const role = (inputs as { roleDefault?: unknown }).roleDefault;
-    if (typeof role === "string" && role.trim()) {
-      return role.trim();
-    }
-  }
-  return "reads";
 }
 
 function workflowDesignDraftSignature(draft: unknown): string {

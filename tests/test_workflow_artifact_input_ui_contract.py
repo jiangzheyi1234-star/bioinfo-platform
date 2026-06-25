@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
+import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -44,6 +46,7 @@ def test_workflow_page_artifact_input_state_and_ui_are_safe() -> None:
     assert "function removeArtifactInput" in hook
     assert "function clearArtifactInputs" in hook
     assert "setArtifactInputs([])" not in _function_body(hook, "loadArtifactInputRun")
+    assert 'from "./workflow-artifact-input-recommendation"' in hook
     assert "setSampleUploads([])" in _function_body(hook, "selectArtifactInput")
     assert "setFiles([])" in _function_body(hook, "selectArtifactInput")
     assert "setArtifactInputs((current) =>" in _function_body(hook, "selectArtifactInput")
@@ -52,8 +55,6 @@ def test_workflow_page_artifact_input_state_and_ui_are_safe() -> None:
     assert "clearArtifactInputs()" in _function_body(hook, "loadSampleData")
     assert "applyWorkflowInputRoles(selectedWorkflow" in _function_body(hook, "selectArtifactInput")
     assert "applyWorkflowInputRoles(" in _function_body(hook, "removeArtifactInput")
-    assert "function workflowInputRoles" in hook
-    assert "record.group === \"input\" || record.kind === \"input\"" in hook
 
     assert "artifactInputDetail={state.artifactInputDetail}" in detail_page
     assert "artifactInputs={state.artifactInputs}" in detail_page
@@ -66,15 +67,48 @@ def test_workflow_page_artifact_input_state_and_ui_are_safe() -> None:
     assert "历史结果产物篮" in picker_body
     assert "已完成运行 artifact" in picker_body
     assert "completedRuns.map" in picker_body
-    assert "availableArtifactCandidates.map" in picker_body
+    assert "rankedArtifactCandidates.map" in picker_body
     assert "selectedArtifactIds" in picker_body
+    assert "rankArtifactInputCandidates(selectedWorkflow, artifactInputs.length" in picker_body
+    assert 'value="__none__"' in picker_body
+    assert "onValueChange={(value) => onArtifactInputSelect(value === \"__none__\" ? \"\" : value)}" in picker_body
+    assert "artifactSelectDisabled = !artifactInputRunId || artifactInputLoading || availableArtifactCandidates.length === 0" in picker_body
     assert "artifactInputLabel(artifact)" in picker_body
     assert "artifactInputRunLabel(artifact)" in picker_body
+    assert '推荐 ${recommendation.targetRole}' in picker_body
+    assert '手动确认 ${recommendation.targetRole}' in picker_body
     assert 'artifact.upstreamRunId ? `from ${shortId(artifact.upstreamRunId)}` : ""' in ui
     assert "onArtifactInputRemove(artifact.artifactId)" in picker_body
     assert "storageUri" not in picker_body
     assert "cacheKey" not in picker_body
     assert ".path" not in picker_body
+
+
+def test_artifact_input_role_recommendation_is_advisory_and_safe() -> None:
+    recommendation = _read("apps/web/app/components/workflow-artifact-input-recommendation.ts")
+
+    assert "rankArtifactInputCandidates" in recommendation
+    assert "recommendArtifactForRole" in recommendation
+    assert 'decision: "recommended" | "manual"' in recommendation
+    assert "workflowInputRoleForIndex" in recommendation
+    assert 'record.group === "input" || record.kind === "input"' in recommendation
+    assert 'score >= 3 ? "recommended" : "manual"' in recommendation
+    assert "right.recommendation.score - left.recommendation.score ||\n        left.index - right.index" in recommendation
+    assert 'roleTokens: ["reads", "read", "sequence", "sequences"],' in recommendation
+    assert "storageUri" not in recommendation
+    assert "cacheKey" not in recommendation
+    assert "path" not in recommendation
+
+
+def test_artifact_input_role_recommendation_behavior() -> None:
+    result = _run_recommendation_helper()
+
+    assert result["metadata"][0]["artifact"]["artifactId"] == "art_metadata"
+    assert result["metadata"][0]["recommendation"]["decision"] == "recommended"
+    assert result["reads"][0]["artifact"]["artifactId"] == "art_fastq"
+    assert result["reads"][0]["recommendation"]["decision"] == "recommended"
+    assert [item["artifact"]["artifactId"] for item in result["manual"]] == ["art_z", "art_a"]
+    assert all(item["recommendation"]["decision"] == "manual" for item in result["manual"])
 
 
 def _read(path: str) -> str:
@@ -124,3 +158,42 @@ def _function_body(source: str, name: str) -> str:
             if depth == 0:
                 return source[brace : index + 1]
     raise AssertionError(f"unterminated body for {name}")
+
+
+def _run_recommendation_helper() -> dict[str, object]:
+    helper_path = (ROOT / "apps/web/app/components/workflow-artifact-input-recommendation.ts").as_posix()
+    script = f"""
+const fs = require("fs");
+const ts = require("typescript");
+const source = fs.readFileSync("{helper_path}", "utf8");
+const compiled = ts.transpileModule(source, {{
+  compilerOptions: {{ module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }}
+}}).outputText;
+const moduleObj = {{ exports: {{}} }};
+new Function("exports", "module", compiled)(moduleObj.exports, moduleObj);
+const rank = moduleObj.exports.rankArtifactInputCandidates;
+const workflow = (roles) => ({{ uiSchema: {{ graph: {{ nodes: roles.map((role) => ({{ kind: "input", role }})) }} }} }});
+const result = {{
+  metadata: rank(workflow(["metadata"]), 0, [
+    {{ artifactId: "art_fastq", kind: "reads", mimeType: "application/gzip", sizeBytes: 1 }},
+    {{ artifactId: "art_metadata", kind: "table", mimeType: "text/tab-separated-values", sizeBytes: 1 }},
+  ]),
+  reads: rank(workflow(["reads"]), 0, [
+    {{ artifactId: "art_table", kind: "table", mimeType: "text/tab-separated-values", sizeBytes: 1 }},
+    {{ artifactId: "art_fastq", kind: "reads", mimeType: "application/gzip", sizeBytes: 1 }},
+  ]),
+  manual: rank(workflow(["input"]), 0, [
+    {{ artifactId: "art_z", kind: "report", mimeType: "text/html", sizeBytes: 1 }},
+    {{ artifactId: "art_a", kind: "table", mimeType: "text/tab-separated-values", sizeBytes: 1 }},
+  ]),
+}};
+process.stdout.write(JSON.stringify(result));
+"""
+    completed = subprocess.run(
+        ["node", "-e", script],
+        cwd=ROOT / "apps/web",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(completed.stdout)
