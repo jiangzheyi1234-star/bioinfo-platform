@@ -220,6 +220,7 @@ Delivered foundation:
 - Run detail now includes a normalized `failureLocator` read model for failed runs, connecting the failed rule, latest failure event, stderr tail, related artifacts, and lineage edges. The fallback stderr projection also terminalizes non-failed rules as `blocked` instead of leaving stale `running` child states under a failed run.
 - Failed-rule diagnostics now resolve rule log paths only through managed result artifacts and artifact preview APIs, expose capped rule-log tails when a matching log artifact exists, return explicit `PATH_REFERENCE_ONLY`/unavailable reason codes when only raw path references exist, and match durable lineage edges through `payload.artifactId`.
 - Run attempts now have a stable read-only `run-attempts.v1` API that exposes job, attempt, lease, slot, retry, timeout, and summary state while explicitly redacting work directories, process identifiers, command payloads, and runSpec content. This makes attempt/lease evidence a standalone contract before any rule-level retry/resume mutation is enabled.
+- Run observability read APIs are now governed high-risk remote actions. Run events, execution context, attempts, logs, and rules require workflow-operator/auditor roles before storage or log reads and write hash-chained allow audit summaries with only counts, state distributions, stream labels, cursor-presence booleans, and retry/resume eligibility flags, keeping log lines, event detail payloads, run specs, command summaries, command args, paths, and raw cursor values out of governance audit details.
 
 Still pending before this phase is complete:
 
@@ -432,6 +433,7 @@ Progress:
 - Governance audit events now expose stable request, correlation, project, and tenant context fields in the hash-chained audit payload/read model. Context is promoted from existing safe details such as run submission `requestId`/`projectId` and trigger `eventContext.correlationId`, while raw details remain secret-key guarded.
 - Governance audit events now expose stable top-level `actorRoles` from the authenticated remote-runner machine token, including authorization denials. Roles are not promoted from lower-trust business/event details, and this remains a machine-token boundary rather than per-user multi-tenant RBAC.
 - Governance audit reads now record their own hash-chained `decision=allow` event after RBAC succeeds. The event captures actor roles, filter-presence booleans, requested limit, and returned count while deliberately excluding raw query filter values so an operator cannot accidentally copy a token or secret into the audit ledger through the read API.
+- Run observability reads are now governed remote actions (`run.events.read`, `run.execution_context.read`, `run.attempts.read`, `run.logs.read`, and `run.rules.read`) with workflow-operator/auditor role coverage and metadata-only allow audit records. Logs, event detail payloads, run specs, command summaries, command args, local paths, and cursor values are excluded from governance audit details.
 
 Recommended sequence:
 
