@@ -340,6 +340,9 @@ class RemoteRunnerHttpClient:
     def get_run_rules(self, run_id: str) -> dict[str, Any]:
         return self.get_json(f"/api/v1/runs/{run_id}/rules")["data"]
 
+    def get_run_failure_locator(self, run_id: str) -> dict[str, Any]:
+        return self.get_json(f"/api/v1/runs/{run_id}/failure-locator")["data"]
+
     def get_result(self, result_id: str) -> dict[str, Any]:
         return self.get_json(f"/api/v1/results/{result_id}")["data"]
 

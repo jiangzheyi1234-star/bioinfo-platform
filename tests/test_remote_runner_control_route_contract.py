@@ -395,6 +395,8 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
     assert '@router.get("/api/v1/runs/{run_id}/attempts")' in execution_query_route_source
     assert '@router.get("/api/v1/runs/{run_id}/logs")' in execution_query_route_source
     assert '@router.get("/api/v1/runs/{run_id}/results")' in execution_query_route_source
+    assert '@router.get("/api/v1/runs/{run_id}/rules")' in execution_query_route_source
+    assert '@router.get("/api/v1/runs/{run_id}/failure-locator")' in execution_query_route_source
     assert '@router.get("/api/v1/results")' in execution_query_route_source
     assert '@router.get("/api/v1/results/{result_id}")' in execution_query_route_source
     assert '@router.get("/api/v1/results/{result_id}/preview")' in execution_query_route_source
@@ -414,6 +416,8 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
     assert "get_run_logs_from_request" in execution_query_route_source
     assert "get_run_results_from_request" in execution_query_route_source
     assert "get_run_rules_from_request" in execution_query_route_source
+    assert "get_run_failure_locator_from_request" in execution_query_route_source
+    assert "from .run_failure_locator_read_api import get_run_failure_locator_from_request" in execution_query_route_source
     assert "list_results_from_request" in execution_query_route_source
     assert "get_result_from_request" in execution_query_route_source
     assert "get_result_preview_from_request" in execution_query_route_source

@@ -23,6 +23,8 @@ def _tracked_policy_sources() -> list[Path]:
             ROOT / "apps" / "remote_runner" / "database_service.py",
             ROOT / "apps" / "remote_runner" / "result_package_byte_gc_service.py",
             ROOT / "apps" / "remote_runner" / "result_package_lifecycle_service.py",
+            ROOT / "apps" / "remote_runner" / "run_failure_locator_read_api.py",
+            ROOT / "apps" / "remote_runner" / "run_failure_locator_read_model.py",
             ROOT / "apps" / "remote_runner" / "run_reexecution_service.py",
             ROOT / "apps" / "remote_runner" / "execution_observability_governance.py",
             ROOT / "apps" / "remote_runner" / "secret_service.py",

@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from apps.remote_runner import control_service
+from apps.remote_runner import run_failure_locator_read_api
 from apps.remote_runner import route_utils
 from apps.remote_runner.errors import RemoteRunnerAuthorizationError
 from apps.remote_runner.governance_audit import list_governance_audit_events
@@ -20,6 +21,7 @@ RUN_OBSERVABILITY_ACTIONS = (
     "run.attempts.read",
     "run.logs.read",
     "run.rules.read",
+    "run.failure_locator.read",
 )
 
 
@@ -69,6 +71,12 @@ def test_run_observability_read_actions_allow_operator_and_auditor_roles(tmp_pat
         ("/api/v1/runs/run_obs_denied/attempts", "run.attempts.read", "run_attempts", "fetch_run_attempts_read_model"),
         ("/api/v1/runs/run_obs_denied/logs?stream=stderr&cursor=12", "run.logs.read", "run_logs", "fetch_log_lines"),
         ("/api/v1/runs/run_obs_denied/rules", "run.rules.read", "run_rules", "fetch_run_rules"),
+        (
+            "/api/v1/runs/run_obs_denied/failure-locator",
+            "run.failure_locator.read",
+            "run_failure_locator",
+            "fetch_run_failure_locator",
+        ),
     ),
 )
 def test_run_observability_routes_deny_wrong_role_before_read(
@@ -89,7 +97,8 @@ def test_run_observability_routes_deny_wrong_role_before_read(
     def fail_read(*_args, **_kwargs):
         raise AssertionError(f"{read_attr} must not run before authorization")
 
-    monkeypatch.setattr(control_service, read_attr, fail_read)
+    target_module = run_failure_locator_read_api if read_attr == "fetch_run_failure_locator" else control_service
+    monkeypatch.setattr(target_module, read_attr, fail_read)
     response = TestClient(app).get(path, headers={"Authorization": "Bearer rbac-token"})
 
     assert response.status_code == 403
@@ -131,7 +140,7 @@ def test_run_observability_routes_record_safe_allow_audit(tmp_path, monkeypatch)
             "activeLease": {"attemptId": "attempt-1"},
             "retryEligibility": {"eligible": True, "eligibleNow": False},
             "resumeSupported": False,
-            "ruleRetryPlan": {"candidateCount": 2, "selectedFailedRules": ["align"]},
+            "ruleRetryPlan": {"failedRuleCount": 2, "selectedAttemptCount": 1, "selectedFailedRules": ["align"]},
             "ruleRetryExecutionPlan": {"executionEnabled": False, "argsPreview": ["--forcerun", "align"]},
         },
     )
@@ -147,6 +156,30 @@ def test_run_observability_routes_record_safe_allow_audit(tmp_path, monkeypatch)
                 "slotsByState": {"occupied": 1},
             },
             "attempts": [{"workDir": "C:/secret/work"}],
+        },
+    )
+    monkeypatch.setattr(
+        run_failure_locator_read_api,
+        "fetch_run_failure_locator",
+        lambda *_args: {
+            "schemaVersion": "run-failure-locator.v1",
+            "runId": "run_obs_safe",
+            "available": True,
+            "reasonCode": "FAILED_RULE",
+            "failedRule": {"ruleName": "align_reads"},
+            "logContext": {
+                "stderrLineCount": 40,
+                "stderrTail": ["TOKEN_SHOULD_NOT_ENTER_AUDIT", "C:/secret/run.log"],
+            },
+            "ruleLogContext": {
+                "status": "available",
+                "reasonCode": "PREVIEW_AVAILABLE",
+                "tail": ["TOKEN_SHOULD_NOT_ENTER_AUDIT"],
+            },
+            "artifactContext": {
+                "relatedArtifactCount": 2,
+                "relatedArtifacts": [{"artifactId": "art_log", "path": "C:/secret/run.log"}],
+            },
         },
     )
     monkeypatch.setattr(
@@ -178,6 +211,7 @@ def test_run_observability_routes_record_safe_allow_audit(tmp_path, monkeypatch)
     assert client.get("/api/v1/runs/run_obs_safe/attempts", headers=headers).status_code == 200
     assert client.get("/api/v1/runs/run_obs_safe/logs?stream=stderr&cursor=cursor-secret-123", headers=headers).status_code == 200
     assert client.get("/api/v1/runs/run_obs_safe/rules", headers=headers).status_code == 200
+    assert client.get("/api/v1/runs/run_obs_safe/failure-locator", headers=headers).status_code == 200
 
     assert list_governance_audit_events(cfg, action="run.events.read")["items"][-1]["details"] == {
         "returnedCount": 2,
@@ -190,7 +224,8 @@ def test_run_observability_routes_record_safe_allow_audit(tmp_path, monkeypatch)
         "retryEligible": True,
         "retryEligibleNow": False,
         "resumeSupported": False,
-        "ruleRetryCandidateCount": 2,
+        "ruleRetryFailedRuleCount": 2,
+        "ruleRetrySelectedAttemptCount": 1,
         "ruleRetryExecutionEnabled": False,
     }
     assert list_governance_audit_events(cfg, action="run.attempts.read")["items"][-1]["details"] == {
@@ -210,6 +245,16 @@ def test_run_observability_routes_record_safe_allow_audit(tmp_path, monkeypatch)
         "ruleCount": 1,
         "ruleEventCount": 1,
         "ruleStatuses": {"failed": 1},
+    }
+    assert list_governance_audit_events(cfg, action="run.failure_locator.read")["items"][-1]["details"] == {
+        "available": True,
+        "reasonCode": "FAILED_RULE",
+        "failedRulePresent": True,
+        "stderrLineCount": 40,
+        "stderrTailLineCount": 2,
+        "ruleLogStatus": "available",
+        "ruleLogReasonCode": "PREVIEW_AVAILABLE",
+        "relatedArtifactCount": 2,
     }
     serialized_audit = json.dumps(list_governance_audit_events(cfg, limit=100)["items"], sort_keys=True)
     assert "TOKEN_SHOULD_NOT_ENTER_AUDIT" not in serialized_audit

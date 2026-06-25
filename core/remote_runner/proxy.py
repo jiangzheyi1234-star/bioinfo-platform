@@ -549,6 +549,14 @@ class RemoteRunnerProxyMixin:
         )
         return client.get_json(f"/api/v1/runs/{kwargs['run_id']}/rules")["data"]
 
+    def get_run_failure_locator(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+        )
+        return client.get_json(f"/api/v1/runs/{kwargs['run_id']}/failure-locator")["data"]
+
     def list_results(self, **kwargs) -> list[dict[str, Any]]:
         client = self._get_client(
             server_id=str(kwargs["server_id"]),

@@ -39,6 +39,7 @@ export function WorkflowRuleFailureDiagnostics({
   if (!rule || !isFailedStatus(rule.status)) return null;
   const failedEvent = [...(rule.events || [])].reverse().find(isFailureEvent);
   const logs = rule.logs || [];
+  const logReferenceCount = ruleLogContext?.logReferenceCount ?? logs.length;
   const detailItems = scalarDetails(failedEvent?.details);
   const logTail = ruleLogContext?.tail || [];
   const selectedLogArtifact = ruleLogContext?.selectedArtifact;
@@ -59,8 +60,8 @@ export function WorkflowRuleFailureDiagnostics({
         <span className="truncate font-mono">{failedEvent?.eventType || failedEvent?.status || "—"}</span>
         <span className="text-red-500">message</span>
         <span className="truncate">{failedEvent?.message || rule.message || "—"}</span>
-        <span className="text-red-500">log paths</span>
-        <span className="truncate font-mono">{logs.length > 0 ? logs.slice(0, 4).join(", ") : "—"}</span>
+        <span className="text-red-500">log refs</span>
+        <span className="truncate font-mono">{logReferenceCount > 0 ? `${logReferenceCount} reference${logReferenceCount === 1 ? "" : "s"}` : "—"}</span>
         {ruleLogContext ? (
           <>
             <span className="text-red-500">log evidence</span>

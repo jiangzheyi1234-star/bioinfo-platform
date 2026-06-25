@@ -196,6 +196,16 @@ HIGH_RISK_API_POLICIES: tuple[ApiGovernancePolicy, ...] = (
     ),
     remote_policy(
         "GET",
+        "/api/v1/runs/{run_id}/failure-locator",
+        "apps/remote_runner/execution_query_routes.py",
+        "run.failure_locator.read",
+        "run_failure_locator",
+        "implemented",
+        "workflow-operator",
+        "auditor",
+    ),
+    remote_policy(
+        "GET",
         "/api/v1/runs/{run_id}/results",
         "apps/remote_runner/execution_query_routes.py",
         "run.results.read",

@@ -351,6 +351,9 @@ class ExecutionManager(BaseRuntimeManager):
     def get_run_rules(self, run_id: str) -> dict[str, Any]:
         return {"data": self.call_runner("get_run_rules", run_id=run_id)}
 
+    def get_run_failure_locator(self, run_id: str) -> dict[str, Any]:
+        return {"data": self.call_runner("get_run_failure_locator", run_id=run_id)}
+
     def list_results(self) -> dict[str, Any]:
         return {"data": {"items": self.call_runner("list_results")}}
 

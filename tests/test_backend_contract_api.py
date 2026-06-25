@@ -11,6 +11,7 @@ from apps.api.execution_query_routes import (
     get_result_preview,
     get_run,
     get_run_events,
+    get_run_failure_locator,
     get_run_results,
     get_run_rules,
     list_results,
@@ -643,6 +644,9 @@ def test_run_detail_and_results_contract(monkeypatch, tmp_path: Path) -> None:
         def get_run_rules(self, **kwargs):
             return {"runId": "run_2026_0419_001", "items": [{"ruleName": "trim_reads", "status": "succeeded"}]}
 
+        def get_run_failure_locator(self, **kwargs):
+            return {"schemaVersion": "run-failure-locator.v1", "runId": "run_2026_0419_001", "available": False}
+
         def list_results(self, **kwargs):
             return [{"resultId": "res_run_2026_0419_001", "runId": "run_2026_0419_001", "title": "taxonomy result", "pipelineId": "taxonomy-v1", "artifactCount": 1, "producedAt": "2026-04-21T12:00:00Z"}]
 
@@ -684,6 +688,9 @@ def test_run_detail_and_results_contract(monkeypatch, tmp_path: Path) -> None:
     rules_payload = asyncio.run(get_run_rules("run_2026_0419_001"))
     rules = rules_payload["data"]
     assert rules["items"][0]["ruleName"] == "trim_reads"
+
+    locator_payload = asyncio.run(get_run_failure_locator("run_2026_0419_001"))
+    assert locator_payload["data"]["schemaVersion"] == "run-failure-locator.v1"
 
     list_results_payload = asyncio.run(list_results())
     assert list_results_payload["data"]["items"][0]["resultId"].startswith("res_run_")

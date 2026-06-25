@@ -15,3 +15,13 @@ def test_remote_runner_execution_proxy_exposes_retry_run_path() -> None:
 
     assert "def retry_run(self, **kwargs) -> dict[str, Any]:" in proxy_source
     assert 'client.post_json(f"/api/v1/runs/{kwargs[\'run_id\']}/retry", kwargs["payload"])["data"]' in proxy_source
+
+
+def test_remote_runner_execution_proxy_exposes_failure_locator_path() -> None:
+    proxy_source = _source("core/remote_runner/proxy.py")
+    client_source = _source("core/remote_runner/client.py")
+
+    assert "def get_run_failure_locator(self, **kwargs) -> dict[str, Any]:" in proxy_source
+    assert 'client.get_json(f"/api/v1/runs/{kwargs[\'run_id\']}/failure-locator")["data"]' in proxy_source
+    assert "def get_run_failure_locator(self, run_id: str) -> dict[str, Any]:" in client_source
+    assert 'self.get_json(f"/api/v1/runs/{run_id}/failure-locator")["data"]' in client_source

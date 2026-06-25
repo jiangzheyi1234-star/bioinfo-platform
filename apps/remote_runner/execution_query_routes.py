@@ -48,6 +48,7 @@ from .control_service import (
     run_artifact_gc_from_request,
 )
 from .artifact_lifecycle_controller_read_api import list_artifact_lifecycle_controller_ticks_from_request
+from .run_failure_locator_read_api import get_run_failure_locator_from_request
 from .run_reexecution_service import resume_run_from_request, retry_run_rules_from_request
 from .route_headers import AuthorizationHeader
 
@@ -130,6 +131,11 @@ async def get_run_results_api(run_id: str, authorization: AuthorizationHeader = 
 @router.get("/api/v1/runs/{run_id}/rules")
 async def get_run_rules_api(run_id: str, authorization: AuthorizationHeader = None) -> dict[str, Any]:
     return await get_run_rules_from_request(run_id, authorization)
+
+
+@router.get("/api/v1/runs/{run_id}/failure-locator")
+async def get_run_failure_locator_api(run_id: str, authorization: AuthorizationHeader = None) -> dict[str, Any]:
+    return await get_run_failure_locator_from_request(run_id, authorization)
 
 
 @router.get("/api/v1/results")

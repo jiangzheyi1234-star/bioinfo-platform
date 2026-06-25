@@ -507,10 +507,9 @@ export type WorkflowRunFailureLocator = {
     finishedAt?: string;
     exitCode?: number | null;
     message?: string;
-    commandSummary?: string;
-    inputs?: string[];
-    outputs?: string[];
-    logs?: string[];
+    inputCount?: number;
+    outputCount?: number;
+    logReferenceCount?: number;
     wildcards?: Record<string, unknown>;
     latestFailureEvent?: WorkflowRunRuleEvent | null;
   };
@@ -528,6 +527,13 @@ export type WorkflowRunFailureLocator = {
     lineageEdgeCount?: number;
     lineageEdges?: unknown[];
   };
+  redactionPolicy?: {
+    artifactPathsExposed?: boolean;
+    storageUrisExposed?: boolean;
+    commandSummaryExposed?: boolean;
+    eventDetailsSanitized?: boolean;
+    runSpecExposed?: boolean;
+  };
 };
 
 export type WorkflowRunRuleLogContext = {
@@ -543,7 +549,7 @@ export type WorkflowRunRuleLogContext = {
     | "PREVIEW_UNAVAILABLE"
     | string;
   message?: string;
-  logPaths?: string[];
+  logReferenceCount?: number;
   matchedArtifactCount?: number;
   matchedArtifacts?: WorkflowArtifact[];
   selectedArtifact?: WorkflowArtifact;

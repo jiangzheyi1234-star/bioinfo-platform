@@ -43,7 +43,8 @@ def record_run_execution_context_read_audit(
             "retryEligible": bool(_dict_value(context.get("retryEligibility")).get("eligible")),
             "retryEligibleNow": bool(_dict_value(context.get("retryEligibility")).get("eligibleNow")),
             "resumeSupported": bool(context.get("resumeSupported")),
-            "ruleRetryCandidateCount": _safe_int(rule_retry_plan.get("candidateCount")),
+            "ruleRetryFailedRuleCount": _safe_int(rule_retry_plan.get("failedRuleCount")),
+            "ruleRetrySelectedAttemptCount": _safe_int(rule_retry_plan.get("selectedAttemptCount")),
             "ruleRetryExecutionEnabled": bool(rule_retry_execution_plan.get("executionEnabled")),
         },
     )
@@ -104,6 +105,29 @@ def record_run_rules_read_audit(cfg: RemoteRunnerConfig, run_id: str, rules: dic
             "ruleCount": len(items),
             "ruleEventCount": event_count,
             "ruleStatuses": dict(sorted(statuses.items())),
+        },
+    )
+
+
+def record_run_failure_locator_read_audit(cfg: RemoteRunnerConfig, run_id: str, locator: dict[str, Any]) -> None:
+    log_context = _dict_value(locator.get("logContext"))
+    rule_log_context = _dict_value(locator.get("ruleLogContext"))
+    artifact_context = _dict_value(locator.get("artifactContext"))
+    record_governance_audit_event(
+        cfg,
+        action="run.failure_locator.read",
+        actor=_actor(cfg),
+        subject_kind="run_failure_locator",
+        subject_id=run_id,
+        details={
+            "available": bool(locator.get("available")),
+            "reasonCode": str(locator.get("reasonCode") or ""),
+            "failedRulePresent": isinstance(locator.get("failedRule"), dict),
+            "stderrLineCount": _safe_int(log_context.get("stderrLineCount")),
+            "stderrTailLineCount": len(_list_value(log_context.get("stderrTail"))),
+            "ruleLogStatus": str(rule_log_context.get("status") or ""),
+            "ruleLogReasonCode": str(rule_log_context.get("reasonCode") or ""),
+            "relatedArtifactCount": _safe_int(artifact_context.get("relatedArtifactCount")),
         },
     )
 

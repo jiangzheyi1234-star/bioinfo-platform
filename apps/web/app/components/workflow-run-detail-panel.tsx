@@ -159,11 +159,6 @@ function RunDiagnosis({
             </span>
           </div>
           <WorkflowRuleFailureDiagnostics rule={failedRule} ruleLogContext={failureLocator?.ruleLogContext} />
-          {failedRule.commandSummary ? (
-            <pre className="mt-3 max-h-32 overflow-auto whitespace-pre-wrap rounded-md bg-slate-950 p-3 text-xs text-red-100">
-              {failedRule.commandSummary}
-            </pre>
-          ) : null}
         </div>
       ) : null}
     </div>

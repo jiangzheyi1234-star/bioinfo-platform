@@ -197,6 +197,9 @@ class RunnerExecutionOperationsMixin:
     def get_run_rules(self, run_id: str) -> dict[str, Any]:
         return self.execution.get_run_rules(run_id)
 
+    def get_run_failure_locator(self, run_id: str) -> dict[str, Any]:
+        return self.execution.get_run_failure_locator(run_id)
+
     def list_results(self) -> dict[str, Any]:
         return self.execution.list_results()
 

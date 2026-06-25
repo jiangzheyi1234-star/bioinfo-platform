@@ -31,19 +31,20 @@ def test_run_detail_includes_normalized_failure_locator(monkeypatch) -> None:
     assert locator["failedRule"]["ruleName"] == "align_reads"
     assert locator["failedRule"]["attemptId"] == "attempt_2"
     assert locator["failedRule"]["latestFailureEvent"]["eventType"] == "JOB_ERROR"
-    assert locator["failedRule"]["logs"] == ["logs/align_reads.log"]
+    assert locator["failedRule"]["logReferenceCount"] == 1
+    assert "logs" not in locator["failedRule"]
+    assert "commandSummary" not in locator["failedRule"]
     assert locator["logContext"]["stderrLineCount"] == 35
     assert locator["logContext"]["stderrTail"][0] == "stderr 5"
     assert locator["ruleLogContext"]["status"] == "available"
     assert locator["ruleLogContext"]["reasonCode"] == "PREVIEW_AVAILABLE"
     assert locator["ruleLogContext"]["selectedArtifact"]["artifactId"] == "art_log"
+    assert locator["ruleLogContext"]["logReferenceCount"] == 1
     assert locator["ruleLogContext"]["lineCount"] == 40
     assert locator["ruleLogContext"]["tail"][0] == "rule log 10"
     assert locator["artifactContext"]["relatedArtifactCount"] == 2
     assert {item["artifactId"] for item in locator["artifactContext"]["relatedArtifacts"]} == {"art_bam", "art_log"}
-    assert locator["artifactContext"]["lineageEdgeCount"] == 1
-    assert locator["artifactContext"]["lineageEdges"][0]["payload"]["artifactId"] == "art_bam"
-    assert ("res_run_failed", "art_log") in runtime.preview_calls
+    assert "path" not in json_dumps(locator)
 
 
 def test_run_detail_marks_rule_log_paths_without_managed_artifact_as_reference_only(monkeypatch) -> None:
@@ -55,7 +56,7 @@ def test_run_detail_marks_rule_log_paths_without_managed_artifact_as_reference_o
     context = payload["data"]["failureLocator"]["ruleLogContext"]
     assert context["status"] == "unavailable"
     assert context["reasonCode"] == "PATH_REFERENCE_ONLY"
-    assert context["logPaths"] == ["logs/align_reads.log"]
+    assert context["logReferenceCount"] == 1
     assert context["matchedArtifactCount"] == 0
     assert context["tail"] == []
 
@@ -99,6 +100,16 @@ class FakeRunDetailRuntime:
 
     def get_run_execution_context(self, run_id: str) -> dict[str, Any]:
         return {"data": {"runId": run_id}}
+
+    def get_run_failure_locator(self, run_id: str) -> dict[str, Any]:
+        return {
+            "data": {
+                "schemaVersion": "run-failure-locator.v1",
+                "runId": run_id,
+                "available": False,
+                "reasonCode": "RUN_NOT_FAILED",
+            }
+        }
 
     def get_result_preview(self, *, result_id: str, artifact_id: str) -> dict[str, Any]:
         self.preview_calls.append((result_id, artifact_id))
@@ -218,6 +229,64 @@ class FakeFailedRunDetailRuntime(FakeRunDetailRuntime):
             }
         }
 
+    def get_run_failure_locator(self, run_id: str) -> dict[str, Any]:
+        return {
+            "data": {
+                "schemaVersion": "run-failure-locator.v1",
+                "runId": run_id,
+                "available": True,
+                "reasonCode": "FAILED_RULE",
+                "failedRule": {
+                    "runRuleId": "rr_align",
+                    "ruleName": "align_reads",
+                    "stepId": "align",
+                    "runtimeStatusKey": "align_reads",
+                    "status": "failed",
+                    "attemptId": "attempt_2",
+                    "attemptNumber": 2,
+                    "leaseGeneration": 3,
+                    "exitCode": 1,
+                    "message": "Command exited with status 1.",
+                    "inputCount": 1,
+                    "outputCount": 1,
+                    "logReferenceCount": 1,
+                    "latestFailureEvent": {
+                        "ruleEventId": "rre_error",
+                        "eventType": "JOB_ERROR",
+                        "status": "failed",
+                        "message": "align_reads failed",
+                        "createdAt": "2026-01-01T00:02:00Z",
+                        "details": {"exitCode": 1},
+                    },
+                },
+                "logContext": {
+                    "stderrLineCount": 35,
+                    "stderrTail": [f"stderr {index}" for index in range(5, 35)],
+                },
+                "ruleLogContext": {
+                    "schemaVersion": "run-rule-log-context.v1",
+                    "status": "available",
+                    "reasonCode": "PREVIEW_AVAILABLE",
+                    "logReferenceCount": 1,
+                    "matchedArtifactCount": 1,
+                    "matchedArtifacts": [{"artifactId": "art_log", "mimeType": "text/plain", "sizeBytes": 512}],
+                    "selectedArtifact": {"artifactId": "art_log", "mimeType": "text/plain", "sizeBytes": 512},
+                    "lineCount": 40,
+                    "tail": [f"rule log {index}" for index in range(10, 40)],
+                },
+                "artifactContext": {
+                    "artifactCount": 2,
+                    "relatedArtifactCount": 2,
+                    "relatedArtifacts": [
+                        {"artifactId": "art_bam", "mimeType": "application/bam", "sizeBytes": 128},
+                        {"artifactId": "art_log", "mimeType": "text/plain", "sizeBytes": 512},
+                    ],
+                    "lineageEdgeCount": 0,
+                    "lineageEdges": [],
+                },
+            }
+        }
+
     def get_result_preview(self, *, result_id: str, artifact_id: str) -> dict[str, Any]:
         self.preview_calls.append((result_id, artifact_id))
         if artifact_id == "art_log":
@@ -244,3 +313,21 @@ class FakeFailedRunDetailRuntimeWithoutLogArtifact(FakeFailedRunDetailRuntime):
             artifact for artifact in result["data"]["artifacts"] if artifact["artifactId"] != "art_log"
         ]
         return result
+
+    def get_run_failure_locator(self, run_id: str) -> dict[str, Any]:
+        result = super().get_run_failure_locator(run_id)
+        context = result["data"]["ruleLogContext"]
+        context["status"] = "unavailable"
+        context["reasonCode"] = "PATH_REFERENCE_ONLY"
+        context["logReferenceCount"] = 1
+        context["matchedArtifactCount"] = 0
+        context["matchedArtifacts"] = []
+        context["selectedArtifact"] = None
+        context["tail"] = []
+        return result
+
+
+def json_dumps(value: object) -> str:
+    import json
+
+    return json.dumps(value, sort_keys=True)
