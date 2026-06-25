@@ -462,7 +462,7 @@ async def get_result_preview_from_request(
     cfg = await _authorized_config_from_request(authorization, action="result.artifact.preview")
     preview = await run_sync(build_result_preview_data, cfg, result_id, artifact_id)
     await _record_result_preview_read_audit(cfg, preview)
-    return data_response(preview)
+    return data_response(_public_result_preview(preview))
 
 
 async def get_result_audit_from_request(result_id: str, authorization: str | None) -> dict[str, Any]:
@@ -529,7 +529,19 @@ def _public_result_artifact_audit(audit: dict[str, Any]) -> dict[str, Any]:
     return public
 
 
+def _public_result_preview(preview: dict[str, Any]) -> dict[str, Any]:
+    public = dict(preview)
+    artifact = public.get("artifact")
+    if isinstance(artifact, dict):
+        public["artifact"] = _public_result_artifact_record(artifact)
+    return public
+
+
 def _public_result_artifact_audit_item(item: dict[str, Any]) -> dict[str, Any]:
+    return _public_result_artifact_record(item)
+
+
+def _public_result_artifact_record(item: dict[str, Any]) -> dict[str, Any]:
     public = dict(item)
     public.pop("path", None)
     public.pop("storageUri", None)

@@ -331,7 +331,10 @@ def test_result_preview_route_records_safe_allow_audit(tmp_path, monkeypatch) ->
     )
 
     assert response.status_code == 200
-    assert response.json()["data"]["preview"]["content"] == "secret body"
+    response_data = response.json()["data"]
+    assert response_data["preview"]["content"] == "secret body"
+    assert "path" not in response_data["artifact"]
+    assert "storageUri" not in response_data["artifact"]
     events = list_governance_audit_events(cfg, action="result.artifact.preview")["items"]
     assert len(events) == 1
     assert events[0]["decision"] == "allow"
