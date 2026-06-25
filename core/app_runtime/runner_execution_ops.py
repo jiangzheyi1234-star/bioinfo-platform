@@ -151,6 +151,9 @@ class RunnerExecutionOperationsMixin:
             limit=limit,
         )
 
+    def get_secret_provider_readiness(self, server_id: Optional[str] = None) -> dict[str, Any]:
+        return self.execution.get_secret_provider_readiness(server_id=server_id)
+
     def get_run(self, run_id: str) -> dict[str, Any]:
         return self.execution.get_run(run_id)
 

@@ -11,6 +11,7 @@ from .execution_query_routes import router as execution_query_router
 from .health_routes import router as health_router
 from .pipeline_routes import router as pipeline_router
 from .route_errors import register_exception_handlers
+from .secret_routes import router as secret_router
 from .trigger_scheduler import start_configured_workflow_trigger_scheduler_supervisor
 from .trigger_readiness_watcher import start_configured_workflow_trigger_readiness_watcher_supervisor
 from .worker_supervisor import start_configured_run_worker_supervisor, start_configured_tool_prepare_worker_supervisor
@@ -53,3 +54,4 @@ app.include_router(tool_router)
 app.include_router(workflow_design_router)
 app.include_router(workflow_trigger_router)
 app.include_router(audit_router)
+app.include_router(secret_router)

@@ -253,6 +253,16 @@ HIGH_RISK_API_POLICIES: tuple[ApiGovernancePolicy, ...] = (
         "platform-admin",
     ),
     remote_policy(
+        "GET",
+        "/api/v1/secrets/provider-readiness",
+        "apps/remote_runner/secret_routes.py",
+        "secret.provider_readiness.read",
+        "secret_provider",
+        "implemented",
+        "auditor",
+        "platform-admin",
+    ),
+    remote_policy(
         "POST",
         "/api/v1/artifacts/lifecycle/gc/preview",
         "apps/remote_runner/execution_query_routes.py",

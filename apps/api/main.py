@@ -10,6 +10,7 @@ from apps.api.database_routes import router as database_router
 from apps.api.execution_query_routes import router as execution_query_router
 from apps.api.lifespan import lifespan
 from apps.api.route_errors import register_exception_handlers
+from apps.api.secret_routes import router as secret_router
 from apps.api.ssh_routes import router as ssh_router
 from apps.api.submission_routes import router as submission_router
 from apps.api.system_routes import router as system_router
@@ -58,3 +59,4 @@ app.include_router(workflow_sample_data_router)
 app.include_router(workflow_trigger_router)
 app.include_router(audit_router)
 app.include_router(database_router)
+app.include_router(secret_router)

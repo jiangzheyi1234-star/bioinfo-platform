@@ -124,6 +124,10 @@ def default_webhook_secret_provider() -> SecretProvider:
     return SchemeSecretProvider({"env": EnvironmentSecretProvider()})
 
 
+def default_webhook_secret_provider_schemes() -> tuple[SecretRefScheme, ...]:
+    return ("env",)
+
+
 def parse_secret_ref(ref: object, *, purpose: str) -> SecretRefDescriptor:
     normalized_purpose = _purpose(purpose)
     if not isinstance(ref, str) or not ref.strip():

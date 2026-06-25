@@ -290,6 +290,14 @@ class ExecutionManager(BaseRuntimeManager):
             )
         }
 
+    def get_secret_provider_readiness(self, server_id: Optional[str] = None) -> dict[str, Any]:
+        return {
+            "data": self.call_existing_runner(
+                "get_secret_provider_readiness",
+                preferred_server_id=server_id,
+            )
+        }
+
     def get_run(self, run_id: str) -> dict[str, Any]:
         return {"data": self.call_runner("get_run", run_id=run_id)}
 

@@ -444,6 +444,15 @@ class RemoteRunnerProxyMixin:
         )
         return client.get_json(f"/api/v1/audit/events?{query}")["data"]
 
+    def get_secret_provider_readiness(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+            timeout=20,
+        )
+        return client.get_json("/api/v1/secrets/provider-readiness")["data"]
+
     def list_runs(self, **kwargs) -> list[dict[str, Any]]:
         client = self._get_client(
             server_id=str(kwargs["server_id"]),

@@ -318,6 +318,9 @@ class RemoteRunnerHttpClient:
         )
         return self.get_json(f"/api/v1/audit/events?{query}")["data"]
 
+    def get_secret_provider_readiness(self) -> dict[str, Any]:
+        return self.get_json("/api/v1/secrets/provider-readiness")["data"]
+
     def get_run(self, run_id: str) -> dict[str, Any]:
         return self.get_json(f"/api/v1/runs/{run_id}")["data"]
 
