@@ -1,6 +1,6 @@
 "use client";
 
-import { cachedAsync } from "@/app/lib/async-cache";
+import { cachedAsync, invalidateAsyncCachePrefix } from "@/app/lib/async-cache";
 import { requestLocalApiJson } from "@/app/lib/local-api-client";
 
 import type {
@@ -9,6 +9,10 @@ import type {
   WorkflowBackfillLaunchDetailResponse,
   WorkflowBackfillLaunchList,
   WorkflowBackfillLaunchListResponse,
+  WorkflowBackfillLaunchResponse,
+  WorkflowBackfillPreview,
+  WorkflowBackfillPreviewRequest,
+  WorkflowBackfillPreviewResponse,
 } from "./workflow-backfill-model";
 
 type WorkflowBackfillFetchOptions = {
@@ -85,6 +89,48 @@ export async function cancelWorkflowBackfillLaunch(
     }
   );
   return response.data;
+}
+
+export async function previewWorkflowTriggerBackfill(
+  triggerId: string,
+  payload: WorkflowBackfillPreviewRequest,
+  options: Pick<WorkflowBackfillFetchOptions, "serverId"> = {}
+): Promise<WorkflowBackfillPreview> {
+  const normalizedTriggerId = triggerId.trim();
+  if (!normalizedTriggerId) {
+    throw new Error("WORKFLOW_TRIGGER_ID_REQUIRED");
+  }
+  const response = await requestLocalApiJson<WorkflowBackfillPreviewResponse>(
+    "POST",
+    `/api/v1/workflow-triggers/${encodeURIComponent(normalizedTriggerId)}/backfill/preview${backfillQuery(options)}`,
+    {
+      body: payload,
+      cache: "no-store",
+    }
+  );
+  return { ...response.data, partitions: response.data.partitions || [] };
+}
+
+export async function launchWorkflowTriggerBackfill(
+  triggerId: string,
+  payload: WorkflowBackfillPreviewRequest & { previewId: string; confirmation: "launch-backfill"; actor?: string },
+  options: Pick<WorkflowBackfillFetchOptions, "serverId"> = {}
+): Promise<WorkflowBackfillLaunchDetail> {
+  const normalizedTriggerId = triggerId.trim();
+  if (!normalizedTriggerId) {
+    throw new Error("WORKFLOW_TRIGGER_ID_REQUIRED");
+  }
+  const response = await requestLocalApiJson<WorkflowBackfillLaunchResponse>(
+    "POST",
+    `/api/v1/workflow-triggers/${encodeURIComponent(normalizedTriggerId)}/backfill/launch${backfillQuery(options)}`,
+    {
+      body: payload,
+      cache: "no-store",
+    }
+  );
+  invalidateAsyncCachePrefix(WORKFLOW_BACKFILL_LAUNCHES_CACHE_KEY);
+  invalidateAsyncCachePrefix(WORKFLOW_BACKFILL_LAUNCH_CACHE_KEY);
+  return { ...response.data, partitions: response.data.partitions || [] };
 }
 
 function backfillQuery(options: WorkflowBackfillFetchOptions) {

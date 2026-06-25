@@ -34,6 +34,18 @@ export type WorkflowBackfillRange = {
   runOrder?: string;
 };
 
+export type WorkflowBackfillPreviewRequest = {
+  rangeStart: string;
+  rangeEnd: string;
+  partitionUnit: "hour" | "day";
+  timezone: string;
+  maxPartitions: number;
+  concurrencyLimit: number;
+  runOrder: "forward" | "backward";
+  reprocessBehavior: "none" | "failed" | "completed";
+  params?: Record<string, unknown>;
+};
+
 export type WorkflowRunAdmissionWaitReason = {
   code?: string;
   resource?: string;
@@ -84,6 +96,46 @@ export type WorkflowBackfillLaunch = {
     deadLetter?: boolean;
     concurrencyEnforced?: boolean;
   };
+};
+
+export type WorkflowBackfillPreviewPartition = {
+  partitionId?: string;
+  partitionKey?: string;
+  index?: number;
+  window?: {
+    start?: string;
+    end?: string;
+    timezone?: string;
+    semantics?: string;
+  };
+  action?: string;
+  existingState?: WorkflowBackfillPartition["existingState"];
+  reprocessDecision?: WorkflowBackfillPartition["reprocessDecision"];
+};
+
+export type WorkflowBackfillPreview = {
+  schemaVersion?: string;
+  previewId: string;
+  triggerId: string;
+  sourceType?: string;
+  triggerEnabled?: boolean;
+  pipelineId?: string;
+  launchSupported?: boolean;
+  reason?: string;
+  range?: WorkflowBackfillRange;
+  runOrder?: string;
+  reprocessBehavior?: string;
+  launchStrategy?: string;
+  estimatedRunCount?: number;
+  returnedRunCount?: number;
+  creationRunCount?: number;
+  skippedRunCount?: number;
+  blockedActiveRunCount?: number;
+  truncated?: boolean;
+  concurrency?: WorkflowBackfillConcurrency & {
+    estimatedBatches?: number;
+  };
+  partitions?: WorkflowBackfillPreviewPartition[];
 };
 
 export type WorkflowBackfillPartition = {
@@ -151,6 +203,14 @@ export type WorkflowBackfillLaunchListResponse = {
 };
 
 export type WorkflowBackfillLaunchDetailResponse = {
+  data: WorkflowBackfillLaunchDetail;
+};
+
+export type WorkflowBackfillPreviewResponse = {
+  data: WorkflowBackfillPreview;
+};
+
+export type WorkflowBackfillLaunchResponse = {
   data: WorkflowBackfillLaunchDetail;
 };
 

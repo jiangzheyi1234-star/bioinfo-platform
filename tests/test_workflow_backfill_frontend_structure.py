@@ -12,16 +12,23 @@ def _source(filename: str) -> str:
     return (COMPONENTS / filename).read_text(encoding="utf-8")
 
 
-def test_backfill_launches_have_read_only_frontend_surface() -> None:
+def test_backfill_launches_have_preview_launch_and_cancel_frontend_surface() -> None:
     model = _source("workflow-backfill-model.ts")
     api = _source("workflow-backfill-api.ts")
     page = _source("workflow-backfill-launches-page.tsx")
+    launch_control = _source("workflow-backfill-launch-control.tsx")
     panel = _source("workflow-backfill-launch-panel.tsx")
     results = _source("workflow-results-page.tsx")
     route = BACKFILL_ROUTE.read_text(encoding="utf-8")
 
     assert BACKFILL_ROUTE.exists()
     assert "WorkflowBackfillLaunchesPage" in route
+    assert "WorkflowBackfillPreviewRequest" in model
+    assert "WorkflowBackfillPreview" in model
+    assert "WorkflowBackfillPreviewPartition" in model
+    assert "WorkflowBackfillPreviewResponse" in model
+    assert "WorkflowBackfillLaunchResponse" in model
+    assert 'reprocessBehavior: "none" | "failed" | "completed"' in model
     assert "WorkflowBackfillLaunchList" in model
     assert "WorkflowBackfillLaunchDetail" in model
     assert "WorkflowBackfillPartitionSummary" in model
@@ -36,15 +43,40 @@ def test_backfill_launches_have_read_only_frontend_surface() -> None:
     assert "reprocessDecision" in model
     assert "operationCapabilities" in model
     assert "WorkflowBackfillCancelResponse" in model
+    assert "previewWorkflowTriggerBackfill" in api
+    assert "launchWorkflowTriggerBackfill" in api
     assert "fetchWorkflowBackfillLaunches" in api
     assert "fetchWorkflowBackfillLaunch(" in api
     assert "cancelWorkflowBackfillLaunch" in api
+    assert "/api/v1/workflow-triggers/${encodeURIComponent(normalizedTriggerId)}/backfill/preview" in api
+    assert "/api/v1/workflow-triggers/${encodeURIComponent(normalizedTriggerId)}/backfill/launch" in api
+    assert '"launch-backfill"' in api
     assert "/api/v1/workflow-backfill-launches" in api
     assert "/cancel" in api
     assert '"cancel-backfill"' in api
+    assert "requestLocalApiJson<WorkflowBackfillPreviewResponse>" in api
+    assert "requestLocalApiJson<WorkflowBackfillLaunchResponse>" in api
     assert "requestLocalApiJson<WorkflowBackfillLaunchListResponse>" in api
     assert "requestLocalApiJson<WorkflowBackfillLaunchDetailResponse>" in api
     assert "requestLocalApiJson<WorkflowBackfillCancelResponse>" in api
+    assert "WorkflowBackfillLaunchControl" in page
+    assert "fetchWorkflowTriggers({ forceRefresh })" in page
+    assert "trigger.sourceType === \"backfill\"" in page
+    assert "backfillLaunched" in page
+    assert "router.replace(`/workflows/results/backfills?launch=${encodeURIComponent(launch.launchId)}`" in page
+    assert 'data-testid="workflow-backfill-launch-control"' in launch_control
+    assert 'data-testid="workflow-backfill-preview"' in launch_control
+    assert 'data-testid="workflow-backfill-launch"' in launch_control
+    assert 'data-testid="workflow-backfill-preview-summary"' in launch_control
+    assert "previewWorkflowTriggerBackfill(selectedTrigger.triggerId, payload)" in launch_control
+    assert "launchWorkflowTriggerBackfill(selectedTrigger.triggerId, {" in launch_control
+    assert 'confirmation: "launch-backfill"' in launch_control
+    assert "preview?.launchSupported" in launch_control
+    assert "preview.truncated" in launch_control
+    assert "preview.concurrency?.estimatedBatches" in launch_control
+    assert "parseParamsJson" in launch_control
+    assert '<SelectItem value="completed">completed</SelectItem>' in launch_control
+    assert 'value="all"' not in launch_control
     assert "limit: 50" in page
     assert "window.setInterval(() => void loadDetail(true), 5000)" in page
     assert "cancelWorkflowBackfillLaunch(launchId)" in page
@@ -76,9 +108,10 @@ def test_backfill_launches_have_read_only_frontend_surface() -> None:
     assert "runSpecHash" in panel
     assert "triggerEventId" in panel
 
-    forbidden_controls = ("cancelBackfill", "replayPartition", "deadLetter", "retry failed partitions", "批量取消")
+    forbidden_controls = ("replayPartition", "deadLetter", "retry failed partitions", "批量取消")
     for forbidden in forbidden_controls:
         assert forbidden not in page
+        assert forbidden not in launch_control
         assert forbidden not in panel
 
 

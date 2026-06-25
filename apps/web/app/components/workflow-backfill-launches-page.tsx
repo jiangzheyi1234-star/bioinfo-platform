@@ -14,11 +14,14 @@ import {
   fetchWorkflowBackfillLaunch,
   fetchWorkflowBackfillLaunches,
 } from "./workflow-backfill-api";
+import { WorkflowBackfillLaunchControl } from "./workflow-backfill-launch-control";
 import { WorkflowBackfillLaunchPanel } from "./workflow-backfill-launch-panel";
 import type {
   WorkflowBackfillLaunch,
   WorkflowBackfillLaunchDetail,
 } from "./workflow-backfill-model";
+import { fetchWorkflowTriggers } from "./workflow-trigger-api";
+import type { WorkflowTrigger } from "./workflow-trigger-model";
 import { workflowErrorMessage } from "./workflows-page-model";
 
 export function WorkflowBackfillLaunchesPage() {
@@ -32,9 +35,19 @@ export function WorkflowBackfillLaunchesPage() {
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [cancelingLaunchId, setCancelingLaunchId] = useState("");
+  const [backfillTriggers, setBackfillTriggers] = useState<WorkflowTrigger[]>([]);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [detailError, setDetailError] = useState("");
+
+  const loadBackfillTriggers = useCallback(async (forceRefresh = false) => {
+    try {
+      const data = await fetchWorkflowTriggers({ forceRefresh });
+      setBackfillTriggers((data.items || []).filter((trigger) => trigger.sourceType === "backfill"));
+    } catch (err) {
+      setError(workflowErrorMessage(err, "读取 backfill trigger 失败"));
+    }
+  }, []);
 
   const loadLaunches = useCallback(async (forceRefresh = false) => {
     setLoading(true);
@@ -73,8 +86,9 @@ export function WorkflowBackfillLaunchesPage() {
   }, [selectedLaunchId]);
 
   useEffect(() => {
+    void loadBackfillTriggers();
     void loadLaunches();
-  }, [loadLaunches]);
+  }, [loadBackfillTriggers, loadLaunches]);
 
   useEffect(() => {
     if (launchFromQuery && launchFromQuery !== selectedLaunchId) {
@@ -108,8 +122,22 @@ export function WorkflowBackfillLaunchesPage() {
 
   function refresh() {
     setNotice("");
+    void loadBackfillTriggers(true);
     void loadLaunches(true);
     void loadDetail(true);
+  }
+
+  function backfillLaunched(launch: WorkflowBackfillLaunchDetail) {
+    setNotice(`已启动回填批次 ${launch.launchId}`);
+    setDetail(launch);
+    const { partitions: _partitions, ...launchSummary } = launch;
+    setLaunches((current) => {
+      const withoutCurrent = current.filter((item) => item.launchId !== launch.launchId);
+      return [{ ...launchSummary }, ...withoutCurrent];
+    });
+    setSelectedLaunchId(launch.launchId);
+    router.replace(`/workflows/results/backfills?launch=${encodeURIComponent(launch.launchId)}`, { scroll: false });
+    void loadLaunches(true);
   }
 
   async function cancelLaunch(launchId: string) {
@@ -172,19 +200,25 @@ export function WorkflowBackfillLaunchesPage() {
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         ) : (
-          <WorkflowBackfillLaunchPanel
-            cancelingLaunchId={cancelingLaunchId}
-            detail={detail}
-            detailLoading={detailLoading}
-            error={error || detailError}
-            launches={launches}
-            loading={loading}
-            notice={notice}
-            onCancelLaunch={cancelLaunch}
-            onRefresh={refresh}
-            onSelectLaunch={selectLaunch}
-            selectedLaunchId={selectedLaunchId}
-          />
+          <>
+            <WorkflowBackfillLaunchControl
+              onLaunched={backfillLaunched}
+              triggers={backfillTriggers}
+            />
+            <WorkflowBackfillLaunchPanel
+              cancelingLaunchId={cancelingLaunchId}
+              detail={detail}
+              detailLoading={detailLoading}
+              error={error || detailError}
+              launches={launches}
+              loading={loading}
+              notice={notice}
+              onCancelLaunch={cancelLaunch}
+              onRefresh={refresh}
+              onSelectLaunch={selectLaunch}
+              selectedLaunchId={selectedLaunchId}
+            />
+          </>
         )}
       </div>
     </div>
