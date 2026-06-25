@@ -57,6 +57,7 @@ rejected at Local API startup.
 - High-risk remote-runner actions are deny-by-default after authentication. The runner token must declare explicit `api_token_roles`, and service-layer authorization checks the requested action against the machine-readable governance policy catalog before mutation, dispatch, retry, export, or GC work starts.
 - Generic result read surfaces (`run.results.read`, `result.list`, and `result.read`) require artifact-curator/auditor roles and expose only public result, artifact, checksum, lifecycle, and input-lineage summaries. Result directories, storage URIs, raw local paths, package paths, and raw lineage edges remain internal to storage, preview, export, and audit services.
 - Workflow trigger and backfill observability reads (`workflow_trigger.list`, `workflow_trigger.events.read`, `workflow_trigger.readiness_observation.read`, `workflow_trigger.inbox.read`, `workflow_trigger.backfill_launch.list`, and `workflow_trigger.backfill_launch.read`) require workflow-operator/auditor roles before trigger, event, inbox, readiness, or backfill launch storage is read.
+- Rule-level retry and run resume mutation routes (`run.rule_retry` and `run.resume`) are governed workflow-operator actions but remain fail-closed. Requests must carry an explicit confirmation and the current execution plan hash; the public routes recompute the current plan, record a blocked governance audit event, and do not persist retry commands or execution options while output invalidation, workdir reuse, incomplete-output verification, and artifact/cache adoption remain unproven.
 - Unsupported roles fail loudly with `REMOTE_RUNNER_TOKEN_ROLE_UNSUPPORTED`; missing or wrong roles fail with `RemoteRunnerAuthorizationError` and a hash-chained `decision=deny` governance audit event where the evidence ledger is available.
 - Token rotation is an operator action and must not leak raw token values into diagnostics, logs, or UI state.
 
@@ -124,6 +125,7 @@ matching authorization guard.
 6. Reference database registration, validation fixture use, and manual database pack handoff.
 7. Tool registry mutation, validation prepare/cancel, RuleSpec update, and production enablement.
 8. Workflow trigger and backfill observability reads, with allow audit details limited to counts, filter-presence booleans, source/resource/state labels, and partition/run counters rather than payloads, cursor values, event IDs, payload hashes, raw resource URIs, run specs, or storage paths.
+9. Rule-level retry and run resume operator intents, with deny audit details limited to plan hashes, execution-enabled booleans, command-preview booleans, selected/rerun counts, output-audit counters, latest attempt state, and blocker codes rather than paths, storage URIs, run specs, cache keys, or execution options.
 
 Operator/debug-only scripts such as `scripts/remote_exec.py` may execute arbitrary remote commands only when invoked explicitly by an operator. Launchers, CI, and normal UI paths must not call them implicitly.
 

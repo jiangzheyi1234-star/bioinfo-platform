@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .execution_plan_hash import attach_plan_hash
 from .execution_output_audit import build_attempt_output_audit
 
 
@@ -56,18 +57,20 @@ def build_run_resume_plan(
         return _blocked(base, "RUN_NOT_RESUMABLE_TERMINAL")
     if latest_state not in RESUMABLE_ATTEMPT_STATES:
         return _blocked(base, "RUN_RESUME_LATEST_ATTEMPT_NOT_RESUMABLE")
-    return {
-        **base,
-        "eligible": False,
-        "eligibleNow": False,
-        "commandPreviewAvailable": True,
-        "reasonCode": "RUN_RESUME_PREVIEW_AVAILABLE",
-        "message": (
-            "Snakemake resume semantics are available for planning via --rerun-incomplete, "
-            "but execution remains disabled until workdir reuse and incomplete-output audit policies are proven."
-        ),
-        "snakemakeOptions": _snakemake_options(preview=True),
-    }
+    return attach_plan_hash(
+        {
+            **base,
+            "eligible": False,
+            "eligibleNow": False,
+            "commandPreviewAvailable": True,
+            "reasonCode": "RUN_RESUME_PREVIEW_AVAILABLE",
+            "message": (
+                "Snakemake resume semantics are available for planning via --rerun-incomplete, "
+                "but execution remains disabled until workdir reuse and incomplete-output audit policies are proven."
+            ),
+            "snakemakeOptions": _snakemake_options(preview=True),
+        }
+    )
 
 
 def _base_plan(
@@ -108,12 +111,14 @@ def _base_plan(
 
 
 def _blocked(base: dict[str, Any], reason_code: str) -> dict[str, Any]:
-    return {
-        **base,
-        "reasonCode": reason_code,
-        "message": f"Run resume execution planning is blocked: {reason_code}.",
-        "blockedReasonCodes": _unique_strings([reason_code, *base["blockedReasonCodes"]]),
-    }
+    return attach_plan_hash(
+        {
+            **base,
+            "reasonCode": reason_code,
+            "message": f"Run resume execution planning is blocked: {reason_code}.",
+            "blockedReasonCodes": _unique_strings([reason_code, *base["blockedReasonCodes"]]),
+        }
+    )
 
 
 def _snakemake_options(*, preview: bool) -> dict[str, Any]:

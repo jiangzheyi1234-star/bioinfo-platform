@@ -14,6 +14,8 @@ from .api_models import (
     ResultPackageByteDeleteRequest,
     ResultPackageExportRequest,
     ResultPackageRetireRequest,
+    RunResumeRequest,
+    RunRuleRetryRequest,
     RunRetryRequest,
 )
 from .control_service import (
@@ -44,6 +46,7 @@ from .control_service import (
     retry_run_from_request,
     run_artifact_gc_from_request,
 )
+from .run_reexecution_service import resume_run_from_request, retry_run_rules_from_request
 from .route_headers import AuthorizationHeader
 
 
@@ -72,6 +75,24 @@ async def retry_run_api(
     authorization: AuthorizationHeader = None,
 ) -> dict[str, Any]:
     return await retry_run_from_request(run_id, payload, authorization)
+
+
+@router.post("/api/v1/runs/{run_id}/rules/retry", status_code=202)
+async def retry_run_rules_api(
+    run_id: str,
+    payload: RunRuleRetryRequest,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await retry_run_rules_from_request(run_id, payload, authorization)
+
+
+@router.post("/api/v1/runs/{run_id}/resume", status_code=202)
+async def resume_run_api(
+    run_id: str,
+    payload: RunResumeRequest,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await resume_run_from_request(run_id, payload, authorization)
 
 
 @router.get("/api/v1/runs/{run_id}/events")

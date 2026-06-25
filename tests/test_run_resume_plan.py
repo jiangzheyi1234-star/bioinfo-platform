@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from apps.remote_runner.execution_plan_hash import stable_plan_hash
 from apps.remote_runner.execution_resume_plan import build_run_resume_plan
 
 
@@ -28,6 +29,8 @@ def test_run_resume_plan_previews_snakemake_rerun_incomplete_without_enabling_ex
     )
 
     assert plan["schemaVersion"] == "run-resume-plan.v1"
+    assert len(plan["planHash"]) == 64
+    assert plan["planHash"] == stable_plan_hash(plan)
     assert plan["supported"] is False
     assert plan["eligible"] is False
     assert plan["eligibleNow"] is False

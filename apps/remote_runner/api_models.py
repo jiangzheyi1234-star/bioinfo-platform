@@ -48,6 +48,20 @@ class RunRetryRequest(RemoteRunnerRequest):
     reason: str | None = None
 
 
+class RunRuleRetryRequest(RemoteRunnerRequest):
+    confirmation: Literal["retry-failed-rules"]
+    planHash: str = Field(min_length=64, max_length=64)
+    actor: str | None = None
+    reason: str | None = None
+
+
+class RunResumeRequest(RemoteRunnerRequest):
+    confirmation: Literal["resume-run"]
+    planHash: str = Field(min_length=64, max_length=64)
+    actor: str | None = None
+    reason: str | None = None
+
+
 class ResultPackageExportRequest(RemoteRunnerRequest):
     includeArtifacts: StrictBool
     actor: str | None = None

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .execution_plan_hash import attach_plan_hash
 from .rule_retry_plan import PARTIAL_RETRY_UNSUPPORTED, RULE_RETRY_PLAN_SCHEMA_VERSION
 from .workflow_engine_adapter import WorkflowRuntimeCommandError, normalize_forcerun_rules
 
@@ -45,24 +46,26 @@ def build_rule_retry_execution_plan(rule_retry_plan: dict[str, Any]) -> dict[str
         return _blocked(base, str(exc).split(":", 1)[0])
 
     args_preview = ["--rerun-incomplete", "--forcerun", *forcerun_rules]
-    return {
-        **base,
-        "reasonCode": PARTIAL_RETRY_UNSUPPORTED,
-        "message": "Rule-level retry command options are planned but execution remains disabled until output restoration and adoption policies are proven.",
-        "commandPreviewAvailable": True,
-        "selectedRules": [_rule_ref(rule) for rule in selected_rules],
-        "rerunScope": {
-            "ruleCount": len(rule_retry_plan.get("invalidatedRules") or []),
-            "rules": list(rule_retry_plan.get("invalidatedRules") or []),
-        },
-        "snakemakeOptions": {
-            "schemaVersion": SNAKEMAKE_RULE_RERUN_OPTIONS_SCHEMA_VERSION,
-            "rerunIncomplete": True,
-            "forcerunRules": forcerun_rules,
-            "argsPreview": args_preview,
-            "unsafeFlagsProhibited": UNSAFE_SNAKEMAKE_RULE_RETRY_FLAGS,
-        },
-    }
+    return attach_plan_hash(
+        {
+            **base,
+            "reasonCode": PARTIAL_RETRY_UNSUPPORTED,
+            "message": "Rule-level retry command options are planned but execution remains disabled until output restoration and adoption policies are proven.",
+            "commandPreviewAvailable": True,
+            "selectedRules": [_rule_ref(rule) for rule in selected_rules],
+            "rerunScope": {
+                "ruleCount": len(rule_retry_plan.get("invalidatedRules") or []),
+                "rules": list(rule_retry_plan.get("invalidatedRules") or []),
+            },
+            "snakemakeOptions": {
+                "schemaVersion": SNAKEMAKE_RULE_RERUN_OPTIONS_SCHEMA_VERSION,
+                "rerunIncomplete": True,
+                "forcerunRules": forcerun_rules,
+                "argsPreview": args_preview,
+                "unsafeFlagsProhibited": UNSAFE_SNAKEMAKE_RULE_RETRY_FLAGS,
+            },
+        }
+    )
 
 
 def rule_retry_execution_options(rule_retry_execution_plan: dict[str, Any]) -> dict[str, Any]:
@@ -131,11 +134,13 @@ def _base_plan(rule_retry_plan: dict[str, Any]) -> dict[str, Any]:
 
 
 def _blocked(base: dict[str, Any], reason_code: str) -> dict[str, Any]:
-    return {
-        **base,
-        "reasonCode": reason_code,
-        "message": f"Rule-level retry execution planning is blocked: {reason_code}.",
-    }
+    return attach_plan_hash(
+        {
+            **base,
+            "reasonCode": reason_code,
+            "message": f"Rule-level retry execution planning is blocked: {reason_code}.",
+        }
+    )
 
 
 def _disabled_reason(rule_retry_execution_plan: dict[str, Any]) -> str:

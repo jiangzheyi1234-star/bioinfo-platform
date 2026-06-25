@@ -13,6 +13,14 @@ class RemoteRunnerNotFoundError(ValueError):
     status_code = 404
 
 
+class RemoteRunnerOperationBlockedError(ValueError):
+    status_code = 409
+
+    def __init__(self, code: str, payload: dict | None = None) -> None:
+        super().__init__(code)
+        self.payload = payload if payload is not None else {"code": code}
+
+
 class RemoteRunnerReadinessError(ValueError):
     status_code = 503
 

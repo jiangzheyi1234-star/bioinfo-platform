@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from apps.remote_runner.execution_plan_hash import stable_plan_hash
 from apps.remote_runner.rule_retry_execution_plan import build_rule_retry_execution_plan, rule_retry_execution_options
 
 
@@ -9,6 +10,8 @@ def test_rule_retry_execution_plan_previews_snakemake_forcerun_options_without_e
     plan = build_rule_retry_execution_plan(_rule_retry_plan())
 
     assert plan["schemaVersion"] == "rule-retry-execution-plan.v1"
+    assert len(plan["planHash"]) == 64
+    assert plan["planHash"] == stable_plan_hash(plan)
     assert plan["supported"] is False
     assert plan["eligibleNow"] is False
     assert plan["executionEnabled"] is False

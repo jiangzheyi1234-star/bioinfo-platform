@@ -158,6 +158,33 @@ def test_inbox_replay_action_uses_workflow_operator_role(tmp_path) -> None:
     assert authorize_action(allowed, "workflow_trigger.inbox_replay").roles == ("workflow-operator",)
 
 
+def test_run_reexecution_actions_use_workflow_operator_role(tmp_path) -> None:
+    denied = make_configured_remote_runner(
+        tmp_path / "denied",
+        token="rbac-token",
+        api_token_roles=("auditor",),
+    )
+    allowed = make_configured_remote_runner(
+        tmp_path / "allowed",
+        token="rbac-token",
+        api_token_roles=("workflow-operator",),
+    )
+
+    for action in ("run.rule_retry", "run.resume"):
+        try:
+            authorize_action(denied, action)
+        except RemoteRunnerAuthorizationError as exc:
+            assert str(exc) == "runner authorization failed"
+        else:
+            raise AssertionError(f"{action} must require workflow-operator")
+
+        deny_events = list_governance_audit_events(denied, action=action)["items"]
+        assert deny_events[-1]["decision"] == "deny"
+        assert deny_events[-1]["details"]["requiredRoles"] == ["workflow-operator"]
+        assert deny_events[-1]["actorRoles"] == ["auditor"]
+        assert authorize_action(allowed, action).roles == ("workflow-operator",)
+
+
 def test_result_package_retire_action_uses_artifact_curator_role(tmp_path) -> None:
     denied = make_configured_remote_runner(
         tmp_path / "denied",

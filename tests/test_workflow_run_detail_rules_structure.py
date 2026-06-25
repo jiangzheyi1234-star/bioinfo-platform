@@ -57,6 +57,7 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "ruleRetryPlan?: WorkflowRunRuleRetryPlan" in model
     assert "ruleRetryExecutionPlan?: WorkflowRunRuleRetryExecutionPlan" in model
     assert "resumePlan?: WorkflowRunResumePlan" in model
+    assert "planHash?: string" in model
     assert "workdirEvidence?:" in model
     assert "incompleteOutputAudit?:" in model
     assert "expectedOutputCount?: number" in model

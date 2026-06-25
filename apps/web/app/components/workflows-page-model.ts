@@ -403,6 +403,7 @@ export type WorkflowRunRuleRetrySnakemakeOptions = {
 
 export type WorkflowRunRuleRetryExecutionPlan = {
   schemaVersion?: string;
+  planHash?: string;
   sourcePlanSchemaVersion?: string;
   runId?: string;
   workflowRevisionId?: string | null;
@@ -438,6 +439,7 @@ export type WorkflowRunResumeSnakemakeOptions = {
 
 export type WorkflowRunResumePlan = {
   schemaVersion?: string;
+  planHash?: string;
   runId?: string;
   workflowRevisionId?: string | null;
   strategy?: string;

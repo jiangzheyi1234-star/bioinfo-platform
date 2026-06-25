@@ -15,6 +15,7 @@ from .errors import (
     RemoteRunnerAuthorizationError,
     RemoteRunnerAuthError,
     RemoteRunnerNotFoundError,
+    RemoteRunnerOperationBlockedError,
     RemoteRunnerReadinessError,
     UploadTooLargeError,
     WorkflowDesignRevisionConflictError,
@@ -44,6 +45,13 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def database_candidate_conflict_handler(
         _request: Request,
         exc: DatabaseCandidateConflictError,
+    ) -> JSONResponse:
+        return status_payload_response(exc)
+
+    @app.exception_handler(RemoteRunnerOperationBlockedError)
+    async def remote_runner_operation_blocked_handler(
+        _request: Request,
+        exc: RemoteRunnerOperationBlockedError,
     ) -> JSONResponse:
         return status_payload_response(exc)
 
