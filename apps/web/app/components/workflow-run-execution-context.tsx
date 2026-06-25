@@ -9,6 +9,7 @@ import type {
   WorkflowRunExecutionAttempt,
   WorkflowRunExecutionContext,
   WorkflowRunResumePlan,
+  WorkflowRunRuleOutputInvalidationPlan,
   WorkflowRunRuleRetryExecutionPlan,
   WorkflowRunRuleRetryPlanRuleRef,
 } from "./workflows-page-model";
@@ -108,50 +109,6 @@ function compactList(values: string[] | undefined, fallback = "—") {
   return items.length > 4 ? `${shown}, +${items.length - 4}` : shown;
 }
 
-type RuleCacheRestorePlanPreview = {
-  reasonCode?: string;
-  outputCount?: number;
-  cacheHitCount?: number;
-  cacheMissCount?: number;
-  blockedReasonCodes?: string[];
-  stagedFilePolicy?: {
-    reasonCode?: string;
-    overwriteAllowed?: boolean;
-    pathExposed?: boolean;
-  };
-};
-
-type RuleOutputInvalidationPlanPreview = {
-  schemaVersion?: string;
-  reasonCode?: string;
-  previewAvailable?: boolean;
-  blockedReasonCodes?: string[];
-  outputEdgeSummary?: {
-    outputEdgeCount?: number;
-    invalidatedOutputEdgeCount?: number;
-    selectedOutputEdgeCount?: number;
-    downstreamOutputEdgeCount?: number;
-    preservedOutputEdgeCount?: number;
-    unmatchedOutputEdgeCount?: number;
-    invalidatedLineageEdgeCount?: number;
-    payloadDeletionAllowed?: boolean;
-    lineageMutationAllowed?: boolean;
-  };
-  rules?: Array<
-    WorkflowRunRuleRetryPlanRuleRef & {
-      invalidationRole?: string;
-      outputEdgeCount?: number;
-      lineageEdgeCount?: number;
-      outputs?: Array<{
-        portName?: string;
-        stepId?: string;
-        lineageEdgeCount?: number;
-        wouldDeletePayload?: boolean;
-      }>;
-    }
-  >;
-};
-
 function RuleRetryPlanSummary({ context }: { context: WorkflowRunExecutionContext }) {
   const plan = context.ruleRetryPlan;
   if (!plan || !plan.failedRuleCount) return null;
@@ -207,7 +164,7 @@ function RuleRetryPlanSummary({ context }: { context: WorkflowRunExecutionContex
   );
 }
 
-function RuleOutputInvalidationPlanPreview({ plan }: { plan?: RuleOutputInvalidationPlanPreview }) {
+function RuleOutputInvalidationPlanPreview({ plan }: { plan?: WorkflowRunRuleOutputInvalidationPlan }) {
   if (!plan?.previewAvailable) return null;
   const summary = plan.outputEdgeSummary || {};
   const impactedOutputs = (plan.rules || [])
@@ -254,8 +211,7 @@ function RuleOutputInvalidationPlanPreview({ plan }: { plan?: RuleOutputInvalida
 
 function RuleRetryExecutionPlanPreview({ plan }: { plan?: WorkflowRunRuleRetryExecutionPlan }) {
   if (!plan) return null;
-  const cacheRestore = (plan as WorkflowRunRuleRetryExecutionPlan & { cacheRestorePlan?: RuleCacheRestorePlanPreview })
-    .cacheRestorePlan;
+  const cacheRestore = plan.cacheRestorePlan;
   const options = plan.snakemakeOptions;
   const argsPreview = options?.argsPreview || [];
   const forcerunRules = options?.forcerunRules || [];
@@ -269,6 +225,16 @@ function RuleRetryExecutionPlanPreview({ plan }: { plan?: WorkflowRunRuleRetryEx
   const cacheLabel = cacheRestore
     ? `${cacheRestore.cacheHitCount || 0} / ${cacheRestore.outputCount || 0}`
     : "—";
+  const cacheFingerprints = (cacheRestore?.rules || [])
+    .flatMap((rule) => rule.outputs || [])
+    .map((output) => output.cacheKeyFingerprint || "")
+    .filter(Boolean);
+  const cacheFingerprintLabel = compactList(cacheFingerprints);
+  const cachePolicyLabel = cacheRestore?.redactionPolicy?.cacheKeysExposed
+    ? "raw keys exposed"
+    : cacheRestore?.redactionPolicy?.cacheKeyFingerprintsExposed
+      ? "digest-only"
+      : "redacted";
 
   return (
     <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
@@ -307,6 +273,12 @@ function RuleRetryExecutionPlanPreview({ plan }: { plan?: WorkflowRunRuleRetryEx
             <span className="truncate font-mono text-slate-800">
               {cacheRestore.reasonCode || "—"} · miss {cacheRestore.cacheMissCount || 0}
             </span>
+            <span className="text-slate-500">cache policy</span>
+            <span className="truncate font-mono text-slate-800">
+              {cachePolicyLabel} · plan {cacheRestore.planHash ? cacheRestore.planHash.slice(0, 12) : "—"}
+            </span>
+            <span className="text-slate-500">cache fingerprints</span>
+            <span className="truncate font-mono text-slate-800">{cacheFingerprintLabel}</span>
             <span className="text-slate-500">staged files</span>
             <span className="truncate font-mono text-slate-800">
               {cacheRestore.stagedFilePolicy?.reasonCode || "—"} · overwrite{" "}
@@ -391,9 +363,7 @@ export function WorkflowRunExecutionContextPanel({
   const lease = context.activeLease || context.currentLease;
   const retryReason = context.retryEligibility?.reasonCode || "RUN_RETRY_UNAVAILABLE";
   const retryEnabled = Boolean(context.retryEligibility?.eligibleNow && onRetryRun);
-  const outputInvalidationPlan = (context as WorkflowRunExecutionContext & {
-    ruleOutputInvalidationPlan?: RuleOutputInvalidationPlanPreview;
-  }).ruleOutputInvalidationPlan;
+  const outputInvalidationPlan = context.ruleOutputInvalidationPlan;
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4">

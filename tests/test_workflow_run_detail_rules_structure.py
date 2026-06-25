@@ -13,6 +13,8 @@ def _component_source(filename: str) -> str:
 
 def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     model = _component_source("workflows-page-model.ts")
+    execution_model = _component_source("workflow-run-execution-model.ts")
+    model_contract = f"{model}\n{execution_model}"
     api = _component_source("workflows-page-api.ts")
     panel = _component_source("workflow-run-detail-panel.tsx")
     execution_panel = _component_source("workflow-run-execution-context.tsx")
@@ -32,19 +34,22 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "export type WorkflowRunRulesSummary" in rules_model
     assert "statusCounts?: Record<string, number>" in rules_model
     assert "logEvidenceReasonCodes?: Record<string, number>" in rules_model
-    assert "export type WorkflowRunExecutionContext" in model
-    assert "export type WorkflowRunRuleRetryPlan" in model
-    assert "export type WorkflowRunRuleRetryExecutionPlan" in model
-    assert "export type WorkflowRunRuleRetrySnakemakeOptions" in model
-    assert "export type WorkflowRunResumePlan" in model
-    assert "export type WorkflowRunResumeSnakemakeOptions" in model
-    assert "export type WorkflowRunFailureLocator" in model
+    assert 'from "./workflow-run-execution-model"' in model
+    assert "export type WorkflowRunExecutionContext" in model_contract
+    assert "export type WorkflowRunRuleRetryPlan" in model_contract
+    assert "export type WorkflowRunRuleRetryExecutionPlan" in model_contract
+    assert "export type WorkflowRunRuleCacheRestorePlan" in model_contract
+    assert "export type WorkflowRunRuleOutputInvalidationPlan" in model_contract
+    assert "export type WorkflowRunRuleRetrySnakemakeOptions" in model_contract
+    assert "export type WorkflowRunResumePlan" in model_contract
+    assert "export type WorkflowRunResumeSnakemakeOptions" in model_contract
+    assert "export type WorkflowRunFailureLocator" in model_contract
     assert "export type WorkflowResultPackageDownload" in model
     assert "export type WorkflowResultPackageExport" in model
     assert "export type WorkflowResultPackageExportListResponse" in model
     assert "export type WorkflowResultPackageExportResponse" in model
-    assert "export type WorkflowInputArtifactPort" in model
-    assert "export type WorkflowInputArtifact" in model
+    assert "export type WorkflowInputArtifactPort" in model_contract
+    assert "export type WorkflowInputArtifact" in model_contract
     assert "inputArtifacts?: WorkflowInputArtifact[]" in model
     assert "inputArtifactCount?: number" in model
     assert "packageExportId?: string" in model
@@ -57,39 +62,45 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert 'summary?: import("./workflow-run-rules-model").WorkflowRunRulesSummary' in model
     assert "executionContext?: WorkflowRunExecutionContext" in model
     assert "failureLocator?: WorkflowRunFailureLocator" in model
-    assert "ruleLogContext?: WorkflowRunRuleLogContext" in model
-    assert "export type WorkflowRunRuleLogContext" in model
-    assert '"PATH_REFERENCE_ONLY"' in model
-    assert '"PREVIEW_AVAILABLE"' in model
-    assert "reasonCode?: \"RUN_NOT_FAILED\" | \"RUN_FAILED_NO_RULE\" | \"FAILED_RULE\" | string" in model
-    assert "redactionPolicy?:" in model
+    assert "ruleLogContext?: WorkflowRunRuleLogContext" in model_contract
+    assert "export type WorkflowRunRuleLogContext" in model_contract
+    assert '"PATH_REFERENCE_ONLY"' in model_contract
+    assert '"PREVIEW_AVAILABLE"' in model_contract
+    assert "reasonCode?: \"RUN_NOT_FAILED\" | \"RUN_FAILED_NO_RULE\" | \"FAILED_RULE\" | string" in model_contract
+    assert "redactionPolicy?:" in model_contract
     assert "artifactPathsExposed?: boolean" in model
     assert "logReferenceCount?: number" in model
     assert "sourceLocation?: WorkflowRunSourceLocation" in model
     assert "sourceLocationsSanitized?: boolean" in model
-    assert "ruleRetryPlan?: WorkflowRunRuleRetryPlan" in model
-    assert "ruleRetryExecutionPlan?: WorkflowRunRuleRetryExecutionPlan" in model
-    assert "resumePlan?: WorkflowRunResumePlan" in model
-    assert "planHash?: string" in model
-    assert "workdirEvidence?:" in model
-    assert "incompleteOutputAudit?:" in model
-    assert "expectedOutputCount?: number" in model
-    assert "checkedOutputCount?: number" in model
-    assert "existingOutputCount?: number" in model
-    assert "missingOutputCount?: number" in model
-    assert "unsafeOutputCount?: number" in model
-    assert "pathExposed?: boolean" in model
-    assert "artifactAdoptionBoundary?: WorkflowRunAdoptionBoundary" in model
-    assert "executionEnabled?: boolean" in model
-    assert "commandPreviewAvailable?: boolean" in model
-    assert "snakemakeOptions?: WorkflowRunRuleRetrySnakemakeOptions" in model
-    assert "snakemakeOptions?: WorkflowRunResumeSnakemakeOptions" in model
-    assert "unsafeFlagsProhibited?: string[]" in model
-    assert "selectedAttempt?: WorkflowRunRuleSelectedAttempt" in model
-    assert "cacheAdoptionBoundary?: WorkflowRunAdoptionBoundary" in model
-    assert "artifactAdoptionBoundary?: WorkflowRunAdoptionBoundary" in model
-    assert "preservedRules?: WorkflowRunRuleRetryPlanRuleRef[]" in model
-    assert "invalidatedRules?: WorkflowRunRuleRetryPlanRuleRef[]" in model
+    assert "ruleRetryPlan?: WorkflowRunRuleRetryPlan" in model_contract
+    assert "ruleCacheRestorePlan?: WorkflowRunRuleCacheRestorePlan" in model_contract
+    assert "ruleOutputInvalidationPlan?: WorkflowRunRuleOutputInvalidationPlan" in model_contract
+    assert "ruleRetryExecutionPlan?: WorkflowRunRuleRetryExecutionPlan" in model_contract
+    assert "cacheRestorePlan?: WorkflowRunRuleCacheRestorePlan" in model_contract
+    assert "cacheKeyPresent?: boolean" in model_contract
+    assert "cacheKeyFingerprint?: string" in model_contract
+    assert "cacheKeyFingerprintsExposed?: boolean" in model_contract
+    assert "resumePlan?: WorkflowRunResumePlan" in model_contract
+    assert "planHash?: string" in model_contract
+    assert "workdirEvidence?:" in model_contract
+    assert "incompleteOutputAudit?:" in model_contract
+    assert "expectedOutputCount?: number" in model_contract
+    assert "checkedOutputCount?: number" in model_contract
+    assert "existingOutputCount?: number" in model_contract
+    assert "missingOutputCount?: number" in model_contract
+    assert "unsafeOutputCount?: number" in model_contract
+    assert "pathExposed?: boolean" in model_contract
+    assert "artifactAdoptionBoundary?: WorkflowRunAdoptionBoundary" in model_contract
+    assert "executionEnabled?: boolean" in model_contract
+    assert "commandPreviewAvailable?: boolean" in model_contract
+    assert "snakemakeOptions?: WorkflowRunRuleRetrySnakemakeOptions" in model_contract
+    assert "snakemakeOptions?: WorkflowRunResumeSnakemakeOptions" in model_contract
+    assert "unsafeFlagsProhibited?: string[]" in model_contract
+    assert "selectedAttempt?: WorkflowRunRuleSelectedAttempt" in model_contract
+    assert "cacheAdoptionBoundary?: WorkflowRunAdoptionBoundary" in model_contract
+    assert "artifactAdoptionBoundary?: WorkflowRunAdoptionBoundary" in model_contract
+    assert "preservedRules?: WorkflowRunRuleRetryPlanRuleRef[]" in model_contract
+    assert "invalidatedRules?: WorkflowRunRuleRetryPlanRuleRef[]" in model_contract
     assert "inputCount?: number" in model
     assert "outputCount?: number" in model
     assert "logReferenceCount?: number" in model
@@ -205,6 +216,10 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "rule retry execution plan" in execution_panel
     assert "output invalidation plan" in execution_panel
     assert "payload delete" in execution_panel
+    assert "cache policy" in execution_panel
+    assert "cache fingerprints" in execution_panel
+    assert "digest-only" in execution_panel
+    assert "cacheRestore.planHash ? cacheRestore.planHash.slice(0, 12)" in execution_panel
     assert "run resume plan" in execution_panel
     assert "workdir evidence" in execution_panel
     assert "output audit" in execution_panel

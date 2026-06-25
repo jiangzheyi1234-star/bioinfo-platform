@@ -141,7 +141,35 @@ def test_run_observability_routes_record_safe_allow_audit(tmp_path, monkeypatch)
             "retryEligibility": {"eligible": True, "eligibleNow": False},
             "resumeSupported": False,
             "ruleRetryPlan": {"failedRuleCount": 2, "selectedAttemptCount": 1, "selectedFailedRules": ["align"]},
-            "ruleRetryExecutionPlan": {"executionEnabled": False, "argsPreview": ["--forcerun", "align"]},
+            "ruleCacheRestorePlan": {
+                "planHash": "c" * 64,
+                "outputCount": 2,
+                "cacheHitCount": 1,
+                "cacheMissCount": 1,
+                "redactionPolicy": {
+                    "cacheKeysExposed": False,
+                    "cacheKeyFingerprintsExposed": True,
+                    "keyPayloadsExposed": False,
+                    "storageUrisExposed": False,
+                    "pathsExposed": False,
+                },
+                "rules": [
+                    {
+                        "ruleName": "align",
+                        "outputs": [
+                            {
+                                "cacheKey": "TOKEN_SHOULD_NOT_ENTER_AUDIT",
+                                "cacheKeyFingerprint": "sha256:cache-secret-fingerprint",
+                                "storageUri": "s3://secret-bucket/private-output",
+                            }
+                        ],
+                    }
+                ],
+            },
+            "ruleRetryExecutionPlan": {
+                "executionEnabled": False,
+                "argsPreview": ["--forcerun", "align"],
+            },
         },
     )
     monkeypatch.setattr(
@@ -250,6 +278,14 @@ def test_run_observability_routes_record_safe_allow_audit(tmp_path, monkeypatch)
         "ruleRetryFailedRuleCount": 2,
         "ruleRetrySelectedAttemptCount": 1,
         "ruleRetryExecutionEnabled": False,
+        "ruleCacheRestorePlanPresent": True,
+        "ruleCacheRestorePlanHashPresent": True,
+        "ruleCacheRestoreOutputCount": 2,
+        "ruleCacheRestoreHitCount": 1,
+        "ruleCacheRestoreMissCount": 1,
+        "ruleCacheRestoreRawIdentifiersExposed": False,
+        "ruleCacheRestoreFingerprintsExposed": True,
+        "ruleCacheRestoreStorageUrisExposed": False,
     }
     assert list_governance_audit_events(cfg, action="run.attempts.read")["items"][-1]["details"] == {
         "attemptCount": 1,
@@ -294,3 +330,5 @@ def test_run_observability_routes_record_safe_allow_audit(tmp_path, monkeypatch)
     assert "cursor-secret-123" not in serialized_audit
     assert "commandSummary" not in serialized_audit
     assert "argsPreview" not in serialized_audit
+    assert "sha256:cache-secret-fingerprint" not in serialized_audit
+    assert "s3://secret-bucket" not in serialized_audit

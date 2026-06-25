@@ -30,6 +30,10 @@ def record_run_execution_context_read_audit(
     attempts = _list_value(context.get("attempts"))
     rule_retry_plan = _dict_value(context.get("ruleRetryPlan"))
     rule_retry_execution_plan = _dict_value(context.get("ruleRetryExecutionPlan"))
+    rule_cache_restore_plan = _dict_value(context.get("ruleCacheRestorePlan")) or _dict_value(
+        rule_retry_execution_plan.get("cacheRestorePlan")
+    )
+    rule_cache_restore_redaction = _dict_value(rule_cache_restore_plan.get("redactionPolicy"))
     record_governance_audit_event(
         cfg,
         action="run.execution_context.read",
@@ -46,6 +50,16 @@ def record_run_execution_context_read_audit(
             "ruleRetryFailedRuleCount": _safe_int(rule_retry_plan.get("failedRuleCount")),
             "ruleRetrySelectedAttemptCount": _safe_int(rule_retry_plan.get("selectedAttemptCount")),
             "ruleRetryExecutionEnabled": bool(rule_retry_execution_plan.get("executionEnabled")),
+            "ruleCacheRestorePlanPresent": bool(rule_cache_restore_plan),
+            "ruleCacheRestorePlanHashPresent": bool(str(rule_cache_restore_plan.get("planHash") or "").strip()),
+            "ruleCacheRestoreOutputCount": _safe_int(rule_cache_restore_plan.get("outputCount")),
+            "ruleCacheRestoreHitCount": _safe_int(rule_cache_restore_plan.get("cacheHitCount")),
+            "ruleCacheRestoreMissCount": _safe_int(rule_cache_restore_plan.get("cacheMissCount")),
+            "ruleCacheRestoreRawIdentifiersExposed": bool(rule_cache_restore_redaction.get("cacheKeysExposed")),
+            "ruleCacheRestoreFingerprintsExposed": bool(
+                rule_cache_restore_redaction.get("cacheKeyFingerprintsExposed")
+            ),
+            "ruleCacheRestoreStorageUrisExposed": bool(rule_cache_restore_redaction.get("storageUrisExposed")),
         },
     )
 
