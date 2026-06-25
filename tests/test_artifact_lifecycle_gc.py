@@ -120,18 +120,52 @@ def test_artifact_lifecycle_controller_tick_previews_without_deleting_payloads(t
     assert tick["quotaOverageBytes"] == artifact["sizeBytes"]
     assert tick["wouldDeleteCount"] == 1
     assert tick["gcPreview"]["candidateCount"] == 1
-    assert tick["gcPreview"]["candidates"][0]["artifactIds"] == [artifact["artifactId"]]
+    assert tick["policyDecision"] == {
+        "decision": "preview_ready",
+        "reasonCode": "DELETE_CONFIRMATION_REQUIRED",
+        "message": "GC candidates are available, but the controller is preview-only.",
+        "deletionAuthorized": False,
+        "deleteConfirmationRequired": True,
+        "candidateCount": 1,
+        "deleteBytes": artifact["sizeBytes"],
+    }
+    assert tick["retentionHolds"]["schemaVersion"] == "artifact-retention-hold-summary.v1"
+    assert tick["retentionHolds"]["reasonCount"] == 0
+    assert tick["batchSafety"] == {
+        "schemaVersion": "artifact-gc-batch-safety.v1",
+        "maxDeleteBytes": None,
+        "maxDeleteBytesApplied": False,
+        "candidateCount": 1,
+        "candidateBytes": artifact["sizeBytes"],
+        "candidateArtifactCount": 1,
+        "candidateRunCount": 1,
+        "limitedGroupCount": 0,
+        "limitedBytes": 0,
+    }
+    assert tick["gcPreview"]["candidateArtifactCount"] == 1
+    assert tick["gcPreview"]["candidateRunCount"] == 1
+    assert "candidateGroupIds" not in tick["gcPreview"]
+    assert "candidates" not in tick["gcPreview"]
+    assert "protected" not in tick["gcPreview"]
+    assert "storageUri" not in repr(tick)
+    assert "groupId" not in repr(tick)
+    assert "path" not in repr(tick)
     assert artifact_path.is_file()
     assert fetched["lifecycleState"] == "active"
     assert fetched["deletedAt"] is None
     assert evidence[-1]["eventType"] == ARTIFACT_LIFECYCLE_CONTROLLER_EVENT_TYPE
     assert evidence[-1]["payload"]["deleteConfirmationRequired"] is True
+    assert evidence[-1]["payload"]["policyDecision"]["deletionAuthorized"] is False
+    assert evidence[-1]["payload"]["batchSafety"]["candidateArtifactCount"] == 1
+    assert "candidateGroupIds" not in repr(evidence[-1]["payload"])
     assert "storageUri" not in repr(evidence[-1]["payload"])
     assert "path" not in repr(evidence[-1]["payload"])
     assert gc_evidence == []
     assert governance[-1]["actor"] == "artifact-supervisor"
     assert governance[-1]["details"]["planId"] == tick["gcPreview"]["planId"]
     assert governance[-1]["details"]["deleteConfirmationRequired"] is True
+    assert governance[-1]["details"]["policyDecision"] == "preview_ready"
+    assert governance[-1]["details"]["batchLimitApplied"] is False
 
 
 def test_artifact_lifecycle_controller_quota_overage_does_not_broaden_gc_eligibility(tmp_path: Path) -> None:
@@ -149,10 +183,60 @@ def test_artifact_lifecycle_controller_quota_overage_does_not_broaden_gc_eligibi
 
     assert tick["quotaOverageBytes"] == active["sizeBytes"]
     assert tick["wouldDeleteCount"] == 0
+    assert tick["policyDecision"]["decision"] == "no_action"
+    assert tick["policyDecision"]["reasonCode"] == "NO_ELIGIBLE_CANDIDATES"
+    run_not_terminal = next(item for item in tick["retentionHolds"]["reasons"] if item["reason"] == "run_not_terminal")
+    assert run_not_terminal == {
+        "reason": "run_not_terminal",
+        "groupCount": 1,
+        "artifactCount": 1,
+        "runCount": 1,
+        "bytes": active["sizeBytes"],
+    }
     assert tick["gcPreview"]["candidateCount"] == 0
     assert tick["gcPreview"]["deleteBytes"] == 0
-    assert tick["gcPreview"]["protected"][0]["artifactIds"] == [active["artifactId"]]
-    assert "run_not_terminal" in tick["gcPreview"]["protected"][0]["reasons"]
+    assert tick["gcPreview"]["protectedCount"] >= 1
+    assert "protected" not in tick["gcPreview"]
+
+
+def test_artifact_lifecycle_controller_summarizes_batch_safety_without_group_ids(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    first = _persist_managed_artifact(cfg, "run_gc_batch_first", status="completed")
+    second = _persist_managed_artifact(cfg, "run_gc_batch_second", status="completed")
+
+    tick = evaluate_artifact_lifecycle_controller_tick(
+        cfg,
+        {
+            "retentionDays": 30,
+            "quotaBytes": 0,
+            "maxDeleteBytesPerTick": first["sizeBytes"],
+            "actor": "artifact-supervisor",
+        },
+    )
+    evidence = list_evidence_events(
+        cfg,
+        subject_kind="artifact_lifecycle_controller",
+        subject_id=tick["tickId"],
+        event_type=ARTIFACT_LIFECYCLE_CONTROLLER_EVENT_TYPE,
+    )
+
+    assert tick["batchSafety"]["maxDeleteBytesApplied"] is True
+    assert tick["batchSafety"]["candidateCount"] == 1
+    assert tick["batchSafety"]["candidateArtifactCount"] == 1
+    assert tick["batchSafety"]["limitedGroupCount"] == 1
+    assert tick["batchSafety"]["limitedBytes"] == second["sizeBytes"]
+    hold = next(item for item in tick["retentionHolds"]["reasons"] if item["reason"] == "max_delete_bytes")
+    assert hold == {
+        "reason": "max_delete_bytes",
+        "groupCount": 1,
+        "artifactCount": 1,
+        "runCount": 1,
+        "bytes": second["sizeBytes"],
+    }
+    assert "candidateGroupIds" not in repr(tick)
+    assert "candidateGroupIds" not in repr(evidence[-1]["payload"])
+    assert "storageUri" not in repr(evidence[-1]["payload"])
+    assert "path" not in repr(evidence[-1]["payload"])
 
 
 def test_artifact_gc_run_deletes_local_payload_and_records_tombstone_evidence_and_audit(tmp_path: Path) -> None:

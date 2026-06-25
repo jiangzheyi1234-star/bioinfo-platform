@@ -135,6 +135,10 @@ def evaluate_artifact_lifecycle_controller_tick(
             "quotaOverageBytes": tick["quotaOverageBytes"],
             "executionMode": ARTIFACT_LIFECYCLE_CONTROLLER_MODE,
             "deleteConfirmationRequired": True,
+            "policyDecision": tick["policyDecision"]["decision"],
+            "policyReasonCode": tick["policyDecision"]["reasonCode"],
+            "retentionHoldReasonCount": tick["retentionHolds"]["reasonCount"],
+            "batchLimitApplied": tick["batchSafety"]["maxDeleteBytesApplied"],
         },
     )
     return {
@@ -142,7 +146,6 @@ def evaluate_artifact_lifecycle_controller_tick(
         "evidenceId": evidence["eventId"],
         "governanceAuditEventId": audit["eventId"],
         "usage": usage,
-        "gcPreview": plan,
     }
 
 
@@ -191,6 +194,9 @@ def _controller_tick(
     plan: dict[str, Any],
 ) -> dict[str, Any]:
     quota_overage = _quota_overage_bytes(usage)
+    policy_decision = _policy_decision(plan)
+    retention_holds = _retention_hold_summary(plan)
+    batch_safety = _batch_safety_summary(plan, policy=policy)
     summary = {
         "schemaVersion": ARTIFACT_LIFECYCLE_CONTROLLER_SCHEMA,
         "evaluatedAt": evaluated_at,
@@ -208,13 +214,17 @@ def _controller_tick(
             "activeStorageObjectCount": usage["activeStorageObjectCount"],
             "quotaOverageBytes": quota_overage,
         },
+        "policyDecision": policy_decision,
+        "retentionHolds": retention_holds,
+        "batchSafety": batch_safety,
         "gcPreview": {
             "planId": plan["planId"],
             "candidateCount": plan["candidateCount"],
             "deleteBytes": plan["deleteBytes"],
             "protectedCount": plan["protectedCount"],
             "protectedBytes": plan["protectedBytes"],
-            "candidateGroupIds": [item["groupId"] for item in plan["candidates"]],
+            "candidateArtifactCount": _artifact_count(plan["candidates"]),
+            "candidateRunCount": _run_count(plan["candidates"]),
         },
     }
     return {
@@ -235,6 +245,9 @@ def _record_controller_tick_evidence(cfg: RemoteRunnerConfig, tick: dict[str, An
         "deleteConfirmationRequired": tick["deleteConfirmationRequired"],
         "policy": tick["policy"],
         "usage": tick["usage"],
+        "policyDecision": tick["policyDecision"],
+        "retentionHolds": tick["retentionHolds"],
+        "batchSafety": tick["batchSafety"],
         "gcPreview": tick["gcPreview"],
     }
     with get_connection(cfg) as connection:
@@ -255,6 +268,102 @@ def _record_controller_tick_evidence(cfg: RemoteRunnerConfig, tick: dict[str, An
 def _quota_overage_bytes(usage: dict[str, Any]) -> int:
     quota = usage.get("quota") if isinstance(usage.get("quota"), dict) else {}
     return max(0, int(quota.get("overageBytes") or 0))
+
+
+def _policy_decision(plan: dict[str, Any]) -> dict[str, Any]:
+    candidate_count = int(plan.get("candidateCount") or 0)
+    delete_bytes = int(plan.get("deleteBytes") or 0)
+    if candidate_count:
+        decision = "preview_ready"
+        reason_code = "DELETE_CONFIRMATION_REQUIRED"
+        message = "GC candidates are available, but the controller is preview-only."
+    else:
+        decision = "no_action"
+        reason_code = "NO_ELIGIBLE_CANDIDATES"
+        message = "No artifact payloads are eligible for deletion under the current policy."
+    return {
+        "decision": decision,
+        "reasonCode": reason_code,
+        "message": message,
+        "deletionAuthorized": False,
+        "deleteConfirmationRequired": True,
+        "candidateCount": candidate_count,
+        "deleteBytes": delete_bytes,
+    }
+
+
+def _retention_hold_summary(plan: dict[str, Any]) -> dict[str, Any]:
+    protected = [item for item in plan.get("protected") or [] if isinstance(item, dict)]
+    reasons: dict[str, dict[str, Any]] = {}
+    for item in protected:
+        item_reasons = [str(reason or "").strip() for reason in item.get("reasons") or [] if str(reason or "").strip()]
+        for reason in item_reasons or ["unspecified"]:
+            summary = reasons.setdefault(
+                reason,
+                {
+                    "reason": reason,
+                    "groupCount": 0,
+                    "artifactCount": 0,
+                    "runCount": 0,
+                    "bytes": 0,
+                },
+            )
+            summary["groupCount"] += 1
+            summary["artifactCount"] += len({str(value) for value in item.get("artifactIds") or [] if str(value or "").strip()})
+            summary["runCount"] += len({str(value) for value in item.get("runIds") or [] if str(value or "").strip()})
+            summary["bytes"] += int(item.get("sizeBytes") or 0)
+    items = sorted(reasons.values(), key=lambda value: (-int(value["bytes"]), str(value["reason"])))
+    return {
+        "schemaVersion": "artifact-retention-hold-summary.v1",
+        "protectedGroupCount": len(protected),
+        "protectedBytes": int(plan.get("protectedBytes") or 0),
+        "reasonCount": len(items),
+        "reasons": items,
+    }
+
+
+def _batch_safety_summary(
+    plan: dict[str, Any],
+    *,
+    policy: ArtifactLifecycleControllerPolicy,
+) -> dict[str, Any]:
+    candidate_count = int(plan.get("candidateCount") or 0)
+    delete_bytes = int(plan.get("deleteBytes") or 0)
+    protected = [item for item in plan.get("protected") or [] if isinstance(item, dict)]
+    limited = [item for item in protected if "max_delete_bytes" in {str(reason) for reason in item.get("reasons") or []}]
+    return {
+        "schemaVersion": "artifact-gc-batch-safety.v1",
+        "maxDeleteBytes": policy.max_delete_bytes_per_tick,
+        "maxDeleteBytesApplied": policy.max_delete_bytes_per_tick is not None,
+        "candidateCount": candidate_count,
+        "candidateBytes": delete_bytes,
+        "candidateArtifactCount": _artifact_count(plan.get("candidates") or []),
+        "candidateRunCount": _run_count(plan.get("candidates") or []),
+        "limitedGroupCount": len(limited),
+        "limitedBytes": sum(int(item.get("sizeBytes") or 0) for item in limited),
+    }
+
+
+def _artifact_count(items: Any) -> int:
+    artifact_ids = {
+        str(artifact_id)
+        for item in items or []
+        if isinstance(item, dict)
+        for artifact_id in item.get("artifactIds") or []
+        if str(artifact_id or "").strip()
+    }
+    return len(artifact_ids)
+
+
+def _run_count(items: Any) -> int:
+    run_ids = {
+        str(run_id)
+        for item in items or []
+        if isinstance(item, dict)
+        for run_id in item.get("runIds") or []
+        if str(run_id or "").strip()
+    }
+    return len(run_ids)
 
 
 def _tick_id(summary: dict[str, Any]) -> str:
