@@ -34,6 +34,8 @@ import {
   buildFlowEdges,
   matchedGraphNodeIds,
   reactFlowConnectionToGraphConnection,
+  semanticEdgeStatusForGraphEdge,
+  type WorkflowGraphSemanticEdgeStatus,
   type WorkflowRuleFlowEdge,
 } from "./generated-workflow-react-flow-adapter";
 import {
@@ -283,6 +285,10 @@ export function GeneratedWorkflowGraphCanvas({
     );
   }, [onDropTool]);
   const flowEdges = useMemo(() => buildFlowEdges(edges, semanticPortPlan), [edges, semanticPortPlan]);
+  const semanticSummary = useMemo(
+    () => semanticGraphSummary(edges, semanticPortPlan),
+    [edges, semanticPortPlan]
+  );
 
   return (
     <div
@@ -339,6 +345,7 @@ export function GeneratedWorkflowGraphCanvas({
           还没有规则节点。从工具库添加 RuleSpec 节点。
         </div>
       ) : null}
+      {nodes.length > 0 ? <GraphSemanticStatusPanel summary={semanticSummary} /> : null}
       {connectionNotice ? (
         <div
           className="absolute bottom-2 left-2 grid max-w-[76%] gap-1 rounded border border-slate-200 bg-white/95 px-2 py-1.5 text-[11px] text-slate-600 shadow-sm"
@@ -373,6 +380,75 @@ export function GeneratedWorkflowGraphCanvas({
       ) : null}
     </div>
   );
+}
+
+type GraphSemanticSummary = {
+  blocked: number;
+  compatible: number;
+  converterNeeded: number;
+  total: number;
+  unknown: number;
+};
+
+function GraphSemanticStatusPanel({ summary }: { summary: GraphSemanticSummary }) {
+  return (
+    <div
+      className="pointer-events-none absolute right-2 top-2 grid gap-1 rounded border border-slate-200 bg-white/95 px-2.5 py-2 text-[11px] text-slate-600 shadow-sm"
+      data-semantic-blocked-count={summary.blocked}
+      data-semantic-compatible-count={summary.compatible}
+      data-semantic-converter-needed-count={summary.converterNeeded}
+      data-semantic-pending-count={summary.unknown}
+      data-testid="workflow-graph-semantic-status-panel"
+    >
+      <div className="font-medium text-slate-700">Semantic edges · {summary.total}</div>
+      <div className="flex flex-wrap gap-1">
+        <SemanticStatusPill label="compatible" tone="green" value={summary.compatible} />
+        <SemanticStatusPill label="converter" tone="amber" value={summary.converterNeeded} />
+        <SemanticStatusPill label="blocked" tone="red" value={summary.blocked} />
+        <SemanticStatusPill label="pending" tone="blue" value={summary.unknown} />
+      </div>
+    </div>
+  );
+}
+
+function SemanticStatusPill({
+  label,
+  tone,
+  value,
+}: {
+  label: string;
+  tone: "amber" | "blue" | "green" | "red";
+  value: number;
+}) {
+  const toneClass = {
+    amber: "border-amber-200 bg-amber-50 text-amber-700",
+    blue: "border-blue-200 bg-blue-50 text-blue-700",
+    green: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    red: "border-red-200 bg-red-50 text-red-700",
+  }[tone];
+  return <span className={cn("rounded border px-1.5 py-0.5 font-mono", toneClass)}>{label}:{value}</span>;
+}
+
+function semanticGraphSummary(
+  edges: GraphEdge[],
+  semanticPortPlan?: WorkflowDesignSemanticPortPlan | null
+): GraphSemanticSummary {
+  const counts: Record<WorkflowGraphSemanticEdgeStatus, number> = {
+    blocked: 0,
+    compatible: 0,
+    "converter-needed": 0,
+    unknown: 0,
+  };
+  for (const edge of edges) {
+    counts[semanticEdgeStatusForGraphEdge(edge, semanticPortPlan)] += 1;
+  }
+  return {
+    blocked: counts.blocked,
+    compatible: counts.compatible,
+    converterNeeded: counts["converter-needed"],
+    total: edges.length,
+    unknown: counts.unknown,
+  };
 }
 
 function WorkflowRuleFlowNode({ data, selected }: NodeProps<RuleFlowNode>) {

@@ -21,6 +21,16 @@ def test_workflow_design_semantic_port_plan_is_rendered_from_backend_plan() -> N
     assert "onInsertConverter={builder.insertConverter}" in builder
     assert "tools={workflowReadyTools}" in builder
     assert "buildFlowEdges(edges, semanticPortPlan)" in canvas
+    assert "semanticEdgeStatusForGraphEdge" in canvas
+    assert "semanticGraphSummary(edges, semanticPortPlan)" in canvas
+    assert "GraphSemanticStatusPanel" in canvas
+    assert 'data-testid="workflow-graph-semantic-status-panel"' in canvas
+    assert "data-semantic-compatible-count={summary.compatible}" in canvas
+    assert "data-semantic-converter-needed-count={summary.converterNeeded}" in canvas
+    assert "data-semantic-blocked-count={summary.blocked}" in canvas
+    assert "data-semantic-pending-count={summary.unknown}" in canvas
+    assert "Semantic edges · {summary.total}" in canvas
+    assert '"converter-needed": 0' in canvas
     assert "export type WorkflowDesignSemanticPortPlan" in model
     assert "semanticPortPlan?: WorkflowDesignSemanticPortPlan" in model
 

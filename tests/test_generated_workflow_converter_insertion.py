@@ -206,6 +206,75 @@ const staleBackendInsertion = backendPlanConverterInsertionForSuggestion({
 });
 assert.equal(staleBackendInsertion, null);
 
+const staleCandidateInsertion = backendPlanConverterInsertionForSuggestion({
+  plan: {
+    ...backendSemanticPortPlan,
+    edges: [
+      {
+        ...backendSemanticPortPlan.edges[0],
+        converterCandidates: [
+          {
+            ...backendSemanticPortPlan.edges[0].converterCandidates[0],
+            converterToolRevisionId: "stale-converter#1",
+          },
+        ],
+      },
+    ],
+  },
+  sourceStepId: "source",
+  sourceOutput: "report",
+  targetStepId: "target",
+  targetInput: "reads",
+  suggestion: canvasSuggestion,
+});
+assert.equal(staleCandidateInsertion, null);
+
+const wrongModeInsertion = backendPlanConverterInsertionForSuggestion({
+  plan: {
+    ...backendSemanticPortPlan,
+    edges: [
+      {
+        ...backendSemanticPortPlan.edges[0],
+        converterCandidates: [
+          {
+            ...backendSemanticPortPlan.edges[0].converterCandidates[0],
+            insertionMode: "automatic-unambiguous",
+          },
+        ],
+      },
+    ],
+  },
+  sourceStepId: "source",
+  sourceOutput: "report",
+  targetStepId: "target",
+  targetInput: "reads",
+  suggestion: canvasSuggestion,
+});
+assert.equal(wrongModeInsertion, null);
+
+const missingConfirmationInsertion = backendPlanConverterInsertionForSuggestion({
+  plan: {
+    ...backendSemanticPortPlan,
+    edges: [
+      {
+        ...backendSemanticPortPlan.edges[0],
+        converterCandidates: [
+          {
+            ...backendSemanticPortPlan.edges[0].converterCandidates[0],
+            confirmationRequired: false,
+          },
+        ],
+      },
+    ],
+  },
+  sourceStepId: "source",
+  sourceOutput: "report",
+  targetStepId: "target",
+  targetInput: "reads",
+  suggestion: canvasSuggestion,
+});
+assert.equal(missingConfirmationInsertion, null);
+
 const compatibleSuggestion = converterSuggestionsForConnection({
   graphDraft: {
     nodes: [
