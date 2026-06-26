@@ -6,6 +6,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 
 import { useWorkflowsPageState } from "./use-workflows-page-state";
+import { WorkflowProductionGovernancePanel } from "./workflow-production-governance-panel";
 import { WorkflowPageHeader } from "./workflow-page-header";
 import { WorkflowWorkspaceTabs } from "./workflow-workspace-tabs";
 import { WorkflowCatalogTable } from "./workflows-page-ui";
@@ -41,6 +42,8 @@ export function WorkflowsPage() {
             <AlertDescription>{state.error}</AlertDescription>
           </Alert>
         ) : null}
+
+        <WorkflowProductionGovernancePanel />
 
         {state.loading && state.catalog.length === 0 ? (
           <div className="flex h-48 items-center justify-center text-sm text-slate-400">
