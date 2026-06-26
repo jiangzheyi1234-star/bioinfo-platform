@@ -15,6 +15,7 @@ from apps.remote_runner.storage import create_run_record
 from apps.remote_runner.storage_core import get_connection
 from apps.remote_runner.workflow_run_storage import StaleRunAttemptError, update_run_state
 from tests.helpers.reference_database import make_configured_remote_runner
+from tests.helpers.rule_partial_rerun_options import rule_partial_rerun_execution_options
 
 
 def _run_spec(run_id: str) -> dict:
@@ -205,7 +206,7 @@ def test_request_run_retry_requeues_failed_run_for_next_attempt(tmp_path):
     assert stale_completion == {"accepted": False, "reason": "stale_generation"}
 
 
-def test_request_run_retry_persists_next_attempt_execution_options(tmp_path):
+def test_request_run_retry_rejects_non_current_rule_execution_options(tmp_path):
     cfg = make_configured_remote_runner(tmp_path)
     _create_run(
         cfg,
@@ -232,63 +233,37 @@ def test_request_run_retry_persists_next_attempt_execution_options(tmp_path):
         exit_code=1,
         now="2099-06-07T10:00:10Z",
     )
-    execution_options = {
-        "schemaVersion": "run-job-execution-options.v1",
-        "snakemake": {
-            "schemaVersion": "snakemake-rule-rerun-options.v1",
-            "rerunIncomplete": True,
-            "forcerunRules": ["align"],
-        },
-        "outputAdoptionScope": {
-            "schemaVersion": "rule-output-adoption-scope.v1",
-            "mode": "rule-partial-rerun",
-            "sourcePlanHash": "d" * 64,
-            "outputCount": 1,
-            "outputKeys": ["summary"],
-            "targetOutputKeys": ["summary"],
-            "finalizeRunOnAdoption": False,
-            "outputs": [
-                {
-                    "outputKey": "summary",
-                    "stepId": "align",
-                    "outputOrdinal": 1,
-                    "invalidationRole": "selected",
-                    "cacheHit": True,
-                }
-            ],
-            "pathExposed": False,
-            "storageUriExposed": False,
-        },
-    }
+    execution_options = rule_partial_rerun_execution_options(source_plan_hash="d" * 64)
 
-    result = request_run_retry(
-        cfg,
-        "run_rule_options_retry",
-        actor="api-test",
-        reason="operator_rule_retry",
-        execution_options=execution_options,
-        scope="rule",
-        now="2099-06-07T10:01:00Z",
-    )
-    second = claim_next_run_job(cfg, worker_id="worker_rule_options_b", now="2099-06-07T10:01:00Z", lease_seconds=30)
-
-    assert result["executionOptions"] == execution_options
-    assert second is not None
-    assert second["job"]["executionOptions"] == execution_options
+    with pytest.raises(ValueError, match="RULE_RETRY_EXECUTION_DISABLED"):
+        request_run_retry(
+            cfg,
+            "run_rule_options_retry",
+            actor="api-test",
+            reason="operator_rule_retry",
+            execution_options=execution_options,
+            scope="rule",
+            now="2099-06-07T10:01:00Z",
+        )
     with get_connection(cfg) as connection:
-        job = connection.execute(
-            "SELECT execution_options_json FROM run_jobs WHERE run_id = ?",
+        run = connection.execute(
+            "SELECT status, stage FROM runs WHERE run_id = ?",
             ("run_rule_options_retry",),
         ).fetchone()
-        command = connection.execute(
-            "SELECT payload_json FROM run_commands WHERE command_type = 'retry_run'",
+        job = connection.execute(
+            "SELECT state, execution_options_json FROM run_jobs WHERE run_id = ?",
+            ("run_rule_options_retry",),
         ).fetchone()
-        event = connection.execute(
-            "SELECT details_json FROM run_events WHERE event_type = 'run_retry_requested'",
-        ).fetchone()
-    assert json.loads(job["execution_options_json"]) == execution_options
-    assert json.loads(command["payload_json"])["executionOptions"] == execution_options
-    assert json.loads(event["details_json"])["payload"]["executionOptions"] == execution_options
+        command_count = connection.execute(
+            "SELECT COUNT(*) AS count FROM run_commands WHERE command_type = 'retry_run'",
+        ).fetchone()["count"]
+        event_count = connection.execute(
+            "SELECT COUNT(*) AS count FROM run_events WHERE event_type = 'run_retry_requested'",
+        ).fetchone()["count"]
+    assert dict(run) == {"status": "failed", "stage": "execute"}
+    assert dict(job) == {"state": "failed", "execution_options_json": "{}"}
+    assert command_count == 0
+    assert event_count == 0
 
 
 def test_request_run_retry_rejects_rule_options_without_rule_scope(tmp_path):

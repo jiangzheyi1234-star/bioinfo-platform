@@ -18,6 +18,10 @@ from apps.remote_runner.run_worker import process_next_run_job
 from tests.helpers.remote_runner_control_plane import (
     _write_file_summary_pipeline,
 )
+from tests.helpers.rule_partial_rerun_options import (
+    bind_rule_partial_rerun_options,
+    rule_partial_rerun_execution_options,
+)
 
 
 def test_executor_invokes_snakemake_cli_with_use_conda(tmp_path: Path, monkeypatch) -> None:
@@ -153,25 +157,7 @@ def test_executor_applies_job_execution_options_to_dry_run_and_run(tmp_path: Pat
             "projectId": "proj_demo",
             "inputs": [{"uploadId": upload["uploadId"], "filename": "reads.fastq", "role": "reads"}],
         },
-        execution_options={
-            "schemaVersion": "run-job-execution-options.v1",
-            "snakemake": {
-                "schemaVersion": "snakemake-rule-rerun-options.v1",
-                "rerunIncomplete": True,
-                "forcerunRules": ["align", "align"],
-            },
-            "outputAdoptionScope": {
-                "schemaVersion": "rule-output-adoption-scope.v1",
-                "mode": "rule-partial-rerun",
-                "sourcePlanHash": "b" * 64,
-                "outputCount": 1,
-                "outputKeys": ["summary"],
-                "targetOutputKeys": ["summary"],
-                "finalizeRunOnAdoption": False,
-                "pathExposed": False,
-                "storageUriExposed": False,
-            },
-        },
+        execution_options=rule_partial_rerun_execution_options(forcerun_rules=["align", "align"]),
     )
 
     assert len(calls) == 2
@@ -262,25 +248,7 @@ def test_rule_rerun_artifact_adoption_does_not_finalize_whole_run(tmp_path: Path
         lease_generation=int(claim["leaseGeneration"]),
         attempt_number=int(claim["attempt"]["attemptNumber"]),
         attempt_work_dir=str(claim["attempt"]["workDir"]),
-        execution_options={
-            "schemaVersion": "run-job-execution-options.v1",
-            "snakemake": {
-                "schemaVersion": "snakemake-rule-rerun-options.v1",
-                "rerunIncomplete": True,
-                "forcerunRules": ["align"],
-            },
-            "outputAdoptionScope": {
-                "schemaVersion": "rule-output-adoption-scope.v1",
-                "mode": "rule-partial-rerun",
-                "sourcePlanHash": "b" * 64,
-                "outputCount": 1,
-                "outputKeys": ["summary"],
-                "targetOutputKeys": ["summary"],
-                "finalizeRunOnAdoption": False,
-                "pathExposed": False,
-                "storageUriExposed": False,
-            },
-        },
+        execution_options=rule_partial_rerun_execution_options(),
     )
 
     assert calls[-1][-1].endswith("done.txt")
@@ -307,75 +275,37 @@ def test_executor_rejects_rule_rerun_options_without_output_adoption_scope() -> 
 
 
 def test_executor_rejects_rule_rerun_options_without_source_plan_hash() -> None:
+    options = rule_partial_rerun_execution_options(source_plan_hash="")
     with pytest.raises(WorkflowRuntimeCommandError, match="RULE_PARTIAL_RERUN_SOURCE_PLAN_HASH_REQUIRED"):
-        _snakemake_execution_options(
-            {
-                "schemaVersion": "run-job-execution-options.v1",
-                "snakemake": {
-                    "schemaVersion": "snakemake-rule-rerun-options.v1",
-                    "rerunIncomplete": True,
-                    "forcerunRules": ["align"],
-                },
-                "outputAdoptionScope": {
-                    "schemaVersion": "rule-output-adoption-scope.v1",
-                    "mode": "rule-partial-rerun",
-                    "outputCount": 1,
-                    "outputKeys": ["summary"],
-                    "targetOutputKeys": ["summary"],
-                    "finalizeRunOnAdoption": False,
-                    "pathExposed": False,
-                    "storageUriExposed": False,
-                },
-            }
-        )
+        _snakemake_execution_options(options)
+
+
+def test_executor_rejects_rule_rerun_options_without_claim_binding() -> None:
+    options = rule_partial_rerun_execution_options()
+    del options["rulePartialRerunClaimBinding"]
+    with pytest.raises(WorkflowRuntimeCommandError, match="RULE_PARTIAL_RERUN_CLAIM_BINDING_REQUIRED"):
+        _snakemake_execution_options(options)
+
+
+def test_executor_rejects_rule_rerun_options_with_stale_scope_binding() -> None:
+    options = rule_partial_rerun_execution_options()
+    options["outputAdoptionScope"]["targetOutputKeys"] = ["other"]
+    with pytest.raises(WorkflowRuntimeCommandError, match="RULE_PARTIAL_RERUN_OUTPUT_ADOPTION_SCOPE_STALE"):
+        _snakemake_execution_options(options)
 
 
 def test_executor_rejects_rule_rerun_options_without_target_output_keys() -> None:
+    options = rule_partial_rerun_execution_options()
+    del options["outputAdoptionScope"]["targetOutputKeys"]
+    bind_rule_partial_rerun_options(options)
     with pytest.raises(WorkflowRuntimeCommandError, match="RULE_RERUN_TARGET_OUTPUT_KEYS_REQUIRED"):
-        _snakemake_execution_options(
-            {
-                "schemaVersion": "run-job-execution-options.v1",
-                "snakemake": {
-                    "schemaVersion": "snakemake-rule-rerun-options.v1",
-                    "rerunIncomplete": True,
-                    "forcerunRules": ["align"],
-                },
-                "outputAdoptionScope": {
-                    "schemaVersion": "rule-output-adoption-scope.v1",
-                    "mode": "rule-partial-rerun",
-                    "sourcePlanHash": "b" * 64,
-                    "outputCount": 1,
-                    "outputKeys": ["summary"],
-                    "finalizeRunOnAdoption": False,
-                    "pathExposed": False,
-                    "storageUriExposed": False,
-                },
-            }
-        )
+        _snakemake_execution_options(options)
 
 
 def test_executor_rejects_rule_rerun_options_without_finalize_guard() -> None:
+    options = rule_partial_rerun_execution_options(finalize_run=True)
     with pytest.raises(WorkflowRuntimeCommandError, match="RULE_RERUN_OUTPUT_ADOPTION_SCOPE_FINALIZE_FORBIDDEN"):
-        _snakemake_execution_options(
-            {
-                "schemaVersion": "run-job-execution-options.v1",
-                "snakemake": {
-                    "schemaVersion": "snakemake-rule-rerun-options.v1",
-                    "rerunIncomplete": True,
-                    "forcerunRules": ["align"],
-                },
-                "outputAdoptionScope": {
-                    "schemaVersion": "rule-output-adoption-scope.v1",
-                    "mode": "rule-partial-rerun",
-                    "sourcePlanHash": "b" * 64,
-                    "outputCount": 1,
-                    "outputKeys": ["summary"],
-                    "targetOutputKeys": ["summary"],
-                    "pathExposed": False,
-                    "storageUriExposed": False,
-                },
-            }
-        )
+        _snakemake_execution_options(options)
 
 
 def test_executor_scopes_rule_rerun_artifact_collection_to_declared_outputs() -> None:

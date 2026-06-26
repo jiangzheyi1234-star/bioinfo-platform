@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .rule_partial_rerun_claim_preflight import rule_partial_rerun_claim_binding_blockers
 from .workflow_engine_adapter import WorkflowRuntimeCommandError, normalize_forcerun_rules
 
 
@@ -104,6 +105,12 @@ def _rule_output_adoption_scope(execution_options: dict) -> dict[str, Any]:
     scope = execution_options.get("outputAdoptionScope")
     if not isinstance(scope, dict):
         raise WorkflowRuntimeCommandError("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_REQUIRED")
+    binding = execution_options.get("rulePartialRerunClaimBinding")
+    if not isinstance(binding, dict):
+        raise WorkflowRuntimeCommandError("RULE_PARTIAL_RERUN_CLAIM_BINDING_REQUIRED")
+    binding_blockers = rule_partial_rerun_claim_binding_blockers(scope, binding)
+    if binding_blockers:
+        raise WorkflowRuntimeCommandError(binding_blockers[0])
     if scope.get("schemaVersion") != RULE_OUTPUT_ADOPTION_SCOPE_SCHEMA_VERSION:
         raise WorkflowRuntimeCommandError("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_SCHEMA_UNSUPPORTED")
     if scope.get("mode") != "rule-partial-rerun":

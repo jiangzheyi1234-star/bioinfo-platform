@@ -7,6 +7,7 @@ from .execution_activation_readiness import build_rule_retry_activation_readines
 from .execution_output_audit import blocked_rule_retry_output_audit
 from .execution_plan_hash import attach_plan_hash, stable_plan_hash
 from .execution_rerun_orchestration import build_rule_partial_rerun_orchestration
+from .rule_partial_rerun_claim_preflight import build_rule_partial_rerun_claim_binding
 from .rule_cache_restore_plan import blocked_rule_cache_restore_plan
 from .rule_partial_rerun_output_closure import blocked_rule_partial_rerun_output_closure
 from .rule_partial_rerun_lifecycle import blocked_rule_partial_rerun_lifecycle
@@ -212,6 +213,7 @@ def rule_retry_execution_options(rule_retry_execution_plan: dict[str, Any]) -> d
             "targetOutputKeys": list(output_adoption_scope.get("targetOutputKeys") or []),
         },
         "outputAdoptionScope": output_adoption_scope,
+        "rulePartialRerunClaimBinding": build_rule_partial_rerun_claim_binding(output_adoption_scope),
     }
 
 

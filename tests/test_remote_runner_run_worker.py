@@ -13,6 +13,7 @@ from apps.remote_runner.run_execution_storage import claim_next_run_job, request
 from apps.remote_runner.run_worker import process_next_run_job
 from apps.remote_runner.storage import create_run_record, fetch_run, update_run_state
 from apps.remote_runner.storage_core import get_connection
+from tests.helpers.rule_partial_rerun_options import rule_partial_rerun_execution_options
 
 
 class FakeClock:
@@ -317,34 +318,7 @@ def test_run_worker_passes_claim_execution_options_to_default_executor(tmp_path:
 
     cfg = _config(tmp_path)
     run_id = _create_queued_run(cfg, "run_worker_execution_options")
-    execution_options = {
-        "schemaVersion": "run-job-execution-options.v1",
-        "snakemake": {
-            "schemaVersion": "snakemake-rule-rerun-options.v1",
-            "rerunIncomplete": True,
-            "forcerunRules": ["align"],
-        },
-        "outputAdoptionScope": {
-            "schemaVersion": "rule-output-adoption-scope.v1",
-            "mode": "rule-partial-rerun",
-            "sourcePlanHash": "c" * 64,
-            "outputCount": 1,
-            "outputKeys": ["summary"],
-            "targetOutputKeys": ["summary"],
-            "finalizeRunOnAdoption": False,
-            "outputs": [
-                {
-                    "outputKey": "summary",
-                    "stepId": "align",
-                    "outputOrdinal": 1,
-                    "invalidationRole": "selected",
-                    "cacheHit": True,
-                }
-            ],
-            "pathExposed": False,
-            "storageUriExposed": False,
-        },
-    }
+    execution_options = rule_partial_rerun_execution_options(source_plan_hash="c" * 64)
     with get_connection(cfg) as connection:
         connection.execute(
             "UPDATE run_jobs SET execution_options_json = ? WHERE run_id = ?",
@@ -413,24 +387,7 @@ def test_run_worker_rejects_rule_execution_options_without_source_plan_hash(
 
     cfg = _config(tmp_path)
     run_id = _create_queued_run(cfg, "run_worker_rule_options_unbound")
-    execution_options = {
-        "schemaVersion": "run-job-execution-options.v1",
-        "snakemake": {
-            "schemaVersion": "snakemake-rule-rerun-options.v1",
-            "rerunIncomplete": True,
-            "forcerunRules": ["align"],
-        },
-        "outputAdoptionScope": {
-            "schemaVersion": "rule-output-adoption-scope.v1",
-            "mode": "rule-partial-rerun",
-            "outputCount": 1,
-            "outputKeys": ["summary"],
-            "targetOutputKeys": ["summary"],
-            "finalizeRunOnAdoption": False,
-            "pathExposed": False,
-            "storageUriExposed": False,
-        },
-    }
+    execution_options = rule_partial_rerun_execution_options(source_plan_hash="")
     with get_connection(cfg) as connection:
         connection.execute(
             "UPDATE run_jobs SET execution_options_json = ? WHERE run_id = ?",
@@ -476,34 +433,7 @@ def test_run_worker_revalidates_persisted_rule_execution_options_after_claim(
 
     cfg = _config(tmp_path)
     run_id = _create_queued_run(cfg, "run_worker_rule_options_tampered")
-    execution_options = {
-        "schemaVersion": "run-job-execution-options.v1",
-        "snakemake": {
-            "schemaVersion": "snakemake-rule-rerun-options.v1",
-            "rerunIncomplete": True,
-            "forcerunRules": ["align"],
-        },
-        "outputAdoptionScope": {
-            "schemaVersion": "rule-output-adoption-scope.v1",
-            "mode": "rule-partial-rerun",
-            "sourcePlanHash": "c" * 64,
-            "outputCount": 1,
-            "outputKeys": ["summary"],
-            "targetOutputKeys": ["summary"],
-            "finalizeRunOnAdoption": False,
-            "outputs": [
-                {
-                    "outputKey": "summary",
-                    "stepId": "align",
-                    "outputOrdinal": 1,
-                    "invalidationRole": "selected",
-                    "cacheHit": True,
-                }
-            ],
-            "pathExposed": False,
-            "storageUriExposed": False,
-        },
-    }
+    execution_options = rule_partial_rerun_execution_options(source_plan_hash="c" * 64)
     with get_connection(cfg) as connection:
         connection.execute(
             "UPDATE run_jobs SET execution_options_json = ? WHERE run_id = ?",

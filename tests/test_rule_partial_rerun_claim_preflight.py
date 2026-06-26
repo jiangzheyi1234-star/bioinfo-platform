@@ -6,6 +6,7 @@ import pytest
 
 from apps.remote_runner.rule_partial_rerun_claim_preflight import (
     build_rule_partial_rerun_claim_preflight,
+    build_rule_partial_rerun_claim_binding,
     rule_partial_rerun_execution_options_requested,
     validate_rule_partial_rerun_claim_preflight,
 )
@@ -30,6 +31,9 @@ def test_rule_partial_rerun_claim_preflight_accepts_plan_bound_scope() -> None:
     assert preflight["claimReady"] is True
     assert preflight["reasonCode"] == "RULE_PARTIAL_RERUN_CLAIM_PREFLIGHT_READY"
     assert preflight["sourcePlanHash"] == "a" * 64
+    assert preflight["claimBindingPresent"] is True
+    assert preflight["sourcePlanHashMatchesBinding"] is True
+    assert preflight["outputAdoptionScopePlanHashMatches"] is True
     assert preflight["outputAdoptionScopeReady"] is True
     assert preflight["outputAdoptionScopeOutputCount"] == 1
     assert preflight["targetOutputKeys"] == ["bam"]
@@ -60,6 +64,41 @@ def test_rule_partial_rerun_claim_preflight_rejects_missing_source_plan_hash() -
         )
 
 
+def test_rule_partial_rerun_claim_preflight_rejects_missing_claim_binding() -> None:
+    options = _execution_options()
+    del options["rulePartialRerunClaimBinding"]
+
+    preflight = build_rule_partial_rerun_claim_preflight(
+        options,
+        run_id="run_rule_claim",
+        attempt_id="att_rule_claim",
+        lease_generation=2,
+    )
+
+    assert preflight["claimReady"] is False
+    assert preflight["reasonCode"] == "RULE_PARTIAL_RERUN_CLAIM_BINDING_REQUIRED"
+    assert preflight["claimBindingPresent"] is False
+
+
+def test_rule_partial_rerun_claim_preflight_rejects_stale_source_plan_hash_binding() -> None:
+    options = _execution_options()
+    options["rulePartialRerunClaimBinding"] = {
+        **options["rulePartialRerunClaimBinding"],
+        "sourcePlanHash": "b" * 64,
+    }
+
+    preflight = build_rule_partial_rerun_claim_preflight(
+        options,
+        run_id="run_rule_claim",
+        attempt_id="att_rule_claim",
+        lease_generation=2,
+    )
+
+    assert preflight["claimReady"] is False
+    assert preflight["reasonCode"] == "RULE_PARTIAL_RERUN_SOURCE_PLAN_HASH_STALE"
+    assert preflight["sourcePlanHashMatchesBinding"] is False
+
+
 def test_rule_partial_rerun_claim_preflight_rejects_scope_output_mismatch() -> None:
     options = _execution_options()
     options["outputAdoptionScope"]["outputs"] = [
@@ -83,9 +122,29 @@ def test_rule_partial_rerun_claim_preflight_rejects_scope_output_mismatch() -> N
     assert "RULE_RERUN_OUTPUT_ADOPTION_SCOPE_OUTPUTS_MISMATCH" in preflight["blockedReasonCodes"]
 
 
+def test_rule_partial_rerun_claim_preflight_rejects_stale_output_scope_binding() -> None:
+    options = _execution_options()
+    options["outputAdoptionScope"]["targetOutputKeys"] = ["other"]
+
+    preflight = build_rule_partial_rerun_claim_preflight(
+        options,
+        run_id="run_rule_claim",
+        attempt_id="att_rule_claim",
+        lease_generation=2,
+    )
+
+    assert preflight["claimReady"] is False
+    assert "RULE_PARTIAL_RERUN_OUTPUT_ADOPTION_SCOPE_STALE" in preflight["blockedReasonCodes"]
+    assert "RULE_RERUN_TARGET_OUTPUT_KEYS_MISMATCH" in preflight["blockedReasonCodes"]
+    assert preflight["outputAdoptionScopePlanHashMatches"] is False
+
+
 def test_rule_partial_rerun_claim_preflight_rejects_missing_target_output_keys() -> None:
     options = _execution_options()
     del options["outputAdoptionScope"]["targetOutputKeys"]
+    options["rulePartialRerunClaimBinding"] = build_rule_partial_rerun_claim_binding(
+        options["outputAdoptionScope"]
+    )
 
     preflight = build_rule_partial_rerun_claim_preflight(
         options,
@@ -102,6 +161,9 @@ def test_rule_partial_rerun_claim_preflight_rejects_missing_target_output_keys()
 def test_rule_partial_rerun_claim_preflight_rejects_finalize_on_adoption() -> None:
     options = _execution_options()
     options["outputAdoptionScope"]["finalizeRunOnAdoption"] = True
+    options["rulePartialRerunClaimBinding"] = build_rule_partial_rerun_claim_binding(
+        options["outputAdoptionScope"]
+    )
 
     preflight = build_rule_partial_rerun_claim_preflight(
         options,
@@ -162,6 +224,27 @@ def test_rule_partial_rerun_claim_state_validates_active_job_attempt_and_lease(t
 
 
 def _execution_options(source_plan_hash: str = "a" * 64) -> dict:
+    scope = {
+        "schemaVersion": "rule-output-adoption-scope.v1",
+        "mode": "rule-partial-rerun",
+        "sourcePlanHash": source_plan_hash,
+        "scopeSource": "ruleCacheRestorePlan.outputs",
+        "outputCount": 1,
+        "outputKeys": ["bam"],
+        "targetOutputKeys": ["bam"],
+        "finalizeRunOnAdoption": False,
+        "outputs": [
+            {
+                "outputKey": "bam",
+                "stepId": "align",
+                "outputOrdinal": 1,
+                "invalidationRole": "selected",
+                "cacheHit": True,
+            }
+        ],
+        "pathExposed": False,
+        "storageUriExposed": False,
+    }
     return {
         "schemaVersion": "run-job-execution-options.v1",
         "snakemake": {
@@ -169,25 +252,6 @@ def _execution_options(source_plan_hash: str = "a" * 64) -> dict:
             "rerunIncomplete": True,
             "forcerunRules": ["align"],
         },
-        "outputAdoptionScope": {
-            "schemaVersion": "rule-output-adoption-scope.v1",
-            "mode": "rule-partial-rerun",
-            "sourcePlanHash": source_plan_hash,
-            "scopeSource": "ruleCacheRestorePlan.outputs",
-            "outputCount": 1,
-            "outputKeys": ["bam"],
-            "targetOutputKeys": ["bam"],
-            "finalizeRunOnAdoption": False,
-            "outputs": [
-                {
-                    "outputKey": "bam",
-                    "stepId": "align",
-                    "outputOrdinal": 1,
-                    "invalidationRole": "selected",
-                    "cacheHit": True,
-                }
-            ],
-            "pathExposed": False,
-            "storageUriExposed": False,
-        },
+        "outputAdoptionScope": scope,
+        "rulePartialRerunClaimBinding": build_rule_partial_rerun_claim_binding(scope),
     }

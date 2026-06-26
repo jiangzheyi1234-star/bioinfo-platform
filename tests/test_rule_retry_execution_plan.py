@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from apps.remote_runner.execution_plan_hash import attach_plan_hash, stable_plan_hash
+from apps.remote_runner.rule_partial_rerun_claim_preflight import build_rule_partial_rerun_claim_binding
 from apps.remote_runner.rule_retry_execution_plan import build_rule_retry_execution_plan, rule_retry_execution_options
 
 
@@ -353,8 +354,30 @@ def test_rule_retry_execution_options_refuses_disabled_preview_plan() -> None:
 
 def test_rule_retry_execution_options_materializes_enabled_plan() -> None:
     plan = _ready_enabled_rule_retry_execution_plan()
+    options = rule_retry_execution_options(plan)
 
-    assert rule_retry_execution_options(plan) == {
+    expected_scope = {
+        "schemaVersion": "rule-output-adoption-scope.v1",
+        "mode": "rule-partial-rerun",
+        "sourcePlanHash": plan["planHash"],
+        "scopeSource": "ruleCacheRestorePlan.outputs",
+        "outputCount": 1,
+        "outputKeys": ["bam"],
+        "targetOutputKeys": ["bam"],
+        "finalizeRunOnAdoption": False,
+        "outputs": [
+            {
+                "outputKey": "bam",
+                "stepId": "align",
+                "outputOrdinal": 1,
+                "invalidationRole": "selected",
+                "cacheHit": True,
+            }
+        ],
+        "pathExposed": False,
+        "storageUriExposed": False,
+    }
+    assert options == {
         "schemaVersion": "run-job-execution-options.v1",
         "snakemake": {
             "schemaVersion": "snakemake-rule-rerun-options.v1",
@@ -362,27 +385,8 @@ def test_rule_retry_execution_options_materializes_enabled_plan() -> None:
             "forcerunRules": ["align"],
             "targetOutputKeys": ["bam"],
         },
-        "outputAdoptionScope": {
-            "schemaVersion": "rule-output-adoption-scope.v1",
-            "mode": "rule-partial-rerun",
-            "sourcePlanHash": plan["planHash"],
-            "scopeSource": "ruleCacheRestorePlan.outputs",
-            "outputCount": 1,
-            "outputKeys": ["bam"],
-            "targetOutputKeys": ["bam"],
-            "finalizeRunOnAdoption": False,
-            "outputs": [
-                {
-                    "outputKey": "bam",
-                    "stepId": "align",
-                    "outputOrdinal": 1,
-                    "invalidationRole": "selected",
-                    "cacheHit": True,
-                }
-            ],
-            "pathExposed": False,
-            "storageUriExposed": False,
-        },
+        "outputAdoptionScope": expected_scope,
+        "rulePartialRerunClaimBinding": build_rule_partial_rerun_claim_binding(expected_scope),
     }
 
 

@@ -40,6 +40,21 @@ def request_run_retry(
     normalized_actor = _optional_text(actor) or "remote-runner-api"
     normalized_reason = _optional_text(reason) or "operator_requested"
     normalized_scope = _retry_scope(scope)
+    normalized_execution_options = execution_options or {}
+    if rule_partial_rerun_execution_options_requested(normalized_execution_options):
+        if normalized_scope != "rule":
+            raise ValueError("RULE_RETRY_SCOPE_REQUIRED_FOR_RULE_EXECUTION_OPTIONS")
+        validate_rule_partial_rerun_claim_preflight(
+            normalized_execution_options,
+            run_id=normalized_run_id,
+            attempt_id="pending-worker-claim",
+            lease_generation=1,
+        )
+        canonical_options = rule_retry_execution_options(
+            _current_rule_retry_execution_plan(cfg, normalized_run_id)
+        )
+        if canonical_options != normalized_execution_options:
+            raise ValueError("RULE_PARTIAL_RERUN_EXECUTION_OPTIONS_NOT_CURRENT")
     with get_connection(cfg) as connection:
         connection.execute("BEGIN IMMEDIATE")
         run = _fetch_run_row(connection, normalized_run_id)
@@ -72,10 +87,7 @@ def request_run_retry(
             raise ValueError("RUN_RETRY_JOB_CLAIMED")
         backoff_seconds = retry_backoff_seconds_for_job(job, fallback_seconds=0)
         available_at = _add_seconds(requested_at, backoff_seconds)
-        normalized_execution_options = execution_options or {}
         if rule_partial_rerun_execution_options_requested(normalized_execution_options):
-            if normalized_scope != "rule":
-                raise ValueError("RULE_RETRY_SCOPE_REQUIRED_FOR_RULE_EXECUTION_OPTIONS")
             validate_rule_partial_rerun_claim_preflight(
                 normalized_execution_options,
                 run_id=normalized_run_id,

@@ -5,14 +5,16 @@ import json
 import pytest
 
 from apps.remote_runner.execution_plan_hash import attach_plan_hash
-from apps.remote_runner.execution_retry_storage import request_rule_retry
+from apps.remote_runner.execution_retry_storage import request_rule_retry, request_run_retry
 from apps.remote_runner.run_execution_storage import claim_next_run_job, complete_run_attempt
 from apps.remote_runner.rule_execution_storage import upsert_run_rule_state
+from apps.remote_runner.rule_retry_execution_plan import rule_retry_execution_options
 from apps.remote_runner.storage import create_run_record
 from apps.remote_runner.storage_core import get_connection
 from apps.remote_runner.workflow_revision_storage import create_or_fetch_workflow_revision
 from apps.remote_runner.workflow_run_storage import update_run_state
 from tests.helpers.reference_database import make_configured_remote_runner
+from tests.helpers.rule_partial_rerun_options import bind_rule_partial_rerun_options
 
 
 def test_request_rule_retry_refuses_current_disabled_execution_plan(tmp_path) -> None:
@@ -76,38 +78,13 @@ def test_request_rule_retry_requeues_enabled_plan_with_rule_scope_and_options(tm
         lease_seconds=30,
     )
 
-    expected_options = {
-        "schemaVersion": "run-job-execution-options.v1",
-        "snakemake": {
-            "schemaVersion": "snakemake-rule-rerun-options.v1",
-            "rerunIncomplete": True,
-            "forcerunRules": ["align"],
-            "targetOutputKeys": ["bam"],
-        },
-        "outputAdoptionScope": {
-            "schemaVersion": "rule-output-adoption-scope.v1",
-            "mode": "rule-partial-rerun",
-            "sourcePlanHash": plan["planHash"],
-            "scopeSource": "ruleCacheRestorePlan.outputs",
-            "outputCount": 1,
-            "outputKeys": ["bam"],
-            "targetOutputKeys": ["bam"],
-            "finalizeRunOnAdoption": False,
-            "outputs": [
-                {
-                    "outputKey": "bam",
-                    "stepId": "align",
-                    "outputOrdinal": 1,
-                    "invalidationRole": "selected",
-                    "cacheHit": True,
-                }
-            ],
-            "pathExposed": False,
-            "storageUriExposed": False,
-        },
-    }
+    expected_options = rule_retry_execution_options(plan)
     assert result["scope"] == "rule"
     assert result["executionOptions"] == expected_options
+    assert expected_options["rulePartialRerunClaimBinding"]["schemaVersion"] == "rule-partial-rerun-claim-binding.v1"
+    assert expected_options["rulePartialRerunClaimBinding"]["sourcePlanHash"] == plan["planHash"]
+    assert expected_options["rulePartialRerunClaimBinding"]["pathExposed"] is False
+    assert expected_options["rulePartialRerunClaimBinding"]["storageUriExposed"] is False
     assert [rule["ruleName"] for rule in result["selectedRules"]] == ["align"]
     assert next_claim is not None
     assert next_claim["runId"] == "run_rule_retry_enabled"
@@ -162,6 +139,55 @@ def test_request_rule_retry_rejects_stale_supplied_plan_hash_before_mutation(tmp
         command_count = connection.execute(
             "SELECT COUNT(*) AS count FROM run_commands WHERE run_id = ? AND command_type = 'retry_run'",
             ("run_rule_retry_stale_plan",),
+        ).fetchone()["count"]
+    assert command_count == 0
+
+
+def test_request_run_retry_rejects_self_consistent_stale_rule_options(tmp_path, monkeypatch) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    claim = _create_failed_run(cfg, "run_rule_retry_stale_options")
+    plan = _enabled_rule_retry_execution_plan(
+        "run_rule_retry_stale_options",
+        claim["attemptId"],
+        claim["leaseGeneration"],
+    )
+    monkeypatch.setattr(
+        "apps.remote_runner.execution_retry_storage._current_rule_retry_execution_plan",
+        lambda _cfg, _run_id: plan,
+    )
+    stale_options = rule_retry_execution_options(plan)
+    stale_options["snakemake"]["targetOutputKeys"] = ["other"]
+    stale_options["outputAdoptionScope"] = {
+        **stale_options["outputAdoptionScope"],
+        "outputKeys": ["other"],
+        "targetOutputKeys": ["other"],
+        "outputs": [
+            {
+                "outputKey": "other",
+                "stepId": "align",
+                "outputOrdinal": 1,
+                "invalidationRole": "selected",
+                "cacheHit": True,
+            }
+        ],
+    }
+    bind_rule_partial_rerun_options(stale_options)
+
+    with pytest.raises(ValueError, match="RULE_PARTIAL_RERUN_EXECUTION_OPTIONS_NOT_CURRENT"):
+        request_run_retry(
+            cfg,
+            "run_rule_retry_stale_options",
+            actor="api-test",
+            reason="operator_rule_retry",
+            execution_options=stale_options,
+            scope="rule",
+            now="2099-06-07T10:01:00Z",
+        )
+
+    with get_connection(cfg) as connection:
+        command_count = connection.execute(
+            "SELECT COUNT(*) AS count FROM run_commands WHERE run_id = ? AND command_type = 'retry_run'",
+            ("run_rule_retry_stale_options",),
         ).fetchone()["count"]
     assert command_count == 0
 

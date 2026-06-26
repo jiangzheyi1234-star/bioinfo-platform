@@ -4,12 +4,14 @@ import re
 from typing import Any
 
 from .config import RemoteRunnerConfig
+from .execution_plan_hash import stable_plan_hash
 from .execution_job_records import run_job_row_to_dict
 from .storage_core import get_connection
 from .workflow_engine_adapter import WorkflowRuntimeCommandError, normalize_forcerun_rules
 
 
 RULE_PARTIAL_RERUN_CLAIM_PREFLIGHT_SCHEMA_VERSION = "rule-partial-rerun-claim-preflight.v1"
+RULE_PARTIAL_RERUN_CLAIM_BINDING_SCHEMA_VERSION = "rule-partial-rerun-claim-binding.v1"
 RUN_JOB_EXECUTION_OPTIONS_SCHEMA_VERSION = "run-job-execution-options.v1"
 SNAKEMAKE_RULE_RERUN_OPTIONS_SCHEMA_VERSION = "snakemake-rule-rerun-options.v1"
 RULE_OUTPUT_ADOPTION_SCOPE_SCHEMA_VERSION = "rule-output-adoption-scope.v1"
@@ -40,12 +42,15 @@ def build_rule_partial_rerun_claim_preflight(
     options = _dict_value(execution_options)
     snakemake = _dict_value(options.get("snakemake"))
     scope = _dict_value(options.get("outputAdoptionScope"))
+    binding = _dict_value(options.get("rulePartialRerunClaimBinding"))
     source_plan_hash = str(scope.get("sourcePlanHash") or "").strip()
     output_keys = _output_keys(scope)
     target_output_keys = _output_keys(scope, key_name="targetOutputKeys")
     outputs = _scope_outputs(scope)
+    binding_blockers = rule_partial_rerun_claim_binding_blockers(scope, binding)
 
     blockers: list[str] = []
+    blockers.extend(binding_blockers)
     if not rule_partial_rerun_execution_options_requested(options):
         blockers.append("RULE_PARTIAL_RERUN_EXECUTION_OPTIONS_NOT_REQUESTED")
     if options.get("schemaVersion") != RUN_JOB_EXECUTION_OPTIONS_SCHEMA_VERSION:
@@ -112,11 +117,17 @@ def build_rule_partial_rerun_claim_preflight(
         "leaseGenerationPresent": _safe_int(lease_generation) > 0,
         "sourcePlanHash": source_plan_hash,
         "sourcePlanHashPresent": bool(source_plan_hash),
+        "claimBindingPresent": bool(binding),
+        "sourcePlanHashMatchesBinding": "RULE_PARTIAL_RERUN_SOURCE_PLAN_HASH_STALE" not in unique_blockers,
+        "outputAdoptionScopePlanHashMatches": "RULE_PARTIAL_RERUN_OUTPUT_ADOPTION_SCOPE_STALE"
+        not in unique_blockers,
         "outputAdoptionScopeReady": not any(
             item.startswith("RULE_RERUN_OUTPUT_ADOPTION_SCOPE") or item.startswith("RULE_RERUN_TARGET_OUTPUT")
+            or item.startswith("RULE_PARTIAL_RERUN_OUTPUT_ADOPTION_SCOPE")
             for item in unique_blockers
         )
-        and "RULE_PARTIAL_RERUN_SOURCE_PLAN_HASH_REQUIRED" not in unique_blockers,
+        and "RULE_PARTIAL_RERUN_SOURCE_PLAN_HASH_REQUIRED" not in unique_blockers
+        and "RULE_PARTIAL_RERUN_SOURCE_PLAN_HASH_STALE" not in unique_blockers,
         "outputAdoptionScopeOutputCount": len(output_keys),
         "outputKeys": output_keys,
         "targetOutputKeys": target_output_keys,
@@ -144,6 +155,74 @@ def validate_rule_partial_rerun_claim_preflight(
     if preflight.get("claimReady") is not True:
         raise ValueError(str(preflight.get("reasonCode") or "RULE_PARTIAL_RERUN_CLAIM_PREFLIGHT_UNPROVEN"))
     return preflight
+
+
+def build_rule_partial_rerun_claim_binding(output_adoption_scope: dict[str, Any]) -> dict[str, Any]:
+    scope = _dict_value(output_adoption_scope)
+    return {
+        "schemaVersion": RULE_PARTIAL_RERUN_CLAIM_BINDING_SCHEMA_VERSION,
+        "mode": "rule-partial-rerun",
+        "sourcePlanHash": str(scope.get("sourcePlanHash") or "").strip(),
+        "outputAdoptionScopeFingerprint": rule_partial_rerun_output_scope_fingerprint(scope),
+        "pathExposed": False,
+        "storageUriExposed": False,
+    }
+
+
+def rule_partial_rerun_claim_binding_blockers(
+    output_adoption_scope: dict[str, Any],
+    claim_binding: dict[str, Any],
+) -> list[str]:
+    scope = _dict_value(output_adoption_scope)
+    binding = _dict_value(claim_binding)
+    blockers: list[str] = []
+    if not binding:
+        return ["RULE_PARTIAL_RERUN_CLAIM_BINDING_REQUIRED"]
+    if binding.get("schemaVersion") != RULE_PARTIAL_RERUN_CLAIM_BINDING_SCHEMA_VERSION:
+        blockers.append("RULE_PARTIAL_RERUN_CLAIM_BINDING_SCHEMA_UNSUPPORTED")
+    if binding.get("mode") != "rule-partial-rerun":
+        blockers.append("RULE_PARTIAL_RERUN_CLAIM_BINDING_MODE_UNSUPPORTED")
+    if binding.get("pathExposed") is True or binding.get("storageUriExposed") is True:
+        blockers.append("RULE_PARTIAL_RERUN_CLAIM_BINDING_REDACTION_UNSAFE")
+    source_plan_hash = str(scope.get("sourcePlanHash") or "").strip()
+    binding_source_hash = str(binding.get("sourcePlanHash") or "").strip()
+    if binding_source_hash != source_plan_hash:
+        blockers.append("RULE_PARTIAL_RERUN_SOURCE_PLAN_HASH_STALE")
+    binding_scope_hash = str(binding.get("outputAdoptionScopeFingerprint") or "").strip()
+    if not _PLAN_HASH.fullmatch(binding_scope_hash):
+        blockers.append("RULE_PARTIAL_RERUN_OUTPUT_ADOPTION_SCOPE_FINGERPRINT_REQUIRED")
+    elif binding_scope_hash != rule_partial_rerun_output_scope_fingerprint(scope):
+        blockers.append("RULE_PARTIAL_RERUN_OUTPUT_ADOPTION_SCOPE_STALE")
+    return _unique_strings(blockers)
+
+
+def rule_partial_rerun_output_scope_fingerprint(output_adoption_scope: dict[str, Any]) -> str:
+    scope = _dict_value(output_adoption_scope)
+    outputs = []
+    for item in _scope_outputs(scope):
+        outputs.append(
+            {
+                "outputKey": str(item.get("outputKey") or "").strip(),
+                "stepId": str(item.get("stepId") or "").strip(),
+                "outputOrdinal": _safe_int(item.get("outputOrdinal")),
+                "invalidationRole": str(item.get("invalidationRole") or "").strip(),
+                "cacheHit": item.get("cacheHit") is True,
+            }
+        )
+    payload = {
+        "schemaVersion": str(scope.get("schemaVersion") or ""),
+        "mode": str(scope.get("mode") or ""),
+        "sourcePlanHash": str(scope.get("sourcePlanHash") or "").strip(),
+        "scopeSource": str(scope.get("scopeSource") or "").strip(),
+        "outputCount": _safe_int(scope.get("outputCount")),
+        "outputKeys": _output_keys(scope),
+        "targetOutputKeys": _output_keys(scope, key_name="targetOutputKeys"),
+        "finalizeRunOnAdoption": scope.get("finalizeRunOnAdoption") is True,
+        "pathExposed": scope.get("pathExposed") is True,
+        "storageUriExposed": scope.get("storageUriExposed") is True,
+        "outputs": outputs,
+    }
+    return stable_plan_hash(payload)
 
 
 def validate_rule_partial_rerun_claim_state(
