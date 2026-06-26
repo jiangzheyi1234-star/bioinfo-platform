@@ -46,6 +46,36 @@ def test_service_info_exposes_local_identity_version_readiness(monkeypatch) -> N
     }
 
 
+def test_service_info_production_governance_is_redacted(monkeypatch) -> None:
+    monkeypatch.setenv("H2OMETA_DEPLOYMENT_MODE", "server-single-user")
+    monkeypatch.setenv("H2OMETA_RUNNER_TOKEN", "runner-secret-value")
+    monkeypatch.setenv("H2OMETA_DATABASE_URL", "postgresql://user:very-secret-password@example.invalid/h2ometa")
+    monkeypatch.setenv("H2OMETA_ARTIFACT_S3_ENDPOINT", "minio.internal:9000")
+    monkeypatch.setenv("H2OMETA_ARTIFACT_S3_BUCKET", "h2ometa-artifacts")
+    monkeypatch.setenv("H2OMETA_ARTIFACT_S3_ACCESS_KEY", "access-secret-value")
+    monkeypatch.setenv("H2OMETA_ARTIFACT_S3_SECRET_KEY", "s3-secret-value")
+    monkeypatch.setenv("H2OMETA_ARTIFACT_S3_PREFIX", "tenant-a")
+
+    payload = asyncio.run(system_service.service_info_from_request())
+
+    governance = payload["item"]["productionGovernance"]
+    checks = {check["id"]: check for check in governance["checks"]}
+    serialized = str(governance)
+    assert governance["schemaVersion"] == "production-governance-readiness.v1"
+    assert governance["currentModeStatus"] == "blocked"
+    assert governance["currentModeBlockingCheckIds"] == ["postgres-control-plane"]
+    assert checks["postgres-control-plane"]["reasonCode"] == "POSTGRES_UNSUPPORTED_SIGNAL_PRESENT"
+    for check in governance["checks"]:
+        assert "details" not in check
+        assert "summary" not in check
+    assert "very-secret-password" not in serialized
+    assert "runner-secret-value" not in serialized
+    assert "s3-secret-value" not in serialized
+    assert "access-secret-value" not in serialized
+    assert "minio.internal" not in serialized
+    assert "h2ometa-artifacts" not in serialized
+
+
 def test_service_info_requires_explicit_deployment_mode(monkeypatch) -> None:
     monkeypatch.delenv("H2OMETA_DEPLOYMENT_MODE", raising=False)
 

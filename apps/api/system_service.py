@@ -57,7 +57,9 @@ async def service_info_from_request() -> dict[str, Any]:
                 "backendSource": backend_source,
             },
             "deployment": deployment.to_dict(),
-            "productionGovernance": build_production_governance_readiness(),
+            "productionGovernance": _service_info_production_governance_projection(
+                build_production_governance_readiness()
+            ),
             "readiness": {
                 "status": readiness_status,
                 "checks": readiness_checks,
@@ -81,3 +83,42 @@ def _collect_state_counts() -> dict[str, Any]:
         counts["remoteRunnerConnected"] = False
         counts["activeSshSessions"] = 0
     return counts
+
+
+def _service_info_production_governance_projection(readiness: dict[str, Any]) -> dict[str, Any]:
+    """Return the service-info allowlist projection for production governance."""
+    return {
+        "schemaVersion": str(readiness.get("schemaVersion") or ""),
+        "currentModeStatus": str(readiness.get("currentModeStatus") or ""),
+        "publicMultiUserStatus": str(readiness.get("publicMultiUserStatus") or ""),
+        "publicMultiUserReady": readiness.get("publicMultiUserReady") is True,
+        "currentModeBlockingCheckIds": _string_list(readiness.get("currentModeBlockingCheckIds")),
+        "publicMultiUserBlockingCheckIds": _string_list(readiness.get("publicMultiUserBlockingCheckIds")),
+        "checks": [
+            _service_info_production_governance_check_projection(check)
+            for check in _dict_list(readiness.get("checks"))
+        ],
+    }
+
+
+def _service_info_production_governance_check_projection(check: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(check.get("id") or ""),
+        "status": str(check.get("status") or ""),
+        "reasonCode": str(check.get("reasonCode") or ""),
+        "blocksCurrentMode": check.get("blocksCurrentMode") is True,
+        "requiredFor": str(check.get("requiredFor") or ""),
+        "evidence": _string_list(check.get("evidence")),
+    }
+
+
+def _dict_list(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if isinstance(item, str)]
