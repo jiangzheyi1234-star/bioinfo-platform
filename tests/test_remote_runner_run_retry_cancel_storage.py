@@ -246,6 +246,7 @@ def test_request_run_retry_persists_next_attempt_execution_options(tmp_path):
             "outputCount": 1,
             "outputKeys": ["summary"],
             "targetOutputKeys": ["summary"],
+            "finalizeRunOnAdoption": False,
             "outputs": [
                 {
                     "outputKey": "summary",
@@ -343,6 +344,7 @@ def test_request_run_retry_rejects_rule_options_without_rule_scope(tmp_path):
                     "outputCount": 1,
                     "outputKeys": ["summary"],
                     "targetOutputKeys": ["summary"],
+                    "finalizeRunOnAdoption": False,
                     "pathExposed": False,
                     "storageUriExposed": False,
                 },

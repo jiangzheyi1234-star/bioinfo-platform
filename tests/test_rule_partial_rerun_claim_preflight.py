@@ -33,6 +33,7 @@ def test_rule_partial_rerun_claim_preflight_accepts_plan_bound_scope() -> None:
     assert preflight["outputAdoptionScopeReady"] is True
     assert preflight["outputAdoptionScopeOutputCount"] == 1
     assert preflight["targetOutputKeys"] == ["bam"]
+    assert preflight["finalizeRunOnAdoption"] is False
     assert preflight["forcerunRuleCount"] == 1
     assert preflight["pathExposed"] is False
     assert preflight["storageUriExposed"] is False
@@ -98,6 +99,22 @@ def test_rule_partial_rerun_claim_preflight_rejects_missing_target_output_keys()
     assert preflight["outputAdoptionScopeReady"] is False
 
 
+def test_rule_partial_rerun_claim_preflight_rejects_finalize_on_adoption() -> None:
+    options = _execution_options()
+    options["outputAdoptionScope"]["finalizeRunOnAdoption"] = True
+
+    preflight = build_rule_partial_rerun_claim_preflight(
+        options,
+        run_id="run_rule_claim",
+        attempt_id="att_rule_claim",
+        lease_generation=2,
+    )
+
+    assert preflight["claimReady"] is False
+    assert preflight["reasonCode"] == "RULE_RERUN_OUTPUT_ADOPTION_SCOPE_FINALIZE_FORBIDDEN"
+    assert preflight["outputAdoptionScopeReady"] is False
+
+
 def test_rule_partial_rerun_claim_state_validates_active_job_attempt_and_lease(tmp_path) -> None:
     from apps.remote_runner.rule_partial_rerun_claim_preflight import validate_rule_partial_rerun_claim_state
 
@@ -160,6 +177,7 @@ def _execution_options(source_plan_hash: str = "a" * 64) -> dict:
             "outputCount": 1,
             "outputKeys": ["bam"],
             "targetOutputKeys": ["bam"],
+            "finalizeRunOnAdoption": False,
             "outputs": [
                 {
                     "outputKey": "bam",

@@ -67,6 +67,8 @@ def build_rule_partial_rerun_claim_preflight(
         blockers.append("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_MODE_UNSUPPORTED")
     if scope.get("pathExposed") is True or scope.get("storageUriExposed") is True:
         blockers.append("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_REDACTION_UNSAFE")
+    if scope.get("finalizeRunOnAdoption") is not False:
+        blockers.append("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_FINALIZE_FORBIDDEN")
     if not _PLAN_HASH.fullmatch(source_plan_hash):
         blockers.append("RULE_PARTIAL_RERUN_SOURCE_PLAN_HASH_REQUIRED")
     if not output_keys:
@@ -122,6 +124,7 @@ def build_rule_partial_rerun_claim_preflight(
         "rerunIncomplete": snakemake.get("rerunIncomplete") is True,
         "pathExposed": scope.get("pathExposed") is True,
         "storageUriExposed": scope.get("storageUriExposed") is True,
+        "finalizeRunOnAdoption": scope.get("finalizeRunOnAdoption") is True,
     }
 
 

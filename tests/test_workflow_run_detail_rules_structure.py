@@ -48,6 +48,9 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "WorkflowRunRuleOutputInvalidationApplyResponse" in model
     assert "export type WorkflowRunRuleRetrySnakemakeOptions" in model_contract
     assert "targetOutputKeys?: string[]" in model_contract
+    assert "finalizeRunOnAdoption?: boolean" in model_contract
+    assert "postExecutionArtifactAdoption?" in model_contract
+    assert "postExecutionArtifactAdoptionMode?: string" in model_contract
     assert "export type WorkflowRunResumePlan" in model_contract
     assert "export type WorkflowRunResumeSnakemakeOptions" in model_contract
     assert "export type WorkflowRunFailureLocator" in model_contract

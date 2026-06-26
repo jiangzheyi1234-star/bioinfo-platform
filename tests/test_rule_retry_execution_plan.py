@@ -44,6 +44,14 @@ def test_rule_retry_execution_plan_previews_snakemake_forcerun_options_without_e
         "argsPreview": ["--rerun-incomplete", "--forcerun", "align"],
         "unsafeFlagsProhibited": ["--forceall", "--touch", "--ignore-incomplete"],
     }
+    assert plan["postExecutionArtifactAdoption"] == {
+        "mode": "scoped-candidate-output-adoption",
+        "outputCount": 0,
+        "finalizeRunOnAdoption": False,
+        "runStateMutationAllowed": False,
+        "pathExposed": False,
+        "storageUriExposed": False,
+    }
     assert plan["executorOrchestration"]["schemaVersion"] == "rerun-executor-orchestration.v1"
     assert plan["executorOrchestration"]["mode"] == "rule-partial-rerun"
     assert plan["executorOrchestration"]["contractReady"] is False
@@ -175,17 +183,18 @@ def test_rule_retry_execution_plan_marks_orchestration_contract_ready_without_en
     assert orchestration["reasonCode"] == "PARTIAL_RERUN_EXECUTOR_ORCHESTRATION_PREVIEW_ONLY"
     assert orchestration["launchPreflightReady"] is True
     assert orchestration["launchReady"] is False
-    assert orchestration["executionBoundaryReady"] is False
+    assert orchestration["executionBoundaryReady"] is True
     execution_boundary = orchestration["executionBoundary"]
     assert execution_boundary["schemaVersion"] == "rule-partial-rerun-execution-boundary.v1"
-    assert execution_boundary["boundaryReady"] is False
-    assert execution_boundary["reasonCode"] == "RULE_PARTIAL_RERUN_FINALIZE_BOUNDARY_UNPROVEN"
+    assert execution_boundary["boundaryReady"] is True
+    assert execution_boundary["reasonCode"] == "RULE_PARTIAL_RERUN_EXECUTION_BOUNDARY_READY"
     assert execution_boundary["explicitTargetCount"] == 1
     assert execution_boundary["explicitTargetsPresent"] is True
     assert execution_boundary["scopedOutputCount"] == 1
-    assert execution_boundary["finalizeWouldCompleteRun"] is True
+    assert execution_boundary["postExecutionArtifactAdoptionMode"] == "scoped-candidate-output-adoption"
+    assert execution_boundary["finalizeWouldCompleteRun"] is False
     assert execution_boundary["finalizeRunAllowed"] is False
-    assert "RULE_PARTIAL_RERUN_FINALIZE_BOUNDARY_UNPROVEN" in execution_boundary["blockedReasonCodes"]
+    assert execution_boundary["blockedReasonCodes"] == []
     launch_preflight = orchestration["launchPreflight"]
     assert launch_preflight["schemaVersion"] == "rule-partial-rerun-launch-preflight.v1"
     assert launch_preflight["preflightReady"] is True
@@ -203,6 +212,7 @@ def test_rule_retry_execution_plan_marks_orchestration_contract_ready_without_en
     assert launch_preflight["outputAdoptionScopeReady"] is True
     assert launch_preflight["outputAdoptionScope"]["outputKeys"] == ["bam"]
     assert launch_preflight["outputAdoptionScope"]["targetOutputKeys"] == ["bam"]
+    assert launch_preflight["outputAdoptionScope"]["finalizeRunOnAdoption"] is False
     assert launch_preflight["outputAdoptionScopeOutputCount"] == 1
     assert launch_preflight["executionPlanHashRevalidationRequired"] is True
     assert launch_preflight["sourcePlanHashRevalidationRequired"] is True
@@ -219,10 +229,8 @@ def test_rule_retry_execution_plan_marks_orchestration_contract_ready_without_en
     assert orchestration["queueMutationAllowed"] is False
     assert orchestration["pathExposed"] is False
     assert readiness_checks["partialRerunLaunchPreflight"]["ready"] is True
-    assert readiness_checks["partialRerunExecutionBoundary"]["ready"] is False
-    assert readiness_checks["partialRerunExecutionBoundary"]["reasonCode"] == (
-        "RULE_PARTIAL_RERUN_FINALIZE_BOUNDARY_UNPROVEN"
-    )
+    assert readiness_checks["partialRerunExecutionBoundary"]["ready"] is True
+    assert readiness_checks["partialRerunExecutionBoundary"]["reasonCode"] == "READY"
     assert readiness_checks["partialRerunExecutor"]["reasonCode"] == (
         "PARTIAL_RERUN_EXECUTOR_ORCHESTRATION_PREVIEW_ONLY"
     )
@@ -355,6 +363,7 @@ def test_rule_retry_execution_options_materializes_enabled_plan() -> None:
             "outputCount": 1,
             "outputKeys": ["bam"],
             "targetOutputKeys": ["bam"],
+            "finalizeRunOnAdoption": False,
             "outputs": [
                 {
                     "outputKey": "bam",

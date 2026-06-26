@@ -50,6 +50,8 @@ def _rule_output_adoption_scope(execution_options: dict) -> dict[str, Any]:
         raise WorkflowRuntimeCommandError("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_MODE_UNSUPPORTED")
     if scope.get("pathExposed") or scope.get("storageUriExposed"):
         raise WorkflowRuntimeCommandError("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_REDACTION_UNSAFE")
+    if scope.get("finalizeRunOnAdoption") is not False:
+        raise WorkflowRuntimeCommandError("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_FINALIZE_FORBIDDEN")
     source_plan_hash = str(scope.get("sourcePlanHash") or "").strip()
     if not _PLAN_HASH.fullmatch(source_plan_hash):
         raise WorkflowRuntimeCommandError("RULE_PARTIAL_RERUN_SOURCE_PLAN_HASH_REQUIRED")
@@ -58,7 +60,7 @@ def _rule_output_adoption_scope(execution_options: dict) -> dict[str, Any]:
     if declared_count and declared_count != len(output_keys):
         raise WorkflowRuntimeCommandError("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_COUNT_MISMATCH")
     target_output_keys = _target_output_keys(scope.get("targetOutputKeys"), output_keys=output_keys)
-    return {"output_keys": output_keys, "target_output_keys": target_output_keys}
+    return {"output_keys": output_keys, "target_output_keys": target_output_keys, "finalize_run": False}
 
 
 def _target_paths_from_output_keys(
@@ -84,6 +86,18 @@ def _target_paths_from_output_keys(
             raise WorkflowRuntimeCommandError("RULE_RERUN_TARGET_OUTPUT_PATH_UNSAFE")
         target_paths.append(target_path)
     return target_paths
+
+
+def _finalize_run_after_artifact_collection(
+    *,
+    attempt_id: str | None,
+    output_adoption_scope: dict[str, Any] | None,
+) -> bool:
+    if attempt_id is None:
+        return False
+    if output_adoption_scope is None:
+        return True
+    return bool(output_adoption_scope.get("finalize_run"))
 
 
 def _scoped_artifact_collection(

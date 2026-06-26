@@ -133,6 +133,14 @@ def build_rule_retry_execution_plan(
 
     target_output_keys = _output_keys_from_cache_restore(resolved_cache_restore_plan)
     args_preview = ["--rerun-incomplete", "--forcerun", *forcerun_rules]
+    post_execution_adoption = {
+        "mode": "scoped-candidate-output-adoption",
+        "outputCount": len(target_output_keys),
+        "finalizeRunOnAdoption": False,
+        "runStateMutationAllowed": False,
+        "pathExposed": False,
+        "storageUriExposed": False,
+    }
     return _finalize(
         {
             **base,
@@ -147,6 +155,7 @@ def build_rule_retry_execution_plan(
                 "ruleCount": len(rule_retry_plan.get("invalidatedRules") or []),
                 "rules": list(rule_retry_plan.get("invalidatedRules") or []),
             },
+            "postExecutionArtifactAdoption": post_execution_adoption,
             "cacheRestorePlan": resolved_cache_restore_plan,
             "outputInvalidationPlan": resolved_output_invalidation_plan,
             "snakemakeOptions": {
@@ -243,6 +252,14 @@ def _base_plan(
         "rerunScope": {"ruleCount": 0, "rules": []},
         "cacheRestorePlan": cache_restore_plan,
         "outputInvalidationPlan": output_invalidation_plan,
+        "postExecutionArtifactAdoption": {
+            "mode": "unproven",
+            "outputCount": 0,
+            "finalizeRunOnAdoption": True,
+            "runStateMutationAllowed": False,
+            "pathExposed": False,
+            "storageUriExposed": False,
+        },
         "partialRerunLifecycle": blocked_rule_partial_rerun_lifecycle(),
         "partialRerunOutputClosure": blocked_rule_partial_rerun_output_closure(),
         "snakemakeOptions": {
@@ -422,6 +439,7 @@ def _rule_output_adoption_scope(rule_retry_execution_plan: dict[str, Any]) -> di
         "outputCount": len(entries),
         "outputKeys": [entry["outputKey"] for entry in entries],
         "targetOutputKeys": [entry["outputKey"] for entry in entries],
+        "finalizeRunOnAdoption": False,
         "outputs": entries,
         "pathExposed": False,
         "storageUriExposed": False,

@@ -331,6 +331,7 @@ def test_run_worker_passes_claim_execution_options_to_default_executor(tmp_path:
             "outputCount": 1,
             "outputKeys": ["summary"],
             "targetOutputKeys": ["summary"],
+            "finalizeRunOnAdoption": False,
             "outputs": [
                 {
                     "outputKey": "summary",
@@ -425,6 +426,7 @@ def test_run_worker_rejects_rule_execution_options_without_source_plan_hash(
             "outputCount": 1,
             "outputKeys": ["summary"],
             "targetOutputKeys": ["summary"],
+            "finalizeRunOnAdoption": False,
             "pathExposed": False,
             "storageUriExposed": False,
         },
@@ -488,6 +490,7 @@ def test_run_worker_revalidates_persisted_rule_execution_options_after_claim(
             "outputCount": 1,
             "outputKeys": ["summary"],
             "targetOutputKeys": ["summary"],
+            "finalizeRunOnAdoption": False,
             "outputs": [
                 {
                     "outputKey": "summary",

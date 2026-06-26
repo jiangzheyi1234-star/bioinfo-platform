@@ -167,6 +167,7 @@ def test_executor_applies_job_execution_options_to_dry_run_and_run(tmp_path: Pat
                 "outputCount": 1,
                 "outputKeys": ["summary"],
                 "targetOutputKeys": ["summary"],
+                "finalizeRunOnAdoption": False,
                 "pathExposed": False,
                 "storageUriExposed": False,
             },
@@ -185,6 +186,110 @@ def test_executor_applies_job_execution_options_to_dry_run_and_run(tmp_path: Pat
         assert "--ignore-incomplete" not in command
     assert "-n" in calls[0]
     assert "--logger-h2ometa-event-path" in calls[1]
+
+
+def test_rule_rerun_artifact_adoption_does_not_finalize_whole_run(tmp_path: Path, monkeypatch) -> None:
+    snakemake_command = tmp_path / "tooling" / "workflow-env" / "bin" / "snakemake"
+    cfg = RemoteRunnerConfig(
+        token="phase3-token",
+        data_root=str(tmp_path / "shared"),
+        db_path=str(tmp_path / "shared" / "data" / "runner.db"),
+        uploads_dir=str(tmp_path / "shared" / "uploads"),
+        results_dir=str(tmp_path / "shared" / "results"),
+        work_dir=str(tmp_path / "shared" / "work"),
+        logs_dir=str(tmp_path / "shared" / "logs"),
+        release_dir=str(tmp_path / "release"),
+        snakemake_command=str(snakemake_command),
+    )
+    snakemake_command.parent.mkdir(parents=True, exist_ok=True)
+    snakemake_command.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    _write_file_summary_pipeline(Path(cfg.release_dir))
+    ensure_runtime_layout(cfg)
+
+    from apps.remote_runner.run_execution_storage import claim_next_run_job
+    from apps.remote_runner.storage import create_run_record, fetch_run, persist_upload
+
+    upload = persist_upload(
+        cfg,
+        filename="reads.fastq",
+        content_base64="QHJlYWQxCkFDR1QKKwohISEhCg==",
+        mime_type="text/plain",
+    )
+    run_spec = {
+        "runId": "run_rule_rerun_no_finalize",
+        "pipelineId": "file-summary-v1",
+        "projectId": "proj_demo",
+        "inputs": [{"uploadId": upload["uploadId"], "filename": "reads.fastq", "role": "reads"}],
+    }
+    create_run_record(
+        cfg,
+        server_id="srv_rule_rerun_no_finalize",
+        request_id="req_rule_rerun_no_finalize",
+        run_spec=run_spec,
+        idempotency_key="idem_rule_rerun_no_finalize",
+        payload_hash="n" * 64,
+    )
+    claim = claim_next_run_job(
+        cfg,
+        worker_id="worker_rule_rerun_no_finalize",
+        now="2099-06-07T10:00:00Z",
+        lease_seconds=30,
+    )
+    assert claim is not None
+    calls: list[list[str]] = []
+
+    class Result:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    def fake_run(cmd, **_kwargs):
+        command = list(cmd)
+        calls.append(command)
+        if "-n" not in command:
+            Path(command[-1]).parent.mkdir(parents=True, exist_ok=True)
+            Path(command[-1]).write_text("partial rerun summary\n", encoding="utf-8")
+        return Result()
+
+    monkeypatch.setattr("apps.remote_runner.executor.subprocess.run", fake_run)
+
+    run_snakemake_execution(
+        cfg,
+        run_id="run_rule_rerun_no_finalize",
+        request_id="req_rule_rerun_no_finalize",
+        run_spec=run_spec,
+        attempt_id=str(claim["attemptId"]),
+        lease_generation=int(claim["leaseGeneration"]),
+        attempt_number=int(claim["attempt"]["attemptNumber"]),
+        attempt_work_dir=str(claim["attempt"]["workDir"]),
+        execution_options={
+            "schemaVersion": "run-job-execution-options.v1",
+            "snakemake": {
+                "schemaVersion": "snakemake-rule-rerun-options.v1",
+                "rerunIncomplete": True,
+                "forcerunRules": ["align"],
+            },
+            "outputAdoptionScope": {
+                "schemaVersion": "rule-output-adoption-scope.v1",
+                "mode": "rule-partial-rerun",
+                "sourcePlanHash": "b" * 64,
+                "outputCount": 1,
+                "outputKeys": ["summary"],
+                "targetOutputKeys": ["summary"],
+                "finalizeRunOnAdoption": False,
+                "pathExposed": False,
+                "storageUriExposed": False,
+            },
+        },
+    )
+
+    assert calls[-1][-1].endswith("done.txt")
+    artifacts = fetch_run_results(cfg, "run_rule_rerun_no_finalize")["artifacts"]
+    run = fetch_run(cfg, "run_rule_rerun_no_finalize")
+    assert len(artifacts) == 1
+    assert artifacts[0]["artifactKey"] == "summary"
+    assert run["status"] == "running"
+    assert run["stage"] == "snakemake"
 
 
 def test_executor_rejects_rule_rerun_options_without_output_adoption_scope() -> None:
@@ -217,6 +322,7 @@ def test_executor_rejects_rule_rerun_options_without_source_plan_hash() -> None:
                     "outputCount": 1,
                     "outputKeys": ["summary"],
                     "targetOutputKeys": ["summary"],
+                    "finalizeRunOnAdoption": False,
                     "pathExposed": False,
                     "storageUriExposed": False,
                 },
@@ -240,6 +346,31 @@ def test_executor_rejects_rule_rerun_options_without_target_output_keys() -> Non
                     "sourcePlanHash": "b" * 64,
                     "outputCount": 1,
                     "outputKeys": ["summary"],
+                    "finalizeRunOnAdoption": False,
+                    "pathExposed": False,
+                    "storageUriExposed": False,
+                },
+            }
+        )
+
+
+def test_executor_rejects_rule_rerun_options_without_finalize_guard() -> None:
+    with pytest.raises(WorkflowRuntimeCommandError, match="RULE_RERUN_OUTPUT_ADOPTION_SCOPE_FINALIZE_FORBIDDEN"):
+        _snakemake_execution_options(
+            {
+                "schemaVersion": "run-job-execution-options.v1",
+                "snakemake": {
+                    "schemaVersion": "snakemake-rule-rerun-options.v1",
+                    "rerunIncomplete": True,
+                    "forcerunRules": ["align"],
+                },
+                "outputAdoptionScope": {
+                    "schemaVersion": "rule-output-adoption-scope.v1",
+                    "mode": "rule-partial-rerun",
+                    "sourcePlanHash": "b" * 64,
+                    "outputCount": 1,
+                    "outputKeys": ["summary"],
+                    "targetOutputKeys": ["summary"],
                     "pathExposed": False,
                     "storageUriExposed": False,
                 },

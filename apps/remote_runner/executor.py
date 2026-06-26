@@ -10,7 +10,7 @@ from .artifact_input_lineage import record_run_input_artifact_lineage
 from .executor_artifacts import _collect_artifacts
 from .executor_cache import try_complete_from_artifact_cache
 from .executor_execution_options import (
-    _scoped_artifact_collection,
+    _finalize_run_after_artifact_collection, _scoped_artifact_collection,
     _snakemake_execution_options,
     _target_paths_from_output_keys,
 )
@@ -35,9 +35,7 @@ from .workflow_engine_adapter import (
     SnakemakeEngineAdapter,
     WorkflowRuntimeCommandError,
 )
-
 _ORIGINAL_SUBPROCESS_RUN = getattr(subprocess, "run")
-
 def run_snakemake_execution(
     cfg: RemoteRunnerConfig,
     *,
@@ -361,7 +359,10 @@ def _execute_snakemake_workflow(
             lease_generation=lease_generation,
             request_id=request_id,
             result_dir=str(result_dir),
-            finalize_run=attempt_id is not None,
+            finalize_run=_finalize_run_after_artifact_collection(
+                attempt_id=attempt_id,
+                output_adoption_scope=output_adoption_scope,
+            ),
         )
         if attempt_id is None:
             update_run_state(

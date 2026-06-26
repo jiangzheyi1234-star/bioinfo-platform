@@ -92,6 +92,7 @@ def test_request_rule_retry_requeues_enabled_plan_with_rule_scope_and_options(tm
             "outputCount": 1,
             "outputKeys": ["bam"],
             "targetOutputKeys": ["bam"],
+            "finalizeRunOnAdoption": False,
             "outputs": [
                 {
                     "outputKey": "bam",

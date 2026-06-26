@@ -12,6 +12,7 @@ def build_rule_partial_rerun_execution_boundary(execution_plan: dict[str, Any]) 
     target_attempt = _dict_value(lifecycle.get("targetAttempt"))
     cache_restore = _dict_value(execution_plan.get("cacheRestorePlan"))
     output_closure = _dict_value(execution_plan.get("partialRerunOutputClosure"))
+    artifact_adoption = _dict_value(execution_plan.get("postExecutionArtifactAdoption"))
     rerun_scope = _dict_value(execution_plan.get("rerunScope"))
     selected_rules = _list_value(execution_plan.get("selectedRules"))
     explicit_targets = (
@@ -21,7 +22,7 @@ def build_rule_partial_rerun_execution_boundary(execution_plan: dict[str, Any]) 
     )
     scoped_output_count = _safe_int(cache_restore.get("outputCount"))
     declared_output_count = _safe_int(output_closure.get("declaredOutputCount"))
-    finalize_would_complete_run = True
+    finalize_would_complete_run = artifact_adoption.get("finalizeRunOnAdoption") is not False
 
     blockers: list[str] = []
     if not explicit_targets:
@@ -50,6 +51,7 @@ def build_rule_partial_rerun_execution_boundary(execution_plan: dict[str, Any]) 
         "explicitTargetsPresent": bool(explicit_targets),
         "freshAttemptWorkdir": target_attempt.get("creationMode") == "next-worker-claim",
         "attemptScopedResultDir": True,
+        "postExecutionArtifactAdoptionMode": str(artifact_adoption.get("mode") or ""),
         "finalizeWouldCompleteRun": finalize_would_complete_run,
         "finalizeRunAllowed": False,
         "executorStartAllowed": False,

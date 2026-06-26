@@ -265,6 +265,7 @@ export type WorkflowRunPartialRerunExecutionBoundary = {
   explicitTargetsPresent?: boolean;
   freshAttemptWorkdir?: boolean;
   attemptScopedResultDir?: boolean;
+  postExecutionArtifactAdoptionMode?: string;
   finalizeWouldCompleteRun?: boolean;
   finalizeRunAllowed?: boolean;
   executorStartAllowed?: boolean;
@@ -283,6 +284,8 @@ export type WorkflowRunOutputAdoptionScopePreview = {
   scopeSource?: string;
   outputCount?: number;
   outputKeys?: string[];
+  targetOutputKeys?: string[];
+  finalizeRunOnAdoption?: boolean;
   outputs?: Array<{
     outputKey?: string;
     stepId?: string;
@@ -648,6 +651,14 @@ export type WorkflowRunRuleRetryExecutionPlan = {
   incompleteOutputAudit?: WorkflowRunOutputAudit;
   partialRerunLifecycle?: WorkflowRunPartialRerunLifecycle;
   partialRerunOutputClosure?: WorkflowRunPartialRerunOutputClosure;
+  postExecutionArtifactAdoption?: {
+    mode?: string;
+    outputCount?: number;
+    finalizeRunOnAdoption?: boolean;
+    runStateMutationAllowed?: boolean;
+    pathExposed?: boolean;
+    storageUriExposed?: boolean;
+  };
   executorOrchestration?: WorkflowRunExecutorOrchestration;
   activationReadiness?: WorkflowRunActivationReadiness;
   reasonCode?: string;

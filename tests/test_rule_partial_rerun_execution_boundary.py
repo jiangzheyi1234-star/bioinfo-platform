@@ -35,7 +35,7 @@ def test_rule_partial_rerun_execution_boundary_blocks_without_explicit_targets()
     assert boundary["storageUriExposed"] is False
 
 
-def test_rule_partial_rerun_execution_boundary_accepts_target_output_keys_before_finalize() -> None:
+def test_rule_partial_rerun_execution_boundary_blocks_target_output_keys_without_finalize_guard() -> None:
     boundary = build_rule_partial_rerun_execution_boundary(
         {
             "selectedRules": [{"ruleName": "align"}],
@@ -60,4 +60,39 @@ def test_rule_partial_rerun_execution_boundary_accepts_target_output_keys_before
     assert boundary["explicitTargetsPresent"] is True
     assert boundary["scopedOutputCount"] == 1
     assert boundary["declaredOutputCount"] == 1
+    assert boundary["finalizeRunAllowed"] is False
+
+
+def test_rule_partial_rerun_execution_boundary_accepts_finalize_guard() -> None:
+    boundary = build_rule_partial_rerun_execution_boundary(
+        {
+            "selectedRules": [{"ruleName": "align"}],
+            "rerunScope": {"ruleCount": 2},
+            "snakemakeOptions": {
+                "schemaVersion": "snakemake-rule-rerun-options.v1",
+                "rerunIncomplete": True,
+                "forcerunRules": ["align"],
+                "targetOutputKeys": ["summary"],
+                "argsPreview": ["--rerun-incomplete", "--forcerun", "align"],
+            },
+            "postExecutionArtifactAdoption": {
+                "mode": "scoped-candidate-output-adoption",
+                "outputCount": 1,
+                "finalizeRunOnAdoption": False,
+                "runStateMutationAllowed": False,
+                "pathExposed": False,
+                "storageUriExposed": False,
+            },
+            "cacheRestorePlan": {"outputCount": 1},
+            "partialRerunLifecycle": {"targetAttempt": {"creationMode": "next-worker-claim"}},
+            "partialRerunOutputClosure": {"declaredOutputCount": 1},
+        }
+    )
+
+    assert boundary["boundaryReady"] is True
+    assert boundary["reasonCode"] == "RULE_PARTIAL_RERUN_EXECUTION_BOUNDARY_READY"
+    assert boundary["blockedReasonCodes"] == []
+    assert boundary["explicitTargetCount"] == 1
+    assert boundary["postExecutionArtifactAdoptionMode"] == "scoped-candidate-output-adoption"
+    assert boundary["finalizeWouldCompleteRun"] is False
     assert boundary["finalizeRunAllowed"] is False
