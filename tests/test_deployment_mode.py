@@ -9,6 +9,7 @@ from core.deployment_mode import (
     DeploymentMode,
     DeploymentModeError,
     UnsupportedDeploymentModeError,
+    build_production_governance_readiness,
     get_deployment_config,
     get_deployment_mode,
     require_supported_deployment_mode,
@@ -179,3 +180,86 @@ def test_validate_security_single_user_bind_all_fails_closed():
     ):
         with pytest.raises(ValueError, match="server-single-user mode does not allow binding to 0.0.0.0"):
             validate_deployment_security()
+
+
+def test_production_governance_readiness_is_safe_for_desktop() -> None:
+    with patch.dict(os.environ, {"H2OMETA_DEPLOYMENT_MODE": "desktop"}, clear=True):
+        report = build_production_governance_readiness()
+
+    checks = {check["id"]: check for check in report["checks"]}
+    serialized = str(report)
+    assert report["schemaVersion"] == "production-governance-readiness.v1"
+    assert report["currentModeStatus"] == "ready"
+    assert report["publicMultiUserReady"] is False
+    assert "multi-user-identity-rbac" in report["publicMultiUserBlockingCheckIds"]
+    assert checks["remote-runner-machine-token"]["status"] == "not_applicable"
+    assert "H2OMETA_RUNNER_TOKEN" not in serialized
+    assert "DATABASE_URL" not in serialized
+    assert "SECRET_KEY" not in serialized
+
+
+def test_production_governance_readiness_blocks_single_user_without_token() -> None:
+    with patch.dict(os.environ, {"H2OMETA_DEPLOYMENT_MODE": "server-single-user"}, clear=True):
+        report = build_production_governance_readiness()
+
+    checks = {check["id"]: check for check in report["checks"]}
+    assert report["currentModeStatus"] == "blocked"
+    assert report["currentModeBlockingCheckIds"] == ["remote-runner-machine-token"]
+    assert checks["remote-runner-machine-token"]["reasonCode"] == "REMOTE_RUNNER_TOKEN_REQUIRED"
+
+
+def test_production_governance_readiness_reports_safe_storage_signals() -> None:
+    with patch.dict(
+        os.environ,
+        {
+            "H2OMETA_DEPLOYMENT_MODE": "server-single-user",
+            "H2OMETA_RUNNER_TOKEN": "runner-secret-value",
+            "H2OMETA_DATABASE_URL": "postgresql://user:very-secret-password@example.invalid/h2ometa",
+            "H2OMETA_ARTIFACT_S3_ENDPOINT": "minio.internal:9000",
+            "H2OMETA_ARTIFACT_S3_BUCKET": "h2ometa-artifacts",
+            "H2OMETA_ARTIFACT_S3_ACCESS_KEY": "access-secret-value",
+            "H2OMETA_ARTIFACT_S3_SECRET_KEY": "s3-secret-value",
+            "H2OMETA_ARTIFACT_S3_PREFIX": "tenant-a",
+        },
+        clear=True,
+    ):
+        report = build_production_governance_readiness()
+
+    checks = {check["id"]: check for check in report["checks"]}
+    serialized = str(report)
+    assert report["currentModeStatus"] == "blocked"
+    assert report["currentModeBlockingCheckIds"] == ["postgres-control-plane"]
+    assert checks["postgres-control-plane"]["reasonCode"] == "POSTGRES_UNSUPPORTED_SIGNAL_PRESENT"
+    assert checks["postgres-control-plane"]["details"] == {
+        "databaseUrlSignalPresent": True,
+        "supportedBackend": "sqlite",
+    }
+    assert checks["s3-minio-artifact-storage"]["status"] == "pass"
+    assert checks["s3-minio-artifact-storage"]["details"]["complete"] is True
+    assert "very-secret-password" not in serialized
+    assert "runner-secret-value" not in serialized
+    assert "s3-secret-value" not in serialized
+    assert "access-secret-value" not in serialized
+    assert "minio.internal" not in serialized
+
+
+def test_production_governance_readiness_keeps_insecure_s3_partial() -> None:
+    with patch.dict(
+        os.environ,
+        {
+            "H2OMETA_DEPLOYMENT_MODE": "desktop",
+            "H2OMETA_ARTIFACT_S3_ENDPOINT": "minio.internal:9000",
+            "H2OMETA_ARTIFACT_S3_BUCKET": "h2ometa-artifacts",
+            "H2OMETA_ARTIFACT_S3_ACCESS_KEY": "access-secret-value",
+            "H2OMETA_ARTIFACT_S3_SECRET_KEY": "s3-secret-value",
+            "H2OMETA_ARTIFACT_S3_PREFIX": "tenant-a",
+            "H2OMETA_ARTIFACT_S3_SECURE": "false",
+        },
+        clear=True,
+    ):
+        report = build_production_governance_readiness()
+
+    s3 = {check["id"]: check for check in report["checks"]}["s3-minio-artifact-storage"]
+    assert s3["status"] == "partial"
+    assert s3["reasonCode"] == "S3_MINIO_SECURE_TRANSPORT_PENDING"
+    assert "s3-minio-artifact-storage" in report["publicMultiUserBlockingCheckIds"]

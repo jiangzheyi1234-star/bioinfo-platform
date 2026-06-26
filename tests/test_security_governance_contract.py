@@ -747,9 +747,13 @@ def test_remote_runner_auth_and_deployment_security_contracts_are_locked() -> No
     assert "H2OMETA_DEPLOYMENT_MODE is required" in deployment
     assert "Invalid H2OMETA_DEPLOYMENT_MODE" in deployment
     assert 'os.environ.get("H2OMETA_DEPLOYMENT_MODE", "desktop")' not in deployment
+    assert "production-governance-readiness.v1" in deployment
+    assert "databaseUrlSignalPresent" in deployment
+    assert "credentialPairConfigured" in deployment
     assert "server-multi-user is not implemented" in deployment
     assert "require_supported_deployment_mode()" in _source("apps/api/lifespan.py")
     assert "validate_deployment_security()" in _source("apps/api/lifespan.py")
+    assert "build_production_governance_readiness()" in _source("apps/api/system_service.py")
     assert "trusted intranet" not in deployment
     assert "AutoAddPolicy" not in ssh_connector
     assert "RejectPolicy" in ssh_connector

@@ -5,7 +5,11 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from core.deployment_mode import require_supported_deployment_mode, validate_deployment_security
+from core.deployment_mode import (
+    build_production_governance_readiness,
+    require_supported_deployment_mode,
+    validate_deployment_security,
+)
 
 
 TERMINAL_RUNTIME_BUILD_ID = "terminal-websocket-v1"
@@ -53,6 +57,7 @@ async def service_info_from_request() -> dict[str, Any]:
                 "backendSource": backend_source,
             },
             "deployment": deployment.to_dict(),
+            "productionGovernance": build_production_governance_readiness(),
             "readiness": {
                 "status": readiness_status,
                 "checks": readiness_checks,

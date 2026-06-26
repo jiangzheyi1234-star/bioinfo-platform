@@ -35,6 +35,10 @@ def test_service_info_exposes_local_identity_version_readiness(monkeypatch) -> N
             "remoteRunner": False,
         },
     }
+    assert item["productionGovernance"]["schemaVersion"] == "production-governance-readiness.v1"
+    assert item["productionGovernance"]["currentModeStatus"] == "ready"
+    assert item["productionGovernance"]["publicMultiUserReady"] is False
+    assert "multi-user-identity-rbac" in item["productionGovernance"]["publicMultiUserBlockingCheckIds"]
     assert item["stateCounts"] == {
         "localApiProcesses": 1,
         "remoteRunnerConnected": False,

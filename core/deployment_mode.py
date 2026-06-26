@@ -77,6 +77,12 @@ class DeploymentConfig:
         }
 
 
+PRODUCTION_GOVERNANCE_SCHEMA_VERSION = "production-governance-readiness.v1"
+DATABASE_URL_ENV_NAMES = (
+    "H2OMETA_DATABASE_URL",
+    "H2OMETA_REMOTE_RUNNER_DATABASE_URL",
+    "DATABASE_URL",
+)
 DEPLOYMENT_CONFIGS: dict[DeploymentMode, DeploymentConfig] = {
     DeploymentMode.DESKTOP: DeploymentConfig(
         mode=DeploymentMode.DESKTOP,
@@ -158,3 +164,177 @@ def validate_deployment_security() -> list[str]:
             )
 
     return warnings
+
+
+def build_production_governance_readiness() -> dict[str, Any]:
+    """Return a safe readiness projection for production governance gates."""
+    config = get_deployment_config()
+    host = os.environ.get("H2OMETA_API_HOST", "127.0.0.1")
+    mode_supported = config.mode in SUPPORTED_DEPLOYMENT_MODES
+    network_status, network_reason, network_blocks_current = _network_gate(config, host)
+    runner_token_configured = bool(os.environ.get("H2OMETA_RUNNER_TOKEN", "").strip())
+    database_signal_present = _any_env_signal_present(DATABASE_URL_ENV_NAMES)
+    s3_signals = _s3_signal_summary()
+    s3_status, s3_reason = _s3_gate(s3_signals)
+
+    checks = [
+        _readiness_check(
+            "deployment-mode-supported",
+            "pass" if mode_supported else "blocked",
+            "DEPLOYMENT_MODE_SUPPORTED" if mode_supported else "SERVER_MULTI_USER_UNSUPPORTED",
+            config.mode is DeploymentMode.SERVER_MULTI_USER,
+            "Current launch mode is one of the source-controlled supported modes.",
+            ("core/deployment_mode.py", "docs/deployment-modes.md"),
+            {"mode": config.mode.value, "supportedModes": sorted(mode.value for mode in SUPPORTED_DEPLOYMENT_MODES)},
+        ),
+        _readiness_check(
+            "network-binding-boundary",
+            network_status,
+            network_reason,
+            network_blocks_current,
+            "Supported local/server modes keep the API on localhost or behind an authenticated proxy.",
+            ("core/deployment_mode.py", "docs/deployment-modes.md"),
+            {
+                "bindAllRequested": host.strip().lower() == "0.0.0.0",
+                "externalHostRequested": host.strip().lower()
+                not in ("", "127.0.0.1", "localhost", "::1", "0.0.0.0"),
+            },
+        ),
+        _readiness_check(
+            "remote-runner-machine-token",
+            _machine_token_status(config, runner_token_configured),
+            _machine_token_reason(config, runner_token_configured),
+            config.mode is DeploymentMode.SERVER_SINGLE_USER and not runner_token_configured,
+            "Server single-user mode requires an authenticated machine-token boundary before runner APIs are useful.",
+            ("core/governance_policy.py", "docs/security-governance.md"),
+            {"configured": runner_token_configured, "scope": "machine-token"},
+        ),
+        _readiness_check(
+            "multi-user-identity-rbac",
+            "blocked",
+            "AUTH_RBAC_TENANT_MODEL_PENDING",
+            config.mode is DeploymentMode.SERVER_MULTI_USER,
+            "Public multi-user mode still needs identity, per-user RBAC, tenant/project resource ownership, and route-level enforcement.",
+            ("core/governance_policy.py", "docs/security-governance.md"),
+            {"machineTokenBoundaryOnly": True, "publicMultiUserReady": False},
+        ),
+        _readiness_check(
+            "postgres-control-plane",
+            "blocked" if database_signal_present else "pending",
+            "POSTGRES_UNSUPPORTED_SIGNAL_PRESENT" if database_signal_present else "POSTGRES_REPOSITORY_LAYER_PENDING",
+            database_signal_present,
+            "PostgreSQL remains disabled until repository, transaction, migration, and multi-user governance boundaries are implemented.",
+            ("apps/remote_runner/database_backend_config.py", "docs/deployment-modes.md"),
+            {"databaseUrlSignalPresent": database_signal_present, "supportedBackend": "sqlite"},
+        ),
+        _readiness_check(
+            "s3-minio-artifact-storage",
+            s3_status,
+            s3_reason,
+            False,
+            "S3/MinIO may be used only through the managed artifact adapter and managed-prefix checks.",
+            ("apps/remote_runner/artifact_io.py", "docs/security-governance.md"),
+            s3_signals,
+        ),
+        _readiness_check(
+            "secret-provider-boundary",
+            "partial",
+            "VAULT_AND_SECRET_SCHEMES_FAIL_CLOSED",
+            False,
+            "Secret references resolve through explicit providers; keyring is adapter-backed, while secret:// and vault:// remain disabled.",
+            ("apps/remote_runner/secret_provider.py", "docs/security-governance.md"),
+            {"rawSecretValuesReturned": False, "unconfiguredProvidersFailClosed": True},
+        ),
+        _readiness_check(
+            "audit-release-gates",
+            "pass",
+            "HASH_CHAINED_AUDIT_AND_RELEASE_GATES_PRESENT",
+            False,
+            "High-risk actions emit hash-chained governance audit records and CI/release promotion gates are source-controlled.",
+            ("apps/remote_runner/governance_audit.py", ".github/workflows/promote-remote-runner-release.yml"),
+            {"releasePromotionEnvironment": "production-runtime", "directMainProtectionPolicy": "source-controlled"},
+        ),
+    ]
+    current_blockers = [check["id"] for check in checks if check["blocksCurrentMode"] and check["status"] == "blocked"]
+    public_multi_user_blockers = [
+        check["id"] for check in checks if check["status"] in ("blocked", "pending", "partial")
+    ]
+    return {
+        "schemaVersion": PRODUCTION_GOVERNANCE_SCHEMA_VERSION,
+        "currentModeStatus": "blocked" if current_blockers else "ready",
+        "publicMultiUserStatus": "blocked",
+        "publicMultiUserReady": False,
+        "currentModeBlockingCheckIds": current_blockers,
+        "publicMultiUserBlockingCheckIds": public_multi_user_blockers,
+        "checks": checks,
+    }
+
+
+def _readiness_check(
+    check_id: str,
+    status: str,
+    reason_code: str,
+    blocks_current_mode: bool,
+    summary: str,
+    evidence: tuple[str, ...],
+    details: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "id": check_id,
+        "status": status,
+        "reasonCode": reason_code,
+        "blocksCurrentMode": blocks_current_mode,
+        "requiredFor": "server-multi-user",
+        "summary": summary,
+        "evidence": list(evidence),
+        "details": details,
+    }
+
+
+def _network_gate(config: DeploymentConfig, host: str) -> tuple[str, str, bool]:
+    try:
+        config.validate_network_binding(host)
+    except ValueError:
+        return "blocked", "NETWORK_BINDING_UNSUPPORTED", True
+    return "pass", "NETWORK_BINDING_SUPPORTED", False
+
+
+def _machine_token_status(config: DeploymentConfig, configured: bool) -> str:
+    if config.mode is DeploymentMode.DESKTOP:
+        return "not_applicable"
+    return "pass" if configured else "blocked"
+
+
+def _machine_token_reason(config: DeploymentConfig, configured: bool) -> str:
+    if config.mode is DeploymentMode.DESKTOP:
+        return "DESKTOP_LOCAL_BOUNDARY"
+    return "REMOTE_RUNNER_TOKEN_CONFIGURED" if configured else "REMOTE_RUNNER_TOKEN_REQUIRED"
+
+
+def _any_env_signal_present(names: tuple[str, ...]) -> bool:
+    return any(bool(os.environ.get(name, "").strip()) for name in names)
+
+
+def _s3_signal_summary() -> dict[str, bool]:
+    endpoint = bool(os.environ.get("H2OMETA_ARTIFACT_S3_ENDPOINT", "").strip())
+    bucket = bool(os.environ.get("H2OMETA_ARTIFACT_S3_BUCKET", "").strip())
+    access_key = bool(os.environ.get("H2OMETA_ARTIFACT_S3_ACCESS_KEY", "").strip())
+    secret_key = bool(os.environ.get("H2OMETA_ARTIFACT_S3_SECRET_KEY", "").strip())
+    prefix = bool(os.environ.get("H2OMETA_ARTIFACT_S3_PREFIX", "").strip())
+    return {
+        "endpointConfigured": endpoint,
+        "bucketConfigured": bucket,
+        "credentialPairConfigured": access_key and secret_key,
+        "managedPrefixConfigured": prefix,
+        "secureTransportRequested": os.environ.get("H2OMETA_ARTIFACT_S3_SECURE", "true").strip().lower()
+        not in ("0", "false", "no"),
+        "complete": endpoint and bucket and access_key and secret_key and prefix,
+    }
+
+
+def _s3_gate(signals: dict[str, bool]) -> tuple[str, str]:
+    if not signals["complete"]:
+        return "pending", "S3_MINIO_CONFIGURATION_PENDING"
+    if not signals["secureTransportRequested"]:
+        return "partial", "S3_MINIO_SECURE_TRANSPORT_PENDING"
+    return "pass", "S3_MINIO_CONFIGURED"
