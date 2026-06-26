@@ -31,7 +31,7 @@ from .artifact_cache_pin_service import release_artifact_cache_policy_pin, retai
 from .artifact_cache_read_service import (
     list_governed_artifact_cache_entries,
     list_governed_artifact_cache_pins,
-    lookup_governed_artifact_cache_entry,
+    lookup_governed_artifact_cache_entry, public_artifact_cache_record,
 )
 from .artifact_lifecycle_service import (
     build_governed_artifact_lifecycle_usage,
@@ -800,7 +800,7 @@ async def retain_artifact_cache_pin_from_request(
     principal = remote_runner_principal(cfg)
     actor = str(payload.get("actor") or principal.actor)
     pin = await run_sync(retain_artifact_cache_policy_pin, cfg, cache_entry_id, payload, actor=actor)
-    return data_response(pin)
+    return data_response(public_artifact_cache_record(pin))
 
 
 async def release_artifact_cache_pin_from_request(
@@ -813,7 +813,7 @@ async def release_artifact_cache_pin_from_request(
     principal = remote_runner_principal(cfg)
     actor = str(payload.get("actor") or principal.actor)
     pin = await run_sync(release_artifact_cache_policy_pin, cfg, cache_pin_id, payload, actor=actor)
-    return data_response(pin)
+    return data_response(public_artifact_cache_record(pin))
 
 
 async def lookup_artifact_cache_from_request(

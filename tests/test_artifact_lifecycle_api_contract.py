@@ -54,6 +54,7 @@ def test_artifact_lifecycle_gc_is_exposed_through_remote_local_and_runtime_layer
     assert "retain_artifact_cache_pin_from_request" in remote_service
     assert "release_artifact_cache_pin_from_request" in remote_service
     assert "lookup_artifact_cache_from_request" in remote_service
+    assert "public_artifact_cache_record(pin)" in remote_service
     assert "planFingerprint" in remote_models
     assert "planFingerprint" in local_models
     assert "planFingerprint" in lifecycle_model

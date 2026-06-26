@@ -20,7 +20,7 @@ def list_governed_artifact_cache_entries(
     public = {
         "schemaVersion": "artifact-cache-entries-public.v1",
         "redactionPolicy": _cache_redaction_policy(),
-        "items": [_public_cache_record(item) for item in entries.get("items") or []],
+        "items": [public_artifact_cache_record(item) for item in entries.get("items") or []],
     }
     record_governance_audit_event(
         cfg,
@@ -48,7 +48,7 @@ def list_governed_artifact_cache_pins(
     public = {
         "schemaVersion": "artifact-cache-pins-public.v1",
         "redactionPolicy": _cache_redaction_policy(),
-        "items": [_public_cache_record(item) for item in pins.get("items") or []],
+        "items": [public_artifact_cache_record(item) for item in pins.get("items") or []],
     }
     record_governance_audit_event(
         cfg,
@@ -106,11 +106,11 @@ def _public_lookup_result(result: dict[str, Any]) -> dict[str, Any]:
     }
     entry = result.get("entry")
     if isinstance(entry, dict):
-        public["entry"] = _public_cache_record(entry)
+        public["entry"] = public_artifact_cache_record(entry)
     return public
 
 
-def _public_cache_record(item: dict[str, Any]) -> dict[str, Any]:
+def public_artifact_cache_record(item: dict[str, Any]) -> dict[str, Any]:
     public = dict(item)
     cache_key = str(public.get("cacheKey") or "")
     workflow_revision_id = str(public.get("workflowRevisionId") or "")

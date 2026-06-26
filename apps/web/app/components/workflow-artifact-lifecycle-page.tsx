@@ -26,6 +26,7 @@ import {
   runArtifactLifecycleControllerOnce,
   runArtifactGc,
 } from "./workflow-artifact-lifecycle-api";
+import { WorkflowArtifactCacheController } from "./workflow-artifact-cache-controller";
 import { WorkflowArtifactLifecycleControllerPanel } from "./workflow-artifact-lifecycle-controller-panel";
 import type {
   WorkflowArtifactGcPlan,
@@ -46,6 +47,7 @@ const GC_DEFAULT_ELIGIBLE_STATUSES = ["completed", "failed", "canceled", "cancel
 export function WorkflowArtifactLifecyclePage() {
   const [usage, setUsage] = useState<WorkflowArtifactLifecycleUsage | null>(null);
   const [ticks, setTicks] = useState<WorkflowArtifactLifecycleControllerTick[]>([]);
+  const [cacheRefreshVersion, setCacheRefreshVersion] = useState(0);
   const [preview, setPreview] = useState<WorkflowArtifactGcPlan | null>(null);
   const [previewRequest, setPreviewRequest] = useState<WorkflowArtifactGcPreviewRequest | null>(null);
   const [runResult, setRunResult] = useState<WorkflowArtifactGcRunResult | null>(null);
@@ -159,6 +161,7 @@ export function WorkflowArtifactLifecyclePage() {
           ? `已生成 controller tick ${result.tickId}`
           : "已生成 controller tick"
       );
+      setCacheRefreshVersion((version) => version + 1);
       await load(true);
     } catch (err) {
       setControllerError(artifactLifecycleErrorMessage(err, "运行 artifact lifecycle controller 失败"));
@@ -181,6 +184,7 @@ export function WorkflowArtifactLifecyclePage() {
       setPreview(null);
       setPreviewRequest(null);
       setRunConfirmation("");
+      setCacheRefreshVersion((version) => version + 1);
       await load(true);
     } catch (err) {
       setRunError(artifactLifecycleErrorMessage(err, "执行 GC 失败"));
@@ -198,7 +202,13 @@ export function WorkflowArtifactLifecyclePage() {
   }
 
   function refresh() {
+    setCacheRefreshVersion((version) => version + 1);
     void load(true);
+  }
+
+  async function reloadAfterCachePolicyChange() {
+    clearSavedPreview();
+    await load(true);
   }
 
   return (
@@ -343,6 +353,11 @@ export function WorkflowArtifactLifecyclePage() {
               onRunControllerOnce={() => void runControllerOnce()}
               runningController={controllerRunning}
               ticks={ticks}
+            />
+
+            <WorkflowArtifactCacheController
+              onPolicyChanged={reloadAfterCachePolicyChange}
+              refreshVersion={cacheRefreshVersion}
             />
           </>
         )}
