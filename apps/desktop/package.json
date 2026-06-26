@@ -11,6 +11,6 @@
     "build:debug:no-bundle:win-gnu": "set PATH=%USERPROFILE%\\.cargo\\bin;C:\\msys64\\ucrt64\\bin;%PATH% && node ../../scripts/tauri-managed.cjs build --debug --no-bundle"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "2.3.1"
+    "@tauri-apps/cli": "2.11.3"
   }
 }
