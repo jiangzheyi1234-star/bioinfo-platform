@@ -213,6 +213,15 @@ class ResultPackageByteDeleteRequest(ApiRequest):
     reason: str | None = None
 
 
+class ResultPackageByteGcPreviewRequest(ApiRequest):
+    serverId: str | None = None
+    retentionDays: int = Field(default=30, ge=0)
+    maxDeleteBytes: int | None = Field(default=None, ge=1)
+    scanLimit: int = Field(default=1000, ge=1, le=5000)
+    actor: str | None = None
+    reason: str | None = None
+
+
 TriggerSourceType = Literal["manual", "cron", "webhook", "dataset", "file", "database_ready", "backfill"]
 BackfillPartitionUnit = Literal["hour", "day"]
 BackfillRunOrder = Literal["forward", "backward"]

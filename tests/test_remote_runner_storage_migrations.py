@@ -223,7 +223,7 @@ def test_runtime_layout_records_schema_version_and_migration_ledger(tmp_path: Pa
     assert user_version == CURRENT_SCHEMA_VERSION
     assert migration is not None
     assert migration[0] == CURRENT_SCHEMA_VERSION
-    assert migration[1] == sqlite_migrations.ARTIFACT_LEDGER_INVALIDATION_MIGRATION_NAME
+    assert migration[1] == sqlite_migrations.RESULT_PACKAGE_RETIRED_AT_MIGRATION_NAME
     assert migration[2]
     assert reference_table is not None
 
@@ -294,7 +294,7 @@ def test_runtime_schema_migrates_v1_to_current_scheduler_trigger_tables(tmp_path
         "idx_workflow_trigger_events_trigger_created",
         "idx_workflow_trigger_dispatches_state",
     } <= index_names
-    assert migration["name"] == sqlite_migrations.ARTIFACT_LEDGER_INVALIDATION_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_RETIRED_AT_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v2_scheduler_trigger_tables(tmp_path: Path) -> None:
@@ -346,7 +346,7 @@ def test_runtime_schema_migrates_v2_scheduler_trigger_tables(tmp_path: Path) -> 
         "workflow_trigger_events",
         "workflow_trigger_dispatches",
     } <= trigger_tables
-    assert migration["name"] == sqlite_migrations.ARTIFACT_LEDGER_INVALIDATION_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_RETIRED_AT_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v6_result_package_exports(tmp_path: Path) -> None:
@@ -399,7 +399,7 @@ def test_runtime_schema_migrates_v6_result_package_exports(tmp_path: Path) -> No
         "idx_result_package_exports_result_created",
         "idx_result_package_exports_run_lifecycle",
     } <= indexes
-    assert migration["name"] == sqlite_migrations.ARTIFACT_LEDGER_INVALIDATION_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_RETIRED_AT_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v7_result_package_payload_mode(tmp_path: Path) -> None:
@@ -489,7 +489,7 @@ def test_runtime_schema_migrates_v7_result_package_payload_mode(tmp_path: Path) 
     assert {"include_artifacts", "artifact_payload_mode"} <= columns
     assert legacy_row["include_artifacts"] == 1
     assert legacy_row["artifact_payload_mode"] == "included"
-    assert migration["name"] == sqlite_migrations.ARTIFACT_LEDGER_INVALIDATION_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_RETIRED_AT_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v8_workflow_trigger_inbox(tmp_path: Path) -> None:
@@ -550,7 +550,7 @@ def test_runtime_schema_migrates_v8_workflow_trigger_inbox(tmp_path: Path) -> No
     } <= indexes
     assert "payload_json" in columns
     assert INBOX_SIGNATURE_METADATA_COLUMNS <= columns
-    assert migration["name"] == sqlite_migrations.ARTIFACT_LEDGER_INVALIDATION_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_RETIRED_AT_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v9_workflow_trigger_inbox_payload(tmp_path: Path) -> None:
@@ -635,7 +635,7 @@ def test_runtime_schema_migrates_v9_workflow_trigger_inbox_payload(tmp_path: Pat
 
     assert "payload_json" in columns
     assert INBOX_SIGNATURE_METADATA_COLUMNS <= columns
-    assert migration["name"] == sqlite_migrations.ARTIFACT_LEDGER_INVALIDATION_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_RETIRED_AT_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v10_artifact_cache_pins(tmp_path: Path) -> None:
@@ -692,7 +692,7 @@ def test_runtime_schema_migrates_v10_artifact_cache_pins(tmp_path: Path) -> None
         "idx_artifact_cache_pins_object",
     } <= index_names
     assert INBOX_SIGNATURE_METADATA_COLUMNS <= columns
-    assert migration["name"] == sqlite_migrations.ARTIFACT_LEDGER_INVALIDATION_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_RETIRED_AT_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v11_workflow_trigger_inbox_signature_metadata(tmp_path: Path) -> None:
@@ -787,7 +787,7 @@ def test_runtime_schema_migrates_v11_workflow_trigger_inbox_signature_metadata(t
         "raw_content_type": "",
         "raw_header_names_json": "[]",
     }
-    assert migration["name"] == sqlite_migrations.ARTIFACT_LEDGER_INVALIDATION_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_RETIRED_AT_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v12_workflow_trigger_readiness_watcher(tmp_path: Path) -> None:
@@ -841,7 +841,7 @@ def test_runtime_schema_migrates_v12_workflow_trigger_readiness_watcher(tmp_path
         "idx_workflow_trigger_readiness_observations_event",
         "idx_workflow_trigger_readiness_observations_state",
     } <= index_names
-    assert migration["name"] == sqlite_migrations.ARTIFACT_LEDGER_INVALIDATION_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_RETIRED_AT_MIGRATION_NAME
 
 
 def test_runtime_schema_migrates_v13_result_package_byte_state(tmp_path: Path) -> None:
@@ -938,7 +938,7 @@ def test_runtime_schema_migrates_v13_result_package_byte_state(tmp_path: Path) -
         "package_bytes_deleted_at": None,
         "package_bytes_gc_reason": "",
     }
-    assert migration["name"] == sqlite_migrations.ARTIFACT_LEDGER_INVALIDATION_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_RETIRED_AT_MIGRATION_NAME
 
 
 def test_runtime_schema_rejects_future_user_version(tmp_path: Path) -> None:

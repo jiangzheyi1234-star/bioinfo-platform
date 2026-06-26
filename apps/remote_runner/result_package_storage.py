@@ -123,8 +123,8 @@ def _record_normalized_result_package_export(
             package_path, package_uri, size_bytes, sha256, manifest_sha256,
             evidence_event_id, artifact_ids_json, include_artifacts,
             artifact_payload_mode, lifecycle_state, package_bytes_state,
-            package_bytes_deleted_at, package_bytes_gc_reason, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'available', NULL, '', ?)
+            retired_at, package_bytes_deleted_at, package_bytes_gc_reason, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'available', NULL, NULL, '', ?)
         """,
         (
             export_id,
@@ -285,6 +285,21 @@ def list_result_package_exports(
     return [_row_to_dict(row) for row in rows]
 
 
+def list_result_package_exports_for_byte_gc(cfg: RemoteRunnerConfig, *, limit: int = 1000) -> list[dict[str, Any]]:
+    bounded_limit = _bounded_scan_limit(limit)
+    with get_connection(cfg) as connection:
+        rows = connection.execute(
+            """
+            SELECT *
+            FROM result_package_exports
+            ORDER BY COALESCE(retired_at, created_at) ASC, created_at ASC, package_export_id ASC
+            LIMIT ?
+            """,
+            (bounded_limit,),
+        ).fetchall()
+    return [_row_to_dict(row) for row in rows]
+
+
 def _ensure_result_package_export_recordable(
     connection: Any,
     *,
@@ -311,8 +326,14 @@ def _ensure_result_package_export_recordable(
         raise ValueError(f"RESULT_PACKAGE_EXPORT_ALREADY_EXISTS: {existing_mode['package_export_id']}")
 
 
-def mark_result_package_export_retired(connection: Any, *, package_export_id: str) -> dict[str, Any]:
+def mark_result_package_export_retired(
+    connection: Any,
+    *,
+    package_export_id: str,
+    retired_at: str,
+) -> dict[str, Any]:
     normalized_export_id = _required_text(package_export_id, "RESULT_PACKAGE_EXPORT_ID_REQUIRED")
+    normalized_retired_at = _required_text(retired_at, "RESULT_PACKAGE_RETIRED_AT_REQUIRED")
     if not RESULT_PACKAGE_EXPORT_ID_RE.fullmatch(normalized_export_id):
         raise ValueError("RESULT_PACKAGE_EXPORT_ID_INVALID")
     row = connection.execute(
@@ -330,10 +351,11 @@ def mark_result_package_export_retired(connection: Any, *, package_export_id: st
     connection.execute(
         """
         UPDATE result_package_exports
-        SET lifecycle_state = 'retired'
+        SET lifecycle_state = 'retired',
+            retired_at = ?
         WHERE package_export_id = ?
         """,
-        (normalized_export_id,),
+        (normalized_retired_at, normalized_export_id),
     )
     updated = connection.execute(
         """
@@ -493,6 +515,7 @@ def _row_to_dict(row: Any) -> dict[str, Any]:
         "includeArtifacts": bool(row["include_artifacts"]),
         "artifactPayloadMode": row["artifact_payload_mode"],
         "lifecycleState": row["lifecycle_state"],
+        "retiredAt": row["retired_at"],
         "packageBytesState": package_bytes_state,
         "packageBytesDeletedAt": row["package_bytes_deleted_at"],
         "packageBytesGcReason": row["package_bytes_gc_reason"],
@@ -528,4 +551,14 @@ def _bounded_limit(value: object) -> int:
         raise ValueError("RESULT_PACKAGE_EXPORT_LIST_LIMIT_INVALID") from exc
     if limit < 1 or limit > 500:
         raise ValueError("RESULT_PACKAGE_EXPORT_LIST_LIMIT_INVALID")
+    return limit
+
+
+def _bounded_scan_limit(value: object) -> int:
+    try:
+        limit = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("RESULT_PACKAGE_EXPORT_GC_SCAN_LIMIT_INVALID") from exc
+    if limit < 1 or limit > 5000:
+        raise ValueError("RESULT_PACKAGE_EXPORT_GC_SCAN_LIMIT_INVALID")
     return limit

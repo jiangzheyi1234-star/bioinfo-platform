@@ -39,6 +39,7 @@ def retire_result_package_export(
         record = mark_result_package_export_retired(
             connection,
             package_export_id=download["packageExportId"],
+            retired_at=retired_at,
         )
         evidence = append_evidence_event(
             connection,

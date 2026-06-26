@@ -39,3 +39,11 @@ class RemoteRunnerResultPackageProxyMixin:
             str(kwargs["package_export_id"]),
             dict(kwargs.get("payload") or {}),
         )
+
+    def preview_result_package_byte_gc(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+        )
+        return client.preview_result_package_byte_gc(dict(kwargs.get("payload") or {}))

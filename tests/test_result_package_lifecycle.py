@@ -51,11 +51,12 @@ def test_result_package_retire_tombstones_record_without_deleting_package(tmp_pa
     assert result["packageFileDeleted"] is False
     assert package_path.is_file()
     with get_connection(cfg) as connection:
-        state = connection.execute(
-            "SELECT lifecycle_state FROM result_package_exports WHERE package_export_id = ?",
+        row = connection.execute(
+            "SELECT lifecycle_state, retired_at FROM result_package_exports WHERE package_export_id = ?",
             (package["packageExportId"],),
-        ).fetchone()["lifecycle_state"]
-    assert state == "retired"
+        ).fetchone()
+    assert row["lifecycle_state"] == "retired"
+    assert row["retired_at"] == result["retiredAt"]
     with pytest.raises(ValueError, match="RESULT_PACKAGE_EXPORT_NOT_ACTIVE: retired"):
         build_result_package_download(
             cfg,

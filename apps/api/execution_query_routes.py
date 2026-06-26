@@ -14,6 +14,7 @@ from apps.api.models import (
     ArtifactGcPreviewRequest,
     ArtifactGcRunRequest,
     ResultPackageByteDeleteRequest,
+    ResultPackageByteGcPreviewRequest,
     ResultPackageExportRequest,
     ResultPackageRetireRequest,
     RunResumeRequest,
@@ -59,6 +60,7 @@ from apps.api.execution_query_service import (
     list_results_from_request,
     list_runs_from_request,
     lookup_artifact_cache_from_request,
+    preview_result_package_byte_gc_from_request,
     prepare_rule_cache_restore_adoption_from_request,
     prepare_rule_cache_restore_final_outputs_from_request,
     prepare_rule_cache_restore_pins_from_request,
@@ -269,6 +271,13 @@ async def list_result_package_exports(
         lifecycle_state=lifecycleState,
         limit=limit,
     )
+
+
+@router.post("/api/v1/result-package-exports/bytes/gc/preview")
+async def preview_result_package_byte_gc(
+    request: ResultPackageByteGcPreviewRequest,
+) -> dict[str, Any]:
+    return await preview_result_package_byte_gc_from_request(request)
 
 
 @router.get("/api/v1/results/{result_id}/exports/{package_export_id}/download")

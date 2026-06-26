@@ -487,6 +487,7 @@ CREATE TABLE IF NOT EXISTS result_package_exports (
     include_artifacts INTEGER NOT NULL DEFAULT 1,
     artifact_payload_mode TEXT NOT NULL DEFAULT 'included',
     lifecycle_state TEXT NOT NULL DEFAULT 'active',
+    retired_at TEXT,
     package_bytes_state TEXT NOT NULL DEFAULT 'available',
     package_bytes_deleted_at TEXT,
     package_bytes_gc_reason TEXT NOT NULL DEFAULT '',

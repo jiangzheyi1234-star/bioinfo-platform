@@ -4,6 +4,7 @@ import asyncio
 
 from apps.api.models import (
     ResultPackageByteDeleteRequest,
+    ResultPackageByteGcPreviewRequest,
     ResultPackageExportRequest,
     ResultPackageRetireRequest,
 )
@@ -13,6 +14,7 @@ from apps.api.execution_query_routes import (
     export_result_package,
     get_result_audit,
     list_result_package_exports,
+    preview_result_package_byte_gc,
     retire_result_package,
 )
 
@@ -233,6 +235,59 @@ def test_result_package_byte_delete_route_passes_server_id_outside_payload(monke
     }
 
 
+def test_result_package_byte_gc_preview_route_passes_server_id_and_sanitizes_projection(monkeypatch) -> None:
+    runtime = FakeResultPackageByteGcPreviewRuntime()
+    monkeypatch.setattr("apps.api.execution_query_service.runtime_service", lambda: runtime)
+
+    result = asyncio.run(
+        preview_result_package_byte_gc(
+            ResultPackageByteGcPreviewRequest(
+                serverId="srv_remote",
+                retentionDays=14,
+                maxDeleteBytes=4096,
+                scanLimit=50,
+                actor="operator",
+                reason="quota",
+            )
+        )
+    )
+
+    assert runtime.calls == [
+        (
+            {
+                "retentionDays": 14,
+                "maxDeleteBytes": 4096,
+                "scanLimit": 50,
+                "actor": "operator",
+                "reason": "quota",
+            },
+            "srv_remote",
+        )
+    ]
+    assert result == {
+        "data": {
+            "schemaVersion": "h2ometa.result-package-byte-gc-preview.v1",
+            "candidateCount": 1,
+            "protectedCount": 1,
+            "candidates": [
+                {
+                    "itemIndex": 0,
+                    "reason": "retired_bytes_eligible",
+                    "nested": {},
+                }
+            ],
+            "protected": [
+                {
+                    "itemIndex": 0,
+                    "reason": "retired_time_missing",
+                    "nested": {},
+                }
+            ],
+            "redactionPolicy": {"pathsExposed": False, "sha256Exposed": False},
+        }
+    }
+
+
 class FakeResultPackageRuntime:
     def get_result_audit(self, result_id):
         assert result_id == "res_run_demo"
@@ -428,5 +483,51 @@ class FakeResultPackageByteDeleteRuntime:
                 "manifest": {"artifacts": [{"storageUri": "file:///C:/secret/artifact.txt"}]},
                 "packagePath": "C:/secret/package.zip",
                 "packageUri": "file:///C:/secret/package.zip",
+            }
+        }
+
+
+class FakeResultPackageByteGcPreviewRuntime:
+    def __init__(self) -> None:
+        self.calls = []
+
+    def preview_result_package_byte_gc(self, payload, *, server_id=None):
+        self.calls.append((payload, server_id))
+        return {
+            "data": {
+                "schemaVersion": "h2ometa.result-package-byte-gc-preview.v1",
+                "candidateCount": 1,
+                "protectedCount": 1,
+                "resultId": "res_hidden",
+                "runId": "run_hidden",
+                "packageExportId": "rpex_hidden",
+                "packagePath": "C:/secret/package.zip",
+                "packageUri": "file:///C:/secret/package.zip",
+                "sha256": "a" * 64,
+                "candidates": [
+                    {
+                        "itemIndex": 0,
+                        "reason": "retired_bytes_eligible",
+                        "resultId": "res_hidden",
+                        "runId": "run_hidden",
+                        "packageExportId": "rpex_hidden",
+                        "nested": {
+                            "packagePath": "C:/secret/package.zip",
+                            "packageUri": "file:///C:/secret/package.zip",
+                            "sha256": "b" * 64,
+                        },
+                    }
+                ],
+                "protected": [
+                    {
+                        "itemIndex": 0,
+                        "reason": "retired_time_missing",
+                        "nested": {
+                            "manifest": {"packageUri": "file:///C:/secret/package.zip"},
+                            "manifestSha256": "c" * 64,
+                        },
+                    }
+                ],
+                "redactionPolicy": {"pathsExposed": False, "sha256Exposed": False},
             }
         }

@@ -11,6 +11,7 @@ from apps.api.models import (
     ArtifactGcPreviewRequest,
     ArtifactGcRunRequest,
     ResultPackageByteDeleteRequest,
+    ResultPackageByteGcPreviewRequest,
     ResultPackageExportRequest,
     ResultPackageRetireRequest,
     RunResumeRequest,
@@ -371,6 +372,22 @@ async def delete_result_package_bytes_from_request(
     return result
 
 
+async def preview_result_package_byte_gc_from_request(
+    request: ResultPackageByteGcPreviewRequest,
+) -> dict[str, Any]:
+    payload = request_payload(request)
+    server_id = payload.pop("serverId", None)
+    result = await run_runtime_payload(
+        lambda: runtime_service().preview_result_package_byte_gc(
+            payload,
+            server_id=server_id,
+        ),
+        wrapper="raw",
+    )
+    _strip_result_package_byte_gc_preview_secrets(result)
+    return result
+
+
 def _attach_result_package_download(result: dict[str, Any]) -> None:
     data = result.get("data") if isinstance(result, dict) else None
     if not isinstance(data, dict):
@@ -416,6 +433,37 @@ def _strip_result_package_paths(result: dict[str, Any]) -> None:
         data.pop("manifest", None)
         data.pop("packagePath", None)
         data.pop("packageUri", None)
+
+
+def _strip_result_package_byte_gc_preview_secrets(result: dict[str, Any]) -> None:
+    data = result.get("data") if isinstance(result, dict) else None
+    if isinstance(data, dict):
+        _strip_result_package_byte_gc_secret_keys(data)
+
+
+def _strip_result_package_byte_gc_secret_keys(value: Any) -> None:
+    secret_keys = {
+        "manifest",
+        "manifestSha256",
+        "packageExportId",
+        "packagePath",
+        "packageSha256",
+        "packageUri",
+        "path",
+        "resultId",
+        "runId",
+        "sha256",
+        "storageUri",
+    }
+    if isinstance(value, dict):
+        for key in list(value):
+            if key in secret_keys:
+                value.pop(key, None)
+            else:
+                _strip_result_package_byte_gc_secret_keys(value[key])
+    elif isinstance(value, list):
+        for item in value:
+            _strip_result_package_byte_gc_secret_keys(item)
 
 
 def _strip_result_artifact_audit_paths(result: dict[str, Any]) -> None:

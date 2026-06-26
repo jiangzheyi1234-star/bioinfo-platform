@@ -11,6 +11,7 @@ from .api_models import (
     ArtifactGcPreviewRequest,
     ArtifactGcRunRequest,
     ResultPackageByteDeleteRequest,
+    ResultPackageByteGcPreviewRequest,
     ResultPackageExportRequest,
     ResultPackageRetireRequest,
     RunCreateRequest,
@@ -50,6 +51,7 @@ from .health_service import (
 from .pipeline import get_pipeline, list_pipelines
 from .result_preview_service import build_result_preview_data
 from .result_package_byte_gc_service import delete_retired_result_package_bytes
+from .result_package_byte_gc_preview_service import preview_result_package_byte_gc
 from .result_package_download_service import build_result_package_download, result_package_download_url
 from .result_package_listing_service import list_result_package_exports
 from .result_package_lifecycle_service import retire_result_package_export
@@ -529,6 +531,19 @@ async def list_result_package_exports_from_request(
         limit=limit,
     )
     return data_response(exports)
+
+
+async def preview_result_package_byte_gc_from_request(
+    request: ResultPackageByteGcPreviewRequest,
+    authorization: str | None,
+) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization, action="result.package.bytes.preview")
+    plan = await run_sync(
+        preview_result_package_byte_gc,
+        cfg,
+        request.model_dump(mode="json", exclude_none=True),
+    )
+    return data_response(plan)
 
 
 async def export_result_package_from_request(
