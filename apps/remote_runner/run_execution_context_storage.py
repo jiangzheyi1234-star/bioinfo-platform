@@ -70,6 +70,7 @@ def fetch_run_execution_context(cfg: RemoteRunnerConfig, run_id: str) -> dict[st
         rule_retry_plan,
         cache_restore_plan=rule_cache_restore_plan,
         output_invalidation_plan=rule_output_invalidation_plan,
+        workdir_reuse_policy=resume_plan.get("workdirEvidence"),
     )
     return {
         "schemaVersion": "run-execution-context.v1",
@@ -91,6 +92,7 @@ def fetch_run_execution_context(cfg: RemoteRunnerConfig, run_id: str) -> dict[st
         "resumeSupported": bool(resume_plan.get("executionEnabled")),
         "resumeEligibility": _resume_eligibility(resume_plan),
         "resumePlan": resume_plan,
+        "workdirReusePolicy": resume_plan.get("workdirEvidence"),
         "resumeActivationReadiness": resume_plan.get("activationReadiness"),
         "ruleRetryPlan": rule_retry_plan,
         "ruleCacheRestorePlan": rule_cache_restore_plan,

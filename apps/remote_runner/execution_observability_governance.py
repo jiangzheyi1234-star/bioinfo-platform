@@ -36,6 +36,9 @@ def record_run_execution_context_read_audit(
     resume_readiness = _dict_value(context.get("resumeActivationReadiness")) or _dict_value(
         _dict_value(context.get("resumePlan")).get("activationReadiness")
     )
+    workdir_reuse_policy = _dict_value(context.get("workdirReusePolicy")) or _dict_value(
+        _dict_value(context.get("resumePlan")).get("workdirEvidence")
+    )
     rule_cache_restore_plan = _dict_value(context.get("ruleCacheRestorePlan")) or _dict_value(
         rule_retry_execution_plan.get("cacheRestorePlan")
     )
@@ -65,6 +68,11 @@ def record_run_execution_context_read_audit(
             "resumeActivationReady": bool(resume_readiness.get("executionReady")),
             "resumeActivationBlockedCount": _safe_int(resume_readiness.get("blockedCheckCount")),
             "resumeActivationMutationEnabled": bool(resume_readiness.get("executionEnabled")),
+            "workdirReusePolicyPresent": bool(workdir_reuse_policy),
+            "workdirReusable": bool(workdir_reuse_policy.get("workDirReusable")),
+            "workdirDirectoryPresent": bool(workdir_reuse_policy.get("directoryPresent")),
+            "workdirRunConfigPresent": bool(workdir_reuse_policy.get("runConfigPresent")),
+            "workdirPathsExposed": bool(workdir_reuse_policy.get("pathExposed")),
             "ruleCacheRestorePlanPresent": bool(rule_cache_restore_plan),
             "ruleCacheRestorePlanHashPresent": bool(str(rule_cache_restore_plan.get("planHash") or "").strip()),
             "ruleCacheRestoreOutputCount": _safe_int(rule_cache_restore_plan.get("outputCount")),

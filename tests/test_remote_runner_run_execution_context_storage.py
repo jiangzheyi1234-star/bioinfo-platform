@@ -215,17 +215,30 @@ def test_run_execution_context_previews_snakemake_resume_without_enabling_execut
     assert context["resumeActivationReadiness"] == context["resumePlan"]["activationReadiness"]
     assert context["resumeActivationReadiness"]["schemaVersion"] == "run-resume-activation-readiness.v1"
     assert context["resumeActivationReadiness"]["executionReady"] is False
-    assert context["resumeActivationReadiness"]["reasonCode"] == "WORKDIR_REUSE_POLICY_UNPROVEN"
+    assert context["resumeActivationReadiness"]["reasonCode"] == "OUTPUT_AUDIT_MISSING_OUTPUTS"
+    assert context["workdirReusePolicy"] == context["resumePlan"]["workdirEvidence"]
     assert context["resumePlan"]["supported"] is False
     assert context["resumePlan"]["executionEnabled"] is False
     assert context["resumePlan"]["commandPreviewAvailable"] is True
     assert context["resumePlan"]["latestAttempt"]["attemptId"] == claim["attemptId"]
     assert context["resumePlan"]["latestAttempt"]["state"] == "failed"
     assert context["resumePlan"]["workdirEvidence"] == {
+        "schemaVersion": "run-workdir-reuse-policy.v1",
         "available": True,
-        "workDirReusable": False,
+        "workDirReusable": True,
         "pathExposed": False,
-        "reasonCode": "WORKDIR_REUSE_POLICY_UNPROVEN",
+        "managedRoot": True,
+        "directoryPresent": True,
+        "runConfigPresent": True,
+        "snakemakeMetadataPresent": False,
+        "latestAttempt": {
+            "attemptId": claim["attemptId"],
+            "attemptNumber": claim["attempt"]["attemptNumber"],
+            "leaseGeneration": claim["leaseGeneration"],
+            "state": "failed",
+        },
+        "reasonCode": "WORKDIR_REUSABLE",
+        "blockedReasonCodes": [],
     }
     assert context["resumePlan"]["incompleteOutputAudit"]["schemaVersion"] == "run-output-audit.v1"
     assert context["resumePlan"]["incompleteOutputAudit"]["available"] is True
@@ -314,6 +327,12 @@ def test_run_execution_context_reports_rule_retry_downstream_invalidation_plan(t
         lease_seconds=30,
     )
     assert claim is not None
+    work_dir = Path(str(claim["attempt"]["workDir"]))
+    work_dir.mkdir(parents=True, exist_ok=True)
+    (work_dir / "run-config.json").write_text(
+        json.dumps({"outputs": {"report": str(stale_output)}}),
+        encoding="utf-8",
+    )
     for rule_name, status in (("trim_reads", "succeeded"), ("align", "failed"), ("report", "blocked")):
         upsert_run_rule_state(
             cfg,
@@ -371,6 +390,8 @@ def test_run_execution_context_reports_rule_retry_downstream_invalidation_plan(t
     assert context["ruleRetryActivationReadiness"]["schemaVersion"] == "rule-retry-activation-readiness.v1"
     assert context["ruleRetryActivationReadiness"]["executionReady"] is False
     assert context["ruleRetryActivationReadiness"]["reasonCode"] == "DOWNSTREAM_OUTPUT_INVALIDATION_APPLY_REQUIRED"
+    rule_retry_checks = {item["name"]: item for item in context["ruleRetryActivationReadiness"]["checks"]}
+    assert rule_retry_checks["workdirReuse"]["ready"] is True
     assert execution_plan["sourcePlanSchemaVersion"] == "rule-retry-plan.v1"
     assert execution_plan["supported"] is False
     assert execution_plan["eligible"] is False

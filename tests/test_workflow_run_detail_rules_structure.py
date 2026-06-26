@@ -37,6 +37,7 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert 'from "./workflow-run-execution-model"' in model
     assert "export type WorkflowRunExecutionContext" in model_contract
     assert "export type WorkflowRunActivationReadiness" in model_contract
+    assert "export type WorkflowRunWorkdirReusePolicy" in model_contract
     assert "export type WorkflowRunRuleRetryPlan" in model_contract
     assert "export type WorkflowRunRuleRetryExecutionPlan" in model_contract
     assert "export type WorkflowRunRuleCacheRestorePlan" in model_contract
@@ -105,6 +106,9 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "resumeActivationReadiness?: WorkflowRunActivationReadiness" in model_contract
     assert "planHash?: string" in model_contract
     assert "workdirEvidence?:" in model_contract
+    assert "workdirReusePolicy?: WorkflowRunWorkdirReusePolicy" in model_contract
+    assert "runConfigPresent?: boolean" in model_contract
+    assert "snakemakeMetadataPresent?: boolean" in model_contract
     assert "incompleteOutputAudit?:" in model_contract
     assert "expectedOutputCount?: number" in model_contract
     assert "checkedOutputCount?: number" in model_contract

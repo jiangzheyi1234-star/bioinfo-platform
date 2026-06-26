@@ -210,6 +210,12 @@ def test_run_observability_routes_record_safe_allow_audit(tmp_path, monkeypatch)
                 "blockedCheckCount": 4,
                 "executionEnabled": False,
             },
+            "workdirReusePolicy": {
+                "workDirReusable": True,
+                "directoryPresent": True,
+                "runConfigPresent": True,
+                "pathExposed": False,
+            },
         },
     )
     monkeypatch.setattr(
@@ -324,6 +330,11 @@ def test_run_observability_routes_record_safe_allow_audit(tmp_path, monkeypatch)
         "resumeActivationReady": False,
         "resumeActivationBlockedCount": 4,
         "resumeActivationMutationEnabled": False,
+        "workdirReusePolicyPresent": True,
+        "workdirReusable": True,
+        "workdirDirectoryPresent": True,
+        "workdirRunConfigPresent": True,
+        "workdirPathsExposed": False,
         "ruleCacheRestorePlanPresent": True,
         "ruleCacheRestorePlanHashPresent": True,
         "ruleCacheRestoreOutputCount": 2,

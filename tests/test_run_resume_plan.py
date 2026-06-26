@@ -38,9 +38,9 @@ def test_run_resume_plan_previews_snakemake_rerun_incomplete_without_enabling_ex
     assert plan["activationReadiness"]["schemaVersion"] == "run-resume-activation-readiness.v1"
     assert plan["activationReadiness"]["executionReady"] is False
     assert plan["activationReadiness"]["executionEnabled"] is False
-    assert plan["activationReadiness"]["reasonCode"] == "WORKDIR_REUSE_POLICY_UNPROVEN"
-    assert plan["activationReadiness"]["readyCheckCount"] == 2
-    assert plan["activationReadiness"]["blockedCheckCount"] == 4
+    assert plan["activationReadiness"]["reasonCode"] == "OUTPUT_AUDIT_MISSING_OUTPUTS"
+    assert plan["activationReadiness"]["readyCheckCount"] == 3
+    assert plan["activationReadiness"]["blockedCheckCount"] == 3
     assert plan["activationReadiness"]["summary"] == {
         "attemptCount": 1,
         "expectedOutputCount": 2,
@@ -56,10 +56,22 @@ def test_run_resume_plan_previews_snakemake_rerun_incomplete_without_enabling_ex
     assert plan["reasonCode"] == "RUN_RESUME_PREVIEW_AVAILABLE"
     assert plan["latestAttempt"]["state"] == "failed"
     assert plan["workdirEvidence"] == {
+        "schemaVersion": "run-workdir-reuse-policy.v1",
         "available": True,
-        "workDirReusable": False,
+        "workDirReusable": True,
         "pathExposed": False,
-        "reasonCode": "WORKDIR_REUSE_POLICY_UNPROVEN",
+        "managedRoot": True,
+        "directoryPresent": True,
+        "runConfigPresent": True,
+        "snakemakeMetadataPresent": False,
+        "latestAttempt": {
+            "attemptId": "att_failed",
+            "attemptNumber": 1,
+            "leaseGeneration": 1,
+            "state": "failed",
+        },
+        "reasonCode": "WORKDIR_REUSABLE",
+        "blockedReasonCodes": [],
     }
     assert plan["incompleteOutputAudit"]["schemaVersion"] == "run-output-audit.v1"
     assert plan["incompleteOutputAudit"]["available"] is True

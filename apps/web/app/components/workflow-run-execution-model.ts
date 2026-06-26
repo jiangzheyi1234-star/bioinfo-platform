@@ -388,6 +388,22 @@ export type WorkflowRunResumeSnakemakeOptions = {
   unsafeFlagsProhibited?: string[];
 };
 
+export type WorkflowRunWorkdirReusePolicy = {
+  schemaVersion?: string;
+  available?: boolean;
+  workDirReusable?: boolean;
+  pathExposed?: boolean;
+  managedRoot?: boolean;
+  directoryPresent?: boolean;
+  runConfigPresent?: boolean;
+  snakemakeMetadataPresent?: boolean;
+  latestAttempt?: WorkflowRunRuleSelectedAttempt & {
+    state?: string;
+  } | null;
+  blockedReasonCodes?: string[];
+  reasonCode?: string;
+};
+
 export type WorkflowRunResumePlan = {
   schemaVersion?: string;
   planHash?: string;
@@ -408,12 +424,7 @@ export type WorkflowRunResumePlan = {
     exitCode?: number | null;
     finishedAt?: string | null;
   } | null;
-  workdirEvidence?: {
-    available?: boolean;
-    workDirReusable?: boolean;
-    pathExposed?: boolean;
-    reasonCode?: string;
-  };
+  workdirEvidence?: WorkflowRunWorkdirReusePolicy;
   incompleteOutputAudit?: {
     schemaVersion?: string;
     available?: boolean;
@@ -538,6 +549,7 @@ export type WorkflowRunExecutionContext = {
   ruleOutputInvalidationPlan?: WorkflowRunRuleOutputInvalidationPlan;
   ruleRetryExecutionPlan?: WorkflowRunRuleRetryExecutionPlan;
   ruleRetryActivationReadiness?: WorkflowRunActivationReadiness;
+  workdirReusePolicy?: WorkflowRunWorkdirReusePolicy;
   resumeSupported?: boolean;
   resumeEligibility?: {
     eligible?: boolean;

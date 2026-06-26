@@ -38,6 +38,7 @@ def build_rule_retry_execution_plan(
     rule_retry_plan: dict[str, Any],
     cache_restore_plan: dict[str, Any] | None = None,
     output_invalidation_plan: dict[str, Any] | None = None,
+    workdir_reuse_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     resolved_output_invalidation_plan = output_invalidation_plan or blocked_rule_output_invalidation_plan(rule_retry_plan)
     resolved_cache_restore_plan = cache_restore_plan or blocked_rule_cache_restore_plan(
@@ -50,12 +51,18 @@ def build_rule_retry_execution_plan(
         output_invalidation_plan=resolved_output_invalidation_plan,
     )
     if rule_retry_plan.get("schemaVersion") != RULE_RETRY_PLAN_SCHEMA_VERSION:
-        return _blocked(base, "RULE_RETRY_PLAN_SCHEMA_UNSUPPORTED", rule_retry_plan=rule_retry_plan)
+        return _blocked(
+            base,
+            "RULE_RETRY_PLAN_SCHEMA_UNSUPPORTED",
+            rule_retry_plan=rule_retry_plan,
+            workdir_reuse_policy=workdir_reuse_policy,
+        )
     if not rule_retry_plan.get("invalidationPlanAvailable"):
         return _blocked(
             base,
             str(rule_retry_plan.get("reasonCode") or "RULE_RETRY_INVALIDATION_PLAN_UNAVAILABLE"),
             rule_retry_plan=rule_retry_plan,
+            workdir_reuse_policy=workdir_reuse_policy,
         )
 
     rules = [rule for rule in rule_retry_plan.get("rules") or [] if isinstance(rule, dict)]
@@ -69,16 +76,32 @@ def build_rule_retry_execution_plan(
             base,
             str(blocked_rule.get("reasonCode") or "RULE_RETRY_RULE_BLOCKED"),
             rule_retry_plan=rule_retry_plan,
+            workdir_reuse_policy=workdir_reuse_policy,
         )
     if not selected_rules:
-        return _blocked(base, "RULE_RETRY_NO_SELECTED_RULE_ATTEMPTS", rule_retry_plan=rule_retry_plan)
+        return _blocked(
+            base,
+            "RULE_RETRY_NO_SELECTED_RULE_ATTEMPTS",
+            rule_retry_plan=rule_retry_plan,
+            workdir_reuse_policy=workdir_reuse_policy,
+        )
     if len(selected_rules) != len(rules):
-        return _blocked(base, "RULE_RETRY_ATTEMPT_SELECTION_INCOMPLETE", rule_retry_plan=rule_retry_plan)
+        return _blocked(
+            base,
+            "RULE_RETRY_ATTEMPT_SELECTION_INCOMPLETE",
+            rule_retry_plan=rule_retry_plan,
+            workdir_reuse_policy=workdir_reuse_policy,
+        )
 
     try:
         forcerun_rules = normalize_forcerun_rules([_required_rule_name(rule) for rule in selected_rules])
     except WorkflowRuntimeCommandError as exc:
-        return _blocked(base, str(exc).split(":", 1)[0], rule_retry_plan=rule_retry_plan)
+        return _blocked(
+            base,
+            str(exc).split(":", 1)[0],
+            rule_retry_plan=rule_retry_plan,
+            workdir_reuse_policy=workdir_reuse_policy,
+        )
 
     args_preview = ["--rerun-incomplete", "--forcerun", *forcerun_rules]
     return _finalize(
@@ -106,6 +129,7 @@ def build_rule_retry_execution_plan(
             },
         },
         rule_retry_plan=rule_retry_plan,
+        workdir_reuse_policy=workdir_reuse_policy,
     )
 
 
@@ -184,7 +208,13 @@ def _base_plan(
     }
 
 
-def _blocked(base: dict[str, Any], reason_code: str, *, rule_retry_plan: dict[str, Any]) -> dict[str, Any]:
+def _blocked(
+    base: dict[str, Any],
+    reason_code: str,
+    *,
+    rule_retry_plan: dict[str, Any],
+    workdir_reuse_policy: dict[str, Any] | None,
+) -> dict[str, Any]:
     return _finalize(
         {
             **base,
@@ -192,16 +222,23 @@ def _blocked(base: dict[str, Any], reason_code: str, *, rule_retry_plan: dict[st
             "message": f"Rule-level retry execution planning is blocked: {reason_code}.",
         },
         rule_retry_plan=rule_retry_plan,
+        workdir_reuse_policy=workdir_reuse_policy,
     )
 
 
-def _finalize(plan: dict[str, Any], *, rule_retry_plan: dict[str, Any]) -> dict[str, Any]:
+def _finalize(
+    plan: dict[str, Any],
+    *,
+    rule_retry_plan: dict[str, Any],
+    workdir_reuse_policy: dict[str, Any] | None,
+) -> dict[str, Any]:
     return attach_plan_hash(
         {
             **plan,
             "activationReadiness": build_rule_retry_activation_readiness(
                 rule_retry_plan=rule_retry_plan,
                 execution_plan=plan,
+                workdir_reuse_policy=workdir_reuse_policy,
             ),
         }
     )

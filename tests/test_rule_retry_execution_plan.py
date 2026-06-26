@@ -95,6 +95,27 @@ def test_rule_retry_execution_plan_drops_output_invalidation_blocker_after_apply
     assert "PARTIAL_RESTORE_EXECUTOR_UNAVAILABLE" in plan["requiresBeforeExecution"]
 
 
+def test_rule_retry_execution_plan_marks_workdir_reuse_ready_from_redacted_policy() -> None:
+    plan = build_rule_retry_execution_plan(
+        _rule_retry_plan(),
+        workdir_reuse_policy={
+            "schemaVersion": "run-workdir-reuse-policy.v1",
+            "workDirReusable": True,
+            "pathExposed": False,
+            "reasonCode": "WORKDIR_REUSABLE",
+        },
+    )
+
+    checks = {item["name"]: item for item in plan["activationReadiness"]["checks"]}
+    assert checks["workdirReuse"] == {
+        "name": "workdirReuse",
+        "ready": True,
+        "reasonCode": "READY",
+    }
+    assert plan["activationReadiness"]["executionReady"] is False
+    assert plan["executionEnabled"] is False
+
+
 def test_rule_retry_execution_options_refuses_disabled_preview_plan() -> None:
     plan = build_rule_retry_execution_plan(_rule_retry_plan())
 

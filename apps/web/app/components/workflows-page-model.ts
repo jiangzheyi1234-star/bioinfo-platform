@@ -35,6 +35,7 @@ export type {
   WorkflowRunRuleRetryPlanRuleRef,
   WorkflowRunRuleRetrySnakemakeOptions,
   WorkflowRunRuleSelectedAttempt,
+  WorkflowRunWorkdirReusePolicy,
   WorkflowRunRuleLogContext,
 } from "./workflow-run-execution-model";
 

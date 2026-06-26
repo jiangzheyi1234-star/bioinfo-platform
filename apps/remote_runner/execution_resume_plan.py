@@ -5,6 +5,7 @@ from typing import Any
 from .execution_activation_readiness import build_run_resume_activation_readiness
 from .execution_plan_hash import attach_plan_hash
 from .execution_output_audit import build_attempt_output_audit
+from .execution_workdir_reuse_policy import build_workdir_reuse_policy
 
 
 RUN_RESUME_PLAN_SCHEMA_VERSION = "run-resume-plan.v1"
@@ -97,7 +98,10 @@ def _base_plan(
         "jobState": job.get("state") if job else None,
         "attemptCount": len(attempts),
         "latestAttempt": _latest_attempt(attempts),
-        "workdirEvidence": _workdir_evidence(attempts),
+        "workdirEvidence": build_workdir_reuse_policy(
+            attempts=attempts,
+            managed_work_dir=managed_work_dir,
+        ),
         "incompleteOutputAudit": build_attempt_output_audit(
             run=run,
             attempts=attempts,
@@ -162,17 +166,6 @@ def _latest_attempt(attempts: list[dict[str, Any]]) -> dict[str, Any] | None:
     }
 
 
-def _workdir_evidence(attempts: list[dict[str, Any]]) -> dict[str, Any]:
-    latest = _latest_attempt_raw(attempts)
-    workdir_present = bool(latest and latest.get("workDirPresent"))
-    return {
-        "available": workdir_present,
-        "workDirReusable": False,
-        "pathExposed": False,
-        "reasonCode": "WORKDIR_REUSE_POLICY_UNPROVEN" if workdir_present else "WORKDIR_EVIDENCE_MISSING",
-    }
-
-
 def _artifact_adoption_boundary() -> dict[str, Any]:
     return {
         "enabled": False,
@@ -180,19 +173,6 @@ def _artifact_adoption_boundary() -> dict[str, Any]:
         "adoptedCacheEntries": [],
         "reasonCode": "ARTIFACT_ADOPTION_UNPROVEN",
     }
-
-
-def _latest_attempt_raw(attempts: list[dict[str, Any]]) -> dict[str, Any] | None:
-    if not attempts:
-        return None
-    return max(
-        attempts,
-        key=lambda attempt: (
-            _optional_int(attempt.get("attemptNumber")),
-            _optional_int(attempt.get("leaseGeneration")),
-            str(attempt.get("updatedAt") or ""),
-        ),
-    )
 
 
 def _optional_int(value: Any) -> int:

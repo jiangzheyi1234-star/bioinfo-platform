@@ -11,6 +11,7 @@ def build_rule_retry_activation_readiness(
     *,
     rule_retry_plan: dict[str, Any],
     execution_plan: dict[str, Any],
+    workdir_reuse_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     cache_restore = _dict_value(execution_plan.get("cacheRestorePlan"))
     output_invalidation = _dict_value(execution_plan.get("outputInvalidationPlan"))
@@ -21,6 +22,7 @@ def build_rule_retry_activation_readiness(
     promotion_state = _dict_value(cache_restore.get("finalOutputPromotionState"))
     partial_restore_executor = _dict_value(cache_restore.get("partialRestoreExecutor"))
     redaction = _dict_value(cache_restore.get("redactionPolicy"))
+    workdir_policy = _dict_value(workdir_reuse_policy)
 
     selected_rules = _list_value(execution_plan.get("selectedRules"))
     rerun_scope = _dict_value(execution_plan.get("rerunScope"))
@@ -72,8 +74,8 @@ def build_rule_retry_activation_readiness(
         ),
         _check(
             "workdirReuse",
-            False,
-            "WORKDIR_REUSE_POLICY_UNPROVEN",
+            workdir_policy.get("workDirReusable") is True,
+            _first_nonempty(workdir_policy.get("reasonCode"), "WORKDIR_REUSE_POLICY_UNPROVEN"),
         ),
         _check(
             "incompleteOutputAudit",
