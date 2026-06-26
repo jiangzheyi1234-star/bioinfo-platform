@@ -420,6 +420,22 @@ def test_run_execution_context_reports_rule_retry_downstream_invalidation_plan(t
     assert execution_plan["partialRerunLifecycle"]["targetAttempt"]["creationMode"] == "next-worker-claim"
     assert execution_plan["partialRerunLifecycle"]["outputClosure"]["preservedOutputEdgesRequired"] is True
     assert execution_plan["partialRerunLifecycle"]["pathExposed"] is False
+    partial_output_closure = execution_plan["partialRerunOutputClosure"]
+    assert partial_output_closure["schemaVersion"] == "rule-partial-rerun-output-closure.v1"
+    assert partial_output_closure["available"] is True
+    assert partial_output_closure["edgeClosureReady"] is False
+    assert partial_output_closure["closureReady"] is False
+    assert partial_output_closure["scopedOutputCount"] == 1
+    assert partial_output_closure["adoptedScopedOutputCount"] == 0
+    assert partial_output_closure["pendingScopedOutputCount"] == 1
+    assert partial_output_closure["preservedRuleCount"] == 1
+    assert partial_output_closure["preservedOutputEdgeCount"] == 0
+    assert partial_output_closure["missingPreservedOutputEdgeCount"] == 1
+    assert partial_output_closure["unknownActiveOutputEdgeCount"] == 0
+    assert "RULE_PARTIAL_RERUN_SCOPED_OUTPUT_ADOPTION_PENDING" in partial_output_closure["blockedReasonCodes"]
+    assert "RULE_PARTIAL_RERUN_PRESERVED_OUTPUT_EDGES_MISSING" in partial_output_closure["blockedReasonCodes"]
+    assert partial_output_closure["pathExposed"] is False
+    assert partial_output_closure["storageUriExposed"] is False
     assert [item["ruleName"] for item in execution_plan["selectedRules"]] == ["align"]
     assert [item["ruleName"] for item in execution_plan["rerunScope"]["rules"]] == ["align", "report"]
     assert execution_plan["snakemakeOptions"]["argsPreview"] == ["--rerun-incomplete", "--forcerun", "align"]

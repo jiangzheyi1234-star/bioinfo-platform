@@ -7,6 +7,7 @@ from .execution_output_audit import blocked_rule_retry_output_audit
 from .execution_plan_hash import attach_plan_hash
 from .execution_rerun_orchestration import build_rule_partial_rerun_orchestration
 from .rule_cache_restore_plan import blocked_rule_cache_restore_plan
+from .rule_partial_rerun_output_closure import blocked_rule_partial_rerun_output_closure
 from .rule_partial_rerun_lifecycle import blocked_rule_partial_rerun_lifecycle
 from .rule_output_invalidation_plan import blocked_rule_output_invalidation_plan
 from .rule_restore_pin_policy import RESTORE_PIN_POLICY_UNREPRESENTED, restore_pin_policy_blocker
@@ -45,6 +46,7 @@ def build_rule_retry_execution_plan(
     workdir_reuse_policy: dict[str, Any] | None = None,
     incomplete_output_audit: dict[str, Any] | None = None,
     partial_rerun_lifecycle: dict[str, Any] | None = None,
+    partial_rerun_output_closure: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     resolved_output_invalidation_plan = output_invalidation_plan or blocked_rule_output_invalidation_plan(rule_retry_plan)
     resolved_cache_restore_plan = cache_restore_plan or blocked_rule_cache_restore_plan(
@@ -64,6 +66,7 @@ def build_rule_retry_execution_plan(
             workdir_reuse_policy=workdir_reuse_policy,
             incomplete_output_audit=incomplete_output_audit,
             partial_rerun_lifecycle=partial_rerun_lifecycle,
+            partial_rerun_output_closure=partial_rerun_output_closure,
         )
     if not rule_retry_plan.get("invalidationPlanAvailable"):
         return _blocked(
@@ -73,6 +76,7 @@ def build_rule_retry_execution_plan(
             workdir_reuse_policy=workdir_reuse_policy,
             incomplete_output_audit=incomplete_output_audit,
             partial_rerun_lifecycle=partial_rerun_lifecycle,
+            partial_rerun_output_closure=partial_rerun_output_closure,
         )
 
     rules = [rule for rule in rule_retry_plan.get("rules") or [] if isinstance(rule, dict)]
@@ -89,6 +93,7 @@ def build_rule_retry_execution_plan(
             workdir_reuse_policy=workdir_reuse_policy,
             incomplete_output_audit=incomplete_output_audit,
             partial_rerun_lifecycle=partial_rerun_lifecycle,
+            partial_rerun_output_closure=partial_rerun_output_closure,
         )
     if not selected_rules:
         return _blocked(
@@ -98,6 +103,7 @@ def build_rule_retry_execution_plan(
             workdir_reuse_policy=workdir_reuse_policy,
             incomplete_output_audit=incomplete_output_audit,
             partial_rerun_lifecycle=partial_rerun_lifecycle,
+            partial_rerun_output_closure=partial_rerun_output_closure,
         )
     if len(selected_rules) != len(rules):
         return _blocked(
@@ -107,6 +113,7 @@ def build_rule_retry_execution_plan(
             workdir_reuse_policy=workdir_reuse_policy,
             incomplete_output_audit=incomplete_output_audit,
             partial_rerun_lifecycle=partial_rerun_lifecycle,
+            partial_rerun_output_closure=partial_rerun_output_closure,
         )
 
     try:
@@ -119,6 +126,7 @@ def build_rule_retry_execution_plan(
             workdir_reuse_policy=workdir_reuse_policy,
             incomplete_output_audit=incomplete_output_audit,
             partial_rerun_lifecycle=partial_rerun_lifecycle,
+            partial_rerun_output_closure=partial_rerun_output_closure,
         )
 
     args_preview = ["--rerun-incomplete", "--forcerun", *forcerun_rules]
@@ -150,6 +158,7 @@ def build_rule_retry_execution_plan(
         workdir_reuse_policy=workdir_reuse_policy,
         incomplete_output_audit=incomplete_output_audit,
         partial_rerun_lifecycle=partial_rerun_lifecycle,
+        partial_rerun_output_closure=partial_rerun_output_closure,
     )
 
 
@@ -221,6 +230,7 @@ def _base_plan(
         "cacheRestorePlan": cache_restore_plan,
         "outputInvalidationPlan": output_invalidation_plan,
         "partialRerunLifecycle": blocked_rule_partial_rerun_lifecycle(),
+        "partialRerunOutputClosure": blocked_rule_partial_rerun_output_closure(),
         "snakemakeOptions": {
             "schemaVersion": SNAKEMAKE_RULE_RERUN_OPTIONS_SCHEMA_VERSION,
             "rerunIncomplete": False,
@@ -239,6 +249,7 @@ def _blocked(
     workdir_reuse_policy: dict[str, Any] | None,
     incomplete_output_audit: dict[str, Any] | None,
     partial_rerun_lifecycle: dict[str, Any] | None,
+    partial_rerun_output_closure: dict[str, Any] | None,
 ) -> dict[str, Any]:
     return _finalize(
         {
@@ -250,6 +261,7 @@ def _blocked(
         workdir_reuse_policy=workdir_reuse_policy,
         incomplete_output_audit=incomplete_output_audit,
         partial_rerun_lifecycle=partial_rerun_lifecycle,
+        partial_rerun_output_closure=partial_rerun_output_closure,
     )
 
 
@@ -260,11 +272,13 @@ def _finalize(
     workdir_reuse_policy: dict[str, Any] | None,
     incomplete_output_audit: dict[str, Any] | None,
     partial_rerun_lifecycle: dict[str, Any] | None,
+    partial_rerun_output_closure: dict[str, Any] | None,
 ) -> dict[str, Any]:
     plan_with_audit = {
         **plan,
         "incompleteOutputAudit": incomplete_output_audit or blocked_rule_retry_output_audit(),
         "partialRerunLifecycle": partial_rerun_lifecycle or blocked_rule_partial_rerun_lifecycle(),
+        "partialRerunOutputClosure": partial_rerun_output_closure or blocked_rule_partial_rerun_output_closure(),
     }
     plan_with_orchestration = {
         **plan_with_audit,

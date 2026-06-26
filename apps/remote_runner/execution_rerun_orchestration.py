@@ -128,8 +128,11 @@ def build_rule_partial_rerun_orchestration(
     source_attempt = _dict_value(lifecycle.get("sourceAttempt"))
     target_attempt = _dict_value(lifecycle.get("targetAttempt"))
     output_closure = _dict_value(lifecycle.get("outputClosure"))
+    partial_output_closure = _dict_value(execution_plan.get("partialRerunOutputClosure"))
     lifecycle_path_exposed = _redaction_exposed(lifecycle, "pathExposed")
     lifecycle_storage_uri_exposed = _redaction_exposed(lifecycle, "storageUriExposed")
+    closure_path_exposed = _redaction_exposed(partial_output_closure, "pathExposed")
+    closure_storage_uri_exposed = _redaction_exposed(partial_output_closure, "storageUriExposed")
     snakemake = _dict_value(execution_plan.get("snakemakeOptions"))
     promotion = _dict_value(cache_restore.get("finalOutputPromotionState"))
     redaction = _dict_value(cache_restore.get("redactionPolicy"))
@@ -155,6 +158,12 @@ def build_rule_partial_rerun_orchestration(
         contract_blockers.append(_first_nonempty(lifecycle.get("reasonCode"), "RULE_PARTIAL_RERUN_LIFECYCLE_UNPROVEN"))
     if lifecycle_path_exposed or lifecycle_storage_uri_exposed:
         contract_blockers.append("RULE_PARTIAL_RERUN_LIFECYCLE_REDACTION_UNSAFE")
+    if partial_output_closure.get("closureReady") is not True:
+        contract_blockers.append(
+            _first_nonempty(partial_output_closure.get("reasonCode"), "RULE_PARTIAL_RERUN_OUTPUT_CLOSURE_UNPROVEN")
+        )
+    if closure_path_exposed or closure_storage_uri_exposed:
+        contract_blockers.append("RULE_PARTIAL_RERUN_OUTPUT_CLOSURE_REDACTION_UNSAFE")
     if workdir.get("workDirReusable") is not True:
         contract_blockers.append(_first_nonempty(workdir.get("reasonCode"), "WORKDIR_REUSE_POLICY_UNPROVEN"))
     if snakemake.get("rerunIncomplete") is not True or not _list_value(snakemake.get("forcerunRules")):
@@ -184,6 +193,11 @@ def build_rule_partial_rerun_orchestration(
         "targetAttemptCreationMode": str(target_attempt.get("creationMode") or ""),
         "sourcePlanHashRevalidationRequired": target_attempt.get("sourcePlanHashRevalidationRequired") is True,
         "preservedOutputClosureRequired": output_closure.get("preservedOutputEdgesRequired") is True,
+        "outputClosureReady": partial_output_closure.get("closureReady") is True,
+        "edgeClosureReady": partial_output_closure.get("edgeClosureReady") is True,
+        "preservedOutputEdgeCount": _safe_int(partial_output_closure.get("preservedOutputEdgeCount")),
+        "missingPreservedOutputEdgeCount": _safe_int(partial_output_closure.get("missingPreservedOutputEdgeCount")),
+        "unknownActiveOutputEdgeCount": _safe_int(partial_output_closure.get("unknownActiveOutputEdgeCount")),
         "targetAttemptRequired": True,
         "activeLeaseRequired": True,
         "workdirReuseRequired": True,
@@ -199,8 +213,10 @@ def build_rule_partial_rerun_orchestration(
         "finalizeRunAllowed": False,
         "queueMutationAllowed": False,
         "runStateMutationAllowed": False,
-        "pathExposed": bool(redaction.get("pathsExposed")) or lifecycle_path_exposed,
-        "storageUriExposed": bool(redaction.get("storageUrisExposed")) or lifecycle_storage_uri_exposed,
+        "pathExposed": bool(redaction.get("pathsExposed")) or lifecycle_path_exposed or closure_path_exposed,
+        "storageUriExposed": bool(redaction.get("storageUrisExposed"))
+        or lifecycle_storage_uri_exposed
+        or closure_storage_uri_exposed,
     }
 
 

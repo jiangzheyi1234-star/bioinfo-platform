@@ -54,6 +54,7 @@ def record_run_execution_context_read_audit(
     rule_retry_lifecycle = _dict_value(rule_retry_execution_plan.get("partialRerunLifecycle"))
     rule_retry_lifecycle_source = _dict_value(rule_retry_lifecycle.get("sourceAttempt"))
     rule_retry_lifecycle_target = _dict_value(rule_retry_lifecycle.get("targetAttempt"))
+    rule_retry_output_closure = _dict_value(rule_retry_execution_plan.get("partialRerunOutputClosure"))
     record_governance_audit_event(
         cfg,
         action="run.execution_context.read",
@@ -101,6 +102,27 @@ def record_run_execution_context_read_audit(
             "ruleRetryLifecycleRunStateMutationAllowed": bool(rule_retry_lifecycle.get("runStateMutationAllowed")),
             "ruleRetryLifecyclePathsExposed": bool(rule_retry_lifecycle.get("pathExposed")),
             "ruleRetryLifecycleStorageUrisExposed": bool(rule_retry_lifecycle.get("storageUriExposed")),
+            "ruleRetryOutputClosureReady": bool(rule_retry_output_closure.get("closureReady")),
+            "ruleRetryOutputClosureEdgeReady": bool(rule_retry_output_closure.get("edgeClosureReady")),
+            "ruleRetryOutputClosureScopedCount": _safe_int(rule_retry_output_closure.get("scopedOutputCount")),
+            "ruleRetryOutputClosureAdoptedScopedCount": _safe_int(
+                rule_retry_output_closure.get("adoptedScopedOutputCount")
+            ),
+            "ruleRetryOutputClosurePendingScopedCount": _safe_int(
+                rule_retry_output_closure.get("pendingScopedOutputCount")
+            ),
+            "ruleRetryOutputClosurePreservedEdgeCount": _safe_int(
+                rule_retry_output_closure.get("preservedOutputEdgeCount")
+            ),
+            "ruleRetryOutputClosureMissingPreservedCount": _safe_int(
+                rule_retry_output_closure.get("missingPreservedOutputEdgeCount")
+            ),
+            "ruleRetryOutputClosureUnknownActiveCount": _safe_int(
+                rule_retry_output_closure.get("unknownActiveOutputEdgeCount")
+            ),
+            "ruleRetryOutputClosureFinalizeAllowed": bool(rule_retry_output_closure.get("finalizeAllowed")),
+            "ruleRetryOutputClosurePathsExposed": bool(rule_retry_output_closure.get("pathExposed")),
+            "ruleRetryOutputClosureStorageUrisExposed": bool(rule_retry_output_closure.get("storageUriExposed")),
             "resumeActivationReady": bool(resume_readiness.get("executionReady")),
             "resumeActivationBlockedCount": _safe_int(resume_readiness.get("blockedCheckCount")),
             "resumeActivationMutationEnabled": bool(resume_readiness.get("executionEnabled")),

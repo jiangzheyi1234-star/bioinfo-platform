@@ -8,6 +8,7 @@ from .execution_output_audit import build_rule_retry_output_audit
 from .execution_query_storage import require_run
 from .execution_resume_plan import build_run_resume_plan
 from .rule_cache_restore_plan import build_rule_cache_restore_plan
+from .rule_partial_rerun_output_closure import build_rule_partial_rerun_output_closure
 from .rule_partial_rerun_lifecycle import build_rule_partial_rerun_lifecycle
 from .rule_output_invalidation_plan import build_rule_output_invalidation_plan
 from .rule_retry_execution_plan import build_rule_retry_execution_plan
@@ -87,6 +88,13 @@ def fetch_run_execution_context(cfg: RemoteRunnerConfig, run_id: str) -> dict[st
         rule_retry_plan=rule_retry_plan,
         workdir_reuse_policy=resume_plan.get("workdirEvidence"),
     )
+    rule_partial_rerun_output_closure = build_rule_partial_rerun_output_closure(
+        cfg,
+        run=run,
+        rule_retry_plan=rule_retry_plan,
+        cache_restore_plan=rule_cache_restore_plan,
+        output_audit=rule_retry_output_audit,
+    )
     rule_retry_execution_plan = build_rule_retry_execution_plan(
         rule_retry_plan,
         cache_restore_plan=rule_cache_restore_plan,
@@ -94,6 +102,7 @@ def fetch_run_execution_context(cfg: RemoteRunnerConfig, run_id: str) -> dict[st
         workdir_reuse_policy=resume_plan.get("workdirEvidence"),
         incomplete_output_audit=rule_retry_output_audit,
         partial_rerun_lifecycle=rule_partial_rerun_lifecycle,
+        partial_rerun_output_closure=rule_partial_rerun_output_closure,
     )
     return {
         "schemaVersion": "run-execution-context.v1",

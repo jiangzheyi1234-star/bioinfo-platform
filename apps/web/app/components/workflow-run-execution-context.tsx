@@ -286,6 +286,7 @@ function RuleRetryExecutionPlanPreview({ plan }: { plan?: WorkflowRunRuleRetryEx
   const cacheRestore = plan.cacheRestorePlan;
   const outputAudit = plan.incompleteOutputAudit;
   const lifecycle = plan.partialRerunLifecycle;
+  const partialOutputClosure = plan.partialRerunOutputClosure;
   const stagedFilePolicy = cacheRestore?.stagedFilePolicy;
   const restorePinPolicy = cacheRestore?.restorePinPolicy;
   const options = plan.snakemakeOptions;
@@ -338,6 +339,13 @@ function RuleRetryExecutionPlanPreview({ plan }: { plan?: WorkflowRunRuleRetryEx
         lifecycle.sourceAttempt?.leaseReleased ? "released" : "blocked"
       } · target ${lifecycle.targetAttempt?.creationMode || "—"}`
     : "—";
+  const outputClosureLabel = partialOutputClosure
+    ? `${partialOutputClosure.reasonCode || "—"} · scoped ${partialOutputClosure.adoptedScopedOutputCount ?? 0}/${
+        partialOutputClosure.scopedOutputCount ?? 0
+      } · preserved ${partialOutputClosure.preservedOutputEdgeCount ?? 0} · unknown ${
+        partialOutputClosure.unknownActiveOutputEdgeCount ?? 0
+      }`
+    : "—";
 
   return (
     <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
@@ -380,6 +388,8 @@ function RuleRetryExecutionPlanPreview({ plan }: { plan?: WorkflowRunRuleRetryEx
         <span className="truncate font-mono text-slate-800">{outputAuditLabel}</span>
         <span className="text-slate-500">rerun lifecycle</span>
         <span className="truncate font-mono text-slate-800">{lifecycleLabel}</span>
+        <span className="text-slate-500">output closure</span>
+        <span className="truncate font-mono text-slate-800">{outputClosureLabel}</span>
         {cacheRestore ? (
           <>
             <span className="text-slate-500">cache restore</span>

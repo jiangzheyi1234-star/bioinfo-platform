@@ -491,6 +491,27 @@ export type WorkflowRunPartialRerunLifecycle = {
   storageUriExposed?: boolean;
 };
 
+export type WorkflowRunPartialRerunOutputClosure = {
+  schemaVersion?: string;
+  available?: boolean;
+  edgeClosureReady?: boolean;
+  closureReady?: boolean;
+  reasonCode?: string;
+  blockedReasonCodes?: string[];
+  scopedOutputCount?: number;
+  adoptedScopedOutputCount?: number;
+  pendingScopedOutputCount?: number;
+  preservedRuleCount?: number;
+  preservedOutputEdgeCount?: number;
+  missingPreservedOutputEdgeCount?: number;
+  unknownActiveOutputEdgeCount?: number;
+  allDeclaredOutputsVerified?: boolean;
+  finalizeAllowed?: boolean;
+  runStateMutationAllowed?: boolean;
+  pathExposed?: boolean;
+  storageUriExposed?: boolean;
+};
+
 export type WorkflowRunRuleRetryExecutionPlan = {
   schemaVersion?: string;
   planHash?: string;
@@ -519,6 +540,7 @@ export type WorkflowRunRuleRetryExecutionPlan = {
   cacheRestorePlan?: WorkflowRunRuleCacheRestorePlan;
   incompleteOutputAudit?: WorkflowRunOutputAudit;
   partialRerunLifecycle?: WorkflowRunPartialRerunLifecycle;
+  partialRerunOutputClosure?: WorkflowRunPartialRerunOutputClosure;
   executorOrchestration?: WorkflowRunExecutorOrchestration;
   activationReadiness?: WorkflowRunActivationReadiness;
   reasonCode?: string;

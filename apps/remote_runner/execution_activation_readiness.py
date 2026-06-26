@@ -24,8 +24,11 @@ def build_rule_retry_activation_readiness(
     partial_restore_executor = _dict_value(cache_restore.get("partialRestoreExecutor"))
     executor_orchestration = _dict_value(execution_plan.get("executorOrchestration"))
     lifecycle = _dict_value(execution_plan.get("partialRerunLifecycle"))
+    output_closure = _dict_value(execution_plan.get("partialRerunOutputClosure"))
     lifecycle_path_exposed = _redaction_exposed(lifecycle, "pathExposed")
     lifecycle_storage_uri_exposed = _redaction_exposed(lifecycle, "storageUriExposed")
+    output_closure_path_exposed = _redaction_exposed(output_closure, "pathExposed")
+    output_closure_storage_uri_exposed = _redaction_exposed(output_closure, "storageUriExposed")
     redaction = _dict_value(cache_restore.get("redactionPolicy"))
     workdir_policy = _dict_value(workdir_reuse_policy)
 
@@ -104,6 +107,19 @@ def build_rule_retry_activation_readiness(
             ),
         ),
         _check(
+            "partialOutputClosure",
+            output_closure.get("closureReady") is True
+            and output_closure_path_exposed is not True
+            and output_closure_storage_uri_exposed is not True,
+            _first_nonempty(
+                "RULE_PARTIAL_RERUN_OUTPUT_CLOSURE_REDACTION_UNSAFE"
+                if output_closure_path_exposed or output_closure_storage_uri_exposed
+                else "",
+                output_closure.get("reasonCode"),
+                "RULE_PARTIAL_RERUN_OUTPUT_CLOSURE_UNPROVEN",
+            ),
+        ),
+        _check(
             "snakemakeOptions",
             bool(execution_plan.get("commandPreviewAvailable"))
             and snakemake_options.get("rerunIncomplete") is True
@@ -146,6 +162,13 @@ def build_rule_retry_activation_readiness(
             "unverifiedOutputCount": _safe_int(output_audit.get("unverifiedOutputCount")),
             "lifecycleContractReady": 1 if lifecycle.get("contractReady") is True else 0,
             "lifecycleMutationReady": 1 if lifecycle.get("mutationReady") is True else 0,
+            "outputClosureReady": 1 if output_closure.get("closureReady") is True else 0,
+            "edgeClosureReady": 1 if output_closure.get("edgeClosureReady") is True else 0,
+            "scopedOutputCount": _safe_int(output_closure.get("scopedOutputCount")),
+            "adoptedScopedOutputCount": _safe_int(output_closure.get("adoptedScopedOutputCount")),
+            "preservedOutputEdgeCount": _safe_int(output_closure.get("preservedOutputEdgeCount")),
+            "missingPreservedOutputEdgeCount": _safe_int(output_closure.get("missingPreservedOutputEdgeCount")),
+            "unknownActiveOutputEdgeCount": _safe_int(output_closure.get("unknownActiveOutputEdgeCount")),
             "executorContractReady": 1 if executor_orchestration.get("contractReady") is True else 0,
             "executorReady": 1 if executor_orchestration.get("executorReady") is True else 0,
             "unsafeFlagCount": len(_list_value(snakemake_options.get("unsafeFlagsProhibited"))),
@@ -155,10 +178,12 @@ def build_rule_retry_activation_readiness(
             "fingerprintsExposed": bool(redaction.get("cacheKeyFingerprintsExposed")),
             "storageUrisExposed": bool(redaction.get("storageUrisExposed"))
             or bool(executor_orchestration.get("storageUriExposed"))
-            or lifecycle_storage_uri_exposed,
+            or lifecycle_storage_uri_exposed
+            or output_closure_storage_uri_exposed,
             "pathsExposed": bool(redaction.get("pathsExposed"))
             or bool(executor_orchestration.get("pathExposed"))
-            or lifecycle_path_exposed,
+            or lifecycle_path_exposed
+            or output_closure_path_exposed,
         },
     )
 
