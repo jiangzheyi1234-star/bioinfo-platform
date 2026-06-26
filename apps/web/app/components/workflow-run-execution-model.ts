@@ -125,8 +125,23 @@ export type WorkflowRunAdoptionBoundary = {
   schemaVersion?: string;
   kind?: string;
   enabled?: boolean;
+  available?: boolean;
   adoptedArtifacts?: unknown[];
   adoptedCacheEntries?: unknown[];
+  verifiedOutputCount?: number;
+  checksumVerifiedOutputCount?: number;
+  retainedOutputCount?: number;
+  rerunRequiredOutputCount?: number;
+  unsafeOutputCount?: number;
+  unverifiedOutputCount?: number;
+  preExecutionAdoptionAllowed?: boolean;
+  postExecutionAdoptionRequired?: boolean;
+  cacheAdoptionAllowed?: boolean;
+  lineageMutationAllowed?: boolean;
+  runStateMutationAllowed?: boolean;
+  pathExposed?: boolean;
+  storageUriExposed?: boolean;
+  checksumValueExposed?: boolean;
   reasonCode?: string;
   message?: string;
   requires?: string[];
@@ -188,6 +203,46 @@ export type WorkflowRunActivationReadiness = {
     storageUrisExposed?: boolean;
     pathsExposed?: boolean;
   };
+};
+
+export type WorkflowRunExecutorOrchestration = {
+  schemaVersion?: string;
+  mode?: "run-resume" | "rule-partial-rerun" | string;
+  available?: boolean;
+  contractReady?: boolean;
+  executorReady?: boolean;
+  reasonCode?: string;
+  blockedReasonCodes?: string[];
+  requiresBeforeExecution?: string[];
+  sourceAttempt?: {
+    attemptPresent?: boolean;
+    attemptNumber?: number;
+    leaseGeneration?: number;
+    state?: string;
+  };
+  selectedRuleCount?: number;
+  rerunRuleCount?: number;
+  cacheRestoreOutputCount?: number;
+  cacheRestoreHitCount?: number;
+  targetOutputCount?: number;
+  adoptedOutputCount?: number;
+  targetAttemptRequired?: boolean;
+  activeLeaseRequired?: boolean;
+  workdirReuseRequired?: boolean;
+  workdirReusable?: boolean;
+  resultDirReuseRequired?: boolean;
+  runConfigRewriteAllowed?: boolean;
+  snakemakeMetadataRequired?: boolean;
+  executionOptionsSchemaVersion?: string;
+  rerunIncompleteRequired?: boolean;
+  forcerunRulesRequired?: boolean;
+  cacheAdoptionBypassRequired?: boolean;
+  artifactAdoptionRequired?: boolean;
+  finalizeRunAllowed?: boolean;
+  queueMutationAllowed?: boolean;
+  runStateMutationAllowed?: boolean;
+  pathExposed?: boolean;
+  storageUriExposed?: boolean;
 };
 
 export type WorkflowRunRuleCacheRestorePlan = {
@@ -376,6 +431,7 @@ export type WorkflowRunRuleRetryExecutionPlan = {
   };
   snakemakeOptions?: WorkflowRunRuleRetrySnakemakeOptions;
   cacheRestorePlan?: WorkflowRunRuleCacheRestorePlan;
+  executorOrchestration?: WorkflowRunExecutorOrchestration;
   activationReadiness?: WorkflowRunActivationReadiness;
   reasonCode?: string;
   message?: string;
@@ -456,6 +512,7 @@ export type WorkflowRunResumePlan = {
     reasonCode?: string;
   };
   artifactAdoptionBoundary?: WorkflowRunAdoptionBoundary;
+  executorOrchestration?: WorkflowRunExecutorOrchestration;
   blockedReasonCodes?: string[];
   requiresBeforeExecution?: string[];
   snakemakeOptions?: WorkflowRunResumeSnakemakeOptions;

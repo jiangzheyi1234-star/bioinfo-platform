@@ -38,8 +38,8 @@ def test_run_resume_plan_previews_snakemake_rerun_incomplete_without_enabling_ex
     assert plan["activationReadiness"]["schemaVersion"] == "run-resume-activation-readiness.v1"
     assert plan["activationReadiness"]["executionReady"] is False
     assert plan["activationReadiness"]["executionEnabled"] is False
-    assert plan["activationReadiness"]["reasonCode"] == "ARTIFACT_ADOPTION_UNPROVEN"
-    assert plan["activationReadiness"]["readyCheckCount"] == 4
+    assert plan["activationReadiness"]["reasonCode"] == "RUN_RESUME_EXECUTOR_ORCHESTRATION_PREVIEW_ONLY"
+    assert plan["activationReadiness"]["readyCheckCount"] == 5
     assert plan["activationReadiness"]["blockedCheckCount"] == 2
     assert plan["activationReadiness"]["summary"] == {
         "attemptCount": 1,
@@ -54,6 +54,8 @@ def test_run_resume_plan_previews_snakemake_rerun_incomplete_without_enabling_ex
         "unsafeOutputCount": 0,
         "uncheckedOutputCount": 0,
         "unverifiedOutputCount": 0,
+        "executorContractReady": 1,
+        "executorReady": 0,
     }
     assert plan["activationReadiness"]["redactionPolicy"]["pathsExposed"] is False
     assert plan["commandPreviewAvailable"] is True
@@ -97,7 +99,19 @@ def test_run_resume_plan_previews_snakemake_rerun_incomplete_without_enabling_ex
         "verified",
     ]
     assert all(item["pathExposed"] is False and "path" not in item for item in plan["incompleteOutputAudit"]["outputs"])
-    assert plan["artifactAdoptionBoundary"]["reasonCode"] == "ARTIFACT_ADOPTION_UNPROVEN"
+    assert plan["artifactAdoptionBoundary"]["schemaVersion"] == "run-resume-artifact-adoption-boundary.v1"
+    assert plan["artifactAdoptionBoundary"]["enabled"] is True
+    assert plan["artifactAdoptionBoundary"]["reasonCode"] == "RUN_RESUME_ARTIFACT_ADOPTION_BOUNDARY_VERIFIED"
+    assert plan["artifactAdoptionBoundary"]["retainedOutputCount"] == 1
+    assert plan["artifactAdoptionBoundary"]["rerunRequiredOutputCount"] == 1
+    assert plan["artifactAdoptionBoundary"]["pathExposed"] is False
+    assert plan["executorOrchestration"]["schemaVersion"] == "rerun-executor-orchestration.v1"
+    assert plan["executorOrchestration"]["mode"] == "run-resume"
+    assert plan["executorOrchestration"]["contractReady"] is True
+    assert plan["executorOrchestration"]["executorReady"] is False
+    assert plan["executorOrchestration"]["reasonCode"] == "RUN_RESUME_EXECUTOR_ORCHESTRATION_PREVIEW_ONLY"
+    assert plan["executorOrchestration"]["queueMutationAllowed"] is False
+    assert plan["executorOrchestration"]["pathExposed"] is False
     assert plan["snakemakeOptions"] == {
         "schemaVersion": "snakemake-run-resume-options.v1",
         "rerunIncomplete": True,

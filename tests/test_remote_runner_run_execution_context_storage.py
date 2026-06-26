@@ -215,7 +215,7 @@ def test_run_execution_context_previews_snakemake_resume_without_enabling_execut
     assert context["resumeActivationReadiness"] == context["resumePlan"]["activationReadiness"]
     assert context["resumeActivationReadiness"]["schemaVersion"] == "run-resume-activation-readiness.v1"
     assert context["resumeActivationReadiness"]["executionReady"] is False
-    assert context["resumeActivationReadiness"]["reasonCode"] == "ARTIFACT_ADOPTION_UNPROVEN"
+    assert context["resumeActivationReadiness"]["reasonCode"] == "RUN_RESUME_EXECUTOR_ORCHESTRATION_PREVIEW_ONLY"
     assert context["workdirReusePolicy"] == context["resumePlan"]["workdirEvidence"]
     assert context["resumePlan"]["supported"] is False
     assert context["resumePlan"]["executionEnabled"] is False
@@ -255,7 +255,14 @@ def test_run_execution_context_previews_snakemake_resume_without_enabling_execut
     assert context["resumePlan"]["incompleteOutputAudit"]["unverifiedOutputCount"] == 0
     assert context["resumePlan"]["incompleteOutputAudit"]["reasonCode"] == "OUTPUT_AUDIT_RERUN_REQUIRED"
     assert all("path" not in item for item in context["resumePlan"]["incompleteOutputAudit"]["outputs"])
-    assert context["resumePlan"]["artifactAdoptionBoundary"]["reasonCode"] == "ARTIFACT_ADOPTION_UNPROVEN"
+    assert context["resumePlan"]["artifactAdoptionBoundary"]["reasonCode"] == (
+        "RUN_RESUME_ARTIFACT_ADOPTION_BOUNDARY_VERIFIED"
+    )
+    assert context["resumePlan"]["artifactAdoptionBoundary"]["pathExposed"] is False
+    assert context["resumePlan"]["executorOrchestration"]["contractReady"] is True
+    assert context["resumePlan"]["executorOrchestration"]["executorReady"] is False
+    assert context["resumePlan"]["executorOrchestration"]["queueMutationAllowed"] is False
+    assert context["resumePlan"]["executorOrchestration"]["pathExposed"] is False
     assert context["resumePlan"]["snakemakeOptions"] == {
         "schemaVersion": "snakemake-run-resume-options.v1",
         "rerunIncomplete": True,

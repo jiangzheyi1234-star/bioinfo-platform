@@ -37,6 +37,7 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert 'from "./workflow-run-execution-model"' in model
     assert "export type WorkflowRunExecutionContext" in model_contract
     assert "export type WorkflowRunActivationReadiness" in model_contract
+    assert "export type WorkflowRunExecutorOrchestration" in model_contract
     assert "export type WorkflowRunWorkdirReusePolicy" in model_contract
     assert "export type WorkflowRunRuleRetryPlan" in model_contract
     assert "export type WorkflowRunRuleRetryExecutionPlan" in model_contract
@@ -87,6 +88,11 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "ruleRetryActivationReadiness?: WorkflowRunActivationReadiness" in model_contract
     assert "activationReadiness?: WorkflowRunActivationReadiness" in model_contract
     assert "cacheRestorePlan?: WorkflowRunRuleCacheRestorePlan" in model_contract
+    assert "executorOrchestration?: WorkflowRunExecutorOrchestration" in model_contract
+    assert "contractReady?: boolean" in model_contract
+    assert "executorReady?: boolean" in model_contract
+    assert "queueMutationAllowed?: boolean" in model_contract
+    assert "runStateMutationAllowed?: boolean" in model_contract
     assert "cacheKeyPresent?: boolean" in model_contract
     assert "cacheKeyFingerprint?: string" in model_contract
     assert "cacheKeyFingerprintsExposed?: boolean" in model_contract
@@ -123,11 +129,13 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "unsafeOutputCount?: number" in model_contract
     assert "pathExposed?: boolean" in model_contract
     assert "artifactAdoptionBoundary?: WorkflowRunAdoptionBoundary" in model_contract
+    assert "postExecutionAdoptionRequired?: boolean" in model_contract
     assert "executionEnabled?: boolean" in model_contract
     assert "commandPreviewAvailable?: boolean" in model_contract
     assert "snakemakeOptions?: WorkflowRunRuleRetrySnakemakeOptions" in model_contract
     assert "snakemakeOptions?: WorkflowRunResumeSnakemakeOptions" in model_contract
     assert "unsafeFlagsProhibited?: string[]" in model_contract
+    assert "executor contract" in execution_panel
     assert "selectedAttempt?: WorkflowRunRuleSelectedAttempt" in model_contract
     assert "cacheAdoptionBoundary?: WorkflowRunAdoptionBoundary" in model_contract
     assert "artifactAdoptionBoundary?: WorkflowRunAdoptionBoundary" in model_contract

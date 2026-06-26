@@ -43,6 +43,13 @@ def test_rule_retry_execution_plan_previews_snakemake_forcerun_options_without_e
         "argsPreview": ["--rerun-incomplete", "--forcerun", "align"],
         "unsafeFlagsProhibited": ["--forceall", "--touch", "--ignore-incomplete"],
     }
+    assert plan["executorOrchestration"]["schemaVersion"] == "rerun-executor-orchestration.v1"
+    assert plan["executorOrchestration"]["mode"] == "rule-partial-rerun"
+    assert plan["executorOrchestration"]["contractReady"] is False
+    assert plan["executorOrchestration"]["executorReady"] is False
+    assert plan["executorOrchestration"]["queueMutationAllowed"] is False
+    assert plan["executorOrchestration"]["runStateMutationAllowed"] is False
+    assert plan["executorOrchestration"]["pathExposed"] is False
     assert "ATTEMPT_OUTPUT_RESTORE_UNPROVEN" in plan["blockedReasonCodes"]
     assert "RULE_RETRY_MUTATION_API_DISABLED" in plan["blockedReasonCodes"]
     assert "CACHE_ADOPTION_UNPROVEN" in plan["blockedReasonCodes"]
@@ -84,6 +91,9 @@ def test_rule_retry_execution_plan_drops_output_invalidation_blocker_after_apply
     assert readiness["executionReady"] is False
     assert checks["outputInvalidationApplied"]["ready"] is True
     assert checks["publicMutation"]["reasonCode"] == "RULE_RETRY_MUTATION_API_DISABLED"
+    assert checks["partialRerunExecutor"]["reasonCode"] == "PER_RULE_CACHE_PREFLIGHT_UNAVAILABLE"
+    assert plan["executorOrchestration"]["contractReady"] is False
+    assert plan["executorOrchestration"]["reasonCode"] == "PER_RULE_CACHE_PREFLIGHT_UNAVAILABLE"
     assert "DOWNSTREAM_OUTPUT_INVALIDATION_APPLY_REQUIRED" not in plan["blockedReasonCodes"]
     assert "DOWNSTREAM_OUTPUT_INVALIDATION_APPLY_REQUIRED" not in plan["requiresBeforeExecution"]
     assert "STAGED_FILE_POLICY_UNREPRESENTED" not in plan["blockedReasonCodes"]
@@ -113,6 +123,33 @@ def test_rule_retry_execution_plan_marks_workdir_reuse_ready_from_redacted_polic
         "reasonCode": "READY",
     }
     assert plan["activationReadiness"]["executionReady"] is False
+    assert plan["executionEnabled"] is False
+
+
+def test_rule_retry_execution_plan_marks_orchestration_contract_ready_without_enabling_executor() -> None:
+    plan = build_rule_retry_execution_plan(
+        _rule_retry_plan(),
+        output_invalidation_plan=_applied_output_invalidation_plan(),
+        cache_restore_plan=_adopted_cache_restore_plan(),
+        workdir_reuse_policy={
+            "schemaVersion": "run-workdir-reuse-policy.v1",
+            "workDirReusable": True,
+            "pathExposed": False,
+            "reasonCode": "WORKDIR_REUSABLE",
+        },
+    )
+
+    orchestration = plan["executorOrchestration"]
+    readiness_checks = {item["name"]: item for item in plan["activationReadiness"]["checks"]}
+    assert orchestration["contractReady"] is True
+    assert orchestration["executorReady"] is False
+    assert orchestration["reasonCode"] == "PARTIAL_RERUN_EXECUTOR_ORCHESTRATION_PREVIEW_ONLY"
+    assert orchestration["queueMutationAllowed"] is False
+    assert orchestration["pathExposed"] is False
+    assert readiness_checks["partialRerunExecutor"]["reasonCode"] == (
+        "PARTIAL_RERUN_EXECUTOR_ORCHESTRATION_PREVIEW_ONLY"
+    )
+    assert readiness_checks["publicMutation"]["reasonCode"] == "RULE_RETRY_MUTATION_API_DISABLED"
     assert plan["executionEnabled"] is False
 
 
@@ -292,4 +329,54 @@ def _rule_retry_plan() -> dict:
         "blockedReasonCodes": ["CACHE_ADOPTION_UNPROVEN", "ARTIFACT_ADOPTION_UNPROVEN"],
         "invalidatedRules": [align, report],
         "rules": [align],
+    }
+
+
+def _applied_output_invalidation_plan() -> dict:
+    return {
+        "schemaVersion": "rule-output-invalidation-plan.v1",
+        "planHash": "a" * 64,
+        "previewAvailable": True,
+        "reasonCode": "OUTPUT_EDGE_INVALIDATION_ALREADY_APPLIED",
+        "blockedReasonCodes": [],
+        "outputInvalidationState": {
+            "schemaVersion": "rule-output-invalidation-state.v1",
+            "state": "applied",
+            "appliedOutputEdgeCount": 1,
+            "appliedLineageEdgeCount": 1,
+            "evidenceEventCount": 1,
+        },
+    }
+
+
+def _adopted_cache_restore_plan() -> dict:
+    return {
+        "schemaVersion": "rule-cache-restore-plan.v1",
+        "reasonCode": "PER_RULE_CACHE_RESTORE_UNPROVEN",
+        "outputCount": 1,
+        "cacheHitCount": 1,
+        "cacheMissCount": 0,
+        "blockedReasonCodes": [],
+        "redactionPolicy": {
+            "cacheKeysExposed": False,
+            "cacheKeyFingerprintsExposed": True,
+            "keyPayloadsExposed": False,
+            "storageUrisExposed": False,
+            "pathsExposed": False,
+        },
+        "restorePinPolicy": {
+            "reasonCode": "RESTORE_PIN_POLICY_APPLIED",
+            "requiredPinCount": 1,
+            "createdPinCount": 1,
+        },
+        "stagedFilePolicy": {
+            "reasonCode": "STAGED_FILE_MATERIALIZATION_PIN_REQUIRED",
+        },
+        "finalOutputPromotionState": {
+            "schemaVersion": "rule-cache-restore-final-output-promotion-state.v1",
+            "state": "applied",
+            "targetCount": 1,
+            "promotedFinalOutputCount": 1,
+            "adoptedCandidateOutputCount": 1,
+        },
     }

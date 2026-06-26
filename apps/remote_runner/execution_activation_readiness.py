@@ -21,6 +21,7 @@ def build_rule_retry_activation_readiness(
     restore_pin_policy = _dict_value(cache_restore.get("restorePinPolicy"))
     promotion_state = _dict_value(cache_restore.get("finalOutputPromotionState"))
     partial_restore_executor = _dict_value(cache_restore.get("partialRestoreExecutor"))
+    executor_orchestration = _dict_value(execution_plan.get("executorOrchestration"))
     redaction = _dict_value(cache_restore.get("redactionPolicy"))
     workdir_policy = _dict_value(workdir_reuse_policy)
 
@@ -92,8 +93,12 @@ def build_rule_retry_activation_readiness(
         ),
         _check(
             "partialRerunExecutor",
-            partial_restore_executor.get("available") is True,
-            _first_nonempty(partial_restore_executor.get("reasonCode"), "PARTIAL_RESTORE_EXECUTOR_UNAVAILABLE"),
+            executor_orchestration.get("executorReady") is True,
+            _first_nonempty(
+                executor_orchestration.get("reasonCode"),
+                partial_restore_executor.get("reasonCode"),
+                "PARTIAL_RESTORE_EXECUTOR_UNAVAILABLE",
+            ),
         ),
         _check(
             "publicMutation",
@@ -115,13 +120,16 @@ def build_rule_retry_activation_readiness(
             "restoreTargetCount": target_count,
             "promotedOutputCount": promoted_count,
             "adoptedOutputCount": adopted_count,
+            "executorContractReady": 1 if executor_orchestration.get("contractReady") is True else 0,
+            "executorReady": 1 if executor_orchestration.get("executorReady") is True else 0,
             "unsafeFlagCount": len(_list_value(snakemake_options.get("unsafeFlagsProhibited"))),
         },
         redaction_policy={
             "rawIdentifiersExposed": bool(redaction.get("cacheKeysExposed")),
             "fingerprintsExposed": bool(redaction.get("cacheKeyFingerprintsExposed")),
-            "storageUrisExposed": bool(redaction.get("storageUrisExposed")),
-            "pathsExposed": bool(redaction.get("pathsExposed")),
+            "storageUrisExposed": bool(redaction.get("storageUrisExposed"))
+            or bool(executor_orchestration.get("storageUriExposed")),
+            "pathsExposed": bool(redaction.get("pathsExposed")) or bool(executor_orchestration.get("pathExposed")),
         },
     )
 
@@ -130,6 +138,7 @@ def build_run_resume_activation_readiness(*, resume_plan: dict[str, Any]) -> dic
     workdir = _dict_value(resume_plan.get("workdirEvidence"))
     output_audit = _dict_value(resume_plan.get("incompleteOutputAudit"))
     adoption = _dict_value(resume_plan.get("artifactAdoptionBoundary"))
+    executor_orchestration = _dict_value(resume_plan.get("executorOrchestration"))
     snakemake_options = _dict_value(resume_plan.get("snakemakeOptions"))
     args_preview = _list_value(snakemake_options.get("argsPreview"))
 
@@ -154,8 +163,15 @@ def build_run_resume_activation_readiness(*, resume_plan: dict[str, Any]) -> dic
         ),
         _check(
             "artifactAdoption",
-            adoption.get("enabled") is True,
+            (adoption.get("enabled") is True or adoption.get("available") is True)
+            and adoption.get("pathExposed") is not True
+            and adoption.get("storageUriExposed") is not True,
             _first_nonempty(adoption.get("reasonCode"), "ARTIFACT_ADOPTION_UNPROVEN"),
+        ),
+        _check(
+            "executorOrchestration",
+            executor_orchestration.get("executorReady") is True,
+            _first_nonempty(executor_orchestration.get("reasonCode"), "RUN_RESUME_EXECUTOR_ORCHESTRATION_UNPROVEN"),
         ),
         _check(
             "snakemakeOptions",
@@ -189,12 +205,18 @@ def build_run_resume_activation_readiness(*, resume_plan: dict[str, Any]) -> dic
             "unsafeOutputCount": _safe_int(output_audit.get("unsafeOutputCount")),
             "uncheckedOutputCount": _safe_int(output_audit.get("uncheckedOutputCount")),
             "unverifiedOutputCount": _safe_int(output_audit.get("unverifiedOutputCount")),
+            "executorContractReady": 1 if executor_orchestration.get("contractReady") is True else 0,
+            "executorReady": 1 if executor_orchestration.get("executorReady") is True else 0,
         },
         redaction_policy={
             "rawIdentifiersExposed": False,
             "fingerprintsExposed": False,
-            "storageUrisExposed": False,
-            "pathsExposed": bool(workdir.get("pathExposed")) or bool(output_audit.get("pathExposed")),
+            "storageUrisExposed": bool(adoption.get("storageUriExposed"))
+            or bool(executor_orchestration.get("storageUriExposed")),
+            "pathsExposed": bool(workdir.get("pathExposed"))
+            or bool(output_audit.get("pathExposed"))
+            or bool(adoption.get("pathExposed"))
+            or bool(executor_orchestration.get("pathExposed")),
         },
     )
 

@@ -36,9 +36,11 @@ def record_run_execution_context_read_audit(
     resume_readiness = _dict_value(context.get("resumeActivationReadiness")) or _dict_value(
         _dict_value(context.get("resumePlan")).get("activationReadiness")
     )
-    resume_output_audit = _dict_value(_dict_value(context.get("resumePlan")).get("incompleteOutputAudit"))
+    resume_plan = _dict_value(context.get("resumePlan"))
+    resume_output_audit = _dict_value(resume_plan.get("incompleteOutputAudit"))
+    resume_orchestration = _dict_value(resume_plan.get("executorOrchestration"))
     workdir_reuse_policy = _dict_value(context.get("workdirReusePolicy")) or _dict_value(
-        _dict_value(context.get("resumePlan")).get("workdirEvidence")
+        resume_plan.get("workdirEvidence")
     )
     rule_cache_restore_plan = _dict_value(context.get("ruleCacheRestorePlan")) or _dict_value(
         rule_retry_execution_plan.get("cacheRestorePlan")
@@ -47,6 +49,7 @@ def record_run_execution_context_read_audit(
     staged_file_policy = _dict_value(rule_cache_restore_plan.get("stagedFilePolicy"))
     restore_pin_policy = _dict_value(rule_cache_restore_plan.get("restorePinPolicy"))
     final_output_promotion_state = _dict_value(rule_cache_restore_plan.get("finalOutputPromotionState"))
+    rule_retry_orchestration = _dict_value(rule_retry_execution_plan.get("executorOrchestration"))
     record_governance_audit_event(
         cfg,
         action="run.execution_context.read",
@@ -66,9 +69,23 @@ def record_run_execution_context_read_audit(
             "ruleRetryActivationReady": bool(rule_retry_readiness.get("executionReady")),
             "ruleRetryActivationBlockedCount": _safe_int(rule_retry_readiness.get("blockedCheckCount")),
             "ruleRetryActivationMutationEnabled": bool(rule_retry_readiness.get("executionEnabled")),
+            "ruleRetryExecutorContractReady": bool(rule_retry_orchestration.get("contractReady")),
+            "ruleRetryExecutorReady": bool(rule_retry_orchestration.get("executorReady")),
+            "ruleRetryExecutorQueueMutationAllowed": bool(rule_retry_orchestration.get("queueMutationAllowed")),
+            "ruleRetryExecutorRunStateMutationAllowed": bool(
+                rule_retry_orchestration.get("runStateMutationAllowed")
+            ),
+            "ruleRetryExecutorPathsExposed": bool(rule_retry_orchestration.get("pathExposed")),
+            "ruleRetryExecutorStorageUrisExposed": bool(rule_retry_orchestration.get("storageUriExposed")),
             "resumeActivationReady": bool(resume_readiness.get("executionReady")),
             "resumeActivationBlockedCount": _safe_int(resume_readiness.get("blockedCheckCount")),
             "resumeActivationMutationEnabled": bool(resume_readiness.get("executionEnabled")),
+            "resumeExecutorContractReady": bool(resume_orchestration.get("contractReady")),
+            "resumeExecutorReady": bool(resume_orchestration.get("executorReady")),
+            "resumeExecutorQueueMutationAllowed": bool(resume_orchestration.get("queueMutationAllowed")),
+            "resumeExecutorRunStateMutationAllowed": bool(resume_orchestration.get("runStateMutationAllowed")),
+            "resumeExecutorPathsExposed": bool(resume_orchestration.get("pathExposed")),
+            "resumeExecutorStorageUrisExposed": bool(resume_orchestration.get("storageUriExposed")),
             "resumeOutputAuditVerifiedCount": _safe_int(resume_output_audit.get("verifiedOutputCount")),
             "resumeOutputAuditChecksumVerifiedCount": _safe_int(
                 resume_output_audit.get("checksumVerifiedOutputCount")

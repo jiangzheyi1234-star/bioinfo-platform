@@ -320,6 +320,12 @@ function RuleRetryExecutionPlanPreview({ plan }: { plan?: WorkflowRunRuleRetryEx
       ? "digest-only"
       : "redacted";
   const activationReadiness = plan.activationReadiness;
+  const orchestration = plan.executorOrchestration;
+  const orchestrationLabel = orchestration
+    ? `${orchestration.reasonCode || "—"} · contract ${orchestration.contractReady ? "ready" : "blocked"} · executor ${
+        orchestration.executorReady ? "ready" : "off"
+      }`
+    : "—";
 
   return (
     <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
@@ -356,6 +362,8 @@ function RuleRetryExecutionPlanPreview({ plan }: { plan?: WorkflowRunRuleRetryEx
         <span className="truncate font-mono text-slate-800">{readinessLabel(activationReadiness)}</span>
         <span className="text-slate-500">readiness checks</span>
         <span className="truncate font-mono text-slate-800">{readinessCheckLabel(activationReadiness)}</span>
+        <span className="text-slate-500">executor contract</span>
+        <span className="truncate font-mono text-slate-800">{orchestrationLabel}</span>
         {cacheRestore ? (
           <>
             <span className="text-slate-500">cache restore</span>
@@ -403,6 +411,7 @@ function RunResumePlanPreview({ plan }: { plan?: WorkflowRunResumePlan }) {
   const workdir = plan.workdirEvidence;
   const outputAudit = plan.incompleteOutputAudit;
   const adoption = plan.artifactAdoptionBoundary;
+  const orchestration = plan.executorOrchestration;
   const latestLabel = latest?.attemptId
     ? `#${latest.attemptNumber ?? "—"} gen ${latest.leaseGeneration ?? "—"} · ${latest.state || latest.status || "unknown"}`
     : "—";
@@ -410,6 +419,11 @@ function RunResumePlanPreview({ plan }: { plan?: WorkflowRunResumePlan }) {
     ? `${outputAudit.reasonCode || "—"} · expected ${outputAudit.expectedOutputCount ?? 0} · verified ${
         outputAudit.verifiedOutputCount ?? 0
       } · rerun ${outputAudit.rerunRequiredOutputCount ?? 0} · unsafe ${outputAudit.unsafeOutputCount ?? 0}`
+    : "—";
+  const orchestrationLabel = orchestration
+    ? `${orchestration.reasonCode || "—"} · contract ${orchestration.contractReady ? "ready" : "blocked"} · executor ${
+        orchestration.executorReady ? "ready" : "off"
+      }`
     : "—";
   const activationReadiness = plan.activationReadiness;
 
@@ -442,6 +456,8 @@ function RunResumePlanPreview({ plan }: { plan?: WorkflowRunResumePlan }) {
         <span className="truncate font-mono text-slate-800">{outputAuditLabel}</span>
         <span className="text-slate-500">artifact adoption</span>
         <span className="truncate font-mono text-slate-800">{adoption?.reasonCode || "—"}</span>
+        <span className="text-slate-500">executor contract</span>
+        <span className="truncate font-mono text-slate-800">{orchestrationLabel}</span>
         <span className="text-slate-500">blockers</span>
         <span className="truncate font-mono text-slate-800">{compactList(blockers)}</span>
         <span className="text-slate-500">activation</span>

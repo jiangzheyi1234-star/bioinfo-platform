@@ -5,6 +5,10 @@ from typing import Any
 from .execution_activation_readiness import build_run_resume_activation_readiness
 from .execution_plan_hash import attach_plan_hash
 from .execution_output_audit import build_attempt_output_audit
+from .execution_rerun_orchestration import (
+    build_run_resume_artifact_adoption_boundary,
+    build_run_resume_executor_orchestration,
+)
 from .execution_workdir_reuse_policy import build_workdir_reuse_policy
 
 
@@ -83,6 +87,16 @@ def _base_plan(
     managed_work_dir: str,
     managed_results_dir: str,
 ) -> dict[str, Any]:
+    workdir_evidence = build_workdir_reuse_policy(
+        attempts=attempts,
+        managed_work_dir=managed_work_dir,
+    )
+    output_audit = build_attempt_output_audit(
+        run=run,
+        attempts=attempts,
+        managed_work_dir=managed_work_dir,
+        managed_results_dir=managed_results_dir,
+    )
     return {
         "schemaVersion": RUN_RESUME_PLAN_SCHEMA_VERSION,
         "runId": run.get("runId"),
@@ -98,17 +112,12 @@ def _base_plan(
         "jobState": job.get("state") if job else None,
         "attemptCount": len(attempts),
         "latestAttempt": _latest_attempt(attempts),
-        "workdirEvidence": build_workdir_reuse_policy(
-            attempts=attempts,
-            managed_work_dir=managed_work_dir,
+        "workdirEvidence": workdir_evidence,
+        "incompleteOutputAudit": output_audit,
+        "artifactAdoptionBoundary": build_run_resume_artifact_adoption_boundary(
+            workdir_evidence=workdir_evidence,
+            output_audit=output_audit,
         ),
-        "incompleteOutputAudit": build_attempt_output_audit(
-            run=run,
-            attempts=attempts,
-            managed_work_dir=managed_work_dir,
-            managed_results_dir=managed_results_dir,
-        ),
-        "artifactAdoptionBoundary": _artifact_adoption_boundary(),
         "blockedReasonCodes": list(RUN_RESUME_EXECUTION_BLOCKERS),
         "requiresBeforeExecution": list(RUN_RESUME_EXECUTION_BLOCKERS),
         "snakemakeOptions": _snakemake_options(preview=False),
@@ -127,10 +136,14 @@ def _blocked(base: dict[str, Any], reason_code: str) -> dict[str, Any]:
 
 
 def _finalize(plan: dict[str, Any]) -> dict[str, Any]:
+    plan_with_orchestration = {
+        **plan,
+        "executorOrchestration": build_run_resume_executor_orchestration(plan),
+    }
     return attach_plan_hash(
         {
-            **plan,
-            "activationReadiness": build_run_resume_activation_readiness(resume_plan=plan),
+            **plan_with_orchestration,
+            "activationReadiness": build_run_resume_activation_readiness(resume_plan=plan_with_orchestration),
         }
     )
 
@@ -163,15 +176,6 @@ def _latest_attempt(attempts: list[dict[str, Any]]) -> dict[str, Any] | None:
         "state": latest.get("state"),
         "exitCode": latest.get("exitCode"),
         "finishedAt": latest.get("finishedAt"),
-    }
-
-
-def _artifact_adoption_boundary() -> dict[str, Any]:
-    return {
-        "enabled": False,
-        "adoptedArtifacts": [],
-        "adoptedCacheEntries": [],
-        "reasonCode": "ARTIFACT_ADOPTION_UNPROVEN",
     }
 
 

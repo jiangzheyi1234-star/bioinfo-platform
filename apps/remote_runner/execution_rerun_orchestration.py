@@ -1,0 +1,226 @@
+from __future__ import annotations
+
+from typing import Any
+
+
+RERUN_EXECUTOR_ORCHESTRATION_SCHEMA_VERSION = "rerun-executor-orchestration.v1"
+RUN_RESUME_ARTIFACT_ADOPTION_BOUNDARY_SCHEMA_VERSION = "run-resume-artifact-adoption-boundary.v1"
+RUN_RESUME_EXECUTOR_PREVIEW_ONLY = "RUN_RESUME_EXECUTOR_ORCHESTRATION_PREVIEW_ONLY"
+PARTIAL_RERUN_EXECUTOR_PREVIEW_ONLY = "PARTIAL_RERUN_EXECUTOR_ORCHESTRATION_PREVIEW_ONLY"
+
+
+def build_run_resume_artifact_adoption_boundary(
+    *,
+    workdir_evidence: dict[str, Any],
+    output_audit: dict[str, Any],
+) -> dict[str, Any]:
+    workdir_ready = workdir_evidence.get("workDirReusable") is True
+    audit_ready = _output_audit_ready(output_audit)
+    available = workdir_ready and audit_ready and _safe_int(output_audit.get("expectedOutputCount")) > 0
+    reason_code = (
+        "RUN_RESUME_ARTIFACT_ADOPTION_BOUNDARY_VERIFIED"
+        if available
+        else _first_nonempty(
+            workdir_evidence.get("reasonCode") if not workdir_ready else "",
+            output_audit.get("reasonCode") if not audit_ready else "",
+            "RUN_RESUME_ARTIFACT_ADOPTION_BOUNDARY_UNPROVEN",
+        )
+    )
+    return {
+        "schemaVersion": RUN_RESUME_ARTIFACT_ADOPTION_BOUNDARY_SCHEMA_VERSION,
+        "enabled": available,
+        "available": available,
+        "reasonCode": reason_code,
+        "adoptedArtifacts": [],
+        "adoptedCacheEntries": [],
+        "verifiedOutputCount": _safe_int(output_audit.get("verifiedOutputCount")),
+        "checksumVerifiedOutputCount": _safe_int(output_audit.get("checksumVerifiedOutputCount")),
+        "retainedOutputCount": _safe_int(output_audit.get("existingOutputCount")),
+        "rerunRequiredOutputCount": _safe_int(output_audit.get("rerunRequiredOutputCount")),
+        "unsafeOutputCount": _safe_int(output_audit.get("unsafeOutputCount")),
+        "unverifiedOutputCount": _safe_int(output_audit.get("unverifiedOutputCount")),
+        "preExecutionAdoptionAllowed": False,
+        "postExecutionAdoptionRequired": True,
+        "cacheAdoptionAllowed": False,
+        "lineageMutationAllowed": False,
+        "runStateMutationAllowed": False,
+        "pathExposed": False,
+        "storageUriExposed": False,
+        "checksumValueExposed": False,
+        "requires": [
+            "managed_failed_attempt_workdir",
+            "verified_declared_outputs",
+            "missing_outputs_rerun_required",
+            "post_resume_candidate_output_adoption",
+        ],
+    }
+
+
+def build_run_resume_executor_orchestration(resume_plan: dict[str, Any]) -> dict[str, Any]:
+    workdir = _dict_value(resume_plan.get("workdirEvidence"))
+    output_audit = _dict_value(resume_plan.get("incompleteOutputAudit"))
+    adoption = _dict_value(resume_plan.get("artifactAdoptionBoundary"))
+    snakemake = _dict_value(resume_plan.get("snakemakeOptions"))
+    latest_attempt = _dict_value(resume_plan.get("latestAttempt"))
+    contract_blockers: list[str] = []
+    if resume_plan.get("commandPreviewAvailable") is not True:
+        contract_blockers.append(_first_nonempty(resume_plan.get("reasonCode"), "RUN_RESUME_COMMAND_PREVIEW_REQUIRED"))
+    if workdir.get("workDirReusable") is not True:
+        contract_blockers.append(_first_nonempty(workdir.get("reasonCode"), "WORKDIR_REUSE_POLICY_UNPROVEN"))
+    if not _output_audit_ready(output_audit):
+        contract_blockers.append(_first_nonempty(output_audit.get("reasonCode"), "INCOMPLETE_OUTPUT_AUDIT_UNPROVEN"))
+    if adoption.get("available") is not True and adoption.get("enabled") is not True:
+        contract_blockers.append(_first_nonempty(adoption.get("reasonCode"), "ARTIFACT_ADOPTION_BOUNDARY_UNPROVEN"))
+    if snakemake.get("rerunIncomplete") is not True:
+        contract_blockers.append("SNAKEMAKE_RUN_RESUME_OPTIONS_UNPROVEN")
+    contract_ready = not contract_blockers
+    blocked_reason_codes = _unique_strings(
+        [
+            *contract_blockers,
+            RUN_RESUME_EXECUTOR_PREVIEW_ONLY,
+        ]
+    )
+    return {
+        "schemaVersion": RERUN_EXECUTOR_ORCHESTRATION_SCHEMA_VERSION,
+        "mode": "run-resume",
+        "available": True,
+        "contractReady": contract_ready,
+        "executorReady": False,
+        "reasonCode": RUN_RESUME_EXECUTOR_PREVIEW_ONLY if contract_ready else blocked_reason_codes[0],
+        "blockedReasonCodes": blocked_reason_codes,
+        "requiresBeforeExecution": blocked_reason_codes,
+        "sourceAttempt": {
+            "attemptPresent": bool(str(latest_attempt.get("attemptId") or "").strip()),
+            "attemptNumber": latest_attempt.get("attemptNumber"),
+            "leaseGeneration": latest_attempt.get("leaseGeneration"),
+            "state": latest_attempt.get("state"),
+        },
+        "targetAttemptRequired": True,
+        "activeLeaseRequired": False,
+        "workdirReuseRequired": True,
+        "workdirReusable": workdir.get("workDirReusable") is True,
+        "resultDirReuseRequired": True,
+        "runConfigRewriteAllowed": False,
+        "snakemakeMetadataRequired": False,
+        "executionOptionsSchemaVersion": "run-job-execution-options.v1",
+        "rerunIncompleteRequired": True,
+        "forcerunRulesRequired": False,
+        "cacheAdoptionBypassRequired": True,
+        "artifactAdoptionRequired": True,
+        "finalizeRunAllowed": False,
+        "queueMutationAllowed": False,
+        "runStateMutationAllowed": False,
+        "pathExposed": False,
+        "storageUriExposed": False,
+    }
+
+
+def build_rule_partial_rerun_orchestration(
+    execution_plan: dict[str, Any],
+    *,
+    workdir_reuse_policy: dict[str, Any] | None,
+) -> dict[str, Any]:
+    cache_restore = _dict_value(execution_plan.get("cacheRestorePlan"))
+    output_invalidation = _dict_value(execution_plan.get("outputInvalidationPlan"))
+    output_state = _dict_value(output_invalidation.get("outputInvalidationState"))
+    snakemake = _dict_value(execution_plan.get("snakemakeOptions"))
+    promotion = _dict_value(cache_restore.get("finalOutputPromotionState"))
+    redaction = _dict_value(cache_restore.get("redactionPolicy"))
+    workdir = _dict_value(workdir_reuse_policy)
+    selected_rules = _list_value(execution_plan.get("selectedRules"))
+    rerun_scope = _dict_value(execution_plan.get("rerunScope"))
+    target_count = _safe_int(promotion.get("targetCount"))
+    adopted_count = _safe_int(promotion.get("adoptedCandidateOutputCount"))
+    cache_output_count = _safe_int(cache_restore.get("outputCount"))
+    cache_hit_count = _safe_int(cache_restore.get("cacheHitCount"))
+    contract_blockers: list[str] = []
+    if execution_plan.get("commandPreviewAvailable") is not True:
+        contract_blockers.append(_first_nonempty(execution_plan.get("reasonCode"), "RULE_RERUN_COMMAND_PREVIEW_REQUIRED"))
+    if output_state.get("state") != "applied" or _safe_int(output_state.get("appliedOutputEdgeCount")) <= 0:
+        contract_blockers.append("DOWNSTREAM_OUTPUT_INVALIDATION_APPLY_REQUIRED")
+    if cache_output_count <= 0 or cache_hit_count < cache_output_count:
+        contract_blockers.append(_first_nonempty(cache_restore.get("reasonCode"), "PER_RULE_CACHE_ELIGIBILITY_UNPROVEN"))
+    if target_count <= 0 or adopted_count < target_count:
+        contract_blockers.append("RESTORED_OUTPUT_ADOPTION_REQUIRED")
+    if workdir.get("workDirReusable") is not True:
+        contract_blockers.append(_first_nonempty(workdir.get("reasonCode"), "WORKDIR_REUSE_POLICY_UNPROVEN"))
+    if snakemake.get("rerunIncomplete") is not True or not _list_value(snakemake.get("forcerunRules")):
+        contract_blockers.append("SNAKEMAKE_RULE_RERUN_OPTIONS_UNPROVEN")
+    contract_ready = not contract_blockers
+    blocked_reason_codes = _unique_strings([*contract_blockers, PARTIAL_RERUN_EXECUTOR_PREVIEW_ONLY])
+    return {
+        "schemaVersion": RERUN_EXECUTOR_ORCHESTRATION_SCHEMA_VERSION,
+        "mode": "rule-partial-rerun",
+        "available": True,
+        "contractReady": contract_ready,
+        "executorReady": False,
+        "reasonCode": PARTIAL_RERUN_EXECUTOR_PREVIEW_ONLY if contract_ready else blocked_reason_codes[0],
+        "blockedReasonCodes": blocked_reason_codes,
+        "requiresBeforeExecution": blocked_reason_codes,
+        "selectedRuleCount": len(selected_rules),
+        "rerunRuleCount": _safe_int(rerun_scope.get("ruleCount")),
+        "cacheRestoreOutputCount": cache_output_count,
+        "cacheRestoreHitCount": cache_hit_count,
+        "targetOutputCount": target_count,
+        "adoptedOutputCount": adopted_count,
+        "targetAttemptRequired": True,
+        "activeLeaseRequired": True,
+        "workdirReuseRequired": True,
+        "workdirReusable": workdir.get("workDirReusable") is True,
+        "resultDirReuseRequired": False,
+        "runConfigRewriteAllowed": False,
+        "snakemakeMetadataRequired": False,
+        "executionOptionsSchemaVersion": "run-job-execution-options.v1",
+        "rerunIncompleteRequired": True,
+        "forcerunRulesRequired": True,
+        "cacheAdoptionBypassRequired": True,
+        "artifactAdoptionRequired": True,
+        "finalizeRunAllowed": False,
+        "queueMutationAllowed": False,
+        "runStateMutationAllowed": False,
+        "pathExposed": bool(redaction.get("pathsExposed")),
+        "storageUriExposed": bool(redaction.get("storageUrisExposed")),
+    }
+
+
+def _output_audit_ready(output_audit: dict[str, Any]) -> bool:
+    return (
+        output_audit.get("available") is True
+        and _safe_int(output_audit.get("unsafeOutputCount")) == 0
+        and _safe_int(output_audit.get("uncheckedOutputCount")) == 0
+        and _safe_int(output_audit.get("unverifiedOutputCount")) == 0
+    )
+
+
+def _dict_value(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _list_value(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _first_nonempty(*values: Any) -> str:
+    for value in values:
+        normalized = str(value or "").strip()
+        if normalized:
+            return normalized
+    return ""
+
+
+def _unique_strings(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for item in items:
+        value = str(item or "").strip()
+        if value and value not in seen:
+            unique.append(value)
+            seen.add(value)
+    return unique

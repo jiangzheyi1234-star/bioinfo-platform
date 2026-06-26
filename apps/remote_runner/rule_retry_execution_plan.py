@@ -4,6 +4,7 @@ from typing import Any
 
 from .execution_activation_readiness import build_rule_retry_activation_readiness
 from .execution_plan_hash import attach_plan_hash
+from .execution_rerun_orchestration import build_rule_partial_rerun_orchestration
 from .rule_cache_restore_plan import blocked_rule_cache_restore_plan
 from .rule_output_invalidation_plan import blocked_rule_output_invalidation_plan
 from .rule_restore_pin_policy import RESTORE_PIN_POLICY_UNREPRESENTED, restore_pin_policy_blocker
@@ -232,12 +233,19 @@ def _finalize(
     rule_retry_plan: dict[str, Any],
     workdir_reuse_policy: dict[str, Any] | None,
 ) -> dict[str, Any]:
+    plan_with_orchestration = {
+        **plan,
+        "executorOrchestration": build_rule_partial_rerun_orchestration(
+            plan,
+            workdir_reuse_policy=workdir_reuse_policy,
+        ),
+    }
     return attach_plan_hash(
         {
-            **plan,
+            **plan_with_orchestration,
             "activationReadiness": build_rule_retry_activation_readiness(
                 rule_retry_plan=rule_retry_plan,
-                execution_plan=plan,
+                execution_plan=plan_with_orchestration,
                 workdir_reuse_policy=workdir_reuse_policy,
             ),
         }
