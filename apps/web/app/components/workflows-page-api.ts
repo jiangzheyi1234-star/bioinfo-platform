@@ -49,6 +49,11 @@ import type {
   WorkflowRuleCacheRestoreResponse,
   WorkflowRuleCacheRestoreResult,
 } from "./workflow-rule-cache-restore-model";
+import type {
+  WorkflowRuleRetryRequest,
+  WorkflowRuleRetryResponse,
+  WorkflowRuleRetryResult,
+} from "./workflow-rule-retry-model";
 import { workflowRecommendationsFromCapabilityGraph } from "./workflow-tool-recommendation-engine";
 
 type FetchOptions = {
@@ -559,6 +564,28 @@ export async function applyWorkflowRuleOutputInvalidation(
         planHash,
         actor: "workflow-ui",
         reason: "operator_confirmed_output_invalidation",
+      },
+      cache: "no-store",
+    }
+  );
+  invalidateAsyncCache(WORKFLOW_RUNS_CACHE_KEY);
+  invalidateAsyncCache(WORKFLOW_RESULTS_CACHE_KEY);
+  return response.data;
+}
+
+export async function retryWorkflowRunRules(
+  runId: string,
+  request: WorkflowRuleRetryRequest
+): Promise<WorkflowRuleRetryResult> {
+  const response = await requestLocalApiJson<WorkflowRuleRetryResponse>(
+    "POST",
+    `/api/v1/runs/${encodeURIComponent(runId)}/rules/retry`,
+    {
+      body: {
+        confirmation: "retry-failed-rules",
+        planHash: request.planHash,
+        actor: "workflow-ui",
+        reason: "operator_confirmed_rule_retry",
       },
       cache: "no-store",
     }

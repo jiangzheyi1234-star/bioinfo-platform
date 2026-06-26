@@ -33,6 +33,7 @@ import {
   applyWorkflowRuleOutputInvalidation,
   fetchArtifactPreview,
   retryWorkflowRun,
+  retryWorkflowRunRules,
   runWorkflowRuleCacheRestoreAction,
 } from "./workflows-page-api";
 import { workflowErrorMessage } from "./workflows-page-model";
@@ -41,6 +42,7 @@ import type {
   WorkflowRuleCacheRestoreRequest,
   WorkflowRuleCacheRestoreResult,
 } from "./workflow-rule-cache-restore-model";
+import type { WorkflowRuleRetryRequest, WorkflowRuleRetryResult } from "./workflow-rule-retry-model";
 import { WorkflowRuleFailureDiagnostics } from "./workflow-rule-failure-diagnostics";
 import type {
   WorkflowArtifact,
@@ -540,6 +542,9 @@ export function WorkflowRunDetailPanel({
   const [tab, setTab] = useState<TabKey>("overview");
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState("");
+  const [ruleRetrying, setRuleRetrying] = useState(false);
+  const [ruleRetryError, setRuleRetryError] = useState("");
+  const [ruleRetryResult, setRuleRetryResult] = useState<WorkflowRuleRetryResult | null>(null);
   const [outputInvalidating, setOutputInvalidating] = useState(false);
   const [outputInvalidationError, setOutputInvalidationError] = useState("");
   const [ruleCacheRestoreBusyKey, setRuleCacheRestoreBusyKey] = useState("");
@@ -577,6 +582,21 @@ export function WorkflowRunDetailPanel({
       setRetryError(workflowErrorMessage(err, "重新调度运行失败"));
     } finally {
       setRetrying(false);
+    }
+  }
+
+  async function handleRetryRunRules(request: WorkflowRuleRetryRequest) {
+    if (ruleRetrying) return;
+    setRuleRetrying(true);
+    setRuleRetryError("");
+    try {
+      const result = await retryWorkflowRunRules(run.runId, request);
+      setRuleRetryResult(result);
+      await onRunChanged?.();
+    } catch (err) {
+      setRuleRetryError(workflowErrorMessage(err, "提交 rule-level retry 失败"));
+    } finally {
+      setRuleRetrying(false);
     }
   }
 
@@ -660,6 +680,12 @@ export function WorkflowRunDetailPanel({
           <AlertDescription>{retryError}</AlertDescription>
         </Alert>
       ) : null}
+      {ruleRetryError ? (
+        <Alert variant="destructive">
+          <AlertCircle strokeWidth={1.5} className="h-4 w-4" />
+          <AlertDescription>{ruleRetryError}</AlertDescription>
+        </Alert>
+      ) : null}
       {outputInvalidationError ? (
         <Alert variant="destructive">
           <AlertCircle strokeWidth={1.5} className="h-4 w-4" />
@@ -707,6 +733,9 @@ export function WorkflowRunDetailPanel({
               retrying={retrying}
               onApplyRuleOutputInvalidation={handleApplyRuleOutputInvalidation}
               applyingOutputInvalidation={outputInvalidating}
+              onRetryRunRules={handleRetryRunRules}
+              retryingRunRules={ruleRetrying}
+              ruleRetryResult={ruleRetryResult}
               onRunRuleCacheRestoreAction={handleRunRuleCacheRestoreAction}
               runningRuleCacheRestoreKey={ruleCacheRestoreBusyKey}
               ruleCacheRestoreResult={ruleCacheRestoreResult}

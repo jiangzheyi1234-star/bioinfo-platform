@@ -10,6 +10,8 @@ import type {
   WorkflowRuleCacheRestoreRequest,
   WorkflowRuleCacheRestoreResult,
 } from "./workflow-rule-cache-restore-model";
+import { WorkflowRuleRetryAction } from "./workflow-rule-retry-action";
+import type { WorkflowRuleRetryRequest, WorkflowRuleRetryResult } from "./workflow-rule-retry-model";
 import type {
   WorkflowRunActivationReadiness,
   WorkflowRunExecutionAttempt,
@@ -528,6 +530,9 @@ export function WorkflowRunExecutionContextPanel({
   retrying = false,
   onApplyRuleOutputInvalidation,
   applyingOutputInvalidation = false,
+  onRetryRunRules,
+  retryingRunRules = false,
+  ruleRetryResult,
   onRunRuleCacheRestoreAction,
   runningRuleCacheRestoreKey = "",
   ruleCacheRestoreResult,
@@ -537,6 +542,9 @@ export function WorkflowRunExecutionContextPanel({
   retrying?: boolean;
   onApplyRuleOutputInvalidation?: (planHash: string) => void;
   applyingOutputInvalidation?: boolean;
+  onRetryRunRules?: (request: WorkflowRuleRetryRequest) => void;
+  retryingRunRules?: boolean;
+  ruleRetryResult?: WorkflowRuleRetryResult | null;
   onRunRuleCacheRestoreAction?: (request: WorkflowRuleCacheRestoreRequest) => void;
   runningRuleCacheRestoreKey?: string;
   ruleCacheRestoreResult?: WorkflowRuleCacheRestoreResult | null;
@@ -632,6 +640,12 @@ export function WorkflowRunExecutionContextPanel({
         applying={applyingOutputInvalidation}
       />
       <RuleRetryExecutionPlanPreview plan={context.ruleRetryExecutionPlan} />
+      <WorkflowRuleRetryAction
+        plan={context.ruleRetryExecutionPlan}
+        retrying={retryingRunRules}
+        result={ruleRetryResult}
+        onRetry={onRetryRunRules}
+      />
       <WorkflowRuleCacheRestoreActions
         plan={context.ruleCacheRestorePlan || context.ruleRetryExecutionPlan?.cacheRestorePlan}
         attemptId={lease?.attemptId}
