@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import asyncio
 
+from fastapi.testclient import TestClient
+
+from apps.api.main import app
 from apps.api.execution_query_routes import (
     apply_rule_cache_restore_adoption,
     apply_rule_cache_restore_final_outputs,
@@ -27,6 +30,7 @@ from apps.api.models import (
     RunRuleRetryRequest,
 )
 from apps.api.response_cache import invalidate_response_cache
+from core.app_runtime.errors import RuntimeConflictError
 
 
 def test_retry_run_route_delegates_to_runtime_and_invalidates_cache(monkeypatch) -> None:
@@ -124,6 +128,35 @@ def test_resume_run_route_delegates_fail_closed_runtime_result(monkeypatch) -> N
             "reasonCode": "RUN_RESUME_MUTATION_API_DISABLED",
         }
     }
+
+
+def test_resume_run_http_route_preserves_runtime_conflict_payload(monkeypatch) -> None:
+    payload = {
+        "code": "RUN_REEXECUTION_PLAN_HASH_MISMATCH",
+        "message": "resumePlan is blocked.",
+        "resumePlan": {
+            "schemaVersion": "run-resume-public-plan.v1",
+            "runId": "run_resume_conflict",
+            "planHash": "c" * 64,
+            "executionEnabled": False,
+        },
+    }
+    monkeypatch.setattr(
+        "apps.api.execution_query_service.runtime_service",
+        lambda: ConflictExecutionRuntime(payload),
+    )
+
+    response = TestClient(app).post(
+        "/api/v1/runs/run_resume_conflict/resume",
+        json={
+            "confirmation": "resume-run",
+            "planHash": "0" * 64,
+            "actor": "operator",
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": payload}
 
 
 def test_rule_output_invalidation_apply_route_delegates_runtime_result(monkeypatch) -> None:
@@ -456,3 +489,13 @@ class FakeExecutionRuntime:
                 "reasonCode": "RUN_RESUME_MUTATION_API_DISABLED",
             }
         }
+
+
+class ConflictExecutionRuntime(FakeExecutionRuntime):
+    def __init__(self, payload):
+        super().__init__()
+        self.payload = payload
+
+    def resume_run(self, run_id, payload):
+        self.resume_calls.append((run_id, payload))
+        raise RuntimeConflictError("resume blocked", payload=self.payload)

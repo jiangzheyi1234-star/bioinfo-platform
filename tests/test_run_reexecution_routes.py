@@ -542,7 +542,7 @@ def test_resume_route_records_blocked_intent_without_mutating_run(tmp_path, monk
     assert response.status_code == 409
     detail = response.json()["detail"]
     assert detail["code"] == "RUN_RESUME_EXECUTION_DISABLED"
-    assert detail["resumePlan"]["planHash"] == plan["planHash"]
+    _assert_public_resume_plan_projection(detail["resumePlan"], plan)
     _assert_run_not_requeued(cfg, "run_resume_public")
     events = list_governance_audit_events(cfg, action="run.resume")["items"]
     assert len(events) == 1
@@ -559,6 +559,126 @@ def test_resume_route_records_blocked_intent_without_mutating_run(tmp_path, monk
         "unsafeOutputCount": 0,
         "blockedReasonCodes": plan["blockedReasonCodes"],
     }
+
+
+def test_resume_route_rejects_stale_plan_hash_before_mutation(tmp_path, monkeypatch) -> None:
+    cfg = make_configured_remote_runner(
+        tmp_path,
+        token="rbac-token",
+        api_token_roles=("workflow-operator",),
+    )
+    monkeypatch.setattr(route_utils, "load_remote_runner_config", lambda: cfg)
+    run_id = "run_resume_public_stale"
+    _create_failed_resumable_run(cfg, run_id, result_dir=Path(cfg.results_dir) / "results-public-stale")
+    plan = fetch_run_execution_context(cfg, run_id)["resumePlan"]
+
+    response = TestClient(app).post(
+        f"/api/v1/runs/{run_id}/resume",
+        headers={"Authorization": "Bearer rbac-token"},
+        json={
+            "confirmation": "resume-run",
+            "planHash": "0" * 64,
+            "actor": "operator",
+            "reason": "operator confirmed stale resume plan",
+        },
+    )
+
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert detail["code"] == "RUN_REEXECUTION_PLAN_HASH_MISMATCH"
+    _assert_public_resume_plan_projection(detail["resumePlan"], plan)
+    detail_text = json.dumps(detail, sort_keys=True)
+    assert str(tmp_path) not in detail_text
+    assert "run-config.json" not in detail_text
+    assert "present.txt" not in detail_text
+    assert "missing.txt" not in detail_text
+    assert '"storageUri":' not in detail_text
+    assert '"storageUris":' not in detail_text
+    assert '"executionOptions":' not in detail_text
+    assert "runSpec" not in detail_text
+    _assert_run_not_requeued(cfg, run_id)
+    events = list_governance_audit_events(cfg, action="run.resume")["items"]
+    assert len(events) == 1
+    assert events[0]["decision"] == "deny"
+    assert events[0]["reasonCode"] == "RUN_REEXECUTION_PLAN_HASH_MISMATCH"
+    assert events[0]["subjectKind"] == "run_resume"
+    assert events[0]["subjectId"] == run_id
+    assert events[0]["details"] == {
+        "planHash": plan["planHash"],
+        "executionEnabled": False,
+        "commandPreviewAvailable": True,
+        "latestAttemptState": "failed",
+        "expectedOutputCount": 2,
+        "missingOutputCount": 1,
+        "unsafeOutputCount": 0,
+        "blockedReasonCodes": plan["blockedReasonCodes"],
+    }
+    assert "operator confirmed stale resume plan" not in json.dumps(events[0], sort_keys=True)
+    assert "operator" not in json.dumps(events[0]["details"], sort_keys=True)
+
+
+def test_resume_route_stays_disabled_even_if_plan_claims_execution_enabled(tmp_path, monkeypatch) -> None:
+    cfg = make_configured_remote_runner(
+        tmp_path,
+        token="rbac-token",
+        api_token_roles=("workflow-operator",),
+    )
+    monkeypatch.setattr(route_utils, "load_remote_runner_config", lambda: cfg)
+    run_id = "run_resume_public_enabled_probe"
+    _create_failed_resumable_run(cfg, run_id, result_dir=Path(cfg.results_dir) / "results-public-enabled-probe")
+    plan = fetch_run_execution_context(cfg, run_id)["resumePlan"]
+    enabled_probe = {
+        **plan,
+        "executionEnabled": True,
+        "executionReasonCode": "RUN_RESUME_EXECUTION_ENABLED",
+        "blockedReasonCodes": [],
+        "requiresBeforeExecution": [],
+        "executorOrchestration": {
+            **plan["executorOrchestration"],
+            "executorReady": True,
+            "reasonCode": "RUN_RESUME_EXECUTOR_READY",
+            "blockedReasonCodes": [],
+            "requiresBeforeExecution": [],
+            "queueMutationAllowed": True,
+            "runStateMutationAllowed": True,
+        },
+        "activationReadiness": {
+            **plan["activationReadiness"],
+            "executionReady": True,
+            "executionEnabled": True,
+            "reasonCode": "ACTIVATION_READY",
+            "blockedReasonCodes": [],
+            "blockedCheckCount": 0,
+        },
+    }
+    monkeypatch.setattr(
+        "apps.remote_runner.run_reexecution_service.fetch_run_execution_context",
+        lambda _cfg, _run_id: {"resumePlan": enabled_probe},
+    )
+
+    response = TestClient(app).post(
+        f"/api/v1/runs/{run_id}/resume",
+        headers={"Authorization": "Bearer rbac-token"},
+        json={"confirmation": "resume-run", "planHash": plan["planHash"], "actor": "operator"},
+    )
+
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert detail["code"] == "RUN_RESUME_MUTATION_API_DISABLED"
+    public_plan = detail["resumePlan"]
+    _assert_public_resume_plan_projection(public_plan, enabled_probe, route_disabled=True)
+    assert public_plan["executionEnabled"] is False
+    assert public_plan["executionReasonCode"] == "RUN_RESUME_MUTATION_API_DISABLED"
+    assert public_plan["executorOrchestration"]["executorReady"] is False
+    assert public_plan["executorOrchestration"]["queueMutationAllowed"] is False
+    assert public_plan["executorOrchestration"]["runStateMutationAllowed"] is False
+    assert public_plan["activationReadiness"]["executionReady"] is False
+    assert "RUN_RESUME_MUTATION_API_DISABLED" in public_plan["blockedReasonCodes"]
+    _assert_run_not_requeued(cfg, run_id)
+    events = list_governance_audit_events(cfg, action="run.resume")["items"]
+    assert len(events) == 1
+    assert events[0]["decision"] == "deny"
+    assert events[0]["reasonCode"] == "RUN_RESUME_MUTATION_API_DISABLED"
 
 
 def test_run_reexecution_routes_reject_stale_plan_hash_before_mutation(tmp_path, monkeypatch) -> None:
@@ -824,6 +944,214 @@ def _assert_run_not_requeued(cfg, run_id: str) -> None:
     assert dict(job) == {"state": "failed", "execution_options_json": "{}"}
     assert command_count == 0
     assert retry_event_count == 0
+
+
+def _assert_public_resume_plan_projection(
+    public_plan: dict[str, Any],
+    source_plan: dict[str, Any],
+    *,
+    route_disabled: bool = False,
+) -> None:
+    assert set(public_plan) == {
+        "schemaVersion",
+        "planHash",
+        "runId",
+        "workflowRevisionIdPresent",
+        "strategy",
+        "supported",
+        "eligible",
+        "eligibleNow",
+        "executionEnabled",
+        "executionReasonCode",
+        "commandPreviewAvailable",
+        "reasonCode",
+        "blockedReasonCodes",
+        "requiresBeforeExecution",
+        "runStatus",
+        "jobState",
+        "attemptCount",
+        "latestAttempt",
+        "workdirEvidence",
+        "incompleteOutputAudit",
+        "artifactAdoptionBoundary",
+        "executorOrchestration",
+        "snakemakeOptions",
+        "activationReadiness",
+    }
+    assert public_plan["schemaVersion"] == "run-resume-public-plan.v1"
+    assert public_plan["planHash"] == source_plan["planHash"]
+    assert public_plan["runId"] == source_plan["runId"]
+    assert public_plan["workflowRevisionIdPresent"] is True
+    assert public_plan["strategy"] == "snakemake-rerun-incomplete"
+    assert public_plan["supported"] is False
+    assert public_plan["eligible"] is False
+    assert public_plan["eligibleNow"] is False
+    assert public_plan["executionEnabled"] is False
+    assert public_plan["commandPreviewAvailable"] is True
+    assert public_plan["attemptCount"] == source_plan["attemptCount"]
+    assert set(public_plan["latestAttempt"]) == {
+        "attemptPresent",
+        "attemptNumber",
+        "leaseGeneration",
+        "state",
+        "exitCodePresent",
+        "finishedAtPresent",
+    }
+    assert public_plan["latestAttempt"]["attemptPresent"] is True
+    assert public_plan["latestAttempt"]["state"] == "failed"
+    assert "attemptId" not in public_plan["latestAttempt"]
+
+    assert set(public_plan["workdirEvidence"]) == {
+        "schemaVersion",
+        "available",
+        "workDirReusable",
+        "pathExposed",
+        "managedRoot",
+        "directoryPresent",
+        "runConfigPresent",
+        "snakemakeMetadataPresent",
+        "latestAttempt",
+        "reasonCode",
+        "blockedReasonCodes",
+    }
+    assert public_plan["workdirEvidence"]["pathExposed"] is False
+    assert set(public_plan["workdirEvidence"]["latestAttempt"]) == {
+        "attemptPresent",
+        "attemptNumber",
+        "leaseGeneration",
+        "state",
+    }
+    assert "attemptId" not in public_plan["workdirEvidence"]["latestAttempt"]
+
+    assert set(public_plan["incompleteOutputAudit"]) == {
+        "schemaVersion",
+        "available",
+        "pathExposed",
+        "configAvailable",
+        "expectedOutputCount",
+        "checkedOutputCount",
+        "existingOutputCount",
+        "missingOutputCount",
+        "verifiedOutputCount",
+        "checksumVerifiedOutputCount",
+        "rerunRequiredOutputCount",
+        "rerunRequired",
+        "unsafeOutputCount",
+        "uncheckedOutputCount",
+        "unverifiedOutputCount",
+        "outputCount",
+        "reasonCode",
+    }
+    assert public_plan["incompleteOutputAudit"]["schemaVersion"] == "run-output-audit.v1"
+    assert public_plan["incompleteOutputAudit"]["pathExposed"] is False
+    assert public_plan["incompleteOutputAudit"]["expectedOutputCount"] == 2
+    assert public_plan["incompleteOutputAudit"]["outputCount"] == 2
+    assert "outputs" not in public_plan["incompleteOutputAudit"]
+
+    assert set(public_plan["artifactAdoptionBoundary"]) == {
+        "schemaVersion",
+        "enabled",
+        "available",
+        "reasonCode",
+        "verifiedOutputCount",
+        "checksumVerifiedOutputCount",
+        "retainedOutputCount",
+        "rerunRequiredOutputCount",
+        "unsafeOutputCount",
+        "unverifiedOutputCount",
+        "preExecutionAdoptionAllowed",
+        "postExecutionAdoptionRequired",
+        "cacheAdoptionAllowed",
+        "lineageMutationAllowed",
+        "runStateMutationAllowed",
+        "pathExposed",
+        "storageUriExposed",
+        "checksumValueExposed",
+        "requires",
+    }
+    assert public_plan["artifactAdoptionBoundary"]["pathExposed"] is False
+    assert public_plan["artifactAdoptionBoundary"]["storageUriExposed"] is False
+    assert public_plan["artifactAdoptionBoundary"]["checksumValueExposed"] is False
+    assert public_plan["artifactAdoptionBoundary"]["runStateMutationAllowed"] is False
+
+    assert set(public_plan["executorOrchestration"]) == {
+        "schemaVersion",
+        "mode",
+        "available",
+        "contractReady",
+        "executorReady",
+        "reasonCode",
+        "blockedReasonCodes",
+        "requiresBeforeExecution",
+        "sourceAttempt",
+        "targetAttemptRequired",
+        "activeLeaseRequired",
+        "workdirReuseRequired",
+        "workdirReusable",
+        "resultDirReuseRequired",
+        "runConfigRewriteAllowed",
+        "snakemakeMetadataRequired",
+        "executionOptionsSchemaVersion",
+        "rerunIncompleteRequired",
+        "forcerunRulesRequired",
+        "cacheAdoptionBypassRequired",
+        "artifactAdoptionRequired",
+        "finalizeRunAllowed",
+        "queueMutationAllowed",
+        "runStateMutationAllowed",
+        "pathExposed",
+        "storageUriExposed",
+    }
+    assert public_plan["executorOrchestration"]["mode"] == "run-resume"
+    assert public_plan["executorOrchestration"]["executorReady"] is False
+    assert public_plan["executorOrchestration"]["queueMutationAllowed"] is False
+    assert public_plan["executorOrchestration"]["runStateMutationAllowed"] is False
+    assert public_plan["executorOrchestration"]["pathExposed"] is False
+    assert public_plan["executorOrchestration"]["storageUriExposed"] is False
+    assert set(public_plan["executorOrchestration"]["sourceAttempt"]) == {
+        "attemptPresent",
+        "attemptNumber",
+        "leaseGeneration",
+        "state",
+    }
+
+    assert public_plan["snakemakeOptions"] == {
+        "schemaVersion": "snakemake-run-resume-options.v1",
+        "rerunIncomplete": True,
+        "argsPreview": ["--rerun-incomplete"],
+        "unsafeFlagsProhibited": ["--forceall", "--touch", "--ignore-incomplete"],
+    }
+    readiness = public_plan["activationReadiness"]
+    assert set(readiness) == {
+        "schemaVersion",
+        "runId",
+        "workflowRevisionIdPresent",
+        "executionReady",
+        "executionEnabled",
+        "reasonCode",
+        "blockedReasonCodes",
+        "readyCheckCount",
+        "blockedCheckCount",
+        "checks",
+        "summary",
+        "redactionPolicy",
+    }
+    assert readiness["schemaVersion"] == "run-resume-activation-readiness.v1"
+    assert readiness["executionReady"] is False
+    assert readiness["redactionPolicy"] == {
+        "rawIdentifiersExposed": False,
+        "fingerprintsExposed": False,
+        "storageUrisExposed": False,
+        "pathsExposed": False,
+    }
+    assert all(set(check) == {"name", "ready", "reasonCode"} for check in readiness["checks"])
+    if route_disabled:
+        assert public_plan["executionReasonCode"] == "RUN_RESUME_MUTATION_API_DISABLED"
+        assert public_plan["executorOrchestration"]["reasonCode"] == "RUN_RESUME_MUTATION_API_DISABLED"
+        assert readiness["reasonCode"] == "RUN_RESUME_MUTATION_API_DISABLED"
+        assert "RUN_RESUME_MUTATION_API_DISABLED" in public_plan["blockedReasonCodes"]
+        assert "RUN_RESUME_MUTATION_API_DISABLED" in public_plan["executorOrchestration"]["blockedReasonCodes"]
+        assert "RUN_RESUME_MUTATION_API_DISABLED" in readiness["blockedReasonCodes"]
 
 
 def _output_edge(cfg, tmp_path: Path, *, run_id: str, step_id: str, port_name: str) -> dict[str, Any]:

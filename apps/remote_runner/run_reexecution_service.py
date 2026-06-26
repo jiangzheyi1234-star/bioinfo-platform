@@ -13,6 +13,7 @@ from .api_models import (
 )
 from .config import RemoteRunnerConfig
 from .errors import RemoteRunnerOperationBlockedError
+from .execution_resume_projection import resume_blocked
 from .execution_retry_storage import request_rule_retry
 from .governance_audit import record_governance_audit_event
 from .route_utils import authorized_config, data_response, remote_runner_principal, run_sync
@@ -381,10 +382,14 @@ async def resume_run_from_request(
     mismatch = _plan_hash_mismatch(plan, request.planHash)
     if mismatch:
         await _record_resume_audit(cfg, run_id, plan, decision="deny", reason_code=mismatch)
-        raise _blocked("resumePlan", plan, mismatch)
-    reason_code = str(plan.get("executionReasonCode") or "RUN_RESUME_EXECUTION_DISABLED")
+        raise resume_blocked(plan, mismatch)
+    reason_code = (
+        "RUN_RESUME_MUTATION_API_DISABLED"
+        if plan.get("executionEnabled") is True
+        else str(plan.get("executionReasonCode") or "RUN_RESUME_EXECUTION_DISABLED")
+    )
     await _record_resume_audit(cfg, run_id, plan, decision="deny", reason_code=reason_code)
-    raise _blocked("resumePlan", plan, reason_code)
+    raise resume_blocked(plan, reason_code)
 
 
 def _plan_object(context: dict[str, Any], key: str) -> dict[str, Any]:
