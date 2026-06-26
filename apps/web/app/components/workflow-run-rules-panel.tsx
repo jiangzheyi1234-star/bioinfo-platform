@@ -1,7 +1,10 @@
 "use client";
 
-import { Clock } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Clock, Search, X } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 import { RuleAttemptBadge, runAttemptByRule } from "./workflow-run-attempts-panel";
@@ -10,6 +13,16 @@ import { WorkflowRuleLogEvidence } from "./workflow-rule-log-evidence";
 import type { WorkflowRunRulesSummary } from "./workflow-run-rules-model";
 import type { WorkflowRunDetail, WorkflowRunRule } from "./workflows-page-model";
 import type { WorkflowRunAttemptsReadModel } from "./workflow-run-attempts-model";
+
+type RuleFilterKey = "all" | "failed" | "running" | "completed" | "logs";
+
+const RULE_FILTERS: Array<{ key: RuleFilterKey; label: string }> = [
+  { key: "all", label: "全部" },
+  { key: "failed", label: "失败" },
+  { key: "running", label: "运行中" },
+  { key: "completed", label: "完成" },
+  { key: "logs", label: "有日志证据" },
+];
 
 export function WorkflowRunRulesPanel({
   attempts,
@@ -20,6 +33,12 @@ export function WorkflowRunRulesPanel({
   rules: WorkflowRunRule[];
   rulesModel?: WorkflowRunDetail["rules"];
 }) {
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<RuleFilterKey>("all");
+  const filteredRules = useMemo(
+    () => rules.filter((rule) => ruleMatchesFilter(rule, filter) && ruleMatchesQuery(rule, query)),
+    [filter, query, rules]
+  );
   if (rules.length === 0) {
     return <div className="py-8 text-center text-sm text-slate-400">暂无 rule 状态</div>;
   }
@@ -28,7 +47,20 @@ export function WorkflowRunRulesPanel({
     <div className="space-y-3">
       <RunRulesRedactionNotice rules={rulesModel} />
       <RunRulesSummary summary={rulesModel?.summary} />
-      {rules.map((rule) => {
+      <RunRulesToolbar
+        filter={filter}
+        matchCount={filteredRules.length}
+        query={query}
+        ruleCount={rules.length}
+        onFilterChange={setFilter}
+        onQueryChange={setQuery}
+      />
+      {filteredRules.length === 0 ? (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-400">
+          无匹配 rule
+        </div>
+      ) : null}
+      {filteredRules.map((rule) => {
         const events = rule.events || [];
         const wildcards = rule.wildcards && Object.keys(rule.wildcards).length > 0 ? JSON.stringify(rule.wildcards) : "";
         const ruleKey = rule.runRuleId || `${rule.ruleName}-${rule.attemptId || rule.attemptNumber || ""}`;
@@ -90,6 +122,72 @@ export function WorkflowRunRulesPanel({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function RunRulesToolbar({
+  filter,
+  matchCount,
+  onFilterChange,
+  onQueryChange,
+  query,
+  ruleCount,
+}: {
+  filter: RuleFilterKey;
+  matchCount: number;
+  onFilterChange: (filter: RuleFilterKey) => void;
+  onQueryChange: (query: string) => void;
+  query: string;
+  ruleCount: number;
+}) {
+  const filtered = filter !== "all" || query.trim();
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[220px] flex-1">
+          <Search strokeWidth={1.5} className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+          <Input
+            value={query}
+            onChange={(event) => onQueryChange(event.target.value)}
+            placeholder="搜索 rule / step / message"
+            className="h-9 pl-8 text-xs"
+          />
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {RULE_FILTERS.map((item) => (
+            <Button
+              key={item.key}
+              type="button"
+              variant={filter === item.key ? "default" : "outline"}
+              className={cn(
+                "h-8 px-2.5 text-xs",
+                filter === item.key ? "bg-slate-900 text-white" : "bg-white text-slate-600"
+              )}
+              onClick={() => onFilterChange(item.key)}
+            >
+              {item.label}
+            </Button>
+          ))}
+        </div>
+        {filtered ? (
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-8 px-2.5 text-xs text-slate-500"
+            onClick={() => {
+              onFilterChange("all");
+              onQueryChange("");
+            }}
+          >
+            <X strokeWidth={1.5} className="mr-1 h-3.5 w-3.5" />
+            清除
+          </Button>
+        ) : null}
+      </div>
+      <div className="mt-2 text-[11px] text-slate-400">
+        {matchCount} / {ruleCount} rules
+      </div>
     </div>
   );
 }
@@ -180,6 +278,68 @@ function countPills(counts: Record<string, number> | undefined, prefix: string) 
 function isFailedStatus(status: string | undefined) {
   const s = String(status || "").toLowerCase();
   return s === "failed" || s === "error";
+}
+
+function isRunningStatus(status: string | undefined) {
+  const s = String(status || "").toLowerCase();
+  return s === "running" || s === "started";
+}
+
+function isCompletedStatus(status: string | undefined) {
+  const s = String(status || "").toLowerCase();
+  return s === "completed" || s === "success" || s === "succeeded";
+}
+
+function ruleHasLogEvidence(rule: WorkflowRunRule) {
+  const context = rule.logContext;
+  return Boolean(
+    (rule.logReferenceCount || 0) > 0 ||
+      context?.status ||
+      context?.reasonCode ||
+      context?.selectedArtifact?.artifactId ||
+      context?.tail?.length
+  );
+}
+
+function ruleMatchesFilter(rule: WorkflowRunRule, filter: RuleFilterKey) {
+  if (filter === "all") return true;
+  if (filter === "failed") return isFailedStatus(rule.status);
+  if (filter === "running") return isRunningStatus(rule.status);
+  if (filter === "completed") return isCompletedStatus(rule.status);
+  if (filter === "logs") return ruleHasLogEvidence(rule);
+  return true;
+}
+
+function ruleMatchesQuery(rule: WorkflowRunRule, query: string) {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return true;
+  return ruleSearchText(rule).includes(normalized);
+}
+
+function ruleSearchText(rule: WorkflowRunRule) {
+  const context = rule.logContext;
+  return [
+    rule.ruleName,
+    rule.stepId,
+    rule.runtimeStatusKey,
+    rule.runRuleId,
+    rule.status,
+    rule.message,
+    rule.sourceLocation?.fileBasename,
+    context?.reasonCode,
+    context?.status,
+    context?.message,
+    context?.selectedArtifact?.artifactId,
+    ...(rule.events || []).flatMap((event) => [
+      event.eventType,
+      event.status,
+      event.message,
+      event.sourceLocation?.fileBasename,
+    ]),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
 }
 
 function ruleStatusStyle(status: string | undefined) {

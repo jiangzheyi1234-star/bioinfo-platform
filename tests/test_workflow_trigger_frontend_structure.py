@@ -105,6 +105,15 @@ def test_trigger_events_have_read_only_frontend_surface() -> None:
     assert "Cron due" in scheduler_panel
     assert "Backfill submitted" in scheduler_panel
     assert "SchedulerMetric" in scheduler_panel
+    assert "SchedulerTickLedger" in scheduler_panel
+    assert "SchedulerTickLedgerRow" in scheduler_panel
+    assert 'data-testid="workflow-trigger-scheduler-ledger"' in scheduler_panel
+    assert 'data-testid="workflow-trigger-scheduler-ledger-row"' in scheduler_panel
+    assert "tick.evidenceSeq" in scheduler_panel
+    assert "tick.evaluatedAt || tick.occurredAt" in scheduler_panel
+    assert "cron.dispatchRunCount" in scheduler_panel
+    assert "backfills.stateCounts || backfills.reasonCodes" in scheduler_panel
+    assert "BadgeSummary" in scheduler_panel
     assert "运行一次 scheduler" in scheduler_panel
     assert "确认运行 scheduler" in scheduler_panel
     assert "Input" in scheduler_panel

@@ -223,6 +223,18 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "workflowRevisionId={workflowRevisionId}" in panel
     assert "export function WorkflowRunRulesPanel" in rules_panel
     assert "RunRulesSummary" in rules_panel
+    assert "RunRulesToolbar" in rules_panel
+    assert 'type RuleFilterKey = "all" | "failed" | "running" | "completed" | "logs"' in rules_panel
+    assert "RULE_FILTERS" in rules_panel
+    assert "filteredRules" in rules_panel
+    assert "ruleMatchesFilter" in rules_panel
+    assert "ruleMatchesQuery" in rules_panel
+    assert "ruleSearchText" in rules_panel
+    assert "搜索 rule / step / message" in rules_panel
+    assert "无匹配 rule" in rules_panel
+    assert "ruleHasLogEvidence" in rules_panel
+    assert "context?.selectedArtifact?.artifactId" in rules_panel
+    assert "event.sourceLocation?.fileBasename" in rules_panel
     assert "rulesModel?.summary" in rules_panel
     assert "rulesWithAvailableLogEvidence" in rules_panel
     assert "logEvidenceReasonCodes" in rules_panel

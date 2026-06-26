@@ -16,6 +16,7 @@ def test_run_attempts_frontend_uses_stable_read_model_endpoint() -> None:
     model = _source("workflow-run-attempts-model.ts")
     panel = _source("workflow-run-attempts-panel.tsx")
     detail = _source("workflow-run-detail-panel.tsx")
+    rules_panel = _source("workflow-run-rules-panel.tsx")
 
     assert "export type WorkflowRunAttemptsReadModel" in model
     assert "export type WorkflowRunAttemptSummary" in model
@@ -50,11 +51,11 @@ def test_run_attempts_frontend_uses_stable_read_model_endpoint() -> None:
     assert "run-attempts.v1" in panel
 
     assert "WorkflowRunAttemptsPanel" in detail
-    assert "RuleAttemptBadge" in detail
-    assert "runAttemptByRule" in detail
+    assert "RuleAttemptBadge" in rules_panel
+    assert "runAttemptByRule" in rules_panel
     assert "const [runAttempts, setRunAttempts]" in detail
     assert "onAttemptsLoaded={setRunAttempts}" in detail
-    assert "<RunRules attempts={runAttempts} rules={rules} rulesModel={detail.rules} />" in detail
+    assert "<WorkflowRunRulesPanel attempts={runAttempts} rules={rules} rulesModel={detail.rules} />" in detail
 
 
 def test_run_attempts_frontend_keeps_observability_read_only_and_redacted() -> None:

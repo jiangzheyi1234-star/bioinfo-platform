@@ -63,15 +63,18 @@ export function WorkflowTriggerSchedulerPanel({
         </Button>
       </div>
       {latest ? (
-        <div className="grid gap-2 text-xs sm:grid-cols-2 xl:grid-cols-4">
-          <SchedulerMetric label="Cron due" value={numberLabel(cron.due)} sub={`submitted ${numberLabel(cron.submitted)} / replayed ${numberLabel(cron.replayed)}`} />
-          <SchedulerMetric label="Cron errors" value={numberLabel(cron.errorCount)} sub={reasonSummary(cron.reasonCodes)} tone={cron.errorCount ? "red" : "slate"} />
-          <SchedulerMetric label="Backfill submitted" value={numberLabel(backfills.submitted)} sub={`pending ${numberLabel(backfills.pending)} / replayed ${numberLabel(backfills.replayed)}`} />
-          <SchedulerMetric label="Backfill errors" value={numberLabel(backfills.errorCount)} sub={reasonSummary(backfills.reasonCodes)} tone={backfills.errorCount ? "red" : "slate"} />
-          <div className="min-w-0 text-[11px] text-slate-500 sm:col-span-2 xl:col-span-4">
-            evaluated {formatDate(latest.evaluatedAt)} / evidence {shortIdentity(latest.evidenceId, "—")}
+        <>
+          <div className="grid gap-2 text-xs sm:grid-cols-2 xl:grid-cols-4">
+            <SchedulerMetric label="Cron due" value={numberLabel(cron.due)} sub={`submitted ${numberLabel(cron.submitted)} / replayed ${numberLabel(cron.replayed)}`} />
+            <SchedulerMetric label="Cron errors" value={numberLabel(cron.errorCount)} sub={reasonSummary(cron.reasonCodes)} tone={cron.errorCount ? "red" : "slate"} />
+            <SchedulerMetric label="Backfill submitted" value={numberLabel(backfills.submitted)} sub={`pending ${numberLabel(backfills.pending)} / replayed ${numberLabel(backfills.replayed)}`} />
+            <SchedulerMetric label="Backfill errors" value={numberLabel(backfills.errorCount)} sub={reasonSummary(backfills.reasonCodes)} tone={backfills.errorCount ? "red" : "slate"} />
+            <div className="min-w-0 text-[11px] text-slate-500 sm:col-span-2 xl:col-span-4">
+              evaluated {formatDate(latest.evaluatedAt)} / evidence {shortIdentity(latest.evidenceId, "—")}
+            </div>
           </div>
-        </div>
+          <SchedulerTickLedger ticks={ticks} />
+        </>
       ) : (
         <div className="text-xs text-slate-400">暂无 scheduler tick evidence</div>
       )}
@@ -111,6 +114,104 @@ export function WorkflowTriggerSchedulerPanel({
           </div>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function SchedulerTickLedger({ ticks }: { ticks: WorkflowTriggerSchedulerTick[] }) {
+  const visibleTicks = ticks.slice(0, 6);
+  if (visibleTicks.length === 0) return null;
+  return (
+    <div data-testid="workflow-trigger-scheduler-ledger" className="mt-3 rounded-md border border-slate-200">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-3 py-2">
+        <div className="text-[11px] font-medium text-slate-600">Scheduler tick ledger</div>
+        <div className="text-[11px] text-slate-400">{visibleTicks.length} / {ticks.length} ticks</div>
+      </div>
+      <div className="divide-y divide-slate-100">
+        {visibleTicks.map((tick) => (
+          <SchedulerTickLedgerRow key={tick.tickId || tick.evidenceId || tick.evidenceSeq} tick={tick} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SchedulerTickLedgerRow({ tick }: { tick: WorkflowTriggerSchedulerTick }) {
+  const cron = tick.cron || {};
+  const backfills = tick.backfills || {};
+  const hasErrors = Boolean((cron.errorCount || 0) > 0 || (backfills.errorCount || 0) > 0);
+  return (
+    <div data-testid="workflow-trigger-scheduler-ledger-row" className="grid gap-2 px-3 py-2 text-[11px] md:grid-cols-[150px_minmax(0,1fr)_minmax(0,1fr)]">
+      <div className="min-w-0">
+        <div className="truncate font-mono text-slate-700">{shortIdentity(tick.tickId, "tick")}</div>
+        <div className="mt-0.5 text-slate-400">{formatDate(tick.evaluatedAt || tick.occurredAt)}</div>
+        <div className="mt-0.5 font-mono text-slate-400">seq {tick.evidenceSeq ?? "—"} / limit {numberLabel(tick.limit)}</div>
+      </div>
+      <LedgerGroup
+        title="cron"
+        tone={hasErrors && (cron.errorCount || 0) > 0 ? "red" : "slate"}
+        counts={[
+          ["checked", cron.checked],
+          ["due", cron.due],
+          ["submitted", cron.submitted],
+          ["runs", cron.dispatchRunCount],
+          ["errors", cron.errorCount],
+        ]}
+        badges={cron.reasonCodes}
+      />
+      <LedgerGroup
+        title="backfill"
+        tone={hasErrors && (backfills.errorCount || 0) > 0 ? "red" : "slate"}
+        counts={[
+          ["checked", backfills.checked],
+          ["advanced", backfills.advanced],
+          ["submitted", backfills.submitted],
+          ["pending", backfills.pending],
+          ["errors", backfills.errorCount],
+        ]}
+        badges={backfills.stateCounts || backfills.reasonCodes}
+      />
+    </div>
+  );
+}
+
+function LedgerGroup({
+  badges,
+  counts,
+  title,
+  tone,
+}: {
+  badges?: Record<string, number>;
+  counts: Array<[string, unknown]>;
+  title: string;
+  tone: "slate" | "red";
+}) {
+  return (
+    <div className={cn("min-w-0 rounded border px-2 py-1.5", tone === "red" ? "border-red-200 bg-red-50" : "border-slate-100 bg-slate-50")}>
+      <div className="mb-1 font-medium text-slate-600">{title}</div>
+      <div className="grid grid-cols-2 gap-x-2 gap-y-0.5">
+        {counts.map(([label, value]) => (
+          <div key={label} className="flex min-w-0 justify-between gap-2">
+            <span className="truncate text-slate-400">{label}</span>
+            <span className="font-mono text-slate-700">{numberLabel(value)}</span>
+          </div>
+        ))}
+      </div>
+      <BadgeSummary values={badges} />
+    </div>
+  );
+}
+
+function BadgeSummary({ values }: { values?: Record<string, number> }) {
+  const entries = Object.entries(values || {}).filter(([, count]) => Number(count) > 0).slice(0, 3);
+  if (entries.length === 0) return null;
+  return (
+    <div className="mt-1 flex flex-wrap gap-1">
+      {entries.map(([key, count]) => (
+        <span key={key} className="rounded border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[10px] text-slate-500">
+          {key}:{numberLabel(count)}
+        </span>
+      ))}
     </div>
   );
 }
