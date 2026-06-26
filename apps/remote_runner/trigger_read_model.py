@@ -8,6 +8,20 @@ from .secret_provider import SecretProviderError, parse_secret_ref
 
 
 _SECRET_REF_PURPOSE = "webhook-signing-secret"
+TRIGGER_READ_SCHEMA_VERSION = "workflow-trigger-read.v1"
+TRIGGER_LIST_SCHEMA_VERSION = "workflow-trigger-list.v1"
+_READINESS_SOURCE_TYPES = frozenset({"dataset", "file", "database_ready"})
+_AUTHORITATIVE_INGRESS_BY_SOURCE = {
+    "manual": "manual-event-api",
+    "cron": "cron-scheduler",
+    "webhook": "webhook-inbox",
+    "backfill": "backfill-launch",
+}
+_BLOCKER_BY_SOURCE = {
+    "cron": "cron-scheduler-owned",
+    "webhook": "webhook-inbox-owned",
+    "backfill": "backfill-launch-owned",
+}
 _SENSITIVE_KEY_TOKENS = frozenset(
     {
         "apikey",
@@ -50,6 +64,8 @@ class TriggerSpecRedaction:
 
 def trigger_for_read_model(trigger: Mapping[str, Any]) -> dict[str, Any]:
     data = dict(trigger)
+    data["schemaVersion"] = TRIGGER_READ_SCHEMA_VERSION
+    data["triggerContract"] = _trigger_contract_for_read(data)
     trigger_spec = data.get("triggerSpec")
     if isinstance(trigger_spec, Mapping):
         redactions: list[TriggerSpecRedaction] = []
@@ -67,10 +83,48 @@ def trigger_for_read_model(trigger: Mapping[str, Any]) -> dict[str, Any]:
 
 def trigger_list_for_read_model(payload: Mapping[str, Any]) -> dict[str, Any]:
     data = dict(payload)
+    data["schemaVersion"] = TRIGGER_LIST_SCHEMA_VERSION
     items = data.get("items")
     if isinstance(items, list):
         data["items"] = [trigger_for_read_model(item) if isinstance(item, Mapping) else item for item in items]
     return data
+
+
+def _trigger_contract_for_read(trigger: Mapping[str, Any]) -> dict[str, object]:
+    source_type = str(trigger.get("sourceType") or "").strip()
+    enabled = bool(trigger.get("enabled"))
+    authoritative_ingress = _authoritative_ingress(source_type)
+    blockers: list[str] = []
+    actions: list[str] = []
+    if not enabled:
+        blockers.append("trigger-disabled")
+    elif source_type == "manual":
+        actions.append("submit-manual-event")
+    elif source_type == "backfill":
+        actions.append("preview-backfill")
+        blockers.append(_BLOCKER_BY_SOURCE[source_type])
+    elif source_type in _BLOCKER_BY_SOURCE:
+        blockers.append(_BLOCKER_BY_SOURCE[source_type])
+    elif source_type in _READINESS_SOURCE_TYPES:
+        blockers.append("readiness-api-owned")
+    else:
+        blockers.append("unknown-trigger-source")
+    return {
+        "schemaVersion": "workflow-trigger-contract.v1",
+        "sourceType": source_type or "unknown",
+        "authoritativeIngress": authoritative_ingress,
+        "provenanceStamped": True,
+        "immutableTriggerEventRequired": True,
+        "rawPayloadExported": False,
+        "supportedOperatorActions": actions,
+        "blockers": blockers,
+    }
+
+
+def _authoritative_ingress(source_type: str) -> str:
+    if source_type in _READINESS_SOURCE_TYPES:
+        return "readiness-api"
+    return _AUTHORITATIVE_INGRESS_BY_SOURCE.get(source_type, "unsupported")
 
 
 def redact_trigger_spec_for_read(

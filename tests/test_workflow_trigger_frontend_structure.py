@@ -25,6 +25,10 @@ def test_trigger_events_have_read_only_frontend_surface() -> None:
     assert TRIGGER_ROUTE.exists()
     assert "WorkflowTriggerObservabilityPage" in route
     assert "WorkflowTrigger" in model
+    assert "WorkflowTriggerContract" in model
+    assert "WorkflowTriggerAuthoritativeIngress" in model
+    assert "WorkflowTriggerOperatorAction" in model
+    assert "WorkflowTriggerContractBlocker" in model
     assert "WorkflowTriggerEvent" in model
     assert "WorkflowTriggerDispatchRun" in model
     assert "WorkflowTriggerDispatch" in model
@@ -41,6 +45,21 @@ def test_trigger_events_have_read_only_frontend_surface() -> None:
     assert "WorkflowRunAdmissionSummary" in model
     assert "waitReasonCode?: string" in model
     assert "admission?: WorkflowRunAdmissionSummary | null" in model
+    assert "schemaVersion?: string;" in model
+    assert "triggerContract?: WorkflowTriggerContract" in model
+    assert "authoritativeIngress?: WorkflowTriggerAuthoritativeIngress" in model
+    assert "supportedOperatorActions?: WorkflowTriggerOperatorAction[]" in model
+    assert "blockers?: WorkflowTriggerContractBlocker[]" in model
+    assert '"manual-event-api"' in model
+    assert '"cron-scheduler"' in model
+    assert '"webhook-inbox"' in model
+    assert '"readiness-api"' in model
+    assert '"backfill-launch"' in model
+    assert '"unsupported"' in model
+    assert '"submit-manual-event"' in model
+    assert '"preview-backfill"' in model
+    assert '"trigger-disabled"' in model
+    assert '"unknown-trigger-source"' in model
     assert "resourceIdentity?: {" in model
     assert "idHash?: string" in model
     assert "resourceUriPresent?: boolean" in model

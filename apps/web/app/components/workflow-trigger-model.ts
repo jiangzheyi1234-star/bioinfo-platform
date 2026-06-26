@@ -2,7 +2,37 @@ export type WorkflowTriggerSpec = Record<string, unknown>;
 
 export type WorkflowTriggerRunSpec = Record<string, unknown>;
 
+export type WorkflowTriggerAuthoritativeIngress =
+  | "manual-event-api"
+  | "cron-scheduler"
+  | "webhook-inbox"
+  | "readiness-api"
+  | "backfill-launch"
+  | "unsupported";
+
+export type WorkflowTriggerOperatorAction = "submit-manual-event" | "preview-backfill";
+
+export type WorkflowTriggerContractBlocker =
+  | "trigger-disabled"
+  | "cron-scheduler-owned"
+  | "webhook-inbox-owned"
+  | "readiness-api-owned"
+  | "backfill-launch-owned"
+  | "unknown-trigger-source";
+
+export type WorkflowTriggerContract = {
+  schemaVersion?: string;
+  sourceType?: string;
+  authoritativeIngress?: WorkflowTriggerAuthoritativeIngress;
+  provenanceStamped?: boolean;
+  immutableTriggerEventRequired?: boolean;
+  rawPayloadExported?: boolean;
+  supportedOperatorActions?: WorkflowTriggerOperatorAction[];
+  blockers?: WorkflowTriggerContractBlocker[];
+};
+
 export type WorkflowTrigger = {
+  schemaVersion?: string;
   triggerId: string;
   name?: string;
   sourceType?: string;
@@ -11,6 +41,7 @@ export type WorkflowTrigger = {
   enabled?: boolean;
   triggerSpec?: WorkflowTriggerSpec;
   runSpec?: WorkflowTriggerRunSpec;
+  triggerContract?: WorkflowTriggerContract;
   createdBy?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -195,6 +226,7 @@ export type WorkflowTriggerSchedulerRunOnceResult = {
 };
 
 export type WorkflowTriggerList = {
+  schemaVersion?: string;
   items: WorkflowTrigger[];
 };
 

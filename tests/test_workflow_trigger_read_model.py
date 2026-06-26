@@ -3,10 +3,109 @@ from __future__ import annotations
 import pytest
 
 from apps.remote_runner.api_models import WorkflowTriggerCreateRequest
-from apps.remote_runner.trigger_read_model import redact_trigger_spec_for_read
+from apps.remote_runner.trigger_read_model import (
+    redact_trigger_spec_for_read,
+    trigger_for_read_model,
+    trigger_list_for_read_model,
+)
 from apps.remote_runner.trigger_service import create_workflow_trigger_from_request, list_workflow_triggers_from_storage
 from apps.remote_runner.trigger_storage import require_workflow_trigger
 from tests.helpers.reference_database import make_configured_remote_runner
+
+
+def test_trigger_read_model_adds_schema_versions_and_enabled_manual_contract() -> None:
+    trigger = _trigger_for_contract("manual")
+    read = trigger_for_read_model(trigger)
+    listed = trigger_list_for_read_model({"items": [trigger]})
+
+    assert read["schemaVersion"] == "workflow-trigger-read.v1"
+    assert listed["schemaVersion"] == "workflow-trigger-list.v1"
+    assert listed["items"][0]["schemaVersion"] == "workflow-trigger-read.v1"
+    assert read["triggerContract"] == {
+        "schemaVersion": "workflow-trigger-contract.v1",
+        "sourceType": "manual",
+        "authoritativeIngress": "manual-event-api",
+        "provenanceStamped": True,
+        "immutableTriggerEventRequired": True,
+        "rawPayloadExported": False,
+        "supportedOperatorActions": ["submit-manual-event"],
+        "blockers": [],
+    }
+
+
+@pytest.mark.parametrize(
+    "source_type",
+    ["manual", "cron", "webhook", "dataset", "file", "database_ready", "backfill"],
+)
+def test_trigger_read_model_disabled_trigger_contract_blocks_actions(source_type: str) -> None:
+    read = trigger_for_read_model(_trigger_for_contract(source_type, enabled=False))
+
+    assert read["triggerContract"]["authoritativeIngress"] != ""
+    assert read["triggerContract"]["supportedOperatorActions"] == []
+    assert read["triggerContract"]["blockers"] == ["trigger-disabled"]
+
+
+@pytest.mark.parametrize(
+    ("source_type", "ingress", "actions", "blockers"),
+    [
+        ("manual", "manual-event-api", ["submit-manual-event"], []),
+        ("cron", "cron-scheduler", [], ["cron-scheduler-owned"]),
+        ("webhook", "webhook-inbox", [], ["webhook-inbox-owned"]),
+        ("dataset", "readiness-api", [], ["readiness-api-owned"]),
+        ("file", "readiness-api", [], ["readiness-api-owned"]),
+        ("database_ready", "readiness-api", [], ["readiness-api-owned"]),
+        ("backfill", "backfill-launch", ["preview-backfill"], ["backfill-launch-owned"]),
+    ],
+)
+def test_trigger_read_model_contract_source_boundaries(
+    source_type: str,
+    ingress: str,
+    actions: list[str],
+    blockers: list[str],
+) -> None:
+    read = trigger_for_read_model(_trigger_for_contract(source_type))
+
+    assert read["triggerContract"]["sourceType"] == source_type
+    assert read["triggerContract"]["authoritativeIngress"] == ingress
+    assert read["triggerContract"]["supportedOperatorActions"] == actions
+    assert read["triggerContract"]["blockers"] == blockers
+
+
+def test_trigger_read_model_unknown_source_contract_is_explicitly_unsupported() -> None:
+    read = trigger_for_read_model(_trigger_for_contract("legacy_queue"))
+
+    assert read["triggerContract"]["sourceType"] == "legacy_queue"
+    assert read["triggerContract"]["authoritativeIngress"] == "unsupported"
+    assert read["triggerContract"]["supportedOperatorActions"] == []
+    assert read["triggerContract"]["blockers"] == ["unknown-trigger-source"]
+
+
+def test_trigger_contract_does_not_leak_redacted_specs() -> None:
+    raw_secret_ref = "secret://webhooks/github/main"
+    raw_token = "run-template-token"
+
+    read = trigger_for_read_model(
+        _trigger_for_contract(
+            "webhook",
+            trigger_spec={"signature": {"secretRef": raw_secret_ref}},
+            run_spec={"params": {"token": raw_token}},
+        )
+    )
+
+    assert read["triggerContract"] == {
+        "schemaVersion": "workflow-trigger-contract.v1",
+        "sourceType": "webhook",
+        "authoritativeIngress": "webhook-inbox",
+        "provenanceStamped": True,
+        "immutableTriggerEventRequired": True,
+        "rawPayloadExported": False,
+        "supportedOperatorActions": [],
+        "blockers": ["webhook-inbox-owned"],
+    }
+    assert raw_secret_ref not in repr(read["triggerContract"])
+    assert raw_token not in repr(read["triggerContract"])
+    assert raw_secret_ref not in repr(read)
+    assert raw_token not in repr(read)
 
 
 def test_webhook_trigger_read_model_redacts_secret_ref_on_create_and_list(
@@ -148,3 +247,22 @@ def test_trigger_read_model_redacts_malformed_secret_ref_without_raw_ref_leak() 
 def _skip_runtime_readiness(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
     monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_execution_admission_ready", lambda _cfg: None)
+
+
+def _trigger_for_contract(
+    source_type: str,
+    *,
+    enabled: bool = True,
+    trigger_spec: dict[str, object] | None = None,
+    run_spec: dict[str, object] | None = None,
+) -> dict[str, object]:
+    return {
+        "triggerId": "wtr_contract",
+        "name": "Contract trigger",
+        "sourceType": source_type,
+        "serverId": "srv_primary",
+        "pipelineId": "file-summary-standard-v1",
+        "enabled": enabled,
+        "triggerSpec": trigger_spec or {},
+        "runSpec": run_spec or {},
+    }
