@@ -19,6 +19,7 @@ def blocked_rule_partial_rerun_output_closure(
         "closureReady": False,
         "reasonCode": reason_code,
         "blockedReasonCodes": [reason_code],
+        "declaredOutputBlockedReasonCodes": [],
         "scopedOutputCount": 0,
         "adoptedScopedOutputCount": 0,
         "pendingScopedOutputCount": 0,
@@ -26,6 +27,12 @@ def blocked_rule_partial_rerun_output_closure(
         "preservedOutputEdgeCount": 0,
         "missingPreservedOutputEdgeCount": 0,
         "unknownActiveOutputEdgeCount": 0,
+        "declaredOutputCount": 0,
+        "checkedDeclaredOutputCount": 0,
+        "verifiedDeclaredOutputCount": 0,
+        "adoptedDeclaredOutputCount": 0,
+        "missingDeclaredOutputCount": 0,
+        "rerunRequiredDeclaredOutputCount": 0,
         "allDeclaredOutputsVerified": False,
         "finalizeAllowed": False,
         "runStateMutationAllowed": False,
@@ -34,6 +41,7 @@ def blocked_rule_partial_rerun_output_closure(
         "scopedOutputs": [],
         "preservedOutputs": [],
         "unknownActiveOutputs": [],
+        "declaredOutputs": [],
     }
 
 
@@ -67,6 +75,7 @@ def build_rule_partial_rerun_output_closure(
     adopted_scoped_count = sum(1 for item in scoped_outputs if item["state"] == "adopted")
     pending_scoped_count = max(0, len(scoped_outputs) - adopted_scoped_count)
     missing_preserved_count = sum(1 for item in preserved_outputs if item["edgePresent"] is not True)
+    declared = _declared_output_closure(output_audit)
     blockers: list[str] = []
     if not scoped_outputs:
         blockers.append("RULE_PARTIAL_RERUN_OUTPUT_CLOSURE_SCOPE_EMPTY")
@@ -81,15 +90,17 @@ def build_rule_partial_rerun_output_closure(
     if unknown_active_outputs:
         blockers.append("RULE_PARTIAL_RERUN_UNKNOWN_ACTIVE_OUTPUTS")
     edge_closure_ready = not blockers
-    all_declared_verified = False
-    if edge_closure_ready and not all_declared_verified:
-        blockers.append("RULE_PARTIAL_RERUN_DECLARED_OUTPUT_CLOSURE_UNPROVEN")
+    if edge_closure_ready and not declared["allDeclaredOutputsVerified"]:
+        blockers.extend(
+            declared["declaredOutputBlockedReasonCodes"]
+            or ["RULE_PARTIAL_RERUN_DECLARED_OUTPUT_CLOSURE_UNPROVEN"]
+        )
     unique_blockers = _unique_strings(blockers)
     return {
         "schemaVersion": RULE_PARTIAL_RERUN_OUTPUT_CLOSURE_SCHEMA_VERSION,
         "available": True,
         "edgeClosureReady": edge_closure_ready,
-        "closureReady": edge_closure_ready and all_declared_verified,
+        "closureReady": edge_closure_ready and declared["allDeclaredOutputsVerified"],
         "reasonCode": "RULE_PARTIAL_RERUN_OUTPUT_CLOSURE_READY" if not unique_blockers else unique_blockers[0],
         "blockedReasonCodes": unique_blockers,
         "scopedOutputCount": len(scoped_outputs),
@@ -99,7 +110,7 @@ def build_rule_partial_rerun_output_closure(
         "preservedOutputEdgeCount": sum(1 for item in preserved_outputs if item["edgePresent"] is True),
         "missingPreservedOutputEdgeCount": missing_preserved_count,
         "unknownActiveOutputEdgeCount": len(unknown_active_outputs),
-        "allDeclaredOutputsVerified": all_declared_verified,
+        **declared,
         "finalizeAllowed": False,
         "runStateMutationAllowed": False,
         "pathExposed": False,
@@ -108,6 +119,76 @@ def build_rule_partial_rerun_output_closure(
         "preservedOutputs": preserved_outputs,
         "unknownActiveOutputs": unknown_active_outputs,
     }
+
+
+def _declared_output_closure(output_audit: dict[str, Any]) -> dict[str, Any]:
+    outputs = _declared_output_refs(output_audit)
+    expected_count = _safe_int(output_audit.get("expectedOutputCount"))
+    checked_count = _safe_int(output_audit.get("checkedOutputCount"))
+    verified_count = _safe_int(output_audit.get("verifiedOutputCount"))
+    adopted_count = _safe_int(output_audit.get("adoptedOutputCount"))
+    missing_count = _safe_int(output_audit.get("missingOutputCount"))
+    rerun_required_count = _safe_int(output_audit.get("rerunRequiredOutputCount"))
+    blockers: list[str] = []
+    if output_audit.get("schemaVersion") != "rule-output-audit.v1":
+        blockers.append("RULE_PARTIAL_RERUN_DECLARED_OUTPUT_AUDIT_SCHEMA_UNSUPPORTED")
+    if output_audit.get("available") is not True:
+        blockers.append("RULE_PARTIAL_RERUN_DECLARED_OUTPUT_AUDIT_UNAVAILABLE")
+    if output_audit.get("pathExposed") is True or output_audit.get("storageUriExposed") is True:
+        blockers.append("RULE_PARTIAL_RERUN_DECLARED_OUTPUT_REDACTION_UNSAFE")
+    if expected_count <= 0:
+        blockers.append("RULE_PARTIAL_RERUN_DECLARED_OUTPUT_SCOPE_EMPTY")
+    if expected_count > 0 and (checked_count != expected_count or len(outputs) != expected_count):
+        blockers.append("RULE_PARTIAL_RERUN_DECLARED_OUTPUT_AUDIT_INCOMPLETE")
+    if (
+        expected_count > 0
+        and (
+            verified_count != expected_count
+            or _safe_int(output_audit.get("unsafeOutputCount"))
+            or _safe_int(output_audit.get("uncheckedOutputCount"))
+            or _safe_int(output_audit.get("unverifiedOutputCount"))
+            or any(output["verificationState"] != "verified" or output["checksumVerified"] is not True for output in outputs)
+        )
+    ):
+        blockers.append("RULE_PARTIAL_RERUN_DECLARED_OUTPUTS_NOT_VERIFIED")
+    if missing_count or rerun_required_count or any(output["rerunRequired"] is True for output in outputs):
+        blockers.append("RULE_PARTIAL_RERUN_DECLARED_OUTPUTS_RERUN_REQUIRED")
+    if expected_count > 0 and (adopted_count != expected_count or any(output["state"] != "adopted" for output in outputs)):
+        blockers.append("RULE_PARTIAL_RERUN_DECLARED_OUTPUTS_NOT_ADOPTED")
+    if expected_count > 0 and any(not output["stepId"] or output["outputOrdinal"] <= 0 for output in outputs):
+        blockers.append("RULE_PARTIAL_RERUN_DECLARED_OUTPUT_IDENTITY_UNPROVEN")
+    unique_blockers = _unique_strings(blockers)
+    return {
+        "declaredOutputCount": expected_count,
+        "checkedDeclaredOutputCount": checked_count,
+        "verifiedDeclaredOutputCount": verified_count,
+        "adoptedDeclaredOutputCount": adopted_count,
+        "missingDeclaredOutputCount": missing_count,
+        "rerunRequiredDeclaredOutputCount": rerun_required_count,
+        "allDeclaredOutputsVerified": not unique_blockers,
+        "declaredOutputAuditReasonCode": str(output_audit.get("reasonCode") or ""),
+        "declaredOutputBlockedReasonCodes": unique_blockers,
+        "declaredOutputs": outputs,
+    }
+
+
+def _declared_output_refs(output_audit: dict[str, Any]) -> list[dict[str, Any]]:
+    outputs: list[dict[str, Any]] = []
+    for item in _rule_items(output_audit.get("outputs")):
+        outputs.append(
+            {
+                "stepId": str(item.get("stepId") or "").strip(),
+                "outputOrdinal": _safe_int(item.get("outputOrdinal")),
+                "invalidationRole": str(item.get("invalidationRole") or "").strip(),
+                "state": str(item.get("state") or "").strip(),
+                "verificationState": str(item.get("verificationState") or "").strip(),
+                "rerunRequired": item.get("rerunRequired") is True,
+                "checksumVerified": item.get("checksumVerified") is True,
+                "pathExposed": False,
+                "storageUriExposed": False,
+            }
+        )
+    return outputs
 
 
 def _scoped_outputs(cache_restore_plan: dict[str, Any], output_audit: dict[str, Any]) -> list[dict[str, Any]]:

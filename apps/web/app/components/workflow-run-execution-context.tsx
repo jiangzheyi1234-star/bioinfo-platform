@@ -342,6 +342,8 @@ function RuleRetryExecutionPlanPreview({ plan }: { plan?: WorkflowRunRuleRetryEx
   const outputClosureLabel = partialOutputClosure
     ? `${partialOutputClosure.reasonCode || "—"} · scoped ${partialOutputClosure.adoptedScopedOutputCount ?? 0}/${
         partialOutputClosure.scopedOutputCount ?? 0
+      } · declared ${partialOutputClosure.adoptedDeclaredOutputCount ?? 0}/${
+        partialOutputClosure.declaredOutputCount ?? 0
       } · preserved ${partialOutputClosure.preservedOutputEdgeCount ?? 0} · unknown ${
         partialOutputClosure.unknownActiveOutputEdgeCount ?? 0
       }`

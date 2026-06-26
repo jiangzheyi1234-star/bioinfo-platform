@@ -505,7 +505,15 @@ export type WorkflowRunPartialRerunOutputClosure = {
   preservedOutputEdgeCount?: number;
   missingPreservedOutputEdgeCount?: number;
   unknownActiveOutputEdgeCount?: number;
+  declaredOutputCount?: number;
+  checkedDeclaredOutputCount?: number;
+  verifiedDeclaredOutputCount?: number;
+  adoptedDeclaredOutputCount?: number;
+  missingDeclaredOutputCount?: number;
+  rerunRequiredDeclaredOutputCount?: number;
   allDeclaredOutputsVerified?: boolean;
+  declaredOutputAuditReasonCode?: string;
+  declaredOutputBlockedReasonCodes?: string[];
   finalizeAllowed?: boolean;
   runStateMutationAllowed?: boolean;
   pathExposed?: boolean;

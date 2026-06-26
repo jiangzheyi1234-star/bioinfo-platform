@@ -90,6 +90,9 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "partialRerunLifecycle?: WorkflowRunPartialRerunLifecycle" in model_contract
     assert "export type WorkflowRunPartialRerunOutputClosure" in model_contract
     assert "partialRerunOutputClosure?: WorkflowRunPartialRerunOutputClosure" in model_contract
+    assert "declaredOutputCount?: number" in model_contract
+    assert "adoptedDeclaredOutputCount?: number" in model_contract
+    assert "declaredOutputBlockedReasonCodes?: string[]" in model_contract
     assert "ruleRetryActivationReadiness?: WorkflowRunActivationReadiness" in model_contract
     assert "activationReadiness?: WorkflowRunActivationReadiness" in model_contract
     assert "cacheRestorePlan?: WorkflowRunRuleCacheRestorePlan" in model_contract
@@ -280,6 +283,7 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "rerun lifecycle" in execution_panel
     assert "outputClosureLabel" in execution_panel
     assert "output closure" in execution_panel
+    assert "declared ${partialOutputClosure.adoptedDeclaredOutputCount" in execution_panel
     assert "verified ${" in execution_panel
     assert "rerun ${outputAudit.rerunRequiredOutputCount" in execution_panel
     assert "plan.selectedAttemptCount" in execution_panel

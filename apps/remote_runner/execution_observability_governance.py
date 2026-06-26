@@ -111,6 +111,18 @@ def record_run_execution_context_read_audit(
             "ruleRetryOutputClosurePendingScopedCount": _safe_int(
                 rule_retry_output_closure.get("pendingScopedOutputCount")
             ),
+            "ruleRetryOutputClosureDeclaredCount": _safe_int(
+                rule_retry_output_closure.get("declaredOutputCount")
+            ),
+            "ruleRetryOutputClosureVerifiedDeclaredCount": _safe_int(
+                rule_retry_output_closure.get("verifiedDeclaredOutputCount")
+            ),
+            "ruleRetryOutputClosureAdoptedDeclaredCount": _safe_int(
+                rule_retry_output_closure.get("adoptedDeclaredOutputCount")
+            ),
+            "ruleRetryOutputClosureAllDeclaredVerified": bool(
+                rule_retry_output_closure.get("allDeclaredOutputsVerified")
+            ),
             "ruleRetryOutputClosurePreservedEdgeCount": _safe_int(
                 rule_retry_output_closure.get("preservedOutputEdgeCount")
             ),
