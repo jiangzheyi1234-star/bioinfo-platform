@@ -13,6 +13,7 @@ from .api_models import (
 )
 from .config import RemoteRunnerConfig
 from .errors import RemoteRunnerOperationBlockedError
+from .execution_rule_retry_projection import rule_retry_blocked
 from .execution_resume_projection import resume_blocked
 from .execution_retry_storage import request_rule_retry
 from .governance_audit import record_governance_audit_event
@@ -46,11 +47,11 @@ async def retry_run_rules_from_request(
     mismatch = _plan_hash_mismatch(plan, request.planHash)
     if mismatch:
         await _record_rule_retry_audit(cfg, run_id, plan, decision="deny", reason_code=mismatch)
-        raise _blocked("ruleRetryExecutionPlan", plan, mismatch)
+        raise rule_retry_blocked(plan, mismatch)
     if plan.get("executionEnabled") is not True:
         reason_code = str(plan.get("executionReasonCode") or "RULE_RETRY_EXECUTION_DISABLED")
         await _record_rule_retry_audit(cfg, run_id, plan, decision="deny", reason_code=reason_code)
-        raise _blocked("ruleRetryExecutionPlan", plan, reason_code)
+        raise rule_retry_blocked(plan, reason_code)
     try:
         result = await run_sync(
             request_rule_retry,
@@ -63,7 +64,7 @@ async def retry_run_rules_from_request(
     except ValueError as exc:
         reason_code = _exception_reason_code(exc, fallback="RULE_RETRY_EXECUTION_REQUEST_BLOCKED")
         await _record_rule_retry_audit(cfg, run_id, plan, decision="deny", reason_code=reason_code)
-        raise _blocked("ruleRetryExecutionPlan", plan, reason_code) from exc
+        raise rule_retry_blocked(plan, reason_code) from exc
     await _record_rule_retry_audit(
         cfg,
         run_id,
@@ -413,17 +414,6 @@ def _plan_hash_mismatch(
     if not current or current != provided:
         return code
     return ""
-
-
-def _blocked(plan_key: str, plan: dict[str, Any], code: str) -> RemoteRunnerOperationBlockedError:
-    return RemoteRunnerOperationBlockedError(
-        code,
-        {
-            "code": code,
-            "message": str(plan.get("message") or f"{plan_key} is blocked."),
-            plan_key: plan,
-        },
-    )
 
 
 def _public_rule_retry_result(result: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:
