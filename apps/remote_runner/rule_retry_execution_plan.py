@@ -319,6 +319,7 @@ def _finalize(
             workdir_reuse_policy=workdir_reuse_policy,
         ),
     }
+    plan_with_orchestration = _clear_resolved_executor_blocker(plan_with_orchestration)
     return attach_plan_hash(
         {
             **plan_with_orchestration,
@@ -329,6 +330,23 @@ def _finalize(
             ),
         }
     )
+
+
+def _clear_resolved_executor_blocker(plan: dict[str, Any]) -> dict[str, Any]:
+    orchestration = _dict_value(plan.get("executorOrchestration"))
+    if orchestration.get("executorReady") is not True:
+        return plan
+    return {
+        **plan,
+        "blockedReasonCodes": [
+            code for code in _list_value(plan.get("blockedReasonCodes")) if code != "PARTIAL_RESTORE_EXECUTOR_UNAVAILABLE"
+        ],
+        "requiresBeforeExecution": [
+            code
+            for code in _list_value(plan.get("requiresBeforeExecution"))
+            if code != "PARTIAL_RESTORE_EXECUTOR_UNAVAILABLE"
+        ],
+    }
 
 
 def _disabled_reason(rule_retry_execution_plan: dict[str, Any]) -> str:

@@ -10,6 +10,7 @@ RERUN_EXECUTOR_ORCHESTRATION_SCHEMA_VERSION = "rerun-executor-orchestration.v1"
 RUN_RESUME_ARTIFACT_ADOPTION_BOUNDARY_SCHEMA_VERSION = "run-resume-artifact-adoption-boundary.v1"
 RUN_RESUME_EXECUTOR_PREVIEW_ONLY = "RUN_RESUME_EXECUTOR_ORCHESTRATION_PREVIEW_ONLY"
 PARTIAL_RERUN_EXECUTOR_PREVIEW_ONLY = "PARTIAL_RERUN_EXECUTOR_ORCHESTRATION_PREVIEW_ONLY"
+RULE_RETRY_MUTATION_API_DISABLED = "RULE_RETRY_MUTATION_API_DISABLED"
 
 
 def build_run_resume_artifact_adoption_boundary(
@@ -179,12 +180,18 @@ def build_rule_partial_rerun_orchestration(
         orchestration_blockers=contract_blockers,
     )
     execution_boundary = build_rule_partial_rerun_execution_boundary(execution_plan)
+    executor_ready = (
+        contract_ready
+        and launch_preflight.get("preflightReady") is True
+        and execution_boundary.get("boundaryReady") is True
+    )
     blocked_reason_codes = _unique_strings(
         [
             *contract_blockers,
-            *[str(item) for item in launch_preflight.get("blockedReasonCodes") or []],
+            *[str(item) for item in launch_preflight.get("evidenceBlockedReasonCodes") or []],
             *[str(item) for item in execution_boundary.get("blockedReasonCodes") or []],
-            PARTIAL_RERUN_EXECUTOR_PREVIEW_ONLY,
+            *([] if executor_ready else [PARTIAL_RERUN_EXECUTOR_PREVIEW_ONLY]),
+            RULE_RETRY_MUTATION_API_DISABLED,
         ]
     )
     return {
@@ -192,8 +199,8 @@ def build_rule_partial_rerun_orchestration(
         "mode": "rule-partial-rerun",
         "available": True,
         "contractReady": contract_ready,
-        "executorReady": False,
-        "reasonCode": PARTIAL_RERUN_EXECUTOR_PREVIEW_ONLY if contract_ready else blocked_reason_codes[0],
+        "executorReady": executor_ready,
+        "reasonCode": RULE_RETRY_MUTATION_API_DISABLED if executor_ready else blocked_reason_codes[0],
         "blockedReasonCodes": blocked_reason_codes,
         "requiresBeforeExecution": blocked_reason_codes,
         "launchPreflight": launch_preflight,
