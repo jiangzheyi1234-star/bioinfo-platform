@@ -434,6 +434,15 @@ HIGH_RISK_API_POLICIES: tuple[ApiGovernancePolicy, ...] = (
     ),
     remote_policy(
         "POST",
+        "/api/v1/artifacts/lifecycle/controller/run-once",
+        "apps/remote_runner/execution_query_routes.py",
+        "artifact.lifecycle.controller.run_once",
+        "artifact_lifecycle_controller",
+        "implemented",
+        "artifact-curator",
+    ),
+    remote_policy(
+        "POST",
         "/api/v1/artifacts/lifecycle/gc/run",
         "apps/remote_runner/execution_query_routes.py",
         "artifact.gc.run",

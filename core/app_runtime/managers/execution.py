@@ -616,6 +616,20 @@ class ExecutionManager(BaseRuntimeManager):
             )
         }
 
+    def run_artifact_lifecycle_controller_once(
+        self,
+        payload: Optional[dict[str, Any]] = None,
+        *,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return {
+            "data": self.call_existing_runner(
+                "run_artifact_lifecycle_controller_once",
+                preferred_server_id=server_id,
+                payload=dict(payload or {}),
+            )
+        }
+
     def preview_artifact_gc(
         self,
         payload: Optional[dict[str, Any]] = None,

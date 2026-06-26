@@ -104,6 +104,26 @@ export type WorkflowArtifactLifecycleControllerTick = {
   gcPreview?: WorkflowArtifactLifecycleGcPreviewSummary;
 };
 
+export type WorkflowArtifactLifecycleControllerRunOnceRequest = {
+  serverId?: string;
+  retentionDays?: number;
+  eligibleRunStatuses?: string[];
+  quotaBytes?: number;
+  maxDeleteBytesPerTick?: number;
+  actor?: string;
+  reason?: string;
+};
+
+export type WorkflowArtifactLifecycleControllerRunOnceResult = WorkflowArtifactLifecycleControllerTick & {
+  schemaVersion?: string;
+  controlsExposed?: boolean;
+  deleteExecutionAuthorized?: boolean;
+};
+
+export type WorkflowArtifactLifecycleControllerRunOnceResponse = {
+  data: WorkflowArtifactLifecycleControllerRunOnceResult;
+};
+
 export type WorkflowArtifactLifecycleControllerTickList = {
   schemaVersion?: string;
   items: WorkflowArtifactLifecycleControllerTick[];

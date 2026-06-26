@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from apps.remote_runner.api_models import (
     ArtifactCachePinReleaseRequest,
     ArtifactCachePinRetainRequest,
+    ArtifactLifecycleControllerRunOnceRequest,
     ResultPackageByteDeleteRequest,
     ResultPackageExportRequest,
     ResultPackageRetireRequest,
@@ -705,6 +706,43 @@ def test_remote_runner_workflow_trigger_scheduler_run_once_request_is_bounded() 
     assert any(error["type"] == "greater_than_equal" and error["loc"] == ("limit",) for error in errors)
     assert any(error["type"] == "extra_forbidden" and error["loc"] == ("serverId",) for error in errors)
     assert any(error["type"] == "extra_forbidden" and error["loc"] == ("now",) for error in errors)
+
+
+def test_remote_runner_artifact_lifecycle_controller_run_once_request_is_bounded() -> None:
+    request = ArtifactLifecycleControllerRunOnceRequest.model_validate(
+        {
+            "confirmation": "run-artifact-lifecycle-controller-once",
+            "retentionDays": 14,
+            "eligibleRunStatuses": ["completed"],
+            "quotaBytes": 0,
+            "maxDeleteBytesPerTick": 2048,
+            "actor": "operator",
+            "reason": "manual lifecycle preview",
+        }
+    )
+
+    assert request.confirmation == "run-artifact-lifecycle-controller-once"
+    assert request.retentionDays == 14
+    assert request.quotaBytes == 0
+    assert request.maxDeleteBytesPerTick == 2048
+
+    with pytest.raises(ValidationError) as exc_info:
+        ArtifactLifecycleControllerRunOnceRequest.model_validate(
+            {
+                "confirmation": "run-now",
+                "retentionDays": -1,
+                "eligibleRunStatuses": [],
+                "quotaBytes": -1,
+                "deleteNow": True,
+            }
+        )
+
+    errors = exc_info.value.errors()
+    assert any(error["type"] == "literal_error" and error["loc"] == ("confirmation",) for error in errors)
+    assert any(error["type"] == "greater_than_equal" and error["loc"] == ("retentionDays",) for error in errors)
+    assert any(error["type"] == "too_short" and error["loc"] == ("eligibleRunStatuses",) for error in errors)
+    assert any(error["type"] == "greater_than_equal" and error["loc"] == ("quotaBytes",) for error in errors)
+    assert any(error["type"] == "extra_forbidden" and error["loc"] == ("deleteNow",) for error in errors)
 
 
 def test_remote_runner_workflow_backfill_cancel_request_requires_confirmation() -> None:

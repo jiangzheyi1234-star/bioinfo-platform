@@ -5,7 +5,6 @@ import Link from "next/link";
 import {
   Archive,
   ArrowLeft,
-  Clock3,
   Eye,
   Gauge,
   Loader2,
@@ -24,8 +23,10 @@ import {
   fetchArtifactLifecycleControllerTicks,
   fetchArtifactLifecycleUsage,
   previewArtifactGc,
+  runArtifactLifecycleControllerOnce,
   runArtifactGc,
 } from "./workflow-artifact-lifecycle-api";
+import { WorkflowArtifactLifecycleControllerPanel } from "./workflow-artifact-lifecycle-controller-panel";
 import type {
   WorkflowArtifactGcPlan,
   WorkflowArtifactGcPlanItem,
@@ -55,6 +56,9 @@ export function WorkflowArtifactLifecyclePage() {
   const [loading, setLoading] = useState(true);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [controllerPreviewTickId, setControllerPreviewTickId] = useState("");
+  const [controllerRunning, setControllerRunning] = useState(false);
+  const [controllerNotice, setControllerNotice] = useState("");
+  const [controllerError, setControllerError] = useState("");
   const [runLoading, setRunLoading] = useState(false);
   const [error, setError] = useState("");
   const [previewError, setPreviewError] = useState("");
@@ -114,6 +118,8 @@ export function WorkflowArtifactLifecyclePage() {
     if (!request) return;
     setPreviewLoading(true);
     setControllerPreviewTickId(tick.tickId || tick.evidenceId || "");
+    setControllerNotice("");
+    setControllerError("");
     setPreviewError("");
     setRunError("");
     setRetentionDaysInput(String(request.retentionDays ?? 30));
@@ -131,6 +137,33 @@ export function WorkflowArtifactLifecyclePage() {
     } finally {
       setPreviewLoading(false);
       setControllerPreviewTickId("");
+    }
+  }
+
+  async function runControllerOnce() {
+    if (controllerRunning) return;
+    setControllerRunning(true);
+    setControllerNotice("");
+    setControllerError("");
+    try {
+      const result = await runArtifactLifecycleControllerOnce({
+        retentionDays: parseRequiredInteger(retentionDaysInput, 30),
+        eligibleRunStatuses: GC_DEFAULT_ELIGIBLE_STATUSES,
+        quotaBytes,
+        maxDeleteBytesPerTick: parseOptionalInteger(maxDeleteBytesInput),
+        actor: "web-ui",
+        reason: "operator requested artifact lifecycle controller tick",
+      });
+      setControllerNotice(
+        result.tickId
+          ? `已生成 controller tick ${result.tickId}`
+          : "已生成 controller tick"
+      );
+      await load(true);
+    } catch (err) {
+      setControllerError(artifactLifecycleErrorMessage(err, "运行 artifact lifecycle controller 失败"));
+    } finally {
+      setControllerRunning(false);
     }
   }
 
@@ -302,20 +335,15 @@ export function WorkflowArtifactLifecyclePage() {
               </form>
             </section>
 
-            <section className="rounded-lg border border-slate-200 bg-white">
-              <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
-                <div className="flex items-center gap-2">
-                  <Clock3 strokeWidth={1.5} className="h-4 w-4 text-slate-500" />
-                  <h2 className="text-sm font-semibold text-slate-900">Controller ticks</h2>
-                </div>
-                <span className="text-xs text-slate-400">{ticks.length} 条</span>
-              </div>
-              <ControllerTickList
-                busyTickId={controllerPreviewTickId}
-                ticks={ticks}
-                onPreviewPolicy={(tick) => void previewControllerTickPolicy(tick)}
-              />
-            </section>
+            <WorkflowArtifactLifecycleControllerPanel
+              busyTickId={controllerPreviewTickId}
+              error={controllerError}
+              notice={controllerNotice}
+              onPreviewPolicy={(tick) => void previewControllerTickPolicy(tick)}
+              onRunControllerOnce={() => void runControllerOnce()}
+              runningController={controllerRunning}
+              ticks={ticks}
+            />
           </>
         )}
       </div>
@@ -584,75 +612,6 @@ function PlanItemList({
   );
 }
 
-function ControllerTickList({
-  busyTickId,
-  onPreviewPolicy,
-  ticks,
-}: {
-  busyTickId: string;
-  onPreviewPolicy: (tick: WorkflowArtifactLifecycleControllerTick) => void;
-  ticks: WorkflowArtifactLifecycleControllerTick[];
-}) {
-  if (ticks.length === 0) {
-    return <div className="px-5 py-10 text-center text-sm text-slate-400">暂无 controller tick</div>;
-  }
-  return (
-    <div className="divide-y divide-slate-100">
-      {ticks.map((tick) => {
-        const tickId = tick.tickId || tick.evidenceId || "";
-        const previewReady = controllerTickCanPreviewPolicy(tick);
-        const busy = Boolean(tickId && busyTickId === tickId);
-        return (
-          <article key={tickId} className="px-5 py-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-mono text-xs text-slate-700">{tick.tickId || "—"}</span>
-                  <DecisionBadge decision={tick.policyDecision?.decision} />
-                  <span className="text-xs text-slate-400">{formatDateTime(tick.evaluatedAt || tick.occurredAt)}</span>
-                </div>
-                <p className="mt-1 text-sm text-slate-600">{tick.policyDecision?.message || tick.policyDecision?.reasonCode || "—"}</p>
-              </div>
-              <div className="grid min-w-[280px] grid-cols-3 gap-2 text-right">
-                <Metric label="候选" value={formatCount(tick.gcPreview?.candidateCount)} compact />
-                <Metric label="候选字节" value={formatBytes(tick.gcPreview?.deleteBytes)} compact />
-                <Metric label="保护" value={formatCount(tick.gcPreview?.protectedCount)} compact />
-              </div>
-            </div>
-            <div className="mt-3 grid gap-3 lg:grid-cols-4">
-              <TickField label="策略" value={`${tick.policy?.retentionDays ?? "—"} 天 / ${formatBytes(tick.policy?.maxDeleteBytesPerTick)}`} />
-              <TickField label="用量" value={`${formatBytes(tick.usage?.activeBytes)} / ${formatCount(tick.usage?.activeStorageObjectCount)} 对象`} />
-              <TickField label="批安全" value={batchSafetyText(tick)} />
-              <TickField label="计划指纹" value={shortFingerprint(tick.gcPreview?.planFingerprint)} />
-            </div>
-            <div className="mt-3 flex justify-end">
-              <Button
-                type="button"
-                variant="outline"
-                className="h-8 bg-white px-2.5 text-xs text-slate-600"
-                disabled={!previewReady || busy}
-                onClick={() => onPreviewPolicy(tick)}
-              >
-                {busy ? <Loader2 strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Eye strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5" />}
-                按策略预览
-              </Button>
-            </div>
-            {tick.retentionHolds?.reasons?.length ? (
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {tick.retentionHolds.reasons.slice(0, 6).map((reason) => (
-                  <span key={reason.reason} className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
-                    {reason.reason || "hold"} · {formatCount(reason.groupCount)} 组 · {formatBytes(reason.bytes)}
-                  </span>
-                ))}
-              </div>
-            ) : null}
-          </article>
-        );
-      })}
-    </div>
-  );
-}
-
 function controllerTickCanPreviewPolicy(tick: WorkflowArtifactLifecycleControllerTick) {
   return (
     tick.policyDecision?.decision === "preview_ready" &&
@@ -706,43 +665,6 @@ function Metric({
       <div className={cn("mt-1 font-semibold text-slate-900", compact ? "text-xs" : "text-sm")}>{value}</div>
     </div>
   );
-}
-
-function DecisionBadge({ decision }: { decision?: string }) {
-  const normalized = (decision || "").toLowerCase();
-  const warn = normalized.includes("ready") || normalized.includes("candidate");
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded border px-1.5 py-0.5 text-[11px]",
-        warn ? "border-amber-200 bg-amber-50 text-amber-700" : "border-slate-200 bg-slate-50 text-slate-600"
-      )}
-    >
-      {decision || "no decision"}
-    </span>
-  );
-}
-
-function TickField({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg bg-slate-50 px-3 py-2">
-      <div className="text-[11px] text-slate-500">{label}</div>
-      <div className="mt-1 text-xs font-medium text-slate-700">{value}</div>
-    </div>
-  );
-}
-
-function batchSafetyText(tick: WorkflowArtifactLifecycleControllerTick) {
-  const safety = tick.batchSafety;
-  if (!safety) return "—";
-  const limited = safety.maxDeleteBytesApplied ? `限制 ${formatCount(safety.limitedGroupCount)} 组` : "未触发限制";
-  return `${formatBytes(safety.candidateBytes)} / ${limited}`;
-}
-
-function shortFingerprint(value?: string) {
-  const normalized = String(value || "").trim();
-  if (!normalized) return "—";
-  return normalized.length > 22 ? `${normalized.slice(0, 18)}...${normalized.slice(-6)}` : normalized;
 }
 
 function parseOptionalInteger(value: string) {

@@ -9,6 +9,7 @@ from .api_models import (
     ArtifactCacheLookupRequest,
     ArtifactCachePinReleaseRequest,
     ArtifactCachePinRetainRequest,
+    ArtifactLifecycleControllerRunOnceRequest,
     ArtifactGcPreviewRequest,
     ArtifactGcRunRequest,
     ResultPackageByteDeleteRequest,
@@ -56,6 +57,7 @@ from .control_service import (
     retry_run_from_request,
     run_artifact_gc_from_request,
 )
+from .artifact_lifecycle_controller_control_route_service import run_artifact_lifecycle_controller_once_request
 from .artifact_lifecycle_controller_read_api import list_artifact_lifecycle_controller_ticks_from_request
 from .run_failure_locator_read_api import get_run_failure_locator_from_request
 from .run_reexecution_service import (
@@ -341,6 +343,14 @@ async def list_artifact_lifecycle_controller_ticks_api(
     authorization: AuthorizationHeader = None,
 ) -> dict[str, Any]:
     return await list_artifact_lifecycle_controller_ticks_from_request(limit, authorization)
+
+
+@router.post("/api/v1/artifacts/lifecycle/controller/run-once", status_code=202)
+async def run_artifact_lifecycle_controller_once_api(
+    request: ArtifactLifecycleControllerRunOnceRequest,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await run_artifact_lifecycle_controller_once_request(request, authorization)
 
 
 @router.post("/api/v1/artifacts/lifecycle/gc/preview")

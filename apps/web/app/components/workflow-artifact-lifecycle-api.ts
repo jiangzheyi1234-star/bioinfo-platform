@@ -1,9 +1,12 @@
 "use client";
 
-import { cachedAsync } from "@/app/lib/async-cache";
+import { cachedAsync, invalidateAsyncCachePrefix } from "@/app/lib/async-cache";
 import { requestLocalApiJson } from "@/app/lib/local-api-client";
 
 import type {
+  WorkflowArtifactLifecycleControllerRunOnceRequest,
+  WorkflowArtifactLifecycleControllerRunOnceResponse,
+  WorkflowArtifactLifecycleControllerRunOnceResult,
   WorkflowArtifactGcPlan,
   WorkflowArtifactGcPreviewRequest,
   WorkflowArtifactGcRunRequest,
@@ -64,6 +67,38 @@ export async function fetchArtifactLifecycleControllerTicks(
   });
 }
 
+export async function runArtifactLifecycleControllerOnce(
+  request: WorkflowArtifactLifecycleControllerRunOnceRequest = {}
+): Promise<WorkflowArtifactLifecycleControllerRunOnceResult> {
+  const body: WorkflowArtifactLifecycleControllerRunOnceRequest & { confirmation: string } = {
+    retentionDays: Math.max(0, Math.floor(request.retentionDays ?? 30)),
+    eligibleRunStatuses: request.eligibleRunStatuses?.length
+      ? request.eligibleRunStatuses
+      : ["completed", "failed", "canceled", "cancelled"],
+    confirmation: "run-artifact-lifecycle-controller-once",
+    actor: request.actor?.trim() || "web-ui",
+    reason: request.reason?.trim() || "operator requested artifact lifecycle controller run-once",
+  };
+  if (request.serverId) body.serverId = request.serverId;
+  const quotaBytes = normalizeOptionalNonNegativeInteger(request.quotaBytes);
+  if (quotaBytes !== undefined) body.quotaBytes = quotaBytes;
+  const maxDeleteBytesPerTick = normalizeOptionalPositiveInteger(request.maxDeleteBytesPerTick);
+  if (maxDeleteBytesPerTick !== undefined) body.maxDeleteBytesPerTick = maxDeleteBytesPerTick;
+
+  const response = await requestLocalApiJson<WorkflowArtifactLifecycleControllerRunOnceResponse>(
+    "POST",
+    "/api/v1/artifacts/lifecycle/controller/run-once",
+    {
+      body,
+      cache: "no-store",
+      timeoutMs: 20_000,
+    }
+  );
+  invalidateAsyncCachePrefix(ARTIFACT_LIFECYCLE_USAGE_CACHE_KEY);
+  invalidateAsyncCachePrefix(ARTIFACT_LIFECYCLE_TICKS_CACHE_KEY);
+  return response.data;
+}
+
 export async function previewArtifactGc(
   request: WorkflowArtifactGcPreviewRequest
 ): Promise<WorkflowArtifactGcPlan> {
@@ -122,4 +157,11 @@ function normalizeOptionalPositiveInteger(value?: number) {
   }
   const normalized = Math.floor(value);
   return normalized > 0 ? normalized : undefined;
+}
+
+function normalizeOptionalNonNegativeInteger(value?: number) {
+  if (value === undefined || value === null || Number.isNaN(value)) {
+    return undefined;
+  }
+  return Math.max(0, Math.floor(value));
 }

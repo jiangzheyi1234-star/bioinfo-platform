@@ -5,7 +5,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
 
+from apps.remote_runner import route_utils
 from apps.remote_runner.artifact_lifecycle_service import (
     ARTIFACT_GC_CONFIRMATION,
     build_artifact_lifecycle_usage,
@@ -19,6 +21,7 @@ from apps.remote_runner.artifact_lifecycle_controller import (
 from apps.remote_runner.artifact_product_service import build_result_artifact_audit, export_result_package
 from apps.remote_runner.evidence_storage import list_evidence_events
 from apps.remote_runner.governance_audit import list_governance_audit_events
+from apps.remote_runner.main import app
 from apps.remote_runner.storage import create_run_record, fetch_run_results, persist_artifact, upsert_tool
 from apps.remote_runner.storage_core import get_connection
 from apps.remote_runner.workflow_revision_storage import create_or_fetch_workflow_revision
@@ -170,6 +173,56 @@ def test_artifact_lifecycle_controller_tick_previews_without_deleting_payloads(t
     assert governance[-1]["details"]["deleteConfirmationRequired"] is True
     assert governance[-1]["details"]["policyDecision"] == "preview_ready"
     assert governance[-1]["details"]["batchLimitApplied"] is False
+
+
+def test_artifact_lifecycle_controller_run_once_route_returns_safe_preview_only_projection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(
+        tmp_path,
+        token="rbac-token",
+        api_token_roles=("artifact-curator",),
+    )
+    artifact = _persist_managed_artifact(cfg, "run_gc_controller_route", status="completed")
+    artifact_path = Path(artifact["path"])
+    monkeypatch.setattr(route_utils, "load_remote_runner_config", lambda: cfg)
+
+    response = TestClient(app).post(
+        "/api/v1/artifacts/lifecycle/controller/run-once",
+        json={
+            "confirmation": "run-artifact-lifecycle-controller-once",
+            "retentionDays": 30,
+            "quotaBytes": 0,
+            "maxDeleteBytesPerTick": 4096,
+            "actor": "operator@example.test",
+        },
+        headers={"Authorization": "Bearer rbac-token"},
+    )
+
+    assert response.status_code == 202
+    data = response.json()["data"]
+    fetched = fetch_run_results(cfg, "run_gc_controller_route")["artifacts"][0]
+    governance = list_governance_audit_events(
+        cfg,
+        subject_kind="artifact_lifecycle_controller",
+        subject_id=data["tickId"],
+        action="artifact.lifecycle.controller.run_once",
+    )["items"]
+    assert data["schemaVersion"] == "h2ometa.artifact-lifecycle-controller-run-once-result.v1"
+    assert data["executionMode"] == "preview-only"
+    assert data["deleteConfirmationRequired"] is True
+    assert data["deleteExecutionAuthorized"] is False
+    assert data["controlsExposed"] is False
+    assert data["gcPreview"]["candidateCount"] == 1
+    assert data["gcPreview"]["deleteBytes"] == artifact["sizeBytes"]
+    assert data["policyDecision"]["deletionAuthorized"] is False
+    assert fetched["lifecycleState"] == "active"
+    assert artifact_path.is_file()
+    assert governance[-1]["details"]["deleteExecutionAuthorized"] is False
+    assert governance[-1]["details"]["controlsExposed"] is False
+    _assert_no_artifact_lifecycle_controller_public_leak(data, artifact)
+    _assert_no_artifact_lifecycle_controller_public_leak(governance[-1]["details"], artifact)
 
 
 def test_artifact_lifecycle_controller_quota_overage_does_not_broaden_gc_eligibility(tmp_path: Path) -> None:
@@ -597,6 +650,32 @@ def _protect_run_as_production_evidence(cfg, run_id: str) -> None:
             (json.dumps(contract), "conda-forge::gc-protected"),
         )
         connection.commit()
+
+
+def _assert_no_artifact_lifecycle_controller_public_leak(
+    payload: dict[str, Any],
+    artifact: dict[str, Any],
+) -> None:
+    encoded = json.dumps(payload, sort_keys=True)
+    forbidden_values = {
+        artifact["artifactId"],
+        artifact["path"],
+        artifact["storageUri"],
+        artifact["sha256"],
+        "run_gc_controller_route",
+    }
+    forbidden_tokens = {
+        "artifactIds",
+        "runIds",
+        "storageUri",
+        "localPath",
+        "path",
+        "sha256",
+    }
+    for value in forbidden_values:
+        assert str(value) not in encoded
+    for token in forbidden_tokens:
+        assert f'"{token}"' not in encoded
 
 
 def _bucket_and_object(storage_uri: str) -> tuple[str, str]:

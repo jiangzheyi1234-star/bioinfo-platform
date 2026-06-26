@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from apps.api.models import (
     ArtifactCachePinReleaseRequest,
     ArtifactCachePinRetainRequest,
+    ArtifactLifecycleControllerRunOnceRequest,
     ResultPackageByteDeleteRequest,
     ResultPackageExportRequest,
     ResultPackageRetireRequest,
@@ -808,6 +809,45 @@ def test_workflow_trigger_scheduler_run_once_request_requires_confirmation_and_b
     assert any(error["type"] == "literal_error" and error["loc"] == ("confirmation",) for error in errors)
     assert any(error["type"] == "less_than_equal" and error["loc"] == ("limit",) for error in errors)
     assert any(error["type"] == "extra_forbidden" and error["loc"] == ("now",) for error in errors)
+
+
+def test_artifact_lifecycle_controller_run_once_request_requires_confirmation_and_bounds() -> None:
+    request = ArtifactLifecycleControllerRunOnceRequest.model_validate(
+        {
+            "serverId": "srv_primary",
+            "confirmation": "run-artifact-lifecycle-controller-once",
+            "retentionDays": 7,
+            "eligibleRunStatuses": ["completed", "failed"],
+            "quotaBytes": 0,
+            "maxDeleteBytesPerTick": 1024,
+            "actor": "operator",
+            "reason": "manual lifecycle preview",
+        }
+    )
+
+    assert request.serverId == "srv_primary"
+    assert request.confirmation == "run-artifact-lifecycle-controller-once"
+    assert request.retentionDays == 7
+    assert request.quotaBytes == 0
+    assert request.maxDeleteBytesPerTick == 1024
+
+    with pytest.raises(ValidationError) as exc_info:
+        ArtifactLifecycleControllerRunOnceRequest.model_validate(
+            {
+                "confirmation": "delete-artifact-payloads",
+                "retentionDays": -1,
+                "eligibleRunStatuses": [],
+                "maxDeleteBytesPerTick": 0,
+                "planFingerprint": "agcfp_unsafe",
+            }
+        )
+
+    errors = exc_info.value.errors()
+    assert any(error["type"] == "literal_error" and error["loc"] == ("confirmation",) for error in errors)
+    assert any(error["type"] == "greater_than_equal" and error["loc"] == ("retentionDays",) for error in errors)
+    assert any(error["type"] == "too_short" and error["loc"] == ("eligibleRunStatuses",) for error in errors)
+    assert any(error["type"] == "greater_than_equal" and error["loc"] == ("maxDeleteBytesPerTick",) for error in errors)
+    assert any(error["type"] == "extra_forbidden" and error["loc"] == ("planFingerprint",) for error in errors)
 
 
 def test_workflow_backfill_cancel_request_requires_confirmation() -> None:

@@ -7,6 +7,7 @@ from apps.api.models import (
     ArtifactCacheLookupRequest,
     ArtifactCachePinReleaseRequest,
     ArtifactCachePinRetainRequest,
+    ArtifactLifecycleControllerRunOnceRequest,
     ArtifactGcPreviewRequest,
     ArtifactGcRunRequest,
     ResultPackageByteDeleteRequest,
@@ -470,6 +471,24 @@ async def list_artifact_lifecycle_controller_ticks_from_request(
         ),
         wrapper="raw",
     )
+
+
+async def run_artifact_lifecycle_controller_once_from_request(
+    request: ArtifactLifecycleControllerRunOnceRequest,
+    *,
+    server_id: str | None = None,
+) -> dict[str, Any]:
+    payload = request_payload(request)
+    server_id_hint = str(payload.pop("serverId", None) or server_id or "").strip() or None
+    result = await run_runtime_payload(
+        lambda: runtime_service().run_artifact_lifecycle_controller_once(
+            payload,
+            server_id=server_id_hint,
+        ),
+        wrapper="raw",
+    )
+    await invalidate_response_cache("runs")
+    return result
 
 
 async def preview_artifact_gc_from_request(request: ArtifactGcPreviewRequest) -> dict[str, Any]:

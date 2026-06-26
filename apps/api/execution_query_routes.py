@@ -10,6 +10,7 @@ from apps.api.models import (
     ArtifactCacheLookupRequest,
     ArtifactCachePinReleaseRequest,
     ArtifactCachePinRetainRequest,
+    ArtifactLifecycleControllerRunOnceRequest,
     ArtifactGcPreviewRequest,
     ArtifactGcRunRequest,
     ResultPackageByteDeleteRequest,
@@ -39,6 +40,7 @@ from apps.api.execution_query_service import (
     download_result_package_from_request,
     get_artifact_lifecycle_usage_from_request,
     list_artifact_lifecycle_controller_ticks_from_request,
+    run_artifact_lifecycle_controller_once_from_request,
     get_result_from_request,
     get_result_preview_from_request,
     get_result_audit_from_request,
@@ -320,6 +322,14 @@ async def list_artifact_lifecycle_controller_ticks(
     limit: int = Query(default=20, ge=1, le=100),
 ) -> dict[str, Any]:
     return await list_artifact_lifecycle_controller_ticks_from_request(server_id=serverId, limit=limit)
+
+
+@router.post("/api/v1/artifacts/lifecycle/controller/run-once", status_code=202)
+async def run_artifact_lifecycle_controller_once(
+    request: ArtifactLifecycleControllerRunOnceRequest,
+    serverId: str | None = None,
+) -> dict[str, Any]:
+    return await run_artifact_lifecycle_controller_once_from_request(request, server_id=serverId)
 
 
 @router.post("/api/v1/artifacts/lifecycle/gc/preview")

@@ -372,6 +372,14 @@ class RunnerExecutionOperationsMixin:
             limit=limit,
         )
 
+    def run_artifact_lifecycle_controller_once(
+        self,
+        payload: Optional[dict[str, Any]] = None,
+        *,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return self.execution.run_artifact_lifecycle_controller_once(payload, server_id=server_id)
+
     def preview_artifact_gc(
         self,
         payload: Optional[dict[str, Any]] = None,

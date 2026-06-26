@@ -319,6 +319,20 @@ class ArtifactGcRunRequest(ArtifactGcPreviewRequest):
     planFingerprint: str = Field(min_length=1)
 
 
+class ArtifactLifecycleControllerRunOnceRequest(ApiRequest):
+    serverId: str | None = None
+    confirmation: Literal["run-artifact-lifecycle-controller-once"]
+    retentionDays: int = Field(default=30, ge=0)
+    eligibleRunStatuses: list[str] = Field(
+        default_factory=lambda: ["completed", "failed", "canceled", "cancelled"],
+        min_length=1,
+    )
+    quotaBytes: int | None = Field(default=None, ge=0)
+    maxDeleteBytesPerTick: int | None = Field(default=None, ge=1)
+    actor: str | None = None
+    reason: str | None = None
+
+
 class ArtifactCacheLookupRequest(ApiRequest):
     serverId: str | None = None
     workflowRevisionId: str = Field(min_length=1)

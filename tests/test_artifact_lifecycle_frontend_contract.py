@@ -11,15 +11,21 @@ WEB_ROUTES = ROOT / "apps" / "web" / "app" / "workflows" / "results"
 def test_artifact_lifecycle_frontend_surface_is_confirmation_gated_gc() -> None:
     api = _read(WEB_COMPONENTS / "workflow-artifact-lifecycle-api.ts")
     page = _read(WEB_COMPONENTS / "workflow-artifact-lifecycle-page.tsx")
+    controller_panel = _read(WEB_COMPONENTS / "workflow-artifact-lifecycle-controller-panel.tsx")
 
     assert "fetchArtifactLifecycleUsage" in api
     assert "fetchArtifactLifecycleControllerTicks" in api
+    assert "runArtifactLifecycleControllerOnce" in api
     assert "previewArtifactGc" in api
     assert "runArtifactGc" in api
     assert "/api/v1/artifacts/lifecycle/usage" in api
     assert "/api/v1/artifacts/lifecycle/controller/ticks" in api
+    assert "/api/v1/artifacts/lifecycle/controller/run-once" in api
     assert "/api/v1/artifacts/lifecycle/gc/preview" in api
     assert "/api/v1/artifacts/lifecycle/gc/run" in api
+    assert "WorkflowArtifactLifecycleControllerRunOnceResponse" in api
+    assert 'confirmation: "run-artifact-lifecycle-controller-once"' in api
+    assert "invalidateAsyncCachePrefix(ARTIFACT_LIFECYCLE_TICKS_CACHE_KEY)" in api
     assert "WorkflowArtifactGcRunRequest" in api
     assert "WorkflowArtifactGcRunResult" in api
     assert "response.data" in api
@@ -35,25 +41,40 @@ def test_artifact_lifecycle_frontend_surface_is_confirmation_gated_gc() -> None:
     assert "previewRequestFromControllerTick" in page
     assert "controllerTickCanPreviewPolicy" in page
     assert "maxDeleteBytesPerTick" in page
+    assert "WorkflowArtifactLifecycleControllerPanel" in page
+    assert "runArtifactLifecycleControllerOnce" in page
+    assert "controllerRunning" in page
+    assert "onRunControllerOnce={() => void runControllerOnce()}" in page
     assert "previewArtifactGc(request)" in page
     assert "planFingerprint: tick.gcPreview" not in page
     assert "planFingerprint: tick.policy" not in page
+    assert "CONTROLLER_RUN_ONCE_CONFIRMATION" in controller_panel
+    assert "run-artifact-lifecycle-controller-once" in controller_panel
+    assert "运行一次 controller" in controller_panel
+    assert "确认运行 controller" in controller_panel
+    assert "preview-only artifact lifecycle controller tick" in controller_panel
+    assert "不会删除产物 payload" in controller_panel
+    assert "disabled={confirmation.trim() !== CONTROLLER_RUN_ONCE_CONFIRMATION || runningController}" in controller_panel
 
 
 def test_artifact_lifecycle_frontend_uses_public_projection_and_safe_preview_summary() -> None:
     model = _read(WEB_COMPONENTS / "workflow-artifact-lifecycle-model.ts")
     page = _read(WEB_COMPONENTS / "workflow-artifact-lifecycle-page.tsx")
+    controller_panel = _read(WEB_COMPONENTS / "workflow-artifact-lifecycle-controller-panel.tsx")
 
     assert "WorkflowArtifactLifecycleUsage" in model
     assert "WorkflowArtifactLifecycleControllerTick" in model
+    assert "WorkflowArtifactLifecycleControllerRunOnceResult" in model
     assert "WorkflowArtifactGcPlan" in model
     assert "WorkflowArtifactGcRunResult" in model
     assert "planFingerprint?: string" in model
-    assert "retentionHolds" in page
-    assert "batchSafety" in page
+    assert "controlsExposed?: boolean" in model
+    assert "deleteExecutionAuthorized?: boolean" in model
     assert "gcPreview" in page
-    assert "shortFingerprint(tick.gcPreview?.planFingerprint)" in page
-    assert "计划指纹" in page
+    assert "retentionHolds" in controller_panel
+    assert "batchSafety" in controller_panel
+    assert "shortFingerprint(tick.gcPreview?.planFingerprint)" in controller_panel
+    assert "计划指纹" in controller_panel
     assert "activeStorageObjectCount" in page
     assert "quotaBytes" in page
     forbidden = {
@@ -67,8 +88,10 @@ def test_artifact_lifecycle_frontend_uses_public_projection_and_safe_preview_sum
     }
     assert not forbidden.intersection(_tokens(model))
     assert not forbidden.intersection(_tokens(page))
+    assert not forbidden.intersection(_tokens(controller_panel))
     assert '"path"' not in model
     assert '"path"' not in page
+    assert '"path"' not in controller_panel
 
 
 def test_artifact_lifecycle_route_and_results_entry_exist() -> None:
