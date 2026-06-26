@@ -40,6 +40,7 @@ from apps.api.models import (
     WorkflowTriggerInboxEventRequest,
     WorkflowTriggerInboxReplayRequest,
     WorkflowTriggerReadinessEventRequest,
+    WorkflowTriggerSchedulerRunOnceRequest,
 )
 
 
@@ -777,6 +778,36 @@ def test_workflow_trigger_backfill_launch_request_requires_confirmation() -> Non
         )
 
     assert any(error["type"] == "missing" and error["loc"] == ("previewId",) for error in missing_preview.value.errors())
+
+
+def test_workflow_trigger_scheduler_run_once_request_requires_confirmation_and_bounds() -> None:
+    request = WorkflowTriggerSchedulerRunOnceRequest.model_validate(
+        {
+            "serverId": "srv_primary",
+            "confirmation": "run-scheduler-once",
+            "limit": 12,
+            "actor": "operator",
+            "reason": "manual scheduler drain",
+        }
+    )
+
+    assert request.confirmation == "run-scheduler-once"
+    assert request.limit == 12
+    assert request.serverId == "srv_primary"
+
+    with pytest.raises(ValidationError) as exc_info:
+        WorkflowTriggerSchedulerRunOnceRequest.model_validate(
+            {
+                "confirmation": "run-now",
+                "limit": 101,
+                "now": "2026-06-23T02:00:00Z",
+            }
+        )
+
+    errors = exc_info.value.errors()
+    assert any(error["type"] == "literal_error" and error["loc"] == ("confirmation",) for error in errors)
+    assert any(error["type"] == "less_than_equal" and error["loc"] == ("limit",) for error in errors)
+    assert any(error["type"] == "extra_forbidden" and error["loc"] == ("now",) for error in errors)
 
 
 def test_workflow_backfill_cancel_request_requires_confirmation() -> None:

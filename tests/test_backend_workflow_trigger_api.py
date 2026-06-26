@@ -14,6 +14,7 @@ from apps.api.models import (
     WorkflowTriggerEventRequest,
     WorkflowTriggerInboxReplayRequest,
     WorkflowTriggerReadinessEventRequest,
+    WorkflowTriggerSchedulerRunOnceRequest,
 )
 from apps.api.main import app
 from apps.api.response_cache import invalidate_response_cache
@@ -30,6 +31,7 @@ from apps.api.workflow_trigger_routes import (
     list_workflow_triggers,
     preview_workflow_trigger_backfill,
     replay_workflow_trigger_inbox_event,
+    run_workflow_trigger_scheduler_once,
     submit_workflow_trigger_event,
     submit_workflow_trigger_readiness_event,
 )
@@ -48,6 +50,10 @@ def test_workflow_trigger_routes_preserve_runtime_wrappers_and_submit_headers(mo
         )
     )
     monkeypatch.setattr("apps.api.workflow_trigger_service.runtime_service", lambda: FakeTriggerRuntime())
+    monkeypatch.setattr(
+        "apps.api.workflow_trigger_scheduler_control_service.runtime_service",
+        lambda: FakeTriggerRuntime(),
+    )
 
     triggers = asyncio.run(list_workflow_triggers(serverId="srv_primary"))
     created = asyncio.run(
@@ -73,6 +79,17 @@ def test_workflow_trigger_routes_preserve_runtime_wrappers_and_submit_headers(mo
         )
     )
     scheduler_ticks = asyncio.run(list_workflow_trigger_scheduler_ticks(serverId="srv_primary", limit=8))
+    scheduler_run_once = asyncio.run(
+        run_workflow_trigger_scheduler_once(
+            WorkflowTriggerSchedulerRunOnceRequest(
+                confirmation="run-scheduler-once",
+                limit=4,
+                actor="operator",
+                reason="manual drain",
+            ),
+            serverId="srv_primary",
+        )
+    )
     backfill_launches = asyncio.run(list_workflow_backfill_launches(serverId="srv_primary", triggerId="wtr_demo"))
     backfill_detail = asyncio.run(get_workflow_backfill_launch("bfl_demo", serverId="srv_primary"))
     response = Response()
@@ -232,6 +249,16 @@ def test_workflow_trigger_routes_preserve_runtime_wrappers_and_submit_headers(mo
         "data": {
             "schemaVersion": "h2ometa.workflow-trigger-scheduler-tick-read-model.v1",
             "items": [{"tickId": "wfts_demo", "cron": {"submitted": 1}, "backfills": {"submitted": 0}}],
+        }
+    }
+    assert scheduler_run_once == {
+        "data": {
+            "schemaVersion": "h2ometa.workflow-trigger-scheduler-run-once-result.v1",
+            "tickId": "wfts_run_once",
+            "evidenceId": "evid_run_once",
+            "controlsExposed": False,
+            "cron": {"submitted": 1},
+            "backfills": {"submitted": 0},
         }
     }
     assert backfill_detail == {"data": {"launchId": "bfl_demo", "partitions": []}}
@@ -413,6 +440,20 @@ class FakeTriggerRuntime:
             "data": {
                 "schemaVersion": "h2ometa.workflow-trigger-scheduler-tick-read-model.v1",
                 "items": [{"tickId": "wfts_demo", "cron": {"submitted": 1}, "backfills": {"submitted": 0}}],
+            }
+        }
+
+    def run_workflow_trigger_scheduler_once(self, payload, *, server_id=None):
+        assert payload == {"confirmation": "run-scheduler-once", "limit": 4, "actor": "operator", "reason": "manual drain"}
+        assert server_id == "srv_primary"
+        return {
+            "data": {
+                "schemaVersion": "h2ometa.workflow-trigger-scheduler-run-once-result.v1",
+                "tickId": "wfts_run_once",
+                "evidenceId": "evid_run_once",
+                "controlsExposed": False,
+                "cron": {"submitted": 1},
+                "backfills": {"submitted": 0},
             }
         }
 

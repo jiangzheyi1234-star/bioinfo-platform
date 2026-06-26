@@ -178,6 +178,8 @@ def test_workflow_trigger_routes_delegate_to_service() -> None:
     service_source = _source("apps/remote_runner/trigger_service.py")
     inbox_source = _source("apps/remote_runner/trigger_inbox_service.py")
     replay_source = _source("apps/remote_runner/trigger_inbox_replay_service.py")
+    scheduler_control_route_source = _source("apps/remote_runner/trigger_scheduler_control_route_service.py")
+    scheduler_control_source = _source("apps/remote_runner/trigger_scheduler_control.py")
     readiness_read_model_source = _source("apps/remote_runner/trigger_readiness_read_model.py")
 
     assert "from .workflow_trigger_routes import router as workflow_trigger_router" in main_source
@@ -198,6 +200,7 @@ def test_workflow_trigger_routes_delegate_to_service() -> None:
     assert "return await get_workflow_trigger_readiness_observation_request(" in route_source
     assert "return await launch_workflow_trigger_backfill_request(" in route_source
     assert "return await preview_workflow_trigger_backfill_request(" in route_source
+    assert "return await run_workflow_trigger_scheduler_once_request(" in route_source
     assert "return await list_workflow_backfill_launches_request(" in route_source
     assert "return await get_workflow_backfill_launch_request(" in route_source
     assert "return await cancel_workflow_backfill_launch_request(" in route_source
@@ -229,6 +232,10 @@ def test_workflow_trigger_routes_delegate_to_service() -> None:
     assert "def submit_workflow_trigger_event_from_request(" in service_source
     assert "def submit_workflow_trigger_inbox_event_from_request(" in inbox_source
     assert "def replay_workflow_trigger_inbox_event_from_request(" in replay_source
+    assert "async def run_workflow_trigger_scheduler_once_request(" in scheduler_control_route_source
+    assert "run_governed_workflow_trigger_scheduler_once" in scheduler_control_route_source
+    assert 'action="workflow_trigger.scheduler.run_once"' in scheduler_control_route_source
+    assert "def run_governed_workflow_trigger_scheduler_once(" in scheduler_control_source
     assert '_authorized_config_from_request(authorization, action="workflow_trigger.inbox_replay")' in control_source
     assert "def submit_workflow_trigger_readiness_event_from_request(" in service_source
     assert "from .trigger_observability_governance import (" in control_source

@@ -14,6 +14,7 @@ from apps.api.models import (
     WorkflowTriggerEventRequest,
     WorkflowTriggerInboxReplayRequest,
     WorkflowTriggerReadinessEventRequest,
+    WorkflowTriggerSchedulerRunOnceRequest,
 )
 from apps.api.workflow_trigger_service import (
     cancel_workflow_backfill_launch_from_request,
@@ -31,6 +32,9 @@ from apps.api.workflow_trigger_service import (
     submit_workflow_trigger_event_response_from_request,
     submit_workflow_trigger_inbox_event_response_from_raw_request,
     submit_workflow_trigger_readiness_event_response_from_request,
+)
+from apps.api.workflow_trigger_scheduler_control_service import (
+    run_workflow_trigger_scheduler_once_from_request,
 )
 
 
@@ -106,6 +110,17 @@ async def list_workflow_trigger_scheduler_ticks(
         refresh=refresh,
         server_id=serverId,
         limit=limit,
+    )
+
+
+@router.post("/api/v1/workflow-trigger-scheduler/run-once", status_code=202)
+async def run_workflow_trigger_scheduler_once(
+    payload: WorkflowTriggerSchedulerRunOnceRequest,
+    serverId: str | None = None,
+) -> dict[str, Any]:
+    return await run_workflow_trigger_scheduler_once_from_request(
+        payload,
+        server_id=serverId,
     )
 
 

@@ -43,6 +43,8 @@ def test_remote_runner_trigger_client_and_proxy_keep_response_shapes() -> None:
     assert 'return self.get_json(f"/api/v1/workflow-backfill-launches/{launch_id}")["data"]' in client_source
     assert "def cancel_workflow_backfill_launch(self, launch_id: str, payload: dict[str, Any])" in client_source
     assert 'return self.post_json(f"/api/v1/workflow-backfill-launches/{launch_id}/cancel", payload)["data"]' in client_source
+    assert "def run_workflow_trigger_scheduler_once(self, payload: dict[str, Any])" in client_source
+    assert 'return self.post_json("/api/v1/workflow-trigger-scheduler/run-once", payload)["data"]' in client_source
 
     assert "def list_workflow_triggers(self, **kwargs) -> dict[str, Any]:" in proxy_source
     assert "def create_workflow_trigger(self, **kwargs) -> dict[str, Any]:" in proxy_source
@@ -58,6 +60,7 @@ def test_remote_runner_trigger_client_and_proxy_keep_response_shapes() -> None:
     assert "def list_workflow_backfill_launches(self, **kwargs) -> dict[str, Any]:" in proxy_source
     assert "def get_workflow_backfill_launch(self, **kwargs) -> dict[str, Any]:" in proxy_source
     assert "def cancel_workflow_backfill_launch(self, **kwargs) -> dict[str, Any]:" in proxy_source
+    assert "def run_workflow_trigger_scheduler_once(self, **kwargs) -> dict[str, Any]:" in proxy_source
     assert 'client.get_json("/api/v1/workflow-triggers")["data"]' in proxy_source
     assert 'client.post_json("/api/v1/workflow-triggers", kwargs["payload"])["data"]' in proxy_source
     assert 'client.post_json(\n            f"/api/v1/workflow-triggers/{kwargs[\'trigger_id\']}/events"' in proxy_source
@@ -73,3 +76,4 @@ def test_remote_runner_trigger_client_and_proxy_keep_response_shapes() -> None:
     assert 'client.get_json(f"/api/v1/workflow-backfill-launches?{query}")["data"]' in proxy_source
     assert 'client.get_json(f"/api/v1/workflow-backfill-launches/{kwargs[\'launch_id\']}")["data"]' in proxy_source
     assert 'f"/api/v1/workflow-backfill-launches/{kwargs[\'launch_id\']}/cancel"' in proxy_source
+    assert '"/api/v1/workflow-trigger-scheduler/run-once"' in proxy_source

@@ -233,6 +233,13 @@ class WorkflowTriggerBackfillLaunchRequest(WorkflowTriggerBackfillPreviewRequest
     actor: str | None = None
 
 
+class WorkflowTriggerSchedulerRunOnceRequest(RemoteRunnerRequest):
+    confirmation: Literal["run-scheduler-once"]
+    limit: int = Field(default=100, ge=1, le=100)
+    actor: str | None = None
+    reason: str | None = None
+
+
 class WorkflowBackfillCancelRequest(RemoteRunnerRequest):
     confirmation: Literal["cancel-backfill"]
     actor: str | None = None

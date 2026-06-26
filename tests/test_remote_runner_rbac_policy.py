@@ -133,7 +133,7 @@ def test_remote_runner_action_authorization_allows_matching_role(tmp_path) -> No
     assert principal.roles == ("data-steward",)
 
 
-def test_inbox_replay_action_uses_workflow_operator_role(tmp_path) -> None:
+def test_workflow_trigger_mutation_actions_use_workflow_operator_role(tmp_path) -> None:
     denied = make_configured_remote_runner(
         tmp_path / "denied",
         token="rbac-token",
@@ -145,18 +145,19 @@ def test_inbox_replay_action_uses_workflow_operator_role(tmp_path) -> None:
         api_token_roles=("workflow-operator",),
     )
 
-    try:
-        authorize_action(denied, "workflow_trigger.inbox_replay")
-    except RemoteRunnerAuthorizationError as exc:
-        assert str(exc) == "runner authorization failed"
-    else:
-        raise AssertionError("workflow_trigger.inbox_replay must require workflow-operator")
+    for action in ("workflow_trigger.inbox_replay", "workflow_trigger.scheduler.run_once"):
+        try:
+            authorize_action(denied, action)
+        except RemoteRunnerAuthorizationError as exc:
+            assert str(exc) == "runner authorization failed"
+        else:
+            raise AssertionError(f"{action} must require workflow-operator")
 
-    deny_events = list_governance_audit_events(denied, action="workflow_trigger.inbox_replay")["items"]
-    assert deny_events[0]["decision"] == "deny"
-    assert deny_events[0]["details"]["requiredRoles"] == ["workflow-operator"]
-    assert deny_events[0]["actorRoles"] == ["auditor"]
-    assert authorize_action(allowed, "workflow_trigger.inbox_replay").roles == ("workflow-operator",)
+        deny_events = list_governance_audit_events(denied, action=action)["items"]
+        assert deny_events[-1]["decision"] == "deny"
+        assert deny_events[-1]["details"]["requiredRoles"] == ["workflow-operator"]
+        assert deny_events[-1]["actorRoles"] == ["auditor"]
+        assert authorize_action(allowed, action).roles == ("workflow-operator",)
 
 
 def test_run_reexecution_actions_use_workflow_operator_role(tmp_path) -> None:

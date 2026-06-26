@@ -33,6 +33,8 @@ def _tracked_policy_sources() -> list[Path]:
             ROOT / "apps" / "remote_runner" / "submission_service.py",
             ROOT / "apps" / "remote_runner" / "tool_service.py",
             ROOT / "apps" / "remote_runner" / "trigger_observability_governance.py",
+            ROOT / "apps" / "remote_runner" / "trigger_scheduler_control.py",
+            ROOT / "apps" / "remote_runner" / "trigger_scheduler_control_route_service.py",
             ROOT / "apps" / "remote_runner" / "trigger_service.py",
         }
     )

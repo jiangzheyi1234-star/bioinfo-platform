@@ -29,6 +29,7 @@ from apps.remote_runner.api_models import (
     WorkflowTriggerInboxEventRequest,
     WorkflowTriggerInboxReplayRequest,
     WorkflowTriggerReadinessEventRequest,
+    WorkflowTriggerSchedulerRunOnceRequest,
 )
 
 
@@ -673,6 +674,37 @@ def test_remote_runner_workflow_trigger_backfill_launch_request_requires_confirm
         )
 
     assert any(error["type"] == "missing" and error["loc"] == ("previewId",) for error in missing_preview.value.errors())
+
+
+def test_remote_runner_workflow_trigger_scheduler_run_once_request_is_bounded() -> None:
+    request = WorkflowTriggerSchedulerRunOnceRequest.model_validate(
+        {
+            "confirmation": "run-scheduler-once",
+            "limit": 10,
+            "actor": "operator",
+            "reason": "manual scheduler drain",
+        }
+    )
+
+    assert request.confirmation == "run-scheduler-once"
+    assert request.limit == 10
+    assert request.actor == "operator"
+
+    with pytest.raises(ValidationError) as exc_info:
+        WorkflowTriggerSchedulerRunOnceRequest.model_validate(
+            {
+                "confirmation": "run-now",
+                "limit": 0,
+                "serverId": "srv_primary",
+                "now": "2026-06-23T02:00:00Z",
+            }
+        )
+
+    errors = exc_info.value.errors()
+    assert any(error["type"] == "literal_error" and error["loc"] == ("confirmation",) for error in errors)
+    assert any(error["type"] == "greater_than_equal" and error["loc"] == ("limit",) for error in errors)
+    assert any(error["type"] == "extra_forbidden" and error["loc"] == ("serverId",) for error in errors)
+    assert any(error["type"] == "extra_forbidden" and error["loc"] == ("now",) for error in errors)
 
 
 def test_remote_runner_workflow_backfill_cancel_request_requires_confirmation() -> None:

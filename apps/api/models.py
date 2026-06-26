@@ -288,6 +288,14 @@ class WorkflowTriggerBackfillLaunchRequest(WorkflowTriggerBackfillPreviewRequest
     actor: str | None = None
 
 
+class WorkflowTriggerSchedulerRunOnceRequest(ApiRequest):
+    serverId: str | None = None
+    confirmation: Literal["run-scheduler-once"]
+    limit: int = Field(default=100, ge=1, le=100)
+    actor: str | None = None
+    reason: str | None = None
+
+
 class WorkflowBackfillCancelRequest(ApiRequest):
     serverId: str | None = None
     confirmation: Literal["cancel-backfill"]

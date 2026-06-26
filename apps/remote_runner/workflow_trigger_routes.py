@@ -13,6 +13,7 @@ from .api_models import (
     WorkflowTriggerEventRequest,
     WorkflowTriggerInboxReplayRequest,
     WorkflowTriggerReadinessEventRequest,
+    WorkflowTriggerSchedulerRunOnceRequest,
 )
 from .control_service import (
     cancel_workflow_backfill_launch_request,
@@ -32,6 +33,7 @@ from .control_service import (
     submit_workflow_trigger_readiness_event_request,
 )
 from .route_headers import AuthorizationHeader
+from .trigger_scheduler_control_route_service import run_workflow_trigger_scheduler_once_request
 from .webhook_raw_request import WebhookRawRequestEnvelope, build_webhook_raw_request_envelope
 
 
@@ -91,6 +93,14 @@ async def list_workflow_trigger_scheduler_ticks(
         authorization,
         limit=limit,
     )
+
+
+@router.post("/api/v1/workflow-trigger-scheduler/run-once", status_code=202)
+async def run_workflow_trigger_scheduler_once(
+    payload: WorkflowTriggerSchedulerRunOnceRequest,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await run_workflow_trigger_scheduler_once_request(payload, authorization)
 
 
 @router.get("/api/v1/workflow-backfill-launches")
