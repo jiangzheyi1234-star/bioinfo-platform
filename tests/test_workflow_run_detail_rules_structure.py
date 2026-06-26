@@ -114,6 +114,12 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "checkedOutputCount?: number" in model_contract
     assert "existingOutputCount?: number" in model_contract
     assert "missingOutputCount?: number" in model_contract
+    assert "verifiedOutputCount?: number" in model_contract
+    assert "checksumVerifiedOutputCount?: number" in model_contract
+    assert "rerunRequiredOutputCount?: number" in model_contract
+    assert "verificationState?: string" in model_contract
+    assert "checksumVerified?: boolean" in model_contract
+    assert "rerunRequired?: boolean" in model_contract
     assert "unsafeOutputCount?: number" in model_contract
     assert "pathExposed?: boolean" in model_contract
     assert "artifactAdoptionBoundary?: WorkflowRunAdoptionBoundary" in model_contract
@@ -256,7 +262,8 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "executionReady?: boolean" in model_contract
     assert "blockedCheckCount?: number" in model_contract
     assert "outputAuditLabel" in execution_panel
-    assert "expected ${outputAudit.expectedOutputCount" in execution_panel
+    assert "verified ${" in execution_panel
+    assert "rerun ${outputAudit.rerunRequiredOutputCount" in execution_panel
     assert "plan.selectedAttemptCount" in execution_panel
     assert "planned only" in execution_panel
     assert "not enabled" in execution_panel

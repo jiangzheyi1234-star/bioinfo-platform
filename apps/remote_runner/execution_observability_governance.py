@@ -36,6 +36,7 @@ def record_run_execution_context_read_audit(
     resume_readiness = _dict_value(context.get("resumeActivationReadiness")) or _dict_value(
         _dict_value(context.get("resumePlan")).get("activationReadiness")
     )
+    resume_output_audit = _dict_value(_dict_value(context.get("resumePlan")).get("incompleteOutputAudit"))
     workdir_reuse_policy = _dict_value(context.get("workdirReusePolicy")) or _dict_value(
         _dict_value(context.get("resumePlan")).get("workdirEvidence")
     )
@@ -68,6 +69,13 @@ def record_run_execution_context_read_audit(
             "resumeActivationReady": bool(resume_readiness.get("executionReady")),
             "resumeActivationBlockedCount": _safe_int(resume_readiness.get("blockedCheckCount")),
             "resumeActivationMutationEnabled": bool(resume_readiness.get("executionEnabled")),
+            "resumeOutputAuditVerifiedCount": _safe_int(resume_output_audit.get("verifiedOutputCount")),
+            "resumeOutputAuditChecksumVerifiedCount": _safe_int(
+                resume_output_audit.get("checksumVerifiedOutputCount")
+            ),
+            "resumeOutputAuditRerunRequiredCount": _safe_int(resume_output_audit.get("rerunRequiredOutputCount")),
+            "resumeOutputAuditUnverifiedCount": _safe_int(resume_output_audit.get("unverifiedOutputCount")),
+            "resumeOutputAuditPathsExposed": bool(resume_output_audit.get("pathExposed")),
             "workdirReusePolicyPresent": bool(workdir_reuse_policy),
             "workdirReusable": bool(workdir_reuse_policy.get("workDirReusable")),
             "workdirDirectoryPresent": bool(workdir_reuse_policy.get("directoryPresent")),

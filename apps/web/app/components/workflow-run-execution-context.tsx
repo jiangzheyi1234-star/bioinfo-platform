@@ -407,7 +407,9 @@ function RunResumePlanPreview({ plan }: { plan?: WorkflowRunResumePlan }) {
     ? `#${latest.attemptNumber ?? "—"} gen ${latest.leaseGeneration ?? "—"} · ${latest.state || latest.status || "unknown"}`
     : "—";
   const outputAuditLabel = outputAudit
-    ? `${outputAudit.reasonCode || "—"} · expected ${outputAudit.expectedOutputCount ?? 0} · present ${outputAudit.existingOutputCount ?? 0} · missing ${outputAudit.missingOutputCount ?? 0} · unsafe ${outputAudit.unsafeOutputCount ?? 0}`
+    ? `${outputAudit.reasonCode || "—"} · expected ${outputAudit.expectedOutputCount ?? 0} · verified ${
+        outputAudit.verifiedOutputCount ?? 0
+      } · rerun ${outputAudit.rerunRequiredOutputCount ?? 0} · unsafe ${outputAudit.unsafeOutputCount ?? 0}`
     : "—";
   const activationReadiness = plan.activationReadiness;
 

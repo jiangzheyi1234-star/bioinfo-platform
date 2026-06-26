@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .artifact_io import artifact_payload_stats
+
 
 RUN_OUTPUT_AUDIT_SCHEMA_VERSION = "run-output-audit.v1"
 
@@ -25,6 +27,10 @@ def build_attempt_output_audit(
         "checkedOutputCount": 0,
         "existingOutputCount": 0,
         "missingOutputCount": 0,
+        "verifiedOutputCount": 0,
+        "checksumVerifiedOutputCount": 0,
+        "rerunRequiredOutputCount": 0,
+        "rerunRequired": False,
         "unsafeOutputCount": 0,
         "uncheckedOutputCount": 0,
         "unverifiedOutputCount": 0,
@@ -58,8 +64,12 @@ def build_attempt_output_audit(
     audited = [_audit_output(name, value, work_dir=work_dir, safe_roots=safe_roots) for name, value in outputs.items()]
     existing_count = sum(1 for item in audited if item["state"] == "present")
     missing_count = sum(1 for item in audited if item["state"] == "missing")
+    verified_count = sum(1 for item in audited if item.get("verificationState") == "verified")
+    checksum_verified_count = sum(1 for item in audited if item.get("checksumVerified") is True)
+    rerun_required_count = sum(1 for item in audited if item.get("rerunRequired") is True)
     unsafe_count = sum(1 for item in audited if item["state"] == "unsafe")
     unchecked_count = sum(1 for item in audited if item["state"] == "unchecked")
+    unverified_count = sum(1 for item in audited if item.get("verificationState") == "unverified")
     checked_count = len(audited) - unchecked_count
     return {
         **base,
@@ -69,14 +79,21 @@ def build_attempt_output_audit(
         "checkedOutputCount": checked_count,
         "existingOutputCount": existing_count,
         "missingOutputCount": missing_count,
+        "verifiedOutputCount": verified_count,
+        "checksumVerifiedOutputCount": checksum_verified_count,
+        "rerunRequiredOutputCount": rerun_required_count,
+        "rerunRequired": rerun_required_count > 0,
         "unsafeOutputCount": unsafe_count,
         "uncheckedOutputCount": unchecked_count,
-        "unverifiedOutputCount": len(audited),
+        "unverifiedOutputCount": unverified_count,
         "reasonCode": _reason_code(
             existing_count=existing_count,
             missing_count=missing_count,
+            verified_count=verified_count,
+            rerun_required_count=rerun_required_count,
             unsafe_count=unsafe_count,
             unchecked_count=unchecked_count,
+            unverified_count=unverified_count,
         ),
         "outputs": audited,
     }
@@ -91,31 +108,48 @@ def _audit_output(
 ) -> dict[str, Any]:
     key = str(name or "").strip()
     if not isinstance(value, str):
-        return {"key": key, "state": "unchecked", "pathExposed": False, "reasonCode": "OUTPUT_REFERENCE_INVALID"}
+        return _unchecked(key, "OUTPUT_REFERENCE_INVALID")
     raw_path = str(value or "").strip()
     if not key or not raw_path:
-        return {"key": key, "state": "unchecked", "pathExposed": False, "reasonCode": "OUTPUT_REFERENCE_INVALID"}
+        return _unchecked(key, "OUTPUT_REFERENCE_INVALID")
     candidate = Path(raw_path)
     if not candidate.is_absolute():
         candidate = work_dir / candidate
     try:
         resolved = candidate.resolve(strict=False)
     except OSError:
-        return {"key": key, "state": "unchecked", "pathExposed": False, "reasonCode": "OUTPUT_PATH_UNRESOLVABLE"}
+        return _unchecked(key, "OUTPUT_PATH_UNRESOLVABLE")
     if not _inside_any_root(resolved, safe_roots):
-        return {"key": key, "state": "unsafe", "pathExposed": False, "reasonCode": "OUTPUT_PATH_OUTSIDE_MANAGED_ROOT"}
-    exists = resolved.exists()
-    payload = {
+        return {
+            "key": key,
+            "state": "unsafe",
+            "verificationState": "unverified",
+            "pathExposed": False,
+            "reasonCode": "OUTPUT_PATH_OUTSIDE_MANAGED_ROOT",
+        }
+    if not resolved.exists():
+        return {
+            "key": key,
+            "state": "missing",
+            "verificationState": "verified",
+            "rerunRequired": True,
+            "pathExposed": False,
+            "reasonCode": "OUTPUT_MISSING_RERUN_REQUIRED",
+        }
+    try:
+        size_bytes, _sha256 = artifact_payload_stats(resolved)
+    except (OSError, ValueError):
+        return _unchecked(key, "OUTPUT_PAYLOAD_CHECKSUM_UNAVAILABLE")
+    return {
         "key": key,
-        "state": "present" if exists else "missing",
+        "state": "present",
+        "verificationState": "verified",
+        "checksumVerified": True,
+        "checksumAlgorithm": "sha256",
+        "sizeBytes": size_bytes,
         "pathExposed": False,
-        "reasonCode": "OUTPUT_PRESENT_UNVERIFIED" if exists else "OUTPUT_MISSING",
+        "reasonCode": "OUTPUT_PRESENT_CHECKSUM_VERIFIED",
     }
-    if exists and resolved.is_file():
-        payload["sizeBytes"] = resolved.stat().st_size
-    if exists and resolved.is_dir():
-        payload["directory"] = True
-    return payload
 
 
 def _safe_roots(
@@ -138,18 +172,35 @@ def _reason_code(
     *,
     existing_count: int,
     missing_count: int,
+    verified_count: int,
+    rerun_required_count: int,
     unsafe_count: int,
     unchecked_count: int,
+    unverified_count: int,
 ) -> str:
     if unsafe_count:
         return "OUTPUT_AUDIT_UNSAFE_REFERENCES"
     if unchecked_count:
         return "OUTPUT_AUDIT_UNCHECKED_REFERENCES"
-    if missing_count:
-        return "OUTPUT_AUDIT_MISSING_OUTPUTS"
+    if unverified_count:
+        return "OUTPUT_AUDIT_UNVERIFIED_OUTPUTS"
+    if missing_count and rerun_required_count == missing_count:
+        return "OUTPUT_AUDIT_RERUN_REQUIRED"
     if existing_count:
-        return "OUTPUT_AUDIT_PRESENT_UNVERIFIED"
+        return "OUTPUT_AUDIT_VERIFIED"
+    if verified_count:
+        return "OUTPUT_AUDIT_VERIFIED"
     return "OUTPUT_AUDIT_EMPTY"
+
+
+def _unchecked(key: str, reason_code: str) -> dict[str, Any]:
+    return {
+        "key": key,
+        "state": "unchecked",
+        "verificationState": "unverified",
+        "pathExposed": False,
+        "reasonCode": reason_code,
+    }
 
 
 def _inside_any_root(path: Path, roots: list[Path]) -> bool:

@@ -38,18 +38,22 @@ def test_run_resume_plan_previews_snakemake_rerun_incomplete_without_enabling_ex
     assert plan["activationReadiness"]["schemaVersion"] == "run-resume-activation-readiness.v1"
     assert plan["activationReadiness"]["executionReady"] is False
     assert plan["activationReadiness"]["executionEnabled"] is False
-    assert plan["activationReadiness"]["reasonCode"] == "OUTPUT_AUDIT_MISSING_OUTPUTS"
-    assert plan["activationReadiness"]["readyCheckCount"] == 3
-    assert plan["activationReadiness"]["blockedCheckCount"] == 3
+    assert plan["activationReadiness"]["reasonCode"] == "ARTIFACT_ADOPTION_UNPROVEN"
+    assert plan["activationReadiness"]["readyCheckCount"] == 4
+    assert plan["activationReadiness"]["blockedCheckCount"] == 2
     assert plan["activationReadiness"]["summary"] == {
         "attemptCount": 1,
         "expectedOutputCount": 2,
         "checkedOutputCount": 2,
         "existingOutputCount": 1,
         "missingOutputCount": 1,
+        "verifiedOutputCount": 2,
+        "checksumVerifiedOutputCount": 1,
+        "rerunRequiredOutputCount": 1,
+        "rerunRequired": 1,
         "unsafeOutputCount": 0,
         "uncheckedOutputCount": 0,
-        "unverifiedOutputCount": 2,
+        "unverifiedOutputCount": 0,
     }
     assert plan["activationReadiness"]["redactionPolicy"]["pathsExposed"] is False
     assert plan["commandPreviewAvailable"] is True
@@ -80,10 +84,18 @@ def test_run_resume_plan_previews_snakemake_rerun_incomplete_without_enabling_ex
     assert plan["incompleteOutputAudit"]["checkedOutputCount"] == 2
     assert plan["incompleteOutputAudit"]["existingOutputCount"] == 1
     assert plan["incompleteOutputAudit"]["missingOutputCount"] == 1
+    assert plan["incompleteOutputAudit"]["verifiedOutputCount"] == 2
+    assert plan["incompleteOutputAudit"]["checksumVerifiedOutputCount"] == 1
+    assert plan["incompleteOutputAudit"]["rerunRequiredOutputCount"] == 1
+    assert plan["incompleteOutputAudit"]["rerunRequired"] is True
     assert plan["incompleteOutputAudit"]["unsafeOutputCount"] == 0
-    assert plan["incompleteOutputAudit"]["unverifiedOutputCount"] == 2
-    assert plan["incompleteOutputAudit"]["reasonCode"] == "OUTPUT_AUDIT_MISSING_OUTPUTS"
+    assert plan["incompleteOutputAudit"]["unverifiedOutputCount"] == 0
+    assert plan["incompleteOutputAudit"]["reasonCode"] == "OUTPUT_AUDIT_RERUN_REQUIRED"
     assert [item["key"] for item in plan["incompleteOutputAudit"]["outputs"]] == ["present", "missing"]
+    assert [item["verificationState"] for item in plan["incompleteOutputAudit"]["outputs"]] == [
+        "verified",
+        "verified",
+    ]
     assert all(item["pathExposed"] is False and "path" not in item for item in plan["incompleteOutputAudit"]["outputs"])
     assert plan["artifactAdoptionBoundary"]["reasonCode"] == "ARTIFACT_ADOPTION_UNPROVEN"
     assert plan["snakemakeOptions"] == {

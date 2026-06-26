@@ -215,7 +215,7 @@ def test_run_execution_context_previews_snakemake_resume_without_enabling_execut
     assert context["resumeActivationReadiness"] == context["resumePlan"]["activationReadiness"]
     assert context["resumeActivationReadiness"]["schemaVersion"] == "run-resume-activation-readiness.v1"
     assert context["resumeActivationReadiness"]["executionReady"] is False
-    assert context["resumeActivationReadiness"]["reasonCode"] == "OUTPUT_AUDIT_MISSING_OUTPUTS"
+    assert context["resumeActivationReadiness"]["reasonCode"] == "ARTIFACT_ADOPTION_UNPROVEN"
     assert context["workdirReusePolicy"] == context["resumePlan"]["workdirEvidence"]
     assert context["resumePlan"]["supported"] is False
     assert context["resumePlan"]["executionEnabled"] is False
@@ -247,8 +247,13 @@ def test_run_execution_context_previews_snakemake_resume_without_enabling_execut
     assert context["resumePlan"]["incompleteOutputAudit"]["checkedOutputCount"] == 2
     assert context["resumePlan"]["incompleteOutputAudit"]["existingOutputCount"] == 1
     assert context["resumePlan"]["incompleteOutputAudit"]["missingOutputCount"] == 1
+    assert context["resumePlan"]["incompleteOutputAudit"]["verifiedOutputCount"] == 2
+    assert context["resumePlan"]["incompleteOutputAudit"]["checksumVerifiedOutputCount"] == 1
+    assert context["resumePlan"]["incompleteOutputAudit"]["rerunRequiredOutputCount"] == 1
+    assert context["resumePlan"]["incompleteOutputAudit"]["rerunRequired"] is True
     assert context["resumePlan"]["incompleteOutputAudit"]["unsafeOutputCount"] == 0
-    assert context["resumePlan"]["incompleteOutputAudit"]["reasonCode"] == "OUTPUT_AUDIT_MISSING_OUTPUTS"
+    assert context["resumePlan"]["incompleteOutputAudit"]["unverifiedOutputCount"] == 0
+    assert context["resumePlan"]["incompleteOutputAudit"]["reasonCode"] == "OUTPUT_AUDIT_RERUN_REQUIRED"
     assert all("path" not in item for item in context["resumePlan"]["incompleteOutputAudit"]["outputs"])
     assert context["resumePlan"]["artifactAdoptionBoundary"]["reasonCode"] == "ARTIFACT_ADOPTION_UNPROVEN"
     assert context["resumePlan"]["snakemakeOptions"] == {

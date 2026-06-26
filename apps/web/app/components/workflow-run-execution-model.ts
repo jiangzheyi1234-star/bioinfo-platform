@@ -434,12 +434,20 @@ export type WorkflowRunResumePlan = {
     checkedOutputCount?: number;
     existingOutputCount?: number;
     missingOutputCount?: number;
+    verifiedOutputCount?: number;
+    checksumVerifiedOutputCount?: number;
+    rerunRequiredOutputCount?: number;
+    rerunRequired?: boolean;
     unsafeOutputCount?: number;
     uncheckedOutputCount?: number;
     unverifiedOutputCount?: number;
     outputs?: Array<{
       key?: string;
       state?: string;
+      verificationState?: string;
+      checksumVerified?: boolean;
+      checksumAlgorithm?: string;
+      rerunRequired?: boolean;
       pathExposed?: boolean;
       reasonCode?: string;
       sizeBytes?: number;

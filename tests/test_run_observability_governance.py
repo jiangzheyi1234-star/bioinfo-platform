@@ -210,6 +210,15 @@ def test_run_observability_routes_record_safe_allow_audit(tmp_path, monkeypatch)
                 "blockedCheckCount": 4,
                 "executionEnabled": False,
             },
+            "resumePlan": {
+                "incompleteOutputAudit": {
+                    "verifiedOutputCount": 2,
+                    "checksumVerifiedOutputCount": 1,
+                    "rerunRequiredOutputCount": 1,
+                    "unverifiedOutputCount": 0,
+                    "pathExposed": False,
+                },
+            },
             "workdirReusePolicy": {
                 "workDirReusable": True,
                 "directoryPresent": True,
@@ -330,6 +339,11 @@ def test_run_observability_routes_record_safe_allow_audit(tmp_path, monkeypatch)
         "resumeActivationReady": False,
         "resumeActivationBlockedCount": 4,
         "resumeActivationMutationEnabled": False,
+        "resumeOutputAuditVerifiedCount": 2,
+        "resumeOutputAuditChecksumVerifiedCount": 1,
+        "resumeOutputAuditRerunRequiredCount": 1,
+        "resumeOutputAuditUnverifiedCount": 0,
+        "resumeOutputAuditPathsExposed": False,
         "workdirReusePolicyPresent": True,
         "workdirReusable": True,
         "workdirDirectoryPresent": True,

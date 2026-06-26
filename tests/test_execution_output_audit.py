@@ -45,11 +45,23 @@ def test_attempt_output_audit_checks_managed_absolute_and_relative_outputs(tmp_p
     assert audit["checkedOutputCount"] == 3
     assert audit["existingOutputCount"] == 2
     assert audit["missingOutputCount"] == 1
+    assert audit["verifiedOutputCount"] == 3
+    assert audit["checksumVerifiedOutputCount"] == 2
+    assert audit["rerunRequiredOutputCount"] == 1
+    assert audit["rerunRequired"] is True
     assert audit["unsafeOutputCount"] == 0
     assert audit["uncheckedOutputCount"] == 0
-    assert audit["unverifiedOutputCount"] == 3
-    assert audit["reasonCode"] == "OUTPUT_AUDIT_MISSING_OUTPUTS"
+    assert audit["unverifiedOutputCount"] == 0
+    assert audit["reasonCode"] == "OUTPUT_AUDIT_RERUN_REQUIRED"
     assert [item["state"] for item in audit["outputs"]] == ["present", "present", "missing"]
+    assert [item["verificationState"] for item in audit["outputs"]] == ["verified", "verified", "verified"]
+    assert [item["reasonCode"] for item in audit["outputs"]] == [
+        "OUTPUT_PRESENT_CHECKSUM_VERIFIED",
+        "OUTPUT_PRESENT_CHECKSUM_VERIFIED",
+        "OUTPUT_MISSING_RERUN_REQUIRED",
+    ]
+    assert [item.get("checksumVerified") for item in audit["outputs"]] == [True, True, None]
+    assert all("sha256" not in item for item in audit["outputs"])
     assert all(item["pathExposed"] is False and "path" not in item for item in audit["outputs"])
 
 
@@ -96,7 +108,9 @@ def test_attempt_output_audit_reports_unsafe_and_unchecked_outputs(tmp_path: Pat
     assert audit["checkedOutputCount"] == 1
     assert audit["unsafeOutputCount"] == 1
     assert audit["uncheckedOutputCount"] == 1
+    assert audit["unverifiedOutputCount"] == 2
     assert audit["reasonCode"] == "OUTPUT_AUDIT_UNSAFE_REFERENCES"
+    assert audit["rerunRequired"] is False
     assert [item["reasonCode"] for item in audit["outputs"]] == [
         "OUTPUT_PATH_OUTSIDE_MANAGED_ROOT",
         "OUTPUT_REFERENCE_INVALID",
