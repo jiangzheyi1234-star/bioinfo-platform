@@ -41,6 +41,7 @@ _ORIGINAL_SUBPROCESS_RUN = getattr(subprocess, "run")
 RUN_JOB_EXECUTION_OPTIONS_SCHEMA_VERSION = "run-job-execution-options.v1"
 SNAKEMAKE_RULE_RERUN_OPTIONS_SCHEMA_VERSION = "snakemake-rule-rerun-options.v1"
 RULE_OUTPUT_ADOPTION_SCOPE_SCHEMA_VERSION = "rule-output-adoption-scope.v1"
+_PLAN_HASH = re.compile(r"^[a-f0-9]{64}$")
 _SAFE_OUTPUT_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 
 def run_snakemake_execution(
@@ -461,6 +462,9 @@ def _rule_output_adoption_scope(execution_options: dict) -> dict[str, Any]:
         raise WorkflowRuntimeCommandError("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_MODE_UNSUPPORTED")
     if scope.get("pathExposed") or scope.get("storageUriExposed"):
         raise WorkflowRuntimeCommandError("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_REDACTION_UNSAFE")
+    source_plan_hash = str(scope.get("sourcePlanHash") or "").strip()
+    if not _PLAN_HASH.fullmatch(source_plan_hash):
+        raise WorkflowRuntimeCommandError("RULE_PARTIAL_RERUN_SOURCE_PLAN_HASH_REQUIRED")
     raw_keys = scope.get("outputKeys")
     if not isinstance(raw_keys, list):
         raise WorkflowRuntimeCommandError("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_KEYS_INVALID")

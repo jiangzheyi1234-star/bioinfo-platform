@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from apps.remote_runner.execution_plan_hash import stable_plan_hash
+from apps.remote_runner.execution_plan_hash import attach_plan_hash, stable_plan_hash
 from apps.remote_runner.rule_retry_execution_plan import build_rule_retry_execution_plan, rule_retry_execution_options
 
 
@@ -315,18 +315,7 @@ def test_rule_retry_execution_options_refuses_disabled_preview_plan() -> None:
 
 
 def test_rule_retry_execution_options_materializes_enabled_plan() -> None:
-    plan = {
-        **build_rule_retry_execution_plan(
-            _rule_retry_plan(),
-            cache_restore_plan=_adopted_cache_restore_plan(),
-        ),
-        "supported": True,
-        "eligible": True,
-        "eligibleNow": True,
-        "executionEnabled": True,
-        "blockedReasonCodes": [],
-        "requiresBeforeExecution": [],
-    }
+    plan = _ready_enabled_rule_retry_execution_plan()
 
     assert rule_retry_execution_options(plan) == {
         "schemaVersion": "run-job-execution-options.v1",
@@ -357,6 +346,25 @@ def test_rule_retry_execution_options_materializes_enabled_plan() -> None:
     }
 
 
+def test_rule_retry_execution_options_refuses_enabled_plan_without_launch_preflight() -> None:
+    plan = {
+        **build_rule_retry_execution_plan(
+            _rule_retry_plan(),
+            cache_restore_plan=_adopted_cache_restore_plan(),
+        ),
+        "supported": True,
+        "eligible": True,
+        "eligibleNow": True,
+        "executionEnabled": True,
+        "blockedReasonCodes": [],
+        "requiresBeforeExecution": [],
+    }
+    plan = attach_plan_hash(plan)
+
+    with pytest.raises(ValueError, match="RULE_PARTIAL_RERUN_LAUNCH_PREFLIGHT_REQUIRED"):
+        rule_retry_execution_options(plan)
+
+
 def test_rule_retry_execution_options_refuses_enabled_plan_without_output_scope() -> None:
     plan = {
         **build_rule_retry_execution_plan(_rule_retry_plan()),
@@ -367,6 +375,8 @@ def test_rule_retry_execution_options_refuses_enabled_plan_without_output_scope(
         "blockedReasonCodes": [],
         "requiresBeforeExecution": [],
     }
+    plan["executorOrchestration"] = {"launchPreflight": {"preflightReady": True}}
+    plan = attach_plan_hash(plan)
 
     with pytest.raises(ValueError, match="RULE_RETRY_OUTPUT_ADOPTION_SCOPE_REQUIRED"):
         rule_retry_execution_options(plan)
@@ -668,3 +678,43 @@ def _ready_partial_rerun_output_closure() -> dict:
         "unknownActiveOutputs": [],
         "declaredOutputs": [],
     }
+
+
+def _ready_enabled_rule_retry_execution_plan() -> dict:
+    plan = build_rule_retry_execution_plan(
+        _rule_retry_plan(),
+        output_invalidation_plan=_applied_output_invalidation_plan(),
+        cache_restore_plan=_adopted_cache_restore_plan(),
+        workdir_reuse_policy={
+            "schemaVersion": "run-workdir-reuse-policy.v1",
+            "workDirReusable": True,
+            "managedRoot": True,
+            "directoryPresent": True,
+            "pathExposed": False,
+            "reasonCode": "WORKDIR_REUSABLE",
+        },
+        incomplete_output_audit={
+            "schemaVersion": "rule-output-audit.v1",
+            "available": True,
+            "expectedOutputCount": 1,
+            "verifiedOutputCount": 1,
+            "rerunRequiredOutputCount": 0,
+            "unverifiedOutputCount": 0,
+            "unsafeOutputCount": 0,
+            "uncheckedOutputCount": 0,
+            "pathExposed": False,
+            "storageUriExposed": False,
+            "reasonCode": "OUTPUT_AUDIT_VERIFIED",
+        },
+        partial_rerun_lifecycle=_ready_partial_rerun_lifecycle(),
+        partial_rerun_output_closure=_ready_partial_rerun_output_closure(),
+    )
+    return attach_plan_hash({
+        **plan,
+        "supported": True,
+        "eligible": True,
+        "eligibleNow": True,
+        "executionEnabled": True,
+        "blockedReasonCodes": [],
+        "requiresBeforeExecution": [],
+    })

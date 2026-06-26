@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from .execution_activation_readiness import build_rule_retry_activation_readiness
 from .execution_output_audit import blocked_rule_retry_output_audit
-from .execution_plan_hash import attach_plan_hash
+from .execution_plan_hash import attach_plan_hash, stable_plan_hash
 from .execution_rerun_orchestration import build_rule_partial_rerun_orchestration
 from .rule_cache_restore_plan import blocked_rule_cache_restore_plan
 from .rule_partial_rerun_output_closure import blocked_rule_partial_rerun_output_closure
@@ -21,6 +22,7 @@ RUN_JOB_EXECUTION_OPTIONS_SCHEMA_VERSION = "run-job-execution-options.v1"
 SNAKEMAKE_RULE_RERUN_OPTIONS_SCHEMA_VERSION = "snakemake-rule-rerun-options.v1"
 RULE_OUTPUT_ADOPTION_SCOPE_SCHEMA_VERSION = "rule-output-adoption-scope.v1"
 UNSAFE_SNAKEMAKE_RULE_RETRY_FLAGS = ["--forceall", "--touch", "--ignore-incomplete"]
+PLAN_HASH_PATTERN = re.compile(r"^[a-f0-9]{64}$")
 DOWNSTREAM_OUTPUT_INVALIDATION_APPLY_REQUIRED = "DOWNSTREAM_OUTPUT_INVALIDATION_APPLY_REQUIRED"
 RULE_RETRY_EXECUTION_BASE_BLOCKERS = [
     "ATTEMPT_OUTPUT_RESTORE_UNPROVEN",
@@ -180,6 +182,15 @@ def rule_retry_execution_options(rule_retry_execution_plan: dict[str, Any]) -> d
     forcerun_rules = normalize_forcerun_rules(raw_forcerun_rules)
     if not forcerun_rules:
         raise ValueError("RULE_RETRY_FORCERUN_RULES_REQUIRED")
+    plan_hash = str(rule_retry_execution_plan.get("planHash") or "").strip()
+    if not PLAN_HASH_PATTERN.fullmatch(plan_hash):
+        raise ValueError("RULE_RETRY_EXECUTION_PLAN_HASH_REQUIRED")
+    if stable_plan_hash(rule_retry_execution_plan) != plan_hash:
+        raise ValueError("RULE_RETRY_EXECUTION_PLAN_HASH_MISMATCH")
+    orchestration = _dict_value(rule_retry_execution_plan.get("executorOrchestration"))
+    launch_preflight = _dict_value(orchestration.get("launchPreflight"))
+    if launch_preflight.get("preflightReady") is not True:
+        raise ValueError("RULE_PARTIAL_RERUN_LAUNCH_PREFLIGHT_REQUIRED")
     output_adoption_scope = _rule_output_adoption_scope(rule_retry_execution_plan)
     return {
         "schemaVersion": RUN_JOB_EXECUTION_OPTIONS_SCHEMA_VERSION,
@@ -353,6 +364,10 @@ def _safe_int(value: Any) -> int:
         return int(value)
     except (TypeError, ValueError):
         return 0
+
+
+def _dict_value(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
 
 
 def _rule_output_adoption_scope(rule_retry_execution_plan: dict[str, Any]) -> dict[str, Any]:

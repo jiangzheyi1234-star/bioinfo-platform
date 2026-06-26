@@ -327,8 +327,18 @@ def test_run_worker_passes_claim_execution_options_to_default_executor(tmp_path:
         "outputAdoptionScope": {
             "schemaVersion": "rule-output-adoption-scope.v1",
             "mode": "rule-partial-rerun",
+            "sourcePlanHash": "c" * 64,
             "outputCount": 1,
             "outputKeys": ["summary"],
+            "outputs": [
+                {
+                    "outputKey": "summary",
+                    "stepId": "align",
+                    "outputOrdinal": 1,
+                    "invalidationRole": "selected",
+                    "cacheHit": True,
+                }
+            ],
             "pathExposed": False,
             "storageUriExposed": False,
         },
@@ -391,6 +401,141 @@ def test_run_worker_passes_claim_execution_options_to_default_executor(tmp_path:
     assert seen[0]["runId"] == run_id
     assert seen[0]["executionOptions"] == execution_options
     assert seen[0]["cancelled"] is False
+
+
+def test_run_worker_rejects_rule_execution_options_without_source_plan_hash(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from apps.remote_runner import run_worker
+
+    cfg = _config(tmp_path)
+    run_id = _create_queued_run(cfg, "run_worker_rule_options_unbound")
+    execution_options = {
+        "schemaVersion": "run-job-execution-options.v1",
+        "snakemake": {
+            "schemaVersion": "snakemake-rule-rerun-options.v1",
+            "rerunIncomplete": True,
+            "forcerunRules": ["align"],
+        },
+        "outputAdoptionScope": {
+            "schemaVersion": "rule-output-adoption-scope.v1",
+            "mode": "rule-partial-rerun",
+            "outputCount": 1,
+            "outputKeys": ["summary"],
+            "pathExposed": False,
+            "storageUriExposed": False,
+        },
+    }
+    with get_connection(cfg) as connection:
+        connection.execute(
+            "UPDATE run_jobs SET execution_options_json = ? WHERE run_id = ?",
+            (json.dumps(execution_options), run_id),
+        )
+        connection.commit()
+
+    def fail_executor(*_args, **_kwargs) -> None:
+        raise AssertionError("executor must not run when claim preflight fails")
+
+    monkeypatch.setattr(run_worker, "run_snakemake_execution", fail_executor)
+
+    result = process_next_run_job(
+        cfg,
+        worker_id="worker_rule_options_unbound",
+        lease_seconds=30,
+        heartbeat_interval_seconds=0,
+        now_factory=FakeClock(),
+    )
+
+    assert result["claimed"] is True
+    assert result["executionError"] == "RULE_PARTIAL_RERUN_SOURCE_PLAN_HASH_REQUIRED"
+    with get_connection(cfg) as connection:
+        run = connection.execute(
+            "SELECT status, stage, last_error_json FROM runs WHERE run_id = ?",
+            (run_id,),
+        ).fetchone()
+    last_error = json.loads(run["last_error_json"])
+    assert dict(run) == {
+        "status": "failed",
+        "stage": "worker",
+        "last_error_json": run["last_error_json"],
+    }
+    assert last_error["code"] == "RUN_WORKER_EXECUTION_FAILED"
+    assert last_error["message"] == "RULE_PARTIAL_RERUN_SOURCE_PLAN_HASH_REQUIRED"
+
+
+def test_run_worker_revalidates_persisted_rule_execution_options_after_claim(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from apps.remote_runner import run_worker
+
+    cfg = _config(tmp_path)
+    run_id = _create_queued_run(cfg, "run_worker_rule_options_tampered")
+    execution_options = {
+        "schemaVersion": "run-job-execution-options.v1",
+        "snakemake": {
+            "schemaVersion": "snakemake-rule-rerun-options.v1",
+            "rerunIncomplete": True,
+            "forcerunRules": ["align"],
+        },
+        "outputAdoptionScope": {
+            "schemaVersion": "rule-output-adoption-scope.v1",
+            "mode": "rule-partial-rerun",
+            "sourcePlanHash": "c" * 64,
+            "outputCount": 1,
+            "outputKeys": ["summary"],
+            "outputs": [
+                {
+                    "outputKey": "summary",
+                    "stepId": "align",
+                    "outputOrdinal": 1,
+                    "invalidationRole": "selected",
+                    "cacheHit": True,
+                }
+            ],
+            "pathExposed": False,
+            "storageUriExposed": False,
+        },
+    }
+    with get_connection(cfg) as connection:
+        connection.execute(
+            "UPDATE run_jobs SET execution_options_json = ? WHERE run_id = ?",
+            (json.dumps(execution_options), run_id),
+        )
+        connection.commit()
+
+    def tamper_persisted_options(_claim: dict[str, Any]) -> None:
+        tampered = {
+            **execution_options,
+            "outputAdoptionScope": {
+                **execution_options["outputAdoptionScope"],
+                "outputKeys": ["other"],
+            },
+        }
+        with get_connection(cfg) as connection:
+            connection.execute(
+                "UPDATE run_jobs SET execution_options_json = ? WHERE run_id = ?",
+                (json.dumps(tampered), run_id),
+            )
+            connection.commit()
+
+    def fail_executor(*_args, **_kwargs) -> None:
+        raise AssertionError("executor must not run when persisted options changed after claim")
+
+    monkeypatch.setattr(run_worker, "run_snakemake_execution", fail_executor)
+
+    result = process_next_run_job(
+        cfg,
+        worker_id="worker_rule_options_tampered",
+        lease_seconds=30,
+        heartbeat_interval_seconds=0,
+        now_factory=FakeClock(),
+        on_attempt_claimed=tamper_persisted_options,
+    )
+
+    assert result["claimed"] is True
+    assert result["executionError"] == "RULE_PARTIAL_RERUN_CLAIM_EXECUTION_OPTIONS_MISMATCH"
 
 
 def test_run_worker_heartbeats_while_fake_executor_runs(tmp_path: Path) -> None:

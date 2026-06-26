@@ -242,8 +242,18 @@ def test_request_run_retry_persists_next_attempt_execution_options(tmp_path):
         "outputAdoptionScope": {
             "schemaVersion": "rule-output-adoption-scope.v1",
             "mode": "rule-partial-rerun",
+            "sourcePlanHash": "d" * 64,
             "outputCount": 1,
             "outputKeys": ["summary"],
+            "outputs": [
+                {
+                    "outputKey": "summary",
+                    "stepId": "align",
+                    "outputOrdinal": 1,
+                    "invalidationRole": "selected",
+                    "cacheHit": True,
+                }
+            ],
             "pathExposed": False,
             "storageUriExposed": False,
         },
@@ -255,6 +265,7 @@ def test_request_run_retry_persists_next_attempt_execution_options(tmp_path):
         actor="api-test",
         reason="operator_rule_retry",
         execution_options=execution_options,
+        scope="rule",
         now="2099-06-07T10:01:00Z",
     )
     second = claim_next_run_job(cfg, worker_id="worker_rule_options_b", now="2099-06-07T10:01:00Z", lease_seconds=30)
@@ -276,6 +287,66 @@ def test_request_run_retry_persists_next_attempt_execution_options(tmp_path):
     assert json.loads(job["execution_options_json"]) == execution_options
     assert json.loads(command["payload_json"])["executionOptions"] == execution_options
     assert json.loads(event["details_json"])["payload"]["executionOptions"] == execution_options
+
+
+def test_request_run_retry_rejects_rule_options_without_rule_scope(tmp_path):
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(
+        cfg,
+        "run_rule_options_scope_required",
+        execution={"retryPolicy": {"maxAttempts": 3, "backoffSeconds": 0}},
+    )
+    first = claim_next_run_job(
+        cfg,
+        worker_id="worker_rule_options_scope_required",
+        now="2099-06-07T10:00:00Z",
+        lease_seconds=30,
+    )
+    assert first is not None
+    update_run_state(
+        cfg,
+        run_id="run_rule_options_scope_required",
+        status="failed",
+        stage="execute",
+        message="First attempt failed.",
+        request_id="req_run_rule_options_scope_required",
+        attempt_id=first["attemptId"],
+        lease_generation=first["leaseGeneration"],
+    )
+    complete_run_attempt(
+        cfg,
+        first["attemptId"],
+        lease_generation=first["leaseGeneration"],
+        state="failed",
+        exit_code=1,
+        now="2099-06-07T10:00:10Z",
+    )
+
+    with pytest.raises(ValueError, match="RULE_RETRY_SCOPE_REQUIRED_FOR_RULE_EXECUTION_OPTIONS"):
+        request_run_retry(
+            cfg,
+            "run_rule_options_scope_required",
+            actor="api-test",
+            reason="operator_rule_retry",
+            execution_options={
+                "schemaVersion": "run-job-execution-options.v1",
+                "snakemake": {
+                    "schemaVersion": "snakemake-rule-rerun-options.v1",
+                    "rerunIncomplete": True,
+                    "forcerunRules": ["align"],
+                },
+                "outputAdoptionScope": {
+                    "schemaVersion": "rule-output-adoption-scope.v1",
+                    "mode": "rule-partial-rerun",
+                    "sourcePlanHash": "d" * 64,
+                    "outputCount": 1,
+                    "outputKeys": ["summary"],
+                    "pathExposed": False,
+                    "storageUriExposed": False,
+                },
+            },
+            now="2099-06-07T10:01:00Z",
+        )
 
 
 def test_request_run_retry_rejects_non_retryable_and_exhausted_runs(tmp_path):

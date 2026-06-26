@@ -13,6 +13,10 @@ from .run_execution_storage import (
     _required_text,
     _stable_json,
 )
+from .rule_partial_rerun_claim_preflight import (
+    rule_partial_rerun_execution_options_requested,
+    validate_rule_partial_rerun_claim_preflight,
+)
 from .rule_retry_execution_plan import rule_retry_execution_options
 from .storage_core import get_connection, now_iso
 
@@ -69,6 +73,15 @@ def request_run_retry(
         backoff_seconds = retry_backoff_seconds_for_job(job, fallback_seconds=0)
         available_at = _add_seconds(requested_at, backoff_seconds)
         normalized_execution_options = execution_options or {}
+        if rule_partial_rerun_execution_options_requested(normalized_execution_options):
+            if normalized_scope != "rule":
+                raise ValueError("RULE_RETRY_SCOPE_REQUIRED_FOR_RULE_EXECUTION_OPTIONS")
+            validate_rule_partial_rerun_claim_preflight(
+                normalized_execution_options,
+                run_id=normalized_run_id,
+                attempt_id="pending-worker-claim",
+                lease_generation=attempt_count + 1,
+            )
         command_payload = {
             "runId": normalized_run_id,
             "scope": normalized_scope,
@@ -170,11 +183,14 @@ def request_rule_retry(
     now: str | None = None,
 ) -> dict[str, Any]:
     normalized_run_id = _required_text(run_id, "RUN_ID_REQUIRED")
-    plan = execution_plan or _current_rule_retry_execution_plan(cfg, normalized_run_id)
+    current_plan = _current_rule_retry_execution_plan(cfg, normalized_run_id)
+    plan = execution_plan or current_plan
     if not isinstance(plan, dict):
         raise ValueError("RULE_RETRY_EXECUTION_PLAN_MISSING")
     if str(plan.get("runId") or "").strip() != normalized_run_id:
         raise ValueError("RULE_RETRY_RUN_ID_MISMATCH")
+    if str(plan.get("planHash") or "").strip() != str(current_plan.get("planHash") or "").strip():
+        raise ValueError("RULE_RETRY_EXECUTION_PLAN_HASH_MISMATCH")
     execution_options = rule_retry_execution_options(plan)
     result = request_run_retry(
         cfg,

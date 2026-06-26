@@ -163,6 +163,7 @@ def test_executor_applies_job_execution_options_to_dry_run_and_run(tmp_path: Pat
             "outputAdoptionScope": {
                 "schemaVersion": "rule-output-adoption-scope.v1",
                 "mode": "rule-partial-rerun",
+                "sourcePlanHash": "b" * 64,
                 "outputCount": 1,
                 "outputKeys": ["summary"],
                 "pathExposed": False,
@@ -193,6 +194,28 @@ def test_executor_rejects_rule_rerun_options_without_output_adoption_scope() -> 
                     "schemaVersion": "snakemake-rule-rerun-options.v1",
                     "rerunIncomplete": True,
                     "forcerunRules": ["align"],
+                },
+            }
+        )
+
+
+def test_executor_rejects_rule_rerun_options_without_source_plan_hash() -> None:
+    with pytest.raises(WorkflowRuntimeCommandError, match="RULE_PARTIAL_RERUN_SOURCE_PLAN_HASH_REQUIRED"):
+        _snakemake_execution_options(
+            {
+                "schemaVersion": "run-job-execution-options.v1",
+                "snakemake": {
+                    "schemaVersion": "snakemake-rule-rerun-options.v1",
+                    "rerunIncomplete": True,
+                    "forcerunRules": ["align"],
+                },
+                "outputAdoptionScope": {
+                    "schemaVersion": "rule-output-adoption-scope.v1",
+                    "mode": "rule-partial-rerun",
+                    "outputCount": 1,
+                    "outputKeys": ["summary"],
+                    "pathExposed": False,
+                    "storageUriExposed": False,
                 },
             }
         )

@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from apps.remote_runner.execution_plan_hash import attach_plan_hash
 from apps.remote_runner.execution_retry_storage import request_rule_retry
 from apps.remote_runner.run_execution_storage import claim_next_run_job, complete_run_attempt
 from apps.remote_runner.rule_execution_storage import upsert_run_rule_state
@@ -50,10 +51,14 @@ def test_request_rule_retry_refuses_current_disabled_execution_plan(tmp_path) ->
     assert retry_event_count == 0
 
 
-def test_request_rule_retry_requeues_enabled_plan_with_rule_scope_and_options(tmp_path) -> None:
+def test_request_rule_retry_requeues_enabled_plan_with_rule_scope_and_options(tmp_path, monkeypatch) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     claim = _create_failed_run(cfg, "run_rule_retry_enabled")
     plan = _enabled_rule_retry_execution_plan("run_rule_retry_enabled", claim["attemptId"], claim["leaseGeneration"])
+    monkeypatch.setattr(
+        "apps.remote_runner.execution_retry_storage._current_rule_retry_execution_plan",
+        lambda _cfg, _run_id: plan,
+    )
 
     result = request_rule_retry(
         cfg,
@@ -81,7 +86,7 @@ def test_request_rule_retry_requeues_enabled_plan_with_rule_scope_and_options(tm
         "outputAdoptionScope": {
             "schemaVersion": "rule-output-adoption-scope.v1",
             "mode": "rule-partial-rerun",
-            "sourcePlanHash": "",
+            "sourcePlanHash": plan["planHash"],
             "scopeSource": "ruleCacheRestorePlan.outputs",
             "outputCount": 1,
             "outputKeys": ["bam"],
@@ -138,6 +143,22 @@ def test_request_rule_retry_rejects_run_id_mismatch_before_mutation(tmp_path) ->
         command_count = connection.execute(
             "SELECT COUNT(*) AS count FROM run_commands WHERE run_id = ? AND command_type = 'retry_run'",
             ("run_rule_retry_mismatch",),
+        ).fetchone()["count"]
+    assert command_count == 0
+
+
+def test_request_rule_retry_rejects_stale_supplied_plan_hash_before_mutation(tmp_path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    claim = _create_failed_run(cfg, "run_rule_retry_stale_plan")
+    plan = _enabled_rule_retry_execution_plan("run_rule_retry_stale_plan", claim["attemptId"], claim["leaseGeneration"])
+
+    with pytest.raises(ValueError, match="RULE_RETRY_EXECUTION_PLAN_HASH_MISMATCH"):
+        request_rule_retry(cfg, "run_rule_retry_stale_plan", execution_plan=plan)
+
+    with get_connection(cfg) as connection:
+        command_count = connection.execute(
+            "SELECT COUNT(*) AS count FROM run_commands WHERE run_id = ? AND command_type = 'retry_run'",
+            ("run_rule_retry_stale_plan",),
         ).fetchone()["count"]
     assert command_count == 0
 
@@ -277,7 +298,7 @@ def _enabled_rule_retry_execution_plan(run_id: str, attempt_id: str, lease_gener
         "runtimeStatusKey": "rule:align",
         "selectedAttempt": selected_attempt,
     }
-    return {
+    return attach_plan_hash({
         "schemaVersion": "rule-retry-execution-plan.v1",
         "runId": run_id,
         "workflowRevisionId": "wfrev_rule_retry",
@@ -321,4 +342,11 @@ def _enabled_rule_retry_execution_plan(run_id: str, attempt_id: str, lease_gener
                 }
             ],
         },
-    }
+        "executorOrchestration": {
+            "launchPreflight": {
+                "preflightReady": True,
+                "pathExposed": False,
+                "storageUriExposed": False,
+            }
+        },
+    })
