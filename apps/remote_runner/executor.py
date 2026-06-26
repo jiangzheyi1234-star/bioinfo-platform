@@ -1,23 +1,23 @@
 from __future__ import annotations
 
 import json
-import re
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 from .config import RemoteRunnerConfig
 from .artifact_input_lineage import record_run_input_artifact_lineage
 from .executor_artifacts import _collect_artifacts
 from .executor_cache import try_complete_from_artifact_cache
+from .executor_execution_options import (
+    _scoped_artifact_collection,
+    _snakemake_execution_options,
+    _target_paths_from_output_keys,
+)
+from .executor_error_handling import mark_workflow_startup_exception
 from .executor_inputs import _build_run_outputs, _resolve_run_inputs
 from .executor_outcomes import _mark_cancelled, _mark_failed
-from .executor_paths import (
-    _process_group_recorder,
-    _resolve_execution_result_dir,
-    _resolve_execution_work_dir,
-)
+from .executor_paths import _process_group_recorder, _resolve_execution_result_dir, _resolve_execution_work_dir
 from .executor_rule_events import run_snakemake_with_rule_events
 from .generated_workflow import GENERATED_TOOL_RUN_PIPELINE_ID, prepare_generated_tool_workflow
 from .pipeline import PipelineRegistryError, get_pipeline, validate_run_spec_for_pipeline
@@ -34,15 +34,9 @@ from .resource_pool import ResourcePool, ResourceRequest, get_default_resource_p
 from .workflow_engine_adapter import (
     SnakemakeEngineAdapter,
     WorkflowRuntimeCommandError,
-    normalize_forcerun_rules,
 )
 
 _ORIGINAL_SUBPROCESS_RUN = getattr(subprocess, "run")
-RUN_JOB_EXECUTION_OPTIONS_SCHEMA_VERSION = "run-job-execution-options.v1"
-SNAKEMAKE_RULE_RERUN_OPTIONS_SCHEMA_VERSION = "snakemake-rule-rerun-options.v1"
-RULE_OUTPUT_ADOPTION_SCOPE_SCHEMA_VERSION = "rule-output-adoption-scope.v1"
-_PLAN_HASH = re.compile(r"^[a-f0-9]{64}$")
-_SAFE_OUTPUT_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 
 def run_snakemake_execution(
     cfg: RemoteRunnerConfig,
@@ -119,7 +113,7 @@ def _execute_snakemake_workflow(
         output_adoption_scope = snakemake_execution_options.pop("output_adoption_scope")
         engine = SnakemakeEngineAdapter(
             cfg,
-            run_command=_patched_subprocess_run_command(),
+            run_command=subprocess.run if subprocess.run is not _ORIGINAL_SUBPROCESS_RUN else None,
             should_cancel=should_cancel_attempt,
             on_process_started=_process_group_recorder(
                 cfg,
@@ -207,6 +201,10 @@ def _execute_snakemake_workflow(
                 attempt_number=attempt_number,
                 graph=dict(pipeline.ui_schema.get("graph") or {}),
             )
+        snakemake_execution_options["target_paths"] = _target_paths_from_output_keys(
+            run_outputs,
+            output_adoption_scope=output_adoption_scope,
+        )
         update_run_state(
             cfg,
             run_id=run_id,
@@ -389,138 +387,13 @@ def _execute_snakemake_workflow(
             lease_generation=lease_generation,
         )
     except (WorkflowRuntimeCommandError, OSError, subprocess.SubprocessError) as exc:
-        detail = str(exc).strip()
-        lowered = detail.lower()
-        message = "Run executor crashed during startup."
-        code = "RUN_EXECUTOR_CRASHED"
-        if isinstance(exc, WorkflowRuntimeCommandError):
-            if "snakemake command not configured" in lowered:
-                message = "Snakemake command is not configured."
-                code = "WORKFLOW_RUNTIME_MISSING"
-            else:
-                code = detail.split(":", 1)[0] or "WORKFLOW_RUNTIME_COMMAND_FAILED"
-                message = "Run execution options are invalid."
-        elif isinstance(exc, FileNotFoundError) or "no such file or directory" in lowered:
-            if engine_stage == "dry_run":
-                message = "Failed to launch Snakemake dry-run."
-                code = "SNAKEMAKE_DRY_RUN_LAUNCH_FAILED"
-            elif engine_stage == "run":
-                message = "Failed to launch Snakemake execution."
-                code = "SNAKEMAKE_EXECUTION_LAUNCH_FAILED"
-        _mark_failed(
+        mark_workflow_startup_exception(
             cfg,
             run_id=run_id,
             request_id=request_id,
-            message=message,
-            scope="startup",
-            code=code,
-            stderr=detail or "Run executor crashed during startup.",
-            result_dir=str(result_dir),
+            exc=exc,
+            result_dir=result_dir,
             attempt_id=attempt_id,
             lease_generation=lease_generation,
+            engine_stage=engine_stage,
         )
-
-def _patched_subprocess_run_command() -> Callable[..., object] | None:
-    current = getattr(subprocess, "run")
-    return current if current is not _ORIGINAL_SUBPROCESS_RUN else None
-
-
-def _snakemake_execution_options(execution_options: dict | None) -> dict[str, Any]:
-    if not execution_options:
-        return {"forcerun_rules": None, "rerun_incomplete": False, "output_adoption_scope": None}
-    if execution_options.get("schemaVersion") != RUN_JOB_EXECUTION_OPTIONS_SCHEMA_VERSION:
-        raise WorkflowRuntimeCommandError("RUN_JOB_EXECUTION_OPTIONS_SCHEMA_UNSUPPORTED")
-    snakemake = execution_options.get("snakemake")
-    if not isinstance(snakemake, dict):
-        return {"forcerun_rules": None, "rerun_incomplete": False, "output_adoption_scope": None}
-    if snakemake.get("schemaVersion") != SNAKEMAKE_RULE_RERUN_OPTIONS_SCHEMA_VERSION:
-        raise WorkflowRuntimeCommandError("SNAKEMAKE_EXECUTION_OPTIONS_SCHEMA_UNSUPPORTED")
-    raw_rules = snakemake.get("forcerunRules")
-    if raw_rules is not None and not isinstance(raw_rules, list):
-        raise WorkflowRuntimeCommandError("SNAKEMAKE_FORCERUN_RULES_INVALID")
-    forcerun_rules = normalize_forcerun_rules(raw_rules)
-    rerun_incomplete = bool(snakemake.get("rerunIncomplete"))
-    output_adoption_scope = (
-        _rule_output_adoption_scope(execution_options)
-        if rerun_incomplete or forcerun_rules
-        else None
-    )
-    return {
-        "forcerun_rules": forcerun_rules,
-        "rerun_incomplete": rerun_incomplete,
-        "output_adoption_scope": output_adoption_scope,
-    }
-
-
-def _rule_output_adoption_scope(execution_options: dict) -> dict[str, Any]:
-    scope = execution_options.get("outputAdoptionScope")
-    if not isinstance(scope, dict):
-        raise WorkflowRuntimeCommandError("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_REQUIRED")
-    if scope.get("schemaVersion") != RULE_OUTPUT_ADOPTION_SCOPE_SCHEMA_VERSION:
-        raise WorkflowRuntimeCommandError("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_SCHEMA_UNSUPPORTED")
-    if scope.get("mode") != "rule-partial-rerun":
-        raise WorkflowRuntimeCommandError("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_MODE_UNSUPPORTED")
-    if scope.get("pathExposed") or scope.get("storageUriExposed"):
-        raise WorkflowRuntimeCommandError("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_REDACTION_UNSAFE")
-    source_plan_hash = str(scope.get("sourcePlanHash") or "").strip()
-    if not _PLAN_HASH.fullmatch(source_plan_hash):
-        raise WorkflowRuntimeCommandError("RULE_PARTIAL_RERUN_SOURCE_PLAN_HASH_REQUIRED")
-    raw_keys = scope.get("outputKeys")
-    if not isinstance(raw_keys, list):
-        raise WorkflowRuntimeCommandError("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_KEYS_INVALID")
-    output_keys: list[str] = []
-    seen: set[str] = set()
-    for raw_key in raw_keys:
-        output_key = str(raw_key or "").strip()
-        if not _SAFE_OUTPUT_KEY.fullmatch(output_key):
-            raise WorkflowRuntimeCommandError("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_KEY_UNSAFE")
-        if output_key not in seen:
-            output_keys.append(output_key)
-            seen.add(output_key)
-    if not output_keys:
-        raise WorkflowRuntimeCommandError("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_REQUIRED")
-    declared_count = _safe_int(scope.get("outputCount"))
-    if declared_count and declared_count != len(output_keys):
-        raise WorkflowRuntimeCommandError("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_COUNT_MISMATCH")
-    return {"output_keys": output_keys}
-
-
-def _scoped_artifact_collection(
-    output_schema: dict | None,
-    outputs: dict[str, str] | None,
-    *,
-    output_adoption_scope: dict[str, Any] | None,
-) -> tuple[dict | None, dict[str, str] | None]:
-    if output_adoption_scope is None:
-        return output_schema, outputs
-    if not isinstance(output_schema, dict) or not isinstance(outputs, dict):
-        return output_schema, outputs
-    output_keys = list(output_adoption_scope.get("output_keys") or [])
-    output_key_set = set(output_keys)
-    artifacts = output_schema.get("artifacts")
-    if not isinstance(artifacts, list):
-        return output_schema, outputs
-    missing_outputs = [key for key in output_keys if key not in outputs]
-    if missing_outputs:
-        raise WorkflowRuntimeCommandError("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_UNKNOWN_OUTPUT")
-    scoped_artifacts = []
-    seen_artifact_keys: set[str] = set()
-    for artifact in artifacts:
-        if not isinstance(artifact, dict):
-            continue
-        artifact_key = str(artifact.get("key") or "").strip()
-        if artifact_key in output_key_set:
-            scoped_artifacts.append(artifact)
-            seen_artifact_keys.add(artifact_key)
-    if seen_artifact_keys != output_key_set:
-        raise WorkflowRuntimeCommandError("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_UNKNOWN_ARTIFACT")
-    return {**output_schema, "artifacts": scoped_artifacts}, {
-        key: value for key, value in outputs.items() if key in output_key_set
-    }
-
-
-def _safe_int(value: Any) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return 0

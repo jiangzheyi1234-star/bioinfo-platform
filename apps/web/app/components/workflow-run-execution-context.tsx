@@ -292,6 +292,7 @@ function RuleRetryExecutionPlanPreview({ plan }: { plan?: WorkflowRunRuleRetryEx
   const options = plan.snakemakeOptions;
   const argsPreview = options?.argsPreview || [];
   const forcerunRules = options?.forcerunRules || [];
+  const targetOutputKeys = options?.targetOutputKeys || [];
   const unsafeFlags = options?.unsafeFlagsProhibited || [];
   const selectedRules = plan.selectedRules || [];
   const rerunRules = uniqueRuleRefs(plan.rerunScope?.rules || []);
@@ -373,10 +374,11 @@ function RuleRetryExecutionPlanPreview({ plan }: { plan?: WorkflowRunRuleRetryEx
           {plan.commandPreviewAvailable ? "preview only" : "blocked"}
         </span>
       </div>
-      <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
         <ExecutionMetric label="selected" value={String(selectedRules.length)} />
         <ExecutionMetric label="scope" value={String(rerunRules.length)} />
         <ExecutionMetric label="forcerun" value={String(forcerunRules.length)} />
+        <ExecutionMetric label="targets" value={String(targetOutputKeys.length)} />
         <ExecutionMetric label="cache" value={cacheLabel} />
         <ExecutionMetric label="reason" value={plan.reasonCode || "—"} />
       </div>

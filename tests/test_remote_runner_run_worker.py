@@ -330,6 +330,7 @@ def test_run_worker_passes_claim_execution_options_to_default_executor(tmp_path:
             "sourcePlanHash": "c" * 64,
             "outputCount": 1,
             "outputKeys": ["summary"],
+            "targetOutputKeys": ["summary"],
             "outputs": [
                 {
                     "outputKey": "summary",
@@ -423,6 +424,7 @@ def test_run_worker_rejects_rule_execution_options_without_source_plan_hash(
             "mode": "rule-partial-rerun",
             "outputCount": 1,
             "outputKeys": ["summary"],
+            "targetOutputKeys": ["summary"],
             "pathExposed": False,
             "storageUriExposed": False,
         },
@@ -485,6 +487,7 @@ def test_run_worker_revalidates_persisted_rule_execution_options_after_claim(
             "sourcePlanHash": "c" * 64,
             "outputCount": 1,
             "outputKeys": ["summary"],
+            "targetOutputKeys": ["summary"],
             "outputs": [
                 {
                     "outputKey": "summary",

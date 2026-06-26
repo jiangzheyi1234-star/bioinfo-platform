@@ -33,3 +33,31 @@ def test_rule_partial_rerun_execution_boundary_blocks_without_explicit_targets()
     assert boundary["runStateMutationAllowed"] is False
     assert boundary["pathExposed"] is False
     assert boundary["storageUriExposed"] is False
+
+
+def test_rule_partial_rerun_execution_boundary_accepts_target_output_keys_before_finalize() -> None:
+    boundary = build_rule_partial_rerun_execution_boundary(
+        {
+            "selectedRules": [{"ruleName": "align"}],
+            "rerunScope": {"ruleCount": 2},
+            "snakemakeOptions": {
+                "schemaVersion": "snakemake-rule-rerun-options.v1",
+                "rerunIncomplete": True,
+                "forcerunRules": ["align"],
+                "targetOutputKeys": ["summary"],
+                "argsPreview": ["--rerun-incomplete", "--forcerun", "align"],
+            },
+            "cacheRestorePlan": {"outputCount": 1},
+            "partialRerunLifecycle": {"targetAttempt": {"creationMode": "next-worker-claim"}},
+            "partialRerunOutputClosure": {"declaredOutputCount": 1},
+        }
+    )
+
+    assert boundary["boundaryReady"] is False
+    assert boundary["reasonCode"] == "RULE_PARTIAL_RERUN_FINALIZE_BOUNDARY_UNPROVEN"
+    assert boundary["blockedReasonCodes"] == ["RULE_PARTIAL_RERUN_FINALIZE_BOUNDARY_UNPROVEN"]
+    assert boundary["explicitTargetCount"] == 1
+    assert boundary["explicitTargetsPresent"] is True
+    assert boundary["scopedOutputCount"] == 1
+    assert boundary["declaredOutputCount"] == 1
+    assert boundary["finalizeRunAllowed"] is False

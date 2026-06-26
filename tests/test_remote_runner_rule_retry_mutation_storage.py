@@ -82,6 +82,7 @@ def test_request_rule_retry_requeues_enabled_plan_with_rule_scope_and_options(tm
             "schemaVersion": "snakemake-rule-rerun-options.v1",
             "rerunIncomplete": True,
             "forcerunRules": ["align"],
+            "targetOutputKeys": ["bam"],
         },
         "outputAdoptionScope": {
             "schemaVersion": "rule-output-adoption-scope.v1",
@@ -90,6 +91,7 @@ def test_request_rule_retry_requeues_enabled_plan_with_rule_scope_and_options(tm
             "scopeSource": "ruleCacheRestorePlan.outputs",
             "outputCount": 1,
             "outputKeys": ["bam"],
+            "targetOutputKeys": ["bam"],
             "outputs": [
                 {
                     "outputKey": "bam",
@@ -316,6 +318,7 @@ def _enabled_rule_retry_execution_plan(run_id: str, attempt_id: str, lease_gener
             "schemaVersion": "snakemake-rule-rerun-options.v1",
             "rerunIncomplete": True,
             "forcerunRules": ["align"],
+            "targetOutputKeys": ["bam"],
             "argsPreview": ["--rerun-incomplete", "--forcerun", "align"],
             "unsafeFlagsProhibited": ["--forceall", "--touch", "--ignore-incomplete"],
         },

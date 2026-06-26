@@ -14,7 +14,11 @@ def build_rule_partial_rerun_execution_boundary(execution_plan: dict[str, Any]) 
     output_closure = _dict_value(execution_plan.get("partialRerunOutputClosure"))
     rerun_scope = _dict_value(execution_plan.get("rerunScope"))
     selected_rules = _list_value(execution_plan.get("selectedRules"))
-    explicit_targets = _list_value(snakemake.get("targetOutputs")) or _list_value(snakemake.get("targets"))
+    explicit_targets = (
+        _list_value(snakemake.get("targetOutputKeys"))
+        or _list_value(snakemake.get("targetOutputs"))
+        or _list_value(snakemake.get("targets"))
+    )
     scoped_output_count = _safe_int(cache_restore.get("outputCount"))
     declared_output_count = _safe_int(output_closure.get("declaredOutputCount"))
     finalize_would_complete_run = True

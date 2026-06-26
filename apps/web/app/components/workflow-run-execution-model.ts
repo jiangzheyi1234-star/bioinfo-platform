@@ -177,6 +177,7 @@ export type WorkflowRunRuleRetrySnakemakeOptions = {
   schemaVersion?: string;
   rerunIncomplete?: boolean;
   forcerunRules?: string[];
+  targetOutputKeys?: string[];
   argsPreview?: string[];
   unsafeFlagsProhibited?: string[];
 };

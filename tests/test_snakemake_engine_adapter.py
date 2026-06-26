@@ -94,6 +94,7 @@ def test_snakemake_engine_adapter_builds_explicit_rule_rerun_commands(tmp_path: 
         config_path=tmp_path / "work" / "run-config.json",
         forcerun_rules=["align", "align"],
         rerun_incomplete=True,
+        target_paths=[str(tmp_path / "work" / "results" / "summary.tsv")],
     )
     adapter.run(
         snakefile=tmp_path / "workflow" / "Snakefile",
@@ -102,6 +103,7 @@ def test_snakemake_engine_adapter_builds_explicit_rule_rerun_commands(tmp_path: 
         event_log_path=tmp_path / "logs" / "snakemake-events.jsonl",
         forcerun_rules=["align"],
         rerun_incomplete=True,
+        target_paths=[str(tmp_path / "work" / "results" / "summary.tsv")],
     )
 
     for command in calls:
@@ -112,6 +114,7 @@ def test_snakemake_engine_adapter_builds_explicit_rule_rerun_commands(tmp_path: 
         assert "--forceall" not in command
         assert "--touch" not in command
         assert "--ignore-incomplete" not in command
+        assert command[-1] == str(tmp_path / "work" / "results" / "summary.tsv")
     assert "-n" in calls[0]
     assert "-n" not in calls[1]
     assert "--logger-h2ometa-event-path" in calls[1]
@@ -144,6 +147,35 @@ def test_snakemake_engine_adapter_rejects_unsafe_forcerun_rule_names(tmp_path: P
         assert "SNAKEMAKE_FORCERUN_RULE_INVALID" in str(exc)
     else:
         raise AssertionError("Unsafe rule name was accepted")
+
+
+def test_snakemake_engine_adapter_rejects_flag_like_targets(tmp_path: Path) -> None:
+    cfg = RemoteRunnerConfig(
+        token="phase2-token",
+        data_root=str(tmp_path / "shared"),
+        db_path=str(tmp_path / "shared" / "data" / "runner.db"),
+        uploads_dir=str(tmp_path / "shared" / "uploads"),
+        results_dir=str(tmp_path / "shared" / "results"),
+        work_dir=str(tmp_path / "shared" / "work"),
+        logs_dir=str(tmp_path / "shared" / "logs"),
+        release_dir=str(tmp_path / "release"),
+        snakemake_command=str(tmp_path / "snakemake"),
+    )
+    (Path(cfg.release_dir) / "snakemake_wrappers").mkdir(parents=True, exist_ok=True)
+    ensure_runtime_layout(cfg)
+    adapter = SnakemakeEngineAdapter(cfg, run_command=lambda *_args, **_kwargs: None)
+
+    try:
+        adapter.dry_run(
+            snakefile=tmp_path / "workflow" / "Snakefile",
+            work_dir=tmp_path / "work",
+            config_path=tmp_path / "work" / "run-config.json",
+            target_paths=["--touch"],
+        )
+    except WorkflowRuntimeCommandError as exc:
+        assert "SNAKEMAKE_TARGET_PATH_INVALID" in str(exc)
+    else:
+        raise AssertionError("Flag-like target path was accepted")
 
 
 def test_snakemake_engine_adapter_passes_live_poll_callback_to_process_runner(monkeypatch, tmp_path: Path) -> None:

@@ -24,6 +24,7 @@ class WorkflowEngineAdapter(Protocol):
         config_path: Path,
         forcerun_rules: list[str] | None = None,
         rerun_incomplete: bool = False,
+        target_paths: list[str] | None = None,
     ) -> Any:
         ...
 
@@ -36,6 +37,7 @@ class WorkflowEngineAdapter(Protocol):
         event_log_path: Path | None = None,
         forcerun_rules: list[str] | None = None,
         rerun_incomplete: bool = False,
+        target_paths: list[str] | None = None,
         on_poll: ProcessPoll | None = None,
     ) -> Any:
         ...
@@ -65,18 +67,18 @@ class SnakemakeEngineAdapter:
         config_path: Path,
         forcerun_rules: list[str] | None = None,
         rerun_incomplete: bool = False,
+        target_paths: list[str] | None = None,
     ) -> Any:
         return self._execute(
-            [
-                *self._execution_args(
-                    snakefile=snakefile,
-                    work_dir=work_dir,
-                    config_path=config_path,
-                    forcerun_rules=forcerun_rules,
-                    rerun_incomplete=rerun_incomplete,
-                ),
-                "-n",
-            ]
+            self._execution_args(
+                snakefile=snakefile,
+                work_dir=work_dir,
+                config_path=config_path,
+                forcerun_rules=forcerun_rules,
+                rerun_incomplete=rerun_incomplete,
+                dry_run=True,
+                target_paths=target_paths,
+            )
         )
 
     def run(
@@ -88,6 +90,7 @@ class SnakemakeEngineAdapter:
         event_log_path: Path | None = None,
         forcerun_rules: list[str] | None = None,
         rerun_incomplete: bool = False,
+        target_paths: list[str] | None = None,
         on_poll: ProcessPoll | None = None,
     ) -> Any:
         return self._execute(
@@ -98,6 +101,7 @@ class SnakemakeEngineAdapter:
                 event_log_path=event_log_path,
                 forcerun_rules=forcerun_rules,
                 rerun_incomplete=rerun_incomplete,
+                target_paths=target_paths,
             ),
             on_poll=on_poll,
         )
@@ -129,9 +133,12 @@ class SnakemakeEngineAdapter:
         event_log_path: Path | None = None,
         forcerun_rules: list[str] | None = None,
         rerun_incomplete: bool = False,
+        dry_run: bool = False,
+        target_paths: list[str] | None = None,
     ) -> list[str]:
         profile_args = self._profile_args()
         normalized_forcerun_rules = normalize_forcerun_rules(forcerun_rules)
+        normalized_target_paths = normalize_target_paths(target_paths)
         command = [
             *self._snakemake_command(),
             "--snakefile",
@@ -148,6 +155,8 @@ class SnakemakeEngineAdapter:
             command.append("--rerun-incomplete")
         if normalized_forcerun_rules:
             command.extend(["--forcerun", *normalized_forcerun_rules])
+        if dry_run:
+            command.append("-n")
         if event_log_path is not None:
             command.extend(
                 [
@@ -158,6 +167,7 @@ class SnakemakeEngineAdapter:
                     str(event_log_path),
                 ]
             )
+        command.extend(normalized_target_paths)
         return command
 
     def _snakemake_command(self) -> list[str]:
@@ -185,4 +195,19 @@ def normalize_forcerun_rules(rules: list[str] | None) -> list[str]:
         if rule not in seen:
             normalized.append(rule)
             seen.add(rule)
+    return normalized
+
+
+def normalize_target_paths(target_paths: list[str] | None) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw_path in target_paths or []:
+        target_path = str(raw_path or "").strip()
+        if not target_path:
+            raise WorkflowRuntimeCommandError("SNAKEMAKE_TARGET_PATH_REQUIRED")
+        if target_path.startswith("-"):
+            raise WorkflowRuntimeCommandError("SNAKEMAKE_TARGET_PATH_INVALID")
+        if target_path not in seen:
+            normalized.append(target_path)
+            seen.add(target_path)
     return normalized

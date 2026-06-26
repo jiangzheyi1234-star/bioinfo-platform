@@ -32,6 +32,7 @@ def test_rule_partial_rerun_claim_preflight_accepts_plan_bound_scope() -> None:
     assert preflight["sourcePlanHash"] == "a" * 64
     assert preflight["outputAdoptionScopeReady"] is True
     assert preflight["outputAdoptionScopeOutputCount"] == 1
+    assert preflight["targetOutputKeys"] == ["bam"]
     assert preflight["forcerunRuleCount"] == 1
     assert preflight["pathExposed"] is False
     assert preflight["storageUriExposed"] is False
@@ -79,6 +80,22 @@ def test_rule_partial_rerun_claim_preflight_rejects_scope_output_mismatch() -> N
 
     assert preflight["claimReady"] is False
     assert "RULE_RERUN_OUTPUT_ADOPTION_SCOPE_OUTPUTS_MISMATCH" in preflight["blockedReasonCodes"]
+
+
+def test_rule_partial_rerun_claim_preflight_rejects_missing_target_output_keys() -> None:
+    options = _execution_options()
+    del options["outputAdoptionScope"]["targetOutputKeys"]
+
+    preflight = build_rule_partial_rerun_claim_preflight(
+        options,
+        run_id="run_rule_claim",
+        attempt_id="att_rule_claim",
+        lease_generation=2,
+    )
+
+    assert preflight["claimReady"] is False
+    assert preflight["reasonCode"] == "RULE_RERUN_TARGET_OUTPUT_KEYS_REQUIRED"
+    assert preflight["outputAdoptionScopeReady"] is False
 
 
 def test_rule_partial_rerun_claim_state_validates_active_job_attempt_and_lease(tmp_path) -> None:
@@ -142,6 +159,7 @@ def _execution_options(source_plan_hash: str = "a" * 64) -> dict:
             "scopeSource": "ruleCacheRestorePlan.outputs",
             "outputCount": 1,
             "outputKeys": ["bam"],
+            "targetOutputKeys": ["bam"],
             "outputs": [
                 {
                     "outputKey": "bam",

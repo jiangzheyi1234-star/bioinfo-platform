@@ -131,6 +131,7 @@ def build_rule_retry_execution_plan(
             partial_rerun_output_closure=partial_rerun_output_closure,
         )
 
+    target_output_keys = _output_keys_from_cache_restore(resolved_cache_restore_plan)
     args_preview = ["--rerun-incomplete", "--forcerun", *forcerun_rules]
     return _finalize(
         {
@@ -152,6 +153,7 @@ def build_rule_retry_execution_plan(
                 "schemaVersion": SNAKEMAKE_RULE_RERUN_OPTIONS_SCHEMA_VERSION,
                 "rerunIncomplete": True,
                 "forcerunRules": forcerun_rules,
+                "targetOutputKeys": target_output_keys,
                 "argsPreview": args_preview,
                 "unsafeFlagsProhibited": UNSAFE_SNAKEMAKE_RULE_RETRY_FLAGS,
             },
@@ -198,6 +200,7 @@ def rule_retry_execution_options(rule_retry_execution_plan: dict[str, Any]) -> d
             "schemaVersion": SNAKEMAKE_RULE_RERUN_OPTIONS_SCHEMA_VERSION,
             "rerunIncomplete": True,
             "forcerunRules": forcerun_rules,
+            "targetOutputKeys": list(output_adoption_scope.get("targetOutputKeys") or []),
         },
         "outputAdoptionScope": output_adoption_scope,
     }
@@ -246,6 +249,7 @@ def _base_plan(
             "schemaVersion": SNAKEMAKE_RULE_RERUN_OPTIONS_SCHEMA_VERSION,
             "rerunIncomplete": False,
             "forcerunRules": [],
+            "targetOutputKeys": [],
             "argsPreview": [],
             "unsafeFlagsProhibited": UNSAFE_SNAKEMAKE_RULE_RETRY_FLAGS,
         },
@@ -370,6 +374,10 @@ def _dict_value(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _list_value(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
 def _rule_output_adoption_scope(rule_retry_execution_plan: dict[str, Any]) -> dict[str, Any]:
     cache_restore = rule_retry_execution_plan.get("cacheRestorePlan")
     if not isinstance(cache_restore, dict):
@@ -413,10 +421,27 @@ def _rule_output_adoption_scope(rule_retry_execution_plan: dict[str, Any]) -> di
         "scopeSource": "ruleCacheRestorePlan.outputs",
         "outputCount": len(entries),
         "outputKeys": [entry["outputKey"] for entry in entries],
+        "targetOutputKeys": [entry["outputKey"] for entry in entries],
         "outputs": entries,
         "pathExposed": False,
         "storageUriExposed": False,
     }
+
+
+def _output_keys_from_cache_restore(cache_restore: dict[str, Any]) -> list[str]:
+    output_keys: list[str] = []
+    seen: set[str] = set()
+    for rule in _list_value(cache_restore.get("rules")):
+        if not isinstance(rule, dict):
+            continue
+        for output in _list_value(rule.get("outputs")):
+            if not isinstance(output, dict):
+                continue
+            output_key = str(output.get("artifactKey") or "").strip()
+            if output_key and output_key not in seen:
+                output_keys.append(output_key)
+                seen.add(output_key)
+    return output_keys
 
 
 def _rule_ref(rule: dict[str, Any]) -> dict[str, Any]:

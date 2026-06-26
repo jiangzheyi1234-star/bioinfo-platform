@@ -440,6 +440,7 @@ def test_run_execution_context_reports_rule_retry_downstream_invalidation_plan(t
     assert [item["ruleName"] for item in execution_plan["rerunScope"]["rules"]] == ["align", "report"]
     assert execution_plan["snakemakeOptions"]["argsPreview"] == ["--rerun-incomplete", "--forcerun", "align"]
     assert execution_plan["snakemakeOptions"]["forcerunRules"] == ["align"]
+    assert execution_plan["snakemakeOptions"]["targetOutputKeys"] == ["report"]
     assert "--forceall" in execution_plan["snakemakeOptions"]["unsafeFlagsProhibited"]
     assert "RULE_RETRY_MUTATION_API_DISABLED" in execution_plan["blockedReasonCodes"]
     assert "CACHE_ADOPTION_UNPROVEN" in execution_plan["blockedReasonCodes"]

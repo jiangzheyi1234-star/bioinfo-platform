@@ -42,6 +42,7 @@ def build_rule_partial_rerun_claim_preflight(
     scope = _dict_value(options.get("outputAdoptionScope"))
     source_plan_hash = str(scope.get("sourcePlanHash") or "").strip()
     output_keys = _output_keys(scope)
+    target_output_keys = _output_keys(scope, key_name="targetOutputKeys")
     outputs = _scope_outputs(scope)
 
     blockers: list[str] = []
@@ -74,6 +75,12 @@ def build_rule_partial_rerun_claim_preflight(
         blockers.append("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_KEY_UNSAFE")
     if _safe_int(scope.get("outputCount")) != len(output_keys):
         blockers.append("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_COUNT_MISMATCH")
+    if not target_output_keys:
+        blockers.append("RULE_RERUN_TARGET_OUTPUT_KEYS_REQUIRED")
+    if any(not _SAFE_OUTPUT_KEY.fullmatch(key) for key in target_output_keys):
+        blockers.append("RULE_RERUN_TARGET_OUTPUT_KEY_UNSAFE")
+    if set(target_output_keys) != set(output_keys):
+        blockers.append("RULE_RERUN_TARGET_OUTPUT_KEYS_MISMATCH")
     if outputs:
         output_key_set = set(output_keys)
         output_entries_by_key = {str(item.get("outputKey") or "").strip(): item for item in outputs}
@@ -103,10 +110,14 @@ def build_rule_partial_rerun_claim_preflight(
         "leaseGenerationPresent": _safe_int(lease_generation) > 0,
         "sourcePlanHash": source_plan_hash,
         "sourcePlanHashPresent": bool(source_plan_hash),
-        "outputAdoptionScopeReady": not any(item.startswith("RULE_RERUN_OUTPUT_ADOPTION_SCOPE") for item in unique_blockers)
+        "outputAdoptionScopeReady": not any(
+            item.startswith("RULE_RERUN_OUTPUT_ADOPTION_SCOPE") or item.startswith("RULE_RERUN_TARGET_OUTPUT")
+            for item in unique_blockers
+        )
         and "RULE_PARTIAL_RERUN_SOURCE_PLAN_HASH_REQUIRED" not in unique_blockers,
         "outputAdoptionScopeOutputCount": len(output_keys),
         "outputKeys": output_keys,
+        "targetOutputKeys": target_output_keys,
         "forcerunRuleCount": len(forcerun_rules),
         "rerunIncomplete": snakemake.get("rerunIncomplete") is True,
         "pathExposed": scope.get("pathExposed") is True,
@@ -204,8 +215,8 @@ def _dict_value(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def _output_keys(scope: dict[str, Any]) -> list[str]:
-    raw_keys = scope.get("outputKeys")
+def _output_keys(scope: dict[str, Any], *, key_name: str = "outputKeys") -> list[str]:
+    raw_keys = scope.get(key_name)
     if not isinstance(raw_keys, list):
         return []
     seen: set[str] = set()

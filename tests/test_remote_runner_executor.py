@@ -166,6 +166,7 @@ def test_executor_applies_job_execution_options_to_dry_run_and_run(tmp_path: Pat
                 "sourcePlanHash": "b" * 64,
                 "outputCount": 1,
                 "outputKeys": ["summary"],
+                "targetOutputKeys": ["summary"],
                 "pathExposed": False,
                 "storageUriExposed": False,
             },
@@ -178,6 +179,7 @@ def test_executor_applies_job_execution_options_to_dry_run_and_run(tmp_path: Pat
         assert "--forcerun" in command
         assert command[command.index("--forcerun") + 1] == "align"
         assert command.count("align") == 1
+        assert command[-1].endswith("done.txt")
         assert "--forceall" not in command
         assert "--touch" not in command
         assert "--ignore-incomplete" not in command
@@ -212,6 +214,30 @@ def test_executor_rejects_rule_rerun_options_without_source_plan_hash() -> None:
                 "outputAdoptionScope": {
                     "schemaVersion": "rule-output-adoption-scope.v1",
                     "mode": "rule-partial-rerun",
+                    "outputCount": 1,
+                    "outputKeys": ["summary"],
+                    "targetOutputKeys": ["summary"],
+                    "pathExposed": False,
+                    "storageUriExposed": False,
+                },
+            }
+        )
+
+
+def test_executor_rejects_rule_rerun_options_without_target_output_keys() -> None:
+    with pytest.raises(WorkflowRuntimeCommandError, match="RULE_RERUN_TARGET_OUTPUT_KEYS_REQUIRED"):
+        _snakemake_execution_options(
+            {
+                "schemaVersion": "run-job-execution-options.v1",
+                "snakemake": {
+                    "schemaVersion": "snakemake-rule-rerun-options.v1",
+                    "rerunIncomplete": True,
+                    "forcerunRules": ["align"],
+                },
+                "outputAdoptionScope": {
+                    "schemaVersion": "rule-output-adoption-scope.v1",
+                    "mode": "rule-partial-rerun",
+                    "sourcePlanHash": "b" * 64,
                     "outputCount": 1,
                     "outputKeys": ["summary"],
                     "pathExposed": False,

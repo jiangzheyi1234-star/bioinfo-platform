@@ -40,6 +40,7 @@ def test_rule_retry_execution_plan_previews_snakemake_forcerun_options_without_e
         "schemaVersion": "snakemake-rule-rerun-options.v1",
         "rerunIncomplete": True,
         "forcerunRules": ["align"],
+        "targetOutputKeys": [],
         "argsPreview": ["--rerun-incomplete", "--forcerun", "align"],
         "unsafeFlagsProhibited": ["--forceall", "--touch", "--ignore-incomplete"],
     }
@@ -178,8 +179,9 @@ def test_rule_retry_execution_plan_marks_orchestration_contract_ready_without_en
     execution_boundary = orchestration["executionBoundary"]
     assert execution_boundary["schemaVersion"] == "rule-partial-rerun-execution-boundary.v1"
     assert execution_boundary["boundaryReady"] is False
-    assert execution_boundary["reasonCode"] == "SNAKEMAKE_RULE_RERUN_EXPLICIT_TARGETS_REQUIRED"
-    assert execution_boundary["explicitTargetCount"] == 0
+    assert execution_boundary["reasonCode"] == "RULE_PARTIAL_RERUN_FINALIZE_BOUNDARY_UNPROVEN"
+    assert execution_boundary["explicitTargetCount"] == 1
+    assert execution_boundary["explicitTargetsPresent"] is True
     assert execution_boundary["scopedOutputCount"] == 1
     assert execution_boundary["finalizeWouldCompleteRun"] is True
     assert execution_boundary["finalizeRunAllowed"] is False
@@ -200,6 +202,7 @@ def test_rule_retry_execution_plan_marks_orchestration_contract_ready_without_en
     assert launch_preflight["lifecycleContractReady"] is True
     assert launch_preflight["outputAdoptionScopeReady"] is True
     assert launch_preflight["outputAdoptionScope"]["outputKeys"] == ["bam"]
+    assert launch_preflight["outputAdoptionScope"]["targetOutputKeys"] == ["bam"]
     assert launch_preflight["outputAdoptionScopeOutputCount"] == 1
     assert launch_preflight["executionPlanHashRevalidationRequired"] is True
     assert launch_preflight["sourcePlanHashRevalidationRequired"] is True
@@ -218,7 +221,7 @@ def test_rule_retry_execution_plan_marks_orchestration_contract_ready_without_en
     assert readiness_checks["partialRerunLaunchPreflight"]["ready"] is True
     assert readiness_checks["partialRerunExecutionBoundary"]["ready"] is False
     assert readiness_checks["partialRerunExecutionBoundary"]["reasonCode"] == (
-        "SNAKEMAKE_RULE_RERUN_EXPLICIT_TARGETS_REQUIRED"
+        "RULE_PARTIAL_RERUN_FINALIZE_BOUNDARY_UNPROVEN"
     )
     assert readiness_checks["partialRerunExecutor"]["reasonCode"] == (
         "PARTIAL_RERUN_EXECUTOR_ORCHESTRATION_PREVIEW_ONLY"
@@ -342,6 +345,7 @@ def test_rule_retry_execution_options_materializes_enabled_plan() -> None:
             "schemaVersion": "snakemake-rule-rerun-options.v1",
             "rerunIncomplete": True,
             "forcerunRules": ["align"],
+            "targetOutputKeys": ["bam"],
         },
         "outputAdoptionScope": {
             "schemaVersion": "rule-output-adoption-scope.v1",
@@ -350,6 +354,7 @@ def test_rule_retry_execution_options_materializes_enabled_plan() -> None:
             "scopeSource": "ruleCacheRestorePlan.outputs",
             "outputCount": 1,
             "outputKeys": ["bam"],
+            "targetOutputKeys": ["bam"],
             "outputs": [
                 {
                     "outputKey": "bam",
