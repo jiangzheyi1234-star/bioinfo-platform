@@ -324,6 +324,14 @@ def test_run_worker_passes_claim_execution_options_to_default_executor(tmp_path:
             "rerunIncomplete": True,
             "forcerunRules": ["align"],
         },
+        "outputAdoptionScope": {
+            "schemaVersion": "rule-output-adoption-scope.v1",
+            "mode": "rule-partial-rerun",
+            "outputCount": 1,
+            "outputKeys": ["summary"],
+            "pathExposed": False,
+            "storageUriExposed": False,
+        },
     }
     with get_connection(cfg) as connection:
         connection.execute(

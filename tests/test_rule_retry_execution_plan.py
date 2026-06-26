@@ -175,7 +175,10 @@ def test_rule_retry_execution_options_refuses_disabled_preview_plan() -> None:
 
 def test_rule_retry_execution_options_materializes_enabled_plan() -> None:
     plan = {
-        **build_rule_retry_execution_plan(_rule_retry_plan()),
+        **build_rule_retry_execution_plan(
+            _rule_retry_plan(),
+            cache_restore_plan=_adopted_cache_restore_plan(),
+        ),
         "supported": True,
         "eligible": True,
         "eligibleNow": True,
@@ -191,7 +194,41 @@ def test_rule_retry_execution_options_materializes_enabled_plan() -> None:
             "rerunIncomplete": True,
             "forcerunRules": ["align"],
         },
+        "outputAdoptionScope": {
+            "schemaVersion": "rule-output-adoption-scope.v1",
+            "mode": "rule-partial-rerun",
+            "sourcePlanHash": plan["planHash"],
+            "scopeSource": "ruleCacheRestorePlan.outputs",
+            "outputCount": 1,
+            "outputKeys": ["bam"],
+            "outputs": [
+                {
+                    "outputKey": "bam",
+                    "stepId": "align",
+                    "outputOrdinal": 1,
+                    "invalidationRole": "selected",
+                    "cacheHit": True,
+                }
+            ],
+            "pathExposed": False,
+            "storageUriExposed": False,
+        },
     }
+
+
+def test_rule_retry_execution_options_refuses_enabled_plan_without_output_scope() -> None:
+    plan = {
+        **build_rule_retry_execution_plan(_rule_retry_plan()),
+        "supported": True,
+        "eligible": True,
+        "eligibleNow": True,
+        "executionEnabled": True,
+        "blockedReasonCodes": [],
+        "requiresBeforeExecution": [],
+    }
+
+    with pytest.raises(ValueError, match="RULE_RETRY_OUTPUT_ADOPTION_SCOPE_REQUIRED"):
+        rule_retry_execution_options(plan)
 
 
 def test_rule_retry_execution_plan_blocks_without_selected_attempt() -> None:
@@ -392,4 +429,19 @@ def _adopted_cache_restore_plan() -> dict:
             "promotedFinalOutputCount": 1,
             "adoptedCandidateOutputCount": 1,
         },
+        "rules": [
+            {
+                "ruleName": "align",
+                "stepId": "align",
+                "invalidationRole": "selected",
+                "outputs": [
+                    {
+                        "artifactKey": "bam",
+                        "stepId": "align",
+                        "outputOrdinal": 1,
+                        "cacheHit": True,
+                    }
+                ],
+            }
+        ],
     }

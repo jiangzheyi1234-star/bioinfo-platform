@@ -235,6 +235,7 @@ Delivered foundation:
 - Run resume and rule retry readiness now share a path-redacted `run-workdir-reuse-policy.v1` contract. It proves only that the latest attempt workdir is under the managed work root, exists as a directory, and contains `run-config.json`; it exposes no raw path and does not permit executor workdir reuse or public mutation.
 - Run resume incomplete-output audit now treats safe missing declared outputs as verified `rerunRequired` evidence for Snakemake `--rerun-incomplete`, while present outputs require checksum/size stats and unsafe, invalid, or checksum-failed outputs remain unverified. The public resume mutation API still stays disabled.
 - Rule retry incomplete-output audit now derives expected selected/downstream outputs from the applied output-invalidation scope, run-config declared outputs, cache-restore candidates, and active artifact edges. It exposes only path-redacted verified/adopted/rerun-required/unsafe counts, blocks executor orchestration on unchecked or unverified evidence, and keeps public rule-level mutation disabled.
+- Internal rule-rerun execution options now require a path-redacted `rule-output-adoption-scope.v1` derived from the selected/downstream cache-restore output scope. The executor refuses rule-rerun options without that scope and filters artifact collection to scoped outputs only, so future partial retry execution cannot silently adopt preserved outputs as if it were a whole-run completion.
 - Run resume and rule-level partial rerun now share a path-redacted executor orchestration contract. It binds Snakemake `--rerun-incomplete` / `--forcerun` previews to explicit attempt, workdir, result-dir, cache-adoption-bypass, post-execution artifact-adoption, queue-mutation, and run-state-mutation gates; resume artifact adoption boundary can be verified from safe output audit evidence, while actual executor/public mutation remains disabled.
 - Run detail now includes a normalized `failureLocator` read model for failed runs, connecting the failed rule, latest failure event, stderr tail, related artifacts, and lineage edges. The fallback stderr projection also terminalizes non-failed rules as `blocked` instead of leaving stale `running` child states under a failed run.
 - Failed-rule diagnostics now resolve rule log paths only through managed result artifacts and artifact preview APIs, expose capped rule-log tails when a matching log artifact exists, return explicit `PATH_REFERENCE_ONLY`/unavailable reason codes when only raw path references exist, and match durable lineage edges through `payload.artifactId`.
@@ -246,7 +247,7 @@ Delivered foundation:
 
 Still pending before this phase is complete:
 
-- Add rule-level partial retry/resume mutation APIs only after rule-attempt selection, downstream invalidation, workdir reuse, incomplete-output audit, and executor-side partial rerun orchestration are represented as explicit contracts.
+- Add rule-level partial retry/resume mutation APIs only after rule-attempt selection, downstream invalidation, workdir reuse, incomplete-output audit, executor-side partial rerun orchestration, terminal-to-target attempt lifecycle, and preserved-output closure are represented as explicit contracts.
 
 Recommended sequence:
 

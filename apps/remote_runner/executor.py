@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -39,6 +40,8 @@ from .workflow_engine_adapter import (
 _ORIGINAL_SUBPROCESS_RUN = getattr(subprocess, "run")
 RUN_JOB_EXECUTION_OPTIONS_SCHEMA_VERSION = "run-job-execution-options.v1"
 SNAKEMAKE_RULE_RERUN_OPTIONS_SCHEMA_VERSION = "snakemake-rule-rerun-options.v1"
+RULE_OUTPUT_ADOPTION_SCOPE_SCHEMA_VERSION = "rule-output-adoption-scope.v1"
+_SAFE_OUTPUT_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 
 def run_snakemake_execution(
     cfg: RemoteRunnerConfig,
@@ -112,6 +115,7 @@ def _execute_snakemake_workflow(
     run_outputs: dict[str, str] | None = None
     try:
         snakemake_execution_options = _snakemake_execution_options(execution_options)
+        output_adoption_scope = snakemake_execution_options.pop("output_adoption_scope")
         engine = SnakemakeEngineAdapter(
             cfg,
             run_command=_patched_subprocess_run_command(),
@@ -344,11 +348,16 @@ def _execute_snakemake_workflow(
                 lease_generation=lease_generation,
                 attempt_number=attempt_number,
             )
+        artifact_output_schema, artifact_outputs = _scoped_artifact_collection(
+            output_schema,
+            run_outputs,
+            output_adoption_scope=output_adoption_scope,
+        )
         _collect_artifacts(
             cfg,
             run_id,
-            output_schema=output_schema,
-            outputs=run_outputs,
+            output_schema=artifact_output_schema,
+            outputs=artifact_outputs,
             attempt_id=attempt_id,
             lease_generation=lease_generation,
             request_id=request_id,
@@ -417,18 +426,97 @@ def _patched_subprocess_run_command() -> Callable[..., object] | None:
 
 def _snakemake_execution_options(execution_options: dict | None) -> dict[str, Any]:
     if not execution_options:
-        return {"forcerun_rules": None, "rerun_incomplete": False}
+        return {"forcerun_rules": None, "rerun_incomplete": False, "output_adoption_scope": None}
     if execution_options.get("schemaVersion") != RUN_JOB_EXECUTION_OPTIONS_SCHEMA_VERSION:
         raise WorkflowRuntimeCommandError("RUN_JOB_EXECUTION_OPTIONS_SCHEMA_UNSUPPORTED")
     snakemake = execution_options.get("snakemake")
     if not isinstance(snakemake, dict):
-        return {"forcerun_rules": None, "rerun_incomplete": False}
+        return {"forcerun_rules": None, "rerun_incomplete": False, "output_adoption_scope": None}
     if snakemake.get("schemaVersion") != SNAKEMAKE_RULE_RERUN_OPTIONS_SCHEMA_VERSION:
         raise WorkflowRuntimeCommandError("SNAKEMAKE_EXECUTION_OPTIONS_SCHEMA_UNSUPPORTED")
     raw_rules = snakemake.get("forcerunRules")
     if raw_rules is not None and not isinstance(raw_rules, list):
         raise WorkflowRuntimeCommandError("SNAKEMAKE_FORCERUN_RULES_INVALID")
+    forcerun_rules = normalize_forcerun_rules(raw_rules)
+    rerun_incomplete = bool(snakemake.get("rerunIncomplete"))
+    output_adoption_scope = (
+        _rule_output_adoption_scope(execution_options)
+        if rerun_incomplete or forcerun_rules
+        else None
+    )
     return {
-        "forcerun_rules": normalize_forcerun_rules(raw_rules),
-        "rerun_incomplete": bool(snakemake.get("rerunIncomplete")),
+        "forcerun_rules": forcerun_rules,
+        "rerun_incomplete": rerun_incomplete,
+        "output_adoption_scope": output_adoption_scope,
     }
+
+
+def _rule_output_adoption_scope(execution_options: dict) -> dict[str, Any]:
+    scope = execution_options.get("outputAdoptionScope")
+    if not isinstance(scope, dict):
+        raise WorkflowRuntimeCommandError("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_REQUIRED")
+    if scope.get("schemaVersion") != RULE_OUTPUT_ADOPTION_SCOPE_SCHEMA_VERSION:
+        raise WorkflowRuntimeCommandError("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_SCHEMA_UNSUPPORTED")
+    if scope.get("mode") != "rule-partial-rerun":
+        raise WorkflowRuntimeCommandError("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_MODE_UNSUPPORTED")
+    if scope.get("pathExposed") or scope.get("storageUriExposed"):
+        raise WorkflowRuntimeCommandError("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_REDACTION_UNSAFE")
+    raw_keys = scope.get("outputKeys")
+    if not isinstance(raw_keys, list):
+        raise WorkflowRuntimeCommandError("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_KEYS_INVALID")
+    output_keys: list[str] = []
+    seen: set[str] = set()
+    for raw_key in raw_keys:
+        output_key = str(raw_key or "").strip()
+        if not _SAFE_OUTPUT_KEY.fullmatch(output_key):
+            raise WorkflowRuntimeCommandError("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_KEY_UNSAFE")
+        if output_key not in seen:
+            output_keys.append(output_key)
+            seen.add(output_key)
+    if not output_keys:
+        raise WorkflowRuntimeCommandError("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_REQUIRED")
+    declared_count = _safe_int(scope.get("outputCount"))
+    if declared_count and declared_count != len(output_keys):
+        raise WorkflowRuntimeCommandError("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_COUNT_MISMATCH")
+    return {"output_keys": output_keys}
+
+
+def _scoped_artifact_collection(
+    output_schema: dict | None,
+    outputs: dict[str, str] | None,
+    *,
+    output_adoption_scope: dict[str, Any] | None,
+) -> tuple[dict | None, dict[str, str] | None]:
+    if output_adoption_scope is None:
+        return output_schema, outputs
+    if not isinstance(output_schema, dict) or not isinstance(outputs, dict):
+        return output_schema, outputs
+    output_keys = list(output_adoption_scope.get("output_keys") or [])
+    output_key_set = set(output_keys)
+    artifacts = output_schema.get("artifacts")
+    if not isinstance(artifacts, list):
+        return output_schema, outputs
+    missing_outputs = [key for key in output_keys if key not in outputs]
+    if missing_outputs:
+        raise WorkflowRuntimeCommandError("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_UNKNOWN_OUTPUT")
+    scoped_artifacts = []
+    seen_artifact_keys: set[str] = set()
+    for artifact in artifacts:
+        if not isinstance(artifact, dict):
+            continue
+        artifact_key = str(artifact.get("key") or "").strip()
+        if artifact_key in output_key_set:
+            scoped_artifacts.append(artifact)
+            seen_artifact_keys.add(artifact_key)
+    if seen_artifact_keys != output_key_set:
+        raise WorkflowRuntimeCommandError("RULE_RERUN_OUTPUT_ADOPTION_SCOPE_UNKNOWN_ARTIFACT")
+    return {**output_schema, "artifacts": scoped_artifacts}, {
+        key: value for key, value in outputs.items() if key in output_key_set
+    }
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0

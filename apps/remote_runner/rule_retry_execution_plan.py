@@ -17,6 +17,7 @@ from .workflow_engine_adapter import WorkflowRuntimeCommandError, normalize_forc
 RULE_RETRY_EXECUTION_PLAN_SCHEMA_VERSION = "rule-retry-execution-plan.v1"
 RUN_JOB_EXECUTION_OPTIONS_SCHEMA_VERSION = "run-job-execution-options.v1"
 SNAKEMAKE_RULE_RERUN_OPTIONS_SCHEMA_VERSION = "snakemake-rule-rerun-options.v1"
+RULE_OUTPUT_ADOPTION_SCOPE_SCHEMA_VERSION = "rule-output-adoption-scope.v1"
 UNSAFE_SNAKEMAKE_RULE_RETRY_FLAGS = ["--forceall", "--touch", "--ignore-incomplete"]
 DOWNSTREAM_OUTPUT_INVALIDATION_APPLY_REQUIRED = "DOWNSTREAM_OUTPUT_INVALIDATION_APPLY_REQUIRED"
 RULE_RETRY_EXECUTION_BASE_BLOCKERS = [
@@ -161,6 +162,7 @@ def rule_retry_execution_options(rule_retry_execution_plan: dict[str, Any]) -> d
     forcerun_rules = normalize_forcerun_rules(raw_forcerun_rules)
     if not forcerun_rules:
         raise ValueError("RULE_RETRY_FORCERUN_RULES_REQUIRED")
+    output_adoption_scope = _rule_output_adoption_scope(rule_retry_execution_plan)
     return {
         "schemaVersion": RUN_JOB_EXECUTION_OPTIONS_SCHEMA_VERSION,
         "snakemake": {
@@ -168,6 +170,7 @@ def rule_retry_execution_options(rule_retry_execution_plan: dict[str, Any]) -> d
             "rerunIncomplete": True,
             "forcerunRules": forcerun_rules,
         },
+        "outputAdoptionScope": output_adoption_scope,
     }
 
 
@@ -322,6 +325,55 @@ def _safe_int(value: Any) -> int:
         return int(value)
     except (TypeError, ValueError):
         return 0
+
+
+def _rule_output_adoption_scope(rule_retry_execution_plan: dict[str, Any]) -> dict[str, Any]:
+    cache_restore = rule_retry_execution_plan.get("cacheRestorePlan")
+    if not isinstance(cache_restore, dict):
+        raise ValueError("RULE_RETRY_OUTPUT_ADOPTION_SCOPE_REQUIRED")
+    redaction = cache_restore.get("redactionPolicy") if isinstance(cache_restore.get("redactionPolicy"), dict) else {}
+    if redaction.get("pathsExposed") or redaction.get("storageUrisExposed"):
+        raise ValueError("RULE_RETRY_OUTPUT_ADOPTION_SCOPE_REDACTION_UNSAFE")
+    entries: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for rule in cache_restore.get("rules") or []:
+        if not isinstance(rule, dict):
+            continue
+        invalidation_role = str(rule.get("invalidationRole") or "").strip()
+        for output in rule.get("outputs") or []:
+            if not isinstance(output, dict):
+                continue
+            output_key = str(output.get("artifactKey") or "").strip()
+            if not output_key:
+                raise ValueError("RULE_RETRY_OUTPUT_ADOPTION_SCOPE_UNMAPPED")
+            if output_key in seen:
+                continue
+            entries.append(
+                {
+                    "outputKey": output_key,
+                    "stepId": str(output.get("stepId") or rule.get("stepId") or "").strip(),
+                    "outputOrdinal": _safe_int(output.get("outputOrdinal")),
+                    "invalidationRole": invalidation_role,
+                    "cacheHit": output.get("cacheHit") is True,
+                }
+            )
+            seen.add(output_key)
+    expected_count = _safe_int(cache_restore.get("outputCount"))
+    if not entries:
+        raise ValueError("RULE_RETRY_OUTPUT_ADOPTION_SCOPE_REQUIRED")
+    if expected_count and len(entries) != expected_count:
+        raise ValueError("RULE_RETRY_OUTPUT_ADOPTION_SCOPE_COUNT_MISMATCH")
+    return {
+        "schemaVersion": RULE_OUTPUT_ADOPTION_SCOPE_SCHEMA_VERSION,
+        "mode": "rule-partial-rerun",
+        "sourcePlanHash": str(rule_retry_execution_plan.get("planHash") or "").strip(),
+        "scopeSource": "ruleCacheRestorePlan.outputs",
+        "outputCount": len(entries),
+        "outputKeys": [entry["outputKey"] for entry in entries],
+        "outputs": entries,
+        "pathExposed": False,
+        "storageUriExposed": False,
+    }
 
 
 def _rule_ref(rule: dict[str, Any]) -> dict[str, Any]:

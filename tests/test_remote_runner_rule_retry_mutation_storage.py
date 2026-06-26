@@ -78,6 +78,25 @@ def test_request_rule_retry_requeues_enabled_plan_with_rule_scope_and_options(tm
             "rerunIncomplete": True,
             "forcerunRules": ["align"],
         },
+        "outputAdoptionScope": {
+            "schemaVersion": "rule-output-adoption-scope.v1",
+            "mode": "rule-partial-rerun",
+            "sourcePlanHash": "",
+            "scopeSource": "ruleCacheRestorePlan.outputs",
+            "outputCount": 1,
+            "outputKeys": ["bam"],
+            "outputs": [
+                {
+                    "outputKey": "bam",
+                    "stepId": "align",
+                    "outputOrdinal": 1,
+                    "invalidationRole": "selected",
+                    "cacheHit": True,
+                }
+            ],
+            "pathExposed": False,
+            "storageUriExposed": False,
+        },
     }
     assert result["scope"] == "rule"
     assert result["executionOptions"] == expected_options
@@ -278,5 +297,28 @@ def _enabled_rule_retry_execution_plan(run_id: str, attempt_id: str, lease_gener
             "forcerunRules": ["align"],
             "argsPreview": ["--rerun-incomplete", "--forcerun", "align"],
             "unsafeFlagsProhibited": ["--forceall", "--touch", "--ignore-incomplete"],
+        },
+        "cacheRestorePlan": {
+            "schemaVersion": "rule-cache-restore-plan.v1",
+            "outputCount": 1,
+            "redactionPolicy": {
+                "pathsExposed": False,
+                "storageUrisExposed": False,
+            },
+            "rules": [
+                {
+                    "ruleName": "align",
+                    "stepId": "align",
+                    "invalidationRole": "selected",
+                    "outputs": [
+                        {
+                            "artifactKey": "bam",
+                            "stepId": "align",
+                            "outputOrdinal": 1,
+                            "cacheHit": True,
+                        }
+                    ],
+                }
+            ],
         },
     }

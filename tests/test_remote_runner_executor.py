@@ -4,8 +4,15 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
 from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
-from apps.remote_runner.executor import run_snakemake_execution
+from apps.remote_runner.executor import (
+    _scoped_artifact_collection,
+    _snakemake_execution_options,
+    run_snakemake_execution,
+)
+from apps.remote_runner.workflow_engine_adapter import WorkflowRuntimeCommandError
 from apps.remote_runner.execution_query_storage import fetch_run_results
 from apps.remote_runner.run_worker import process_next_run_job
 from tests.helpers.remote_runner_control_plane import (
@@ -153,6 +160,14 @@ def test_executor_applies_job_execution_options_to_dry_run_and_run(tmp_path: Pat
                 "rerunIncomplete": True,
                 "forcerunRules": ["align", "align"],
             },
+            "outputAdoptionScope": {
+                "schemaVersion": "rule-output-adoption-scope.v1",
+                "mode": "rule-partial-rerun",
+                "outputCount": 1,
+                "outputKeys": ["summary"],
+                "pathExposed": False,
+                "storageUriExposed": False,
+            },
         },
     )
 
@@ -167,6 +182,36 @@ def test_executor_applies_job_execution_options_to_dry_run_and_run(tmp_path: Pat
         assert "--ignore-incomplete" not in command
     assert "-n" in calls[0]
     assert "--logger-h2ometa-event-path" in calls[1]
+
+
+def test_executor_rejects_rule_rerun_options_without_output_adoption_scope() -> None:
+    with pytest.raises(WorkflowRuntimeCommandError, match="RULE_RERUN_OUTPUT_ADOPTION_SCOPE_REQUIRED"):
+        _snakemake_execution_options(
+            {
+                "schemaVersion": "run-job-execution-options.v1",
+                "snakemake": {
+                    "schemaVersion": "snakemake-rule-rerun-options.v1",
+                    "rerunIncomplete": True,
+                    "forcerunRules": ["align"],
+                },
+            }
+        )
+
+
+def test_executor_scopes_rule_rerun_artifact_collection_to_declared_outputs() -> None:
+    output_schema, outputs = _scoped_artifact_collection(
+        {
+            "artifacts": [
+                {"key": "summary", "kind": "file", "mimeType": "text/plain"},
+                {"key": "report", "kind": "file", "mimeType": "text/html"},
+            ]
+        },
+        {"summary": "/managed/results/summary.tsv", "report": "/managed/results/report.html"},
+        output_adoption_scope={"output_keys": ["summary"]},
+    )
+
+    assert output_schema == {"artifacts": [{"key": "summary", "kind": "file", "mimeType": "text/plain"}]}
+    assert outputs == {"summary": "/managed/results/summary.tsv"}
 
 
 def test_artifact_cache_adoption_skips_rule_rerun_execution_options(tmp_path: Path, monkeypatch) -> None:

@@ -239,6 +239,14 @@ def test_request_run_retry_persists_next_attempt_execution_options(tmp_path):
             "rerunIncomplete": True,
             "forcerunRules": ["align"],
         },
+        "outputAdoptionScope": {
+            "schemaVersion": "rule-output-adoption-scope.v1",
+            "mode": "rule-partial-rerun",
+            "outputCount": 1,
+            "outputKeys": ["summary"],
+            "pathExposed": False,
+            "storageUriExposed": False,
+        },
     }
 
     result = request_run_retry(
