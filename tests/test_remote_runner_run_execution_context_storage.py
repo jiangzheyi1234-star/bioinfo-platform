@@ -412,6 +412,14 @@ def test_run_execution_context_reports_rule_retry_downstream_invalidation_plan(t
     assert execution_plan["executionReasonCode"] == "RULE_RETRY_EXECUTION_DISABLED"
     assert execution_plan["commandPreviewAvailable"] is True
     assert execution_plan["reasonCode"] == "PARTIAL_RULE_RETRY_UNSUPPORTED"
+    assert execution_plan["partialRerunLifecycle"]["schemaVersion"] == "rule-partial-rerun-lifecycle.v1"
+    assert execution_plan["partialRerunLifecycle"]["mode"] == "active-attempt-repair"
+    assert execution_plan["partialRerunLifecycle"]["queueMutationAllowed"] is False
+    assert execution_plan["partialRerunLifecycle"]["activeAttemptRepair"]["supported"] is False
+    assert execution_plan["partialRerunLifecycle"]["sourceAttempt"]["leaseReleased"] is False
+    assert execution_plan["partialRerunLifecycle"]["targetAttempt"]["creationMode"] == "next-worker-claim"
+    assert execution_plan["partialRerunLifecycle"]["outputClosure"]["preservedOutputEdgesRequired"] is True
+    assert execution_plan["partialRerunLifecycle"]["pathExposed"] is False
     assert [item["ruleName"] for item in execution_plan["selectedRules"]] == ["align"]
     assert [item["ruleName"] for item in execution_plan["rerunScope"]["rules"]] == ["align", "report"]
     assert execution_plan["snakemakeOptions"]["argsPreview"] == ["--rerun-incomplete", "--forcerun", "align"]

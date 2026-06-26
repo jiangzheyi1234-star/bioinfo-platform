@@ -23,6 +23,9 @@ def build_rule_retry_activation_readiness(
     promotion_state = _dict_value(cache_restore.get("finalOutputPromotionState"))
     partial_restore_executor = _dict_value(cache_restore.get("partialRestoreExecutor"))
     executor_orchestration = _dict_value(execution_plan.get("executorOrchestration"))
+    lifecycle = _dict_value(execution_plan.get("partialRerunLifecycle"))
+    lifecycle_path_exposed = _redaction_exposed(lifecycle, "pathExposed")
+    lifecycle_storage_uri_exposed = _redaction_exposed(lifecycle, "storageUriExposed")
     redaction = _dict_value(cache_restore.get("redactionPolicy"))
     workdir_policy = _dict_value(workdir_reuse_policy)
 
@@ -88,6 +91,19 @@ def build_rule_retry_activation_readiness(
             _first_nonempty(output_audit.get("reasonCode"), "INCOMPLETE_OUTPUT_AUDIT_UNPROVEN"),
         ),
         _check(
+            "partialRerunLifecycle",
+            lifecycle.get("contractReady") is True
+            and lifecycle_path_exposed is not True
+            and lifecycle_storage_uri_exposed is not True,
+            _first_nonempty(
+                "RULE_PARTIAL_RERUN_LIFECYCLE_REDACTION_UNSAFE"
+                if lifecycle_path_exposed or lifecycle_storage_uri_exposed
+                else "",
+                lifecycle.get("reasonCode"),
+                "RULE_PARTIAL_RERUN_LIFECYCLE_UNPROVEN",
+            ),
+        ),
+        _check(
             "snakemakeOptions",
             bool(execution_plan.get("commandPreviewAvailable"))
             and snakemake_options.get("rerunIncomplete") is True
@@ -128,6 +144,8 @@ def build_rule_retry_activation_readiness(
             "verifiedOutputCount": _safe_int(output_audit.get("verifiedOutputCount")),
             "rerunRequiredOutputCount": _safe_int(output_audit.get("rerunRequiredOutputCount")),
             "unverifiedOutputCount": _safe_int(output_audit.get("unverifiedOutputCount")),
+            "lifecycleContractReady": 1 if lifecycle.get("contractReady") is True else 0,
+            "lifecycleMutationReady": 1 if lifecycle.get("mutationReady") is True else 0,
             "executorContractReady": 1 if executor_orchestration.get("contractReady") is True else 0,
             "executorReady": 1 if executor_orchestration.get("executorReady") is True else 0,
             "unsafeFlagCount": len(_list_value(snakemake_options.get("unsafeFlagsProhibited"))),
@@ -136,8 +154,11 @@ def build_rule_retry_activation_readiness(
             "rawIdentifiersExposed": bool(redaction.get("cacheKeysExposed")),
             "fingerprintsExposed": bool(redaction.get("cacheKeyFingerprintsExposed")),
             "storageUrisExposed": bool(redaction.get("storageUrisExposed"))
-            or bool(executor_orchestration.get("storageUriExposed")),
-            "pathsExposed": bool(redaction.get("pathsExposed")) or bool(executor_orchestration.get("pathExposed")),
+            or bool(executor_orchestration.get("storageUriExposed"))
+            or lifecycle_storage_uri_exposed,
+            "pathsExposed": bool(redaction.get("pathsExposed"))
+            or bool(executor_orchestration.get("pathExposed"))
+            or lifecycle_path_exposed,
         },
     )
 
@@ -297,3 +318,13 @@ def _unique_strings(items: list[str]) -> list[str]:
             unique.append(value)
             seen.add(value)
     return unique
+
+
+def _redaction_exposed(value: Any, field: str) -> bool:
+    if isinstance(value, dict):
+        if value.get(field) is True:
+            return True
+        return any(_redaction_exposed(item, field) for item in value.values())
+    if isinstance(value, list):
+        return any(_redaction_exposed(item, field) for item in value)
+    return False

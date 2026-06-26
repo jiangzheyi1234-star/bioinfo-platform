@@ -21,7 +21,7 @@ def test_rule_retry_execution_plan_previews_snakemake_forcerun_options_without_e
     assert plan["activationReadiness"]["executionEnabled"] is False
     assert plan["activationReadiness"]["reasonCode"] == "DOWNSTREAM_OUTPUT_INVALIDATION_APPLY_REQUIRED"
     assert plan["activationReadiness"]["readyCheckCount"] == 2
-    assert plan["activationReadiness"]["blockedCheckCount"] == 9
+    assert plan["activationReadiness"]["blockedCheckCount"] == 10
     assert plan["activationReadiness"]["summary"]["selectedRuleCount"] == 1
     assert plan["activationReadiness"]["summary"]["rerunRuleCount"] == 2
     assert plan["activationReadiness"]["redactionPolicy"] == {
@@ -150,6 +150,7 @@ def test_rule_retry_execution_plan_marks_orchestration_contract_ready_without_en
             "storageUriExposed": False,
             "reasonCode": "OUTPUT_AUDIT_VERIFIED",
         },
+        partial_rerun_lifecycle=_ready_partial_rerun_lifecycle(),
     )
 
     orchestration = plan["executorOrchestration"]
@@ -162,8 +163,56 @@ def test_rule_retry_execution_plan_marks_orchestration_contract_ready_without_en
     assert readiness_checks["partialRerunExecutor"]["reasonCode"] == (
         "PARTIAL_RERUN_EXECUTOR_ORCHESTRATION_PREVIEW_ONLY"
     )
+    assert readiness_checks["partialRerunLifecycle"]["ready"] is True
     assert readiness_checks["publicMutation"]["reasonCode"] == "RULE_RETRY_MUTATION_API_DISABLED"
     assert plan["executionEnabled"] is False
+
+
+def test_rule_retry_execution_plan_propagates_lifecycle_redaction_to_readiness_and_orchestration() -> None:
+    unsafe_lifecycle = {
+        **_ready_partial_rerun_lifecycle(),
+        "targetAttempt": {
+            **_ready_partial_rerun_lifecycle()["targetAttempt"],
+            "pathExposed": True,
+        },
+        "outputClosure": {
+            **_ready_partial_rerun_lifecycle()["outputClosure"],
+            "storageUriExposed": True,
+        },
+    }
+
+    plan = build_rule_retry_execution_plan(
+        _rule_retry_plan(),
+        output_invalidation_plan=_applied_output_invalidation_plan(),
+        cache_restore_plan=_adopted_cache_restore_plan(),
+        workdir_reuse_policy={
+            "schemaVersion": "run-workdir-reuse-policy.v1",
+            "workDirReusable": True,
+            "pathExposed": False,
+            "reasonCode": "WORKDIR_REUSABLE",
+        },
+        incomplete_output_audit={
+            "schemaVersion": "rule-output-audit.v1",
+            "available": True,
+            "expectedOutputCount": 1,
+            "verifiedOutputCount": 1,
+            "unverifiedOutputCount": 0,
+            "unsafeOutputCount": 0,
+            "uncheckedOutputCount": 0,
+            "pathExposed": False,
+            "storageUriExposed": False,
+        },
+        partial_rerun_lifecycle=unsafe_lifecycle,
+    )
+
+    checks = {item["name"]: item for item in plan["activationReadiness"]["checks"]}
+    assert checks["partialRerunLifecycle"]["ready"] is False
+    assert checks["partialRerunLifecycle"]["reasonCode"] == "RULE_PARTIAL_RERUN_LIFECYCLE_REDACTION_UNSAFE"
+    assert plan["activationReadiness"]["redactionPolicy"]["pathsExposed"] is True
+    assert plan["activationReadiness"]["redactionPolicy"]["storageUrisExposed"] is True
+    assert plan["executorOrchestration"]["pathExposed"] is True
+    assert plan["executorOrchestration"]["storageUriExposed"] is True
+    assert "RULE_PARTIAL_RERUN_LIFECYCLE_REDACTION_UNSAFE" in plan["executorOrchestration"]["blockedReasonCodes"]
 
 
 def test_rule_retry_execution_options_refuses_disabled_preview_plan() -> None:
@@ -444,4 +493,51 @@ def _adopted_cache_restore_plan() -> dict:
                 ],
             }
         ],
+    }
+
+
+def _ready_partial_rerun_lifecycle() -> dict:
+    return {
+        "schemaVersion": "rule-partial-rerun-lifecycle.v1",
+        "available": True,
+        "mode": "terminal-queued-rule-rerun",
+        "contractReady": True,
+        "reasonCode": "RULE_PARTIAL_RERUN_LIFECYCLE_CONTRACT_READY",
+        "blockedReasonCodes": [],
+        "mutationReady": False,
+        "queueMutationAllowed": False,
+        "runStateMutationAllowed": False,
+        "executorStartAllowed": False,
+        "sourceAttempt": {
+            "attemptPresent": True,
+            "selectedAttemptPresent": True,
+            "attemptId": "att_failed",
+            "attemptNumber": 1,
+            "leaseGeneration": 1,
+            "selectedStatus": "failed",
+            "attemptState": "failed",
+            "leaseState": "failed",
+            "leaseReleased": True,
+            "selectedRuleCount": 1,
+            "pathExposed": False,
+        },
+        "targetAttempt": {
+            "creationMode": "next-worker-claim",
+            "targetAttemptRequired": True,
+            "activeLeaseRequiredBeforeMutation": False,
+            "activeLeaseRequiredDuringExecution": True,
+            "sourcePlanHashRevalidationRequired": True,
+            "outputAdoptionScopeRevalidationRequired": True,
+            "pathExposed": False,
+        },
+        "outputClosure": {
+            "scopedOutputAdoptionRequired": True,
+            "preservedOutputEdgesRequired": True,
+            "allDeclaredOutputsRequiredBeforeFinalize": True,
+            "unknownOutputHandling": "refuse",
+            "pathExposed": False,
+            "storageUriExposed": False,
+        },
+        "pathExposed": False,
+        "storageUriExposed": False,
     }

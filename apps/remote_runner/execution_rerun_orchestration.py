@@ -124,6 +124,12 @@ def build_rule_partial_rerun_orchestration(
     output_invalidation = _dict_value(execution_plan.get("outputInvalidationPlan"))
     output_state = _dict_value(output_invalidation.get("outputInvalidationState"))
     output_audit = _dict_value(execution_plan.get("incompleteOutputAudit"))
+    lifecycle = _dict_value(execution_plan.get("partialRerunLifecycle"))
+    source_attempt = _dict_value(lifecycle.get("sourceAttempt"))
+    target_attempt = _dict_value(lifecycle.get("targetAttempt"))
+    output_closure = _dict_value(lifecycle.get("outputClosure"))
+    lifecycle_path_exposed = _redaction_exposed(lifecycle, "pathExposed")
+    lifecycle_storage_uri_exposed = _redaction_exposed(lifecycle, "storageUriExposed")
     snakemake = _dict_value(execution_plan.get("snakemakeOptions"))
     promotion = _dict_value(cache_restore.get("finalOutputPromotionState"))
     redaction = _dict_value(cache_restore.get("redactionPolicy"))
@@ -145,6 +151,10 @@ def build_rule_partial_rerun_orchestration(
         contract_blockers.append("RESTORED_OUTPUT_ADOPTION_REQUIRED")
     if not _output_audit_ready(output_audit):
         contract_blockers.append(_first_nonempty(output_audit.get("reasonCode"), "INCOMPLETE_OUTPUT_AUDIT_UNPROVEN"))
+    if lifecycle.get("contractReady") is not True:
+        contract_blockers.append(_first_nonempty(lifecycle.get("reasonCode"), "RULE_PARTIAL_RERUN_LIFECYCLE_UNPROVEN"))
+    if lifecycle_path_exposed or lifecycle_storage_uri_exposed:
+        contract_blockers.append("RULE_PARTIAL_RERUN_LIFECYCLE_REDACTION_UNSAFE")
     if workdir.get("workDirReusable") is not True:
         contract_blockers.append(_first_nonempty(workdir.get("reasonCode"), "WORKDIR_REUSE_POLICY_UNPROVEN"))
     if snakemake.get("rerunIncomplete") is not True or not _list_value(snakemake.get("forcerunRules")):
@@ -168,6 +178,12 @@ def build_rule_partial_rerun_orchestration(
         "adoptedOutputCount": adopted_count,
         "verifiedOutputCount": _safe_int(output_audit.get("verifiedOutputCount")),
         "rerunRequiredOutputCount": _safe_int(output_audit.get("rerunRequiredOutputCount")),
+        "lifecycleContractReady": lifecycle.get("contractReady") is True,
+        "lifecycleMode": str(lifecycle.get("mode") or ""),
+        "sourceAttemptLeaseReleased": source_attempt.get("leaseReleased") is True,
+        "targetAttemptCreationMode": str(target_attempt.get("creationMode") or ""),
+        "sourcePlanHashRevalidationRequired": target_attempt.get("sourcePlanHashRevalidationRequired") is True,
+        "preservedOutputClosureRequired": output_closure.get("preservedOutputEdgesRequired") is True,
         "targetAttemptRequired": True,
         "activeLeaseRequired": True,
         "workdirReuseRequired": True,
@@ -183,8 +199,8 @@ def build_rule_partial_rerun_orchestration(
         "finalizeRunAllowed": False,
         "queueMutationAllowed": False,
         "runStateMutationAllowed": False,
-        "pathExposed": bool(redaction.get("pathsExposed")),
-        "storageUriExposed": bool(redaction.get("storageUrisExposed")),
+        "pathExposed": bool(redaction.get("pathsExposed")) or lifecycle_path_exposed,
+        "storageUriExposed": bool(redaction.get("storageUrisExposed")) or lifecycle_storage_uri_exposed,
     }
 
 
@@ -229,3 +245,13 @@ def _unique_strings(items: list[str]) -> list[str]:
             unique.append(value)
             seen.add(value)
     return unique
+
+
+def _redaction_exposed(value: Any, field: str) -> bool:
+    if isinstance(value, dict):
+        if value.get(field) is True:
+            return True
+        return any(_redaction_exposed(item, field) for item in value.values())
+    if isinstance(value, list):
+        return any(_redaction_exposed(item, field) for item in value)
+    return False

@@ -446,6 +446,51 @@ export type WorkflowRunRuleOutputInvalidationApplyResult = {
   appliedAt?: string;
 };
 
+export type WorkflowRunPartialRerunLifecycle = {
+  schemaVersion?: string;
+  available?: boolean;
+  mode?: string;
+  contractReady?: boolean;
+  reasonCode?: string;
+  blockedReasonCodes?: string[];
+  mutationReady?: boolean;
+  queueMutationAllowed?: boolean;
+  runStateMutationAllowed?: boolean;
+  executorStartAllowed?: boolean;
+  sourceAttempt?: {
+    attemptPresent?: boolean;
+    selectedAttemptPresent?: boolean;
+    attemptId?: string;
+    attemptNumber?: number;
+    leaseGeneration?: number;
+    selectedStatus?: string;
+    attemptState?: string;
+    leaseState?: string;
+    leaseReleased?: boolean;
+    selectedRuleCount?: number;
+    pathExposed?: boolean;
+  };
+  targetAttempt?: {
+    creationMode?: string;
+    targetAttemptRequired?: boolean;
+    activeLeaseRequiredBeforeMutation?: boolean;
+    activeLeaseRequiredDuringExecution?: boolean;
+    sourcePlanHashRevalidationRequired?: boolean;
+    outputAdoptionScopeRevalidationRequired?: boolean;
+    pathExposed?: boolean;
+  };
+  outputClosure?: {
+    scopedOutputAdoptionRequired?: boolean;
+    preservedOutputEdgesRequired?: boolean;
+    allDeclaredOutputsRequiredBeforeFinalize?: boolean;
+    unknownOutputHandling?: string;
+    pathExposed?: boolean;
+    storageUriExposed?: boolean;
+  };
+  pathExposed?: boolean;
+  storageUriExposed?: boolean;
+};
+
 export type WorkflowRunRuleRetryExecutionPlan = {
   schemaVersion?: string;
   planHash?: string;
@@ -473,6 +518,7 @@ export type WorkflowRunRuleRetryExecutionPlan = {
   snakemakeOptions?: WorkflowRunRuleRetrySnakemakeOptions;
   cacheRestorePlan?: WorkflowRunRuleCacheRestorePlan;
   incompleteOutputAudit?: WorkflowRunOutputAudit;
+  partialRerunLifecycle?: WorkflowRunPartialRerunLifecycle;
   executorOrchestration?: WorkflowRunExecutorOrchestration;
   activationReadiness?: WorkflowRunActivationReadiness;
   reasonCode?: string;

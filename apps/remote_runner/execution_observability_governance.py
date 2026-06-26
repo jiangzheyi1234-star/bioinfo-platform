@@ -51,6 +51,9 @@ def record_run_execution_context_read_audit(
     final_output_promotion_state = _dict_value(rule_cache_restore_plan.get("finalOutputPromotionState"))
     rule_retry_orchestration = _dict_value(rule_retry_execution_plan.get("executorOrchestration"))
     rule_retry_output_audit = _dict_value(rule_retry_execution_plan.get("incompleteOutputAudit"))
+    rule_retry_lifecycle = _dict_value(rule_retry_execution_plan.get("partialRerunLifecycle"))
+    rule_retry_lifecycle_source = _dict_value(rule_retry_lifecycle.get("sourceAttempt"))
+    rule_retry_lifecycle_target = _dict_value(rule_retry_lifecycle.get("targetAttempt"))
     record_governance_audit_event(
         cfg,
         action="run.execution_context.read",
@@ -86,6 +89,18 @@ def record_run_execution_context_read_audit(
             "ruleRetryOutputAuditUnverifiedCount": _safe_int(rule_retry_output_audit.get("unverifiedOutputCount")),
             "ruleRetryOutputAuditPathsExposed": bool(rule_retry_output_audit.get("pathExposed")),
             "ruleRetryOutputAuditStorageUrisExposed": bool(rule_retry_output_audit.get("storageUriExposed")),
+            "ruleRetryLifecycleContractReady": bool(rule_retry_lifecycle.get("contractReady")),
+            "ruleRetryLifecycleMutationReady": bool(rule_retry_lifecycle.get("mutationReady")),
+            "ruleRetryLifecycleMode": str(rule_retry_lifecycle.get("mode") or ""),
+            "ruleRetryLifecycleSourceAttemptPresent": bool(rule_retry_lifecycle_source.get("attemptPresent")),
+            "ruleRetryLifecycleSourceLeaseReleased": bool(rule_retry_lifecycle_source.get("leaseReleased")),
+            "ruleRetryLifecycleTargetAttemptRequired": bool(
+                rule_retry_lifecycle_target.get("targetAttemptRequired")
+            ),
+            "ruleRetryLifecycleQueueMutationAllowed": bool(rule_retry_lifecycle.get("queueMutationAllowed")),
+            "ruleRetryLifecycleRunStateMutationAllowed": bool(rule_retry_lifecycle.get("runStateMutationAllowed")),
+            "ruleRetryLifecyclePathsExposed": bool(rule_retry_lifecycle.get("pathExposed")),
+            "ruleRetryLifecycleStorageUrisExposed": bool(rule_retry_lifecycle.get("storageUriExposed")),
             "resumeActivationReady": bool(resume_readiness.get("executionReady")),
             "resumeActivationBlockedCount": _safe_int(resume_readiness.get("blockedCheckCount")),
             "resumeActivationMutationEnabled": bool(resume_readiness.get("executionEnabled")),
