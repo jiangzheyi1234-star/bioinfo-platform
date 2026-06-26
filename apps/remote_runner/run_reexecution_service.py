@@ -13,6 +13,7 @@ from .api_models import (
 )
 from .config import RemoteRunnerConfig
 from .errors import RemoteRunnerOperationBlockedError
+from .execution_retry_storage import request_rule_retry
 from .governance_audit import record_governance_audit_event
 from .route_utils import authorized_config, data_response, remote_runner_principal, run_sync
 from .run_execution_context_storage import fetch_run_execution_context
@@ -45,9 +46,32 @@ async def retry_run_rules_from_request(
     if mismatch:
         await _record_rule_retry_audit(cfg, run_id, plan, decision="deny", reason_code=mismatch)
         raise _blocked("ruleRetryExecutionPlan", plan, mismatch)
-    reason_code = str(plan.get("executionReasonCode") or "RULE_RETRY_EXECUTION_DISABLED")
-    await _record_rule_retry_audit(cfg, run_id, plan, decision="deny", reason_code=reason_code)
-    raise _blocked("ruleRetryExecutionPlan", plan, reason_code)
+    if plan.get("executionEnabled") is not True:
+        reason_code = str(plan.get("executionReasonCode") or "RULE_RETRY_EXECUTION_DISABLED")
+        await _record_rule_retry_audit(cfg, run_id, plan, decision="deny", reason_code=reason_code)
+        raise _blocked("ruleRetryExecutionPlan", plan, reason_code)
+    try:
+        result = await run_sync(
+            request_rule_retry,
+            cfg,
+            run_id,
+            actor=request.actor,
+            reason=request.reason,
+            execution_plan=plan,
+        )
+    except ValueError as exc:
+        reason_code = _exception_reason_code(exc, fallback="RULE_RETRY_EXECUTION_REQUEST_BLOCKED")
+        await _record_rule_retry_audit(cfg, run_id, plan, decision="deny", reason_code=reason_code)
+        raise _blocked("ruleRetryExecutionPlan", plan, reason_code) from exc
+    await _record_rule_retry_audit(
+        cfg,
+        run_id,
+        plan,
+        decision="allow",
+        reason_code="RULE_RETRY_REQUESTED",
+        result=result,
+    )
+    return data_response(_public_rule_retry_result(result, plan))
 
 
 async def apply_rule_output_invalidation_from_request(
@@ -397,6 +421,27 @@ def _blocked(plan_key: str, plan: dict[str, Any], code: str) -> RemoteRunnerOper
     )
 
 
+def _public_rule_retry_result(result: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:
+    rerun_scope = plan.get("rerunScope") if isinstance(plan.get("rerunScope"), dict) else {}
+    return {
+        "schemaVersion": "run-rule-retry-result.v1",
+        "runId": str(result.get("runId") or ""),
+        "accepted": True,
+        "blocked": False,
+        "status": str(result.get("status") or ""),
+        "stage": str(result.get("stage") or ""),
+        "scope": "rule",
+        "commandId": str(result.get("commandId") or ""),
+        "jobId": str(result.get("jobId") or ""),
+        "selectedRuleCount": _collection_size(plan.get("selectedRules")),
+        "rerunRuleCount": _safe_int(rerun_scope.get("ruleCount")),
+        "remainingAttempts": _safe_int(result.get("remainingAttempts")),
+        "availableAt": str(result.get("availableAt") or ""),
+        "retryRequestedAt": str(result.get("retryRequestedAt") or ""),
+        "planHash": str(plan.get("planHash") or ""),
+    }
+
+
 def _output_invalidation_blocked(plan: dict[str, Any], code: str) -> RemoteRunnerOperationBlockedError:
     return RemoteRunnerOperationBlockedError(
         code,
@@ -540,9 +585,34 @@ async def _record_rule_retry_audit(
     *,
     decision: str,
     reason_code: str,
+    result: dict[str, Any] | None = None,
 ) -> None:
     rerun_scope = plan.get("rerunScope") if isinstance(plan.get("rerunScope"), dict) else {}
     output_audit = plan.get("incompleteOutputAudit") if isinstance(plan.get("incompleteOutputAudit"), dict) else {}
+    details = {
+        "planHash": str(plan.get("planHash") or ""),
+        "executionEnabled": bool(plan.get("executionEnabled")),
+        "commandPreviewAvailable": bool(plan.get("commandPreviewAvailable")),
+        "selectedRuleCount": _collection_size(plan.get("selectedRules")),
+        "rerunRuleCount": _safe_int(rerun_scope.get("ruleCount")),
+        "expectedOutputCount": _safe_int(output_audit.get("expectedOutputCount")),
+        "verifiedOutputCount": _safe_int(output_audit.get("verifiedOutputCount")),
+        "rerunRequiredOutputCount": _safe_int(output_audit.get("rerunRequiredOutputCount")),
+        "unverifiedOutputCount": _safe_int(output_audit.get("unverifiedOutputCount")),
+        "pathExposed": bool(output_audit.get("pathExposed")),
+        "storageUriExposed": bool(output_audit.get("storageUriExposed")),
+        "blockedReasonCodes": _string_list(plan.get("blockedReasonCodes")),
+    }
+    if result is not None:
+        details.update(
+            {
+                "status": str(result.get("status") or ""),
+                "stage": str(result.get("stage") or ""),
+                "scope": str(result.get("scope") or ""),
+                "remainingAttempts": _safe_int(result.get("remainingAttempts")),
+                "scopedRetryOptionsStored": isinstance(result.get("executionOptions"), dict),
+            }
+        )
     await _record_reexecution_audit(
         cfg,
         action="run.rule_retry",
@@ -550,20 +620,7 @@ async def _record_rule_retry_audit(
         run_id=run_id,
         decision=decision,
         reason_code=reason_code,
-        details={
-            "planHash": str(plan.get("planHash") or ""),
-            "executionEnabled": bool(plan.get("executionEnabled")),
-            "commandPreviewAvailable": bool(plan.get("commandPreviewAvailable")),
-            "selectedRuleCount": _collection_size(plan.get("selectedRules")),
-            "rerunRuleCount": _safe_int(rerun_scope.get("ruleCount")),
-            "expectedOutputCount": _safe_int(output_audit.get("expectedOutputCount")),
-            "verifiedOutputCount": _safe_int(output_audit.get("verifiedOutputCount")),
-            "rerunRequiredOutputCount": _safe_int(output_audit.get("rerunRequiredOutputCount")),
-            "unverifiedOutputCount": _safe_int(output_audit.get("unverifiedOutputCount")),
-            "pathExposed": bool(output_audit.get("pathExposed")),
-            "storageUriExposed": bool(output_audit.get("storageUriExposed")),
-            "blockedReasonCodes": _string_list(plan.get("blockedReasonCodes")),
-        },
+        details=details,
     )
 
 
@@ -775,6 +832,13 @@ def _safe_int(value: Any) -> int:
 
 def _collection_size(value: Any) -> int:
     return len(value) if isinstance(value, list) else 0
+
+
+def _exception_reason_code(exc: BaseException, *, fallback: str) -> str:
+    reason = str(exc or "").strip()
+    if not reason:
+        return fallback
+    return reason.split(":", 1)[0].strip() or fallback
 
 
 def _string_list(value: Any) -> list[str]:

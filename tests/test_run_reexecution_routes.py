@@ -30,6 +30,7 @@ from apps.remote_runner.artifact_ledger_storage import (
     record_run_artifact_edge,
 )
 from apps.remote_runner.evidence_storage import list_evidence_events
+from apps.remote_runner.execution_plan_hash import attach_plan_hash
 from apps.remote_runner.governance_audit import list_governance_audit_events
 from apps.remote_runner.main import app
 from apps.remote_runner.run_execution_storage import claim_next_run_job, complete_run_attempt
@@ -244,6 +245,101 @@ def test_rule_retry_route_records_blocked_intent_without_mutating_run(tmp_path, 
     assert "executionOptions" not in serialized
     assert "reviewed failure locator" not in serialized
     assert "operator" not in json.dumps(events[0]["details"], sort_keys=True)
+
+
+def test_rule_retry_route_requeues_enabled_plan_with_safe_public_result(tmp_path, monkeypatch) -> None:
+    cfg = make_configured_remote_runner(
+        tmp_path,
+        token="rbac-token",
+        api_token_roles=("workflow-operator",),
+    )
+    monkeypatch.setattr(route_utils, "load_remote_runner_config", lambda: cfg)
+    run_id = "run_rule_retry_enabled_public"
+    _create_failed_rule_run(cfg, run_id)
+    plan = _enabled_rule_retry_execution_plan(cfg, run_id)
+    monkeypatch.setattr(
+        "apps.remote_runner.run_reexecution_service.fetch_run_execution_context",
+        lambda _cfg, _run_id: {"ruleRetryExecutionPlan": plan},
+    )
+    monkeypatch.setattr(
+        "apps.remote_runner.execution_retry_storage._current_rule_retry_execution_plan",
+        lambda _cfg, _run_id: plan,
+    )
+
+    response = TestClient(app).post(
+        f"/api/v1/runs/{run_id}/rules/retry",
+        headers={"Authorization": "Bearer rbac-token"},
+        json={
+            "confirmation": "retry-failed-rules",
+            "planHash": plan["planHash"],
+            "actor": "operator",
+            "reason": "reviewed failure locator",
+        },
+    )
+
+    assert response.status_code == 202
+    result = response.json()["data"]
+    assert result["schemaVersion"] == "run-rule-retry-result.v1"
+    assert result["accepted"] is True
+    assert result["blocked"] is False
+    assert result["runId"] == run_id
+    assert result["status"] == "queued"
+    assert result["stage"] == "retry"
+    assert result["scope"] == "rule"
+    assert result["selectedRuleCount"] == 1
+    assert result["rerunRuleCount"] == 2
+    assert result["planHash"] == plan["planHash"]
+    assert "executionOptions" not in json.dumps(result, sort_keys=True)
+    with get_connection(cfg) as connection:
+        run = connection.execute("SELECT status, stage FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+        job = connection.execute(
+            "SELECT state, execution_options_json FROM run_jobs WHERE run_id = ?",
+            (run_id,),
+        ).fetchone()
+        command = connection.execute(
+            "SELECT command_type, payload_json FROM run_commands WHERE run_id = ? AND command_type = 'retry_run'",
+            (run_id,),
+        ).fetchone()
+        retry_event_count = connection.execute(
+            "SELECT COUNT(*) AS count FROM run_events WHERE run_id = ? AND event_type = 'run_retry_requested'",
+            (run_id,),
+        ).fetchone()["count"]
+    execution_options = json.loads(job["execution_options_json"])
+    assert dict(run) == {"status": "queued", "stage": "retry"}
+    assert job["state"] == "queued"
+    assert execution_options["snakemake"]["forcerunRules"] == ["align"]
+    assert execution_options["snakemake"]["rerunIncomplete"] is True
+    assert execution_options["outputAdoptionScope"]["finalizeRunOnAdoption"] is False
+    assert json.loads(command["payload_json"])["scope"] == "rule"
+    assert retry_event_count == 1
+    audit = list_governance_audit_events(cfg, action="run.rule_retry")["items"]
+    assert audit[0]["decision"] == "allow"
+    assert audit[0]["reasonCode"] == "RULE_RETRY_REQUESTED"
+    assert audit[0]["subjectKind"] == "run_rule_retry"
+    assert audit[0]["subjectId"] == run_id
+    assert audit[0]["details"] == {
+        "planHash": plan["planHash"],
+        "executionEnabled": True,
+        "commandPreviewAvailable": True,
+        "selectedRuleCount": 1,
+        "rerunRuleCount": 2,
+        "expectedOutputCount": 1,
+        "verifiedOutputCount": 1,
+        "rerunRequiredOutputCount": 0,
+        "unverifiedOutputCount": 0,
+        "pathExposed": False,
+        "storageUriExposed": False,
+        "blockedReasonCodes": [],
+        "status": "queued",
+        "stage": "retry",
+        "scope": "rule",
+        "remainingAttempts": 2,
+        "scopedRetryOptionsStored": True,
+    }
+    serialized_audit = json.dumps(audit[0], sort_keys=True)
+    assert "executionOptions" not in serialized_audit
+    assert "reviewed failure locator" not in serialized_audit
+    assert "operator" not in json.dumps(audit[0]["details"], sort_keys=True)
 
 
 def test_rule_output_invalidation_apply_route_tombstones_edges_and_records_safe_audit(
@@ -600,6 +696,97 @@ def _create_failed_resumable_run(cfg, run_id: str, *, result_dir: Path) -> None:
             (str(result_dir), "2099-06-07T10:00:10Z", "2099-06-07T10:00:10Z", run_id),
         )
         connection.commit()
+
+
+def _enabled_rule_retry_execution_plan(cfg, run_id: str) -> dict[str, Any]:
+    with get_connection(cfg) as connection:
+        attempt = connection.execute(
+            """
+            SELECT attempt_id, attempt_number, lease_generation, state
+            FROM run_attempts
+            WHERE run_id = ?
+            ORDER BY attempt_number DESC
+            LIMIT 1
+            """,
+            (run_id,),
+        ).fetchone()
+    assert attempt is not None
+    selected_attempt = {
+        "attemptId": attempt["attempt_id"],
+        "attemptNumber": attempt["attempt_number"],
+        "leaseGeneration": attempt["lease_generation"],
+        "status": attempt["state"],
+    }
+    selected_rule = {
+        "runRuleId": "rr_align",
+        "ruleName": "align",
+        "stepId": "align",
+        "runtimeStatusKey": "rule:align",
+        "selectedAttempt": selected_attempt,
+    }
+    return attach_plan_hash(
+        {
+            "schemaVersion": "rule-retry-execution-plan.v1",
+            "runId": run_id,
+            "workflowRevisionId": "wfrev_rule_retry",
+            "supported": True,
+            "eligible": True,
+            "eligibleNow": True,
+            "executionEnabled": True,
+            "executionReasonCode": "RULE_RETRY_EXECUTION_ENABLED",
+            "commandPreviewAvailable": True,
+            "blockedReasonCodes": [],
+            "requiresBeforeExecution": [],
+            "selectedRules": [selected_rule],
+            "rerunScope": {"ruleCount": 2, "rules": [selected_rule, {"ruleName": "report"}]},
+            "snakemakeOptions": {
+                "schemaVersion": "snakemake-rule-rerun-options.v1",
+                "rerunIncomplete": True,
+                "forcerunRules": ["align"],
+                "targetOutputKeys": ["bam"],
+                "argsPreview": ["--rerun-incomplete", "--forcerun", "align"],
+                "unsafeFlagsProhibited": ["--forceall", "--touch", "--ignore-incomplete"],
+            },
+            "cacheRestorePlan": {
+                "schemaVersion": "rule-cache-restore-plan.v1",
+                "outputCount": 1,
+                "redactionPolicy": {
+                    "pathsExposed": False,
+                    "storageUrisExposed": False,
+                },
+                "rules": [
+                    {
+                        "ruleName": "align",
+                        "stepId": "align",
+                        "invalidationRole": "selected",
+                        "outputs": [
+                            {
+                                "artifactKey": "bam",
+                                "stepId": "align",
+                                "outputOrdinal": 1,
+                                "cacheHit": True,
+                            }
+                        ],
+                    }
+                ],
+            },
+            "executorOrchestration": {
+                "launchPreflight": {
+                    "preflightReady": True,
+                    "pathExposed": False,
+                    "storageUriExposed": False,
+                }
+            },
+            "incompleteOutputAudit": {
+                "expectedOutputCount": 1,
+                "verifiedOutputCount": 1,
+                "rerunRequiredOutputCount": 0,
+                "unverifiedOutputCount": 0,
+                "pathExposed": False,
+                "storageUriExposed": False,
+            },
+        }
+    )
 
 
 def _create_run(cfg, run_id: str, *, workflow_revision_id: str | None) -> None:

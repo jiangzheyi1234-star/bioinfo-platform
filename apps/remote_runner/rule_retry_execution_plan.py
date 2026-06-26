@@ -320,6 +320,16 @@ def _finalize(
         ),
     }
     plan_with_orchestration = _clear_resolved_executor_blocker(plan_with_orchestration)
+    preliminary_readiness = build_rule_retry_activation_readiness(
+        rule_retry_plan=rule_retry_plan,
+        execution_plan=plan_with_orchestration,
+        workdir_reuse_policy=workdir_reuse_policy,
+    )
+    plan_with_orchestration = _enable_rule_retry_when_activation_evidence_ready(
+        plan_with_orchestration,
+        preliminary_readiness,
+        workdir_reuse_policy=workdir_reuse_policy,
+    )
     return attach_plan_hash(
         {
             **plan_with_orchestration,
@@ -330,6 +340,47 @@ def _finalize(
             ),
         }
     )
+
+
+def _enable_rule_retry_when_activation_evidence_ready(
+    plan: dict[str, Any],
+    readiness: dict[str, Any],
+    *,
+    workdir_reuse_policy: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not _activation_evidence_ready(readiness):
+        return plan
+    enabled_plan = {
+        **plan,
+        "supported": True,
+        "eligible": True,
+        "eligibleNow": True,
+        "executionEnabled": True,
+        "executionReasonCode": "RULE_RETRY_EXECUTION_ENABLED",
+        "reasonCode": "RULE_RETRY_EXECUTION_ENABLED",
+        "message": (
+            "Rule-level retry execution is ready; public mutation may requeue a scoped Snakemake rerun after "
+            "planHash revalidation."
+        ),
+        "blockedReasonCodes": [],
+        "requiresBeforeExecution": [],
+    }
+    return {
+        **enabled_plan,
+        "executorOrchestration": build_rule_partial_rerun_orchestration(
+            enabled_plan,
+            workdir_reuse_policy=workdir_reuse_policy,
+        ),
+    }
+
+
+def _activation_evidence_ready(readiness: dict[str, Any]) -> bool:
+    redaction = _dict_value(readiness.get("redactionPolicy"))
+    if redaction.get("pathsExposed") is True or redaction.get("storageUrisExposed") is True:
+        return False
+    checks = [item for item in _list_value(readiness.get("checks")) if isinstance(item, dict)]
+    evidence_checks = [item for item in checks if item.get("name") != "publicMutation"]
+    return bool(evidence_checks) and all(item.get("ready") is True for item in evidence_checks)
 
 
 def _clear_resolved_executor_blocker(plan: dict[str, Any]) -> dict[str, Any]:

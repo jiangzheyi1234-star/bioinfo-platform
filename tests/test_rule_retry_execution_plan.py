@@ -146,7 +146,7 @@ def test_rule_retry_execution_plan_marks_workdir_reuse_ready_from_redacted_polic
     assert plan["executionEnabled"] is False
 
 
-def test_rule_retry_execution_plan_marks_orchestration_contract_ready_without_enabling_executor() -> None:
+def test_rule_retry_execution_plan_enables_mutation_after_all_activation_evidence_is_ready() -> None:
     plan = build_rule_retry_execution_plan(
         _rule_retry_plan(),
         output_invalidation_plan=_applied_output_invalidation_plan(),
@@ -180,11 +180,13 @@ def test_rule_retry_execution_plan_marks_orchestration_contract_ready_without_en
     readiness_checks = {item["name"]: item for item in plan["activationReadiness"]["checks"]}
     assert orchestration["contractReady"] is True
     assert orchestration["executorReady"] is True
-    assert orchestration["reasonCode"] == "RULE_RETRY_MUTATION_API_DISABLED"
-    assert "PARTIAL_RESTORE_EXECUTOR_UNAVAILABLE" not in plan["blockedReasonCodes"]
-    assert "PARTIAL_RESTORE_EXECUTOR_UNAVAILABLE" not in plan["requiresBeforeExecution"]
+    assert orchestration["reasonCode"] == "RULE_PARTIAL_RERUN_EXECUTOR_READY"
+    assert orchestration["blockedReasonCodes"] == []
+    assert orchestration["requiresBeforeExecution"] == []
+    assert plan["blockedReasonCodes"] == []
+    assert plan["requiresBeforeExecution"] == []
     assert orchestration["launchPreflightReady"] is True
-    assert orchestration["launchReady"] is False
+    assert orchestration["launchReady"] is True
     assert orchestration["executionBoundaryReady"] is True
     execution_boundary = orchestration["executionBoundary"]
     assert execution_boundary["schemaVersion"] == "rule-partial-rerun-execution-boundary.v1"
@@ -200,8 +202,9 @@ def test_rule_retry_execution_plan_marks_orchestration_contract_ready_without_en
     launch_preflight = orchestration["launchPreflight"]
     assert launch_preflight["schemaVersion"] == "rule-partial-rerun-launch-preflight.v1"
     assert launch_preflight["preflightReady"] is True
-    assert launch_preflight["launchReady"] is False
-    assert launch_preflight["reasonCode"] == "RULE_PARTIAL_RERUN_LAUNCH_PREFLIGHT_PREVIEW_ONLY"
+    assert launch_preflight["launchReady"] is True
+    assert launch_preflight["mode"] == "operator-mutation-ready"
+    assert launch_preflight["reasonCode"] == "RULE_PARTIAL_RERUN_LAUNCH_PREFLIGHT_READY"
     assert launch_preflight["preflightReasonCode"] == "RULE_PARTIAL_RERUN_LAUNCH_PREFLIGHT_READY"
     assert launch_preflight["terminalSourceAttemptReady"] is True
     assert launch_preflight["targetAttemptPresent"] is False
@@ -222,13 +225,13 @@ def test_rule_retry_execution_plan_marks_orchestration_contract_ready_without_en
     assert launch_preflight["planHashCurrent"] is False
     assert launch_preflight["planHashMatches"] is False
     assert launch_preflight["executorStartAllowed"] is False
-    assert launch_preflight["queueMutationAllowed"] is False
-    assert launch_preflight["runStateMutationAllowed"] is False
+    assert launch_preflight["queueMutationAllowed"] is True
+    assert launch_preflight["runStateMutationAllowed"] is True
     assert launch_preflight["pathExposed"] is False
     assert launch_preflight["storageUriExposed"] is False
-    assert "RULE_PARTIAL_RERUN_PLAN_HASH_REVALIDATION_REQUIRED" in launch_preflight["blockedReasonCodes"]
-    assert "RULE_PARTIAL_RERUN_ACTIVE_LEASE_REQUIRED" in launch_preflight["blockedReasonCodes"]
-    assert orchestration["queueMutationAllowed"] is False
+    assert launch_preflight["blockedReasonCodes"] == []
+    assert orchestration["queueMutationAllowed"] is True
+    assert orchestration["runStateMutationAllowed"] is True
     assert orchestration["pathExposed"] is False
     assert readiness_checks["partialRerunLaunchPreflight"]["ready"] is True
     assert readiness_checks["partialRerunExecutionBoundary"]["ready"] is True
@@ -237,8 +240,11 @@ def test_rule_retry_execution_plan_marks_orchestration_contract_ready_without_en
     assert readiness_checks["partialRerunExecutor"]["reasonCode"] == "READY"
     assert readiness_checks["partialRerunLifecycle"]["ready"] is True
     assert readiness_checks["partialOutputClosure"]["ready"] is True
-    assert readiness_checks["publicMutation"]["reasonCode"] == "RULE_RETRY_MUTATION_API_DISABLED"
-    assert plan["executionEnabled"] is False
+    assert readiness_checks["publicMutation"]["ready"] is True
+    assert readiness_checks["publicMutation"]["reasonCode"] == "READY"
+    assert plan["executionEnabled"] is True
+    assert plan["executionReasonCode"] == "RULE_RETRY_EXECUTION_ENABLED"
+    assert plan["activationReadiness"]["executionReady"] is True
 
 
 def test_rule_retry_execution_plan_propagates_lifecycle_redaction_to_readiness_and_orchestration() -> None:

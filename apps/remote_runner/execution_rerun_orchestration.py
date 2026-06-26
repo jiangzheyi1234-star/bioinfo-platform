@@ -11,6 +11,7 @@ RUN_RESUME_ARTIFACT_ADOPTION_BOUNDARY_SCHEMA_VERSION = "run-resume-artifact-adop
 RUN_RESUME_EXECUTOR_PREVIEW_ONLY = "RUN_RESUME_EXECUTOR_ORCHESTRATION_PREVIEW_ONLY"
 PARTIAL_RERUN_EXECUTOR_PREVIEW_ONLY = "PARTIAL_RERUN_EXECUTOR_ORCHESTRATION_PREVIEW_ONLY"
 RULE_RETRY_MUTATION_API_DISABLED = "RULE_RETRY_MUTATION_API_DISABLED"
+RULE_PARTIAL_RERUN_EXECUTOR_READY = "RULE_PARTIAL_RERUN_EXECUTOR_READY"
 
 
 def build_run_resume_artifact_adoption_boundary(
@@ -173,6 +174,7 @@ def build_rule_partial_rerun_orchestration(
     if snakemake.get("rerunIncomplete") is not True or not _list_value(snakemake.get("forcerunRules")):
         contract_blockers.append("SNAKEMAKE_RULE_RERUN_OPTIONS_UNPROVEN")
     contract_ready = not contract_blockers
+    public_mutation_enabled = execution_plan.get("executionEnabled") is True
     launch_preflight = build_rule_partial_rerun_launch_preflight(
         execution_plan,
         workdir_reuse_policy=workdir_reuse_policy,
@@ -191,8 +193,15 @@ def build_rule_partial_rerun_orchestration(
             *[str(item) for item in launch_preflight.get("evidenceBlockedReasonCodes") or []],
             *[str(item) for item in execution_boundary.get("blockedReasonCodes") or []],
             *([] if executor_ready else [PARTIAL_RERUN_EXECUTOR_PREVIEW_ONLY]),
-            RULE_RETRY_MUTATION_API_DISABLED,
+            *([] if public_mutation_enabled else [RULE_RETRY_MUTATION_API_DISABLED]),
         ]
+    )
+    reason_code = (
+        RULE_PARTIAL_RERUN_EXECUTOR_READY
+        if executor_ready and public_mutation_enabled
+        else RULE_RETRY_MUTATION_API_DISABLED
+        if executor_ready
+        else blocked_reason_codes[0]
     )
     return {
         "schemaVersion": RERUN_EXECUTOR_ORCHESTRATION_SCHEMA_VERSION,
@@ -200,7 +209,7 @@ def build_rule_partial_rerun_orchestration(
         "available": True,
         "contractReady": contract_ready,
         "executorReady": executor_ready,
-        "reasonCode": RULE_RETRY_MUTATION_API_DISABLED if executor_ready else blocked_reason_codes[0],
+        "reasonCode": reason_code,
         "blockedReasonCodes": blocked_reason_codes,
         "requiresBeforeExecution": blocked_reason_codes,
         "launchPreflight": launch_preflight,
@@ -244,8 +253,8 @@ def build_rule_partial_rerun_orchestration(
         "cacheAdoptionBypassRequired": True,
         "artifactAdoptionRequired": True,
         "finalizeRunAllowed": execution_boundary.get("finalizeRunAllowed") is True,
-        "queueMutationAllowed": False,
-        "runStateMutationAllowed": False,
+        "queueMutationAllowed": launch_preflight.get("queueMutationAllowed") is True,
+        "runStateMutationAllowed": launch_preflight.get("runStateMutationAllowed") is True,
         "pathExposed": bool(redaction.get("pathsExposed")) or lifecycle_path_exposed or closure_path_exposed,
         "storageUriExposed": bool(redaction.get("storageUrisExposed"))
         or lifecycle_storage_uri_exposed

@@ -28,6 +28,7 @@ def build_rule_partial_rerun_launch_preflight(
 ) -> dict[str, Any]:
     cache_restore = _dict_value(execution_plan.get("cacheRestorePlan"))
     snakemake = _dict_value(execution_plan.get("snakemakeOptions"))
+    public_mutation_enabled = execution_plan.get("executionEnabled") is True
     lifecycle = _dict_value(execution_plan.get("partialRerunLifecycle"))
     source_attempt = _dict_value(lifecycle.get("sourceAttempt"))
     target_attempt = _dict_value(lifecycle.get("targetAttempt"))
@@ -98,16 +99,23 @@ def build_rule_partial_rerun_launch_preflight(
 
     evidence_blockers = _unique_strings(blockers)
     preflight_ready = not evidence_blockers
-    blocked_reason_codes = _unique_strings([*evidence_blockers, *_LAUNCH_MUTATION_BLOCKERS])
+    queue_mutation_allowed = preflight_ready and public_mutation_enabled
+    blocked_reason_codes = _unique_strings(
+        evidence_blockers if public_mutation_enabled else [*evidence_blockers, *_LAUNCH_MUTATION_BLOCKERS]
+    )
     return {
         "schemaVersion": RULE_PARTIAL_RERUN_LAUNCH_PREFLIGHT_SCHEMA_VERSION,
         "available": True,
-        "mode": "operator-preview",
+        "mode": "operator-mutation-ready" if queue_mutation_allowed else "operator-preview",
         "preflightReady": preflight_ready,
-        "launchReady": False,
-        "reasonCode": RULE_PARTIAL_RERUN_LAUNCH_PREFLIGHT_PREVIEW_ONLY
-        if preflight_ready
-        else blocked_reason_codes[0],
+        "launchReady": queue_mutation_allowed,
+        "reasonCode": (
+            RULE_PARTIAL_RERUN_LAUNCH_PREFLIGHT_READY
+            if queue_mutation_allowed
+            else RULE_PARTIAL_RERUN_LAUNCH_PREFLIGHT_PREVIEW_ONLY
+            if preflight_ready
+            else blocked_reason_codes[0]
+        ),
         "preflightReasonCode": RULE_PARTIAL_RERUN_LAUNCH_PREFLIGHT_READY
         if preflight_ready
         else blocked_reason_codes[0],
@@ -147,8 +155,8 @@ def build_rule_partial_rerun_launch_preflight(
         "edgeClosureReady": output_closure.get("edgeClosureReady") is True,
         "lifecycleContractReady": lifecycle_ready,
         "executorStartAllowed": False,
-        "queueMutationAllowed": False,
-        "runStateMutationAllowed": False,
+        "queueMutationAllowed": queue_mutation_allowed,
+        "runStateMutationAllowed": queue_mutation_allowed,
         "pathExposed": path_exposed,
         "storageUriExposed": storage_uri_exposed,
     }
