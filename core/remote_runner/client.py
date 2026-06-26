@@ -451,6 +451,12 @@ class RemoteRunnerHttpClient:
             dict(payload or {}),
         )["data"]
 
+    def run_result_package_byte_gc(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        return self.post_json(
+            "/api/v1/result-package-exports/bytes/gc/run",
+            dict(payload or {}),
+        )["data"]
+
     def get_artifact_lifecycle_usage(self, *, quota_bytes: int | None = None) -> dict[str, Any]:
         query = urllib.parse.urlencode({"quotaBytes": quota_bytes if quota_bytes is not None else ""})
         return self.get_json(f"/api/v1/artifacts/lifecycle/usage?{query}")["data"]

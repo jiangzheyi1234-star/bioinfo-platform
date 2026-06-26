@@ -11,6 +11,7 @@ from apps.api.models import (
     ArtifactGcPreviewRequest,
     ArtifactGcRunRequest,
     ResultPackageByteDeleteRequest,
+    ResultPackageByteGcRunRequest,
     ResultPackageByteGcPreviewRequest,
     ResultPackageExportRequest,
     ResultPackageRetireRequest,
@@ -379,6 +380,22 @@ async def preview_result_package_byte_gc_from_request(
     server_id = payload.pop("serverId", None)
     result = await run_runtime_payload(
         lambda: runtime_service().preview_result_package_byte_gc(
+            payload,
+            server_id=server_id,
+        ),
+        wrapper="raw",
+    )
+    _strip_result_package_byte_gc_preview_secrets(result)
+    return result
+
+
+async def run_result_package_byte_gc_from_request(
+    request: ResultPackageByteGcRunRequest,
+) -> dict[str, Any]:
+    payload = request_payload(request)
+    server_id = payload.pop("serverId", None)
+    result = await run_runtime_payload(
+        lambda: runtime_service().run_result_package_byte_gc(
             payload,
             server_id=server_id,
         ),

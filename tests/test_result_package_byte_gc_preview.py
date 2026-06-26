@@ -4,9 +4,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from apps.remote_runner.artifact_product_service import export_result_package
+from apps.remote_runner.evidence_storage import list_evidence_events
 from apps.remote_runner.governance_audit import list_governance_audit_events
 from apps.remote_runner.result_package_byte_gc_preview_service import preview_result_package_byte_gc
+from apps.remote_runner.result_package_byte_gc_run_service import (
+    RESULT_PACKAGE_BYTE_GC_RUN_CONFIRMATION,
+    run_result_package_byte_gc,
+)
 from apps.remote_runner.result_package_byte_gc_service import delete_retired_result_package_bytes
 from apps.remote_runner.result_package_lifecycle_service import retire_result_package_export
 from apps.remote_runner.storage import create_run_record, persist_artifact
@@ -52,6 +59,7 @@ def test_result_package_byte_gc_preview_candidates_are_public_and_fingerprinted(
 
     assert plan["schemaVersion"] == "h2ometa.result-package-byte-gc-preview.v1"
     assert plan["cutoffAt"] == "2025-12-02T00:00:00Z"
+    assert plan["planFingerprint"].startswith("rpbgcfp_")
     assert plan["planFingerprint"] == repeated["planFingerprint"]
     assert plan["candidateCount"] == 1
     assert plan["protectedCount"] == 0
@@ -196,6 +204,208 @@ def test_result_package_byte_gc_preview_honors_max_delete_bytes_without_mutation
     assert states[first["packageExportId"]]["package_bytes_state"] == "available"
     assert states[second["packageExportId"]]["lifecycle_state"] == "retired"
     assert states[second["packageExportId"]]["package_bytes_state"] == "available"
+
+
+def test_result_package_byte_gc_preview_fingerprint_excludes_wall_clock_cutoff(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    _retired_package(cfg, "run_byte_gc_preview_time_stable", retired_at="2025-01-01T00:00:00Z")
+    clock = iter(
+        [
+            datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
+            datetime(2026, 1, 1, 0, 0, 5, tzinfo=timezone.utc),
+        ]
+    )
+    monkeypatch.setattr(
+        "apps.remote_runner.result_package_byte_gc_preview_service._utc_now",
+        lambda: next(clock),
+    )
+
+    first = preview_result_package_byte_gc(cfg, {"retentionDays": 30})
+    second = preview_result_package_byte_gc(cfg, {"retentionDays": 30})
+
+    assert first["cutoffAt"] != second["cutoffAt"]
+    assert first["planFingerprint"] == second["planFingerprint"]
+
+
+def test_result_package_byte_gc_run_requires_current_fingerprint_and_deletes_candidates(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path, api_token_roles=("artifact-curator",))
+    package = _retired_package(cfg, "run_byte_gc_run_candidate", retired_at="2025-01-01T00:00:00Z")
+    package_path = Path(str(package["packagePath"]))
+    reason = f"quota {package['packagePath']} {package['sha256']}"
+    preview = preview_result_package_byte_gc(
+        cfg,
+        {"retentionDays": 30, "actor": "operator", "reason": reason},
+    )
+
+    with pytest.raises(ValueError, match="RESULT_PACKAGE_BYTE_GC_PLAN_FINGERPRINT_REQUIRED"):
+        run_result_package_byte_gc(
+            cfg,
+            {
+                "retentionDays": 30,
+                "confirmation": RESULT_PACKAGE_BYTE_GC_RUN_CONFIRMATION,
+                "actor": "operator",
+            },
+        )
+    with pytest.raises(ValueError, match="RESULT_PACKAGE_BYTE_GC_PLAN_FINGERPRINT_MISMATCH"):
+        run_result_package_byte_gc(
+            cfg,
+            {
+                "retentionDays": 30,
+                "confirmation": RESULT_PACKAGE_BYTE_GC_RUN_CONFIRMATION,
+                "planFingerprint": "stale",
+                "actor": "operator",
+            },
+        )
+    with pytest.raises(ValueError, match="RESULT_PACKAGE_BYTE_GC_RUN_CONFIRMATION_REQUIRED"):
+        run_result_package_byte_gc(
+            cfg,
+            {
+                "retentionDays": 30,
+                "confirmation": "delete-result-package-export-bytes",
+                "planFingerprint": preview["planFingerprint"],
+                "actor": "operator",
+                "reason": reason,
+            },
+        )
+    denials = list_governance_audit_events(cfg, action="result.package.bytes.run")["items"]
+
+    result = run_result_package_byte_gc(
+        cfg,
+        {
+            "retentionDays": 30,
+            "confirmation": RESULT_PACKAGE_BYTE_GC_RUN_CONFIRMATION,
+            "planFingerprint": preview["planFingerprint"],
+            "actor": "operator",
+            "reason": reason,
+        },
+    )
+    audit = list_governance_audit_events(cfg, action="result.package.bytes.run")["items"][-1]
+    evidence = list_evidence_events(
+        cfg,
+        subject_kind="result_package_export",
+        subject_id="byte-gc-run",
+        event_type="result.package.bytes.gc.run.v1",
+    )[-1]
+
+    assert package_path.exists() is False
+    assert result["schemaVersion"] == "h2ometa.result-package-byte-gc-run.v1"
+    assert result["status"] == "completed"
+    assert result["deletedCount"] == 1
+    assert result["deletedBytes"] == package["sizeBytes"]
+    assert result["deleteConfirmationAccepted"] is True
+    assert result["plan"]["planFingerprint"] == preview["planFingerprint"]
+    assert result["deleted"][0]["packageBytesState"] == "deleted"
+    assert result["deleted"][0]["packageFileDeleted"] is True
+    assert result["deleted"][0]["checksumVerified"] is True
+    with get_connection(cfg) as connection:
+        state = connection.execute(
+            "SELECT package_bytes_state FROM result_package_exports WHERE package_export_id = ?",
+            (package["packageExportId"],),
+        ).fetchone()["package_bytes_state"]
+    assert state == "deleted"
+    assert denials[-3]["reasonCode"] == "RESULT_PACKAGE_BYTE_GC_PLAN_FINGERPRINT_REQUIRED"
+    assert denials[-3]["details"]["deletedCount"] == 0
+    assert denials[-2]["reasonCode"] == "RESULT_PACKAGE_BYTE_GC_PLAN_FINGERPRINT_MISMATCH"
+    assert denials[-2]["details"]["fingerprintProvided"] is True
+    assert denials[-1]["reasonCode"] == "RESULT_PACKAGE_BYTE_GC_RUN_CONFIRMATION_REQUIRED"
+    assert denials[-1]["details"]["fingerprintProvided"] is True
+    assert audit["decision"] == "allow"
+    assert audit["details"]["deletedCount"] == 1
+    assert audit["details"]["planFingerprint"] == preview["planFingerprint"]
+    assert evidence["payload"]["reasonRedacted"] is True
+    assert evidence["payload"]["deletedCount"] == 1
+    _assert_no_raw_export_identity(result, package)
+    _assert_no_raw_export_identity(audit, package)
+    _assert_no_raw_export_identity(evidence, package)
+
+
+def test_result_package_byte_gc_run_rejects_stale_candidate_set(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    first = _retired_package(cfg, "run_byte_gc_run_stale_first", retired_at="2025-01-01T00:00:00Z")
+    first_path = Path(str(first["packagePath"]))
+    preview = preview_result_package_byte_gc(cfg, {"retentionDays": 30})
+    second = _retired_package(cfg, "run_byte_gc_run_stale_second", retired_at="2025-01-02T00:00:00Z")
+    second_path = Path(str(second["packagePath"]))
+
+    with pytest.raises(ValueError, match="RESULT_PACKAGE_BYTE_GC_PLAN_FINGERPRINT_MISMATCH"):
+        run_result_package_byte_gc(
+            cfg,
+            {
+                "retentionDays": 30,
+                "confirmation": RESULT_PACKAGE_BYTE_GC_RUN_CONFIRMATION,
+                "planFingerprint": preview["planFingerprint"],
+            },
+        )
+    denial = list_governance_audit_events(cfg, action="result.package.bytes.run")["items"][-1]
+    current = preview_result_package_byte_gc(cfg, {"retentionDays": 30})
+    result = run_result_package_byte_gc(
+        cfg,
+        {
+            "retentionDays": 30,
+            "confirmation": RESULT_PACKAGE_BYTE_GC_RUN_CONFIRMATION,
+            "planFingerprint": current["planFingerprint"],
+        },
+    )
+
+    assert first_path.exists() is False
+    assert second_path.exists() is False
+    assert result["deletedCount"] == 2
+    assert denial["reasonCode"] == "RESULT_PACKAGE_BYTE_GC_PLAN_FINGERPRINT_MISMATCH"
+    assert denial["details"]["deletedCount"] == 0
+
+
+def test_result_package_byte_gc_run_delete_error_is_stable_and_redacted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    package = _retired_package(cfg, "run_byte_gc_run_error", retired_at="2025-01-01T00:00:00Z")
+    preview = preview_result_package_byte_gc(cfg, {"retentionDays": 30})
+
+    def fail_delete(*_args, **_kwargs):
+        raise ValueError(f"RESULT_PACKAGE_CHECKSUM_MISMATCH: {package['packagePath']}")
+
+    monkeypatch.setattr(
+        "apps.remote_runner.result_package_byte_gc_run_service.delete_retired_result_package_bytes",
+        fail_delete,
+    )
+    with pytest.raises(ValueError, match="RESULT_PACKAGE_BYTE_GC_RUN_DELETE_FAILED"):
+        run_result_package_byte_gc(
+            cfg,
+            {
+                "retentionDays": 30,
+                "confirmation": RESULT_PACKAGE_BYTE_GC_RUN_CONFIRMATION,
+                "planFingerprint": preview["planFingerprint"],
+            },
+        )
+    audit = list_governance_audit_events(cfg, action="result.package.bytes.run")["items"][-1]
+    evidence = list_evidence_events(
+        cfg,
+        subject_kind="result_package_export",
+        subject_id="byte-gc-run",
+        event_type="result.package.bytes.gc.run.v1",
+    )[-1]
+
+    assert Path(str(package["packagePath"])).is_file()
+    assert audit["decision"] == "error"
+    assert audit["details"]["errorCount"] == 1
+    assert evidence["payload"]["errors"] == [
+        {
+            "itemIndex": 0,
+            "classification": "error",
+            "reason": "delete_failed",
+            "errorCode": "RESULT_PACKAGE_CHECKSUM_MISMATCH",
+            "artifactPayloadMode": "included",
+            "lifecycleState": "retired",
+            "packageBytesState": "available",
+            "sizeBytes": package["sizeBytes"],
+        }
+    ]
+    _assert_no_raw_export_identity(audit, package)
+    _assert_no_raw_export_identity(evidence, package)
 
 
 def _active_package(cfg: Any, run_id: str) -> dict[str, Any]:

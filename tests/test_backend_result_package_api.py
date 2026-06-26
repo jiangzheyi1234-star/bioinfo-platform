@@ -4,6 +4,7 @@ import asyncio
 
 from apps.api.models import (
     ResultPackageByteDeleteRequest,
+    ResultPackageByteGcRunRequest,
     ResultPackageByteGcPreviewRequest,
     ResultPackageExportRequest,
     ResultPackageRetireRequest,
@@ -15,6 +16,7 @@ from apps.api.execution_query_routes import (
     get_result_audit,
     list_result_package_exports,
     preview_result_package_byte_gc,
+    run_result_package_byte_gc,
     retire_result_package,
 )
 
@@ -288,6 +290,50 @@ def test_result_package_byte_gc_preview_route_passes_server_id_and_sanitizes_pro
     }
 
 
+def test_result_package_byte_gc_run_route_passes_server_id_and_sanitizes_projection(monkeypatch) -> None:
+    runtime = FakeResultPackageByteGcRunRuntime()
+    monkeypatch.setattr("apps.api.execution_query_service.runtime_service", lambda: runtime)
+
+    result = asyncio.run(
+        run_result_package_byte_gc(
+            ResultPackageByteGcRunRequest(
+                serverId="srv_remote",
+                retentionDays=14,
+                maxDeleteBytes=4096,
+                scanLimit=50,
+                actor="operator",
+                reason="quota",
+                confirmation="run-result-package-byte-gc",
+                planFingerprint="fp_current",
+            )
+        )
+    )
+
+    assert runtime.calls == [
+        (
+            {
+                "retentionDays": 14,
+                "maxDeleteBytes": 4096,
+                "scanLimit": 50,
+                "actor": "operator",
+                "reason": "quota",
+                "confirmation": "run-result-package-byte-gc",
+                "planFingerprint": "fp_current",
+            },
+            "srv_remote",
+        )
+    ]
+    assert result == {
+        "data": {
+            "schemaVersion": "h2ometa.result-package-byte-gc-run.v1",
+            "status": "completed",
+            "deletedCount": 1,
+            "deleted": [{"itemIndex": 0, "nested": {}}],
+            "plan": {"candidates": [{"itemIndex": 0}]},
+        }
+    }
+
+
 class FakeResultPackageRuntime:
     def get_result_audit(self, result_id):
         assert result_id == "res_run_demo"
@@ -529,5 +575,48 @@ class FakeResultPackageByteGcPreviewRuntime:
                     }
                 ],
                 "redactionPolicy": {"pathsExposed": False, "sha256Exposed": False},
+            }
+        }
+
+
+class FakeResultPackageByteGcRunRuntime:
+    def __init__(self) -> None:
+        self.calls = []
+
+    def run_result_package_byte_gc(self, payload, *, server_id=None):
+        self.calls.append((payload, server_id))
+        return {
+            "data": {
+                "schemaVersion": "h2ometa.result-package-byte-gc-run.v1",
+                "status": "completed",
+                "deletedCount": 1,
+                "resultId": "res_hidden",
+                "runId": "run_hidden",
+                "packageExportId": "rpex_hidden",
+                "packagePath": "C:/secret/package.zip",
+                "packageUri": "file:///C:/secret/package.zip",
+                "sha256": "a" * 64,
+                "deleted": [
+                    {
+                        "itemIndex": 0,
+                        "resultId": "res_hidden",
+                        "runId": "run_hidden",
+                        "packageExportId": "rpex_hidden",
+                        "nested": {
+                            "packagePath": "C:/secret/package.zip",
+                            "storageUri": "file:///C:/secret/package.zip",
+                            "packageSha256": "b" * 64,
+                        },
+                    }
+                ],
+                "plan": {
+                    "candidates": [
+                        {
+                            "itemIndex": 0,
+                            "packageExportId": "rpex_hidden",
+                            "resultId": "res_hidden",
+                        }
+                    ]
+                },
             }
         }

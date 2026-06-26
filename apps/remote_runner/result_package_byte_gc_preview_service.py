@@ -22,12 +22,38 @@ class ResultPackageByteGcPolicy:
     retention_days: int
     max_delete_bytes: int | None
     reason: str
+    reason_provided: bool
     actor: str
     scan_limit: int
 
 
 def preview_result_package_byte_gc(cfg: RemoteRunnerConfig, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     policy = _policy_from_payload(payload)
+    plan = build_result_package_byte_gc_plan(cfg, policy)
+    public_plan = plan["publicPlan"]
+    record_governance_audit_event(
+        cfg,
+        action="result.package.bytes.preview",
+        subject_kind="result_package_export",
+        subject_id="byte-gc-preview",
+        actor=policy.actor,
+        details={
+            "schemaVersion": RESULT_PACKAGE_BYTE_GC_PREVIEW_SCHEMA,
+            "retentionDays": policy.retention_days,
+            "maxDeleteBytesProvided": policy.max_delete_bytes is not None,
+            "scanLimit": policy.scan_limit,
+            "scannedCount": plan["scannedCount"],
+            "candidateCount": public_plan["candidateCount"],
+            "deleteBytes": public_plan["deleteBytes"],
+            "protectedCount": public_plan["protectedCount"],
+            "planFingerprint": public_plan["planFingerprint"],
+            "reasonCounts": public_plan["reasonCounts"],
+        },
+    )
+    return public_plan
+
+
+def build_result_package_byte_gc_plan(cfg: RemoteRunnerConfig, policy: ResultPackageByteGcPolicy) -> dict[str, Any]:
     previewed_at = now_iso()
     cutoff_at = _format_utc(_utc_now() - timedelta(days=policy.retention_days))
     records = list_result_package_exports_for_byte_gc(cfg, limit=policy.scan_limit)
@@ -42,7 +68,7 @@ def preview_result_package_byte_gc(cfg: RemoteRunnerConfig, payload: dict[str, A
     selected = _apply_max_delete_bytes(candidates, policy.max_delete_bytes)
     limited = [item for item in candidates if item not in selected]
     protected.extend({**item, "classification": "protected", "reason": "max_delete_bytes_limited"} for item in limited)
-    plan = _public_preview(
+    public_plan = _public_preview(
         previewed_at=previewed_at,
         cutoff_at=cutoff_at,
         policy=policy,
@@ -50,26 +76,13 @@ def preview_result_package_byte_gc(cfg: RemoteRunnerConfig, payload: dict[str, A
         protected=protected,
         scanned_count=len(records),
     )
-    record_governance_audit_event(
-        cfg,
-        action="result.package.bytes.preview",
-        subject_kind="result_package_export",
-        subject_id="byte-gc-preview",
-        actor=policy.actor,
-        details={
-            "schemaVersion": RESULT_PACKAGE_BYTE_GC_PREVIEW_SCHEMA,
-            "retentionDays": policy.retention_days,
-            "maxDeleteBytesProvided": policy.max_delete_bytes is not None,
-            "scanLimit": policy.scan_limit,
-            "scannedCount": len(records),
-            "candidateCount": plan["candidateCount"],
-            "deleteBytes": plan["deleteBytes"],
-            "protectedCount": plan["protectedCount"],
-            "planFingerprint": plan["planFingerprint"],
-            "reasonCounts": plan["reasonCounts"],
-        },
-    )
-    return plan
+    return {
+        "policy": policy,
+        "publicPlan": public_plan,
+        "candidates": selected,
+        "protected": protected,
+        "scannedCount": len(records),
+    }
 
 
 def _classify_export(cfg: RemoteRunnerConfig, record: dict[str, Any], *, cutoff_at: str) -> dict[str, Any]:
@@ -130,15 +143,18 @@ def _public_preview(
     protected: list[dict[str, Any]],
     scanned_count: int,
 ) -> dict[str, Any]:
-    public_candidates = [_public_item(index, item) for index, item in enumerate(candidates)]
-    public_protected = [_public_item(index, item) for index, item in enumerate(protected)]
+    public_candidates = [public_result_package_byte_gc_item(index, item) for index, item in enumerate(candidates)]
+    public_protected = [public_result_package_byte_gc_item(index, item) for index, item in enumerate(protected)]
     delete_bytes = sum(int(item.get("sizeBytes") or 0) for item in candidates)
     reason_counts = _reason_counts([*public_candidates, *public_protected])
     fingerprint_payload = {
         "schemaVersion": RESULT_PACKAGE_BYTE_GC_PREVIEW_SCHEMA,
-        "cutoffAt": cutoff_at,
-        "retentionDays": policy.retention_days,
-        "maxDeleteBytes": policy.max_delete_bytes,
+        "policy": {
+            "retentionDays": policy.retention_days,
+            "maxDeleteBytes": policy.max_delete_bytes,
+            "reason": policy.reason,
+            "scanLimit": policy.scan_limit,
+        },
         "candidateSet": [
             {
                 "packageExportId": item["packageExportId"],
@@ -147,17 +163,24 @@ def _public_preview(
             }
             for item in candidates
         ],
-        "protectedReasons": reason_counts,
+        "protectedSet": [
+            {
+                "packageExportId": item["packageExportId"],
+                "sizeBytes": item["sizeBytes"],
+                "reason": item["reason"],
+            }
+            for item in protected
+        ],
     }
     return {
         "schemaVersion": RESULT_PACKAGE_BYTE_GC_PREVIEW_SCHEMA,
         "previewedAt": previewed_at,
         "cutoffAt": cutoff_at,
-        "planFingerprint": _digest_json(fingerprint_payload),
+        "planFingerprint": f"rpbgcfp_{_digest_json(fingerprint_payload)}",
         "policy": {
             "retentionDays": policy.retention_days,
             "maxDeleteBytes": policy.max_delete_bytes,
-            "reasonProvided": bool(policy.reason),
+            "reasonProvided": policy.reason_provided,
             "reasonRedacted": True,
             "scanLimit": policy.scan_limit,
             "deletionAuthorized": False,
@@ -182,7 +205,7 @@ def _public_preview(
     }
 
 
-def _public_item(index: int, item: dict[str, Any]) -> dict[str, Any]:
+def public_result_package_byte_gc_item(index: int, item: dict[str, Any]) -> dict[str, Any]:
     return {
         "itemIndex": index,
         "classification": str(item.get("classification") or ""),
@@ -212,17 +235,22 @@ def _apply_max_delete_bytes(candidates: list[dict[str, Any]], max_delete_bytes: 
 
 def _policy_from_payload(payload: dict[str, Any] | None) -> ResultPackageByteGcPolicy:
     body = dict(payload or {})
+    raw_reason = str(body.get("reason") or "").strip()
     return ResultPackageByteGcPolicy(
         retention_days=_non_negative_int(body.get("retentionDays", 30), "RESULT_PACKAGE_BYTE_GC_RETENTION_INVALID"),
         max_delete_bytes=_optional_positive_int(
             body.get("maxDeleteBytes"),
             "RESULT_PACKAGE_BYTE_GC_MAX_DELETE_BYTES_INVALID",
         ),
-        reason=str(body.get("reason") or DEFAULT_RESULT_PACKAGE_BYTE_GC_REASON).strip()
-        or DEFAULT_RESULT_PACKAGE_BYTE_GC_REASON,
+        reason=raw_reason or DEFAULT_RESULT_PACKAGE_BYTE_GC_REASON,
+        reason_provided=bool(raw_reason),
         actor=str(body.get("actor") or "remote-runner-api").strip() or "remote-runner-api",
         scan_limit=_bounded_scan_limit(body.get("scanLimit", 1000)),
     )
+
+
+def result_package_byte_gc_policy_from_payload(payload: dict[str, Any] | None) -> ResultPackageByteGcPolicy:
+    return _policy_from_payload(payload)
 
 
 def _non_negative_int(value: Any, code: str) -> int:

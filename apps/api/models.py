@@ -222,6 +222,11 @@ class ResultPackageByteGcPreviewRequest(ApiRequest):
     reason: str | None = None
 
 
+class ResultPackageByteGcRunRequest(ResultPackageByteGcPreviewRequest):
+    confirmation: Literal["run-result-package-byte-gc"]
+    planFingerprint: str = Field(min_length=1)
+
+
 TriggerSourceType = Literal["manual", "cron", "webhook", "dataset", "file", "database_ready", "backfill"]
 BackfillPartitionUnit = Literal["hour", "day"]
 BackfillRunOrder = Literal["forward", "backward"]

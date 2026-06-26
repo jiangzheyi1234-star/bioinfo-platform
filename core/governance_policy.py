@@ -366,6 +366,15 @@ HIGH_RISK_API_POLICIES: tuple[ApiGovernancePolicy, ...] = (
         "auditor",
     ),
     remote_policy(
+        "POST",
+        "/api/v1/result-package-exports/bytes/gc/run",
+        "apps/remote_runner/execution_query_routes.py",
+        "result.package.bytes.run",
+        "result_package_export",
+        "implemented",
+        "artifact-curator",
+    ),
+    remote_policy(
         "GET",
         "/api/v1/results/{result_id}/exports/{package_export_id}/download",
         "apps/remote_runner/execution_query_routes.py",

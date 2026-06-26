@@ -604,6 +604,22 @@ class ExecutionManager(BaseRuntimeManager):
             )
         }
 
+    def run_result_package_byte_gc(
+        self,
+        payload: dict[str, Any] | None = None,
+        *,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        body = dict(payload or {})
+        server_id_hint = str(body.pop("serverId", None) or server_id or "").strip() or None
+        return {
+            "data": self.call_runner(
+                "run_result_package_byte_gc",
+                preferred_server_id=server_id_hint,
+                payload=body,
+            )
+        }
+
     def get_artifact_lifecycle_usage(
         self,
         *,

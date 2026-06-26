@@ -131,6 +131,7 @@ def test_remote_runner_control_plane_services_use_async_thread_boundary() -> Non
         "download_result_package_from_request",
         "retire_result_package_from_request",
         "delete_result_package_bytes_from_request",
+        "run_result_package_byte_gc_from_request",
         "create_workflow_trigger_request",
         "list_workflow_triggers_request",
         "submit_workflow_trigger_event_request",
@@ -447,6 +448,7 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
     assert "download_result_package_from_request" in execution_query_route_source
     assert "retire_result_package_from_request" in execution_query_route_source
     assert "delete_result_package_bytes_from_request" in execution_query_route_source
+    assert "run_result_package_byte_gc_from_request" in execution_query_route_source
 
     for name in (
         "health_startup_from_request",
@@ -477,5 +479,6 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
         "download_result_package_from_request",
         "retire_result_package_from_request",
         "delete_result_package_bytes_from_request",
+        "run_result_package_byte_gc_from_request",
     ):
         assert f"async def {name}(" in control_source

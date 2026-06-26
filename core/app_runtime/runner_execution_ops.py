@@ -358,6 +358,14 @@ class RunnerExecutionOperationsMixin:
     ) -> dict[str, Any]:
         return self.execution.preview_result_package_byte_gc(payload, server_id=server_id)
 
+    def run_result_package_byte_gc(
+        self,
+        payload: dict[str, Any] | None = None,
+        *,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return self.execution.run_result_package_byte_gc(payload, server_id=server_id)
+
     def get_artifact_lifecycle_usage(
         self,
         *,
