@@ -13,6 +13,10 @@ import type {
   WorkflowArtifactGcRunResult,
   WorkflowArtifactLifecycleControllerTickList,
   WorkflowArtifactLifecycleUsage,
+  WorkflowResultPackageByteGcPlan,
+  WorkflowResultPackageByteGcPreviewRequest,
+  WorkflowResultPackageByteGcRunRequest,
+  WorkflowResultPackageByteGcRunResult,
 } from "./workflow-artifact-lifecycle-model";
 
 type ArtifactLifecycleFetchOptions = {
@@ -138,6 +142,47 @@ export async function runArtifactGc(
       timeoutMs: 20_000,
     }
   );
+  return response.data;
+}
+
+export async function previewResultPackageByteGc(
+  request: WorkflowResultPackageByteGcPreviewRequest
+): Promise<WorkflowResultPackageByteGcPlan> {
+  const body: WorkflowResultPackageByteGcPreviewRequest = {
+    retentionDays: normalizeOptionalNonNegativeInteger(request.retentionDays) ?? 30,
+    scanLimit: Math.min(normalizeOptionalPositiveInteger(request.scanLimit) ?? 1000, 5000),
+    reason: request.reason?.trim() || "web-ui-result-package-byte-gc-preview",
+    actor: request.actor?.trim() || "web-ui",
+  };
+  if (request.serverId) body.serverId = request.serverId;
+  const maxDeleteBytes = normalizeOptionalPositiveInteger(request.maxDeleteBytes);
+  if (maxDeleteBytes !== undefined) body.maxDeleteBytes = maxDeleteBytes;
+
+  const response = await requestLocalApiJson<{ data: WorkflowResultPackageByteGcPlan }>(
+    "POST",
+    "/api/v1/result-package-exports/bytes/gc/preview",
+    {
+      body,
+      cache: "no-store",
+      timeoutMs: 20_000,
+    }
+  );
+  return response.data;
+}
+
+export async function runResultPackageByteGc(
+  request: WorkflowResultPackageByteGcRunRequest
+): Promise<WorkflowResultPackageByteGcRunResult> {
+  const response = await requestLocalApiJson<{ data: WorkflowResultPackageByteGcRunResult }>(
+    "POST",
+    "/api/v1/result-package-exports/bytes/gc/run",
+    {
+      body: request,
+      cache: "no-store",
+      timeoutMs: 20_000,
+    }
+  );
+  invalidateAsyncCachePrefix("workflow:results");
   return response.data;
 }
 

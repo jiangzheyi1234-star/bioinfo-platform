@@ -196,3 +196,75 @@ export type WorkflowArtifactGcRunResult = {
   errors?: WorkflowArtifactGcRunError[];
   plan?: WorkflowArtifactGcPlan;
 };
+
+export type WorkflowResultPackageByteGcPreviewRequest = {
+  serverId?: string;
+  retentionDays?: number;
+  maxDeleteBytes?: number;
+  scanLimit?: number;
+  actor?: string;
+  reason?: string;
+};
+
+export type WorkflowResultPackageByteGcPolicy = {
+  retentionDays?: number;
+  maxDeleteBytes?: number | null;
+  reasonProvided?: boolean;
+  reasonRedacted?: boolean;
+  scanLimit?: number;
+  deletionAuthorized?: boolean;
+  deleteConfirmationAccepted?: boolean;
+};
+
+export type WorkflowResultPackageByteGcItem = {
+  itemIndex?: number;
+  classification?: string;
+  reason?: string;
+  artifactPayloadMode?: string;
+  lifecycleState?: string;
+  packageBytesState?: string;
+  sizeBytes?: number;
+  retiredAtPresent?: boolean;
+  checksumVerified?: boolean;
+  packageFileDeleted?: boolean;
+  evidenceId?: string;
+  errorCode?: string;
+};
+
+export type WorkflowResultPackageByteGcPlan = {
+  schemaVersion?: string;
+  previewedAt?: string;
+  cutoffAt?: string;
+  planFingerprint?: string;
+  policy?: WorkflowResultPackageByteGcPolicy;
+  scannedCount?: number;
+  candidateCount?: number;
+  deleteBytes?: number;
+  protectedCount?: number;
+  protectedBytes?: number;
+  reasonCounts?: Record<string, number>;
+  candidates?: WorkflowResultPackageByteGcItem[];
+  protected?: WorkflowResultPackageByteGcItem[];
+  redactionPolicy?: Record<string, boolean>;
+};
+
+export type WorkflowResultPackageByteGcRunRequest = WorkflowResultPackageByteGcPreviewRequest & {
+  confirmation: string;
+  planFingerprint: string;
+};
+
+export type WorkflowResultPackageByteGcRunResult = {
+  schemaVersion?: string;
+  executedAt?: string;
+  status?: string;
+  planFingerprint?: string;
+  deletedCount?: number;
+  deletedBytes?: number;
+  errorCount?: number;
+  evidenceId?: string;
+  deleteConfirmationAccepted?: boolean;
+  deleted?: WorkflowResultPackageByteGcItem[];
+  errors?: WorkflowResultPackageByteGcItem[];
+  plan?: WorkflowResultPackageByteGcPlan;
+  redactionPolicy?: Record<string, boolean>;
+};

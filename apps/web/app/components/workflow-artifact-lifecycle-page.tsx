@@ -28,6 +28,7 @@ import {
 } from "./workflow-artifact-lifecycle-api";
 import { WorkflowArtifactCacheController } from "./workflow-artifact-cache-controller";
 import { WorkflowArtifactLifecycleControllerPanel } from "./workflow-artifact-lifecycle-controller-panel";
+import { WorkflowResultPackageByteGcPanel } from "./workflow-result-package-byte-gc-panel";
 import type {
   WorkflowArtifactGcPlan,
   WorkflowArtifactGcPlanItem,
@@ -354,6 +355,8 @@ export function WorkflowArtifactLifecyclePage() {
               runningController={controllerRunning}
               ticks={ticks}
             />
+
+            <WorkflowResultPackageByteGcPanel onRunComplete={refresh} />
 
             <WorkflowArtifactCacheController
               onPolicyChanged={reloadAfterCachePolicyChange}
