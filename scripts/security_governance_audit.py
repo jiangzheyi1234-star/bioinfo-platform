@@ -10,6 +10,13 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from core.governance_policy import HIGH_RISK_API_POLICIES, validate_governance_policy  # noqa: E402
 from scripts.container_image_scan_governance import CONTAINER_IMAGE_SCAN_POLICY, CONTAINER_IMAGE_SCAN_WORKFLOW, scan_container_image_scan_policy as _scan_container_image_scan_policy  # noqa: E402
+from scripts.container_runtime_governance import (  # noqa: E402
+    API_DOCKERFILE,
+    COMPOSE_FILE,
+    CONTAINER_RUNTIME_HARDENING_POLICY,
+    WEB_DOCKERFILE,
+    scan_container_runtime_hardening_policy as _scan_container_runtime_hardening_policy,
+)
 from scripts.dependabot_governance import scan_dependabot_version_updates_contract as _scan_dependabot_version_updates_contract  # noqa: E402
 from scripts.github_ruleset_governance import GITHUB_MAIN_BRANCH_RULESET, scan_github_main_branch_ruleset_contract as _scan_github_main_branch_ruleset_contract  # noqa: E402
 from scripts.security_analysis_governance import (  # noqa: E402
@@ -225,12 +232,25 @@ def scan_security_contracts() -> list[Finding]:
     workflow_source = (ROOT / CONTAINER_IMAGE_SCAN_WORKFLOW).read_text(encoding="utf-8") if (ROOT / CONTAINER_IMAGE_SCAN_WORKFLOW).exists() else ""
     for item in _scan_container_image_scan_policy(CONTAINER_IMAGE_SCAN_POLICY, policy_source, workflow_source):
         findings.append(Finding(item.code, item.path, item.line, item.detail))
+    runtime_policy_path = ROOT / CONTAINER_RUNTIME_HARDENING_POLICY
+    runtime_policy_source = runtime_policy_path.read_text(encoding="utf-8") if runtime_policy_path.exists() else ""
+    compose_source = (ROOT / COMPOSE_FILE).read_text(encoding="utf-8") if (ROOT / COMPOSE_FILE).exists() else ""
+    api_dockerfile_source = (ROOT / API_DOCKERFILE).read_text(encoding="utf-8") if (ROOT / API_DOCKERFILE).exists() else ""
+    web_dockerfile_source = (ROOT / WEB_DOCKERFILE).read_text(encoding="utf-8") if (ROOT / WEB_DOCKERFILE).exists() else ""
+    for item in _scan_container_runtime_hardening_policy(
+        CONTAINER_RUNTIME_HARDENING_POLICY,
+        runtime_policy_source,
+        compose_source,
+        api_dockerfile_source,
+        web_dockerfile_source,
+    ):
+        findings.append(Finding(item.code, item.path, item.line, item.detail))
     codeowners = ROOT / ".github" / "CODEOWNERS"
     if not codeowners.exists():
         findings.append(Finding("codeowners-missing", ".github/CODEOWNERS", 0, "security-sensitive automation requires CODEOWNERS"))
     else:
         source = codeowners.read_text(encoding="utf-8")
-        for marker in ("/.github/container-image-scan.target.json", "/.github/rulesets/", "/.github/workflows/", "/.github/dependabot.yml", "/scripts/container_image_scan_governance.py", "/scripts/dependabot_governance.py", "/scripts/github_ruleset_governance.py", "/scripts/security_governance_audit.py", "/scripts/security_analysis_governance.py", "/core/governance_policy.py"):
+        for marker in ("/.github/container-image-scan.target.json", "/.github/container-runtime-hardening.target.json", "/.github/rulesets/", "/.github/workflows/", "/.github/dependabot.yml", "/scripts/container_image_scan_governance.py", "/scripts/container_runtime_governance.py", "/scripts/dependabot_governance.py", "/scripts/github_ruleset_governance.py", "/scripts/security_governance_audit.py", "/scripts/security_analysis_governance.py", "/core/governance_policy.py"):
             if marker not in source:
                 findings.append(Finding("codeowners-incomplete", ".github/CODEOWNERS", 0, f"CODEOWNERS missing {marker}"))
 

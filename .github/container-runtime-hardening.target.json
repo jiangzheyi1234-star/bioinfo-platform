@@ -1,0 +1,62 @@
+{
+  "schemaVersion": "h2ometa-container-runtime-hardening-policy.v1",
+  "status": "unsupported-draft",
+  "productionReadyClaim": false,
+  "composeFile": "docker-compose.yml",
+  "deploymentMode": "server-single-user",
+  "dockerfiles": {
+    "api": "Dockerfile.api",
+    "web": "Dockerfile.web"
+  },
+  "unsupportedWarning": "Docker Compose remains an unsupported server-single-user draft and must stay fail-closed until runtime hardening, authenticated reverse proxy/TLS, secret mounts, non-root containers, resource limits, and remote smoke evidence are complete.",
+  "knownUnsafeFindings": [
+    "container-runtime-api-bind-all",
+    "container-runtime-api-host-port",
+    "container-runtime-api-root-user",
+    "container-runtime-cap-drop-all-missing",
+    "container-runtime-env-token-secret",
+    "container-runtime-no-new-privileges-missing",
+    "container-runtime-read-only-rootfs-missing",
+    "container-runtime-resource-limits-missing",
+    "container-runtime-secret-mounts-missing",
+    "container-runtime-web-root-user"
+  ],
+  "graduationControls": [
+    {
+      "id": "localhost-only-api-bind",
+      "requiredBeforeProduction": true
+    },
+    {
+      "id": "authenticated-reverse-proxy-tls",
+      "requiredBeforeProduction": true
+    },
+    {
+      "id": "secret-mounts-or-provider-backed-secrets",
+      "requiredBeforeProduction": true
+    },
+    {
+      "id": "non-root-containers",
+      "requiredBeforeProduction": true
+    },
+    {
+      "id": "no-new-privileges",
+      "requiredBeforeProduction": true
+    },
+    {
+      "id": "cap-drop-all",
+      "requiredBeforeProduction": true
+    },
+    {
+      "id": "read-only-root-filesystems",
+      "requiredBeforeProduction": true
+    },
+    {
+      "id": "cpu-memory-pids-limits",
+      "requiredBeforeProduction": true
+    },
+    {
+      "id": "remote-container-smoke-and-image-scan-evidence",
+      "requiredBeforeProduction": true
+    }
+  ]
+}

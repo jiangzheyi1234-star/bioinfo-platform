@@ -71,8 +71,19 @@ def test_security_governance_audit_script_contract() -> None:
     security_analysis_source = _source("scripts/security_analysis_governance.py")
     github_ruleset_source = _source("scripts/github_ruleset_governance.py")
     image_scan_source = _source("scripts/container_image_scan_governance.py")
+    runtime_governance_source = _source("scripts/container_runtime_governance.py")
     dependabot_source = _source("scripts/dependabot_governance.py")
-    combined_source = source + "\n" + security_analysis_source + "\n" + github_ruleset_source + "\n" + image_scan_source
+    combined_source = (
+        source
+        + "\n"
+        + security_analysis_source
+        + "\n"
+        + github_ruleset_source
+        + "\n"
+        + image_scan_source
+        + "\n"
+        + runtime_governance_source
+    )
 
     assert "git" in source and "ls-files" in source
     assert "private-key-block" in source
@@ -128,6 +139,12 @@ def test_security_governance_audit_script_contract() -> None:
     assert "scan_container_image_scan_policy" in combined_source
     assert "container-image-scan-workflow-trigger" in combined_source
     assert "container-image-scan-policy-runtime-limit" in combined_source
+    assert "container_runtime_governance" in source
+    assert "CONTAINER_RUNTIME_HARDENING_POLICY" in combined_source
+    assert "scan_container_runtime_hardening_policy" in combined_source
+    assert "container-runtime-production-claim-unsafe" in combined_source
+    assert "container-runtime-known-unsafe-missing" in combined_source
+    assert "container-runtime-graduation-control-missing" in combined_source
     assert "ssh-auto-add-host-key" in source
     assert "ssh-host-key-reject-policy" in source
     assert "ssh-sha1-rsa-enabled" in source

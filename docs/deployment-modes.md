@@ -8,6 +8,9 @@ H2OMeta 支持三种部署模式，适用于不同的使用场景和安全需求
 > 当前 Compose 草案会显式声明 `server-single-user` 和 `H2OMETA_API_HOST=0.0.0.0`，
 > 因而会被部署安全验证拒绝；它保留为后续反向代理/容器网络硬化工作的输入，
 > 不是可启动的生产 profile。
+> `.github/container-runtime-hardening.target.json` 是当前 Compose 草案的
+> 机器可审计毕业门槛；只要该政策仍声明 `unsupported-draft`，
+> Compose 就不得被当作生产可用部署。
 > `server-multi-user` 尚未实现；设置
 > `H2OMETA_DEPLOYMENT_MODE=server-multi-user` 会在 Local API 启动时失败。
 > 缺失、空白或非法的 `H2OMETA_DEPLOYMENT_MODE` 值同样会失败，不再回退到 Desktop。

@@ -210,9 +210,11 @@ def test_codeowners_covers_security_sensitive_automation() -> None:
 
     assert "/.github/workflows/ @jiangzheyi1234-star" in source
     assert "/.github/container-image-scan.target.json @jiangzheyi1234-star" in source
+    assert "/.github/container-runtime-hardening.target.json @jiangzheyi1234-star" in source
     assert "/.github/rulesets/ @jiangzheyi1234-star" in source
     assert "/.github/dependabot.yml @jiangzheyi1234-star" in source
     assert "/scripts/container_image_scan_governance.py @jiangzheyi1234-star" in source
+    assert "/scripts/container_runtime_governance.py @jiangzheyi1234-star" in source
     assert "/scripts/dependabot_governance.py @jiangzheyi1234-star" in source
     assert "/scripts/github_ruleset_governance.py @jiangzheyi1234-star" in source
     assert "/scripts/security_governance_audit.py @jiangzheyi1234-star" in source
