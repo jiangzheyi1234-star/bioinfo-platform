@@ -284,6 +284,7 @@ function RuleOutputInvalidationPlanPreview({
 function RuleRetryExecutionPlanPreview({ plan }: { plan?: WorkflowRunRuleRetryExecutionPlan }) {
   if (!plan) return null;
   const cacheRestore = plan.cacheRestorePlan;
+  const outputAudit = plan.incompleteOutputAudit;
   const stagedFilePolicy = cacheRestore?.stagedFilePolicy;
   const restorePinPolicy = cacheRestore?.restorePinPolicy;
   const options = plan.snakemakeOptions;
@@ -326,6 +327,11 @@ function RuleRetryExecutionPlanPreview({ plan }: { plan?: WorkflowRunRuleRetryEx
         orchestration.executorReady ? "ready" : "off"
       }`
     : "—";
+  const outputAuditLabel = outputAudit
+    ? `${outputAudit.reasonCode || "—"} · verified ${outputAudit.verifiedOutputCount ?? 0} · rerun ${
+        outputAudit.rerunRequiredOutputCount ?? 0
+      } · adopted ${outputAudit.adoptedOutputCount ?? 0} · unverified ${outputAudit.unverifiedOutputCount ?? 0}`
+    : "—";
 
   return (
     <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
@@ -364,6 +370,8 @@ function RuleRetryExecutionPlanPreview({ plan }: { plan?: WorkflowRunRuleRetryEx
         <span className="truncate font-mono text-slate-800">{readinessCheckLabel(activationReadiness)}</span>
         <span className="text-slate-500">executor contract</span>
         <span className="truncate font-mono text-slate-800">{orchestrationLabel}</span>
+        <span className="text-slate-500">output audit</span>
+        <span className="truncate font-mono text-slate-800">{outputAuditLabel}</span>
         {cacheRestore ? (
           <>
             <span className="text-slate-500">cache restore</span>

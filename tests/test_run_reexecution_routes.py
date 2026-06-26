@@ -232,6 +232,12 @@ def test_rule_retry_route_records_blocked_intent_without_mutating_run(tmp_path, 
         "commandPreviewAvailable": True,
         "selectedRuleCount": 1,
         "rerunRuleCount": 2,
+        "expectedOutputCount": plan["incompleteOutputAudit"]["expectedOutputCount"],
+        "verifiedOutputCount": plan["incompleteOutputAudit"]["verifiedOutputCount"],
+        "rerunRequiredOutputCount": plan["incompleteOutputAudit"]["rerunRequiredOutputCount"],
+        "unverifiedOutputCount": plan["incompleteOutputAudit"]["unverifiedOutputCount"],
+        "pathExposed": False,
+        "storageUriExposed": False,
         "blockedReasonCodes": plan["blockedReasonCodes"],
     }
     serialized = json.dumps(events[0], sort_keys=True)

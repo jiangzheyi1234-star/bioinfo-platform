@@ -4,6 +4,7 @@ from typing import Any
 
 from .config import RemoteRunnerConfig
 from .execution_policy import retry_policy_from_job, timeout_policy_from_job
+from .execution_output_audit import build_rule_retry_output_audit
 from .execution_query_storage import require_run
 from .execution_resume_plan import build_run_resume_plan
 from .rule_cache_restore_plan import build_rule_cache_restore_plan
@@ -66,11 +67,22 @@ def fetch_run_execution_context(cfg: RemoteRunnerConfig, run_id: str) -> dict[st
         rule_retry_plan=rule_retry_plan,
         output_invalidation_plan=rule_output_invalidation_plan,
     )
+    rule_retry_output_audit = build_rule_retry_output_audit(
+        cfg=cfg,
+        run=run,
+        attempts=resume_attempts,
+        active_lease=active_lease,
+        output_invalidation_plan=rule_output_invalidation_plan,
+        cache_restore_plan=rule_cache_restore_plan,
+        managed_work_dir=cfg.work_dir,
+        managed_results_dir=cfg.results_dir,
+    )
     rule_retry_execution_plan = build_rule_retry_execution_plan(
         rule_retry_plan,
         cache_restore_plan=rule_cache_restore_plan,
         output_invalidation_plan=rule_output_invalidation_plan,
         workdir_reuse_policy=resume_plan.get("workdirEvidence"),
+        incomplete_output_audit=rule_retry_output_audit,
     )
     return {
         "schemaVersion": "run-execution-context.v1",

@@ -50,6 +50,7 @@ def record_run_execution_context_read_audit(
     restore_pin_policy = _dict_value(rule_cache_restore_plan.get("restorePinPolicy"))
     final_output_promotion_state = _dict_value(rule_cache_restore_plan.get("finalOutputPromotionState"))
     rule_retry_orchestration = _dict_value(rule_retry_execution_plan.get("executorOrchestration"))
+    rule_retry_output_audit = _dict_value(rule_retry_execution_plan.get("incompleteOutputAudit"))
     record_governance_audit_event(
         cfg,
         action="run.execution_context.read",
@@ -77,6 +78,14 @@ def record_run_execution_context_read_audit(
             ),
             "ruleRetryExecutorPathsExposed": bool(rule_retry_orchestration.get("pathExposed")),
             "ruleRetryExecutorStorageUrisExposed": bool(rule_retry_orchestration.get("storageUriExposed")),
+            "ruleRetryOutputAuditVerifiedCount": _safe_int(rule_retry_output_audit.get("verifiedOutputCount")),
+            "ruleRetryOutputAuditRerunRequiredCount": _safe_int(
+                rule_retry_output_audit.get("rerunRequiredOutputCount")
+            ),
+            "ruleRetryOutputAuditAdoptedCount": _safe_int(rule_retry_output_audit.get("adoptedOutputCount")),
+            "ruleRetryOutputAuditUnverifiedCount": _safe_int(rule_retry_output_audit.get("unverifiedOutputCount")),
+            "ruleRetryOutputAuditPathsExposed": bool(rule_retry_output_audit.get("pathExposed")),
+            "ruleRetryOutputAuditStorageUrisExposed": bool(rule_retry_output_audit.get("storageUriExposed")),
             "resumeActivationReady": bool(resume_readiness.get("executionReady")),
             "resumeActivationBlockedCount": _safe_int(resume_readiness.get("blockedCheckCount")),
             "resumeActivationMutationEnabled": bool(resume_readiness.get("executionEnabled")),

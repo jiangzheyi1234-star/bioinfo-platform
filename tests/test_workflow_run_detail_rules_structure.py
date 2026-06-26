@@ -38,6 +38,7 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "export type WorkflowRunExecutionContext" in model_contract
     assert "export type WorkflowRunActivationReadiness" in model_contract
     assert "export type WorkflowRunExecutorOrchestration" in model_contract
+    assert "export type WorkflowRunOutputAudit" in model_contract
     assert "export type WorkflowRunWorkdirReusePolicy" in model_contract
     assert "export type WorkflowRunRuleRetryPlan" in model_contract
     assert "export type WorkflowRunRuleRetryExecutionPlan" in model_contract
@@ -89,6 +90,7 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "activationReadiness?: WorkflowRunActivationReadiness" in model_contract
     assert "cacheRestorePlan?: WorkflowRunRuleCacheRestorePlan" in model_contract
     assert "executorOrchestration?: WorkflowRunExecutorOrchestration" in model_contract
+    assert "incompleteOutputAudit?: WorkflowRunOutputAudit" in model_contract
     assert "contractReady?: boolean" in model_contract
     assert "executorReady?: boolean" in model_contract
     assert "queueMutationAllowed?: boolean" in model_contract

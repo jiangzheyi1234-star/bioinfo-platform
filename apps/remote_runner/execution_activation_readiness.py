@@ -17,6 +17,7 @@ def build_rule_retry_activation_readiness(
     output_invalidation = _dict_value(execution_plan.get("outputInvalidationPlan"))
     snakemake_options = _dict_value(execution_plan.get("snakemakeOptions"))
     output_state = _dict_value(output_invalidation.get("outputInvalidationState"))
+    output_audit = _dict_value(execution_plan.get("incompleteOutputAudit"))
     staged_file_policy = _dict_value(cache_restore.get("stagedFilePolicy"))
     restore_pin_policy = _dict_value(cache_restore.get("restorePinPolicy"))
     promotion_state = _dict_value(cache_restore.get("finalOutputPromotionState"))
@@ -80,8 +81,11 @@ def build_rule_retry_activation_readiness(
         ),
         _check(
             "incompleteOutputAudit",
-            False,
-            "INCOMPLETE_OUTPUT_AUDIT_UNPROVEN",
+            output_audit.get("available") is True
+            and _safe_int(output_audit.get("unsafeOutputCount")) == 0
+            and _safe_int(output_audit.get("uncheckedOutputCount")) == 0
+            and _safe_int(output_audit.get("unverifiedOutputCount")) == 0,
+            _first_nonempty(output_audit.get("reasonCode"), "INCOMPLETE_OUTPUT_AUDIT_UNPROVEN"),
         ),
         _check(
             "snakemakeOptions",
@@ -120,6 +124,10 @@ def build_rule_retry_activation_readiness(
             "restoreTargetCount": target_count,
             "promotedOutputCount": promoted_count,
             "adoptedOutputCount": adopted_count,
+            "expectedOutputCount": _safe_int(output_audit.get("expectedOutputCount")),
+            "verifiedOutputCount": _safe_int(output_audit.get("verifiedOutputCount")),
+            "rerunRequiredOutputCount": _safe_int(output_audit.get("rerunRequiredOutputCount")),
+            "unverifiedOutputCount": _safe_int(output_audit.get("unverifiedOutputCount")),
             "executorContractReady": 1 if executor_orchestration.get("contractReady") is True else 0,
             "executorReady": 1 if executor_orchestration.get("executorReady") is True else 0,
             "unsafeFlagCount": len(_list_value(snakemake_options.get("unsafeFlagsProhibited"))),

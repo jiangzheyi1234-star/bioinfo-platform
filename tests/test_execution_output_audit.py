@@ -3,7 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from apps.remote_runner.execution_output_audit import build_attempt_output_audit
+from apps.remote_runner.candidate_output_storage import record_candidate_output
+from apps.remote_runner.execution_output_audit import build_attempt_output_audit, build_rule_retry_output_audit
+from apps.remote_runner.storage_core import get_connection
+from tests.helpers.reference_database import make_configured_remote_runner
 
 
 def test_attempt_output_audit_checks_managed_absolute_and_relative_outputs(tmp_path: Path) -> None:
@@ -146,13 +149,217 @@ def test_attempt_output_audit_reports_missing_or_invalid_run_config(tmp_path: Pa
     assert invalid["configAvailable"] is True
 
 
-def _attempt(work_dir: Path) -> dict[str, object]:
+def test_rule_retry_output_audit_verifies_adopted_and_rerun_required_outputs(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    run_id = "run_rule_output_audit"
+    attempt_id = "att_rule_audit"
+    lease_generation = 1
+    work_dir = Path(cfg.work_dir) / "attempts" / attempt_id
+    result_dir = Path(cfg.results_dir) / "attempts" / attempt_id / f"generation-{lease_generation}"
+    work_dir.mkdir(parents=True)
+    result_dir.mkdir(parents=True)
+    adopted_path = result_dir / "align.bam"
+    adopted_path.write_text("cached bam\n", encoding="utf-8")
+    (work_dir / "run-config.json").write_text(
+        json.dumps({"outputs": {"bam": str(adopted_path), "report": str(result_dir / "report.txt")}}),
+        encoding="utf-8",
+    )
+    candidate = record_candidate_output(
+        cfg,
+        run_id=run_id,
+        attempt_id=attempt_id,
+        lease_generation=lease_generation,
+        output_key="bam",
+        path=adopted_path,
+    )
+    with get_connection(cfg) as connection:
+        connection.execute(
+            "UPDATE candidate_outputs SET adopted_artifact_id = ? WHERE candidate_output_id = ?",
+            ("art_bam", candidate["candidateOutputId"]),
+        )
+        connection.execute(
+            """
+            INSERT INTO run_artifact_edges (
+                edge_id, run_id, artifact_blob_id, role, port_name, step_id, content_hash, created_at
+            ) VALUES (?, ?, ?, 'output', ?, ?, ?, ?)
+            """,
+            ("edge_bam", run_id, "blob_bam", "bam", "align", candidate["sha256"], "2099-06-07T10:00:00Z"),
+        )
+        connection.commit()
+
+    audit = build_rule_retry_output_audit(
+        cfg=cfg,
+        run={"runId": run_id, "resultDir": str(result_dir)},
+        attempts=[_attempt(work_dir, attempt_id=attempt_id, lease_generation=lease_generation, state="running")],
+        active_lease={"attemptId": attempt_id, "leaseGeneration": lease_generation, "state": "active"},
+        output_invalidation_plan=_applied_invalidation_plan(),
+        cache_restore_plan=_rule_cache_restore_plan(candidate["sha256"]),
+        managed_work_dir=cfg.work_dir,
+        managed_results_dir=cfg.results_dir,
+    )
+
+    assert audit["schemaVersion"] == "rule-output-audit.v1"
+    assert audit["available"] is True
+    assert audit["pathExposed"] is False
+    assert audit["storageUriExposed"] is False
+    assert audit["expectedOutputCount"] == 2
+    assert audit["verifiedOutputCount"] == 2
+    assert audit["adoptedOutputCount"] == 1
+    assert audit["missingOutputCount"] == 1
+    assert audit["rerunRequiredOutputCount"] == 1
+    assert audit["unverifiedOutputCount"] == 0
+    assert [item["state"] for item in audit["outputs"]] == ["adopted", "missing"]
+    assert [item["reasonCode"] for item in audit["outputs"]] == [
+        "RULE_OUTPUT_ADOPTED_CHECKSUM_VERIFIED",
+        "RULE_OUTPUT_RERUN_REQUIRED",
+    ]
+    serialized = json.dumps(audit, sort_keys=True)
+    assert str(tmp_path) not in serialized
+    assert '"storageUri":' not in serialized
+    assert candidate["sha256"] not in serialized
+
+
+def test_rule_retry_output_audit_rejects_candidate_path_mismatch(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    run_id = "run_rule_output_audit_mismatch"
+    attempt_id = "att_rule_audit_mismatch"
+    lease_generation = 1
+    work_dir = Path(cfg.work_dir) / "attempts" / attempt_id
+    result_dir = Path(cfg.results_dir) / "attempts" / attempt_id / f"generation-{lease_generation}"
+    work_dir.mkdir(parents=True)
+    result_dir.mkdir(parents=True)
+    expected_path = result_dir / "align.bam"
+    wrong_path = result_dir / "other.bam"
+    wrong_path.write_text("wrong\n", encoding="utf-8")
+    (work_dir / "run-config.json").write_text(json.dumps({"outputs": {"bam": str(expected_path)}}), encoding="utf-8")
+    candidate = record_candidate_output(
+        cfg,
+        run_id=run_id,
+        attempt_id=attempt_id,
+        lease_generation=lease_generation,
+        output_key="bam",
+        path=wrong_path,
+    )
+
+    audit = build_rule_retry_output_audit(
+        cfg=cfg,
+        run={"runId": run_id, "resultDir": str(result_dir)},
+        attempts=[_attempt(work_dir, attempt_id=attempt_id, lease_generation=lease_generation, state="running")],
+        active_lease={"attemptId": attempt_id, "leaseGeneration": lease_generation, "state": "active"},
+        output_invalidation_plan=_applied_invalidation_plan(),
+        cache_restore_plan=_rule_cache_restore_plan(candidate["sha256"], include_report=False),
+        managed_work_dir=cfg.work_dir,
+        managed_results_dir=cfg.results_dir,
+    )
+
+    assert audit["available"] is False
+    assert audit["unsafeOutputCount"] == 1
+    assert audit["unverifiedOutputCount"] == 1
+    assert audit["outputs"][0]["reasonCode"] == "RULE_OUTPUT_AUDIT_CANDIDATE_MISMATCH"
+    assert str(tmp_path) not in json.dumps(audit, sort_keys=True)
+
+
+def test_rule_retry_output_audit_reports_unapplied_invalidation_as_unchecked(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    audit = build_rule_retry_output_audit(
+        cfg=cfg,
+        run={"runId": "run_rule_output_audit_unapplied", "resultDir": ""},
+        attempts=[],
+        active_lease=None,
+        output_invalidation_plan={
+            "schemaVersion": "rule-output-invalidation-plan.v1",
+            "previewAvailable": True,
+            "outputInvalidationState": {"state": "pending", "appliedOutputEdgeCount": 0},
+        },
+        cache_restore_plan=_rule_cache_restore_plan("a" * 64),
+        managed_work_dir=cfg.work_dir,
+        managed_results_dir=cfg.results_dir,
+    )
+
+    assert audit["available"] is False
+    assert audit["expectedOutputCount"] == 2
+    assert audit["uncheckedOutputCount"] == 2
+    assert audit["reasonCode"] == "OUTPUT_AUDIT_UNCHECKED_REFERENCES"
+    assert {item["reasonCode"] for item in audit["outputs"]} == {"RULE_OUTPUT_AUDIT_INVALIDATION_UNAPPLIED"}
+
+
+def _attempt(
+    work_dir: Path,
+    *,
+    attempt_id: str = "att_1",
+    lease_generation: int = 1,
+    state: str = "failed",
+) -> dict[str, object]:
     return {
-        "attemptId": "att_1",
+        "attemptId": attempt_id,
         "attemptNumber": 1,
-        "leaseGeneration": 1,
-        "state": "failed",
+        "leaseGeneration": lease_generation,
+        "state": state,
         "updatedAt": "2099-06-07T10:00:00Z",
         "workDir": str(work_dir),
         "workDirPresent": True,
+    }
+
+
+def _applied_invalidation_plan() -> dict[str, object]:
+    return {
+        "schemaVersion": "rule-output-invalidation-plan.v1",
+        "previewAvailable": True,
+        "outputInvalidationState": {
+            "state": "applied",
+            "appliedOutputEdgeCount": 2,
+            "appliedLineageEdgeCount": 0,
+        },
+    }
+
+
+def _rule_cache_restore_plan(sha256: str, *, include_report: bool = True) -> dict[str, object]:
+    rules = [
+        {
+            "ruleName": "align",
+            "stepId": "align",
+            "invalidationRole": "selected_failed_rule",
+            "outputs": [
+                {
+                    "outputOrdinal": 1,
+                    "artifactKey": "bam",
+                    "stepId": "align",
+                    "cacheHit": True,
+                    "cacheEntry": {"sha256": sha256},
+                }
+            ],
+        }
+    ]
+    if include_report:
+        rules.append(
+            {
+                "ruleName": "report",
+                "stepId": "report",
+                "invalidationRole": "downstream_rule",
+                "outputs": [
+                    {
+                        "outputOrdinal": 2,
+                        "artifactKey": "report",
+                        "stepId": "report",
+                        "cacheHit": False,
+                        "cacheEntry": None,
+                    }
+                ],
+            }
+        )
+    return {
+        "schemaVersion": "rule-cache-restore-plan.v1",
+        "reasonCode": "PER_RULE_CACHE_RESTORE_UNPROVEN",
+        "redactionPolicy": {
+            "cacheKeysExposed": False,
+            "cacheKeyFingerprintsExposed": True,
+            "keyPayloadsExposed": False,
+            "storageUrisExposed": False,
+            "pathsExposed": False,
+        },
+        "finalOutputPromotionState": {
+            "targetCount": 1,
+            "adoptedCandidateOutputCount": 1,
+        },
+        "rules": rules,
     }

@@ -137,6 +137,19 @@ def test_rule_retry_execution_plan_marks_orchestration_contract_ready_without_en
             "pathExposed": False,
             "reasonCode": "WORKDIR_REUSABLE",
         },
+        incomplete_output_audit={
+            "schemaVersion": "rule-output-audit.v1",
+            "available": True,
+            "expectedOutputCount": 1,
+            "verifiedOutputCount": 1,
+            "rerunRequiredOutputCount": 0,
+            "unverifiedOutputCount": 0,
+            "unsafeOutputCount": 0,
+            "uncheckedOutputCount": 0,
+            "pathExposed": False,
+            "storageUriExposed": False,
+            "reasonCode": "OUTPUT_AUDIT_VERIFIED",
+        },
     )
 
     orchestration = plan["executorOrchestration"]

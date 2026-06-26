@@ -245,6 +245,47 @@ export type WorkflowRunExecutorOrchestration = {
   storageUriExposed?: boolean;
 };
 
+export type WorkflowRunOutputAudit = {
+  schemaVersion?: string;
+  available?: boolean;
+  pathExposed?: boolean;
+  storageUriExposed?: boolean;
+  configAvailable?: boolean;
+  expectedOutputCount?: number;
+  checkedOutputCount?: number;
+  existingOutputCount?: number;
+  missingOutputCount?: number;
+  adoptedOutputCount?: number;
+  verifiedOutputCount?: number;
+  checksumVerifiedOutputCount?: number;
+  rerunRequiredOutputCount?: number;
+  rerunRequired?: boolean;
+  unsafeOutputCount?: number;
+  uncheckedOutputCount?: number;
+  unverifiedOutputCount?: number;
+  selectedOutputCount?: number;
+  downstreamOutputCount?: number;
+  cacheHitOutputCount?: number;
+  cacheMissOutputCount?: number;
+  outputs?: Array<{
+    outputOrdinal?: number;
+    invalidationRole?: string;
+    stepId?: string;
+    artifactKeyPresent?: boolean;
+    cacheHit?: boolean;
+    state?: string;
+    verificationState?: string;
+    checksumVerified?: boolean;
+    checksumAlgorithm?: string;
+    rerunRequired?: boolean;
+    pathExposed?: boolean;
+    reasonCode?: string;
+    sizeBytes?: number;
+    directory?: boolean;
+  }>;
+  reasonCode?: string;
+};
+
 export type WorkflowRunRuleCacheRestorePlan = {
   schemaVersion?: string;
   planHash?: string;
@@ -431,6 +472,7 @@ export type WorkflowRunRuleRetryExecutionPlan = {
   };
   snakemakeOptions?: WorkflowRunRuleRetrySnakemakeOptions;
   cacheRestorePlan?: WorkflowRunRuleCacheRestorePlan;
+  incompleteOutputAudit?: WorkflowRunOutputAudit;
   executorOrchestration?: WorkflowRunExecutorOrchestration;
   activationReadiness?: WorkflowRunActivationReadiness;
   reasonCode?: string;

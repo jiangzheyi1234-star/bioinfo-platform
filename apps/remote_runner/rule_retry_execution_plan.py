@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .execution_activation_readiness import build_rule_retry_activation_readiness
+from .execution_output_audit import blocked_rule_retry_output_audit
 from .execution_plan_hash import attach_plan_hash
 from .execution_rerun_orchestration import build_rule_partial_rerun_orchestration
 from .rule_cache_restore_plan import blocked_rule_cache_restore_plan
@@ -40,6 +41,7 @@ def build_rule_retry_execution_plan(
     cache_restore_plan: dict[str, Any] | None = None,
     output_invalidation_plan: dict[str, Any] | None = None,
     workdir_reuse_policy: dict[str, Any] | None = None,
+    incomplete_output_audit: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     resolved_output_invalidation_plan = output_invalidation_plan or blocked_rule_output_invalidation_plan(rule_retry_plan)
     resolved_cache_restore_plan = cache_restore_plan or blocked_rule_cache_restore_plan(
@@ -57,6 +59,7 @@ def build_rule_retry_execution_plan(
             "RULE_RETRY_PLAN_SCHEMA_UNSUPPORTED",
             rule_retry_plan=rule_retry_plan,
             workdir_reuse_policy=workdir_reuse_policy,
+            incomplete_output_audit=incomplete_output_audit,
         )
     if not rule_retry_plan.get("invalidationPlanAvailable"):
         return _blocked(
@@ -64,6 +67,7 @@ def build_rule_retry_execution_plan(
             str(rule_retry_plan.get("reasonCode") or "RULE_RETRY_INVALIDATION_PLAN_UNAVAILABLE"),
             rule_retry_plan=rule_retry_plan,
             workdir_reuse_policy=workdir_reuse_policy,
+            incomplete_output_audit=incomplete_output_audit,
         )
 
     rules = [rule for rule in rule_retry_plan.get("rules") or [] if isinstance(rule, dict)]
@@ -78,6 +82,7 @@ def build_rule_retry_execution_plan(
             str(blocked_rule.get("reasonCode") or "RULE_RETRY_RULE_BLOCKED"),
             rule_retry_plan=rule_retry_plan,
             workdir_reuse_policy=workdir_reuse_policy,
+            incomplete_output_audit=incomplete_output_audit,
         )
     if not selected_rules:
         return _blocked(
@@ -85,6 +90,7 @@ def build_rule_retry_execution_plan(
             "RULE_RETRY_NO_SELECTED_RULE_ATTEMPTS",
             rule_retry_plan=rule_retry_plan,
             workdir_reuse_policy=workdir_reuse_policy,
+            incomplete_output_audit=incomplete_output_audit,
         )
     if len(selected_rules) != len(rules):
         return _blocked(
@@ -92,6 +98,7 @@ def build_rule_retry_execution_plan(
             "RULE_RETRY_ATTEMPT_SELECTION_INCOMPLETE",
             rule_retry_plan=rule_retry_plan,
             workdir_reuse_policy=workdir_reuse_policy,
+            incomplete_output_audit=incomplete_output_audit,
         )
 
     try:
@@ -102,6 +109,7 @@ def build_rule_retry_execution_plan(
             str(exc).split(":", 1)[0],
             rule_retry_plan=rule_retry_plan,
             workdir_reuse_policy=workdir_reuse_policy,
+            incomplete_output_audit=incomplete_output_audit,
         )
 
     args_preview = ["--rerun-incomplete", "--forcerun", *forcerun_rules]
@@ -131,6 +139,7 @@ def build_rule_retry_execution_plan(
         },
         rule_retry_plan=rule_retry_plan,
         workdir_reuse_policy=workdir_reuse_policy,
+        incomplete_output_audit=incomplete_output_audit,
     )
 
 
@@ -215,6 +224,7 @@ def _blocked(
     *,
     rule_retry_plan: dict[str, Any],
     workdir_reuse_policy: dict[str, Any] | None,
+    incomplete_output_audit: dict[str, Any] | None,
 ) -> dict[str, Any]:
     return _finalize(
         {
@@ -224,6 +234,7 @@ def _blocked(
         },
         rule_retry_plan=rule_retry_plan,
         workdir_reuse_policy=workdir_reuse_policy,
+        incomplete_output_audit=incomplete_output_audit,
     )
 
 
@@ -232,11 +243,16 @@ def _finalize(
     *,
     rule_retry_plan: dict[str, Any],
     workdir_reuse_policy: dict[str, Any] | None,
+    incomplete_output_audit: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    plan_with_orchestration = {
+    plan_with_audit = {
         **plan,
+        "incompleteOutputAudit": incomplete_output_audit or blocked_rule_retry_output_audit(),
+    }
+    plan_with_orchestration = {
+        **plan_with_audit,
         "executorOrchestration": build_rule_partial_rerun_orchestration(
-            plan,
+            plan_with_audit,
             workdir_reuse_policy=workdir_reuse_policy,
         ),
     }

@@ -123,6 +123,7 @@ def build_rule_partial_rerun_orchestration(
     cache_restore = _dict_value(execution_plan.get("cacheRestorePlan"))
     output_invalidation = _dict_value(execution_plan.get("outputInvalidationPlan"))
     output_state = _dict_value(output_invalidation.get("outputInvalidationState"))
+    output_audit = _dict_value(execution_plan.get("incompleteOutputAudit"))
     snakemake = _dict_value(execution_plan.get("snakemakeOptions"))
     promotion = _dict_value(cache_restore.get("finalOutputPromotionState"))
     redaction = _dict_value(cache_restore.get("redactionPolicy"))
@@ -142,6 +143,8 @@ def build_rule_partial_rerun_orchestration(
         contract_blockers.append(_first_nonempty(cache_restore.get("reasonCode"), "PER_RULE_CACHE_ELIGIBILITY_UNPROVEN"))
     if target_count <= 0 or adopted_count < target_count:
         contract_blockers.append("RESTORED_OUTPUT_ADOPTION_REQUIRED")
+    if not _output_audit_ready(output_audit):
+        contract_blockers.append(_first_nonempty(output_audit.get("reasonCode"), "INCOMPLETE_OUTPUT_AUDIT_UNPROVEN"))
     if workdir.get("workDirReusable") is not True:
         contract_blockers.append(_first_nonempty(workdir.get("reasonCode"), "WORKDIR_REUSE_POLICY_UNPROVEN"))
     if snakemake.get("rerunIncomplete") is not True or not _list_value(snakemake.get("forcerunRules")):
@@ -163,6 +166,8 @@ def build_rule_partial_rerun_orchestration(
         "cacheRestoreHitCount": cache_hit_count,
         "targetOutputCount": target_count,
         "adoptedOutputCount": adopted_count,
+        "verifiedOutputCount": _safe_int(output_audit.get("verifiedOutputCount")),
+        "rerunRequiredOutputCount": _safe_int(output_audit.get("rerunRequiredOutputCount")),
         "targetAttemptRequired": True,
         "activeLeaseRequired": True,
         "workdirReuseRequired": True,

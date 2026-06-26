@@ -542,6 +542,7 @@ async def _record_rule_retry_audit(
     reason_code: str,
 ) -> None:
     rerun_scope = plan.get("rerunScope") if isinstance(plan.get("rerunScope"), dict) else {}
+    output_audit = plan.get("incompleteOutputAudit") if isinstance(plan.get("incompleteOutputAudit"), dict) else {}
     await _record_reexecution_audit(
         cfg,
         action="run.rule_retry",
@@ -555,6 +556,12 @@ async def _record_rule_retry_audit(
             "commandPreviewAvailable": bool(plan.get("commandPreviewAvailable")),
             "selectedRuleCount": _collection_size(plan.get("selectedRules")),
             "rerunRuleCount": _safe_int(rerun_scope.get("ruleCount")),
+            "expectedOutputCount": _safe_int(output_audit.get("expectedOutputCount")),
+            "verifiedOutputCount": _safe_int(output_audit.get("verifiedOutputCount")),
+            "rerunRequiredOutputCount": _safe_int(output_audit.get("rerunRequiredOutputCount")),
+            "unverifiedOutputCount": _safe_int(output_audit.get("unverifiedOutputCount")),
+            "pathExposed": bool(output_audit.get("pathExposed")),
+            "storageUriExposed": bool(output_audit.get("storageUriExposed")),
             "blockedReasonCodes": _string_list(plan.get("blockedReasonCodes")),
         },
     )
