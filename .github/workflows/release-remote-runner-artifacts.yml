@@ -63,7 +63,7 @@ jobs:
       GH_REPO: ${{ github.repository }}
     steps:
       - name: Checkout source ref
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
           ref: ${{ env.SOURCE_REF }}
@@ -108,7 +108,7 @@ jobs:
           fi
 
       - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
 
       - name: Build artifacts from explicit specs
         run: |
@@ -156,7 +156,7 @@ jobs:
       - name: Create hosted provenance attestation
         if: ${{ github.event.inputs.hosted_attestations == 'true' }}
         id: attest-provenance
-        uses: actions/attest@281a49d4cbb0a72c9575a50d18f6deb515a11deb # v4
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4
         with:
           subject-path: |
             ${{ steps.attestation-subjects.outputs.remote_runner }}
@@ -165,7 +165,7 @@ jobs:
       - name: Create hosted remote-runner SBOM attestation
         if: ${{ github.event.inputs.hosted_attestations == 'true' }}
         id: attest-remote-runner-sbom
-        uses: actions/attest@281a49d4cbb0a72c9575a50d18f6deb515a11deb # v4
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4
         with:
           subject-path: ${{ steps.attestation-subjects.outputs.remote_runner }}
           sbom-path: ${{ steps.attestation-subjects.outputs.remote_runner_sbom }}
@@ -173,7 +173,7 @@ jobs:
       - name: Create hosted workflow-runtime SBOM attestation
         if: ${{ github.event.inputs.hosted_attestations == 'true' }}
         id: attest-workflow-runtime-sbom
-        uses: actions/attest@281a49d4cbb0a72c9575a50d18f6deb515a11deb # v4
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4
         with:
           subject-path: ${{ steps.attestation-subjects.outputs.workflow_runtime }}
           sbom-path: ${{ steps.attestation-subjects.outputs.workflow_runtime_sbom }}
@@ -282,7 +282,7 @@ jobs:
             --predicate-type https://spdx.dev/Document
 
       - name: Upload release artifact bundle
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: h2ometa-remote-runner-release-${{ env.PLATFORM }}
           path: |
@@ -311,7 +311,7 @@ jobs:
       GH_REPO: ${{ github.repository }}
     steps:
       - name: Download release artifact bundle
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: h2ometa-remote-runner-release-${{ env.PLATFORM }}
           path: dist/remote-runner
@@ -391,7 +391,7 @@ jobs:
             --clobber
 
       - name: Upload published asset map
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: h2ometa-remote-runner-release-published-assets-${{ env.PLATFORM }}
           path: dist/remote-runner/release-published-assets.json
