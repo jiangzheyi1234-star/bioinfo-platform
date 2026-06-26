@@ -54,6 +54,11 @@ import type {
   WorkflowRuleRetryResponse,
   WorkflowRuleRetryResult,
 } from "./workflow-rule-retry-model";
+import type {
+  WorkflowRunResumeRequest,
+  WorkflowRunResumeResponse,
+  WorkflowRunResumeResult,
+} from "./workflow-run-resume-model";
 import { workflowRecommendationsFromCapabilityGraph } from "./workflow-tool-recommendation-engine";
 
 type FetchOptions = {
@@ -586,6 +591,28 @@ export async function retryWorkflowRunRules(
         planHash: request.planHash,
         actor: "workflow-ui",
         reason: "operator_confirmed_rule_retry",
+      },
+      cache: "no-store",
+    }
+  );
+  invalidateAsyncCache(WORKFLOW_RUNS_CACHE_KEY);
+  invalidateAsyncCache(WORKFLOW_RESULTS_CACHE_KEY);
+  return response.data;
+}
+
+export async function resumeWorkflowRun(
+  runId: string,
+  request: WorkflowRunResumeRequest
+): Promise<WorkflowRunResumeResult> {
+  const response = await requestLocalApiJson<WorkflowRunResumeResponse>(
+    "POST",
+    `/api/v1/runs/${encodeURIComponent(runId)}/resume`,
+    {
+      body: {
+        confirmation: "resume-run",
+        planHash: request.planHash,
+        actor: "workflow-ui",
+        reason: "operator_confirmed_run_resume",
       },
       cache: "no-store",
     }

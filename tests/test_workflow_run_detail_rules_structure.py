@@ -333,6 +333,10 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "pin policy" in execution_panel
     assert "owner" in execution_panel
     assert "run resume plan" in execution_panel
+    assert "WorkflowRunResumeAction" in execution_panel
+    assert "onResumeRun" in execution_panel
+    assert "resumingRun" in execution_panel
+    assert "resumeResult" in execution_panel
     assert "workdir evidence" in execution_panel
     assert "output audit" in execution_panel
     assert "artifact adoption" in execution_panel
@@ -340,7 +344,6 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "preview only" in execution_panel
     assert "局部规则重试执行仍关闭" in execution_panel
     assert "unsafe flags" in execution_panel
-    assert "onResumeRun" not in execution_panel
     assert "onRetryRule" not in execution_panel
     assert "retryRule" not in execution_panel
     assert "resumeRun" not in execution_panel

@@ -12,6 +12,8 @@ import type {
 } from "./workflow-rule-cache-restore-model";
 import { WorkflowRuleRetryAction } from "./workflow-rule-retry-action";
 import type { WorkflowRuleRetryRequest, WorkflowRuleRetryResult } from "./workflow-rule-retry-model";
+import { WorkflowRunResumeAction } from "./workflow-run-resume-action";
+import type { WorkflowRunResumeRequest, WorkflowRunResumeResult } from "./workflow-run-resume-model";
 import type {
   WorkflowRunActivationReadiness,
   WorkflowRunExecutionAttempt,
@@ -528,6 +530,9 @@ export function WorkflowRunExecutionContextPanel({
   context,
   onRetryRun,
   retrying = false,
+  onResumeRun,
+  resumingRun = false,
+  resumeResult,
   onApplyRuleOutputInvalidation,
   applyingOutputInvalidation = false,
   onRetryRunRules,
@@ -540,6 +545,9 @@ export function WorkflowRunExecutionContextPanel({
   context?: WorkflowRunExecutionContext;
   onRetryRun?: () => void;
   retrying?: boolean;
+  onResumeRun?: (request: WorkflowRunResumeRequest) => void;
+  resumingRun?: boolean;
+  resumeResult?: WorkflowRunResumeResult | null;
   onApplyRuleOutputInvalidation?: (planHash: string) => void;
   applyingOutputInvalidation?: boolean;
   onRetryRunRules?: (request: WorkflowRuleRetryRequest) => void;
@@ -633,6 +641,12 @@ export function WorkflowRunExecutionContextPanel({
         </div>
       </div>
       <RunResumePlanPreview plan={context.resumePlan} />
+      <WorkflowRunResumeAction
+        plan={context.resumePlan}
+        resuming={resumingRun}
+        result={resumeResult}
+        onResume={onResumeRun}
+      />
       <RuleRetryPlanSummary context={context} />
       <RuleOutputInvalidationPlanPreview
         plan={outputInvalidationPlan}

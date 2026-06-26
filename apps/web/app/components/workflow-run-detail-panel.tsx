@@ -32,6 +32,7 @@ import { WorkflowRunTriggerProvenancePanel, WorkflowRunTriggerSummary } from "./
 import {
   applyWorkflowRuleOutputInvalidation,
   fetchArtifactPreview,
+  resumeWorkflowRun,
   retryWorkflowRun,
   retryWorkflowRunRules,
   runWorkflowRuleCacheRestoreAction,
@@ -43,6 +44,7 @@ import type {
   WorkflowRuleCacheRestoreResult,
 } from "./workflow-rule-cache-restore-model";
 import type { WorkflowRuleRetryRequest, WorkflowRuleRetryResult } from "./workflow-rule-retry-model";
+import type { WorkflowRunResumeRequest, WorkflowRunResumeResult } from "./workflow-run-resume-model";
 import { WorkflowRuleFailureDiagnostics } from "./workflow-rule-failure-diagnostics";
 import type {
   WorkflowArtifact,
@@ -542,6 +544,9 @@ export function WorkflowRunDetailPanel({
   const [tab, setTab] = useState<TabKey>("overview");
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState("");
+  const [resumingRun, setResumingRun] = useState(false);
+  const [resumeError, setResumeError] = useState("");
+  const [resumeResult, setResumeResult] = useState<WorkflowRunResumeResult | null>(null);
   const [ruleRetrying, setRuleRetrying] = useState(false);
   const [ruleRetryError, setRuleRetryError] = useState("");
   const [ruleRetryResult, setRuleRetryResult] = useState<WorkflowRuleRetryResult | null>(null);
@@ -597,6 +602,21 @@ export function WorkflowRunDetailPanel({
       setRuleRetryError(workflowErrorMessage(err, "提交 rule-level retry 失败"));
     } finally {
       setRuleRetrying(false);
+    }
+  }
+
+  async function handleResumeRun(request: WorkflowRunResumeRequest) {
+    if (resumingRun) return;
+    setResumingRun(true);
+    setResumeError("");
+    try {
+      const result = await resumeWorkflowRun(run.runId, request);
+      setResumeResult(result);
+      await onRunChanged?.();
+    } catch (err) {
+      setResumeError(workflowErrorMessage(err, "提交 run resume 失败"));
+    } finally {
+      setResumingRun(false);
     }
   }
 
@@ -686,6 +706,12 @@ export function WorkflowRunDetailPanel({
           <AlertDescription>{ruleRetryError}</AlertDescription>
         </Alert>
       ) : null}
+      {resumeError ? (
+        <Alert variant="destructive">
+          <AlertCircle strokeWidth={1.5} className="h-4 w-4" />
+          <AlertDescription>{resumeError}</AlertDescription>
+        </Alert>
+      ) : null}
       {outputInvalidationError ? (
         <Alert variant="destructive">
           <AlertCircle strokeWidth={1.5} className="h-4 w-4" />
@@ -731,6 +757,9 @@ export function WorkflowRunDetailPanel({
               context={detail.executionContext}
               onRetryRun={handleRetryRun}
               retrying={retrying}
+              onResumeRun={handleResumeRun}
+              resumingRun={resumingRun}
+              resumeResult={resumeResult}
               onApplyRuleOutputInvalidation={handleApplyRuleOutputInvalidation}
               applyingOutputInvalidation={outputInvalidating}
               onRetryRunRules={handleRetryRunRules}
