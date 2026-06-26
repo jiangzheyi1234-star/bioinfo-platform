@@ -44,6 +44,11 @@ import {
   RESULT_PACKAGE_RETIRE_CONFIRMATION,
   resultPackageCanDownload,
 } from "./workflow-result-package-state";
+import type {
+  WorkflowRuleCacheRestoreRequest,
+  WorkflowRuleCacheRestoreResponse,
+  WorkflowRuleCacheRestoreResult,
+} from "./workflow-rule-cache-restore-model";
 import { workflowRecommendationsFromCapabilityGraph } from "./workflow-tool-recommendation-engine";
 
 type FetchOptions = {
@@ -554,6 +559,58 @@ export async function applyWorkflowRuleOutputInvalidation(
         planHash,
         actor: "workflow-ui",
         reason: "operator_confirmed_output_invalidation",
+      },
+      cache: "no-store",
+    }
+  );
+  invalidateAsyncCache(WORKFLOW_RUNS_CACHE_KEY);
+  invalidateAsyncCache(WORKFLOW_RESULTS_CACHE_KEY);
+  return response.data;
+}
+
+const RULE_CACHE_RESTORE_ENDPOINTS: Record<string, string> = {
+  "pins:prepare": "pins/prepare",
+  "pins:apply": "pins/apply",
+  "staged-files:prepare": "staged-files/prepare",
+  "staged-files:apply": "staged-files/apply",
+  "final-outputs:prepare": "final-outputs/prepare",
+  "final-outputs:apply": "final-outputs/apply",
+  "adoption:prepare": "adoption/prepare",
+  "adoption:apply": "adoption/apply",
+};
+
+const RULE_CACHE_RESTORE_CONFIRMATIONS: Record<string, string> = {
+  "pins:prepare": "prepare-rule-cache-restore-pins",
+  "pins:apply": "apply-rule-cache-restore-pins",
+  "staged-files:prepare": "prepare-rule-cache-restore-staged-files",
+  "staged-files:apply": "apply-rule-cache-restore-staged-files",
+  "final-outputs:prepare": "prepare-rule-cache-restore-final-outputs",
+  "final-outputs:apply": "apply-rule-cache-restore-final-outputs",
+  "adoption:prepare": "prepare-rule-cache-restore-adoption",
+  "adoption:apply": "apply-rule-cache-restore-adoption",
+};
+
+export async function runWorkflowRuleCacheRestoreAction(
+  runId: string,
+  request: WorkflowRuleCacheRestoreRequest
+): Promise<WorkflowRuleCacheRestoreResult> {
+  const key = `${request.stage}:${request.action}`;
+  const endpoint = RULE_CACHE_RESTORE_ENDPOINTS[key];
+  const confirmation = RULE_CACHE_RESTORE_CONFIRMATIONS[key];
+  if (!endpoint || !confirmation) {
+    throw new Error(`Unsupported rule cache restore action: ${key}`);
+  }
+  const response = await requestLocalApiJson<WorkflowRuleCacheRestoreResponse>(
+    "POST",
+    `/api/v1/runs/${encodeURIComponent(runId)}/rules/cache-restore/${endpoint}`,
+    {
+      body: {
+        confirmation,
+        planHash: request.planHash,
+        attemptId: request.attemptId,
+        leaseGeneration: request.leaseGeneration,
+        actor: "workflow-ui",
+        reason: `operator_confirmed_rule_cache_restore_${request.stage}_${request.action}`,
       },
       cache: "no-store",
     }

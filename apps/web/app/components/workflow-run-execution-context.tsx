@@ -5,6 +5,11 @@ import { Activity, Clock, Loader2, RotateCcw, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
+import { WorkflowRuleCacheRestoreActions } from "./workflow-rule-cache-restore-actions";
+import type {
+  WorkflowRuleCacheRestoreRequest,
+  WorkflowRuleCacheRestoreResult,
+} from "./workflow-rule-cache-restore-model";
 import type {
   WorkflowRunActivationReadiness,
   WorkflowRunExecutionAttempt,
@@ -523,12 +528,18 @@ export function WorkflowRunExecutionContextPanel({
   retrying = false,
   onApplyRuleOutputInvalidation,
   applyingOutputInvalidation = false,
+  onRunRuleCacheRestoreAction,
+  runningRuleCacheRestoreKey = "",
+  ruleCacheRestoreResult,
 }: {
   context?: WorkflowRunExecutionContext;
   onRetryRun?: () => void;
   retrying?: boolean;
   onApplyRuleOutputInvalidation?: (planHash: string) => void;
   applyingOutputInvalidation?: boolean;
+  onRunRuleCacheRestoreAction?: (request: WorkflowRuleCacheRestoreRequest) => void;
+  runningRuleCacheRestoreKey?: string;
+  ruleCacheRestoreResult?: WorkflowRuleCacheRestoreResult | null;
 }) {
   if (!context) return null;
   const attempts = context.attempts || [];
@@ -621,6 +632,14 @@ export function WorkflowRunExecutionContextPanel({
         applying={applyingOutputInvalidation}
       />
       <RuleRetryExecutionPlanPreview plan={context.ruleRetryExecutionPlan} />
+      <WorkflowRuleCacheRestoreActions
+        plan={context.ruleCacheRestorePlan || context.ruleRetryExecutionPlan?.cacheRestorePlan}
+        attemptId={lease?.attemptId}
+        leaseGeneration={lease?.leaseGeneration}
+        busyKey={runningRuleCacheRestoreKey}
+        lastResult={ruleCacheRestoreResult}
+        onAction={onRunRuleCacheRestoreAction}
+      />
     </div>
   );
 }

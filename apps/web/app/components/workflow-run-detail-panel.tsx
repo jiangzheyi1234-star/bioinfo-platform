@@ -29,9 +29,18 @@ import { WorkflowResultPackagePanel } from "./workflow-result-package-panel";
 import { WorkflowRunAttemptsPanel } from "./workflow-run-attempts-panel";
 import { WorkflowRunRulesPanel } from "./workflow-run-rules-panel";
 import { WorkflowRunTriggerProvenancePanel, WorkflowRunTriggerSummary } from "./workflow-run-trigger-provenance";
-import { applyWorkflowRuleOutputInvalidation, fetchArtifactPreview, retryWorkflowRun } from "./workflows-page-api";
+import {
+  applyWorkflowRuleOutputInvalidation,
+  fetchArtifactPreview,
+  retryWorkflowRun,
+  runWorkflowRuleCacheRestoreAction,
+} from "./workflows-page-api";
 import { workflowErrorMessage } from "./workflows-page-model";
 import { DirectoryArtifactPreview, isDirectoryArtifactPreview } from "./workflow-artifact-directory-preview";
+import type {
+  WorkflowRuleCacheRestoreRequest,
+  WorkflowRuleCacheRestoreResult,
+} from "./workflow-rule-cache-restore-model";
 import { WorkflowRuleFailureDiagnostics } from "./workflow-rule-failure-diagnostics";
 import type {
   WorkflowArtifact,
@@ -533,6 +542,9 @@ export function WorkflowRunDetailPanel({
   const [retryError, setRetryError] = useState("");
   const [outputInvalidating, setOutputInvalidating] = useState(false);
   const [outputInvalidationError, setOutputInvalidationError] = useState("");
+  const [ruleCacheRestoreBusyKey, setRuleCacheRestoreBusyKey] = useState("");
+  const [ruleCacheRestoreError, setRuleCacheRestoreError] = useState("");
+  const [ruleCacheRestoreResult, setRuleCacheRestoreResult] = useState<WorkflowRuleCacheRestoreResult | null>(null);
   const [runAttempts, setRunAttempts] = useState<WorkflowRunAttemptsReadModel | null>(null);
   const run = detail.run;
   const artifacts = detail.results?.artifacts || [];
@@ -579,6 +591,22 @@ export function WorkflowRunDetailPanel({
       setOutputInvalidationError(workflowErrorMessage(err, "应用 output invalidation 失败"));
     } finally {
       setOutputInvalidating(false);
+    }
+  }
+
+  async function handleRunRuleCacheRestoreAction(request: WorkflowRuleCacheRestoreRequest) {
+    const key = `${request.stage}:${request.action}`;
+    if (ruleCacheRestoreBusyKey) return;
+    setRuleCacheRestoreBusyKey(key);
+    setRuleCacheRestoreError("");
+    try {
+      const result = await runWorkflowRuleCacheRestoreAction(run.runId, request);
+      setRuleCacheRestoreResult(result);
+      await onRunChanged?.();
+    } catch (err) {
+      setRuleCacheRestoreError(workflowErrorMessage(err, "执行 rule cache restore 失败"));
+    } finally {
+      setRuleCacheRestoreBusyKey("");
     }
   }
 
@@ -638,6 +666,12 @@ export function WorkflowRunDetailPanel({
           <AlertDescription>{outputInvalidationError}</AlertDescription>
         </Alert>
       ) : null}
+      {ruleCacheRestoreError ? (
+        <Alert variant="destructive">
+          <AlertCircle strokeWidth={1.5} className="h-4 w-4" />
+          <AlertDescription>{ruleCacheRestoreError}</AlertDescription>
+        </Alert>
+      ) : null}
 
       {/* Tabs */}
       <div className="flex items-center gap-1 border-b border-slate-200">
@@ -673,6 +707,9 @@ export function WorkflowRunDetailPanel({
               retrying={retrying}
               onApplyRuleOutputInvalidation={handleApplyRuleOutputInvalidation}
               applyingOutputInvalidation={outputInvalidating}
+              onRunRuleCacheRestoreAction={handleRunRuleCacheRestoreAction}
+              runningRuleCacheRestoreKey={ruleCacheRestoreBusyKey}
+              ruleCacheRestoreResult={ruleCacheRestoreResult}
             />
             <WorkflowRunTriggerProvenancePanel trigger={trigger} />
             <TablePreview preview={tablePreview} />
