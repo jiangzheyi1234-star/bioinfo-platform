@@ -10,6 +10,10 @@ from core.logging_config import clear_log_context, set_log_context
 from .config import RemoteRunnerConfig
 from .executor import run_snakemake_execution
 from .resource_pool import ResourcePool, ResourceRequest
+from .execution_resume_claim_preflight import (
+    run_resume_execution_options_requested,
+    validate_run_resume_claim_state,
+)
 from .rule_partial_rerun_claim_preflight import (
     rule_partial_rerun_execution_options_requested,
     validate_rule_partial_rerun_claim_state,
@@ -128,6 +132,14 @@ def process_next_run_job(
             if execution_options:
                 if rule_partial_rerun_execution_options_requested(execution_options):
                     validate_rule_partial_rerun_claim_state(
+                        cfg,
+                        execution_options,
+                        run_id=run_id,
+                        attempt_id=attempt_id,
+                        lease_generation=lease_generation,
+                    )
+                if run_resume_execution_options_requested(execution_options):
+                    validate_run_resume_claim_state(
                         cfg,
                         execution_options,
                         run_id=run_id,

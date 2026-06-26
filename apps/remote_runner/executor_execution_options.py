@@ -8,9 +8,12 @@ from .workflow_engine_adapter import WorkflowRuntimeCommandError, normalize_forc
 
 RUN_JOB_EXECUTION_OPTIONS_SCHEMA_VERSION = "run-job-execution-options.v1"
 SNAKEMAKE_RULE_RERUN_OPTIONS_SCHEMA_VERSION = "snakemake-rule-rerun-options.v1"
+SNAKEMAKE_RUN_RESUME_OPTIONS_SCHEMA_VERSION = "snakemake-run-resume-options.v1"
 RULE_OUTPUT_ADOPTION_SCOPE_SCHEMA_VERSION = "rule-output-adoption-scope.v1"
+RUN_RESUME_EXECUTION_SCOPE_SCHEMA_VERSION = "run-resume-execution-scope.v1"
 _PLAN_HASH = re.compile(r"^[a-f0-9]{64}$")
 _SAFE_OUTPUT_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+_UNSAFE_RUN_RESUME_FLAGS = {"--forceall", "--touch", "--ignore-incomplete", "--forcerun"}
 
 
 def _snakemake_execution_options(execution_options: dict | None) -> dict[str, Any]:
@@ -21,7 +24,10 @@ def _snakemake_execution_options(execution_options: dict | None) -> dict[str, An
     snakemake = execution_options.get("snakemake")
     if not isinstance(snakemake, dict):
         return {"forcerun_rules": None, "rerun_incomplete": False, "output_adoption_scope": None}
-    if snakemake.get("schemaVersion") != SNAKEMAKE_RULE_RERUN_OPTIONS_SCHEMA_VERSION:
+    schema_version = snakemake.get("schemaVersion")
+    if schema_version == SNAKEMAKE_RUN_RESUME_OPTIONS_SCHEMA_VERSION:
+        return _run_resume_execution_options(execution_options, snakemake)
+    if schema_version != SNAKEMAKE_RULE_RERUN_OPTIONS_SCHEMA_VERSION:
         raise WorkflowRuntimeCommandError("SNAKEMAKE_EXECUTION_OPTIONS_SCHEMA_UNSUPPORTED")
     raw_rules = snakemake.get("forcerunRules")
     if raw_rules is not None and not isinstance(raw_rules, list):
@@ -38,6 +44,60 @@ def _snakemake_execution_options(execution_options: dict | None) -> dict[str, An
         "rerun_incomplete": rerun_incomplete,
         "output_adoption_scope": output_adoption_scope,
     }
+
+
+def _run_resume_execution_options(execution_options: dict, snakemake: dict) -> dict[str, Any]:
+    if snakemake.get("rerunIncomplete") is not True:
+        raise WorkflowRuntimeCommandError("RUN_RESUME_RERUN_INCOMPLETE_REQUIRED")
+    raw_forcerun_rules = snakemake.get("forcerunRules")
+    if raw_forcerun_rules is not None and not isinstance(raw_forcerun_rules, list):
+        raise WorkflowRuntimeCommandError("RUN_RESUME_FORCERUN_RULES_INVALID")
+    if normalize_forcerun_rules(raw_forcerun_rules):
+        raise WorkflowRuntimeCommandError("RUN_RESUME_FORCERUN_RULES_FORBIDDEN")
+    args_preview = snakemake.get("argsPreview")
+    if not isinstance(args_preview, list) or "--rerun-incomplete" not in {str(item) for item in args_preview}:
+        raise WorkflowRuntimeCommandError("RUN_RESUME_RERUN_INCOMPLETE_ARG_REQUIRED")
+    if any(str(item) in _UNSAFE_RUN_RESUME_FLAGS - {"--rerun-incomplete"} for item in args_preview):
+        raise WorkflowRuntimeCommandError("RUN_RESUME_UNSAFE_FLAG_FORBIDDEN")
+    if "outputAdoptionScope" in execution_options:
+        raise WorkflowRuntimeCommandError("RUN_RESUME_RULE_OUTPUT_ADOPTION_SCOPE_FORBIDDEN")
+    _run_resume_scope(execution_options)
+    return {
+        "forcerun_rules": [],
+        "rerun_incomplete": True,
+        "output_adoption_scope": None,
+    }
+
+
+def _run_resume_scope(execution_options: dict) -> dict[str, Any]:
+    scope = execution_options.get("resumeScope")
+    if not isinstance(scope, dict):
+        raise WorkflowRuntimeCommandError("RUN_RESUME_EXECUTION_SCOPE_REQUIRED")
+    if scope.get("schemaVersion") != RUN_RESUME_EXECUTION_SCOPE_SCHEMA_VERSION:
+        raise WorkflowRuntimeCommandError("RUN_RESUME_EXECUTION_SCOPE_SCHEMA_UNSUPPORTED")
+    if scope.get("mode") != "run-resume":
+        raise WorkflowRuntimeCommandError("RUN_RESUME_EXECUTION_SCOPE_MODE_UNSUPPORTED")
+    source_plan_hash = str(scope.get("sourcePlanHash") or "").strip()
+    if not _PLAN_HASH.fullmatch(source_plan_hash):
+        raise WorkflowRuntimeCommandError("RUN_RESUME_SOURCE_PLAN_HASH_REQUIRED")
+    if scope.get("pathExposed") or scope.get("storageUriExposed") or scope.get("checksumValueExposed"):
+        raise WorkflowRuntimeCommandError("RUN_RESUME_EXECUTION_SCOPE_REDACTION_UNSAFE")
+    if scope.get("finalizeRunOnAdoption") is not True:
+        raise WorkflowRuntimeCommandError("RUN_RESUME_FINALIZE_ON_ADOPTION_REQUIRED")
+    if scope.get("postExecutionAdoptionRequired") is not True:
+        raise WorkflowRuntimeCommandError("RUN_RESUME_POST_EXECUTION_ADOPTION_REQUIRED")
+    if scope.get("cacheAdoptionAllowed") is not False:
+        raise WorkflowRuntimeCommandError("RUN_RESUME_CACHE_ADOPTION_FORBIDDEN")
+    output_keys = _safe_output_key_list(
+        _required_list(scope.get("outputKeys"), "RUN_RESUME_OUTPUT_SCOPE_REQUIRED"),
+        error_code="RUN_RESUME_OUTPUT_SCOPE_KEY_UNSAFE",
+    )
+    if not output_keys:
+        raise WorkflowRuntimeCommandError("RUN_RESUME_OUTPUT_SCOPE_REQUIRED")
+    declared_count = _safe_int(scope.get("outputCount"))
+    if declared_count != len(output_keys):
+        raise WorkflowRuntimeCommandError("RUN_RESUME_OUTPUT_SCOPE_COUNT_MISMATCH")
+    return scope
 
 
 def _rule_output_adoption_scope(execution_options: dict) -> dict[str, Any]:
@@ -165,6 +225,12 @@ def _safe_output_key_list(raw_keys: list[Any], *, error_code: str) -> list[str]:
             output_keys.append(output_key)
             seen.add(output_key)
     return output_keys
+
+
+def _required_list(value: Any, error_code: str) -> list[Any]:
+    if not isinstance(value, list):
+        raise WorkflowRuntimeCommandError(error_code)
+    return value
 
 
 def _safe_int(value: Any) -> int:
