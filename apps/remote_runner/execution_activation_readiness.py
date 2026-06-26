@@ -23,6 +23,7 @@ def build_rule_retry_activation_readiness(
     promotion_state = _dict_value(cache_restore.get("finalOutputPromotionState"))
     partial_restore_executor = _dict_value(cache_restore.get("partialRestoreExecutor"))
     executor_orchestration = _dict_value(execution_plan.get("executorOrchestration"))
+    launch_preflight = _dict_value(executor_orchestration.get("launchPreflight"))
     lifecycle = _dict_value(execution_plan.get("partialRerunLifecycle"))
     output_closure = _dict_value(execution_plan.get("partialRerunOutputClosure"))
     lifecycle_path_exposed = _redaction_exposed(lifecycle, "pathExposed")
@@ -128,6 +129,23 @@ def build_rule_retry_activation_readiness(
             _first_nonempty(execution_plan.get("reasonCode"), "SNAKEMAKE_RULE_RERUN_OPTIONS_UNPROVEN"),
         ),
         _check(
+            "partialRerunLaunchPreflight",
+            launch_preflight.get("preflightReady") is True
+            and launch_preflight.get("pathExposed") is not True
+            and launch_preflight.get("storageUriExposed") is not True,
+            _first_nonempty(
+                "RULE_PARTIAL_RERUN_LAUNCH_PREFLIGHT_REDACTION_UNSAFE"
+                if launch_preflight.get("pathExposed") is True
+                or launch_preflight.get("storageUriExposed") is True
+                else "",
+                launch_preflight.get("preflightReasonCode")
+                if launch_preflight.get("preflightReady") is not True
+                else "",
+                launch_preflight.get("reasonCode"),
+                "RULE_PARTIAL_RERUN_LAUNCH_PREFLIGHT_UNPROVEN",
+            ),
+        ),
+        _check(
             "partialRerunExecutor",
             executor_orchestration.get("executorReady") is True,
             _first_nonempty(
@@ -173,6 +191,15 @@ def build_rule_retry_activation_readiness(
             "missingPreservedOutputEdgeCount": _safe_int(output_closure.get("missingPreservedOutputEdgeCount")),
             "unknownActiveOutputEdgeCount": _safe_int(output_closure.get("unknownActiveOutputEdgeCount")),
             "executorContractReady": 1 if executor_orchestration.get("contractReady") is True else 0,
+            "launchPreflightReady": 1 if launch_preflight.get("preflightReady") is True else 0,
+            "launchReady": 1 if launch_preflight.get("launchReady") is True else 0,
+            "launchPreflightScopeOutputCount": _safe_int(launch_preflight.get("outputAdoptionScopeOutputCount")),
+            "launchPlanHashRevalidationRequired": 1
+            if launch_preflight.get("executionPlanHashRevalidationRequired") is True
+            else 0,
+            "launchOutputScopeRevalidationRequired": 1
+            if launch_preflight.get("outputAdoptionScopeRevalidationRequired") is True
+            else 0,
             "executorReady": 1 if executor_orchestration.get("executorReady") is True else 0,
             "unsafeFlagCount": len(_list_value(snakemake_options.get("unsafeFlagsProhibited"))),
         },
@@ -181,10 +208,12 @@ def build_rule_retry_activation_readiness(
             "fingerprintsExposed": bool(redaction.get("cacheKeyFingerprintsExposed")),
             "storageUrisExposed": bool(redaction.get("storageUrisExposed"))
             or bool(executor_orchestration.get("storageUriExposed"))
+            or bool(launch_preflight.get("storageUriExposed"))
             or lifecycle_storage_uri_exposed
             or output_closure_storage_uri_exposed,
             "pathsExposed": bool(redaction.get("pathsExposed"))
             or bool(executor_orchestration.get("pathExposed"))
+            or bool(launch_preflight.get("pathExposed"))
             or lifecycle_path_exposed
             or output_closure_path_exposed,
         },

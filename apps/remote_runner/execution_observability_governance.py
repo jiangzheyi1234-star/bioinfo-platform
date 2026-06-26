@@ -55,6 +55,7 @@ def record_run_execution_context_read_audit(
     rule_retry_lifecycle_source = _dict_value(rule_retry_lifecycle.get("sourceAttempt"))
     rule_retry_lifecycle_target = _dict_value(rule_retry_lifecycle.get("targetAttempt"))
     rule_retry_output_closure = _dict_value(rule_retry_execution_plan.get("partialRerunOutputClosure"))
+    rule_retry_launch_preflight = _dict_value(rule_retry_orchestration.get("launchPreflight"))
     record_governance_audit_event(
         cfg,
         action="run.execution_context.read",
@@ -82,6 +83,37 @@ def record_run_execution_context_read_audit(
             ),
             "ruleRetryExecutorPathsExposed": bool(rule_retry_orchestration.get("pathExposed")),
             "ruleRetryExecutorStorageUrisExposed": bool(rule_retry_orchestration.get("storageUriExposed")),
+            "ruleRetryLaunchPreflightReady": bool(rule_retry_launch_preflight.get("preflightReady")),
+            "ruleRetryLaunchReady": bool(rule_retry_launch_preflight.get("launchReady")),
+            "ruleRetryLaunchPreflightMode": str(rule_retry_launch_preflight.get("mode") or ""),
+            "ruleRetryLaunchPreflightScopeOutputCount": _safe_int(
+                rule_retry_launch_preflight.get("outputAdoptionScopeOutputCount")
+            ),
+            "ruleRetryLaunchPreflightPlanHashRevalidationRequired": bool(
+                rule_retry_launch_preflight.get("executionPlanHashRevalidationRequired")
+            ),
+            "ruleRetryLaunchPreflightOutputScopeRevalidationRequired": bool(
+                rule_retry_launch_preflight.get("outputAdoptionScopeRevalidationRequired")
+            ),
+            "ruleRetryLaunchPreflightTargetAttemptPresent": bool(
+                rule_retry_launch_preflight.get("targetAttemptPresent")
+            ),
+            "ruleRetryLaunchPreflightActiveLeasePresent": bool(
+                rule_retry_launch_preflight.get("activeLeasePresent")
+            ),
+            "ruleRetryLaunchPreflightExecutorStartAllowed": bool(
+                rule_retry_launch_preflight.get("executorStartAllowed")
+            ),
+            "ruleRetryLaunchPreflightQueueMutationAllowed": bool(
+                rule_retry_launch_preflight.get("queueMutationAllowed")
+            ),
+            "ruleRetryLaunchPreflightRunStateMutationAllowed": bool(
+                rule_retry_launch_preflight.get("runStateMutationAllowed")
+            ),
+            "ruleRetryLaunchPreflightPathsExposed": bool(rule_retry_launch_preflight.get("pathExposed")),
+            "ruleRetryLaunchPreflightStorageUrisExposed": bool(
+                rule_retry_launch_preflight.get("storageUriExposed")
+            ),
             "ruleRetryOutputAuditVerifiedCount": _safe_int(rule_retry_output_audit.get("verifiedOutputCount")),
             "ruleRetryOutputAuditRerunRequiredCount": _safe_int(
                 rule_retry_output_audit.get("rerunRequiredOutputCount")

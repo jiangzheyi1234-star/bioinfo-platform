@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .rule_partial_rerun_launch_preflight import build_rule_partial_rerun_launch_preflight
+
 
 RERUN_EXECUTOR_ORCHESTRATION_SCHEMA_VERSION = "rerun-executor-orchestration.v1"
 RUN_RESUME_ARTIFACT_ADOPTION_BOUNDARY_SCHEMA_VERSION = "run-resume-artifact-adoption-boundary.v1"
@@ -169,7 +171,19 @@ def build_rule_partial_rerun_orchestration(
     if snakemake.get("rerunIncomplete") is not True or not _list_value(snakemake.get("forcerunRules")):
         contract_blockers.append("SNAKEMAKE_RULE_RERUN_OPTIONS_UNPROVEN")
     contract_ready = not contract_blockers
-    blocked_reason_codes = _unique_strings([*contract_blockers, PARTIAL_RERUN_EXECUTOR_PREVIEW_ONLY])
+    launch_preflight = build_rule_partial_rerun_launch_preflight(
+        execution_plan,
+        workdir_reuse_policy=workdir_reuse_policy,
+        orchestration_contract_ready=contract_ready,
+        orchestration_blockers=contract_blockers,
+    )
+    blocked_reason_codes = _unique_strings(
+        [
+            *contract_blockers,
+            *[str(item) for item in launch_preflight.get("blockedReasonCodes") or []],
+            PARTIAL_RERUN_EXECUTOR_PREVIEW_ONLY,
+        ]
+    )
     return {
         "schemaVersion": RERUN_EXECUTOR_ORCHESTRATION_SCHEMA_VERSION,
         "mode": "rule-partial-rerun",
@@ -179,6 +193,9 @@ def build_rule_partial_rerun_orchestration(
         "reasonCode": PARTIAL_RERUN_EXECUTOR_PREVIEW_ONLY if contract_ready else blocked_reason_codes[0],
         "blockedReasonCodes": blocked_reason_codes,
         "requiresBeforeExecution": blocked_reason_codes,
+        "launchPreflight": launch_preflight,
+        "launchPreflightReady": launch_preflight.get("preflightReady") is True,
+        "launchReady": launch_preflight.get("launchReady") is True,
         "selectedRuleCount": len(selected_rules),
         "rerunRuleCount": _safe_int(rerun_scope.get("ruleCount")),
         "cacheRestoreOutputCount": cache_output_count,

@@ -214,6 +214,9 @@ export type WorkflowRunExecutorOrchestration = {
   reasonCode?: string;
   blockedReasonCodes?: string[];
   requiresBeforeExecution?: string[];
+  launchPreflight?: WorkflowRunPartialRerunLaunchPreflight;
+  launchPreflightReady?: boolean;
+  launchReady?: boolean;
   sourceAttempt?: {
     attemptPresent?: boolean;
     attemptNumber?: number;
@@ -239,6 +242,76 @@ export type WorkflowRunExecutorOrchestration = {
   cacheAdoptionBypassRequired?: boolean;
   artifactAdoptionRequired?: boolean;
   finalizeRunAllowed?: boolean;
+  queueMutationAllowed?: boolean;
+  runStateMutationAllowed?: boolean;
+  pathExposed?: boolean;
+  storageUriExposed?: boolean;
+};
+
+export type WorkflowRunOutputAdoptionScopePreview = {
+  schemaVersion?: string;
+  available?: boolean;
+  reasonCode?: string;
+  mode?: string;
+  sourcePlanHash?: string;
+  scopeSource?: string;
+  outputCount?: number;
+  outputKeys?: string[];
+  outputs?: Array<{
+    outputKey?: string;
+    stepId?: string;
+    outputOrdinal?: number;
+    invalidationRole?: string;
+    cacheHit?: boolean;
+  }>;
+  pathExposed?: boolean;
+  storageUriExposed?: boolean;
+};
+
+export type WorkflowRunPartialRerunLaunchPreflight = {
+  schemaVersion?: string;
+  available?: boolean;
+  mode?: string;
+  preflightReady?: boolean;
+  launchReady?: boolean;
+  reasonCode?: string;
+  preflightReasonCode?: string;
+  blockedReasonCodes?: string[];
+  evidenceBlockedReasonCodes?: string[];
+  orchestrationContractReady?: boolean;
+  terminalSourceAttemptReady?: boolean;
+  sourceAttemptIdPresent?: boolean;
+  sourceAttemptLeaseGeneration?: number;
+  sourcePlanHash?: string;
+  sourcePlanHashPresent?: boolean;
+  planHashCurrent?: boolean;
+  planHashMatches?: boolean;
+  executionPlanHashRevalidationRequired?: boolean;
+  sourcePlanHashRevalidationRequired?: boolean;
+  outputAdoptionScopeRevalidationRequired?: boolean;
+  outputAdoptionScopePlanHashMatches?: boolean;
+  targetAttemptRequired?: boolean;
+  targetAttemptPresent?: boolean;
+  activeLeaseRequired?: boolean;
+  activeLeaseRequiredBeforeMutation?: boolean;
+  activeLeaseRequiredDuringExecution?: boolean;
+  activeLeasePresent?: boolean;
+  activeLeaseMatchesAttempt?: boolean;
+  activeLeasePolicyReady?: boolean;
+  workDirPresent?: boolean;
+  workDirManaged?: boolean;
+  workDirReusable?: boolean;
+  workdirReady?: boolean;
+  outputAdoptionScopeReady?: boolean;
+  outputAdoptionScopeOutputCount?: number;
+  outputAdoptionScope?: WorkflowRunOutputAdoptionScopePreview;
+  snakemakeOptionsReady?: boolean;
+  unsafeFlagsAbsent?: boolean;
+  unsafeFlags?: string[];
+  outputClosureReady?: boolean;
+  edgeClosureReady?: boolean;
+  lifecycleContractReady?: boolean;
+  executorStartAllowed?: boolean;
   queueMutationAllowed?: boolean;
   runStateMutationAllowed?: boolean;
   pathExposed?: boolean;

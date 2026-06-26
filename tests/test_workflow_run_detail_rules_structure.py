@@ -90,6 +90,9 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "partialRerunLifecycle?: WorkflowRunPartialRerunLifecycle" in model_contract
     assert "export type WorkflowRunPartialRerunOutputClosure" in model_contract
     assert "partialRerunOutputClosure?: WorkflowRunPartialRerunOutputClosure" in model_contract
+    assert "export type WorkflowRunPartialRerunLaunchPreflight" in model_contract
+    assert "launchPreflight?: WorkflowRunPartialRerunLaunchPreflight" in model_contract
+    assert "outputAdoptionScope?: WorkflowRunOutputAdoptionScopePreview" in model_contract
     assert "declaredOutputCount?: number" in model_contract
     assert "adoptedDeclaredOutputCount?: number" in model_contract
     assert "declaredOutputBlockedReasonCodes?: string[]" in model_contract
@@ -145,6 +148,7 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "snakemakeOptions?: WorkflowRunResumeSnakemakeOptions" in model_contract
     assert "unsafeFlagsProhibited?: string[]" in model_contract
     assert "executor contract" in execution_panel
+    assert "launch preflight" in execution_panel
     assert "selectedAttempt?: WorkflowRunRuleSelectedAttempt" in model_contract
     assert "cacheAdoptionBoundary?: WorkflowRunAdoptionBoundary" in model_contract
     assert "artifactAdoptionBoundary?: WorkflowRunAdoptionBoundary" in model_contract
@@ -282,6 +286,7 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "lifecycleLabel" in execution_panel
     assert "rerun lifecycle" in execution_panel
     assert "outputClosureLabel" in execution_panel
+    assert "launchPreflightLabel" in execution_panel
     assert "output closure" in execution_panel
     assert "declared ${partialOutputClosure.adoptedDeclaredOutputCount" in execution_panel
     assert "verified ${" in execution_panel
