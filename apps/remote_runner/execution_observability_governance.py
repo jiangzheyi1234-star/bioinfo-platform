@@ -56,6 +56,7 @@ def record_run_execution_context_read_audit(
     rule_retry_lifecycle_target = _dict_value(rule_retry_lifecycle.get("targetAttempt"))
     rule_retry_output_closure = _dict_value(rule_retry_execution_plan.get("partialRerunOutputClosure"))
     rule_retry_launch_preflight = _dict_value(rule_retry_orchestration.get("launchPreflight"))
+    rule_retry_execution_boundary = _dict_value(rule_retry_orchestration.get("executionBoundary"))
     record_governance_audit_event(
         cfg,
         action="run.execution_context.read",
@@ -113,6 +114,32 @@ def record_run_execution_context_read_audit(
             "ruleRetryLaunchPreflightPathsExposed": bool(rule_retry_launch_preflight.get("pathExposed")),
             "ruleRetryLaunchPreflightStorageUrisExposed": bool(
                 rule_retry_launch_preflight.get("storageUriExposed")
+            ),
+            "ruleRetryExecutionBoundaryReady": bool(rule_retry_execution_boundary.get("boundaryReady")),
+            "ruleRetryExecutionBoundaryExplicitTargetCount": _safe_int(
+                rule_retry_execution_boundary.get("explicitTargetCount")
+            ),
+            "ruleRetryExecutionBoundaryScopedOutputCount": _safe_int(
+                rule_retry_execution_boundary.get("scopedOutputCount")
+            ),
+            "ruleRetryExecutionBoundaryFinalizeAllowed": bool(
+                rule_retry_execution_boundary.get("finalizeRunAllowed")
+            ),
+            "ruleRetryExecutionBoundaryFinalizeWouldCompleteRun": bool(
+                rule_retry_execution_boundary.get("finalizeWouldCompleteRun")
+            ),
+            "ruleRetryExecutionBoundaryExecutorStartAllowed": bool(
+                rule_retry_execution_boundary.get("executorStartAllowed")
+            ),
+            "ruleRetryExecutionBoundaryQueueMutationAllowed": bool(
+                rule_retry_execution_boundary.get("queueMutationAllowed")
+            ),
+            "ruleRetryExecutionBoundaryRunStateMutationAllowed": bool(
+                rule_retry_execution_boundary.get("runStateMutationAllowed")
+            ),
+            "ruleRetryExecutionBoundaryPathsExposed": bool(rule_retry_execution_boundary.get("pathExposed")),
+            "ruleRetryExecutionBoundaryStorageUrisExposed": bool(
+                rule_retry_execution_boundary.get("storageUriExposed")
             ),
             "ruleRetryOutputAuditVerifiedCount": _safe_int(rule_retry_output_audit.get("verifiedOutputCount")),
             "ruleRetryOutputAuditRerunRequiredCount": _safe_int(

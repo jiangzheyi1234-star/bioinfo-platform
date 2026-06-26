@@ -217,6 +217,8 @@ export type WorkflowRunExecutorOrchestration = {
   launchPreflight?: WorkflowRunPartialRerunLaunchPreflight;
   launchPreflightReady?: boolean;
   launchReady?: boolean;
+  executionBoundary?: WorkflowRunPartialRerunExecutionBoundary;
+  executionBoundaryReady?: boolean;
   sourceAttempt?: {
     attemptPresent?: boolean;
     attemptNumber?: number;
@@ -242,6 +244,29 @@ export type WorkflowRunExecutorOrchestration = {
   cacheAdoptionBypassRequired?: boolean;
   artifactAdoptionRequired?: boolean;
   finalizeRunAllowed?: boolean;
+  queueMutationAllowed?: boolean;
+  runStateMutationAllowed?: boolean;
+  pathExposed?: boolean;
+  storageUriExposed?: boolean;
+};
+
+export type WorkflowRunPartialRerunExecutionBoundary = {
+  schemaVersion?: string;
+  available?: boolean;
+  boundaryReady?: boolean;
+  reasonCode?: string;
+  blockedReasonCodes?: string[];
+  selectedRuleCount?: number;
+  rerunRuleCount?: number;
+  scopedOutputCount?: number;
+  declaredOutputCount?: number;
+  explicitTargetCount?: number;
+  explicitTargetsPresent?: boolean;
+  freshAttemptWorkdir?: boolean;
+  attemptScopedResultDir?: boolean;
+  finalizeWouldCompleteRun?: boolean;
+  finalizeRunAllowed?: boolean;
+  executorStartAllowed?: boolean;
   queueMutationAllowed?: boolean;
   runStateMutationAllowed?: boolean;
   pathExposed?: boolean;

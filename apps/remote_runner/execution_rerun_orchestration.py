@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .rule_partial_rerun_execution_boundary import build_rule_partial_rerun_execution_boundary
 from .rule_partial_rerun_launch_preflight import build_rule_partial_rerun_launch_preflight
 
 
@@ -177,10 +178,12 @@ def build_rule_partial_rerun_orchestration(
         orchestration_contract_ready=contract_ready,
         orchestration_blockers=contract_blockers,
     )
+    execution_boundary = build_rule_partial_rerun_execution_boundary(execution_plan)
     blocked_reason_codes = _unique_strings(
         [
             *contract_blockers,
             *[str(item) for item in launch_preflight.get("blockedReasonCodes") or []],
+            *[str(item) for item in execution_boundary.get("blockedReasonCodes") or []],
             PARTIAL_RERUN_EXECUTOR_PREVIEW_ONLY,
         ]
     )
@@ -196,6 +199,8 @@ def build_rule_partial_rerun_orchestration(
         "launchPreflight": launch_preflight,
         "launchPreflightReady": launch_preflight.get("preflightReady") is True,
         "launchReady": launch_preflight.get("launchReady") is True,
+        "executionBoundary": execution_boundary,
+        "executionBoundaryReady": execution_boundary.get("boundaryReady") is True,
         "selectedRuleCount": len(selected_rules),
         "rerunRuleCount": _safe_int(rerun_scope.get("ruleCount")),
         "cacheRestoreOutputCount": cache_output_count,
@@ -231,7 +236,7 @@ def build_rule_partial_rerun_orchestration(
         "forcerunRulesRequired": True,
         "cacheAdoptionBypassRequired": True,
         "artifactAdoptionRequired": True,
-        "finalizeRunAllowed": False,
+        "finalizeRunAllowed": execution_boundary.get("finalizeRunAllowed") is True,
         "queueMutationAllowed": False,
         "runStateMutationAllowed": False,
         "pathExposed": bool(redaction.get("pathsExposed")) or lifecycle_path_exposed or closure_path_exposed,

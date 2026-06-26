@@ -325,6 +325,7 @@ function RuleRetryExecutionPlanPreview({ plan }: { plan?: WorkflowRunRuleRetryEx
   const activationReadiness = plan.activationReadiness;
   const orchestration = plan.executorOrchestration;
   const launchPreflight = orchestration?.launchPreflight;
+  const executionBoundary = orchestration?.executionBoundary;
   const orchestrationLabel = orchestration
     ? `${orchestration.reasonCode || "—"} · contract ${orchestration.contractReady ? "ready" : "blocked"} · executor ${
         orchestration.executorReady ? "ready" : "off"
@@ -334,6 +335,11 @@ function RuleRetryExecutionPlanPreview({ plan }: { plan?: WorkflowRunRuleRetryEx
     ? `${launchPreflight.reasonCode || "—"} · preflight ${launchPreflight.preflightReady ? "ready" : "blocked"} · scope ${
         launchPreflight.outputAdoptionScopeOutputCount ?? launchPreflight.outputAdoptionScope?.outputCount ?? 0
       } · recheck ${launchPreflight.executionPlanHashRevalidationRequired ? "yes" : "no"}`
+    : "—";
+  const executionBoundaryLabel = executionBoundary
+    ? `${executionBoundary.reasonCode || "—"} · targets ${executionBoundary.explicitTargetCount ?? 0} · scoped ${
+        executionBoundary.scopedOutputCount ?? 0
+      } · finalize ${executionBoundary.finalizeRunAllowed ? "allowed" : "blocked"}`
     : "—";
   const outputAuditLabel = outputAudit
     ? `${outputAudit.reasonCode || "—"} · verified ${outputAudit.verifiedOutputCount ?? 0} · rerun ${
@@ -394,6 +400,8 @@ function RuleRetryExecutionPlanPreview({ plan }: { plan?: WorkflowRunRuleRetryEx
         <span className="truncate font-mono text-slate-800">{orchestrationLabel}</span>
         <span className="text-slate-500">launch preflight</span>
         <span className="truncate font-mono text-slate-800">{launchPreflightLabel}</span>
+        <span className="text-slate-500">execution boundary</span>
+        <span className="truncate font-mono text-slate-800">{executionBoundaryLabel}</span>
         <span className="text-slate-500">output audit</span>
         <span className="truncate font-mono text-slate-800">{outputAuditLabel}</span>
         <span className="text-slate-500">rerun lifecycle</span>

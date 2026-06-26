@@ -21,7 +21,7 @@ def test_rule_retry_execution_plan_previews_snakemake_forcerun_options_without_e
     assert plan["activationReadiness"]["executionEnabled"] is False
     assert plan["activationReadiness"]["reasonCode"] == "DOWNSTREAM_OUTPUT_INVALIDATION_APPLY_REQUIRED"
     assert plan["activationReadiness"]["readyCheckCount"] == 2
-    assert plan["activationReadiness"]["blockedCheckCount"] == 12
+    assert plan["activationReadiness"]["blockedCheckCount"] == 13
     assert plan["activationReadiness"]["summary"]["selectedRuleCount"] == 1
     assert plan["activationReadiness"]["summary"]["rerunRuleCount"] == 2
     assert plan["activationReadiness"]["redactionPolicy"] == {
@@ -51,6 +51,11 @@ def test_rule_retry_execution_plan_previews_snakemake_forcerun_options_without_e
     assert plan["executorOrchestration"]["launchPreflight"]["preflightReady"] is False
     assert plan["executorOrchestration"]["launchPreflight"]["launchReady"] is False
     assert plan["executorOrchestration"]["launchPreflight"]["executorStartAllowed"] is False
+    assert plan["executorOrchestration"]["executionBoundary"]["schemaVersion"] == (
+        "rule-partial-rerun-execution-boundary.v1"
+    )
+    assert plan["executorOrchestration"]["executionBoundary"]["boundaryReady"] is False
+    assert plan["executorOrchestration"]["executionBoundary"]["finalizeRunAllowed"] is False
     assert plan["executorOrchestration"]["queueMutationAllowed"] is False
     assert plan["executorOrchestration"]["runStateMutationAllowed"] is False
     assert plan["executorOrchestration"]["pathExposed"] is False
@@ -169,6 +174,16 @@ def test_rule_retry_execution_plan_marks_orchestration_contract_ready_without_en
     assert orchestration["reasonCode"] == "PARTIAL_RERUN_EXECUTOR_ORCHESTRATION_PREVIEW_ONLY"
     assert orchestration["launchPreflightReady"] is True
     assert orchestration["launchReady"] is False
+    assert orchestration["executionBoundaryReady"] is False
+    execution_boundary = orchestration["executionBoundary"]
+    assert execution_boundary["schemaVersion"] == "rule-partial-rerun-execution-boundary.v1"
+    assert execution_boundary["boundaryReady"] is False
+    assert execution_boundary["reasonCode"] == "SNAKEMAKE_RULE_RERUN_EXPLICIT_TARGETS_REQUIRED"
+    assert execution_boundary["explicitTargetCount"] == 0
+    assert execution_boundary["scopedOutputCount"] == 1
+    assert execution_boundary["finalizeWouldCompleteRun"] is True
+    assert execution_boundary["finalizeRunAllowed"] is False
+    assert "RULE_PARTIAL_RERUN_FINALIZE_BOUNDARY_UNPROVEN" in execution_boundary["blockedReasonCodes"]
     launch_preflight = orchestration["launchPreflight"]
     assert launch_preflight["schemaVersion"] == "rule-partial-rerun-launch-preflight.v1"
     assert launch_preflight["preflightReady"] is True
@@ -201,6 +216,10 @@ def test_rule_retry_execution_plan_marks_orchestration_contract_ready_without_en
     assert orchestration["queueMutationAllowed"] is False
     assert orchestration["pathExposed"] is False
     assert readiness_checks["partialRerunLaunchPreflight"]["ready"] is True
+    assert readiness_checks["partialRerunExecutionBoundary"]["ready"] is False
+    assert readiness_checks["partialRerunExecutionBoundary"]["reasonCode"] == (
+        "SNAKEMAKE_RULE_RERUN_EXPLICIT_TARGETS_REQUIRED"
+    )
     assert readiness_checks["partialRerunExecutor"]["reasonCode"] == (
         "PARTIAL_RERUN_EXECUTOR_ORCHESTRATION_PREVIEW_ONLY"
     )

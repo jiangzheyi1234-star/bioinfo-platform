@@ -24,6 +24,7 @@ def build_rule_retry_activation_readiness(
     partial_restore_executor = _dict_value(cache_restore.get("partialRestoreExecutor"))
     executor_orchestration = _dict_value(execution_plan.get("executorOrchestration"))
     launch_preflight = _dict_value(executor_orchestration.get("launchPreflight"))
+    execution_boundary = _dict_value(executor_orchestration.get("executionBoundary"))
     lifecycle = _dict_value(execution_plan.get("partialRerunLifecycle"))
     output_closure = _dict_value(execution_plan.get("partialRerunOutputClosure"))
     lifecycle_path_exposed = _redaction_exposed(lifecycle, "pathExposed")
@@ -146,6 +147,20 @@ def build_rule_retry_activation_readiness(
             ),
         ),
         _check(
+            "partialRerunExecutionBoundary",
+            execution_boundary.get("boundaryReady") is True
+            and execution_boundary.get("pathExposed") is not True
+            and execution_boundary.get("storageUriExposed") is not True,
+            _first_nonempty(
+                "RULE_PARTIAL_RERUN_EXECUTION_BOUNDARY_REDACTION_UNSAFE"
+                if execution_boundary.get("pathExposed") is True
+                or execution_boundary.get("storageUriExposed") is True
+                else "",
+                execution_boundary.get("reasonCode"),
+                "RULE_PARTIAL_RERUN_EXECUTION_BOUNDARY_UNPROVEN",
+            ),
+        ),
+        _check(
             "partialRerunExecutor",
             executor_orchestration.get("executorReady") is True,
             _first_nonempty(
@@ -194,6 +209,10 @@ def build_rule_retry_activation_readiness(
             "launchPreflightReady": 1 if launch_preflight.get("preflightReady") is True else 0,
             "launchReady": 1 if launch_preflight.get("launchReady") is True else 0,
             "launchPreflightScopeOutputCount": _safe_int(launch_preflight.get("outputAdoptionScopeOutputCount")),
+            "executionBoundaryReady": 1 if execution_boundary.get("boundaryReady") is True else 0,
+            "executionBoundaryExplicitTargetCount": _safe_int(execution_boundary.get("explicitTargetCount")),
+            "executionBoundaryScopedOutputCount": _safe_int(execution_boundary.get("scopedOutputCount")),
+            "executionBoundaryFinalizeAllowed": 1 if execution_boundary.get("finalizeRunAllowed") is True else 0,
             "launchPlanHashRevalidationRequired": 1
             if launch_preflight.get("executionPlanHashRevalidationRequired") is True
             else 0,
@@ -209,11 +228,13 @@ def build_rule_retry_activation_readiness(
             "storageUrisExposed": bool(redaction.get("storageUrisExposed"))
             or bool(executor_orchestration.get("storageUriExposed"))
             or bool(launch_preflight.get("storageUriExposed"))
+            or bool(execution_boundary.get("storageUriExposed"))
             or lifecycle_storage_uri_exposed
             or output_closure_storage_uri_exposed,
             "pathsExposed": bool(redaction.get("pathsExposed"))
             or bool(executor_orchestration.get("pathExposed"))
             or bool(launch_preflight.get("pathExposed"))
+            or bool(execution_boundary.get("pathExposed"))
             or lifecycle_path_exposed
             or output_closure_path_exposed,
         },
