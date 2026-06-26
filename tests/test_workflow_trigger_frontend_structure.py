@@ -17,6 +17,7 @@ def test_trigger_events_have_read_only_frontend_surface() -> None:
     api = _source("workflow-trigger-api.ts")
     page = _source("workflow-trigger-observability-page.tsx")
     panel = _source("workflow-trigger-observability-panel.tsx")
+    scheduler_panel = _source("workflow-trigger-scheduler-panel.tsx")
     inbox_panel = _source("workflow-trigger-inbox-panel.tsx")
     results = _source("workflow-results-page.tsx")
     route = TRIGGER_ROUTE.read_text(encoding="utf-8")
@@ -34,6 +35,8 @@ def test_trigger_events_have_read_only_frontend_surface() -> None:
     assert "WorkflowTriggerReadinessObservationResponse" in model
     assert "WorkflowTriggerSchedulerTick" in model
     assert "WorkflowTriggerSchedulerTickListResponse" in model
+    assert "WorkflowTriggerSchedulerRunOnceResult" in model
+    assert "WorkflowTriggerSchedulerRunOnceResponse" in model
     assert "controlsExposed?: boolean" in model
     assert "WorkflowRunAdmissionSummary" in model
     assert "waitReasonCode?: string" in model
@@ -50,16 +53,22 @@ def test_trigger_events_have_read_only_frontend_surface() -> None:
     assert "submitManualWorkflowTriggerEvent" in api
     assert "fetchWorkflowTriggerReadinessObservation" in api
     assert "fetchWorkflowTriggerSchedulerTicks" in api
+    assert "runWorkflowTriggerSchedulerOnce" in api
+    assert "requestLocalApiJson<WorkflowTriggerSchedulerRunOnceResponse>" in api
     assert "WORKFLOW_TRIGGER_READINESS_OBSERVATION_CACHE_KEY" in api
     assert "WORKFLOW_TRIGGER_SCHEDULER_TICKS_CACHE_KEY" in api
     assert "/api/v1/workflow-triggers" in api
     assert "/api/v1/workflow-trigger-scheduler/ticks" in api
+    assert "/api/v1/workflow-trigger-scheduler/run-once" in api
     assert "/readiness-observation" in api
     assert "/inbox" in api
     assert "/replay" in api
     assert "`/api/v1/workflow-triggers/${encodeURIComponent(normalizedTriggerId)}/events`" in api
     assert 'eventType: "manual"' in api
     assert "manual:web-ui:" in api
+    assert 'confirmation: "run-scheduler-once"' in api
+    assert 'limit: options.limit || 100' in api
+    assert "invalidateAsyncCachePrefix(WORKFLOW_TRIGGER_SCHEDULER_TICKS_CACHE_KEY)" in api
     assert 'confirmation: "replay-dead-lettered-inbox-event"' in api
     assert "invalidateAsyncCachePrefix(WORKFLOW_TRIGGER_EVENTS_CACHE_KEY)" in api
     assert "invalidateAsyncCachePrefix(WORKFLOW_TRIGGER_INBOX_CACHE_KEY)" in api
@@ -76,22 +85,33 @@ def test_trigger_events_have_read_only_frontend_surface() -> None:
     assert "fetchWorkflowTriggerInboxEvents(selectedTriggerId" in page
     assert "fetchWorkflowTriggerReadinessObservation(selectedTriggerId" in page
     assert "fetchWorkflowTriggerSchedulerTicks({ forceRefresh, limit: 20 })" in page
+    assert "runWorkflowTriggerSchedulerOnce({ limit: 100 })" in page
+    assert "runningScheduler" in page
     assert "replayWorkflowTriggerInboxEvent(selectedTriggerId, inboxEventId)" in page
     assert "submitManualWorkflowTriggerEvent(triggerId)" in page
     assert "submittingManualTriggerId" in page
     assert "void loadInbox(true)" in page
     assert "readinessObservation={readinessObservation}" in page
     assert "schedulerTicks={schedulerTicks}" in page
+    assert "onRunSchedulerOnce={runSchedulerOnce}" in page
+    assert "runningScheduler={runningScheduler}" in page
     assert "isReadinessSource" in page
     assert "fetchWorkflowTriggers().catch" in results
     assert 'href="/workflows/results/triggers"' in results
     assert "RunSummary" in panel
     assert "WorkflowTriggerInboxPanel" in panel
-    assert "SchedulerTickPanel" in panel
-    assert "SchedulerMetric" in panel
+    assert "WorkflowTriggerSchedulerPanel" in panel
     assert "workflow_trigger.scheduler_ticks.read" not in panel
-    assert "Cron due" in panel
-    assert "Backfill submitted" in panel
+    assert "Cron due" in scheduler_panel
+    assert "Backfill submitted" in scheduler_panel
+    assert "SchedulerMetric" in scheduler_panel
+    assert "运行一次 scheduler" in scheduler_panel
+    assert "确认运行 scheduler" in scheduler_panel
+    assert "Input" in scheduler_panel
+    assert "SCHEDULER_RUN_ONCE_CONFIRMATION" in scheduler_panel
+    assert "run-scheduler-once" in scheduler_panel
+    assert "disabled={confirmation.trim() !== SCHEDULER_RUN_ONCE_CONFIRMATION || runningScheduler}" in scheduler_panel
+    assert "只返回聚合证据" in scheduler_panel
     assert "ManualTriggerRunControl" in panel
     assert 'trigger.sourceType === "manual"' in panel
     assert "onSubmitManualTrigger(trigger.triggerId)" in panel
@@ -132,6 +152,7 @@ def test_trigger_events_have_read_only_frontend_surface() -> None:
     assert "watcherAdapter" in panel
     assert "observedChecksum" in panel
     assert "controlsExposed" not in panel
+    assert "controlsExposed" not in scheduler_panel
     assert "observation.resourceId ||" not in panel
     assert "observation.resourceId]" not in panel
     assert '"resourceId"' not in panel
@@ -177,6 +198,7 @@ def test_trigger_events_have_read_only_frontend_surface() -> None:
     for forbidden in forbidden_controls:
         assert forbidden not in page
         assert forbidden not in panel
+        assert forbidden not in scheduler_panel
         assert forbidden not in inbox_panel
 
 

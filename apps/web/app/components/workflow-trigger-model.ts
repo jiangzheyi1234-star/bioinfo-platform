@@ -183,6 +183,17 @@ export type WorkflowTriggerSchedulerTick = {
   backfills?: WorkflowTriggerSchedulerTickCounts;
 };
 
+export type WorkflowTriggerSchedulerRunOnceResult = {
+  schemaVersion?: string;
+  tickId: string;
+  evidenceId?: string;
+  evaluatedAt?: string;
+  limit?: number;
+  controlsExposed?: boolean;
+  cron?: WorkflowTriggerSchedulerTickCounts;
+  backfills?: WorkflowTriggerSchedulerTickCounts;
+};
+
 export type WorkflowTriggerList = {
   items: WorkflowTrigger[];
 };
@@ -207,6 +218,10 @@ export type WorkflowTriggerSchedulerTickList = {
 
 export type WorkflowTriggerSchedulerTickListResponse = {
   data: WorkflowTriggerSchedulerTickList;
+};
+
+export type WorkflowTriggerSchedulerRunOnceResponse = {
+  data: WorkflowTriggerSchedulerRunOnceResult;
 };
 
 export type WorkflowTriggerInboxReplayResult = {

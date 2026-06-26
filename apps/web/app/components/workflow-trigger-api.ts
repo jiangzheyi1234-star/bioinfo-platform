@@ -16,6 +16,8 @@ import type {
   WorkflowTriggerListResponse,
   WorkflowTriggerReadinessObservationEnvelope,
   WorkflowTriggerReadinessObservationResponse,
+  WorkflowTriggerSchedulerRunOnceResponse,
+  WorkflowTriggerSchedulerRunOnceResult,
   WorkflowTriggerSchedulerTickList,
   WorkflowTriggerSchedulerTickListResponse,
 } from "./workflow-trigger-model";
@@ -150,6 +152,27 @@ export async function fetchWorkflowTriggerSchedulerTicks(
   }, {
     forceRefresh: options.forceRefresh,
   });
+}
+
+export async function runWorkflowTriggerSchedulerOnce(
+  options: WorkflowTriggerFetchOptions = {}
+): Promise<WorkflowTriggerSchedulerRunOnceResult> {
+  const response = await requestLocalApiJson<WorkflowTriggerSchedulerRunOnceResponse>(
+    "POST",
+    `/api/v1/workflow-trigger-scheduler/run-once${triggerQuery({ serverId: options.serverId })}`,
+    {
+      body: {
+        confirmation: "run-scheduler-once",
+        limit: options.limit || 100,
+        actor: "web-ui",
+        reason: "operator requested scheduler run-once from trigger observability",
+      },
+      cache: "no-store",
+    }
+  );
+  invalidateAsyncCachePrefix(WORKFLOW_TRIGGER_EVENTS_CACHE_KEY);
+  invalidateAsyncCachePrefix(WORKFLOW_TRIGGER_SCHEDULER_TICKS_CACHE_KEY);
+  return response.data;
 }
 
 export async function replayWorkflowTriggerInboxEvent(

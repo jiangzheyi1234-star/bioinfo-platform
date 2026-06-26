@@ -16,6 +16,7 @@ import {
   fetchWorkflowTriggerSchedulerTicks,
   fetchWorkflowTriggers,
   replayWorkflowTriggerInboxEvent,
+  runWorkflowTriggerSchedulerOnce,
   submitManualWorkflowTriggerEvent,
 } from "./workflow-trigger-api";
 import { WorkflowTriggerObservabilityPanel } from "./workflow-trigger-observability-panel";
@@ -44,6 +45,7 @@ export function WorkflowTriggerObservabilityPage() {
   const [inboxLoading, setInboxLoading] = useState(false);
   const [submittingManualTriggerId, setSubmittingManualTriggerId] = useState("");
   const [replayingInboxEventId, setReplayingInboxEventId] = useState("");
+  const [runningScheduler, setRunningScheduler] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [eventError, setEventError] = useState("");
@@ -226,6 +228,26 @@ export function WorkflowTriggerObservabilityPage() {
     }
   }
 
+  async function runSchedulerOnce() {
+    if (runningScheduler) return;
+    setRunningScheduler(true);
+    setEventError("");
+    setNotice("");
+    try {
+      const result = await runWorkflowTriggerSchedulerOnce({ limit: 100 });
+      setNotice(
+        result.tickId
+          ? `已执行 scheduler tick ${result.tickId}`
+          : "已执行 scheduler tick"
+      );
+      await Promise.all([loadSchedulerTicks(true), loadEvents(true), loadTriggers(true)]);
+    } catch (err) {
+      setEventError(workflowErrorMessage(err, "运行 scheduler 失败"));
+    } finally {
+      setRunningScheduler(false);
+    }
+  }
+
   return (
     <div className="relative flex-1 h-full w-full overflow-y-auto bg-white px-8 py-10 text-slate-800">
       <div className="mx-auto max-w-6xl space-y-6">
@@ -262,10 +284,12 @@ export function WorkflowTriggerObservabilityPage() {
             notice={notice}
             onRefresh={refresh}
             onReplayInboxEvent={replayInboxEvent}
+            onRunSchedulerOnce={runSchedulerOnce}
             onSelectTrigger={selectTrigger}
             onSubmitManualTrigger={submitManualTrigger}
             readinessObservation={readinessObservation}
             replayingInboxEventId={replayingInboxEventId}
+            runningScheduler={runningScheduler}
             schedulerTicks={schedulerTicks}
             selectedTrigger={selectedTrigger}
             selectedTriggerId={selectedTriggerId}
