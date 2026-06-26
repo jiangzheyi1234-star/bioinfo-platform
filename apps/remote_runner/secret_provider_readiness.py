@@ -5,7 +5,7 @@ from typing import Any
 from .secret_provider import (
     SUPPORTED_SECRET_PURPOSES,
     SUPPORTED_SECRET_REF_SCHEMES,
-    default_webhook_secret_provider_schemes,
+    keyring_secret_provider_available,
 )
 
 
@@ -13,9 +13,14 @@ SECRET_PROVIDER_READINESS_SCHEMA_VERSION = "remote-runner-secret-provider-readin
 
 
 def build_secret_provider_readiness() -> dict[str, Any]:
-    default_schemes = set(default_webhook_secret_provider_schemes())
+    keyring_available = keyring_secret_provider_available()
+    default_schemes = {"env", *(["keyring"] if keyring_available else [])}
     providers = [
-        _provider_status(scheme, default_enabled=scheme in default_schemes)
+        _provider_status(
+            scheme,
+            default_enabled=scheme in default_schemes,
+            keyring_available=keyring_available if scheme == "keyring" else False,
+        )
         for scheme in sorted(SUPPORTED_SECRET_REF_SCHEMES)
     ]
     return {
@@ -31,7 +36,7 @@ def build_secret_provider_readiness() -> dict[str, Any]:
     }
 
 
-def _provider_status(scheme: str, *, default_enabled: bool) -> dict[str, Any]:
+def _provider_status(scheme: str, *, default_enabled: bool, keyring_available: bool) -> dict[str, Any]:
     provider_kind = {
         "env": "environment",
         "keyring": "os-keyring",
@@ -46,6 +51,15 @@ def _provider_status(scheme: str, *, default_enabled: bool) -> dict[str, Any]:
             "state": "available",
             "reasonCode": "",
             "resolutionBoundary": "provider-integration",
+        }
+    if scheme == "keyring":
+        return {
+            "scheme": scheme,
+            "providerKind": provider_kind,
+            "defaultForWebhookSigning": False,
+            "state": "unconfigured" if not keyring_available else "available",
+            "reasonCode": "SECRET_PROVIDER_UNAVAILABLE" if not keyring_available else "",
+            "resolutionBoundary": "fail-closed" if not keyring_available else "provider-integration",
         }
     return {
         "scheme": scheme,

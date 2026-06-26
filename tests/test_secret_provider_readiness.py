@@ -11,7 +11,12 @@ from apps.remote_runner.secret_provider_readiness import build_secret_provider_r
 from tests.helpers.reference_database import make_configured_remote_runner
 
 
-def test_secret_provider_readiness_reports_provider_integration_without_ref_or_value_leak() -> None:
+def test_secret_provider_readiness_reports_provider_integration_without_ref_or_value_leak(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "apps.remote_runner.secret_provider_readiness.keyring_secret_provider_available",
+        lambda: False,
+    )
+
     readiness = build_secret_provider_readiness()
 
     assert readiness["schemaVersion"] == "remote-runner-secret-provider-readiness.v1"
@@ -42,10 +47,38 @@ def test_secret_provider_readiness_reports_provider_integration_without_ref_or_v
     assert "github-secret" not in serialized
 
 
+def test_secret_provider_readiness_marks_keyring_available_without_ref_probe(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "apps.remote_runner.secret_provider_readiness.keyring_secret_provider_available",
+        lambda: True,
+    )
+
+    readiness = build_secret_provider_readiness()
+
+    assert readiness["defaultWebhookProviderSchemes"] == ["env", "keyring"]
+    providers = {item["scheme"]: item for item in readiness["providers"]}
+    assert providers["keyring"] == {
+        "scheme": "keyring",
+        "providerKind": "os-keyring",
+        "defaultForWebhookSigning": True,
+        "state": "available",
+        "reasonCode": "",
+        "resolutionBoundary": "provider-integration",
+    }
+    assert readiness["redactionPolicy"]["individualReferenceProbing"] is False
+    serialized = json.dumps(readiness, sort_keys=True)
+    assert "keyring://webhooks" not in serialized
+    assert "github-secret" not in serialized
+
+
 def test_secret_provider_readiness_route_requires_auditor_role_and_records_safe_allow_audit(
     tmp_path,
     monkeypatch,
 ) -> None:
+    monkeypatch.setattr(
+        "apps.remote_runner.secret_provider_readiness.keyring_secret_provider_available",
+        lambda: False,
+    )
     denied = make_configured_remote_runner(
         tmp_path / "denied",
         token="secret-readiness-token",

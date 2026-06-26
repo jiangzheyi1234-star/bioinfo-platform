@@ -3,8 +3,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 import hashlib
+import importlib
 import os
 import re
+from types import ModuleType
+from typing import Any
 from typing import Literal, NoReturn, Protocol, cast
 from urllib.parse import urlsplit
 
@@ -120,12 +123,73 @@ class EnvironmentSecretProvider:
         return value
 
 
+class KeyringSecretProvider:
+    def __init__(
+        self,
+        *,
+        keyring_module: ModuleType | Any | None = None,
+        service_prefix: str = "h2ometa.remote_runner",
+    ) -> None:
+        self._keyring_module = keyring_module
+        self._service_prefix = service_prefix
+
+    def resolve_secret(self, descriptor: SecretRefDescriptor) -> bytes | str | SecretProviderRecord:
+        if descriptor.scheme != "keyring":
+            _raise("SECRET_PROVIDER_UNAVAILABLE", state="unsupported", descriptor=descriptor)
+        keyring_module = self._keyring()
+        try:
+            value = keyring_module.get_password(self._service_name(descriptor), descriptor.secret_id)
+        except self._keyring_error_types(keyring_module) as exc:
+            _raise(
+                "SECRET_PROVIDER_UNAVAILABLE",
+                state="unsupported",
+                descriptor=descriptor,
+                reason_type=exc.__class__.__name__,
+            )
+        if not value:
+            _raise("SECRET_NOT_FOUND", state="missing", descriptor=descriptor)
+        return value
+
+    def _keyring(self) -> ModuleType | Any:
+        if self._keyring_module is not None:
+            return self._keyring_module
+        try:
+            return importlib.import_module("keyring")
+        except ImportError:
+            _raise("SECRET_PROVIDER_UNAVAILABLE", state="unsupported", scheme="keyring")
+
+    def _service_name(self, descriptor: SecretRefDescriptor) -> str:
+        return f"{self._service_prefix}.{descriptor.purpose}"
+
+    @staticmethod
+    def _keyring_error_types(keyring_module: ModuleType | Any) -> tuple[type[BaseException], ...]:
+        errors = getattr(keyring_module, "errors", None)
+        keyring_error = getattr(errors, "KeyringError", None)
+        return (keyring_error,) if isinstance(keyring_error, type) else (Exception,)
+
+
 def default_webhook_secret_provider() -> SecretProvider:
-    return SchemeSecretProvider({"env": EnvironmentSecretProvider()})
+    providers: dict[str, SecretProvider] = {"env": EnvironmentSecretProvider()}
+    if keyring_secret_provider_available():
+        providers["keyring"] = KeyringSecretProvider()
+    return SchemeSecretProvider(providers)
 
 
 def default_webhook_secret_provider_schemes() -> tuple[SecretRefScheme, ...]:
-    return ("env",)
+    schemes: list[SecretRefScheme] = ["env"]
+    if keyring_secret_provider_available():
+        schemes.append("keyring")
+    return tuple(schemes)
+
+
+def keyring_secret_provider_available(*, keyring_module: ModuleType | Any | None = None) -> bool:
+    try:
+        module = keyring_module or importlib.import_module("keyring")
+        backend = module.get_keyring()
+        priority = getattr(backend, "priority", 0)
+        return float(priority or 0) > 0
+    except Exception:
+        return False
 
 
 def parse_secret_ref(ref: object, *, purpose: str) -> SecretRefDescriptor:
@@ -213,10 +277,13 @@ def _raise(
     state: SecretProviderState,
     descriptor: SecretRefDescriptor | None = None,
     scheme: str | None = None,
+    reason_type: str | None = None,
 ) -> NoReturn:
     details: dict[str, object] = {}
     if descriptor is not None:
         details.update(descriptor.safe_details())
     if scheme:
         details["scheme"] = scheme
+    if reason_type:
+        details["reasonType"] = reason_type
     raise SecretProviderError(code, state=state, safe_details=details)

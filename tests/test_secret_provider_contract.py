@@ -8,9 +8,12 @@ import pytest
 
 from apps.remote_runner.secret_provider import (
     EnvironmentSecretProvider,
+    KeyringSecretProvider,
     MappingSecretProvider,
     SecretProviderError,
     SecretProviderRecord,
+    SchemeSecretProvider,
+    default_webhook_secret_provider_schemes,
     parse_secret_ref,
     resolve_secret_ref,
 )
@@ -119,6 +122,53 @@ def test_environment_secret_provider_resolves_env_refs_without_value_leak() -> N
     assert "H2OMETA_WEBHOOK_SECRET" not in repr(resolved.safe_details())
 
 
+def test_keyring_secret_provider_resolves_refs_without_env_fallback_or_ref_leak() -> None:
+    keyring = _FakeKeyring({"webhooks/github/main": "github-secret"})
+    provider = KeyringSecretProvider(keyring_module=keyring)
+
+    resolved = resolve_secret_ref(provider, "keyring://webhooks/github/main", purpose="webhook-signing-secret")
+
+    assert resolved.value == b"github-secret"
+    assert resolved.descriptor.scheme == "keyring"
+    assert resolved.safe_details()["providerKind"] == "os-keyring"
+    assert keyring.calls == [("h2ometa.remote_runner.webhook-signing-secret", "webhooks/github/main")]
+    assert "github-secret" not in repr(resolved)
+    assert "webhooks/github/main" not in repr(resolved.safe_details())
+
+
+def test_keyring_secret_provider_reports_missing_and_backend_errors_safely() -> None:
+    missing = KeyringSecretProvider(keyring_module=_FakeKeyring({}))
+    broken = KeyringSecretProvider(keyring_module=_FakeKeyring({}, fail=True))
+
+    with pytest.raises(SecretProviderError) as missing_error:
+        resolve_secret_ref(missing, "keyring://webhooks/github/main", purpose="webhook-signing-secret")
+    with pytest.raises(SecretProviderError) as backend_error:
+        resolve_secret_ref(broken, "keyring://webhooks/github/main", purpose="webhook-signing-secret")
+
+    assert missing_error.value.code == "SECRET_NOT_FOUND"
+    assert backend_error.value.code == "SECRET_PROVIDER_UNAVAILABLE"
+    assert backend_error.value.safe_details["reasonType"] == "FakeKeyringError"
+    assert "keyring://webhooks/github/main" not in repr(missing_error.value.safe_details)
+    assert "webhooks/github/main" not in repr(backend_error.value.safe_details)
+
+
+def test_scheme_secret_provider_does_not_fallback_keyring_to_env() -> None:
+    provider = SchemeSecretProvider({"env": EnvironmentSecretProvider({"H2OMETA_WEBHOOK_SECRET": "env-secret"})})
+
+    with pytest.raises(SecretProviderError) as exc_info:
+        resolve_secret_ref(provider, "keyring://webhooks/github/main", purpose="webhook-signing-secret")
+
+    assert exc_info.value.code == "SECRET_PROVIDER_UNAVAILABLE"
+
+
+def test_default_webhook_secret_provider_schemes_include_keyring_only_when_backend_available(monkeypatch) -> None:
+    monkeypatch.setattr("apps.remote_runner.secret_provider.keyring_secret_provider_available", lambda: False)
+    assert default_webhook_secret_provider_schemes() == ("env",)
+
+    monkeypatch.setattr("apps.remote_runner.secret_provider.keyring_secret_provider_available", lambda: True)
+    assert default_webhook_secret_provider_schemes() == ("env", "keyring")
+
+
 @pytest.mark.parametrize(
     ("value", "code"),
     [
@@ -191,3 +241,26 @@ def _assert_secret_error(ref: str, code: str, *, forbidden_text: str) -> None:
         assert forbidden_text not in str(error)
         assert forbidden_text not in repr(error)
         assert forbidden_text not in repr(error.safe_details)
+
+
+class FakeKeyringError(Exception):
+    pass
+
+
+class _FakeKeyringErrors:
+    KeyringError = FakeKeyringError
+
+
+class _FakeKeyring:
+    errors = _FakeKeyringErrors
+
+    def __init__(self, values: dict[str, str], *, fail: bool = False) -> None:
+        self._values = values
+        self._fail = fail
+        self.calls: list[tuple[str, str]] = []
+
+    def get_password(self, service_name: str, username: str) -> str | None:
+        self.calls.append((service_name, username))
+        if self._fail:
+            raise FakeKeyringError("backend unavailable for webhooks/github/main")
+        return self._values.get(username)
