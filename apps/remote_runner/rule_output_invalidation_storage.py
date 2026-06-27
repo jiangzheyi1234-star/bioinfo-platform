@@ -5,11 +5,16 @@ from typing import Any
 from .config import RemoteRunnerConfig
 from .evidence_storage import append_evidence_event
 from .execution_plan_hash import stable_plan_hash
-from .rule_output_invalidation_plan import RULE_OUTPUT_INVALIDATION_PLAN_SCHEMA_VERSION
+from .rule_output_invalidation_snapshot import (
+    RULE_OUTPUT_INVALIDATION_APPLIED_EVENT_TYPE,
+    build_rule_output_invalidation_applied_snapshot,
+)
+from .rule_output_invalidation_plan import (
+    RULE_OUTPUT_INVALIDATION_PLAN_SCHEMA_VERSION,
+)
 from .storage_core import get_connection, now_iso
 
 
-RULE_OUTPUT_INVALIDATION_APPLIED_EVENT_TYPE = "rule.output_invalidation.applied.v1"
 RULE_OUTPUT_INVALIDATION_APPLIED_SCHEMA_NAME = "RuleOutputInvalidationApplied"
 
 
@@ -55,6 +60,7 @@ def apply_rule_output_invalidation_plan(
                 "selectedRuleCount": int(_dict(plan.get("scope")).get("selectedRuleCount") or 0),
                 "invalidatedRuleCount": int(_dict(plan.get("scope")).get("invalidatedRuleCount") or 0),
                 "payloadDeletionAllowed": False,
+                "planSnapshot": build_rule_output_invalidation_applied_snapshot(plan),
             },
         )
         _mark_output_edges_invalidated(
@@ -105,6 +111,8 @@ def _validate_plan(plan: dict[str, Any], *, plan_hash: str) -> None:
         raise ValueError("RULE_OUTPUT_INVALIDATION_MUTATION_DISABLED")
     if policy.get("deleteArtifactPayloads") is not False:
         raise ValueError("RULE_OUTPUT_INVALIDATION_PAYLOAD_DELETE_UNSAFE")
+    if plan.get("pathExposed") is True or plan.get("storageReferenceExposed") is True:
+        raise ValueError("RULE_OUTPUT_INVALIDATION_REDACTION_UNSAFE")
 
 
 def _invalidated_output_edge_ids(plan: dict[str, Any]) -> list[str]:

@@ -1,36 +1,14 @@
 from __future__ import annotations
 
-from pathlib import Path
-
-from apps.remote_runner.artifact_ledger_storage import record_artifact_blob_for_path, record_run_artifact_edge
 from apps.remote_runner.rule_partial_rerun_output_closure import build_rule_partial_rerun_output_closure
-from apps.remote_runner.storage import create_run_record
-from tests.helpers.reference_database import make_configured_remote_runner
 
 
-def test_rule_partial_rerun_output_closure_marks_contract_ready_when_declared_outputs_are_adopted(
-    tmp_path: Path,
-) -> None:
-    cfg = make_configured_remote_runner(tmp_path)
-    _create_run(cfg, "run_output_closure")
-    preserved_path = Path(cfg.results_dir) / "run_output_closure" / "trim.txt"
-    preserved_path.parent.mkdir(parents=True, exist_ok=True)
-    preserved_path.write_text("trim output\n", encoding="utf-8")
-    blob = record_artifact_blob_for_path(cfg, path=preserved_path, media_type="text/plain")
-    record_run_artifact_edge(
-        cfg,
-        run_id="run_output_closure",
-        artifact_blob_id=blob["artifactBlobId"],
-        role="output",
-        port_name="trim_qc",
-        step_id="trim_reads",
-    )
-
+def test_rule_partial_rerun_output_closure_marks_contract_ready_when_declared_outputs_are_adopted() -> None:
     closure = build_rule_partial_rerun_output_closure(
-        cfg,
         run={"runId": "run_output_closure"},
         rule_retry_plan=_rule_retry_plan(),
         cache_restore_plan=_cache_restore_plan(),
+        output_invalidation_plan=_output_invalidation_plan(),
         output_audit=_output_audit(state="adopted"),
     )
 
@@ -55,31 +33,16 @@ def test_rule_partial_rerun_output_closure_marks_contract_ready_when_declared_ou
     assert closure["finalizeAllowed"] is False
     assert closure["pathExposed"] is False
     assert closure["storageUriExposed"] is False
+    assert closure["preservedOutputs"][0]["runArtifactEdgeId"] == "edge_trim"
+    assert closure["preservedOutputs"][0]["ruleName"] == "trim_reads"
 
 
-def test_rule_partial_rerun_output_closure_blocks_unadopted_declared_outputs_after_edges_close(
-    tmp_path: Path,
-) -> None:
-    cfg = make_configured_remote_runner(tmp_path)
-    _create_run(cfg, "run_output_closure_unadopted")
-    preserved_path = Path(cfg.results_dir) / "run_output_closure_unadopted" / "trim.txt"
-    preserved_path.parent.mkdir(parents=True, exist_ok=True)
-    preserved_path.write_text("trim output\n", encoding="utf-8")
-    blob = record_artifact_blob_for_path(cfg, path=preserved_path, media_type="text/plain")
-    record_run_artifact_edge(
-        cfg,
-        run_id="run_output_closure_unadopted",
-        artifact_blob_id=blob["artifactBlobId"],
-        role="output",
-        port_name="trim_qc",
-        step_id="trim_reads",
-    )
-
+def test_rule_partial_rerun_output_closure_blocks_unadopted_declared_outputs_after_edges_close() -> None:
     closure = build_rule_partial_rerun_output_closure(
-        cfg,
         run={"runId": "run_output_closure_unadopted"},
-        rule_retry_plan=_rule_retry_plan(),
+        rule_retry_plan=_rule_retry_plan(run_id="run_output_closure_unadopted"),
         cache_restore_plan=_cache_restore_plan(),
+        output_invalidation_plan=_output_invalidation_plan(),
         output_audit=_output_audit(state="adopted", adopted_output_count=0),
     )
 
@@ -91,20 +54,15 @@ def test_rule_partial_rerun_output_closure_blocks_unadopted_declared_outputs_aft
     assert closure["blockedReasonCodes"] == ["RULE_PARTIAL_RERUN_DECLARED_OUTPUTS_NOT_ADOPTED"]
 
 
-def test_rule_partial_rerun_output_closure_blocks_incomplete_declared_output_audit_after_edges_close(
-    tmp_path: Path,
-) -> None:
-    cfg = make_configured_remote_runner(tmp_path)
-    _create_run(cfg, "run_output_closure_incomplete")
-    _record_preserved_edge(cfg, "run_output_closure_incomplete")
+def test_rule_partial_rerun_output_closure_blocks_incomplete_declared_output_audit_after_edges_close() -> None:
     audit = _output_audit(state="adopted")
     audit["expectedOutputCount"] = 2
 
     closure = build_rule_partial_rerun_output_closure(
-        cfg,
         run={"runId": "run_output_closure_incomplete"},
-        rule_retry_plan=_rule_retry_plan(),
+        rule_retry_plan=_rule_retry_plan(run_id="run_output_closure_incomplete"),
         cache_restore_plan=_cache_restore_plan(),
+        output_invalidation_plan=_output_invalidation_plan(),
         output_audit=audit,
     )
 
@@ -116,21 +74,16 @@ def test_rule_partial_rerun_output_closure_blocks_incomplete_declared_output_aud
     assert "RULE_PARTIAL_RERUN_DECLARED_OUTPUT_AUDIT_INCOMPLETE" in closure["blockedReasonCodes"]
 
 
-def test_rule_partial_rerun_output_closure_blocks_declared_output_schema_and_redaction(
-    tmp_path: Path,
-) -> None:
-    cfg = make_configured_remote_runner(tmp_path)
-    _create_run(cfg, "run_output_closure_redaction")
-    _record_preserved_edge(cfg, "run_output_closure_redaction")
+def test_rule_partial_rerun_output_closure_blocks_declared_output_schema_and_redaction() -> None:
     audit = _output_audit(state="adopted")
     audit["schemaVersion"] = "legacy-rule-output-audit.v0"
     audit["pathExposed"] = True
 
     closure = build_rule_partial_rerun_output_closure(
-        cfg,
         run={"runId": "run_output_closure_redaction"},
-        rule_retry_plan=_rule_retry_plan(),
+        rule_retry_plan=_rule_retry_plan(run_id="run_output_closure_redaction"),
         cache_restore_plan=_cache_restore_plan(),
+        output_invalidation_plan=_output_invalidation_plan(),
         output_audit=audit,
     )
 
@@ -144,27 +97,15 @@ def test_rule_partial_rerun_output_closure_blocks_declared_output_schema_and_red
     ]
 
 
-def test_rule_partial_rerun_output_closure_blocks_pending_and_unknown_edges(tmp_path: Path) -> None:
-    cfg = make_configured_remote_runner(tmp_path)
-    _create_run(cfg, "run_output_closure_blocked")
-    unknown_path = Path(cfg.results_dir) / "run_output_closure_blocked" / "unknown.txt"
-    unknown_path.parent.mkdir(parents=True, exist_ok=True)
-    unknown_path.write_text("unknown output\n", encoding="utf-8")
-    blob = record_artifact_blob_for_path(cfg, path=unknown_path, media_type="text/plain")
-    record_run_artifact_edge(
-        cfg,
-        run_id="run_output_closure_blocked",
-        artifact_blob_id=blob["artifactBlobId"],
-        role="output",
-        port_name="unexpected",
-        step_id="unexpected_rule",
-    )
-
+def test_rule_partial_rerun_output_closure_blocks_pending_and_authoritative_unknown_edges() -> None:
     closure = build_rule_partial_rerun_output_closure(
-        cfg,
         run={"runId": "run_output_closure_blocked"},
-        rule_retry_plan=_rule_retry_plan(),
+        rule_retry_plan=_rule_retry_plan(run_id="run_output_closure_blocked"),
         cache_restore_plan=_cache_restore_plan(),
+        output_invalidation_plan=_output_invalidation_plan(
+            preserved_outputs=[],
+            unmatched_outputs=[_unknown_output()],
+        ),
         output_audit=_output_audit(state="present"),
     )
 
@@ -178,43 +119,111 @@ def test_rule_partial_rerun_output_closure_blocks_pending_and_unknown_edges(tmp_
     assert closure["unknownActiveOutputEdgeCount"] == 1
 
 
-def _create_run(cfg, run_id: str) -> None:
-    create_run_record(
-        cfg,
-        server_id="srv_output_closure",
-        request_id=f"req_{run_id}",
-        run_spec={"runId": run_id, "pipelineId": "demo"},
-        idempotency_key=f"idem_{run_id}",
-        payload_hash="f" * 64,
+def test_rule_partial_rerun_output_closure_blocks_without_authoritative_invalidation_plan() -> None:
+    closure = build_rule_partial_rerun_output_closure(
+        run={"runId": "run_output_closure_no_plan"},
+        rule_retry_plan=_rule_retry_plan(run_id="run_output_closure_no_plan"),
+        cache_restore_plan=_cache_restore_plan(),
+        output_invalidation_plan={
+            "schemaVersion": "rule-output-invalidation-plan.v1",
+            "previewAvailable": False,
+            "reasonCode": "RULE_OUTPUT_INVALIDATION_PREFLIGHT_UNAVAILABLE",
+            "outputEdgeSummary": {},
+            "rules": [],
+            "preservedOutputs": [],
+            "unmatchedOutputs": [],
+        },
+        output_audit=_output_audit(state="adopted"),
     )
 
+    assert closure["edgeClosureReady"] is False
+    assert "RULE_OUTPUT_INVALIDATION_PREFLIGHT_UNAVAILABLE" in closure["blockedReasonCodes"]
+    assert "RULE_PARTIAL_RERUN_PRESERVED_OUTPUT_EDGES_MISSING" in closure["blockedReasonCodes"]
 
-def _record_preserved_edge(cfg, run_id: str) -> None:
-    preserved_path = Path(cfg.results_dir) / run_id / "trim.txt"
-    preserved_path.parent.mkdir(parents=True, exist_ok=True)
-    preserved_path.write_text("trim output\n", encoding="utf-8")
-    blob = record_artifact_blob_for_path(cfg, path=preserved_path, media_type="text/plain")
-    record_run_artifact_edge(
-        cfg,
-        run_id=run_id,
-        artifact_blob_id=blob["artifactBlobId"],
-        role="output",
-        port_name="trim_qc",
-        step_id="trim_reads",
+
+def test_rule_partial_rerun_output_closure_blocks_inconsistent_invalidation_counts() -> None:
+    closure = build_rule_partial_rerun_output_closure(
+        run={"runId": "run_output_closure_bad_counts"},
+        rule_retry_plan=_rule_retry_plan(run_id="run_output_closure_bad_counts"),
+        cache_restore_plan=_cache_restore_plan(),
+        output_invalidation_plan=_output_invalidation_plan(
+            summary_override={"preservedOutputEdgeCount": 2},
+        ),
+        output_audit=_output_audit(state="adopted"),
     )
 
+    assert closure["edgeClosureReady"] is False
+    assert "RULE_PARTIAL_RERUN_OUTPUT_INVALIDATION_COUNTS_INCONSISTENT" in closure["blockedReasonCodes"]
 
-def _rule_retry_plan() -> dict:
+
+def test_rule_partial_rerun_output_closure_blocks_partial_preserved_rule_coverage() -> None:
+    closure = build_rule_partial_rerun_output_closure(
+        run={"runId": "run_output_closure_partial_preserved"},
+        rule_retry_plan=_rule_retry_plan(
+            run_id="run_output_closure_partial_preserved",
+            preserved_rules=["trim_reads", "qc"],
+        ),
+        cache_restore_plan=_cache_restore_plan(),
+        output_invalidation_plan=_output_invalidation_plan(preserved_outputs=[_preserved_output()]),
+        output_audit=_output_audit(state="adopted"),
+    )
+
+    assert closure["edgeClosureReady"] is False
+    assert closure["missingPreservedOutputEdgeCount"] == 1
+    assert "RULE_PARTIAL_RERUN_PRESERVED_OUTPUT_EDGES_MISSING" in closure["blockedReasonCodes"]
+
+
+def test_rule_partial_rerun_output_closure_blocks_preserved_output_rule_mismatch() -> None:
+    mismatched = _preserved_output()
+    mismatched["stepId"] = "legacy_orphan"
+
+    closure = build_rule_partial_rerun_output_closure(
+        run={"runId": "run_output_closure_mismatch"},
+        rule_retry_plan=_rule_retry_plan(run_id="run_output_closure_mismatch"),
+        cache_restore_plan=_cache_restore_plan(),
+        output_invalidation_plan=_output_invalidation_plan(preserved_outputs=[mismatched]),
+        output_audit=_output_audit(state="adopted"),
+    )
+
+    assert closure["edgeClosureReady"] is False
+    assert "RULE_PARTIAL_RERUN_PRESERVED_OUTPUT_RULE_UNMATCHED" in closure["blockedReasonCodes"]
+    assert "RULE_PARTIAL_RERUN_PRESERVED_OUTPUT_EDGES_MISSING" in closure["blockedReasonCodes"]
+
+
+def test_rule_partial_rerun_output_closure_blocks_invalidation_plan_redaction() -> None:
+    output_invalidation_plan = _output_invalidation_plan()
+    output_invalidation_plan["pathExposed"] = True
+
+    closure = build_rule_partial_rerun_output_closure(
+        run={"runId": "run_output_closure_plan_redaction"},
+        rule_retry_plan=_rule_retry_plan(run_id="run_output_closure_plan_redaction"),
+        cache_restore_plan=_cache_restore_plan(),
+        output_invalidation_plan=output_invalidation_plan,
+        output_audit=_output_audit(state="adopted"),
+    )
+
+    assert closure["edgeClosureReady"] is False
+    assert "RULE_PARTIAL_RERUN_OUTPUT_INVALIDATION_REDACTION_UNSAFE" in closure["blockedReasonCodes"]
+    assert closure["pathExposed"] is True
+
+
+def _rule_retry_plan(
+    *,
+    run_id: str = "run_output_closure",
+    preserved_rules: list[str] | None = None,
+) -> dict:
+    rules = preserved_rules or ["trim_reads"]
     return {
         "schemaVersion": "rule-retry-plan.v1",
-        "runId": "run_output_closure",
+        "runId": run_id,
         "preservedRules": [
             {
-                "runRuleId": "rr_trim",
-                "ruleName": "trim_reads",
-                "stepId": "trim_reads",
-                "runtimeStatusKey": "rule:trim_reads",
+                "runRuleId": f"rr_{rule_name}",
+                "ruleName": rule_name,
+                "stepId": rule_name,
+                "runtimeStatusKey": f"rule:{rule_name}",
             }
+            for rule_name in rules
         ],
     }
 
@@ -237,6 +246,95 @@ def _cache_restore_plan() -> dict:
                 ],
             }
         ],
+    }
+
+
+def _output_invalidation_plan(
+    *,
+    preserved_outputs: list[dict] | None = None,
+    unmatched_outputs: list[dict] | None = None,
+    summary_override: dict | None = None,
+) -> dict:
+    preserved = [_preserved_output()] if preserved_outputs is None else preserved_outputs
+    unmatched = [] if unmatched_outputs is None else unmatched_outputs
+    invalidated_outputs = [_invalidated_output()]
+    summary = {
+        "outputEdgeCount": len(invalidated_outputs) + len(preserved) + len(unmatched),
+        "invalidatedOutputEdgeCount": len(invalidated_outputs),
+        "selectedOutputEdgeCount": len(invalidated_outputs),
+        "downstreamOutputEdgeCount": 0,
+        "preservedOutputEdgeCount": len(preserved),
+        "unmatchedOutputEdgeCount": len(unmatched),
+        "invalidatedLineageEdgeCount": 1,
+        "preservedLineageEdgeCount": len(preserved),
+        "alreadyInvalidatedOutputEdgeCount": 0,
+        "alreadyInvalidatedLineageEdgeCount": 0,
+        "payloadDeletionAllowed": False,
+        "lineageMutationAllowed": True,
+        **(summary_override or {}),
+    }
+    return {
+        "schemaVersion": "rule-output-invalidation-plan.v1",
+        "previewAvailable": True,
+        "reasonCode": "OUTPUT_EDGE_INVALIDATION_TOMBSTONE_READY",
+        "pathExposed": False,
+        "storageReferenceExposed": False,
+        "outputEdgeSummary": summary,
+        "rules": [
+            {
+                "ruleName": "align",
+                "stepId": "align",
+                "invalidationRole": "selected_failed_rule",
+                "outputs": invalidated_outputs,
+            }
+        ],
+        "preservedOutputs": preserved,
+        "unmatchedOutputs": unmatched,
+    }
+
+
+def _invalidated_output() -> dict:
+    return {
+        "schemaVersion": "rule-output-edge-invalidation.v1",
+        "runArtifactEdgeId": "edge_align",
+        "role": "output",
+        "portName": "bam",
+        "stepId": "align",
+        "contentHashPrefix": "aaaabbbbcccc",
+        "lifecycleState": "active",
+        "wouldDeletePayload": False,
+        "lineageEdgeCount": 1,
+        "lineageEdges": [],
+    }
+
+
+def _preserved_output() -> dict:
+    return {
+        "schemaVersion": "rule-output-edge-invalidation.v1",
+        "runArtifactEdgeId": "edge_trim",
+        "role": "output",
+        "portName": "trim_qc",
+        "stepId": "trim_reads",
+        "contentHashPrefix": "dddd11112222",
+        "lifecycleState": "active",
+        "wouldDeletePayload": False,
+        "lineageEdgeCount": 1,
+        "lineageEdges": [],
+    }
+
+
+def _unknown_output() -> dict:
+    return {
+        "schemaVersion": "rule-output-edge-invalidation.v1",
+        "runArtifactEdgeId": "edge_unknown",
+        "role": "output",
+        "portName": "unexpected",
+        "stepId": "unexpected_rule",
+        "contentHashPrefix": "eeee33334444",
+        "lifecycleState": "active",
+        "wouldDeletePayload": False,
+        "lineageEdgeCount": 0,
+        "lineageEdges": [],
     }
 
 

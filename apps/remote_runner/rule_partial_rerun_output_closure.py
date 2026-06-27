@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .artifact_ledger_storage import list_run_artifact_edges
-from .config import RemoteRunnerConfig
+from .rule_output_invalidation_plan import RULE_OUTPUT_INVALIDATION_PLAN_SCHEMA_VERSION
 
 
 RULE_PARTIAL_RERUN_OUTPUT_CLOSURE_SCHEMA_VERSION = "rule-partial-rerun-output-closure.v1"
@@ -46,37 +45,31 @@ def blocked_rule_partial_rerun_output_closure(
 
 
 def build_rule_partial_rerun_output_closure(
-    cfg: RemoteRunnerConfig,
     *,
     run: dict[str, Any],
     rule_retry_plan: dict[str, Any],
     cache_restore_plan: dict[str, Any],
+    output_invalidation_plan: dict[str, Any],
     output_audit: dict[str, Any],
 ) -> dict[str, Any]:
     run_id = str(run.get("runId") or rule_retry_plan.get("runId") or "").strip()
     if not run_id:
         return blocked_rule_partial_rerun_output_closure("RUN_ID_REQUIRED")
-    active_edges = [
-        edge
-        for edge in list_run_artifact_edges(cfg, run_id)
-        if str(edge.get("role") or "") == "output"
-    ]
     scoped_outputs = _scoped_outputs(cache_restore_plan, output_audit)
     scoped_keys = {item["outputKey"] for item in scoped_outputs if item["outputKey"]}
     preserved_rules = _rule_items(rule_retry_plan.get("preservedRules"))
-    preserved_outputs = _preserved_output_edges(active_edges, preserved_rules, scoped_keys=scoped_keys)
-    preserved_edge_ids = {str(item["runArtifactEdgeId"]) for item in preserved_outputs if item["edgePresent"]}
-    unknown_active_outputs = [
-        _active_edge_ref(edge)
-        for edge in active_edges
-        if str(edge.get("portName") or "") not in scoped_keys
-        and str(edge.get("edgeId") or "") not in preserved_edge_ids
-    ]
+    output_scope = _output_scope_from_invalidation_plan(
+        output_invalidation_plan,
+        preserved_rules=preserved_rules,
+        scoped_keys=scoped_keys,
+    )
+    preserved_outputs = output_scope["preservedOutputs"]
+    unknown_active_outputs = output_scope["unknownActiveOutputs"]
     adopted_scoped_count = sum(1 for item in scoped_outputs if item["state"] == "adopted")
     pending_scoped_count = max(0, len(scoped_outputs) - adopted_scoped_count)
-    missing_preserved_count = sum(1 for item in preserved_outputs if item["edgePresent"] is not True)
+    missing_preserved_count = _safe_int(output_scope["missingPreservedOutputEdgeCount"])
     declared = _declared_output_closure(output_audit)
-    blockers: list[str] = []
+    blockers: list[str] = [*output_scope["blockedReasonCodes"]]
     if not scoped_outputs:
         blockers.append("RULE_PARTIAL_RERUN_OUTPUT_CLOSURE_SCOPE_EMPTY")
     if _safe_int(output_audit.get("unsafeOutputCount")) or _safe_int(output_audit.get("uncheckedOutputCount")):
@@ -107,17 +100,79 @@ def build_rule_partial_rerun_output_closure(
         "adoptedScopedOutputCount": adopted_scoped_count,
         "pendingScopedOutputCount": pending_scoped_count,
         "preservedRuleCount": len(preserved_rules),
-        "preservedOutputEdgeCount": sum(1 for item in preserved_outputs if item["edgePresent"] is True),
+        "preservedOutputEdgeCount": _safe_int(output_scope["preservedOutputEdgeCount"]),
         "missingPreservedOutputEdgeCount": missing_preserved_count,
         "unknownActiveOutputEdgeCount": len(unknown_active_outputs),
         **declared,
         "finalizeAllowed": False,
         "runStateMutationAllowed": False,
-        "pathExposed": False,
-        "storageUriExposed": False,
+        "pathExposed": output_scope["pathExposed"],
+        "storageUriExposed": output_scope["storageUriExposed"],
         "scopedOutputs": scoped_outputs,
         "preservedOutputs": preserved_outputs,
         "unknownActiveOutputs": unknown_active_outputs,
+    }
+
+
+def _output_scope_from_invalidation_plan(
+    output_invalidation_plan: dict[str, Any],
+    *,
+    preserved_rules: list[dict[str, Any]],
+    scoped_keys: set[str],
+) -> dict[str, Any]:
+    plan = output_invalidation_plan if isinstance(output_invalidation_plan, dict) else {}
+    summary = plan.get("outputEdgeSummary") if isinstance(plan.get("outputEdgeSummary"), dict) else {}
+    raw_preserved = _rule_items(plan.get("preservedOutputs"))
+    raw_unmatched = _rule_items(plan.get("unmatchedOutputs"))
+    raw_rules = _rule_items(plan.get("rules"))
+    invalidated_output_count = sum(len(_rule_items(rule.get("outputs"))) for rule in raw_rules)
+    blockers: list[str] = []
+    path_exposed = plan.get("pathExposed") is True
+    storage_uri_exposed = plan.get("storageReferenceExposed") is True or plan.get("storageUriExposed") is True
+    if plan.get("schemaVersion") != RULE_OUTPUT_INVALIDATION_PLAN_SCHEMA_VERSION:
+        blockers.append("RULE_PARTIAL_RERUN_OUTPUT_INVALIDATION_SCHEMA_UNSUPPORTED")
+    if plan.get("previewAvailable") is not True:
+        blockers.append(
+            str(plan.get("reasonCode") or "RULE_PARTIAL_RERUN_OUTPUT_INVALIDATION_PLAN_UNAVAILABLE")
+        )
+    if path_exposed or storage_uri_exposed:
+        blockers.append("RULE_PARTIAL_RERUN_OUTPUT_INVALIDATION_REDACTION_UNSAFE")
+    if not isinstance(plan.get("outputEdgeSummary"), dict) or (
+        _safe_int(summary.get("preservedOutputEdgeCount")) != len(raw_preserved)
+        or _safe_int(summary.get("unmatchedOutputEdgeCount")) != len(raw_unmatched)
+        or _safe_int(summary.get("invalidatedOutputEdgeCount")) != invalidated_output_count
+        or _safe_int(summary.get("outputEdgeCount"))
+        != invalidated_output_count + len(raw_preserved) + len(raw_unmatched)
+    ):
+        blockers.append("RULE_PARTIAL_RERUN_OUTPUT_INVALIDATION_COUNTS_INCONSISTENT")
+    preserved_outputs: list[dict[str, Any]] = []
+    matched_preserved_rule_keys: set[str] = set()
+    for item in raw_preserved:
+        if str(item.get("portName") or "").strip() in scoped_keys:
+            blockers.append("RULE_PARTIAL_RERUN_PRESERVED_OUTPUT_SCOPE_CONFLICT")
+        matched_rule = _matching_preserved_rule(item, preserved_rules)
+        if matched_rule is None:
+            blockers.append("RULE_PARTIAL_RERUN_PRESERVED_OUTPUT_RULE_UNMATCHED")
+        else:
+            matched_preserved_rule_keys.add(_rule_identity(matched_rule))
+        preserved_outputs.append(_preserved_output_ref(item, matched_rule))
+    unknown_active_outputs = [
+        _invalidation_edge_ref(item)
+        for item in raw_unmatched
+        if str(item.get("portName") or "").strip() not in scoped_keys
+    ]
+    required_preserved_rule_keys = {_rule_identity(rule) for rule in preserved_rules if _rule_identity(rule)}
+    missing_preserved_count = len(required_preserved_rule_keys - matched_preserved_rule_keys)
+    if missing_preserved_count:
+        blockers.append("RULE_PARTIAL_RERUN_PRESERVED_OUTPUT_EDGES_MISSING")
+    return {
+        "blockedReasonCodes": _unique_strings(blockers),
+        "preservedOutputEdgeCount": len(preserved_outputs),
+        "missingPreservedOutputEdgeCount": missing_preserved_count,
+        "unknownActiveOutputs": unknown_active_outputs,
+        "preservedOutputs": preserved_outputs,
+        "pathExposed": path_exposed,
+        "storageUriExposed": storage_uri_exposed,
     }
 
 
@@ -235,52 +290,29 @@ def _audit_outputs_by_key_hint(output_audit: dict[str, Any]) -> dict[str, dict[s
     return by_key
 
 
-def _preserved_output_edges(
-    active_edges: list[dict[str, Any]],
-    preserved_rules: list[dict[str, Any]],
-    *,
-    scoped_keys: set[str],
-) -> list[dict[str, Any]]:
-    outputs: list[dict[str, Any]] = []
+def _matching_preserved_rule(output: dict[str, Any], preserved_rules: list[dict[str, Any]]) -> dict[str, Any] | None:
+    step_id = str(output.get("stepId") or "").strip()
     for rule in preserved_rules:
-        matched = [
-            edge
-            for edge in active_edges
-            if _edge_matches_rule(edge, rule)
-            and str(edge.get("portName") or "") not in scoped_keys
-        ]
-        if not matched:
-            outputs.append(
-                {
-                    **_rule_ref(rule),
-                    "edgePresent": False,
-                    "runArtifactEdgeId": "",
-                    "portName": "",
-                    "contentHashPrefix": "",
-                    "pathExposed": False,
-                    "storageUriExposed": False,
-                }
-            )
-            continue
-        outputs.extend({**_rule_ref(rule), **_active_edge_ref(edge), "edgePresent": True} for edge in matched)
-    return outputs
+        if step_id in _rule_keys(rule):
+            return rule
+    return None
 
 
-def _active_edge_ref(edge: dict[str, Any]) -> dict[str, Any]:
+def _preserved_output_ref(output: dict[str, Any], preserved_rule: dict[str, Any] | None) -> dict[str, Any]:
+    rule_ref = _rule_ref(preserved_rule) if preserved_rule is not None else _empty_rule_ref()
+    return {**rule_ref, **_invalidation_edge_ref(output), "edgePresent": True}
+
+
+def _invalidation_edge_ref(edge: dict[str, Any]) -> dict[str, Any]:
     return {
-        "runArtifactEdgeId": str(edge.get("edgeId") or ""),
+        "runArtifactEdgeId": str(edge.get("runArtifactEdgeId") or edge.get("edgeId") or ""),
         "portName": str(edge.get("portName") or ""),
         "stepId": str(edge.get("stepId") or ""),
-        "contentHashPrefix": str(edge.get("contentHash") or "")[:12],
+        "contentHashPrefix": str(edge.get("contentHashPrefix") or edge.get("contentHash") or "")[:12],
         "lifecycleState": str(edge.get("lifecycleState") or ""),
         "pathExposed": False,
         "storageUriExposed": False,
     }
-
-
-def _edge_matches_rule(edge: dict[str, Any], rule: dict[str, Any]) -> bool:
-    step_id = str(edge.get("stepId") or "").strip()
-    return bool(step_id and step_id in _rule_keys(rule))
 
 
 def _rule_keys(rule: dict[str, Any]) -> set[str]:
@@ -301,6 +333,24 @@ def _rule_ref(rule: dict[str, Any]) -> dict[str, Any]:
         "ruleName": rule.get("ruleName"),
         "stepId": rule.get("stepId"),
         "runtimeStatusKey": rule.get("runtimeStatusKey"),
+    }
+
+
+def _rule_identity(rule: dict[str, Any]) -> str:
+    return (
+        str(rule.get("runtimeStatusKey") or "").strip()
+        or str(rule.get("stepId") or "").strip()
+        or str(rule.get("ruleName") or "").strip()
+        or str(rule.get("runRuleId") or "").strip()
+    )
+
+
+def _empty_rule_ref() -> dict[str, Any]:
+    return {
+        "runRuleId": None,
+        "ruleName": None,
+        "stepId": "",
+        "runtimeStatusKey": None,
     }
 
 

@@ -53,6 +53,8 @@ def test_rule_output_invalidation_plan_maps_edges_and_lineage_without_paths(tmp_
         "unmatchedOutputEdgeCount": 1,
         "invalidatedLineageEdgeCount": 2,
         "preservedLineageEdgeCount": 1,
+        "alreadyInvalidatedOutputEdgeCount": 0,
+        "alreadyInvalidatedLineageEdgeCount": 0,
         "payloadDeletionAllowed": False,
         "lineageMutationAllowed": True,
     }

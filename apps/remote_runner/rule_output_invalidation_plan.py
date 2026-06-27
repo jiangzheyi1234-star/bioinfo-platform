@@ -5,7 +5,12 @@ from typing import Any
 
 from .artifact_ledger_storage import list_lineage_edges_for_run, list_run_artifact_edges
 from .config import RemoteRunnerConfig
+from .evidence_storage import list_evidence_events
 from .execution_plan_hash import attach_plan_hash
+from .rule_output_invalidation_snapshot import (
+    RULE_OUTPUT_INVALIDATION_APPLIED_EVENT_TYPE,
+    validate_rule_output_invalidation_applied_snapshot,
+)
 from .rule_retry_plan import RULE_RETRY_PLAN_SCHEMA_VERSION
 from .storage_core import get_connection
 
@@ -98,7 +103,7 @@ def build_rule_output_invalidation_plan(
         selected_keys=selected_keys,
         artifact_ids=artifact_ids,
     )
-    if not mutation_ready and applied_plan is not None:
+    if applied_plan is not None:
         return applied_plan
     return attach_plan_hash(
         {
@@ -150,18 +155,22 @@ def _already_applied_plan(
     )
     if not any(rule["outputs"] for rule in planned_rules):
         return None
-    unmatched_outputs = [
-        _output_summary(edge, lineage=applied_lineage, artifact_ids=artifact_ids)
-        for edge in applied_edges
-        if str(edge["edgeId"]) not in matched_edge_ids
-    ]
-    summary = _summary(
-        output_edges=[*active_output_edges, *applied_edges],
-        rules=planned_rules,
-        preserved_outputs=[],
-        unmatched_outputs=unmatched_outputs,
-    )
     applied_state = _applied_state(planned_rules)
+    snapshot = _load_applied_plan_snapshot(
+        cfg,
+        run_id=run_id,
+        evidence_ids=_applied_evidence_ids(planned_rules),
+        applied_output_edge_count=int(applied_state["appliedOutputEdgeCount"]),
+    )
+    if snapshot["available"] is not True:
+        return _blocked_applied_plan(base, applied_state=applied_state, reason_code=str(snapshot["reasonCode"]))
+    preserved_outputs = snapshot["preservedOutputs"]
+    unmatched_outputs = snapshot["unmatchedOutputs"]
+    summary = {
+        **snapshot["outputEdgeSummary"],
+        "alreadyInvalidatedOutputEdgeCount": int(applied_state["appliedOutputEdgeCount"]),
+        "alreadyInvalidatedLineageEdgeCount": int(applied_state["appliedLineageEdgeCount"]),
+    }
     return attach_plan_hash(
         {
             **base,
@@ -177,16 +186,89 @@ def _already_applied_plan(
                 "ARTIFACT_PAYLOAD_DELETION_DISABLED",
             ],
             "outputInvalidationState": applied_state,
-            "outputEdgeSummary": {
-                **summary,
-                "alreadyInvalidatedOutputEdgeCount": int(applied_state["appliedOutputEdgeCount"]),
-                "alreadyInvalidatedLineageEdgeCount": int(applied_state["appliedLineageEdgeCount"]),
-            },
+            "outputEdgeSummary": summary,
             "rules": planned_rules,
-            "preservedOutputs": [],
+            "preservedOutputs": preserved_outputs,
             "unmatchedOutputs": unmatched_outputs,
         }
     )
+
+
+def _blocked_applied_plan(
+    base: dict[str, Any],
+    *,
+    applied_state: dict[str, Any],
+    reason_code: str,
+) -> dict[str, Any]:
+    return attach_plan_hash(
+        {
+            **base,
+            "previewAvailable": False,
+            "reasonCode": reason_code,
+            "message": f"Applied rule output invalidation snapshot is unavailable: {reason_code}.",
+            "mutationPolicy": {
+                **base["mutationPolicy"],
+                "reasonCode": reason_code,
+            },
+            "blockedReasonCodes": _unique_strings(
+                [
+                    reason_code,
+                    "OUTPUT_EDGE_INVALIDATION_ALREADY_APPLIED",
+                    "ARTIFACT_PAYLOAD_DELETION_DISABLED",
+                ]
+            ),
+            "outputInvalidationState": applied_state,
+            "outputEdgeSummary": {
+                **_empty_summary(),
+                "alreadyInvalidatedOutputEdgeCount": int(applied_state["appliedOutputEdgeCount"]),
+                "alreadyInvalidatedLineageEdgeCount": int(applied_state["appliedLineageEdgeCount"]),
+            },
+            "rules": [],
+            "preservedOutputs": [],
+            "unmatchedOutputs": [],
+        }
+    )
+
+
+def _load_applied_plan_snapshot(
+    cfg: RemoteRunnerConfig,
+    *,
+    run_id: str,
+    evidence_ids: set[str],
+    applied_output_edge_count: int,
+) -> dict[str, Any]:
+    if len(evidence_ids) != 1:
+        return _unavailable_snapshot("RULE_OUTPUT_INVALIDATION_APPLIED_EVIDENCE_AMBIGUOUS")
+    evidence_id = next(iter(evidence_ids))
+    events = list_evidence_events(
+        cfg,
+        subject_kind="run_rule_output_invalidation",
+        subject_id=run_id,
+        event_type=RULE_OUTPUT_INVALIDATION_APPLIED_EVENT_TYPE,
+        limit=500,
+    )
+    event = next((item for item in events if str(item.get("eventId") or "") == evidence_id), None)
+    if event is None:
+        return _unavailable_snapshot("RULE_OUTPUT_INVALIDATION_APPLIED_EVIDENCE_MISSING")
+    payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+    snapshot = payload.get("planSnapshot") if isinstance(payload.get("planSnapshot"), dict) else {}
+    return validate_rule_output_invalidation_applied_snapshot(
+        snapshot,
+        applied_output_edge_count=applied_output_edge_count,
+    )
+
+
+def _unavailable_snapshot(reason_code: str) -> dict[str, Any]:
+    return {"available": False, "reasonCode": reason_code}
+
+
+def _applied_evidence_ids(planned_rules: list[dict[str, Any]]) -> set[str]:
+    return {
+        str(output.get("invalidationEventId") or "").strip()
+        for rule in planned_rules
+        for output in _rule_items(rule.get("outputs"))
+        if str(output.get("invalidationEventId") or "").strip()
+    }
 
 
 def _planned_rule_outputs(
@@ -538,3 +620,21 @@ def _dedupe_lineage(edges: list[dict[str, Any]]) -> list[dict[str, Any]]:
             result.append(edge)
             seen.add(key)
     return result
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _unique_strings(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for item in items:
+        value = str(item or "").strip()
+        if value and value not in seen:
+            unique.append(value)
+            seen.add(value)
+    return unique

@@ -16,6 +16,7 @@ from apps.remote_runner.artifact_ledger_storage import (
 from apps.remote_runner.evidence_storage import list_evidence_events
 from apps.remote_runner.rule_output_invalidation_plan import build_rule_output_invalidation_plan
 from apps.remote_runner.rule_output_invalidation_storage import apply_rule_output_invalidation_plan
+from apps.remote_runner.storage_core import get_connection
 from tests.helpers.reference_database import make_configured_remote_runner
 
 
@@ -77,6 +78,10 @@ def test_rule_output_invalidation_tombstones_active_edges_without_deleting_paylo
     assert events[0]["payload"]["outputEdgeCount"] == 2
     assert events[0]["payload"]["lineageEdgeCount"] == 2
     assert events[0]["payload"]["payloadDeletionAllowed"] is False
+    assert events[0]["payload"]["planSnapshot"]["schemaVersion"] == (
+        "rule-output-invalidation-applied-plan-snapshot.v1"
+    )
+    assert events[0]["payload"]["planSnapshot"]["preservedOutputs"][0]["runArtifactEdgeId"] == trim["edgeId"]
     serialized_payload = json.dumps(events[0]["payload"], sort_keys=True)
     assert align["edgeId"] not in serialized_payload
     assert report["edgeId"] not in serialized_payload
@@ -100,14 +105,41 @@ def test_rule_output_invalidation_tombstones_active_edges_without_deleting_paylo
     }
     assert applied_plan["outputEdgeSummary"]["alreadyInvalidatedOutputEdgeCount"] == 2
     assert applied_plan["outputEdgeSummary"]["alreadyInvalidatedLineageEdgeCount"] == 2
+    assert applied_plan["outputEdgeSummary"]["preservedOutputEdgeCount"] == 1
     assert [rule["ruleName"] for rule in applied_plan["rules"]] == ["align", "report"]
     assert {output["lifecycleState"] for rule in applied_plan["rules"] for output in rule["outputs"]} == {"invalidated"}
     assert {output["invalidationEventId"] for rule in applied_plan["rules"] for output in rule["outputs"]} == {
         result["evidenceId"]
     }
+    assert [output["runArtifactEdgeId"] for output in applied_plan["preservedOutputs"]] == [trim["edgeId"]]
     replacement = _output_edge(cfg, tmp_path, run_id=run_id, step_id="align", port_name="bam")
+    reapplied_plan = build_rule_output_invalidation_plan(
+        cfg,
+        run={"runId": run_id, "workflowRevisionId": "wfrev_rule_output_apply"},
+        rule_retry_plan=_rule_retry_plan(run_id),
+    )
+    assert reapplied_plan["reasonCode"] == "OUTPUT_EDGE_INVALIDATION_ALREADY_APPLIED"
+    assert reapplied_plan["invalidationEnabled"] is False
+    assert replacement["edgeId"] not in json.dumps(reapplied_plan, sort_keys=True)
+    assert [output["runArtifactEdgeId"] for output in reapplied_plan["preservedOutputs"]] == [trim["edgeId"]]
+    with get_connection(cfg) as connection:
+        connection.execute(
+            """
+            UPDATE run_artifact_edges
+            SET lifecycle_state = 'archived'
+            WHERE edge_id = ?
+            """,
+            (trim["edgeId"],),
+        )
+        connection.commit()
+    drifted_plan = build_rule_output_invalidation_plan(
+        cfg,
+        run={"runId": run_id, "workflowRevisionId": "wfrev_rule_output_apply"},
+        rule_retry_plan=_rule_retry_plan(run_id),
+    )
+    assert drifted_plan["reasonCode"] == "OUTPUT_EDGE_INVALIDATION_ALREADY_APPLIED"
+    assert [output["runArtifactEdgeId"] for output in drifted_plan["preservedOutputs"]] == [trim["edgeId"]]
     assert {edge["edgeId"] for edge in list_run_artifact_edges(cfg, run_id)} == {
-        trim["edgeId"],
         replacement["edgeId"],
     }
 

@@ -89,10 +89,10 @@ def fetch_run_execution_context(cfg: RemoteRunnerConfig, run_id: str) -> dict[st
         workdir_reuse_policy=resume_plan.get("workdirEvidence"),
     )
     rule_partial_rerun_output_closure = build_rule_partial_rerun_output_closure(
-        cfg,
         run=run,
         rule_retry_plan=rule_retry_plan,
         cache_restore_plan=rule_cache_restore_plan,
+        output_invalidation_plan=rule_output_invalidation_plan,
         output_audit=rule_retry_output_audit,
     )
     rule_retry_execution_plan = build_rule_retry_execution_plan(
