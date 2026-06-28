@@ -28,6 +28,39 @@ def _tools_page_ui_source() -> str:
     )
 
 
+def test_first_successful_run_is_default_onboarding_path() -> None:
+    root_page = (ROOT / "apps" / "web" / "app" / "page.tsx").read_text(encoding="utf-8")
+    tabs = (COMPONENTS / "workflow-workspace-tabs.tsx").read_text(encoding="utf-8")
+    first_run_route = ROOT / "apps" / "web" / "app" / "workflows" / "first-run" / "page.tsx"
+    first_run_page = (COMPONENTS / "workflow-first-run-page.tsx").read_text(encoding="utf-8")
+    first_run_validation = (COMPONENTS / "workflow-first-run-validation.tsx").read_text(encoding="utf-8")
+    first_run_source = f"{first_run_page}\n{first_run_validation}"
+    api = (COMPONENTS / "workflows-page-api.ts").read_text(encoding="utf-8")
+    hook = (COMPONENTS / "use-workflows-page-state.ts").read_text(encoding="utf-8")
+
+    assert 'redirect("/workflows/first-run")' in root_page
+    assert first_run_route.exists()
+    assert "WorkflowFirstRunPage" in first_run_route.read_text(encoding="utf-8")
+    assert '{ href: "/workflows/first-run", label: "首跑" }' in tabs
+    assert 'const FIRST_RUN_PIPELINE_ID = "moving-pictures-16s-rulegraph-v1"' in first_run_page
+    assert "useWorkflowsPageState(FIRST_RUN_PIPELINE_ID)" in first_run_page
+    assert "连接远端" in first_run_page
+    assert "runner readiness" in first_run_page
+    assert "准备示例数据" in first_run_page
+    assert "提交运行" in first_run_page
+    assert "看懂报告" in first_run_page
+    assert "导出完整结果包" in first_run_source
+    assert "结果验证卡" in first_run_source
+    assert "h2ometa-first-successful-run-validation-card.v1" in first_run_source
+    assert "QIIME 2 Moving Pictures tutorial" in first_run_source
+    assert 'EXPECTED_SAMPLE_ROLES = ["metadata", "barcodes", "sequences"]' in first_run_page
+    assert "exportWorkflowResultPackage(resultId, true)" in first_run_page
+    assert "fetchWorkflowResultPackageExports(resultId)" in first_run_page
+    assert "workflowResultPackageDownloadHref" in first_run_validation
+    assert "refreshRunDetail" in hook
+    assert "export async function uploadWorkflowSampleData" in api
+
+
 def _function_body(source: str, name: str) -> str:
     start = source.index(f"function {name}")
     parameters_start = source.index("(", start)

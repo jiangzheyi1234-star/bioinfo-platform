@@ -9,6 +9,7 @@ import { fetchDatabases, fetchDatabaseTemplates } from "./database-page-api";
 import { fetchWorkflowCatalog, fetchWorkflowTools } from "./workflows-page-api";
 
 const tabs = [
+  { href: "/workflows/first-run", label: "首跑" },
   { href: "/workflows", label: "流程" },
   { href: "/workflows/databases", label: "数据库" },
   { href: "/workflows/tools", label: "工具" },
@@ -35,7 +36,7 @@ export function WorkflowWorkspaceTabs() {
       {tabs.map((tab) => {
         const active =
           tab.href === "/workflows"
-            ? pathname === tab.href
+            ? pathname === tab.href || pathname === "/workflows/detail" || pathname.startsWith("/workflows/results")
             : pathname === tab.href || pathname.startsWith(`${tab.href}/`);
         return (
           <Link

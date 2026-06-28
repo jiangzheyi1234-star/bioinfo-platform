@@ -330,6 +330,19 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     };
   }, [submittedRun, activeRunId]);
 
+  async function refreshRunDetail() {
+    const runId = activeRunId || submittedRun?.runId;
+    if (!runId) return null;
+    try {
+      const detail = await fetchWorkflowRunDetail(runId);
+      setRunDetail(detail);
+      return detail;
+    } catch (err) {
+      setSubmitError(workflowErrorMessage(err, "读取运行详情失败"));
+      throw err;
+    }
+  }
+
   function setWorkflowResourceBinding(resourceKey: string, databaseId: string) {
     setSelectedResourceDatabaseIds((current) => {
       const next = { ...current };
@@ -614,6 +627,7 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     workflowDesignPlan: currentWorkflowDesignPlan,
     isGeneratedToolRun,
     runDetail,
+    refreshRunDetail,
     runHistory,
     sampleLoading,
     sampleUploads,

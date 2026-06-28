@@ -10,7 +10,9 @@ from apps.remote_runner.governance_audit import (
     list_governance_audit_events,
     record_governance_audit_event,
 )
+from apps.remote_runner.execution_query_storage import fetch_run
 from apps.remote_runner.submission_service import create_run_from_request
+from apps.remote_runner.workflow_revision_storage import fetch_workflow_revision
 from tests.helpers.reference_database import make_configured_remote_runner
 
 
@@ -105,5 +107,17 @@ def test_run_submission_records_governance_audit_without_run_spec_payload(
     assert events[0]["details"]["serverId"] == "srv_audit"
     assert events[0]["details"]["pipelineId"] == "file-summary-standard-v1"
     assert events[0]["details"]["idempotencyReplay"] is False
+    assert events[0]["details"]["workflowRevisionId"].startswith("wfrev_")
     assert "inputs" not in events[0]["details"]
     assert "params" not in events[0]["details"]
+
+    run = fetch_run(cfg, run_id)
+    assert run is not None
+    workflow_revision_id = run["workflowRevisionId"]
+    assert workflow_revision_id
+    assert run["runSpec"]["workflowRevisionId"] == workflow_revision_id
+    workflow_revision = fetch_workflow_revision(cfg, workflow_revision_id)
+    assert workflow_revision is not None
+    assert workflow_revision["manifest"]["pipelineId"] == "file-summary-standard-v1"
+    assert workflow_revision["manifest"]["pipelineVersion"]
+    assert workflow_revision["manifest"]["files"]

@@ -13,6 +13,7 @@ def _source(path: str) -> str:
 def test_result_package_file_io_lives_in_remote_service_not_routes() -> None:
     route_source = _source("apps/remote_runner/execution_query_routes.py")
     product_source = _source("apps/remote_runner/artifact_product_service.py")
+    submission_source = _source("apps/remote_runner/submission_service.py")
     control_source = _source("apps/remote_runner/control_service.py")
     download_source = _source("apps/remote_runner/result_package_download_service.py")
     listing_source = _source("apps/remote_runner/result_package_listing_service.py")
@@ -52,6 +53,9 @@ def test_result_package_file_io_lives_in_remote_service_not_routes() -> None:
     assert 'RESULT_PACKAGE_PROFILE = "h2ometa.result-evidence-package.v1"' in product_source
     assert '"ro-crate-metadata.json"' in product_source
     assert "RESULT_WORKFLOW_REVISION_REQUIRED" in product_source
+    assert "_workflow_revision_for_bundled_pipeline" in submission_source
+    assert "create_or_fetch_workflow_revision" in submission_source
+    assert "bundled-pipeline-workflow-revision-manifest.v1" in submission_source
     assert "RESULT_ID_INVALID" in product_source
     assert "RESULT_EXPORT_EVENT_TYPE = \"result.export.v1\"" in product_source
     assert "ensure_result_package_export_recordable(" in product_source
