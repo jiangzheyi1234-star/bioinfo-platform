@@ -5,6 +5,7 @@ from typing import Any
 
 from .config import RemoteRunnerConfig
 from .workflow_backfill_storage import (
+    ADVANCEABLE_LAUNCH_STATES,
     claim_workflow_backfill_partitions_for_admission,
     list_workflow_backfill_advanceable_launch_ids,
     mark_workflow_backfill_launch_finished,
@@ -65,7 +66,7 @@ def advance_workflow_backfill_launch(
     dispatch_partition: BackfillPartitionDispatcher,
 ) -> dict[str, Any]:
     launch = require_workflow_backfill_launch(cfg, launch_id)
-    if str(launch["state"]) == "canceling":
+    if not _ensure_backfill_launch_advanceable(launch):
         return _backfill_advance_result(launch, submitted_this_tick=0, replayed_run_count=0)
     trigger = require_workflow_trigger(cfg, str(launch["triggerId"]))
     actor = str(launch.get("actor") or "remote-runner-api")
@@ -96,16 +97,21 @@ def advance_backfill_partitions(
     plan_partitions: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     detail = require_workflow_backfill_launch(cfg, launch_id)
+    if not _ensure_backfill_launch_advanceable(detail):
+        return {"submittedThisTick": 0, "replayedRunCount": 0}
     summary = detail.get("partitionSummary") if isinstance(detail.get("partitionSummary"), dict) else {}
     occupied = int(summary.get("occupiedConcurrencySlotCount") or 0)
     available = max(0, int(requested_limit or 1) - occupied)
     if available <= 0:
         _mark_backfill_launch_state_from_detail(cfg, detail)
         return {"submittedThisTick": 0, "replayedRunCount": 0}
-    pending = claim_workflow_backfill_partitions_for_admission(cfg, launch_id=launch_id, limit=available)
     submitted_this_tick = 0
     replayed_count = 0
-    for partition_record in pending:
+    for _ in range(available):
+        pending = claim_workflow_backfill_partitions_for_admission(cfg, launch_id=launch_id, limit=1)
+        if not pending:
+            break
+        partition_record = pending[0]
         partition = (plan_partitions or {}).get(str(partition_record["partitionId"])) or partition_record
         try:
             replayed = dispatch_partition(cfg, trigger, partition, actor)
@@ -125,13 +131,27 @@ def advance_backfill_partitions(
 
 
 def _mark_backfill_launch_state_from_detail(cfg: RemoteRunnerConfig, detail: dict[str, Any]) -> None:
-    if str(detail.get("state") or "") == "canceling":
+    if str(detail.get("state") or "") not in ADVANCEABLE_LAUNCH_STATES:
         return
     summary = detail.get("partitionSummary") if isinstance(detail.get("partitionSummary"), dict) else {}
     pending = int(summary.get("pendingPartitionCount") or 0)
     state = "running" if pending else "submitted"
     if str(detail.get("state") or "") != state:
         mark_workflow_backfill_launch_finished(cfg, launch_id=str(detail["launchId"]), state=state)
+
+
+def _ensure_backfill_launch_advanceable(detail: dict[str, Any]) -> bool:
+    state = str(detail.get("state") or "")
+    if state == "canceling":
+        return False
+    if state not in ADVANCEABLE_LAUNCH_STATES:
+        raise ValueError(f"WORKFLOW_BACKFILL_LAUNCH_STATE_NOT_ADVANCEABLE: {state}")
+    summary = detail.get("partitionSummary") if isinstance(detail.get("partitionSummary"), dict) else {}
+    expected = int(detail.get("partitionCount") or 0)
+    actual = int(summary.get("partitionCount") or 0)
+    if expected != actual:
+        raise ValueError(f"WORKFLOW_BACKFILL_LAUNCH_INCOMPLETE: expected={expected} actual={actual}")
+    return True
 
 
 def _backfill_advance_result(

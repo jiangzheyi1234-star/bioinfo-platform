@@ -12,12 +12,19 @@ from apps.remote_runner.execution_query_storage import list_runs
 from apps.remote_runner.storage_core import get_connection
 from apps.remote_runner.trigger_scheduler import run_workflow_trigger_scheduler_once
 from apps.remote_runner.trigger_service import (
+    advance_workflow_backfill_launch,
     cancel_workflow_backfill_launch_from_request,
     create_workflow_trigger_from_request,
     get_workflow_backfill_launch_from_storage,
     launch_workflow_trigger_backfill_from_request,
     list_workflow_trigger_events_from_storage,
     preview_workflow_trigger_backfill_from_request,
+)
+from apps.remote_runner.workflow_backfill_controller import advance_backfill_partitions
+from apps.remote_runner.workflow_backfill_storage import (
+    claim_workflow_backfill_partitions_for_admission,
+    mark_workflow_backfill_partition_cancel_requested,
+    mark_workflow_backfill_partition_submitted,
 )
 from tests.helpers.reference_database import make_configured_remote_runner
 
@@ -136,6 +143,110 @@ def test_backfill_admission_respects_backward_run_order(
     assert detail["partitions"][1]["partitionKey"] == "2026-06-02"
 
 
+def test_backfill_replay_fails_closed_when_launch_partitions_are_incomplete(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    _disable_submission_guards(monkeypatch)
+    trigger = _create_backfill_trigger(cfg)
+    request = _launch_request(cfg, trigger, range_end="2026-06-03")
+    launched = launch_workflow_trigger_backfill_from_request(cfg, trigger["triggerId"], request)["data"]
+
+    _delete_backfill_partition(cfg, launched["partitions"][1]["partitionId"])
+
+    with pytest.raises(ValueError, match="WORKFLOW_BACKFILL_LAUNCH_INCOMPLETE: expected=2 actual=1"):
+        launch_workflow_trigger_backfill_from_request(cfg, trigger["triggerId"], request)
+
+    assert len(list_runs(cfg)) == 1
+
+
+def test_backfill_failed_launch_state_is_not_advanced(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    _disable_submission_guards(monkeypatch)
+    trigger = _create_backfill_trigger(cfg)
+    launched = launch_workflow_trigger_backfill_from_request(
+        cfg,
+        trigger["triggerId"],
+        _launch_request(cfg, trigger, range_end="2026-06-04"),
+    )["data"]
+    _mark_backfill_launch_state(cfg, launched["launchId"], "failed")
+
+    with pytest.raises(ValueError, match="WORKFLOW_BACKFILL_LAUNCH_STATE_NOT_ADVANCEABLE: failed"):
+        advance_workflow_backfill_launch(cfg, launched["launchId"])
+
+    detail = get_workflow_backfill_launch_from_storage(cfg, launched["launchId"])["data"]
+    assert detail["state"] == "failed"
+    assert [item["state"] for item in detail["partitions"]] == ["submitted", "pending", "pending"]
+    assert len(list_runs(cfg)) == 1
+
+
+def test_backfill_dispatch_failure_does_not_strand_extra_admitting_partitions(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    _disable_submission_guards(monkeypatch)
+    trigger = _create_backfill_trigger(cfg)
+    launched = launch_workflow_trigger_backfill_from_request(
+        cfg,
+        trigger["triggerId"],
+        _launch_request(cfg, trigger, range_end="2026-06-04"),
+    )["data"]
+    _mark_run_completed(cfg, launched["partitions"][0]["runId"])
+
+    with pytest.raises(RuntimeError, match="dispatch boom"):
+        advance_backfill_partitions(
+            cfg,
+            trigger=trigger,
+            launch_id=launched["launchId"],
+            actor="operator",
+            requested_limit=2,
+            dispatch_partition=_failing_dispatch,
+        )
+
+    detail = get_workflow_backfill_launch_from_storage(cfg, launched["launchId"])["data"]
+    assert detail["state"] == "failed"
+    assert detail["partitionSummary"]["states"] == {"failed": 1, "pending": 1, "submitted": 1}
+    assert "admitting" not in detail["partitionSummary"]["states"]
+    assert [item["state"] for item in detail["partitions"]] == ["submitted", "failed", "pending"]
+    assert len(list_runs(cfg)) == 1
+
+
+def test_backfill_stale_submit_cannot_overwrite_cancel_requested_partition(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    _disable_submission_guards(monkeypatch)
+    trigger = _create_backfill_trigger(cfg)
+    launched = launch_workflow_trigger_backfill_from_request(
+        cfg,
+        trigger["triggerId"],
+        _launch_request(cfg, trigger, range_end="2026-06-04"),
+    )["data"]
+    claimed = claim_workflow_backfill_partitions_for_admission(cfg, launch_id=launched["launchId"], limit=1)
+    partition_id = str(claimed[0]["partitionId"])
+    mark_workflow_backfill_partition_cancel_requested(cfg, partition_id=partition_id)
+
+    with pytest.raises(ValueError, match="WORKFLOW_BACKFILL_PARTITION_STATE_CHANGED"):
+        mark_workflow_backfill_partition_submitted(
+            cfg,
+            partition_id=partition_id,
+            trigger_event_id="wte_stale",
+            run_id="run_stale",
+            replayed=False,
+        )
+
+    detail = get_workflow_backfill_launch_from_storage(cfg, launched["launchId"])["data"]
+    partition = next(item for item in detail["partitions"] if item["partitionId"] == partition_id)
+    assert partition["state"] == "cancel_requested"
+    assert partition["runId"] is None
+
+
 def _create_backfill_trigger(cfg) -> dict[str, object]:
     return create_workflow_trigger_from_request(
         cfg,
@@ -206,6 +317,25 @@ def _mark_run_completed(cfg, run_id: str) -> None:
             (run_id,),
         )
         connection.commit()
+
+
+def _mark_backfill_launch_state(cfg, launch_id: str, state: str) -> None:
+    with get_connection(cfg) as connection:
+        connection.execute(
+            "UPDATE workflow_backfill_launches SET state = ?, updated_at = '2026-06-23T10:00:00Z' WHERE launch_id = ?",
+            (state, launch_id),
+        )
+        connection.commit()
+
+
+def _delete_backfill_partition(cfg, partition_id: str) -> None:
+    with get_connection(cfg) as connection:
+        connection.execute("DELETE FROM workflow_backfill_partitions WHERE partition_id = ?", (partition_id,))
+        connection.commit()
+
+
+def _failing_dispatch(_cfg, _trigger, _partition, _actor: str) -> bool:
+    raise RuntimeError("dispatch boom")
 
 
 def _disable_submission_guards(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -16,6 +16,7 @@ TERMINAL_RUN_STATUSES = {"completed", "failed", "canceled", "cancelled"}
 NON_CANCELLABLE_RUN_STATUSES = TERMINAL_RUN_STATUSES | {"canceling"}
 ADMITTING_PARTITION_STATES = {"admitting"}
 ADVANCEABLE_LAUNCH_STATES = {"launching", "running", "submitted"}
+BACKFILL_PARTITION_CANCELABLE_STATES = {"pending", "admitting", "submitted", "replayed"}
 
 
 def record_workflow_backfill_launch(
@@ -161,20 +162,23 @@ def mark_workflow_backfill_partition_submitted(
             "SELECT error_json FROM workflow_backfill_partitions WHERE partition_id = ?",
             (partition_id,),
         ).fetchone()
+        if current is None:
+            raise RemoteRunnerNotFoundError("WORKFLOW_BACKFILL_PARTITION_NOT_FOUND")
         current_detail = _loads_json(current["error_json"], None) if current is not None else None
         retained_policy_json = (
             current["error_json"]
             if isinstance(current_detail, dict) and "action" in current_detail
             else None
         )
-        connection.execute(
+        cursor = connection.execute(
             """
             UPDATE workflow_backfill_partitions
             SET state = ?, trigger_event_id = ?, run_id = ?, error_json = ?, updated_at = ?
-            WHERE partition_id = ?
+            WHERE partition_id = ? AND state = 'admitting'
             """,
             (state, trigger_event_id, run_id, retained_policy_json, timestamp, partition_id),
         )
+        _require_single_row(cursor, "WORKFLOW_BACKFILL_PARTITION_STATE_CHANGED")
         connection.commit()
         row = connection.execute(
             "SELECT * FROM workflow_backfill_partitions WHERE partition_id = ?",
@@ -191,14 +195,15 @@ def mark_workflow_backfill_partition_failed(
 ) -> dict[str, Any]:
     timestamp = now_iso()
     with get_connection(cfg) as connection:
-        connection.execute(
+        cursor = connection.execute(
             """
             UPDATE workflow_backfill_partitions
             SET state = 'failed', error_json = ?, updated_at = ?
-            WHERE partition_id = ?
+            WHERE partition_id = ? AND state = 'admitting'
             """,
             (_stable_json(error), timestamp, partition_id),
         )
+        _require_single_row(cursor, "WORKFLOW_BACKFILL_PARTITION_STATE_CHANGED")
         connection.commit()
         row = connection.execute(
             "SELECT * FROM workflow_backfill_partitions WHERE partition_id = ?",
@@ -213,15 +218,18 @@ def mark_workflow_backfill_partition_cancel_requested(
     partition_id: str,
 ) -> dict[str, Any]:
     timestamp = now_iso()
+    states = sorted(BACKFILL_PARTITION_CANCELABLE_STATES)
+    placeholders = ",".join("?" for _ in states)
     with get_connection(cfg) as connection:
-        connection.execute(
-            """
+        cursor = connection.execute(
+            f"""
             UPDATE workflow_backfill_partitions
             SET state = 'cancel_requested', updated_at = ?
-            WHERE partition_id = ?
+            WHERE partition_id = ? AND state IN ({placeholders})
             """,
-            (timestamp, partition_id),
+            (timestamp, partition_id, *states),
         )
+        _require_single_row(cursor, "WORKFLOW_BACKFILL_PARTITION_STATE_CHANGED")
         connection.commit()
         row = connection.execute(
             "SELECT * FROM workflow_backfill_partitions WHERE partition_id = ?",
@@ -390,6 +398,8 @@ def claim_workflow_backfill_partitions_for_admission(
         ).fetchone()
         if launch is None:
             raise RemoteRunnerNotFoundError("WORKFLOW_BACKFILL_LAUNCH_NOT_FOUND")
+        if str(launch["state"] or "") not in ADVANCEABLE_LAUNCH_STATES:
+            raise ValueError(f"WORKFLOW_BACKFILL_LAUNCH_STATE_NOT_ADVANCEABLE: {launch['state']}")
         order_direction = _partition_order_direction(launch)
         rows = connection.execute(
             f"""
@@ -404,7 +414,7 @@ def claim_workflow_backfill_partitions_for_admission(
         partition_ids = [str(row["partition_id"]) for row in rows]
         if partition_ids:
             placeholders = ",".join("?" for _ in partition_ids)
-            connection.execute(
+            cursor = connection.execute(
                 f"""
                 UPDATE workflow_backfill_partitions
                 SET state = 'admitting', updated_at = ?
@@ -412,6 +422,8 @@ def claim_workflow_backfill_partitions_for_admission(
                 """,
                 (timestamp, *partition_ids),
             )
+            if cursor.rowcount != len(partition_ids):
+                raise ValueError("WORKFLOW_BACKFILL_PARTITION_CLAIM_CONFLICT")
             rows = connection.execute(
                 f"""
                 SELECT *
@@ -653,7 +665,7 @@ def _partition_has_active_run(partition: dict[str, Any]) -> bool:
     run = partition.get("run") if isinstance(partition.get("run"), dict) else {}
     run_id = str((run or {}).get("runId") or partition.get("runId") or "").strip()
     status = str((run or {}).get("status") or "").strip().lower()
-    return bool(run_id and status and status not in TERMINAL_RUN_STATUSES)
+    return bool(run_id and (not status or status not in TERMINAL_RUN_STATUSES))
 
 
 def _partition_occupies_concurrency_slot(partition: dict[str, Any]) -> bool:
@@ -665,7 +677,7 @@ def _partition_has_cancellable_run(partition: dict[str, Any]) -> bool:
     run = partition.get("run") if isinstance(partition.get("run"), dict) else {}
     run_id = str((run or {}).get("runId") or partition.get("runId") or "").strip()
     status = str((run or {}).get("status") or "").strip().lower()
-    return bool(run_id and status and status not in NON_CANCELLABLE_RUN_STATUSES)
+    return bool(run_id and (not status or status not in NON_CANCELLABLE_RUN_STATUSES))
 
 
 def _partition_blocked_reason(state: str, error: Any) -> str | None:
@@ -744,6 +756,11 @@ def _required_text(value: str, code: str) -> str:
     if not text:
         raise ValueError(code)
     return text
+
+
+def _require_single_row(cursor: Any, code: str) -> None:
+    if cursor.rowcount != 1:
+        raise ValueError(code)
 
 
 def _row_value(row: Any, key: str, default: Any = None) -> Any:
