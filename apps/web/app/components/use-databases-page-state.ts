@@ -11,6 +11,7 @@ import {
   getCachedDatabases,
   getCachedDatabasePacks,
   getCachedDatabaseTemplates,
+  scanDatabasePackReady as requestDatabasePackReadyScan,
   updateDatabaseRecord,
 } from "./database-page-api";
 import {
@@ -23,6 +24,7 @@ import {
   type DatabaseCandidateDetail,
   type DatabaseItem,
   type DatabasePack,
+  type DatabasePackReadyScan,
   type DatabaseTemplate,
   type PathSelectionMode,
   type RemoteFileItem,
@@ -40,6 +42,7 @@ type DatabaseEditForm = ReturnType<typeof editForm>;
 export type DatabasesPageState = {
   templates: DatabaseTemplate[];
   packs: DatabasePack[];
+  packReadyScans: Record<string, DatabasePackReadyScan>;
   items: DatabaseItem[];
   loading: boolean;
   error: string;
@@ -47,6 +50,7 @@ export type DatabasesPageState = {
   packError: string;
   templateLoading: boolean;
   packLoading: boolean;
+  packReadyScanningId: string;
   adding: boolean;
   saving: boolean;
   checkingId: string;
@@ -81,6 +85,7 @@ export type DatabasesPageState = {
   selectBrowserPath: (path: string) => void;
   selectBrowserPathForCompositeField: (key: string, path: string) => void;
   selectTemplate: (templateId: string) => void;
+  scanDatabasePackReady: (packId: string) => Promise<void>;
   startAddingFromPack: (packId: string) => void;
   setSelectionMode: (mode: PathSelectionMode) => void;
   setActiveCompositeField: (field: string) => void;
@@ -104,12 +109,23 @@ function templateByIdUtil(templates: DatabaseTemplate[]) {
   return Object.fromEntries(templates.map((template) => [template.id, template]));
 }
 
+function packCompositeFieldDefaults(template: DatabaseTemplate | null, readyPath: string) {
+  const normalizedRoot = readyPath.trim().replace(/\\/g, "/").replace(/\/+$/, "");
+  return Object.fromEntries(
+    compositeFieldEntries(template).map(([key, field]) => {
+      const hintName = (field.pathHint || "").replace(/\\/g, "/").split("/").filter(Boolean).pop() || key;
+      return [key, normalizedRoot ? `${normalizedRoot}/${hintName}` : ""];
+    })
+  );
+}
+
 export function useDatabasesPageState(): DatabasesPageState {
   const [initialCachedItems] = useState(() => getCachedDatabases());
   const [initialCachedTemplates] = useState(() => getCachedDatabaseTemplates());
   const [initialCachedPacks] = useState(() => getCachedDatabasePacks());
   const [templates, setTemplates] = useState<DatabaseTemplate[]>(() => initialCachedTemplates || []);
   const [packs, setPacks] = useState<DatabasePack[]>(() => initialCachedPacks || []);
+  const [packReadyScans, setPackReadyScans] = useState<Record<string, DatabasePackReadyScan>>({});
   const [items, setItems] = useState<DatabaseItem[]>(() => initialCachedItems || []);
   const itemsRef = useRef<DatabaseItem[]>(initialCachedItems || []);
   const templatesRef = useRef<DatabaseTemplate[]>(initialCachedTemplates || []);
@@ -120,6 +136,7 @@ export function useDatabasesPageState(): DatabasesPageState {
   const [packError, setPackError] = useState("");
   const [templateLoading, setTemplateLoading] = useState(() => !initialCachedTemplates);
   const [packLoading, setPackLoading] = useState(() => !initialCachedPacks);
+  const [packReadyScanningId, setPackReadyScanningId] = useState("");
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
   const [checkingId, setCheckingId] = useState("");
@@ -372,6 +389,34 @@ export function useDatabasesPageState(): DatabasesPageState {
     [templateById]
   );
 
+  const scanDatabasePackReady = useCallback(
+    async (packId: string) => {
+      const pack = packsRef.current.find((item) => item.packId === packId);
+      if (!pack) {
+        setPackError("数据库包不可用，请刷新后重试。");
+        return;
+      }
+      const template = templateById[pack.templateId] || null;
+      const readyPath = pack.manualInstall.readyDirHint;
+      const fieldPaths = template?.selectorKind === "composite" ? packCompositeFieldDefaults(template, readyPath) : undefined;
+      setPackReadyScanningId(packId);
+      setPackError("");
+      try {
+        const scan = await requestDatabasePackReadyScan({
+          packId,
+          readyPath,
+          ...(fieldPaths ? { fieldPaths } : {}),
+        });
+        setPackReadyScans((current) => ({ ...current, [packId]: scan }));
+      } catch (err) {
+        setPackError(databaseErrorMessage(err, "数据库包 Ready scan 失败"));
+      } finally {
+        setPackReadyScanningId("");
+      }
+    },
+    [templateById]
+  );
+
   const startAddingFromPack = useCallback(
     (packId: string) => {
       const pack = packsRef.current.find((item) => item.packId === packId);
@@ -380,12 +425,15 @@ export function useDatabasesPageState(): DatabasesPageState {
         setPackError("数据库包对应的模板不可用，请刷新后重试。");
         return;
       }
+      const readyPath = pack.manualInstall.readyDirHint;
+      const compositeDefaults = packCompositeFieldDefaults(template, readyPath);
       setForm({
         ...emptyForm(template),
         name: pack.name,
         templateId: template.id,
         type: pack.type,
         version: pack.version,
+        path: readyPath,
         databaseLayer: pack.installedLayer,
         packId: pack.packId,
         description: `${pack.name} installed manually from ${pack.packId}.`,
@@ -394,7 +442,7 @@ export function useDatabasesPageState(): DatabasesPageState {
         dbParams: pack.registrationHandoff.defaultRemoteRoot,
         expectedFiles: pack.expectedFiles.join(", "),
       });
-      setCompositeFields(Object.fromEntries(compositeFieldEntries(template).map(([key]) => [key, ""])));
+      setCompositeFields(compositeDefaults);
       setActiveCompositeField(compositeFieldEntries(template)[0]?.[0] || "");
       setSelectionMode("none");
       setCandidateDetail(null);
@@ -610,6 +658,7 @@ export function useDatabasesPageState(): DatabasesPageState {
   return {
     templates,
     packs,
+    packReadyScans,
     items,
     loading,
     error,
@@ -617,6 +666,7 @@ export function useDatabasesPageState(): DatabasesPageState {
     packError,
     templateLoading,
     packLoading,
+    packReadyScanningId,
     adding,
     saving,
     checkingId,
@@ -653,6 +703,7 @@ export function useDatabasesPageState(): DatabasesPageState {
     setSelectionMode,
     setActiveCompositeField,
     selectTemplate,
+    scanDatabasePackReady,
     startAddingFromPack,
     submitDatabase,
     addDatabase,

@@ -220,6 +220,7 @@ def test_runtime_database_operations_live_in_dedicated_mixin() -> None:
         "list_databases",
         "list_database_templates",
         "list_database_packs",
+        "scan_database_pack_ready",
         "add_database",
         "delete_database",
         "update_database",
@@ -244,6 +245,7 @@ def test_runtime_database_operations_delegate_to_database_manager() -> None:
     assert "self._call_remote_runner(" not in database_ops_source
     assert "self._require_existing_runner_ready(" not in database_ops_source
     assert "self.databases.list_database_packs(" in database_ops_source
+    assert "self.databases.scan_database_pack_ready(" in database_ops_source
     assert "self.databases.add_database(" in database_ops_source
 
 

@@ -13,9 +13,10 @@ from apps.api.database_service import (
     list_database_packs_from_request,
     list_database_templates_from_request,
     list_databases_from_request,
+    scan_database_pack_ready_from_request,
     update_database_from_request,
 )
-from apps.api.models import DatabaseManifestRequest, DatabaseUpdateRequest
+from apps.api.models import DatabaseManifestRequest, DatabasePackReadyScanRequest, DatabaseUpdateRequest
 
 
 router = APIRouter()
@@ -34,6 +35,11 @@ async def list_database_templates_api(refresh: bool = False) -> dict[str, Any]:
 @router.get("/api/v1/database-packs")
 async def list_database_packs_api(refresh: bool = False) -> dict[str, Any]:
     return await list_database_packs_from_request(refresh)
+
+
+@router.post("/api/v1/database-pack-ready-scans")
+async def scan_database_pack_ready_api(payload: DatabasePackReadyScanRequest) -> dict[str, Any]:
+    return await scan_database_pack_ready_from_request(payload)
 
 
 @router.post("/api/v1/databases", status_code=201)

@@ -449,6 +449,13 @@ class DatabaseUpdateRequest(ApiRequest):
     description: str | None = None
 
 
+class DatabasePackReadyScanRequest(ApiRequest):
+    serverId: str | None = None
+    packId: str = Field(min_length=1)
+    readyPath: str | None = Field(default=None, min_length=1)
+    fieldPaths: dict[str, str] | None = None
+
+
 class WorkflowDesignRequest(ApiRequest):
     model_config = ConfigDict(extra="forbid", strict=True)
 

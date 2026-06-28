@@ -141,6 +141,42 @@ export type DatabasePacksResponse = {
   };
 };
 
+export type DatabasePackReadyScan = {
+  schemaVersion: "h2ometa.database-pack-ready-scan.v1";
+  packId: string;
+  templateId: string;
+  name: string;
+  version: string;
+  status: "ready" | "missing" | "failed";
+  message: string;
+  pathKind: PathKind;
+  readyPath: string;
+  entryPath?: string;
+  resolvedPath?: DatabasePathResolution & { entries?: Record<string, string> };
+  input?: DatabasePathInput;
+  resolved?: Record<string, string>;
+  checksum: {
+    algorithm: string;
+    value: string;
+    archivePath: string;
+    verificationMode: "manual_external";
+    operatorVerified: false;
+  };
+  registrationPrefill: Record<string, unknown>;
+  redactionPolicy: {
+    rawReadyPathExposed: true;
+    auditReadyPathHashed: true;
+    registryMutated: false;
+    catalogMutated: false;
+    automaticExecution: false;
+  };
+  checkedPathHash: string;
+};
+
+export type DatabasePackReadyScanResponse = {
+  data: DatabasePackReadyScan;
+};
+
 export type RemoteFileItem = {
   name: string; path: string; type: string; isDirectory: boolean; hidden?: boolean; mtime?: number;
 };

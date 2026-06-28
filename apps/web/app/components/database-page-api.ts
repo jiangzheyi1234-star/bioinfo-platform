@@ -6,6 +6,8 @@ import {
   type DatabaseItem,
   type DatabaseLayer,
   type DatabasePack,
+  type DatabasePackReadyScan,
+  type DatabasePackReadyScanResponse,
   type DatabasePacksResponse,
   type DatabaseTemplate,
   type DatabasesResponse,
@@ -77,6 +79,12 @@ export type UpdateDatabaseInput = {
   description: string;
 };
 
+export type DatabasePackReadyScanInput = {
+  packId: string;
+  readyPath?: string;
+  fieldPaths?: Record<string, string>;
+};
+
 export async function fetchDatabases(options: FetchOptions = {}): Promise<DatabaseItem[]> {
   return cachedAsync(DATABASES_CACHE_KEY, DATABASES_CACHE_TTL_MS, async () => {
     const response = await requestLocalApiJson<DatabasesResponse>("GET", `/api/v1/databases${refreshQuery(options)}`, { cache: "no-store" });
@@ -110,6 +118,15 @@ export async function fetchDatabasePacks(options: FetchOptions = {}): Promise<Da
   }, {
     forceRefresh: options.forceRefresh,
   });
+}
+
+export async function scanDatabasePackReady(input: DatabasePackReadyScanInput): Promise<DatabasePackReadyScan> {
+  const response = await requestLocalApiJson<DatabasePackReadyScanResponse>("POST", "/api/v1/database-pack-ready-scans", {
+    body: input,
+    cache: "no-store",
+    timeoutMs: DATABASE_VALIDATION_REQUEST_TIMEOUT_MS,
+  });
+  return response.data;
 }
 
 export function getCachedDatabases(): DatabaseItem[] | undefined {

@@ -375,6 +375,12 @@ class DatabaseUpdateRequest(RemoteRunnerRequest):
     description: str | None = None
 
 
+class DatabasePackReadyScanRequest(RemoteRunnerRequest):
+    packId: str = Field(min_length=1)
+    readyPath: str | None = Field(default=None, min_length=1)
+    fieldPaths: dict[str, str] | None = None
+
+
 class WorkflowDesignRequest(RemoteRunnerRequest):
     model_config = ConfigDict(extra="forbid", strict=True)
 

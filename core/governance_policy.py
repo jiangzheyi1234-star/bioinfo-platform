@@ -744,6 +744,15 @@ HIGH_RISK_API_POLICIES: tuple[ApiGovernancePolicy, ...] = (
         "data-steward",
     ),
     remote_policy(
+        "POST",
+        "/api/v1/database-pack-ready-scans",
+        "apps/remote_runner/database_routes.py",
+        "database_pack.ready_scan",
+        "database-pack",
+        "implemented",
+        "data-steward",
+    ),
+    remote_policy(
         "DELETE",
         "/api/v1/databases/{database_id}",
         "apps/remote_runner/database_routes.py",

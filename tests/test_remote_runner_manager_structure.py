@@ -387,7 +387,8 @@ def test_database_catalog_only_handles_domain_specific_client_errors() -> None:
     assert "json.loads" not in catalog_source
     simple_methods = (
         ("def list_database_templates(", "def list_database_packs("),
-        ("def list_database_packs(", "def list_databases("),
+        ("def list_database_packs(", "def scan_database_pack_ready("),
+        ("def scan_database_pack_ready(", "def list_databases("),
         ("def list_databases(", "def add_database("),
         ("def update_database(", "def delete_database("),
         ("def delete_database(", "def check_database("),

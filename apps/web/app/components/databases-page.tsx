@@ -56,9 +56,12 @@ export function DatabasesPage() {
         {!state.adding ? (
           <DatabasePackSection
             packs={state.packs}
+            packReadyScans={state.packReadyScans}
             loading={state.packLoading}
             error={state.packError}
+            scanningPackId={state.packReadyScanningId}
             onCopyText={(text) => void state.copyDatabaseText(text)}
+            onScanDatabasePackReady={state.scanDatabasePackReady}
             onStartAddingFromPack={state.startAddingFromPack}
           />
         ) : null}

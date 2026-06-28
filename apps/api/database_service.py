@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from apps.api.models import DatabaseManifestRequest, DatabaseUpdateRequest
+from apps.api.models import DatabaseManifestRequest, DatabasePackReadyScanRequest, DatabaseUpdateRequest
 from apps.api.response_cache import invalidate_response_cache
 from apps.api.route_utils import cached_runtime_payload, request_payload, run_runtime_payload, runtime_service
 
@@ -34,6 +34,13 @@ async def list_database_packs_from_request(refresh: bool) -> dict[str, Any]:
         runtime_service().list_database_packs,
         wrapper="raw",
         force_refresh=refresh,
+    )
+
+
+async def scan_database_pack_ready_from_request(request: DatabasePackReadyScanRequest) -> dict[str, Any]:
+    return await run_runtime_payload(
+        lambda: runtime_service().scan_database_pack_ready(request_payload(request)),
+        wrapper="raw",
     )
 
 

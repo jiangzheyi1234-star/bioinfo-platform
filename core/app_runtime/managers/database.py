@@ -15,6 +15,17 @@ class DatabaseManager(BaseRuntimeManager):
     def list_database_packs(self) -> dict[str, Any]:
         return {"data": self.call_existing_runner("list_database_packs")}
 
+    def scan_database_pack_ready(self, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        body = dict(payload or {})
+        preferred_server_id = body.pop("serverId", None)
+        return {
+            "data": self.call_existing_runner(
+                "scan_database_pack_ready",
+                preferred_server_id=preferred_server_id,
+                payload=body,
+            )
+        }
+
     def add_database(self, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         body = dict(payload or {})
         preferred_server_id = body.pop("serverId", None)

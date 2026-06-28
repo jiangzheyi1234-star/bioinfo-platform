@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from .api_models import DatabaseManifestRequest, DatabaseUpdateRequest
+from .api_models import DatabaseManifestRequest, DatabasePackReadyScanRequest, DatabaseUpdateRequest
 from .database_service import (
     add_database_from_request,
     check_database_from_request,
@@ -14,6 +14,7 @@ from .database_service import (
     list_database_packs_from_request,
     list_database_templates_from_request,
     list_databases_from_request,
+    scan_database_pack_ready_from_request,
     update_database_from_request,
 )
 from .route_headers import AuthorizationHeader
@@ -35,6 +36,14 @@ async def get_database_templates(authorization: AuthorizationHeader = None) -> d
 @router.get("/api/v1/database-packs")
 async def get_database_packs(authorization: AuthorizationHeader = None) -> dict[str, Any]:
     return await list_database_packs_from_request(authorization)
+
+
+@router.post("/api/v1/database-pack-ready-scans")
+async def scan_database_pack_ready_api(
+    payload: DatabasePackReadyScanRequest,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await scan_database_pack_ready_from_request(payload, authorization)
 
 
 @router.post("/api/v1/databases", status_code=201)

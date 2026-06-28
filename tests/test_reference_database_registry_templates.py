@@ -416,6 +416,7 @@ def test_remote_runner_manager_database_catalog_routes(monkeypatch) -> None:
     assert manager.list_databases(**kwargs) == [{"id": "db1"}]
     assert manager.list_database_templates(**kwargs) == [{"id": "db1"}]
     assert manager.list_database_packs(**kwargs) == {"items": [{"id": "db1"}]}
+    assert manager.scan_database_pack_ready(**kwargs, payload={"packId": "pack1"})["packId"] == "pack1"
     assert manager.add_database(**kwargs, payload={"name": "db1"})["name"] == "db1"
     assert manager.check_database(**kwargs, database_id="db1")["id"] == "db1"
     assert manager.delete_database(**kwargs, database_id="db1")["deleted"] is True
@@ -423,11 +424,12 @@ def test_remote_runner_manager_database_catalog_routes(monkeypatch) -> None:
         ("GET", "/api/v1/databases", None),
         ("GET", "/api/v1/database-templates", None),
         ("GET", "/api/v1/database-packs", None),
+        ("POST", "/api/v1/database-pack-ready-scans", {"packId": "pack1"}),
         ("POST", "/api/v1/databases", {"name": "db1"}),
         ("POST", "/api/v1/databases/db1/check", {}),
         ("DELETE", "/api/v1/databases/db1", None),
     ]
-    assert client_timeouts == [None, None, None, 2100, 2100, None]
+    assert client_timeouts == [None, None, None, 2100, 2100, 2100, None]
 
 
 def test_remote_runner_reuse_rejects_old_database_template_catalog() -> None:

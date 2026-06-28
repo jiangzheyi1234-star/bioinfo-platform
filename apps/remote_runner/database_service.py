@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from .api_models import DatabaseManifestRequest, DatabaseUpdateRequest
+from .api_models import DatabaseManifestRequest, DatabasePackReadyScanRequest, DatabaseUpdateRequest
 from .database_pack_catalog import database_pack_catalog_response
+from .database_pack_ready_scan import scan_database_pack_ready
 from .database_templates import list_database_templates
 from .governance_audit import record_governance_audit_event
 from .databases import (
@@ -32,6 +33,16 @@ async def list_database_packs_from_request(authorization: str | None) -> dict[st
     authorized_config(authorization)
     catalog = await run_sync(database_pack_catalog_response)
     return data_response(catalog)
+
+
+async def scan_database_pack_ready_from_request(
+    payload: DatabasePackReadyScanRequest,
+    authorization: str | None,
+) -> dict[str, Any]:
+    cfg = authorized_config(authorization, action="database_pack.ready_scan")
+    result = await run_sync(scan_database_pack_ready, request_payload(payload))
+    await _record_database_pack_ready_scan_event(cfg, result=result)
+    return data_response(result)
 
 
 async def add_database_from_request(
@@ -87,6 +98,26 @@ async def check_database_from_request(
     item = await run_sync(check_reference_database, cfg, database_id)
     await _record_database_governance_event(cfg, action="database.check", item=item)
     return data_response(item)
+
+
+async def _record_database_pack_ready_scan_event(cfg: Any, *, result: dict[str, Any]) -> None:
+    await run_sync(
+        record_governance_audit_event,
+        cfg,
+        action="database_pack.ready_scan",
+        subject_kind="database-pack",
+        subject_id=str(result.get("packId") or ""),
+        actor="remote-runner-api",
+        details={
+            "packId": str(result.get("packId") or ""),
+            "templateId": str(result.get("templateId") or ""),
+            "status": str(result.get("status") or ""),
+            "pathKind": str(result.get("pathKind") or ""),
+            "checkedPathHash": str(result.get("checkedPathHash") or ""),
+            "registryMutated": False,
+            "catalogMutated": False,
+        },
+    )
 
 
 async def _record_database_governance_event(

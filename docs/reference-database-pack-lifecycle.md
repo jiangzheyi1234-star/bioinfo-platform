@@ -22,6 +22,8 @@ The lifecycle contract version is `database-pack-lifecycle-v1`. Every catalog it
 
 There must be no `POST`, `PATCH`, or `DELETE` route under `/api/v1/database-packs`, and no frontend action may run an automatic database pack download or installation.
 
+`POST /api/v1/database-pack-ready-scans` is the only dynamic readiness companion for packs. It inspects an operator-provided ready path on the remote runner, reuses the database template checks, records a metadata-only audit event, and returns registration prefill fields. It must not download, extract, repair, register, or mutate the pack catalog or reference database registry.
+
 ## Layers
 
 `downloadable_pack` is catalog metadata only. It is not a registered database and cannot satisfy production evidence.

@@ -13,6 +13,9 @@ class RunnerDatabaseOperationsMixin:
     def list_database_packs(self) -> dict[str, Any]:
         return self.databases.list_database_packs()
 
+    def scan_database_pack_ready(self, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        return self.databases.scan_database_pack_ready(payload)
+
     def add_database(self, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         return self.databases.add_database(payload)
 

@@ -544,6 +544,7 @@ def test_database_routes_delegate_request_dumping_to_services() -> None:
     assert "list_databases_from_request" in route_source
     assert "list_database_templates_from_request" in route_source
     assert "list_database_packs_from_request" in route_source
+    assert "scan_database_pack_ready_from_request" in route_source
     assert "add_database_from_request" in route_source
     assert "delete_database_from_request" in route_source
     assert "update_database_from_request" in route_source
@@ -552,6 +553,7 @@ def test_database_routes_delegate_request_dumping_to_services() -> None:
     assert "def list_databases_from_request(" in service_source
     assert "def list_database_templates_from_request(" in service_source
     assert "def list_database_packs_from_request(" in service_source
+    assert "def scan_database_pack_ready_from_request(" in service_source
     assert "def add_database_from_request(" in service_source
     assert "def delete_database_from_request(" in service_source
     assert "def update_database_from_request(" in service_source
