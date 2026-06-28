@@ -15,6 +15,7 @@ def _source(filename: str) -> str:
 def test_trigger_events_have_read_only_frontend_surface() -> None:
     model = _source("workflow-trigger-model.ts")
     api = _source("workflow-trigger-api.ts")
+    backfill_api = _source("workflow-backfill-api.ts")
     page = _source("workflow-trigger-observability-page.tsx")
     panel = _source("workflow-trigger-observability-panel.tsx")
     scheduler_panel = _source("workflow-trigger-scheduler-panel.tsx")
@@ -88,6 +89,15 @@ def test_trigger_events_have_read_only_frontend_surface() -> None:
     assert 'confirmation: "run-scheduler-once"' in api
     assert 'limit: options.limit || 100' in api
     assert "invalidateAsyncCachePrefix(WORKFLOW_TRIGGER_SCHEDULER_TICKS_CACHE_KEY)" in api
+    assert "invalidateWorkflowBackfillLaunchCaches();" in api
+    assert api.count("invalidateWorkflowRunResultCaches();") == 3
+    assert "export function invalidateWorkflowBackfillLaunchCaches" in backfill_api
+    assert "invalidateAsyncCachePrefix(WORKFLOW_BACKFILL_LAUNCHES_CACHE_KEY)" in backfill_api
+    assert "invalidateAsyncCachePrefix(WORKFLOW_BACKFILL_LAUNCH_CACHE_KEY)" in backfill_api
+    assert "cancelWorkflowBackfillLaunch" in backfill_api
+    assert "launchWorkflowTriggerBackfill" in backfill_api
+    assert backfill_api.count("invalidateWorkflowBackfillLaunchCaches();") == 2
+    assert backfill_api.count("invalidateWorkflowRunResultCaches();") == 2
     assert 'confirmation: "replay-dead-lettered-inbox-event"' in api
     assert "invalidateAsyncCachePrefix(WORKFLOW_TRIGGER_EVENTS_CACHE_KEY)" in api
     assert "invalidateAsyncCachePrefix(WORKFLOW_TRIGGER_INBOX_CACHE_KEY)" in api

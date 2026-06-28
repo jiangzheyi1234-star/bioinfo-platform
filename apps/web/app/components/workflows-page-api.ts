@@ -196,6 +196,11 @@ const WORKFLOW_RUNS_CACHE_KEY = "workflow:runs";
 const WORKFLOW_RESULTS_CACHE_KEY = "workflow:results";
 const WORKFLOW_SAMPLE_DATA_TIMEOUT_MS = 180_000;
 
+export function invalidateWorkflowRunResultCaches() {
+  invalidateAsyncCache(WORKFLOW_RUNS_CACHE_KEY);
+  invalidateAsyncCache(WORKFLOW_RESULTS_CACHE_KEY);
+}
+
 function refreshQuery(options: FetchOptions) {
   const params = new URLSearchParams();
   if (options.forceRefresh) params.set("refresh", "true");
@@ -422,8 +427,7 @@ export async function submitWorkflowDesignRun({
       runSpec,
     },
   });
-  invalidateAsyncCache(WORKFLOW_RUNS_CACHE_KEY);
-  invalidateAsyncCache(WORKFLOW_RESULTS_CACHE_KEY);
+  invalidateWorkflowRunResultCaches();
   return response.data;
 }
 
@@ -516,8 +520,7 @@ export async function submitPipelineWorkflowRun({
       runSpec,
     },
   });
-  invalidateAsyncCache(WORKFLOW_RUNS_CACHE_KEY);
-  invalidateAsyncCache(WORKFLOW_RESULTS_CACHE_KEY);
+  invalidateWorkflowRunResultCaches();
   return response.data;
 }
 
@@ -550,8 +553,7 @@ export async function retryWorkflowRun(runId: string, reason = "operator_request
       cache: "no-store",
     }
   );
-  invalidateAsyncCache(WORKFLOW_RUNS_CACHE_KEY);
-  invalidateAsyncCache(WORKFLOW_RESULTS_CACHE_KEY);
+  invalidateWorkflowRunResultCaches();
   return response.data;
 }
 
@@ -572,8 +574,7 @@ export async function applyWorkflowRuleOutputInvalidation(
       cache: "no-store",
     }
   );
-  invalidateAsyncCache(WORKFLOW_RUNS_CACHE_KEY);
-  invalidateAsyncCache(WORKFLOW_RESULTS_CACHE_KEY);
+  invalidateWorkflowRunResultCaches();
   return response.data;
 }
 
@@ -594,8 +595,7 @@ export async function retryWorkflowRunRules(
       cache: "no-store",
     }
   );
-  invalidateAsyncCache(WORKFLOW_RUNS_CACHE_KEY);
-  invalidateAsyncCache(WORKFLOW_RESULTS_CACHE_KEY);
+  invalidateWorkflowRunResultCaches();
   return response.data;
 }
 
@@ -616,8 +616,7 @@ export async function resumeWorkflowRun(
       cache: "no-store",
     }
   );
-  invalidateAsyncCache(WORKFLOW_RUNS_CACHE_KEY);
-  invalidateAsyncCache(WORKFLOW_RESULTS_CACHE_KEY);
+  invalidateWorkflowRunResultCaches();
   return response.data;
 }
 
@@ -668,8 +667,7 @@ export async function runWorkflowRuleCacheRestoreAction(
       cache: "no-store",
     }
   );
-  invalidateAsyncCache(WORKFLOW_RUNS_CACHE_KEY);
-  invalidateAsyncCache(WORKFLOW_RESULTS_CACHE_KEY);
+  invalidateWorkflowRunResultCaches();
   return response.data;
 }
 

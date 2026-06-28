@@ -3,6 +3,8 @@
 import { cachedAsync, invalidateAsyncCachePrefix } from "@/app/lib/async-cache";
 import { requestLocalApiJson } from "@/app/lib/local-api-client";
 
+import { invalidateWorkflowBackfillLaunchCaches } from "./workflow-backfill-api";
+import { invalidateWorkflowRunResultCaches } from "./workflows-page-api";
 import type {
   WorkflowTriggerEventList,
   WorkflowTriggerEventListResponse,
@@ -172,6 +174,8 @@ export async function runWorkflowTriggerSchedulerOnce(
   );
   invalidateAsyncCachePrefix(WORKFLOW_TRIGGER_EVENTS_CACHE_KEY);
   invalidateAsyncCachePrefix(WORKFLOW_TRIGGER_SCHEDULER_TICKS_CACHE_KEY);
+  invalidateWorkflowBackfillLaunchCaches();
+  invalidateWorkflowRunResultCaches();
   return response.data;
 }
 
@@ -201,6 +205,7 @@ export async function replayWorkflowTriggerInboxEvent(
   );
   invalidateAsyncCachePrefix(WORKFLOW_TRIGGER_EVENTS_CACHE_KEY);
   invalidateAsyncCachePrefix(WORKFLOW_TRIGGER_INBOX_CACHE_KEY);
+  invalidateWorkflowRunResultCaches();
   return response.data;
 }
 
@@ -230,6 +235,7 @@ export async function submitManualWorkflowTriggerEvent(
     }
   );
   invalidateAsyncCachePrefix(WORKFLOW_TRIGGER_EVENTS_CACHE_KEY);
+  invalidateWorkflowRunResultCaches();
   return response.data;
 }
 

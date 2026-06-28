@@ -3,6 +3,7 @@
 import { cachedAsync, invalidateAsyncCachePrefix } from "@/app/lib/async-cache";
 import { requestLocalApiJson } from "@/app/lib/local-api-client";
 
+import { invalidateWorkflowRunResultCaches } from "./workflows-page-api";
 import type {
   WorkflowBackfillCancelResponse,
   WorkflowBackfillLaunchDetail,
@@ -24,6 +25,11 @@ type WorkflowBackfillFetchOptions = {
 
 const WORKFLOW_BACKFILL_LAUNCHES_CACHE_KEY = "workflow:backfill-launches";
 const WORKFLOW_BACKFILL_LAUNCH_CACHE_KEY = "workflow:backfill-launch";
+
+export function invalidateWorkflowBackfillLaunchCaches() {
+  invalidateAsyncCachePrefix(WORKFLOW_BACKFILL_LAUNCHES_CACHE_KEY);
+  invalidateAsyncCachePrefix(WORKFLOW_BACKFILL_LAUNCH_CACHE_KEY);
+}
 
 export async function fetchWorkflowBackfillLaunches(
   options: WorkflowBackfillFetchOptions = {}
@@ -88,6 +94,8 @@ export async function cancelWorkflowBackfillLaunch(
       cache: "no-store",
     }
   );
+  invalidateWorkflowBackfillLaunchCaches();
+  invalidateWorkflowRunResultCaches();
   return response.data;
 }
 
@@ -128,8 +136,8 @@ export async function launchWorkflowTriggerBackfill(
       cache: "no-store",
     }
   );
-  invalidateAsyncCachePrefix(WORKFLOW_BACKFILL_LAUNCHES_CACHE_KEY);
-  invalidateAsyncCachePrefix(WORKFLOW_BACKFILL_LAUNCH_CACHE_KEY);
+  invalidateWorkflowBackfillLaunchCaches();
+  invalidateWorkflowRunResultCaches();
   return { ...response.data, partitions: response.data.partitions || [] };
 }
 
