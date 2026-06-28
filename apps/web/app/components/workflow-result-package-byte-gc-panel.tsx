@@ -50,12 +50,12 @@ export function WorkflowResultPackageByteGcPanel({
     setRunError("");
     try {
       const request: WorkflowResultPackageByteGcPreviewRequest = {
-        retentionDays: parseRequiredNonNegativeInteger(retentionDaysInput, 30),
-        scanLimit: parseRequiredPositiveInteger(scanLimitInput, 1000, 5000),
+        retentionDays: parseRequiredNonNegativeInteger(retentionDaysInput, "保留天数"),
+        scanLimit: parseRequiredPositiveInteger(scanLimitInput, "扫描上限", 5000),
         actor: "web-ui",
         reason: RESULT_PACKAGE_BYTE_GC_REASON,
       };
-      const maxDeleteBytes = parseOptionalPositiveInteger(maxDeleteBytesInput);
+      const maxDeleteBytes = parseOptionalPositiveInteger(maxDeleteBytesInput, "本批最大字节");
       if (maxDeleteBytes !== undefined) request.maxDeleteBytes = maxDeleteBytes;
       const plan = await previewResultPackageByteGc(request);
       setPreview(plan);
@@ -453,26 +453,37 @@ function ByteGcMetric({
   );
 }
 
-function parseOptionalNonNegativeInteger(value: string) {
+function parseOptionalNonNegativeInteger(value: string, label: string) {
   const normalized = value.trim();
   if (!normalized) return undefined;
-  const parsed = Number(normalized);
-  if (!Number.isFinite(parsed)) return undefined;
-  return Math.max(0, Math.floor(parsed));
+  if (!/^\d+$/.test(normalized)) {
+    throw new Error(`${label}必须是非负整数`);
+  }
+  return Number(normalized);
 }
 
-function parseOptionalPositiveInteger(value: string) {
-  const parsed = parseOptionalNonNegativeInteger(value);
-  return parsed && parsed > 0 ? parsed : undefined;
+function parseOptionalPositiveInteger(value: string, label: string) {
+  const parsed = parseOptionalNonNegativeInteger(value, label);
+  if (parsed !== undefined && parsed < 1) {
+    throw new Error(`${label}必须是正整数`);
+  }
+  return parsed;
 }
 
-function parseRequiredNonNegativeInteger(value: string, fallback: number) {
-  return parseOptionalNonNegativeInteger(value) ?? fallback;
+function parseRequiredNonNegativeInteger(value: string, label: string) {
+  const parsed = parseOptionalNonNegativeInteger(value, label);
+  if (parsed === undefined) {
+    throw new Error(`${label}不能为空`);
+  }
+  return parsed;
 }
 
-function parseRequiredPositiveInteger(value: string, fallback: number, max: number) {
-  const parsed = parseOptionalPositiveInteger(value) ?? fallback;
-  return Math.min(Math.max(1, parsed), max);
+function parseRequiredPositiveInteger(value: string, label: string, max: number) {
+  const parsed = parseRequiredNonNegativeInteger(value, label);
+  if (parsed < 1 || parsed > max) {
+    throw new Error(`${label}必须是 1-${max} 之间的整数`);
+  }
+  return parsed;
 }
 
 function resultPackageByteGcErrorMessage(err: unknown, fallback: string) {

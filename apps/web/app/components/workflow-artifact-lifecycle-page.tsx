@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Archive,
@@ -67,12 +67,11 @@ export function WorkflowArtifactLifecyclePage() {
   const [previewError, setPreviewError] = useState("");
   const [runError, setRunError] = useState("");
 
-  const quotaBytes = useMemo(() => parseOptionalInteger(quotaBytesInput), [quotaBytesInput]);
-
   const load = useCallback(async (forceRefresh = false) => {
     setLoading(true);
     setError("");
     try {
+      const quotaBytes = parseOptionalNonNegativeInteger(quotaBytesInput, "配额字节");
       const [nextUsage, nextTicks] = await Promise.all([
         fetchArtifactLifecycleUsage({ forceRefresh, quotaBytes }),
         fetchArtifactLifecycleControllerTicks({ forceRefresh, limit: 25 }),
@@ -84,7 +83,7 @@ export function WorkflowArtifactLifecyclePage() {
     } finally {
       setLoading(false);
     }
-  }, [quotaBytes]);
+  }, [quotaBytesInput]);
 
   useEffect(() => {
     void load();
@@ -97,12 +96,12 @@ export function WorkflowArtifactLifecyclePage() {
     setRunError("");
     try {
       const request: WorkflowArtifactGcPreviewRequest = {
-        retentionDays: parseRequiredInteger(retentionDaysInput, 30),
+        retentionDays: parseRequiredNonNegativeInteger(retentionDaysInput, "保留天数"),
         eligibleRunStatuses: GC_DEFAULT_ELIGIBLE_STATUSES,
         reason: PREVIEW_REASON,
         actor: "web-ui",
       };
-      const maxDeleteBytes = parseOptionalInteger(maxDeleteBytesInput);
+      const maxDeleteBytes = parseOptionalPositiveInteger(maxDeleteBytesInput, "本批最大字节");
       if (maxDeleteBytes !== undefined) request.maxDeleteBytes = maxDeleteBytes;
       const plan = await previewArtifactGc(request);
       setPreview(plan);
@@ -150,10 +149,10 @@ export function WorkflowArtifactLifecyclePage() {
     setControllerError("");
     try {
       const result = await runArtifactLifecycleControllerOnce({
-        retentionDays: parseRequiredInteger(retentionDaysInput, 30),
+        retentionDays: parseRequiredNonNegativeInteger(retentionDaysInput, "保留天数"),
         eligibleRunStatuses: GC_DEFAULT_ELIGIBLE_STATUSES,
-        quotaBytes,
-        maxDeleteBytesPerTick: parseOptionalInteger(maxDeleteBytesInput),
+        quotaBytes: parseOptionalNonNegativeInteger(quotaBytesInput, "配额字节"),
+        maxDeleteBytesPerTick: parseOptionalPositiveInteger(maxDeleteBytesInput, "本批最大字节"),
         actor: "web-ui",
         reason: "operator requested artifact lifecycle controller tick",
       });
@@ -685,17 +684,29 @@ function Metric({
   );
 }
 
-function parseOptionalInteger(value: string) {
+function parseOptionalNonNegativeInteger(value: string, label: string) {
   const normalized = value.trim();
   if (!normalized) return undefined;
-  const parsed = Number(normalized);
-  if (!Number.isFinite(parsed)) return undefined;
-  return Math.max(0, Math.floor(parsed));
+  if (!/^\d+$/.test(normalized)) {
+    throw new Error(`${label}必须是非负整数`);
+  }
+  return Number(normalized);
 }
 
-function parseRequiredInteger(value: string, fallback: number) {
-  const parsed = parseOptionalInteger(value);
-  return parsed === undefined ? fallback : parsed;
+function parseRequiredNonNegativeInteger(value: string, label: string) {
+  const parsed = parseOptionalNonNegativeInteger(value, label);
+  if (parsed === undefined) {
+    throw new Error(`${label}不能为空`);
+  }
+  return parsed;
+}
+
+function parseOptionalPositiveInteger(value: string, label: string) {
+  const parsed = parseOptionalNonNegativeInteger(value, label);
+  if (parsed !== undefined && parsed < 1) {
+    throw new Error(`${label}必须是正整数`);
+  }
+  return parsed;
 }
 
 function artifactLifecycleErrorMessage(err: unknown, fallback: string) {

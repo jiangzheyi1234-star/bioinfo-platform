@@ -98,8 +98,7 @@ export async function runArtifactLifecycleControllerOnce(
       timeoutMs: 20_000,
     }
   );
-  invalidateAsyncCachePrefix(ARTIFACT_LIFECYCLE_USAGE_CACHE_KEY);
-  invalidateAsyncCachePrefix(ARTIFACT_LIFECYCLE_TICKS_CACHE_KEY);
+  invalidateArtifactLifecycleCaches();
   return response.data;
 }
 
@@ -142,6 +141,7 @@ export async function runArtifactGc(
       timeoutMs: 20_000,
     }
   );
+  invalidateArtifactLifecycleCaches();
   return response.data;
 }
 
@@ -194,6 +194,11 @@ function artifactLifecycleQuery(options: ArtifactLifecycleFetchOptions) {
   if (options.limit) params.set("limit", String(options.limit));
   const query = params.toString();
   return query ? `?${query}` : "";
+}
+
+function invalidateArtifactLifecycleCaches() {
+  invalidateAsyncCachePrefix(ARTIFACT_LIFECYCLE_USAGE_CACHE_KEY);
+  invalidateAsyncCachePrefix(ARTIFACT_LIFECYCLE_TICKS_CACHE_KEY);
 }
 
 function normalizeOptionalPositiveInteger(value?: number) {

@@ -36,6 +36,8 @@ def test_artifact_lifecycle_frontend_surface_is_confirmation_gated_gc() -> None:
     assert "WorkflowResultPackageByteGcRunRequest" in api
     assert "WorkflowResultPackageByteGcRunResult" in api
     assert "response.data" in api
+    assert "function invalidateArtifactLifecycleCaches()" in api
+    assert api.count("invalidateArtifactLifecycleCaches();") == 2
 
     assert 'GC_RUN_CONFIRMATION = "delete-artifact-payloads"' in page
     assert "planFingerprint: preview.planFingerprint" in page
@@ -55,6 +57,11 @@ def test_artifact_lifecycle_frontend_surface_is_confirmation_gated_gc() -> None:
     assert "controllerRunning" in page
     assert "onRunControllerOnce={() => void runControllerOnce()}" in page
     assert "previewArtifactGc(request)" in page
+    assert 'parseRequiredNonNegativeInteger(retentionDaysInput, "保留天数")' in page
+    assert 'parseOptionalPositiveInteger(maxDeleteBytesInput, "本批最大字节")' in page
+    assert 'parseOptionalNonNegativeInteger(quotaBytesInput, "配额字节")' in page
+    assert "function parseRequiredInteger(value: string, fallback: number)" not in page
+    assert "return parsed === undefined ? fallback : parsed" not in page
     assert "planFingerprint: tick.gcPreview" not in page
     assert "planFingerprint: tick.policy" not in page
     assert "CONTROLLER_RUN_ONCE_CONFIRMATION" in controller_panel
@@ -70,6 +77,11 @@ def test_artifact_lifecycle_frontend_surface_is_confirmation_gated_gc() -> None:
     assert "...previewRequest" in package_byte_gc_panel
     assert "setPreviewRequest(request)" in package_byte_gc_panel
     assert "planFingerprint: preview.planFingerprint" in package_byte_gc_panel
+    assert 'parseRequiredNonNegativeInteger(retentionDaysInput, "保留天数")' in package_byte_gc_panel
+    assert 'parseRequiredPositiveInteger(scanLimitInput, "扫描上限", 5000)' in package_byte_gc_panel
+    assert 'parseOptionalPositiveInteger(maxDeleteBytesInput, "本批最大字节")' in package_byte_gc_panel
+    assert "return parseOptionalNonNegativeInteger(value) ?? fallback" not in package_byte_gc_panel
+    assert "Math.min(Math.max(1, parsed), max)" not in package_byte_gc_panel
     assert "confirmationValue.trim() === RESULT_PACKAGE_BYTE_GC_CONFIRMATION" in package_byte_gc_panel
     assert "disabled={!canRun}" in package_byte_gc_panel
 
