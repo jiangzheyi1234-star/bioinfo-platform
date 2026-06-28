@@ -8,31 +8,48 @@ def input_artifacts_from_lineage(lineage_edges: list[dict[str, Any]]) -> list[di
     for edge in lineage_edges:
         if edge.get("predicate") != "prov:used" or edge.get("objectKind") != "artifact_blob":
             continue
-        artifact_blob_id = str(edge.get("objectId") or "").strip()
-        if not artifact_blob_id:
-            continue
+        artifact_blob_id = _required_text(
+            edge.get("objectId"),
+            "RESULT_PACKAGE_INPUT_ARTIFACT_BLOB_REQUIRED",
+        )
         payload = edge.get("payload") if isinstance(edge.get("payload"), dict) else {}
         item = by_blob.setdefault(
             artifact_blob_id,
             {
                 "artifactBlobId": artifact_blob_id,
-                "sha256": str(payload.get("sha256") or edge.get("contentHash") or ""),
-                "mimeType": str(payload.get("mimeType") or ""),
-                "sizeBytes": _optional_int(payload.get("sizeBytes")),
                 "ports": [],
             },
         )
-        if not item.get("sha256") and (payload.get("sha256") or edge.get("contentHash")):
-            item["sha256"] = str(payload.get("sha256") or edge.get("contentHash"))
-        if not item.get("mimeType") and payload.get("mimeType"):
-            item["mimeType"] = str(payload["mimeType"])
-        if item.get("sizeBytes") is None and payload.get("sizeBytes") is not None:
-            item["sizeBytes"] = _optional_int(payload.get("sizeBytes"))
+        if "sha256" in payload:
+            _set_once_or_match(
+                item,
+                key="sha256",
+                value=_required_sha256(payload.get("sha256"), artifact_blob_id),
+                conflict_code="RESULT_PACKAGE_INPUT_ARTIFACT_SHA256_CONFLICT",
+            )
+        if "mimeType" in payload:
+            _set_once_or_match(
+                item,
+                key="mimeType",
+                value=_required_text(
+                    payload.get("mimeType"),
+                    "RESULT_PACKAGE_INPUT_ARTIFACT_MIME_TYPE_REQUIRED",
+                    artifact_blob_id=artifact_blob_id,
+                ),
+                conflict_code="RESULT_PACKAGE_INPUT_ARTIFACT_MIME_TYPE_CONFLICT",
+            )
+        if "sizeBytes" in payload:
+            _set_once_or_match(
+                item,
+                key="sizeBytes",
+                value=_required_nonnegative_int(payload.get("sizeBytes"), artifact_blob_id),
+                conflict_code="RESULT_PACKAGE_INPUT_ARTIFACT_SIZE_BYTES_CONFLICT",
+            )
         port = {
             "portName": str(payload.get("portName") or payload.get("inputRole") or ""),
             "inputName": str(payload.get("inputName") or ""),
             "inputRole": str(payload.get("inputRole") or "input"),
-            "inputIndex": _optional_int(payload.get("inputIndex")),
+            "inputIndex": _optional_port_index(payload.get("inputIndex"), artifact_blob_id),
             "sourceType": str(payload.get("sourceType") or ""),
             "sourceId": str(payload.get("sourceId") or ""),
             "filename": str(payload.get("filename") or ""),
@@ -46,6 +63,7 @@ def input_artifacts_from_lineage(lineage_edges: list[dict[str, Any]]) -> list[di
         }
         if port not in item["ports"]:
             item["ports"].append(port)
+    _validate_input_artifacts(by_blob.values())
     return sorted(
         by_blob.values(),
         key=lambda item: (
@@ -79,10 +97,70 @@ def _first_input_index(ports: list[Any]) -> int:
     return min(indexes) if indexes else 0
 
 
-def _optional_int(value: object) -> int | None:
+def _validate_input_artifacts(artifacts: Any) -> None:
+    for artifact in artifacts:
+        artifact_blob_id = artifact["artifactBlobId"]
+        _required_sha256(artifact.get("sha256"), artifact_blob_id)
+        _required_text(
+            artifact.get("mimeType"),
+            "RESULT_PACKAGE_INPUT_ARTIFACT_MIME_TYPE_REQUIRED",
+            artifact_blob_id=artifact_blob_id,
+        )
+        _required_nonnegative_int(artifact.get("sizeBytes"), artifact_blob_id)
+
+
+def _set_once_or_match(
+    item: dict[str, Any],
+    *,
+    key: str,
+    value: object,
+    conflict_code: str,
+) -> None:
+    current = item.get(key)
+    if current is None:
+        item[key] = value
+        return
+    if current != value:
+        raise ValueError(f"{conflict_code}: {item['artifactBlobId']}")
+
+
+def _required_text(
+    value: object,
+    code: str,
+    *,
+    artifact_blob_id: str | None = None,
+) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(_lineage_error(code, artifact_blob_id))
+    return value.strip()
+
+
+def _required_sha256(value: object, artifact_blob_id: str) -> str:
+    sha256 = _required_text(
+        value,
+        "RESULT_PACKAGE_INPUT_ARTIFACT_SHA256_REQUIRED",
+        artifact_blob_id=artifact_blob_id,
+    ).lower()
+    if len(sha256) != 64 or any(char not in "0123456789abcdef" for char in sha256):
+        raise ValueError(_lineage_error("RESULT_PACKAGE_INPUT_ARTIFACT_SHA256_INVALID", artifact_blob_id))
+    return sha256
+
+
+def _required_nonnegative_int(value: object, artifact_blob_id: str) -> int:
+    if type(value) is not int or value < 0:
+        raise ValueError(_lineage_error("RESULT_PACKAGE_INPUT_ARTIFACT_SIZE_BYTES_REQUIRED", artifact_blob_id))
+    return value
+
+
+def _optional_port_index(value: object, artifact_blob_id: str) -> int | None:
     if value is None:
         return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
+    if type(value) is not int:
+        raise ValueError(_lineage_error("RESULT_PACKAGE_INPUT_ARTIFACT_PORT_INDEX_INVALID", artifact_blob_id))
+    return value
+
+
+def _lineage_error(code: str, artifact_blob_id: str | None) -> str:
+    if artifact_blob_id:
+        return f"{code}: {artifact_blob_id}"
+    return code

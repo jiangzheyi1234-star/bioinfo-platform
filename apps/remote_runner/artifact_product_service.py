@@ -586,7 +586,6 @@ def _ro_crate_metadata(
     input_parts = [
         {"@id": input_artifact_ro_crate_id(artifact)}
         for artifact in manifest.get("inputArtifacts", [])
-        if str(artifact.get("artifactBlobId") or "").strip()
     ]
     metadata_parts = [{"@id": "manifest.json"}, *[{"@id": item["path"]} for item in metadata_index]]
     workflow_id = f"#workflow-{manifest['workflowRevisionId']}"
@@ -680,16 +679,14 @@ def _ro_crate_metadata(
             }
         )
     for artifact in manifest.get("inputArtifacts", []):
-        if not str(artifact.get("artifactBlobId") or "").strip():
-            continue
         graph.append(
             {
                 "@id": input_artifact_ro_crate_id(artifact),
                 "@type": "Dataset",
                 "name": input_artifact_name(artifact),
-                "encodingFormat": artifact.get("mimeType") or "application/octet-stream",
-                "contentSize": artifact.get("sizeBytes"),
-                "sha256": artifact.get("sha256"),
+                "encodingFormat": artifact["mimeType"],
+                "contentSize": artifact["sizeBytes"],
+                "sha256": artifact["sha256"],
                 "identifier": artifact["artifactBlobId"],
                 "h2ometa:role": "input",
                 "h2ometa:ports": artifact.get("ports") or [],

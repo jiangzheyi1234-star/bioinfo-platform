@@ -145,6 +145,12 @@ def _validate_manifest(
         include_artifacts=include_artifacts,
         errors=errors,
     )
+    _validate_manifest_input_artifacts(
+        input_artifacts=manifest.get("inputArtifacts"),
+        input_artifact_count=manifest.get("inputArtifactCount"),
+        errors=errors,
+    )
+    _validate_manifest_provenance(manifest, errors)
 
 
 def _validate_metadata_files(
@@ -225,6 +231,60 @@ def _validate_manifest_artifacts(
                 errors.append(f"metadata-only artifact externalUri is required: {artifact_id}")
             if any(name.startswith(f"artifacts/{artifact_id}/") for name in names):
                 errors.append(f"metadata-only archive contains artifact payload: {artifact_id}")
+
+
+def _validate_manifest_input_artifacts(
+    *,
+    input_artifacts: Any,
+    input_artifact_count: Any,
+    errors: list[str],
+) -> None:
+    if not isinstance(input_artifacts, list):
+        errors.append("manifest inputArtifacts must be a list")
+        return
+    if _int_value(input_artifact_count) != len(input_artifacts):
+        errors.append("manifest inputArtifactCount must match inputArtifacts length")
+    seen_blob_ids: set[str] = set()
+    for artifact in input_artifacts:
+        if not isinstance(artifact, dict):
+            errors.append("manifest inputArtifact entries must be objects")
+            continue
+        artifact_blob_id = str(artifact.get("artifactBlobId") or "").strip()
+        if not artifact_blob_id:
+            errors.append("manifest inputArtifact artifactBlobId is required")
+            continue
+        if artifact_blob_id in seen_blob_ids:
+            errors.append(f"manifest inputArtifact artifactBlobId is duplicated: {artifact_blob_id}")
+        seen_blob_ids.add(artifact_blob_id)
+        if not _is_sha256(str(artifact.get("sha256") or "")):
+            errors.append(f"manifest inputArtifact sha256 is invalid: {artifact_blob_id}")
+        if type(artifact.get("sizeBytes")) is not int or artifact.get("sizeBytes") < 0:
+            errors.append(f"manifest inputArtifact sizeBytes is invalid: {artifact_blob_id}")
+        if not str(artifact.get("mimeType") or "").strip():
+            errors.append(f"manifest inputArtifact mimeType is required: {artifact_blob_id}")
+
+
+def _validate_manifest_provenance(manifest: dict[str, Any], errors: list[str]) -> None:
+    provenance = manifest.get("provenance")
+    if not isinstance(provenance, dict):
+        errors.append("manifest provenance must be an object")
+        return
+    activity = provenance.get("activity")
+    if not isinstance(activity, dict):
+        errors.append("manifest provenance.activity must be an object")
+        return
+    workflow_revision_id = str(manifest.get("workflowRevisionId") or "")
+    expected_used = {
+        f"workflowRevision:{workflow_revision_id}",
+        *[
+            f"artifactBlob:{artifact.get('artifactBlobId')}"
+            for artifact in manifest.get("inputArtifacts", [])
+            if isinstance(artifact, dict)
+        ],
+    }
+    used = {str(item) for item in activity.get("used") or [] if str(item)}
+    if used != expected_used:
+        errors.append("manifest provenance.activity.used must match workflow revision and inputArtifacts")
 
 
 def _validate_included_artifact_payload(
@@ -347,7 +407,13 @@ def _validate_ro_crate_root(
         if isinstance(artifacts, list)
         else set()
     )
-    expected_parts = {"manifest.json", *metadata_paths, *artifact_ids}
+    input_artifacts = manifest.get("inputArtifacts")
+    input_artifact_ids = (
+        {_input_artifact_ro_crate_id(artifact) for artifact in input_artifacts if isinstance(artifact, dict)}
+        if isinstance(input_artifacts, list)
+        else set()
+    )
+    expected_parts = {"manifest.json", *metadata_paths, *artifact_ids, *input_artifact_ids}
     has_part_ids = _id_values(root.get("hasPart"))
     missing_parts = sorted(expected_parts - has_part_ids)
     if missing_parts:
@@ -367,9 +433,10 @@ def _validate_ro_crate_root(
     if run_action is None:
         errors.append("RO-Crate workflow run CreateAction is missing")
     else:
-        _validate_run_action(run_action, workflow_id, artifact_ids, errors)
+        _validate_run_action(run_action, workflow_id, artifact_ids, input_artifact_ids, errors)
 
     _validate_ro_crate_artifact_entities(graph_by_id, manifest, errors)
+    _validate_ro_crate_input_artifact_entities(graph_by_id, manifest, errors)
 
 
 def _validate_workflow_entity(
@@ -392,6 +459,7 @@ def _validate_run_action(
     run_action: dict[str, Any],
     workflow_id: str,
     artifact_ids: set[str],
+    input_artifact_ids: set[str],
     errors: list[str],
 ) -> None:
     if not _type_contains(run_action.get("@type"), "CreateAction"):
@@ -402,6 +470,16 @@ def _validate_run_action(
     missing_results = sorted(artifact_ids - result_ids)
     if missing_results:
         errors.append(f"RO-Crate workflow run result is missing artifacts: {', '.join(missing_results)}")
+    unexpected_results = sorted(result_ids - artifact_ids)
+    if unexpected_results:
+        errors.append(f"RO-Crate workflow run result has unexpected entries: {', '.join(unexpected_results)}")
+    object_ids = _id_values(run_action.get("object"))
+    missing_inputs = sorted(input_artifact_ids - object_ids)
+    if missing_inputs:
+        errors.append(f"RO-Crate workflow run object is missing input artifacts: {', '.join(missing_inputs)}")
+    unexpected_inputs = sorted(object_ids - input_artifact_ids)
+    if unexpected_inputs:
+        errors.append(f"RO-Crate workflow run object has unexpected entries: {', '.join(unexpected_inputs)}")
 
 
 def _validate_ro_crate_artifact_entities(
@@ -428,6 +506,35 @@ def _validate_ro_crate_artifact_entities(
             errors.append(f"RO-Crate artifact sha256 mismatch: {artifact_id}")
         if entity.get("h2ometa:includedInPackage") is not artifact.get("includedInPackage"):
             errors.append(f"RO-Crate artifact includedInPackage mismatch: {artifact_id}")
+
+
+def _validate_ro_crate_input_artifact_entities(
+    graph_by_id: dict[str, dict[str, Any]],
+    manifest: dict[str, Any],
+    errors: list[str],
+) -> None:
+    input_artifacts = manifest.get("inputArtifacts")
+    if not isinstance(input_artifacts, list):
+        return
+    for artifact in input_artifacts:
+        if not isinstance(artifact, dict):
+            continue
+        artifact_id = _input_artifact_ro_crate_id(artifact)
+        entity = graph_by_id.get(artifact_id)
+        if entity is None:
+            errors.append(f"RO-Crate input artifact entity is missing: {artifact_id}")
+            continue
+        artifact_blob_id = str(artifact.get("artifactBlobId") or "")
+        if entity.get("identifier") != artifact_blob_id:
+            errors.append(f"RO-Crate input artifact identifier mismatch: {artifact_id}")
+        if entity.get("contentSize") != artifact.get("sizeBytes"):
+            errors.append(f"RO-Crate input artifact contentSize mismatch: {artifact_id}")
+        if entity.get("sha256") != artifact.get("sha256"):
+            errors.append(f"RO-Crate input artifact sha256 mismatch: {artifact_id}")
+        if entity.get("encodingFormat") != artifact.get("mimeType"):
+            errors.append(f"RO-Crate input artifact encodingFormat mismatch: {artifact_id}")
+        if entity.get("h2ometa:role") != "input":
+            errors.append(f"RO-Crate input artifact role mismatch: {artifact_id}")
 
 
 def _read_json_entry(
@@ -474,6 +581,10 @@ def _artifact_ro_crate_id(artifact: dict[str, Any]) -> str:
     return str(artifact.get("externalUri") or "")
 
 
+def _input_artifact_ro_crate_id(artifact: dict[str, Any]) -> str:
+    return f"urn:h2ometa:artifact-blob:{artifact.get('artifactBlobId') or ''}"
+
+
 def _id_values(value: Any) -> set[str]:
     if value is None:
         return set()
@@ -500,6 +611,11 @@ def _type_contains(value: Any, expected: str) -> bool:
     if isinstance(value, list):
         return expected in {str(item) for item in value}
     return False
+
+
+def _is_sha256(value: str) -> bool:
+    normalized = value.strip().lower()
+    return len(normalized) == 64 and all(char in "0123456789abcdef" for char in normalized)
 
 
 def _is_safe_posix_path(path: str) -> bool:
