@@ -463,3 +463,52 @@ def test_candidate_output_adoption_rejects_unmanaged_path_without_artifact_mutat
     assert artifact_count == 0
     assert row["verification_state"] == "verified"
     assert row["adopted_artifact_id"] is None
+
+
+def test_candidate_output_finalize_rejects_unmanaged_result_dir_without_artifact_mutation(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    claim = _create_attempt(cfg, "run_candidate_unmanaged_result_dir")
+    output = Path(cfg.work_dir) / claim["runId"] / "report.txt"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text("managed candidate\n", encoding="utf-8")
+    candidate = record_candidate_output(
+        cfg,
+        run_id=claim["runId"],
+        attempt_id=claim["attemptId"],
+        lease_generation=claim["leaseGeneration"],
+        output_key="report",
+        path=output,
+    )
+    expected = _expected_report(output, sha256=candidate["sha256"])
+    verify_candidate_outputs(
+        cfg,
+        run_id=claim["runId"],
+        attempt_id=claim["attemptId"],
+        lease_generation=claim["leaseGeneration"],
+        expected_outputs=expected,
+    )
+
+    with pytest.raises(ValueError, match="CANDIDATE_OUTPUT_RESULT_DIR_UNMANAGED"):
+        adopt_verified_candidate_outputs(
+            cfg,
+            run_id=claim["runId"],
+            attempt_id=claim["attemptId"],
+            lease_generation=claim["leaseGeneration"],
+            expected_outputs=expected,
+            finalize_run=True,
+            request_id=f"req_{claim['runId']}",
+            result_dir=str(tmp_path / "outside-result-dir"),
+        )
+
+    assert fetch_run_results(cfg, claim["runId"])["artifacts"] == []
+    with get_connection(cfg) as connection:
+        run = connection.execute("SELECT status, stage, result_dir FROM runs WHERE run_id = ?", (claim["runId"],)).fetchone()
+        row = connection.execute(
+            "SELECT verification_state, adopted_artifact_id FROM candidate_outputs WHERE candidate_output_id = ?",
+            (candidate["candidateOutputId"],),
+        ).fetchone()
+    assert run["status"] == "queued"
+    assert run["stage"] == "submitted"
+    assert run["result_dir"] == ""
+    assert row["verification_state"] == "verified"
+    assert row["adopted_artifact_id"] is None

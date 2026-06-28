@@ -569,6 +569,44 @@ def test_artifact_cache_adoption_rejects_unmanaged_target_output_before_cache_mu
     assert list_evidence_events(cfg, event_type="artifact.cache.adopt.v1") == []
 
 
+def test_artifact_cache_adoption_rejects_unmanaged_result_dir_before_lookup(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    revision = _create_revision(cfg)
+    source_spec = _run_spec("run_cache_source_unmanaged_result_dir", revision["workflowRevisionId"])
+    target_spec = _run_spec("run_cache_adopt_unmanaged_result_dir", revision["workflowRevisionId"])
+    _create_terminal_run(cfg, source_spec)
+    persist_artifact(
+        cfg,
+        run_id="run_cache_source_unmanaged_result_dir",
+        kind="report",
+        path=_managed_report(cfg, "run_cache_source_unmanaged_result_dir", b"blocked result dir\n"),
+        mime_type="text/plain",
+        artifact_key="report",
+        step_id="summarize",
+    )
+    claim = _create_active_attempt(cfg, target_spec)
+    outside_result_dir = tmp_path / "outside-cache-result"
+    outside_output = outside_result_dir / "report.txt"
+
+    with pytest.raises(ValueError, match="ARTIFACT_CACHE_ADOPTION_RESULT_DIR_UNMANAGED"):
+        try_adopt_cached_outputs(
+            cfg,
+            run_id="run_cache_adopt_unmanaged_result_dir",
+            request_id="req_run_cache_adopt_unmanaged_result_dir",
+            run_spec=target_spec,
+            output_schema=_output_schema(),
+            outputs={"report": str(outside_output)},
+            attempt_id=claim["attemptId"],
+            lease_generation=claim["leaseGeneration"],
+            result_dir=str(outside_result_dir),
+        )
+
+    assert not outside_output.exists()
+    assert fetch_run_results(cfg, "run_cache_adopt_unmanaged_result_dir")["artifacts"] == []
+    assert list_evidence_events(cfg, event_type="artifact.cache.lookup.v1") == []
+    assert list_evidence_events(cfg, event_type="artifact.cache.adopt.v1") == []
+
+
 def test_artifact_cache_adoption_skips_when_cached_payload_is_unavailable(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     revision = _create_revision(cfg)

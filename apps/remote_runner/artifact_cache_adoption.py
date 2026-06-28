@@ -49,7 +49,7 @@ def try_adopt_cached_outputs(
     workflow_revision_id = str(run_spec.get("workflowRevisionId") or "").strip()
     if not workflow_revision_id:
         return _not_adopted("workflow_revision_missing")
-    result_root = _result_dir_path(result_dir)
+    result_root = _result_dir_path(cfg, result_dir)
     specs = _declared_output_specs(output_schema, outputs, result_dir=result_root)
     if not specs:
         return _not_adopted("output_artifacts_missing")
@@ -478,11 +478,14 @@ def _declared_output_specs(
     return specs
 
 
-def _result_dir_path(result_dir: str) -> Path:
+def _result_dir_path(cfg: RemoteRunnerConfig, result_dir: str) -> Path:
     normalized = str(result_dir or "").strip()
     if not normalized:
         raise ValueError("ARTIFACT_CACHE_ADOPTION_RESULT_DIR_REQUIRED")
-    return Path(normalized).resolve()
+    resolved = Path(normalized).resolve()
+    if not _is_relative_to(resolved, Path(cfg.results_dir).resolve()):
+        raise ValueError("ARTIFACT_CACHE_ADOPTION_RESULT_DIR_UNMANAGED")
+    return resolved
 
 
 def _declared_output_path(raw: Any, *, result_dir: Path) -> Path:

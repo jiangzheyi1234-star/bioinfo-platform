@@ -206,6 +206,7 @@ def adopt_verified_candidate_outputs(
     normalized_attempt_id = _required_text(attempt_id, "ATTEMPT_ID_REQUIRED")
     normalized_generation = _required_generation(lease_generation)
     expected = _normalize_expected_outputs(expected_outputs)
+    result_root = _managed_result_dir(cfg, result_dir) if finalize_run else None
     occurred_at = _optional_text(adopted_at) or now_iso()
     artifact_ids: list[str] = []
 
@@ -268,7 +269,7 @@ def adopt_verified_candidate_outputs(
                 connection,
                 run_id=normalized_run_id,
                 request_id=_required_text(request_id, "REQUEST_ID_REQUIRED"),
-                result_dir=_required_text(result_dir, "RESULT_DIR_REQUIRED"),
+                result_dir=str(result_root),
                 occurred_at=occurred_at,
             )
         connection.commit()
@@ -588,6 +589,22 @@ def _require_managed_candidate_path(cfg: RemoteRunnerConfig, *, path: Path, outp
         if str(exc).startswith("RESULT_ARTIFACT_STORAGE_UNMANAGED"):
             raise ValueError(f"CANDIDATE_OUTPUT_PATH_UNMANAGED: {output_key}") from exc
         raise
+
+
+def _managed_result_dir(cfg: RemoteRunnerConfig, result_dir: str | None) -> Path:
+    raw = _required_text(result_dir, "RESULT_DIR_REQUIRED")
+    resolved = Path(raw).resolve()
+    if not _is_relative_to(resolved, Path(cfg.results_dir).resolve()):
+        raise ValueError("CANDIDATE_OUTPUT_RESULT_DIR_UNMANAGED")
+    return resolved
+
+
+def _is_relative_to(path: Path, base: Path) -> bool:
+    try:
+        path.relative_to(base)
+    except ValueError:
+        return False
+    return True
 
 
 def _complete_run_after_adoption(
