@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from apps.remote_runner.artifact_product_service import export_result_package
-from apps.remote_runner.result_package_byte_gc_service import delete_retired_result_package_bytes
+from apps.remote_runner.result_package_byte_gc_service import delete_result_package_byte_gc_candidate
 from apps.remote_runner.result_package_lifecycle_service import retire_result_package_export
 from apps.remote_runner.result_package_listing_service import list_result_package_exports
 from apps.remote_runner.storage_core import get_connection
@@ -89,11 +89,11 @@ def test_result_package_listing_keeps_byte_deleted_retired_records(tmp_path: Pat
         package["packageExportId"],
         confirmation="retire-result-package-export",
     )
-    delete_retired_result_package_bytes(
+    delete_result_package_byte_gc_candidate(
         cfg,
         "res_run_package_byte_deleted_list",
         package["packageExportId"],
-        confirmation="delete-result-package-export-bytes",
+        plan_fingerprint="rpbgcfp_test",
         reason="quota",
     )
 

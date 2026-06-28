@@ -13,8 +13,7 @@ from .result_package_byte_gc_preview_service import (
     result_package_byte_gc_policy_from_payload,
 )
 from .result_package_byte_gc_service import (
-    RESULT_PACKAGE_BYTE_DELETE_CONFIRMATION,
-    delete_retired_result_package_bytes,
+    delete_result_package_byte_gc_candidate,
 )
 from .storage_core import get_connection, now_iso
 
@@ -66,11 +65,11 @@ def run_result_package_byte_gc(cfg: RemoteRunnerConfig, payload: dict[str, Any] 
     evidence_ids: list[str] = []
     for index, item in enumerate(plan["candidates"]):
         try:
-            deletion = delete_retired_result_package_bytes(
+            deletion = delete_result_package_byte_gc_candidate(
                 cfg,
                 item["resultId"],
                 item["packageExportId"],
-                confirmation=RESULT_PACKAGE_BYTE_DELETE_CONFIRMATION,
+                plan_fingerprint=str(public_plan["planFingerprint"]),
                 actor=policy.actor,
                 reason=policy.reason,
             )

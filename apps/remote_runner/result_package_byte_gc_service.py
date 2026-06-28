@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from .config import RemoteRunnerConfig
 from .evidence_storage import append_evidence_event
@@ -16,25 +16,25 @@ from .result_package_storage import (
 from .storage_core import get_connection, now_iso
 
 
-RESULT_PACKAGE_BYTE_DELETE_CONFIRMATION: Literal["delete-result-package-export-bytes"] = (
-    "delete-result-package-export-bytes"
+RESULT_PACKAGE_BYTE_GC_CANDIDATE_DELETED_EVENT_TYPE = "result.package.bytes.gc.candidate.deleted.v1"
+RESULT_PACKAGE_BYTE_GC_CANDIDATE_DELETED_SCHEMA_NAME = "ResultPackageByteGcCandidateDeletedEvent"
+RESULT_PACKAGE_BYTE_GC_CANDIDATE_DELETED_SCHEMA_VERSION = (
+    "h2ometa.result-package-byte-gc-candidate-deleted.v1"
 )
-RESULT_PACKAGE_BYTE_DELETE_EVENT_TYPE = "result.package.bytes.delete.v1"
-RESULT_PACKAGE_BYTE_DELETE_SCHEMA_NAME = "ResultPackageByteDeleteEvent"
-RESULT_PACKAGE_BYTE_DELETE_SCHEMA_VERSION = "h2ometa.result-package-bytes-delete.v1"
 
 
-def delete_retired_result_package_bytes(
+def delete_result_package_byte_gc_candidate(
     cfg: RemoteRunnerConfig,
     result_id: str,
     package_export_id: str,
     *,
-    confirmation: str,
+    plan_fingerprint: str,
     actor: str | None = None,
     reason: str | None = None,
 ) -> dict[str, Any]:
-    if str(confirmation or "").strip() != RESULT_PACKAGE_BYTE_DELETE_CONFIRMATION:
-        raise ValueError("RESULT_PACKAGE_BYTE_GC_CONFIRMATION_REQUIRED")
+    normalized_plan_fingerprint = str(plan_fingerprint or "").strip()
+    if not normalized_plan_fingerprint:
+        raise ValueError("RESULT_PACKAGE_BYTE_GC_PLAN_FINGERPRINT_REQUIRED")
     normalized_result_id = str(result_id or "").strip()
     normalized_actor = str(actor or "remote-runner-api").strip() or "remote-runner-api"
     normalized_reason = str(reason or "").strip()
@@ -48,9 +48,10 @@ def delete_retired_result_package_bytes(
     if record["packageBytesState"] == "deleted":
         raise ValueError("RESULT_PACKAGE_EXPORT_BYTES_ALREADY_DELETED")
     if record["packageBytesState"] == "deleting":
-        return _resume_result_package_byte_delete(
+        return _resume_result_package_byte_gc_candidate(
             cfg,
             record,
+            plan_fingerprint=normalized_plan_fingerprint,
             actor=normalized_actor,
             reason=normalized_reason,
         )
@@ -61,6 +62,7 @@ def delete_retired_result_package_bytes(
     recovered = _recover_available_reserved_package_file(
         cfg,
         record,
+        plan_fingerprint=normalized_plan_fingerprint,
         actor=normalized_actor,
         reason=normalized_reason,
         deleted_at=deleted_at,
@@ -92,9 +94,10 @@ def delete_retired_result_package_bytes(
             ) from exc
         raise
 
-    return _finalize_result_package_byte_delete(
+    return _finalize_result_package_byte_gc_candidate(
         cfg,
         record,
+        plan_fingerprint=normalized_plan_fingerprint,
         actor=normalized_actor,
         reason=normalized_reason,
         deleted_at=deleted_at,
@@ -107,6 +110,7 @@ def _recover_available_reserved_package_file(
     cfg: RemoteRunnerConfig,
     record: dict[str, Any],
     *,
+    plan_fingerprint: str,
     actor: str,
     reason: str,
     deleted_at: str,
@@ -127,9 +131,10 @@ def _recover_available_reserved_package_file(
         reason=reason,
     )
     _delete_reserved_package_file(package["path"])
-    return _finalize_result_package_byte_delete(
+    return _finalize_result_package_byte_gc_candidate(
         cfg,
         record,
+        plan_fingerprint=plan_fingerprint,
         actor=actor,
         reason=reason,
         deleted_at=deleted_at,
@@ -138,10 +143,11 @@ def _recover_available_reserved_package_file(
     )
 
 
-def _resume_result_package_byte_delete(
+def _resume_result_package_byte_gc_candidate(
     cfg: RemoteRunnerConfig,
     record: dict[str, Any],
     *,
+    plan_fingerprint: str,
     actor: str,
     reason: str,
 ) -> dict[str, Any]:
@@ -174,9 +180,10 @@ def _resume_result_package_byte_delete(
         else:
             deleted_bytes = int(record["sizeBytes"])
             sha256 = str(record["sha256"])
-    return _finalize_result_package_byte_delete(
+    return _finalize_result_package_byte_gc_candidate(
         cfg,
         record,
+        plan_fingerprint=plan_fingerprint,
         actor=actor,
         reason=reason or str(record.get("packageBytesGcReason") or ""),
         deleted_at=str(record.get("packageBytesDeletedAt") or now_iso()),
@@ -185,10 +192,11 @@ def _resume_result_package_byte_delete(
     )
 
 
-def _finalize_result_package_byte_delete(
+def _finalize_result_package_byte_gc_candidate(
     cfg: RemoteRunnerConfig,
     record: dict[str, Any],
     *,
+    plan_fingerprint: str,
     actor: str,
     reason: str,
     deleted_at: str,
@@ -204,12 +212,13 @@ def _finalize_result_package_byte_delete(
         )
         evidence = append_evidence_event(
             connection,
-            event_type=RESULT_PACKAGE_BYTE_DELETE_EVENT_TYPE,
-            schema_name=RESULT_PACKAGE_BYTE_DELETE_SCHEMA_NAME,
+            event_type=RESULT_PACKAGE_BYTE_GC_CANDIDATE_DELETED_EVENT_TYPE,
+            schema_name=RESULT_PACKAGE_BYTE_GC_CANDIDATE_DELETED_SCHEMA_NAME,
             subject_kind="result_package_export",
             subject_id=record["packageExportId"],
-            payload=_byte_delete_evidence_payload(
+            payload=_byte_gc_candidate_evidence_payload(
                 updated,
+                plan_fingerprint=plan_fingerprint,
                 actor=actor,
                 reason=reason,
                 deleted_at=deleted_at,
@@ -222,34 +231,32 @@ def _finalize_result_package_byte_delete(
         )
         audit = append_governance_audit_event(
             connection,
-            action="result.package.bytes.delete",
+            action="result.package.bytes.gc.candidate.deleted",
             actor=actor,
             actor_roles=cfg.api_token_roles,
             subject_kind="result_package_export",
             subject_id=record["packageExportId"],
             details={
-                "resultId": updated["resultId"],
-                "runId": updated["runId"],
-                "packageExportId": updated["packageExportId"],
-                "workflowRevisionId": updated["workflowRevisionId"],
+                "schemaVersion": RESULT_PACKAGE_BYTE_GC_CANDIDATE_DELETED_SCHEMA_VERSION,
                 "artifactPayloadMode": updated["artifactPayloadMode"],
+                "planFingerprint": plan_fingerprint,
                 "packageFileDeleted": True,
                 "packageBytesState": updated["packageBytesState"],
                 "deletedBytes": deleted_bytes,
-                "packageSha256": sha256,
-                "manifestSha256": updated["manifestSha256"],
-                "reason": reason,
+                "reasonProvided": bool(reason),
+                "reasonRedacted": True,
                 "evidenceId": evidence["eventId"],
             },
         )
         connection.commit()
 
     return {
-        "schemaVersion": RESULT_PACKAGE_BYTE_DELETE_SCHEMA_VERSION,
+        "schemaVersion": RESULT_PACKAGE_BYTE_GC_CANDIDATE_DELETED_SCHEMA_VERSION,
         "resultId": updated["resultId"],
         "runId": updated["runId"],
         "packageExportId": updated["packageExportId"],
         "workflowRevisionId": updated["workflowRevisionId"],
+        "planFingerprint": plan_fingerprint,
         "artifactPayloadMode": updated["artifactPayloadMode"],
         "lifecycleState": updated["lifecycleState"],
         "packageBytesState": updated["packageBytesState"],
@@ -355,9 +362,10 @@ def _delete_reserved_package_file(reserved_path: Path) -> None:
         raise RuntimeError(f"RESULT_PACKAGE_FILE_DELETE_FAILED: {exc.__class__.__name__}") from exc
 
 
-def _byte_delete_evidence_payload(
+def _byte_gc_candidate_evidence_payload(
     record: dict[str, Any],
     *,
+    plan_fingerprint: str,
     actor: str,
     reason: str,
     deleted_at: str,
@@ -365,11 +373,12 @@ def _byte_delete_evidence_payload(
     sha256: str,
 ) -> dict[str, Any]:
     return {
-        "schemaVersion": RESULT_PACKAGE_BYTE_DELETE_SCHEMA_VERSION,
+        "schemaVersion": RESULT_PACKAGE_BYTE_GC_CANDIDATE_DELETED_SCHEMA_VERSION,
         "resultId": record["resultId"],
         "runId": record["runId"],
         "packageExportId": record["packageExportId"],
         "workflowRevisionId": record["workflowRevisionId"],
+        "planFingerprint": plan_fingerprint,
         "artifactPayloadMode": record["artifactPayloadMode"],
         "actor": actor,
         "reason": reason,

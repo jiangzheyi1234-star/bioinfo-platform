@@ -8,7 +8,7 @@ from apps.remote_runner.artifact_lifecycle_service import preview_artifact_gc
 from apps.remote_runner.artifact_product_service import export_result_package
 from apps.remote_runner.evidence_storage import list_evidence_events
 from apps.remote_runner.governance_audit import list_governance_audit_events
-from apps.remote_runner.result_package_byte_gc_service import delete_retired_result_package_bytes
+from apps.remote_runner.result_package_byte_gc_service import delete_result_package_byte_gc_candidate
 from apps.remote_runner.result_package_download_service import build_result_package_download
 from apps.remote_runner.result_package_lifecycle_service import retire_result_package_export
 from apps.remote_runner.storage import create_run_record, persist_artifact
@@ -107,26 +107,26 @@ def test_result_package_retire_rejects_bad_confirmation_and_repeat(tmp_path: Pat
         export_result_package(cfg, "res_run_retire_guard", include_artifacts=False)
 
 
-def test_result_package_byte_delete_removes_only_retired_package_zip(tmp_path: Path) -> None:
+def test_result_package_byte_gc_candidate_removes_only_retired_package_zip(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
-    artifact = _create_exportable_result(cfg, "run_package_byte_delete")
-    package = export_result_package(cfg, "res_run_package_byte_delete", include_artifacts=True)
+    artifact = _create_exportable_result(cfg, "run_rpbgc_candidate")
+    package = export_result_package(cfg, "res_run_rpbgc_candidate", include_artifacts=True)
     package_path = Path(package["packagePath"])
     artifact_path = Path(str(artifact["path"]))
 
     retire_result_package_export(
         cfg,
-        "res_run_package_byte_delete",
+        "res_run_rpbgc_candidate",
         package["packageExportId"],
         confirmation="retire-result-package-export",
         actor="operator",
         reason="superseded package",
     )
-    result = delete_retired_result_package_bytes(
+    result = delete_result_package_byte_gc_candidate(
         cfg,
-        "res_run_package_byte_delete",
+        "res_run_rpbgc_candidate",
         package["packageExportId"],
-        confirmation="delete-result-package-export-bytes",
+        plan_fingerprint="rpbgcfp_test",
         actor="operator",
         reason="storage quota",
     )
@@ -134,16 +134,17 @@ def test_result_package_byte_delete_removes_only_retired_package_zip(tmp_path: P
         cfg,
         subject_kind="result_package_export",
         subject_id=package["packageExportId"],
-        event_type="result.package.bytes.delete.v1",
+        event_type="result.package.bytes.gc.candidate.deleted.v1",
     )
     audit = list_governance_audit_events(
         cfg,
-        action="result.package.bytes.delete",
+        action="result.package.bytes.gc.candidate.deleted",
         subject_kind="result_package_export",
         subject_id=package["packageExportId"],
     )["items"]
 
-    assert result["schemaVersion"] == "h2ometa.result-package-bytes-delete.v1"
+    assert result["schemaVersion"] == "h2ometa.result-package-byte-gc-candidate-deleted.v1"
+    assert result["planFingerprint"] == "rpbgcfp_test"
     assert result["lifecycleState"] == "retired"
     assert result["packageBytesState"] == "deleted"
     assert result["packageFileDeleted"] is True
@@ -166,48 +167,52 @@ def test_result_package_byte_delete_removes_only_retired_package_zip(tmp_path: P
         "package_bytes_deleted_at": result["deletedAt"],
         "package_bytes_gc_reason": "storage quota",
     }
+    assert evidence[-1]["payload"]["planFingerprint"] == "rpbgcfp_test"
     assert evidence[-1]["payload"]["packageFileDeleted"] is True
     assert evidence[-1]["payload"]["packageBytesState"] == "deleted"
     assert "packagePath" not in repr(evidence[-1])
     assert "packageUri" not in repr(evidence[-1])
     assert audit[-1]["details"]["packageFileDeleted"] is True
+    assert audit[-1]["details"]["planFingerprint"] == "rpbgcfp_test"
     assert audit[-1]["details"]["packageBytesState"] == "deleted"
-    assert audit[-1]["details"]["reason"] == "storage quota"
+    assert audit[-1]["details"]["reasonProvided"] is True
+    assert audit[-1]["details"]["reasonRedacted"] is True
+    assert "reason" not in audit[-1]["details"]
     assert "packagePath" not in repr(audit[-1])
     assert "packageUri" not in repr(audit[-1])
 
 
-def test_result_package_byte_delete_blocks_reexport_without_recreating_zip(tmp_path: Path) -> None:
+def test_result_package_byte_gc_candidate_blocks_reexport_without_recreating_zip(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
-    _create_exportable_result(cfg, "run_package_byte_delete_no_reexport")
-    package = export_result_package(cfg, "res_run_package_byte_delete_no_reexport", include_artifacts=True)
+    _create_exportable_result(cfg, "run_rpbgc_no_reexport")
+    package = export_result_package(cfg, "res_run_rpbgc_no_reexport", include_artifacts=True)
     package_path = Path(package["packagePath"])
     retire_result_package_export(
         cfg,
-        "res_run_package_byte_delete_no_reexport",
+        "res_run_rpbgc_no_reexport",
         package["packageExportId"],
         confirmation="retire-result-package-export",
     )
-    delete_retired_result_package_bytes(
+    delete_result_package_byte_gc_candidate(
         cfg,
-        "res_run_package_byte_delete_no_reexport",
+        "res_run_rpbgc_no_reexport",
         package["packageExportId"],
-        confirmation="delete-result-package-export-bytes",
+        plan_fingerprint="rpbgcfp_test",
     )
     before_evidence = list_evidence_events(
         cfg,
         subject_kind="result",
-        subject_id="res_run_package_byte_delete_no_reexport",
+        subject_id="res_run_rpbgc_no_reexport",
         event_type="result.export.v1",
     )
 
     assert not package_path.exists()
     with pytest.raises(ValueError, match="RESULT_PACKAGE_EXPORT_NOT_ACTIVE: retired"):
-        export_result_package(cfg, "res_run_package_byte_delete_no_reexport", include_artifacts=True)
+        export_result_package(cfg, "res_run_rpbgc_no_reexport", include_artifacts=True)
     after_evidence = list_evidence_events(
         cfg,
         subject_kind="result",
-        subject_id="res_run_package_byte_delete_no_reexport",
+        subject_id="res_run_rpbgc_no_reexport",
         event_type="result.export.v1",
     )
 
@@ -217,12 +222,12 @@ def test_result_package_byte_delete_blocks_reexport_without_recreating_zip(tmp_p
     ]
 
 
-def test_result_package_byte_delete_restores_file_when_deleting_state_write_fails(
+def test_result_package_byte_gc_candidate_restores_file_when_deleting_state_write_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     cfg = make_configured_remote_runner(tmp_path)
-    package = _retired_package(cfg, "run_package_byte_delete_state_failure")
+    package = _retired_package(cfg, "run_rpbgc_state_failure")
     package_path = Path(package["packagePath"])
 
     def fail_deleting_state(*args, **kwargs):
@@ -233,11 +238,11 @@ def test_result_package_byte_delete_restores_file_when_deleting_state_write_fail
         fail_deleting_state,
     )
     with pytest.raises(RuntimeError, match="forced state failure"):
-        delete_retired_result_package_bytes(
+        delete_result_package_byte_gc_candidate(
             cfg,
-            "res_run_package_byte_delete_state_failure",
+            "res_run_rpbgc_state_failure",
             package["packageExportId"],
-            confirmation="delete-result-package-export-bytes",
+            plan_fingerprint="rpbgcfp_test",
             actor="operator",
             reason="quota",
         )
@@ -260,12 +265,12 @@ def test_result_package_byte_delete_restores_file_when_deleting_state_write_fail
     }
 
 
-def test_result_package_byte_delete_resumes_when_final_evidence_write_fails(
+def test_result_package_byte_gc_candidate_resumes_when_final_evidence_write_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     cfg = make_configured_remote_runner(tmp_path)
-    package = _retired_package(cfg, "run_package_byte_delete_finalize_failure")
+    package = _retired_package(cfg, "run_rpbgc_finalize_failure")
     package_path = Path(package["packagePath"])
 
     def fail_evidence(*args, **kwargs):
@@ -276,11 +281,11 @@ def test_result_package_byte_delete_resumes_when_final_evidence_write_fails(
         fail_evidence,
     )
     with pytest.raises(RuntimeError, match="forced evidence failure"):
-        delete_retired_result_package_bytes(
+        delete_result_package_byte_gc_candidate(
             cfg,
-            "res_run_package_byte_delete_finalize_failure",
+            "res_run_rpbgc_finalize_failure",
             package["packageExportId"],
-            confirmation="delete-result-package-export-bytes",
+            plan_fingerprint="rpbgcfp_test",
             actor="operator",
             reason="quota",
         )
@@ -301,11 +306,11 @@ def test_result_package_byte_delete_resumes_when_final_evidence_write_fails(
     assert row["package_bytes_gc_reason"] == "quota"
 
     monkeypatch.undo()
-    result = delete_retired_result_package_bytes(
+    result = delete_result_package_byte_gc_candidate(
         cfg,
-        "res_run_package_byte_delete_finalize_failure",
+        "res_run_rpbgc_finalize_failure",
         package["packageExportId"],
-        confirmation="delete-result-package-export-bytes",
+        plan_fingerprint="rpbgcfp_test",
         actor="operator",
         reason="quota",
     )
@@ -325,12 +330,12 @@ def test_result_package_byte_delete_resumes_when_final_evidence_write_fails(
     assert final_row["package_bytes_gc_reason"] == "quota"
 
 
-def test_result_package_byte_delete_keeps_deleting_state_when_reserve_fails(
+def test_result_package_byte_gc_candidate_keeps_deleting_state_when_reserve_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     cfg = make_configured_remote_runner(tmp_path)
-    package = _retired_package(cfg, "run_package_byte_delete_reserve_failure")
+    package = _retired_package(cfg, "run_rpbgc_reserve_failure")
     package_path = Path(package["packagePath"])
 
     def fail_reserve(path):
@@ -341,11 +346,11 @@ def test_result_package_byte_delete_keeps_deleting_state_when_reserve_fails(
         fail_reserve,
     )
     with pytest.raises(RuntimeError, match="forced reserve failure"):
-        delete_retired_result_package_bytes(
+        delete_result_package_byte_gc_candidate(
             cfg,
-            "res_run_package_byte_delete_reserve_failure",
+            "res_run_rpbgc_reserve_failure",
             package["packageExportId"],
-            confirmation="delete-result-package-export-bytes",
+            plan_fingerprint="rpbgcfp_test",
             actor="operator",
             reason="quota",
         )
@@ -364,11 +369,11 @@ def test_result_package_byte_delete_keeps_deleting_state_when_reserve_fails(
     assert row["package_bytes_gc_reason"] == "quota"
 
     monkeypatch.undo()
-    result = delete_retired_result_package_bytes(
+    result = delete_result_package_byte_gc_candidate(
         cfg,
-        "res_run_package_byte_delete_reserve_failure",
+        "res_run_rpbgc_reserve_failure",
         package["packageExportId"],
-        confirmation="delete-result-package-export-bytes",
+        plan_fingerprint="rpbgcfp_test",
         actor="operator",
         reason="quota",
     )
@@ -377,12 +382,12 @@ def test_result_package_byte_delete_keeps_deleting_state_when_reserve_fails(
     assert not package_path.exists()
 
 
-def test_result_package_byte_delete_keeps_deleting_state_when_reserved_delete_fails(
+def test_result_package_byte_gc_candidate_keeps_deleting_state_when_reserved_delete_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     cfg = make_configured_remote_runner(tmp_path)
-    package = _retired_package(cfg, "run_package_byte_delete_unlink_failure")
+    package = _retired_package(cfg, "run_rpbgc_unlink_failure")
     package_path = Path(package["packagePath"])
 
     def fail_delete(path):
@@ -393,11 +398,11 @@ def test_result_package_byte_delete_keeps_deleting_state_when_reserved_delete_fa
         fail_delete,
     )
     with pytest.raises(RuntimeError, match="forced reserved delete failure"):
-        delete_retired_result_package_bytes(
+        delete_result_package_byte_gc_candidate(
             cfg,
-            "res_run_package_byte_delete_unlink_failure",
+            "res_run_rpbgc_unlink_failure",
             package["packageExportId"],
-            confirmation="delete-result-package-export-bytes",
+            plan_fingerprint="rpbgcfp_test",
             actor="operator",
             reason="quota",
         )
@@ -416,11 +421,11 @@ def test_result_package_byte_delete_keeps_deleting_state_when_reserved_delete_fa
     assert row["package_bytes_gc_reason"] == "quota"
 
     monkeypatch.undo()
-    result = delete_retired_result_package_bytes(
+    result = delete_result_package_byte_gc_candidate(
         cfg,
-        "res_run_package_byte_delete_unlink_failure",
+        "res_run_rpbgc_unlink_failure",
         package["packageExportId"],
-        confirmation="delete-result-package-export-bytes",
+        plan_fingerprint="rpbgcfp_test",
         actor="operator",
         reason="quota",
     )
@@ -429,20 +434,20 @@ def test_result_package_byte_delete_keeps_deleting_state_when_reserved_delete_fa
     assert not package_path.exists()
 
 
-def test_result_package_byte_delete_recovers_available_reserved_file(
+def test_result_package_byte_gc_candidate_recovers_available_reserved_file(
     tmp_path: Path,
 ) -> None:
     cfg = make_configured_remote_runner(tmp_path)
-    package = _retired_package(cfg, "run_package_byte_delete_available_reserved")
+    package = _retired_package(cfg, "run_rpbgc_reserved")
     package_path = Path(package["packagePath"])
     reserved_path = package_path.with_name(f".{package_path.name}.crash.deleting")
     package_path.replace(reserved_path)
 
-    result = delete_retired_result_package_bytes(
+    result = delete_result_package_byte_gc_candidate(
         cfg,
-        "res_run_package_byte_delete_available_reserved",
+        "res_run_rpbgc_reserved",
         package["packageExportId"],
-        confirmation="delete-result-package-export-bytes",
+        plan_fingerprint="rpbgcfp_test",
         actor="operator",
         reason="quota",
     )
@@ -464,55 +469,55 @@ def test_result_package_byte_delete_recovers_available_reserved_file(
     assert final_row["package_bytes_gc_reason"] == "quota"
 
 
-def test_result_package_byte_delete_rejects_confirmation_state_and_identity_errors(tmp_path: Path) -> None:
+def test_result_package_byte_gc_candidate_rejects_plan_state_and_identity_errors(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
-    _create_exportable_result(cfg, "run_package_byte_delete_guard")
-    package = export_result_package(cfg, "res_run_package_byte_delete_guard", include_artifacts=False)
+    _create_exportable_result(cfg, "run_rpbgc_guard")
+    package = export_result_package(cfg, "res_run_rpbgc_guard", include_artifacts=False)
 
-    with pytest.raises(ValueError, match="RESULT_PACKAGE_BYTE_GC_CONFIRMATION_REQUIRED"):
-        delete_retired_result_package_bytes(
+    with pytest.raises(ValueError, match="RESULT_PACKAGE_BYTE_GC_PLAN_FINGERPRINT_REQUIRED"):
+        delete_result_package_byte_gc_candidate(
             cfg,
-            "res_run_package_byte_delete_guard",
+            "res_run_rpbgc_guard",
             package["packageExportId"],
-            confirmation="delete",
+            plan_fingerprint="",
         )
     with pytest.raises(ValueError, match="RESULT_PACKAGE_EXPORT_NOT_RETIRED: active"):
-        delete_retired_result_package_bytes(
+        delete_result_package_byte_gc_candidate(
             cfg,
-            "res_run_package_byte_delete_guard",
+            "res_run_rpbgc_guard",
             package["packageExportId"],
-            confirmation="delete-result-package-export-bytes",
+            plan_fingerprint="rpbgcfp_test",
         )
 
     retire_result_package_export(
         cfg,
-        "res_run_package_byte_delete_guard",
+        "res_run_rpbgc_guard",
         package["packageExportId"],
         confirmation="retire-result-package-export",
     )
     with pytest.raises(ValueError, match="RESULT_PACKAGE_EXPORT_RESULT_MISMATCH"):
-        delete_retired_result_package_bytes(
+        delete_result_package_byte_gc_candidate(
             cfg,
             "res_other",
             package["packageExportId"],
-            confirmation="delete-result-package-export-bytes",
+            plan_fingerprint="rpbgcfp_test",
         )
-    delete_retired_result_package_bytes(
+    delete_result_package_byte_gc_candidate(
         cfg,
-        "res_run_package_byte_delete_guard",
+        "res_run_rpbgc_guard",
         package["packageExportId"],
-        confirmation="delete-result-package-export-bytes",
+        plan_fingerprint="rpbgcfp_test",
     )
     with pytest.raises(ValueError, match="RESULT_PACKAGE_EXPORT_BYTES_ALREADY_DELETED"):
-        delete_retired_result_package_bytes(
+        delete_result_package_byte_gc_candidate(
             cfg,
-            "res_run_package_byte_delete_guard",
+            "res_run_rpbgc_guard",
             package["packageExportId"],
-            confirmation="delete-result-package-export-bytes",
+            plan_fingerprint="rpbgcfp_test",
         )
 
 
-def test_result_package_byte_delete_rejects_unmanaged_missing_and_drifted_files(tmp_path: Path) -> None:
+def test_result_package_byte_gc_candidate_rejects_unmanaged_missing_and_drifted_files(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
 
     unmanaged = _retired_package(cfg, "run_package_unmanaged")
@@ -526,60 +531,61 @@ def test_result_package_byte_delete_rejects_unmanaged_missing_and_drifted_files(
         )
         connection.commit()
     with pytest.raises(ValueError, match="RESULT_PACKAGE_PATH_UNMANAGED"):
-        delete_retired_result_package_bytes(
+        delete_result_package_byte_gc_candidate(
             cfg,
             "res_run_package_unmanaged",
             unmanaged["packageExportId"],
-            confirmation="delete-result-package-export-bytes",
+            plan_fingerprint="rpbgcfp_test",
         )
 
     missing = _retired_package(cfg, "run_package_missing_zip")
     Path(missing["packagePath"]).unlink()
     with pytest.raises(ValueError, match="RESULT_PACKAGE_FILE_MISSING"):
-        delete_retired_result_package_bytes(
+        delete_result_package_byte_gc_candidate(
             cfg,
             "res_run_package_missing_zip",
             missing["packageExportId"],
-            confirmation="delete-result-package-export-bytes",
+            plan_fingerprint="rpbgcfp_test",
         )
 
     size_drift = _retired_package(cfg, "run_package_size_drift")
     Path(size_drift["packagePath"]).write_bytes(b"short")
     with pytest.raises(ValueError, match="RESULT_PACKAGE_SIZE_MISMATCH"):
-        delete_retired_result_package_bytes(
+        delete_result_package_byte_gc_candidate(
             cfg,
             "res_run_package_size_drift",
             size_drift["packageExportId"],
-            confirmation="delete-result-package-export-bytes",
+            plan_fingerprint="rpbgcfp_test",
         )
 
     checksum_drift = _retired_package(cfg, "run_package_checksum_drift")
     checksum_path = Path(checksum_drift["packagePath"])
     checksum_path.write_bytes(b"x" * int(checksum_drift["sizeBytes"]))
     with pytest.raises(ValueError, match="RESULT_PACKAGE_CHECKSUM_MISMATCH"):
-        delete_retired_result_package_bytes(
+        delete_result_package_byte_gc_candidate(
             cfg,
             "res_run_package_checksum_drift",
             checksum_drift["packageExportId"],
-            confirmation="delete-result-package-export-bytes",
+            plan_fingerprint="rpbgcfp_test",
         )
 
 
-def test_result_package_byte_delete_audit_records_actor_roles(tmp_path: Path) -> None:
+def test_result_package_byte_gc_candidate_audit_records_actor_roles(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path, api_token_roles=("artifact-curator", "auditor"))
-    package = _retired_package(cfg, "run_package_byte_delete_actor_roles")
+    package = _retired_package(cfg, "run_rpbgc_actor_roles")
 
-    delete_retired_result_package_bytes(
+    delete_result_package_byte_gc_candidate(
         cfg,
-        "res_run_package_byte_delete_actor_roles",
+        "res_run_rpbgc_actor_roles",
         package["packageExportId"],
-        confirmation="delete-result-package-export-bytes",
+        plan_fingerprint="rpbgcfp_test",
         actor="curator@example.test",
     )
 
-    audit = list_governance_audit_events(cfg, action="result.package.bytes.delete")["items"][-1]
+    audit = list_governance_audit_events(cfg, action="result.package.bytes.gc.candidate.deleted")["items"][-1]
     assert audit["actor"] == "curator@example.test"
     assert audit["actorRoles"] == ["artifact-curator", "auditor"]
+    assert audit["details"]["planFingerprint"] == "rpbgcfp_test"
 
 
 def _retired_package(cfg, run_id: str) -> dict[str, object]:

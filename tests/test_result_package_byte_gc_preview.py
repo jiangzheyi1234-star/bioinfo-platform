@@ -14,7 +14,7 @@ from apps.remote_runner.result_package_byte_gc_run_service import (
     RESULT_PACKAGE_BYTE_GC_RUN_CONFIRMATION,
     run_result_package_byte_gc,
 )
-from apps.remote_runner.result_package_byte_gc_service import delete_retired_result_package_bytes
+from apps.remote_runner.result_package_byte_gc_service import delete_result_package_byte_gc_candidate
 from apps.remote_runner.result_package_lifecycle_service import retire_result_package_export
 from apps.remote_runner.storage import create_run_record, persist_artifact
 from apps.remote_runner.storage_core import get_connection
@@ -107,11 +107,11 @@ def test_result_package_byte_gc_preview_protects_unsafe_or_ineligible_exports(tm
         retired_at=None,
     )
     deleted = _retired_package(cfg, "run_byte_gc_preview_deleted", retired_at="2025-01-01T00:00:00Z")
-    delete_retired_result_package_bytes(
+    delete_result_package_byte_gc_candidate(
         cfg,
         "res_run_byte_gc_preview_deleted",
         deleted["packageExportId"],
-        confirmation="delete-result-package-export-bytes",
+        plan_fingerprint="rpbgcfp_test",
     )
     deleting = _retired_package(cfg, "run_byte_gc_preview_deleting", retired_at="2025-01-01T00:00:00Z")
     unmanaged = _retired_package(cfg, "run_byte_gc_preview_unmanaged", retired_at="2025-01-01T00:00:00Z")
@@ -264,7 +264,7 @@ def test_result_package_byte_gc_run_requires_current_fingerprint_and_deletes_can
             cfg,
             {
                 "retentionDays": 30,
-                "confirmation": "delete-result-package-export-bytes",
+                "confirmation": "delete-package-bytes",
                 "planFingerprint": preview["planFingerprint"],
                 "actor": "operator",
                 "reason": reason,
@@ -369,7 +369,7 @@ def test_result_package_byte_gc_run_delete_error_is_stable_and_redacted(
         raise ValueError(f"RESULT_PACKAGE_CHECKSUM_MISMATCH: {package['packagePath']}")
 
     monkeypatch.setattr(
-        "apps.remote_runner.result_package_byte_gc_run_service.delete_retired_result_package_bytes",
+        "apps.remote_runner.result_package_byte_gc_run_service.delete_result_package_byte_gc_candidate",
         fail_delete,
     )
     with pytest.raises(ValueError, match="RESULT_PACKAGE_BYTE_GC_RUN_DELETE_FAILED"):

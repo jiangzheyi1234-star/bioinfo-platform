@@ -70,11 +70,15 @@ def test_result_package_file_io_lives_in_remote_service_not_routes() -> None:
     assert "mark_result_package_export_retired(" in lifecycle_source
     assert "RESULT_PACKAGE_RETIRE_CONFIRMATION_REQUIRED" in lifecycle_source
     assert "package_path.unlink" not in lifecycle_source
-    assert "def delete_retired_result_package_bytes(" in byte_gc_source
+    assert "def delete_result_package_byte_gc_candidate(" in byte_gc_source
     assert "fetch_result_package_export(" in byte_gc_source
     assert "mark_result_package_export_bytes_deleting(" in byte_gc_source
     assert "mark_result_package_export_bytes_deleted(" in byte_gc_source
-    assert "RESULT_PACKAGE_BYTE_GC_CONFIRMATION_REQUIRED" in byte_gc_source
+    assert "RESULT_PACKAGE_BYTE_GC_PLAN_FINGERPRINT_REQUIRED" in byte_gc_source
+    assert "RESULT_PACKAGE_BYTE_DELETE_CONFIRMATION" not in byte_gc_source
+    assert "delete-result-package-export-bytes" not in byte_gc_source
+    assert 'action="result.package.bytes.delete"' not in byte_gc_source
+    assert "result.package.bytes.gc.candidate.deleted" in byte_gc_source
     assert "_reserve_package_file_for_deletion(" in byte_gc_source
     assert "_restore_reserved_package_file(" in byte_gc_source
     assert "_delete_reserved_package_file(" in byte_gc_source
@@ -91,7 +95,8 @@ def test_result_package_file_io_lives_in_remote_service_not_routes() -> None:
     assert "RESULT_PACKAGE_BYTE_GC_RUN_CONFIRMATION" in byte_gc_run_source
     assert "planFingerprint" in byte_gc_run_source
     assert "RESULT_PACKAGE_BYTE_GC_PLAN_FINGERPRINT_MISMATCH" in byte_gc_run_source
-    assert "delete_retired_result_package_bytes(" in byte_gc_run_source
+    assert "delete_result_package_byte_gc_candidate(" in byte_gc_run_source
+    assert "plan_fingerprint=str(public_plan[\"planFingerprint\"])" in byte_gc_run_source
     assert "AND package_bytes_state = 'available'" in result_package_storage_source
     assert "AND package_bytes_state = 'deleting'" in result_package_storage_source
     assert "_raise_result_package_byte_state_conflict(" in result_package_storage_source
