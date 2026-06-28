@@ -7,6 +7,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from core.env_bool import parse_strict_env_bool
+
 from .api_token_config import apply_api_token_env_overrides, normalize_api_token_roles
 from .database_backend_config import apply_database_backend_env_overrides, assert_supported_database_backend
 from .worker_resource_config import apply_run_worker_env_overrides
@@ -128,7 +130,9 @@ def apply_artifact_storage_env_overrides(cfg: RemoteRunnerConfig) -> None:
             setattr(cfg, field_name, str(value or "").strip())
     secure = os.environ.get("H2OMETA_ARTIFACT_S3_SECURE")
     if str(secure or "").strip():
-        cfg.artifact_s3_secure = str(secure).strip().lower() in {"1", "true", "yes", "on"}
+        cfg.artifact_s3_secure = bool(
+            parse_strict_env_bool(secure, name="H2OMETA_ARTIFACT_S3_SECURE")
+        )
 
 
 def get_runtime_state_path(cfg: RemoteRunnerConfig) -> Path:

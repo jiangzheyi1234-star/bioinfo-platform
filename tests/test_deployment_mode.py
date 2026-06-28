@@ -263,3 +263,28 @@ def test_production_governance_readiness_keeps_insecure_s3_partial() -> None:
     assert s3["status"] == "partial"
     assert s3["reasonCode"] == "S3_MINIO_SECURE_TRANSPORT_PENDING"
     assert "s3-minio-artifact-storage" in report["publicMultiUserBlockingCheckIds"]
+
+
+def test_production_governance_readiness_rejects_invalid_s3_secure_literal() -> None:
+    with patch.dict(
+        os.environ,
+        {
+            "H2OMETA_DEPLOYMENT_MODE": "desktop",
+            "H2OMETA_ARTIFACT_S3_ENDPOINT": "minio.internal:9000",
+            "H2OMETA_ARTIFACT_S3_BUCKET": "h2ometa-artifacts",
+            "H2OMETA_ARTIFACT_S3_ACCESS_KEY": "access-secret-value",
+            "H2OMETA_ARTIFACT_S3_SECRET_KEY": "s3-secret-value",
+            "H2OMETA_ARTIFACT_S3_PREFIX": "tenant-a",
+            "H2OMETA_ARTIFACT_S3_SECURE": "maybe",
+        },
+        clear=True,
+    ):
+        report = build_production_governance_readiness()
+
+    s3 = {check["id"]: check for check in report["checks"]}["s3-minio-artifact-storage"]
+    assert s3["status"] == "partial"
+    assert s3["reasonCode"] == "S3_MINIO_SECURE_TRANSPORT_INVALID"
+    assert s3["details"]["secureTransportRequested"] is False
+    assert s3["details"]["secureTransportValueValid"] is False
+    assert "maybe" not in str(report)
+    assert "s3-minio-artifact-storage" in report["publicMultiUserBlockingCheckIds"]

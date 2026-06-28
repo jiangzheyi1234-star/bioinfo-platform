@@ -558,6 +558,40 @@ def test_artifact_s3_env_overrides_config(monkeypatch: pytest.MonkeyPatch) -> No
     assert cfg.artifact_s3_secure is False
 
 
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("1", True),
+        ("true", True),
+        ("yes", True),
+        ("on", True),
+        ("0", False),
+        ("false", False),
+        ("no", False),
+        ("off", False),
+    ],
+)
+def test_artifact_s3_secure_env_accepts_explicit_boolean_literals(
+    monkeypatch: pytest.MonkeyPatch,
+    raw: str,
+    expected: bool,
+) -> None:
+    cfg = RemoteRunnerConfig()
+    monkeypatch.setenv("H2OMETA_ARTIFACT_S3_SECURE", raw)
+
+    apply_artifact_storage_env_overrides(cfg)
+
+    assert cfg.artifact_s3_secure is expected
+
+
+def test_artifact_s3_secure_env_rejects_invalid_literal(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = RemoteRunnerConfig()
+    monkeypatch.setenv("H2OMETA_ARTIFACT_S3_SECURE", "maybe")
+
+    with pytest.raises(ValueError, match="H2OMETA_ARTIFACT_S3_SECURE_INVALID"):
+        apply_artifact_storage_env_overrides(cfg)
+
+
 def _s3_config(tmp_path: Path) -> RemoteRunnerConfig:
     cfg = make_configured_remote_runner(tmp_path)
     cfg.artifact_storage_backend = "s3"

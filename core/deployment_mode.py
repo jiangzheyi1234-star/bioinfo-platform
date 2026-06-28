@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
+from core.env_bool import parse_strict_env_bool
+
 
 class DeploymentMode(str, Enum):
     DESKTOP = "desktop"
@@ -321,18 +323,32 @@ def _s3_signal_summary() -> dict[str, bool]:
     access_key = bool(os.environ.get("H2OMETA_ARTIFACT_S3_ACCESS_KEY", "").strip())
     secret_key = bool(os.environ.get("H2OMETA_ARTIFACT_S3_SECRET_KEY", "").strip())
     prefix = bool(os.environ.get("H2OMETA_ARTIFACT_S3_PREFIX", "").strip())
+    secure_transport_value_valid = True
+    try:
+        secure_transport_requested = bool(
+            parse_strict_env_bool(
+                os.environ.get("H2OMETA_ARTIFACT_S3_SECURE"),
+                name="H2OMETA_ARTIFACT_S3_SECURE",
+                default=True,
+            )
+        )
+    except ValueError:
+        secure_transport_requested = False
+        secure_transport_value_valid = False
     return {
         "endpointConfigured": endpoint,
         "bucketConfigured": bucket,
         "credentialPairConfigured": access_key and secret_key,
         "managedPrefixConfigured": prefix,
-        "secureTransportRequested": os.environ.get("H2OMETA_ARTIFACT_S3_SECURE", "true").strip().lower()
-        not in ("0", "false", "no"),
+        "secureTransportRequested": secure_transport_requested,
+        "secureTransportValueValid": secure_transport_value_valid,
         "complete": endpoint and bucket and access_key and secret_key and prefix,
     }
 
 
 def _s3_gate(signals: dict[str, bool]) -> tuple[str, str]:
+    if not signals["secureTransportValueValid"]:
+        return "partial", "S3_MINIO_SECURE_TRANSPORT_INVALID"
     if not signals["complete"]:
         return "pending", "S3_MINIO_CONFIGURATION_PENDING"
     if not signals["secureTransportRequested"]:
