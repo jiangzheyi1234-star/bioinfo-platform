@@ -34,7 +34,7 @@ def output_spec_metadata(spec: dict[str, Any], *, path: Path | None = None) -> d
     metadata: dict[str, Any] = {}
     if path is not None:
         metadata["path"] = str(path)
-    for key in ["kind", "mimeType", "type", "format", "edamData", "edamFormat"]:
+    for key in ["kind", "mimeType", "type", "data", "format"]:
         value = str(spec.get(key) or "").strip()
         if value:
             metadata[key] = value

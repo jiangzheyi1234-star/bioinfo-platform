@@ -14,8 +14,9 @@ from tests.test_workflow_design_drafts import _cfg, _draft, _tool_manifest
 
 def _source_tool() -> dict[str, Any]:
     tool = _tool_manifest("bioconda::source=1.0")
-    tool["ruleTemplate"]["outputs"][0]["kind"] = "reads"
-    tool["ruleTemplate"]["outputs"][0]["format"] = "fastq"
+    tool["ruleTemplate"]["outputs"][0]["kind"] = "sequence_reads"
+    tool["ruleTemplate"]["outputs"][0]["data"] = "data_2044"
+    tool["ruleTemplate"]["outputs"][0]["format"] = "format_1930"
     return tool
 
 
@@ -23,14 +24,25 @@ def _converter_tool() -> dict[str, Any]:
     tool = _tool_manifest("bioconda::sam-to-bam=1.0")
     tool["name"] = "sam-to-bam"
     tool["ruleTemplate"]["commandTemplate"] = "cp {input.reads:q} {output.bam:q}"
-    tool["ruleTemplate"]["inputs"] = [{"name": "reads", "required": True, "kind": "reads", "format": "fastq"}]
+    tool["ruleTemplate"]["inputs"] = [
+        {
+            "name": "reads",
+            "required": True,
+            "type": "file",
+            "kind": "sequence_reads",
+            "data": "data_2044",
+            "format": "format_1930",
+        }
+    ]
     tool["ruleTemplate"]["outputs"] = [
         {
             "name": "bam",
             "path": "converted.bam",
             "kind": "alignment_bam",
-            "format": "bam",
+            "data": "data_0863",
+            "format": "format_2572",
             "mimeType": "application/octet-stream",
+            "type": "file",
         }
     ]
     return tool
@@ -40,7 +52,9 @@ def _bam_consumer_tool() -> dict[str, Any]:
     tool = _tool_manifest("bioconda::bam-qc=1.0")
     tool["name"] = "bam-qc"
     tool["ruleTemplate"]["inputs"][0]["kind"] = "alignment_bam"
-    tool["ruleTemplate"]["inputs"][0]["format"] = "bam"
+    tool["ruleTemplate"]["inputs"][0]["mimeType"] = "application/octet-stream"
+    tool["ruleTemplate"]["inputs"][0]["data"] = "data_0863"
+    tool["ruleTemplate"]["inputs"][0]["format"] = "format_2572"
     return tool
 
 
@@ -156,9 +170,9 @@ def test_plan_validates_declared_workflow_input_semantics(tmp_path: Path) -> Non
     tool["ruleTemplate"]["inputs"][0].update(
         {
             "type": "file",
-            "kind": "reads",
+            "kind": "sequence_reads",
             "data": "data_2044",
-            "format": "fastq",
+            "format": "format_1930",
         }
     )
     upsert_ready_tool(cfg, tool)
@@ -166,7 +180,7 @@ def test_plan_validates_declared_workflow_input_semantics(tmp_path: Path) -> Non
     draft["inputs"][0].update(
         {
             "type": "file",
-            "kind": "reads",
+            "kind": "sequence_reads",
             "data": "http://edamontology.org/data_2044",
             "format": "EDAM:format_1930",
         }
@@ -195,9 +209,9 @@ def test_plan_and_compile_reject_declared_workflow_input_semantic_conflict(tmp_p
     draft["inputs"][0].update(
         {
             "type": "file",
-            "kind": "reads",
+            "kind": "sequence_reads",
             "data": "data_2044",
-            "format": "fastq",
+            "format": "format_1930",
         }
     )
     saved = create_workflow_design_draft(cfg, draft)

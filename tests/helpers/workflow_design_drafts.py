@@ -21,13 +21,26 @@ def workflow_design_tool_manifest(tool_id: str = "bioconda::qc=1.0") -> dict[str
         "packageSpec": tool_id,
         "summary": "QC fixture",
         "ruleTemplate": {
-            "inputs": [{"name": "reads", "required": True, "kind": "reads", "format": "fastq"}],
+            "inputs": [
+                {
+                    "name": "reads",
+                    "required": True,
+                    "type": "file",
+                    "kind": "sequence_reads",
+                    "mimeType": "text/plain",
+                    "data": "data_2044",
+                    "format": "format_1930",
+                }
+            ],
             "outputs": [
                 {
                     "name": "report",
                     "path": "qc-report.txt",
                     "kind": "report",
                     "mimeType": "text/plain",
+                    "type": "file",
+                    "data": "data_0006",
+                    "format": "format_1915",
                 }
             ],
             "params": {"min_len": {"type": "integer", "default": 50}},

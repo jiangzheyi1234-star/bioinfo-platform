@@ -166,8 +166,8 @@ def _semantic_port_summary(prepare_payload: dict[str, Any]) -> dict[str, Any]:
         for port in enriched.get(section) or []:
             if not isinstance(port, dict):
                 continue
-            data = str(port.get("data") or port.get("edamData") or "").strip()
-            format_id = str(port.get("format") or port.get("edamFormat") or "").strip()
+            data = str(port.get("data") or "").strip()
+            format_id = str(port.get("format") or "").strip()
             if data:
                 fields.add("data")
                 data_terms.add(data)

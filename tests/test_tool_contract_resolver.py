@@ -187,6 +187,8 @@ def test_multiqc_profile_overlay_declares_report_output() -> None:
             "path": "results/multiqc.html",
             "kind": "report",
             "mimeType": "text/html",
+            "type": "file",
+            "data": "http://edamontology.org/data_0006",
             "format": "http://edamontology.org/format_2331",
         }
     ]
@@ -226,6 +228,9 @@ def test_seqkit_stats_profile_overlay_declares_locked_generic_wrapper() -> None:
             "path": "results/seqkit-stats.tsv",
             "kind": "sequence_stats",
             "mimeType": "text/tab-separated-values",
+            "type": "file",
+            "data": "http://edamontology.org/data_0006",
+            "format": "http://edamontology.org/format_3475",
         }
     ]
     assert template["params"] == {

@@ -76,8 +76,8 @@ def _bundle_ports(value: Any) -> list[dict[str, Any]]:
                 "type": str(item.get("type") or "").strip(),
                 "kind": str(item.get("kind") or "").strip(),
                 "mimeType": str(item.get("mimeType") or "").strip(),
-                "data": str(item.get("data") or item.get("edamData") or "").strip(),
-                "format": str(item.get("format") or item.get("edamFormat") or "").strip(),
+                "data": str(item.get("data") or "").strip(),
+                "format": str(item.get("format") or "").strip(),
             }
         )
     return ports

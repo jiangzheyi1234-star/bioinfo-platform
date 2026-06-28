@@ -3,36 +3,14 @@ export const ADVISORY_COMPATIBILITY_FIELDS = ["operation"] as const;
 export const COMPATIBILITY_FIELDS = [...HARD_COMPATIBILITY_FIELDS, ...ADVISORY_COMPATIBILITY_FIELDS] as const;
 
 const EDAM_COMPATIBILITY_FIELDS = new Set<RulePortCompatibilityField>(["data", "format", "operation"]);
-const GENERIC_EDAM_VALUES: Partial<Record<RulePortCompatibilityField, Set<string>>> = {
+const EDAM_FIELD_PREFIXES: Partial<Record<RulePortCompatibilityField, string>> = {
+  data: "data",
+  format: "format",
+  operation: "operation",
+};
+const UNSUPPORTED_GENERIC_EDAM_VALUES: Partial<Record<RulePortCompatibilityField, Set<string>>> = {
   data: new Set(["data_0006"]),
   format: new Set(["format_1915"]),
-};
-const EDAM_ALIASES: Partial<Record<RulePortCompatibilityField, Record<string, string>>> = {
-  data: {
-    alignment: "data_0863",
-    sequence_alignment: "data_0863",
-    "sequence-alignments": "data_0863",
-    reads: "data_2044",
-    sequence: "data_2044",
-    sequence_reads: "data_2044",
-    sequences: "data_2044",
-  },
-  format: {
-    bam: "format_2572",
-    csv: "format_3752",
-    fa: "format_1929",
-    fasta: "format_1929",
-    fastq: "format_1930",
-    fna: "format_1929",
-    fq: "format_1930",
-    gff: "format_1975",
-    gff3: "format_1975",
-    gtf: "format_2306",
-    json: "format_3464",
-    sam: "format_2573",
-    tabular: "format_3475",
-    tsv: "format_3475",
-  },
 };
 
 export type RulePortCompatibilityField = (typeof COMPATIBILITY_FIELDS)[number];
@@ -54,22 +32,6 @@ export function readPortCompatibility(item: Record<string, unknown>): RulePortCo
     const value = stringValue(item[field]);
     if (value) spec[field] = value;
   }
-  if (!spec.format) {
-    const value = stringValue(item.edamFormat);
-    if (value) spec.format = value;
-  }
-  if (!spec.data) {
-    const value = stringValue(item.edamData);
-    if (value) spec.data = value;
-  }
-  if (!spec.operation) {
-    const value = stringValue(item.edamOperation);
-    if (value) spec.operation = value;
-  }
-  if (!spec.resource) {
-    const value = stringValue(item.edamResource);
-    if (value) spec.resource = value;
-  }
   return spec;
 }
 
@@ -80,6 +42,10 @@ export function describePortCompatibility(
   const mismatch = mismatchedPortCompatibilityField(input, output);
   if (mismatch) {
     return `不兼容: ${compatibilityFieldLabel(mismatch)} 不一致`;
+  }
+  const genericFields = genericPortCompatibilityFields(input, output);
+  if (genericFields.length > 0) {
+    return `不兼容: ${genericFields.map(compatibilityFieldLabel).join(" / ")} 使用泛化 EDAM 根术语`;
   }
   const matched = matchedPortCompatibilityFields(input, output);
   const referenced: RulePortCompatibilityField[] = [];
@@ -130,9 +96,8 @@ export function portCompatibilityScore(
     const inputValue = normalizedCompatibilityValue(field, input[field]);
     const outputValue = normalizedCompatibilityValue(field, output[field]);
     const relation = compatibilityRelation(field, inputValue, outputValue);
-    if (relation === "conflict") return null;
+    if (relation === "conflict" || relation === "generic") return null;
     if (relation === "exact") score += 4;
-    else if (relation === "generic") score += 2;
     else if (inputValue || outputValue) score += 1;
   }
   return score;
@@ -165,7 +130,7 @@ export function matchedAdvisoryPortCompatibilityFields(
 ): RulePortCompatibilityField[] {
   return ADVISORY_COMPATIBILITY_FIELDS.filter((field) => {
     const inputValue = normalizedCompatibilityValue(field, input[field]);
-    return Boolean(inputValue && inputValue === normalizedCompatibilityValue(field, output[field]));
+    return Boolean(inputValue && inputValue === normalizedCompatibilityValue(field, output[field]) && !isInvalidEdamValue(field, inputValue));
   });
 }
 
@@ -185,8 +150,7 @@ export function normalizedCompatibilityValue(field: RulePortCompatibilityField, 
   if (!text) return "";
   if (!EDAM_COMPATIBILITY_FIELDS.has(field)) return text;
   const withoutUri = text.includes("/") ? text.split("/").at(-1) || text : text;
-  const normalized = withoutUri.replace(/^EDAM:/i, "");
-  return EDAM_ALIASES[field]?.[normalized.toLowerCase()] || normalized;
+  return withoutUri.replace(/^EDAM:/i, "");
 }
 
 function compatibilityRelation(
@@ -194,15 +158,24 @@ function compatibilityRelation(
   inputValue: string,
   outputValue: string
 ): "exact" | "generic" | "conflict" | "missing" {
-  if (inputValue && outputValue && inputValue === outputValue) return "exact";
   if (inputValue && outputValue && isGenericEdamValue(field, inputValue, outputValue)) return "generic";
+  if ((inputValue && isInvalidEdamValue(field, inputValue)) || (outputValue && isInvalidEdamValue(field, outputValue))) {
+    return "conflict";
+  }
+  if (inputValue && outputValue && inputValue === outputValue) return "exact";
   if (inputValue && outputValue) return "conflict";
   return "missing";
 }
 
 function isGenericEdamValue(field: RulePortCompatibilityField, left: string, right: string): boolean {
-  const generic = GENERIC_EDAM_VALUES[field];
+  const generic = UNSUPPORTED_GENERIC_EDAM_VALUES[field];
   return Boolean(generic?.has(left) || generic?.has(right));
+}
+
+function isInvalidEdamValue(field: RulePortCompatibilityField, value: string): boolean {
+  const prefix = EDAM_FIELD_PREFIXES[field];
+  if (!prefix || !value) return false;
+  return !new RegExp(`^${prefix}_\\d+$`).test(value);
 }
 
 function hardCompatibilityChecks(
@@ -210,10 +183,12 @@ function hardCompatibilityChecks(
   genericFields: RulePortCompatibilityField[]
 ): string[] {
   if (mismatchedField) return ["port-direction:output-to-input", `${mismatchedField}:conflict`];
+  if (genericFields.length > 0) {
+    return ["port-direction:output-to-input", ...genericFields.map((field) => `${field}:generic-root-unsupported`)];
+  }
   return [
     "port-direction:output-to-input",
     "semantic-fields-compatible",
-    ...genericFields.map((field) => `${field}:generic-compatible`),
   ];
 }
 

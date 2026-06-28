@@ -1,10 +1,10 @@
 [
   {
-    "name": "edam_uri_curie_alias_and_resource_match",
+    "name": "edam_uri_curie_and_resource_match",
     "input": {
       "type": "file",
       "data": "EDAM:data_2044",
-      "format": "fastq",
+      "format": "EDAM:format_1930",
       "operation": "EDAM:operation_0335",
       "resource": "reference_sequence"
     },
@@ -30,11 +30,11 @@
     "name": "format_conflict_blocks_connection",
     "input": {
       "type": "file",
-      "format": "bam"
+      "format": "format_2572"
     },
     "output": {
       "type": "file",
-      "format": "fastq"
+      "format": "format_1930"
     },
     "expected": {
       "compatible": false,
@@ -48,7 +48,7 @@
     }
   },
   {
-    "name": "generic_edam_roots_are_weakly_compatible",
+    "name": "generic_edam_roots_block_automatic_compatibility",
     "input": {
       "type": "file",
       "data": "data_2044",
@@ -60,17 +60,16 @@
       "format": "format_1915"
     },
     "expected": {
-      "compatible": true,
-      "score": 8,
+      "compatible": false,
+      "score": null,
       "matchedFields": ["type"],
       "genericFields": ["data", "format"],
       "advisoryFields": [],
       "mismatchedField": "",
       "hardChecks": [
         "port-direction:output-to-input",
-        "semantic-fields-compatible",
-        "data:generic-compatible",
-        "format:generic-compatible"
+        "data:generic-root-unsupported",
+        "format:generic-root-unsupported"
       ],
       "advisoryChecks": []
     }

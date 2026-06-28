@@ -46,7 +46,7 @@ def test_port_compatibility_score_blocks_conflicting_fields() -> None:
     assert mismatched_compatibility_field(input_spec, output_spec) == "format"
 
 
-def test_port_compatibility_normalizes_edam_uri_and_curie_aliases() -> None:
+def test_port_compatibility_normalizes_edam_uri_and_curie_ids() -> None:
     input_spec = {
         "type": "file",
         "format": "EDAM:format_2572",
@@ -68,7 +68,7 @@ def test_port_compatibility_normalizes_edam_uri_and_curie_aliases() -> None:
     assert decision["advisoryFields"] == ["operation"]
 
 
-def test_port_compatibility_normalizes_common_edam_format_and_data_aliases() -> None:
+def test_port_compatibility_rejects_common_name_aliases_as_semantics() -> None:
     input_spec = {"type": "file", "data": "sequence_reads", "format": "fastq"}
     output_spec = {
         "type": "file",
@@ -78,30 +78,35 @@ def test_port_compatibility_normalizes_common_edam_format_and_data_aliases() -> 
 
     decision = port_compatibility_decision(input_spec, output_spec)
 
-    assert decision["compatible"] is True
-    assert decision["score"] == 12
-    assert decision["matchedFields"] == ["type", "data", "format"]
+    assert decision["compatible"] is False
+    assert decision["score"] is None
+    assert decision["matchedFields"] == ["type"]
+    assert decision["mismatchedField"] == "data"
     assert decision["genericFields"] == []
 
 
-def test_generic_edam_roots_are_weak_compatible_not_recommendation_evidence() -> None:
+def test_generic_edam_roots_are_not_automatic_compatibility_evidence() -> None:
     input_spec = {"type": "file", "data": "data_2044", "format": "format_1930"}
     output_spec = {"type": "file", "data": "data_0006", "format": "format_1915"}
 
     decision = port_compatibility_decision(input_spec, output_spec)
 
-    assert decision["compatible"] is True
-    assert decision["score"] == 8
+    assert decision["compatible"] is False
+    assert decision["score"] is None
     assert decision["matchedFields"] == ["type"]
     assert decision["genericFields"] == ["data", "format"]
-    assert "data:generic-compatible" in decision["hardChecks"]
-    assert "format:generic-compatible" in decision["hardChecks"]
+    assert "data:generic-root-unsupported" in decision["hardChecks"]
+    assert "format:generic-root-unsupported" in decision["hardChecks"]
     assert generic_compatibility_fields(input_spec, output_spec) == ["data", "format"]
 
 
 def test_operation_is_advisory_and_resource_conflict_is_hard_blocker() -> None:
     assert port_compatibility_score({"operation": "trim"}, {"operation": "qc"}) == 0
-    assert matched_advisory_compatibility_fields({"operation": "trim"}, {"operation": "trim"}) == ["operation"]
+    assert matched_advisory_compatibility_fields({"operation": "trim"}, {"operation": "trim"}) == []
+    assert matched_advisory_compatibility_fields(
+        {"operation": "EDAM:operation_0335"},
+        {"operation": "operation_0335"},
+    ) == ["operation"]
     assert port_compatibility_score({"resource": "db_a"}, {"resource": "db_b"}) is None
     assert mismatched_compatibility_field({"resource": "db_a"}, {"resource": "db_b"}) == "resource"
 
@@ -112,7 +117,7 @@ def test_port_compatibility_score_keeps_one_sided_evidence_manual() -> None:
     assert port_compatibility_score({}, {}) == 0
 
 
-def test_port_spec_from_rule_item_accepts_edam_aliases() -> None:
+def test_port_spec_from_rule_item_uses_canonical_fields_only() -> None:
     assert port_spec_from_rule_item(
         {
             "name": "reads",
@@ -120,7 +125,7 @@ def test_port_spec_from_rule_item_accepts_edam_aliases() -> None:
             "edamFormat": "format_2572",
             "edamData": "data_2044",
         }
-    ) == {"type": "file", "data": "data_2044", "format": "format_2572"}
+    ) == {"type": "file"}
 
 
 def _public_decision(decision: dict) -> dict:

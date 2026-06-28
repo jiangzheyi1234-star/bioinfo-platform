@@ -14,15 +14,19 @@ from tests.helpers.workflow_design_drafts import (
 )
 
 
+SAM_FORMAT = "format_2573"
+BAM_FORMAT = "format_2572"
+
+
 def _alignment_source_tool(*, file_format: str) -> dict[str, Any]:
     tool = _base_tool(f"bioconda::source-{file_format}=1.0")
     tool["name"] = f"source-{file_format}"
     tool["ruleTemplate"]["outputs"][0].update(
         {
-            "kind": "alignment",
+            "kind": _alignment_kind(file_format),
             "data": "data_0863",
             "format": file_format,
-            "mimeType": "application/octet-stream",
+            "mimeType": _alignment_mime_type(file_format),
         }
     )
     return tool
@@ -33,10 +37,10 @@ def _alignment_consumer_tool(*, file_format: str) -> dict[str, Any]:
     tool["name"] = f"consume-{file_format}"
     tool["ruleTemplate"]["inputs"][0].update(
         {
-            "kind": "alignment",
+            "kind": _alignment_kind(file_format),
             "data": "data_0863",
             "format": file_format,
-            "mimeType": "application/octet-stream",
+            "mimeType": _alignment_mime_type(file_format),
         }
     )
     return tool
@@ -59,8 +63,8 @@ def _sam_to_bam_converter(
         semantic_input = {"type": "file", "format": "format_1915"}
         semantic_output = {"type": "file", "format": "format_1915"}
     else:
-        semantic_input = {"type": "file", "kind": "alignment", "data": "data_0863", "format": "sam"}
-        semantic_output = {"type": "file", "kind": "alignment", "data": "data_0863", "format": "bam"}
+        semantic_input = {"type": "file", "kind": "alignment_sam", "data": "data_0863", "format": SAM_FORMAT}
+        semantic_output = {"type": "file", "kind": "alignment_bam", "data": "data_0863", "format": BAM_FORMAT}
     tool["ruleTemplate"]["inputs"] = [{"name": "sam", "required": True, **semantic_input}]
     tool["ruleTemplate"]["outputs"] = [
         {
@@ -105,6 +109,14 @@ def _two_node_design(*, source_format: str, target_format: str) -> dict[str, Any
     return draft
 
 
+def _alignment_kind(file_format: str) -> str:
+    return "alignment_bam" if file_format == BAM_FORMAT else "alignment_sam"
+
+
+def _alignment_mime_type(file_format: str) -> str:
+    return "application/octet-stream" if file_format == BAM_FORMAT else "text/plain"
+
+
 def _plan(tmp_path: Path, draft: dict[str, Any]) -> dict[str, Any]:
     cfg = _cfg(tmp_path)
     saved = create_workflow_design_draft(cfg, draft)
@@ -119,9 +131,9 @@ def _plan(tmp_path: Path, draft: dict[str, Any]) -> dict[str, Any]:
 
 def test_semantic_port_plan_reports_compatible_edge(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
-    upsert_ready_tool(cfg, _alignment_source_tool(file_format="bam"))
-    upsert_ready_tool(cfg, _alignment_consumer_tool(file_format="bam"))
-    saved = create_workflow_design_draft(cfg, _two_node_design(source_format="bam", target_format="bam"))
+    upsert_ready_tool(cfg, _alignment_source_tool(file_format=BAM_FORMAT))
+    upsert_ready_tool(cfg, _alignment_consumer_tool(file_format=BAM_FORMAT))
+    saved = create_workflow_design_draft(cfg, _two_node_design(source_format=BAM_FORMAT, target_format=BAM_FORMAT))
 
     plan = plan_workflow_design_draft(
         cfg,
@@ -144,10 +156,10 @@ def test_semantic_port_plan_reports_compatible_edge(tmp_path: Path) -> None:
 
 def test_semantic_port_plan_recommends_one_hop_converter_for_incompatible_edge(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
-    upsert_ready_tool(cfg, _alignment_source_tool(file_format="sam"))
-    upsert_ready_tool(cfg, _alignment_consumer_tool(file_format="bam"))
+    upsert_ready_tool(cfg, _alignment_source_tool(file_format=SAM_FORMAT))
+    upsert_ready_tool(cfg, _alignment_consumer_tool(file_format=BAM_FORMAT))
     upsert_ready_tool(cfg, _sam_to_bam_converter())
-    saved = create_workflow_design_draft(cfg, _two_node_design(source_format="sam", target_format="bam"))
+    saved = create_workflow_design_draft(cfg, _two_node_design(source_format=SAM_FORMAT, target_format=BAM_FORMAT))
 
     plan = plan_workflow_design_draft(
         cfg,
@@ -160,7 +172,7 @@ def test_semantic_port_plan_recommends_one_hop_converter_for_incompatible_edge(t
     assert plan["valid"] is False
     edge = plan["semanticPortPlan"]["edges"][0]
     assert edge["decision"]["compatible"] is False
-    assert edge["decision"]["mismatchedField"] == "format"
+    assert edge["decision"]["mismatchedField"] == "kind"
     assert edge["recommendation"]["action"] == "insert-converter"
     assert edge["recommendation"]["reasonCode"] == "ONE_HOP_CONVERTER_AVAILABLE"
     assert len(edge["converterCandidates"]) == 1
@@ -180,11 +192,11 @@ def test_semantic_port_plan_recommends_one_hop_converter_for_incompatible_edge(t
 
 def test_semantic_port_plan_excludes_type_only_and_generic_converter_candidates(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
-    upsert_ready_tool(cfg, _alignment_source_tool(file_format="sam"))
-    upsert_ready_tool(cfg, _alignment_consumer_tool(file_format="bam"))
+    upsert_ready_tool(cfg, _alignment_source_tool(file_format=SAM_FORMAT))
+    upsert_ready_tool(cfg, _alignment_consumer_tool(file_format=BAM_FORMAT))
     upsert_ready_tool(cfg, _sam_to_bam_converter("bioconda::type-only=1.0", type_only=True))
     upsert_ready_tool(cfg, _sam_to_bam_converter("bioconda::generic-only=1.0", generic_only=True))
-    saved = create_workflow_design_draft(cfg, _two_node_design(source_format="sam", target_format="bam"))
+    saved = create_workflow_design_draft(cfg, _two_node_design(source_format=SAM_FORMAT, target_format=BAM_FORMAT))
 
     plan = plan_workflow_design_draft(
         cfg,
@@ -202,10 +214,10 @@ def test_semantic_port_plan_excludes_type_only_and_generic_converter_candidates(
 
 def test_semantic_port_plan_excludes_database_resource_converter(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
-    upsert_ready_tool(cfg, _alignment_source_tool(file_format="sam"))
-    upsert_ready_tool(cfg, _alignment_consumer_tool(file_format="bam"))
+    upsert_ready_tool(cfg, _alignment_source_tool(file_format=SAM_FORMAT))
+    upsert_ready_tool(cfg, _alignment_consumer_tool(file_format=BAM_FORMAT))
     upsert_ready_tool(cfg, _sam_to_bam_converter(requires_database=True))
-    saved = create_workflow_design_draft(cfg, _two_node_design(source_format="sam", target_format="bam"))
+    saved = create_workflow_design_draft(cfg, _two_node_design(source_format=SAM_FORMAT, target_format=BAM_FORMAT))
 
     plan = plan_workflow_design_draft(
         cfg,
@@ -222,9 +234,9 @@ def test_semantic_port_plan_excludes_database_resource_converter(tmp_path: Path)
 
 def test_semantic_port_plan_reports_unresolved_edge_without_runnable_spec(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
-    upsert_ready_tool(cfg, _alignment_source_tool(file_format="bam"))
-    upsert_ready_tool(cfg, _alignment_consumer_tool(file_format="bam"))
-    draft = _two_node_design(source_format="bam", target_format="bam")
+    upsert_ready_tool(cfg, _alignment_source_tool(file_format=BAM_FORMAT))
+    upsert_ready_tool(cfg, _alignment_consumer_tool(file_format=BAM_FORMAT))
+    draft = _two_node_design(source_format=BAM_FORMAT, target_format=BAM_FORMAT)
     draft["edges"][0]["from"]["port"] = "missing"
     saved = create_workflow_design_draft(cfg, draft)
 

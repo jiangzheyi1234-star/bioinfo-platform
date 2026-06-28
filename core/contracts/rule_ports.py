@@ -8,36 +8,14 @@ HARD_COMPATIBILITY_FIELDS = ["type", "kind", "mimeType", "data", "format", "reso
 ADVISORY_COMPATIBILITY_FIELDS = ["operation"]
 COMPATIBILITY_FIELDS = [*HARD_COMPATIBILITY_FIELDS, *ADVISORY_COMPATIBILITY_FIELDS]
 EDAM_COMPATIBILITY_FIELDS = {"data", "format", "operation"}
-GENERIC_EDAM_VALUES = {
+EDAM_FIELD_PREFIXES = {
+    "data": "data",
+    "format": "format",
+    "operation": "operation",
+}
+UNSUPPORTED_GENERIC_EDAM_VALUES = {
     "data": {"data_0006"},
     "format": {"format_1915"},
-}
-EDAM_ALIASES = {
-    "data": {
-        "alignment": "data_0863",
-        "sequence_alignment": "data_0863",
-        "sequence-alignments": "data_0863",
-        "reads": "data_2044",
-        "sequence": "data_2044",
-        "sequence_reads": "data_2044",
-        "sequences": "data_2044",
-    },
-    "format": {
-        "bam": "format_2572",
-        "csv": "format_3752",
-        "fa": "format_1929",
-        "fasta": "format_1929",
-        "fastq": "format_1930",
-        "fna": "format_1929",
-        "fq": "format_1930",
-        "gff": "format_1975",
-        "gff3": "format_1975",
-        "gtf": "format_2306",
-        "json": "format_3464",
-        "sam": "format_2573",
-        "tabular": "format_3475",
-        "tsv": "format_3475",
-    },
 }
 
 
@@ -98,22 +76,6 @@ def port_spec_from_rule_item(rule_item: dict[str, Any]) -> dict[str, str]:
         value = str(rule_item.get(key) or "").strip()
         if value:
             spec[key] = value
-    if "format" not in spec:
-        edam_format = str(rule_item.get("edamFormat") or "").strip()
-        if edam_format:
-            spec["format"] = edam_format
-    if "data" not in spec:
-        edam_data = str(rule_item.get("edamData") or "").strip()
-        if edam_data:
-            spec["data"] = edam_data
-    if "operation" not in spec:
-        edam_operation = str(rule_item.get("edamOperation") or "").strip()
-        if edam_operation:
-            spec["operation"] = edam_operation
-    if "resource" not in spec:
-        edam_resource = str(rule_item.get("edamResource") or "").strip()
-        if edam_resource:
-            spec["resource"] = edam_resource
     return spec
 
 
@@ -146,12 +108,10 @@ def port_compatibility_score(input_spec: dict[str, str], output_spec: dict[str, 
         input_value = normalized_compatibility_value(key, input_spec.get(key))
         output_value = normalized_compatibility_value(key, output_spec.get(key))
         relation = _compatibility_relation(key, input_value, output_value)
-        if relation == "conflict":
+        if relation in {"conflict", "generic"}:
             return None
         if relation == "exact":
             score += 4
-        elif relation == "generic":
-            score += 2
         elif input_value or output_value:
             score += 1
     return score
@@ -192,8 +152,9 @@ def matched_advisory_compatibility_fields(input_spec: dict[str, str], output_spe
     return [
         key
         for key in ADVISORY_COMPATIBILITY_FIELDS
-        if normalized_compatibility_value(key, input_spec.get(key))
-        and normalized_compatibility_value(key, input_spec.get(key)) == normalized_compatibility_value(key, output_spec.get(key))
+        if (input_value := normalized_compatibility_value(key, input_spec.get(key)))
+        and input_value == normalized_compatibility_value(key, output_spec.get(key))
+        and not _is_invalid_edam_value(key, input_value)
     ]
 
 
@@ -206,28 +167,40 @@ def normalized_compatibility_value(field: str, value: Any) -> str:
     if "/" in text:
         text = text.rsplit("/", 1)[-1]
     normalized = re.sub(r"^EDAM:", "", text, flags=re.IGNORECASE)
-    return EDAM_ALIASES.get(field, {}).get(normalized.lower(), normalized)
+    return normalized
 
 
 def _compatibility_relation(field: str, input_value: str, output_value: str) -> str:
-    if input_value and output_value and input_value == output_value:
-        return "exact"
     if input_value and output_value and _is_generic_edam_value(field, input_value, output_value):
         return "generic"
+    if (input_value and _is_invalid_edam_value(field, input_value)) or (
+        output_value and _is_invalid_edam_value(field, output_value)
+    ):
+        return "conflict"
+    if input_value and output_value and input_value == output_value:
+        return "exact"
     if input_value and output_value:
         return "conflict"
     return "missing"
 
 
 def _is_generic_edam_value(field: str, left: str, right: str) -> bool:
-    return left in GENERIC_EDAM_VALUES.get(field, set()) or right in GENERIC_EDAM_VALUES.get(field, set())
+    return left in UNSUPPORTED_GENERIC_EDAM_VALUES.get(field, set()) or right in UNSUPPORTED_GENERIC_EDAM_VALUES.get(field, set())
+
+
+def _is_invalid_edam_value(field: str, value: str) -> bool:
+    prefix = EDAM_FIELD_PREFIXES.get(field)
+    if prefix is None or not value:
+        return False
+    return re.fullmatch(rf"{re.escape(prefix)}_\d+", value) is None
 
 
 def _hard_checks(*, mismatch: str, generic_fields: list[str]) -> list[str]:
     if mismatch:
         return ["port-direction:output-to-input", f"{mismatch}:conflict"]
+    if generic_fields:
+        return ["port-direction:output-to-input", *[f"{field}:generic-root-unsupported" for field in generic_fields]]
     checks = ["port-direction:output-to-input", "semantic-fields-compatible"]
-    checks.extend(f"{field}:generic-compatible" for field in generic_fields)
     return checks
 
 

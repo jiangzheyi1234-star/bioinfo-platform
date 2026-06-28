@@ -77,6 +77,14 @@ def test_bio_tool_pack_manifest_requires_smoke_fixture_and_report_schema() -> No
         load_bio_tool_pack_manifest(missing_report_schema)
 
 
+def test_bio_tool_pack_manifest_requires_explicit_semantic_port_fields() -> None:
+    manifest = _custom_pack_manifest()
+    manifest["profiles"][0]["ruleTemplate"]["outputs"][0].pop("format")
+
+    with pytest.raises(BioToolPackManifestError, match="BIO_TOOL_PACK_PORT_FORMAT_REQUIRED"):
+        load_bio_tool_pack_manifest(manifest)
+
+
 def test_capability_graph_agent_selectable_subgraph_only_contains_workflow_ready_tools() -> None:
     graph = semantic_capability_graph(
         registered_tools=[
@@ -326,6 +334,8 @@ def _custom_pack_manifest() -> dict[str, object]:
                             "type": "file",
                             "kind": "sequence_reads",
                             "mimeType": "text/plain",
+                            "data": "http://edamontology.org/data_2044",
+                            "format": "http://edamontology.org/format_1930",
                             "required": True,
                         }
                     ],
@@ -333,8 +343,11 @@ def _custom_pack_manifest() -> dict[str, object]:
                         {
                             "name": "sketch",
                             "path": "results/sourmash.sig",
+                            "type": "file",
                             "kind": "sequence_sketch",
                             "mimeType": "application/json",
+                            "data": "http://edamontology.org/data_0006",
+                            "format": "http://edamontology.org/format_3464",
                         }
                     ],
                     "params": {},

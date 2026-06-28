@@ -56,10 +56,6 @@ export type ToolCapabilitySlot = {
   format?: string;
   operation?: string;
   resource?: string;
-  edamData?: string;
-  edamFormat?: string;
-  edamOperation?: string;
-  edamResource?: string;
   required?: boolean;
   primary?: boolean;
 };

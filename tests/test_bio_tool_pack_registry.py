@@ -128,6 +128,8 @@ def _custom_pack_manifest() -> dict:
                             "type": "file",
                             "kind": "sequence_reads",
                             "mimeType": "text/plain",
+                            "data": "http://edamontology.org/data_2044",
+                            "format": "http://edamontology.org/format_1930",
                             "required": True,
                         }
                     ],
@@ -135,8 +137,11 @@ def _custom_pack_manifest() -> dict:
                         {
                             "name": "sketch",
                             "path": "results/sourmash.sig",
+                            "type": "file",
                             "kind": "sequence_sketch",
                             "mimeType": "application/json",
+                            "data": "http://edamontology.org/data_0006",
+                            "format": "http://edamontology.org/format_3464",
                         }
                     ],
                     "params": {},

@@ -157,12 +157,12 @@ function rulePortItems(template: Record<string, unknown>, key: "inputs" | "outpu
       const port = recordValue(item);
       const name = stringValue(port.name) || `${key.slice(0, -1)}_${index + 1}`;
       const semantics = key === "outputs" ? outputSemanticTags(port) : [];
-      const detail = ["type", "kind", "mimeType", "format", "edamFormat"]
+      const detail = ["type", "kind", "mimeType", "data", "format"]
         .map((field) => stringValue(port[field]))
         .concat(semantics)
         .filter(Boolean)
         .join(" / ");
-      const summary = ["kind", "format", "edamFormat", "mimeType", "type"]
+      const summary = ["kind", "format", "data", "mimeType", "type"]
         .map((field) => stringValue(port[field]))
         .find(Boolean) || "";
       return { name, detail: detail || "未声明类型", summary, semantics };

@@ -4,6 +4,7 @@ from apps.api.tool_profile_catalog import catalog_tool_profiles
 from apps.api.tool_profile_identity import profile_tool_id
 from apps.api.tool_profile_prepare_payload import profile_prepare_payload
 from apps.api.tool_profile_registry import TOOL_PROFILES
+from apps.api.tool_profile_semantics import enrich_rule_template_semantics
 from apps.api.tool_profiles import resolve_tool_profile
 from apps.remote_runner.database_templates import DATABASE_TEMPLATES
 
@@ -315,3 +316,33 @@ def test_bio_tool_pack_resolved_profiles_include_edam_port_semantics() -> None:
     sam = next(item for item in bwa["ruleTemplate"]["outputs"] if item["name"] == "sam")
     assert sam["data"] == EDAM_SEQUENCE_ALIGNMENT
     assert sam["format"] == EDAM_SAM
+
+
+def test_profile_semantic_enrichment_does_not_guess_from_filename_or_mime() -> None:
+    template = {
+        "inputs": [
+            {
+                "name": "reads",
+                "type": "file",
+                "kind": "custom_artifact",
+                "mimeType": "text/plain",
+                "filename": "reads.fastq",
+            }
+        ],
+        "outputs": [
+            {
+                "name": "report",
+                "path": "results/report.json",
+                "kind": "custom_report",
+                "mimeType": "application/json",
+            }
+        ],
+    }
+
+    enriched = enrich_rule_template_semantics(template)
+
+    assert "type" not in enriched["outputs"][0]
+    assert "data" not in enriched["inputs"][0]
+    assert "format" not in enriched["inputs"][0]
+    assert "data" not in enriched["outputs"][0]
+    assert "format" not in enriched["outputs"][0]

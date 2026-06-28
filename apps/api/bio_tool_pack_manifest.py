@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from pathlib import PurePosixPath
+import re
 from typing import Any
 
 from .tool_profile_model import ToolProfile
@@ -12,12 +13,6 @@ from .tool_profile_semantics import enrich_rule_template_semantics
 
 
 CONTRACT_VERSION = "bio-tool-pack-v1"
-EDAM_GENERIC_DATA = "http://edamontology.org/data_0006"
-EDAM_BIGWIG = "http://edamontology.org/format_3006"
-EDAM_GFF = "http://edamontology.org/format_1975"
-EDAM_JSON = "http://edamontology.org/format_3464"
-EDAM_TSV = "http://edamontology.org/format_3475"
-EDAM_GENERIC_FORMAT = "http://edamontology.org/format_1915"
 
 _TOP_LEVEL_KEYS = {
     "contractVersion",
@@ -179,8 +174,7 @@ def _validate_profile_tool_id_uniqueness(profiles: list[ToolProfile], code: str)
 def _validated_rule_template(value: Any, *, package_source: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise BioToolPackManifestError("BIO_TOOL_PACK_RULE_TEMPLATE_REQUIRED")
-    template = enrich_rule_template_semantics(deepcopy(value))
-    complete_template = complete_rule_template_semantics(template)
+    template = deepcopy(value)
     action_count = sum(1 for key in ("commandTemplate", "wrapper", "script", "module") if template.get(key))
     if action_count != 1:
         raise BioToolPackManifestError("BIO_TOOL_PACK_RULE_ACTION_REQUIRED")
@@ -198,49 +192,18 @@ def _validated_rule_template(value: Any, *, package_source: str) -> dict[str, An
         raise BioToolPackManifestError("BIO_TOOL_PACK_LOG_REQUIRED")
     _validate_environment(template, package_source=package_source)
     _validate_smoke_fixture(template, inputs)
-    complete_ports = [
+    semantic_ports = [
         item
         for key in ("inputs", "outputs")
-        for item in complete_template.get(key) or []
+        for item in template.get(key) or []
         if isinstance(item, dict)
     ]
-    _validate_semantic_ports(complete_ports)
+    _validate_semantic_ports(semantic_ports)
     return template
 
 
 def complete_rule_template_semantics(rule_template: dict[str, Any]) -> dict[str, Any]:
-    complete = enrich_rule_template_semantics(deepcopy(rule_template))
-    for key in ("inputs", "outputs"):
-        ports = complete.get(key)
-        if not isinstance(ports, list):
-            continue
-        complete[key] = [_complete_port(port) if isinstance(port, dict) else port for port in ports]
-    return complete
-
-
-def _complete_port(port: dict[str, Any]) -> dict[str, Any]:
-    complete = dict(port)
-    if not str(complete.get("type") or "").strip():
-        complete["type"] = "file"
-    if not str(complete.get("data") or "").strip():
-        complete["data"] = EDAM_GENERIC_DATA
-    if not str(complete.get("format") or "").strip():
-        complete["format"] = _fallback_format(complete)
-    return complete
-
-
-def _fallback_format(port: dict[str, Any]) -> str:
-    suffixes = {suffix.lower() for suffix in PurePosixPath(str(port.get("path") or port.get("filename") or "")).suffixes}
-    mime_type = str(port.get("mimeType") or "").strip().lower()
-    if ".json" in suffixes or mime_type == "application/json":
-        return EDAM_JSON
-    if ".tsv" in suffixes or ".tab" in suffixes or mime_type == "text/tab-separated-values":
-        return EDAM_TSV
-    if {".gff", ".gff3"} & suffixes:
-        return EDAM_GFF
-    if {".bw", ".bigwig"} & suffixes:
-        return EDAM_BIGWIG
-    return EDAM_GENERIC_FORMAT
+    return enrich_rule_template_semantics(deepcopy(rule_template))
 
 
 def _validate_environment(template: dict[str, Any], *, package_source: str) -> None:
@@ -270,9 +233,24 @@ def _validate_smoke_fixture(template: dict[str, Any], inputs: list[dict[str, Any
 
 def _validate_semantic_ports(ports: list[dict[str, Any]]) -> None:
     for port in ports:
+        if any(str(port.get(key) or "").strip() for key in ("edamData", "edamFormat", "edamOperation", "edamResource")):
+            raise BioToolPackManifestError("BIO_TOOL_PACK_PORT_LEGACY_EDAM_FIELD_UNSUPPORTED")
         for key in ("name", "type", "kind", "mimeType", "data", "format"):
             if not str(port.get(key) or "").strip():
                 raise BioToolPackManifestError(f"BIO_TOOL_PACK_PORT_{key.upper()}_REQUIRED")
+        _validate_edam_term(str(port.get("data") or ""), prefix="data", code="BIO_TOOL_PACK_PORT_DATA_INVALID")
+        _validate_edam_term(str(port.get("format") or ""), prefix="format", code="BIO_TOOL_PACK_PORT_FORMAT_INVALID")
+        operation = str(port.get("operation") or "").strip()
+        if operation:
+            _validate_edam_term(operation, prefix="operation", code="BIO_TOOL_PACK_PORT_OPERATION_INVALID")
+
+
+def _validate_edam_term(value: str, *, prefix: str, code: str) -> None:
+    text = str(value or "").strip()
+    local = text.rsplit("/", 1)[-1] if "/" in text else text
+    local = re.sub(r"^EDAM:", "", local, flags=re.IGNORECASE)
+    if not re.fullmatch(rf"{re.escape(prefix)}_\d+", local):
+        raise BioToolPackManifestError(f"{code}: {value}")
 
 
 def _validated_report_schemas(value: Any, rule_template: dict[str, Any]) -> list[dict[str, Any]]:

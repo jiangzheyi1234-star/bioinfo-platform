@@ -19,8 +19,8 @@ def test_rule_port_contract_keeps_operation_advisory_and_resource_hard() -> None
     }
     output_spec = {
         "type": "file",
-        "data": "sequence_reads",
-        "format": "fastq",
+        "data": "EDAM:data_2044",
+        "format": "EDAM:format_1930",
         "operation": "operation_2421",
         "resource": "reference_sequence",
     }
@@ -75,7 +75,7 @@ def test_frontend_semantic_port_metadata_contract_is_visible_to_recommendations(
         ROOT / "apps/web/app/components/generated-workflow-recommendation-contract.ts"
     ).read_text(encoding="utf-8")
 
-    for field in ("operation?: string", "resource?: string", "edamOperation?: string", "edamResource?: string"):
+    for field in ("operation?: string", "resource?: string"):
         assert field in core_model
     assert "operation?: string" in workflow_api
     assert "resource?: string" in workflow_api
@@ -88,6 +88,8 @@ def test_frontend_semantic_port_metadata_contract_is_visible_to_recommendations(
     assert "advisoryChecks: string[]" in port_contract
     assert "advisoryCompatibilityChecks(advisoryFields)" in port_contract
     assert "`${field}:advisory-compatible`" in port_contract
+    assert "edamFormat" not in port_contract
+    assert "edamData" not in port_contract
     assert "advisoryEvidence(compatibilityDecision.advisoryChecks)" in recommendation_contract
     assert "辅助语义匹配" in recommendation_contract
 
@@ -107,10 +109,10 @@ def _ready_semantic_tool() -> dict[str, object]:
                 {
                     "name": "reads",
                     "type": "file",
-                    "edamData": "EDAM:data_2044",
-                    "edamFormat": "EDAM:format_1930",
-                    "edamOperation": "EDAM:operation_0335",
-                    "edamResource": "reference_sequence",
+                    "data": "EDAM:data_2044",
+                    "format": "EDAM:format_1930",
+                    "operation": "EDAM:operation_0335",
+                    "resource": "reference_sequence",
                     "required": True,
                 }
             ],
@@ -119,7 +121,7 @@ def _ready_semantic_tool() -> dict[str, object]:
                     "name": "report",
                     "type": "file",
                     "data": "data_3671",
-                    "format": "tsv",
+                    "format": "format_3475",
                     "operation": "operation_2421",
                     "resource": "sequence_report",
                     "path": "results/report.tsv",

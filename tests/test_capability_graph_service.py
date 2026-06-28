@@ -693,8 +693,10 @@ def _profile_rule_template(profile_id: str) -> dict[str, object]:
             {
                 "name": "reads",
                 "type": "file",
-                "kind": "reads",
+                "kind": "sequence_reads",
                 "mimeType": "text/plain",
+                "data": "data_2044",
+                "format": "format_1930",
                 "required": True,
             }
         ],
@@ -702,8 +704,11 @@ def _profile_rule_template(profile_id: str) -> dict[str, object]:
             {
                 "name": "report",
                 "path": f"results/{profile_id}.txt",
+                "type": "file",
                 "kind": "report",
                 "mimeType": "text/plain",
+                "data": "data_0006",
+                "format": "format_1915",
             }
         ],
         "params": {},
