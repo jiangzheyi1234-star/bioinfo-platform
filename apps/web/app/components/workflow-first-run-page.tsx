@@ -25,14 +25,15 @@ import { cn } from "@/lib/utils";
 
 import { useSshShell } from "./ssh-shell";
 import { useWorkflowsPageState } from "./use-workflows-page-state";
+import { downloadFirstRunValidationCard } from "./workflow-first-run-api";
 import { WorkflowPageHeader } from "./workflow-page-header";
 import { WorkflowWorkspaceTabs } from "./workflow-workspace-tabs";
 import {
   ResultPackagePanel,
   ValidationCard,
   artifactName,
-  buildValidationCardPayload,
   formatBytes,
+  firstRunResultPackageReady,
 } from "./workflow-first-run-validation";
 import {
   exportWorkflowResultPackage,
@@ -67,6 +68,8 @@ export function WorkflowFirstRunPage() {
   const [packageLoading, setPackageLoading] = useState(false);
   const [packageError, setPackageError] = useState("");
   const [exportingPackage, setExportingPackage] = useState(false);
+  const [validationCardLoading, setValidationCardLoading] = useState(false);
+  const [validationCardError, setValidationCardError] = useState("");
 
   const run = state.runDetail?.run || state.submittedRun;
   const result = state.runDetail?.results;
@@ -84,8 +87,8 @@ export function WorkflowFirstRunPage() {
   const runCompleted = run?.status === "completed";
   const runFailed = run?.status === "failed" || run?.status === "error";
   const reportReady = runCompleted && artifacts.length > 0;
-  const packageReady = packageExports.length > 0;
-  const validationReady = packageReady && Boolean(workflowRevisionId);
+  const packageReady = packageExports.some(firstRunResultPackageReady);
+  const validationReady = runCompleted && packageReady && Boolean(workflowRevisionId);
   const tablePreview = preferredTablePreview(previews);
   const reportPreview = preferredReportPreview(previews);
   const latestPackage = packageExports[0];
@@ -173,27 +176,21 @@ export function WorkflowFirstRunPage() {
     }
   }
 
-  function downloadValidationCard() {
-    if (!run || !resultId) return;
-    const card = buildValidationCardPayload({
-      artifacts,
-      inputArtifacts,
-      latestPackage,
-      resultId,
-      run,
-      sampleUploads: state.sampleUploads,
-      server: state.server,
-      workflowRevisionId,
-    });
-    const blob = new Blob([JSON.stringify(card, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${resultId}.validation-card.json`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
-    URL.revokeObjectURL(url);
+  async function downloadValidationCard() {
+    if (!run?.runId || validationCardLoading) return;
+    setValidationCardLoading(true);
+    setValidationCardError("");
+    try {
+      await downloadFirstRunValidationCard({
+        resultId,
+        runId: run.runId,
+        serverId: state.server?.serverId,
+      });
+    } catch (err) {
+      setValidationCardError(workflowErrorMessage(err, "验证卡生成失败"));
+    } finally {
+      setValidationCardLoading(false);
+    }
   }
 
   return (
@@ -283,6 +280,7 @@ export function WorkflowFirstRunPage() {
             />
             <ValidationCard
               artifacts={artifacts}
+              error={validationCardError}
               inputArtifacts={inputArtifacts}
               packageExport={latestPackage}
               ready={validationReady}
@@ -290,8 +288,9 @@ export function WorkflowFirstRunPage() {
               run={run}
               sampleUploads={state.sampleUploads}
               server={state.server}
+              downloading={validationCardLoading}
               workflowRevisionId={workflowRevisionId}
-              onDownload={downloadValidationCard}
+              onDownload={() => void downloadValidationCard()}
             />
           </div>
         </section>

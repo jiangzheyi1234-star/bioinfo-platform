@@ -4,6 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from apps.api.problem_details import build_problem_detail, ensure_request_id
+from apps.api.workflow_first_run_service import WorkflowFirstRunValidationCardUnavailableError
 from apps.api.workflow_sample_data_service import WorkflowSampleDataUnavailableError
 from core.app_runtime.errors import (
     RuntimeConflictError,
@@ -46,6 +47,13 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def workflow_sample_data_unavailable_handler(
         _request: Request,
         exc: WorkflowSampleDataUnavailableError,
+    ) -> JSONResponse:
+        return status_detail_response(exc)
+
+    @app.exception_handler(WorkflowFirstRunValidationCardUnavailableError)
+    async def workflow_first_run_validation_card_unavailable_handler(
+        _request: Request,
+        exc: WorkflowFirstRunValidationCardUnavailableError,
     ) -> JSONResponse:
         return status_detail_response(exc)
 

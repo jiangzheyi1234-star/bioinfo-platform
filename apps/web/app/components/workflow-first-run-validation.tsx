@@ -100,8 +100,19 @@ export function ResultPackagePanel({
   );
 }
 
+export function firstRunResultPackageReady(item: WorkflowResultPackageExport) {
+  return (
+    item.lifecycleState === "active" &&
+    item.packageBytesState === "available" &&
+    Boolean(item.download) &&
+    (item.artifactPayloadMode === "full" || item.includeArtifacts === true)
+  );
+}
+
 export function ValidationCard({
   artifacts,
+  downloading,
+  error,
   inputArtifacts,
   onDownload,
   packageExport,
@@ -113,6 +124,8 @@ export function ValidationCard({
   workflowRevisionId,
 }: {
   artifacts: WorkflowArtifact[];
+  downloading: boolean;
+  error: string;
   inputArtifacts: FirstRunInputArtifacts;
   onDownload: () => void;
   packageExport?: WorkflowResultPackageExport;
@@ -137,11 +150,17 @@ export function ValidationCard({
           </div>
           <div className="mt-1 text-xs text-slate-500">{ready ? "可交付" : "等待结果包与 WorkflowRevision"}</div>
         </div>
-        <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs" disabled={!ready} onClick={onDownload}>
-          <Download strokeWidth={1.5} className="h-3.5 w-3.5" />
+        <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs" disabled={!ready || downloading} onClick={onDownload}>
+          {downloading ? <Loader2 strokeWidth={1.5} className="h-3.5 w-3.5 animate-spin" /> : <Download strokeWidth={1.5} className="h-3.5 w-3.5" />}
           JSON
         </Button>
       </div>
+
+      {error ? (
+        <Alert variant="destructive" className="mt-3">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
 
       <div className="mt-4 grid gap-2 text-xs">
         <KeyValue label="dataset" value="QIIME 2 Moving Pictures tutorial" />
@@ -162,63 +181,6 @@ export function ValidationCard({
       </div>
     </section>
   );
-}
-
-export function buildValidationCardPayload({
-  artifacts,
-  inputArtifacts,
-  latestPackage,
-  resultId,
-  run,
-  sampleUploads,
-  server,
-  workflowRevisionId,
-}: {
-  artifacts: WorkflowArtifact[];
-  inputArtifacts: FirstRunInputArtifacts;
-  latestPackage?: WorkflowResultPackageExport;
-  resultId: string;
-  run: WorkflowRun;
-  sampleUploads: WorkflowUpload[];
-  server: WorkflowServer | null;
-  workflowRevisionId: string;
-}) {
-  return {
-    schemaVersion: "h2ometa-first-successful-run-validation-card.v1",
-    generatedAt: new Date().toISOString(),
-    scenario: {
-      dataset: "QIIME 2 Moving Pictures tutorial",
-      pipelineId: "moving-pictures-16s-rulegraph-v1",
-      pipelineName: "Moving Pictures 16S",
-    },
-    run: {
-      runId: run.runId,
-      resultId,
-      status: run.status,
-      stage: run.stage,
-      startedAt: run.startedAt,
-      finishedAt: run.finishedAt,
-      workflowRevisionId,
-    },
-    runner: {
-      serverId: server?.serverId,
-      label: server?.label,
-      runtime: runtimeLabel(server),
-    },
-    inputs: {
-      sampleUploads,
-      inputArtifacts,
-    },
-    outputs: artifacts.map((artifact) => ({
-      artifactId: artifact.artifactId,
-      key: artifactDisplayValue(artifact, "artifactKey"),
-      kind: artifact.kind,
-      mimeType: artifact.mimeType,
-      sizeBytes: artifact.sizeBytes,
-      sha256: artifact.sha256,
-    })),
-    package: latestPackage || null,
-  };
 }
 
 function KeyValue({ label, mono = false, value }: { label: string; mono?: boolean; value?: string }) {

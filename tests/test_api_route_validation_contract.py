@@ -382,10 +382,12 @@ def test_database_candidate_conflicts_are_not_parsed_in_api_route_errors() -> No
 def test_api_route_error_status_codes_live_on_domain_errors() -> None:
     route_errors = _source("apps/api/route_errors.py")
     runtime_errors = _source("core/app_runtime/errors.py")
+    first_run_service = _source("apps/api/workflow_first_run_service.py")
     sample_service = _source("apps/api/workflow_sample_data_service.py")
 
     assert "RuntimeConflictError(RuntimeServiceError):\n    status_code = 409" in runtime_errors
     assert "WorkflowSampleDataUnavailableError(ValueError):\n    status_code = 404" in sample_service
+    assert "WorkflowFirstRunValidationCardUnavailableError(ValueError):\n    status_code = 409" in first_run_service
     assert "detail_response(409," not in route_errors
     assert "detail_response(404, str(exc))" not in route_errors
     assert "status_payload_response(exc)" in route_errors
