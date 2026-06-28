@@ -531,6 +531,44 @@ def test_artifact_cache_hit_adopts_cached_artifact_for_current_attempt(tmp_path:
     ]
 
 
+def test_artifact_cache_adoption_rejects_unmanaged_target_output_before_cache_mutation(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    revision = _create_revision(cfg)
+    source_spec = _run_spec("run_cache_source_unmanaged_target", revision["workflowRevisionId"])
+    target_spec = _run_spec("run_cache_adopt_unmanaged_target", revision["workflowRevisionId"])
+    _create_terminal_run(cfg, source_spec)
+    persist_artifact(
+        cfg,
+        run_id="run_cache_source_unmanaged_target",
+        kind="report",
+        path=_managed_report(cfg, "run_cache_source_unmanaged_target", b"blocked target\n"),
+        mime_type="text/plain",
+        artifact_key="report",
+        step_id="summarize",
+    )
+    claim = _create_active_attempt(cfg, target_spec)
+    result_dir = Path(cfg.results_dir) / "run_cache_adopt_unmanaged_target"
+    outside_output = tmp_path / "outside-cache-adopt-target.txt"
+
+    with pytest.raises(ValueError, match="ARTIFACT_CACHE_ADOPTION_OUTPUT_PATH_UNMANAGED"):
+        try_adopt_cached_outputs(
+            cfg,
+            run_id="run_cache_adopt_unmanaged_target",
+            request_id="req_run_cache_adopt_unmanaged_target",
+            run_spec=target_spec,
+            output_schema=_output_schema(),
+            outputs={"report": str(outside_output)},
+            attempt_id=claim["attemptId"],
+            lease_generation=claim["leaseGeneration"],
+            result_dir=str(result_dir),
+        )
+
+    assert not outside_output.exists()
+    assert fetch_run_results(cfg, "run_cache_adopt_unmanaged_target")["artifacts"] == []
+    assert list_evidence_events(cfg, event_type="artifact.cache.lookup.v1") == []
+    assert list_evidence_events(cfg, event_type="artifact.cache.adopt.v1") == []
+
+
 def test_artifact_cache_adoption_skips_when_cached_payload_is_unavailable(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     revision = _create_revision(cfg)

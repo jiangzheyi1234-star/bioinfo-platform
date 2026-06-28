@@ -49,7 +49,8 @@ def try_adopt_cached_outputs(
     workflow_revision_id = str(run_spec.get("workflowRevisionId") or "").strip()
     if not workflow_revision_id:
         return _not_adopted("workflow_revision_missing")
-    specs = _declared_output_specs(output_schema, outputs)
+    result_root = _result_dir_path(result_dir)
+    specs = _declared_output_specs(output_schema, outputs, result_dir=result_root)
     if not specs:
         return _not_adopted("output_artifacts_missing")
     _require_current_run_revision_and_lease(
@@ -135,7 +136,7 @@ def try_adopt_cached_outputs(
                     run=run,
                     run_id=run_id,
                     request_id=request_id,
-                    result_dir=result_dir,
+                    result_dir=str(result_root),
                     artifact_count=len(artifacts),
                     cache_keys=[lookup["cacheKey"] for lookup in lookups],
                     restored_paths=[artifact["restoredPath"] for artifact in artifacts],
@@ -446,6 +447,8 @@ def _restore_pin_owner_id(attempt_id: str, lease_generation: int) -> str:
 def _declared_output_specs(
     output_schema: dict[str, Any] | None,
     outputs: dict[str, str] | None,
+    *,
+    result_dir: Path,
 ) -> list[dict[str, str]]:
     if not isinstance(output_schema, dict) or not isinstance(outputs, dict) or not outputs:
         return []
@@ -469,10 +472,36 @@ def _declared_output_specs(
                 "stepId": str(artifact.get("stepId") or "").strip(),
                 "kind": kind,
                 "mimeType": mime_type,
-                "declaredPath": str(outputs[key]),
+                "declaredPath": str(_declared_output_path(outputs[key], result_dir=result_dir)),
             }
         )
     return specs
+
+
+def _result_dir_path(result_dir: str) -> Path:
+    normalized = str(result_dir or "").strip()
+    if not normalized:
+        raise ValueError("ARTIFACT_CACHE_ADOPTION_RESULT_DIR_REQUIRED")
+    return Path(normalized).resolve()
+
+
+def _declared_output_path(raw: Any, *, result_dir: Path) -> Path:
+    path = Path(str(raw or "").strip())
+    if not str(path):
+        raise ValueError("ARTIFACT_CACHE_ADOPTION_OUTPUT_PATH_REQUIRED")
+    candidate = path if path.is_absolute() else result_dir / path
+    resolved = candidate.resolve()
+    if not _is_relative_to(resolved, result_dir):
+        raise ValueError("ARTIFACT_CACHE_ADOPTION_OUTPUT_PATH_UNMANAGED")
+    return resolved
+
+
+def _is_relative_to(path: Path, base: Path) -> bool:
+    try:
+        path.relative_to(base)
+    except ValueError:
+        return False
+    return True
 
 
 def _lookup_payload(
