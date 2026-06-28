@@ -479,7 +479,8 @@ def test_candidate_output_adoption_uses_s3_materialization(
     monkeypatch.setattr("apps.remote_runner.artifact_io._build_s3_client", lambda _cfg: fake)
     cfg = _s3_config(tmp_path)
     claim = _create_attempt(cfg, "run_candidate_s3")
-    output = tmp_path / "candidate.txt"
+    output = Path(cfg.work_dir) / claim["runId"] / "candidate.txt"
+    output.parent.mkdir(parents=True, exist_ok=True)
     output.write_bytes(b"candidate output\n")
     candidate = record_candidate_output(
         cfg,

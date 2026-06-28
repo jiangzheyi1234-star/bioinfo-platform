@@ -8,7 +8,7 @@ import sqlite3
 import uuid
 from typing import Any
 
-from .artifact_io import artifact_payload_stats, persist_artifact_location
+from .artifact_io import artifact_payload_stats, assert_managed_artifact_storage, persist_artifact_location
 from .config import RemoteRunnerConfig
 from .evidence_storage import append_evidence_event
 from .event_contracts import append_run_event_v2
@@ -371,6 +371,7 @@ def _adopt_artifact(
     lineage_predicate: str,
     lineage_payload_extra: dict[str, Any] | None,
 ) -> dict[str, Any]:
+    _require_managed_candidate_path(cfg, path=path, output_key=artifact_key)
     existing_edge = connection.execute(
         """
         SELECT edges.*, artifacts.artifact_id
@@ -572,6 +573,21 @@ def _adopt_artifact(
         "evidenceEventId": evidence["eventId"],
         **_cache_entry_payload(cache_entry),
     }
+
+
+def _require_managed_candidate_path(cfg: RemoteRunnerConfig, *, path: Path, output_key: str) -> None:
+    try:
+        assert_managed_artifact_storage(
+            cfg,
+            {
+                "storageBackend": "local",
+                "storageUri": Path(path).resolve().as_uri(),
+            },
+        )
+    except ValueError as exc:
+        if str(exc).startswith("RESULT_ARTIFACT_STORAGE_UNMANAGED"):
+            raise ValueError(f"CANDIDATE_OUTPUT_PATH_UNMANAGED: {output_key}") from exc
+        raise
 
 
 def _complete_run_after_adoption(
