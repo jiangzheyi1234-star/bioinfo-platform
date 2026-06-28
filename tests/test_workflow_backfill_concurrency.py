@@ -143,6 +143,27 @@ def test_backfill_admission_respects_backward_run_order(
     assert detail["partitions"][1]["partitionKey"] == "2026-06-02"
 
 
+def test_backfill_admission_rejects_unsupported_stored_run_order(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    _disable_submission_guards(monkeypatch)
+    trigger = _create_backfill_trigger(cfg)
+    launched = launch_workflow_trigger_backfill_from_request(
+        cfg,
+        trigger["triggerId"],
+        _launch_request(cfg, trigger, range_end="2026-06-04"),
+    )["data"]
+    _set_backfill_launch_run_order(cfg, launched["launchId"], "sideways")
+
+    with pytest.raises(ValueError, match="WORKFLOW_BACKFILL_RUN_ORDER_UNSUPPORTED: sideways"):
+        get_workflow_backfill_launch_from_storage(cfg, launched["launchId"])
+
+    with pytest.raises(ValueError, match="WORKFLOW_BACKFILL_RUN_ORDER_UNSUPPORTED: sideways"):
+        claim_workflow_backfill_partitions_for_admission(cfg, launch_id=launched["launchId"], limit=1)
+
+
 def test_backfill_replay_fails_closed_when_launch_partitions_are_incomplete(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
@@ -324,6 +345,15 @@ def _mark_backfill_launch_state(cfg, launch_id: str, state: str) -> None:
         connection.execute(
             "UPDATE workflow_backfill_launches SET state = ?, updated_at = '2026-06-23T10:00:00Z' WHERE launch_id = ?",
             (state, launch_id),
+        )
+        connection.commit()
+
+
+def _set_backfill_launch_run_order(cfg, launch_id: str, run_order: str) -> None:
+    with get_connection(cfg) as connection:
+        connection.execute(
+            "UPDATE workflow_backfill_launches SET run_order = ?, updated_at = '2026-06-23T10:00:00Z' WHERE launch_id = ?",
+            (run_order, launch_id),
         )
         connection.commit()
 

@@ -12,6 +12,7 @@ from .storage_core import get_connection, now_iso
 
 BACKFILL_LAUNCH_LIST_SCHEMA = "workflow-backfill-launch-list.v1"
 BACKFILL_LAUNCH_DETAIL_SCHEMA = "workflow-backfill-launch-detail.v1"
+BACKFILL_RUN_ORDERS = {"forward", "backward"}
 TERMINAL_RUN_STATUSES = {"completed", "failed", "canceled", "cancelled"}
 NON_CANCELLABLE_RUN_STATUSES = TERMINAL_RUN_STATUSES | {"canceling"}
 ADMITTING_PARTITION_STATES = {"admitting"}
@@ -35,6 +36,7 @@ def record_workflow_backfill_launch(
     actor: str,
     request: dict[str, Any],
 ) -> dict[str, Any]:
+    normalized_run_order = _backfill_run_order(run_order)
     payload_hash = _payload_hash(request)
     timestamp = now_iso()
     with get_connection(cfg) as connection:
@@ -67,7 +69,7 @@ def record_workflow_backfill_launch(
                 range_end,
                 timezone,
                 partition_unit,
-                run_order,
+                normalized_run_order,
                 reprocess_behavior,
                 int(partition_count),
                 "launching",
@@ -498,6 +500,7 @@ def _partition_rows_for_launch(connection: Any, launch_id: str) -> list[Any]:
 
 def _launch_row_to_dict(row: Any, *, created: bool | None) -> dict[str, Any]:
     request = _loads_json(row["request_json"], {})
+    run_order = _backfill_run_order(row["run_order"])
     payload = {
         "launchId": row["launch_id"],
         "triggerId": row["trigger_id"],
@@ -507,7 +510,7 @@ def _launch_row_to_dict(row: Any, *, created: bool | None) -> dict[str, Any]:
         "rangeEnd": row["range_end"],
         "timezone": row["timezone"],
         "partitionUnit": row["partition_unit"],
-        "runOrder": row["run_order"],
+        "runOrder": run_order,
         "reprocessBehavior": row["reprocess_behavior"],
         "partitionCount": int(row["partition_count"]),
         "state": row["state"],
@@ -520,7 +523,7 @@ def _launch_row_to_dict(row: Any, *, created: bool | None) -> dict[str, Any]:
             "timezone": row["timezone"],
             "partitionUnit": row["partition_unit"],
             "semantics": "half-open",
-            "runOrder": row["run_order"],
+            "runOrder": run_order,
         },
         "launchStrategy": "one-run-per-partition",
         "concurrency": {
@@ -740,7 +743,17 @@ def _bounded_limit(value: int) -> int:
 
 
 def _partition_order_direction(launch: Any) -> str:
-    return "DESC" if str(launch["run_order"] or "").strip().lower() == "backward" else "ASC"
+    run_order = _backfill_run_order(launch["run_order"])
+    if run_order == "backward":
+        return "DESC"
+    return "ASC"
+
+
+def _backfill_run_order(value: Any) -> str:
+    run_order = str(value or "").strip().lower()
+    if run_order not in BACKFILL_RUN_ORDERS:
+        raise ValueError(f"WORKFLOW_BACKFILL_RUN_ORDER_UNSUPPORTED: {value}")
+    return run_order
 
 
 def _optional_int(value: Any) -> int | None:
