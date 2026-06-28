@@ -630,10 +630,13 @@ function PlanItemList({
 }
 
 function controllerTickCanPreviewPolicy(tick: WorkflowArtifactLifecycleControllerTick) {
+  const preview = tick.gcPreview;
   return (
     tick.policyDecision?.decision === "preview_ready" &&
-    (tick.gcPreview?.candidateCount || 0) > 0 &&
-    (tick.gcPreview?.deleteBytes || 0) > 0
+    Boolean(preview?.planId.trim()) &&
+    Boolean(preview?.planFingerprint.trim()) &&
+    (preview?.candidateCount || 0) > 0 &&
+    (preview?.deleteBytes || 0) > 0
   );
 }
 

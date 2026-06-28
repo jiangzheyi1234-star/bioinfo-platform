@@ -8,6 +8,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from apps.remote_runner import route_utils
+from apps.remote_runner import artifact_lifecycle_controller_control as controller_control
+from apps.remote_runner.api_models import ArtifactLifecycleControllerRunOnceRequest
 from apps.remote_runner.artifact_lifecycle_service import (
     ARTIFACT_GC_CONFIRMATION,
     build_artifact_lifecycle_usage,
@@ -223,6 +225,92 @@ def test_artifact_lifecycle_controller_run_once_route_returns_safe_preview_only_
     assert governance[-1]["details"]["controlsExposed"] is False
     _assert_no_artifact_lifecycle_controller_public_leak(data, artifact)
     _assert_no_artifact_lifecycle_controller_public_leak(governance[-1]["details"], artifact)
+
+
+def test_artifact_lifecycle_controller_run_once_rejects_missing_plan_fingerprint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+
+    def fake_controller_tick(_cfg, *, payload):
+        return {
+            "tickId": "alct_missing_fingerprint",
+            "evidenceId": "evt_missing_fingerprint",
+            "evaluatedAt": "2099-01-01T00:00:00Z",
+            "policy": {
+                "retentionDays": int(payload["retentionDays"]),
+                "eligibleRunStatuses": list(payload["eligibleRunStatuses"]),
+            },
+            "usage": {
+                "activeBytes": 0,
+                "activeStorageObjectCount": 0,
+                "quotaOverageBytes": 0,
+            },
+            "policyDecision": {
+                "decision": "preview_ready",
+                "reasonCode": "DELETE_CONFIRMATION_REQUIRED",
+                "deletionAuthorized": False,
+                "deleteConfirmationRequired": True,
+                "candidateCount": 1,
+                "deleteBytes": 25,
+            },
+            "retentionHolds": {
+                "schemaVersion": "artifact-retention-hold-summary.v1",
+                "protectedGroupCount": 0,
+                "protectedBytes": 0,
+                "reasonCount": 0,
+                "reasons": [],
+            },
+            "batchSafety": {
+                "schemaVersion": "artifact-gc-batch-safety.v1",
+                "maxDeleteBytes": None,
+                "maxDeleteBytesApplied": False,
+                "candidateCount": 1,
+                "candidateBytes": 25,
+                "candidateArtifactCount": 1,
+                "candidateRunCount": 1,
+                "limitedGroupCount": 0,
+                "limitedBytes": 0,
+            },
+            "gcPreview": {
+                "planId": "agc_missing_fingerprint",
+                "candidateCount": 1,
+                "deleteBytes": 25,
+                "protectedCount": 0,
+                "protectedBytes": 0,
+                "candidateArtifactCount": 1,
+                "candidateRunCount": 1,
+            },
+        }
+
+    monkeypatch.setattr(
+        controller_control,
+        "run_artifact_lifecycle_controller_once",
+        fake_controller_tick,
+    )
+    request = ArtifactLifecycleControllerRunOnceRequest.model_validate(
+        {
+            "confirmation": "run-artifact-lifecycle-controller-once",
+            "retentionDays": 30,
+            "eligibleRunStatuses": ["completed"],
+            "actor": "operator@example.test",
+        }
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="ARTIFACT_LIFECYCLE_CONTROLLER_TICK_PLAN_FINGERPRINT_REQUIRED",
+    ):
+        controller_control.run_governed_artifact_lifecycle_controller_once(cfg, request)
+
+    governance = list_governance_audit_events(
+        cfg,
+        subject_kind="artifact_lifecycle_controller",
+        subject_id="alct_missing_fingerprint",
+        action="artifact.lifecycle.controller.run_once",
+    )["items"]
+    assert governance == []
 
 
 def test_artifact_lifecycle_controller_quota_overage_does_not_broaden_gc_eligibility(tmp_path: Path) -> None:

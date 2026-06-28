@@ -12,6 +12,7 @@ def test_artifact_lifecycle_gc_is_exposed_through_remote_local_and_runtime_layer
     remote_controller_control = _read("apps/remote_runner/artifact_lifecycle_controller_control.py")
     remote_controller_control_api = _read("apps/remote_runner/artifact_lifecycle_controller_control_route_service.py")
     remote_controller_read_api = _read("apps/remote_runner/artifact_lifecycle_controller_read_api.py")
+    remote_controller_read_model = _read("apps/remote_runner/artifact_lifecycle_controller_read_model.py")
     local_routes = _read("apps/api/execution_query_routes.py")
     local_service = _read("apps/api/execution_query_service.py")
     remote_models = _read("apps/remote_runner/api_models.py")
@@ -42,6 +43,10 @@ def test_artifact_lifecycle_gc_is_exposed_through_remote_local_and_runtime_layer
     assert "ARTIFACT_LIFECYCLE_CONTROLLER_RUN_ONCE_CONFIRMATION" in remote_controller_control
     assert "deleteExecutionAuthorized" in remote_controller_control
     assert "controlsExposed" in remote_controller_control
+    assert "ARTIFACT_LIFECYCLE_CONTROLLER_TICK_PLAN_ID_REQUIRED" in remote_controller_control
+    assert "ARTIFACT_LIFECYCLE_CONTROLLER_TICK_PLAN_FINGERPRINT_REQUIRED" in remote_controller_control
+    assert "ARTIFACT_LIFECYCLE_CONTROLLER_TICK_PLAN_ID_REQUIRED" in remote_controller_read_model
+    assert "ARTIFACT_LIFECYCLE_CONTROLLER_TICK_PLAN_FINGERPRINT_REQUIRED" in remote_controller_read_model
     assert "get_artifact_lifecycle_usage_from_request" in remote_service
     assert 'action="artifact.lifecycle.usage.read"' in remote_service
     assert "build_governed_artifact_lifecycle_usage" in remote_service

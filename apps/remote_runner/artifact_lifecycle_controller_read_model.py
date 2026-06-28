@@ -122,19 +122,7 @@ def _project_tick(row: Any) -> dict[str, Any]:
                 "limitedBytes",
             ),
         ),
-        "gcPreview": _copy_keys(
-            _dict(payload.get("gcPreview")),
-            (
-                "planId",
-                "planFingerprint",
-                "candidateCount",
-                "deleteBytes",
-                "protectedCount",
-                "protectedBytes",
-                "candidateArtifactCount",
-                "candidateRunCount",
-            ),
-        ),
+        "gcPreview": _project_gc_preview(_dict(payload.get("gcPreview"))),
     }
 
 
@@ -152,6 +140,26 @@ def _project_retention_holds(value: dict[str, Any]) -> dict[str, Any]:
     return projected
 
 
+def _project_gc_preview(value: dict[str, Any]) -> dict[str, Any]:
+    plan_id = _required_text(value.get("planId"), "ARTIFACT_LIFECYCLE_CONTROLLER_TICK_PLAN_ID_REQUIRED")
+    plan_fingerprint = _required_text(
+        value.get("planFingerprint"),
+        "ARTIFACT_LIFECYCLE_CONTROLLER_TICK_PLAN_FINGERPRINT_REQUIRED",
+    )
+    projected = _copy_keys(
+        value,
+        (
+            "candidateCount",
+            "deleteBytes",
+            "protectedCount",
+            "protectedBytes",
+            "candidateArtifactCount",
+            "candidateRunCount",
+        ),
+    )
+    return {"planId": plan_id, "planFingerprint": plan_fingerprint, **projected}
+
+
 def _copy_keys(value: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:
     return {key: value[key] for key in keys if key in value}
 
@@ -162,6 +170,12 @@ def _dict(value: Any) -> dict[str, Any]:
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _required_text(value: Any, error_code: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(error_code)
+    return value.strip()
 
 
 def _bounded_limit(value: int) -> int:

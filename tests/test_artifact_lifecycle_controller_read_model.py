@@ -4,6 +4,8 @@ import hashlib
 import json
 from typing import Any
 
+import pytest
+
 from apps.remote_runner.artifact_lifecycle_controller import (
     ARTIFACT_LIFECYCLE_CONTROLLER_EVENT_TYPE,
     ARTIFACT_LIFECYCLE_CONTROLLER_MODE,
@@ -86,19 +88,30 @@ def test_artifact_lifecycle_controller_tick_read_model_is_newest_first_and_publi
     assert "f" * 64 not in serialized
 
 
-def test_artifact_lifecycle_controller_tick_read_model_accepts_legacy_ticks_without_fingerprint(tmp_path) -> None:
+@pytest.mark.parametrize(
+    ("include_plan_id", "include_fingerprint", "error_code"),
+    [
+        (False, True, "ARTIFACT_LIFECYCLE_CONTROLLER_TICK_PLAN_ID_REQUIRED"),
+        (True, False, "ARTIFACT_LIFECYCLE_CONTROLLER_TICK_PLAN_FINGERPRINT_REQUIRED"),
+    ],
+)
+def test_artifact_lifecycle_controller_tick_read_model_rejects_ticks_without_plan_identity(
+    tmp_path,
+    include_plan_id: bool,
+    include_fingerprint: bool,
+    error_code: str,
+) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     _append_controller_tick(
         cfg,
-        "alct_legacy",
+        "alct_missing_plan_identity",
         evaluated_at="2099-01-01T00:00:00Z",
-        include_fingerprint=False,
+        include_plan_id=include_plan_id,
+        include_fingerprint=include_fingerprint,
     )
 
-    model = list_artifact_lifecycle_controller_ticks(cfg)
-
-    assert model["items"][0]["gcPreview"]["planId"] == "agc_alct_legacy"
-    assert "planFingerprint" not in model["items"][0]["gcPreview"]
+    with pytest.raises(ValueError, match=error_code):
+        list_artifact_lifecycle_controller_ticks(cfg)
 
 
 def _append_controller_tick(
@@ -106,6 +119,7 @@ def _append_controller_tick(
     tick_id: str,
     *,
     evaluated_at: str,
+    include_plan_id: bool = True,
     include_fingerprint: bool = True,
 ) -> dict[str, Any]:
     gc_preview = {
@@ -124,6 +138,8 @@ def _append_controller_tick(
         "materializationIds": ["mat_secret"],
         "sha256": "f" * 64,
     }
+    if not include_plan_id:
+        del gc_preview["planId"]
     if include_fingerprint:
         gc_preview["planFingerprint"] = _fingerprint_for_tick(tick_id)
     payload = {
