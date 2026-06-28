@@ -321,6 +321,9 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "context.ruleRetryExecutionPlan" in execution_panel
     assert "context.resumePlan" in execution_panel
     assert "RuleRetryPlanSummary" in execution_panel
+    assert "function runRetryLabel" in execution_panel
+    assert 'label="run retry"' in execution_panel
+    assert 'label="retry"' not in execution_panel
     assert "ruleOutputInvalidationPlan" in execution_panel
     assert "RuleOutputInvalidationPlanPreview" in execution_panel
     assert "onApplyRuleOutputInvalidation" in execution_panel
@@ -352,8 +355,11 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "plan.selectedAttemptCount" in execution_panel
     assert "planned only" in execution_panel
     assert "not enabled" in execution_panel
-    assert "规则级重试计划仅供诊断" in execution_panel
-    assert "当前重试按钮会重新调度整个 run" in execution_panel
+    assert "规则级重试计划仅供诊断摘要" in execution_panel
+    assert "整跑重试和 rule-level retry 使用各自独立按钮" in execution_panel
+    assert "当前重试按钮会重新调度整个 run" not in execution_panel
+    assert "整跑重试" in execution_panel
+    assert "整跑重试不可用" in execution_panel
     assert "rule retry execution plan" in execution_panel
     assert "output invalidation plan" in execution_panel
     assert "payload delete" in execution_panel
@@ -380,7 +386,9 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "artifact adoption" in execution_panel
     assert "command preview" in execution_panel
     assert "preview only" in execution_panel
-    assert "局部规则重试执行仍关闭" in execution_panel
+    assert "rule-level retry 执行预览展示 Snakemake 命令语义" in execution_panel
+    assert "提交由独立确认按钮按当前 plan hash 入队" in execution_panel
+    assert "局部规则重试执行仍关闭" not in execution_panel
     assert "unsafe flags" in execution_panel
     assert "onRetryRule" not in execution_panel
     assert "retryRule" not in execution_panel

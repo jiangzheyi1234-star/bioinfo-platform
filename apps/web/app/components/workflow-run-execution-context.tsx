@@ -62,7 +62,7 @@ function latestAttempts(attempts: WorkflowRunExecutionAttempt[]) {
   return [...attempts].sort((left, right) => (right.attemptNumber || 0) - (left.attemptNumber || 0)).slice(0, 3);
 }
 
-function retryLabel(context: WorkflowRunExecutionContext) {
+function runRetryLabel(context: WorkflowRunExecutionContext) {
   const retry = context.retryEligibility;
   const reason = retry?.reasonCode || "—";
   if (retry?.eligibleNow) return `可调度 · ${reason}`;
@@ -173,7 +173,7 @@ function RuleRetryPlanSummary({ context }: { context: WorkflowRunExecutionContex
         <ExecutionMetric label="reason" value={reason} />
       </div>
       <p className="mt-2 text-[11px] leading-5 text-amber-800">
-        规则级重试计划仅供诊断；当前重试按钮会重新调度整个 run。
+        规则级重试计划仅供诊断摘要；整跑重试和 rule-level retry 使用各自独立按钮，并在提交时重新校验当前计划。
       </p>
       <div className="mt-2 grid gap-1 text-[11px] sm:grid-cols-[96px_minmax(0,1fr)]">
         <span className="text-amber-700">selection</span>
@@ -392,7 +392,7 @@ function RuleRetryExecutionPlanPreview({ plan }: { plan?: WorkflowRunRuleRetryEx
         <ExecutionMetric label="reason" value={plan.reasonCode || "—"} />
       </div>
       <p className="mt-2 text-[11px] leading-5 text-slate-500">
-        局部规则重试执行仍关闭；这里仅展示 Snakemake 命令语义和执行前必须解除的阻断项。
+        rule-level retry 执行预览展示 Snakemake 命令语义、输出边界和启动前检查；提交由独立确认按钮按当前 plan hash 入队。
       </p>
       <div className="mt-2 grid gap-1 text-[11px] sm:grid-cols-[116px_minmax(0,1fr)]">
         <span className="text-slate-500">command preview</span>
@@ -577,7 +577,7 @@ export function WorkflowRunExecutionContextPanel({
               size="sm"
               className="h-7 px-2 text-xs"
               disabled={!retryEnabled || retrying}
-              title={retryReason}
+              title={retryEnabled ? "提交整跑重试" : `整跑重试不可用：${retryReason}`}
               onClick={onRetryRun}
             >
               {retrying ? (
@@ -585,7 +585,7 @@ export function WorkflowRunExecutionContextPanel({
               ) : (
                 <RotateCcw strokeWidth={1.5} className="mr-1 h-3 w-3" />
               )}
-              重试
+              整跑重试
             </Button>
           ) : null}
           <div className="font-mono text-[11px] text-slate-400">{context.schemaVersion || "run-execution-context"}</div>
@@ -593,7 +593,7 @@ export function WorkflowRunExecutionContextPanel({
       </div>
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         <ExecutionMetric label="attempt" value={attemptLabel(context)} icon={<Activity strokeWidth={1.5} className="h-3 w-3" />} />
-        <ExecutionMetric label="retry" value={retryLabel(context)} icon={<RotateCcw strokeWidth={1.5} className="h-3 w-3" />} />
+        <ExecutionMetric label="run retry" value={runRetryLabel(context)} icon={<RotateCcw strokeWidth={1.5} className="h-3 w-3" />} />
         <ExecutionMetric label="lease" value={leaseLabel(context)} icon={<ShieldCheck strokeWidth={1.5} className="h-3 w-3" />} />
         <ExecutionMetric label="next" value={formatDateTime(context.retryEligibility?.nextAttemptAt)} icon={<Clock strokeWidth={1.5} className="h-3 w-3" />} />
       </div>
