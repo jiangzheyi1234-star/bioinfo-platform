@@ -164,6 +164,52 @@ def test_backfill_admission_rejects_unsupported_stored_run_order(
         claim_workflow_backfill_partitions_for_admission(cfg, launch_id=launched["launchId"], limit=1)
 
 
+@pytest.mark.parametrize("request_json", ["{not-json", "[]"])
+def test_backfill_detail_rejects_malformed_launch_request_json(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    request_json: str,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    _disable_submission_guards(monkeypatch)
+    trigger = _create_backfill_trigger(cfg)
+    launched = launch_workflow_trigger_backfill_from_request(
+        cfg,
+        trigger["triggerId"],
+        _launch_request(cfg, trigger, range_end="2026-06-04"),
+    )["data"]
+    _set_backfill_launch_request_json(cfg, launched["launchId"], request_json)
+
+    with pytest.raises(ValueError, match="WORKFLOW_BACKFILL_LAUNCH_REQUEST_JSON_INVALID"):
+        get_workflow_backfill_launch_from_storage(cfg, launched["launchId"])
+
+
+@pytest.mark.parametrize("run_spec_json", ["{not-json", "[]"])
+def test_backfill_claim_rejects_malformed_partition_run_spec_without_state_change(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    run_spec_json: str,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    _disable_submission_guards(monkeypatch)
+    trigger = _create_backfill_trigger(cfg)
+    launched = launch_workflow_trigger_backfill_from_request(
+        cfg,
+        trigger["triggerId"],
+        _launch_request(cfg, trigger, range_end="2026-06-04"),
+    )["data"]
+    pending_partition = next(item for item in launched["partitions"] if item["state"] == "pending")
+    _set_backfill_partition_run_spec_json(cfg, pending_partition["partitionId"], run_spec_json)
+
+    with pytest.raises(ValueError, match="WORKFLOW_BACKFILL_PARTITION_RUN_SPEC_JSON_INVALID"):
+        claim_workflow_backfill_partitions_for_admission(cfg, launch_id=launched["launchId"], limit=1)
+
+    detail = get_workflow_backfill_launch_from_storage(cfg, launched["launchId"])["data"]
+    partition = next(item for item in detail["partitions"] if item["partitionId"] == pending_partition["partitionId"])
+    assert partition["state"] == "pending"
+    assert len(list_runs(cfg)) == 1
+
+
 def test_backfill_replay_fails_closed_when_launch_partitions_are_incomplete(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
@@ -354,6 +400,24 @@ def _set_backfill_launch_run_order(cfg, launch_id: str, run_order: str) -> None:
         connection.execute(
             "UPDATE workflow_backfill_launches SET run_order = ?, updated_at = '2026-06-23T10:00:00Z' WHERE launch_id = ?",
             (run_order, launch_id),
+        )
+        connection.commit()
+
+
+def _set_backfill_launch_request_json(cfg, launch_id: str, request_json: str) -> None:
+    with get_connection(cfg) as connection:
+        connection.execute(
+            "UPDATE workflow_backfill_launches SET request_json = ?, updated_at = '2026-06-23T10:00:00Z' WHERE launch_id = ?",
+            (request_json, launch_id),
+        )
+        connection.commit()
+
+
+def _set_backfill_partition_run_spec_json(cfg, partition_id: str, run_spec_json: str) -> None:
+    with get_connection(cfg) as connection:
+        connection.execute(
+            "UPDATE workflow_backfill_partitions SET run_spec_json = ?, updated_at = '2026-06-23T10:00:00Z' WHERE partition_id = ?",
+            (run_spec_json, partition_id),
         )
         connection.commit()
 

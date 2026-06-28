@@ -97,7 +97,10 @@ def record_workflow_backfill_partition(
     initial_state: str = "pending",
     error: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    run_spec = partition.get("runSpecPreview") if isinstance(partition.get("runSpecPreview"), dict) else {}
+    run_spec = _required_dict(
+        partition.get("runSpecPreview"),
+        "WORKFLOW_BACKFILL_PARTITION_RUN_SPEC_REQUIRED",
+    )
     run_spec_hash = _payload_hash(run_spec)
     timestamp = now_iso()
     with get_connection(cfg) as connection:
@@ -413,6 +416,11 @@ def claim_workflow_backfill_partitions_for_admission(
             """,
             (launch_id, normalized_limit),
         ).fetchall()
+        for row in rows:
+            _loads_json_object(
+                row["run_spec_json"],
+                "WORKFLOW_BACKFILL_PARTITION_RUN_SPEC_JSON_INVALID",
+            )
         partition_ids = [str(row["partition_id"]) for row in rows]
         if partition_ids:
             placeholders = ",".join("?" for _ in partition_ids)
@@ -499,7 +507,10 @@ def _partition_rows_for_launch(connection: Any, launch_id: str) -> list[Any]:
 
 
 def _launch_row_to_dict(row: Any, *, created: bool | None) -> dict[str, Any]:
-    request = _loads_json(row["request_json"], {})
+    request = _loads_json_object(
+        row["request_json"],
+        "WORKFLOW_BACKFILL_LAUNCH_REQUEST_JSON_INVALID",
+    )
     run_order = _backfill_run_order(row["run_order"])
     payload = {
         "launchId": row["launch_id"],
@@ -692,7 +703,10 @@ def _partition_blocked_reason(state: str, error: Any) -> str | None:
 
 
 def _pending_partition_row_to_dict(row: Any, *, launch: Any) -> dict[str, Any]:
-    run_spec = _loads_json(row["run_spec_json"], {})
+    run_spec = _loads_json_object(
+        row["run_spec_json"],
+        "WORKFLOW_BACKFILL_PARTITION_RUN_SPEC_JSON_INVALID",
+    )
     return {
         "partitionId": row["partition_id"],
         "launchId": row["launch_id"],
@@ -732,6 +746,22 @@ def _loads_json(value: str | None, default: Any) -> Any:
         return json.loads(value or "")
     except json.JSONDecodeError:
         return default
+
+
+def _loads_json_object(value: str | None, code: str) -> dict[str, Any]:
+    try:
+        parsed = json.loads(value or "")
+    except json.JSONDecodeError as exc:
+        raise ValueError(code) from exc
+    if not isinstance(parsed, dict):
+        raise ValueError(code)
+    return parsed
+
+
+def _required_dict(value: Any, code: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(code)
+    return value
 
 
 def _bounded_limit(value: int) -> int:
