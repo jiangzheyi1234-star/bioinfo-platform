@@ -167,8 +167,10 @@ def _public_lineage_summary(edges: list[dict[str, Any]]) -> dict[str, Any]:
         "predicateCounts": dict(sorted(predicate_counts.items())),
         "redactionPolicy": {
             "rawPayloadExposed": False,
+            "internalIdsExposed": False,
             "pathsExposed": False,
             "storageLocationsExposed": False,
+            "fullChecksumsExposed": False,
         },
     }
 
@@ -185,20 +187,17 @@ def _public_output_lineage(edges: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _public_output_lineage_edge(edge: dict[str, Any]) -> dict[str, Any]:
     payload = edge.get("payload") if isinstance(edge.get("payload"), dict) else {}
+    content_hash = str(edge.get("contentHash") or "").strip()
     public = {
-        "lineageEdgeId": str(edge.get("lineageEdgeId") or ""),
         "predicate": str(edge.get("predicate") or ""),
-        "artifactBlobId": str(edge.get("objectId") or ""),
-        "contentHash": str(edge.get("contentHash") or ""),
-        "workflowRevisionId": str(edge.get("workflowRevisionId") or ""),
-        "evidenceEventId": str(edge.get("evidenceEventId") or payload.get("evidenceEventId") or ""),
-        "artifactId": str(payload.get("artifactId") or ""),
         "artifactKey": safe_artifact_output_label(payload.get("artifactKey")) or "",
         "role": str(payload.get("role") or "output"),
         "stepId": str(payload.get("stepId") or ""),
-        "runArtifactEdgeId": str(payload.get("runArtifactEdgeId") or ""),
+        "checksumPresent": bool(content_hash),
+        "checksumAlgorithm": "sha256" if content_hash else "",
+        "contentHashPrefix": content_hash[:12] if content_hash else "",
     }
-    return {key: value for key, value in public.items() if value != ""}
+    return {key: value for key, value in public.items() if value != "" and value is not False}
 
 
 def _without_sensitive_fields(item: dict[str, Any]) -> dict[str, Any]:

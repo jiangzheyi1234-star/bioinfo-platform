@@ -151,6 +151,18 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "checksumVerified?: boolean" in model_contract
     assert "rerunRequired?: boolean" in model_contract
     assert "unsafeOutputCount?: number" in model_contract
+    output_lineage_model = model_contract[
+        model_contract.index("export type WorkflowResultOutputLineage") : model_contract.index(
+            "export type WorkflowResultDetail"
+        )
+    ]
+    assert "contentHashPrefix?: string" in output_lineage_model
+    assert "checksumPresent?: boolean" in output_lineage_model
+    assert "checksumAlgorithm?: string" in output_lineage_model
+    assert "lineageEdgeId?: string" not in output_lineage_model
+    assert "artifactBlobId?: string" not in output_lineage_model
+    assert "runArtifactEdgeId?: string" not in output_lineage_model
+    assert "evidenceEventId?: string" not in output_lineage_model
     assert "pathExposed?: boolean" in model_contract
     assert "artifactAdoptionBoundary?: WorkflowRunAdoptionBoundary" in model_contract
     assert "postExecutionAdoptionRequired?: boolean" in model_contract
@@ -232,8 +244,13 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "payload" not in input_lineage_panel
     assert "输出 lineage" in output_lineage_panel
     assert "已登记的生成与缓存复用关系" in output_lineage_panel
-    assert "edge.artifactBlobId" in output_lineage_panel
-    assert "edge.workflowRevisionId" in output_lineage_panel
+    assert "edge.contentHashPrefix" in output_lineage_panel
+    assert "edge.checksumAlgorithm" in output_lineage_panel
+    assert "edge.artifactBlobId" not in output_lineage_panel
+    assert "edge.workflowRevisionId" not in output_lineage_panel
+    assert "edge.lineageEdgeId" not in output_lineage_panel
+    assert "edge.runArtifactEdgeId" not in output_lineage_panel
+    assert "edge.evidenceEventId" not in output_lineage_panel
     assert "storageUri" not in output_lineage_panel
     assert "localPath" not in output_lineage_panel
     assert ".path" not in output_lineage_panel

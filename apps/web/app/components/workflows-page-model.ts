@@ -324,17 +324,13 @@ export type WorkflowResultLineageSummary = {
 };
 
 export type WorkflowResultOutputLineage = {
-  lineageEdgeId?: string;
   predicate?: string;
-  artifactBlobId?: string;
-  artifactId?: string;
   artifactKey?: string;
   role?: string;
   stepId?: string;
-  runArtifactEdgeId?: string;
-  workflowRevisionId?: string;
-  evidenceEventId?: string;
-  contentHash?: string;
+  checksumPresent?: boolean;
+  checksumAlgorithm?: string;
+  contentHashPrefix?: string;
 };
 
 export type WorkflowResultDetail = {

@@ -20,7 +20,7 @@ export function WorkflowResultOutputLineagePanel({
       <div className="space-y-2">
         {outputLineage.map((edge, index) => (
           <div
-            key={edge.lineageEdgeId || `${edge.artifactBlobId}-${index}`}
+            key={`${edge.predicate || "lineage"}-${edge.artifactKey || edge.stepId || index}-${index}`}
             className="rounded-md border border-slate-100 bg-slate-50 px-3 py-2"
           >
             <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
@@ -30,10 +30,12 @@ export function WorkflowResultOutputLineagePanel({
               {edge.stepId ? <span className="text-[11px] text-slate-500">{edge.stepId}</span> : null}
             </div>
             <div className="mt-1 flex min-w-0 flex-wrap gap-x-3 gap-y-1 font-mono text-[11px] text-slate-400">
-              {edge.artifactId ? <span className="truncate">artifact {edge.artifactId}</span> : null}
-              {edge.artifactBlobId ? <span className="truncate">blob {edge.artifactBlobId}</span> : null}
-              {edge.workflowRevisionId ? <span className="truncate">workflow {edge.workflowRevisionId}</span> : null}
-              {edge.evidenceEventId ? <span className="truncate">evidence {edge.evidenceEventId}</span> : null}
+              {edge.contentHashPrefix ? (
+                <span className="truncate">
+                  {edge.checksumAlgorithm || "checksum"} {edge.contentHashPrefix}
+                </span>
+              ) : null}
+              {edge.checksumPresent && !edge.contentHashPrefix ? <span>checksum present</span> : null}
             </div>
           </div>
         ))}

@@ -127,20 +127,36 @@ def test_result_read_routes_record_safe_allow_audit_and_redact_public_payload(tm
     }
     assert run_data["lineageSummary"]["redactionPolicy"] == {
         "rawPayloadExposed": False,
+        "internalIdsExposed": False,
         "pathsExposed": False,
         "storageLocationsExposed": False,
+        "fullChecksumsExposed": False,
     }
     assert [edge["predicate"] for edge in run_data["outputLineage"]] == [
         "prov:generated",
         "h2ometa:cache_adopted",
     ]
     assert run_data["outputLineage"][0]["artifactKey"] == "report"
-    assert run_data["outputLineage"][0]["artifactId"] == "art_report"
+    assert run_data["outputLineage"][0]["role"] == "output"
+    assert run_data["outputLineage"][0]["stepId"] == "summarize"
+    assert run_data["outputLineage"][0]["checksumAlgorithm"] == "sha256"
+    assert run_data["outputLineage"][0]["contentHashPrefix"] == "aaaaaaaaaaaa"
     assert run_data["outputLineage"][1]["artifactKey"] == "cache_report"
     assert detail_data["lineageSummary"] == run_data["lineageSummary"]
     assert detail_data["outputLineage"] == run_data["outputLineage"]
     assert listed["lineageSummary"]["edgeCount"] == 3
-    assert "payload" not in json.dumps(run_data["outputLineage"], sort_keys=True)
+    output_lineage_payload = json.dumps(run_data["outputLineage"], sort_keys=True)
+    assert "payload" not in output_lineage_payload
+    for internal_value in (
+        "lin_generated",
+        "blob_report",
+        "wf_public",
+        "ev_report",
+        "art_report",
+        "rae_report",
+        "a" * 64,
+    ):
+        assert internal_value not in output_lineage_payload
     unsafe_labels = [
         "C:/secret/token-output",
         "s3://bucket/report",
