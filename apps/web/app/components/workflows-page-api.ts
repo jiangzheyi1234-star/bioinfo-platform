@@ -34,6 +34,8 @@ import {
   type WorkflowRunRuleOutputInvalidationApplyResult,
   type WorkflowRunRetryResponse,
   type WorkflowRunRetryResult,
+  type WorkflowScenarioPack,
+  type WorkflowScenarioPackResponse,
   type WorkflowServer,
   type WorkflowResourceBindings,
   type WorkflowServersResponse,
@@ -222,6 +224,15 @@ export async function fetchWorkflowCatalog(options: FetchOptions = {}): Promise<
   }, {
     forceRefresh: options.forceRefresh,
   });
+}
+
+export async function fetchWorkflowScenarioPacks(): Promise<WorkflowScenarioPack[]> {
+  const response = await requestLocalApiJson<WorkflowScenarioPackResponse>(
+    "GET",
+    "/api/v1/workflow-scenario-packs",
+    { cache: "no-store" }
+  );
+  return (response.data.items || []).slice().sort((left, right) => left.priority - right.priority);
 }
 
 export function getCachedWorkflowCatalog(): WorkflowCatalogItem[] | undefined {

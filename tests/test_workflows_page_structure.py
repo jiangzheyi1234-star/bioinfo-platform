@@ -110,6 +110,7 @@ def test_workflows_page_uses_live_builder_modules() -> None:
     page = (COMPONENTS / "workflows-page.tsx").read_text(encoding="utf-8")
     api = (COMPONENTS / "workflows-page-api.ts").read_text(encoding="utf-8")
     model = (COMPONENTS / "workflows-page-model.ts").read_text(encoding="utf-8")
+    scenario_section_path = COMPONENTS / "workflow-scenario-pack-section.tsx"
     generated_model = (COMPONENTS / "generated-workflow-model.ts").read_text(encoding="utf-8")
     readiness = (COMPONENTS / "tool-rule-readiness.ts").read_text(encoding="utf-8")
     hook = (COMPONENTS / "use-workflows-page-state.ts").read_text(encoding="utf-8")
@@ -121,6 +122,7 @@ def test_workflows_page_uses_live_builder_modules() -> None:
     assert "fetchWorkflowTemplates" not in api
     assert '"/api/v1/runs"' in api
     assert '"/api/v1/uploads"' in api
+    assert '"/api/v1/workflow-scenario-packs"' in api
     assert "/api/v1/servers" in api
     assert "serverId" in api
     assert "contentBase64" in api
@@ -134,6 +136,17 @@ def test_workflows_page_uses_live_builder_modules() -> None:
     assert "targetPlatformSupported === true" in readiness
     assert "ruleSpecReadinessForTool(entry.tool).workflowReady" in model
     assert "submitWorkflowDesignRun" in api
+    assert scenario_section_path.exists()
+    scenario_section = scenario_section_path.read_text(encoding="utf-8")
+    assert "WorkflowScenarioPackSection" in page
+    assert "fetchWorkflowScenarioPacks" in page
+    assert "data-testid=\"workflow-scenario-pack-section\"" in scenario_section
+    assert "data-scenario-pack={pack.scenarioId}" in scenario_section
+    assert "pack.status === \"ready\"" in scenario_section
+    assert "noAutomaticExecution" in model
+    assert "uploadWorkflowSampleData" not in scenario_section
+    assert "addDatabase" not in scenario_section
+    assert "createToolPrepareJob" not in scenario_section
     assert "export function useWorkflowsPageState" in hook
     assert "export { WorkflowCatalogTable }" in ui
     assert "export function WorkflowRunBuilder" in ui

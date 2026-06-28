@@ -21,6 +21,7 @@ from apps.api.workflow_catalog_routes import router as workflow_catalog_router
 from apps.api.workflow_design_routes import router as workflow_design_router
 from apps.api.workflow_first_run_routes import router as workflow_first_run_router
 from apps.api.workflow_sample_data_routes import router as workflow_sample_data_router
+from apps.api.workflow_scenario_pack_routes import router as workflow_scenario_pack_router
 from apps.api.workflow_trigger_routes import router as workflow_trigger_router
 
 
@@ -58,6 +59,7 @@ app.include_router(workflow_catalog_router)
 app.include_router(workflow_design_router)
 app.include_router(workflow_first_run_router)
 app.include_router(workflow_sample_data_router)
+app.include_router(workflow_scenario_pack_router)
 app.include_router(workflow_trigger_router)
 app.include_router(audit_router)
 app.include_router(database_router)

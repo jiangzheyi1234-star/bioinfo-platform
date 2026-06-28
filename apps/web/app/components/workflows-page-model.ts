@@ -80,6 +80,53 @@ export type WorkflowCatalogResponse = {
   };
 };
 
+export type WorkflowScenarioPackCheck = {
+  code: string;
+  status: "passed" | "blocked" | string;
+  detail: string;
+  requirement: string;
+};
+
+export type WorkflowScenarioPackAction = {
+  code: string;
+  label: string;
+  target: string;
+};
+
+export type WorkflowScenarioPack = {
+  schemaVersion: string;
+  packId: string;
+  scenarioId: string;
+  name: string;
+  vertical: string;
+  summary: string;
+  status: "ready" | "blocked" | string;
+  priority: number;
+  operatorActionRequired: boolean;
+  noAutomaticExecution: boolean;
+  pipelineId: string;
+  firstRunPath: string;
+  workflowPath: string;
+  sampleData: {
+    mode?: string;
+    source?: string;
+    items?: string[];
+  };
+  requiredWorkflowReadyTools: Array<{ kind?: string; count?: number }>;
+  requiredDatabases: Array<{ capability?: string; templates?: string[] }>;
+  resultEvidence: string[];
+  readinessChecks: WorkflowScenarioPackCheck[];
+  nextActions: WorkflowScenarioPackAction[];
+  externalPracticeAnchors: string[];
+};
+
+export type WorkflowScenarioPackResponse = {
+  data: {
+    schemaVersion?: string;
+    items: WorkflowScenarioPack[];
+  };
+};
+
 export type WorkflowServer = {
   serverId: string;
   label?: string;
