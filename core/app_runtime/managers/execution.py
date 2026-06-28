@@ -513,7 +513,7 @@ class ExecutionManager(BaseRuntimeManager):
         server_id: Optional[str] = None,
     ) -> dict[str, Any]:
         return {
-            "data": self.call_runner(
+            "data": self.call_existing_runner(
                 "export_result_package",
                 preferred_server_id=server_id,
                 result_id=result_id,
@@ -530,7 +530,7 @@ class ExecutionManager(BaseRuntimeManager):
         limit: int = 100,
     ) -> dict[str, Any]:
         return {
-            "data": self.call_runner(
+            "data": self.call_existing_runner(
                 "list_result_package_exports",
                 preferred_server_id=server_id,
                 result_id=result_id,
@@ -545,7 +545,7 @@ class ExecutionManager(BaseRuntimeManager):
         package_export_id: str,
         server_id: Optional[str] = None,
     ) -> dict[str, Any]:
-        return self.call_runner(
+        return self.call_existing_runner(
             "download_result_package",
             preferred_server_id=server_id,
             result_id=result_id,
@@ -562,7 +562,7 @@ class ExecutionManager(BaseRuntimeManager):
     ) -> dict[str, Any]:
         body = dict(payload or {})
         server_id_hint = str(body.pop("serverId", None) or server_id or "").strip() or None
-        return self.call_runner(
+        return self.call_existing_runner(
             "retire_result_package",
             preferred_server_id=server_id_hint,
             result_id=result_id,
@@ -579,7 +579,7 @@ class ExecutionManager(BaseRuntimeManager):
         body = dict(payload or {})
         server_id_hint = str(body.pop("serverId", None) or server_id or "").strip() or None
         return {
-            "data": self.call_runner(
+            "data": self.call_existing_runner(
                 "preview_result_package_byte_gc",
                 preferred_server_id=server_id_hint,
                 payload=body,
@@ -595,7 +595,7 @@ class ExecutionManager(BaseRuntimeManager):
         body = dict(payload or {})
         server_id_hint = str(body.pop("serverId", None) or server_id or "").strip() or None
         return {
-            "data": self.call_runner(
+            "data": self.call_existing_runner(
                 "run_result_package_byte_gc",
                 preferred_server_id=server_id_hint,
                 payload=body,

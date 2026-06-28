@@ -114,8 +114,10 @@ def test_result_package_file_io_lives_in_remote_service_not_routes() -> None:
     assert 'public.pop("storageUri", None)' in control_source
 
     assert "def get_result_audit(self, **kwargs) -> dict[str, Any]:" in proxy_source
-    assert "def export_result_package(self, **kwargs) -> dict[str, Any]:" in proxy_source
-    assert "def download_result_package(self, **kwargs) -> dict[str, Any]:" in proxy_source
+    assert "def export_result_package(self, **kwargs) -> dict[str, Any]:" not in proxy_source
+    assert "def download_result_package(self, **kwargs) -> dict[str, Any]:" not in proxy_source
+    assert "def export_result_package(self, **kwargs) -> dict[str, Any]:" in result_package_proxy_source
+    assert "def download_result_package(self, **kwargs) -> dict[str, Any]:" in result_package_proxy_source
     assert "def list_result_package_exports(self, **kwargs) -> dict[str, Any]:" in result_package_proxy_source
     assert "def retire_result_package(self, **kwargs) -> dict[str, Any]:" in result_package_proxy_source
     assert "def preview_result_package_byte_gc(self, **kwargs) -> dict[str, Any]:" in result_package_proxy_source
@@ -123,7 +125,9 @@ def test_result_package_file_io_lives_in_remote_service_not_routes() -> None:
     assert "def delete_result_package_bytes(" not in result_package_proxy_source
     assert "RemoteRunnerResultPackageProxyMixin" in manager_source
     assert 'client.get_json(f"/api/v1/results/{kwargs[\'result_id\']}/audit")["data"]' in proxy_source
-    assert "dict(kwargs.get(\"payload\") or {})" in proxy_source
+    assert "dict(kwargs.get(\"payload\") or {})" in result_package_proxy_source
+    assert 'client.post_json(\n            f"/api/v1/results/{kwargs[\'result_id\']}/export",' in result_package_proxy_source
+    assert "client.download_result_package(kwargs[\"result_id\"], kwargs[\"package_export_id\"])" in result_package_proxy_source
     assert "client.list_result_package_exports(" in result_package_proxy_source
     assert "client.retire_result_package(" in result_package_proxy_source
     assert "client.preview_result_package_byte_gc(" in result_package_proxy_source

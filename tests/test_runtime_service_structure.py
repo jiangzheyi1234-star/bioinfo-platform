@@ -466,12 +466,12 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "self.call_runner(\n                \"apply_rule_cache_restore_adoption\"," in execution_manager_source
     assert "self.call_runner(\"resume_run\"" in execution_manager_source
     assert "self.call_runner(\"get_result_audit\"" in execution_manager_source
-    assert 'self.call_runner(\n                "export_result_package",' in execution_manager_source
-    assert 'self.call_runner(\n                "list_result_package_exports",' in execution_manager_source
-    assert 'self.call_runner(\n            "download_result_package",' in execution_manager_source
-    assert 'self.call_runner(\n            "retire_result_package",' in execution_manager_source
-    assert 'self.call_runner(\n                "preview_result_package_byte_gc",' in execution_manager_source
-    assert 'self.call_runner(\n                "run_result_package_byte_gc",' in execution_manager_source
+    assert 'self.call_existing_runner(\n                "export_result_package",' in execution_manager_source
+    assert 'self.call_existing_runner(\n                "list_result_package_exports",' in execution_manager_source
+    assert 'self.call_existing_runner(\n            "download_result_package",' in execution_manager_source
+    assert 'self.call_existing_runner(\n            "retire_result_package",' in execution_manager_source
+    assert 'self.call_existing_runner(\n                "preview_result_package_byte_gc",' in execution_manager_source
+    assert 'self.call_existing_runner(\n                "run_result_package_byte_gc",' in execution_manager_source
     assert "delete_result_package_bytes" not in execution_manager_source
     assert "preferred_server_id=server_id" in execution_manager_source
 

@@ -605,26 +605,6 @@ class RemoteRunnerProxyMixin:
         )
         return client.get_json(f"/api/v1/results/{kwargs['result_id']}/audit")["data"]
 
-    def export_result_package(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        return client.post_json(
-            f"/api/v1/results/{kwargs['result_id']}/export",
-            dict(kwargs.get("payload") or {}),
-        )["data"]
-
-    def download_result_package(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-            timeout=60,
-        )
-        return client.download_result_package(kwargs["result_id"], kwargs["package_export_id"])
-
     def _client_from_runner_kwargs(self, kwargs: dict[str, Any]):
         return self._get_client(
             server_id=str(kwargs["server_id"]), ssh_service=kwargs["ssh_service"], record=kwargs["server_record"]
