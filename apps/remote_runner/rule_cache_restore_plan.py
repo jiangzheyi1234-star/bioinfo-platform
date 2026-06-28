@@ -80,6 +80,13 @@ def build_rule_cache_restore_plan(
             and str(output_invalidation_plan.get("planHash") or "").strip()
         ),
     }
+    if output_scope_source == "rule-output-invalidation-plan-required":
+        return _finalize_plan(
+            cfg,
+            base,
+            reason_code="RULE_CACHE_RESTORE_OUTPUT_SCOPE_REQUIRED",
+            rules=[],
+        )
     if output_invalidation_plan is not None and not output_invalidation_plan.get("previewAvailable"):
         return _finalize_plan(
             cfg,
@@ -92,7 +99,6 @@ def build_rule_cache_restore_plan(
     output_edge_rules = _output_edge_rule_items(output_invalidation_plan)
     output_edges_by_rule = _output_edges_by_rule(output_edge_rules)
     rule_candidates = _cache_restore_rule_candidates(
-        rule_retry_plan,
         output_edge_rules,
         output_scope_source=output_scope_source,
     )
@@ -485,14 +491,13 @@ def source_rule_outputs(source_rule: dict[str, Any]) -> list[Any]:
 
 
 def _cache_restore_rule_candidates(
-    rule_retry_plan: dict[str, Any],
     output_edge_rules: list[dict[str, Any]],
     *,
     output_scope_source: str,
 ) -> list[dict[str, Any]]:
     if output_scope_source in {"rule-output-invalidation-plan", "applied-rule-output-invalidation-plan"}:
         return output_edge_rules
-    return [item for item in rule_retry_plan.get("rules") or [] if isinstance(item, dict)]
+    return []
 
 
 def _output_scope_source(output_invalidation_plan: dict[str, Any] | None) -> str:
@@ -502,7 +507,7 @@ def _output_scope_source(output_invalidation_plan: dict[str, Any] | None) -> str
         if output_invalidation_plan.get("previewAvailable"):
             return "rule-output-invalidation-plan"
         return "rule-output-invalidation-plan-unavailable"
-    return "run-rule-state-fallback"
+    return "rule-output-invalidation-plan-required"
 
 
 def _output_invalidation_applied(output_invalidation_plan: dict[str, Any] | None) -> bool:

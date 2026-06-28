@@ -102,6 +102,31 @@ def test_rule_cache_restore_plan_uses_output_invalidation_edges_without_rule_out
     assert hit_counts == [0, 0]
 
 
+def test_rule_cache_restore_plan_blocks_without_output_invalidation_scope(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    revision = _create_revision(cfg)
+    workflow_revision_id = str(revision["workflowRevisionId"])
+    current_run = _create_run(cfg, "run_cache_restore_scope_required", workflow_revision_id=workflow_revision_id)
+    rule_retry_plan = _rule_retry_plan(current_run["runId"], workflow_revision_id)
+
+    plan = build_rule_cache_restore_plan(
+        cfg,
+        run=current_run,
+        rule_retry_plan=rule_retry_plan,
+    )
+
+    assert plan["schemaVersion"] == "rule-cache-restore-plan.v1"
+    assert plan["reasonCode"] == "RULE_CACHE_RESTORE_OUTPUT_SCOPE_REQUIRED"
+    assert plan["cacheEligibility"]["outputScopeSource"] == "rule-output-invalidation-plan-required"
+    assert plan["cacheEligibility"]["outputInvalidationPlanHashPresent"] is False
+    assert plan["cacheEligibility"]["previewAvailable"] is False
+    assert plan["outputCount"] == 0
+    assert plan["cacheHitCount"] == 0
+    assert plan["rules"] == []
+    assert "OUTPUT_EDGE_INVALIDATION_APPLY_REQUIRED" in plan["blockedReasonCodes"]
+    assert list_evidence_events(cfg, event_type="artifact.cache.lookup.v1") == []
+
+
 def test_rule_cache_restore_plan_keeps_applied_invalidation_scope_without_apply_blocker(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     revision = _create_revision(cfg)
