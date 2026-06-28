@@ -309,6 +309,34 @@ export type WorkflowArtifactDirectoryPreviewEntry = {
   sha256?: string;
 };
 
+export type WorkflowResultLineageSummary = {
+  schemaVersion?: string;
+  edgeCount?: number;
+  inputEdgeCount?: number;
+  outputEdgeCount?: number;
+  cacheAdoptionEdgeCount?: number;
+  predicateCounts?: Record<string, number>;
+  redactionPolicy?: {
+    rawPayloadExposed?: boolean;
+    pathsExposed?: boolean;
+    storageLocationsExposed?: boolean;
+  };
+};
+
+export type WorkflowResultOutputLineage = {
+  lineageEdgeId?: string;
+  predicate?: string;
+  artifactBlobId?: string;
+  artifactId?: string;
+  artifactKey?: string;
+  role?: string;
+  stepId?: string;
+  runArtifactEdgeId?: string;
+  workflowRevisionId?: string;
+  evidenceEventId?: string;
+  contentHash?: string;
+};
+
 export type WorkflowResultDetail = {
   resultId?: string;
   runId?: string;
@@ -316,6 +344,8 @@ export type WorkflowResultDetail = {
   artifactCount?: number;
   inputArtifacts?: WorkflowInputArtifact[];
   inputArtifactCount?: number;
+  lineageSummary?: WorkflowResultLineageSummary;
+  outputLineage?: WorkflowResultOutputLineage[];
 };
 
 export type WorkflowResultSummary = {
@@ -325,6 +355,7 @@ export type WorkflowResultSummary = {
   pipelineId?: string;
   artifactCount?: number;
   inputArtifactCount?: number;
+  lineageSummary?: WorkflowResultLineageSummary;
   producedAt?: string;
 };
 

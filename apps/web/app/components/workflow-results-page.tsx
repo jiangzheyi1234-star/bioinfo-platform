@@ -223,10 +223,7 @@ export function WorkflowResultsPage() {
 }
 
 async function prefetchArtifactLifecycle() {
-  await Promise.all([
-    fetchArtifactLifecycleUsage().catch(() => undefined),
-    fetchArtifactLifecycleControllerTicks().catch(() => undefined),
-  ]);
+  await Promise.allSettled([fetchArtifactLifecycleUsage(), fetchArtifactLifecycleControllerTicks()]);
 }
 
 function ResultLineageSummary({ result }: { result?: WorkflowResultSummary }) {
@@ -240,6 +237,9 @@ function ResultLineageSummary({ result }: { result?: WorkflowResultSummary }) {
       </span>
       <span className="rounded border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-indigo-700">
         输入 {result.inputArtifactCount ?? 0}
+      </span>
+      <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-emerald-700">
+        lineage {result.lineageSummary?.edgeCount ?? 0}
       </span>
     </div>
   );

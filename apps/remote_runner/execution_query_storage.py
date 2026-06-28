@@ -164,6 +164,7 @@ def list_results(cfg: RemoteRunnerConfig) -> list[dict[str, Any]]:
                 "pipelineId": row["pipeline_id"],
                 "artifactCount": len(artifacts),
                 "inputArtifactCount": results["inputArtifactCount"],
+                "lineageEdges": results["lineageEdges"],
                 "producedAt": row["finished_at"] or row["last_updated_at"],
             }
         )
@@ -186,6 +187,7 @@ def fetch_result(cfg: RemoteRunnerConfig, result_id: str) -> dict[str, Any]:
         "inputArtifactCount": results["inputArtifactCount"],
         "artifacts": results["artifacts"],
         "inputArtifacts": results["inputArtifacts"],
+        "lineageEdges": results["lineageEdges"],
     }
 
 

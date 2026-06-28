@@ -111,8 +111,36 @@ def test_result_read_routes_record_safe_allow_audit_and_redact_public_payload(tm
     assert "storageUri" not in public_payload
     assert "resultDir" not in public_payload
     assert "lineageEdges" not in public_payload
-    assert run_results.json()["data"]["artifacts"][0]["artifactKey"] == "report"
-    assert result_detail.json()["data"]["artifacts"][0]["artifactKey"] == "report"
+    run_data = run_results.json()["data"]
+    detail_data = result_detail.json()["data"]
+    listed = result_list.json()["data"]["items"][0]
+    assert run_data["artifacts"][0]["artifactKey"] == "report"
+    assert detail_data["artifacts"][0]["artifactKey"] == "report"
+    assert run_data["lineageSummary"]["edgeCount"] == 3
+    assert run_data["lineageSummary"]["inputEdgeCount"] == 1
+    assert run_data["lineageSummary"]["outputEdgeCount"] == 2
+    assert run_data["lineageSummary"]["cacheAdoptionEdgeCount"] == 1
+    assert run_data["lineageSummary"]["predicateCounts"] == {
+        "h2ometa:cache_adopted": 1,
+        "prov:generated": 1,
+        "prov:used": 1,
+    }
+    assert run_data["lineageSummary"]["redactionPolicy"] == {
+        "rawPayloadExposed": False,
+        "pathsExposed": False,
+        "storageLocationsExposed": False,
+    }
+    assert [edge["predicate"] for edge in run_data["outputLineage"]] == [
+        "prov:generated",
+        "h2ometa:cache_adopted",
+    ]
+    assert run_data["outputLineage"][0]["artifactKey"] == "report"
+    assert run_data["outputLineage"][0]["artifactId"] == "art_report"
+    assert run_data["outputLineage"][1]["artifactKey"] == "cache_report"
+    assert detail_data["lineageSummary"] == run_data["lineageSummary"]
+    assert detail_data["outputLineage"] == run_data["outputLineage"]
+    assert listed["lineageSummary"]["edgeCount"] == 3
+    assert "payload" not in json.dumps(run_data["outputLineage"], sort_keys=True)
     unsafe_labels = [
         "C:/secret/token-output",
         "s3://bucket/report",
@@ -132,12 +160,17 @@ def test_result_read_routes_record_safe_allow_audit_and_redact_public_payload(tm
     assert run_audit["details"] == {
         "artifactCount": 1,
         "inputArtifactCount": 1,
+        "lineageEdgeCount": 3,
+        "lineageProjectionReturned": True,
         "lineageEdgesReturned": False,
     }
     assert list_audit["details"] == {"returnedCount": 1}
     assert detail_audit["details"] == {
         "artifactCount": 1,
         "inputArtifactCount": 1,
+        "lineageEdgeCount": 3,
+        "lineageProjectionReturned": True,
+        "lineageEdgesReturned": False,
     }
     serialized_details = json.dumps(
         [run_audit["details"], list_audit["details"], detail_audit["details"]],
@@ -183,7 +216,55 @@ def _raw_run_results(run_id: str) -> dict:
                 ],
             }
         ],
-        "lineageEdges": [{"payload": {"storageUri": "file:///secret/lineage.json"}}],
+        "lineageEdges": [
+            {
+                "lineageEdgeId": "lin_used",
+                "predicate": "prov:used",
+                "objectKind": "artifact_blob",
+                "objectId": "blob_reads",
+                "contentHash": "b" * 64,
+                "workflowRevisionId": "wf_public",
+                "payload": {
+                    "artifactId": "art_reads",
+                    "artifactKey": "reads",
+                    "sourceStorageUri": "s3://secret/input.fastq",
+                },
+            },
+            {
+                "lineageEdgeId": "lin_generated",
+                "predicate": "prov:generated",
+                "objectKind": "artifact_blob",
+                "objectId": "blob_report",
+                "contentHash": "a" * 64,
+                "workflowRevisionId": "wf_public",
+                "evidenceEventId": "ev_report",
+                "payload": {
+                    "artifactId": "art_report",
+                    "artifactKey": "report",
+                    "role": "output",
+                    "stepId": "summarize",
+                    "runArtifactEdgeId": "rae_report",
+                    "storageUri": "file:///secret/report.txt",
+                },
+            },
+            {
+                "lineageEdgeId": "lin_cache",
+                "predicate": "h2ometa:cache_adopted",
+                "objectKind": "artifact_blob",
+                "objectId": "blob_cached",
+                "contentHash": "c" * 64,
+                "workflowRevisionId": "wf_public",
+                "evidenceEventId": "ev_cache",
+                "payload": {
+                    "artifactId": "art_cached",
+                    "artifactKey": "cache_report",
+                    "role": "output",
+                    "stepId": "summarize",
+                    "runArtifactEdgeId": "rae_cached",
+                    "sourceStorageUri": "s3://secret/cache/report.txt",
+                },
+            },
+        ],
     }
 
 
@@ -198,6 +279,7 @@ def _raw_result_summary() -> dict:
         "producedAt": "2099-06-07T10:00:00Z",
         "resultDir": "C:/secret/list",
         "storageUri": "file:///secret/list",
+        "lineageEdges": _raw_run_results("run_list")["lineageEdges"],
     }
 
 

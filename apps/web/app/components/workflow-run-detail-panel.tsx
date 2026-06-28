@@ -25,7 +25,9 @@ import {
 import { cn } from "@/lib/utils";
 
 import { WorkflowRunExecutionContextPanel } from "./workflow-run-execution-context";
+import { WorkflowResultInputLineagePanel } from "./workflow-result-input-lineage";
 import { WorkflowResultPackagePanel } from "./workflow-result-package-panel";
+import { WorkflowResultOutputLineagePanel } from "./workflow-result-output-lineage";
 import { WorkflowRunAttemptsPanel } from "./workflow-run-attempts-panel";
 import { WorkflowRunRulesPanel } from "./workflow-run-rules-panel";
 import { WorkflowRunTriggerProvenancePanel, WorkflowRunTriggerSummary } from "./workflow-run-trigger-provenance";
@@ -50,6 +52,7 @@ import type {
   WorkflowArtifact,
   WorkflowArtifactPreview,
   WorkflowInputArtifact,
+  WorkflowResultOutputLineage,
   WorkflowRun,
   WorkflowRunDetail,
   WorkflowRunEvent,
@@ -225,11 +228,13 @@ function RunArtifacts({
   resultId,
   artifacts,
   inputArtifacts,
+  outputLineage,
   previews,
 }: {
   resultId?: string;
   artifacts: WorkflowArtifact[];
   inputArtifacts: WorkflowInputArtifact[];
+  outputLineage: WorkflowResultOutputLineage[];
   previews: WorkflowArtifactPreview[];
 }) {
   const [open, setOpen] = useState(false);
@@ -282,13 +287,14 @@ function RunArtifacts({
     }
   }
 
-  if (artifacts.length === 0 && inputArtifacts.length === 0) {
+  if (artifacts.length === 0 && inputArtifacts.length === 0 && outputLineage.length === 0) {
     return <div className="py-8 text-center text-sm text-slate-400">暂无产物</div>;
   }
 
   return (
     <div className="space-y-3">
-      <RunInputArtifacts inputArtifacts={inputArtifacts} />
+      <WorkflowResultInputLineagePanel inputArtifacts={inputArtifacts} />
+      <WorkflowResultOutputLineagePanel outputLineage={outputLineage} />
       {artifacts.length > 0 ? (
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
           {artifacts.map((artifact) => {
@@ -348,45 +354,6 @@ function RunArtifacts({
           )}
         </DialogContent>
       </Dialog>
-    </div>
-  );
-}
-
-function RunInputArtifacts({ inputArtifacts }: { inputArtifacts: WorkflowInputArtifact[] }) {
-  if (inputArtifacts.length === 0) return null;
-  return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div>
-          <div className="text-sm font-medium text-slate-900">输入 lineage</div>
-          <div className="text-xs text-slate-500">已登记的上游输入产物</div>
-        </div>
-        <span className="shrink-0 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-500">
-          {inputArtifacts.length} 个输入
-        </span>
-      </div>
-      <div className="space-y-2">
-        {inputArtifacts.map((artifact) => (
-          <div key={artifact.artifactBlobId} className="rounded-md border border-slate-100 bg-slate-50 px-3 py-2">
-            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-              <span className="truncate font-mono text-xs text-slate-800">{artifact.artifactBlobId}</span>
-              {artifact.mimeType ? <span className="text-[11px] text-slate-500">{artifact.mimeType}</span> : null}
-              {typeof artifact.sizeBytes === "number" ? <span className="text-[11px] text-slate-500">{formatBytes(artifact.sizeBytes)}</span> : null}
-              {artifact.sha256 ? <span className="truncate font-mono text-[11px] text-slate-400">sha256 {artifact.sha256.slice(0, 12)}</span> : null}
-            </div>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {(artifact.ports || []).map((port, index) => (
-                <span key={port.lineageEdgeId || `${artifact.artifactBlobId}-${index}`} className="inline-flex max-w-full items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600">
-                  <span className="font-medium text-slate-700">{port.portName || port.inputRole || "input"}</span>
-                  <span className="font-mono text-slate-400">{port.sourceType || "source"}</span>
-                  {port.artifactId ? <span className="truncate font-mono text-slate-500">{port.artifactId}</span> : null}
-                  {port.upstreamRunId ? <span className="truncate font-mono text-blue-600">{port.upstreamRunId}</span> : null}
-                </span>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
@@ -559,6 +526,7 @@ export function WorkflowRunDetailPanel({
   const run = detail.run;
   const artifacts = detail.results?.artifacts || [];
   const inputArtifacts = detail.results?.inputArtifacts || [];
+  const outputLineage = detail.results?.outputLineage || [];
   const previews = detail.previews || [];
   const events = detail.events || [];
   const rules = detail.rules?.items || [];
@@ -682,6 +650,7 @@ export function WorkflowRunDetailPanel({
             <SummaryMetric label="提交时间" value={formatDateTime(run.submittedAt || run.createdAt)} />
             <SummaryMetric label="产物" value={`${artifacts.length} 个`} />
             <SummaryMetric label="输入 lineage" value={`${inputArtifacts.length} 个`} />
+            <SummaryMetric label="输出 lineage" value={`${outputLineage.length} 条`} />
             <SummaryMetric label="规则" value={`${rules.length} 个`} />
           </div>
         </div>
@@ -811,6 +780,7 @@ export function WorkflowRunDetailPanel({
               resultId={detail.results?.resultId}
               artifacts={artifacts}
               inputArtifacts={inputArtifacts}
+              outputLineage={outputLineage}
               previews={previews}
             />
           </div>

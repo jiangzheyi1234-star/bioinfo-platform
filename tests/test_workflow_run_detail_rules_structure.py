@@ -24,6 +24,8 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     rules_model = _component_source("workflow-run-rules-model.ts")
     package_panel = _component_source("workflow-result-package-panel.tsx")
     package_state = _component_source("workflow-result-package-state.ts")
+    input_lineage_panel = _component_source("workflow-result-input-lineage.tsx")
+    output_lineage_panel = _component_source("workflow-result-output-lineage.tsx")
     dag_preview = _component_source("workflow-dag-preview.tsx")
     catalog_service = (ROOT / "apps" / "api" / "workflow_catalog_service.py").read_text(encoding="utf-8")
 
@@ -56,12 +58,16 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "export type WorkflowRunFailureLocator" in model_contract
     assert "export type WorkflowResultPackageDownload" in model
     assert "export type WorkflowResultPackageExport" in model
+    assert "export type WorkflowResultLineageSummary" in model
+    assert "export type WorkflowResultOutputLineage" in model
     assert "export type WorkflowResultPackageExportListResponse" in model
     assert "export type WorkflowResultPackageExportResponse" in model
     assert "export type WorkflowInputArtifactPort" in model_contract
     assert "export type WorkflowInputArtifact" in model_contract
     assert "inputArtifacts?: WorkflowInputArtifact[]" in model
     assert "inputArtifactCount?: number" in model
+    assert "lineageSummary?: WorkflowResultLineageSummary" in model
+    assert "outputLineage?: WorkflowResultOutputLineage[]" in model
     assert "packageExportId?: string" in model
     assert "lifecycleState?: string" in model
     assert "download?: WorkflowResultPackageDownload" in model
@@ -211,12 +217,27 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "applyingOutputInvalidation={outputInvalidating}" in panel
     assert "WorkflowResultPackagePanel" in panel
     assert "WorkflowRunRulesPanel" in panel
-    assert "function RunInputArtifacts" in panel
+    assert "WorkflowResultInputLineagePanel" in panel
+    assert "WorkflowResultOutputLineagePanel" in panel
     assert "inputArtifacts={inputArtifacts}" in panel
-    assert "输入 lineage" in panel
-    assert "已登记的上游输入产物" in panel
-    assert "port.artifactId" in panel
-    assert "port.upstreamRunId" in panel
+    assert "outputLineage={outputLineage}" in panel
+    assert "artifacts.length === 0 && inputArtifacts.length === 0 && outputLineage.length === 0" in panel
+    assert "输入 lineage" in input_lineage_panel
+    assert "已登记的上游输入产物" in input_lineage_panel
+    assert "port.artifactId" in input_lineage_panel
+    assert "port.upstreamRunId" in input_lineage_panel
+    assert "storageUri" not in input_lineage_panel
+    assert "localPath" not in input_lineage_panel
+    assert ".path" not in input_lineage_panel
+    assert "payload" not in input_lineage_panel
+    assert "输出 lineage" in output_lineage_panel
+    assert "已登记的生成与缓存复用关系" in output_lineage_panel
+    assert "edge.artifactBlobId" in output_lineage_panel
+    assert "edge.workflowRevisionId" in output_lineage_panel
+    assert "storageUri" not in output_lineage_panel
+    assert "localPath" not in output_lineage_panel
+    assert ".path" not in output_lineage_panel
+    assert "payload" not in output_lineage_panel
     assert "context={detail.executionContext}" in panel
     assert "ruleRetryPlan" not in panel
     assert "resultId={detail.results?.resultId}" in panel
@@ -402,10 +423,6 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "packageUri" not in package_panel
     assert "packagePath" not in package_panel
     assert "file://" not in package_panel
-    run_input_artifacts = panel[panel.index("function RunInputArtifacts") : panel.index("function formatBytes")]
-    assert "storageUri" not in run_input_artifacts
-    assert "localPath" not in run_input_artifacts
-    assert ".path" not in run_input_artifacts
     assert "packageExportId" in package_panel
     assert "sha256" in package_panel
     assert "manifestSha256" in package_panel
