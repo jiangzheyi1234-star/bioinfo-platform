@@ -11,6 +11,9 @@ from .run_admission_read_model import fetch_run_admission_summary
 from .storage_core import get_connection, now_iso
 
 
+TRIGGER_ACTIVE_RUN_TERMINAL_STATUSES = ("completed", "failed", "canceled", "cancelled")
+
+
 def create_workflow_trigger(
     cfg: RemoteRunnerConfig,
     *,
@@ -271,6 +274,58 @@ def list_workflow_trigger_events(cfg: RemoteRunnerConfig, trigger_id: str) -> di
             (_required_text(trigger_id, "TRIGGER_ID_REQUIRED"),),
         ).fetchall()
         return {"items": [_event_with_dispatch(connection, row, created=False) for row in rows]}
+
+
+def fetch_active_workflow_trigger_dispatch_run(
+    cfg: RemoteRunnerConfig,
+    trigger_id: str,
+    *,
+    source_type: str | None = None,
+) -> dict[str, Any] | None:
+    source = str(source_type or "").strip()
+    source_filter = "AND event.source_type = ?" if source else ""
+    terminal_placeholders = ",".join("?" for _ in TRIGGER_ACTIVE_RUN_TERMINAL_STATUSES)
+    params: list[Any] = [_required_text(trigger_id, "TRIGGER_ID_REQUIRED")]
+    if source:
+        params.append(source)
+    params.extend(TRIGGER_ACTIVE_RUN_TERMINAL_STATUSES)
+    with get_connection(cfg) as connection:
+        row = connection.execute(
+            f"""
+            SELECT
+                event.trigger_event_id,
+                event.event_type,
+                event.cursor,
+                dispatch.run_id,
+                run.status,
+                run.stage,
+                run.last_updated_at
+            FROM workflow_trigger_dispatches dispatch
+            JOIN workflow_trigger_events event
+              ON event.trigger_event_id = dispatch.trigger_event_id
+            JOIN runs run
+              ON run.run_id = dispatch.run_id
+            WHERE dispatch.trigger_id = ?
+              {source_filter}
+              AND dispatch.state = 'submitted'
+              AND dispatch.run_id IS NOT NULL
+              AND lower(COALESCE(run.status, '')) NOT IN ({terminal_placeholders})
+            ORDER BY event.created_at DESC, dispatch.updated_at DESC, dispatch.dispatch_id DESC
+            LIMIT 1
+            """,
+            tuple(params),
+        ).fetchone()
+    if row is None:
+        return None
+    return {
+        "triggerEventId": row["trigger_event_id"],
+        "eventType": row["event_type"],
+        "cursor": row["cursor"],
+        "runId": row["run_id"],
+        "runStatus": row["status"],
+        "runStage": row["stage"],
+        "runLastUpdatedAt": row["last_updated_at"],
+    }
 
 
 def _stamp_run_trigger_context(connection: Any, *, trigger_event_id: str, run_id: str) -> None:

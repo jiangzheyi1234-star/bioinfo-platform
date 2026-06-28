@@ -39,6 +39,7 @@ def test_scheduler_tick_read_model_projects_safe_evidence(tmp_path, monkeypatch:
         "due": 1,
         "submitted": 1,
         "replayed": 0,
+        "overlapSkipped": 0,
         "eventCount": 1,
         "dispatchRunCount": 1,
         "errorCount": 0,
@@ -65,6 +66,7 @@ def test_scheduler_tick_read_model_projects_safe_evidence(tmp_path, monkeypatch:
     assert "payload" not in serialized
     assert "runSpec" not in serialized
     assert "scheduledAt" not in serialized
+    assert "dataInterval" not in serialized
 
 
 def test_governed_scheduler_tick_read_records_safe_allow_audit(tmp_path) -> None:
@@ -100,7 +102,7 @@ def _create_cron_trigger(cfg) -> dict[str, object]:
                 "pipelineId": "file-summary-standard-v1",
                 "inputs": [{"uploadId": "upl_reads", "filename": "reads.fastq"}],
             },
-            triggerSpec={"cron": "0 2 * * *", "timezone": "UTC"},
+            triggerSpec={"cron": "0 2 * * *", "timezone": "UTC", "concurrencyPolicy": "Forbid"},
         ),
         actor="pytest",
     )["data"]

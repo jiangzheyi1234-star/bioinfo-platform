@@ -13,6 +13,7 @@ from apps.remote_runner.api_models import (
 from apps.remote_runner.errors import IdempotencyKeyReusedError
 from apps.remote_runner.execution_query_storage import fetch_run, list_runs
 from apps.remote_runner.governance_audit import list_governance_audit_events
+from apps.remote_runner.storage_core import get_connection
 from apps.remote_runner.trigger_scheduler import run_workflow_trigger_scheduler_once
 from apps.remote_runner.trigger_inbox_service import submit_workflow_trigger_inbox_event_from_request
 from apps.remote_runner.trigger_service import (
@@ -124,7 +125,7 @@ def test_cron_scheduler_due_tick_dispatches_once_and_records_lineage(
     trigger = _create_trigger(
         cfg,
         source_type="cron",
-        trigger_spec={"cron": "0 2 * * *", "timezone": "UTC"},
+        trigger_spec={"cron": "0 2 * * *", "timezone": "UTC", "concurrencyPolicy": "Forbid"},
     )
 
     first = run_workflow_trigger_scheduler_once(
@@ -145,7 +146,17 @@ def test_cron_scheduler_due_tick_dispatches_once_and_records_lineage(
     assert event["idempotencyKey"] == expected_key
     assert event["cursor"] == "2026-06-23T02:00:00Z"
     assert event["payload"]["scheduledAt"] == "2026-06-23T02:00:00Z"
-    assert event["payload"]["schedule"] == {"cron": "0 2 * * *", "timezone": "UTC"}
+    assert event["payload"]["dataInterval"] == {
+        "start": "2026-06-22T02:00:00Z",
+        "end": "2026-06-23T02:00:00Z",
+        "timezone": "UTC",
+        "semantics": "half-open",
+    }
+    assert event["payload"]["schedule"] == {
+        "cron": "0 2 * * *",
+        "timezone": "UTC",
+        "concurrencyPolicy": "Forbid",
+    }
 
     run = fetch_run(cfg, run_id)
     assert run is not None
@@ -180,6 +191,65 @@ def test_cron_scheduler_due_tick_dispatches_once_and_records_lineage(
     assert later["skipped"] == 1
 
 
+def test_cron_scheduler_data_interval_uses_trigger_timezone(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_execution_admission_ready", lambda _cfg: None)
+    _create_trigger(
+        cfg,
+        source_type="cron",
+        trigger_spec={"cron": "0 2 * * *", "timezone": "Asia/Shanghai", "concurrencyPolicy": "Allow"},
+    )
+
+    result = run_workflow_trigger_scheduler_once(cfg, now="2026-06-22T18:00:00Z")
+
+    assert result["errors"] == []
+    assert result["submitted"] == 1
+    event = result["events"][0]
+    assert event["payload"]["scheduledAt"] == "2026-06-22T18:00:00Z"
+    assert event["payload"]["dataInterval"] == {
+        "start": "2026-06-21T18:00:00Z",
+        "end": "2026-06-22T18:00:00Z",
+        "timezone": "Asia/Shanghai",
+        "semantics": "half-open",
+    }
+
+
+def test_cron_scheduler_forbid_policy_skips_new_tick_while_previous_run_active(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_execution_admission_ready", lambda _cfg: None)
+    trigger = _create_trigger(
+        cfg,
+        source_type="cron",
+        trigger_spec={"cron": "0 * * * *", "timezone": "UTC", "concurrencyPolicy": "Forbid"},
+    )
+
+    first = run_workflow_trigger_scheduler_once(cfg, now="2026-06-23T02:00:00Z")
+    run_id = first["events"][0]["dispatch"]["runId"]
+    blocked = run_workflow_trigger_scheduler_once(cfg, now="2026-06-23T03:00:00Z")
+
+    assert blocked["errors"] == []
+    assert blocked["checked"] == 1
+    assert blocked["submitted"] == 0
+    assert blocked["overlapSkipped"] == 1
+    assert blocked["events"] == []
+    assert len(list_workflow_trigger_events_from_storage(cfg, trigger["triggerId"])["data"]["items"]) == 1
+
+    _mark_run_completed(cfg, run_id)
+    resumed = run_workflow_trigger_scheduler_once(cfg, now="2026-06-23T04:00:00Z")
+
+    assert resumed["submitted"] == 1
+    assert resumed["overlapSkipped"] == 0
+    assert len(list_workflow_trigger_events_from_storage(cfg, trigger["triggerId"])["data"]["items"]) == 2
+
+
 @pytest.mark.parametrize(
     ("trigger_spec", "message"),
     [
@@ -192,7 +262,18 @@ def test_cron_scheduler_due_tick_dispatches_once_and_records_lineage(
         ({"cron": "0 2 * * *"}, "CRON_TRIGGER_TIMEZONE_REQUIRED"),
         ({"cron": "0 2 * * *", "timezone": "Mars/Base"}, "CRON_TRIGGER_TIMEZONE_INVALID"),
         ({"cron": "0 2 * * *", "timezone": "UTC", "seconds": 0}, "CRON_TRIGGER_SPEC_UNSUPPORTED_FIELD: seconds"),
-        ({"cron": "0 2 * * *", "timezone": "UTC", "payload": []}, "CRON_TRIGGER_PAYLOAD_INVALID"),
+        (
+            {"cron": "0 2 * * *", "timezone": "UTC"},
+            "CRON_TRIGGER_CONCURRENCY_POLICY_REQUIRED",
+        ),
+        (
+            {"cron": "0 2 * * *", "timezone": "UTC", "concurrencyPolicy": "Replace"},
+            "CRON_TRIGGER_CONCURRENCY_POLICY_UNSUPPORTED: Replace",
+        ),
+        (
+            {"cron": "0 2 * * *", "timezone": "UTC", "concurrencyPolicy": "Forbid", "payload": []},
+            "CRON_TRIGGER_PAYLOAD_INVALID",
+        ),
     ],
 )
 def test_cron_trigger_creation_requires_explicit_schedule_contract(
@@ -224,6 +305,7 @@ def test_cron_trigger_creation_normalizes_schedule_contract_and_payload(
         trigger_spec={
             "cron": " 0 2 * * * ",
             "timezone": " UTC ",
+            "concurrencyPolicy": " forbid ",
             "payload": {"batch": "nightly"},
         },
     )
@@ -232,6 +314,7 @@ def test_cron_trigger_creation_normalizes_schedule_contract_and_payload(
     assert trigger["triggerSpec"] == {
         "cron": "0 2 * * *",
         "timezone": "UTC",
+        "concurrencyPolicy": "Forbid",
         "payload": {"batch": "nightly"},
     }
     assert result["errors"] == []
@@ -289,7 +372,7 @@ def test_cron_scheduler_ignores_disabled_triggers_and_direct_submit_fails(
     trigger = _create_trigger(
         cfg,
         source_type="cron",
-        trigger_spec={"cron": "0 2 * * *", "timezone": "UTC"},
+        trigger_spec={"cron": "0 2 * * *", "timezone": "UTC", "concurrencyPolicy": "Forbid"},
         enabled=False,
     )
 
@@ -316,6 +399,36 @@ def test_cron_scheduler_ignores_disabled_triggers_and_direct_submit_fails(
         )
 
 
+def test_cron_trigger_direct_event_route_is_scheduler_owned(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_execution_admission_ready", lambda _cfg: None)
+    trigger = _create_trigger(
+        cfg,
+        source_type="cron",
+        trigger_spec={"cron": "0 2 * * *", "timezone": "UTC", "concurrencyPolicy": "Forbid"},
+    )
+
+    with pytest.raises(ValueError, match="WORKFLOW_TRIGGER_SOURCE_LAUNCH_UNSUPPORTED: cron"):
+        submit_workflow_trigger_event_from_request(
+            cfg,
+            trigger["triggerId"],
+            WorkflowTriggerEventRequest(
+                eventType="cron",
+                externalEventId=f"cron:{trigger['triggerId']}:2026-06-23T02:00:00Z",
+                idempotencyKey=f"cron:{trigger['triggerId']}:2026-06-23T02:00:00Z",
+                cursor="2026-06-23T02:00:00Z",
+                payload={"scheduledAt": "2026-06-23T02:00:00Z"},
+            ),
+        )
+
+    assert list_workflow_trigger_events_from_storage(cfg, trigger["triggerId"])["data"]["items"] == []
+    assert list_runs(cfg) == []
+
+
 def test_trigger_event_dedupe_key_rejects_different_payload(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
@@ -324,13 +437,13 @@ def test_trigger_event_dedupe_key_rejects_different_payload(
     monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
     monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_execution_admission_ready", lambda _cfg: None)
 
-    trigger = _create_trigger(cfg, source_type="cron", trigger_spec={"cron": "0 2 * * *", "timezone": "UTC"})
+    trigger = _create_trigger(cfg, source_type="manual", trigger_spec={"mode": "manual"})
     request = WorkflowTriggerEventRequest(
-        eventType="cron",
-        externalEventId=f"cron:{trigger['triggerId']}:2026-06-23T02:00:00Z",
-        idempotencyKey=f"cron:{trigger['triggerId']}:2026-06-23T02:00:00Z",
-        cursor="2026-06-23T02:00:00Z",
-        payload={"scheduledAt": "2026-06-23T02:00:00Z"},
+        eventType="manual",
+        externalEventId="manual:reads-ready",
+        idempotencyKey="manual:reads-ready",
+        cursor="ready:reads.fastq",
+        payload={"dataset": "reads.fastq"},
     )
     submit_workflow_trigger_event_from_request(cfg, trigger["triggerId"], request)
 
@@ -339,11 +452,11 @@ def test_trigger_event_dedupe_key_rejects_different_payload(
             cfg,
             trigger["triggerId"],
             WorkflowTriggerEventRequest(
-                eventType="cron",
+                eventType="manual",
                 externalEventId=request.externalEventId,
                 idempotencyKey=request.idempotencyKey,
                 cursor=request.cursor,
-                payload={"scheduledAt": "2026-06-23T02:00:00Z", "changed": True},
+                payload={"dataset": "reads.fastq", "changed": True},
             ),
         )
 
@@ -444,7 +557,7 @@ def test_generic_trigger_event_route_rejects_webhook_trigger_without_inbox(
     ("source_type", "trigger_spec"),
     [
         ("manual", {"mode": "manual"}),
-        ("cron", {"cron": "0 2 * * *", "timezone": "UTC"}),
+        ("cron", {"cron": "0 2 * * *", "timezone": "UTC", "concurrencyPolicy": "Forbid"}),
     ],
 )
 def test_webhook_inbox_rejects_non_webhook_trigger(
@@ -893,3 +1006,24 @@ def _create_trigger(
         ),
         actor="pytest",
     )["data"]
+
+
+def _mark_run_completed(cfg, run_id: str) -> None:
+    with get_connection(cfg) as connection:
+        connection.execute(
+            """
+            UPDATE runs
+            SET status = 'completed',
+                stage = 'complete',
+                message = 'Completed by cron overlap test.',
+                finished_at = '2026-06-23T10:00:00Z',
+                last_updated_at = '2026-06-23T10:00:00Z'
+            WHERE run_id = ?
+            """,
+            (run_id,),
+        )
+        connection.execute(
+            "UPDATE run_jobs SET state = 'completed', updated_at = '2026-06-23T10:00:00Z' WHERE run_id = ?",
+            (run_id,),
+        )
+        connection.commit()

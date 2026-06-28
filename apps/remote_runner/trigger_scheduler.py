@@ -13,9 +13,18 @@ from .api_models import WorkflowTriggerEventRequest
 from .config import RemoteRunnerConfig, load_remote_runner_config
 from .evidence_storage import append_evidence_event
 from .storage_core import get_connection
-from .trigger_cron_contract import cron_expression, cron_timezone, normalize_cron_trigger_spec
+from .trigger_cron_contract import (
+    cron_concurrency_policy,
+    cron_expression,
+    cron_timezone,
+    normalize_cron_trigger_spec,
+)
 from .trigger_service import advance_workflow_backfill_launches, submit_workflow_trigger_event_from_request
-from .trigger_storage import list_workflow_triggers_by_source
+from .trigger_storage import (
+    fetch_active_workflow_trigger_dispatch_run,
+    fetch_workflow_trigger_event_for_dedupe,
+    list_workflow_triggers_by_source,
+)
 
 
 LOGGER = logging.getLogger(__name__)
@@ -83,6 +92,7 @@ def run_workflow_trigger_scheduler_once(
     due = 0
     submitted = 0
     replayed = 0
+    overlap_skipped = 0
     events: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
 
@@ -96,12 +106,21 @@ def run_workflow_trigger_scheduler_once(
         if request is None:
             skipped += 1
             continue
+        if _cron_trigger_forbids_overlapping_new_run(cfg, trigger, request):
+            skipped += 1
+            overlap_skipped += 1
+            continue
         if due >= limit:
             skipped += 1
             continue
         due += 1
         try:
-            response = submit_workflow_trigger_event_from_request(cfg, str(trigger["triggerId"]), request)
+            response = submit_workflow_trigger_event_from_request(
+                cfg,
+                str(trigger["triggerId"]),
+                request,
+                supported_sources={"cron"},
+            )
         except Exception as exc:  # noqa: BLE001 - record the failed due tick and keep evaluating other triggers.
             errors.append(_trigger_error(trigger, exc))
             continue
@@ -122,6 +141,7 @@ def run_workflow_trigger_scheduler_once(
         due=due,
         submitted=submitted,
         replayed=replayed,
+        overlap_skipped=overlap_skipped,
         events=events,
         errors=errors,
         backfills=backfills,
@@ -134,6 +154,7 @@ def run_workflow_trigger_scheduler_once(
         "due": due,
         "submitted": submitted,
         "replayed": replayed,
+        "overlapSkipped": overlap_skipped,
         "events": events,
         "backfills": backfills,
         "errors": errors,
@@ -152,6 +173,7 @@ def _scheduler_tick_summary(
     due: int,
     submitted: int,
     replayed: int,
+    overlap_skipped: int,
     events: list[dict[str, Any]],
     errors: list[dict[str, str]],
     backfills: dict[str, Any],
@@ -162,6 +184,7 @@ def _scheduler_tick_summary(
         "due": due,
         "submitted": submitted,
         "replayed": replayed,
+        "overlapSkipped": overlap_skipped,
         "eventCount": len(events),
         "dispatchRunCount": _dispatch_run_count(events),
         "errorCount": len(errors),
@@ -273,20 +296,29 @@ def build_cron_trigger_event_request(
     cron_spec = normalize_cron_trigger_spec(trigger_spec)
     expression = cron_expression(cron_spec)
     timezone_name, timezone = cron_timezone(cron_spec)
+    concurrency_policy = cron_concurrency_policy(cron_spec)
     local_tick = tick_at.astimezone(timezone).replace(second=0, microsecond=0)
     if not croniter.match(expression, local_tick):
         return None
 
     scheduled_at = _format_utc(local_tick.astimezone(UTC))
+    interval_start = croniter(expression, local_tick).get_prev(datetime).astimezone(UTC)
     trigger_id = str(trigger.get("triggerId") or "").strip()
     if not trigger_id:
         raise ValueError("TRIGGER_ID_REQUIRED")
     event_key = f"cron:{trigger_id}:{scheduled_at}"
     payload = {
         "scheduledAt": scheduled_at,
+        "dataInterval": {
+            "start": _format_utc(interval_start),
+            "end": scheduled_at,
+            "timezone": timezone_name,
+            "semantics": "half-open",
+        },
         "schedule": {
             "cron": expression,
             "timezone": timezone_name,
+            "concurrencyPolicy": concurrency_policy,
         },
         "scheduleVersion": str(trigger.get("updatedAt") or trigger.get("createdAt") or ""),
     }
@@ -300,6 +332,27 @@ def build_cron_trigger_event_request(
         cursor=scheduled_at,
         payload=payload,
     )
+
+
+def _cron_trigger_forbids_overlapping_new_run(
+    cfg: RemoteRunnerConfig,
+    trigger: dict[str, Any],
+    request: WorkflowTriggerEventRequest,
+) -> bool:
+    trigger_spec = normalize_cron_trigger_spec(trigger.get("triggerSpec"))
+    if cron_concurrency_policy(trigger_spec) != "Forbid":
+        return False
+    trigger_id = str(trigger.get("triggerId") or "").strip()
+    if not trigger_id:
+        raise ValueError("TRIGGER_ID_REQUIRED")
+    if fetch_workflow_trigger_event_for_dedupe(
+        cfg,
+        trigger_id=trigger_id,
+        idempotency_key=str(request.idempotencyKey or ""),
+        external_event_id=str(request.externalEventId or ""),
+    ):
+        return False
+    return fetch_active_workflow_trigger_dispatch_run(cfg, trigger_id, source_type="cron") is not None
 
 
 def start_workflow_trigger_scheduler_supervisor(

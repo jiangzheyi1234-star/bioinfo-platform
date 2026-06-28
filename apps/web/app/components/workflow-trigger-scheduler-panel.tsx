@@ -65,7 +65,7 @@ export function WorkflowTriggerSchedulerPanel({
       {latest ? (
         <>
           <div className="grid gap-2 text-xs sm:grid-cols-2 xl:grid-cols-4">
-            <SchedulerMetric label="Cron due" value={numberLabel(cron.due)} sub={`submitted ${numberLabel(cron.submitted)} / replayed ${numberLabel(cron.replayed)}`} />
+            <SchedulerMetric label="Cron due" value={numberLabel(cron.due)} sub={`submitted ${numberLabel(cron.submitted)} / replayed ${numberLabel(cron.replayed)} / overlap ${numberLabel(cron.overlapSkipped)}`} />
             <SchedulerMetric label="Cron errors" value={numberLabel(cron.errorCount)} sub={reasonSummary(cron.reasonCodes)} tone={cron.errorCount ? "red" : "slate"} />
             <SchedulerMetric label="Backfill submitted" value={numberLabel(backfills.submitted)} sub={`pending ${numberLabel(backfills.pending)} / replayed ${numberLabel(backfills.replayed)}`} />
             <SchedulerMetric label="Backfill errors" value={numberLabel(backfills.errorCount)} sub={reasonSummary(backfills.reasonCodes)} tone={backfills.errorCount ? "red" : "slate"} />
@@ -154,6 +154,7 @@ function SchedulerTickLedgerRow({ tick }: { tick: WorkflowTriggerSchedulerTick }
           ["checked", cron.checked],
           ["due", cron.due],
           ["submitted", cron.submitted],
+          ["overlap", cron.overlapSkipped],
           ["runs", cron.dispatchRunCount],
           ["errors", cron.errorCount],
         ]}

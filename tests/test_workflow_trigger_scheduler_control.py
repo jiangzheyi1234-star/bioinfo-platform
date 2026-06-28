@@ -79,6 +79,7 @@ def test_scheduler_run_once_returns_safe_aggregate_and_audit(tmp_path, monkeypat
             "due": 1,
             "submitted": 1,
             "replayed": 0,
+            "overlapSkipped": 0,
             "eventCount": 1,
             "dispatchRunCount": 1,
             "errorCount": 1,

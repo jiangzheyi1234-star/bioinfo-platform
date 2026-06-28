@@ -131,6 +131,7 @@ def test_trigger_events_have_read_only_frontend_surface() -> None:
     assert "tick.evidenceSeq" in scheduler_panel
     assert "tick.evaluatedAt || tick.occurredAt" in scheduler_panel
     assert "cron.dispatchRunCount" in scheduler_panel
+    assert "cron.overlapSkipped" in scheduler_panel
     assert "backfills.stateCounts || backfills.reasonCodes" in scheduler_panel
     assert "BadgeSummary" in scheduler_panel
     assert "运行一次 scheduler" in scheduler_panel

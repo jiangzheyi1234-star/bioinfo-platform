@@ -601,7 +601,7 @@ def test_workflow_trigger_create_request_is_strict_and_keeps_run_spec_nested() -
             "serverId": "srv_demo",
             "name": "Nightly summary",
             "sourceType": "cron",
-            "triggerSpec": {"cron": "0 2 * * *", "timezone": "UTC"},
+            "triggerSpec": {"cron": "0 2 * * *", "timezone": "UTC", "concurrencyPolicy": "Forbid"},
             "runSpec": {
                 "pipelineId": "file-summary-standard-v1",
                 "inputs": [{"uploadId": "upl_reads"}],

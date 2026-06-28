@@ -191,6 +191,7 @@ export type WorkflowTriggerSchedulerTickCounts = {
   due?: number;
   submitted?: number;
   replayed?: number;
+  overlapSkipped?: number;
   eventCount?: number;
   dispatchRunCount?: number;
   errorCount?: number;

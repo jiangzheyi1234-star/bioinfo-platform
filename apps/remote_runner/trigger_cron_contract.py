@@ -7,7 +7,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from croniter import croniter
 
 
-CRON_TRIGGER_SPEC_KEYS = frozenset({"cron", "timezone", "payload"})
+CRON_TRIGGER_SPEC_KEYS = frozenset({"cron", "timezone", "concurrencyPolicy", "payload"})
+CRON_TRIGGER_CONCURRENCY_POLICIES = {"allow": "Allow", "forbid": "Forbid"}
 
 
 def normalize_cron_trigger_spec(trigger_spec: Any) -> dict[str, Any]:
@@ -23,6 +24,7 @@ def normalize_cron_trigger_spec(trigger_spec: Any) -> dict[str, Any]:
     normalized: dict[str, Any] = {
         "cron": expression,
         "timezone": timezone_name,
+        "concurrencyPolicy": cron_concurrency_policy(trigger_spec),
     }
     if "payload" in trigger_spec:
         payload = trigger_spec.get("payload")
@@ -65,3 +67,14 @@ def cron_timezone_name(trigger_spec: dict[str, Any]) -> str:
     except ZoneInfoNotFoundError as exc:
         raise ValueError(f"CRON_TRIGGER_TIMEZONE_INVALID: {name}") from exc
     return name
+
+
+def cron_concurrency_policy(trigger_spec: dict[str, Any]) -> str:
+    raw = trigger_spec.get("concurrencyPolicy")
+    if not isinstance(raw, str) or not raw.strip():
+        raise ValueError("CRON_TRIGGER_CONCURRENCY_POLICY_REQUIRED")
+    normalized = raw.strip().lower()
+    policy = CRON_TRIGGER_CONCURRENCY_POLICIES.get(normalized)
+    if policy is None:
+        raise ValueError(f"CRON_TRIGGER_CONCURRENCY_POLICY_UNSUPPORTED: {raw.strip()}")
+    return policy

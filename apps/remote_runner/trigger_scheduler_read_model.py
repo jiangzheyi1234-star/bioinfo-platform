@@ -104,6 +104,7 @@ def _project_cron(value: dict[str, Any]) -> dict[str, Any]:
             "due",
             "submitted",
             "replayed",
+            "overlapSkipped",
             "eventCount",
             "dispatchRunCount",
             "errorCount",
