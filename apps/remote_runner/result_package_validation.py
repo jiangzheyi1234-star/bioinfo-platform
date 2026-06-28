@@ -150,6 +150,7 @@ def _validate_manifest(
         input_artifact_count=manifest.get("inputArtifactCount"),
         errors=errors,
     )
+    _validate_manifest_input_lineage(manifest, errors)
     _validate_manifest_provenance(manifest, errors)
 
 
@@ -287,6 +288,50 @@ def _validate_manifest_provenance(manifest: dict[str, Any], errors: list[str]) -
         errors.append("manifest provenance.activity.used must match workflow revision and inputArtifacts")
 
 
+def _validate_manifest_input_lineage(manifest: dict[str, Any], errors: list[str]) -> None:
+    input_artifacts = manifest.get("inputArtifacts")
+    if not isinstance(input_artifacts, list):
+        return
+    input_by_blob = {
+        str(artifact.get("artifactBlobId") or "").strip(): artifact
+        for artifact in input_artifacts
+        if isinstance(artifact, dict) and str(artifact.get("artifactBlobId") or "").strip()
+    }
+    lineage_edges = manifest.get("lineageEdges")
+    if not isinstance(lineage_edges, list):
+        errors.append("manifest lineageEdges must be a list")
+        return
+    used_blob_ids: set[str] = set()
+    for edge in lineage_edges:
+        if not isinstance(edge, dict):
+            errors.append("manifest lineageEdges entries must be objects")
+            continue
+        if edge.get("predicate") != "prov:used" or edge.get("objectKind") != "artifact_blob":
+            continue
+        artifact_blob_id = str(edge.get("objectId") or "").strip()
+        if not artifact_blob_id:
+            errors.append("manifest input lineage objectId is required")
+            continue
+        artifact = input_by_blob.get(artifact_blob_id)
+        if artifact is None:
+            errors.append(f"manifest input lineage missing inputArtifact: {artifact_blob_id}")
+            continue
+        payload = edge.get("payload")
+        if not isinstance(payload, dict):
+            errors.append(f"manifest input lineage payload must be an object: {artifact_blob_id}")
+            continue
+        used_blob_ids.add(artifact_blob_id)
+        if payload.get("sha256") != artifact.get("sha256"):
+            errors.append(f"manifest input lineage sha256 mismatch: {artifact_blob_id}")
+        if payload.get("sizeBytes") != artifact.get("sizeBytes"):
+            errors.append(f"manifest input lineage sizeBytes mismatch: {artifact_blob_id}")
+        if payload.get("mimeType") != artifact.get("mimeType"):
+            errors.append(f"manifest input lineage mimeType mismatch: {artifact_blob_id}")
+    missing_lineage = sorted(set(input_by_blob) - used_blob_ids)
+    if missing_lineage:
+        errors.append(f"manifest inputArtifacts missing prov:used lineage: {', '.join(missing_lineage)}")
+
+
 def _validate_included_artifact_payload(
     *,
     archive: zipfile.ZipFile,
@@ -418,6 +463,9 @@ def _validate_ro_crate_root(
     missing_parts = sorted(expected_parts - has_part_ids)
     if missing_parts:
         errors.append(f"RO-Crate root hasPart is missing package entries: {', '.join(missing_parts)}")
+    unexpected_parts = sorted(has_part_ids - expected_parts)
+    if unexpected_parts:
+        errors.append(f"RO-Crate root hasPart has unexpected package entries: {', '.join(unexpected_parts)}")
 
     workflow_id = _first_id(root.get("mainEntity"))
     if not workflow_id:

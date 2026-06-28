@@ -121,6 +121,53 @@ def test_result_package_validator_rejects_manifest_input_artifact_mismatch(tmp_p
         validate_result_package_archive(broken_package)
 
 
+def test_result_package_validator_rejects_manifest_input_lineage_mismatch(tmp_path: Path) -> None:
+    package = _valid_package_with_input(tmp_path)
+    broken_package = tmp_path / "broken-input-lineage.zip"
+
+    def break_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
+        used_edge = next(
+            edge
+            for edge in manifest["lineageEdges"]
+            if edge.get("predicate") == "prov:used" and edge.get("objectKind") == "artifact_blob"
+        )
+        used_edge["payload"]["sha256"] = "b" * 64
+        return manifest
+
+    _copy_zip_rewriting_json(
+        Path(package["packagePath"]),
+        broken_package,
+        "manifest.json",
+        break_manifest,
+    )
+
+    with pytest.raises(ValueError, match="manifest input lineage sha256 mismatch"):
+        validate_result_package_archive(broken_package)
+
+
+def test_result_package_validator_rejects_manifest_input_without_lineage(tmp_path: Path) -> None:
+    package = _valid_package_with_input(tmp_path)
+    broken_package = tmp_path / "broken-input-lineage-missing.zip"
+
+    def break_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
+        manifest["lineageEdges"] = [
+            edge
+            for edge in manifest["lineageEdges"]
+            if edge.get("predicate") != "prov:used" or edge.get("objectKind") != "artifact_blob"
+        ]
+        return manifest
+
+    _copy_zip_rewriting_json(
+        Path(package["packagePath"]),
+        broken_package,
+        "manifest.json",
+        break_manifest,
+    )
+
+    with pytest.raises(ValueError, match="manifest inputArtifacts missing prov:used lineage"):
+        validate_result_package_archive(broken_package)
+
+
 def test_result_package_validator_rejects_ro_crate_input_artifact_mismatch(tmp_path: Path) -> None:
     package = _valid_package_with_input(tmp_path)
     broken_package = tmp_path / "broken-input-ro-crate.zip"
