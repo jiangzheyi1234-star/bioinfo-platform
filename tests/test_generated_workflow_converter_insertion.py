@@ -75,29 +75,33 @@ function readyTool({ id, name, inputs, outputs, commandTemplate = "cat {input.re
   };
 }
 
+const FASTQ_FORMAT = "format_1930";
+const BAM_FORMAT = "format_2572";
+const TEXT_FORMAT = "format_1915";
+
 const sourceTool = readyTool({
   id: "bioconda::source",
   name: "source",
-  inputs: [{ name: "reads", required: true, kind: "reads", format: "fastq" }],
-  outputs: [{ name: "report", path: "source.fastq", kind: "reads", format: "fastq", type: "file" }],
+  inputs: [{ name: "reads", required: true, kind: "reads", format: FASTQ_FORMAT }],
+  outputs: [{ name: "report", path: "source.fastq", kind: "reads", format: FASTQ_FORMAT, type: "file" }],
 });
 const converterTool = readyTool({
   id: "bioconda::sam-to-bam",
   name: "sam-to-bam",
-  inputs: [{ name: "reads", required: true, kind: "reads", format: "fastq", type: "file" }],
-  outputs: [{ name: "bam", path: "converted.bam", kind: "alignment_bam", format: "bam", type: "file" }],
+  inputs: [{ name: "reads", required: true, kind: "reads", format: FASTQ_FORMAT, type: "file" }],
+  outputs: [{ name: "bam", path: "converted.bam", kind: "alignment_bam", format: BAM_FORMAT, type: "file" }],
   commandTemplate: "cp {input.reads:q} {output.bam:q}",
 });
 const targetTool = readyTool({
   id: "bioconda::target",
   name: "target",
-  inputs: [{ name: "reads", required: true, kind: "alignment_bam", format: "bam", type: "file" }],
-  outputs: [{ name: "report", path: "target.txt", kind: "report", format: "txt", type: "file" }],
+  inputs: [{ name: "reads", required: true, kind: "alignment_bam", format: BAM_FORMAT, type: "file" }],
+  outputs: [{ name: "report", path: "target.txt", kind: "report", format: TEXT_FORMAT, type: "file" }],
 });
 
 const [converter] = findOneHopPortConverters({
-  input: { name: "reads", kind: "alignment_bam", format: "bam", type: "file" },
-  output: { name: "report", kind: "reads", format: "fastq", type: "file" },
+  input: { name: "reads", kind: "alignment_bam", format: BAM_FORMAT, type: "file" },
+  output: { name: "report", kind: "reads", format: FASTQ_FORMAT, type: "file" },
   tools: [sourceTool, converterTool, targetTool],
   excludeToolRevisionIds: [targetTool.toolRevisionId],
 });
@@ -353,19 +357,19 @@ assert.deepEqual(typeOnlySuggestions, []);
 const databaseConverterTool = readyTool({
   id: "bioconda::db-converter",
   name: "db-converter",
-  inputs: [{ name: "reads", required: true, kind: "reads", format: "fastq", type: "file" }],
-  outputs: [{ name: "bam", path: "converted.bam", kind: "alignment_bam", format: "bam", type: "file" }],
+  inputs: [{ name: "reads", required: true, kind: "reads", format: FASTQ_FORMAT, type: "file" }],
+  outputs: [{ name: "bam", path: "converted.bam", kind: "alignment_bam", format: BAM_FORMAT, type: "file" }],
 });
 databaseConverterTool.ruleTemplate.resources = { reference: { type: "database", capabilities: ["alignment_index"] } };
 const databaseSuggestions = findOneHopPortConverters({
-  input: { name: "reads", kind: "alignment_bam", format: "bam", type: "file" },
-  output: { name: "report", kind: "reads", format: "fastq", type: "file" },
+  input: { name: "reads", kind: "alignment_bam", format: BAM_FORMAT, type: "file" },
+  output: { name: "report", kind: "reads", format: FASTQ_FORMAT, type: "file" },
   tools: [databaseConverterTool],
 });
 assert.deepEqual(databaseSuggestions, []);
 assert(blockedOneHopPortConverterReasons({
-  input: { name: "reads", kind: "alignment_bam", format: "bam", type: "file" },
-  output: { name: "report", kind: "reads", format: "fastq", type: "file" },
+  input: { name: "reads", kind: "alignment_bam", format: BAM_FORMAT, type: "file" },
+  output: { name: "report", kind: "reads", format: FASTQ_FORMAT, type: "file" },
   tool: databaseConverterTool,
 }).includes("database-resource-required"));
 
@@ -412,6 +416,34 @@ assert.equal(generatedConverter.inputs.reads.fromStep, "source");
 assert.equal(generatedConverter.inputs.reads.output, "report");
 assert.equal(generatedTarget.inputs.reads.fromStep, converterNode.id);
 assert.equal(generatedTarget.inputs.reads.output, "bam");
+assert.throws(
+  () => buildConverterInsertionPatch({
+    converterTool,
+    graphDraft: patched,
+    request: {
+      sourceStepId: "source",
+      sourceOutput: "report",
+      targetStepId: "target",
+      targetInput: "reads",
+      converter,
+    },
+  }),
+  /WORKFLOW_CONVERTER_INSERTION_EDGE_STALE/
+);
+assert.throws(
+  () => buildConverterInsertionPatch({
+    converterTool,
+    graphDraft: { ...graphDraft, edges: [] },
+    request: {
+      sourceStepId: "source",
+      sourceOutput: "report",
+      targetStepId: "target",
+      targetInput: "reads",
+      converter,
+    },
+  }),
+  /WORKFLOW_CONVERTER_INSERTION_EDGE_STALE/
+);
 
 const validation = validateGeneratedWorkflowDraft(patched, [sourceTool, converterTool, targetTool], { inputCount: 1 });
 assert.deepEqual(validation.errors, []);

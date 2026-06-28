@@ -177,6 +177,16 @@ export function buildConverterInsertionPatch({
   if (!converterToolRevisionId || converterToolRevisionId !== request.converter.converterToolRevisionId) {
     throw new Error("WORKFLOW_CONVERTER_INSERTION_TOOL_MISMATCH");
   }
+  const targetBinding = targetStep.inputs?.[request.targetInput];
+  if (
+    !targetBinding
+    || typeof targetBinding !== "object"
+    || !("fromStep" in targetBinding)
+    || targetBinding.fromStep !== request.sourceStepId
+    || targetBinding.output !== request.sourceOutput
+  ) {
+    throw new Error("WORKFLOW_CONVERTER_INSERTION_EDGE_STALE");
+  }
   const converterStepId = uniqueStepId(
     `${request.converter.converterToolName || converterTool.name || "converter"}_converter`,
     draft.steps.map((step) => step.id)

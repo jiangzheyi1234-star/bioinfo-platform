@@ -25,8 +25,7 @@ def build_workflow_design_semantic_port_plan(
     design: WorkflowDesignDraftV1,
 ) -> dict[str, Any]:
     contexts = _node_contexts(cfg, design)
-    excluded_revisions = {str(node.toolRevisionId or "").strip() for node in design.nodes if str(node.toolRevisionId or "").strip()}
-    converters = _converter_contexts(cfg, excluded_revisions=excluded_revisions)
+    converters = _converter_contexts(cfg)
     edges = [_edge_semantic_plan(edge, contexts=contexts, converters=converters) for edge in design.edges]
     compatible_count = sum(1 for edge in edges if edge["decision"]["compatible"] is True)
     blocked_count = sum(1 for edge in edges if edge["decision"]["compatible"] is not True)
@@ -124,7 +123,10 @@ def _one_hop_converter_candidates(
     converters: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
+    edge_endpoint_revisions = {str(source.get("toolRevisionId") or ""), str(target.get("toolRevisionId") or "")}
     for converter in converters:
+        if converter["toolRevisionId"] in edge_endpoint_revisions:
+            continue
         required_inputs = [port for port in converter["inputs"] if port["required"] is not False]
         if len(required_inputs) != 1:
             continue
@@ -199,11 +201,11 @@ def _node_contexts(cfg: RemoteRunnerConfig, design: WorkflowDesignDraftV1) -> di
     return contexts
 
 
-def _converter_contexts(cfg: RemoteRunnerConfig, *, excluded_revisions: set[str]) -> list[dict[str, Any]]:
+def _converter_contexts(cfg: RemoteRunnerConfig) -> list[dict[str, Any]]:
     converters: list[dict[str, Any]] = []
     for tool in list_registered_tools(cfg):
         revision_id = str(tool.get("toolRevisionId") or "").strip()
-        if not revision_id or revision_id in excluded_revisions:
+        if not revision_id:
             continue
         if not _tool_workflow_ready(tool):
             continue

@@ -68,23 +68,26 @@ function readyTool({ id, name, inputs, outputs }) {
   };
 }
 
+const FASTQ_FORMAT = "format_1930";
+const BAM_FORMAT = "format_2572";
+
 const sourceTool = readyTool({
   id: "bioconda::source",
   name: "source",
-  inputs: [{ name: "reads", required: true, type: "file", kind: "reads", format: "fastq" }],
-  outputs: [{ name: "report", path: "source.fastq", type: "file", kind: "reads", format: "fastq" }],
+  inputs: [{ name: "reads", required: true, type: "file", kind: "reads", format: FASTQ_FORMAT }],
+  outputs: [{ name: "report", path: "source.fastq", type: "file", kind: "reads", format: FASTQ_FORMAT }],
 });
 const targetTool = readyTool({
   id: "bioconda::target",
   name: "target",
-  inputs: [{ name: "reads", required: true, type: "file", kind: "reads", format: "fastq" }],
-  outputs: [{ name: "report", path: "target.fastq", type: "file", kind: "reads", format: "fastq" }],
+  inputs: [{ name: "reads", required: true, type: "file", kind: "reads", format: FASTQ_FORMAT }],
+  outputs: [{ name: "report", path: "target.fastq", type: "file", kind: "reads", format: FASTQ_FORMAT }],
 });
 const incompatibleTool = readyTool({
   id: "bioconda::bam-target",
   name: "bam-target",
-  inputs: [{ name: "reads", required: true, type: "file", kind: "alignment", format: "bam" }],
-  outputs: [{ name: "report", path: "target.bam", type: "file", kind: "alignment", format: "bam" }],
+  inputs: [{ name: "reads", required: true, type: "file", kind: "alignment", format: BAM_FORMAT }],
+  outputs: [{ name: "report", path: "target.bam", type: "file", kind: "alignment", format: BAM_FORMAT }],
 });
 const tools = [sourceTool, targetTool, incompatibleTool];
 const baseGraph = {

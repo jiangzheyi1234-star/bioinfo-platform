@@ -190,6 +190,44 @@ def test_semantic_port_plan_recommends_one_hop_converter_for_incompatible_edge(t
     assert "converterPath" not in serialized
 
 
+def test_semantic_port_plan_reuses_converter_revision_already_present_elsewhere(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    converter = _sam_to_bam_converter()
+    upsert_ready_tool(cfg, _alignment_source_tool(file_format=SAM_FORMAT))
+    upsert_ready_tool(cfg, _alignment_consumer_tool(file_format=BAM_FORMAT))
+    upsert_ready_tool(cfg, converter)
+    draft = _two_node_design(source_format=SAM_FORMAT, target_format=BAM_FORMAT)
+    draft["nodes"].append(
+        {
+            "id": "existing_converter",
+            "toolRevisionId": test_tool_revision_id(converter["id"]),
+            "inputs": {"sam": {"fromInput": "reads"}},
+            "params": {"min_len": 80},
+            "runtime": {"threads": 1, "schedulerResources": {"mem_mb": 128}},
+            "resources": {},
+            "outputs": {},
+            "metadata": {},
+            "provenance": {"source": "existing-graph-node"},
+        }
+    )
+    saved = create_workflow_design_draft(cfg, draft)
+
+    plan = plan_workflow_design_draft(
+        cfg,
+        saved["draft"],
+        preview_root=tmp_path / "preview",
+        draft_id=saved["draftId"],
+        revision=saved["revision"],
+    )
+
+    edge = plan["semanticPortPlan"]["edges"][0]
+    assert edge["recommendation"]["action"] == "insert-converter"
+    assert edge["recommendation"]["reasonCode"] == "ONE_HOP_CONVERTER_AVAILABLE"
+    assert [candidate["converterToolRevisionId"] for candidate in edge["converterCandidates"]] == [
+        test_tool_revision_id(converter["id"])
+    ]
+
+
 def test_semantic_port_plan_excludes_type_only_and_generic_converter_candidates(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     upsert_ready_tool(cfg, _alignment_source_tool(file_format=SAM_FORMAT))
