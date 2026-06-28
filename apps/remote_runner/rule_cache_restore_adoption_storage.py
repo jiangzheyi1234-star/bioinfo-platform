@@ -394,7 +394,7 @@ def _declared_output_paths(
     ).resolve()
     execution = run_spec.get("execution") if isinstance(run_spec.get("execution"), dict) else {}
     if isinstance(execution.get("outputs"), dict) and execution["outputs"]:
-        return {key: Path(value).resolve() for key, value in _build_run_outputs(execution, result_dir).items()}
+        return _execution_output_paths(execution, result_dir=result_dir)
     outputs = run_spec.get("outputs") if isinstance(run_spec.get("outputs"), dict) else None
     if outputs:
         return {key: _normalize_output_path(value, result_dir=result_dir) for key, value in outputs.items()}
@@ -409,7 +409,28 @@ def _normalize_output_path(value: Any, *, result_dir: Path) -> Path:
     raw = value.get("path") if isinstance(value, dict) else value
     path = Path(_required_text(raw, "RULE_CACHE_RESTORE_ADOPTION_OUTPUT_PATH_REQUIRED"))
     resolved = path if path.is_absolute() else result_dir / path
-    return resolved.resolve()
+    normalized = resolved.resolve()
+    if not _is_relative_to(normalized, result_dir.resolve()):
+        raise ValueError("RULE_CACHE_RESTORE_ADOPTION_OUTPUT_PATH_UNMANAGED")
+    return normalized
+
+
+def _execution_output_paths(execution: dict[str, Any], *, result_dir: Path) -> dict[str, Path]:
+    try:
+        raw_outputs = _build_run_outputs(execution, result_dir)
+    except ValueError as exc:
+        if str(exc) == "OUTPUT_PATH_OUTSIDE_RESULT_DIR":
+            raise ValueError("RULE_CACHE_RESTORE_ADOPTION_OUTPUT_PATH_UNMANAGED") from exc
+        raise
+    return {key: _normalize_output_path(value, result_dir=result_dir) for key, value in raw_outputs.items()}
+
+
+def _is_relative_to(path: Path, base: Path) -> bool:
+    try:
+        path.relative_to(base)
+    except ValueError:
+        return False
+    return True
 
 
 def _output_schema_specs(run_spec: dict[str, Any]) -> dict[str, dict[str, str]]:

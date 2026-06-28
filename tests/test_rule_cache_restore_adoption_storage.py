@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from apps.remote_runner.artifact_cache_storage import list_artifact_cache_pins
 from apps.remote_runner.artifact_ledger_storage import list_lineage_edges_for_run, list_run_artifact_edges
 from apps.remote_runner.candidate_output_storage import record_candidate_output
@@ -197,6 +199,56 @@ def test_rule_cache_restore_adoption_rejects_missing_output_metadata_without_art
         raise AssertionError("expected missing output metadata to fail loudly")
     assert fetch_run_results(cfg, run_id)["artifactCount"] == 0
     assert list_evidence_events(cfg, event_type="rule.cache_restore.adoption_applied.v1") == []
+
+
+def test_rule_cache_restore_adoption_rejects_unmanaged_declared_output_without_artifact_mutation(
+    tmp_path: Path,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    run_id, claim = _promoted_restore_run(cfg, tmp_path, "run_rule_cache_restore_adopt_unmanaged")
+    plan = fetch_run_execution_context(cfg, run_id)["ruleCacheRestorePlan"]
+    assert plan["finalOutputPromotionState"]["state"] == "applied"
+    outside_output = tmp_path / "outside-adoption.bam"
+    outside_output.write_bytes(b"cached align\n")
+    with get_connection(cfg) as connection:
+        run = connection.execute("SELECT run_spec_json FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+        run_spec = dict(json.loads(run["run_spec_json"]))
+        run_spec["execution"] = dict(run_spec.get("execution") or {})
+        run_spec["execution"].pop("outputs", None)
+        run_spec["outputs"] = {"bam": str(outside_output)}
+        connection.execute(
+            "UPDATE runs SET run_spec_json = ? WHERE run_id = ?",
+            (json.dumps(run_spec, sort_keys=True), run_id),
+        )
+        connection.commit()
+    candidate = record_candidate_output(
+        cfg,
+        run_id=run_id,
+        attempt_id=str(claim["attemptId"]),
+        lease_generation=int(claim["leaseGeneration"]),
+        output_key="bam",
+        path=outside_output,
+        observed_at="2099-06-07T10:03:30Z",
+    )
+
+    with pytest.raises(ValueError, match="RULE_CACHE_RESTORE_ADOPTION_OUTPUT_PATH_UNMANAGED"):
+        apply_rule_cache_restore_adoption(
+            cfg,
+            plan,
+            plan_hash=plan["planHash"],
+            attempt_id=str(claim["attemptId"]),
+            lease_generation=int(claim["leaseGeneration"]),
+        )
+
+    assert fetch_run_results(cfg, run_id)["artifactCount"] == 0
+    assert list_evidence_events(cfg, event_type="rule.cache_restore.adoption_applied.v1") == []
+    with get_connection(cfg) as connection:
+        row = connection.execute(
+            "SELECT verification_state, adopted_artifact_id FROM candidate_outputs WHERE candidate_output_id = ?",
+            (candidate["candidateOutputId"],),
+        ).fetchone()
+    assert row["verification_state"] == "pending"
+    assert row["adopted_artifact_id"] is None
 
 
 def _promoted_restore_run(cfg: Any, tmp_path: Path, run_id: str) -> tuple[str, dict[str, Any]]:
