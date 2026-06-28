@@ -432,19 +432,6 @@ class RemoteRunnerHttpClient:
             dict(payload or {}),
         )["data"]
 
-    def delete_result_package_bytes(
-        self,
-        result_id: str,
-        package_export_id: str,
-        payload: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        result_part = urllib.parse.quote(result_id, safe="")
-        export_part = urllib.parse.quote(package_export_id, safe="")
-        return self.post_json(
-            f"/api/v1/results/{result_part}/exports/{export_part}/bytes/delete",
-            dict(payload or {}),
-        )["data"]
-
     def preview_result_package_byte_gc(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         return self.post_json(
             "/api/v1/result-package-exports/bytes/gc/preview",

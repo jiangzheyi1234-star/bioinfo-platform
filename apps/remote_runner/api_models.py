@@ -152,12 +152,6 @@ class ResultPackageRetireRequest(RemoteRunnerRequest):
     reason: str | None = None
 
 
-class ResultPackageByteDeleteRequest(RemoteRunnerRequest):
-    confirmation: Literal["delete-result-package-export-bytes"]
-    actor: str | None = None
-    reason: str | None = None
-
-
 class ResultPackageByteGcPreviewRequest(RemoteRunnerRequest):
     retentionDays: int = Field(default=30, ge=0)
     maxDeleteBytes: int | None = Field(default=None, ge=1)

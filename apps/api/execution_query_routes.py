@@ -13,7 +13,6 @@ from apps.api.models import (
     ArtifactLifecycleControllerRunOnceRequest,
     ArtifactGcPreviewRequest,
     ArtifactGcRunRequest,
-    ResultPackageByteDeleteRequest,
     ResultPackageByteGcRunRequest,
     ResultPackageByteGcPreviewRequest,
     ResultPackageExportRequest,
@@ -38,7 +37,6 @@ from apps.api.execution_query_service import (
     apply_rule_cache_restore_staged_files_from_request,
     apply_rule_output_invalidation_from_request,
     cancel_run_from_request,
-    delete_result_package_bytes_from_request,
     download_result_package_from_request,
     get_artifact_lifecycle_usage_from_request,
     list_artifact_lifecycle_controller_ticks_from_request,
@@ -315,15 +313,6 @@ async def retire_result_package(
     request: ResultPackageRetireRequest,
 ) -> dict[str, Any]:
     return await retire_result_package_from_request(result_id, package_export_id, request)
-
-
-@router.post("/api/v1/results/{result_id}/exports/{package_export_id}/bytes/delete")
-async def delete_result_package_bytes(
-    result_id: str,
-    package_export_id: str,
-    request: ResultPackageByteDeleteRequest,
-) -> dict[str, Any]:
-    return await delete_result_package_bytes_from_request(result_id, package_export_id, request)
 
 
 @router.get("/api/v1/artifacts/lifecycle/usage")

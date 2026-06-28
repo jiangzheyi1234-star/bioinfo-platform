@@ -3,14 +3,12 @@ from __future__ import annotations
 import asyncio
 
 from apps.api.models import (
-    ResultPackageByteDeleteRequest,
     ResultPackageByteGcRunRequest,
     ResultPackageByteGcPreviewRequest,
     ResultPackageExportRequest,
     ResultPackageRetireRequest,
 )
 from apps.api.execution_query_routes import (
-    delete_result_package_bytes,
     download_result_package,
     export_result_package,
     get_result_audit,
@@ -193,46 +191,6 @@ def test_result_package_retire_route_passes_server_id_outside_payload(monkeypatc
             "resultId": "res_run_demo",
             "packageExportId": "rpex_demo",
             "lifecycleState": "retired",
-        }
-    }
-
-
-def test_result_package_byte_delete_route_passes_server_id_outside_payload(monkeypatch) -> None:
-    runtime = FakeResultPackageByteDeleteRuntime()
-    monkeypatch.setattr("apps.api.execution_query_service.runtime_service", lambda: runtime)
-
-    result = asyncio.run(
-        delete_result_package_bytes(
-            "res_run_demo",
-            "rpex_demo",
-            ResultPackageByteDeleteRequest(
-                serverId="srv_remote",
-                confirmation="delete-result-package-export-bytes",
-                actor="operator",
-                reason="quota",
-            ),
-        )
-    )
-
-    assert runtime.calls == [
-        (
-            "res_run_demo",
-            "rpex_demo",
-            {
-                "confirmation": "delete-result-package-export-bytes",
-                "actor": "operator",
-                "reason": "quota",
-            },
-            "srv_remote",
-        )
-    ]
-    assert result == {
-        "data": {
-            "schemaVersion": "h2ometa.result-package-bytes-delete.v1",
-            "resultId": "res_run_demo",
-            "packageExportId": "rpex_demo",
-            "lifecycleState": "retired",
-            "packageBytesState": "deleted",
         }
     }
 
@@ -506,26 +464,6 @@ class FakeResultPackageRetireRuntime:
                 "resultId": result_id,
                 "packageExportId": package_export_id,
                 "lifecycleState": "retired",
-                "manifest": {"artifacts": [{"storageUri": "file:///C:/secret/artifact.txt"}]},
-                "packagePath": "C:/secret/package.zip",
-                "packageUri": "file:///C:/secret/package.zip",
-            }
-        }
-
-
-class FakeResultPackageByteDeleteRuntime:
-    def __init__(self) -> None:
-        self.calls = []
-
-    def delete_result_package_bytes(self, result_id, package_export_id, *, payload, server_id=None):
-        self.calls.append((result_id, package_export_id, payload, server_id))
-        return {
-            "data": {
-                "schemaVersion": "h2ometa.result-package-bytes-delete.v1",
-                "resultId": result_id,
-                "packageExportId": package_export_id,
-                "lifecycleState": "retired",
-                "packageBytesState": "deleted",
                 "manifest": {"artifacts": [{"storageUri": "file:///C:/secret/artifact.txt"}]},
                 "packagePath": "C:/secret/package.zip",
                 "packageUri": "file:///C:/secret/package.zip",

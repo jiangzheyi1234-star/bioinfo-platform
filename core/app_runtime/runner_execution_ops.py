@@ -335,21 +335,6 @@ class RunnerExecutionOperationsMixin:
             server_id=server_id,
         )
 
-    def delete_result_package_bytes(
-        self,
-        result_id: str,
-        package_export_id: str,
-        *,
-        payload: dict[str, Any] | None = None,
-        server_id: Optional[str] = None,
-    ) -> dict[str, Any]:
-        return self.execution.delete_result_package_bytes(
-            result_id,
-            package_export_id,
-            payload=payload,
-            server_id=server_id,
-        )
-
     def preview_result_package_byte_gc(
         self,
         payload: dict[str, Any] | None = None,

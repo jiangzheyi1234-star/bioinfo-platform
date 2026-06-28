@@ -172,22 +172,22 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "details?: Record<string, unknown>" in model
     assert "exportWorkflowResultPackage" in api
     assert "retireWorkflowResultPackage" in api
-    assert "deleteWorkflowResultPackageBytes" in api
     assert "workflowResultPackageDownloadHref" in api
     assert "resultPackageCanDownload(item)" in api
-    assert "normalizeWorkflowResultPackageExport(response.data)" in api
-    assert "packageBytesDeletedAt: item.deletedAt" in api
+    assert "normalizeWorkflowResultPackageExport" not in api
+    assert "packageBytesDeletedAt: item.deletedAt" not in api
     assert "href.startsWith(\"/api/v1/\")" in api
     assert "`/api/v1/results/${encodeURIComponent(resultId)}/export`" in api
     assert "`/api/v1/results/${encodeURIComponent(resultId)}/exports/${encodeURIComponent(packageExportId)}/retire`" in api
-    assert "`/api/v1/results/${encodeURIComponent(resultId)}/exports/${encodeURIComponent(packageExportId)}/bytes/delete`" in api
+    assert "deleteWorkflowResultPackageBytes" not in api
+    assert "/bytes/delete" not in api
     assert 'actor: "workflow-ui"' in api
     assert "applyWorkflowRuleOutputInvalidation" in api
     assert "`/api/v1/runs/${encodeURIComponent(runId)}/rules/output-invalidation/apply`" in api
     assert 'confirmation: "apply-rule-output-invalidation"' in api
     assert "operator_confirmed_output_invalidation" in api
     assert "RESULT_PACKAGE_RETIRE_CONFIRMATION" in api
-    assert "RESULT_PACKAGE_BYTE_DELETE_CONFIRMATION" in api
+    assert "RESULT_PACKAGE_BYTE_DELETE_CONFIRMATION" not in api
     assert "includeArtifacts" in api
     assert "rules_data = _unwrap_data(rules, {})" in catalog_service
     assert "execution_context_data = _unwrap_data(execution_context, {})" in catalog_service
@@ -368,7 +368,7 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "fetchWorkflowResultPackageExports(resultId)" in package_panel
     assert "exportWorkflowResultPackage(resultId, mode === \"full\")" in package_panel
     assert "retireWorkflowResultPackage(resultId, packageExportId)" in package_panel
-    assert "deleteWorkflowResultPackageBytes(resultId, packageExportId)" in package_panel
+    assert "deleteWorkflowResultPackageBytes" not in package_panel
     assert "mergeResultPackageExport(item, current)" in package_panel
     assert "{ ...existing, ...item }" in package_panel
     assert "resultPackageDisabledReason" in package_panel
@@ -383,11 +383,11 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert 'bytesLabel = bytesState || "unknown"' in package_panel
     assert "ResultPackageLifecycleDialog" in package_panel
     assert "canRetireResultPackage(item)" in package_panel
-    assert "canDeleteResultPackageBytes(item)" in package_panel
-    assert "resultPackageActionConfirmation(pending.action)" in package_panel
+    assert "canDeleteResultPackageBytes" not in package_panel
+    assert "resultPackageActionConfirmation()" in package_panel
     assert "confirmationValue.trim() === confirmation" in package_panel
     assert "退役" in package_panel
-    assert "删除包字节" in package_panel
+    assert "删除包字节" not in package_panel
     assert "DialogContent" in package_panel
     assert "Input" in package_panel
     assert "lifecycleState" in package_panel
@@ -397,7 +397,7 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "fetchWorkflowResultPackageExports" in api
     assert "Download" in package_panel
     assert "Archive" in package_panel
-    assert "Trash2" in package_panel
+    assert "Trash2" not in package_panel
     assert "下载结果包" in package_panel
     assert "packageUri" not in package_panel
     assert "packagePath" not in package_panel
@@ -414,7 +414,7 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "HTMLAnchorElement" not in package_panel
 
     assert 'RESULT_PACKAGE_RETIRE_CONFIRMATION = "retire-result-package-export"' in package_state
-    assert 'RESULT_PACKAGE_BYTE_DELETE_CONFIRMATION = "delete-result-package-export-bytes"' in package_state
+    assert "RESULT_PACKAGE_BYTE_DELETE_CONFIRMATION" not in package_state
     assert "export function resultPackageCanDownload" in package_state
     assert 'return item.lifecycleState?.trim() || ""' in package_state
     assert 'return item.packageBytesState?.trim() || ""' in package_state
@@ -424,7 +424,7 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert '|| "available"' not in package_state
     assert "export function canRetireResultPackage" in package_state
     assert "return resultPackageCanDownload(item)" in package_state
-    assert "export function canDeleteResultPackageBytes" in package_state
+    assert "export function canDeleteResultPackageBytes" not in package_state
 
 
 def test_workflow_dag_preview_maps_rule_status_to_graph_nodes() -> None:

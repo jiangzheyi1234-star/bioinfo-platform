@@ -570,24 +570,6 @@ class ExecutionManager(BaseRuntimeManager):
             payload=body,
         )
 
-    def delete_result_package_bytes(
-        self,
-        result_id: str,
-        package_export_id: str,
-        *,
-        payload: dict[str, Any] | None = None,
-        server_id: Optional[str] = None,
-    ) -> dict[str, Any]:
-        body = dict(payload or {})
-        server_id_hint = str(body.pop("serverId", None) or server_id or "").strip() or None
-        return self.call_runner(
-            "delete_result_package_bytes",
-            preferred_server_id=server_id_hint,
-            result_id=result_id,
-            package_export_id=package_export_id,
-            payload=body,
-        )
-
     def preview_result_package_byte_gc(
         self,
         payload: dict[str, Any] | None = None,

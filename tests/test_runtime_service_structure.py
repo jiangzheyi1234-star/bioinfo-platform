@@ -384,7 +384,6 @@ def test_runtime_execution_operations_live_in_dedicated_mixin() -> None:
         "list_result_package_exports",
         "download_result_package",
         "retire_result_package",
-        "delete_result_package_bytes",
         "preview_result_package_byte_gc",
         "run_result_package_byte_gc",
     ):
@@ -451,9 +450,9 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "self.execution.list_result_package_exports(" in execution_ops_source
     assert "self.execution.download_result_package(" in execution_ops_source
     assert "self.execution.retire_result_package(" in execution_ops_source
-    assert "self.execution.delete_result_package_bytes(" in execution_ops_source
     assert "self.execution.preview_result_package_byte_gc(" in execution_ops_source
     assert "self.execution.run_result_package_byte_gc(" in execution_ops_source
+    assert "self.execution.delete_result_package_bytes(" not in execution_ops_source
     assert "self.call_runner(\"get_run_execution_context\"" in execution_manager_source
     assert "self.call_runner(\"get_run_attempts\"" in execution_manager_source
     assert "self.call_runner(\"retry_run\"" in execution_manager_source
@@ -471,9 +470,9 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert 'self.call_runner(\n                "list_result_package_exports",' in execution_manager_source
     assert 'self.call_runner(\n            "download_result_package",' in execution_manager_source
     assert 'self.call_runner(\n            "retire_result_package",' in execution_manager_source
-    assert 'self.call_runner(\n            "delete_result_package_bytes",' in execution_manager_source
     assert 'self.call_runner(\n                "preview_result_package_byte_gc",' in execution_manager_source
     assert 'self.call_runner(\n                "run_result_package_byte_gc",' in execution_manager_source
+    assert "delete_result_package_bytes" not in execution_manager_source
     assert "preferred_server_id=server_id" in execution_manager_source
 
 

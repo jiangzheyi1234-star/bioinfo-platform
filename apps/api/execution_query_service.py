@@ -10,7 +10,6 @@ from apps.api.models import (
     ArtifactLifecycleControllerRunOnceRequest,
     ArtifactGcPreviewRequest,
     ArtifactGcRunRequest,
-    ResultPackageByteDeleteRequest,
     ResultPackageByteGcRunRequest,
     ResultPackageByteGcPreviewRequest,
     ResultPackageExportRequest,
@@ -342,26 +341,6 @@ async def retire_result_package_from_request(
     server_id = payload.pop("serverId", None)
     result = await run_runtime_payload(
         lambda: runtime_service().retire_result_package(
-            result_id,
-            package_export_id,
-            payload=payload,
-            server_id=server_id,
-        ),
-        wrapper="raw",
-    )
-    _strip_result_package_paths(result)
-    return result
-
-
-async def delete_result_package_bytes_from_request(
-    result_id: str,
-    package_export_id: str,
-    request: ResultPackageByteDeleteRequest,
-) -> dict[str, Any]:
-    payload = request_payload(request)
-    server_id = payload.pop("serverId", None)
-    result = await run_runtime_payload(
-        lambda: runtime_service().delete_result_package_bytes(
             result_id,
             package_export_id,
             payload=payload,

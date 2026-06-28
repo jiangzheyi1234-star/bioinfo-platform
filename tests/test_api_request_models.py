@@ -7,7 +7,6 @@ from apps.api.models import (
     ArtifactCachePinReleaseRequest,
     ArtifactCachePinRetainRequest,
     ArtifactLifecycleControllerRunOnceRequest,
-    ResultPackageByteDeleteRequest,
     ResultPackageExportRequest,
     ResultPackageRetireRequest,
     RunResumeRequest,
@@ -529,33 +528,6 @@ def test_result_package_retire_request_is_confirmation_gated_and_strict() -> Non
     with pytest.raises(ValidationError) as extra:
         ResultPackageRetireRequest.model_validate(
             {"confirmation": "retire-result-package-export", "deletePayload": True}
-        )
-
-    assert missing.value.errors()[0]["loc"] == ("confirmation",)
-    assert wrong.value.errors()[0]["type"] == "literal_error"
-    assert extra.value.errors()[0]["type"] == "extra_forbidden"
-
-
-def test_result_package_byte_delete_request_is_confirmation_gated_and_strict() -> None:
-    request = ResultPackageByteDeleteRequest.model_validate(
-        {
-            "serverId": "srv_demo",
-            "confirmation": "delete-result-package-export-bytes",
-            "actor": "operator",
-            "reason": "storage quota",
-        }
-    )
-
-    assert request.serverId == "srv_demo"
-    assert request.confirmation == "delete-result-package-export-bytes"
-
-    with pytest.raises(ValidationError) as missing:
-        ResultPackageByteDeleteRequest.model_validate({"actor": "operator"})
-    with pytest.raises(ValidationError) as wrong:
-        ResultPackageByteDeleteRequest.model_validate({"confirmation": "delete-result-package"})
-    with pytest.raises(ValidationError) as extra:
-        ResultPackageByteDeleteRequest.model_validate(
-            {"confirmation": "delete-result-package-export-bytes", "deleteMetadata": True}
         )
 
     assert missing.value.errors()[0]["loc"] == ("confirmation",)

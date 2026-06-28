@@ -40,7 +40,6 @@ import {
   type WorkflowUpload,
 } from "./workflows-page-model";
 import {
-  RESULT_PACKAGE_BYTE_DELETE_CONFIRMATION,
   RESULT_PACKAGE_RETIRE_CONFIRMATION,
   resultPackageCanDownload,
 } from "./workflow-result-package-state";
@@ -753,25 +752,6 @@ export async function retireWorkflowResultPackage(
   return response.data;
 }
 
-export async function deleteWorkflowResultPackageBytes(
-  resultId: string,
-  packageExportId: string
-): Promise<WorkflowResultPackageExport> {
-  const response = await requestLocalApiJson<WorkflowResultPackageExportResponse>(
-    "POST",
-    `/api/v1/results/${encodeURIComponent(resultId)}/exports/${encodeURIComponent(packageExportId)}/bytes/delete`,
-    {
-      body: {
-        actor: "workflow-ui",
-        confirmation: RESULT_PACKAGE_BYTE_DELETE_CONFIRMATION,
-        reason: "operator_deleted_retired_package_bytes",
-      },
-      cache: "no-store",
-    }
-  );
-  return normalizeWorkflowResultPackageExport(response.data);
-}
-
 export function workflowResultPackageDownloadHref(item: WorkflowResultPackageExport): string {
   if (!resultPackageCanDownload(item)) {
     return "";
@@ -781,13 +761,4 @@ export function workflowResultPackageDownloadHref(item: WorkflowResultPackageExp
     return "";
   }
   return `${apiBase()}${href}`;
-}
-
-function normalizeWorkflowResultPackageExport(
-  item: WorkflowResultPackageExport & { deletedAt?: string }
-): WorkflowResultPackageExport {
-  if (item.deletedAt && !item.packageBytesDeletedAt) {
-    return { ...item, packageBytesDeletedAt: item.deletedAt };
-  }
-  return item;
 }

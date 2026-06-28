@@ -100,8 +100,9 @@ def test_run_result_routes_delegate_runtime_calls_to_service() -> None:
     assert "list_result_package_exports_from_request" in detail_routes
     assert "download_result_package_from_request" in detail_routes
     assert "retire_result_package_from_request" in detail_routes
-    assert "delete_result_package_bytes_from_request" in detail_routes
     assert "run_result_package_byte_gc_from_request" in detail_routes
+    assert "delete_result_package_bytes_from_request" not in detail_routes
+    assert "/bytes/delete" not in detail_routes
 
     assert "def list_runs_from_request(" in service_source
     assert "def get_run_from_request(" in service_source
@@ -131,8 +132,8 @@ def test_run_result_routes_delegate_runtime_calls_to_service() -> None:
     assert "def list_result_package_exports_from_request(" in service_source
     assert "def download_result_package_from_request(" in service_source
     assert "def retire_result_package_from_request(" in service_source
-    assert "def delete_result_package_bytes_from_request(" in service_source
     assert "def run_result_package_byte_gc_from_request(" in service_source
+    assert "def delete_result_package_bytes_from_request(" not in service_source
     assert "runtime_service().get_result_audit(" in service_source
     assert "runtime_service().get_run_attempts(" in service_source
     assert "runtime_service().get_run_failure_locator(" in service_source
@@ -149,8 +150,8 @@ def test_run_result_routes_delegate_runtime_calls_to_service() -> None:
     assert "runtime_service().list_result_package_exports(" in service_source
     assert "runtime_service().download_result_package(" in service_source
     assert "runtime_service().retire_result_package(" in service_source
-    assert "runtime_service().delete_result_package_bytes(" in service_source
     assert "runtime_service().run_result_package_byte_gc(" in service_source
+    assert "runtime_service().delete_result_package_bytes(" not in service_source
     assert "from fastapi import Response" not in service_source
 
 

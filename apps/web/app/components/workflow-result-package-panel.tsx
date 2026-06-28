@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, Archive, Download, Loader2, Package, RefreshCw, Trash2 } from "lucide-react";
+import { AlertCircle, Archive, Download, Loader2, Package, RefreshCw } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -9,14 +9,12 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 
 import {
-  deleteWorkflowResultPackageBytes,
   exportWorkflowResultPackage,
   fetchWorkflowResultPackageExports,
   retireWorkflowResultPackage,
   workflowResultPackageDownloadHref,
 } from "./workflows-page-api";
 import {
-  canDeleteResultPackageBytes,
   canRetireResultPackage,
   resultPackageActionConfirmation,
   resultPackageBytesState,
@@ -104,25 +102,19 @@ export function WorkflowResultPackagePanel({
   async function handleLifecycleAction() {
     if (!resultId || !pendingLifecycleAction) return;
     const packageExportId = pendingLifecycleAction.item.packageExportId || "";
-    const confirmation = resultPackageActionConfirmation(pendingLifecycleAction.action);
+    const confirmation = resultPackageActionConfirmation();
     if (!packageExportId || confirmationValue.trim() !== confirmation) return;
     const busyKey = lifecycleActionKey(pendingLifecycleAction.action, packageExportId);
     setLifecycleActionBusyKey(busyKey);
     setLifecycleActionError("");
     try {
-      const updated =
-        pendingLifecycleAction.action === "retire"
-          ? await retireWorkflowResultPackage(resultId, packageExportId)
-          : await deleteWorkflowResultPackageBytes(resultId, packageExportId);
+      const updated = await retireWorkflowResultPackage(resultId, packageExportId);
       setPackageExports((current) => mergeResultPackageExport(updated, current));
       setPendingLifecycleAction(null);
       setConfirmationValue("");
     } catch (err) {
       setLifecycleActionError(
-        workflowErrorMessage(
-          err,
-          pendingLifecycleAction.action === "retire" ? "结果包退役失败" : "结果包字节删除失败"
-        )
+        workflowErrorMessage(err, "结果包退役失败")
       );
     } finally {
       setLifecycleActionBusyKey("");
@@ -244,7 +236,6 @@ function ResultPackageSummary({
   const bytesLabel = bytesState || "unknown";
   const packageExportId = item.packageExportId || "";
   const retireBusy = actionBusyKey === lifecycleActionKey("retire", packageExportId);
-  const deleteBytesBusy = actionBusyKey === lifecycleActionKey("deleteBytes", packageExportId);
   return (
     <div
       className="grid gap-2 py-3 text-xs"
@@ -280,18 +271,6 @@ function ResultPackageSummary({
               退役
             </Button>
           ) : null}
-          {canDeleteResultPackageBytes(item) ? (
-            <Button
-              variant="destructive"
-              size="sm"
-              className="h-8 px-2 text-xs"
-              disabled={!packageExportId || Boolean(actionBusyKey)}
-              onClick={() => onLifecycleAction("deleteBytes", item)}
-            >
-              {deleteBytesBusy ? <Loader2 strokeWidth={1.5} className="h-3 w-3 animate-spin" /> : <Trash2 strokeWidth={1.5} className="h-3 w-3" />}
-              删除包字节
-            </Button>
-          ) : null}
         </div>
       </div>
       <PackageField label="package" value={item.packageExportId} mono />
@@ -325,15 +304,15 @@ function ResultPackageLifecycleDialog({
   onConfirmationChange: (value: string) => void;
   pending: PendingLifecycleAction | null;
 }) {
-  const confirmation = pending ? resultPackageActionConfirmation(pending.action) : "";
+  const confirmation = pending ? resultPackageActionConfirmation() : "";
   const canConfirm = Boolean(pending) && confirmationValue.trim() === confirmation && !busy;
   return (
     <Dialog open={Boolean(pending)} onOpenChange={(open) => (!open ? onClose() : null)}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle className="text-base">{pending ? lifecycleActionTitle(pending.action) : "结果包生命周期"}</DialogTitle>
+          <DialogTitle className="text-base">{pending ? lifecycleActionTitle() : "结果包生命周期"}</DialogTitle>
           <DialogDescription className="text-xs">
-            {pending ? lifecycleActionDescription(pending.action) : ""}
+            {pending ? lifecycleActionDescription() : ""}
           </DialogDescription>
         </DialogHeader>
         {pending ? (
@@ -363,12 +342,12 @@ function ResultPackageLifecycleDialog({
                 取消
               </Button>
               <Button
-                variant={pending.action === "deleteBytes" ? "destructive" : "default"}
+                variant="default"
                 size="sm"
                 disabled={!canConfirm}
                 onClick={onConfirm}
               >
-                {busy ? <Loader2 strokeWidth={1.5} className="h-3 w-3 animate-spin" /> : lifecycleActionIcon(pending.action)}
+                {busy ? <Loader2 strokeWidth={1.5} className="h-3 w-3 animate-spin" /> : lifecycleActionIcon()}
                 确认
               </Button>
             </div>
@@ -425,22 +404,16 @@ function lifecycleActionKey(action: ResultPackageLifecycleAction, packageExportI
   return `${action}:${packageExportId}`;
 }
 
-function lifecycleActionTitle(action: ResultPackageLifecycleAction): string {
-  return action === "retire" ? "退役结果包" : "删除结果包字节";
+function lifecycleActionTitle(): string {
+  return "退役结果包";
 }
 
-function lifecycleActionDescription(action: ResultPackageLifecycleAction): string {
-  return action === "retire"
-    ? "退役会保留导出记录和审计证据，并停止该结果包下载。"
-    : "删除只移除已退役结果包 ZIP 字节，保留导出记录、谱系和底层运行产物。";
+function lifecycleActionDescription(): string {
+  return "退役会保留导出记录和审计证据，并停止该结果包下载。";
 }
 
-function lifecycleActionIcon(action: ResultPackageLifecycleAction) {
-  return action === "retire" ? (
-    <Archive strokeWidth={1.5} className="h-3 w-3" />
-  ) : (
-    <Trash2 strokeWidth={1.5} className="h-3 w-3" />
-  );
+function lifecycleActionIcon() {
+  return <Archive strokeWidth={1.5} className="h-3 w-3" />;
 }
 
 function mergeResultPackageExport(

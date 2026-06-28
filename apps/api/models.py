@@ -206,13 +206,6 @@ class ResultPackageRetireRequest(ApiRequest):
     reason: str | None = None
 
 
-class ResultPackageByteDeleteRequest(ApiRequest):
-    serverId: str | None = None
-    confirmation: Literal["delete-result-package-export-bytes"]
-    actor: str | None = None
-    reason: str | None = None
-
-
 class ResultPackageByteGcPreviewRequest(ApiRequest):
     serverId: str | None = None
     retentionDays: int = Field(default=30, ge=0)

@@ -212,31 +212,6 @@ def test_result_package_retire_action_uses_artifact_curator_role(tmp_path) -> No
     assert authorize_action(allowed, "result.package.retire").roles == ("artifact-curator",)
 
 
-def test_result_package_byte_delete_action_uses_artifact_curator_role(tmp_path) -> None:
-    denied = make_configured_remote_runner(
-        tmp_path / "denied",
-        token="rbac-token",
-        api_token_roles=("auditor",),
-    )
-    allowed = make_configured_remote_runner(
-        tmp_path / "allowed",
-        token="rbac-token",
-        api_token_roles=("artifact-curator",),
-    )
-
-    try:
-        authorize_action(denied, "result.package.bytes.delete")
-    except RemoteRunnerAuthorizationError as exc:
-        assert str(exc) == "runner authorization failed"
-    else:
-        raise AssertionError("result.package.bytes.delete must require artifact-curator")
-
-    deny_events = list_governance_audit_events(denied, action="result.package.bytes.delete")["items"]
-    assert deny_events[0]["decision"] == "deny"
-    assert deny_events[0]["details"]["requiredRoles"] == ["artifact-curator"]
-    assert authorize_action(allowed, "result.package.bytes.delete").roles == ("artifact-curator",)
-
-
 def test_result_package_byte_gc_run_action_uses_artifact_curator_role(tmp_path) -> None:
     denied = make_configured_remote_runner(
         tmp_path / "denied",

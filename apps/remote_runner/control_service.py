@@ -10,7 +10,6 @@ from .api_models import (
     ArtifactCachePinRetainRequest,
     ArtifactGcPreviewRequest,
     ArtifactGcRunRequest,
-    ResultPackageByteDeleteRequest,
     ResultPackageByteGcRunRequest,
     ResultPackageByteGcPreviewRequest,
     ResultPackageExportRequest,
@@ -51,7 +50,6 @@ from .health_service import (
 )
 from .pipeline import get_pipeline, list_pipelines
 from .result_preview_service import build_result_preview_data
-from .result_package_byte_gc_service import delete_retired_result_package_bytes
 from .result_package_byte_gc_run_service import run_result_package_byte_gc
 from .result_package_byte_gc_preview_service import preview_result_package_byte_gc
 from .result_package_download_service import build_result_package_download, result_package_download_url
@@ -735,25 +733,6 @@ async def retire_result_package_from_request(
     cfg = await _authorized_config_from_request(authorization, action="result.package.retire")
     result = await run_sync(
         retire_result_package_export,
-        cfg,
-        result_id,
-        package_export_id,
-        confirmation=request.confirmation,
-        actor=request.actor,
-        reason=request.reason,
-    )
-    return data_response(result)
-
-
-async def delete_result_package_bytes_from_request(
-    result_id: str,
-    package_export_id: str,
-    request: ResultPackageByteDeleteRequest,
-    authorization: str | None,
-) -> dict[str, Any]:
-    cfg = await _authorized_config_from_request(authorization, action="result.package.bytes.delete")
-    result = await run_sync(
-        delete_retired_result_package_bytes,
         cfg,
         result_id,
         package_export_id,

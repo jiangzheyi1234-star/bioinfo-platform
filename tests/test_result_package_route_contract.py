@@ -36,11 +36,12 @@ def test_result_package_file_io_lives_in_remote_service_not_routes() -> None:
     assert "list_result_package_exports_from_request" in route_source
     assert "download_result_package_from_request" in route_source
     assert "retire_result_package_from_request" in route_source
-    assert "delete_result_package_bytes_from_request" in route_source
     assert "preview_result_package_byte_gc_from_request" in route_source
     assert '"/api/v1/result-package-exports/bytes/gc/preview"' in route_source
     assert "run_result_package_byte_gc_from_request" in route_source
     assert '"/api/v1/result-package-exports/bytes/gc/run"' in route_source
+    assert "delete_result_package_bytes_from_request" not in route_source
+    assert "/bytes/delete" not in route_source
     assert "FileResponse(" in route_source
 
     assert "def build_result_artifact_audit(" in product_source
@@ -112,25 +113,25 @@ def test_result_package_file_io_lives_in_remote_service_not_routes() -> None:
     assert "def download_result_package(self, **kwargs) -> dict[str, Any]:" in proxy_source
     assert "def list_result_package_exports(self, **kwargs) -> dict[str, Any]:" in result_package_proxy_source
     assert "def retire_result_package(self, **kwargs) -> dict[str, Any]:" in result_package_proxy_source
-    assert "def delete_result_package_bytes(self, **kwargs) -> dict[str, Any]:" in result_package_proxy_source
     assert "def preview_result_package_byte_gc(self, **kwargs) -> dict[str, Any]:" in result_package_proxy_source
     assert "def run_result_package_byte_gc(self, **kwargs) -> dict[str, Any]:" in result_package_proxy_source
+    assert "def delete_result_package_bytes(" not in result_package_proxy_source
     assert "RemoteRunnerResultPackageProxyMixin" in manager_source
     assert 'client.get_json(f"/api/v1/results/{kwargs[\'result_id\']}/audit")["data"]' in proxy_source
     assert "dict(kwargs.get(\"payload\") or {})" in proxy_source
     assert "client.list_result_package_exports(" in result_package_proxy_source
     assert "client.retire_result_package(" in result_package_proxy_source
-    assert "client.delete_result_package_bytes(" in result_package_proxy_source
     assert "client.preview_result_package_byte_gc(" in result_package_proxy_source
     assert "client.run_result_package_byte_gc(" in result_package_proxy_source
+    assert "client.delete_result_package_bytes(" not in result_package_proxy_source
     assert 'self.post_json(f"/api/v1/results/{result_id}/export", dict(payload or {}))["data"]' in client_source
     assert "def list_result_package_exports(" in client_source
     assert "def _request_bytes(" in client_source
     assert "def download_result_package(self, result_id: str, package_export_id: str)" in client_source
     assert "def retire_result_package(" in client_source
-    assert "def delete_result_package_bytes(" in client_source
     assert "def preview_result_package_byte_gc(" in client_source
     assert "def run_result_package_byte_gc(" in client_source
+    assert "def delete_result_package_bytes(" not in client_source
 
     assert "def get_result_audit(self, result_id: str) -> dict[str, Any]:" in client_source
     assert "def export_result_package(" in client_source
