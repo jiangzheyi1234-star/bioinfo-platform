@@ -70,11 +70,13 @@ def test_run_attempts_frontend_keeps_observability_read_only_and_redacted() -> N
         assert '"PATCH"' not in source
         assert '"DELETE"' not in source
 
-    for source in (panel, detail):
+    for source in (panel,):
         assert "onRetryRule" not in source
         assert "retryRule" not in source
         assert "resumeRun" not in source
         assert "onResumeRun" not in source
+    assert "WorkflowRunExecutionContextPanel" in detail
+    assert "onResumeRun={handleResumeRun}" in detail
 
     projected_sensitive_fields = (
         "workDir?:",
