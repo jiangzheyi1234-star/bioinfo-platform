@@ -6,11 +6,14 @@ from types import SimpleNamespace
 from core.app_runtime.managers.execution import ExecutionManager
 from core.contracts.remote_endpoints import (
     REMOTE_ENDPOINTS,
+    render_remote_endpoint_path,
+)
+from core.contracts.result_package_remote_endpoints import (
     RESULT_PACKAGE_BYTE_GC_PREVIEW,
     RESULT_PACKAGE_BYTE_GC_RUN,
+    RESULT_PACKAGE_DOWNLOAD,
     RESULT_PACKAGE_EXPORT,
     RESULT_PACKAGE_RETIRE,
-    render_remote_endpoint_path,
 )
 from core.governance_policy import HIGH_RISK_API_POLICIES
 from core.remote_runner.client import RemoteRunnerHttpClient
@@ -24,6 +27,11 @@ RESULT_PACKAGE_COMMAND_ENDPOINTS = (
     RESULT_PACKAGE_RETIRE,
     RESULT_PACKAGE_BYTE_GC_PREVIEW,
     RESULT_PACKAGE_BYTE_GC_RUN,
+)
+
+RESULT_PACKAGE_GOVERNED_ENDPOINTS = (
+    *RESULT_PACKAGE_COMMAND_ENDPOINTS,
+    RESULT_PACKAGE_DOWNLOAD,
 )
 
 
@@ -64,27 +72,42 @@ def test_result_package_command_endpoints_are_contract_rendered() -> None:
     )
 
 
-def test_result_package_command_endpoint_contracts_match_governance_policy() -> None:
+def test_result_package_download_endpoint_is_contract_rendered() -> None:
+    assert render_remote_endpoint_path(
+        RESULT_PACKAGE_DOWNLOAD,
+        {"result_id": "res/1", "package_export_id": "rpex/1"},
+    ) == "/api/v1/results/res%2F1/exports/rpex%2F1/download"
+
+    endpoint = REMOTE_ENDPOINTS[RESULT_PACKAGE_DOWNLOAD]
+    assert endpoint.method == "GET"
+    assert endpoint.governance_action == "result.package.download"
+    assert endpoint.request_schema is None
+    assert endpoint.response_schema == "h2ometa.result-package-download.v1"
+    assert endpoint.cache_scope == "result-package-download"
+    assert endpoint.invalidates == ()
+
+
+def test_result_package_governed_endpoint_contracts_match_governance_policy() -> None:
     governance_by_action = {
         policy.action: policy
         for policy in HIGH_RISK_API_POLICIES
         if policy.surface == "remote-runner-api"
     }
 
-    for endpoint_id in RESULT_PACKAGE_COMMAND_ENDPOINTS:
+    for endpoint_id in RESULT_PACKAGE_GOVERNED_ENDPOINTS:
         endpoint = REMOTE_ENDPOINTS[endpoint_id]
         policy = governance_by_action[endpoint.governance_action]
         assert policy.method == endpoint.method
         assert policy.route == endpoint.path_template
 
 
-def test_result_package_command_endpoint_contracts_match_openapi_operation_ids() -> None:
+def test_result_package_governed_endpoint_contracts_match_openapi_operation_ids() -> None:
     from apps.api.main import app as local_app
     from apps.remote_runner.main import app as remote_app
 
     for app in (local_app, remote_app):
         paths = app.openapi()["paths"]
-        for endpoint_id in RESULT_PACKAGE_COMMAND_ENDPOINTS:
+        for endpoint_id in RESULT_PACKAGE_GOVERNED_ENDPOINTS:
             endpoint = REMOTE_ENDPOINTS[endpoint_id]
             operation = paths[endpoint.path_template][endpoint.method.lower()]
             assert operation["operationId"] == endpoint.operation_id
@@ -251,6 +274,16 @@ def test_transport_and_result_package_proxy_keep_only_download_semantics() -> No
     assert hasattr(RemoteRunnerResultPackageProxyMixin, "download_result_package")
 
 
+def test_transport_download_uses_registry_rendered_path() -> None:
+    client = FakeDownloadClient("http://example.test", "token")
+
+    assert client.download_result_package("res/1", "rpex/1") == {
+        "method": "GET",
+        "path": "/api/v1/results/res%2F1/exports/rpex%2F1/download",
+    }
+    assert client.calls == [("GET", "/api/v1/results/res%2F1/exports/rpex%2F1/download")]
+
+
 class FakeCommandClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, dict[str, object]]] = []
@@ -265,6 +298,16 @@ class FakeCommandClient:
         assert accepted_statuses == {200}
         self.calls.append(("POST", path, dict(payload)))
         return {"data": {"path": path, "payload": dict(payload)}}
+
+
+class FakeDownloadClient(RemoteRunnerHttpClient):
+    def __init__(self, base_url: str, token: str) -> None:
+        super().__init__(base_url, token)
+        self.calls: list[tuple[str, str]] = []
+
+    def _request_bytes(self, method: str, path: str) -> dict[str, object]:
+        self.calls.append((method, path))
+        return {"method": method, "path": path}
 
 
 class FakeProxy(RemoteRunnerProxyMixin):

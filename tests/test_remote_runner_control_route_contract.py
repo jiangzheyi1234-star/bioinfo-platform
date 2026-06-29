@@ -459,7 +459,8 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
     assert "operation_id=REMOTE_ENDPOINTS[RESULT_PACKAGE_BYTE_GC_RUN].operation_id" in execution_query_route_source
     assert '"/api/v1/results/{result_id}/exports/{package_export_id}/retire"' in execution_query_route_source
     assert "operation_id=REMOTE_ENDPOINTS[RESULT_PACKAGE_RETIRE].operation_id" in execution_query_route_source
-    assert '@router.get("/api/v1/results/{result_id}/exports/{package_export_id}/download")' in execution_query_route_source
+    assert '"/api/v1/results/{result_id}/exports/{package_export_id}/download"' in execution_query_route_source
+    assert "operation_id=REMOTE_ENDPOINTS[RESULT_PACKAGE_DOWNLOAD].operation_id" in execution_query_route_source
     assert "/bytes/delete" not in execution_query_route_source
     assert "list_runs_from_request" in execution_query_route_source
     assert "get_run_from_request" in execution_query_route_source

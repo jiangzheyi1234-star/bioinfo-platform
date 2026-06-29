@@ -5,10 +5,12 @@ import hashlib
 import http.client
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Any
+
+from core.contracts.remote_endpoints import render_remote_endpoint_path
+from core.contracts.result_package_remote_endpoints import RESULT_PACKAGE_DOWNLOAD
 
 
 class RemoteRunnerClientError(RuntimeError):
@@ -222,12 +224,11 @@ class RemoteRunnerHttpClient:
         return self._request_json("DELETE", path, accepted_statuses=accepted_statuses)
 
     def download_result_package(self, result_id: str, package_export_id: str) -> dict[str, Any]:
-        result_part = urllib.parse.quote(result_id, safe="")
-        export_part = urllib.parse.quote(package_export_id, safe="")
-        return self._request_bytes(
-            "GET",
-            f"/api/v1/results/{result_part}/exports/{export_part}/download",
+        path = render_remote_endpoint_path(
+            RESULT_PACKAGE_DOWNLOAD,
+            {"result_id": result_id, "package_export_id": package_export_id},
         )
+        return self._request_bytes("GET", path)
 
     def get_health(self) -> dict[str, Any]:
         startup = self.get_json("/health/startup", accepted_statuses={200, 503})

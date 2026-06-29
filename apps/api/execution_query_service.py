@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from typing import Any
-from urllib.parse import quote
 
 from apps.api.models import (
     ArtifactCacheLookupRequest,
@@ -29,6 +28,8 @@ from apps.api.models import (
 )
 from apps.api.response_cache import invalidate_response_cache
 from apps.api.route_utils import cached_runtime_payload, request_payload, run_runtime_payload, run_sync, runtime_service
+from core.contracts.remote_endpoints import render_remote_endpoint_path
+from core.contracts.result_package_remote_endpoints import RESULT_PACKAGE_DOWNLOAD
 
 
 async def list_runs_from_request(refresh: bool) -> dict[str, Any]:
@@ -488,9 +489,9 @@ def _strip_result_artifact_audit_paths(result: dict[str, Any]) -> None:
 
 
 def _result_package_download_href(result_id: str, package_export_id: str) -> str:
-    return (
-        f"/api/v1/results/{quote(result_id, safe='')}/exports/"
-        f"{quote(package_export_id, safe='')}/download"
+    return render_remote_endpoint_path(
+        RESULT_PACKAGE_DOWNLOAD,
+        {"result_id": result_id, "package_export_id": package_export_id},
     )
 
 

@@ -6,6 +6,7 @@ from typing import Any
 from urllib.parse import quote, urlencode
 
 from core.contracts.database_remote_endpoints import DATABASE_REMOTE_ENDPOINT_SPECS
+from core.contracts.result_package_remote_endpoints import RESULT_PACKAGE_REMOTE_ENDPOINT_SPECS
 from core.contracts.submission_remote_endpoints import RUN_CREATE as _RUN_CREATE, SUBMISSION_REMOTE_ENDPOINT_SPECS, UPLOAD_CREATE as _UPLOAD_CREATE
 from core.contracts.tool_remote_endpoints import TOOL_REMOTE_ENDPOINT_SPECS
 from core.contracts.workflow_design_remote_endpoints import WORKFLOW_DESIGN_REMOTE_ENDPOINT_SPECS
@@ -87,11 +88,6 @@ RESULT_LIST = "result.list"
 RESULT_READ = "result.read"
 RESULT_PREVIEW_READ = "result.preview.read"
 RESULT_AUDIT_READ = "result.audit.read"
-RESULT_PACKAGE_EXPORT_LIST = "result.package_export.list"
-RESULT_PACKAGE_EXPORT = "result.package.export"
-RESULT_PACKAGE_RETIRE = "result.package.retire"
-RESULT_PACKAGE_BYTE_GC_PREVIEW = "result.package.byte_gc.preview"
-RESULT_PACKAGE_BYTE_GC_RUN = "result.package.byte_gc.run"
 ARTIFACT_LIFECYCLE_USAGE_READ = "artifact.lifecycle.usage.read"
 ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ = "artifact.lifecycle.controller_ticks.read"
 ARTIFACT_LIFECYCLE_CONTROLLER_RUN_ONCE = "artifact.lifecycle.controller.run_once"
@@ -413,60 +409,10 @@ REMOTE_ENDPOINTS: dict[str, RemoteEndpoint] = {
         response_schema="result-artifact-audit.v1",
         cache_scope="result-read-model",
     ),
-    RESULT_PACKAGE_EXPORT_LIST: RemoteEndpoint(
-        endpoint_id=RESULT_PACKAGE_EXPORT_LIST,
-        method="GET",
-        path_template="/api/v1/results/{result_id}/exports",
-        operation_id="listResultPackageExports",
-        governance_action="result.package.list",
-        request_schema=None,
-        response_schema="result-package-export-list.v1",
-        cache_scope="result-package-export-read-model",
-        query_params=("lifecycleState", "limit"),
-    ),
-    RESULT_PACKAGE_EXPORT: RemoteEndpoint(
-        endpoint_id=RESULT_PACKAGE_EXPORT,
-        method="POST",
-        path_template="/api/v1/results/{result_id}/export",
-        operation_id="exportResultPackage",
-        governance_action="result.export",
-        request_schema="result-package-export-request.v1",
-        response_schema="h2ometa.result-package.v2",
-        cache_scope="result-package-export-command",
-        invalidates=("result-package-export-read-model",),
-    ),
-    RESULT_PACKAGE_RETIRE: RemoteEndpoint(
-        endpoint_id=RESULT_PACKAGE_RETIRE,
-        method="POST",
-        path_template="/api/v1/results/{result_id}/exports/{package_export_id}/retire",
-        operation_id="retireResultPackage",
-        governance_action="result.package.retire",
-        request_schema="result-package-retire-request.v1",
-        response_schema="h2ometa.result-package-retire.v1",
-        cache_scope="result-package-export-command",
-        invalidates=("result-package-export-read-model", "artifact-lifecycle-read-model"),
-    ),
-    RESULT_PACKAGE_BYTE_GC_PREVIEW: RemoteEndpoint(
-        endpoint_id=RESULT_PACKAGE_BYTE_GC_PREVIEW,
-        method="POST",
-        path_template="/api/v1/result-package-exports/bytes/gc/preview",
-        operation_id="previewResultPackageByteGc",
-        governance_action="result.package.bytes.preview",
-        request_schema="result-package-byte-gc-preview-request.v1",
-        response_schema="h2ometa.result-package-byte-gc-preview.v1",
-        cache_scope="result-package-byte-gc-command",
-    ),
-    RESULT_PACKAGE_BYTE_GC_RUN: RemoteEndpoint(
-        endpoint_id=RESULT_PACKAGE_BYTE_GC_RUN,
-        method="POST",
-        path_template="/api/v1/result-package-exports/bytes/gc/run",
-        operation_id="runResultPackageByteGc",
-        governance_action="result.package.bytes.run",
-        request_schema="result-package-byte-gc-run-request.v1",
-        response_schema="h2ometa.result-package-byte-gc-run.v1",
-        cache_scope="result-package-byte-gc-command",
-        invalidates=("result-package-export-read-model", "artifact-lifecycle-read-model"),
-    ),
+    **{
+        endpoint_id: RemoteEndpoint(endpoint_id=endpoint_id, **spec)
+        for endpoint_id, spec in RESULT_PACKAGE_REMOTE_ENDPOINT_SPECS.items()
+    },
     ARTIFACT_LIFECYCLE_USAGE_READ: RemoteEndpoint(
         endpoint_id=ARTIFACT_LIFECYCLE_USAGE_READ,
         method="GET",

@@ -20,11 +20,6 @@ from core.contracts.remote_endpoints import (
     REMOTE_ENDPOINTS,
     RESULT_AUDIT_READ,
     RESULT_LIST,
-    RESULT_PACKAGE_EXPORT_LIST,
-    RESULT_PACKAGE_BYTE_GC_PREVIEW,
-    RESULT_PACKAGE_BYTE_GC_RUN,
-    RESULT_PACKAGE_EXPORT,
-    RESULT_PACKAGE_RETIRE,
     RESULT_PREVIEW_READ,
     RESULT_READ,
     RUN_ATTEMPTS_READ,
@@ -50,6 +45,14 @@ from core.contracts.remote_endpoints import (
     RUN_RULE_RETRY,
     RUN_RULES_READ,
     WORKFLOW_REVISION_READ,
+)
+from core.contracts.result_package_remote_endpoints import (
+    RESULT_PACKAGE_BYTE_GC_PREVIEW,
+    RESULT_PACKAGE_BYTE_GC_RUN,
+    RESULT_PACKAGE_DOWNLOAD,
+    RESULT_PACKAGE_EXPORT,
+    RESULT_PACKAGE_EXPORT_LIST,
+    RESULT_PACKAGE_RETIRE,
 )
 from apps.api.models import (
     ArtifactCacheLookupRequest,
@@ -404,7 +407,10 @@ async def run_result_package_byte_gc(
     return await run_result_package_byte_gc_from_request(request)
 
 
-@router.get("/api/v1/results/{result_id}/exports/{package_export_id}/download")
+@router.get(
+    "/api/v1/results/{result_id}/exports/{package_export_id}/download",
+    operation_id=REMOTE_ENDPOINTS[RESULT_PACKAGE_DOWNLOAD].operation_id,
+)
 async def download_result_package(
     result_id: str,
     package_export_id: str,

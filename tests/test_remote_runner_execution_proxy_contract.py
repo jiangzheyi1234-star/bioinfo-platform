@@ -14,7 +14,6 @@ from core.contracts.remote_endpoints import (
     REMOTE_ENDPOINTS,
     RESULT_AUDIT_READ,
     RESULT_LIST,
-    RESULT_PACKAGE_EXPORT_LIST,
     RESULT_PREVIEW_READ,
     RESULT_READ,
     RUN_ATTEMPTS_READ,
@@ -38,6 +37,7 @@ from core.contracts.remote_endpoints import (
     RemoteEndpointContractError,
     render_remote_endpoint_path,
 )
+from core.contracts.result_package_remote_endpoints import RESULT_PACKAGE_EXPORT_LIST
 from core.governance_policy import HIGH_RISK_API_POLICIES
 from core.remote_runner.client import RemoteRunnerHttpClient
 from core.remote_runner.endpoint_caller import call_remote_endpoint

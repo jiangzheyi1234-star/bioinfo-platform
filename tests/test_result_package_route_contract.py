@@ -26,7 +26,7 @@ def test_result_package_file_io_lives_in_remote_service_not_routes() -> None:
     result_package_proxy_source = _source("core/remote_runner/result_package_proxy.py")
     client_source = _source("core/remote_runner/client.py")
     manager_source = _source("core/remote_runner/manager.py")
-    endpoint_contracts_source = _source("core/contracts/remote_endpoints.py")
+    result_package_contracts_source = _source("core/contracts/result_package_remote_endpoints.py")
 
     assert "zipfile" not in route_source
     assert "Path(" not in route_source
@@ -61,6 +61,8 @@ def test_result_package_file_io_lives_in_remote_service_not_routes() -> None:
     assert "RESULT_EXPORT_EVENT_TYPE = \"result.export.v1\"" in product_source
     assert "ensure_result_package_export_recordable(" in product_source
     assert "def build_result_package_download(" in download_source
+    assert "render_remote_endpoint_path(" in download_source
+    assert "RESULT_PACKAGE_DOWNLOAD" in download_source
     assert "fetch_result_package_export(" in download_source
     assert "RESULT_PACKAGE_PATH_UNMANAGED" in download_source
     assert "RESULT_PACKAGE_SIZE_MISMATCH" in download_source
@@ -148,11 +150,18 @@ def test_result_package_file_io_lives_in_remote_service_not_routes() -> None:
     assert "def get_result_audit(self, result_id: str) -> dict[str, Any]:" not in client_source
     assert "def export_result_package(" not in client_source
     assert "payload: dict[str, Any] | None = None" in client_source
-    assert 'path_template="/api/v1/results/{result_id}/export"' in endpoint_contracts_source
-    assert 'path_template="/api/v1/results/{result_id}/exports/{package_export_id}/retire"' in endpoint_contracts_source
-    assert 'path_template="/api/v1/result-package-exports/bytes/gc/preview"' in endpoint_contracts_source
-    assert 'path_template="/api/v1/result-package-exports/bytes/gc/run"' in endpoint_contracts_source
+    assert '"path_template": "/api/v1/results/{result_id}/export"' in result_package_contracts_source
+    assert (
+        '"path_template": "/api/v1/results/{result_id}/exports/{package_export_id}/download"'
+        in result_package_contracts_source
+    )
+    assert '"path_template": "/api/v1/results/{result_id}/exports/{package_export_id}/retire"' in (
+        result_package_contracts_source
+    )
+    assert '"path_template": "/api/v1/result-package-exports/bytes/gc/preview"' in result_package_contracts_source
+    assert '"path_template": "/api/v1/result-package-exports/bytes/gc/run"' in result_package_contracts_source
     assert "operation_id=REMOTE_ENDPOINTS[RESULT_PACKAGE_EXPORT].operation_id" in route_source
+    assert "operation_id=REMOTE_ENDPOINTS[RESULT_PACKAGE_DOWNLOAD].operation_id" in route_source
     assert "operation_id=REMOTE_ENDPOINTS[RESULT_PACKAGE_RETIRE].operation_id" in route_source
     assert "operation_id=REMOTE_ENDPOINTS[RESULT_PACKAGE_BYTE_GC_PREVIEW].operation_id" in route_source
     assert "operation_id=REMOTE_ENDPOINTS[RESULT_PACKAGE_BYTE_GC_RUN].operation_id" in route_source

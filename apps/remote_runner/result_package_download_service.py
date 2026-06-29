@@ -3,7 +3,9 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+
+from core.contracts.remote_endpoints import render_remote_endpoint_path
+from core.contracts.result_package_remote_endpoints import RESULT_PACKAGE_DOWNLOAD
 
 from .config import RemoteRunnerConfig
 from .result_package_storage import fetch_result_package_export
@@ -13,9 +15,9 @@ RESULT_PACKAGE_DOWNLOAD_MEDIA_TYPE = "application/zip"
 
 
 def result_package_download_url(result_id: str, package_export_id: str) -> str:
-    return (
-        f"/api/v1/results/{quote(str(result_id), safe='')}/exports/"
-        f"{quote(str(package_export_id), safe='')}/download"
+    return render_remote_endpoint_path(
+        RESULT_PACKAGE_DOWNLOAD,
+        {"result_id": result_id, "package_export_id": package_export_id},
     )
 
 
