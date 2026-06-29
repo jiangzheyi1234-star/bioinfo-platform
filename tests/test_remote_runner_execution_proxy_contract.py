@@ -96,11 +96,17 @@ def _source(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 
-def test_remote_runner_execution_proxy_exposes_retry_run_path() -> None:
+def test_remote_runner_execution_proxy_uses_endpoint_contracts_for_basic_run_commands() -> None:
     proxy_source = _source("core/remote_runner/proxy.py")
+    reexecution_proxy_source = _source("core/remote_runner/reexecution_proxy.py")
+    endpoint_contracts_source = _source("core/contracts/remote_endpoints.py")
 
-    assert "def retry_run(self, **kwargs) -> dict[str, Any]:" in proxy_source
-    assert 'client.post_json(f"/api/v1/runs/{kwargs[\'run_id\']}/retry", kwargs["payload"])["data"]' in proxy_source
+    assert "def cancel_run(self, **kwargs) -> dict[str, Any]:" not in proxy_source
+    assert "def retry_run(self, **kwargs) -> dict[str, Any]:" not in proxy_source
+    assert "def resume_run(self, **kwargs) -> dict[str, Any]:" not in reexecution_proxy_source
+    assert 'path_template="/api/v1/runs/{run_id}/cancel"' in endpoint_contracts_source
+    assert 'path_template="/api/v1/runs/{run_id}/retry"' in endpoint_contracts_source
+    assert 'path_template="/api/v1/runs/{run_id}/resume"' in endpoint_contracts_source
 
 
 def test_remote_runner_execution_proxy_exposes_rule_retry_and_resume_paths() -> None:
@@ -126,8 +132,6 @@ def test_remote_runner_execution_proxy_exposes_rule_retry_and_resume_paths() -> 
     assert 'f"/api/v1/runs/{kwargs[\'run_id\']}/rules/cache-restore/adoption/prepare"' in proxy_source
     assert "def apply_rule_cache_restore_adoption(self, **kwargs) -> dict[str, Any]:" in proxy_source
     assert 'f"/api/v1/runs/{kwargs[\'run_id\']}/rules/cache-restore/adoption/apply"' in proxy_source
-    assert "def resume_run(self, **kwargs) -> dict[str, Any]:" in proxy_source
-    assert 'client.post_json(f"/api/v1/runs/{kwargs[\'run_id\']}/resume", kwargs["payload"])["data"]' in proxy_source
 
 
 def test_run_read_model_endpoints_are_contract_rendered() -> None:
@@ -630,7 +634,8 @@ class FakeEndpointClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
 
-    def get_json(self, path: str) -> dict[str, object]:
+    def get_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, object]:
+        assert accepted_statuses == {200}
         self.calls.append(("GET", path))
         if path == "/api/v1/runs":
             return {"data": {"items": [{"path": path}]}}

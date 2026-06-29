@@ -110,11 +110,3 @@ class RemoteRunnerReexecutionProxyMixin:
             f"/api/v1/runs/{kwargs['run_id']}/rules/cache-restore/adoption/apply",
             kwargs["payload"],
         )["data"]
-
-    def resume_run(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        return client.post_json(f"/api/v1/runs/{kwargs['run_id']}/resume", kwargs["payload"])["data"]

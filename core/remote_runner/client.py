@@ -63,6 +63,7 @@ class RemoteRunnerHttpClient:
         accepted_statuses: set[int] | None = None,
     ) -> dict[str, Any]:
         accepted = accepted_statuses or {200}
+        enforce_status = accepted_statuses is not None
         if payload is not None and raw_body is not None:
             raise ValueError("REMOTE_RUNNER_REQUEST_BODY_AMBIGUOUS")
         body = None
@@ -87,7 +88,19 @@ class RemoteRunnerHttpClient:
         )
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                return json.loads(response.read().decode("utf-8"))
+                status_code = int(response.status)
+                response_payload = response.read().decode("utf-8")
+                if enforce_status and status_code not in accepted:
+                    raise RemoteRunnerClientError(
+                        f"runner http status {status_code} not accepted for {method} {path}",
+                        status_code=status_code,
+                        detail={
+                            "acceptedStatusCodes": sorted(accepted),
+                            "response": _decode_json_object(response_payload),
+                            "statusCode": status_code,
+                        },
+                    )
+                return json.loads(response_payload)
         except urllib.error.HTTPError as exc:
             response_payload = exc.read().decode("utf-8", errors="replace")
             if exc.code in accepted:
@@ -170,8 +183,15 @@ class RemoteRunnerHttpClient:
         payload: dict[str, Any],
         *,
         extra_headers: dict[str, str] | None = None,
+        accepted_statuses: set[int] | None = None,
     ) -> dict[str, Any]:
-        return self._request_json("POST", path, payload=payload, extra_headers=extra_headers)
+        return self._request_json(
+            "POST",
+            path,
+            payload=payload,
+            extra_headers=extra_headers,
+            accepted_statuses=accepted_statuses,
+        )
 
     def post_bytes_json(
         self,
@@ -182,11 +202,17 @@ class RemoteRunnerHttpClient:
     ) -> dict[str, Any]:
         return self._request_json("POST", path, raw_body=bytes(body), extra_headers=extra_headers)
 
-    def patch_json(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
-        return self._request_json("PATCH", path, payload=payload)
+    def patch_json(
+        self,
+        path: str,
+        payload: dict[str, Any],
+        *,
+        accepted_statuses: set[int] | None = None,
+    ) -> dict[str, Any]:
+        return self._request_json("PATCH", path, payload=payload, accepted_statuses=accepted_statuses)
 
-    def delete_json(self, path: str) -> dict[str, Any]:
-        return self._request_json("DELETE", path)
+    def delete_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, Any]:
+        return self._request_json("DELETE", path, accepted_statuses=accepted_statuses)
 
     def create_upload(
         self,

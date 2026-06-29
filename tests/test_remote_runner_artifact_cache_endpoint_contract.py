@@ -190,7 +190,14 @@ class FakeCommandClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, dict[str, object]]] = []
 
-    def post_json(self, path: str, payload: dict[str, object]) -> dict[str, object]:
+    def post_json(
+        self,
+        path: str,
+        payload: dict[str, object],
+        *,
+        accepted_statuses: set[int] | None = None,
+    ) -> dict[str, object]:
+        assert accepted_statuses == {200}
         self.calls.append(("POST", path, dict(payload)))
         return {"data": {"path": path, "payload": dict(payload)}}
 

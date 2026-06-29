@@ -27,13 +27,16 @@ from core.contracts.remote_endpoints import (
     RESULT_PREVIEW_READ,
     RESULT_READ,
     RUN_ATTEMPTS_READ,
+    RUN_CANCEL,
     RUN_EVENTS_READ,
     RUN_EXECUTION_CONTEXT_READ,
     RUN_FAILURE_LOCATOR_READ,
     RUN_LIST,
     RUN_LOGS_READ,
     RUN_READ,
+    RUN_RESUME,
     RUN_RESULTS_READ,
+    RUN_RETRY,
     RUN_RULES_READ,
     SECRET_PROVIDER_READINESS_READ,
     WORKFLOW_BACKFILL_LAUNCH_LIST,
@@ -379,10 +382,10 @@ class ExecutionManager(BaseRuntimeManager):
         )
 
     def cancel_run(self, run_id: str) -> dict[str, Any]:
-        return {"data": self.call_runner("cancel_run", run_id=run_id)}
+        return self.read_remote_endpoint(RUN_CANCEL, path_values={"run_id": run_id})
 
     def retry_run(self, run_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-        return {"data": self.call_runner("retry_run", run_id=run_id, payload=dict(payload or {}))}
+        return self.read_remote_endpoint(RUN_RETRY, path_values={"run_id": run_id}, payload=dict(payload or {}))
 
     def retry_run_rules(self, run_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         return {"data": self.call_runner("retry_run_rules", run_id=run_id, payload=dict(payload or {}))}
@@ -493,7 +496,7 @@ class ExecutionManager(BaseRuntimeManager):
         }
 
     def resume_run(self, run_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-        return {"data": self.call_runner("resume_run", run_id=run_id, payload=dict(payload or {}))}
+        return self.read_remote_endpoint(RUN_RESUME, path_values={"run_id": run_id}, payload=dict(payload or {}))
 
     def get_run_events(self, run_id: str) -> dict[str, Any]:
         return self._get_run_read_model(RUN_EVENTS_READ, run_id)

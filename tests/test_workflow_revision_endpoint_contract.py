@@ -90,7 +90,8 @@ class FakeEndpointClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
 
-    def get_json(self, path: str) -> dict[str, object]:
+    def get_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, object]:
+        assert accepted_statuses == {200}
         self.calls.append(("GET", path))
         return {"data": {"path": path}}
 

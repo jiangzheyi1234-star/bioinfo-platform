@@ -365,6 +365,7 @@ def test_runtime_execution_operations_live_in_dedicated_mixin() -> None:
         "cancel_workflow_backfill_launch",
         "get_run",
         "get_workflow_revision",
+        "cancel_run",
         "retry_run",
         "apply_rule_output_invalidation",
         "prepare_rule_cache_restore_staged_files",
@@ -482,6 +483,9 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "RUN_RESULTS_READ" in execution_manager_source
     assert "RUN_RULES_READ" in execution_manager_source
     assert "RUN_FAILURE_LOCATOR_READ" in execution_manager_source
+    assert "RUN_CANCEL" in execution_manager_source
+    assert "RUN_RETRY" in execution_manager_source
+    assert "RUN_RESUME" in execution_manager_source
     assert "RESULT_LIST" in execution_manager_source
     assert "RESULT_READ" in execution_manager_source
     assert "RESULT_PREVIEW_READ" in execution_manager_source
@@ -498,7 +502,8 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "self.call_runner(\"get_run_attempts\"" not in execution_manager_source
     assert "WORKFLOW_REVISION_READ" in execution_manager_source
     assert "manager.get_workflow_revision" not in execution_manager_source
-    assert "self.call_runner(\"retry_run\"" in execution_manager_source
+    assert '"cancel_run"' not in execution_manager_source
+    assert '"retry_run"' not in execution_manager_source
     assert "self.call_runner(\"retry_run_rules\"" in execution_manager_source
     assert "self.call_runner(\n                \"apply_rule_output_invalidation\"," in execution_manager_source
     assert "self.call_runner(\n                \"prepare_rule_cache_restore_staged_files\"," in execution_manager_source
@@ -507,7 +512,7 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "self.call_runner(\n                \"apply_rule_cache_restore_final_outputs\"," in execution_manager_source
     assert "self.call_runner(\n                \"prepare_rule_cache_restore_adoption\"," in execution_manager_source
     assert "self.call_runner(\n                \"apply_rule_cache_restore_adoption\"," in execution_manager_source
-    assert "self.call_runner(\"resume_run\"" in execution_manager_source
+    assert '"resume_run"' not in execution_manager_source
     assert "self.call_runner(\"get_result_audit\"" not in execution_manager_source
     assert '"get_artifact_lifecycle_usage"' not in execution_manager_source
     assert '"list_artifact_lifecycle_controller_ticks"' not in execution_manager_source

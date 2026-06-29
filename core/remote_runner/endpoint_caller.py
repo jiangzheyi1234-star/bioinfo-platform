@@ -19,19 +19,20 @@ def call_remote_endpoint(
 ) -> Any:
     endpoint = get_remote_endpoint(endpoint_id)
     path = render_remote_endpoint_path(endpoint_id, path_values, query_values=query_values)
+    status_kwargs: dict[str, set[int]] = {"accepted_statuses": set(endpoint.accepted_statuses)}
 
     if endpoint.method == "GET":
         if payload:
             raise RemoteEndpointContractError("REMOTE_ENDPOINT_GET_PAYLOAD_FORBIDDEN", endpoint_id)
-        envelope = client.get_json(path)
+        envelope = client.get_json(path, **status_kwargs)
     elif endpoint.method == "POST":
-        envelope = client.post_json(path, dict(payload or {}))
+        envelope = client.post_json(path, dict(payload or {}), **status_kwargs)
     elif endpoint.method == "PATCH":
-        envelope = client.patch_json(path, dict(payload or {}))
+        envelope = client.patch_json(path, dict(payload or {}), **status_kwargs)
     elif endpoint.method == "DELETE":
         if payload:
             raise RemoteEndpointContractError("REMOTE_ENDPOINT_DELETE_PAYLOAD_FORBIDDEN", endpoint_id)
-        envelope = client.delete_json(path)
+        envelope = client.delete_json(path, **status_kwargs)
     else:
         raise RemoteEndpointContractError("REMOTE_ENDPOINT_METHOD_UNSUPPORTED", endpoint.method)
 

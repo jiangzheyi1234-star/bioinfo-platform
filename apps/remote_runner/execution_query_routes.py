@@ -27,13 +27,16 @@ from core.contracts.remote_endpoints import (
     RESULT_PREVIEW_READ,
     RESULT_READ,
     RUN_ATTEMPTS_READ,
+    RUN_CANCEL,
     RUN_EVENTS_READ,
     RUN_EXECUTION_CONTEXT_READ,
     RUN_FAILURE_LOCATOR_READ,
     RUN_LIST,
     RUN_LOGS_READ,
     RUN_READ,
+    RUN_RESUME,
     RUN_RESULTS_READ,
+    RUN_RETRY,
     RUN_RULES_READ,
 )
 
@@ -127,12 +130,19 @@ async def get_run(run_id: str, authorization: AuthorizationHeader = None) -> dic
     return await get_run_from_request(run_id, authorization)
 
 
-@router.post("/api/v1/runs/{run_id}/cancel")
+@router.post(
+    "/api/v1/runs/{run_id}/cancel",
+    operation_id=REMOTE_ENDPOINTS[RUN_CANCEL].operation_id,
+)
 async def cancel_run_api(run_id: str, authorization: AuthorizationHeader = None) -> dict[str, Any]:
     return await cancel_run_from_request(run_id, authorization)
 
 
-@router.post("/api/v1/runs/{run_id}/retry", status_code=202)
+@router.post(
+    "/api/v1/runs/{run_id}/retry",
+    operation_id=REMOTE_ENDPOINTS[RUN_RETRY].operation_id,
+    status_code=202,
+)
 async def retry_run_api(
     run_id: str,
     payload: RunRetryRequest,
@@ -231,7 +241,11 @@ async def apply_rule_cache_restore_adoption_api(
     return await apply_rule_cache_restore_adoption_from_request(run_id, payload, authorization)
 
 
-@router.post("/api/v1/runs/{run_id}/resume", status_code=202)
+@router.post(
+    "/api/v1/runs/{run_id}/resume",
+    operation_id=REMOTE_ENDPOINTS[RUN_RESUME].operation_id,
+    status_code=202,
+)
 async def resume_run_api(
     run_id: str,
     payload: RunResumeRequest,

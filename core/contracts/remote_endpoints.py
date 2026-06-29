@@ -27,6 +27,7 @@ class RemoteEndpoint:
     invalidates: tuple[str, ...] = ()
     response_key: str = "data"
     response_item_key: str | None = None
+    accepted_statuses: tuple[int, ...] = (200,)
 
     @property
     def path_params(self) -> tuple[str, ...]:
@@ -47,6 +48,9 @@ RUN_LOGS_READ = "run.logs.read"
 RUN_RESULTS_READ = "run.results.read"
 RUN_RULES_READ = "run.rules.read"
 RUN_FAILURE_LOCATOR_READ = "run.failure_locator.read"
+RUN_CANCEL = "run.cancel"
+RUN_RETRY = "run.retry"
+RUN_RESUME = "run.resume"
 WORKFLOW_REVISION_READ = "workflow_revision.read"
 RESULT_LIST = "result.list"
 RESULT_READ = "result.read"
@@ -170,6 +174,41 @@ REMOTE_ENDPOINTS: dict[str, RemoteEndpoint] = {
         request_schema=None,
         response_schema="run-failure-locator.v1",
         cache_scope="run-read-model",
+    ),
+    RUN_CANCEL: RemoteEndpoint(
+        endpoint_id=RUN_CANCEL,
+        method="POST",
+        path_template="/api/v1/runs/{run_id}/cancel",
+        operation_id="cancelRun",
+        governance_action="run.cancel",
+        request_schema=None,
+        response_schema="run-cancel-result.v1",
+        cache_scope="run-command",
+        invalidates=("run-read-model",),
+    ),
+    RUN_RETRY: RemoteEndpoint(
+        endpoint_id=RUN_RETRY,
+        method="POST",
+        path_template="/api/v1/runs/{run_id}/retry",
+        operation_id="retryRun",
+        governance_action="run.retry",
+        request_schema="run-retry-request.v1",
+        response_schema="run-retry-result.v1",
+        cache_scope="run-command",
+        invalidates=("run-read-model",),
+        accepted_statuses=(202,),
+    ),
+    RUN_RESUME: RemoteEndpoint(
+        endpoint_id=RUN_RESUME,
+        method="POST",
+        path_template="/api/v1/runs/{run_id}/resume",
+        operation_id="resumeRun",
+        governance_action="run.resume",
+        request_schema="run-resume-request.v1",
+        response_schema="run-resume-result.v1",
+        cache_scope="run-command",
+        invalidates=("run-read-model",),
+        accepted_statuses=(202,),
     ),
     WORKFLOW_REVISION_READ: RemoteEndpoint(
         endpoint_id=WORKFLOW_REVISION_READ,

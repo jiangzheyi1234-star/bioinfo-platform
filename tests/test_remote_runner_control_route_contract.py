@@ -393,8 +393,10 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
     assert "router = APIRouter()" in execution_query_route_source
     assert '"/api/v1/runs"' in execution_query_route_source
     assert '"/api/v1/runs/{run_id}"' in execution_query_route_source
-    assert '@router.post("/api/v1/runs/{run_id}/cancel")' in execution_query_route_source
-    assert '@router.post("/api/v1/runs/{run_id}/retry", status_code=202)' in execution_query_route_source
+    assert '"/api/v1/runs/{run_id}/cancel"' in execution_query_route_source
+    assert '"/api/v1/runs/{run_id}/retry"' in execution_query_route_source
+    assert "operation_id=REMOTE_ENDPOINTS[RUN_CANCEL].operation_id" in execution_query_route_source
+    assert "operation_id=REMOTE_ENDPOINTS[RUN_RETRY].operation_id" in execution_query_route_source
     assert '@router.post("/api/v1/runs/{run_id}/rules/retry", status_code=202)' in execution_query_route_source
     assert '@router.post("/api/v1/runs/{run_id}/rules/output-invalidation/apply")' in execution_query_route_source
     assert '@router.post("/api/v1/runs/{run_id}/rules/cache-restore/staged-files/prepare")' in execution_query_route_source
@@ -403,7 +405,8 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
     assert '@router.post("/api/v1/runs/{run_id}/rules/cache-restore/final-outputs/apply")' in execution_query_route_source
     assert '@router.post("/api/v1/runs/{run_id}/rules/cache-restore/adoption/prepare")' in execution_query_route_source
     assert '@router.post("/api/v1/runs/{run_id}/rules/cache-restore/adoption/apply")' in execution_query_route_source
-    assert '@router.post("/api/v1/runs/{run_id}/resume", status_code=202)' in execution_query_route_source
+    assert '"/api/v1/runs/{run_id}/resume"' in execution_query_route_source
+    assert "operation_id=REMOTE_ENDPOINTS[RUN_RESUME].operation_id" in execution_query_route_source
     assert '"/api/v1/runs/{run_id}/events"' in execution_query_route_source
     assert '"/api/v1/runs/{run_id}/execution-context"' in execution_query_route_source
     assert '"/api/v1/runs/{run_id}/attempts"' in execution_query_route_source
@@ -415,7 +418,14 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
     assert '"/api/v1/results/{result_id}"' in execution_query_route_source
     assert '"/api/v1/results/{result_id}/preview"' in execution_query_route_source
     assert '"/api/v1/results/{result_id}/audit"' in execution_query_route_source
-    assert '@router.post("/api/v1/results/{result_id}/export")' in execution_query_route_source
+    assert '"/api/v1/results/{result_id}/export"' in execution_query_route_source
+    assert "operation_id=REMOTE_ENDPOINTS[RESULT_PACKAGE_EXPORT].operation_id" in execution_query_route_source
+    assert '"/api/v1/result-package-exports/bytes/gc/preview"' in execution_query_route_source
+    assert "operation_id=REMOTE_ENDPOINTS[RESULT_PACKAGE_BYTE_GC_PREVIEW].operation_id" in execution_query_route_source
+    assert '"/api/v1/result-package-exports/bytes/gc/run"' in execution_query_route_source
+    assert "operation_id=REMOTE_ENDPOINTS[RESULT_PACKAGE_BYTE_GC_RUN].operation_id" in execution_query_route_source
+    assert '"/api/v1/results/{result_id}/exports/{package_export_id}/retire"' in execution_query_route_source
+    assert "operation_id=REMOTE_ENDPOINTS[RESULT_PACKAGE_RETIRE].operation_id" in execution_query_route_source
     assert '@router.get("/api/v1/results/{result_id}/exports/{package_export_id}/download")' in execution_query_route_source
     assert "/bytes/delete" not in execution_query_route_source
     assert "list_runs_from_request" in execution_query_route_source

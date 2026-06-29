@@ -28,13 +28,16 @@ from core.contracts.remote_endpoints import (
     RESULT_PREVIEW_READ,
     RESULT_READ,
     RUN_ATTEMPTS_READ,
+    RUN_CANCEL,
     RUN_EVENTS_READ,
     RUN_EXECUTION_CONTEXT_READ,
     RUN_FAILURE_LOCATOR_READ,
     RUN_LIST,
     RUN_LOGS_READ,
     RUN_READ,
+    RUN_RESUME,
     RUN_RESULTS_READ,
+    RUN_RETRY,
     RUN_RULES_READ,
     WORKFLOW_REVISION_READ,
 )
@@ -143,12 +146,19 @@ async def get_workflow_revision(
     return await get_workflow_revision_from_request(workflow_revision_id, server_id=serverId)
 
 
-@router.post("/api/v1/runs/{run_id}/cancel")
+@router.post(
+    "/api/v1/runs/{run_id}/cancel",
+    operation_id=REMOTE_ENDPOINTS[RUN_CANCEL].operation_id,
+)
 async def cancel_run(run_id: str) -> dict[str, Any]:
     return await cancel_run_from_request(run_id)
 
 
-@router.post("/api/v1/runs/{run_id}/retry", status_code=202)
+@router.post(
+    "/api/v1/runs/{run_id}/retry",
+    operation_id=REMOTE_ENDPOINTS[RUN_RETRY].operation_id,
+    status_code=202,
+)
 async def retry_run(run_id: str, payload: RunRetryRequest) -> dict[str, Any]:
     return await retry_run_from_request(run_id, payload)
 
@@ -230,7 +240,11 @@ async def apply_rule_cache_restore_adoption(
     return await apply_rule_cache_restore_adoption_from_request(run_id, payload)
 
 
-@router.post("/api/v1/runs/{run_id}/resume", status_code=202)
+@router.post(
+    "/api/v1/runs/{run_id}/resume",
+    operation_id=REMOTE_ENDPOINTS[RUN_RESUME].operation_id,
+    status_code=202,
+)
 async def resume_run(run_id: str, payload: RunResumeRequest) -> dict[str, Any]:
     return await resume_run_from_request(run_id, payload)
 
