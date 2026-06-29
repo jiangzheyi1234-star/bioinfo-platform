@@ -11,6 +11,10 @@ $ErrorActionPreference = "Stop"
 $FirstRunPipelineId = "moving-pictures-16s-rulegraph-v1"
 $FirstRunScenarioId = "moving-pictures-16s"
 $RequiredEvidence = @("resultPackage", "validationCard", "workflowRevision", "inputLineage", "outputChecksums")
+$ClosedLoopProofModes = @{
+    SmokeOnly = "catalog-page-smoke"
+    FinalizedRun = "finalized-run"
+}
 
 function Write-Step {
     param([string]$Message)
@@ -105,8 +109,13 @@ if (-not $firstRunPage.Content.Contains("app/workflows/first-run/page.js")) {
     Fail-Pilot "/workflows/first-run must include the first-run Next page bundle"
 }
 
+$closedLoopProven = $false
+$closedLoopProofMode = $ClosedLoopProofModes.SmokeOnly
 $finalizationStatus = "not-run"
 $finalizationAction = $null
+if ($RequireFinalizationReady -and -not $RunId) {
+    Fail-Pilot "-RequireFinalizationReady requires -RunId from a completed Moving Pictures first run"
+}
 if ($RunId) {
     Write-Step "checking first-run finalization for $RunId"
     $body = @{ actor = "first-run-pilot-check" }
@@ -128,6 +137,8 @@ if ($RunId) {
         if (-not $finalization.resultPackage.sha256 -or -not $finalization.resultPackage.manifestSha256) {
             Fail-Pilot "ready finalization resultPackage must include sha256 and manifestSha256"
         }
+        $closedLoopProven = $true
+        $closedLoopProofMode = $ClosedLoopProofModes.FinalizedRun
     } elseif ($finalization.status -eq "blocked") {
         $finalizationAction = $finalization.nextAction
         if ($RequireFinalizationReady) {
@@ -151,6 +162,8 @@ $summary = [ordered]@{
     scenarioStatus = $pack.status
     firstRunPath = $pack.firstRunPath
     runId = $RunId
+    closedLoopProven = $closedLoopProven
+    closedLoopProofMode = $closedLoopProofMode
     finalizationStatus = $finalizationStatus
     finalizationNextAction = $finalizationAction
 }

@@ -36,4 +36,11 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "ready finalization must include validationCard and resultPackage" in source
     assert "ready finalization must include a single-user-lab pilotHandoff" in source
     assert "blocked finalization must include nextAction code and target" in source
+    assert "-RequireFinalizationReady requires -RunId from a completed Moving Pictures first run" in source
+    assert 'SmokeOnly = "catalog-page-smoke"' in source
+    assert 'FinalizedRun = "finalized-run"' in source
+    assert "$closedLoopProven = $false" in source
+    assert "$closedLoopProven = $true" in source
+    assert "closedLoopProven = $closedLoopProven" in source
+    assert "closedLoopProofMode = $closedLoopProofMode" in source
     assert "h2ometa.first-run-pilot-check.v1" in source

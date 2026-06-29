@@ -37,8 +37,9 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     first_run_completion = (COMPONENTS / "workflow-first-run-completion.tsx").read_text(encoding="utf-8")
     first_run_report = (COMPONENTS / "workflow-first-run-report.tsx").read_text(encoding="utf-8")
     first_run_sample_submit = (COMPONENTS / "workflow-first-run-sample-submit.tsx").read_text(encoding="utf-8")
+    first_run_trust_summary = (COMPONENTS / "workflow-first-run-trust-summary.tsx").read_text(encoding="utf-8")
     first_run_validation = (COMPONENTS / "workflow-first-run-validation.tsx").read_text(encoding="utf-8")
-    first_run_source = f"{first_run_page}\n{first_run_api}\n{first_run_completion}\n{first_run_report}\n{first_run_sample_submit}\n{first_run_validation}"
+    first_run_source = f"{first_run_page}\n{first_run_api}\n{first_run_completion}\n{first_run_report}\n{first_run_sample_submit}\n{first_run_trust_summary}\n{first_run_validation}"
     api = (COMPONENTS / "workflows-page-api.ts").read_text(encoding="utf-8")
     hook = (COMPONENTS / "use-workflows-page-state.ts").read_text(encoding="utf-8")
 
@@ -67,6 +68,7 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "FirstRunCompletionPanel" in first_run_page
     assert "first-run-completion-panel" in first_run_completion
     assert "first-run-pilot-handoff" in first_run_completion
+    assert "FirstRunTrustSummary" in first_run_completion
     assert "单用户试点交接" in first_run_completion
     assert "首跑已完成" in first_run_completion
     assert "下载结果包" in first_run_completion
@@ -100,6 +102,16 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "const softwareEnvironment = card?.softwareEnvironment" in first_run_validation
     assert "reportInterpretation" in first_run_validation
     assert "first-run-validation-card-evidence" in first_run_validation
+    assert "FirstRunTrustSummary" in first_run_validation
+    assert "first-run-trust-summary" in first_run_trust_summary
+    assert "data-summary-ready" in first_run_trust_summary
+    assert "summaryReady ? \"border-emerald-200 bg-emerald-50\" : \"border-amber-200 bg-amber-50\"" in first_run_trust_summary
+    assert "这次结果为什么可信" in first_run_trust_summary
+    assert "官方样例输入" in first_run_trust_summary
+    assert "软件环境" in first_run_trust_summary
+    assert "Moving Pictures 首跑不需要外部参考数据库" in first_run_trust_summary
+    assert "关键结果" in first_run_trust_summary
+    assert "结果包" in first_run_trust_summary
     assert "可信性检查已通过" in first_run_validation
     assert "可信性检查未全部通过" in first_run_validation
     assert "data-validation-eligible" in first_run_validation
@@ -131,6 +143,9 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "text/markdown;charset=utf-8" in first_run_api
     assert "H2OMeta First Successful Run Validation Card" in first_run_api
     assert "## Summary" in first_run_api
+    assert "## Customer Proof" in first_run_api
+    assert "Official inputs" in first_run_api
+    assert "no external reference database is required" in first_run_api
     assert "Official Sample Inputs" in first_run_api
     assert "## Key Results" in first_run_api
     assert "## Metrics" in first_run_api

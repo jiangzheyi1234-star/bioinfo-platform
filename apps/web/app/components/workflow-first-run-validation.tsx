@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import type { FirstRunFinalizationNextAction, FirstRunValidationCard } from "./workflow-first-run-api";
+import { FirstRunTrustSummary } from "./workflow-first-run-trust-summary";
 import { workflowResultPackageDownloadHref } from "./workflows-page-api";
 import type {
   WorkflowArtifact,
@@ -206,6 +207,10 @@ export function ValidationCard({
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       ) : null}
+
+      <div className="mt-4">
+        <FirstRunTrustSummary card={card} packageExport={packageExport} />
+      </div>
 
       <div className="mt-4 grid gap-2 text-xs">
         <KeyValue label="dataset" value="QIIME 2 Moving Pictures tutorial" />

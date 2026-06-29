@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import type { FirstRunPilotHandoff, FirstRunValidationCard } from "./workflow-first-run-api";
+import { FirstRunTrustSummary } from "./workflow-first-run-trust-summary";
 import { firstRunResultPackageReady, formatBytes } from "./workflow-first-run-validation";
 import { workflowResultPackageDownloadHref } from "./workflows-page-api";
 import type { WorkflowResultPackageExport, WorkflowRun } from "./workflows-page-model";
@@ -124,6 +125,10 @@ export function FirstRunCompletionPanel({
           ))}
         </div>
       ) : null}
+
+      <div className="mt-4">
+        <FirstRunTrustSummary card={card} packageExport={latestPackage} />
+      </div>
 
       {handoff ? <PilotHandoffSummary handoff={handoff} /> : null}
     </section>

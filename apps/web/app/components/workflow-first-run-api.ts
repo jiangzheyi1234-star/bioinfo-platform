@@ -281,6 +281,10 @@ export function firstRunValidationCardMarkdown(card: FirstRunValidationCard) {
     `Manifest SHA-256: ${markdownValue(packageExport?.manifestSha256)}`,
     `Checks: ${passedChecks}/${checks.length} passed`,
     "",
+    "## Customer Proof",
+    "",
+    ...firstRunCustomerProofMarkdown(card),
+    "",
     "## Summary",
     "",
     markdownValue(card.reportInterpretation?.summary),
@@ -315,6 +319,24 @@ export function firstRunValidationCardMarkdown(card: FirstRunValidationCard) {
     `Raw paths exposed: ${card.reportInterpretation?.redaction?.rawPathsExposed === true ? "yes" : "no"}`,
     `Storage URIs exposed: ${card.reportInterpretation?.redaction?.storageUrisExposed === true ? "yes" : "no"}`,
   ].join("\n");
+}
+
+function firstRunCustomerProofMarkdown(card: FirstRunValidationCard) {
+  const software = card.softwareEnvironment;
+  const runtime = [software?.runtime?.engine, software?.runtime?.platform, software?.runtime?.pipelineVersion]
+    .filter(Boolean)
+    .join(" / ");
+  const packageExport = card.resultPackage;
+  const fullPackage = packageExport?.artifactPayloadMode === "full" || packageExport?.includeArtifacts === true;
+  const metrics = card.reportInterpretation?.metrics || [];
+  const keyResults = card.keyResults || [];
+  return [
+    `- Official inputs: ${card.sampleData?.status === "verified" ? `${card.sampleData.items?.length || 0} files verified by checksum` : "waiting for checksum evidence"}`,
+    `- Software environment: ${software?.status === "verified" ? runtime || "locked and verified" : "waiting for environment evidence"}`,
+    "- Database: no external reference database is required for this Moving Pictures first run",
+    `- Key results: ${card.reportInterpretation?.status === "ready" ? `${keyResults.length} outputs and ${metrics.length} metrics interpreted` : "waiting for report interpretation"}`,
+    `- Result package: ${fullPackage && packageExport?.sha256 && packageExport?.manifestSha256 ? `full package with SHA-256 ${packageExport.sha256}` : "waiting for full package hash"}`,
+  ];
 }
 
 function queryString(query: URLSearchParams) {

@@ -71,7 +71,7 @@ For a single-user lab pilot, run the focused first-run proof after the local web
 scripts\first_run_pilot_check.ps1
 ```
 
-This verifies that the Moving Pictures 16S first-run pipeline is runnable, the scenario pack points at `/workflows/first-run`, the required result evidence is advertised, and the first-run page bundle is served. After an operator completes a real Moving Pictures run, pass `-RunId <run_id>` to call the first-run finalization API and require either a ready validation card/result package or a typed blocked `nextAction`. Add `-RequireFinalizationReady` when the pilot handoff must fail unless the result package and validation card are complete.
+This verifies that the Moving Pictures 16S first-run pipeline is runnable, the scenario pack points at `/workflows/first-run`, the required result evidence is advertised, and the first-run page bundle is served. Without `-RunId`, the JSON summary must report `closedLoopProven: false` with `closedLoopProofMode: "catalog-page-smoke"`; that is a smoke proof, not a completed first-run proof. After an operator completes a real Moving Pictures run, pass `-RunId <run_id>` to call the first-run finalization API and require either a ready validation card/result package or a typed blocked `nextAction`. Add `-RequireFinalizationReady` only with `-RunId` when the pilot handoff must fail unless the result package and validation card are complete.
 
 ## Optional Gates
 
