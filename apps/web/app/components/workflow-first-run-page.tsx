@@ -5,12 +5,10 @@ import {
   AlertCircle,
   CheckCircle2,
   Loader2,
-  Play,
   RefreshCw,
   Rocket,
   Server,
   ShieldCheck,
-  UploadCloud,
   XCircle,
 } from "lucide-react";
 
@@ -28,13 +26,13 @@ import {
   fetchFirstRunValidationCard,
   type FirstRunValidationCard,
 } from "./workflow-first-run-api";
+import { SampleAndSubmitPanel, sampleUploadsReady } from "./workflow-first-run-sample-submit";
 import { WorkflowPageHeader } from "./workflow-page-header";
 import { WorkflowWorkspaceTabs } from "./workflow-workspace-tabs";
 import { RunReportPanel } from "./workflow-first-run-report";
 import {
   ResultPackagePanel,
   ValidationCard,
-  formatBytes,
   firstRunResultPackageReady,
 } from "./workflow-first-run-validation";
 import {
@@ -48,12 +46,10 @@ import {
   type WorkflowResultPackageExport,
   type WorkflowRun,
   type WorkflowRunDetail,
-  type WorkflowUpload,
 } from "./workflows-page-model";
 
 const FIRST_RUN_PIPELINE_ID = "moving-pictures-16s-rulegraph-v1";
 const FIRST_RUN_PIPELINE_NAME = "Moving Pictures 16S";
-const EXPECTED_SAMPLE_ROLES = ["metadata", "barcodes", "sequences"];
 
 type StepState = "done" | "current" | "waiting" | "blocked";
 type FirstRunState = ReturnType<typeof useWorkflowsPageState>;
@@ -87,7 +83,8 @@ export function WorkflowFirstRunPage() {
   const readyPackage = packageExports.find(firstRunResultPackageReady);
   const latestPackage = readyPackage || packageExports[0];
   const workflowRevisionId = workflowRevisionIdFor(run, state.runDetail, latestPackage);
-  const selectedWorkflowReady = state.selectedWorkflow?.id === FIRST_RUN_PIPELINE_ID && state.selectedWorkflow.runnable;
+  const movingPicturesWorkflow = state.catalog.find((item) => item.id === FIRST_RUN_PIPELINE_ID) || null;
+  const selectedWorkflowReady = Boolean(movingPicturesWorkflow?.runnable);
   const serverConnected = Boolean(state.server?.connected);
   const executionReady = executionDiagnostics?.readiness?.ok === true;
   const serverReady = Boolean(state.server?.ready) && executionReady;
@@ -336,14 +333,15 @@ export function WorkflowFirstRunPage() {
               }}
             />
             <SampleAndSubmitPanel
-              canSubmit={state.canSubmit && executionReady}
+              canSubmit={state.canSubmit && executionReady && selectedWorkflowReady}
               loading={state.loading}
               pipelineReady={selectedWorkflowReady}
               sampleLoading={state.sampleLoading}
               sampleUploads={state.sampleUploads}
-              selectedWorkflowDescription={state.selectedWorkflow?.description}
               submitError={state.submitError}
               submitting={state.submitting}
+              workflow={movingPicturesWorkflow}
+              workflowLoading={state.loading}
               onPrepareSample={() => void state.loadSampleData()}
               onSubmit={() => void state.submitRun()}
             />
@@ -511,112 +509,6 @@ function RunnerReadinessPanel({
   );
 }
 
-function SampleAndSubmitPanel({
-  canSubmit,
-  loading,
-  onPrepareSample,
-  onSubmit,
-  pipelineReady,
-  sampleLoading,
-  sampleUploads,
-  selectedWorkflowDescription,
-  submitError,
-  submitting,
-}: {
-  canSubmit: boolean;
-  loading: boolean;
-  onPrepareSample: () => void;
-  onSubmit: () => void;
-  pipelineReady: boolean;
-  sampleLoading: boolean;
-  sampleUploads: WorkflowUpload[];
-  selectedWorkflowDescription?: string;
-  submitError: string;
-  submitting: boolean;
-}) {
-  const ready = sampleUploadsReady(sampleUploads);
-  return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
-            <UploadCloud strokeWidth={1.5} className="h-4 w-4 text-slate-500" />
-            选择 Moving Pictures 16S 示例并准备数据
-          </div>
-          <div className="mt-1 text-xs leading-5 text-slate-500" data-testid="first-run-moving-pictures-pipeline-id">
-            {FIRST_RUN_PIPELINE_ID}
-          </div>
-        </div>
-        <span className={cn("rounded-full border px-2 py-1 text-[11px]", pipelineReady ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700")}>
-          {pipelineReady ? "WorkflowReady" : "未就绪"}
-        </span>
-      </div>
-
-      {selectedWorkflowDescription ? (
-        <p className="mt-3 text-xs leading-5 text-slate-600">{selectedWorkflowDescription}</p>
-      ) : null}
-
-      <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_220px]">
-        <div className="grid gap-2">
-          {EXPECTED_SAMPLE_ROLES.map((role) => {
-            const upload = sampleUploads.find((item) => item.role === role);
-            const verified = upload ? sampleIntegrityPassed(upload) : false;
-            return (
-              <div key={role} className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
-                <div className="min-w-0">
-                  <div className="font-medium text-slate-800">{sampleRoleLabel(role)}</div>
-                  <div className="mt-0.5 truncate font-mono text-[11px] text-slate-500">{upload?.filename || sampleRoleFilename(role)}</div>
-                </div>
-                {upload ? (
-                  <div className="shrink-0 text-right">
-                    <div className={verified ? "text-emerald-700" : "text-red-700"}>
-                      {verified ? "checksum verified" : "checksum required"}
-                    </div>
-                    <div className="mt-0.5 font-mono text-[10px] text-slate-400">{sampleIntegrityLabel(upload)}</div>
-                  </div>
-                ) : (
-                  <span className="shrink-0 text-slate-400">待准备</span>
-                )}
-              </div>
-            );
-          })}
-        </div>
-        <div className="space-y-2">
-          <Button
-            className="h-10 w-full bg-slate-950 text-white hover:bg-slate-800"
-            disabled={sampleLoading || loading || !pipelineReady}
-            onClick={onPrepareSample}
-            data-testid="first-run-prepare-sample-data"
-          >
-            {sampleLoading ? <Loader2 strokeWidth={1.5} className="mr-2 h-4 w-4 animate-spin" /> : <UploadCloud strokeWidth={1.5} className="mr-2 h-4 w-4" />}
-            准备示例数据
-          </Button>
-          <Button
-            variant="outline"
-            className="h-10 w-full bg-white text-slate-700"
-            disabled={!canSubmit}
-            onClick={onSubmit}
-            data-testid="first-run-submit-run"
-          >
-            {submitting ? <Loader2 strokeWidth={1.5} className="mr-2 h-4 w-4 animate-spin" /> : <Play strokeWidth={1.5} className="mr-2 h-4 w-4" />}
-            提交运行
-          </Button>
-          <div className="text-[11px] leading-4 text-slate-400">
-            {ready ? `${sampleUploads.length} 个输入已上传` : "使用官方三文件样例作为唯一输入来源"}
-          </div>
-        </div>
-      </div>
-
-      {submitError ? (
-        <Alert variant="destructive" className="mt-4">
-          <AlertCircle strokeWidth={1.5} className="h-4 w-4" />
-          <AlertDescription>{submitError}</AlertDescription>
-        </Alert>
-      ) : null}
-    </section>
-  );
-}
-
 function ReadinessCheck({ detail, label, ok }: { detail: string; label: string; ok: boolean }) {
   return (
     <div className="min-w-0 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
@@ -735,13 +627,6 @@ function workflowRevisionIdFor(
   );
 }
 
-function sampleUploadsReady(uploads: WorkflowUpload[]) {
-  return EXPECTED_SAMPLE_ROLES.every((role) => {
-    const upload = uploads.find((item) => item.role === role);
-    return upload ? sampleIntegrityPassed(upload) : false;
-  });
-}
-
 function isTerminalRun(run: WorkflowRun | null | undefined) {
   return run?.status === "completed" || run?.status === "failed" || run?.status === "error";
 }
@@ -753,28 +638,4 @@ function mergePackageExport(
   const packageExportId = item.packageExportId || "";
   if (!packageExportId) return [item, ...current];
   return [item, ...current.filter((candidate) => candidate.packageExportId !== packageExportId)];
-}
-
-function sampleRoleLabel(role: string) {
-  if (role === "metadata") return "sample metadata";
-  if (role === "barcodes") return "barcode reads";
-  if (role === "sequences") return "sequence reads";
-  return role;
-}
-
-function sampleRoleFilename(role: string) {
-  if (role === "metadata") return "sample-metadata.tsv";
-  if (role === "barcodes") return "barcodes.fastq.gz";
-  if (role === "sequences") return "sequences.fastq.gz";
-  return role;
-}
-
-function sampleIntegrityLabel(upload: WorkflowUpload) {
-  const hash = upload.sha256 || upload.expectedSha256 || "";
-  const size = upload.expectedSizeBytes || upload.sizeBytes;
-  return [hash ? `sha ${hash.slice(0, 12)}` : "", size ? formatBytes(size) : ""].filter(Boolean).join(" / ");
-}
-
-function sampleIntegrityPassed(upload: WorkflowUpload) {
-  return upload.integrityStatus === "passed" && Boolean(upload.sha256) && upload.sha256 === upload.expectedSha256;
 }

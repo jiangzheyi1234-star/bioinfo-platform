@@ -36,8 +36,9 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     first_run_api = (COMPONENTS / "workflow-first-run-api.ts").read_text(encoding="utf-8")
     first_run_completion = (COMPONENTS / "workflow-first-run-completion.tsx").read_text(encoding="utf-8")
     first_run_report = (COMPONENTS / "workflow-first-run-report.tsx").read_text(encoding="utf-8")
+    first_run_sample_submit = (COMPONENTS / "workflow-first-run-sample-submit.tsx").read_text(encoding="utf-8")
     first_run_validation = (COMPONENTS / "workflow-first-run-validation.tsx").read_text(encoding="utf-8")
-    first_run_source = f"{first_run_page}\n{first_run_api}\n{first_run_completion}\n{first_run_report}\n{first_run_validation}"
+    first_run_source = f"{first_run_page}\n{first_run_api}\n{first_run_completion}\n{first_run_report}\n{first_run_sample_submit}\n{first_run_validation}"
     api = (COMPONENTS / "workflows-page-api.ts").read_text(encoding="utf-8")
     hook = (COMPONENTS / "use-workflows-page-state.ts").read_text(encoding="utf-8")
 
@@ -47,6 +48,7 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert '{ href: "/workflows/first-run", label: "首跑" }' in tabs
     assert 'const FIRST_RUN_PIPELINE_ID = "moving-pictures-16s-rulegraph-v1"' in first_run_page
     assert "useWorkflowsPageState(FIRST_RUN_PIPELINE_ID)" in first_run_page
+    assert "const movingPicturesWorkflow = state.catalog.find((item) => item.id === FIRST_RUN_PIPELINE_ID) || null" in first_run_page
     assert "连接远端" in first_run_page
     assert "runner readiness" in first_run_page
     assert "准备示例数据" in first_run_page
@@ -123,9 +125,6 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "first-run-validation-card-interpretation" in first_run_validation
     assert "first-run-validation-card-output-interpretation" in first_run_validation
     assert "output.interpretation" in first_run_validation
-    assert "card: validationCard" in first_run_page
-    assert "downloadFirstRunValidationCard" in first_run_page
-    assert "downloadFirstRunValidationCardMarkdown" in first_run_page
     assert "firstRunValidationCardMarkdown" in first_run_api
     assert ".validation-card.md" in first_run_api
     assert "text/markdown;charset=utf-8" in first_run_api
@@ -144,15 +143,16 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "onDownloadMarkdown={() => void downloadValidationCardMarkdown()}" in first_run_page
     assert "fetchWorkflowServerExecutionDiagnostics" in first_run_page
     assert "executionDiagnostics?.readiness?.ok === true" in first_run_page
-    assert "state.canSubmit && executionReady" in first_run_page
+    assert "state.canSubmit && executionReady && selectedWorkflowReady" in first_run_page
     assert "first-run-execution-diagnostics-blockers" in first_run_page
     assert "eligible={validationEligible}" in first_run_page
     assert "ready={validationReady}" in first_run_page
     assert "buildValidationCardPayload" not in first_run_source
     assert "QIIME 2 Moving Pictures tutorial" in first_run_source
-    assert 'EXPECTED_SAMPLE_ROLES = ["metadata", "barcodes", "sequences"]' in first_run_page
-    assert "checksum verified" in first_run_page
-    assert "sampleIntegrityPassed" in first_run_page
+    assert 'FIRST_RUN_EXPECTED_SAMPLE_ROLES = ["metadata", "barcodes", "sequences"] as const' in first_run_sample_submit
+    assert "checksum verified" in first_run_sample_submit
+    assert "first-run-sample-selection" in first_run_sample_submit
+    assert "state.selectedWorkflow?.description" not in first_run_page
     assert "exportWorkflowResultPackage(resultId, true)" in first_run_page
     assert "fetchWorkflowResultPackageExports(resultId)" in first_run_page
     assert "workflowResultPackageDownloadHref" in first_run_validation
