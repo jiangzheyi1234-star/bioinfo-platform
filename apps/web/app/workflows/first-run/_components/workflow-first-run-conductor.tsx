@@ -5,7 +5,7 @@ import { ArrowRight, CheckCircle2, Loader2, Play, RefreshCw, Server, ShieldCheck
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { workflowErrorMessage } from "./workflows-page-model";
+import { workflowErrorMessage } from "@/app/components/workflows-page-model";
 
 export type FirstRunContinueActionCode =
   | "CONNECT_REMOTE"

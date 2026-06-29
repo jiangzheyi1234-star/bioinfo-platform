@@ -6,9 +6,9 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-import type { FirstRunFinalizationNextAction, FirstRunValidationCard } from "./workflow-first-run-api";
+import type { FirstRunFinalizationNextAction, FirstRunValidationCard } from "../_api/workflow-first-run-api";
 import { FirstRunTrustSummary } from "./workflow-first-run-trust-summary";
-import { workflowResultPackageDownloadHref } from "./workflows-page-api";
+import { workflowResultPackageDownloadHref } from "@/app/components/workflows-page-api";
 import type {
   WorkflowArtifact,
   WorkflowResultPackageExport,
@@ -16,7 +16,7 @@ import type {
   WorkflowRunDetail,
   WorkflowServer,
   WorkflowUpload,
-} from "./workflows-page-model";
+} from "@/app/components/workflows-page-model";
 
 type ResultDetail = NonNullable<WorkflowRunDetail["results"]>;
 export type FirstRunInputArtifacts = NonNullable<ResultDetail["inputArtifacts"]>;

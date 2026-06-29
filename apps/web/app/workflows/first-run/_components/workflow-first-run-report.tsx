@@ -7,16 +7,16 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import { artifactName } from "./workflow-first-run-validation";
-import { RuleAttemptBadge } from "./workflow-run-attempts-panel";
-import { WorkflowRuleFailureDiagnostics } from "./workflow-rule-failure-diagnostics";
-import { WorkflowRuleLogEvidence } from "./workflow-rule-log-evidence";
+import { RuleAttemptBadge } from "@/app/components/workflow-run-attempts-panel";
+import { WorkflowRuleFailureDiagnostics } from "@/app/components/workflow-rule-failure-diagnostics";
+import { WorkflowRuleLogEvidence } from "@/app/components/workflow-rule-log-evidence";
 import type {
   WorkflowArtifact,
   WorkflowArtifactPreview,
   WorkflowRun,
   WorkflowRunDetail,
   WorkflowRunRule,
-} from "./workflows-page-model";
+} from "@/app/components/workflows-page-model";
 
 type RulesSummary = NonNullable<NonNullable<WorkflowRunDetail["rules"]>["summary"]>;
 

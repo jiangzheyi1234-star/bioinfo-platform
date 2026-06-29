@@ -5,6 +5,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPONENTS = ROOT / "apps" / "web" / "app" / "components"
+FIRST_RUN_ROUTE = ROOT / "apps" / "web" / "app" / "workflows" / "first-run"
+FIRST_RUN_COMPONENTS = FIRST_RUN_ROUTE / "_components"
+FIRST_RUN_API = FIRST_RUN_ROUTE / "_api"
+FIRST_RUN_DOMAIN = FIRST_RUN_ROUTE / "_domain"
 
 
 def _tools_page_model_source() -> str:
@@ -32,14 +36,15 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     root_page = (ROOT / "apps" / "web" / "app" / "page.tsx").read_text(encoding="utf-8")
     tabs = (COMPONENTS / "workflow-workspace-tabs.tsx").read_text(encoding="utf-8")
     first_run_route = ROOT / "apps" / "web" / "app" / "workflows" / "first-run" / "page.tsx"
-    first_run_page = (COMPONENTS / "workflow-first-run-page.tsx").read_text(encoding="utf-8")
-    first_run_api = (COMPONENTS / "workflow-first-run-api.ts").read_text(encoding="utf-8")
-    first_run_completion = (COMPONENTS / "workflow-first-run-completion.tsx").read_text(encoding="utf-8")
-    first_run_conductor = (COMPONENTS / "workflow-first-run-conductor.tsx").read_text(encoding="utf-8")
-    first_run_report = (COMPONENTS / "workflow-first-run-report.tsx").read_text(encoding="utf-8")
-    first_run_sample_submit = (COMPONENTS / "workflow-first-run-sample-submit.tsx").read_text(encoding="utf-8")
-    first_run_trust_summary = (COMPONENTS / "workflow-first-run-trust-summary.tsx").read_text(encoding="utf-8")
-    first_run_validation = (COMPONENTS / "workflow-first-run-validation.tsx").read_text(encoding="utf-8")
+    first_run_page = (FIRST_RUN_COMPONENTS / "workflow-first-run-page.tsx").read_text(encoding="utf-8")
+    first_run_api = (FIRST_RUN_API / "workflow-first-run-api.ts").read_text(encoding="utf-8")
+    first_run_completion = (FIRST_RUN_COMPONENTS / "workflow-first-run-completion.tsx").read_text(encoding="utf-8")
+    first_run_conductor = (FIRST_RUN_COMPONENTS / "workflow-first-run-conductor.tsx").read_text(encoding="utf-8")
+    first_run_report = (FIRST_RUN_COMPONENTS / "workflow-first-run-report.tsx").read_text(encoding="utf-8")
+    first_run_sample_submit = (FIRST_RUN_COMPONENTS / "workflow-first-run-sample-submit.tsx").read_text(encoding="utf-8")
+    first_run_trust_summary = (FIRST_RUN_COMPONENTS / "workflow-first-run-trust-summary.tsx").read_text(encoding="utf-8")
+    first_run_validation = (FIRST_RUN_COMPONENTS / "workflow-first-run-validation.tsx").read_text(encoding="utf-8")
+    first_run_progress = (FIRST_RUN_DOMAIN / "first-run-progress.ts").read_text(encoding="utf-8")
     server_readiness_api = (COMPONENTS / "workflow-server-readiness-api.ts").read_text(encoding="utf-8")
     workflow_detail_page = (COMPONENTS / "workflow-detail-page.tsx").read_text(encoding="utf-8")
     models = (COMPONENTS / "workflows-page-model.ts").read_text(encoding="utf-8")
@@ -49,9 +54,18 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
 
     assert 'redirect("/workflows/first-run")' in root_page
     assert first_run_route.exists()
+    assert not any(COMPONENTS.glob("workflow-first-run-*"))
+    assert not (COMPONENTS / "workflow-sample-data-api.ts").exists()
+    assert "./_components/workflow-first-run-page" in first_run_route.read_text(encoding="utf-8")
     assert "WorkflowFirstRunPage" in first_run_route.read_text(encoding="utf-8")
     assert '{ href: "/workflows/first-run", label: "首跑" }' in tabs
-    assert 'const FIRST_RUN_PIPELINE_ID = "moving-pictures-16s-rulegraph-v1"' in first_run_page
+    assert 'export const FIRST_RUN_PIPELINE_ID = "moving-pictures-16s-rulegraph-v1"' in first_run_progress
+    assert "buildFirstRunSteps" in first_run_progress
+    assert "runnerChecks" in first_run_progress
+    assert "workflowRevisionIdFor" in first_run_progress
+    assert "resultPackageDisabledReason" in first_run_progress
+    assert "from \"../_domain/first-run-progress\"" in first_run_page
+    assert 'const FIRST_RUN_PIPELINE_ID = "moving-pictures-16s-rulegraph-v1"' not in first_run_page
     assert "useWorkflowsPageState(FIRST_RUN_PIPELINE_ID, { autoResumeLatestRun: true })" in first_run_page
     assert "useWorkflowsPageState(workflowId)" in workflow_detail_page
     assert "autoResumeLatestRun" not in workflow_detail_page
@@ -60,9 +74,9 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "const movingPicturesWorkflow = state.catalog.find((item) => item.id === FIRST_RUN_PIPELINE_ID) || null" in first_run_page
     assert "连接远端" in first_run_page
     assert "runner readiness" in first_run_page
-    assert "准备示例数据" in first_run_page
-    assert "提交运行" in first_run_page
-    assert "看懂报告" in first_run_page
+    assert "准备示例数据" in first_run_progress
+    assert "提交运行" in first_run_progress
+    assert "看懂报告" in first_run_progress
     assert "Moving Pictures 结果解读" in first_run_report
     assert "MOVING_PICTURES_EXPECTED_OUTPUTS" in first_run_report
     assert "summary.tsv" in first_run_report
@@ -81,9 +95,9 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "完成首跑" in first_run_source
     assert "仅导出结果包" in first_run_source
     assert "结果验证卡" in first_run_source
-    assert "下载/分享证据包" in first_run_page
-    assert "结果包、验证卡 JSON/Markdown、pilot handoff 四件套" in first_run_page
-    assert '"evidence-bundle"' in first_run_page
+    assert "下载/分享证据包" in first_run_progress
+    assert "结果包、验证卡 JSON/Markdown、pilot handoff 四件套" in first_run_progress
+    assert '"evidence-bundle"' in first_run_progress
     assert "FirstRunCompletionPanel" in first_run_page
     assert "first-run-completion-panel" in first_run_completion
     assert "first-run-pilot-handoff" in first_run_completion
@@ -170,11 +184,11 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "const packageReady = Boolean(readyPackage)" in first_run_page
     assert "const validationEligible = runCompleted && packageReady && Boolean(workflowRevisionId)" in first_run_page
     assert "const validationReady = validationEligible && firstRunValidationCardPassed(validationCard)" in first_run_page
-    assert "target: string" in first_run_page
+    assert "target: string" in first_run_progress
     assert "data-step-target={step.target}" in first_run_page
     assert "href={step.target}" in first_run_page
-    assert '"#result-package"' in first_run_page
-    assert '"#evidence-bundle"' in first_run_page
+    assert '"#result-package"' in first_run_progress
+    assert '"#evidence-bundle"' in first_run_progress
     assert "if (!ready) return null" in first_run_completion
     assert 'checks.every((item) => item.status === "passed")' in first_run_completion
     assert 'card?.reportInterpretation?.status === "ready"' in first_run_completion
@@ -1132,8 +1146,8 @@ def test_tools_page_surfaces_snakemake_wrapper_matches() -> None:
 def test_workflow_sample_data_upload_uses_long_running_timeout() -> None:
     api = (COMPONENTS / "workflows-page-api.ts").read_text(encoding="utf-8")
     model = (COMPONENTS / "workflows-page-model.ts").read_text(encoding="utf-8")
-    sample_api = (COMPONENTS / "workflow-sample-data-api.ts").read_text(encoding="utf-8")
-    sample_panel = (COMPONENTS / "workflow-first-run-sample-submit.tsx").read_text(encoding="utf-8")
+    sample_api = (FIRST_RUN_API / "workflow-sample-data-api.ts").read_text(encoding="utf-8")
+    sample_panel = (FIRST_RUN_COMPONENTS / "workflow-first-run-sample-submit.tsx").read_text(encoding="utf-8")
 
     assert "WORKFLOW_SAMPLE_DATA_TIMEOUT_MS" in api
     assert "timeoutMs: WORKFLOW_SAMPLE_DATA_TIMEOUT_MS" in api

@@ -2,7 +2,7 @@
 
 import { requestLocalApiJson } from "@/app/lib/local-api-client";
 
-import type { WorkflowResultPackageExport } from "./workflows-page-model";
+import type { WorkflowResultPackageExport } from "@/app/components/workflows-page-model";
 
 export type FirstRunValidationMetric = {
   metricId?: string;

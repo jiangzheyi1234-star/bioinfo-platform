@@ -8,8 +8,8 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import { formatBytes } from "./workflow-first-run-validation";
-import { fetchWorkflowSampleDataStatus, type WorkflowSampleDataStatus } from "./workflow-sample-data-api";
-import type { WorkflowCatalogItem, WorkflowUpload } from "./workflows-page-model";
+import { fetchWorkflowSampleDataStatus, type WorkflowSampleDataStatus } from "../_api/workflow-sample-data-api";
+import type { WorkflowCatalogItem, WorkflowUpload } from "@/app/components/workflows-page-model";
 
 export const FIRST_RUN_EXPECTED_SAMPLE_ROLES = ["metadata", "barcodes", "sequences"] as const;
 

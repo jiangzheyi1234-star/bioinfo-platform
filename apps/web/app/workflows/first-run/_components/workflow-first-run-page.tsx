@@ -16,8 +16,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-import { useSshShell } from "./ssh-shell";
-import { useWorkflowsPageState } from "./use-workflows-page-state";
+import { useSshShell } from "@/app/components/ssh-shell";
+import { useWorkflowsPageState } from "@/app/components/use-workflows-page-state";
 import { WorkflowFirstRunConductorPanel, useFirstRunConductor } from "./workflow-first-run-conductor";
 import { FirstRunCompletionPanel, firstRunValidationCardPassed } from "./workflow-first-run-completion";
 import {
@@ -29,10 +29,10 @@ import {
   type FirstRunFinalizationNextAction,
   type FirstRunPilotHandoff,
   type FirstRunValidationCard,
-} from "./workflow-first-run-api";
+} from "../_api/workflow-first-run-api";
 import { SampleAndSubmitPanel, sampleUploadsReady } from "./workflow-first-run-sample-submit";
-import { WorkflowPageHeader } from "./workflow-page-header";
-import { WorkflowWorkspaceTabs } from "./workflow-workspace-tabs";
+import { WorkflowPageHeader } from "@/app/components/workflow-page-header";
+import { WorkflowWorkspaceTabs } from "@/app/components/workflow-workspace-tabs";
 import { RunReportPanel } from "./workflow-first-run-report";
 import {
   ResultPackagePanel,
@@ -44,24 +44,28 @@ import {
   fetchWorkflowScenarioPacks,
   fetchWorkflowServerExecutionDiagnostics,
   fetchWorkflowResultPackageExports,
-} from "./workflows-page-api";
-import { ensureWorkflowServerRunner } from "./workflow-server-readiness-api";
+} from "@/app/components/workflows-page-api";
+import { ensureWorkflowServerRunner } from "@/app/components/workflow-server-readiness-api";
 import {
   workflowErrorMessage,
   type WorkflowExecutionDiagnostics,
   type WorkflowResultPackageExport,
-  type WorkflowRun,
-  type WorkflowRunDetail,
   type WorkflowScenarioPack,
-} from "./workflows-page-model";
-
-const FIRST_RUN_PIPELINE_ID = "moving-pictures-16s-rulegraph-v1";
-const FIRST_RUN_PIPELINE_NAME = "Moving Pictures 16S";
-
-type StepState = "done" | "current" | "waiting" | "blocked";
-type FirstRunState = ReturnType<typeof useWorkflowsPageState>;
-
-type FirstRunStep = { id: string; label: string; detail: string; state: StepState; target: string };
+  type WorkflowServer,
+} from "@/app/components/workflows-page-model";
+import {
+  FIRST_RUN_PIPELINE_ID,
+  FIRST_RUN_PIPELINE_NAME,
+  buildFirstRunSteps,
+  executionDiagnosticsDetail,
+  isTerminalRun,
+  mergePackageExport,
+  resultPackageDisabledReason,
+  runnerChecks,
+  workflowRevisionIdFor,
+  type FirstRunStep,
+  type FirstRunStepState,
+} from "../_domain/first-run-progress";
 
 export function WorkflowFirstRunPage() {
   const ssh = useSshShell();
@@ -580,7 +584,7 @@ function RunnerReadinessPanel({
   onConnect: () => void;
   onEnsure: () => void;
   onRefresh: () => void;
-  server: FirstRunState["server"];
+  server: WorkflowServer | null;
 }) {
   const checks = runnerChecks(server);
   const executionReadiness = diagnostics?.readiness;
@@ -669,118 +673,9 @@ function ReadinessCheck({ detail, label, ok }: { detail: string; label: string; 
   );
 }
 
-function StepStateIcon({ state }: { state: StepState }) {
+function StepStateIcon({ state }: { state: FirstRunStepState }) {
   if (state === "done") return <CheckCircle2 strokeWidth={1.5} className="h-4 w-4 text-emerald-500" />;
   if (state === "blocked") return <XCircle strokeWidth={1.5} className="h-4 w-4 text-red-500" />;
   if (state === "current") return <Loader2 strokeWidth={1.5} className="h-4 w-4 animate-spin text-blue-500" />;
   return <span className="h-4 w-4 rounded-full border border-slate-300" />;
-}
-
-function buildFirstRunSteps(input: {
-  packageReady: boolean;
-  reportReady: boolean;
-  runFailed: boolean;
-  runSubmitted: boolean;
-  sampleReady: boolean;
-  selectedWorkflowReady: boolean;
-  serverConnected: boolean;
-  serverReady: boolean;
-  validationReady: boolean;
-}): FirstRunStep[] {
-  const base = [
-    ["connect", "连接远端", input.serverConnected, "SSH 连接可用", "#runner-readiness"],
-    ["readiness", "runner readiness", input.serverReady, "运行时、Snakemake、profile 与 pipeline registry 就绪", "#runner-readiness"],
-    ["select", "选择示例", input.selectedWorkflowReady, FIRST_RUN_PIPELINE_ID, "#sample-data"],
-    ["sample", "准备示例数据", input.sampleReady, "metadata、barcodes、sequences 三个输入", "#sample-data"],
-    ["submit", "提交运行", input.runSubmitted, "固定 pipeline run 已进入队列", "#sample-data"],
-    ["report", "看懂报告", input.reportReady, "产物、预览、rule 状态可读", "#run-report"],
-    ["package", "导出结果包", input.packageReady, "完整结果包包含 manifest、产物和证据", "#result-package"],
-    ["evidence-bundle", "下载/分享证据包", input.validationReady, "结果包、验证卡 JSON/Markdown、pilot handoff 四件套", "#evidence-bundle"],
-  ] as const;
-  const firstIncomplete = base.findIndex(([, , done]) => !done);
-  return base.map(([id, label, done, detail, target], index) => ({
-    id,
-    label,
-    detail,
-    target,
-    state: done ? "done" : input.runFailed && index > 4 ? "blocked" : index === firstIncomplete ? "current" : "waiting",
-  }));
-}
-
-function runnerChecks(server: FirstRunState["server"]) {
-  const runtime = server?.health?.workflowRuntime;
-  const registry = server?.health?.pipelineRegistry;
-  return [
-    {
-      label: "Snakemake",
-      ok: Boolean(runtime?.snakemakeVersion),
-      detail: runtime?.snakemakeVersion || runtime?.message || "",
-    },
-    {
-      label: "Profile",
-      ok: runtime?.workflowProfileOk === true || Boolean(server?.runner?.bootstrapMetadata?.workflow_profile?.written),
-      detail: runtime?.workflowProfileMessage || runtime?.workflowProfilePath || "",
-    },
-    {
-      label: "Pipelines",
-      ok: Boolean(registry?.ok),
-      detail: typeof registry?.count === "number" ? `${registry.count} 个 pipeline` : registry?.message || "",
-    },
-    {
-      label: "Canary",
-      ok: Boolean(server?.runner?.bootstrapMetadata?.canary?.ok),
-      detail: server?.runner?.bootstrapMetadata?.canary?.status || server?.runner?.bootstrapMetadata?.canary?.message || "",
-    },
-  ];
-}
-
-function executionDiagnosticsDetail(diagnostics: WorkflowExecutionDiagnostics | null, loading: boolean) {
-  if (loading) return "checking execution readiness";
-  const readiness = diagnostics?.readiness;
-  if (!readiness) return "未检查 execution diagnostics";
-  if (readiness.ok) return readiness.status || "ok";
-  return readiness.reasonCode || readiness.blockingReasons?.[0]?.code || readiness.status || "not ready";
-}
-
-function resultPackageDisabledReason({
-  resultId,
-  run,
-  workflowRevisionId,
-}: {
-  resultId: string;
-  run: WorkflowRun | null;
-  workflowRevisionId: string;
-}) {
-  if (!resultId) return "等待运行产出 resultId";
-  if (!run || !isTerminalRun(run)) return "仅 completed/failed 运行可导出";
-  if (!workflowRevisionId) return "缺少 WorkflowRevision，当前 runner 需要升级到首跑 revision 绑定版本";
-  return "";
-}
-
-function workflowRevisionIdFor(
-  run: WorkflowRun | null | undefined,
-  detail: WorkflowRunDetail | null | undefined,
-  packageExport?: WorkflowResultPackageExport
-) {
-  return (
-    run?.workflowRevisionId ||
-    run?.runSpec?.workflowRevisionId ||
-    detail?.run.workflowRevisionId ||
-    detail?.run.runSpec?.workflowRevisionId ||
-    packageExport?.workflowRevisionId ||
-    ""
-  );
-}
-
-function isTerminalRun(run: WorkflowRun | null | undefined) {
-  return run?.status === "completed" || run?.status === "failed" || run?.status === "error";
-}
-
-function mergePackageExport(
-  item: WorkflowResultPackageExport,
-  current: WorkflowResultPackageExport[]
-): WorkflowResultPackageExport[] {
-  const packageExportId = item.packageExportId || "";
-  if (!packageExportId) return [item, ...current];
-  return [item, ...current.filter((candidate) => candidate.packageExportId !== packageExportId)];
 }
