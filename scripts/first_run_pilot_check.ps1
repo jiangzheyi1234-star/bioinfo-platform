@@ -2,8 +2,13 @@ param(
     [string]$ApiBase = $(if ($env:H2OMETA_API_BASE) { $env:H2OMETA_API_BASE } else { "http://127.0.0.1:8765" }),
     [string]$WebBase = $(if ($env:H2OMETA_WEB_BASE) { $env:H2OMETA_WEB_BASE } else { "http://127.0.0.1:3765" }),
     [int]$TimeoutSeconds = 20,
+    [int]$SampleDataTimeoutSeconds = 300,
+    [int]$FinalizationTimeoutSeconds = 120,
+    [int]$RunTimeoutSeconds = 1800,
+    [int]$PollSeconds = 5,
     [string]$RunId = "",
     [string]$ServerId = "",
+    [switch]$RunFirstSuccessfulRun,
     [switch]$RequireFinalizationReady
 )
 
@@ -14,6 +19,7 @@ $RequiredEvidence = @("resultPackage", "validationCard", "workflowRevision", "in
 $ClosedLoopProofModes = @{
     SmokeOnly = "catalog-page-smoke"
     FinalizedRun = "finalized-run"
+    SubmittedRun = "submitted-run"
 }
 
 function Write-Step {
@@ -47,13 +53,112 @@ function Get-Page {
 function Post-Json {
     param(
         [string]$Url,
-        [hashtable]$Body
+        [hashtable]$Body,
+        [int]$RequestTimeoutSeconds = $TimeoutSeconds
     )
     try {
-        return Invoke-RestMethod -Method Post -Uri $Url -ContentType "application/json" -Body ($Body | ConvertTo-Json -Depth 8) -TimeoutSec $TimeoutSeconds
+        return Invoke-RestMethod -Method Post -Uri $Url -ContentType "application/json" -Body ($Body | ConvertTo-Json -Depth 8) -TimeoutSec $RequestTimeoutSeconds
     } catch {
         Fail-Pilot "POST failed: $Url :: $($_.Exception.Message)"
     }
+}
+
+function Get-ServerId {
+    param([string]$ExplicitServerId)
+    $servers = Get-Json "$ApiBase/api/v1/servers?refresh=true"
+    Assert-ArrayData $servers "servers"
+    if ($ExplicitServerId) {
+        $selected = @($servers.data.items | Where-Object { $_.serverId -eq $ExplicitServerId }) | Select-Object -First 1
+        if ($null -eq $selected) {
+            Fail-Pilot "server $ExplicitServerId was not found"
+        }
+    } else {
+        $selected = @($servers.data.items | Where-Object { $_.connected -eq $true -and $_.ready -eq $true -and $_.serverId }) | Select-Object -First 1
+    }
+    if ($null -eq $selected -or -not $selected.serverId) {
+        Fail-Pilot "a connected and ready server is required for first-run execution"
+    }
+    if ($selected.connected -ne $true -or $selected.ready -ne $true) {
+        Fail-Pilot "server $($selected.serverId) must be connected and ready for first-run execution"
+    }
+    return $selected.serverId
+}
+
+function Assert-Sample-Uploads {
+    param([object[]]$Uploads)
+    $requiredRoles = @("metadata", "barcodes", "sequences")
+    foreach ($role in $requiredRoles) {
+        $upload = @($Uploads | Where-Object { $_.role -eq $role }) | Select-Object -First 1
+        if ($null -eq $upload) {
+            Fail-Pilot "sample upload missing role $role"
+        }
+        if (-not $upload.uploadId -or -not $upload.filename) {
+            Fail-Pilot "sample upload $role must include uploadId and filename"
+        }
+        if ($upload.integrityStatus -ne "passed" -or -not $upload.sha256 -or $upload.sha256 -ne $upload.expectedSha256) {
+            Fail-Pilot "sample upload $role must have passed checksum evidence"
+        }
+    }
+}
+
+function New-FirstRunRunSpec {
+    param([object[]]$Uploads)
+    return @{
+        projectId = "first-run-pilot"
+        pipelineId = $FirstRunPipelineId
+        inputs = @(
+            $Uploads | ForEach-Object {
+                @{
+                    uploadId = $_.uploadId
+                    filename = $_.filename
+                    role = $_.role
+                }
+            }
+        )
+        params = @{}
+    }
+}
+
+function Submit-FirstRun {
+    param([string]$ResolvedServerId)
+    Write-Step "preparing official Moving Pictures sample data"
+    $sampleResponse = Post-Json "$ApiBase/api/v1/workflow-sample-data/$([uri]::EscapeDataString($FirstRunPipelineId))/uploads" @{
+        serverId = $ResolvedServerId
+    } $SampleDataTimeoutSeconds
+    $uploads = @($sampleResponse.data.items)
+    Assert-Sample-Uploads $uploads
+    Write-Step "submitting first-run workflow"
+    $requestId = "req_first_run_pilot_$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())"
+    $submitResponse = Post-Json "$ApiBase/api/v1/runs" @{
+        serverId = $ResolvedServerId
+        requestId = $requestId
+        idempotencyKey = $requestId
+        runSpec = (New-FirstRunRunSpec $uploads)
+    }
+    $submitted = $submitResponse.data
+    if (-not $submitted.runId) {
+        Fail-Pilot "submitted first-run response must include runId"
+    }
+    return $submitted.runId
+}
+
+function Wait-Run-Terminal {
+    param([string]$TargetRunId)
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds($RunTimeoutSeconds)
+    $lastStatus = "unknown"
+    while ([DateTimeOffset]::UtcNow -lt $deadline) {
+        $detail = (Get-Json "$ApiBase/api/v1/runs/$([uri]::EscapeDataString($TargetRunId))/detail").data
+        $run = $detail.run
+        $lastStatus = [string]$run.status
+        if ($lastStatus -in @("completed", "failed", "error", "canceled", "cancelled")) {
+            if ($lastStatus -ne "completed") {
+                Fail-Pilot "first-run ended as $lastStatus"
+            }
+            return $run
+        }
+        Start-Sleep -Seconds $PollSeconds
+    }
+    Fail-Pilot "first-run did not complete within $RunTimeoutSeconds seconds; last status $lastStatus"
 }
 
 function Assert-ArrayData {
@@ -113,8 +218,19 @@ $closedLoopProven = $false
 $closedLoopProofMode = $ClosedLoopProofModes.SmokeOnly
 $finalizationStatus = "not-run"
 $finalizationAction = $null
+if ($RunFirstSuccessfulRun -and $RunId) {
+    Fail-Pilot "-RunFirstSuccessfulRun cannot be combined with -RunId"
+}
 if ($RequireFinalizationReady -and -not $RunId) {
-    Fail-Pilot "-RequireFinalizationReady requires -RunId from a completed Moving Pictures first run"
+    if (-not $RunFirstSuccessfulRun) {
+        Fail-Pilot "-RequireFinalizationReady requires -RunId or -RunFirstSuccessfulRun"
+    }
+}
+if ($RunFirstSuccessfulRun) {
+    $ServerId = Get-ServerId $ServerId
+    $RunId = Submit-FirstRun $ServerId
+    $null = Wait-Run-Terminal $RunId
+    $closedLoopProofMode = $ClosedLoopProofModes.SubmittedRun
 }
 if ($RunId) {
     Write-Step "checking first-run finalization for $RunId"
@@ -122,7 +238,7 @@ if ($RunId) {
     if ($ServerId) {
         $body["serverId"] = $ServerId
     }
-    $finalization = (Post-Json "$ApiBase/api/v1/first-run/runs/$([uri]::EscapeDataString($RunId))/finalize" $body).data
+    $finalization = (Post-Json "$ApiBase/api/v1/first-run/runs/$([uri]::EscapeDataString($RunId))/finalize" $body $FinalizationTimeoutSeconds).data
     if ($finalization.schemaVersion -ne "h2ometa.first-run.finalization.v1") {
         Fail-Pilot "first-run finalization schemaVersion is invalid"
     }
@@ -138,10 +254,12 @@ if ($RunId) {
             Fail-Pilot "ready finalization resultPackage must include sha256 and manifestSha256"
         }
         $closedLoopProven = $true
-        $closedLoopProofMode = $ClosedLoopProofModes.FinalizedRun
+        if (-not $RunFirstSuccessfulRun) {
+            $closedLoopProofMode = $ClosedLoopProofModes.FinalizedRun
+        }
     } elseif ($finalization.status -eq "blocked") {
         $finalizationAction = $finalization.nextAction
-        if ($RequireFinalizationReady) {
+        if ($RequireFinalizationReady -or $RunFirstSuccessfulRun) {
             Fail-Pilot "first-run finalization is blocked: $($finalization.nextAction.code)"
         }
         if ($null -eq $finalization.nextAction -or -not $finalization.nextAction.code -or -not $finalization.nextAction.target) {
@@ -161,6 +279,7 @@ $summary = [ordered]@{
     scenarioId = $FirstRunScenarioId
     scenarioStatus = $pack.status
     firstRunPath = $pack.firstRunPath
+    serverId = $ServerId
     runId = $RunId
     closedLoopProven = $closedLoopProven
     closedLoopProofMode = $closedLoopProofMode

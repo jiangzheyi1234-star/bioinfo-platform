@@ -71,7 +71,15 @@ For a single-user lab pilot, run the focused first-run proof after the local web
 scripts\first_run_pilot_check.ps1
 ```
 
-This verifies that the Moving Pictures 16S first-run pipeline is runnable, the scenario pack points at `/workflows/first-run`, the required result evidence is advertised, and the first-run page bundle is served. Without `-RunId`, the JSON summary must report `closedLoopProven: false` with `closedLoopProofMode: "catalog-page-smoke"`; that is a smoke proof, not a completed first-run proof. After an operator completes a real Moving Pictures run, pass `-RunId <run_id>` to call the first-run finalization API and require either a ready validation card/result package or a typed blocked `nextAction`. Add `-RequireFinalizationReady` only with `-RunId` when the pilot handoff must fail unless the result package and validation card are complete.
+This verifies that the Moving Pictures 16S first-run pipeline is runnable, the scenario pack points at `/workflows/first-run`, the required result evidence is advertised, and the first-run page bundle is served. Without `-RunId` or `-RunFirstSuccessfulRun`, the JSON summary must report `closedLoopProven: false` with `closedLoopProofMode: "catalog-page-smoke"`; that is a smoke proof, not a completed first-run proof. After an operator completes a real Moving Pictures run, pass `-RunId <run_id>` to call the first-run finalization API and require either a ready validation card/result package or a typed blocked `nextAction`. Add `-RequireFinalizationReady` with `-RunId` or `-RunFirstSuccessfulRun` when the pilot handoff must fail unless the result package and validation card are complete.
+
+To let the pilot proof drive the whole Moving Pictures path through the same public API used by the UI, run:
+
+```powershell
+scripts\first_run_pilot_check.ps1 -RunFirstSuccessfulRun -RequireFinalizationReady
+```
+
+This selects a ready server, prepares the official Moving Pictures sample uploads with checksum verification, submits `/api/v1/runs`, polls `/api/v1/runs/<run_id>/detail` until completion, then finalizes the first run. It must report `closedLoopProven: true` and `closedLoopProofMode: "submitted-run"`; otherwise the pilot has not proven the full first successful run.
 
 ## Optional Gates
 
