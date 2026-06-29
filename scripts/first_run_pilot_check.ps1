@@ -21,6 +21,14 @@ $ClosedLoopProofModes = @{
     FinalizedRun = "finalized-run"
     SubmittedRun = "submitted-run"
 }
+$BlockedNextActionTargets = @{
+    FIRST_RUN_NOT_SUCCESSFUL = "/workflows/first-run#run-report"
+    FIRST_RUN_WORKFLOW_REVISION_REQUIRED = "/workflows/first-run#runner-readiness"
+    FIRST_RUN_REPORT_PREVIEW_REQUIRED = "/workflows/first-run#run-report"
+    FIRST_RUN_SAMPLE_INPUTS_REQUIRED = "/workflows/first-run#sample-data"
+    FIRST_RUN_SAMPLE_INPUTS_INTEGRITY_MISMATCH = "/workflows/first-run#sample-data"
+}
+$FirstRunRecoveryAnchors = @("runner-readiness", "sample-data", "run-report")
 
 function Write-Step {
     param([string]$Message)
@@ -285,6 +293,32 @@ function Assert-FirstRunPilotHandoff {
     }
 }
 
+function Assert-FirstRunBlockedNextAction {
+    param([object]$Action)
+    if ($null -eq $Action -or -not $Action.code -or -not $Action.target) {
+        Fail-Pilot "blocked finalization must include nextAction code and target"
+    }
+    if ($BlockedNextActionTargets.ContainsKey([string]$Action.code)) {
+        $expectedTarget = $BlockedNextActionTargets[[string]$Action.code]
+        if ($Action.target -ne $expectedTarget) {
+            Fail-Pilot "blocked finalization nextAction target must match $($Action.code)"
+        }
+    }
+    if ($Action.target.StartsWith("/workflows/first-run#")) {
+        $anchor = $Action.target.Split("#", 2)[1]
+        if ($FirstRunRecoveryAnchors -notcontains $anchor) {
+            Fail-Pilot "blocked finalization nextAction target must use a first-run recovery anchor"
+        }
+    } elseif ($Action.target -ne "/workflows/first-run") {
+        Fail-Pilot "blocked finalization nextAction target must stay inside first-run"
+    }
+    return [ordered]@{
+        code = $Action.code
+        target = $Action.target
+        label = $Action.label
+    }
+}
+
 Write-Step "checking Local API at $ApiBase"
 $health = Get-Json "$ApiBase/health"
 if ($health.status -ne "ok") {
@@ -330,6 +364,7 @@ $closedLoopProofMode = $ClosedLoopProofModes.SmokeOnly
 $finalizationStatus = "not-run"
 $finalizationAction = $null
 $handoffProof = $null
+$blockedActionProof = $null
 if ($RunFirstSuccessfulRun -and $RunId) {
     Fail-Pilot "-RunFirstSuccessfulRun cannot be combined with -RunId"
 }
@@ -372,9 +407,7 @@ if ($RunId) {
         if ($RequireFinalizationReady -or $RunFirstSuccessfulRun) {
             Fail-Pilot "first-run finalization is blocked: $($finalization.nextAction.code)"
         }
-        if ($null -eq $finalization.nextAction -or -not $finalization.nextAction.code -or -not $finalization.nextAction.target) {
-            Fail-Pilot "blocked finalization must include nextAction code and target"
-        }
+        $blockedActionProof = Assert-FirstRunBlockedNextAction $finalization.nextAction
     } else {
         Fail-Pilot "first-run finalization status must be ready or blocked"
     }
@@ -396,6 +429,7 @@ $summary = [ordered]@{
     finalizationStatus = $finalizationStatus
     finalizationNextAction = $finalizationAction
     handoffProof = $handoffProof
+    blockedActionProof = $blockedActionProof
 }
 
 Write-Step "passed"
