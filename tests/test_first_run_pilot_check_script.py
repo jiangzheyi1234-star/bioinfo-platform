@@ -43,11 +43,24 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "execution diagnostics readiness must be ok" in source
     assert "blockingReasonCount = $blockingReasons.Count" in source
     assert "$executionReadinessProof = Assert-ExecutionReadiness $ServerId" in source
+    assert "function Get-SampleUploadRoleAudit" in source
     assert "function New-SampleUploadProof" in source
     assert "sampleUploadProof = New-SampleUploadProof $uploads" in source
+    assert "h2ometa.first-run.sample-upload-proof.v1" in source
     assert "metadata\", \"barcodes\", \"sequences" in source
-    assert "sha256 = $_.sha256" in source
-    assert "expectedSha256 = $_.expectedSha256" in source
+    assert "sample uploads include unexpected roles" in source
+    assert "sample uploads include duplicate roles" in source
+    assert "sha256 = $upload.sha256" in source
+    assert "expectedSha256 = $upload.expectedSha256" in source
+    assert "unexpectedRoles = $unexpectedRoles" in source
+    assert "duplicateRoles = $duplicateRoles" in source
+    assert (
+        "passed = ($missingRoles.Count -eq 0 -and $unexpectedRoles.Count -eq 0 "
+        "-and $duplicateRoles.Count -eq 0 -and $passedItems.Count -eq $requiredRoles.Count)"
+    ) in source
+    assert "passedCount = $passedItems.Count" in source
+    assert "expectedRoles = $requiredRoles" in source
+    assert "missingRoles = $missingRoles" in source
     assert "$ApiBase/api/v1/workflow-sample-data/$([uri]::EscapeDataString($FirstRunPipelineId))/uploads" in source
     assert "$ApiBase/api/v1/runs" in source
     assert "projectId = \"first-run-pilot\"" in source
@@ -114,4 +127,7 @@ def test_first_run_pilot_docs_keep_mutating_proof_explicit() -> None:
     assert 'closedLoopProven: true' in source
     assert 'closedLoopProofMode: "submitted-run"' in source
     assert "executionReadinessProof.ok: true" in source
+    assert 'sampleUploadProof.schemaVersion: "h2ometa.first-run.sample-upload-proof.v1"' in source
     assert "sampleUploadProof.passed: true" in source
+    assert "sampleUploadProof.unexpectedRoles: []" in source
+    assert "sampleUploadProof.duplicateRoles: []" in source

@@ -92,9 +92,33 @@ function Get-ServerId {
     return $selected.serverId
 }
 
+function Get-SampleUploadRoleAudit {
+    param([object[]]$Uploads, [string[]]$RequiredRoles)
+    $roles = @($Uploads | ForEach-Object { [string]$_.role })
+    $unexpectedRoles = @($roles | Where-Object { $_ -and $_ -notin $RequiredRoles } | Select-Object -Unique)
+    $duplicateRoles = @(
+        $roles |
+            Where-Object { $_ } |
+            Group-Object |
+            Where-Object { $_.Count -gt 1 } |
+            ForEach-Object { $_.Name }
+    )
+    return [ordered]@{
+        unexpectedRoles = $unexpectedRoles
+        duplicateRoles = $duplicateRoles
+    }
+}
+
 function Assert-Sample-Uploads {
     param([object[]]$Uploads)
     $requiredRoles = @("metadata", "barcodes", "sequences")
+    $roleAudit = Get-SampleUploadRoleAudit $Uploads $requiredRoles
+    if (@($roleAudit.unexpectedRoles).Count -gt 0) {
+        Fail-Pilot "sample uploads include unexpected roles: $($roleAudit.unexpectedRoles -join ', ')"
+    }
+    if (@($roleAudit.duplicateRoles).Count -gt 0) {
+        Fail-Pilot "sample uploads include duplicate roles: $($roleAudit.duplicateRoles -join ', ')"
+    }
     foreach ($role in $requiredRoles) {
         $upload = @($Uploads | Where-Object { $_.role -eq $role }) | Select-Object -First 1
         if ($null -eq $upload) {
@@ -129,24 +153,37 @@ function New-FirstRunRunSpec {
 
 function New-SampleUploadProof {
     param([object[]]$Uploads)
+    $requiredRoles = @("metadata", "barcodes", "sequences")
+    $roleAudit = Get-SampleUploadRoleAudit $Uploads $requiredRoles
     $items = @(
-        $Uploads | ForEach-Object {
+        $requiredRoles | ForEach-Object {
+            $role = $_
+            $upload = @($Uploads | Where-Object { $_.role -eq $role }) | Select-Object -First 1
             [ordered]@{
-                role = $_.role
-                filename = $_.filename
-                uploadId = $_.uploadId
-                sha256 = $_.sha256
-                expectedSha256 = $_.expectedSha256
-                sizeBytes = $_.sizeBytes
-                expectedSizeBytes = $_.expectedSizeBytes
-                integrityStatus = $_.integrityStatus
+                role = $role
+                filename = $upload.filename
+                uploadId = $upload.uploadId
+                sha256 = $upload.sha256
+                expectedSha256 = $upload.expectedSha256
+                sizeBytes = $upload.sizeBytes
+                expectedSizeBytes = $upload.expectedSizeBytes
+                integrityStatus = $upload.integrityStatus
             }
         }
     )
+    $passedItems = @($items | Where-Object { $_.integrityStatus -eq "passed" -and $_.sha256 -and $_.sha256 -eq $_.expectedSha256 })
+    $missingRoles = @($items | Where-Object { -not $_.uploadId } | ForEach-Object { $_.role })
+    $unexpectedRoles = @($roleAudit.unexpectedRoles)
+    $duplicateRoles = @($roleAudit.duplicateRoles)
     return [ordered]@{
-        passed = ($items.Count -eq 3 -and (@($items | Where-Object { $_.integrityStatus -eq "passed" -and $_.sha256 -and $_.sha256 -eq $_.expectedSha256 }).Count -eq 3))
+        schemaVersion = "h2ometa.first-run.sample-upload-proof.v1"
+        passed = ($missingRoles.Count -eq 0 -and $unexpectedRoles.Count -eq 0 -and $duplicateRoles.Count -eq 0 -and $passedItems.Count -eq $requiredRoles.Count)
         count = $items.Count
-        roles = @($items | ForEach-Object { $_.role })
+        passedCount = $passedItems.Count
+        expectedRoles = $requiredRoles
+        missingRoles = $missingRoles
+        unexpectedRoles = $unexpectedRoles
+        duplicateRoles = $duplicateRoles
         items = $items
     }
 }

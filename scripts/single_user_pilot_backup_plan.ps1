@@ -201,7 +201,10 @@ $plan = [ordered]@{
             "closedLoopProven=true",
             "closedLoopProofMode=submitted-run",
             "executionReadinessProof.ok=true",
+            "sampleUploadProof.schemaVersion=h2ometa.first-run.sample-upload-proof.v1",
             "sampleUploadProof.passed=true",
+            "sampleUploadProof.unexpectedRoles=[]",
+            "sampleUploadProof.duplicateRoles=[]",
             "validationCard ready",
             "resultPackage SHA256 present",
             "sampleUploadProof covers metadata, barcodes, and sequences"

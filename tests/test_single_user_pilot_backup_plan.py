@@ -43,7 +43,10 @@ def test_single_user_pilot_backup_plan_script_defines_read_only_handoff() -> Non
     assert "closedLoopProven=true" in source
     assert "closedLoopProofMode=submitted-run" in source
     assert "executionReadinessProof.ok=true" in source
+    assert "sampleUploadProof.schemaVersion=h2ometa.first-run.sample-upload-proof.v1" in source
     assert "sampleUploadProof.passed=true" in source
+    assert "sampleUploadProof.unexpectedRoles=[]" in source
+    assert "sampleUploadProof.duplicateRoles=[]" in source
     assert "sampleUploadProof covers metadata, barcodes, and sequences" in source
     assert "SINGLE_USER_PILOT_BACKUP_PLAN_FAILED" in source
     assert "Compress-Archive" not in source
@@ -102,7 +105,10 @@ def test_single_user_pilot_backup_plan_outputs_machine_readable_json(tmp_path: P
         "scripts\\first_run_pilot_check.ps1 -RunFirstSuccessfulRun -RequireFinalizationReady"
     )
     assert "executionReadinessProof.ok=true" in summary["restoreDrill"]["mustReport"]
+    assert "sampleUploadProof.schemaVersion=h2ometa.first-run.sample-upload-proof.v1" in summary["restoreDrill"]["mustReport"]
     assert "sampleUploadProof.passed=true" in summary["restoreDrill"]["mustReport"]
+    assert "sampleUploadProof.unexpectedRoles=[]" in summary["restoreDrill"]["mustReport"]
+    assert "sampleUploadProof.duplicateRoles=[]" in summary["restoreDrill"]["mustReport"]
     assert "sampleUploadProof covers metadata, barcodes, and sequences" in summary["restoreDrill"]["mustReport"]
 
 
@@ -140,4 +146,7 @@ def test_single_user_pilot_backup_docs_connect_restore_to_first_run_proof() -> N
     assert 'closedLoopProven: true' in source
     assert 'closedLoopProofMode: "submitted-run"' in source
     assert "executionReadinessProof.ok: true" in source
+    assert 'sampleUploadProof.schemaVersion: "h2ometa.first-run.sample-upload-proof.v1"' in source
     assert "sampleUploadProof.passed: true" in source
+    assert "sampleUploadProof.unexpectedRoles: []" in source
+    assert "sampleUploadProof.duplicateRoles: []" in source
