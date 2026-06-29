@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 
 import { useSshShell } from "./ssh-shell";
 import { useWorkflowsPageState } from "./use-workflows-page-state";
+import { FirstRunCompletionPanel } from "./workflow-first-run-completion";
 import {
   downloadFirstRunValidationCard,
   fetchFirstRunValidationCard,
@@ -82,7 +83,9 @@ export function WorkflowFirstRunPage() {
   const artifacts = result?.artifacts || [];
   const inputArtifacts = result?.inputArtifacts || [];
   const previews = state.runDetail?.previews || [];
-  const workflowRevisionId = workflowRevisionIdFor(run, state.runDetail, packageExports[0]);
+  const readyPackage = packageExports.find(firstRunResultPackageReady);
+  const latestPackage = readyPackage || packageExports[0];
+  const workflowRevisionId = workflowRevisionIdFor(run, state.runDetail, latestPackage);
   const selectedWorkflowReady = state.selectedWorkflow?.id === FIRST_RUN_PIPELINE_ID && state.selectedWorkflow.runnable;
   const serverConnected = Boolean(state.server?.connected);
   const executionReady = executionDiagnostics?.readiness?.ok === true;
@@ -93,9 +96,8 @@ export function WorkflowFirstRunPage() {
   const runCompleted = run?.status === "completed";
   const runFailed = run?.status === "failed" || run?.status === "error";
   const reportReady = runCompleted && artifacts.length > 0;
-  const packageReady = packageExports.some(firstRunResultPackageReady);
+  const packageReady = Boolean(readyPackage);
   const validationReady = runCompleted && packageReady && Boolean(workflowRevisionId);
-  const latestPackage = packageExports[0];
 
   const steps = useMemo(
     () =>
@@ -279,6 +281,18 @@ export function WorkflowFirstRunPage() {
             <AlertDescription>{state.error}</AlertDescription>
           </Alert>
         ) : null}
+
+        <FirstRunCompletionPanel
+          card={validationCard}
+          downloadingValidationCard={validationCardLoading}
+          latestPackage={latestPackage}
+          loadingValidationCard={validationCardFetchLoading}
+          ready={validationReady}
+          resultId={resultId}
+          run={run}
+          workflowRevisionId={workflowRevisionId}
+          onDownloadValidationCard={() => void downloadValidationCard()}
+        />
 
         <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
           <div className="space-y-5">

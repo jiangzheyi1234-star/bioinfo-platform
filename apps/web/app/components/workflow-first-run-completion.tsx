@@ -1,0 +1,137 @@
+"use client";
+
+import { CheckCircle2, ClipboardCheck, FileArchive, Loader2, ShieldCheck } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+
+import type { FirstRunValidationCard } from "./workflow-first-run-api";
+import { firstRunResultPackageReady, formatBytes } from "./workflow-first-run-validation";
+import { workflowResultPackageDownloadHref } from "./workflows-page-api";
+import type { WorkflowResultPackageExport, WorkflowRun } from "./workflows-page-model";
+
+export function FirstRunCompletionPanel({
+  card,
+  downloadingValidationCard,
+  latestPackage,
+  loadingValidationCard,
+  onDownloadValidationCard,
+  ready,
+  resultId,
+  run,
+  workflowRevisionId,
+}: {
+  card: FirstRunValidationCard | null;
+  downloadingValidationCard: boolean;
+  latestPackage?: WorkflowResultPackageExport;
+  loadingValidationCard: boolean;
+  onDownloadValidationCard: () => void;
+  ready: boolean;
+  resultId: string;
+  run: WorkflowRun | null;
+  workflowRevisionId: string;
+}) {
+  if (!ready) return null;
+
+  const downloadHref =
+    latestPackage && firstRunResultPackageReady(latestPackage) ? workflowResultPackageDownloadHref(latestPackage) : "";
+  const checks = card?.checks || [];
+  const passedChecks = checks.filter((item) => item.status === "passed").length;
+  const keyResults = card?.keyResults || [];
+
+  return (
+    <section
+      className="rounded-lg border border-emerald-200 bg-emerald-50 p-5"
+      data-testid="first-run-completion-panel"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-sm font-semibold text-emerald-950">
+            <CheckCircle2 strokeWidth={1.5} className="h-4 w-4 text-emerald-600" />
+            首跑已完成
+          </div>
+          <p className="mt-1 max-w-3xl text-xs leading-5 text-emerald-800">
+            Moving Pictures 16S 已生成可下载结果包和验证卡，包含输入、软件环境、WorkflowRevision、关键结果与 checksum。
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          {downloadHref ? (
+            <Button asChild className="h-9 bg-slate-950 px-3 text-xs text-white hover:bg-slate-800">
+              <a href={downloadHref} download={latestPackage?.download?.filename || undefined}>
+                <FileArchive strokeWidth={1.5} className="mr-2 h-3.5 w-3.5" />
+                下载结果包
+              </a>
+            </Button>
+          ) : null}
+          <Button
+            variant="outline"
+            className="h-9 border-emerald-200 bg-white px-3 text-xs text-emerald-800 hover:bg-emerald-50"
+            disabled={downloadingValidationCard}
+            onClick={onDownloadValidationCard}
+            data-testid="first-run-completion-download-card"
+          >
+            {downloadingValidationCard ? (
+              <Loader2 strokeWidth={1.5} className="mr-2 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <ClipboardCheck strokeWidth={1.5} className="mr-2 h-3.5 w-3.5" />
+            )}
+            下载验证卡 JSON
+          </Button>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-x-5 gap-y-2 border-t border-emerald-200 pt-4 text-xs md:grid-cols-2 xl:grid-cols-4">
+        <SummaryItem label="run" value={run?.runId} mono />
+        <SummaryItem label="result" value={resultId} mono />
+        <SummaryItem label="revision" value={shortHash(workflowRevisionId)} mono />
+        <SummaryItem label="package" value={latestPackage?.packageExportId} mono />
+        <SummaryItem label="size" value={formatBytes(latestPackage?.sizeBytes)} />
+        <SummaryItem label="package sha" value={shortHash(latestPackage?.sha256)} mono />
+        <SummaryItem label="manifest" value={shortHash(latestPackage?.manifestSha256)} mono />
+        <SummaryItem label="checks" value={checksLabel({ loadingValidationCard, passedChecks, totalChecks: checks.length })} />
+      </div>
+
+      {keyResults.length > 0 ? (
+        <div className="mt-4 flex flex-wrap gap-2" data-testid="first-run-completion-key-results">
+          {keyResults.slice(0, 5).map((item) => (
+            <span
+              key={item.artifactId || item.displayName || item.artifactKey}
+              className="inline-flex max-w-full items-center gap-1 rounded border border-emerald-200 bg-white px-2 py-1 text-[11px] text-slate-600"
+            >
+              <ShieldCheck strokeWidth={1.5} className="h-3 w-3 shrink-0 text-emerald-500" />
+              <span className="truncate">{item.displayName || item.artifactKey || item.artifactId}</span>
+              {item.sha256 ? <span className="font-mono text-slate-400">{shortHash(item.sha256)}</span> : null}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function SummaryItem({ label, mono = false, value }: { label: string; mono?: boolean; value?: string }) {
+  if (!value) return null;
+  return (
+    <div className="grid min-w-0 grid-cols-[78px_minmax(0,1fr)] gap-2">
+      <span className="text-emerald-700">{label}</span>
+      <span className={cn("truncate text-emerald-950", mono ? "font-mono text-[11px]" : "")}>{value}</span>
+    </div>
+  );
+}
+
+function checksLabel({
+  loadingValidationCard,
+  passedChecks,
+  totalChecks,
+}: {
+  loadingValidationCard: boolean;
+  passedChecks: number;
+  totalChecks: number;
+}) {
+  if (totalChecks > 0) return `${passedChecks}/${totalChecks} passed checks`;
+  return loadingValidationCard ? "生成中" : "等待服务端验证卡";
+}
+
+function shortHash(value?: string) {
+  return value ? value.slice(0, 12) : "";
+}

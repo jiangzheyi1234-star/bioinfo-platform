@@ -34,9 +34,10 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     first_run_route = ROOT / "apps" / "web" / "app" / "workflows" / "first-run" / "page.tsx"
     first_run_page = (COMPONENTS / "workflow-first-run-page.tsx").read_text(encoding="utf-8")
     first_run_api = (COMPONENTS / "workflow-first-run-api.ts").read_text(encoding="utf-8")
+    first_run_completion = (COMPONENTS / "workflow-first-run-completion.tsx").read_text(encoding="utf-8")
     first_run_report = (COMPONENTS / "workflow-first-run-report.tsx").read_text(encoding="utf-8")
     first_run_validation = (COMPONENTS / "workflow-first-run-validation.tsx").read_text(encoding="utf-8")
-    first_run_source = f"{first_run_page}\n{first_run_api}\n{first_run_report}\n{first_run_validation}"
+    first_run_source = f"{first_run_page}\n{first_run_api}\n{first_run_completion}\n{first_run_report}\n{first_run_validation}"
     api = (COMPONENTS / "workflows-page-api.ts").read_text(encoding="utf-8")
     hook = (COMPONENTS / "use-workflows-page-state.ts").read_text(encoding="utf-8")
 
@@ -61,6 +62,18 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "movingPicturesInsight" in first_run_report
     assert "导出完整结果包" in first_run_source
     assert "结果验证卡" in first_run_source
+    assert "FirstRunCompletionPanel" in first_run_page
+    assert "first-run-completion-panel" in first_run_completion
+    assert "首跑已完成" in first_run_completion
+    assert "下载结果包" in first_run_completion
+    assert "下载验证卡 JSON" in first_run_completion
+    assert "firstRunResultPackageReady(latestPackage)" in first_run_completion
+    assert "workflowResultPackageDownloadHref" in first_run_completion
+    assert "passed checks" in first_run_completion
+    assert "const readyPackage = packageExports.find(firstRunResultPackageReady)" in first_run_page
+    assert "const latestPackage = readyPackage || packageExports[0]" in first_run_page
+    assert "const packageReady = Boolean(readyPackage)" in first_run_page
+    assert "workflowRevisionIdFor(run, state.runDetail, latestPackage)" in first_run_page
     assert "/api/v1/first-run/runs/${encodeURIComponent(runId)}/validation-card" in first_run_api
     assert "sampleData?: FirstRunSampleDataEvidence" in first_run_api
     assert "export type FirstRunSoftwareEnvironment" in first_run_api
@@ -100,7 +113,6 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "executionDiagnostics?.readiness?.ok === true" in first_run_page
     assert "state.canSubmit && executionReady" in first_run_page
     assert "first-run-execution-diagnostics-blockers" in first_run_page
-    assert "packageExports.some(firstRunResultPackageReady)" in first_run_page
     assert "runCompleted && packageReady && Boolean(workflowRevisionId)" in first_run_page
     assert "buildValidationCardPayload" not in first_run_source
     assert "QIIME 2 Moving Pictures tutorial" in first_run_source
