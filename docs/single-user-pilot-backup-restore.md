@@ -72,4 +72,4 @@ Restore into an isolated Windows profile and a dedicated remote runner root. Aft
 scripts\first_run_pilot_check.ps1 -RunFirstSuccessfulRun -RequireFinalizationReady
 ```
 
-The proof must report `closedLoopProven: true`, `closedLoopProofMode: "submitted-run"`, a ready validation card, a result package SHA-256, and passed Moving Pictures sample checksums.
+The proof must report `closedLoopProven: true`, `closedLoopProofMode: "submitted-run"`, a ready validation card, a result package SHA-256, passed Moving Pictures sample checksums, and a `handoffProof` summary whose `pilotHandoff` evidence matches the validation card and result package hashes. The same handoff proof must include the read-only backup plan command, the restore proof command, and the next taxonomy/AMR scenario pilots.

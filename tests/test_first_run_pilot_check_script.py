@@ -48,6 +48,28 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "h2ometa.first-run.finalization.v1" in source
     assert "ready finalization must include validationCard and resultPackage" in source
     assert "ready finalization must include a single-user-lab pilotHandoff" in source
+    assert "function Assert-FirstRunPilotHandoff" in source
+    assert "pilotHandoff evidence must match validationCard run and result" in source
+    assert "pilotHandoff evidence must match resultPackage hashes" in source
+    assert "pilotHandoff evidence must match validationCard resultPackage hashes" in source
+    assert "ready validationCard checks must all be passed" in source
+    assert "pilotHandoff evidence must match validationCard checks" in source
+    assert "backupRestore handoff must include the read-only backup plan command" in source
+    assert "backupRestore handoff must include the submitted-run restore proof command" in source
+    assert "backupRestore handoff must reject hot sqlite copy, secret archive, and cache-as-durable-state" in source
+    assert "pilotHandoff must include next scenario pilots" in source
+    assert "taxonomy-classification" in source
+    assert "amr-annotation" in source
+    assert "pilotHandoff nextScenarios $scenarioId must remain blocked until operator gates pass" in source
+    assert "pilotHandoff nextScenarios $scenarioId must include blocked gate evidence" in source
+    assert "taxonomy nextScenario must advertise one available database pack" in source
+    assert "AMR nextScenario must advertise missing database pack templates" in source
+    assert "RUN_OWN_SMALL_SAMPLE" in source
+    assert "$handoffProof = Assert-FirstRunPilotHandoff $finalization" in source
+    assert "pilotHandoffSchemaVersion = $handoff.schemaVersion" in source
+    assert "backupRestoreSchemaVersion = $backup.schemaVersion" in source
+    assert "nextScenarioIds = @($nextScenarios | ForEach-Object { $_.scenarioId })" in source
+    assert "handoffProof = $handoffProof" in source
     assert "blocked finalization must include nextAction code and target" in source
     assert "if ($RequireFinalizationReady -or $RunFirstSuccessfulRun)" in source
     assert "-RunFirstSuccessfulRun cannot be combined with -RunId" in source

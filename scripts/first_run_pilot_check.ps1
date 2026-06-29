@@ -174,6 +174,117 @@ function Assert-ArrayData {
     }
 }
 
+function Assert-FirstRunPilotHandoff {
+    param([object]$Finalization)
+    $card = $Finalization.validationCard
+    $package = $Finalization.resultPackage
+    $handoff = $Finalization.pilotHandoff
+    if ($null -eq $handoff -or $handoff.schemaVersion -ne "h2ometa.first-run.single-user-lab-pilot-handoff.v1") {
+        Fail-Pilot "ready finalization must include a single-user-lab pilotHandoff"
+    }
+    if ($handoff.scope -ne "single-user-lab" -or $handoff.status -ne "ready") {
+        Fail-Pilot "ready pilotHandoff must be single-user-lab and ready"
+    }
+
+    $evidence = $handoff.evidence
+    if ($null -eq $evidence) {
+        Fail-Pilot "ready pilotHandoff must include evidence"
+    }
+    if ($evidence.runId -ne $card.run.runId -or $evidence.resultId -ne $card.result.resultId) {
+        Fail-Pilot "pilotHandoff evidence must match validationCard run and result"
+    }
+    if ($evidence.workflowRevisionId -ne $card.workflowRevision.workflowRevisionId) {
+        Fail-Pilot "pilotHandoff evidence must match validationCard WorkflowRevision"
+    }
+    if ($evidence.packageExportId -ne $package.packageExportId) {
+        Fail-Pilot "pilotHandoff evidence must match resultPackage packageExportId"
+    }
+    if ($evidence.packageSha256 -ne $package.sha256 -or $evidence.manifestSha256 -ne $package.manifestSha256) {
+        Fail-Pilot "pilotHandoff evidence must match resultPackage hashes"
+    }
+    if ($evidence.packageSha256 -ne $card.resultPackage.sha256 -or $evidence.manifestSha256 -ne $card.resultPackage.manifestSha256) {
+        Fail-Pilot "pilotHandoff evidence must match validationCard resultPackage hashes"
+    }
+
+    $checks = @($card.checks)
+    $passedChecks = @($checks | Where-Object { $_.status -eq "passed" })
+    if ($checks.Count -eq 0 -or $passedChecks.Count -ne $checks.Count) {
+        Fail-Pilot "ready validationCard checks must all be passed"
+    }
+    if ($evidence.validationChecksTotal -ne $checks.Count -or $evidence.validationChecksPassed -ne $passedChecks.Count) {
+        Fail-Pilot "pilotHandoff evidence must match validationCard checks"
+    }
+
+    $backup = $handoff.backupRestore
+    if ($null -eq $backup -or $backup.schemaVersion -ne "h2ometa.first-run.backup-restore-handoff.v1") {
+        Fail-Pilot "pilotHandoff must include backupRestore handoff"
+    }
+    if ($backup.mode -ne "read-only-plan" -or $backup.noAutomaticBackup -ne $true) {
+        Fail-Pilot "backupRestore handoff must be a read-only plan with no automatic backup"
+    }
+    if ($backup.requiresIsolatedRestore -ne $true -or $backup.requiresManualSecretRebind -ne $true) {
+        Fail-Pilot "backupRestore handoff must require isolated restore and manual secret rebind"
+    }
+    $expectedBackupPlanCommand = 'scripts\single_user_pilot_backup_plan.ps1 -RemoteRunnerSharedRoot "<remote-shared-root>" -RequireExistingState'
+    if ($backup.planCommand -ne $expectedBackupPlanCommand) {
+        Fail-Pilot "backupRestore handoff must include the read-only backup plan command"
+    }
+    $expectedRestoreProofCommand = 'scripts\first_run_pilot_check.ps1 -RunFirstSuccessfulRun -RequireFinalizationReady'
+    if ($backup.restoreProofCommand -ne $expectedRestoreProofCommand) {
+        Fail-Pilot "backupRestore handoff must include the submitted-run restore proof command"
+    }
+    if ($backup.runbookPath -ne "docs/single-user-pilot-backup-restore.md") {
+        Fail-Pilot "backupRestore handoff must point at the single-user pilot runbook"
+    }
+    $expectedExcludedActions = @("hot-sqlite-copy", "secret-archive", "cache-as-durable-state")
+    if ((@($backup.excludedActions) -join "|") -ne ($expectedExcludedActions -join "|")) {
+        Fail-Pilot "backupRestore handoff must reject hot sqlite copy, secret archive, and cache-as-durable-state"
+    }
+
+    $nextScenarios = @($handoff.nextScenarios)
+    if ($nextScenarios.Count -lt 2) {
+        Fail-Pilot "pilotHandoff must include next scenario pilots"
+    }
+    foreach ($scenarioId in @("taxonomy-classification", "amr-annotation")) {
+        $scenario = @($nextScenarios | Where-Object { $_.scenarioId -eq $scenarioId }) | Select-Object -First 1
+        if ($null -eq $scenario -or $scenario.target -ne "/workflows") {
+            Fail-Pilot "pilotHandoff nextScenarios missing $scenarioId"
+        }
+        if ($scenario.status -ne "blocked") {
+            Fail-Pilot "pilotHandoff nextScenarios $scenarioId must remain blocked until operator gates pass"
+        }
+        if (@($scenario.blockedChecks).Count -lt 3) {
+            Fail-Pilot "pilotHandoff nextScenarios $scenarioId must include blocked gate evidence"
+        }
+        if ($null -eq $scenario.databasePackCoverage) {
+            Fail-Pilot "pilotHandoff nextScenarios $scenarioId must include databasePackCoverage"
+        }
+    }
+    $taxonomyScenario = @($nextScenarios | Where-Object { $_.scenarioId -eq "taxonomy-classification" }) | Select-Object -First 1
+    if ($taxonomyScenario.databasePackCoverage.packCount -ne 1) {
+        Fail-Pilot "taxonomy nextScenario must advertise one available database pack"
+    }
+    $amrScenario = @($nextScenarios | Where-Object { $_.scenarioId -eq "amr-annotation" }) | Select-Object -First 1
+    if ((@($amrScenario.databasePackCoverage.missingTemplates) -join "|") -ne "card_rgi|eggnog_mapper|interproscan") {
+        Fail-Pilot "AMR nextScenario must advertise missing database pack templates"
+    }
+
+    if ($handoff.nextAction.code -ne "RUN_OWN_SMALL_SAMPLE" -or $handoff.nextAction.target -ne "/workflows") {
+        Fail-Pilot "pilotHandoff nextAction must guide the operator to run an own small sample"
+    }
+    return [ordered]@{
+        pilotHandoffSchemaVersion = $handoff.schemaVersion
+        packageSha256 = $evidence.packageSha256
+        manifestSha256 = $evidence.manifestSha256
+        validationChecksPassed = $evidence.validationChecksPassed
+        validationChecksTotal = $evidence.validationChecksTotal
+        backupRestoreSchemaVersion = $backup.schemaVersion
+        backupPlanCommand = $backup.planCommand
+        restoreProofCommand = $backup.restoreProofCommand
+        nextScenarioIds = @($nextScenarios | ForEach-Object { $_.scenarioId })
+    }
+}
+
 Write-Step "checking Local API at $ApiBase"
 $health = Get-Json "$ApiBase/health"
 if ($health.status -ne "ok") {
@@ -218,6 +329,7 @@ $closedLoopProven = $false
 $closedLoopProofMode = $ClosedLoopProofModes.SmokeOnly
 $finalizationStatus = "not-run"
 $finalizationAction = $null
+$handoffProof = $null
 if ($RunFirstSuccessfulRun -and $RunId) {
     Fail-Pilot "-RunFirstSuccessfulRun cannot be combined with -RunId"
 }
@@ -247,12 +359,10 @@ if ($RunId) {
         if ($null -eq $finalization.validationCard -or $null -eq $finalization.resultPackage) {
             Fail-Pilot "ready finalization must include validationCard and resultPackage"
         }
-        if ($null -eq $finalization.pilotHandoff -or $finalization.pilotHandoff.scope -ne "single-user-lab") {
-            Fail-Pilot "ready finalization must include a single-user-lab pilotHandoff"
-        }
         if (-not $finalization.resultPackage.sha256 -or -not $finalization.resultPackage.manifestSha256) {
             Fail-Pilot "ready finalization resultPackage must include sha256 and manifestSha256"
         }
+        $handoffProof = Assert-FirstRunPilotHandoff $finalization
         $closedLoopProven = $true
         if (-not $RunFirstSuccessfulRun) {
             $closedLoopProofMode = $ClosedLoopProofModes.FinalizedRun
@@ -285,6 +395,7 @@ $summary = [ordered]@{
     closedLoopProofMode = $closedLoopProofMode
     finalizationStatus = $finalizationStatus
     finalizationNextAction = $finalizationAction
+    handoffProof = $handoffProof
 }
 
 Write-Step "passed"
