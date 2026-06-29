@@ -81,7 +81,7 @@ export type UpdateDatabaseInput = {
 
 export type DatabasePackReadyScanInput = {
   packId: string;
-  readyPath?: string;
+  readyPath: string;
   fieldPaths?: Record<string, string>;
 };
 

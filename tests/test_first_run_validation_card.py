@@ -83,11 +83,63 @@ def test_first_run_validation_card_is_server_generated_and_redacted(monkeypatch)
         "amr-annotation",
     ]
     assert handoff["nextScenarios"][0]["databasePackCoverage"]["packCount"] == 1
+    taxonomy_install = handoff["nextScenarios"][0]["databaseInstallHandoff"]
+    assert taxonomy_install["schemaVersion"] == "h2ometa.first-run.next-scenario-database-install-handoff.v1"
+    assert taxonomy_install["mode"] == "manual_external"
+    assert taxonomy_install["status"] == "operator_required"
+    assert taxonomy_install["noAutomaticExecution"] is True
+    assert taxonomy_install["readyScan"] == {
+        "schemaVersion": "h2ometa.database-pack-ready-scan.v1",
+        "method": "POST",
+        "path": "/api/v1/database-pack-ready-scans",
+        "requestFields": ["packId", "readyPath", "fieldPaths?"],
+        "acceptedStatus": "ready",
+        "mutatesRegistry": False,
+        "requiresOperatorReadyPath": True,
+        "auditAction": "database_pack.ready_scan",
+    }
+    assert taxonomy_install["registration"] == {
+        "method": "POST",
+        "path": "/api/v1/databases",
+        "requiresReadyScan": True,
+        "prefillSource": "database-pack-ready-scan.registrationPrefill",
+        "prefillFields": [
+            "id",
+            "name",
+            "templateId",
+            "type",
+            "version",
+            "path",
+            "databaseLayer",
+            "source",
+            "sizeBytes",
+            "checksum",
+            "metadata.installedFromPackId",
+        ],
+        "acceptedStatus": "available",
+    }
+    assert {item["code"] for item in taxonomy_install["checklist"]} == {
+        "SELECT_TEMPLATE",
+        "VERIFY_CHECKSUM",
+        "READY_SCAN",
+        "REGISTER_DATABASE",
+        "BIND_DATABASE",
+        "REAL_DATABASE_ACCEPTANCE",
+    }
+    assert taxonomy_install["packOptions"][0]["packId"] == "h2ometa-gtdbtk-r232-official"
+    assert taxonomy_install["packOptions"][0]["checksum"] == "md5:25a59e0352b1fd150c589f56559767d4"
+    assert taxonomy_install["packOptions"][0]["registrationScriptPath"] == "scripts/register_gtdbtk_r232_database.py"
+    assert taxonomy_install["evidencePolicy"]["acceptedEvidenceType"] == "real-database-acceptance"
+    assert taxonomy_install["evidencePolicy"]["validationFixtureAccepted"] is False
+    assert taxonomy_install["excludedActions"] == ["automatic-download", "automatic-extract", "automatic-install"]
     assert handoff["nextScenarios"][1]["databasePackCoverage"]["missingTemplates"] == [
         "card_rgi",
         "eggnog_mapper",
         "interproscan",
     ]
+    assert handoff["nextScenarios"][1]["databaseInstallHandoff"]["readyScan"]["path"] == (
+        "/api/v1/database-pack-ready-scans"
+    )
     assert {item["code"] for item in card["checks"]} >= {
         "FIRST_RUN_PIPELINE_MATCH",
         "FIRST_RUN_COMPLETED",

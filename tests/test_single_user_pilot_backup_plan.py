@@ -56,6 +56,11 @@ def test_single_user_pilot_backup_plan_script_defines_read_only_handoff() -> Non
         "handoffProof.nextScenarioDatabasePackCoverage.amr-annotation.missingTemplates="
         "card_rgi,eggnog_mapper,interproscan"
     ) in source
+    assert "handoffProof.nextScenarioDatabasePackCoverage.readyScanPath=/api/v1/database-pack-ready-scans" in source
+    assert (
+        "handoffProof.nextScenarioDatabasePackCoverage.registrationPrefillSource="
+        "database-pack-ready-scan.registrationPrefill"
+    ) in source
     assert "requiredHandoffProof" in source
     assert "manual-audited-database-and-sample-gates" in source
     assert "SINGLE_USER_PILOT_BACKUP_PLAN_FAILED" in source
@@ -147,6 +152,15 @@ def test_single_user_pilot_backup_plan_outputs_machine_readable_json(tmp_path: P
         "card_rgi,eggnog_mapper,interproscan"
         in summary["restoreDrill"]["mustReport"]
     )
+    assert (
+        "handoffProof.nextScenarioDatabasePackCoverage.readyScanPath=/api/v1/database-pack-ready-scans"
+        in summary["restoreDrill"]["mustReport"]
+    )
+    assert (
+        "handoffProof.nextScenarioDatabasePackCoverage.registrationPrefillSource="
+        "database-pack-ready-scan.registrationPrefill"
+        in summary["restoreDrill"]["mustReport"]
+    )
     required_handoff = summary["restoreDrill"]["requiredHandoffProof"]
     assert required_handoff["evidenceBundleSchemaVersion"] == "h2ometa.first-run.evidence-bundle.v1"
     assert required_handoff["evidenceBundleFileRoles"] == [
@@ -163,12 +177,21 @@ def test_single_user_pilot_backup_plan_outputs_machine_readable_json(tmp_path: P
     )
     assert required_handoff["nextScenarioIds"] == ["taxonomy-classification", "amr-annotation"]
     assert required_handoff["nextScenarioDatabasePackCoverage"] == [
-        {"scenarioId": "taxonomy-classification", "status": "blocked", "packCount": 1, "missingTemplates": []},
+        {
+            "scenarioId": "taxonomy-classification",
+            "status": "blocked",
+            "packCount": 1,
+            "missingTemplates": [],
+            "readyScanPath": "/api/v1/database-pack-ready-scans",
+            "registrationPrefillSource": "database-pack-ready-scan.registrationPrefill",
+        },
         {
             "scenarioId": "amr-annotation",
             "status": "blocked",
             "packCount": 0,
             "missingTemplates": ["card_rgi", "eggnog_mapper", "interproscan"],
+            "readyScanPath": "/api/v1/database-pack-ready-scans",
+            "registrationPrefillSource": "database-pack-ready-scan.registrationPrefill",
         },
     ]
     assert required_handoff["operatorGateMode"] == "manual-audited-database-and-sample-gates"

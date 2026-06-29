@@ -332,6 +332,8 @@ function NextScenarioPilotCard({ pack }: { pack: WorkflowScenarioPack }) {
   const blockers = pack.readinessChecks.filter((item) => item.status !== "passed").slice(0, 3);
   const packOptions = pack.databaseHandoff?.packOptions || [];
   const missingTemplates = pack.databaseHandoff?.missingPackTemplates || [];
+  const readyScan = pack.databaseHandoff?.readyScan;
+  const registration = pack.databaseHandoff?.registration;
   return (
     <article className="rounded-md border border-emerald-200 bg-white px-3 py-3" data-next-scenario={pack.scenarioId}>
       <div className="flex min-w-0 items-start justify-between gap-3">
@@ -362,8 +364,26 @@ function NextScenarioPilotCard({ pack }: { pack: WorkflowScenarioPack }) {
         {missingTemplates.length > 0 ? (
           <div className="truncate text-amber-700">缺少官方 pack: {missingTemplates.slice(0, 3).join(" / ")}</div>
         ) : null}
+        {readyScan?.path ? (
+          <div className="truncate text-slate-500" data-testid="first-run-next-scenario-ready-scan">
+            Ready scan: {readyScan.method || "POST"} {readyScan.path}
+          </div>
+        ) : null}
+        {registration?.prefillSource ? (
+          <div className="truncate text-slate-500" data-testid="first-run-next-scenario-registration-prefill">
+            Prefill: {registration.prefillSource}
+          </div>
+        ) : null}
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
+        {pack.databaseHandoff?.operatorActionRequired ? (
+          <Button asChild variant="outline" className="h-8 border-emerald-200 bg-white px-2.5 text-xs text-emerald-800" data-next-scenario-database-action>
+            <a href="/workflows/databases">
+              <Database strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5" />
+              数据库陪跑
+            </a>
+          </Button>
+        ) : null}
         {pack.nextActions.slice(0, 2).map((action) => (
           <Button key={action.code} asChild variant="outline" className="h-8 border-emerald-200 bg-white px-2.5 text-xs text-emerald-800">
             <a href={action.target}>

@@ -242,6 +242,48 @@ export type FirstRunPilotHandoff = {
     target?: string;
     blockedChecks?: Array<{ code?: string; requirement?: string; target?: string }>;
     databasePackCoverage?: { packCount?: number; missingTemplates?: string[] };
+    databaseInstallHandoff?: {
+      schemaVersion?: string;
+      mode?: string;
+      status?: string;
+      noAutomaticExecution?: boolean;
+      readyScan?: {
+        schemaVersion?: string;
+        method?: string;
+        path?: string;
+        requestFields?: string[];
+        acceptedStatus?: string;
+        mutatesRegistry?: boolean;
+        requiresOperatorReadyPath?: boolean;
+        auditAction?: string;
+      };
+      registration?: {
+        method?: string;
+        path?: string;
+        requiresReadyScan?: boolean;
+        prefillSource?: string;
+        prefillFields?: string[];
+        acceptedStatus?: string;
+      };
+      checklist?: Array<{ code?: string; label?: string; status?: string; target?: string; evidence?: string }>;
+      packOptions?: Array<{
+        packId?: string;
+        templateId?: string;
+        checksum?: string;
+        sourceUrl?: string;
+        readyDirHint?: string;
+        registrationScriptPath?: string;
+        installedLayer?: string;
+      }>;
+      evidencePolicy?: {
+        acceptedEvidenceType?: string;
+        requiresRegisteredStatus?: string;
+        requiresRunResourceBinding?: boolean;
+        rejectsCatalogLayerAsEvidence?: boolean;
+        validationFixtureAccepted?: boolean;
+      };
+      excludedActions?: string[];
+    };
   }>;
   nextAction?: FirstRunFinalizationNextAction;
   exclusions?: string[];
@@ -491,12 +533,14 @@ export function firstRunHandoffManifestMarkdown(card: FirstRunValidationCard) {
     "",
     scenarios.length
       ? markdownTable(
-          ["Scenario", "Status", "Blocked checks", "DB packs", "Missing DB pack templates"],
+          ["Scenario", "Status", "Blocked checks", "DB packs", "Ready scan", "Registration prefill", "Missing DB pack templates"],
           scenarios.map((item) => [
             item.name || item.scenarioId,
             item.status,
             String(item.blockedChecks?.length || 0),
             String(item.databasePackCoverage?.packCount || 0),
+            item.databaseInstallHandoff?.readyScan?.path || "",
+            item.databaseInstallHandoff?.registration?.prefillSource || "",
             item.databasePackCoverage?.missingTemplates?.join(", "),
           ])
         )
@@ -522,12 +566,14 @@ function firstRunPilotHandoffMarkdown(handoff?: FirstRunPilotHandoff) {
     "",
     scenarios.length
       ? markdownTable(
-          ["Scenario", "Status", "Blocked checks", "DB packs", "Missing DB pack templates"],
+          ["Scenario", "Status", "Blocked checks", "DB packs", "Ready scan", "Registration prefill", "Missing DB pack templates"],
           scenarios.map((item) => [
             item.name || item.scenarioId,
             item.status,
             String(item.blockedChecks?.length || 0),
             String(item.databasePackCoverage?.packCount || 0),
+            item.databaseInstallHandoff?.readyScan?.path || "",
+            item.databaseInstallHandoff?.registration?.prefillSource || "",
             item.databasePackCoverage?.missingTemplates?.join(", "),
           ])
         )

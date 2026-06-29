@@ -219,7 +219,9 @@ $plan = [ordered]@{
             "handoffProof.restoreProofCommand=$expectedRestoreProofCommand",
             "handoffProof.nextScenarioIds=$($expectedNextScenarioIds -join ',')",
             "handoffProof.nextScenarioDatabasePackCoverage.taxonomy-classification.packCount=1",
-            "handoffProof.nextScenarioDatabasePackCoverage.amr-annotation.missingTemplates=card_rgi,eggnog_mapper,interproscan"
+            "handoffProof.nextScenarioDatabasePackCoverage.amr-annotation.missingTemplates=card_rgi,eggnog_mapper,interproscan",
+            "handoffProof.nextScenarioDatabasePackCoverage.readyScanPath=/api/v1/database-pack-ready-scans",
+            "handoffProof.nextScenarioDatabasePackCoverage.registrationPrefillSource=database-pack-ready-scan.registrationPrefill"
         )
         requiredHandoffProof = [ordered]@{
             evidenceBundleSchemaVersion = "h2ometa.first-run.evidence-bundle.v1"
@@ -233,12 +235,16 @@ $plan = [ordered]@{
                     status = "blocked"
                     packCount = 1
                     missingTemplates = @()
+                    readyScanPath = "/api/v1/database-pack-ready-scans"
+                    registrationPrefillSource = "database-pack-ready-scan.registrationPrefill"
                 },
                 [ordered]@{
                     scenarioId = "amr-annotation"
                     status = "blocked"
                     packCount = 0
                     missingTemplates = @("card_rgi", "eggnog_mapper", "interproscan")
+                    readyScanPath = "/api/v1/database-pack-ready-scans"
+                    registrationPrefillSource = "database-pack-ready-scan.registrationPrefill"
                 }
             )
             operatorGateMode = "manual-audited-database-and-sample-gates"

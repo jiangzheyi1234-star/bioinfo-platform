@@ -378,7 +378,7 @@ class DatabaseUpdateRequest(RemoteRunnerRequest):
 
 class DatabasePackReadyScanRequest(RemoteRunnerRequest):
     packId: str = Field(min_length=1)
-    readyPath: str | None = Field(default=None, min_length=1)
+    readyPath: str = Field(min_length=1)
     fieldPaths: dict[str, str] | None = None
 
 

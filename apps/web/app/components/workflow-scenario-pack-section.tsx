@@ -109,6 +109,14 @@ export function WorkflowScenarioPackSection({
                   </Link>
                 </Button>
               ) : null}
+              {databaseHandoffNeedsOperator(pack) ? (
+                <Button asChild variant="outline" className="h-8 bg-white px-2.5 text-xs text-slate-600" data-scenario-action="DATABASE_HANDOFF_WALKTHROUGH">
+                  <Link href={pack.databaseHandoff?.readyScan?.path ? "/workflows/databases" : "/workflows"}>
+                    <Database strokeWidth={1.5} className="h-3.5 w-3.5" />
+                    数据库陪跑
+                  </Link>
+                </Button>
+              ) : null}
               {pack.nextActions.slice(0, 3).map((action) => (
                 <Button key={action.code} asChild variant="outline" className="h-8 bg-white px-2.5 text-xs text-slate-600" data-scenario-action={action.code}>
                   <Link href={action.target}>
@@ -257,6 +265,9 @@ function DatabaseHandoffSummary({ pack }: { pack: WorkflowScenarioPack }) {
         {databaseHandoffTemplateText(pack)}
         {remaining > 0 ? ` · +${remaining}` : ""}
       </div>
+      <div className="mt-1.5 truncate text-[11px] text-slate-500" data-testid="workflow-scenario-database-ready-scan-contract">
+        Ready scan: {handoff?.readyScan?.path || "-"} · Prefill: {handoff?.registration?.prefillSource || "-"}
+      </div>
       <DatabasePackOptionSummary pack={pack} />
     </div>
   );
@@ -368,4 +379,8 @@ function pilotReadinessPlanText(pack: WorkflowScenarioPack) {
   return [inputs ? `inputs:${inputs}` : "", evidence ? `evidence:${evidence}` : "", blockers ? `${blockers} gates` : ""]
     .filter(Boolean)
     .join(" · ");
+}
+
+function databaseHandoffNeedsOperator(pack: WorkflowScenarioPack) {
+  return pack.databaseHandoff?.mode === "manual_external" && pack.databaseHandoff?.operatorActionRequired === true;
 }

@@ -430,6 +430,57 @@ function Assert-FirstRunPilotHandoff {
         if ($null -eq $scenario.databasePackCoverage) {
             Fail-Pilot "pilotHandoff nextScenarios $scenarioId must include databasePackCoverage"
         }
+        $databaseInstall = $scenario.databaseInstallHandoff
+        if ($null -eq $databaseInstall -or $databaseInstall.schemaVersion -ne "h2ometa.first-run.next-scenario-database-install-handoff.v1") {
+            Fail-Pilot "pilotHandoff nextScenarios $scenarioId must include database install handoff"
+        }
+        if ($databaseInstall.mode -ne "manual_external" -or $databaseInstall.noAutomaticExecution -ne $true) {
+            Fail-Pilot "pilotHandoff nextScenarios $scenarioId database install handoff must stay manual"
+        }
+        if ($databaseInstall.readyScan.schemaVersion -ne "h2ometa.database-pack-ready-scan.v1") {
+            Fail-Pilot "pilotHandoff nextScenarios $scenarioId ready scan schema must be database-pack-ready-scan v1"
+        }
+        if ($databaseInstall.readyScan.method -ne "POST" -or $databaseInstall.readyScan.path -ne "/api/v1/database-pack-ready-scans") {
+            Fail-Pilot "pilotHandoff nextScenarios $scenarioId ready scan endpoint must be declared"
+        }
+        if ($databaseInstall.readyScan.mutatesRegistry -ne $false -or $databaseInstall.readyScan.requiresOperatorReadyPath -ne $true) {
+            Fail-Pilot "pilotHandoff nextScenarios $scenarioId ready scan must be read-only with operator ready path"
+        }
+        if ((@($databaseInstall.readyScan.requestFields) -join "|") -ne "packId|readyPath|fieldPaths?") {
+            Fail-Pilot "pilotHandoff nextScenarios $scenarioId ready scan request fields must be explicit"
+        }
+        if ($databaseInstall.registration.path -ne "/api/v1/databases" -or $databaseInstall.registration.requiresReadyScan -ne $true) {
+            Fail-Pilot "pilotHandoff nextScenarios $scenarioId database registration must require ready scan"
+        }
+        if ($databaseInstall.registration.prefillSource -ne "database-pack-ready-scan.registrationPrefill") {
+            Fail-Pilot "pilotHandoff nextScenarios $scenarioId registration prefill must come from ready scan"
+        }
+        if (-not (@($databaseInstall.registration.prefillFields) -contains "metadata.installedFromPackId")) {
+            Fail-Pilot "pilotHandoff nextScenarios $scenarioId registration prefill must preserve pack lineage"
+        }
+        if (-not (@($databaseInstall.checklist) | Where-Object { $_.code -eq "READY_SCAN" -and $_.target -eq "/workflows/databases" })) {
+            Fail-Pilot "pilotHandoff nextScenarios $scenarioId database install checklist must include ready scan"
+        }
+        if (-not (@($databaseInstall.checklist) | Where-Object { $_.code -eq "REGISTER_DATABASE" -and $_.target -eq "/workflows/databases" })) {
+            Fail-Pilot "pilotHandoff nextScenarios $scenarioId database install checklist must include registration"
+        }
+        if ($databaseInstall.evidencePolicy.acceptedEvidenceType -ne "real-database-acceptance") {
+            Fail-Pilot "pilotHandoff nextScenarios $scenarioId database install evidence must require real database acceptance"
+        }
+        if ($databaseInstall.evidencePolicy.validationFixtureAccepted -ne $false) {
+            Fail-Pilot "pilotHandoff nextScenarios $scenarioId database install evidence must reject validation fixtures"
+        }
+        foreach ($packOption in @($databaseInstall.packOptions)) {
+            if (-not $packOption.packId -or -not $packOption.templateId -or -not $packOption.checksum -or -not $packOption.sourceUrl) {
+                Fail-Pilot "pilotHandoff nextScenarios $scenarioId database pack option must include checksum lineage"
+            }
+            if (-not $packOption.readyDirHint -or -not $packOption.registrationScriptPath) {
+                Fail-Pilot "pilotHandoff nextScenarios $scenarioId database pack option must include ready path and registration script"
+            }
+        }
+        if ((@($databaseInstall.excludedActions) -join "|") -ne "automatic-download|automatic-extract|automatic-install") {
+            Fail-Pilot "pilotHandoff nextScenarios $scenarioId database install handoff must reject automatic install"
+        }
     }
     $taxonomyScenario = @($nextScenarios | Where-Object { $_.scenarioId -eq "taxonomy-classification" }) | Select-Object -First 1
     if ($taxonomyScenario.databasePackCoverage.packCount -ne 1) {
@@ -449,6 +500,10 @@ function Assert-FirstRunPilotHandoff {
             status = $_.status
             packCount = $_.databasePackCoverage.packCount
             missingTemplates = @($_.databasePackCoverage.missingTemplates)
+            readyScanPath = $_.databaseInstallHandoff.readyScan.path
+            registrationPrefillSource = $_.databaseInstallHandoff.registration.prefillSource
+            packOptionCount = @($_.databaseInstallHandoff.packOptions).Count
+            checklistCodes = @($_.databaseInstallHandoff.checklist | ForEach-Object { $_.code })
         }
     })
     return [ordered]@{

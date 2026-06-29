@@ -453,7 +453,7 @@ class DatabaseUpdateRequest(ApiRequest):
 class DatabasePackReadyScanRequest(ApiRequest):
     serverId: str | None = None
     packId: str = Field(min_length=1)
-    readyPath: str | None = Field(default=None, min_length=1)
+    readyPath: str = Field(min_length=1)
     fieldPaths: dict[str, str] | None = None
 
 

@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from apps.remote_runner.api_models import DatabasePackReadyScanRequest
+from apps.remote_runner.database_errors import DatabaseRegistryError
 from apps.remote_runner.database_pack_catalog import list_downloadable_database_packs
 from apps.remote_runner.database_pack_ready_scan import scan_database_pack_ready
 from apps.remote_runner.database_service import scan_database_pack_ready_from_request
@@ -42,6 +43,11 @@ def test_database_pack_ready_scan_reports_missing_path() -> None:
 
     assert result["status"] == "missing"
     assert "does not exist" in result["message"]
+
+
+def test_database_pack_ready_scan_requires_operator_ready_path() -> None:
+    with pytest.raises(DatabaseRegistryError, match="DATABASE_PACK_READY_PATH_REQUIRED"):
+        scan_database_pack_ready({"packId": DEFAULT_PACK_ID})
 
 
 def test_database_pack_ready_scan_service_is_audited_and_read_only(

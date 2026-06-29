@@ -10,6 +10,9 @@ from apps.api.workflow_scenario_pack_service import list_workflow_scenario_packs
 FIRST_RUN_PILOT_HANDOFF_SCHEMA_VERSION = "h2ometa.first-run.single-user-lab-pilot-handoff.v1"
 FIRST_RUN_BACKUP_RESTORE_HANDOFF_SCHEMA_VERSION = "h2ometa.first-run.backup-restore-handoff.v1"
 FIRST_RUN_EVIDENCE_BUNDLE_SCHEMA_VERSION = "h2ometa.first-run.evidence-bundle.v1"
+FIRST_RUN_NEXT_SCENARIO_DATABASE_INSTALL_HANDOFF_SCHEMA_VERSION = (
+    "h2ometa.first-run.next-scenario-database-install-handoff.v1"
+)
 
 
 def build_first_run_pilot_handoff(card: dict[str, Any]) -> dict[str, Any]:
@@ -166,7 +169,71 @@ def _next_scenario_handoff(pack: dict[str, Any]) -> dict[str, Any]:
             "packCount": len(database_handoff.get("packOptions") or []),
             "missingTemplates": list(database_handoff.get("missingPackTemplates") or []),
         },
+        "databaseInstallHandoff": _next_scenario_database_install_handoff(database_handoff),
     }
+
+
+def _next_scenario_database_install_handoff(database_handoff: dict[str, Any]) -> dict[str, Any]:
+    ready_scan = database_handoff.get("readyScan") if isinstance(database_handoff.get("readyScan"), dict) else {}
+    registration = database_handoff.get("registration") if isinstance(database_handoff.get("registration"), dict) else {}
+    return {
+        "schemaVersion": FIRST_RUN_NEXT_SCENARIO_DATABASE_INSTALL_HANDOFF_SCHEMA_VERSION,
+        "mode": str(database_handoff.get("mode") or ""),
+        "status": str(database_handoff.get("status") or ""),
+        "noAutomaticExecution": database_handoff.get("noAutomaticExecution") is True,
+        "readyScan": {
+            "schemaVersion": str(ready_scan.get("schemaVersion") or ""),
+            "method": str(ready_scan.get("method") or ""),
+            "path": str(ready_scan.get("path") or ""),
+            "requestFields": list(ready_scan.get("requestFields") or []),
+            "acceptedStatus": str(ready_scan.get("acceptedStatus") or ""),
+            "mutatesRegistry": ready_scan.get("mutatesRegistry") is True,
+            "requiresOperatorReadyPath": ready_scan.get("requiresOperatorReadyPath") is True,
+            "auditAction": str(ready_scan.get("auditAction") or ""),
+        },
+        "registration": {
+            "method": str(registration.get("method") or ""),
+            "path": str(registration.get("path") or ""),
+            "requiresReadyScan": registration.get("requiresReadyScan") is True,
+            "prefillSource": str(registration.get("prefillSource") or ""),
+            "prefillFields": list(registration.get("prefillFields") or []),
+            "acceptedStatus": str(registration.get("acceptedStatus") or ""),
+        },
+        "checklist": _database_install_checklist(database_handoff),
+        "packOptions": _database_install_pack_options(database_handoff),
+        "evidencePolicy": dict(database_handoff.get("evidencePolicy") or {}),
+        "excludedActions": list(database_handoff.get("excludedActions") or []),
+    }
+
+
+def _database_install_checklist(database_handoff: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "code": str(item.get("code") or ""),
+            "label": str(item.get("label") or ""),
+            "status": str(item.get("status") or ""),
+            "target": str(item.get("target") or ""),
+            "evidence": str(item.get("evidence") or ""),
+        }
+        for item in database_handoff.get("checklist") or []
+        if isinstance(item, dict)
+    ]
+
+
+def _database_install_pack_options(database_handoff: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "packId": str(item.get("packId") or ""),
+            "templateId": str(item.get("templateId") or ""),
+            "checksum": str(item.get("checksum") or ""),
+            "sourceUrl": str(item.get("sourceUrl") or ""),
+            "readyDirHint": str(item.get("readyDirHint") or ""),
+            "registrationScriptPath": str(item.get("registrationScriptPath") or ""),
+            "installedLayer": str(item.get("installedLayer") or ""),
+        }
+        for item in database_handoff.get("packOptions") or []
+        if isinstance(item, dict)
+    ]
 
 
 def _action_target(pack: dict[str, Any], code: str) -> str:

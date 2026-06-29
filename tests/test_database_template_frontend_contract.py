@@ -201,6 +201,7 @@ def test_downloadable_pack_frontend_contract_stays_read_only() -> None:
         "/api/v1/database-packs",
         "scanDatabasePackReady(",
         "/api/v1/database-pack-ready-scans",
+        "readyPath: string",
     )
     _assert_contains(
         state_source,
@@ -242,6 +243,7 @@ def test_downloadable_pack_frontend_contract_stays_read_only() -> None:
         "installDatabasePack",
         "downloadDatabasePack",
         "registerDatabasePack",
+        "readyPath?: string",
     )
     _assert_contains(create_input, 'Exclude<DatabaseLayer, "downloadable_pack" | "unspecified">')
     _assert_not_contains(create_input, 'databaseLayer: "downloadable_pack"', "DatabasePack")

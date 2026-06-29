@@ -15,6 +15,20 @@ SCENARIO_DATABASE_HANDOFF_EXCLUDED_ACTIONS = [
     "automatic-extract",
     "automatic-install",
 ]
+SCENARIO_DATABASE_READY_SCAN_REQUEST_FIELDS = ["packId", "readyPath", "fieldPaths?"]
+SCENARIO_DATABASE_REGISTRATION_PREFILL_FIELDS = [
+    "id",
+    "name",
+    "templateId",
+    "type",
+    "version",
+    "path",
+    "databaseLayer",
+    "source",
+    "sizeBytes",
+    "checksum",
+    "metadata.installedFromPackId",
+]
 
 
 class WorkflowScenarioDatabaseHandoffError(ValueError):
@@ -54,8 +68,12 @@ def database_handoff(definition: dict[str, Any]) -> dict[str, Any]:
             "label": "Ready scan",
             "method": "POST",
             "path": "/api/v1/database-pack-ready-scans",
+            "schemaVersion": "h2ometa.database-pack-ready-scan.v1",
+            "requestFields": SCENARIO_DATABASE_READY_SCAN_REQUEST_FIELDS,
+            "acceptedStatus": "ready",
             "mutatesRegistry": False,
             "requiresOperatorReadyPath": True,
+            "auditAction": "database_pack.ready_scan",
         },
         "registration": {
             "label": "手动登记",
@@ -63,6 +81,8 @@ def database_handoff(definition: dict[str, Any]) -> dict[str, Any]:
             "path": "/api/v1/databases",
             "requiresReadyScan": True,
             "prefillSource": "database-pack-ready-scan.registrationPrefill",
+            "prefillFields": SCENARIO_DATABASE_REGISTRATION_PREFILL_FIELDS,
+            "acceptedStatus": "available",
         },
         "evidencePolicy": {
             "acceptedEvidenceType": "real-database-acceptance",
@@ -109,6 +129,8 @@ def validate_database_handoff(definition: dict[str, Any]) -> None:
         _validate_checklist_targets(handoff["checklist"])
         if handoff["excludedActions"] != SCENARIO_DATABASE_HANDOFF_EXCLUDED_ACTIONS:
             raise WorkflowScenarioDatabaseHandoffError("SCENARIO_DATABASE_HANDOFF_EXCLUSIONS_INVALID")
+        _validate_ready_scan_handoff(handoff["readyScan"])
+        _validate_registration_handoff(handoff["registration"])
         _validate_pack_options(required_databases, handoff)
     elif handoff["status"] != "not_required" or handoff["checklist"]:
         raise WorkflowScenarioDatabaseHandoffError("SCENARIO_DATABASE_HANDOFF_NOT_REQUIRED_INVALID")
@@ -171,6 +193,38 @@ def _validate_checklist_targets(checklist: list[dict[str, str]]) -> None:
             raise WorkflowScenarioDatabaseHandoffError("SCENARIO_DATABASE_HANDOFF_TARGET_REQUIRED")
         if target not in SCENARIO_PRODUCT_TARGETS:
             raise WorkflowScenarioDatabaseHandoffError(f"SCENARIO_DATABASE_HANDOFF_TARGET_UNSUPPORTED: {target}")
+
+
+def _validate_ready_scan_handoff(ready_scan: dict[str, Any]) -> None:
+    expected = {
+        "method": "POST",
+        "path": "/api/v1/database-pack-ready-scans",
+        "schemaVersion": "h2ometa.database-pack-ready-scan.v1",
+        "acceptedStatus": "ready",
+        "auditAction": "database_pack.ready_scan",
+    }
+    for key, value in expected.items():
+        if ready_scan.get(key) != value:
+            raise WorkflowScenarioDatabaseHandoffError("SCENARIO_DATABASE_HANDOFF_READY_SCAN_INVALID")
+    if ready_scan.get("requestFields") != SCENARIO_DATABASE_READY_SCAN_REQUEST_FIELDS:
+        raise WorkflowScenarioDatabaseHandoffError("SCENARIO_DATABASE_HANDOFF_READY_SCAN_INVALID")
+    if ready_scan.get("mutatesRegistry") is not False or ready_scan.get("requiresOperatorReadyPath") is not True:
+        raise WorkflowScenarioDatabaseHandoffError("SCENARIO_DATABASE_HANDOFF_READY_SCAN_INVALID")
+
+
+def _validate_registration_handoff(registration: dict[str, Any]) -> None:
+    expected = {
+        "method": "POST",
+        "path": "/api/v1/databases",
+        "requiresReadyScan": True,
+        "prefillSource": "database-pack-ready-scan.registrationPrefill",
+        "acceptedStatus": "available",
+    }
+    for key, value in expected.items():
+        if registration.get(key) != value:
+            raise WorkflowScenarioDatabaseHandoffError("SCENARIO_DATABASE_HANDOFF_REGISTRATION_INVALID")
+    if registration.get("prefillFields") != SCENARIO_DATABASE_REGISTRATION_PREFILL_FIELDS:
+        raise WorkflowScenarioDatabaseHandoffError("SCENARIO_DATABASE_HANDOFF_REGISTRATION_INVALID")
 
 
 def _database_pack_options(required_databases: list[dict[str, Any]]) -> list[dict[str, Any]]:

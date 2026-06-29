@@ -98,6 +98,13 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "amr-annotation" in source
     assert "pilotHandoff nextScenarios $scenarioId must remain blocked until operator gates pass" in source
     assert "pilotHandoff nextScenarios $scenarioId must include blocked gate evidence" in source
+    assert "pilotHandoff nextScenarios $scenarioId must include database install handoff" in source
+    assert "pilotHandoff nextScenarios $scenarioId database install handoff must stay manual" in source
+    assert "pilotHandoff nextScenarios $scenarioId ready scan schema must be database-pack-ready-scan v1" in source
+    assert "pilotHandoff nextScenarios $scenarioId ready scan endpoint must be declared" in source
+    assert "pilotHandoff nextScenarios $scenarioId registration prefill must come from ready scan" in source
+    assert "pilotHandoff nextScenarios $scenarioId registration prefill must preserve pack lineage" in source
+    assert "pilotHandoff nextScenarios $scenarioId database install handoff must reject automatic install" in source
     assert "taxonomy nextScenario must advertise one available database pack" in source
     assert "AMR nextScenario must advertise missing database pack templates" in source
     assert "RUN_OWN_SMALL_SAMPLE" in source
@@ -109,6 +116,8 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "nextScenarioIds = @($nextScenarios | ForEach-Object { $_.scenarioId })" in source
     assert "$nextScenarioDatabasePackCoverage = @($nextScenarios | ForEach-Object" in source
     assert "nextScenarioDatabasePackCoverage = $nextScenarioDatabasePackCoverage" in source
+    assert "readyScanPath = $_.databaseInstallHandoff.readyScan.path" in source
+    assert "registrationPrefillSource = $_.databaseInstallHandoff.registration.prefillSource" in source
     assert "handoffProof = $handoffProof" in source
     assert "function Assert-FirstRunBlockedNextAction" in source
     assert 'FIRST_RUN_WORKFLOW_REVISION_REQUIRED = "/workflows/first-run#runner-readiness"' in source

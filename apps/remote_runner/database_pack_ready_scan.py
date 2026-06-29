@@ -32,7 +32,7 @@ def scan_database_pack_ready(payload: dict[str, Any]) -> dict[str, Any]:
     template = DATABASE_TEMPLATES.get(template_id)
     if template is None:
         raise DatabaseRegistryError("DATABASE_PACK_TEMPLATE_UNSUPPORTED")
-    ready_path = str(payload.get("readyPath") or pack["manualInstall"]["readyDirHint"]).strip()
+    ready_path = str(payload.get("readyPath") or "").strip()
     if not ready_path:
         raise DatabaseRegistryError("DATABASE_PACK_READY_PATH_REQUIRED")
 

@@ -126,8 +126,12 @@ export type WorkflowScenarioDatabaseHandoff = {
     label?: string;
     method?: string;
     path?: string;
+    schemaVersion?: string;
+    requestFields?: string[];
+    acceptedStatus?: string;
     mutatesRegistry?: boolean;
     requiresOperatorReadyPath?: boolean;
+    auditAction?: string;
   };
   registration?: {
     label?: string;
@@ -135,6 +139,8 @@ export type WorkflowScenarioDatabaseHandoff = {
     path?: string;
     requiresReadyScan?: boolean;
     prefillSource?: string;
+    prefillFields?: string[];
+    acceptedStatus?: string;
   };
   evidencePolicy?: {
     acceptedEvidenceType?: string;

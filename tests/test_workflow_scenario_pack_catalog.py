@@ -177,8 +177,12 @@ def test_only_moving_pictures_scenario_is_ready_until_vertical_packs_have_real_g
         "label": "Ready scan",
         "method": "POST",
         "path": "/api/v1/database-pack-ready-scans",
+        "schemaVersion": "h2ometa.database-pack-ready-scan.v1",
+        "requestFields": ["packId", "readyPath", "fieldPaths?"],
+        "acceptedStatus": "ready",
         "mutatesRegistry": False,
         "requiresOperatorReadyPath": True,
+        "auditAction": "database_pack.ready_scan",
     }
     assert taxonomy["databaseHandoff"]["registration"] == {
         "label": "手动登记",
@@ -186,6 +190,20 @@ def test_only_moving_pictures_scenario_is_ready_until_vertical_packs_have_real_g
         "path": "/api/v1/databases",
         "requiresReadyScan": True,
         "prefillSource": "database-pack-ready-scan.registrationPrefill",
+        "prefillFields": [
+            "id",
+            "name",
+            "templateId",
+            "type",
+            "version",
+            "path",
+            "databaseLayer",
+            "source",
+            "sizeBytes",
+            "checksum",
+            "metadata.installedFromPackId",
+        ],
+        "acceptedStatus": "available",
     }
     assert taxonomy["databaseHandoff"]["packOptions"] == [
         {
@@ -535,6 +553,9 @@ def test_scenario_database_handoff_uses_catalog_pack_options_without_installing(
     assert "operatorSteps" not in pack_option
     assert taxonomy["databaseHandoff"]["readyScan"]["mutatesRegistry"] is False
     assert taxonomy["databaseHandoff"]["registration"]["requiresReadyScan"] is True
+    assert taxonomy["databaseHandoff"]["readyScan"]["schemaVersion"] == "h2ometa.database-pack-ready-scan.v1"
+    assert taxonomy["databaseHandoff"]["readyScan"]["requestFields"] == ["packId", "readyPath", "fieldPaths?"]
+    assert "metadata.installedFromPackId" in taxonomy["databaseHandoff"]["registration"]["prefillFields"]
 
 
 def _sample_data_checklist(*, target_override: dict[str, str]) -> list[dict[str, str]]:
