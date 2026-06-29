@@ -74,7 +74,7 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert 'FIRST_RUN_WORKFLOW_REVISION_REQUIRED = "/workflows/first-run#runner-readiness"' in source
     assert 'FIRST_RUN_REPORT_PREVIEW_REQUIRED = "/workflows/first-run#run-report"' in source
     assert 'FIRST_RUN_SAMPLE_INPUTS_INTEGRITY_MISMATCH = "/workflows/first-run#sample-data"' in source
-    assert '$FirstRunRecoveryAnchors = @("runner-readiness", "sample-data", "run-report")' in source
+    assert '$FirstRunRecoveryAnchors = @("runner-readiness", "sample-data", "run-report", "result-package", "validation-card")' in source
     assert "blocked finalization must include nextAction code and target" in source
     assert "blocked finalization nextAction target must match $($Action.code)" in source
     assert "blocked finalization nextAction target must use a first-run recovery anchor" in source

@@ -107,6 +107,11 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "const packageReady = Boolean(readyPackage)" in first_run_page
     assert "const validationEligible = runCompleted && packageReady && Boolean(workflowRevisionId)" in first_run_page
     assert "const validationReady = validationEligible && firstRunValidationCardPassed(validationCard)" in first_run_page
+    assert "target: string" in first_run_page
+    assert "data-step-target={step.target}" in first_run_page
+    assert "href={step.target}" in first_run_page
+    assert '"#result-package"' in first_run_page
+    assert '"#validation-card"' in first_run_page
     assert "if (!ready) return null" in first_run_completion
     assert 'checks.every((item) => item.status === "passed")' in first_run_completion
     assert 'card?.reportInterpretation?.status === "ready"' in first_run_completion
@@ -188,6 +193,8 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert 'id="runner-readiness"' in first_run_page
     assert 'id="sample-data"' in first_run_sample_submit
     assert 'id="run-report"' in first_run_report
+    assert 'id="result-package"' in first_run_validation
+    assert 'id="validation-card"' in first_run_validation
     assert 'data-testid="first-run-finalize"' in first_run_validation
     assert "first-run-finalization-next-action" in first_run_validation
     assert "first-run-finalization-next-action-link" in first_run_validation

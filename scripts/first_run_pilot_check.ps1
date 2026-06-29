@@ -28,7 +28,7 @@ $BlockedNextActionTargets = @{
     FIRST_RUN_SAMPLE_INPUTS_REQUIRED = "/workflows/first-run#sample-data"
     FIRST_RUN_SAMPLE_INPUTS_INTEGRITY_MISMATCH = "/workflows/first-run#sample-data"
 }
-$FirstRunRecoveryAnchors = @("runner-readiness", "sample-data", "run-report")
+$FirstRunRecoveryAnchors = @("runner-readiness", "sample-data", "run-report", "result-package", "validation-card")
 
 function Write-Step {
     param([string]$Message)

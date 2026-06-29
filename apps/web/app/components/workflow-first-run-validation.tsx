@@ -48,7 +48,7 @@ export function ResultPackagePanel({
 }) {
   const downloadHref = latestPackage ? workflowResultPackageDownloadHref(latestPackage) : "";
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5">
+    <section id="result-package" className="scroll-mt-24 rounded-lg border border-slate-200 bg-white p-5">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
@@ -187,7 +187,8 @@ export function ValidationCard({
   const cardPassed = checks.length > 0 && passedChecks === checks.length;
   return (
     <section
-      className={cn("rounded-lg border bg-white p-5", eligible ? "border-emerald-200" : "border-slate-200")}
+      id="validation-card"
+      className={cn("scroll-mt-24 rounded-lg border bg-white p-5", eligible ? "border-emerald-200" : "border-slate-200")}
       data-testid="first-run-validation-card"
       data-validation-eligible={eligible ? "true" : "false"}
       data-validation-passed={cardPassed ? "true" : "false"}

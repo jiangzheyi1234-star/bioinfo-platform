@@ -60,7 +60,7 @@ const FIRST_RUN_PIPELINE_NAME = "Moving Pictures 16S";
 type StepState = "done" | "current" | "waiting" | "blocked";
 type FirstRunState = ReturnType<typeof useWorkflowsPageState>;
 
-type FirstRunStep = { id: string; label: string; detail: string; state: StepState };
+type FirstRunStep = { id: string; label: string; detail: string; state: StepState; target: string };
 
 export function WorkflowFirstRunPage() {
   const ssh = useSshShell();
@@ -493,7 +493,14 @@ function FirstRunSteps({ steps }: { steps: FirstRunStep[] }) {
     <section className="rounded-lg border border-slate-200 bg-white" data-testid="first-run-step-list">
       <div className="grid divide-y divide-slate-100 md:grid-cols-4 md:divide-x md:divide-y-0 xl:grid-cols-8">
         {steps.map((step, index) => (
-          <div key={step.id} className="min-w-0 px-3 py-3" data-first-run-step={step.id} data-step-state={step.state}>
+          <a
+            key={step.id}
+            href={step.target}
+            className="block min-w-0 px-3 py-3 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-200"
+            data-first-run-step={step.id}
+            data-step-state={step.state}
+            data-step-target={step.target}
+          >
             <div className="flex items-center gap-2">
               <StepStateIcon state={step.state} />
               <span className="text-[11px] font-medium text-slate-400">{String(index + 1).padStart(2, "0")}</span>
@@ -502,7 +509,7 @@ function FirstRunSteps({ steps }: { steps: FirstRunStep[] }) {
               {step.label}
             </div>
             <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-500">{step.detail}</div>
-          </div>
+          </a>
         ))}
       </div>
     </section>
@@ -642,20 +649,21 @@ function buildFirstRunSteps(input: {
   validationReady: boolean;
 }): FirstRunStep[] {
   const base = [
-    ["connect", "连接远端", input.serverConnected, "SSH 连接可用"],
-    ["readiness", "runner readiness", input.serverReady, "运行时、Snakemake、profile 与 pipeline registry 就绪"],
-    ["select", "选择示例", input.selectedWorkflowReady, FIRST_RUN_PIPELINE_ID],
-    ["sample", "准备示例数据", input.sampleReady, "metadata、barcodes、sequences 三个输入"],
-    ["submit", "提交运行", input.runSubmitted, "固定 pipeline run 已进入队列"],
-    ["report", "看懂报告", input.reportReady, "产物、预览、rule 状态可读"],
-    ["package", "导出结果包", input.packageReady, "完整结果包包含 manifest、产物和证据"],
-    ["card", "生成验证卡", input.validationReady, "客户可读的输入、版本、hash、下载摘要"],
+    ["connect", "连接远端", input.serverConnected, "SSH 连接可用", "#runner-readiness"],
+    ["readiness", "runner readiness", input.serverReady, "运行时、Snakemake、profile 与 pipeline registry 就绪", "#runner-readiness"],
+    ["select", "选择示例", input.selectedWorkflowReady, FIRST_RUN_PIPELINE_ID, "#sample-data"],
+    ["sample", "准备示例数据", input.sampleReady, "metadata、barcodes、sequences 三个输入", "#sample-data"],
+    ["submit", "提交运行", input.runSubmitted, "固定 pipeline run 已进入队列", "#sample-data"],
+    ["report", "看懂报告", input.reportReady, "产物、预览、rule 状态可读", "#run-report"],
+    ["package", "导出结果包", input.packageReady, "完整结果包包含 manifest、产物和证据", "#result-package"],
+    ["card", "生成验证卡", input.validationReady, "客户可读的输入、版本、hash、下载摘要", "#validation-card"],
   ] as const;
   const firstIncomplete = base.findIndex(([, , done]) => !done);
-  return base.map(([id, label, done, detail], index) => ({
+  return base.map(([id, label, done, detail, target], index) => ({
     id,
     label,
     detail,
+    target,
     state: done ? "done" : input.runFailed && index > 4 ? "blocked" : index === firstIncomplete ? "current" : "waiting",
   }));
 }
