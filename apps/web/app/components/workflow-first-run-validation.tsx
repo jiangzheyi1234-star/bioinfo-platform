@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, CheckCircle2, ClipboardCheck, Cpu, Download, FileArchive, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
+import { Archive, CheckCircle2, ClipboardCheck, Cpu, Download, FileArchive, FileText, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -119,6 +119,7 @@ export function ValidationCard({
   inputArtifacts,
   loadingCard,
   onDownload,
+  onDownloadMarkdown,
   packageExport,
   resultId,
   run,
@@ -134,6 +135,7 @@ export function ValidationCard({
   inputArtifacts: FirstRunInputArtifacts;
   loadingCard: boolean;
   onDownload: () => void;
+  onDownloadMarkdown: () => void;
   packageExport?: WorkflowResultPackageExport;
   resultId: string;
   run: WorkflowRun | null;
@@ -164,10 +166,16 @@ export function ValidationCard({
             {loadingCard ? "正在生成服务端验证卡" : cardPassed ? "服务端验证卡已通过" : card ? "服务端验证卡已加载" : eligible ? "等待服务端验证卡" : "等待结果包与 WorkflowRevision"}
           </div>
         </div>
-        <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs" disabled={!eligible || downloading} onClick={onDownload}>
-          {downloading ? <Loader2 strokeWidth={1.5} className="h-3.5 w-3.5 animate-spin" /> : <Download strokeWidth={1.5} className="h-3.5 w-3.5" />}
-          JSON
-        </Button>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs" disabled={!eligible || downloading} onClick={onDownloadMarkdown}>
+            {downloading ? <Loader2 strokeWidth={1.5} className="h-3.5 w-3.5 animate-spin" /> : <FileText strokeWidth={1.5} className="h-3.5 w-3.5" />}
+            Markdown
+          </Button>
+          <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs" disabled={!eligible || downloading} onClick={onDownload}>
+            {downloading ? <Loader2 strokeWidth={1.5} className="h-3.5 w-3.5 animate-spin" /> : <Download strokeWidth={1.5} className="h-3.5 w-3.5" />}
+            JSON
+          </Button>
+        </div>
       </div>
 
       {error ? (

@@ -24,6 +24,7 @@ import { useWorkflowsPageState } from "./use-workflows-page-state";
 import { FirstRunCompletionPanel, firstRunValidationCardPassed } from "./workflow-first-run-completion";
 import {
   downloadFirstRunValidationCard,
+  downloadFirstRunValidationCardMarkdown,
   fetchFirstRunValidationCard,
   type FirstRunValidationCard,
 } from "./workflow-first-run-api";
@@ -247,6 +248,24 @@ export function WorkflowFirstRunPage() {
     }
   }
 
+  async function downloadValidationCardMarkdown() {
+    if (!run?.runId || validationCardLoading) return;
+    setValidationCardLoading(true);
+    setValidationCardError("");
+    try {
+      await downloadFirstRunValidationCardMarkdown({
+        card: validationCard,
+        resultId,
+        runId: run.runId,
+        serverId: state.server?.serverId,
+      });
+    } catch (err) {
+      setValidationCardError(workflowErrorMessage(err, "验证卡 Markdown 生成失败"));
+    } finally {
+      setValidationCardLoading(false);
+    }
+  }
+
   return (
     <div className="relative h-full w-full overflow-y-auto bg-white px-8 py-10 text-slate-800" data-testid="first-successful-run-page">
       <WorkflowWorkspaceTabs />
@@ -293,6 +312,7 @@ export function WorkflowFirstRunPage() {
           run={run}
           workflowRevisionId={workflowRevisionId}
           onDownloadValidationCard={() => void downloadValidationCard()}
+          onDownloadValidationCardMarkdown={() => void downloadValidationCardMarkdown()}
         />
 
         <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
@@ -363,6 +383,7 @@ export function WorkflowFirstRunPage() {
               downloading={validationCardLoading}
               workflowRevisionId={workflowRevisionId}
               onDownload={() => void downloadValidationCard()}
+              onDownloadMarkdown={() => void downloadValidationCardMarkdown()}
             />
           </div>
         </section>

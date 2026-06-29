@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, ClipboardCheck, FileArchive, Loader2, ShieldCheck } from "lucide-react";
+import { CheckCircle2, ClipboardCheck, FileArchive, FileText, Loader2, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -16,6 +16,7 @@ export function FirstRunCompletionPanel({
   latestPackage,
   loadingValidationCard,
   onDownloadValidationCard,
+  onDownloadValidationCardMarkdown,
   ready,
   resultId,
   run,
@@ -26,6 +27,7 @@ export function FirstRunCompletionPanel({
   latestPackage?: WorkflowResultPackageExport;
   loadingValidationCard: boolean;
   onDownloadValidationCard: () => void;
+  onDownloadValidationCardMarkdown: () => void;
   ready: boolean;
   resultId: string;
   run: WorkflowRun | null;
@@ -63,6 +65,20 @@ export function FirstRunCompletionPanel({
               </a>
             </Button>
           ) : null}
+          <Button
+            variant="outline"
+            className="h-9 border-emerald-200 bg-white px-3 text-xs text-emerald-800 hover:bg-emerald-50"
+            disabled={downloadingValidationCard}
+            onClick={onDownloadValidationCardMarkdown}
+            data-testid="first-run-completion-download-card-markdown"
+          >
+            {downloadingValidationCard ? (
+              <Loader2 strokeWidth={1.5} className="mr-2 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <FileText strokeWidth={1.5} className="mr-2 h-3.5 w-3.5" />
+            )}
+            下载验证卡 Markdown
+          </Button>
           <Button
             variant="outline"
             className="h-9 border-emerald-200 bg-white px-3 text-xs text-emerald-800 hover:bg-emerald-50"

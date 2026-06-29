@@ -67,6 +67,8 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "首跑已完成" in first_run_completion
     assert "下载结果包" in first_run_completion
     assert "下载验证卡 JSON" in first_run_completion
+    assert "下载验证卡 Markdown" in first_run_completion
+    assert "first-run-completion-download-card-markdown" in first_run_completion
     assert "firstRunResultPackageReady(latestPackage)" in first_run_completion
     assert "workflowResultPackageDownloadHref" in first_run_completion
     assert "passed checks" in first_run_completion
@@ -123,6 +125,23 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "output.interpretation" in first_run_validation
     assert "card: validationCard" in first_run_page
     assert "downloadFirstRunValidationCard" in first_run_page
+    assert "downloadFirstRunValidationCardMarkdown" in first_run_page
+    assert "firstRunValidationCardMarkdown" in first_run_api
+    assert ".validation-card.md" in first_run_api
+    assert "text/markdown;charset=utf-8" in first_run_api
+    assert "H2OMeta First Successful Run Validation Card" in first_run_api
+    assert "## Summary" in first_run_api
+    assert "Official Sample Inputs" in first_run_api
+    assert "## Key Results" in first_run_api
+    assert "## Metrics" in first_run_api
+    assert "Validation Checks" in first_run_api
+    assert "Package SHA-256" in first_run_api
+    assert "Manifest SHA-256" in first_run_api
+    assert "## Redaction" in first_run_api
+    assert "Raw paths exposed" in first_run_api
+    assert 'replace(/\\|/g, "\\\\|").replace(/\\n/g, " ")' in first_run_api
+    assert "onDownloadValidationCardMarkdown" in first_run_page
+    assert "onDownloadMarkdown={() => void downloadValidationCardMarkdown()}" in first_run_page
     assert "fetchWorkflowServerExecutionDiagnostics" in first_run_page
     assert "executionDiagnostics?.readiness?.ok === true" in first_run_page
     assert "state.canSubmit && executionReady" in first_run_page
