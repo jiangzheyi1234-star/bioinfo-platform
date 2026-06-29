@@ -391,7 +391,8 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
     assert "operation_id=REMOTE_ENDPOINTS[UPLOAD_CREATE].operation_id" in submission_route_source
     assert '"/api/v1/runs"' in submission_route_source
     assert "operation_id=REMOTE_ENDPOINTS[RUN_CREATE].operation_id" in submission_route_source
-    assert "status_code=202" in submission_route_source
+    assert "remote_endpoint_success_status(RUN_CREATE)" in submission_route_source
+    assert "status_code=202" not in submission_route_source
     assert "create_upload_from_request" in submission_route_source
     assert "create_run_from_request" in submission_route_source
 

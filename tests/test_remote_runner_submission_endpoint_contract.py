@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from core.contracts.remote_endpoints import REMOTE_ENDPOINTS, RUN_CREATE, UPLOAD_CREATE, render_remote_endpoint_path
+from core.contracts.remote_endpoints import (
+    REMOTE_ENDPOINTS,
+    RUN_CREATE,
+    UPLOAD_CREATE,
+    remote_endpoint_success_status,
+    render_remote_endpoint_path,
+)
 from core.remote_runner.client import RemoteRunnerHttpClient
 from core.remote_runner.endpoint_caller import call_remote_endpoint
 from core.remote_runner.proxy import RemoteRunnerProxyMixin
@@ -25,6 +31,7 @@ def test_submission_endpoints_are_contract_rendered() -> None:
     assert run.response_key == ""
     assert run.cache_scope == "run-command"
     assert run.accepted_statuses == (202,)
+    assert remote_endpoint_success_status(RUN_CREATE) == 202
 
 
 def test_submission_endpoint_contracts_match_openapi_operation_ids_and_statuses() -> None:

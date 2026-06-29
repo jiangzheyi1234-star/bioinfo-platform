@@ -11,7 +11,7 @@ from apps.api.submission_service import (
     submit_run_response_from_request,
     upload_file_from_request,
 )
-from core.contracts.remote_endpoints import REMOTE_ENDPOINTS, RUN_CREATE, UPLOAD_CREATE
+from core.contracts.remote_endpoints import REMOTE_ENDPOINTS, RUN_CREATE, UPLOAD_CREATE, remote_endpoint_success_status
 
 
 router = APIRouter()
@@ -25,7 +25,7 @@ async def upload_file(payload: UploadSubmitRequest) -> dict[str, Any]:
 @router.post(
     "/api/v1/runs",
     operation_id=REMOTE_ENDPOINTS[RUN_CREATE].operation_id,
-    status_code=202,
+    status_code=remote_endpoint_success_status(RUN_CREATE),
 )
 async def submit_run(payload: RunSubmitRequest, response: Response) -> dict[str, Any]:
     return await submit_run_response_from_request(payload, response)

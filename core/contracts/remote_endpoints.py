@@ -701,6 +701,17 @@ def get_remote_endpoint(endpoint_id: str) -> RemoteEndpoint:
         raise RemoteEndpointContractError("REMOTE_ENDPOINT_UNKNOWN", endpoint_id) from exc
 
 
+def remote_endpoint_success_status(endpoint_id: str) -> int:
+    endpoint = get_remote_endpoint(endpoint_id)
+    statuses = endpoint.accepted_statuses
+    if len(statuses) != 1:
+        raise RemoteEndpointContractError(
+            "REMOTE_ENDPOINT_SUCCESS_STATUS_AMBIGUOUS",
+            f"{endpoint_id}: {','.join(str(status) for status in statuses) or 'none'}",
+        )
+    return statuses[0]
+
+
 def render_remote_endpoint_path(
     endpoint_id: str,
     values: dict[str, Any],

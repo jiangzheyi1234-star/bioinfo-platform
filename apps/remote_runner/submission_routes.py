@@ -4,7 +4,7 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from core.contracts.remote_endpoints import REMOTE_ENDPOINTS, RUN_CREATE, UPLOAD_CREATE
+from core.contracts.remote_endpoints import REMOTE_ENDPOINTS, RUN_CREATE, UPLOAD_CREATE, remote_endpoint_success_status
 
 from .api_models import RunCreateRequest, UploadCreateRequest
 from .control_service import create_run_from_request, create_upload_from_request
@@ -25,7 +25,7 @@ async def create_upload(
 @router.post(
     "/api/v1/runs",
     operation_id=REMOTE_ENDPOINTS[RUN_CREATE].operation_id,
-    status_code=202,
+    status_code=remote_endpoint_success_status(RUN_CREATE),
 )
 async def create_run(
     payload: RunCreateRequest,

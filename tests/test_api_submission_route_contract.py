@@ -36,6 +36,8 @@ def test_run_submission_routes_delegate_request_assembly_to_service() -> None:
     assert 'response.headers["X-Request-Id"]' not in submission_routes
     assert "upload_file_from_request" in submission_routes
     assert "submit_run_response_from_request" in submission_routes
+    assert "remote_endpoint_success_status(RUN_CREATE)" in submission_routes
+    assert "status_code=202" not in submission_routes
 
     assert "def submit_run_response_from_request(" in service_source
     assert "def upload_file_from_request(" in service_source
