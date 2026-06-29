@@ -109,6 +109,20 @@ export function FirstRunCompletionPanel({
   );
 }
 
+export function firstRunValidationCardPassed(card: FirstRunValidationCard | null) {
+  const checks = card?.checks || [];
+  return (
+    Boolean(card) &&
+    checks.length > 0 &&
+    checks.every((item) => item.status === "passed") &&
+    card?.reportInterpretation?.status === "ready" &&
+    card?.sampleData?.status === "verified" &&
+    card?.softwareEnvironment?.status === "verified" &&
+    Boolean(card?.resultPackage?.sha256) &&
+    Boolean(card?.resultPackage?.manifestSha256)
+  );
+}
+
 function SummaryItem({ label, mono = false, value }: { label: string; mono?: boolean; value?: string }) {
   if (!value) return null;
   return (

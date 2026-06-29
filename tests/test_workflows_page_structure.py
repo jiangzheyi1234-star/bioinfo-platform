@@ -73,6 +73,14 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "const readyPackage = packageExports.find(firstRunResultPackageReady)" in first_run_page
     assert "const latestPackage = readyPackage || packageExports[0]" in first_run_page
     assert "const packageReady = Boolean(readyPackage)" in first_run_page
+    assert "const validationEligible = runCompleted && packageReady && Boolean(workflowRevisionId)" in first_run_page
+    assert "const validationReady = validationEligible && firstRunValidationCardPassed(validationCard)" in first_run_page
+    assert "firstRunValidationCardPassed" in first_run_completion
+    assert "if (!ready) return null" in first_run_completion
+    assert 'checks.every((item) => item.status === "passed")' in first_run_completion
+    assert 'card?.reportInterpretation?.status === "ready"' in first_run_completion
+    assert 'card?.sampleData?.status === "verified"' in first_run_completion
+    assert 'card?.softwareEnvironment?.status === "verified"' in first_run_completion
     assert "workflowRevisionIdFor(run, state.runDetail, latestPackage)" in first_run_page
     assert "/api/v1/first-run/runs/${encodeURIComponent(runId)}/validation-card" in first_run_api
     assert "sampleData?: FirstRunSampleDataEvidence" in first_run_api
@@ -88,6 +96,12 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "reportInterpretation" in first_run_validation
     assert "first-run-validation-card-evidence" in first_run_validation
     assert "可信性检查已通过" in first_run_validation
+    assert "可信性检查未全部通过" in first_run_validation
+    assert "data-validation-eligible" in first_run_validation
+    assert "data-validation-passed" in first_run_validation
+    assert "const passedChecks = checks.filter((item) => item.status === \"passed\").length" in first_run_validation
+    assert "const cardPassed = checks.length > 0 && passedChecks === checks.length" in first_run_validation
+    assert "`${passedChecks}/${checks.length} passed checks`" in first_run_validation
     assert "ValidationCardEvidenceSummary" in first_run_validation
     assert "card.keyResults" in first_run_validation
     assert "card.resultPackage" in first_run_validation
@@ -113,7 +127,8 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "executionDiagnostics?.readiness?.ok === true" in first_run_page
     assert "state.canSubmit && executionReady" in first_run_page
     assert "first-run-execution-diagnostics-blockers" in first_run_page
-    assert "runCompleted && packageReady && Boolean(workflowRevisionId)" in first_run_page
+    assert "eligible={validationEligible}" in first_run_page
+    assert "ready={validationReady}" in first_run_page
     assert "buildValidationCardPayload" not in first_run_source
     assert "QIIME 2 Moving Pictures tutorial" in first_run_source
     assert 'EXPECTED_SAMPLE_ROLES = ["metadata", "barcodes", "sequences"]' in first_run_page

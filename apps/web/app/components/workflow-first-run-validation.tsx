@@ -114,12 +114,12 @@ export function ValidationCard({
   artifacts,
   card,
   downloading,
+  eligible,
   error,
   inputArtifacts,
   loadingCard,
   onDownload,
   packageExport,
-  ready,
   resultId,
   run,
   sampleUploads,
@@ -129,12 +129,12 @@ export function ValidationCard({
   artifacts: WorkflowArtifact[];
   card: FirstRunValidationCard | null;
   downloading: boolean;
+  eligible: boolean;
   error: string;
   inputArtifacts: FirstRunInputArtifacts;
   loadingCard: boolean;
   onDownload: () => void;
   packageExport?: WorkflowResultPackageExport;
-  ready: boolean;
   resultId: string;
   run: WorkflowRun | null;
   sampleUploads: WorkflowUpload[];
@@ -144,24 +144,27 @@ export function ValidationCard({
   const interpretation = card?.reportInterpretation;
   const sampleData = card?.sampleData;
   const softwareEnvironment = card?.softwareEnvironment;
-  const cardReady = interpretation?.status === "ready";
+  const checks = card?.checks || [];
+  const passedChecks = checks.filter((item) => item.status === "passed").length;
+  const cardPassed = checks.length > 0 && passedChecks === checks.length;
   return (
     <section
-      className={cn("rounded-lg border bg-white p-5", ready ? "border-emerald-200" : "border-slate-200")}
+      className={cn("rounded-lg border bg-white p-5", eligible ? "border-emerald-200" : "border-slate-200")}
       data-testid="first-run-validation-card"
-      data-validation-ready={ready ? "true" : "false"}
+      data-validation-eligible={eligible ? "true" : "false"}
+      data-validation-passed={cardPassed ? "true" : "false"}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
-            <ClipboardCheck strokeWidth={1.5} className={cn("h-4 w-4", ready ? "text-emerald-600" : "text-slate-500")} />
+            <ClipboardCheck strokeWidth={1.5} className={cn("h-4 w-4", eligible ? "text-emerald-600" : "text-slate-500")} />
             结果验证卡
           </div>
           <div className="mt-1 text-xs text-slate-500">
-            {loadingCard ? "正在生成服务端验证卡" : cardReady ? "服务端验证卡已生成" : ready ? "等待服务端验证卡" : "等待结果包与 WorkflowRevision"}
+            {loadingCard ? "正在生成服务端验证卡" : cardPassed ? "服务端验证卡已通过" : card ? "服务端验证卡已加载" : eligible ? "等待服务端验证卡" : "等待结果包与 WorkflowRevision"}
           </div>
         </div>
-        <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs" disabled={!ready || downloading} onClick={onDownload}>
+        <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs" disabled={!eligible || downloading} onClick={onDownload}>
           {downloading ? <Loader2 strokeWidth={1.5} className="h-3.5 w-3.5 animate-spin" /> : <Download strokeWidth={1.5} className="h-3.5 w-3.5" />}
           JSON
         </Button>
@@ -191,7 +194,7 @@ export function ValidationCard({
         <KeyValue label="evidence" value={packageExport?.evidenceId} mono />
         <KeyValue label="card" value={card?.schemaVersion} mono />
         <KeyValue label="generated" value={card?.generatedAt} mono />
-        <KeyValue label="checks" value={card?.checks?.length ? `${card.checks.length} passed checks` : ""} />
+        <KeyValue label="checks" value={checks.length ? `${passedChecks}/${checks.length} passed checks` : ""} />
       </div>
 
       {card ? <ValidationCardEvidenceSummary card={card} /> : null}
@@ -206,16 +209,17 @@ function ValidationCardEvidenceSummary({ card }: { card: FirstRunValidationCard 
   const checks = card.checks || [];
   const packageExport = card.resultPackage || {};
   const keyResults = card.keyResults || [];
-  const allPassed = checks.length > 0 && checks.every((item) => item.status === "passed");
+  const passedChecks = checks.filter((item) => item.status === "passed").length;
+  const allPassed = checks.length > 0 && passedChecks === checks.length;
   return (
     <div className={cn("mt-4 rounded-md border p-3", allPassed ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50")} data-testid="first-run-validation-card-evidence">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className={cn("flex min-w-0 items-center gap-2 text-xs font-semibold", allPassed ? "text-emerald-950" : "text-amber-950")}>
           <CheckCircle2 strokeWidth={1.5} className={cn("h-3.5 w-3.5", allPassed ? "text-emerald-600" : "text-amber-600")} />
-          <span className="truncate">可信性检查已通过</span>
+          <span className="truncate">{allPassed ? "可信性检查已通过" : "可信性检查未全部通过"}</span>
         </div>
         <span className={cn("rounded-full border bg-white px-2 py-0.5 text-[11px]", allPassed ? "border-emerald-200 text-emerald-700" : "border-amber-200 text-amber-700")}>
-          {checks.length ? `${checks.length} checks` : "pending"}
+          {checks.length ? `${passedChecks}/${checks.length} passed` : "pending"}
         </span>
       </div>
       <div className="mt-3 grid gap-2 text-xs">

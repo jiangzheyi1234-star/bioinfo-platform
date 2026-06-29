@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
 
 import { useSshShell } from "./ssh-shell";
 import { useWorkflowsPageState } from "./use-workflows-page-state";
-import { FirstRunCompletionPanel } from "./workflow-first-run-completion";
+import { FirstRunCompletionPanel, firstRunValidationCardPassed } from "./workflow-first-run-completion";
 import {
   downloadFirstRunValidationCard,
   fetchFirstRunValidationCard,
@@ -97,7 +97,8 @@ export function WorkflowFirstRunPage() {
   const runFailed = run?.status === "failed" || run?.status === "error";
   const reportReady = runCompleted && artifacts.length > 0;
   const packageReady = Boolean(readyPackage);
-  const validationReady = runCompleted && packageReady && Boolean(workflowRevisionId);
+  const validationEligible = runCompleted && packageReady && Boolean(workflowRevisionId);
+  const validationReady = validationEligible && firstRunValidationCardPassed(validationCard);
 
   const steps = useMemo(
     () =>
@@ -170,7 +171,7 @@ export function WorkflowFirstRunPage() {
   }, [loadExecutionDiagnostics]);
 
   const loadValidationCard = useCallback(async () => {
-    if (!run?.runId || !validationReady) {
+    if (!run?.runId || !validationEligible) {
       setValidationCard(null);
       setValidationCardFetchError("");
       return;
@@ -185,7 +186,7 @@ export function WorkflowFirstRunPage() {
     } finally {
       setValidationCardFetchLoading(false);
     }
-  }, [run?.runId, state.server?.serverId, validationReady]);
+  }, [run?.runId, state.server?.serverId, validationEligible]);
 
   useEffect(() => {
     void loadValidationCard();
@@ -354,7 +355,7 @@ export function WorkflowFirstRunPage() {
               inputArtifacts={inputArtifacts}
               loadingCard={validationCardFetchLoading}
               packageExport={latestPackage}
-              ready={validationReady}
+              eligible={validationEligible}
               resultId={resultId}
               run={run}
               sampleUploads={state.sampleUploads}
