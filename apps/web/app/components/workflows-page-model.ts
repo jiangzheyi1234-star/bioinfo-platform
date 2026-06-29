@@ -171,6 +171,29 @@ export type WorkflowServer = {
   };
 };
 
+export type WorkflowExecutionReadinessReason = {
+  code?: string;
+  message?: string;
+};
+
+export type WorkflowExecutionReadiness = {
+  schemaVersion?: string;
+  ok?: boolean;
+  status?: string;
+  reasonCode?: string;
+  blockingReasons?: WorkflowExecutionReadinessReason[];
+  degradedReasons?: WorkflowExecutionReadinessReason[];
+  checks?: Record<string, boolean>;
+};
+
+export type WorkflowExecutionDiagnostics = {
+  schemaVersion?: string;
+  readiness?: WorkflowExecutionReadiness;
+  executionObservability?: {
+    schemaVersion?: string;
+  };
+};
+
 export type WorkflowServersResponse = {
   data: {
     items: WorkflowServer[];

@@ -67,6 +67,10 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "first-run-validation-card-interpretation" in first_run_validation
     assert "card: validationCard" in first_run_page
     assert "downloadFirstRunValidationCard" in first_run_page
+    assert "fetchWorkflowServerExecutionDiagnostics" in first_run_page
+    assert "executionDiagnostics?.readiness?.ok === true" in first_run_page
+    assert "state.canSubmit && executionReady" in first_run_page
+    assert "first-run-execution-diagnostics-blockers" in first_run_page
     assert "packageExports.some(firstRunResultPackageReady)" in first_run_page
     assert "runCompleted && packageReady && Boolean(workflowRevisionId)" in first_run_page
     assert "buildValidationCardPayload" not in first_run_source
@@ -79,6 +83,8 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "workflowResultPackageDownloadHref" in first_run_validation
     assert "refreshRunDetail" in hook
     assert "export async function uploadWorkflowSampleData" in api
+    assert "export async function fetchWorkflowServerExecutionDiagnostics" in api
+    assert "/api/v1/servers/${encodeURIComponent(serverId)}/execution-diagnostics" in api
     assert "uploadWorkflowSampleData(selectedPipelineId, serverId)" in hook
     assert "sampleUploadIntegrityPassed" in hook
     assert "WORKFLOW_SAMPLE_DATA_INTEGRITY_REQUIRED" in api

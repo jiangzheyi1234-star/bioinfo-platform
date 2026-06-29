@@ -22,6 +22,7 @@ import {
   type WorkflowArtifactPreview,
   type WorkflowCatalogItem,
   type WorkflowCatalogResponse,
+  type WorkflowExecutionDiagnostics,
   type WorkflowRun,
   type WorkflowRunDetail,
   type WorkflowRunDetailResponse,
@@ -367,6 +368,15 @@ export async function fetchWorkflowServer(options: FetchOptions = {}): Promise<W
   }, {
     forceRefresh: options.forceRefresh,
   });
+}
+
+export async function fetchWorkflowServerExecutionDiagnostics(serverId: string): Promise<WorkflowExecutionDiagnostics> {
+  const response = await requestLocalApiJson<{ data: WorkflowExecutionDiagnostics }>(
+    "GET",
+    `/api/v1/servers/${encodeURIComponent(serverId)}/execution-diagnostics`,
+    { cache: "no-store" }
+  );
+  return response.data;
 }
 
 export function getCachedWorkflowServer(): WorkflowServer | undefined {

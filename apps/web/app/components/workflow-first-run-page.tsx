@@ -37,10 +37,12 @@ import {
 } from "./workflow-first-run-validation";
 import {
   exportWorkflowResultPackage,
+  fetchWorkflowServerExecutionDiagnostics,
   fetchWorkflowResultPackageExports,
 } from "./workflows-page-api";
 import {
   workflowErrorMessage,
+  type WorkflowExecutionDiagnostics,
   type WorkflowResultPackageExport,
   type WorkflowRun,
   type WorkflowRunDetail,
@@ -61,6 +63,9 @@ export function WorkflowFirstRunPage() {
   const state = useWorkflowsPageState(FIRST_RUN_PIPELINE_ID);
   const [ensuringRunner, setEnsuringRunner] = useState(false);
   const [runnerError, setRunnerError] = useState("");
+  const [executionDiagnostics, setExecutionDiagnostics] = useState<WorkflowExecutionDiagnostics | null>(null);
+  const [executionDiagnosticsLoading, setExecutionDiagnosticsLoading] = useState(false);
+  const [executionDiagnosticsError, setExecutionDiagnosticsError] = useState("");
   const [packageExports, setPackageExports] = useState<WorkflowResultPackageExport[]>([]);
   const [packageLoading, setPackageLoading] = useState(false);
   const [packageError, setPackageError] = useState("");
@@ -80,7 +85,8 @@ export function WorkflowFirstRunPage() {
   const workflowRevisionId = workflowRevisionIdFor(run, state.runDetail, packageExports[0]);
   const selectedWorkflowReady = state.selectedWorkflow?.id === FIRST_RUN_PIPELINE_ID && state.selectedWorkflow.runnable;
   const serverConnected = Boolean(state.server?.connected);
-  const serverReady = Boolean(state.server?.ready);
+  const executionReady = executionDiagnostics?.readiness?.ok === true;
+  const serverReady = Boolean(state.server?.ready) && executionReady;
   const sampleReady = sampleUploadsReady(state.sampleUploads);
   const runSubmitted = Boolean(run?.runId);
   const runTerminal = isTerminalRun(run);
@@ -138,6 +144,29 @@ export function WorkflowFirstRunPage() {
     void loadPackageExports();
   }, [loadPackageExports]);
 
+  const loadExecutionDiagnostics = useCallback(async () => {
+    const serverId = state.server?.serverId || "";
+    if (!serverId) {
+      setExecutionDiagnostics(null);
+      setExecutionDiagnosticsError("");
+      return;
+    }
+    setExecutionDiagnosticsLoading(true);
+    setExecutionDiagnosticsError("");
+    try {
+      setExecutionDiagnostics(await fetchWorkflowServerExecutionDiagnostics(serverId));
+    } catch (err) {
+      setExecutionDiagnostics(null);
+      setExecutionDiagnosticsError(workflowErrorMessage(err, "execution diagnostics 读取失败"));
+    } finally {
+      setExecutionDiagnosticsLoading(false);
+    }
+  }, [state.server?.serverId]);
+
+  useEffect(() => {
+    void loadExecutionDiagnostics();
+  }, [loadExecutionDiagnostics]);
+
   const loadValidationCard = useCallback(async () => {
     if (!run?.runId || !validationReady) {
       setValidationCard(null);
@@ -174,6 +203,7 @@ export function WorkflowFirstRunPage() {
         cache: "no-store",
       });
       await state.loadWorkspace({ forceRefresh: true });
+      await loadExecutionDiagnostics();
     } catch (err) {
       setRunnerError(workflowErrorMessage(err, "runner readiness 准备失败"));
     } finally {
@@ -256,17 +286,22 @@ export function WorkflowFirstRunPage() {
             <RunnerReadinessPanel
               canEnsure={Boolean(state.server?.serverId)}
               connected={serverConnected}
+              diagnostics={executionDiagnostics}
+              diagnosticsError={executionDiagnosticsError}
+              diagnosticsLoading={executionDiagnosticsLoading}
               ensuring={ensuringRunner}
               error={runnerError}
               loading={state.loading}
-              ready={serverReady}
               server={state.server}
               onConnect={openConnectDialog}
               onEnsure={() => void ensureRunner()}
-              onRefresh={() => void state.loadWorkspace({ forceRefresh: true })}
+              onRefresh={() => {
+                void state.loadWorkspace({ forceRefresh: true });
+                void loadExecutionDiagnostics();
+              }}
             />
             <SampleAndSubmitPanel
-              canSubmit={state.canSubmit}
+              canSubmit={state.canSubmit && executionReady}
               loading={state.loading}
               pipelineReady={selectedWorkflowReady}
               sampleLoading={state.sampleLoading}
@@ -345,27 +380,32 @@ function FirstRunSteps({ steps }: { steps: FirstRunStep[] }) {
 function RunnerReadinessPanel({
   canEnsure,
   connected,
+  diagnostics,
+  diagnosticsError,
+  diagnosticsLoading,
   ensuring,
   error,
   loading,
   onConnect,
   onEnsure,
   onRefresh,
-  ready,
   server,
 }: {
   canEnsure: boolean;
   connected: boolean;
+  diagnostics: WorkflowExecutionDiagnostics | null;
+  diagnosticsError: string;
+  diagnosticsLoading: boolean;
   ensuring: boolean;
   error: string;
   loading: boolean;
   onConnect: () => void;
   onEnsure: () => void;
   onRefresh: () => void;
-  ready: boolean;
   server: FirstRunState["server"];
 }) {
   const checks = runnerChecks(server);
+  const executionReadiness = diagnostics?.readiness;
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -407,13 +447,30 @@ function RunnerReadinessPanel({
         </Alert>
       ) : null}
 
+      {diagnosticsError ? (
+        <Alert variant="destructive" className="mt-3">
+          <AlertCircle strokeWidth={1.5} className="h-4 w-4" />
+          <AlertDescription>{diagnosticsError}</AlertDescription>
+        </Alert>
+      ) : null}
+
       <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         <ReadinessCheck label="SSH" ok={connected} detail={connected ? "connected" : "未连接"} />
-        <ReadinessCheck label="Runner" ok={ready} detail={server?.runner?.message || server?.message || server?.reasonCode || "未检查"} />
+        <ReadinessCheck label="Runner" ok={Boolean(server?.ready)} detail={server?.runner?.message || server?.message || server?.reasonCode || "未检查"} />
+        <ReadinessCheck
+          label="Execution"
+          ok={executionReadiness?.ok === true}
+          detail={executionDiagnosticsDetail(diagnostics, diagnosticsLoading)}
+        />
         {checks.map((check) => (
           <ReadinessCheck key={check.label} label={check.label} ok={check.ok} detail={check.detail} />
         ))}
       </div>
+      {executionReadiness?.blockingReasons?.length ? (
+        <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs leading-5 text-red-700" data-testid="first-run-execution-diagnostics-blockers">
+          {executionReadiness.blockingReasons.slice(0, 3).map((reason) => reason.code || reason.message || "EXECUTION_NOT_READY").join(" / ")}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -602,6 +659,14 @@ function runnerChecks(server: FirstRunState["server"]) {
       detail: server?.runner?.bootstrapMetadata?.canary?.status || server?.runner?.bootstrapMetadata?.canary?.message || "",
     },
   ];
+}
+
+function executionDiagnosticsDetail(diagnostics: WorkflowExecutionDiagnostics | null, loading: boolean) {
+  if (loading) return "checking execution readiness";
+  const readiness = diagnostics?.readiness;
+  if (!readiness) return "未检查 execution diagnostics";
+  if (readiness.ok) return readiness.status || "ok";
+  return readiness.reasonCode || readiness.blockingReasons?.[0]?.code || readiness.status || "not ready";
 }
 
 function resultPackageDisabledReason({
