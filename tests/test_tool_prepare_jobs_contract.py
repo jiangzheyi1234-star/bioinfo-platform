@@ -31,22 +31,22 @@ def test_prepare_uses_async_job_contract_across_api_layers() -> None:
     storage_schema = (ROOT / "apps" / "remote_runner" / "storage_schema.py").read_text(encoding="utf-8")
     job_storage = (ROOT / "apps" / "remote_runner" / "tool_prepare_job_storage.py").read_text(encoding="utf-8")
 
-    assert '@router.post("/api/v1/tools/prepare-jobs", status_code=202)' in remote_route
-    assert '@router.get("/api/v1/tools/prepare-jobs")' in remote_route
-    assert '@router.get("/api/v1/tools/prepare-jobs/{job_id}")' in remote_route
-    assert '@router.post("/api/v1/tools/prepare-jobs/{job_id}/cancel")' in remote_route
+    assert "operation_id=REMOTE_ENDPOINTS[TOOL_PREPARE_JOB_CREATE].operation_id" in remote_route
+    assert "operation_id=REMOTE_ENDPOINTS[TOOL_PREPARE_JOB_LATEST_READ].operation_id" in remote_route
+    assert "operation_id=REMOTE_ENDPOINTS[TOOL_PREPARE_JOB_READ].operation_id" in remote_route
+    assert "operation_id=REMOTE_ENDPOINTS[TOOL_PREPARE_JOB_CANCEL].operation_id" in remote_route
 
-    assert '@router.post("/api/v1/tools/prepare-jobs", status_code=202)' in local_route
-    assert '@router.get("/api/v1/tools/prepare-jobs/{job_id}")' in local_route
-    assert '@router.post("/api/v1/tools/prepare-jobs/{job_id}/cancel")' in local_route
+    assert "operation_id=REMOTE_ENDPOINTS[TOOL_PREPARE_JOB_CREATE].operation_id" in local_route
+    assert "operation_id=REMOTE_ENDPOINTS[TOOL_PREPARE_JOB_READ].operation_id" in local_route
+    assert "operation_id=REMOTE_ENDPOINTS[TOOL_PREPARE_JOB_CANCEL].operation_id" in local_route
 
-    assert "def create_tool_prepare_job" in proxy
-    assert 'client.post_json("/api/v1/tools/prepare-jobs"' in proxy
-    assert "def list_latest_tool_prepare_jobs" in proxy
-    assert 'client.get_json(f"/api/v1/tools/prepare-jobs?toolIds={tool_ids}"' in proxy
-    assert "def get_tool_prepare_job" in proxy
-    assert 'client.get_json(f"/api/v1/tools/prepare-jobs/{kwargs' in proxy
-    assert "def cancel_tool_prepare_job" in proxy
+    assert "def create_tool_prepare_job" not in proxy
+    assert 'client.post_json("/api/v1/tools/prepare-jobs"' not in proxy
+    assert "def list_latest_tool_prepare_jobs" not in proxy
+    assert 'client.get_json(f"/api/v1/tools/prepare-jobs?toolIds={tool_ids}"' not in proxy
+    assert "def get_tool_prepare_job" not in proxy
+    assert 'client.get_json(f"/api/v1/tools/prepare-jobs/{kwargs' not in proxy
+    assert "def cancel_tool_prepare_job" not in proxy
 
     assert "RunnerToolOperationsMixin" in runner_ops
     assert "def create_tool_prepare_job" in runner_tool_ops

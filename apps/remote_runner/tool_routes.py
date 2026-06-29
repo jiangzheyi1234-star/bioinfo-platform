@@ -7,7 +7,19 @@ from typing import Any
 from fastapi import APIRouter
 
 from core.contracts.remote_endpoints import REMOTE_ENDPOINTS
-from core.contracts.tool_remote_endpoints import TOOL_INDEX_READ, TOOL_LIST
+from core.contracts.tool_remote_endpoints import (
+    TOOL_CREATE,
+    TOOL_DELETE,
+    TOOL_INDEX_READ,
+    TOOL_LIST,
+    TOOL_PREPARE_JOB_CANCEL,
+    TOOL_PREPARE_JOB_CREATE,
+    TOOL_PREPARE_JOB_LATEST_READ,
+    TOOL_PREPARE_JOB_QUEUE_READ,
+    TOOL_PREPARE_JOB_READ,
+    TOOL_PRODUCTION_ENABLE,
+    TOOL_RULE_TEMPLATE_UPDATE,
+)
 
 from .api_models import ToolManifestRequest, ToolProductionEvidenceRequest, ToolRuleTemplateRequest
 from .route_headers import AuthorizationHeader
@@ -53,12 +65,16 @@ async def get_tool_index(
     )
 
 
-@router.post("/api/v1/tools", status_code=201)
+@router.post("/api/v1/tools", status_code=201, operation_id=REMOTE_ENDPOINTS[TOOL_CREATE].operation_id)
 async def add_tool(payload: ToolManifestRequest, authorization: AuthorizationHeader = None) -> dict[str, Any]:
     return await add_tool_from_request(payload, authorization)
 
 
-@router.post("/api/v1/tools/prepare-jobs", status_code=202)
+@router.post(
+    "/api/v1/tools/prepare-jobs",
+    status_code=202,
+    operation_id=REMOTE_ENDPOINTS[TOOL_PREPARE_JOB_CREATE].operation_id,
+)
 async def create_prepare_job(
     payload: ToolManifestRequest,
     authorization: AuthorizationHeader = None,
@@ -69,12 +85,15 @@ async def create_prepare_job(
     )
 
 
-@router.get("/api/v1/tools/prepare-jobs")
+@router.get("/api/v1/tools/prepare-jobs", operation_id=REMOTE_ENDPOINTS[TOOL_PREPARE_JOB_LATEST_READ].operation_id)
 async def list_latest_prepare_jobs(toolIds: str = "", authorization: AuthorizationHeader = None) -> dict[str, Any]:
     return await list_latest_tool_prepare_jobs_from_request(toolIds, authorization)
 
 
-@router.get("/api/v1/tools/prepare-jobs/queue")
+@router.get(
+    "/api/v1/tools/prepare-jobs/queue",
+    operation_id=REMOTE_ENDPOINTS[TOOL_PREPARE_JOB_QUEUE_READ].operation_id,
+)
 async def list_prepare_job_queue(
     status: str = "",
     limit: int = 50,
@@ -89,17 +108,26 @@ async def list_prepare_job_queue(
     )
 
 
-@router.get("/api/v1/tools/prepare-jobs/{job_id}")
+@router.get(
+    "/api/v1/tools/prepare-jobs/{job_id}",
+    operation_id=REMOTE_ENDPOINTS[TOOL_PREPARE_JOB_READ].operation_id,
+)
 async def get_prepare_job(job_id: str, authorization: AuthorizationHeader = None) -> dict[str, Any]:
     return await get_tool_prepare_job_from_request(job_id, authorization)
 
 
-@router.post("/api/v1/tools/prepare-jobs/{job_id}/cancel")
+@router.post(
+    "/api/v1/tools/prepare-jobs/{job_id}/cancel",
+    operation_id=REMOTE_ENDPOINTS[TOOL_PREPARE_JOB_CANCEL].operation_id,
+)
 async def cancel_prepare_job(job_id: str, authorization: AuthorizationHeader = None) -> dict[str, Any]:
     return await cancel_tool_prepare_job_from_request(job_id, authorization)
 
 
-@router.patch("/api/v1/tools/{tool_id}/rule-template")
+@router.patch(
+    "/api/v1/tools/{tool_id}/rule-template",
+    operation_id=REMOTE_ENDPOINTS[TOOL_RULE_TEMPLATE_UPDATE].operation_id,
+)
 async def update_tool_rule_template_api(
     tool_id: str,
     payload: ToolRuleTemplateRequest,
@@ -108,12 +136,15 @@ async def update_tool_rule_template_api(
     return await update_tool_rule_template_from_request(tool_id, payload, authorization)
 
 
-@router.delete("/api/v1/tools/{tool_id}")
+@router.delete("/api/v1/tools/{tool_id}", operation_id=REMOTE_ENDPOINTS[TOOL_DELETE].operation_id)
 async def delete_tool_api(tool_id: str, authorization: AuthorizationHeader = None) -> dict[str, Any]:
     return await delete_tool_from_request(tool_id, authorization)
 
 
-@router.post("/api/v1/tools/{tool_id}/production")
+@router.post(
+    "/api/v1/tools/{tool_id}/production",
+    operation_id=REMOTE_ENDPOINTS[TOOL_PRODUCTION_ENABLE].operation_id,
+)
 async def mark_tool_production_api(
     tool_id: str,
     payload: ToolProductionEvidenceRequest,

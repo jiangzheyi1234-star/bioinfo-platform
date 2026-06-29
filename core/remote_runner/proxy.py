@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from typing import Any
-from urllib.parse import quote, urlencode
 
 from config import resolve_runner_token
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
@@ -82,86 +81,6 @@ class RemoteRunnerProxyMixin:
             release_tag=str(release.get("releaseTag") or record.get("bootstrap_version") or ""),
             source_commit=str(release.get("sourceCommit") or ""),
         )
-
-    def add_tool(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        return client.post_json("/api/v1/tools", kwargs["payload"])["data"]
-
-    def create_tool_prepare_job(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        return client.post_json("/api/v1/tools/prepare-jobs", kwargs["payload"])["data"]
-
-    def list_latest_tool_prepare_jobs(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        tool_ids = quote(",".join(str(item or "").strip() for item in kwargs.get("tool_ids") or []), safe="")
-        return client.get_json(f"/api/v1/tools/prepare-jobs?toolIds={tool_ids}")["data"]["byToolId"]
-
-    def list_tool_prepare_job_queue(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        query = urlencode(
-            {
-                "status": kwargs.get("status") or "",
-                "limit": int(kwargs.get("limit") or 50),
-                "offset": int(kwargs.get("offset") or 0),
-            }
-        )
-        return client.get_json(f"/api/v1/tools/prepare-jobs/queue?{query}")["data"]
-
-    def get_tool_prepare_job(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        return client.get_json(f"/api/v1/tools/prepare-jobs/{kwargs['job_id']}")["data"]
-
-    def cancel_tool_prepare_job(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        return client.post_json(f"/api/v1/tools/prepare-jobs/{kwargs['job_id']}/cancel", {})["data"]
-
-    def update_tool_rule_template(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        return client.patch_json(f"/api/v1/tools/{kwargs['tool_id']}/rule-template", kwargs["payload"])["data"]
-
-    def delete_tool(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        return client.delete_json(f"/api/v1/tools/{kwargs['tool_id']}")["data"]
-
-    def mark_tool_production_enabled(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        return client.post_json(f"/api/v1/tools/{kwargs['tool_id']}/production", kwargs["payload"])["data"]
 
     def _open_runner_tunnel(self, *, server_id: str, ssh_service, remote_port: int):
         try:

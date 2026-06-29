@@ -783,8 +783,8 @@ def test_local_staged_remote_runner_artifact_contains_tool_prepare_endpoint() ->
         "remote_runner/tool_revisions.py",
         "remote_runner/tool_service.py",
     }.issubset(names)
-    assert '@router.get("/api/v1/tools/index")' in routes_text
-    assert '@router.post("/api/v1/tools/prepare-jobs", status_code=202)' in routes_text
+    assert "operation_id=REMOTE_ENDPOINTS[TOOL_INDEX_READ].operation_id" in routes_text
+    assert "operation_id=REMOTE_ENDPOINTS[TOOL_PREPARE_JOB_CREATE].operation_id" in routes_text
     assert "list_tool_index_from_request" in service_text
     assert "create_tool_prepare_job_response_from_request" in service_text
     assert "run_tool_prepare_job" not in service_text

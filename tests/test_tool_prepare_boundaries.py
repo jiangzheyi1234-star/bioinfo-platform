@@ -41,10 +41,10 @@ def test_tool_prepare_is_exposed_through_api_layers() -> None:
     frontend_state = (root / "apps" / "web" / "app" / "components" / "use-tools-page-state.ts").read_text(
         encoding="utf-8"
     )
-    assert '@router.post("/api/v1/tools/prepare-jobs", status_code=202)' in remote_route
-    assert '@router.post("/api/v1/tools/prepare-jobs", status_code=202)' in local_route
-    assert "def create_tool_prepare_job" in proxy
-    assert 'client.post_json("/api/v1/tools/prepare-jobs"' in proxy
+    assert "operation_id=REMOTE_ENDPOINTS[TOOL_PREPARE_JOB_CREATE].operation_id" in remote_route
+    assert "operation_id=REMOTE_ENDPOINTS[TOOL_PREPARE_JOB_CREATE].operation_id" in local_route
+    assert "def create_tool_prepare_job" not in proxy
+    assert 'client.post_json("/api/v1/tools/prepare-jobs"' not in proxy
     assert "RunnerToolOperationsMixin" in runner_ops
     assert "def create_tool_prepare_job" in runner_tool_ops
     assert '"/api/v1/tools/prepare-jobs"' in frontend_api

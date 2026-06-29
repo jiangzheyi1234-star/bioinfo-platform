@@ -3,7 +3,19 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from core.app_runtime.managers.base import BaseRuntimeManager
-from core.contracts.tool_remote_endpoints import TOOL_INDEX_READ, TOOL_LIST
+from core.contracts.tool_remote_endpoints import (
+    TOOL_CREATE,
+    TOOL_DELETE,
+    TOOL_INDEX_READ,
+    TOOL_LIST,
+    TOOL_PREPARE_JOB_CANCEL,
+    TOOL_PREPARE_JOB_CREATE,
+    TOOL_PREPARE_JOB_LATEST_READ,
+    TOOL_PREPARE_JOB_QUEUE_READ,
+    TOOL_PREPARE_JOB_READ,
+    TOOL_PRODUCTION_ENABLE,
+    TOOL_RULE_TEMPLATE_UPDATE,
+)
 
 
 class ToolManager(BaseRuntimeManager):
@@ -43,10 +55,12 @@ class ToolManager(BaseRuntimeManager):
         body = dict(payload or {})
         preferred_server_id = body.pop("serverId", None)
         return {
-            "data": self.call_existing_runner(
-                "add_tool",
-                preferred_server_id=preferred_server_id,
+            "data": self.call_remote_endpoint(
+                TOOL_CREATE,
+                path_values={},
                 payload=body,
+                preferred_server_id=preferred_server_id,
+                require_existing_runner=True,
             )
         }
 
@@ -54,19 +68,24 @@ class ToolManager(BaseRuntimeManager):
         body = dict(payload or {})
         preferred_server_id = body.pop("serverId", None)
         return {
-            "data": self.call_existing_runner(
-                "create_tool_prepare_job",
-                preferred_server_id=preferred_server_id,
+            "data": self.call_remote_endpoint(
+                TOOL_PREPARE_JOB_CREATE,
+                path_values={},
                 payload=body,
+                preferred_server_id=preferred_server_id,
+                require_existing_runner=True,
             )
         }
 
     def list_latest_tool_prepare_jobs(self, tool_ids: list[str]) -> dict[str, Any]:
+        encoded_tool_ids = ",".join(str(item or "").strip() for item in tool_ids if str(item or "").strip())
         return {
             "data": {
-                "byToolId": self.call_existing_runner(
-                    "list_latest_tool_prepare_jobs",
-                    tool_ids=tool_ids,
+                "byToolId": self.call_remote_endpoint(
+                    TOOL_PREPARE_JOB_LATEST_READ,
+                    path_values={},
+                    query_values={"toolIds": encoded_tool_ids},
+                    require_existing_runner=True,
                 )
             }
         }
@@ -79,27 +98,29 @@ class ToolManager(BaseRuntimeManager):
         offset: int = 0,
     ) -> dict[str, Any]:
         return {
-            "data": self.call_existing_runner(
-                "list_tool_prepare_job_queue",
-                status=status,
-                limit=limit,
-                offset=offset,
+            "data": self.call_remote_endpoint(
+                TOOL_PREPARE_JOB_QUEUE_READ,
+                path_values={},
+                query_values={"status": status, "limit": limit, "offset": offset},
+                require_existing_runner=True,
             )
         }
 
     def get_tool_prepare_job(self, job_id: str) -> dict[str, Any]:
         return {
-            "data": self.call_existing_runner(
-                "get_tool_prepare_job",
-                job_id=job_id,
+            "data": self.call_remote_endpoint(
+                TOOL_PREPARE_JOB_READ,
+                path_values={"job_id": job_id},
+                require_existing_runner=True,
             )
         }
 
     def cancel_tool_prepare_job(self, job_id: str) -> dict[str, Any]:
         return {
-            "data": self.call_existing_runner(
-                "cancel_tool_prepare_job",
-                job_id=job_id,
+            "data": self.call_remote_endpoint(
+                TOOL_PREPARE_JOB_CANCEL,
+                path_values={"job_id": job_id},
+                require_existing_runner=True,
             )
         }
 
@@ -107,19 +128,21 @@ class ToolManager(BaseRuntimeManager):
         body = dict(payload or {})
         preferred_server_id = body.pop("serverId", None)
         return {
-            "data": self.call_existing_runner(
-                "update_tool_rule_template",
-                preferred_server_id=preferred_server_id,
-                tool_id=tool_id,
+            "data": self.call_remote_endpoint(
+                TOOL_RULE_TEMPLATE_UPDATE,
+                path_values={"tool_id": tool_id},
                 payload=body,
+                preferred_server_id=preferred_server_id,
+                require_existing_runner=True,
             )
         }
 
     def delete_tool(self, tool_id: str) -> dict[str, Any]:
         return {
-            "data": self.call_existing_runner(
-                "delete_tool",
-                tool_id=tool_id,
+            "data": self.call_remote_endpoint(
+                TOOL_DELETE,
+                path_values={"tool_id": tool_id},
+                require_existing_runner=True,
             )
         }
 
@@ -127,10 +150,11 @@ class ToolManager(BaseRuntimeManager):
         body = dict(payload or {})
         preferred_server_id = body.pop("serverId", None)
         return {
-            "data": self.call_existing_runner(
-                "mark_tool_production_enabled",
-                preferred_server_id=preferred_server_id,
-                tool_id=tool_id,
+            "data": self.call_remote_endpoint(
+                TOOL_PRODUCTION_ENABLE,
+                path_values={"tool_id": tool_id},
                 payload=body,
+                preferred_server_id=preferred_server_id,
+                require_existing_runner=True,
             )
         }

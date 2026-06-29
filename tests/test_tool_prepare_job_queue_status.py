@@ -106,14 +106,15 @@ def test_prepare_job_queue_api_layers_are_exposed() -> None:
     proxy = (root / "core" / "remote_runner" / "proxy.py").read_text(encoding="utf-8")
     manager = (root / "core" / "app_runtime" / "managers" / "tool.py").read_text(encoding="utf-8")
 
-    assert '@router.get("/api/v1/tools/prepare-jobs/queue")' in remote_route
+    assert "operation_id=REMOTE_ENDPOINTS[TOOL_PREPARE_JOB_QUEUE_READ].operation_id" in remote_route
     assert "list_tool_prepare_job_queue_from_request" in remote_route
     assert "def list_tool_prepare_job_queue_from_request(" in remote_service
     assert "list_tool_prepare_jobs" in remote_service
-    assert '@router.get("/api/v1/tools/prepare-jobs/queue")' in local_route
+    assert "operation_id=REMOTE_ENDPOINTS[TOOL_PREPARE_JOB_QUEUE_READ].operation_id" in local_route
     assert "list_tool_prepare_job_queue_from_request" in local_route
     assert "def list_tool_prepare_job_queue_from_request(" in local_service
-    assert "def list_tool_prepare_job_queue" in proxy
+    assert "def list_tool_prepare_job_queue" not in proxy
+    assert 'client.get_json(f"/api/v1/tools/prepare-jobs/queue' not in proxy
     assert "def list_tool_prepare_job_queue" in manager
 
 

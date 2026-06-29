@@ -679,9 +679,9 @@ def test_tool_routes_delegate_request_dumping_to_service() -> None:
     assert '@app.post("/api/v1/tools", status_code=201)' not in main_source
 
     tool_list_start = route_source.index('@router.get("/api/v1/tools",')
-    tool_list_end = route_source.index('@router.post("/api/v1/tools", status_code=201)')
+    tool_list_end = route_source.index('@router.post("/api/v1/tools",')
     tool_list_route = route_source[tool_list_start:tool_list_end]
-    tool_route_start = route_source.index('@router.post("/api/v1/tools", status_code=201)')
+    tool_route_start = route_source.index('@router.post("/api/v1/tools",')
     tool_route_end = len(route_source)
     tool_routes = route_source[tool_route_start:tool_route_end]
 
