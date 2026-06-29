@@ -11,6 +11,7 @@ from apps.api.workflow_sample_data_service import MOVING_PICTURES_PIPELINE_ID
 SCENARIO_PACK_SCHEMA_VERSION = "h2ometa.workflow-scenario-pack.v1"
 SCENARIO_PACK_CATALOG_SCHEMA_VERSION = "h2ometa.workflow-scenario-pack-catalog.v1"
 SCENARIO_DATABASE_HANDOFF_SCHEMA_VERSION = "h2ometa.workflow-scenario-database-handoff.v1"
+SCENARIO_SAMPLE_DATA_HANDOFF_SCHEMA_VERSION = "h2ometa.workflow-scenario-sample-data-handoff.v1"
 _ALLOWED_ACTION_TARGETS = {
     "/workflows/first-run",
     "/workflows/tools",
@@ -83,6 +84,7 @@ def _scenario_pack(definition: dict[str, Any], pipelines: dict[str, dict[str, An
         "firstRunPath": definition["firstRunPath"] if status == "ready" else "",
         "workflowPath": f"/workflows/detail?workflow={pipeline_id}" if pipeline_ready else "",
         "sampleData": definition["sampleData"],
+        "sampleDataHandoff": _sample_data_handoff(definition),
         "requiredWorkflowReadyTools": definition["requiredWorkflowReadyTools"],
         "requiredDatabases": definition["requiredDatabases"],
         "databaseHandoff": _database_handoff(definition),
@@ -132,6 +134,7 @@ def _validate_scenario_definition(
         raise WorkflowScenarioPackCatalogError("SCENARIO_TOOL_SLICE_REQUIRED")
     if not definition.get("resultEvidence"):
         raise WorkflowScenarioPackCatalogError("SCENARIO_RESULT_EVIDENCE_REQUIRED")
+    _validate_sample_data_handoff(definition)
     _validate_database_handoff(definition)
     pipeline_id = str(definition.get("pipelineId") or "")
     pipeline_ready = bool(pipeline_id in pipelines and pipelines[pipeline_id].get("enabled", True))
@@ -218,6 +221,35 @@ def _validate_database_templates(definition: dict[str, Any]) -> None:
         for template_id in templates or []:
             if str(template_id or "") not in _KNOWN_DATABASE_TEMPLATES:
                 raise WorkflowScenarioPackCatalogError(f"SCENARIO_DATABASE_TEMPLATE_UNKNOWN: {template_id}")
+
+
+def _validate_sample_data_handoff(definition: dict[str, Any]) -> None:
+    handoff = _sample_data_handoff(definition)
+    if handoff["schemaVersion"] != SCENARIO_SAMPLE_DATA_HANDOFF_SCHEMA_VERSION:
+        raise WorkflowScenarioPackCatalogError("SCENARIO_SAMPLE_DATA_HANDOFF_SCHEMA_INVALID")
+    gate_codes = {str(item.get("code") or "") for item in definition.get("gates") or [] if isinstance(item, dict)}
+    if "SCENARIO_SAMPLE_DATA_READY" not in gate_codes:
+        raise WorkflowScenarioPackCatalogError("SCENARIO_SAMPLE_DATA_HANDOFF_GATE_REQUIRED")
+    if not handoff["noAutomaticExecution"]:
+        raise WorkflowScenarioPackCatalogError("SCENARIO_SAMPLE_DATA_HANDOFF_MANUAL_REQUIRED")
+    if handoff["status"] == "operator_required" and not handoff["operatorActionRequired"]:
+        raise WorkflowScenarioPackCatalogError("SCENARIO_SAMPLE_DATA_HANDOFF_MANUAL_REQUIRED")
+    if handoff["status"] == "ready" and handoff["operatorActionRequired"]:
+        raise WorkflowScenarioPackCatalogError("SCENARIO_SAMPLE_DATA_HANDOFF_MANUAL_REQUIRED")
+    checklist_codes = {item["code"] for item in handoff["checklist"]}
+    required_codes = {
+        "SELECT_FIXTURE",
+        "DECLARE_INPUT_ROLES",
+        "VERIFY_CHECKSUMS",
+        "RECORD_SOURCE",
+        "RUN_ACCEPTANCE",
+    }
+    if not required_codes <= checklist_codes:
+        raise WorkflowScenarioPackCatalogError("SCENARIO_SAMPLE_DATA_HANDOFF_CHECKLIST_INCOMPLETE")
+    if any(item["status"] not in {"operator_required", "passed"} for item in handoff["checklist"]):
+        raise WorkflowScenarioPackCatalogError("SCENARIO_SAMPLE_DATA_HANDOFF_STATUS_INVALID")
+    if set(handoff["excludedActions"]) != {"automatic-download", "automatic-fixture-generation", "unverified-example-data"}:
+        raise WorkflowScenarioPackCatalogError("SCENARIO_SAMPLE_DATA_HANDOFF_EXCLUSIONS_INVALID")
 
 
 def _validate_database_handoff(definition: dict[str, Any]) -> None:
@@ -332,6 +364,95 @@ def _action_label(code: str) -> str:
         "SCENARIO_TOOL_SLICE_READY": "收敛 3-5 个 WorkflowReady 工具",
     }
     return labels.get(code, "补齐场景准入条件")
+
+
+def _sample_data_handoff(definition: dict[str, Any]) -> dict[str, Any]:
+    ready = _gate_passed(definition, "SCENARIO_SAMPLE_DATA_READY")
+    sample_data = definition.get("sampleData") or {}
+    mode = str(sample_data.get("mode") or "").strip()
+    if mode == "bundled-loader":
+        handoff_mode = "bundled_loader"
+    else:
+        handoff_mode = "operator_provided"
+    return {
+        "schemaVersion": SCENARIO_SAMPLE_DATA_HANDOFF_SCHEMA_VERSION,
+        "mode": handoff_mode,
+        "status": "ready" if ready else "operator_required",
+        "operatorActionRequired": not ready,
+        "noAutomaticExecution": True,
+        "inputOptions": _sample_data_input_options(definition),
+        "checklist": _sample_data_handoff_checklist(ready=ready),
+        "evidencePolicy": {
+            "requiresChecksum": True,
+            "requiresSource": True,
+            "requiresInputRoles": True,
+            "requiresSmallFixture": True,
+            "requiresResultValidationCard": True,
+        },
+        "excludedActions": ["automatic-download", "automatic-fixture-generation", "unverified-example-data"],
+    }
+
+
+def _sample_data_input_options(definition: dict[str, Any]) -> list[dict[str, Any]]:
+    scenario_id = str(definition.get("scenarioId") or "")
+    if scenario_id == "moving-pictures-16s":
+        return [
+            {"role": "metadata", "formats": ["tsv"], "required": True},
+            {"role": "barcodes", "formats": ["fastq.gz"], "required": True},
+            {"role": "sequences", "formats": ["fastq.gz"], "required": True},
+        ]
+    if scenario_id == "taxonomy-classification":
+        return [
+            {"role": "reads", "formats": ["fastq.gz"], "required": False},
+            {"role": "contigs", "formats": ["fna", "fasta"], "required": False},
+        ]
+    if scenario_id == "amr-annotation":
+        return [
+            {"role": "contigs", "formats": ["fna", "fasta"], "required": False},
+            {"role": "proteins", "formats": ["faa", "fasta"], "required": False},
+        ]
+    return [{"role": "input", "formats": [str(item) for item in (definition.get("sampleData") or {}).get("items") or []], "required": True}]
+
+
+def _sample_data_handoff_checklist(*, ready: bool) -> list[dict[str, str]]:
+    status = "passed" if ready else "operator_required"
+    return [
+        {
+            "code": "SELECT_FIXTURE",
+            "label": "选择小型真实 fixture",
+            "status": status,
+            "target": "/workflows/tools",
+            "evidence": "fixture source and scope recorded",
+        },
+        {
+            "code": "DECLARE_INPUT_ROLES",
+            "label": "声明输入角色和格式",
+            "status": status,
+            "target": "/workflows/tools",
+            "evidence": "input roles match scenario inputOptions",
+        },
+        {
+            "code": "VERIFY_CHECKSUMS",
+            "label": "记录文件 checksum",
+            "status": status,
+            "target": "/workflows/tools",
+            "evidence": "sha256 manifest for every fixture file",
+        },
+        {
+            "code": "RECORD_SOURCE",
+            "label": "记录来源和许可",
+            "status": status,
+            "target": "/workflows/tools",
+            "evidence": "source URL, accession, or local custody note",
+        },
+        {
+            "code": "RUN_ACCEPTANCE",
+            "label": "用 fixture 跑出验证卡",
+            "status": status,
+            "target": "/workflows/results",
+            "evidence": "completed run with validationCard and resultPackage",
+        },
+    ]
 
 
 def _database_handoff(definition: dict[str, Any]) -> dict[str, Any]:

@@ -131,6 +131,30 @@ export type WorkflowScenarioDatabaseHandoff = {
   excludedActions?: string[];
 };
 
+export type WorkflowScenarioSampleDataHandoff = {
+  schemaVersion?: string;
+  mode?: "bundled_loader" | "operator_provided" | string;
+  status?: "operator_required" | "ready" | string;
+  operatorActionRequired?: boolean;
+  noAutomaticExecution?: boolean;
+  inputOptions?: Array<{ role?: string; formats?: string[]; required?: boolean }>;
+  checklist?: Array<{
+    code?: string;
+    label?: string;
+    status?: "operator_required" | "passed" | string;
+    target?: string;
+    evidence?: string;
+  }>;
+  evidencePolicy?: {
+    requiresChecksum?: boolean;
+    requiresSource?: boolean;
+    requiresInputRoles?: boolean;
+    requiresSmallFixture?: boolean;
+    requiresResultValidationCard?: boolean;
+  };
+  excludedActions?: string[];
+};
+
 export type WorkflowScenarioPack = {
   schemaVersion: string;
   packId: string;
@@ -150,6 +174,7 @@ export type WorkflowScenarioPack = {
     source?: string;
     items?: string[];
   };
+  sampleDataHandoff?: WorkflowScenarioSampleDataHandoff;
   requiredWorkflowReadyTools: Array<{
     toolId?: string;
     name?: string;

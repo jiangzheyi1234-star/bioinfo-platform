@@ -6,6 +6,7 @@ from apps.api.workflow_scenario_pack_service import (
     SCENARIO_DATABASE_HANDOFF_SCHEMA_VERSION,
     SCENARIO_PACK_CATALOG_SCHEMA_VERSION,
     SCENARIO_PACK_SCHEMA_VERSION,
+    SCENARIO_SAMPLE_DATA_HANDOFF_SCHEMA_VERSION,
     WorkflowScenarioPackCatalogError,
     _scenario_definitions,
     _validate_scenario_definitions,
@@ -28,6 +29,7 @@ REQUIRED_SCENARIO_PACK_FIELDS = {
     "firstRunPath",
     "workflowPath",
     "sampleData",
+    "sampleDataHandoff",
     "requiredWorkflowReadyTools",
     "requiredDatabases",
     "databaseHandoff",
@@ -54,6 +56,13 @@ def test_workflow_scenario_pack_catalog_publishes_three_product_scenarios() -> N
         assert item["noAutomaticExecution"] is True
         assert item["requiredWorkflowReadyTools"]
         assert 3 <= len(item["requiredWorkflowReadyTools"]) <= 5
+        assert item["sampleDataHandoff"]["schemaVersion"] == SCENARIO_SAMPLE_DATA_HANDOFF_SCHEMA_VERSION
+        assert item["sampleDataHandoff"]["noAutomaticExecution"] is True
+        assert item["sampleDataHandoff"]["excludedActions"] == [
+            "automatic-download",
+            "automatic-fixture-generation",
+            "unverified-example-data",
+        ]
         assert item["databaseHandoff"]["schemaVersion"] == SCENARIO_DATABASE_HANDOFF_SCHEMA_VERSION
         assert item["databaseHandoff"]["noAutomaticExecution"] is True
         assert item["databaseHandoff"]["excludedActions"] == [
@@ -80,6 +89,10 @@ def test_only_moving_pictures_scenario_is_ready_until_vertical_packs_have_real_g
     assert first_run["operatorActionRequired"] is False
     assert first_run["firstRunPath"] == "/workflows/first-run"
     assert first_run["requiredDatabases"] == []
+    assert first_run["sampleDataHandoff"]["mode"] == "bundled_loader"
+    assert first_run["sampleDataHandoff"]["status"] == "ready"
+    assert first_run["sampleDataHandoff"]["operatorActionRequired"] is False
+    assert {item["status"] for item in first_run["sampleDataHandoff"]["checklist"]} == {"passed"}
     assert first_run["databaseHandoff"]["mode"] == "none"
     assert first_run["databaseHandoff"]["status"] == "not_required"
     assert first_run["databaseHandoff"]["operatorActionRequired"] is False
@@ -91,6 +104,21 @@ def test_only_moving_pictures_scenario_is_ready_until_vertical_packs_have_real_g
     assert taxonomy["status"] == "blocked"
     assert taxonomy["operatorActionRequired"] is True
     assert taxonomy["firstRunPath"] == ""
+    assert taxonomy["sampleDataHandoff"]["mode"] == "operator_provided"
+    assert taxonomy["sampleDataHandoff"]["status"] == "operator_required"
+    assert taxonomy["sampleDataHandoff"]["operatorActionRequired"] is True
+    assert taxonomy["sampleDataHandoff"]["inputOptions"] == [
+        {"role": "reads", "formats": ["fastq.gz"], "required": False},
+        {"role": "contigs", "formats": ["fna", "fasta"], "required": False},
+    ]
+    assert {item["code"] for item in taxonomy["sampleDataHandoff"]["checklist"]} == {
+        "SELECT_FIXTURE",
+        "DECLARE_INPUT_ROLES",
+        "VERIFY_CHECKSUMS",
+        "RECORD_SOURCE",
+        "RUN_ACCEPTANCE",
+    }
+    assert {item["status"] for item in taxonomy["sampleDataHandoff"]["checklist"]} == {"operator_required"}
     assert "taxonomy_database" in {item["capability"] for item in taxonomy["requiredDatabases"]}
     assert taxonomy["databaseHandoff"]["mode"] == "manual_external"
     assert taxonomy["databaseHandoff"]["status"] == "operator_required"
@@ -127,6 +155,17 @@ def test_only_moving_pictures_scenario_is_ready_until_vertical_packs_have_real_g
     assert amr["status"] == "blocked"
     assert amr["operatorActionRequired"] is True
     assert amr["firstRunPath"] == ""
+    assert amr["sampleDataHandoff"]["inputOptions"] == [
+        {"role": "contigs", "formats": ["fna", "fasta"], "required": False},
+        {"role": "proteins", "formats": ["faa", "fasta"], "required": False},
+    ]
+    assert amr["sampleDataHandoff"]["evidencePolicy"] == {
+        "requiresChecksum": True,
+        "requiresSource": True,
+        "requiresInputRoles": True,
+        "requiresSmallFixture": True,
+        "requiresResultValidationCard": True,
+    }
     assert {"amr_database", "annotation_database"} <= {item["capability"] for item in amr["requiredDatabases"]}
     assert amr["databaseHandoff"]["templateOptions"] == [
         {"capability": "amr_database", "templates": ["card_rgi"]},
@@ -160,6 +199,8 @@ def test_workflow_scenario_pack_api_is_read_only_and_registered() -> None:
     assert "add_database_from_request" not in service_source
     assert "scan_database_pack_ready_from_request" not in service_source
     assert "noAutomaticExecution" in service_source
+    assert "automatic-fixture-generation" in service_source
+    assert "unverified-example-data" in service_source
     assert "automatic-download" in service_source
     assert "automatic-extract" in service_source
     assert "automatic-install" in service_source
@@ -228,7 +269,13 @@ def test_workflow_scenario_pack_api_is_read_only_and_registered() -> None:
             "SCENARIO_BLOCKED_GATE_ACTION_REQUIRED",
         ),
         (
-            lambda definitions: definitions[1]["gates"].pop(),
+            lambda definitions: definitions[1].update(
+                {"gates": [gate for gate in definitions[1]["gates"] if gate["code"] != "SCENARIO_SAMPLE_DATA_READY"]}
+            ),
+            "SCENARIO_SAMPLE_DATA_HANDOFF_GATE_REQUIRED",
+        ),
+        (
+            lambda definitions: definitions[1]["gates"].pop(0),
             "SCENARIO_VERTICAL_GATE_REQUIRED",
         ),
         (
