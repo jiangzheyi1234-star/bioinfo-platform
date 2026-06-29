@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, ClipboardCheck, Download, FileArchive, Loader2, RefreshCw } from "lucide-react";
+import { Archive, ClipboardCheck, Download, FileArchive, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -142,6 +142,7 @@ export function ValidationCard({
   workflowRevisionId: string;
 }) {
   const interpretation = card?.reportInterpretation;
+  const sampleData = card?.sampleData;
   const cardReady = interpretation?.status === "ready";
   return (
     <section
@@ -192,8 +193,50 @@ export function ValidationCard({
         <KeyValue label="checks" value={card?.checks?.length ? `${card.checks.length} passed checks` : ""} />
       </div>
 
+      {sampleData ? <ValidationCardSampleData sampleData={sampleData} /> : null}
       {interpretation ? <ValidationCardInterpretation interpretation={interpretation} /> : null}
     </section>
+  );
+}
+
+function ValidationCardSampleData({ sampleData }: { sampleData: NonNullable<FirstRunValidationCard["sampleData"]> }) {
+  const items = sampleData.items || [];
+  const status = sampleData.status || "unknown";
+  const verified = status === "verified";
+  return (
+    <div className={cn("mt-4 rounded-md border p-3", verified ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50")} data-testid="first-run-validation-card-sample-data">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className={cn("flex min-w-0 items-center gap-2 text-xs font-semibold", verified ? "text-emerald-950" : "text-amber-950")}>
+          <ShieldCheck strokeWidth={1.5} className={cn("h-3.5 w-3.5", verified ? "text-emerald-600" : "text-amber-600")} />
+          <span className="truncate">官方样例输入已验证</span>
+        </div>
+        <span className={cn("rounded-full border bg-white px-2 py-0.5 text-[11px]", verified ? "border-emerald-200 text-emerald-700" : "border-amber-200 text-amber-700")}>
+          {status}
+        </span>
+      </div>
+      {sampleData.source ? <div className={cn("mt-2 text-xs leading-5", verified ? "text-emerald-800" : "text-amber-800")}>{sampleData.source}</div> : null}
+      {items.length > 0 ? (
+        <div className="mt-3 grid gap-2">
+          {items.map((item) => {
+            const hash = item.sha256 || item.expectedSha256 || "";
+            const size = formatBytes(item.expectedSizeBytes || item.sizeBytes);
+            const itemStatus = item.integrityStatus || "unknown";
+            const itemPassed = itemStatus === "passed";
+            return (
+              <div key={`${item.role || "sample"}-${item.filename || item.artifactBlobId || hash}`} className={cn("grid min-w-0 gap-2 rounded border bg-white px-3 py-2 text-[11px] text-slate-600 sm:grid-cols-[88px_minmax(0,1fr)_auto_auto_auto] sm:items-center", itemPassed ? "border-emerald-200" : "border-amber-200")}>
+                <span className={cn("font-semibold", itemPassed ? "text-emerald-700" : "text-amber-700")}>{item.role || "sample"}</span>
+                <span className="truncate text-slate-800">{item.filename || item.artifactBlobId}</span>
+                {size ? <span className="text-slate-500">{size}</span> : null}
+                <span className={cn("rounded-full border px-2 py-0.5", itemPassed ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700")}>
+                  {itemStatus}
+                </span>
+                {hash ? <span className="font-mono text-slate-500">{hash.slice(0, 12)}</span> : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
   );
 }
 

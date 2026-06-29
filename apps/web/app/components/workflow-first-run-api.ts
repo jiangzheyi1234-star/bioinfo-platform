@@ -34,9 +34,30 @@ export type FirstRunReportInterpretation = {
   };
 };
 
+export type FirstRunSampleDataItem = {
+  role?: string;
+  filename?: string;
+  sourceUrl?: string;
+  uploadId?: string;
+  artifactBlobId?: string;
+  sha256?: string;
+  expectedSha256?: string;
+  sizeBytes?: number;
+  expectedSizeBytes?: number;
+  integrityStatus?: "passed" | string;
+};
+
+export type FirstRunSampleDataEvidence = {
+  schemaVersion?: string;
+  source?: string;
+  status?: string;
+  items?: FirstRunSampleDataItem[];
+};
+
 export type FirstRunValidationCard = {
   schemaVersion?: string;
   generatedAt?: string;
+  sampleData?: FirstRunSampleDataEvidence;
   reportInterpretation?: FirstRunReportInterpretation;
   result?: {
     resultId?: string;

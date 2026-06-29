@@ -62,8 +62,19 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "导出完整结果包" in first_run_source
     assert "结果验证卡" in first_run_source
     assert "/api/v1/first-run/runs/${encodeURIComponent(runId)}/validation-card" in first_run_api
+    assert "sampleData?: FirstRunSampleDataEvidence" in first_run_api
+    assert "expectedSha256?: string" in first_run_api
     assert "fetchFirstRunValidationCard(run.runId" in first_run_page
+    assert "const sampleData = card?.sampleData" in first_run_validation
     assert "reportInterpretation" in first_run_validation
+    assert "{sampleData ? <ValidationCardSampleData sampleData={sampleData} /> : null}" in first_run_validation
+    assert "first-run-validation-card-sample-data" in first_run_validation
+    assert "官方样例输入已验证" in first_run_validation
+    assert "sampleData.source" in first_run_validation
+    assert "item.sha256 || item.expectedSha256" in first_run_validation
+    assert "formatBytes(item.expectedSizeBytes || item.sizeBytes)" in first_run_validation
+    assert "item.integrityStatus" in first_run_validation
+    assert 'item.integrityStatus || "unknown"' in first_run_validation
     assert "first-run-validation-card-interpretation" in first_run_validation
     assert "card: validationCard" in first_run_page
     assert "downloadFirstRunValidationCard" in first_run_page
