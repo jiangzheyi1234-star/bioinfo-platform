@@ -5,7 +5,7 @@ import { ArrowRight, CheckCircle2, CircleAlert, ClipboardCheck, Database, FileAr
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-import type { FirstRunPilotHandoff, FirstRunValidationCard } from "../_api/workflow-first-run-api";
+import type { FirstRunPilotHandoff, FirstRunValidationCard } from "../_domain/first-run-types";
 import { FirstRunTrustSummary } from "./workflow-first-run-trust-summary";
 import { firstRunResultPackageReady, formatBytes } from "./workflow-first-run-validation";
 import { workflowResultPackageDownloadHref } from "@/app/components/workflows-page-api";

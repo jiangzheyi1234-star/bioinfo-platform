@@ -26,10 +26,12 @@ import {
   downloadFirstRunValidationCardMarkdown,
   finalizeFirstRun,
   fetchFirstRunValidationCard,
-  type FirstRunFinalizationNextAction,
-  type FirstRunPilotHandoff,
-  type FirstRunValidationCard,
 } from "../_api/workflow-first-run-api";
+import type {
+  FirstRunFinalizationNextAction,
+  FirstRunPilotHandoff,
+  FirstRunValidationCard,
+} from "../_domain/first-run-types";
 import { SampleAndSubmitPanel, sampleUploadsReady } from "./workflow-first-run-sample-submit";
 import { WorkflowPageHeader } from "@/app/components/workflow-page-header";
 import { WorkflowWorkspaceTabs } from "@/app/components/workflow-workspace-tabs";

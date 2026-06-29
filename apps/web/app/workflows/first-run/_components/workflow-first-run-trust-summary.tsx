@@ -4,7 +4,7 @@ import { CheckCircle2, ClipboardCheck, Cpu, Database, FileArchive, XCircle } fro
 
 import { cn } from "@/lib/utils";
 
-import type { FirstRunValidationCard } from "../_api/workflow-first-run-api";
+import type { FirstRunValidationCard } from "../_domain/first-run-types";
 import type { WorkflowResultPackageExport } from "@/app/components/workflows-page-model";
 
 type TrustTone = "success" | "waiting";

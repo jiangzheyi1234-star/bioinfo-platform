@@ -6,7 +6,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-import type { FirstRunFinalizationNextAction, FirstRunValidationCard } from "../_api/workflow-first-run-api";
+import type { FirstRunFinalizationNextAction, FirstRunValidationCard } from "../_domain/first-run-types";
 import { FirstRunTrustSummary } from "./workflow-first-run-trust-summary";
 import { workflowResultPackageDownloadHref } from "@/app/components/workflows-page-api";
 import type {

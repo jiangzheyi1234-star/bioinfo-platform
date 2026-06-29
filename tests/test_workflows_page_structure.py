@@ -45,6 +45,8 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     first_run_trust_summary = (FIRST_RUN_COMPONENTS / "workflow-first-run-trust-summary.tsx").read_text(encoding="utf-8")
     first_run_validation = (FIRST_RUN_COMPONENTS / "workflow-first-run-validation.tsx").read_text(encoding="utf-8")
     first_run_progress = (FIRST_RUN_DOMAIN / "first-run-progress.ts").read_text(encoding="utf-8")
+    first_run_types = (FIRST_RUN_DOMAIN / "first-run-types.ts").read_text(encoding="utf-8")
+    first_run_markdown = (FIRST_RUN_DOMAIN / "first-run-markdown.ts").read_text(encoding="utf-8")
     server_readiness_api = (COMPONENTS / "workflow-server-readiness-api.ts").read_text(encoding="utf-8")
     workflow_detail_page = (COMPONENTS / "workflow-detail-page.tsx").read_text(encoding="utf-8")
     models = (COMPONENTS / "workflows-page-model.ts").read_text(encoding="utf-8")
@@ -159,26 +161,26 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "passed checks" in first_run_completion
     assert "RUN_OWN_SMALL_SAMPLE" not in first_run_completion
     assert "automatic-database-install" not in first_run_completion
-    assert "backupRestore?: {" in first_run_api
-    assert "nextScenarios?: Array" in first_run_api
-    assert "databaseInstallHandoff?: {" in first_run_api
-    assert "toolSlicePromotionHandoff?: {" in first_run_api
-    assert "acceptanceEvidenceContract?: {" in first_run_api
-    assert "evidencePointers?: Record" in first_run_api
-    assert "requiredEvidence?: string[]" in first_run_api
-    assert "Tool promotion evidence" in first_run_api
-    assert "requestFields?: string[]" in first_run_api
-    assert "prefillFields?: string[]" in first_run_api
-    assert "packOptions?: Array" in first_run_api
-    assert "registrationScriptPath?: string" in first_run_api
-    assert "acceptedEvidenceType?: string" in first_run_api
-    assert "Registration prefill" in first_run_api
-    assert "## Pilot Handoff" in first_run_api
-    assert "H2OMeta First Successful Run Pilot Handoff" in first_run_api
-    assert "firstRunHandoffManifestMarkdown" in first_run_api
+    assert "backupRestore?: {" in first_run_types
+    assert "nextScenarios?: Array" in first_run_types
+    assert "databaseInstallHandoff?: {" in first_run_types
+    assert "toolSlicePromotionHandoff?: {" in first_run_types
+    assert "acceptanceEvidenceContract?: {" in first_run_types
+    assert "evidencePointers?: Record" in first_run_types
+    assert "requiredEvidence?: string[]" in first_run_types
+    assert "Tool promotion evidence" in first_run_markdown
+    assert "requestFields?: string[]" in first_run_types
+    assert "prefillFields?: string[]" in first_run_types
+    assert "packOptions?: Array" in first_run_types
+    assert "registrationScriptPath?: string" in first_run_types
+    assert "acceptedEvidenceType?: string" in first_run_types
+    assert "Registration prefill" in first_run_markdown
+    assert "## Pilot Handoff" in first_run_markdown
+    assert "H2OMeta First Successful Run Pilot Handoff" in first_run_markdown
+    assert "export function firstRunHandoffManifestMarkdown" in first_run_markdown
     assert "downloadFirstRunHandoffManifest" in first_run_api
-    assert "firstRunPilotHandoffMarkdown(card.pilotHandoff)" in first_run_api
-    assert "FIRST_RUN_PILOT_HANDOFF_REQUIRED" in first_run_api
+    assert "firstRunPilotHandoffMarkdown(card.pilotHandoff)" in first_run_markdown
+    assert "FIRST_RUN_PILOT_HANDOFF_REQUIRED" in first_run_markdown
     assert "const readyPackage = packageExports.find(firstRunResultPackageReady)" in first_run_page
     assert "const latestPackage = readyPackage || packageExports[0]" in first_run_page
     assert "const packageReady = Boolean(readyPackage)" in first_run_page
@@ -199,22 +201,22 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "workflowRevisionIdFor(run, state.runDetail, latestPackage)" in first_run_page
     assert "/api/v1/first-run/runs/${encodeURIComponent(runId)}/validation-card" in first_run_api
     assert "/api/v1/first-run/runs/${encodeURIComponent(runId)}/finalize" in first_run_api
-    assert "pilotHandoff?: FirstRunPilotHandoff" in first_run_api
-    assert "export type FirstRunEvidenceBundle" in first_run_api
-    assert "evidenceBundle?: FirstRunEvidenceBundle" in first_run_api
-    assert "FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED" in first_run_api
-    assert "## Evidence Bundle" in first_run_api
-    assert "keep every required evidence bundle file together" in first_run_api.lower()
+    assert "pilotHandoff?: FirstRunPilotHandoff" in first_run_types
+    assert "export type FirstRunEvidenceBundle" in first_run_types
+    assert "evidenceBundle?: FirstRunEvidenceBundle" in first_run_types
+    assert "FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED" in first_run_markdown
+    assert "## Evidence Bundle" in first_run_markdown
+    assert "keep every required evidence bundle file together" in first_run_markdown.lower()
     assert "export async function finalizeFirstRun" in first_run_api
     assert "finalizeFirstRun(run.runId" in first_run_page
     assert 'actor: "first-run-ui"' in first_run_page
-    assert "sampleData?: FirstRunSampleDataEvidence" in first_run_api
-    assert "FirstRunSamplePrepProofItem" in first_run_api
-    assert "prepProof?: FirstRunSamplePrepProofItem" in first_run_api
-    assert "cachePolicy?: string;" in first_run_api
-    assert "export type FirstRunSoftwareEnvironment" in first_run_api
-    assert "softwareEnvironment?: FirstRunSoftwareEnvironment" in first_run_api
-    assert "expectedSha256?: string" in first_run_api
+    assert "sampleData?: FirstRunSampleDataEvidence" in first_run_types
+    assert "FirstRunSamplePrepProofItem" in first_run_types
+    assert "prepProof?: FirstRunSamplePrepProofItem" in first_run_types
+    assert "cachePolicy?: string;" in first_run_types
+    assert "export type FirstRunSoftwareEnvironment" in first_run_types
+    assert "softwareEnvironment?: FirstRunSoftwareEnvironment" in first_run_types
+    assert "expectedSha256?: string" in first_run_types
     assert "fetchFirstRunValidationCard(run.runId" in first_run_page
     assert "const sampleData = card?.sampleData" in first_run_validation
     assert "const softwareEnvironment = card?.softwareEnvironment" in first_run_validation
@@ -266,25 +268,29 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "first-run-validation-card-interpretation" in first_run_validation
     assert "first-run-validation-card-output-interpretation" in first_run_validation
     assert "output.interpretation" in first_run_validation
-    assert "firstRunValidationCardMarkdown" in first_run_api
+    assert "export type FirstRunValidationCard" in first_run_types
+    assert "export function firstRunValidationCardMarkdown" in first_run_markdown
+    assert "export type FirstRunValidationCard" not in first_run_api
+    assert "export function firstRunValidationCardMarkdown" not in first_run_api
+    assert "content: firstRunValidationCardMarkdown(resolvedCard)" in first_run_api
     assert ".validation-card.md" in first_run_api
     assert "text/markdown;charset=utf-8" in first_run_api
-    assert "H2OMeta First Successful Run Validation Card" in first_run_api
-    assert "## Summary" in first_run_api
-    assert "## Customer Proof" in first_run_api
-    assert "Official inputs" in first_run_api
-    assert "no external reference database is required" in first_run_api
-    assert "Official Sample Inputs" in first_run_api
-    assert '"Cache", "Download"' in first_run_api
-    assert "card.sampleData.prepProof?.cachePolicy" in first_run_api
-    assert "## Key Results" in first_run_api
-    assert "## Metrics" in first_run_api
-    assert "Validation Checks" in first_run_api
-    assert "Package SHA-256" in first_run_api
-    assert "Manifest SHA-256" in first_run_api
-    assert "## Redaction" in first_run_api
-    assert "Raw paths exposed" in first_run_api
-    assert 'replace(/\\|/g, "\\\\|").replace(/\\n/g, " ")' in first_run_api
+    assert "H2OMeta First Successful Run Validation Card" in first_run_markdown
+    assert "## Summary" in first_run_markdown
+    assert "## Customer Proof" in first_run_markdown
+    assert "Official inputs" in first_run_markdown
+    assert "no external reference database is required" in first_run_markdown
+    assert "Official Sample Inputs" in first_run_markdown
+    assert '"Cache", "Download"' in first_run_markdown
+    assert "card.sampleData.prepProof?.cachePolicy" in first_run_markdown
+    assert "## Key Results" in first_run_markdown
+    assert "## Metrics" in first_run_markdown
+    assert "Validation Checks" in first_run_markdown
+    assert "Package SHA-256" in first_run_markdown
+    assert "Manifest SHA-256" in first_run_markdown
+    assert "## Redaction" in first_run_markdown
+    assert "Raw paths exposed" in first_run_markdown
+    assert 'replace(/\\|/g, "\\\\|").replace(/\\n/g, " ")' in first_run_markdown
     assert "fetchWorkflowServerExecutionDiagnostics" in first_run_page
     assert "executionDiagnostics?.readiness?.ok === true" in first_run_page
     assert "state.canSubmit && executionReady && selectedWorkflowReady && sampleReady" in first_run_page
