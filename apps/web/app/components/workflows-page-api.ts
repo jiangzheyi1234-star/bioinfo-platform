@@ -503,6 +503,9 @@ export async function submitPipelineWorkflowRun({
 }): Promise<WorkflowRun> {
   const selectedArtifactInputs = artifactInputs || [];
   const selectedSampleUploads = sampleUploads || [];
+  if (selectedSampleUploads.some((upload) => !sampleUploadIntegrityPassed(upload))) {
+    throw new Error("WORKFLOW_SAMPLE_DATA_INTEGRITY_REQUIRED");
+  }
   const sourceCount = [files.length, selectedSampleUploads.length, selectedArtifactInputs.length].filter(
     (count) => count > 0
   ).length;
@@ -535,13 +538,17 @@ export async function submitPipelineWorkflowRun({
   return response.data;
 }
 
-export async function uploadWorkflowSampleData(pipelineId: string): Promise<WorkflowUpload[]> {
+export async function uploadWorkflowSampleData(pipelineId: string, serverId: string): Promise<WorkflowUpload[]> {
   const response = await requestLocalApiJson<{ data: { items: WorkflowUpload[] } }>(
     "POST",
     `/api/v1/workflow-sample-data/${encodeURIComponent(pipelineId)}/uploads`,
-    { body: {}, timeoutMs: WORKFLOW_SAMPLE_DATA_TIMEOUT_MS }
+    { body: { serverId }, timeoutMs: WORKFLOW_SAMPLE_DATA_TIMEOUT_MS }
   );
   return response.data.items || [];
+}
+
+function sampleUploadIntegrityPassed(upload: WorkflowUpload) {
+  return upload.integrityStatus === "passed" && Boolean(upload.sha256) && upload.sha256 === upload.expectedSha256;
 }
 
 export async function fetchWorkflowRunDetail(runId: string): Promise<WorkflowRunDetail> {

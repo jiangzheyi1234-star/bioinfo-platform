@@ -467,6 +467,7 @@ function SampleAndSubmitPanel({
         <div className="grid gap-2">
           {EXPECTED_SAMPLE_ROLES.map((role) => {
             const upload = sampleUploads.find((item) => item.role === role);
+            const verified = upload ? sampleIntegrityPassed(upload) : false;
             return (
               <div key={role} className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
                 <div className="min-w-0">
@@ -474,7 +475,12 @@ function SampleAndSubmitPanel({
                   <div className="mt-0.5 truncate font-mono text-[11px] text-slate-500">{upload?.filename || sampleRoleFilename(role)}</div>
                 </div>
                 {upload ? (
-                  <span className="shrink-0 text-emerald-700">{formatBytes(upload.sizeBytes)}</span>
+                  <div className="shrink-0 text-right">
+                    <div className={verified ? "text-emerald-700" : "text-red-700"}>
+                      {verified ? "checksum verified" : "checksum required"}
+                    </div>
+                    <div className="mt-0.5 font-mono text-[10px] text-slate-400">{sampleIntegrityLabel(upload)}</div>
+                  </div>
                 ) : (
                   <span className="shrink-0 text-slate-400">待准备</span>
                 )}
@@ -629,8 +635,10 @@ function workflowRevisionIdFor(
 }
 
 function sampleUploadsReady(uploads: WorkflowUpload[]) {
-  const roles = new Set(uploads.map((upload) => upload.role));
-  return EXPECTED_SAMPLE_ROLES.every((role) => roles.has(role));
+  return EXPECTED_SAMPLE_ROLES.every((role) => {
+    const upload = uploads.find((item) => item.role === role);
+    return upload ? sampleIntegrityPassed(upload) : false;
+  });
 }
 
 function isTerminalRun(run: WorkflowRun | null | undefined) {
@@ -658,4 +666,14 @@ function sampleRoleFilename(role: string) {
   if (role === "barcodes") return "barcodes.fastq.gz";
   if (role === "sequences") return "sequences.fastq.gz";
   return role;
+}
+
+function sampleIntegrityLabel(upload: WorkflowUpload) {
+  const hash = upload.sha256 || upload.expectedSha256 || "";
+  const size = upload.expectedSizeBytes || upload.sizeBytes;
+  return [hash ? `sha ${hash.slice(0, 12)}` : "", size ? formatBytes(size) : ""].filter(Boolean).join(" / ");
+}
+
+function sampleIntegrityPassed(upload: WorkflowUpload) {
+  return upload.integrityStatus === "passed" && Boolean(upload.sha256) && upload.sha256 === upload.expectedSha256;
 }

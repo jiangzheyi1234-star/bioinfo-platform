@@ -390,6 +390,7 @@ def test_api_route_error_status_codes_live_on_domain_errors() -> None:
 
     assert "RuntimeConflictError(RuntimeServiceError):\n    status_code = 409" in runtime_errors
     assert "WorkflowSampleDataUnavailableError(ValueError):\n    status_code = 404" in sample_service
+    assert "WorkflowSampleDataIntegrityError(ValueError):\n    status_code = 409" in sample_service
     assert "WorkflowFirstRunValidationCardUnavailableError(ValueError):\n    status_code = 409" in first_run_service
     assert "detail_response(409," not in route_errors
     assert "detail_response(404, str(exc))" not in route_errors
@@ -633,7 +634,7 @@ def test_workflow_sample_data_service_uses_runtime_infrastructure() -> None:
     assert "from apps.api.runtime import get_runtime_service" not in service_source
     assert "from apps.api.route_utils import run_sync, runtime_service" in service_source
     assert "asyncio.to_thread" not in service_source
-    assert "await run_sync(_download_and_upload_moving_pictures)" in service_source
+    assert "await run_sync(_download_and_upload_moving_pictures, request.serverId)" in service_source
     assert "runtime = runtime_service()" in service_source
 
 

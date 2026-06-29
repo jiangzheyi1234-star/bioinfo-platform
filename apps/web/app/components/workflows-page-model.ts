@@ -209,6 +209,10 @@ export type WorkflowUpload = {
   sizeBytes?: number;
   role?: string;
   sourceUrl?: string;
+  sha256?: string;
+  expectedSha256?: string;
+  expectedSizeBytes?: number;
+  integrityStatus?: "passed" | string;
 };
 
 export type WorkflowRunTrigger = {

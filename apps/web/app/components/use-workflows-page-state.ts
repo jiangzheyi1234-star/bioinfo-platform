@@ -261,10 +261,12 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     [availableDatabases, selectedResourceDatabaseIds, selectedWorkflow]
   );
   const pipelineInputCount = isGeneratedToolRun ? files.length : files.length + sampleUploads.length + artifactInputs.length;
+  const sampleUploadsVerified = sampleUploads.length === 0 || sampleUploads.every(sampleUploadIntegrityPassed);
   const canSubmit = Boolean(
     server?.serverId &&
       server.ready === true &&
       pipelineInputCount > 0 &&
+      sampleUploadsVerified &&
       selectedWorkflow?.runnable &&
       (isGeneratedToolRun || Boolean(selectedPipelineId)) &&
       (!isGeneratedToolRun || (generatedBuilder.selectedTools.length > 0 && generatedBuilder.validation.errors.length === 0)) &&
@@ -500,7 +502,11 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     setSampleLoading(true);
     setSubmitError("");
     try {
-      const uploads = await uploadWorkflowSampleData(selectedPipelineId);
+      const serverId = server?.serverId || "";
+      if (!serverId) {
+        throw new Error("WORKFLOW_SAMPLE_DATA_SERVER_REQUIRED");
+      }
+      const uploads = await uploadWorkflowSampleData(selectedPipelineId, serverId);
       setSampleUploads(uploads);
       setFiles([]);
       clearArtifactInputs();
@@ -656,6 +662,10 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     workflowResources,
     missingRequiredResourceKeys,
   };
+}
+
+function sampleUploadIntegrityPassed(upload: WorkflowUpload) {
+  return upload.integrityStatus === "passed" && Boolean(upload.sha256) && upload.sha256 === upload.expectedSha256;
 }
 
 function resourceIdsFromWorkflowDesignDraft(record: WorkflowDesignDraftRecord): Record<string, string> {

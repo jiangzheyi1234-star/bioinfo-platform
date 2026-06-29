@@ -72,11 +72,16 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "buildValidationCardPayload" not in first_run_source
     assert "QIIME 2 Moving Pictures tutorial" in first_run_source
     assert 'EXPECTED_SAMPLE_ROLES = ["metadata", "barcodes", "sequences"]' in first_run_page
+    assert "checksum verified" in first_run_page
+    assert "sampleIntegrityPassed" in first_run_page
     assert "exportWorkflowResultPackage(resultId, true)" in first_run_page
     assert "fetchWorkflowResultPackageExports(resultId)" in first_run_page
     assert "workflowResultPackageDownloadHref" in first_run_validation
     assert "refreshRunDetail" in hook
     assert "export async function uploadWorkflowSampleData" in api
+    assert "uploadWorkflowSampleData(selectedPipelineId, serverId)" in hook
+    assert "sampleUploadIntegrityPassed" in hook
+    assert "WORKFLOW_SAMPLE_DATA_INTEGRITY_REQUIRED" in api
 
 
 def _function_body(source: str, name: str) -> str:
@@ -885,7 +890,12 @@ def test_tools_page_surfaces_snakemake_wrapper_matches() -> None:
 
 def test_workflow_sample_data_upload_uses_long_running_timeout() -> None:
     api = (COMPONENTS / "workflows-page-api.ts").read_text(encoding="utf-8")
+    model = (COMPONENTS / "workflows-page-model.ts").read_text(encoding="utf-8")
 
     assert "WORKFLOW_SAMPLE_DATA_TIMEOUT_MS" in api
     assert "timeoutMs: WORKFLOW_SAMPLE_DATA_TIMEOUT_MS" in api
     assert "/api/v1/workflow-sample-data/" in api
+    assert "body: { serverId }" in api
+    assert "integrityStatus?: \"passed\" | string" in model
+    assert "expectedSha256?: string" in model
+    assert "expectedSizeBytes?: number" in model
