@@ -642,7 +642,6 @@ class FakeEndpointClient:
             return {"data": {"path": path}}
         return {"data": {"path": path}}
 
-
 class FakeProxy(RemoteRunnerProxyMixin):
     def __init__(self) -> None:
         self.client = FakeEndpointClient()

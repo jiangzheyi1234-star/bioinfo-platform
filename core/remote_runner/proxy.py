@@ -418,20 +418,6 @@ class RemoteRunnerProxyMixin:
         client = self._client_from_runner_kwargs(kwargs)
         return client.post_json("/api/v1/artifacts/lifecycle/gc/run", dict(kwargs.get("payload") or {}))["data"]
 
-    def retain_artifact_cache_pin(self, **kwargs) -> dict[str, Any]:
-        client = self._client_from_runner_kwargs(kwargs)
-        path = f"/api/v1/artifacts/cache/entries/{quote(str(kwargs['cache_entry_id']), safe='')}/retain"
-        return client.post_json(path, dict(kwargs.get("payload") or {}))["data"]
-
-    def release_artifact_cache_pin(self, **kwargs) -> dict[str, Any]:
-        client = self._client_from_runner_kwargs(kwargs)
-        path = f"/api/v1/artifacts/cache/pins/{quote(str(kwargs['cache_pin_id']), safe='')}/release"
-        return client.post_json(path, dict(kwargs.get("payload") or {}))["data"]
-
-    def lookup_artifact_cache(self, **kwargs) -> dict[str, Any]:
-        client = self._client_from_runner_kwargs(kwargs)
-        return client.post_json("/api/v1/artifacts/cache/lookup", dict(kwargs.get("payload") or {}))["data"]
-
     def _open_runner_tunnel(self, *, server_id: str, ssh_service, remote_port: int):
         try:
             return ssh_service.ensure_local_tunnel(

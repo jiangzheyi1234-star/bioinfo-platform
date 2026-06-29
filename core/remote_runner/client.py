@@ -338,17 +338,6 @@ class RemoteRunnerHttpClient:
     def run_artifact_gc(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         return self.post_json("/api/v1/artifacts/lifecycle/gc/run", dict(payload or {}))["data"]
 
-    def retain_artifact_cache_pin(self, cache_entry_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
-        entry_part = urllib.parse.quote(cache_entry_id, safe="")
-        return self.post_json(f"/api/v1/artifacts/cache/entries/{entry_part}/retain", dict(payload or {}))["data"]
-
-    def release_artifact_cache_pin(self, cache_pin_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
-        pin_part = urllib.parse.quote(cache_pin_id, safe="")
-        return self.post_json(f"/api/v1/artifacts/cache/pins/{pin_part}/release", dict(payload or {}))["data"]
-
-    def lookup_artifact_cache(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
-        return self.post_json("/api/v1/artifacts/cache/lookup", dict(payload or {}))["data"]
-
     def get_health(self) -> dict[str, Any]:
         startup = self.get_json("/health/startup", accepted_statuses={200, 503})
         live = self.get_json("/health/live")

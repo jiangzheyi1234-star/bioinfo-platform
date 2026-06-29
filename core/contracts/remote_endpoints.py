@@ -57,6 +57,9 @@ ARTIFACT_LIFECYCLE_USAGE_READ = "artifact.lifecycle.usage.read"
 ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ = "artifact.lifecycle.controller_ticks.read"
 ARTIFACT_CACHE_ENTRIES_READ = "artifact.cache.entries.read"
 ARTIFACT_CACHE_PINS_READ = "artifact.cache_pins.read"
+ARTIFACT_CACHE_PIN_RETAIN = "artifact.cache_pin.retain"
+ARTIFACT_CACHE_PIN_RELEASE = "artifact.cache_pin.release"
+ARTIFACT_CACHE_LOOKUP = "artifact.cache.lookup"
 WORKFLOW_TRIGGER_LIST = "workflow_trigger.list"
 WORKFLOW_TRIGGER_EVENTS_READ = "workflow_trigger.events.read"
 WORKFLOW_TRIGGER_READINESS_OBSERVATION_READ = "workflow_trigger.readiness_observation.read"
@@ -267,6 +270,39 @@ REMOTE_ENDPOINTS: dict[str, RemoteEndpoint] = {
         response_schema="artifact-cache-pins-public.v1",
         cache_scope="artifact-cache-read-model",
         query_params=("cacheEntryId", "state", "limit"),
+    ),
+    ARTIFACT_CACHE_PIN_RETAIN: RemoteEndpoint(
+        endpoint_id=ARTIFACT_CACHE_PIN_RETAIN,
+        method="POST",
+        path_template="/api/v1/artifacts/cache/entries/{cache_entry_id}/retain",
+        operation_id="retainArtifactCachePin",
+        governance_action="artifact.cache_pin.retain",
+        request_schema="artifact-cache-pin-retain-request.v1",
+        response_schema="artifact-cache-record-public.v1",
+        cache_scope="artifact-cache-command",
+        invalidates=("artifact-cache-read-model",),
+    ),
+    ARTIFACT_CACHE_PIN_RELEASE: RemoteEndpoint(
+        endpoint_id=ARTIFACT_CACHE_PIN_RELEASE,
+        method="POST",
+        path_template="/api/v1/artifacts/cache/pins/{cache_pin_id}/release",
+        operation_id="releaseArtifactCachePin",
+        governance_action="artifact.cache_pin.release",
+        request_schema="artifact-cache-pin-release-request.v1",
+        response_schema="artifact-cache-record-public.v1",
+        cache_scope="artifact-cache-command",
+        invalidates=("artifact-cache-read-model",),
+    ),
+    ARTIFACT_CACHE_LOOKUP: RemoteEndpoint(
+        endpoint_id=ARTIFACT_CACHE_LOOKUP,
+        method="POST",
+        path_template="/api/v1/artifacts/cache/lookup",
+        operation_id="lookupArtifactCache",
+        governance_action="artifact.cache.lookup",
+        request_schema="artifact-cache-lookup-request.v1",
+        response_schema="artifact-cache-lookup-public.v1",
+        cache_scope="artifact-cache-command",
+        invalidates=("artifact-cache-read-model",),
     ),
     WORKFLOW_TRIGGER_LIST: RemoteEndpoint(
         endpoint_id=WORKFLOW_TRIGGER_LIST,

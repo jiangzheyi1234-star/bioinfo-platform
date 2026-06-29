@@ -7,7 +7,10 @@ from core.app_runtime.errors import RuntimeServiceError
 from core.app_runtime.managers.base import BaseRuntimeManager
 from core.contracts.remote_endpoints import (
     ARTIFACT_CACHE_ENTRIES_READ,
+    ARTIFACT_CACHE_LOOKUP,
     ARTIFACT_CACHE_PINS_READ,
+    ARTIFACT_CACHE_PIN_RELEASE,
+    ARTIFACT_CACHE_PIN_RETAIN,
     ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ,
     ARTIFACT_LIFECYCLE_USAGE_READ,
     GOVERNANCE_AUDIT_EVENTS_READ,
@@ -745,14 +748,13 @@ class ExecutionManager(BaseRuntimeManager):
         *,
         server_id: Optional[str] = None,
     ) -> dict[str, Any]:
-        return {
-            "data": self.call_existing_runner(
-                "retain_artifact_cache_pin",
-                preferred_server_id=server_id,
-                cache_entry_id=cache_entry_id,
-                payload=dict(payload or {}),
-            )
-        }
+        return self.read_remote_endpoint(
+            ARTIFACT_CACHE_PIN_RETAIN,
+            path_values={"cache_entry_id": cache_entry_id},
+            preferred_server_id=server_id,
+            require_existing_runner=True,
+            payload=dict(payload or {}),
+        )
 
     def release_artifact_cache_pin(
         self,
@@ -761,14 +763,13 @@ class ExecutionManager(BaseRuntimeManager):
         *,
         server_id: Optional[str] = None,
     ) -> dict[str, Any]:
-        return {
-            "data": self.call_existing_runner(
-                "release_artifact_cache_pin",
-                preferred_server_id=server_id,
-                cache_pin_id=cache_pin_id,
-                payload=dict(payload or {}),
-            )
-        }
+        return self.read_remote_endpoint(
+            ARTIFACT_CACHE_PIN_RELEASE,
+            path_values={"cache_pin_id": cache_pin_id},
+            preferred_server_id=server_id,
+            require_existing_runner=True,
+            payload=dict(payload or {}),
+        )
 
     def lookup_artifact_cache(
         self,
@@ -776,10 +777,9 @@ class ExecutionManager(BaseRuntimeManager):
         *,
         server_id: Optional[str] = None,
     ) -> dict[str, Any]:
-        return {
-            "data": self.call_existing_runner(
-                "lookup_artifact_cache",
-                preferred_server_id=server_id,
-                payload=dict(payload or {}),
-            )
-        }
+        return self.read_remote_endpoint(
+            ARTIFACT_CACHE_LOOKUP,
+            preferred_server_id=server_id,
+            require_existing_runner=True,
+            payload=dict(payload or {}),
+        )

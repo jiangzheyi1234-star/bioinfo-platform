@@ -7,7 +7,10 @@ from fastapi.responses import FileResponse
 
 from core.contracts.remote_endpoints import (
     ARTIFACT_CACHE_ENTRIES_READ,
+    ARTIFACT_CACHE_LOOKUP,
     ARTIFACT_CACHE_PINS_READ,
+    ARTIFACT_CACHE_PIN_RELEASE,
+    ARTIFACT_CACHE_PIN_RETAIN,
     ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ,
     ARTIFACT_LIFECYCLE_USAGE_READ,
     REMOTE_ENDPOINTS,
@@ -439,7 +442,10 @@ async def list_artifact_cache_pins_api(
     return await list_artifact_cache_pins_from_request(cacheEntryId, state, limit, authorization)
 
 
-@router.post("/api/v1/artifacts/cache/entries/{cache_entry_id}/retain")
+@router.post(
+    "/api/v1/artifacts/cache/entries/{cache_entry_id}/retain",
+    operation_id=REMOTE_ENDPOINTS[ARTIFACT_CACHE_PIN_RETAIN].operation_id,
+)
 async def retain_artifact_cache_pin_api(
     cache_entry_id: str,
     request: ArtifactCachePinRetainRequest,
@@ -448,7 +454,10 @@ async def retain_artifact_cache_pin_api(
     return await retain_artifact_cache_pin_from_request(cache_entry_id, request, authorization)
 
 
-@router.post("/api/v1/artifacts/cache/pins/{cache_pin_id}/release")
+@router.post(
+    "/api/v1/artifacts/cache/pins/{cache_pin_id}/release",
+    operation_id=REMOTE_ENDPOINTS[ARTIFACT_CACHE_PIN_RELEASE].operation_id,
+)
 async def release_artifact_cache_pin_api(
     cache_pin_id: str,
     request: ArtifactCachePinReleaseRequest,
@@ -457,7 +466,10 @@ async def release_artifact_cache_pin_api(
     return await release_artifact_cache_pin_from_request(cache_pin_id, request, authorization)
 
 
-@router.post("/api/v1/artifacts/cache/lookup")
+@router.post(
+    "/api/v1/artifacts/cache/lookup",
+    operation_id=REMOTE_ENDPOINTS[ARTIFACT_CACHE_LOOKUP].operation_id,
+)
 async def lookup_artifact_cache_api(
     request: ArtifactCacheLookupRequest,
     authorization: AuthorizationHeader = None,

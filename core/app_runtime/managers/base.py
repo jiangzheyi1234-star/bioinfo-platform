@@ -77,6 +77,7 @@ class BaseRuntimeManager:
         *,
         path_values: dict[str, Any],
         query_values: dict[str, Any] | None = None,
+        payload: dict[str, Any] | None = None,
         preferred_server_id: Optional[str] = None,
         require_existing_runner: bool = False,
         timeout: int | None = None,
@@ -88,6 +89,8 @@ class BaseRuntimeManager:
         }
         if timeout is not None:
             kwargs["timeout"] = timeout
+        if payload is not None:
+            kwargs["payload"] = dict(payload)
         caller = self.call_existing_runner if require_existing_runner else self.call_runner
         return caller(
             "call_remote_endpoint",
@@ -117,6 +120,7 @@ class BaseRuntimeManager:
         *,
         path_values: dict[str, Any] | None = None,
         query_values: dict[str, Any] | None = None,
+        payload: dict[str, Any] | None = None,
         preferred_server_id: Optional[str] = None,
         require_existing_runner: bool = False,
         timeout: int | None = None,
@@ -126,6 +130,7 @@ class BaseRuntimeManager:
                 endpoint_id,
                 path_values=dict(path_values or {}),
                 query_values=query_values,
+                payload=payload,
                 preferred_server_id=preferred_server_id,
                 require_existing_runner=require_existing_runner,
                 timeout=timeout,
@@ -137,11 +142,13 @@ class BaseRuntimeManager:
         endpoint_id: str,
         *,
         query_values: dict[str, Any] | None = None,
+        payload: dict[str, Any] | None = None,
         preferred_server_id: Optional[str] = None,
     ) -> dict[str, Any]:
         return self.read_remote_endpoint(
             endpoint_id,
             query_values=query_values,
+            payload=payload,
             preferred_server_id=preferred_server_id,
             require_existing_runner=True,
         )
