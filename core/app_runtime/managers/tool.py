@@ -3,11 +3,17 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from core.app_runtime.managers.base import BaseRuntimeManager
+from core.contracts.tool_remote_endpoints import TOOL_INDEX_READ, TOOL_LIST
 
 
 class ToolManager(BaseRuntimeManager):
     def list_tools(self) -> dict[str, Any]:
-        return {"data": {"items": self.call_existing_runner("list_tools")}}
+        items = self.call_remote_endpoint(
+            TOOL_LIST,
+            path_values={},
+            require_existing_runner=True,
+        )
+        return {"data": {"items": items}}
 
     def list_tool_index(
         self,
@@ -19,13 +25,17 @@ class ToolManager(BaseRuntimeManager):
         state: str | None = None,
     ) -> dict[str, Any]:
         return {
-            "data": self.call_existing_runner(
-                "list_tool_index",
-                query=query,
-                limit=limit,
-                offset=offset,
-                source=source,
-                state=state,
+            "data": self.call_remote_endpoint(
+                TOOL_INDEX_READ,
+                path_values={},
+                query_values={
+                    "query": query,
+                    "limit": limit,
+                    "offset": offset,
+                    "source": source,
+                    "state": state,
+                },
+                require_existing_runner=True,
             )
         }
 

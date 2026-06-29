@@ -5,11 +5,8 @@ from string import Formatter
 from typing import Any
 from urllib.parse import quote, urlencode
 
-from core.contracts.submission_remote_endpoints import (
-    RUN_CREATE as _RUN_CREATE,
-    SUBMISSION_REMOTE_ENDPOINT_SPECS,
-    UPLOAD_CREATE as _UPLOAD_CREATE,
-)
+from core.contracts.submission_remote_endpoints import RUN_CREATE as _RUN_CREATE, SUBMISSION_REMOTE_ENDPOINT_SPECS, UPLOAD_CREATE as _UPLOAD_CREATE
+from core.contracts.tool_remote_endpoints import TOOL_REMOTE_ENDPOINT_SPECS
 from core.contracts.workflow_design_remote_endpoints import WORKFLOW_DESIGN_REMOTE_ENDPOINT_SPECS
 
 
@@ -582,6 +579,7 @@ REMOTE_ENDPOINTS: dict[str, RemoteEndpoint] = {
         endpoint_id: RemoteEndpoint(endpoint_id=endpoint_id, **spec)
         for endpoint_id, spec in WORKFLOW_DESIGN_REMOTE_ENDPOINT_SPECS.items()
     },
+    **{endpoint_id: RemoteEndpoint(endpoint_id=endpoint_id, **spec) for endpoint_id, spec in TOOL_REMOTE_ENDPOINT_SPECS.items()},
     WORKFLOW_TRIGGER_LIST: RemoteEndpoint(
         endpoint_id=WORKFLOW_TRIGGER_LIST,
         method="GET",

@@ -18,17 +18,19 @@ from apps.api.tool_service import (
     list_tools_from_request,
     update_tool_rule_template_from_request,
 )
+from core.contracts.remote_endpoints import REMOTE_ENDPOINTS
+from core.contracts.tool_remote_endpoints import TOOL_INDEX_READ, TOOL_LIST
 
 
 router = APIRouter()
 
 
-@router.get("/api/v1/tools")
+@router.get("/api/v1/tools", operation_id=REMOTE_ENDPOINTS[TOOL_LIST].operation_id)
 async def list_tools_api(refresh: bool = False) -> dict[str, Any]:
     return await list_tools_from_request(refresh)
 
 
-@router.get("/api/v1/tools/index")
+@router.get("/api/v1/tools/index", operation_id=REMOTE_ENDPOINTS[TOOL_INDEX_READ].operation_id)
 async def list_tool_index_api(
     query: str = "",
     limit: int = 50,

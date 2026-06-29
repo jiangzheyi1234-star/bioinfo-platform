@@ -6,6 +6,9 @@ from typing import Any
 
 from fastapi import APIRouter
 
+from core.contracts.remote_endpoints import REMOTE_ENDPOINTS
+from core.contracts.tool_remote_endpoints import TOOL_INDEX_READ, TOOL_LIST
+
 from .api_models import ToolManifestRequest, ToolProductionEvidenceRequest, ToolRuleTemplateRequest
 from .route_headers import AuthorizationHeader
 from .tool_service import (
@@ -26,12 +29,12 @@ from .tool_service import (
 router = APIRouter()
 
 
-@router.get("/api/v1/tools")
+@router.get("/api/v1/tools", operation_id=REMOTE_ENDPOINTS[TOOL_LIST].operation_id)
 async def get_tools(authorization: AuthorizationHeader = None) -> dict[str, Any]:
     return await list_tools_from_request(authorization)
 
 
-@router.get("/api/v1/tools/index")
+@router.get("/api/v1/tools/index", operation_id=REMOTE_ENDPOINTS[TOOL_INDEX_READ].operation_id)
 async def get_tool_index(
     query: str = "",
     limit: int = 50,
