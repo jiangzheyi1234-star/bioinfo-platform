@@ -237,25 +237,10 @@ def test_workflows_page_uses_live_builder_modules() -> None:
     assert "submitWorkflowDesignRun" in api
     assert scenario_section_path.exists()
     scenario_section = scenario_section_path.read_text(encoding="utf-8")
-    assert "WorkflowScenarioPackSection" in page
-    assert "fetchWorkflowScenarioPacks" in page
-    assert "data-testid=\"workflow-scenario-pack-section\"" in scenario_section
-    assert "data-scenario-pack={pack.scenarioId}" in scenario_section
-    assert "pack.status === \"ready\"" in scenario_section
-    assert "data-testid=\"workflow-scenario-readiness-checks\"" in scenario_section
-    assert "data-scenario-check-status={check.status}" in scenario_section
-    assert "check.requirement" in scenario_section
-    assert "data-testid=\"workflow-scenario-practice-anchors\"" in scenario_section
-    assert "pack.externalPracticeAnchors.slice(0, 2)" in scenario_section
-    assert "target=\"_blank\"" in scenario_section
-    assert "data-scenario-action={action.code}" in scenario_section
-    assert "pack.nextActions.slice(0, 3)" in scenario_section
-    assert "sampleDataLabel(pack)" in scenario_section
-    assert "item.templates?.length" in scenario_section
-    assert "noAutomaticExecution" in model
-    assert "uploadWorkflowSampleData" not in scenario_section
-    assert "addDatabase" not in scenario_section
-    assert "createToolPrepareJob" not in scenario_section
+    assert all(token in page for token in ("WorkflowScenarioPackSection", "fetchWorkflowScenarioPacks"))
+    assert all(token in scenario_section for token in ("data-testid=\"workflow-scenario-pack-section\"", "data-scenario-pack={pack.scenarioId}", "pack.status === \"ready\"", "data-testid=\"workflow-scenario-readiness-checks\"", "data-scenario-check-status={check.status}", "check.requirement", "data-testid=\"workflow-scenario-practice-anchors\"", "pack.externalPracticeAnchors.slice(0, 2)", "target=\"_blank\"", "data-scenario-action={action.code}", "pack.nextActions.slice(0, 3)", "sampleDataLabel(pack)", "item.templates?.length", "data-testid=\"workflow-scenario-database-handoff\"", "data-testid=\"workflow-scenario-database-handoff-checklist\"", "pack.databaseHandoff", "checklist.slice(0, 3)", "databaseHandoffTemplateText(pack)"))
+    assert all(token in model for token in ("noAutomaticExecution", "WorkflowScenarioDatabaseHandoff", "databaseHandoff?: WorkflowScenarioDatabaseHandoff"))
+    assert all(token not in scenario_section for token in ("uploadWorkflowSampleData", "addDatabase", "createToolPrepareJob", "scanDatabasePackReady", "databasePackManualText", "databasePackRegistrationCommand", "onStartAddingFromPack"))
     assert "export function useWorkflowsPageState" in hook
     assert "export { WorkflowCatalogTable }" in ui
     assert "export function WorkflowRunBuilder" in ui

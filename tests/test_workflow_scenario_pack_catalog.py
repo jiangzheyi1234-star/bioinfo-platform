@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from apps.api.workflow_scenario_pack_service import (
+    SCENARIO_DATABASE_HANDOFF_SCHEMA_VERSION,
     SCENARIO_PACK_CATALOG_SCHEMA_VERSION,
     SCENARIO_PACK_SCHEMA_VERSION,
     WorkflowScenarioPackCatalogError,
@@ -29,6 +30,7 @@ REQUIRED_SCENARIO_PACK_FIELDS = {
     "sampleData",
     "requiredWorkflowReadyTools",
     "requiredDatabases",
+    "databaseHandoff",
     "resultEvidence",
     "readinessChecks",
     "nextActions",
@@ -52,6 +54,13 @@ def test_workflow_scenario_pack_catalog_publishes_three_product_scenarios() -> N
         assert item["noAutomaticExecution"] is True
         assert item["requiredWorkflowReadyTools"]
         assert 3 <= len(item["requiredWorkflowReadyTools"]) <= 5
+        assert item["databaseHandoff"]["schemaVersion"] == SCENARIO_DATABASE_HANDOFF_SCHEMA_VERSION
+        assert item["databaseHandoff"]["noAutomaticExecution"] is True
+        assert item["databaseHandoff"]["excludedActions"] == [
+            "automatic-download",
+            "automatic-extract",
+            "automatic-install",
+        ]
         for tool in item["requiredWorkflowReadyTools"]:
             assert {"toolId", "name", "kind", "role", "contractState", "acceptanceEvidence"} <= set(tool)
             assert "count" not in tool
@@ -71,6 +80,10 @@ def test_only_moving_pictures_scenario_is_ready_until_vertical_packs_have_real_g
     assert first_run["operatorActionRequired"] is False
     assert first_run["firstRunPath"] == "/workflows/first-run"
     assert first_run["requiredDatabases"] == []
+    assert first_run["databaseHandoff"]["mode"] == "none"
+    assert first_run["databaseHandoff"]["status"] == "not_required"
+    assert first_run["databaseHandoff"]["operatorActionRequired"] is False
+    assert first_run["databaseHandoff"]["checklist"] == []
     assert {check["status"] for check in first_run["readinessChecks"]} == {"passed"}
     assert {tool["contractState"] for tool in first_run["requiredWorkflowReadyTools"]} == {"workflow_ready"}
 
@@ -79,6 +92,32 @@ def test_only_moving_pictures_scenario_is_ready_until_vertical_packs_have_real_g
     assert taxonomy["operatorActionRequired"] is True
     assert taxonomy["firstRunPath"] == ""
     assert "taxonomy_database" in {item["capability"] for item in taxonomy["requiredDatabases"]}
+    assert taxonomy["databaseHandoff"]["mode"] == "manual_external"
+    assert taxonomy["databaseHandoff"]["status"] == "operator_required"
+    assert taxonomy["databaseHandoff"]["operatorActionRequired"] is True
+    assert taxonomy["databaseHandoff"]["readyScan"] == {
+        "label": "Ready scan",
+        "method": "POST",
+        "path": "/api/v1/database-pack-ready-scans",
+        "mutatesRegistry": False,
+        "requiresOperatorReadyPath": True,
+    }
+    assert taxonomy["databaseHandoff"]["registration"] == {
+        "label": "手动登记",
+        "method": "POST",
+        "path": "/api/v1/databases",
+        "requiresReadyScan": True,
+        "prefillSource": "database-pack-ready-scan.registrationPrefill",
+    }
+    assert {item["code"] for item in taxonomy["databaseHandoff"]["checklist"]} == {
+        "SELECT_TEMPLATE",
+        "VERIFY_CHECKSUM",
+        "READY_SCAN",
+        "REGISTER_DATABASE",
+        "BIND_DATABASE",
+        "REAL_DATABASE_ACCEPTANCE",
+    }
+    assert {item["status"] for item in taxonomy["databaseHandoff"]["checklist"]} == {"operator_required"}
     assert {"SCENARIO_TOOL_SLICE_READY", "SCENARIO_DATABASE_HANDOFF_READY", "SCENARIO_SAMPLE_DATA_READY"} <= {
         item["code"] for item in taxonomy["nextActions"]
     }
@@ -89,6 +128,17 @@ def test_only_moving_pictures_scenario_is_ready_until_vertical_packs_have_real_g
     assert amr["operatorActionRequired"] is True
     assert amr["firstRunPath"] == ""
     assert {"amr_database", "annotation_database"} <= {item["capability"] for item in amr["requiredDatabases"]}
+    assert amr["databaseHandoff"]["templateOptions"] == [
+        {"capability": "amr_database", "templates": ["card_rgi"]},
+        {"capability": "annotation_database", "templates": ["eggnog_mapper", "interproscan"]},
+    ]
+    assert amr["databaseHandoff"]["evidencePolicy"] == {
+        "acceptedEvidenceType": "real-database-acceptance",
+        "requiresRegisteredStatus": "available",
+        "requiresRunResourceBinding": True,
+        "rejectsCatalogLayerAsEvidence": True,
+        "validationFixtureAccepted": False,
+    }
     assert {"SCENARIO_TOOL_SLICE_READY", "SCENARIO_DATABASE_HANDOFF_READY", "SCENARIO_SAMPLE_DATA_READY"} <= {
         item["code"] for item in amr["nextActions"]
     }
@@ -106,7 +156,13 @@ def test_workflow_scenario_pack_api_is_read_only_and_registered() -> None:
     assert "@router.delete" not in route_source
     assert "workflow_scenario_pack_router" in main_source
     assert "runtime_service()." not in service_source
+    assert "list_reference_databases" not in service_source
+    assert "add_database_from_request" not in service_source
+    assert "scan_database_pack_ready_from_request" not in service_source
     assert "noAutomaticExecution" in service_source
+    assert "automatic-download" in service_source
+    assert "automatic-extract" in service_source
+    assert "automatic-install" in service_source
     assert 'or "/workflows/tools"' not in service_source
 
 
@@ -174,6 +230,12 @@ def test_workflow_scenario_pack_api_is_read_only_and_registered() -> None:
         (
             lambda definitions: definitions[1]["gates"].pop(),
             "SCENARIO_VERTICAL_GATE_REQUIRED",
+        ),
+        (
+            lambda definitions: definitions[1].update(
+                {"gates": [gate for gate in definitions[1]["gates"] if gate["code"] != "SCENARIO_DATABASE_HANDOFF_READY"]}
+            ),
+            "SCENARIO_DATABASE_HANDOFF_GATE_REQUIRED",
         ),
         (
             lambda definitions: definitions[1]["gates"][0].update({"passed": True}),

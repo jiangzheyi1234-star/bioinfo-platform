@@ -50,6 +50,8 @@ export function WorkflowScenarioPackSection({
               <ScenarioFact icon="evidence" label="证据" value={pack.resultEvidence.join(" / ")} />
             </div>
 
+            <DatabaseHandoffSummary pack={pack} />
+
             <div className="mt-3 space-y-2" data-testid="workflow-scenario-readiness-checks">
               {pack.readinessChecks.map((check) => (
                 <div
@@ -120,6 +122,43 @@ export function WorkflowScenarioPackSection({
   );
 }
 
+function DatabaseHandoffSummary({ pack }: { pack: WorkflowScenarioPack }) {
+  const handoff = pack.databaseHandoff;
+  const checklist = handoff?.checklist || [];
+  if (checklist.length === 0 || handoff?.status === "not_required") return null;
+  const visibleItems = checklist.slice(0, 3);
+  const remaining = checklist.length - visibleItems.length;
+  return (
+    <div className="mt-3 rounded border border-slate-200 bg-slate-50 px-2 py-2" data-testid="workflow-scenario-database-handoff">
+      <div className="mb-1.5 flex min-w-0 items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-slate-700">
+          <Database strokeWidth={1.5} className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+          <span className="truncate">数据库陪跑</span>
+        </div>
+        <span className="shrink-0 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700">
+          {handoff?.mode || "manual_external"}
+        </span>
+      </div>
+      <div className="grid gap-1" data-testid="workflow-scenario-database-handoff-checklist">
+        {visibleItems.map((item) => (
+          <div key={item.code || item.label} className="flex min-w-0 items-center gap-1.5 text-[11px] text-slate-600">
+            {item.status === "passed" ? (
+              <CheckCircle2 strokeWidth={1.5} className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+            ) : (
+              <CircleAlert strokeWidth={1.5} className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+            )}
+            <span className="truncate">{item.label || item.code}</span>
+          </div>
+        ))}
+      </div>
+      <div className="mt-1.5 truncate text-[11px] text-slate-400">
+        {databaseHandoffTemplateText(pack)}
+        {remaining > 0 ? ` · +${remaining}` : ""}
+      </div>
+    </div>
+  );
+}
+
 function ScenarioStatus({ status }: { status: string }) {
   const ready = status === "ready";
   return (
@@ -165,6 +204,14 @@ function databaseLabel(pack: WorkflowScenarioPack) {
   return pack.requiredDatabases
     .map((item) => [item.capability || "database", item.templates?.length ? `(${item.templates.join("/")})` : ""].filter(Boolean).join(" "))
     .join(", ");
+}
+
+function databaseHandoffTemplateText(pack: WorkflowScenarioPack) {
+  const options = pack.databaseHandoff?.templateOptions || pack.requiredDatabases;
+  return options
+    .flatMap((item) => item.templates || [])
+    .slice(0, 4)
+    .join(" / ");
 }
 
 function sampleDataLabel(pack: WorkflowScenarioPack) {

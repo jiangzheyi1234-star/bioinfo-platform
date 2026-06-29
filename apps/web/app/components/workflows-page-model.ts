@@ -93,6 +93,44 @@ export type WorkflowScenarioPackAction = {
   target: string;
 };
 
+export type WorkflowScenarioDatabaseHandoff = {
+  schemaVersion?: string;
+  mode?: "none" | "manual_external" | string;
+  status?: "not_required" | "operator_required" | "ready" | string;
+  operatorActionRequired?: boolean;
+  noAutomaticExecution?: boolean;
+  templateOptions?: Array<{ capability?: string; templates?: string[] }>;
+  checklist?: Array<{
+    code?: string;
+    label?: string;
+    status?: "operator_required" | "passed" | string;
+    target?: string;
+    evidence?: string;
+  }>;
+  readyScan?: {
+    label?: string;
+    method?: string;
+    path?: string;
+    mutatesRegistry?: boolean;
+    requiresOperatorReadyPath?: boolean;
+  };
+  registration?: {
+    label?: string;
+    method?: string;
+    path?: string;
+    requiresReadyScan?: boolean;
+    prefillSource?: string;
+  };
+  evidencePolicy?: {
+    acceptedEvidenceType?: string;
+    requiresRegisteredStatus?: string;
+    requiresRunResourceBinding?: boolean;
+    rejectsCatalogLayerAsEvidence?: boolean;
+    validationFixtureAccepted?: boolean;
+  };
+  excludedActions?: string[];
+};
+
 export type WorkflowScenarioPack = {
   schemaVersion: string;
   packId: string;
@@ -121,6 +159,7 @@ export type WorkflowScenarioPack = {
     acceptanceEvidence?: string;
   }>;
   requiredDatabases: Array<{ capability?: string; templates?: string[] }>;
+  databaseHandoff?: WorkflowScenarioDatabaseHandoff;
   resultEvidence: string[];
   readinessChecks: WorkflowScenarioPackCheck[];
   nextActions: WorkflowScenarioPackAction[];
