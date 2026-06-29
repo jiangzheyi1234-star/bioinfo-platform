@@ -1,0 +1,289 @@
+"use client";
+
+import Link from "next/link";
+import { ArrowRight, CheckCircle2, FileCheck2, Package, RefreshCw, XCircle } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+
+import { artifactName } from "./workflow-first-run-validation";
+import type {
+  WorkflowArtifact,
+  WorkflowArtifactPreview,
+  WorkflowRun,
+  WorkflowRunDetail,
+} from "./workflows-page-model";
+
+type RulesSummary = NonNullable<NonNullable<WorkflowRunDetail["rules"]>["summary"]>;
+
+const MOVING_PICTURES_EXPECTED_OUTPUTS = [
+  {
+    name: "summary.tsv",
+    label: "样本摘要",
+    detail: "sample、body site、matched/passed reads 和 unique_features",
+  },
+  {
+    name: "qc-summary.tsv",
+    label: "QC 摘要",
+    detail: "reads、通过数、样本数和 feature 数",
+  },
+  {
+    name: "feature-table.tsv",
+    label: "Feature table",
+    detail: "feature abundance matrix",
+  },
+  {
+    name: "run-report.html",
+    label: "HTML report",
+    detail: "Top samples 与 QC 卡片",
+  },
+] as const;
+
+export function RunReportPanel({
+  artifacts,
+  detail,
+  onRefreshRun,
+  packageLoading,
+  previews,
+  run,
+}: {
+  artifacts: WorkflowArtifact[];
+  detail: WorkflowRunDetail | null;
+  onRefreshRun: () => void;
+  packageLoading: boolean;
+  previews: WorkflowArtifactPreview[];
+  run: WorkflowRun | null;
+}) {
+  const rulesSummary = detail?.rules?.summary;
+  const stdoutCount = detail?.logs.stdout?.lines?.length || 0;
+  const stderrCount = detail?.logs.stderr?.lines?.length || 0;
+  const tablePreview = preferredTablePreview(previews);
+  const reportPreview = preferredReportPreview(previews);
+  const summaryPreview = previewByArtifactName(previews, "summary.tsv");
+  const qcPreview = previewByArtifactName(previews, "qc-summary.tsv");
+  const insight = movingPicturesInsight(artifacts, summaryPreview, qcPreview, run);
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
+            <FileCheck2 strokeWidth={1.5} className="h-4 w-4 text-slate-500" />
+            看懂报告
+          </div>
+          <div className="mt-1 truncate font-mono text-[11px] text-slate-400">{run?.runId || "run not submitted"}</div>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          {run?.runId ? (
+            <Button asChild variant="outline" size="sm" className="h-8 px-2.5 text-xs">
+              <Link href={`/workflows/results/detail?run=${encodeURIComponent(run.runId)}`}>
+                <ArrowRight strokeWidth={1.5} className="h-3.5 w-3.5" />
+                完整结果
+              </Link>
+            </Button>
+          ) : null}
+          <Button variant="ghost" size="sm" className="h-8 px-2 text-xs text-slate-500" disabled={!run?.runId || packageLoading} onClick={onRefreshRun}>
+            <RefreshCw strokeWidth={1.5} className="h-3.5 w-3.5" />
+            刷新
+          </Button>
+        </div>
+      </div>
+
+      {run ? (
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <Metric label="状态" value={runStatusLabel(run.status)} tone={run.status === "completed" ? "success" : run.status === "failed" || run.status === "error" ? "danger" : "info"} />
+          <Metric label="阶段" value={run.stage || "-"} />
+          <Metric label="规则" value={formatRuleSummary(rulesSummary)} />
+          <Metric label="日志" value={`${stdoutCount} stdout / ${stderrCount} stderr`} />
+        </div>
+      ) : (
+        <div className="mt-4 rounded-md border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-400">
+          尚未提交运行
+        </div>
+      )}
+
+      <FirstRunReportInsight insight={insight} />
+      {tablePreview?.preview?.columns?.length ? <TablePreview preview={tablePreview} /> : null}
+      {reportPreview?.artifact ? (
+        <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          HTML 报告已生成：<span className="font-mono text-slate-800">{artifactName(reportPreview.artifact)}</span>
+        </div>
+      ) : null}
+      {artifacts.length > 0 ? (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {artifacts.map((artifact) => (
+            <span key={artifact.artifactId} className="inline-flex max-w-full items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600">
+              <Package strokeWidth={1.5} className="h-3 w-3 shrink-0 text-slate-400" />
+              <span className="truncate">{artifactName(artifact)}</span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function FirstRunReportInsight({ insight }: { insight: ReturnType<typeof movingPicturesInsight> }) {
+  return (
+    <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3" data-testid="first-run-report-insight">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-xs font-semibold text-slate-900">Moving Pictures 结果解读</div>
+        <span className={cn("rounded-full border px-2 py-0.5 text-[11px]", insight.ready ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700")}>
+          {insight.ready ? "关键结果完整" : "等待关键结果"}
+        </span>
+      </div>
+      <div className="mt-3 grid gap-2 md:grid-cols-2">
+        {insight.outputs.map((item) => (
+          <div key={item.name} className="min-w-0 rounded border border-slate-200 bg-white px-3 py-2">
+            <div className="flex items-center gap-2 text-xs font-medium text-slate-800">
+              {item.present ? (
+                <CheckCircle2 strokeWidth={1.5} className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+              ) : (
+                <XCircle strokeWidth={1.5} className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+              )}
+              <span className="truncate">{item.label}</span>
+            </div>
+            <div className="mt-1 truncate font-mono text-[11px] text-slate-500">{item.name}</div>
+            <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-500">{item.detail}</div>
+          </div>
+        ))}
+      </div>
+      {insight.metrics.length > 0 ? (
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          {insight.metrics.map((metric) => (
+            <div key={metric.label} className="rounded border border-slate-200 bg-white px-3 py-2">
+              <div className="text-[11px] text-slate-400">{metric.label}</div>
+              <div className="mt-1 truncate text-sm font-semibold text-slate-900">{metric.value}</div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function TablePreview({ preview }: { preview: WorkflowArtifactPreview }) {
+  const columns = preview.preview?.columns || [];
+  const rows = preview.preview?.rows || [];
+  if (columns.length === 0 || rows.length === 0) return null;
+  return (
+    <div className="mt-4 overflow-hidden rounded-md border border-slate-200">
+      <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-3 py-2">
+        <span className="truncate text-xs font-medium text-slate-800">{preview.artifact ? artifactName(preview.artifact) : "summary.tsv"}</span>
+        <span className="shrink-0 text-[11px] text-slate-400">{rows.length} 行预览</span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-xs">
+          <thead className="bg-white text-slate-500">
+            <tr>
+              {columns.slice(0, 6).map((column) => (
+                <th key={column} className="whitespace-nowrap px-3 py-2 font-medium">{column}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {rows.slice(0, 5).map((row, index) => (
+              <tr key={index}>
+                {columns.slice(0, 6).map((column, columnIndex) => (
+                  <td key={`${column}-${columnIndex}`} className="max-w-[180px] truncate px-3 py-2 text-slate-700">
+                    {row[columnIndex] || ""}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function Metric({ label, tone = "neutral", value }: { label: string; tone?: "neutral" | "success" | "danger" | "info"; value: string }) {
+  return (
+    <div className="min-w-0 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+      <div className="text-[11px] font-medium text-slate-400">{label}</div>
+      <div
+        className={cn(
+          "mt-1 truncate text-sm font-semibold",
+          tone === "success" ? "text-emerald-700" : tone === "danger" ? "text-red-700" : tone === "info" ? "text-blue-700" : "text-slate-900"
+        )}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+export function preferredTablePreview(previews: WorkflowArtifactPreview[]) {
+  const tables = previews.filter((preview) => preview.preview?.kind === "table");
+  return previewByArtifactName(tables, "summary.tsv") || previewByArtifactName(tables, "qc-summary.tsv") || tables[0];
+}
+
+export function preferredReportPreview(previews: WorkflowArtifactPreview[]) {
+  return previews.find((preview) => preview.artifact && artifactName(preview.artifact) === "run-report.html");
+}
+
+function previewByArtifactName(previews: WorkflowArtifactPreview[], name: string) {
+  return previews.find((preview) => preview.artifact && artifactName(preview.artifact) === name);
+}
+
+function movingPicturesInsight(
+  artifacts: WorkflowArtifact[],
+  summaryPreview: WorkflowArtifactPreview | undefined,
+  qcPreview: WorkflowArtifactPreview | undefined,
+  run: WorkflowRun | null
+) {
+  const artifactNames = new Set(artifacts.map(artifactName));
+  const outputs = MOVING_PICTURES_EXPECTED_OUTPUTS.map((item) => ({
+    ...item,
+    present: artifactNames.has(item.name),
+  }));
+  return {
+    ready: run?.status === "completed" && outputs.every((item) => item.present),
+    outputs,
+    metrics: [...summaryMetrics(summaryPreview), ...qcMetrics(qcPreview)].slice(0, 6),
+  };
+}
+
+function summaryMetrics(preview: WorkflowArtifactPreview | undefined) {
+  const rows = preview?.preview?.rows || [];
+  const columns = preview?.preview?.columns || [];
+  if (rows.length === 0 || columns.length === 0) return [];
+  const passedIndex = columns.indexOf("passed_reads");
+  const featuresIndex = columns.indexOf("unique_features");
+  return [
+    { label: "samples", value: String(rows.length) },
+    ...(passedIndex >= 0 ? [{ label: "passed reads", value: formatNumber(sumColumn(rows, passedIndex)) }] : []),
+    ...(featuresIndex >= 0 ? [{ label: "unique features", value: formatNumber(sumColumn(rows, featuresIndex)) }] : []),
+  ];
+}
+
+function qcMetrics(preview: WorkflowArtifactPreview | undefined) {
+  const rows = preview?.preview?.rows || [];
+  const columns = preview?.preview?.columns || [];
+  const metricIndex = columns.indexOf("metric");
+  const valueIndex = columns.indexOf("value");
+  if (metricIndex < 0 || valueIndex < 0) return [];
+  return rows.slice(0, 3).map((row) => ({ label: row[metricIndex] || "metric", value: row[valueIndex] || "" }));
+}
+
+function sumColumn(rows: string[][], columnIndex: number) {
+  return rows.reduce((total, row) => total + Number(row[columnIndex] || 0), 0);
+}
+
+function formatNumber(value: number) {
+  return Number.isFinite(value) ? value.toLocaleString("en-US") : "";
+}
+
+function formatRuleSummary(summary: RulesSummary | undefined) {
+  if (!summary) return "-";
+  const count = summary.ruleCount ?? 0;
+  const failed = summary.failedRuleCount ?? 0;
+  return failed ? `${count} rules / ${failed} failed` : `${count} rules`;
+}
+
+function runStatusLabel(status?: string) {
+  if (status === "completed") return "完成";
+  if (status === "failed" || status === "error") return "失败";
+  if (status === "running") return "运行中";
+  return status || "-";
+}

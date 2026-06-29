@@ -34,8 +34,9 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     first_run_route = ROOT / "apps" / "web" / "app" / "workflows" / "first-run" / "page.tsx"
     first_run_page = (COMPONENTS / "workflow-first-run-page.tsx").read_text(encoding="utf-8")
     first_run_api = (COMPONENTS / "workflow-first-run-api.ts").read_text(encoding="utf-8")
+    first_run_report = (COMPONENTS / "workflow-first-run-report.tsx").read_text(encoding="utf-8")
     first_run_validation = (COMPONENTS / "workflow-first-run-validation.tsx").read_text(encoding="utf-8")
-    first_run_source = f"{first_run_page}\n{first_run_api}\n{first_run_validation}"
+    first_run_source = f"{first_run_page}\n{first_run_api}\n{first_run_report}\n{first_run_validation}"
     api = (COMPONENTS / "workflows-page-api.ts").read_text(encoding="utf-8")
     hook = (COMPONENTS / "use-workflows-page-state.ts").read_text(encoding="utf-8")
 
@@ -50,6 +51,14 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "准备示例数据" in first_run_page
     assert "提交运行" in first_run_page
     assert "看懂报告" in first_run_page
+    assert "Moving Pictures 结果解读" in first_run_report
+    assert "MOVING_PICTURES_EXPECTED_OUTPUTS" in first_run_report
+    assert "summary.tsv" in first_run_report
+    assert "qc-summary.tsv" in first_run_report
+    assert "feature-table.tsv" in first_run_report
+    assert "run-report.html" in first_run_report
+    assert "first-run-report-insight" in first_run_report
+    assert "movingPicturesInsight" in first_run_report
     assert "导出完整结果包" in first_run_source
     assert "结果验证卡" in first_run_source
     assert "/api/v1/first-run/runs/${encodeURIComponent(runId)}/validation-card" in first_run_api

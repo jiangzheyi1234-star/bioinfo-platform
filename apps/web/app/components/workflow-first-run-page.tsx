@@ -1,14 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
-  ArrowRight,
   CheckCircle2,
-  FileCheck2,
   Loader2,
-  Package,
   Play,
   RefreshCw,
   Rocket,
@@ -28,10 +24,10 @@ import { useWorkflowsPageState } from "./use-workflows-page-state";
 import { downloadFirstRunValidationCard } from "./workflow-first-run-api";
 import { WorkflowPageHeader } from "./workflow-page-header";
 import { WorkflowWorkspaceTabs } from "./workflow-workspace-tabs";
+import { RunReportPanel } from "./workflow-first-run-report";
 import {
   ResultPackagePanel,
   ValidationCard,
-  artifactName,
   formatBytes,
   firstRunResultPackageReady,
 } from "./workflow-first-run-validation";
@@ -41,8 +37,6 @@ import {
 } from "./workflows-page-api";
 import {
   workflowErrorMessage,
-  type WorkflowArtifact,
-  type WorkflowArtifactPreview,
   type WorkflowResultPackageExport,
   type WorkflowRun,
   type WorkflowRunDetail,
@@ -55,7 +49,6 @@ const EXPECTED_SAMPLE_ROLES = ["metadata", "barcodes", "sequences"];
 
 type StepState = "done" | "current" | "waiting" | "blocked";
 type FirstRunState = ReturnType<typeof useWorkflowsPageState>;
-type RulesSummary = NonNullable<NonNullable<WorkflowRunDetail["rules"]>["summary"]>;
 
 type FirstRunStep = { id: string; label: string; detail: string; state: StepState };
 
@@ -89,8 +82,6 @@ export function WorkflowFirstRunPage() {
   const reportReady = runCompleted && artifacts.length > 0;
   const packageReady = packageExports.some(firstRunResultPackageReady);
   const validationReady = runCompleted && packageReady && Boolean(workflowRevisionId);
-  const tablePreview = preferredTablePreview(previews);
-  const reportPreview = preferredReportPreview(previews);
   const latestPackage = packageExports[0];
 
   const steps = useMemo(
@@ -260,9 +251,8 @@ export function WorkflowFirstRunPage() {
               artifacts={artifacts}
               detail={state.runDetail}
               packageLoading={packageLoading}
-              reportPreview={reportPreview}
+              previews={previews}
               run={run}
-              tablePreview={tablePreview}
               onRefreshRun={() => void state.refreshRunDetail()}
             />
           </div>
@@ -496,121 +486,6 @@ function SampleAndSubmitPanel({
   );
 }
 
-function RunReportPanel({
-  artifacts,
-  detail,
-  onRefreshRun,
-  packageLoading,
-  reportPreview,
-  run,
-  tablePreview,
-}: {
-  artifacts: WorkflowArtifact[];
-  detail: WorkflowRunDetail | null;
-  onRefreshRun: () => void;
-  packageLoading: boolean;
-  reportPreview?: WorkflowArtifactPreview;
-  run: WorkflowRun | null;
-  tablePreview?: WorkflowArtifactPreview;
-}) {
-  const rulesSummary = detail?.rules?.summary;
-  const stdoutCount = detail?.logs.stdout?.lines?.length || 0;
-  const stderrCount = detail?.logs.stderr?.lines?.length || 0;
-  return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
-            <FileCheck2 strokeWidth={1.5} className="h-4 w-4 text-slate-500" />
-            看懂报告
-          </div>
-          <div className="mt-1 truncate font-mono text-[11px] text-slate-400">{run?.runId || "run not submitted"}</div>
-        </div>
-        <div className="flex shrink-0 flex-wrap gap-2">
-          {run?.runId ? (
-            <Button asChild variant="outline" size="sm" className="h-8 px-2.5 text-xs">
-              <Link href={`/workflows/results/detail?run=${encodeURIComponent(run.runId)}`}>
-                <ArrowRight strokeWidth={1.5} className="h-3.5 w-3.5" />
-                完整结果
-              </Link>
-            </Button>
-          ) : null}
-          <Button variant="ghost" size="sm" className="h-8 px-2 text-xs text-slate-500" disabled={!run?.runId || packageLoading} onClick={onRefreshRun}>
-            <RefreshCw strokeWidth={1.5} className="h-3.5 w-3.5" />
-            刷新
-          </Button>
-        </div>
-      </div>
-
-      {run ? (
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Metric label="状态" value={runStatusLabel(run.status)} tone={run.status === "completed" ? "success" : run.status === "failed" || run.status === "error" ? "danger" : "info"} />
-          <Metric label="阶段" value={run.stage || "-"} />
-          <Metric label="规则" value={formatRuleSummary(rulesSummary)} />
-          <Metric label="日志" value={`${stdoutCount} stdout / ${stderrCount} stderr`} />
-        </div>
-      ) : (
-        <div className="mt-4 rounded-md border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-400">
-          尚未提交运行
-        </div>
-      )}
-
-      {tablePreview?.preview?.columns?.length ? <TablePreview preview={tablePreview} /> : null}
-      {reportPreview?.artifact ? (
-        <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-          HTML 报告已生成：<span className="font-mono text-slate-800">{artifactName(reportPreview.artifact)}</span>
-        </div>
-      ) : null}
-      {artifacts.length > 0 ? (
-        <div className="mt-4 flex flex-wrap gap-2">
-          {artifacts.map((artifact) => (
-            <span key={artifact.artifactId} className="inline-flex max-w-full items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600">
-              <Package strokeWidth={1.5} className="h-3 w-3 shrink-0 text-slate-400" />
-              <span className="truncate">{artifactName(artifact)}</span>
-            </span>
-          ))}
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
-function TablePreview({ preview }: { preview: WorkflowArtifactPreview }) {
-  const columns = preview.preview?.columns || [];
-  const rows = preview.preview?.rows || [];
-  if (columns.length === 0 || rows.length === 0) return null;
-  return (
-    <div className="mt-4 overflow-hidden rounded-md border border-slate-200">
-      <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-3 py-2">
-        <span className="truncate text-xs font-medium text-slate-800">{preview.artifact ? artifactName(preview.artifact) : "summary.tsv"}</span>
-        <span className="shrink-0 text-[11px] text-slate-400">{rows.length} 行预览</span>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-left text-xs">
-          <thead className="bg-white text-slate-500">
-            <tr>
-              {columns.slice(0, 6).map((column) => (
-                <th key={column} className="whitespace-nowrap px-3 py-2 font-medium">{column}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {rows.slice(0, 5).map((row, index) => (
-              <tr key={index}>
-                {columns.slice(0, 6).map((column, columnIndex) => (
-                  <td key={`${column}-${columnIndex}`} className="max-w-[180px] truncate px-3 py-2 text-slate-700">
-                    {row[columnIndex] || ""}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
 function ReadinessCheck({ detail, label, ok }: { detail: string; label: string; ok: boolean }) {
   return (
     <div className="min-w-0 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
@@ -623,22 +498,6 @@ function ReadinessCheck({ detail, label, ok }: { detail: string; label: string; 
         <span>{label}</span>
       </div>
       <div className="mt-1 truncate text-[11px] text-slate-500">{detail || "未检查"}</div>
-    </div>
-  );
-}
-
-function Metric({ label, tone = "neutral", value }: { label: string; tone?: "neutral" | "success" | "danger" | "info"; value: string }) {
-  return (
-    <div className="min-w-0 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-      <div className="text-[11px] font-medium text-slate-400">{label}</div>
-      <div
-        className={cn(
-          "mt-1 truncate text-sm font-semibold",
-          tone === "success" ? "text-emerald-700" : tone === "danger" ? "text-red-700" : tone === "info" ? "text-blue-700" : "text-slate-900"
-        )}
-      >
-        {value}
-      </div>
     </div>
   );
 }
@@ -753,33 +612,6 @@ function mergePackageExport(
   const packageExportId = item.packageExportId || "";
   if (!packageExportId) return [item, ...current];
   return [item, ...current.filter((candidate) => candidate.packageExportId !== packageExportId)];
-}
-
-function preferredTablePreview(previews: WorkflowArtifactPreview[]) {
-  const tables = previews.filter((preview) => preview.preview?.kind === "table");
-  return (
-    tables.find((preview) => preview.artifact && artifactName(preview.artifact) === "summary.tsv") ||
-    tables.find((preview) => preview.artifact && artifactName(preview.artifact) === "qc-summary.tsv") ||
-    tables[0]
-  );
-}
-
-function preferredReportPreview(previews: WorkflowArtifactPreview[]) {
-  return previews.find((preview) => preview.artifact && artifactName(preview.artifact) === "run-report.html");
-}
-
-function formatRuleSummary(summary: RulesSummary | undefined) {
-  if (!summary) return "-";
-  const count = summary.ruleCount ?? 0;
-  const failed = summary.failedRuleCount ?? 0;
-  return failed ? `${count} rules / ${failed} failed` : `${count} rules`;
-}
-
-function runStatusLabel(status?: string) {
-  if (status === "completed") return "完成";
-  if (status === "failed" || status === "error") return "失败";
-  if (status === "running") return "运行中";
-  return status || "-";
 }
 
 function sampleRoleLabel(role: string) {
