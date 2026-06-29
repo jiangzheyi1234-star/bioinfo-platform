@@ -11,7 +11,6 @@ from urllib.parse import unquote, urlparse
 from .artifact_cache_storage import active_artifact_cache_pin_reasons, artifact_cache_storage_ref_key
 from .artifact_io import artifact_local_path, delete_artifact_payload
 from .artifact_lifecycle_storage import (
-    TERMINAL_RUN_STATUSES,
     lifecycle_reference_reasons,
     list_artifact_lifecycle_rows,
     list_ledger_only_materialization_rows,
@@ -20,6 +19,7 @@ from .artifact_lifecycle_storage import (
 from .config import RemoteRunnerConfig
 from .evidence_storage import append_evidence_event
 from .governance_audit import record_governance_audit_event
+from .run_execution_state_machine import TERMINAL_RUN_STATUSES
 from .storage_core import get_connection, now_iso
 
 

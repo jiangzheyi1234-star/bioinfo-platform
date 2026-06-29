@@ -212,6 +212,31 @@ def test_workflow_backfill_state_machine_owns_backfill_status_decisions() -> Non
     assert "TRIGGER_ACTIVE_RUN_TERMINAL_STATUSES =" not in trigger_storage
 
 
+def test_run_execution_state_machine_owns_shared_run_status_sets() -> None:
+    artifact_lifecycle_storage = (REMOTE_RUNNER / "artifact_lifecycle_storage.py").read_text(encoding="utf-8")
+    artifact_lifecycle_service = (REMOTE_RUNNER / "artifact_lifecycle_service.py").read_text(encoding="utf-8")
+    execution_resume_plan = (REMOTE_RUNNER / "execution_resume_plan.py").read_text(encoding="utf-8")
+    rule_partial_rerun_lifecycle = (REMOTE_RUNNER / "rule_partial_rerun_lifecycle.py").read_text(encoding="utf-8")
+    backfill_reprocessing = (REMOTE_RUNNER / "workflow_backfill_reprocessing.py").read_text(encoding="utf-8")
+
+    assert "from .run_execution_state_machine import TERMINAL_RUN_STATUSES" in artifact_lifecycle_storage
+    assert "from .run_execution_state_machine import TERMINAL_RUN_STATUSES" in artifact_lifecycle_service
+    assert "from .run_execution_state_machine import RETRYABLE_RUN_STATUSES, TERMINAL_RUN_STATUSES" in (
+        execution_resume_plan
+    )
+    assert "from .run_execution_state_machine import RELEASED_LEASE_STATES, RETRYABLE_RUN_STATUSES" in (
+        rule_partial_rerun_lifecycle
+    )
+    assert "from .run_execution_state_machine import RunExecutionStateMachine" in backfill_reprocessing
+
+    assert "TERMINAL_RUN_STATUSES =" not in artifact_lifecycle_storage
+    assert "TERMINAL_RUN_STATUSES =" not in execution_resume_plan
+    assert "RESUMABLE_RUN_STATUSES =" not in execution_resume_plan
+    assert "RETRYABLE_TERMINAL_RUN_STATUSES =" not in rule_partial_rerun_lifecycle
+    assert "RELEASED_LEASE_STATES =" not in rule_partial_rerun_lifecycle
+    assert "TERMINAL_RUN_STATUSES =" not in backfill_reprocessing
+
+
 def test_tool_prepare_job_records_live_outside_storage_mutation_module() -> None:
     storage = (REMOTE_RUNNER / "tool_prepare_job_storage.py").read_text(encoding="utf-8")
     records_path = REMOTE_RUNNER / "tool_prepare_job_records.py"

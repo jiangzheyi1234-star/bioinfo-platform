@@ -10,6 +10,7 @@ from .execution_rerun_orchestration import (
     build_run_resume_executor_orchestration,
 )
 from .execution_workdir_reuse_policy import build_workdir_reuse_policy
+from .run_execution_state_machine import RETRYABLE_RUN_STATUSES, TERMINAL_RUN_STATUSES
 
 
 RUN_RESUME_PLAN_SCHEMA_VERSION = "run-resume-plan.v1"
@@ -21,8 +22,6 @@ RUN_RESUME_EXECUTION_BLOCKERS = [
     "ARTIFACT_ADOPTION_UNPROVEN",
 ]
 UNSAFE_SNAKEMAKE_RESUME_FLAGS = ["--forceall", "--touch", "--ignore-incomplete"]
-RESUMABLE_RUN_STATUSES = {"failed", "canceled", "cancelled"}
-TERMINAL_RUN_STATUSES = {"completed", "failed", "canceled", "cancelled"}
 TERMINAL_JOB_STATES = {"completed", "failed", "canceled", "cancelled"}
 RESUMABLE_ATTEMPT_STATES = {"failed", "fenced", "canceled", "cancelled"}
 
@@ -59,7 +58,7 @@ def build_run_resume_plan(
     latest_state = str((latest_attempt or {}).get("state") or "").lower()
     if run_status not in TERMINAL_RUN_STATUSES or job_state not in TERMINAL_JOB_STATES:
         return _blocked(base, "RUN_RESUME_REQUIRES_TERMINAL_RUN_AND_JOB")
-    if run_status not in RESUMABLE_RUN_STATUSES:
+    if run_status not in RETRYABLE_RUN_STATUSES:
         return _blocked(base, "RUN_NOT_RESUMABLE_TERMINAL")
     if latest_state not in RESUMABLE_ATTEMPT_STATES:
         return _blocked(base, "RUN_RESUME_LATEST_ATTEMPT_NOT_RESUMABLE")

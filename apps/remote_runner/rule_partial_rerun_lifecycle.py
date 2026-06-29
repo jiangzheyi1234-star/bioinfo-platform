@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from .run_execution_state_machine import RELEASED_LEASE_STATES, RETRYABLE_RUN_STATUSES
+
 
 RULE_PARTIAL_RERUN_LIFECYCLE_SCHEMA_VERSION = "rule-partial-rerun-lifecycle.v1"
-RETRYABLE_TERMINAL_RUN_STATUSES = {"failed", "canceled", "cancelled"}
 TERMINAL_JOB_STATES = {"completed", "failed", "cancelled", "canceled"}
-RELEASED_LEASE_STATES = {"expired", "fenced", "failed", "canceled", "cancelled"}
 TERMINAL_ATTEMPT_STATES = {"succeeded", "failed", "canceled", "cancelled", "fenced"}
 READY_REASON = "RULE_PARTIAL_RERUN_LIFECYCLE_CONTRACT_READY"
 
@@ -55,7 +55,7 @@ def build_rule_partial_rerun_lifecycle(
         blockers.append("RULE_PARTIAL_RERUN_SOURCE_ATTEMPT_NOT_FOUND")
     elif str(attempt.get("state") or "").lower() not in TERMINAL_ATTEMPT_STATES:
         blockers.append("RULE_PARTIAL_RERUN_SOURCE_ATTEMPT_NOT_TERMINAL")
-    if run_status not in RETRYABLE_TERMINAL_RUN_STATUSES:
+    if run_status not in RETRYABLE_RUN_STATUSES:
         blockers.append("RULE_PARTIAL_RERUN_RUN_NOT_RETRYABLE_TERMINAL")
     if job is None:
         blockers.append("RULE_PARTIAL_RERUN_JOB_NOT_FOUND")

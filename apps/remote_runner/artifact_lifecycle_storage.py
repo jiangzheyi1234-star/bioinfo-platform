@@ -5,10 +5,10 @@ import sqlite3
 from typing import Any
 
 from .config import RemoteRunnerConfig
+from .run_execution_state_machine import TERMINAL_RUN_STATUSES
 from .storage_core import get_connection
 
 
-TERMINAL_RUN_STATUSES = {"completed", "failed", "canceled", "cancelled"}
 TERMINAL_JOB_STATES = {"completed", "failed", "canceled", "cancelled", "dead_lettered"}
 TERMINAL_ATTEMPT_STATES = {"succeeded", "failed", "canceled", "cancelled"}
 

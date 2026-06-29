@@ -4,6 +4,7 @@ from typing import Any
 
 from .api_models import WorkflowTriggerBackfillPreviewRequest
 from .config import RemoteRunnerConfig
+from .run_execution_state_machine import RunExecutionStateMachine
 from .workflow_backfill_planner import build_backfill_plan
 from .workflow_backfill_storage import latest_workflow_backfill_partitions_by_window
 
@@ -11,7 +12,6 @@ from .workflow_backfill_storage import latest_workflow_backfill_partitions_by_wi
 ACTIVE_PARTITION_STATES = {"pending", "admitting", "submitted", "replayed", "cancel_requested"}
 COMPLETED_RUN_STATUSES = {"completed"}
 FAILED_RUN_STATUSES = {"failed"}
-TERMINAL_RUN_STATUSES = COMPLETED_RUN_STATUSES | FAILED_RUN_STATUSES | {"canceled", "cancelled"}
 
 
 def build_backfill_plan_with_reprocessing_policy(
@@ -131,7 +131,7 @@ def _existing_is_active(existing_state: dict[str, Any]) -> bool:
     run_status = str(existing_state.get("runStatus") or "").strip().lower()
     state = str(existing_state.get("state") or "").strip().lower()
     if run_status:
-        return run_status not in TERMINAL_RUN_STATUSES
+        return not RunExecutionStateMachine.is_terminal_run_status(run_status)
     return state in ACTIVE_PARTITION_STATES
 
 
