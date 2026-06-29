@@ -201,6 +201,7 @@ def _tool_slice_tool_options(tool_slice_handoff: dict[str, Any]) -> list[dict[st
             "role": str(item.get("role") or ""),
             "contractState": str(item.get("contractState") or ""),
             "acceptanceEvidence": str(item.get("acceptanceEvidence") or ""),
+            "acceptanceEvidenceContract": dict(item.get("acceptanceEvidenceContract") or {}),
         }
         for item in tool_slice_handoff.get("toolOptions") or []
         if isinstance(item, dict)

@@ -180,6 +180,9 @@ function ToolSliceHandoffSummary({ pack }: { pack: WorkflowScenarioPack }) {
   if (checklist.length === 0 || handoff?.status === "ready") return null;
   const visibleItems = checklist.slice(0, 2);
   const remaining = checklist.length - visibleItems.length;
+  const pendingEvidenceCount = (handoff?.toolOptions || []).filter(
+    (item) => item.acceptanceEvidenceContract?.status !== "accepted"
+  ).length;
   return (
     <div className="mt-3 rounded border border-slate-200 bg-slate-50 px-2 py-2" data-testid="workflow-scenario-tool-slice-handoff">
       <div className="mb-1.5 flex min-w-0 items-center justify-between gap-2">
@@ -205,6 +208,7 @@ function ToolSliceHandoffSummary({ pack }: { pack: WorkflowScenarioPack }) {
       </div>
       <div className="mt-1.5 truncate text-[11px] text-slate-500" data-testid="workflow-scenario-tool-slice-promotion-contract">
         Evidence: {(handoff?.promotionContract?.requiredEvidence || []).slice(0, 4).join(" / ")}
+        {pendingEvidenceCount > 0 ? ` · ${pendingEvidenceCount} tool contracts pending` : ""}
       </div>
     </div>
   );

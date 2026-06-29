@@ -220,6 +220,7 @@ $plan = [ordered]@{
             "handoffProof.nextScenarioIds=$($expectedNextScenarioIds -join ',')",
             "handoffProof.nextScenarioDatabasePackCoverage.toolSliceRequiredState=WorkflowReady",
             "handoffProof.nextScenarioDatabasePackCoverage.toolSlicePromotionEvidence=toolRevisionId,capability-bundle-v1,RuleSpec,environment-lock,smoke-fixture,expected-output-artifacts",
+            "handoffProof.nextScenarioDatabasePackCoverage.toolAcceptanceContractCount>=3",
             "handoffProof.nextScenarioDatabasePackCoverage.taxonomy-classification.packCount=1",
             "handoffProof.nextScenarioDatabasePackCoverage.amr-annotation.missingTemplates=card_rgi,eggnog_mapper,interproscan",
             "handoffProof.nextScenarioDatabasePackCoverage.readyScanPath=/api/v1/database-pack-ready-scans",
@@ -239,6 +240,7 @@ $plan = [ordered]@{
                     missingTemplates = @()
                     toolSliceRequiredState = "WorkflowReady"
                     toolSlicePromotionEvidence = @("toolRevisionId", "capability-bundle-v1", "RuleSpec", "environment-lock", "smoke-fixture", "expected-output-artifacts")
+                    toolAcceptanceContractCount = 3
                     readyScanPath = "/api/v1/database-pack-ready-scans"
                     registrationPrefillSource = "database-pack-ready-scan.registrationPrefill"
                 },
@@ -249,6 +251,7 @@ $plan = [ordered]@{
                     missingTemplates = @("card_rgi", "eggnog_mapper", "interproscan")
                     toolSliceRequiredState = "WorkflowReady"
                     toolSlicePromotionEvidence = @("toolRevisionId", "capability-bundle-v1", "RuleSpec", "environment-lock", "smoke-fixture", "expected-output-artifacts")
+                    toolAcceptanceContractCount = 3
                     readyScanPath = "/api/v1/database-pack-ready-scans"
                     registrationPrefillSource = "database-pack-ready-scan.registrationPrefill"
                 }

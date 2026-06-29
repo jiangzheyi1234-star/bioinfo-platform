@@ -437,6 +437,22 @@ function Assert-FirstRunPilotHandoff {
         if ($toolSlice.sliceSize.actual -lt 3 -or $toolSlice.sliceSize.actual -gt 5) {
             Fail-Pilot "pilotHandoff nextScenarios $scenarioId tool slice must stay within 3-5 tools"
         }
+        foreach ($toolOption in @($toolSlice.toolOptions)) {
+            $toolContract = $toolOption.acceptanceEvidenceContract
+            if ($null -eq $toolContract -or $toolContract.schemaVersion -ne "h2ometa.workflow-scenario-tool-acceptance-evidence-contract.v1") {
+                Fail-Pilot "pilotHandoff nextScenarios $scenarioId tool option must include acceptance evidence contract"
+            }
+            if ((@($toolContract.requiredEvidence) -join "|") -ne "toolRevisionId|capability-bundle-v1|RuleSpec|environment-lock|smoke-fixture|expected-output-artifacts") {
+                Fail-Pilot "pilotHandoff nextScenarios $scenarioId tool option acceptance evidence must be explicit"
+            }
+            if (-not (@($toolContract.rejectedEvidence) -contains "pending-string-only-evidence")) {
+                Fail-Pilot "pilotHandoff nextScenarios $scenarioId tool option must reject pending string-only evidence"
+            }
+            $pointerNames = @($toolContract.evidencePointers.PSObject.Properties.Name | Sort-Object)
+            if (($pointerNames -join "|") -ne "capabilityBundle|environmentLock|expectedOutputArtifacts|ruleSpec|smokeFixture|toolRevisionId") {
+                Fail-Pilot "pilotHandoff nextScenarios $scenarioId tool option evidence pointers must cover required evidence"
+            }
+        }
         $promotion = $toolSlice.promotionContract
         if ($null -eq $promotion -or $promotion.schemaVersion -ne "h2ometa.workflow-scenario-tool-slice-promotion-contract.v1") {
             Fail-Pilot "pilotHandoff nextScenarios $scenarioId must include tool slice promotion contract"
@@ -532,6 +548,7 @@ function Assert-FirstRunPilotHandoff {
             missingTemplates = @($_.databasePackCoverage.missingTemplates)
             toolSliceRequiredState = $_.toolSlicePromotionHandoff.requiredState
             toolSlicePromotionEvidence = @($_.toolSlicePromotionHandoff.promotionContract.requiredEvidence)
+            toolAcceptanceContractCount = @($_.toolSlicePromotionHandoff.toolOptions | Where-Object { $_.acceptanceEvidenceContract }).Count
             readyScanPath = $_.databaseInstallHandoff.readyScan.path
             registrationPrefillSource = $_.databaseInstallHandoff.registration.prefillSource
             packOptionCount = @($_.databaseInstallHandoff.packOptions).Count

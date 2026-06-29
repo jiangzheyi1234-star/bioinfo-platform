@@ -100,6 +100,10 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "pilotHandoff nextScenarios $scenarioId must include blocked gate evidence" in source
     assert "pilotHandoff nextScenarios $scenarioId must include tool slice promotion handoff" in source
     assert "pilotHandoff nextScenarios $scenarioId tool slice promotion must require WorkflowReady" in source
+    assert "pilotHandoff nextScenarios $scenarioId tool option must include acceptance evidence contract" in source
+    assert "pilotHandoff nextScenarios $scenarioId tool option acceptance evidence must be explicit" in source
+    assert "pilotHandoff nextScenarios $scenarioId tool option must reject pending string-only evidence" in source
+    assert "pilotHandoff nextScenarios $scenarioId tool option evidence pointers must cover required evidence" in source
     assert "pilotHandoff nextScenarios $scenarioId tool promotion evidence must be explicit" in source
     assert "pilotHandoff nextScenarios $scenarioId tool promotion checklist must include RuleSpec proof" in source
     assert "pilotHandoff nextScenarios $scenarioId tool promotion checklist must include smoke fixture proof" in source
@@ -125,6 +129,7 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "nextScenarioDatabasePackCoverage = $nextScenarioDatabasePackCoverage" in source
     assert "toolSliceRequiredState = $_.toolSlicePromotionHandoff.requiredState" in source
     assert "toolSlicePromotionEvidence = @($_.toolSlicePromotionHandoff.promotionContract.requiredEvidence)" in source
+    assert "toolAcceptanceContractCount = @($_.toolSlicePromotionHandoff.toolOptions | Where-Object" in source
     assert "readyScanPath = $_.databaseInstallHandoff.readyScan.path" in source
     assert "registrationPrefillSource = $_.databaseInstallHandoff.registration.prefillSource" in source
     assert "handoffProof = $handoffProof" in source

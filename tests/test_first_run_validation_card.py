@@ -89,6 +89,25 @@ def test_first_run_validation_card_is_server_generated_and_redacted(monkeypatch)
     assert taxonomy_tool_slice["noAutomaticExecution"] is True
     assert taxonomy_tool_slice["sliceSize"] == {"min": 3, "max": 5, "actual": 3}
     assert [item["contractState"] for item in taxonomy_tool_slice["toolOptions"]] == ["planned", "planned", "planned"]
+    assert {item["acceptanceEvidenceContract"]["status"] for item in taxonomy_tool_slice["toolOptions"]} == {
+        "operator_required"
+    }
+    assert {item["acceptanceEvidenceContract"]["evidenceRef"] for item in taxonomy_tool_slice["toolOptions"]} == {""}
+    assert all(
+        "pending-string-only-evidence" in item["acceptanceEvidenceContract"]["rejectedEvidence"]
+        for item in taxonomy_tool_slice["toolOptions"]
+    )
+    assert all(
+        set(item["acceptanceEvidenceContract"]["evidencePointers"]) == {
+            "toolRevisionId",
+            "capabilityBundle",
+            "ruleSpec",
+            "environmentLock",
+            "smokeFixture",
+            "expectedOutputArtifacts",
+        }
+        for item in taxonomy_tool_slice["toolOptions"]
+    )
     assert taxonomy_tool_slice["promotionContract"]["requiredEvidence"] == [
         "toolRevisionId",
         "capability-bundle-v1",

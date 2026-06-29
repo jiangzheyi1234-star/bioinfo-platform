@@ -255,6 +255,15 @@ export type FirstRunPilotHandoff = {
         role?: string;
         contractState?: string;
         acceptanceEvidence?: string;
+        acceptanceEvidenceContract?: {
+          schemaVersion?: string;
+          status?: string;
+          evidenceRef?: string;
+          requiredEvidence?: string[];
+          evidencePointers?: Record<string, { status?: string; ref?: string; evidence?: string }>;
+          target?: string;
+          rejectedEvidence?: string[];
+        };
       }>;
       checklist?: Array<{ code?: string; label?: string; status?: string; target?: string; evidence?: string }>;
       promotionContract?: {

@@ -333,6 +333,9 @@ function NextScenarioPilotCard({ pack }: { pack: WorkflowScenarioPack }) {
   const packOptions = pack.databaseHandoff?.packOptions || [];
   const missingTemplates = pack.databaseHandoff?.missingPackTemplates || [];
   const toolEvidence = pack.toolSliceHandoff?.promotionContract?.requiredEvidence || [];
+  const pendingToolEvidence = (pack.toolSliceHandoff?.toolOptions || []).filter(
+    (item) => item.acceptanceEvidenceContract?.status !== "accepted"
+  ).length;
   const readyScan = pack.databaseHandoff?.readyScan;
   const registration = pack.databaseHandoff?.registration;
   return (
@@ -358,6 +361,7 @@ function NextScenarioPilotCard({ pack }: { pack: WorkflowScenarioPack }) {
         {toolEvidence.length > 0 ? (
           <div className="truncate text-slate-500" data-testid="first-run-next-scenario-tool-slice-promotion">
             Tool evidence: {toolEvidence.slice(0, 4).join(" / ")}
+            {pendingToolEvidence > 0 ? ` · ${pendingToolEvidence} pending` : ""}
           </div>
         ) : null}
         {packOptions.slice(0, 1).map((item) => (

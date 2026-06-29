@@ -108,8 +108,40 @@ def test_workflow_scenario_pack_catalog_publishes_three_product_scenarios() -> N
             assert tool["contractState"] in {"planned", "workflow_ready"}
             assert "bioconda" not in tool["toolId"].lower()
         for tool in item["toolSliceHandoff"]["toolOptions"]:
-            assert set(tool) == {"toolId", "name", "kind", "role", "contractState", "acceptanceEvidence"}
+            assert set(tool) == {
+                "toolId",
+                "name",
+                "kind",
+                "role",
+                "contractState",
+                "acceptanceEvidence",
+                "acceptanceEvidenceContract",
+            }
             assert {"ruleSpecDraft", "ruleTemplate", "commandTemplate", "packageSpec", "preparePayload"}.isdisjoint(tool)
+            assert tool["acceptanceEvidenceContract"]["schemaVersion"] == (
+                "h2ometa.workflow-scenario-tool-acceptance-evidence-contract.v1"
+            )
+            assert tool["acceptanceEvidenceContract"]["requiredEvidence"] == [
+                "toolRevisionId",
+                "capability-bundle-v1",
+                "RuleSpec",
+                "environment-lock",
+                "smoke-fixture",
+                "expected-output-artifacts",
+            ]
+            assert set(tool["acceptanceEvidenceContract"]["evidencePointers"]) == {
+                "toolRevisionId",
+                "capabilityBundle",
+                "ruleSpec",
+                "environmentLock",
+                "smokeFixture",
+                "expectedOutputArtifacts",
+            }
+            assert tool["acceptanceEvidenceContract"]["target"] == "/workflows/tools"
+            assert tool["acceptanceEvidenceContract"]["rejectedEvidence"] == [
+                "pending-string-only-evidence",
+                "tool-count-only-readiness",
+            ]
         assert item["resultEvidence"]
         assert item["readinessChecks"]
         assert all(check["code"] and check["status"] in {"passed", "blocked"} for check in item["readinessChecks"])
@@ -136,6 +168,15 @@ def test_only_moving_pictures_scenario_is_ready_until_vertical_packs_have_real_g
     assert first_run["toolSliceHandoff"]["operatorActionRequired"] is False
     assert first_run["toolSliceHandoff"]["sliceSize"] == {"min": 3, "max": 5, "actual": 4}
     assert {item["status"] for item in first_run["toolSliceHandoff"]["checklist"]} == {"passed"}
+    assert {item["acceptanceEvidenceContract"]["status"] for item in first_run["toolSliceHandoff"]["toolOptions"]} == {
+        "accepted"
+    }
+    assert all(item["acceptanceEvidenceContract"]["evidenceRef"] for item in first_run["toolSliceHandoff"]["toolOptions"])
+    assert all(
+        pointer["status"] == "accepted" and pointer["ref"]
+        for item in first_run["toolSliceHandoff"]["toolOptions"]
+        for pointer in item["acceptanceEvidenceContract"]["evidencePointers"].values()
+    )
     assert first_run["databaseHandoff"]["mode"] == "none"
     assert first_run["databaseHandoff"]["status"] == "not_required"
     assert first_run["databaseHandoff"]["operatorActionRequired"] is False
@@ -183,6 +224,15 @@ def test_only_moving_pictures_scenario_is_ready_until_vertical_packs_have_real_g
         "VALIDATE_OUTPUTS",
     }
     assert {item["status"] for item in taxonomy["toolSliceHandoff"]["checklist"]} == {"operator_required"}
+    assert {item["acceptanceEvidenceContract"]["status"] for item in taxonomy["toolSliceHandoff"]["toolOptions"]} == {
+        "operator_required"
+    }
+    assert {item["acceptanceEvidenceContract"]["evidenceRef"] for item in taxonomy["toolSliceHandoff"]["toolOptions"]} == {""}
+    assert all(
+        pointer["status"] == "operator_required" and pointer["ref"] == ""
+        for item in taxonomy["toolSliceHandoff"]["toolOptions"]
+        for pointer in item["acceptanceEvidenceContract"]["evidencePointers"].values()
+    )
     assert taxonomy["sampleDataHandoff"]["inputOptions"] == [
         {"role": "reads", "formats": ["fastq.gz"], "required": False},
         {"role": "contigs", "formats": ["fna", "fasta"], "required": False},
@@ -372,6 +422,14 @@ def test_only_moving_pictures_scenario_is_ready_until_vertical_packs_have_real_g
         "amr_detection",
         "annotation",
     ]
+    assert {item["acceptanceEvidenceContract"]["status"] for item in amr["toolSliceHandoff"]["toolOptions"]} == {
+        "operator_required"
+    }
+    assert all(
+        pointer["status"] == "operator_required" and pointer["ref"] == ""
+        for item in amr["toolSliceHandoff"]["toolOptions"]
+        for pointer in item["acceptanceEvidenceContract"]["evidencePointers"].values()
+    )
     assert {"amr_database", "annotation_database"} <= {item["capability"] for item in amr["requiredDatabases"]}
     assert amr["databaseHandoff"]["templateOptions"] == [
         {"capability": "amr_database", "templates": ["card_rgi"]},
@@ -426,6 +484,18 @@ def test_workflow_scenario_pack_api_is_read_only_and_registered() -> None:
     assert "prepare_tool" not in tool_slice_source
     assert "requestLocalApiJson" not in tool_slice_source
     assert 'or "/workflows/tools"' not in service_source
+
+
+def test_scenario_tool_acceptance_evidence_pointers_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    definitions = _scenario_definitions()
+
+    monkeypatch.setattr(
+        "apps.api.workflow_scenario_pack_tool_slice._tool_acceptance_pointers",
+        lambda *, ready, evidence_ref: {"toolRevisionId": {"status": "accepted", "ref": "", "evidence": "toolRevisionId"}},
+    )
+
+    with pytest.raises(WorkflowScenarioToolSliceHandoffError, match="SCENARIO_TOOL_ACCEPTANCE_EVIDENCE_CONTRACT_INVALID"):
+        validate_tool_slice_handoff(definitions[0])
 
 
 @pytest.mark.parametrize(

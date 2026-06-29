@@ -56,6 +56,7 @@ def test_single_user_pilot_backup_plan_script_defines_read_only_handoff() -> Non
         "handoffProof.nextScenarioDatabasePackCoverage.toolSlicePromotionEvidence="
         "toolRevisionId,capability-bundle-v1,RuleSpec,environment-lock,smoke-fixture,expected-output-artifacts"
     ) in source
+    assert "handoffProof.nextScenarioDatabasePackCoverage.toolAcceptanceContractCount>=3" in source
     assert "handoffProof.nextScenarioDatabasePackCoverage.taxonomy-classification.packCount=1" in source
     assert (
         "handoffProof.nextScenarioDatabasePackCoverage.amr-annotation.missingTemplates="
@@ -157,6 +158,7 @@ def test_single_user_pilot_backup_plan_outputs_machine_readable_json(tmp_path: P
         "toolRevisionId,capability-bundle-v1,RuleSpec,environment-lock,smoke-fixture,expected-output-artifacts"
         in summary["restoreDrill"]["mustReport"]
     )
+    assert "handoffProof.nextScenarioDatabasePackCoverage.toolAcceptanceContractCount>=3" in summary["restoreDrill"]["mustReport"]
     assert (
         "handoffProof.nextScenarioDatabasePackCoverage.taxonomy-classification.packCount=1"
         in summary["restoreDrill"]["mustReport"]
@@ -205,6 +207,7 @@ def test_single_user_pilot_backup_plan_outputs_machine_readable_json(tmp_path: P
                 "smoke-fixture",
                 "expected-output-artifacts",
             ],
+            "toolAcceptanceContractCount": 3,
             "readyScanPath": "/api/v1/database-pack-ready-scans",
             "registrationPrefillSource": "database-pack-ready-scan.registrationPrefill",
         },
@@ -222,6 +225,7 @@ def test_single_user_pilot_backup_plan_outputs_machine_readable_json(tmp_path: P
                 "smoke-fixture",
                 "expected-output-artifacts",
             ],
+            "toolAcceptanceContractCount": 3,
             "readyScanPath": "/api/v1/database-pack-ready-scans",
             "registrationPrefillSource": "database-pack-ready-scan.registrationPrefill",
         },

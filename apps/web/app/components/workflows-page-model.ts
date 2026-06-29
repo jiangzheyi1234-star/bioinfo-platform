@@ -194,6 +194,7 @@ export type WorkflowScenarioToolSliceHandoff = {
     role?: string;
     contractState?: string;
     acceptanceEvidence?: string;
+    acceptanceEvidenceContract?: WorkflowScenarioToolAcceptanceEvidenceContract;
   }>;
   checklist?: Array<{
     code?: string;
@@ -228,6 +229,16 @@ export type WorkflowScenarioToolSliceHandoff = {
     productionEvidenceOptional?: boolean;
   };
   excludedActions?: string[];
+};
+
+export type WorkflowScenarioToolAcceptanceEvidenceContract = {
+  schemaVersion?: string;
+  status?: "accepted" | "operator_required" | string;
+  evidenceRef?: string;
+  requiredEvidence?: string[];
+  evidencePointers?: Record<string, { status?: "accepted" | "operator_required" | string; ref?: string; evidence?: string }>;
+  target?: string;
+  rejectedEvidence?: string[];
 };
 
 export type WorkflowScenarioPilotReadinessPlan = {

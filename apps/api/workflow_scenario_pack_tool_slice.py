@@ -11,6 +11,9 @@ SCENARIO_TOOL_SLICE_HANDOFF_SCHEMA_VERSION = "h2ometa.workflow-scenario-tool-sli
 SCENARIO_TOOL_SLICE_PROMOTION_CONTRACT_SCHEMA_VERSION = (
     "h2ometa.workflow-scenario-tool-slice-promotion-contract.v1"
 )
+SCENARIO_TOOL_ACCEPTANCE_EVIDENCE_CONTRACT_SCHEMA_VERSION = (
+    "h2ometa.workflow-scenario-tool-acceptance-evidence-contract.v1"
+)
 SCENARIO_TOOL_SLICE_MIN = 3
 SCENARIO_TOOL_SLICE_MAX = 5
 SCENARIO_TOOL_SLICE_EXCLUDED_ACTIONS = [
@@ -26,6 +29,14 @@ SCENARIO_TOOL_SLICE_REQUIRED_EVIDENCE = [
     "smoke-fixture",
     "expected-output-artifacts",
 ]
+SCENARIO_TOOL_ACCEPTANCE_POINTER_KEYS = {
+    "toolRevisionId": "toolRevisionId",
+    "capabilityBundle": "capability-bundle-v1",
+    "ruleSpec": "RuleSpec",
+    "environmentLock": "environment-lock",
+    "smokeFixture": "smoke-fixture",
+    "expectedOutputArtifacts": "expected-output-artifacts",
+}
 
 
 class WorkflowScenarioToolSliceHandoffError(ValueError):
@@ -93,17 +104,22 @@ def validate_tool_slice_handoff(definition: dict[str, Any]) -> None:
     _validate_checklist_targets(handoff["checklist"])
     if handoff["excludedActions"] != SCENARIO_TOOL_SLICE_EXCLUDED_ACTIONS:
         raise WorkflowScenarioToolSliceHandoffError("SCENARIO_TOOL_SLICE_HANDOFF_EXCLUSIONS_INVALID")
+    for tool in handoff["toolOptions"]:
+        _validate_tool_acceptance_contract(tool)
     _validate_promotion_contract(handoff["promotionContract"])
 
 
-def _tool_option(item: dict[str, Any]) -> dict[str, str]:
+def _tool_option(item: dict[str, Any]) -> dict[str, Any]:
+    contract_state = str(item.get("contractState") or "")
+    acceptance_evidence = str(item.get("acceptanceEvidence") or "")
     return {
         "toolId": str(item.get("toolId") or ""),
         "name": str(item.get("name") or ""),
         "kind": str(item.get("kind") or ""),
         "role": str(item.get("role") or ""),
-        "contractState": str(item.get("contractState") or ""),
-        "acceptanceEvidence": str(item.get("acceptanceEvidence") or ""),
+        "contractState": contract_state,
+        "acceptanceEvidence": acceptance_evidence,
+        "acceptanceEvidenceContract": _tool_acceptance_contract(contract_state, acceptance_evidence),
     }
 
 
@@ -136,6 +152,63 @@ def _validate_promotion_contract(contract: dict[str, Any]) -> None:
         raise WorkflowScenarioToolSliceHandoffError("SCENARIO_TOOL_SLICE_PROMOTION_CONTRACT_INVALID")
     if contract.get("excludedActions") != SCENARIO_TOOL_SLICE_EXCLUDED_ACTIONS + ["tool-count-only-readiness"]:
         raise WorkflowScenarioToolSliceHandoffError("SCENARIO_TOOL_SLICE_PROMOTION_CONTRACT_INVALID")
+
+
+def _validate_tool_acceptance_contract(tool: dict[str, Any]) -> None:
+    contract = tool.get("acceptanceEvidenceContract") if isinstance(tool.get("acceptanceEvidenceContract"), dict) else {}
+    ready = str(tool.get("contractState") or "") == "workflow_ready"
+    if contract.get("schemaVersion") != SCENARIO_TOOL_ACCEPTANCE_EVIDENCE_CONTRACT_SCHEMA_VERSION:
+        raise WorkflowScenarioToolSliceHandoffError("SCENARIO_TOOL_ACCEPTANCE_EVIDENCE_CONTRACT_INVALID")
+    if contract.get("requiredEvidence") != SCENARIO_TOOL_SLICE_REQUIRED_EVIDENCE:
+        raise WorkflowScenarioToolSliceHandoffError("SCENARIO_TOOL_ACCEPTANCE_EVIDENCE_CONTRACT_INVALID")
+    _validate_tool_acceptance_pointers(contract, ready=ready)
+    if contract.get("target") != "/workflows/tools":
+        raise WorkflowScenarioToolSliceHandoffError("SCENARIO_TOOL_ACCEPTANCE_EVIDENCE_CONTRACT_INVALID")
+    if contract.get("rejectedEvidence") != ["pending-string-only-evidence", "tool-count-only-readiness"]:
+        raise WorkflowScenarioToolSliceHandoffError("SCENARIO_TOOL_ACCEPTANCE_EVIDENCE_CONTRACT_INVALID")
+    if ready and (contract.get("status") != "accepted" or not str(contract.get("evidenceRef") or "").strip()):
+        raise WorkflowScenarioToolSliceHandoffError("SCENARIO_TOOL_ACCEPTANCE_EVIDENCE_CONTRACT_INVALID")
+    if not ready and (contract.get("status") != "operator_required" or str(contract.get("evidenceRef") or "").strip()):
+        raise WorkflowScenarioToolSliceHandoffError("SCENARIO_TOOL_ACCEPTANCE_EVIDENCE_CONTRACT_INVALID")
+
+
+def _validate_tool_acceptance_pointers(contract: dict[str, Any], *, ready: bool) -> None:
+    pointers = contract.get("evidencePointers") if isinstance(contract.get("evidencePointers"), dict) else {}
+    if set(pointers) != set(SCENARIO_TOOL_ACCEPTANCE_POINTER_KEYS):
+        raise WorkflowScenarioToolSliceHandoffError("SCENARIO_TOOL_ACCEPTANCE_EVIDENCE_CONTRACT_INVALID")
+    for key, evidence_name in SCENARIO_TOOL_ACCEPTANCE_POINTER_KEYS.items():
+        pointer = pointers.get(key) if isinstance(pointers.get(key), dict) else {}
+        if pointer.get("evidence") != evidence_name:
+            raise WorkflowScenarioToolSliceHandoffError("SCENARIO_TOOL_ACCEPTANCE_EVIDENCE_CONTRACT_INVALID")
+        ref = str(pointer.get("ref") or "")
+        if ready and (pointer.get("status") != "accepted" or not ref.strip()):
+            raise WorkflowScenarioToolSliceHandoffError("SCENARIO_TOOL_ACCEPTANCE_EVIDENCE_CONTRACT_INVALID")
+        if not ready and (pointer.get("status") != "operator_required" or ref.strip()):
+            raise WorkflowScenarioToolSliceHandoffError("SCENARIO_TOOL_ACCEPTANCE_EVIDENCE_CONTRACT_INVALID")
+
+
+def _tool_acceptance_contract(contract_state: str, acceptance_evidence: str) -> dict[str, Any]:
+    ready = contract_state == "workflow_ready"
+    return {
+        "schemaVersion": SCENARIO_TOOL_ACCEPTANCE_EVIDENCE_CONTRACT_SCHEMA_VERSION,
+        "status": "accepted" if ready else "operator_required",
+        "evidenceRef": acceptance_evidence if ready else "",
+        "requiredEvidence": SCENARIO_TOOL_SLICE_REQUIRED_EVIDENCE,
+        "evidencePointers": _tool_acceptance_pointers(ready=ready, evidence_ref=acceptance_evidence),
+        "target": "/workflows/tools",
+        "rejectedEvidence": ["pending-string-only-evidence", "tool-count-only-readiness"],
+    }
+
+
+def _tool_acceptance_pointers(*, ready: bool, evidence_ref: str) -> dict[str, dict[str, str]]:
+    return {
+        key: {
+            "status": "accepted" if ready else "operator_required",
+            "ref": evidence_ref if ready else "",
+            "evidence": evidence_name,
+        }
+        for key, evidence_name in SCENARIO_TOOL_ACCEPTANCE_POINTER_KEYS.items()
+    }
 
 
 def _tool_slice_promotion_contract(*, ready: bool) -> dict[str, Any]:
