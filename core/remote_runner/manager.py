@@ -11,7 +11,6 @@ from core.remote_runner.artifact import (
     WORKFLOW_RUNTIME_VERSION,
     WorkflowRuntimeArtifactProvider,
 )
-from core.remote_runner.artifact_lifecycle_proxy import RemoteRunnerArtifactLifecycleProxyMixin
 from core.remote_runner.bootstrap_activation import RemoteRunnerBootstrapActivationMixin
 from core.remote_runner.bootstrap_bundle import RemoteRunnerBootstrapBundleMixin
 from core.remote_runner.bootstrap_config_files import (
@@ -58,7 +57,6 @@ class RemoteRunnerManager(
     RemoteRunnerRemoteIoMixin,
     RemoteRunnerReadinessMixin,
     RemoteRunnerResultPackageProxyMixin,
-    RemoteRunnerArtifactLifecycleProxyMixin,
     RemoteRunnerReexecutionProxyMixin,
     RemoteRunnerProxyMixin,
     RemoteRunnerTokenRotationMixin,

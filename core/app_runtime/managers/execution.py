@@ -11,7 +11,10 @@ from core.contracts.remote_endpoints import (
     ARTIFACT_CACHE_PINS_READ,
     ARTIFACT_CACHE_PIN_RELEASE,
     ARTIFACT_CACHE_PIN_RETAIN,
+    ARTIFACT_LIFECYCLE_CONTROLLER_RUN_ONCE,
     ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ,
+    ARTIFACT_LIFECYCLE_GC_PREVIEW,
+    ARTIFACT_LIFECYCLE_GC_RUN,
     ARTIFACT_LIFECYCLE_USAGE_READ,
     GOVERNANCE_AUDIT_EVENTS_READ,
     RESULT_AUDIT_READ,
@@ -678,13 +681,13 @@ class ExecutionManager(BaseRuntimeManager):
         *,
         server_id: Optional[str] = None,
     ) -> dict[str, Any]:
-        return {
-            "data": self.call_existing_runner(
-                "run_artifact_lifecycle_controller_once",
-                preferred_server_id=server_id,
-                payload=dict(payload or {}),
-            )
-        }
+        return self.read_remote_endpoint(
+            ARTIFACT_LIFECYCLE_CONTROLLER_RUN_ONCE,
+            preferred_server_id=server_id,
+            require_existing_runner=True,
+            timeout=20,
+            payload=dict(payload or {}),
+        )
 
     def preview_artifact_gc(
         self,
@@ -692,13 +695,12 @@ class ExecutionManager(BaseRuntimeManager):
         *,
         server_id: Optional[str] = None,
     ) -> dict[str, Any]:
-        return {
-            "data": self.call_existing_runner(
-                "preview_artifact_gc",
-                preferred_server_id=server_id,
-                payload=dict(payload or {}),
-            )
-        }
+        return self.read_remote_endpoint(
+            ARTIFACT_LIFECYCLE_GC_PREVIEW,
+            preferred_server_id=server_id,
+            require_existing_runner=True,
+            payload=dict(payload or {}),
+        )
 
     def run_artifact_gc(
         self,
@@ -706,13 +708,12 @@ class ExecutionManager(BaseRuntimeManager):
         *,
         server_id: Optional[str] = None,
     ) -> dict[str, Any]:
-        return {
-            "data": self.call_existing_runner(
-                "run_artifact_gc",
-                preferred_server_id=server_id,
-                payload=dict(payload or {}),
-            )
-        }
+        return self.read_remote_endpoint(
+            ARTIFACT_LIFECYCLE_GC_RUN,
+            preferred_server_id=server_id,
+            require_existing_runner=True,
+            payload=dict(payload or {}),
+        )
 
     def list_artifact_cache_entries(
         self,

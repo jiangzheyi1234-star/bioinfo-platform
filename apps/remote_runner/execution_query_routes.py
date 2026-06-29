@@ -11,7 +11,10 @@ from core.contracts.remote_endpoints import (
     ARTIFACT_CACHE_PINS_READ,
     ARTIFACT_CACHE_PIN_RELEASE,
     ARTIFACT_CACHE_PIN_RETAIN,
+    ARTIFACT_LIFECYCLE_CONTROLLER_RUN_ONCE,
     ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ,
+    ARTIFACT_LIFECYCLE_GC_PREVIEW,
+    ARTIFACT_LIFECYCLE_GC_RUN,
     ARTIFACT_LIFECYCLE_USAGE_READ,
     REMOTE_ENDPOINTS,
     RESULT_AUDIT_READ,
@@ -393,7 +396,11 @@ async def list_artifact_lifecycle_controller_ticks_api(
     return await list_artifact_lifecycle_controller_ticks_from_request(limit, authorization)
 
 
-@router.post("/api/v1/artifacts/lifecycle/controller/run-once", status_code=202)
+@router.post(
+    "/api/v1/artifacts/lifecycle/controller/run-once",
+    operation_id=REMOTE_ENDPOINTS[ARTIFACT_LIFECYCLE_CONTROLLER_RUN_ONCE].operation_id,
+    status_code=202,
+)
 async def run_artifact_lifecycle_controller_once_api(
     request: ArtifactLifecycleControllerRunOnceRequest,
     authorization: AuthorizationHeader = None,
@@ -401,7 +408,10 @@ async def run_artifact_lifecycle_controller_once_api(
     return await run_artifact_lifecycle_controller_once_request(request, authorization)
 
 
-@router.post("/api/v1/artifacts/lifecycle/gc/preview")
+@router.post(
+    "/api/v1/artifacts/lifecycle/gc/preview",
+    operation_id=REMOTE_ENDPOINTS[ARTIFACT_LIFECYCLE_GC_PREVIEW].operation_id,
+)
 async def preview_artifact_gc_api(
     request: ArtifactGcPreviewRequest,
     authorization: AuthorizationHeader = None,
@@ -409,7 +419,10 @@ async def preview_artifact_gc_api(
     return await preview_artifact_gc_from_request(request, authorization)
 
 
-@router.post("/api/v1/artifacts/lifecycle/gc/run")
+@router.post(
+    "/api/v1/artifacts/lifecycle/gc/run",
+    operation_id=REMOTE_ENDPOINTS[ARTIFACT_LIFECYCLE_GC_RUN].operation_id,
+)
 async def run_artifact_gc_api(
     request: ArtifactGcRunRequest,
     authorization: AuthorizationHeader = None,

@@ -329,15 +329,6 @@ class RemoteRunnerHttpClient:
             dict(payload or {}),
         )["data"]
 
-    def run_artifact_lifecycle_controller_once(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self.post_json("/api/v1/artifacts/lifecycle/controller/run-once", payload)["data"]
-
-    def preview_artifact_gc(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
-        return self.post_json("/api/v1/artifacts/lifecycle/gc/preview", dict(payload or {}))["data"]
-
-    def run_artifact_gc(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
-        return self.post_json("/api/v1/artifacts/lifecycle/gc/run", dict(payload or {}))["data"]
-
     def get_health(self) -> dict[str, Any]:
         startup = self.get_json("/health/startup", accepted_statuses={200, 503})
         live = self.get_json("/health/live")

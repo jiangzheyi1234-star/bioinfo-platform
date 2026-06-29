@@ -55,6 +55,9 @@ RESULT_AUDIT_READ = "result.audit.read"
 RESULT_PACKAGE_EXPORT_LIST = "result.package_export.list"
 ARTIFACT_LIFECYCLE_USAGE_READ = "artifact.lifecycle.usage.read"
 ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ = "artifact.lifecycle.controller_ticks.read"
+ARTIFACT_LIFECYCLE_CONTROLLER_RUN_ONCE = "artifact.lifecycle.controller.run_once"
+ARTIFACT_LIFECYCLE_GC_PREVIEW = "artifact.gc.preview"
+ARTIFACT_LIFECYCLE_GC_RUN = "artifact.gc.run"
 ARTIFACT_CACHE_ENTRIES_READ = "artifact.cache.entries.read"
 ARTIFACT_CACHE_PINS_READ = "artifact.cache_pins.read"
 ARTIFACT_CACHE_PIN_RETAIN = "artifact.cache_pin.retain"
@@ -248,6 +251,38 @@ REMOTE_ENDPOINTS: dict[str, RemoteEndpoint] = {
         response_schema="h2ometa.artifact-lifecycle-controller-tick-read-model.v1",
         cache_scope="artifact-lifecycle-read-model",
         query_params=("limit",),
+    ),
+    ARTIFACT_LIFECYCLE_CONTROLLER_RUN_ONCE: RemoteEndpoint(
+        endpoint_id=ARTIFACT_LIFECYCLE_CONTROLLER_RUN_ONCE,
+        method="POST",
+        path_template="/api/v1/artifacts/lifecycle/controller/run-once",
+        operation_id="runArtifactLifecycleControllerOnce",
+        governance_action="artifact.lifecycle.controller.run_once",
+        request_schema="artifact-lifecycle-controller-run-once-request.v1",
+        response_schema="h2ometa.artifact-lifecycle-controller-run-once-result.v1",
+        cache_scope="artifact-lifecycle-command",
+        invalidates=("artifact-lifecycle-read-model",),
+    ),
+    ARTIFACT_LIFECYCLE_GC_PREVIEW: RemoteEndpoint(
+        endpoint_id=ARTIFACT_LIFECYCLE_GC_PREVIEW,
+        method="POST",
+        path_template="/api/v1/artifacts/lifecycle/gc/preview",
+        operation_id="previewArtifactGc",
+        governance_action="artifact.gc.preview",
+        request_schema="artifact-gc-preview-request.v1",
+        response_schema="h2ometa.artifact-gc-public-plan.v1",
+        cache_scope="artifact-lifecycle-command",
+    ),
+    ARTIFACT_LIFECYCLE_GC_RUN: RemoteEndpoint(
+        endpoint_id=ARTIFACT_LIFECYCLE_GC_RUN,
+        method="POST",
+        path_template="/api/v1/artifacts/lifecycle/gc/run",
+        operation_id="runArtifactGc",
+        governance_action="artifact.gc.run",
+        request_schema="artifact-gc-run-request.v1",
+        response_schema="h2ometa.artifact-gc-public-run.v1",
+        cache_scope="artifact-lifecycle-command",
+        invalidates=("artifact-lifecycle-read-model", "artifact-cache-read-model"),
     ),
     ARTIFACT_CACHE_ENTRIES_READ: RemoteEndpoint(
         endpoint_id=ARTIFACT_CACHE_ENTRIES_READ,
