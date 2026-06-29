@@ -62,6 +62,10 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "导出完整结果包" in first_run_source
     assert "结果验证卡" in first_run_source
     assert "/api/v1/first-run/runs/${encodeURIComponent(runId)}/validation-card" in first_run_api
+    assert "fetchFirstRunValidationCard(run.runId" in first_run_page
+    assert "reportInterpretation" in first_run_validation
+    assert "first-run-validation-card-interpretation" in first_run_validation
+    assert "card: validationCard" in first_run_page
     assert "downloadFirstRunValidationCard" in first_run_page
     assert "packageExports.some(firstRunResultPackageReady)" in first_run_page
     assert "runCompleted && packageReady && Boolean(workflowRevisionId)" in first_run_page

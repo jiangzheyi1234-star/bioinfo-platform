@@ -21,7 +21,11 @@ import { cn } from "@/lib/utils";
 
 import { useSshShell } from "./ssh-shell";
 import { useWorkflowsPageState } from "./use-workflows-page-state";
-import { downloadFirstRunValidationCard } from "./workflow-first-run-api";
+import {
+  downloadFirstRunValidationCard,
+  fetchFirstRunValidationCard,
+  type FirstRunValidationCard,
+} from "./workflow-first-run-api";
 import { WorkflowPageHeader } from "./workflow-page-header";
 import { WorkflowWorkspaceTabs } from "./workflow-workspace-tabs";
 import { RunReportPanel } from "./workflow-first-run-report";
@@ -61,6 +65,9 @@ export function WorkflowFirstRunPage() {
   const [packageLoading, setPackageLoading] = useState(false);
   const [packageError, setPackageError] = useState("");
   const [exportingPackage, setExportingPackage] = useState(false);
+  const [validationCard, setValidationCard] = useState<FirstRunValidationCard | null>(null);
+  const [validationCardFetchLoading, setValidationCardFetchLoading] = useState(false);
+  const [validationCardFetchError, setValidationCardFetchError] = useState("");
   const [validationCardLoading, setValidationCardLoading] = useState(false);
   const [validationCardError, setValidationCardError] = useState("");
 
@@ -131,6 +138,28 @@ export function WorkflowFirstRunPage() {
     void loadPackageExports();
   }, [loadPackageExports]);
 
+  const loadValidationCard = useCallback(async () => {
+    if (!run?.runId || !validationReady) {
+      setValidationCard(null);
+      setValidationCardFetchError("");
+      return;
+    }
+    setValidationCardFetchLoading(true);
+    setValidationCardFetchError("");
+    try {
+      setValidationCard(await fetchFirstRunValidationCard(run.runId, { serverId: state.server?.serverId }));
+    } catch (err) {
+      setValidationCard(null);
+      setValidationCardFetchError(workflowErrorMessage(err, "验证卡加载失败"));
+    } finally {
+      setValidationCardFetchLoading(false);
+    }
+  }, [run?.runId, state.server?.serverId, validationReady]);
+
+  useEffect(() => {
+    void loadValidationCard();
+  }, [loadValidationCard]);
+
   function openConnectDialog() {
     ssh.clearFormError();
     ssh.setDialogOpen(true);
@@ -173,6 +202,7 @@ export function WorkflowFirstRunPage() {
     setValidationCardError("");
     try {
       await downloadFirstRunValidationCard({
+        card: validationCard,
         resultId,
         runId: run.runId,
         serverId: state.server?.serverId,
@@ -270,8 +300,10 @@ export function WorkflowFirstRunPage() {
             />
             <ValidationCard
               artifacts={artifacts}
-              error={validationCardError}
+              card={validationCard}
+              error={validationCardError || validationCardFetchError}
               inputArtifacts={inputArtifacts}
+              loadingCard={validationCardFetchLoading}
               packageExport={latestPackage}
               ready={validationReady}
               resultId={resultId}

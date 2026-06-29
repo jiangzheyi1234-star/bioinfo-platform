@@ -6,6 +6,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
+import type { FirstRunValidationCard } from "./workflow-first-run-api";
 import { workflowResultPackageDownloadHref } from "./workflows-page-api";
 import type {
   WorkflowArtifact,
@@ -111,9 +112,11 @@ export function firstRunResultPackageReady(item: WorkflowResultPackageExport) {
 
 export function ValidationCard({
   artifacts,
+  card,
   downloading,
   error,
   inputArtifacts,
+  loadingCard,
   onDownload,
   packageExport,
   ready,
@@ -124,9 +127,11 @@ export function ValidationCard({
   workflowRevisionId,
 }: {
   artifacts: WorkflowArtifact[];
+  card: FirstRunValidationCard | null;
   downloading: boolean;
   error: string;
   inputArtifacts: FirstRunInputArtifacts;
+  loadingCard: boolean;
   onDownload: () => void;
   packageExport?: WorkflowResultPackageExport;
   ready: boolean;
@@ -136,6 +141,8 @@ export function ValidationCard({
   server: WorkflowServer | null;
   workflowRevisionId: string;
 }) {
+  const interpretation = card?.reportInterpretation;
+  const cardReady = interpretation?.status === "ready";
   return (
     <section
       className={cn("rounded-lg border bg-white p-5", ready ? "border-emerald-200" : "border-slate-200")}
@@ -148,7 +155,9 @@ export function ValidationCard({
             <ClipboardCheck strokeWidth={1.5} className={cn("h-4 w-4", ready ? "text-emerald-600" : "text-slate-500")} />
             结果验证卡
           </div>
-          <div className="mt-1 text-xs text-slate-500">{ready ? "可交付" : "等待结果包与 WorkflowRevision"}</div>
+          <div className="mt-1 text-xs text-slate-500">
+            {loadingCard ? "正在生成服务端验证卡" : cardReady ? "服务端验证卡已生成" : ready ? "等待服务端验证卡" : "等待结果包与 WorkflowRevision"}
+          </div>
         </div>
         <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs" disabled={!ready || downloading} onClick={onDownload}>
           {downloading ? <Loader2 strokeWidth={1.5} className="h-3.5 w-3.5 animate-spin" /> : <Download strokeWidth={1.5} className="h-3.5 w-3.5" />}
@@ -178,8 +187,53 @@ export function ValidationCard({
         <KeyValue label="package sha" value={packageExport?.sha256} mono />
         <KeyValue label="manifest" value={packageExport?.manifestSha256} mono />
         <KeyValue label="evidence" value={packageExport?.evidenceId} mono />
+        <KeyValue label="card" value={card?.schemaVersion} mono />
+        <KeyValue label="generated" value={card?.generatedAt} mono />
+        <KeyValue label="checks" value={card?.checks?.length ? `${card.checks.length} passed checks` : ""} />
       </div>
+
+      {interpretation ? <ValidationCardInterpretation interpretation={interpretation} /> : null}
     </section>
+  );
+}
+
+function ValidationCardInterpretation({
+  interpretation,
+}: {
+  interpretation: NonNullable<FirstRunValidationCard["reportInterpretation"]>;
+}) {
+  const metrics = interpretation.metrics || [];
+  const outputs = interpretation.outputs || [];
+  return (
+    <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3" data-testid="first-run-validation-card-interpretation">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-xs font-semibold text-slate-900">报告解读已写入验证卡</div>
+        <span className={cn("rounded-full border px-2 py-0.5 text-[11px]", interpretation.status === "ready" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700")}>
+          {interpretation.status || "unknown"}
+        </span>
+      </div>
+      {interpretation.summary ? <div className="mt-2 text-xs leading-5 text-slate-600">{interpretation.summary}</div> : null}
+      {metrics.length > 0 ? (
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          {metrics.slice(0, 6).map((metric) => (
+            <div key={metric.metricId || metric.label} className="min-w-0 rounded border border-slate-200 bg-white px-3 py-2">
+              <div className="truncate text-[11px] text-slate-400">{metric.label || metric.metricId}</div>
+              <div className="mt-1 truncate text-sm font-semibold text-slate-900">{metric.displayValue || String(metric.value ?? "")}</div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {outputs.length > 0 ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {outputs.map((output) => (
+            <span key={output.name || output.artifactId} className="inline-flex max-w-full items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600">
+              <span className={cn("h-1.5 w-1.5 rounded-full", output.present ? "bg-emerald-500" : "bg-amber-500")} />
+              <span className="truncate">{output.name || output.label || output.artifactId}</span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 

@@ -2,7 +2,54 @@
 
 import { requestLocalApiJson } from "@/app/lib/local-api-client";
 
-export type FirstRunValidationCard = Record<string, unknown>;
+export type FirstRunValidationMetric = {
+  metricId?: string;
+  label?: string;
+  value?: number | string;
+  displayValue?: string;
+  source?: string;
+};
+
+export type FirstRunValidationOutput = {
+  name?: string;
+  label?: string;
+  kind?: string;
+  present?: boolean;
+  artifactId?: string;
+  sha256?: string;
+  interpretation?: string;
+};
+
+export type FirstRunReportInterpretation = {
+  schemaVersion?: string;
+  status?: string;
+  summary?: string;
+  outputs?: FirstRunValidationOutput[];
+  metrics?: FirstRunValidationMetric[];
+  redaction?: {
+    rawPathsExposed?: boolean;
+    storageUrisExposed?: boolean;
+    previewRowsEmbedded?: boolean;
+    policy?: string;
+  };
+};
+
+export type FirstRunValidationCard = {
+  schemaVersion?: string;
+  generatedAt?: string;
+  reportInterpretation?: FirstRunReportInterpretation;
+  result?: {
+    resultId?: string;
+    artifactCount?: number;
+    inputArtifactCount?: number;
+  };
+  resultPackage?: {
+    packageExportId?: string;
+    sha256?: string;
+    manifestSha256?: string;
+  };
+  checks?: Array<{ code?: string; status?: string; detail?: string }>;
+};
 
 export async function fetchFirstRunValidationCard(
   runId: string,
@@ -19,16 +66,18 @@ export async function fetchFirstRunValidationCard(
 }
 
 export async function downloadFirstRunValidationCard({
+  card,
   resultId,
   runId,
   serverId,
 }: {
+  card?: FirstRunValidationCard | null;
   resultId: string;
   runId: string;
   serverId?: string;
 }) {
-  const card = await fetchFirstRunValidationCard(runId, { serverId });
-  const blob = new Blob([JSON.stringify(card, null, 2)], { type: "application/json" });
+  const resolvedCard = card || (await fetchFirstRunValidationCard(runId, { serverId }));
+  const blob = new Blob([JSON.stringify(resolvedCard, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
