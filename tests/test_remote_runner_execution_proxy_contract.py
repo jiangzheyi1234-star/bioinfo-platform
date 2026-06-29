@@ -6,6 +6,10 @@ from types import SimpleNamespace
 
 from core.app_runtime.managers.execution import ExecutionManager
 from core.contracts.remote_endpoints import (
+    ARTIFACT_CACHE_ENTRIES_READ,
+    ARTIFACT_CACHE_PINS_READ,
+    ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ,
+    ARTIFACT_LIFECYCLE_USAGE_READ,
     REMOTE_ENDPOINTS,
     RESULT_AUDIT_READ,
     RESULT_LIST,
@@ -48,6 +52,12 @@ RESULT_READ_MODEL_ENDPOINTS = (
     RESULT_PREVIEW_READ,
     RESULT_AUDIT_READ,
     RESULT_PACKAGE_EXPORT_LIST,
+)
+ARTIFACT_READ_MODEL_ENDPOINTS = (
+    ARTIFACT_LIFECYCLE_USAGE_READ,
+    ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ,
+    ARTIFACT_CACHE_ENTRIES_READ,
+    ARTIFACT_CACHE_PINS_READ,
 )
 
 
@@ -126,6 +136,26 @@ def test_run_read_model_endpoints_are_contract_rendered() -> None:
     assert REMOTE_ENDPOINTS[RUN_RULES_READ].response_schema == "run-rules.v1"
     assert REMOTE_ENDPOINTS[RUN_RULES_READ].cache_scope == "run-read-model"
     assert REMOTE_ENDPOINTS[RESULT_PACKAGE_EXPORT_LIST].response_schema == "result-package-export-list.v1"
+    assert render_remote_endpoint_path(
+        ARTIFACT_LIFECYCLE_USAGE_READ,
+        {},
+        query_values={"quotaBytes": 4096},
+    ) == "/api/v1/artifacts/lifecycle/usage?quotaBytes=4096"
+    assert render_remote_endpoint_path(
+        ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ,
+        {},
+        query_values={"limit": 5},
+    ) == "/api/v1/artifacts/lifecycle/controller/ticks?limit=5"
+    assert render_remote_endpoint_path(
+        ARTIFACT_CACHE_ENTRIES_READ,
+        {},
+        query_values={"workflowRevisionId": "wf rev/1", "limit": 10},
+    ) == "/api/v1/artifacts/cache/entries?workflowRevisionId=wf+rev%2F1&limit=10"
+    assert render_remote_endpoint_path(
+        ARTIFACT_CACHE_PINS_READ,
+        {},
+        query_values={"cacheEntryId": "ace/1", "state": "active", "limit": 10},
+    ) == "/api/v1/artifacts/cache/pins?cacheEntryId=ace%2F1&state=active&limit=10"
 
 
 def test_run_read_model_endpoint_contracts_match_governance_policy() -> None:
@@ -135,7 +165,7 @@ def test_run_read_model_endpoint_contracts_match_governance_policy() -> None:
         if policy.surface == "remote-runner-api"
     }
 
-    for endpoint_id in RUN_READ_MODEL_ENDPOINTS + RESULT_READ_MODEL_ENDPOINTS:
+    for endpoint_id in RUN_READ_MODEL_ENDPOINTS + RESULT_READ_MODEL_ENDPOINTS + ARTIFACT_READ_MODEL_ENDPOINTS:
         endpoint = REMOTE_ENDPOINTS[endpoint_id]
         if endpoint.governance_action is None:
             continue
@@ -150,7 +180,7 @@ def test_run_read_model_endpoint_contracts_match_openapi_operation_ids() -> None
 
     for app in (local_app, remote_app):
         paths = app.openapi()["paths"]
-        for endpoint_id in RUN_READ_MODEL_ENDPOINTS + RESULT_READ_MODEL_ENDPOINTS:
+        for endpoint_id in RUN_READ_MODEL_ENDPOINTS + RESULT_READ_MODEL_ENDPOINTS + ARTIFACT_READ_MODEL_ENDPOINTS:
             endpoint = REMOTE_ENDPOINTS[endpoint_id]
             operation = paths[endpoint.path_template][endpoint.method.lower()]
             assert operation["operationId"] == endpoint.operation_id
@@ -185,6 +215,13 @@ def test_remote_endpoint_contracts_fail_loudly_on_missing_path_param() -> None:
     else:  # pragma: no cover - fail loudly keeps this branch unreachable.
         raise AssertionError("serverId must remain a local runner-selection value")
 
+    try:
+        render_remote_endpoint_path(ARTIFACT_CACHE_ENTRIES_READ, {}, query_values={"serverId": "srv_1"})
+    except RemoteEndpointContractError as exc:
+        assert exc.code == "REMOTE_ENDPOINT_QUERY_PARAM_UNKNOWN"
+    else:  # pragma: no cover - fail loudly keeps this branch unreachable.
+        raise AssertionError("artifact cache serverId must remain local-only")
+
 
 def test_remote_endpoint_caller_unwraps_data_and_records_path() -> None:
     client = FakeEndpointClient()
@@ -198,16 +235,24 @@ def test_remote_endpoint_caller_unwraps_data_and_records_path() -> None:
         path_values={"result_id": "res_1"},
         query_values={"lifecycleState": "retired", "limit": 25},
     )
+    cache_entries = call_remote_endpoint(
+        client,
+        ARTIFACT_CACHE_ENTRIES_READ,
+        path_values={},
+        query_values={"workflowRevisionId": "wf_rev_1", "limit": 10},
+    )
 
     assert data == {"path": "/api/v1/runs/run_1/rules"}
     assert runs == [{"path": "/api/v1/runs"}]
     assert results == [{"path": "/api/v1/results"}]
     assert package_exports == {"path": "/api/v1/results/res_1/exports?lifecycleState=retired&limit=25"}
+    assert cache_entries == {"path": "/api/v1/artifacts/cache/entries?workflowRevisionId=wf_rev_1&limit=10"}
     assert client.calls == [
         ("GET", "/api/v1/runs/run_1/rules"),
         ("GET", "/api/v1/runs"),
         ("GET", "/api/v1/results"),
         ("GET", "/api/v1/results/res_1/exports?lifecycleState=retired&limit=25"),
+        ("GET", "/api/v1/artifacts/cache/entries?workflowRevisionId=wf_rev_1&limit=10"),
     ]
 
 
@@ -230,6 +275,9 @@ def test_remote_runner_proxy_generic_endpoint_call_uses_registry() -> None:
     package_exports = proxy.call_remote_endpoint(
         **_result_kwargs(RESULT_PACKAGE_EXPORT_LIST, "res_1", query_values={"lifecycleState": "retired", "limit": 25})
     )
+    cache_pins = proxy.call_remote_endpoint(
+        **_endpoint_kwargs(ARTIFACT_CACHE_PINS_READ, query_values={"cacheEntryId": "ace_1", "state": "active", "limit": 5})
+    )
 
     assert listed == [{"path": "/api/v1/runs"}]
     assert run == {"path": "/api/v1/runs/run_1"}
@@ -241,6 +289,7 @@ def test_remote_runner_proxy_generic_endpoint_call_uses_registry() -> None:
     assert result == {"path": "/api/v1/results/res_1"}
     assert preview == {"path": "/api/v1/results/res_1/preview?artifact_id=art_1"}
     assert package_exports == {"path": "/api/v1/results/res_1/exports?lifecycleState=retired&limit=25"}
+    assert cache_pins == {"path": "/api/v1/artifacts/cache/pins?cacheEntryId=ace_1&state=active&limit=5"}
     assert proxy.client.calls == [
         ("GET", "/api/v1/runs"),
         ("GET", "/api/v1/runs/run_1"),
@@ -252,6 +301,7 @@ def test_remote_runner_proxy_generic_endpoint_call_uses_registry() -> None:
         ("GET", "/api/v1/results/res_1"),
         ("GET", "/api/v1/results/res_1/preview?artifact_id=art_1"),
         ("GET", "/api/v1/results/res_1/exports?lifecycleState=retired&limit=25"),
+        ("GET", "/api/v1/artifacts/cache/pins?cacheEntryId=ace_1&state=active&limit=5"),
     ]
 
 
@@ -314,6 +364,35 @@ def test_execution_manager_calls_generic_remote_endpoint_for_run_read_models() -
             "queryValues": {"lifecycleState": "retired", "limit": 25},
         }
     }
+    assert manager.get_artifact_lifecycle_usage(server_id="srv_artifact", quota_bytes=4096) == {
+        "data": {"endpointId": ARTIFACT_LIFECYCLE_USAGE_READ, "pathValues": {}, "queryValues": {"quotaBytes": 4096}}
+    }
+    assert manager.list_artifact_lifecycle_controller_ticks(server_id="srv_artifact", limit=5) == {
+        "data": {"endpointId": ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ, "pathValues": {}, "queryValues": {"limit": 5}}
+    }
+    assert manager.list_artifact_cache_entries(
+        server_id="srv_artifact",
+        workflow_revision_id="wf_rev_1",
+        limit=10,
+    ) == {
+        "data": {
+            "endpointId": ARTIFACT_CACHE_ENTRIES_READ,
+            "pathValues": {},
+            "queryValues": {"workflowRevisionId": "wf_rev_1", "limit": 10},
+        }
+    }
+    assert manager.list_artifact_cache_pins(
+        server_id="srv_artifact",
+        cache_entry_id="ace_1",
+        state="active",
+        limit=5,
+    ) == {
+        "data": {
+            "endpointId": ARTIFACT_CACHE_PINS_READ,
+            "pathValues": {},
+            "queryValues": {"cacheEntryId": "ace_1", "state": "active", "limit": 5},
+        }
+    }
     assert service.remote_runner_manager.calls == [
         (RUN_LIST, {}, {}),
         (RUN_READ, {"run_id": "run_1"}, {}),
@@ -329,6 +408,10 @@ def test_execution_manager_calls_generic_remote_endpoint_for_run_read_models() -
         (RESULT_PREVIEW_READ, {"result_id": "res_1"}, {"artifact_id": "art_1"}),
         (RESULT_AUDIT_READ, {"result_id": "res_1"}, {}),
         (RESULT_PACKAGE_EXPORT_LIST, {"result_id": "res_1"}, {"lifecycleState": "retired", "limit": 25}),
+        (ARTIFACT_LIFECYCLE_USAGE_READ, {}, {"quotaBytes": 4096}),
+        (ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ, {}, {"limit": 5}),
+        (ARTIFACT_CACHE_ENTRIES_READ, {}, {"workflowRevisionId": "wf_rev_1", "limit": 10}),
+        (ARTIFACT_CACHE_PINS_READ, {}, {"cacheEntryId": "ace_1", "state": "active", "limit": 5}),
     ]
 
 
@@ -344,6 +427,10 @@ def test_remote_runner_http_client_does_not_keep_migrated_semantic_methods() -> 
     assert not hasattr(RemoteRunnerHttpClient, "get_result_preview")
     assert not hasattr(RemoteRunnerHttpClient, "get_result_audit")
     assert not hasattr(RemoteRunnerHttpClient, "list_result_package_exports")
+    assert not hasattr(RemoteRunnerHttpClient, "get_artifact_lifecycle_usage")
+    assert not hasattr(RemoteRunnerHttpClient, "list_artifact_lifecycle_controller_ticks")
+    assert not hasattr(RemoteRunnerHttpClient, "list_artifact_cache_entries")
+    assert not hasattr(RemoteRunnerHttpClient, "list_artifact_cache_pins")
 
 
 class FakeEndpointClient:
@@ -357,6 +444,8 @@ class FakeEndpointClient:
         if path == "/api/v1/results":
             return {"data": {"items": [{"path": path}]}}
         if path.startswith("/api/v1/results/res_1/exports"):
+            return {"data": {"path": path}}
+        if path.startswith("/api/v1/artifacts/"):
             return {"data": {"path": path}}
         return {"data": {"path": path}}
 
@@ -384,7 +473,7 @@ class FakeRuntimeService:
         return "srv_1", object(), {"server_id": "srv_1"}
 
     def _require_existing_runner_ready(self, *, preferred_server_id=None):
-        assert preferred_server_id == "srv_package"
+        assert preferred_server_id in {"srv_package", "srv_artifact"}
         return "srv_1", object(), {"server_id": "srv_1"}
 
     def _call_remote_runner(self, method, **kwargs):
@@ -438,5 +527,16 @@ def _result_kwargs(
         "server_record": {"server_id": "srv_1"},
         "endpoint_id": endpoint_id,
         "path_values": {"result_id": result_id} if result_id is not None else {},
+        "query_values": dict(query_values or {}),
+    }
+
+
+def _endpoint_kwargs(endpoint_id: str, *, query_values: dict[str, object] | None = None) -> dict[str, object]:
+    return {
+        "server_id": "srv_1",
+        "ssh_service": object(),
+        "server_record": {"server_id": "srv_1"},
+        "endpoint_id": endpoint_id,
+        "path_values": {},
         "query_values": dict(query_values or {}),
     }

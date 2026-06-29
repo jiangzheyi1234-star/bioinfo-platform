@@ -6,6 +6,10 @@ from fastapi import APIRouter, Query
 from fastapi.responses import FileResponse
 
 from core.contracts.remote_endpoints import (
+    ARTIFACT_CACHE_ENTRIES_READ,
+    ARTIFACT_CACHE_PINS_READ,
+    ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ,
+    ARTIFACT_LIFECYCLE_USAGE_READ,
     REMOTE_ENDPOINTS,
     RESULT_AUDIT_READ,
     RESULT_LIST,
@@ -364,7 +368,10 @@ async def retire_result_package_api(
     return await retire_result_package_from_request(result_id, package_export_id, request, authorization)
 
 
-@router.get("/api/v1/artifacts/lifecycle/usage")
+@router.get(
+    "/api/v1/artifacts/lifecycle/usage",
+    operation_id=REMOTE_ENDPOINTS[ARTIFACT_LIFECYCLE_USAGE_READ].operation_id,
+)
 async def get_artifact_lifecycle_usage_api(
     quotaBytes: int | None = None,
     authorization: AuthorizationHeader = None,
@@ -372,7 +379,10 @@ async def get_artifact_lifecycle_usage_api(
     return await get_artifact_lifecycle_usage_from_request(quotaBytes, authorization)
 
 
-@router.get("/api/v1/artifacts/lifecycle/controller/ticks")
+@router.get(
+    "/api/v1/artifacts/lifecycle/controller/ticks",
+    operation_id=REMOTE_ENDPOINTS[ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ].operation_id,
+)
 async def list_artifact_lifecycle_controller_ticks_api(
     limit: int = Query(default=20, ge=1, le=100),
     authorization: AuthorizationHeader = None,
@@ -404,7 +414,10 @@ async def run_artifact_gc_api(
     return await run_artifact_gc_from_request(request, authorization)
 
 
-@router.get("/api/v1/artifacts/cache/entries")
+@router.get(
+    "/api/v1/artifacts/cache/entries",
+    operation_id=REMOTE_ENDPOINTS[ARTIFACT_CACHE_ENTRIES_READ].operation_id,
+)
 async def list_artifact_cache_entries_api(
     workflowRevisionId: str | None = None,
     limit: int = 100,
@@ -413,7 +426,10 @@ async def list_artifact_cache_entries_api(
     return await list_artifact_cache_entries_from_request(workflowRevisionId, limit, authorization)
 
 
-@router.get("/api/v1/artifacts/cache/pins")
+@router.get(
+    "/api/v1/artifacts/cache/pins",
+    operation_id=REMOTE_ENDPOINTS[ARTIFACT_CACHE_PINS_READ].operation_id,
+)
 async def list_artifact_cache_pins_api(
     cacheEntryId: str | None = None,
     state: str | None = None,

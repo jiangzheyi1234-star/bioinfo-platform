@@ -7,6 +7,10 @@ from typing import Any
 from fastapi import APIRouter, Query, Response
 
 from core.contracts.remote_endpoints import (
+    ARTIFACT_CACHE_ENTRIES_READ,
+    ARTIFACT_CACHE_PINS_READ,
+    ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ,
+    ARTIFACT_LIFECYCLE_USAGE_READ,
     REMOTE_ENDPOINTS,
     RESULT_AUDIT_READ,
     RESULT_LIST,
@@ -350,7 +354,10 @@ async def retire_result_package(
     return await retire_result_package_from_request(result_id, package_export_id, request)
 
 
-@router.get("/api/v1/artifacts/lifecycle/usage")
+@router.get(
+    "/api/v1/artifacts/lifecycle/usage",
+    operation_id=REMOTE_ENDPOINTS[ARTIFACT_LIFECYCLE_USAGE_READ].operation_id,
+)
 async def get_artifact_lifecycle_usage(
     serverId: str | None = None,
     quotaBytes: int | None = None,
@@ -358,7 +365,10 @@ async def get_artifact_lifecycle_usage(
     return await get_artifact_lifecycle_usage_from_request(server_id=serverId, quota_bytes=quotaBytes)
 
 
-@router.get("/api/v1/artifacts/lifecycle/controller/ticks")
+@router.get(
+    "/api/v1/artifacts/lifecycle/controller/ticks",
+    operation_id=REMOTE_ENDPOINTS[ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ].operation_id,
+)
 async def list_artifact_lifecycle_controller_ticks(
     serverId: str | None = None,
     limit: int = Query(default=20, ge=1, le=100),
@@ -384,7 +394,10 @@ async def run_artifact_gc(request: ArtifactGcRunRequest) -> dict[str, Any]:
     return await run_artifact_gc_from_request(request)
 
 
-@router.get("/api/v1/artifacts/cache/entries")
+@router.get(
+    "/api/v1/artifacts/cache/entries",
+    operation_id=REMOTE_ENDPOINTS[ARTIFACT_CACHE_ENTRIES_READ].operation_id,
+)
 async def list_artifact_cache_entries(
     serverId: str | None = None,
     workflowRevisionId: str | None = None,
@@ -397,7 +410,10 @@ async def list_artifact_cache_entries(
     )
 
 
-@router.get("/api/v1/artifacts/cache/pins")
+@router.get(
+    "/api/v1/artifacts/cache/pins",
+    operation_id=REMOTE_ENDPOINTS[ARTIFACT_CACHE_PINS_READ].operation_id,
+)
 async def list_artifact_cache_pins(
     serverId: str | None = None,
     cacheEntryId: str | None = None,

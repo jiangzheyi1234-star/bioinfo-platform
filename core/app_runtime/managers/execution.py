@@ -6,6 +6,10 @@ from typing import Any, Optional
 from core.app_runtime.errors import RuntimeServiceError
 from core.app_runtime.managers.base import BaseRuntimeManager
 from core.contracts.remote_endpoints import (
+    ARTIFACT_CACHE_ENTRIES_READ,
+    ARTIFACT_CACHE_PINS_READ,
+    ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ,
+    ARTIFACT_LIFECYCLE_USAGE_READ,
     RESULT_AUDIT_READ,
     RESULT_LIST,
     RESULT_PACKAGE_EXPORT_LIST,
@@ -649,13 +653,11 @@ class ExecutionManager(BaseRuntimeManager):
         server_id: Optional[str] = None,
         quota_bytes: Optional[int] = None,
     ) -> dict[str, Any]:
-        return {
-            "data": self.call_existing_runner(
-                "get_artifact_lifecycle_usage",
-                preferred_server_id=server_id,
-                quota_bytes=quota_bytes,
-            )
-        }
+        return self.read_existing_remote_endpoint(
+            ARTIFACT_LIFECYCLE_USAGE_READ,
+            preferred_server_id=server_id,
+            query_values={"quotaBytes": quota_bytes},
+        )
 
     def list_artifact_lifecycle_controller_ticks(
         self,
@@ -663,13 +665,11 @@ class ExecutionManager(BaseRuntimeManager):
         server_id: Optional[str] = None,
         limit: int = 20,
     ) -> dict[str, Any]:
-        return {
-            "data": self.call_existing_runner(
-                "list_artifact_lifecycle_controller_ticks",
-                preferred_server_id=server_id,
-                limit=limit,
-            )
-        }
+        return self.read_existing_remote_endpoint(
+            ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ,
+            preferred_server_id=server_id,
+            query_values={"limit": limit},
+        )
 
     def run_artifact_lifecycle_controller_once(
         self,
@@ -720,14 +720,11 @@ class ExecutionManager(BaseRuntimeManager):
         workflow_revision_id: Optional[str] = None,
         limit: int = 100,
     ) -> dict[str, Any]:
-        return {
-            "data": self.call_existing_runner(
-                "list_artifact_cache_entries",
-                preferred_server_id=server_id,
-                workflow_revision_id=workflow_revision_id,
-                limit=limit,
-            )
-        }
+        return self.read_existing_remote_endpoint(
+            ARTIFACT_CACHE_ENTRIES_READ,
+            preferred_server_id=server_id,
+            query_values={"workflowRevisionId": workflow_revision_id, "limit": limit},
+        )
 
     def list_artifact_cache_pins(
         self,
@@ -737,15 +734,11 @@ class ExecutionManager(BaseRuntimeManager):
         state: Optional[str] = None,
         limit: int = 100,
     ) -> dict[str, Any]:
-        return {
-            "data": self.call_existing_runner(
-                "list_artifact_cache_pins",
-                preferred_server_id=server_id,
-                cache_entry_id=cache_entry_id,
-                state=state,
-                limit=limit,
-            )
-        }
+        return self.read_existing_remote_endpoint(
+            ARTIFACT_CACHE_PINS_READ,
+            preferred_server_id=server_id,
+            query_values={"cacheEntryId": cache_entry_id, "state": state, "limit": limit},
+        )
 
     def retain_artifact_cache_pin(
         self,

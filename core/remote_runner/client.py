@@ -395,14 +395,6 @@ class RemoteRunnerHttpClient:
             dict(payload or {}),
         )["data"]
 
-    def get_artifact_lifecycle_usage(self, *, quota_bytes: int | None = None) -> dict[str, Any]:
-        query = urllib.parse.urlencode({"quotaBytes": quota_bytes if quota_bytes is not None else ""})
-        return self.get_json(f"/api/v1/artifacts/lifecycle/usage?{query}")["data"]
-
-    def list_artifact_lifecycle_controller_ticks(self, *, limit: int = 20) -> dict[str, Any]:
-        query = urllib.parse.urlencode({"limit": int(limit)})
-        return self.get_json(f"/api/v1/artifacts/lifecycle/controller/ticks?{query}")["data"]
-
     def run_artifact_lifecycle_controller_once(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self.post_json("/api/v1/artifacts/lifecycle/controller/run-once", payload)["data"]
 
@@ -411,36 +403,6 @@ class RemoteRunnerHttpClient:
 
     def run_artifact_gc(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         return self.post_json("/api/v1/artifacts/lifecycle/gc/run", dict(payload or {}))["data"]
-
-    def list_artifact_cache_entries(
-        self,
-        *,
-        workflow_revision_id: str | None = None,
-        limit: int = 100,
-    ) -> dict[str, Any]:
-        query = urllib.parse.urlencode(
-            {
-                "workflowRevisionId": str(workflow_revision_id or ""),
-                "limit": int(limit),
-            }
-        )
-        return self.get_json(f"/api/v1/artifacts/cache/entries?{query}")["data"]
-
-    def list_artifact_cache_pins(
-        self,
-        *,
-        cache_entry_id: str | None = None,
-        state: str | None = None,
-        limit: int = 100,
-    ) -> dict[str, Any]:
-        query = urllib.parse.urlencode(
-            {
-                "cacheEntryId": str(cache_entry_id or ""),
-                "state": str(state or ""),
-                "limit": int(limit),
-            }
-        )
-        return self.get_json(f"/api/v1/artifacts/cache/pins?{query}")["data"]
 
     def retain_artifact_cache_pin(self, cache_entry_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         entry_part = urllib.parse.quote(cache_entry_id, safe="")

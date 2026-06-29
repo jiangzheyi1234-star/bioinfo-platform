@@ -94,3 +94,34 @@ class BaseRuntimeManager:
             preferred_server_id=preferred_server_id,
             **kwargs,
         )
+
+    def call_existing_remote_endpoint(
+        self,
+        endpoint_id: str,
+        *,
+        path_values: dict[str, Any] | None = None,
+        query_values: dict[str, Any] | None = None,
+        preferred_server_id: Optional[str] = None,
+    ) -> Any:
+        return self.call_remote_endpoint(
+            endpoint_id,
+            path_values=dict(path_values or {}),
+            query_values=query_values,
+            preferred_server_id=preferred_server_id,
+            require_existing_runner=True,
+        )
+
+    def read_existing_remote_endpoint(
+        self,
+        endpoint_id: str,
+        *,
+        query_values: dict[str, Any] | None = None,
+        preferred_server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return {
+            "data": self.call_existing_remote_endpoint(
+                endpoint_id,
+                query_values=query_values,
+                preferred_server_id=preferred_server_id,
+            )
+        }

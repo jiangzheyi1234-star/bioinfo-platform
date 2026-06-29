@@ -52,6 +52,10 @@ RESULT_READ = "result.read"
 RESULT_PREVIEW_READ = "result.preview.read"
 RESULT_AUDIT_READ = "result.audit.read"
 RESULT_PACKAGE_EXPORT_LIST = "result.package_export.list"
+ARTIFACT_LIFECYCLE_USAGE_READ = "artifact.lifecycle.usage.read"
+ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ = "artifact.lifecycle.controller_ticks.read"
+ARTIFACT_CACHE_ENTRIES_READ = "artifact.cache.entries.read"
+ARTIFACT_CACHE_PINS_READ = "artifact.cache_pins.read"
 
 
 REMOTE_ENDPOINTS: dict[str, RemoteEndpoint] = {
@@ -199,6 +203,50 @@ REMOTE_ENDPOINTS: dict[str, RemoteEndpoint] = {
         response_schema="result-package-export-list.v1",
         cache_scope="result-package-export-read-model",
         query_params=("lifecycleState", "limit"),
+    ),
+    ARTIFACT_LIFECYCLE_USAGE_READ: RemoteEndpoint(
+        endpoint_id=ARTIFACT_LIFECYCLE_USAGE_READ,
+        method="GET",
+        path_template="/api/v1/artifacts/lifecycle/usage",
+        operation_id="getArtifactLifecycleUsage",
+        governance_action="artifact.lifecycle.usage.read",
+        request_schema=None,
+        response_schema="h2ometa.artifact-lifecycle-usage.v1",
+        cache_scope="artifact-lifecycle-read-model",
+        query_params=("quotaBytes",),
+    ),
+    ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ: RemoteEndpoint(
+        endpoint_id=ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ,
+        method="GET",
+        path_template="/api/v1/artifacts/lifecycle/controller/ticks",
+        operation_id="listArtifactLifecycleControllerTicks",
+        governance_action="artifact.lifecycle.controller_ticks.read",
+        request_schema=None,
+        response_schema="h2ometa.artifact-lifecycle-controller-tick-read-model.v1",
+        cache_scope="artifact-lifecycle-read-model",
+        query_params=("limit",),
+    ),
+    ARTIFACT_CACHE_ENTRIES_READ: RemoteEndpoint(
+        endpoint_id=ARTIFACT_CACHE_ENTRIES_READ,
+        method="GET",
+        path_template="/api/v1/artifacts/cache/entries",
+        operation_id="listArtifactCacheEntries",
+        governance_action="artifact.cache.entries.read",
+        request_schema=None,
+        response_schema="artifact-cache-entries-public.v1",
+        cache_scope="artifact-cache-read-model",
+        query_params=("workflowRevisionId", "limit"),
+    ),
+    ARTIFACT_CACHE_PINS_READ: RemoteEndpoint(
+        endpoint_id=ARTIFACT_CACHE_PINS_READ,
+        method="GET",
+        path_template="/api/v1/artifacts/cache/pins",
+        operation_id="listArtifactCachePins",
+        governance_action="artifact.cache_pins.read",
+        request_schema=None,
+        response_schema="artifact-cache-pins-public.v1",
+        cache_scope="artifact-cache-read-model",
+        query_params=("cacheEntryId", "state", "limit"),
     ),
 }
 

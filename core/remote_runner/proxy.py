@@ -512,11 +512,6 @@ class RemoteRunnerProxyMixin:
             server_id=str(kwargs["server_id"]), ssh_service=kwargs["ssh_service"], record=kwargs["server_record"]
         )
 
-    def get_artifact_lifecycle_usage(self, **kwargs) -> dict[str, Any]:
-        client = self._client_from_runner_kwargs(kwargs)
-        query = urlencode({"quotaBytes": kwargs.get("quota_bytes") or ""})
-        return client.get_json(f"/api/v1/artifacts/lifecycle/usage?{query}")["data"]
-
     def preview_artifact_gc(self, **kwargs) -> dict[str, Any]:
         client = self._client_from_runner_kwargs(kwargs)
         return client.post_json("/api/v1/artifacts/lifecycle/gc/preview", dict(kwargs.get("payload") or {}))["data"]
@@ -524,27 +519,6 @@ class RemoteRunnerProxyMixin:
     def run_artifact_gc(self, **kwargs) -> dict[str, Any]:
         client = self._client_from_runner_kwargs(kwargs)
         return client.post_json("/api/v1/artifacts/lifecycle/gc/run", dict(kwargs.get("payload") or {}))["data"]
-
-    def list_artifact_cache_entries(self, **kwargs) -> dict[str, Any]:
-        client = self._client_from_runner_kwargs(kwargs)
-        query = urlencode(
-            {
-                "workflowRevisionId": kwargs.get("workflow_revision_id") or "",
-                "limit": int(kwargs.get("limit") or 100),
-            }
-        )
-        return client.get_json(f"/api/v1/artifacts/cache/entries?{query}")["data"]
-
-    def list_artifact_cache_pins(self, **kwargs) -> dict[str, Any]:
-        client = self._client_from_runner_kwargs(kwargs)
-        query = urlencode(
-            {
-                "cacheEntryId": kwargs.get("cache_entry_id") or "",
-                "state": kwargs.get("state") or "",
-                "limit": int(kwargs.get("limit") or 100),
-            }
-        )
-        return client.get_json(f"/api/v1/artifacts/cache/pins?{query}")["data"]
 
     def retain_artifact_cache_pin(self, **kwargs) -> dict[str, Any]:
         client = self._client_from_runner_kwargs(kwargs)

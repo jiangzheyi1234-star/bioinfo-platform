@@ -25,13 +25,13 @@ def test_artifact_lifecycle_gc_is_exposed_through_remote_local_and_runtime_layer
     client = _read("core/remote_runner/client.py")
     manager = _read("core/remote_runner/manager.py")
 
-    assert '@router.get("/api/v1/artifacts/lifecycle/usage")' in remote_routes
-    assert '@router.get("/api/v1/artifacts/lifecycle/controller/ticks")' in remote_routes
+    assert '"/api/v1/artifacts/lifecycle/usage"' in remote_routes
+    assert '"/api/v1/artifacts/lifecycle/controller/ticks"' in remote_routes
     assert '@router.post("/api/v1/artifacts/lifecycle/controller/run-once", status_code=202)' in remote_routes
     assert '@router.post("/api/v1/artifacts/lifecycle/gc/preview")' in remote_routes
     assert '@router.post("/api/v1/artifacts/lifecycle/gc/run")' in remote_routes
-    assert '@router.get("/api/v1/artifacts/cache/entries")' in remote_routes
-    assert '@router.get("/api/v1/artifacts/cache/pins")' in remote_routes
+    assert '"/api/v1/artifacts/cache/entries"' in remote_routes
+    assert '"/api/v1/artifacts/cache/pins"' in remote_routes
     assert '@router.post("/api/v1/artifacts/cache/entries/{cache_entry_id}/retain")' in remote_routes
     assert '@router.post("/api/v1/artifacts/cache/pins/{cache_pin_id}/release")' in remote_routes
     assert '@router.post("/api/v1/artifacts/cache/lookup")' in remote_routes
@@ -64,13 +64,13 @@ def test_artifact_lifecycle_gc_is_exposed_through_remote_local_and_runtime_layer
     assert "planFingerprint" in local_models
     assert "planFingerprint" in lifecycle_model
 
-    assert '@router.get("/api/v1/artifacts/lifecycle/usage")' in local_routes
-    assert '@router.get("/api/v1/artifacts/lifecycle/controller/ticks")' in local_routes
+    assert '"/api/v1/artifacts/lifecycle/usage"' in local_routes
+    assert '"/api/v1/artifacts/lifecycle/controller/ticks"' in local_routes
     assert '@router.post("/api/v1/artifacts/lifecycle/controller/run-once", status_code=202)' in local_routes
     assert '@router.post("/api/v1/artifacts/lifecycle/gc/preview")' in local_routes
     assert '@router.post("/api/v1/artifacts/lifecycle/gc/run")' in local_routes
-    assert '@router.get("/api/v1/artifacts/cache/entries")' in local_routes
-    assert '@router.get("/api/v1/artifacts/cache/pins")' in local_routes
+    assert '"/api/v1/artifacts/cache/entries"' in local_routes
+    assert '"/api/v1/artifacts/cache/pins"' in local_routes
     assert '@router.post("/api/v1/artifacts/cache/entries/{cache_entry_id}/retain")' in local_routes
     assert '@router.post("/api/v1/artifacts/cache/pins/{cache_pin_id}/release")' in local_routes
     assert '@router.post("/api/v1/artifacts/cache/lookup")' in local_routes
@@ -105,24 +105,28 @@ def test_artifact_lifecycle_gc_is_exposed_through_remote_local_and_runtime_layer
     assert "def retain_artifact_cache_pin" in runner_ops
     assert "def release_artifact_cache_pin" in runner_ops
     assert "def lookup_artifact_cache" in runner_ops
-    assert "/api/v1/artifacts/lifecycle/usage" in proxy
+    assert "ARTIFACT_LIFECYCLE_USAGE_READ" in execution_manager
+    assert "ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ" in execution_manager
+    assert "ARTIFACT_CACHE_ENTRIES_READ" in execution_manager
+    assert "ARTIFACT_CACHE_PINS_READ" in execution_manager
+    assert "/api/v1/artifacts/lifecycle/usage" not in proxy
     assert "RemoteRunnerArtifactLifecycleProxyMixin" in manager
-    assert "/api/v1/artifacts/lifecycle/controller/ticks" in artifact_lifecycle_proxy
     assert "/api/v1/artifacts/lifecycle/controller/run-once" in artifact_lifecycle_proxy
+    assert "/api/v1/artifacts/lifecycle/controller/ticks" not in artifact_lifecycle_proxy
     assert "/api/v1/artifacts/lifecycle/gc/preview" in proxy
     assert "/api/v1/artifacts/lifecycle/gc/run" in proxy
-    assert "/api/v1/artifacts/cache/entries" in proxy
-    assert "/api/v1/artifacts/cache/pins" in proxy
+    assert "/api/v1/artifacts/cache/entries?" not in proxy
+    assert "/api/v1/artifacts/cache/pins?" not in proxy
     assert "/api/v1/artifacts/cache/entries/" in proxy and "/retain" in proxy
     assert "/api/v1/artifacts/cache/pins/" in proxy and "/release" in proxy
     assert "/api/v1/artifacts/cache/lookup" in proxy
-    assert "/api/v1/artifacts/lifecycle/usage" in client
-    assert "/api/v1/artifacts/lifecycle/controller/ticks" in client
+    assert "/api/v1/artifacts/lifecycle/usage" not in client
+    assert "/api/v1/artifacts/lifecycle/controller/ticks" not in client
     assert "/api/v1/artifacts/lifecycle/controller/run-once" in client
     assert "/api/v1/artifacts/lifecycle/gc/preview" in client
     assert "/api/v1/artifacts/lifecycle/gc/run" in client
-    assert "/api/v1/artifacts/cache/entries" in client
-    assert "/api/v1/artifacts/cache/pins" in client
+    assert "/api/v1/artifacts/cache/entries?" not in client
+    assert "/api/v1/artifacts/cache/pins?" not in client
     assert "/api/v1/artifacts/cache/entries/{entry_part}/retain" in client
     assert "/api/v1/artifacts/cache/pins/{pin_part}/release" in client
     assert "/api/v1/artifacts/cache/lookup" in client
