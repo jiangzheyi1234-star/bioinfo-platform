@@ -18,6 +18,7 @@ export function FirstRunCompletionPanel({
   loadingValidationCard,
   onDownloadValidationCard,
   onDownloadValidationCardMarkdown,
+  onDownloadHandoffManifest,
   nextScenarioPacks = [],
   nextScenarioPacksError = "",
   nextScenarioPacksLoading = false,
@@ -36,6 +37,7 @@ export function FirstRunCompletionPanel({
   nextScenarioPacksLoading?: boolean;
   onDownloadValidationCard: () => void;
   onDownloadValidationCardMarkdown: () => void;
+  onDownloadHandoffManifest: () => void;
   pilotHandoff?: FirstRunPilotHandoff | null;
   ready: boolean;
   resultId: string;
@@ -49,7 +51,7 @@ export function FirstRunCompletionPanel({
   const checks = card?.checks || [];
   const passedChecks = checks.filter((item) => item.status === "passed").length;
   const keyResults = card?.keyResults || [];
-  const handoff = pilotHandoff || pilotHandoffFromCard({ card, latestPackage, resultId, run, workflowRevisionId });
+  const handoff = pilotHandoff || card?.pilotHandoff || null;
 
   return (
     <section
@@ -88,6 +90,20 @@ export function FirstRunCompletionPanel({
               <FileText strokeWidth={1.5} className="mr-2 h-3.5 w-3.5" />
             )}
             下载验证卡 Markdown
+          </Button>
+          <Button
+            variant="outline"
+            className="h-9 border-emerald-200 bg-white px-3 text-xs text-emerald-800 hover:bg-emerald-50"
+            disabled={downloadingValidationCard}
+            onClick={onDownloadHandoffManifest}
+            data-testid="first-run-completion-download-handoff"
+          >
+            {downloadingValidationCard ? (
+              <Loader2 strokeWidth={1.5} className="mr-2 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <ClipboardCheck strokeWidth={1.5} className="mr-2 h-3.5 w-3.5" />
+            )}
+            下载交接清单
           </Button>
           <Button
             variant="outline"
@@ -155,6 +171,7 @@ export function firstRunValidationCardPassed(card: FirstRunValidationCard | null
     card?.reportInterpretation?.status === "ready" &&
     card?.sampleData?.status === "verified" &&
     card?.softwareEnvironment?.status === "verified" &&
+    Boolean(card?.pilotHandoff?.backupRestore) &&
     Boolean(card?.resultPackage?.sha256) &&
     Boolean(card?.resultPackage?.manifestSha256)
   );
@@ -221,46 +238,20 @@ function PilotHandoffSummary({ handoff }: { handoff: FirstRunPilotHandoff }) {
           ))}
         </div>
       ) : null}
+      {handoff.backupRestore ? <PilotBackupRestoreSummary handoff={handoff} /> : null}
     </div>
   );
 }
 
-function pilotHandoffFromCard({
-  card,
-  latestPackage,
-  resultId,
-  run,
-  workflowRevisionId,
-}: {
-  card: FirstRunValidationCard | null;
-  latestPackage?: WorkflowResultPackageExport;
-  resultId: string;
-  run: WorkflowRun | null;
-  workflowRevisionId: string;
-}): FirstRunPilotHandoff | null {
-  if (!card) return null;
-  const checks = card.checks || [];
-  return {
-    schemaVersion: "h2ometa.first-run.single-user-lab-pilot-handoff.v1",
-    scope: "single-user-lab",
-    status: "ready",
-    evidence: {
-      runId: run?.runId || card.run?.runId,
-      resultId,
-      workflowRevisionId,
-      packageExportId: latestPackage?.packageExportId || card.resultPackage?.packageExportId,
-      packageSha256: latestPackage?.sha256 || card.resultPackage?.sha256,
-      manifestSha256: latestPackage?.manifestSha256 || card.resultPackage?.manifestSha256,
-      validationChecksPassed: checks.filter((item) => item.status === "passed").length,
-      validationChecksTotal: checks.length,
-    },
-    nextAction: {
-      code: "RUN_OWN_SMALL_SAMPLE",
-      label: "用自己的小样本跑一次",
-      target: "/workflows",
-    },
-    exclusions: ["public-multi-user", "rbac", "kubernetes", "automatic-database-install"],
-  };
+function PilotBackupRestoreSummary({ handoff }: { handoff: FirstRunPilotHandoff }) {
+  const backup = handoff.backupRestore;
+  if (!backup) return null;
+  return (
+    <div className="mt-3 grid gap-1 text-xs" data-testid="first-run-pilot-backup-restore">
+      <SummaryItem label="backup" value={backup.planCommand} mono />
+      <SummaryItem label="restore" value={backup.restoreProofCommand} mono />
+    </div>
+  );
 }
 
 function handoffChecksLabel(evidence: NonNullable<FirstRunPilotHandoff["evidence"]>) {

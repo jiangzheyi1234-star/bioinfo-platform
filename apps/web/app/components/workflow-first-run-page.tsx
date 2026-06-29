@@ -21,6 +21,7 @@ import { useSshShell } from "./ssh-shell";
 import { useWorkflowsPageState } from "./use-workflows-page-state";
 import { FirstRunCompletionPanel, firstRunValidationCardPassed } from "./workflow-first-run-completion";
 import {
+  downloadFirstRunHandoffManifest,
   downloadFirstRunValidationCard,
   downloadFirstRunValidationCardMarkdown,
   finalizeFirstRun,
@@ -327,6 +328,24 @@ export function WorkflowFirstRunPage() {
     }
   }
 
+  async function downloadHandoffManifest() {
+    if (!run?.runId || validationCardLoading) return;
+    setValidationCardLoading(true);
+    setValidationCardError("");
+    try {
+      await downloadFirstRunHandoffManifest({
+        card: validationCard,
+        resultId,
+        runId: run.runId,
+        serverId: state.server?.serverId,
+      });
+    } catch (err) {
+      setValidationCardError(workflowErrorMessage(err, "交接清单生成失败"));
+    } finally {
+      setValidationCardLoading(false);
+    }
+  }
+
   return (
     <div className="relative h-full w-full overflow-y-auto bg-white px-8 py-10 text-slate-800" data-testid="first-successful-run-page">
       <WorkflowWorkspaceTabs />
@@ -384,6 +403,7 @@ export function WorkflowFirstRunPage() {
           workflowRevisionId={workflowRevisionId}
           onDownloadValidationCard={() => void downloadValidationCard()}
           onDownloadValidationCardMarkdown={() => void downloadValidationCardMarkdown()}
+          onDownloadHandoffManifest={() => void downloadHandoffManifest()}
           pilotHandoff={pilotHandoff}
         />
 

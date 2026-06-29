@@ -12,6 +12,7 @@ from apps.api.execution_query_service import (
     get_workflow_revision_from_request,
     list_result_package_exports_from_request,
 )
+from apps.api.workflow_first_run_pilot_handoff import build_first_run_pilot_handoff
 from apps.api.workflow_first_run_software_evidence import build_first_run_software_environment
 from apps.api.workflow_sample_data_service import MOVING_PICTURES_FILES, MOVING_PICTURES_PIPELINE_ID
 
@@ -169,7 +170,16 @@ def _build_validation_card(
         artifacts=artifacts,
         report_previews=report_previews,
     )
-    return {
+    checks = _validation_checks(
+        artifacts=artifacts,
+        input_artifacts=input_artifacts,
+        package_export=package_export,
+        report_interpretation=report_interpretation,
+        sample_data=sample_data,
+        software_environment=software_environment,
+        workflow_revision_id=workflow_revision_id,
+    )
+    card = {
         "schemaVersion": FIRST_RUN_VALIDATION_CARD_SCHEMA_VERSION,
         "generatedAt": _utc_now(),
         "scenario": {
@@ -211,20 +221,14 @@ def _build_validation_card(
             "summary": "No external reference database is required for this Moving Pictures 16S first run.",
         },
         "resultPackage": _safe_result_package(package_export),
-        "checks": _validation_checks(
-            artifacts=artifacts,
-            input_artifacts=input_artifacts,
-            package_export=package_export,
-            report_interpretation=report_interpretation,
-            sample_data=sample_data,
-            software_environment=software_environment,
-            workflow_revision_id=workflow_revision_id,
-        ),
+        "checks": checks,
         "standards": {
             "w3cProv": "https://www.w3.org/TR/prov-primer/",
             "workflowRunCrate": "https://www.researchobject.org/workflow-run-crate/",
         },
     }
+    card["pilotHandoff"] = build_first_run_pilot_handoff(card)
+    return card
 
 
 def _validation_checks(

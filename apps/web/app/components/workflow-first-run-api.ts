@@ -145,6 +145,7 @@ export type FirstRunValidationCard = {
   };
   keyResults?: FirstRunValidationKeyResult[];
   checks?: FirstRunValidationCheck[];
+  pilotHandoff?: FirstRunPilotHandoff;
 };
 
 export type FirstRunFinalizationNextAction = {
@@ -168,6 +169,25 @@ export type FirstRunPilotHandoff = {
     validationChecksPassed?: number;
     validationChecksTotal?: number;
   };
+  backupRestore?: {
+    schemaVersion?: string;
+    mode?: string;
+    planCommand?: string;
+    restoreProofCommand?: string;
+    runbookPath?: string;
+    requiresIsolatedRestore?: boolean;
+    requiresManualSecretRebind?: boolean;
+    noAutomaticBackup?: boolean;
+    excludedActions?: string[];
+  };
+  nextScenarios?: Array<{
+    scenarioId?: string;
+    name?: string;
+    status?: string;
+    target?: string;
+    blockedChecks?: Array<{ code?: string; requirement?: string; target?: string }>;
+    databasePackCoverage?: { packCount?: number; missingTemplates?: string[] };
+  }>;
   nextAction?: FirstRunFinalizationNextAction;
   exclusions?: string[];
 };
@@ -257,6 +277,25 @@ export async function downloadFirstRunValidationCardMarkdown({
   });
 }
 
+export async function downloadFirstRunHandoffManifest({
+  card,
+  resultId,
+  runId,
+  serverId,
+}: {
+  card?: FirstRunValidationCard | null;
+  resultId: string;
+  runId: string;
+  serverId?: string;
+}) {
+  const resolvedCard = card || (await fetchFirstRunValidationCard(runId, { serverId }));
+  downloadTextFile({
+    content: firstRunHandoffManifestMarkdown(resolvedCard),
+    filename: `${resultId || runId}.pilot-handoff.md`,
+    type: "text/markdown;charset=utf-8",
+  });
+}
+
 export function firstRunValidationCardMarkdown(card: FirstRunValidationCard) {
   const checks = card.checks || [];
   const passedChecks = checks.filter((item) => item.status === "passed").length;
@@ -313,12 +352,99 @@ export function firstRunValidationCardMarkdown(card: FirstRunValidationCard) {
       ? markdownTable(["Code", "Status", "Detail"], checks.map((item) => [item.code, item.status, item.detail]))
       : "No validation checks recorded.",
     "",
+    "## Pilot Handoff",
+    "",
+    ...firstRunPilotHandoffMarkdown(card.pilotHandoff),
+    "",
     "## Redaction",
     "",
     `Policy: ${markdownValue(card.reportInterpretation?.redaction?.policy || "metrics-only")}`,
     `Raw paths exposed: ${card.reportInterpretation?.redaction?.rawPathsExposed === true ? "yes" : "no"}`,
     `Storage URIs exposed: ${card.reportInterpretation?.redaction?.storageUrisExposed === true ? "yes" : "no"}`,
   ].join("\n");
+}
+
+export function firstRunHandoffManifestMarkdown(card: FirstRunValidationCard) {
+  const checks = card.checks || [];
+  const passedChecks = checks.filter((item) => item.status === "passed").length;
+  const packageExport = card.resultPackage;
+  const handoff = card.pilotHandoff;
+  if (!handoff) throw new Error("FIRST_RUN_PILOT_HANDOFF_REQUIRED");
+  const evidence = handoff?.evidence || {};
+  const backup = handoff?.backupRestore;
+  const scenarios = handoff?.nextScenarios || [];
+  return [
+    "# H2OMeta First Successful Run Pilot Handoff",
+    "",
+    `Run: ${markdownValue(evidence.runId || card.run?.runId)}`,
+    `Result: ${markdownValue(evidence.resultId || card.result?.resultId)}`,
+    `WorkflowRevision: ${markdownValue(evidence.workflowRevisionId || card.workflowRevision?.workflowRevisionId)}`,
+    `Result package: ${markdownValue(evidence.packageExportId || packageExport?.packageExportId)}`,
+    `Package SHA-256: ${markdownValue(evidence.packageSha256 || packageExport?.sha256)}`,
+    `Manifest SHA-256: ${markdownValue(evidence.manifestSha256 || packageExport?.manifestSha256)}`,
+    `Validation checks: ${evidence.validationChecksPassed ?? passedChecks}/${evidence.validationChecksTotal ?? checks.length} passed`,
+    "",
+    "## Pilot Scope",
+    "",
+    `Scope: ${markdownValue(handoff?.scope)}`,
+    `Status: ${markdownValue(handoff?.status)}`,
+    `Next action: ${markdownValue(handoff?.nextAction?.label || handoff?.nextAction?.code)}`,
+    `Next action target: ${markdownValue(handoff?.nextAction?.target)}`,
+    `Exclusions: ${markdownValue(handoff?.exclusions?.join(", "))}`,
+    "",
+    "## Backup And Restore",
+    "",
+    `Plan command: ${markdownValue(backup?.planCommand)}`,
+    `Restore proof: ${markdownValue(backup?.restoreProofCommand)}`,
+    `Runbook: ${markdownValue(backup?.runbookPath)}`,
+    `Manual secret rebind required: ${backup?.requiresManualSecretRebind === true ? "yes" : "no"}`,
+    `Automatic backup: ${backup?.noAutomaticBackup === true ? "not supported" : "not recorded"}`,
+    `Unsupported actions: ${markdownValue(backup?.excludedActions?.join(", "))}`,
+    "",
+    "## Next Scenario Pilots",
+    "",
+    scenarios.length
+      ? markdownTable(
+          ["Scenario", "Status", "Blocked checks", "DB packs", "Missing DB pack templates"],
+          scenarios.map((item) => [
+            item.name || item.scenarioId,
+            item.status,
+            String(item.blockedChecks?.length || 0),
+            String(item.databasePackCoverage?.packCount || 0),
+            item.databasePackCoverage?.missingTemplates?.join(", "),
+          ])
+        )
+      : "No next scenario pilots recorded.",
+    "",
+    "## Validation Card",
+    "",
+    "Keep this handoff beside the full validation card JSON/Markdown and the downloadable result package.",
+  ].join("\n");
+}
+
+function firstRunPilotHandoffMarkdown(handoff?: FirstRunPilotHandoff) {
+  if (!handoff) throw new Error("FIRST_RUN_PILOT_HANDOFF_REQUIRED");
+  const backup = handoff.backupRestore;
+  const scenarios = handoff.nextScenarios || [];
+  return [
+    `Scope: ${markdownValue(handoff.scope)}`,
+    `Status: ${markdownValue(handoff.status)}`,
+    `Backup plan: ${markdownValue(backup?.planCommand)}`,
+    `Restore proof: ${markdownValue(backup?.restoreProofCommand)}`,
+    "",
+    scenarios.length
+      ? markdownTable(
+          ["Scenario", "Status", "Blocked checks", "DB packs", "Missing DB pack templates"],
+          scenarios.map((item) => [
+            item.name || item.scenarioId,
+            item.status,
+            String(item.blockedChecks?.length || 0),
+            String(item.databasePackCoverage?.packCount || 0),
+            item.databasePackCoverage?.missingTemplates?.join(", "),
+          ])
+        )
+      : "No next scenario handoff recorded.",
+  ];
 }
 
 function firstRunCustomerProofMarkdown(card: FirstRunValidationCard) {

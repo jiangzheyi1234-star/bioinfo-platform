@@ -108,33 +108,12 @@ def _next_action(code: str, detail: str) -> dict[str, str]:
 
 
 def _pilot_handoff(card: dict[str, Any]) -> dict[str, Any]:
-    checks = card.get("checks") if isinstance(card.get("checks"), list) else []
-    package = card.get("resultPackage") if isinstance(card.get("resultPackage"), dict) else {}
-    run = card.get("run") if isinstance(card.get("run"), dict) else {}
-    result = card.get("result") if isinstance(card.get("result"), dict) else {}
-    workflow_revision = card.get("workflowRevision") if isinstance(card.get("workflowRevision"), dict) else {}
-    passed_checks = sum(1 for item in checks if isinstance(item, dict) and item.get("status") == "passed")
-    return {
-        "schemaVersion": "h2ometa.first-run.single-user-lab-pilot-handoff.v1",
-        "scope": "single-user-lab",
-        "status": "ready",
-        "evidence": {
-            "runId": run.get("runId"),
-            "resultId": result.get("resultId"),
-            "workflowRevisionId": workflow_revision.get("workflowRevisionId"),
-            "packageExportId": package.get("packageExportId"),
-            "packageSha256": package.get("sha256"),
-            "manifestSha256": package.get("manifestSha256"),
-            "validationChecksPassed": passed_checks,
-            "validationChecksTotal": len(checks),
-        },
-        "nextAction": {
-            "code": "RUN_OWN_SMALL_SAMPLE",
-            "label": "用自己的小样本跑一次",
-            "target": "/workflows",
-        },
-        "exclusions": ["public-multi-user", "rbac", "kubernetes", "automatic-database-install"],
-    }
+    handoff = card.get("pilotHandoff") if isinstance(card.get("pilotHandoff"), dict) else None
+    if handoff:
+        return handoff
+    raise WorkflowFirstRunValidationCardUnavailableError(
+        "FIRST_RUN_PILOT_HANDOFF_REQUIRED: first-run validation card must include pilotHandoff"
+    )
 
 
 def _canonical_result_id_for_run(run_id: str) -> str:

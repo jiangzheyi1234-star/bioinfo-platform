@@ -73,6 +73,10 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "FirstRunCompletionPanel" in first_run_page
     assert "first-run-completion-panel" in first_run_completion
     assert "first-run-pilot-handoff" in first_run_completion
+    assert "first-run-pilot-backup-restore" in first_run_completion
+    assert "first-run-completion-download-handoff" in first_run_completion
+    assert "card?.pilotHandoff" in first_run_completion
+    assert "pilotHandoffFromCard" not in first_run_completion
     assert "first-run-next-scenario-handoff" in first_run_completion
     assert "first-run-next-scenario-blockers" in first_run_completion
     assert "first-run-next-scenario-database-handoff" in first_run_completion
@@ -80,14 +84,24 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "pack.databaseHandoff?.missingPackTemplates" in first_run_completion
     assert "fetchWorkflowScenarioPacks" in first_run_page
     assert "nextScenarioPacks" in first_run_page
+    assert "downloadFirstRunHandoffManifest" in first_run_page
+    assert "downloadHandoffManifest" in first_run_page
     assert "FirstRunTrustSummary" in first_run_completion
     assert "单用户试点交接" in first_run_completion
     assert "首跑已完成" in first_run_completion
     assert "下载结果包" in first_run_completion
     assert "firstRunResultPackageReady(latestPackage)" in first_run_completion
     assert "passed checks" in first_run_completion
-    assert "RUN_OWN_SMALL_SAMPLE" in first_run_completion
-    assert "automatic-database-install" in first_run_completion
+    assert "RUN_OWN_SMALL_SAMPLE" not in first_run_completion
+    assert "automatic-database-install" not in first_run_completion
+    assert "backupRestore?: {" in first_run_api
+    assert "nextScenarios?: Array" in first_run_api
+    assert "## Pilot Handoff" in first_run_api
+    assert "H2OMeta First Successful Run Pilot Handoff" in first_run_api
+    assert "firstRunHandoffManifestMarkdown" in first_run_api
+    assert "downloadFirstRunHandoffManifest" in first_run_api
+    assert "firstRunPilotHandoffMarkdown(card.pilotHandoff)" in first_run_api
+    assert "FIRST_RUN_PILOT_HANDOFF_REQUIRED" in first_run_api
     assert "const readyPackage = packageExports.find(firstRunResultPackageReady)" in first_run_page
     assert "const latestPackage = readyPackage || packageExports[0]" in first_run_page
     assert "const packageReady = Boolean(readyPackage)" in first_run_page
@@ -98,6 +112,7 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert 'card?.reportInterpretation?.status === "ready"' in first_run_completion
     assert 'card?.sampleData?.status === "verified"' in first_run_completion
     assert 'card?.softwareEnvironment?.status === "verified"' in first_run_completion
+    assert "Boolean(card?.pilotHandoff?.backupRestore)" in first_run_completion
     assert "workflowRevisionIdFor(run, state.runDetail, latestPackage)" in first_run_page
     assert "/api/v1/first-run/runs/${encodeURIComponent(runId)}/validation-card" in first_run_api
     assert "/api/v1/first-run/runs/${encodeURIComponent(runId)}/finalize" in first_run_api

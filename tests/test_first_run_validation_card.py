@@ -61,6 +61,32 @@ def test_first_run_validation_card_is_server_generated_and_redacted(monkeypatch)
     assert card["result"]["resultId"] == "res_run_first"
     assert card["resultPackage"]["packageExportId"] == "rpex_full"
     assert card["resultPackage"]["artifactPayloadMode"] == "full"
+    handoff = card["pilotHandoff"]
+    assert handoff["schemaVersion"] == "h2ometa.first-run.single-user-lab-pilot-handoff.v1"
+    assert handoff["backupRestore"] == {
+        "schemaVersion": "h2ometa.first-run.backup-restore-handoff.v1",
+        "mode": "read-only-plan",
+        "planCommand": (
+            "scripts\\single_user_pilot_backup_plan.ps1 "
+            "-RemoteRunnerSharedRoot \"<remote-shared-root>\" -RequireExistingState"
+        ),
+        "restoreProofCommand": "scripts\\first_run_pilot_check.ps1 -RunFirstSuccessfulRun -RequireFinalizationReady",
+        "runbookPath": "docs/single-user-pilot-backup-restore.md",
+        "requiresIsolatedRestore": True,
+        "requiresManualSecretRebind": True,
+        "noAutomaticBackup": True,
+        "excludedActions": ["hot-sqlite-copy", "secret-archive", "cache-as-durable-state"],
+    }
+    assert [item["scenarioId"] for item in handoff["nextScenarios"]] == [
+        "taxonomy-classification",
+        "amr-annotation",
+    ]
+    assert handoff["nextScenarios"][0]["databasePackCoverage"]["packCount"] == 1
+    assert handoff["nextScenarios"][1]["databasePackCoverage"]["missingTemplates"] == [
+        "card_rgi",
+        "eggnog_mapper",
+        "interproscan",
+    ]
     assert {item["code"] for item in card["checks"]} >= {
         "FIRST_RUN_PIPELINE_MATCH",
         "FIRST_RUN_COMPLETED",
@@ -305,6 +331,21 @@ def test_first_run_finalize_reuses_existing_full_package(monkeypatch) -> None:
             "validationChecksPassed": 10,
             "validationChecksTotal": 10,
         },
+        "backupRestore": {
+            "schemaVersion": "h2ometa.first-run.backup-restore-handoff.v1",
+            "mode": "read-only-plan",
+            "planCommand": (
+                "scripts\\single_user_pilot_backup_plan.ps1 "
+                "-RemoteRunnerSharedRoot \"<remote-shared-root>\" -RequireExistingState"
+            ),
+            "restoreProofCommand": "scripts\\first_run_pilot_check.ps1 -RunFirstSuccessfulRun -RequireFinalizationReady",
+            "runbookPath": "docs/single-user-pilot-backup-restore.md",
+            "requiresIsolatedRestore": True,
+            "requiresManualSecretRebind": True,
+            "noAutomaticBackup": True,
+            "excludedActions": ["hot-sqlite-copy", "secret-archive", "cache-as-durable-state"],
+        },
+        "nextScenarios": result["validationCard"]["pilotHandoff"]["nextScenarios"],
         "nextAction": {
             "code": "RUN_OWN_SMALL_SAMPLE",
             "label": "用自己的小样本跑一次",
@@ -372,6 +413,23 @@ def test_first_run_finalize_returns_typed_blocked_action(monkeypatch) -> None:
     }
 
 
+def test_first_run_finalize_requires_server_pilot_handoff(monkeypatch) -> None:
+    async def fake_card(*_args, **_kwargs):
+        return {"data": {"schemaVersion": "h2ometa.first-run.validation-card.v1", "resultPackage": {}}}
+
+    monkeypatch.setattr(
+        "apps.api.workflow_first_run_finalize_service.build_first_run_validation_card_from_request",
+        fake_card,
+    )
+
+    result = asyncio.run(
+        finalize_first_run_from_request("run_first", WorkflowFirstRunFinalizeRequest(serverId="srv_first"))
+    )["data"]
+
+    assert result["status"] == "blocked"
+    assert result["nextAction"]["code"] == "FIRST_RUN_PILOT_HANDOFF_REQUIRED"
+
+
 def test_first_run_validation_card_route_and_error_handler_are_registered() -> None:
     route_source = _source("apps/api/workflow_first_run_routes.py")
     finalize_source = _source("apps/api/workflow_first_run_finalize_service.py")
@@ -384,6 +442,9 @@ def test_first_run_validation_card_route_and_error_handler_are_registered() -> N
     assert "build_first_run_validation_card_from_request" in route_source
     assert "finalize_first_run_from_request" in route_source
     assert "FIRST_RUN_FINALIZATION_SCHEMA_VERSION" in finalize_source
+    assert "FIRST_RUN_PILOT_HANDOFF_REQUIRED" in finalize_source
+    assert "build_first_run_pilot_handoff" in service_source
+    assert "pilotHandoff" in service_source
     assert "export_result_package_from_request" in finalize_source
     assert "ResultPackageExportRequest(" in finalize_source
     assert "includeArtifacts=True" in finalize_source
