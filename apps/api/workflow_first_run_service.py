@@ -11,7 +11,7 @@ from apps.api.execution_query_service import (
     get_run_from_request,
     list_result_package_exports_from_request,
 )
-from apps.api.workflow_sample_data_service import MOVING_PICTURES_PIPELINE_ID
+from apps.api.workflow_sample_data_service import MOVING_PICTURES_FILES, MOVING_PICTURES_PIPELINE_ID
 
 
 FIRST_RUN_VALIDATION_CARD_SCHEMA_VERSION = "h2ometa.first-run.validation-card.v1"
@@ -22,6 +22,8 @@ FIRST_RUN_REPORT_PREVIEW_REQUIRED = "FIRST_RUN_REPORT_PREVIEW_REQUIRED"
 FIRST_RUN_RESULT_PACKAGE_DOWNLOAD_REQUIRED = "FIRST_RUN_RESULT_PACKAGE_DOWNLOAD_REQUIRED"
 FIRST_RUN_RESULT_PACKAGE_HASH_REQUIRED = "FIRST_RUN_RESULT_PACKAGE_HASH_REQUIRED"
 FIRST_RUN_RESULT_PACKAGE_REQUIRED = "FIRST_RUN_RESULT_PACKAGE_REQUIRED"
+FIRST_RUN_SAMPLE_INPUTS_INTEGRITY_MISMATCH = "FIRST_RUN_SAMPLE_INPUTS_INTEGRITY_MISMATCH"
+FIRST_RUN_SAMPLE_INPUTS_REQUIRED = "FIRST_RUN_SAMPLE_INPUTS_REQUIRED"
 
 MOVING_PICTURES_REPORT_OUTPUTS = (
     {
@@ -58,6 +60,16 @@ MOVING_PICTURES_OUTPUT_KEYS_TO_NAMES = {
     str(item["key"]): str(item["name"]) for item in MOVING_PICTURES_REPORT_OUTPUTS
 }
 MOVING_PICTURES_PREVIEW_OUTPUT_NAMES = {"summary.tsv", "qc-summary.tsv"}
+MOVING_PICTURES_SAMPLE_INPUTS = tuple(
+    {
+        "role": item.role,
+        "filename": item.filename,
+        "sourceUrl": item.url,
+        "expectedSha256": item.expected_sha256,
+        "expectedSizeBytes": item.expected_size_bytes,
+    }
+    for item in MOVING_PICTURES_FILES
+)
 
 
 class WorkflowFirstRunValidationCardUnavailableError(ValueError):
@@ -136,6 +148,7 @@ def _build_validation_card(
 ) -> dict[str, Any]:
     run_spec = run.get("runSpec") if isinstance(run.get("runSpec"), dict) else {}
     artifacts = [_safe_artifact(item) for item in _mapping_items(result.get("artifacts"))]
+    run_inputs = [_safe_run_input(item) for item in _mapping_items(run_spec.get("inputs"))]
     input_artifacts = [_safe_input_artifact(item) for item in _mapping_items(result.get("inputArtifacts"))]
     _assert_validation_card_evidence(
         artifacts=artifacts,
@@ -144,6 +157,7 @@ def _build_validation_card(
         result_id=result_id,
         workflow_revision_id=workflow_revision_id,
     )
+    sample_data = _sample_data_evidence(run_inputs=run_inputs, input_artifacts=input_artifacts)
     report_interpretation = _report_interpretation(
         artifacts=artifacts,
         report_previews=report_previews,
@@ -171,8 +185,9 @@ def _build_validation_card(
         "workflowRevision": {
             "workflowRevisionId": workflow_revision_id,
         },
-        "inputs": [_safe_run_input(item) for item in _mapping_items(run_spec.get("inputs"))],
+        "inputs": run_inputs,
         "inputArtifacts": input_artifacts,
+        "sampleData": sample_data,
         "result": {
             "resultId": result_id,
             "artifactCount": len(artifacts),
@@ -192,6 +207,7 @@ def _build_validation_card(
             input_artifacts=input_artifacts,
             package_export=package_export,
             report_interpretation=report_interpretation,
+            sample_data=sample_data,
             workflow_revision_id=workflow_revision_id,
         ),
         "standards": {
@@ -207,6 +223,7 @@ def _validation_checks(
     input_artifacts: list[dict[str, Any]],
     package_export: dict[str, Any],
     report_interpretation: dict[str, Any],
+    sample_data: dict[str, Any],
     workflow_revision_id: str,
 ) -> list[dict[str, Any]]:
     checksum_count = sum(1 for artifact in artifacts if artifact.get("sha256"))
@@ -215,6 +232,7 @@ def _validation_checks(
         _passed_check("FIRST_RUN_COMPLETED", "run status is completed"),
         _passed_check("FIRST_RUN_WORKFLOW_REVISION_PRESENT", workflow_revision_id),
         _passed_check("FIRST_RUN_INPUT_LINEAGE_PRESENT", f"{len(input_artifacts)} input artifacts"),
+        _passed_check("FIRST_RUN_SAMPLE_INPUTS_VERIFIED", f"{len(sample_data.get('items') or [])} official sample inputs"),
         _passed_check("FIRST_RUN_OUTPUT_CHECKSUMS_PRESENT", f"{checksum_count} output checksums"),
         _passed_check("FIRST_RUN_EXPECTED_OUTPUTS_PRESENT", ", ".join(sorted(MOVING_PICTURES_REPORT_OUTPUT_NAMES))),
         _passed_check(
@@ -323,6 +341,107 @@ def _safe_result_package(item: dict[str, Any]) -> dict[str, Any]:
             "createdAt": item.get("createdAt"),
         }
     )
+
+
+def _sample_data_evidence(
+    *,
+    run_inputs: list[dict[str, Any]],
+    input_artifacts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    run_inputs_by_role = _run_inputs_by_role(run_inputs)
+    input_artifacts_by_role = _input_artifacts_by_role(input_artifacts)
+    items = []
+    for expected in MOVING_PICTURES_SAMPLE_INPUTS:
+        role = str(expected["role"])
+        run_input = run_inputs_by_role.get(role)
+        if not run_input:
+            raise _unavailable(FIRST_RUN_SAMPLE_INPUTS_REQUIRED, f"{role} run input is missing")
+        if str(run_input.get("filename") or "") != expected["filename"]:
+            raise _unavailable(
+                FIRST_RUN_SAMPLE_INPUTS_REQUIRED,
+                f"{role} filename must be {expected['filename']}",
+            )
+        input_artifact = input_artifacts_by_role.get(role)
+        if not input_artifact:
+            raise _unavailable(FIRST_RUN_SAMPLE_INPUTS_REQUIRED, f"{role} input artifact lineage is missing")
+        _assert_sample_input_integrity(role=role, expected=expected, input_artifact=input_artifact)
+        port = input_artifact["port"]
+        artifact = input_artifact["artifact"]
+        items.append(
+            _compact(
+                {
+                    "role": role,
+                    "filename": expected["filename"],
+                    "sourceUrl": expected["sourceUrl"],
+                    "uploadId": run_input.get("uploadId") or port.get("uploadId"),
+                    "artifactBlobId": artifact.get("artifactBlobId"),
+                    "sha256": artifact.get("sha256"),
+                    "expectedSha256": expected["expectedSha256"],
+                    "sizeBytes": artifact.get("sizeBytes"),
+                    "expectedSizeBytes": expected["expectedSizeBytes"],
+                    "integrityStatus": "passed",
+                }
+            )
+        )
+    return {
+        "schemaVersion": "h2ometa.first-run.sample-data-evidence.v1",
+        "source": "QIIME 2 Moving Pictures tutorial",
+        "status": "verified",
+        "items": items,
+    }
+
+
+def _run_inputs_by_role(run_inputs: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    by_role: dict[str, dict[str, Any]] = {}
+    for item in run_inputs:
+        role = str(item.get("role") or "").strip()
+        if role in {str(expected["role"]) for expected in MOVING_PICTURES_SAMPLE_INPUTS}:
+            by_role[role] = item
+    return by_role
+
+
+def _input_artifacts_by_role(input_artifacts: list[dict[str, Any]]) -> dict[str, dict[str, dict[str, Any]]]:
+    by_role: dict[str, dict[str, dict[str, Any]]] = {}
+    expected_by_role = {str(item["role"]): item for item in MOVING_PICTURES_SAMPLE_INPUTS}
+    expected_by_filename = {str(item["filename"]): item for item in MOVING_PICTURES_SAMPLE_INPUTS}
+    for artifact in input_artifacts:
+        for port in _mapping_items(artifact.get("ports")):
+            role = _sample_role_for_port(port, expected_by_role, expected_by_filename)
+            if role and role not in by_role:
+                by_role[role] = {"artifact": artifact, "port": port}
+    return by_role
+
+
+def _sample_role_for_port(
+    port: dict[str, Any],
+    expected_by_role: dict[str, dict[str, Any]],
+    expected_by_filename: dict[str, dict[str, Any]],
+) -> str:
+    for key in ("inputRole", "portName", "inputName"):
+        value = str(port.get(key) or "").strip()
+        if value in expected_by_role:
+            return value
+    filename = str(port.get("filename") or "").strip()
+    expected = expected_by_filename.get(filename)
+    return str(expected["role"]) if expected else ""
+
+
+def _assert_sample_input_integrity(
+    *,
+    role: str,
+    expected: dict[str, Any],
+    input_artifact: dict[str, dict[str, Any]],
+) -> None:
+    artifact = input_artifact["artifact"]
+    actual_sha = str(artifact.get("sha256") or "")
+    expected_sha = str(expected["expectedSha256"])
+    actual_size = artifact.get("sizeBytes")
+    expected_size = expected["expectedSizeBytes"]
+    if actual_sha != expected_sha or actual_size != expected_size:
+        raise _unavailable(
+            FIRST_RUN_SAMPLE_INPUTS_INTEGRITY_MISMATCH,
+            f"{role} expected size={expected_size} sha256={expected_sha}",
+        )
 
 
 async def _load_first_run_report_previews(

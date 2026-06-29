@@ -10,6 +10,7 @@ from apps.api.workflow_first_run_service import (
     WorkflowFirstRunValidationCardUnavailableError,
     build_first_run_validation_card_from_request,
 )
+from apps.api.workflow_sample_data_service import MOVING_PICTURES_FILES
 
 
 def test_first_run_validation_card_is_server_generated_and_redacted(monkeypatch) -> None:
@@ -36,10 +37,23 @@ def test_first_run_validation_card_is_server_generated_and_redacted(monkeypatch)
         "FIRST_RUN_COMPLETED",
         "FIRST_RUN_WORKFLOW_REVISION_PRESENT",
         "FIRST_RUN_INPUT_LINEAGE_PRESENT",
+        "FIRST_RUN_SAMPLE_INPUTS_VERIFIED",
         "FIRST_RUN_OUTPUT_CHECKSUMS_PRESENT",
         "FIRST_RUN_EXPECTED_OUTPUTS_PRESENT",
         "FIRST_RUN_REPORT_INTERPRETATION_READY",
         "FIRST_RUN_RESULT_PACKAGE_ACTIVE",
+    }
+    sample_data = card["sampleData"]
+    assert sample_data["schemaVersion"] == "h2ometa.first-run.sample-data-evidence.v1"
+    assert sample_data["status"] == "verified"
+    assert [item["role"] for item in sample_data["items"]] == ["metadata", "barcodes", "sequences"]
+    assert {item["role"]: item["integrityStatus"] for item in sample_data["items"]} == {
+        "metadata": "passed",
+        "barcodes": "passed",
+        "sequences": "passed",
+    }
+    assert {item["role"]: item["sha256"] for item in sample_data["items"]} == {
+        item.role: item.expected_sha256 for item in MOVING_PICTURES_FILES
     }
     interpretation = card["reportInterpretation"]
     assert interpretation["schemaVersion"] == "h2ometa.first-run.report-interpretation.v1"
@@ -175,6 +189,27 @@ def test_first_run_validation_card_requires_checksums_for_expected_outputs(monke
     _patch_first_run_sources(monkeypatch, result=result)
 
     with pytest.raises(WorkflowFirstRunValidationCardUnavailableError, match="FIRST_RUN_OUTPUT_CHECKSUMS_REQUIRED"):
+        asyncio.run(build_first_run_validation_card_from_request("run_first"))
+
+
+def test_first_run_validation_card_requires_official_sample_input_integrity(monkeypatch) -> None:
+    result = _result()
+    result["inputArtifacts"][1]["sha256"] = "0" * 64
+    _patch_first_run_sources(monkeypatch, result=result)
+
+    with pytest.raises(
+        WorkflowFirstRunValidationCardUnavailableError,
+        match="FIRST_RUN_SAMPLE_INPUTS_INTEGRITY_MISMATCH",
+    ):
+        asyncio.run(build_first_run_validation_card_from_request("run_first"))
+
+
+def test_first_run_validation_card_requires_all_official_sample_roles(monkeypatch) -> None:
+    run = _run()
+    run["runSpec"]["inputs"] = [item for item in run["runSpec"]["inputs"] if item["role"] != "sequences"]
+    _patch_first_run_sources(monkeypatch, run=run)
+
+    with pytest.raises(WorkflowFirstRunValidationCardUnavailableError, match="FIRST_RUN_SAMPLE_INPUTS_REQUIRED"):
         asyncio.run(build_first_run_validation_card_from_request("run_first"))
 
 
@@ -316,34 +351,45 @@ def _result() -> dict[str, Any]:
             },
         ],
         "inputArtifacts": [
-            {
-                "artifactBlobId": "blob_metadata",
-                "sha256": "c" * 64,
-                "mimeType": "text/tab-separated-values",
-                "sizeBytes": 256,
-                "sourceStorageUri": "s3://secret/sample-metadata.tsv",
-                "ports": [
-                    {
-                        "portName": "metadata",
-                        "inputRole": "metadata",
-                        "inputIndex": 0,
-                        "sourceType": "upload",
-                        "sourceId": "upl_metadata",
-                        "filename": "sample-metadata.tsv",
-                        "uploadId": "upl_metadata",
-                        "storageUri": "file:///secret/sample-metadata.tsv",
-                    }
-                ],
-            }
+            _input_artifact("metadata", "sample-metadata.tsv", "upl_metadata", "text/tab-separated-values"),
+            _input_artifact("barcodes", "barcodes.fastq.gz", "upl_barcodes", "application/gzip"),
+            _input_artifact("sequences", "sequences.fastq.gz", "upl_sequences", "application/gzip"),
         ],
         "lineageSummary": {
             "schemaVersion": "h2ometa.result-lineage-summary.v1",
-            "edgeCount": 5,
-            "inputEdgeCount": 1,
+            "edgeCount": 7,
+            "inputEdgeCount": 3,
             "outputEdgeCount": 4,
-            "predicateCounts": {"prov:generated": 4, "prov:used": 1},
+            "predicateCounts": {"prov:generated": 4, "prov:used": 3},
         },
     }
+
+
+def _input_artifact(role: str, filename: str, upload_id: str, mime_type: str) -> dict[str, Any]:
+    expected = _expected_sample(role)
+    return {
+        "artifactBlobId": f"blob_{role}",
+        "sha256": expected.expected_sha256,
+        "mimeType": mime_type,
+        "sizeBytes": expected.expected_size_bytes,
+        "sourceStorageUri": f"s3://secret/{filename}",
+        "ports": [
+            {
+                "portName": role,
+                "inputRole": role,
+                "inputIndex": ["metadata", "barcodes", "sequences"].index(role),
+                "sourceType": "upload",
+                "sourceId": upload_id,
+                "filename": filename,
+                "uploadId": upload_id,
+                "storageUri": f"file:///secret/{filename}",
+            }
+        ],
+    }
+
+
+def _expected_sample(role: str):
+    return next(item for item in MOVING_PICTURES_FILES if item.role == role)
 
 
 def _previews() -> dict[str, dict[str, Any]]:
