@@ -53,5 +53,20 @@ export function buildPipelineRunSpec({
   if (resourceBindings && Object.keys(resourceBindings).length > 0) {
     runSpec.resourceBindings = resourceBindings;
   }
+  const samplePrepProof = sampleDataPrepProofFromUploads(uploads);
+  if (samplePrepProof) {
+    runSpec.sampleDataPrepProof = samplePrepProof;
+  }
   return runSpec;
+}
+
+function sampleDataPrepProofFromUploads(uploads: WorkflowUpload[]) {
+  const prepItems = uploads.map((upload) => upload.prepProof).filter(Boolean);
+  if (uploads.length === 0 || prepItems.length !== uploads.length) return null;
+  return {
+    schemaVersion: "h2ometa.workflow-sample-data-prep-proof.v1",
+    source: "QIIME 2 Moving Pictures tutorial",
+    cachePolicy: "verified-sha256-local-cache",
+    items: prepItems,
+  };
 }

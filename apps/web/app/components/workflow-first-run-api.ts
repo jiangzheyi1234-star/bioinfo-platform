@@ -56,6 +56,7 @@ export type FirstRunSampleDataItem = {
   role?: string;
   filename?: string;
   sourceUrl?: string;
+  prepProof?: FirstRunSamplePrepProofItem;
   uploadId?: string;
   artifactBlobId?: string;
   sha256?: string;
@@ -65,10 +66,29 @@ export type FirstRunSampleDataItem = {
   integrityStatus?: "passed" | string;
 };
 
+export type FirstRunSamplePrepProofItem = {
+  schemaVersion?: string;
+  role?: string;
+  filename?: string;
+  sourceUrl?: string;
+  sha256?: string;
+  expectedSha256?: string;
+  expectedSizeBytes?: number;
+  cacheStatus?: string;
+  downloadStatus?: string;
+  downloadAttempts?: number;
+};
+
 export type FirstRunSampleDataEvidence = {
   schemaVersion?: string;
   source?: string;
   status?: string;
+  prepProof?: {
+    schemaVersion?: string;
+    source?: string;
+    cachePolicy?: string;
+    items?: FirstRunSamplePrepProofItem[];
+  };
   items?: FirstRunSampleDataItem[];
 };
 
@@ -331,7 +351,17 @@ export function firstRunValidationCardMarkdown(card: FirstRunValidationCard) {
     "## Official Sample Inputs",
     "",
     sampleItems.length
-      ? markdownTable(["Role", "Filename", "Status", "SHA-256"], sampleItems.map((item) => [item.role, item.filename, item.integrityStatus, item.sha256]))
+      ? markdownTable(
+          ["Role", "Filename", "Status", "Cache", "Download", "SHA-256"],
+          sampleItems.map((item) => [
+            item.role,
+            item.filename,
+            item.integrityStatus,
+            item.prepProof?.cacheStatus,
+            item.prepProof?.downloadStatus,
+            item.sha256,
+          ])
+        )
       : "No sample input evidence recorded.",
     "",
     "## Key Results",
@@ -457,7 +487,7 @@ function firstRunCustomerProofMarkdown(card: FirstRunValidationCard) {
   const metrics = card.reportInterpretation?.metrics || [];
   const keyResults = card.keyResults || [];
   return [
-    `- Official inputs: ${card.sampleData?.status === "verified" ? `${card.sampleData.items?.length || 0} files verified by checksum` : "waiting for checksum evidence"}`,
+    `- Official inputs: ${card.sampleData?.status === "verified" ? `${card.sampleData.items?.length || 0} files verified by checksum with ${card.sampleData.prepProof?.cachePolicy || "sample prep proof"}` : "waiting for checksum evidence"}`,
     `- Software environment: ${software?.status === "verified" ? runtime || "locked and verified" : "waiting for environment evidence"}`,
     "- Database: no external reference database is required for this Moving Pictures first run",
     `- Key results: ${card.reportInterpretation?.status === "ready" ? `${keyResults.length} outputs and ${metrics.length} metrics interpreted` : "waiting for report interpretation"}`,

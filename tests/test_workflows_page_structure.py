@@ -127,6 +127,9 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "finalizeFirstRun(run.runId" in first_run_page
     assert 'actor: "first-run-ui"' in first_run_page
     assert "sampleData?: FirstRunSampleDataEvidence" in first_run_api
+    assert "FirstRunSamplePrepProofItem" in first_run_api
+    assert "prepProof?: FirstRunSamplePrepProofItem" in first_run_api
+    assert "cachePolicy?: string;" in first_run_api
     assert "export type FirstRunSoftwareEnvironment" in first_run_api
     assert "softwareEnvironment?: FirstRunSoftwareEnvironment" in first_run_api
     assert "expectedSha256?: string" in first_run_api
@@ -168,6 +171,9 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "formatBytes(item.expectedSizeBytes || item.sizeBytes)" in first_run_validation
     assert "item.integrityStatus" in first_run_validation
     assert 'item.integrityStatus || "unknown"' in first_run_validation
+    assert "item.prepProof" in first_run_validation
+    assert "prepProof.cacheStatus" in first_run_validation
+    assert "prepProof.downloadStatus" in first_run_validation
     assert "first-run-validation-card-interpretation" in first_run_validation
     assert "first-run-validation-card-output-interpretation" in first_run_validation
     assert "output.interpretation" in first_run_validation
@@ -180,6 +186,8 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "Official inputs" in first_run_api
     assert "no external reference database is required" in first_run_api
     assert "Official Sample Inputs" in first_run_api
+    assert '"Cache", "Download"' in first_run_api
+    assert "card.sampleData.prepProof?.cachePolicy" in first_run_api
     assert "## Key Results" in first_run_api
     assert "## Metrics" in first_run_api
     assert "Validation Checks" in first_run_api
@@ -219,6 +227,7 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "prepProof?: {" in models
     assert "cacheStatus?: string;" in models
     assert "downloadStatus?: string;" in models
+    assert "sampleDataPrepProofFromUploads(uploads)" in (COMPONENTS / "workflow-pipeline-run-spec.ts").read_text(encoding="utf-8")
     assert "checksum verified" in first_run_sample_submit
     assert "first-run-sample-selection" in first_run_sample_submit
     assert "state.selectedWorkflow?.description" not in first_run_page

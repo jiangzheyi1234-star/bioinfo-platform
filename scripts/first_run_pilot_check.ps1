@@ -130,6 +130,9 @@ function Assert-Sample-Uploads {
         if ($upload.integrityStatus -ne "passed" -or -not $upload.sha256 -or $upload.sha256 -ne $upload.expectedSha256) {
             Fail-Pilot "sample upload $role must have passed checksum evidence"
         }
+        if ($null -eq $upload.prepProof -or $upload.prepProof.schemaVersion -ne "h2ometa.workflow-sample-data-prep-proof.v1") {
+            Fail-Pilot "sample upload $role must include sample prep proof"
+        }
     }
 }
 
@@ -147,6 +150,12 @@ function New-FirstRunRunSpec {
                 }
             }
         )
+        sampleDataPrepProof = @{
+            schemaVersion = "h2ometa.workflow-sample-data-prep-proof.v1"
+            source = "QIIME 2 Moving Pictures tutorial"
+            cachePolicy = "verified-sha256-local-cache"
+            items = @($Uploads | ForEach-Object { $_.prepProof })
+        }
         params = @{}
     }
 }
@@ -168,18 +177,23 @@ function New-SampleUploadProof {
                 sizeBytes = $upload.sizeBytes
                 expectedSizeBytes = $upload.expectedSizeBytes
                 integrityStatus = $upload.integrityStatus
+                prepProofSchemaVersion = $upload.prepProof.schemaVersion
+                prepProofCacheStatus = $upload.prepProof.cacheStatus
+                prepProofDownloadStatus = $upload.prepProof.downloadStatus
             }
         }
     )
     $passedItems = @($items | Where-Object { $_.integrityStatus -eq "passed" -and $_.sha256 -and $_.sha256 -eq $_.expectedSha256 })
+    $passedPrepItems = @($items | Where-Object { $_.prepProofSchemaVersion -eq "h2ometa.workflow-sample-data-prep-proof.v1" })
     $missingRoles = @($items | Where-Object { -not $_.uploadId } | ForEach-Object { $_.role })
     $unexpectedRoles = @($roleAudit.unexpectedRoles)
     $duplicateRoles = @($roleAudit.duplicateRoles)
     return [ordered]@{
         schemaVersion = "h2ometa.first-run.sample-upload-proof.v1"
-        passed = ($missingRoles.Count -eq 0 -and $unexpectedRoles.Count -eq 0 -and $duplicateRoles.Count -eq 0 -and $passedItems.Count -eq $requiredRoles.Count)
+        passed = ($missingRoles.Count -eq 0 -and $unexpectedRoles.Count -eq 0 -and $duplicateRoles.Count -eq 0 -and $passedItems.Count -eq $requiredRoles.Count -and $passedPrepItems.Count -eq $requiredRoles.Count)
         count = $items.Count
         passedCount = $passedItems.Count
+        prepProofPassedCount = $passedPrepItems.Count
         expectedRoles = $requiredRoles
         missingRoles = $missingRoles
         unexpectedRoles = $unexpectedRoles

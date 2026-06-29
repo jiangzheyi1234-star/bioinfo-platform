@@ -367,6 +367,7 @@ export type WorkflowUpload = {
     filename?: string;
     role?: string;
     sourceUrl?: string;
+    sha256?: string;
   };
   sha256?: string;
   expectedSha256?: string;

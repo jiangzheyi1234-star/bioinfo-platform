@@ -47,6 +47,10 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "function New-SampleUploadProof" in source
     assert "sampleUploadProof = New-SampleUploadProof $uploads" in source
     assert "h2ometa.first-run.sample-upload-proof.v1" in source
+    assert "h2ometa.workflow-sample-data-prep-proof.v1" in source
+    assert "sample upload $role must include sample prep proof" in source
+    assert "sampleDataPrepProof = @{" in source
+    assert "items = @($Uploads | ForEach-Object { $_.prepProof })" in source
     assert "metadata\", \"barcodes\", \"sequences" in source
     assert "sample uploads include unexpected roles" in source
     assert "sample uploads include duplicate roles" in source
@@ -54,9 +58,11 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "expectedSha256 = $upload.expectedSha256" in source
     assert "unexpectedRoles = $unexpectedRoles" in source
     assert "duplicateRoles = $duplicateRoles" in source
+    assert "prepProofPassedCount = $passedPrepItems.Count" in source
     assert (
         "passed = ($missingRoles.Count -eq 0 -and $unexpectedRoles.Count -eq 0 "
-        "-and $duplicateRoles.Count -eq 0 -and $passedItems.Count -eq $requiredRoles.Count)"
+        "-and $duplicateRoles.Count -eq 0 -and $passedItems.Count -eq $requiredRoles.Count "
+        "-and $passedPrepItems.Count -eq $requiredRoles.Count)"
     ) in source
     assert "passedCount = $passedItems.Count" in source
     assert "expectedRoles = $requiredRoles" in source

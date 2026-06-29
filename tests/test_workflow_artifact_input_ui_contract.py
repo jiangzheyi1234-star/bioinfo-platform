@@ -20,6 +20,8 @@ def test_pipeline_artifact_input_submit_contract_is_fail_closed() -> None:
     assert "artifactId: artifact.artifactId" in run_spec
     assert "upstreamRunId: artifact.upstreamRunId" in run_spec
     assert "uploadId: upload.uploadId" in run_spec
+    assert "sampleDataPrepProofFromUploads(uploads)" in run_spec
+    assert "runSpec.sampleDataPrepProof = samplePrepProof" in run_spec
     assert "buildPipelineRunSpec" not in model
 
     submit_body = _function_body(api, "submitPipelineWorkflowRun")

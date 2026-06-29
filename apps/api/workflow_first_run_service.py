@@ -26,6 +26,7 @@ FIRST_RUN_RESULT_PACKAGE_DOWNLOAD_REQUIRED = "FIRST_RUN_RESULT_PACKAGE_DOWNLOAD_
 FIRST_RUN_RESULT_PACKAGE_HASH_REQUIRED = "FIRST_RUN_RESULT_PACKAGE_HASH_REQUIRED"
 FIRST_RUN_RESULT_PACKAGE_REQUIRED = "FIRST_RUN_RESULT_PACKAGE_REQUIRED"
 FIRST_RUN_SAMPLE_INPUTS_INTEGRITY_MISMATCH = "FIRST_RUN_SAMPLE_INPUTS_INTEGRITY_MISMATCH"
+FIRST_RUN_SAMPLE_PREP_PROOF_REQUIRED = "FIRST_RUN_SAMPLE_PREP_PROOF_REQUIRED"
 FIRST_RUN_SAMPLE_INPUTS_REQUIRED = "FIRST_RUN_SAMPLE_INPUTS_REQUIRED"
 
 MOVING_PICTURES_REPORT_OUTPUTS = (
@@ -161,7 +162,11 @@ def _build_validation_card(
         result_id=result_id,
         workflow_revision_id=workflow_revision_id,
     )
-    sample_data = _sample_data_evidence(run_inputs=run_inputs, input_artifacts=input_artifacts)
+    sample_data = _sample_data_evidence(
+        input_artifacts=input_artifacts,
+        run_inputs=run_inputs,
+        sample_data_prep_proof=_safe_sample_data_prep_proof(run_spec.get("sampleDataPrepProof")),
+    )
     try:
         software_environment = build_first_run_software_environment(workflow_revision)
     except ValueError as exc:
@@ -363,9 +368,11 @@ def _sample_data_evidence(
     *,
     run_inputs: list[dict[str, Any]],
     input_artifacts: list[dict[str, Any]],
+    sample_data_prep_proof: dict[str, Any],
 ) -> dict[str, Any]:
     run_inputs_by_role = _run_inputs_by_role(run_inputs)
     input_artifacts_by_role = _input_artifacts_by_role(input_artifacts)
+    prep_proof = _sample_data_prep_proof_by_role(sample_data_prep_proof)
     items = []
     for expected in MOVING_PICTURES_SAMPLE_INPUTS:
         role = str(expected["role"])
@@ -381,6 +388,10 @@ def _sample_data_evidence(
         if not input_artifact:
             raise _unavailable(FIRST_RUN_SAMPLE_INPUTS_REQUIRED, f"{role} input artifact lineage is missing")
         _assert_sample_input_integrity(role=role, expected=expected, input_artifact=input_artifact)
+        prep_item = prep_proof["itemsByRole"].get(role)
+        if not prep_item:
+            raise _unavailable(FIRST_RUN_SAMPLE_PREP_PROOF_REQUIRED, f"{role} sample prep proof is missing")
+        _assert_sample_prep_proof(role=role, expected=expected, prep_item=prep_item)
         port = input_artifact["port"]
         artifact = input_artifact["artifact"]
         items.append(
@@ -389,6 +400,7 @@ def _sample_data_evidence(
                     "role": role,
                     "filename": expected["filename"],
                     "sourceUrl": expected["sourceUrl"],
+                    "prepProof": prep_item,
                     "uploadId": run_input.get("uploadId") or port.get("uploadId"),
                     "artifactBlobId": artifact.get("artifactBlobId"),
                     "sha256": artifact.get("sha256"),
@@ -403,8 +415,81 @@ def _sample_data_evidence(
         "schemaVersion": "h2ometa.first-run.sample-data-evidence.v1",
         "source": "QIIME 2 Moving Pictures tutorial",
         "status": "verified",
+        "prepProof": prep_proof["summary"],
         "items": items,
     }
+
+
+def _safe_sample_data_prep_proof(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    items = [_safe_sample_prep_item(item) for item in _mapping_items(value.get("items"))]
+    return _compact(
+        {
+            "schemaVersion": value.get("schemaVersion"),
+            "source": value.get("source"),
+            "cachePolicy": value.get("cachePolicy"),
+            "items": [item for item in items if item],
+        }
+    )
+
+
+def _sample_data_prep_proof_by_role(proof: dict[str, Any]) -> dict[str, Any]:
+    if proof.get("schemaVersion") != "h2ometa.workflow-sample-data-prep-proof.v1":
+        raise _unavailable(FIRST_RUN_SAMPLE_PREP_PROOF_REQUIRED, "sample prep proof schema is invalid")
+    if proof.get("source") != "QIIME 2 Moving Pictures tutorial":
+        raise _unavailable(FIRST_RUN_SAMPLE_PREP_PROOF_REQUIRED, "sample prep proof source is invalid")
+    if proof.get("cachePolicy") != "verified-sha256-local-cache":
+        raise _unavailable(FIRST_RUN_SAMPLE_PREP_PROOF_REQUIRED, "sample prep proof cache policy is invalid")
+    items = [item for item in _mapping_items(proof.get("items")) if item]
+    by_role = {str(item.get("role") or ""): item for item in items if item.get("role")}
+    return {
+        "summary": {
+            "schemaVersion": "h2ometa.workflow-sample-data-prep-proof.v1",
+            "source": "QIIME 2 Moving Pictures tutorial",
+            "cachePolicy": "verified-sha256-local-cache",
+            "items": items,
+        },
+        "itemsByRole": by_role,
+    }
+
+
+def _safe_sample_prep_item(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return _compact(
+        {
+            "schemaVersion": value.get("schemaVersion"),
+            "role": value.get("role"),
+            "filename": value.get("filename"),
+            "sourceUrl": value.get("sourceUrl"),
+            "sha256": value.get("sha256"),
+            "expectedSha256": value.get("expectedSha256"),
+            "expectedSizeBytes": value.get("expectedSizeBytes"),
+            "cacheStatus": value.get("cacheStatus"),
+            "downloadStatus": value.get("downloadStatus"),
+            "downloadAttempts": value.get("downloadAttempts"),
+        }
+    )
+
+
+def _assert_sample_prep_proof(*, role: str, expected: dict[str, Any], prep_item: dict[str, Any]) -> None:
+    if prep_item.get("schemaVersion") != "h2ometa.workflow-sample-data-prep-proof.v1":
+        raise _unavailable(FIRST_RUN_SAMPLE_PREP_PROOF_REQUIRED, f"{role} sample prep proof schema is invalid")
+    if str(prep_item.get("filename") or "") != expected["filename"]:
+        raise _unavailable(FIRST_RUN_SAMPLE_PREP_PROOF_REQUIRED, f"{role} sample prep filename is invalid")
+    if str(prep_item.get("sourceUrl") or "") != expected["sourceUrl"]:
+        raise _unavailable(FIRST_RUN_SAMPLE_PREP_PROOF_REQUIRED, f"{role} sample prep source is invalid")
+    if str(prep_item.get("expectedSha256") or "") != expected["expectedSha256"]:
+        raise _unavailable(FIRST_RUN_SAMPLE_PREP_PROOF_REQUIRED, f"{role} sample prep hash is invalid")
+    if prep_item.get("expectedSizeBytes") != expected["expectedSizeBytes"]:
+        raise _unavailable(FIRST_RUN_SAMPLE_PREP_PROOF_REQUIRED, f"{role} sample prep size is invalid")
+    if str(prep_item.get("sha256") or "") != expected["expectedSha256"]:
+        raise _unavailable(FIRST_RUN_SAMPLE_PREP_PROOF_REQUIRED, f"{role} sample prep sha256 is invalid")
+    if str(prep_item.get("cacheStatus") or "") not in {"stored", "hit", "write-failed"}:
+        raise _unavailable(FIRST_RUN_SAMPLE_PREP_PROOF_REQUIRED, f"{role} sample prep cache status is invalid")
+    if str(prep_item.get("downloadStatus") or "") not in {"downloaded", "skipped-cache-hit"}:
+        raise _unavailable(FIRST_RUN_SAMPLE_PREP_PROOF_REQUIRED, f"{role} sample prep download status is invalid")
 
 
 def _run_inputs_by_role(run_inputs: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:

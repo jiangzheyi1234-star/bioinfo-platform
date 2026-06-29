@@ -111,6 +111,18 @@ def test_first_run_validation_card_is_server_generated_and_redacted(monkeypatch)
     assert {item["role"]: item["sha256"] for item in sample_data["items"]} == {
         item.role: item.expected_sha256 for item in MOVING_PICTURES_FILES
     }
+    assert sample_data["prepProof"]["schemaVersion"] == "h2ometa.workflow-sample-data-prep-proof.v1"
+    assert sample_data["prepProof"]["cachePolicy"] == "verified-sha256-local-cache"
+    assert {item["role"]: item["prepProof"]["cacheStatus"] for item in sample_data["items"]} == {
+        "metadata": "stored",
+        "barcodes": "stored",
+        "sequences": "stored",
+    }
+    assert {item["role"]: item["prepProof"]["downloadStatus"] for item in sample_data["items"]} == {
+        "metadata": "downloaded",
+        "barcodes": "downloaded",
+        "sequences": "downloaded",
+    }
     interpretation = card["reportInterpretation"]
     assert interpretation["schemaVersion"] == "h2ometa.first-run.report-interpretation.v1"
     assert interpretation["status"] == "ready"
@@ -287,6 +299,15 @@ def test_first_run_validation_card_requires_all_official_sample_roles(monkeypatc
     _patch_first_run_sources(monkeypatch, run=run)
 
     with pytest.raises(WorkflowFirstRunValidationCardUnavailableError, match="FIRST_RUN_SAMPLE_INPUTS_REQUIRED"):
+        asyncio.run(build_first_run_validation_card_from_request("run_first"))
+
+
+def test_first_run_validation_card_requires_sample_prep_proof(monkeypatch) -> None:
+    run = _run()
+    run["runSpec"].pop("sampleDataPrepProof")
+    _patch_first_run_sources(monkeypatch, run=run)
+
+    with pytest.raises(WorkflowFirstRunValidationCardUnavailableError, match="FIRST_RUN_SAMPLE_PREP_PROOF_REQUIRED"):
         asyncio.run(build_first_run_validation_card_from_request("run_first"))
 
 
@@ -526,6 +547,7 @@ def _run() -> dict[str, Any]:
         "runSpec": {
             "pipelineId": "moving-pictures-16s-rulegraph-v1",
             "workflowRevisionId": "wfrev_first",
+            "sampleDataPrepProof": _sample_data_prep_proof(),
             "inputs": [
                 {"role": "metadata", "filename": "sample-metadata.tsv", "uploadId": "upl_metadata"},
                 {"role": "barcodes", "filename": "barcodes.fastq.gz", "uploadId": "upl_barcodes"},
@@ -652,6 +674,29 @@ def _input_artifact(role: str, filename: str, upload_id: str, mime_type: str) ->
 
 def _expected_sample(role: str):
     return next(item for item in MOVING_PICTURES_FILES if item.role == role)
+
+
+def _sample_data_prep_proof() -> dict[str, Any]:
+    return {
+        "schemaVersion": "h2ometa.workflow-sample-data-prep-proof.v1",
+        "source": "QIIME 2 Moving Pictures tutorial",
+        "cachePolicy": "verified-sha256-local-cache",
+        "items": [
+            {
+                "schemaVersion": "h2ometa.workflow-sample-data-prep-proof.v1",
+                "role": item.role,
+                "filename": item.filename,
+                "sourceUrl": item.url,
+                "sha256": item.expected_sha256,
+                "expectedSha256": item.expected_sha256,
+                "expectedSizeBytes": item.expected_size_bytes,
+                "cacheStatus": "stored",
+                "downloadStatus": "downloaded",
+                "downloadAttempts": 1,
+            }
+            for item in MOVING_PICTURES_FILES
+        ],
+    }
 
 
 def _previews() -> dict[str, dict[str, Any]]:

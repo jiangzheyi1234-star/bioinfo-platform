@@ -379,6 +379,7 @@ function ValidationCardSampleData({ sampleData }: { sampleData: NonNullable<Firs
             const size = formatBytes(item.expectedSizeBytes || item.sizeBytes);
             const itemStatus = item.integrityStatus || "unknown";
             const itemPassed = itemStatus === "passed";
+            const prepProof = item.prepProof;
             return (
               <div key={`${item.role || "sample"}-${item.filename || item.artifactBlobId || hash}`} className={cn("grid min-w-0 gap-2 rounded border bg-white px-3 py-2 text-[11px] text-slate-600 sm:grid-cols-[88px_minmax(0,1fr)_auto_auto_auto] sm:items-center", itemPassed ? "border-emerald-200" : "border-amber-200")}>
                 <span className={cn("font-semibold", itemPassed ? "text-emerald-700" : "text-amber-700")}>{item.role || "sample"}</span>
@@ -387,6 +388,7 @@ function ValidationCardSampleData({ sampleData }: { sampleData: NonNullable<Firs
                 <span className={cn("rounded-full border px-2 py-0.5", itemPassed ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700")}>
                   {itemStatus}
                 </span>
+                {prepProof ? <span className="font-mono text-slate-500">{[prepProof.cacheStatus, prepProof.downloadStatus].filter(Boolean).join("/")}</span> : null}
                 {hash ? <span className="font-mono text-slate-500">{hash.slice(0, 12)}</span> : null}
               </div>
             );

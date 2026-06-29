@@ -172,6 +172,26 @@ def test_run_submit_request_accepts_pipeline_id_inside_run_spec() -> None:
     assert request.model_dump()["runSpec"]["workflowRevisionId"] == "wfrev_demo"
 
 
+def test_run_submit_request_accepts_sample_data_prep_proof() -> None:
+    request = RunSubmitRequest.model_validate(
+        {
+            "serverId": "srv_demo",
+            "runSpec": {
+                "pipelineId": "moving-pictures-16s-rulegraph-v1",
+                "inputs": [{"uploadId": "upl_metadata", "filename": "sample-metadata.tsv", "role": "metadata"}],
+                "sampleDataPrepProof": {
+                    "schemaVersion": "h2ometa.workflow-sample-data-prep-proof.v1",
+                    "source": "QIIME 2 Moving Pictures tutorial",
+                    "cachePolicy": "verified-sha256-local-cache",
+                    "items": [],
+                },
+            },
+        }
+    )
+
+    assert request.runSpec.sampleDataPrepProof["cachePolicy"] == "verified-sha256-local-cache"
+
+
 def test_run_submit_request_accepts_explicit_execution_queue() -> None:
     request = RunSubmitRequest.model_validate(
         {
