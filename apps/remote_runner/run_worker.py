@@ -10,6 +10,7 @@ from core.logging_config import clear_log_context, set_log_context
 from .config import RemoteRunnerConfig
 from .executor import run_snakemake_execution
 from .resource_pool import ResourcePool, ResourceRequest
+from .run_execution_state_machine import RunExecutionStateMachine
 from .execution_resume_claim_preflight import (
     run_resume_execution_options_requested,
     validate_run_resume_claim_state,
@@ -194,7 +195,7 @@ def process_next_run_job(
 
         final_run = fetch_run(cfg, run_id)
         final_status = str(final_run.get("status") if final_run else "")
-        attempt_state = _attempt_state_for_run_status(final_status)
+        attempt_state = RunExecutionStateMachine.attempt_state_for_run_status(final_status)
         completion = complete_run_attempt(
             cfg,
             attempt_id,
@@ -234,16 +235,6 @@ def process_next_run_job(
         return result
     finally:
         clear_log_context()
-
-
-def _attempt_state_for_run_status(status: str) -> str:
-    normalized = str(status or "").strip().lower()
-    if normalized == "completed":
-        return "succeeded"
-    if normalized in {"canceled", "cancelled"}:
-        return "cancelled"
-    return "failed"
-
 
 def _exit_code_for_attempt_state(state: str) -> int:
     if state == "succeeded":

@@ -16,6 +16,7 @@ from .execution_policy import (
     retry_backoff_seconds_for_job,
 )
 from .metrics import record_run_attempt_fenced, record_run_job_dead_lettered
+from .run_execution_state_machine import RunExecutionStateMachine
 from .storage_core import now_iso
 
 
@@ -332,22 +333,32 @@ def dead_letter_job(
     )
     run = connection.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
     if run is not None:
-        next_state_version = int(run["state_version"]) + 1
+        transition = RunExecutionStateMachine.dead_letter_job(
+            current_status=str(run["status"]),
+            state_version=int(run["state_version"]),
+        )
         connection.execute(
             """
             UPDATE runs
             SET status = ?, stage = ?, state_version = ?, message = ?, last_updated_at = ?
             WHERE run_id = ?
             """,
-            ("failed", "dead_letter", next_state_version, "Job dead-lettered after max retries.", timestamp, run_id),
+            (
+                transition.to_status,
+                transition.stage,
+                transition.state_version,
+                transition.row_message,
+                timestamp,
+                run_id,
+            ),
         )
         append_run_event_v2(
             connection,
             run_id=run_id,
-            event_type="run_job_dead_lettered",
-            stage="dead_letter",
-            state_version=next_state_version,
-            message="Run job dead-lettered after exhausting retries.",
+            event_type=transition.event_type,
+            stage=transition.stage,
+            state_version=transition.state_version,
+            message=transition.event_message,
             request_id=str(run["request_id"]),
             payload={
                 "jobId": job_id,

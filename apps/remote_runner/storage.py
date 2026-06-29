@@ -59,7 +59,6 @@ from .upload_storage import (
     fetch_upload,
     persist_upload,
 )
-
 __all__ = [
     "MAX_UPLOAD_BYTES",
     "append_log_lines",

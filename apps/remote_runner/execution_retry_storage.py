@@ -5,8 +5,8 @@ from typing import Any
 from .config import RemoteRunnerConfig
 from .event_contracts import append_run_event_v2, record_run_command
 from .execution_policy import retry_backoff_seconds_for_job
+from .run_execution_state_machine import RunExecutionStateMachine
 from .run_execution_storage import (
-    RELEASED_LEASE_STATES,
     _add_seconds,
     _fetch_run_row,
     _optional_text,
@@ -19,9 +19,6 @@ from .rule_partial_rerun_claim_preflight import (
 )
 from .rule_retry_execution_plan import rule_retry_execution_options
 from .storage_core import get_connection, now_iso
-
-
-RETRYABLE_RUN_STATUSES = {"failed", "canceled", "cancelled"}
 
 
 def request_run_retry(
@@ -59,8 +56,10 @@ def request_run_retry(
         connection.execute("BEGIN IMMEDIATE")
         run = _fetch_run_row(connection, normalized_run_id)
         run_status = str(run["status"] or "").lower()
-        if run_status not in RETRYABLE_RUN_STATUSES:
-            raise ValueError(f"RUN_RETRY_STATUS_NOT_RETRYABLE: {run_status}")
+        transition = RunExecutionStateMachine.request_retry(
+            current_status=run_status,
+            state_version=int(run["state_version"]),
+        )
         job = connection.execute(
             "SELECT * FROM run_jobs WHERE run_id = ?",
             (normalized_run_id,),
@@ -73,7 +72,7 @@ def request_run_retry(
         ).fetchone()
         if lease is not None and str(lease["state"]) == "active":
             raise ValueError("RUN_RETRY_ACTIVE_LEASE")
-        if lease is not None and str(lease["state"]) not in RELEASED_LEASE_STATES:
+        if lease is not None and not RunExecutionStateMachine.is_released_lease_state(str(lease["state"])):
             raise ValueError(f"RUN_RETRY_LEASE_NOT_RELEASED: {lease['state']}")
         attempt_count = int(job["attempt_count"])
         max_attempts = int(job["max_attempts"])
@@ -110,7 +109,6 @@ def request_run_retry(
             actor=normalized_actor,
             requested_at=requested_at,
         )
-        next_state_version = int(run["state_version"]) + 1
         connection.execute(
             """
             UPDATE runs
@@ -120,10 +118,10 @@ def request_run_retry(
             WHERE run_id = ?
             """,
             (
-                "queued",
-                "retry",
-                next_state_version,
-                "Run retry requested.",
+                transition.to_status,
+                transition.stage,
+                transition.state_version,
+                transition.row_message,
                 requested_at,
                 normalized_run_id,
             ),
@@ -153,12 +151,12 @@ def request_run_retry(
         append_run_event_v2(
             connection,
             run_id=normalized_run_id,
-            event_type="run_retry_requested",
-            from_status=run["status"],
-            to_status="queued",
-            stage="retry",
-            state_version=next_state_version,
-            message="Run retry requested.",
+            event_type=transition.event_type,
+            from_status=transition.from_status,
+            to_status=transition.to_status,
+            stage=transition.stage,
+            state_version=transition.state_version,
+            message=transition.event_message,
             request_id=str(run["request_id"]),
             command_id=command["commandId"],
             actor=normalized_actor,
@@ -169,8 +167,8 @@ def request_run_retry(
         connection.commit()
         result = {
             "runId": normalized_run_id,
-            "status": "queued",
-            "stage": "retry",
+            "status": transition.to_status,
+            "stage": transition.stage,
             "commandId": command["commandId"],
             "jobId": job["job_id"],
             "attemptCount": attempt_count,

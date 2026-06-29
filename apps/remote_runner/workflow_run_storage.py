@@ -12,6 +12,7 @@ from .event_contracts import append_run_event_v2, record_run_command
 from .execution_policy import execution_policy_from_run_spec
 from .execution_query_storage import fetch_run
 from .run_execution_storage import enqueue_run_job_record
+from .run_execution_state_machine import RunExecutionStateMachine
 from .storage_core import get_connection, now_iso
 
 
@@ -64,6 +65,7 @@ def create_run_record(
     workflow_revision_id = str(run_spec.get("workflowRevisionId") or "").strip() or None
     submitted_at = now_iso()
     execution_policy = execution_policy_from_run_spec(run_spec)
+    accepted = RunExecutionStateMachine.submission_accepted()
     run = {
         "runId": run_id,
         "serverId": server_id,
@@ -72,10 +74,10 @@ def create_run_record(
         "pipelineVersion": pipeline_version,
         "runSpecVersion": run_spec_version,
         "workflowRevisionId": workflow_revision_id,
-        "status": "queued",
-        "stage": "submitted",
-        "stateVersion": 1,
-        "message": "Run accepted",
+        "status": accepted.to_status,
+        "stage": accepted.stage,
+        "stateVersion": accepted.state_version,
+        "message": accepted.row_message,
         "startedAt": None,
         "finishedAt": None,
         "resultDir": "",
@@ -147,12 +149,12 @@ def create_run_record(
         append_run_event_v2(
             connection,
             run_id=run["runId"],
-            event_type="accepted",
-            from_status=None,
-            to_status="queued",
-            stage="submitted",
-            state_version=1,
-            message="Accepted for asynchronous execution",
+            event_type=accepted.event_type,
+            from_status=accepted.from_status,
+            to_status=accepted.to_status,
+            stage=accepted.stage,
+            state_version=accepted.state_version,
+            message=accepted.event_message,
             request_id=request_id,
             command_id=command["commandId"],
             actor=server_id,
@@ -160,7 +162,11 @@ def create_run_record(
                 "pipelineId": run["pipelineId"],
                 "projectId": run["projectId"],
                 "runId": run["runId"],
-                **({"workflowRevisionId": run_spec["workflowRevisionId"]} if run_spec.get("workflowRevisionId") else {}),
+                **(
+                    {"workflowRevisionId": run_spec["workflowRevisionId"]}
+                    if run_spec.get("workflowRevisionId")
+                    else {}
+                ),
             },
             occurred_at=submitted_at,
             command_derived=True,
@@ -212,9 +218,19 @@ def update_run_state(
             lease_generation=lease_generation,
         ):
             raise StaleRunAttemptError("RUN_ATTEMPT_STALE")
-        next_state_version = int(existing["state_version"]) + 1
+        transition = RunExecutionStateMachine.publish_status(
+            current_status=str(existing["status"]),
+            state_version=int(existing["state_version"]),
+            status=status,
+            stage=stage,
+            message=message,
+        )
         started_at = existing["started_at"] or now_iso()
-        finished_at = now_iso() if status in {"completed", "failed", "canceled", "cancelled"} else None
+        finished_at = (
+            now_iso()
+            if RunExecutionStateMachine.is_terminal_run_status(transition.to_status)
+            else None
+        )
         last_updated_at = now_iso()
         connection.execute(
             """
@@ -224,10 +240,10 @@ def update_run_state(
             WHERE run_id = ?
             """,
             (
-                status,
-                stage,
-                next_state_version,
-                message,
+                transition.to_status,
+                transition.stage,
+                transition.state_version,
+                transition.row_message,
                 started_at,
                 finished_at,
                 result_dir or "",
@@ -239,12 +255,12 @@ def update_run_state(
         append_run_event_v2(
             connection,
             run_id=run_id,
-            event_type="status-transition",
-            from_status=existing["status"],
-            to_status=status,
-            stage=stage,
-            state_version=next_state_version,
-            message=message,
+            event_type=transition.event_type,
+            from_status=transition.from_status,
+            to_status=transition.to_status,
+            stage=transition.stage,
+            state_version=transition.state_version,
+            message=transition.event_message,
             request_id=request_id,
             payload={"lastError": last_error} if last_error else {},
             occurred_at=last_updated_at,

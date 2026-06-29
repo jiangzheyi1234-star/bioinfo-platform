@@ -156,6 +156,34 @@ def test_general_storage_module_is_import_facade_for_runtime_storage_domains() -
     assert "def persist_artifact(" in artifact_storage
 
 
+def test_run_execution_state_machine_owns_core_status_decisions() -> None:
+    state_machine_path = REMOTE_RUNNER / "run_execution_state_machine.py"
+    run_execution_storage = (REMOTE_RUNNER / "run_execution_storage.py").read_text(encoding="utf-8")
+    workflow_run_storage = (REMOTE_RUNNER / "workflow_run_storage.py").read_text(encoding="utf-8")
+    execution_retry_storage = (REMOTE_RUNNER / "execution_retry_storage.py").read_text(encoding="utf-8")
+    reconciler_actions = (REMOTE_RUNNER / "reconciler_actions.py").read_text(encoding="utf-8")
+    run_worker = (REMOTE_RUNNER / "run_worker.py").read_text(encoding="utf-8")
+
+    assert state_machine_path.exists()
+    state_machine = state_machine_path.read_text(encoding="utf-8")
+
+    assert "class RunExecutionStateMachine" in state_machine
+    assert "TERMINAL_RUN_STATUSES =" in state_machine
+    assert "RETRYABLE_RUN_STATUSES =" in state_machine
+    assert "RELEASED_LEASE_STATES =" in state_machine
+    assert "from .run_execution_state_machine import RunExecutionStateMachine" in run_execution_storage
+    assert "from .run_execution_state_machine import RunExecutionStateMachine" in workflow_run_storage
+    assert "from .run_execution_state_machine import RunExecutionStateMachine" in execution_retry_storage
+    assert "from .run_execution_state_machine import RunExecutionStateMachine" in reconciler_actions
+    assert "from .run_execution_state_machine import RunExecutionStateMachine" in run_worker
+
+    assert "TERMINAL_RUN_STATUSES =" not in run_execution_storage
+    assert "RELEASED_LEASE_STATES =" not in run_execution_storage
+    assert "RETRYABLE_RUN_STATUSES =" not in execution_retry_storage
+    assert "def _terminal_job_state_for_attempt_state(" not in run_execution_storage
+    assert "def _attempt_state_for_run_status(" not in run_worker
+
+
 def test_tool_prepare_job_records_live_outside_storage_mutation_module() -> None:
     storage = (REMOTE_RUNNER / "tool_prepare_job_storage.py").read_text(encoding="utf-8")
     records_path = REMOTE_RUNNER / "tool_prepare_job_records.py"

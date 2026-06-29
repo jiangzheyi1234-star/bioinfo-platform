@@ -21,11 +21,8 @@ from .admission_storage import (
 )
 from .resource_pool import ResourceRequest
 from .execution_job_records import run_job_row_to_dict
+from .run_execution_state_machine import RunExecutionStateMachine
 from .storage_core import get_connection, now_iso
-
-
-TERMINAL_RUN_STATUSES = {"completed", "failed", "canceled", "cancelled"}
-RELEASED_LEASE_STATES = {"expired", "fenced", "failed", "canceled", "cancelled"}
 
 
 def enqueue_run_job(
@@ -191,7 +188,7 @@ def claim_next_run_job(
         if current_lease is not None:
             next_generation = int(current_lease["lease_generation"]) + 1
             lease_state = str(current_lease["state"])
-            if lease_state not in RELEASED_LEASE_STATES:
+            if not RunExecutionStateMachine.is_released_lease_state(lease_state):
                 raise RuntimeError(f"RUN_JOB_LEASE_NOT_RELEASED: {lease_state}")
 
         attempt_id = f"att_{uuid.uuid4().hex[:12]}"
@@ -454,11 +451,11 @@ def request_run_cancel(
                 (requested_at, requested_at, attempt_id),
             )
 
-        next_state_version = int(run["state_version"])
-        target_status = str(run["status"])
-        if target_status not in TERMINAL_RUN_STATUSES:
-            next_state_version += 1
-            target_status = "canceling"
+        transition = RunExecutionStateMachine.request_cancel(
+            current_status=str(run["status"]),
+            state_version=int(run["state_version"]),
+        )
+        if transition.update_run:
             connection.execute(
                 """
                 UPDATE runs
@@ -467,10 +464,10 @@ def request_run_cancel(
                 WHERE run_id = ?
                 """,
                 (
-                    target_status,
-                    "cancel",
-                    next_state_version,
-                    "Cancellation requested.",
+                    transition.to_status,
+                    transition.stage,
+                    transition.state_version,
+                    transition.row_message,
                     requested_at,
                     normalized_run_id,
                 ),
@@ -478,12 +475,12 @@ def request_run_cancel(
         append_run_event_v2(
             connection,
             run_id=normalized_run_id,
-            event_type="run_cancel_requested",
-            from_status=run["status"],
-            to_status=target_status,
-            stage="cancel",
-            state_version=next_state_version,
-            message="Run cancellation requested.",
+            event_type=transition.event_type,
+            from_status=transition.from_status,
+            to_status=transition.to_status,
+            stage=transition.stage,
+            state_version=transition.state_version,
+            message=transition.event_message,
             request_id=str(run["request_id"]),
             command_id=command["commandId"],
             actor=actor,
@@ -497,12 +494,13 @@ def request_run_cancel(
         connection.commit()
         return {
             "runId": normalized_run_id,
-            "status": target_status,
-            "stage": "cancel",
+            "status": transition.to_status,
+            "stage": transition.stage,
             "commandId": command["commandId"],
             "attemptId": attempt_id,
             "cancelRequestedAt": requested_at,
         }
+
 
 def run_attempt_cancel_requested(
     cfg: RemoteRunnerConfig,
@@ -542,7 +540,11 @@ def complete_run_attempt(
             "SELECT * FROM run_leases WHERE run_id = ?",
             (attempt["run_id"],),
         ).fetchone()
-        if str(attempt["state"]) in {"succeeded", "failed"} and lease is not None and str(lease["state"]) in TERMINAL_RUN_STATUSES:
+        if (
+            RunExecutionStateMachine.is_published_attempt_terminal_state(str(attempt["state"]))
+            and lease is not None
+            and RunExecutionStateMachine.is_terminal_run_status(str(lease["state"]))
+        ):
             release_resource_allocation(connection, attempt_id=normalized_attempt_id, released_at=finished_at)
             connection.commit()
             return {"accepted": False, "reason": "already_terminal"}
@@ -566,7 +568,7 @@ def complete_run_attempt(
             """,
             (normalized_state, finished_at, exit_code, finished_at, normalized_attempt_id),
         )
-        terminal_job_state = _terminal_job_state_for_attempt_state(normalized_state)
+        terminal_job_state = RunExecutionStateMachine.terminal_job_state_for_attempt_state(normalized_state)
         connection.execute(
             "UPDATE run_jobs SET state = ?, updated_at = ? WHERE job_id = ?",
             (terminal_job_state, finished_at, attempt["job_id"]),
@@ -600,17 +602,12 @@ def complete_run_attempt(
             occurred_at=finished_at,
         )
         connection.commit()
-        record_run_attempt_completed(started_at=str(attempt["started_at"] or ""), finished_at=finished_at, terminal_state=terminal_job_state)
+        record_run_attempt_completed(
+            started_at=str(attempt["started_at"] or ""),
+            finished_at=finished_at,
+            terminal_state=terminal_job_state,
+        )
         return {"accepted": True, "state": normalized_state}
-
-
-def _terminal_job_state_for_attempt_state(state: str) -> str:
-    normalized = str(state or "").strip().lower()
-    if normalized == "succeeded":
-        return "completed"
-    if normalized in {"canceled", "cancelled"}:
-        return "cancelled"
-    return "failed"
 
 
 def _select_claimable_job(connection: sqlite3.Connection, now: str, queue_name: str) -> sqlite3.Row | None:
