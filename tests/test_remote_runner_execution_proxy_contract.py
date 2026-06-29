@@ -10,6 +10,7 @@ from core.contracts.remote_endpoints import (
     ARTIFACT_CACHE_PINS_READ,
     ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ,
     ARTIFACT_LIFECYCLE_USAGE_READ,
+    GOVERNANCE_AUDIT_EVENTS_READ,
     REMOTE_ENDPOINTS,
     RESULT_AUDIT_READ,
     RESULT_LIST,
@@ -25,6 +26,14 @@ from core.contracts.remote_endpoints import (
     RUN_READ,
     RUN_RESULTS_READ,
     RUN_RULES_READ,
+    SECRET_PROVIDER_READINESS_READ,
+    WORKFLOW_BACKFILL_LAUNCH_LIST,
+    WORKFLOW_BACKFILL_LAUNCH_READ,
+    WORKFLOW_TRIGGER_EVENTS_READ,
+    WORKFLOW_TRIGGER_INBOX_READ,
+    WORKFLOW_TRIGGER_LIST,
+    WORKFLOW_TRIGGER_READINESS_OBSERVATION_READ,
+    WORKFLOW_TRIGGER_SCHEDULER_TICKS_READ,
     RemoteEndpointContractError,
     render_remote_endpoint_path,
 )
@@ -58,6 +67,26 @@ ARTIFACT_READ_MODEL_ENDPOINTS = (
     ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ,
     ARTIFACT_CACHE_ENTRIES_READ,
     ARTIFACT_CACHE_PINS_READ,
+)
+TRIGGER_READ_MODEL_ENDPOINTS = (
+    WORKFLOW_TRIGGER_LIST,
+    WORKFLOW_TRIGGER_EVENTS_READ,
+    WORKFLOW_TRIGGER_READINESS_OBSERVATION_READ,
+    WORKFLOW_TRIGGER_INBOX_READ,
+    WORKFLOW_TRIGGER_SCHEDULER_TICKS_READ,
+    WORKFLOW_BACKFILL_LAUNCH_LIST,
+    WORKFLOW_BACKFILL_LAUNCH_READ,
+)
+GOVERNANCE_READ_MODEL_ENDPOINTS = (
+    GOVERNANCE_AUDIT_EVENTS_READ,
+    SECRET_PROVIDER_READINESS_READ,
+)
+CONTRACT_READ_MODEL_ENDPOINTS = (
+    RUN_READ_MODEL_ENDPOINTS
+    + RESULT_READ_MODEL_ENDPOINTS
+    + ARTIFACT_READ_MODEL_ENDPOINTS
+    + TRIGGER_READ_MODEL_ENDPOINTS
+    + GOVERNANCE_READ_MODEL_ENDPOINTS
 )
 
 
@@ -156,6 +185,43 @@ def test_run_read_model_endpoints_are_contract_rendered() -> None:
         {},
         query_values={"cacheEntryId": "ace/1", "state": "active", "limit": 10},
     ) == "/api/v1/artifacts/cache/pins?cacheEntryId=ace%2F1&state=active&limit=10"
+    assert render_remote_endpoint_path(WORKFLOW_TRIGGER_LIST, {}) == "/api/v1/workflow-triggers"
+    assert REMOTE_ENDPOINTS[WORKFLOW_TRIGGER_LIST].response_item_key is None
+    assert render_remote_endpoint_path(
+        WORKFLOW_TRIGGER_EVENTS_READ,
+        {"trigger_id": "wtr with/slash"},
+    ) == "/api/v1/workflow-triggers/wtr%20with%2Fslash/events"
+    assert render_remote_endpoint_path(
+        WORKFLOW_TRIGGER_READINESS_OBSERVATION_READ,
+        {"trigger_id": "wtr_1"},
+    ) == "/api/v1/workflow-triggers/wtr_1/readiness-observation"
+    assert render_remote_endpoint_path(
+        WORKFLOW_TRIGGER_INBOX_READ,
+        {"trigger_id": "wtr_1"},
+        query_values={"state": "dead_lettered", "limit": 50},
+    ) == "/api/v1/workflow-triggers/wtr_1/inbox?state=dead_lettered&limit=50"
+    assert render_remote_endpoint_path(
+        WORKFLOW_TRIGGER_SCHEDULER_TICKS_READ,
+        {},
+        query_values={"limit": 8},
+    ) == "/api/v1/workflow-trigger-scheduler/ticks?limit=8"
+    assert render_remote_endpoint_path(
+        WORKFLOW_BACKFILL_LAUNCH_LIST,
+        {},
+        query_values={"triggerId": "wtr with/slash", "limit": 25},
+    ) == "/api/v1/workflow-backfill-launches?triggerId=wtr+with%2Fslash&limit=25"
+    assert render_remote_endpoint_path(
+        WORKFLOW_BACKFILL_LAUNCH_READ,
+        {"launch_id": "bfl with/slash"},
+    ) == "/api/v1/workflow-backfill-launches/bfl%20with%2Fslash"
+    assert render_remote_endpoint_path(
+        GOVERNANCE_AUDIT_EVENTS_READ,
+        {},
+        query_values={"subjectKind": "run", "subjectId": "run/1", "action": "run.submit", "limit": 25},
+    ) == "/api/v1/audit/events?subjectKind=run&subjectId=run%2F1&action=run.submit&limit=25"
+    assert render_remote_endpoint_path(SECRET_PROVIDER_READINESS_READ, {}) == "/api/v1/secrets/provider-readiness"
+    assert REMOTE_ENDPOINTS[GOVERNANCE_AUDIT_EVENTS_READ].response_item_key is None
+    assert REMOTE_ENDPOINTS[SECRET_PROVIDER_READINESS_READ].response_item_key is None
 
 
 def test_run_read_model_endpoint_contracts_match_governance_policy() -> None:
@@ -165,7 +231,7 @@ def test_run_read_model_endpoint_contracts_match_governance_policy() -> None:
         if policy.surface == "remote-runner-api"
     }
 
-    for endpoint_id in RUN_READ_MODEL_ENDPOINTS + RESULT_READ_MODEL_ENDPOINTS + ARTIFACT_READ_MODEL_ENDPOINTS:
+    for endpoint_id in CONTRACT_READ_MODEL_ENDPOINTS:
         endpoint = REMOTE_ENDPOINTS[endpoint_id]
         if endpoint.governance_action is None:
             continue
@@ -180,7 +246,7 @@ def test_run_read_model_endpoint_contracts_match_openapi_operation_ids() -> None
 
     for app in (local_app, remote_app):
         paths = app.openapi()["paths"]
-        for endpoint_id in RUN_READ_MODEL_ENDPOINTS + RESULT_READ_MODEL_ENDPOINTS + ARTIFACT_READ_MODEL_ENDPOINTS:
+        for endpoint_id in CONTRACT_READ_MODEL_ENDPOINTS:
             endpoint = REMOTE_ENDPOINTS[endpoint_id]
             operation = paths[endpoint.path_template][endpoint.method.lower()]
             assert operation["operationId"] == endpoint.operation_id
@@ -222,6 +288,13 @@ def test_remote_endpoint_contracts_fail_loudly_on_missing_path_param() -> None:
     else:  # pragma: no cover - fail loudly keeps this branch unreachable.
         raise AssertionError("artifact cache serverId must remain local-only")
 
+    try:
+        render_remote_endpoint_path(WORKFLOW_TRIGGER_INBOX_READ, {"trigger_id": "wtr_1"}, query_values={"serverId": "srv_1"})
+    except RemoteEndpointContractError as exc:
+        assert exc.code == "REMOTE_ENDPOINT_QUERY_PARAM_UNKNOWN"
+    else:  # pragma: no cover - fail loudly keeps this branch unreachable.
+        raise AssertionError("workflow trigger serverId must remain local-only")
+
 
 def test_remote_endpoint_caller_unwraps_data_and_records_path() -> None:
     client = FakeEndpointClient()
@@ -241,18 +314,37 @@ def test_remote_endpoint_caller_unwraps_data_and_records_path() -> None:
         path_values={},
         query_values={"workflowRevisionId": "wf_rev_1", "limit": 10},
     )
+    inbox = call_remote_endpoint(
+        client,
+        WORKFLOW_TRIGGER_INBOX_READ,
+        path_values={"trigger_id": "wtr_1"},
+        query_values={"state": "dead_lettered", "limit": 50},
+    )
+    audit = call_remote_endpoint(
+        client,
+        GOVERNANCE_AUDIT_EVENTS_READ,
+        path_values={},
+        query_values={"subjectKind": "run", "subjectId": "run_1", "action": "run.submit", "limit": 25},
+    )
+    secret = call_remote_endpoint(client, SECRET_PROVIDER_READINESS_READ, path_values={})
 
     assert data == {"path": "/api/v1/runs/run_1/rules"}
     assert runs == [{"path": "/api/v1/runs"}]
     assert results == [{"path": "/api/v1/results"}]
     assert package_exports == {"path": "/api/v1/results/res_1/exports?lifecycleState=retired&limit=25"}
     assert cache_entries == {"path": "/api/v1/artifacts/cache/entries?workflowRevisionId=wf_rev_1&limit=10"}
+    assert inbox == {"path": "/api/v1/workflow-triggers/wtr_1/inbox?state=dead_lettered&limit=50"}
+    assert audit == {"path": "/api/v1/audit/events?subjectKind=run&subjectId=run_1&action=run.submit&limit=25"}
+    assert secret == {"path": "/api/v1/secrets/provider-readiness"}
     assert client.calls == [
         ("GET", "/api/v1/runs/run_1/rules"),
         ("GET", "/api/v1/runs"),
         ("GET", "/api/v1/results"),
         ("GET", "/api/v1/results/res_1/exports?lifecycleState=retired&limit=25"),
         ("GET", "/api/v1/artifacts/cache/entries?workflowRevisionId=wf_rev_1&limit=10"),
+        ("GET", "/api/v1/workflow-triggers/wtr_1/inbox?state=dead_lettered&limit=50"),
+        ("GET", "/api/v1/audit/events?subjectKind=run&subjectId=run_1&action=run.submit&limit=25"),
+        ("GET", "/api/v1/secrets/provider-readiness"),
     ]
 
 
@@ -278,6 +370,24 @@ def test_remote_runner_proxy_generic_endpoint_call_uses_registry() -> None:
     cache_pins = proxy.call_remote_endpoint(
         **_endpoint_kwargs(ARTIFACT_CACHE_PINS_READ, query_values={"cacheEntryId": "ace_1", "state": "active", "limit": 5})
     )
+    trigger_list = proxy.call_remote_endpoint(**_endpoint_kwargs(WORKFLOW_TRIGGER_LIST))
+    trigger_events = proxy.call_remote_endpoint(**_trigger_kwargs(WORKFLOW_TRIGGER_EVENTS_READ, "wtr_1"))
+    trigger_inbox = proxy.call_remote_endpoint(
+        **_trigger_kwargs(WORKFLOW_TRIGGER_INBOX_READ, "wtr_1", query_values={"state": "submitted", "limit": 5})
+    )
+    backfill_launches = proxy.call_remote_endpoint(
+        **_endpoint_kwargs(WORKFLOW_BACKFILL_LAUNCH_LIST, query_values={"triggerId": "wtr_1", "limit": 25})
+    )
+    backfill_launch = proxy.call_remote_endpoint(
+        **_endpoint_kwargs(WORKFLOW_BACKFILL_LAUNCH_READ, path_values={"launch_id": "bfl_1"})
+    )
+    audit_events = proxy.call_remote_endpoint(
+        **_endpoint_kwargs(
+            GOVERNANCE_AUDIT_EVENTS_READ,
+            query_values={"subjectKind": "run", "subjectId": "run_1", "action": "run.submit", "limit": 25},
+        )
+    )
+    secret_readiness = proxy.call_remote_endpoint(**_endpoint_kwargs(SECRET_PROVIDER_READINESS_READ))
 
     assert listed == [{"path": "/api/v1/runs"}]
     assert run == {"path": "/api/v1/runs/run_1"}
@@ -290,6 +400,13 @@ def test_remote_runner_proxy_generic_endpoint_call_uses_registry() -> None:
     assert preview == {"path": "/api/v1/results/res_1/preview?artifact_id=art_1"}
     assert package_exports == {"path": "/api/v1/results/res_1/exports?lifecycleState=retired&limit=25"}
     assert cache_pins == {"path": "/api/v1/artifacts/cache/pins?cacheEntryId=ace_1&state=active&limit=5"}
+    assert trigger_list == {"path": "/api/v1/workflow-triggers"}
+    assert trigger_events == {"path": "/api/v1/workflow-triggers/wtr_1/events"}
+    assert trigger_inbox == {"path": "/api/v1/workflow-triggers/wtr_1/inbox?state=submitted&limit=5"}
+    assert backfill_launches == {"path": "/api/v1/workflow-backfill-launches?triggerId=wtr_1&limit=25"}
+    assert backfill_launch == {"path": "/api/v1/workflow-backfill-launches/bfl_1"}
+    assert audit_events == {"path": "/api/v1/audit/events?subjectKind=run&subjectId=run_1&action=run.submit&limit=25"}
+    assert secret_readiness == {"path": "/api/v1/secrets/provider-readiness"}
     assert proxy.client.calls == [
         ("GET", "/api/v1/runs"),
         ("GET", "/api/v1/runs/run_1"),
@@ -302,6 +419,13 @@ def test_remote_runner_proxy_generic_endpoint_call_uses_registry() -> None:
         ("GET", "/api/v1/results/res_1/preview?artifact_id=art_1"),
         ("GET", "/api/v1/results/res_1/exports?lifecycleState=retired&limit=25"),
         ("GET", "/api/v1/artifacts/cache/pins?cacheEntryId=ace_1&state=active&limit=5"),
+        ("GET", "/api/v1/workflow-triggers"),
+        ("GET", "/api/v1/workflow-triggers/wtr_1/events"),
+        ("GET", "/api/v1/workflow-triggers/wtr_1/inbox?state=submitted&limit=5"),
+        ("GET", "/api/v1/workflow-backfill-launches?triggerId=wtr_1&limit=25"),
+        ("GET", "/api/v1/workflow-backfill-launches/bfl_1"),
+        ("GET", "/api/v1/audit/events?subjectKind=run&subjectId=run_1&action=run.submit&limit=25"),
+        ("GET", "/api/v1/secrets/provider-readiness"),
     ]
 
 
@@ -393,6 +517,55 @@ def test_execution_manager_calls_generic_remote_endpoint_for_run_read_models() -
             "queryValues": {"cacheEntryId": "ace_1", "state": "active", "limit": 5},
         }
     }
+    assert manager.list_workflow_triggers() == {
+        "data": {"endpointId": WORKFLOW_TRIGGER_LIST, "pathValues": {}, "queryValues": {}}
+    }
+    assert manager.list_workflow_trigger_events("wtr_1") == {
+        "data": {"endpointId": WORKFLOW_TRIGGER_EVENTS_READ, "pathValues": {"trigger_id": "wtr_1"}, "queryValues": {}}
+    }
+    assert manager.get_workflow_trigger_readiness_observation("wtr_1") == {
+        "data": {
+            "endpointId": WORKFLOW_TRIGGER_READINESS_OBSERVATION_READ,
+            "pathValues": {"trigger_id": "wtr_1"},
+            "queryValues": {},
+        }
+    }
+    assert manager.list_workflow_trigger_inbox_events("wtr_1", state="submitted", limit=5) == {
+        "data": {
+            "endpointId": WORKFLOW_TRIGGER_INBOX_READ,
+            "pathValues": {"trigger_id": "wtr_1"},
+            "queryValues": {"state": "submitted", "limit": 5},
+        }
+    }
+    assert manager.list_workflow_trigger_scheduler_ticks(limit=8) == {
+        "data": {"endpointId": WORKFLOW_TRIGGER_SCHEDULER_TICKS_READ, "pathValues": {}, "queryValues": {"limit": 8}}
+    }
+    assert manager.list_workflow_backfill_launches(trigger_id="wtr_1", limit=25) == {
+        "data": {
+            "endpointId": WORKFLOW_BACKFILL_LAUNCH_LIST,
+            "pathValues": {},
+            "queryValues": {"triggerId": "wtr_1", "limit": 25},
+        }
+    }
+    assert manager.get_workflow_backfill_launch("bfl_1") == {
+        "data": {"endpointId": WORKFLOW_BACKFILL_LAUNCH_READ, "pathValues": {"launch_id": "bfl_1"}, "queryValues": {}}
+    }
+    assert manager.list_governance_audit_events(
+        server_id="srv_audit",
+        subject_kind="run",
+        subject_id="run_1",
+        action="run.submit",
+        limit=25,
+    ) == {
+        "data": {
+            "endpointId": GOVERNANCE_AUDIT_EVENTS_READ,
+            "pathValues": {},
+            "queryValues": {"subjectKind": "run", "subjectId": "run_1", "action": "run.submit", "limit": 25},
+        }
+    }
+    assert manager.get_secret_provider_readiness(server_id="srv_secret") == {
+        "data": {"endpointId": SECRET_PROVIDER_READINESS_READ, "pathValues": {}, "queryValues": {}}
+    }
     assert service.remote_runner_manager.calls == [
         (RUN_LIST, {}, {}),
         (RUN_READ, {"run_id": "run_1"}, {}),
@@ -412,6 +585,15 @@ def test_execution_manager_calls_generic_remote_endpoint_for_run_read_models() -
         (ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ, {}, {"limit": 5}),
         (ARTIFACT_CACHE_ENTRIES_READ, {}, {"workflowRevisionId": "wf_rev_1", "limit": 10}),
         (ARTIFACT_CACHE_PINS_READ, {}, {"cacheEntryId": "ace_1", "state": "active", "limit": 5}),
+        (WORKFLOW_TRIGGER_LIST, {}, {}),
+        (WORKFLOW_TRIGGER_EVENTS_READ, {"trigger_id": "wtr_1"}, {}),
+        (WORKFLOW_TRIGGER_READINESS_OBSERVATION_READ, {"trigger_id": "wtr_1"}, {}),
+        (WORKFLOW_TRIGGER_INBOX_READ, {"trigger_id": "wtr_1"}, {"state": "submitted", "limit": 5}),
+        (WORKFLOW_TRIGGER_SCHEDULER_TICKS_READ, {}, {"limit": 8}),
+        (WORKFLOW_BACKFILL_LAUNCH_LIST, {}, {"triggerId": "wtr_1", "limit": 25}),
+        (WORKFLOW_BACKFILL_LAUNCH_READ, {"launch_id": "bfl_1"}, {}),
+        (GOVERNANCE_AUDIT_EVENTS_READ, {}, {"subjectKind": "run", "subjectId": "run_1", "action": "run.submit", "limit": 25}),
+        (SECRET_PROVIDER_READINESS_READ, {}, {}),
     ]
 
 
@@ -431,6 +613,15 @@ def test_remote_runner_http_client_does_not_keep_migrated_semantic_methods() -> 
     assert not hasattr(RemoteRunnerHttpClient, "list_artifact_lifecycle_controller_ticks")
     assert not hasattr(RemoteRunnerHttpClient, "list_artifact_cache_entries")
     assert not hasattr(RemoteRunnerHttpClient, "list_artifact_cache_pins")
+    assert not hasattr(RemoteRunnerHttpClient, "list_workflow_triggers")
+    assert not hasattr(RemoteRunnerHttpClient, "list_workflow_trigger_events")
+    assert not hasattr(RemoteRunnerHttpClient, "get_workflow_trigger_readiness_observation")
+    assert not hasattr(RemoteRunnerHttpClient, "list_workflow_trigger_inbox_events")
+    assert not hasattr(RemoteRunnerHttpClient, "list_workflow_trigger_scheduler_ticks")
+    assert not hasattr(RemoteRunnerHttpClient, "list_workflow_backfill_launches")
+    assert not hasattr(RemoteRunnerHttpClient, "get_workflow_backfill_launch")
+    assert not hasattr(RemoteRunnerHttpClient, "list_governance_audit_events")
+    assert not hasattr(RemoteRunnerHttpClient, "get_secret_provider_readiness")
 
 
 class FakeEndpointClient:
@@ -473,7 +664,7 @@ class FakeRuntimeService:
         return "srv_1", object(), {"server_id": "srv_1"}
 
     def _require_existing_runner_ready(self, *, preferred_server_id=None):
-        assert preferred_server_id in {"srv_package", "srv_artifact"}
+        assert preferred_server_id in {"srv_package", "srv_artifact", "srv_audit", "srv_secret"}
         return "srv_1", object(), {"server_id": "srv_1"}
 
     def _call_remote_runner(self, method, **kwargs):
@@ -491,8 +682,20 @@ class FakeRemoteEndpointManager:
         query_values = dict(kwargs.get("query_values") or {})
         endpoint_id = str(kwargs["endpoint_id"])
         self.calls.append((endpoint_id, path_values, query_values))
-        if endpoint_id == RUN_LIST:
+        if endpoint_id in {
+            RUN_LIST,
+            WORKFLOW_TRIGGER_LIST,
+            WORKFLOW_TRIGGER_EVENTS_READ,
+            WORKFLOW_TRIGGER_READINESS_OBSERVATION_READ,
+            WORKFLOW_TRIGGER_INBOX_READ,
+            WORKFLOW_TRIGGER_SCHEDULER_TICKS_READ,
+            WORKFLOW_BACKFILL_LAUNCH_LIST,
+            WORKFLOW_BACKFILL_LAUNCH_READ,
+            GOVERNANCE_AUDIT_EVENTS_READ,
+            SECRET_PROVIDER_READINESS_READ,
+        }:
             assert kwargs["timeout"] == 20
+        if endpoint_id == RUN_LIST:
             return [{"runId": "run_1"}]
         if endpoint_id == RESULT_LIST:
             return [{"resultId": "res_1"}]
@@ -531,12 +734,30 @@ def _result_kwargs(
     }
 
 
-def _endpoint_kwargs(endpoint_id: str, *, query_values: dict[str, object] | None = None) -> dict[str, object]:
+def _trigger_kwargs(
+    endpoint_id: str,
+    trigger_id: str,
+    *,
+    query_values: dict[str, object] | None = None,
+) -> dict[str, object]:
+    return _endpoint_kwargs(
+        endpoint_id,
+        path_values={"trigger_id": trigger_id},
+        query_values=query_values,
+    )
+
+
+def _endpoint_kwargs(
+    endpoint_id: str,
+    *,
+    path_values: dict[str, object] | None = None,
+    query_values: dict[str, object] | None = None,
+) -> dict[str, object]:
     return {
         "server_id": "srv_1",
         "ssh_service": object(),
         "server_record": {"server_id": "srv_1"},
         "endpoint_id": endpoint_id,
-        "path_values": {},
+        "path_values": dict(path_values or {}),
         "query_values": dict(query_values or {}),
     }

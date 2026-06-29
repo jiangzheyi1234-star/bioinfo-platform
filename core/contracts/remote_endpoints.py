@@ -56,6 +56,15 @@ ARTIFACT_LIFECYCLE_USAGE_READ = "artifact.lifecycle.usage.read"
 ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ = "artifact.lifecycle.controller_ticks.read"
 ARTIFACT_CACHE_ENTRIES_READ = "artifact.cache.entries.read"
 ARTIFACT_CACHE_PINS_READ = "artifact.cache_pins.read"
+WORKFLOW_TRIGGER_LIST = "workflow_trigger.list"
+WORKFLOW_TRIGGER_EVENTS_READ = "workflow_trigger.events.read"
+WORKFLOW_TRIGGER_READINESS_OBSERVATION_READ = "workflow_trigger.readiness_observation.read"
+WORKFLOW_TRIGGER_INBOX_READ = "workflow_trigger.inbox.read"
+WORKFLOW_TRIGGER_SCHEDULER_TICKS_READ = "workflow_trigger.scheduler_ticks.read"
+WORKFLOW_BACKFILL_LAUNCH_LIST = "workflow_trigger.backfill_launch.list"
+WORKFLOW_BACKFILL_LAUNCH_READ = "workflow_trigger.backfill_launch.read"
+GOVERNANCE_AUDIT_EVENTS_READ = "audit.events.read"
+SECRET_PROVIDER_READINESS_READ = "secret.provider_readiness.read"
 
 
 REMOTE_ENDPOINTS: dict[str, RemoteEndpoint] = {
@@ -247,6 +256,100 @@ REMOTE_ENDPOINTS: dict[str, RemoteEndpoint] = {
         response_schema="artifact-cache-pins-public.v1",
         cache_scope="artifact-cache-read-model",
         query_params=("cacheEntryId", "state", "limit"),
+    ),
+    WORKFLOW_TRIGGER_LIST: RemoteEndpoint(
+        endpoint_id=WORKFLOW_TRIGGER_LIST,
+        method="GET",
+        path_template="/api/v1/workflow-triggers",
+        operation_id="listWorkflowTriggers",
+        governance_action="workflow_trigger.list",
+        request_schema=None,
+        response_schema="workflow-trigger-list.v1",
+        cache_scope="workflow-trigger-read-model",
+    ),
+    WORKFLOW_TRIGGER_EVENTS_READ: RemoteEndpoint(
+        endpoint_id=WORKFLOW_TRIGGER_EVENTS_READ,
+        method="GET",
+        path_template="/api/v1/workflow-triggers/{trigger_id}/events",
+        operation_id="listWorkflowTriggerEvents",
+        governance_action="workflow_trigger.events.read",
+        request_schema=None,
+        response_schema="workflow-trigger-event-list.v1",
+        cache_scope="workflow-trigger-read-model",
+    ),
+    WORKFLOW_TRIGGER_READINESS_OBSERVATION_READ: RemoteEndpoint(
+        endpoint_id=WORKFLOW_TRIGGER_READINESS_OBSERVATION_READ,
+        method="GET",
+        path_template="/api/v1/workflow-triggers/{trigger_id}/readiness-observation",
+        operation_id="getWorkflowTriggerReadinessObservation",
+        governance_action="workflow_trigger.readiness_observation.read",
+        request_schema=None,
+        response_schema="workflow-trigger-readiness-observation.v1",
+        cache_scope="workflow-trigger-read-model",
+    ),
+    WORKFLOW_TRIGGER_INBOX_READ: RemoteEndpoint(
+        endpoint_id=WORKFLOW_TRIGGER_INBOX_READ,
+        method="GET",
+        path_template="/api/v1/workflow-triggers/{trigger_id}/inbox",
+        operation_id="listWorkflowTriggerInboxEvents",
+        governance_action="workflow_trigger.inbox.read",
+        request_schema=None,
+        response_schema="workflow-trigger-inbox-list.v1",
+        cache_scope="workflow-trigger-read-model",
+        query_params=("state", "limit"),
+    ),
+    WORKFLOW_TRIGGER_SCHEDULER_TICKS_READ: RemoteEndpoint(
+        endpoint_id=WORKFLOW_TRIGGER_SCHEDULER_TICKS_READ,
+        method="GET",
+        path_template="/api/v1/workflow-trigger-scheduler/ticks",
+        operation_id="listWorkflowTriggerSchedulerTicks",
+        governance_action="workflow_trigger.scheduler_ticks.read",
+        request_schema=None,
+        response_schema="h2ometa.workflow-trigger-scheduler-tick-read-model.v1",
+        cache_scope="workflow-trigger-scheduler-read-model",
+        query_params=("limit",),
+    ),
+    WORKFLOW_BACKFILL_LAUNCH_LIST: RemoteEndpoint(
+        endpoint_id=WORKFLOW_BACKFILL_LAUNCH_LIST,
+        method="GET",
+        path_template="/api/v1/workflow-backfill-launches",
+        operation_id="listWorkflowBackfillLaunches",
+        governance_action="workflow_trigger.backfill_launch.list",
+        request_schema=None,
+        response_schema="workflow-backfill-launch-list.v1",
+        cache_scope="workflow-backfill-read-model",
+        query_params=("triggerId", "limit"),
+    ),
+    WORKFLOW_BACKFILL_LAUNCH_READ: RemoteEndpoint(
+        endpoint_id=WORKFLOW_BACKFILL_LAUNCH_READ,
+        method="GET",
+        path_template="/api/v1/workflow-backfill-launches/{launch_id}",
+        operation_id="getWorkflowBackfillLaunch",
+        governance_action="workflow_trigger.backfill_launch.read",
+        request_schema=None,
+        response_schema="workflow-backfill-launch-detail.v1",
+        cache_scope="workflow-backfill-read-model",
+    ),
+    GOVERNANCE_AUDIT_EVENTS_READ: RemoteEndpoint(
+        endpoint_id=GOVERNANCE_AUDIT_EVENTS_READ,
+        method="GET",
+        path_template="/api/v1/audit/events",
+        operation_id="listGovernanceAuditEvents",
+        governance_action="audit.events.read",
+        request_schema=None,
+        response_schema="governance-audit-events.v1",
+        cache_scope="governance-audit-read-model",
+        query_params=("subjectKind", "subjectId", "action", "limit"),
+    ),
+    SECRET_PROVIDER_READINESS_READ: RemoteEndpoint(
+        endpoint_id=SECRET_PROVIDER_READINESS_READ,
+        method="GET",
+        path_template="/api/v1/secrets/provider-readiness",
+        operation_id="getSecretProviderReadiness",
+        governance_action="secret.provider_readiness.read",
+        request_schema=None,
+        response_schema="remote-runner-secret-provider-readiness.v1",
+        cache_scope="secret-readiness-read-model",
     ),
 }
 

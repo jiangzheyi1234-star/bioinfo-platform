@@ -7,12 +7,13 @@ from typing import Any
 from fastapi import APIRouter, Query
 
 from apps.api.audit_service import list_governance_audit_events_from_request
+from core.contracts.remote_endpoints import GOVERNANCE_AUDIT_EVENTS_READ, REMOTE_ENDPOINTS
 
 
 router = APIRouter()
 
 
-@router.get("/api/v1/audit/events")
+@router.get("/api/v1/audit/events", operation_id=REMOTE_ENDPOINTS[GOVERNANCE_AUDIT_EVENTS_READ].operation_id)
 async def list_governance_audit_events(
     serverId: str | None = None,
     subjectKind: str | None = None,

@@ -4,6 +4,11 @@ import asyncio
 from pathlib import Path
 
 from apps.api.audit_routes import list_governance_audit_events
+from core.contracts.remote_endpoints import (
+    GOVERNANCE_AUDIT_EVENTS_READ,
+    REMOTE_ENDPOINTS,
+    render_remote_endpoint_path,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,7 +26,7 @@ def test_remote_governance_audit_route_is_authorized_and_service_owned() -> None
 
     assert "from .audit_routes import router as audit_router" in main_source
     assert "app.include_router(audit_router)" in main_source
-    assert '@router.get("/api/v1/audit/events")' in route_source
+    assert '@router.get("/api/v1/audit/events", operation_id=REMOTE_ENDPOINTS[GOVERNANCE_AUDIT_EVENTS_READ].operation_id)' in route_source
     assert "AuthorizationHeader" in route_source
     assert 'alias="subjectKind"' in route_source
     assert 'alias="subjectId"' in route_source
@@ -40,7 +45,7 @@ def test_local_governance_audit_route_delegates_to_runtime_service() -> None:
 
     assert "from apps.api.audit_routes import router as audit_router" in main_source
     assert "app.include_router(audit_router)" in main_source
-    assert '@router.get("/api/v1/audit/events")' in route_source
+    assert '@router.get("/api/v1/audit/events", operation_id=REMOTE_ENDPOINTS[GOVERNANCE_AUDIT_EVENTS_READ].operation_id)' in route_source
     assert "runtime_service()" not in route_source
     assert "list_governance_audit_events_from_request" in route_source
     assert "runtime_service().list_governance_audit_events(" in service_source
@@ -52,16 +57,27 @@ def test_runtime_proxy_and_client_use_existing_runner_and_encoded_queries() -> N
     proxy_source = _source("core/remote_runner/proxy.py")
     client_source = _source("core/remote_runner/client.py")
 
+    assert REMOTE_ENDPOINTS[GOVERNANCE_AUDIT_EVENTS_READ].query_params == (
+        "subjectKind",
+        "subjectId",
+        "action",
+        "limit",
+    )
+    assert render_remote_endpoint_path(
+        GOVERNANCE_AUDIT_EVENTS_READ,
+        {},
+        query_values={"subjectKind": "run", "subjectId": "run_demo", "action": "run.submit", "limit": 25},
+    ) == "/api/v1/audit/events?subjectKind=run&subjectId=run_demo&action=run.submit&limit=25"
     assert "def list_governance_audit_events(" in execution_ops_source
     assert "self.execution.list_governance_audit_events(" in execution_ops_source
     assert "def list_governance_audit_events(" in execution_manager_source
-    assert "self.call_existing_runner(" in execution_manager_source
-    assert '"list_governance_audit_events"' in execution_manager_source
-    assert "def list_governance_audit_events(self, **kwargs) -> dict[str, Any]:" in proxy_source
-    assert "urlencode(" in proxy_source
-    assert 'client.get_json(f"/api/v1/audit/events?{query}")["data"]' in proxy_source
-    assert "def list_governance_audit_events(" in client_source
-    assert "urllib.parse.urlencode(" in client_source
+    assert "GOVERNANCE_AUDIT_EVENTS_READ" in execution_manager_source
+    assert "self.read_remote_endpoint(" in execution_manager_source
+    assert "require_existing_runner=True" in execution_manager_source
+    assert '"list_governance_audit_events"' not in execution_manager_source
+    assert "def list_governance_audit_events(self, **kwargs) -> dict[str, Any]:" not in proxy_source
+    assert 'client.get_json(f"/api/v1/audit/events?{query}")["data"]' not in proxy_source
+    assert "def list_governance_audit_events(" not in client_source
 
 
 def test_local_governance_audit_route_preserves_runtime_wrapper(monkeypatch) -> None:

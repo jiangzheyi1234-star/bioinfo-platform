@@ -5,6 +5,17 @@ from typing import Any
 
 from fastapi import APIRouter, Request
 
+from core.contracts.remote_endpoints import (
+    REMOTE_ENDPOINTS,
+    WORKFLOW_BACKFILL_LAUNCH_LIST,
+    WORKFLOW_BACKFILL_LAUNCH_READ,
+    WORKFLOW_TRIGGER_EVENTS_READ,
+    WORKFLOW_TRIGGER_INBOX_READ,
+    WORKFLOW_TRIGGER_LIST,
+    WORKFLOW_TRIGGER_READINESS_OBSERVATION_READ,
+    WORKFLOW_TRIGGER_SCHEDULER_TICKS_READ,
+)
+
 from .api_models import (
     WorkflowBackfillCancelRequest,
     WorkflowTriggerBackfillLaunchRequest,
@@ -40,7 +51,7 @@ from .webhook_raw_request import WebhookRawRequestEnvelope, build_webhook_raw_re
 router = APIRouter()
 
 
-@router.get("/api/v1/workflow-triggers")
+@router.get("/api/v1/workflow-triggers", operation_id=REMOTE_ENDPOINTS[WORKFLOW_TRIGGER_LIST].operation_id)
 async def list_workflow_triggers(authorization: AuthorizationHeader = None) -> dict[str, Any]:
     return await list_workflow_triggers_request(authorization)
 
@@ -53,7 +64,10 @@ async def create_workflow_trigger(
     return await create_workflow_trigger_request(payload, authorization)
 
 
-@router.get("/api/v1/workflow-triggers/{trigger_id}/events")
+@router.get(
+    "/api/v1/workflow-triggers/{trigger_id}/events",
+    operation_id=REMOTE_ENDPOINTS[WORKFLOW_TRIGGER_EVENTS_READ].operation_id,
+)
 async def list_workflow_trigger_events(
     trigger_id: str,
     authorization: AuthorizationHeader = None,
@@ -61,7 +75,10 @@ async def list_workflow_trigger_events(
     return await list_workflow_trigger_events_request(trigger_id, authorization)
 
 
-@router.get("/api/v1/workflow-triggers/{trigger_id}/readiness-observation")
+@router.get(
+    "/api/v1/workflow-triggers/{trigger_id}/readiness-observation",
+    operation_id=REMOTE_ENDPOINTS[WORKFLOW_TRIGGER_READINESS_OBSERVATION_READ].operation_id,
+)
 async def get_workflow_trigger_readiness_observation(
     trigger_id: str,
     authorization: AuthorizationHeader = None,
@@ -69,7 +86,10 @@ async def get_workflow_trigger_readiness_observation(
     return await get_workflow_trigger_readiness_observation_request(trigger_id, authorization)
 
 
-@router.get("/api/v1/workflow-triggers/{trigger_id}/inbox")
+@router.get(
+    "/api/v1/workflow-triggers/{trigger_id}/inbox",
+    operation_id=REMOTE_ENDPOINTS[WORKFLOW_TRIGGER_INBOX_READ].operation_id,
+)
 async def list_workflow_trigger_inbox_events(
     trigger_id: str,
     state: str | None = None,
@@ -84,7 +104,10 @@ async def list_workflow_trigger_inbox_events(
     )
 
 
-@router.get("/api/v1/workflow-trigger-scheduler/ticks")
+@router.get(
+    "/api/v1/workflow-trigger-scheduler/ticks",
+    operation_id=REMOTE_ENDPOINTS[WORKFLOW_TRIGGER_SCHEDULER_TICKS_READ].operation_id,
+)
 async def list_workflow_trigger_scheduler_ticks(
     limit: int = 20,
     authorization: AuthorizationHeader = None,
@@ -103,7 +126,10 @@ async def run_workflow_trigger_scheduler_once(
     return await run_workflow_trigger_scheduler_once_request(payload, authorization)
 
 
-@router.get("/api/v1/workflow-backfill-launches")
+@router.get(
+    "/api/v1/workflow-backfill-launches",
+    operation_id=REMOTE_ENDPOINTS[WORKFLOW_BACKFILL_LAUNCH_LIST].operation_id,
+)
 async def list_workflow_backfill_launches(
     triggerId: str | None = None,
     limit: int = 100,
@@ -116,7 +142,10 @@ async def list_workflow_backfill_launches(
     )
 
 
-@router.get("/api/v1/workflow-backfill-launches/{launch_id}")
+@router.get(
+    "/api/v1/workflow-backfill-launches/{launch_id}",
+    operation_id=REMOTE_ENDPOINTS[WORKFLOW_BACKFILL_LAUNCH_READ].operation_id,
+)
 async def get_workflow_backfill_launch(
     launch_id: str,
     authorization: AuthorizationHeader = None,

@@ -10,6 +10,7 @@ from core.contracts.remote_endpoints import (
     ARTIFACT_CACHE_PINS_READ,
     ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ,
     ARTIFACT_LIFECYCLE_USAGE_READ,
+    GOVERNANCE_AUDIT_EVENTS_READ,
     RESULT_AUDIT_READ,
     RESULT_LIST,
     RESULT_PACKAGE_EXPORT_LIST,
@@ -24,6 +25,14 @@ from core.contracts.remote_endpoints import (
     RUN_READ,
     RUN_RESULTS_READ,
     RUN_RULES_READ,
+    SECRET_PROVIDER_READINESS_READ,
+    WORKFLOW_BACKFILL_LAUNCH_LIST,
+    WORKFLOW_BACKFILL_LAUNCH_READ,
+    WORKFLOW_TRIGGER_EVENTS_READ,
+    WORKFLOW_TRIGGER_INBOX_READ,
+    WORKFLOW_TRIGGER_LIST,
+    WORKFLOW_TRIGGER_READINESS_OBSERVATION_READ,
+    WORKFLOW_TRIGGER_SCHEDULER_TICKS_READ,
 )
 
 
@@ -61,12 +70,11 @@ class ExecutionManager(BaseRuntimeManager):
         )
 
     def list_workflow_triggers(self, server_id: Optional[str] = None) -> dict[str, Any]:
-        return {
-            "data": self.call_runner(
-                "list_workflow_triggers",
-                preferred_server_id=server_id,
-            )
-        }
+        return self.read_remote_endpoint(
+            WORKFLOW_TRIGGER_LIST,
+            preferred_server_id=server_id,
+            timeout=20,
+        )
 
     def create_workflow_trigger(self, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         body = dict(payload or {})
@@ -204,26 +212,24 @@ class ExecutionManager(BaseRuntimeManager):
         trigger_id: str,
         server_id: Optional[str] = None,
     ) -> dict[str, Any]:
-        return {
-            "data": self.call_runner(
-                "list_workflow_trigger_events",
-                preferred_server_id=server_id,
-                trigger_id=trigger_id,
-            )
-        }
+        return self.read_remote_endpoint(
+            WORKFLOW_TRIGGER_EVENTS_READ,
+            path_values={"trigger_id": trigger_id},
+            preferred_server_id=server_id,
+            timeout=20,
+        )
 
     def get_workflow_trigger_readiness_observation(
         self,
         trigger_id: str,
         server_id: Optional[str] = None,
     ) -> dict[str, Any]:
-        return {
-            "data": self.call_runner(
-                "get_workflow_trigger_readiness_observation",
-                preferred_server_id=server_id,
-                trigger_id=trigger_id,
-            )
-        }
+        return self.read_remote_endpoint(
+            WORKFLOW_TRIGGER_READINESS_OBSERVATION_READ,
+            path_values={"trigger_id": trigger_id},
+            preferred_server_id=server_id,
+            timeout=20,
+        )
 
     def list_workflow_trigger_inbox_events(
         self,
@@ -233,15 +239,13 @@ class ExecutionManager(BaseRuntimeManager):
         state: Optional[str] = None,
         limit: int = 100,
     ) -> dict[str, Any]:
-        return {
-            "data": self.call_runner(
-                "list_workflow_trigger_inbox_events",
-                preferred_server_id=server_id,
-                trigger_id=trigger_id,
-                state=state,
-                limit=limit,
-            )
-        }
+        return self.read_remote_endpoint(
+            WORKFLOW_TRIGGER_INBOX_READ,
+            path_values={"trigger_id": trigger_id},
+            query_values={"state": state, "limit": limit},
+            preferred_server_id=server_id,
+            timeout=20,
+        )
 
     def list_workflow_trigger_scheduler_ticks(
         self,
@@ -249,13 +253,12 @@ class ExecutionManager(BaseRuntimeManager):
         server_id: Optional[str] = None,
         limit: int = 20,
     ) -> dict[str, Any]:
-        return {
-            "data": self.call_runner(
-                "list_workflow_trigger_scheduler_ticks",
-                preferred_server_id=server_id,
-                limit=limit,
-            )
-        }
+        return self.read_remote_endpoint(
+            WORKFLOW_TRIGGER_SCHEDULER_TICKS_READ,
+            query_values={"limit": limit},
+            preferred_server_id=server_id,
+            timeout=20,
+        )
 
     def run_workflow_trigger_scheduler_once(
         self,
@@ -282,27 +285,24 @@ class ExecutionManager(BaseRuntimeManager):
         trigger_id: Optional[str] = None,
         limit: int = 100,
     ) -> dict[str, Any]:
-        return {
-            "data": self.call_runner(
-                "list_workflow_backfill_launches",
-                preferred_server_id=server_id,
-                trigger_id=trigger_id,
-                limit=limit,
-            )
-        }
+        return self.read_remote_endpoint(
+            WORKFLOW_BACKFILL_LAUNCH_LIST,
+            query_values={"triggerId": trigger_id, "limit": limit},
+            preferred_server_id=server_id,
+            timeout=20,
+        )
 
     def get_workflow_backfill_launch(
         self,
         launch_id: str,
         server_id: Optional[str] = None,
     ) -> dict[str, Any]:
-        return {
-            "data": self.call_runner(
-                "get_workflow_backfill_launch",
-                preferred_server_id=server_id,
-                launch_id=launch_id,
-            )
-        }
+        return self.read_remote_endpoint(
+            WORKFLOW_BACKFILL_LAUNCH_READ,
+            path_values={"launch_id": launch_id},
+            preferred_server_id=server_id,
+            timeout=20,
+        )
 
     def cancel_workflow_backfill_launch(
         self,
@@ -331,24 +331,26 @@ class ExecutionManager(BaseRuntimeManager):
         action: Optional[str] = None,
         limit: int = 100,
     ) -> dict[str, Any]:
-        return {
-            "data": self.call_existing_runner(
-                "list_governance_audit_events",
-                preferred_server_id=server_id,
-                subject_kind=subject_kind,
-                subject_id=subject_id,
-                action=action,
-                limit=limit,
-            )
-        }
+        return self.read_remote_endpoint(
+            GOVERNANCE_AUDIT_EVENTS_READ,
+            query_values={
+                "subjectKind": subject_kind,
+                "subjectId": subject_id,
+                "action": action,
+                "limit": limit,
+            },
+            preferred_server_id=server_id,
+            require_existing_runner=True,
+            timeout=20,
+        )
 
     def get_secret_provider_readiness(self, server_id: Optional[str] = None) -> dict[str, Any]:
-        return {
-            "data": self.call_existing_runner(
-                "get_secret_provider_readiness",
-                preferred_server_id=server_id,
-            )
-        }
+        return self.read_remote_endpoint(
+            SECRET_PROVIDER_READINESS_READ,
+            preferred_server_id=server_id,
+            require_existing_runner=True,
+            timeout=20,
+        )
 
     def get_run(self, run_id: str) -> dict[str, Any]:
         return self._get_run_read_model(RUN_READ, run_id)

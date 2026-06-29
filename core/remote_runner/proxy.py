@@ -289,15 +289,6 @@ class RemoteRunnerProxyMixin:
             },
         )
 
-    def list_workflow_triggers(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-            timeout=20,
-        )
-        return client.get_json("/api/v1/workflow-triggers")["data"]
-
     def create_workflow_trigger(self, **kwargs) -> dict[str, Any]:
         client = self._get_client(
             server_id=str(kwargs["server_id"]),
@@ -374,49 +365,6 @@ class RemoteRunnerProxyMixin:
             kwargs["payload"],
         )
 
-    def list_workflow_trigger_events(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-            timeout=20,
-        )
-        return client.get_json(f"/api/v1/workflow-triggers/{kwargs['trigger_id']}/events")["data"]
-
-    def get_workflow_trigger_readiness_observation(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-            timeout=20,
-        )
-        return client.get_json(f"/api/v1/workflow-triggers/{kwargs['trigger_id']}/readiness-observation")["data"]
-
-    def list_workflow_trigger_inbox_events(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-            timeout=20,
-        )
-        query = urlencode(
-            {
-                "state": kwargs.get("state") or "",
-                "limit": int(kwargs.get("limit") or 100),
-            }
-        )
-        return client.get_json(f"/api/v1/workflow-triggers/{kwargs['trigger_id']}/inbox?{query}")["data"]
-
-    def list_workflow_trigger_scheduler_ticks(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-            timeout=20,
-        )
-        query = urlencode({"limit": int(kwargs.get("limit") or 20)})
-        return client.get_json(f"/api/v1/workflow-trigger-scheduler/ticks?{query}")["data"]
-
     def run_workflow_trigger_scheduler_once(self, **kwargs) -> dict[str, Any]:
         client = self._get_client(
             server_id=str(kwargs["server_id"]),
@@ -429,30 +377,6 @@ class RemoteRunnerProxyMixin:
             kwargs["payload"],
         )["data"]
 
-    def list_workflow_backfill_launches(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-            timeout=20,
-        )
-        query = urlencode(
-            {
-                "triggerId": kwargs.get("trigger_id") or "",
-                "limit": int(kwargs.get("limit") or 100),
-            }
-        )
-        return client.get_json(f"/api/v1/workflow-backfill-launches?{query}")["data"]
-
-    def get_workflow_backfill_launch(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-            timeout=20,
-        )
-        return client.get_json(f"/api/v1/workflow-backfill-launches/{kwargs['launch_id']}")["data"]
-
     def cancel_workflow_backfill_launch(self, **kwargs) -> dict[str, Any]:
         client = self._get_client(
             server_id=str(kwargs["server_id"]),
@@ -464,32 +388,6 @@ class RemoteRunnerProxyMixin:
             f"/api/v1/workflow-backfill-launches/{kwargs['launch_id']}/cancel",
             kwargs["payload"],
         )["data"]
-
-    def list_governance_audit_events(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-            timeout=20,
-        )
-        query = urlencode(
-            {
-                "subjectKind": kwargs.get("subject_kind") or "",
-                "subjectId": kwargs.get("subject_id") or "",
-                "action": kwargs.get("action") or "",
-                "limit": int(kwargs.get("limit") or 100),
-            }
-        )
-        return client.get_json(f"/api/v1/audit/events?{query}")["data"]
-
-    def get_secret_provider_readiness(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-            timeout=20,
-        )
-        return client.get_json("/api/v1/secrets/provider-readiness")["data"]
 
     def cancel_run(self, **kwargs) -> dict[str, Any]:
         client = self._get_client(

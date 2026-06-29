@@ -4,6 +4,8 @@ from typing import Any
 
 from fastapi import APIRouter, Query
 
+from core.contracts.remote_endpoints import GOVERNANCE_AUDIT_EVENTS_READ, REMOTE_ENDPOINTS
+
 from .audit_service import list_governance_audit_events_request
 from .route_headers import AuthorizationHeader
 
@@ -11,7 +13,7 @@ from .route_headers import AuthorizationHeader
 router = APIRouter()
 
 
-@router.get("/api/v1/audit/events")
+@router.get("/api/v1/audit/events", operation_id=REMOTE_ENDPOINTS[GOVERNANCE_AUDIT_EVENTS_READ].operation_id)
 async def list_governance_audit_events_api(
     subject_kind: str | None = Query(default=None, alias="subjectKind"),
     subject_id: str | None = Query(default=None, alias="subjectId"),

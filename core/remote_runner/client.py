@@ -220,9 +220,6 @@ class RemoteRunnerHttpClient:
             },
         )
 
-    def list_workflow_triggers(self) -> dict[str, Any]:
-        return self.get_json("/api/v1/workflow-triggers")["data"]
-
     def create_workflow_trigger(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self.post_json("/api/v1/workflow-triggers", payload)["data"]
 
@@ -259,74 +256,11 @@ class RemoteRunnerHttpClient:
     def launch_workflow_trigger_backfill(self, trigger_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self.post_json(f"/api/v1/workflow-triggers/{trigger_id}/backfill/launch", payload)
 
-    def list_workflow_trigger_events(self, trigger_id: str) -> dict[str, Any]:
-        return self.get_json(f"/api/v1/workflow-triggers/{trigger_id}/events")["data"]
-
-    def get_workflow_trigger_readiness_observation(self, trigger_id: str) -> dict[str, Any]:
-        return self.get_json(f"/api/v1/workflow-triggers/{trigger_id}/readiness-observation")["data"]
-
-    def list_workflow_trigger_inbox_events(
-        self,
-        trigger_id: str,
-        *,
-        state: str | None = None,
-        limit: int = 100,
-    ) -> dict[str, Any]:
-        query = urllib.parse.urlencode(
-            {
-                "state": str(state or ""),
-                "limit": int(limit),
-            }
-        )
-        return self.get_json(f"/api/v1/workflow-triggers/{trigger_id}/inbox?{query}")["data"]
-
-    def list_workflow_trigger_scheduler_ticks(self, *, limit: int = 20) -> dict[str, Any]:
-        query = urllib.parse.urlencode({"limit": int(limit)})
-        return self.get_json(f"/api/v1/workflow-trigger-scheduler/ticks?{query}")["data"]
-
     def run_workflow_trigger_scheduler_once(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self.post_json("/api/v1/workflow-trigger-scheduler/run-once", payload)["data"]
 
-    def list_workflow_backfill_launches(
-        self,
-        *,
-        trigger_id: str | None = None,
-        limit: int = 100,
-    ) -> dict[str, Any]:
-        query = urllib.parse.urlencode(
-            {
-                "triggerId": str(trigger_id or ""),
-                "limit": int(limit),
-            }
-        )
-        return self.get_json(f"/api/v1/workflow-backfill-launches?{query}")["data"]
-
-    def get_workflow_backfill_launch(self, launch_id: str) -> dict[str, Any]:
-        return self.get_json(f"/api/v1/workflow-backfill-launches/{launch_id}")["data"]
-
     def cancel_workflow_backfill_launch(self, launch_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self.post_json(f"/api/v1/workflow-backfill-launches/{launch_id}/cancel", payload)["data"]
-
-    def list_governance_audit_events(
-        self,
-        *,
-        subject_kind: str | None = None,
-        subject_id: str | None = None,
-        action: str | None = None,
-        limit: int = 100,
-    ) -> dict[str, Any]:
-        query = urllib.parse.urlencode(
-            {
-                "subjectKind": str(subject_kind or ""),
-                "subjectId": str(subject_id or ""),
-                "action": str(action or ""),
-                "limit": int(limit),
-            }
-        )
-        return self.get_json(f"/api/v1/audit/events?{query}")["data"]
-
-    def get_secret_provider_readiness(self) -> dict[str, Any]:
-        return self.get_json("/api/v1/secrets/provider-readiness")["data"]
 
     def apply_rule_output_invalidation(self, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self.post_json(f"/api/v1/runs/{run_id}/rules/output-invalidation/apply", payload)["data"]

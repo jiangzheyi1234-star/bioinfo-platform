@@ -4,6 +4,11 @@ import asyncio
 from pathlib import Path
 
 from apps.api.secret_routes import get_secret_provider_readiness
+from core.contracts.remote_endpoints import (
+    REMOTE_ENDPOINTS,
+    SECRET_PROVIDER_READINESS_READ,
+    render_remote_endpoint_path,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,7 +26,7 @@ def test_remote_secret_provider_readiness_route_is_authorized_and_service_owned(
 
     assert "from .secret_routes import router as secret_router" in main_source
     assert "app.include_router(secret_router)" in main_source
-    assert '@router.get("/api/v1/secrets/provider-readiness")' in route_source
+    assert "operation_id=REMOTE_ENDPOINTS[SECRET_PROVIDER_READINESS_READ].operation_id" in route_source
     assert "AuthorizationHeader" in route_source
     assert "authorized_config" in service_source
     assert '_authorized_config_from_request(authorization, action="secret.provider_readiness.read")' in service_source
@@ -42,7 +47,7 @@ def test_local_secret_provider_readiness_route_delegates_to_runtime_service() ->
 
     assert "from apps.api.secret_routes import router as secret_router" in main_source
     assert "app.include_router(secret_router)" in main_source
-    assert '@router.get("/api/v1/secrets/provider-readiness")' in route_source
+    assert "operation_id=REMOTE_ENDPOINTS[SECRET_PROVIDER_READINESS_READ].operation_id" in route_source
     assert "runtime_service()" not in route_source
     assert "get_secret_provider_readiness_from_request" in route_source
     assert "runtime_service().get_secret_provider_readiness(" in service_source
@@ -54,16 +59,19 @@ def test_runtime_proxy_and_client_use_existing_runner_without_secret_payloads() 
     proxy_source = _source("core/remote_runner/proxy.py")
     client_source = _source("core/remote_runner/client.py")
 
+    assert render_remote_endpoint_path(SECRET_PROVIDER_READINESS_READ, {}) == "/api/v1/secrets/provider-readiness"
+    assert REMOTE_ENDPOINTS[SECRET_PROVIDER_READINESS_READ].query_params == ()
     assert "def get_secret_provider_readiness(" in execution_ops_source
     assert "self.execution.get_secret_provider_readiness(" in execution_ops_source
     assert "def get_secret_provider_readiness(" in execution_manager_source
-    assert "self.call_existing_runner(" in execution_manager_source
-    assert '"get_secret_provider_readiness"' in execution_manager_source
-    assert "def get_secret_provider_readiness(self, **kwargs) -> dict[str, Any]:" in proxy_source
-    assert 'client.get_json("/api/v1/secrets/provider-readiness")["data"]' in proxy_source
-    assert "def get_secret_provider_readiness(self) -> dict[str, Any]:" in client_source
-    assert 'self.get_json("/api/v1/secrets/provider-readiness")["data"]' in client_source
-    assert "post_json" not in _method_source(proxy_source, "get_secret_provider_readiness")
+    assert "SECRET_PROVIDER_READINESS_READ" in execution_manager_source
+    assert "self.read_remote_endpoint(" in execution_manager_source
+    assert "require_existing_runner=True" in execution_manager_source
+    assert '"get_secret_provider_readiness"' not in execution_manager_source
+    assert "def get_secret_provider_readiness(self, **kwargs) -> dict[str, Any]:" not in proxy_source
+    assert 'client.get_json("/api/v1/secrets/provider-readiness")["data"]' not in proxy_source
+    assert "def get_secret_provider_readiness(self) -> dict[str, Any]:" not in client_source
+    assert 'self.get_json("/api/v1/secrets/provider-readiness")["data"]' not in client_source
 
 
 def test_local_secret_provider_readiness_route_preserves_runtime_wrapper(monkeypatch) -> None:
@@ -98,12 +106,3 @@ class FakeSecretRuntime:
                 ],
             }
         }
-
-
-def _method_source(source: str, name: str) -> str:
-    marker = f"    def {name}"
-    start = source.index(marker)
-    next_method = source.find("\n    def ", start + len(marker))
-    if next_method == -1:
-        return source[start:]
-    return source[start:next_method]

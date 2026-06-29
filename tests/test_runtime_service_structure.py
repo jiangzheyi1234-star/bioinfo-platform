@@ -409,6 +409,7 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "class ExecutionManager(BaseRuntimeManager)" in execution_manager_source
     assert "def _runner_context(" in base_manager_source
     assert "def call_runner(" in base_manager_source
+    assert "def read_remote_endpoint(" in base_manager_source
     assert "serverId is required" in execution_manager_source
     assert "pipelineId is required" in execution_manager_source
     assert "self._call_remote_runner(" not in execution_ops_source
@@ -445,10 +446,21 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "manager.launch_workflow_trigger_backfill" in execution_manager_source
     assert "manager.preview_workflow_trigger_backfill" in execution_manager_source
     assert "manager.cancel_workflow_backfill_launch" in execution_manager_source
-    assert 'self.call_runner(\n                "list_workflow_backfill_launches",' in execution_manager_source
-    assert 'self.call_runner(\n                "list_workflow_trigger_inbox_events",' in execution_manager_source
-    assert 'self.call_runner(\n                "get_workflow_trigger_readiness_observation",' in execution_manager_source
-    assert 'self.call_runner(\n                "get_workflow_backfill_launch",' in execution_manager_source
+    assert "WORKFLOW_TRIGGER_LIST" in execution_manager_source
+    assert "WORKFLOW_TRIGGER_EVENTS_READ" in execution_manager_source
+    assert "WORKFLOW_TRIGGER_READINESS_OBSERVATION_READ" in execution_manager_source
+    assert "WORKFLOW_TRIGGER_INBOX_READ" in execution_manager_source
+    assert "WORKFLOW_TRIGGER_SCHEDULER_TICKS_READ" in execution_manager_source
+    assert "WORKFLOW_BACKFILL_LAUNCH_LIST" in execution_manager_source
+    assert "WORKFLOW_BACKFILL_LAUNCH_READ" in execution_manager_source
+    assert "GOVERNANCE_AUDIT_EVENTS_READ" in execution_manager_source
+    assert "SECRET_PROVIDER_READINESS_READ" in execution_manager_source
+    assert '"list_workflow_backfill_launches"' not in execution_manager_source
+    assert '"list_workflow_trigger_inbox_events"' not in execution_manager_source
+    assert '"get_workflow_trigger_readiness_observation"' not in execution_manager_source
+    assert '"get_workflow_backfill_launch"' not in execution_manager_source
+    assert '"list_governance_audit_events"' not in execution_manager_source
+    assert '"get_secret_provider_readiness"' not in execution_manager_source
     assert "self.execution.get_result_audit(" in execution_ops_source
     assert "self.execution.export_result_package(" in execution_ops_source
     assert "self.execution.list_result_package_exports(" in execution_ops_source
@@ -460,6 +472,7 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "caller = self.call_existing_runner if require_existing_runner else self.call_runner" in base_manager_source
     assert "preferred_server_id=preferred_server_id" in base_manager_source
     assert "self.call_remote_endpoint(" in execution_manager_source
+    assert "self.read_remote_endpoint(" in execution_manager_source
     assert "RUN_LIST" in execution_manager_source
     assert "RUN_READ" in execution_manager_source
     assert "RUN_EVENTS_READ" in execution_manager_source

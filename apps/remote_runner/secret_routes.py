@@ -4,6 +4,8 @@ from typing import Any
 
 from fastapi import APIRouter
 
+from core.contracts.remote_endpoints import REMOTE_ENDPOINTS, SECRET_PROVIDER_READINESS_READ
+
 from .route_headers import AuthorizationHeader
 from .secret_service import get_secret_provider_readiness_request
 
@@ -11,7 +13,10 @@ from .secret_service import get_secret_provider_readiness_request
 router = APIRouter()
 
 
-@router.get("/api/v1/secrets/provider-readiness")
+@router.get(
+    "/api/v1/secrets/provider-readiness",
+    operation_id=REMOTE_ENDPOINTS[SECRET_PROVIDER_READINESS_READ].operation_id,
+)
 async def get_secret_provider_readiness_api(
     authorization: AuthorizationHeader = None,
 ) -> dict[str, Any]:
