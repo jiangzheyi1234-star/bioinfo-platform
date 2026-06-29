@@ -14,11 +14,11 @@ import {
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { requestLocalApiJson } from "@/app/lib/local-api-client";
 import { cn } from "@/lib/utils";
 
 import { useSshShell } from "./ssh-shell";
 import { useWorkflowsPageState } from "./use-workflows-page-state";
+import { WorkflowFirstRunConductorPanel, useFirstRunConductor } from "./workflow-first-run-conductor";
 import { FirstRunCompletionPanel, firstRunValidationCardPassed } from "./workflow-first-run-completion";
 import {
   downloadFirstRunHandoffManifest,
@@ -45,6 +45,7 @@ import {
   fetchWorkflowServerExecutionDiagnostics,
   fetchWorkflowResultPackageExports,
 } from "./workflows-page-api";
+import { ensureWorkflowServerRunner } from "./workflow-server-readiness-api";
 import {
   workflowErrorMessage,
   type WorkflowExecutionDiagnostics,
@@ -109,6 +110,39 @@ export function WorkflowFirstRunPage() {
   const packageReady = Boolean(readyPackage);
   const validationEligible = runCompleted && packageReady && Boolean(workflowRevisionId);
   const validationReady = validationEligible && firstRunValidationCardPassed(validationCard);
+  const firstRunConductor = useFirstRunConductor({
+    busy: ensuringRunner || state.sampleLoading || state.submitting || packageLoading || exportingPackage || finalizingFirstRun || validationCardFetchLoading,
+    input: {
+      canSubmit: state.canSubmit && executionReady && selectedWorkflowReady && sampleReady,
+      packageReady,
+      reportReady,
+      runCompleted,
+      runFailed,
+      runSubmitted,
+      runTerminal,
+      sampleReady,
+      selectedWorkflowReady,
+      serverConnected,
+      serverReady,
+      validationEligible,
+      validationReady,
+      workflowRevisionId,
+    },
+    onConnect: openConnectDialog,
+    onEnsureRunner: ensureRunner,
+    onFinalize: async () => {
+      await finalizeRun();
+    },
+    onPrepareSampleData: state.loadSampleData,
+    onRefreshRun: async () => {
+      await state.refreshRunDetail();
+    },
+    onRefreshWorkspace: async () => {
+      await state.loadWorkspace({ forceRefresh: true });
+      await loadExecutionDiagnostics();
+    },
+    onSubmitRun: state.submitRun,
+  });
 
   const steps = useMemo(
     () =>
@@ -235,9 +269,7 @@ export function WorkflowFirstRunPage() {
     setEnsuringRunner(true);
     setRunnerError("");
     try {
-      await requestLocalApiJson("POST", `/api/v1/servers/${encodeURIComponent(state.server.serverId)}/ensure-runner`, {
-        cache: "no-store",
-      });
+      await ensureWorkflowServerRunner(state.server.serverId);
       await state.loadWorkspace({ forceRefresh: true });
       await loadExecutionDiagnostics();
     } catch (err) {
@@ -405,6 +437,13 @@ export function WorkflowFirstRunPage() {
           onDownloadValidationCardMarkdown={() => void downloadValidationCardMarkdown()}
           onDownloadHandoffManifest={() => void downloadHandoffManifest()}
           pilotHandoff={pilotHandoff}
+        />
+
+        <WorkflowFirstRunConductorPanel
+          action={firstRunConductor.action}
+          busy={firstRunConductor.busy}
+          error={firstRunConductor.error}
+          onContinue={() => void firstRunConductor.continueFirstRun()}
         />
 
         <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">

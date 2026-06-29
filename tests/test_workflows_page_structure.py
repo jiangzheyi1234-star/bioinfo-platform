@@ -35,13 +35,15 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     first_run_page = (COMPONENTS / "workflow-first-run-page.tsx").read_text(encoding="utf-8")
     first_run_api = (COMPONENTS / "workflow-first-run-api.ts").read_text(encoding="utf-8")
     first_run_completion = (COMPONENTS / "workflow-first-run-completion.tsx").read_text(encoding="utf-8")
+    first_run_conductor = (COMPONENTS / "workflow-first-run-conductor.tsx").read_text(encoding="utf-8")
     first_run_report = (COMPONENTS / "workflow-first-run-report.tsx").read_text(encoding="utf-8")
     first_run_sample_submit = (COMPONENTS / "workflow-first-run-sample-submit.tsx").read_text(encoding="utf-8")
     first_run_trust_summary = (COMPONENTS / "workflow-first-run-trust-summary.tsx").read_text(encoding="utf-8")
     first_run_validation = (COMPONENTS / "workflow-first-run-validation.tsx").read_text(encoding="utf-8")
+    server_readiness_api = (COMPONENTS / "workflow-server-readiness-api.ts").read_text(encoding="utf-8")
     workflow_detail_page = (COMPONENTS / "workflow-detail-page.tsx").read_text(encoding="utf-8")
     models = (COMPONENTS / "workflows-page-model.ts").read_text(encoding="utf-8")
-    first_run_source = f"{first_run_page}\n{first_run_api}\n{first_run_completion}\n{first_run_report}\n{first_run_sample_submit}\n{first_run_trust_summary}\n{first_run_validation}"
+    first_run_source = f"{first_run_page}\n{first_run_api}\n{first_run_completion}\n{first_run_conductor}\n{first_run_report}\n{first_run_sample_submit}\n{first_run_trust_summary}\n{first_run_validation}"
     api = (COMPONENTS / "workflows-page-api.ts").read_text(encoding="utf-8")
     hook = (COMPONENTS / "use-workflows-page-state.ts").read_text(encoding="utf-8")
 
@@ -68,6 +70,14 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "feature-table.tsv" in first_run_report
     assert "run-report.html" in first_run_report
     assert "first-run-report-insight" in first_run_report
+    assert "first-run-rule-level-run-view" in first_run_report
+    assert "data-rule-projection={rulesReady ? \"available\" : \"pending\"}" in first_run_report
+    assert "WorkflowRuleFailureDiagnostics" in first_run_report
+    assert "WorkflowRuleLogEvidence" in first_run_report
+    assert "RuleAttemptBadge" in first_run_report
+    assert "firstFailedRule(detail, rules)" in first_run_report
+    assert "完整规则 / retry / resume" in first_run_report
+    assert "ruleHasLogEvidence" in first_run_report
     assert "完成首跑" in first_run_source
     assert "仅导出结果包" in first_run_source
     assert "结果验证卡" in first_run_source
@@ -100,6 +110,27 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "nextScenarioPacks" in first_run_page
     assert "downloadFirstRunHandoffManifest" in first_run_page
     assert "downloadHandoffManifest" in first_run_page
+    assert "WorkflowFirstRunConductorPanel" in first_run_page
+    assert "useFirstRunConductor" in first_run_page
+    assert "firstRunConductor" in first_run_page
+    assert "continueFirstRun" in first_run_page
+    assert "ensureWorkflowServerRunner" in first_run_page
+    assert "requestLocalApiJson" not in first_run_page
+    assert "export function buildFirstRunContinueAction" in first_run_conductor
+    assert "export function WorkflowFirstRunConductorPanel" in first_run_conductor
+    assert 'data-testid="first-run-conductor"' in first_run_conductor
+    assert 'data-first-run-next-action={action.code}' in first_run_conductor
+    assert 'data-testid="first-run-continue"' in first_run_conductor
+    assert "继续首跑" in first_run_conductor
+    assert '"CONNECT_REMOTE"' in first_run_conductor
+    assert '"ENSURE_RUNNER"' in first_run_conductor
+    assert '"PREPARE_SAMPLE_DATA"' in first_run_conductor
+    assert '"SUBMIT_RUN"' in first_run_conductor
+    assert '"FINALIZE_FIRST_RUN"' in first_run_conductor
+    assert "export async function ensureWorkflowServerRunner" in server_readiness_api
+    assert "/api/v1/servers/${encodeURIComponent(normalizedServerId)}/ensure-runner" in server_readiness_api
+    assert "timeoutMs: 120_000" in server_readiness_api
+    assert "invalidateAsyncCache(WORKFLOW_SERVER_CACHE_KEY)" in server_readiness_api
     assert "FirstRunTrustSummary" in first_run_completion
     assert "单用户试点交接" in first_run_completion
     assert "首跑已完成" in first_run_completion
