@@ -61,8 +61,8 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "feature-table.tsv" in first_run_report
     assert "run-report.html" in first_run_report
     assert "first-run-report-insight" in first_run_report
-    assert "movingPicturesInsight" in first_run_report
-    assert "导出完整结果包" in first_run_source
+    assert "完成首跑" in first_run_source
+    assert "仅导出结果包" in first_run_source
     assert "结果验证卡" in first_run_source
     assert "FirstRunCompletionPanel" in first_run_page
     assert "first-run-completion-panel" in first_run_completion
@@ -87,12 +87,13 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert 'card?.softwareEnvironment?.status === "verified"' in first_run_completion
     assert "workflowRevisionIdFor(run, state.runDetail, latestPackage)" in first_run_page
     assert "/api/v1/first-run/runs/${encodeURIComponent(runId)}/validation-card" in first_run_api
+    assert "/api/v1/first-run/runs/${encodeURIComponent(runId)}/finalize" in first_run_api
+    assert "export async function finalizeFirstRun" in first_run_api
+    assert "finalizeFirstRun(run.runId" in first_run_page
+    assert 'actor: "first-run-ui"' in first_run_page
     assert "sampleData?: FirstRunSampleDataEvidence" in first_run_api
     assert "export type FirstRunSoftwareEnvironment" in first_run_api
     assert "softwareEnvironment?: FirstRunSoftwareEnvironment" in first_run_api
-    assert "keyResults?: FirstRunValidationKeyResult[]" in first_run_api
-    assert "checks?: FirstRunValidationCheck[]" in first_run_api
-    assert "interpretation?: string" in first_run_api
     assert "expectedSha256?: string" in first_run_api
     assert "fetchFirstRunValidationCard(run.runId" in first_run_page
     assert "const sampleData = card?.sampleData" in first_run_validation
@@ -139,11 +140,11 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "## Redaction" in first_run_api
     assert "Raw paths exposed" in first_run_api
     assert 'replace(/\\|/g, "\\\\|").replace(/\\n/g, " ")' in first_run_api
-    assert "onDownloadValidationCardMarkdown" in first_run_page
-    assert "onDownloadMarkdown={() => void downloadValidationCardMarkdown()}" in first_run_page
     assert "fetchWorkflowServerExecutionDiagnostics" in first_run_page
     assert "executionDiagnostics?.readiness?.ok === true" in first_run_page
     assert "state.canSubmit && executionReady && selectedWorkflowReady" in first_run_page
+    assert 'data-testid="first-run-finalize"' in first_run_validation
+    assert "first-run-finalization-next-action" in first_run_validation
     assert "first-run-execution-diagnostics-blockers" in first_run_page
     assert "eligible={validationEligible}" in first_run_page
     assert "ready={validationReady}" in first_run_page
@@ -153,7 +154,6 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "checksum verified" in first_run_sample_submit
     assert "first-run-sample-selection" in first_run_sample_submit
     assert "state.selectedWorkflow?.description" not in first_run_page
-    assert "exportWorkflowResultPackage(resultId, true)" in first_run_page
     assert "fetchWorkflowResultPackageExports(resultId)" in first_run_page
     assert "workflowResultPackageDownloadHref" in first_run_validation
     assert "refreshRunDetail" in hook

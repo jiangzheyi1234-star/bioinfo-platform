@@ -6,7 +6,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-import type { FirstRunValidationCard } from "./workflow-first-run-api";
+import type { FirstRunFinalizationNextAction, FirstRunValidationCard } from "./workflow-first-run-api";
 import { workflowResultPackageDownloadHref } from "./workflows-page-api";
 import type {
   WorkflowArtifact,
@@ -24,8 +24,11 @@ export function ResultPackagePanel({
   disabledReason,
   error,
   exporting,
+  finalizationAction,
+  finalizing,
   latestPackage,
   loading,
+  onFinalize,
   onExport,
   onRefresh,
   resultId,
@@ -33,8 +36,11 @@ export function ResultPackagePanel({
   disabledReason: string;
   error: string;
   exporting: boolean;
+  finalizationAction?: FirstRunFinalizationNextAction | null;
+  finalizing: boolean;
   latestPackage?: WorkflowResultPackageExport;
   loading: boolean;
+  onFinalize: () => void;
   onExport: () => void;
   onRefresh: () => void;
   resultId: string;
@@ -67,15 +73,32 @@ export function ResultPackagePanel({
         </Alert>
       ) : null}
 
+      {finalizationAction ? (
+        <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800" data-testid="first-run-finalization-next-action">
+          <div className="font-semibold">{finalizationAction.label || "首跑完成被阻塞"}</div>
+          <div className="mt-0.5">{finalizationAction.detail || finalizationAction.code}</div>
+        </div>
+      ) : null}
+
       <div className="mt-4 flex flex-wrap gap-2">
         <Button
           className="h-9 bg-slate-950 px-3 text-xs text-white hover:bg-slate-800"
+          disabled={Boolean(disabledReason) || finalizing}
+          onClick={onFinalize}
+          data-testid="first-run-finalize"
+        >
+          {finalizing ? <Loader2 strokeWidth={1.5} className="mr-2 h-3.5 w-3.5 animate-spin" /> : <ShieldCheck strokeWidth={1.5} className="mr-2 h-3.5 w-3.5" />}
+          完成首跑
+        </Button>
+        <Button
+          variant="outline"
+          className="h-9 bg-white px-3 text-xs text-slate-700"
           disabled={Boolean(disabledReason) || exporting}
           onClick={onExport}
           data-testid="first-run-export-package"
         >
           {exporting ? <Loader2 strokeWidth={1.5} className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Archive strokeWidth={1.5} className="mr-2 h-3.5 w-3.5" />}
-          导出完整结果包
+          仅导出结果包
         </Button>
         {downloadHref ? (
           <Button asChild variant="outline" className="h-9 px-3 text-xs">

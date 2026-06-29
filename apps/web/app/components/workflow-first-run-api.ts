@@ -2,6 +2,8 @@
 
 import { requestLocalApiJson } from "@/app/lib/local-api-client";
 
+import type { WorkflowResultPackageExport } from "./workflows-page-model";
+
 export type FirstRunValidationMetric = {
   metricId?: string;
   label?: string;
@@ -145,6 +147,22 @@ export type FirstRunValidationCard = {
   checks?: FirstRunValidationCheck[];
 };
 
+export type FirstRunFinalizationNextAction = {
+  code?: string;
+  detail?: string;
+  label?: string;
+  target?: string;
+};
+
+export type FirstRunFinalization = {
+  schemaVersion?: string;
+  status?: "ready" | "blocked" | string;
+  packageAction?: string;
+  resultPackage?: WorkflowResultPackageExport;
+  validationCard?: FirstRunValidationCard;
+  nextAction?: FirstRunFinalizationNextAction;
+};
+
 export async function fetchFirstRunValidationCard(
   runId: string,
   options: { serverId?: string } = {}
@@ -155,6 +173,25 @@ export async function fetchFirstRunValidationCard(
     "GET",
     `/api/v1/first-run/runs/${encodeURIComponent(runId)}/validation-card${queryString(query)}`,
     { cache: "no-store", timeoutMs: 30_000 }
+  );
+  return response.data;
+}
+
+export async function finalizeFirstRun(
+  runId: string,
+  options: { actor?: string; serverId?: string } = {}
+): Promise<FirstRunFinalization> {
+  const response = await requestLocalApiJson<{ data: FirstRunFinalization }>(
+    "POST",
+    `/api/v1/first-run/runs/${encodeURIComponent(runId)}/finalize`,
+    {
+      body: {
+        ...(options.serverId ? { serverId: options.serverId } : {}),
+        ...(options.actor ? { actor: options.actor } : {}),
+      },
+      cache: "no-store",
+      timeoutMs: 60_000,
+    }
   );
   return response.data;
 }

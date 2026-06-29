@@ -10,6 +10,10 @@ from apps.api.workflow_first_run_service import (
     WorkflowFirstRunValidationCardUnavailableError,
     build_first_run_validation_card_from_request,
 )
+from apps.api.workflow_first_run_finalize_service import (
+    WorkflowFirstRunFinalizeRequest,
+    finalize_first_run_from_request,
+)
 from apps.api.workflow_sample_data_service import MOVING_PICTURES_FILES
 
 
@@ -269,14 +273,99 @@ def test_first_run_validation_card_requires_parseable_report_previews(monkeypatc
         asyncio.run(build_first_run_validation_card_from_request("run_first"))
 
 
+def test_first_run_finalize_reuses_existing_full_package(monkeypatch) -> None:
+    _patch_first_run_sources(monkeypatch)
+
+    async def fail_export(*_args, **_kwargs):
+        raise AssertionError("finalize must not export when validation card is already ready")
+
+    monkeypatch.setattr("apps.api.workflow_first_run_finalize_service.export_result_package_from_request", fail_export)
+
+    result = asyncio.run(
+        finalize_first_run_from_request(
+            "run_first",
+            WorkflowFirstRunFinalizeRequest(serverId="srv_first", actor="operator"),
+        )
+    )["data"]
+
+    assert result["schemaVersion"] == "h2ometa.first-run.finalization.v1"
+    assert result["status"] == "ready"
+    assert result["packageAction"] == "reused"
+    assert result["resultPackage"]["packageExportId"] == "rpex_full"
+    assert result["validationCard"]["checks"]
+
+
+def test_first_run_finalize_exports_full_package_when_missing(monkeypatch) -> None:
+    exports: list[dict[str, Any]] = []
+    export_calls: list[tuple[str, bool, str | None, str | None]] = []
+    _patch_first_run_sources(monkeypatch, exports=exports)
+
+    async def fake_export(result_id: str, request) -> dict[str, Any]:
+        export_calls.append((result_id, request.includeArtifacts, request.serverId, request.actor))
+        package = _package("rpex_finalized")
+        exports.append(package)
+        return {"data": package}
+
+    monkeypatch.setattr("apps.api.workflow_first_run_finalize_service.export_result_package_from_request", fake_export)
+
+    result = asyncio.run(
+        finalize_first_run_from_request(
+            "run_first",
+            WorkflowFirstRunFinalizeRequest(serverId="srv_first", actor="operator"),
+        )
+    )["data"]
+
+    assert export_calls == [("res_run_first", True, "srv_first", "operator")]
+    assert result["status"] == "ready"
+    assert result["packageAction"] == "exported"
+    assert result["resultPackage"]["packageExportId"] == "rpex_finalized"
+    assert result["validationCard"]["resultPackage"]["packageExportId"] == "rpex_finalized"
+
+
+def test_first_run_finalize_returns_typed_blocked_action(monkeypatch) -> None:
+    run = _run()
+    run["status"] = "failed"
+    _patch_first_run_sources(monkeypatch, run=run)
+
+    async def fail_export(*_args, **_kwargs):
+        raise AssertionError("finalize must not export before a successful first run")
+
+    monkeypatch.setattr("apps.api.workflow_first_run_finalize_service.export_result_package_from_request", fail_export)
+
+    result = asyncio.run(
+        finalize_first_run_from_request(
+            "run_first",
+            WorkflowFirstRunFinalizeRequest(serverId="srv_first"),
+        )
+    )["data"]
+
+    assert result == {
+        "schemaVersion": "h2ometa.first-run.finalization.v1",
+        "status": "blocked",
+        "nextAction": {
+            "code": "FIRST_RUN_NOT_SUCCESSFUL",
+            "detail": "FIRST_RUN_NOT_SUCCESSFUL: run status is failed",
+            "label": "等待首跑成功完成",
+            "target": "/workflows/first-run#run-report",
+        },
+    }
+
+
 def test_first_run_validation_card_route_and_error_handler_are_registered() -> None:
     route_source = _source("apps/api/workflow_first_run_routes.py")
+    finalize_source = _source("apps/api/workflow_first_run_finalize_service.py")
     service_source = _source("apps/api/workflow_first_run_service.py")
     main_source = _source("apps/api/main.py")
     route_errors = _source("apps/api/route_errors.py")
 
     assert '@router.get("/api/v1/first-run/runs/{run_id}/validation-card")' in route_source
+    assert '@router.post("/api/v1/first-run/runs/{run_id}/finalize")' in route_source
     assert "build_first_run_validation_card_from_request" in route_source
+    assert "finalize_first_run_from_request" in route_source
+    assert "FIRST_RUN_FINALIZATION_SCHEMA_VERSION" in finalize_source
+    assert "export_result_package_from_request" in finalize_source
+    assert "ResultPackageExportRequest(" in finalize_source
+    assert "includeArtifacts=True" in finalize_source
     assert "workflow_first_run_router" in main_source
     assert "WorkflowFirstRunValidationCardUnavailableError(ValueError):\n    status_code = 409" in service_source
     assert "WorkflowFirstRunValidationCardUnavailableError" in route_errors

@@ -23,7 +23,9 @@ import { FirstRunCompletionPanel, firstRunValidationCardPassed } from "./workflo
 import {
   downloadFirstRunValidationCard,
   downloadFirstRunValidationCardMarkdown,
+  finalizeFirstRun,
   fetchFirstRunValidationCard,
+  type FirstRunFinalizationNextAction,
   type FirstRunValidationCard,
 } from "./workflow-first-run-api";
 import { SampleAndSubmitPanel, sampleUploadsReady } from "./workflow-first-run-sample-submit";
@@ -68,6 +70,8 @@ export function WorkflowFirstRunPage() {
   const [packageLoading, setPackageLoading] = useState(false);
   const [packageError, setPackageError] = useState("");
   const [exportingPackage, setExportingPackage] = useState(false);
+  const [finalizingFirstRun, setFinalizingFirstRun] = useState(false);
+  const [finalizationAction, setFinalizationAction] = useState<FirstRunFinalizationNextAction | null>(null);
   const [validationCard, setValidationCard] = useState<FirstRunValidationCard | null>(null);
   const [validationCardFetchLoading, setValidationCardFetchLoading] = useState(false);
   const [validationCardFetchError, setValidationCardFetchError] = useState("");
@@ -227,6 +231,35 @@ export function WorkflowFirstRunPage() {
     }
   }
 
+  async function finalizeRun() {
+    if (!run?.runId || finalizingFirstRun) return;
+    setFinalizingFirstRun(true);
+    setPackageError("");
+    setValidationCardError("");
+    setFinalizationAction(null);
+    try {
+      const finalized = await finalizeFirstRun(run.runId, {
+        actor: "first-run-ui",
+        serverId: state.server?.serverId,
+      });
+      if (finalized.status !== "ready" || !finalized.validationCard) {
+        setFinalizationAction(finalized.nextAction || null);
+        if (!finalized.nextAction) setPackageError("首跑完成被阻塞");
+        return;
+      }
+      const packageExport = finalized.resultPackage;
+      if (packageExport?.packageExportId) {
+        setPackageExports((current) => mergePackageExport(packageExport, current));
+      }
+      setValidationCard(finalized.validationCard);
+      await state.refreshRunDetail();
+    } catch (err) {
+      setPackageError(workflowErrorMessage(err, "首跑完成失败"));
+    } finally {
+      setFinalizingFirstRun(false);
+    }
+  }
+
   async function downloadValidationCard() {
     if (!run?.runId || validationCardLoading) return;
     setValidationCardLoading(true);
@@ -360,9 +393,12 @@ export function WorkflowFirstRunPage() {
               disabledReason={resultPackageDisabledReason({ resultId, run, workflowRevisionId })}
               error={packageError}
               exporting={exportingPackage}
+              finalizationAction={finalizationAction}
+              finalizing={finalizingFirstRun}
               latestPackage={latestPackage}
               loading={packageLoading}
               resultId={resultId}
+              onFinalize={() => void finalizeRun()}
               onExport={() => void exportPackage()}
               onRefresh={() => void loadPackageExports()}
             />
