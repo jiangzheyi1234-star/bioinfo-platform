@@ -63,7 +63,7 @@ export function RunReportPanel({
   const qcPreview = previewByArtifactName(previews, "qc-summary.tsv");
   const insight = movingPicturesInsight(artifacts, summaryPreview, qcPreview, run);
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5">
+    <section id="run-report" className="scroll-mt-24 rounded-lg border border-slate-200 bg-white p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">

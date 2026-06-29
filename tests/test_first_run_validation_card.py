@@ -445,6 +445,8 @@ def test_first_run_validation_card_route_and_error_handler_are_registered() -> N
     assert "FIRST_RUN_PILOT_HANDOFF_REQUIRED" in finalize_source
     assert "build_first_run_pilot_handoff" in service_source
     assert "pilotHandoff" in service_source
+    assert 'target = "/workflows/first-run#run-report"' in finalize_source
+    assert 'target = "/workflows/first-run#report"' not in finalize_source
     assert "export_result_package_from_request" in finalize_source
     assert "ResultPackageExportRequest(" in finalize_source
     assert "includeArtifacts=True" in finalize_source

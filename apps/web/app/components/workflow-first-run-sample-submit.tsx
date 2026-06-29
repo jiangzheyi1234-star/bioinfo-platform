@@ -39,7 +39,7 @@ export function SampleAndSubmitPanel({
   const ready = sampleUploadsReady(sampleUploads);
   const selection = firstRunWorkflowSelection(workflow, workflowLoading);
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5">
+    <section id="sample-data" className="scroll-mt-24 rounded-lg border border-slate-200 bg-white p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">

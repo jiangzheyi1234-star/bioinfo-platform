@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, CheckCircle2, ClipboardCheck, Cpu, Download, FileArchive, FileText, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
+import { Archive, ArrowRight, CheckCircle2, ClipboardCheck, Cpu, Download, FileArchive, FileText, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -76,8 +76,20 @@ export function ResultPackagePanel({
 
       {finalizationAction ? (
         <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800" data-testid="first-run-finalization-next-action">
-          <div className="font-semibold">{finalizationAction.label || "首跑完成被阻塞"}</div>
-          <div className="mt-0.5">{finalizationAction.detail || finalizationAction.code}</div>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="font-semibold">{finalizationAction.label || "首跑完成被阻塞"}</div>
+              <div className="mt-0.5">{finalizationAction.detail || finalizationAction.code}</div>
+            </div>
+            {finalizationAction.target ? (
+              <Button asChild variant="outline" size="sm" className="h-8 shrink-0 border-amber-200 bg-white px-2.5 text-xs text-amber-800 hover:bg-amber-50">
+                <a href={finalizationAction.target} data-testid="first-run-finalization-next-action-link">
+                  <ArrowRight strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5" />
+                  继续处理
+                </a>
+              </Button>
+            ) : null}
+          </div>
         </div>
       ) : null}
 

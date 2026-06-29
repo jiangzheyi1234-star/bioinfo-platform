@@ -91,7 +91,7 @@ def _next_action(code: str, detail: str) -> dict[str, str]:
         target = "/workflows/first-run#runner-readiness"
         label = "升级 runner 并重新提交"
     elif code == "FIRST_RUN_REPORT_PREVIEW_REQUIRED":
-        target = "/workflows/first-run#report"
+        target = "/workflows/first-run#run-report"
         label = "检查报告预览"
     elif code == "FIRST_RUN_SAMPLE_INPUTS_REQUIRED" or code == "FIRST_RUN_SAMPLE_INPUTS_INTEGRITY_MISMATCH":
         target = "/workflows/first-run#sample-data"
