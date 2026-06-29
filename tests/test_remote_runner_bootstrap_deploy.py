@@ -107,8 +107,9 @@ def test_bootstrap_extract_step_marks_remote_scripts_executable(monkeypatch) -> 
                 "checkedAt": "2026-04-22T00:00:00Z",
             }
 
-        def get_json(self, path: str) -> dict[str, object]:
+        def get_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, object]:
             assert path == "/api/v1/database-templates"
+            assert accepted_statuses == {200}
             return {"data": {"items": [{"id": "kraken2"}]}}
 
     with patch.object(manager, "_artifact_provider", SimpleNamespace(resolve=lambda **kwargs: FakeBundle())), patch(

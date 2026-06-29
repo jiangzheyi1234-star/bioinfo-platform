@@ -81,8 +81,8 @@ def test_database_pack_ready_scan_route_stays_outside_immutable_catalog_subtree(
     route_source = Path("apps/remote_runner/database_routes.py").read_text(encoding="utf-8")
     api_route_source = Path("apps/api/database_routes.py").read_text(encoding="utf-8")
 
-    assert '@router.post("/api/v1/database-pack-ready-scans")' in route_source
-    assert '@router.post("/api/v1/database-pack-ready-scans")' in api_route_source
+    assert "operation_id=REMOTE_ENDPOINTS[DATABASE_PACK_READY_SCAN].operation_id" in route_source
+    assert "operation_id=REMOTE_ENDPOINTS[DATABASE_PACK_READY_SCAN].operation_id" in api_route_source
     assert '@router.post("/api/v1/database-packs' not in route_source + api_route_source
 
 

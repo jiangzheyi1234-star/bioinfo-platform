@@ -23,7 +23,6 @@ from core.remote_runner.bootstrap_response import (
     build_bootstrap_reuse_response,
 )
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
-from core.remote_runner.catalog import RemoteRunnerCatalogMixin
 from core.remote_runner.client import RemoteRunnerClientError, RemoteRunnerHttpClient
 from core.remote_runner.environment import RemoteRunnerEnvironmentMixin
 from core.remote_runner.errors import RemoteRunnerManagerError
@@ -58,7 +57,6 @@ class RemoteRunnerManager(
     RemoteRunnerResultPackageProxyMixin,
     RemoteRunnerProxyMixin,
     RemoteRunnerTokenRotationMixin,
-    RemoteRunnerCatalogMixin,
     RemoteRunnerReuseMixin,
     RemoteRunnerWorkflowRuntimeMixin,
     RemoteRunnerBootstrapBundleMixin,

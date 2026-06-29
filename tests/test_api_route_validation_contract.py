@@ -352,8 +352,8 @@ def test_database_routes_delegate_request_dumping_to_service() -> None:
     assert "list_database_templates_from_request" in route_source
     assert "list_database_packs_from_request" in route_source
     assert "scan_database_pack_ready_from_request" in route_source
-    assert '@router.get("/api/v1/database-packs")' in route_source
-    assert '@router.post("/api/v1/database-pack-ready-scans")' in route_source
+    assert "operation_id=REMOTE_ENDPOINTS[DATABASE_PACK_LIST].operation_id" in route_source
+    assert "operation_id=REMOTE_ENDPOINTS[DATABASE_PACK_READY_SCAN].operation_id" in route_source
     assert '@router.post("/api/v1/database-packs' not in route_source
     assert '@router.patch("/api/v1/database-packs' not in route_source
     assert '@router.delete("/api/v1/database-packs' not in route_source

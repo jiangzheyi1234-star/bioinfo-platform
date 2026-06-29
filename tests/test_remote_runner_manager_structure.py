@@ -3,42 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
-from core.remote_runner.catalog import RemoteRunnerCatalogMixin
-from core.remote_runner.client import RemoteRunnerClientError
-from core.remote_runner.manager import RemoteRunnerManagerError
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def _source(relative_path: str) -> str:
     return (ROOT / relative_path).read_text(encoding="utf-8")
-
-
-def test_catalog_client_errors_preserve_http_status_on_manager_error() -> None:
-    class FailingClient:
-        def post_json(self, _path, _payload):
-            raise RemoteRunnerClientError(
-                "runner http error 422: DATABASE_PATH_REQUIRED",
-                status_code=422,
-                detail="DATABASE_PATH_REQUIRED",
-            )
-
-    class Catalog(RemoteRunnerCatalogMixin):
-        def _get_client(self, **_kwargs):
-            return FailingClient()
-
-        @staticmethod
-        def _manager_error(message: str, *, status_code: int | None = None, detail=None) -> RuntimeError:
-            return RemoteRunnerManagerError(message, status_code=status_code, detail=detail)
-
-    with pytest.raises(RemoteRunnerManagerError) as raised:
-        Catalog().add_database(server_id="srv_test", ssh_service=object(), server_record={}, payload={})
-
-    assert raised.value.status_code == 422
-    assert raised.value.detail == "DATABASE_PATH_REQUIRED"
 
 
 def test_remote_install_lock_logic_lives_in_install_lock_module() -> None:
@@ -389,26 +359,12 @@ def test_bootstrap_install_response_preserves_metadata_without_mutating_input() 
     assert metadata == {"deployment_action": "installed"}
 
 
-def test_database_catalog_only_handles_domain_specific_client_errors() -> None:
-    catalog_source = _source("core/remote_runner/catalog.py")
+def test_database_catalog_proxy_layer_has_been_removed() -> None:
+    manager_source = _source("core/remote_runner/manager.py")
 
-    assert catalog_source.count("except RemoteRunnerClientError") == 1
-    assert "RemoteRunnerConflictError" in catalog_source
-    assert "DATABASE_CANDIDATES" not in catalog_source
-    assert "json.loads" not in catalog_source
-    simple_methods = (
-        ("def list_database_templates(", "def list_database_packs("),
-        ("def list_database_packs(", "def scan_database_pack_ready("),
-        ("def scan_database_pack_ready(", "def list_databases("),
-        ("def list_databases(", "def add_database("),
-        ("def update_database(", "def delete_database("),
-        ("def delete_database(", "def check_database("),
-        ("def check_database(", "def _manager_error("),
-    )
-    for start, end in simple_methods:
-        method_source = catalog_source.split(start, 1)[1].split(end, 1)[0]
-        assert "except RemoteRunnerClientError" not in method_source
-        assert "self._manager_error(str(exc))" not in method_source
+    assert not (ROOT / "core/remote_runner/catalog.py").exists()
+    assert "RemoteRunnerCatalogMixin" not in manager_source
+    assert "from core.remote_runner.catalog import" not in manager_source
 
 
 def test_remote_runner_proxy_forwarders_do_not_wrap_client_errors() -> None:

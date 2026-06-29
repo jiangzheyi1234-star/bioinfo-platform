@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
+from core.contracts.remote_endpoints import RESULT_LIST
 from core.remote_runner.artifact import WORKFLOW_RUNTIME_VERSION
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
 from core.remote_runner.client import RemoteRunnerClientError
@@ -134,8 +135,9 @@ def test_bootstrap_reuses_existing_runner_when_artifact_sha_matches(monkeypatch)
                 "checkedAt": "2026-04-22T00:00:00Z",
             }
 
-        def get_json(self, path: str) -> dict[str, object]:
+        def get_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, object]:
             assert path == "/api/v1/database-templates"
+            assert accepted_statuses == {200}
             return {
                 "data": {
                     "items": [
@@ -281,8 +283,9 @@ def test_fast_reuse_accepts_staged_runner_version(monkeypatch) -> None:
         def get_health(self) -> dict[str, object]:
             return {"ready": {"ok": True}}
 
-        def get_json(self, path: str) -> dict[str, object]:
+        def get_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, object]:
             assert path == "/api/v1/database-templates"
+            assert accepted_statuses == {200}
             return {"data": {"items": [{"category": "db", "pathLabel": "path", "runtimeValue": "/db"}]}}
 
     monkeypatch.setattr("core.remote_runner.reuse.resolve_runner_token", lambda token_ref: "phase2-token")
@@ -577,7 +580,7 @@ def test_fast_reuse_rejects_runner_when_database_template_route_is_missing(monke
                 "checkedAt": "2026-04-22T00:00:00Z",
             }
 
-        def get_json(self, path: str) -> dict[str, object]:
+        def get_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, object]:
             raise RemoteRunnerClientError("runner http error 404: Not Found")
 
     monkeypatch.setattr("core.remote_runner.reuse.resolve_runner_token", lambda token_ref: "phase2-token")
@@ -763,10 +766,12 @@ def test_manager_wraps_tunnel_setup_failures(monkeypatch) -> None:
     monkeypatch.setattr("core.remote_runner.proxy.resolve_runner_token", lambda _ref: "phase2-token")
 
     try:
-        manager.list_results(
+        manager.call_remote_endpoint(
             server_id="srv_demo",
             ssh_service=FakeSSH(),
             server_record={"token_ref": "runner://srv_demo", "service_port": 43127},
+            endpoint_id=RESULT_LIST,
+            path_values={},
         )
     except RemoteRunnerManagerError as exc:
         assert "SSH transport is not active" in str(exc)
@@ -778,10 +783,12 @@ def test_manager_fails_loudly_when_service_port_is_missing(monkeypatch) -> None:
     monkeypatch.setattr("core.remote_runner.proxy.resolve_runner_token", lambda _ref: "phase2-token")
 
     try:
-        manager.list_results(
+        manager.call_remote_endpoint(
             server_id="srv_demo",
             ssh_service=SimpleNamespace(),
             server_record={"token_ref": "runner://srv_demo"},
+            endpoint_id=RESULT_LIST,
+            path_values={},
         )
     except RemoteRunnerManagerError as exc:
         assert "service_port is missing" in str(exc)

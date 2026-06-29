@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from apps.remote_runner.databases import (
@@ -12,6 +13,17 @@ from apps.remote_runner.databases import (
 )
 from apps.remote_runner.executor import run_snakemake_execution
 from apps.remote_runner.storage import persist_upload
+from core.app_runtime.managers.database import DatabaseManager
+from core.contracts.database_remote_endpoints import (
+    DATABASE_CHECK,
+    DATABASE_CREATE,
+    DATABASE_DELETE,
+    DATABASE_LIST,
+    DATABASE_PACK_LIST,
+    DATABASE_PACK_READY_SCAN,
+    DATABASE_TEMPLATE_LIST,
+    DATABASE_UPDATE,
+)
 from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerError
 from tests.generated_workflow_test_helpers import generated_workflow_run_spec, upsert_ready_tool
 from tests.helpers.reference_database import (
@@ -388,54 +400,90 @@ def test_every_database_template_can_be_checked_and_injected_into_generated_work
         assert f"{{config.{role}:q}}" not in snakefile
 
 
-def test_remote_runner_manager_database_catalog_routes(monkeypatch) -> None:
-    manager = RemoteRunnerManager()
-    calls: list[tuple[str, str, Any]] = []
-    client_timeouts: list[int | None] = []
+def test_database_manager_uses_endpoint_contracts() -> None:
+    remote_manager = FakeRemoteRunnerManager()
+    manager = DatabaseManager(FakeRuntimeService(remote_manager))
 
-    class FakeClient:
-        def get_json(self, path: str) -> dict[str, Any]:
-            calls.append(("GET", path, None))
-            return {"data": {"items": [{"id": "db1"}]}}
+    assert manager.list_databases() == {"data": {"items": [{"id": "db1"}]}}
+    assert manager.list_database_templates() == {"data": {"items": [{"id": "template1"}]}}
+    assert manager.list_database_packs() == {"data": {"items": [{"packId": "pack1"}]}}
+    assert manager.scan_database_pack_ready({"serverId": "srv", "packId": "pack1"})["data"]["packId"] == "pack1"
+    assert manager.add_database({"serverId": "srv", "id": "db1"})["data"]["id"] == "db1"
+    assert manager.update_database("db1", {"status": "available"})["data"]["status"] == "available"
+    assert manager.check_database("db1")["data"]["id"] == "db1"
+    assert manager.delete_database("db1")["data"]["deleted"] is True
 
-        def post_json(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
-            calls.append(("POST", path, payload))
-            return {"data": {"id": "db1", **payload}}
-
-        def delete_json(self, path: str) -> dict[str, Any]:
-            calls.append(("DELETE", path, None))
-            return {"data": {"id": "db1", "deleted": True}}
-
-    def fake_get_client(**kwargs):
-        client_timeouts.append(kwargs.get("timeout"))
-        return FakeClient()
-
-    monkeypatch.setattr(manager, "_get_client", fake_get_client)
-    kwargs = {"server_id": "srv", "ssh_service": object(), "server_record": {}}
-
-    assert manager.list_databases(**kwargs) == [{"id": "db1"}]
-    assert manager.list_database_templates(**kwargs) == [{"id": "db1"}]
-    assert manager.list_database_packs(**kwargs) == {"items": [{"id": "db1"}]}
-    assert manager.scan_database_pack_ready(**kwargs, payload={"packId": "pack1"})["packId"] == "pack1"
-    assert manager.add_database(**kwargs, payload={"name": "db1"})["name"] == "db1"
-    assert manager.check_database(**kwargs, database_id="db1")["id"] == "db1"
-    assert manager.delete_database(**kwargs, database_id="db1")["deleted"] is True
-    assert calls == [
-        ("GET", "/api/v1/databases", None),
-        ("GET", "/api/v1/database-templates", None),
-        ("GET", "/api/v1/database-packs", None),
-        ("POST", "/api/v1/database-pack-ready-scans", {"packId": "pack1"}),
-        ("POST", "/api/v1/databases", {"name": "db1"}),
-        ("POST", "/api/v1/databases/db1/check", {}),
-        ("DELETE", "/api/v1/databases/db1", None),
+    assert remote_manager.calls == [
+        (DATABASE_LIST, {}, {}, None, None),
+        (DATABASE_TEMPLATE_LIST, {}, {}, None, None),
+        (DATABASE_PACK_LIST, {}, {}, None, None),
+        (DATABASE_PACK_READY_SCAN, {}, {}, {"packId": "pack1"}, 2100),
+        (DATABASE_CREATE, {}, {}, {"id": "db1"}, 2100),
+        (DATABASE_UPDATE, {"database_id": "db1"}, {}, {"status": "available"}, None),
+        (DATABASE_CHECK, {"database_id": "db1"}, {}, None, 2100),
+        (DATABASE_DELETE, {"database_id": "db1"}, {}, None, None),
     ]
-    assert client_timeouts == [None, None, None, 2100, 2100, 2100, None]
+
+
+class FakeRuntimeLock:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+
+class FakeRuntimeService:
+    def __init__(self, remote_manager: "FakeRemoteRunnerManager") -> None:
+        self._lock = FakeRuntimeLock()
+        self._service_locator = SimpleNamespace(remote_runner_manager=remote_manager)
+
+    def _ensure_initialized(self) -> None:
+        return None
+
+    def _require_existing_runner_ready(self, *, preferred_server_id: str | None = None):
+        return preferred_server_id or "srv", object(), {"serverId": preferred_server_id or "srv"}
+
+    @staticmethod
+    def _call_remote_runner(method, **kwargs):
+        return method(**kwargs)
+
+
+class FakeRemoteRunnerManager:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, Any], dict[str, Any], dict[str, Any] | None, int | None]] = []
+
+    def call_remote_endpoint(self, **kwargs) -> Any:
+        endpoint_id = str(kwargs["endpoint_id"])
+        path_values = dict(kwargs.get("path_values") or {})
+        query_values = dict(kwargs.get("query_values") or {})
+        payload = dict(kwargs["payload"]) if isinstance(kwargs.get("payload"), dict) else None
+        timeout = kwargs.get("timeout")
+        self.calls.append((endpoint_id, path_values, query_values, payload, timeout))
+        if endpoint_id == DATABASE_LIST:
+            return [{"id": "db1"}]
+        if endpoint_id == DATABASE_TEMPLATE_LIST:
+            return [{"id": "template1"}]
+        if endpoint_id == DATABASE_PACK_LIST:
+            return {"items": [{"packId": "pack1"}]}
+        if endpoint_id == DATABASE_PACK_READY_SCAN:
+            return {"packId": payload["packId"], "status": "ready"}
+        if endpoint_id == DATABASE_CREATE:
+            return {"id": payload["id"]}
+        if endpoint_id == DATABASE_UPDATE:
+            return {"id": path_values["database_id"], "status": payload["status"]}
+        if endpoint_id == DATABASE_CHECK:
+            return {"id": path_values["database_id"], "status": "available"}
+        if endpoint_id == DATABASE_DELETE:
+            return {"id": path_values["database_id"], "deleted": True}
+        raise AssertionError(f"unexpected endpoint: {endpoint_id}")
 
 
 def test_remote_runner_reuse_rejects_old_database_template_catalog() -> None:
     class FakeClient:
-        def get_json(self, path: str) -> dict[str, Any]:
+        def get_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, Any]:
             assert path == "/api/v1/database-templates"
+            assert accepted_statuses == {200}
             return {"data": {"items": [{"id": "kraken2", "pathKind": "directory"}]}}
 
     try:
@@ -448,8 +496,9 @@ def test_remote_runner_reuse_rejects_old_database_template_catalog() -> None:
 
 def test_remote_runner_reuse_accepts_database_template_catalog_contract() -> None:
     class FakeClient:
-        def get_json(self, path: str) -> dict[str, Any]:
+        def get_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, Any]:
             assert path == "/api/v1/database-templates"
+            assert accepted_statuses == {200}
             return {
                 "data": {
                     "items": [
@@ -469,8 +518,9 @@ def test_remote_runner_reuse_accepts_database_template_catalog_contract() -> Non
 
 def test_remote_runner_reuse_rejects_prefix_template_without_pattern_sets() -> None:
     class FakeClient:
-        def get_json(self, path: str) -> dict[str, Any]:
+        def get_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, Any]:
             assert path == "/api/v1/database-templates"
+            assert accepted_statuses == {200}
             return {
                 "data": {
                     "items": [

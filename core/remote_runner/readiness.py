@@ -5,7 +5,9 @@ import shlex
 import time
 from typing import Any
 
+from core.contracts.database_remote_endpoints import DATABASE_TEMPLATE_LIST
 from core.remote_runner.client import RemoteRunnerClientError, RemoteRunnerHttpClient
+from core.remote_runner.endpoint_caller import call_remote_endpoint
 
 
 class RemoteRunnerReadinessMixin:
@@ -135,9 +137,7 @@ class RemoteRunnerReadinessMixin:
 
     @classmethod
     def _verify_database_template_catalog_for_reuse(cls, client: RemoteRunnerHttpClient) -> None:
-        payload = client.get_json("/api/v1/database-templates")
-        data = payload.get("data") if isinstance(payload, dict) else None
-        items = data.get("items") if isinstance(data, dict) else None
+        items = call_remote_endpoint(client, DATABASE_TEMPLATE_LIST, path_values={})
         if not isinstance(items, list):
             raise cls._manager_error("runner database template catalog payload is invalid")
         for item in items:
