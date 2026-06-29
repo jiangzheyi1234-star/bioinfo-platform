@@ -47,7 +47,12 @@ import {
   type WorkflowUpload,
 } from "./workflows-page-model";
 
-export function useWorkflowsPageState(initialWorkflowId = "") {
+type UseWorkflowsPageStateOptions = {
+  autoResumeLatestRun?: boolean;
+};
+
+export function useWorkflowsPageState(initialWorkflowId = "", options: UseWorkflowsPageStateOptions = {}) {
+  const autoResumeLatestRun = options.autoResumeLatestRun === true;
   const [catalog, setCatalog] = useState<WorkflowCatalogItem[]>(() => getCachedWorkflowCatalog() || []);
   const [tools, setTools] = useState<AddedTool[]>([]);
   const [databases, setDatabases] = useState<DatabaseItem[]>([]);
@@ -69,6 +74,7 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
   const [submittedRun, setSubmittedRun] = useState<WorkflowRun | null>(null);
   const [runDetail, setRunDetail] = useState<WorkflowRunDetail | null>(null);
   const [runHistory, setRunHistory] = useState<WorkflowRun[]>([]);
+  const [runHistoryError, setRunHistoryError] = useState("");
   const [workflowDesignDrafts, setWorkflowDesignDrafts] = useState<WorkflowDesignDraftRecord[]>([]);
   const [activeWorkflowDesignDraft, setActiveWorkflowDesignDraft] = useState<WorkflowDesignDraftRecord | null>(null);
   const [workflowDesignPlan, setWorkflowDesignPlan] = useState<WorkflowDesignPlan | null>(null);
@@ -136,23 +142,44 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     }
   }, [initialWorkflowId]);
 
-  const loadRunHistory = useCallback(async () => {
+  const loadRunHistory = useCallback(async (historyOptions: { forceRefresh?: boolean; reportError?: boolean } = {}) => {
     try {
-      const runs = await fetchRunsList();
+      const runs = await fetchRunsList({ forceRefresh: historyOptions.forceRefresh === true });
       setRunHistory(runs);
-    } catch {
-      // Non-critical: history is best-effort
+      setRunHistoryError("");
+    } catch (err) {
+      if (historyOptions.reportError) {
+        setRunHistoryError(workflowErrorMessage(err, "读取运行历史失败"));
+      }
     }
   }, []);
 
   useEffect(() => {
     void loadWorkspace();
-    void loadRunHistory();
-  }, [loadRunHistory, loadWorkspace]);
+    void loadRunHistory({ forceRefresh: autoResumeLatestRun, reportError: autoResumeLatestRun });
+  }, [autoResumeLatestRun, loadRunHistory, loadWorkspace]);
 
   const selectedWorkflow = catalog.find((item) => item.id === selectedWorkflowId) || catalog[0] || null;
   const selectedPipelineId = selectedWorkflow?.kind === "pipeline" && selectedWorkflow.runnable ? selectedWorkflow.id : "";
   const isGeneratedToolRun = selectedPipelineId === GENERATED_TOOL_RUN_PIPELINE_ID;
+
+  useEffect(() => {
+    if (!autoResumeLatestRun || activeRunId || submittedRun?.runId || runDetail?.run?.runId) return;
+    if (!initialWorkflowId || !selectedPipelineId || selectedPipelineId !== initialWorkflowId || isGeneratedToolRun) return;
+    const latestRun = latestRunForPipeline(runHistory, selectedPipelineId);
+    if (!latestRun?.runId) return;
+    setActiveRunId(latestRun.runId);
+    setSubmittedRun(latestRun);
+  }, [
+    activeRunId,
+    autoResumeLatestRun,
+    initialWorkflowId,
+    isGeneratedToolRun,
+    runDetail?.run?.runId,
+    runHistory,
+    selectedPipelineId,
+    submittedRun?.runId,
+  ]);
 
   useEffect(() => {
     setSampleUploads([]);
@@ -489,7 +516,7 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
       }
       setSubmittedRun(run);
       setActiveRunId(run.runId);
-      void loadRunHistory();
+      void loadRunHistory({ forceRefresh: true, reportError: autoResumeLatestRun });
     } catch (err) {
       setSubmitError(workflowErrorMessage(err, "提交流程失败"));
     } finally {
@@ -633,6 +660,7 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     workflowDesignPlan: currentWorkflowDesignPlan,
     isGeneratedToolRun,
     runDetail,
+    runHistoryError,
     refreshRunDetail,
     runHistory,
     sampleLoading,
@@ -666,6 +694,26 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
 
 function sampleUploadIntegrityPassed(upload: WorkflowUpload) {
   return upload.integrityStatus === "passed" && Boolean(upload.sha256) && upload.sha256 === upload.expectedSha256;
+}
+
+function latestRunForPipeline(runs: WorkflowRun[], pipelineId: string): WorkflowRun | null {
+  const candidates = runs.filter((run) => workflowRunPipelineId(run) === pipelineId);
+  if (candidates.length === 0) return null;
+  return candidates
+    .map((run, index) => ({ index, run, timestamp: workflowRunTimestamp(run) }))
+    .sort((a, b) => b.timestamp - a.timestamp || a.index - b.index)[0].run;
+}
+
+function workflowRunPipelineId(run: WorkflowRun) {
+  return run.pipelineId || run.runSpec?.pipelineId || "";
+}
+
+function workflowRunTimestamp(run: WorkflowRun) {
+  for (const value of [run.submittedAt, run.startedAt, run.finishedAt, run.updatedAt, run.createdAt]) {
+    const timestamp = value ? Date.parse(value) : Number.NaN;
+    if (Number.isFinite(timestamp)) return timestamp;
+  }
+  return 0;
 }
 
 function resourceIdsFromWorkflowDesignDraft(record: WorkflowDesignDraftRecord): Record<string, string> {

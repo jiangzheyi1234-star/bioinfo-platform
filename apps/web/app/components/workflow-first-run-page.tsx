@@ -61,7 +61,7 @@ type FirstRunStep = { id: string; label: string; detail: string; state: StepStat
 
 export function WorkflowFirstRunPage() {
   const ssh = useSshShell();
-  const state = useWorkflowsPageState(FIRST_RUN_PIPELINE_ID);
+  const state = useWorkflowsPageState(FIRST_RUN_PIPELINE_ID, { autoResumeLatestRun: true });
   const [ensuringRunner, setEnsuringRunner] = useState(false);
   const [runnerError, setRunnerError] = useState("");
   const [executionDiagnostics, setExecutionDiagnostics] = useState<WorkflowExecutionDiagnostics | null>(null);
@@ -332,6 +332,13 @@ export function WorkflowFirstRunPage() {
           <Alert variant="destructive">
             <AlertCircle strokeWidth={1.5} className="h-4 w-4" />
             <AlertDescription>{state.error}</AlertDescription>
+          </Alert>
+        ) : null}
+
+        {state.runHistoryError ? (
+          <Alert variant="destructive">
+            <AlertCircle strokeWidth={1.5} className="h-4 w-4" />
+            <AlertDescription>{state.runHistoryError}</AlertDescription>
           </Alert>
         ) : null}
 

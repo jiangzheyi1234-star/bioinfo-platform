@@ -39,6 +39,7 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     first_run_sample_submit = (COMPONENTS / "workflow-first-run-sample-submit.tsx").read_text(encoding="utf-8")
     first_run_trust_summary = (COMPONENTS / "workflow-first-run-trust-summary.tsx").read_text(encoding="utf-8")
     first_run_validation = (COMPONENTS / "workflow-first-run-validation.tsx").read_text(encoding="utf-8")
+    workflow_detail_page = (COMPONENTS / "workflow-detail-page.tsx").read_text(encoding="utf-8")
     first_run_source = f"{first_run_page}\n{first_run_api}\n{first_run_completion}\n{first_run_report}\n{first_run_sample_submit}\n{first_run_trust_summary}\n{first_run_validation}"
     api = (COMPONENTS / "workflows-page-api.ts").read_text(encoding="utf-8")
     hook = (COMPONENTS / "use-workflows-page-state.ts").read_text(encoding="utf-8")
@@ -48,7 +49,11 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "WorkflowFirstRunPage" in first_run_route.read_text(encoding="utf-8")
     assert '{ href: "/workflows/first-run", label: "首跑" }' in tabs
     assert 'const FIRST_RUN_PIPELINE_ID = "moving-pictures-16s-rulegraph-v1"' in first_run_page
-    assert "useWorkflowsPageState(FIRST_RUN_PIPELINE_ID)" in first_run_page
+    assert "useWorkflowsPageState(FIRST_RUN_PIPELINE_ID, { autoResumeLatestRun: true })" in first_run_page
+    assert "useWorkflowsPageState(workflowId)" in workflow_detail_page
+    assert "autoResumeLatestRun" not in workflow_detail_page
+    assert "options: UseWorkflowsPageStateOptions = {}" in hook
+    assert "const autoResumeLatestRun = options.autoResumeLatestRun === true" in hook
     assert "const movingPicturesWorkflow = state.catalog.find((item) => item.id === FIRST_RUN_PIPELINE_ID) || null" in first_run_page
     assert "连接远端" in first_run_page
     assert "runner readiness" in first_run_page
@@ -170,6 +175,19 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "first-run-sample-selection" in first_run_sample_submit
     assert "state.selectedWorkflow?.description" not in first_run_page
     assert "fetchWorkflowResultPackageExports(resultId)" in first_run_page
+    assert "autoResumeLatestRun?: boolean" in hook
+    assert "if (!autoResumeLatestRun || activeRunId || submittedRun?.runId || runDetail?.run?.runId) return" in hook
+    assert "void loadRunHistory({ forceRefresh: autoResumeLatestRun, reportError: autoResumeLatestRun })" in hook
+    assert "setRunHistoryError(workflowErrorMessage(err, \"读取运行历史失败\"))" in hook
+    assert "void loadRunHistory({ forceRefresh: true, reportError: autoResumeLatestRun })" in hook
+    assert "selectedPipelineId !== initialWorkflowId" in hook
+    assert "const latestRun = latestRunForPipeline(runHistory, selectedPipelineId)" in hook
+    assert "setActiveRunId(latestRun.runId)" in hook
+    assert "setSubmittedRun(latestRun)" in hook
+    assert "state.runHistoryError" in first_run_page
+    assert "function latestRunForPipeline" in hook
+    assert "workflowRunPipelineId(run) === pipelineId" in hook
+    assert "Date.parse(value)" in hook
     assert "workflowResultPackageDownloadHref" in first_run_validation
     assert "refreshRunDetail" in hook
     assert "export async function uploadWorkflowSampleData" in api
