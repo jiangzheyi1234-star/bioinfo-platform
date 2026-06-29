@@ -79,7 +79,7 @@ To let the pilot proof drive the whole Moving Pictures path through the same pub
 scripts\first_run_pilot_check.ps1 -RunFirstSuccessfulRun -RequireFinalizationReady
 ```
 
-This selects a ready server, prepares the official Moving Pictures sample uploads with checksum verification, submits `/api/v1/runs`, polls `/api/v1/runs/<run_id>/detail` until completion, then finalizes the first run. It must report `closedLoopProven: true` and `closedLoopProofMode: "submitted-run"`; otherwise the pilot has not proven the full first successful run. Ready finalization must also prove that `pilotHandoff` evidence matches the validation card and result package hashes, includes the read-only backup/restore handoff commands, and advertises the next taxonomy/AMR scenario pilots. The JSON summary records these fields under `handoffProof`.
+This selects a ready server, proves `/execution-diagnostics` readiness before submission, prepares the official Moving Pictures sample uploads with checksum verification, submits `/api/v1/runs`, polls `/api/v1/runs/<run_id>/detail` until completion, then finalizes the first run. It must report `closedLoopProven: true`, `closedLoopProofMode: "submitted-run"`, `executionReadinessProof.ok: true`, and `sampleUploadProof.passed: true`; otherwise the pilot has not proven the full first successful run. Ready finalization must also prove that `pilotHandoff` evidence matches the validation card and result package hashes, includes the read-only backup/restore handoff commands, and advertises the next taxonomy/AMR scenario pilots. The JSON summary records these fields under `executionReadinessProof`, `sampleUploadProof`, and `handoffProof`.
 
 ## Single-User Pilot Backup And Restore
 
@@ -99,7 +99,7 @@ After restoring into an isolated Windows profile and a dedicated remote runner r
 scripts\first_run_pilot_check.ps1 -RunFirstSuccessfulRun -RequireFinalizationReady
 ```
 
-The restore is not accepted until that command reports `closedLoopProven: true`, `closedLoopProofMode: "submitted-run"`, a ready validation card, a result package SHA-256, passed Moving Pictures sample checksums, and a `handoffProof` summary whose `pilotHandoff` evidence matches the validation card and result package hashes.
+The restore is not accepted until that command reports `closedLoopProven: true`, `closedLoopProofMode: "submitted-run"`, `executionReadinessProof.ok: true`, `sampleUploadProof.passed: true`, a ready validation card, a result package SHA-256, and a `handoffProof` summary whose `pilotHandoff` evidence matches the validation card and result package hashes.
 
 ## Optional Gates
 

@@ -127,6 +127,30 @@ function New-FirstRunRunSpec {
     }
 }
 
+function New-SampleUploadProof {
+    param([object[]]$Uploads)
+    $items = @(
+        $Uploads | ForEach-Object {
+            [ordered]@{
+                role = $_.role
+                filename = $_.filename
+                uploadId = $_.uploadId
+                sha256 = $_.sha256
+                expectedSha256 = $_.expectedSha256
+                sizeBytes = $_.sizeBytes
+                expectedSizeBytes = $_.expectedSizeBytes
+                integrityStatus = $_.integrityStatus
+            }
+        }
+    )
+    return [ordered]@{
+        passed = ($items.Count -eq 3 -and (@($items | Where-Object { $_.integrityStatus -eq "passed" -and $_.sha256 -and $_.sha256 -eq $_.expectedSha256 }).Count -eq 3))
+        count = $items.Count
+        roles = @($items | ForEach-Object { $_.role })
+        items = $items
+    }
+}
+
 function Submit-FirstRun {
     param([string]$ResolvedServerId)
     Write-Step "preparing official Moving Pictures sample data"
@@ -147,7 +171,10 @@ function Submit-FirstRun {
     if (-not $submitted.runId) {
         Fail-Pilot "submitted first-run response must include runId"
     }
-    return $submitted.runId
+    return [ordered]@{
+        runId = $submitted.runId
+        sampleUploadProof = New-SampleUploadProof $uploads
+    }
 }
 
 function Assert-ExecutionReadiness {
@@ -400,6 +427,7 @@ $finalizationAction = $null
 $handoffProof = $null
 $blockedActionProof = $null
 $executionReadinessProof = $null
+$sampleUploadProof = $null
 if ($RunFirstSuccessfulRun -and $RunId) {
     Fail-Pilot "-RunFirstSuccessfulRun cannot be combined with -RunId"
 }
@@ -411,7 +439,9 @@ if ($RequireFinalizationReady -and -not $RunId) {
 if ($RunFirstSuccessfulRun) {
     $ServerId = Get-ServerId $ServerId
     $executionReadinessProof = Assert-ExecutionReadiness $ServerId
-    $RunId = Submit-FirstRun $ServerId
+    $submissionProof = Submit-FirstRun $ServerId
+    $RunId = $submissionProof.runId
+    $sampleUploadProof = $submissionProof.sampleUploadProof
     $null = Wait-Run-Terminal $RunId
     $closedLoopProofMode = $ClosedLoopProofModes.SubmittedRun
 }
@@ -467,6 +497,7 @@ $summary = [ordered]@{
     handoffProof = $handoffProof
     blockedActionProof = $blockedActionProof
     executionReadinessProof = $executionReadinessProof
+    sampleUploadProof = $sampleUploadProof
 }
 
 Write-Step "passed"

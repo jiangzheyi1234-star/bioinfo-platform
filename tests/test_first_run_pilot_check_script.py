@@ -43,6 +43,11 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "execution diagnostics readiness must be ok" in source
     assert "blockingReasonCount = $blockingReasons.Count" in source
     assert "$executionReadinessProof = Assert-ExecutionReadiness $ServerId" in source
+    assert "function New-SampleUploadProof" in source
+    assert "sampleUploadProof = New-SampleUploadProof $uploads" in source
+    assert "metadata\", \"barcodes\", \"sequences" in source
+    assert "sha256 = $_.sha256" in source
+    assert "expectedSha256 = $_.expectedSha256" in source
     assert "$ApiBase/api/v1/workflow-sample-data/$([uri]::EscapeDataString($FirstRunPipelineId))/uploads" in source
     assert "$ApiBase/api/v1/runs" in source
     assert "projectId = \"first-run-pilot\"" in source
@@ -87,6 +92,7 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "$blockedActionProof = Assert-FirstRunBlockedNextAction $finalization.nextAction" in source
     assert "blockedActionProof = $blockedActionProof" in source
     assert "executionReadinessProof = $executionReadinessProof" in source
+    assert "sampleUploadProof = $sampleUploadProof" in source
     assert "if ($RequireFinalizationReady -or $RunFirstSuccessfulRun)" in source
     assert "-RunFirstSuccessfulRun cannot be combined with -RunId" in source
     assert "-RequireFinalizationReady requires -RunId or -RunFirstSuccessfulRun" in source
@@ -107,3 +113,5 @@ def test_first_run_pilot_docs_keep_mutating_proof_explicit() -> None:
     assert "scripts\\first_run_pilot_check.ps1 -RunFirstSuccessfulRun -RequireFinalizationReady" in source
     assert 'closedLoopProven: true' in source
     assert 'closedLoopProofMode: "submitted-run"' in source
+    assert "executionReadinessProof.ok: true" in source
+    assert "sampleUploadProof.passed: true" in source

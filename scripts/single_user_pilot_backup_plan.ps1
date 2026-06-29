@@ -200,9 +200,11 @@ $plan = [ordered]@{
         mustReport = @(
             "closedLoopProven=true",
             "closedLoopProofMode=submitted-run",
+            "executionReadinessProof.ok=true",
+            "sampleUploadProof.passed=true",
             "validationCard ready",
             "resultPackage SHA256 present",
-            "Moving Pictures sample checksums passed"
+            "sampleUploadProof covers metadata, barcodes, and sequences"
         )
     }
     unsupportedOperations = @(
