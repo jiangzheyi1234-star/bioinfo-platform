@@ -477,6 +477,9 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "WORKFLOW_BACKFILL_LAUNCH_CANCEL" in execution_manager_source
     assert "GOVERNANCE_AUDIT_EVENTS_READ" in execution_manager_source
     assert "SECRET_PROVIDER_READINESS_READ" in execution_manager_source
+    assert "RUN_CREATE" in execution_manager_source
+    assert "manager.submit_run" not in execution_manager_source
+    assert '"submit_run"' not in execution_manager_source
     assert '"list_workflow_backfill_launches"' not in execution_manager_source
     assert '"create_workflow_trigger"' not in execution_manager_source
     assert '"submit_workflow_trigger_event"' not in execution_manager_source
@@ -505,6 +508,7 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "self.call_remote_endpoint(" in execution_manager_source
     assert "self.read_remote_endpoint(" in execution_manager_source
     assert "RUN_LIST" in execution_manager_source
+    assert "RUN_CREATE" in execution_manager_source
     assert "RUN_READ" in execution_manager_source
     assert "RUN_EVENTS_READ" in execution_manager_source
     assert "RUN_EXECUTION_CONTEXT_READ" in execution_manager_source

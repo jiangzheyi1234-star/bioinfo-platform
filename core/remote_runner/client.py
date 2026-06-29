@@ -237,22 +237,6 @@ class RemoteRunnerHttpClient:
             },
         )["data"]
 
-    def create_run(
-        self,
-        payload: dict[str, Any],
-        *,
-        idempotency_key: str,
-        request_id: str,
-    ) -> dict[str, Any]:
-        return self.post_json(
-            "/api/v1/runs",
-            payload,
-            extra_headers={
-                "Idempotency-Key": idempotency_key,
-                "X-Request-Id": request_id,
-            },
-        )
-
     def download_result_package(self, result_id: str, package_export_id: str) -> dict[str, Any]:
         result_part = urllib.parse.quote(result_id, safe="")
         export_part = urllib.parse.quote(package_export_id, safe="")

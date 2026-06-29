@@ -17,6 +17,7 @@ from core.contracts.remote_endpoints import (
     ARTIFACT_LIFECYCLE_GC_RUN,
     ARTIFACT_LIFECYCLE_USAGE_READ,
     GOVERNANCE_AUDIT_EVENTS_READ,
+    RUN_CREATE,
     RESULT_AUDIT_READ,
     RESULT_LIST,
     RESULT_PACKAGE_EXPORT_LIST,
@@ -89,17 +90,22 @@ class ExecutionManager(BaseRuntimeManager):
             raise RuntimeServiceError("pipelineId is required")
         manager, server_id, ssh, record = self._runner_context(preferred_server_id=server_id_hint)
         return self._service._call_remote_runner(
-            manager.submit_run,
+            manager.call_remote_endpoint,
             server_id=server_id,
             ssh_service=ssh,
             server_record=record,
+            endpoint_id=RUN_CREATE,
+            path_values={},
+            query_values={},
             payload={
                 "serverId": server_id,
                 "requestId": request_id,
                 "runSpec": run_spec,
             },
-            idempotency_key=idempotency_key,
-            request_id=request_id,
+            extra_headers={
+                "Idempotency-Key": idempotency_key,
+                "X-Request-Id": request_id,
+            },
         )
 
     def list_workflow_triggers(self, server_id: Optional[str] = None) -> dict[str, Any]:

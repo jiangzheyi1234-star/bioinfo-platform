@@ -10,6 +10,7 @@ from core.app_runtime.managers.execution import ExecutionManager
 from core.contracts.remote_endpoints import (
     REMOTE_ENDPOINTS,
     RUN_CANCEL,
+    RUN_CREATE,
     RUN_RESUME,
     RUN_RETRY,
     render_remote_endpoint_path,
@@ -20,10 +21,11 @@ from core.remote_runner.endpoint_caller import call_remote_endpoint
 from core.remote_runner.proxy import RemoteRunnerProxyMixin
 
 
-RUN_COMMAND_ENDPOINTS = (RUN_CANCEL, RUN_RETRY, RUN_RESUME)
+RUN_COMMAND_ENDPOINTS = (RUN_CREATE, RUN_CANCEL, RUN_RETRY, RUN_RESUME)
 
 
 def test_run_command_endpoints_are_contract_rendered() -> None:
+    assert render_remote_endpoint_path(RUN_CREATE, {}) == "/api/v1/runs"
     assert render_remote_endpoint_path(RUN_CANCEL, {"run_id": "run/1"}) == "/api/v1/runs/run%2F1/cancel"
     assert render_remote_endpoint_path(RUN_RETRY, {"run_id": "run/1"}) == "/api/v1/runs/run%2F1/retry"
     assert render_remote_endpoint_path(RUN_RESUME, {"run_id": "run/1"}) == "/api/v1/runs/run%2F1/resume"
@@ -31,11 +33,15 @@ def test_run_command_endpoints_are_contract_rendered() -> None:
     for endpoint_id in RUN_COMMAND_ENDPOINTS:
         endpoint = REMOTE_ENDPOINTS[endpoint_id]
         assert endpoint.method == "POST"
-        assert endpoint.response_key == "data"
         assert endpoint.cache_scope == "run-command"
         assert endpoint.invalidates == ("run-read-model",)
         assert endpoint.query_params == ()
 
+    assert REMOTE_ENDPOINTS[RUN_CREATE].response_key == ""
+    for endpoint_id in (RUN_CANCEL, RUN_RETRY, RUN_RESUME):
+        assert REMOTE_ENDPOINTS[endpoint_id].response_key == "data"
+
+    assert REMOTE_ENDPOINTS[RUN_CREATE].accepted_statuses == (202,)
     assert REMOTE_ENDPOINTS[RUN_CANCEL].accepted_statuses == (200,)
     assert REMOTE_ENDPOINTS[RUN_RETRY].accepted_statuses == (202,)
     assert REMOTE_ENDPOINTS[RUN_RESUME].accepted_statuses == (202,)
@@ -61,13 +67,17 @@ def test_run_command_endpoint_contracts_match_openapi_operation_ids_and_statuses
 
     for app in (local_app, remote_app):
         paths = app.openapi()["paths"]
+        create = paths[REMOTE_ENDPOINTS[RUN_CREATE].path_template]["post"]
         cancel = paths[REMOTE_ENDPOINTS[RUN_CANCEL].path_template]["post"]
         retry = paths[REMOTE_ENDPOINTS[RUN_RETRY].path_template]["post"]
         resume = paths[REMOTE_ENDPOINTS[RUN_RESUME].path_template]["post"]
 
+        assert create["operationId"] == REMOTE_ENDPOINTS[RUN_CREATE].operation_id
         assert cancel["operationId"] == REMOTE_ENDPOINTS[RUN_CANCEL].operation_id
         assert retry["operationId"] == REMOTE_ENDPOINTS[RUN_RETRY].operation_id
         assert resume["operationId"] == REMOTE_ENDPOINTS[RUN_RESUME].operation_id
+        assert "202" in create["responses"]
+        assert "200" not in create["responses"]
         assert "200" in cancel["responses"]
         assert "202" not in cancel["responses"]
         assert "202" in retry["responses"]
@@ -79,6 +89,13 @@ def test_run_command_endpoint_contracts_match_openapi_operation_ids_and_statuses
 def test_run_command_endpoint_caller_posts_payload_and_accepted_statuses() -> None:
     client = FakeCommandClient()
 
+    created = call_remote_endpoint(
+        client,
+        RUN_CREATE,
+        path_values={},
+        payload={"serverId": "srv_1", "requestId": "req_1", "runSpec": {"pipelineId": "taxonomy-v1"}},
+        extra_headers={"Idempotency-Key": "idem_1", "X-Request-Id": "req_1"},
+    )
     cancelled = call_remote_endpoint(client, RUN_CANCEL, path_values={"run_id": "run_1"})
     retried = call_remote_endpoint(
         client,
@@ -93,6 +110,12 @@ def test_run_command_endpoint_caller_posts_payload_and_accepted_statuses() -> No
         payload={"confirmation": "resume-run", "planHash": "a" * 64},
     )
 
+    assert created == {
+        "data": {"runId": "run_1", "status": "queued", "requestId": "req_1"},
+        "location": "/api/v1/runs/run_1",
+        "retryAfter": 2,
+        "requestId": "req_1",
+    }
     assert cancelled == {"path": "/api/v1/runs/run_1/cancel", "payload": {}, "acceptedStatuses": [200]}
     assert retried == {
         "path": "/api/v1/runs/run_1/retry",
@@ -105,13 +128,21 @@ def test_run_command_endpoint_caller_posts_payload_and_accepted_statuses() -> No
         "acceptedStatuses": [202],
     }
     assert client.calls == [
-        ("POST", "/api/v1/runs/run_1/cancel", {}, (200,)),
-        ("POST", "/api/v1/runs/run_1/retry", {"scope": "run", "actor": "operator"}, (202,)),
+        (
+            "POST",
+            "/api/v1/runs",
+            {"serverId": "srv_1", "requestId": "req_1", "runSpec": {"pipelineId": "taxonomy-v1"}},
+            (202,),
+            {"Idempotency-Key": "idem_1", "X-Request-Id": "req_1"},
+        ),
+        ("POST", "/api/v1/runs/run_1/cancel", {}, (200,), {}),
+        ("POST", "/api/v1/runs/run_1/retry", {"scope": "run", "actor": "operator"}, (202,), {}),
         (
             "POST",
             "/api/v1/runs/run_1/resume",
             {"confirmation": "resume-run", "planHash": "a" * 64},
             (202,),
+            {},
         ),
     ]
 
@@ -119,6 +150,14 @@ def test_run_command_endpoint_caller_posts_payload_and_accepted_statuses() -> No
 def test_run_command_proxy_generic_endpoint_call_uses_registry() -> None:
     proxy = FakeProxy()
 
+    created = proxy.call_remote_endpoint(
+        **_endpoint_kwargs(
+            RUN_CREATE,
+            path_values={},
+            payload={"serverId": "srv_1", "requestId": "req_1", "runSpec": {"pipelineId": "taxonomy-v1"}},
+            extra_headers={"Idempotency-Key": "idem_1", "X-Request-Id": "req_1"},
+        )
+    )
     cancelled = proxy.call_remote_endpoint(**_endpoint_kwargs(RUN_CANCEL, path_values={"run_id": "run_1"}))
     retried = proxy.call_remote_endpoint(
         **_endpoint_kwargs(
@@ -135,6 +174,12 @@ def test_run_command_proxy_generic_endpoint_call_uses_registry() -> None:
         )
     )
 
+    assert created == {
+        "data": {"runId": "run_1", "status": "queued", "requestId": "req_1"},
+        "location": "/api/v1/runs/run_1",
+        "retryAfter": 2,
+        "requestId": "req_1",
+    }
     assert cancelled == {"path": "/api/v1/runs/run_1/cancel", "payload": {}, "acceptedStatuses": [200]}
     assert retried == {
         "path": "/api/v1/runs/run_1/retry",
@@ -146,13 +191,21 @@ def test_run_command_proxy_generic_endpoint_call_uses_registry() -> None:
         "payload": {"confirmation": "resume-run", "planHash": "a" * 64},
         "acceptedStatuses": [202],
     }
-    assert proxy.timeouts == [5, 5, 5]
+    assert proxy.timeouts == [5, 5, 5, 5]
 
 
 def test_execution_manager_calls_run_commands_via_generic_endpoint() -> None:
     service = FakeRuntimeService()
     manager = ExecutionManager(service)
 
+    submitted = manager.submit_run(
+        {
+            "serverId": "srv_1",
+            "requestId": "req_1",
+            "idempotencyKey": "idem_1",
+            "runSpec": {"pipelineId": "taxonomy-v1"},
+        }
+    )
     assert manager.cancel_run("run_1") == {
         "data": {"endpointId": RUN_CANCEL, "pathValues": {"run_id": "run_1"}, "queryValues": {}}
     }
@@ -162,22 +215,31 @@ def test_execution_manager_calls_run_commands_via_generic_endpoint() -> None:
     assert manager.resume_run("run_1", {"confirmation": "resume-run", "planHash": "a" * 64}) == {
         "data": {"endpointId": RUN_RESUME, "pathValues": {"run_id": "run_1"}, "queryValues": {}}
     }
+    assert submitted == {"endpointId": RUN_CREATE, "pathValues": {}, "queryValues": {}}
     assert service.remote_runner_manager.calls == [
+        (RUN_CREATE, {}, {}),
         (RUN_CANCEL, {"run_id": "run_1"}, {}),
         (RUN_RETRY, {"run_id": "run_1"}, {}),
         (RUN_RESUME, {"run_id": "run_1"}, {}),
     ]
     assert service.remote_runner_manager.payloads == [
+        (RUN_CREATE, {"serverId": "srv_1", "requestId": "req_1", "runSpec": {"pipelineId": "taxonomy-v1"}}),
         (RUN_CANCEL, {}),
         (RUN_RETRY, {"scope": "run", "actor": "operator"}),
         (RUN_RESUME, {"confirmation": "resume-run", "planHash": "a" * 64}),
     ]
+    assert service.remote_runner_manager.extra_headers == [
+        (RUN_CREATE, {"Idempotency-Key": "idem_1", "X-Request-Id": "req_1"}),
+        (RUN_CANCEL, {}),
+        (RUN_RETRY, {}),
+        (RUN_RESUME, {}),
+    ]
 
 
 def test_transport_and_proxy_do_not_keep_basic_run_command_methods() -> None:
-    for method_name in ("cancel_run", "retry_run", "resume_run"):
+    for method_name in ("create_run", "cancel_run", "retry_run", "resume_run"):
         assert not hasattr(RemoteRunnerHttpClient, method_name)
-    for method_name in ("cancel_run", "retry_run"):
+    for method_name in ("submit_run", "cancel_run", "retry_run"):
         assert not hasattr(RemoteRunnerProxyMixin, method_name)
 
 
@@ -202,7 +264,7 @@ def test_transport_rejects_unlisted_contract_success_status(monkeypatch: pytest.
 
 class FakeCommandClient:
     def __init__(self) -> None:
-        self.calls: list[tuple[str, str, dict[str, object], tuple[int, ...] | None]] = []
+        self.calls: list[tuple[str, str, dict[str, object], tuple[int, ...] | None, dict[str, str]]] = []
 
     def post_json(
         self,
@@ -210,9 +272,17 @@ class FakeCommandClient:
         payload: dict[str, object],
         *,
         accepted_statuses: set[int] | None = None,
+        extra_headers: dict[str, str] | None = None,
     ) -> dict[str, object]:
         normalized_statuses = tuple(sorted(accepted_statuses)) if accepted_statuses else None
-        self.calls.append(("POST", path, dict(payload), normalized_statuses))
+        self.calls.append(("POST", path, dict(payload), normalized_statuses, dict(extra_headers or {})))
+        if path == "/api/v1/runs":
+            return {
+                "data": {"runId": "run_1", "status": "queued", "requestId": "req_1"},
+                "location": "/api/v1/runs/run_1",
+                "retryAfter": 2,
+                "requestId": "req_1",
+            }
         return {
             "data": {
                 "path": path,
@@ -258,7 +328,7 @@ class FakeRuntimeService:
         return None
 
     def _require_runner_ready(self, *, preferred_server_id=None):
-        assert preferred_server_id is None
+        assert preferred_server_id in (None, "srv_1")
         return "srv_1", object(), {"server_id": "srv_1"}
 
     def _call_remote_runner(self, method, **kwargs):
@@ -271,6 +341,7 @@ class FakeRemoteEndpointManager:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, object], dict[str, object]]] = []
         self.payloads: list[tuple[str, dict[str, object]]] = []
+        self.extra_headers: list[tuple[str, dict[str, str]]] = []
 
     def call_remote_endpoint(self, **kwargs) -> dict[str, object]:
         endpoint_id = str(kwargs["endpoint_id"])
@@ -278,6 +349,7 @@ class FakeRemoteEndpointManager:
         query_values = dict(kwargs.get("query_values") or {})
         self.calls.append((endpoint_id, path_values, query_values))
         self.payloads.append((endpoint_id, dict(kwargs.get("payload") or {})))
+        self.extra_headers.append((endpoint_id, dict(kwargs.get("extra_headers") or {})))
         return {"endpointId": endpoint_id, "pathValues": path_values, "queryValues": query_values}
 
 
@@ -286,6 +358,7 @@ def _endpoint_kwargs(
     *,
     path_values: dict[str, object],
     payload: dict[str, object] | None = None,
+    extra_headers: dict[str, str] | None = None,
 ) -> dict[str, object]:
     kwargs: dict[str, object] = {
         "server_id": "srv_1",
@@ -297,4 +370,6 @@ def _endpoint_kwargs(
     }
     if payload is not None:
         kwargs["payload"] = dict(payload)
+    if extra_headers is not None:
+        kwargs["extra_headers"] = dict(extra_headers)
     return kwargs

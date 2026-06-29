@@ -313,7 +313,6 @@ def test_server_actions_update_server_state(monkeypatch, tmp_path: Path) -> None
         },
         "servers": {},
     }
-
     class FakeRemoteRunnerManager:
         def bootstrap(self, **kwargs):
             return {
@@ -342,7 +341,6 @@ def test_server_actions_update_server_state(monkeypatch, tmp_path: Path) -> None
                 "reasonCode": "",
                 "checkedAt": "2026-04-21T12:00:00Z",
             }
-
     service._service_locator.remote_runner_manager = FakeRemoteRunnerManager()
     def save_capture(next_cfg: dict) -> None:
         snapshot = dict(next_cfg)
@@ -720,7 +718,9 @@ def test_submit_run_returns_async_headers(monkeypatch, tmp_path: Path) -> None:
     }
 
     class FakeRemoteRunnerManager:
-        def submit_run(self, **kwargs):
+        def call_remote_endpoint(self, **kwargs):
+            assert kwargs["endpoint_id"] == "run.create"
+            assert kwargs["extra_headers"] == {"Idempotency-Key": "req_submit_001", "X-Request-Id": "req_submit_001"}
             return {
                 "data": {
                     "runId": "run_2026_phase2",

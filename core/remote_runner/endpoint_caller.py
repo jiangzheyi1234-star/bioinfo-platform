@@ -24,8 +24,8 @@ def call_remote_endpoint(
     status_kwargs: dict[str, set[int]] = {"accepted_statuses": set(endpoint.accepted_statuses)}
     if payload is not None and raw_body is not None:
         raise RemoteEndpointContractError("REMOTE_ENDPOINT_BODY_AMBIGUOUS", endpoint_id)
-    if extra_headers and raw_body is None:
-        raise RemoteEndpointContractError("REMOTE_ENDPOINT_EXTRA_HEADERS_WITHOUT_RAW_BODY", endpoint_id)
+    if extra_headers and endpoint.method != "POST":
+        raise RemoteEndpointContractError("REMOTE_ENDPOINT_EXTRA_HEADERS_UNSUPPORTED", endpoint_id)
 
     if endpoint.method == "GET":
         if payload or raw_body is not None:
@@ -35,7 +35,10 @@ def call_remote_endpoint(
         if raw_body is not None:
             envelope = client.post_bytes_json(path, raw_body, extra_headers=extra_headers, **status_kwargs)
         else:
-            envelope = client.post_json(path, dict(payload or {}), **status_kwargs)
+            post_kwargs: dict[str, Any] = dict(status_kwargs)
+            if extra_headers is not None:
+                post_kwargs["extra_headers"] = extra_headers
+            envelope = client.post_json(path, dict(payload or {}), **post_kwargs)
     elif endpoint.method == "PATCH":
         if raw_body is not None:
             raise RemoteEndpointContractError("REMOTE_ENDPOINT_PATCH_RAW_BODY_UNSUPPORTED", endpoint_id)

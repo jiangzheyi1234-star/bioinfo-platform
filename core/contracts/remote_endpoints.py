@@ -42,33 +42,23 @@ class RemoteEndpoint:
 
 
 def _workflow_trigger_command_endpoint(
-    endpoint_id: str,
-    path_template: str,
-    operation_id: str,
-    governance_action: str,
-    request_schema: str,
-    response_schema: str,
+    endpoint_id: str, path_template: str, operation_id: str,
+    governance_action: str, request_schema: str, response_schema: str,
     *,
     invalidates: tuple[str, ...] = (),
     response_key: str = "data",
     accepted_statuses: tuple[int, ...] = (200,),
 ) -> RemoteEndpoint:
     return RemoteEndpoint(
-        endpoint_id=endpoint_id,
-        method="POST",
-        path_template=path_template,
-        operation_id=operation_id,
-        governance_action=governance_action,
-        request_schema=request_schema,
-        response_schema=response_schema,
-        cache_scope="workflow-trigger-command",
-        invalidates=invalidates,
-        response_key=response_key,
+        endpoint_id=endpoint_id, method="POST", path_template=path_template, operation_id=operation_id,
+        governance_action=governance_action, request_schema=request_schema, response_schema=response_schema,
+        cache_scope="workflow-trigger-command", invalidates=invalidates, response_key=response_key,
         accepted_statuses=accepted_statuses,
     )
 
 
 RUN_LIST = "run.list"
+RUN_CREATE = "run.create"
 RUN_READ = "run.read"
 RUN_EVENTS_READ = "run.events.read"
 RUN_EXECUTION_CONTEXT_READ = "run.execution_context.read"
@@ -141,6 +131,19 @@ REMOTE_ENDPOINTS: dict[str, RemoteEndpoint] = {
         response_schema="run-list.v1",
         cache_scope="run-read-model",
         response_item_key="items",
+    ),
+    RUN_CREATE: RemoteEndpoint(
+        endpoint_id=RUN_CREATE,
+        method="POST",
+        path_template="/api/v1/runs",
+        operation_id="createRun",
+        governance_action="run.submit",
+        request_schema="run-create-request.v1",
+        response_schema="run-submission.v1",
+        cache_scope="run-command",
+        invalidates=("run-read-model",),
+        response_key="",
+        accepted_statuses=(202,),
     ),
     RUN_READ: RemoteEndpoint(
         endpoint_id=RUN_READ,

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from config import resolve_runner_token
-from core.contracts.remote_endpoints import RESULT_LIST, RESULT_PREVIEW_READ, RESULT_READ, RUN_READ, RUN_RESULTS_READ
+from core.contracts.remote_endpoints import RESULT_LIST, RESULT_PREVIEW_READ, RESULT_READ, RUN_CREATE, RUN_READ, RUN_RESULTS_READ
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
 from core.remote_runner.client import RemoteRunnerClientError, RemoteRunnerHttpClient
 from core.remote_runner.endpoint_caller import call_remote_endpoint
@@ -138,8 +138,11 @@ class RemoteRunnerBootstrapActivationMixin:
                 "remotePath": str(upload.get("remotePath") or ""),
             }
             request_id = f"req_bootstrap_canary_{int(time.time() * 1000)}"
-            submission = client.create_run(
-                {
+            submission = call_remote_endpoint(
+                client,
+                RUN_CREATE,
+                path_values={},
+                payload={
                     "serverId": server_id,
                     "requestId": request_id,
                     "runSpec": {
@@ -154,8 +157,10 @@ class RemoteRunnerBootstrapActivationMixin:
                         "params": {"threads": 1},
                     },
                 },
-                idempotency_key=f"idem_bootstrap_canary_{secrets.token_hex(8)}",
-                request_id=request_id,
+                extra_headers={
+                    "Idempotency-Key": f"idem_bootstrap_canary_{secrets.token_hex(8)}",
+                    "X-Request-Id": request_id,
+                },
             )
             run_id = str(((submission.get("data") or {}).get("runId")) or "")
             if not run_id:

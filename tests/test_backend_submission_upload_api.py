@@ -34,29 +34,31 @@ def test_submit_run_persists_run_spec_for_followup_detail(
     }
 
     class FakeRemoteRunnerManager:
-        def submit_run(self, **kwargs):
-            return {
-                "data": {
-                    "runId": "run_contract_submit",
-                    "status": "queued",
-                    "stage": "submitted",
+        def call_remote_endpoint(self, **kwargs):
+            endpoint_id = kwargs["endpoint_id"]
+            if endpoint_id == "run.create":
+                return {
+                    "data": {
+                        "runId": "run_contract_submit",
+                        "status": "queued",
+                        "stage": "submitted",
+                        "requestId": "req_submit_002",
+                    },
+                    "location": "/api/v1/runs/run_contract_submit",
+                    "retryAfter": 2,
                     "requestId": "req_submit_002",
-                },
-                "location": "/api/v1/runs/run_contract_submit",
-                "retryAfter": 2,
-                "requestId": "req_submit_002",
-            }
-
-        def get_run(self, **kwargs):
-            return {
-                "runId": "run_contract_submit",
-                "projectId": "proj_contract",
-                "runSpec": {
+                }
+            if endpoint_id == "run.read":
+                return {
+                    "runId": "run_contract_submit",
                     "projectId": "proj_contract",
-                    "pipelineId": "assembly-v3",
-                    "inputs": [{"sampleId": "sample_alpha"}],
-                },
-            }
+                    "runSpec": {
+                        "projectId": "proj_contract",
+                        "pipelineId": "assembly-v3",
+                        "inputs": [{"sampleId": "sample_alpha"}],
+                    },
+                }
+            raise AssertionError(f"unexpected endpoint: {endpoint_id}")
 
         def get_health(self, **kwargs):
             return _ready_health()

@@ -203,21 +203,6 @@ class RemoteRunnerProxyMixin:
         )
         return client.post_json(f"/api/v1/tools/{kwargs['tool_id']}/production", kwargs["payload"])["data"]
 
-    def submit_run(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        return client.post_json(
-            "/api/v1/runs",
-            kwargs["payload"],
-            extra_headers={
-                "Idempotency-Key": kwargs["idempotency_key"],
-                "X-Request-Id": kwargs["request_id"],
-            },
-        )
-
     def _open_runner_tunnel(self, *, server_id: str, ssh_service, remote_port: int):
         try:
             return ssh_service.ensure_local_tunnel(
