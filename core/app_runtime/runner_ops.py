@@ -5,6 +5,7 @@ from typing import Any, Optional
 from core.app_runtime.runner_database_ops import RunnerDatabaseOperationsMixin
 from core.app_runtime.runner_execution_ops import RunnerExecutionOperationsMixin
 from core.app_runtime.runner_file_ops import RunnerFileOperationsMixin
+from core.app_runtime.runner_pipeline_ops import RunnerPipelineOperationsMixin
 from core.app_runtime.runner_tool_ops import RunnerToolOperationsMixin
 from core.app_runtime.runner_workflow_design_ops import RunnerWorkflowDesignOperationsMixin
 from core.app_runtime.remote_runner_call import call_remote_runner
@@ -16,6 +17,7 @@ class RunnerOperationsMixin(
     RunnerDatabaseOperationsMixin,
     RunnerExecutionOperationsMixin,
     RunnerFileOperationsMixin,
+    RunnerPipelineOperationsMixin,
     RunnerToolOperationsMixin,
     RunnerWorkflowDesignOperationsMixin,
 ):

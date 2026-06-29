@@ -14,7 +14,7 @@ from core.contracts.pipeline_manifest import validate_pipeline_manifest
 
 async def get_workflow_catalog_from_request(refresh: bool) -> dict[str, Any]:
     return await cached_response(
-        "workflow_catalog:bundled",
+        "workflow_catalog:remote_runner",
         30,
         load_workflow_catalog,
         force_refresh=refresh,
@@ -31,15 +31,28 @@ async def get_run_detail_from_request(run_id: str, refresh: bool) -> dict[str, A
 
 
 async def load_workflow_catalog() -> dict[str, Any]:
-    manifests = list_bundled_pipeline_manifests()
-    catalog = [_catalog_item_from_pipeline(item) for item in manifests]
+    runtime = runtime_service()
+    pipeline_payload = await run_sync(runtime.list_pipelines)
+    catalog = [_catalog_item_from_pipeline(item) for item in _pipeline_items_from_payload(pipeline_payload)]
     catalog.sort(key=lambda item: (not item["runnable"], item["name"].lower()))
     return {
         "data": {
             "items": catalog,
-            "serverReady": False,
+            "serverReady": True,
         }
     }
+
+
+def _pipeline_items_from_payload(payload: Any) -> list[dict[str, Any]]:
+    data = _unwrap_data(payload, {})
+    items = data.get("items") if isinstance(data, dict) else None
+    if not isinstance(items, list):
+        raise RuntimeServiceError("WORKFLOW_CATALOG_PIPELINE_ITEMS_INVALID")
+    if not items:
+        raise RuntimeServiceError("WORKFLOW_CATALOG_PIPELINE_REGISTRY_EMPTY")
+    if not all(isinstance(item, dict) for item in items):
+        raise RuntimeServiceError("WORKFLOW_CATALOG_PIPELINE_ITEM_INVALID")
+    return items
 
 
 def list_bundled_pipeline_manifests() -> list[dict[str, Any]]:

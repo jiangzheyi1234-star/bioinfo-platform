@@ -14,6 +14,7 @@ from core.app_runtime import runtime_config
 from core.app_runtime.managers.database import DatabaseManager
 from core.app_runtime.managers.execution import ExecutionManager
 from core.app_runtime.managers.file import FileManager
+from core.app_runtime.managers.pipeline import PipelineManager
 from core.app_runtime.managers.runner import RunnerManager
 from core.app_runtime.managers.tool import ToolManager
 from core.app_runtime.managers.workflow import WorkflowManager
@@ -81,6 +82,7 @@ class RuntimeService(
         self.databases = DatabaseManager(self)
         self.execution = ExecutionManager(self)
         self.files = FileManager(self)
+        self.pipelines = PipelineManager(self)
         self.runner = RunnerManager(self)
         self.tools = ToolManager(self)
         self.workflows = WorkflowManager(self)

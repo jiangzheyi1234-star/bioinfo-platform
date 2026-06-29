@@ -249,6 +249,39 @@ def test_runtime_database_operations_delegate_to_database_manager() -> None:
     assert "self.databases.add_database(" in database_ops_source
 
 
+def test_runtime_pipeline_operations_live_in_dedicated_mixin() -> None:
+    runner_ops_source = _source("core/app_runtime/runner_ops.py")
+    pipeline_ops_source = _source("core/app_runtime/runner_pipeline_ops.py")
+
+    assert "from core.app_runtime.runner_pipeline_ops import RunnerPipelineOperationsMixin" in runner_ops_source
+    assert "RunnerPipelineOperationsMixin" in runner_ops_source
+    assert "class RunnerPipelineOperationsMixin" in pipeline_ops_source
+    for method_name in ("list_pipelines", "get_pipeline"):
+        assert f"def {method_name}(" in pipeline_ops_source
+        assert f"def {method_name}(" not in runner_ops_source
+
+
+def test_runtime_pipeline_operations_delegate_to_pipeline_manager() -> None:
+    service_source = _source("core/app_runtime/service.py")
+    pipeline_ops_source = _source("core/app_runtime/runner_pipeline_ops.py")
+    pipeline_manager_path = ROOT / "core/app_runtime/managers/pipeline.py"
+
+    assert pipeline_manager_path.exists()
+    pipeline_manager_source = pipeline_manager_path.read_text(encoding="utf-8")
+
+    assert "from core.app_runtime.managers.pipeline import PipelineManager" in service_source
+    assert "self.pipelines = PipelineManager(self)" in service_source
+    assert "class PipelineManager(BaseRuntimeManager)" in pipeline_manager_source
+    assert "PIPELINE_LIST" in pipeline_manager_source
+    assert "PIPELINE_READ" in pipeline_manager_source
+    assert "call_existing_remote_endpoint(" in pipeline_manager_source
+    assert "call_existing_runner(" not in pipeline_manager_source
+    assert "self._call_remote_runner(" not in pipeline_ops_source
+    assert "self._require_existing_runner_ready(" not in pipeline_ops_source
+    assert "self.pipelines.list_pipelines(" in pipeline_ops_source
+    assert "self.pipelines.get_pipeline(" in pipeline_ops_source
+
+
 def test_runtime_tool_operations_live_in_dedicated_mixin() -> None:
     runner_ops_source = _source("core/app_runtime/runner_ops.py")
     tool_ops_source = _source("core/app_runtime/runner_tool_ops.py")

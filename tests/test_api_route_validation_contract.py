@@ -629,8 +629,17 @@ def test_workflow_catalog_routes_delegate_cache_to_service() -> None:
     assert "from apps.api.runtime import get_runtime_service" not in service_source
     assert "from apps.api.route_utils import run_sync, runtime_service" in service_source
     assert "asyncio.to_thread" not in service_source
+    assert '"workflow_catalog:remote_runner"' in service_source
+    assert "list_bundled_pipeline_manifests()" not in service_source.split("async def load_workflow_catalog(", 1)[1].split(
+        "\n\n",
+        1,
+    )[0]
+    assert "runtime.list_pipelines" in service_source
+    assert '"serverReady": True' in service_source
+    assert "WORKFLOW_CATALOG_PIPELINE_REGISTRY_EMPTY" in service_source
     assert "runtime = runtime_service()" in service_source
     assert "await run_sync(" in service_source
+    assert "pipelineError" not in service_source
 
 
 def test_workflow_sample_data_service_uses_runtime_infrastructure() -> None:

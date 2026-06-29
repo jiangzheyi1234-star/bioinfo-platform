@@ -76,7 +76,6 @@ export type WorkflowCatalogResponse = {
   data: {
     items: WorkflowCatalogItem[];
     serverReady?: boolean;
-    pipelineError?: string;
   };
 };
 

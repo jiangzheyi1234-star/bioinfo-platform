@@ -3,8 +3,52 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from apps.api.workflow_catalog_service import load_run_detail
+import pytest
+
+from apps.api.workflow_catalog_service import load_run_detail, load_workflow_catalog
 from core.app_runtime.errors import RuntimeServiceError
+
+
+def test_workflow_catalog_loads_remote_runner_pipeline_registry(monkeypatch) -> None:
+    runtime = FakeCatalogRuntime()
+    monkeypatch.setattr("apps.api.workflow_catalog_service.runtime_service", lambda: runtime)
+
+    payload = asyncio.run(load_workflow_catalog())
+
+    data = payload["data"]
+    assert data["serverReady"] is True
+    assert [item["id"] for item in data["items"]] == [
+        "moving-pictures-16s-rulegraph-v1",
+        "disabled-v1",
+    ]
+    assert data["items"][0]["source"] == "remote-runner"
+    assert data["items"][0]["runnable"] is True
+    assert data["items"][0]["inputCount"] == 1
+    assert runtime.calls == ["list_pipelines"]
+
+
+def test_workflow_catalog_fails_loudly_on_invalid_remote_pipeline_payload(monkeypatch) -> None:
+    runtime = FakeInvalidCatalogRuntime()
+    monkeypatch.setattr("apps.api.workflow_catalog_service.runtime_service", lambda: runtime)
+
+    with pytest.raises(RuntimeServiceError, match="WORKFLOW_CATALOG_PIPELINE_ITEMS_INVALID"):
+        asyncio.run(load_workflow_catalog())
+
+
+def test_workflow_catalog_fails_loudly_on_empty_remote_pipeline_registry(monkeypatch) -> None:
+    runtime = FakeEmptyCatalogRuntime()
+    monkeypatch.setattr("apps.api.workflow_catalog_service.runtime_service", lambda: runtime)
+
+    with pytest.raises(RuntimeServiceError, match="WORKFLOW_CATALOG_PIPELINE_REGISTRY_EMPTY"):
+        asyncio.run(load_workflow_catalog())
+
+
+def test_workflow_catalog_propagates_remote_runner_readiness_errors(monkeypatch) -> None:
+    runtime = FakeUnavailableCatalogRuntime()
+    monkeypatch.setattr("apps.api.workflow_catalog_service.runtime_service", lambda: runtime)
+
+    with pytest.raises(RuntimeServiceError, match="pipeline registry not ready"):
+        asyncio.run(load_workflow_catalog())
 
 
 def test_run_detail_normalizes_missing_result_id_to_exportable_id(monkeypatch) -> None:
@@ -152,6 +196,55 @@ class FakeRunDetailRuntime:
     def get_result_preview(self, *, result_id: str, artifact_id: str) -> dict[str, Any]:
         self.preview_calls.append((result_id, artifact_id))
         return {"data": {"resultId": result_id, "artifactId": artifact_id, "content": "sample\tcount\nA\t1\n"}}
+
+
+class FakeCatalogRuntime:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def list_pipelines(self) -> dict[str, Any]:
+        self.calls.append("list_pipelines")
+        return {
+            "data": {
+                "items": [
+                    {
+                        "pipelineId": "disabled-v1",
+                        "name": "Disabled",
+                        "version": "0.1.0",
+                        "category": "Demo",
+                        "description": "Not runnable.",
+                        "enabled": False,
+                        "inputsSchema": {},
+                        "outputSchema": {"artifacts": []},
+                    },
+                    {
+                        "pipelineId": "moving-pictures-16s-rulegraph-v1",
+                        "name": "Moving Pictures 16S",
+                        "version": "1.0.0",
+                        "category": "16S",
+                        "description": "Example analysis.",
+                        "enabled": True,
+                        "inputsSchema": {"type": "array", "minItems": 1},
+                        "outputSchema": {"artifacts": [{"name": "report"}]},
+                    },
+                ]
+            }
+        }
+
+
+class FakeInvalidCatalogRuntime:
+    def list_pipelines(self) -> dict[str, Any]:
+        return {"data": {"items": "not-a-list"}}
+
+
+class FakeEmptyCatalogRuntime:
+    def list_pipelines(self) -> dict[str, Any]:
+        return {"data": {"items": []}}
+
+
+class FakeUnavailableCatalogRuntime:
+    def list_pipelines(self) -> dict[str, Any]:
+        raise RuntimeServiceError("pipeline registry not ready", status_code=503)
 
 
 class FakeRunDetailRuntimeWithoutOptionalProjections(FakeRunDetailRuntime):
