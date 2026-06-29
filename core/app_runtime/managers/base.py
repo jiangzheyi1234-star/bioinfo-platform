@@ -78,6 +78,8 @@ class BaseRuntimeManager:
         path_values: dict[str, Any],
         query_values: dict[str, Any] | None = None,
         payload: dict[str, Any] | None = None,
+        raw_body: bytes | None = None,
+        extra_headers: dict[str, str] | None = None,
         preferred_server_id: Optional[str] = None,
         require_existing_runner: bool = False,
         timeout: int | None = None,
@@ -91,6 +93,10 @@ class BaseRuntimeManager:
             kwargs["timeout"] = timeout
         if payload is not None:
             kwargs["payload"] = dict(payload)
+        if raw_body is not None:
+            kwargs["raw_body"] = bytes(raw_body)
+        if extra_headers is not None:
+            kwargs["extra_headers"] = dict(extra_headers)
         caller = self.call_existing_runner if require_existing_runner else self.call_runner
         return caller(
             "call_remote_endpoint",
@@ -121,6 +127,8 @@ class BaseRuntimeManager:
         path_values: dict[str, Any] | None = None,
         query_values: dict[str, Any] | None = None,
         payload: dict[str, Any] | None = None,
+        raw_body: bytes | None = None,
+        extra_headers: dict[str, str] | None = None,
         preferred_server_id: Optional[str] = None,
         require_existing_runner: bool = False,
         timeout: int | None = None,
@@ -131,6 +139,8 @@ class BaseRuntimeManager:
                 path_values=dict(path_values or {}),
                 query_values=query_values,
                 payload=payload,
+                raw_body=raw_body,
+                extra_headers=extra_headers,
                 preferred_server_id=preferred_server_id,
                 require_existing_runner=require_existing_runner,
                 timeout=timeout,

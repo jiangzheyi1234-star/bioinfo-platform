@@ -199,8 +199,15 @@ class RemoteRunnerHttpClient:
         body: bytes,
         *,
         extra_headers: dict[str, str] | None = None,
+        accepted_statuses: set[int] | None = None,
     ) -> dict[str, Any]:
-        return self._request_json("POST", path, raw_body=bytes(body), extra_headers=extra_headers)
+        return self._request_json(
+            "POST",
+            path,
+            raw_body=bytes(body),
+            extra_headers=extra_headers,
+            accepted_statuses=accepted_statuses,
+        )
 
     def patch_json(
         self,
@@ -245,48 +252,6 @@ class RemoteRunnerHttpClient:
                 "X-Request-Id": request_id,
             },
         )
-
-    def create_workflow_trigger(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self.post_json("/api/v1/workflow-triggers", payload)["data"]
-
-    def submit_workflow_trigger_event(self, trigger_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        return self.post_json(f"/api/v1/workflow-triggers/{trigger_id}/events", payload)
-
-    def submit_workflow_trigger_inbox_event(
-        self,
-        trigger_id: str,
-        payload: dict[str, Any] | None = None,
-        *,
-        raw_body: bytes | None = None,
-        headers: dict[str, str] | None = None,
-    ) -> dict[str, Any]:
-        path = f"/api/v1/workflow-triggers/{trigger_id}/inbox"
-        if raw_body is not None:
-            return self.post_bytes_json(path, raw_body, extra_headers=headers)
-        return self.post_json(path, dict(payload or {}))
-
-    def replay_workflow_trigger_inbox_event(
-        self,
-        trigger_id: str,
-        inbox_event_id: str,
-        payload: dict[str, Any],
-    ) -> dict[str, Any]:
-        return self.post_json(f"/api/v1/workflow-triggers/{trigger_id}/inbox/{inbox_event_id}/replay", payload)
-
-    def submit_workflow_trigger_readiness_event(self, trigger_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        return self.post_json(f"/api/v1/workflow-triggers/{trigger_id}/readiness", payload)
-
-    def preview_workflow_trigger_backfill(self, trigger_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        return self.post_json(f"/api/v1/workflow-triggers/{trigger_id}/backfill/preview", payload)
-
-    def launch_workflow_trigger_backfill(self, trigger_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        return self.post_json(f"/api/v1/workflow-triggers/{trigger_id}/backfill/launch", payload)
-
-    def run_workflow_trigger_scheduler_once(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self.post_json("/api/v1/workflow-trigger-scheduler/run-once", payload)["data"]
-
-    def cancel_workflow_backfill_launch(self, launch_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        return self.post_json(f"/api/v1/workflow-backfill-launches/{launch_id}/cancel", payload)["data"]
 
     def download_result_package(self, result_id: str, package_export_id: str) -> dict[str, Any]:
         result_part = urllib.parse.quote(result_id, safe="")

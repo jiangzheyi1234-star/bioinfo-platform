@@ -443,23 +443,34 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "self.execution.resume_run(" in execution_ops_source
     assert "self.execution.get_run_execution_context(" in execution_ops_source
     assert "self.execution.get_run_attempts(" in execution_ops_source
-    assert "manager.submit_workflow_trigger_event" in execution_manager_source
-    assert "manager.submit_workflow_trigger_inbox_event" in execution_manager_source
-    assert "manager.replay_workflow_trigger_inbox_event" in execution_manager_source
-    assert "manager.submit_workflow_trigger_readiness_event" in execution_manager_source
-    assert "manager.launch_workflow_trigger_backfill" in execution_manager_source
-    assert "manager.preview_workflow_trigger_backfill" in execution_manager_source
-    assert "manager.cancel_workflow_backfill_launch" in execution_manager_source
     assert "WORKFLOW_TRIGGER_LIST" in execution_manager_source
+    assert "WORKFLOW_TRIGGER_CREATE" in execution_manager_source
     assert "WORKFLOW_TRIGGER_EVENTS_READ" in execution_manager_source
+    assert "WORKFLOW_TRIGGER_EVENT_SUBMIT" in execution_manager_source
     assert "WORKFLOW_TRIGGER_READINESS_OBSERVATION_READ" in execution_manager_source
+    assert "WORKFLOW_TRIGGER_READINESS_SUBMIT" in execution_manager_source
     assert "WORKFLOW_TRIGGER_INBOX_READ" in execution_manager_source
+    assert "WORKFLOW_TRIGGER_INBOX_SUBMIT" in execution_manager_source
+    assert "WORKFLOW_TRIGGER_INBOX_REPLAY" in execution_manager_source
     assert "WORKFLOW_TRIGGER_SCHEDULER_TICKS_READ" in execution_manager_source
+    assert "WORKFLOW_TRIGGER_SCHEDULER_RUN_ONCE" in execution_manager_source
     assert "WORKFLOW_BACKFILL_LAUNCH_LIST" in execution_manager_source
     assert "WORKFLOW_BACKFILL_LAUNCH_READ" in execution_manager_source
+    assert "WORKFLOW_TRIGGER_BACKFILL_PREVIEW" in execution_manager_source
+    assert "WORKFLOW_TRIGGER_BACKFILL_LAUNCH" in execution_manager_source
+    assert "WORKFLOW_BACKFILL_LAUNCH_CANCEL" in execution_manager_source
     assert "GOVERNANCE_AUDIT_EVENTS_READ" in execution_manager_source
     assert "SECRET_PROVIDER_READINESS_READ" in execution_manager_source
     assert '"list_workflow_backfill_launches"' not in execution_manager_source
+    assert '"create_workflow_trigger"' not in execution_manager_source
+    assert '"submit_workflow_trigger_event"' not in execution_manager_source
+    assert '"submit_workflow_trigger_inbox_event"' not in execution_manager_source
+    assert '"replay_workflow_trigger_inbox_event"' not in execution_manager_source
+    assert '"submit_workflow_trigger_readiness_event"' not in execution_manager_source
+    assert '"run_workflow_trigger_scheduler_once"' not in execution_manager_source
+    assert '"preview_workflow_trigger_backfill"' not in execution_manager_source
+    assert '"launch_workflow_trigger_backfill"' not in execution_manager_source
+    assert '"cancel_workflow_backfill_launch"' not in execution_manager_source
     assert '"list_workflow_trigger_inbox_events"' not in execution_manager_source
     assert '"get_workflow_trigger_readiness_observation"' not in execution_manager_source
     assert '"get_workflow_backfill_launch"' not in execution_manager_source

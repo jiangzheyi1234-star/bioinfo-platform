@@ -51,11 +51,20 @@ from core.contracts.remote_endpoints import (
     SECRET_PROVIDER_READINESS_READ,
     WORKFLOW_BACKFILL_LAUNCH_LIST,
     WORKFLOW_BACKFILL_LAUNCH_READ,
+    WORKFLOW_BACKFILL_LAUNCH_CANCEL,
+    WORKFLOW_TRIGGER_BACKFILL_LAUNCH,
+    WORKFLOW_TRIGGER_BACKFILL_PREVIEW,
+    WORKFLOW_TRIGGER_CREATE,
+    WORKFLOW_TRIGGER_EVENT_SUBMIT,
     WORKFLOW_REVISION_READ,
     WORKFLOW_TRIGGER_EVENTS_READ,
+    WORKFLOW_TRIGGER_INBOX_REPLAY,
     WORKFLOW_TRIGGER_INBOX_READ,
+    WORKFLOW_TRIGGER_INBOX_SUBMIT,
     WORKFLOW_TRIGGER_LIST,
     WORKFLOW_TRIGGER_READINESS_OBSERVATION_READ,
+    WORKFLOW_TRIGGER_READINESS_SUBMIT,
+    WORKFLOW_TRIGGER_SCHEDULER_RUN_ONCE,
     WORKFLOW_TRIGGER_SCHEDULER_TICKS_READ,
 )
 
@@ -107,14 +116,18 @@ class ExecutionManager(BaseRuntimeManager):
             raise RuntimeServiceError("serverId is required")
         manager, server_id, ssh, record = self._runner_context(preferred_server_id=server_id_hint)
         body["serverId"] = server_id
+        data = self._service._call_remote_runner(
+            manager.call_remote_endpoint,
+            server_id=server_id,
+            ssh_service=ssh,
+            server_record=record,
+            endpoint_id=WORKFLOW_TRIGGER_CREATE,
+            path_values={},
+            query_values={},
+            payload=body,
+        )
         return {
-            "data": self._service._call_remote_runner(
-                manager.create_workflow_trigger,
-                server_id=server_id,
-                ssh_service=ssh,
-                server_record=record,
-                payload=body,
-            )
+            "data": data
         }
 
     def submit_workflow_trigger_event(
@@ -125,14 +138,11 @@ class ExecutionManager(BaseRuntimeManager):
     ) -> dict[str, Any]:
         body = dict(payload or {})
         server_id_hint = str(body.pop("serverId", None) or server_id or "").strip() or None
-        manager, resolved_server_id, ssh, record = self._runner_context(preferred_server_id=server_id_hint)
-        return self._service._call_remote_runner(
-            manager.submit_workflow_trigger_event,
-            server_id=resolved_server_id,
-            ssh_service=ssh,
-            server_record=record,
-            trigger_id=trigger_id,
+        return self.call_remote_endpoint(
+            WORKFLOW_TRIGGER_EVENT_SUBMIT,
+            path_values={"trigger_id": trigger_id},
             payload=body,
+            preferred_server_id=server_id_hint,
         )
 
     def submit_workflow_trigger_inbox_event(
@@ -145,16 +155,18 @@ class ExecutionManager(BaseRuntimeManager):
     ) -> dict[str, Any]:
         body = dict(payload or {})
         server_id_hint = str(body.pop("serverId", None) or server_id or "").strip() or None
-        manager, resolved_server_id, ssh, record = self._runner_context(preferred_server_id=server_id_hint)
-        return self._service._call_remote_runner(
-            manager.submit_workflow_trigger_inbox_event,
-            server_id=resolved_server_id,
-            ssh_service=ssh,
-            server_record=record,
-            trigger_id=trigger_id,
-            payload=body,
-            raw_body=raw_body,
-            headers=headers,
+        endpoint_kwargs: dict[str, Any] = {
+            "path_values": {"trigger_id": trigger_id},
+            "preferred_server_id": server_id_hint,
+        }
+        if raw_body is not None:
+            endpoint_kwargs["raw_body"] = bytes(raw_body)
+            endpoint_kwargs["extra_headers"] = dict(headers or {})
+        else:
+            endpoint_kwargs["payload"] = body
+        return self.call_remote_endpoint(
+            WORKFLOW_TRIGGER_INBOX_SUBMIT,
+            **endpoint_kwargs,
         )
 
     def replay_workflow_trigger_inbox_event(
@@ -166,15 +178,11 @@ class ExecutionManager(BaseRuntimeManager):
     ) -> dict[str, Any]:
         body = dict(payload or {})
         server_id_hint = str(body.pop("serverId", None) or server_id or "").strip() or None
-        manager, resolved_server_id, ssh, record = self._runner_context(preferred_server_id=server_id_hint)
-        return self._service._call_remote_runner(
-            manager.replay_workflow_trigger_inbox_event,
-            server_id=resolved_server_id,
-            ssh_service=ssh,
-            server_record=record,
-            trigger_id=trigger_id,
-            inbox_event_id=inbox_event_id,
+        return self.call_remote_endpoint(
+            WORKFLOW_TRIGGER_INBOX_REPLAY,
+            path_values={"trigger_id": trigger_id, "inbox_event_id": inbox_event_id},
             payload=body,
+            preferred_server_id=server_id_hint,
         )
 
     def submit_workflow_trigger_readiness_event(
@@ -185,14 +193,11 @@ class ExecutionManager(BaseRuntimeManager):
     ) -> dict[str, Any]:
         body = dict(payload or {})
         server_id_hint = str(body.pop("serverId", None) or server_id or "").strip() or None
-        manager, resolved_server_id, ssh, record = self._runner_context(preferred_server_id=server_id_hint)
-        return self._service._call_remote_runner(
-            manager.submit_workflow_trigger_readiness_event,
-            server_id=resolved_server_id,
-            ssh_service=ssh,
-            server_record=record,
-            trigger_id=trigger_id,
+        return self.call_remote_endpoint(
+            WORKFLOW_TRIGGER_READINESS_SUBMIT,
+            path_values={"trigger_id": trigger_id},
             payload=body,
+            preferred_server_id=server_id_hint,
         )
 
     def preview_workflow_trigger_backfill(
@@ -203,14 +208,11 @@ class ExecutionManager(BaseRuntimeManager):
     ) -> dict[str, Any]:
         body = dict(payload or {})
         server_id_hint = str(body.pop("serverId", None) or server_id or "").strip() or None
-        manager, resolved_server_id, ssh, record = self._runner_context(preferred_server_id=server_id_hint)
-        return self._service._call_remote_runner(
-            manager.preview_workflow_trigger_backfill,
-            server_id=resolved_server_id,
-            ssh_service=ssh,
-            server_record=record,
-            trigger_id=trigger_id,
+        return self.read_remote_endpoint(
+            WORKFLOW_TRIGGER_BACKFILL_PREVIEW,
+            path_values={"trigger_id": trigger_id},
             payload=body,
+            preferred_server_id=server_id_hint,
         )
 
     def launch_workflow_trigger_backfill(
@@ -221,14 +223,11 @@ class ExecutionManager(BaseRuntimeManager):
     ) -> dict[str, Any]:
         body = dict(payload or {})
         server_id_hint = str(body.pop("serverId", None) or server_id or "").strip() or None
-        manager, resolved_server_id, ssh, record = self._runner_context(preferred_server_id=server_id_hint)
-        return self._service._call_remote_runner(
-            manager.launch_workflow_trigger_backfill,
-            server_id=resolved_server_id,
-            ssh_service=ssh,
-            server_record=record,
-            trigger_id=trigger_id,
+        return self.read_remote_endpoint(
+            WORKFLOW_TRIGGER_BACKFILL_LAUNCH,
+            path_values={"trigger_id": trigger_id},
             payload=body,
+            preferred_server_id=server_id_hint,
         )
 
     def list_workflow_trigger_events(
@@ -291,16 +290,12 @@ class ExecutionManager(BaseRuntimeManager):
     ) -> dict[str, Any]:
         body = dict(payload or {})
         server_id_hint = str(body.pop("serverId", None) or server_id or "").strip() or None
-        manager, resolved_server_id, ssh, record = self._runner_context(preferred_server_id=server_id_hint)
-        return {
-            "data": self._service._call_remote_runner(
-                manager.run_workflow_trigger_scheduler_once,
-                server_id=resolved_server_id,
-                ssh_service=ssh,
-                server_record=record,
-                payload=body,
-            )
-        }
+        return self.read_remote_endpoint(
+            WORKFLOW_TRIGGER_SCHEDULER_RUN_ONCE,
+            payload=body,
+            preferred_server_id=server_id_hint,
+            timeout=20,
+        )
 
     def list_workflow_backfill_launches(
         self,
@@ -336,14 +331,12 @@ class ExecutionManager(BaseRuntimeManager):
     ) -> dict[str, Any]:
         body = dict(payload or {})
         server_id_hint = str(body.pop("serverId", None) or server_id or "").strip() or None
-        manager, resolved_server_id, ssh, record = self._runner_context(preferred_server_id=server_id_hint)
-        return self._service._call_remote_runner(
-            manager.cancel_workflow_backfill_launch,
-            server_id=resolved_server_id,
-            ssh_service=ssh,
-            server_record=record,
-            launch_id=launch_id,
+        return self.read_remote_endpoint(
+            WORKFLOW_BACKFILL_LAUNCH_CANCEL,
+            path_values={"launch_id": launch_id},
             payload=body,
+            preferred_server_id=server_id_hint,
+            timeout=20,
         )
 
     def list_governance_audit_events(

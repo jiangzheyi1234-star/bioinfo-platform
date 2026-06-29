@@ -47,6 +47,8 @@ class RemoteRunnerProxyMixin:
             path_values=dict(kwargs.get("path_values") or {}),
             query_values=dict(kwargs.get("query_values") or {}),
             payload=kwargs.get("payload"),
+            raw_body=kwargs.get("raw_body"),
+            extra_headers=kwargs.get("extra_headers"),
         )
 
     def get_health(self, **kwargs) -> dict[str, Any]:
@@ -288,106 +290,6 @@ class RemoteRunnerProxyMixin:
                 "X-Request-Id": kwargs["request_id"],
             },
         )
-
-    def create_workflow_trigger(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        return client.post_json("/api/v1/workflow-triggers", kwargs["payload"])["data"]
-
-    def submit_workflow_trigger_event(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        return client.post_json(
-            f"/api/v1/workflow-triggers/{kwargs['trigger_id']}/events",
-            kwargs["payload"],
-        )
-
-    def submit_workflow_trigger_inbox_event(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        return client.submit_workflow_trigger_inbox_event(
-            str(kwargs["trigger_id"]),
-            kwargs.get("payload"),
-            raw_body=kwargs.get("raw_body"),
-            headers=kwargs.get("headers"),
-        )
-
-    def replay_workflow_trigger_inbox_event(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        return client.post_json(
-            f"/api/v1/workflow-triggers/{kwargs['trigger_id']}/inbox/{kwargs['inbox_event_id']}/replay",
-            kwargs["payload"],
-        )
-
-    def submit_workflow_trigger_readiness_event(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        return client.post_json(
-            f"/api/v1/workflow-triggers/{kwargs['trigger_id']}/readiness",
-            kwargs["payload"],
-        )
-
-    def preview_workflow_trigger_backfill(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        return client.post_json(
-            f"/api/v1/workflow-triggers/{kwargs['trigger_id']}/backfill/preview",
-            kwargs["payload"],
-        )
-
-    def launch_workflow_trigger_backfill(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        return client.post_json(
-            f"/api/v1/workflow-triggers/{kwargs['trigger_id']}/backfill/launch",
-            kwargs["payload"],
-        )
-
-    def run_workflow_trigger_scheduler_once(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-            timeout=20,
-        )
-        return client.post_json(
-            "/api/v1/workflow-trigger-scheduler/run-once",
-            kwargs["payload"],
-        )["data"]
-
-    def cancel_workflow_backfill_launch(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-            timeout=20,
-        )
-        return client.post_json(
-            f"/api/v1/workflow-backfill-launches/{kwargs['launch_id']}/cancel",
-            kwargs["payload"],
-        )["data"]
 
     def _open_runner_tunnel(self, *, server_id: str, ssh_service, remote_port: int):
         try:
