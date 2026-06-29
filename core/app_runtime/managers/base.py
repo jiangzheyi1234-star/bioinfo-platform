@@ -151,12 +151,14 @@ class BaseRuntimeManager:
         self,
         endpoint_id: str,
         *,
+        path_values: dict[str, Any] | None = None,
         query_values: dict[str, Any] | None = None,
         payload: dict[str, Any] | None = None,
         preferred_server_id: Optional[str] = None,
     ) -> dict[str, Any]:
         return self.read_remote_endpoint(
             endpoint_id,
+            path_values=path_values,
             query_values=query_values,
             payload=payload,
             preferred_server_id=preferred_server_id,

@@ -5,6 +5,8 @@ from string import Formatter
 from typing import Any
 from urllib.parse import quote, urlencode
 
+from core.contracts.workflow_design_remote_endpoints import WORKFLOW_DESIGN_REMOTE_ENDPOINT_SPECS
+
 
 class RemoteEndpointContractError(ValueError):
     def __init__(self, code: str, detail: str) -> None:
@@ -578,6 +580,10 @@ REMOTE_ENDPOINTS: dict[str, RemoteEndpoint] = {
         cache_scope="artifact-cache-command",
         invalidates=("artifact-cache-read-model",),
     ),
+    **{
+        endpoint_id: RemoteEndpoint(endpoint_id=endpoint_id, **spec)
+        for endpoint_id, spec in WORKFLOW_DESIGN_REMOTE_ENDPOINT_SPECS.items()
+    },
     WORKFLOW_TRIGGER_LIST: RemoteEndpoint(
         endpoint_id=WORKFLOW_TRIGGER_LIST,
         method="GET",

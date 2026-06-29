@@ -6,6 +6,18 @@ from typing import Any
 
 from fastapi import APIRouter
 
+from core.contracts.remote_endpoints import REMOTE_ENDPOINTS
+from core.contracts.workflow_design_remote_endpoints import (
+    WORKFLOW_DESIGN_DRAFT_COMPILE,
+    WORKFLOW_DESIGN_DRAFT_CREATE,
+    WORKFLOW_DESIGN_DRAFT_DELETE,
+    WORKFLOW_DESIGN_DRAFT_FORK,
+    WORKFLOW_DESIGN_DRAFT_LIST,
+    WORKFLOW_DESIGN_DRAFT_PLAN,
+    WORKFLOW_DESIGN_DRAFT_READ,
+    WORKFLOW_DESIGN_DRAFT_UPDATE,
+)
+
 from .api_models import (
     WorkflowDesignDraftCreateRequest,
     WorkflowDesignDraftCompileRequest,
@@ -29,12 +41,19 @@ from .route_headers import AuthorizationHeader
 router = APIRouter()
 
 
-@router.get("/api/v1/workflow-design-drafts")
+@router.get(
+    "/api/v1/workflow-design-drafts",
+    operation_id=REMOTE_ENDPOINTS[WORKFLOW_DESIGN_DRAFT_LIST].operation_id,
+)
 async def get_workflow_design_drafts(authorization: AuthorizationHeader = None) -> dict[str, Any]:
     return await list_workflow_design_drafts_from_request(authorization)
 
 
-@router.post("/api/v1/workflow-design-drafts", status_code=201)
+@router.post(
+    "/api/v1/workflow-design-drafts",
+    operation_id=REMOTE_ENDPOINTS[WORKFLOW_DESIGN_DRAFT_CREATE].operation_id,
+    status_code=201,
+)
 async def create_workflow_design_draft_api(
     payload: WorkflowDesignDraftCreateRequest,
     authorization: AuthorizationHeader = None,
@@ -42,7 +61,10 @@ async def create_workflow_design_draft_api(
     return await create_workflow_design_draft_response_from_request(payload, authorization)
 
 
-@router.get("/api/v1/workflow-design-drafts/{draft_id}")
+@router.get(
+    "/api/v1/workflow-design-drafts/{draft_id}",
+    operation_id=REMOTE_ENDPOINTS[WORKFLOW_DESIGN_DRAFT_READ].operation_id,
+)
 async def get_workflow_design_draft_api(
     draft_id: str,
     authorization: AuthorizationHeader = None,
@@ -50,7 +72,10 @@ async def get_workflow_design_draft_api(
     return await get_workflow_design_draft_from_request(draft_id, authorization)
 
 
-@router.patch("/api/v1/workflow-design-drafts/{draft_id}")
+@router.patch(
+    "/api/v1/workflow-design-drafts/{draft_id}",
+    operation_id=REMOTE_ENDPOINTS[WORKFLOW_DESIGN_DRAFT_UPDATE].operation_id,
+)
 async def update_workflow_design_draft_api(
     draft_id: str,
     payload: WorkflowDesignDraftUpdateRequest,
@@ -63,7 +88,11 @@ async def update_workflow_design_draft_api(
     )
 
 
-@router.post("/api/v1/workflow-design-drafts/{draft_id}/fork", status_code=201)
+@router.post(
+    "/api/v1/workflow-design-drafts/{draft_id}/fork",
+    operation_id=REMOTE_ENDPOINTS[WORKFLOW_DESIGN_DRAFT_FORK].operation_id,
+    status_code=201,
+)
 async def fork_workflow_design_draft_api(
     draft_id: str,
     payload: WorkflowDesignDraftForkRequest,
@@ -76,7 +105,10 @@ async def fork_workflow_design_draft_api(
     )
 
 
-@router.delete("/api/v1/workflow-design-drafts/{draft_id}")
+@router.delete(
+    "/api/v1/workflow-design-drafts/{draft_id}",
+    operation_id=REMOTE_ENDPOINTS[WORKFLOW_DESIGN_DRAFT_DELETE].operation_id,
+)
 async def delete_workflow_design_draft_api(
     draft_id: str,
     authorization: AuthorizationHeader = None,
@@ -84,7 +116,10 @@ async def delete_workflow_design_draft_api(
     return await delete_workflow_design_draft_from_request(draft_id, authorization)
 
 
-@router.post("/api/v1/workflow-design-drafts/{draft_id}/plan")
+@router.post(
+    "/api/v1/workflow-design-drafts/{draft_id}/plan",
+    operation_id=REMOTE_ENDPOINTS[WORKFLOW_DESIGN_DRAFT_PLAN].operation_id,
+)
 async def plan_workflow_design_draft_api(
     draft_id: str,
     payload: WorkflowDesignDraftPlanRequest | None = None,
@@ -93,7 +128,10 @@ async def plan_workflow_design_draft_api(
     return await plan_workflow_design_draft_from_request(draft_id, authorization)
 
 
-@router.post("/api/v1/workflow-design-drafts/{draft_id}/compile")
+@router.post(
+    "/api/v1/workflow-design-drafts/{draft_id}/compile",
+    operation_id=REMOTE_ENDPOINTS[WORKFLOW_DESIGN_DRAFT_COMPILE].operation_id,
+)
 async def compile_workflow_design_draft_api(
     draft_id: str,
     payload: WorkflowDesignDraftCompileRequest | None = None,

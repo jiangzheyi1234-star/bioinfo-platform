@@ -24,31 +24,42 @@ from apps.api.workflow_design_routes import (
 from core.app_runtime.errors import RuntimeServiceError
 from core.app_runtime.managers.workflow import WorkflowManager
 from core.app_runtime.runner_ops import RunnerOperationsMixin
+from core.contracts.workflow_design_remote_endpoints import (
+    WORKFLOW_DESIGN_DRAFT_COMPILE,
+    WORKFLOW_DESIGN_DRAFT_CREATE,
+    WORKFLOW_DESIGN_DRAFT_FORK,
+    WORKFLOW_DESIGN_DRAFT_DELETE,
+    WORKFLOW_DESIGN_DRAFT_LIST,
+    WORKFLOW_DESIGN_DRAFT_PLAN,
+    WORKFLOW_DESIGN_DRAFT_READ,
+    WORKFLOW_DESIGN_DRAFT_UPDATE,
+)
 
 
 class FakeRemoteRunnerManager:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
 
-    def plan_workflow_design_draft(self, **kwargs) -> dict[str, Any]:
+    def call_remote_endpoint(self, **kwargs) -> dict[str, Any]:
         self.calls.append(kwargs)
-        return {"valid": True}
-
-    def compile_workflow_design_draft(self, **kwargs) -> dict[str, Any]:
-        self.calls.append(kwargs)
-        return {"layout": {"snakefile": "workflow/Snakefile"}}
-
-    def create_workflow_design_draft(self, **kwargs) -> dict[str, Any]:
-        self.calls.append(kwargs)
-        return {"draftId": "wfd_created"}
-
-    def update_workflow_design_draft(self, **kwargs) -> dict[str, Any]:
-        self.calls.append(kwargs)
-        return {"draftId": kwargs["draft_id"], "revision": 2}
-
-    def fork_workflow_design_draft(self, **kwargs) -> dict[str, Any]:
-        self.calls.append(kwargs)
-        return {"draftId": "wfd_forked", "parentDraftId": kwargs["draft_id"]}
+        endpoint_id = kwargs["endpoint_id"]
+        if endpoint_id == WORKFLOW_DESIGN_DRAFT_PLAN:
+            return {"valid": True}
+        if endpoint_id == WORKFLOW_DESIGN_DRAFT_COMPILE:
+            return {"layout": {"snakefile": "workflow/Snakefile"}}
+        if endpoint_id == WORKFLOW_DESIGN_DRAFT_CREATE:
+            return {"draftId": "wfd_created"}
+        if endpoint_id == WORKFLOW_DESIGN_DRAFT_UPDATE:
+            return {"draftId": kwargs["path_values"]["draft_id"], "revision": 2}
+        if endpoint_id == WORKFLOW_DESIGN_DRAFT_FORK:
+            return {"draftId": "wfd_forked", "parentDraftId": kwargs["path_values"]["draft_id"]}
+        if endpoint_id == WORKFLOW_DESIGN_DRAFT_LIST:
+            return [{"draftId": "wfd_listed"}]
+        if endpoint_id == WORKFLOW_DESIGN_DRAFT_READ:
+            return {"draftId": kwargs["path_values"]["draft_id"]}
+        if endpoint_id == WORKFLOW_DESIGN_DRAFT_DELETE:
+            return {"draftId": kwargs["path_values"]["draft_id"], "deleted": True}
+        raise AssertionError(f"unexpected endpoint: {endpoint_id}")
 
 
 class FakeRunnerOps(RunnerOperationsMixin):
@@ -219,6 +230,45 @@ def test_runtime_write_routes_strip_local_server_id_before_remote_forwarding() -
         "expectedRevision": 1,
     }
     assert runner.manager.calls[2]["payload"] == {"name": "Forked local draft"}
+
+
+def test_runtime_read_routes_call_workflow_design_endpoints() -> None:
+    runner = FakeRunnerOps()
+
+    listed = runner.list_workflow_design_drafts(server_id="srv_demo")
+    fetched = runner.get_workflow_design_draft("wfd_demo", server_id="srv_demo")
+    deleted = runner.delete_workflow_design_draft("wfd_demo", server_id="srv_demo")
+
+    assert listed == {"data": {"items": [{"draftId": "wfd_listed"}]}}
+    assert fetched == {"data": {"draftId": "wfd_demo"}}
+    assert deleted == {"data": {"draftId": "wfd_demo", "deleted": True}}
+    assert runner.selected_server_id == "srv_demo"
+    assert runner.manager.calls == [
+        {
+            "server_id": "srv_demo",
+            "ssh_service": runner.manager.calls[0]["ssh_service"],
+            "server_record": {"ready": True},
+            "endpoint_id": WORKFLOW_DESIGN_DRAFT_LIST,
+            "path_values": {},
+            "query_values": {},
+        },
+        {
+            "server_id": "srv_demo",
+            "ssh_service": runner.manager.calls[1]["ssh_service"],
+            "server_record": {"ready": True},
+            "endpoint_id": WORKFLOW_DESIGN_DRAFT_READ,
+            "path_values": {"draft_id": "wfd_demo"},
+            "query_values": {},
+        },
+        {
+            "server_id": "srv_demo",
+            "ssh_service": runner.manager.calls[2]["ssh_service"],
+            "server_record": {"ready": True},
+            "endpoint_id": WORKFLOW_DESIGN_DRAFT_DELETE,
+            "path_values": {"draft_id": "wfd_demo"},
+            "query_values": {},
+        },
+    ]
 
 
 def test_runtime_plan_rejects_unsupported_local_body_fields() -> None:

@@ -334,6 +334,22 @@ def test_runtime_workflow_design_operations_delegate_to_workflow_manager() -> No
     assert "class WorkflowManager(BaseRuntimeManager)" in workflow_manager_source
     assert "WORKFLOW_DESIGN_PLAN_UNSUPPORTED_FIELD" in workflow_manager_source
     assert "WORKFLOW_DESIGN_COMPILE_UNSUPPORTED_FIELD" in workflow_manager_source
+    assert "WORKFLOW_DESIGN_DRAFT_LIST" in workflow_manager_source
+    assert "WORKFLOW_DESIGN_DRAFT_CREATE" in workflow_manager_source
+    assert "WORKFLOW_DESIGN_DRAFT_READ" in workflow_manager_source
+    assert "WORKFLOW_DESIGN_DRAFT_UPDATE" in workflow_manager_source
+    assert "WORKFLOW_DESIGN_DRAFT_FORK" in workflow_manager_source
+    assert "WORKFLOW_DESIGN_DRAFT_DELETE" in workflow_manager_source
+    assert "WORKFLOW_DESIGN_DRAFT_PLAN" in workflow_manager_source
+    assert "WORKFLOW_DESIGN_DRAFT_COMPILE" in workflow_manager_source
+    assert "call_existing_runner(" not in workflow_manager_source
+    assert '"list_workflow_design_drafts"' not in workflow_manager_source
+    assert '"create_workflow_design_draft"' not in workflow_manager_source
+    assert '"update_workflow_design_draft"' not in workflow_manager_source
+    assert '"fork_workflow_design_draft"' not in workflow_manager_source
+    assert '"delete_workflow_design_draft"' not in workflow_manager_source
+    assert '"plan_workflow_design_draft"' not in workflow_manager_source
+    assert '"compile_workflow_design_draft"' not in workflow_manager_source
     assert "self._call_remote_runner(" not in workflow_ops_source
     assert "self._require_existing_runner_ready(" not in workflow_ops_source
     assert "self.workflows.compile_workflow_design_draft(" in workflow_ops_source
