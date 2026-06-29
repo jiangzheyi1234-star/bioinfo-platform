@@ -65,11 +65,20 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "sampleData?: FirstRunSampleDataEvidence" in first_run_api
     assert "export type FirstRunSoftwareEnvironment" in first_run_api
     assert "softwareEnvironment?: FirstRunSoftwareEnvironment" in first_run_api
+    assert "keyResults?: FirstRunValidationKeyResult[]" in first_run_api
+    assert "checks?: FirstRunValidationCheck[]" in first_run_api
+    assert "interpretation?: string" in first_run_api
     assert "expectedSha256?: string" in first_run_api
     assert "fetchFirstRunValidationCard(run.runId" in first_run_page
     assert "const sampleData = card?.sampleData" in first_run_validation
     assert "const softwareEnvironment = card?.softwareEnvironment" in first_run_validation
     assert "reportInterpretation" in first_run_validation
+    assert "first-run-validation-card-evidence" in first_run_validation
+    assert "可信性检查已通过" in first_run_validation
+    assert "ValidationCardEvidenceSummary" in first_run_validation
+    assert "card.keyResults" in first_run_validation
+    assert "card.resultPackage" in first_run_validation
+    assert "FIRST_RUN_SAMPLE_INPUTS_VERIFIED" in first_run_validation
     assert "first-run-validation-card-software" in first_run_validation
     assert "软件环境已锁定" in first_run_validation
     assert "softwareRuntimeLabel(softwareEnvironment)" in first_run_validation
@@ -83,6 +92,8 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "item.integrityStatus" in first_run_validation
     assert 'item.integrityStatus || "unknown"' in first_run_validation
     assert "first-run-validation-card-interpretation" in first_run_validation
+    assert "first-run-validation-card-output-interpretation" in first_run_validation
+    assert "output.interpretation" in first_run_validation
     assert "card: validationCard" in first_run_page
     assert "downloadFirstRunValidationCard" in first_run_page
     assert "fetchWorkflowServerExecutionDiagnostics" in first_run_page

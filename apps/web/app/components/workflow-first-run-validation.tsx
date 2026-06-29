@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, ClipboardCheck, Cpu, Download, FileArchive, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
+import { Archive, CheckCircle2, ClipboardCheck, Cpu, Download, FileArchive, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -194,10 +194,59 @@ export function ValidationCard({
         <KeyValue label="checks" value={card?.checks?.length ? `${card.checks.length} passed checks` : ""} />
       </div>
 
+      {card ? <ValidationCardEvidenceSummary card={card} /> : null}
       {softwareEnvironment ? <ValidationCardSoftwareEnvironment softwareEnvironment={softwareEnvironment} /> : null}
       {sampleData ? <ValidationCardSampleData sampleData={sampleData} /> : null}
       {interpretation ? <ValidationCardInterpretation interpretation={interpretation} /> : null}
     </section>
+  );
+}
+
+function ValidationCardEvidenceSummary({ card }: { card: FirstRunValidationCard }) {
+  const checks = card.checks || [];
+  const packageExport = card.resultPackage || {};
+  const keyResults = card.keyResults || [];
+  const allPassed = checks.length > 0 && checks.every((item) => item.status === "passed");
+  return (
+    <div className={cn("mt-4 rounded-md border p-3", allPassed ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50")} data-testid="first-run-validation-card-evidence">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className={cn("flex min-w-0 items-center gap-2 text-xs font-semibold", allPassed ? "text-emerald-950" : "text-amber-950")}>
+          <CheckCircle2 strokeWidth={1.5} className={cn("h-3.5 w-3.5", allPassed ? "text-emerald-600" : "text-amber-600")} />
+          <span className="truncate">可信性检查已通过</span>
+        </div>
+        <span className={cn("rounded-full border bg-white px-2 py-0.5 text-[11px]", allPassed ? "border-emerald-200 text-emerald-700" : "border-amber-200 text-amber-700")}>
+          {checks.length ? `${checks.length} checks` : "pending"}
+        </span>
+      </div>
+      <div className="mt-3 grid gap-2 text-xs">
+        <KeyValue label="package" value={packageExport.packageExportId} mono />
+        <KeyValue label="payload" value={packageExport.artifactPayloadMode || (packageExport.includeArtifacts ? "full" : "")} />
+        <KeyValue label="size" value={formatBytes(packageExport.sizeBytes)} />
+        <KeyValue label="package sha" value={shortHash(packageExport.sha256)} mono />
+        <KeyValue label="manifest" value={shortHash(packageExport.manifestSha256)} mono />
+        <KeyValue label="evidence" value={packageExport.evidenceId} mono />
+      </div>
+      {keyResults.length > 0 ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {keyResults.map((item) => (
+            <span key={item.artifactId || item.displayName || item.artifactKey} className="inline-flex max-w-full items-center gap-1 rounded border border-emerald-200 bg-white px-2 py-1 text-[11px] text-slate-600">
+              <span className="truncate">{item.displayName || item.artifactKey || item.artifactId}</span>
+              {item.sha256 ? <span className="font-mono text-slate-400">{shortHash(item.sha256)}</span> : null}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {checks.length > 0 ? (
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          {checks.map((item) => (
+            <div key={item.code || item.detail} className="min-w-0 rounded border border-emerald-200 bg-white px-3 py-2 text-[11px]">
+              <div className="truncate font-semibold text-emerald-700">{checkLabel(item.code)}</div>
+              <div className="mt-1 truncate text-slate-500">{item.detail || item.status}</div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -322,12 +371,15 @@ function ValidationCardInterpretation({
         </div>
       ) : null}
       {outputs.length > 0 ? (
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="mt-3 grid gap-2" data-testid="first-run-validation-card-output-interpretation">
           {outputs.map((output) => (
-            <span key={output.name || output.artifactId} className="inline-flex max-w-full items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600">
-              <span className={cn("h-1.5 w-1.5 rounded-full", output.present ? "bg-emerald-500" : "bg-amber-500")} />
-              <span className="truncate">{output.name || output.label || output.artifactId}</span>
-            </span>
+            <div key={output.name || output.artifactId} className="grid min-w-0 gap-1 rounded border border-slate-200 bg-white px-3 py-2">
+              <div className="flex min-w-0 items-center gap-2 text-[11px] font-semibold text-slate-700">
+                <span className={cn("h-1.5 w-1.5 rounded-full", output.present ? "bg-emerald-500" : "bg-amber-500")} />
+                <span className="truncate">{output.label || output.name || output.artifactId}</span>
+              </div>
+              {output.interpretation ? <div className="text-[11px] leading-4 text-slate-500">{output.interpretation}</div> : null}
+            </div>
           ))}
         </div>
       ) : null}
@@ -367,6 +419,22 @@ function softwareRuntimeLabel(softwareEnvironment?: FirstRunValidationCard["soft
 
 function shortHash(value?: string) {
   return value ? value.slice(0, 12) : "";
+}
+
+function checkLabel(code?: string) {
+  const labels: Record<string, string> = {
+    FIRST_RUN_PIPELINE_MATCH: "流程匹配",
+    FIRST_RUN_COMPLETED: "运行完成",
+    FIRST_RUN_WORKFLOW_REVISION_PRESENT: "WorkflowRevision 已锁定",
+    FIRST_RUN_SOFTWARE_ENVIRONMENT_VERIFIED: "软件环境已验证",
+    FIRST_RUN_INPUT_LINEAGE_PRESENT: "输入 lineage 已记录",
+    FIRST_RUN_SAMPLE_INPUTS_VERIFIED: "官方样例输入已验证",
+    FIRST_RUN_OUTPUT_CHECKSUMS_PRESENT: "输出 checksum 已记录",
+    FIRST_RUN_EXPECTED_OUTPUTS_PRESENT: "关键输出已生成",
+    FIRST_RUN_REPORT_INTERPRETATION_READY: "报告解读已生成",
+    FIRST_RUN_RESULT_PACKAGE_ACTIVE: "完整结果包可下载",
+  };
+  return labels[code || ""] || code || "check";
 }
 
 export function formatBytes(bytes?: number) {

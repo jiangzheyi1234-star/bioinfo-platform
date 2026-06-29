@@ -20,6 +20,22 @@ export type FirstRunValidationOutput = {
   interpretation?: string;
 };
 
+export type FirstRunValidationKeyResult = {
+  artifactId?: string;
+  artifactKey?: string;
+  displayName?: string;
+  kind?: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  sha256?: string;
+};
+
+export type FirstRunValidationCheck = {
+  code?: string;
+  status?: string;
+  detail?: string;
+};
+
 export type FirstRunReportInterpretation = {
   schemaVersion?: string;
   status?: string;
@@ -100,10 +116,15 @@ export type FirstRunValidationCard = {
   };
   resultPackage?: {
     packageExportId?: string;
+    artifactPayloadMode?: string;
+    includeArtifacts?: boolean;
+    sizeBytes?: number;
     sha256?: string;
     manifestSha256?: string;
+    evidenceId?: string;
   };
-  checks?: Array<{ code?: string; status?: string; detail?: string }>;
+  keyResults?: FirstRunValidationKeyResult[];
+  checks?: FirstRunValidationCheck[];
 };
 
 export async function fetchFirstRunValidationCard(
