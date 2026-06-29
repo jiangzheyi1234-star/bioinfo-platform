@@ -107,6 +107,8 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "evidenceBundleFileRoles = @($requiredFiles | ForEach-Object { $_.role })" in source
     assert "backupRestoreSchemaVersion = $backup.schemaVersion" in source
     assert "nextScenarioIds = @($nextScenarios | ForEach-Object { $_.scenarioId })" in source
+    assert "$nextScenarioDatabasePackCoverage = @($nextScenarios | ForEach-Object" in source
+    assert "nextScenarioDatabasePackCoverage = $nextScenarioDatabasePackCoverage" in source
     assert "handoffProof = $handoffProof" in source
     assert "function Assert-FirstRunBlockedNextAction" in source
     assert 'FIRST_RUN_WORKFLOW_REVISION_REQUIRED = "/workflows/first-run#runner-readiness"' in source

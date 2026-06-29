@@ -443,6 +443,14 @@ function Assert-FirstRunPilotHandoff {
     if ($handoff.nextAction.code -ne "RUN_OWN_SMALL_SAMPLE" -or $handoff.nextAction.target -ne "/workflows") {
         Fail-Pilot "pilotHandoff nextAction must guide the operator to run an own small sample"
     }
+    $nextScenarioDatabasePackCoverage = @($nextScenarios | ForEach-Object {
+        [ordered]@{
+            scenarioId = $_.scenarioId
+            status = $_.status
+            packCount = $_.databasePackCoverage.packCount
+            missingTemplates = @($_.databasePackCoverage.missingTemplates)
+        }
+    })
     return [ordered]@{
         pilotHandoffSchemaVersion = $handoff.schemaVersion
         packageSha256 = $evidence.packageSha256
@@ -455,6 +463,7 @@ function Assert-FirstRunPilotHandoff {
         backupPlanCommand = $backup.planCommand
         restoreProofCommand = $backup.restoreProofCommand
         nextScenarioIds = @($nextScenarios | ForEach-Object { $_.scenarioId })
+        nextScenarioDatabasePackCoverage = $nextScenarioDatabasePackCoverage
     }
 }
 

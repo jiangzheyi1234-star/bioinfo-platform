@@ -48,6 +48,16 @@ def test_single_user_pilot_backup_plan_script_defines_read_only_handoff() -> Non
     assert "sampleUploadProof.unexpectedRoles=[]" in source
     assert "sampleUploadProof.duplicateRoles=[]" in source
     assert "sampleUploadProof covers metadata, barcodes, and sequences" in source
+    assert "handoffProof.evidenceBundleSchemaVersion=h2ometa.first-run.evidence-bundle.v1" in source
+    assert "handoffProof.evidenceBundleFileRoles=$($expectedEvidenceBundleRoles -join ',')" in source
+    assert "handoffProof.nextScenarioIds=$($expectedNextScenarioIds -join ',')" in source
+    assert "handoffProof.nextScenarioDatabasePackCoverage.taxonomy-classification.packCount=1" in source
+    assert (
+        "handoffProof.nextScenarioDatabasePackCoverage.amr-annotation.missingTemplates="
+        "card_rgi,eggnog_mapper,interproscan"
+    ) in source
+    assert "requiredHandoffProof" in source
+    assert "manual-audited-database-and-sample-gates" in source
     assert "SINGLE_USER_PILOT_BACKUP_PLAN_FAILED" in source
     assert "Compress-Archive" not in source
     assert "Invoke-RestMethod" not in source
@@ -110,6 +120,58 @@ def test_single_user_pilot_backup_plan_outputs_machine_readable_json(tmp_path: P
     assert "sampleUploadProof.unexpectedRoles=[]" in summary["restoreDrill"]["mustReport"]
     assert "sampleUploadProof.duplicateRoles=[]" in summary["restoreDrill"]["mustReport"]
     assert "sampleUploadProof covers metadata, barcodes, and sequences" in summary["restoreDrill"]["mustReport"]
+    assert (
+        "handoffProof.evidenceBundleSchemaVersion=h2ometa.first-run.evidence-bundle.v1"
+        in summary["restoreDrill"]["mustReport"]
+    )
+    assert (
+        "handoffProof.evidenceBundleFileRoles=result-package,validation-card-json,validation-card-markdown,pilot-handoff"
+        in summary["restoreDrill"]["mustReport"]
+    )
+    assert (
+        "handoffProof.backupPlanCommand="
+        'scripts\\single_user_pilot_backup_plan.ps1 -RemoteRunnerSharedRoot "<remote-shared-root>" -RequireExistingState'
+        in summary["restoreDrill"]["mustReport"]
+    )
+    assert (
+        "handoffProof.restoreProofCommand=scripts\\first_run_pilot_check.ps1 -RunFirstSuccessfulRun -RequireFinalizationReady"
+        in summary["restoreDrill"]["mustReport"]
+    )
+    assert "handoffProof.nextScenarioIds=taxonomy-classification,amr-annotation" in summary["restoreDrill"]["mustReport"]
+    assert (
+        "handoffProof.nextScenarioDatabasePackCoverage.taxonomy-classification.packCount=1"
+        in summary["restoreDrill"]["mustReport"]
+    )
+    assert (
+        "handoffProof.nextScenarioDatabasePackCoverage.amr-annotation.missingTemplates="
+        "card_rgi,eggnog_mapper,interproscan"
+        in summary["restoreDrill"]["mustReport"]
+    )
+    required_handoff = summary["restoreDrill"]["requiredHandoffProof"]
+    assert required_handoff["evidenceBundleSchemaVersion"] == "h2ometa.first-run.evidence-bundle.v1"
+    assert required_handoff["evidenceBundleFileRoles"] == [
+        "result-package",
+        "validation-card-json",
+        "validation-card-markdown",
+        "pilot-handoff",
+    ]
+    assert required_handoff["backupPlanCommand"] == (
+        'scripts\\single_user_pilot_backup_plan.ps1 -RemoteRunnerSharedRoot "<remote-shared-root>" -RequireExistingState'
+    )
+    assert required_handoff["restoreProofCommand"] == (
+        "scripts\\first_run_pilot_check.ps1 -RunFirstSuccessfulRun -RequireFinalizationReady"
+    )
+    assert required_handoff["nextScenarioIds"] == ["taxonomy-classification", "amr-annotation"]
+    assert required_handoff["nextScenarioDatabasePackCoverage"] == [
+        {"scenarioId": "taxonomy-classification", "status": "blocked", "packCount": 1, "missingTemplates": []},
+        {
+            "scenarioId": "amr-annotation",
+            "status": "blocked",
+            "packCount": 0,
+            "missingTemplates": ["card_rgi", "eggnog_mapper", "interproscan"],
+        },
+    ]
+    assert required_handoff["operatorGateMode"] == "manual-audited-database-and-sample-gates"
 
 
 def test_single_user_pilot_backup_plan_is_exposed_from_web_package() -> None:
@@ -150,3 +212,6 @@ def test_single_user_pilot_backup_docs_connect_restore_to_first_run_proof() -> N
     assert "sampleUploadProof.passed: true" in source
     assert "sampleUploadProof.unexpectedRoles: []" in source
     assert "sampleUploadProof.duplicateRoles: []" in source
+    assert "handoffProof.evidenceBundleSchemaVersion" in source
+    assert "handoffProof.evidenceBundleFileRoles" in source
+    assert "handoffProof.nextScenarioDatabasePackCoverage" in source

@@ -137,6 +137,11 @@ if (-not $remoteRootSupplied) {
     Add-Blocker $blockers "REMOTE_RUNNER_ROOT_NOT_SUPPLIED" "Pass -RemoteRunnerSharedRoot after runner readiness so the remote state root is explicit."
 }
 
+$expectedEvidenceBundleRoles = @("result-package", "validation-card-json", "validation-card-markdown", "pilot-handoff")
+$expectedNextScenarioIds = @("taxonomy-classification", "amr-annotation")
+$expectedBackupPlanCommand = 'scripts\single_user_pilot_backup_plan.ps1 -RemoteRunnerSharedRoot "<remote-shared-root>" -RequireExistingState'
+$expectedRestoreProofCommand = "scripts\first_run_pilot_check.ps1 -RunFirstSuccessfulRun -RequireFinalizationReady"
+
 $plan = [ordered]@{
     schemaVersion = "h2ometa.single-user-pilot-backup-plan.v1"
     generatedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
@@ -196,7 +201,7 @@ $plan = [ordered]@{
         required = $true
         isolatedWindowsProfile = $true
         dedicatedRemoteRunnerRoot = $true
-        firstRunProofCommand = "scripts\first_run_pilot_check.ps1 -RunFirstSuccessfulRun -RequireFinalizationReady"
+        firstRunProofCommand = $expectedRestoreProofCommand
         mustReport = @(
             "closedLoopProven=true",
             "closedLoopProofMode=submitted-run",
@@ -207,8 +212,37 @@ $plan = [ordered]@{
             "sampleUploadProof.duplicateRoles=[]",
             "validationCard ready",
             "resultPackage SHA256 present",
-            "sampleUploadProof covers metadata, barcodes, and sequences"
+            "sampleUploadProof covers metadata, barcodes, and sequences",
+            "handoffProof.evidenceBundleSchemaVersion=h2ometa.first-run.evidence-bundle.v1",
+            "handoffProof.evidenceBundleFileRoles=$($expectedEvidenceBundleRoles -join ',')",
+            "handoffProof.backupPlanCommand=$expectedBackupPlanCommand",
+            "handoffProof.restoreProofCommand=$expectedRestoreProofCommand",
+            "handoffProof.nextScenarioIds=$($expectedNextScenarioIds -join ',')",
+            "handoffProof.nextScenarioDatabasePackCoverage.taxonomy-classification.packCount=1",
+            "handoffProof.nextScenarioDatabasePackCoverage.amr-annotation.missingTemplates=card_rgi,eggnog_mapper,interproscan"
         )
+        requiredHandoffProof = [ordered]@{
+            evidenceBundleSchemaVersion = "h2ometa.first-run.evidence-bundle.v1"
+            evidenceBundleFileRoles = $expectedEvidenceBundleRoles
+            backupPlanCommand = $expectedBackupPlanCommand
+            restoreProofCommand = $expectedRestoreProofCommand
+            nextScenarioIds = $expectedNextScenarioIds
+            nextScenarioDatabasePackCoverage = @(
+                [ordered]@{
+                    scenarioId = "taxonomy-classification"
+                    status = "blocked"
+                    packCount = 1
+                    missingTemplates = @()
+                },
+                [ordered]@{
+                    scenarioId = "amr-annotation"
+                    status = "blocked"
+                    packCount = 0
+                    missingTemplates = @("card_rgi", "eggnog_mapper", "interproscan")
+                }
+            )
+            operatorGateMode = "manual-audited-database-and-sample-gates"
+        }
     }
     unsupportedOperations = @(
         "Copying runner.db while the remote runner is still writing to it",
