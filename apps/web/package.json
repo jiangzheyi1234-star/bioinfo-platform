@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start -H 127.0.0.1 -p 3765",
     "smoke:local": "powershell -ExecutionPolicy Bypass -File ../../scripts/local_web_smoke.ps1",
+    "smoke:first-run": "powershell -ExecutionPolicy Bypass -File ../../scripts/first_run_pilot_check.ps1",
     "lint": "next lint",
     "typecheck": "tsc --noEmit --pretty false"
   },
