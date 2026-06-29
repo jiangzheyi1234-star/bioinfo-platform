@@ -8,16 +8,11 @@ from .config import RemoteRunnerConfig
 from .errors import IdempotencyKeyReusedError, RemoteRunnerNotFoundError
 from .run_admission_read_model import admission_summary_from_prefixed_row
 from .storage_core import get_connection, now_iso
+from .workflow_backfill_state_machine import WorkflowBackfillStateMachine
 
 
 BACKFILL_LAUNCH_LIST_SCHEMA = "workflow-backfill-launch-list.v1"
 BACKFILL_LAUNCH_DETAIL_SCHEMA = "workflow-backfill-launch-detail.v1"
-BACKFILL_RUN_ORDERS = {"forward", "backward"}
-TERMINAL_RUN_STATUSES = {"completed", "failed", "canceled", "cancelled"}
-NON_CANCELLABLE_RUN_STATUSES = TERMINAL_RUN_STATUSES | {"canceling"}
-ADMITTING_PARTITION_STATES = {"admitting"}
-ADVANCEABLE_LAUNCH_STATES = {"launching", "running", "submitted"}
-BACKFILL_PARTITION_CANCELABLE_STATES = {"pending", "admitting", "submitted", "replayed"}
 
 
 def record_workflow_backfill_launch(
@@ -36,7 +31,7 @@ def record_workflow_backfill_launch(
     actor: str,
     request: dict[str, Any],
 ) -> dict[str, Any]:
-    normalized_run_order = _backfill_run_order(run_order)
+    normalized_run_order = WorkflowBackfillStateMachine.normalize_run_order(run_order)
     payload_hash = _payload_hash(request)
     timestamp = now_iso()
     with get_connection(cfg) as connection:
@@ -72,7 +67,7 @@ def record_workflow_backfill_launch(
                 normalized_run_order,
                 reprocess_behavior,
                 int(partition_count),
-                "launching",
+                WorkflowBackfillStateMachine.initial_launch_state(),
                 actor,
                 _stable_json(request),
                 payload_hash,
@@ -161,7 +156,7 @@ def mark_workflow_backfill_partition_submitted(
     replayed: bool,
 ) -> dict[str, Any]:
     timestamp = now_iso()
-    state = "replayed" if replayed else "submitted"
+    state = WorkflowBackfillStateMachine.submitted_partition_state(replayed=replayed)
     with get_connection(cfg) as connection:
         current = connection.execute(
             "SELECT error_json FROM workflow_backfill_partitions WHERE partition_id = ?",
@@ -203,10 +198,16 @@ def mark_workflow_backfill_partition_failed(
         cursor = connection.execute(
             """
             UPDATE workflow_backfill_partitions
-            SET state = 'failed', error_json = ?, updated_at = ?
-            WHERE partition_id = ? AND state = 'admitting'
+            SET state = ?, error_json = ?, updated_at = ?
+            WHERE partition_id = ? AND state = ?
             """,
-            (_stable_json(error), timestamp, partition_id),
+            (
+                WorkflowBackfillStateMachine.failed_partition_state(),
+                _stable_json(error),
+                timestamp,
+                partition_id,
+                WorkflowBackfillStateMachine.admitting_partition_state(),
+            ),
         )
         _require_single_row(cursor, "WORKFLOW_BACKFILL_PARTITION_STATE_CHANGED")
         connection.commit()
@@ -223,16 +224,16 @@ def mark_workflow_backfill_partition_cancel_requested(
     partition_id: str,
 ) -> dict[str, Any]:
     timestamp = now_iso()
-    states = sorted(BACKFILL_PARTITION_CANCELABLE_STATES)
+    states = WorkflowBackfillStateMachine.cancelable_partition_states()
     placeholders = ",".join("?" for _ in states)
     with get_connection(cfg) as connection:
         cursor = connection.execute(
             f"""
             UPDATE workflow_backfill_partitions
-            SET state = 'cancel_requested', updated_at = ?
+            SET state = ?, updated_at = ?
             WHERE partition_id = ? AND state IN ({placeholders})
             """,
-            (timestamp, partition_id, *states),
+            (WorkflowBackfillStateMachine.cancel_requested_partition_state(), timestamp, partition_id, *states),
         )
         _require_single_row(cursor, "WORKFLOW_BACKFILL_PARTITION_STATE_CHANGED")
         connection.commit()
@@ -277,10 +278,10 @@ def mark_workflow_backfill_launch_canceling(
         connection.execute(
             """
             UPDATE workflow_backfill_launches
-            SET state = 'canceling', updated_at = ?
+            SET state = ?, updated_at = ?
             WHERE launch_id = ?
             """,
-            (timestamp, launch_id),
+            (WorkflowBackfillStateMachine.canceling_launch_state(), timestamp, launch_id),
         )
         connection.commit()
         row = connection.execute(
@@ -403,9 +404,9 @@ def claim_workflow_backfill_partitions_for_admission(
         ).fetchone()
         if launch is None:
             raise RemoteRunnerNotFoundError("WORKFLOW_BACKFILL_LAUNCH_NOT_FOUND")
-        if str(launch["state"] or "") not in ADVANCEABLE_LAUNCH_STATES:
+        if not WorkflowBackfillStateMachine.is_launch_state_advanceable(str(launch["state"] or "")):
             raise ValueError(f"WORKFLOW_BACKFILL_LAUNCH_STATE_NOT_ADVANCEABLE: {launch['state']}")
-        order_direction = _partition_order_direction(launch)
+        order_direction = WorkflowBackfillStateMachine.partition_order_direction(launch["run_order"])
         rows = connection.execute(
             f"""
             SELECT *
@@ -449,7 +450,8 @@ def claim_workflow_backfill_partitions_for_admission(
 
 def list_workflow_backfill_advanceable_launch_ids(cfg: RemoteRunnerConfig, *, limit: int = 100) -> list[str]:
     normalized_limit = _bounded_limit(limit)
-    placeholders = ",".join("?" for _ in ADVANCEABLE_LAUNCH_STATES)
+    states = WorkflowBackfillStateMachine.advanceable_launch_states()
+    placeholders = ",".join("?" for _ in states)
     with get_connection(cfg) as connection:
         rows = connection.execute(
             f"""
@@ -464,7 +466,7 @@ def list_workflow_backfill_advanceable_launch_ids(cfg: RemoteRunnerConfig, *, li
             ORDER BY launch.created_at ASC, launch.launch_id ASC
             LIMIT ?
             """,
-            (*sorted(ADVANCEABLE_LAUNCH_STATES), normalized_limit),
+            (*states, normalized_limit),
         ).fetchall()
     return [str(row["launch_id"]) for row in rows]
 
@@ -511,7 +513,7 @@ def _launch_row_to_dict(row: Any, *, created: bool | None) -> dict[str, Any]:
         row["request_json"],
         "WORKFLOW_BACKFILL_LAUNCH_REQUEST_JSON_INVALID",
     )
-    run_order = _backfill_run_order(row["run_order"])
+    run_order = WorkflowBackfillStateMachine.normalize_run_order(row["run_order"])
     payload = {
         "launchId": row["launch_id"],
         "triggerId": row["trigger_id"],
@@ -591,7 +593,10 @@ def _partition_row_to_dict(row: Any, *, created: bool | None) -> dict[str, Any]:
         "triggerEventId": row["trigger_event_id"],
         "runId": row["run_id"],
         "state": state,
-        "blockedReason": _partition_blocked_reason(state, policy_detail or partition_detail),
+        "blockedReason": WorkflowBackfillStateMachine.partition_blocked_reason(
+            state,
+            policy_detail or partition_detail,
+        ),
         "runSpecHash": row["run_spec_hash"],
         "triggerEventType": _row_value(row, "trigger_event_type"),
         "dispatch": (
@@ -639,15 +644,19 @@ def _partition_summary(partitions: Any) -> dict[str, Any]:
         "partitionCount": len(items),
         "states": by_state,
         "submittedRunCount": sum(1 for item in items if item.get("runId")),
-        "activeRunCount": sum(1 for item in items if _partition_has_active_run(item)),
-        "occupiedConcurrencySlotCount": sum(1 for item in items if _partition_occupies_concurrency_slot(item)),
+        "activeRunCount": sum(1 for item in items if WorkflowBackfillStateMachine.partition_has_active_run(item)),
+        "occupiedConcurrencySlotCount": sum(
+            1 for item in items if WorkflowBackfillStateMachine.partition_occupies_concurrency_slot(item)
+        ),
         "admittingPartitionCount": by_state.get("admitting", 0),
         "blockedPartitionCount": by_state.get("pending", 0),
         "failedPartitionCount": by_state.get("failed", 0),
         "pendingPartitionCount": by_state.get("pending", 0),
         "replayedPartitionCount": by_state.get("replayed", 0),
         "cancelRequestedPartitionCount": by_state.get("cancel_requested", 0),
-        "cancellableRunCount": sum(1 for item in items if _partition_has_cancellable_run(item)),
+        "cancellableRunCount": sum(
+            1 for item in items if WorkflowBackfillStateMachine.partition_has_cancellable_run(item)
+        ),
     }
 
 
@@ -665,7 +674,7 @@ def _concurrency_observability(concurrency: dict[str, Any], summary: dict[str, A
 
 
 def _operation_capabilities(partitions: list[dict[str, Any]]) -> dict[str, Any]:
-    cancellable = any(_partition_has_cancellable_run(item) for item in partitions)
+    cancellable = any(WorkflowBackfillStateMachine.partition_has_cancellable_run(item) for item in partitions)
     return {
         "cancel": cancellable,
         "cancelReason": "active-partition-runs" if cancellable else "no-cancellable-partition-runs",
@@ -673,34 +682,6 @@ def _operation_capabilities(partitions: list[dict[str, Any]]) -> dict[str, Any]:
         "deadLetter": False,
         "concurrencyEnforced": True,
     }
-
-
-def _partition_has_active_run(partition: dict[str, Any]) -> bool:
-    run = partition.get("run") if isinstance(partition.get("run"), dict) else {}
-    run_id = str((run or {}).get("runId") or partition.get("runId") or "").strip()
-    status = str((run or {}).get("status") or "").strip().lower()
-    return bool(run_id and (not status or status not in TERMINAL_RUN_STATUSES))
-
-
-def _partition_occupies_concurrency_slot(partition: dict[str, Any]) -> bool:
-    state = str(partition.get("state") or "").strip().lower()
-    return state in ADMITTING_PARTITION_STATES or _partition_has_active_run(partition)
-
-
-def _partition_has_cancellable_run(partition: dict[str, Any]) -> bool:
-    run = partition.get("run") if isinstance(partition.get("run"), dict) else {}
-    run_id = str((run or {}).get("runId") or partition.get("runId") or "").strip()
-    status = str((run or {}).get("status") or "").strip().lower()
-    return bool(run_id and (not status or status not in NON_CANCELLABLE_RUN_STATUSES))
-
-
-def _partition_blocked_reason(state: str, error: Any) -> str | None:
-    if state == "pending":
-        return "concurrency_limit"
-    if state == "skipped" and isinstance(error, dict):
-        return str(error.get("reason") or "skipped")
-    return None
-
 
 def _pending_partition_row_to_dict(row: Any, *, launch: Any) -> dict[str, Any]:
     run_spec = _loads_json_object(
@@ -770,21 +751,6 @@ def _bounded_limit(value: int) -> int:
     except (TypeError, ValueError):
         parsed = 100
     return max(1, min(parsed, 500))
-
-
-def _partition_order_direction(launch: Any) -> str:
-    run_order = _backfill_run_order(launch["run_order"])
-    if run_order == "backward":
-        return "DESC"
-    return "ASC"
-
-
-def _backfill_run_order(value: Any) -> str:
-    run_order = str(value or "").strip().lower()
-    if run_order not in BACKFILL_RUN_ORDERS:
-        raise ValueError(f"WORKFLOW_BACKFILL_RUN_ORDER_UNSUPPORTED: {value}")
-    return run_order
-
 
 def _optional_int(value: Any) -> int | None:
     try:

@@ -4,8 +4,8 @@ from collections.abc import Callable
 from typing import Any
 
 from .config import RemoteRunnerConfig
+from .workflow_backfill_state_machine import WorkflowBackfillStateMachine
 from .workflow_backfill_storage import (
-    ADVANCEABLE_LAUNCH_STATES,
     claim_workflow_backfill_partitions_for_admission,
     list_workflow_backfill_advanceable_launch_ids,
     mark_workflow_backfill_launch_finished,
@@ -131,27 +131,16 @@ def advance_backfill_partitions(
 
 
 def _mark_backfill_launch_state_from_detail(cfg: RemoteRunnerConfig, detail: dict[str, Any]) -> None:
-    if str(detail.get("state") or "") not in ADVANCEABLE_LAUNCH_STATES:
+    if not WorkflowBackfillStateMachine.is_launch_state_advanceable(str(detail.get("state") or "")):
         return
     summary = detail.get("partitionSummary") if isinstance(detail.get("partitionSummary"), dict) else {}
-    pending = int(summary.get("pendingPartitionCount") or 0)
-    state = "running" if pending else "submitted"
+    state = WorkflowBackfillStateMachine.next_launch_state(summary)
     if str(detail.get("state") or "") != state:
         mark_workflow_backfill_launch_finished(cfg, launch_id=str(detail["launchId"]), state=state)
 
 
 def _ensure_backfill_launch_advanceable(detail: dict[str, Any]) -> bool:
-    state = str(detail.get("state") or "")
-    if state == "canceling":
-        return False
-    if state not in ADVANCEABLE_LAUNCH_STATES:
-        raise ValueError(f"WORKFLOW_BACKFILL_LAUNCH_STATE_NOT_ADVANCEABLE: {state}")
-    summary = detail.get("partitionSummary") if isinstance(detail.get("partitionSummary"), dict) else {}
-    expected = int(detail.get("partitionCount") or 0)
-    actual = int(summary.get("partitionCount") or 0)
-    if expected != actual:
-        raise ValueError(f"WORKFLOW_BACKFILL_LAUNCH_INCOMPLETE: expected={expected} actual={actual}")
-    return True
+    return WorkflowBackfillStateMachine.ensure_controller_advanceable(detail)
 
 
 def _backfill_advance_result(

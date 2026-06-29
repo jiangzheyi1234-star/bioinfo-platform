@@ -340,6 +340,7 @@ Progress:
 - Manual trigger definitions now have a confirmation-gated UI action that submits exactly one manual trigger event through the existing immutable trigger event, run admission, run creation, and provenance path. Cron catchup, webhook generic dispatch, readiness push, backfill launch, trigger creation, and pause/resume controls remain outside this observability surface.
 - Workflow trigger scheduler ticks now persist safe hash-chained evidence and expose a governed read-only scheduler tick ledger in the trigger observability UI. The read model summarizes cron due/submitted/replayed/error counts and backfill submitted/pending/error counts without raw trigger payloads, run specs, event ids, run ids, cursor values, or scheduler controls.
 - Scheduler run-once from the trigger observability UI now invalidates scheduler/trigger event, backfill launch list/detail, and run/result list caches. Backfill partitions and runs advanced by the scheduler cannot leave adjacent read-only surfaces stale until the next incidental refresh.
+- Backfill launch and partition status interpretation now lives behind a pure `WorkflowBackfillStateMachine` contract. Storage, controller, trigger cancellation, and cron overlap checks share the same run-terminal, launch-advanceable, run-order, partition-cancel, concurrency-slot, and blocked-reason semantics while preserving existing API payloads, dispatch idempotency, scheduler controls, and governance audit redaction.
 
 Recommended sequence:
 

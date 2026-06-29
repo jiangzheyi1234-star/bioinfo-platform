@@ -34,6 +34,7 @@ from .workflow_backfill_controller import (
 )
 from .webhook_event_matching import resolve_webhook_trigger_event_match_policy
 from .webhook_signature_policy import resolve_webhook_trigger_signature_policy
+from .workflow_backfill_state_machine import WorkflowBackfillStateMachine
 from .trigger_storage import (
     create_workflow_trigger,
     list_workflow_trigger_events,
@@ -71,7 +72,6 @@ READINESS_RESOURCE_TYPES_BY_SOURCE = {
 }
 BACKFILL_LAUNCH_CONFIRMATION = "launch-backfill"
 BACKFILL_CANCEL_CONFIRMATION = "cancel-backfill"
-BACKFILL_CANCEL_SKIP_STATUSES = {"completed", "failed", "canceled", "cancelled", "canceling"}
 
 
 def create_workflow_trigger_from_request(
@@ -165,7 +165,7 @@ def cancel_workflow_backfill_launch_from_request(
         partition_id = str(partition.get("partitionId") or "")
         if not run_id:
             state = str(partition.get("state") or "").strip().lower()
-            if state in {"pending", "admitting"}:
+            if WorkflowBackfillStateMachine.can_request_cancel_without_run(state):
                 mark_workflow_backfill_partition_cancel_requested(cfg, partition_id=partition_id)
                 pending_requested.append(
                     {
@@ -178,7 +178,7 @@ def cancel_workflow_backfill_launch_from_request(
                 continue
             skipped.append(_backfill_cancel_skip(partition, reason="no_run"))
             continue
-        if status in BACKFILL_CANCEL_SKIP_STATUSES:
+        if WorkflowBackfillStateMachine.should_skip_run_cancel(status):
             skipped.append(_backfill_cancel_skip(partition, reason=f"run_{status or 'unknown'}"))
             continue
         cancel = request_run_cancel(cfg, run_id, actor=actor)

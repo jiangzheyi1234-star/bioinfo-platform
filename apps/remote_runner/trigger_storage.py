@@ -8,10 +8,8 @@ from typing import Any
 from .config import RemoteRunnerConfig
 from .errors import IdempotencyKeyReusedError, RemoteRunnerNotFoundError
 from .run_admission_read_model import fetch_run_admission_summary
+from .run_execution_state_machine import TERMINAL_RUN_STATUSES
 from .storage_core import get_connection, now_iso
-
-
-TRIGGER_ACTIVE_RUN_TERMINAL_STATUSES = ("completed", "failed", "canceled", "cancelled")
 
 
 def create_workflow_trigger(
@@ -284,11 +282,12 @@ def fetch_active_workflow_trigger_dispatch_run(
 ) -> dict[str, Any] | None:
     source = str(source_type or "").strip()
     source_filter = "AND event.source_type = ?" if source else ""
-    terminal_placeholders = ",".join("?" for _ in TRIGGER_ACTIVE_RUN_TERMINAL_STATUSES)
+    terminal_statuses = tuple(sorted(TERMINAL_RUN_STATUSES))
+    terminal_placeholders = ",".join("?" for _ in terminal_statuses)
     params: list[Any] = [_required_text(trigger_id, "TRIGGER_ID_REQUIRED")]
     if source:
         params.append(source)
-    params.extend(TRIGGER_ACTIVE_RUN_TERMINAL_STATUSES)
+    params.extend(terminal_statuses)
     with get_connection(cfg) as connection:
         row = connection.execute(
             f"""

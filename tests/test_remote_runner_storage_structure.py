@@ -184,6 +184,34 @@ def test_run_execution_state_machine_owns_core_status_decisions() -> None:
     assert "def _attempt_state_for_run_status(" not in run_worker
 
 
+def test_workflow_backfill_state_machine_owns_backfill_status_decisions() -> None:
+    state_machine_path = REMOTE_RUNNER / "workflow_backfill_state_machine.py"
+    backfill_storage = (REMOTE_RUNNER / "workflow_backfill_storage.py").read_text(encoding="utf-8")
+    backfill_controller = (REMOTE_RUNNER / "workflow_backfill_controller.py").read_text(encoding="utf-8")
+    trigger_service = (REMOTE_RUNNER / "trigger_service.py").read_text(encoding="utf-8")
+    trigger_storage = (REMOTE_RUNNER / "trigger_storage.py").read_text(encoding="utf-8")
+
+    assert state_machine_path.exists()
+    state_machine = state_machine_path.read_text(encoding="utf-8")
+
+    assert len(backfill_storage.splitlines()) <= 800
+    assert "class WorkflowBackfillStateMachine" in state_machine
+    assert "RunExecutionStateMachine" in state_machine
+    assert "from .workflow_backfill_state_machine import WorkflowBackfillStateMachine" in backfill_storage
+    assert "from .workflow_backfill_state_machine import WorkflowBackfillStateMachine" in backfill_controller
+    assert "from .workflow_backfill_state_machine import WorkflowBackfillStateMachine" in trigger_service
+    assert "from .run_execution_state_machine import TERMINAL_RUN_STATUSES" in trigger_storage
+
+    assert "BACKFILL_RUN_ORDERS =" not in backfill_storage
+    assert "ADVANCEABLE_LAUNCH_STATES =" not in backfill_storage
+    assert "BACKFILL_PARTITION_CANCELABLE_STATES =" not in backfill_storage
+    assert "def _partition_has_active_run(" not in backfill_storage
+    assert "def _partition_has_cancellable_run(" not in backfill_storage
+    assert "def _backfill_run_order(" not in backfill_storage
+    assert "BACKFILL_CANCEL_SKIP_STATUSES =" not in trigger_service
+    assert "TRIGGER_ACTIVE_RUN_TERMINAL_STATUSES =" not in trigger_storage
+
+
 def test_tool_prepare_job_records_live_outside_storage_mutation_module() -> None:
     storage = (REMOTE_RUNNER / "tool_prepare_job_storage.py").read_text(encoding="utf-8")
     records_path = REMOTE_RUNNER / "tool_prepare_job_records.py"
