@@ -150,6 +150,40 @@ function Submit-FirstRun {
     return $submitted.runId
 }
 
+function Assert-ExecutionReadiness {
+    param([string]$ResolvedServerId)
+    Write-Step "checking execution readiness for $ResolvedServerId"
+    $diagnostics = (Get-Json "$ApiBase/api/v1/servers/$([uri]::EscapeDataString($ResolvedServerId))/execution-diagnostics").data
+    if ($null -eq $diagnostics) {
+        Fail-Pilot "execution diagnostics response must include data"
+    }
+    $readiness = $diagnostics.readiness
+    $blockingReasons = @($readiness.blockingReasons)
+    $degradedReasons = @($readiness.degradedReasons)
+    if ($null -eq $readiness -or $readiness.ok -ne $true) {
+        $firstBlocker = @($blockingReasons | Select-Object -First 1)
+        $detail = @(
+            [string]$readiness.reasonCode,
+            [string]$firstBlocker.code,
+            [string]$firstBlocker.message,
+            [string]$readiness.status
+        ) | Where-Object { $_ } | Select-Object -First 3
+        if (@($detail).Count -eq 0) {
+            $detail = @("execution readiness is not ok")
+        }
+        Fail-Pilot "execution diagnostics readiness must be ok: $($detail -join ' / ')"
+    }
+    return [ordered]@{
+        schemaVersion = [string]$diagnostics.schemaVersion
+        readinessSchemaVersion = [string]$readiness.schemaVersion
+        ok = $true
+        status = [string]$readiness.status
+        reasonCode = [string]$readiness.reasonCode
+        blockingReasonCount = $blockingReasons.Count
+        degradedReasonCount = $degradedReasons.Count
+    }
+}
+
 function Wait-Run-Terminal {
     param([string]$TargetRunId)
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds($RunTimeoutSeconds)
@@ -365,6 +399,7 @@ $finalizationStatus = "not-run"
 $finalizationAction = $null
 $handoffProof = $null
 $blockedActionProof = $null
+$executionReadinessProof = $null
 if ($RunFirstSuccessfulRun -and $RunId) {
     Fail-Pilot "-RunFirstSuccessfulRun cannot be combined with -RunId"
 }
@@ -375,6 +410,7 @@ if ($RequireFinalizationReady -and -not $RunId) {
 }
 if ($RunFirstSuccessfulRun) {
     $ServerId = Get-ServerId $ServerId
+    $executionReadinessProof = Assert-ExecutionReadiness $ServerId
     $RunId = Submit-FirstRun $ServerId
     $null = Wait-Run-Terminal $RunId
     $closedLoopProofMode = $ClosedLoopProofModes.SubmittedRun
@@ -430,6 +466,7 @@ $summary = [ordered]@{
     finalizationNextAction = $finalizationAction
     handoffProof = $handoffProof
     blockedActionProof = $blockedActionProof
+    executionReadinessProof = $executionReadinessProof
 }
 
 Write-Step "passed"

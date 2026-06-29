@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from apps.api.workflow_scenario_pack_targets import SCENARIO_PRODUCT_TARGETS
+
 
 SCENARIO_TOOL_SLICE_HANDOFF_SCHEMA_VERSION = "h2ometa.workflow-scenario-tool-slice-handoff.v1"
 SCENARIO_TOOL_SLICE_MIN = 3
@@ -76,6 +78,7 @@ def validate_tool_slice_handoff(definition: dict[str, Any]) -> None:
         raise WorkflowScenarioToolSliceHandoffError("SCENARIO_TOOL_SLICE_HANDOFF_CHECKLIST_INCOMPLETE")
     if any(item["status"] not in {"operator_required", "passed"} for item in handoff["checklist"]):
         raise WorkflowScenarioToolSliceHandoffError("SCENARIO_TOOL_SLICE_HANDOFF_STATUS_INVALID")
+    _validate_checklist_targets(handoff["checklist"])
     if handoff["excludedActions"] != SCENARIO_TOOL_SLICE_EXCLUDED_ACTIONS:
         raise WorkflowScenarioToolSliceHandoffError("SCENARIO_TOOL_SLICE_HANDOFF_EXCLUSIONS_INVALID")
 
@@ -89,6 +92,15 @@ def _tool_option(item: dict[str, Any]) -> dict[str, str]:
         "contractState": str(item.get("contractState") or ""),
         "acceptanceEvidence": str(item.get("acceptanceEvidence") or ""),
     }
+
+
+def _validate_checklist_targets(checklist: list[dict[str, str]]) -> None:
+    for item in checklist:
+        target = str(item.get("target") or "").strip()
+        if not target:
+            raise WorkflowScenarioToolSliceHandoffError("SCENARIO_TOOL_SLICE_HANDOFF_TARGET_REQUIRED")
+        if target not in SCENARIO_PRODUCT_TARGETS:
+            raise WorkflowScenarioToolSliceHandoffError(f"SCENARIO_TOOL_SLICE_HANDOFF_TARGET_UNSUPPORTED: {target}")
 
 
 def _tool_slice_checklist(*, ready: bool) -> list[dict[str, str]]:

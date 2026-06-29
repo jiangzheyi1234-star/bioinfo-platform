@@ -38,6 +38,11 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "a connected and ready server is required for first-run execution" in source
     assert "must be connected and ready for first-run execution" in source
     assert "$_.connected -eq $true -and $_.ready -eq $true -and $_.serverId" in source
+    assert "function Assert-ExecutionReadiness" in source
+    assert "$ApiBase/api/v1/servers/$([uri]::EscapeDataString($ResolvedServerId))/execution-diagnostics" in source
+    assert "execution diagnostics readiness must be ok" in source
+    assert "blockingReasonCount = $blockingReasons.Count" in source
+    assert "$executionReadinessProof = Assert-ExecutionReadiness $ServerId" in source
     assert "$ApiBase/api/v1/workflow-sample-data/$([uri]::EscapeDataString($FirstRunPipelineId))/uploads" in source
     assert "$ApiBase/api/v1/runs" in source
     assert "projectId = \"first-run-pilot\"" in source
@@ -81,6 +86,7 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "blocked finalization nextAction target must stay inside first-run" in source
     assert "$blockedActionProof = Assert-FirstRunBlockedNextAction $finalization.nextAction" in source
     assert "blockedActionProof = $blockedActionProof" in source
+    assert "executionReadinessProof = $executionReadinessProof" in source
     assert "if ($RequireFinalizationReady -or $RunFirstSuccessfulRun)" in source
     assert "-RunFirstSuccessfulRun cannot be combined with -RunId" in source
     assert "-RequireFinalizationReady requires -RunId or -RunFirstSuccessfulRun" in source

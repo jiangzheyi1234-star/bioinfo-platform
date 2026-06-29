@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from apps.api.workflow_scenario_pack_targets import SCENARIO_PRODUCT_TARGETS
 from apps.remote_runner.database_pack_catalog import list_downloadable_database_packs
 from apps.remote_runner.database_template_definitions import DATABASE_TEMPLATES
 
@@ -105,6 +106,7 @@ def validate_database_handoff(definition: dict[str, Any]) -> None:
             raise WorkflowScenarioDatabaseHandoffError("SCENARIO_DATABASE_HANDOFF_CHECKLIST_INCOMPLETE")
         if any(item["status"] not in {"operator_required", "passed"} for item in handoff["checklist"]):
             raise WorkflowScenarioDatabaseHandoffError("SCENARIO_DATABASE_HANDOFF_STATUS_INVALID")
+        _validate_checklist_targets(handoff["checklist"])
         if handoff["excludedActions"] != SCENARIO_DATABASE_HANDOFF_EXCLUDED_ACTIONS:
             raise WorkflowScenarioDatabaseHandoffError("SCENARIO_DATABASE_HANDOFF_EXCLUSIONS_INVALID")
         _validate_pack_options(required_databases, handoff)
@@ -160,6 +162,15 @@ def _database_template_options(required_databases: list[dict[str, Any]]) -> list
         templates = [str(template_id or "").strip() for template_id in item.get("templates") or [] if str(template_id or "").strip()]
         options.append({"capability": capability, "templates": templates})
     return options
+
+
+def _validate_checklist_targets(checklist: list[dict[str, str]]) -> None:
+    for item in checklist:
+        target = str(item.get("target") or "").strip()
+        if not target:
+            raise WorkflowScenarioDatabaseHandoffError("SCENARIO_DATABASE_HANDOFF_TARGET_REQUIRED")
+        if target not in SCENARIO_PRODUCT_TARGETS:
+            raise WorkflowScenarioDatabaseHandoffError(f"SCENARIO_DATABASE_HANDOFF_TARGET_UNSUPPORTED: {target}")
 
 
 def _database_pack_options(required_databases: list[dict[str, Any]]) -> list[dict[str, Any]]:

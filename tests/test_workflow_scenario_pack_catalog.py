@@ -3,7 +3,6 @@ from __future__ import annotations
 import pytest
 
 from apps.api.workflow_scenario_pack_service import (
-    SCENARIO_DATABASE_HANDOFF_SCHEMA_VERSION,
     SCENARIO_PACK_CATALOG_SCHEMA_VERSION,
     SCENARIO_PACK_SCHEMA_VERSION,
     SCENARIO_SAMPLE_DATA_HANDOFF_SCHEMA_VERSION,
@@ -12,8 +11,17 @@ from apps.api.workflow_scenario_pack_service import (
     _validate_scenario_definitions,
     list_workflow_scenario_packs,
 )
+from apps.api.workflow_scenario_pack_database_handoff import (
+    SCENARIO_DATABASE_HANDOFF_SCHEMA_VERSION,
+    WorkflowScenarioDatabaseHandoffError,
+    validate_database_handoff,
+)
 from apps.remote_runner.database_pack_catalog import list_downloadable_database_packs
 from apps.api.workflow_scenario_pack_tool_slice import SCENARIO_TOOL_SLICE_HANDOFF_SCHEMA_VERSION
+from apps.api.workflow_scenario_pack_tool_slice import (
+    WorkflowScenarioToolSliceHandoffError,
+    validate_tool_slice_handoff,
+)
 
 
 REQUIRED_SCENARIO_PACK_FIELDS = {
@@ -92,6 +100,10 @@ def test_workflow_scenario_pack_catalog_publishes_three_product_scenarios() -> N
         assert item["resultEvidence"]
         assert item["readinessChecks"]
         assert all(check["code"] and check["status"] in {"passed", "blocked"} for check in item["readinessChecks"])
+        assert all(action["target"].startswith("/workflows") for action in item["nextActions"])
+        assert all(entry["target"].startswith("/workflows") for entry in item["sampleDataHandoff"]["checklist"])
+        assert all(entry["target"].startswith("/workflows") for entry in item["toolSliceHandoff"]["checklist"])
+        assert all(entry["target"].startswith("/workflows") for entry in item["databaseHandoff"]["checklist"])
         assert all(anchor.startswith("https://") for anchor in item["externalPracticeAnchors"])
 
 
@@ -394,6 +406,34 @@ def test_workflow_scenario_pack_catalog_requires_pipeline_readiness_action_when_
         )
 
 
+def test_scenario_handoff_checklist_targets_are_fail_closed(monkeypatch) -> None:
+    definitions = _scenario_definitions()
+
+    monkeypatch.setattr(
+        "apps.api.workflow_scenario_pack_service._sample_data_handoff_checklist",
+        lambda *, ready: _sample_data_checklist(target_override={"SELECT_FIXTURE": "https://example.com"}),
+    )
+    with pytest.raises(WorkflowScenarioPackCatalogError, match="SCENARIO_SAMPLE_DATA_HANDOFF_TARGET_UNSUPPORTED"):
+        _validate_scenario_definitions(
+            definitions,
+            {"moving-pictures-16s-rulegraph-v1": {"enabled": True}},
+        )
+
+    monkeypatch.setattr(
+        "apps.api.workflow_scenario_pack_tool_slice._tool_slice_checklist",
+        lambda *, ready: _tool_slice_checklist(target_override={"CURATE_TOOL_SLICE": "/unknown"}),
+    )
+    with pytest.raises(WorkflowScenarioToolSliceHandoffError, match="SCENARIO_TOOL_SLICE_HANDOFF_TARGET_UNSUPPORTED"):
+        validate_tool_slice_handoff(definitions[1])
+
+    monkeypatch.setattr(
+        "apps.api.workflow_scenario_pack_database_handoff._database_handoff_checklist",
+        lambda *, ready: _database_checklist(target_override={"REAL_DATABASE_ACCEPTANCE": "https://example.com"}),
+    )
+    with pytest.raises(WorkflowScenarioDatabaseHandoffError, match="SCENARIO_DATABASE_HANDOFF_TARGET_UNSUPPORTED"):
+        validate_database_handoff(definitions[1])
+
+
 def test_scenario_database_handoff_uses_catalog_pack_options_without_installing() -> None:
     packs_by_template = {item["templateId"]: item for item in list_downloadable_database_packs()}
     taxonomy = {
@@ -409,6 +449,51 @@ def test_scenario_database_handoff_uses_catalog_pack_options_without_installing(
     assert "operatorSteps" not in pack_option
     assert taxonomy["databaseHandoff"]["readyScan"]["mutatesRegistry"] is False
     assert taxonomy["databaseHandoff"]["registration"]["requiresReadyScan"] is True
+
+
+def _sample_data_checklist(*, target_override: dict[str, str]) -> list[dict[str, str]]:
+    targets = {
+        "SELECT_FIXTURE": "/workflows/tools",
+        "DECLARE_INPUT_ROLES": "/workflows/tools",
+        "VERIFY_CHECKSUMS": "/workflows/tools",
+        "RECORD_SOURCE": "/workflows/tools",
+        "RUN_ACCEPTANCE": "/workflows/results",
+    } | target_override
+    return [_operator_required_item(code, target) for code, target in targets.items()]
+
+
+def _tool_slice_checklist(*, target_override: dict[str, str]) -> list[dict[str, str]]:
+    targets = {
+        "CURATE_TOOL_SLICE": "/workflows/tools",
+        "LOCK_TOOL_REVISION": "/workflows/tools",
+        "CONFIRM_RULE_SPEC": "/workflows/tools",
+        "LOCK_ENVIRONMENT": "/workflows/tools",
+        "RUN_SMOKE_FIXTURE": "/workflows/tools",
+        "VALIDATE_OUTPUTS": "/workflows/tools",
+    } | target_override
+    return [_operator_required_item(code, target) for code, target in targets.items()]
+
+
+def _database_checklist(*, target_override: dict[str, str]) -> list[dict[str, str]]:
+    targets = {
+        "SELECT_TEMPLATE": "/workflows/databases",
+        "VERIFY_CHECKSUM": "/workflows/databases",
+        "READY_SCAN": "/workflows/databases",
+        "REGISTER_DATABASE": "/workflows/databases",
+        "BIND_DATABASE": "/workflows",
+        "REAL_DATABASE_ACCEPTANCE": "/workflows/results",
+    } | target_override
+    return [_operator_required_item(code, target) for code, target in targets.items()]
+
+
+def _operator_required_item(code: str, target: str) -> dict[str, str]:
+    return {
+        "code": code,
+        "label": code.lower(),
+        "status": "operator_required",
+        "target": target,
+        "evidence": "test evidence",
+    }
 
 
 def _source(path: str) -> str:

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from apps.api.workflow_scenario_pack_targets import SCENARIO_PRODUCT_TARGETS
 from apps.api.workflow_catalog_service import list_bundled_pipeline_manifests
 from apps.api.workflow_sample_data_service import MOVING_PICTURES_PIPELINE_ID
 from apps.api.workflow_scenario_pack_database_handoff import (
-    SCENARIO_DATABASE_HANDOFF_SCHEMA_VERSION,
     WorkflowScenarioDatabaseHandoffError,
     database_handoff,
     validate_database_handoff,
@@ -22,11 +22,6 @@ from apps.api.workflow_scenario_pack_tool_slice import (
 SCENARIO_PACK_SCHEMA_VERSION = "h2ometa.workflow-scenario-pack.v1"
 SCENARIO_PACK_CATALOG_SCHEMA_VERSION = "h2ometa.workflow-scenario-pack-catalog.v1"
 SCENARIO_SAMPLE_DATA_HANDOFF_SCHEMA_VERSION = "h2ometa.workflow-scenario-sample-data-handoff.v1"
-_ALLOWED_ACTION_TARGETS = {
-    "/workflows/first-run",
-    "/workflows/tools",
-    "/workflows/databases",
-}
 _SCENARIO_TOOL_SLICE_MIN = 3
 _SCENARIO_TOOL_SLICE_MAX = 5
 _SCENARIO_TOOL_CONTRACT_STATES = {"planned", "workflow_ready"}
@@ -127,7 +122,7 @@ def _validate_scenario_definition(
     if definition.get("firstRunPath") and definition["firstRunPath"] != "/workflows/first-run":
         raise WorkflowScenarioPackCatalogError("SCENARIO_FIRST_RUN_PATH_UNSUPPORTED")
     for target in _next_action_targets(definition):
-        if target not in _ALLOWED_ACTION_TARGETS:
+        if target not in SCENARIO_PRODUCT_TARGETS:
             raise WorkflowScenarioPackCatalogError(f"SCENARIO_ACTION_TARGET_UNSUPPORTED: {target}")
     for anchor in definition.get("externalPracticeAnchors") or []:
         if not str(anchor or "").startswith("https://"):
@@ -248,6 +243,7 @@ def _validate_sample_data_handoff(definition: dict[str, Any]) -> None:
         raise WorkflowScenarioPackCatalogError("SCENARIO_SAMPLE_DATA_HANDOFF_CHECKLIST_INCOMPLETE")
     if any(item["status"] not in {"operator_required", "passed"} for item in handoff["checklist"]):
         raise WorkflowScenarioPackCatalogError("SCENARIO_SAMPLE_DATA_HANDOFF_STATUS_INVALID")
+    _validate_sample_data_handoff_targets(handoff["checklist"])
     if set(handoff["excludedActions"]) != {"automatic-download", "automatic-fixture-generation", "unverified-example-data"}:
         raise WorkflowScenarioPackCatalogError("SCENARIO_SAMPLE_DATA_HANDOFF_EXCLUSIONS_INVALID")
 
@@ -377,6 +373,15 @@ def _sample_data_input_options(definition: dict[str, Any]) -> list[dict[str, Any
             {"role": "proteins", "formats": ["faa", "fasta"], "required": False},
         ]
     return [{"role": "input", "formats": [str(item) for item in (definition.get("sampleData") or {}).get("items") or []], "required": True}]
+
+
+def _validate_sample_data_handoff_targets(checklist: list[dict[str, str]]) -> None:
+    for item in checklist:
+        target = str(item.get("target") or "").strip()
+        if not target:
+            raise WorkflowScenarioPackCatalogError("SCENARIO_SAMPLE_DATA_HANDOFF_TARGET_REQUIRED")
+        if target not in SCENARIO_PRODUCT_TARGETS:
+            raise WorkflowScenarioPackCatalogError(f"SCENARIO_SAMPLE_DATA_HANDOFF_TARGET_UNSUPPORTED: {target}")
 
 
 def _sample_data_handoff_checklist(*, ready: bool) -> list[dict[str, str]]:
