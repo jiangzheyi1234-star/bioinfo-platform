@@ -13,6 +13,7 @@ This directory keeps current operating contracts, accepted architecture decision
 - `managed-workflow-runtime-runbook.md`: remote runner and managed Snakemake runtime release path.
 - `reference-database-pack-lifecycle.md`: reference database pack catalog, manual installation, registration handoff, and evidence policy.
 - `release-candidate-operating-loop.md`: product-level RC verification, evidence directory, and promotion rules.
+- `single-user-pilot-backup-restore.md`: private lab pilot backup/restore planning and restore acceptance.
 - `security-governance.md`: current threat model, CI security gate, secret handling, CORS/auth boundaries, and release security checklist.
 - `workflow-template-structure.md`: bundled pipeline and Snakemake template layout.
 - `workflow-design-draft-v1.md`: persisted WorkflowDesignDraft contract, plan, compile, and submit boundary.

@@ -52,6 +52,8 @@ The remote layout is intentionally close to VS Code Remote SSH and self-hosted r
 
 Immutable code and packaged runtime live under `releases/`. Mutable data lives under `shared/`. Managed Snakemake runtime artifacts live under `tools/`.
 
+For the single-user lab pilot backup boundary, use `docs/single-user-pilot-backup-restore.md`. The pilot archive is scoped to local app state plus the remote `shared` root, and it excludes `releases/`, `current`, `tools/`, `locks/`, runtime process state, caches, and raw secrets.
+
 ## Lifecycle
 
 Every bootstrap or upgrade follows the same lifecycle. Reuse may skip install work only after proving the installed artifact and workflow runtime still match the manifest.

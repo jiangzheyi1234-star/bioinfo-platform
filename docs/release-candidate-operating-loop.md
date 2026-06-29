@@ -81,6 +81,26 @@ scripts\first_run_pilot_check.ps1 -RunFirstSuccessfulRun -RequireFinalizationRea
 
 This selects a ready server, prepares the official Moving Pictures sample uploads with checksum verification, submits `/api/v1/runs`, polls `/api/v1/runs/<run_id>/detail` until completion, then finalizes the first run. It must report `closedLoopProven: true` and `closedLoopProofMode: "submitted-run"`; otherwise the pilot has not proven the full first successful run.
 
+## Single-User Pilot Backup And Restore
+
+Before a lab pilot is handed off, record the backup and restore plan for the exact local app profile and remote runner state root:
+
+```powershell
+scripts\single_user_pilot_backup_plan.ps1 -RemoteRunnerSharedRoot "/home/<user>/.h2ometa/runner/shared" -RequireExistingState
+```
+
+The script is intentionally read-only. It emits `h2ometa.single-user-pilot-backup-plan.v1` JSON that names the local `%APPDATA%\H2OMeta` control-plane state, the operator-supplied remote runner `shared` root, excluded caches, secret rebind items, and the required restore drill. It does not copy files, open SSH, or compress archives because the current single-user pilot requires an explicit operator stop window or a runner-provided online backup path before copying SQLite-backed state. The detailed runbook is `docs/single-user-pilot-backup-restore.md`.
+
+The ordinary archive may include local config references, trusted `known_hosts`, tool-pack registry state, and remote runner data such as `data/runner.db`, `uploads`, `results`, `work`, `logs`, and `config/snakemake/default` workflow profile state. It must exclude raw passwords, bearer tokens, SSH private keys, secret environment variables, runner token fields, `H2OMETA_DEV_CACHE_ROOT`, virtual environments, Next build outputs, package-manager caches, and GitHub CLI auth material unless an operator separately approves a secret migration. External reference database paths registered in the runner database must be backed up or reprovisioned separately. Store SHA-256 evidence for every archive.
+
+After restoring into an isolated Windows profile and a dedicated remote runner root, rerun:
+
+```powershell
+scripts\first_run_pilot_check.ps1 -RunFirstSuccessfulRun -RequireFinalizationReady
+```
+
+The restore is not accepted until that command reports `closedLoopProven: true`, `closedLoopProofMode: "submitted-run"`, a ready validation card, a result package SHA-256, and passed Moving Pictures sample checksums.
+
 ## Optional Gates
 
 Optional gates are explicit, never silent:
