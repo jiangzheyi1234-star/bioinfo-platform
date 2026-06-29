@@ -6,6 +6,11 @@ from typing import Any
 
 from apps.api.workflow_catalog_service import list_bundled_pipeline_manifests
 from apps.api.workflow_sample_data_service import MOVING_PICTURES_PIPELINE_ID
+from apps.api.workflow_scenario_pack_tool_slice import (
+    WorkflowScenarioToolSliceHandoffError,
+    tool_slice_handoff,
+    validate_tool_slice_handoff,
+)
 
 
 SCENARIO_PACK_SCHEMA_VERSION = "h2ometa.workflow-scenario-pack.v1"
@@ -86,6 +91,7 @@ def _scenario_pack(definition: dict[str, Any], pipelines: dict[str, dict[str, An
         "sampleData": definition["sampleData"],
         "sampleDataHandoff": _sample_data_handoff(definition),
         "requiredWorkflowReadyTools": definition["requiredWorkflowReadyTools"],
+        "toolSliceHandoff": tool_slice_handoff(definition),
         "requiredDatabases": definition["requiredDatabases"],
         "databaseHandoff": _database_handoff(definition),
         "resultEvidence": definition["resultEvidence"],
@@ -140,6 +146,10 @@ def _validate_scenario_definition(
     pipeline_ready = bool(pipeline_id in pipelines and pipelines[pipeline_id].get("enabled", True))
     _validate_gate_contract(definition, pipeline_ready=pipeline_ready)
     _validate_tool_slice(definition)
+    try:
+        validate_tool_slice_handoff(definition)
+    except WorkflowScenarioToolSliceHandoffError as exc:
+        raise WorkflowScenarioPackCatalogError(str(exc)) from exc
     _validate_database_templates(definition)
     _validate_ready_scenario_pipeline(definition, pipelines)
 

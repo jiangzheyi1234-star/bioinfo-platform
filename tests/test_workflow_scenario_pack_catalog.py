@@ -12,6 +12,7 @@ from apps.api.workflow_scenario_pack_service import (
     _validate_scenario_definitions,
     list_workflow_scenario_packs,
 )
+from apps.api.workflow_scenario_pack_tool_slice import SCENARIO_TOOL_SLICE_HANDOFF_SCHEMA_VERSION
 
 
 REQUIRED_SCENARIO_PACK_FIELDS = {
@@ -31,6 +32,7 @@ REQUIRED_SCENARIO_PACK_FIELDS = {
     "sampleData",
     "sampleDataHandoff",
     "requiredWorkflowReadyTools",
+    "toolSliceHandoff",
     "requiredDatabases",
     "databaseHandoff",
     "resultEvidence",
@@ -56,6 +58,14 @@ def test_workflow_scenario_pack_catalog_publishes_three_product_scenarios() -> N
         assert item["noAutomaticExecution"] is True
         assert item["requiredWorkflowReadyTools"]
         assert 3 <= len(item["requiredWorkflowReadyTools"]) <= 5
+        assert item["toolSliceHandoff"]["schemaVersion"] == SCENARIO_TOOL_SLICE_HANDOFF_SCHEMA_VERSION
+        assert item["toolSliceHandoff"]["requiredState"] == "WorkflowReady"
+        assert item["toolSliceHandoff"]["noAutomaticExecution"] is True
+        assert item["toolSliceHandoff"]["excludedActions"] == [
+            "generic-bioconda-import",
+            "request-side-rulespec",
+            "unvalidated-tool-selection",
+        ]
         assert item["sampleDataHandoff"]["schemaVersion"] == SCENARIO_SAMPLE_DATA_HANDOFF_SCHEMA_VERSION
         assert item["sampleDataHandoff"]["noAutomaticExecution"] is True
         assert item["sampleDataHandoff"]["excludedActions"] == [
@@ -75,6 +85,9 @@ def test_workflow_scenario_pack_catalog_publishes_three_product_scenarios() -> N
             assert "count" not in tool
             assert tool["contractState"] in {"planned", "workflow_ready"}
             assert "bioconda" not in tool["toolId"].lower()
+        for tool in item["toolSliceHandoff"]["toolOptions"]:
+            assert set(tool) == {"toolId", "name", "kind", "role", "contractState", "acceptanceEvidence"}
+            assert {"ruleSpecDraft", "ruleTemplate", "commandTemplate", "packageSpec", "preparePayload"}.isdisjoint(tool)
         assert item["resultEvidence"]
         assert item["readinessChecks"]
         assert all(check["code"] and check["status"] in {"passed", "blocked"} for check in item["readinessChecks"])
@@ -93,6 +106,10 @@ def test_only_moving_pictures_scenario_is_ready_until_vertical_packs_have_real_g
     assert first_run["sampleDataHandoff"]["status"] == "ready"
     assert first_run["sampleDataHandoff"]["operatorActionRequired"] is False
     assert {item["status"] for item in first_run["sampleDataHandoff"]["checklist"]} == {"passed"}
+    assert first_run["toolSliceHandoff"]["status"] == "ready"
+    assert first_run["toolSliceHandoff"]["operatorActionRequired"] is False
+    assert first_run["toolSliceHandoff"]["sliceSize"] == {"min": 3, "max": 5, "actual": 4}
+    assert {item["status"] for item in first_run["toolSliceHandoff"]["checklist"]} == {"passed"}
     assert first_run["databaseHandoff"]["mode"] == "none"
     assert first_run["databaseHandoff"]["status"] == "not_required"
     assert first_run["databaseHandoff"]["operatorActionRequired"] is False
@@ -107,6 +124,18 @@ def test_only_moving_pictures_scenario_is_ready_until_vertical_packs_have_real_g
     assert taxonomy["sampleDataHandoff"]["mode"] == "operator_provided"
     assert taxonomy["sampleDataHandoff"]["status"] == "operator_required"
     assert taxonomy["sampleDataHandoff"]["operatorActionRequired"] is True
+    assert taxonomy["toolSliceHandoff"]["status"] == "operator_required"
+    assert taxonomy["toolSliceHandoff"]["operatorActionRequired"] is True
+    assert taxonomy["toolSliceHandoff"]["sliceSize"] == {"min": 3, "max": 5, "actual": 3}
+    assert {item["code"] for item in taxonomy["toolSliceHandoff"]["checklist"]} == {
+        "CURATE_TOOL_SLICE",
+        "LOCK_TOOL_REVISION",
+        "CONFIRM_RULE_SPEC",
+        "LOCK_ENVIRONMENT",
+        "RUN_SMOKE_FIXTURE",
+        "VALIDATE_OUTPUTS",
+    }
+    assert {item["status"] for item in taxonomy["toolSliceHandoff"]["checklist"]} == {"operator_required"}
     assert taxonomy["sampleDataHandoff"]["inputOptions"] == [
         {"role": "reads", "formats": ["fastq.gz"], "required": False},
         {"role": "contigs", "formats": ["fna", "fasta"], "required": False},
@@ -166,6 +195,20 @@ def test_only_moving_pictures_scenario_is_ready_until_vertical_packs_have_real_g
         "requiresSmallFixture": True,
         "requiresResultValidationCard": True,
     }
+    assert amr["toolSliceHandoff"]["evidencePolicy"] == {
+        "requiresToolRevisionId": True,
+        "requiresCapabilityBundle": True,
+        "requiresRuleSpec": True,
+        "requiresEnvironmentLock": True,
+        "requiresSmokeFixture": True,
+        "requiresOutputValidation": True,
+        "productionEvidenceOptional": True,
+    }
+    assert [item["role"] for item in amr["toolSliceHandoff"]["toolOptions"]] == [
+        "input_qc",
+        "amr_detection",
+        "annotation",
+    ]
     assert {"amr_database", "annotation_database"} <= {item["capability"] for item in amr["requiredDatabases"]}
     assert amr["databaseHandoff"]["templateOptions"] == [
         {"capability": "amr_database", "templates": ["card_rgi"]},
@@ -188,6 +231,7 @@ def test_workflow_scenario_pack_api_is_read_only_and_registered() -> None:
     route_source = _source("apps/api/workflow_scenario_pack_routes.py")
     main_source = _source("apps/api/main.py")
     service_source = _source("apps/api/workflow_scenario_pack_service.py")
+    tool_slice_source = _source("apps/api/workflow_scenario_pack_tool_slice.py")
 
     assert '@router.get("/api/v1/workflow-scenario-packs")' in route_source
     assert "@router.post" not in route_source
@@ -204,6 +248,12 @@ def test_workflow_scenario_pack_api_is_read_only_and_registered() -> None:
     assert "automatic-download" in service_source
     assert "automatic-extract" in service_source
     assert "automatic-install" in service_source
+    assert "request-side-rulespec" in tool_slice_source
+    assert "generic-bioconda-import" in tool_slice_source
+    assert "capability-bundle-v1" in tool_slice_source
+    assert "runtime_service()." not in tool_slice_source
+    assert "prepare_tool" not in tool_slice_source
+    assert "requestLocalApiJson" not in tool_slice_source
     assert 'or "/workflows/tools"' not in service_source
 
 

@@ -50,6 +50,7 @@ export function WorkflowScenarioPackSection({
               <ScenarioFact icon="evidence" label="证据" value={pack.resultEvidence.join(" / ")} />
             </div>
 
+            <ToolSliceHandoffSummary pack={pack} />
             <SampleDataHandoffSummary pack={pack} />
             <DatabaseHandoffSummary pack={pack} />
 
@@ -120,6 +121,39 @@ export function WorkflowScenarioPackSection({
         ))}
       </div>
     </section>
+  );
+}
+
+function ToolSliceHandoffSummary({ pack }: { pack: WorkflowScenarioPack }) {
+  const handoff = pack.toolSliceHandoff;
+  const checklist = handoff?.checklist || [];
+  if (checklist.length === 0 || handoff?.status === "ready") return null;
+  const visibleItems = checklist.slice(0, 2);
+  const remaining = checklist.length - visibleItems.length;
+  return (
+    <div className="mt-3 rounded border border-slate-200 bg-slate-50 px-2 py-2" data-testid="workflow-scenario-tool-slice-handoff">
+      <div className="mb-1.5 flex min-w-0 items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-slate-700">
+          <FlaskConical strokeWidth={1.5} className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+          <span className="truncate">工具切片</span>
+        </div>
+        <span className="shrink-0 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700">
+          {handoff?.requiredState || "WorkflowReady"}
+        </span>
+      </div>
+      <div className="grid gap-1" data-testid="workflow-scenario-tool-slice-handoff-checklist">
+        {visibleItems.map((item) => (
+          <div key={item.code || item.label} className="flex min-w-0 items-center gap-1.5 text-[11px] text-slate-600">
+            <CircleAlert strokeWidth={1.5} className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+            <span className="truncate">{item.label || item.code}</span>
+          </div>
+        ))}
+      </div>
+      <div className="mt-1.5 truncate text-[11px] text-slate-400">
+        {toolSliceHandoffText(pack)}
+        {remaining > 0 ? ` · +${remaining}` : ""}
+      </div>
+    </div>
   );
 }
 
@@ -231,6 +265,13 @@ function toolSliceLabel(pack: WorkflowScenarioPack) {
   return pack.requiredWorkflowReadyTools
     .map((item) => `${item.name || item.toolId || item.kind || "tool"}:${item.contractState || "unknown"}`)
     .join(", ");
+}
+
+function toolSliceHandoffText(pack: WorkflowScenarioPack) {
+  return (pack.toolSliceHandoff?.toolOptions || pack.requiredWorkflowReadyTools)
+    .map((item) => [item.role, item.contractState].filter(Boolean).join(":"))
+    .slice(0, 4)
+    .join(" / ");
 }
 
 function databaseLabel(pack: WorkflowScenarioPack) {
