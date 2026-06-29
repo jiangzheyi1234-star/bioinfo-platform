@@ -291,6 +291,27 @@ def test_first_run_finalize_reuses_existing_full_package(monkeypatch) -> None:
     assert result["schemaVersion"] == "h2ometa.first-run.finalization.v1"
     assert result["status"] == "ready"
     assert result["packageAction"] == "reused"
+    assert result["pilotHandoff"] == {
+        "schemaVersion": "h2ometa.first-run.single-user-lab-pilot-handoff.v1",
+        "scope": "single-user-lab",
+        "status": "ready",
+        "evidence": {
+            "runId": "run_first",
+            "resultId": "res_run_first",
+            "workflowRevisionId": "wfrev_first",
+            "packageExportId": "rpex_full",
+            "packageSha256": "d" * 64,
+            "manifestSha256": "e" * 64,
+            "validationChecksPassed": 10,
+            "validationChecksTotal": 10,
+        },
+        "nextAction": {
+            "code": "RUN_OWN_SMALL_SAMPLE",
+            "label": "用自己的小样本跑一次",
+            "target": "/workflows",
+        },
+        "exclusions": ["public-multi-user", "rbac", "kubernetes", "automatic-database-install"],
+    }
     assert result["resultPackage"]["packageExportId"] == "rpex_full"
     assert result["validationCard"]["checks"]
 

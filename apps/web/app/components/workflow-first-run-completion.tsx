@@ -5,7 +5,7 @@ import { CheckCircle2, ClipboardCheck, FileArchive, FileText, Loader2, ShieldChe
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-import type { FirstRunValidationCard } from "./workflow-first-run-api";
+import type { FirstRunPilotHandoff, FirstRunValidationCard } from "./workflow-first-run-api";
 import { firstRunResultPackageReady, formatBytes } from "./workflow-first-run-validation";
 import { workflowResultPackageDownloadHref } from "./workflows-page-api";
 import type { WorkflowResultPackageExport, WorkflowRun } from "./workflows-page-model";
@@ -17,6 +17,7 @@ export function FirstRunCompletionPanel({
   loadingValidationCard,
   onDownloadValidationCard,
   onDownloadValidationCardMarkdown,
+  pilotHandoff,
   ready,
   resultId,
   run,
@@ -28,6 +29,7 @@ export function FirstRunCompletionPanel({
   loadingValidationCard: boolean;
   onDownloadValidationCard: () => void;
   onDownloadValidationCardMarkdown: () => void;
+  pilotHandoff?: FirstRunPilotHandoff | null;
   ready: boolean;
   resultId: string;
   run: WorkflowRun | null;
@@ -40,6 +42,7 @@ export function FirstRunCompletionPanel({
   const checks = card?.checks || [];
   const passedChecks = checks.filter((item) => item.status === "passed").length;
   const keyResults = card?.keyResults || [];
+  const handoff = pilotHandoff || pilotHandoffFromCard({ card, latestPackage, resultId, run, workflowRevisionId });
 
   return (
     <section
@@ -121,6 +124,8 @@ export function FirstRunCompletionPanel({
           ))}
         </div>
       ) : null}
+
+      {handoff ? <PilotHandoffSummary handoff={handoff} /> : null}
     </section>
   );
 }
@@ -164,4 +169,87 @@ function checksLabel({
 
 function shortHash(value?: string) {
   return value ? value.slice(0, 12) : "";
+}
+
+function PilotHandoffSummary({ handoff }: { handoff: FirstRunPilotHandoff }) {
+  const evidence = handoff.evidence || {};
+  const nextAction = handoff.nextAction || {};
+  const exclusions = handoff.exclusions || [];
+  return (
+    <div className="mt-4 border-t border-emerald-200 pt-4" data-testid="first-run-pilot-handoff">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-xs font-semibold text-emerald-950">单用户试点交接</div>
+          <div className="mt-1 text-xs leading-5 text-emerald-800">
+            {handoff.scope || "single-user-lab"} / {handoff.status || "ready"}
+          </div>
+        </div>
+        {nextAction.target ? (
+          <Button asChild variant="outline" className="h-8 border-emerald-200 bg-white px-2.5 text-xs text-emerald-800">
+            <a href={nextAction.target}>{nextAction.label || nextAction.code || "下一步"}</a>
+          </Button>
+        ) : null}
+      </div>
+      <div className="mt-3 grid gap-x-5 gap-y-2 text-xs md:grid-cols-2 xl:grid-cols-4">
+        <SummaryItem label="package" value={evidence.packageExportId} mono />
+        <SummaryItem label="package sha" value={shortHash(evidence.packageSha256)} mono />
+        <SummaryItem label="manifest" value={shortHash(evidence.manifestSha256)} mono />
+        <SummaryItem label="checks" value={handoffChecksLabel(evidence)} />
+      </div>
+      {exclusions.length > 0 ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {exclusions.map((item) => (
+            <span key={item} className="rounded border border-emerald-200 bg-white px-2 py-1 text-[11px] text-emerald-800">
+              not {item}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function pilotHandoffFromCard({
+  card,
+  latestPackage,
+  resultId,
+  run,
+  workflowRevisionId,
+}: {
+  card: FirstRunValidationCard | null;
+  latestPackage?: WorkflowResultPackageExport;
+  resultId: string;
+  run: WorkflowRun | null;
+  workflowRevisionId: string;
+}): FirstRunPilotHandoff | null {
+  if (!card) return null;
+  const checks = card.checks || [];
+  return {
+    schemaVersion: "h2ometa.first-run.single-user-lab-pilot-handoff.v1",
+    scope: "single-user-lab",
+    status: "ready",
+    evidence: {
+      runId: run?.runId || card.run?.runId,
+      resultId,
+      workflowRevisionId,
+      packageExportId: latestPackage?.packageExportId || card.resultPackage?.packageExportId,
+      packageSha256: latestPackage?.sha256 || card.resultPackage?.sha256,
+      manifestSha256: latestPackage?.manifestSha256 || card.resultPackage?.manifestSha256,
+      validationChecksPassed: checks.filter((item) => item.status === "passed").length,
+      validationChecksTotal: checks.length,
+    },
+    nextAction: {
+      code: "RUN_OWN_SMALL_SAMPLE",
+      label: "用自己的小样本跑一次",
+      target: "/workflows",
+    },
+    exclusions: ["public-multi-user", "rbac", "kubernetes", "automatic-database-install"],
+  };
+}
+
+function handoffChecksLabel(evidence: NonNullable<FirstRunPilotHandoff["evidence"]>) {
+  if (typeof evidence.validationChecksPassed === "number" && typeof evidence.validationChecksTotal === "number") {
+    return `${evidence.validationChecksPassed}/${evidence.validationChecksTotal} passed`;
+  }
+  return "";
 }

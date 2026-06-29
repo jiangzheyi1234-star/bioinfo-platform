@@ -122,6 +122,9 @@ if ($RunId) {
         if ($null -eq $finalization.validationCard -or $null -eq $finalization.resultPackage) {
             Fail-Pilot "ready finalization must include validationCard and resultPackage"
         }
+        if ($null -eq $finalization.pilotHandoff -or $finalization.pilotHandoff.scope -ne "single-user-lab") {
+            Fail-Pilot "ready finalization must include a single-user-lab pilotHandoff"
+        }
         if (-not $finalization.resultPackage.sha256 -or -not $finalization.resultPackage.manifestSha256) {
             Fail-Pilot "ready finalization resultPackage must include sha256 and manifestSha256"
         }

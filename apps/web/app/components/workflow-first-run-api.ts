@@ -154,10 +154,29 @@ export type FirstRunFinalizationNextAction = {
   target?: string;
 };
 
+export type FirstRunPilotHandoff = {
+  schemaVersion?: string;
+  scope?: string;
+  status?: string;
+  evidence?: {
+    runId?: string;
+    resultId?: string;
+    workflowRevisionId?: string;
+    packageExportId?: string;
+    packageSha256?: string;
+    manifestSha256?: string;
+    validationChecksPassed?: number;
+    validationChecksTotal?: number;
+  };
+  nextAction?: FirstRunFinalizationNextAction;
+  exclusions?: string[];
+};
+
 export type FirstRunFinalization = {
   schemaVersion?: string;
   status?: "ready" | "blocked" | string;
   packageAction?: string;
+  pilotHandoff?: FirstRunPilotHandoff;
   resultPackage?: WorkflowResultPackageExport;
   validationCard?: FirstRunValidationCard;
   nextAction?: FirstRunFinalizationNextAction;

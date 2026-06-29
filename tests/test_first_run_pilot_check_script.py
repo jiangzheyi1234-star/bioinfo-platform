@@ -34,5 +34,6 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "/api/v1/first-run/runs/$([uri]::EscapeDataString($RunId))/finalize" in source
     assert "h2ometa.first-run.finalization.v1" in source
     assert "ready finalization must include validationCard and resultPackage" in source
+    assert "ready finalization must include a single-user-lab pilotHandoff" in source
     assert "blocked finalization must include nextAction code and target" in source
     assert "h2ometa.first-run-pilot-check.v1" in source

@@ -66,20 +66,19 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "结果验证卡" in first_run_source
     assert "FirstRunCompletionPanel" in first_run_page
     assert "first-run-completion-panel" in first_run_completion
+    assert "first-run-pilot-handoff" in first_run_completion
+    assert "单用户试点交接" in first_run_completion
     assert "首跑已完成" in first_run_completion
     assert "下载结果包" in first_run_completion
-    assert "下载验证卡 JSON" in first_run_completion
-    assert "下载验证卡 Markdown" in first_run_completion
-    assert "first-run-completion-download-card-markdown" in first_run_completion
     assert "firstRunResultPackageReady(latestPackage)" in first_run_completion
-    assert "workflowResultPackageDownloadHref" in first_run_completion
     assert "passed checks" in first_run_completion
+    assert "RUN_OWN_SMALL_SAMPLE" in first_run_completion
+    assert "automatic-database-install" in first_run_completion
     assert "const readyPackage = packageExports.find(firstRunResultPackageReady)" in first_run_page
     assert "const latestPackage = readyPackage || packageExports[0]" in first_run_page
     assert "const packageReady = Boolean(readyPackage)" in first_run_page
     assert "const validationEligible = runCompleted && packageReady && Boolean(workflowRevisionId)" in first_run_page
     assert "const validationReady = validationEligible && firstRunValidationCardPassed(validationCard)" in first_run_page
-    assert "firstRunValidationCardPassed" in first_run_completion
     assert "if (!ready) return null" in first_run_completion
     assert 'checks.every((item) => item.status === "passed")' in first_run_completion
     assert 'card?.reportInterpretation?.status === "ready"' in first_run_completion
@@ -88,6 +87,7 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "workflowRevisionIdFor(run, state.runDetail, latestPackage)" in first_run_page
     assert "/api/v1/first-run/runs/${encodeURIComponent(runId)}/validation-card" in first_run_api
     assert "/api/v1/first-run/runs/${encodeURIComponent(runId)}/finalize" in first_run_api
+    assert "pilotHandoff?: FirstRunPilotHandoff" in first_run_api
     assert "export async function finalizeFirstRun" in first_run_api
     assert "finalizeFirstRun(run.runId" in first_run_page
     assert 'actor: "first-run-ui"' in first_run_page

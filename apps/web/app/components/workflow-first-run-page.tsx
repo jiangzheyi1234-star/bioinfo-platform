@@ -26,6 +26,7 @@ import {
   finalizeFirstRun,
   fetchFirstRunValidationCard,
   type FirstRunFinalizationNextAction,
+  type FirstRunPilotHandoff,
   type FirstRunValidationCard,
 } from "./workflow-first-run-api";
 import { SampleAndSubmitPanel, sampleUploadsReady } from "./workflow-first-run-sample-submit";
@@ -72,6 +73,7 @@ export function WorkflowFirstRunPage() {
   const [exportingPackage, setExportingPackage] = useState(false);
   const [finalizingFirstRun, setFinalizingFirstRun] = useState(false);
   const [finalizationAction, setFinalizationAction] = useState<FirstRunFinalizationNextAction | null>(null);
+  const [pilotHandoff, setPilotHandoff] = useState<FirstRunPilotHandoff | null>(null);
   const [validationCard, setValidationCard] = useState<FirstRunValidationCard | null>(null);
   const [validationCardFetchLoading, setValidationCardFetchLoading] = useState(false);
   const [validationCardFetchError, setValidationCardFetchError] = useState("");
@@ -251,6 +253,7 @@ export function WorkflowFirstRunPage() {
       if (packageExport?.packageExportId) {
         setPackageExports((current) => mergePackageExport(packageExport, current));
       }
+      setPilotHandoff(finalized.pilotHandoff || null);
       setValidationCard(finalized.validationCard);
       await state.refreshRunDetail();
     } catch (err) {
@@ -343,6 +346,7 @@ export function WorkflowFirstRunPage() {
           workflowRevisionId={workflowRevisionId}
           onDownloadValidationCard={() => void downloadValidationCard()}
           onDownloadValidationCardMarkdown={() => void downloadValidationCardMarkdown()}
+          pilotHandoff={pilotHandoff}
         />
 
         <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
