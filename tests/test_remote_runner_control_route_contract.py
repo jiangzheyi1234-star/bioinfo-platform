@@ -391,8 +391,8 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
     assert "create_run_from_request" in submission_route_source
 
     assert "router = APIRouter()" in execution_query_route_source
-    assert '@router.get("/api/v1/runs")' in execution_query_route_source
-    assert '@router.get("/api/v1/runs/{run_id}")' in execution_query_route_source
+    assert '"/api/v1/runs"' in execution_query_route_source
+    assert '"/api/v1/runs/{run_id}"' in execution_query_route_source
     assert '@router.post("/api/v1/runs/{run_id}/cancel")' in execution_query_route_source
     assert '@router.post("/api/v1/runs/{run_id}/retry", status_code=202)' in execution_query_route_source
     assert '@router.post("/api/v1/runs/{run_id}/rules/retry", status_code=202)' in execution_query_route_source
@@ -404,13 +404,13 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
     assert '@router.post("/api/v1/runs/{run_id}/rules/cache-restore/adoption/prepare")' in execution_query_route_source
     assert '@router.post("/api/v1/runs/{run_id}/rules/cache-restore/adoption/apply")' in execution_query_route_source
     assert '@router.post("/api/v1/runs/{run_id}/resume", status_code=202)' in execution_query_route_source
-    assert '@router.get("/api/v1/runs/{run_id}/events")' in execution_query_route_source
-    assert '@router.get("/api/v1/runs/{run_id}/execution-context")' in execution_query_route_source
-    assert '@router.get("/api/v1/runs/{run_id}/attempts")' in execution_query_route_source
-    assert '@router.get("/api/v1/runs/{run_id}/logs")' in execution_query_route_source
-    assert '@router.get("/api/v1/runs/{run_id}/results")' in execution_query_route_source
-    assert '@router.get("/api/v1/runs/{run_id}/rules")' in execution_query_route_source
-    assert '@router.get("/api/v1/runs/{run_id}/failure-locator")' in execution_query_route_source
+    assert '"/api/v1/runs/{run_id}/events"' in execution_query_route_source
+    assert '"/api/v1/runs/{run_id}/execution-context"' in execution_query_route_source
+    assert '"/api/v1/runs/{run_id}/attempts"' in execution_query_route_source
+    assert '"/api/v1/runs/{run_id}/logs"' in execution_query_route_source
+    assert '"/api/v1/runs/{run_id}/results"' in execution_query_route_source
+    assert '"/api/v1/runs/{run_id}/rules"' in execution_query_route_source
+    assert '"/api/v1/runs/{run_id}/failure-locator"' in execution_query_route_source
     assert '@router.get("/api/v1/results")' in execution_query_route_source
     assert '@router.get("/api/v1/results/{result_id}")' in execution_query_route_source
     assert '@router.get("/api/v1/results/{result_id}/preview")' in execution_query_route_source

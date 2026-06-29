@@ -70,3 +70,20 @@ class BaseRuntimeManager:
             server_record=record,
             **kwargs,
         )
+
+    def call_remote_endpoint(
+        self,
+        endpoint_id: str,
+        *,
+        path_values: dict[str, Any],
+        query_values: dict[str, Any] | None = None,
+        timeout: int | None = None,
+    ) -> Any:
+        kwargs: dict[str, Any] = {
+            "endpoint_id": endpoint_id,
+            "path_values": path_values,
+            "query_values": dict(query_values or {}),
+        }
+        if timeout is not None:
+            kwargs["timeout"] = timeout
+        return self.call_runner("call_remote_endpoint", **kwargs)

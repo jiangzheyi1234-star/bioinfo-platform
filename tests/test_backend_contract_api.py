@@ -33,7 +33,13 @@ from apps.api.ssh_routes import (
 from apps.api.submission_routes import submit_run
 from apps.api.response_cache import invalidate_response_cache
 from apps.api.route_errors import runtime_service_status_code
-from core.contracts.remote_endpoints import RUN_FAILURE_LOCATOR_READ, RUN_RULES_READ
+from core.contracts.remote_endpoints import (
+    RUN_EVENTS_READ,
+    RUN_FAILURE_LOCATOR_READ,
+    RUN_READ,
+    RUN_RESULTS_READ,
+    RUN_RULES_READ,
+)
 from apps.api.models import (
     RunSubmitRequest,
     SSHConnectionRequest,
@@ -263,7 +269,6 @@ def test_server_execution_diagnostics_contract(monkeypatch, tmp_path: Path) -> N
         },
         "servers": {},
     }
-
     class FakeRemoteRunnerManager:
         def get_execution_diagnostics(self, **kwargs):
             return {
@@ -619,14 +624,6 @@ def test_run_detail_and_results_contract(monkeypatch, tmp_path: Path) -> None:
     }
 
     class FakeRemoteRunnerManager:
-        def get_run(self, **kwargs):
-            return {
-                "runId": "run_2026_0419_001",
-                "stateVersion": 7,
-                "requestId": "req_f2b8f4f0",
-                "runSpec": {"pipelineId": "taxonomy-v1"},
-            }
-
         def get_health(self, **kwargs):
             return {
                 "startup": {"ok": True, "message": "Remote runner config loaded."},
@@ -636,19 +633,20 @@ def test_run_detail_and_results_contract(monkeypatch, tmp_path: Path) -> None:
                 "checkedAt": "2026-04-21T12:00:00Z",
             }
 
-        def get_run_events(self, **kwargs):
-            return {"items": [{"runId": "run_2026_0419_001", "stateVersion": 7}]}
-
-        def get_run_results(self, **kwargs):
-            return {"runId": "run_2026_0419_001", "artifacts": [{"artifactId": "art_001"}], "resultDir": "/srv/results"}
-
         def call_remote_endpoint(self, **kwargs):
             assert kwargs["path_values"] == {"run_id": "run_2026_0419_001"}
-            if kwargs["endpoint_id"] == RUN_RULES_READ:
+            endpoint_id = kwargs["endpoint_id"]
+            if endpoint_id == RUN_READ:
+                return {"runId": "run_2026_0419_001", "stateVersion": 7, "requestId": "req_f2b8f4f0", "runSpec": {"pipelineId": "taxonomy-v1"}}
+            if endpoint_id == RUN_EVENTS_READ:
+                return {"items": [{"runId": "run_2026_0419_001", "stateVersion": 7}]}
+            if endpoint_id == RUN_RESULTS_READ:
+                return {"runId": "run_2026_0419_001", "artifacts": [{"artifactId": "art_001"}], "resultDir": "/srv/results"}
+            if endpoint_id == RUN_RULES_READ:
                 return {"runId": "run_2026_0419_001", "items": [{"ruleName": "trim_reads", "status": "succeeded"}]}
-            if kwargs["endpoint_id"] == RUN_FAILURE_LOCATOR_READ:
+            if endpoint_id == RUN_FAILURE_LOCATOR_READ:
                 return {"schemaVersion": "run-failure-locator.v1", "runId": "run_2026_0419_001", "available": False}
-            raise AssertionError(f"unexpected endpoint {kwargs['endpoint_id']}")
+            raise AssertionError(f"unexpected endpoint {endpoint_id}")
 
         def list_results(self, **kwargs):
             return [{"resultId": "res_run_2026_0419_001", "runId": "run_2026_0419_001", "title": "taxonomy result", "pipelineId": "taxonomy-v1", "artifactCount": 1, "producedAt": "2026-04-21T12:00:00Z"}]

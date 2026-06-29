@@ -8,8 +8,14 @@ from fastapi import APIRouter, Query, Response
 
 from core.contracts.remote_endpoints import (
     REMOTE_ENDPOINTS,
+    RUN_ATTEMPTS_READ,
+    RUN_EVENTS_READ,
     RUN_EXECUTION_CONTEXT_READ,
     RUN_FAILURE_LOCATOR_READ,
+    RUN_LIST,
+    RUN_LOGS_READ,
+    RUN_READ,
+    RUN_RESULTS_READ,
     RUN_RULES_READ,
 )
 from apps.api.models import (
@@ -96,12 +102,12 @@ DOWNLOAD_HEADER_ALLOWLIST = {
 }
 
 
-@router.get("/api/v1/runs")
+@router.get("/api/v1/runs", operation_id=REMOTE_ENDPOINTS[RUN_LIST].operation_id)
 async def list_runs(refresh: bool = False) -> dict[str, Any]:
     return await list_runs_from_request(refresh)
 
 
-@router.get("/api/v1/runs/{run_id}")
+@router.get("/api/v1/runs/{run_id}", operation_id=REMOTE_ENDPOINTS[RUN_READ].operation_id)
 async def get_run(run_id: str) -> dict[str, Any]:
     return await get_run_from_request(run_id)
 
@@ -206,7 +212,7 @@ async def resume_run(run_id: str, payload: RunResumeRequest) -> dict[str, Any]:
     return await resume_run_from_request(run_id, payload)
 
 
-@router.get("/api/v1/runs/{run_id}/events")
+@router.get("/api/v1/runs/{run_id}/events", operation_id=REMOTE_ENDPOINTS[RUN_EVENTS_READ].operation_id)
 async def get_run_events(run_id: str) -> dict[str, Any]:
     return await get_run_events_from_request(run_id)
 
@@ -219,12 +225,12 @@ async def get_run_execution_context(run_id: str) -> dict[str, Any]:
     return await get_run_execution_context_from_request(run_id)
 
 
-@router.get("/api/v1/runs/{run_id}/attempts")
+@router.get("/api/v1/runs/{run_id}/attempts", operation_id=REMOTE_ENDPOINTS[RUN_ATTEMPTS_READ].operation_id)
 async def get_run_attempts(run_id: str) -> dict[str, Any]:
     return await get_run_attempts_from_request(run_id)
 
 
-@router.get("/api/v1/runs/{run_id}/logs")
+@router.get("/api/v1/runs/{run_id}/logs", operation_id=REMOTE_ENDPOINTS[RUN_LOGS_READ].operation_id)
 async def get_run_logs(
     run_id: str,
     stream: str = "stdout",
@@ -233,7 +239,7 @@ async def get_run_logs(
     return await get_run_logs_from_request(run_id, stream=stream, cursor=cursor)
 
 
-@router.get("/api/v1/runs/{run_id}/results")
+@router.get("/api/v1/runs/{run_id}/results", operation_id=REMOTE_ENDPOINTS[RUN_RESULTS_READ].operation_id)
 async def get_run_results(run_id: str) -> dict[str, Any]:
     return await get_run_results_from_request(run_id)
 

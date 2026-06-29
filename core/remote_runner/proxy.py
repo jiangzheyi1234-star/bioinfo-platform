@@ -34,16 +34,18 @@ def _manager_error_blocks_runtime_state_resync(exc: Exception) -> bool:
 
 
 class RemoteRunnerProxyMixin:
-    def call_remote_endpoint(self, **kwargs) -> dict[str, Any]:
+    def call_remote_endpoint(self, **kwargs) -> Any:
         client = self._get_client(
             server_id=str(kwargs["server_id"]),
             ssh_service=kwargs["ssh_service"],
             record=kwargs["server_record"],
+            timeout=int(kwargs.get("timeout") or 5),
         )
         return execute_remote_endpoint(
             client,
             str(kwargs["endpoint_id"]),
             path_values=dict(kwargs.get("path_values") or {}),
+            query_values=dict(kwargs.get("query_values") or {}),
             payload=kwargs.get("payload"),
         )
 
@@ -489,23 +491,6 @@ class RemoteRunnerProxyMixin:
         )
         return client.get_json("/api/v1/secrets/provider-readiness")["data"]
 
-    def list_runs(self, **kwargs) -> list[dict[str, Any]]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-            timeout=20,
-        )
-        return client.get_json("/api/v1/runs")["data"]["items"]
-
-    def get_run(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        return client.get_json(f"/api/v1/runs/{kwargs['run_id']}")["data"]
-
     def cancel_run(self, **kwargs) -> dict[str, Any]:
         client = self._get_client(
             server_id=str(kwargs["server_id"]),
@@ -521,43 +506,6 @@ class RemoteRunnerProxyMixin:
             record=kwargs["server_record"],
         )
         return client.post_json(f"/api/v1/runs/{kwargs['run_id']}/retry", kwargs["payload"])["data"]
-
-    def get_run_events(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        return client.get_json(f"/api/v1/runs/{kwargs['run_id']}/events")["data"]
-
-    def get_run_attempts(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        return client.get_json(f"/api/v1/runs/{kwargs['run_id']}/attempts")["data"]
-
-    def get_run_logs(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        stream = kwargs.get("stream") or "stdout"
-        cursor = kwargs.get("cursor")
-        path = f"/api/v1/runs/{kwargs['run_id']}/logs?stream={stream}"
-        if cursor:
-            path += f"&cursor={cursor}"
-        return client.get_json(path)["data"]
-
-    def get_run_results(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        return client.get_json(f"/api/v1/runs/{kwargs['run_id']}/results")["data"]
 
     def list_results(self, **kwargs) -> list[dict[str, Any]]:
         client = self._get_client(

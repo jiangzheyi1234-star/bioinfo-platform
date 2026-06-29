@@ -14,10 +14,11 @@ def call_remote_endpoint(
     endpoint_id: str,
     *,
     path_values: dict[str, Any],
+    query_values: dict[str, Any] | None = None,
     payload: dict[str, Any] | None = None,
 ) -> Any:
     endpoint = get_remote_endpoint(endpoint_id)
-    path = render_remote_endpoint_path(endpoint_id, path_values)
+    path = render_remote_endpoint_path(endpoint_id, path_values, query_values=query_values)
 
     if endpoint.method == "GET":
         if payload:
@@ -35,10 +36,19 @@ def call_remote_endpoint(
         raise RemoteEndpointContractError("REMOTE_ENDPOINT_METHOD_UNSUPPORTED", endpoint.method)
 
     if not endpoint.response_key:
-        return envelope
-    if not isinstance(envelope, dict) or endpoint.response_key not in envelope:
+        data = envelope
+    elif not isinstance(envelope, dict) or endpoint.response_key not in envelope:
         raise RemoteEndpointContractError(
             "REMOTE_ENDPOINT_RESPONSE_KEY_MISSING",
             f"{endpoint_id}.{endpoint.response_key}",
         )
-    return envelope[endpoint.response_key]
+    else:
+        data = envelope[endpoint.response_key]
+    if not endpoint.response_item_key:
+        return data
+    if not isinstance(data, dict) or endpoint.response_item_key not in data:
+        raise RemoteEndpointContractError(
+            "REMOTE_ENDPOINT_RESPONSE_ITEM_KEY_MISSING",
+            f"{endpoint_id}.{endpoint.response_item_key}",
+        )
+    return data[endpoint.response_item_key]

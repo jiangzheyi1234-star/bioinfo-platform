@@ -6,15 +6,21 @@ from typing import Any, Optional
 from core.app_runtime.errors import RuntimeServiceError
 from core.app_runtime.managers.base import BaseRuntimeManager
 from core.contracts.remote_endpoints import (
+    RUN_ATTEMPTS_READ,
+    RUN_EVENTS_READ,
     RUN_EXECUTION_CONTEXT_READ,
     RUN_FAILURE_LOCATOR_READ,
+    RUN_LIST,
+    RUN_LOGS_READ,
+    RUN_READ,
+    RUN_RESULTS_READ,
     RUN_RULES_READ,
 )
 
 
 class ExecutionManager(BaseRuntimeManager):
     def list_runs(self) -> list[dict[str, Any]]:
-        return self.call_runner("list_runs")
+        return self.call_remote_endpoint(RUN_LIST, path_values={}, timeout=20)
 
     def submit_run(self, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         body = dict(payload or {})
@@ -336,7 +342,7 @@ class ExecutionManager(BaseRuntimeManager):
         }
 
     def get_run(self, run_id: str) -> dict[str, Any]:
-        return {"data": self.call_runner("get_run", run_id=run_id)}
+        return self._get_run_read_model(RUN_READ, run_id)
 
     def get_workflow_revision(
         self,
@@ -473,13 +479,13 @@ class ExecutionManager(BaseRuntimeManager):
         return {"data": self.call_runner("resume_run", run_id=run_id, payload=dict(payload or {}))}
 
     def get_run_events(self, run_id: str) -> dict[str, Any]:
-        return {"data": self.call_runner("get_run_events", run_id=run_id)}
+        return self._get_run_read_model(RUN_EVENTS_READ, run_id)
 
     def get_run_execution_context(self, run_id: str) -> dict[str, Any]:
         return self._get_run_read_model(RUN_EXECUTION_CONTEXT_READ, run_id)
 
     def get_run_attempts(self, run_id: str) -> dict[str, Any]:
-        return {"data": self.call_runner("get_run_attempts", run_id=run_id)}
+        return self._get_run_read_model(RUN_ATTEMPTS_READ, run_id)
 
     def get_run_logs(
         self,
@@ -487,17 +493,10 @@ class ExecutionManager(BaseRuntimeManager):
         stream: str = "stdout",
         cursor: Optional[str] = None,
     ) -> dict[str, Any]:
-        return {
-            "data": self.call_runner(
-                "get_run_logs",
-                run_id=run_id,
-                stream=stream,
-                cursor=cursor,
-            )
-        }
+        return self._get_run_read_model(RUN_LOGS_READ, run_id, query_values={"stream": stream, "cursor": cursor})
 
     def get_run_results(self, run_id: str) -> dict[str, Any]:
-        return {"data": self.call_runner("get_run_results", run_id=run_id)}
+        return self._get_run_read_model(RUN_RESULTS_READ, run_id)
 
     def get_run_rules(self, run_id: str) -> dict[str, Any]:
         return self._get_run_read_model(RUN_RULES_READ, run_id)
@@ -505,12 +504,18 @@ class ExecutionManager(BaseRuntimeManager):
     def get_run_failure_locator(self, run_id: str) -> dict[str, Any]:
         return self._get_run_read_model(RUN_FAILURE_LOCATOR_READ, run_id)
 
-    def _get_run_read_model(self, endpoint_id: str, run_id: str) -> dict[str, Any]:
+    def _get_run_read_model(
+        self,
+        endpoint_id: str,
+        run_id: str,
+        *,
+        query_values: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         return {
-            "data": self.call_runner(
-                "call_remote_endpoint",
-                endpoint_id=endpoint_id,
+            "data": self.call_remote_endpoint(
+                endpoint_id,
                 path_values={"run_id": run_id},
+                query_values=query_values,
             )
         }
 

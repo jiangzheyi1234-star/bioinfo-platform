@@ -328,9 +328,6 @@ class RemoteRunnerHttpClient:
     def get_secret_provider_readiness(self) -> dict[str, Any]:
         return self.get_json("/api/v1/secrets/provider-readiness")["data"]
 
-    def get_run(self, run_id: str) -> dict[str, Any]:
-        return self.get_json(f"/api/v1/runs/{run_id}")["data"]
-
     def apply_rule_output_invalidation(self, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self.post_json(f"/api/v1/runs/{run_id}/rules/output-invalidation/apply", payload)["data"]
 
@@ -357,12 +354,6 @@ class RemoteRunnerHttpClient:
 
     def apply_rule_cache_restore_adoption(self, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self.post_json(f"/api/v1/runs/{run_id}/rules/cache-restore/adoption/apply", payload)["data"]
-
-    def get_run_attempts(self, run_id: str) -> dict[str, Any]:
-        return self.get_json(f"/api/v1/runs/{run_id}/attempts")["data"]
-
-    def get_run_results(self, run_id: str) -> dict[str, Any]:
-        return self.get_json(f"/api/v1/runs/{run_id}/results")["data"]
 
     def get_result(self, result_id: str) -> dict[str, Any]:
         return self.get_json(f"/api/v1/results/{result_id}")["data"]

@@ -59,10 +59,10 @@ def test_run_result_routes_delegate_runtime_calls_to_service() -> None:
     assert '@app.get("/api/v1/results")' not in main_source
     assert '@router.get("/api/v1/workflow-revisions/{workflow_revision_id}")' in route_source
 
-    list_route_start = route_source.index('@router.get("/api/v1/runs")')
-    list_route_end = route_source.index('@router.get("/api/v1/runs/{run_id}")')
+    list_route_start = route_source.index("async def list_runs(")
+    list_route_end = route_source.index("async def get_run(")
     list_route = route_source[list_route_start:list_route_end]
-    detail_route_start = route_source.index('@router.get("/api/v1/runs/{run_id}")')
+    detail_route_start = route_source.index("async def get_run(")
     detail_routes = route_source[detail_route_start:]
 
     for routes in (list_route, detail_routes):

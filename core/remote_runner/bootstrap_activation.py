@@ -9,8 +9,10 @@ from pathlib import Path
 from typing import Any
 
 from config import resolve_runner_token
+from core.contracts.remote_endpoints import RUN_READ, RUN_RESULTS_READ
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
 from core.remote_runner.client import RemoteRunnerClientError, RemoteRunnerHttpClient
+from core.remote_runner.endpoint_caller import call_remote_endpoint
 from core.remote_runner.metadata import (
     build_remote_workflow_profile_content,
     compact_preview_payload,
@@ -178,7 +180,7 @@ class RemoteRunnerBootstrapActivationMixin:
                 last_error = run.get("lastError") if isinstance(run.get("lastError"), dict) else {}
                 detail = str(last_error.get("message") or run.get("message") or f"status={run.get('status') or 'unknown'}")
                 raise self._manager_error(detail)
-            run_results = client.get_run_results(run_id)
+            run_results = call_remote_endpoint(client, RUN_RESULTS_READ, path_values={"run_id": run_id})
             listed_results = client.list_results()
             result_id = next((str(item.get("resultId") or "") for item in listed_results if str(item.get("runId") or "") == run_id), "")
             if not result_id:
@@ -239,7 +241,7 @@ class RemoteRunnerBootstrapActivationMixin:
     ) -> dict[str, Any]:
         last_run: dict[str, Any] | None = None
         for attempt in range(attempts):
-            run = client.get_run(run_id)
+            run = call_remote_endpoint(client, RUN_READ, path_values={"run_id": run_id})
             last_run = run
             if str(run.get("status") or "") in {"completed", "failed"}:
                 return run
