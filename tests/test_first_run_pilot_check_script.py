@@ -28,6 +28,7 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "app/workflows/first-run/page.js" in source
     assert "resultPackage" in source
     assert "validationCard" in source
+    assert '$RequiredEvidence = @("resultPackage", "validationCard", "evidenceBundle"' in source
     assert "workflowRevision" in source
     assert "inputLineage" in source
     assert "outputChecksums" in source
@@ -75,8 +76,14 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "first-run did not complete within $RunTimeoutSeconds seconds" in source
     assert "/api/v1/first-run/runs/$([uri]::EscapeDataString($RunId))/finalize" in source
     assert "h2ometa.first-run.finalization.v1" in source
-    assert "ready finalization must include validationCard and resultPackage" in source
+    assert "ready finalization must include validationCard, resultPackage, and evidenceBundle" in source
     assert "ready finalization must include a single-user-lab pilotHandoff" in source
+    assert "h2ometa.first-run.evidence-bundle.v1" in source
+    assert "ready finalization must expose the same first-run evidenceBundle" in source
+    assert "first-run evidenceBundle must include exactly one $role file" in source
+    assert "first-run evidenceBundle result package file must match package hashes" in source
+    assert "first-run evidenceBundle $role filename must be" in source
+    assert "keep-result-package-validation-card-and-handoff-together" in source
     assert "function Assert-FirstRunPilotHandoff" in source
     assert "pilotHandoff evidence must match validationCard run and result" in source
     assert "pilotHandoff evidence must match resultPackage hashes" in source
@@ -96,6 +103,8 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "RUN_OWN_SMALL_SAMPLE" in source
     assert "$handoffProof = Assert-FirstRunPilotHandoff $finalization" in source
     assert "pilotHandoffSchemaVersion = $handoff.schemaVersion" in source
+    assert "evidenceBundleSchemaVersion = $bundle.schemaVersion" in source
+    assert "evidenceBundleFileRoles = @($requiredFiles | ForEach-Object { $_.role })" in source
     assert "backupRestoreSchemaVersion = $backup.schemaVersion" in source
     assert "nextScenarioIds = @($nextScenarios | ForEach-Object { $_.scenarioId })" in source
     assert "handoffProof = $handoffProof" in source
@@ -103,6 +112,7 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert 'FIRST_RUN_WORKFLOW_REVISION_REQUIRED = "/workflows/first-run#runner-readiness"' in source
     assert 'FIRST_RUN_REPORT_PREVIEW_REQUIRED = "/workflows/first-run#run-report"' in source
     assert 'FIRST_RUN_SAMPLE_INPUTS_INTEGRITY_MISMATCH = "/workflows/first-run#sample-data"' in source
+    assert 'FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED = "/workflows/first-run#validation-card"' in source
     assert '$FirstRunRecoveryAnchors = @("runner-readiness", "sample-data", "run-report", "result-package", "validation-card")' in source
     assert "blocked finalization must include nextAction code and target" in source
     assert "blocked finalization nextAction target must match $($Action.code)" in source
@@ -137,3 +147,4 @@ def test_first_run_pilot_docs_keep_mutating_proof_explicit() -> None:
     assert "sampleUploadProof.passed: true" in source
     assert "sampleUploadProof.unexpectedRoles: []" in source
     assert "sampleUploadProof.duplicateRoles: []" in source
+    assert "ready first-run evidence bundle" in source

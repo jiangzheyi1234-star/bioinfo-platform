@@ -109,6 +109,10 @@ def export_result_package(
     )
     if audit["status"] != "passed":
         raise ValueError("RESULT_ARTIFACT_AUDIT_FAILED")
+    package_audit = _result_package_audit(
+        audit,
+        expose_storage_references=not include_artifacts,
+    )
 
     created_at = now_iso()
     safe_run, redacted_paths = redacted_run(run)
@@ -128,7 +132,7 @@ def export_result_package(
         rule_bundle=rule_bundle,
         lineage_edges=lineage_edges,
         evidence_events=evidence_events,
-        audit=audit,
+        audit=package_audit,
     )
     metadata_index = _metadata_index(metadata_files)
     export_dir = Path(cfg.results_dir) / "packages" / result_id
@@ -140,7 +144,7 @@ def export_result_package(
         run=safe_run,
         workflow_revision=workflow_revision,
         result_bundle=result_bundle,
-        audit=audit,
+        audit=package_audit,
         run_events=run_events,
         rule_bundle=rule_bundle,
         evidence_events=evidence_events,
@@ -285,21 +289,20 @@ def _result_package_manifest(
 ) -> dict[str, Any]:
     package_artifacts = []
     for artifact in result["artifacts"]:
-        package_artifacts.append(
-            {
-                "artifactId": artifact["artifactId"],
-                "runId": artifact["runId"],
-                "kind": artifact["kind"],
-                "mimeType": artifact["mimeType"],
-                "sizeBytes": artifact["sizeBytes"],
-                "sha256": artifact["sha256"],
-                "storageBackend": artifact["storageBackend"],
-                "storageUri": artifact["storageUri"],
-                "packagePath": _package_artifact_root(artifact) if include_artifacts else None,
-                "externalUri": artifact["storageUri"],
-                "includedInPackage": include_artifacts,
-            }
-        )
+        package_artifact = {
+            "artifactId": artifact["artifactId"],
+            "runId": artifact["runId"],
+            "kind": artifact["kind"],
+            "mimeType": artifact["mimeType"],
+            "sizeBytes": artifact["sizeBytes"],
+            "sha256": artifact["sha256"],
+            "storageBackend": artifact["storageBackend"],
+            "packagePath": _package_artifact_root(artifact) if include_artifacts else None,
+            "includedInPackage": include_artifacts,
+        }
+        if not include_artifacts:
+            package_artifact["externalUri"] = artifact["storageUri"]
+        package_artifacts.append(package_artifact)
     input_artifacts = input_artifacts_from_lineage(result_bundle["lineageEdges"])
     activity = {
         "id": f"run:{result['runId']}",
@@ -351,6 +354,15 @@ def _result_package_manifest(
         "triggerProvenance": trigger_provenance,
         "runSpec": run["runSpec"],
         "redactedSecretPaths": redacted_secret_paths,
+        "redaction": {
+            "artifactPathsExposed": not include_artifacts,
+            "artifactStorageUrisExposed": not include_artifacts,
+            "policy": (
+                "package-relative-artifacts"
+                if include_artifacts
+                else "metadata-only-external-artifact-references"
+            ),
+        },
         "workflowRevision": {
             "workflowRevisionId": workflow_revision["workflowRevisionId"],
             "contentHash": workflow_revision["contentHash"],
@@ -663,21 +675,19 @@ def _ro_crate_metadata(
             }
         )
     for artifact in manifest["artifacts"]:
-        graph.append(
-            {
-                "@id": _artifact_ro_crate_id(artifact),
-                "@type": "Dataset",
-                "name": artifact["kind"],
-                "encodingFormat": artifact["mimeType"],
-                "contentSize": artifact["sizeBytes"],
-                "sha256": artifact["sha256"],
-                "identifier": artifact["artifactId"],
-                "h2ometa:includedInPackage": artifact["includedInPackage"],
-                "h2ometa:storageBackend": artifact["storageBackend"],
-                "h2ometa:storageUri": artifact["storageUri"],
-                "about": {"@id": run_action_id},
-            }
-        )
+        entity = {
+            "@id": _artifact_ro_crate_id(artifact),
+            "@type": "Dataset",
+            "name": artifact["kind"],
+            "encodingFormat": artifact["mimeType"],
+            "contentSize": artifact["sizeBytes"],
+            "sha256": artifact["sha256"],
+            "identifier": artifact["artifactId"],
+            "h2ometa:includedInPackage": artifact["includedInPackage"],
+            "h2ometa:storageBackend": artifact["storageBackend"],
+            "about": {"@id": run_action_id},
+        }
+        graph.append(entity)
     for artifact in manifest.get("inputArtifacts", []):
         graph.append(
             {
@@ -703,6 +713,32 @@ def _artifact_ro_crate_id(artifact: dict[str, Any]) -> str:
     if artifact.get("includedInPackage"):
         return f"{artifact['packagePath']}/"
     return str(artifact["externalUri"])
+
+
+def _result_package_audit(
+    audit: dict[str, Any],
+    *,
+    expose_storage_references: bool,
+) -> dict[str, Any]:
+    if expose_storage_references:
+        return audit
+    redacted = dict(audit)
+    redacted["redaction"] = {
+        "pathsExposed": False,
+        "storageUrisExposed": False,
+        "policy": "package-relative-artifacts",
+    }
+    redacted["artifacts"] = [_redacted_audit_artifact(item) for item in audit.get("artifacts") or []]
+    return redacted
+
+
+def _redacted_audit_artifact(item: Any) -> dict[str, Any]:
+    if not isinstance(item, dict):
+        return {}
+    redacted = dict(item)
+    redacted.pop("path", None)
+    redacted.pop("storageUri", None)
+    return redacted
 
 
 def _append_result_export_evidence(

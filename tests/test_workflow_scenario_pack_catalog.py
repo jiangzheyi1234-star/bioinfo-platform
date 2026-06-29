@@ -128,6 +128,7 @@ def test_only_moving_pictures_scenario_is_ready_until_vertical_packs_have_real_g
     assert first_run["databaseHandoff"]["operatorActionRequired"] is False
     assert first_run["databaseHandoff"]["checklist"] == []
     assert first_run["databaseHandoff"]["packOptions"] == []
+    assert "evidenceBundle" in first_run["resultEvidence"]
     assert first_run["databaseHandoff"]["missingPackTemplates"] == []
     assert {check["status"] for check in first_run["readinessChecks"]} == {"passed"}
     assert {tool["contractState"] for tool in first_run["requiredWorkflowReadyTools"]} == {"workflow_ready"}

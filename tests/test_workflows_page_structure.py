@@ -74,6 +74,7 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "FirstRunCompletionPanel" in first_run_page
     assert "first-run-completion-panel" in first_run_completion
     assert "first-run-pilot-handoff" in first_run_completion
+    assert "first-run-evidence-bundle" in first_run_completion
     assert "first-run-pilot-backup-restore" in first_run_completion
     assert "first-run-completion-download-handoff" in first_run_completion
     assert "card?.pilotHandoff" in first_run_completion
@@ -119,10 +120,16 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert 'card?.sampleData?.status === "verified"' in first_run_completion
     assert 'card?.softwareEnvironment?.status === "verified"' in first_run_completion
     assert "Boolean(card?.pilotHandoff?.backupRestore)" in first_run_completion
+    assert 'card?.pilotHandoff?.evidenceBundle?.status === "ready"' in first_run_completion
     assert "workflowRevisionIdFor(run, state.runDetail, latestPackage)" in first_run_page
     assert "/api/v1/first-run/runs/${encodeURIComponent(runId)}/validation-card" in first_run_api
     assert "/api/v1/first-run/runs/${encodeURIComponent(runId)}/finalize" in first_run_api
     assert "pilotHandoff?: FirstRunPilotHandoff" in first_run_api
+    assert "export type FirstRunEvidenceBundle" in first_run_api
+    assert "evidenceBundle?: FirstRunEvidenceBundle" in first_run_api
+    assert "FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED" in first_run_api
+    assert "## Evidence Bundle" in first_run_api
+    assert "keep every required evidence bundle file together" in first_run_api.lower()
     assert "export async function finalizeFirstRun" in first_run_api
     assert "finalizeFirstRun(run.runId" in first_run_page
     assert 'actor: "first-run-ui"' in first_run_page

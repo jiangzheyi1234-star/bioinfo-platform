@@ -15,7 +15,7 @@ param(
 $ErrorActionPreference = "Stop"
 $FirstRunPipelineId = "moving-pictures-16s-rulegraph-v1"
 $FirstRunScenarioId = "moving-pictures-16s"
-$RequiredEvidence = @("resultPackage", "validationCard", "workflowRevision", "inputLineage", "outputChecksums")
+$RequiredEvidence = @("resultPackage", "validationCard", "evidenceBundle", "workflowRevision", "inputLineage", "outputChecksums")
 $ClosedLoopProofModes = @{
     SmokeOnly = "catalog-page-smoke"
     FinalizedRun = "finalized-run"
@@ -27,6 +27,8 @@ $BlockedNextActionTargets = @{
     FIRST_RUN_REPORT_PREVIEW_REQUIRED = "/workflows/first-run#run-report"
     FIRST_RUN_SAMPLE_INPUTS_REQUIRED = "/workflows/first-run#sample-data"
     FIRST_RUN_SAMPLE_INPUTS_INTEGRITY_MISMATCH = "/workflows/first-run#sample-data"
+    FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED = "/workflows/first-run#validation-card"
+    FIRST_RUN_PILOT_HANDOFF_REQUIRED = "/workflows/first-run#validation-card"
 }
 $FirstRunRecoveryAnchors = @("runner-readiness", "sample-data", "run-report", "result-package", "validation-card")
 
@@ -326,6 +328,55 @@ function Assert-FirstRunPilotHandoff {
         Fail-Pilot "pilotHandoff evidence must match validationCard resultPackage hashes"
     }
 
+    $bundle = $handoff.evidenceBundle
+    if ($null -eq $bundle -or $bundle.schemaVersion -ne "h2ometa.first-run.evidence-bundle.v1") {
+        Fail-Pilot "pilotHandoff must include a first-run evidenceBundle"
+    }
+    if ($null -eq $Finalization.evidenceBundle -or $Finalization.evidenceBundle.schemaVersion -ne $bundle.schemaVersion) {
+        Fail-Pilot "ready finalization must expose the same first-run evidenceBundle"
+    }
+    if ($Finalization.evidenceBundle.bundleId -ne $bundle.bundleId) {
+        Fail-Pilot "ready finalization evidenceBundle must match pilotHandoff evidenceBundle"
+    }
+    if ($bundle.status -ne "ready" -or $bundle.purpose -ne "portable-first-successful-run-proof") {
+        Fail-Pilot "first-run evidenceBundle must be a portable ready proof"
+    }
+    if ($bundle.integrity.packageSha256 -ne $evidence.packageSha256 -or $bundle.integrity.manifestSha256 -ne $evidence.manifestSha256) {
+        Fail-Pilot "first-run evidenceBundle integrity must match pilotHandoff evidence"
+    }
+    $requiredFiles = @($bundle.requiredFiles)
+    $expectedBundleRoles = @("result-package", "validation-card-json", "validation-card-markdown", "pilot-handoff")
+    foreach ($role in $expectedBundleRoles) {
+        if ((@($requiredFiles | Where-Object { $_.role -eq $role })).Count -ne 1) {
+            Fail-Pilot "first-run evidenceBundle must include exactly one $role file"
+        }
+    }
+    $resultPackageFile = @($requiredFiles | Where-Object { $_.role -eq "result-package" }) | Select-Object -First 1
+    if ($resultPackageFile.packageExportId -ne $package.packageExportId) {
+        Fail-Pilot "first-run evidenceBundle result package file must match packageExportId"
+    }
+    if ($resultPackageFile.sha256 -ne $package.sha256 -or $resultPackageFile.manifestSha256 -ne $package.manifestSha256) {
+        Fail-Pilot "first-run evidenceBundle result package file must match package hashes"
+    }
+    if ($package.download.filename -and $resultPackageFile.filename -ne $package.download.filename) {
+        Fail-Pilot "first-run evidenceBundle result package filename must match download filename"
+    }
+    $baseName = $card.result.resultId
+    $expectedBundleFilenames = @{
+        "validation-card-json" = "$baseName.validation-card.json"
+        "validation-card-markdown" = "$baseName.validation-card.md"
+        "pilot-handoff" = "$baseName.pilot-handoff.md"
+    }
+    foreach ($role in $expectedBundleFilenames.Keys) {
+        $file = @($requiredFiles | Where-Object { $_.role -eq $role }) | Select-Object -First 1
+        if ($file.filename -ne $expectedBundleFilenames[$role]) {
+            Fail-Pilot "first-run evidenceBundle $role filename must be $($expectedBundleFilenames[$role])"
+        }
+    }
+    if (-not (@($bundle.consumerChecklist) -contains "keep-result-package-validation-card-and-handoff-together")) {
+        Fail-Pilot "first-run evidenceBundle must tell operators to keep the evidence files together"
+    }
+
     $checks = @($card.checks)
     $passedChecks = @($checks | Where-Object { $_.status -eq "passed" })
     if ($checks.Count -eq 0 -or $passedChecks.Count -ne $checks.Count) {
@@ -398,6 +449,8 @@ function Assert-FirstRunPilotHandoff {
         manifestSha256 = $evidence.manifestSha256
         validationChecksPassed = $evidence.validationChecksPassed
         validationChecksTotal = $evidence.validationChecksTotal
+        evidenceBundleSchemaVersion = $bundle.schemaVersion
+        evidenceBundleFileRoles = @($requiredFiles | ForEach-Object { $_.role })
         backupRestoreSchemaVersion = $backup.schemaVersion
         backupPlanCommand = $backup.planCommand
         restoreProofCommand = $backup.restoreProofCommand
@@ -508,8 +561,8 @@ if ($RunId) {
     }
     $finalizationStatus = $finalization.status
     if ($finalization.status -eq "ready") {
-        if ($null -eq $finalization.validationCard -or $null -eq $finalization.resultPackage) {
-            Fail-Pilot "ready finalization must include validationCard and resultPackage"
+        if ($null -eq $finalization.validationCard -or $null -eq $finalization.resultPackage -or $null -eq $finalization.evidenceBundle) {
+            Fail-Pilot "ready finalization must include validationCard, resultPackage, and evidenceBundle"
         }
         if (-not $finalization.resultPackage.sha256 -or -not $finalization.resultPackage.manifestSha256) {
             Fail-Pilot "ready finalization resultPackage must include sha256 and manifestSha256"

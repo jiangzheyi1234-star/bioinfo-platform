@@ -63,6 +63,7 @@ def test_first_run_validation_card_is_server_generated_and_redacted(monkeypatch)
     assert card["resultPackage"]["artifactPayloadMode"] == "full"
     handoff = card["pilotHandoff"]
     assert handoff["schemaVersion"] == "h2ometa.first-run.single-user-lab-pilot-handoff.v1"
+    assert handoff["evidenceBundle"] == _expected_evidence_bundle()
     assert handoff["backupRestore"] == {
         "schemaVersion": "h2ometa.first-run.backup-restore-handoff.v1",
         "mode": "read-only-plan",
@@ -338,6 +339,7 @@ def test_first_run_finalize_reuses_existing_full_package(monkeypatch) -> None:
     assert result["schemaVersion"] == "h2ometa.first-run.finalization.v1"
     assert result["status"] == "ready"
     assert result["packageAction"] == "reused"
+    assert result["evidenceBundle"] == _expected_evidence_bundle()
     assert result["pilotHandoff"] == {
         "schemaVersion": "h2ometa.first-run.single-user-lab-pilot-handoff.v1",
         "scope": "single-user-lab",
@@ -352,6 +354,7 @@ def test_first_run_finalize_reuses_existing_full_package(monkeypatch) -> None:
             "validationChecksPassed": 10,
             "validationChecksTotal": 10,
         },
+        "evidenceBundle": _expected_evidence_bundle(),
         "backupRestore": {
             "schemaVersion": "h2ometa.first-run.backup-restore-handoff.v1",
             "mode": "read-only-plan",
@@ -403,6 +406,7 @@ def test_first_run_finalize_exports_full_package_when_missing(monkeypatch) -> No
     assert result["packageAction"] == "exported"
     assert result["resultPackage"]["packageExportId"] == "rpex_finalized"
     assert result["validationCard"]["resultPackage"]["packageExportId"] == "rpex_finalized"
+    assert result["evidenceBundle"]["requiredFiles"][0]["packageExportId"] == "rpex_finalized"
 
 
 def test_first_run_finalize_returns_typed_blocked_action(monkeypatch) -> None:
@@ -451,6 +455,34 @@ def test_first_run_finalize_requires_server_pilot_handoff(monkeypatch) -> None:
     assert result["nextAction"]["code"] == "FIRST_RUN_PILOT_HANDOFF_REQUIRED"
 
 
+def test_first_run_finalize_requires_server_evidence_bundle(monkeypatch) -> None:
+    async def fake_card(*_args, **_kwargs):
+        return {
+            "data": {
+                "schemaVersion": "h2ometa.first-run.validation-card.v1",
+                "resultPackage": {},
+                "pilotHandoff": {"schemaVersion": "h2ometa.first-run.single-user-lab-pilot-handoff.v1"},
+            }
+        }
+
+    monkeypatch.setattr(
+        "apps.api.workflow_first_run_finalize_service.build_first_run_validation_card_from_request",
+        fake_card,
+    )
+
+    result = asyncio.run(
+        finalize_first_run_from_request("run_first", WorkflowFirstRunFinalizeRequest(serverId="srv_first"))
+    )["data"]
+
+    assert result["status"] == "blocked"
+    assert result["nextAction"] == {
+        "code": "FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED",
+        "detail": "FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED: first-run pilotHandoff must include evidenceBundle",
+        "label": "重新生成首跑验证卡",
+        "target": "/workflows/first-run#validation-card",
+    }
+
+
 def test_first_run_validation_card_route_and_error_handler_are_registered() -> None:
     route_source = _source("apps/api/workflow_first_run_routes.py")
     finalize_source = _source("apps/api/workflow_first_run_finalize_service.py")
@@ -464,6 +496,7 @@ def test_first_run_validation_card_route_and_error_handler_are_registered() -> N
     assert "finalize_first_run_from_request" in route_source
     assert "FIRST_RUN_FINALIZATION_SCHEMA_VERSION" in finalize_source
     assert "FIRST_RUN_PILOT_HANDOFF_REQUIRED" in finalize_source
+    assert "FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED" in finalize_source
     assert "build_first_run_pilot_handoff" in service_source
     assert "pilotHandoff" in service_source
     assert 'target = "/workflows/first-run#run-report"' in finalize_source
@@ -799,10 +832,79 @@ def _package(
     }
     if download:
         item["download"] = {
-            "href": "/api/v1/results/res_run_first/exports/rpex_full/download",
-            "filename": "rpex_full.zip",
+            "href": f"/api/v1/results/res_run_first/exports/{package_export_id}/download",
+            "filename": f"{package_export_id}.zip",
         }
     return item
+
+
+def _expected_evidence_bundle(
+    *,
+    package_export_id: str = "rpex_full",
+    sha256: str = "d" * 64,
+    manifest_sha256: str = "e" * 64,
+) -> dict[str, Any]:
+    return {
+        "schemaVersion": "h2ometa.first-run.evidence-bundle.v1",
+        "status": "ready",
+        "bundleId": "res_run_first.first-run-evidence",
+        "purpose": "portable-first-successful-run-proof",
+        "requiredFiles": [
+            {
+                "role": "result-package",
+                "filename": f"{package_export_id}.zip",
+                "source": "result-package-export-download",
+                "packageExportId": package_export_id,
+                "sha256": sha256,
+                "manifestSha256": manifest_sha256,
+                "artifactPayloadMode": "full",
+                "includeArtifacts": True,
+            },
+            {
+                "role": "validation-card-json",
+                "filename": "res_run_first.validation-card.json",
+                "source": "first-run-validation-card-api",
+                "schemaVersion": "h2ometa.first-run.validation-card.v1",
+            },
+            {
+                "role": "validation-card-markdown",
+                "filename": "res_run_first.validation-card.md",
+                "source": "first-run-validation-card-markdown",
+                "schemaVersion": "h2ometa.first-run.validation-card.v1",
+            },
+            {
+                "role": "pilot-handoff",
+                "filename": "res_run_first.pilot-handoff.md",
+                "source": "first-run-pilot-handoff-markdown",
+                "schemaVersion": "h2ometa.first-run.single-user-lab-pilot-handoff.v1",
+            },
+        ],
+        "integrity": {
+            "runId": "run_first",
+            "resultId": "res_run_first",
+            "workflowRevisionId": "wfrev_first",
+            "packageExportId": package_export_id,
+            "packageSha256": sha256,
+            "manifestSha256": manifest_sha256,
+            "validationChecksPassed": 10,
+            "validationChecksTotal": 10,
+        },
+        "redaction": {
+            "rawPathsExposed": False,
+            "storageUrisExposed": False,
+            "previewRowsEmbedded": False,
+            "policy": "metrics-only",
+        },
+        "standards": {
+            "workflowRunCrate": "https://www.researchobject.org/workflow-run-crate/",
+            "w3cProv": "https://www.w3.org/TR/prov-o/",
+        },
+        "consumerChecklist": [
+            "keep-result-package-validation-card-and-handoff-together",
+            "verify-package-sha256-before-sharing",
+            "verify-manifest-sha256-before-reusing-lineage",
+        ],
+    }
 
 
 def _source(path: str) -> str:

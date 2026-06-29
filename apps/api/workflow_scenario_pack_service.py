@@ -420,7 +420,7 @@ def _sample_data_handoff_checklist(*, ready: bool) -> list[dict[str, str]]:
             "label": "用 fixture 跑出验证卡",
             "status": status,
             "target": "/workflows/results",
-            "evidence": "completed run with validationCard and resultPackage",
+            "evidence": "completed run with validationCard, resultPackage, and evidenceBundle",
         },
     ]
 
@@ -476,7 +476,7 @@ def _scenario_definitions() -> list[dict[str, Any]]:
                 },
             ],
             "requiredDatabases": [],
-            "resultEvidence": ["resultPackage", "validationCard", "workflowRevision", "inputLineage", "outputChecksums"],
+            "resultEvidence": ["resultPackage", "validationCard", "evidenceBundle", "workflowRevision", "inputLineage", "outputChecksums"],
             "gates": [
                 {
                     "code": "SCENARIO_SAMPLE_DATA_READY",

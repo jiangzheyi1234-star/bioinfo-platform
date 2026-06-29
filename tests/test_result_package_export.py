@@ -124,6 +124,16 @@ def test_result_package_export_includes_manifest_artifacts_and_lineage(tmp_path:
     assert package["validation"]["schemaVersion"] == "h2ometa.result-package-validation.v1"
     assert package["validation"]["manifestSha256"] == package["manifestSha256"]
     assert package["manifest"]["audit"]["status"] == "passed"
+    assert package["manifest"]["audit"]["redaction"] == {
+        "pathsExposed": False,
+        "storageUrisExposed": False,
+        "policy": "package-relative-artifacts",
+    }
+    assert package["manifest"]["redaction"] == {
+        "artifactPathsExposed": False,
+        "artifactStorageUrisExposed": False,
+        "policy": "package-relative-artifacts",
+    }
     assert package["manifest"]["standards"]["roCrate"] == RO_CRATE_SPEC_URI
     assert package["manifest"]["standards"]["workflowRunCrate"] == WORKFLOW_RUN_CRATE_PROFILE_URI
     assert package["manifest"]["runSpec"]["workflowRevisionId"] == revision["workflowRevisionId"]
@@ -187,6 +197,7 @@ def test_result_package_export_includes_manifest_artifacts_and_lineage(tmp_path:
         rules = json.loads(archive.read("metadata/rules.json").decode("utf-8"))
         lineage = json.loads(archive.read("metadata/lineage.json").decode("utf-8"))
         evidence_events = json.loads(archive.read("metadata/evidence-events.json").decode("utf-8"))
+        artifact_audit = json.loads(archive.read("metadata/artifact-audit.json").decode("utf-8"))
         workflow_revision = json.loads(archive.read("metadata/workflow-revision.json").decode("utf-8"))
         payload = archive.read(f"artifacts/{artifact['artifactId']}/report.txt").decode("utf-8")
 
@@ -204,6 +215,18 @@ def test_result_package_export_includes_manifest_artifacts_and_lineage(tmp_path:
     } <= names
     assert manifest["resultId"] == "res_run_export"
     assert manifest_sha256 == package["manifestSha256"]
+    assert "storageUri" not in manifest["artifacts"][0]
+    assert "externalUri" not in manifest["artifacts"][0]
+    assert "path" not in artifact_audit["artifacts"][0]
+    assert "storageUri" not in artifact_audit["artifacts"][0]
+    full_package_metadata = json.dumps(
+        {"manifest": manifest, "roCrate": ro_crate, "artifactAudit": artifact_audit},
+        sort_keys=True,
+    )
+    assert "file://" not in full_package_metadata
+    assert '"storageUri"' not in full_package_metadata
+    assert '"h2ometa:storageUri"' not in full_package_metadata
+    assert '"externalUri"' not in full_package_metadata
     assert ro_crate["@context"] == [RO_CRATE_CONTEXT_1_1, WORKFLOW_RUN_CONTEXT]
     graph_by_id = {item["@id"]: item for item in ro_crate["@graph"]}
     descriptor = graph_by_id["ro-crate-metadata.json"]
@@ -232,6 +255,8 @@ def test_result_package_export_includes_manifest_artifacts_and_lineage(tmp_path:
     assert input_entity["sha256"] == source_artifact["sha256"]
     assert input_entity["encodingFormat"] == "text/plain"
     assert "storageUri" not in input_entity
+    artifact_entity = graph_by_id[f"artifacts/{artifact['artifactId']}/"]
+    assert "h2ometa:storageUri" not in artifact_entity
     assert "localPath" not in input_entity
     assert workflow_revision["workflowRevisionId"] == revision["workflowRevisionId"]
     assert rules["items"][0]["ruleName"] == "summarize"

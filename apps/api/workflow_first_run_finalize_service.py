@@ -60,12 +60,14 @@ async def finalize_first_run_from_request(
 
 
 def _ready(card: dict[str, Any], *, package_action: str) -> dict[str, Any]:
+    handoff = _pilot_handoff(card)
     return {
         "data": {
             "schemaVersion": FIRST_RUN_FINALIZATION_SCHEMA_VERSION,
             "status": "ready",
             "packageAction": package_action,
-            "pilotHandoff": _pilot_handoff(card),
+            "evidenceBundle": handoff["evidenceBundle"],
+            "pilotHandoff": handoff,
             "resultPackage": card.get("resultPackage") if isinstance(card.get("resultPackage"), dict) else {},
             "validationCard": card,
         }
@@ -96,6 +98,9 @@ def _next_action(code: str, detail: str) -> dict[str, str]:
     elif code == "FIRST_RUN_SAMPLE_INPUTS_REQUIRED" or code == "FIRST_RUN_SAMPLE_INPUTS_INTEGRITY_MISMATCH":
         target = "/workflows/first-run#sample-data"
         label = "重新准备官方样例数据"
+    elif code == "FIRST_RUN_PILOT_HANDOFF_REQUIRED" or code == "FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED":
+        target = "/workflows/first-run#validation-card"
+        label = "重新生成首跑验证卡"
     else:
         target = "/workflows/first-run"
         label = "返回首跑向导"
@@ -110,6 +115,10 @@ def _next_action(code: str, detail: str) -> dict[str, str]:
 def _pilot_handoff(card: dict[str, Any]) -> dict[str, Any]:
     handoff = card.get("pilotHandoff") if isinstance(card.get("pilotHandoff"), dict) else None
     if handoff:
+        if not isinstance(handoff.get("evidenceBundle"), dict):
+            raise WorkflowFirstRunValidationCardUnavailableError(
+                "FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED: first-run pilotHandoff must include evidenceBundle"
+            )
         return handoff
     raise WorkflowFirstRunValidationCardUnavailableError(
         "FIRST_RUN_PILOT_HANDOFF_REQUIRED: first-run validation card must include pilotHandoff"

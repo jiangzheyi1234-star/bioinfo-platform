@@ -175,20 +175,55 @@ export type FirstRunFinalizationNextAction = {
   target?: string;
 };
 
+export type FirstRunPilotHandoffEvidence = {
+  runId?: string;
+  resultId?: string;
+  workflowRevisionId?: string;
+  packageExportId?: string;
+  packageSha256?: string;
+  manifestSha256?: string;
+  validationChecksPassed?: number;
+  validationChecksTotal?: number;
+};
+
+export type FirstRunEvidenceBundleFile = {
+  role?: string;
+  filename?: string;
+  source?: string;
+  schemaVersion?: string;
+  packageExportId?: string;
+  sha256?: string;
+  manifestSha256?: string;
+  artifactPayloadMode?: string;
+  includeArtifacts?: boolean;
+};
+
+export type FirstRunEvidenceBundle = {
+  schemaVersion?: string;
+  status?: string;
+  bundleId?: string;
+  purpose?: string;
+  requiredFiles?: FirstRunEvidenceBundleFile[];
+  integrity?: FirstRunPilotHandoffEvidence;
+  redaction?: {
+    rawPathsExposed?: boolean;
+    storageUrisExposed?: boolean;
+    previewRowsEmbedded?: boolean;
+    policy?: string;
+  };
+  standards?: {
+    workflowRunCrate?: string;
+    w3cProv?: string;
+  };
+  consumerChecklist?: string[];
+};
+
 export type FirstRunPilotHandoff = {
   schemaVersion?: string;
   scope?: string;
   status?: string;
-  evidence?: {
-    runId?: string;
-    resultId?: string;
-    workflowRevisionId?: string;
-    packageExportId?: string;
-    packageSha256?: string;
-    manifestSha256?: string;
-    validationChecksPassed?: number;
-    validationChecksTotal?: number;
-  };
+  evidence?: FirstRunPilotHandoffEvidence;
+  evidenceBundle?: FirstRunEvidenceBundle;
   backupRestore?: {
     schemaVersion?: string;
     mode?: string;
@@ -216,6 +251,7 @@ export type FirstRunFinalization = {
   schemaVersion?: string;
   status?: "ready" | "blocked" | string;
   packageAction?: string;
+  evidenceBundle?: FirstRunEvidenceBundle;
   pilotHandoff?: FirstRunPilotHandoff;
   resultPackage?: WorkflowResultPackageExport;
   validationCard?: FirstRunValidationCard;
@@ -400,6 +436,8 @@ export function firstRunHandoffManifestMarkdown(card: FirstRunValidationCard) {
   const packageExport = card.resultPackage;
   const handoff = card.pilotHandoff;
   if (!handoff) throw new Error("FIRST_RUN_PILOT_HANDOFF_REQUIRED");
+  const bundle = handoff.evidenceBundle;
+  if (!bundle) throw new Error("FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED");
   const evidence = handoff?.evidence || {};
   const backup = handoff?.backupRestore;
   const scenarios = handoff?.nextScenarios || [];
@@ -421,6 +459,24 @@ export function firstRunHandoffManifestMarkdown(card: FirstRunValidationCard) {
     `Next action: ${markdownValue(handoff?.nextAction?.label || handoff?.nextAction?.code)}`,
     `Next action target: ${markdownValue(handoff?.nextAction?.target)}`,
     `Exclusions: ${markdownValue(handoff?.exclusions?.join(", "))}`,
+    "",
+    "## Evidence Bundle",
+    "",
+    `Bundle: ${markdownValue(bundle.bundleId)}`,
+    `Status: ${markdownValue(bundle.status)}`,
+    `Purpose: ${markdownValue(bundle.purpose)}`,
+    bundle.requiredFiles?.length
+      ? markdownTable(
+          ["Role", "Filename", "Source", "SHA-256", "Manifest SHA-256"],
+          bundle.requiredFiles.map((item) => [
+            item.role,
+            item.filename,
+            item.source,
+            item.sha256,
+            item.manifestSha256,
+          ])
+        )
+      : "No evidence bundle files recorded.",
     "",
     "## Backup And Restore",
     "",
@@ -448,17 +504,19 @@ export function firstRunHandoffManifestMarkdown(card: FirstRunValidationCard) {
     "",
     "## Validation Card",
     "",
-    "Keep this handoff beside the full validation card JSON/Markdown and the downloadable result package.",
+    "Keep every required evidence bundle file together. Verify the result package SHA-256 and manifest SHA-256 before sharing or reusing lineage.",
   ].join("\n");
 }
 
 function firstRunPilotHandoffMarkdown(handoff?: FirstRunPilotHandoff) {
   if (!handoff) throw new Error("FIRST_RUN_PILOT_HANDOFF_REQUIRED");
+  if (!handoff.evidenceBundle) throw new Error("FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED");
   const backup = handoff.backupRestore;
   const scenarios = handoff.nextScenarios || [];
   return [
     `Scope: ${markdownValue(handoff.scope)}`,
     `Status: ${markdownValue(handoff.status)}`,
+    `Evidence bundle: ${markdownValue(handoff.evidenceBundle.bundleId)} (${handoff.evidenceBundle.requiredFiles?.length || 0} files)`,
     `Backup plan: ${markdownValue(backup?.planCommand)}`,
     `Restore proof: ${markdownValue(backup?.restoreProofCommand)}`,
     "",
@@ -492,6 +550,7 @@ function firstRunCustomerProofMarkdown(card: FirstRunValidationCard) {
     "- Database: no external reference database is required for this Moving Pictures first run",
     `- Key results: ${card.reportInterpretation?.status === "ready" ? `${keyResults.length} outputs and ${metrics.length} metrics interpreted` : "waiting for report interpretation"}`,
     `- Result package: ${fullPackage && packageExport?.sha256 && packageExport?.manifestSha256 ? `full package with SHA-256 ${packageExport.sha256}` : "waiting for full package hash"}`,
+    `- Evidence bundle: ${card.pilotHandoff?.evidenceBundle?.status === "ready" ? `${card.pilotHandoff.evidenceBundle.requiredFiles?.length || 0} required files listed` : "waiting for evidence bundle manifest"}`,
   ];
 }
 

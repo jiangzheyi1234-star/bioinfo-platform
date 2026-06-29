@@ -172,6 +172,7 @@ export function firstRunValidationCardPassed(card: FirstRunValidationCard | null
     card?.sampleData?.status === "verified" &&
     card?.softwareEnvironment?.status === "verified" &&
     Boolean(card?.pilotHandoff?.backupRestore) &&
+    card?.pilotHandoff?.evidenceBundle?.status === "ready" &&
     Boolean(card?.resultPackage?.sha256) &&
     Boolean(card?.resultPackage?.manifestSha256)
   );
@@ -206,6 +207,7 @@ function shortHash(value?: string) {
 
 function PilotHandoffSummary({ handoff }: { handoff: FirstRunPilotHandoff }) {
   const evidence = handoff.evidence || {};
+  const bundle = handoff.evidenceBundle;
   const nextAction = handoff.nextAction || {};
   const exclusions = handoff.exclusions || [];
   return (
@@ -238,7 +240,29 @@ function PilotHandoffSummary({ handoff }: { handoff: FirstRunPilotHandoff }) {
           ))}
         </div>
       ) : null}
+      {bundle ? <EvidenceBundleSummary bundle={bundle} /> : null}
       {handoff.backupRestore ? <PilotBackupRestoreSummary handoff={handoff} /> : null}
+    </div>
+  );
+}
+
+function EvidenceBundleSummary({ bundle }: { bundle: NonNullable<FirstRunPilotHandoff["evidenceBundle"]> }) {
+  const requiredFiles = bundle.requiredFiles || [];
+  return (
+    <div className="mt-3 grid gap-2 text-xs" data-testid="first-run-evidence-bundle">
+      <div className="flex flex-wrap items-center gap-2 text-emerald-950">
+        <FileArchive strokeWidth={1.5} className="h-3.5 w-3.5 text-emerald-600" />
+        <span className="font-semibold">可信证据包</span>
+        <span className="text-emerald-700">{bundle.status || "ready"}</span>
+        <span className="text-emerald-700">{requiredFiles.length} files</span>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {requiredFiles.map((item) => (
+          <span key={item.role || item.filename} className="rounded border border-emerald-200 bg-white px-2 py-1 text-[11px] text-emerald-800">
+            {item.role || item.filename}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
