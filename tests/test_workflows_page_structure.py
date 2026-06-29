@@ -40,6 +40,7 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     first_run_trust_summary = (COMPONENTS / "workflow-first-run-trust-summary.tsx").read_text(encoding="utf-8")
     first_run_validation = (COMPONENTS / "workflow-first-run-validation.tsx").read_text(encoding="utf-8")
     workflow_detail_page = (COMPONENTS / "workflow-detail-page.tsx").read_text(encoding="utf-8")
+    models = (COMPONENTS / "workflows-page-model.ts").read_text(encoding="utf-8")
     first_run_source = f"{first_run_page}\n{first_run_api}\n{first_run_completion}\n{first_run_report}\n{first_run_sample_submit}\n{first_run_trust_summary}\n{first_run_validation}"
     api = (COMPONENTS / "workflows-page-api.ts").read_text(encoding="utf-8")
     hook = (COMPONENTS / "use-workflows-page-state.ts").read_text(encoding="utf-8")
@@ -189,7 +190,7 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert 'replace(/\\|/g, "\\\\|").replace(/\\n/g, " ")' in first_run_api
     assert "fetchWorkflowServerExecutionDiagnostics" in first_run_page
     assert "executionDiagnostics?.readiness?.ok === true" in first_run_page
-    assert "state.canSubmit && executionReady && selectedWorkflowReady" in first_run_page
+    assert "state.canSubmit && executionReady && selectedWorkflowReady && sampleReady" in first_run_page
     assert 'id="runner-readiness"' in first_run_page
     assert 'id="sample-data"' in first_run_sample_submit
     assert 'id="run-report"' in first_run_report
@@ -205,6 +206,19 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "buildValidationCardPayload" not in first_run_source
     assert "QIIME 2 Moving Pictures tutorial" in first_run_source
     assert 'FIRST_RUN_EXPECTED_SAMPLE_ROLES = ["metadata", "barcodes", "sequences"] as const' in first_run_sample_submit
+    assert "export function sampleUploadRoleAudit" in first_run_sample_submit
+    assert "missingRoles" in first_run_sample_submit
+    assert "unexpectedRoles" in first_run_sample_submit
+    assert "duplicateRoles" in first_run_sample_submit
+    assert "first-run-sample-role-audit" in first_run_sample_submit
+    assert "样本输入角色不可信" in first_run_sample_submit
+    assert "roleAudit.unexpectedRoles.length === 0" in first_run_sample_submit
+    assert "roleAudit.duplicateRoles.length === 0" in first_run_sample_submit
+    assert "samplePrepProofLabel(upload)" in first_run_sample_submit
+    assert "prep proof pending" in first_run_sample_submit
+    assert "prepProof?: {" in models
+    assert "cacheStatus?: string;" in models
+    assert "downloadStatus?: string;" in models
     assert "checksum verified" in first_run_sample_submit
     assert "first-run-sample-selection" in first_run_sample_submit
     assert "state.selectedWorkflow?.description" not in first_run_page

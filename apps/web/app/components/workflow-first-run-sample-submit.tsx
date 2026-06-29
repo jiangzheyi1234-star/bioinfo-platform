@@ -37,6 +37,8 @@ export function SampleAndSubmitPanel({
   workflowLoading: boolean;
 }) {
   const ready = sampleUploadsReady(sampleUploads);
+  const roleAudit = sampleUploadRoleAudit(sampleUploads);
+  const roleBlockers = sampleUploadRoleBlockers(roleAudit);
   const selection = firstRunWorkflowSelection(workflow, workflowLoading);
   return (
     <section id="sample-data" className="scroll-mt-24 rounded-lg border border-slate-200 bg-white p-5">
@@ -75,6 +77,16 @@ export function SampleAndSubmitPanel({
         </div>
       </div>
 
+      {roleBlockers.length > 0 ? (
+        <div
+          className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs leading-5 text-red-700"
+          data-testid="first-run-sample-role-audit"
+        >
+          <div className="font-semibold">样本输入角色不可信</div>
+          <div className="mt-1">{roleBlockers.join(" / ")}</div>
+        </div>
+      ) : null}
+
       {workflow?.description && pipelineReady ? (
         <p className="mt-3 text-xs leading-5 text-slate-600">{workflow.description}</p>
       ) : null}
@@ -95,6 +107,7 @@ export function SampleAndSubmitPanel({
                     <div className={verified ? "text-emerald-700" : "text-red-700"}>
                       {verified ? "checksum verified" : "checksum required"}
                     </div>
+                    <div className="mt-0.5 font-mono text-[10px] text-slate-400">{samplePrepProofLabel(upload)}</div>
                     <div className="mt-0.5 font-mono text-[10px] text-slate-400">{sampleIntegrityLabel(upload)}</div>
                   </div>
                 ) : (
@@ -141,10 +154,38 @@ export function SampleAndSubmitPanel({
 }
 
 export function sampleUploadsReady(uploads: WorkflowUpload[]) {
-  return FIRST_RUN_EXPECTED_SAMPLE_ROLES.every((role) => {
-    const upload = uploads.find((item) => item.role === role);
-    return upload ? sampleIntegrityPassed(upload) : false;
-  });
+  const roleAudit = sampleUploadRoleAudit(uploads);
+  return (
+    roleAudit.missingRoles.length === 0 &&
+    roleAudit.unexpectedRoles.length === 0 &&
+    roleAudit.duplicateRoles.length === 0 &&
+    FIRST_RUN_EXPECTED_SAMPLE_ROLES.every((role) => {
+      const upload = uploads.find((item) => item.role === role);
+      return upload ? sampleIntegrityPassed(upload) : false;
+    })
+  );
+}
+
+export function sampleUploadRoleAudit(uploads: WorkflowUpload[]) {
+  const roles = uploads.map((item) => item.role || "").filter(Boolean);
+  const expectedRoles = new Set<string>(FIRST_RUN_EXPECTED_SAMPLE_ROLES);
+  const roleCounts = new Map<string, number>();
+  roles.forEach((role) => roleCounts.set(role, (roleCounts.get(role) || 0) + 1));
+  return {
+    missingRoles: FIRST_RUN_EXPECTED_SAMPLE_ROLES.filter((role) => !roles.includes(role)),
+    unexpectedRoles: Array.from(new Set(roles.filter((role) => !expectedRoles.has(role)))),
+    duplicateRoles: Array.from(roleCounts.entries())
+      .filter(([, count]) => count > 1)
+      .map(([role]) => role),
+  };
+}
+
+function sampleUploadRoleBlockers(audit: ReturnType<typeof sampleUploadRoleAudit>) {
+  return [
+    audit.missingRoles.length ? `missing roles: ${audit.missingRoles.join(", ")}` : "",
+    audit.unexpectedRoles.length ? `unexpected roles: ${audit.unexpectedRoles.join(", ")}` : "",
+    audit.duplicateRoles.length ? `duplicate roles: ${audit.duplicateRoles.join(", ")}` : "",
+  ].filter(Boolean);
 }
 
 function firstRunWorkflowSelection(workflow: WorkflowCatalogItem | null, loading: boolean) {
@@ -198,6 +239,14 @@ function sampleIntegrityLabel(upload: WorkflowUpload) {
   const hash = upload.sha256 || upload.expectedSha256 || "";
   const size = upload.expectedSizeBytes || upload.sizeBytes;
   return [hash ? `sha ${hash.slice(0, 12)}` : "", size ? formatBytes(size) : ""].filter(Boolean).join(" / ");
+}
+
+function samplePrepProofLabel(upload: WorkflowUpload) {
+  const proof = upload.prepProof;
+  if (!proof) return "prep proof pending";
+  const cache = proof.cacheStatus ? `cache ${proof.cacheStatus}` : "";
+  const download = proof.downloadStatus ? `${proof.downloadStatus} (${proof.downloadAttempts || 0} attempts)` : "";
+  return [cache, download].filter(Boolean).join(" / ");
 }
 
 function sampleIntegrityPassed(upload: WorkflowUpload) {

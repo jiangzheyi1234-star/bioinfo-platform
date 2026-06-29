@@ -428,7 +428,7 @@ export function WorkflowFirstRunPage() {
               }}
             />
             <SampleAndSubmitPanel
-              canSubmit={state.canSubmit && executionReady && selectedWorkflowReady}
+              canSubmit={state.canSubmit && executionReady && selectedWorkflowReady && sampleReady}
               loading={state.loading}
               pipelineReady={selectedWorkflowReady}
               sampleLoading={state.sampleLoading}

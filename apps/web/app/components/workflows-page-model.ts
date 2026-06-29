@@ -357,6 +357,17 @@ export type WorkflowUpload = {
   sizeBytes?: number;
   role?: string;
   sourceUrl?: string;
+  prepProof?: {
+    schemaVersion?: string;
+    cacheStatus?: string;
+    downloadAttempts?: number;
+    downloadStatus?: string;
+    expectedSha256?: string;
+    expectedSizeBytes?: number;
+    filename?: string;
+    role?: string;
+    sourceUrl?: string;
+  };
   sha256?: string;
   expectedSha256?: string;
   expectedSizeBytes?: number;

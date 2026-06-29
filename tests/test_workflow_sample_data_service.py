@@ -9,17 +9,20 @@ import pytest
 
 from apps.api.workflow_sample_data_service import (
     MOVING_PICTURES_PIPELINE_ID,
+    WORKFLOW_SAMPLE_DATA_PREP_PROOF_SCHEMA,
     SampleFile,
     WorkflowSampleDataIntegrityError,
     WorkflowSampleDataPrepareRequest,
+    WorkflowSampleDataSourceError,
     prepare_workflow_sample_data_uploads,
 )
 
 
-def test_sample_data_uploads_verify_integrity_before_upload(monkeypatch) -> None:
+def test_sample_data_uploads_verify_integrity_before_upload(monkeypatch, tmp_path) -> None:
     content = b"sample_id\tbody_site\nsample-a\tgut\n"
     sample = _sample_file(content)
     runtime = FakeRuntime()
+    monkeypatch.setenv("H2OMETA_SAMPLE_DATA_CACHE_DIR", str(tmp_path / "sample-cache"))
     monkeypatch.setattr("apps.api.workflow_sample_data_service.MOVING_PICTURES_FILES", [sample])
     monkeypatch.setattr("apps.api.workflow_sample_data_service._download_bytes", lambda url: content)
     monkeypatch.setattr("apps.api.workflow_sample_data_service.runtime_service", lambda: runtime)
@@ -42,16 +45,81 @@ def test_sample_data_uploads_verify_integrity_before_upload(monkeypatch) -> None
     assert item["expectedSha256"] == sample.expected_sha256
     assert item["expectedSizeBytes"] == sample.expected_size_bytes
     assert item["integrityStatus"] == "passed"
+    assert item["prepProof"]["schemaVersion"] == WORKFLOW_SAMPLE_DATA_PREP_PROOF_SCHEMA
+    assert item["prepProof"]["cacheStatus"] == "stored"
+    assert item["prepProof"]["downloadStatus"] == "downloaded"
+    assert item["prepProof"]["downloadAttempts"] == 1
+    assert response["data"]["prepProof"]["schemaVersion"] == WORKFLOW_SAMPLE_DATA_PREP_PROOF_SCHEMA
+    assert response["data"]["prepProof"]["cachePolicy"] == "verified-sha256-local-cache"
 
 
-def test_sample_data_uploads_fail_closed_on_integrity_mismatch(monkeypatch) -> None:
+def test_sample_data_uploads_fail_closed_on_integrity_mismatch(monkeypatch, tmp_path) -> None:
     content = b"changed sample data\n"
     runtime = FakeRuntime()
+    monkeypatch.setenv("H2OMETA_SAMPLE_DATA_CACHE_DIR", str(tmp_path / "sample-cache"))
     monkeypatch.setattr("apps.api.workflow_sample_data_service.MOVING_PICTURES_FILES", [_sample_file(b"expected\n")])
     monkeypatch.setattr("apps.api.workflow_sample_data_service._download_bytes", lambda url: content)
     monkeypatch.setattr("apps.api.workflow_sample_data_service.runtime_service", lambda: runtime)
 
     with pytest.raises(WorkflowSampleDataIntegrityError, match="WORKFLOW_SAMPLE_DATA_INTEGRITY_MISMATCH"):
+        asyncio.run(
+            prepare_workflow_sample_data_uploads(
+                MOVING_PICTURES_PIPELINE_ID,
+                WorkflowSampleDataPrepareRequest(serverId="srv_first"),
+            )
+        )
+
+    assert runtime.uploads == []
+
+
+def test_sample_data_uploads_reuse_verified_local_cache(monkeypatch, tmp_path) -> None:
+    content = b"sample_id\tbody_site\nsample-a\tgut\n"
+    sample = _sample_file(content)
+    runtime = FakeRuntime()
+    downloads: list[str] = []
+    monkeypatch.setenv("H2OMETA_SAMPLE_DATA_CACHE_DIR", str(tmp_path / "sample-cache"))
+    monkeypatch.setattr("apps.api.workflow_sample_data_service.MOVING_PICTURES_FILES", [sample])
+
+    def fake_download(url: str) -> bytes:
+        downloads.append(url)
+        return content
+
+    monkeypatch.setattr("apps.api.workflow_sample_data_service._download_bytes", fake_download)
+    monkeypatch.setattr("apps.api.workflow_sample_data_service.runtime_service", lambda: runtime)
+
+    first = asyncio.run(
+        prepare_workflow_sample_data_uploads(
+            MOVING_PICTURES_PIPELINE_ID,
+            WorkflowSampleDataPrepareRequest(serverId="srv_first"),
+        )
+    )
+    second = asyncio.run(
+        prepare_workflow_sample_data_uploads(
+            MOVING_PICTURES_PIPELINE_ID,
+            WorkflowSampleDataPrepareRequest(serverId="srv_first"),
+        )
+    )
+
+    assert downloads == [sample.url]
+    assert first["data"]["items"][0]["prepProof"]["cacheStatus"] == "stored"
+    assert second["data"]["items"][0]["prepProof"]["cacheStatus"] == "hit"
+    assert second["data"]["items"][0]["prepProof"]["downloadStatus"] == "skipped-cache-hit"
+    assert second["data"]["items"][0]["prepProof"]["downloadAttempts"] == 0
+
+
+def test_sample_data_uploads_report_source_failures(monkeypatch, tmp_path) -> None:
+    sample = _sample_file(b"expected\n")
+    runtime = FakeRuntime()
+    monkeypatch.setenv("H2OMETA_SAMPLE_DATA_CACHE_DIR", str(tmp_path / "sample-cache"))
+    monkeypatch.setattr("apps.api.workflow_sample_data_service.MOVING_PICTURES_FILES", [sample])
+
+    def fail_download(_url: str) -> bytes:
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr("apps.api.workflow_sample_data_service._download_bytes", fail_download)
+    monkeypatch.setattr("apps.api.workflow_sample_data_service.runtime_service", lambda: runtime)
+
+    with pytest.raises(WorkflowSampleDataSourceError, match="WORKFLOW_SAMPLE_DATA_SOURCE_UNAVAILABLE"):
         asyncio.run(
             prepare_workflow_sample_data_uploads(
                 MOVING_PICTURES_PIPELINE_ID,

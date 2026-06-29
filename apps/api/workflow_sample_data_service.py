@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import os
 import mimetypes
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.request import Request, urlopen
 
 from pydantic import Field
@@ -22,6 +24,10 @@ class WorkflowSampleDataIntegrityError(ValueError):
     status_code = 409
 
 
+class WorkflowSampleDataSourceError(ValueError):
+    status_code = 424
+
+
 class WorkflowSampleDataPrepareRequest(ApiRequest):
     serverId: str = Field(min_length=1)
 
@@ -36,7 +42,14 @@ class SampleFile:
     expected_size_bytes: int
 
 
+@dataclass(frozen=True)
+class PreparedSampleFile:
+    content: bytes
+    prep_proof: dict
+
+
 MOVING_PICTURES_PIPELINE_ID = "moving-pictures-16s-rulegraph-v1"
+WORKFLOW_SAMPLE_DATA_PREP_PROOF_SCHEMA = "h2ometa.workflow-sample-data-prep-proof.v1"
 
 MOVING_PICTURES_FILES = [
     SampleFile(
@@ -80,6 +93,7 @@ async def prepare_workflow_sample_data_uploads(
             "pipelineId": pipeline_id,
             "source": "QIIME 2 Moving Pictures tutorial",
             "items": uploads,
+            "prepProof": _sample_data_prep_proof(uploads),
         }
     }
 
@@ -88,14 +102,14 @@ def _download_and_upload_moving_pictures(server_id: str) -> list[dict]:
     runtime = runtime_service()
     uploads = []
     for item in MOVING_PICTURES_FILES:
-        content = _download_bytes(item.url)
-        integrity = _verify_sample_file_integrity(item, content)
+        prepared = _prepare_sample_file(item)
+        integrity = _verify_sample_file_integrity(item, prepared.content)
         mime_type = item.mime_type or mimetypes.guess_type(item.filename)[0] or "application/octet-stream"
         upload = runtime.upload_file(
             {
                 "serverId": server_id,
                 "filename": item.filename,
-                "contentBase64": base64.b64encode(content).decode("ascii"),
+                "contentBase64": base64.b64encode(prepared.content).decode("ascii"),
                 "mimeType": mime_type,
             }
         )
@@ -106,6 +120,7 @@ def _download_and_upload_moving_pictures(server_id: str) -> list[dict]:
                 "sizeBytes": upload["sizeBytes"],
                 "role": item.role,
                 "sourceUrl": item.url,
+                "prepProof": prepared.prep_proof,
                 **integrity,
             }
         )
@@ -126,6 +141,119 @@ def _verify_sample_file_integrity(item: SampleFile, content: bytes) -> dict:
         "expectedSha256": item.expected_sha256,
         "expectedSizeBytes": item.expected_size_bytes,
         "integrityStatus": "passed",
+    }
+
+
+def _sample_data_prep_proof(uploads: list[dict]) -> dict:
+    return {
+        "schemaVersion": WORKFLOW_SAMPLE_DATA_PREP_PROOF_SCHEMA,
+        "source": "QIIME 2 Moving Pictures tutorial",
+        "cachePolicy": "verified-sha256-local-cache",
+        "items": [item.get("prepProof") for item in uploads if item.get("prepProof")],
+    }
+
+
+def _prepare_sample_file(item: SampleFile) -> PreparedSampleFile:
+    cached = _read_verified_sample_cache(item)
+    if cached is not None:
+        return PreparedSampleFile(
+            content=cached,
+            prep_proof=_sample_prep_proof(
+                item,
+                cache_status="hit",
+                download_status="skipped-cache-hit",
+                download_attempts=0,
+            ),
+        )
+
+    content, attempts = _download_sample_bytes(item)
+    integrity = _verify_sample_file_integrity(item, content)
+    cache_status = _write_sample_cache(item, content)
+    return PreparedSampleFile(
+        content=content,
+        prep_proof=_sample_prep_proof(
+            item,
+            cache_status=cache_status,
+            download_status="downloaded",
+            download_attempts=attempts,
+            sha256=integrity["sha256"],
+        ),
+    )
+
+
+def _read_verified_sample_cache(item: SampleFile) -> bytes | None:
+    path = _sample_cache_path(item)
+    if not path.exists():
+        return None
+    try:
+        content = path.read_bytes()
+    except OSError as exc:
+        raise WorkflowSampleDataSourceError(
+            f"WORKFLOW_SAMPLE_DATA_CACHE_UNREADABLE: {item.filename} cause={type(exc).__name__}"
+        ) from exc
+    _verify_sample_file_integrity(item, content)
+    return content
+
+
+def _write_sample_cache(item: SampleFile, content: bytes) -> str:
+    path = _sample_cache_path(item)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+    except OSError:
+        return "write-failed"
+    return "stored"
+
+
+def _sample_cache_path(item: SampleFile) -> Path:
+    safe_name = item.filename.replace("/", "_").replace("\\", "_")
+    return _sample_data_cache_root() / MOVING_PICTURES_PIPELINE_ID / f"{item.role}-{item.expected_sha256}-{safe_name}"
+
+
+def _sample_data_cache_root() -> Path:
+    configured = os.environ.get("H2OMETA_SAMPLE_DATA_CACHE_DIR", "").strip()
+    if configured:
+        return Path(configured)
+    local_app_data = os.environ.get("LOCALAPPDATA", "").strip()
+    if local_app_data:
+        return Path(local_app_data) / "H2OMeta" / "sample-data-cache"
+    xdg_cache_home = os.environ.get("XDG_CACHE_HOME", "").strip()
+    return (Path(xdg_cache_home) if xdg_cache_home else Path.home() / ".cache") / "h2ometa" / "sample-data-cache"
+
+
+def _download_sample_bytes(item: SampleFile) -> tuple[bytes, int]:
+    attempts = 2
+    last_error: BaseException | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return _download_bytes(item.url), attempt
+        except (OSError, TimeoutError) as exc:
+            last_error = exc
+    raise WorkflowSampleDataSourceError(
+        f"WORKFLOW_SAMPLE_DATA_SOURCE_UNAVAILABLE: {item.filename} "
+        f"url={item.url} attempts={attempts} cause={type(last_error).__name__}"
+    ) from last_error
+
+
+def _sample_prep_proof(
+    item: SampleFile,
+    *,
+    cache_status: str,
+    download_attempts: int,
+    download_status: str,
+    sha256: str | None = None,
+) -> dict:
+    return {
+        "schemaVersion": WORKFLOW_SAMPLE_DATA_PREP_PROOF_SCHEMA,
+        "role": item.role,
+        "filename": item.filename,
+        "sourceUrl": item.url,
+        "sha256": sha256 or item.expected_sha256,
+        "expectedSha256": item.expected_sha256,
+        "expectedSizeBytes": item.expected_size_bytes,
+        "cacheStatus": cache_status,
+        "downloadStatus": download_status,
+        "downloadAttempts": download_attempts,
     }
 
 
