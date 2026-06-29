@@ -6,6 +6,7 @@ from typing import Any
 from urllib.parse import quote, urlencode
 
 from core.contracts.database_remote_endpoints import DATABASE_REMOTE_ENDPOINT_SPECS
+from core.contracts.pipeline_remote_endpoints import PIPELINE_REMOTE_ENDPOINT_SPECS
 from core.contracts.result_package_remote_endpoints import RESULT_PACKAGE_REMOTE_ENDPOINT_SPECS
 from core.contracts.submission_remote_endpoints import RUN_CREATE as _RUN_CREATE, SUBMISSION_REMOTE_ENDPOINT_SPECS, UPLOAD_CREATE as _UPLOAD_CREATE
 from core.contracts.tool_remote_endpoints import TOOL_REMOTE_ENDPOINT_SPECS
@@ -119,6 +120,10 @@ SECRET_PROVIDER_READINESS_READ = "secret.provider_readiness.read"
 
 
 REMOTE_ENDPOINTS: dict[str, RemoteEndpoint] = {
+    **{
+        endpoint_id: RemoteEndpoint(endpoint_id=endpoint_id, **spec)
+        for endpoint_id, spec in PIPELINE_REMOTE_ENDPOINT_SPECS.items()
+    },
     RUN_LIST: RemoteEndpoint(
         endpoint_id=RUN_LIST,
         method="GET",

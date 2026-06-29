@@ -379,8 +379,10 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
     assert "execution_diagnostics_from_request" in health_route_source
 
     assert "router = APIRouter()" in pipeline_route_source
-    assert '@router.get("/api/v1/pipelines")' in pipeline_route_source
-    assert '@router.get("/api/v1/pipelines/{pipeline_id}")' in pipeline_route_source
+    assert '"/api/v1/pipelines"' in pipeline_route_source
+    assert "operation_id=REMOTE_ENDPOINTS[PIPELINE_LIST].operation_id" in pipeline_route_source
+    assert '"/api/v1/pipelines/{pipeline_id}"' in pipeline_route_source
+    assert "operation_id=REMOTE_ENDPOINTS[PIPELINE_READ].operation_id" in pipeline_route_source
     assert "list_pipelines_from_request" in pipeline_route_source
     assert "get_pipeline_from_request" in pipeline_route_source
 
