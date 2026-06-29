@@ -479,7 +479,7 @@ def test_first_run_finalize_requires_server_evidence_bundle(monkeypatch) -> None
         "code": "FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED",
         "detail": "FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED: first-run pilotHandoff must include evidenceBundle",
         "label": "重新生成首跑验证卡",
-        "target": "/workflows/first-run#validation-card",
+        "target": "/workflows/first-run#evidence-bundle",
     }
 
 
@@ -500,6 +500,7 @@ def test_first_run_validation_card_route_and_error_handler_are_registered() -> N
     assert "build_first_run_pilot_handoff" in service_source
     assert "pilotHandoff" in service_source
     assert 'target = "/workflows/first-run#run-report"' in finalize_source
+    assert 'target = "/workflows/first-run#evidence-bundle"' in finalize_source
     assert 'target = "/workflows/first-run#report"' not in finalize_source
     assert "export_result_package_from_request" in finalize_source
     assert "ResultPackageExportRequest(" in finalize_source

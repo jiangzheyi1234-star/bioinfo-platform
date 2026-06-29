@@ -27,10 +27,10 @@ $BlockedNextActionTargets = @{
     FIRST_RUN_REPORT_PREVIEW_REQUIRED = "/workflows/first-run#run-report"
     FIRST_RUN_SAMPLE_INPUTS_REQUIRED = "/workflows/first-run#sample-data"
     FIRST_RUN_SAMPLE_INPUTS_INTEGRITY_MISMATCH = "/workflows/first-run#sample-data"
-    FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED = "/workflows/first-run#validation-card"
-    FIRST_RUN_PILOT_HANDOFF_REQUIRED = "/workflows/first-run#validation-card"
+    FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED = "/workflows/first-run#evidence-bundle"
+    FIRST_RUN_PILOT_HANDOFF_REQUIRED = "/workflows/first-run#evidence-bundle"
 }
-$FirstRunRecoveryAnchors = @("runner-readiness", "sample-data", "run-report", "result-package", "validation-card")
+$FirstRunRecoveryAnchors = @("runner-readiness", "sample-data", "run-report", "result-package", "validation-card", "evidence-bundle")
 
 function Write-Step {
     param([string]$Message)

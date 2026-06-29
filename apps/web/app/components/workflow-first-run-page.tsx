@@ -656,7 +656,7 @@ function buildFirstRunSteps(input: {
     ["submit", "提交运行", input.runSubmitted, "固定 pipeline run 已进入队列", "#sample-data"],
     ["report", "看懂报告", input.reportReady, "产物、预览、rule 状态可读", "#run-report"],
     ["package", "导出结果包", input.packageReady, "完整结果包包含 manifest、产物和证据", "#result-package"],
-    ["card", "生成验证卡", input.validationReady, "客户可读的输入、版本、hash、下载摘要", "#validation-card"],
+    ["evidence-bundle", "下载/分享证据包", input.validationReady, "结果包、验证卡 JSON/Markdown、pilot handoff 四件套", "#evidence-bundle"],
   ] as const;
   const firstIncomplete = base.findIndex(([, , done]) => !done);
   return base.map(([id, label, done, detail, target], index) => ({

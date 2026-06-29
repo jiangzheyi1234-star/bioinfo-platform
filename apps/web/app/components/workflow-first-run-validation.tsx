@@ -20,6 +20,7 @@ import type {
 
 type ResultDetail = NonNullable<WorkflowRunDetail["results"]>;
 export type FirstRunInputArtifacts = NonNullable<ResultDetail["inputArtifacts"]>;
+type FirstRunEvidenceBundle = NonNullable<NonNullable<FirstRunValidationCard["pilotHandoff"]>["evidenceBundle"]>;
 
 export function ResultPackagePanel({
   disabledReason,
@@ -182,9 +183,12 @@ export function ValidationCard({
   const interpretation = card?.reportInterpretation;
   const sampleData = card?.sampleData;
   const softwareEnvironment = card?.softwareEnvironment;
+  const evidenceBundle = card?.pilotHandoff?.evidenceBundle;
   const checks = card?.checks || [];
   const passedChecks = checks.filter((item) => item.status === "passed").length;
-  const cardPassed = checks.length > 0 && passedChecks === checks.length;
+  const checksPassed = checks.length > 0 && passedChecks === checks.length;
+  const bundleReady = evidenceBundle?.status === "ready";
+  const cardPassed = checksPassed && bundleReady;
   return (
     <section
       id="validation-card"
@@ -193,14 +197,14 @@ export function ValidationCard({
       data-validation-eligible={eligible ? "true" : "false"}
       data-validation-passed={cardPassed ? "true" : "false"}
     >
-      <div className="flex items-start justify-between gap-3">
+      <div id="evidence-bundle" className="flex scroll-mt-24 items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
             <ClipboardCheck strokeWidth={1.5} className={cn("h-4 w-4", eligible ? "text-emerald-600" : "text-slate-500")} />
-            结果验证卡
+            结果验证卡与证据包
           </div>
           <div className="mt-1 text-xs text-slate-500">
-            {loadingCard ? "正在生成服务端验证卡" : cardPassed ? "服务端验证卡已通过" : card ? "服务端验证卡已加载" : eligible ? "等待服务端验证卡" : "等待结果包与 WorkflowRevision"}
+            {loadingCard ? "正在生成服务端验证卡" : cardPassed ? "验证卡与证据包已通过" : card ? "服务端验证卡已加载" : eligible ? "等待服务端验证卡" : "等待结果包与 WorkflowRevision"}
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
@@ -241,16 +245,50 @@ export function ValidationCard({
         <KeyValue label="package sha" value={packageExport?.sha256} mono />
         <KeyValue label="manifest" value={packageExport?.manifestSha256} mono />
         <KeyValue label="evidence" value={packageExport?.evidenceId} mono />
+        <KeyValue label="bundle" value={evidenceBundle?.bundleId} mono />
+        <KeyValue label="bundle files" value={evidenceBundle?.requiredFiles?.length ? `${evidenceBundle.requiredFiles.length} files` : ""} />
         <KeyValue label="card" value={card?.schemaVersion} mono />
         <KeyValue label="generated" value={card?.generatedAt} mono />
         <KeyValue label="checks" value={checks.length ? `${passedChecks}/${checks.length} passed checks` : ""} />
       </div>
 
       {card ? <ValidationCardEvidenceSummary card={card} /> : null}
+      {evidenceBundle ? <ValidationCardEvidenceBundle bundle={evidenceBundle} /> : null}
       {softwareEnvironment ? <ValidationCardSoftwareEnvironment softwareEnvironment={softwareEnvironment} /> : null}
       {sampleData ? <ValidationCardSampleData sampleData={sampleData} /> : null}
       {interpretation ? <ValidationCardInterpretation interpretation={interpretation} /> : null}
     </section>
+  );
+}
+
+function ValidationCardEvidenceBundle({ bundle }: { bundle: FirstRunEvidenceBundle }) {
+  const files = bundle.requiredFiles || [];
+  return (
+    <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 p-3" data-testid="first-run-validation-card-evidence-bundle">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2 text-xs font-semibold text-emerald-950">
+          <FileArchive strokeWidth={1.5} className="h-3.5 w-3.5 text-emerald-600" />
+          <span className="truncate">证据包清单已生成</span>
+        </div>
+        <span className="rounded-full border border-emerald-200 bg-white px-2 py-0.5 text-[11px] text-emerald-700">
+          {bundle.status || "ready"}
+        </span>
+      </div>
+      <div className="mt-3 grid gap-2 text-xs">
+        <KeyValue label="bundle" value={bundle.bundleId} mono />
+        <KeyValue label="files" value={files.length ? `${files.length} required files` : ""} />
+      </div>
+      {files.length > 0 ? (
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          {files.map((item) => (
+            <div key={item.role || item.filename} className="min-w-0 rounded border border-emerald-200 bg-white px-3 py-2 text-[11px]">
+              <div className="truncate font-semibold text-emerald-700">{item.role || "evidence"}</div>
+              <div className="mt-1 truncate font-mono text-slate-500">{item.filename || item.source}</div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 

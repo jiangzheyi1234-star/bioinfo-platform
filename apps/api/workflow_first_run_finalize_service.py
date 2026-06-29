@@ -99,7 +99,7 @@ def _next_action(code: str, detail: str) -> dict[str, str]:
         target = "/workflows/first-run#sample-data"
         label = "重新准备官方样例数据"
     elif code == "FIRST_RUN_PILOT_HANDOFF_REQUIRED" or code == "FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED":
-        target = "/workflows/first-run#validation-card"
+        target = "/workflows/first-run#evidence-bundle"
         label = "重新生成首跑验证卡"
     else:
         target = "/workflows/first-run"

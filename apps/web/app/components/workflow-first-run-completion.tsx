@@ -52,6 +52,7 @@ export function FirstRunCompletionPanel({
   const passedChecks = checks.filter((item) => item.status === "passed").length;
   const keyResults = card?.keyResults || [];
   const handoff = pilotHandoff || card?.pilotHandoff || null;
+  const evidenceBundle = handoff?.evidenceBundle;
 
   return (
     <section
@@ -65,7 +66,7 @@ export function FirstRunCompletionPanel({
             首跑已完成
           </div>
           <p className="mt-1 max-w-3xl text-xs leading-5 text-emerald-800">
-            Moving Pictures 16S 已生成可下载结果包和验证卡，包含输入、软件环境、WorkflowRevision、关键结果与 checksum。
+            Moving Pictures 16S 已生成可下载结果包、验证卡和证据包清单。下载并分享以下 4 个文件，并保持它们放在一起。
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
@@ -103,7 +104,7 @@ export function FirstRunCompletionPanel({
             ) : (
               <ClipboardCheck strokeWidth={1.5} className="mr-2 h-3.5 w-3.5" />
             )}
-            下载交接清单
+            下载证据包清单
           </Button>
           <Button
             variant="outline"
@@ -121,6 +122,8 @@ export function FirstRunCompletionPanel({
           </Button>
         </div>
       </div>
+
+      {evidenceBundle ? <EvidenceBundleSummary bundle={evidenceBundle} /> : null}
 
       <div className="mt-4 grid gap-x-5 gap-y-2 border-t border-emerald-200 pt-4 text-xs md:grid-cols-2 xl:grid-cols-4">
         <SummaryItem label="run" value={run?.runId} mono />
@@ -164,6 +167,11 @@ export function FirstRunCompletionPanel({
 
 export function firstRunValidationCardPassed(card: FirstRunValidationCard | null) {
   const checks = card?.checks || [];
+  const requiredBundleRoles = ["result-package", "validation-card-json", "validation-card-markdown", "pilot-handoff"];
+  const bundleFiles = card?.pilotHandoff?.evidenceBundle?.requiredFiles || [];
+  const bundleReady =
+    card?.pilotHandoff?.evidenceBundle?.status === "ready" &&
+    requiredBundleRoles.every((role) => bundleFiles.some((item) => item.role === role && item.filename));
   return (
     Boolean(card) &&
     checks.length > 0 &&
@@ -172,7 +180,7 @@ export function firstRunValidationCardPassed(card: FirstRunValidationCard | null
     card?.sampleData?.status === "verified" &&
     card?.softwareEnvironment?.status === "verified" &&
     Boolean(card?.pilotHandoff?.backupRestore) &&
-    card?.pilotHandoff?.evidenceBundle?.status === "ready" &&
+    bundleReady &&
     Boolean(card?.resultPackage?.sha256) &&
     Boolean(card?.resultPackage?.manifestSha256)
   );
@@ -207,7 +215,6 @@ function shortHash(value?: string) {
 
 function PilotHandoffSummary({ handoff }: { handoff: FirstRunPilotHandoff }) {
   const evidence = handoff.evidence || {};
-  const bundle = handoff.evidenceBundle;
   const nextAction = handoff.nextAction || {};
   const exclusions = handoff.exclusions || [];
   return (
@@ -240,7 +247,6 @@ function PilotHandoffSummary({ handoff }: { handoff: FirstRunPilotHandoff }) {
           ))}
         </div>
       ) : null}
-      {bundle ? <EvidenceBundleSummary bundle={bundle} /> : null}
       {handoff.backupRestore ? <PilotBackupRestoreSummary handoff={handoff} /> : null}
     </div>
   );
@@ -258,9 +264,14 @@ function EvidenceBundleSummary({ bundle }: { bundle: NonNullable<FirstRunPilotHa
       </div>
       <div className="flex flex-wrap gap-2">
         {requiredFiles.map((item) => (
-          <span key={item.role || item.filename} className="rounded border border-emerald-200 bg-white px-2 py-1 text-[11px] text-emerald-800">
-            {item.role || item.filename}
-          </span>
+          <div
+            key={item.role || item.filename}
+            className="min-w-0 rounded border border-emerald-200 bg-white px-2 py-1 text-[11px]"
+            data-testid="first-run-evidence-bundle-file"
+          >
+            <div className="truncate font-semibold text-emerald-800">{item.role || "evidence"}</div>
+            <div className="truncate font-mono text-slate-500">{item.filename || item.source}</div>
+          </div>
         ))}
       </div>
     </div>

@@ -71,6 +71,9 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "完成首跑" in first_run_source
     assert "仅导出结果包" in first_run_source
     assert "结果验证卡" in first_run_source
+    assert "下载/分享证据包" in first_run_page
+    assert "结果包、验证卡 JSON/Markdown、pilot handoff 四件套" in first_run_page
+    assert '"evidence-bundle"' in first_run_page
     assert "FirstRunCompletionPanel" in first_run_page
     assert "first-run-completion-panel" in first_run_completion
     assert "first-run-pilot-handoff" in first_run_completion
@@ -92,6 +95,12 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "单用户试点交接" in first_run_completion
     assert "首跑已完成" in first_run_completion
     assert "下载结果包" in first_run_completion
+    assert "下载证据包清单" in first_run_completion
+    assert "下载并分享以下 4 个文件" in first_run_completion
+    assert "first-run-evidence-bundle-file" in first_run_completion
+    assert "item.filename || item.source" in first_run_completion
+    assert '"result-package", "validation-card-json", "validation-card-markdown", "pilot-handoff"' in first_run_completion
+    assert "requiredBundleRoles.every" in first_run_completion
     assert "firstRunResultPackageReady(latestPackage)" in first_run_completion
     assert "passed checks" in first_run_completion
     assert "RUN_OWN_SMALL_SAMPLE" not in first_run_completion
@@ -113,7 +122,7 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "data-step-target={step.target}" in first_run_page
     assert "href={step.target}" in first_run_page
     assert '"#result-package"' in first_run_page
-    assert '"#validation-card"' in first_run_page
+    assert '"#evidence-bundle"' in first_run_page
     assert "if (!ready) return null" in first_run_completion
     assert 'checks.every((item) => item.status === "passed")' in first_run_completion
     assert 'card?.reportInterpretation?.status === "ready"' in first_run_completion
@@ -160,9 +169,16 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "data-validation-eligible" in first_run_validation
     assert "data-validation-passed" in first_run_validation
     assert "const passedChecks = checks.filter((item) => item.status === \"passed\").length" in first_run_validation
-    assert "const cardPassed = checks.length > 0 && passedChecks === checks.length" in first_run_validation
+    assert 'const bundleReady = evidenceBundle?.status === "ready"' in first_run_validation
+    assert "const cardPassed = checksPassed && bundleReady" in first_run_validation
     assert "`${passedChecks}/${checks.length} passed checks`" in first_run_validation
     assert "ValidationCardEvidenceSummary" in first_run_validation
+    assert "ValidationCardEvidenceBundle" in first_run_validation
+    assert "first-run-validation-card-evidence-bundle" in first_run_validation
+    assert "证据包清单已生成" in first_run_validation
+    assert 'id="evidence-bundle"' in first_run_validation
+    assert 'KeyValue label="bundle"' in first_run_validation
+    assert 'KeyValue label="bundle files"' in first_run_validation
     assert "card.keyResults" in first_run_validation
     assert "card.resultPackage" in first_run_validation
     assert "FIRST_RUN_SAMPLE_INPUTS_VERIFIED" in first_run_validation
