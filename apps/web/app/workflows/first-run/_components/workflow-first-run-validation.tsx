@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import type { FirstRunFinalizationNextAction, FirstRunValidationCard } from "../_domain/first-run-types";
+import { formatBytes } from "../_domain/first-run-display";
+import { firstRunValidationCardPassed } from "../_domain/first-run-validation-state";
 import { FirstRunTrustSummary } from "./workflow-first-run-trust-summary";
 import { workflowResultPackageDownloadHref } from "@/app/components/workflows-page-api";
 import type {
@@ -177,9 +179,7 @@ export function ValidationCard({
   const evidenceBundle = card?.pilotHandoff?.evidenceBundle;
   const checks = card?.checks || [];
   const passedChecks = checks.filter((item) => item.status === "passed").length;
-  const checksPassed = checks.length > 0 && passedChecks === checks.length;
-  const bundleReady = evidenceBundle?.status === "ready";
-  const cardPassed = checksPassed && bundleReady;
+  const cardPassed = firstRunValidationCardPassed(card);
   return (
     <section
       id="validation-card"
@@ -481,21 +481,6 @@ function KeyValue({ label, mono = false, value }: { label: string; mono?: boolea
   );
 }
 
-export function artifactName(artifact: WorkflowArtifact) {
-  return (
-    artifactDisplayValue(artifact, "artifactKey") ||
-    artifactDisplayValue(artifact, "name") ||
-    artifactDisplayValue(artifact, "path").split("/").pop() ||
-    artifact.kind ||
-    artifact.artifactId
-  );
-}
-
-function artifactDisplayValue(artifact: WorkflowArtifact, key: "artifactKey" | "name" | "path") {
-  const display = artifact as WorkflowArtifact & Record<typeof key, string | undefined>;
-  return display[key] || "";
-}
-
 function softwareRuntimeLabel(softwareEnvironment?: FirstRunValidationCard["softwareEnvironment"]) {
   const runtime = softwareEnvironment?.runtime;
   return [runtime?.engine, runtime?.platform, runtime?.pipelineVersion ? `pipeline ${runtime.pipelineVersion}` : ""].filter(Boolean).join(" / ");
@@ -519,12 +504,4 @@ function checkLabel(code?: string) {
     FIRST_RUN_RESULT_PACKAGE_ACTIVE: "完整结果包可下载",
   };
   return labels[code || ""] || code || "check";
-}
-
-export function formatBytes(bytes?: number) {
-  if (!bytes) return "";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB"];
-  const index = Math.min(sizes.length - 1, Math.floor(Math.log(bytes) / Math.log(k)));
-  return `${parseFloat((bytes / k ** index).toFixed(2))} ${sizes[index]}`;
 }

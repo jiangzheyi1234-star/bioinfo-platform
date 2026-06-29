@@ -46,6 +46,7 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     first_run_trust_summary = (FIRST_RUN_COMPONENTS / "workflow-first-run-trust-summary.tsx").read_text(encoding="utf-8")
     first_run_validation = (FIRST_RUN_COMPONENTS / "workflow-first-run-validation.tsx").read_text(encoding="utf-8")
     first_run_progress = (FIRST_RUN_DOMAIN / "first-run-progress.ts").read_text(encoding="utf-8")
+    first_run_display = (FIRST_RUN_DOMAIN / "first-run-display.ts").read_text(encoding="utf-8")
     first_run_package = (FIRST_RUN_DOMAIN / "first-run-package.ts").read_text(encoding="utf-8")
     first_run_validation_state = (FIRST_RUN_DOMAIN / "first-run-validation-state.ts").read_text(encoding="utf-8")
     first_run_types = (FIRST_RUN_DOMAIN / "first-run-types.ts").read_text(encoding="utf-8")
@@ -70,6 +71,8 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "runnerChecks" in first_run_progress
     assert "workflowRevisionIdFor" in first_run_progress
     assert "resultPackageDisabledReason" in first_run_progress
+    assert "export function artifactName" in first_run_display
+    assert "export function formatBytes" in first_run_display
     assert "export function firstRunResultPackageReady" in first_run_package
     assert "export function firstRunValidationCardPassed" in first_run_validation_state
     assert "export function useFirstRunEvidence" in first_run_evidence_state
@@ -253,8 +256,13 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "data-validation-eligible" in first_run_validation
     assert "data-validation-passed" in first_run_validation
     assert "const passedChecks = checks.filter((item) => item.status === \"passed\").length" in first_run_validation
-    assert 'const bundleReady = evidenceBundle?.status === "ready"' in first_run_validation
-    assert "const cardPassed = checksPassed && bundleReady" in first_run_validation
+    assert "const cardPassed = firstRunValidationCardPassed(card)" in first_run_validation
+    assert "checksPassed && bundleReady" not in first_run_validation
+    assert "from \"../_domain/first-run-validation-state\"" in first_run_validation
+    assert "from \"../_domain/first-run-display\"" in first_run_validation
+    assert "from \"./workflow-first-run-validation\"" not in first_run_completion
+    assert "from \"./workflow-first-run-validation\"" not in first_run_report
+    assert "from \"./workflow-first-run-validation\"" not in first_run_sample_submit
     assert "`${passedChecks}/${checks.length} passed checks`" in first_run_validation
     assert "ValidationCardEvidenceSummary" in first_run_validation
     assert "ValidationCardEvidenceBundle" in first_run_validation

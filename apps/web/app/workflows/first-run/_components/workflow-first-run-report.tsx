@@ -6,7 +6,7 @@ import { ArrowRight, CheckCircle2, FileCheck2, Package, RefreshCw, RotateCcw, XC
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-import { artifactName } from "./workflow-first-run-validation";
+import { artifactName } from "../_domain/first-run-display";
 import { RuleAttemptBadge } from "@/app/components/workflow-run-attempts-panel";
 import { WorkflowRuleFailureDiagnostics } from "@/app/components/workflow-rule-failure-diagnostics";
 import { WorkflowRuleLogEvidence } from "@/app/components/workflow-rule-log-evidence";

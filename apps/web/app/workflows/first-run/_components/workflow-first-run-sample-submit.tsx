@@ -7,7 +7,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-import { formatBytes } from "./workflow-first-run-validation";
+import { formatBytes } from "../_domain/first-run-display";
 import { fetchWorkflowSampleDataStatus, type WorkflowSampleDataStatus } from "../_api/workflow-sample-data-api";
 import type { WorkflowCatalogItem, WorkflowUpload } from "@/app/components/workflows-page-model";
 

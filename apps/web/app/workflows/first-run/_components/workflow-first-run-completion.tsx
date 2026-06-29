@@ -6,9 +6,9 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import type { FirstRunPilotHandoff, FirstRunValidationCard } from "../_domain/first-run-types";
+import { formatBytes } from "../_domain/first-run-display";
 import { firstRunResultPackageReady } from "../_domain/first-run-package";
 import { FirstRunTrustSummary } from "./workflow-first-run-trust-summary";
-import { formatBytes } from "./workflow-first-run-validation";
 import { workflowResultPackageDownloadHref } from "@/app/components/workflows-page-api";
 import type { WorkflowResultPackageExport, WorkflowRun, WorkflowScenarioPack } from "@/app/components/workflows-page-model";
 
