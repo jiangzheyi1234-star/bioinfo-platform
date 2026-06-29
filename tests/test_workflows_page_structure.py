@@ -242,6 +242,16 @@ def test_workflows_page_uses_live_builder_modules() -> None:
     assert "data-testid=\"workflow-scenario-pack-section\"" in scenario_section
     assert "data-scenario-pack={pack.scenarioId}" in scenario_section
     assert "pack.status === \"ready\"" in scenario_section
+    assert "data-testid=\"workflow-scenario-readiness-checks\"" in scenario_section
+    assert "data-scenario-check-status={check.status}" in scenario_section
+    assert "check.requirement" in scenario_section
+    assert "data-testid=\"workflow-scenario-practice-anchors\"" in scenario_section
+    assert "pack.externalPracticeAnchors.slice(0, 2)" in scenario_section
+    assert "target=\"_blank\"" in scenario_section
+    assert "data-scenario-action={action.code}" in scenario_section
+    assert "pack.nextActions.slice(0, 3)" in scenario_section
+    assert "sampleDataLabel(pack)" in scenario_section
+    assert "item.templates?.length" in scenario_section
     assert "noAutomaticExecution" in model
     assert "uploadWorkflowSampleData" not in scenario_section
     assert "addDatabase" not in scenario_section

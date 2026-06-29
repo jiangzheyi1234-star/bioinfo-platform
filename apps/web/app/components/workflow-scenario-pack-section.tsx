@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, CheckCircle2, CircleAlert, Database, FlaskConical, Loader2, ShieldCheck } from "lucide-react";
+import { ArrowRight, CheckCircle2, CircleAlert, Database, ExternalLink, FlaskConical, Loader2, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -46,21 +46,46 @@ export function WorkflowScenarioPackSection({
             <div className="mt-3 grid gap-2 text-[11px] text-slate-600">
               <ScenarioFact icon="tools" label="工具" value={toolSliceLabel(pack)} />
               <ScenarioFact icon="database" label="数据库" value={databaseLabel(pack)} />
+              <ScenarioFact icon="evidence" label="样例" value={sampleDataLabel(pack)} />
               <ScenarioFact icon="evidence" label="证据" value={pack.resultEvidence.join(" / ")} />
             </div>
 
-            <div className="mt-3 space-y-1.5">
-              {pack.readinessChecks.slice(0, 4).map((check) => (
-                <div key={check.code} className="flex min-w-0 items-center gap-1.5 text-[11px]">
+            <div className="mt-3 space-y-2" data-testid="workflow-scenario-readiness-checks">
+              {pack.readinessChecks.map((check) => (
+                <div
+                  key={check.code}
+                  className="grid min-w-0 gap-1 rounded border border-slate-200 bg-slate-50 px-2 py-1.5 text-[11px]"
+                  data-scenario-check-status={check.status}
+                >
+                  <div className="flex min-w-0 items-center gap-1.5">
                   {check.status === "passed" ? (
                     <CheckCircle2 strokeWidth={1.5} className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
                   ) : (
                     <CircleAlert strokeWidth={1.5} className="h-3.5 w-3.5 shrink-0 text-amber-500" />
                   )}
-                  <span className="truncate text-slate-500">{check.detail}</span>
+                    <span className="truncate font-medium text-slate-700">{check.requirement}</span>
+                  </div>
+                  <div className="truncate pl-5 text-slate-500">{check.detail}</div>
                 </div>
               ))}
             </div>
+
+            {pack.externalPracticeAnchors.length > 0 ? (
+              <div className="mt-3 flex flex-wrap gap-1.5" data-testid="workflow-scenario-practice-anchors">
+                {pack.externalPracticeAnchors.slice(0, 2).map((href, index) => (
+                  <a
+                    key={href}
+                    href={href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex max-w-full items-center gap-1 rounded border border-slate-200 px-2 py-1 text-[11px] text-slate-500 hover:border-blue-200 hover:text-blue-700"
+                  >
+                    <ExternalLink strokeWidth={1.5} className="h-3 w-3 shrink-0" />
+                    <span className="truncate">实践参考 {index + 1}</span>
+                  </a>
+                ))}
+              </div>
+            ) : null}
 
             <div className="mt-4 flex flex-wrap gap-2">
               {pack.status === "ready" && pack.firstRunPath ? (
@@ -79,8 +104,8 @@ export function WorkflowScenarioPackSection({
                   </Link>
                 </Button>
               ) : null}
-              {pack.nextActions.slice(0, 2).map((action) => (
-                <Button key={action.code} asChild variant="outline" className="h-8 bg-white px-2.5 text-xs text-slate-600">
+              {pack.nextActions.slice(0, 3).map((action) => (
+                <Button key={action.code} asChild variant="outline" className="h-8 bg-white px-2.5 text-xs text-slate-600" data-scenario-action={action.code}>
                   <Link href={action.target}>
                     <ArrowRight strokeWidth={1.5} className="h-3.5 w-3.5" />
                     {action.label}
@@ -137,5 +162,11 @@ function toolSliceLabel(pack: WorkflowScenarioPack) {
 
 function databaseLabel(pack: WorkflowScenarioPack) {
   if (pack.requiredDatabases.length === 0) return "none";
-  return pack.requiredDatabases.map((item) => item.capability || "database").join(", ");
+  return pack.requiredDatabases
+    .map((item) => [item.capability || "database", item.templates?.length ? `(${item.templates.join("/")})` : ""].filter(Boolean).join(" "))
+    .join(", ");
+}
+
+function sampleDataLabel(pack: WorkflowScenarioPack) {
+  return [pack.sampleData.mode, pack.sampleData.source].filter(Boolean).join(" / ");
 }
