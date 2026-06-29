@@ -45,6 +45,7 @@ REQUIRED_SCENARIO_PACK_FIELDS = {
     "requiredDatabases",
     "databaseHandoff",
     "resultEvidence",
+    "pilotReadinessPlan",
     "readinessChecks",
     "nextActions",
     "externalPracticeAnchors",
@@ -129,6 +130,10 @@ def test_only_moving_pictures_scenario_is_ready_until_vertical_packs_have_real_g
     assert first_run["databaseHandoff"]["checklist"] == []
     assert first_run["databaseHandoff"]["packOptions"] == []
     assert "evidenceBundle" in first_run["resultEvidence"]
+    assert first_run["pilotReadinessPlan"]["status"] == "ready"
+    assert first_run["pilotReadinessPlan"]["noAutomaticExecution"] is True
+    assert first_run["pilotReadinessPlan"]["blockingGateCodes"] == []
+    assert first_run["pilotReadinessPlan"]["acceptanceEvidence"] == first_run["resultEvidence"]
     assert first_run["databaseHandoff"]["missingPackTemplates"] == []
     assert {check["status"] for check in first_run["readinessChecks"]} == {"passed"}
     assert {tool["contractState"] for tool in first_run["requiredWorkflowReadyTools"]} == {"workflow_ready"}
@@ -209,6 +214,78 @@ def test_only_moving_pictures_scenario_is_ready_until_vertical_packs_have_real_g
         "REAL_DATABASE_ACCEPTANCE",
     }
     assert {item["status"] for item in taxonomy["databaseHandoff"]["checklist"]} == {"operator_required"}
+    assert taxonomy["resultEvidence"] == [
+        "workflowRevision",
+        "databaseCheck",
+        "resultPackage",
+        "validationCard",
+        "evidenceBundle",
+        "inputLineage",
+        "outputChecksums",
+    ]
+    assert taxonomy["pilotReadinessPlan"] == {
+        "schemaVersion": "h2ometa.workflow-scenario-pilot-readiness-plan.v1",
+        "mode": "human-reviewed-scenario-pilot",
+        "status": "operator_required",
+        "operatorActionRequired": True,
+        "noAutomaticExecution": True,
+        "minimumInputs": [
+            {"role": "reads", "formats": ["fastq.gz"], "required": False},
+            {"role": "contigs", "formats": ["fna", "fasta"], "required": False},
+        ],
+        "toolSlice": {"requiredState": "WorkflowReady", "min": 3, "max": 5, "actual": 3},
+        "databaseCapabilities": ["taxonomy_database"],
+        "acceptanceEvidence": taxonomy["resultEvidence"],
+        "blockingGateCodes": [
+            "SCENARIO_PIPELINE_WORKFLOW_READY",
+            "SCENARIO_TOOL_SLICE_READY",
+            "SCENARIO_DATABASE_HANDOFF_READY",
+            "SCENARIO_SAMPLE_DATA_READY",
+        ],
+        "acceptanceChecklist": [
+            {
+                "code": "CURATE_SMALL_FIXTURE",
+                "label": "准备小型真实 fixture",
+                "status": "operator_required",
+                "target": "/workflows/tools",
+                "evidence": "input roles, source, license, and SHA-256 recorded",
+            },
+            {
+                "code": "LOCK_WORKFLOW_READY_SLICE",
+                "label": "锁定 3-5 个 WorkflowReady 工具",
+                "status": "operator_required",
+                "target": "/workflows/tools",
+                "evidence": "toolRevisionId, RuleSpec, environment lock, and smoke fixture evidence",
+            },
+            {
+                "code": "REGISTER_REQUIRED_DATABASES",
+                "label": "完成数据库 ready scan 与登记",
+                "status": "operator_required",
+                "target": "/workflows/databases",
+                "evidence": "checksum, ready scan, registration prefill, and run resource binding",
+            },
+            {
+                "code": "RUN_SCENARIO_ACCEPTANCE",
+                "label": "运行一次场景验收",
+                "status": "operator_required",
+                "target": "/workflows",
+                "evidence": "completed run with validationCard, resultPackage, and evidenceBundle",
+            },
+            {
+                "code": "EXPORT_PORTABLE_EVIDENCE",
+                "label": "导出可分享证据包",
+                "status": "operator_required",
+                "target": "/workflows/results",
+                "evidence": "portable evidence bundle kept with full result package",
+            },
+        ],
+        "excludedActions": [
+            "automatic-database-install",
+            "automatic-fixture-generation",
+            "generic-bioconda-import",
+            "unverified-evidence-bundle",
+        ],
+    }
     assert {"SCENARIO_TOOL_SLICE_READY", "SCENARIO_DATABASE_HANDOFF_READY", "SCENARIO_SAMPLE_DATA_READY"} <= {
         item["code"] for item in taxonomy["nextActions"]
     }
@@ -238,6 +315,14 @@ def test_only_moving_pictures_scenario_is_ready_until_vertical_packs_have_real_g
         "requiresOutputValidation": True,
         "productionEvidenceOptional": True,
     }
+    assert "evidenceBundle" in amr["resultEvidence"]
+    assert amr["pilotReadinessPlan"]["databaseCapabilities"] == ["amr_database", "annotation_database"]
+    assert amr["pilotReadinessPlan"]["blockingGateCodes"] == [
+        "SCENARIO_PIPELINE_WORKFLOW_READY",
+        "SCENARIO_TOOL_SLICE_READY",
+        "SCENARIO_DATABASE_HANDOFF_READY",
+        "SCENARIO_SAMPLE_DATA_READY",
+    ]
     assert [item["role"] for item in amr["toolSliceHandoff"]["toolOptions"]] == [
         "input_qc",
         "amr_detection",

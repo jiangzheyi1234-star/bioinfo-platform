@@ -208,6 +208,32 @@ export type WorkflowScenarioToolSliceHandoff = {
   excludedActions?: string[];
 };
 
+export type WorkflowScenarioPilotReadinessPlan = {
+  schemaVersion?: string;
+  mode?: "human-reviewed-scenario-pilot" | string;
+  status?: "operator_required" | "ready" | string;
+  operatorActionRequired?: boolean;
+  noAutomaticExecution?: boolean;
+  minimumInputs?: Array<{ role?: string; formats?: string[]; required?: boolean }>;
+  toolSlice?: {
+    requiredState?: string;
+    min?: number;
+    max?: number;
+    actual?: number;
+  };
+  databaseCapabilities?: string[];
+  acceptanceEvidence?: string[];
+  blockingGateCodes?: string[];
+  acceptanceChecklist?: Array<{
+    code?: string;
+    label?: string;
+    status?: "operator_required" | "passed" | string;
+    target?: string;
+    evidence?: string;
+  }>;
+  excludedActions?: string[];
+};
+
 export type WorkflowScenarioPack = {
   schemaVersion: string;
   packId: string;
@@ -240,6 +266,7 @@ export type WorkflowScenarioPack = {
   requiredDatabases: Array<{ capability?: string; templates?: string[] }>;
   databaseHandoff?: WorkflowScenarioDatabaseHandoff;
   resultEvidence: string[];
+  pilotReadinessPlan?: WorkflowScenarioPilotReadinessPlan;
   readinessChecks: WorkflowScenarioPackCheck[];
   nextActions: WorkflowScenarioPackAction[];
   externalPracticeAnchors: string[];

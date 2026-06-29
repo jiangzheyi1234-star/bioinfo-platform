@@ -53,6 +53,7 @@ export function WorkflowScenarioPackSection({
             <ToolSliceHandoffSummary pack={pack} />
             <SampleDataHandoffSummary pack={pack} />
             <DatabaseHandoffSummary pack={pack} />
+            <PilotReadinessPlanSummary pack={pack} />
 
             <div className="mt-3 space-y-2" data-testid="workflow-scenario-readiness-checks">
               {pack.readinessChecks.map((check) => (
@@ -121,6 +122,39 @@ export function WorkflowScenarioPackSection({
         ))}
       </div>
     </section>
+  );
+}
+
+function PilotReadinessPlanSummary({ pack }: { pack: WorkflowScenarioPack }) {
+  const plan = pack.pilotReadinessPlan;
+  const checklist = plan?.acceptanceChecklist || [];
+  if (!plan || checklist.length === 0 || plan.status === "ready") return null;
+  const visibleItems = checklist.slice(0, 3);
+  const remaining = checklist.length - visibleItems.length;
+  return (
+    <div className="mt-3 rounded border border-blue-200 bg-blue-50 px-2 py-2" data-testid="workflow-scenario-pilot-readiness-plan">
+      <div className="mb-1.5 flex min-w-0 items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-blue-950">
+          <ShieldCheck strokeWidth={1.5} className="h-3.5 w-3.5 shrink-0 text-blue-600" />
+          <span className="truncate">试点验收计划</span>
+        </div>
+        <span className="shrink-0 rounded border border-blue-200 bg-white px-1.5 py-0.5 text-[10px] text-blue-700">
+          {plan.mode || "human-reviewed-scenario-pilot"}
+        </span>
+      </div>
+      <div className="grid gap-1 text-[11px]" data-testid="workflow-scenario-pilot-readiness-checklist">
+        {visibleItems.map((item) => (
+          <div key={item.code || item.label} className="flex min-w-0 items-center gap-1.5 text-slate-600">
+            <CircleAlert strokeWidth={1.5} className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+            <span className="truncate">{item.label || item.code}</span>
+          </div>
+        ))}
+      </div>
+      <div className="mt-1.5 truncate text-[11px] text-blue-700">
+        {pilotReadinessPlanText(pack)}
+        {remaining > 0 ? ` · +${remaining}` : ""}
+      </div>
+    </div>
   );
 }
 
@@ -320,4 +354,18 @@ function sampleDataHandoffInputText(pack: WorkflowScenarioPack) {
 
 function sampleDataLabel(pack: WorkflowScenarioPack) {
   return [pack.sampleData.mode, pack.sampleData.source].filter(Boolean).join(" / ");
+}
+
+function pilotReadinessPlanText(pack: WorkflowScenarioPack) {
+  const plan = pack.pilotReadinessPlan;
+  const inputs = (plan?.minimumInputs || [])
+    .map((item) => item.role)
+    .filter(Boolean)
+    .slice(0, 3)
+    .join("/");
+  const evidence = (plan?.acceptanceEvidence || []).slice(0, 4).join("/");
+  const blockers = plan?.blockingGateCodes?.length || 0;
+  return [inputs ? `inputs:${inputs}` : "", evidence ? `evidence:${evidence}` : "", blockers ? `${blockers} gates` : ""]
+    .filter(Boolean)
+    .join(" · ");
 }

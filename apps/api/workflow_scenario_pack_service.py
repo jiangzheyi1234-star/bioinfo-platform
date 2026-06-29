@@ -21,6 +21,7 @@ from apps.api.workflow_scenario_pack_tool_slice import (
 
 SCENARIO_PACK_SCHEMA_VERSION = "h2ometa.workflow-scenario-pack.v1"
 SCENARIO_PACK_CATALOG_SCHEMA_VERSION = "h2ometa.workflow-scenario-pack-catalog.v1"
+SCENARIO_PILOT_READINESS_PLAN_SCHEMA_VERSION = "h2ometa.workflow-scenario-pilot-readiness-plan.v1"
 SCENARIO_SAMPLE_DATA_HANDOFF_SCHEMA_VERSION = "h2ometa.workflow-scenario-sample-data-handoff.v1"
 _SCENARIO_TOOL_SLICE_MIN = 3
 _SCENARIO_TOOL_SLICE_MAX = 5
@@ -86,6 +87,7 @@ def _scenario_pack(definition: dict[str, Any], pipelines: dict[str, dict[str, An
         "requiredDatabases": definition["requiredDatabases"],
         "databaseHandoff": database_handoff(definition),
         "resultEvidence": definition["resultEvidence"],
+        "pilotReadinessPlan": _pilot_readiness_plan(definition, readiness, status=status),
         "readinessChecks": readiness,
         "nextActions": _next_actions(definition, readiness),
         "externalPracticeAnchors": definition["externalPracticeAnchors"],
@@ -131,6 +133,7 @@ def _validate_scenario_definition(
         raise WorkflowScenarioPackCatalogError("SCENARIO_TOOL_SLICE_REQUIRED")
     if not definition.get("resultEvidence"):
         raise WorkflowScenarioPackCatalogError("SCENARIO_RESULT_EVIDENCE_REQUIRED")
+    _validate_pilot_readiness_plan_definition(definition)
     _validate_sample_data_handoff(definition)
     try:
         validate_database_handoff(definition)
@@ -325,6 +328,99 @@ def _action_label(code: str) -> str:
         "SCENARIO_TOOL_SLICE_READY": "收敛 3-5 个 WorkflowReady 工具",
     }
     return labels.get(code, "补齐场景准入条件")
+
+
+def _pilot_readiness_plan(
+    definition: dict[str, Any],
+    readiness: list[dict[str, str]],
+    *,
+    status: str,
+) -> dict[str, Any]:
+    plan_status = "ready" if status == "ready" else "operator_required"
+    return {
+        "schemaVersion": SCENARIO_PILOT_READINESS_PLAN_SCHEMA_VERSION,
+        "mode": "human-reviewed-scenario-pilot",
+        "status": plan_status,
+        "operatorActionRequired": plan_status != "ready",
+        "noAutomaticExecution": True,
+        "minimumInputs": _sample_data_input_options(definition),
+        "toolSlice": {
+            "requiredState": "WorkflowReady",
+            "min": _SCENARIO_TOOL_SLICE_MIN,
+            "max": _SCENARIO_TOOL_SLICE_MAX,
+            "actual": len(definition.get("requiredWorkflowReadyTools") or []),
+        },
+        "databaseCapabilities": [
+            str(item.get("capability") or "")
+            for item in definition.get("requiredDatabases") or []
+            if str(item.get("capability") or "")
+        ],
+        "acceptanceEvidence": list(definition.get("resultEvidence") or []),
+        "blockingGateCodes": [item["code"] for item in readiness if item["status"] != "passed"],
+        "acceptanceChecklist": _pilot_acceptance_checklist(ready=plan_status == "ready"),
+        "excludedActions": [
+            "automatic-database-install",
+            "automatic-fixture-generation",
+            "generic-bioconda-import",
+            "unverified-evidence-bundle",
+        ],
+    }
+
+
+def _validate_pilot_readiness_plan_definition(definition: dict[str, Any]) -> None:
+    evidence = set(definition.get("resultEvidence") or [])
+    required_evidence = {"workflowRevision", "resultPackage", "validationCard", "evidenceBundle"}
+    missing = sorted(required_evidence - evidence)
+    if missing:
+        raise WorkflowScenarioPackCatalogError(
+            f"SCENARIO_PILOT_READINESS_EVIDENCE_MISSING: {', '.join(missing)}"
+        )
+    for item in _pilot_acceptance_checklist(ready=False):
+        if item["target"] not in SCENARIO_PRODUCT_TARGETS:
+            raise WorkflowScenarioPackCatalogError(
+                f"SCENARIO_PILOT_READINESS_TARGET_UNSUPPORTED: {item['target']}"
+            )
+
+
+def _pilot_acceptance_checklist(*, ready: bool) -> list[dict[str, str]]:
+    status = "passed" if ready else "operator_required"
+    return [
+        {
+            "code": "CURATE_SMALL_FIXTURE",
+            "label": "准备小型真实 fixture",
+            "status": status,
+            "target": "/workflows/tools",
+            "evidence": "input roles, source, license, and SHA-256 recorded",
+        },
+        {
+            "code": "LOCK_WORKFLOW_READY_SLICE",
+            "label": "锁定 3-5 个 WorkflowReady 工具",
+            "status": status,
+            "target": "/workflows/tools",
+            "evidence": "toolRevisionId, RuleSpec, environment lock, and smoke fixture evidence",
+        },
+        {
+            "code": "REGISTER_REQUIRED_DATABASES",
+            "label": "完成数据库 ready scan 与登记",
+            "status": status,
+            "target": "/workflows/databases",
+            "evidence": "checksum, ready scan, registration prefill, and run resource binding",
+        },
+        {
+            "code": "RUN_SCENARIO_ACCEPTANCE",
+            "label": "运行一次场景验收",
+            "status": status,
+            "target": "/workflows",
+            "evidence": "completed run with validationCard, resultPackage, and evidenceBundle",
+        },
+        {
+            "code": "EXPORT_PORTABLE_EVIDENCE",
+            "label": "导出可分享证据包",
+            "status": status,
+            "target": "/workflows/results",
+            "evidence": "portable evidence bundle kept with full result package",
+        },
+    ]
 
 
 def _sample_data_handoff(definition: dict[str, Any]) -> dict[str, Any]:
@@ -542,7 +638,15 @@ def _scenario_definitions() -> list[dict[str, Any]]:
             "requiredDatabases": [
                 {"capability": "taxonomy_database", "templates": ["centrifuge", "kaiju", "gtdbtk", "silva_qiime"]},
             ],
-            "resultEvidence": ["workflowRevision", "databaseCheck", "resultPackage", "validationCard"],
+            "resultEvidence": [
+                "workflowRevision",
+                "databaseCheck",
+                "resultPackage",
+                "validationCard",
+                "evidenceBundle",
+                "inputLineage",
+                "outputChecksums",
+            ],
             "gates": [
                 {
                     "code": "SCENARIO_TOOL_SLICE_READY",
@@ -621,7 +725,15 @@ def _scenario_definitions() -> list[dict[str, Any]]:
                 {"capability": "amr_database", "templates": ["card_rgi"]},
                 {"capability": "annotation_database", "templates": ["eggnog_mapper", "interproscan"]},
             ],
-            "resultEvidence": ["workflowRevision", "databaseCheck", "resultPackage", "validationCard"],
+            "resultEvidence": [
+                "workflowRevision",
+                "databaseCheck",
+                "resultPackage",
+                "validationCard",
+                "evidenceBundle",
+                "inputLineage",
+                "outputChecksums",
+            ],
             "gates": [
                 {
                     "code": "SCENARIO_TOOL_SLICE_READY",
