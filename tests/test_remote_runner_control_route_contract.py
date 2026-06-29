@@ -411,10 +411,10 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
     assert '"/api/v1/runs/{run_id}/results"' in execution_query_route_source
     assert '"/api/v1/runs/{run_id}/rules"' in execution_query_route_source
     assert '"/api/v1/runs/{run_id}/failure-locator"' in execution_query_route_source
-    assert '@router.get("/api/v1/results")' in execution_query_route_source
-    assert '@router.get("/api/v1/results/{result_id}")' in execution_query_route_source
-    assert '@router.get("/api/v1/results/{result_id}/preview")' in execution_query_route_source
-    assert '@router.get("/api/v1/results/{result_id}/audit")' in execution_query_route_source
+    assert '"/api/v1/results"' in execution_query_route_source
+    assert '"/api/v1/results/{result_id}"' in execution_query_route_source
+    assert '"/api/v1/results/{result_id}/preview"' in execution_query_route_source
+    assert '"/api/v1/results/{result_id}/audit"' in execution_query_route_source
     assert '@router.post("/api/v1/results/{result_id}/export")' in execution_query_route_source
     assert '@router.get("/api/v1/results/{result_id}/exports/{package_export_id}/download")' in execution_query_route_source
     assert "/bytes/delete" not in execution_query_route_source

@@ -355,21 +355,6 @@ class RemoteRunnerHttpClient:
     def apply_rule_cache_restore_adoption(self, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self.post_json(f"/api/v1/runs/{run_id}/rules/cache-restore/adoption/apply", payload)["data"]
 
-    def get_result(self, result_id: str) -> dict[str, Any]:
-        return self.get_json(f"/api/v1/results/{result_id}")["data"]
-
-    def list_results(self) -> list[dict[str, Any]]:
-        return self.get_json("/api/v1/results")["data"]["items"]
-
-    def get_result_preview(self, result_id: str, *, artifact_id: str | None = None) -> dict[str, Any]:
-        path = f"/api/v1/results/{result_id}/preview"
-        if artifact_id:
-            path += f"?artifact_id={artifact_id}"
-        return self.get_json(path)["data"]
-
-    def get_result_audit(self, result_id: str) -> dict[str, Any]:
-        return self.get_json(f"/api/v1/results/{result_id}/audit")["data"]
-
     def export_result_package(
         self,
         result_id: str,

@@ -507,42 +507,6 @@ class RemoteRunnerProxyMixin:
         )
         return client.post_json(f"/api/v1/runs/{kwargs['run_id']}/retry", kwargs["payload"])["data"]
 
-    def list_results(self, **kwargs) -> list[dict[str, Any]]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        return client.get_json("/api/v1/results")["data"]["items"]
-
-    def get_result(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        return client.get_json(f"/api/v1/results/{kwargs['result_id']}")["data"]
-
-    def get_result_preview(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        path = f"/api/v1/results/{kwargs['result_id']}/preview"
-        artifact_id = kwargs.get("artifact_id")
-        if artifact_id:
-            path += f"?artifact_id={artifact_id}"
-        return client.get_json(path)["data"]
-
-    def get_result_audit(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        return client.get_json(f"/api/v1/results/{kwargs['result_id']}/audit")["data"]
-
     def _client_from_runner_kwargs(self, kwargs: dict[str, Any]):
         return self._get_client(
             server_id=str(kwargs["server_id"]), ssh_service=kwargs["ssh_service"], record=kwargs["server_record"]

@@ -6,6 +6,10 @@ from typing import Any, Optional
 from core.app_runtime.errors import RuntimeServiceError
 from core.app_runtime.managers.base import BaseRuntimeManager
 from core.contracts.remote_endpoints import (
+    RESULT_AUDIT_READ,
+    RESULT_LIST,
+    RESULT_PREVIEW_READ,
+    RESULT_READ,
     RUN_ATTEMPTS_READ,
     RUN_EVENTS_READ,
     RUN_EXECUTION_CONTEXT_READ,
@@ -520,10 +524,10 @@ class ExecutionManager(BaseRuntimeManager):
         }
 
     def list_results(self) -> dict[str, Any]:
-        return {"data": {"items": self.call_runner("list_results")}}
+        return {"data": {"items": self.call_remote_endpoint(RESULT_LIST, path_values={})}}
 
     def get_result(self, result_id: str) -> dict[str, Any]:
-        return {"data": self.call_runner("get_result", result_id=result_id)}
+        return {"data": self.call_remote_endpoint(RESULT_READ, path_values={"result_id": result_id})}
 
     def get_result_preview(
         self,
@@ -531,15 +535,15 @@ class ExecutionManager(BaseRuntimeManager):
         artifact_id: Optional[str] = None,
     ) -> dict[str, Any]:
         return {
-            "data": self.call_runner(
-                "get_result_preview",
-                result_id=result_id,
-                artifact_id=artifact_id,
+            "data": self.call_remote_endpoint(
+                RESULT_PREVIEW_READ,
+                path_values={"result_id": result_id},
+                query_values={"artifact_id": artifact_id},
             )
         }
 
     def get_result_audit(self, result_id: str) -> dict[str, Any]:
-        return {"data": self.call_runner("get_result_audit", result_id=result_id)}
+        return {"data": self.call_remote_endpoint(RESULT_AUDIT_READ, path_values={"result_id": result_id})}
 
     def export_result_package(
         self,

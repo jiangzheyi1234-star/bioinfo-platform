@@ -47,6 +47,10 @@ RUN_LOGS_READ = "run.logs.read"
 RUN_RESULTS_READ = "run.results.read"
 RUN_RULES_READ = "run.rules.read"
 RUN_FAILURE_LOCATOR_READ = "run.failure_locator.read"
+RESULT_LIST = "result.list"
+RESULT_READ = "result.read"
+RESULT_PREVIEW_READ = "result.preview.read"
+RESULT_AUDIT_READ = "result.audit.read"
 
 
 REMOTE_ENDPOINTS: dict[str, RemoteEndpoint] = {
@@ -141,6 +145,48 @@ REMOTE_ENDPOINTS: dict[str, RemoteEndpoint] = {
         request_schema=None,
         response_schema="run-failure-locator.v1",
         cache_scope="run-read-model",
+    ),
+    RESULT_LIST: RemoteEndpoint(
+        endpoint_id=RESULT_LIST,
+        method="GET",
+        path_template="/api/v1/results",
+        operation_id="listResults",
+        governance_action="result.list",
+        request_schema=None,
+        response_schema="result-list.v1",
+        cache_scope="result-read-model",
+        response_item_key="items",
+    ),
+    RESULT_READ: RemoteEndpoint(
+        endpoint_id=RESULT_READ,
+        method="GET",
+        path_template="/api/v1/results/{result_id}",
+        operation_id="getResult",
+        governance_action="result.read",
+        request_schema=None,
+        response_schema="result.v1",
+        cache_scope="result-read-model",
+    ),
+    RESULT_PREVIEW_READ: RemoteEndpoint(
+        endpoint_id=RESULT_PREVIEW_READ,
+        method="GET",
+        path_template="/api/v1/results/{result_id}/preview",
+        operation_id="getResultPreview",
+        governance_action="result.artifact.preview",
+        request_schema=None,
+        response_schema="result-preview.v1",
+        cache_scope="result-read-model",
+        query_params=("artifact_id",),
+    ),
+    RESULT_AUDIT_READ: RemoteEndpoint(
+        endpoint_id=RESULT_AUDIT_READ,
+        method="GET",
+        path_template="/api/v1/results/{result_id}/audit",
+        operation_id="getResultAudit",
+        governance_action="result.artifact_audit.read",
+        request_schema=None,
+        response_schema="result-artifact-audit.v1",
+        cache_scope="result-read-model",
     ),
 }
 

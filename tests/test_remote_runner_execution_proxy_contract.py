@@ -7,6 +7,10 @@ from types import SimpleNamespace
 from core.app_runtime.managers.execution import ExecutionManager
 from core.contracts.remote_endpoints import (
     REMOTE_ENDPOINTS,
+    RESULT_AUDIT_READ,
+    RESULT_LIST,
+    RESULT_PREVIEW_READ,
+    RESULT_READ,
     RUN_ATTEMPTS_READ,
     RUN_EVENTS_READ,
     RUN_EXECUTION_CONTEXT_READ,
@@ -36,6 +40,12 @@ RUN_READ_MODEL_ENDPOINTS = (
     RUN_RESULTS_READ,
     RUN_RULES_READ,
     RUN_FAILURE_LOCATOR_READ,
+)
+RESULT_READ_MODEL_ENDPOINTS = (
+    RESULT_LIST,
+    RESULT_READ,
+    RESULT_PREVIEW_READ,
+    RESULT_AUDIT_READ,
 )
 
 
@@ -96,6 +106,15 @@ def test_run_read_model_endpoints_are_contract_rendered() -> None:
         {"run_id": "run_1"},
         query_values={"stream": "stderr", "cursor": "128"},
     ) == "/api/v1/runs/run_1/logs?stream=stderr&cursor=128"
+    assert render_remote_endpoint_path(RESULT_LIST, {}) == "/api/v1/results"
+    assert REMOTE_ENDPOINTS[RESULT_LIST].response_item_key == "items"
+    assert render_remote_endpoint_path(RESULT_READ, {"result_id": "res with/slash"}) == "/api/v1/results/res%20with%2Fslash"
+    assert render_remote_endpoint_path(
+        RESULT_PREVIEW_READ,
+        {"result_id": "res_1"},
+        query_values={"artifact_id": "art with/slash"},
+    ) == "/api/v1/results/res_1/preview?artifact_id=art+with%2Fslash"
+    assert render_remote_endpoint_path(RESULT_AUDIT_READ, {"result_id": "res_1"}) == "/api/v1/results/res_1/audit"
     assert REMOTE_ENDPOINTS[RUN_RULES_READ].operation_id == "getRunRules"
     assert REMOTE_ENDPOINTS[RUN_RULES_READ].response_schema == "run-rules.v1"
     assert REMOTE_ENDPOINTS[RUN_RULES_READ].cache_scope == "run-read-model"
@@ -108,7 +127,7 @@ def test_run_read_model_endpoint_contracts_match_governance_policy() -> None:
         if policy.surface == "remote-runner-api"
     }
 
-    for endpoint_id in RUN_READ_MODEL_ENDPOINTS:
+    for endpoint_id in RUN_READ_MODEL_ENDPOINTS + RESULT_READ_MODEL_ENDPOINTS:
         endpoint = REMOTE_ENDPOINTS[endpoint_id]
         if endpoint.governance_action is None:
             continue
@@ -123,7 +142,7 @@ def test_run_read_model_endpoint_contracts_match_openapi_operation_ids() -> None
 
     for app in (local_app, remote_app):
         paths = app.openapi()["paths"]
-        for endpoint_id in RUN_READ_MODEL_ENDPOINTS:
+        for endpoint_id in RUN_READ_MODEL_ENDPOINTS + RESULT_READ_MODEL_ENDPOINTS:
             endpoint = REMOTE_ENDPOINTS[endpoint_id]
             operation = paths[endpoint.path_template][endpoint.method.lower()]
             assert operation["operationId"] == endpoint.operation_id
@@ -144,16 +163,29 @@ def test_remote_endpoint_contracts_fail_loudly_on_missing_path_param() -> None:
     else:  # pragma: no cover - fail loudly keeps this branch unreachable.
         raise AssertionError("unknown query param should fail")
 
+    try:
+        render_remote_endpoint_path(RESULT_PREVIEW_READ, {"result_id": "res_1"}, query_values={"unknown": "x"})
+    except RemoteEndpointContractError as exc:
+        assert exc.code == "REMOTE_ENDPOINT_QUERY_PARAM_UNKNOWN"
+    else:  # pragma: no cover - fail loudly keeps this branch unreachable.
+        raise AssertionError("unknown result preview query param should fail")
+
 
 def test_remote_endpoint_caller_unwraps_data_and_records_path() -> None:
     client = FakeEndpointClient()
 
     data = call_remote_endpoint(client, RUN_RULES_READ, path_values={"run_id": "run_1"})
     runs = call_remote_endpoint(client, RUN_LIST, path_values={})
+    results = call_remote_endpoint(client, RESULT_LIST, path_values={})
 
     assert data == {"path": "/api/v1/runs/run_1/rules"}
     assert runs == [{"path": "/api/v1/runs"}]
-    assert client.calls == [("GET", "/api/v1/runs/run_1/rules"), ("GET", "/api/v1/runs")]
+    assert results == [{"path": "/api/v1/results"}]
+    assert client.calls == [
+        ("GET", "/api/v1/runs/run_1/rules"),
+        ("GET", "/api/v1/runs"),
+        ("GET", "/api/v1/results"),
+    ]
 
 
 def test_remote_runner_proxy_generic_endpoint_call_uses_registry() -> None:
@@ -167,6 +199,11 @@ def test_remote_runner_proxy_generic_endpoint_call_uses_registry() -> None:
     logs = proxy.call_remote_endpoint(
         **_runner_kwargs(RUN_LOGS_READ, "run_1", query_values={"stream": "stderr", "cursor": "128"})
     )
+    results = proxy.call_remote_endpoint(**_runner_kwargs(RESULT_LIST))
+    result = proxy.call_remote_endpoint(**_result_kwargs(RESULT_READ, "res_1"))
+    preview = proxy.call_remote_endpoint(
+        **_result_kwargs(RESULT_PREVIEW_READ, "res_1", query_values={"artifact_id": "art_1"})
+    )
 
     assert listed == [{"path": "/api/v1/runs"}]
     assert run == {"path": "/api/v1/runs/run_1"}
@@ -174,6 +211,9 @@ def test_remote_runner_proxy_generic_endpoint_call_uses_registry() -> None:
     assert rules == {"path": "/api/v1/runs/run_1/rules"}
     assert locator == {"path": "/api/v1/runs/run_1/failure-locator"}
     assert logs == {"path": "/api/v1/runs/run_1/logs?stream=stderr&cursor=128"}
+    assert results == [{"path": "/api/v1/results"}]
+    assert result == {"path": "/api/v1/results/res_1"}
+    assert preview == {"path": "/api/v1/results/res_1/preview?artifact_id=art_1"}
     assert proxy.client.calls == [
         ("GET", "/api/v1/runs"),
         ("GET", "/api/v1/runs/run_1"),
@@ -181,6 +221,9 @@ def test_remote_runner_proxy_generic_endpoint_call_uses_registry() -> None:
         ("GET", "/api/v1/runs/run_1/rules"),
         ("GET", "/api/v1/runs/run_1/failure-locator"),
         ("GET", "/api/v1/runs/run_1/logs?stream=stderr&cursor=128"),
+        ("GET", "/api/v1/results"),
+        ("GET", "/api/v1/results/res_1"),
+        ("GET", "/api/v1/results/res_1/preview?artifact_id=art_1"),
     ]
 
 
@@ -217,6 +260,20 @@ def test_execution_manager_calls_generic_remote_endpoint_for_run_read_models() -
     assert manager.get_run_failure_locator("run_1") == {
         "data": {"endpointId": RUN_FAILURE_LOCATOR_READ, "pathValues": {"run_id": "run_1"}, "queryValues": {}}
     }
+    assert manager.list_results() == {"data": {"items": [{"resultId": "res_1"}]}}
+    assert manager.get_result("res_1") == {
+        "data": {"endpointId": RESULT_READ, "pathValues": {"result_id": "res_1"}, "queryValues": {}}
+    }
+    assert manager.get_result_preview("res_1", artifact_id="art_1") == {
+        "data": {
+            "endpointId": RESULT_PREVIEW_READ,
+            "pathValues": {"result_id": "res_1"},
+            "queryValues": {"artifact_id": "art_1"},
+        }
+    }
+    assert manager.get_result_audit("res_1") == {
+        "data": {"endpointId": RESULT_AUDIT_READ, "pathValues": {"result_id": "res_1"}, "queryValues": {}}
+    }
     assert service.remote_runner_manager.calls == [
         (RUN_LIST, {}, {}),
         (RUN_READ, {"run_id": "run_1"}, {}),
@@ -227,6 +284,10 @@ def test_execution_manager_calls_generic_remote_endpoint_for_run_read_models() -
         (RUN_RESULTS_READ, {"run_id": "run_1"}, {}),
         (RUN_RULES_READ, {"run_id": "run_1"}, {}),
         (RUN_FAILURE_LOCATOR_READ, {"run_id": "run_1"}, {}),
+        (RESULT_LIST, {}, {}),
+        (RESULT_READ, {"result_id": "res_1"}, {}),
+        (RESULT_PREVIEW_READ, {"result_id": "res_1"}, {"artifact_id": "art_1"}),
+        (RESULT_AUDIT_READ, {"result_id": "res_1"}, {}),
     ]
 
 
@@ -237,6 +298,10 @@ def test_remote_runner_http_client_does_not_keep_migrated_semantic_methods() -> 
     assert not hasattr(RemoteRunnerHttpClient, "get_run_results")
     assert not hasattr(RemoteRunnerHttpClient, "get_run_rules")
     assert not hasattr(RemoteRunnerHttpClient, "get_run_failure_locator")
+    assert not hasattr(RemoteRunnerHttpClient, "list_results")
+    assert not hasattr(RemoteRunnerHttpClient, "get_result")
+    assert not hasattr(RemoteRunnerHttpClient, "get_result_preview")
+    assert not hasattr(RemoteRunnerHttpClient, "get_result_audit")
 
 
 class FakeEndpointClient:
@@ -246,6 +311,8 @@ class FakeEndpointClient:
     def get_json(self, path: str) -> dict[str, object]:
         self.calls.append(("GET", path))
         if path == "/api/v1/runs":
+            return {"data": {"items": [{"path": path}]}}
+        if path == "/api/v1/results":
             return {"data": {"items": [{"path": path}]}}
         return {"data": {"path": path}}
 
@@ -290,6 +357,8 @@ class FakeRemoteEndpointManager:
         if endpoint_id == RUN_LIST:
             assert kwargs["timeout"] == 20
             return [{"runId": "run_1"}]
+        if endpoint_id == RESULT_LIST:
+            return [{"resultId": "res_1"}]
         return {"endpointId": kwargs["endpoint_id"], "pathValues": path_values, "queryValues": query_values}
 
 
@@ -305,5 +374,21 @@ def _runner_kwargs(
         "server_record": {"server_id": "srv_1"},
         "endpoint_id": endpoint_id,
         "path_values": {"run_id": run_id} if run_id is not None else {},
+        "query_values": dict(query_values or {}),
+    }
+
+
+def _result_kwargs(
+    endpoint_id: str,
+    result_id: str | None = None,
+    *,
+    query_values: dict[str, object] | None = None,
+) -> dict[str, object]:
+    return {
+        "server_id": "srv_1",
+        "ssh_service": object(),
+        "server_record": {"server_id": "srv_1"},
+        "endpoint_id": endpoint_id,
+        "path_values": {"result_id": result_id} if result_id is not None else {},
         "query_values": dict(query_values or {}),
     }

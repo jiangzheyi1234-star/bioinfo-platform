@@ -468,6 +468,10 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "RUN_RESULTS_READ" in execution_manager_source
     assert "RUN_RULES_READ" in execution_manager_source
     assert "RUN_FAILURE_LOCATOR_READ" in execution_manager_source
+    assert "RESULT_LIST" in execution_manager_source
+    assert "RESULT_READ" in execution_manager_source
+    assert "RESULT_PREVIEW_READ" in execution_manager_source
+    assert "RESULT_AUDIT_READ" in execution_manager_source
     assert "self.call_runner(\"get_run_attempts\"" not in execution_manager_source
     assert "manager.get_workflow_revision" in execution_manager_source
     assert "self.call_runner(\"retry_run\"" in execution_manager_source
@@ -480,7 +484,7 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "self.call_runner(\n                \"prepare_rule_cache_restore_adoption\"," in execution_manager_source
     assert "self.call_runner(\n                \"apply_rule_cache_restore_adoption\"," in execution_manager_source
     assert "self.call_runner(\"resume_run\"" in execution_manager_source
-    assert "self.call_runner(\"get_result_audit\"" in execution_manager_source
+    assert "self.call_runner(\"get_result_audit\"" not in execution_manager_source
     assert 'self.call_existing_runner(\n                "export_result_package",' in execution_manager_source
     assert 'self.call_existing_runner(\n                "list_result_package_exports",' in execution_manager_source
     assert 'self.call_existing_runner(\n            "download_result_package",' in execution_manager_source

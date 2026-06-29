@@ -34,6 +34,9 @@ from apps.api.submission_routes import submit_run
 from apps.api.response_cache import invalidate_response_cache
 from apps.api.route_errors import runtime_service_status_code
 from core.contracts.remote_endpoints import (
+    RESULT_LIST,
+    RESULT_PREVIEW_READ,
+    RESULT_READ,
     RUN_EVENTS_READ,
     RUN_FAILURE_LOCATOR_READ,
     RUN_READ,
@@ -634,7 +637,6 @@ def test_run_detail_and_results_contract(monkeypatch, tmp_path: Path) -> None:
             }
 
         def call_remote_endpoint(self, **kwargs):
-            assert kwargs["path_values"] == {"run_id": "run_2026_0419_001"}
             endpoint_id = kwargs["endpoint_id"]
             if endpoint_id == RUN_READ:
                 return {"runId": "run_2026_0419_001", "stateVersion": 7, "requestId": "req_f2b8f4f0", "runSpec": {"pipelineId": "taxonomy-v1"}}
@@ -646,16 +648,14 @@ def test_run_detail_and_results_contract(monkeypatch, tmp_path: Path) -> None:
                 return {"runId": "run_2026_0419_001", "items": [{"ruleName": "trim_reads", "status": "succeeded"}]}
             if endpoint_id == RUN_FAILURE_LOCATOR_READ:
                 return {"schemaVersion": "run-failure-locator.v1", "runId": "run_2026_0419_001", "available": False}
+            if endpoint_id == RESULT_LIST:
+                return [{"resultId": "res_run_2026_0419_001", "runId": "run_2026_0419_001", "title": "taxonomy result", "pipelineId": "taxonomy-v1", "artifactCount": 1, "producedAt": "2026-04-21T12:00:00Z"}]
+            if endpoint_id == RESULT_READ:
+                return {"runId": "run_2026_0419_001"}
+            if endpoint_id == RESULT_PREVIEW_READ:
+                assert kwargs["query_values"] == {"artifact_id": "art_002"}
+                return {"artifactId": "art_002", "preview": {"kind": "table"}}
             raise AssertionError(f"unexpected endpoint {endpoint_id}")
-
-        def list_results(self, **kwargs):
-            return [{"resultId": "res_run_2026_0419_001", "runId": "run_2026_0419_001", "title": "taxonomy result", "pipelineId": "taxonomy-v1", "artifactCount": 1, "producedAt": "2026-04-21T12:00:00Z"}]
-
-        def get_result(self, **kwargs):
-            return {"runId": "run_2026_0419_001"}
-
-        def get_result_preview(self, **kwargs):
-            return {"artifactId": "art_002", "preview": {"kind": "table"}}
 
     service._service_locator.remote_runner_manager = FakeRemoteRunnerManager()
     monkeypatch.setattr("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg)

@@ -7,6 +7,10 @@ from fastapi.responses import FileResponse
 
 from core.contracts.remote_endpoints import (
     REMOTE_ENDPOINTS,
+    RESULT_AUDIT_READ,
+    RESULT_LIST,
+    RESULT_PREVIEW_READ,
+    RESULT_READ,
     RUN_ATTEMPTS_READ,
     RUN_EVENTS_READ,
     RUN_EXECUTION_CONTEXT_READ,
@@ -267,17 +271,17 @@ async def get_run_failure_locator_api(run_id: str, authorization: AuthorizationH
     return await get_run_failure_locator_from_request(run_id, authorization)
 
 
-@router.get("/api/v1/results")
+@router.get("/api/v1/results", operation_id=REMOTE_ENDPOINTS[RESULT_LIST].operation_id)
 async def list_results_api(authorization: AuthorizationHeader = None) -> dict[str, Any]:
     return await list_results_from_request(authorization)
 
 
-@router.get("/api/v1/results/{result_id}")
+@router.get("/api/v1/results/{result_id}", operation_id=REMOTE_ENDPOINTS[RESULT_READ].operation_id)
 async def get_result_api(result_id: str, authorization: AuthorizationHeader = None) -> dict[str, Any]:
     return await get_result_from_request(result_id, authorization)
 
 
-@router.get("/api/v1/results/{result_id}/preview")
+@router.get("/api/v1/results/{result_id}/preview", operation_id=REMOTE_ENDPOINTS[RESULT_PREVIEW_READ].operation_id)
 async def get_result_preview_api(
     result_id: str,
     artifact_id: str | None = None,
@@ -286,7 +290,7 @@ async def get_result_preview_api(
     return await get_result_preview_from_request(result_id, artifact_id, authorization)
 
 
-@router.get("/api/v1/results/{result_id}/audit")
+@router.get("/api/v1/results/{result_id}/audit", operation_id=REMOTE_ENDPOINTS[RESULT_AUDIT_READ].operation_id)
 async def get_result_audit_api(result_id: str, authorization: AuthorizationHeader = None) -> dict[str, Any]:
     return await get_result_audit_from_request(result_id, authorization)
 

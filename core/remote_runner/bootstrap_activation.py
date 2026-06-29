@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from config import resolve_runner_token
-from core.contracts.remote_endpoints import RUN_READ, RUN_RESULTS_READ
+from core.contracts.remote_endpoints import RESULT_LIST, RESULT_PREVIEW_READ, RESULT_READ, RUN_READ, RUN_RESULTS_READ
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
 from core.remote_runner.client import RemoteRunnerClientError, RemoteRunnerHttpClient
 from core.remote_runner.endpoint_caller import call_remote_endpoint
@@ -181,16 +181,21 @@ class RemoteRunnerBootstrapActivationMixin:
                 detail = str(last_error.get("message") or run.get("message") or f"status={run.get('status') or 'unknown'}")
                 raise self._manager_error(detail)
             run_results = call_remote_endpoint(client, RUN_RESULTS_READ, path_values={"run_id": run_id})
-            listed_results = client.list_results()
+            listed_results = call_remote_endpoint(client, RESULT_LIST, path_values={})
             result_id = next((str(item.get("resultId") or "") for item in listed_results if str(item.get("runId") or "") == run_id), "")
             if not result_id:
                 result_id = f"res_{run_id}"
-            result_detail = client.get_result(result_id)
+            result_detail = call_remote_endpoint(client, RESULT_READ, path_values={"result_id": result_id})
             artifacts = result_detail.get("artifacts") if isinstance(result_detail.get("artifacts"), list) else []
             if not artifacts:
                 raise self._manager_error("bootstrap canary completed without artifacts")
             primary_artifact = artifacts[0]
-            preview_payload = client.get_result_preview(result_id, artifact_id=str(primary_artifact.get("artifactId") or ""))
+            preview_payload = call_remote_endpoint(
+                client,
+                RESULT_PREVIEW_READ,
+                path_values={"result_id": result_id},
+                query_values={"artifact_id": str(primary_artifact.get("artifactId") or "")},
+            )
             canary["result"] = {
                 "resultId": result_id,
                 "resultDir": str(run_results.get("resultDir") or ""),
