@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import type { FirstRunPilotHandoff, FirstRunValidationCard } from "../_domain/first-run-types";
+import { firstRunResultPackageReady } from "../_domain/first-run-package";
 import { FirstRunTrustSummary } from "./workflow-first-run-trust-summary";
-import { firstRunResultPackageReady, formatBytes } from "./workflow-first-run-validation";
+import { formatBytes } from "./workflow-first-run-validation";
 import { workflowResultPackageDownloadHref } from "@/app/components/workflows-page-api";
 import type { WorkflowResultPackageExport, WorkflowRun, WorkflowScenarioPack } from "@/app/components/workflows-page-model";
 
@@ -162,27 +163,6 @@ export function FirstRunCompletionPanel({
         packs={nextScenarioPacks}
       />
     </section>
-  );
-}
-
-export function firstRunValidationCardPassed(card: FirstRunValidationCard | null) {
-  const checks = card?.checks || [];
-  const requiredBundleRoles = ["result-package", "validation-card-json", "validation-card-markdown", "pilot-handoff"];
-  const bundleFiles = card?.pilotHandoff?.evidenceBundle?.requiredFiles || [];
-  const bundleReady =
-    card?.pilotHandoff?.evidenceBundle?.status === "ready" &&
-    requiredBundleRoles.every((role) => bundleFiles.some((item) => item.role === role && item.filename));
-  return (
-    Boolean(card) &&
-    checks.length > 0 &&
-    checks.every((item) => item.status === "passed") &&
-    card?.reportInterpretation?.status === "ready" &&
-    card?.sampleData?.status === "verified" &&
-    card?.softwareEnvironment?.status === "verified" &&
-    Boolean(card?.pilotHandoff?.backupRestore) &&
-    bundleReady &&
-    Boolean(card?.resultPackage?.sha256) &&
-    Boolean(card?.resultPackage?.manifestSha256)
   );
 }
 

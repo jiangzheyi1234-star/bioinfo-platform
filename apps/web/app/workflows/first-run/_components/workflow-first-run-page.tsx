@@ -19,40 +19,17 @@ import { cn } from "@/lib/utils";
 import { useSshShell } from "@/app/components/ssh-shell";
 import { useWorkflowsPageState } from "@/app/components/use-workflows-page-state";
 import { WorkflowFirstRunConductorPanel, useFirstRunConductor } from "./workflow-first-run-conductor";
-import { FirstRunCompletionPanel, firstRunValidationCardPassed } from "./workflow-first-run-completion";
-import {
-  downloadFirstRunHandoffManifest,
-  downloadFirstRunValidationCard,
-  downloadFirstRunValidationCardMarkdown,
-  finalizeFirstRun,
-  fetchFirstRunValidationCard,
-} from "../_api/workflow-first-run-api";
-import type {
-  FirstRunFinalizationNextAction,
-  FirstRunPilotHandoff,
-  FirstRunValidationCard,
-} from "../_domain/first-run-types";
+import { FirstRunCompletionPanel } from "./workflow-first-run-completion";
 import { SampleAndSubmitPanel, sampleUploadsReady } from "./workflow-first-run-sample-submit";
 import { WorkflowPageHeader } from "@/app/components/workflow-page-header";
 import { WorkflowWorkspaceTabs } from "@/app/components/workflow-workspace-tabs";
 import { RunReportPanel } from "./workflow-first-run-report";
-import {
-  ResultPackagePanel,
-  ValidationCard,
-  firstRunResultPackageReady,
-} from "./workflow-first-run-validation";
-import {
-  exportWorkflowResultPackage,
-  fetchWorkflowScenarioPacks,
-  fetchWorkflowServerExecutionDiagnostics,
-  fetchWorkflowResultPackageExports,
-} from "@/app/components/workflows-page-api";
+import { ResultPackagePanel, ValidationCard } from "./workflow-first-run-validation";
+import { fetchWorkflowServerExecutionDiagnostics } from "@/app/components/workflows-page-api";
 import { ensureWorkflowServerRunner } from "@/app/components/workflow-server-readiness-api";
 import {
   workflowErrorMessage,
   type WorkflowExecutionDiagnostics,
-  type WorkflowResultPackageExport,
-  type WorkflowScenarioPack,
   type WorkflowServer,
 } from "@/app/components/workflows-page-model";
 import {
@@ -61,13 +38,12 @@ import {
   buildFirstRunSteps,
   executionDiagnosticsDetail,
   isTerminalRun,
-  mergePackageExport,
   resultPackageDisabledReason,
   runnerChecks,
-  workflowRevisionIdFor,
   type FirstRunStep,
   type FirstRunStepState,
 } from "../_domain/first-run-progress";
+import { useFirstRunEvidence } from "../_state/use-first-run-evidence";
 
 export function WorkflowFirstRunPage() {
   const ssh = useSshShell();
@@ -77,21 +53,6 @@ export function WorkflowFirstRunPage() {
   const [executionDiagnostics, setExecutionDiagnostics] = useState<WorkflowExecutionDiagnostics | null>(null);
   const [executionDiagnosticsLoading, setExecutionDiagnosticsLoading] = useState(false);
   const [executionDiagnosticsError, setExecutionDiagnosticsError] = useState("");
-  const [packageExports, setPackageExports] = useState<WorkflowResultPackageExport[]>([]);
-  const [packageLoading, setPackageLoading] = useState(false);
-  const [packageError, setPackageError] = useState("");
-  const [exportingPackage, setExportingPackage] = useState(false);
-  const [finalizingFirstRun, setFinalizingFirstRun] = useState(false);
-  const [finalizationAction, setFinalizationAction] = useState<FirstRunFinalizationNextAction | null>(null);
-  const [pilotHandoff, setPilotHandoff] = useState<FirstRunPilotHandoff | null>(null);
-  const [validationCard, setValidationCard] = useState<FirstRunValidationCard | null>(null);
-  const [validationCardFetchLoading, setValidationCardFetchLoading] = useState(false);
-  const [validationCardFetchError, setValidationCardFetchError] = useState("");
-  const [validationCardLoading, setValidationCardLoading] = useState(false);
-  const [validationCardError, setValidationCardError] = useState("");
-  const [nextScenarioPacks, setNextScenarioPacks] = useState<WorkflowScenarioPack[]>([]);
-  const [nextScenarioPacksLoading, setNextScenarioPacksLoading] = useState(false);
-  const [nextScenarioPacksError, setNextScenarioPacksError] = useState("");
 
   const run = state.runDetail?.run || state.submittedRun;
   const result = state.runDetail?.results;
@@ -99,9 +60,6 @@ export function WorkflowFirstRunPage() {
   const artifacts = result?.artifacts || [];
   const inputArtifacts = result?.inputArtifacts || [];
   const previews = state.runDetail?.previews || [];
-  const readyPackage = packageExports.find(firstRunResultPackageReady);
-  const latestPackage = readyPackage || packageExports[0];
-  const workflowRevisionId = workflowRevisionIdFor(run, state.runDetail, latestPackage);
   const movingPicturesWorkflow = state.catalog.find((item) => item.id === FIRST_RUN_PIPELINE_ID) || null;
   const selectedWorkflowReady = Boolean(movingPicturesWorkflow?.runnable);
   const serverConnected = Boolean(state.server?.connected);
@@ -113,11 +71,29 @@ export function WorkflowFirstRunPage() {
   const runCompleted = run?.status === "completed";
   const runFailed = run?.status === "failed" || run?.status === "error";
   const reportReady = runCompleted && artifacts.length > 0;
-  const packageReady = Boolean(readyPackage);
-  const validationEligible = runCompleted && packageReady && Boolean(workflowRevisionId);
-  const validationReady = validationEligible && firstRunValidationCardPassed(validationCard);
+  const firstRunEvidence = useFirstRunEvidence({
+    refreshRunDetail: state.refreshRunDetail,
+    resultId,
+    run,
+    runCompleted,
+    runDetail: state.runDetail,
+    runTerminal,
+    serverId: state.server?.serverId,
+  });
+  const latestPackage = firstRunEvidence.latestPackage;
+  const packageReady = firstRunEvidence.packageReady;
+  const validationEligible = firstRunEvidence.validationEligible;
+  const validationReady = firstRunEvidence.validationReady;
+  const workflowRevisionId = firstRunEvidence.workflowRevisionId;
   const firstRunConductor = useFirstRunConductor({
-    busy: ensuringRunner || state.sampleLoading || state.submitting || packageLoading || exportingPackage || finalizingFirstRun || validationCardFetchLoading,
+    busy:
+      ensuringRunner ||
+      state.sampleLoading ||
+      state.submitting ||
+      firstRunEvidence.packageLoading ||
+      firstRunEvidence.exportingPackage ||
+      firstRunEvidence.finalizingFirstRun ||
+      firstRunEvidence.validationCardFetchLoading,
     input: {
       canSubmit: state.canSubmit && executionReady && selectedWorkflowReady && sampleReady,
       packageReady,
@@ -137,7 +113,7 @@ export function WorkflowFirstRunPage() {
     onConnect: openConnectDialog,
     onEnsureRunner: ensureRunner,
     onFinalize: async () => {
-      await finalizeRun();
+      await firstRunEvidence.finalizeRun();
     },
     onPrepareSampleData: state.loadSampleData,
     onRefreshRun: async () => {
@@ -176,27 +152,6 @@ export function WorkflowFirstRunPage() {
     ]
   );
 
-  const loadPackageExports = useCallback(async () => {
-    if (!resultId || !runTerminal) {
-      setPackageExports([]);
-      setPackageError("");
-      return;
-    }
-    setPackageLoading(true);
-    setPackageError("");
-    try {
-      setPackageExports(await fetchWorkflowResultPackageExports(resultId));
-    } catch (err) {
-      setPackageError(workflowErrorMessage(err, "结果包记录加载失败"));
-    } finally {
-      setPackageLoading(false);
-    }
-  }, [resultId, runTerminal]);
-
-  useEffect(() => {
-    void loadPackageExports();
-  }, [loadPackageExports]);
-
   const loadExecutionDiagnostics = useCallback(async () => {
     const serverId = state.server?.serverId || "";
     if (!serverId) {
@@ -220,51 +175,6 @@ export function WorkflowFirstRunPage() {
     void loadExecutionDiagnostics();
   }, [loadExecutionDiagnostics]);
 
-  const loadValidationCard = useCallback(async () => {
-    if (!run?.runId || !validationEligible) {
-      setValidationCard(null);
-      setValidationCardFetchError("");
-      return;
-    }
-    setValidationCardFetchLoading(true);
-    setValidationCardFetchError("");
-    try {
-      setValidationCard(await fetchFirstRunValidationCard(run.runId, { serverId: state.server?.serverId }));
-    } catch (err) {
-      setValidationCard(null);
-      setValidationCardFetchError(workflowErrorMessage(err, "验证卡加载失败"));
-    } finally {
-      setValidationCardFetchLoading(false);
-    }
-  }, [run?.runId, state.server?.serverId, validationEligible]);
-
-  useEffect(() => {
-    void loadValidationCard();
-  }, [loadValidationCard]);
-
-  const loadNextScenarioPacks = useCallback(async () => {
-    if (!validationReady) {
-      setNextScenarioPacks([]);
-      setNextScenarioPacksError("");
-      return;
-    }
-    setNextScenarioPacksLoading(true);
-    setNextScenarioPacksError("");
-    try {
-      const packs = await fetchWorkflowScenarioPacks();
-      setNextScenarioPacks(packs.filter((pack) => pack.scenarioId !== "moving-pictures-16s"));
-    } catch (err) {
-      setNextScenarioPacks([]);
-      setNextScenarioPacksError(workflowErrorMessage(err, "下一批试点场景读取失败"));
-    } finally {
-      setNextScenarioPacksLoading(false);
-    }
-  }, [validationReady]);
-
-  useEffect(() => {
-    void loadNextScenarioPacks();
-  }, [loadNextScenarioPacks]);
-
   function openConnectDialog() {
     ssh.clearFormError();
     ssh.setDialogOpen(true);
@@ -285,104 +195,6 @@ export function WorkflowFirstRunPage() {
     }
   }
 
-  async function exportPackage() {
-    if (!resultId || exportingPackage) return;
-    setExportingPackage(true);
-    setPackageError("");
-    try {
-      const exported = await exportWorkflowResultPackage(resultId, true);
-      setPackageExports((current) => mergePackageExport(exported, current));
-      await state.refreshRunDetail();
-    } catch (err) {
-      setPackageError(workflowErrorMessage(err, "结果包导出失败"));
-    } finally {
-      setExportingPackage(false);
-    }
-  }
-
-  async function finalizeRun() {
-    if (!run?.runId || finalizingFirstRun) return;
-    setFinalizingFirstRun(true);
-    setPackageError("");
-    setValidationCardError("");
-    setFinalizationAction(null);
-    try {
-      const finalized = await finalizeFirstRun(run.runId, {
-        actor: "first-run-ui",
-        serverId: state.server?.serverId,
-      });
-      if (finalized.status !== "ready" || !finalized.validationCard) {
-        setFinalizationAction(finalized.nextAction || null);
-        if (!finalized.nextAction) setPackageError("首跑完成被阻塞");
-        return;
-      }
-      const packageExport = finalized.resultPackage;
-      if (packageExport?.packageExportId) {
-        setPackageExports((current) => mergePackageExport(packageExport, current));
-      }
-      setPilotHandoff(finalized.pilotHandoff || null);
-      setValidationCard(finalized.validationCard);
-      await state.refreshRunDetail();
-    } catch (err) {
-      setPackageError(workflowErrorMessage(err, "首跑完成失败"));
-    } finally {
-      setFinalizingFirstRun(false);
-    }
-  }
-
-  async function downloadValidationCard() {
-    if (!run?.runId || validationCardLoading) return;
-    setValidationCardLoading(true);
-    setValidationCardError("");
-    try {
-      await downloadFirstRunValidationCard({
-        card: validationCard,
-        resultId,
-        runId: run.runId,
-        serverId: state.server?.serverId,
-      });
-    } catch (err) {
-      setValidationCardError(workflowErrorMessage(err, "验证卡生成失败"));
-    } finally {
-      setValidationCardLoading(false);
-    }
-  }
-
-  async function downloadValidationCardMarkdown() {
-    if (!run?.runId || validationCardLoading) return;
-    setValidationCardLoading(true);
-    setValidationCardError("");
-    try {
-      await downloadFirstRunValidationCardMarkdown({
-        card: validationCard,
-        resultId,
-        runId: run.runId,
-        serverId: state.server?.serverId,
-      });
-    } catch (err) {
-      setValidationCardError(workflowErrorMessage(err, "验证卡 Markdown 生成失败"));
-    } finally {
-      setValidationCardLoading(false);
-    }
-  }
-
-  async function downloadHandoffManifest() {
-    if (!run?.runId || validationCardLoading) return;
-    setValidationCardLoading(true);
-    setValidationCardError("");
-    try {
-      await downloadFirstRunHandoffManifest({
-        card: validationCard,
-        resultId,
-        runId: run.runId,
-        serverId: state.server?.serverId,
-      });
-    } catch (err) {
-      setValidationCardError(workflowErrorMessage(err, "交接清单生成失败"));
-    } finally {
-      setValidationCardLoading(false);
-    }
-  }
 
   return (
     <div className="relative h-full w-full overflow-y-auto bg-white px-8 py-10 text-slate-800" data-testid="first-successful-run-page">
@@ -428,21 +240,21 @@ export function WorkflowFirstRunPage() {
         ) : null}
 
         <FirstRunCompletionPanel
-          card={validationCard}
-          downloadingValidationCard={validationCardLoading}
+          card={firstRunEvidence.validationCard}
+          downloadingValidationCard={firstRunEvidence.validationCardLoading}
           latestPackage={latestPackage}
-          loadingValidationCard={validationCardFetchLoading}
-          nextScenarioPacks={nextScenarioPacks}
-          nextScenarioPacksError={nextScenarioPacksError}
-          nextScenarioPacksLoading={nextScenarioPacksLoading}
+          loadingValidationCard={firstRunEvidence.validationCardFetchLoading}
+          nextScenarioPacks={firstRunEvidence.nextScenarioPacks}
+          nextScenarioPacksError={firstRunEvidence.nextScenarioPacksError}
+          nextScenarioPacksLoading={firstRunEvidence.nextScenarioPacksLoading}
           ready={validationReady}
           resultId={resultId}
           run={run}
           workflowRevisionId={workflowRevisionId}
-          onDownloadValidationCard={() => void downloadValidationCard()}
-          onDownloadValidationCardMarkdown={() => void downloadValidationCardMarkdown()}
-          onDownloadHandoffManifest={() => void downloadHandoffManifest()}
-          pilotHandoff={pilotHandoff}
+          onDownloadValidationCard={() => void firstRunEvidence.downloadValidationCard()}
+          onDownloadValidationCardMarkdown={() => void firstRunEvidence.downloadValidationCardMarkdown()}
+          onDownloadHandoffManifest={() => void firstRunEvidence.downloadHandoffManifest()}
+          pilotHandoff={firstRunEvidence.pilotHandoff}
         />
 
         <WorkflowFirstRunConductorPanel
@@ -488,7 +300,7 @@ export function WorkflowFirstRunPage() {
             <RunReportPanel
               artifacts={artifacts}
               detail={state.runDetail}
-              packageLoading={packageLoading}
+              packageLoading={firstRunEvidence.packageLoading}
               previews={previews}
               run={run}
               onRefreshRun={() => void state.refreshRunDetail()}
@@ -498,33 +310,33 @@ export function WorkflowFirstRunPage() {
           <div className="space-y-5">
             <ResultPackagePanel
               disabledReason={resultPackageDisabledReason({ resultId, run, workflowRevisionId })}
-              error={packageError}
-              exporting={exportingPackage}
-              finalizationAction={finalizationAction}
-              finalizing={finalizingFirstRun}
+              error={firstRunEvidence.packageError}
+              exporting={firstRunEvidence.exportingPackage}
+              finalizationAction={firstRunEvidence.finalizationAction}
+              finalizing={firstRunEvidence.finalizingFirstRun}
               latestPackage={latestPackage}
-              loading={packageLoading}
+              loading={firstRunEvidence.packageLoading}
               resultId={resultId}
-              onFinalize={() => void finalizeRun()}
-              onExport={() => void exportPackage()}
-              onRefresh={() => void loadPackageExports()}
+              onFinalize={() => void firstRunEvidence.finalizeRun()}
+              onExport={() => void firstRunEvidence.exportPackage()}
+              onRefresh={() => void firstRunEvidence.loadPackageExports()}
             />
             <ValidationCard
               artifacts={artifacts}
-              card={validationCard}
-              error={validationCardError || validationCardFetchError}
+              card={firstRunEvidence.validationCard}
+              error={firstRunEvidence.validationCardError || firstRunEvidence.validationCardFetchError}
               inputArtifacts={inputArtifacts}
-              loadingCard={validationCardFetchLoading}
+              loadingCard={firstRunEvidence.validationCardFetchLoading}
               packageExport={latestPackage}
               eligible={validationEligible}
               resultId={resultId}
               run={run}
               sampleUploads={state.sampleUploads}
               server={state.server}
-              downloading={validationCardLoading}
+              downloading={firstRunEvidence.validationCardLoading}
               workflowRevisionId={workflowRevisionId}
-              onDownload={() => void downloadValidationCard()}
-              onDownloadMarkdown={() => void downloadValidationCardMarkdown()}
+              onDownload={() => void firstRunEvidence.downloadValidationCard()}
+              onDownloadMarkdown={() => void firstRunEvidence.downloadValidationCardMarkdown()}
             />
           </div>
         </section>

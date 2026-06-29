@@ -9,6 +9,7 @@ FIRST_RUN_ROUTE = ROOT / "apps" / "web" / "app" / "workflows" / "first-run"
 FIRST_RUN_COMPONENTS = FIRST_RUN_ROUTE / "_components"
 FIRST_RUN_API = FIRST_RUN_ROUTE / "_api"
 FIRST_RUN_DOMAIN = FIRST_RUN_ROUTE / "_domain"
+FIRST_RUN_STATE = FIRST_RUN_ROUTE / "_state"
 
 
 def _tools_page_model_source() -> str:
@@ -45,8 +46,11 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     first_run_trust_summary = (FIRST_RUN_COMPONENTS / "workflow-first-run-trust-summary.tsx").read_text(encoding="utf-8")
     first_run_validation = (FIRST_RUN_COMPONENTS / "workflow-first-run-validation.tsx").read_text(encoding="utf-8")
     first_run_progress = (FIRST_RUN_DOMAIN / "first-run-progress.ts").read_text(encoding="utf-8")
+    first_run_package = (FIRST_RUN_DOMAIN / "first-run-package.ts").read_text(encoding="utf-8")
+    first_run_validation_state = (FIRST_RUN_DOMAIN / "first-run-validation-state.ts").read_text(encoding="utf-8")
     first_run_types = (FIRST_RUN_DOMAIN / "first-run-types.ts").read_text(encoding="utf-8")
     first_run_markdown = (FIRST_RUN_DOMAIN / "first-run-markdown.ts").read_text(encoding="utf-8")
+    first_run_evidence_state = (FIRST_RUN_STATE / "use-first-run-evidence.ts").read_text(encoding="utf-8")
     server_readiness_api = (COMPONENTS / "workflow-server-readiness-api.ts").read_text(encoding="utf-8")
     workflow_detail_page = (COMPONENTS / "workflow-detail-page.tsx").read_text(encoding="utf-8")
     models = (COMPONENTS / "workflows-page-model.ts").read_text(encoding="utf-8")
@@ -66,7 +70,11 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "runnerChecks" in first_run_progress
     assert "workflowRevisionIdFor" in first_run_progress
     assert "resultPackageDisabledReason" in first_run_progress
+    assert "export function firstRunResultPackageReady" in first_run_package
+    assert "export function firstRunValidationCardPassed" in first_run_validation_state
+    assert "export function useFirstRunEvidence" in first_run_evidence_state
     assert "from \"../_domain/first-run-progress\"" in first_run_page
+    assert "from \"../_state/use-first-run-evidence\"" in first_run_page
     assert 'const FIRST_RUN_PIPELINE_ID = "moving-pictures-16s-rulegraph-v1"' not in first_run_page
     assert "useWorkflowsPageState(FIRST_RUN_PIPELINE_ID, { autoResumeLatestRun: true })" in first_run_page
     assert "useWorkflowsPageState(workflowId)" in workflow_detail_page
@@ -122,10 +130,11 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "pack.databaseHandoff?.missingPackTemplates" in first_run_completion
     assert "pack.databaseHandoff?.readyScan" in first_run_completion
     assert "pack.databaseHandoff?.registration" in first_run_completion
-    assert "fetchWorkflowScenarioPacks" in first_run_page
-    assert "nextScenarioPacks" in first_run_page
-    assert "downloadFirstRunHandoffManifest" in first_run_page
-    assert "downloadHandoffManifest" in first_run_page
+    assert "fetchWorkflowScenarioPacks" in first_run_evidence_state
+    assert "nextScenarioPacks" in first_run_evidence_state
+    assert "downloadFirstRunHandoffManifest" in first_run_evidence_state
+    assert "downloadHandoffManifest" in first_run_evidence_state
+    assert "fetchWorkflowScenarioPacks" not in first_run_page
     assert "WorkflowFirstRunConductorPanel" in first_run_page
     assert "useFirstRunConductor" in first_run_page
     assert "firstRunConductor" in first_run_page
@@ -155,9 +164,13 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "下载并分享以下 4 个文件" in first_run_completion
     assert "first-run-evidence-bundle-file" in first_run_completion
     assert "item.filename || item.source" in first_run_completion
-    assert '"result-package", "validation-card-json", "validation-card-markdown", "pilot-handoff"' in first_run_completion
-    assert "requiredBundleRoles.every" in first_run_completion
+    assert all(
+        role in first_run_validation_state
+        for role in ("result-package", "validation-card-json", "validation-card-markdown", "pilot-handoff")
+    )
+    assert "requiredBundleRoles.every" in first_run_validation_state
     assert "firstRunResultPackageReady(latestPackage)" in first_run_completion
+    assert "from \"../_domain/first-run-package\"" in first_run_completion
     assert "passed checks" in first_run_completion
     assert "RUN_OWN_SMALL_SAMPLE" not in first_run_completion
     assert "automatic-database-install" not in first_run_completion
@@ -181,24 +194,26 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "downloadFirstRunHandoffManifest" in first_run_api
     assert "firstRunPilotHandoffMarkdown(card.pilotHandoff)" in first_run_markdown
     assert "FIRST_RUN_PILOT_HANDOFF_REQUIRED" in first_run_markdown
-    assert "const readyPackage = packageExports.find(firstRunResultPackageReady)" in first_run_page
-    assert "const latestPackage = readyPackage || packageExports[0]" in first_run_page
-    assert "const packageReady = Boolean(readyPackage)" in first_run_page
-    assert "const validationEligible = runCompleted && packageReady && Boolean(workflowRevisionId)" in first_run_page
-    assert "const validationReady = validationEligible && firstRunValidationCardPassed(validationCard)" in first_run_page
+    assert "const readyPackage = useMemo(() => packageExports.find(firstRunResultPackageReady), [packageExports])" in first_run_evidence_state
+    assert "const latestPackage = readyPackage || packageExports[0]" in first_run_evidence_state
+    assert "const packageReady = Boolean(readyPackage)" in first_run_evidence_state
+    assert "const validationEligible = firstRunEvidence.validationEligible" in first_run_page
+    assert "const validationEligible = runCompleted && packageReady && Boolean(workflowRevisionId)" in first_run_evidence_state
+    assert "const validationReady = validationEligible && firstRunValidationCardPassed(validationCard)" in first_run_evidence_state
+    assert "firstRunValidationCardPassed(validationCard)" not in first_run_page
     assert "target: string" in first_run_progress
     assert "data-step-target={step.target}" in first_run_page
     assert "href={step.target}" in first_run_page
     assert '"#result-package"' in first_run_progress
     assert '"#evidence-bundle"' in first_run_progress
     assert "if (!ready) return null" in first_run_completion
-    assert 'checks.every((item) => item.status === "passed")' in first_run_completion
-    assert 'card?.reportInterpretation?.status === "ready"' in first_run_completion
-    assert 'card?.sampleData?.status === "verified"' in first_run_completion
-    assert 'card?.softwareEnvironment?.status === "verified"' in first_run_completion
-    assert "Boolean(card?.pilotHandoff?.backupRestore)" in first_run_completion
-    assert 'card?.pilotHandoff?.evidenceBundle?.status === "ready"' in first_run_completion
-    assert "workflowRevisionIdFor(run, state.runDetail, latestPackage)" in first_run_page
+    assert 'checks.every((item) => item.status === "passed")' in first_run_validation_state
+    assert 'card?.reportInterpretation?.status === "ready"' in first_run_validation_state
+    assert 'card?.sampleData?.status === "verified"' in first_run_validation_state
+    assert 'card?.softwareEnvironment?.status === "verified"' in first_run_validation_state
+    assert "Boolean(card?.pilotHandoff?.backupRestore)" in first_run_validation_state
+    assert 'card?.pilotHandoff?.evidenceBundle?.status === "ready"' in first_run_validation_state
+    assert "workflowRevisionIdFor(run, runDetail, latestPackage)" in first_run_evidence_state
     assert "/api/v1/first-run/runs/${encodeURIComponent(runId)}/validation-card" in first_run_api
     assert "/api/v1/first-run/runs/${encodeURIComponent(runId)}/finalize" in first_run_api
     assert "pilotHandoff?: FirstRunPilotHandoff" in first_run_types
@@ -208,8 +223,9 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "## Evidence Bundle" in first_run_markdown
     assert "keep every required evidence bundle file together" in first_run_markdown.lower()
     assert "export async function finalizeFirstRun" in first_run_api
-    assert "finalizeFirstRun(run.runId" in first_run_page
-    assert 'actor: "first-run-ui"' in first_run_page
+    assert "finalizeFirstRun(run.runId" in first_run_evidence_state
+    assert "finalizeFirstRun(run.runId" not in first_run_page
+    assert 'actor: "first-run-ui"' in first_run_evidence_state
     assert "sampleData?: FirstRunSampleDataEvidence" in first_run_types
     assert "FirstRunSamplePrepProofItem" in first_run_types
     assert "prepProof?: FirstRunSamplePrepProofItem" in first_run_types
@@ -217,7 +233,7 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "export type FirstRunSoftwareEnvironment" in first_run_types
     assert "softwareEnvironment?: FirstRunSoftwareEnvironment" in first_run_types
     assert "expectedSha256?: string" in first_run_types
-    assert "fetchFirstRunValidationCard(run.runId" in first_run_page
+    assert "fetchFirstRunValidationCard(run.runId" in first_run_evidence_state
     assert "const sampleData = card?.sampleData" in first_run_validation
     assert "const softwareEnvironment = card?.softwareEnvironment" in first_run_validation
     assert "reportInterpretation" in first_run_validation
@@ -326,7 +342,8 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "checksum verified" in first_run_sample_submit
     assert "first-run-sample-selection" in first_run_sample_submit
     assert "state.selectedWorkflow?.description" not in first_run_page
-    assert "fetchWorkflowResultPackageExports(resultId)" in first_run_page
+    assert "fetchWorkflowResultPackageExports(resultId)" in first_run_evidence_state
+    assert "fetchWorkflowResultPackageExports(resultId)" not in first_run_page
     assert "autoResumeLatestRun?: boolean" in hook
     assert "if (!autoResumeLatestRun || activeRunId || submittedRun?.runId || runDetail?.run?.runId) return" in hook
     assert "void loadRunHistory({ forceRefresh: autoResumeLatestRun, reportError: autoResumeLatestRun })" in hook

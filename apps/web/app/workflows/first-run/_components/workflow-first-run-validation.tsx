@@ -138,15 +138,6 @@ export function ResultPackagePanel({
   );
 }
 
-export function firstRunResultPackageReady(item: WorkflowResultPackageExport) {
-  return (
-    item.lifecycleState === "active" &&
-    item.packageBytesState === "available" &&
-    Boolean(item.download) &&
-    (item.artifactPayloadMode === "full" || item.includeArtifacts === true)
-  );
-}
-
 export function ValidationCard({
   artifacts,
   card,

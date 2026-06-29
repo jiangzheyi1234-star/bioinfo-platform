@@ -117,12 +117,3 @@ export function workflowRevisionIdFor(
 export function isTerminalRun(run: WorkflowRun | null | undefined) {
   return run?.status === "completed" || run?.status === "failed" || run?.status === "error";
 }
-
-export function mergePackageExport(
-  item: WorkflowResultPackageExport,
-  current: WorkflowResultPackageExport[]
-): WorkflowResultPackageExport[] {
-  const packageExportId = item.packageExportId || "";
-  if (!packageExportId) return [item, ...current];
-  return [item, ...current.filter((candidate) => candidate.packageExportId !== packageExportId)];
-}
