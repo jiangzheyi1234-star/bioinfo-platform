@@ -23,7 +23,7 @@ def test_first_run_validation_card_is_server_generated_and_redacted(monkeypatch)
         )
     )["data"]
 
-    assert calls == [("exports", "srv_first")]
+    assert calls == [("exports", "srv_first"), ("preview", "art_summary"), ("preview", "art_qc")]
     assert card["schemaVersion"] == "h2ometa.first-run.validation-card.v1"
     assert card["generatedAt"] == "2026-06-29T00:00:00Z"
     assert card["scenario"]["pipelineId"] == "moving-pictures-16s-rulegraph-v1"
@@ -37,7 +37,36 @@ def test_first_run_validation_card_is_server_generated_and_redacted(monkeypatch)
         "FIRST_RUN_WORKFLOW_REVISION_PRESENT",
         "FIRST_RUN_INPUT_LINEAGE_PRESENT",
         "FIRST_RUN_OUTPUT_CHECKSUMS_PRESENT",
+        "FIRST_RUN_EXPECTED_OUTPUTS_PRESENT",
+        "FIRST_RUN_REPORT_INTERPRETATION_READY",
         "FIRST_RUN_RESULT_PACKAGE_ACTIVE",
+    }
+    interpretation = card["reportInterpretation"]
+    assert interpretation["schemaVersion"] == "h2ometa.first-run.report-interpretation.v1"
+    assert interpretation["status"] == "ready"
+    assert [item["name"] for item in interpretation["outputs"]] == [
+        "summary.tsv",
+        "qc-summary.tsv",
+        "feature-table.tsv",
+        "run-report.html",
+    ]
+    assert {item["name"]: item["artifactId"] for item in interpretation["outputs"]} == {
+        "summary.tsv": "art_summary",
+        "qc-summary.tsv": "art_qc",
+        "feature-table.tsv": "art_feature_table",
+        "run-report.html": "art_report",
+    }
+    metrics = {item["metricId"]: item["value"] for item in interpretation["metrics"]}
+    assert metrics["sample_count"] == 2
+    assert metrics["passed_reads_total"] == 30
+    assert metrics["unique_features_sample_sum"] == 7
+    assert metrics["qc_total_pairs"] == 60
+    assert metrics["qc_features"] == 7
+    assert interpretation["redaction"] == {
+        "rawPathsExposed": False,
+        "storageUrisExposed": False,
+        "previewRowsEmbedded": False,
+        "policy": "metrics-only",
     }
 
     serialized = json.dumps(card, sort_keys=True)
@@ -116,10 +145,9 @@ def test_first_run_validation_card_rejects_mismatched_result_package(
     [
         ({"inputArtifacts": []}, "FIRST_RUN_INPUT_LINEAGE_REQUIRED"),
         ({"artifacts": []}, "FIRST_RUN_OUTPUT_ARTIFACTS_REQUIRED"),
-        ({"artifacts": [{"artifactId": "art_summary", "artifactKey": "summary.tsv"}]}, "FIRST_RUN_OUTPUT_CHECKSUMS_REQUIRED"),
     ],
 )
-def test_first_run_validation_card_requires_lineage_and_output_checksums(
+def test_first_run_validation_card_requires_lineage_and_output_artifacts(
     monkeypatch,
     result_patch: dict[str, Any],
     expected_code: str,
@@ -129,6 +157,33 @@ def test_first_run_validation_card_requires_lineage_and_output_checksums(
     _patch_first_run_sources(monkeypatch, result=result)
 
     with pytest.raises(WorkflowFirstRunValidationCardUnavailableError, match=expected_code):
+        asyncio.run(build_first_run_validation_card_from_request("run_first"))
+
+
+def test_first_run_validation_card_requires_expected_outputs(monkeypatch) -> None:
+    result = _result()
+    result["artifacts"] = [item for item in result["artifacts"] if item["artifactId"] != "art_feature_table"]
+    _patch_first_run_sources(monkeypatch, result=result)
+
+    with pytest.raises(WorkflowFirstRunValidationCardUnavailableError, match="FIRST_RUN_EXPECTED_OUTPUTS_REQUIRED"):
+        asyncio.run(build_first_run_validation_card_from_request("run_first"))
+
+
+def test_first_run_validation_card_requires_checksums_for_expected_outputs(monkeypatch) -> None:
+    result = _result()
+    result["artifacts"][0].pop("sha256")
+    _patch_first_run_sources(monkeypatch, result=result)
+
+    with pytest.raises(WorkflowFirstRunValidationCardUnavailableError, match="FIRST_RUN_OUTPUT_CHECKSUMS_REQUIRED"):
+        asyncio.run(build_first_run_validation_card_from_request("run_first"))
+
+
+def test_first_run_validation_card_requires_parseable_report_previews(monkeypatch) -> None:
+    previews = _previews()
+    previews["art_summary"]["preview"] = {"kind": "table", "columns": ["sample_id"], "rows": [["sample-a"]]}
+    _patch_first_run_sources(monkeypatch, previews=previews)
+
+    with pytest.raises(WorkflowFirstRunValidationCardUnavailableError, match="FIRST_RUN_REPORT_PREVIEW_REQUIRED"):
         asyncio.run(build_first_run_validation_card_from_request("run_first"))
 
 
@@ -151,6 +206,7 @@ def _patch_first_run_sources(
     *,
     calls: list[tuple[str, str | None]] | None = None,
     exports: list[dict[str, Any]] | None = None,
+    previews: dict[str, dict[str, Any]] | None = None,
     result: dict[str, Any] | None = None,
     run: dict[str, Any] | None = None,
 ) -> None:
@@ -161,6 +217,14 @@ def _patch_first_run_sources(
     async def fake_get_result(result_id: str) -> dict[str, Any]:
         assert result_id == "res_run_first"
         return {"data": result if result is not None else _result()}
+
+    async def fake_get_preview(result_id: str, *, artifact_id: str | None) -> dict[str, Any]:
+        assert result_id == "res_run_first"
+        assert artifact_id is not None
+        if calls is not None:
+            calls.append(("preview", artifact_id))
+        preview_map = previews if previews is not None else _previews()
+        return {"data": preview_map[artifact_id]}
 
     async def fake_list_exports(
         result_id: str,
@@ -178,6 +242,7 @@ def _patch_first_run_sources(
 
     monkeypatch.setattr("apps.api.workflow_first_run_service.get_run_from_request", fake_get_run)
     monkeypatch.setattr("apps.api.workflow_first_run_service.get_result_from_request", fake_get_result)
+    monkeypatch.setattr("apps.api.workflow_first_run_service.get_result_preview_from_request", fake_get_preview)
     monkeypatch.setattr("apps.api.workflow_first_run_service.list_result_package_exports_from_request", fake_list_exports)
     monkeypatch.setattr("apps.api.workflow_first_run_service._utc_now", lambda: "2026-06-29T00:00:00Z")
 
@@ -211,7 +276,7 @@ def _result() -> dict[str, Any]:
         "artifacts": [
             {
                 "artifactId": "art_summary",
-                "artifactKey": "summary.tsv",
+                "artifactKey": "summary",
                 "kind": "table",
                 "mimeType": "text/tab-separated-values",
                 "path": "C:/secret/results/summary.tsv",
@@ -220,10 +285,32 @@ def _result() -> dict[str, Any]:
                 "sha256": "a" * 64,
             },
             {
+                "artifactId": "art_qc",
+                "artifactKey": "qc_summary",
+                "kind": "table",
+                "mimeType": "text/tab-separated-values",
+                "path": "C:/secret/results/qc-summary.tsv",
+                "storageUri": "file:///secret/results/qc-summary.tsv",
+                "sizeBytes": 96,
+                "sha256": "f" * 64,
+            },
+            {
+                "artifactId": "art_feature_table",
+                "artifactKey": "feature_table",
+                "kind": "table",
+                "mimeType": "text/tab-separated-values",
+                "path": "C:/secret/results/feature-table.tsv",
+                "storageUri": "file:///secret/results/feature-table.tsv",
+                "sizeBytes": 512,
+                "sha256": "1" * 64,
+            },
+            {
                 "artifactId": "art_report",
-                "artifactKey": "run-report.html",
+                "artifactKey": "report",
                 "kind": "report",
                 "mimeType": "text/html",
+                "path": "C:/secret/results/run-report.html",
+                "storageUri": "file:///secret/results/run-report.html",
                 "sizeBytes": 1024,
                 "sha256": "b" * 64,
             },
@@ -251,10 +338,65 @@ def _result() -> dict[str, Any]:
         ],
         "lineageSummary": {
             "schemaVersion": "h2ometa.result-lineage-summary.v1",
-            "edgeCount": 3,
+            "edgeCount": 5,
             "inputEdgeCount": 1,
-            "outputEdgeCount": 2,
-            "predicateCounts": {"prov:generated": 2, "prov:used": 1},
+            "outputEdgeCount": 4,
+            "predicateCounts": {"prov:generated": 4, "prov:used": 1},
+        },
+    }
+
+
+def _previews() -> dict[str, dict[str, Any]]:
+    return {
+        "art_summary": {
+            "resultId": "res_run_first",
+            "artifactId": "art_summary",
+            "artifact": {
+                "artifactId": "art_summary",
+                "artifactKey": "summary",
+                "path": "C:/secret/results/summary.tsv",
+                "storageUri": "s3://secret/results/summary.tsv",
+            },
+            "preview": {
+                "kind": "table",
+                "columns": [
+                    "sample_id",
+                    "barcode",
+                    "body_site",
+                    "subject",
+                    "matched_reads",
+                    "passed_reads",
+                    "unique_features",
+                ],
+                "rows": [
+                    ["sample-a", "AAAA", "gut", "subject-1", "40", "20", "4"],
+                    ["sample-b", "BBBB", "skin", "subject-2", "20", "10", "3"],
+                ],
+                "truncated": False,
+            },
+        },
+        "art_qc": {
+            "resultId": "res_run_first",
+            "artifactId": "art_qc",
+            "artifact": {
+                "artifactId": "art_qc",
+                "artifactKey": "qc_summary",
+                "path": "C:/secret/results/qc-summary.tsv",
+                "storageUri": "s3://secret/results/qc-summary.tsv",
+            },
+            "preview": {
+                "kind": "table",
+                "columns": ["metric", "value"],
+                "rows": [
+                    ["total_pairs", "60"],
+                    ["matched_reads", "60"],
+                    ["passed_reads", "30"],
+                    ["unmatched_barcodes", "0"],
+                    ["samples_with_reads", "2"],
+                    ["features", "7"],
+                ],
+                "truncated": False,
+            },
         },
     }
 

@@ -7,6 +7,7 @@ from typing import Any
 
 from apps.api.execution_query_service import (
     get_result_from_request,
+    get_result_preview_from_request,
     get_run_from_request,
     list_result_package_exports_from_request,
 )
@@ -14,10 +15,49 @@ from apps.api.workflow_sample_data_service import MOVING_PICTURES_PIPELINE_ID
 
 
 FIRST_RUN_VALIDATION_CARD_SCHEMA_VERSION = "h2ometa.first-run.validation-card.v1"
+FIRST_RUN_REPORT_INTERPRETATION_SCHEMA_VERSION = "h2ometa.first-run.report-interpretation.v1"
+FIRST_RUN_EXPECTED_OUTPUTS_REQUIRED = "FIRST_RUN_EXPECTED_OUTPUTS_REQUIRED"
 FIRST_RUN_FULL_RESULT_PACKAGE_REQUIRED = "FIRST_RUN_FULL_RESULT_PACKAGE_REQUIRED"
+FIRST_RUN_REPORT_PREVIEW_REQUIRED = "FIRST_RUN_REPORT_PREVIEW_REQUIRED"
 FIRST_RUN_RESULT_PACKAGE_DOWNLOAD_REQUIRED = "FIRST_RUN_RESULT_PACKAGE_DOWNLOAD_REQUIRED"
 FIRST_RUN_RESULT_PACKAGE_HASH_REQUIRED = "FIRST_RUN_RESULT_PACKAGE_HASH_REQUIRED"
 FIRST_RUN_RESULT_PACKAGE_REQUIRED = "FIRST_RUN_RESULT_PACKAGE_REQUIRED"
+
+MOVING_PICTURES_REPORT_OUTPUTS = (
+    {
+        "name": "summary.tsv",
+        "key": "summary",
+        "label": "Sample summary",
+        "kind": "table",
+        "interpretation": "Per-sample body site, matched reads, passed reads, and unique feature counts.",
+    },
+    {
+        "name": "qc-summary.tsv",
+        "key": "qc_summary",
+        "label": "QC summary",
+        "kind": "table",
+        "interpretation": "Run-level demultiplexing and quality-filter totals.",
+    },
+    {
+        "name": "feature-table.tsv",
+        "key": "feature_table",
+        "label": "Feature table",
+        "kind": "table",
+        "interpretation": "Feature abundance matrix across samples.",
+    },
+    {
+        "name": "run-report.html",
+        "key": "report",
+        "label": "HTML report",
+        "kind": "report",
+        "interpretation": "Human-readable report with top samples and QC cards.",
+    },
+)
+MOVING_PICTURES_REPORT_OUTPUT_NAMES = {str(item["name"]) for item in MOVING_PICTURES_REPORT_OUTPUTS}
+MOVING_PICTURES_OUTPUT_KEYS_TO_NAMES = {
+    str(item["key"]): str(item["name"]) for item in MOVING_PICTURES_REPORT_OUTPUTS
+}
+MOVING_PICTURES_PREVIEW_OUTPUT_NAMES = {"summary.tsv", "qc-summary.tsv"}
 
 
 class WorkflowFirstRunValidationCardUnavailableError(ValueError):
@@ -67,9 +107,14 @@ async def build_first_run_validation_card_from_request(
     )
     exports_data = _require_mapping(_unwrap_data(exports_payload, {}), FIRST_RUN_RESULT_PACKAGE_REQUIRED, result_id)
     package_export = _require_result_package(exports_data.get("items"))
+    report_previews = await _load_first_run_report_previews(
+        result_id,
+        _mapping_items(result.get("artifacts")),
+    )
 
     card = _build_validation_card(
         package_export=package_export,
+        report_previews=report_previews,
         result=result,
         result_id=result_id,
         run=run,
@@ -82,6 +127,7 @@ async def build_first_run_validation_card_from_request(
 def _build_validation_card(
     *,
     package_export: dict[str, Any],
+    report_previews: dict[str, dict[str, Any]],
     result: dict[str, Any],
     result_id: str,
     run: dict[str, Any],
@@ -97,6 +143,10 @@ def _build_validation_card(
         package_export=package_export,
         result_id=result_id,
         workflow_revision_id=workflow_revision_id,
+    )
+    report_interpretation = _report_interpretation(
+        artifacts=artifacts,
+        report_previews=report_previews,
     )
     return {
         "schemaVersion": FIRST_RUN_VALIDATION_CARD_SCHEMA_VERSION,
@@ -129,6 +179,7 @@ def _build_validation_card(
             "inputArtifactCount": len(input_artifacts),
             "lineageSummary": _safe_lineage_summary(result.get("lineageSummary")),
         },
+        "reportInterpretation": report_interpretation,
         "keyResults": _key_results(artifacts),
         "artifacts": artifacts,
         "database": {
@@ -140,6 +191,7 @@ def _build_validation_card(
             artifacts=artifacts,
             input_artifacts=input_artifacts,
             package_export=package_export,
+            report_interpretation=report_interpretation,
             workflow_revision_id=workflow_revision_id,
         ),
         "standards": {
@@ -154,6 +206,7 @@ def _validation_checks(
     artifacts: list[dict[str, Any]],
     input_artifacts: list[dict[str, Any]],
     package_export: dict[str, Any],
+    report_interpretation: dict[str, Any],
     workflow_revision_id: str,
 ) -> list[dict[str, Any]]:
     checksum_count = sum(1 for artifact in artifacts if artifact.get("sha256"))
@@ -163,6 +216,11 @@ def _validation_checks(
         _passed_check("FIRST_RUN_WORKFLOW_REVISION_PRESENT", workflow_revision_id),
         _passed_check("FIRST_RUN_INPUT_LINEAGE_PRESENT", f"{len(input_artifacts)} input artifacts"),
         _passed_check("FIRST_RUN_OUTPUT_CHECKSUMS_PRESENT", f"{checksum_count} output checksums"),
+        _passed_check("FIRST_RUN_EXPECTED_OUTPUTS_PRESENT", ", ".join(sorted(MOVING_PICTURES_REPORT_OUTPUT_NAMES))),
+        _passed_check(
+            "FIRST_RUN_REPORT_INTERPRETATION_READY",
+            f"{len(report_interpretation.get('metrics') or [])} metrics",
+        ),
         _passed_check("FIRST_RUN_RESULT_PACKAGE_ACTIVE", str(package_export.get("packageExportId") or "")),
     ]
 
@@ -222,6 +280,7 @@ def _safe_artifact(item: dict[str, Any]) -> dict[str, Any]:
         {
             "artifactId": item.get("artifactId"),
             "artifactKey": item.get("artifactKey"),
+            "displayName": _artifact_output_name(item),
             "kind": item.get("kind"),
             "mimeType": item.get("mimeType"),
             "sizeBytes": item.get("sizeBytes"),
@@ -266,13 +325,236 @@ def _safe_result_package(item: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+async def _load_first_run_report_previews(
+    result_id: str,
+    artifacts: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    previews: dict[str, dict[str, Any]] = {}
+    for output in MOVING_PICTURES_REPORT_OUTPUTS:
+        output_name = str(output["name"])
+        if output_name not in MOVING_PICTURES_PREVIEW_OUTPUT_NAMES:
+            continue
+        artifact = _artifact_for_output(artifacts, output_name)
+        if artifact is None:
+            continue
+        artifact_id = str(artifact.get("artifactId") or "").strip()
+        if not artifact_id:
+            raise _unavailable(FIRST_RUN_EXPECTED_OUTPUTS_REQUIRED, f"{output_name} artifactId is missing")
+        try:
+            payload = await get_result_preview_from_request(result_id, artifact_id=artifact_id)
+        except Exception as exc:  # noqa: BLE001 - validation cards must fail closed when preview evidence is unreadable.
+            raise _unavailable(
+                FIRST_RUN_REPORT_PREVIEW_REQUIRED,
+                f"{output_name} preview is required: {type(exc).__name__}",
+            ) from exc
+        previews[output_name] = _require_mapping(
+            _unwrap_data(payload, {}),
+            FIRST_RUN_REPORT_PREVIEW_REQUIRED,
+            f"{output_name} preview payload is empty",
+        )
+    return previews
+
+
+def _report_interpretation(
+    *,
+    artifacts: list[dict[str, Any]],
+    report_previews: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    missing_outputs = _missing_expected_output_names(artifacts)
+    if missing_outputs:
+        raise _unavailable(
+            FIRST_RUN_EXPECTED_OUTPUTS_REQUIRED,
+            f"expected Moving Pictures outputs missing: {', '.join(missing_outputs)}",
+        )
+    summary_columns, summary_rows, summary_truncated = _required_table_preview(
+        report_previews.get("summary.tsv"),
+        "summary.tsv",
+        required_columns=("passed_reads", "unique_features"),
+    )
+    qc_columns, qc_rows, qc_truncated = _required_table_preview(
+        report_previews.get("qc-summary.tsv"),
+        "qc-summary.tsv",
+        required_columns=("metric", "value"),
+    )
+    return {
+        "schemaVersion": FIRST_RUN_REPORT_INTERPRETATION_SCHEMA_VERSION,
+        "status": "ready",
+        "summary": "Moving Pictures 16S first run completed with the expected report, summary, QC, and feature-table artifacts.",
+        "outputs": _report_output_items(artifacts),
+        "metrics": [
+            *_summary_metrics(summary_columns, summary_rows),
+            *_qc_metrics(qc_columns, qc_rows),
+        ],
+        "previewSources": [
+            _preview_source(report_previews["summary.tsv"], "summary.tsv", summary_truncated),
+            _preview_source(report_previews["qc-summary.tsv"], "qc-summary.tsv", qc_truncated),
+        ],
+        "redaction": {
+            "rawPathsExposed": False,
+            "storageUrisExposed": False,
+            "previewRowsEmbedded": False,
+            "policy": "metrics-only",
+        },
+    }
+
+
+def _report_output_items(artifacts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_name = {
+        output_name: artifact
+        for artifact in artifacts
+        if (output_name := _artifact_output_name(artifact)) in MOVING_PICTURES_REPORT_OUTPUT_NAMES
+    }
+    items = []
+    for output in MOVING_PICTURES_REPORT_OUTPUTS:
+        artifact = by_name[str(output["name"])]
+        items.append(
+            _compact(
+                {
+                    "name": output["name"],
+                    "key": output["key"],
+                    "label": output["label"],
+                    "kind": output["kind"],
+                    "present": True,
+                    "artifactId": artifact.get("artifactId"),
+                    "mimeType": artifact.get("mimeType"),
+                    "sizeBytes": artifact.get("sizeBytes"),
+                    "sha256": artifact.get("sha256"),
+                    "interpretation": output["interpretation"],
+                }
+            )
+        )
+    return items
+
+
+def _required_table_preview(
+    preview: dict[str, Any] | None,
+    output_name: str,
+    *,
+    required_columns: tuple[str, ...],
+) -> tuple[list[str], list[list[str]], bool]:
+    if not isinstance(preview, dict):
+        raise _unavailable(FIRST_RUN_REPORT_PREVIEW_REQUIRED, f"{output_name} preview is missing")
+    preview_data = preview.get("preview") if isinstance(preview.get("preview"), dict) else {}
+    if preview_data.get("kind") != "table":
+        raise _unavailable(FIRST_RUN_REPORT_PREVIEW_REQUIRED, f"{output_name} preview is not a table")
+    columns = [str(item) for item in preview_data.get("columns") or []]
+    rows = [
+        [str(cell) for cell in row]
+        for row in (preview_data.get("rows") or [])
+        if isinstance(row, list)
+    ]
+    if not columns or not rows:
+        raise _unavailable(FIRST_RUN_REPORT_PREVIEW_REQUIRED, f"{output_name} table preview is empty")
+    missing_columns = [column for column in required_columns if column not in columns]
+    if missing_columns:
+        raise _unavailable(
+            FIRST_RUN_REPORT_PREVIEW_REQUIRED,
+            f"{output_name} preview missing columns: {', '.join(missing_columns)}",
+        )
+    return columns, rows, bool(preview_data.get("truncated"))
+
+
+def _summary_metrics(columns: list[str], rows: list[list[str]]) -> list[dict[str, Any]]:
+    passed_reads = _sum_numeric_column(rows, columns.index("passed_reads"), "summary.tsv:passed_reads")
+    unique_features = _sum_numeric_column(rows, columns.index("unique_features"), "summary.tsv:unique_features")
+    return [
+        _metric("sample_count", "samples", len(rows), "summary.tsv"),
+        _metric("passed_reads_total", "passed reads", passed_reads, "summary.tsv"),
+        _metric("unique_features_sample_sum", "unique features", unique_features, "summary.tsv"),
+    ]
+
+
+def _qc_metrics(columns: list[str], rows: list[list[str]]) -> list[dict[str, Any]]:
+    metric_index = columns.index("metric")
+    value_index = columns.index("value")
+    preferred = {"total_pairs", "matched_reads", "passed_reads", "samples_with_reads", "features"}
+    metrics = []
+    for row in rows:
+        metric_id = str(row[metric_index] if metric_index < len(row) else "").strip()
+        if metric_id not in preferred:
+            continue
+        value = _numeric_value(row[value_index] if value_index < len(row) else "", f"qc-summary.tsv:{metric_id}")
+        metrics.append(_metric(f"qc_{metric_id}", metric_id.replace("_", " "), value, "qc-summary.tsv"))
+    return metrics
+
+
+def _metric(metric_id: str, label: str, value: int | float, source: str) -> dict[str, Any]:
+    return {
+        "metricId": metric_id,
+        "label": label,
+        "value": value,
+        "displayValue": _format_number(value),
+        "source": source,
+    }
+
+
+def _sum_numeric_column(rows: list[list[str]], column_index: int, source: str) -> int | float:
+    return sum(_numeric_value(row[column_index] if column_index < len(row) else "", source) for row in rows)
+
+
+def _numeric_value(value: Any, source: str) -> int | float:
+    text = str(value or "").strip().replace(",", "")
+    if not text:
+        raise _unavailable(FIRST_RUN_REPORT_PREVIEW_REQUIRED, f"{source} has an empty numeric value")
+    try:
+        number = float(text)
+    except ValueError as exc:
+        raise _unavailable(FIRST_RUN_REPORT_PREVIEW_REQUIRED, f"{source} is not numeric") from exc
+    return int(number) if number.is_integer() else number
+
+
+def _format_number(value: int | float) -> str:
+    if isinstance(value, int):
+        return f"{value:,}"
+    return f"{value:,.2f}".rstrip("0").rstrip(".")
+
+
+def _preview_source(preview: dict[str, Any], output_name: str, truncated: bool) -> dict[str, Any]:
+    artifact = preview.get("artifact") if isinstance(preview.get("artifact"), dict) else {}
+    preview_data = preview.get("preview") if isinstance(preview.get("preview"), dict) else {}
+    return _compact(
+        {
+            "name": output_name,
+            "artifactId": preview.get("artifactId") or artifact.get("artifactId"),
+            "kind": preview_data.get("kind"),
+            "truncated": truncated,
+        }
+    )
+
+
 def _key_results(artifacts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     preferred = []
     for artifact in artifacts:
-        label = str(artifact.get("artifactKey") or artifact.get("kind") or artifact.get("artifactId") or "")
-        if label in {"summary.tsv", "qc-summary.tsv", "run-report.html"}:
+        label = _artifact_output_name(artifact) or str(artifact.get("kind") or artifact.get("artifactId") or "")
+        if label in {"summary.tsv", "qc-summary.tsv", "feature-table.tsv", "run-report.html"}:
             preferred.append(artifact)
     return preferred or artifacts[:3]
+
+
+def _artifact_for_output(artifacts: list[dict[str, Any]], output_name: str) -> dict[str, Any] | None:
+    return next((artifact for artifact in artifacts if _artifact_output_name(artifact) == output_name), None)
+
+
+def _missing_expected_output_names(artifacts: list[dict[str, Any]]) -> list[str]:
+    present = {_artifact_output_name(artifact) for artifact in artifacts}
+    return sorted(name for name in MOVING_PICTURES_REPORT_OUTPUT_NAMES if name not in present)
+
+
+def _artifact_output_name(item: dict[str, Any]) -> str:
+    for key in ("displayName", "artifactKey", "name"):
+        label = str(item.get(key) or "").strip()
+        if label in MOVING_PICTURES_REPORT_OUTPUT_NAMES:
+            return label
+        mapped = MOVING_PICTURES_OUTPUT_KEYS_TO_NAMES.get(label)
+        if mapped:
+            return mapped
+    basename = _basename(item.get("path"))
+    return basename if basename in MOVING_PICTURES_REPORT_OUTPUT_NAMES else ""
+
+
+def _basename(value: Any) -> str:
+    text = str(value or "").strip().replace("\\", "/")
+    return text.rsplit("/", 1)[-1] if text else ""
 
 
 def _require_result_package(items: Any) -> dict[str, Any]:
@@ -313,6 +595,12 @@ def _assert_validation_card_evidence(
         raise _unavailable("FIRST_RUN_INPUT_LINEAGE_REQUIRED", "input artifact lineage is empty")
     if not artifacts:
         raise _unavailable("FIRST_RUN_OUTPUT_ARTIFACTS_REQUIRED", "output artifacts are empty")
+    missing_expected_outputs = _missing_expected_output_names(artifacts)
+    if missing_expected_outputs:
+        raise _unavailable(
+            FIRST_RUN_EXPECTED_OUTPUTS_REQUIRED,
+            f"expected Moving Pictures outputs missing: {', '.join(missing_expected_outputs)}",
+        )
     missing_checksums = [str(item.get("artifactId") or "unknown") for item in artifacts if not item.get("sha256")]
     if missing_checksums:
         raise _unavailable(
