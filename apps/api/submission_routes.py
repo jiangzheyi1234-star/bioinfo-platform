@@ -11,13 +11,13 @@ from apps.api.submission_service import (
     submit_run_response_from_request,
     upload_file_from_request,
 )
-from core.contracts.remote_endpoints import REMOTE_ENDPOINTS, RUN_CREATE
+from core.contracts.remote_endpoints import REMOTE_ENDPOINTS, RUN_CREATE, UPLOAD_CREATE
 
 
 router = APIRouter()
 
 
-@router.post("/api/v1/uploads")
+@router.post("/api/v1/uploads", operation_id=REMOTE_ENDPOINTS[UPLOAD_CREATE].operation_id)
 async def upload_file(payload: UploadSubmitRequest) -> dict[str, Any]:
     return await upload_file_from_request(payload)
 

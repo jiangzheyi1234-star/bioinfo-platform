@@ -83,21 +83,6 @@ class RemoteRunnerProxyMixin:
             source_commit=str(release.get("sourceCommit") or ""),
         )
 
-    def upload_content(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        return client.post_json(
-            "/api/v1/uploads",
-            {
-                "filename": kwargs["filename"],
-                "contentBase64": kwargs["content_base64"],
-                "mimeType": kwargs.get("mime_type") or "application/octet-stream",
-            },
-        )["data"]
-
     def list_tools(self, **kwargs) -> list[dict[str, Any]]:
         client = self._get_client(
             server_id=str(kwargs["server_id"]),

@@ -107,7 +107,13 @@ def test_upload_file_routes_to_remote_runner_manager(
     cfg = _ssh_config()
 
     class FakeRemoteRunnerManager:
-        def upload_content(self, **kwargs):
+        def call_remote_endpoint(self, **kwargs):
+            assert kwargs["endpoint_id"] == "upload.create"
+            assert kwargs["payload"] == {
+                "filename": "reads.fastq",
+                "contentBase64": "QEdPQgo=",
+                "mimeType": "text/plain",
+            }
             return {
                 "uploadId": "upl_test",
                 "path": "/srv/uploads/upl_test_reads.fastq",
@@ -149,7 +155,8 @@ def test_upload_file_surfaces_runtime_transport_failures_as_service_errors(
     cfg = _ssh_config()
 
     class FakeRemoteRunnerManager:
-        def upload_content(self, **kwargs):
+        def call_remote_endpoint(self, **kwargs):
+            assert kwargs["endpoint_id"] == "upload.create"
             raise RuntimeError("SSH transport is not active")
 
         def get_health(self, **kwargs):

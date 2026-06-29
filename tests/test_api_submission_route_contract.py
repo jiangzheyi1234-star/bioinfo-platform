@@ -23,7 +23,7 @@ def test_run_submission_routes_delegate_request_assembly_to_service() -> None:
     assert '@app.post("/api/v1/uploads")' not in main_source
     assert '@app.post("/api/v1/runs", status_code=202)' not in main_source
 
-    route_start = route_source.index('@router.post("/api/v1/uploads")')
+    route_start = route_source.index('@router.post("/api/v1/uploads"')
     route_end = len(route_source)
     submission_routes = route_source[route_start:route_end]
 

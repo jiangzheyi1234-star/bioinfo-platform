@@ -9,7 +9,15 @@ from pathlib import Path
 from typing import Any
 
 from config import resolve_runner_token
-from core.contracts.remote_endpoints import RESULT_LIST, RESULT_PREVIEW_READ, RESULT_READ, RUN_CREATE, RUN_READ, RUN_RESULTS_READ
+from core.contracts.remote_endpoints import (
+    RESULT_LIST,
+    RESULT_PREVIEW_READ,
+    RESULT_READ,
+    RUN_CREATE,
+    RUN_READ,
+    RUN_RESULTS_READ,
+    UPLOAD_CREATE,
+)
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
 from core.remote_runner.client import RemoteRunnerClientError, RemoteRunnerHttpClient
 from core.remote_runner.endpoint_caller import call_remote_endpoint
@@ -125,10 +133,15 @@ class RemoteRunnerBootstrapActivationMixin:
         bootstrap_metadata["canary"] = canary
         try:
             fastq_bytes = b"@h2ometa-bootstrap-canary\nACGT\n+\n!!!!\n"
-            upload = client.create_upload(
-                filename="bootstrap-canary.fastq",
-                content_base64=base64.b64encode(fastq_bytes).decode("ascii"),
-                mime_type="application/octet-stream",
+            upload = call_remote_endpoint(
+                client,
+                UPLOAD_CREATE,
+                path_values={},
+                payload={
+                    "filename": "bootstrap-canary.fastq",
+                    "contentBase64": base64.b64encode(fastq_bytes).decode("ascii"),
+                    "mimeType": "application/octet-stream",
+                },
             )
             canary["upload"] = {
                 "uploadId": str(upload.get("uploadId") or ""),

@@ -221,22 +221,6 @@ class RemoteRunnerHttpClient:
     def delete_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, Any]:
         return self._request_json("DELETE", path, accepted_statuses=accepted_statuses)
 
-    def create_upload(
-        self,
-        *,
-        filename: str,
-        content_base64: str,
-        mime_type: str = "application/octet-stream",
-    ) -> dict[str, Any]:
-        return self.post_json(
-            "/api/v1/uploads",
-            {
-                "filename": filename,
-                "contentBase64": content_base64,
-                "mimeType": mime_type,
-            },
-        )["data"]
-
     def download_result_package(self, result_id: str, package_export_id: str) -> dict[str, Any]:
         result_part = urllib.parse.quote(result_id, safe="")
         export_part = urllib.parse.quote(package_export_id, safe="")

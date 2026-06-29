@@ -385,8 +385,11 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
     assert "get_pipeline_from_request" in pipeline_route_source
 
     assert "router = APIRouter()" in submission_route_source
-    assert '@router.post("/api/v1/uploads")' in submission_route_source
-    assert '@router.post("/api/v1/runs", status_code=202)' in submission_route_source
+    assert '"/api/v1/uploads"' in submission_route_source
+    assert "operation_id=REMOTE_ENDPOINTS[UPLOAD_CREATE].operation_id" in submission_route_source
+    assert '"/api/v1/runs"' in submission_route_source
+    assert "operation_id=REMOTE_ENDPOINTS[RUN_CREATE].operation_id" in submission_route_source
+    assert "status_code=202" in submission_route_source
     assert "create_upload_from_request" in submission_route_source
     assert "create_run_from_request" in submission_route_source
 

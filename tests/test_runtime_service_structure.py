@@ -600,7 +600,9 @@ def test_runtime_file_operations_delegate_to_file_manager() -> None:
     assert "from core.app_runtime.managers.file import FileManager" in service_source
     assert "self.files = FileManager(self)" in service_source
     assert "class FileManager(BaseRuntimeManager)" in file_manager_source
-    assert 'self.call_runner(\n            "upload_content"' in file_manager_source
+    assert "UPLOAD_CREATE" in file_manager_source
+    assert '"upload_content"' not in file_manager_source
+    assert "self.call_remote_endpoint(" in file_manager_source
     assert "ssh.list_directory(" in file_manager_source
     assert "self._call_remote_runner(" not in file_ops_source
     assert "self._require_runner_ready(" not in file_ops_source

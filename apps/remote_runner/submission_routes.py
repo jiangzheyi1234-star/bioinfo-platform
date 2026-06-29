@@ -4,7 +4,7 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from core.contracts.remote_endpoints import REMOTE_ENDPOINTS, RUN_CREATE
+from core.contracts.remote_endpoints import REMOTE_ENDPOINTS, RUN_CREATE, UPLOAD_CREATE
 
 from .api_models import RunCreateRequest, UploadCreateRequest
 from .control_service import create_run_from_request, create_upload_from_request
@@ -14,7 +14,7 @@ from .route_headers import AuthorizationHeader, IdempotencyKeyHeader, RequestIdH
 router = APIRouter()
 
 
-@router.post("/api/v1/uploads")
+@router.post("/api/v1/uploads", operation_id=REMOTE_ENDPOINTS[UPLOAD_CREATE].operation_id)
 async def create_upload(
     payload: UploadCreateRequest,
     authorization: AuthorizationHeader = None,

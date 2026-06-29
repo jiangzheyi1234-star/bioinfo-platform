@@ -5,6 +5,11 @@ from string import Formatter
 from typing import Any
 from urllib.parse import quote, urlencode
 
+from core.contracts.submission_remote_endpoints import (
+    RUN_CREATE as _RUN_CREATE,
+    SUBMISSION_REMOTE_ENDPOINT_SPECS,
+    UPLOAD_CREATE as _UPLOAD_CREATE,
+)
 from core.contracts.workflow_design_remote_endpoints import WORKFLOW_DESIGN_REMOTE_ENDPOINT_SPECS
 
 
@@ -58,7 +63,6 @@ def _workflow_trigger_command_endpoint(
 
 
 RUN_LIST = "run.list"
-RUN_CREATE = "run.create"
 RUN_READ = "run.read"
 RUN_EVENTS_READ = "run.events.read"
 RUN_EXECUTION_CONTEXT_READ = "run.execution_context.read"
@@ -132,19 +136,10 @@ REMOTE_ENDPOINTS: dict[str, RemoteEndpoint] = {
         cache_scope="run-read-model",
         response_item_key="items",
     ),
-    RUN_CREATE: RemoteEndpoint(
-        endpoint_id=RUN_CREATE,
-        method="POST",
-        path_template="/api/v1/runs",
-        operation_id="createRun",
-        governance_action="run.submit",
-        request_schema="run-create-request.v1",
-        response_schema="run-submission.v1",
-        cache_scope="run-command",
-        invalidates=("run-read-model",),
-        response_key="",
-        accepted_statuses=(202,),
-    ),
+    **{
+        endpoint_id: RemoteEndpoint(endpoint_id=endpoint_id, **spec)
+        for endpoint_id, spec in SUBMISSION_REMOTE_ENDPOINT_SPECS.items()
+    },
     RUN_READ: RemoteEndpoint(
         endpoint_id=RUN_READ,
         method="GET",
@@ -798,3 +793,5 @@ def _query_value(value: Any) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
     return str(value)
+RUN_CREATE = _RUN_CREATE
+UPLOAD_CREATE = _UPLOAD_CREATE
