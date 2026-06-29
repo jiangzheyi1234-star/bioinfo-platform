@@ -73,6 +73,13 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "FirstRunCompletionPanel" in first_run_page
     assert "first-run-completion-panel" in first_run_completion
     assert "first-run-pilot-handoff" in first_run_completion
+    assert "first-run-next-scenario-handoff" in first_run_completion
+    assert "first-run-next-scenario-blockers" in first_run_completion
+    assert "first-run-next-scenario-database-handoff" in first_run_completion
+    assert "pack.databaseHandoff?.packOptions" in first_run_completion
+    assert "pack.databaseHandoff?.missingPackTemplates" in first_run_completion
+    assert "fetchWorkflowScenarioPacks" in first_run_page
+    assert "nextScenarioPacks" in first_run_page
     assert "FirstRunTrustSummary" in first_run_completion
     assert "单用户试点交接" in first_run_completion
     assert "首跑已完成" in first_run_completion
@@ -271,8 +278,8 @@ def test_workflows_page_uses_live_builder_modules() -> None:
     assert scenario_section_path.exists()
     scenario_section = scenario_section_path.read_text(encoding="utf-8")
     assert all(token in page for token in ("WorkflowScenarioPackSection", "fetchWorkflowScenarioPacks"))
-    assert all(token in scenario_section for token in ("data-testid=\"workflow-scenario-pack-section\"", "data-scenario-pack={pack.scenarioId}", "pack.status === \"ready\"", "data-testid=\"workflow-scenario-readiness-checks\"", "data-scenario-check-status={check.status}", "check.requirement", "data-testid=\"workflow-scenario-practice-anchors\"", "pack.externalPracticeAnchors.slice(0, 2)", "target=\"_blank\"", "data-scenario-action={action.code}", "pack.nextActions.slice(0, 3)", "sampleDataLabel(pack)", "item.templates?.length", "data-testid=\"workflow-scenario-tool-slice-handoff\"", "data-testid=\"workflow-scenario-tool-slice-handoff-checklist\"", "pack.toolSliceHandoff", "toolSliceHandoffText(pack)", "data-testid=\"workflow-scenario-sample-data-handoff\"", "data-testid=\"workflow-scenario-sample-data-handoff-checklist\"", "pack.sampleDataHandoff", "visibleItems = checklist.slice(0, 2)", "sampleDataHandoffInputText(pack)", "data-testid=\"workflow-scenario-database-handoff\"", "data-testid=\"workflow-scenario-database-handoff-checklist\"", "pack.databaseHandoff", "checklist.slice(0, 3)", "databaseHandoffTemplateText(pack)"))
-    assert all(token in model for token in ("noAutomaticExecution", "WorkflowScenarioToolSliceHandoff", "toolSliceHandoff?: WorkflowScenarioToolSliceHandoff", "WorkflowScenarioSampleDataHandoff", "sampleDataHandoff?: WorkflowScenarioSampleDataHandoff", "WorkflowScenarioDatabaseHandoff", "databaseHandoff?: WorkflowScenarioDatabaseHandoff"))
+    assert all(token in scenario_section for token in ("data-testid=\"workflow-scenario-pack-section\"", "data-scenario-pack={pack.scenarioId}", "pack.status === \"ready\"", "data-testid=\"workflow-scenario-readiness-checks\"", "data-scenario-check-status={check.status}", "check.requirement", "data-testid=\"workflow-scenario-practice-anchors\"", "pack.externalPracticeAnchors.slice(0, 2)", "target=\"_blank\"", "data-scenario-action={action.code}", "pack.nextActions.slice(0, 3)", "sampleDataLabel(pack)", "item.templates?.length", "data-testid=\"workflow-scenario-tool-slice-handoff\"", "data-testid=\"workflow-scenario-tool-slice-handoff-checklist\"", "pack.toolSliceHandoff", "toolSliceHandoffText(pack)", "data-testid=\"workflow-scenario-sample-data-handoff\"", "data-testid=\"workflow-scenario-sample-data-handoff-checklist\"", "pack.sampleDataHandoff", "visibleItems = checklist.slice(0, 2)", "sampleDataHandoffInputText(pack)", "data-testid=\"workflow-scenario-database-handoff\"", "data-testid=\"workflow-scenario-database-handoff-checklist\"", "pack.databaseHandoff", "checklist.slice(0, 3)", "databaseHandoffTemplateText(pack)", "data-testid=\"workflow-scenario-database-pack-options\"", "pack.databaseHandoff?.packOptions", "data-testid=\"workflow-scenario-database-missing-packs\""))
+    assert all(token in model for token in ("noAutomaticExecution", "WorkflowScenarioToolSliceHandoff", "toolSliceHandoff?: WorkflowScenarioToolSliceHandoff", "WorkflowScenarioSampleDataHandoff", "sampleDataHandoff?: WorkflowScenarioSampleDataHandoff", "WorkflowScenarioDatabasePackOption", "packOptions?: WorkflowScenarioDatabasePackOption[]", "missingPackTemplates?: string[]", "WorkflowScenarioDatabaseHandoff", "databaseHandoff?: WorkflowScenarioDatabaseHandoff"))
     assert all(token not in scenario_section for token in ("uploadWorkflowSampleData", "downloadSampleData", "generateFixture", "addDatabase", "createToolPrepareJob", "prepareTool", "validateTool", "scanDatabasePackReady", "databasePackManualText", "databasePackRegistrationCommand", "onStartAddingFromPack"))
     assert "export function useWorkflowsPageState" in hook
     assert "export { WorkflowCatalogTable }" in ui

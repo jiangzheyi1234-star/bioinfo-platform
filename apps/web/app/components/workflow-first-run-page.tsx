@@ -40,6 +40,7 @@ import {
 } from "./workflow-first-run-validation";
 import {
   exportWorkflowResultPackage,
+  fetchWorkflowScenarioPacks,
   fetchWorkflowServerExecutionDiagnostics,
   fetchWorkflowResultPackageExports,
 } from "./workflows-page-api";
@@ -49,6 +50,7 @@ import {
   type WorkflowResultPackageExport,
   type WorkflowRun,
   type WorkflowRunDetail,
+  type WorkflowScenarioPack,
 } from "./workflows-page-model";
 
 const FIRST_RUN_PIPELINE_ID = "moving-pictures-16s-rulegraph-v1";
@@ -79,6 +81,9 @@ export function WorkflowFirstRunPage() {
   const [validationCardFetchError, setValidationCardFetchError] = useState("");
   const [validationCardLoading, setValidationCardLoading] = useState(false);
   const [validationCardError, setValidationCardError] = useState("");
+  const [nextScenarioPacks, setNextScenarioPacks] = useState<WorkflowScenarioPack[]>([]);
+  const [nextScenarioPacksLoading, setNextScenarioPacksLoading] = useState(false);
+  const [nextScenarioPacksError, setNextScenarioPacksError] = useState("");
 
   const run = state.runDetail?.run || state.submittedRun;
   const result = state.runDetail?.results;
@@ -195,6 +200,29 @@ export function WorkflowFirstRunPage() {
   useEffect(() => {
     void loadValidationCard();
   }, [loadValidationCard]);
+
+  const loadNextScenarioPacks = useCallback(async () => {
+    if (!validationReady) {
+      setNextScenarioPacks([]);
+      setNextScenarioPacksError("");
+      return;
+    }
+    setNextScenarioPacksLoading(true);
+    setNextScenarioPacksError("");
+    try {
+      const packs = await fetchWorkflowScenarioPacks();
+      setNextScenarioPacks(packs.filter((pack) => pack.scenarioId !== "moving-pictures-16s"));
+    } catch (err) {
+      setNextScenarioPacks([]);
+      setNextScenarioPacksError(workflowErrorMessage(err, "下一批试点场景读取失败"));
+    } finally {
+      setNextScenarioPacksLoading(false);
+    }
+  }, [validationReady]);
+
+  useEffect(() => {
+    void loadNextScenarioPacks();
+  }, [loadNextScenarioPacks]);
 
   function openConnectDialog() {
     ssh.clearFormError();
@@ -347,6 +375,9 @@ export function WorkflowFirstRunPage() {
           downloadingValidationCard={validationCardLoading}
           latestPackage={latestPackage}
           loadingValidationCard={validationCardFetchLoading}
+          nextScenarioPacks={nextScenarioPacks}
+          nextScenarioPacksError={nextScenarioPacksError}
+          nextScenarioPacksLoading={nextScenarioPacksLoading}
           ready={validationReady}
           resultId={resultId}
           run={run}

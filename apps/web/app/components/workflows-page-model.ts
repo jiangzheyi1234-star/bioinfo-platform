@@ -93,6 +93,19 @@ export type WorkflowScenarioPackAction = {
   target: string;
 };
 
+export type WorkflowScenarioDatabasePackOption = {
+  packId?: string;
+  templateId?: string;
+  name?: string;
+  version?: string;
+  capabilities?: string[];
+  checksum?: string;
+  sourceUrl?: string;
+  readyDirHint?: string;
+  registrationScriptPath?: string;
+  installedLayer?: string;
+};
+
 export type WorkflowScenarioDatabaseHandoff = {
   schemaVersion?: string;
   mode?: "none" | "manual_external" | string;
@@ -100,6 +113,8 @@ export type WorkflowScenarioDatabaseHandoff = {
   operatorActionRequired?: boolean;
   noAutomaticExecution?: boolean;
   templateOptions?: Array<{ capability?: string; templates?: string[] }>;
+  packOptions?: WorkflowScenarioDatabasePackOption[];
+  missingPackTemplates?: string[];
   checklist?: Array<{
     code?: string;
     label?: string;

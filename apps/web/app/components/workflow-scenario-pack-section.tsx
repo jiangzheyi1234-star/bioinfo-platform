@@ -223,6 +223,28 @@ function DatabaseHandoffSummary({ pack }: { pack: WorkflowScenarioPack }) {
         {databaseHandoffTemplateText(pack)}
         {remaining > 0 ? ` · +${remaining}` : ""}
       </div>
+      <DatabasePackOptionSummary pack={pack} />
+    </div>
+  );
+}
+
+function DatabasePackOptionSummary({ pack }: { pack: WorkflowScenarioPack }) {
+  const packOptions = pack.databaseHandoff?.packOptions || [];
+  const missingTemplates = pack.databaseHandoff?.missingPackTemplates || [];
+  if (packOptions.length === 0 && missingTemplates.length === 0) return null;
+  return (
+    <div className="mt-2 grid gap-1" data-testid="workflow-scenario-database-pack-options">
+      {packOptions.slice(0, 2).map((item) => (
+        <div key={item.packId || item.templateId || item.name} className="min-w-0 truncate text-[11px] text-slate-500">
+          <span className="font-mono text-slate-700">{item.packId || item.templateId}</span>
+          {item.checksum ? <span> · {item.checksum}</span> : null}
+        </div>
+      ))}
+      {missingTemplates.length > 0 ? (
+        <div className="min-w-0 truncate text-[11px] text-amber-700" data-testid="workflow-scenario-database-missing-packs">
+          缺少 pack: {missingTemplates.slice(0, 4).join(" / ")}
+        </div>
+      ) : null}
     </div>
   );
 }

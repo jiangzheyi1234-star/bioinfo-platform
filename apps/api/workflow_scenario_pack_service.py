@@ -6,6 +6,12 @@ from typing import Any
 
 from apps.api.workflow_catalog_service import list_bundled_pipeline_manifests
 from apps.api.workflow_sample_data_service import MOVING_PICTURES_PIPELINE_ID
+from apps.api.workflow_scenario_pack_database_handoff import (
+    SCENARIO_DATABASE_HANDOFF_SCHEMA_VERSION,
+    WorkflowScenarioDatabaseHandoffError,
+    database_handoff,
+    validate_database_handoff,
+)
 from apps.api.workflow_scenario_pack_tool_slice import (
     WorkflowScenarioToolSliceHandoffError,
     tool_slice_handoff,
@@ -15,21 +21,11 @@ from apps.api.workflow_scenario_pack_tool_slice import (
 
 SCENARIO_PACK_SCHEMA_VERSION = "h2ometa.workflow-scenario-pack.v1"
 SCENARIO_PACK_CATALOG_SCHEMA_VERSION = "h2ometa.workflow-scenario-pack-catalog.v1"
-SCENARIO_DATABASE_HANDOFF_SCHEMA_VERSION = "h2ometa.workflow-scenario-database-handoff.v1"
 SCENARIO_SAMPLE_DATA_HANDOFF_SCHEMA_VERSION = "h2ometa.workflow-scenario-sample-data-handoff.v1"
 _ALLOWED_ACTION_TARGETS = {
     "/workflows/first-run",
     "/workflows/tools",
     "/workflows/databases",
-}
-_KNOWN_DATABASE_TEMPLATES = {
-    "card_rgi",
-    "centrifuge",
-    "eggnog_mapper",
-    "gtdbtk",
-    "interproscan",
-    "kaiju",
-    "silva_qiime",
 }
 _SCENARIO_TOOL_SLICE_MIN = 3
 _SCENARIO_TOOL_SLICE_MAX = 5
@@ -93,7 +89,7 @@ def _scenario_pack(definition: dict[str, Any], pipelines: dict[str, dict[str, An
         "requiredWorkflowReadyTools": definition["requiredWorkflowReadyTools"],
         "toolSliceHandoff": tool_slice_handoff(definition),
         "requiredDatabases": definition["requiredDatabases"],
-        "databaseHandoff": _database_handoff(definition),
+        "databaseHandoff": database_handoff(definition),
         "resultEvidence": definition["resultEvidence"],
         "readinessChecks": readiness,
         "nextActions": _next_actions(definition, readiness),
@@ -141,7 +137,10 @@ def _validate_scenario_definition(
     if not definition.get("resultEvidence"):
         raise WorkflowScenarioPackCatalogError("SCENARIO_RESULT_EVIDENCE_REQUIRED")
     _validate_sample_data_handoff(definition)
-    _validate_database_handoff(definition)
+    try:
+        validate_database_handoff(definition)
+    except WorkflowScenarioDatabaseHandoffError as exc:
+        raise WorkflowScenarioPackCatalogError(str(exc)) from exc
     pipeline_id = str(definition.get("pipelineId") or "")
     pipeline_ready = bool(pipeline_id in pipelines and pipelines[pipeline_id].get("enabled", True))
     _validate_gate_contract(definition, pipeline_ready=pipeline_ready)
@@ -150,7 +149,6 @@ def _validate_scenario_definition(
         validate_tool_slice_handoff(definition)
     except WorkflowScenarioToolSliceHandoffError as exc:
         raise WorkflowScenarioPackCatalogError(str(exc)) from exc
-    _validate_database_templates(definition)
     _validate_ready_scenario_pipeline(definition, pipelines)
 
 
@@ -225,14 +223,6 @@ def _gate_passed(definition: dict[str, Any], code: str) -> bool:
     return False
 
 
-def _validate_database_templates(definition: dict[str, Any]) -> None:
-    for item in definition.get("requiredDatabases") or []:
-        templates = item.get("templates") if isinstance(item, dict) else None
-        for template_id in templates or []:
-            if str(template_id or "") not in _KNOWN_DATABASE_TEMPLATES:
-                raise WorkflowScenarioPackCatalogError(f"SCENARIO_DATABASE_TEMPLATE_UNKNOWN: {template_id}")
-
-
 def _validate_sample_data_handoff(definition: dict[str, Any]) -> None:
     handoff = _sample_data_handoff(definition)
     if handoff["schemaVersion"] != SCENARIO_SAMPLE_DATA_HANDOFF_SCHEMA_VERSION:
@@ -260,41 +250,6 @@ def _validate_sample_data_handoff(definition: dict[str, Any]) -> None:
         raise WorkflowScenarioPackCatalogError("SCENARIO_SAMPLE_DATA_HANDOFF_STATUS_INVALID")
     if set(handoff["excludedActions"]) != {"automatic-download", "automatic-fixture-generation", "unverified-example-data"}:
         raise WorkflowScenarioPackCatalogError("SCENARIO_SAMPLE_DATA_HANDOFF_EXCLUSIONS_INVALID")
-
-
-def _validate_database_handoff(definition: dict[str, Any]) -> None:
-    handoff = _database_handoff(definition)
-    if handoff["schemaVersion"] != SCENARIO_DATABASE_HANDOFF_SCHEMA_VERSION:
-        raise WorkflowScenarioPackCatalogError("SCENARIO_DATABASE_HANDOFF_SCHEMA_INVALID")
-    if definition.get("requiredDatabases"):
-        gate_codes = {str(item.get("code") or "") for item in definition.get("gates") or [] if isinstance(item, dict)}
-        if "SCENARIO_DATABASE_HANDOFF_READY" not in gate_codes:
-            raise WorkflowScenarioPackCatalogError("SCENARIO_DATABASE_HANDOFF_GATE_REQUIRED")
-        if handoff["mode"] != "manual_external":
-            raise WorkflowScenarioPackCatalogError("SCENARIO_DATABASE_HANDOFF_MODE_INVALID")
-        if handoff["status"] == "operator_required" and not handoff["operatorActionRequired"]:
-            raise WorkflowScenarioPackCatalogError("SCENARIO_DATABASE_HANDOFF_MANUAL_REQUIRED")
-        if handoff["status"] == "ready" and handoff["operatorActionRequired"]:
-            raise WorkflowScenarioPackCatalogError("SCENARIO_DATABASE_HANDOFF_MANUAL_REQUIRED")
-        if not handoff["noAutomaticExecution"]:
-            raise WorkflowScenarioPackCatalogError("SCENARIO_DATABASE_HANDOFF_MANUAL_REQUIRED")
-        checklist_codes = {item["code"] for item in handoff["checklist"]}
-        required_codes = {
-            "SELECT_TEMPLATE",
-            "VERIFY_CHECKSUM",
-            "READY_SCAN",
-            "REGISTER_DATABASE",
-            "BIND_DATABASE",
-            "REAL_DATABASE_ACCEPTANCE",
-        }
-        if not required_codes <= checklist_codes:
-            raise WorkflowScenarioPackCatalogError("SCENARIO_DATABASE_HANDOFF_CHECKLIST_INCOMPLETE")
-        if any(item["status"] not in {"operator_required", "passed"} for item in handoff["checklist"]):
-            raise WorkflowScenarioPackCatalogError("SCENARIO_DATABASE_HANDOFF_STATUS_INVALID")
-        if set(handoff["excludedActions"]) != {"automatic-download", "automatic-extract", "automatic-install"}:
-            raise WorkflowScenarioPackCatalogError("SCENARIO_DATABASE_HANDOFF_EXCLUSIONS_INVALID")
-    elif handoff["status"] != "not_required" or handoff["checklist"]:
-        raise WorkflowScenarioPackCatalogError("SCENARIO_DATABASE_HANDOFF_NOT_REQUIRED_INVALID")
 
 
 def _validate_ready_scenario_pipeline(
@@ -461,113 +416,6 @@ def _sample_data_handoff_checklist(*, ready: bool) -> list[dict[str, str]]:
             "status": status,
             "target": "/workflows/results",
             "evidence": "completed run with validationCard and resultPackage",
-        },
-    ]
-
-
-def _database_handoff(definition: dict[str, Any]) -> dict[str, Any]:
-    required_databases = list(definition.get("requiredDatabases") or [])
-    if not required_databases:
-        return {
-            "schemaVersion": SCENARIO_DATABASE_HANDOFF_SCHEMA_VERSION,
-            "mode": "none",
-            "status": "not_required",
-            "operatorActionRequired": False,
-            "noAutomaticExecution": True,
-            "templateOptions": [],
-            "checklist": [],
-            "readyScan": {},
-            "registration": {},
-            "evidencePolicy": {},
-            "excludedActions": ["automatic-download", "automatic-extract", "automatic-install"],
-        }
-    ready = _gate_passed(definition, "SCENARIO_DATABASE_HANDOFF_READY")
-    return {
-        "schemaVersion": SCENARIO_DATABASE_HANDOFF_SCHEMA_VERSION,
-        "mode": "manual_external",
-        "status": "ready" if ready else "operator_required",
-        "operatorActionRequired": not ready,
-        "noAutomaticExecution": True,
-        "templateOptions": _database_template_options(required_databases),
-        "checklist": _database_handoff_checklist(ready=ready),
-        "readyScan": {
-            "label": "Ready scan",
-            "method": "POST",
-            "path": "/api/v1/database-pack-ready-scans",
-            "mutatesRegistry": False,
-            "requiresOperatorReadyPath": True,
-        },
-        "registration": {
-            "label": "手动登记",
-            "method": "POST",
-            "path": "/api/v1/databases",
-            "requiresReadyScan": True,
-            "prefillSource": "database-pack-ready-scan.registrationPrefill",
-        },
-        "evidencePolicy": {
-            "acceptedEvidenceType": "real-database-acceptance",
-            "requiresRegisteredStatus": "available",
-            "requiresRunResourceBinding": True,
-            "rejectsCatalogLayerAsEvidence": True,
-            "validationFixtureAccepted": False,
-        },
-        "excludedActions": ["automatic-download", "automatic-extract", "automatic-install"],
-    }
-
-
-def _database_template_options(required_databases: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    options: list[dict[str, Any]] = []
-    for item in required_databases:
-        capability = str(item.get("capability") or "").strip()
-        templates = [str(template_id or "").strip() for template_id in item.get("templates") or [] if str(template_id or "").strip()]
-        options.append({"capability": capability, "templates": templates})
-    return options
-
-
-def _database_handoff_checklist(*, ready: bool) -> list[dict[str, str]]:
-    status = "passed" if ready else "operator_required"
-    return [
-        {
-            "code": "SELECT_TEMPLATE",
-            "label": "选择场景数据库模板",
-            "status": status,
-            "target": "/workflows/databases",
-            "evidence": "requiredDatabases template option selected",
-        },
-        {
-            "code": "VERIFY_CHECKSUM",
-            "label": "外部下载后核对 checksum 和大小",
-            "status": status,
-            "target": "/workflows/databases",
-            "evidence": "manual checksum verification recorded by operator",
-        },
-        {
-            "code": "READY_SCAN",
-            "label": "运行 ready scan",
-            "status": status,
-            "target": "/workflows/databases",
-            "evidence": "database-pack-ready-scan ready response",
-        },
-        {
-            "code": "REGISTER_DATABASE",
-            "label": "使用预填信息手动登记",
-            "status": status,
-            "target": "/workflows/databases",
-            "evidence": "available registered database record",
-        },
-        {
-            "code": "BIND_DATABASE",
-            "label": "在场景 runSpec 绑定数据库",
-            "status": status,
-            "target": "/workflows",
-            "evidence": "resourceBindings include databaseId and templateId",
-        },
-        {
-            "code": "REAL_DATABASE_ACCEPTANCE",
-            "label": "生成 real-database-acceptance 证据",
-            "status": status,
-            "target": "/workflows/results",
-            "evidence": "completed run with non-empty artifacts",
         },
     ]
 

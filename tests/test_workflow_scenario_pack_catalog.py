@@ -12,6 +12,7 @@ from apps.api.workflow_scenario_pack_service import (
     _validate_scenario_definitions,
     list_workflow_scenario_packs,
 )
+from apps.remote_runner.database_pack_catalog import list_downloadable_database_packs
 from apps.api.workflow_scenario_pack_tool_slice import SCENARIO_TOOL_SLICE_HANDOFF_SCHEMA_VERSION
 
 
@@ -114,6 +115,8 @@ def test_only_moving_pictures_scenario_is_ready_until_vertical_packs_have_real_g
     assert first_run["databaseHandoff"]["status"] == "not_required"
     assert first_run["databaseHandoff"]["operatorActionRequired"] is False
     assert first_run["databaseHandoff"]["checklist"] == []
+    assert first_run["databaseHandoff"]["packOptions"] == []
+    assert first_run["databaseHandoff"]["missingPackTemplates"] == []
     assert {check["status"] for check in first_run["readinessChecks"]} == {"passed"}
     assert {tool["contractState"] for tool in first_run["requiredWorkflowReadyTools"]} == {"workflow_ready"}
 
@@ -166,6 +169,24 @@ def test_only_moving_pictures_scenario_is_ready_until_vertical_packs_have_real_g
         "requiresReadyScan": True,
         "prefillSource": "database-pack-ready-scan.registrationPrefill",
     }
+    assert taxonomy["databaseHandoff"]["packOptions"] == [
+        {
+            "packId": "h2ometa-gtdbtk-r232-official",
+            "templateId": "gtdbtk",
+            "name": "GTDB-Tk R232 official reference pack",
+            "version": "R232",
+            "capabilities": ["taxonomy_database"],
+            "checksum": "md5:25a59e0352b1fd150c589f56559767d4",
+            "sourceUrl": (
+                "https://data.gtdb.aau.ecogenomic.org/releases/release232/232.0/"
+                "auxillary_files/gtdbtk_package/full_package/gtdbtk_r232_data.tar.gz"
+            ),
+            "readyDirHint": "/home/zyserver/databases/gtdbtk-r232-official/extracted/release",
+            "registrationScriptPath": "scripts/register_gtdbtk_r232_database.py",
+            "installedLayer": "production_full",
+        }
+    ]
+    assert taxonomy["databaseHandoff"]["missingPackTemplates"] == ["centrifuge", "kaiju", "silva_qiime"]
     assert {item["code"] for item in taxonomy["databaseHandoff"]["checklist"]} == {
         "SELECT_TEMPLATE",
         "VERIFY_CHECKSUM",
@@ -214,6 +235,8 @@ def test_only_moving_pictures_scenario_is_ready_until_vertical_packs_have_real_g
         {"capability": "amr_database", "templates": ["card_rgi"]},
         {"capability": "annotation_database", "templates": ["eggnog_mapper", "interproscan"]},
     ]
+    assert amr["databaseHandoff"]["packOptions"] == []
+    assert amr["databaseHandoff"]["missingPackTemplates"] == ["card_rgi", "eggnog_mapper", "interproscan"]
     assert amr["databaseHandoff"]["evidencePolicy"] == {
         "acceptedEvidenceType": "real-database-acceptance",
         "requiresRegisteredStatus": "available",
@@ -232,6 +255,7 @@ def test_workflow_scenario_pack_api_is_read_only_and_registered() -> None:
     main_source = _source("apps/api/main.py")
     service_source = _source("apps/api/workflow_scenario_pack_service.py")
     tool_slice_source = _source("apps/api/workflow_scenario_pack_tool_slice.py")
+    database_handoff_source = _source("apps/api/workflow_scenario_pack_database_handoff.py")
 
     assert '@router.get("/api/v1/workflow-scenario-packs")' in route_source
     assert "@router.post" not in route_source
@@ -242,12 +266,17 @@ def test_workflow_scenario_pack_api_is_read_only_and_registered() -> None:
     assert "list_reference_databases" not in service_source
     assert "add_database_from_request" not in service_source
     assert "scan_database_pack_ready_from_request" not in service_source
+    assert "list_downloadable_database_packs" in database_handoff_source
+    assert "runtime_service()." not in database_handoff_source
+    assert "scan_database_pack_ready_from_request" not in database_handoff_source
+    assert "add_database_from_request" not in database_handoff_source
     assert "noAutomaticExecution" in service_source
+    assert "noAutomaticExecution" in database_handoff_source
     assert "automatic-fixture-generation" in service_source
     assert "unverified-example-data" in service_source
-    assert "automatic-download" in service_source
-    assert "automatic-extract" in service_source
-    assert "automatic-install" in service_source
+    assert "automatic-download" in database_handoff_source
+    assert "automatic-extract" in database_handoff_source
+    assert "automatic-install" in database_handoff_source
     assert "request-side-rulespec" in tool_slice_source
     assert "generic-bioconda-import" in tool_slice_source
     assert "capability-bundle-v1" in tool_slice_source
@@ -363,6 +392,23 @@ def test_workflow_scenario_pack_catalog_requires_pipeline_readiness_action_when_
                 "amr-annotation-scenario-v1": {"enabled": True},
             },
         )
+
+
+def test_scenario_database_handoff_uses_catalog_pack_options_without_installing() -> None:
+    packs_by_template = {item["templateId"]: item for item in list_downloadable_database_packs()}
+    taxonomy = {
+        item["scenarioId"]: item for item in list_workflow_scenario_packs()["data"]["items"]
+    }["taxonomy-classification"]
+    gtdbtk_pack = packs_by_template["gtdbtk"]
+    pack_option = taxonomy["databaseHandoff"]["packOptions"][0]
+
+    assert pack_option["packId"] == gtdbtk_pack["packId"]
+    assert pack_option["checksum"] == gtdbtk_pack["checksum"]
+    assert pack_option["readyDirHint"] == gtdbtk_pack["manualInstall"]["readyDirHint"]
+    assert pack_option["registrationScriptPath"] == gtdbtk_pack["registrationHandoff"]["scriptPath"]
+    assert "operatorSteps" not in pack_option
+    assert taxonomy["databaseHandoff"]["readyScan"]["mutatesRegistry"] is False
+    assert taxonomy["databaseHandoff"]["registration"]["requiresReadyScan"] is True
 
 
 def _source(path: str) -> str:
