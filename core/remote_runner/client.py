@@ -288,33 +288,6 @@ class RemoteRunnerHttpClient:
     def cancel_workflow_backfill_launch(self, launch_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self.post_json(f"/api/v1/workflow-backfill-launches/{launch_id}/cancel", payload)["data"]
 
-    def apply_rule_output_invalidation(self, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        return self.post_json(f"/api/v1/runs/{run_id}/rules/output-invalidation/apply", payload)["data"]
-
-    def prepare_rule_cache_restore_pins(self, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        return self.post_json(f"/api/v1/runs/{run_id}/rules/cache-restore/pins/prepare", payload)["data"]
-
-    def apply_rule_cache_restore_pins(self, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        return self.post_json(f"/api/v1/runs/{run_id}/rules/cache-restore/pins/apply", payload)["data"]
-
-    def prepare_rule_cache_restore_staged_files(self, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        return self.post_json(f"/api/v1/runs/{run_id}/rules/cache-restore/staged-files/prepare", payload)["data"]
-
-    def apply_rule_cache_restore_staged_files(self, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        return self.post_json(f"/api/v1/runs/{run_id}/rules/cache-restore/staged-files/apply", payload)["data"]
-
-    def prepare_rule_cache_restore_final_outputs(self, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        return self.post_json(f"/api/v1/runs/{run_id}/rules/cache-restore/final-outputs/prepare", payload)["data"]
-
-    def apply_rule_cache_restore_final_outputs(self, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        return self.post_json(f"/api/v1/runs/{run_id}/rules/cache-restore/final-outputs/apply", payload)["data"]
-
-    def prepare_rule_cache_restore_adoption(self, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        return self.post_json(f"/api/v1/runs/{run_id}/rules/cache-restore/adoption/prepare", payload)["data"]
-
-    def apply_rule_cache_restore_adoption(self, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        return self.post_json(f"/api/v1/runs/{run_id}/rules/cache-restore/adoption/apply", payload)["data"]
-
     def download_result_package(self, result_id: str, package_export_id: str) -> dict[str, Any]:
         result_part = urllib.parse.quote(result_id, safe="")
         export_part = urllib.parse.quote(package_export_id, safe="")

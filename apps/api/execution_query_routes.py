@@ -38,6 +38,16 @@ from core.contracts.remote_endpoints import (
     RUN_RESUME,
     RUN_RESULTS_READ,
     RUN_RETRY,
+    RUN_RULE_CACHE_RESTORE_ADOPTION_APPLY,
+    RUN_RULE_CACHE_RESTORE_ADOPTION_PREPARE,
+    RUN_RULE_CACHE_RESTORE_FINAL_OUTPUTS_APPLY,
+    RUN_RULE_CACHE_RESTORE_FINAL_OUTPUTS_PREPARE,
+    RUN_RULE_CACHE_RESTORE_PINS_APPLY,
+    RUN_RULE_CACHE_RESTORE_PINS_PREPARE,
+    RUN_RULE_CACHE_RESTORE_STAGED_FILES_APPLY,
+    RUN_RULE_CACHE_RESTORE_STAGED_FILES_PREPARE,
+    RUN_RULE_OUTPUT_INVALIDATION_APPLY,
+    RUN_RULE_RETRY,
     RUN_RULES_READ,
     WORKFLOW_REVISION_READ,
 )
@@ -163,12 +173,19 @@ async def retry_run(run_id: str, payload: RunRetryRequest) -> dict[str, Any]:
     return await retry_run_from_request(run_id, payload)
 
 
-@router.post("/api/v1/runs/{run_id}/rules/retry", status_code=202)
+@router.post(
+    "/api/v1/runs/{run_id}/rules/retry",
+    operation_id=REMOTE_ENDPOINTS[RUN_RULE_RETRY].operation_id,
+    status_code=202,
+)
 async def retry_run_rules(run_id: str, payload: RunRuleRetryRequest) -> dict[str, Any]:
     return await retry_run_rules_from_request(run_id, payload)
 
 
-@router.post("/api/v1/runs/{run_id}/rules/output-invalidation/apply")
+@router.post(
+    "/api/v1/runs/{run_id}/rules/output-invalidation/apply",
+    operation_id=REMOTE_ENDPOINTS[RUN_RULE_OUTPUT_INVALIDATION_APPLY].operation_id,
+)
 async def apply_rule_output_invalidation(
     run_id: str,
     payload: RunRuleOutputInvalidationApplyRequest,
@@ -176,7 +193,10 @@ async def apply_rule_output_invalidation(
     return await apply_rule_output_invalidation_from_request(run_id, payload)
 
 
-@router.post("/api/v1/runs/{run_id}/rules/cache-restore/pins/prepare")
+@router.post(
+    "/api/v1/runs/{run_id}/rules/cache-restore/pins/prepare",
+    operation_id=REMOTE_ENDPOINTS[RUN_RULE_CACHE_RESTORE_PINS_PREPARE].operation_id,
+)
 async def prepare_rule_cache_restore_pins(
     run_id: str,
     payload: RunRuleCacheRestorePinPrepareRequest,
@@ -184,7 +204,10 @@ async def prepare_rule_cache_restore_pins(
     return await prepare_rule_cache_restore_pins_from_request(run_id, payload)
 
 
-@router.post("/api/v1/runs/{run_id}/rules/cache-restore/pins/apply")
+@router.post(
+    "/api/v1/runs/{run_id}/rules/cache-restore/pins/apply",
+    operation_id=REMOTE_ENDPOINTS[RUN_RULE_CACHE_RESTORE_PINS_APPLY].operation_id,
+)
 async def apply_rule_cache_restore_pins(
     run_id: str,
     payload: RunRuleCacheRestorePinApplyRequest,
@@ -192,7 +215,10 @@ async def apply_rule_cache_restore_pins(
     return await apply_rule_cache_restore_pins_from_request(run_id, payload)
 
 
-@router.post("/api/v1/runs/{run_id}/rules/cache-restore/staged-files/prepare")
+@router.post(
+    "/api/v1/runs/{run_id}/rules/cache-restore/staged-files/prepare",
+    operation_id=REMOTE_ENDPOINTS[RUN_RULE_CACHE_RESTORE_STAGED_FILES_PREPARE].operation_id,
+)
 async def prepare_rule_cache_restore_staged_files(
     run_id: str,
     payload: RunRuleCacheRestoreStagedFilePrepareRequest,
@@ -200,7 +226,10 @@ async def prepare_rule_cache_restore_staged_files(
     return await prepare_rule_cache_restore_staged_files_from_request(run_id, payload)
 
 
-@router.post("/api/v1/runs/{run_id}/rules/cache-restore/staged-files/apply")
+@router.post(
+    "/api/v1/runs/{run_id}/rules/cache-restore/staged-files/apply",
+    operation_id=REMOTE_ENDPOINTS[RUN_RULE_CACHE_RESTORE_STAGED_FILES_APPLY].operation_id,
+)
 async def apply_rule_cache_restore_staged_files(
     run_id: str,
     payload: RunRuleCacheRestoreStagedFileApplyRequest,
@@ -208,7 +237,10 @@ async def apply_rule_cache_restore_staged_files(
     return await apply_rule_cache_restore_staged_files_from_request(run_id, payload)
 
 
-@router.post("/api/v1/runs/{run_id}/rules/cache-restore/final-outputs/prepare")
+@router.post(
+    "/api/v1/runs/{run_id}/rules/cache-restore/final-outputs/prepare",
+    operation_id=REMOTE_ENDPOINTS[RUN_RULE_CACHE_RESTORE_FINAL_OUTPUTS_PREPARE].operation_id,
+)
 async def prepare_rule_cache_restore_final_outputs(
     run_id: str,
     payload: RunRuleCacheRestoreFinalOutputPrepareRequest,
@@ -216,7 +248,10 @@ async def prepare_rule_cache_restore_final_outputs(
     return await prepare_rule_cache_restore_final_outputs_from_request(run_id, payload)
 
 
-@router.post("/api/v1/runs/{run_id}/rules/cache-restore/final-outputs/apply")
+@router.post(
+    "/api/v1/runs/{run_id}/rules/cache-restore/final-outputs/apply",
+    operation_id=REMOTE_ENDPOINTS[RUN_RULE_CACHE_RESTORE_FINAL_OUTPUTS_APPLY].operation_id,
+)
 async def apply_rule_cache_restore_final_outputs(
     run_id: str,
     payload: RunRuleCacheRestoreFinalOutputApplyRequest,
@@ -224,7 +259,10 @@ async def apply_rule_cache_restore_final_outputs(
     return await apply_rule_cache_restore_final_outputs_from_request(run_id, payload)
 
 
-@router.post("/api/v1/runs/{run_id}/rules/cache-restore/adoption/prepare")
+@router.post(
+    "/api/v1/runs/{run_id}/rules/cache-restore/adoption/prepare",
+    operation_id=REMOTE_ENDPOINTS[RUN_RULE_CACHE_RESTORE_ADOPTION_PREPARE].operation_id,
+)
 async def prepare_rule_cache_restore_adoption(
     run_id: str,
     payload: RunRuleCacheRestoreAdoptionPrepareRequest,
@@ -232,7 +270,10 @@ async def prepare_rule_cache_restore_adoption(
     return await prepare_rule_cache_restore_adoption_from_request(run_id, payload)
 
 
-@router.post("/api/v1/runs/{run_id}/rules/cache-restore/adoption/apply")
+@router.post(
+    "/api/v1/runs/{run_id}/rules/cache-restore/adoption/apply",
+    operation_id=REMOTE_ENDPOINTS[RUN_RULE_CACHE_RESTORE_ADOPTION_APPLY].operation_id,
+)
 async def apply_rule_cache_restore_adoption(
     run_id: str,
     payload: RunRuleCacheRestoreAdoptionApplyRequest,

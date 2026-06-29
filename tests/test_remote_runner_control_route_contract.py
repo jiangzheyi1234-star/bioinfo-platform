@@ -397,14 +397,44 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
     assert '"/api/v1/runs/{run_id}/retry"' in execution_query_route_source
     assert "operation_id=REMOTE_ENDPOINTS[RUN_CANCEL].operation_id" in execution_query_route_source
     assert "operation_id=REMOTE_ENDPOINTS[RUN_RETRY].operation_id" in execution_query_route_source
-    assert '@router.post("/api/v1/runs/{run_id}/rules/retry", status_code=202)' in execution_query_route_source
-    assert '@router.post("/api/v1/runs/{run_id}/rules/output-invalidation/apply")' in execution_query_route_source
-    assert '@router.post("/api/v1/runs/{run_id}/rules/cache-restore/staged-files/prepare")' in execution_query_route_source
-    assert '@router.post("/api/v1/runs/{run_id}/rules/cache-restore/staged-files/apply")' in execution_query_route_source
-    assert '@router.post("/api/v1/runs/{run_id}/rules/cache-restore/final-outputs/prepare")' in execution_query_route_source
-    assert '@router.post("/api/v1/runs/{run_id}/rules/cache-restore/final-outputs/apply")' in execution_query_route_source
-    assert '@router.post("/api/v1/runs/{run_id}/rules/cache-restore/adoption/prepare")' in execution_query_route_source
-    assert '@router.post("/api/v1/runs/{run_id}/rules/cache-restore/adoption/apply")' in execution_query_route_source
+    assert '"/api/v1/runs/{run_id}/rules/retry"' in execution_query_route_source
+    assert "operation_id=REMOTE_ENDPOINTS[RUN_RULE_RETRY].operation_id" in execution_query_route_source
+    assert '"/api/v1/runs/{run_id}/rules/output-invalidation/apply"' in execution_query_route_source
+    assert "operation_id=REMOTE_ENDPOINTS[RUN_RULE_OUTPUT_INVALIDATION_APPLY].operation_id" in execution_query_route_source
+    assert '"/api/v1/runs/{run_id}/rules/cache-restore/pins/prepare"' in execution_query_route_source
+    assert "operation_id=REMOTE_ENDPOINTS[RUN_RULE_CACHE_RESTORE_PINS_PREPARE].operation_id" in execution_query_route_source
+    assert '"/api/v1/runs/{run_id}/rules/cache-restore/pins/apply"' in execution_query_route_source
+    assert "operation_id=REMOTE_ENDPOINTS[RUN_RULE_CACHE_RESTORE_PINS_APPLY].operation_id" in execution_query_route_source
+    assert '"/api/v1/runs/{run_id}/rules/cache-restore/staged-files/prepare"' in execution_query_route_source
+    assert (
+        "operation_id=REMOTE_ENDPOINTS[RUN_RULE_CACHE_RESTORE_STAGED_FILES_PREPARE].operation_id"
+        in execution_query_route_source
+    )
+    assert '"/api/v1/runs/{run_id}/rules/cache-restore/staged-files/apply"' in execution_query_route_source
+    assert (
+        "operation_id=REMOTE_ENDPOINTS[RUN_RULE_CACHE_RESTORE_STAGED_FILES_APPLY].operation_id"
+        in execution_query_route_source
+    )
+    assert '"/api/v1/runs/{run_id}/rules/cache-restore/final-outputs/prepare"' in execution_query_route_source
+    assert (
+        "operation_id=REMOTE_ENDPOINTS[RUN_RULE_CACHE_RESTORE_FINAL_OUTPUTS_PREPARE].operation_id"
+        in execution_query_route_source
+    )
+    assert '"/api/v1/runs/{run_id}/rules/cache-restore/final-outputs/apply"' in execution_query_route_source
+    assert (
+        "operation_id=REMOTE_ENDPOINTS[RUN_RULE_CACHE_RESTORE_FINAL_OUTPUTS_APPLY].operation_id"
+        in execution_query_route_source
+    )
+    assert '"/api/v1/runs/{run_id}/rules/cache-restore/adoption/prepare"' in execution_query_route_source
+    assert (
+        "operation_id=REMOTE_ENDPOINTS[RUN_RULE_CACHE_RESTORE_ADOPTION_PREPARE].operation_id"
+        in execution_query_route_source
+    )
+    assert '"/api/v1/runs/{run_id}/rules/cache-restore/adoption/apply"' in execution_query_route_source
+    assert (
+        "operation_id=REMOTE_ENDPOINTS[RUN_RULE_CACHE_RESTORE_ADOPTION_APPLY].operation_id"
+        in execution_query_route_source
+    )
     assert '"/api/v1/runs/{run_id}/resume"' in execution_query_route_source
     assert "operation_id=REMOTE_ENDPOINTS[RUN_RESUME].operation_id" in execution_query_route_source
     assert '"/api/v1/runs/{run_id}/events"' in execution_query_route_source

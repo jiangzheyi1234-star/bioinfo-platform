@@ -51,6 +51,16 @@ RUN_FAILURE_LOCATOR_READ = "run.failure_locator.read"
 RUN_CANCEL = "run.cancel"
 RUN_RETRY = "run.retry"
 RUN_RESUME = "run.resume"
+RUN_RULE_RETRY = "run.rule_retry"
+RUN_RULE_OUTPUT_INVALIDATION_APPLY = "run.rule_output_invalidation.apply"
+RUN_RULE_CACHE_RESTORE_PINS_PREPARE = "run.rule_cache_restore.pins.prepare"
+RUN_RULE_CACHE_RESTORE_PINS_APPLY = "run.rule_cache_restore.pins.apply"
+RUN_RULE_CACHE_RESTORE_STAGED_FILES_PREPARE = "run.rule_cache_restore.staged_files.prepare"
+RUN_RULE_CACHE_RESTORE_STAGED_FILES_APPLY = "run.rule_cache_restore.staged_files.apply"
+RUN_RULE_CACHE_RESTORE_FINAL_OUTPUTS_PREPARE = "run.rule_cache_restore.final_outputs.prepare"
+RUN_RULE_CACHE_RESTORE_FINAL_OUTPUTS_APPLY = "run.rule_cache_restore.final_outputs.apply"
+RUN_RULE_CACHE_RESTORE_ADOPTION_PREPARE = "run.rule_cache_restore.adoption.prepare"
+RUN_RULE_CACHE_RESTORE_ADOPTION_APPLY = "run.rule_cache_restore.adoption.apply"
 WORKFLOW_REVISION_READ = "workflow_revision.read"
 RESULT_LIST = "result.list"
 RESULT_READ = "result.read"
@@ -209,6 +219,113 @@ REMOTE_ENDPOINTS: dict[str, RemoteEndpoint] = {
         cache_scope="run-command",
         invalidates=("run-read-model",),
         accepted_statuses=(202,),
+    ),
+    RUN_RULE_RETRY: RemoteEndpoint(
+        endpoint_id=RUN_RULE_RETRY,
+        method="POST",
+        path_template="/api/v1/runs/{run_id}/rules/retry",
+        operation_id="retryRunRules",
+        governance_action="run.rule_retry",
+        request_schema="run-rule-retry-request.v1",
+        response_schema="run-rule-retry-result.v1",
+        cache_scope="run-rule-command",
+        invalidates=("run-read-model",),
+        accepted_statuses=(202,),
+    ),
+    RUN_RULE_OUTPUT_INVALIDATION_APPLY: RemoteEndpoint(
+        endpoint_id=RUN_RULE_OUTPUT_INVALIDATION_APPLY,
+        method="POST",
+        path_template="/api/v1/runs/{run_id}/rules/output-invalidation/apply",
+        operation_id="applyRuleOutputInvalidation",
+        governance_action="run.rule_output_invalidation.apply",
+        request_schema="run-rule-output-invalidation-apply-request.v1",
+        response_schema="rule-output-invalidation-apply-result.v1",
+        cache_scope="run-rule-command",
+        invalidates=("run-read-model",),
+    ),
+    RUN_RULE_CACHE_RESTORE_PINS_PREPARE: RemoteEndpoint(
+        endpoint_id=RUN_RULE_CACHE_RESTORE_PINS_PREPARE,
+        method="POST",
+        path_template="/api/v1/runs/{run_id}/rules/cache-restore/pins/prepare",
+        operation_id="prepareRuleCacheRestorePins",
+        governance_action="run.rule_cache_restore.pins.prepare",
+        request_schema="run-rule-cache-restore-pin-prepare-request.v1",
+        response_schema="rule-cache-restore-pin-prepare-result.v1",
+        cache_scope="run-rule-command",
+    ),
+    RUN_RULE_CACHE_RESTORE_PINS_APPLY: RemoteEndpoint(
+        endpoint_id=RUN_RULE_CACHE_RESTORE_PINS_APPLY,
+        method="POST",
+        path_template="/api/v1/runs/{run_id}/rules/cache-restore/pins/apply",
+        operation_id="applyRuleCacheRestorePins",
+        governance_action="run.rule_cache_restore.pins.apply",
+        request_schema="run-rule-cache-restore-pin-apply-request.v1",
+        response_schema="rule-cache-restore-pin-apply-result.v1",
+        cache_scope="run-rule-command",
+        invalidates=("run-read-model",),
+    ),
+    RUN_RULE_CACHE_RESTORE_STAGED_FILES_PREPARE: RemoteEndpoint(
+        endpoint_id=RUN_RULE_CACHE_RESTORE_STAGED_FILES_PREPARE,
+        method="POST",
+        path_template="/api/v1/runs/{run_id}/rules/cache-restore/staged-files/prepare",
+        operation_id="prepareRuleCacheRestoreStagedFiles",
+        governance_action="run.rule_cache_restore.staged_files.prepare",
+        request_schema="run-rule-cache-restore-staged-file-prepare-request.v1",
+        response_schema="rule-cache-restore-staged-file-prepare-result.v1",
+        cache_scope="run-rule-command",
+    ),
+    RUN_RULE_CACHE_RESTORE_STAGED_FILES_APPLY: RemoteEndpoint(
+        endpoint_id=RUN_RULE_CACHE_RESTORE_STAGED_FILES_APPLY,
+        method="POST",
+        path_template="/api/v1/runs/{run_id}/rules/cache-restore/staged-files/apply",
+        operation_id="applyRuleCacheRestoreStagedFiles",
+        governance_action="run.rule_cache_restore.staged_files.apply",
+        request_schema="run-rule-cache-restore-staged-file-apply-request.v1",
+        response_schema="rule-cache-restore-staged-file-apply-result.v1",
+        cache_scope="run-rule-command",
+        invalidates=("run-read-model",),
+    ),
+    RUN_RULE_CACHE_RESTORE_FINAL_OUTPUTS_PREPARE: RemoteEndpoint(
+        endpoint_id=RUN_RULE_CACHE_RESTORE_FINAL_OUTPUTS_PREPARE,
+        method="POST",
+        path_template="/api/v1/runs/{run_id}/rules/cache-restore/final-outputs/prepare",
+        operation_id="prepareRuleCacheRestoreFinalOutputs",
+        governance_action="run.rule_cache_restore.final_outputs.prepare",
+        request_schema="run-rule-cache-restore-final-output-prepare-request.v1",
+        response_schema="rule-cache-restore-final-output-prepare-result.v1",
+        cache_scope="run-rule-command",
+    ),
+    RUN_RULE_CACHE_RESTORE_FINAL_OUTPUTS_APPLY: RemoteEndpoint(
+        endpoint_id=RUN_RULE_CACHE_RESTORE_FINAL_OUTPUTS_APPLY,
+        method="POST",
+        path_template="/api/v1/runs/{run_id}/rules/cache-restore/final-outputs/apply",
+        operation_id="applyRuleCacheRestoreFinalOutputs",
+        governance_action="run.rule_cache_restore.final_outputs.apply",
+        request_schema="run-rule-cache-restore-final-output-apply-request.v1",
+        response_schema="rule-cache-restore-final-output-apply-result.v1",
+        cache_scope="run-rule-command",
+        invalidates=("run-read-model",),
+    ),
+    RUN_RULE_CACHE_RESTORE_ADOPTION_PREPARE: RemoteEndpoint(
+        endpoint_id=RUN_RULE_CACHE_RESTORE_ADOPTION_PREPARE,
+        method="POST",
+        path_template="/api/v1/runs/{run_id}/rules/cache-restore/adoption/prepare",
+        operation_id="prepareRuleCacheRestoreAdoption",
+        governance_action="run.rule_cache_restore.adoption.prepare",
+        request_schema="run-rule-cache-restore-adoption-prepare-request.v1",
+        response_schema="rule-cache-restore-adoption-prepare-result.v1",
+        cache_scope="run-rule-command",
+    ),
+    RUN_RULE_CACHE_RESTORE_ADOPTION_APPLY: RemoteEndpoint(
+        endpoint_id=RUN_RULE_CACHE_RESTORE_ADOPTION_APPLY,
+        method="POST",
+        path_template="/api/v1/runs/{run_id}/rules/cache-restore/adoption/apply",
+        operation_id="applyRuleCacheRestoreAdoption",
+        governance_action="run.rule_cache_restore.adoption.apply",
+        request_schema="run-rule-cache-restore-adoption-apply-request.v1",
+        response_schema="rule-cache-restore-adoption-apply-result.v1",
+        cache_scope="run-rule-command",
+        invalidates=("run-read-model",),
     ),
     WORKFLOW_REVISION_READ: RemoteEndpoint(
         endpoint_id=WORKFLOW_REVISION_READ,

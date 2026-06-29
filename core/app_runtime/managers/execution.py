@@ -37,6 +37,16 @@ from core.contracts.remote_endpoints import (
     RUN_RESUME,
     RUN_RESULTS_READ,
     RUN_RETRY,
+    RUN_RULE_CACHE_RESTORE_ADOPTION_APPLY,
+    RUN_RULE_CACHE_RESTORE_ADOPTION_PREPARE,
+    RUN_RULE_CACHE_RESTORE_FINAL_OUTPUTS_APPLY,
+    RUN_RULE_CACHE_RESTORE_FINAL_OUTPUTS_PREPARE,
+    RUN_RULE_CACHE_RESTORE_PINS_APPLY,
+    RUN_RULE_CACHE_RESTORE_PINS_PREPARE,
+    RUN_RULE_CACHE_RESTORE_STAGED_FILES_APPLY,
+    RUN_RULE_CACHE_RESTORE_STAGED_FILES_PREPARE,
+    RUN_RULE_OUTPUT_INVALIDATION_APPLY,
+    RUN_RULE_RETRY,
     RUN_RULES_READ,
     SECRET_PROVIDER_READINESS_READ,
     WORKFLOW_BACKFILL_LAUNCH_LIST,
@@ -388,115 +398,69 @@ class ExecutionManager(BaseRuntimeManager):
         return self.read_remote_endpoint(RUN_RETRY, path_values={"run_id": run_id}, payload=dict(payload or {}))
 
     def retry_run_rules(self, run_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-        return {"data": self.call_runner("retry_run_rules", run_id=run_id, payload=dict(payload or {}))}
+        return self._run_command_endpoint(RUN_RULE_RETRY, run_id, payload)
 
     def apply_rule_output_invalidation(self, run_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-        return {
-            "data": self.call_runner(
-                "apply_rule_output_invalidation",
-                run_id=run_id,
-                payload=dict(payload or {}),
-            )
-        }
+        return self._run_command_endpoint(RUN_RULE_OUTPUT_INVALIDATION_APPLY, run_id, payload)
 
     def prepare_rule_cache_restore_pins(self, run_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-        return {
-            "data": self.call_runner(
-                "prepare_rule_cache_restore_pins",
-                run_id=run_id,
-                payload=dict(payload or {}),
-            )
-        }
+        return self._run_command_endpoint(RUN_RULE_CACHE_RESTORE_PINS_PREPARE, run_id, payload)
 
     def apply_rule_cache_restore_pins(self, run_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-        return {
-            "data": self.call_runner(
-                "apply_rule_cache_restore_pins",
-                run_id=run_id,
-                payload=dict(payload or {}),
-            )
-        }
+        return self._run_command_endpoint(RUN_RULE_CACHE_RESTORE_PINS_APPLY, run_id, payload)
 
     def prepare_rule_cache_restore_staged_files(
         self,
         run_id: str,
         payload: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
-        return {
-            "data": self.call_runner(
-                "prepare_rule_cache_restore_staged_files",
-                run_id=run_id,
-                payload=dict(payload or {}),
-            )
-        }
+        return self._run_command_endpoint(RUN_RULE_CACHE_RESTORE_STAGED_FILES_PREPARE, run_id, payload)
 
     def apply_rule_cache_restore_staged_files(
         self,
         run_id: str,
         payload: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
-        return {
-            "data": self.call_runner(
-                "apply_rule_cache_restore_staged_files",
-                run_id=run_id,
-                payload=dict(payload or {}),
-            )
-        }
+        return self._run_command_endpoint(RUN_RULE_CACHE_RESTORE_STAGED_FILES_APPLY, run_id, payload)
 
     def prepare_rule_cache_restore_final_outputs(
         self,
         run_id: str,
         payload: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
-        return {
-            "data": self.call_runner(
-                "prepare_rule_cache_restore_final_outputs",
-                run_id=run_id,
-                payload=dict(payload or {}),
-            )
-        }
+        return self._run_command_endpoint(RUN_RULE_CACHE_RESTORE_FINAL_OUTPUTS_PREPARE, run_id, payload)
 
     def apply_rule_cache_restore_final_outputs(
         self,
         run_id: str,
         payload: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
-        return {
-            "data": self.call_runner(
-                "apply_rule_cache_restore_final_outputs",
-                run_id=run_id,
-                payload=dict(payload or {}),
-            )
-        }
+        return self._run_command_endpoint(RUN_RULE_CACHE_RESTORE_FINAL_OUTPUTS_APPLY, run_id, payload)
 
     def prepare_rule_cache_restore_adoption(
         self,
         run_id: str,
         payload: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
-        return {
-            "data": self.call_runner(
-                "prepare_rule_cache_restore_adoption",
-                run_id=run_id,
-                payload=dict(payload or {}),
-            )
-        }
+        return self._run_command_endpoint(RUN_RULE_CACHE_RESTORE_ADOPTION_PREPARE, run_id, payload)
 
     def apply_rule_cache_restore_adoption(
         self,
         run_id: str,
         payload: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
-        return {
-            "data": self.call_runner(
-                "apply_rule_cache_restore_adoption",
-                run_id=run_id,
-                payload=dict(payload or {}),
-            )
-        }
+        return self._run_command_endpoint(RUN_RULE_CACHE_RESTORE_ADOPTION_APPLY, run_id, payload)
 
     def resume_run(self, run_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         return self.read_remote_endpoint(RUN_RESUME, path_values={"run_id": run_id}, payload=dict(payload or {}))
+
+    def _run_command_endpoint(
+        self,
+        endpoint_id: str,
+        run_id: str,
+        payload: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        return self.read_remote_endpoint(endpoint_id, path_values={"run_id": run_id}, payload=dict(payload or {}))
 
     def get_run_events(self, run_id: str) -> dict[str, Any]:
         return self._get_run_read_model(RUN_EVENTS_READ, run_id)

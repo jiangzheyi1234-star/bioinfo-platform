@@ -367,7 +367,10 @@ def test_runtime_execution_operations_live_in_dedicated_mixin() -> None:
         "get_workflow_revision",
         "cancel_run",
         "retry_run",
+        "retry_run_rules",
         "apply_rule_output_invalidation",
+        "prepare_rule_cache_restore_pins",
+        "apply_rule_cache_restore_pins",
         "prepare_rule_cache_restore_staged_files",
         "apply_rule_cache_restore_staged_files",
         "prepare_rule_cache_restore_final_outputs",
@@ -486,6 +489,16 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "RUN_CANCEL" in execution_manager_source
     assert "RUN_RETRY" in execution_manager_source
     assert "RUN_RESUME" in execution_manager_source
+    assert "RUN_RULE_RETRY" in execution_manager_source
+    assert "RUN_RULE_OUTPUT_INVALIDATION_APPLY" in execution_manager_source
+    assert "RUN_RULE_CACHE_RESTORE_PINS_PREPARE" in execution_manager_source
+    assert "RUN_RULE_CACHE_RESTORE_PINS_APPLY" in execution_manager_source
+    assert "RUN_RULE_CACHE_RESTORE_STAGED_FILES_PREPARE" in execution_manager_source
+    assert "RUN_RULE_CACHE_RESTORE_STAGED_FILES_APPLY" in execution_manager_source
+    assert "RUN_RULE_CACHE_RESTORE_FINAL_OUTPUTS_PREPARE" in execution_manager_source
+    assert "RUN_RULE_CACHE_RESTORE_FINAL_OUTPUTS_APPLY" in execution_manager_source
+    assert "RUN_RULE_CACHE_RESTORE_ADOPTION_PREPARE" in execution_manager_source
+    assert "RUN_RULE_CACHE_RESTORE_ADOPTION_APPLY" in execution_manager_source
     assert "RESULT_LIST" in execution_manager_source
     assert "RESULT_READ" in execution_manager_source
     assert "RESULT_PREVIEW_READ" in execution_manager_source
@@ -504,14 +517,16 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "manager.get_workflow_revision" not in execution_manager_source
     assert '"cancel_run"' not in execution_manager_source
     assert '"retry_run"' not in execution_manager_source
-    assert "self.call_runner(\"retry_run_rules\"" in execution_manager_source
-    assert "self.call_runner(\n                \"apply_rule_output_invalidation\"," in execution_manager_source
-    assert "self.call_runner(\n                \"prepare_rule_cache_restore_staged_files\"," in execution_manager_source
-    assert "self.call_runner(\n                \"apply_rule_cache_restore_staged_files\"," in execution_manager_source
-    assert "self.call_runner(\n                \"prepare_rule_cache_restore_final_outputs\"," in execution_manager_source
-    assert "self.call_runner(\n                \"apply_rule_cache_restore_final_outputs\"," in execution_manager_source
-    assert "self.call_runner(\n                \"prepare_rule_cache_restore_adoption\"," in execution_manager_source
-    assert "self.call_runner(\n                \"apply_rule_cache_restore_adoption\"," in execution_manager_source
+    assert '"retry_run_rules"' not in execution_manager_source
+    assert '"apply_rule_output_invalidation"' not in execution_manager_source
+    assert '"prepare_rule_cache_restore_pins"' not in execution_manager_source
+    assert '"apply_rule_cache_restore_pins"' not in execution_manager_source
+    assert '"prepare_rule_cache_restore_staged_files"' not in execution_manager_source
+    assert '"apply_rule_cache_restore_staged_files"' not in execution_manager_source
+    assert '"prepare_rule_cache_restore_final_outputs"' not in execution_manager_source
+    assert '"apply_rule_cache_restore_final_outputs"' not in execution_manager_source
+    assert '"prepare_rule_cache_restore_adoption"' not in execution_manager_source
+    assert '"apply_rule_cache_restore_adoption"' not in execution_manager_source
     assert '"resume_run"' not in execution_manager_source
     assert "self.call_runner(\"get_result_audit\"" not in execution_manager_source
     assert '"get_artifact_lifecycle_usage"' not in execution_manager_source

@@ -98,40 +98,36 @@ def _source(path: str) -> str:
 
 def test_remote_runner_execution_proxy_uses_endpoint_contracts_for_basic_run_commands() -> None:
     proxy_source = _source("core/remote_runner/proxy.py")
-    reexecution_proxy_source = _source("core/remote_runner/reexecution_proxy.py")
     endpoint_contracts_source = _source("core/contracts/remote_endpoints.py")
 
     assert "def cancel_run(self, **kwargs) -> dict[str, Any]:" not in proxy_source
     assert "def retry_run(self, **kwargs) -> dict[str, Any]:" not in proxy_source
-    assert "def resume_run(self, **kwargs) -> dict[str, Any]:" not in reexecution_proxy_source
+    assert not (ROOT / "core/remote_runner/reexecution_proxy.py").exists()
     assert 'path_template="/api/v1/runs/{run_id}/cancel"' in endpoint_contracts_source
     assert 'path_template="/api/v1/runs/{run_id}/retry"' in endpoint_contracts_source
     assert 'path_template="/api/v1/runs/{run_id}/resume"' in endpoint_contracts_source
 
 
-def test_remote_runner_execution_proxy_exposes_rule_retry_and_resume_paths() -> None:
+def test_remote_runner_execution_proxy_uses_endpoint_contracts_for_rule_commands() -> None:
     manager_source = _source("core/remote_runner/manager.py")
-    proxy_source = _source("core/remote_runner/reexecution_proxy.py")
+    endpoint_contracts_source = _source("core/contracts/remote_endpoints.py")
 
-    assert "from core.remote_runner.reexecution_proxy import RemoteRunnerReexecutionProxyMixin" in manager_source
-    assert "RemoteRunnerReexecutionProxyMixin" in manager_source
-    assert "class RemoteRunnerReexecutionProxyMixin:" in proxy_source
-    assert "def retry_run_rules(self, **kwargs) -> dict[str, Any]:" in proxy_source
-    assert 'client.post_json(f"/api/v1/runs/{kwargs[\'run_id\']}/rules/retry", kwargs["payload"])["data"]' in proxy_source
-    assert "def apply_rule_output_invalidation(self, **kwargs) -> dict[str, Any]:" in proxy_source
-    assert 'f"/api/v1/runs/{kwargs[\'run_id\']}/rules/output-invalidation/apply"' in proxy_source
-    assert "def prepare_rule_cache_restore_staged_files(self, **kwargs) -> dict[str, Any]:" in proxy_source
-    assert 'f"/api/v1/runs/{kwargs[\'run_id\']}/rules/cache-restore/staged-files/prepare"' in proxy_source
-    assert "def apply_rule_cache_restore_staged_files(self, **kwargs) -> dict[str, Any]:" in proxy_source
-    assert 'f"/api/v1/runs/{kwargs[\'run_id\']}/rules/cache-restore/staged-files/apply"' in proxy_source
-    assert "def prepare_rule_cache_restore_final_outputs(self, **kwargs) -> dict[str, Any]:" in proxy_source
-    assert 'f"/api/v1/runs/{kwargs[\'run_id\']}/rules/cache-restore/final-outputs/prepare"' in proxy_source
-    assert "def apply_rule_cache_restore_final_outputs(self, **kwargs) -> dict[str, Any]:" in proxy_source
-    assert 'f"/api/v1/runs/{kwargs[\'run_id\']}/rules/cache-restore/final-outputs/apply"' in proxy_source
-    assert "def prepare_rule_cache_restore_adoption(self, **kwargs) -> dict[str, Any]:" in proxy_source
-    assert 'f"/api/v1/runs/{kwargs[\'run_id\']}/rules/cache-restore/adoption/prepare"' in proxy_source
-    assert "def apply_rule_cache_restore_adoption(self, **kwargs) -> dict[str, Any]:" in proxy_source
-    assert 'f"/api/v1/runs/{kwargs[\'run_id\']}/rules/cache-restore/adoption/apply"' in proxy_source
+    assert "from core.remote_runner.reexecution_proxy import RemoteRunnerReexecutionProxyMixin" not in manager_source
+    assert "RemoteRunnerReexecutionProxyMixin" not in manager_source
+    assert not (ROOT / "core/remote_runner/reexecution_proxy.py").exists()
+    for path_template in (
+        "/api/v1/runs/{run_id}/rules/retry",
+        "/api/v1/runs/{run_id}/rules/output-invalidation/apply",
+        "/api/v1/runs/{run_id}/rules/cache-restore/pins/prepare",
+        "/api/v1/runs/{run_id}/rules/cache-restore/pins/apply",
+        "/api/v1/runs/{run_id}/rules/cache-restore/staged-files/prepare",
+        "/api/v1/runs/{run_id}/rules/cache-restore/staged-files/apply",
+        "/api/v1/runs/{run_id}/rules/cache-restore/final-outputs/prepare",
+        "/api/v1/runs/{run_id}/rules/cache-restore/final-outputs/apply",
+        "/api/v1/runs/{run_id}/rules/cache-restore/adoption/prepare",
+        "/api/v1/runs/{run_id}/rules/cache-restore/adoption/apply",
+    ):
+        assert f'path_template="{path_template}"' in endpoint_contracts_source
 
 
 def test_run_read_model_endpoints_are_contract_rendered() -> None:
@@ -628,6 +624,15 @@ def test_remote_runner_http_client_does_not_keep_migrated_semantic_methods() -> 
     assert not hasattr(RemoteRunnerHttpClient, "get_workflow_backfill_launch")
     assert not hasattr(RemoteRunnerHttpClient, "list_governance_audit_events")
     assert not hasattr(RemoteRunnerHttpClient, "get_secret_provider_readiness")
+    assert not hasattr(RemoteRunnerHttpClient, "apply_rule_output_invalidation")
+    assert not hasattr(RemoteRunnerHttpClient, "prepare_rule_cache_restore_pins")
+    assert not hasattr(RemoteRunnerHttpClient, "apply_rule_cache_restore_pins")
+    assert not hasattr(RemoteRunnerHttpClient, "prepare_rule_cache_restore_staged_files")
+    assert not hasattr(RemoteRunnerHttpClient, "apply_rule_cache_restore_staged_files")
+    assert not hasattr(RemoteRunnerHttpClient, "prepare_rule_cache_restore_final_outputs")
+    assert not hasattr(RemoteRunnerHttpClient, "apply_rule_cache_restore_final_outputs")
+    assert not hasattr(RemoteRunnerHttpClient, "prepare_rule_cache_restore_adoption")
+    assert not hasattr(RemoteRunnerHttpClient, "apply_rule_cache_restore_adoption")
 
 
 class FakeEndpointClient:

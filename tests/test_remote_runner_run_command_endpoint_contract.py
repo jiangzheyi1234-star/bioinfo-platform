@@ -18,7 +18,6 @@ from core.governance_policy import HIGH_RISK_API_POLICIES
 from core.remote_runner.client import RemoteRunnerClientError, RemoteRunnerHttpClient
 from core.remote_runner.endpoint_caller import call_remote_endpoint
 from core.remote_runner.proxy import RemoteRunnerProxyMixin
-from core.remote_runner.reexecution_proxy import RemoteRunnerReexecutionProxyMixin
 
 
 RUN_COMMAND_ENDPOINTS = (RUN_CANCEL, RUN_RETRY, RUN_RESUME)
@@ -180,7 +179,6 @@ def test_transport_and_proxy_do_not_keep_basic_run_command_methods() -> None:
         assert not hasattr(RemoteRunnerHttpClient, method_name)
     for method_name in ("cancel_run", "retry_run"):
         assert not hasattr(RemoteRunnerProxyMixin, method_name)
-    assert not hasattr(RemoteRunnerReexecutionProxyMixin, "resume_run")
 
 
 def test_transport_rejects_unlisted_contract_success_status(monkeypatch: pytest.MonkeyPatch) -> None:
