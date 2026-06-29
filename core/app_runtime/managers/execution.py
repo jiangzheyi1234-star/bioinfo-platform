@@ -20,6 +20,10 @@ from core.contracts.remote_endpoints import (
     RESULT_AUDIT_READ,
     RESULT_LIST,
     RESULT_PACKAGE_EXPORT_LIST,
+    RESULT_PACKAGE_BYTE_GC_PREVIEW,
+    RESULT_PACKAGE_BYTE_GC_RUN,
+    RESULT_PACKAGE_EXPORT,
+    RESULT_PACKAGE_RETIRE,
     RESULT_PREVIEW_READ,
     RESULT_READ,
     RUN_ATTEMPTS_READ,
@@ -561,14 +565,13 @@ class ExecutionManager(BaseRuntimeManager):
         payload: dict[str, Any] | None = None,
         server_id: Optional[str] = None,
     ) -> dict[str, Any]:
-        return {
-            "data": self.call_existing_runner(
-                "export_result_package",
-                preferred_server_id=server_id,
-                result_id=result_id,
-                payload=dict(payload or {}),
-            )
-        }
+        return self.read_remote_endpoint(
+            RESULT_PACKAGE_EXPORT,
+            path_values={"result_id": result_id},
+            preferred_server_id=server_id,
+            require_existing_runner=True,
+            payload=dict(payload or {}),
+        )
 
     def list_result_package_exports(
         self,
@@ -611,11 +614,11 @@ class ExecutionManager(BaseRuntimeManager):
     ) -> dict[str, Any]:
         body = dict(payload or {})
         server_id_hint = str(body.pop("serverId", None) or server_id or "").strip() or None
-        return self.call_existing_runner(
-            "retire_result_package",
+        return self.read_remote_endpoint(
+            RESULT_PACKAGE_RETIRE,
+            path_values={"result_id": result_id, "package_export_id": package_export_id},
             preferred_server_id=server_id_hint,
-            result_id=result_id,
-            package_export_id=package_export_id,
+            require_existing_runner=True,
             payload=body,
         )
 
@@ -627,13 +630,12 @@ class ExecutionManager(BaseRuntimeManager):
     ) -> dict[str, Any]:
         body = dict(payload or {})
         server_id_hint = str(body.pop("serverId", None) or server_id or "").strip() or None
-        return {
-            "data": self.call_existing_runner(
-                "preview_result_package_byte_gc",
-                preferred_server_id=server_id_hint,
-                payload=body,
-            )
-        }
+        return self.read_remote_endpoint(
+            RESULT_PACKAGE_BYTE_GC_PREVIEW,
+            preferred_server_id=server_id_hint,
+            require_existing_runner=True,
+            payload=body,
+        )
 
     def run_result_package_byte_gc(
         self,
@@ -643,13 +645,12 @@ class ExecutionManager(BaseRuntimeManager):
     ) -> dict[str, Any]:
         body = dict(payload or {})
         server_id_hint = str(body.pop("serverId", None) or server_id or "").strip() or None
-        return {
-            "data": self.call_existing_runner(
-                "run_result_package_byte_gc",
-                preferred_server_id=server_id_hint,
-                payload=body,
-            )
-        }
+        return self.read_remote_endpoint(
+            RESULT_PACKAGE_BYTE_GC_RUN,
+            preferred_server_id=server_id_hint,
+            require_existing_runner=True,
+            payload=body,
+        )
 
     def get_artifact_lifecycle_usage(
         self,

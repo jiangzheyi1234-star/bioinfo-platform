@@ -289,13 +289,6 @@ class RemoteRunnerHttpClient:
     def apply_rule_cache_restore_adoption(self, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self.post_json(f"/api/v1/runs/{run_id}/rules/cache-restore/adoption/apply", payload)["data"]
 
-    def export_result_package(
-        self,
-        result_id: str,
-        payload: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        return self.post_json(f"/api/v1/results/{result_id}/export", dict(payload or {}))["data"]
-
     def download_result_package(self, result_id: str, package_export_id: str) -> dict[str, Any]:
         result_part = urllib.parse.quote(result_id, safe="")
         export_part = urllib.parse.quote(package_export_id, safe="")
@@ -303,31 +296,6 @@ class RemoteRunnerHttpClient:
             "GET",
             f"/api/v1/results/{result_part}/exports/{export_part}/download",
         )
-
-    def retire_result_package(
-        self,
-        result_id: str,
-        package_export_id: str,
-        payload: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        result_part = urllib.parse.quote(result_id, safe="")
-        export_part = urllib.parse.quote(package_export_id, safe="")
-        return self.post_json(
-            f"/api/v1/results/{result_part}/exports/{export_part}/retire",
-            dict(payload or {}),
-        )["data"]
-
-    def preview_result_package_byte_gc(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
-        return self.post_json(
-            "/api/v1/result-package-exports/bytes/gc/preview",
-            dict(payload or {}),
-        )["data"]
-
-    def run_result_package_byte_gc(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
-        return self.post_json(
-            "/api/v1/result-package-exports/bytes/gc/run",
-            dict(payload or {}),
-        )["data"]
 
     def get_health(self) -> dict[str, Any]:
         startup = self.get_json("/health/startup", accepted_statuses={200, 503})

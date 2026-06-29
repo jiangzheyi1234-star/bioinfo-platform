@@ -26,6 +26,7 @@ def test_result_package_file_io_lives_in_remote_service_not_routes() -> None:
     result_package_proxy_source = _source("core/remote_runner/result_package_proxy.py")
     client_source = _source("core/remote_runner/client.py")
     manager_source = _source("core/remote_runner/manager.py")
+    endpoint_contracts_source = _source("core/contracts/remote_endpoints.py")
 
     assert "zipfile" not in route_source
     assert "Path(" not in route_source
@@ -120,32 +121,38 @@ def test_result_package_file_io_lives_in_remote_service_not_routes() -> None:
     assert "def get_result_audit(self, **kwargs) -> dict[str, Any]:" not in proxy_source
     assert "def export_result_package(self, **kwargs) -> dict[str, Any]:" not in proxy_source
     assert "def download_result_package(self, **kwargs) -> dict[str, Any]:" not in proxy_source
-    assert "def export_result_package(self, **kwargs) -> dict[str, Any]:" in result_package_proxy_source
     assert "def download_result_package(self, **kwargs) -> dict[str, Any]:" in result_package_proxy_source
     assert "def list_result_package_exports(self, **kwargs) -> dict[str, Any]:" not in result_package_proxy_source
-    assert "def retire_result_package(self, **kwargs) -> dict[str, Any]:" in result_package_proxy_source
-    assert "def preview_result_package_byte_gc(self, **kwargs) -> dict[str, Any]:" in result_package_proxy_source
-    assert "def run_result_package_byte_gc(self, **kwargs) -> dict[str, Any]:" in result_package_proxy_source
+    assert "def export_result_package(self, **kwargs) -> dict[str, Any]:" not in result_package_proxy_source
+    assert "def retire_result_package(self, **kwargs) -> dict[str, Any]:" not in result_package_proxy_source
+    assert "def preview_result_package_byte_gc(self, **kwargs) -> dict[str, Any]:" not in result_package_proxy_source
+    assert "def run_result_package_byte_gc(self, **kwargs) -> dict[str, Any]:" not in result_package_proxy_source
     assert "def delete_result_package_bytes(" not in result_package_proxy_source
     assert "RemoteRunnerResultPackageProxyMixin" in manager_source
     assert 'client.get_json(f"/api/v1/results/{kwargs[\'result_id\']}/audit")["data"]' not in proxy_source
-    assert "dict(kwargs.get(\"payload\") or {})" in result_package_proxy_source
-    assert 'client.post_json(\n            f"/api/v1/results/{kwargs[\'result_id\']}/export",' in result_package_proxy_source
     assert "client.download_result_package(kwargs[\"result_id\"], kwargs[\"package_export_id\"])" in result_package_proxy_source
     assert "client.list_result_package_exports(" not in result_package_proxy_source
-    assert "client.retire_result_package(" in result_package_proxy_source
-    assert "client.preview_result_package_byte_gc(" in result_package_proxy_source
-    assert "client.run_result_package_byte_gc(" in result_package_proxy_source
+    assert "client.retire_result_package(" not in result_package_proxy_source
+    assert "client.preview_result_package_byte_gc(" not in result_package_proxy_source
+    assert "client.run_result_package_byte_gc(" not in result_package_proxy_source
     assert "client.delete_result_package_bytes(" not in result_package_proxy_source
-    assert 'self.post_json(f"/api/v1/results/{result_id}/export", dict(payload or {}))["data"]' in client_source
+    assert 'self.post_json(f"/api/v1/results/{result_id}/export", dict(payload or {}))["data"]' not in client_source
     assert "def list_result_package_exports(" not in client_source
     assert "def _request_bytes(" in client_source
     assert "def download_result_package(self, result_id: str, package_export_id: str)" in client_source
-    assert "def retire_result_package(" in client_source
-    assert "def preview_result_package_byte_gc(" in client_source
-    assert "def run_result_package_byte_gc(" in client_source
+    assert "def retire_result_package(" not in client_source
+    assert "def preview_result_package_byte_gc(" not in client_source
+    assert "def run_result_package_byte_gc(" not in client_source
     assert "def delete_result_package_bytes(" not in client_source
 
     assert "def get_result_audit(self, result_id: str) -> dict[str, Any]:" not in client_source
-    assert "def export_result_package(" in client_source
+    assert "def export_result_package(" not in client_source
     assert "payload: dict[str, Any] | None = None" in client_source
+    assert 'path_template="/api/v1/results/{result_id}/export"' in endpoint_contracts_source
+    assert 'path_template="/api/v1/results/{result_id}/exports/{package_export_id}/retire"' in endpoint_contracts_source
+    assert 'path_template="/api/v1/result-package-exports/bytes/gc/preview"' in endpoint_contracts_source
+    assert 'path_template="/api/v1/result-package-exports/bytes/gc/run"' in endpoint_contracts_source
+    assert "operation_id=REMOTE_ENDPOINTS[RESULT_PACKAGE_EXPORT].operation_id" in route_source
+    assert "operation_id=REMOTE_ENDPOINTS[RESULT_PACKAGE_RETIRE].operation_id" in route_source
+    assert "operation_id=REMOTE_ENDPOINTS[RESULT_PACKAGE_BYTE_GC_PREVIEW].operation_id" in route_source
+    assert "operation_id=REMOTE_ENDPOINTS[RESULT_PACKAGE_BYTE_GC_RUN].operation_id" in route_source

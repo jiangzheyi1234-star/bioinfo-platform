@@ -487,6 +487,10 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "RESULT_PREVIEW_READ" in execution_manager_source
     assert "RESULT_AUDIT_READ" in execution_manager_source
     assert "RESULT_PACKAGE_EXPORT_LIST" in execution_manager_source
+    assert "RESULT_PACKAGE_EXPORT" in execution_manager_source
+    assert "RESULT_PACKAGE_RETIRE" in execution_manager_source
+    assert "RESULT_PACKAGE_BYTE_GC_PREVIEW" in execution_manager_source
+    assert "RESULT_PACKAGE_BYTE_GC_RUN" in execution_manager_source
     assert "ARTIFACT_LIFECYCLE_USAGE_READ" in execution_manager_source
     assert "ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ" in execution_manager_source
     assert "ARTIFACT_CACHE_ENTRIES_READ" in execution_manager_source
@@ -510,13 +514,13 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert '"list_artifact_cache_entries"' not in execution_manager_source
     assert '"list_artifact_cache_pins"' not in execution_manager_source
     assert "read_existing_remote_endpoint(" in execution_manager_source
-    assert 'self.call_existing_runner(\n                "export_result_package",' in execution_manager_source
     assert '"list_result_package_exports"' not in execution_manager_source
     assert "require_existing_runner=True" in execution_manager_source
     assert 'self.call_existing_runner(\n            "download_result_package",' in execution_manager_source
-    assert 'self.call_existing_runner(\n            "retire_result_package",' in execution_manager_source
-    assert 'self.call_existing_runner(\n                "preview_result_package_byte_gc",' in execution_manager_source
-    assert 'self.call_existing_runner(\n                "run_result_package_byte_gc",' in execution_manager_source
+    assert '"export_result_package"' not in execution_manager_source
+    assert '"retire_result_package"' not in execution_manager_source
+    assert '"preview_result_package_byte_gc"' not in execution_manager_source
+    assert '"run_result_package_byte_gc"' not in execution_manager_source
     assert "delete_result_package_bytes" not in execution_manager_source
     assert "preferred_server_id=server_id" in execution_manager_source
 

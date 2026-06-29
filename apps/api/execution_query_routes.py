@@ -21,6 +21,10 @@ from core.contracts.remote_endpoints import (
     RESULT_AUDIT_READ,
     RESULT_LIST,
     RESULT_PACKAGE_EXPORT_LIST,
+    RESULT_PACKAGE_BYTE_GC_PREVIEW,
+    RESULT_PACKAGE_BYTE_GC_RUN,
+    RESULT_PACKAGE_EXPORT,
+    RESULT_PACKAGE_RETIRE,
     RESULT_PREVIEW_READ,
     RESULT_READ,
     RUN_ATTEMPTS_READ,
@@ -296,7 +300,10 @@ async def get_result_audit(result_id: str) -> dict[str, Any]:
     return await get_result_audit_from_request(result_id)
 
 
-@router.post("/api/v1/results/{result_id}/export")
+@router.post(
+    "/api/v1/results/{result_id}/export",
+    operation_id=REMOTE_ENDPOINTS[RESULT_PACKAGE_EXPORT].operation_id,
+)
 async def export_result_package(
     result_id: str,
     request: ResultPackageExportRequest,
@@ -322,14 +329,20 @@ async def list_result_package_exports(
     )
 
 
-@router.post("/api/v1/result-package-exports/bytes/gc/preview")
+@router.post(
+    "/api/v1/result-package-exports/bytes/gc/preview",
+    operation_id=REMOTE_ENDPOINTS[RESULT_PACKAGE_BYTE_GC_PREVIEW].operation_id,
+)
 async def preview_result_package_byte_gc(
     request: ResultPackageByteGcPreviewRequest,
 ) -> dict[str, Any]:
     return await preview_result_package_byte_gc_from_request(request)
 
 
-@router.post("/api/v1/result-package-exports/bytes/gc/run")
+@router.post(
+    "/api/v1/result-package-exports/bytes/gc/run",
+    operation_id=REMOTE_ENDPOINTS[RESULT_PACKAGE_BYTE_GC_RUN].operation_id,
+)
 async def run_result_package_byte_gc(
     request: ResultPackageByteGcRunRequest,
 ) -> dict[str, Any]:
@@ -355,7 +368,10 @@ async def download_result_package(
     )
 
 
-@router.post("/api/v1/results/{result_id}/exports/{package_export_id}/retire")
+@router.post(
+    "/api/v1/results/{result_id}/exports/{package_export_id}/retire",
+    operation_id=REMOTE_ENDPOINTS[RESULT_PACKAGE_RETIRE].operation_id,
+)
 async def retire_result_package(
     result_id: str,
     package_export_id: str,
