@@ -156,7 +156,7 @@ function ScenarioFact({
 
 function toolSliceLabel(pack: WorkflowScenarioPack) {
   return pack.requiredWorkflowReadyTools
-    .map((item) => `${item.kind || "tool"}:${item.count || 1}`)
+    .map((item) => `${item.name || item.toolId || item.kind || "tool"}:${item.contractState || "unknown"}`)
     .join(", ");
 }
 

@@ -112,7 +112,14 @@ export type WorkflowScenarioPack = {
     source?: string;
     items?: string[];
   };
-  requiredWorkflowReadyTools: Array<{ kind?: string; count?: number }>;
+  requiredWorkflowReadyTools: Array<{
+    toolId?: string;
+    name?: string;
+    kind?: string;
+    role?: string;
+    contractState?: string;
+    acceptanceEvidence?: string;
+  }>;
   requiredDatabases: Array<{ capability?: string; templates?: string[] }>;
   resultEvidence: string[];
   readinessChecks: WorkflowScenarioPackCheck[];

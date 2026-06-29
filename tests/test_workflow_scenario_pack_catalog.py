@@ -51,6 +51,12 @@ def test_workflow_scenario_pack_catalog_publishes_three_product_scenarios() -> N
         assert item["schemaVersion"] == SCENARIO_PACK_SCHEMA_VERSION
         assert item["noAutomaticExecution"] is True
         assert item["requiredWorkflowReadyTools"]
+        assert 3 <= len(item["requiredWorkflowReadyTools"]) <= 5
+        for tool in item["requiredWorkflowReadyTools"]:
+            assert {"toolId", "name", "kind", "role", "contractState", "acceptanceEvidence"} <= set(tool)
+            assert "count" not in tool
+            assert tool["contractState"] in {"planned", "workflow_ready"}
+            assert "bioconda" not in tool["toolId"].lower()
         assert item["resultEvidence"]
         assert item["readinessChecks"]
         assert all(check["code"] and check["status"] in {"passed", "blocked"} for check in item["readinessChecks"])
@@ -66,20 +72,27 @@ def test_only_moving_pictures_scenario_is_ready_until_vertical_packs_have_real_g
     assert first_run["firstRunPath"] == "/workflows/first-run"
     assert first_run["requiredDatabases"] == []
     assert {check["status"] for check in first_run["readinessChecks"]} == {"passed"}
+    assert {tool["contractState"] for tool in first_run["requiredWorkflowReadyTools"]} == {"workflow_ready"}
 
     taxonomy = items["taxonomy-classification"]
     assert taxonomy["status"] == "blocked"
     assert taxonomy["operatorActionRequired"] is True
     assert taxonomy["firstRunPath"] == ""
     assert "taxonomy_database" in {item["capability"] for item in taxonomy["requiredDatabases"]}
-    assert "SCENARIO_DATABASE_HANDOFF_READY" in {item["code"] for item in taxonomy["nextActions"]}
+    assert {"SCENARIO_TOOL_SLICE_READY", "SCENARIO_DATABASE_HANDOFF_READY", "SCENARIO_SAMPLE_DATA_READY"} <= {
+        item["code"] for item in taxonomy["nextActions"]
+    }
+    assert {tool["contractState"] for tool in taxonomy["requiredWorkflowReadyTools"]} == {"planned"}
 
     amr = items["amr-annotation"]
     assert amr["status"] == "blocked"
     assert amr["operatorActionRequired"] is True
     assert amr["firstRunPath"] == ""
     assert {"amr_database", "annotation_database"} <= {item["capability"] for item in amr["requiredDatabases"]}
-    assert "SCENARIO_TOOL_SLICE_READY" in {item["code"] for item in amr["nextActions"]}
+    assert {"SCENARIO_TOOL_SLICE_READY", "SCENARIO_DATABASE_HANDOFF_READY", "SCENARIO_SAMPLE_DATA_READY"} <= {
+        item["code"] for item in amr["nextActions"]
+    }
+    assert {tool["contractState"] for tool in amr["requiredWorkflowReadyTools"]} == {"planned"}
 
 
 def test_workflow_scenario_pack_api_is_read_only_and_registered() -> None:
@@ -94,6 +107,7 @@ def test_workflow_scenario_pack_api_is_read_only_and_registered() -> None:
     assert "workflow_scenario_pack_router" in main_source
     assert "runtime_service()." not in service_source
     assert "noAutomaticExecution" in service_source
+    assert 'or "/workflows/tools"' not in service_source
 
 
 @pytest.mark.parametrize(
@@ -127,6 +141,44 @@ def test_workflow_scenario_pack_api_is_read_only_and_registered() -> None:
             lambda definitions: definitions[0].update({"pipelineId": "missing-ready-pipeline-v1"}),
             "SCENARIO_READY_PIPELINE_MISSING",
         ),
+        (
+            lambda definitions: definitions[0].update({"requiredWorkflowReadyTools": definitions[0]["requiredWorkflowReadyTools"][:2]}),
+            "SCENARIO_TOOL_SLICE_SIZE_INVALID",
+        ),
+        (
+            lambda definitions: definitions[0]["requiredWorkflowReadyTools"][0].pop("toolId"),
+            "SCENARIO_TOOL_ID_REQUIRED",
+        ),
+        (
+            lambda definitions: definitions[0]["requiredWorkflowReadyTools"][1].update(
+                {"toolId": definitions[0]["requiredWorkflowReadyTools"][0]["toolId"]}
+            ),
+            "SCENARIO_TOOL_ID_DUPLICATE",
+        ),
+        (
+            lambda definitions: definitions[0]["requiredWorkflowReadyTools"][0].update({"contractState": "installed"}),
+            "SCENARIO_TOOL_CONTRACT_STATE_INVALID",
+        ),
+        (
+            lambda definitions: definitions[0]["requiredWorkflowReadyTools"][0].update({"packageSpec": "bioconda::kraken2=2.1.3"}),
+            "SCENARIO_TOOL_SLICE_GENERIC_BIOCONDA_UNSUPPORTED",
+        ),
+        (
+            lambda definitions: definitions[0]["requiredWorkflowReadyTools"][0].update({"contractState": "planned"}),
+            "SCENARIO_TOOL_SLICE_GATE_MISMATCH",
+        ),
+        (
+            lambda definitions: definitions[1]["nextActionTargets"].pop("SCENARIO_SAMPLE_DATA_READY"),
+            "SCENARIO_BLOCKED_GATE_ACTION_REQUIRED",
+        ),
+        (
+            lambda definitions: definitions[1]["gates"].pop(),
+            "SCENARIO_VERTICAL_GATE_REQUIRED",
+        ),
+        (
+            lambda definitions: definitions[1]["gates"][0].update({"passed": True}),
+            "SCENARIO_VERTICAL_GATE_MUST_BLOCK_UNTIL_ACCEPTED",
+        ),
     ],
 )
 def test_workflow_scenario_pack_catalog_rejects_invalid_definitions(mutate, expected_code: str) -> None:
@@ -137,6 +189,20 @@ def test_workflow_scenario_pack_catalog_rejects_invalid_definitions(mutate, expe
         _validate_scenario_definitions(
             definitions,
             {"moving-pictures-16s-rulegraph-v1": {"enabled": True}},
+        )
+
+
+def test_workflow_scenario_pack_catalog_requires_pipeline_readiness_action_when_pipeline_missing() -> None:
+    definitions = _scenario_definitions()
+    definitions[1]["nextActionTargets"].pop("SCENARIO_PIPELINE_WORKFLOW_READY")
+
+    with pytest.raises(WorkflowScenarioPackCatalogError, match="SCENARIO_BLOCKED_GATE_ACTION_REQUIRED"):
+        _validate_scenario_definitions(
+            definitions,
+            {
+                "moving-pictures-16s-rulegraph-v1": {"enabled": True},
+                "amr-annotation-scenario-v1": {"enabled": True},
+            },
         )
 
 

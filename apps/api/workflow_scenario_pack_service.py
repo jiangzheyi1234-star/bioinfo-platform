@@ -24,6 +24,21 @@ _KNOWN_DATABASE_TEMPLATES = {
     "kaiju",
     "silva_qiime",
 }
+_SCENARIO_TOOL_SLICE_MIN = 3
+_SCENARIO_TOOL_SLICE_MAX = 5
+_SCENARIO_TOOL_CONTRACT_STATES = {"planned", "workflow_ready"}
+_VERTICAL_SCENARIO_REQUIRED_BLOCKED_GATES = {
+    "taxonomy-classification": {
+        "SCENARIO_TOOL_SLICE_READY",
+        "SCENARIO_DATABASE_HANDOFF_READY",
+        "SCENARIO_SAMPLE_DATA_READY",
+    },
+    "amr-annotation": {
+        "SCENARIO_TOOL_SLICE_READY",
+        "SCENARIO_DATABASE_HANDOFF_READY",
+        "SCENARIO_SAMPLE_DATA_READY",
+    },
+}
 
 
 class WorkflowScenarioPackCatalogError(ValueError):
@@ -115,8 +130,83 @@ def _validate_scenario_definition(
         raise WorkflowScenarioPackCatalogError("SCENARIO_TOOL_SLICE_REQUIRED")
     if not definition.get("resultEvidence"):
         raise WorkflowScenarioPackCatalogError("SCENARIO_RESULT_EVIDENCE_REQUIRED")
+    pipeline_id = str(definition.get("pipelineId") or "")
+    pipeline_ready = bool(pipeline_id in pipelines and pipelines[pipeline_id].get("enabled", True))
+    _validate_gate_contract(definition, pipeline_ready=pipeline_ready)
+    _validate_tool_slice(definition)
     _validate_database_templates(definition)
     _validate_ready_scenario_pipeline(definition, pipelines)
+
+
+def _validate_tool_slice(definition: dict[str, Any]) -> None:
+    tools = definition.get("requiredWorkflowReadyTools")
+    if not isinstance(tools, list) or not tools:
+        raise WorkflowScenarioPackCatalogError("SCENARIO_TOOL_SLICE_REQUIRED")
+    if not (_SCENARIO_TOOL_SLICE_MIN <= len(tools) <= _SCENARIO_TOOL_SLICE_MAX):
+        raise WorkflowScenarioPackCatalogError("SCENARIO_TOOL_SLICE_SIZE_INVALID")
+    tool_ids: set[str] = set()
+    for item in tools:
+        if not isinstance(item, dict):
+            raise WorkflowScenarioPackCatalogError("SCENARIO_TOOL_SLICE_ITEM_INVALID")
+        tool_id = _required_text(item, "toolId", "SCENARIO_TOOL_ID_REQUIRED")
+        if tool_id in tool_ids:
+            raise WorkflowScenarioPackCatalogError(f"SCENARIO_TOOL_ID_DUPLICATE: {tool_id}")
+        tool_ids.add(tool_id)
+        for field in ("name", "kind", "role", "contractState", "acceptanceEvidence"):
+            _required_text(item, field, f"SCENARIO_TOOL_{field.upper()}_REQUIRED")
+        contract_state = str(item.get("contractState") or "").strip()
+        if contract_state not in _SCENARIO_TOOL_CONTRACT_STATES:
+            raise WorkflowScenarioPackCatalogError(f"SCENARIO_TOOL_CONTRACT_STATE_INVALID: {contract_state}")
+        _reject_generic_bioconda_tool(item)
+    tool_gate_passed = _gate_passed(definition, "SCENARIO_TOOL_SLICE_READY")
+    if tool_gate_passed and any(str(item.get("contractState") or "") != "workflow_ready" for item in tools):
+        raise WorkflowScenarioPackCatalogError("SCENARIO_TOOL_SLICE_GATE_MISMATCH")
+
+
+def _reject_generic_bioconda_tool(item: dict[str, Any]) -> None:
+    forbidden_fields = ("packageSpec", "packageQuery", "biocondaQuery")
+    if any(item.get(field) for field in forbidden_fields):
+        raise WorkflowScenarioPackCatalogError("SCENARIO_TOOL_SLICE_GENERIC_BIOCONDA_UNSUPPORTED")
+    generic_values = [
+        str(item.get("toolId") or ""),
+        str(item.get("source") or ""),
+        str(item.get("name") or ""),
+    ]
+    if any(value.strip().lower() in {"bioconda", "all-bioconda", "bioconda::*"} for value in generic_values):
+        raise WorkflowScenarioPackCatalogError("SCENARIO_TOOL_SLICE_GENERIC_BIOCONDA_UNSUPPORTED")
+
+
+def _validate_gate_contract(definition: dict[str, Any], *, pipeline_ready: bool) -> None:
+    gates = definition.get("gates")
+    if not isinstance(gates, list) or not gates:
+        raise WorkflowScenarioPackCatalogError("SCENARIO_GATES_REQUIRED")
+    gate_codes = {str(item.get("code") or "") for item in gates if isinstance(item, dict)}
+    if not gate_codes:
+        raise WorkflowScenarioPackCatalogError("SCENARIO_GATES_REQUIRED")
+    next_targets = definition.get("nextActionTargets") if isinstance(definition.get("nextActionTargets"), dict) else {}
+    gates_passed = all(bool(item.get("passed")) for item in gates if isinstance(item, dict))
+    if not gates_passed and not pipeline_ready and not str(next_targets.get("SCENARIO_PIPELINE_WORKFLOW_READY") or "").strip():
+        raise WorkflowScenarioPackCatalogError("SCENARIO_BLOCKED_GATE_ACTION_REQUIRED: SCENARIO_PIPELINE_WORKFLOW_READY")
+    for item in gates:
+        code = str(item.get("code") or "") if isinstance(item, dict) else ""
+        if not code:
+            raise WorkflowScenarioPackCatalogError("SCENARIO_GATE_CODE_REQUIRED")
+        if not bool(item.get("passed")) and not str(next_targets.get(code) or "").strip():
+            raise WorkflowScenarioPackCatalogError(f"SCENARIO_BLOCKED_GATE_ACTION_REQUIRED: {code}")
+    required_blocked = _VERTICAL_SCENARIO_REQUIRED_BLOCKED_GATES.get(str(definition.get("scenarioId") or ""))
+    if required_blocked and not required_blocked <= gate_codes:
+        raise WorkflowScenarioPackCatalogError("SCENARIO_VERTICAL_GATE_REQUIRED")
+    if required_blocked:
+        blocked_codes = {str(item.get("code") or "") for item in gates if isinstance(item, dict) and not bool(item.get("passed"))}
+        if not required_blocked <= blocked_codes:
+            raise WorkflowScenarioPackCatalogError("SCENARIO_VERTICAL_GATE_MUST_BLOCK_UNTIL_ACCEPTED")
+
+
+def _gate_passed(definition: dict[str, Any], code: str) -> bool:
+    for item in definition.get("gates") or []:
+        if isinstance(item, dict) and item.get("code") == code:
+            return bool(item.get("passed"))
+    return False
 
 
 def _validate_database_templates(definition: dict[str, Any]) -> None:
@@ -190,7 +280,7 @@ def _next_actions(definition: dict[str, Any], readiness: list[dict[str, str]]) -
             {
                 "code": item["code"],
                 "label": _action_label(item["code"]),
-                "target": str(definition["nextActionTargets"].get(item["code"]) or "/workflows/tools"),
+                "target": str(definition["nextActionTargets"][item["code"]]),
             }
         )
     return actions
@@ -223,10 +313,38 @@ def _scenario_definitions() -> list[dict[str, Any]]:
                 "items": ["sample-metadata.tsv", "barcodes.fastq.gz", "sequences.fastq.gz"],
             },
             "requiredWorkflowReadyTools": [
-                {"kind": "metadata_validation", "count": 1},
-                {"kind": "demultiplexing", "count": 1},
-                {"kind": "amplicon_summary", "count": 1},
-                {"kind": "report", "count": 1},
+                {
+                    "toolId": "moving-pictures::metadata-validation",
+                    "name": "Sample metadata validation",
+                    "kind": "metadata_validation",
+                    "role": "input_qc",
+                    "contractState": "workflow_ready",
+                    "acceptanceEvidence": "bundled-moving-pictures-workflow-revision",
+                },
+                {
+                    "toolId": "moving-pictures::demultiplex-and-qc",
+                    "name": "Demultiplex and quality summary",
+                    "kind": "demultiplexing",
+                    "role": "sequence_qc",
+                    "contractState": "workflow_ready",
+                    "acceptanceEvidence": "bundled-moving-pictures-workflow-revision",
+                },
+                {
+                    "toolId": "moving-pictures::feature-table",
+                    "name": "Feature table summary",
+                    "kind": "amplicon_summary",
+                    "role": "feature_summary",
+                    "contractState": "workflow_ready",
+                    "acceptanceEvidence": "bundled-moving-pictures-workflow-revision",
+                },
+                {
+                    "toolId": "moving-pictures::render-report",
+                    "name": "Moving Pictures HTML report",
+                    "kind": "report",
+                    "role": "reporting",
+                    "contractState": "workflow_ready",
+                    "acceptanceEvidence": "bundled-moving-pictures-workflow-revision",
+                },
             ],
             "requiredDatabases": [],
             "resultEvidence": ["resultPackage", "validationCard", "workflowRevision", "inputLineage", "outputChecksums"],
@@ -267,9 +385,30 @@ def _scenario_definitions() -> list[dict[str, Any]]:
                 "items": ["reads.fastq.gz or contigs.fna"],
             },
             "requiredWorkflowReadyTools": [
-                {"kind": "sequence_reads", "count": 1},
-                {"kind": "taxonomy_classification", "count": 1},
-                {"kind": "taxonomy_report", "count": 1},
+                {
+                    "toolId": "taxonomy::input-normalizer",
+                    "name": "FASTQ/FASTA input normalizer",
+                    "kind": "sequence_reads",
+                    "role": "input_qc",
+                    "contractState": "planned",
+                    "acceptanceEvidence": "pending-workflow-ready-acceptance",
+                },
+                {
+                    "toolId": "taxonomy::classifier",
+                    "name": "Selected taxonomy classifier",
+                    "kind": "taxonomy_classification",
+                    "role": "classification",
+                    "contractState": "planned",
+                    "acceptanceEvidence": "pending-workflow-ready-acceptance",
+                },
+                {
+                    "toolId": "taxonomy::classification-report",
+                    "name": "Taxonomy report renderer",
+                    "kind": "taxonomy_report",
+                    "role": "reporting",
+                    "contractState": "planned",
+                    "acceptanceEvidence": "pending-workflow-ready-acceptance",
+                },
             ],
             "requiredDatabases": [
                 {"capability": "taxonomy_database", "templates": ["centrifuge", "kaiju", "gtdbtk", "silva_qiime"]},
@@ -324,9 +463,30 @@ def _scenario_definitions() -> list[dict[str, Any]]:
                 "items": ["contigs.fna or proteins.faa"],
             },
             "requiredWorkflowReadyTools": [
-                {"kind": "assembly_contigs", "count": 1},
-                {"kind": "amr_report", "count": 1},
-                {"kind": "annotation_table", "count": 1},
+                {
+                    "toolId": "amr::input-normalizer",
+                    "name": "Contig/protein input normalizer",
+                    "kind": "assembly_contigs",
+                    "role": "input_qc",
+                    "contractState": "planned",
+                    "acceptanceEvidence": "pending-workflow-ready-acceptance",
+                },
+                {
+                    "toolId": "amr::card-rgi-report",
+                    "name": "CARD RGI report",
+                    "kind": "amr_report",
+                    "role": "amr_detection",
+                    "contractState": "planned",
+                    "acceptanceEvidence": "pending-workflow-ready-acceptance",
+                },
+                {
+                    "toolId": "amr::annotation-table",
+                    "name": "Annotation table builder",
+                    "kind": "annotation_table",
+                    "role": "annotation",
+                    "contractState": "planned",
+                    "acceptanceEvidence": "pending-workflow-ready-acceptance",
+                },
             ],
             "requiredDatabases": [
                 {"capability": "amr_database", "templates": ["card_rgi"]},
