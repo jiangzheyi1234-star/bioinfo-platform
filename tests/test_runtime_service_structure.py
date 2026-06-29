@@ -492,7 +492,8 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "ARTIFACT_CACHE_ENTRIES_READ" in execution_manager_source
     assert "ARTIFACT_CACHE_PINS_READ" in execution_manager_source
     assert "self.call_runner(\"get_run_attempts\"" not in execution_manager_source
-    assert "manager.get_workflow_revision" in execution_manager_source
+    assert "WORKFLOW_REVISION_READ" in execution_manager_source
+    assert "manager.get_workflow_revision" not in execution_manager_source
     assert "self.call_runner(\"retry_run\"" in execution_manager_source
     assert "self.call_runner(\"retry_run_rules\"" in execution_manager_source
     assert "self.call_runner(\n                \"apply_rule_output_invalidation\"," in execution_manager_source

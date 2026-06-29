@@ -15,7 +15,7 @@ async def get_workflow_revision_from_request(
     workflow_revision_id: str,
     authorization: AuthorizationHeader = None,
 ) -> dict[str, Any]:
-    cfg = await authorized_config(authorization, action="workflow_revision.read")
+    cfg = authorized_config(authorization, action="workflow_revision.read")
     revision = await run_sync(fetch_workflow_revision, cfg, workflow_revision_id)
     if revision is None:
         raise ValueError(f"WORKFLOW_REVISION_NOT_FOUND: {workflow_revision_id}")

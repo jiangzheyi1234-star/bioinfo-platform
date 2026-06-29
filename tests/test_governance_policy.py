@@ -40,6 +40,7 @@ def _tracked_policy_sources() -> list[Path]:
             ROOT / "apps" / "remote_runner" / "trigger_scheduler_control.py",
             ROOT / "apps" / "remote_runner" / "trigger_scheduler_control_route_service.py",
             ROOT / "apps" / "remote_runner" / "trigger_service.py",
+            ROOT / "apps" / "remote_runner" / "workflow_revision_read_service.py",
         }
     )
     return sorted(sources)

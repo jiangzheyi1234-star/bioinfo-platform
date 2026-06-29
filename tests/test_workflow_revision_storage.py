@@ -167,9 +167,12 @@ def test_public_workflow_revision_redacts_runtime_paths_and_hashes_original_lock
 def test_workflow_revision_read_route_is_registered() -> None:
     root = Path(__file__).resolve().parents[1]
     route_source = (root / "apps/remote_runner/workflow_revision_routes.py").read_text(encoding="utf-8")
+    service_source = (root / "apps/remote_runner/workflow_revision_read_service.py").read_text(encoding="utf-8")
     main_source = (root / "apps/remote_runner/main.py").read_text(encoding="utf-8")
 
-    assert '@router.get("/api/v1/workflow-revisions/{workflow_revision_id}")' in route_source
+    assert "operation_id=REMOTE_ENDPOINTS[WORKFLOW_REVISION_READ].operation_id" in route_source
     assert "get_workflow_revision_from_request" in route_source
+    assert 'action="workflow_revision.read"' in service_source
+    assert "await authorized_config(" not in service_source
     assert "workflow_revision_router" in main_source
     assert "app.include_router(workflow_revision_router)" in main_source

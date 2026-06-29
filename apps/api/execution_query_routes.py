@@ -26,6 +26,7 @@ from core.contracts.remote_endpoints import (
     RUN_READ,
     RUN_RESULTS_READ,
     RUN_RULES_READ,
+    WORKFLOW_REVISION_READ,
 )
 from apps.api.models import (
     ArtifactCacheLookupRequest,
@@ -121,7 +122,10 @@ async def get_run(run_id: str) -> dict[str, Any]:
     return await get_run_from_request(run_id)
 
 
-@router.get("/api/v1/workflow-revisions/{workflow_revision_id}")
+@router.get(
+    "/api/v1/workflow-revisions/{workflow_revision_id}",
+    operation_id=REMOTE_ENDPOINTS[WORKFLOW_REVISION_READ].operation_id,
+)
 async def get_workflow_revision(
     workflow_revision_id: str,
     serverId: str | None = None,

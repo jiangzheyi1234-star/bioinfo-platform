@@ -47,6 +47,7 @@ RUN_LOGS_READ = "run.logs.read"
 RUN_RESULTS_READ = "run.results.read"
 RUN_RULES_READ = "run.rules.read"
 RUN_FAILURE_LOCATOR_READ = "run.failure_locator.read"
+WORKFLOW_REVISION_READ = "workflow_revision.read"
 RESULT_LIST = "result.list"
 RESULT_READ = "result.read"
 RESULT_PREVIEW_READ = "result.preview.read"
@@ -159,6 +160,16 @@ REMOTE_ENDPOINTS: dict[str, RemoteEndpoint] = {
         request_schema=None,
         response_schema="run-failure-locator.v1",
         cache_scope="run-read-model",
+    ),
+    WORKFLOW_REVISION_READ: RemoteEndpoint(
+        endpoint_id=WORKFLOW_REVISION_READ,
+        method="GET",
+        path_template="/api/v1/workflow-revisions/{workflow_revision_id}",
+        operation_id="getWorkflowRevision",
+        governance_action="workflow_revision.read",
+        request_schema=None,
+        response_schema="workflow-revision.v1",
+        cache_scope="workflow-revision-read-model",
     ),
     RESULT_LIST: RemoteEndpoint(
         endpoint_id=RESULT_LIST,

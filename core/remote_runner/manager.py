@@ -50,7 +50,6 @@ from core.remote_runner.reuse import RemoteRunnerReuseMixin
 from core.remote_runner.reexecution_proxy import RemoteRunnerReexecutionProxyMixin
 from core.remote_runner.token_rotation import RemoteRunnerTokenRotationMixin
 from core.remote_runner.workflow_runtime import RemoteRunnerWorkflowRuntimeMixin
-from core.remote_runner.workflow_revision_proxy import RemoteRunnerWorkflowRevisionProxyMixin
 
 
 class RemoteRunnerManager(
@@ -61,7 +60,6 @@ class RemoteRunnerManager(
     RemoteRunnerResultPackageProxyMixin,
     RemoteRunnerArtifactLifecycleProxyMixin,
     RemoteRunnerReexecutionProxyMixin,
-    RemoteRunnerWorkflowRevisionProxyMixin,
     RemoteRunnerProxyMixin,
     RemoteRunnerTokenRotationMixin,
     RemoteRunnerCatalogMixin,

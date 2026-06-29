@@ -287,6 +287,15 @@ HIGH_RISK_API_POLICIES: tuple[ApiGovernancePolicy, ...] = (
     ),
     remote_policy(
         "GET",
+        "/api/v1/workflow-revisions/{workflow_revision_id}",
+        "apps/remote_runner/workflow_revision_routes.py",
+        "workflow_revision.read",
+        "workflow_revision",
+        "implemented",
+        "workflow-operator", "auditor",
+    ),
+    remote_policy(
+        "GET",
         "/api/v1/runs/{run_id}/results",
         "apps/remote_runner/execution_query_routes.py",
         "run.results.read",
