@@ -48,6 +48,17 @@ async def get_run_from_request(run_id: str) -> dict[str, Any]:
     )
 
 
+async def get_workflow_revision_from_request(
+    workflow_revision_id: str,
+    *,
+    server_id: str | None = None,
+) -> dict[str, Any]:
+    return await run_runtime_payload(
+        lambda: runtime_service().get_workflow_revision(workflow_revision_id, server_id=server_id),
+        wrapper="raw",
+    )
+
+
 async def cancel_run_from_request(run_id: str) -> dict[str, Any]:
     result = await run_runtime_payload(
         lambda: runtime_service().cancel_run(run_id),

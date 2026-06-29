@@ -54,10 +54,44 @@ export type FirstRunSampleDataEvidence = {
   items?: FirstRunSampleDataItem[];
 };
 
+export type FirstRunSoftwareEnvironment = {
+  schemaVersion?: string;
+  status?: string;
+  workflowRevisionId?: string;
+  contentHash?: string;
+  compiler?: { name?: string; version?: string };
+  runtime?: {
+    engine?: string;
+    platform?: string;
+    pipelineId?: string;
+    pipelineVersion?: string;
+    runtimeLockSha256?: string;
+  };
+  workflow?: {
+    source?: string;
+    pipelineId?: string;
+    pipelineVersion?: string;
+    snakefile?: string;
+    runSpecSha256?: string;
+    sourceFileCount?: number;
+    sourceFiles?: Array<{ path?: string; sha256?: string }>;
+  };
+  graph?: { pipelineId?: string; nodeCount?: number; ruleCount?: number };
+  toolRevisions?: Array<{
+    toolRevisionId?: string;
+    toolId?: string;
+    name?: string;
+    version?: string;
+    packageSpec?: string;
+    environmentLock?: { packageSpec?: string; dependencies?: string[] };
+  }>;
+};
+
 export type FirstRunValidationCard = {
   schemaVersion?: string;
   generatedAt?: string;
   sampleData?: FirstRunSampleDataEvidence;
+  softwareEnvironment?: FirstRunSoftwareEnvironment;
   reportInterpretation?: FirstRunReportInterpretation;
   result?: {
     resultId?: string;

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import sqlite3
+from pathlib import Path
 
 import pytest
 
+from apps.remote_runner.workflow_revision_read_service import _public_workflow_revision
 from apps.remote_runner.storage_core import get_connection
 from apps.remote_runner.workflow_revision_storage import (
     create_or_fetch_workflow_revision,
@@ -124,3 +128,48 @@ def test_workflow_revision_content_hash_includes_draft_revision(tmp_path) -> Non
 
     assert second["workflowRevisionId"] != first["workflowRevisionId"]
     assert second["contentHash"] != first["contentHash"]
+
+
+def test_public_workflow_revision_redacts_runtime_paths_and_hashes_original_lock() -> None:
+    runtime_lock = {
+        "schemaVersion": "workflow-runtime-lock.v1",
+        "platform": "linux-64",
+        "snakemakeCommand": "/secret/workflow-env/bin/snakemake",
+        "releaseDir": "/secret/release",
+    }
+    public = _public_workflow_revision(
+        {
+            "workflowRevisionId": "wfrev_demo",
+            "contentHash": "a" * 64,
+            "draftId": "wfd_demo",
+            "draftRevision": 1,
+            "manifest": _manifest(),
+            "graphSnapshot": _graph_snapshot(),
+            "runtimeLock": runtime_lock,
+            "compiler": _compiler(),
+            "createdBy": "agent-a",
+            "createdAt": "2099-06-07T10:00:00Z",
+        }
+    )
+
+    expected_runtime_hash = hashlib.sha256(
+        json.dumps(runtime_lock, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    assert public["runtimeLockSha256"] == expected_runtime_hash
+    assert public["runtimeLock"] == {
+        "schemaVersion": "workflow-runtime-lock.v1",
+        "platform": "linux-64",
+    }
+    assert "snakemakeCommand" not in public["runtimeLock"]
+    assert "releaseDir" not in public["runtimeLock"]
+
+
+def test_workflow_revision_read_route_is_registered() -> None:
+    root = Path(__file__).resolve().parents[1]
+    route_source = (root / "apps/remote_runner/workflow_revision_routes.py").read_text(encoding="utf-8")
+    main_source = (root / "apps/remote_runner/main.py").read_text(encoding="utf-8")
+
+    assert '@router.get("/api/v1/workflow-revisions/{workflow_revision_id}")' in route_source
+    assert "get_workflow_revision_from_request" in route_source
+    assert "workflow_revision_router" in main_source
+    assert "app.include_router(workflow_revision_router)" in main_source

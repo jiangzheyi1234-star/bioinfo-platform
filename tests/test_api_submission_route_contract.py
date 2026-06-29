@@ -57,6 +57,7 @@ def test_run_result_routes_delegate_runtime_calls_to_service() -> None:
     assert '@app.get("/api/v1/runs")' not in main_source
     assert '@app.get("/api/v1/runs/{run_id}")' not in main_source
     assert '@app.get("/api/v1/results")' not in main_source
+    assert '@router.get("/api/v1/workflow-revisions/{workflow_revision_id}")' in route_source
 
     list_route_start = route_source.index('@router.get("/api/v1/runs")')
     list_route_end = route_source.index('@router.get("/api/v1/runs/{run_id}")')
@@ -77,6 +78,7 @@ def test_run_result_routes_delegate_runtime_calls_to_service() -> None:
     assert "cancel_run_from_request" in detail_routes
     assert "retry_run_from_request" in detail_routes
     assert "retry_run_rules_from_request" in detail_routes
+    assert "get_workflow_revision_from_request" in detail_routes
     assert "apply_rule_output_invalidation_from_request" in detail_routes
     assert "prepare_rule_cache_restore_staged_files_from_request" in detail_routes
     assert "apply_rule_cache_restore_staged_files_from_request" in detail_routes
@@ -109,6 +111,7 @@ def test_run_result_routes_delegate_runtime_calls_to_service() -> None:
     assert "def cancel_run_from_request(" in service_source
     assert "def retry_run_from_request(" in service_source
     assert "def retry_run_rules_from_request(" in service_source
+    assert "def get_workflow_revision_from_request(" in service_source
     assert "def apply_rule_output_invalidation_from_request(" in service_source
     assert "def prepare_rule_cache_restore_staged_files_from_request(" in service_source
     assert "def apply_rule_cache_restore_staged_files_from_request(" in service_source
@@ -137,6 +140,7 @@ def test_run_result_routes_delegate_runtime_calls_to_service() -> None:
     assert "runtime_service().get_result_audit(" in service_source
     assert "runtime_service().get_run_attempts(" in service_source
     assert "runtime_service().get_run_failure_locator(" in service_source
+    assert "runtime_service().get_workflow_revision(" in service_source
     assert "runtime_service().retry_run_rules(" in service_source
     assert "runtime_service().apply_rule_output_invalidation(" in service_source
     assert "runtime_service().prepare_rule_cache_restore_staged_files(" in service_source

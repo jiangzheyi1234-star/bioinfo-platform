@@ -9,8 +9,10 @@ from apps.api.execution_query_service import (
     get_result_from_request,
     get_result_preview_from_request,
     get_run_from_request,
+    get_workflow_revision_from_request,
     list_result_package_exports_from_request,
 )
+from apps.api.workflow_first_run_software_evidence import build_first_run_software_environment
 from apps.api.workflow_sample_data_service import MOVING_PICTURES_FILES, MOVING_PICTURES_PIPELINE_ID
 
 
@@ -56,9 +58,7 @@ MOVING_PICTURES_REPORT_OUTPUTS = (
     },
 )
 MOVING_PICTURES_REPORT_OUTPUT_NAMES = {str(item["name"]) for item in MOVING_PICTURES_REPORT_OUTPUTS}
-MOVING_PICTURES_OUTPUT_KEYS_TO_NAMES = {
-    str(item["key"]): str(item["name"]) for item in MOVING_PICTURES_REPORT_OUTPUTS
-}
+MOVING_PICTURES_OUTPUT_KEYS_TO_NAMES = {str(item["key"]): str(item["name"]) for item in MOVING_PICTURES_REPORT_OUTPUTS}
 MOVING_PICTURES_PREVIEW_OUTPUT_NAMES = {"summary.tsv", "qc-summary.tsv"}
 MOVING_PICTURES_SAMPLE_INPUTS = tuple(
     {
@@ -74,7 +74,6 @@ MOVING_PICTURES_SAMPLE_INPUTS = tuple(
 
 class WorkflowFirstRunValidationCardUnavailableError(ValueError):
     status_code = 409
-
 
 async def build_first_run_validation_card_from_request(
     run_id: str,
@@ -104,6 +103,8 @@ async def build_first_run_validation_card_from_request(
             "FIRST_RUN_WORKFLOW_REVISION_REQUIRED",
             "completed first-run validation requires WorkflowRevision",
         )
+    workflow_revision_payload = await get_workflow_revision_from_request(workflow_revision_id, server_id=server_id)
+    workflow_revision = _require_mapping(_unwrap_data(workflow_revision_payload, {}), "FIRST_RUN_WORKFLOW_REVISION_NOT_FOUND", workflow_revision_id)
 
     result_id = _canonical_result_id_for_run(normalized_run_id)
     result_payload = await get_result_from_request(result_id)
@@ -131,6 +132,7 @@ async def build_first_run_validation_card_from_request(
         result_id=result_id,
         run=run,
         server_id=server_id,
+        workflow_revision=workflow_revision,
         workflow_revision_id=workflow_revision_id,
     )
     return {"data": card}
@@ -144,6 +146,7 @@ def _build_validation_card(
     result_id: str,
     run: dict[str, Any],
     server_id: str | None,
+    workflow_revision: dict[str, Any],
     workflow_revision_id: str,
 ) -> dict[str, Any]:
     run_spec = run.get("runSpec") if isinstance(run.get("runSpec"), dict) else {}
@@ -158,6 +161,10 @@ def _build_validation_card(
         workflow_revision_id=workflow_revision_id,
     )
     sample_data = _sample_data_evidence(run_inputs=run_inputs, input_artifacts=input_artifacts)
+    try:
+        software_environment = build_first_run_software_environment(workflow_revision)
+    except ValueError as exc:
+        raise _unavailable(str(exc).split(":", 1)[0], str(exc)) from exc
     report_interpretation = _report_interpretation(
         artifacts=artifacts,
         report_previews=report_previews,
@@ -184,7 +191,9 @@ def _build_validation_card(
         },
         "workflowRevision": {
             "workflowRevisionId": workflow_revision_id,
+            "contentHash": software_environment.get("contentHash"),
         },
+        "softwareEnvironment": software_environment,
         "inputs": run_inputs,
         "inputArtifacts": input_artifacts,
         "sampleData": sample_data,
@@ -208,6 +217,7 @@ def _build_validation_card(
             package_export=package_export,
             report_interpretation=report_interpretation,
             sample_data=sample_data,
+            software_environment=software_environment,
             workflow_revision_id=workflow_revision_id,
         ),
         "standards": {
@@ -224,6 +234,7 @@ def _validation_checks(
     package_export: dict[str, Any],
     report_interpretation: dict[str, Any],
     sample_data: dict[str, Any],
+    software_environment: dict[str, Any],
     workflow_revision_id: str,
 ) -> list[dict[str, Any]]:
     checksum_count = sum(1 for artifact in artifacts if artifact.get("sha256"))
@@ -231,6 +242,7 @@ def _validation_checks(
         _passed_check("FIRST_RUN_PIPELINE_MATCH", MOVING_PICTURES_PIPELINE_ID),
         _passed_check("FIRST_RUN_COMPLETED", "run status is completed"),
         _passed_check("FIRST_RUN_WORKFLOW_REVISION_PRESENT", workflow_revision_id),
+        _passed_check("FIRST_RUN_SOFTWARE_ENVIRONMENT_VERIFIED", str(software_environment.get("contentHash") or "")),
         _passed_check("FIRST_RUN_INPUT_LINEAGE_PRESENT", f"{len(input_artifacts)} input artifacts"),
         _passed_check("FIRST_RUN_SAMPLE_INPUTS_VERIFIED", f"{len(sample_data.get('items') or [])} official sample inputs"),
         _passed_check("FIRST_RUN_OUTPUT_CHECKSUMS_PRESENT", f"{checksum_count} output checksums"),

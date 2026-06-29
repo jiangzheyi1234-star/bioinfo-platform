@@ -175,6 +175,14 @@ class RunnerExecutionOperationsMixin:
     def get_run(self, run_id: str) -> dict[str, Any]:
         return self.execution.get_run(run_id)
 
+    def get_workflow_revision(
+        self,
+        workflow_revision_id: str,
+        *,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return self.execution.get_workflow_revision(workflow_revision_id, server_id=server_id)
+
     def cancel_run(self, run_id: str) -> dict[str, Any]:
         return self.execution.cancel_run(run_id)
 

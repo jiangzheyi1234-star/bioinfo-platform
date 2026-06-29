@@ -24,11 +24,36 @@ def test_first_run_validation_card_is_server_generated_and_redacted(monkeypatch)
         )
     )["data"]
 
-    assert calls == [("exports", "srv_first"), ("preview", "art_summary"), ("preview", "art_qc")]
+    assert calls == [
+        ("revision", "srv_first"),
+        ("exports", "srv_first"),
+        ("preview", "art_summary"),
+        ("preview", "art_qc"),
+    ]
     assert card["schemaVersion"] == "h2ometa.first-run.validation-card.v1"
     assert card["generatedAt"] == "2026-06-29T00:00:00Z"
     assert card["scenario"]["pipelineId"] == "moving-pictures-16s-rulegraph-v1"
     assert card["workflowRevision"]["workflowRevisionId"] == "wfrev_first"
+    assert card["workflowRevision"]["contentHash"] == "c" * 64
+    software = card["softwareEnvironment"]
+    assert software["schemaVersion"] == "h2ometa.first-run.software-environment.v1"
+    assert software["status"] == "verified"
+    assert software["workflowRevisionId"] == "wfrev_first"
+    assert software["contentHash"] == "c" * 64
+    assert software["compiler"] == {
+        "name": "h2ometa-remote-runner-bundled-pipeline",
+        "version": "1.0.0",
+    }
+    assert software["runtime"]["engine"] == "snakemake"
+    assert software["runtime"]["pipelineVersion"] == "1.0.0"
+    assert software["runtime"]["runtimeLockSha256"] == "9" * 64
+    assert software["workflow"]["source"] == "remote-runner-pipeline-registry"
+    assert software["workflow"]["sourceFileCount"] == 3
+    assert [item["path"] for item in software["workflow"]["sourceFiles"]] == [
+        "workflow/Snakefile",
+        "workflow/envs/base.yaml",
+        "workflow/scripts/render_report.py",
+    ]
     assert card["result"]["resultId"] == "res_run_first"
     assert card["resultPackage"]["packageExportId"] == "rpex_full"
     assert card["resultPackage"]["artifactPayloadMode"] == "full"
@@ -36,6 +61,7 @@ def test_first_run_validation_card_is_server_generated_and_redacted(monkeypatch)
         "FIRST_RUN_PIPELINE_MATCH",
         "FIRST_RUN_COMPLETED",
         "FIRST_RUN_WORKFLOW_REVISION_PRESENT",
+        "FIRST_RUN_SOFTWARE_ENVIRONMENT_VERIFIED",
         "FIRST_RUN_INPUT_LINEAGE_PRESENT",
         "FIRST_RUN_SAMPLE_INPUTS_VERIFIED",
         "FIRST_RUN_OUTPUT_CHECKSUMS_PRESENT",
@@ -109,6 +135,27 @@ def test_first_run_validation_card_rejects_invalid_run_state(
     if run_patch.get("workflowRevisionId") == "":
         run["runSpec"]["workflowRevisionId"] = ""
     _patch_first_run_sources(monkeypatch, run=run)
+
+    with pytest.raises(WorkflowFirstRunValidationCardUnavailableError, match=expected_code):
+        asyncio.run(build_first_run_validation_card_from_request("run_first"))
+
+
+@pytest.mark.parametrize(
+    ("revision_patch", "expected_code"),
+    [
+        ({"contentHash": ""}, "FIRST_RUN_WORKFLOW_REVISION_CONTENT_HASH_REQUIRED"),
+        ({"runtimeLock": {}}, "FIRST_RUN_WORKFLOW_RUNTIME_LOCK_REQUIRED"),
+        ({"manifest": {"files": []}}, "FIRST_RUN_WORKFLOW_SOURCE_FILES_REQUIRED"),
+    ],
+)
+def test_first_run_validation_card_requires_workflow_revision_software_evidence(
+    monkeypatch,
+    revision_patch: dict[str, Any],
+    expected_code: str,
+) -> None:
+    revision = _workflow_revision()
+    revision.update(revision_patch)
+    _patch_first_run_sources(monkeypatch, workflow_revision=revision)
 
     with pytest.raises(WorkflowFirstRunValidationCardUnavailableError, match=expected_code):
         asyncio.run(build_first_run_validation_card_from_request("run_first"))
@@ -244,6 +291,7 @@ def _patch_first_run_sources(
     previews: dict[str, dict[str, Any]] | None = None,
     result: dict[str, Any] | None = None,
     run: dict[str, Any] | None = None,
+    workflow_revision: dict[str, Any] | None = None,
 ) -> None:
     async def fake_get_run(run_id: str) -> dict[str, Any]:
         assert run_id == "run_first"
@@ -252,6 +300,16 @@ def _patch_first_run_sources(
     async def fake_get_result(result_id: str) -> dict[str, Any]:
         assert result_id == "res_run_first"
         return {"data": result if result is not None else _result()}
+
+    async def fake_get_workflow_revision(
+        workflow_revision_id: str,
+        *,
+        server_id: str | None = None,
+    ) -> dict[str, Any]:
+        assert workflow_revision_id == "wfrev_first"
+        if calls is not None:
+            calls.append(("revision", server_id))
+        return {"data": workflow_revision if workflow_revision is not None else _workflow_revision()}
 
     async def fake_get_preview(result_id: str, *, artifact_id: str | None) -> dict[str, Any]:
         assert result_id == "res_run_first"
@@ -277,6 +335,7 @@ def _patch_first_run_sources(
 
     monkeypatch.setattr("apps.api.workflow_first_run_service.get_run_from_request", fake_get_run)
     monkeypatch.setattr("apps.api.workflow_first_run_service.get_result_from_request", fake_get_result)
+    monkeypatch.setattr("apps.api.workflow_first_run_service.get_workflow_revision_from_request", fake_get_workflow_revision)
     monkeypatch.setattr("apps.api.workflow_first_run_service.get_result_preview_from_request", fake_get_preview)
     monkeypatch.setattr("apps.api.workflow_first_run_service.list_result_package_exports_from_request", fake_list_exports)
     monkeypatch.setattr("apps.api.workflow_first_run_service._utc_now", lambda: "2026-06-29T00:00:00Z")
@@ -299,6 +358,36 @@ def _run() -> dict[str, Any]:
                 {"role": "barcodes", "filename": "barcodes.fastq.gz", "uploadId": "upl_barcodes"},
                 {"role": "sequences", "filename": "sequences.fastq.gz", "uploadId": "upl_sequences"},
             ],
+        },
+    }
+
+
+def _workflow_revision() -> dict[str, Any]:
+    return {
+        "workflowRevisionId": "wfrev_first",
+        "contentHash": "c" * 64,
+        "runtimeLockSha256": "9" * 64,
+        "manifest": {
+            "schemaVersion": "bundled-pipeline-workflow-revision-manifest.v1",
+            "pipelineId": "moving-pictures-16s-rulegraph-v1",
+            "pipelineVersion": "1.0.0",
+            "source": "remote-runner-pipeline-registry",
+            "snakefile": "workflow/Snakefile",
+            "files": [
+                {"path": "workflow/Snakefile", "sha256": "1" * 64},
+                {"path": "workflow/envs/base.yaml", "sha256": "2" * 64},
+                {"path": "workflow/scripts/render_report.py", "sha256": "3" * 64},
+            ],
+        },
+        "runtimeLock": {
+            "schemaVersion": "bundled-pipeline-runtime-lock.v1",
+            "engine": "snakemake",
+            "pipelineId": "moving-pictures-16s-rulegraph-v1",
+            "pipelineVersion": "1.0.0",
+        },
+        "compiler": {
+            "name": "h2ometa-remote-runner-bundled-pipeline",
+            "version": "1.0.0",
         },
     }
 

@@ -59,6 +59,19 @@ def test_remote_install_lock_logic_lives_in_install_lock_module() -> None:
     assert "except Exception" not in install_lock_source
 
 
+def test_workflow_revision_proxy_lives_in_dedicated_module() -> None:
+    manager_source = _source("core/remote_runner/manager.py")
+    proxy_source = _source("core/remote_runner/proxy.py")
+    revision_proxy_source = _source("core/remote_runner/workflow_revision_proxy.py")
+
+    assert "from core.remote_runner.workflow_revision_proxy import RemoteRunnerWorkflowRevisionProxyMixin" in manager_source
+    assert "RemoteRunnerWorkflowRevisionProxyMixin" in manager_source
+    assert "class RemoteRunnerWorkflowRevisionProxyMixin" in revision_proxy_source
+    assert "def get_workflow_revision(" in revision_proxy_source
+    assert "/api/v1/workflow-revisions/" in revision_proxy_source
+    assert "def get_workflow_revision(" not in proxy_source
+
+
 def test_bootstrap_service_runtime_bundle_deployment_lives_outside_manager() -> None:
     manager_source = _source("core/remote_runner/manager.py")
     bundle_path = ROOT / "core/remote_runner/bootstrap_bundle.py"

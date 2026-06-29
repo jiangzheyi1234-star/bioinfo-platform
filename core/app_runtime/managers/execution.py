@@ -333,6 +333,23 @@ class ExecutionManager(BaseRuntimeManager):
     def get_run(self, run_id: str) -> dict[str, Any]:
         return {"data": self.call_runner("get_run", run_id=run_id)}
 
+    def get_workflow_revision(
+        self,
+        workflow_revision_id: str,
+        *,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        manager, resolved_server_id, ssh, record = self._runner_context(preferred_server_id=server_id)
+        return {
+            "data": self._service._call_remote_runner(
+                manager.get_workflow_revision,
+                server_id=resolved_server_id,
+                ssh_service=ssh,
+                server_record=record,
+                workflow_revision_id=workflow_revision_id,
+            )
+        }
+
     def cancel_run(self, run_id: str) -> dict[str, Any]:
         return {"data": self.call_runner("cancel_run", run_id=run_id)}
 

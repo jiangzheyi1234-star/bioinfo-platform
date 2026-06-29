@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, ClipboardCheck, Download, FileArchive, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
+import { Archive, ClipboardCheck, Cpu, Download, FileArchive, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -143,6 +143,7 @@ export function ValidationCard({
 }) {
   const interpretation = card?.reportInterpretation;
   const sampleData = card?.sampleData;
+  const softwareEnvironment = card?.softwareEnvironment;
   const cardReady = interpretation?.status === "ready";
   return (
     <section
@@ -179,7 +180,7 @@ export function ValidationCard({
         <KeyValue label="result" value={resultId} mono />
         <KeyValue label="status" value={run?.status} />
         <KeyValue label="runner" value={server?.label || server?.serverId} mono />
-        <KeyValue label="runtime" value={runtimeLabel(server)} />
+        <KeyValue label="runtime" value={softwareRuntimeLabel(softwareEnvironment)} />
         <KeyValue label="database" value="不需要外部数据库" />
         <KeyValue label="revision" value={workflowRevisionId} mono />
         <KeyValue label="inputs" value={`${sampleUploads.length || inputArtifacts.length || 0} files`} />
@@ -193,9 +194,63 @@ export function ValidationCard({
         <KeyValue label="checks" value={card?.checks?.length ? `${card.checks.length} passed checks` : ""} />
       </div>
 
+      {softwareEnvironment ? <ValidationCardSoftwareEnvironment softwareEnvironment={softwareEnvironment} /> : null}
       {sampleData ? <ValidationCardSampleData sampleData={sampleData} /> : null}
       {interpretation ? <ValidationCardInterpretation interpretation={interpretation} /> : null}
     </section>
+  );
+}
+
+function ValidationCardSoftwareEnvironment({
+  softwareEnvironment,
+}: {
+  softwareEnvironment: NonNullable<FirstRunValidationCard["softwareEnvironment"]>;
+}) {
+  const status = softwareEnvironment.status || "unknown";
+  const verified = status === "verified";
+  const runtime = softwareEnvironment.runtime || {};
+  const workflow = softwareEnvironment.workflow || {};
+  const toolRevisions = softwareEnvironment.toolRevisions || [];
+  const sourceFiles = workflow.sourceFiles || [];
+  return (
+    <div className={cn("mt-4 rounded-md border p-3", verified ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50")} data-testid="first-run-validation-card-software">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className={cn("flex min-w-0 items-center gap-2 text-xs font-semibold", verified ? "text-emerald-950" : "text-amber-950")}>
+          <Cpu strokeWidth={1.5} className={cn("h-3.5 w-3.5", verified ? "text-emerald-600" : "text-amber-600")} />
+          <span className="truncate">软件环境已锁定</span>
+        </div>
+        <span className={cn("rounded-full border bg-white px-2 py-0.5 text-[11px]", verified ? "border-emerald-200 text-emerald-700" : "border-amber-200 text-amber-700")}>
+          {status}
+        </span>
+      </div>
+      <div className="mt-3 grid gap-2 text-xs">
+        <KeyValue label="engine" value={softwareRuntimeLabel(softwareEnvironment)} />
+        <KeyValue label="compiler" value={[softwareEnvironment.compiler?.name, softwareEnvironment.compiler?.version].filter(Boolean).join(" ")} />
+        <KeyValue label="revision" value={shortHash(softwareEnvironment.contentHash)} mono />
+        <KeyValue label="runtime lock" value={shortHash(runtime.runtimeLockSha256)} mono />
+        <KeyValue label="workflow" value={[workflow.source, workflow.pipelineVersion].filter(Boolean).join(" / ")} />
+        <KeyValue label="rules" value={softwareEnvironment.graph?.ruleCount ? `${softwareEnvironment.graph.ruleCount} rules` : ""} />
+      </div>
+      {sourceFiles.length > 0 ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {sourceFiles.map((item) => (
+            <span key={`${item.path || "source"}-${item.sha256 || ""}`} className="inline-flex max-w-full items-center gap-1 rounded border border-emerald-200 bg-white px-2 py-1 text-[11px] text-slate-600">
+              <span className="truncate">{item.path}</span>
+              {item.sha256 ? <span className="font-mono text-slate-400">{shortHash(item.sha256)}</span> : null}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {toolRevisions.length > 0 ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {toolRevisions.map((item) => (
+            <span key={item.toolRevisionId || item.packageSpec || item.name} className="inline-flex max-w-full items-center gap-1 rounded border border-emerald-200 bg-white px-2 py-1 text-[11px] text-slate-600">
+              <span className="truncate">{item.packageSpec || item.toolRevisionId || item.name}</span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -305,11 +360,13 @@ function artifactDisplayValue(artifact: WorkflowArtifact, key: "artifactKey" | "
   return display[key] || "";
 }
 
-export function runtimeLabel(server: WorkflowServer | null) {
-  const runtime = server?.health?.workflowRuntime;
-  return [runtime?.provider, runtime?.source, runtime?.version, runtime?.snakemakeVersion ? `snakemake ${runtime.snakemakeVersion}` : ""]
-    .filter(Boolean)
-    .join(" / ");
+function softwareRuntimeLabel(softwareEnvironment?: FirstRunValidationCard["softwareEnvironment"]) {
+  const runtime = softwareEnvironment?.runtime;
+  return [runtime?.engine, runtime?.platform, runtime?.pipelineVersion ? `pipeline ${runtime.pipelineVersion}` : ""].filter(Boolean).join(" / ");
+}
+
+function shortHash(value?: string) {
+  return value ? value.slice(0, 12) : "";
 }
 
 export function formatBytes(bytes?: number) {

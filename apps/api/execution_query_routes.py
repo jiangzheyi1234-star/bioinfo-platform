@@ -53,6 +53,7 @@ from apps.api.execution_query_service import (
     get_run_logs_from_request,
     get_run_results_from_request,
     get_run_rules_from_request,
+    get_workflow_revision_from_request,
     list_artifact_cache_entries_from_request,
     list_artifact_cache_pins_from_request,
     list_result_package_exports_from_request,
@@ -97,6 +98,14 @@ async def list_runs(refresh: bool = False) -> dict[str, Any]:
 @router.get("/api/v1/runs/{run_id}")
 async def get_run(run_id: str) -> dict[str, Any]:
     return await get_run_from_request(run_id)
+
+
+@router.get("/api/v1/workflow-revisions/{workflow_revision_id}")
+async def get_workflow_revision(
+    workflow_revision_id: str,
+    serverId: str | None = None,
+) -> dict[str, Any]:
+    return await get_workflow_revision_from_request(workflow_revision_id, server_id=serverId)
 
 
 @router.post("/api/v1/runs/{run_id}/cancel")
