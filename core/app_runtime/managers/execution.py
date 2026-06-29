@@ -5,6 +5,11 @@ from typing import Any, Optional
 
 from core.app_runtime.errors import RuntimeServiceError
 from core.app_runtime.managers.base import BaseRuntimeManager
+from core.contracts.remote_endpoints import (
+    RUN_EXECUTION_CONTEXT_READ,
+    RUN_FAILURE_LOCATOR_READ,
+    RUN_RULES_READ,
+)
 
 
 class ExecutionManager(BaseRuntimeManager):
@@ -471,7 +476,7 @@ class ExecutionManager(BaseRuntimeManager):
         return {"data": self.call_runner("get_run_events", run_id=run_id)}
 
     def get_run_execution_context(self, run_id: str) -> dict[str, Any]:
-        return {"data": self.call_runner("get_run_execution_context", run_id=run_id)}
+        return self._get_run_read_model(RUN_EXECUTION_CONTEXT_READ, run_id)
 
     def get_run_attempts(self, run_id: str) -> dict[str, Any]:
         return {"data": self.call_runner("get_run_attempts", run_id=run_id)}
@@ -495,10 +500,19 @@ class ExecutionManager(BaseRuntimeManager):
         return {"data": self.call_runner("get_run_results", run_id=run_id)}
 
     def get_run_rules(self, run_id: str) -> dict[str, Any]:
-        return {"data": self.call_runner("get_run_rules", run_id=run_id)}
+        return self._get_run_read_model(RUN_RULES_READ, run_id)
 
     def get_run_failure_locator(self, run_id: str) -> dict[str, Any]:
-        return {"data": self.call_runner("get_run_failure_locator", run_id=run_id)}
+        return self._get_run_read_model(RUN_FAILURE_LOCATOR_READ, run_id)
+
+    def _get_run_read_model(self, endpoint_id: str, run_id: str) -> dict[str, Any]:
+        return {
+            "data": self.call_runner(
+                "call_remote_endpoint",
+                endpoint_id=endpoint_id,
+                path_values={"run_id": run_id},
+            )
+        }
 
     def list_results(self) -> dict[str, Any]:
         return {"data": {"items": self.call_runner("list_results")}}

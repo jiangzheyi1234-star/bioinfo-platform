@@ -5,6 +5,13 @@ from typing import Any, Literal
 from fastapi import APIRouter, Query
 from fastapi.responses import FileResponse
 
+from core.contracts.remote_endpoints import (
+    REMOTE_ENDPOINTS,
+    RUN_EXECUTION_CONTEXT_READ,
+    RUN_FAILURE_LOCATOR_READ,
+    RUN_RULES_READ,
+)
+
 from .api_models import (
     ArtifactCacheLookupRequest,
     ArtifactCachePinReleaseRequest,
@@ -213,7 +220,10 @@ async def get_run_events_api(run_id: str, authorization: AuthorizationHeader = N
     return await get_run_events_from_request(run_id, authorization)
 
 
-@router.get("/api/v1/runs/{run_id}/execution-context")
+@router.get(
+    "/api/v1/runs/{run_id}/execution-context",
+    operation_id=REMOTE_ENDPOINTS[RUN_EXECUTION_CONTEXT_READ].operation_id,
+)
 async def get_run_execution_context_api(run_id: str, authorization: AuthorizationHeader = None) -> dict[str, Any]:
     return await get_run_execution_context_from_request(run_id, authorization)
 
@@ -238,12 +248,15 @@ async def get_run_results_api(run_id: str, authorization: AuthorizationHeader = 
     return await get_run_results_from_request(run_id, authorization)
 
 
-@router.get("/api/v1/runs/{run_id}/rules")
+@router.get("/api/v1/runs/{run_id}/rules", operation_id=REMOTE_ENDPOINTS[RUN_RULES_READ].operation_id)
 async def get_run_rules_api(run_id: str, authorization: AuthorizationHeader = None) -> dict[str, Any]:
     return await get_run_rules_from_request(run_id, authorization)
 
 
-@router.get("/api/v1/runs/{run_id}/failure-locator")
+@router.get(
+    "/api/v1/runs/{run_id}/failure-locator",
+    operation_id=REMOTE_ENDPOINTS[RUN_FAILURE_LOCATOR_READ].operation_id,
+)
 async def get_run_failure_locator_api(run_id: str, authorization: AuthorizationHeader = None) -> dict[str, Any]:
     return await get_run_failure_locator_from_request(run_id, authorization)
 

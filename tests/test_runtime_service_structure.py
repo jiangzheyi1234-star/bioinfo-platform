@@ -457,7 +457,10 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "self.execution.preview_result_package_byte_gc(" in execution_ops_source
     assert "self.execution.run_result_package_byte_gc(" in execution_ops_source
     assert "self.execution.delete_result_package_bytes(" not in execution_ops_source
-    assert "self.call_runner(\"get_run_execution_context\"" in execution_manager_source
+    assert 'self.call_runner(\n                "call_remote_endpoint",' in execution_manager_source
+    assert "RUN_EXECUTION_CONTEXT_READ" in execution_manager_source
+    assert "RUN_RULES_READ" in execution_manager_source
+    assert "RUN_FAILURE_LOCATOR_READ" in execution_manager_source
     assert "self.call_runner(\"get_run_attempts\"" in execution_manager_source
     assert "manager.get_workflow_revision" in execution_manager_source
     assert "self.call_runner(\"retry_run\"" in execution_manager_source

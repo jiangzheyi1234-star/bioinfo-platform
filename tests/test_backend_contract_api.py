@@ -33,6 +33,7 @@ from apps.api.ssh_routes import (
 from apps.api.submission_routes import submit_run
 from apps.api.response_cache import invalidate_response_cache
 from apps.api.route_errors import runtime_service_status_code
+from core.contracts.remote_endpoints import RUN_FAILURE_LOCATOR_READ, RUN_RULES_READ
 from apps.api.models import (
     RunSubmitRequest,
     SSHConnectionRequest,
@@ -641,11 +642,13 @@ def test_run_detail_and_results_contract(monkeypatch, tmp_path: Path) -> None:
         def get_run_results(self, **kwargs):
             return {"runId": "run_2026_0419_001", "artifacts": [{"artifactId": "art_001"}], "resultDir": "/srv/results"}
 
-        def get_run_rules(self, **kwargs):
-            return {"runId": "run_2026_0419_001", "items": [{"ruleName": "trim_reads", "status": "succeeded"}]}
-
-        def get_run_failure_locator(self, **kwargs):
-            return {"schemaVersion": "run-failure-locator.v1", "runId": "run_2026_0419_001", "available": False}
+        def call_remote_endpoint(self, **kwargs):
+            assert kwargs["path_values"] == {"run_id": "run_2026_0419_001"}
+            if kwargs["endpoint_id"] == RUN_RULES_READ:
+                return {"runId": "run_2026_0419_001", "items": [{"ruleName": "trim_reads", "status": "succeeded"}]}
+            if kwargs["endpoint_id"] == RUN_FAILURE_LOCATOR_READ:
+                return {"schemaVersion": "run-failure-locator.v1", "runId": "run_2026_0419_001", "available": False}
+            raise AssertionError(f"unexpected endpoint {kwargs['endpoint_id']}")
 
         def list_results(self, **kwargs):
             return [{"resultId": "res_run_2026_0419_001", "runId": "run_2026_0419_001", "title": "taxonomy result", "pipelineId": "taxonomy-v1", "artifactCount": 1, "producedAt": "2026-04-21T12:00:00Z"}]

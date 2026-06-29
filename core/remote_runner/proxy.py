@@ -6,6 +6,7 @@ from urllib.parse import quote, urlencode
 from config import resolve_runner_token
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
 from core.remote_runner.client import RemoteRunnerClientError, RemoteRunnerHttpClient
+from core.remote_runner.endpoint_caller import call_remote_endpoint as execute_remote_endpoint
 from core.remote_runner.layout import remote_runner_bootstrap_layout
 
 
@@ -33,6 +34,19 @@ def _manager_error_blocks_runtime_state_resync(exc: Exception) -> bool:
 
 
 class RemoteRunnerProxyMixin:
+    def call_remote_endpoint(self, **kwargs) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            record=kwargs["server_record"],
+        )
+        return execute_remote_endpoint(
+            client,
+            str(kwargs["endpoint_id"]),
+            path_values=dict(kwargs.get("path_values") or {}),
+            payload=kwargs.get("payload"),
+        )
+
     def get_health(self, **kwargs) -> dict[str, Any]:
         return self._get_health_with_runtime_state_resync(
             server_id=str(kwargs["server_id"]),
@@ -516,14 +530,6 @@ class RemoteRunnerProxyMixin:
         )
         return client.get_json(f"/api/v1/runs/{kwargs['run_id']}/events")["data"]
 
-    def get_run_execution_context(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        return client.get_json(f"/api/v1/runs/{kwargs['run_id']}/execution-context")["data"]
-
     def get_run_attempts(self, **kwargs) -> dict[str, Any]:
         client = self._get_client(
             server_id=str(kwargs["server_id"]),
@@ -552,22 +558,6 @@ class RemoteRunnerProxyMixin:
             record=kwargs["server_record"],
         )
         return client.get_json(f"/api/v1/runs/{kwargs['run_id']}/results")["data"]
-
-    def get_run_rules(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        return client.get_json(f"/api/v1/runs/{kwargs['run_id']}/rules")["data"]
-
-    def get_run_failure_locator(self, **kwargs) -> dict[str, Any]:
-        client = self._get_client(
-            server_id=str(kwargs["server_id"]),
-            ssh_service=kwargs["ssh_service"],
-            record=kwargs["server_record"],
-        )
-        return client.get_json(f"/api/v1/runs/{kwargs['run_id']}/failure-locator")["data"]
 
     def list_results(self, **kwargs) -> list[dict[str, Any]]:
         client = self._get_client(
