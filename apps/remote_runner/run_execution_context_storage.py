@@ -7,6 +7,7 @@ from .execution_policy import retry_policy_from_job, timeout_policy_from_job
 from .execution_output_audit import build_rule_retry_output_audit
 from .execution_query_storage import require_run
 from .execution_resume_plan import build_run_resume_plan
+from .run_execution_state_machine import RETRYABLE_RUN_STATUSES, TERMINAL_RUN_STATUSES
 from .rule_cache_restore_plan import build_rule_cache_restore_plan
 from .rule_partial_rerun_output_closure import build_rule_partial_rerun_output_closure
 from .rule_partial_rerun_lifecycle import build_rule_partial_rerun_lifecycle
@@ -16,8 +17,6 @@ from .rule_retry_plan import build_rule_retry_plan
 from .storage_core import get_connection, now_iso
 
 
-TERMINAL_RUN_STATUSES = {"completed", "failed", "canceled", "cancelled"}
-RETRYABLE_TERMINAL_RUN_STATUSES = {"failed", "canceled", "cancelled"}
 TERMINAL_JOB_STATES = {"completed", "failed", "cancelled", "canceled"}
 
 
@@ -225,7 +224,7 @@ def _retry_eligibility(
     job_state = str(job.get("state") or "").lower()
     if active_lease is not None:
         return _eligibility(False, False, remaining, next_attempt_at, "ACTIVE_LEASE")
-    if run_status in RETRYABLE_TERMINAL_RUN_STATUSES and job_state in TERMINAL_JOB_STATES:
+    if run_status in RETRYABLE_RUN_STATUSES and job_state in TERMINAL_JOB_STATES:
         return _eligibility(True, True, remaining, next_attempt_at, "RUN_RETRYABLE_TERMINAL")
     if run_status in TERMINAL_RUN_STATUSES or job_state in TERMINAL_JOB_STATES:
         return _eligibility(False, False, remaining, next_attempt_at, "RUN_TERMINAL")

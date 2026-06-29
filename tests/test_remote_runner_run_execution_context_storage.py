@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from apps.remote_runner.artifact_cache_storage import list_artifact_cache_pins
 from apps.remote_runner.artifact_ledger_storage import record_artifact_blob_for_path, record_run_artifact_edge
 from apps.remote_runner.execution_plan_hash import stable_plan_hash
@@ -119,28 +121,44 @@ def test_run_execution_context_reports_retry_backoff_without_mutation(tmp_path) 
     assert context["job"]["attemptCount"] == 1
 
 
-def test_run_execution_context_reports_terminal_failed_run_retryable(tmp_path) -> None:
+@pytest.mark.parametrize(
+    ("run_status", "job_state", "expected_eligible", "expected_reason"),
+    [
+        ("failed", "failed", True, "RUN_RETRYABLE_TERMINAL"),
+        ("canceled", "cancelled", True, "RUN_RETRYABLE_TERMINAL"),
+        ("cancelled", "cancelled", True, "RUN_RETRYABLE_TERMINAL"),
+        ("completed", "completed", False, "RUN_TERMINAL"),
+    ],
+)
+def test_run_execution_context_reports_terminal_run_retry_eligibility(
+    tmp_path,
+    run_status: str,
+    job_state: str,
+    expected_eligible: bool,
+    expected_reason: str,
+) -> None:
     cfg = make_configured_remote_runner(tmp_path)
-    _create_run(cfg, "run_retryable_failed", execution={"retryPolicy": {"maxAttempts": 3, "backoffSeconds": 0}})
+    run_id = f"run_terminal_{run_status}"
+    _create_run(cfg, run_id, execution={"retryPolicy": {"maxAttempts": 3, "backoffSeconds": 0}})
     with get_connection(cfg) as connection:
         connection.execute(
-            "UPDATE runs SET status = 'failed', stage = 'execute', state_version = 2 WHERE run_id = ?",
-            ("run_retryable_failed",),
+            "UPDATE runs SET status = ?, stage = 'execute', state_version = 2 WHERE run_id = ?",
+            (run_status, run_id),
         )
         connection.execute(
-            "UPDATE run_jobs SET state = 'failed', attempt_count = 1 WHERE run_id = ?",
-            ("run_retryable_failed",),
+            "UPDATE run_jobs SET state = ?, attempt_count = 1 WHERE run_id = ?",
+            (job_state, run_id),
         )
         connection.commit()
 
-    context = fetch_run_execution_context(cfg, "run_retryable_failed")
+    context = fetch_run_execution_context(cfg, run_id)
 
     assert context["retryEligibility"] == {
-        "eligible": True,
-        "eligibleNow": True,
+        "eligible": expected_eligible,
+        "eligibleNow": expected_eligible,
         "remainingAttempts": 2,
         "nextAttemptAt": context["job"]["availableAt"],
-        "reasonCode": "RUN_RETRYABLE_TERMINAL",
+        "reasonCode": expected_reason,
     }
 
 

@@ -216,6 +216,7 @@ def test_run_execution_state_machine_owns_shared_run_status_sets() -> None:
     artifact_lifecycle_storage = (REMOTE_RUNNER / "artifact_lifecycle_storage.py").read_text(encoding="utf-8")
     artifact_lifecycle_service = (REMOTE_RUNNER / "artifact_lifecycle_service.py").read_text(encoding="utf-8")
     execution_resume_plan = (REMOTE_RUNNER / "execution_resume_plan.py").read_text(encoding="utf-8")
+    run_execution_context_storage = (REMOTE_RUNNER / "run_execution_context_storage.py").read_text(encoding="utf-8")
     rule_partial_rerun_lifecycle = (REMOTE_RUNNER / "rule_partial_rerun_lifecycle.py").read_text(encoding="utf-8")
     backfill_reprocessing = (REMOTE_RUNNER / "workflow_backfill_reprocessing.py").read_text(encoding="utf-8")
 
@@ -224,6 +225,9 @@ def test_run_execution_state_machine_owns_shared_run_status_sets() -> None:
     assert "from .run_execution_state_machine import RETRYABLE_RUN_STATUSES, TERMINAL_RUN_STATUSES" in (
         execution_resume_plan
     )
+    assert "from .run_execution_state_machine import RETRYABLE_RUN_STATUSES, TERMINAL_RUN_STATUSES" in (
+        run_execution_context_storage
+    )
     assert "from .run_execution_state_machine import RELEASED_LEASE_STATES, RETRYABLE_RUN_STATUSES" in (
         rule_partial_rerun_lifecycle
     )
@@ -231,7 +235,9 @@ def test_run_execution_state_machine_owns_shared_run_status_sets() -> None:
 
     assert "TERMINAL_RUN_STATUSES =" not in artifact_lifecycle_storage
     assert "TERMINAL_RUN_STATUSES =" not in execution_resume_plan
+    assert "TERMINAL_RUN_STATUSES =" not in run_execution_context_storage
     assert "RESUMABLE_RUN_STATUSES =" not in execution_resume_plan
+    assert "RETRYABLE_TERMINAL_RUN_STATUSES =" not in run_execution_context_storage
     assert "RETRYABLE_TERMINAL_RUN_STATUSES =" not in rule_partial_rerun_lifecycle
     assert "RELEASED_LEASE_STATES =" not in rule_partial_rerun_lifecycle
     assert "TERMINAL_RUN_STATUSES =" not in backfill_reprocessing
