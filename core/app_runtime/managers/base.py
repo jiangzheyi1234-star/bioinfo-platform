@@ -77,6 +77,8 @@ class BaseRuntimeManager:
         *,
         path_values: dict[str, Any],
         query_values: dict[str, Any] | None = None,
+        preferred_server_id: Optional[str] = None,
+        require_existing_runner: bool = False,
         timeout: int | None = None,
     ) -> Any:
         kwargs: dict[str, Any] = {
@@ -86,4 +88,9 @@ class BaseRuntimeManager:
         }
         if timeout is not None:
             kwargs["timeout"] = timeout
-        return self.call_runner("call_remote_endpoint", **kwargs)
+        caller = self.call_existing_runner if require_existing_runner else self.call_runner
+        return caller(
+            "call_remote_endpoint",
+            preferred_server_id=preferred_server_id,
+            **kwargs,
+        )

@@ -8,6 +8,7 @@ from core.app_runtime.managers.base import BaseRuntimeManager
 from core.contracts.remote_endpoints import (
     RESULT_AUDIT_READ,
     RESULT_LIST,
+    RESULT_PACKAGE_EXPORT_LIST,
     RESULT_PREVIEW_READ,
     RESULT_READ,
     RUN_ATTEMPTS_READ,
@@ -570,12 +571,12 @@ class ExecutionManager(BaseRuntimeManager):
         limit: int = 100,
     ) -> dict[str, Any]:
         return {
-            "data": self.call_existing_runner(
-                "list_result_package_exports",
+            "data": self.call_remote_endpoint(
+                RESULT_PACKAGE_EXPORT_LIST,
+                path_values={"result_id": result_id},
+                query_values={"lifecycleState": lifecycle_state, "limit": limit},
                 preferred_server_id=server_id,
-                result_id=result_id,
-                lifecycle_state=lifecycle_state,
-                limit=limit,
+                require_existing_runner=True,
             )
         }
 

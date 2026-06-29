@@ -51,6 +51,7 @@ RESULT_LIST = "result.list"
 RESULT_READ = "result.read"
 RESULT_PREVIEW_READ = "result.preview.read"
 RESULT_AUDIT_READ = "result.audit.read"
+RESULT_PACKAGE_EXPORT_LIST = "result.package_export.list"
 
 
 REMOTE_ENDPOINTS: dict[str, RemoteEndpoint] = {
@@ -187,6 +188,17 @@ REMOTE_ENDPOINTS: dict[str, RemoteEndpoint] = {
         request_schema=None,
         response_schema="result-artifact-audit.v1",
         cache_scope="result-read-model",
+    ),
+    RESULT_PACKAGE_EXPORT_LIST: RemoteEndpoint(
+        endpoint_id=RESULT_PACKAGE_EXPORT_LIST,
+        method="GET",
+        path_template="/api/v1/results/{result_id}/exports",
+        operation_id="listResultPackageExports",
+        governance_action="result.package.list",
+        request_schema=None,
+        response_schema="result-package-export-list.v1",
+        cache_scope="result-package-export-read-model",
+        query_params=("lifecycleState", "limit"),
     ),
 }
 

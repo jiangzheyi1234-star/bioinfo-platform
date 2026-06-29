@@ -362,22 +362,6 @@ class RemoteRunnerHttpClient:
     ) -> dict[str, Any]:
         return self.post_json(f"/api/v1/results/{result_id}/export", dict(payload or {}))["data"]
 
-    def list_result_package_exports(
-        self,
-        result_id: str,
-        *,
-        lifecycle_state: str | None = None,
-        limit: int = 100,
-    ) -> dict[str, Any]:
-        result_part = urllib.parse.quote(result_id, safe="")
-        query = urllib.parse.urlencode(
-            {
-                "lifecycleState": str(lifecycle_state or ""),
-                "limit": int(limit),
-            }
-        )
-        return self.get_json(f"/api/v1/results/{result_part}/exports?{query}")["data"]
-
     def download_result_package(self, result_id: str, package_export_id: str) -> dict[str, Any]:
         result_part = urllib.parse.quote(result_id, safe="")
         export_part = urllib.parse.quote(package_export_id, safe="")

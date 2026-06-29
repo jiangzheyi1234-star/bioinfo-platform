@@ -9,6 +9,7 @@ from core.contracts.remote_endpoints import (
     REMOTE_ENDPOINTS,
     RESULT_AUDIT_READ,
     RESULT_LIST,
+    RESULT_PACKAGE_EXPORT_LIST,
     RESULT_PREVIEW_READ,
     RESULT_READ,
     RUN_ATTEMPTS_READ,
@@ -46,6 +47,7 @@ RESULT_READ_MODEL_ENDPOINTS = (
     RESULT_READ,
     RESULT_PREVIEW_READ,
     RESULT_AUDIT_READ,
+    RESULT_PACKAGE_EXPORT_LIST,
 )
 
 
@@ -115,9 +117,15 @@ def test_run_read_model_endpoints_are_contract_rendered() -> None:
         query_values={"artifact_id": "art with/slash"},
     ) == "/api/v1/results/res_1/preview?artifact_id=art+with%2Fslash"
     assert render_remote_endpoint_path(RESULT_AUDIT_READ, {"result_id": "res_1"}) == "/api/v1/results/res_1/audit"
+    assert render_remote_endpoint_path(
+        RESULT_PACKAGE_EXPORT_LIST,
+        {"result_id": "res_1"},
+        query_values={"lifecycleState": "retired", "limit": 25},
+    ) == "/api/v1/results/res_1/exports?lifecycleState=retired&limit=25"
     assert REMOTE_ENDPOINTS[RUN_RULES_READ].operation_id == "getRunRules"
     assert REMOTE_ENDPOINTS[RUN_RULES_READ].response_schema == "run-rules.v1"
     assert REMOTE_ENDPOINTS[RUN_RULES_READ].cache_scope == "run-read-model"
+    assert REMOTE_ENDPOINTS[RESULT_PACKAGE_EXPORT_LIST].response_schema == "result-package-export-list.v1"
 
 
 def test_run_read_model_endpoint_contracts_match_governance_policy() -> None:
@@ -170,6 +178,13 @@ def test_remote_endpoint_contracts_fail_loudly_on_missing_path_param() -> None:
     else:  # pragma: no cover - fail loudly keeps this branch unreachable.
         raise AssertionError("unknown result preview query param should fail")
 
+    try:
+        render_remote_endpoint_path(RESULT_PACKAGE_EXPORT_LIST, {"result_id": "res_1"}, query_values={"serverId": "srv_1"})
+    except RemoteEndpointContractError as exc:
+        assert exc.code == "REMOTE_ENDPOINT_QUERY_PARAM_UNKNOWN"
+    else:  # pragma: no cover - fail loudly keeps this branch unreachable.
+        raise AssertionError("serverId must remain a local runner-selection value")
+
 
 def test_remote_endpoint_caller_unwraps_data_and_records_path() -> None:
     client = FakeEndpointClient()
@@ -177,14 +192,22 @@ def test_remote_endpoint_caller_unwraps_data_and_records_path() -> None:
     data = call_remote_endpoint(client, RUN_RULES_READ, path_values={"run_id": "run_1"})
     runs = call_remote_endpoint(client, RUN_LIST, path_values={})
     results = call_remote_endpoint(client, RESULT_LIST, path_values={})
+    package_exports = call_remote_endpoint(
+        client,
+        RESULT_PACKAGE_EXPORT_LIST,
+        path_values={"result_id": "res_1"},
+        query_values={"lifecycleState": "retired", "limit": 25},
+    )
 
     assert data == {"path": "/api/v1/runs/run_1/rules"}
     assert runs == [{"path": "/api/v1/runs"}]
     assert results == [{"path": "/api/v1/results"}]
+    assert package_exports == {"path": "/api/v1/results/res_1/exports?lifecycleState=retired&limit=25"}
     assert client.calls == [
         ("GET", "/api/v1/runs/run_1/rules"),
         ("GET", "/api/v1/runs"),
         ("GET", "/api/v1/results"),
+        ("GET", "/api/v1/results/res_1/exports?lifecycleState=retired&limit=25"),
     ]
 
 
@@ -204,6 +227,9 @@ def test_remote_runner_proxy_generic_endpoint_call_uses_registry() -> None:
     preview = proxy.call_remote_endpoint(
         **_result_kwargs(RESULT_PREVIEW_READ, "res_1", query_values={"artifact_id": "art_1"})
     )
+    package_exports = proxy.call_remote_endpoint(
+        **_result_kwargs(RESULT_PACKAGE_EXPORT_LIST, "res_1", query_values={"lifecycleState": "retired", "limit": 25})
+    )
 
     assert listed == [{"path": "/api/v1/runs"}]
     assert run == {"path": "/api/v1/runs/run_1"}
@@ -214,6 +240,7 @@ def test_remote_runner_proxy_generic_endpoint_call_uses_registry() -> None:
     assert results == [{"path": "/api/v1/results"}]
     assert result == {"path": "/api/v1/results/res_1"}
     assert preview == {"path": "/api/v1/results/res_1/preview?artifact_id=art_1"}
+    assert package_exports == {"path": "/api/v1/results/res_1/exports?lifecycleState=retired&limit=25"}
     assert proxy.client.calls == [
         ("GET", "/api/v1/runs"),
         ("GET", "/api/v1/runs/run_1"),
@@ -224,6 +251,7 @@ def test_remote_runner_proxy_generic_endpoint_call_uses_registry() -> None:
         ("GET", "/api/v1/results"),
         ("GET", "/api/v1/results/res_1"),
         ("GET", "/api/v1/results/res_1/preview?artifact_id=art_1"),
+        ("GET", "/api/v1/results/res_1/exports?lifecycleState=retired&limit=25"),
     ]
 
 
@@ -274,6 +302,18 @@ def test_execution_manager_calls_generic_remote_endpoint_for_run_read_models() -
     assert manager.get_result_audit("res_1") == {
         "data": {"endpointId": RESULT_AUDIT_READ, "pathValues": {"result_id": "res_1"}, "queryValues": {}}
     }
+    assert manager.list_result_package_exports(
+        "res_1",
+        server_id="srv_package",
+        lifecycle_state="retired",
+        limit=25,
+    ) == {
+        "data": {
+            "endpointId": RESULT_PACKAGE_EXPORT_LIST,
+            "pathValues": {"result_id": "res_1"},
+            "queryValues": {"lifecycleState": "retired", "limit": 25},
+        }
+    }
     assert service.remote_runner_manager.calls == [
         (RUN_LIST, {}, {}),
         (RUN_READ, {"run_id": "run_1"}, {}),
@@ -288,6 +328,7 @@ def test_execution_manager_calls_generic_remote_endpoint_for_run_read_models() -
         (RESULT_READ, {"result_id": "res_1"}, {}),
         (RESULT_PREVIEW_READ, {"result_id": "res_1"}, {"artifact_id": "art_1"}),
         (RESULT_AUDIT_READ, {"result_id": "res_1"}, {}),
+        (RESULT_PACKAGE_EXPORT_LIST, {"result_id": "res_1"}, {"lifecycleState": "retired", "limit": 25}),
     ]
 
 
@@ -302,6 +343,7 @@ def test_remote_runner_http_client_does_not_keep_migrated_semantic_methods() -> 
     assert not hasattr(RemoteRunnerHttpClient, "get_result")
     assert not hasattr(RemoteRunnerHttpClient, "get_result_preview")
     assert not hasattr(RemoteRunnerHttpClient, "get_result_audit")
+    assert not hasattr(RemoteRunnerHttpClient, "list_result_package_exports")
 
 
 class FakeEndpointClient:
@@ -314,6 +356,8 @@ class FakeEndpointClient:
             return {"data": {"items": [{"path": path}]}}
         if path == "/api/v1/results":
             return {"data": {"items": [{"path": path}]}}
+        if path.startswith("/api/v1/results/res_1/exports"):
+            return {"data": {"path": path}}
         return {"data": {"path": path}}
 
 
@@ -337,6 +381,10 @@ class FakeRuntimeService:
 
     def _require_runner_ready(self, *, preferred_server_id=None):
         assert preferred_server_id is None
+        return "srv_1", object(), {"server_id": "srv_1"}
+
+    def _require_existing_runner_ready(self, *, preferred_server_id=None):
+        assert preferred_server_id == "srv_package"
         return "srv_1", object(), {"server_id": "srv_1"}
 
     def _call_remote_runner(self, method, **kwargs):

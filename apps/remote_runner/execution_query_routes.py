@@ -9,6 +9,7 @@ from core.contracts.remote_endpoints import (
     REMOTE_ENDPOINTS,
     RESULT_AUDIT_READ,
     RESULT_LIST,
+    RESULT_PACKAGE_EXPORT_LIST,
     RESULT_PREVIEW_READ,
     RESULT_READ,
     RUN_ATTEMPTS_READ,
@@ -304,7 +305,10 @@ async def export_result_package_api(
     return await export_result_package_from_request(result_id, request, authorization)
 
 
-@router.get("/api/v1/results/{result_id}/exports")
+@router.get(
+    "/api/v1/results/{result_id}/exports",
+    operation_id=REMOTE_ENDPOINTS[RESULT_PACKAGE_EXPORT_LIST].operation_id,
+)
 async def list_result_package_exports_api(
     result_id: str,
     lifecycleState: str | None = Query(default=None),

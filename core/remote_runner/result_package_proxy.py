@@ -21,14 +21,6 @@ class RemoteRunnerResultPackageProxyMixin:
             dict(kwargs.get("payload") or {}),
         )["data"]
 
-    def list_result_package_exports(self, **kwargs) -> dict[str, Any]:
-        client = self._result_package_client(kwargs)
-        return client.list_result_package_exports(
-            str(kwargs["result_id"]),
-            lifecycle_state=kwargs.get("lifecycle_state"),
-            limit=int(kwargs.get("limit") or 100),
-        )
-
     def download_result_package(self, **kwargs) -> dict[str, Any]:
         client = self._result_package_client({**kwargs, "timeout": 60})
         return client.download_result_package(kwargs["result_id"], kwargs["package_export_id"])

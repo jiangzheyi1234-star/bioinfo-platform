@@ -457,7 +457,8 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "self.execution.preview_result_package_byte_gc(" in execution_ops_source
     assert "self.execution.run_result_package_byte_gc(" in execution_ops_source
     assert "self.execution.delete_result_package_bytes(" not in execution_ops_source
-    assert 'return self.call_runner("call_remote_endpoint", **kwargs)' in base_manager_source
+    assert "caller = self.call_existing_runner if require_existing_runner else self.call_runner" in base_manager_source
+    assert "preferred_server_id=preferred_server_id" in base_manager_source
     assert "self.call_remote_endpoint(" in execution_manager_source
     assert "RUN_LIST" in execution_manager_source
     assert "RUN_READ" in execution_manager_source
@@ -472,6 +473,7 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "RESULT_READ" in execution_manager_source
     assert "RESULT_PREVIEW_READ" in execution_manager_source
     assert "RESULT_AUDIT_READ" in execution_manager_source
+    assert "RESULT_PACKAGE_EXPORT_LIST" in execution_manager_source
     assert "self.call_runner(\"get_run_attempts\"" not in execution_manager_source
     assert "manager.get_workflow_revision" in execution_manager_source
     assert "self.call_runner(\"retry_run\"" in execution_manager_source
@@ -486,7 +488,8 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "self.call_runner(\"resume_run\"" in execution_manager_source
     assert "self.call_runner(\"get_result_audit\"" not in execution_manager_source
     assert 'self.call_existing_runner(\n                "export_result_package",' in execution_manager_source
-    assert 'self.call_existing_runner(\n                "list_result_package_exports",' in execution_manager_source
+    assert '"list_result_package_exports"' not in execution_manager_source
+    assert "require_existing_runner=True" in execution_manager_source
     assert 'self.call_existing_runner(\n            "download_result_package",' in execution_manager_source
     assert 'self.call_existing_runner(\n            "retire_result_package",' in execution_manager_source
     assert 'self.call_existing_runner(\n                "preview_result_package_byte_gc",' in execution_manager_source
