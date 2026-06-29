@@ -398,6 +398,11 @@ def test_api_route_error_status_codes_live_on_domain_errors() -> None:
     assert "status_detail_response(exc)" in route_errors
     assert "detail_response(exc.status_code, exc.payload if exc.payload is not None else str(exc))" not in route_errors
     assert "detail_response(exc.status_code, str(exc))" not in route_errors
+    assert "def workflow_sample_data_problem_response(" in route_errors
+    assert "WORKFLOW_SAMPLE_DATA_UNSUPPORTED" in route_errors
+    assert "WORKFLOW_SAMPLE_DATA_INTEGRITY_MISMATCH" in route_errors
+    assert "WORKFLOW_SAMPLE_DATA_SOURCE_UNAVAILABLE" in route_errors
+    assert "build_problem_detail(" in route_errors
 
 
 def test_detail_response_shape_lives_in_shared_problem_response_helper() -> None:
@@ -630,12 +635,17 @@ def test_workflow_catalog_routes_delegate_cache_to_service() -> None:
 
 def test_workflow_sample_data_service_uses_runtime_infrastructure() -> None:
     service_source = _source("apps/api/workflow_sample_data_service.py")
+    route_source = _source("apps/api/workflow_sample_data_routes.py")
 
     assert "from apps.api.runtime import get_runtime_service" not in service_source
     assert "from apps.api.route_utils import run_sync, runtime_service" in service_source
     assert "asyncio.to_thread" not in service_source
     assert "await run_sync(_download_and_upload_moving_pictures, request.serverId)" in service_source
+    assert "async def inspect_workflow_sample_data_status(" in service_source
+    assert "await run_sync(_inspect_moving_pictures_sample_data_status)" in service_source
     assert "runtime = runtime_service()" in service_source
+    assert '@router.get("/api/v1/workflow-sample-data/{pipeline_id}/status")' in route_source
+    assert "inspect_workflow_sample_data_status" in route_source
 
 
 def test_workflow_catalog_service_fails_loudly_on_invalid_manifests() -> None:

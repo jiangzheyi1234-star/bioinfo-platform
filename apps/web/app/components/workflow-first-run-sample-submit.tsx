@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, CheckCircle2, Loader2, Play, UploadCloud, XCircle } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -7,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import { formatBytes } from "./workflow-first-run-validation";
+import { fetchWorkflowSampleDataStatus, type WorkflowSampleDataStatus } from "./workflow-sample-data-api";
 import type { WorkflowCatalogItem, WorkflowUpload } from "./workflows-page-model";
 
 export const FIRST_RUN_EXPECTED_SAMPLE_ROLES = ["metadata", "barcodes", "sequences"] as const;
@@ -40,6 +42,11 @@ export function SampleAndSubmitPanel({
   const roleAudit = sampleUploadRoleAudit(sampleUploads);
   const roleBlockers = sampleUploadRoleBlockers(roleAudit);
   const selection = firstRunWorkflowSelection(workflow, workflowLoading);
+  const sampleStatus = useWorkflowSampleDataStatus({
+    enabled: pipelineReady && Boolean(workflow?.id) && !sampleLoading,
+    pipelineId: workflow?.id || "",
+    refreshKey: sampleUploads.map((upload) => `${upload.role || ""}:${upload.sha256 || ""}`).join("|"),
+  });
   return (
     <section id="sample-data" className="scroll-mt-24 rounded-lg border border-slate-200 bg-white p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -76,6 +83,13 @@ export function SampleAndSubmitPanel({
           {selection.detail}
         </div>
       </div>
+
+      <SampleDataStatusPanel
+        error={sampleStatus.error}
+        loading={sampleStatus.loading}
+        ready={ready}
+        status={sampleStatus.status}
+      />
 
       {roleBlockers.length > 0 ? (
         <div
@@ -151,6 +165,159 @@ export function SampleAndSubmitPanel({
       ) : null}
     </section>
   );
+}
+
+function useWorkflowSampleDataStatus({
+  enabled,
+  pipelineId,
+  refreshKey,
+}: {
+  enabled: boolean;
+  pipelineId: string;
+  refreshKey: string;
+}) {
+  const [status, setStatus] = useState<WorkflowSampleDataStatus | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!enabled) {
+      setStatus(null);
+      setLoading(false);
+      setError("");
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+    fetchWorkflowSampleDataStatus(pipelineId)
+      .then((nextStatus) => {
+        if (!cancelled) setStatus(nextStatus);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : "读取样例数据状态失败");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, pipelineId, refreshKey]);
+  return { error, loading, status };
+}
+
+function SampleDataStatusPanel({
+  error,
+  loading,
+  ready,
+  status,
+}: {
+  error: string;
+  loading: boolean;
+  ready: boolean;
+  status: WorkflowSampleDataStatus | null;
+}) {
+  const summary = useMemo(() => sampleDataStatusSummary(status, ready, loading, error), [error, loading, ready, status]);
+  return (
+    <div
+      className={cn("mt-3 rounded-md border px-3 py-2 text-xs leading-5", sampleDataStatusToneClass(summary.tone))}
+      data-testid="first-run-sample-data-status"
+      data-sample-data-status={summary.state}
+    >
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <div className="min-w-0 font-semibold">{summary.label}</div>
+        <span className="shrink-0 font-mono text-[11px]">{summary.countLabel}</span>
+      </div>
+      <div className="mt-1">{summary.detail}</div>
+      {status?.items?.length ? (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {status.items.map((item) => (
+            <span key={`${item.role}-${item.filename}`} className="rounded border border-current/20 bg-white/60 px-1.5 py-0.5 font-mono text-[10px]">
+              {item.role}:{item.cacheStatus}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function sampleDataStatusSummary(
+  status: WorkflowSampleDataStatus | null,
+  ready: boolean,
+  loading: boolean,
+  error: string
+) {
+  if (loading) {
+    return {
+      countLabel: "checking",
+      detail: "正在读取官方三文件样例的本地 verified cache 状态。",
+      label: "样例数据 readiness 检查中",
+      state: "checking",
+      tone: "warning" as const,
+    };
+  }
+  if (error) {
+    return {
+      countLabel: "unavailable",
+      detail: error,
+      label: "无法读取样例数据 readiness",
+      state: "unavailable",
+      tone: "danger" as const,
+    };
+  }
+  if (!status) {
+    return {
+      countLabel: ready ? "uploaded" : "pending",
+      detail: ready ? "官方样例上传已通过角色和 checksum 校验。" : "等待确认 Moving Pictures 16S 样例 readiness。",
+      label: ready ? "样例输入已就绪" : "样例数据 readiness 待确认",
+      state: ready ? "ready" : "pending",
+      tone: ready ? "success" as const : "warning" as const,
+    };
+  }
+  const countLabel = `${status.verifiedCacheCount || 0}/${status.itemCount || 0} cache`;
+  if (ready && status.status !== "blocked") {
+    return {
+      countLabel,
+      detail: "官方样例已上传并通过角色与 checksum 校验；cache 状态仅影响下次准备速度。",
+      label: "样例输入已就绪",
+      state: "ready",
+      tone: "success" as const,
+    };
+  }
+  if (status.status === "blocked") {
+    const blockers = status.blockerCodes?.length ? status.blockerCodes.join(" / ") : "样例缓存未通过校验。";
+    return {
+      countLabel,
+      detail: blockers,
+      label: "样例数据 readiness 阻断",
+      state: "blocked",
+      tone: "danger" as const,
+    };
+  }
+  if (status.status === "ready") {
+    return {
+      countLabel,
+      detail: `${status.source || "Official sample data"} 已在本机 cache 通过 checksum 校验，可直接上传到 runner。`,
+      label: "样例数据 cache 已验证",
+      state: "ready",
+      tone: "success" as const,
+    };
+  }
+  return {
+    countLabel,
+    detail: `${status.missingCacheCount || 0} 个文件需要从官方来源下载并校验后上传。`,
+    label: "样例数据需要官方来源",
+    state: "source_required",
+    tone: "info" as const,
+  };
+}
+
+function sampleDataStatusToneClass(tone: "success" | "warning" | "danger" | "info") {
+  if (tone === "success") return "border-emerald-200 bg-emerald-50 text-emerald-900";
+  if (tone === "danger") return "border-red-200 bg-red-50 text-red-900";
+  if (tone === "info") return "border-blue-200 bg-blue-50 text-blue-900";
+  return "border-amber-200 bg-amber-50 text-amber-900";
 }
 
 export function sampleUploadsReady(uploads: WorkflowUpload[]) {

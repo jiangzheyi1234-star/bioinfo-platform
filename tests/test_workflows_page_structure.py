@@ -1132,6 +1132,8 @@ def test_tools_page_surfaces_snakemake_wrapper_matches() -> None:
 def test_workflow_sample_data_upload_uses_long_running_timeout() -> None:
     api = (COMPONENTS / "workflows-page-api.ts").read_text(encoding="utf-8")
     model = (COMPONENTS / "workflows-page-model.ts").read_text(encoding="utf-8")
+    sample_api = (COMPONENTS / "workflow-sample-data-api.ts").read_text(encoding="utf-8")
+    sample_panel = (COMPONENTS / "workflow-first-run-sample-submit.tsx").read_text(encoding="utf-8")
 
     assert "WORKFLOW_SAMPLE_DATA_TIMEOUT_MS" in api
     assert "timeoutMs: WORKFLOW_SAMPLE_DATA_TIMEOUT_MS" in api
@@ -1140,3 +1142,10 @@ def test_workflow_sample_data_upload_uses_long_running_timeout() -> None:
     assert "integrityStatus?: \"passed\" | string" in model
     assert "expectedSha256?: string" in model
     assert "expectedSizeBytes?: number" in model
+    assert "export type WorkflowSampleDataStatus" in sample_api
+    assert "fetchWorkflowSampleDataStatus" in sample_api
+    assert "/api/v1/workflow-sample-data/${encodeURIComponent(normalizedPipelineId)}/status" in sample_api
+    assert "useWorkflowSampleDataStatus" in sample_panel
+    assert "first-run-sample-data-status" in sample_panel
+    assert "data-sample-data-status={summary.state}" in sample_panel
+    assert "item.cacheStatus" in sample_panel

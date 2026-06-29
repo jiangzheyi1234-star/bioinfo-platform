@@ -6,11 +6,17 @@ from fastapi import APIRouter
 
 from apps.api.workflow_sample_data_service import (
     WorkflowSampleDataPrepareRequest,
+    inspect_workflow_sample_data_status,
     prepare_workflow_sample_data_uploads,
 )
 
 
 router = APIRouter()
+
+
+@router.get("/api/v1/workflow-sample-data/{pipeline_id}/status")
+async def get_workflow_sample_data_status(pipeline_id: str) -> dict:
+    return await inspect_workflow_sample_data_status(pipeline_id)
 
 
 @router.post("/api/v1/workflow-sample-data/{pipeline_id}/uploads")

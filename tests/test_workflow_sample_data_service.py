@@ -10,10 +10,12 @@ import pytest
 from apps.api.workflow_sample_data_service import (
     MOVING_PICTURES_PIPELINE_ID,
     WORKFLOW_SAMPLE_DATA_PREP_PROOF_SCHEMA,
+    WORKFLOW_SAMPLE_DATA_STATUS_SCHEMA,
     SampleFile,
     WorkflowSampleDataIntegrityError,
     WorkflowSampleDataPrepareRequest,
     WorkflowSampleDataSourceError,
+    inspect_workflow_sample_data_status,
     prepare_workflow_sample_data_uploads,
 )
 
@@ -105,6 +107,72 @@ def test_sample_data_uploads_reuse_verified_local_cache(monkeypatch, tmp_path) -
     assert second["data"]["items"][0]["prepProof"]["cacheStatus"] == "hit"
     assert second["data"]["items"][0]["prepProof"]["downloadStatus"] == "skipped-cache-hit"
     assert second["data"]["items"][0]["prepProof"]["downloadAttempts"] == 0
+
+
+def test_sample_data_status_reports_missing_verified_cache_without_downloading(monkeypatch, tmp_path) -> None:
+    content = b"sample_id\tbody_site\nsample-a\tgut\n"
+    sample = _sample_file(content)
+    downloads: list[str] = []
+    monkeypatch.setenv("H2OMETA_SAMPLE_DATA_CACHE_DIR", str(tmp_path / "sample-cache"))
+    monkeypatch.setattr("apps.api.workflow_sample_data_service.MOVING_PICTURES_FILES", [sample])
+    monkeypatch.setattr("apps.api.workflow_sample_data_service._download_bytes", lambda url: downloads.append(url) or content)
+
+    status = asyncio.run(inspect_workflow_sample_data_status(MOVING_PICTURES_PIPELINE_ID))["data"]
+
+    assert downloads == []
+    assert status["schemaVersion"] == WORKFLOW_SAMPLE_DATA_STATUS_SCHEMA
+    assert status["status"] == "source_required"
+    assert status["sourceRequired"] is True
+    assert status["verifiedCacheCount"] == 0
+    assert status["missingCacheCount"] == 1
+    assert status["items"][0]["cacheStatus"] == "missing"
+    assert status["items"][0]["status"] == "source_required"
+    assert str(tmp_path) not in repr(status)
+
+
+def test_sample_data_status_reports_verified_cache_after_prepare(monkeypatch, tmp_path) -> None:
+    content = b"sample_id\tbody_site\nsample-a\tgut\n"
+    sample = _sample_file(content)
+    runtime = FakeRuntime()
+    monkeypatch.setenv("H2OMETA_SAMPLE_DATA_CACHE_DIR", str(tmp_path / "sample-cache"))
+    monkeypatch.setattr("apps.api.workflow_sample_data_service.MOVING_PICTURES_FILES", [sample])
+    monkeypatch.setattr("apps.api.workflow_sample_data_service._download_bytes", lambda url: content)
+    monkeypatch.setattr("apps.api.workflow_sample_data_service.runtime_service", lambda: runtime)
+    asyncio.run(
+        prepare_workflow_sample_data_uploads(
+            MOVING_PICTURES_PIPELINE_ID,
+            WorkflowSampleDataPrepareRequest(serverId="srv_first"),
+        )
+    )
+
+    status = asyncio.run(inspect_workflow_sample_data_status(MOVING_PICTURES_PIPELINE_ID))["data"]
+
+    assert status["status"] == "ready"
+    assert status["sourceRequired"] is False
+    assert status["verifiedCacheCount"] == 1
+    assert status["missingCacheCount"] == 0
+    assert status["blockerCodes"] == []
+    assert status["items"][0]["cacheStatus"] == "verified"
+    assert status["items"][0]["sha256"] == sample.expected_sha256
+
+
+def test_sample_data_status_blocks_corrupt_cache_without_path_leak(monkeypatch, tmp_path) -> None:
+    content = b"sample_id\tbody_site\nsample-a\tgut\n"
+    sample = _sample_file(content)
+    cache_dir = tmp_path / "sample-cache"
+    cache_file = cache_dir / MOVING_PICTURES_PIPELINE_ID / f"metadata-{sample.expected_sha256}-sample-metadata.tsv"
+    cache_file.parent.mkdir(parents=True)
+    cache_file.write_bytes(b"corrupt")
+    monkeypatch.setenv("H2OMETA_SAMPLE_DATA_CACHE_DIR", str(cache_dir))
+    monkeypatch.setattr("apps.api.workflow_sample_data_service.MOVING_PICTURES_FILES", [sample])
+
+    status = asyncio.run(inspect_workflow_sample_data_status(MOVING_PICTURES_PIPELINE_ID))["data"]
+
+    assert status["status"] == "blocked"
+    assert status["blockerCodes"] == ["WORKFLOW_SAMPLE_DATA_CACHE_INTEGRITY_MISMATCH"]
+    assert status["items"][0]["cacheStatus"] == "integrity_mismatch"
+    assert status["items"][0]["observedSizeBytes"] == len(b"corrupt")
+    assert str(cache_dir) not in repr(status)
 
 
 def test_sample_data_uploads_report_source_failures(monkeypatch, tmp_path) -> None:

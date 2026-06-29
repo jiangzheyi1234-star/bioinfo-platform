@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import os
 import mimetypes
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.request import Request, urlopen
@@ -49,7 +49,10 @@ class PreparedSampleFile:
 
 
 MOVING_PICTURES_PIPELINE_ID = "moving-pictures-16s-rulegraph-v1"
+WORKFLOW_SAMPLE_DATA_SOURCE = "QIIME 2 Moving Pictures tutorial"
+WORKFLOW_SAMPLE_DATA_CACHE_POLICY = "verified-sha256-local-cache"
 WORKFLOW_SAMPLE_DATA_PREP_PROOF_SCHEMA = "h2ometa.workflow-sample-data-prep-proof.v1"
+WORKFLOW_SAMPLE_DATA_STATUS_SCHEMA = "h2ometa.workflow-sample-data-status.v1"
 
 MOVING_PICTURES_FILES = [
     SampleFile(
@@ -91,11 +94,19 @@ async def prepare_workflow_sample_data_uploads(
     return {
         "data": {
             "pipelineId": pipeline_id,
-            "source": "QIIME 2 Moving Pictures tutorial",
+            "source": WORKFLOW_SAMPLE_DATA_SOURCE,
             "items": uploads,
             "prepProof": _sample_data_prep_proof(uploads),
         }
     }
+
+
+async def inspect_workflow_sample_data_status(pipeline_id: str) -> dict:
+    if pipeline_id != MOVING_PICTURES_PIPELINE_ID:
+        raise WorkflowSampleDataUnavailableError(
+            f"No bundled sample data for pipeline: {pipeline_id}"
+        )
+    return {"data": await run_sync(_inspect_moving_pictures_sample_data_status)}
 
 
 def _download_and_upload_moving_pictures(server_id: str) -> list[dict]:
@@ -147,9 +158,79 @@ def _verify_sample_file_integrity(item: SampleFile, content: bytes) -> dict:
 def _sample_data_prep_proof(uploads: list[dict]) -> dict:
     return {
         "schemaVersion": WORKFLOW_SAMPLE_DATA_PREP_PROOF_SCHEMA,
-        "source": "QIIME 2 Moving Pictures tutorial",
-        "cachePolicy": "verified-sha256-local-cache",
+        "source": WORKFLOW_SAMPLE_DATA_SOURCE,
+        "cachePolicy": WORKFLOW_SAMPLE_DATA_CACHE_POLICY,
         "items": [item.get("prepProof") for item in uploads if item.get("prepProof")],
+    }
+
+
+def _inspect_moving_pictures_sample_data_status() -> dict:
+    items = [_inspect_sample_file_status(item) for item in MOVING_PICTURES_FILES]
+    blocker_codes = sorted({code for item in items for code in item.get("blockerCodes", [])})
+    verified_count = sum(1 for item in items if item["cacheStatus"] == "verified")
+    missing_count = sum(1 for item in items if item["cacheStatus"] == "missing")
+    status = "blocked" if blocker_codes else "ready" if verified_count == len(items) else "source_required"
+    return {
+        "schemaVersion": WORKFLOW_SAMPLE_DATA_STATUS_SCHEMA,
+        "pipelineId": MOVING_PICTURES_PIPELINE_ID,
+        "source": WORKFLOW_SAMPLE_DATA_SOURCE,
+        "cachePolicy": WORKFLOW_SAMPLE_DATA_CACHE_POLICY,
+        "status": status,
+        "itemCount": len(items),
+        "verifiedCacheCount": verified_count,
+        "missingCacheCount": missing_count,
+        "sourceRequired": status == "source_required",
+        "blockerCodes": blocker_codes,
+        "items": items,
+    }
+
+
+def _inspect_sample_file_status(item: SampleFile) -> dict:
+    base = {
+        "filename": item.filename,
+        "role": item.role,
+        "sourceUrl": item.url,
+        "expectedSha256": item.expected_sha256,
+        "expectedSizeBytes": item.expected_size_bytes,
+    }
+    path = _sample_cache_path(item)
+    if not path.exists():
+        return {
+            **base,
+            "cacheStatus": "missing",
+            "status": "source_required",
+            "sourceRequired": True,
+            "blockerCodes": [],
+        }
+    try:
+        content = path.read_bytes()
+    except OSError:
+        return {
+            **base,
+            "cacheStatus": "unreadable",
+            "status": "blocked",
+            "sourceRequired": False,
+            "blockerCodes": ["WORKFLOW_SAMPLE_DATA_CACHE_UNREADABLE"],
+        }
+    actual_size = len(content)
+    actual_sha256 = hashlib.sha256(content).hexdigest()
+    if actual_size != item.expected_size_bytes or actual_sha256 != item.expected_sha256:
+        return {
+            **base,
+            "cacheStatus": "integrity_mismatch",
+            "status": "blocked",
+            "sourceRequired": False,
+            "observedSizeBytes": actual_size,
+            "blockerCodes": ["WORKFLOW_SAMPLE_DATA_CACHE_INTEGRITY_MISMATCH"],
+        }
+    return {
+        **base,
+        "cacheStatus": "verified",
+        "status": "ready",
+        "sourceRequired": False,
+        "sha256": actual_sha256,
+        "sizeBytes": actual_size,
+        "blockerCodes": [],
     }
 
 

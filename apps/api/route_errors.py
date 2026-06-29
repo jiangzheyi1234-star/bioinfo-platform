@@ -49,24 +49,39 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(WorkflowSampleDataUnavailableError)
     async def workflow_sample_data_unavailable_handler(
-        _request: Request,
+        request: Request,
         exc: WorkflowSampleDataUnavailableError,
     ) -> JSONResponse:
-        return status_detail_response(exc)
+        return workflow_sample_data_problem_response(
+            request,
+            exc,
+            code="WORKFLOW_SAMPLE_DATA_UNSUPPORTED",
+            title="Workflow sample data is unsupported",
+        )
 
     @app.exception_handler(WorkflowSampleDataIntegrityError)
     async def workflow_sample_data_integrity_handler(
-        _request: Request,
+        request: Request,
         exc: WorkflowSampleDataIntegrityError,
     ) -> JSONResponse:
-        return status_detail_response(exc)
+        return workflow_sample_data_problem_response(
+            request,
+            exc,
+            code="WORKFLOW_SAMPLE_DATA_INTEGRITY_MISMATCH",
+            title="Workflow sample data integrity check failed",
+        )
 
     @app.exception_handler(WorkflowSampleDataSourceError)
     async def workflow_sample_data_source_handler(
-        _request: Request,
+        request: Request,
         exc: WorkflowSampleDataSourceError,
     ) -> JSONResponse:
-        return status_detail_response(exc)
+        return workflow_sample_data_problem_response(
+            request,
+            exc,
+            code="WORKFLOW_SAMPLE_DATA_SOURCE_UNAVAILABLE",
+            title="Workflow sample data source is unavailable",
+        )
 
     @app.exception_handler(WorkflowFirstRunValidationCardUnavailableError)
     async def workflow_first_run_validation_card_unavailable_handler(
@@ -81,3 +96,26 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     register_fixed_status_exception_handlers(app, 400, TypeError, KeyError)
     register_fixed_status_exception_handlers(app, 502, OSError, TimeoutError)
+
+
+def workflow_sample_data_problem_response(
+    request: Request,
+    exc: WorkflowSampleDataUnavailableError | WorkflowSampleDataIntegrityError | WorkflowSampleDataSourceError,
+    *,
+    code: str,
+    title: str,
+) -> JSONResponse:
+    request_id = ensure_request_id(request.headers.get("X-Request-Id"))
+    status = exc.status_code
+    return JSONResponse(
+        status_code=status,
+        content=build_problem_detail(
+            status=status,
+            title=title,
+            detail=str(exc),
+            code=code,
+            request_id=request_id,
+            instance=request.url.path,
+        ),
+        headers={"X-Request-Id": request_id},
+    )
