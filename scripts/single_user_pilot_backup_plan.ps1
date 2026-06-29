@@ -218,6 +218,8 @@ $plan = [ordered]@{
             "handoffProof.backupPlanCommand=$expectedBackupPlanCommand",
             "handoffProof.restoreProofCommand=$expectedRestoreProofCommand",
             "handoffProof.nextScenarioIds=$($expectedNextScenarioIds -join ',')",
+            "handoffProof.nextScenarioDatabasePackCoverage.toolSliceRequiredState=WorkflowReady",
+            "handoffProof.nextScenarioDatabasePackCoverage.toolSlicePromotionEvidence=toolRevisionId,capability-bundle-v1,RuleSpec,environment-lock,smoke-fixture,expected-output-artifacts",
             "handoffProof.nextScenarioDatabasePackCoverage.taxonomy-classification.packCount=1",
             "handoffProof.nextScenarioDatabasePackCoverage.amr-annotation.missingTemplates=card_rgi,eggnog_mapper,interproscan",
             "handoffProof.nextScenarioDatabasePackCoverage.readyScanPath=/api/v1/database-pack-ready-scans",
@@ -235,6 +237,8 @@ $plan = [ordered]@{
                     status = "blocked"
                     packCount = 1
                     missingTemplates = @()
+                    toolSliceRequiredState = "WorkflowReady"
+                    toolSlicePromotionEvidence = @("toolRevisionId", "capability-bundle-v1", "RuleSpec", "environment-lock", "smoke-fixture", "expected-output-artifacts")
                     readyScanPath = "/api/v1/database-pack-ready-scans"
                     registrationPrefillSource = "database-pack-ready-scan.registrationPrefill"
                 },
@@ -243,6 +247,8 @@ $plan = [ordered]@{
                     status = "blocked"
                     packCount = 0
                     missingTemplates = @("card_rgi", "eggnog_mapper", "interproscan")
+                    toolSliceRequiredState = "WorkflowReady"
+                    toolSlicePromotionEvidence = @("toolRevisionId", "capability-bundle-v1", "RuleSpec", "environment-lock", "smoke-fixture", "expected-output-artifacts")
                     readyScanPath = "/api/v1/database-pack-ready-scans"
                     registrationPrefillSource = "database-pack-ready-scan.registrationPrefill"
                 }

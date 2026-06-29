@@ -109,6 +109,14 @@ export function WorkflowScenarioPackSection({
                   </Link>
                 </Button>
               ) : null}
+              {toolSliceNeedsOperator(pack) ? (
+                <Button asChild variant="outline" className="h-8 bg-white px-2.5 text-xs text-slate-600" data-scenario-action="TOOL_SLICE_PROMOTION">
+                  <Link href="/workflows/tools">
+                    <FlaskConical strokeWidth={1.5} className="h-3.5 w-3.5" />
+                    工具验收
+                  </Link>
+                </Button>
+              ) : null}
               {databaseHandoffNeedsOperator(pack) ? (
                 <Button asChild variant="outline" className="h-8 bg-white px-2.5 text-xs text-slate-600" data-scenario-action="DATABASE_HANDOFF_WALKTHROUGH">
                   <Link href={pack.databaseHandoff?.readyScan?.path ? "/workflows/databases" : "/workflows"}>
@@ -194,6 +202,9 @@ function ToolSliceHandoffSummary({ pack }: { pack: WorkflowScenarioPack }) {
       <div className="mt-1.5 truncate text-[11px] text-slate-400">
         {toolSliceHandoffText(pack)}
         {remaining > 0 ? ` · +${remaining}` : ""}
+      </div>
+      <div className="mt-1.5 truncate text-[11px] text-slate-500" data-testid="workflow-scenario-tool-slice-promotion-contract">
+        Evidence: {(handoff?.promotionContract?.requiredEvidence || []).slice(0, 4).join(" / ")}
       </div>
     </div>
   );
@@ -383,4 +394,8 @@ function pilotReadinessPlanText(pack: WorkflowScenarioPack) {
 
 function databaseHandoffNeedsOperator(pack: WorkflowScenarioPack) {
   return pack.databaseHandoff?.mode === "manual_external" && pack.databaseHandoff?.operatorActionRequired === true;
+}
+
+function toolSliceNeedsOperator(pack: WorkflowScenarioPack) {
+  return pack.toolSliceHandoff?.requiredState === "WorkflowReady" && pack.toolSliceHandoff?.operatorActionRequired === true;
 }

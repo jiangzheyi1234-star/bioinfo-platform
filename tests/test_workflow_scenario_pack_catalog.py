@@ -76,6 +76,18 @@ def test_workflow_scenario_pack_catalog_publishes_three_product_scenarios() -> N
             "request-side-rulespec",
             "unvalidated-tool-selection",
         ]
+        assert item["toolSliceHandoff"]["promotionContract"]["schemaVersion"] == (
+            "h2ometa.workflow-scenario-tool-slice-promotion-contract.v1"
+        )
+        assert item["toolSliceHandoff"]["promotionContract"]["requiredEvidence"] == [
+            "toolRevisionId",
+            "capability-bundle-v1",
+            "RuleSpec",
+            "environment-lock",
+            "smoke-fixture",
+            "expected-output-artifacts",
+        ]
+        assert "tool-count-only-readiness" in item["toolSliceHandoff"]["promotionContract"]["excludedActions"]
         assert item["sampleDataHandoff"]["schemaVersion"] == SCENARIO_SAMPLE_DATA_HANDOFF_SCHEMA_VERSION
         assert item["sampleDataHandoff"]["noAutomaticExecution"] is True
         assert item["sampleDataHandoff"]["excludedActions"] == [
@@ -148,6 +160,20 @@ def test_only_moving_pictures_scenario_is_ready_until_vertical_packs_have_real_g
     assert taxonomy["toolSliceHandoff"]["status"] == "operator_required"
     assert taxonomy["toolSliceHandoff"]["operatorActionRequired"] is True
     assert taxonomy["toolSliceHandoff"]["sliceSize"] == {"min": 3, "max": 5, "actual": 3}
+    assert taxonomy["toolSliceHandoff"]["promotionContract"]["requiredState"] == "WorkflowReady"
+    assert {item["code"] for item in taxonomy["toolSliceHandoff"]["promotionContract"]["perToolChecklist"]} == {
+        "TOOL_REVISION_LOCKED",
+        "RULESPEC_RENDERABLE",
+        "SMOKE_FIXTURE_PASSED",
+    }
+    assert set(taxonomy["toolSliceHandoff"]["promotionContract"]["scenarioRunEvidence"]["requiredEvidence"]) == {
+        "workflowRevision",
+        "resultPackage",
+        "validationCard",
+        "evidenceBundle",
+        "inputLineage",
+        "outputChecksums",
+    }
     assert {item["code"] for item in taxonomy["toolSliceHandoff"]["checklist"]} == {
         "CURATE_TOOL_SLICE",
         "LOCK_TOOL_REVISION",

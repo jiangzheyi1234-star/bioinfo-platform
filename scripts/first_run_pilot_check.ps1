@@ -427,6 +427,36 @@ function Assert-FirstRunPilotHandoff {
         if (@($scenario.blockedChecks).Count -lt 3) {
             Fail-Pilot "pilotHandoff nextScenarios $scenarioId must include blocked gate evidence"
         }
+        $toolSlice = $scenario.toolSlicePromotionHandoff
+        if ($null -eq $toolSlice -or $toolSlice.schemaVersion -ne "h2ometa.first-run.next-scenario-tool-slice-promotion-handoff.v1") {
+            Fail-Pilot "pilotHandoff nextScenarios $scenarioId must include tool slice promotion handoff"
+        }
+        if ($toolSlice.requiredState -ne "WorkflowReady" -or $toolSlice.noAutomaticExecution -ne $true) {
+            Fail-Pilot "pilotHandoff nextScenarios $scenarioId tool slice promotion must require WorkflowReady without automatic execution"
+        }
+        if ($toolSlice.sliceSize.actual -lt 3 -or $toolSlice.sliceSize.actual -gt 5) {
+            Fail-Pilot "pilotHandoff nextScenarios $scenarioId tool slice must stay within 3-5 tools"
+        }
+        $promotion = $toolSlice.promotionContract
+        if ($null -eq $promotion -or $promotion.schemaVersion -ne "h2ometa.workflow-scenario-tool-slice-promotion-contract.v1") {
+            Fail-Pilot "pilotHandoff nextScenarios $scenarioId must include tool slice promotion contract"
+        }
+        $expectedToolEvidence = @("toolRevisionId", "capability-bundle-v1", "RuleSpec", "environment-lock", "smoke-fixture", "expected-output-artifacts")
+        if ((@($promotion.requiredEvidence) -join "|") -ne ($expectedToolEvidence -join "|")) {
+            Fail-Pilot "pilotHandoff nextScenarios $scenarioId tool promotion evidence must be explicit"
+        }
+        if (-not (@($promotion.perToolChecklist) | Where-Object { $_.code -eq "RULESPEC_RENDERABLE" -and $_.target -eq "/workflows/tools" })) {
+            Fail-Pilot "pilotHandoff nextScenarios $scenarioId tool promotion checklist must include RuleSpec proof"
+        }
+        if (-not (@($promotion.perToolChecklist) | Where-Object { $_.code -eq "SMOKE_FIXTURE_PASSED" -and $_.target -eq "/workflows/tools" })) {
+            Fail-Pilot "pilotHandoff nextScenarios $scenarioId tool promotion checklist must include smoke fixture proof"
+        }
+        if (-not (@($promotion.scenarioRunEvidence.requiredEvidence) -contains "evidenceBundle")) {
+            Fail-Pilot "pilotHandoff nextScenarios $scenarioId tool promotion must end in scenario evidence bundle"
+        }
+        if (-not (@($promotion.excludedActions) -contains "tool-count-only-readiness")) {
+            Fail-Pilot "pilotHandoff nextScenarios $scenarioId tool promotion must reject tool-count-only readiness"
+        }
         if ($null -eq $scenario.databasePackCoverage) {
             Fail-Pilot "pilotHandoff nextScenarios $scenarioId must include databasePackCoverage"
         }
@@ -500,6 +530,8 @@ function Assert-FirstRunPilotHandoff {
             status = $_.status
             packCount = $_.databasePackCoverage.packCount
             missingTemplates = @($_.databasePackCoverage.missingTemplates)
+            toolSliceRequiredState = $_.toolSlicePromotionHandoff.requiredState
+            toolSlicePromotionEvidence = @($_.toolSlicePromotionHandoff.promotionContract.requiredEvidence)
             readyScanPath = $_.databaseInstallHandoff.readyScan.path
             registrationPrefillSource = $_.databaseInstallHandoff.registration.prefillSource
             packOptionCount = @($_.databaseInstallHandoff.packOptions).Count

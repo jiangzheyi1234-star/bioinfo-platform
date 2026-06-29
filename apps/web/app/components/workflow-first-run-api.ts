@@ -242,6 +242,31 @@ export type FirstRunPilotHandoff = {
     target?: string;
     blockedChecks?: Array<{ code?: string; requirement?: string; target?: string }>;
     databasePackCoverage?: { packCount?: number; missingTemplates?: string[] };
+    toolSlicePromotionHandoff?: {
+      schemaVersion?: string;
+      status?: string;
+      requiredState?: string;
+      noAutomaticExecution?: boolean;
+      sliceSize?: { min?: number; max?: number; actual?: number };
+      toolOptions?: Array<{
+        toolId?: string;
+        name?: string;
+        kind?: string;
+        role?: string;
+        contractState?: string;
+        acceptanceEvidence?: string;
+      }>;
+      checklist?: Array<{ code?: string; label?: string; status?: string; target?: string; evidence?: string }>;
+      promotionContract?: {
+        schemaVersion?: string;
+        requiredState?: string;
+        requiredEvidence?: string[];
+        perToolChecklist?: Array<{ code?: string; status?: string; target?: string; evidence?: string }>;
+        scenarioRunEvidence?: { requiredEvidence?: string[]; target?: string };
+        excludedActions?: string[];
+      };
+      excludedActions?: string[];
+    };
     databaseInstallHandoff?: {
       schemaVersion?: string;
       mode?: string;
@@ -546,6 +571,8 @@ export function firstRunHandoffManifestMarkdown(card: FirstRunValidationCard) {
         )
       : "No next scenario pilots recorded.",
     "",
+    "Tool promotion evidence: toolRevisionId, capability-bundle-v1, RuleSpec, environment-lock, smoke-fixture, expected-output-artifacts.",
+    "",
     "## Validation Card",
     "",
     "Keep every required evidence bundle file together. Verify the result package SHA-256 and manifest SHA-256 before sharing or reusing lineage.",
@@ -578,6 +605,8 @@ function firstRunPilotHandoffMarkdown(handoff?: FirstRunPilotHandoff) {
           ])
         )
       : "No next scenario handoff recorded.",
+    "",
+    "Tool promotion evidence: toolRevisionId, capability-bundle-v1, RuleSpec, environment-lock, smoke-fixture, expected-output-artifacts.",
   ];
 }
 

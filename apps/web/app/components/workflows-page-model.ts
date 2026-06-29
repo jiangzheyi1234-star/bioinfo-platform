@@ -202,6 +202,22 @@ export type WorkflowScenarioToolSliceHandoff = {
     target?: string;
     evidence?: string;
   }>;
+  promotionContract?: {
+    schemaVersion?: string;
+    requiredState?: string;
+    requiredEvidence?: string[];
+    perToolChecklist?: Array<{
+      code?: string;
+      status?: "operator_required" | "passed" | string;
+      target?: string;
+      evidence?: string;
+    }>;
+    scenarioRunEvidence?: {
+      requiredEvidence?: string[];
+      target?: string;
+    };
+    excludedActions?: string[];
+  };
   evidencePolicy?: {
     requiresToolRevisionId?: boolean;
     requiresCapabilityBundle?: boolean;

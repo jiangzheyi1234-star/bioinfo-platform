@@ -83,6 +83,21 @@ def test_first_run_validation_card_is_server_generated_and_redacted(monkeypatch)
         "amr-annotation",
     ]
     assert handoff["nextScenarios"][0]["databasePackCoverage"]["packCount"] == 1
+    taxonomy_tool_slice = handoff["nextScenarios"][0]["toolSlicePromotionHandoff"]
+    assert taxonomy_tool_slice["schemaVersion"] == "h2ometa.first-run.next-scenario-tool-slice-promotion-handoff.v1"
+    assert taxonomy_tool_slice["requiredState"] == "WorkflowReady"
+    assert taxonomy_tool_slice["noAutomaticExecution"] is True
+    assert taxonomy_tool_slice["sliceSize"] == {"min": 3, "max": 5, "actual": 3}
+    assert [item["contractState"] for item in taxonomy_tool_slice["toolOptions"]] == ["planned", "planned", "planned"]
+    assert taxonomy_tool_slice["promotionContract"]["requiredEvidence"] == [
+        "toolRevisionId",
+        "capability-bundle-v1",
+        "RuleSpec",
+        "environment-lock",
+        "smoke-fixture",
+        "expected-output-artifacts",
+    ]
+    assert "tool-count-only-readiness" in taxonomy_tool_slice["promotionContract"]["excludedActions"]
     taxonomy_install = handoff["nextScenarios"][0]["databaseInstallHandoff"]
     assert taxonomy_install["schemaVersion"] == "h2ometa.first-run.next-scenario-database-install-handoff.v1"
     assert taxonomy_install["mode"] == "manual_external"

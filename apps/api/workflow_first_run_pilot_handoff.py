@@ -13,6 +13,9 @@ FIRST_RUN_EVIDENCE_BUNDLE_SCHEMA_VERSION = "h2ometa.first-run.evidence-bundle.v1
 FIRST_RUN_NEXT_SCENARIO_DATABASE_INSTALL_HANDOFF_SCHEMA_VERSION = (
     "h2ometa.first-run.next-scenario-database-install-handoff.v1"
 )
+FIRST_RUN_NEXT_SCENARIO_TOOL_SLICE_PROMOTION_HANDOFF_SCHEMA_VERSION = (
+    "h2ometa.first-run.next-scenario-tool-slice-promotion-handoff.v1"
+)
 
 
 def build_first_run_pilot_handoff(card: dict[str, Any]) -> dict[str, Any]:
@@ -151,6 +154,7 @@ def _next_scenario_handoffs() -> list[dict[str, Any]]:
 
 def _next_scenario_handoff(pack: dict[str, Any]) -> dict[str, Any]:
     database_handoff = pack.get("databaseHandoff") if isinstance(pack.get("databaseHandoff"), dict) else {}
+    tool_slice_handoff = pack.get("toolSliceHandoff") if isinstance(pack.get("toolSliceHandoff"), dict) else {}
     return {
         "scenarioId": str(pack.get("scenarioId") or ""),
         "name": str(pack.get("name") or ""),
@@ -169,8 +173,52 @@ def _next_scenario_handoff(pack: dict[str, Any]) -> dict[str, Any]:
             "packCount": len(database_handoff.get("packOptions") or []),
             "missingTemplates": list(database_handoff.get("missingPackTemplates") or []),
         },
+        "toolSlicePromotionHandoff": _next_scenario_tool_slice_promotion_handoff(tool_slice_handoff),
         "databaseInstallHandoff": _next_scenario_database_install_handoff(database_handoff),
     }
+
+
+def _next_scenario_tool_slice_promotion_handoff(tool_slice_handoff: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schemaVersion": FIRST_RUN_NEXT_SCENARIO_TOOL_SLICE_PROMOTION_HANDOFF_SCHEMA_VERSION,
+        "status": str(tool_slice_handoff.get("status") or ""),
+        "requiredState": str(tool_slice_handoff.get("requiredState") or ""),
+        "noAutomaticExecution": tool_slice_handoff.get("noAutomaticExecution") is True,
+        "sliceSize": dict(tool_slice_handoff.get("sliceSize") or {}),
+        "toolOptions": _tool_slice_tool_options(tool_slice_handoff),
+        "checklist": _tool_slice_checklist(tool_slice_handoff),
+        "promotionContract": dict(tool_slice_handoff.get("promotionContract") or {}),
+        "excludedActions": list(tool_slice_handoff.get("excludedActions") or []),
+    }
+
+
+def _tool_slice_tool_options(tool_slice_handoff: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "toolId": str(item.get("toolId") or ""),
+            "name": str(item.get("name") or ""),
+            "kind": str(item.get("kind") or ""),
+            "role": str(item.get("role") or ""),
+            "contractState": str(item.get("contractState") or ""),
+            "acceptanceEvidence": str(item.get("acceptanceEvidence") or ""),
+        }
+        for item in tool_slice_handoff.get("toolOptions") or []
+        if isinstance(item, dict)
+    ]
+
+
+def _tool_slice_checklist(tool_slice_handoff: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "code": str(item.get("code") or ""),
+            "label": str(item.get("label") or ""),
+            "status": str(item.get("status") or ""),
+            "target": str(item.get("target") or ""),
+            "evidence": str(item.get("evidence") or ""),
+        }
+        for item in tool_slice_handoff.get("checklist") or []
+        if isinstance(item, dict)
+    ]
 
 
 def _next_scenario_database_install_handoff(database_handoff: dict[str, Any]) -> dict[str, Any]:

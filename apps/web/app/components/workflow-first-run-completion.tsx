@@ -332,6 +332,7 @@ function NextScenarioPilotCard({ pack }: { pack: WorkflowScenarioPack }) {
   const blockers = pack.readinessChecks.filter((item) => item.status !== "passed").slice(0, 3);
   const packOptions = pack.databaseHandoff?.packOptions || [];
   const missingTemplates = pack.databaseHandoff?.missingPackTemplates || [];
+  const toolEvidence = pack.toolSliceHandoff?.promotionContract?.requiredEvidence || [];
   const readyScan = pack.databaseHandoff?.readyScan;
   const registration = pack.databaseHandoff?.registration;
   return (
@@ -354,6 +355,11 @@ function NextScenarioPilotCard({ pack }: { pack: WorkflowScenarioPack }) {
         ))}
       </div>
       <div className="mt-2 grid gap-1 text-[11px]" data-testid="first-run-next-scenario-database-handoff">
+        {toolEvidence.length > 0 ? (
+          <div className="truncate text-slate-500" data-testid="first-run-next-scenario-tool-slice-promotion">
+            Tool evidence: {toolEvidence.slice(0, 4).join(" / ")}
+          </div>
+        ) : null}
         {packOptions.slice(0, 1).map((item) => (
           <div key={item.packId || item.templateId} className="flex min-w-0 items-center gap-1.5 text-slate-600">
             <Database strokeWidth={1.5} className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
@@ -376,6 +382,14 @@ function NextScenarioPilotCard({ pack }: { pack: WorkflowScenarioPack }) {
         ) : null}
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
+        {pack.toolSliceHandoff?.operatorActionRequired ? (
+          <Button asChild variant="outline" className="h-8 border-emerald-200 bg-white px-2.5 text-xs text-emerald-800" data-next-scenario-tool-action>
+            <a href="/workflows/tools">
+              <ClipboardCheck strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5" />
+              工具验收
+            </a>
+          </Button>
+        ) : null}
         {pack.databaseHandoff?.operatorActionRequired ? (
           <Button asChild variant="outline" className="h-8 border-emerald-200 bg-white px-2.5 text-xs text-emerald-800" data-next-scenario-database-action>
             <a href="/workflows/databases">

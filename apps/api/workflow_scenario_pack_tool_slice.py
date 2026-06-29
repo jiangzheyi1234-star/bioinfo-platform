@@ -8,12 +8,23 @@ from apps.api.workflow_scenario_pack_targets import SCENARIO_PRODUCT_TARGETS
 
 
 SCENARIO_TOOL_SLICE_HANDOFF_SCHEMA_VERSION = "h2ometa.workflow-scenario-tool-slice-handoff.v1"
+SCENARIO_TOOL_SLICE_PROMOTION_CONTRACT_SCHEMA_VERSION = (
+    "h2ometa.workflow-scenario-tool-slice-promotion-contract.v1"
+)
 SCENARIO_TOOL_SLICE_MIN = 3
 SCENARIO_TOOL_SLICE_MAX = 5
 SCENARIO_TOOL_SLICE_EXCLUDED_ACTIONS = [
     "generic-bioconda-import",
     "request-side-rulespec",
     "unvalidated-tool-selection",
+]
+SCENARIO_TOOL_SLICE_REQUIRED_EVIDENCE = [
+    "toolRevisionId",
+    "capability-bundle-v1",
+    "RuleSpec",
+    "environment-lock",
+    "smoke-fixture",
+    "expected-output-artifacts",
 ]
 
 
@@ -37,6 +48,7 @@ def tool_slice_handoff(definition: dict[str, Any]) -> dict[str, Any]:
         },
         "toolOptions": [_tool_option(item) for item in tools],
         "checklist": _tool_slice_checklist(ready=ready),
+        "promotionContract": _tool_slice_promotion_contract(ready=ready),
         "evidencePolicy": {
             "requiresToolRevisionId": True,
             "requiresCapabilityBundle": True,
@@ -81,6 +93,7 @@ def validate_tool_slice_handoff(definition: dict[str, Any]) -> None:
     _validate_checklist_targets(handoff["checklist"])
     if handoff["excludedActions"] != SCENARIO_TOOL_SLICE_EXCLUDED_ACTIONS:
         raise WorkflowScenarioToolSliceHandoffError("SCENARIO_TOOL_SLICE_HANDOFF_EXCLUSIONS_INVALID")
+    _validate_promotion_contract(handoff["promotionContract"])
 
 
 def _tool_option(item: dict[str, Any]) -> dict[str, str]:
@@ -101,6 +114,69 @@ def _validate_checklist_targets(checklist: list[dict[str, str]]) -> None:
             raise WorkflowScenarioToolSliceHandoffError("SCENARIO_TOOL_SLICE_HANDOFF_TARGET_REQUIRED")
         if target not in SCENARIO_PRODUCT_TARGETS:
             raise WorkflowScenarioToolSliceHandoffError(f"SCENARIO_TOOL_SLICE_HANDOFF_TARGET_UNSUPPORTED: {target}")
+
+
+def _validate_promotion_contract(contract: dict[str, Any]) -> None:
+    if contract.get("schemaVersion") != SCENARIO_TOOL_SLICE_PROMOTION_CONTRACT_SCHEMA_VERSION:
+        raise WorkflowScenarioToolSliceHandoffError("SCENARIO_TOOL_SLICE_PROMOTION_CONTRACT_INVALID")
+    if contract.get("requiredState") != "WorkflowReady":
+        raise WorkflowScenarioToolSliceHandoffError("SCENARIO_TOOL_SLICE_PROMOTION_CONTRACT_INVALID")
+    if contract.get("requiredEvidence") != SCENARIO_TOOL_SLICE_REQUIRED_EVIDENCE:
+        raise WorkflowScenarioToolSliceHandoffError("SCENARIO_TOOL_SLICE_PROMOTION_CONTRACT_INVALID")
+    scenario_run = contract.get("scenarioRunEvidence") if isinstance(contract.get("scenarioRunEvidence"), dict) else {}
+    required_run_evidence = {
+        "workflowRevision",
+        "resultPackage",
+        "validationCard",
+        "evidenceBundle",
+        "inputLineage",
+        "outputChecksums",
+    }
+    if set(scenario_run.get("requiredEvidence") or []) != required_run_evidence:
+        raise WorkflowScenarioToolSliceHandoffError("SCENARIO_TOOL_SLICE_PROMOTION_CONTRACT_INVALID")
+    if contract.get("excludedActions") != SCENARIO_TOOL_SLICE_EXCLUDED_ACTIONS + ["tool-count-only-readiness"]:
+        raise WorkflowScenarioToolSliceHandoffError("SCENARIO_TOOL_SLICE_PROMOTION_CONTRACT_INVALID")
+
+
+def _tool_slice_promotion_contract(*, ready: bool) -> dict[str, Any]:
+    status = "passed" if ready else "operator_required"
+    return {
+        "schemaVersion": SCENARIO_TOOL_SLICE_PROMOTION_CONTRACT_SCHEMA_VERSION,
+        "requiredState": "WorkflowReady",
+        "requiredEvidence": SCENARIO_TOOL_SLICE_REQUIRED_EVIDENCE,
+        "perToolChecklist": [
+            {
+                "code": "TOOL_REVISION_LOCKED",
+                "status": status,
+                "target": "/workflows/tools",
+                "evidence": "toolRevisionId is immutable and points to the accepted wrapper",
+            },
+            {
+                "code": "RULESPEC_RENDERABLE",
+                "status": status,
+                "target": "/workflows/tools",
+                "evidence": "RuleSpec renders a Snakemake rule without request-side mutation",
+            },
+            {
+                "code": "SMOKE_FIXTURE_PASSED",
+                "status": status,
+                "target": "/workflows/tools",
+                "evidence": "dry-run, smoke run, and expected output artifact checks passed",
+            },
+        ],
+        "scenarioRunEvidence": {
+            "requiredEvidence": [
+                "workflowRevision",
+                "resultPackage",
+                "validationCard",
+                "evidenceBundle",
+                "inputLineage",
+                "outputChecksums",
+            ],
+            "target": "/workflows/results",
+        },
+        "excludedActions": SCENARIO_TOOL_SLICE_EXCLUDED_ACTIONS + ["tool-count-only-readiness"],
+    }
 
 
 def _tool_slice_checklist(*, ready: bool) -> list[dict[str, str]]:

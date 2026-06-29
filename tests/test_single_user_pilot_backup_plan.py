@@ -51,6 +51,11 @@ def test_single_user_pilot_backup_plan_script_defines_read_only_handoff() -> Non
     assert "handoffProof.evidenceBundleSchemaVersion=h2ometa.first-run.evidence-bundle.v1" in source
     assert "handoffProof.evidenceBundleFileRoles=$($expectedEvidenceBundleRoles -join ',')" in source
     assert "handoffProof.nextScenarioIds=$($expectedNextScenarioIds -join ',')" in source
+    assert "handoffProof.nextScenarioDatabasePackCoverage.toolSliceRequiredState=WorkflowReady" in source
+    assert (
+        "handoffProof.nextScenarioDatabasePackCoverage.toolSlicePromotionEvidence="
+        "toolRevisionId,capability-bundle-v1,RuleSpec,environment-lock,smoke-fixture,expected-output-artifacts"
+    ) in source
     assert "handoffProof.nextScenarioDatabasePackCoverage.taxonomy-classification.packCount=1" in source
     assert (
         "handoffProof.nextScenarioDatabasePackCoverage.amr-annotation.missingTemplates="
@@ -144,6 +149,15 @@ def test_single_user_pilot_backup_plan_outputs_machine_readable_json(tmp_path: P
     )
     assert "handoffProof.nextScenarioIds=taxonomy-classification,amr-annotation" in summary["restoreDrill"]["mustReport"]
     assert (
+        "handoffProof.nextScenarioDatabasePackCoverage.toolSliceRequiredState=WorkflowReady"
+        in summary["restoreDrill"]["mustReport"]
+    )
+    assert (
+        "handoffProof.nextScenarioDatabasePackCoverage.toolSlicePromotionEvidence="
+        "toolRevisionId,capability-bundle-v1,RuleSpec,environment-lock,smoke-fixture,expected-output-artifacts"
+        in summary["restoreDrill"]["mustReport"]
+    )
+    assert (
         "handoffProof.nextScenarioDatabasePackCoverage.taxonomy-classification.packCount=1"
         in summary["restoreDrill"]["mustReport"]
     )
@@ -182,6 +196,15 @@ def test_single_user_pilot_backup_plan_outputs_machine_readable_json(tmp_path: P
             "status": "blocked",
             "packCount": 1,
             "missingTemplates": [],
+            "toolSliceRequiredState": "WorkflowReady",
+            "toolSlicePromotionEvidence": [
+                "toolRevisionId",
+                "capability-bundle-v1",
+                "RuleSpec",
+                "environment-lock",
+                "smoke-fixture",
+                "expected-output-artifacts",
+            ],
             "readyScanPath": "/api/v1/database-pack-ready-scans",
             "registrationPrefillSource": "database-pack-ready-scan.registrationPrefill",
         },
@@ -190,6 +213,15 @@ def test_single_user_pilot_backup_plan_outputs_machine_readable_json(tmp_path: P
             "status": "blocked",
             "packCount": 0,
             "missingTemplates": ["card_rgi", "eggnog_mapper", "interproscan"],
+            "toolSliceRequiredState": "WorkflowReady",
+            "toolSlicePromotionEvidence": [
+                "toolRevisionId",
+                "capability-bundle-v1",
+                "RuleSpec",
+                "environment-lock",
+                "smoke-fixture",
+                "expected-output-artifacts",
+            ],
             "readyScanPath": "/api/v1/database-pack-ready-scans",
             "registrationPrefillSource": "database-pack-ready-scan.registrationPrefill",
         },
