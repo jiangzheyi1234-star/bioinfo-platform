@@ -133,7 +133,7 @@ def test_remote_status_failed_runner_can_trigger_repair_bootstrap() -> None:
     _assert_contains(ui_source + repair_source, "runnerEnsureActionLabel(status, ensureRunnerBusy)")
     _assert_matches(
         repair_source,
-        r"status\?\.connected\s*&&\s*!\s*status\.runner\?\.ready",
+        r"status\?\.connected\s*&&\s*serverId\s*&&\s*!\s*status\.runner\?\.ready",
         r"onClick=\{onEnsureRunner\}",
     )
     _assert_contains(

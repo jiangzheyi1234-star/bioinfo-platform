@@ -14,6 +14,7 @@ import { fetchWorkflowTriggers } from "./workflow-trigger-api";
 import { fetchRunsList, fetchWorkflowResultsList } from "./workflows-page-api";
 import { workflowErrorMessage, type WorkflowResultSummary, type WorkflowRun } from "./workflows-page-model";
 import { WorkflowPageHeader } from "./workflow-page-header";
+import { useWorkflowRunnerRepairState, WorkflowRunnerRepairNotice } from "./workflow-runner-repair-state";
 
 function StatusBadge({ status }: { status: string }) {
   const s = status.toLowerCase();
@@ -43,6 +44,7 @@ export function WorkflowResultsPage() {
   const [error, setError] = useState("");
   const [summaryError, setSummaryError] = useState("");
   const [filter, setFilter] = useState("all");
+  const runnerRepair = useWorkflowRunnerRepairState();
 
   const load = useCallback(async (forceRefresh = false) => {
     setLoading(true);
@@ -102,6 +104,7 @@ export function WorkflowResultsPage() {
             </Button>
           }
         />
+        <WorkflowRunnerRepairNotice controller={runnerRepair} mode="compact" />
 
         <div className="flex flex-wrap items-center gap-2">
           <Button asChild variant="outline" className="h-9 bg-white px-3 text-slate-600">

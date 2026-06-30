@@ -70,6 +70,7 @@ def test_tools_page_has_focused_support_modules() -> None:
     task_context = (COMPONENTS / "tool-prepare-task-context.tsx").read_text(encoding="utf-8")
     task_bar = (COMPONENTS / "tool-prepare-task-bar.tsx").read_text(encoding="utf-8")
     page = (COMPONENTS / "tools-page.tsx").read_text(encoding="utf-8")
+    runner_repair = (COMPONENTS / "workflow-runner-repair-state.tsx").read_text(encoding="utf-8")
     route_page = (ROOT / "apps/web/app/workflows/tools/page.tsx").read_text(encoding="utf-8")
     recommendation_ui = (COMPONENTS / "generated-workflow-tool-recommendations.tsx").read_text(encoding="utf-8")
 
@@ -104,6 +105,10 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "initialQuery" in hook
     assert "const initialSearchQuery = initialQuery || searchParams.get(\"q\") || \"\"" in page
     assert "useToolsPageState(initialSearchQuery)" in page
+    assert "useWorkflowRunnerRepairState()" in page
+    assert "WorkflowRunnerRepairNotice controller={runnerRepair} mode=\"compact\"" in page
+    assert "requestLocalApiJson" not in page
+    assert "data-testid=\"workflow-runner-repair-notice\"" in runner_repair
     assert "const catalogQualityStrip = (" in page
     assert page.count("{catalogQualityStrip}") == 2
     assert "useSearchParams" in page

@@ -6,8 +6,7 @@ import type { DatabaseItem } from "./database-page-model";
 import type { AddedTool } from "./tools-page-model";
 import { GENERATED_TOOL_RUN_PIPELINE_ID, workflowToolRevisionId } from "./generated-workflow-model";
 import { useGeneratedWorkflowBuilder, type GeneratedWorkflowAddStepOptions } from "./use-generated-workflow-builder";
-import { MANUAL_RUNNER_STOP_REASON } from "./ssh-shell-model";
-import { ensureWorkflowServerRunner, startWorkflowServerRunner } from "./workflow-server-readiness-api";
+import { runWorkflowServerRunnerRepairAction } from "./workflow-runner-repair-state";
 import { workflowInputRoleForIndex } from "./workflow-artifact-input-recommendation";
 import {
   fetchRunsList,
@@ -161,10 +160,7 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     setRunnerEnsureBusy(true);
     setRunnerRepairError("");
     try {
-      const runLifecycleAction = workflowServerRunnerManuallyStopped(server)
-        ? startWorkflowServerRunner
-        : ensureWorkflowServerRunner;
-      await runLifecycleAction(serverId);
+      await runWorkflowServerRunnerRepairAction(server);
       return await refreshWorkflowServer();
     } catch (err) {
       setRunnerRepairError(workflowErrorMessage(err, "runner readiness 准备失败"));
@@ -724,16 +720,6 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
 
 function sampleUploadIntegrityPassed(upload: WorkflowUpload) {
   return upload.integrityStatus === "passed" && Boolean(upload.sha256) && upload.sha256 === upload.expectedSha256;
-}
-
-function workflowServerRunnerManuallyStopped(server: WorkflowServer | null) {
-  const runner = server?.runner;
-  return Boolean(
-    server?.connected &&
-      runner &&
-      runner.ready !== true &&
-      (runner.state === "stopped" || runner.reasonCode === MANUAL_RUNNER_STOP_REASON)
-  );
 }
 
 function resourceIdsFromWorkflowDesignDraft(record: WorkflowDesignDraftRecord): Record<string, string> {

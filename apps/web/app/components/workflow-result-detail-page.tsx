@@ -12,6 +12,7 @@ import { fetchWorkflowRunDetail } from "./workflows-page-api";
 import { workflowErrorMessage, type WorkflowRunDetail } from "./workflows-page-model";
 import { WorkflowRunDetailPanel } from "./workflow-run-detail-panel";
 import { WorkflowPageHeader } from "./workflow-page-header";
+import { useWorkflowRunnerRepairState, WorkflowRunnerRepairNotice } from "./workflow-runner-repair-state";
 
 export function WorkflowResultDetailPage() {
   const searchParams = useSearchParams();
@@ -20,6 +21,7 @@ export function WorkflowResultDetailPage() {
   const [detail, setDetail] = useState<WorkflowRunDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const runnerRepair = useWorkflowRunnerRepairState();
 
   const load = useCallback(async () => {
     if (!runId) return;
@@ -60,6 +62,7 @@ export function WorkflowResultDetailPage() {
           }
           actions={<span className="font-mono text-xs text-slate-400">{runId || "—"}</span>}
         />
+        <WorkflowRunnerRepairNotice controller={runnerRepair} mode="compact" />
 
         {!runId ? (
           <Alert variant="destructive">

@@ -31,7 +31,7 @@ import {
   type WorkflowServer,
   type WorkflowUpload,
 } from "./workflows-page-model";
-import { MANUAL_RUNNER_STOP_REASON, type RunnerRepairStatus } from "./ssh-shell-model";
+import { workflowServerRepairStatus } from "./workflow-runner-repair-state";
 import { rankArtifactInputCandidates, safeArtifactOutputLabel } from "./workflow-artifact-input-recommendation";
 import type { WorkflowArtifactRunInput } from "./workflow-pipeline-run-spec";
 
@@ -677,38 +677,4 @@ function artifactInputRunLabel(artifact: WorkflowArtifactRunInput) {
 
 function shortId(value?: string) {
   return String(value || "").slice(0, 12);
-}
-
-function workflowServerRepairStatus(server: WorkflowServer | null): RunnerRepairStatus | null {
-  if (!server?.serverId) {
-    return null;
-  }
-  const runner = server.runner;
-  const reasonCode = runner?.reasonCode || server.reasonCode || "";
-  const connected = server.connected === true;
-  return {
-    connected,
-    displayTarget: server.label || server.serverId,
-    message: server.message || "",
-    serverId: server.serverId,
-    runner: connected && runner
-      ? {
-          state:
-            runner.state ||
-            (runner.ready === true
-              ? "ready"
-              : reasonCode === MANUAL_RUNNER_STOP_REASON
-                ? "stopped"
-                : reasonCode
-                  ? "repair_needed"
-                  : "preparing"),
-          ready: runner.ready === true,
-          message: runner.message || server.message || "",
-          reasonCode,
-          deploymentAction: runner.deploymentAction,
-          servicePort: runner.servicePort,
-          tunnelPort: runner.tunnelPort,
-        }
-      : undefined,
-  };
 }

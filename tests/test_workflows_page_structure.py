@@ -54,12 +54,15 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     first_run_status_state = (FIRST_RUN_STATE / "use-first-run-status.ts").read_text(encoding="utf-8")
     server_readiness_api = (COMPONENTS / "workflow-server-readiness-api.ts").read_text(encoding="utf-8")
     workflow_detail_page = (COMPONENTS / "workflow-detail-page.tsx").read_text(encoding="utf-8")
+    results_page = (COMPONENTS / "workflow-results-page.tsx").read_text(encoding="utf-8")
+    result_detail_page = (COMPONENTS / "workflow-result-detail-page.tsx").read_text(encoding="utf-8")
+    runner_repair = (COMPONENTS / "workflow-runner-repair-state.tsx").read_text(encoding="utf-8")
     page_ui = (COMPONENTS / "workflows-page-ui.tsx").read_text(encoding="utf-8")
     models = (COMPONENTS / "workflows-page-model.ts").read_text(encoding="utf-8")
     first_run_source = f"{first_run_page}\n{first_run_api}\n{first_run_completion}\n{first_run_conductor}\n{first_run_report}\n{first_run_sample_submit}\n{first_run_trust_summary}\n{first_run_validation}"
     api = (COMPONENTS / "workflows-page-api.ts").read_text(encoding="utf-8")
     hook = (COMPONENTS / "use-workflows-page-state.ts").read_text(encoding="utf-8")
-    runner_adapter = _function_body(page_ui, "workflowServerRepairStatus")
+    runner_adapter = _function_body(runner_repair, "workflowServerRepairStatus")
 
     assert 'redirect("/workflows/first-run")' in root_page
     assert first_run_route.exists()
@@ -169,10 +172,14 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "/api/v1/servers/${encodeURIComponent(normalizedServerId)}/${actionPath}" in server_readiness_api
     assert "timeoutMs: 120_000" in server_readiness_api
     assert "invalidateAsyncCache(WORKFLOW_SERVER_CACHE_KEY)" in server_readiness_api
-    assert "ensureWorkflowServerRunner" in hook
-    assert "startWorkflowServerRunner" in hook
-    assert "workflowServerRunnerManuallyStopped(server)" in hook
-    assert "runner.reasonCode === MANUAL_RUNNER_STOP_REASON" in hook
+    assert "runWorkflowServerRunnerRepairAction" in hook
+    assert "export function workflowServerRepairStatus" in runner_repair
+    assert "export function workflowServerRunnerManuallyStopped" in runner_repair
+    assert "export async function runWorkflowServerRunnerRepairAction" in runner_repair
+    assert "export function useWorkflowRunnerRepairState" in runner_repair
+    assert "export function WorkflowRunnerRepairNotice" in runner_repair
+    assert "workflowServerRunnerManuallyStopped(server) ? startWorkflowServerRunner : ensureWorkflowServerRunner" in runner_repair
+    assert "runner.reasonCode === MANUAL_RUNNER_STOP_REASON" in runner_repair
     assert "refreshWorkflowServer" in hook
     assert "runnerEnsureBusy" in hook
     assert "runnerRepairError" in hook
@@ -181,9 +188,21 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "runnerEnsureBusy={state.runnerEnsureBusy}" in workflow_detail_page
     assert "runnerRepairError={state.runnerRepairError}" in workflow_detail_page
     assert "RunnerRepairPanel" in page_ui
+    assert "from \"./workflow-runner-repair-state\"" in page_ui
     assert "workflowServerRepairStatus(server)" in page_ui
     assert "const showRunnerRepair = Boolean(runnerRepairStatus?.connected && runnerRepairStatus.runner && !runnerRepairStatus.runner.ready)" in page_ui
     assert "onRefreshStatus={onRefreshServer}" in page_ui
+    assert "useWorkflowRunnerRepairState()" in results_page
+    assert "WorkflowRunnerRepairNotice controller={runnerRepair} mode=\"compact\"" in results_page
+    assert "useWorkflowRunnerRepairState()" in result_detail_page
+    assert "WorkflowRunnerRepairNotice controller={runnerRepair} mode=\"compact\"" in result_detail_page
+    assert "data-testid=\"workflow-runner-repair-notice\"" in runner_repair
+    assert 'data-runner-repair-mode={mode}' in runner_repair
+    assert 'mode?: "compact" | "full"' in runner_repair
+    assert 'const [expanded, setExpanded] = useState(mode === "full")' in runner_repair
+    assert "const canPrepareRunner = Boolean(status?.connected && status.serverId && !status.runner?.ready)" in runner_repair
+    assert "const hasKnownRunnerTarget = Boolean(status?.serverId || controller.server?.serverId)" in runner_repair
+    assert "const visibleLoadError = hasKnownRunnerTarget ? controller.loadError : \"\"" in runner_repair
     assert "displayTarget: server.label || server.serverId" in runner_adapter
     assert "connected = server.connected === true" in runner_adapter
     assert "ready: runner.ready === true" in runner_adapter

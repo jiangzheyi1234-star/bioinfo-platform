@@ -11,6 +11,7 @@ import { sourceFilters } from "./tools-page-model";
 import { ToolsLibrarySection } from "./tools-page-library-section";
 import { ToolCatalogQualityStrip, ToolPreviewPanel, ToolSearchResults } from "./tools-page-ui";
 import { useToolsPageState } from "./use-tools-page-state";
+import { useWorkflowRunnerRepairState, WorkflowRunnerRepairNotice } from "./workflow-runner-repair-state";
 import { WorkflowPageHeader } from "./workflow-page-header";
 import { WorkflowWorkspaceTabs } from "./workflow-workspace-tabs";
 
@@ -18,6 +19,7 @@ export function ToolsPage({ initialQuery = "" }: { initialQuery?: string }) {
   const searchParams = useSearchParams();
   const initialSearchQuery = initialQuery || searchParams.get("q") || "";
   const state = useToolsPageState(initialSearchQuery);
+  const runnerRepair = useWorkflowRunnerRepairState();
   const catalogQualityStrip = (
     <ToolCatalogQualityStrip
       candidateCatalog={state.candidateCatalog}
@@ -54,6 +56,7 @@ export function ToolsPage({ initialQuery = "" }: { initialQuery?: string }) {
             )
           }
         />
+        <WorkflowRunnerRepairNotice controller={runnerRepair} mode="compact" />
 
         {state.view === "library" ? (
           <>
