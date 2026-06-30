@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 import shlex
 import time
 from collections.abc import Callable
@@ -31,8 +32,8 @@ class RemoteRunnerInstallLockMixin:
         bootstrap_metadata: dict[str, Any],
         attempts: int = 60,
         delay_seconds: float = 1.0,
-    ) -> None:
-        acquire_remote_install_lock(
+    ) -> str:
+        return acquire_remote_install_lock(
             ssh_service=ssh_service,
             lock_dir=lock_dir,
             remote_root=remote_root,
@@ -44,8 +45,12 @@ class RemoteRunnerInstallLockMixin:
         )
 
     @staticmethod
-    def _release_remote_install_lock(*, ssh_service, lock_dir: str) -> None:
-        release_remote_install_lock(ssh_service=ssh_service, lock_dir=lock_dir)
+    def _release_remote_install_lock(*, ssh_service, lock_dir: str, owner_token: str) -> None:
+        release_remote_install_lock(
+            ssh_service=ssh_service,
+            lock_dir=lock_dir,
+            owner_token=owner_token,
+        )
 
 
 def acquire_remote_install_lock(
@@ -58,8 +63,9 @@ def acquire_remote_install_lock(
     attempts: int = 60,
     delay_seconds: float = 1.0,
     sleep: Callable[[float], None] = time.sleep,
-) -> None:
+) -> str:
     parent = f"{remote_root}/locks"
+    owner_token = secrets.token_urlsafe(24)
     command = (
         "mkdir -p {parent} && "
         "if mkdir {lock} 2>/dev/null; then "
@@ -86,19 +92,25 @@ def acquire_remote_install_lock(
                 lock_metadata["stale_reclaimed"] = True
             if previous_lock.get("last_reclaim_status"):
                 lock_metadata["last_reclaim_status"] = previous_lock["last_reclaim_status"]
+            lock_metadata["ownerFenced"] = True
             bootstrap_metadata["install_lock"] = {
                 **lock_metadata,
             }
             owner = {
                 "version": str(lock_dir).rsplit("/", 1)[-1],
                 "createdAt": int(time.time()),
+                "ownerToken": owner_token,
             }
             quoted_owner = shlex.quote(json.dumps(owner, separators=(",", ":")))
-            ssh_service.run(
+            owner_exit_code, owner_stdout, owner_stderr = ssh_service.run(
                 f"printf %s {quoted_owner} > {shlex.quote(f'{lock_dir}/owner.json')}",
                 timeout=10,
             )
-            return
+            if owner_exit_code != 0:
+                detail = owner_stderr.strip() or owner_stdout.strip() or "remote install lock owner write failed"
+                ssh_service.run(f"rmdir {shlex.quote(lock_dir)} >/dev/null 2>&1 || true", timeout=10)
+                raise make_error(f"write remote install lock owner: {detail}")
+            return owner_token
         if marker != "busy":
             raise make_error(f"acquire remote install lock: unexpected response {marker!r}")
         bootstrap_metadata["install_lock"]["waited"] = True
@@ -214,7 +226,7 @@ if ps -eo args= | grep -E "$ACTIVE_PATTERN" | grep -v grep >/dev/null; then
 fi
 OWNER=
 if [ -f "$LOCK/owner.json" ]; then
-  OWNER=$(tr -d '\n' < "$LOCK/owner.json" | cut -c 1-400)
+  OWNER=$(tr -d '\n' < "$LOCK/owner.json" | sed 's/"ownerToken"[[:space:]]*:[[:space:]]*"[^"]*"/"ownerToken":"<redacted>"/g' | cut -c 1-400)
 fi
 printf 'exists=yes type=%s ageSeconds=%s activeProcess=%s owner=%s' "$TYPE" "$AGE" "$ACTIVE" "$OWNER"
 """.strip()
@@ -231,5 +243,32 @@ printf 'exists=yes type=%s ageSeconds=%s activeProcess=%s owner=%s' "$TYPE" "$AG
     return stdout.strip()
 
 
-def release_remote_install_lock(*, ssh_service, lock_dir: str) -> None:
-    ssh_service.run(f"rm -rf {shlex.quote(lock_dir)}", timeout=10)
+def release_remote_install_lock(*, ssh_service, lock_dir: str, owner_token: str) -> None:
+    command = r"""
+set -u
+LOCK=$1
+OWNER_TOKEN=$2
+if [ ! -d "$LOCK" ]; then
+  printf missing
+  exit 0
+fi
+if [ ! -f "$LOCK/owner.json" ]; then
+  printf owner-missing
+  exit 23
+fi
+ACTUAL=$(sed -n 's/.*"ownerToken"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$LOCK/owner.json" | head -n 1)
+if [ "$ACTUAL" != "$OWNER_TOKEN" ]; then
+  printf owner-mismatch
+  exit 23
+fi
+rm -rf "$LOCK"
+printf released
+""".strip()
+    ssh_service.run(
+        "bash -s -- {lock} {owner_token} <<'H2OMETA_RELEASE_LOCK'\n{script}\nH2OMETA_RELEASE_LOCK".format(
+            lock=shlex.quote(lock_dir),
+            owner_token=shlex.quote(owner_token),
+            script=command,
+        ),
+        timeout=10,
+    )

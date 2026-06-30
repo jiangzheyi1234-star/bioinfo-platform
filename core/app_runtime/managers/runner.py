@@ -7,6 +7,12 @@ from typing import Any
 from core.app_runtime.errors import RuntimeServiceError
 from core.app_runtime.managers.base import BaseRuntimeManager
 from core.app_runtime.remote_runner_stop import STOP_REMOTE_RUNNER_COMMAND
+from core.remote_runner.release_prune import summarize_execution_activity
+
+
+RUNNER_STOP_ACTIVE_LEASES_REASON = "RUNNER_STOP_ACTIVE_LEASES"
+RUNNER_STOP_BLOCKED_REASON = "RUNNER_STOP_BLOCKED"
+RUNNER_STOP_DIAGNOSTICS_UNAVAILABLE_REASON = "RUNNER_STOP_DIAGNOSTICS_UNAVAILABLE"
 
 
 class RunnerManager(BaseRuntimeManager):
@@ -30,6 +36,14 @@ class RunnerManager(BaseRuntimeManager):
                 )
             runner_mode = str(record.get("runner_mode") or "")
             ssh = self._service._ensure_ssh_connected()
+            manager = self._service._service_locator.remote_runner_manager
+
+        self._guard_runner_stop_when_execution_idle(
+            server_id=server_id,
+            ssh=ssh,
+            manager=manager,
+            record=record,
+        )
 
         command = f"H2OMETA_RUNNER_MODE={shlex.quote(runner_mode)}\n{STOP_REMOTE_RUNNER_COMMAND}"
         exit_code, stdout, stderr = ssh.run(command, timeout=30)
@@ -62,3 +76,54 @@ class RunnerManager(BaseRuntimeManager):
                 "completedAt": health["checkedAt"],
             }
         }
+
+    def _guard_runner_stop_when_execution_idle(
+        self,
+        *,
+        server_id: str,
+        ssh,
+        manager,
+        record: dict[str, Any],
+    ) -> None:
+        try:
+            diagnostics = self._service._call_remote_runner(
+                manager.get_execution_diagnostics,
+                server_id=server_id,
+                ssh_service=ssh,
+                server_record=record,
+            )
+            activity = summarize_execution_activity(diagnostics, make_error=RuntimeServiceError)
+        except RuntimeServiceError as exc:
+            raise RuntimeServiceError(
+                "remote runner stop guard failed because execution diagnostics are unavailable",
+                status_code=409,
+                detail={
+                    "reasonCode": RUNNER_STOP_DIAGNOSTICS_UNAVAILABLE_REASON,
+                    "serverId": server_id,
+                    "nextAction": "REPAIR_RUNNER_DIAGNOSTICS_BEFORE_STOP",
+                },
+            ) from exc
+        block_reasons = [str(item) for item in activity["blockReasons"]]
+        if not block_reasons:
+            return
+        raise RuntimeServiceError(
+            "remote runner stop blocked because runner execution state is not idle",
+            status_code=409,
+            detail={
+                "reasonCode": _stop_block_reason_code(block_reasons),
+                "serverId": server_id,
+                "blockReasons": block_reasons,
+                "activeLeaseCount": activity["activeLeaseCount"],
+                "allocatedResourceCount": activity["allocatedResourceCount"],
+                "resourceWaitCount": activity["resourceWaitCount"],
+                "claimedJobCount": activity["claimedJobCount"],
+                "runningSlotCount": activity["runningSlotCount"],
+                "nextAction": "WAIT_FOR_RUNS_OR_CANCEL_BEFORE_STOP",
+            },
+        )
+
+
+def _stop_block_reason_code(block_reasons: list[str]) -> str:
+    if "active-workflow-leases" in block_reasons:
+        return RUNNER_STOP_ACTIVE_LEASES_REASON
+    return RUNNER_STOP_BLOCKED_REASON

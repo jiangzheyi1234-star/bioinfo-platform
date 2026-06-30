@@ -13,12 +13,14 @@ import {
 import {
   DEFAULT_TERMINAL_HEIGHT,
   TERMINAL_HEIGHT_KEY,
+  TERMINAL_PENDING_INPUT_MAX_CHARS,
   type SSHStatus,
   type TerminalSnapshot,
   clampTerminalHeight,
   isSshChannelReady,
   normalizeFetchError,
   readStoredTerminalHeight,
+  retainTerminalPendingInputPrefix,
 } from "./ssh-shell-model";
 import { useSshTerminalViewport } from "./ssh-shell-xterm";
 
@@ -74,7 +76,8 @@ export function useSshTerminal({
       const controller = terminalStreamRef.current;
       if (!controller || controller.socket.readyState !== WebSocket.OPEN) {
         if (message.type === "input" && options?.queueInput) {
-          pendingTerminalInputRef.current += message.data;
+          const nextInput = pendingTerminalInputRef.current + message.data;
+          pendingTerminalInputRef.current = retainTerminalPendingInputPrefix(nextInput);
         }
         if (message.type === "resize" && options?.queueResize) {
           pendingTerminalResizeRef.current = { cols: message.cols, rows: message.rows };
@@ -83,7 +86,8 @@ export function useSshTerminal({
       }
       const sent = controller.send(message);
       if (message.type === "input" && !sent && options?.queueInput) {
-        pendingTerminalInputRef.current += message.data;
+        const nextInput = pendingTerminalInputRef.current + message.data;
+        pendingTerminalInputRef.current = retainTerminalPendingInputPrefix(nextInput);
       }
       if (message.type === "resize" && options?.queueResize) {
         pendingTerminalResizeRef.current = sent ? null : { cols: message.cols, rows: message.rows };
@@ -105,6 +109,9 @@ export function useSshTerminal({
       if (!terminalInputEnabledRef.current) {
         setTerminalMessage("SSH 已断开，终端会话已结束");
         return;
+      }
+      if (pendingTerminalInputRef.current.length + data.length > TERMINAL_PENDING_INPUT_MAX_CHARS) {
+        setTerminalMessage("终端待发送输入过长，已截断。");
       }
       sendTerminalStreamMessage({ type: "input", data }, { queueInput: true });
     },

@@ -91,7 +91,9 @@ def test_terminal_scrollback_is_capped_on_stream_and_viewport() -> None:
         model_source,
         "TERMINAL_XTERM_SCROLLBACK_ROWS",
         "TERMINAL_REPLAY_BUFFER_MAX_CHARS",
+        "TERMINAL_PENDING_INPUT_MAX_CHARS",
         "retainTerminalReplayBufferTail",
+        "retainTerminalPendingInputPrefix",
         "base_cursor: number",
         "truncated: boolean",
         "scrollback_limit: number",
@@ -104,6 +106,8 @@ def test_terminal_scrollback_is_capped_on_stream_and_viewport() -> None:
         "if (message.truncated)",
         "terminalViewport.replaceOutput(message.data)",
         "terminalViewport.appendOutput(message.data)",
+        "retainTerminalPendingInputPrefix(nextInput)",
+        "TERMINAL_PENDING_INPUT_MAX_CHARS",
     )
     _assert_contains(
         xterm_source,
@@ -112,6 +116,7 @@ def test_terminal_scrollback_is_capped_on_stream_and_viewport() -> None:
         "scrollback: TERMINAL_XTERM_SCROLLBACK_ROWS",
     )
     _assert_not_contains(xterm_source, "terminalBufferRef.current += data")
+    _assert_not_contains(terminal_source, "pendingTerminalInputRef.current += message.data")
 
 
 def test_terminal_requires_ready_ssh_channel_not_optimistic_connection() -> None:

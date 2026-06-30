@@ -37,7 +37,7 @@ class RemoteRunnerReleasePruneMixin:
         runner_root = remote_runner_root(home_dir)
         lock_dir = f"{runner_root}/locks/release-prune.lock"
         lock_metadata = {"operation": "runner-release-prune", "serverId": server_id}
-        self._acquire_remote_install_lock(
+        lock_owner_token = self._acquire_remote_install_lock(
             ssh_service=ssh_service,
             lock_dir=lock_dir,
             remote_root=runner_root,
@@ -81,7 +81,11 @@ class RemoteRunnerReleasePruneMixin:
                 release_paths=[str(item["path"]) for item in deletable],
             )
         finally:
-            self._release_remote_install_lock(ssh_service=ssh_service, lock_dir=lock_dir)
+            self._release_remote_install_lock(
+                ssh_service=ssh_service,
+                lock_dir=lock_dir,
+                owner_token=lock_owner_token,
+            )
         return {
             **plan,
             "deletedReleases": deleted,

@@ -12,6 +12,7 @@ from core.remote_runner.install_lock import (
     acquire_remote_install_lock,
     reclaim_stale_install_lock,
     reclaim_stale_install_lock_status,
+    release_remote_install_lock,
 )
 from core.remote_runner.manager import RemoteRunnerManagerError
 
@@ -113,7 +114,7 @@ def test_acquire_remote_install_lock_retries_immediately_after_stale_reclaim() -
     metadata: dict[str, object] = {}
     sleeps: list[float] = []
 
-    acquire_remote_install_lock(
+    owner_token = acquire_remote_install_lock(
         ssh_service=ssh,
         lock_dir="/home/tester/.h2ometa/runner/locks/install-0.1.1-control-plane.lock",
         remote_root="/home/tester/.h2ometa/runner",
@@ -125,15 +126,35 @@ def test_acquire_remote_install_lock_retries_immediately_after_stale_reclaim() -
     )
 
     assert sleeps == []
+    assert owner_token
     assert len(ssh.commands) == 4
     assert ssh.commands[0].startswith("mkdir -p")
     assert "H2OMETA_RECLAIM_LOCK" in ssh.commands[1]
     assert ssh.commands[2].startswith("mkdir -p")
     assert ssh.commands[3].endswith("/owner.json")
+    assert '"ownerToken"' in ssh.commands[3]
     assert metadata["install_lock"] == {
         "path": "/home/tester/.h2ometa/runner/locks/install-0.1.1-control-plane.lock",
         "acquired": True,
         "waited": True,
         "stale_reclaimed": True,
         "last_reclaim_status": "reclaimed",
+        "ownerFenced": True,
     }
+
+
+def test_release_remote_install_lock_is_owner_fenced() -> None:
+    ssh = FakeSSH([(0, "released", "")])
+
+    release_remote_install_lock(
+        ssh_service=ssh,
+        lock_dir="/home/tester/.h2ometa/runner/locks/install-0.1.1-control-plane.lock",
+        owner_token="owner-token-123",
+    )
+
+    command = ssh.commands[0]
+    assert "H2OMETA_RELEASE_LOCK" in command
+    assert "owner-token-123" in command
+    assert '"ownerToken"' in command
+    assert "owner-mismatch" in command
+    assert command.count("rm -rf") == 1

@@ -196,7 +196,7 @@ class RemoteRunnerManager(
             if reuse_result is not None:
                 return build_bootstrap_reuse_response(reuse_result, server)
 
-            self._acquire_remote_install_lock(
+            install_lock_owner_token = self._acquire_remote_install_lock(
                 ssh_service=ssh_service,
                 lock_dir=paths.install_lock,
                 remote_root=paths.root,
@@ -416,7 +416,11 @@ class RemoteRunnerManager(
                     if config_temp_files is not None:
                         cleanup_bootstrap_config_temp_files(config_temp_files)
                 finally:
-                    self._release_remote_install_lock(ssh_service=ssh_service, lock_dir=paths.install_lock)
+                    self._release_remote_install_lock(
+                        ssh_service=ssh_service,
+                        lock_dir=paths.install_lock,
+                        owner_token=install_lock_owner_token,
+                    )
         except RemoteRunnerManagerError:
             raise
         except RemoteRunnerArtifactError as exc:

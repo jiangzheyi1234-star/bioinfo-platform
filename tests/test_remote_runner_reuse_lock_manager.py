@@ -615,7 +615,7 @@ def test_remote_install_lock_waits_until_atomic_mkdir_succeeds(monkeypatch) -> N
     monkeypatch.setattr("core.remote_runner.install_lock.time.sleep", lambda seconds: sleeps.append(seconds))
     metadata: dict[str, object] = {}
 
-    manager._acquire_remote_install_lock(
+    owner_token = manager._acquire_remote_install_lock(
         ssh_service=FakeSSH(),
         lock_dir="/home/tester/.h2ometa/runner/locks/install-test.lock",
         remote_root="/home/tester/.h2ometa/runner",
@@ -625,16 +625,19 @@ def test_remote_install_lock_waits_until_atomic_mkdir_succeeds(monkeypatch) -> N
     )
 
     assert len(calls) == 4
+    assert owner_token
     assert calls[0].startswith("mkdir -p")
     assert "H2OMETA_RECLAIM_LOCK" in calls[1]
     assert calls[2].startswith("mkdir -p")
     assert calls[3].endswith("/owner.json")
+    assert '"ownerToken"' in calls[3]
     assert sleeps == [0.25]
     assert metadata["install_lock"] == {
         "path": "/home/tester/.h2ometa/runner/locks/install-test.lock",
         "acquired": True,
         "waited": True,
         "last_reclaim_status": "young",
+        "ownerFenced": True,
     }
 
 def test_remote_install_lock_fails_when_busy() -> None:
