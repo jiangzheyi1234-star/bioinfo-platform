@@ -13,6 +13,11 @@ from apps.api.execution_query_service import (
     list_result_package_exports_from_request,
 )
 from apps.api.workflow_first_run_pilot_handoff import build_first_run_pilot_handoff
+from apps.api.workflow_first_run_result_package_contract import (
+    FIRST_RUN_RESULT_PACKAGE_REQUIRED,
+    evaluate_first_run_result_package,
+    safe_first_run_result_package,
+)
 from apps.api.workflow_first_run_software_evidence import build_first_run_software_environment
 from apps.api.workflow_sample_data_service import MOVING_PICTURES_FILES, MOVING_PICTURES_PIPELINE_ID
 
@@ -20,11 +25,7 @@ from apps.api.workflow_sample_data_service import MOVING_PICTURES_FILES, MOVING_
 FIRST_RUN_VALIDATION_CARD_SCHEMA_VERSION = "h2ometa.first-run.validation-card.v1"
 FIRST_RUN_REPORT_INTERPRETATION_SCHEMA_VERSION = "h2ometa.first-run.report-interpretation.v1"
 FIRST_RUN_EXPECTED_OUTPUTS_REQUIRED = "FIRST_RUN_EXPECTED_OUTPUTS_REQUIRED"
-FIRST_RUN_FULL_RESULT_PACKAGE_REQUIRED = "FIRST_RUN_FULL_RESULT_PACKAGE_REQUIRED"
 FIRST_RUN_REPORT_PREVIEW_REQUIRED = "FIRST_RUN_REPORT_PREVIEW_REQUIRED"
-FIRST_RUN_RESULT_PACKAGE_DOWNLOAD_REQUIRED = "FIRST_RUN_RESULT_PACKAGE_DOWNLOAD_REQUIRED"
-FIRST_RUN_RESULT_PACKAGE_HASH_REQUIRED = "FIRST_RUN_RESULT_PACKAGE_HASH_REQUIRED"
-FIRST_RUN_RESULT_PACKAGE_REQUIRED = "FIRST_RUN_RESULT_PACKAGE_REQUIRED"
 FIRST_RUN_SAMPLE_INPUTS_INTEGRITY_MISMATCH = "FIRST_RUN_SAMPLE_INPUTS_INTEGRITY_MISMATCH"
 FIRST_RUN_SAMPLE_PREP_PROOF_REQUIRED = "FIRST_RUN_SAMPLE_PREP_PROOF_REQUIRED"
 FIRST_RUN_SAMPLE_INPUTS_REQUIRED = "FIRST_RUN_SAMPLE_INPUTS_REQUIRED"
@@ -121,7 +122,11 @@ async def build_first_run_validation_card_from_request(
         limit=25,
     )
     exports_data = _require_mapping(_unwrap_data(exports_payload, {}), FIRST_RUN_RESULT_PACKAGE_REQUIRED, result_id)
-    package_export = _require_result_package(exports_data.get("items"))
+    package_export = _require_result_package(
+        exports_data.get("items"),
+        result_id=result_id,
+        workflow_revision_id=workflow_revision_id,
+    )
     report_previews = await _load_first_run_report_previews(
         result_id,
         _mapping_items(result.get("artifacts")),
@@ -158,9 +163,6 @@ def _build_validation_card(
     _assert_validation_card_evidence(
         artifacts=artifacts,
         input_artifacts=input_artifacts,
-        package_export=package_export,
-        result_id=result_id,
-        workflow_revision_id=workflow_revision_id,
     )
     sample_data = _sample_data_evidence(
         input_artifacts=input_artifacts,
@@ -225,7 +227,7 @@ def _build_validation_card(
             "required": False,
             "summary": "No external reference database is required for this Moving Pictures 16S first run.",
         },
-        "resultPackage": _safe_result_package(package_export),
+        "resultPackage": safe_first_run_result_package(package_export),
         "checks": checks,
         "standards": {
             "w3cProv": "https://www.w3.org/TR/prov-primer/",
@@ -339,27 +341,6 @@ def _safe_lineage_summary(value: Any) -> dict[str, Any]:
             "outputEdgeCount": value.get("outputEdgeCount"),
             "cacheAdoptionEdgeCount": value.get("cacheAdoptionEdgeCount"),
             "predicateCounts": value.get("predicateCounts") if isinstance(value.get("predicateCounts"), dict) else None,
-        }
-    )
-
-
-def _safe_result_package(item: dict[str, Any]) -> dict[str, Any]:
-    return _compact(
-        {
-            "packageExportId": item.get("packageExportId"),
-            "resultId": item.get("resultId"),
-            "runId": item.get("runId"),
-            "workflowRevisionId": item.get("workflowRevisionId"),
-            "lifecycleState": item.get("lifecycleState"),
-            "packageBytesState": item.get("packageBytesState"),
-            "artifactPayloadMode": item.get("artifactPayloadMode"),
-            "includeArtifacts": item.get("includeArtifacts"),
-            "sizeBytes": item.get("sizeBytes"),
-            "sha256": item.get("sha256"),
-            "manifestSha256": item.get("manifestSha256"),
-            "evidenceId": item.get("evidenceId"),
-            "download": item.get("download") if isinstance(item.get("download"), dict) else None,
-            "createdAt": item.get("createdAt"),
         }
     )
 
@@ -777,39 +758,26 @@ def _basename(value: Any) -> str:
     return text.rsplit("/", 1)[-1] if text else ""
 
 
-def _require_result_package(items: Any) -> dict[str, Any]:
-    exports = [item for item in _mapping_items(items) if item.get("lifecycleState") == "active"]
-    if not exports:
-        raise _unavailable(
-            FIRST_RUN_RESULT_PACKAGE_REQUIRED,
-            "generate a full result package before exporting a validation card",
-        )
-    downloadable = [
-        item
-        for item in exports
-        if item.get("packageBytesState") == "available" and isinstance(item.get("download"), dict)
-    ]
-    if not downloadable:
-        raise _unavailable(
-            FIRST_RUN_RESULT_PACKAGE_DOWNLOAD_REQUIRED,
-            "validation card requires an active package with downloadable bytes",
-        )
-    full_downloads = [item for item in downloadable if item.get("artifactPayloadMode") == "full" or item.get("includeArtifacts") is True]
-    if not full_downloads:
-        raise _unavailable(
-            FIRST_RUN_FULL_RESULT_PACKAGE_REQUIRED,
-            "validation card requires a full result package, not metadata-only evidence",
-        )
-    return full_downloads[0]
+def _require_result_package(
+    items: Any,
+    *,
+    result_id: str,
+    workflow_revision_id: str,
+) -> dict[str, Any]:
+    gate = evaluate_first_run_result_package(
+        items,
+        result_id=result_id,
+        workflow_revision_id=workflow_revision_id,
+    )
+    if gate.state == "ready" and gate.package_export is not None:
+        return gate.package_export
+    raise _unavailable(gate.code, gate.detail)
 
 
 def _assert_validation_card_evidence(
     *,
     artifacts: list[dict[str, Any]],
     input_artifacts: list[dict[str, Any]],
-    package_export: dict[str, Any],
-    result_id: str,
-    workflow_revision_id: str,
 ) -> None:
     if not input_artifacts:
         raise _unavailable("FIRST_RUN_INPUT_LINEAGE_REQUIRED", "input artifact lineage is empty")
@@ -827,22 +795,6 @@ def _assert_validation_card_evidence(
             "FIRST_RUN_OUTPUT_CHECKSUMS_REQUIRED",
             f"output artifact checksums missing: {', '.join(missing_checksums)}",
         )
-    if not package_export.get("sha256") or not package_export.get("manifestSha256"):
-        raise _unavailable(
-            FIRST_RUN_RESULT_PACKAGE_HASH_REQUIRED,
-            "result package sha256 and manifestSha256 are required",
-        )
-    if str(package_export.get("resultId") or "").strip() != result_id:
-        raise _unavailable(
-            "FIRST_RUN_RESULT_PACKAGE_RESULT_MISMATCH",
-            "result package does not match the first-run result",
-        )
-    if str(package_export.get("workflowRevisionId") or "").strip() != workflow_revision_id:
-        raise _unavailable(
-            "FIRST_RUN_RESULT_PACKAGE_REVISION_MISMATCH",
-            "result package does not match the first-run WorkflowRevision",
-        )
-
 
 def _pipeline_id(run: dict[str, Any]) -> str:
     run_spec = run.get("runSpec") if isinstance(run.get("runSpec"), dict) else {}

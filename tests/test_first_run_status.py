@@ -9,7 +9,7 @@ import pytest
 from apps.api.workflow_first_run_status_service import build_first_run_status_from_request
 from apps.api.workflow_sample_data_service import MOVING_PICTURES_PIPELINE_ID
 
-from tests.test_first_run_validation_card import _exports_for_case, _patch_first_run_sources, _result, _run
+from tests.test_first_run_validation_card import _exports_for_case, _package, _patch_first_run_sources, _result, _run
 
 
 def test_first_run_status_reports_ready_official_sample_run_and_ignores_newer_noneligible_run(monkeypatch) -> None:
@@ -158,6 +158,35 @@ def test_first_run_status_uses_validation_card_standard_for_result_package_readi
     assert result["evidence"]["validation"]["blockedCode"] == expected_code
 
 
+@pytest.mark.parametrize(
+    ("package_patch", "expected_code"),
+    [
+        ({"resultId": "res_other"}, "FIRST_RUN_RESULT_PACKAGE_RESULT_MISMATCH"),
+        ({"workflowRevisionId": "wfrev_other"}, "FIRST_RUN_RESULT_PACKAGE_REVISION_MISMATCH"),
+    ],
+)
+def test_first_run_status_blocks_package_ledger_mismatch_without_finalize_action(
+    monkeypatch,
+    package_patch: dict[str, Any],
+    expected_code: str,
+) -> None:
+    package = _package("rpex_wrong")
+    package.update(package_patch)
+    _patch_first_run_sources(monkeypatch, exports=[package])
+    _patch_status_sources(monkeypatch, runs=[_run()])
+
+    result = asyncio.run(build_first_run_status_from_request(server_id="srv_first"))["data"]
+
+    assert result["status"] == "blocked"
+    assert result["stage"] == "export_result_package"
+    assert result["nextAction"]["code"] == "REFRESH_RUN"
+    assert result["nextAction"]["blockedCode"] == expected_code
+    assert result["nextAction"]["label"] == "检查结果包账本"
+    assert result["nextAction"]["target"] == "#result-package"
+    assert result["evidence"]["resultPackage"] == {"ready": False, "blockedCode": expected_code}
+    assert result["evidence"]["validation"]["blockedCode"] == expected_code
+
+
 def test_first_run_status_requires_connection_before_guiding_run_actions(monkeypatch) -> None:
     _patch_status_sources(monkeypatch, runs=[_run()])
 
@@ -251,6 +280,9 @@ def test_first_run_status_route_and_service_are_read_only() -> None:
     assert "get_run_from_request" in service_source
     assert "finalize_first_run_from_request" not in service_source
     assert "export_result_package_from_request" not in service_source
+    assert 'startswith("FIRST_RUN_RESULT_PACKAGE")' not in service_source
+    assert "_PACKAGE_RECOVERABLE_CODES" not in finalize_source
+    assert "is_first_run_result_package_export_required" in finalize_source
     assert "def first_run_next_action(" in finalize_source
 
 

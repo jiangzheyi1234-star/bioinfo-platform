@@ -36,6 +36,13 @@ def test_first_run_ui_steps_and_report_are_status_contract_driven() -> None:
     assert "const reportReady =" not in first_run_page
     assert "evidence?.report?.ready === true" in first_run_progress
     assert "reportEvidence={firstRunStatusSnapshot?.evidence?.report}" in first_run_page
+    assert "statusRun={statusRun}" in first_run_page
+    assert "statusRun?: FirstRunStatusRunSummary | null" in first_run_report
+    assert "const effectiveRunId = statusRun?.runId || run?.runId || \"\"" in first_run_report
+    assert "const effectiveRunStatus = statusRun?.status || run?.status || \"\"" in first_run_report
+    assert "const effectiveRunStage = statusRun?.stage || run?.stage || \"\"" in first_run_report
+    assert "disabled={!effectiveRunId || packageLoading}" in first_run_report
+    assert "run={run}" not in first_run_report
     assert "firstRunStatus={firstRunStatusSnapshot || null}" in first_run_page
     assert 'firstRunStatus.stage === "export_result_package"' not in first_run_progress
 

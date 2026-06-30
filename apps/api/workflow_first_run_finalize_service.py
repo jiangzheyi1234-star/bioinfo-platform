@@ -6,6 +6,10 @@ from typing import Any
 
 from apps.api.execution_query_service import export_result_package_from_request
 from apps.api.models import ApiRequest, ResultPackageExportRequest
+from apps.api.workflow_first_run_result_package_contract import (
+    is_first_run_result_package_export_required,
+    is_first_run_result_package_ledger_mismatch,
+)
 from apps.api.workflow_first_run_service import (
     WorkflowFirstRunValidationCardUnavailableError,
     build_first_run_validation_card_from_request,
@@ -13,12 +17,6 @@ from apps.api.workflow_first_run_service import (
 
 
 FIRST_RUN_FINALIZATION_SCHEMA_VERSION = "h2ometa.first-run.finalization.v1"
-_PACKAGE_RECOVERABLE_CODES = {
-    "FIRST_RUN_FULL_RESULT_PACKAGE_REQUIRED",
-    "FIRST_RUN_RESULT_PACKAGE_DOWNLOAD_REQUIRED",
-    "FIRST_RUN_RESULT_PACKAGE_HASH_REQUIRED",
-    "FIRST_RUN_RESULT_PACKAGE_REQUIRED",
-}
 
 
 class WorkflowFirstRunFinalizeRequest(ApiRequest):
@@ -40,7 +38,7 @@ async def finalize_first_run_from_request(
         return _ready(card, package_action="reused")
     except WorkflowFirstRunValidationCardUnavailableError as exc:
         code = _error_code(exc)
-        if code not in _PACKAGE_RECOVERABLE_CODES:
+        if not is_first_run_result_package_export_required(code):
             return _blocked(code, str(exc))
 
     result_id = _canonical_result_id_for_run(normalized_run_id)
@@ -98,9 +96,12 @@ def first_run_next_action(code: str, detail: str) -> dict[str, str]:
     elif code == "FIRST_RUN_SAMPLE_INPUTS_REQUIRED" or code == "FIRST_RUN_SAMPLE_INPUTS_INTEGRITY_MISMATCH":
         target = "/workflows/first-run#sample-data"
         label = "重新准备官方样例数据"
-    elif code in _PACKAGE_RECOVERABLE_CODES:
+    elif is_first_run_result_package_export_required(code):
         target = "/workflows/first-run#result-package"
         label = "导出完整结果包"
+    elif is_first_run_result_package_ledger_mismatch(code):
+        target = "/workflows/first-run#result-package"
+        label = "检查结果包账本"
     elif code == "FIRST_RUN_PILOT_HANDOFF_REQUIRED" or code == "FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED":
         target = "/workflows/first-run#evidence-bundle"
         label = "重新生成首跑验证卡"

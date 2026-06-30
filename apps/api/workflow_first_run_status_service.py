@@ -6,6 +6,11 @@ from typing import Any
 
 from apps.api.execution_query_service import get_run_from_request, list_runs_from_request
 from apps.api.workflow_first_run_finalize_service import first_run_next_action
+from apps.api.workflow_first_run_result_package_contract import (
+    is_first_run_result_package_blocker,
+    is_first_run_result_package_export_required,
+    is_first_run_result_package_ledger_mismatch,
+)
 from apps.api.workflow_first_run_service import (
     WorkflowFirstRunValidationCardUnavailableError,
     build_first_run_validation_card_from_request,
@@ -369,7 +374,7 @@ def _report_evidence(ready: bool, code: str) -> dict[str, Any]:
 
 
 def _result_package_evidence(ready: bool, code: str) -> dict[str, Any]:
-    if not (code.startswith("FIRST_RUN_RESULT_PACKAGE") or code == "FIRST_RUN_FULL_RESULT_PACKAGE_REQUIRED"):
+    if not is_first_run_result_package_blocker(code):
         return {"ready": False}
     return {"ready": ready, "blockedCode": code}
 
@@ -381,9 +386,12 @@ def _action_for_validation_blocker(code: str, detail: str) -> dict[str, str]:
         return _blocked_action("ENSURE_RUNNER", code, "升级 runner 并重新提交", detail, "#runner-readiness")
     if code in {"FIRST_RUN_EXPECTED_OUTPUTS_REQUIRED", "FIRST_RUN_REPORT_PREVIEW_REQUIRED", "FIRST_RUN_NOT_SUCCESSFUL"}:
         return _blocked_action("INSPECT_FAILED_RUN", code, "检查报告与失败定位", detail, "#run-report")
-    if code.startswith("FIRST_RUN_RESULT_PACKAGE") or code == "FIRST_RUN_FULL_RESULT_PACKAGE_REQUIRED":
+    if is_first_run_result_package_export_required(code):
         base = first_run_next_action(code, detail)
         return _blocked_action("FINALIZE_FIRST_RUN", code, base["label"], base["detail"], _anchor_target(base["target"]))
+    if is_first_run_result_package_ledger_mismatch(code):
+        base = first_run_next_action(code, detail)
+        return _blocked_action("REFRESH_RUN", code, base["label"], base["detail"], _anchor_target(base["target"]))
     if code in {"FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED", "FIRST_RUN_PILOT_HANDOFF_REQUIRED"}:
         base = first_run_next_action(code, detail)
         return _blocked_action("FINALIZE_FIRST_RUN", code, base["label"], base["detail"], _anchor_target(base["target"]))
@@ -396,7 +404,7 @@ def _stage_for_blocker(code: str) -> str:
         return "prepare_sample_data"
     if code in {"FIRST_RUN_NOT_SUCCESSFUL", "FIRST_RUN_REPORT_PREVIEW_REQUIRED", "FIRST_RUN_EXPECTED_OUTPUTS_REQUIRED"}:
         return "inspect_failed_run"
-    if code.startswith("FIRST_RUN_RESULT_PACKAGE") or code == "FIRST_RUN_FULL_RESULT_PACKAGE_REQUIRED":
+    if is_first_run_result_package_blocker(code):
         return "export_result_package"
     if code in {"FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED", "FIRST_RUN_PILOT_HANDOFF_REQUIRED"}:
         return "validation_ready"

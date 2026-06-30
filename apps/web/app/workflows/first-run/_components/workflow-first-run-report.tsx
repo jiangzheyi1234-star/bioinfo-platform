@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import { artifactName } from "../_domain/first-run-display";
-import type { FirstRunStatusEvidence } from "../_domain/first-run-types";
+import type { FirstRunStatusEvidence, FirstRunStatusRunSummary } from "../_domain/first-run-types";
 import { RuleAttemptBadge } from "@/app/components/workflow-run-attempts-panel";
 import { WorkflowRuleFailureDiagnostics } from "@/app/components/workflow-rule-failure-diagnostics";
 import { WorkflowRuleLogEvidence } from "@/app/components/workflow-rule-log-evidence";
@@ -52,6 +52,7 @@ export function RunReportPanel({
   previews,
   reportEvidence,
   run,
+  statusRun,
 }: {
   artifacts: WorkflowArtifact[];
   detail: WorkflowRunDetail | null;
@@ -60,6 +61,7 @@ export function RunReportPanel({
   previews: WorkflowArtifactPreview[];
   reportEvidence?: FirstRunStatusEvidence["report"];
   run: WorkflowRun | null;
+  statusRun?: FirstRunStatusRunSummary | null;
 }) {
   const rulesSummary = detail?.rules?.summary;
   const stdoutCount = detail?.logs.stdout?.lines?.length || 0;
@@ -70,6 +72,9 @@ export function RunReportPanel({
   const qcPreview = previewByArtifactName(previews, "qc-summary.tsv");
   const insight = movingPicturesInsight(artifacts, summaryPreview, qcPreview, reportEvidence);
   const rules = detail?.rules?.items || [];
+  const effectiveRunId = statusRun?.runId || run?.runId || "";
+  const effectiveRunStatus = statusRun?.status || run?.status || "";
+  const effectiveRunStage = statusRun?.stage || run?.stage || "";
   return (
     <section id="run-report" className="scroll-mt-24 rounded-lg border border-slate-200 bg-white p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -78,28 +83,32 @@ export function RunReportPanel({
             <FileCheck2 strokeWidth={1.5} className="h-4 w-4 text-slate-500" />
             看懂报告
           </div>
-          <div className="mt-1 truncate font-mono text-[11px] text-slate-400">{run?.runId || "run not submitted"}</div>
+          <div className="mt-1 truncate font-mono text-[11px] text-slate-400">{effectiveRunId || "run not submitted"}</div>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
-          {run?.runId ? (
+          {effectiveRunId ? (
             <Button asChild variant="outline" size="sm" className="h-8 px-2.5 text-xs">
-              <Link href={`/workflows/results/detail?run=${encodeURIComponent(run.runId)}`}>
+              <Link href={`/workflows/results/detail?run=${encodeURIComponent(effectiveRunId)}`}>
                 <ArrowRight strokeWidth={1.5} className="h-3.5 w-3.5" />
                 完整结果
               </Link>
             </Button>
           ) : null}
-          <Button variant="ghost" size="sm" className="h-8 px-2 text-xs text-slate-500" disabled={!run?.runId || packageLoading} onClick={onRefreshRun}>
+          <Button variant="ghost" size="sm" className="h-8 px-2 text-xs text-slate-500" disabled={!effectiveRunId || packageLoading} onClick={onRefreshRun}>
             <RefreshCw strokeWidth={1.5} className="h-3.5 w-3.5" />
             刷新
           </Button>
         </div>
       </div>
 
-      {run ? (
+      {effectiveRunId ? (
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Metric label="状态" value={runStatusLabel(run.status)} tone={run.status === "completed" ? "success" : run.status === "failed" || run.status === "error" ? "danger" : "info"} />
-          <Metric label="阶段" value={run.stage || "-"} />
+          <Metric
+            label="状态"
+            value={runStatusLabel(effectiveRunStatus)}
+            tone={effectiveRunStatus === "completed" ? "success" : effectiveRunStatus === "failed" || effectiveRunStatus === "error" ? "danger" : "info"}
+          />
+          <Metric label="阶段" value={effectiveRunStage || "-"} />
           <Metric label="规则" value={formatRuleSummary(rulesSummary)} />
           <Metric label="日志" value={`${stdoutCount} stdout / ${stderrCount} stderr`} />
         </div>
@@ -109,7 +118,7 @@ export function RunReportPanel({
         </div>
       )}
 
-      <FirstRunRuleLevelView detail={detail} run={run} rules={rules} />
+      <FirstRunRuleLevelView detail={detail} runId={effectiveRunId} rules={rules} />
       <FirstRunReportInsight insight={insight} />
       {tablePreview?.preview?.columns?.length ? <TablePreview preview={tablePreview} /> : null}
       {reportPreview?.artifact ? (
@@ -133,19 +142,19 @@ export function RunReportPanel({
 
 function FirstRunRuleLevelView({
   detail,
+  runId,
   rules,
-  run,
 }: {
   detail: WorkflowRunDetail | null;
+  runId: string;
   rules: WorkflowRunRule[];
-  run: WorkflowRun | null;
 }) {
-  if (!run?.runId) return null;
+  if (!runId) return null;
   const summary = detail?.rules?.summary;
   const failedRule = firstFailedRule(detail, rules);
   const visibleRules = prioritizedRules(rules).slice(0, 4);
   const rulesReady = rules.length > 0;
-  const resultHref = `/workflows/results/detail?run=${encodeURIComponent(run.runId)}`;
+  const resultHref = `/workflows/results/detail?run=${encodeURIComponent(runId)}`;
   return (
     <div
       className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3"

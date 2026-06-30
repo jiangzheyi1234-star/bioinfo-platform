@@ -362,6 +362,7 @@ export function WorkflowFirstRunPage() {
               previews={previews}
               reportEvidence={firstRunStatusSnapshot?.evidence?.report}
               run={run}
+              statusRun={statusRun}
               onRefreshRun={() => void state.refreshRunDetail()}
             />
           </div>
