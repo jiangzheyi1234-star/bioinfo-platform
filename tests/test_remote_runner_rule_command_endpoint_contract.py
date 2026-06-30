@@ -16,6 +16,7 @@ from core.contracts.remote_endpoints import (
     RUN_RULE_CACHE_RESTORE_STAGED_FILES_PREPARE,
     RUN_RULE_OUTPUT_INVALIDATION_APPLY,
     RUN_RULE_RETRY,
+    remote_endpoint_success_status,
     render_remote_endpoint_path,
 )
 from core.governance_policy import HIGH_RISK_API_POLICIES
@@ -75,6 +76,7 @@ def test_rule_command_endpoints_are_contract_rendered() -> None:
         assert endpoint.invalidates == expected_invalidates
 
     assert REMOTE_ENDPOINTS[RUN_RULE_RETRY].accepted_statuses == (202,)
+    assert remote_endpoint_success_status(RUN_RULE_RETRY) == 202
     for endpoint_id in set(RULE_COMMAND_ENDPOINTS) - {RUN_RULE_RETRY}:
         assert REMOTE_ENDPOINTS[endpoint_id].accepted_statuses == (200,)
 

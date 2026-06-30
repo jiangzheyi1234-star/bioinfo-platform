@@ -45,6 +45,7 @@ from core.contracts.remote_endpoints import (
     RUN_RULE_RETRY,
     RUN_RULES_READ,
     WORKFLOW_REVISION_READ,
+    remote_endpoint_success_status,
 )
 from core.contracts.result_package_remote_endpoints import (
     RESULT_PACKAGE_BYTE_GC_PREVIEW,
@@ -170,7 +171,7 @@ async def cancel_run(run_id: str) -> dict[str, Any]:
 @router.post(
     "/api/v1/runs/{run_id}/retry",
     operation_id=REMOTE_ENDPOINTS[RUN_RETRY].operation_id,
-    status_code=202,
+    status_code=remote_endpoint_success_status(RUN_RETRY),
 )
 async def retry_run(run_id: str, payload: RunRetryRequest) -> dict[str, Any]:
     return await retry_run_from_request(run_id, payload)
@@ -179,7 +180,7 @@ async def retry_run(run_id: str, payload: RunRetryRequest) -> dict[str, Any]:
 @router.post(
     "/api/v1/runs/{run_id}/rules/retry",
     operation_id=REMOTE_ENDPOINTS[RUN_RULE_RETRY].operation_id,
-    status_code=202,
+    status_code=remote_endpoint_success_status(RUN_RULE_RETRY),
 )
 async def retry_run_rules(run_id: str, payload: RunRuleRetryRequest) -> dict[str, Any]:
     return await retry_run_rules_from_request(run_id, payload)
@@ -287,7 +288,7 @@ async def apply_rule_cache_restore_adoption(
 @router.post(
     "/api/v1/runs/{run_id}/resume",
     operation_id=REMOTE_ENDPOINTS[RUN_RESUME].operation_id,
-    status_code=202,
+    status_code=remote_endpoint_success_status(RUN_RESUME),
 )
 async def resume_run(run_id: str, payload: RunResumeRequest) -> dict[str, Any]:
     return await resume_run_from_request(run_id, payload)
@@ -466,7 +467,7 @@ async def list_artifact_lifecycle_controller_ticks(
 @router.post(
     "/api/v1/artifacts/lifecycle/controller/run-once",
     operation_id=REMOTE_ENDPOINTS[ARTIFACT_LIFECYCLE_CONTROLLER_RUN_ONCE].operation_id,
-    status_code=202,
+    status_code=remote_endpoint_success_status(ARTIFACT_LIFECYCLE_CONTROLLER_RUN_ONCE),
 )
 async def run_artifact_lifecycle_controller_once(
     request: ArtifactLifecycleControllerRunOnceRequest,

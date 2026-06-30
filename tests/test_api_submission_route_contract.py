@@ -61,6 +61,9 @@ def test_run_result_routes_delegate_runtime_calls_to_service() -> None:
     assert '@app.get("/api/v1/results")' not in main_source
     assert "operation_id=REMOTE_ENDPOINTS[WORKFLOW_REVISION_READ].operation_id" in route_source
     assert "serverId: str | None = None" in route_source
+    assert "remote_endpoint_success_status(RUN_RETRY)" in route_source
+    assert "remote_endpoint_success_status(RUN_RULE_RETRY)" in route_source
+    assert "remote_endpoint_success_status(RUN_RESUME)" in route_source
 
     list_route_start = route_source.index("async def list_runs(")
     list_route_end = route_source.index("async def get_run(")

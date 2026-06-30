@@ -13,6 +13,7 @@ from core.contracts.remote_endpoints import (
     RUN_CREATE,
     RUN_RESUME,
     RUN_RETRY,
+    remote_endpoint_success_status,
     render_remote_endpoint_path,
 )
 from core.governance_policy import HIGH_RISK_API_POLICIES
@@ -45,6 +46,8 @@ def test_run_command_endpoints_are_contract_rendered() -> None:
     assert REMOTE_ENDPOINTS[RUN_CANCEL].accepted_statuses == (200,)
     assert REMOTE_ENDPOINTS[RUN_RETRY].accepted_statuses == (202,)
     assert REMOTE_ENDPOINTS[RUN_RESUME].accepted_statuses == (202,)
+    assert remote_endpoint_success_status(RUN_RETRY) == 202
+    assert remote_endpoint_success_status(RUN_RESUME) == 202
 
 
 def test_run_command_endpoint_contracts_match_governance_policy() -> None:

@@ -403,8 +403,10 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
     assert '"/api/v1/runs/{run_id}/retry"' in execution_query_route_source
     assert "operation_id=REMOTE_ENDPOINTS[RUN_CANCEL].operation_id" in execution_query_route_source
     assert "operation_id=REMOTE_ENDPOINTS[RUN_RETRY].operation_id" in execution_query_route_source
+    assert "remote_endpoint_success_status(RUN_RETRY)" in execution_query_route_source
     assert '"/api/v1/runs/{run_id}/rules/retry"' in execution_query_route_source
     assert "operation_id=REMOTE_ENDPOINTS[RUN_RULE_RETRY].operation_id" in execution_query_route_source
+    assert "remote_endpoint_success_status(RUN_RULE_RETRY)" in execution_query_route_source
     assert '"/api/v1/runs/{run_id}/rules/output-invalidation/apply"' in execution_query_route_source
     assert "operation_id=REMOTE_ENDPOINTS[RUN_RULE_OUTPUT_INVALIDATION_APPLY].operation_id" in execution_query_route_source
     assert '"/api/v1/runs/{run_id}/rules/cache-restore/pins/prepare"' in execution_query_route_source
@@ -443,6 +445,7 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
     )
     assert '"/api/v1/runs/{run_id}/resume"' in execution_query_route_source
     assert "operation_id=REMOTE_ENDPOINTS[RUN_RESUME].operation_id" in execution_query_route_source
+    assert "remote_endpoint_success_status(RUN_RESUME)" in execution_query_route_source
     assert '"/api/v1/runs/{run_id}/events"' in execution_query_route_source
     assert '"/api/v1/runs/{run_id}/execution-context"' in execution_query_route_source
     assert '"/api/v1/runs/{run_id}/attempts"' in execution_query_route_source
@@ -464,6 +467,7 @@ def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
     assert "operation_id=REMOTE_ENDPOINTS[RESULT_PACKAGE_RETIRE].operation_id" in execution_query_route_source
     assert '"/api/v1/results/{result_id}/exports/{package_export_id}/download"' in execution_query_route_source
     assert "operation_id=REMOTE_ENDPOINTS[RESULT_PACKAGE_DOWNLOAD].operation_id" in execution_query_route_source
+    assert "remote_endpoint_success_status(ARTIFACT_LIFECYCLE_CONTROLLER_RUN_ONCE)" in execution_query_route_source
     assert "/bytes/delete" not in execution_query_route_source
     assert "list_runs_from_request" in execution_query_route_source
     assert "get_run_from_request" in execution_query_route_source

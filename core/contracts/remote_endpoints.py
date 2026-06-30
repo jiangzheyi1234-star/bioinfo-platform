@@ -450,6 +450,7 @@ REMOTE_ENDPOINTS: dict[str, RemoteEndpoint] = {
         response_schema="h2ometa.artifact-lifecycle-controller-run-once-result.v1",
         cache_scope="artifact-lifecycle-command",
         invalidates=("artifact-lifecycle-read-model",),
+        accepted_statuses=(202,),
     ),
     ARTIFACT_LIFECYCLE_GC_PREVIEW: RemoteEndpoint(
         endpoint_id=ARTIFACT_LIFECYCLE_GC_PREVIEW,

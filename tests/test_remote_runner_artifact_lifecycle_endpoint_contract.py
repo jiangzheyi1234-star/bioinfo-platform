@@ -9,6 +9,7 @@ from core.contracts.remote_endpoints import (
     ARTIFACT_LIFECYCLE_GC_PREVIEW,
     ARTIFACT_LIFECYCLE_GC_RUN,
     REMOTE_ENDPOINTS,
+    remote_endpoint_success_status,
     render_remote_endpoint_path,
 )
 from core.governance_policy import HIGH_RISK_API_POLICIES
@@ -43,6 +44,10 @@ def test_artifact_lifecycle_command_endpoints_are_contract_rendered() -> None:
         assert endpoint.method == "POST"
         assert endpoint.response_key == "data"
         assert endpoint.cache_scope == "artifact-lifecycle-command"
+    assert REMOTE_ENDPOINTS[ARTIFACT_LIFECYCLE_CONTROLLER_RUN_ONCE].accepted_statuses == (202,)
+    assert remote_endpoint_success_status(ARTIFACT_LIFECYCLE_CONTROLLER_RUN_ONCE) == 202
+    for endpoint_id in (ARTIFACT_LIFECYCLE_GC_PREVIEW, ARTIFACT_LIFECYCLE_GC_RUN):
+        assert REMOTE_ENDPOINTS[endpoint_id].accepted_statuses == (200,)
 
 
 def test_artifact_lifecycle_command_endpoint_contracts_match_governance_policy() -> None:
@@ -69,8 +74,8 @@ def test_artifact_lifecycle_command_endpoint_contracts_match_openapi_operation_i
             endpoint = REMOTE_ENDPOINTS[endpoint_id]
             operation = paths[endpoint.path_template][endpoint.method.lower()]
             assert operation["operationId"] == endpoint.operation_id
-        controller = REMOTE_ENDPOINTS[ARTIFACT_LIFECYCLE_CONTROLLER_RUN_ONCE]
-        assert "202" in paths[controller.path_template][controller.method.lower()]["responses"]
+            for status in endpoint.accepted_statuses:
+                assert str(status) in operation["responses"]
 
 
 def test_artifact_lifecycle_command_endpoint_caller_posts_payload() -> None:
@@ -109,9 +114,10 @@ def test_artifact_lifecycle_command_endpoint_caller_posts_payload() -> None:
             "POST",
             "/api/v1/artifacts/lifecycle/controller/run-once",
             {"confirmation": "run-artifact-lifecycle-controller-once"},
+            [202],
         ),
-        ("POST", "/api/v1/artifacts/lifecycle/gc/preview", {"retentionDays": 30}),
-        ("POST", "/api/v1/artifacts/lifecycle/gc/run", {"confirmation": "delete-artifact-payloads"}),
+        ("POST", "/api/v1/artifacts/lifecycle/gc/preview", {"retentionDays": 30}, [200]),
+        ("POST", "/api/v1/artifacts/lifecycle/gc/run", {"confirmation": "delete-artifact-payloads"}, [200]),
     ]
 
 
@@ -152,9 +158,10 @@ def test_artifact_lifecycle_command_proxy_generic_endpoint_call_uses_registry() 
             "POST",
             "/api/v1/artifacts/lifecycle/controller/run-once",
             {"confirmation": "run-artifact-lifecycle-controller-once"},
+            [202],
         ),
-        ("POST", "/api/v1/artifacts/lifecycle/gc/preview", {"retentionDays": 30}),
-        ("POST", "/api/v1/artifacts/lifecycle/gc/run", {"confirmation": "delete-artifact-payloads"}),
+        ("POST", "/api/v1/artifacts/lifecycle/gc/preview", {"retentionDays": 30}, [200]),
+        ("POST", "/api/v1/artifacts/lifecycle/gc/run", {"confirmation": "delete-artifact-payloads"}, [200]),
     ]
     assert proxy.timeouts == [20, 5, 5]
 
@@ -199,7 +206,7 @@ def test_transport_and_proxy_do_not_keep_artifact_lifecycle_command_methods() ->
 
 class FakeCommandClient:
     def __init__(self) -> None:
-        self.calls: list[tuple[str, str, dict[str, object]]] = []
+        self.calls: list[tuple[str, str, dict[str, object], list[int]]] = []
 
     def post_json(
         self,
@@ -209,7 +216,7 @@ class FakeCommandClient:
         accepted_statuses: set[int] | None = None,
     ) -> dict[str, object]:
         assert accepted_statuses in ({200}, {202})
-        self.calls.append(("POST", path, dict(payload)))
+        self.calls.append(("POST", path, dict(payload), sorted(accepted_statuses or [])))
         return {"data": {"path": path, "payload": dict(payload)}}
 
 

@@ -144,12 +144,14 @@ def test_artifact_lifecycle_gc_is_exposed_through_remote_local_and_runtime_layer
     assert 'path_template="/api/v1/artifacts/cache/pins/{cache_pin_id}/release"' in endpoint_contracts
     assert 'path_template="/api/v1/artifacts/cache/lookup"' in endpoint_contracts
     assert "operation_id=REMOTE_ENDPOINTS[ARTIFACT_LIFECYCLE_CONTROLLER_RUN_ONCE].operation_id" in remote_routes
+    assert "remote_endpoint_success_status(ARTIFACT_LIFECYCLE_CONTROLLER_RUN_ONCE)" in remote_routes
     assert "operation_id=REMOTE_ENDPOINTS[ARTIFACT_LIFECYCLE_GC_PREVIEW].operation_id" in remote_routes
     assert "operation_id=REMOTE_ENDPOINTS[ARTIFACT_LIFECYCLE_GC_RUN].operation_id" in remote_routes
     assert "operation_id=REMOTE_ENDPOINTS[ARTIFACT_CACHE_PIN_RETAIN].operation_id" in remote_routes
     assert "operation_id=REMOTE_ENDPOINTS[ARTIFACT_CACHE_PIN_RELEASE].operation_id" in remote_routes
     assert "operation_id=REMOTE_ENDPOINTS[ARTIFACT_CACHE_LOOKUP].operation_id" in remote_routes
     assert "operation_id=REMOTE_ENDPOINTS[ARTIFACT_LIFECYCLE_CONTROLLER_RUN_ONCE].operation_id" in local_routes
+    assert "remote_endpoint_success_status(ARTIFACT_LIFECYCLE_CONTROLLER_RUN_ONCE)" in local_routes
     assert "operation_id=REMOTE_ENDPOINTS[ARTIFACT_LIFECYCLE_GC_PREVIEW].operation_id" in local_routes
     assert "operation_id=REMOTE_ENDPOINTS[ARTIFACT_LIFECYCLE_GC_RUN].operation_id" in local_routes
     assert "operation_id=REMOTE_ENDPOINTS[ARTIFACT_CACHE_PIN_RETAIN].operation_id" in local_routes
