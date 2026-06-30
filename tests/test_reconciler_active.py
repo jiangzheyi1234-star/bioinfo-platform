@@ -145,19 +145,54 @@ def test_active_reconciler_uses_retry_backoff_policy(tmp_path):
         lease_seconds=10,
     )
     assert claim is not None
+    with get_connection(cfg) as connection:
+        connection.execute(
+            "UPDATE runs SET status = ?, stage = ?, last_updated_at = ? WHERE run_id = ?",
+            ("running", "execute", "2099-06-07T10:00:01Z", "run_backoff"),
+        )
+        connection.execute(
+            "UPDATE run_jobs SET wait_reason_json = ? WHERE run_id = ?",
+            ('{"reason":"old_admission_wait"}', "run_backoff"),
+        )
+        connection.commit()
 
     actions = run_active_reconciler_once(cfg, now="2099-06-07T10:00:11Z", retry_delay_seconds=5)
 
     recovery = next(action for action in actions if action.get("type") == "run_attempt_recovered")
     assert recovery["availableAt"] == "2099-06-07T10:00:28Z"
     with get_connection(cfg) as connection:
-        job = connection.execute("SELECT available_at FROM run_jobs WHERE run_id = ?", ("run_backoff",)).fetchone()
+        job = connection.execute(
+            "SELECT available_at, wait_reason_json FROM run_jobs WHERE run_id = ?",
+            ("run_backoff",),
+        ).fetchone()
+        run = connection.execute(
+            "SELECT status, stage FROM runs WHERE run_id = ?",
+            ("run_backoff",),
+        ).fetchone()
         event = connection.execute(
-            "SELECT details_json FROM run_events WHERE run_id = ? AND event_type = ?",
+            """
+            SELECT event_type, stage, message, details_json
+            FROM run_events
+            WHERE run_id = ? AND event_type = ?
+            """,
             ("run_backoff", "run_job_requeued"),
         ).fetchone()
     assert job["available_at"] == "2099-06-07T10:00:28Z"
-    assert '"backoffSeconds":17' in event["details_json"]
+    assert job["wait_reason_json"] == "{}"
+    assert dict(run) == {"status": "running", "stage": "execute"}
+    assert dict(event) == {
+        "event_type": "run_job_requeued",
+        "stage": "requeue",
+        "message": "Run job re-queued for retry.",
+        "details_json": event["details_json"],
+    }
+    assert json.loads(event["details_json"])["payload"] == {
+        "jobId": claim["jobId"],
+        "attemptCount": 1,
+        "maxAttempts": 3,
+        "backoffSeconds": 17,
+        "availableAt": "2099-06-07T10:00:28Z",
+    }
 
 
 def test_active_reconciler_dead_letters_queued_job_after_queue_ttl(tmp_path):

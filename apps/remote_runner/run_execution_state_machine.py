@@ -42,6 +42,27 @@ class RunAttemptFenceDecision:
     event_message: str
 
 
+@dataclass(frozen=True)
+class RunJobRequeueDecision:
+    action: str
+    reason: str
+    job_state: str | None
+    remaining_attempts: int
+    wait_reason_json: str | None
+    event_type: str | None
+    stage: str | None
+    event_message: str | None
+
+
+@dataclass(frozen=True)
+class RunJobRetryDecision:
+    action: str
+    reason: str
+    job_state: str | None
+    remaining_attempts: int
+    wait_reason_json: str | None
+
+
 class RunExecutionStateMachine:
     @staticmethod
     def submission_accepted() -> RunExecutionTransition:
@@ -165,6 +186,108 @@ class RunExecutionStateMachine:
             event_type="run_attempt_fenced",
             stage="fence",
             event_message="Run attempt fenced.",
+        )
+
+    @staticmethod
+    def requeue_retryable_job(
+        *,
+        current_job_state: str,
+        attempt_count: int,
+        max_attempts: int,
+        dead_lettered: bool = False,
+        expected_source_state: str = "claimed",
+    ) -> RunJobRequeueDecision:
+        normalized_state = _normalize_required_status(current_job_state, "JOB_STATE_REQUIRED")
+        normalized_expected = _normalize_required_status(expected_source_state, "JOB_SOURCE_STATE_REQUIRED")
+        attempts = max(0, int(attempt_count))
+        limit = max(0, int(max_attempts))
+        remaining_attempts = max(0, limit - attempts)
+        if dead_lettered:
+            return RunJobRequeueDecision(
+                action="reject",
+                reason="already_dead_lettered",
+                job_state=None,
+                remaining_attempts=remaining_attempts,
+                wait_reason_json=None,
+                event_type=None,
+                stage=None,
+                event_message=None,
+            )
+        if normalized_state != normalized_expected:
+            return RunJobRequeueDecision(
+                action="reject",
+                reason=f"unexpected_state: {normalized_state}",
+                job_state=None,
+                remaining_attempts=remaining_attempts,
+                wait_reason_json=None,
+                event_type=None,
+                stage=None,
+                event_message=None,
+            )
+        if remaining_attempts <= 0:
+            return RunJobRequeueDecision(
+                action="dead_letter",
+                reason="max_attempts_exceeded",
+                job_state="failed",
+                remaining_attempts=0,
+                wait_reason_json=None,
+                event_type=None,
+                stage=None,
+                event_message=None,
+            )
+        return RunJobRequeueDecision(
+            action="requeue",
+            reason="retryable",
+            job_state="queued",
+            remaining_attempts=remaining_attempts,
+            wait_reason_json="{}",
+            event_type="run_job_requeued",
+            stage="requeue",
+            event_message="Run job re-queued for retry.",
+        )
+
+    @staticmethod
+    def retry_job_for_operator_request(
+        *,
+        current_job_state: str,
+        attempt_count: int,
+        max_attempts: int,
+        dead_lettered: bool = False,
+    ) -> RunJobRetryDecision:
+        normalized_state = _normalize_required_status(current_job_state, "JOB_STATE_REQUIRED")
+        attempts = max(0, int(attempt_count))
+        limit = max(0, int(max_attempts))
+        remaining_attempts = max(0, limit - attempts)
+        if dead_lettered or remaining_attempts <= 0:
+            return RunJobRetryDecision(
+                action="reject",
+                reason="max_attempts_exhausted",
+                job_state=None,
+                remaining_attempts=remaining_attempts,
+                wait_reason_json=None,
+            )
+        if normalized_state == "queued":
+            return RunJobRetryDecision(
+                action="reject",
+                reason="already_queued",
+                job_state=None,
+                remaining_attempts=remaining_attempts,
+                wait_reason_json=None,
+            )
+        if normalized_state == "claimed":
+            return RunJobRetryDecision(
+                action="reject",
+                reason="job_claimed",
+                job_state=None,
+                remaining_attempts=remaining_attempts,
+                wait_reason_json=None,
+            )
+        return RunJobRetryDecision(
+            action="retry",
+            reason="retryable",
+            job_state="queued",
+            remaining_attempts=remaining_attempts,
+            wait_reason_json="{}",
         )
 
     @staticmethod

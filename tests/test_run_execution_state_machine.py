@@ -175,6 +175,77 @@ def test_attempt_fence_decision_rejects_unsupported_reason() -> None:
         RunExecutionStateMachine.fence_attempt(reason="worker_lost")
 
 
+def test_job_requeue_decision_owns_recovery_event_shape() -> None:
+    decision = RunExecutionStateMachine.requeue_retryable_job(
+        current_job_state="claimed",
+        attempt_count=1,
+        max_attempts=3,
+    )
+
+    assert decision.action == "requeue"
+    assert decision.reason == "retryable"
+    assert decision.job_state == "queued"
+    assert decision.remaining_attempts == 2
+    assert decision.wait_reason_json == "{}"
+    assert decision.event_type == "run_job_requeued"
+    assert decision.stage == "requeue"
+    assert decision.event_message == "Run job re-queued for retry."
+
+
+def test_job_requeue_decision_rejects_unclaimed_or_exhausted_jobs() -> None:
+    unexpected = RunExecutionStateMachine.requeue_retryable_job(
+        current_job_state="failed",
+        attempt_count=1,
+        max_attempts=3,
+    )
+    exhausted = RunExecutionStateMachine.requeue_retryable_job(
+        current_job_state="claimed",
+        attempt_count=3,
+        max_attempts=3,
+    )
+
+    assert unexpected.action == "reject"
+    assert unexpected.reason == "unexpected_state: failed"
+    assert unexpected.job_state is None
+    assert unexpected.remaining_attempts == 2
+    assert unexpected.wait_reason_json is None
+
+    assert exhausted.action == "dead_letter"
+    assert exhausted.reason == "max_attempts_exceeded"
+    assert exhausted.job_state == "failed"
+    assert exhausted.remaining_attempts == 0
+    assert exhausted.event_type is None
+
+
+def test_operator_retry_job_decision_is_distinct_from_recovery_requeue_event() -> None:
+    retry = RunExecutionStateMachine.retry_job_for_operator_request(
+        current_job_state="failed",
+        attempt_count=1,
+        max_attempts=3,
+    )
+    already_queued = RunExecutionStateMachine.retry_job_for_operator_request(
+        current_job_state="queued",
+        attempt_count=1,
+        max_attempts=3,
+    )
+    claimed = RunExecutionStateMachine.retry_job_for_operator_request(
+        current_job_state="claimed",
+        attempt_count=1,
+        max_attempts=3,
+    )
+
+    assert retry.action == "retry"
+    assert retry.reason == "retryable"
+    assert retry.job_state == "queued"
+    assert retry.remaining_attempts == 2
+    assert retry.wait_reason_json == "{}"
+
+    assert already_queued.action == "reject"
+    assert already_queued.reason == "already_queued"
+    assert claimed.action == "reject"
+    assert claimed.reason == "job_claimed"
+
+
 @pytest.mark.parametrize(
     ("run_status", "attempt_state"),
     [

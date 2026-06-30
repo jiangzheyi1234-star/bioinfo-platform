@@ -21,6 +21,7 @@ from .reconciler_actions import (
 from .reconciler_rules import (
     clock_jump_observation,
 )
+from .run_execution_state_machine import RunExecutionStateMachine
 from .storage_core import get_connection, now_iso
 
 
@@ -131,7 +132,13 @@ def run_active_reconciler_once(
                 continue
             attempt_count = int(job["attempt_count"])
             max_attempts = int(job["max_attempts"])
-            if attempt_count < max_attempts:
+            retry_decision = RunExecutionStateMachine.requeue_retryable_job(
+                current_job_state=str(job["state"]),
+                attempt_count=attempt_count,
+                max_attempts=max_attempts,
+                dead_lettered=job["dead_lettered_at"] is not None,
+            )
+            if retry_decision.action == "requeue":
                 requeue_result = requeue_retryable_job(
                     connection,
                     job_id=str(row["job_id"]),
@@ -165,14 +172,14 @@ def run_active_reconciler_once(
                     },
                 )
                 actions.append(action)
-            else:
+            elif retry_decision.action == "dead_letter":
                 reason_code = _recovery_reason_code(str(row["recovery_reason"]))
                 recovery_action = _recovery_action_name("dead_letter", str(row["recovery_reason"]))
                 dead_letter_result = dead_letter_job(
                     connection,
                     job_id=str(row["job_id"]),
                     run_id=str(row["run_id"]),
-                    reason="max_attempts_exceeded",
+                    reason=retry_decision.reason,
                     dead_lettered_at=reconciled_at,
                 )
                 action = {
@@ -198,6 +205,8 @@ def run_active_reconciler_once(
                     },
                 )
                 actions.append(action)
+            else:
+                continue
             connection.commit()
     with get_connection(cfg) as connection:
         invariant_actions = recover_control_plane_invariants(

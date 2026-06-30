@@ -184,6 +184,12 @@ def test_request_run_retry_requeues_failed_run_for_next_attempt(tmp_path):
         exit_code=1,
         now="2099-06-07T10:00:10Z",
     )
+    with get_connection(cfg) as connection:
+        connection.execute(
+            "UPDATE run_jobs SET wait_reason_json = ? WHERE run_id = ?",
+            ('{"reason":"old_admission_wait"}', "run_retry"),
+        )
+        connection.commit()
 
     result = request_run_retry(
         cfg,
@@ -216,7 +222,7 @@ def test_request_run_retry_requeues_failed_run_for_next_attempt(tmp_path):
             ("run_retry",),
         ).fetchone()
         job = connection.execute(
-            "SELECT state, attempt_count, available_at FROM run_jobs WHERE run_id = ?",
+            "SELECT state, attempt_count, available_at, wait_reason_json FROM run_jobs WHERE run_id = ?",
             ("run_retry",),
         ).fetchone()
         command = connection.execute(
@@ -224,7 +230,11 @@ def test_request_run_retry_requeues_failed_run_for_next_attempt(tmp_path):
             ("cmd_retry_run",),
         ).fetchone()
         event = connection.execute(
-            "SELECT event_type, command_id FROM run_events WHERE event_type = ?",
+            """
+            SELECT event_type, from_status, to_status, stage, state_version, message, command_id, details_json
+            FROM run_events
+            WHERE event_type = ?
+            """,
             ("run_retry_requested",),
         ).fetchone()
     assert dict(run) == {
@@ -239,9 +249,37 @@ def test_request_run_retry_requeues_failed_run_for_next_attempt(tmp_path):
         "state": "queued",
         "attempt_count": 1,
         "available_at": "2099-06-07T10:01:00Z",
+        "wait_reason_json": "{}",
     }
     assert dict(command) == {"command_type": "retry_run", "actor": "api-test"}
-    assert dict(event) == {"event_type": "run_retry_requested", "command_id": "cmd_retry_run"}
+    assert {
+        "event_type": event["event_type"],
+        "from_status": event["from_status"],
+        "to_status": event["to_status"],
+        "stage": event["stage"],
+        "state_version": event["state_version"],
+        "message": event["message"],
+        "command_id": event["command_id"],
+    } == {
+        "event_type": "run_retry_requested",
+        "from_status": "failed",
+        "to_status": "queued",
+        "stage": "retry",
+        "state_version": 3,
+        "message": "Run retry requested.",
+        "command_id": "cmd_retry_run",
+    }
+    assert json.loads(event["details_json"])["payload"] == {
+        "runId": "run_retry",
+        "jobId": first["jobId"],
+        "scope": "run",
+        "reason": "operator_retry",
+        "attemptCount": 1,
+        "maxAttempts": 3,
+        "remainingAttempts": 2,
+        "backoffSeconds": 0,
+        "availableAt": "2099-06-07T10:01:00Z",
+    }
 
     second = claim_next_run_job(cfg, worker_id="worker_retry_b", now="2099-06-07T10:01:00Z", lease_seconds=30)
     assert second is not None
@@ -268,6 +306,56 @@ def test_request_run_retry_requeues_failed_run_for_next_attempt(tmp_path):
         now="2099-06-07T10:01:01Z",
     )
     assert stale_completion == {"accepted": False, "reason": "stale_generation"}
+
+
+def test_request_run_retry_rejects_active_lease_without_side_effects(tmp_path):
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(
+        cfg,
+        "run_retry_active_lease",
+        execution={"retryPolicy": {"maxAttempts": 3, "backoffSeconds": 0}},
+    )
+    claim = claim_next_run_job(
+        cfg,
+        worker_id="worker_retry_active",
+        now="2099-06-07T10:00:00Z",
+        lease_seconds=30,
+    )
+    assert claim is not None
+    update_run_state(
+        cfg,
+        run_id="run_retry_active_lease",
+        status="failed",
+        stage="execute",
+        message="Failed while lease is still active.",
+        request_id="req_run_retry_active_lease",
+        attempt_id=claim["attemptId"],
+        lease_generation=claim["leaseGeneration"],
+    )
+
+    with pytest.raises(ValueError, match="RUN_RETRY_ACTIVE_LEASE"):
+        request_run_retry(
+            cfg,
+            "run_retry_active_lease",
+            actor="api-test",
+            reason="operator_retry",
+            now="2099-06-07T10:00:10Z",
+        )
+
+    with get_connection(cfg) as connection:
+        job = connection.execute(
+            "SELECT state, attempt_count FROM run_jobs WHERE run_id = ?",
+            ("run_retry_active_lease",),
+        ).fetchone()
+        retry_commands = connection.execute(
+            "SELECT COUNT(*) AS count FROM run_commands WHERE command_type = 'retry_run'",
+        ).fetchone()["count"]
+        retry_events = connection.execute(
+            "SELECT COUNT(*) AS count FROM run_events WHERE event_type = 'run_retry_requested'",
+        ).fetchone()["count"]
+    assert dict(job) == {"state": "claimed", "attempt_count": 1}
+    assert retry_commands == 0
+    assert retry_events == 0
 
 
 def test_request_run_retry_rejects_non_current_rule_execution_options(tmp_path):

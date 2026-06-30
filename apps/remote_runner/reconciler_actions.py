@@ -265,12 +265,16 @@ def requeue_retryable_job(
     ).fetchone()
     if job is None:
         return {"requeued": False, "reason": "job_not_found"}
-    if job["state"] != "claimed":
-        return {"requeued": False, "reason": f"unexpected_state: {job['state']}"}
     attempt_count = int(job["attempt_count"])
     max_attempts = int(job["max_attempts"])
-    if attempt_count >= max_attempts:
-        return {"requeued": False, "reason": "max_attempts_exceeded"}
+    requeue_decision = RunExecutionStateMachine.requeue_retryable_job(
+        current_job_state=str(job["state"]),
+        attempt_count=attempt_count,
+        max_attempts=max_attempts,
+        dead_lettered=job["dead_lettered_at"] is not None,
+    )
+    if requeue_decision.action != "requeue":
+        return {"requeued": False, "reason": requeue_decision.reason}
     from datetime import datetime, timedelta, timezone
     backoff_seconds = retry_backoff_seconds_for_job(job, fallback_seconds=retry_delay_seconds)
     available_at = (
@@ -280,20 +284,20 @@ def requeue_retryable_job(
     connection.execute(
         """
         UPDATE run_jobs
-        SET state = ?, available_at = ?, updated_at = ?
+        SET state = ?, available_at = ?, wait_reason_json = ?, updated_at = ?
         WHERE job_id = ?
         """,
-        ("queued", available_at, timestamp, job_id),
+        (requeue_decision.job_state, available_at, requeue_decision.wait_reason_json, timestamp, job_id),
     )
     run = connection.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
     if run is not None:
         append_run_event_v2(
             connection,
             run_id=run_id,
-            event_type="run_job_requeued",
-            stage="requeue",
+            event_type=requeue_decision.event_type,
+            stage=requeue_decision.stage,
             state_version=int(run["state_version"]),
-            message="Run job re-queued for retry.",
+            message=requeue_decision.event_message,
             request_id=str(run["request_id"]),
             payload={
                 "jobId": job_id,
@@ -579,7 +583,8 @@ def _recover_claimed_jobs_without_active_leases(
 ) -> list[dict[str, Any]]:
     rows = connection.execute(
         """
-        SELECT jobs.job_id, jobs.run_id, jobs.attempt_count, jobs.max_attempts,
+        SELECT jobs.job_id, jobs.run_id, jobs.state AS job_state, jobs.attempt_count, jobs.max_attempts,
+               jobs.dead_lettered_at,
                leases.attempt_id, leases.lease_generation, leases.state AS lease_state,
                attempts.process_group_id
         FROM run_jobs AS jobs
@@ -595,9 +600,13 @@ def _recover_claimed_jobs_without_active_leases(
     for row in rows:
         if str(row["job_id"]) in blocked_job_ids:
             continue
-        attempt_count = int(row["attempt_count"])
-        max_attempts = int(row["max_attempts"])
-        if attempt_count < max_attempts:
+        requeue_decision = RunExecutionStateMachine.requeue_retryable_job(
+            current_job_state=str(row["job_state"]),
+            attempt_count=int(row["attempt_count"]),
+            max_attempts=int(row["max_attempts"]),
+            dead_lettered=row["dead_lettered_at"] is not None,
+        )
+        if requeue_decision.action == "requeue":
             result = requeue_retryable_job(
                 connection,
                 job_id=str(row["job_id"]),
@@ -616,7 +625,7 @@ def _recover_claimed_jobs_without_active_leases(
                 "leaseGeneration": int(row["lease_generation"] or 0),
                 "availableAt": result.get("availableAt"),
             }
-        else:
+        elif requeue_decision.action == "dead_letter":
             result = dead_letter_job(
                 connection,
                 job_id=str(row["job_id"]),
@@ -635,6 +644,8 @@ def _recover_claimed_jobs_without_active_leases(
                 "leaseGeneration": int(row["lease_generation"] or 0),
                 "reason": result.get("reason"),
             }
+        else:
+            continue
         append_control_plane_recovery_event(
             connection,
             run_id=str(row["run_id"]),

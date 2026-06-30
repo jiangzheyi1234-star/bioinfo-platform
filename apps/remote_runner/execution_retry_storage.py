@@ -76,14 +76,21 @@ def request_run_retry(
             raise ValueError(f"RUN_RETRY_LEASE_NOT_RELEASED: {lease['state']}")
         attempt_count = int(job["attempt_count"])
         max_attempts = int(job["max_attempts"])
-        remaining_attempts = max(0, max_attempts - attempt_count)
-        if job["dead_lettered_at"] or remaining_attempts <= 0:
+        job_retry_decision = RunExecutionStateMachine.retry_job_for_operator_request(
+            current_job_state=str(job["state"]),
+            attempt_count=attempt_count,
+            max_attempts=max_attempts,
+            dead_lettered=job["dead_lettered_at"] is not None,
+        )
+        if job_retry_decision.reason == "max_attempts_exhausted":
             raise ValueError("RUN_RETRY_MAX_ATTEMPTS_EXHAUSTED")
-        job_state = str(job["state"])
-        if job_state == "queued":
+        if job_retry_decision.reason == "already_queued":
             raise ValueError("RUN_RETRY_ALREADY_QUEUED")
-        if job_state == "claimed":
+        if job_retry_decision.reason == "job_claimed":
             raise ValueError("RUN_RETRY_JOB_CLAIMED")
+        if job_retry_decision.action != "retry":
+            raise ValueError(f"RUN_RETRY_JOB_NOT_RETRYABLE: {job_retry_decision.reason}")
+        remaining_attempts = job_retry_decision.remaining_attempts
         backoff_seconds = retry_backoff_seconds_for_job(job, fallback_seconds=0)
         available_at = _add_seconds(requested_at, backoff_seconds)
         if rule_partial_rerun_execution_options_requested(normalized_execution_options):
@@ -129,11 +136,18 @@ def request_run_retry(
         connection.execute(
             """
             UPDATE run_jobs
-            SET state = ?, available_at = ?, wait_reason_json = '{}',
+            SET state = ?, available_at = ?, wait_reason_json = ?,
                 execution_options_json = ?, dead_lettered_at = NULL, updated_at = ?
             WHERE job_id = ?
             """,
-            ("queued", available_at, _stable_json(normalized_execution_options), requested_at, job["job_id"]),
+            (
+                job_retry_decision.job_state,
+                available_at,
+                job_retry_decision.wait_reason_json,
+                _stable_json(normalized_execution_options),
+                requested_at,
+                job["job_id"],
+            ),
         )
         event_payload = {
             "runId": normalized_run_id,
