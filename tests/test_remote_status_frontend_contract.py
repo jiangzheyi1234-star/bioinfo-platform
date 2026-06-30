@@ -45,8 +45,10 @@ def test_remote_status_has_recovering_runner_copy() -> None:
 
 
 def test_remote_status_panel_exposes_runner_ports_and_stop_action() -> None:
+    model_source = _source("model")
     source = _source("ui")
 
+    _assert_contains(model_source, "serverId?: string")
     _assert_contains(
         source,
         "远端服务端口",
@@ -58,9 +60,10 @@ def test_remote_status_panel_exposes_runner_ports_and_stop_action() -> None:
     )
     _assert_matches(
         source,
-        r'requestLocalApiJson\(\s*"POST",\s*"/api/v1/ssh/remote-service/stop"',
+        r"`/api/v1/servers/\$\{encodeURIComponent\(serverId\)\}/runner/stop`",
         r"await\s+onRefreshStatus\(\)",
     )
+    _assert_not_contains(source, "/api/v1/ssh/remote-service/stop")
 
 
 def test_manual_runner_stop_is_explicit_start_not_repair() -> None:
@@ -102,7 +105,9 @@ def test_remote_status_failed_runner_can_trigger_repair_bootstrap() -> None:
     )
     _assert_contains(
         hook_source,
-        "/ensure-runner",
+        "ensure-runner",
+        "runner/start",
+        "isRunnerManuallyStopped(status)",
         "state: \"repair_needed\"",
     )
     _assert_matches(

@@ -174,11 +174,12 @@ def test_stop_remote_runner_service_does_not_wrap_ssh_run_errors() -> None:
     stop_source = runner_ops_source.split("def stop_remote_runner_service(", 1)[1]
     stop_source = stop_source.split("@staticmethod", 1)[0]
     assert "except Exception" not in stop_source
-    assert "self.runner.stop_remote_runner_service()" in stop_source
+    assert "self.runner.stop_remote_runner_service(server_id)" in stop_source
 
     manager_stop_source = runner_manager_source.split("def stop_remote_runner_service(", 1)[1]
     assert "except Exception" not in manager_stop_source
     assert "ssh.run(command, timeout=30)" in manager_stop_source
+    assert "Server not found" in manager_stop_source
 
 
 def test_runner_operations_keep_stop_script_and_call_translation_in_helpers() -> None:

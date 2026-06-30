@@ -342,6 +342,8 @@ class RuntimeServerStateMixin:
             "message": "SSH connecting" if self._connect_in_progress or self._auto_connect_in_progress else ("SSH connected" if connected else "SSH disconnected"),
         }
         server = self._build_primary_server_identity(ssh_status=status)
+        if server is not None:
+            status["serverId"] = server["serverId"]
         if connected and server is not None:
             registry_entry = self._get_server_registry_entry(str(server["serverId"]))
             snapshot = registry_entry.get("last_health_snapshot")

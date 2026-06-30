@@ -21,8 +21,11 @@ class RunnerOperationsMixin(
     RunnerToolOperationsMixin,
     RunnerWorkflowDesignOperationsMixin,
 ):
-    def stop_remote_runner_service(self) -> dict[str, Any]:
-        return self.runner.stop_remote_runner_service()
+    def stop_remote_runner_service(self, server_id: str) -> dict[str, Any]:
+        return self.runner.stop_remote_runner_service(server_id)
+
+    def start_remote_runner(self, server_id: str) -> dict[str, Any]:
+        return self._bootstrap_remote_runner(server_id=server_id, action="start")
 
     def get_runner_execution_diagnostics(self, server_id: str | None = None) -> dict[str, Any]:
         selected_server_id, ssh, record = self._require_existing_runner_prepared(preferred_server_id=server_id)

@@ -23,6 +23,7 @@ from core.remote.ssh_connector import trust_ssh_host_key
 from core.remote_runner.bootstrap_guard import UPGRADE_ACTIVE_LEASES_REASON
 from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerError
 from core.app_runtime.errors import RuntimeServiceError
+from core.app_runtime.runner_stop_state import is_runner_manually_stopped
 from core.app_runtime.runner_ops import RunnerOperationsMixin
 from core.app_runtime.server_state import RuntimeServerStateMixin
 from core.app_runtime.ssh_connection import RuntimeSshConnectionMixin
@@ -208,12 +209,13 @@ class RuntimeService(
                         "nextAction": "START_RUNNER_BEFORE_UPGRADE",
                     },
                 )
-        if action == "ensure":
+        if action in {"ensure", "start"}:
             existing = self._ready_existing_runner_payload(
                 server_id=server_id,
                 ssh_service=ssh,
                 manager=manager,
                 server_record=server_record,
+                action=action,
             )
             if existing is not None:
                 return existing
@@ -257,7 +259,11 @@ class RuntimeService(
             raise
         health = result["health"]
         completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        action_timestamp_key = "runner_upgraded_at" if action == "upgrade" else "runner_ensured_at"
+        action_timestamp_key = {
+            "ensure": "runner_ensured_at",
+            "start": "runner_started_at",
+            "upgrade": "runner_upgraded_at",
+        }[action]
         with self._lock:
             self._save_server_registry_entry(
                 server_id,
@@ -303,8 +309,11 @@ class RuntimeService(
         ssh_service,
         manager,
         server_record: dict[str, Any],
+        action: str = "ensure",
     ) -> dict[str, Any] | None:
         if not server_record.get("bootstrap_version"):
+            return None
+        if is_runner_manually_stopped(server_record):
             return None
         try:
             health = self._call_remote_runner(
@@ -326,7 +335,7 @@ class RuntimeService(
                 "serverId": server_id,
                 "runner": runner,
                 "health": health,
-                "lifecycleAction": "ensure",
+                "lifecycleAction": action,
                 "completedAt": checked_at,
             }
         }

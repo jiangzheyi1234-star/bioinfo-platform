@@ -138,7 +138,7 @@ export function RemoteStatusBar({
   const remotePreparing = Boolean(status?.connected && (!status.runner || isRunnerPreparing(status)));
   const remoteBusy = connectBusy || ensureRunnerBusy || remotePreparing;
   const canEnsureRunner = Boolean(status?.connected && !status.runner?.ready);
-  const canStopRunner = Boolean(status?.connected);
+  const canStopRunner = Boolean(status?.connected && status.serverId && runner && !isRunnerManuallyStopped(status));
   const loadListeningPorts = async () => {
     if (!status?.connected || portsLoading) {
       return;
@@ -163,7 +163,12 @@ export function RemoteStatusBar({
     setStopError("");
     setStopOutput("");
     try {
-      const payload = await requestLocalApiJson("POST", "/api/v1/ssh/remote-service/stop");
+      const serverId = status.serverId || "";
+      if (!serverId) {
+        setStopError("serverId is required");
+        return;
+      }
+      const payload = await requestLocalApiJson("POST", `/api/v1/servers/${encodeURIComponent(serverId)}/runner/stop`);
       const output = String(payload?.data?.output || "").trim();
       setStopOutput(output || "远程服务停止命令已执行。");
       await onRefreshStatus();

@@ -128,6 +128,24 @@ async def run_server_runner_release_prune_from_request(
     return result
 
 
+async def start_server_runner_from_request(server_id: str) -> dict[str, Any]:
+    result = await run_runtime_payload(
+        lambda: runtime_service().start_remote_runner(server_id),
+        wrapper="raw",
+    )
+    await _invalidate_ssh_state_cache()
+    return result
+
+
+async def stop_server_runner_from_request(server_id: str) -> dict[str, Any]:
+    result = await run_runtime_payload(
+        lambda: runtime_service().stop_remote_runner_service(server_id),
+        wrapper="raw",
+    )
+    await _invalidate_ssh_state_cache()
+    return result
+
+
 async def accept_server_host_key_from_request(server_id: str) -> dict[str, Any]:
     return await run_runtime_payload(
         lambda: runtime_service().accept_server_host_key(server_id),
@@ -158,15 +176,6 @@ async def disconnect_ssh_from_request() -> dict[str, Any]:
     result = await run_runtime_payload(
         runtime_service().disconnect_ssh,
         wrapper="item",
-    )
-    await _invalidate_ssh_state_cache()
-    return result
-
-
-async def stop_ssh_remote_service_from_request() -> dict[str, Any]:
-    result = await run_runtime_payload(
-        runtime_service().stop_remote_runner_service,
-        wrapper="raw",
     )
     await _invalidate_ssh_state_cache()
     return result

@@ -26,7 +26,8 @@ from apps.api.ssh_control_service import (
     refresh_server_health_from_request,
     rotate_server_token_from_request,
     run_server_runner_release_prune_from_request,
-    stop_ssh_remote_service_from_request,
+    start_server_runner_from_request,
+    stop_server_runner_from_request,
     stream_terminal_session_from_request,
     test_ssh_connection_from_request,
     upgrade_server_runner_from_request,
@@ -89,6 +90,16 @@ async def upgrade_server_runner(server_id: str) -> dict[str, Any]:
     return await upgrade_server_runner_from_request(server_id)
 
 
+@router.post("/api/v1/servers/{server_id}/runner/start")
+async def start_server_runner(server_id: str) -> dict[str, Any]:
+    return await start_server_runner_from_request(server_id)
+
+
+@router.post("/api/v1/servers/{server_id}/runner/stop")
+async def stop_server_runner(server_id: str) -> dict[str, Any]:
+    return await stop_server_runner_from_request(server_id)
+
+
 @router.post("/api/v1/servers/{server_id}/runner/releases/prune/preview")
 async def preview_server_runner_release_prune(server_id: str) -> dict[str, Any]:
     return await preview_server_runner_release_prune_from_request(server_id)
@@ -120,11 +131,6 @@ async def connect_ssh(payload: SSHConnectionRequest | None = None) -> dict[str, 
 @router.post("/api/v1/ssh/disconnect")
 async def disconnect_ssh() -> dict[str, Any]:
     return await disconnect_ssh_from_request()
-
-
-@router.post("/api/v1/ssh/remote-service/stop")
-async def stop_ssh_remote_service() -> dict[str, Any]:
-    return await stop_ssh_remote_service_from_request()
 
 
 @router.get("/api/v1/ssh/listening-ports")

@@ -16,6 +16,7 @@ from apps.api.ssh_routes import (
     list_servers,
     preview_server_runner_release_prune,
     run_server_runner_release_prune,
+    start_server_runner,
     upgrade_server_runner,
 )
 from core.app_runtime.errors import RuntimeServiceError
@@ -152,6 +153,37 @@ def test_ensure_runner_keeps_ready_existing_runner_without_implicit_upgrade(
     assert cfg["servers"][server_id]["bootstrap_version"] == "old-ready-version"
     assert cfg["servers"][server_id]["last_health_snapshot"]["ready"]["ok"] is True
     assert result["data"]["lifecycleAction"] == "ensure"
+
+
+def test_start_runner_uses_explicit_start_lifecycle_action(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    service = _make_service(tmp_path)
+    service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)
+    cfg = _runtime_config()
+
+    class FakeRemoteRunnerManager:
+        def bootstrap(self, **_kwargs):
+            return {
+                "bootstrap_version": "phase-start-test",
+                "runner_mode": "background_process",
+                "tunnel_port": 18765,
+                "service_port": 43127,
+                "token_ref": "runner://srv_test",
+                "health": _ready_health(),
+            }
+
+    service._service_locator.remote_runner_manager = FakeRemoteRunnerManager()
+    monkeypatch.setattr("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg)
+    monkeypatch.setattr("core.app_runtime.runtime_config.save_runtime_config", _save_capture(cfg))
+    _patch_runtime_service(monkeypatch, service)
+
+    server_id = asyncio.run(list_servers())["data"]["items"][0]["serverId"]
+    result = asyncio.run(start_server_runner(server_id))
+
+    assert result["data"]["lifecycleAction"] == "start"
+    assert cfg["servers"][server_id]["bootstrap_version"] == "phase-start-test"
+    assert cfg["servers"][server_id]["runner_started_at"]
 
 
 def test_upgrade_runner_requires_existing_runner_and_persists_upgrade_state(

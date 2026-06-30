@@ -10,13 +10,24 @@ from core.app_runtime.remote_runner_stop import STOP_REMOTE_RUNNER_COMMAND
 
 
 class RunnerManager(BaseRuntimeManager):
-    def stop_remote_runner_service(self) -> dict[str, Any]:
+    def stop_remote_runner_service(self, server_id: str) -> dict[str, Any]:
         with self._service._lock:
             self._service._ensure_initialized()
             ssh_status = self._service._get_ssh_status_unlocked()
             server = self._service._build_primary_server_identity(ssh_status=ssh_status)
-            server_id = str(server["serverId"]) if server is not None else ""
-            record = self._service._get_server_registry_entry(server_id) if server_id else {}
+            if server is None or server["serverId"] != server_id:
+                raise RuntimeServiceError(f"Server not found: {server_id}")
+            record = self._service._get_server_registry_entry(server_id)
+            if not record.get("bootstrap_version"):
+                raise RuntimeServiceError(
+                    "Remote runner is not prepared; start it before stop.",
+                    status_code=409,
+                    detail={
+                        "reasonCode": "RUNNER_STOP_NOT_PREPARED",
+                        "serverId": server_id,
+                        "nextAction": "START_RUNNER_BEFORE_STOP",
+                    },
+                )
             runner_mode = str(record.get("runner_mode") or "")
             ssh = self._service._ensure_ssh_connected()
 
@@ -36,10 +47,18 @@ class RunnerManager(BaseRuntimeManager):
         }
 
         with self._service._lock:
-            if server_id:
-                self._service._save_server_registry_entry(server_id, {"last_health_snapshot": health})
-            status = self._service._get_ssh_status_unlocked()
+            record = self._service._save_server_registry_entry(server_id, {"last_health_snapshot": health})
 
         if not ok:
             raise RuntimeServiceError(output or "failed to stop remote runner service")
-        return {"data": {"ok": True, "output": output, "serverId": server_id}, "item": status}
+        return {
+            "data": {
+                "ok": True,
+                "output": output,
+                "serverId": server_id,
+                "runner": self._service._compose_runner_payload(registry_entry=record, health=health),
+                "health": health,
+                "lifecycleAction": "stop",
+                "completedAt": health["checkedAt"],
+            }
+        }

@@ -21,6 +21,7 @@ export type SSHStatus = {
   auto_connect_in_progress?: boolean;
   auto_connect_failed?: boolean;
   auto_connect_error?: string;
+  serverId?: string;
   runner?: {
     state: "preparing" | "ready" | "repair_needed" | "failed" | "stopped" | string;
     ready: boolean;

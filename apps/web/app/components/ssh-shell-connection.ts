@@ -10,6 +10,7 @@ import {
   type SSHStatus,
   type SshShellContextValue,
   defaultForm,
+  isRunnerManuallyStopped,
   normalizeFetchError,
   toForm,
 } from "./ssh-shell-model";
@@ -160,12 +161,13 @@ export function useSshConnection(): UseSshConnectionResult {
         : current
     );
     try {
-      const servers = await requestLocalApiJson("GET", "/api/v1/servers", { cache: "no-store" });
-      const serverId = servers?.data?.items?.[0]?.serverId;
+      const servers = status.serverId ? null : await requestLocalApiJson("GET", "/api/v1/servers", { cache: "no-store" });
+      const serverId = status.serverId || servers?.data?.items?.[0]?.serverId;
       if (!serverId) {
         return;
       }
-      const ensured = await requestLocalApiJson("POST", `/api/v1/servers/${serverId}/ensure-runner`, {
+      const actionPath = isRunnerManuallyStopped(status) ? "runner/start" : "ensure-runner";
+      const ensured = await requestLocalApiJson("POST", `/api/v1/servers/${encodeURIComponent(serverId)}/${actionPath}`, {
         timeoutMs: ENSURE_RUNNER_REQUEST_TIMEOUT_MS,
       });
       const runner = ensured?.data?.runner;

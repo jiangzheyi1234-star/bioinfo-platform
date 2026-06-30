@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from apps.api.ssh_routes import stop_ssh_remote_service
+from apps.api.ssh_routes import list_servers, stop_server_runner
 from core.app_runtime.service import RuntimeService, ServiceLocator
 
 
@@ -50,7 +50,16 @@ def test_stop_remote_runner_service_runs_explicit_stop_commands(monkeypatch, tmp
     monkeypatch.setattr("core.app_runtime.runtime_config.save_runtime_config", save_capture)
     monkeypatch.setattr("apps.api.ssh_control_service.runtime_service", lambda: service)
 
-    result = asyncio.run(stop_ssh_remote_service())
+    server_id = asyncio.run(list_servers())["data"]["items"][0]["serverId"]
+    cfg["servers"][server_id] = {
+        "bootstrap_version": "phase1-test",
+        "runner_mode": "background_process",
+        "service_port": 43127,
+        "tunnel_port": 18765,
+        "token_ref": "runner://srv_test",
+    }
+
+    result = asyncio.run(stop_server_runner(server_id))
 
     command, timeout = fake_ssh.commands[0]
     assert timeout == 30
@@ -59,5 +68,6 @@ def test_stop_remote_runner_service_runs_explicit_stop_commands(monkeypatch, tmp
     assert "pkill -f '[r]emote_runner.run'" in command
     assert "runner-state.json" in command
     assert result["data"]["ok"] is True
-    assert result["item"]["runner"]["reasonCode"] == "RUNNER_STOPPED"
+    assert result["data"]["runner"]["reasonCode"] == "RUNNER_STOPPED"
+    assert result["data"]["lifecycleAction"] == "stop"
     assert next(iter(cfg["servers"].values()))["last_health_snapshot"]["reasonCode"] == "RUNNER_STOPPED"
