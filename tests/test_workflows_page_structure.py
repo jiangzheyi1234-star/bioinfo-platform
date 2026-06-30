@@ -359,7 +359,8 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "const reportReady = runCompleted && artifacts.length > 0" not in first_run_page
     assert "firstRunStatusSnapshot?.latestEligibleRun?.runId" in first_run_page
     assert "selectRun(latestEligibleRunId)" in first_run_page
-    assert "statusAction: firstRunStatusSnapshot?.nextAction || null" in first_run_page
+    assert "firstRunStatus: firstRunStatusSnapshot || null" in first_run_page
+    assert "statusAction: firstRunStatusSnapshot?.nextAction || null" not in first_run_page
     assert "workflowResultPackageDownloadHref" in first_run_validation
     assert "refreshRunDetail" in hook
     assert "export async function uploadWorkflowSampleData" in api

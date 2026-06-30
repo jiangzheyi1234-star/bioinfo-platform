@@ -67,3 +67,17 @@ def test_first_run_validation_and_trust_summary_are_status_contract_driven() -> 
     assert "latestPackage?.manifestSha256 || resultPackageEvidence?.manifestSha256" not in first_run_completion
     assert "validationChecksPassed ?? checks.filter" not in first_run_validation
     assert not (FIRST_RUN_DOMAIN / "first-run-validation-state.ts").exists()
+
+
+def test_first_run_conductor_uses_status_contract_before_local_run_hints() -> None:
+    first_run_page = (FIRST_RUN_COMPONENTS / "workflow-first-run-page.tsx").read_text(encoding="utf-8")
+    first_run_conductor = (FIRST_RUN_COMPONENTS / "workflow-first-run-conductor.tsx").read_text(encoding="utf-8")
+
+    assert "firstRunStatus: firstRunStatusSnapshot || null" in first_run_page
+    assert "statusAction: firstRunStatusSnapshot?.nextAction || null" not in first_run_page
+    assert "firstRunStatus: FirstRunStatus | null" in first_run_conductor
+    assert "statusAction?: FirstRunNextAction | null" not in first_run_conductor
+    assert "const status = input.firstRunStatus" in first_run_conductor
+    assert "hasStatus ? evidence?.sampleCache?.status === \"ready\" : input.sampleReady" in first_run_conductor
+    assert "hasStatus ? Boolean(statusRun?.runId) : input.runSubmitted" in first_run_conductor
+    assert "return continueActionFromStatus(status.nextAction)" in first_run_conductor

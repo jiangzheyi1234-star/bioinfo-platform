@@ -6,7 +6,7 @@ import { ArrowRight, CheckCircle2, Loader2, Play, RefreshCw, Server, ShieldCheck
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { workflowErrorMessage } from "@/app/components/workflows-page-model";
-import type { FirstRunNextAction } from "../_domain/first-run-types";
+import type { FirstRunNextAction, FirstRunStatus } from "../_domain/first-run-types";
 
 export type FirstRunContinueActionCode =
   | "CONNECT_REMOTE"
@@ -31,15 +31,21 @@ export type FirstRunContinueAction = {
 
 export type FirstRunContinueActionInput = {
   canSubmit: boolean;
+  firstRunStatus: FirstRunStatus | null;
   runSubmitted: boolean;
   sampleReady: boolean;
   selectedWorkflowReady: boolean;
   serverConnected: boolean;
   serverReady: boolean;
-  statusAction?: FirstRunNextAction | null;
 };
 
 export function buildFirstRunContinueAction(input: FirstRunContinueActionInput): FirstRunContinueAction {
+  const status = input.firstRunStatus;
+  const evidence = status?.evidence;
+  const statusRun = evidence?.run || status?.latestEligibleRun || null;
+  const hasStatus = Boolean(status);
+  const sampleReady = hasStatus ? evidence?.sampleCache?.status === "ready" : input.sampleReady;
+  const runSubmitted = hasStatus ? Boolean(statusRun?.runId) : input.runSubmitted;
   if (!input.serverConnected) {
     return {
       code: "CONNECT_REMOTE",
@@ -67,7 +73,7 @@ export function buildFirstRunContinueAction(input: FirstRunContinueActionInput):
       tone: "danger",
     };
   }
-  if (!input.sampleReady) {
+  if (!sampleReady) {
     return {
       code: "PREPARE_SAMPLE_DATA",
       detail: "下载或复用官方三文件样例，并记录 checksum 与 prep proof。",
@@ -76,7 +82,7 @@ export function buildFirstRunContinueAction(input: FirstRunContinueActionInput):
       tone: "info",
     };
   }
-  if (!input.runSubmitted) {
+  if (!runSubmitted) {
     return {
       code: "SUBMIT_RUN",
       detail: input.canSubmit ? "提交 Moving Pictures 16S 首跑。" : "等待输入、runner 和 workflow readiness 全部通过后提交。",
@@ -86,7 +92,7 @@ export function buildFirstRunContinueAction(input: FirstRunContinueActionInput):
       tone: input.canSubmit ? "info" : "warning",
     };
   }
-  if (!input.statusAction) {
+  if (!status?.nextAction) {
     return {
       code: "REFRESH_RUN",
       detail: "等待服务端首跑状态聚合返回 run、报告、结果包和验证卡状态。",
@@ -95,7 +101,7 @@ export function buildFirstRunContinueAction(input: FirstRunContinueActionInput):
       tone: "warning",
     };
   }
-  return continueActionFromStatus(input.statusAction);
+  return continueActionFromStatus(status.nextAction);
 }
 
 export function useFirstRunConductor({

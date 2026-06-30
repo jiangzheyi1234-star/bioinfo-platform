@@ -101,12 +101,12 @@ export function WorkflowFirstRunPage() {
       firstRunEvidence.validationCardFetchLoading,
     input: {
       canSubmit: state.canSubmit && executionReady && selectedWorkflowReady && sampleReady,
+      firstRunStatus: firstRunStatusSnapshot || null,
       runSubmitted,
       sampleReady,
       selectedWorkflowReady,
       serverConnected,
       serverReady,
-      statusAction: firstRunStatusSnapshot?.nextAction || null,
     },
     onConnect: openConnectDialog,
     onEnsureRunner: ensureRunner,
