@@ -168,6 +168,8 @@ def test_run_execution_state_machine_owns_core_status_decisions() -> None:
     state_machine = state_machine_path.read_text(encoding="utf-8")
 
     assert "class RunExecutionStateMachine" in state_machine
+    assert "class RunAttemptFenceDecision" in state_machine
+    assert "def fence_attempt(" in state_machine
     assert "TERMINAL_RUN_STATUSES =" in state_machine
     assert "RETRYABLE_RUN_STATUSES =" in state_machine
     assert "RELEASED_LEASE_STATES =" in state_machine
@@ -182,6 +184,16 @@ def test_run_execution_state_machine_owns_core_status_decisions() -> None:
     assert "RETRYABLE_RUN_STATUSES =" not in execution_retry_storage
     assert "def _terminal_job_state_for_attempt_state(" not in run_execution_storage
     assert "def _attempt_state_for_run_status(" not in run_worker
+    assert "RunExecutionStateMachine.fence_attempt(" in run_execution_storage
+    assert "RunExecutionStateMachine.fence_attempt(" in reconciler_actions
+    assert '"expired" if reason == "lease_expired" else "fenced"' not in run_execution_storage
+    assert '"expired" if reason == "lease_expired" else "fenced"' not in reconciler_actions
+    assert 'event_type="run_attempt_fenced"' not in run_execution_storage
+    assert 'event_type="run_attempt_fenced"' not in reconciler_actions
+    assert "Run attempt fenced" not in run_execution_storage
+    assert "Run attempt fenced" not in reconciler_actions
+    assert '("fenced", reason' not in run_execution_storage
+    assert '("fenced", reason' not in reconciler_actions
 
 
 def test_workflow_backfill_state_machine_owns_backfill_status_decisions() -> None:

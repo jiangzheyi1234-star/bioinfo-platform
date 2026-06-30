@@ -636,6 +636,7 @@ def _fence_attempt_record(
     occurred_at: str,
     run: sqlite3.Row,
 ) -> None:
+    fence_decision = RunExecutionStateMachine.fence_attempt(reason=reason)
     existing = connection.execute(
         "SELECT * FROM run_attempts WHERE attempt_id = ?",
         (attempt_id,),
@@ -648,22 +649,22 @@ def _fence_attempt_record(
         SET state = ?, fenced_reason = ?, finished_at = COALESCE(finished_at, ?), updated_at = ?
         WHERE attempt_id = ?
         """,
-        ("fenced", reason, occurred_at, occurred_at, attempt_id),
+        (fence_decision.attempt_state, fence_decision.reason, occurred_at, occurred_at, attempt_id),
     )
     connection.execute(
         "UPDATE run_leases SET state = ?, updated_at = ? WHERE attempt_id = ?",
-        ("expired" if reason == "lease_expired" else "fenced", occurred_at, attempt_id),
+        (fence_decision.lease_state, occurred_at, attempt_id),
     )
     release_resource_allocation(connection, attempt_id=attempt_id, released_at=occurred_at)
     append_run_event_v2(
         connection,
         run_id=str(existing["run_id"]),
-        event_type="run_attempt_fenced",
-        stage="fence",
+        event_type=fence_decision.event_type,
+        stage=fence_decision.stage,
         state_version=int(run["state_version"]),
-        message="Run attempt fenced.",
+        message=fence_decision.event_message,
         request_id=str(run["request_id"]),
-        payload={"attemptId": attempt_id, "leaseGeneration": int(generation), "reason": reason},
+        payload={"attemptId": attempt_id, "leaseGeneration": int(generation), "reason": fence_decision.reason},
         occurred_at=occurred_at,
     )
 

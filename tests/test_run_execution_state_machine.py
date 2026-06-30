@@ -142,6 +142,40 @@ def test_non_running_attempt_lease_closure_uses_completion_decision(
 
 
 @pytest.mark.parametrize(
+    ("reason", "stored_reason", "lease_state"),
+    [
+        ("lease_expired", "lease_expired", "expired"),
+        ("attempt_timeout", "attempt_timeout", "fenced"),
+        ("stale_generation", "stale_generation", "fenced"),
+        ("STALE_GENERATION", "stale_generation", "fenced"),
+    ],
+)
+def test_attempt_fence_decision_owns_attempt_lease_and_event_shape(
+    reason: str,
+    stored_reason: str,
+    lease_state: str,
+) -> None:
+    decision = RunExecutionStateMachine.fence_attempt(reason=reason)
+
+    assert decision.reason == stored_reason
+    assert decision.attempt_state == "fenced"
+    assert decision.lease_state == lease_state
+    assert decision.event_type == "run_attempt_fenced"
+    assert decision.stage == "fence"
+    assert decision.event_message == "Run attempt fenced."
+
+
+def test_attempt_fence_decision_rejects_missing_reason() -> None:
+    with pytest.raises(ValueError, match="FENCE_REASON_REQUIRED"):
+        RunExecutionStateMachine.fence_attempt(reason="")
+
+
+def test_attempt_fence_decision_rejects_unsupported_reason() -> None:
+    with pytest.raises(ValueError, match="FENCE_REASON_UNSUPPORTED: worker_lost"):
+        RunExecutionStateMachine.fence_attempt(reason="worker_lost")
+
+
+@pytest.mark.parametrize(
     ("run_status", "attempt_state"),
     [
         ("completed", "succeeded"),

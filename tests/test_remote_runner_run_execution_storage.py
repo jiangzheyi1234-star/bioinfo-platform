@@ -518,6 +518,60 @@ def test_old_heartbeat_and_completion_are_fenced_after_reclaim(tmp_path):
     assert run["status"] == "queued"
 
 
+def test_stale_generation_completion_fences_attempt_without_completion_event(tmp_path):
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_wrong_generation", execution={"retryPolicy": {"backoffSeconds": 0}})
+    claim = claim_next_run_job(cfg, worker_id="worker_wrong_generation", now="2099-06-07T10:00:00Z")
+    assert claim is not None
+
+    completion = complete_run_attempt(
+        cfg,
+        claim["attemptId"],
+        lease_generation=claim["leaseGeneration"] + 1,
+        state="succeeded",
+        exit_code=0,
+        now="2099-06-07T10:00:01Z",
+    )
+
+    assert completion == {"accepted": False, "reason": "stale_generation"}
+    with get_connection(cfg) as connection:
+        attempt = connection.execute(
+            "SELECT state, fenced_reason FROM run_attempts WHERE attempt_id = ?",
+            (claim["attemptId"],),
+        ).fetchone()
+        lease = connection.execute(
+            "SELECT state FROM run_leases WHERE run_id = ?",
+            ("run_wrong_generation",),
+        ).fetchone()
+        event = connection.execute(
+            """
+            SELECT event_type, stage, message, details_json
+            FROM run_events
+            WHERE run_id = ? AND event_type = 'run_attempt_fenced'
+            """,
+            ("run_wrong_generation",),
+        ).fetchone()
+        completion_events = connection.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM run_events
+            WHERE run_id = ? AND event_type = 'run_attempt_completed'
+            """,
+            ("run_wrong_generation",),
+        ).fetchone()
+    assert dict(attempt) == {"state": "fenced", "fenced_reason": "stale_generation"}
+    assert lease["state"] == "fenced"
+    assert event["event_type"] == "run_attempt_fenced"
+    assert event["stage"] == "fence"
+    assert event["message"] == "Run attempt fenced."
+    assert json.loads(event["details_json"])["payload"] == {
+        "attemptId": claim["attemptId"],
+        "leaseGeneration": claim["leaseGeneration"] + 1,
+        "reason": "stale_generation",
+    }
+    assert completion_events["count"] == 0
+
+
 def test_process_group_recording_is_fenced_by_current_generation(tmp_path, monkeypatch):
     cfg = make_configured_remote_runner(tmp_path)
     _create_run(cfg, "run_process_group", execution={"retryPolicy": {"backoffSeconds": 0}})

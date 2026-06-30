@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 
 from apps.remote_runner.reconciler import run_active_reconciler_once
@@ -103,6 +104,14 @@ def test_active_reconciler_fences_expired_lease_and_requeues_retryable_job(tmp_p
             "SELECT state, released_at FROM run_resource_allocations WHERE attempt_id = ?",
             (claim["attemptId"],),
         ).fetchone()
+        event = connection.execute(
+            """
+            SELECT event_type, stage, message, details_json
+            FROM run_events
+            WHERE run_id = ? AND event_type = 'run_attempt_fenced'
+            """,
+            ("run_retry",),
+        ).fetchone()
     assert attempt["state"] == "fenced"
     assert attempt["fenced_reason"] == "lease_expired"
     assert lease["state"] == "expired"
@@ -111,6 +120,17 @@ def test_active_reconciler_fences_expired_lease_and_requeues_retryable_job(tmp_p
     assert job["dead_lettered_at"] is None
     assert allocation["state"] == "released"
     assert allocation["released_at"] == "2099-06-07T10:00:11Z"
+    assert dict(event) == {
+        "event_type": "run_attempt_fenced",
+        "stage": "fence",
+        "message": "Run attempt fenced.",
+        "details_json": event["details_json"],
+    }
+    assert json.loads(event["details_json"])["payload"] == {
+        "attemptId": claim["attemptId"],
+        "leaseGeneration": claim["leaseGeneration"],
+        "reason": "lease_expired",
+    }
     assert collect_queue_metrics(cfg)["recovery"]["requeuedJobs"] == 1
     assert collect_queue_metrics(cfg)["recovery"]["controlPlaneRecoveries"] == 1
 
@@ -193,6 +213,14 @@ def test_active_reconciler_fences_attempt_after_start_to_close_timeout(tmp_path)
             (claim["attemptId"],),
         ).fetchone()
         lease = connection.execute("SELECT state FROM run_leases WHERE run_id = ?", ("run_attempt_timeout",)).fetchone()
+        fence_event = connection.execute(
+            """
+            SELECT event_type, stage, message, details_json
+            FROM run_events
+            WHERE run_id = ? AND event_type = ?
+            """,
+            ("run_attempt_timeout", "run_attempt_fenced"),
+        ).fetchone()
         recovery_event = connection.execute(
             "SELECT details_json FROM run_events WHERE run_id = ? AND event_type = ?",
             ("run_attempt_timeout", "run_control_plane_recovered"),
@@ -200,6 +228,17 @@ def test_active_reconciler_fences_attempt_after_start_to_close_timeout(tmp_path)
     assert attempt["state"] == "fenced"
     assert attempt["fenced_reason"] == "attempt_timeout"
     assert lease["state"] == "fenced"
+    assert dict(fence_event) == {
+        "event_type": "run_attempt_fenced",
+        "stage": "fence",
+        "message": "Run attempt fenced.",
+        "details_json": fence_event["details_json"],
+    }
+    assert json.loads(fence_event["details_json"])["payload"] == {
+        "attemptId": claim["attemptId"],
+        "leaseGeneration": claim["leaseGeneration"],
+        "reason": "attempt_timeout",
+    }
     assert "ATTEMPT_TIMEOUT" in recovery_event["details_json"]
 
 

@@ -7,6 +7,7 @@ TERMINAL_RUN_STATUSES = frozenset({"completed", "failed", "canceled", "cancelled
 RETRYABLE_RUN_STATUSES = frozenset({"failed", "canceled", "cancelled"})
 RELEASED_LEASE_STATES = frozenset({"expired", "fenced", "failed", "canceled", "cancelled"})
 PUBLISHED_ATTEMPT_TERMINAL_STATES = frozenset({"succeeded", "failed", "cancelled"})
+FENCE_ATTEMPT_REASONS = frozenset({"lease_expired", "attempt_timeout", "stale_generation"})
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,16 @@ class RunExecutionTransition:
 class RunAttemptCompletionDecision:
     attempt_state: str
     job_state: str
+    lease_state: str
+    event_type: str
+    stage: str
+    event_message: str
+
+
+@dataclass(frozen=True)
+class RunAttemptFenceDecision:
+    reason: str
+    attempt_state: str
     lease_state: str
     event_type: str
     stage: str
@@ -141,6 +152,20 @@ class RunExecutionStateMachine:
         if not normalized or normalized == "fenced":
             return "fenced"
         return RunExecutionStateMachine.complete_attempt(state=normalized).lease_state
+
+    @staticmethod
+    def fence_attempt(*, reason: str) -> RunAttemptFenceDecision:
+        normalized_reason = _normalize_required_text(reason, "FENCE_REASON_REQUIRED").lower()
+        if normalized_reason not in FENCE_ATTEMPT_REASONS:
+            raise ValueError(f"FENCE_REASON_UNSUPPORTED: {normalized_reason}")
+        return RunAttemptFenceDecision(
+            reason=normalized_reason,
+            attempt_state="fenced",
+            lease_state="expired" if normalized_reason == "lease_expired" else "fenced",
+            event_type="run_attempt_fenced",
+            stage="fence",
+            event_message="Run attempt fenced.",
+        )
 
     @staticmethod
     def attempt_state_for_run_status(status: str) -> str:
