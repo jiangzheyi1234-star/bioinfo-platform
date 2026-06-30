@@ -195,12 +195,12 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "downloadFirstRunHandoffManifest" in first_run_api
     assert "firstRunPilotHandoffMarkdown(card.pilotHandoff)" in first_run_markdown
     assert "FIRST_RUN_PILOT_HANDOFF_REQUIRED" in first_run_markdown
-    assert "const readyPackage = useMemo(() => packageExports.find(firstRunResultPackageReady), [packageExports])" in first_run_evidence_state
-    assert "const latestPackage = readyPackage || packageExports[0]" in first_run_evidence_state
+    assert "packageExports.find((item) => item.packageExportId === statusPackageExportId)" in first_run_evidence_state
+    assert "const latestPackage = readyPackage || (status ? statusPackageFallback : packageExports[0])" in first_run_evidence_state
     assert "const packageReady = status?.evidence?.resultPackage?.ready === true" in first_run_evidence_state
     assert "const validationEligible = firstRunEvidence.validationEligible" in first_run_page
-    assert "const validationEligible = validationReady && Boolean(workflowRevisionId)" in first_run_evidence_state
-    assert "const validationReady = status?.evidence?.validation?.ready === true" in first_run_evidence_state
+    assert "const validationEligible = validationReady" in first_run_evidence_state
+    assert 'const validationReady = status?.status === "ready" || status?.evidence?.validation?.ready === true' in first_run_evidence_state
     assert "runCompleted && packageReady" not in first_run_evidence_state
     assert "firstRunValidationCardPassed" not in first_run_evidence_state
     assert "firstRunValidationCardPassed" not in first_run_page
@@ -226,8 +226,8 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "## Evidence Bundle" in first_run_markdown
     assert "keep every required evidence bundle file together" in first_run_markdown.lower()
     assert "export async function finalizeFirstRun" in first_run_api
-    assert "const firstRunRunId = statusRun?.runId || run?.runId || \"\"" in first_run_evidence_state
-    assert "const runStatus = statusRun?.status || run?.status || \"\"" in first_run_evidence_state
+    assert "const firstRunRunId = status ? statusRun?.runId || \"\" : run?.runId || \"\"" in first_run_evidence_state
+    assert "const runStatus = status ? statusRun?.status || \"\" : run?.status || \"\"" in first_run_evidence_state
     assert "finalizeFirstRun(firstRunRunId" in first_run_evidence_state
     assert "finalizeFirstRun(run.runId" not in first_run_evidence_state
     assert "finalizeFirstRun(run.runId" not in first_run_page
@@ -355,7 +355,7 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "checksum verified" in first_run_sample_submit
     assert "first-run-sample-selection" in first_run_sample_submit
     assert "state.selectedWorkflow?.description" not in first_run_page
-    assert "fetchWorkflowResultPackageExports(resultId)" in first_run_evidence_state
+    assert "fetchWorkflowResultPackageExports(resultId, { serverId })" in first_run_evidence_state
     assert "fetchWorkflowResultPackageExports(resultId)" not in first_run_page
     assert "setRunHistoryError(workflowErrorMessage(err, \"读取运行历史失败\"))" in hook
     assert "state.runHistoryError" in first_run_page

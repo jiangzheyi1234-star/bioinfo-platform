@@ -381,6 +381,7 @@ export function WorkflowFirstRunPage() {
               latestPackage={latestPackage}
               loading={firstRunEvidence.packageLoading}
               resultId={resultId}
+              serverId={state.server?.serverId}
               onFinalize={() => void finalizeAndRefreshStatus()}
               onExport={() => void exportPackageAndRefreshStatus()}
               onRefresh={() => void firstRunEvidence.loadPackageExports()}

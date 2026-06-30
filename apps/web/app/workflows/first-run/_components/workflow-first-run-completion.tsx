@@ -49,11 +49,14 @@ export function FirstRunCompletionPanel({
 }) {
   if (!ready) return null;
 
-  const downloadHref =
-    latestPackage && firstRunResultPackageReady(latestPackage) ? workflowResultPackageDownloadHref(latestPackage) : "";
   const validationEvidence = firstRunStatus?.evidence?.validation;
   const resultPackageEvidence = firstRunStatus?.evidence?.resultPackage;
   const statusRun = firstRunStatus?.evidence?.run || firstRunStatus?.latestEligibleRun || null;
+  const packageServerId = firstRunStatus?.serverId || "";
+  const downloadHref =
+    latestPackage && firstRunResultPackageReady(latestPackage)
+      ? workflowResultPackageDownloadHref(latestPackage, { serverId: packageServerId })
+      : "";
   const effectiveRunId = firstRunStatus ? statusRun?.runId || "" : run?.runId || "";
   const effectiveResultId = firstRunStatus ? statusRun?.resultId || resultId : resultId;
   const effectiveWorkflowRevisionId = firstRunStatus

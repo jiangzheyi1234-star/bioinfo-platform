@@ -61,18 +61,41 @@ export function useFirstRunEvidence({
   const [nextScenarioPacksLoading, setNextScenarioPacksLoading] = useState(false);
   const [nextScenarioPacksError, setNextScenarioPacksError] = useState("");
 
-  const readyPackage = useMemo(() => packageExports.find(firstRunResultPackageReady), [packageExports]);
-  const latestPackage = readyPackage || packageExports[0];
   const statusRun = status?.evidence?.run || status?.latestEligibleRun || null;
-  const firstRunRunId = statusRun?.runId || run?.runId || "";
+  const statusPackageEvidence = status?.evidence?.resultPackage;
+  const statusPackageExportId = statusPackageEvidence?.packageExportId || "";
+  const readyPackage = useMemo(() => {
+    if (statusPackageExportId) {
+      return packageExports.find((item) => item.packageExportId === statusPackageExportId);
+    }
+    return packageExports.find(firstRunResultPackageReady);
+  }, [packageExports, statusPackageExportId]);
+  const statusPackageFallback = useMemo(() => {
+    if (statusPackageEvidence?.ready !== true || !statusPackageExportId || !resultId) return undefined;
+    return {
+      artifactPayloadMode: statusPackageEvidence.artifactPayloadMode,
+      download: {
+        href: `/api/v1/results/${encodeURIComponent(resultId)}/exports/${encodeURIComponent(statusPackageExportId)}/download`,
+      },
+      includeArtifacts: statusPackageEvidence.includeArtifacts,
+      lifecycleState: "active",
+      manifestSha256: statusPackageEvidence.manifestSha256,
+      packageBytesState: "available",
+      packageExportId: statusPackageExportId,
+      resultId,
+      sha256: statusPackageEvidence.sha256,
+    } satisfies WorkflowResultPackageExport;
+  }, [resultId, statusPackageEvidence, statusPackageExportId]);
+  const latestPackage = readyPackage || (status ? statusPackageFallback : packageExports[0]);
+  const firstRunRunId = status ? statusRun?.runId || "" : run?.runId || "";
   const workflowRevisionId = status
     ? statusRun?.workflowRevisionId || ""
     : workflowRevisionIdFor(run, runDetail, latestPackage);
-  const runStatus = statusRun?.status || run?.status || "";
+  const runStatus = status ? statusRun?.status || "" : run?.status || "";
   const runTerminal = runStatus === "completed" || runStatus === "failed" || runStatus === "error";
   const packageReady = status?.evidence?.resultPackage?.ready === true;
-  const validationReady = status?.evidence?.validation?.ready === true;
-  const validationEligible = validationReady && Boolean(workflowRevisionId);
+  const validationReady = status?.status === "ready" || status?.evidence?.validation?.ready === true;
+  const validationEligible = validationReady;
 
   const loadPackageExports = useCallback(async () => {
     if (!resultId || !runTerminal) {
@@ -83,13 +106,13 @@ export function useFirstRunEvidence({
     setPackageLoading(true);
     setPackageError("");
     try {
-      setPackageExports(await fetchWorkflowResultPackageExports(resultId));
+      setPackageExports(await fetchWorkflowResultPackageExports(resultId, { serverId }));
     } catch (err) {
       setPackageError(workflowErrorMessage(err, "结果包记录加载失败"));
     } finally {
       setPackageLoading(false);
     }
-  }, [resultId, runTerminal]);
+  }, [resultId, runTerminal, serverId]);
 
   useEffect(() => {
     void loadPackageExports();
@@ -145,7 +168,7 @@ export function useFirstRunEvidence({
     setExportingPackage(true);
     setPackageError("");
     try {
-      const exported = await exportWorkflowResultPackage(resultId, true);
+      const exported = await exportWorkflowResultPackage(resultId, true, { serverId });
       setPackageExports((current) => mergePackageExport(exported, current));
       await refreshRunDetail();
     } catch (err) {

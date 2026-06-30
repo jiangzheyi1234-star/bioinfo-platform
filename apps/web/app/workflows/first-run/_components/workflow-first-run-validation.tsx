@@ -35,6 +35,7 @@ export function ResultPackagePanel({
   onExport,
   onRefresh,
   resultId,
+  serverId,
 }: {
   disabledReason: string;
   error: string;
@@ -47,8 +48,9 @@ export function ResultPackagePanel({
   onExport: () => void;
   onRefresh: () => void;
   resultId: string;
+  serverId?: string;
 }) {
-  const downloadHref = latestPackage ? workflowResultPackageDownloadHref(latestPackage) : "";
+  const downloadHref = latestPackage ? workflowResultPackageDownloadHref(latestPackage, { serverId }) : "";
   return (
     <section id="result-package" className="scroll-mt-24 rounded-lg border border-slate-200 bg-white p-5">
       <div className="flex items-start justify-between gap-3">

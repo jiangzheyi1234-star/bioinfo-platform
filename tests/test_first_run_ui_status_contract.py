@@ -73,6 +73,7 @@ def test_first_run_validation_and_trust_summary_are_status_contract_driven() -> 
     assert "const statusRun = firstRunStatus?.evidence?.run || firstRunStatus?.latestEligibleRun || null" in first_run_completion
     assert 'const effectiveRunId = firstRunStatus ? statusRun?.runId || "" : run?.runId || ""' in first_run_completion
     assert "const effectiveResultId = firstRunStatus ? statusRun?.resultId || resultId : resultId" in first_run_completion
+    assert "workflowResultPackageDownloadHref(latestPackage, { serverId: packageServerId })" in first_run_completion
     assert "validationChecksPassed ?? checks.filter" not in first_run_validation
     assert not (FIRST_RUN_DOMAIN / "first-run-validation-state.ts").exists()
 
@@ -121,11 +122,36 @@ def test_first_run_submit_uses_status_sample_cache_without_local_upload_gate() -
 def test_first_run_evidence_actions_use_status_run_id_before_local_run() -> None:
     first_run_evidence_state = (FIRST_RUN_ROUTE / "_state" / "use-first-run-evidence.ts").read_text(encoding="utf-8")
 
-    assert 'const firstRunRunId = statusRun?.runId || run?.runId || ""' in first_run_evidence_state
-    assert 'const runStatus = statusRun?.status || run?.status || ""' in first_run_evidence_state
+    assert 'const firstRunRunId = status ? statusRun?.runId || "" : run?.runId || ""' in first_run_evidence_state
+    assert 'const runStatus = status ? statusRun?.status || "" : run?.status || ""' in first_run_evidence_state
+    assert "const validationEligible = validationReady" in first_run_evidence_state
     assert "fetchFirstRunValidationCard(firstRunRunId" in first_run_evidence_state
     assert "finalizeFirstRun(firstRunRunId" in first_run_evidence_state
     assert "runId: firstRunRunId" in first_run_evidence_state
     assert "if (!run?.runId" not in first_run_evidence_state
     assert "fetchFirstRunValidationCard(run.runId" not in first_run_evidence_state
     assert "finalizeFirstRun(run.runId" not in first_run_evidence_state
+    assert "validationReady && Boolean(workflowRevisionId)" not in first_run_evidence_state
+
+
+def test_first_run_result_package_uses_selected_server_boundary() -> None:
+    first_run_page = (FIRST_RUN_COMPONENTS / "workflow-first-run-page.tsx").read_text(encoding="utf-8")
+    first_run_evidence_state = (FIRST_RUN_ROUTE / "_state" / "use-first-run-evidence.ts").read_text(encoding="utf-8")
+    first_run_validation = (FIRST_RUN_COMPONENTS / "workflow-first-run-validation.tsx").read_text(encoding="utf-8")
+    first_run_completion = (FIRST_RUN_COMPONENTS / "workflow-first-run-completion.tsx").read_text(encoding="utf-8")
+    workflows_api = (ROOT / "apps" / "web" / "app" / "components" / "workflows-page-api.ts").read_text(encoding="utf-8")
+
+    assert "fetchWorkflowResultPackageExports(resultId, { serverId })" in first_run_evidence_state
+    assert "exportWorkflowResultPackage(resultId, true, { serverId })" in first_run_evidence_state
+    assert "packageExports.find((item) => item.packageExportId === statusPackageExportId)" in first_run_evidence_state
+    assert "packageBytesState: \"available\"" in first_run_evidence_state
+    assert "serverId={state.server?.serverId}" in first_run_page
+    assert "serverId?: string;" in first_run_validation
+    assert "workflowResultPackageDownloadHref(latestPackage, { serverId })" in first_run_validation
+    assert "workflowResultPackageDownloadHref(latestPackage, { serverId: packageServerId })" in first_run_completion
+    assert "options: { serverId?: string } = {}" in workflows_api
+    assert "...(options.serverId ? { serverId: options.serverId } : {})" in workflows_api
+    assert "`/api/v1/results/${encodeURIComponent(resultId)}/exports${refreshQuery(options)}`" in workflows_api
+    assert "serverId=${encodeURIComponent(serverId)}" in workflows_api
+    assert "fetchWorkflowResultPackageExports(resultId)" not in first_run_evidence_state
+    assert "exportWorkflowResultPackage(resultId, true)" not in first_run_evidence_state

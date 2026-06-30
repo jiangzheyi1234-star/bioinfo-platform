@@ -734,7 +734,8 @@ export async function fetchArtifactPreview(resultId: string, artifactId: string)
 
 export async function exportWorkflowResultPackage(
   resultId: string,
-  includeArtifacts: boolean
+  includeArtifacts: boolean,
+  options: { serverId?: string } = {}
 ): Promise<WorkflowResultPackageExport> {
   const response = await requestLocalApiJson<WorkflowResultPackageExportResponse>(
     "POST",
@@ -743,6 +744,7 @@ export async function exportWorkflowResultPackage(
       body: {
         actor: "workflow-ui",
         includeArtifacts,
+        ...(options.serverId ? { serverId: options.serverId } : {}),
       },
       cache: "no-store",
     }
@@ -750,10 +752,13 @@ export async function exportWorkflowResultPackage(
   return response.data;
 }
 
-export async function fetchWorkflowResultPackageExports(resultId: string): Promise<WorkflowResultPackageExport[]> {
+export async function fetchWorkflowResultPackageExports(
+  resultId: string,
+  options: { serverId?: string } = {}
+): Promise<WorkflowResultPackageExport[]> {
   const response = await requestLocalApiJson<WorkflowResultPackageExportListResponse>(
     "GET",
-    `/api/v1/results/${encodeURIComponent(resultId)}/exports`,
+    `/api/v1/results/${encodeURIComponent(resultId)}/exports${refreshQuery(options)}`,
     { cache: "no-store" }
   );
   return response.data.items || [];
@@ -778,7 +783,7 @@ export async function retireWorkflowResultPackage(
   return response.data;
 }
 
-export function workflowResultPackageDownloadHref(item: WorkflowResultPackageExport): string {
+export function workflowResultPackageDownloadHref(item: WorkflowResultPackageExport, options: { serverId?: string } = {}): string {
   if (!resultPackageCanDownload(item)) {
     return "";
   }
@@ -786,5 +791,7 @@ export function workflowResultPackageDownloadHref(item: WorkflowResultPackageExp
   if (!href.startsWith("/api/v1/") || href.includes("://") || href.startsWith("//")) {
     return "";
   }
-  return `${apiBase()}${href}`;
+  const serverId = String(options.serverId || "").trim();
+  const serverQuery = serverId ? `${href.includes("?") ? "&" : "?"}serverId=${encodeURIComponent(serverId)}` : "";
+  return `${apiBase()}${href}${serverQuery}`;
 }
