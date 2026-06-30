@@ -10,6 +10,7 @@ from core.contracts.remote_endpoints import (
     ARTIFACT_CACHE_PINS_READ,
     ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ,
     ARTIFACT_LIFECYCLE_USAGE_READ,
+    ARTIFACT_STORAGE_READINESS_READ,
     GOVERNANCE_AUDIT_EVENTS_READ,
     REMOTE_ENDPOINTS,
     RESULT_AUDIT_READ,
@@ -69,6 +70,7 @@ ARTIFACT_READ_MODEL_ENDPOINTS = (
     ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ,
     ARTIFACT_CACHE_ENTRIES_READ,
     ARTIFACT_CACHE_PINS_READ,
+    ARTIFACT_STORAGE_READINESS_READ,
 )
 TRIGGER_READ_MODEL_ENDPOINTS = (
     WORKFLOW_TRIGGER_LIST,
@@ -187,6 +189,10 @@ def test_run_read_model_endpoints_are_contract_rendered() -> None:
         {},
         query_values={"cacheEntryId": "ace/1", "state": "active", "limit": 10},
     ) == "/api/v1/artifacts/cache/pins?cacheEntryId=ace%2F1&state=active&limit=10"
+    assert render_remote_endpoint_path(
+        ARTIFACT_STORAGE_READINESS_READ,
+        {},
+    ) == "/api/v1/artifacts/storage/readiness"
     assert render_remote_endpoint_path(WORKFLOW_TRIGGER_LIST, {}) == "/api/v1/workflow-triggers"
     assert REMOTE_ENDPOINTS[WORKFLOW_TRIGGER_LIST].response_item_key is None
     assert render_remote_endpoint_path(
@@ -291,6 +297,13 @@ def test_remote_endpoint_contracts_fail_loudly_on_missing_path_param() -> None:
         raise AssertionError("artifact cache serverId must remain local-only")
 
     try:
+        render_remote_endpoint_path(ARTIFACT_STORAGE_READINESS_READ, {}, query_values={"smoke": "true"})
+    except RemoteEndpointContractError as exc:
+        assert exc.code == "REMOTE_ENDPOINT_QUERY_PARAM_UNKNOWN"
+    else:  # pragma: no cover - fail loudly keeps this branch unreachable.
+        raise AssertionError("artifact storage smoke must use the POST command endpoint")
+
+    try:
         render_remote_endpoint_path(WORKFLOW_TRIGGER_INBOX_READ, {"trigger_id": "wtr_1"}, query_values={"serverId": "srv_1"})
     except RemoteEndpointContractError as exc:
         assert exc.code == "REMOTE_ENDPOINT_QUERY_PARAM_UNKNOWN"
@@ -316,6 +329,11 @@ def test_remote_endpoint_caller_unwraps_data_and_records_path() -> None:
         path_values={},
         query_values={"workflowRevisionId": "wf_rev_1", "limit": 10},
     )
+    artifact_storage = call_remote_endpoint(
+        client,
+        ARTIFACT_STORAGE_READINESS_READ,
+        path_values={},
+    )
     inbox = call_remote_endpoint(
         client,
         WORKFLOW_TRIGGER_INBOX_READ,
@@ -335,6 +353,7 @@ def test_remote_endpoint_caller_unwraps_data_and_records_path() -> None:
     assert results == [{"path": "/api/v1/results"}]
     assert package_exports == {"path": "/api/v1/results/res_1/exports?lifecycleState=retired&limit=25"}
     assert cache_entries == {"path": "/api/v1/artifacts/cache/entries?workflowRevisionId=wf_rev_1&limit=10"}
+    assert artifact_storage == {"path": "/api/v1/artifacts/storage/readiness"}
     assert inbox == {"path": "/api/v1/workflow-triggers/wtr_1/inbox?state=dead_lettered&limit=50"}
     assert audit == {"path": "/api/v1/audit/events?subjectKind=run&subjectId=run_1&action=run.submit&limit=25"}
     assert secret == {"path": "/api/v1/secrets/provider-readiness"}
@@ -344,6 +363,7 @@ def test_remote_endpoint_caller_unwraps_data_and_records_path() -> None:
         ("GET", "/api/v1/results"),
         ("GET", "/api/v1/results/res_1/exports?lifecycleState=retired&limit=25"),
         ("GET", "/api/v1/artifacts/cache/entries?workflowRevisionId=wf_rev_1&limit=10"),
+        ("GET", "/api/v1/artifacts/storage/readiness"),
         ("GET", "/api/v1/workflow-triggers/wtr_1/inbox?state=dead_lettered&limit=50"),
         ("GET", "/api/v1/audit/events?subjectKind=run&subjectId=run_1&action=run.submit&limit=25"),
         ("GET", "/api/v1/secrets/provider-readiness"),
@@ -371,6 +391,9 @@ def test_remote_runner_proxy_generic_endpoint_call_uses_registry() -> None:
     )
     cache_pins = proxy.call_remote_endpoint(
         **_endpoint_kwargs(ARTIFACT_CACHE_PINS_READ, query_values={"cacheEntryId": "ace_1", "state": "active", "limit": 5})
+    )
+    artifact_storage = proxy.call_remote_endpoint(
+        **_endpoint_kwargs(ARTIFACT_STORAGE_READINESS_READ)
     )
     trigger_list = proxy.call_remote_endpoint(**_endpoint_kwargs(WORKFLOW_TRIGGER_LIST))
     trigger_events = proxy.call_remote_endpoint(**_trigger_kwargs(WORKFLOW_TRIGGER_EVENTS_READ, "wtr_1"))
@@ -402,6 +425,7 @@ def test_remote_runner_proxy_generic_endpoint_call_uses_registry() -> None:
     assert preview == {"path": "/api/v1/results/res_1/preview?artifact_id=art_1"}
     assert package_exports == {"path": "/api/v1/results/res_1/exports?lifecycleState=retired&limit=25"}
     assert cache_pins == {"path": "/api/v1/artifacts/cache/pins?cacheEntryId=ace_1&state=active&limit=5"}
+    assert artifact_storage == {"path": "/api/v1/artifacts/storage/readiness"}
     assert trigger_list == {"path": "/api/v1/workflow-triggers"}
     assert trigger_events == {"path": "/api/v1/workflow-triggers/wtr_1/events"}
     assert trigger_inbox == {"path": "/api/v1/workflow-triggers/wtr_1/inbox?state=submitted&limit=5"}
@@ -421,6 +445,7 @@ def test_remote_runner_proxy_generic_endpoint_call_uses_registry() -> None:
         ("GET", "/api/v1/results/res_1/preview?artifact_id=art_1"),
         ("GET", "/api/v1/results/res_1/exports?lifecycleState=retired&limit=25"),
         ("GET", "/api/v1/artifacts/cache/pins?cacheEntryId=ace_1&state=active&limit=5"),
+        ("GET", "/api/v1/artifacts/storage/readiness"),
         ("GET", "/api/v1/workflow-triggers"),
         ("GET", "/api/v1/workflow-triggers/wtr_1/events"),
         ("GET", "/api/v1/workflow-triggers/wtr_1/inbox?state=submitted&limit=5"),
@@ -519,6 +544,13 @@ def test_execution_manager_calls_generic_remote_endpoint_for_run_read_models() -
             "queryValues": {"cacheEntryId": "ace_1", "state": "active", "limit": 5},
         }
     }
+    assert manager.get_artifact_storage_readiness(server_id="srv_artifact") == {
+        "data": {
+            "endpointId": ARTIFACT_STORAGE_READINESS_READ,
+            "pathValues": {},
+            "queryValues": {},
+        }
+    }
     assert manager.list_workflow_triggers() == {
         "data": {"endpointId": WORKFLOW_TRIGGER_LIST, "pathValues": {}, "queryValues": {}}
     }
@@ -587,6 +619,7 @@ def test_execution_manager_calls_generic_remote_endpoint_for_run_read_models() -
         (ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ, {}, {"limit": 5}),
         (ARTIFACT_CACHE_ENTRIES_READ, {}, {"workflowRevisionId": "wf_rev_1", "limit": 10}),
         (ARTIFACT_CACHE_PINS_READ, {}, {"cacheEntryId": "ace_1", "state": "active", "limit": 5}),
+        (ARTIFACT_STORAGE_READINESS_READ, {}, {}),
         (WORKFLOW_TRIGGER_LIST, {}, {}),
         (WORKFLOW_TRIGGER_EVENTS_READ, {"trigger_id": "wtr_1"}, {}),
         (WORKFLOW_TRIGGER_READINESS_OBSERVATION_READ, {"trigger_id": "wtr_1"}, {}),
@@ -618,6 +651,10 @@ def test_remote_runner_http_client_does_not_keep_migrated_semantic_methods() -> 
     assert not hasattr(RemoteRunnerHttpClient, "list_artifact_lifecycle_controller_ticks")
     assert not hasattr(RemoteRunnerHttpClient, "list_artifact_cache_entries")
     assert not hasattr(RemoteRunnerHttpClient, "list_artifact_cache_pins")
+    assert not hasattr(RemoteRunnerHttpClient, "get_artifact_storage_readiness")
+    assert not hasattr(RemoteRunnerHttpClient, "run_artifact_storage_readiness_smoke")
+    assert not hasattr(RemoteRunnerProxyMixin, "get_artifact_storage_readiness")
+    assert not hasattr(RemoteRunnerProxyMixin, "run_artifact_storage_readiness_smoke")
     assert not hasattr(RemoteRunnerHttpClient, "list_workflow_triggers")
     assert not hasattr(RemoteRunnerHttpClient, "list_workflow_trigger_events")
     assert not hasattr(RemoteRunnerHttpClient, "get_workflow_trigger_readiness_observation")

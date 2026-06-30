@@ -515,6 +515,30 @@ async def get_artifact_lifecycle_usage_from_request(
     )
 
 
+async def get_artifact_storage_readiness_from_request(
+    *,
+    server_id: str | None = None,
+) -> dict[str, Any]:
+    return await run_runtime_payload(
+        lambda: runtime_service().get_artifact_storage_readiness(
+            server_id=server_id,
+        ),
+        wrapper="raw",
+    )
+
+
+async def run_artifact_storage_readiness_smoke_from_request(
+    *,
+    server_id: str | None = None,
+) -> dict[str, Any]:
+    return await run_runtime_payload(
+        lambda: runtime_service().run_artifact_storage_readiness_smoke(
+            server_id=server_id,
+        ),
+        wrapper="raw",
+    )
+
+
 async def list_artifact_lifecycle_controller_ticks_from_request(
     *,
     server_id: str | None = None,

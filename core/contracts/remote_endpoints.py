@@ -90,6 +90,8 @@ RESULT_READ = "result.read"
 RESULT_PREVIEW_READ = "result.preview.read"
 RESULT_AUDIT_READ = "result.audit.read"
 ARTIFACT_LIFECYCLE_USAGE_READ = "artifact.lifecycle.usage.read"
+ARTIFACT_STORAGE_READINESS_READ = "artifact.storage_readiness.read"
+ARTIFACT_STORAGE_READINESS_SMOKE_RUN = "artifact.storage_readiness.smoke"
 ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ = "artifact.lifecycle.controller_ticks.read"
 ARTIFACT_LIFECYCLE_CONTROLLER_RUN_ONCE = "artifact.lifecycle.controller.run_once"
 ARTIFACT_LIFECYCLE_GC_PREVIEW = "artifact.gc.preview"
@@ -428,6 +430,27 @@ REMOTE_ENDPOINTS: dict[str, RemoteEndpoint] = {
         response_schema="h2ometa.artifact-lifecycle-usage.v1",
         cache_scope="artifact-lifecycle-read-model",
         query_params=("quotaBytes",),
+    ),
+    ARTIFACT_STORAGE_READINESS_READ: RemoteEndpoint(
+        endpoint_id=ARTIFACT_STORAGE_READINESS_READ,
+        method="GET",
+        path_template="/api/v1/artifacts/storage/readiness",
+        operation_id="getArtifactStorageReadiness",
+        governance_action="artifact.storage_readiness.read",
+        request_schema=None,
+        response_schema="artifact-storage-readiness.v1",
+        cache_scope="artifact-storage-readiness-read-model",
+    ),
+    ARTIFACT_STORAGE_READINESS_SMOKE_RUN: RemoteEndpoint(
+        endpoint_id=ARTIFACT_STORAGE_READINESS_SMOKE_RUN,
+        method="POST",
+        path_template="/api/v1/artifacts/storage/readiness/smoke",
+        operation_id="runArtifactStorageReadinessSmoke",
+        governance_action="artifact.storage_readiness.smoke",
+        request_schema=None,
+        response_schema="artifact-storage-readiness.v1",
+        cache_scope="artifact-storage-readiness-command",
+        invalidates=("artifact-storage-readiness-read-model",),
     ),
     ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ: RemoteEndpoint(
         endpoint_id=ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ,

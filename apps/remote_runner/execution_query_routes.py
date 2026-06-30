@@ -16,6 +16,8 @@ from core.contracts.remote_endpoints import (
     ARTIFACT_LIFECYCLE_GC_PREVIEW,
     ARTIFACT_LIFECYCLE_GC_RUN,
     ARTIFACT_LIFECYCLE_USAGE_READ,
+    ARTIFACT_STORAGE_READINESS_READ,
+    ARTIFACT_STORAGE_READINESS_SMOKE_RUN,
     REMOTE_ENDPOINTS,
     RESULT_AUDIT_READ,
     RESULT_LIST,
@@ -82,6 +84,8 @@ from .control_service import (
     cancel_run_from_request,
     download_result_package_from_request,
     get_artifact_lifecycle_usage_from_request,
+    artifact_storage_readiness_from_request,
+    artifact_storage_readiness_smoke_from_request,
     get_result_from_request,
     get_result_preview_from_request,
     get_result_audit_from_request,
@@ -461,6 +465,26 @@ async def get_artifact_lifecycle_usage_api(
     authorization: AuthorizationHeader = None,
 ) -> dict[str, Any]:
     return await get_artifact_lifecycle_usage_from_request(quotaBytes, authorization)
+
+
+@router.get(
+    "/api/v1/artifacts/storage/readiness",
+    operation_id=REMOTE_ENDPOINTS[ARTIFACT_STORAGE_READINESS_READ].operation_id,
+)
+async def get_artifact_storage_readiness_api(
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await artifact_storage_readiness_from_request(authorization)
+
+
+@router.post(
+    "/api/v1/artifacts/storage/readiness/smoke",
+    operation_id=REMOTE_ENDPOINTS[ARTIFACT_STORAGE_READINESS_SMOKE_RUN].operation_id,
+)
+async def run_artifact_storage_readiness_smoke_api(
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await artifact_storage_readiness_smoke_from_request(authorization)
 
 
 @router.get(

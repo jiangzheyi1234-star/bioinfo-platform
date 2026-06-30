@@ -16,6 +16,8 @@ from core.contracts.remote_endpoints import (
     ARTIFACT_LIFECYCLE_GC_PREVIEW,
     ARTIFACT_LIFECYCLE_GC_RUN,
     ARTIFACT_LIFECYCLE_USAGE_READ,
+    ARTIFACT_STORAGE_READINESS_READ,
+    ARTIFACT_STORAGE_READINESS_SMOKE_RUN,
     GOVERNANCE_AUDIT_EVENTS_READ,
     RUN_CREATE,
     RESULT_AUDIT_READ,
@@ -630,6 +632,27 @@ class ExecutionManager(BaseRuntimeManager):
             ARTIFACT_LIFECYCLE_USAGE_READ,
             preferred_server_id=server_id,
             query_values={"quotaBytes": quota_bytes},
+        )
+
+    def get_artifact_storage_readiness(
+        self,
+        *,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return self.read_existing_remote_endpoint(
+            ARTIFACT_STORAGE_READINESS_READ,
+            preferred_server_id=server_id,
+        )
+
+    def run_artifact_storage_readiness_smoke(
+        self,
+        *,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return self.read_remote_endpoint(
+            ARTIFACT_STORAGE_READINESS_SMOKE_RUN,
+            preferred_server_id=server_id,
+            require_existing_runner=True,
         )
 
     def list_artifact_lifecycle_controller_ticks(

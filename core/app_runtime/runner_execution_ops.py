@@ -370,6 +370,24 @@ class RunnerExecutionOperationsMixin:
             quota_bytes=quota_bytes,
         )
 
+    def get_artifact_storage_readiness(
+        self,
+        *,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return self.execution.get_artifact_storage_readiness(
+            server_id=server_id,
+        )
+
+    def run_artifact_storage_readiness_smoke(
+        self,
+        *,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return self.execution.run_artifact_storage_readiness_smoke(
+            server_id=server_id,
+        )
+
     def list_artifact_lifecycle_controller_ticks(
         self,
         *,

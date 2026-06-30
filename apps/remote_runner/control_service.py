@@ -41,6 +41,10 @@ from .artifact_lifecycle_service import (
     public_artifact_gc_run_result,
     run_artifact_gc,
 )
+from .artifact_storage_readiness import (
+    build_governed_artifact_storage_readiness,
+    run_governed_artifact_storage_readiness_smoke,
+)
 from .artifact_product_service import build_result_artifact_audit, export_result_package
 from .governance_audit import record_governance_audit_event
 from .health_service import (
@@ -137,6 +141,22 @@ async def health_workers_from_request(authorization: str | None) -> dict[str, An
     cfg = await _authorized_config_from_request(authorization)
     worker_health = await run_sync(build_run_worker_health, cfg)
     return data_response(worker_health)
+
+
+async def artifact_storage_readiness_from_request(
+    authorization: str | None,
+) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization, action="artifact.storage_readiness.read")
+    readiness = await run_sync(build_governed_artifact_storage_readiness, cfg)
+    return data_response(readiness)
+
+
+async def artifact_storage_readiness_smoke_from_request(
+    authorization: str | None,
+) -> dict[str, Any]:
+    cfg = await _authorized_config_from_request(authorization, action="artifact.storage_readiness.smoke")
+    readiness = await run_sync(run_governed_artifact_storage_readiness_smoke, cfg)
+    return data_response(readiness)
 
 
 async def execution_diagnostics_from_request(authorization: str | None) -> dict[str, Any]:
