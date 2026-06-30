@@ -81,3 +81,16 @@ def test_first_run_conductor_uses_status_contract_before_local_run_hints() -> No
     assert "hasStatus ? evidence?.sampleCache?.status === \"ready\" : input.sampleReady" in first_run_conductor
     assert "hasStatus ? Boolean(statusRun?.runId) : input.runSubmitted" in first_run_conductor
     assert "return continueActionFromStatus(status.nextAction)" in first_run_conductor
+
+
+def test_first_run_evidence_actions_use_status_run_id_before_local_run() -> None:
+    first_run_evidence_state = (FIRST_RUN_ROUTE / "_state" / "use-first-run-evidence.ts").read_text(encoding="utf-8")
+
+    assert 'const firstRunRunId = statusRun?.runId || run?.runId || ""' in first_run_evidence_state
+    assert 'const runStatus = statusRun?.status || run?.status || ""' in first_run_evidence_state
+    assert "fetchFirstRunValidationCard(firstRunRunId" in first_run_evidence_state
+    assert "finalizeFirstRun(firstRunRunId" in first_run_evidence_state
+    assert "runId: firstRunRunId" in first_run_evidence_state
+    assert "if (!run?.runId" not in first_run_evidence_state
+    assert "fetchFirstRunValidationCard(run.runId" not in first_run_evidence_state
+    assert "finalizeFirstRun(run.runId" not in first_run_evidence_state

@@ -64,10 +64,11 @@ export function useFirstRunEvidence({
   const readyPackage = useMemo(() => packageExports.find(firstRunResultPackageReady), [packageExports]);
   const latestPackage = readyPackage || packageExports[0];
   const statusRun = status?.evidence?.run || status?.latestEligibleRun || null;
+  const firstRunRunId = statusRun?.runId || run?.runId || "";
   const workflowRevisionId = status
     ? statusRun?.workflowRevisionId || ""
     : workflowRevisionIdFor(run, runDetail, latestPackage);
-  const runStatus = run?.status || statusRun?.status || "";
+  const runStatus = statusRun?.status || run?.status || "";
   const runTerminal = runStatus === "completed" || runStatus === "failed" || runStatus === "error";
   const packageReady = status?.evidence?.resultPackage?.ready === true;
   const validationReady = status?.evidence?.validation?.ready === true;
@@ -95,7 +96,7 @@ export function useFirstRunEvidence({
   }, [loadPackageExports]);
 
   const loadValidationCard = useCallback(async () => {
-    if (!run?.runId || !validationEligible) {
+    if (!firstRunRunId || !validationEligible) {
       setValidationCard(null);
       setValidationCardFetchError("");
       return;
@@ -103,14 +104,14 @@ export function useFirstRunEvidence({
     setValidationCardFetchLoading(true);
     setValidationCardFetchError("");
     try {
-      setValidationCard(await fetchFirstRunValidationCard(run.runId, { serverId }));
+      setValidationCard(await fetchFirstRunValidationCard(firstRunRunId, { serverId }));
     } catch (err) {
       setValidationCard(null);
       setValidationCardFetchError(workflowErrorMessage(err, "验证卡加载失败"));
     } finally {
       setValidationCardFetchLoading(false);
     }
-  }, [run?.runId, serverId, validationEligible]);
+  }, [firstRunRunId, serverId, validationEligible]);
 
   useEffect(() => {
     void loadValidationCard();
@@ -155,13 +156,13 @@ export function useFirstRunEvidence({
   }
 
   async function finalizeRun() {
-    if (!run?.runId || finalizingFirstRun) return;
+    if (!firstRunRunId || finalizingFirstRun) return;
     setFinalizingFirstRun(true);
     setPackageError("");
     setValidationCardError("");
     setFinalizationAction(null);
     try {
-      const finalized = await finalizeFirstRun(run.runId, {
+      const finalized = await finalizeFirstRun(firstRunRunId, {
         actor: "first-run-ui",
         serverId,
       });
@@ -185,14 +186,14 @@ export function useFirstRunEvidence({
   }
 
   async function downloadValidationCard() {
-    if (!run?.runId || validationCardLoading) return;
+    if (!firstRunRunId || validationCardLoading) return;
     setValidationCardLoading(true);
     setValidationCardError("");
     try {
       await downloadFirstRunValidationCard({
         card: validationCard,
         resultId,
-        runId: run.runId,
+        runId: firstRunRunId,
         serverId,
       });
     } catch (err) {
@@ -203,14 +204,14 @@ export function useFirstRunEvidence({
   }
 
   async function downloadValidationCardMarkdown() {
-    if (!run?.runId || validationCardLoading) return;
+    if (!firstRunRunId || validationCardLoading) return;
     setValidationCardLoading(true);
     setValidationCardError("");
     try {
       await downloadFirstRunValidationCardMarkdown({
         card: validationCard,
         resultId,
-        runId: run.runId,
+        runId: firstRunRunId,
         serverId,
       });
     } catch (err) {
@@ -221,14 +222,14 @@ export function useFirstRunEvidence({
   }
 
   async function downloadHandoffManifest() {
-    if (!run?.runId || validationCardLoading) return;
+    if (!firstRunRunId || validationCardLoading) return;
     setValidationCardLoading(true);
     setValidationCardError("");
     try {
       await downloadFirstRunHandoffManifest({
         card: validationCard,
         resultId,
-        runId: run.runId,
+        runId: firstRunRunId,
         serverId,
       });
     } catch (err) {

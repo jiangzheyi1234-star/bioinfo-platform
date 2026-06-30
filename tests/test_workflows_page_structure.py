@@ -226,7 +226,10 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "## Evidence Bundle" in first_run_markdown
     assert "keep every required evidence bundle file together" in first_run_markdown.lower()
     assert "export async function finalizeFirstRun" in first_run_api
-    assert "finalizeFirstRun(run.runId" in first_run_evidence_state
+    assert "const firstRunRunId = statusRun?.runId || run?.runId || \"\"" in first_run_evidence_state
+    assert "const runStatus = statusRun?.status || run?.status || \"\"" in first_run_evidence_state
+    assert "finalizeFirstRun(firstRunRunId" in first_run_evidence_state
+    assert "finalizeFirstRun(run.runId" not in first_run_evidence_state
     assert "finalizeFirstRun(run.runId" not in first_run_page
     assert 'actor: "first-run-ui"' in first_run_evidence_state
     assert "sampleData?: FirstRunSampleDataEvidence" in first_run_types
@@ -236,7 +239,8 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "export type FirstRunSoftwareEnvironment" in first_run_types
     assert "softwareEnvironment?: FirstRunSoftwareEnvironment" in first_run_types
     assert "expectedSha256?: string" in first_run_types
-    assert "fetchFirstRunValidationCard(run.runId" in first_run_evidence_state
+    assert "fetchFirstRunValidationCard(firstRunRunId" in first_run_evidence_state
+    assert "fetchFirstRunValidationCard(run.runId" not in first_run_evidence_state
     assert "const sampleData = card?.sampleData" in first_run_validation
     assert "const softwareEnvironment = card?.softwareEnvironment" in first_run_validation
     assert "reportInterpretation" in first_run_validation
