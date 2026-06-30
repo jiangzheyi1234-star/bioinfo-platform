@@ -58,6 +58,22 @@ async def build_first_run_status_from_request(
     if selected_run is None:
         selected_run = latest_eligible_raw
     if selected_run is None:
+        if sample_cache.get("status") == "ready":
+            return _status_response(
+                status="blocked",
+                stage="submit_run",
+                next_action=_action(
+                    "SUBMIT_RUN",
+                    "官方 Moving Pictures 16S 样例数据已就绪，提交首跑运行。",
+                    "提交运行",
+                    "#sample-data",
+                ),
+                sample_cache=sample_cache,
+                latest_eligible_run=None,
+                ignored_latest_run=ignored_latest_run,
+                run=None,
+                server_id=normalized_server_id,
+            )
         action = _action("PREPARE_SAMPLE_DATA", "准备并上传官方 Moving Pictures 16S 样例数据。", "准备示例数据", "#sample-data")
         if sample_cache.get("status") == "blocked":
             action["blockedCode"] = str((sample_cache.get("blockerCodes") or ["WORKFLOW_SAMPLE_DATA_BLOCKED"])[0])

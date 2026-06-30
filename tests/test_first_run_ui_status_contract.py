@@ -83,6 +83,33 @@ def test_first_run_conductor_uses_status_contract_before_local_run_hints() -> No
     assert "return continueActionFromStatus(status.nextAction)" in first_run_conductor
 
 
+def test_first_run_submit_uses_status_sample_cache_without_local_upload_gate() -> None:
+    first_run_page = (FIRST_RUN_COMPONENTS / "workflow-first-run-page.tsx").read_text(encoding="utf-8")
+    first_run_sample_submit = (FIRST_RUN_COMPONENTS / "workflow-first-run-sample-submit.tsx").read_text(encoding="utf-8")
+    workflows_state = (ROOT / "apps" / "web" / "app" / "components" / "use-workflows-page-state.ts").read_text(encoding="utf-8")
+
+    assert 'const statusSampleReady = firstRunStatusSnapshot?.evidence?.sampleCache?.status === "ready"' in first_run_page
+    assert "const sampleReady = firstRunStatusSnapshot ? statusSampleReady || localSampleReady : localSampleReady" in first_run_page
+    assert "const firstRunCanSubmit = Boolean(" in first_run_page
+    assert "serverConnected &&" in first_run_page
+    assert "canSubmit: firstRunCanSubmit" in first_run_page
+    assert "canSubmit={firstRunCanSubmit}" in first_run_page
+    assert "onSubmitRun: submitFirstRunAndRefreshStatus" in first_run_page
+    assert "const uploads = localSampleReady ? state.sampleUploads : await state.loadSampleData()" in first_run_page
+    assert "await state.submitRun({ sampleUploads: uploads })" in first_run_page
+    assert "sampleCacheEvidence={firstRunStatusSnapshot?.evidence?.sampleCache}" in first_run_page
+    assert "state.canSubmit && executionReady && selectedWorkflowReady && sampleReady" not in first_run_page
+    assert "sampleCacheEvidence?: FirstRunStatusEvidence[\"sampleCache\"]" in first_run_sample_submit
+    assert "const ready = localReady || cacheReady" in first_run_sample_submit
+    assert "cache verified" in first_run_sample_submit
+    assert "sampleDataStatusSummary(status, ready, loading, error, sampleCacheEvidence)" in first_run_sample_submit
+    assert "type SubmitRunOptions = {" in workflows_state
+    assert "async function submitRun(options: SubmitRunOptions = {})" in workflows_state
+    assert "const selectedSampleUploads = options.sampleUploads ?? sampleUploads" in workflows_state
+    assert "sampleUploads: selectedSampleUploads" in workflows_state
+    assert "return uploads" in workflows_state
+
+
 def test_first_run_evidence_actions_use_status_run_id_before_local_run() -> None:
     first_run_evidence_state = (FIRST_RUN_ROUTE / "_state" / "use-first-run-evidence.ts").read_text(encoding="utf-8")
 

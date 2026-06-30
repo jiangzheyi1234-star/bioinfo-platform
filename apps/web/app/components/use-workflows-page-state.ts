@@ -47,6 +47,10 @@ import {
   type WorkflowUpload,
 } from "./workflows-page-model";
 
+type SubmitRunOptions = {
+  sampleUploads?: WorkflowUpload[];
+};
+
 export function useWorkflowsPageState(initialWorkflowId = "") {
   const [catalog, setCatalog] = useState<WorkflowCatalogItem[]>(() => getCachedWorkflowCatalog() || []);
   const [tools, setTools] = useState<AddedTool[]>([]);
@@ -264,23 +268,30 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     () => buildWorkflowResourceBindings(selectedResourceDatabaseIds, selectedWorkflow, availableDatabases),
     [availableDatabases, selectedResourceDatabaseIds, selectedWorkflow]
   );
-  const pipelineInputCount = isGeneratedToolRun ? files.length : files.length + sampleUploads.length + artifactInputs.length;
-  const sampleUploadsVerified = sampleUploads.length === 0 || sampleUploads.every(sampleUploadIntegrityPassed);
-  const canSubmit = Boolean(
-    server?.serverId &&
-      server.ready === true &&
-      pipelineInputCount > 0 &&
-      sampleUploadsVerified &&
-      selectedWorkflow?.runnable &&
-      (isGeneratedToolRun || Boolean(selectedPipelineId)) &&
-      (!isGeneratedToolRun || (generatedBuilder.selectedTools.length > 0 && generatedBuilder.validation.errors.length === 0)) &&
-      (!isGeneratedToolRun || currentWorkflowDesignPlan?.valid === true) &&
-      (!isGeneratedToolRun || Boolean(currentWorkflowDesignCompileResult?.workflowRevisionId)) &&
-      (isGeneratedToolRun || missingRequiredResourceKeys.length === 0) &&
-      (!isGeneratedToolRun || !workflowDesignBusy) &&
-      !submitting &&
-      !sampleLoading
-  );
+  const canSubmit = pipelineRunCanSubmitWith(sampleUploads);
+
+  function pipelineRunCanSubmitWith(candidateSampleUploads: WorkflowUpload[]) {
+    const candidateInputCount = isGeneratedToolRun
+      ? files.length
+      : files.length + candidateSampleUploads.length + artifactInputs.length;
+    const candidateSampleUploadsVerified =
+      candidateSampleUploads.length === 0 || candidateSampleUploads.every(sampleUploadIntegrityPassed);
+    return Boolean(
+      server?.serverId &&
+        server.ready === true &&
+        candidateInputCount > 0 &&
+        candidateSampleUploadsVerified &&
+        selectedWorkflow?.runnable &&
+        (isGeneratedToolRun || Boolean(selectedPipelineId)) &&
+        (!isGeneratedToolRun || (generatedBuilder.selectedTools.length > 0 && generatedBuilder.validation.errors.length === 0)) &&
+        (!isGeneratedToolRun || currentWorkflowDesignPlan?.valid === true) &&
+        (!isGeneratedToolRun || Boolean(currentWorkflowDesignCompileResult?.workflowRevisionId)) &&
+        (isGeneratedToolRun || missingRequiredResourceKeys.length === 0) &&
+        (!isGeneratedToolRun || !workflowDesignBusy) &&
+        !submitting &&
+        !sampleLoading
+    );
+  }
 
   useEffect(() => {
     setSelectedResourceDatabaseIds((current) => {
@@ -456,11 +467,12 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     generatedBuilder.loadResourceBindings(resourceIdsFromWorkflowDesignDraft(record));
   }
 
-  async function submitRun() {
-    if (!server || !canSubmit) return;
+  async function submitRun(options: SubmitRunOptions = {}) {
+    const selectedSampleUploads = options.sampleUploads ?? sampleUploads;
+    if (!server || !pipelineRunCanSubmitWith(selectedSampleUploads)) return null;
     if (!isGeneratedToolRun && !selectedPipelineId) {
       setSubmitError("当前流程不是可运行 pipeline，不能提交。");
-      return;
+      return null;
     }
     setSubmitting(true);
     setSubmitError("");
@@ -476,7 +488,7 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
             pipelineId: selectedPipelineId,
             artifactInputs,
             files,
-            sampleUploads,
+            sampleUploads: selectedSampleUploads,
             params,
             resourceBindings: workflowResourceBindings,
         });
@@ -494,15 +506,17 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
       setSubmittedRun(run);
       setActiveRunId(run.runId);
       void loadRunHistory({ forceRefresh: true });
+      return run;
     } catch (err) {
       setSubmitError(workflowErrorMessage(err, "提交流程失败"));
+      return null;
     } finally {
       setSubmitting(false);
     }
   }
 
   async function loadSampleData() {
-    if (!selectedPipelineId || isGeneratedToolRun || sampleLoading) return;
+    if (!selectedPipelineId || isGeneratedToolRun || sampleLoading) return [];
     setSampleLoading(true);
     setSubmitError("");
     try {
@@ -514,8 +528,10 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
       setSampleUploads(uploads);
       setFiles([]);
       clearArtifactInputs();
+      return uploads;
     } catch (err) {
       setSubmitError(workflowErrorMessage(err, "准备示例数据失败"));
+      return [];
     } finally {
       setSampleLoading(false);
     }

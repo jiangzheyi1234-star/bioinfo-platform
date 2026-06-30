@@ -75,7 +75,20 @@ export function WorkflowFirstRunPage() {
   const serverConnected = Boolean(state.server?.connected);
   const executionReady = executionDiagnostics?.readiness?.ok === true;
   const serverReady = Boolean(state.server?.ready) && executionReady;
-  const sampleReady = sampleUploadsReady(state.sampleUploads);
+  const localSampleReady = sampleUploadsReady(state.sampleUploads);
+  const statusSampleReady = firstRunStatusSnapshot?.evidence?.sampleCache?.status === "ready";
+  const sampleReady = firstRunStatusSnapshot ? statusSampleReady || localSampleReady : localSampleReady;
+  const firstRunCanSubmit = Boolean(
+    state.server?.serverId &&
+      state.server?.ready === true &&
+      serverConnected &&
+      executionReady &&
+      selectedWorkflowReady &&
+      sampleReady &&
+      state.missingRequiredResourceKeys.length === 0 &&
+      !state.submitting &&
+      !state.sampleLoading
+  );
   const runSubmitted = Boolean(run?.runId || statusRun?.runId);
   const firstRunEvidence = useFirstRunEvidence({
     refreshRunDetail: state.refreshRunDetail,
@@ -100,7 +113,7 @@ export function WorkflowFirstRunPage() {
       firstRunEvidence.finalizingFirstRun ||
       firstRunEvidence.validationCardFetchLoading,
     input: {
-      canSubmit: state.canSubmit && executionReady && selectedWorkflowReady && sampleReady,
+      canSubmit: firstRunCanSubmit,
       firstRunStatus: firstRunStatusSnapshot || null,
       runSubmitted,
       sampleReady,
@@ -123,10 +136,7 @@ export function WorkflowFirstRunPage() {
       await loadExecutionDiagnostics();
       await firstRunStatus.refreshStatus({ forceRefresh: true });
     },
-    onSubmitRun: async () => {
-      await state.submitRun();
-      await firstRunStatus.refreshStatus({ forceRefresh: true });
-    },
+    onSubmitRun: submitFirstRunAndRefreshStatus,
   });
 
   const steps = useMemo(
@@ -216,8 +226,13 @@ export function WorkflowFirstRunPage() {
     await firstRunStatus.refreshStatus({ forceRefresh: true });
   }
 
-  async function submitRunAndRefreshStatus() {
-    await state.submitRun();
+  async function submitFirstRunAndRefreshStatus() {
+    const uploads = localSampleReady ? state.sampleUploads : await state.loadSampleData();
+    if (!sampleUploadsReady(uploads)) {
+      await firstRunStatus.refreshStatus({ forceRefresh: true });
+      return;
+    }
+    await state.submitRun({ sampleUploads: uploads });
     await firstRunStatus.refreshStatus({ forceRefresh: true });
   }
 
@@ -327,9 +342,10 @@ export function WorkflowFirstRunPage() {
               }}
             />
             <SampleAndSubmitPanel
-              canSubmit={state.canSubmit && executionReady && selectedWorkflowReady && sampleReady}
+              canSubmit={firstRunCanSubmit}
               loading={state.loading}
               pipelineReady={selectedWorkflowReady}
+              sampleCacheEvidence={firstRunStatusSnapshot?.evidence?.sampleCache}
               sampleLoading={state.sampleLoading}
               sampleUploads={state.sampleUploads}
               submitError={state.submitError}
@@ -337,7 +353,7 @@ export function WorkflowFirstRunPage() {
               workflow={movingPicturesWorkflow}
               workflowLoading={state.loading}
               onPrepareSample={() => void prepareSampleDataAndRefreshStatus()}
-              onSubmit={() => void submitRunAndRefreshStatus()}
+              onSubmit={() => void submitFirstRunAndRefreshStatus()}
             />
             <RunReportPanel
               artifacts={artifacts}

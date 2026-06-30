@@ -80,6 +80,33 @@ def test_first_run_status_blocks_until_official_sample_run_exists(monkeypatch) -
     assert result["evidence"]["sampleCache"]["status"] == "source_required"
 
 
+def test_first_run_status_guides_submit_when_sample_cache_ready_without_eligible_run(monkeypatch) -> None:
+    async def fail_validation_card(*_args, **_kwargs):
+        raise AssertionError("status must not build a validation card before a first-run submission exists")
+
+    _patch_status_sources(monkeypatch, runs=[], sample_status="ready")
+    monkeypatch.setattr(
+        "apps.api.workflow_first_run_status_service.build_first_run_validation_card_from_request",
+        fail_validation_card,
+    )
+
+    result = asyncio.run(build_first_run_status_from_request(server_id="srv_first"))["data"]
+
+    assert result["status"] == "blocked"
+    assert result["stage"] == "submit_run"
+    assert result["nextAction"] == {
+        "code": "SUBMIT_RUN",
+        "detail": "官方 Moving Pictures 16S 样例数据已就绪，提交首跑运行。",
+        "label": "提交运行",
+        "target": "#sample-data",
+    }
+    assert result["latestEligibleRun"] is None
+    assert result["ignoredLatestRun"] is None
+    assert result["evidence"]["sampleCache"]["status"] == "ready"
+    assert result["evidence"]["sampleCache"]["verifiedCacheCount"] == 3
+    assert result["evidence"]["run"] is None
+
+
 def test_first_run_status_uses_validation_card_standard_for_report_readiness(monkeypatch) -> None:
     result_payload = _result()
     result_payload["artifacts"] = [

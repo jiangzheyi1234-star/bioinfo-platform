@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 
 import { formatBytes } from "../_domain/first-run-display";
 import { fetchWorkflowSampleDataStatus, type WorkflowSampleDataStatus } from "../_api/workflow-sample-data-api";
+import type { FirstRunStatusEvidence } from "../_domain/first-run-types";
 import type { WorkflowCatalogItem, WorkflowUpload } from "@/app/components/workflows-page-model";
 
 export const FIRST_RUN_EXPECTED_SAMPLE_ROLES = ["metadata", "barcodes", "sequences"] as const;
@@ -19,6 +20,7 @@ export function SampleAndSubmitPanel({
   onPrepareSample,
   onSubmit,
   pipelineReady,
+  sampleCacheEvidence,
   sampleLoading,
   sampleUploads,
   submitError,
@@ -31,6 +33,7 @@ export function SampleAndSubmitPanel({
   onPrepareSample: () => void;
   onSubmit: () => void;
   pipelineReady: boolean;
+  sampleCacheEvidence?: FirstRunStatusEvidence["sampleCache"];
   sampleLoading: boolean;
   sampleUploads: WorkflowUpload[];
   submitError: string;
@@ -38,9 +41,11 @@ export function SampleAndSubmitPanel({
   workflow: WorkflowCatalogItem | null;
   workflowLoading: boolean;
 }) {
-  const ready = sampleUploadsReady(sampleUploads);
+  const localReady = sampleUploadsReady(sampleUploads);
+  const cacheReady = sampleCacheEvidence?.status === "ready";
+  const ready = localReady || cacheReady;
   const roleAudit = sampleUploadRoleAudit(sampleUploads);
-  const roleBlockers = sampleUploadRoleBlockers(roleAudit);
+  const roleBlockers = sampleUploads.length > 0 && !localReady ? sampleUploadRoleBlockers(roleAudit) : [];
   const selection = firstRunWorkflowSelection(workflow, workflowLoading);
   const sampleStatus = useWorkflowSampleDataStatus({
     enabled: pipelineReady && Boolean(workflow?.id) && !sampleLoading,
@@ -88,6 +93,7 @@ export function SampleAndSubmitPanel({
         error={sampleStatus.error}
         loading={sampleStatus.loading}
         ready={ready}
+        sampleCacheEvidence={sampleCacheEvidence}
         status={sampleStatus.status}
       />
 
@@ -124,6 +130,8 @@ export function SampleAndSubmitPanel({
                     <div className="mt-0.5 font-mono text-[10px] text-slate-400">{samplePrepProofLabel(upload)}</div>
                     <div className="mt-0.5 font-mono text-[10px] text-slate-400">{sampleIntegrityLabel(upload)}</div>
                   </div>
+                ) : cacheReady ? (
+                  <span className="shrink-0 text-emerald-700">cache verified</span>
                 ) : (
                   <span className="shrink-0 text-slate-400">待准备</span>
                 )}
@@ -152,7 +160,11 @@ export function SampleAndSubmitPanel({
             提交运行
           </Button>
           <div className="text-[11px] leading-4 text-slate-400">
-            {ready ? `${sampleUploads.length} 个输入已上传` : "使用官方三文件样例作为唯一输入来源"}
+            {localReady
+              ? `${sampleUploads.length} 个输入已上传`
+              : cacheReady
+                ? "官方样例 cache 已验证，提交时会上传到 runner"
+                : "使用官方三文件样例作为唯一输入来源"}
           </div>
         </div>
       </div>
@@ -210,14 +222,19 @@ function SampleDataStatusPanel({
   error,
   loading,
   ready,
+  sampleCacheEvidence,
   status,
 }: {
   error: string;
   loading: boolean;
   ready: boolean;
+  sampleCacheEvidence?: FirstRunStatusEvidence["sampleCache"];
   status: WorkflowSampleDataStatus | null;
 }) {
-  const summary = useMemo(() => sampleDataStatusSummary(status, ready, loading, error), [error, loading, ready, status]);
+  const summary = useMemo(
+    () => sampleDataStatusSummary(status, ready, loading, error, sampleCacheEvidence),
+    [error, loading, ready, sampleCacheEvidence, status]
+  );
   return (
     <div
       className={cn("mt-3 rounded-md border px-3 py-2 text-xs leading-5", sampleDataStatusToneClass(summary.tone))}
@@ -246,8 +263,40 @@ function sampleDataStatusSummary(
   status: WorkflowSampleDataStatus | null,
   ready: boolean,
   loading: boolean,
-  error: string
+  error: string,
+  sampleCacheEvidence?: FirstRunStatusEvidence["sampleCache"]
 ) {
+  if (sampleCacheEvidence) {
+    const countLabel = `${sampleCacheEvidence.verifiedCacheCount || 0}/${sampleCacheEvidence.itemCount || 0} cache`;
+    if (sampleCacheEvidence.status === "ready") {
+      return {
+        countLabel,
+        detail: "官方样例已在本机 cache 通过 checksum 校验；提交运行时会上传到 runner 并写入 prep proof。",
+        label: "样例数据 cache 已验证",
+        state: "ready",
+        tone: "success" as const,
+      };
+    }
+    if (sampleCacheEvidence.status === "blocked") {
+      const blockers = sampleCacheEvidence.blockerCodes?.length
+        ? sampleCacheEvidence.blockerCodes.join(" / ")
+        : "样例缓存未通过校验。";
+      return {
+        countLabel,
+        detail: blockers,
+        label: "样例数据 readiness 阻断",
+        state: "blocked",
+        tone: "danger" as const,
+      };
+    }
+    return {
+      countLabel,
+      detail: `${sampleCacheEvidence.missingCacheCount || 0} 个文件需要从官方来源下载并校验后上传。`,
+      label: "样例数据需要官方来源",
+      state: "source_required",
+      tone: "info" as const,
+    };
+  }
   if (loading) {
     return {
       countLabel: "checking",
