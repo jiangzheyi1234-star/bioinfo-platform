@@ -9,9 +9,19 @@ from apps.api.workflow_first_run_finalize_service import (
     finalize_first_run_from_request,
 )
 from apps.api.workflow_first_run_service import build_first_run_validation_card_from_request
+from apps.api.workflow_first_run_status_service import build_first_run_status_from_request
 
 
 router = APIRouter()
+
+
+@router.get("/api/v1/first-run/status")
+async def get_first_run_status(
+    serverId: str | None = None,
+    runId: str | None = None,
+    refresh: bool = False,
+) -> dict[str, Any]:
+    return await build_first_run_status_from_request(server_id=serverId, run_id=runId, refresh=refresh)
 
 
 @router.get("/api/v1/first-run/runs/{run_id}/validation-card")

@@ -78,26 +78,29 @@ def _blocked(code: str, detail: str, *, result_package: dict[str, Any] | None = 
     data: dict[str, Any] = {
         "schemaVersion": FIRST_RUN_FINALIZATION_SCHEMA_VERSION,
         "status": "blocked",
-        "nextAction": _next_action(code, detail),
+        "nextAction": first_run_next_action(code, detail),
     }
     if result_package:
         data["resultPackage"] = result_package
     return {"data": data}
 
 
-def _next_action(code: str, detail: str) -> dict[str, str]:
+def first_run_next_action(code: str, detail: str) -> dict[str, str]:
     if code == "FIRST_RUN_NOT_SUCCESSFUL":
         target = "/workflows/first-run#run-report"
         label = "等待首跑成功完成"
     elif code == "FIRST_RUN_WORKFLOW_REVISION_REQUIRED":
         target = "/workflows/first-run#runner-readiness"
         label = "升级 runner 并重新提交"
-    elif code == "FIRST_RUN_REPORT_PREVIEW_REQUIRED":
+    elif code == "FIRST_RUN_REPORT_PREVIEW_REQUIRED" or code == "FIRST_RUN_EXPECTED_OUTPUTS_REQUIRED":
         target = "/workflows/first-run#run-report"
         label = "检查报告预览"
     elif code == "FIRST_RUN_SAMPLE_INPUTS_REQUIRED" or code == "FIRST_RUN_SAMPLE_INPUTS_INTEGRITY_MISMATCH":
         target = "/workflows/first-run#sample-data"
         label = "重新准备官方样例数据"
+    elif code in _PACKAGE_RECOVERABLE_CODES:
+        target = "/workflows/first-run#result-package"
+        label = "导出完整结果包"
     elif code == "FIRST_RUN_PILOT_HANDOFF_REQUIRED" or code == "FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED":
         target = "/workflows/first-run#evidence-bundle"
         label = "重新生成首跑验证卡"
