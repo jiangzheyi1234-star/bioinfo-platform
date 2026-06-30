@@ -22,7 +22,7 @@ export type SSHStatus = {
   auto_connect_failed?: boolean;
   auto_connect_error?: string;
   runner?: {
-    state: "preparing" | "ready" | "repair_needed" | "failed" | string;
+    state: "preparing" | "ready" | "repair_needed" | "failed" | "stopped" | string;
     ready: boolean;
     message: string;
     reasonCode: string;
@@ -133,6 +133,59 @@ export type SshShellContextValue = {
 
 export function isSshChannelReady(status: SSHStatus | null | undefined): boolean {
   return Boolean(status?.connected && !status.connecting && !status.auto_connect_in_progress);
+}
+
+export const MANUAL_RUNNER_STOP_REASON = "RUNNER_STOPPED";
+
+export function isRunnerManuallyStopped(status: SSHStatus | null | undefined): boolean {
+  const runner = status?.runner;
+  return Boolean(
+    status?.connected &&
+      runner &&
+      !runner.ready &&
+      (runner.state === "stopped" || runner.reasonCode === MANUAL_RUNNER_STOP_REASON)
+  );
+}
+
+export function isRunnerRepairRequired(status: SSHStatus | null | undefined): boolean {
+  const runner = status?.runner;
+  return Boolean(
+    status?.connected &&
+      runner &&
+      !runner.ready &&
+      (runner.state === "repair_needed" || runner.state === "failed")
+  );
+}
+
+export function isRunnerPreparing(status: SSHStatus | null | undefined): boolean {
+  const runner = status?.runner;
+  return Boolean(
+    status?.connected &&
+      runner &&
+      !runner.ready &&
+      !isRunnerManuallyStopped(status) &&
+      !isRunnerRepairRequired(status)
+  );
+}
+
+export function runnerEnsureActionLabel(status: SSHStatus | null | undefined, busy: boolean): string {
+  if (isRunnerManuallyStopped(status)) {
+    return busy ? "启动中" : "启动远程服务";
+  }
+  if (isRunnerRepairRequired(status)) {
+    return busy ? "修复中" : "修复远程服务";
+  }
+  return busy ? "准备中" : "准备远程服务";
+}
+
+export function runnerSidebarSubcopy(status: SSHStatus | null | undefined): string {
+  if (isRunnerManuallyStopped(status)) {
+    return "远程服务已手动停止";
+  }
+  if (isRunnerRepairRequired(status)) {
+    return "远程服务需要修复";
+  }
+  return "远程服务准备中";
 }
 
 export const TERMINAL_XTERM_SCROLLBACK_ROWS = 4000;

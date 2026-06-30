@@ -16,7 +16,16 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
-import { normalizeFetchError, type SSHFormState, type SSHStatus } from "./ssh-shell-model";
+import {
+  isRunnerManuallyStopped,
+  isRunnerPreparing,
+  isRunnerRepairRequired,
+  normalizeFetchError,
+  runnerEnsureActionLabel,
+  runnerSidebarSubcopy,
+  type SSHFormState,
+  type SSHStatus,
+} from "./ssh-shell-model";
 import { ToolPrepareTaskBar } from "./tool-prepare-task-bar";
 
 function resolveRemoteStatus(status: SSHStatus | null) {
@@ -58,6 +67,15 @@ function resolveRemoteStatus(status: SSHStatus | null) {
       stages: ["SSH 已连接", "远程服务已就绪", "安全通道已打开", "健康检查通过"],
     };
   }
+  if (isRunnerManuallyStopped(status)) {
+    return {
+      label: "远程服务已停止",
+      message: status.runner.message || "远程服务已手动停止",
+      dotClass: "bg-slate-400",
+      toneClass: "text-slate-700",
+      stages: ["SSH 已连接", "远程服务已手动停止", "等待手动启动"],
+    };
+  }
   if (status.runner.state === "recovering") {
     return {
       label: "SSH 已连接",
@@ -67,7 +85,7 @@ function resolveRemoteStatus(status: SSHStatus | null) {
       stages: ["SSH 已连接", "远程服务正在恢复", "正在重建安全通道"],
     };
   }
-  const failed = status.runner.state === "repair_needed" || status.runner.state === "failed";
+  const failed = isRunnerRepairRequired(status);
   return {
     label: failed ? "远程服务需要修复" : "SSH 已连接",
     message: status.runner.message || "",
@@ -117,12 +135,7 @@ export function RemoteStatusBar({
   const connectedHost = formatConnectedHost(status);
   const runner = status?.runner;
   const connectedTone = Boolean(status?.connected && remote.toneClass === "text-blue-700");
-  const remotePreparing = Boolean(
-    status?.connected &&
-      !status.runner?.ready &&
-      status.runner?.state !== "repair_needed" &&
-      status.runner?.state !== "failed"
-  );
+  const remotePreparing = Boolean(status?.connected && (!status.runner || isRunnerPreparing(status)));
   const remoteBusy = connectBusy || ensureRunnerBusy || remotePreparing;
   const canEnsureRunner = Boolean(status?.connected && !status.runner?.ready);
   const canStopRunner = Boolean(status?.connected);
@@ -206,7 +219,7 @@ export function RemoteStatusBar({
                     className="h-6 px-2 text-[11px] text-slate-600"
                   >
                     <RefreshCw className={cn("mr-1 size-3", ensureRunnerBusy ? "animate-spin" : "")} />
-                    {ensureRunnerBusy ? "准备中" : "准备远程服务"}
+                    {runnerEnsureActionLabel(status, ensureRunnerBusy)}
                   </Button>
                 ) : null}
               </div>
@@ -306,18 +319,12 @@ export function SshSidebar({
   const workflowsActive = pathname.startsWith("/workflows");
   const resultsActive = pathname.startsWith("/workflows/results");
   const workflowCatalogActive = workflowsActive && !resultsActive;
-  const remotePreparing = Boolean(
-    status?.connected &&
-      !status.runner?.ready &&
-      status.runner?.state !== "repair_needed" &&
-      status.runner?.state !== "failed"
-  );
+  const remotePreparing = Boolean(status?.connected && (!status.runner || isRunnerPreparing(status)));
   const connecting = connectBusy || Boolean(status?.connecting || status?.auto_connect_in_progress);
   const canRepairRunner = Boolean(status?.connected && !status.runner?.ready);
   const runnerReady = Boolean(status?.connected && status.runner?.ready);
-  const runnerFailed = Boolean(
-    status?.connected && (status.runner?.state === "repair_needed" || status.runner?.state === "failed")
-  );
+  const runnerFailed = isRunnerRepairRequired(status);
+  const runnerStopped = isRunnerManuallyStopped(status);
   const connectionLabel = connecting
     ? "SSH 连接中"
     : runnerReady
@@ -326,7 +333,13 @@ export function SshSidebar({
         ? "SSH 已连接"
         : "连接";
   const connectionIconBusy = connecting || remotePreparing;
-  const connectionIconClass = runnerFailed ? "text-amber-600" : status?.connected ? "text-blue-600" : "text-zinc-500";
+  const connectionIconClass = runnerFailed
+    ? "text-amber-600"
+    : runnerStopped
+      ? "text-slate-500"
+      : status?.connected
+        ? "text-blue-600"
+        : "text-zinc-500";
   const connectionActionDisabled = Boolean(connecting || status?.connected);
 
   return (
@@ -366,7 +379,7 @@ export function SshSidebar({
                 <p className="truncate text-sm font-medium text-slate-900">{connectionLabel}</p>
                 {status?.connected && !runnerReady ? (
                   <p className={cn("truncate text-[11px]", runnerFailed ? "text-amber-700" : "text-slate-500")}>
-                    {runnerFailed ? "远程服务需要修复" : "远程服务准备中"}
+                    {runnerSidebarSubcopy(status)}
                   </p>
                 ) : null}
               </div>
@@ -391,7 +404,7 @@ export function SshSidebar({
                 <DropdownMenuContent align="end">
                   {canRepairRunner ? (
                     <DropdownMenuItem onSelect={onEnsureRunner}>
-                      {ensureRunnerBusy ? "修复中..." : "修复远程服务"}
+                      {runnerEnsureActionLabel(status, ensureRunnerBusy)}
                     </DropdownMenuItem>
                   ) : null}
                   <DropdownMenuItem destructive onSelect={onDisconnect}>
