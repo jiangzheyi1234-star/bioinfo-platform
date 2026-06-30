@@ -6,6 +6,10 @@ from typing import Any
 
 from fastapi import APIRouter, Query, Response
 
+from core.contracts.artifact_lifecycle_remote_endpoints import (
+    ARTIFACT_LIFECYCLE_POLICY_READ,
+    ARTIFACT_LIFECYCLE_POLICY_SET,
+)
 from core.contracts.remote_endpoints import (
     ARTIFACT_CACHE_ENTRIES_READ,
     ARTIFACT_CACHE_LOOKUP,
@@ -62,6 +66,7 @@ from apps.api.models import (
     ArtifactCachePinReleaseRequest,
     ArtifactCachePinRetainRequest,
     ArtifactLifecycleControllerRunOnceRequest,
+    ArtifactLifecyclePolicySetRequest,
     ArtifactGcPreviewRequest,
     ArtifactGcRunRequest,
     ResultPackageByteGcRunRequest,
@@ -89,6 +94,7 @@ from apps.api.execution_query_service import (
     apply_rule_output_invalidation_from_request,
     cancel_run_from_request,
     download_result_package_from_request,
+    get_artifact_lifecycle_policy_from_request,
     get_artifact_lifecycle_usage_from_request,
     get_artifact_storage_readiness_from_request,
     run_artifact_storage_readiness_smoke_from_request,
@@ -127,6 +133,7 @@ from apps.api.execution_query_service import (
     retry_run_rules_from_request,
     retry_run_from_request,
     run_artifact_gc_from_request,
+    set_artifact_lifecycle_policy_from_request,
 )
 
 
@@ -455,6 +462,26 @@ async def get_artifact_lifecycle_usage(
     quotaBytes: int | None = None,
 ) -> dict[str, Any]:
     return await get_artifact_lifecycle_usage_from_request(server_id=serverId, quota_bytes=quotaBytes)
+
+
+@router.get(
+    "/api/v1/artifacts/lifecycle/policy",
+    operation_id=REMOTE_ENDPOINTS[ARTIFACT_LIFECYCLE_POLICY_READ].operation_id,
+)
+async def get_artifact_lifecycle_policy(
+    serverId: str | None = None,
+) -> dict[str, Any]:
+    return await get_artifact_lifecycle_policy_from_request(server_id=serverId)
+
+
+@router.post(
+    "/api/v1/artifacts/lifecycle/policy",
+    operation_id=REMOTE_ENDPOINTS[ARTIFACT_LIFECYCLE_POLICY_SET].operation_id,
+)
+async def set_artifact_lifecycle_policy(
+    request: ArtifactLifecyclePolicySetRequest,
+) -> dict[str, Any]:
+    return await set_artifact_lifecycle_policy_from_request(request)
 
 
 @router.get(

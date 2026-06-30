@@ -75,19 +75,10 @@ export async function runArtifactLifecycleControllerOnce(
   request: WorkflowArtifactLifecycleControllerRunOnceRequest = {}
 ): Promise<WorkflowArtifactLifecycleControllerRunOnceResult> {
   const body: WorkflowArtifactLifecycleControllerRunOnceRequest & { confirmation: string } = {
-    retentionDays: Math.max(0, Math.floor(request.retentionDays ?? 30)),
-    eligibleRunStatuses: request.eligibleRunStatuses?.length
-      ? request.eligibleRunStatuses
-      : ["completed", "failed", "canceled", "cancelled"],
     confirmation: "run-artifact-lifecycle-controller-once",
     actor: request.actor?.trim() || "web-ui",
-    reason: request.reason?.trim() || "operator requested artifact lifecycle controller run-once",
   };
   if (request.serverId) body.serverId = request.serverId;
-  const quotaBytes = normalizeOptionalNonNegativeInteger(request.quotaBytes);
-  if (quotaBytes !== undefined) body.quotaBytes = quotaBytes;
-  const maxDeleteBytesPerTick = normalizeOptionalPositiveInteger(request.maxDeleteBytesPerTick);
-  if (maxDeleteBytesPerTick !== undefined) body.maxDeleteBytesPerTick = maxDeleteBytesPerTick;
 
   const response = await requestLocalApiJson<WorkflowArtifactLifecycleControllerRunOnceResponse>(
     "POST",
@@ -106,16 +97,9 @@ export async function previewArtifactGc(
   request: WorkflowArtifactGcPreviewRequest
 ): Promise<WorkflowArtifactGcPlan> {
   const body: WorkflowArtifactGcPreviewRequest = {
-    retentionDays: Math.max(0, Math.floor(request.retentionDays ?? 30)),
-    eligibleRunStatuses: request.eligibleRunStatuses?.length
-      ? request.eligibleRunStatuses
-      : ["completed", "failed", "canceled", "cancelled"],
-    reason: request.reason?.trim() || "web-ui-preview",
     actor: request.actor?.trim() || "web-ui",
   };
   if (request.serverId) body.serverId = request.serverId;
-  const maxDeleteBytes = normalizeOptionalPositiveInteger(request.maxDeleteBytes);
-  if (maxDeleteBytes !== undefined) body.maxDeleteBytes = maxDeleteBytes;
 
   const response = await requestLocalApiJson<{ data: WorkflowArtifactGcPlan }>(
     "POST",

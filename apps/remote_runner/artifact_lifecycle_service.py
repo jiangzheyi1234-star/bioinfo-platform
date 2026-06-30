@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -9,6 +8,7 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 from .artifact_cache_storage import active_artifact_cache_pin_reasons, artifact_cache_storage_ref_key
+from .artifact_gc_policy_resolver import GcPolicy, resolve_gc_policy
 from .artifact_io import artifact_local_path, delete_artifact_payload
 from .artifact_lifecycle_storage import (
     lifecycle_reference_reasons,
@@ -30,16 +30,6 @@ ARTIFACT_LIFECYCLE_USAGE_SCHEMA = "h2ometa.artifact-lifecycle-usage.v1"
 ARTIFACT_GC_PLAN_SCHEMA = "h2ometa.artifact-gc-plan.v1"
 ARTIFACT_GC_PUBLIC_PLAN_SCHEMA = "h2ometa.artifact-gc-public-plan.v1"
 ARTIFACT_GC_PUBLIC_RUN_SCHEMA = "h2ometa.artifact-gc-public-run.v1"
-DEFAULT_GC_REASON = "retention_expired"
-
-
-@dataclass(frozen=True)
-class GcPolicy:
-    retention_days: int
-    run_statuses: set[str]
-    max_delete_bytes: int | None
-    reason: str
-    actor: str
 
 
 def build_artifact_lifecycle_usage(
@@ -105,7 +95,7 @@ def build_governed_artifact_lifecycle_usage(
 
 
 def preview_artifact_gc(cfg: RemoteRunnerConfig, payload: dict[str, Any] | None = None) -> dict[str, Any]:
-    policy = _policy_from_payload(payload)
+    policy = resolve_gc_policy(cfg, payload)
     plan = _build_gc_plan(cfg, policy)
     record_governance_audit_event(
         cfg,
@@ -156,7 +146,7 @@ def run_artifact_gc(cfg: RemoteRunnerConfig, payload: dict[str, Any] | None = No
     body = dict(payload or {})
     confirmation = str(body.get("confirmation") or "").strip()
     expected_fingerprint = str(body.get("planFingerprint") or "").strip()
-    policy = _policy_from_payload(body)
+    policy = resolve_gc_policy(cfg, body)
     plan = _build_gc_plan(cfg, policy)
     if confirmation != ARTIFACT_GC_CONFIRMATION:
         record_governance_audit_event(
@@ -295,6 +285,10 @@ def _build_gc_plan(cfg: RemoteRunnerConfig, policy: GcPolicy) -> dict[str, Any]:
         "plannedAt": planned_at,
         "cutoffAt": _format_dt(cutoff),
         "policy": {
+            "policyId": policy.policy_id,
+            "policyVersion": policy.policy_version,
+            "policyFingerprint": policy.policy_fingerprint,
+            "persisted": policy.persisted,
             "retentionDays": policy.retention_days,
             "eligibleRunStatuses": sorted(policy.run_statuses),
             "maxDeleteBytes": policy.max_delete_bytes,
@@ -516,28 +510,6 @@ def _record_gc_evidence(
     return event
 
 
-def _policy_from_payload(payload: dict[str, Any] | None) -> GcPolicy:
-    body = dict(payload or {})
-    statuses = {
-        str(item or "").strip()
-        for item in body.get("eligibleRunStatuses", sorted(TERMINAL_RUN_STATUSES))
-        if str(item or "").strip()
-    }
-    invalid = statuses - TERMINAL_RUN_STATUSES
-    if invalid:
-        raise ValueError(f"ARTIFACT_GC_STATUS_UNSUPPORTED: {sorted(invalid)[0]}")
-    if not statuses:
-        raise ValueError("ARTIFACT_GC_STATUS_REQUIRED")
-    max_delete = body.get("maxDeleteBytes")
-    return GcPolicy(
-        retention_days=max(0, int(body.get("retentionDays", 30))),
-        run_statuses=statuses,
-        max_delete_bytes=int(max_delete) if max_delete is not None else None,
-        reason=str(body.get("reason") or DEFAULT_GC_REASON).strip() or DEFAULT_GC_REASON,
-        actor=str(body.get("actor") or "remote-runner-api").strip() or "remote-runner-api",
-    )
-
-
 def _unique_storage_groups(rows: Any) -> dict[str, dict[str, Any]]:
     groups: dict[str, dict[str, Any]] = {}
     for row in rows:
@@ -597,6 +569,10 @@ def _usage_audit_details(usage: dict[str, Any], *, quota_provided: bool) -> dict
 
 def _public_gc_policy(policy: dict[str, Any]) -> dict[str, Any]:
     return {
+        "policyId": str(policy.get("policyId") or ""),
+        "policyVersion": int(policy.get("policyVersion") or 0),
+        "policyFingerprint": str(policy.get("policyFingerprint") or ""),
+        "persisted": bool(policy.get("persisted")),
         "retentionDays": int(policy.get("retentionDays") or 0),
         "eligibleRunStatuses": [str(item) for item in policy.get("eligibleRunStatuses") or []],
         "maxDeleteBytes": policy.get("maxDeleteBytes"),
@@ -712,6 +688,10 @@ def _plan_id(planned_at: str, policy: GcPolicy, candidates: list[dict[str, Any]]
         {
             "plannedAt": planned_at,
             "policy": {
+                "policyId": policy.policy_id,
+                "policyVersion": policy.policy_version,
+                "policyFingerprint": policy.policy_fingerprint,
+                "persisted": policy.persisted,
                 "retentionDays": policy.retention_days,
                 "eligibleRunStatuses": sorted(policy.run_statuses),
                 "maxDeleteBytes": policy.max_delete_bytes,
@@ -727,6 +707,10 @@ def _plan_id(planned_at: str, policy: GcPolicy, candidates: list[dict[str, Any]]
 def _plan_fingerprint(policy: GcPolicy, candidates: list[dict[str, Any]], protected: list[dict[str, Any]]) -> str:
     payload = {
         "policy": {
+            "policyId": policy.policy_id,
+            "policyVersion": policy.policy_version,
+            "policyFingerprint": policy.policy_fingerprint,
+            "persisted": policy.persisted,
             "retentionDays": policy.retention_days,
             "eligibleRunStatuses": sorted(policy.run_statuses),
             "maxDeleteBytes": policy.max_delete_bytes,
@@ -765,6 +749,9 @@ def _audit_details(plan: dict[str, Any]) -> dict[str, Any]:
         "retentionDays": int(plan["policy"]["retentionDays"]),
         "eligibleRunStatuses": list(plan["policy"]["eligibleRunStatuses"]),
         "maxDeleteBytes": plan["policy"]["maxDeleteBytes"],
+        "policyVersion": int(plan["policy"].get("policyVersion") or 0),
+        "policyFingerprint": str(plan["policy"].get("policyFingerprint") or ""),
+        "policyPersisted": bool(plan["policy"].get("persisted")),
         "reason": str(plan["policy"]["reason"]),
         "planFingerprint": str(plan.get("planFingerprint") or ""),
     }

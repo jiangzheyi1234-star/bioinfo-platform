@@ -282,6 +282,16 @@ class ArtifactLifecycleControllerRunOnceRequest(RemoteRunnerRequest):
     reason: str | None = None
 
 
+class ArtifactLifecyclePolicySetRequest(RemoteRunnerRequest):
+    confirmation: Literal["set-artifact-lifecycle-policy"]
+    retentionDays: int = Field(ge=0)
+    eligibleRunStatuses: list[str] = Field(min_length=1)
+    quotaBytes: int | None = Field(default=None, ge=0)
+    maxDeleteBytesPerTick: int | None = Field(default=None, ge=1)
+    actor: str | None = None
+    reason: str = Field(min_length=1)
+
+
 class ArtifactCacheLookupRequest(RemoteRunnerRequest):
     workflowRevisionId: str = Field(min_length=1)
     artifactKey: str = Field(min_length=1)

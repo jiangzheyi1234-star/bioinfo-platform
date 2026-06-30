@@ -7,6 +7,7 @@ from apps.api.models import (
     ArtifactCachePinReleaseRequest,
     ArtifactCachePinRetainRequest,
     ArtifactLifecycleControllerRunOnceRequest,
+    ArtifactLifecyclePolicySetRequest,
     ArtifactGcPreviewRequest,
     ArtifactGcRunRequest,
     ResultPackageByteGcRunRequest,
@@ -25,6 +26,10 @@ from apps.api.models import (
     RunRuleOutputInvalidationApplyRequest,
     RunRetryRequest,
     RunRuleRetryRequest,
+)
+from core.contracts.artifact_lifecycle_remote_endpoints import (
+    ARTIFACT_LIFECYCLE_POLICY_READ,
+    ARTIFACT_LIFECYCLE_POLICY_SET,
 )
 from apps.api.response_cache import invalidate_response_cache
 from apps.api.route_utils import cached_runtime_payload, request_payload, run_runtime_payload, run_sync, runtime_service
@@ -515,6 +520,35 @@ async def get_artifact_lifecycle_usage_from_request(
     )
 
 
+async def get_artifact_lifecycle_policy_from_request(
+    *,
+    server_id: str | None = None,
+) -> dict[str, Any]:
+    return await run_runtime_payload(
+        lambda: runtime_service().execution.read_existing_remote_endpoint(
+            ARTIFACT_LIFECYCLE_POLICY_READ,
+            preferred_server_id=server_id,
+        ),
+        wrapper="raw",
+    )
+
+
+async def set_artifact_lifecycle_policy_from_request(
+    request: ArtifactLifecyclePolicySetRequest,
+) -> dict[str, Any]:
+    payload = request.model_dump(mode="json")
+    server_id = str(payload.pop("serverId", "") or "").strip() or None
+    return await run_runtime_payload(
+        lambda: runtime_service().execution.read_remote_endpoint(
+            ARTIFACT_LIFECYCLE_POLICY_SET,
+            preferred_server_id=server_id,
+            require_existing_runner=True,
+            payload=payload,
+        ),
+        wrapper="raw",
+    )
+
+
 async def get_artifact_storage_readiness_from_request(
     *,
     server_id: str | None = None,
@@ -558,7 +592,7 @@ async def run_artifact_lifecycle_controller_once_from_request(
     *,
     server_id: str | None = None,
 ) -> dict[str, Any]:
-    payload = request_payload(request)
+    payload = request.model_dump(mode="json", exclude_none=True, exclude_unset=True)
     server_id_hint = str(payload.pop("serverId", None) or server_id or "").strip() or None
     result = await run_runtime_payload(
         lambda: runtime_service().run_artifact_lifecycle_controller_once(
@@ -572,7 +606,7 @@ async def run_artifact_lifecycle_controller_once_from_request(
 
 
 async def preview_artifact_gc_from_request(request: ArtifactGcPreviewRequest) -> dict[str, Any]:
-    payload = request_payload(request)
+    payload = request.model_dump(mode="json", exclude_none=True, exclude_unset=True)
     server_id = str(payload.pop("serverId", "") or "").strip() or None
     return await run_runtime_payload(
         lambda: runtime_service().preview_artifact_gc(payload, server_id=server_id),
@@ -581,7 +615,7 @@ async def preview_artifact_gc_from_request(request: ArtifactGcPreviewRequest) ->
 
 
 async def run_artifact_gc_from_request(request: ArtifactGcRunRequest) -> dict[str, Any]:
-    payload = request_payload(request)
+    payload = request.model_dump(mode="json", exclude_none=True, exclude_unset=True)
     server_id = str(payload.pop("serverId", "") or "").strip() or None
     result = await run_runtime_payload(
         lambda: runtime_service().run_artifact_gc(payload, server_id=server_id),

@@ -774,7 +774,7 @@ async def preview_artifact_gc_from_request(
     authorization: str | None,
 ) -> dict[str, Any]:
     cfg = await _authorized_config_from_request(authorization, action="artifact.gc.preview")
-    plan = await run_sync(preview_artifact_gc, cfg, request.model_dump(mode="json", exclude_none=True))
+    plan = await run_sync(preview_artifact_gc, cfg, request.model_dump(mode="json", exclude_none=True, exclude_unset=True))
     return data_response(public_artifact_gc_plan(plan))
 
 
@@ -783,7 +783,7 @@ async def run_artifact_gc_from_request(
     authorization: str | None,
 ) -> dict[str, Any]:
     cfg = await _authorized_config_from_request(authorization, action="artifact.gc.run")
-    result = await run_sync(run_artifact_gc, cfg, request.model_dump(mode="json", exclude_none=True))
+    result = await run_sync(run_artifact_gc, cfg, request.model_dump(mode="json", exclude_none=True, exclude_unset=True))
     return data_response(public_artifact_gc_run_result(result))
 
 

@@ -5,6 +5,7 @@ from threading import RLock
 from types import SimpleNamespace
 
 from core.app_runtime.managers.execution import ExecutionManager
+from core.contracts.artifact_lifecycle_remote_endpoints import ARTIFACT_LIFECYCLE_POLICY_READ
 from core.contracts.remote_endpoints import (
     ARTIFACT_CACHE_ENTRIES_READ,
     ARTIFACT_CACHE_PINS_READ,
@@ -67,6 +68,7 @@ RESULT_READ_MODEL_ENDPOINTS = (
 )
 ARTIFACT_READ_MODEL_ENDPOINTS = (
     ARTIFACT_LIFECYCLE_USAGE_READ,
+    ARTIFACT_LIFECYCLE_POLICY_READ,
     ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ,
     ARTIFACT_CACHE_ENTRIES_READ,
     ARTIFACT_CACHE_PINS_READ,
@@ -174,6 +176,7 @@ def test_run_read_model_endpoints_are_contract_rendered() -> None:
         {},
         query_values={"quotaBytes": 4096},
     ) == "/api/v1/artifacts/lifecycle/usage?quotaBytes=4096"
+    assert render_remote_endpoint_path(ARTIFACT_LIFECYCLE_POLICY_READ, {}) == "/api/v1/artifacts/lifecycle/policy"
     assert render_remote_endpoint_path(
         ARTIFACT_LIFECYCLE_CONTROLLER_TICKS_READ,
         {},
@@ -329,6 +332,11 @@ def test_remote_endpoint_caller_unwraps_data_and_records_path() -> None:
         path_values={},
         query_values={"workflowRevisionId": "wf_rev_1", "limit": 10},
     )
+    lifecycle_policy = call_remote_endpoint(
+        client,
+        ARTIFACT_LIFECYCLE_POLICY_READ,
+        path_values={},
+    )
     artifact_storage = call_remote_endpoint(
         client,
         ARTIFACT_STORAGE_READINESS_READ,
@@ -353,6 +361,7 @@ def test_remote_endpoint_caller_unwraps_data_and_records_path() -> None:
     assert results == [{"path": "/api/v1/results"}]
     assert package_exports == {"path": "/api/v1/results/res_1/exports?lifecycleState=retired&limit=25"}
     assert cache_entries == {"path": "/api/v1/artifacts/cache/entries?workflowRevisionId=wf_rev_1&limit=10"}
+    assert lifecycle_policy == {"path": "/api/v1/artifacts/lifecycle/policy"}
     assert artifact_storage == {"path": "/api/v1/artifacts/storage/readiness"}
     assert inbox == {"path": "/api/v1/workflow-triggers/wtr_1/inbox?state=dead_lettered&limit=50"}
     assert audit == {"path": "/api/v1/audit/events?subjectKind=run&subjectId=run_1&action=run.submit&limit=25"}
@@ -363,6 +372,7 @@ def test_remote_endpoint_caller_unwraps_data_and_records_path() -> None:
         ("GET", "/api/v1/results"),
         ("GET", "/api/v1/results/res_1/exports?lifecycleState=retired&limit=25"),
         ("GET", "/api/v1/artifacts/cache/entries?workflowRevisionId=wf_rev_1&limit=10"),
+        ("GET", "/api/v1/artifacts/lifecycle/policy"),
         ("GET", "/api/v1/artifacts/storage/readiness"),
         ("GET", "/api/v1/workflow-triggers/wtr_1/inbox?state=dead_lettered&limit=50"),
         ("GET", "/api/v1/audit/events?subjectKind=run&subjectId=run_1&action=run.submit&limit=25"),
@@ -392,6 +402,7 @@ def test_remote_runner_proxy_generic_endpoint_call_uses_registry() -> None:
     cache_pins = proxy.call_remote_endpoint(
         **_endpoint_kwargs(ARTIFACT_CACHE_PINS_READ, query_values={"cacheEntryId": "ace_1", "state": "active", "limit": 5})
     )
+    lifecycle_policy = proxy.call_remote_endpoint(**_endpoint_kwargs(ARTIFACT_LIFECYCLE_POLICY_READ))
     artifact_storage = proxy.call_remote_endpoint(
         **_endpoint_kwargs(ARTIFACT_STORAGE_READINESS_READ)
     )
@@ -425,6 +436,7 @@ def test_remote_runner_proxy_generic_endpoint_call_uses_registry() -> None:
     assert preview == {"path": "/api/v1/results/res_1/preview?artifact_id=art_1"}
     assert package_exports == {"path": "/api/v1/results/res_1/exports?lifecycleState=retired&limit=25"}
     assert cache_pins == {"path": "/api/v1/artifacts/cache/pins?cacheEntryId=ace_1&state=active&limit=5"}
+    assert lifecycle_policy == {"path": "/api/v1/artifacts/lifecycle/policy"}
     assert artifact_storage == {"path": "/api/v1/artifacts/storage/readiness"}
     assert trigger_list == {"path": "/api/v1/workflow-triggers"}
     assert trigger_events == {"path": "/api/v1/workflow-triggers/wtr_1/events"}
@@ -445,6 +457,7 @@ def test_remote_runner_proxy_generic_endpoint_call_uses_registry() -> None:
         ("GET", "/api/v1/results/res_1/preview?artifact_id=art_1"),
         ("GET", "/api/v1/results/res_1/exports?lifecycleState=retired&limit=25"),
         ("GET", "/api/v1/artifacts/cache/pins?cacheEntryId=ace_1&state=active&limit=5"),
+        ("GET", "/api/v1/artifacts/lifecycle/policy"),
         ("GET", "/api/v1/artifacts/storage/readiness"),
         ("GET", "/api/v1/workflow-triggers"),
         ("GET", "/api/v1/workflow-triggers/wtr_1/events"),

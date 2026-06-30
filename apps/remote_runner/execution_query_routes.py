@@ -5,6 +5,10 @@ from typing import Any, Literal
 from fastapi import APIRouter, Query
 from fastapi.responses import FileResponse
 
+from core.contracts.artifact_lifecycle_remote_endpoints import (
+    ARTIFACT_LIFECYCLE_POLICY_READ,
+    ARTIFACT_LIFECYCLE_POLICY_SET,
+)
 from core.contracts.remote_endpoints import (
     ARTIFACT_CACHE_ENTRIES_READ,
     ARTIFACT_CACHE_LOOKUP,
@@ -61,6 +65,7 @@ from .api_models import (
     ArtifactCachePinReleaseRequest,
     ArtifactCachePinRetainRequest,
     ArtifactLifecycleControllerRunOnceRequest,
+    ArtifactLifecyclePolicySetRequest,
     ArtifactGcPreviewRequest,
     ArtifactGcRunRequest,
     ResultPackageByteGcRunRequest,
@@ -113,6 +118,10 @@ from .control_service import (
     run_artifact_gc_from_request,
 )
 from .artifact_lifecycle_controller_control_route_service import run_artifact_lifecycle_controller_once_request
+from .artifact_lifecycle_policy_route_service import (
+    get_artifact_lifecycle_policy_from_request,
+    set_artifact_lifecycle_policy_from_request,
+)
 from .artifact_lifecycle_controller_read_api import list_artifact_lifecycle_controller_ticks_from_request
 from .run_failure_locator_read_api import get_run_failure_locator_from_request
 from .run_reexecution_service import (
@@ -465,6 +474,27 @@ async def get_artifact_lifecycle_usage_api(
     authorization: AuthorizationHeader = None,
 ) -> dict[str, Any]:
     return await get_artifact_lifecycle_usage_from_request(quotaBytes, authorization)
+
+
+@router.get(
+    "/api/v1/artifacts/lifecycle/policy",
+    operation_id=REMOTE_ENDPOINTS[ARTIFACT_LIFECYCLE_POLICY_READ].operation_id,
+)
+async def get_artifact_lifecycle_policy_api(
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await get_artifact_lifecycle_policy_from_request(authorization)
+
+
+@router.post(
+    "/api/v1/artifacts/lifecycle/policy",
+    operation_id=REMOTE_ENDPOINTS[ARTIFACT_LIFECYCLE_POLICY_SET].operation_id,
+)
+async def set_artifact_lifecycle_policy_api(
+    request: ArtifactLifecyclePolicySetRequest,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await set_artifact_lifecycle_policy_from_request(request, authorization)
 
 
 @router.get(

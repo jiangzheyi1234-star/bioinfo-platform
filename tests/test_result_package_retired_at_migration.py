@@ -104,4 +104,4 @@ def test_runtime_schema_migrates_v15_result_package_retired_at(tmp_path: Path) -
 
     assert "retired_at" in columns
     assert row["retired_at"] is None
-    assert migration["name"] == sqlite_migrations.RESULT_PACKAGE_RETIRED_AT_MIGRATION_NAME
+    assert migration["name"] == sqlite_migrations.CURRENT_SCHEMA_MIGRATION_NAME

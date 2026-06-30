@@ -20,6 +20,10 @@ from apps.remote_runner.artifact_lifecycle_controller import (
     ARTIFACT_LIFECYCLE_CONTROLLER_EVENT_TYPE,
     evaluate_artifact_lifecycle_controller_tick,
 )
+from apps.remote_runner.artifact_lifecycle_policy import (
+    artifact_lifecycle_policy_fingerprint,
+    normalize_artifact_lifecycle_policy_payload,
+)
 from apps.remote_runner.artifact_product_service import build_result_artifact_audit, export_result_package
 from apps.remote_runner.evidence_storage import list_evidence_events
 from apps.remote_runner.governance_audit import list_governance_audit_events
@@ -70,7 +74,7 @@ def test_artifact_gc_preview_reports_usage_and_protection_reasons(tmp_path: Path
     _protect_run_as_production_evidence(cfg, "run_gc_production")
 
     usage = build_artifact_lifecycle_usage(cfg, quota_bytes=10)
-    plan = preview_artifact_gc(cfg, {"retentionDays": 30})
+    plan = preview_artifact_gc(cfg)
 
     assert usage["activeArtifactCount"] == 5
     assert usage["quota"]["overageBytes"] > 0
@@ -95,8 +99,10 @@ def test_artifact_lifecycle_controller_tick_previews_without_deleting_payloads(t
         cfg,
         {
             "retentionDays": 30,
+            "eligibleRunStatuses": ["completed", "failed", "canceled", "cancelled"],
             "quotaBytes": 0,
             "actor": "artifact-supervisor",
+            "reason": "controller-preview",
         },
     )
     fetched = fetch_run_results(cfg, "run_gc_controller")["artifacts"][0]
@@ -195,9 +201,11 @@ def test_artifact_lifecycle_controller_run_once_route_returns_safe_preview_only_
         json={
             "confirmation": "run-artifact-lifecycle-controller-once",
             "retentionDays": 30,
+            "eligibleRunStatuses": ["completed", "failed", "canceled", "cancelled"],
             "quotaBytes": 0,
             "maxDeleteBytesPerTick": 4096,
             "actor": "operator@example.test",
+            "reason": "controller-run-once",
         },
         headers={"Authorization": "Bearer rbac-token"},
     )
@@ -295,6 +303,7 @@ def test_artifact_lifecycle_controller_run_once_rejects_missing_plan_fingerprint
             "retentionDays": 30,
             "eligibleRunStatuses": ["completed"],
             "actor": "operator@example.test",
+            "reason": "controller-run-once",
         }
     )
 
@@ -321,8 +330,10 @@ def test_artifact_lifecycle_controller_quota_overage_does_not_broaden_gc_eligibi
         cfg,
         {
             "retentionDays": 30,
+            "eligibleRunStatuses": ["completed", "failed", "canceled", "cancelled"],
             "quotaBytes": 0,
             "actor": "artifact-supervisor",
+            "reason": "controller-preview",
         },
     )
 
@@ -353,9 +364,11 @@ def test_artifact_lifecycle_controller_summarizes_batch_safety_without_group_ids
         cfg,
         {
             "retentionDays": 30,
+            "eligibleRunStatuses": ["completed", "failed", "canceled", "cancelled"],
             "quotaBytes": 0,
             "maxDeleteBytesPerTick": first["sizeBytes"],
             "actor": "artifact-supervisor",
+            "reason": "controller-preview",
         },
     )
     evidence = list_evidence_events(
@@ -390,14 +403,13 @@ def test_artifact_gc_run_deletes_local_payload_and_records_tombstone_evidence_an
     artifact_path = Path(artifact["path"])
 
     with pytest.raises(ValueError, match="ARTIFACT_GC_CONFIRMATION_REQUIRED"):
-        run_artifact_gc(cfg, {"retentionDays": 30})
+        run_artifact_gc(cfg)
 
     result = run_artifact_gc(
         cfg,
         _confirmed_gc_payload(
             cfg,
             {
-                "retentionDays": 30,
                 "actor": "operator@example.test",
             },
         ),
@@ -430,13 +442,12 @@ def test_artifact_gc_run_requires_current_plan_fingerprint(tmp_path: Path) -> No
     cfg = make_configured_remote_runner(tmp_path)
     artifact = _persist_managed_artifact(cfg, "run_gc_fingerprint", status="completed")
     artifact_path = Path(artifact["path"])
-    preview = preview_artifact_gc(cfg, {"retentionDays": 30})
+    preview = preview_artifact_gc(cfg)
 
     with pytest.raises(ValueError, match="ARTIFACT_GC_PLAN_FINGERPRINT_REQUIRED"):
         run_artifact_gc(
             cfg,
             {
-                "retentionDays": 30,
                 "confirmation": ARTIFACT_GC_CONFIRMATION,
             },
         )
@@ -444,7 +455,6 @@ def test_artifact_gc_run_requires_current_plan_fingerprint(tmp_path: Path) -> No
         run_artifact_gc(
             cfg,
             {
-                "retentionDays": 30,
                 "confirmation": ARTIFACT_GC_CONFIRMATION,
                 "planFingerprint": "agcfp_" + "0" * 64,
             },
@@ -454,7 +464,6 @@ def test_artifact_gc_run_requires_current_plan_fingerprint(tmp_path: Path) -> No
     result = run_artifact_gc(
         cfg,
         {
-            "retentionDays": 30,
             "confirmation": ARTIFACT_GC_CONFIRMATION,
             "planFingerprint": preview["planFingerprint"],
         },
@@ -476,8 +485,8 @@ def test_artifact_gc_plan_fingerprint_is_stable_and_rejects_stale_candidates(tmp
     cfg = make_configured_remote_runner(tmp_path)
     first = _persist_managed_artifact(cfg, "run_gc_fingerprint_first", status="completed")
     first_path = Path(first["path"])
-    first_preview = preview_artifact_gc(cfg, {"retentionDays": 30})
-    second_preview = preview_artifact_gc(cfg, {"retentionDays": 30})
+    first_preview = preview_artifact_gc(cfg)
+    second_preview = preview_artifact_gc(cfg)
 
     assert first_preview["planId"]
     assert second_preview["planId"]
@@ -489,7 +498,6 @@ def test_artifact_gc_plan_fingerprint_is_stable_and_rejects_stale_candidates(tmp
         run_artifact_gc(
             cfg,
             {
-                "retentionDays": 30,
                 "confirmation": ARTIFACT_GC_CONFIRMATION,
                 "planFingerprint": first_preview["planFingerprint"],
             },
@@ -500,11 +508,10 @@ def test_artifact_gc_plan_fingerprint_is_stable_and_rejects_stale_candidates(tmp
     assert denial["reasonCode"] == "ARTIFACT_GC_PLAN_FINGERPRINT_MISMATCH"
     assert denial["details"]["deletedCount"] == 0
 
-    current_preview = preview_artifact_gc(cfg, {"retentionDays": 30})
+    current_preview = preview_artifact_gc(cfg)
     result = run_artifact_gc(
         cfg,
         {
-            "retentionDays": 30,
             "confirmation": ARTIFACT_GC_CONFIRMATION,
             "planFingerprint": current_preview["planFingerprint"],
         },
@@ -519,14 +526,14 @@ def test_artifact_gc_plan_fingerprint_rejects_policy_changes(tmp_path: Path) -> 
     cfg = make_configured_remote_runner(tmp_path)
     artifact = _persist_managed_artifact(cfg, "run_gc_fingerprint_policy", status="completed")
     artifact_path = Path(artifact["path"])
-    preview = preview_artifact_gc(cfg, {"retentionDays": 30, "reason": "operator-preview"})
+    preview_payload = _inline_policy_payload(retention_days=30, reason="operator-preview")
+    preview = preview_artifact_gc(cfg, preview_payload)
 
     with pytest.raises(ValueError, match="ARTIFACT_GC_PLAN_FINGERPRINT_MISMATCH"):
         run_artifact_gc(
             cfg,
             {
-                "retentionDays": 31,
-                "reason": "operator-preview",
+                **_inline_policy_payload(retention_days=31, reason="operator-preview"),
                 "confirmation": ARTIFACT_GC_CONFIRMATION,
                 "planFingerprint": preview["planFingerprint"],
             },
@@ -535,8 +542,7 @@ def test_artifact_gc_plan_fingerprint_rejects_policy_changes(tmp_path: Path) -> 
         run_artifact_gc(
             cfg,
             {
-                "retentionDays": 30,
-                "reason": "operator-run",
+                **_inline_policy_payload(retention_days=30, reason="operator-run"),
                 "confirmation": ARTIFACT_GC_CONFIRMATION,
                 "planFingerprint": preview["planFingerprint"],
             },
@@ -562,7 +568,7 @@ def test_artifact_gc_run_removes_managed_s3_object(tmp_path: Path, monkeypatch: 
 
     result = run_artifact_gc(
         cfg,
-        _confirmed_gc_payload(cfg, {"retentionDays": 30, "eligibleRunStatuses": ["failed"]}),
+        _confirmed_gc_payload(cfg, {}),
     )
     fetched = fetch_run_results(cfg, "run_gc_s3")["artifacts"][0]
 
@@ -598,7 +604,7 @@ def test_artifact_gc_run_removes_managed_s3_directory_package(tmp_path: Path, mo
 
     result = run_artifact_gc(
         cfg,
-        _confirmed_gc_payload(cfg, {"retentionDays": 30, "eligibleRunStatuses": ["failed"]}),
+        _confirmed_gc_payload(cfg, {}),
     )
     fetched = fetch_run_results(cfg, "run_gc_s3_dir")["artifacts"][0]
 
@@ -622,7 +628,7 @@ def test_artifact_gc_preview_protects_unmanaged_local_paths(tmp_path: Path) -> N
         artifact_key="report",
     )
 
-    plan = preview_artifact_gc(cfg, {"retentionDays": 30})
+    plan = preview_artifact_gc(cfg)
 
     assert plan["candidateCount"] == 0
     assert plan["protected"][0]["artifactIds"] == [artifact["artifactId"]]
@@ -651,6 +657,30 @@ def _confirmed_gc_payload(cfg, payload: dict[str, Any]) -> dict[str, Any]:
         **payload,
         "confirmation": ARTIFACT_GC_CONFIRMATION,
         "planFingerprint": plan["planFingerprint"],
+    }
+
+
+def _inline_policy_payload(
+    *,
+    retention_days: int = 30,
+    reason: str = "retention_expired",
+    eligible_run_statuses: list[str] | None = None,
+    max_delete_bytes: int | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "retentionDays": retention_days,
+        "eligibleRunStatuses": eligible_run_statuses or ["completed", "failed", "canceled", "cancelled"],
+        "reason": reason,
+    }
+    if max_delete_bytes is not None:
+        payload["maxDeleteBytesPerTick"] = max_delete_bytes
+        payload["maxDeleteBytes"] = max_delete_bytes
+    normalized = normalize_artifact_lifecycle_policy_payload(payload)
+    return {
+        **payload,
+        "policyId": "request",
+        "policyVersion": 0,
+        "policyFingerprint": artifact_lifecycle_policy_fingerprint(normalized),
     }
 
 

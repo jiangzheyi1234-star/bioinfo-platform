@@ -172,7 +172,7 @@ function ControllerTickList({
                 onClick={() => onPreviewPolicy(tick)}
               >
                 {busy ? <Loader2 strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Eye strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5" />}
-                按策略预览
+                按当前策略预览
               </Button>
             </div>
             {tick.retentionHolds?.reasons?.length ? (

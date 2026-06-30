@@ -4,6 +4,7 @@ REQUIRED_TABLES = {
     "artifact_blobs",
     "artifact_cache_entries",
     "artifact_cache_pins",
+    "artifact_lifecycle_policies",
     "artifact_materializations",
     "artifacts",
     "candidate_outputs",

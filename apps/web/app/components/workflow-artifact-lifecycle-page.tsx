@@ -40,10 +40,7 @@ import type {
 import { WorkflowPageHeader } from "./workflow-page-header";
 import { workflowErrorMessage } from "./workflows-page-model";
 
-const PREVIEW_REASON = "web-ui-preview";
-const CONTROLLER_PREVIEW_REASON = "web-ui-controller-preview";
 const GC_RUN_CONFIRMATION = "delete-artifact-payloads";
-const GC_DEFAULT_ELIGIBLE_STATUSES = ["completed", "failed", "canceled", "cancelled"];
 
 export function WorkflowArtifactLifecyclePage() {
   const [usage, setUsage] = useState<WorkflowArtifactLifecycleUsage | null>(null);
@@ -53,8 +50,6 @@ export function WorkflowArtifactLifecyclePage() {
   const [previewRequest, setPreviewRequest] = useState<WorkflowArtifactGcPreviewRequest | null>(null);
   const [runResult, setRunResult] = useState<WorkflowArtifactGcRunResult | null>(null);
   const [quotaBytesInput, setQuotaBytesInput] = useState("");
-  const [retentionDaysInput, setRetentionDaysInput] = useState("30");
-  const [maxDeleteBytesInput, setMaxDeleteBytesInput] = useState("");
   const [runConfirmation, setRunConfirmation] = useState("");
   const [loading, setLoading] = useState(true);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -96,13 +91,8 @@ export function WorkflowArtifactLifecyclePage() {
     setRunError("");
     try {
       const request: WorkflowArtifactGcPreviewRequest = {
-        retentionDays: parseRequiredNonNegativeInteger(retentionDaysInput, "保留天数"),
-        eligibleRunStatuses: GC_DEFAULT_ELIGIBLE_STATUSES,
-        reason: PREVIEW_REASON,
         actor: "web-ui",
       };
-      const maxDeleteBytes = parseOptionalPositiveInteger(maxDeleteBytesInput, "本批最大字节");
-      if (maxDeleteBytes !== undefined) request.maxDeleteBytes = maxDeleteBytes;
       const plan = await previewArtifactGc(request);
       setPreview(plan);
       setPreviewRequest(request);
@@ -124,8 +114,6 @@ export function WorkflowArtifactLifecyclePage() {
     setControllerError("");
     setPreviewError("");
     setRunError("");
-    setRetentionDaysInput(String(request.retentionDays ?? 30));
-    setMaxDeleteBytesInput(request.maxDeleteBytes ? String(request.maxDeleteBytes) : "");
     setPreview(null);
     setPreviewRequest(null);
     setRunResult(null);
@@ -149,12 +137,7 @@ export function WorkflowArtifactLifecyclePage() {
     setControllerError("");
     try {
       const result = await runArtifactLifecycleControllerOnce({
-        retentionDays: parseRequiredNonNegativeInteger(retentionDaysInput, "保留天数"),
-        eligibleRunStatuses: GC_DEFAULT_ELIGIBLE_STATUSES,
-        quotaBytes: parseOptionalNonNegativeInteger(quotaBytesInput, "配额字节"),
-        maxDeleteBytesPerTick: parseOptionalPositiveInteger(maxDeleteBytesInput, "本批最大字节"),
         actor: "web-ui",
-        reason: "operator requested artifact lifecycle controller tick",
       });
       setControllerNotice(
         result.tickId
@@ -292,35 +275,6 @@ export function WorkflowArtifactLifecyclePage() {
                   <h2 className="text-sm font-semibold text-slate-900">GC 预览</h2>
                 </div>
                 <div className="grid gap-3">
-                  <div>
-                    <Label htmlFor="artifact-lifecycle-retention" className="text-xs text-slate-500">
-                      保留天数
-                    </Label>
-                    <Input
-                      id="artifact-lifecycle-retention"
-                      inputMode="numeric"
-                      value={retentionDaysInput}
-                      onChange={(event) => {
-                        setRetentionDaysInput(event.target.value);
-                        clearSavedPreview();
-                      }}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="artifact-lifecycle-max-delete" className="text-xs text-slate-500">
-                      本批最大字节
-                    </Label>
-                    <Input
-                      id="artifact-lifecycle-max-delete"
-                      inputMode="numeric"
-                      placeholder="不限制"
-                      value={maxDeleteBytesInput}
-                      onChange={(event) => {
-                        setMaxDeleteBytesInput(event.target.value);
-                        clearSavedPreview();
-                      }}
-                    />
-                  </div>
                   <Button type="submit" className="w-full" disabled={previewLoading}>
                     {previewLoading ? <Loader2 strokeWidth={1.5} className="mr-2 h-4 w-4 animate-spin" /> : <Eye strokeWidth={1.5} className="mr-2 h-4 w-4" />}
                     生成预览
@@ -644,19 +598,7 @@ function previewRequestFromControllerTick(
   tick: WorkflowArtifactLifecycleControllerTick
 ): WorkflowArtifactGcPreviewRequest | null {
   if (!controllerTickCanPreviewPolicy(tick)) return null;
-  const policy = tick.policy || {};
-  const request: WorkflowArtifactGcPreviewRequest = {
-    retentionDays: Math.max(0, Math.floor(policy.retentionDays ?? 30)),
-    eligibleRunStatuses: policy.eligibleRunStatuses?.length
-      ? policy.eligibleRunStatuses
-      : GC_DEFAULT_ELIGIBLE_STATUSES,
-    reason: CONTROLLER_PREVIEW_REASON,
-    actor: "web-ui",
-  };
-  if (policy.maxDeleteBytesPerTick) {
-    request.maxDeleteBytes = Math.max(1, Math.floor(policy.maxDeleteBytesPerTick));
-  }
-  return request;
+  return { actor: "web-ui" };
 }
 
 function Metric({
@@ -694,22 +636,6 @@ function parseOptionalNonNegativeInteger(value: string, label: string) {
     throw new Error(`${label}必须是非负整数`);
   }
   return Number(normalized);
-}
-
-function parseRequiredNonNegativeInteger(value: string, label: string) {
-  const parsed = parseOptionalNonNegativeInteger(value, label);
-  if (parsed === undefined) {
-    throw new Error(`${label}不能为空`);
-  }
-  return parsed;
-}
-
-function parseOptionalPositiveInteger(value: string, label: string) {
-  const parsed = parseOptionalNonNegativeInteger(value, label);
-  if (parsed !== undefined && parsed < 1) {
-    throw new Error(`${label}必须是正整数`);
-  }
-  return parsed;
 }
 
 function artifactLifecycleErrorMessage(err: unknown, fallback: string) {

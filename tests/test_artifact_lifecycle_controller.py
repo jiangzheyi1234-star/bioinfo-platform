@@ -93,7 +93,11 @@ def test_artifact_lifecycle_controller_supervisor_runs_preview_ticks(
     supervisor = controller.start_artifact_lifecycle_controller_supervisor(
         cfg,
         poll_interval_seconds=0.01,
-        policy_payload={"retentionDays": 7},
+        policy_payload={
+            "retentionDays": 7,
+            "eligibleRunStatuses": ["completed"],
+            "reason": "ttl-preview",
+        },
     )
     deadline = time.monotonic() + 1
     while not calls and time.monotonic() < deadline:
@@ -101,7 +105,14 @@ def test_artifact_lifecycle_controller_supervisor_runs_preview_ticks(
     supervisor.stop(timeout_seconds=1)
 
     assert calls
-    assert calls[0] == {"cfg": cfg, "payload": {"retentionDays": 7}}
+    assert calls[0] == {
+        "cfg": cfg,
+        "payload": {
+            "retentionDays": 7,
+            "eligibleRunStatuses": ["completed"],
+            "reason": "ttl-preview",
+        },
+    }
 
 
 def test_artifact_lifecycle_controller_source_boundary_excludes_delete_paths() -> None:

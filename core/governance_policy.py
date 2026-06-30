@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from core.artifact_lifecycle_governance_policy import ARTIFACT_LIFECYCLE_POLICY_GOVERNANCE_SPECS
+
 
 SUPPORTED_BOUNDARIES = {"desktop-localhost-only", "remote-runner-bearer-token"}
 SUPPORTED_AUDIT_STATUS = {"implemented", "required-before-multi-user"}
@@ -447,6 +449,7 @@ HIGH_RISK_API_POLICIES: tuple[ApiGovernancePolicy, ...] = (
         "artifact-curator",
         "auditor",
     ),
+    *(remote_policy(*spec) for spec in ARTIFACT_LIFECYCLE_POLICY_GOVERNANCE_SPECS),
     remote_policy(
         "GET",
         "/api/v1/artifacts/storage/readiness",

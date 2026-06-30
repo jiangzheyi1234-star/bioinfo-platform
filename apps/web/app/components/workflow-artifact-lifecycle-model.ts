@@ -27,10 +27,15 @@ export type WorkflowArtifactLifecycleUsage = {
 };
 
 export type WorkflowArtifactLifecycleControllerPolicy = {
+  policyId?: string;
+  policyVersion?: number;
+  policyFingerprint?: string;
+  persisted?: boolean;
   retentionDays?: number;
   eligibleRunStatuses?: string[];
   quotaBytes?: number | null;
   maxDeleteBytesPerTick?: number | null;
+  reason?: string;
 };
 
 export type WorkflowArtifactLifecycleControllerUsage = {
@@ -131,14 +136,23 @@ export type WorkflowArtifactLifecycleControllerTickList = {
 
 export type WorkflowArtifactGcPreviewRequest = {
   serverId?: string;
+  policyId?: string;
+  policyVersion?: number;
+  policyFingerprint?: string;
+  persisted?: boolean;
   retentionDays?: number;
   eligibleRunStatuses?: string[];
+  quotaBytes?: number | null;
   maxDeleteBytes?: number;
   reason?: string;
   actor?: string;
 };
 
 export type WorkflowArtifactGcPlanPolicy = {
+  policyId?: string;
+  policyVersion?: number;
+  policyFingerprint?: string;
+  persisted?: boolean;
   retentionDays?: number;
   eligibleRunStatuses?: string[];
   maxDeleteBytes?: number | null;

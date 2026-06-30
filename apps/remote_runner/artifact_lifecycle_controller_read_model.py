@@ -89,7 +89,16 @@ def _project_tick(row: Any) -> dict[str, Any]:
         "deleteConfirmationRequired": True,
         "policy": _copy_keys(
             _dict(payload.get("policy")),
-            ("retentionDays", "eligibleRunStatuses", "quotaBytes", "maxDeleteBytesPerTick"),
+            (
+                "policyId",
+                "policyVersion",
+                "policyFingerprint",
+                "persisted",
+                "retentionDays",
+                "eligibleRunStatuses",
+                "quotaBytes",
+                "maxDeleteBytesPerTick",
+            ),
         ),
         "usage": _copy_keys(
             _dict(payload.get("usage")),

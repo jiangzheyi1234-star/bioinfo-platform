@@ -4,6 +4,7 @@ from threading import RLock
 from types import SimpleNamespace
 
 from core.app_runtime.managers.execution import ExecutionManager
+from core.contracts.artifact_lifecycle_remote_endpoints import ARTIFACT_LIFECYCLE_POLICY_SET
 from core.contracts.remote_endpoints import (
     ARTIFACT_LIFECYCLE_CONTROLLER_RUN_ONCE,
     ARTIFACT_LIFECYCLE_GC_PREVIEW,
@@ -43,6 +44,10 @@ def test_artifact_lifecycle_command_endpoints_are_contract_rendered() -> None:
         ARTIFACT_STORAGE_READINESS_SMOKE_RUN,
         {},
     ) == "/api/v1/artifacts/storage/readiness/smoke"
+    assert render_remote_endpoint_path(
+        ARTIFACT_LIFECYCLE_POLICY_SET,
+        {},
+    ) == "/api/v1/artifacts/lifecycle/policy"
 
     for endpoint_id in ARTIFACT_LIFECYCLE_COMMAND_ENDPOINTS:
         endpoint = REMOTE_ENDPOINTS[endpoint_id]
@@ -58,6 +63,11 @@ def test_artifact_lifecycle_command_endpoints_are_contract_rendered() -> None:
     assert storage_smoke.response_key == "data"
     assert storage_smoke.cache_scope == "artifact-storage-readiness-command"
     assert storage_smoke.invalidates == ("artifact-storage-readiness-read-model",)
+    policy_set = REMOTE_ENDPOINTS[ARTIFACT_LIFECYCLE_POLICY_SET]
+    assert policy_set.method == "POST"
+    assert policy_set.response_key == "data"
+    assert policy_set.cache_scope == "artifact-lifecycle-policy-command"
+    assert policy_set.invalidates == ("artifact-lifecycle-policy-read-model", "artifact-lifecycle-read-model")
 
 
 def test_artifact_lifecycle_command_endpoint_contracts_match_governance_policy() -> None:
@@ -67,7 +77,10 @@ def test_artifact_lifecycle_command_endpoint_contracts_match_governance_policy()
         if policy.surface == "remote-runner-api"
     }
 
-    for endpoint_id in ARTIFACT_LIFECYCLE_COMMAND_ENDPOINTS + (ARTIFACT_STORAGE_READINESS_SMOKE_RUN,):
+    for endpoint_id in ARTIFACT_LIFECYCLE_COMMAND_ENDPOINTS + (
+        ARTIFACT_STORAGE_READINESS_SMOKE_RUN,
+        ARTIFACT_LIFECYCLE_POLICY_SET,
+    ):
         endpoint = REMOTE_ENDPOINTS[endpoint_id]
         policy = governance_by_action[endpoint.governance_action]
         assert policy.method == endpoint.method
@@ -80,7 +93,10 @@ def test_artifact_lifecycle_command_endpoint_contracts_match_openapi_operation_i
 
     for app in (local_app, remote_app):
         paths = app.openapi()["paths"]
-        for endpoint_id in ARTIFACT_LIFECYCLE_COMMAND_ENDPOINTS + (ARTIFACT_STORAGE_READINESS_SMOKE_RUN,):
+        for endpoint_id in ARTIFACT_LIFECYCLE_COMMAND_ENDPOINTS + (
+            ARTIFACT_STORAGE_READINESS_SMOKE_RUN,
+            ARTIFACT_LIFECYCLE_POLICY_SET,
+        ):
             endpoint = REMOTE_ENDPOINTS[endpoint_id]
             operation = paths[endpoint.path_template][endpoint.method.lower()]
             assert operation["operationId"] == endpoint.operation_id
@@ -114,6 +130,12 @@ def test_artifact_lifecycle_command_endpoint_caller_posts_payload() -> None:
         ARTIFACT_STORAGE_READINESS_SMOKE_RUN,
         path_values={},
     )
+    policy = call_remote_endpoint(
+        client,
+        ARTIFACT_LIFECYCLE_POLICY_SET,
+        path_values={},
+        payload={"confirmation": "set-artifact-lifecycle-policy", "retentionDays": 14},
+    )
 
     assert controller == {
         "path": "/api/v1/artifacts/lifecycle/controller/run-once",
@@ -125,6 +147,10 @@ def test_artifact_lifecycle_command_endpoint_caller_posts_payload() -> None:
         "payload": {"confirmation": "delete-artifact-payloads"},
     }
     assert smoke == {"path": "/api/v1/artifacts/storage/readiness/smoke", "payload": {}}
+    assert policy == {
+        "path": "/api/v1/artifacts/lifecycle/policy",
+        "payload": {"confirmation": "set-artifact-lifecycle-policy", "retentionDays": 14},
+    }
     assert client.calls == [
         (
             "POST",
@@ -135,6 +161,7 @@ def test_artifact_lifecycle_command_endpoint_caller_posts_payload() -> None:
         ("POST", "/api/v1/artifacts/lifecycle/gc/preview", {"retentionDays": 30}, [200]),
         ("POST", "/api/v1/artifacts/lifecycle/gc/run", {"confirmation": "delete-artifact-payloads"}, [200]),
         ("POST", "/api/v1/artifacts/storage/readiness/smoke", {}, [200]),
+        ("POST", "/api/v1/artifacts/lifecycle/policy", {"confirmation": "set-artifact-lifecycle-policy", "retentionDays": 14}, [200]),
     ]
 
 
@@ -166,6 +193,12 @@ def test_artifact_lifecycle_command_proxy_generic_endpoint_call_uses_registry() 
             payload={},
         )
     )
+    policy = proxy.call_remote_endpoint(
+        **_endpoint_kwargs(
+            ARTIFACT_LIFECYCLE_POLICY_SET,
+            payload={"confirmation": "set-artifact-lifecycle-policy", "retentionDays": 14},
+        )
+    )
 
     assert controller == {
         "path": "/api/v1/artifacts/lifecycle/controller/run-once",
@@ -177,6 +210,10 @@ def test_artifact_lifecycle_command_proxy_generic_endpoint_call_uses_registry() 
         "payload": {"confirmation": "delete-artifact-payloads"},
     }
     assert smoke == {"path": "/api/v1/artifacts/storage/readiness/smoke", "payload": {}}
+    assert policy == {
+        "path": "/api/v1/artifacts/lifecycle/policy",
+        "payload": {"confirmation": "set-artifact-lifecycle-policy", "retentionDays": 14},
+    }
     assert proxy.client.calls == [
         (
             "POST",
@@ -187,8 +224,9 @@ def test_artifact_lifecycle_command_proxy_generic_endpoint_call_uses_registry() 
         ("POST", "/api/v1/artifacts/lifecycle/gc/preview", {"retentionDays": 30}, [200]),
         ("POST", "/api/v1/artifacts/lifecycle/gc/run", {"confirmation": "delete-artifact-payloads"}, [200]),
         ("POST", "/api/v1/artifacts/storage/readiness/smoke", {}, [200]),
+        ("POST", "/api/v1/artifacts/lifecycle/policy", {"confirmation": "set-artifact-lifecycle-policy", "retentionDays": 14}, [200]),
     ]
-    assert proxy.timeouts == [20, 5, 5, 5]
+    assert proxy.timeouts == [20, 5, 5, 5, 5]
 
 
 def test_execution_manager_calls_artifact_lifecycle_commands_via_generic_endpoint() -> None:

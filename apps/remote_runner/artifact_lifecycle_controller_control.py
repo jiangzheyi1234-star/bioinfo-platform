@@ -56,16 +56,21 @@ def run_governed_artifact_lifecycle_controller_once(
 
 
 def _policy_payload(request: ArtifactLifecycleControllerRunOnceRequest) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "retentionDays": int(request.retentionDays),
-        "eligibleRunStatuses": list(request.eligibleRunStatuses),
-        "actor": str(request.actor or "remote-runner-api"),
-        "reason": str(request.reason or "operator-artifact-lifecycle-controller-run-once"),
-    }
-    if request.quotaBytes is not None:
-        payload["quotaBytes"] = int(request.quotaBytes)
-    if request.maxDeleteBytesPerTick is not None:
-        payload["maxDeleteBytesPerTick"] = int(request.maxDeleteBytesPerTick)
+    body = request.model_dump(mode="json", exclude_none=True, exclude_unset=True)
+    body.pop("confirmation", None)
+    payload: dict[str, Any] = {}
+    if "retentionDays" in body:
+        payload["retentionDays"] = int(body["retentionDays"])
+    if "eligibleRunStatuses" in body:
+        payload["eligibleRunStatuses"] = list(body["eligibleRunStatuses"])
+    if "actor" in body:
+        payload["actor"] = str(body["actor"] or "remote-runner-api")
+    if "reason" in body:
+        payload["reason"] = str(body["reason"] or "operator-artifact-lifecycle-controller-run-once")
+    if "quotaBytes" in body:
+        payload["quotaBytes"] = int(body["quotaBytes"])
+    if "maxDeleteBytesPerTick" in body:
+        payload["maxDeleteBytesPerTick"] = int(body["maxDeleteBytesPerTick"])
     return payload
 
 
@@ -81,7 +86,16 @@ def _public_run_once_result(tick: dict[str, Any]) -> dict[str, Any]:
         "controlsExposed": False,
         "policy": _copy_keys(
             _dict(tick.get("policy")),
-            ("retentionDays", "eligibleRunStatuses", "quotaBytes", "maxDeleteBytesPerTick"),
+            (
+                "policyId",
+                "policyVersion",
+                "policyFingerprint",
+                "persisted",
+                "retentionDays",
+                "eligibleRunStatuses",
+                "quotaBytes",
+                "maxDeleteBytesPerTick",
+            ),
         ),
         "usage": _copy_keys(
             _dict(tick.get("usage")),

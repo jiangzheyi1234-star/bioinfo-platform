@@ -12,6 +12,8 @@ def test_artifact_lifecycle_gc_is_exposed_through_remote_local_and_runtime_layer
     remote_service = _read("apps/remote_runner/control_service.py")
     remote_controller_control = _read("apps/remote_runner/artifact_lifecycle_controller_control.py")
     remote_controller_control_api = _read("apps/remote_runner/artifact_lifecycle_controller_control_route_service.py")
+    remote_policy_api = _read("apps/remote_runner/artifact_lifecycle_policy_route_service.py")
+    remote_policy_service = _read("apps/remote_runner/artifact_lifecycle_policy.py")
     remote_controller_read_api = _read("apps/remote_runner/artifact_lifecycle_controller_read_api.py")
     remote_controller_read_model = _read("apps/remote_runner/artifact_lifecycle_controller_read_model.py")
     local_routes = _read("apps/api/execution_query_routes.py")
@@ -28,6 +30,7 @@ def test_artifact_lifecycle_gc_is_exposed_through_remote_local_and_runtime_layer
     assert '"/api/v1/artifacts/lifecycle/usage"' in remote_routes
     assert '"/api/v1/artifacts/lifecycle/controller/ticks"' in remote_routes
     assert '"/api/v1/artifacts/lifecycle/controller/run-once"' in remote_routes
+    assert '"/api/v1/artifacts/lifecycle/policy"' in remote_routes
     assert '"/api/v1/artifacts/lifecycle/gc/preview"' in remote_routes
     assert '"/api/v1/artifacts/lifecycle/gc/run"' in remote_routes
     assert '"/api/v1/artifacts/cache/entries"' in remote_routes
@@ -42,6 +45,11 @@ def test_artifact_lifecycle_gc_is_exposed_through_remote_local_and_runtime_layer
     assert "run_artifact_lifecycle_controller_once_request" in remote_controller_control_api
     assert 'action="artifact.lifecycle.controller.run_once"' in remote_controller_control_api
     assert "run_governed_artifact_lifecycle_controller_once" in remote_controller_control
+    assert "get_governed_artifact_lifecycle_policy" in remote_policy_api
+    assert "set_governed_artifact_lifecycle_policy" in remote_policy_api
+    assert 'action="artifact.lifecycle.policy.read"' in remote_policy_api
+    assert 'action="artifact.lifecycle.policy.set"' in remote_policy_api
+    assert "ARTIFACT_LIFECYCLE_POLICY_SET_CONFIRMATION" in remote_policy_service
     assert "ARTIFACT_LIFECYCLE_CONTROLLER_RUN_ONCE_CONFIRMATION" in remote_controller_control
     assert "deleteExecutionAuthorized" in remote_controller_control
     assert "controlsExposed" in remote_controller_control
@@ -75,6 +83,7 @@ def test_artifact_lifecycle_gc_is_exposed_through_remote_local_and_runtime_layer
     assert '"/api/v1/artifacts/lifecycle/usage"' in local_routes
     assert '"/api/v1/artifacts/lifecycle/controller/ticks"' in local_routes
     assert '"/api/v1/artifacts/lifecycle/controller/run-once"' in local_routes
+    assert '"/api/v1/artifacts/lifecycle/policy"' in local_routes
     assert '"/api/v1/artifacts/lifecycle/gc/preview"' in local_routes
     assert '"/api/v1/artifacts/lifecycle/gc/run"' in local_routes
     assert '"/api/v1/artifacts/cache/entries"' in local_routes
@@ -86,6 +95,8 @@ def test_artifact_lifecycle_gc_is_exposed_through_remote_local_and_runtime_layer
     assert '"/api/v1/artifacts/storage/readiness/smoke"' in local_routes
     assert "runtime_service().get_artifact_lifecycle_usage" in local_service
     assert "runtime_service().list_artifact_lifecycle_controller_ticks" in local_service
+    assert "ARTIFACT_LIFECYCLE_POLICY_READ" in local_service
+    assert "ARTIFACT_LIFECYCLE_POLICY_SET" in local_service
     assert "runtime_service().run_artifact_lifecycle_controller_once" in local_service
     assert "runtime_service().preview_artifact_gc" in local_service
     assert "runtime_service().run_artifact_gc" in local_service
@@ -138,6 +149,7 @@ def test_artifact_lifecycle_gc_is_exposed_through_remote_local_and_runtime_layer
     assert "artifact_lifecycle_proxy" not in manager
     assert "/api/v1/artifacts/lifecycle/controller/run-once" not in proxy
     assert "/api/v1/artifacts/lifecycle/controller/ticks" not in proxy
+    assert "/api/v1/artifacts/lifecycle/policy" not in proxy
     assert "/api/v1/artifacts/lifecycle/gc/preview" not in proxy
     assert "/api/v1/artifacts/lifecycle/gc/run" not in proxy
     assert "/api/v1/artifacts/cache/entries?" not in proxy
@@ -150,6 +162,7 @@ def test_artifact_lifecycle_gc_is_exposed_through_remote_local_and_runtime_layer
     assert "/api/v1/artifacts/lifecycle/usage" not in client
     assert "/api/v1/artifacts/lifecycle/controller/ticks" not in client
     assert "/api/v1/artifacts/lifecycle/controller/run-once" not in client
+    assert "/api/v1/artifacts/lifecycle/policy" not in client
     assert "/api/v1/artifacts/lifecycle/gc/preview" not in client
     assert "/api/v1/artifacts/lifecycle/gc/run" not in client
     assert "/api/v1/artifacts/cache/entries?" not in client
@@ -160,6 +173,7 @@ def test_artifact_lifecycle_gc_is_exposed_through_remote_local_and_runtime_layer
     assert "/api/v1/artifacts/storage/readiness" not in client
     assert "/api/v1/artifacts/storage/readiness/smoke" not in client
     assert 'path_template="/api/v1/artifacts/lifecycle/controller/run-once"' in endpoint_contracts
+    assert "ARTIFACT_LIFECYCLE_REMOTE_ENDPOINT_SPECS" in endpoint_contracts
     assert 'path_template="/api/v1/artifacts/lifecycle/gc/preview"' in endpoint_contracts
     assert 'path_template="/api/v1/artifacts/lifecycle/gc/run"' in endpoint_contracts
     assert 'path_template="/api/v1/artifacts/cache/entries/{cache_entry_id}/retain"' in endpoint_contracts
@@ -168,6 +182,8 @@ def test_artifact_lifecycle_gc_is_exposed_through_remote_local_and_runtime_layer
     assert 'path_template="/api/v1/artifacts/storage/readiness"' in endpoint_contracts
     assert 'path_template="/api/v1/artifacts/storage/readiness/smoke"' in endpoint_contracts
     assert "operation_id=REMOTE_ENDPOINTS[ARTIFACT_LIFECYCLE_CONTROLLER_RUN_ONCE].operation_id" in remote_routes
+    assert "operation_id=REMOTE_ENDPOINTS[ARTIFACT_LIFECYCLE_POLICY_READ].operation_id" in remote_routes
+    assert "operation_id=REMOTE_ENDPOINTS[ARTIFACT_LIFECYCLE_POLICY_SET].operation_id" in remote_routes
     assert "remote_endpoint_success_status(ARTIFACT_LIFECYCLE_CONTROLLER_RUN_ONCE)" in remote_routes
     assert "operation_id=REMOTE_ENDPOINTS[ARTIFACT_LIFECYCLE_GC_PREVIEW].operation_id" in remote_routes
     assert "operation_id=REMOTE_ENDPOINTS[ARTIFACT_LIFECYCLE_GC_RUN].operation_id" in remote_routes
@@ -177,6 +193,8 @@ def test_artifact_lifecycle_gc_is_exposed_through_remote_local_and_runtime_layer
     assert "operation_id=REMOTE_ENDPOINTS[ARTIFACT_STORAGE_READINESS_READ].operation_id" in remote_routes
     assert "operation_id=REMOTE_ENDPOINTS[ARTIFACT_STORAGE_READINESS_SMOKE_RUN].operation_id" in remote_routes
     assert "operation_id=REMOTE_ENDPOINTS[ARTIFACT_LIFECYCLE_CONTROLLER_RUN_ONCE].operation_id" in local_routes
+    assert "operation_id=REMOTE_ENDPOINTS[ARTIFACT_LIFECYCLE_POLICY_READ].operation_id" in local_routes
+    assert "operation_id=REMOTE_ENDPOINTS[ARTIFACT_LIFECYCLE_POLICY_SET].operation_id" in local_routes
     assert "remote_endpoint_success_status(ARTIFACT_LIFECYCLE_CONTROLLER_RUN_ONCE)" in local_routes
     assert "operation_id=REMOTE_ENDPOINTS[ARTIFACT_LIFECYCLE_GC_PREVIEW].operation_id" in local_routes
     assert "operation_id=REMOTE_ENDPOINTS[ARTIFACT_LIFECYCLE_GC_RUN].operation_id" in local_routes

@@ -9,6 +9,12 @@ import threading
 from typing import Any
 
 from .artifact_lifecycle_service import build_artifact_lifecycle_usage, preview_artifact_gc
+from .artifact_lifecycle_policy import (
+    artifact_lifecycle_policy_fingerprint,
+    get_artifact_lifecycle_policy,
+    normalize_artifact_lifecycle_policy_payload,
+    require_complete_artifact_lifecycle_policy_payload,
+)
 from .config import RemoteRunnerConfig
 from .config import load_remote_runner_config
 from .evidence_storage import append_evidence_event
@@ -27,6 +33,10 @@ DEFAULT_CONTROLLER_POLL_INTERVAL_SECONDS = 3600.0
 
 @dataclass(frozen=True)
 class ArtifactLifecycleControllerPolicy:
+    policy_id: str
+    policy_version: int
+    policy_fingerprint: str
+    persisted: bool
     retention_days: int
     eligible_run_statuses: tuple[str, ...]
     quota_bytes: int | None
@@ -109,7 +119,7 @@ def evaluate_artifact_lifecycle_controller_tick(
     cfg: RemoteRunnerConfig,
     payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    policy = _controller_policy_from_payload(payload)
+    policy = _controller_policy_from_payload(cfg, payload)
     evaluated_at = now_iso()
     usage = build_artifact_lifecycle_usage(cfg, quota_bytes=policy.quota_bytes)
     preview_payload = _preview_payload(policy)
@@ -150,33 +160,50 @@ def evaluate_artifact_lifecycle_controller_tick(
     }
 
 
-def _controller_policy_from_payload(payload: dict[str, Any] | None) -> ArtifactLifecycleControllerPolicy:
+def _controller_policy_from_payload(
+    cfg: RemoteRunnerConfig,
+    payload: dict[str, Any] | None,
+) -> ArtifactLifecycleControllerPolicy:
     body = dict(payload or {})
-    statuses = tuple(
-        sorted(
-            {
-                str(item or "").strip()
-                for item in body.get("eligibleRunStatuses", ["completed", "failed", "canceled", "cancelled"])
-                if str(item or "").strip()
-            }
+    if not _has_controller_policy_override(body):
+        stored = get_artifact_lifecycle_policy(cfg)
+        return ArtifactLifecycleControllerPolicy(
+            policy_id=stored.policy_id,
+            policy_version=stored.policy_version,
+            policy_fingerprint=stored.policy_fingerprint,
+            persisted=stored.persisted,
+            retention_days=stored.retention_days,
+            eligible_run_statuses=stored.eligible_run_statuses,
+            quota_bytes=stored.quota_bytes,
+            max_delete_bytes_per_tick=stored.max_delete_bytes_per_tick,
+            reason=stored.reason,
+            actor=str(body.get("actor") or stored.actor or "artifact-lifecycle-controller"),
         )
+    require_complete_artifact_lifecycle_policy_payload(
+        body,
+        error_prefix="ARTIFACT_LIFECYCLE_CONTROLLER_POLICY",
     )
-    if not statuses:
-        raise ValueError("ARTIFACT_LIFECYCLE_CONTROLLER_STATUS_REQUIRED")
-    quota = body.get("quotaBytes")
-    max_delete = body.get("maxDeleteBytesPerTick")
+    normalized = normalize_artifact_lifecycle_policy_payload(body)
     return ArtifactLifecycleControllerPolicy(
-        retention_days=max(0, int(body.get("retentionDays", 30))),
-        eligible_run_statuses=statuses,
-        quota_bytes=max(0, int(quota)) if quota is not None else None,
-        max_delete_bytes_per_tick=max(1, int(max_delete)) if max_delete is not None else None,
-        reason=str(body.get("reason") or DEFAULT_CONTROLLER_REASON).strip() or DEFAULT_CONTROLLER_REASON,
-        actor=str(body.get("actor") or "artifact-lifecycle-controller").strip() or "artifact-lifecycle-controller",
+        policy_id="request",
+        policy_version=0,
+        policy_fingerprint=artifact_lifecycle_policy_fingerprint(normalized),
+        persisted=False,
+        retention_days=int(normalized["retentionDays"]),
+        eligible_run_statuses=tuple(normalized["eligibleRunStatuses"]),
+        quota_bytes=normalized["quotaBytes"],
+        max_delete_bytes_per_tick=normalized["maxDeleteBytesPerTick"],
+        reason=str(normalized["reason"] or DEFAULT_CONTROLLER_REASON),
+        actor=str(normalized["actor"] or "artifact-lifecycle-controller"),
     )
 
 
 def _preview_payload(policy: ArtifactLifecycleControllerPolicy) -> dict[str, Any]:
     payload: dict[str, Any] = {
+        "policyId": policy.policy_id,
+        "policyVersion": policy.policy_version,
+        "policyFingerprint": policy.policy_fingerprint,
+        "persisted": policy.persisted,
         "retentionDays": policy.retention_days,
         "eligibleRunStatuses": list(policy.eligible_run_statuses),
         "reason": policy.reason,
@@ -184,7 +211,22 @@ def _preview_payload(policy: ArtifactLifecycleControllerPolicy) -> dict[str, Any
     }
     if policy.max_delete_bytes_per_tick is not None:
         payload["maxDeleteBytes"] = policy.max_delete_bytes_per_tick
+    if policy.quota_bytes is not None:
+        payload["quotaBytes"] = policy.quota_bytes
     return payload
+
+
+def _has_controller_policy_override(body: dict[str, Any]) -> bool:
+    return any(
+        key in body
+        for key in (
+            "retentionDays",
+            "eligibleRunStatuses",
+            "quotaBytes",
+            "maxDeleteBytesPerTick",
+            "reason",
+        )
+    )
 
 
 def _controller_tick(
@@ -204,6 +246,10 @@ def _controller_tick(
         "executionMode": ARTIFACT_LIFECYCLE_CONTROLLER_MODE,
         "deleteConfirmationRequired": True,
         "policy": {
+            "policyId": policy.policy_id,
+            "policyVersion": policy.policy_version,
+            "policyFingerprint": policy.policy_fingerprint,
+            "persisted": policy.persisted,
             "retentionDays": policy.retention_days,
             "eligibleRunStatuses": list(policy.eligible_run_statuses),
             "quotaBytes": policy.quota_bytes,
@@ -392,6 +438,8 @@ def _configured_poll_interval_seconds() -> float:
 
 
 def _configured_policy_payload() -> dict[str, Any]:
+    if not _policy_env_configured():
+        return {}
     payload: dict[str, Any] = {
         "retentionDays": _configured_int("H2OMETA_ARTIFACT_LIFECYCLE_CONTROLLER_RETENTION_DAYS", default=30, minimum=0),
         "reason": _configured_str("H2OMETA_ARTIFACT_LIFECYCLE_CONTROLLER_REASON", DEFAULT_CONTROLLER_REASON),
@@ -407,6 +455,18 @@ def _configured_policy_payload() -> dict[str, Any]:
     if max_delete is not None:
         payload["maxDeleteBytesPerTick"] = max_delete
     return payload
+
+
+def _policy_env_configured() -> bool:
+    names = (
+        "H2OMETA_ARTIFACT_LIFECYCLE_CONTROLLER_RETENTION_DAYS",
+        "H2OMETA_ARTIFACT_LIFECYCLE_CONTROLLER_REASON",
+        "H2OMETA_ARTIFACT_LIFECYCLE_CONTROLLER_ACTOR",
+        "H2OMETA_ARTIFACT_LIFECYCLE_CONTROLLER_STATUSES",
+        "H2OMETA_ARTIFACT_LIFECYCLE_CONTROLLER_QUOTA_BYTES",
+        "H2OMETA_ARTIFACT_LIFECYCLE_CONTROLLER_MAX_DELETE_BYTES_PER_TICK",
+    )
+    return any(str(os.environ.get(name, "") or "").strip() for name in names)
 
 
 def _configured_statuses() -> list[str]:

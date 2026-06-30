@@ -5,6 +5,7 @@ from string import Formatter
 from typing import Any
 from urllib.parse import quote, urlencode
 
+from core.contracts.artifact_lifecycle_remote_endpoints import ARTIFACT_LIFECYCLE_REMOTE_ENDPOINT_SPECS
 from core.contracts.database_remote_endpoints import DATABASE_REMOTE_ENDPOINT_SPECS
 from core.contracts.pipeline_remote_endpoints import PIPELINE_REMOTE_ENDPOINT_SPECS
 from core.contracts.result_package_remote_endpoints import RESULT_PACKAGE_REMOTE_ENDPOINT_SPECS
@@ -431,6 +432,10 @@ REMOTE_ENDPOINTS: dict[str, RemoteEndpoint] = {
         cache_scope="artifact-lifecycle-read-model",
         query_params=("quotaBytes",),
     ),
+    **{
+        endpoint_id: RemoteEndpoint(endpoint_id=endpoint_id, **spec)
+        for endpoint_id, spec in ARTIFACT_LIFECYCLE_REMOTE_ENDPOINT_SPECS.items()
+    },
     ARTIFACT_STORAGE_READINESS_READ: RemoteEndpoint(
         endpoint_id=ARTIFACT_STORAGE_READINESS_READ,
         method="GET",
