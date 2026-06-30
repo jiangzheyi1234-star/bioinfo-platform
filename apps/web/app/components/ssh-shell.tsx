@@ -111,11 +111,14 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
         status={connection.status}
         form={connection.form}
         formError={connection.formError}
+        hostKeyCandidate={connection.hostKeyCandidate}
         connectBusy={connection.connectBusy}
+        hostKeyBusy={connection.hostKeyBusy}
         connectDisabled={connection.connectDisabled}
         onOpenChange={connection.contextValue.setDialogOpen}
         onFieldChange={connection.updateField}
         onSelectKeyFile={() => void connection.selectKeyFile()}
+        onAcceptHostKey={() => void connection.acceptHostKey()}
         onCancel={() => {
           connection.contextValue.setDialogOpen(false);
         }}

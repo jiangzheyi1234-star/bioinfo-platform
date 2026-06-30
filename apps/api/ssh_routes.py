@@ -6,7 +6,13 @@ from typing import Any
 
 from fastapi import APIRouter, Query, WebSocket
 
-from apps.api.models import RunnerReleasePruneRunRequest, SSHConnectionRequest, SSHTerminalCreateRequest
+from apps.api.models import (
+    RunnerReleasePruneRunRequest,
+    SSHConnectionRequest,
+    SSHHostKeyAcceptRequest,
+    SSHHostKeyScanRequest,
+    SSHTerminalCreateRequest,
+)
 from apps.api.ssh_control_service import (
     accept_server_host_key_from_request,
     close_terminal_session_from_request,
@@ -26,6 +32,7 @@ from apps.api.ssh_control_service import (
     refresh_server_health_from_request,
     rotate_server_token_from_request,
     run_server_runner_release_prune_from_request,
+    scan_ssh_host_key_from_request,
     start_server_runner_from_request,
     stop_server_runner_from_request,
     stream_terminal_session_from_request,
@@ -114,8 +121,8 @@ async def run_server_runner_release_prune(
 
 
 @router.post("/api/v1/servers/{server_id}/host-key/accept")
-async def accept_server_host_key(server_id: str) -> dict[str, Any]:
-    return await accept_server_host_key_from_request(server_id)
+async def accept_server_host_key(server_id: str, payload: SSHHostKeyAcceptRequest) -> dict[str, Any]:
+    return await accept_server_host_key_from_request(server_id, payload)
 
 
 @router.post("/api/v1/servers/{server_id}/token/rotate")
@@ -126,6 +133,11 @@ async def rotate_server_token(server_id: str) -> dict[str, Any]:
 @router.post("/api/v1/ssh/connect")
 async def connect_ssh(payload: SSHConnectionRequest | None = None) -> dict[str, Any]:
     return await connect_ssh_from_request(payload)
+
+
+@router.post("/api/v1/ssh/host-key/scan")
+async def scan_ssh_host_key(payload: SSHHostKeyScanRequest | None = None) -> dict[str, Any]:
+    return await scan_ssh_host_key_from_request(payload)
 
 
 @router.post("/api/v1/ssh/disconnect")

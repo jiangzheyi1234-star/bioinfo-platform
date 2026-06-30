@@ -19,6 +19,7 @@ from core.app_runtime.managers.runner import RunnerManager
 from core.app_runtime.managers.tool import ToolManager
 from core.app_runtime.managers.workflow import WorkflowManager
 from core.remote.ssh_service import SSHService, TerminalSession
+from core.remote.ssh_connector import scan_ssh_host_key as scan_remote_ssh_host_key
 from core.remote.ssh_connector import trust_ssh_host_key
 from core.remote_runner.bootstrap_guard import UPGRADE_ACTIVE_LEASES_REASON
 from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerError
@@ -340,28 +341,140 @@ class RuntimeService(
             }
         }
 
-    def accept_server_host_key(self, server_id: str) -> dict[str, Any]:
+    def _resolve_ssh_host_key_target(self, patch: Optional[dict] = None) -> dict[str, Any]:
+        current = runtime_config.get_runtime_config()
+        merged = normalize_ssh_config(current.get("ssh", {}))
+        allowed_keys = {
+            "auth_mode",
+            "ssh_host_alias",
+            "host",
+            "port",
+            "user",
+            "timeout_sec",
+            "confirmation",
+            "fingerprintSha256",
+        }
+        if patch:
+            unsupported = sorted(set(patch) - allowed_keys)
+            if unsupported:
+                raise RuntimeServiceError(
+                    "SSH host key request contains unsupported fields",
+                    status_code=400,
+                    detail={
+                        "reasonCode": "SSH_HOST_KEY_UNSUPPORTED_FIELD",
+                        "field": unsupported[0],
+                    },
+                )
+            for key in (
+                "auth_mode",
+                "ssh_host_alias",
+                "host",
+                "port",
+                "user",
+                "timeout_sec",
+            ):
+                if key in patch and patch[key] is not None:
+                    merged[key] = patch[key]
+        merged = normalize_ssh_config(merged)
+        auth_mode = str(merged.get("auth_mode", "password_ref") or "password_ref")
+        resolved = resolve_ssh_config_target(merged) if auth_mode == "ssh_config" else merged
+        host = str(resolved.get("host", "") or "").strip()
+        port = int(resolved.get("port", 22) or 22)
+        user = str(resolved.get("user", "") or "").strip()
+        timeout = int(resolved.get("timeout_sec", 5) or 5)
+        identity_status = merged if auth_mode == "ssh_config" else resolved
+        server = self._build_primary_server_identity(
+            ssh_status={
+                "connected": False,
+                "host": identity_status.get("host", ""),
+                "port": identity_status.get("port", 22),
+                "user": identity_status.get("user", ""),
+                "ssh_host_alias": identity_status.get("ssh_host_alias", ""),
+            }
+        )
+        if server is None:
+            raise RuntimeServiceError("ssh.host or ssh_host_alias required before scanning an SSH host key")
+        if not host:
+            raise RuntimeServiceError("ssh.host required before scanning an SSH host key")
+        if auth_mode != "ssh_config" and not user:
+            raise RuntimeServiceError("ssh.user required before scanning an SSH host key")
+        return {
+            "serverId": str(server["serverId"]),
+            "host": host,
+            "port": port,
+            "user": user,
+            "timeout": timeout,
+        }
+
+    def scan_ssh_host_key_for_request(self, patch: Optional[dict] = None) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
-            current = runtime_config.get_runtime_config()
-            ssh_cfg = normalize_ssh_config(current.get("ssh", {}))
-            auth_mode = str(ssh_cfg.get("auth_mode", "password_ref") or "password_ref")
-            resolved = resolve_ssh_config_target(ssh_cfg) if auth_mode == "ssh_config" else ssh_cfg
-            ssh_status = self._get_ssh_status_unlocked()
-            server = self._build_primary_server_identity(ssh_status=ssh_status)
-            if server is None or server["serverId"] != server_id:
+            target = self._resolve_ssh_host_key_target(patch)
+
+        scanned = scan_remote_ssh_host_key(target["host"], target["port"], timeout=target["timeout"])
+        if not scanned.ok:
+            raise RuntimeServiceError(
+                scanned.message,
+                status_code=409,
+                detail={
+                    "reasonCode": scanned.code or "SSH_HOST_KEY_SCAN_FAILED",
+                    "message": scanned.message,
+                    "serverId": target["serverId"],
+                    "host": target["host"],
+                    "port": target["port"],
+                },
+            )
+        return {
+            "data": {
+                "serverId": target["serverId"],
+                "host": target["host"],
+                "port": target["port"],
+                "hostKeyTrusted": False,
+                "hostKeyType": scanned.key_type,
+                "hostKeyFingerprintSha256": scanned.fingerprint_sha256,
+                "knownHostsPath": scanned.known_hosts_path,
+            }
+        }
+
+    def accept_server_host_key(self, server_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            self._ensure_initialized()
+            target = self._resolve_ssh_host_key_target(patch)
+            if target["serverId"] != server_id:
                 raise RuntimeServiceError(f"Server not found: {server_id}")
 
-            host = str(resolved.get("host", "") or "").strip()
-            port = int(resolved.get("port", 22) or 22)
-            timeout = int(resolved.get("timeout_sec", 5) or 5)
-
-        if not host:
-            raise RuntimeServiceError("ssh.host required before accepting an SSH host key")
-
-        trusted = trust_ssh_host_key(host, port, timeout=timeout)
+        if str(patch.get("confirmation") or "") != "trust-ssh-host-key":
+            raise RuntimeServiceError(
+                "SSH host key confirmation is required",
+                status_code=409,
+                detail={
+                    "reasonCode": "SSH_HOST_KEY_CONFIRMATION_REQUIRED",
+                    "message": "SSH host key confirmation is required",
+                    "serverId": server_id,
+                    "host": target["host"],
+                    "port": target["port"],
+                },
+            )
+        fingerprint = str(patch.get("fingerprintSha256") or "").strip()
+        trusted = trust_ssh_host_key(
+            target["host"],
+            target["port"],
+            timeout=target["timeout"],
+            expected_fingerprint_sha256=fingerprint,
+        )
         if not trusted.ok:
-            raise RuntimeServiceError(trusted.message)
+            raise RuntimeServiceError(
+                trusted.message,
+                status_code=409,
+                detail={
+                    "reasonCode": trusted.code or "SSH_HOST_KEY_ACCEPT_FAILED",
+                    "message": trusted.message,
+                    "serverId": server_id,
+                    "host": target["host"],
+                    "port": target["port"],
+                    "hostKeyFingerprintSha256": trusted.fingerprint_sha256,
+                },
+            )
 
         with self._lock:
             state = self._server_action_state.setdefault(server_id, {})
@@ -371,6 +484,8 @@ class RuntimeService(
             return {
                 "data": {
                     "serverId": server_id,
+                    "host": target["host"],
+                    "port": target["port"],
                     "hostKeyTrusted": True,
                     "hostKeyType": trusted.key_type,
                     "hostKeyFingerprintSha256": trusted.fingerprint_sha256,

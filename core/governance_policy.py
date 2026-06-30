@@ -91,6 +91,7 @@ def remote_policy(
 HIGH_RISK_API_POLICIES: tuple[ApiGovernancePolicy, ...] = (
     local_policy("POST", "/api/v1/ssh/connect", "ssh.connect", "server", "platform-admin"),
     local_policy("POST", "/api/v1/ssh/test", "ssh.test", "server", "platform-admin"),
+    local_policy("POST", "/api/v1/ssh/host-key/scan", "ssh.host_key.scan", "server", "platform-admin"),
     local_policy("POST", "/api/v1/servers/{server_id}/ensure-runner", "remote_runner.ensure", "server", "platform-admin"),
     local_policy("POST", "/api/v1/servers/{server_id}/runner/start", "remote_runner.start", "server", "platform-admin"),
     local_policy("POST", "/api/v1/servers/{server_id}/runner/stop", "remote_runner.stop", "server", "platform-admin"),

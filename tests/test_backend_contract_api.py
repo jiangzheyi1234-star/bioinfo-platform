@@ -46,6 +46,7 @@ from core.contracts.remote_endpoints import (
 from apps.api.models import (
     RunSubmitRequest,
     SSHConnectionRequest,
+    SSHHostKeyAcceptRequest,
     SSHTerminalCreateRequest,
 )
 from core.app_runtime.errors import RuntimeServiceError
@@ -369,14 +370,25 @@ def test_server_actions_update_server_state(monkeypatch, tmp_path: Path) -> None
     )
     monkeypatch.setattr(
         "core.app_runtime.service.trust_ssh_host_key",
-        lambda host, port, timeout: trusted_host_key,
+        lambda host, port, timeout, expected_fingerprint_sha256: trusted_host_key,
     )
     patch_runtime_service(monkeypatch, service)
 
     server = asyncio.run(list_servers())["data"]["items"][0]
     server_id = server["serverId"]
 
-    accepted = asyncio.run(accept_server_host_key(server_id))
+    accepted = asyncio.run(
+        accept_server_host_key(
+            server_id,
+            SSHHostKeyAcceptRequest(
+                host="192.0.2.10",
+                port=22,
+                user="tester",
+                confirmation="trust-ssh-host-key",
+                fingerprintSha256="SHA256:test-fingerprint",
+            ),
+        )
+    )
     assert accepted["data"]["hostKeyTrusted"] is True
     assert accepted["data"]["hostKeyType"] == "ssh-ed25519"
     assert accepted["data"]["hostKeyFingerprintSha256"] == "SHA256:test-fingerprint"

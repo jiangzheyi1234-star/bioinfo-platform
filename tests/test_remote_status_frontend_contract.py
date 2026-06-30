@@ -130,3 +130,35 @@ def test_connecting_status_is_not_reported_as_connected() -> None:
 
     _assert_contains(preparing_status, "connected: false", "connecting: true")
     _assert_not_contains(preparing_status, "connected: true", "runner:")
+
+
+def test_ssh_host_key_trust_flow_requires_fingerprint_confirmation() -> None:
+    hook_source = _source("connection")
+    ui_source = _source("ui")
+    model_source = _source("model")
+
+    _assert_contains(
+        model_source,
+        "SSHHostKeyCandidate",
+        "hostKeyFingerprintSha256",
+        "knownHostsPath",
+    )
+    _assert_contains(
+        hook_source,
+        "SSH_HOST_KEY_UNTRUSTED",
+        "buildSshHostKeyTargetPayload",
+        "/api/v1/ssh/host-key/scan",
+        "/host-key/accept",
+        'confirmation: "trust-ssh-host-key"',
+        "fingerprintSha256: hostKeyCandidate.hostKeyFingerprintSha256",
+    )
+    host_key_payload = hook_source.split("function buildSshHostKeyTargetPayload", 1)[1].split(
+        "function targetLabelForForm", 1
+    )[0]
+    connect_payload = hook_source.split("function buildSshConnectionPayload", 1)[1].split(
+        "function buildSshHostKeyTargetPayload", 1
+    )[0]
+    _assert_contains(connect_payload, "password: form.password")
+    _assert_not_contains(host_key_payload, "password", "identity_ref")
+    _assert_contains(ui_source, "信任并连接", "hostKeyCandidate.hostKeyFingerprintSha256")
+    _assert_matches(ui_source, r"disabled=\{connectDisabled\s*\|\|\s*Boolean\(hostKeyCandidate\)\}")

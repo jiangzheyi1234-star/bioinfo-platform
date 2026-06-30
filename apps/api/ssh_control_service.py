@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from apps.api.models import RunnerReleasePruneRunRequest, SSHConnectionRequest, SSHTerminalCreateRequest
+from apps.api.models import (
+    RunnerReleasePruneRunRequest,
+    SSHConnectionRequest,
+    SSHHostKeyAcceptRequest,
+    SSHHostKeyScanRequest,
+    SSHTerminalCreateRequest,
+)
 from apps.api.response_cache import invalidate_response_cache
 from apps.api.route_utils import (
     cached_runtime_payload,
@@ -146,11 +152,25 @@ async def stop_server_runner_from_request(server_id: str) -> dict[str, Any]:
     return result
 
 
-async def accept_server_host_key_from_request(server_id: str) -> dict[str, Any]:
+async def scan_ssh_host_key_from_request(request: SSHHostKeyScanRequest | None) -> dict[str, Any]:
+    patch = request_payload(request) if request is not None else None
     return await run_runtime_payload(
-        lambda: runtime_service().accept_server_host_key(server_id),
+        lambda: runtime_service().scan_ssh_host_key_for_request(patch),
         wrapper="raw",
     )
+
+
+async def accept_server_host_key_from_request(
+    server_id: str,
+    request: SSHHostKeyAcceptRequest,
+) -> dict[str, Any]:
+    patch = request_payload(request)
+    result = await run_runtime_payload(
+        lambda: runtime_service().accept_server_host_key(server_id, patch),
+        wrapper="raw",
+    )
+    await _invalidate_ssh_state_cache()
+    return result
 
 
 async def rotate_server_token_from_request(server_id: str) -> dict[str, Any]:

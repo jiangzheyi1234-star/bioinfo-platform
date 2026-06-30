@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 
-import { requestLocalApiJson } from "@/app/lib/local-api-client";
+import { LocalApiError, requestLocalApiJson } from "@/app/lib/local-api-client";
 
 import {
+  type SSHHostKeyCandidate,
   type SSHFormState,
   type SSHStatus,
   type SshShellContextValue,
@@ -29,20 +30,74 @@ function canAutoConnectOnStartup(form: SSHFormState): boolean {
   return form.remember_auth;
 }
 
+function buildSshConnectionPayload(form: SSHFormState) {
+  const autoConnectOnStartup = canAutoConnectOnStartup(form) ? form.auto_connect_on_startup : false;
+  return {
+    auth_mode: form.auth_mode,
+    ssh_host_alias: form.auth_mode === "ssh_config" ? form.ssh_host_alias.trim() : "",
+    identity_ref: form.auth_mode === "key_file" ? form.identity_ref.trim() : "",
+    remember_auth: form.remember_auth,
+    auto_connect_on_startup: autoConnectOnStartup,
+    host: form.host.trim(),
+    port: Number(form.port || 22),
+    user: form.user.trim(),
+    password: form.password,
+    timeout_sec: Number(form.timeout_sec || 5),
+  };
+}
+
+function buildSshHostKeyTargetPayload(form: SSHFormState) {
+  return {
+    auth_mode: form.auth_mode,
+    ssh_host_alias: form.auth_mode === "ssh_config" ? form.ssh_host_alias.trim() : "",
+    host: form.host.trim(),
+    port: Number(form.port || 22),
+    user: form.user.trim(),
+    timeout_sec: Number(form.timeout_sec || 5),
+  };
+}
+
+function targetLabelForForm(form: SSHFormState): string {
+  return form.auth_mode === "ssh_config" ? form.ssh_host_alias.trim() || form.host.trim() : form.host.trim();
+}
+
+function isHostKeyTrustError(error: unknown): boolean {
+  const parts = [
+    error instanceof Error ? error.message : String(error || ""),
+    error instanceof LocalApiError && typeof error.detail === "string" ? error.detail : "",
+    error instanceof LocalApiError && error.problemCode ? error.problemCode : "",
+  ];
+  return parts.some((part) => part.includes("SSH_HOST_KEY_UNTRUSTED") || part.includes("主机密钥未受信任"));
+}
+
+function connectionSuccessMessage(form: SSHFormState): string {
+  const targetLabel = targetLabelForForm(form);
+  const autoConnectOnStartup = canAutoConnectOnStartup(form) ? form.auto_connect_on_startup : false;
+  if (!form.remember_auth) {
+    return `已连接到 ${targetLabel}，本次不会保存为下次默认连接。`;
+  }
+  return autoConnectOnStartup
+    ? `已保存 ${targetLabel} 的连接方式，下次启动会自动连接。`
+    : `已保存 ${targetLabel} 的连接方式，下次可直接使用。`;
+}
+
 export type UseSshConnectionResult = {
   contextValue: SshShellContextValue;
   status: SSHStatus | null;
   form: SSHFormState;
   formError: string;
   successNotice: string;
+  hostKeyCandidate: SSHHostKeyCandidate | null;
   connectBusy: boolean;
   disconnectBusy: boolean;
   ensureRunnerBusy: boolean;
+  hostKeyBusy: boolean;
   connectDisabled: boolean;
   updateField: <K extends keyof SSHFormState>(key: K, value: SSHFormState[K]) => void;
   selectKeyFile: () => Promise<void>;
   refreshStatus: (options?: { silent?: boolean }) => Promise<SSHStatus | null>;
   ensureRunner: () => Promise<void>;
+  acceptHostKey: () => Promise<void>;
 };
 
 function makePreparingStatus(form: SSHFormState): SSHStatus {
@@ -72,6 +127,8 @@ export function useSshConnection(): UseSshConnectionResult {
   const [connectBusy, setConnectBusy] = useState(false);
   const [disconnectBusy, setDisconnectBusy] = useState(false);
   const [ensureRunnerBusy, setEnsureRunnerBusy] = useState(false);
+  const [hostKeyBusy, setHostKeyBusy] = useState(false);
+  const [hostKeyCandidate, setHostKeyCandidate] = useState<SSHHostKeyCandidate | null>(null);
   const [formError, setFormError] = useState("");
   const [successNotice, setSuccessNotice] = useState("");
   const ensureInFlightRef = useRef(false);
@@ -230,6 +287,7 @@ export function useSshConnection(): UseSshConnectionResult {
 
   const updateField = useCallback(<K extends keyof SSHFormState>(key: K, value: SSHFormState[K]) => {
     setFormError("");
+    setHostKeyCandidate(null);
     setForm((current) => {
       if (key === "remember_auth") {
         const rememberAuth = value as boolean;
@@ -264,45 +322,74 @@ export function useSshConnection(): UseSshConnectionResult {
     setConnectBusy(true);
     setFormError("");
     setSuccessNotice("");
+    setHostKeyCandidate(null);
     const previousStatus = status;
+    const payload = buildSshConnectionPayload(form);
     setStatus(makePreparingStatus(form));
     setDialogOpen(false);
     try {
-      const autoConnectOnStartup = canAutoConnectOnStartup(form) ? form.auto_connect_on_startup : false;
-      const payload = {
-        auth_mode: form.auth_mode,
-        ssh_host_alias: form.auth_mode === "ssh_config" ? form.ssh_host_alias.trim() : "",
-        identity_ref: form.auth_mode === "key_file" ? form.identity_ref.trim() : "",
-        remember_auth: form.remember_auth,
-        auto_connect_on_startup: autoConnectOnStartup,
-        host: form.host.trim(),
-        port: Number(form.port || 22),
-        user: form.user.trim(),
-        password: form.password,
-        timeout_sec: Number(form.timeout_sec || 5),
-      };
       const data = await requestLocalApiJson("POST", "/api/v1/ssh/connect", {
         body: payload,
         timeoutMs: sshConnectRequestTimeoutMs(form.timeout_sec),
       });
       setStatus((data?.item || null) as SSHStatus | null);
       setForm((current) => ({ ...current, password: "" }));
-      const targetLabel = form.auth_mode === "ssh_config" ? form.ssh_host_alias.trim() || form.host.trim() : form.host.trim();
-      setSuccessNotice(
-        form.remember_auth
-          ? autoConnectOnStartup
-            ? `已保存 ${targetLabel} 的连接方式，下次启动会自动连接。`
-            : `已保存 ${targetLabel} 的连接方式，下次可直接使用。`
-          : `已连接到 ${targetLabel}，本次不会保存为下次默认连接。`
-      );
+      setSuccessNotice(connectionSuccessMessage(form));
     } catch (error) {
       setStatus(previousStatus);
       setDialogOpen(true);
+      if (isHostKeyTrustError(error)) {
+        try {
+          const scanned = await requestLocalApiJson("POST", "/api/v1/ssh/host-key/scan", {
+            body: buildSshHostKeyTargetPayload(form),
+            timeoutMs: sshConnectRequestTimeoutMs(form.timeout_sec),
+          });
+          setHostKeyCandidate((scanned?.data || null) as SSHHostKeyCandidate | null);
+          setFormError("SSH 主机密钥未受信任，请确认 fingerprint 后继续。");
+        } catch (scanError) {
+          setFormError(normalizeFetchError(scanError) || "SSH 主机密钥扫描失败");
+        }
+        return;
+      }
       setFormError(normalizeFetchError(error) || "连接失败");
     } finally {
       setConnectBusy(false);
     }
   }, [form, status]);
+
+  const acceptHostKey = useCallback(async () => {
+    if (!hostKeyCandidate || hostKeyBusy) {
+      return;
+    }
+    setHostKeyBusy(true);
+    setFormError("");
+    setSuccessNotice("");
+    const payload = buildSshConnectionPayload(form);
+    const hostKeyPayload = buildSshHostKeyTargetPayload(form);
+    try {
+      await requestLocalApiJson("POST", `/api/v1/servers/${encodeURIComponent(hostKeyCandidate.serverId)}/host-key/accept`, {
+        body: {
+          ...hostKeyPayload,
+          confirmation: "trust-ssh-host-key",
+          fingerprintSha256: hostKeyCandidate.hostKeyFingerprintSha256,
+        },
+        timeoutMs: sshConnectRequestTimeoutMs(form.timeout_sec),
+      });
+      const data = await requestLocalApiJson("POST", "/api/v1/ssh/connect", {
+        body: payload,
+        timeoutMs: sshConnectRequestTimeoutMs(form.timeout_sec),
+      });
+      setHostKeyCandidate(null);
+      setStatus((data?.item || null) as SSHStatus | null);
+      setForm((current) => ({ ...current, password: "" }));
+      setDialogOpen(false);
+      setSuccessNotice(connectionSuccessMessage(form));
+    } catch (error) {
+      setFormError(normalizeFetchError(error) || "SSH 主机密钥确认失败");
+    } finally {
+      setHostKeyBusy(false);
+    }
+  }, [form, hostKeyBusy, hostKeyCandidate]);
 
   const submitDisconnect = useCallback(async () => {
     setDisconnectBusy(true);
@@ -321,6 +408,7 @@ export function useSshConnection(): UseSshConnectionResult {
 
   const connectDisabled =
     connectBusy ||
+    hostKeyBusy ||
     (form.auth_mode === "ssh_config"
       ? !form.ssh_host_alias.trim()
       : !form.host.trim() ||
@@ -351,13 +439,16 @@ export function useSshConnection(): UseSshConnectionResult {
     form,
     formError,
     successNotice,
+    hostKeyCandidate,
     connectBusy,
     disconnectBusy,
     ensureRunnerBusy,
+    hostKeyBusy,
     connectDisabled,
     updateField,
     selectKeyFile,
     refreshStatus,
     ensureRunner,
+    acceptHostKey,
   };
 }

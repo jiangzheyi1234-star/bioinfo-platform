@@ -46,6 +46,15 @@ export type SSHFormState = {
   timeout_sec: string;
 };
 
+export type SSHHostKeyCandidate = {
+  serverId: string;
+  host: string;
+  port: number;
+  hostKeyType: string;
+  hostKeyFingerprintSha256: string;
+  knownHostsPath: string;
+};
+
 export type TerminalSnapshot = {
   session_id: string;
   cursor: number;

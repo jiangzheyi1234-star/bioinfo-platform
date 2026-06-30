@@ -24,6 +24,7 @@ import {
   runnerEnsureActionLabel,
   runnerSidebarSubcopy,
   type SSHFormState,
+  type SSHHostKeyCandidate,
   type SSHStatus,
 } from "./ssh-shell-model";
 import { ToolPrepareTaskBar } from "./tool-prepare-task-bar";
@@ -544,11 +545,14 @@ type SshConnectDialogProps = {
   status: SSHStatus | null;
   form: SSHFormState;
   formError: string;
+  hostKeyCandidate: SSHHostKeyCandidate | null;
   connectBusy: boolean;
+  hostKeyBusy: boolean;
   connectDisabled: boolean;
   onOpenChange: (open: boolean) => void;
   onFieldChange: <K extends keyof SSHFormState>(key: K, value: SSHFormState[K]) => void;
   onSelectKeyFile: () => void;
+  onAcceptHostKey: () => void;
   onCancel: () => void;
   onSubmit: () => void;
 };
@@ -558,11 +562,14 @@ export function SshConnectDialog({
   status,
   form,
   formError,
+  hostKeyCandidate,
   connectBusy,
+  hostKeyBusy,
   connectDisabled,
   onOpenChange,
   onFieldChange,
   onSelectKeyFile,
+  onAcceptHostKey,
   onCancel,
   onSubmit,
 }: SshConnectDialogProps) {
@@ -588,6 +595,28 @@ export function SshConnectDialog({
           {formError ? (
             <Alert variant="destructive">
               <AlertDescription>{formError}</AlertDescription>
+            </Alert>
+          ) : null}
+
+          {hostKeyCandidate ? (
+            <Alert>
+              <AlertDescription>
+                <div className="space-y-2">
+                  <div className="grid grid-cols-[72px_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
+                    <span className="text-slate-500">主机</span>
+                    <span className="font-mono text-slate-900">{hostKeyCandidate.host}:{hostKeyCandidate.port}</span>
+                    <span className="text-slate-500">类型</span>
+                    <span className="font-mono text-slate-900">{hostKeyCandidate.hostKeyType}</span>
+                    <span className="text-slate-500">指纹</span>
+                    <span className="break-all font-mono text-slate-900">{hostKeyCandidate.hostKeyFingerprintSha256}</span>
+                    <span className="text-slate-500">known_hosts</span>
+                    <span className="break-all font-mono text-slate-600">{hostKeyCandidate.knownHostsPath}</span>
+                  </div>
+                  <Button type="button" size="sm" onClick={onAcceptHostKey} disabled={hostKeyBusy}>
+                    {hostKeyBusy ? "确认中..." : "信任并连接"}
+                  </Button>
+                </div>
+              </AlertDescription>
             </Alert>
           ) : null}
 
@@ -730,7 +759,7 @@ export function SshConnectDialog({
           <Button type="button" variant="outline" onClick={onCancel}>
             取消
           </Button>
-          <Button onClick={onSubmit} disabled={connectDisabled}>
+          <Button onClick={onSubmit} disabled={connectDisabled || Boolean(hostKeyCandidate)}>
             {connectBusy ? "连接中..." : "连接"}
           </Button>
         </div>

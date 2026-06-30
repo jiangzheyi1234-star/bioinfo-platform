@@ -186,10 +186,37 @@ def scan_ssh_host_key(ip: str, port: int, timeout: int = 5) -> HostKeyTrustResul
             sock.close()
 
 
-def trust_ssh_host_key(ip: str, port: int, timeout: int = 5) -> HostKeyTrustResult:
+def trust_ssh_host_key(
+    ip: str,
+    port: int,
+    timeout: int = 5,
+    *,
+    expected_fingerprint_sha256: str,
+) -> HostKeyTrustResult:
     scanned = scan_ssh_host_key(ip, port, timeout=timeout)
     if not scanned.ok or scanned.key is None:
         return scanned
+    expected_fingerprint = str(expected_fingerprint_sha256 or "").strip()
+    if not expected_fingerprint:
+        return HostKeyTrustResult(
+            False,
+            "SSH host key fingerprint confirmation is required",
+            ip,
+            port,
+            code="SSH_HOST_KEY_FINGERPRINT_REQUIRED",
+        )
+    if scanned.fingerprint_sha256 != expected_fingerprint:
+        return HostKeyTrustResult(
+            False,
+            "SSH host key fingerprint changed; refusing to trust this host key.",
+            ip,
+            port,
+            key_type=scanned.key_type,
+            fingerprint_sha256=scanned.fingerprint_sha256,
+            known_hosts_path=scanned.known_hosts_path,
+            code="SSH_HOST_KEY_FINGERPRINT_MISMATCH",
+            key=scanned.key,
+        )
 
     known_hosts_path = get_ssh_known_hosts_path()
     known_hosts_path.parent.mkdir(parents=True, exist_ok=True)

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+
 import paramiko
 import pytest
 
@@ -248,7 +251,16 @@ def test_trust_ssh_host_key_writes_app_known_hosts(monkeypatch, tmp_path) -> Non
     )
     monkeypatch.setattr("core.remote.ssh_connector.paramiko.Transport", FakeTransport)
 
-    result = trust_ssh_host_key("192.0.2.10", 2222, timeout=7)
+    fingerprint = (
+        "SHA256:"
+        + base64.b64encode(hashlib.sha256(server_key.asbytes()).digest()).decode("ascii").rstrip("=")
+    )
+    result = trust_ssh_host_key(
+        "192.0.2.10",
+        2222,
+        timeout=7,
+        expected_fingerprint_sha256=fingerprint,
+    )
 
     assert result.ok is True
     assert result.key_type == "ssh-rsa"
@@ -262,3 +274,38 @@ def test_trust_ssh_host_key_writes_app_known_hosts(monkeypatch, tmp_path) -> Non
     ]
     known_hosts_source = known_hosts.read_text(encoding="utf-8")
     assert "[192.0.2.10]:2222 ssh-rsa " in known_hosts_source
+
+
+def test_trust_ssh_host_key_rejects_fingerprint_mismatch(monkeypatch, tmp_path) -> None:
+    known_hosts = tmp_path / "known_hosts"
+    server_key = paramiko.RSAKey.generate(1024)
+
+    class FakeTransport:
+        def __init__(self, _sock, *, disabled_algorithms=None) -> None:
+            self.banner_timeout = None
+            self.auth_timeout = None
+
+        def start_client(self, *, timeout: int) -> None:
+            return None
+
+        def get_remote_server_key(self):
+            return server_key
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setenv("H2OMETA_SSH_KNOWN_HOSTS", str(known_hosts))
+    monkeypatch.setattr("core.remote.ssh_connector.socket.create_connection", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr("core.remote.ssh_connector.paramiko.Transport", FakeTransport)
+
+    result = trust_ssh_host_key(
+        "192.0.2.10",
+        2222,
+        timeout=7,
+        expected_fingerprint_sha256="SHA256:different",
+    )
+
+    assert result.ok is False
+    assert result.code == "SSH_HOST_KEY_FINGERPRINT_MISMATCH"
+    assert result.fingerprint_sha256.startswith("SHA256:")
+    assert not known_hosts.exists()
