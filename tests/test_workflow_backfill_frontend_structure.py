@@ -71,9 +71,20 @@ def test_backfill_launches_have_preview_launch_and_cancel_frontend_surface() -> 
     assert "previewWorkflowTriggerBackfill(selectedTrigger.triggerId, payload)" in launch_control
     assert "launchWorkflowTriggerBackfill(selectedTrigger.triggerId, {" in launch_control
     assert 'confirmation: "launch-backfill"' in launch_control
+    assert "const expectedConfirmation = preview?.previewId || \"\"" in launch_control
+    assert "confirmation !== expectedConfirmation" in launch_control
+    assert 'placeholder={preview?.previewId || "preview id"}' in launch_control
     assert "preview?.launchSupported" in launch_control
     assert "preview.truncated" in launch_control
     assert "preview.concurrency?.estimatedBatches" in launch_control
+    assert "preview.creationRunCount" in launch_control
+    assert "preview.skippedRunCount" in launch_control
+    assert "preview.blockedActiveRunCount" in launch_control
+    assert 'LabelValue label="Max active"' in launch_control
+    assert 'LabelValue label="Active-run blocks"' in launch_control
+    assert 'Field label="Max active runs"' in launch_control
+    assert 'placeholder="launch-backfill"' not in launch_control
+    assert 'confirmation !== "launch-backfill"' not in launch_control
     assert "parseParamsJson" in launch_control
     assert '<SelectItem value="completed">completed</SelectItem>' in launch_control
     assert 'value="all"' not in launch_control

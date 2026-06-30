@@ -57,6 +57,7 @@ export function WorkflowBackfillLaunchControl({
   const selectedTrigger = backfillTriggers.find((trigger) => trigger.triggerId === form.triggerId) || null;
   const canPreview = Boolean(selectedTrigger?.triggerId) && !previewing && !launching;
   const canLaunch = Boolean(preview?.launchSupported && preview.previewId && selectedTrigger?.triggerId) && !launching;
+  const expectedConfirmation = preview?.previewId || "";
 
   useEffect(() => {
     if (!form.triggerId && backfillTriggers[0]?.triggerId) {
@@ -90,7 +91,7 @@ export function WorkflowBackfillLaunchControl({
   }
 
   async function handleLaunch() {
-    if (!selectedTrigger?.triggerId || !preview?.previewId || confirmation !== "launch-backfill") return;
+    if (!selectedTrigger?.triggerId || !preview?.previewId || confirmation !== expectedConfirmation) return;
     setLaunching(true);
     setError("");
     setNotice("");
@@ -209,7 +210,7 @@ export function WorkflowBackfillLaunchControl({
               onChange={(event) => updateForm("maxPartitions", event.target.value)}
             />
           </Field>
-          <Field label="Concurrency">
+          <Field label="Max active runs">
             <Input
               className="h-9 text-xs"
               inputMode="numeric"
@@ -278,20 +279,21 @@ export function WorkflowBackfillLaunchControl({
           <DialogHeader>
             <DialogTitle className="text-base">确认启动 backfill</DialogTitle>
             <DialogDescription className="text-xs">
-              Preview {preview?.previewId || "—"} / partitions {numberLabel(preview?.estimatedRunCount)}
+              Preview {preview?.previewId || "—"} / creates {numberLabel(preview?.creationRunCount)} / skips {numberLabel(preview?.skippedRunCount)}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
               <LabelValue label="Trigger" value={selectedTrigger?.triggerId || "—"} />
               <LabelValue label="Range" value={`${preview?.range?.start || "—"} to ${preview?.range?.end || "—"}`} />
-              <LabelValue label="Concurrency" value={String(preview?.concurrency?.limit ?? "—")} />
+              <LabelValue label="Max active runs" value={String(preview?.concurrency?.limit ?? "—")} />
+              <LabelValue label="Active-run blocks" value={numberLabel(preview?.blockedActiveRunCount)} />
             </div>
             <Input
               className="h-9 font-mono text-xs"
               value={confirmation}
               onChange={(event) => setConfirmation(event.target.value)}
-              placeholder="launch-backfill"
+              placeholder={preview?.previewId || "preview id"}
             />
           </div>
           <div className="flex justify-end gap-2">
@@ -303,7 +305,7 @@ export function WorkflowBackfillLaunchControl({
             <Button
               type="button"
               className="h-8 bg-blue-600 px-3 text-xs text-white hover:bg-blue-700"
-              disabled={confirmation !== "launch-backfill" || launching}
+              disabled={confirmation !== expectedConfirmation || launching}
               onClick={() => void handleLaunch()}
             >
               {launching ? <Loader2 strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
@@ -332,6 +334,10 @@ function PreviewSummary({ preview }: { preview: WorkflowBackfillPreview | null }
         <div className="mt-2 grid grid-cols-2 gap-2">
           <LabelValue label="Launch" value={preview.launchSupported ? "supported" : preview.reason || "blocked"} />
           <LabelValue label="Partitions" value={`${numberLabel(preview.returnedRunCount)} / ${numberLabel(preview.estimatedRunCount)}`} />
+          <LabelValue label="Creates" value={numberLabel(preview.creationRunCount)} />
+          <LabelValue label="Skips" value={numberLabel(preview.skippedRunCount)} />
+          <LabelValue label="Active blocks" value={numberLabel(preview.blockedActiveRunCount)} />
+          <LabelValue label="Max active" value={numberLabel(preview.concurrency?.limit)} />
           <LabelValue label="Batches" value={numberLabel(preview.concurrency?.estimatedBatches)} />
           <LabelValue label="Truncated" value={preview.truncated ? "yes" : "no"} />
         </div>
