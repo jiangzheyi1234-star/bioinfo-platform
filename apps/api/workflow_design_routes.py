@@ -23,7 +23,7 @@ from apps.api.workflow_design_service import (
     plan_workflow_design_draft_from_request,
     update_workflow_design_draft_from_request,
 )
-from core.contracts.remote_endpoints import REMOTE_ENDPOINTS
+from core.contracts.remote_endpoints import REMOTE_ENDPOINTS, remote_endpoint_success_status
 from core.contracts.workflow_design_remote_endpoints import (
     WORKFLOW_DESIGN_DRAFT_COMPILE,
     WORKFLOW_DESIGN_DRAFT_CREATE,
@@ -56,7 +56,7 @@ async def list_workflow_design_drafts_api(
 @router.post(
     "/api/v1/workflow-design-drafts",
     operation_id=REMOTE_ENDPOINTS[WORKFLOW_DESIGN_DRAFT_CREATE].operation_id,
-    status_code=201,
+    status_code=remote_endpoint_success_status(WORKFLOW_DESIGN_DRAFT_CREATE),
 )
 async def create_workflow_design_draft_api(
     payload: WorkflowDesignDraftCreateRequest,
@@ -92,7 +92,7 @@ async def update_workflow_design_draft_api(
 @router.post(
     "/api/v1/workflow-design-drafts/{draft_id}/fork",
     operation_id=REMOTE_ENDPOINTS[WORKFLOW_DESIGN_DRAFT_FORK].operation_id,
-    status_code=201,
+    status_code=remote_endpoint_success_status(WORKFLOW_DESIGN_DRAFT_FORK),
 )
 async def fork_workflow_design_draft_api(
     draft_id: str,

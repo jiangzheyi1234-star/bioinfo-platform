@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
-from core.contracts.remote_endpoints import REMOTE_ENDPOINTS, render_remote_endpoint_path
+from core.contracts.remote_endpoints import (
+    REMOTE_ENDPOINTS,
+    remote_endpoint_success_status,
+    render_remote_endpoint_path,
+)
 from core.contracts.workflow_design_remote_endpoints import (
     WORKFLOW_DESIGN_DRAFT_COMPILE,
     WORKFLOW_DESIGN_DRAFT_CREATE,
@@ -17,6 +22,7 @@ from core.remote_runner.endpoint_caller import call_remote_endpoint
 from core.remote_runner.proxy import RemoteRunnerProxyMixin
 
 
+ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_DESIGN_ENDPOINTS = (
     WORKFLOW_DESIGN_DRAFT_LIST,
     WORKFLOW_DESIGN_DRAFT_CREATE,
@@ -57,6 +63,8 @@ def test_workflow_design_endpoints_are_contract_rendered() -> None:
     assert REMOTE_ENDPOINTS[WORKFLOW_DESIGN_DRAFT_LIST].response_item_key == "items"
     assert REMOTE_ENDPOINTS[WORKFLOW_DESIGN_DRAFT_CREATE].accepted_statuses == (201,)
     assert REMOTE_ENDPOINTS[WORKFLOW_DESIGN_DRAFT_FORK].accepted_statuses == (201,)
+    assert remote_endpoint_success_status(WORKFLOW_DESIGN_DRAFT_CREATE) == 201
+    assert remote_endpoint_success_status(WORKFLOW_DESIGN_DRAFT_FORK) == 201
     assert REMOTE_ENDPOINTS[WORKFLOW_DESIGN_DRAFT_UPDATE].method == "PATCH"
     assert REMOTE_ENDPOINTS[WORKFLOW_DESIGN_DRAFT_DELETE].method == "DELETE"
     for endpoint_id in WORKFLOW_DESIGN_ENDPOINTS:
@@ -76,6 +84,16 @@ def test_workflow_design_endpoint_contracts_match_openapi_operation_ids_and_stat
             assert operation["operationId"] == endpoint.operation_id
             for status in endpoint.accepted_statuses:
                 assert str(status) in operation["responses"]
+
+
+def test_workflow_design_route_success_statuses_are_contract_owned() -> None:
+    local_route_source = (ROOT / "apps" / "api" / "workflow_design_routes.py").read_text(encoding="utf-8")
+    remote_route_source = (ROOT / "apps" / "remote_runner" / "workflow_design_routes.py").read_text(encoding="utf-8")
+
+    for route_source in (local_route_source, remote_route_source):
+        assert "remote_endpoint_success_status(WORKFLOW_DESIGN_DRAFT_CREATE)" in route_source
+        assert "remote_endpoint_success_status(WORKFLOW_DESIGN_DRAFT_FORK)" in route_source
+        assert "status_code=201" not in route_source
 
 
 def test_workflow_design_endpoint_caller_preserves_item_and_data_unwraps() -> None:
