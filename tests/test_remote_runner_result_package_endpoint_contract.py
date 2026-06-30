@@ -270,18 +270,36 @@ def test_transport_and_result_package_proxy_keep_only_download_semantics() -> No
         assert not hasattr(RemoteRunnerHttpClient, method_name)
         assert not hasattr(RemoteRunnerResultPackageProxyMixin, method_name)
 
-    assert hasattr(RemoteRunnerHttpClient, "download_result_package")
+    assert not hasattr(RemoteRunnerHttpClient, "download_result_package")
+    assert hasattr(RemoteRunnerHttpClient, "download_bytes")
     assert hasattr(RemoteRunnerResultPackageProxyMixin, "download_result_package")
 
 
-def test_transport_download_uses_registry_rendered_path() -> None:
+def test_transport_download_accepts_rendered_path_only() -> None:
     client = FakeDownloadClient("http://example.test", "token")
 
-    assert client.download_result_package("res/1", "rpex/1") == {
+    assert client.download_bytes("/api/v1/results/res%2F1/exports/rpex%2F1/download") == {
         "method": "GET",
         "path": "/api/v1/results/res%2F1/exports/rpex%2F1/download",
     }
     assert client.calls == [("GET", "/api/v1/results/res%2F1/exports/rpex%2F1/download")]
+
+
+def test_result_package_proxy_download_uses_registry_rendered_path() -> None:
+    proxy = FakeDownloadProxy()
+
+    assert proxy.download_result_package(
+        server_id="srv_1",
+        ssh_service=object(),
+        server_record={"server_id": "srv_1"},
+        result_id="res/1",
+        package_export_id="rpex/1",
+    ) == {
+        "method": "GET",
+        "path": "/api/v1/results/res%2F1/exports/rpex%2F1/download",
+    }
+    assert proxy.client.calls == [("GET", "/api/v1/results/res%2F1/exports/rpex%2F1/download")]
+    assert proxy.timeouts == [60]
 
 
 class FakeCommandClient:
@@ -308,6 +326,17 @@ class FakeDownloadClient(RemoteRunnerHttpClient):
     def _request_bytes(self, method: str, path: str) -> dict[str, object]:
         self.calls.append((method, path))
         return {"method": method, "path": path}
+
+
+class FakeDownloadProxy(RemoteRunnerResultPackageProxyMixin):
+    def __init__(self) -> None:
+        self.client = FakeDownloadClient("http://example.test", "token")
+        self.timeouts: list[int] = []
+
+    def _get_client(self, **kwargs):
+        assert kwargs["server_id"] == "srv_1"
+        self.timeouts.append(int(kwargs["timeout"]))
+        return self.client
 
 
 class FakeProxy(RemoteRunnerProxyMixin):

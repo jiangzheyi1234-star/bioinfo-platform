@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.contracts.remote_endpoints import render_remote_endpoint_path
+from core.contracts.result_package_remote_endpoints import RESULT_PACKAGE_DOWNLOAD
+
 
 class RemoteRunnerResultPackageProxyMixin:
     def _result_package_client(self, kwargs: dict[str, Any]):
@@ -16,4 +19,11 @@ class RemoteRunnerResultPackageProxyMixin:
 
     def download_result_package(self, **kwargs) -> dict[str, Any]:
         client = self._result_package_client({**kwargs, "timeout": 60})
-        return client.download_result_package(kwargs["result_id"], kwargs["package_export_id"])
+        path = render_remote_endpoint_path(
+            RESULT_PACKAGE_DOWNLOAD,
+            {
+                "result_id": kwargs["result_id"],
+                "package_export_id": kwargs["package_export_id"],
+            },
+        )
+        return client.download_bytes(path)

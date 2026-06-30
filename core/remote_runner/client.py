@@ -9,10 +9,6 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
-from core.contracts.remote_endpoints import render_remote_endpoint_path
-from core.contracts.result_package_remote_endpoints import RESULT_PACKAGE_DOWNLOAD
-
-
 class RemoteRunnerClientError(RuntimeError):
     def __init__(self, message: str, *, status_code: int | None = None, detail: Any = None):
         super().__init__(message)
@@ -223,11 +219,7 @@ class RemoteRunnerHttpClient:
     def delete_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, Any]:
         return self._request_json("DELETE", path, accepted_statuses=accepted_statuses)
 
-    def download_result_package(self, result_id: str, package_export_id: str) -> dict[str, Any]:
-        path = render_remote_endpoint_path(
-            RESULT_PACKAGE_DOWNLOAD,
-            {"result_id": result_id, "package_export_id": package_export_id},
-        )
+    def download_bytes(self, path: str) -> dict[str, Any]:
         return self._request_bytes("GET", path)
 
     def get_health(self) -> dict[str, Any]:
