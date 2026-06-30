@@ -13,7 +13,7 @@ from core.contracts.database_remote_endpoints import (
     DATABASE_TEMPLATE_LIST,
     DATABASE_UPDATE,
 )
-from core.contracts.remote_endpoints import REMOTE_ENDPOINTS, render_remote_endpoint_path
+from core.contracts.remote_endpoints import REMOTE_ENDPOINTS, remote_endpoint_success_status, render_remote_endpoint_path
 from core.governance_policy import HIGH_RISK_API_POLICIES
 from core.remote_runner.client import RemoteRunnerHttpClient
 from core.remote_runner.endpoint_caller import call_remote_endpoint
@@ -61,6 +61,7 @@ def test_database_endpoints_are_registry_owned() -> None:
     assert REMOTE_ENDPOINTS[DATABASE_LIST].response_item_key == "items"
     assert REMOTE_ENDPOINTS[DATABASE_TEMPLATE_LIST].response_item_key == "items"
     assert REMOTE_ENDPOINTS[DATABASE_CREATE].accepted_statuses == (201,)
+    assert remote_endpoint_success_status(DATABASE_CREATE) == 201
     for endpoint_id in DATABASE_COMMAND_ENDPOINTS:
         assert REMOTE_ENDPOINTS[endpoint_id].cache_scope.endswith("command")
 
@@ -124,6 +125,8 @@ def test_database_endpoint_caller_unwraps_catalog_and_command_shapes() -> None:
 
 
 def test_database_runtime_manager_uses_generic_endpoint_registry() -> None:
+    local_route_source = _source("apps/api/database_routes.py")
+    remote_route_source = _source("apps/remote_runner/database_routes.py")
     manager_source = _source("core/app_runtime/managers/database.py")
     remote_manager_source = _source("core/remote_runner/manager.py")
     readiness_source = _source("core/remote_runner/readiness.py")
@@ -145,6 +148,10 @@ def test_database_runtime_manager_uses_generic_endpoint_registry() -> None:
         assert endpoint_name in manager_source
     assert "call_remote_endpoint(" in manager_source
     assert "call_existing_runner(" not in manager_source
+    assert "remote_endpoint_success_status(DATABASE_CREATE)" in local_route_source
+    assert "remote_endpoint_success_status(DATABASE_CREATE)" in remote_route_source
+    assert "status_code=201" not in local_route_source
+    assert "status_code=201" not in remote_route_source
 
 
 def test_database_methods_do_not_reappear_on_transport_or_remote_manager() -> None:

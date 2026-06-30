@@ -16,7 +16,7 @@ from core.contracts.database_remote_endpoints import (
     DATABASE_TEMPLATE_LIST,
     DATABASE_UPDATE,
 )
-from core.contracts.remote_endpoints import REMOTE_ENDPOINTS
+from core.contracts.remote_endpoints import REMOTE_ENDPOINTS, remote_endpoint_success_status
 
 from .api_models import DatabaseManifestRequest, DatabasePackReadyScanRequest, DatabaseUpdateRequest
 from .database_service import (
@@ -61,7 +61,11 @@ async def scan_database_pack_ready_api(
     return await scan_database_pack_ready_from_request(payload, authorization)
 
 
-@router.post("/api/v1/databases", status_code=201, operation_id=REMOTE_ENDPOINTS[DATABASE_CREATE].operation_id)
+@router.post(
+    "/api/v1/databases",
+    status_code=remote_endpoint_success_status(DATABASE_CREATE),
+    operation_id=REMOTE_ENDPOINTS[DATABASE_CREATE].operation_id,
+)
 async def add_database(payload: DatabaseManifestRequest, authorization: AuthorizationHeader = None) -> dict[str, Any]:
     return await add_database_from_request(payload, authorization)
 
