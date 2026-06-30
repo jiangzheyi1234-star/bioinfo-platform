@@ -300,7 +300,6 @@ export function WorkflowFirstRunPage() {
 
         <FirstRunCompletionPanel
           card={firstRunEvidence.validationCard}
-          downloadingValidationCard={firstRunEvidence.validationCardLoading}
           firstRunStatus={firstRunStatusSnapshot || null}
           latestPackage={latestPackage}
           loadingValidationCard={firstRunEvidence.validationCardFetchLoading}
@@ -311,9 +310,6 @@ export function WorkflowFirstRunPage() {
           resultId={resultId}
           run={run}
           workflowRevisionId={workflowRevisionId}
-          onDownloadValidationCard={() => void firstRunEvidence.downloadValidationCard()}
-          onDownloadValidationCardMarkdown={() => void firstRunEvidence.downloadValidationCardMarkdown()}
-          onDownloadHandoffManifest={() => void firstRunEvidence.downloadHandoffManifest()}
           pilotHandoff={firstRunEvidence.pilotHandoff}
         />
 
@@ -392,7 +388,7 @@ export function WorkflowFirstRunPage() {
             <ValidationCard
               artifacts={artifacts}
               card={firstRunEvidence.validationCard}
-              error={firstRunEvidence.validationCardError || firstRunEvidence.validationCardFetchError}
+              error={firstRunEvidence.validationCardFetchError}
               inputArtifacts={inputArtifacts}
               loadingCard={firstRunEvidence.validationCardFetchLoading}
               packageExport={latestPackage}
@@ -402,10 +398,7 @@ export function WorkflowFirstRunPage() {
               run={run}
               sampleUploads={state.sampleUploads}
               server={state.server}
-              downloading={firstRunEvidence.validationCardLoading}
               workflowRevisionId={workflowRevisionId}
-              onDownload={() => void firstRunEvidence.downloadValidationCard()}
-              onDownloadMarkdown={() => void firstRunEvidence.downloadValidationCardMarkdown()}
             />
           </div>
         </section>

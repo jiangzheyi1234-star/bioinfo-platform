@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Literal
+from urllib.parse import quote
 
 
 FIRST_RUN_FULL_RESULT_PACKAGE_REQUIRED = "FIRST_RUN_FULL_RESULT_PACKAGE_REQUIRED"
@@ -57,7 +58,7 @@ def evaluate_first_run_result_package(
     downloadable = [
         item
         for item in exports
-        if item.get("packageBytesState") == "available" and isinstance(item.get("download"), dict)
+        if item.get("packageBytesState") == "available" and _download_href_ready(item, result_id=result_id)
     ]
     if not downloadable:
         return _export_required(
@@ -132,6 +133,19 @@ def _export_required(code: str, detail: str) -> FirstRunResultPackageGate:
 
 def _ledger_mismatch(code: str, detail: str) -> FirstRunResultPackageGate:
     return FirstRunResultPackageGate(state="ledger_mismatch", code=code, detail=detail)
+
+
+def _download_href_ready(item: dict[str, Any], *, result_id: str) -> bool:
+    download = item.get("download") if isinstance(item.get("download"), dict) else {}
+    href = str(download.get("href") or "").strip()
+    package_export_id = str(item.get("packageExportId") or "").strip()
+    if not href or not package_export_id:
+        return False
+    if not href.startswith("/api/v1/") or href.startswith("//") or "://" in href:
+        return False
+    path = href.split("?", 1)[0]
+    expected = f"/api/v1/results/{quote(result_id, safe='')}/exports/{quote(package_export_id, safe='')}/download"
+    return path == expected
 
 
 def _mapping_items(value: Any) -> list[dict[str, Any]]:

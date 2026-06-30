@@ -45,6 +45,7 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     first_run_sample_submit = (FIRST_RUN_COMPONENTS / "workflow-first-run-sample-submit.tsx").read_text(encoding="utf-8")
     first_run_trust_summary = (FIRST_RUN_COMPONENTS / "workflow-first-run-trust-summary.tsx").read_text(encoding="utf-8")
     first_run_validation = (FIRST_RUN_COMPONENTS / "workflow-first-run-validation.tsx").read_text(encoding="utf-8")
+    first_run_evidence_bundle = (FIRST_RUN_DOMAIN / "first-run-evidence-bundle.ts").read_text(encoding="utf-8")
     first_run_progress = (FIRST_RUN_DOMAIN / "first-run-progress.ts").read_text(encoding="utf-8")
     first_run_display = (FIRST_RUN_DOMAIN / "first-run-display.ts").read_text(encoding="utf-8")
     first_run_package = (FIRST_RUN_DOMAIN / "first-run-package.ts").read_text(encoding="utf-8")
@@ -118,7 +119,7 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "first-run-pilot-handoff" in first_run_completion
     assert "first-run-evidence-bundle" in first_run_completion
     assert "first-run-pilot-backup-restore" in first_run_completion
-    assert "first-run-completion-download-handoff" in first_run_completion
+    assert "first-run-completion-download-${role || \"evidence\"}" in first_run_completion
     assert "card?.pilotHandoff" in first_run_completion
     assert "pilotHandoffFromCard" not in first_run_completion
     assert "first-run-next-scenario-handoff" in first_run_completion
@@ -137,8 +138,10 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "pack.databaseHandoff?.registration" in first_run_completion
     assert "fetchWorkflowScenarioPacks" in first_run_evidence_state
     assert "nextScenarioPacks" in first_run_evidence_state
-    assert "downloadFirstRunHandoffManifest" in first_run_evidence_state
-    assert "downloadHandoffManifest" in first_run_evidence_state
+    assert "downloadFirstRunHandoffManifest" not in first_run_evidence_state
+    assert "downloadHandoffManifest" not in first_run_evidence_state
+    assert "firstRunEvidenceBundleFiles(evidenceBundle)" in first_run_completion
+    assert "firstRunEvidenceBundleFileDownloadHref(file)" in first_run_completion
     assert "fetchWorkflowScenarioPacks" not in first_run_page
     assert "WorkflowFirstRunConductorPanel" in first_run_page
     assert "useFirstRunConductor" in first_run_page
@@ -169,8 +172,9 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "下载并分享以下 4 个文件" in first_run_completion
     assert "first-run-evidence-bundle-file" in first_run_completion
     assert "item.filename || item.source" in first_run_completion
-    assert "firstRunResultPackageReady(latestPackage)" in first_run_completion
-    assert "from \"../_domain/first-run-package\"" in first_run_completion
+    assert "firstRunEvidenceBundleFileDownloadHref(item)" in first_run_completion
+    assert "firstRunResultPackageReady(latestPackage)" not in first_run_completion
+    assert "from \"../_domain/first-run-package\"" not in first_run_completion
     assert "passed checks" in first_run_completion
     assert "RUN_OWN_SMALL_SAMPLE" not in first_run_completion
     assert "automatic-database-install" not in first_run_completion
@@ -186,7 +190,7 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "packOptions?: Array" in first_run_types
     assert "registrationScriptPath?: string" in first_run_types
     assert "acceptedEvidenceType?: string" in first_run_types
-    assert "downloadFirstRunHandoffManifest" in first_run_api
+    assert "downloadFirstRunHandoffManifest" not in first_run_api
     assert "packageExports.find((item) => item.packageExportId === statusPackageExportId)" in first_run_evidence_state
     assert "const latestPackage = readyPackage || (status ? statusPackageFallback : packageExports[0])" in first_run_evidence_state
     assert "const packageReady = status?.evidence?.resultPackage?.ready === true" in first_run_evidence_state
@@ -295,13 +299,15 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "downloadTextFile" not in first_run_api
     assert "Blob" not in first_run_api
     assert "URL.createObjectURL" not in first_run_api
-    assert "apiBase()" in first_run_api
-    assert "firstRunValidationCardJsonDownloadPath" in first_run_api
-    assert "firstRunValidationCardMarkdownDownloadPath" in first_run_api
-    assert "firstRunPilotHandoffMarkdownDownloadPath" in first_run_api
-    assert 'firstRunDownloadPath(runId, "validation-card.json", options)' in first_run_api
-    assert 'firstRunDownloadPath(runId, "validation-card.md", options)' in first_run_api
-    assert 'firstRunDownloadPath(runId, "pilot-handoff.md", options)' in first_run_api
+    assert "apiBase()" not in first_run_api
+    assert "apiBase()" in first_run_evidence_bundle
+    assert 'href.startsWith("/api/v1/")' in first_run_evidence_bundle
+    assert "firstRunValidationCardJsonDownloadPath" not in first_run_api
+    assert "firstRunValidationCardMarkdownDownloadPath" not in first_run_api
+    assert "firstRunPilotHandoffMarkdownDownloadPath" not in first_run_api
+    assert "firstRunDownloadPath" not in first_run_api
+    assert "downloadLocalApiFile" not in first_run_api
+    assert "firstRunEvidenceBundleFileDownloadHref" in first_run_validation
     assert "serverId: firstRunServerId" in first_run_evidence_state
     assert "fetchWorkflowServerExecutionDiagnostics" in first_run_page
     assert "executionDiagnostics?.readiness?.ok === true" in first_run_page

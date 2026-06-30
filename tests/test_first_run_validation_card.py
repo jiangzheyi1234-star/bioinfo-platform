@@ -296,6 +296,10 @@ def test_first_run_validation_card_requires_workflow_revision_software_evidence(
         ("none", "FIRST_RUN_RESULT_PACKAGE_REQUIRED"),
         ("metadata-only", "FIRST_RUN_FULL_RESULT_PACKAGE_REQUIRED"),
         ("no-download", "FIRST_RUN_RESULT_PACKAGE_DOWNLOAD_REQUIRED"),
+        ("empty-download-href", "FIRST_RUN_RESULT_PACKAGE_DOWNLOAD_REQUIRED"),
+        ("external-download-href", "FIRST_RUN_RESULT_PACKAGE_DOWNLOAD_REQUIRED"),
+        ("wrong-download-api", "FIRST_RUN_RESULT_PACKAGE_DOWNLOAD_REQUIRED"),
+        ("wrong-download-result", "FIRST_RUN_RESULT_PACKAGE_DOWNLOAD_REQUIRED"),
         ("no-hash", "FIRST_RUN_RESULT_PACKAGE_HASH_REQUIRED"),
     ],
 )
@@ -898,6 +902,22 @@ def _exports_for_case(export_case: str) -> list[dict[str, Any]]:
         return [_package("rpex_metadata", artifact_payload_mode="metadata-only", include_artifacts=False)]
     if export_case == "no-download":
         return [_package("rpex_no_download", download=False)]
+    if export_case == "empty-download-href":
+        package = _package("rpex_empty_href")
+        package["download"]["href"] = ""
+        return [package]
+    if export_case == "external-download-href":
+        package = _package("rpex_external_href")
+        package["download"]["href"] = "https://example.test/result.zip"
+        return [package]
+    if export_case == "wrong-download-api":
+        package = _package("rpex_wrong_api")
+        package["download"]["href"] = "/api/v1/first-run/runs/run_first/validation-card.json"
+        return [package]
+    if export_case == "wrong-download-result":
+        package = _package("rpex_wrong_result")
+        package["download"]["href"] = "/api/v1/results/res_other/exports/rpex_wrong_result/download"
+        return [package]
     if export_case == "no-hash":
         return [_package("rpex_no_hash", sha256="", manifest_sha256="")]
     raise AssertionError(f"unknown export case: {export_case}")
@@ -956,28 +976,28 @@ def _expected_evidence_bundle(
                 "manifestSha256": manifest_sha256,
                 "artifactPayloadMode": "full",
                 "includeArtifacts": True,
-                "href": f"/api/v1/results/res_run_first/exports/{package_export_id}/download",
+                "href": f"/api/v1/results/res_run_first/exports/{package_export_id}/download?serverId=srv_first",
             },
             {
                 "role": "validation-card-json",
                 "filename": "res_run_first.validation-card.json",
                 "source": "first-run-validation-card-api",
                 "schemaVersion": "h2ometa.first-run.validation-card.v1",
-                "href": "/api/v1/first-run/runs/run_first/validation-card.json",
+                "href": "/api/v1/first-run/runs/run_first/validation-card.json?serverId=srv_first",
             },
             {
                 "role": "validation-card-markdown",
                 "filename": "res_run_first.validation-card.md",
                 "source": "first-run-validation-card-markdown-api",
                 "schemaVersion": "h2ometa.first-run.validation-card.v1",
-                "href": "/api/v1/first-run/runs/run_first/validation-card.md",
+                "href": "/api/v1/first-run/runs/run_first/validation-card.md?serverId=srv_first",
             },
             {
                 "role": "pilot-handoff",
                 "filename": "res_run_first.pilot-handoff.md",
                 "source": "first-run-pilot-handoff-markdown-api",
                 "schemaVersion": "h2ometa.first-run.single-user-lab-pilot-handoff.v1",
-                "href": "/api/v1/first-run/runs/run_first/pilot-handoff.md",
+                "href": "/api/v1/first-run/runs/run_first/pilot-handoff.md?serverId=srv_first",
             },
         ],
         "integrity": {

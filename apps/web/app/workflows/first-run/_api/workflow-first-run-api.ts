@@ -1,6 +1,6 @@
 "use client";
 
-import { apiBase, requestLocalApiJson } from "@/app/lib/local-api-client";
+import { requestLocalApiJson } from "@/app/lib/local-api-client";
 
 import type { FirstRunFinalization, FirstRunStatus, FirstRunValidationCard } from "../_domain/first-run-types";
 
@@ -52,63 +52,7 @@ export async function finalizeFirstRun(
   return response.data;
 }
 
-export async function downloadFirstRunValidationCard({
-  runId,
-  serverId,
-}: {
-  runId: string;
-  serverId?: string;
-}) {
-  downloadLocalApiFile(firstRunValidationCardJsonDownloadPath(runId, { serverId }));
-}
-
-export async function downloadFirstRunValidationCardMarkdown({
-  runId,
-  serverId,
-}: {
-  runId: string;
-  serverId?: string;
-}) {
-  downloadLocalApiFile(firstRunValidationCardMarkdownDownloadPath(runId, { serverId }));
-}
-
-export async function downloadFirstRunHandoffManifest({
-  runId,
-  serverId,
-}: {
-  runId: string;
-  serverId?: string;
-}) {
-  downloadLocalApiFile(firstRunPilotHandoffMarkdownDownloadPath(runId, { serverId }));
-}
-
-export function firstRunValidationCardJsonDownloadPath(runId: string, options: { serverId?: string } = {}) {
-  return firstRunDownloadPath(runId, "validation-card.json", options);
-}
-
-export function firstRunValidationCardMarkdownDownloadPath(runId: string, options: { serverId?: string } = {}) {
-  return firstRunDownloadPath(runId, "validation-card.md", options);
-}
-
-export function firstRunPilotHandoffMarkdownDownloadPath(runId: string, options: { serverId?: string } = {}) {
-  return firstRunDownloadPath(runId, "pilot-handoff.md", options);
-}
-
 function queryString(query: URLSearchParams) {
   const value = query.toString();
   return value ? `?${value}` : "";
-}
-
-function firstRunDownloadPath(runId: string, filename: string, options: { serverId?: string }) {
-  const query = new URLSearchParams();
-  if (options.serverId) query.set("serverId", options.serverId);
-  return `/api/v1/first-run/runs/${encodeURIComponent(runId)}/${filename}${queryString(query)}`;
-}
-
-function downloadLocalApiFile(path: string) {
-  const anchor = document.createElement("a");
-  anchor.href = `${apiBase()}${path}`;
-  document.body.appendChild(anchor);
-  anchor.click();
-  document.body.removeChild(anchor);
 }

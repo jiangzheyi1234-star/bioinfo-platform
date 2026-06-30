@@ -3,9 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
-  downloadFirstRunHandoffManifest,
-  downloadFirstRunValidationCard,
-  downloadFirstRunValidationCardMarkdown,
   fetchFirstRunValidationCard,
   finalizeFirstRun,
 } from "../_api/workflow-first-run-api";
@@ -55,8 +52,6 @@ export function useFirstRunEvidence({
   const [validationCard, setValidationCard] = useState<FirstRunValidationCard | null>(null);
   const [validationCardFetchLoading, setValidationCardFetchLoading] = useState(false);
   const [validationCardFetchError, setValidationCardFetchError] = useState("");
-  const [validationCardLoading, setValidationCardLoading] = useState(false);
-  const [validationCardError, setValidationCardError] = useState("");
   const [nextScenarioPacks, setNextScenarioPacks] = useState<WorkflowScenarioPack[]>([]);
   const [nextScenarioPacksLoading, setNextScenarioPacksLoading] = useState(false);
   const [nextScenarioPacksError, setNextScenarioPacksError] = useState("");
@@ -74,9 +69,6 @@ export function useFirstRunEvidence({
     if (statusPackageEvidence?.ready !== true || !statusPackageExportId || !resultId) return undefined;
     return {
       artifactPayloadMode: statusPackageEvidence.artifactPayloadMode,
-      download: {
-        href: `/api/v1/results/${encodeURIComponent(resultId)}/exports/${encodeURIComponent(statusPackageExportId)}/download`,
-      },
       includeArtifacts: statusPackageEvidence.includeArtifacts,
       lifecycleState: "active",
       manifestSha256: statusPackageEvidence.manifestSha256,
@@ -128,14 +120,14 @@ export function useFirstRunEvidence({
     setValidationCardFetchLoading(true);
     setValidationCardFetchError("");
     try {
-      setValidationCard(await fetchFirstRunValidationCard(firstRunRunId, { serverId }));
+      setValidationCard(await fetchFirstRunValidationCard(firstRunRunId, { serverId: firstRunServerId }));
     } catch (err) {
       setValidationCard(null);
       setValidationCardFetchError(workflowErrorMessage(err, "验证卡加载失败"));
     } finally {
       setValidationCardFetchLoading(false);
     }
-  }, [firstRunRunId, serverId, validationEligible]);
+  }, [firstRunRunId, firstRunServerId, validationEligible]);
 
   useEffect(() => {
     void loadValidationCard();
@@ -183,7 +175,6 @@ export function useFirstRunEvidence({
     if (!firstRunRunId || finalizingFirstRun) return;
     setFinalizingFirstRun(true);
     setPackageError("");
-    setValidationCardError("");
     setFinalizationAction(null);
     try {
       const finalized = await finalizeFirstRun(firstRunRunId, {
@@ -209,58 +200,7 @@ export function useFirstRunEvidence({
     }
   }
 
-  async function downloadValidationCard() {
-    if (!firstRunRunId || validationCardLoading) return;
-    setValidationCardLoading(true);
-    setValidationCardError("");
-    try {
-      await downloadFirstRunValidationCard({
-        runId: firstRunRunId,
-        serverId: firstRunServerId,
-      });
-    } catch (err) {
-      setValidationCardError(workflowErrorMessage(err, "验证卡下载失败"));
-    } finally {
-      setValidationCardLoading(false);
-    }
-  }
-
-  async function downloadValidationCardMarkdown() {
-    if (!firstRunRunId || validationCardLoading) return;
-    setValidationCardLoading(true);
-    setValidationCardError("");
-    try {
-      await downloadFirstRunValidationCardMarkdown({
-        runId: firstRunRunId,
-        serverId: firstRunServerId,
-      });
-    } catch (err) {
-      setValidationCardError(workflowErrorMessage(err, "验证卡 Markdown 下载失败"));
-    } finally {
-      setValidationCardLoading(false);
-    }
-  }
-
-  async function downloadHandoffManifest() {
-    if (!firstRunRunId || validationCardLoading) return;
-    setValidationCardLoading(true);
-    setValidationCardError("");
-    try {
-      await downloadFirstRunHandoffManifest({
-        runId: firstRunRunId,
-        serverId: firstRunServerId,
-      });
-    } catch (err) {
-      setValidationCardError(workflowErrorMessage(err, "交接清单下载失败"));
-    } finally {
-      setValidationCardLoading(false);
-    }
-  }
-
   return {
-    downloadHandoffManifest,
-    downloadValidationCard,
-    downloadValidationCardMarkdown,
     exportPackage,
     exportingPackage,
     finalizationAction,
@@ -276,10 +216,8 @@ export function useFirstRunEvidence({
     packageReady,
     pilotHandoff,
     validationCard,
-    validationCardError,
     validationCardFetchError,
     validationCardFetchLoading,
-    validationCardLoading,
     validationEligible,
     validationReady,
     workflowRevisionId,

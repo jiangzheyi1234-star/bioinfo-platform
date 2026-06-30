@@ -41,8 +41,24 @@ def test_first_run_download_routes_return_server_owned_evidence_files(monkeypatc
     payload = json.loads(json_response.body)
     assert "data" not in payload
     assert payload["schemaVersion"] == "h2ometa.first-run.validation-card.v1"
-    assert payload["pilotHandoff"]["evidenceBundle"]["requiredFiles"][1]["href"] == (
-        "/api/v1/first-run/runs/run_first/validation-card.json"
+    bundle_files = {item["role"]: item for item in payload["pilotHandoff"]["evidenceBundle"]["requiredFiles"]}
+    assert set(bundle_files) == {
+        "result-package",
+        "validation-card-json",
+        "validation-card-markdown",
+        "pilot-handoff",
+    }
+    assert bundle_files["result-package"]["href"] == (
+        "/api/v1/results/res_run_first/exports/rpex_full/download?serverId=srv_first"
+    )
+    assert bundle_files["validation-card-json"]["href"] == (
+        "/api/v1/first-run/runs/run_first/validation-card.json?serverId=srv_first"
+    )
+    assert bundle_files["validation-card-markdown"]["href"] == (
+        "/api/v1/first-run/runs/run_first/validation-card.md?serverId=srv_first"
+    )
+    assert bundle_files["pilot-handoff"]["href"] == (
+        "/api/v1/first-run/runs/run_first/pilot-handoff.md?serverId=srv_first"
     )
 
     assert card_response.media_type == "text/markdown; charset=utf-8"
@@ -60,4 +76,7 @@ def test_first_run_download_routes_return_server_owned_evidence_files(monkeypatc
     handoff_markdown = handoff_response.body.decode("utf-8")
     assert "H2OMeta First Successful Run Pilot Handoff" in handoff_markdown
     assert "first-run-pilot-handoff-markdown-api" in handoff_markdown
-    assert "/api/v1/first-run/runs/run_first/pilot-handoff.md" in handoff_markdown
+    assert "/api/v1/results/res_run_first/exports/rpex_full/download?serverId=srv_first" in handoff_markdown
+    assert "/api/v1/first-run/runs/run_first/validation-card.json?serverId=srv_first" in handoff_markdown
+    assert "/api/v1/first-run/runs/run_first/validation-card.md?serverId=srv_first" in handoff_markdown
+    assert "/api/v1/first-run/runs/run_first/pilot-handoff.md?serverId=srv_first" in handoff_markdown

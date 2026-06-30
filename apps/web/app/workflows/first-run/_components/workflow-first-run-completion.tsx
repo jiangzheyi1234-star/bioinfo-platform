@@ -7,20 +7,18 @@ import { cn } from "@/lib/utils";
 
 import type { FirstRunPilotHandoff, FirstRunStatus, FirstRunValidationCard } from "../_domain/first-run-types";
 import { formatBytes } from "../_domain/first-run-display";
-import { firstRunResultPackageReady } from "../_domain/first-run-package";
+import {
+  firstRunEvidenceBundleFileDownloadHref,
+  firstRunEvidenceBundleFiles,
+} from "../_domain/first-run-evidence-bundle";
 import { FirstRunTrustSummary } from "./workflow-first-run-trust-summary";
-import { workflowResultPackageDownloadHref } from "@/app/components/workflows-page-api";
 import type { WorkflowResultPackageExport, WorkflowRun, WorkflowScenarioPack } from "@/app/components/workflows-page-model";
 
 export function FirstRunCompletionPanel({
   card,
-  downloadingValidationCard,
   firstRunStatus,
   latestPackage,
   loadingValidationCard,
-  onDownloadValidationCard,
-  onDownloadValidationCardMarkdown,
-  onDownloadHandoffManifest,
   nextScenarioPacks = [],
   nextScenarioPacksError = "",
   nextScenarioPacksLoading = false,
@@ -31,16 +29,12 @@ export function FirstRunCompletionPanel({
   workflowRevisionId,
 }: {
   card: FirstRunValidationCard | null;
-  downloadingValidationCard: boolean;
   firstRunStatus: FirstRunStatus | null;
   latestPackage?: WorkflowResultPackageExport;
   loadingValidationCard: boolean;
   nextScenarioPacks?: WorkflowScenarioPack[];
   nextScenarioPacksError?: string;
   nextScenarioPacksLoading?: boolean;
-  onDownloadValidationCard: () => void;
-  onDownloadValidationCardMarkdown: () => void;
-  onDownloadHandoffManifest: () => void;
   pilotHandoff?: FirstRunPilotHandoff | null;
   ready: boolean;
   resultId: string;
@@ -52,11 +46,6 @@ export function FirstRunCompletionPanel({
   const validationEvidence = firstRunStatus?.evidence?.validation;
   const resultPackageEvidence = firstRunStatus?.evidence?.resultPackage;
   const statusRun = firstRunStatus?.evidence?.run || firstRunStatus?.latestEligibleRun || null;
-  const packageServerId = firstRunStatus?.serverId || "";
-  const downloadHref =
-    latestPackage && firstRunResultPackageReady(latestPackage)
-      ? workflowResultPackageDownloadHref(latestPackage, { serverId: packageServerId })
-      : "";
   const effectiveRunId = firstRunStatus ? statusRun?.runId || "" : run?.runId || "";
   const effectiveResultId = firstRunStatus ? statusRun?.resultId || resultId : resultId;
   const effectiveWorkflowRevisionId = firstRunStatus
@@ -67,6 +56,7 @@ export function FirstRunCompletionPanel({
   const keyResults = card?.keyResults || [];
   const handoff = pilotHandoff || card?.pilotHandoff || null;
   const evidenceBundle = handoff?.evidenceBundle;
+  const evidenceDownloads = firstRunEvidenceBundleFiles(evidenceBundle);
 
   return (
     <section
@@ -84,56 +74,9 @@ export function FirstRunCompletionPanel({
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
-          {downloadHref ? (
-            <Button asChild className="h-9 bg-slate-950 px-3 text-xs text-white hover:bg-slate-800">
-              <a href={downloadHref} download={latestPackage?.download?.filename || undefined}>
-                <FileArchive strokeWidth={1.5} className="mr-2 h-3.5 w-3.5" />
-                下载结果包
-              </a>
-            </Button>
-          ) : null}
-          <Button
-            variant="outline"
-            className="h-9 border-emerald-200 bg-white px-3 text-xs text-emerald-800 hover:bg-emerald-50"
-            disabled={downloadingValidationCard}
-            onClick={onDownloadValidationCardMarkdown}
-            data-testid="first-run-completion-download-card-markdown"
-          >
-            {downloadingValidationCard ? (
-              <Loader2 strokeWidth={1.5} className="mr-2 h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <FileText strokeWidth={1.5} className="mr-2 h-3.5 w-3.5" />
-            )}
-            下载验证卡 Markdown
-          </Button>
-          <Button
-            variant="outline"
-            className="h-9 border-emerald-200 bg-white px-3 text-xs text-emerald-800 hover:bg-emerald-50"
-            disabled={downloadingValidationCard}
-            onClick={onDownloadHandoffManifest}
-            data-testid="first-run-completion-download-handoff"
-          >
-            {downloadingValidationCard ? (
-              <Loader2 strokeWidth={1.5} className="mr-2 h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <ClipboardCheck strokeWidth={1.5} className="mr-2 h-3.5 w-3.5" />
-            )}
-            下载证据包清单
-          </Button>
-          <Button
-            variant="outline"
-            className="h-9 border-emerald-200 bg-white px-3 text-xs text-emerald-800 hover:bg-emerald-50"
-            disabled={downloadingValidationCard}
-            onClick={onDownloadValidationCard}
-            data-testid="first-run-completion-download-card"
-          >
-            {downloadingValidationCard ? (
-              <Loader2 strokeWidth={1.5} className="mr-2 h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <ClipboardCheck strokeWidth={1.5} className="mr-2 h-3.5 w-3.5" />
-            )}
-            下载验证卡 JSON
-          </Button>
+          {evidenceDownloads.map((item) => (
+            <EvidenceDownloadButton key={item.role || item.filename} file={item} />
+          ))}
         </div>
       </div>
 
@@ -177,6 +120,47 @@ export function FirstRunCompletionPanel({
       />
     </section>
   );
+}
+
+type EvidenceBundleFile = NonNullable<NonNullable<FirstRunPilotHandoff["evidenceBundle"]>["requiredFiles"]>[number];
+
+function EvidenceDownloadButton({ file }: { file: EvidenceBundleFile }) {
+  const href = firstRunEvidenceBundleFileDownloadHref(file);
+  if (!href) return null;
+  const role = file.role || "";
+  const primary = role === "result-package";
+  return (
+    <Button
+      asChild
+      className={cn(
+        "h-9 px-3 text-xs",
+        primary
+          ? "bg-slate-950 text-white hover:bg-slate-800"
+          : "border-emerald-200 bg-white text-emerald-800 hover:bg-emerald-50"
+      )}
+      variant={primary ? "default" : "outline"}
+      data-testid={`first-run-completion-download-${role || "evidence"}`}
+    >
+      <a href={href} download={file.filename || undefined}>
+        {evidenceFileIcon(role)}
+        {evidenceFileLabel(role)}
+      </a>
+    </Button>
+  );
+}
+
+function evidenceFileIcon(role: string) {
+  if (role === "result-package") return <FileArchive strokeWidth={1.5} className="mr-2 h-3.5 w-3.5" />;
+  if (role === "validation-card-markdown") return <FileText strokeWidth={1.5} className="mr-2 h-3.5 w-3.5" />;
+  return <ClipboardCheck strokeWidth={1.5} className="mr-2 h-3.5 w-3.5" />;
+}
+
+function evidenceFileLabel(role: string) {
+  if (role === "result-package") return "下载结果包";
+  if (role === "validation-card-markdown") return "下载验证卡 Markdown";
+  if (role === "pilot-handoff") return "下载证据包清单";
+  if (role === "validation-card-json") return "下载验证卡 JSON";
+  return "下载证据文件";
 }
 
 function SummaryItem({ label, mono = false, value }: { label: string; mono?: boolean; value?: string }) {
@@ -263,7 +247,17 @@ function EvidenceBundleSummary({ bundle }: { bundle: NonNullable<FirstRunPilotHa
             data-testid="first-run-evidence-bundle-file"
           >
             <div className="truncate font-semibold text-emerald-800">{item.role || "evidence"}</div>
-            <div className="truncate font-mono text-slate-500">{item.filename || item.source}</div>
+            {firstRunEvidenceBundleFileDownloadHref(item) ? (
+              <a
+                href={firstRunEvidenceBundleFileDownloadHref(item)}
+                download={item.filename || undefined}
+                className="block truncate font-mono text-slate-500 underline decoration-emerald-300 underline-offset-2"
+              >
+                {item.filename || item.source}
+              </a>
+            ) : (
+              <div className="truncate font-mono text-slate-500">{item.filename || item.source}</div>
+            )}
           </div>
         ))}
       </div>

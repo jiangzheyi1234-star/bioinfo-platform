@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from apps.api.workflow_scenario_pack_service import list_workflow_scenario_packs
 
@@ -63,6 +63,8 @@ def _evidence_bundle(
     result_id = str(evidence.get("resultId") or "").strip()
     base_name = result_id or run_id
     first_run_download_base = f"/api/v1/first-run/runs/{quote(run_id, safe='')}" if run_id else ""
+    runner = card.get("runner") if isinstance(card.get("runner"), dict) else {}
+    server_id = str(runner.get("serverId") or "").strip()
     report = card.get("reportInterpretation") if isinstance(card.get("reportInterpretation"), dict) else {}
     redaction = report.get("redaction") if isinstance(report.get("redaction"), dict) else {}
     package_download = package.get("download") if isinstance(package.get("download"), dict) else {}
@@ -81,28 +83,37 @@ def _evidence_bundle(
                 "manifestSha256": evidence.get("manifestSha256"),
                 "artifactPayloadMode": package.get("artifactPayloadMode"),
                 "includeArtifacts": package.get("includeArtifacts"),
-                "href": package_download.get("href"),
+                "href": _with_server_id_query(package_download.get("href"), server_id),
             },
             {
                 "role": "validation-card-json",
                 "filename": f"{base_name}.validation-card.json",
                 "source": "first-run-validation-card-api",
                 "schemaVersion": "h2ometa.first-run.validation-card.v1",
-                "href": f"{first_run_download_base}/validation-card.json" if first_run_download_base else "",
+                "href": _with_server_id_query(
+                    f"{first_run_download_base}/validation-card.json" if first_run_download_base else "",
+                    server_id,
+                ),
             },
             {
                 "role": "validation-card-markdown",
                 "filename": f"{base_name}.validation-card.md",
                 "source": "first-run-validation-card-markdown-api",
                 "schemaVersion": "h2ometa.first-run.validation-card.v1",
-                "href": f"{first_run_download_base}/validation-card.md" if first_run_download_base else "",
+                "href": _with_server_id_query(
+                    f"{first_run_download_base}/validation-card.md" if first_run_download_base else "",
+                    server_id,
+                ),
             },
             {
                 "role": "pilot-handoff",
                 "filename": f"{base_name}.pilot-handoff.md",
                 "source": "first-run-pilot-handoff-markdown-api",
                 "schemaVersion": FIRST_RUN_PILOT_HANDOFF_SCHEMA_VERSION,
-                "href": f"{first_run_download_base}/pilot-handoff.md" if first_run_download_base else "",
+                "href": _with_server_id_query(
+                    f"{first_run_download_base}/pilot-handoff.md" if first_run_download_base else "",
+                    server_id,
+                ),
             },
         ],
         "integrity": evidence,
@@ -122,6 +133,14 @@ def _evidence_bundle(
             "verify-manifest-sha256-before-reusing-lineage",
         ],
     }
+
+
+def _with_server_id_query(href: Any, server_id: str) -> str:
+    value = str(href or "").strip()
+    if not value or not server_id:
+        return value
+    separator = "&" if "?" in value else "?"
+    return f"{value}{separator}{urlencode({'serverId': server_id})}"
 
 
 def _package_filename(package: dict[str, Any], base_name: str) -> str:

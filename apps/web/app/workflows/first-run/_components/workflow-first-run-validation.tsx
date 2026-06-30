@@ -8,6 +8,10 @@ import { cn } from "@/lib/utils";
 
 import type { FirstRunNextAction, FirstRunStatus, FirstRunValidationCard } from "../_domain/first-run-types";
 import { formatBytes } from "../_domain/first-run-display";
+import {
+  firstRunEvidenceBundleFileByRole,
+  firstRunEvidenceBundleFileDownloadHref,
+} from "../_domain/first-run-evidence-bundle";
 import { FirstRunTrustSummary } from "./workflow-first-run-trust-summary";
 import { workflowResultPackageDownloadHref } from "@/app/components/workflows-page-api";
 import type {
@@ -144,14 +148,11 @@ export function ResultPackagePanel({
 export function ValidationCard({
   artifacts,
   card,
-  downloading,
   eligible,
   error,
   firstRunStatus,
   inputArtifacts,
   loadingCard,
-  onDownload,
-  onDownloadMarkdown,
   packageExport,
   resultId,
   run,
@@ -161,14 +162,11 @@ export function ValidationCard({
 }: {
   artifacts: WorkflowArtifact[];
   card: FirstRunValidationCard | null;
-  downloading: boolean;
   eligible: boolean;
   error: string;
   firstRunStatus: FirstRunStatus | null;
   inputArtifacts: FirstRunInputArtifacts;
   loadingCard: boolean;
-  onDownload: () => void;
-  onDownloadMarkdown: () => void;
   packageExport?: WorkflowResultPackageExport;
   resultId: string;
   run: WorkflowRun | null;
@@ -180,6 +178,10 @@ export function ValidationCard({
   const sampleData = card?.sampleData;
   const softwareEnvironment = card?.softwareEnvironment;
   const evidenceBundle = card?.pilotHandoff?.evidenceBundle;
+  const validationMarkdownFile = firstRunEvidenceBundleFileByRole(evidenceBundle, "validation-card-markdown");
+  const validationJsonFile = firstRunEvidenceBundleFileByRole(evidenceBundle, "validation-card-json");
+  const validationMarkdownHref = firstRunEvidenceBundleFileDownloadHref(validationMarkdownFile);
+  const validationJsonHref = firstRunEvidenceBundleFileDownloadHref(validationJsonFile);
   const validationEvidence = firstRunStatus?.evidence?.validation;
   const resultPackageEvidence = firstRunStatus?.evidence?.resultPackage;
   const statusRun = firstRunStatus?.evidence?.run || firstRunStatus?.latestEligibleRun || null;
@@ -214,14 +216,22 @@ export function ValidationCard({
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
-          <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs" disabled={!eligible || downloading} onClick={onDownloadMarkdown}>
-            {downloading ? <Loader2 strokeWidth={1.5} className="h-3.5 w-3.5 animate-spin" /> : <FileText strokeWidth={1.5} className="h-3.5 w-3.5" />}
-            Markdown
-          </Button>
-          <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs" disabled={!eligible || downloading} onClick={onDownload}>
-            {downloading ? <Loader2 strokeWidth={1.5} className="h-3.5 w-3.5 animate-spin" /> : <Download strokeWidth={1.5} className="h-3.5 w-3.5" />}
-            JSON
-          </Button>
+          {validationMarkdownHref ? (
+            <Button asChild variant="outline" size="sm" className="h-8 px-2.5 text-xs">
+              <a href={validationMarkdownHref} download={validationMarkdownFile?.filename || undefined}>
+                <FileText strokeWidth={1.5} className="h-3.5 w-3.5" />
+                Markdown
+              </a>
+            </Button>
+          ) : null}
+          {validationJsonHref ? (
+            <Button asChild variant="outline" size="sm" className="h-8 px-2.5 text-xs">
+              <a href={validationJsonHref} download={validationJsonFile?.filename || undefined}>
+                <Download strokeWidth={1.5} className="h-3.5 w-3.5" />
+                JSON
+              </a>
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -292,7 +302,17 @@ function ValidationCardEvidenceBundle({ bundle }: { bundle: FirstRunEvidenceBund
           {files.map((item) => (
             <div key={item.role || item.filename} className="min-w-0 rounded border border-emerald-200 bg-white px-3 py-2 text-[11px]">
               <div className="truncate font-semibold text-emerald-700">{item.role || "evidence"}</div>
-              <div className="mt-1 truncate font-mono text-slate-500">{item.filename || item.source}</div>
+              {firstRunEvidenceBundleFileDownloadHref(item) ? (
+                <a
+                  href={firstRunEvidenceBundleFileDownloadHref(item)}
+                  download={item.filename || undefined}
+                  className="mt-1 block truncate font-mono text-slate-500 underline decoration-emerald-300 underline-offset-2"
+                >
+                  {item.filename || item.source}
+                </a>
+              ) : (
+                <div className="mt-1 truncate font-mono text-slate-500">{item.filename || item.source}</div>
+              )}
             </div>
           ))}
         </div>

@@ -89,6 +89,10 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "/api/v1/first-run/runs/$([uri]::EscapeDataString($evidence.runId))/validation-card.json" in source
     assert "/api/v1/first-run/runs/$([uri]::EscapeDataString($evidence.runId))/validation-card.md" in source
     assert "/api/v1/first-run/runs/$([uri]::EscapeDataString($evidence.runId))/pilot-handoff.md" in source
+    assert '$expectedServerQuery = "?serverId=$([uri]::EscapeDataString($card.runner.serverId))"' in source
+    assert "validation-card.json$expectedServerQuery" in source
+    assert "validation-card.md$expectedServerQuery" in source
+    assert "pilot-handoff.md$expectedServerQuery" in source
     assert "keep-result-package-validation-card-and-handoff-together" in source
     assert "function Assert-FirstRunPilotHandoff" in source
     assert "pilotHandoff evidence must match validationCard run and result" in source

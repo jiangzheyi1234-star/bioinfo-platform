@@ -83,7 +83,9 @@ def test_first_run_validation_and_trust_summary_are_status_contract_driven() -> 
     assert "const statusRun = firstRunStatus?.evidence?.run || firstRunStatus?.latestEligibleRun || null" in first_run_completion
     assert 'const effectiveRunId = firstRunStatus ? statusRun?.runId || "" : run?.runId || ""' in first_run_completion
     assert "const effectiveResultId = firstRunStatus ? statusRun?.resultId || resultId : resultId" in first_run_completion
-    assert "workflowResultPackageDownloadHref(latestPackage, { serverId: packageServerId })" in first_run_completion
+    assert "firstRunEvidenceBundleFiles(evidenceBundle)" in first_run_completion
+    assert "firstRunEvidenceBundleFileDownloadHref(file)" in first_run_completion
+    assert "workflowResultPackageDownloadHref(latestPackage" not in first_run_completion
     assert "validationChecksPassed ?? checks.filter" not in first_run_validation
     assert not (FIRST_RUN_DOMAIN / "first-run-validation-state.ts").exists()
 
@@ -155,7 +157,8 @@ def test_first_run_evidence_actions_use_status_run_id_before_local_run() -> None
     assert "const validationEligible = validationReady" in first_run_evidence_state
     assert "fetchFirstRunValidationCard(firstRunRunId" in first_run_evidence_state
     assert "finalizeFirstRun(firstRunRunId" in first_run_evidence_state
-    assert "runId: firstRunRunId" in first_run_evidence_state
+    assert "downloadFirstRunValidationCard" not in first_run_evidence_state
+    assert "runId: firstRunRunId" not in first_run_evidence_state
     assert "if (!run?.runId" not in first_run_evidence_state
     assert "fetchFirstRunValidationCard(run.runId" not in first_run_evidence_state
     assert "finalizeFirstRun(run.runId" not in first_run_evidence_state
@@ -167,19 +170,29 @@ def test_first_run_result_package_uses_selected_server_boundary() -> None:
     first_run_evidence_state = (FIRST_RUN_ROUTE / "_state" / "use-first-run-evidence.ts").read_text(encoding="utf-8")
     first_run_validation = (FIRST_RUN_COMPONENTS / "workflow-first-run-validation.tsx").read_text(encoding="utf-8")
     first_run_completion = (FIRST_RUN_COMPONENTS / "workflow-first-run-completion.tsx").read_text(encoding="utf-8")
+    first_run_api = (FIRST_RUN_ROUTE / "_api" / "workflow-first-run-api.ts").read_text(encoding="utf-8")
     workflows_api = (ROOT / "apps" / "web" / "app" / "components" / "workflows-page-api.ts").read_text(encoding="utf-8")
 
     assert "fetchWorkflowResultPackageExports(resultId, { serverId })" in first_run_evidence_state
     assert "exportWorkflowResultPackage(resultId, true, { serverId })" in first_run_evidence_state
     assert "packageExports.find((item) => item.packageExportId === statusPackageExportId)" in first_run_evidence_state
     assert "packageBytesState: \"available\"" in first_run_evidence_state
+    assert "download: {" not in first_run_evidence_state
+    assert "`/api/v1/results/${encodeURIComponent(resultId)}/exports/${encodeURIComponent(statusPackageExportId)}/download`" not in first_run_evidence_state
     assert "const firstRunServerId = status?.serverId || serverId" in first_run_evidence_state
     assert "serverId: firstRunServerId" in first_run_evidence_state
     assert "card: validationCard" not in first_run_evidence_state
     assert "serverId={state.server?.serverId}" in first_run_page
     assert "serverId?: string;" in first_run_validation
     assert "workflowResultPackageDownloadHref(latestPackage, { serverId })" in first_run_validation
-    assert "workflowResultPackageDownloadHref(latestPackage, { serverId: packageServerId })" in first_run_completion
+    assert "firstRunEvidenceBundleFileByRole(evidenceBundle, \"validation-card-markdown\")" in first_run_validation
+    assert "firstRunEvidenceBundleFileByRole(evidenceBundle, \"validation-card-json\")" in first_run_validation
+    assert "firstRunEvidenceBundleFileDownloadHref(validationMarkdownFile)" in first_run_validation
+    assert "firstRunEvidenceBundleFileDownloadHref(validationJsonFile)" in first_run_validation
+    assert "workflowResultPackageDownloadHref(latestPackage, { serverId: packageServerId })" not in first_run_completion
+    assert "downloadFirstRunValidationCard" not in first_run_api
+    assert "firstRunDownloadPath" not in first_run_api
+    assert "downloadLocalApiFile" not in first_run_api
     assert "options: { serverId?: string } = {}" in workflows_api
     assert "...(options.serverId ? { serverId: options.serverId } : {})" in workflows_api
     assert "`/api/v1/results/${encodeURIComponent(resultId)}/exports${refreshQuery(options)}`" in workflows_api

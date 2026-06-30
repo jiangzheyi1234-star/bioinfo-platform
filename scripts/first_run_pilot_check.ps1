@@ -382,10 +382,14 @@ function Assert-FirstRunPilotHandoff {
             Fail-Pilot "first-run evidenceBundle $role href must stay under the first-run download API"
         }
     }
+    $expectedServerQuery = ""
+    if ($card.runner.serverId) {
+        $expectedServerQuery = "?serverId=$([uri]::EscapeDataString($card.runner.serverId))"
+    }
     $expectedBundleHrefs = @{
-        "validation-card-json" = "/api/v1/first-run/runs/$([uri]::EscapeDataString($evidence.runId))/validation-card.json"
-        "validation-card-markdown" = "/api/v1/first-run/runs/$([uri]::EscapeDataString($evidence.runId))/validation-card.md"
-        "pilot-handoff" = "/api/v1/first-run/runs/$([uri]::EscapeDataString($evidence.runId))/pilot-handoff.md"
+        "validation-card-json" = "/api/v1/first-run/runs/$([uri]::EscapeDataString($evidence.runId))/validation-card.json$expectedServerQuery"
+        "validation-card-markdown" = "/api/v1/first-run/runs/$([uri]::EscapeDataString($evidence.runId))/validation-card.md$expectedServerQuery"
+        "pilot-handoff" = "/api/v1/first-run/runs/$([uri]::EscapeDataString($evidence.runId))/pilot-handoff.md$expectedServerQuery"
     }
     foreach ($role in $expectedBundleHrefs.Keys) {
         $file = @($requiredFiles | Where-Object { $_.role -eq $role }) | Select-Object -First 1
