@@ -83,7 +83,10 @@ class FakeTerminalSession:
         return {
             "session_id": self.session_id,
             "cursor": cursor,
+            "base_cursor": 0,
             "output": "",
+            "truncated": False,
+            "scrollback_limit": 524288,
             "connected": not self.closed,
             "input_enabled": not self.closed,
             "closed": self.closed,
@@ -115,6 +118,10 @@ class FakeShellService:
         session = FakeTerminalSession(session_id)
         self.sessions[session_id] = session
         return session
+
+    def close_terminal_session(self, session_id: str, message: str = "终端会话已结束") -> None:
+        session = self.sessions.pop(session_id)
+        session.close(message=message)
 
     def close(self) -> None:
         self.is_connected = False
@@ -206,7 +213,7 @@ def test_connect_disconnect_and_terminal_contract_preserve_ssh_shell_api_path(
 
     closed = asyncio.run(close_terminal_session("term_1"))["item"]
     assert closed == {"session_id": "term_1", "closed": True}
-    assert fake_shell.sessions["term_1"].closed is True
+    assert "term_1" not in fake_shell.sessions
 
     disconnected = asyncio.run(disconnect_ssh())["item"]
     assert disconnected["connected"] is False

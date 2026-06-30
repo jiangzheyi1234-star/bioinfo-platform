@@ -220,6 +220,53 @@ def test_wait_for_update_returns_promptly_when_output_arrives() -> None:
     assert elapsed < 0.25
 
 
+def test_ssh_service_close_terminal_session_removes_owned_session(monkeypatch) -> None:
+    class FakeChannel(DummyChannel):
+        def get_pty(self, *_args) -> None:
+            return None
+
+        def invoke_shell(self) -> None:
+            return None
+
+        def settimeout(self, _timeout: int) -> None:
+            return None
+
+    class FakeTransport:
+        def __init__(self) -> None:
+            self.channel = FakeChannel()
+
+        def is_active(self) -> bool:
+            return True
+
+        def open_session(self):
+            return self.channel
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.transport = FakeTransport()
+
+        def get_transport(self):
+            return self.transport
+
+    class IdleThread:
+        def __init__(self, **_kwargs) -> None:
+            return None
+
+        def start(self) -> None:
+            return None
+
+    monkeypatch.setattr("core.remote.terminal_session.threading.Thread", IdleThread)
+    service = SSHService(initial_client=FakeClient())
+    session = service.open_terminal_session(cols=120, rows=28)
+
+    assert session.session_id in service._sessions
+
+    service.close_terminal_session(session.session_id)
+
+    assert session.session_id not in service._sessions
+    assert service._client.transport.channel.closed is True
+
+
 def test_named_tunnel_is_recreated_when_remote_port_changes(monkeypatch) -> None:
     class FakeTransport:
         def is_active(self) -> bool:

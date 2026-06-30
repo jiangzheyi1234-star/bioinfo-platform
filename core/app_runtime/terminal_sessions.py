@@ -39,13 +39,22 @@ class RuntimeTerminalSessionMixin:
 
     def close_terminal_session(self, session_id: str) -> dict:
         with self._lock:
-            session = self._terminal_sessions.pop(session_id, None)
+            session = self._terminal_sessions.get(session_id)
             if not session:
                 raise RuntimeServiceError(f"unknown session: {session_id}")
-            session.close(message="终端会话已结束")
+            ssh = self._service_locator.ssh_service
+            if ssh is not None:
+                ssh.close_terminal_session(session_id, message="终端会话已结束")
+            else:
+                session.close(message="终端会话已结束")
+            self._terminal_sessions.pop(session_id, None)
             return {"session_id": session_id, "closed": True}
 
     def _close_all_terminal_sessions(self) -> None:
-        for session in list(self._terminal_sessions.values()):
-            session.close(message="终端会话已结束")
+        ssh = self._service_locator.ssh_service
+        for session_id, session in list(self._terminal_sessions.items()):
+            if ssh is not None:
+                ssh.close_terminal_session(session_id, message="终端会话已结束")
+            else:
+                session.close(message="终端会话已结束")
         self._terminal_sessions.clear()

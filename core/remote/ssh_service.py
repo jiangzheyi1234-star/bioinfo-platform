@@ -148,6 +148,13 @@ class SSHService:
         self._sessions[sid] = session
         return session
 
+    def close_terminal_session(self, session_id: str, message: str = "终端会话已结束") -> None:
+        with self._lock:
+            session = self._sessions.pop(str(session_id or ""), None)
+            if session is None:
+                raise RuntimeError(f"unknown terminal session: {session_id}")
+            session.close(message=message)
+
     @staticmethod
     def _normalize_sftp_input_path(path: str) -> str:
         raw = str(path or "").strip()
