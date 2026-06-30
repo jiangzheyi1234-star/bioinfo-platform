@@ -306,6 +306,11 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "fetchWorkflowServerExecutionDiagnostics" in first_run_page
     assert "executionDiagnostics?.readiness?.ok === true" in first_run_page
     assert "const firstRunCanSubmit = Boolean(" in first_run_page
+    assert 'firstRunStatusSnapshot?.nextAction?.code === "SUBMIT_RUN"' in first_run_page
+    assert "statusServerEvidence?.ready === true" in first_run_page
+    assert "statusExecutionEvidence?.ready === true" in first_run_page
+    assert "statusWorkflowEvidence?.ready === true" in first_run_page
+    assert "serverConnected &&" not in first_run_page
     assert 'id="runner-readiness"' in first_run_page
     assert 'id="sample-data"' in first_run_sample_submit
     assert 'id="run-report"' in first_run_report

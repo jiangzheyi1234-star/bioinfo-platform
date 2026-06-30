@@ -65,27 +65,29 @@ export function WorkflowFirstRunPage() {
     serverId: state.server?.serverId,
   });
   const firstRunStatusSnapshot = firstRunStatus.status;
+  const statusServerEvidence = firstRunStatusSnapshot?.evidence?.server;
+  const statusExecutionEvidence = firstRunStatusSnapshot?.evidence?.execution;
+  const statusWorkflowEvidence = firstRunStatusSnapshot?.evidence?.workflow;
   const statusRun = firstRunStatusSnapshot?.evidence?.run || firstRunStatusSnapshot?.latestEligibleRun || null;
   const resultId = result?.resultId || statusRun?.resultId || (run?.runId ? `res_${run.runId}` : "");
   const artifacts = result?.artifacts || [];
   const inputArtifacts = result?.inputArtifacts || [];
   const previews = state.runDetail?.previews || [];
   const movingPicturesWorkflow = state.catalog.find((item) => item.id === FIRST_RUN_PIPELINE_ID) || null;
-  const selectedWorkflowReady = Boolean(movingPicturesWorkflow?.runnable);
-  const serverConnected = Boolean(state.server?.connected);
-  const executionReady = executionDiagnostics?.readiness?.ok === true;
-  const serverReady = Boolean(state.server?.ready) && executionReady;
+  const selectedWorkflowReady = firstRunStatusSnapshot ? statusWorkflowEvidence?.ready === true : Boolean(movingPicturesWorkflow?.runnable);
+  const serverConnected = firstRunStatusSnapshot ? statusServerEvidence?.connected === true : Boolean(state.server?.connected);
+  const executionReady = firstRunStatusSnapshot ? statusExecutionEvidence?.ready === true : executionDiagnostics?.readiness?.ok === true;
+  const serverReady = firstRunStatusSnapshot ? statusServerEvidence?.ready === true && statusExecutionEvidence?.ready === true : Boolean(state.server?.ready) && executionReady;
   const localSampleReady = sampleUploadsReady(state.sampleUploads);
   const statusSampleReady = firstRunStatusSnapshot?.evidence?.sampleCache?.status === "ready";
   const sampleReady = firstRunStatusSnapshot ? statusSampleReady || localSampleReady : localSampleReady;
   const firstRunCanSubmit = Boolean(
-    state.server?.serverId &&
-      state.server?.ready === true &&
-      serverConnected &&
-      executionReady &&
-      selectedWorkflowReady &&
+    firstRunStatusSnapshot?.nextAction?.code === "SUBMIT_RUN" &&
+      firstRunStatusSnapshot.stage === "submit_run" &&
+      statusServerEvidence?.ready === true &&
+      statusExecutionEvidence?.ready === true &&
+      statusWorkflowEvidence?.ready === true &&
       sampleReady &&
-      state.missingRequiredResourceKeys.length === 0 &&
       !state.submitting &&
       !state.sampleLoading
   );

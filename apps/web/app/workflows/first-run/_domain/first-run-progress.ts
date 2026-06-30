@@ -32,9 +32,15 @@ export function buildFirstRunSteps(input: {
   const statusRun = evidence?.run || status?.latestEligibleRun || null;
   const hasStatus = Boolean(status);
   const base = [
-    stepDefinition("connect", "连接远端", input.serverConnected, "SSH 连接可用", "#runner-readiness"),
-    stepDefinition("readiness", "runner readiness", input.serverReady, "运行时、Snakemake、profile 与 pipeline registry 就绪", "#runner-readiness"),
-    stepDefinition("select", "选择示例", input.selectedWorkflowReady, FIRST_RUN_PIPELINE_ID, "#sample-data"),
+    stepDefinition("connect", "连接远端", hasStatus ? evidence?.server?.connected === true : input.serverConnected, "SSH 连接可用", "#runner-readiness"),
+    stepDefinition(
+      "readiness",
+      "runner readiness",
+      hasStatus ? evidence?.server?.ready === true && evidence?.execution?.ready === true : input.serverReady,
+      "运行时、Snakemake、profile 与 pipeline registry 就绪",
+      "#runner-readiness"
+    ),
+    stepDefinition("select", "选择示例", hasStatus ? evidence?.workflow?.ready === true : input.selectedWorkflowReady, FIRST_RUN_PIPELINE_ID, "#sample-data"),
     stepDefinition(
       "sample",
       "准备示例数据",

@@ -5,6 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 from apps.api.execution_query_service import get_run_from_request, list_runs_from_request
+from apps.api.ssh_control_service import (
+    get_server_execution_diagnostics_from_request,
+    list_servers_from_request,
+)
+from apps.api.workflow_catalog_service import get_workflow_catalog_from_request
 from apps.api.workflow_first_run_finalize_service import first_run_next_action
 from apps.api.workflow_first_run_result_package_contract import (
     is_first_run_result_package_blocker,
@@ -41,24 +46,68 @@ async def build_first_run_status_from_request(
     sample_cache = _sample_cache_summary(
         _unwrap_data(await inspect_workflow_sample_data_status(MOVING_PICTURES_PIPELINE_ID), {})
     )
+
+    if not normalized_server_id:
+        return _status_response(
+            status="blocked",
+            stage="connect_remote",
+            next_action=_blocked_action(
+                "CONNECT_REMOTE",
+                "FIRST_RUN_SERVER_REQUIRED",
+                "连接远端",
+                "连接远端 runner 后继续首跑。",
+                "#runner-readiness",
+            ),
+            sample_cache=sample_cache,
+            latest_eligible_run=None,
+            ignored_latest_run=None,
+            run=None,
+            server_id=normalized_server_id,
+            server=_server_evidence(None, server_id=normalized_server_id, blocked_code="FIRST_RUN_SERVER_REQUIRED"),
+            execution={"ready": False, "blockedCode": "FIRST_RUN_SERVER_REQUIRED"},
+            workflow={"ready": False, "blockedCode": "FIRST_RUN_SERVER_REQUIRED"},
+        )
+
+    runner_gate = await _runner_readiness_gate(normalized_server_id, refresh=refresh)
+    if runner_gate.get("blocked"):
+        return _status_response(
+            status="blocked",
+            stage=str(runner_gate["stage"]),
+            next_action=runner_gate["nextAction"],
+            sample_cache=sample_cache,
+            latest_eligible_run=None,
+            ignored_latest_run=None,
+            run=None,
+            server_id=normalized_server_id,
+            server=runner_gate.get("server"),
+            execution=runner_gate.get("execution"),
+        )
+    server_evidence = runner_gate.get("server")
+    execution_evidence = runner_gate.get("execution")
+
+    workflow_gate = await _workflow_example_gate(refresh=refresh)
+    workflow_evidence = workflow_gate.get("workflow")
+    if workflow_gate.get("blocked"):
+        return _status_response(
+            status="blocked",
+            stage="select_example",
+            next_action=workflow_gate["nextAction"],
+            sample_cache=sample_cache,
+            latest_eligible_run=None,
+            ignored_latest_run=None,
+            run=None,
+            server_id=normalized_server_id,
+            server=server_evidence,
+            execution=execution_evidence,
+            workflow=workflow_evidence,
+        )
+
     runs_payload = await list_runs_from_request(refresh)
     runs = _mapping_items(_unwrap_data(runs_payload, {}).get("items"))
     selected_run = await _selected_run(normalized_run_id, runs)
     latest_eligible_raw = _latest_run([run for run in runs if _official_sample_run_blocker(run) == ""])
     latest_eligible_run = _run_summary(latest_eligible_raw) if latest_eligible_raw is not None else None
     ignored_latest_run = _ignored_latest_run(runs, latest_eligible_run)
-
-    if not normalized_server_id:
-        return _status_response(
-            status="blocked",
-            stage="connect_remote",
-            next_action=_action("CONNECT_REMOTE", "连接远端 runner 后继续首跑。", "连接远端", "#runner-readiness"),
-            sample_cache=sample_cache,
-            latest_eligible_run=latest_eligible_run,
-            ignored_latest_run=ignored_latest_run,
-            run=None,
-            server_id=normalized_server_id,
-        )
 
     if selected_run is None:
         selected_run = latest_eligible_raw
@@ -78,6 +127,9 @@ async def build_first_run_status_from_request(
                 ignored_latest_run=ignored_latest_run,
                 run=None,
                 server_id=normalized_server_id,
+                server=server_evidence,
+                execution=execution_evidence,
+                workflow=workflow_evidence,
             )
         action = _action("PREPARE_SAMPLE_DATA", "准备并上传官方 Moving Pictures 16S 样例数据。", "准备示例数据", "#sample-data")
         if sample_cache.get("status") == "blocked":
@@ -91,6 +143,9 @@ async def build_first_run_status_from_request(
             ignored_latest_run=ignored_latest_run,
             run=None,
             server_id=normalized_server_id,
+            server=server_evidence,
+            execution=execution_evidence,
+            workflow=workflow_evidence,
         )
 
     blocker = _official_sample_run_blocker(selected_run)
@@ -111,6 +166,9 @@ async def build_first_run_status_from_request(
             ignored_latest_run=ignored_latest_run,
             run=run_summary,
             server_id=normalized_server_id,
+            server=server_evidence,
+            execution=execution_evidence,
+            workflow=workflow_evidence,
         )
 
     run_status = str(run_summary.get("status") or "").strip()
@@ -138,6 +196,9 @@ async def build_first_run_status_from_request(
             ignored_latest_run=ignored_latest_run,
             run=run_summary,
             server_id=normalized_server_id,
+            server=server_evidence,
+            execution=execution_evidence,
+            workflow=workflow_evidence,
         )
 
     try:
@@ -154,6 +215,9 @@ async def build_first_run_status_from_request(
             ignored_latest_run=ignored_latest_run,
             run=run_summary,
             server_id=normalized_server_id,
+            server=server_evidence,
+            execution=execution_evidence,
+            workflow=workflow_evidence,
             report=_report_evidence(False, code),
             result_package=_result_package_evidence(False, code),
             validation={"ready": False, "blockedCode": code, "detail": str(exc)},
@@ -168,6 +232,9 @@ async def build_first_run_status_from_request(
         ignored_latest_run=ignored_latest_run,
         run=run_summary,
         server_id=normalized_server_id,
+        server=server_evidence,
+        execution=execution_evidence,
+        workflow=workflow_evidence,
         report=_ready_report_evidence(card),
         result_package=_ready_package_evidence(card),
         validation=_ready_validation_evidence(card),
@@ -195,6 +262,9 @@ def _status_response(
     ignored_latest_run: dict[str, Any] | None,
     run: dict[str, Any] | None,
     server_id: str,
+    server: dict[str, Any] | None = None,
+    execution: dict[str, Any] | None = None,
+    workflow: dict[str, Any] | None = None,
     report: dict[str, Any] | None = None,
     result_package: dict[str, Any] | None = None,
     validation: dict[str, Any] | None = None,
@@ -214,6 +284,9 @@ def _status_response(
             "latestEligibleRun": latest_eligible_run,
             "ignoredLatestRun": ignored_latest_run,
             "evidence": {
+                "server": server or {"ready": False},
+                "execution": execution or {"ready": False},
+                "workflow": workflow or {"ready": False},
                 "sampleCache": sample_cache,
                 "run": run,
                 "report": report or {"ready": False},
@@ -222,6 +295,225 @@ def _status_response(
             },
         }
     }
+
+
+async def _runner_readiness_gate(server_id: str, *, refresh: bool) -> dict[str, Any]:
+    servers_payload = await list_servers_from_request(refresh)
+    servers = _mapping_items(_require_wrapped_mapping(servers_payload, "FIRST_RUN_SERVER_LIST_RESPONSE_INVALID").get("items"))
+    server = next((item for item in servers if str(item.get("serverId") or "").strip() == server_id), None)
+    if server is None:
+        server_evidence = _server_evidence(None, server_id=server_id, blocked_code="FIRST_RUN_SERVER_NOT_FOUND")
+        return {
+            "blocked": True,
+            "stage": "connect_remote",
+            "nextAction": _blocked_action(
+                "CONNECT_REMOTE",
+                "FIRST_RUN_SERVER_NOT_FOUND",
+                "重新连接远端",
+                "当前首跑绑定的远端 server 不存在或已被替换，请重新连接远端 runner。",
+                "#runner-readiness",
+            ),
+            "server": server_evidence,
+            "execution": {"ready": False, "blockedCode": "FIRST_RUN_SERVER_NOT_FOUND"},
+        }
+
+    server_evidence = _server_evidence(server, server_id=server_id)
+    if not bool(server.get("connected")):
+        server_evidence = {**server_evidence, "blockedCode": "FIRST_RUN_SERVER_NOT_CONNECTED"}
+        return {
+            "blocked": True,
+            "stage": "connect_remote",
+            "nextAction": _blocked_action(
+                "CONNECT_REMOTE",
+                "FIRST_RUN_SERVER_NOT_CONNECTED",
+                "连接远端",
+                "远端 runner 当前未连接，请重新连接后继续首跑。",
+                "#runner-readiness",
+            ),
+            "server": server_evidence,
+            "execution": {"ready": False, "blockedCode": "FIRST_RUN_SERVER_NOT_CONNECTED"},
+        }
+
+    if not bool(server.get("ready")):
+        blocked_code = _runner_blocked_code(server)
+        server_evidence = {**server_evidence, "blockedCode": blocked_code}
+        return {
+            "blocked": True,
+            "stage": "runner_readiness",
+            "nextAction": _blocked_action(
+                "ENSURE_RUNNER",
+                blocked_code,
+                "准备 runner",
+                _runner_blocked_detail(server),
+                "#runner-readiness",
+            ),
+            "server": server_evidence,
+            "execution": {"ready": False, "blockedCode": blocked_code},
+        }
+
+    diagnostics_payload = await get_server_execution_diagnostics_from_request(server_id)
+    diagnostics = _require_wrapped_mapping(diagnostics_payload, "FIRST_RUN_EXECUTION_DIAGNOSTICS_RESPONSE_INVALID")
+    execution_evidence = _execution_evidence(diagnostics)
+    if not bool(execution_evidence.get("ready")):
+        blocked_code = str(execution_evidence.get("blockedCode") or "FIRST_RUN_EXECUTION_DIAGNOSTICS_NOT_READY")
+        return {
+            "blocked": True,
+            "stage": "runner_readiness",
+            "nextAction": _blocked_action(
+                "ENSURE_RUNNER",
+                blocked_code,
+                "准备 runner",
+                str(execution_evidence.get("detail") or "execution diagnostics 未通过。"),
+                "#runner-readiness",
+            ),
+            "server": server_evidence,
+            "execution": execution_evidence,
+        }
+
+    return {
+        "blocked": False,
+        "server": server_evidence,
+        "execution": execution_evidence,
+    }
+
+
+async def _workflow_example_gate(*, refresh: bool) -> dict[str, Any]:
+    catalog_payload = await get_workflow_catalog_from_request(refresh)
+    catalog_data = _require_wrapped_mapping(catalog_payload, "FIRST_RUN_WORKFLOW_CATALOG_RESPONSE_INVALID")
+    items = _mapping_items(catalog_data.get("items"))
+    workflow = next((item for item in items if str(item.get("id") or "").strip() == MOVING_PICTURES_PIPELINE_ID), None)
+    evidence = _workflow_evidence(workflow)
+    if evidence.get("ready"):
+        return {"blocked": False, "workflow": evidence}
+    blocked_code = str(evidence.get("blockedCode") or "FIRST_RUN_WORKFLOW_NOT_READY")
+    return {
+        "blocked": True,
+        "workflow": evidence,
+        "nextAction": _blocked_action(
+            "REFRESH_WORKFLOW",
+            blocked_code,
+            "刷新首跑示例",
+            str(evidence.get("detail") or "workflow catalog 未提供 WorkflowReady 的 Moving Pictures 16S 示例。"),
+            "#sample-data",
+        ),
+    }
+
+
+def _server_evidence(
+    server: dict[str, Any] | None,
+    *,
+    server_id: str,
+    blocked_code: str = "",
+) -> dict[str, Any]:
+    if not isinstance(server, dict):
+        return _compact(
+            {
+                "ready": False,
+                "serverId": server_id,
+                "connected": False,
+                "runnerReady": False,
+                "blockedCode": blocked_code,
+            }
+        )
+    runner = server.get("runner") if isinstance(server.get("runner"), dict) else {}
+    return _compact(
+        {
+            "ready": bool(server.get("connected")) and bool(server.get("ready")),
+            "serverId": server.get("serverId") or server_id,
+            "label": server.get("label"),
+            "connected": bool(server.get("connected")),
+            "runnerReady": bool(server.get("ready")) or bool(runner.get("ready")),
+            "reasonCode": server.get("reasonCode") or runner.get("reasonCode"),
+            "detail": server.get("message") or runner.get("message"),
+            "blockedCode": blocked_code,
+        }
+    )
+
+
+def _workflow_evidence(workflow: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(workflow, dict):
+        return {
+            "ready": False,
+            "pipelineId": MOVING_PICTURES_PIPELINE_ID,
+            "blockedCode": "FIRST_RUN_WORKFLOW_NOT_FOUND",
+            "detail": "workflow catalog 缺少 Moving Pictures 16S 首跑示例。",
+        }
+    ready = bool(workflow.get("runnable"))
+    return _compact(
+        {
+            "ready": ready,
+            "pipelineId": workflow.get("id") or MOVING_PICTURES_PIPELINE_ID,
+            "name": workflow.get("name"),
+            "status": workflow.get("status"),
+            "source": workflow.get("source"),
+            "version": workflow.get("version"),
+            "blockedCode": "" if ready else "FIRST_RUN_WORKFLOW_NOT_READY",
+            "detail": "" if ready else _workflow_blocked_detail(workflow),
+        }
+    )
+
+
+def _workflow_blocked_detail(workflow: dict[str, Any]) -> str:
+    detail = " / ".join(str(workflow.get(key) or "").strip() for key in ("status", "source", "version") if workflow.get(key))
+    return detail or "Moving Pictures 16S 示例还未达到 WorkflowReady。"
+
+
+def _runner_blocked_code(server: dict[str, Any]) -> str:
+    runner = server.get("runner") if isinstance(server.get("runner"), dict) else {}
+    return str(server.get("reasonCode") or runner.get("reasonCode") or "FIRST_RUN_RUNNER_NOT_READY")
+
+
+def _runner_blocked_detail(server: dict[str, Any]) -> str:
+    runner = server.get("runner") if isinstance(server.get("runner"), dict) else {}
+    return str(server.get("message") or runner.get("message") or "远端 runner readiness 未通过，请先准备 runner。")
+
+
+def _execution_evidence(diagnostics: Any) -> dict[str, Any]:
+    data = diagnostics if isinstance(diagnostics, dict) else {}
+    if data.get("schemaVersion") != "execution-diagnostics.v1":
+        return {
+            "ready": False,
+            "blockedCode": "FIRST_RUN_EXECUTION_DIAGNOSTICS_SCHEMA_INVALID",
+            "detail": "execution diagnostics response must use execution-diagnostics.v1.",
+        }
+    readiness = data.get("readiness") if isinstance(data.get("readiness"), dict) else {}
+    if not readiness:
+        return {
+            "ready": False,
+            "blockedCode": "FIRST_RUN_EXECUTION_DIAGNOSTICS_READINESS_INVALID",
+            "detail": "execution diagnostics response must include readiness.",
+        }
+    blocking_reasons = _mapping_items(readiness.get("blockingReasons"))
+    reason_code = str(
+        readiness.get("reasonCode")
+        or next((item.get("code") for item in blocking_reasons if str(item.get("code") or "").strip()), "")
+        or ""
+    )
+    ready = bool(readiness.get("ok"))
+    return _compact(
+        {
+            "ready": ready,
+            "status": readiness.get("status"),
+            "reasonCode": reason_code,
+            "blockingReasons": blocking_reasons,
+            "blockedCode": "" if ready else reason_code or "FIRST_RUN_EXECUTION_DIAGNOSTICS_NOT_READY",
+            "detail": "" if ready else _execution_blocked_detail(readiness, blocking_reasons),
+        }
+    )
+
+
+def _execution_blocked_detail(readiness: dict[str, Any], blocking_reasons: list[dict[str, Any]]) -> str:
+    message = str(
+        readiness.get("message")
+        or next((item.get("message") for item in blocking_reasons if str(item.get("message") or "").strip()), "")
+        or ""
+    ).strip()
+    if message:
+        return f"execution diagnostics 未通过：{message}"
+    reason_code = str(readiness.get("reasonCode") or "").strip()
+    if reason_code:
+        return f"execution diagnostics 未通过：{reason_code}"
+    return "execution diagnostics 未通过。"
 
 
 def _sample_cache_summary(status: dict[str, Any]) -> dict[str, Any]:
@@ -444,6 +736,12 @@ def _mapping_items(value: Any) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, dict)]
+
+
+def _require_wrapped_mapping(payload: Any, code: str) -> dict[str, Any]:
+    if not isinstance(payload, dict) or "data" not in payload or not isinstance(payload.get("data"), dict):
+        raise ValueError(code)
+    return payload["data"]
 
 
 def _compact(value: dict[str, Any]) -> dict[str, Any]:

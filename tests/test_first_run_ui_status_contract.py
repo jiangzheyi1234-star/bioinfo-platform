@@ -23,6 +23,8 @@ def test_first_run_ui_steps_and_report_are_status_contract_driven() -> None:
     assert 'stage === "inspect_failed_run"' in first_run_progress
     assert "hasStatus ? evidence?.sampleCache?.status === \"ready\" : input.sampleReady" in first_run_progress
     assert "hasStatus ? Boolean(statusRun?.runId) : input.runSubmitted" in first_run_progress
+    assert "hasStatus ? evidence?.server?.connected === true : input.serverConnected" in first_run_progress
+    assert "hasStatus ? evidence?.workflow?.ready === true : input.selectedWorkflowReady" in first_run_progress
     assert "action?.code === \"FINALIZE_FIRST_RUN\"" in first_run_progress
     assert "firstRunStatus: firstRunStatusSnapshot || null" in first_run_page
     assert "input.reportReady" not in first_run_progress
@@ -99,6 +101,10 @@ def test_first_run_conductor_uses_status_contract_before_local_run_hints() -> No
     assert "hasStatus ? Boolean(statusRun?.runId) : input.runSubmitted" in first_run_conductor
     assert "if (status?.nextAction)" in first_run_conductor
     assert "continueActionFromStatus(status.nextAction)" in first_run_conductor
+    assert "statusAllowsSubmit" in first_run_conductor
+    assert "status.evidence?.server?.ready === true" in first_run_conductor
+    assert "status.evidence?.execution?.ready === true" in first_run_conductor
+    assert "status.evidence?.workflow?.ready === true" in first_run_conductor
     assert first_run_conductor.index("if (status?.nextAction)") < first_run_conductor.index("if (!input.serverConnected)")
     assert "if (!status?.nextAction)" not in first_run_conductor
 
@@ -107,11 +113,20 @@ def test_first_run_submit_uses_status_sample_cache_without_local_upload_gate() -
     first_run_page = (FIRST_RUN_COMPONENTS / "workflow-first-run-page.tsx").read_text(encoding="utf-8")
     first_run_sample_submit = (FIRST_RUN_COMPONENTS / "workflow-first-run-sample-submit.tsx").read_text(encoding="utf-8")
     workflows_state = (ROOT / "apps" / "web" / "app" / "components" / "use-workflows-page-state.ts").read_text(encoding="utf-8")
+    first_run_status_state = (FIRST_RUN_ROUTE / "_state" / "use-first-run-status.ts").read_text(encoding="utf-8")
 
     assert 'const statusSampleReady = firstRunStatusSnapshot?.evidence?.sampleCache?.status === "ready"' in first_run_page
     assert "const sampleReady = firstRunStatusSnapshot ? statusSampleReady || localSampleReady : localSampleReady" in first_run_page
     assert "const firstRunCanSubmit = Boolean(" in first_run_page
-    assert "serverConnected &&" in first_run_page
+    assert 'firstRunStatusSnapshot?.nextAction?.code === "SUBMIT_RUN"' in first_run_page
+    assert 'firstRunStatusSnapshot.stage === "submit_run"' in first_run_page
+    assert "statusServerEvidence?.ready === true" in first_run_page
+    assert "statusExecutionEvidence?.ready === true" in first_run_page
+    assert "statusWorkflowEvidence?.ready === true" in first_run_page
+    assert "serverConnected &&" not in first_run_page
+    assert "executionReady &&" not in first_run_page
+    assert "selectedWorkflowReady &&" not in first_run_page
+    assert "state.missingRequiredResourceKeys.length" not in first_run_page
     assert "canSubmit: firstRunCanSubmit" in first_run_page
     assert "canSubmit={firstRunCanSubmit}" in first_run_page
     assert "onSubmitRun: submitFirstRunAndRefreshStatus" in first_run_page
@@ -128,6 +143,8 @@ def test_first_run_submit_uses_status_sample_cache_without_local_upload_gate() -
     assert "const selectedSampleUploads = options.sampleUploads ?? sampleUploads" in workflows_state
     assert "sampleUploads: selectedSampleUploads" in workflows_state
     assert "return uploads" in workflows_state
+    assert "if (!normalizedServerId)" not in first_run_status_state
+    assert "serverId: normalizedServerId || undefined" in first_run_status_state
 
 
 def test_first_run_evidence_actions_use_status_run_id_before_local_run() -> None:

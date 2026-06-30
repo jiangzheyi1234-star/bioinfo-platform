@@ -22,18 +22,13 @@ export function useFirstRunStatus({
 
   const refreshStatus = useCallback(
     async (options: { forceRefresh?: boolean } = {}) => {
-      if (!normalizedServerId) {
-        setStatus(null);
-        setError("");
-        return null;
-      }
       setLoading(true);
       setError("");
       try {
         const nextStatus = await fetchFirstRunStatus({
           refresh: options.forceRefresh === true,
           runId: normalizedRunId || undefined,
-          serverId: normalizedServerId,
+          serverId: normalizedServerId || undefined,
         });
         setStatus(nextStatus);
         return nextStatus;

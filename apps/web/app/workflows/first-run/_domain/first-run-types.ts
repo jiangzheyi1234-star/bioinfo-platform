@@ -187,6 +187,37 @@ export type FirstRunStatusRunSummary = {
 };
 
 export type FirstRunStatusEvidence = {
+  server?: {
+    ready?: boolean;
+    serverId?: string;
+    label?: string;
+    connected?: boolean;
+    runnerReady?: boolean;
+    reasonCode?: string;
+    detail?: string;
+    blockedCode?: string;
+  };
+  execution?: {
+    ready?: boolean;
+    status?: string;
+    reasonCode?: string;
+    blockedCode?: string;
+    detail?: string;
+    blockingReasons?: Array<{
+      code?: string;
+      message?: string;
+    }>;
+  };
+  workflow?: {
+    ready?: boolean;
+    pipelineId?: string;
+    name?: string;
+    status?: string;
+    source?: string;
+    version?: string;
+    blockedCode?: string;
+    detail?: string;
+  };
   sampleCache?: {
     status?: string;
     verifiedCacheCount?: number;

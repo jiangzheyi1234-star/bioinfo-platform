@@ -35,6 +35,10 @@ def test_first_run_status_reports_ready_official_sample_run_and_ignores_newer_no
     assert result["ignoredLatestRun"]["runId"] == "run_manual"
     assert result["ignoredLatestRun"]["blockingCode"] == "FIRST_RUN_SAMPLE_PREP_PROOF_REQUIRED"
     assert result["evidence"]["sampleCache"]["status"] == "ready"
+    assert result["evidence"]["server"]["ready"] is True
+    assert result["evidence"]["execution"]["ready"] is True
+    assert result["evidence"]["workflow"]["ready"] is True
+    assert result["evidence"]["workflow"]["pipelineId"] == MOVING_PICTURES_PIPELINE_ID
     assert result["evidence"]["run"]["runId"] == "run_first"
     assert result["evidence"]["report"]["ready"] is True
     assert result["evidence"]["report"]["outputs"] == [
@@ -104,7 +108,179 @@ def test_first_run_status_guides_submit_when_sample_cache_ready_without_eligible
     assert result["ignoredLatestRun"] is None
     assert result["evidence"]["sampleCache"]["status"] == "ready"
     assert result["evidence"]["sampleCache"]["verifiedCacheCount"] == 3
+    assert result["evidence"]["server"]["ready"] is True
+    assert result["evidence"]["execution"]["ready"] is True
+    assert result["evidence"]["workflow"]["ready"] is True
     assert result["evidence"]["run"] is None
+
+
+def test_first_run_status_blocks_stale_server_before_remote_run_queries(monkeypatch) -> None:
+    async def fail_list_runs(*_args, **_kwargs):
+        raise AssertionError("status must not list runs before a selected server is found")
+
+    async def fail_validation_card(*_args, **_kwargs):
+        raise AssertionError("status must not build a validation card before runner readiness passes")
+
+    _patch_status_sources(monkeypatch, runs=[], servers=[])
+    monkeypatch.setattr("apps.api.workflow_first_run_status_service.list_runs_from_request", fail_list_runs)
+    monkeypatch.setattr(
+        "apps.api.workflow_first_run_status_service.build_first_run_validation_card_from_request",
+        fail_validation_card,
+    )
+
+    result = asyncio.run(build_first_run_status_from_request(server_id="srv_missing"))["data"]
+
+    assert result["status"] == "blocked"
+    assert result["stage"] == "connect_remote"
+    assert result["nextAction"]["code"] == "CONNECT_REMOTE"
+    assert result["nextAction"]["blockedCode"] == "FIRST_RUN_SERVER_NOT_FOUND"
+    assert result["evidence"]["server"] == {
+        "ready": False,
+        "serverId": "srv_missing",
+        "connected": False,
+        "runnerReady": False,
+        "blockedCode": "FIRST_RUN_SERVER_NOT_FOUND",
+    }
+    assert result["evidence"]["execution"] == {"ready": False, "blockedCode": "FIRST_RUN_SERVER_NOT_FOUND"}
+    assert result["latestEligibleRun"] is None
+
+
+def test_first_run_status_blocks_disconnected_server_before_remote_run_queries(monkeypatch) -> None:
+    async def fail_list_runs(*_args, **_kwargs):
+        raise AssertionError("status must not list runs before SSH is connected")
+
+    _patch_status_sources(monkeypatch, runs=[], server=_server(connected=False, ready=False))
+    monkeypatch.setattr("apps.api.workflow_first_run_status_service.list_runs_from_request", fail_list_runs)
+
+    result = asyncio.run(build_first_run_status_from_request(server_id="srv_first"))["data"]
+
+    assert result["status"] == "blocked"
+    assert result["stage"] == "connect_remote"
+    assert result["nextAction"]["code"] == "CONNECT_REMOTE"
+    assert result["nextAction"]["blockedCode"] == "FIRST_RUN_SERVER_NOT_CONNECTED"
+    assert result["evidence"]["server"]["connected"] is False
+    assert result["evidence"]["server"]["blockedCode"] == "FIRST_RUN_SERVER_NOT_CONNECTED"
+    assert result["evidence"]["execution"] == {"ready": False, "blockedCode": "FIRST_RUN_SERVER_NOT_CONNECTED"}
+
+
+def test_first_run_status_blocks_runner_not_ready_before_remote_run_queries(monkeypatch) -> None:
+    async def fail_list_runs(*_args, **_kwargs):
+        raise AssertionError("status must not list runs before runner readiness passes")
+
+    _patch_status_sources(
+        monkeypatch,
+        runs=[],
+        server=_server(ready=False, reason_code="PIPELINE_REGISTRY_NOT_READY", message="Pipeline registry is not ready."),
+    )
+    monkeypatch.setattr("apps.api.workflow_first_run_status_service.list_runs_from_request", fail_list_runs)
+
+    result = asyncio.run(build_first_run_status_from_request(server_id="srv_first"))["data"]
+
+    assert result["status"] == "blocked"
+    assert result["stage"] == "runner_readiness"
+    assert result["nextAction"]["code"] == "ENSURE_RUNNER"
+    assert result["nextAction"]["blockedCode"] == "PIPELINE_REGISTRY_NOT_READY"
+    assert result["nextAction"]["detail"] == "Pipeline registry is not ready."
+    assert result["evidence"]["server"]["ready"] is False
+    assert result["evidence"]["server"]["runnerReady"] is False
+    assert result["evidence"]["execution"] == {"ready": False, "blockedCode": "PIPELINE_REGISTRY_NOT_READY"}
+
+
+def test_first_run_status_blocks_when_moving_pictures_workflow_is_not_ready(monkeypatch) -> None:
+    async def fail_list_runs(*_args, **_kwargs):
+        raise AssertionError("status must not list runs before the first-run workflow is WorkflowReady")
+
+    _patch_status_sources(
+        monkeypatch,
+        runs=[],
+        workflow={"id": MOVING_PICTURES_PIPELINE_ID, "name": "Moving Pictures 16S", "runnable": False, "status": "Validation template"},
+    )
+    monkeypatch.setattr("apps.api.workflow_first_run_status_service.list_runs_from_request", fail_list_runs)
+
+    result = asyncio.run(build_first_run_status_from_request(server_id="srv_first"))["data"]
+
+    assert result["status"] == "blocked"
+    assert result["stage"] == "select_example"
+    assert result["nextAction"]["code"] == "REFRESH_WORKFLOW"
+    assert result["nextAction"]["blockedCode"] == "FIRST_RUN_WORKFLOW_NOT_READY"
+    assert result["evidence"]["server"]["ready"] is True
+    assert result["evidence"]["execution"]["ready"] is True
+    assert result["evidence"]["workflow"]["ready"] is False
+    assert result["evidence"]["workflow"]["blockedCode"] == "FIRST_RUN_WORKFLOW_NOT_READY"
+
+
+def test_first_run_status_blocks_execution_diagnostics_not_ready_before_run_actions(monkeypatch) -> None:
+    async def fail_validation_card(*_args, **_kwargs):
+        raise AssertionError("status must not build a validation card when execution diagnostics is blocked")
+
+    _patch_status_sources(
+        monkeypatch,
+        runs=[_run()],
+        execution_diagnostics={
+            "schemaVersion": "execution-diagnostics.v1",
+            "readiness": {
+                "ok": False,
+                "status": "blocked",
+                "reasonCode": "WORKFLOW_EXECUTION_ADMISSION_BLOCKED",
+                "blockingReasons": [
+                    {
+                        "code": "WORKFLOW_EXECUTION_ADMISSION_BLOCKED",
+                        "message": "worker lease table is unavailable",
+                    }
+                ],
+            },
+        },
+    )
+    monkeypatch.setattr(
+        "apps.api.workflow_first_run_status_service.build_first_run_validation_card_from_request",
+        fail_validation_card,
+    )
+
+    result = asyncio.run(build_first_run_status_from_request(server_id="srv_first"))["data"]
+
+    assert result["status"] == "blocked"
+    assert result["stage"] == "runner_readiness"
+    assert result["nextAction"]["code"] == "ENSURE_RUNNER"
+    assert result["nextAction"]["blockedCode"] == "WORKFLOW_EXECUTION_ADMISSION_BLOCKED"
+    assert result["nextAction"]["detail"] == "execution diagnostics 未通过：worker lease table is unavailable"
+    assert result["evidence"]["server"]["ready"] is True
+    assert result["evidence"]["execution"]["ready"] is False
+    assert result["evidence"]["execution"]["blockingReasons"] == [
+        {
+            "code": "WORKFLOW_EXECUTION_ADMISSION_BLOCKED",
+            "message": "worker lease table is unavailable",
+        }
+    ]
+
+
+def test_first_run_status_blocks_invalid_execution_diagnostics_schema(monkeypatch) -> None:
+    async def fail_list_runs(*_args, **_kwargs):
+        raise AssertionError("status must not list runs with an invalid diagnostics contract")
+
+    _patch_status_sources(
+        monkeypatch,
+        runs=[],
+        execution_diagnostics={
+            "schemaVersion": "workflow-execution-diagnostics.v1",
+            "readiness": {
+                "ok": True,
+                "status": "ready",
+            },
+        },
+    )
+    monkeypatch.setattr("apps.api.workflow_first_run_status_service.list_runs_from_request", fail_list_runs)
+
+    result = asyncio.run(build_first_run_status_from_request(server_id="srv_first"))["data"]
+
+    assert result["status"] == "blocked"
+    assert result["stage"] == "runner_readiness"
+    assert result["nextAction"]["code"] == "ENSURE_RUNNER"
+    assert result["nextAction"]["blockedCode"] == "FIRST_RUN_EXECUTION_DIAGNOSTICS_SCHEMA_INVALID"
+    assert result["evidence"]["execution"] == {
+        "ready": False,
+        "blockedCode": "FIRST_RUN_EXECUTION_DIAGNOSTICS_SCHEMA_INVALID",
+        "detail": "execution diagnostics response must use execution-diagnostics.v1.",
+    }
 
 
 def test_first_run_status_uses_validation_card_standard_for_report_readiness(monkeypatch) -> None:
@@ -195,7 +371,11 @@ def test_first_run_status_requires_connection_before_guiding_run_actions(monkeyp
     assert result["status"] == "blocked"
     assert result["stage"] == "connect_remote"
     assert result["nextAction"]["code"] == "CONNECT_REMOTE"
+    assert result["nextAction"]["blockedCode"] == "FIRST_RUN_SERVER_REQUIRED"
     assert result["nextAction"]["target"] == "#runner-readiness"
+    assert result["evidence"]["server"]["blockedCode"] == "FIRST_RUN_SERVER_REQUIRED"
+    assert result["evidence"]["execution"]["blockedCode"] == "FIRST_RUN_SERVER_REQUIRED"
+    assert result["evidence"]["workflow"]["blockedCode"] == "FIRST_RUN_SERVER_REQUIRED"
 
 
 def test_first_run_status_requires_run_spec_pipeline_and_upload_backed_sample_inputs(monkeypatch) -> None:
@@ -278,6 +458,9 @@ def test_first_run_status_route_and_service_are_read_only() -> None:
     assert "inspect_workflow_sample_data_status" in service_source
     assert "build_first_run_validation_card_from_request" in service_source
     assert "get_run_from_request" in service_source
+    assert "list_servers_from_request" in service_source
+    assert "get_server_execution_diagnostics_from_request" in service_source
+    assert "get_workflow_catalog_from_request" in service_source
     assert "finalize_first_run_from_request" not in service_source
     assert "export_result_package_from_request" not in service_source
     assert 'startswith("FIRST_RUN_RESULT_PACKAGE")' not in service_source
@@ -291,6 +474,10 @@ def _patch_status_sources(
     *,
     runs: list[dict[str, Any]],
     sample_status: str = "ready",
+    server: dict[str, Any] | None = None,
+    servers: list[dict[str, Any]] | None = None,
+    execution_diagnostics: dict[str, Any] | None = None,
+    workflow: dict[str, Any] | None = None,
 ) -> None:
     async def fake_list_runs(refresh: bool) -> dict[str, Any]:
         return {"data": {"items": runs, "refresh": refresh}}
@@ -311,11 +498,74 @@ def _patch_status_sources(
             }
         }
 
+    async def fake_list_servers(refresh: bool) -> dict[str, Any]:
+        items = servers if servers is not None else [server or _server()]
+        return {"data": {"items": items, "refresh": refresh}}
+
+    async def fake_execution_diagnostics(server_id: str) -> dict[str, Any]:
+        assert server_id == "srv_first"
+        return {"data": execution_diagnostics or _execution_diagnostics()}
+
+    async def fake_workflow_catalog(refresh: bool) -> dict[str, Any]:
+        return {"data": {"items": [workflow or _workflow()], "refresh": refresh}}
+
     monkeypatch.setattr("apps.api.workflow_first_run_status_service.list_runs_from_request", fake_list_runs)
+    monkeypatch.setattr("apps.api.workflow_first_run_status_service.list_servers_from_request", fake_list_servers)
+    monkeypatch.setattr(
+        "apps.api.workflow_first_run_status_service.get_server_execution_diagnostics_from_request",
+        fake_execution_diagnostics,
+    )
+    monkeypatch.setattr("apps.api.workflow_first_run_status_service.get_workflow_catalog_from_request", fake_workflow_catalog)
     monkeypatch.setattr(
         "apps.api.workflow_first_run_status_service.inspect_workflow_sample_data_status",
         fake_sample_status,
     )
+
+
+def _server(
+    *,
+    server_id: str = "srv_first",
+    connected: bool = True,
+    ready: bool = True,
+    reason_code: str = "",
+    message: str = "Remote runner control plane is ready.",
+) -> dict[str, Any]:
+    return {
+        "serverId": server_id,
+        "label": "first-run",
+        "connected": connected,
+        "ready": ready,
+        "reasonCode": reason_code,
+        "message": message,
+        "runner": {
+            "ready": ready,
+            "reasonCode": reason_code,
+            "message": message,
+        },
+    }
+
+
+def _execution_diagnostics() -> dict[str, Any]:
+    return {
+        "schemaVersion": "execution-diagnostics.v1",
+        "readiness": {
+            "ok": True,
+            "status": "ready",
+            "reasonCode": "",
+            "blockingReasons": [],
+        },
+    }
+
+
+def _workflow() -> dict[str, Any]:
+    return {
+        "id": MOVING_PICTURES_PIPELINE_ID,
+        "name": "Moving Pictures 16S",
+        "runnable": True,
+        "status": "WorkflowReady",
+        "source": "bundled",
+        "version": "v1",
+    }
 
 
 def _noneligible_run(run_id: str, *, last_updated_at: str = "2026-06-29T00:10:00Z") -> dict[str, Any]:

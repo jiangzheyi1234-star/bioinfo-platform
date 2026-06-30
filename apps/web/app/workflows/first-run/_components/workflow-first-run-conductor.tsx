@@ -48,7 +48,12 @@ export function buildFirstRunContinueAction(input: FirstRunContinueActionInput):
   const runSubmitted = hasStatus ? Boolean(statusRun?.runId) : input.runSubmitted;
   if (status?.nextAction) {
     const action = continueActionFromStatus(status.nextAction);
-    if (action.code !== "SUBMIT_RUN" || input.canSubmit) return action;
+    const statusAllowsSubmit =
+      status.stage === "submit_run" &&
+      status.evidence?.server?.ready === true &&
+      status.evidence?.execution?.ready === true &&
+      status.evidence?.workflow?.ready === true;
+    if (action.code !== "SUBMIT_RUN" || input.canSubmit || statusAllowsSubmit) return action;
     return {
       ...action,
       detail: action.detail || "等待输入、runner 和 workflow readiness 全部通过后提交。",
