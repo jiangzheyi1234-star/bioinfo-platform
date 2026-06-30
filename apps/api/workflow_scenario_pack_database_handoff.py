@@ -7,6 +7,8 @@ from typing import Any
 from apps.api.workflow_scenario_pack_targets import SCENARIO_PRODUCT_TARGETS
 from apps.remote_runner.database_pack_catalog import list_downloadable_database_packs
 from apps.remote_runner.database_template_definitions import DATABASE_TEMPLATES
+from core.contracts.database_remote_endpoints import DATABASE_CREATE, DATABASE_PACK_READY_SCAN
+from core.contracts.remote_endpoints import REMOTE_ENDPOINTS, render_remote_endpoint_path
 
 
 SCENARIO_DATABASE_HANDOFF_SCHEMA_VERSION = "h2ometa.workflow-scenario-database-handoff.v1"
@@ -29,6 +31,22 @@ SCENARIO_DATABASE_REGISTRATION_PREFILL_FIELDS = [
     "checksum",
     "metadata.installedFromPackId",
 ]
+
+
+def database_ready_scan_method() -> str:
+    return REMOTE_ENDPOINTS[DATABASE_PACK_READY_SCAN].method
+
+
+def database_ready_scan_path() -> str:
+    return render_remote_endpoint_path(DATABASE_PACK_READY_SCAN, {})
+
+
+def database_registration_method() -> str:
+    return REMOTE_ENDPOINTS[DATABASE_CREATE].method
+
+
+def database_registration_path() -> str:
+    return render_remote_endpoint_path(DATABASE_CREATE, {})
 
 
 class WorkflowScenarioDatabaseHandoffError(ValueError):
@@ -66,8 +84,8 @@ def database_handoff(definition: dict[str, Any]) -> dict[str, Any]:
         "checklist": _database_handoff_checklist(ready=ready),
         "readyScan": {
             "label": "Ready scan",
-            "method": "POST",
-            "path": "/api/v1/database-pack-ready-scans",
+            "method": database_ready_scan_method(),
+            "path": database_ready_scan_path(),
             "schemaVersion": "h2ometa.database-pack-ready-scan.v1",
             "requestFields": SCENARIO_DATABASE_READY_SCAN_REQUEST_FIELDS,
             "acceptedStatus": "ready",
@@ -77,8 +95,8 @@ def database_handoff(definition: dict[str, Any]) -> dict[str, Any]:
         },
         "registration": {
             "label": "手动登记",
-            "method": "POST",
-            "path": "/api/v1/databases",
+            "method": database_registration_method(),
+            "path": database_registration_path(),
             "requiresReadyScan": True,
             "prefillSource": "database-pack-ready-scan.registrationPrefill",
             "prefillFields": SCENARIO_DATABASE_REGISTRATION_PREFILL_FIELDS,
@@ -197,8 +215,8 @@ def _validate_checklist_targets(checklist: list[dict[str, str]]) -> None:
 
 def _validate_ready_scan_handoff(ready_scan: dict[str, Any]) -> None:
     expected = {
-        "method": "POST",
-        "path": "/api/v1/database-pack-ready-scans",
+        "method": database_ready_scan_method(),
+        "path": database_ready_scan_path(),
         "schemaVersion": "h2ometa.database-pack-ready-scan.v1",
         "acceptedStatus": "ready",
         "auditAction": "database_pack.ready_scan",
@@ -214,8 +232,8 @@ def _validate_ready_scan_handoff(ready_scan: dict[str, Any]) -> None:
 
 def _validate_registration_handoff(registration: dict[str, Any]) -> None:
     expected = {
-        "method": "POST",
-        "path": "/api/v1/databases",
+        "method": database_registration_method(),
+        "path": database_registration_path(),
         "requiresReadyScan": True,
         "prefillSource": "database-pack-ready-scan.registrationPrefill",
         "acceptedStatus": "available",

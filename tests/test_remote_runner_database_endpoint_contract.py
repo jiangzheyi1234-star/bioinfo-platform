@@ -154,6 +154,30 @@ def test_database_runtime_manager_uses_generic_endpoint_registry() -> None:
     assert "status_code=201" not in remote_route_source
 
 
+def test_scenario_database_handoff_paths_are_registry_owned() -> None:
+    from apps.api.workflow_scenario_pack_database_handoff import (
+        database_ready_scan_method,
+        database_ready_scan_path,
+        database_registration_method,
+        database_registration_path,
+    )
+
+    handoff_source = _source("apps/api/workflow_scenario_pack_database_handoff.py")
+
+    assert database_ready_scan_method() == REMOTE_ENDPOINTS[DATABASE_PACK_READY_SCAN].method
+    assert database_ready_scan_path() == render_remote_endpoint_path(DATABASE_PACK_READY_SCAN, {})
+    assert database_registration_method() == REMOTE_ENDPOINTS[DATABASE_CREATE].method
+    assert database_registration_path() == render_remote_endpoint_path(DATABASE_CREATE, {})
+    assert "DATABASE_PACK_READY_SCAN" in handoff_source
+    assert "DATABASE_CREATE" in handoff_source
+    assert "database_ready_scan_method()" in handoff_source
+    assert "database_ready_scan_path()" in handoff_source
+    assert "database_registration_method()" in handoff_source
+    assert "database_registration_path()" in handoff_source
+    assert '"/api/v1/database-pack-ready-scans"' not in handoff_source
+    assert '"/api/v1/databases"' not in handoff_source
+
+
 def test_database_methods_do_not_reappear_on_transport_or_remote_manager() -> None:
     for method_name in (
         "list_database_templates",
