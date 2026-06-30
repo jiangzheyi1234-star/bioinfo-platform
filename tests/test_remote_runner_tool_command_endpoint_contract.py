@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from core.contracts.remote_endpoints import REMOTE_ENDPOINTS, render_remote_endpoint_path
+from core.contracts.remote_endpoints import REMOTE_ENDPOINTS, remote_endpoint_success_status, render_remote_endpoint_path
 from core.contracts.tool_remote_endpoints import (
     TOOL_CREATE,
     TOOL_DELETE,
@@ -81,6 +81,8 @@ def test_tool_command_and_prepare_endpoints_are_registry_owned() -> None:
 
     assert REMOTE_ENDPOINTS[TOOL_PREPARE_JOB_CREATE].accepted_statuses == (202,)
     assert REMOTE_ENDPOINTS[TOOL_CREATE].accepted_statuses == (201,)
+    assert remote_endpoint_success_status(TOOL_CREATE) == 201
+    assert remote_endpoint_success_status(TOOL_PREPARE_JOB_CREATE) == 202
     assert REMOTE_ENDPOINTS[TOOL_PREPARE_JOB_LATEST_READ].response_item_key == "byToolId"
     for endpoint_id in TOOL_COMMAND_ENDPOINTS:
         assert REMOTE_ENDPOINTS[endpoint_id].invalidates
@@ -189,6 +191,8 @@ def test_tool_command_methods_do_not_reappear_on_transport_or_proxy() -> None:
 
 
 def test_tool_command_manager_delegates_to_endpoint_registry() -> None:
+    local_route_source = _source("apps/api/tool_routes.py")
+    remote_route_source = _source("apps/remote_runner/tool_routes.py")
     manager_source = _source("core/app_runtime/managers/tool.py")
     proxy_source = _source("core/remote_runner/proxy.py")
     for endpoint_name in (
@@ -220,6 +224,11 @@ def test_tool_command_manager_delegates_to_endpoint_registry() -> None:
         assert f"def {method_name}(" not in proxy_source
     assert 'client.post_json("/api/v1/tools"' not in proxy_source
     assert 'client.get_json(f"/api/v1/tools/prepare-jobs' not in proxy_source
+    for route_source in (local_route_source, remote_route_source):
+        assert "remote_endpoint_success_status(TOOL_CREATE)" in route_source
+        assert "remote_endpoint_success_status(TOOL_PREPARE_JOB_CREATE)" in route_source
+        assert "status_code=201" not in route_source
+        assert "status_code=202" not in route_source
 
 
 class FakeToolCommandClient:

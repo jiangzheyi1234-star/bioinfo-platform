@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from core.contracts.remote_endpoints import REMOTE_ENDPOINTS
+from core.contracts.remote_endpoints import REMOTE_ENDPOINTS, remote_endpoint_success_status
 from core.contracts.tool_remote_endpoints import (
     TOOL_CREATE,
     TOOL_DELETE,
@@ -65,14 +65,18 @@ async def get_tool_index(
     )
 
 
-@router.post("/api/v1/tools", status_code=201, operation_id=REMOTE_ENDPOINTS[TOOL_CREATE].operation_id)
+@router.post(
+    "/api/v1/tools",
+    status_code=remote_endpoint_success_status(TOOL_CREATE),
+    operation_id=REMOTE_ENDPOINTS[TOOL_CREATE].operation_id,
+)
 async def add_tool(payload: ToolManifestRequest, authorization: AuthorizationHeader = None) -> dict[str, Any]:
     return await add_tool_from_request(payload, authorization)
 
 
 @router.post(
     "/api/v1/tools/prepare-jobs",
-    status_code=202,
+    status_code=remote_endpoint_success_status(TOOL_PREPARE_JOB_CREATE),
     operation_id=REMOTE_ENDPOINTS[TOOL_PREPARE_JOB_CREATE].operation_id,
 )
 async def create_prepare_job(
