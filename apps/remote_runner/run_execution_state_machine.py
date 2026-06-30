@@ -6,7 +6,7 @@ from dataclasses import dataclass
 TERMINAL_RUN_STATUSES = frozenset({"completed", "failed", "canceled", "cancelled"})
 RETRYABLE_RUN_STATUSES = frozenset({"failed", "canceled", "cancelled"})
 RELEASED_LEASE_STATES = frozenset({"expired", "fenced", "failed", "canceled", "cancelled"})
-PUBLISHED_ATTEMPT_TERMINAL_STATES = frozenset({"succeeded", "failed"})
+PUBLISHED_ATTEMPT_TERMINAL_STATES = frozenset({"succeeded", "failed", "cancelled"})
 
 
 @dataclass(frozen=True)
@@ -19,6 +19,16 @@ class RunExecutionTransition:
     row_message: str
     event_message: str
     update_run: bool = True
+
+
+@dataclass(frozen=True)
+class RunAttemptCompletionDecision:
+    attempt_state: str
+    job_state: str
+    lease_state: str
+    event_type: str
+    stage: str
+    event_message: str
 
 
 class RunExecutionStateMachine:
@@ -105,6 +115,34 @@ class RunExecutionStateMachine:
         )
 
     @staticmethod
+    def complete_attempt(*, state: str) -> RunAttemptCompletionDecision:
+        attempt_state = _normalize_required_status(state, "ATTEMPT_STATE_REQUIRED")
+        if attempt_state == "succeeded":
+            job_state = "completed"
+        elif attempt_state == "failed":
+            job_state = "failed"
+        elif attempt_state in {"canceled", "cancelled"}:
+            attempt_state = "cancelled"
+            job_state = "cancelled"
+        else:
+            raise ValueError(f"ATTEMPT_TERMINAL_STATE_UNSUPPORTED: {attempt_state}")
+        return RunAttemptCompletionDecision(
+            attempt_state=attempt_state,
+            job_state=job_state,
+            lease_state=job_state,
+            event_type="run_attempt_completed",
+            stage="complete",
+            event_message="Run attempt completed.",
+        )
+
+    @staticmethod
+    def lease_state_for_non_running_attempt(state: str | None) -> str:
+        normalized = _normalize_optional_status(state)
+        if not normalized or normalized == "fenced":
+            return "fenced"
+        return RunExecutionStateMachine.complete_attempt(state=normalized).lease_state
+
+    @staticmethod
     def attempt_state_for_run_status(status: str) -> str:
         normalized = _normalize_optional_status(status)
         if normalized == "completed":
@@ -115,12 +153,7 @@ class RunExecutionStateMachine:
 
     @staticmethod
     def terminal_job_state_for_attempt_state(state: str) -> str:
-        normalized = _normalize_required_status(state, "ATTEMPT_STATE_REQUIRED")
-        if normalized == "succeeded":
-            return "completed"
-        if normalized in {"canceled", "cancelled"}:
-            return "cancelled"
-        return "failed"
+        return RunExecutionStateMachine.complete_attempt(state=state).job_state
 
     @staticmethod
     def is_terminal_run_status(status: str) -> bool:

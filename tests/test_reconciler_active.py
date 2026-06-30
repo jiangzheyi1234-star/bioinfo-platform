@@ -377,11 +377,15 @@ def test_active_reconciler_dead_letters_exhausted_job(tmp_path):
             ("run_exhaust",),
         ).fetchone()
         run = connection.execute(
-            "SELECT status, stage FROM runs WHERE run_id = ?",
+            "SELECT status, stage, state_version FROM runs WHERE run_id = ?",
             ("run_exhaust",),
         ).fetchone()
         event = connection.execute(
-            "SELECT event_type FROM run_events WHERE event_type = ? AND run_id = ?",
+            """
+            SELECT event_type, from_status, to_status, stage, state_version, message
+            FROM run_events
+            WHERE event_type = ? AND run_id = ?
+            """,
             ("run_job_dead_lettered", "run_exhaust"),
         ).fetchone()
     assert job["state"] == "failed"
@@ -389,7 +393,14 @@ def test_active_reconciler_dead_letters_exhausted_job(tmp_path):
     assert job["dead_lettered_at"] is not None
     assert run["status"] == "failed"
     assert run["stage"] == "dead_letter"
-    assert event is not None
+    assert dict(event) == {
+        "event_type": "run_job_dead_lettered",
+        "from_status": "queued",
+        "to_status": "failed",
+        "stage": "dead_letter",
+        "state_version": run["state_version"],
+        "message": "Run job dead-lettered after exhausting retries.",
+    }
 
 
 def test_active_reconciler_is_idempotent(tmp_path):

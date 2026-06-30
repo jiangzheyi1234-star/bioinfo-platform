@@ -95,6 +95,53 @@ def test_dead_letter_transition_matches_reconciler_contract() -> None:
 
 
 @pytest.mark.parametrize(
+    ("attempt_state", "canonical_attempt_state", "job_state", "lease_state"),
+    [
+        ("succeeded", "succeeded", "completed", "completed"),
+        ("failed", "failed", "failed", "failed"),
+        ("canceled", "cancelled", "cancelled", "cancelled"),
+        ("cancelled", "cancelled", "cancelled", "cancelled"),
+    ],
+)
+def test_attempt_completion_decision_owns_terminal_job_and_lease_states(
+    attempt_state: str,
+    canonical_attempt_state: str,
+    job_state: str,
+    lease_state: str,
+) -> None:
+    decision = RunExecutionStateMachine.complete_attempt(state=attempt_state)
+
+    assert decision.attempt_state == canonical_attempt_state
+    assert decision.job_state == job_state
+    assert decision.lease_state == lease_state
+    assert decision.event_type == "run_attempt_completed"
+    assert decision.stage == "complete"
+    assert decision.event_message == "Run attempt completed."
+
+
+def test_attempt_completion_rejects_unsupported_terminal_state() -> None:
+    with pytest.raises(ValueError, match="ATTEMPT_TERMINAL_STATE_UNSUPPORTED: unknown"):
+        RunExecutionStateMachine.complete_attempt(state="unknown")
+
+
+@pytest.mark.parametrize(
+    ("attempt_state", "lease_state"),
+    [
+        ("succeeded", "completed"),
+        ("failed", "failed"),
+        ("cancelled", "cancelled"),
+        ("fenced", "fenced"),
+        ("", "fenced"),
+    ],
+)
+def test_non_running_attempt_lease_closure_uses_completion_decision(
+    attempt_state: str,
+    lease_state: str,
+) -> None:
+    assert RunExecutionStateMachine.lease_state_for_non_running_attempt(attempt_state) == lease_state
+
+
+@pytest.mark.parametrize(
     ("run_status", "attempt_state"),
     [
         ("completed", "succeeded"),
@@ -115,15 +162,19 @@ def test_attempt_state_mapping_for_worker_completion(run_status: str, attempt_st
         ("canceled", "cancelled"),
         ("cancelled", "cancelled"),
         ("failed", "failed"),
-        ("unknown", "failed"),
     ],
 )
 def test_terminal_job_state_mapping_for_attempt_completion(attempt_state: str, job_state: str) -> None:
     assert RunExecutionStateMachine.terminal_job_state_for_attempt_state(attempt_state) == job_state
 
 
+def test_terminal_job_state_mapping_rejects_unknown_attempt_state() -> None:
+    with pytest.raises(ValueError, match="ATTEMPT_TERMINAL_STATE_UNSUPPORTED: unknown"):
+        RunExecutionStateMachine.terminal_job_state_for_attempt_state("unknown")
+
+
 def test_lease_and_published_attempt_terminal_sets_are_explicit() -> None:
     assert RunExecutionStateMachine.is_released_lease_state("expired") is True
     assert RunExecutionStateMachine.is_released_lease_state("active") is False
     assert RunExecutionStateMachine.is_published_attempt_terminal_state("succeeded") is True
-    assert RunExecutionStateMachine.is_published_attempt_terminal_state("cancelled") is False
+    assert RunExecutionStateMachine.is_published_attempt_terminal_state("cancelled") is True

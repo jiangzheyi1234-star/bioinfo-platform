@@ -92,6 +92,70 @@ def test_request_run_cancel_records_command_event_and_marks_active_attempt(tmp_p
     assert dict(event) == {"event_type": "run_cancel_requested", "command_id": "cmd_cancel_run"}
 
 
+def test_request_run_cancel_on_terminal_run_records_event_without_mutating_run(tmp_path):
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_cancel_terminal")
+    claim = claim_next_run_job(cfg, worker_id="worker_cancel_terminal", now="2099-06-07T10:00:00Z")
+    assert claim is not None
+    update_run_state(
+        cfg,
+        run_id="run_cancel_terminal",
+        status="failed",
+        stage="execute",
+        message="Terminal failure.",
+        request_id="req_run_cancel_terminal",
+        attempt_id=claim["attemptId"],
+        lease_generation=claim["leaseGeneration"],
+    )
+    complete_run_attempt(
+        cfg,
+        claim["attemptId"],
+        lease_generation=claim["leaseGeneration"],
+        state="failed",
+        exit_code=1,
+        now="2099-06-07T10:00:05Z",
+    )
+
+    result = request_run_cancel(
+        cfg,
+        "run_cancel_terminal",
+        actor="api-test",
+        command_id="cmd_cancel_terminal",
+        now="2099-06-07T10:01:00Z",
+    )
+
+    assert result["status"] == "failed"
+    assert result["stage"] == "cancel"
+    assert result["attemptId"] is None
+    with get_connection(cfg) as connection:
+        run = connection.execute(
+            "SELECT status, stage, state_version, message FROM runs WHERE run_id = ?",
+            ("run_cancel_terminal",),
+        ).fetchone()
+        event = connection.execute(
+            """
+            SELECT event_type, from_status, to_status, stage, state_version, command_id
+            FROM run_events
+            WHERE run_id = ? AND event_type = 'run_cancel_requested'
+            """,
+            ("run_cancel_terminal",),
+        ).fetchone()
+    assert dict(run) == {
+        "status": "failed",
+        "stage": "execute",
+        "state_version": 2,
+        "message": "Terminal failure.",
+    }
+    assert dict(event) == {
+        "event_type": "run_cancel_requested",
+        "from_status": "failed",
+        "to_status": "failed",
+        "stage": "cancel",
+        "state_version": 2,
+        "command_id": "cmd_cancel_terminal",
+    }
+
+
 def test_request_run_retry_requeues_failed_run_for_next_attempt(tmp_path):
     cfg = make_configured_remote_runner(tmp_path)
     _create_run(

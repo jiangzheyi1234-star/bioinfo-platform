@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 import sqlite3
@@ -598,33 +599,113 @@ def test_stale_attempt_cannot_update_run_projection(tmp_path):
     assert run["status"] == "queued"
 
 
-def test_current_attempt_completion_marks_job_and_lease_terminal(tmp_path):
+@pytest.mark.parametrize(
+    ("requested_state", "stored_attempt_state", "job_state", "exit_code"),
+    [
+        ("succeeded", "succeeded", "completed", 0),
+        ("failed", "failed", "failed", 1),
+        ("canceled", "cancelled", "cancelled", 130),
+        ("cancelled", "cancelled", "cancelled", 130),
+    ],
+)
+def test_current_attempt_completion_marks_attempt_job_and_lease_terminal(
+    tmp_path,
+    requested_state: str,
+    stored_attempt_state: str,
+    job_state: str,
+    exit_code: int,
+):
     cfg = make_configured_remote_runner(tmp_path)
-    _create_run(cfg, "run_complete_attempt")
-    claim = claim_next_run_job(cfg, worker_id="worker_a", now="2099-06-07T10:00:00Z", lease_seconds=30)
+    run_id = f"run_complete_{requested_state}"
+    _create_run(cfg, run_id)
+    claim = claim_next_run_job(
+        cfg,
+        worker_id=f"worker_{requested_state}",
+        slot_id="slot-0",
+        now="2099-06-07T10:00:00Z",
+        lease_seconds=30,
+    )
     assert claim is not None
 
     completion = complete_run_attempt(
         cfg,
         claim["attemptId"],
         lease_generation=claim["leaseGeneration"],
-        state="succeeded",
-        exit_code=0,
+        state=requested_state,
+        exit_code=exit_code,
         now="2099-06-07T10:00:05Z",
     )
 
     assert completion["accepted"] is True
+    assert completion["state"] == stored_attempt_state
     with get_connection(cfg) as connection:
+        attempt = connection.execute(
+            "SELECT state, exit_code FROM run_attempts WHERE attempt_id = ?",
+            (claim["attemptId"],),
+        ).fetchone()
         job = connection.execute(
             "SELECT state FROM run_jobs WHERE run_id = ?",
-            ("run_complete_attempt",),
+            (run_id,),
         ).fetchone()
         lease = connection.execute(
             "SELECT state FROM run_leases WHERE run_id = ?",
-            ("run_complete_attempt",),
+            (run_id,),
         ).fetchone()
-    assert job["state"] == "completed"
-    assert lease["state"] == "completed"
+        allocation = connection.execute(
+            "SELECT state FROM run_resource_allocations WHERE attempt_id = ?",
+            (claim["attemptId"],),
+        ).fetchone()
+        event = connection.execute(
+            """
+            SELECT event_type, stage, message, details_json
+            FROM run_events
+            WHERE run_id = ? AND event_type = 'run_attempt_completed'
+            """,
+            (run_id,),
+        ).fetchone()
+    assert dict(attempt) == {"state": stored_attempt_state, "exit_code": exit_code}
+    assert job["state"] == job_state
+    assert lease["state"] == job_state
+    assert allocation["state"] == "released"
+    assert event["event_type"] == "run_attempt_completed"
+    assert event["stage"] == "complete"
+    assert event["message"] == "Run attempt completed."
+    assert json.loads(event["details_json"])["payload"] == {
+        "attemptId": claim["attemptId"],
+        "leaseGeneration": claim["leaseGeneration"],
+        "state": stored_attempt_state,
+        "exitCode": exit_code,
+    }
+
+
+def test_completion_rejects_unsupported_attempt_state_before_storage_mutation(tmp_path):
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_complete_unknown")
+    claim = claim_next_run_job(cfg, worker_id="worker_unknown", now="2099-06-07T10:00:00Z", lease_seconds=30)
+    assert claim is not None
+
+    with pytest.raises(ValueError, match="ATTEMPT_TERMINAL_STATE_UNSUPPORTED: unknown"):
+        complete_run_attempt(
+            cfg,
+            claim["attemptId"],
+            lease_generation=claim["leaseGeneration"],
+            state="unknown",
+            exit_code=1,
+            now="2099-06-07T10:00:05Z",
+        )
+    with get_connection(cfg) as connection:
+        attempt = connection.execute(
+            "SELECT state, finished_at FROM run_attempts WHERE attempt_id = ?",
+            (claim["attemptId"],),
+        ).fetchone()
+        job = connection.execute("SELECT state FROM run_jobs WHERE run_id = ?", ("run_complete_unknown",)).fetchone()
+        lease = connection.execute(
+            "SELECT state FROM run_leases WHERE run_id = ?",
+            ("run_complete_unknown",),
+        ).fetchone()
+    assert dict(attempt) == {"state": "running", "finished_at": None}
+    assert job["state"] == "claimed"
+    assert lease["state"] == "active"
 
 
 def _column_names(connection, table_name: str) -> set[str]:

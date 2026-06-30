@@ -531,7 +531,9 @@ def complete_run_attempt(
     now: str | None = None,
 ) -> dict[str, Any]:
     normalized_attempt_id = _required_text(attempt_id, "ATTEMPT_ID_REQUIRED")
-    normalized_state = _required_text(state, "ATTEMPT_STATE_REQUIRED")
+    completion_decision = RunExecutionStateMachine.complete_attempt(
+        state=_required_text(state, "ATTEMPT_STATE_REQUIRED"),
+    )
     finished_at = _optional_text(now) or now_iso()
     with get_connection(cfg) as connection:
         attempt = _fetch_attempt_row(connection, normalized_attempt_id)
@@ -566,16 +568,15 @@ def complete_run_attempt(
             SET state = ?, finished_at = ?, exit_code = ?, updated_at = ?
             WHERE attempt_id = ?
             """,
-            (normalized_state, finished_at, exit_code, finished_at, normalized_attempt_id),
+            (completion_decision.attempt_state, finished_at, exit_code, finished_at, normalized_attempt_id),
         )
-        terminal_job_state = RunExecutionStateMachine.terminal_job_state_for_attempt_state(normalized_state)
         connection.execute(
             "UPDATE run_jobs SET state = ?, updated_at = ? WHERE job_id = ?",
-            (terminal_job_state, finished_at, attempt["job_id"]),
+            (completion_decision.job_state, finished_at, attempt["job_id"]),
         )
         connection.execute(
             "UPDATE run_leases SET state = ?, updated_at = ? WHERE run_id = ?",
-            (terminal_job_state, finished_at, attempt["run_id"]),
+            (completion_decision.lease_state, finished_at, attempt["run_id"]),
         )
         release_resource_allocation(connection, attempt_id=normalized_attempt_id, released_at=finished_at)
         mark_worker_slot_idle(
@@ -588,15 +589,15 @@ def complete_run_attempt(
         append_run_event_v2(
             connection,
             run_id=str(attempt["run_id"]),
-            event_type="run_attempt_completed",
-            stage="complete",
+            event_type=completion_decision.event_type,
+            stage=completion_decision.stage,
             state_version=int(run["state_version"]),
-            message="Run attempt completed.",
+            message=completion_decision.event_message,
             request_id=str(run["request_id"]),
             payload={
                 "attemptId": normalized_attempt_id,
                 "leaseGeneration": int(lease_generation),
-                "state": normalized_state,
+                "state": completion_decision.attempt_state,
                 "exitCode": exit_code,
             },
             occurred_at=finished_at,
@@ -605,9 +606,9 @@ def complete_run_attempt(
         record_run_attempt_completed(
             started_at=str(attempt["started_at"] or ""),
             finished_at=finished_at,
-            terminal_state=terminal_job_state,
+            terminal_state=completion_decision.job_state,
         )
-        return {"accepted": True, "state": normalized_state}
+        return {"accepted": True, "state": completion_decision.attempt_state}
 
 
 def _select_claimable_job(connection: sqlite3.Connection, now: str, queue_name: str) -> sqlite3.Row | None:

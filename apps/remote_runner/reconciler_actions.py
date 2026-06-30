@@ -356,6 +356,8 @@ def dead_letter_job(
             connection,
             run_id=run_id,
             event_type=transition.event_type,
+            from_status=transition.from_status,
+            to_status=transition.to_status,
             stage=transition.stage,
             state_version=transition.state_version,
             message=transition.event_message,
@@ -421,7 +423,7 @@ def _close_active_leases_without_running_attempts(
     actions: list[dict[str, Any]] = []
     for row in rows:
         attempt_state = str(row["attempt_state"] or "")
-        target_lease_state = _lease_state_for_non_running_attempt(attempt_state)
+        target_lease_state = RunExecutionStateMachine.lease_state_for_non_running_attempt(attempt_state)
         connection.execute(
             "UPDATE run_leases SET state = ?, updated_at = ? WHERE run_id = ?",
             (target_lease_state, occurred_at, row["run_id"]),
@@ -647,14 +649,3 @@ def _recover_claimed_jobs_without_active_leases(
         )
         actions.append(action)
     return actions
-
-
-def _lease_state_for_non_running_attempt(attempt_state: str) -> str:
-    normalized = str(attempt_state or "").strip().lower()
-    if normalized == "succeeded":
-        return "completed"
-    if normalized == "failed":
-        return "failed"
-    if normalized in {"canceled", "cancelled"}:
-        return "cancelled"
-    return "fenced"
