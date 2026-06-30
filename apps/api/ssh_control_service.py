@@ -97,6 +97,15 @@ async def ensure_server_runner_from_request(server_id: str) -> dict[str, Any]:
     return result
 
 
+async def upgrade_server_runner_from_request(server_id: str) -> dict[str, Any]:
+    result = await run_runtime_payload(
+        lambda: runtime_service().upgrade_remote_runner(server_id),
+        wrapper="raw",
+    )
+    await _invalidate_ssh_state_cache()
+    return result
+
+
 async def accept_server_host_key_from_request(server_id: str) -> dict[str, Any]:
     return await run_runtime_payload(
         lambda: runtime_service().accept_server_host_key(server_id),

@@ -20,6 +20,7 @@ from core.app_runtime.managers.tool import ToolManager
 from core.app_runtime.managers.workflow import WorkflowManager
 from core.remote.ssh_service import SSHService, TerminalSession
 from core.remote.ssh_connector import trust_ssh_host_key
+from core.remote_runner.bootstrap_guard import UPGRADE_ACTIVE_LEASES_REASON
 from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerError
 from core.app_runtime.errors import RuntimeServiceError
 from core.app_runtime.runner_ops import RunnerOperationsMixin
@@ -182,6 +183,12 @@ class RuntimeService(
         }
 
     def ensure_remote_runner_ready(self, server_id: str) -> dict[str, Any]:
+        return self._bootstrap_remote_runner(server_id=server_id, action="ensure")
+
+    def upgrade_remote_runner(self, server_id: str) -> dict[str, Any]:
+        return self._bootstrap_remote_runner(server_id=server_id, action="upgrade")
+
+    def _bootstrap_remote_runner(self, *, server_id: str, action: str) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
             ssh_status = self._get_ssh_status_unlocked()
@@ -191,6 +198,25 @@ class RuntimeService(
             ssh = self._ensure_ssh_connected()
             manager = self._service_locator.remote_runner_manager
             server_record = self._get_server_registry_entry(server_id)
+            if action == "upgrade" and not server_record.get("bootstrap_version"):
+                raise RuntimeServiceError(
+                    "Remote runner is not prepared; start it before upgrade.",
+                    status_code=409,
+                    detail={
+                        "reasonCode": "RUNNER_UPGRADE_NOT_PREPARED",
+                        "serverId": server_id,
+                        "nextAction": "START_RUNNER_BEFORE_UPGRADE",
+                    },
+                )
+        if action == "ensure":
+            existing = self._ready_existing_runner_payload(
+                server_id=server_id,
+                ssh_service=ssh,
+                manager=manager,
+                server_record=server_record,
+            )
+            if existing is not None:
+                return existing
         try:
             with self._runner_ensure_mutex:
                 result = self._call_remote_runner(
@@ -205,6 +231,17 @@ class RuntimeService(
             cause = exc.__cause__
             if isinstance(cause, RemoteRunnerManagerError) and isinstance(cause.bootstrap_metadata, dict):
                 bootstrap_metadata = dict(cause.bootstrap_metadata)
+            if _runtime_error_reason_code(exc) == UPGRADE_ACTIVE_LEASES_REASON:
+                blocked_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                with self._lock:
+                    self._save_server_registry_entry(
+                        server_id,
+                        {
+                            "bootstrap_metadata": bootstrap_metadata or None,
+                            "runner_upgrade_blocked_at": blocked_at,
+                        },
+                    )
+                raise
             failure_snapshot = self._build_runner_ensure_failure_snapshot(
                 server_id=server_id,
                 detail=str(exc),
@@ -219,7 +256,8 @@ class RuntimeService(
                 )
             raise
         health = result["health"]
-        ensured_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        action_timestamp_key = "runner_upgraded_at" if action == "upgrade" else "runner_ensured_at"
         with self._lock:
             self._save_server_registry_entry(
                 server_id,
@@ -231,7 +269,7 @@ class RuntimeService(
                     "token_ref": result["token_ref"],
                     "last_health_snapshot": health,
                     "bootstrap_metadata": dict(result.get("bootstrap_metadata") or {}),
-                    "runner_ensured_at": ensured_at,
+                    action_timestamp_key: completed_at,
                 },
             )
         if not bool((health.get("ready") or {}).get("ok")):
@@ -248,7 +286,50 @@ class RuntimeService(
             },
             health=health,
         )
-        return {"data": {"serverId": server_id, "runner": runner, "health": health}}
+        return {
+            "data": {
+                "serverId": server_id,
+                "runner": runner,
+                "health": health,
+                "lifecycleAction": action,
+                "completedAt": completed_at,
+            }
+        }
+
+    def _ready_existing_runner_payload(
+        self,
+        *,
+        server_id: str,
+        ssh_service,
+        manager,
+        server_record: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        if not server_record.get("bootstrap_version"):
+            return None
+        try:
+            health = self._call_remote_runner(
+                manager.get_health,
+                server_id=server_id,
+                ssh_service=ssh_service,
+                server_record=server_record,
+            )
+        except RuntimeServiceError:
+            return None
+        if not bool((health.get("ready") or {}).get("ok")):
+            return None
+        checked_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        with self._lock:
+            registry_entry = self._save_runner_health_snapshot(server_id=server_id, health=health)
+        runner = self._compose_runner_payload(registry_entry=registry_entry, health=health)
+        return {
+            "data": {
+                "serverId": server_id,
+                "runner": runner,
+                "health": health,
+                "lifecycleAction": "ensure",
+                "completedAt": checked_at,
+            }
+        }
 
     def accept_server_host_key(self, server_id: str) -> dict[str, Any]:
         with self._lock:
@@ -327,3 +408,10 @@ class RuntimeService(
     def _ensure_initialized(self) -> None:
         if not self._initialized:
             raise RuntimeServiceError("not initialized")
+
+
+def _runtime_error_reason_code(error: RuntimeServiceError) -> str:
+    detail = error.detail
+    if isinstance(detail, dict):
+        return str(detail.get("reasonCode") or "")
+    return ""

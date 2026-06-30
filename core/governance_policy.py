@@ -93,6 +93,7 @@ HIGH_RISK_API_POLICIES: tuple[ApiGovernancePolicy, ...] = (
     local_policy("POST", "/api/v1/ssh/test", "ssh.test", "server", "platform-admin"),
     local_policy("POST", "/api/v1/ssh/remote-service/stop", "remote_runner.stop", "server", "platform-admin"),
     local_policy("POST", "/api/v1/servers/{server_id}/ensure-runner", "remote_runner.ensure", "server", "platform-admin"),
+    local_policy("POST", "/api/v1/servers/{server_id}/runner/upgrade", "remote_runner.upgrade", "server", "platform-admin"),
     local_policy("POST", "/api/v1/servers/{server_id}/host-key/accept", "ssh.host_key.accept", "server", "platform-admin"),
     local_policy("POST", "/api/v1/servers/{server_id}/token/rotate", "remote_runner.token.rotate", "server", "platform-admin"),
     local_policy("GET", "/api/v1/servers/{server_id}/operator-diagnostics", "diagnostics.operator.read", "server", "auditor"),

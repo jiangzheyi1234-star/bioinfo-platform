@@ -769,6 +769,7 @@ def test_ssh_routes_delegate_request_dumping_and_cache_to_service() -> None:
     assert "payload.model_dump(" not in ssh_test_route
     assert "invalidate_response_cache" not in ssh_routes
     assert "ensure_server_runner_from_request" in ssh_routes
+    assert "upgrade_server_runner_from_request" in ssh_routes
     assert "accept_server_host_key_from_request" in ssh_routes
     assert "rotate_server_token_from_request" in ssh_routes
     assert "connect_ssh_from_request" in ssh_routes
@@ -777,6 +778,7 @@ def test_ssh_routes_delegate_request_dumping_and_cache_to_service() -> None:
     assert "test_ssh_connection_from_request" in ssh_test_route
 
     assert "def ensure_server_runner_from_request(" in service_source
+    assert "def upgrade_server_runner_from_request(" in service_source
     assert "def accept_server_host_key_from_request(" in service_source
     assert "def rotate_server_token_from_request(" in service_source
     assert "def connect_ssh_from_request(" in service_source

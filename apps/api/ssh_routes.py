@@ -27,6 +27,7 @@ from apps.api.ssh_control_service import (
     stop_ssh_remote_service_from_request,
     stream_terminal_session_from_request,
     test_ssh_connection_from_request,
+    upgrade_server_runner_from_request,
 )
 
 
@@ -79,6 +80,11 @@ async def refresh_server_health(server_id: str) -> dict[str, Any]:
 @router.post("/api/v1/servers/{server_id}/ensure-runner")
 async def ensure_server_runner(server_id: str) -> dict[str, Any]:
     return await ensure_server_runner_from_request(server_id)
+
+
+@router.post("/api/v1/servers/{server_id}/runner/upgrade")
+async def upgrade_server_runner(server_id: str) -> dict[str, Any]:
+    return await upgrade_server_runner_from_request(server_id)
 
 
 @router.post("/api/v1/servers/{server_id}/host-key/accept")

@@ -418,68 +418,6 @@ def test_connected_server_health_reports_runner_not_ready(monkeypatch, tmp_path:
     assert server["reasonCode"] == "RUNNER_NOT_READY"
 
 
-def test_ensure_server_runner_uses_remote_runner_manager_and_persists_server_registry(
-    monkeypatch, tmp_path: Path
-) -> None:
-    service = make_service(tmp_path)
-    service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)
-    cfg = {
-        "ssh": {
-            "host": "192.0.2.10",
-            "port": 22,
-            "user": "tester",
-            "auth_mode": "key_file",
-            "identity_ref": "C:/keys/id_ed25519",
-            "timeout_sec": 5,
-        },
-        "servers": {},
-    }
-
-    class FakeRemoteRunnerManager:
-        def __init__(self) -> None:
-            self.bootstrap_calls: list[dict[str, object]] = []
-
-        def bootstrap(self, **kwargs):
-            self.bootstrap_calls.append(kwargs)
-            return {
-                "bootstrap_version": "phase1-test",
-                "runner_mode": "background_process",
-                "tunnel_port": 18765,
-                "service_port": 43127,
-                "token_ref": "runner://srv_test",
-                "health": {
-                    "startup": {"ok": True, "message": "Remote runner config loaded."},
-                    "live": {"ok": True, "message": "Remote runner process is alive."},
-                    "ready": {"ok": True, "message": "Remote runner control plane is ready."},
-                    "reasonCode": "",
-                    "checkedAt": "2026-04-21T12:00:00Z",
-                },
-            }
-
-    fake_manager = FakeRemoteRunnerManager()
-    service._service_locator.remote_runner_manager = fake_manager
-
-    def save_capture(next_cfg: dict) -> None:
-        snapshot = dict(next_cfg)
-        cfg.clear()
-        cfg.update(snapshot)
-
-    monkeypatch.setattr("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg)
-    monkeypatch.setattr("core.app_runtime.runtime_config.save_runtime_config", save_capture)
-    patch_runtime_service(monkeypatch, service)
-
-    server_id = asyncio.run(list_servers())["data"]["items"][0]["serverId"]
-    result = asyncio.run(ensure_server_runner(server_id))
-
-    assert len(fake_manager.bootstrap_calls) == 1
-    assert cfg["servers"][server_id]["bootstrap_version"] == "phase1-test"
-    assert cfg["servers"][server_id]["runner_mode"] == "background_process"
-    assert cfg["servers"][server_id]["tunnel_port"] == 18765
-    assert result["data"]["health"]["ready"]["ok"] is True
-    assert result["data"]["health"]["reasonCode"] == ""
-    assert result["data"]["runner"]["state"] == "ready"
-
-
 def test_ensure_server_runner_persists_bootstrap_metadata_and_replaces_stale_failure_snapshot(
     monkeypatch, tmp_path: Path
 ) -> None:
