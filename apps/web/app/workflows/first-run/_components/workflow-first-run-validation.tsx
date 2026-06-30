@@ -6,9 +6,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-import type { FirstRunNextAction, FirstRunValidationCard } from "../_domain/first-run-types";
+import type { FirstRunNextAction, FirstRunStatus, FirstRunValidationCard } from "../_domain/first-run-types";
 import { formatBytes } from "../_domain/first-run-display";
-import { firstRunValidationCardPassed } from "../_domain/first-run-validation-state";
 import { FirstRunTrustSummary } from "./workflow-first-run-trust-summary";
 import { workflowResultPackageDownloadHref } from "@/app/components/workflows-page-api";
 import type {
@@ -146,6 +145,7 @@ export function ValidationCard({
   downloading,
   eligible,
   error,
+  firstRunStatus,
   inputArtifacts,
   loadingCard,
   onDownload,
@@ -162,6 +162,7 @@ export function ValidationCard({
   downloading: boolean;
   eligible: boolean;
   error: string;
+  firstRunStatus: FirstRunStatus | null;
   inputArtifacts: FirstRunInputArtifacts;
   loadingCard: boolean;
   onDownload: () => void;
@@ -177,16 +178,17 @@ export function ValidationCard({
   const sampleData = card?.sampleData;
   const softwareEnvironment = card?.softwareEnvironment;
   const evidenceBundle = card?.pilotHandoff?.evidenceBundle;
-  const checks = card?.checks || [];
-  const passedChecks = checks.filter((item) => item.status === "passed").length;
-  const cardPassed = firstRunValidationCardPassed(card);
+  const validationEvidence = firstRunStatus?.evidence?.validation;
+  const passedChecks = validationEvidence?.validationChecksPassed;
+  const totalChecks = validationEvidence?.validationChecksTotal;
+  const validationPassed = validationEvidence?.ready === true;
   return (
     <section
       id="validation-card"
       className={cn("scroll-mt-24 rounded-lg border bg-white p-5", eligible ? "border-emerald-200" : "border-slate-200")}
       data-testid="first-run-validation-card"
       data-validation-eligible={eligible ? "true" : "false"}
-      data-validation-passed={cardPassed ? "true" : "false"}
+      data-validation-passed={validationPassed ? "true" : "false"}
     >
       <div id="evidence-bundle" className="flex scroll-mt-24 items-start justify-between gap-3">
         <div className="min-w-0">
@@ -195,7 +197,7 @@ export function ValidationCard({
             结果验证卡与证据包
           </div>
           <div className="mt-1 text-xs text-slate-500">
-            {loadingCard ? "正在生成服务端验证卡" : cardPassed ? "验证卡与证据包已通过" : card ? "服务端验证卡已加载" : eligible ? "等待服务端验证卡" : "等待结果包与 WorkflowRevision"}
+            {loadingCard ? "正在生成服务端验证卡" : validationPassed ? "验证卡与证据包已通过" : card ? "服务端验证卡已加载" : eligible ? "等待服务端验证卡" : "等待结果包与 WorkflowRevision"}
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
@@ -217,7 +219,7 @@ export function ValidationCard({
       ) : null}
 
       <div className="mt-4">
-        <FirstRunTrustSummary card={card} packageExport={packageExport} />
+        <FirstRunTrustSummary status={firstRunStatus} />
       </div>
 
       <div className="mt-4 grid gap-2 text-xs">
@@ -240,7 +242,10 @@ export function ValidationCard({
         <KeyValue label="bundle files" value={evidenceBundle?.requiredFiles?.length ? `${evidenceBundle.requiredFiles.length} files` : ""} />
         <KeyValue label="card" value={card?.schemaVersion} mono />
         <KeyValue label="generated" value={card?.generatedAt} mono />
-        <KeyValue label="checks" value={checks.length ? `${passedChecks}/${checks.length} passed checks` : ""} />
+        <KeyValue
+          label="checks"
+          value={typeof passedChecks === "number" && typeof totalChecks === "number" ? `${passedChecks}/${totalChecks} passed checks` : ""}
+        />
       </div>
 
       {card ? <ValidationCardEvidenceSummary card={card} /> : null}

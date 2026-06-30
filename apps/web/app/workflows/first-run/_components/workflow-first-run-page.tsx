@@ -284,6 +284,7 @@ export function WorkflowFirstRunPage() {
         <FirstRunCompletionPanel
           card={firstRunEvidence.validationCard}
           downloadingValidationCard={firstRunEvidence.validationCardLoading}
+          firstRunStatus={firstRunStatusSnapshot || null}
           latestPackage={latestPackage}
           loadingValidationCard={firstRunEvidence.validationCardFetchLoading}
           nextScenarioPacks={firstRunEvidence.nextScenarioPacks}
@@ -375,6 +376,7 @@ export function WorkflowFirstRunPage() {
               inputArtifacts={inputArtifacts}
               loadingCard={firstRunEvidence.validationCardFetchLoading}
               packageExport={latestPackage}
+              firstRunStatus={firstRunStatusSnapshot || null}
               eligible={validationEligible}
               resultId={resultId}
               run={run}

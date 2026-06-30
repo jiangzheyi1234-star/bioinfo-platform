@@ -48,7 +48,6 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     first_run_progress = (FIRST_RUN_DOMAIN / "first-run-progress.ts").read_text(encoding="utf-8")
     first_run_display = (FIRST_RUN_DOMAIN / "first-run-display.ts").read_text(encoding="utf-8")
     first_run_package = (FIRST_RUN_DOMAIN / "first-run-package.ts").read_text(encoding="utf-8")
-    first_run_validation_state = (FIRST_RUN_DOMAIN / "first-run-validation-state.ts").read_text(encoding="utf-8")
     first_run_types = (FIRST_RUN_DOMAIN / "first-run-types.ts").read_text(encoding="utf-8")
     first_run_markdown = (FIRST_RUN_DOMAIN / "first-run-markdown.ts").read_text(encoding="utf-8")
     first_run_evidence_state = (FIRST_RUN_STATE / "use-first-run-evidence.ts").read_text(encoding="utf-8")
@@ -64,6 +63,7 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert first_run_route.exists()
     assert not any(COMPONENTS.glob("workflow-first-run-*"))
     assert not (COMPONENTS / "workflow-sample-data-api.ts").exists()
+    assert not (FIRST_RUN_DOMAIN / "first-run-validation-state.ts").exists()
     assert "./_components/workflow-first-run-page" in first_run_route.read_text(encoding="utf-8")
     assert "WorkflowFirstRunPage" in first_run_route.read_text(encoding="utf-8")
     assert '{ href: "/workflows/first-run", label: "首跑" }' in tabs
@@ -75,7 +75,6 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "export function artifactName" in first_run_display
     assert "export function formatBytes" in first_run_display
     assert "export function firstRunResultPackageReady" in first_run_package
-    assert "export function firstRunValidationCardPassed" in first_run_validation_state
     assert "export function useFirstRunEvidence" in first_run_evidence_state
     assert "export function useFirstRunStatus" in first_run_status_state
     assert "fetchFirstRunStatus" in first_run_status_state
@@ -171,11 +170,6 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "下载并分享以下 4 个文件" in first_run_completion
     assert "first-run-evidence-bundle-file" in first_run_completion
     assert "item.filename || item.source" in first_run_completion
-    assert all(
-        role in first_run_validation_state
-        for role in ("result-package", "validation-card-json", "validation-card-markdown", "pilot-handoff")
-    )
-    assert "requiredBundleRoles.every" in first_run_validation_state
     assert "firstRunResultPackageReady(latestPackage)" in first_run_completion
     assert "from \"../_domain/first-run-package\"" in first_run_completion
     assert "passed checks" in first_run_completion
@@ -208,21 +202,17 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "const validationEligible = validationReady && Boolean(workflowRevisionId)" in first_run_evidence_state
     assert "const validationReady = status?.evidence?.validation?.ready === true" in first_run_evidence_state
     assert "runCompleted && packageReady" not in first_run_evidence_state
-    assert "firstRunValidationCardPassed(validationCard)" not in first_run_evidence_state
-    assert "firstRunValidationCardPassed(validationCard)" not in first_run_page
+    assert "firstRunValidationCardPassed" not in first_run_evidence_state
+    assert "firstRunValidationCardPassed" not in first_run_page
+    assert "firstRunValidationCardPassed" not in first_run_completion + first_run_trust_summary + first_run_validation
     assert "target: string" in first_run_progress
     assert "data-step-target={step.target}" in first_run_page
     assert "href={step.target}" in first_run_page
     assert '"#result-package"' in first_run_progress
     assert '"#evidence-bundle"' in first_run_progress
     assert "if (!ready) return null" in first_run_completion
-    assert 'checks.every((item) => item.status === "passed")' in first_run_validation_state
-    assert 'card?.reportInterpretation?.status === "ready"' in first_run_validation_state
-    assert 'card?.sampleData?.status === "verified"' in first_run_validation_state
-    assert 'card?.softwareEnvironment?.status === "verified"' in first_run_validation_state
-    assert "Boolean(card?.pilotHandoff?.backupRestore)" in first_run_validation_state
-    assert 'card?.pilotHandoff?.evidenceBundle?.status === "ready"' in first_run_validation_state
-    assert "workflowRevisionIdFor(run, runDetail, latestPackage)" in first_run_evidence_state
+    assert "const workflowRevisionId = status" in first_run_evidence_state
+    assert ": workflowRevisionIdFor(run, runDetail, latestPackage)" in first_run_evidence_state
     assert "/api/v1/first-run/runs/${encodeURIComponent(runId)}/validation-card" in first_run_api
     assert "/api/v1/first-run/runs/${encodeURIComponent(runId)}/finalize" in first_run_api
     assert "export async function fetchFirstRunStatus" in first_run_api
@@ -254,7 +244,7 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "FirstRunTrustSummary" in first_run_validation
     assert "first-run-trust-summary" in first_run_trust_summary
     assert "data-summary-ready" in first_run_trust_summary
-    assert "summaryReady ? \"border-emerald-200 bg-emerald-50\" : \"border-amber-200 bg-amber-50\"" in first_run_trust_summary
+    assert "evidence?.validation?.ready === true" in first_run_trust_summary
     assert "这次结果为什么可信" in first_run_trust_summary
     assert "官方样例输入" in first_run_trust_summary
     assert "软件环境" in first_run_trust_summary
@@ -265,15 +255,16 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "可信性检查未全部通过" in first_run_validation
     assert "data-validation-eligible" in first_run_validation
     assert "data-validation-passed" in first_run_validation
-    assert "const passedChecks = checks.filter((item) => item.status === \"passed\").length" in first_run_validation
-    assert "const cardPassed = firstRunValidationCardPassed(card)" in first_run_validation
+    assert "const validationEvidence = firstRunStatus?.evidence?.validation" in first_run_validation
+    assert "const validationPassed = validationEvidence?.ready === true" in first_run_validation
+    assert "firstRunValidationCardPassed" not in first_run_validation
     assert "checksPassed && bundleReady" not in first_run_validation
-    assert "from \"../_domain/first-run-validation-state\"" in first_run_validation
+    assert "from \"../_domain/first-run-validation-state\"" not in first_run_validation
     assert "from \"../_domain/first-run-display\"" in first_run_validation
     assert "from \"./workflow-first-run-validation\"" not in first_run_completion
     assert "from \"./workflow-first-run-validation\"" not in first_run_report
     assert "from \"./workflow-first-run-validation\"" not in first_run_sample_submit
-    assert "`${passedChecks}/${checks.length} passed checks`" in first_run_validation
+    assert "`${passedChecks}/${totalChecks} passed checks`" in first_run_validation
     assert "ValidationCardEvidenceSummary" in first_run_validation
     assert "ValidationCardEvidenceBundle" in first_run_validation
     assert "first-run-validation-card-evidence-bundle" in first_run_validation

@@ -36,3 +36,34 @@ def test_first_run_ui_steps_and_report_are_status_contract_driven() -> None:
     assert "const reportReady =" not in first_run_page
     assert "evidence?.report?.ready === true" in first_run_progress
     assert "reportEvidence={firstRunStatusSnapshot?.evidence?.report}" in first_run_page
+    assert "firstRunStatus={firstRunStatusSnapshot || null}" in first_run_page
+
+
+def test_first_run_validation_and_trust_summary_are_status_contract_driven() -> None:
+    first_run_page = (FIRST_RUN_COMPONENTS / "workflow-first-run-page.tsx").read_text(encoding="utf-8")
+    first_run_completion = (FIRST_RUN_COMPONENTS / "workflow-first-run-completion.tsx").read_text(encoding="utf-8")
+    first_run_trust_summary = (FIRST_RUN_COMPONENTS / "workflow-first-run-trust-summary.tsx").read_text(encoding="utf-8")
+    first_run_validation = (FIRST_RUN_COMPONENTS / "workflow-first-run-validation.tsx").read_text(encoding="utf-8")
+
+    assert "firstRunStatus={firstRunStatusSnapshot || null}" in first_run_page
+    assert "firstRunStatus: FirstRunStatus | null" in first_run_completion
+    assert "firstRunStatus?: FirstRunStatus | null" not in first_run_completion
+    assert "status: FirstRunStatus | null" in first_run_trust_summary
+    assert "status?: FirstRunStatus | null" not in first_run_trust_summary
+    assert "const validationEvidence = firstRunStatus?.evidence?.validation" in first_run_validation
+    assert "const validationPassed = validationEvidence?.ready === true" in first_run_validation
+    assert "data-validation-passed={validationPassed ? \"true\" : \"false\"}" in first_run_validation
+    assert "evidence?.validation?.ready === true" in first_run_trust_summary
+    assert "evidence?.sampleCache?.status === \"ready\"" in first_run_trust_summary
+    assert "evidence?.report?.ready === true" in first_run_trust_summary
+    assert "resultPackage?.ready === true" in first_run_trust_summary
+    assert "FirstRunTrustSummary status={firstRunStatus}" in first_run_validation
+    assert "FirstRunTrustSummary status={firstRunStatus}" in first_run_completion
+    assert "firstRunValidationCardPassed" not in first_run_validation
+    assert "?? checks.filter" not in first_run_trust_summary
+    assert "|| packageExport?.sha256" not in first_run_trust_summary
+    assert "|| packageExport?.manifestSha256" not in first_run_trust_summary
+    assert "latestPackage?.sha256 || resultPackageEvidence?.sha256" not in first_run_completion
+    assert "latestPackage?.manifestSha256 || resultPackageEvidence?.manifestSha256" not in first_run_completion
+    assert "validationChecksPassed ?? checks.filter" not in first_run_validation
+    assert not (FIRST_RUN_DOMAIN / "first-run-validation-state.ts").exists()

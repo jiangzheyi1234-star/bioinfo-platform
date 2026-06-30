@@ -4,46 +4,41 @@ import { CheckCircle2, ClipboardCheck, Cpu, Database, FileArchive, XCircle } fro
 
 import { cn } from "@/lib/utils";
 
-import type { FirstRunValidationCard } from "../_domain/first-run-types";
-import type { WorkflowResultPackageExport } from "@/app/components/workflows-page-model";
+import type { FirstRunStatus } from "../_domain/first-run-types";
 
 type TrustTone = "success" | "waiting";
 
 export function FirstRunTrustSummary({
-  card,
-  packageExport,
+  status,
 }: {
-  card: FirstRunValidationCard | null;
-  packageExport?: WorkflowResultPackageExport;
+  status: FirstRunStatus | null;
 }) {
-  const resultPackage = card?.resultPackage || packageExport;
-  const checks = card?.checks || [];
-  const passedChecks = checks.filter((item) => item.status === "passed").length;
-  const allChecksPassed = checks.length > 0 && passedChecks === checks.length;
-  const summaryReady = Boolean(card) && allChecksPassed;
-  const sampleItems = card?.sampleData?.items || [];
-  const keyResults = card?.keyResults || [];
+  const evidence = status?.evidence;
+  const resultPackage = evidence?.resultPackage;
+  const passedChecks = evidence?.validation?.validationChecksPassed;
+  const totalChecks = evidence?.validation?.validationChecksTotal;
+  const summaryReady = evidence?.validation?.ready === true;
   const packageHash = resultPackage?.sha256 || "";
   const manifestHash = resultPackage?.manifestSha256 || "";
   const fullPackage = resultPackage?.artifactPayloadMode === "full" || resultPackage?.includeArtifacts === true;
-  const software = card?.softwareEnvironment;
-  const runtime = [software?.runtime?.engine, software?.runtime?.platform, software?.runtime?.pipelineVersion]
-    .filter(Boolean)
-    .join(" / ");
+  const sampleReady = evidence?.sampleCache?.status === "ready";
+  const reportReady = evidence?.report?.ready === true;
+  const packageReady = resultPackage?.ready === true;
+  const outputCount = evidence?.report?.outputs?.length;
   const items = [
     {
       label: "官方样例输入",
       detail:
-        card?.sampleData?.status === "verified"
-          ? `${sampleItems.length} 个 Moving Pictures 输入 checksum 通过`
+        sampleReady
+          ? `${evidence?.sampleCache?.verifiedCacheCount ?? 0} 个 Moving Pictures 输入 checksum 通过`
           : "等待样例输入完整性证据",
-      tone: card?.sampleData?.status === "verified" ? "success" : "waiting",
+      tone: sampleReady ? "success" : "waiting",
       icon: ClipboardCheck,
     },
     {
       label: "软件环境",
-      detail: software?.status === "verified" ? runtime || "运行环境和流程内容已锁定" : "等待运行环境证据",
-      tone: software?.status === "verified" ? "success" : "waiting",
+      detail: summaryReady ? "首跑验证卡确认运行环境和流程内容已锁定" : "等待运行环境证据",
+      tone: summaryReady ? "success" : "waiting",
       icon: Cpu,
     },
     {
@@ -55,19 +50,19 @@ export function FirstRunTrustSummary({
     {
       label: "关键结果",
       detail:
-        card?.reportInterpretation?.status === "ready"
-          ? `${keyResults.length} 个关键输出和 ${card.reportInterpretation.metrics?.length || 0} 个指标可读`
+        reportReady
+          ? `${outputCount ?? 0} 个关键输出已通过服务端验证`
           : "等待报告解读证据",
-      tone: card?.reportInterpretation?.status === "ready" ? "success" : "waiting",
+      tone: reportReady ? "success" : "waiting",
       icon: CheckCircle2,
     },
     {
       label: "结果包",
       detail:
-        fullPackage && packageHash && manifestHash
+        packageReady && fullPackage && packageHash && manifestHash
           ? `完整包 ${shortHash(packageHash)} / manifest ${shortHash(manifestHash)}`
           : "等待完整结果包和 hash",
-      tone: fullPackage && packageHash && manifestHash ? "success" : "waiting",
+      tone: packageReady && fullPackage && packageHash && manifestHash ? "success" : "waiting",
       icon: FileArchive,
     },
   ] satisfies Array<{ label: string; detail: string; tone: TrustTone; icon: typeof CheckCircle2 }>;
@@ -95,7 +90,7 @@ export function FirstRunTrustSummary({
             summaryReady ? "border-emerald-200 text-emerald-700" : "border-amber-200 text-amber-700"
           )}
         >
-          {checks.length ? `${passedChecks}/${checks.length} checks` : "waiting"}
+          {typeof passedChecks === "number" && typeof totalChecks === "number" ? `${passedChecks}/${totalChecks} checks` : "waiting"}
         </span>
       </div>
       <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-5" data-testid="first-run-trust-summary-items">

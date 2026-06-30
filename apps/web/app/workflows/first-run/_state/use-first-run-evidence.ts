@@ -64,7 +64,9 @@ export function useFirstRunEvidence({
   const readyPackage = useMemo(() => packageExports.find(firstRunResultPackageReady), [packageExports]);
   const latestPackage = readyPackage || packageExports[0];
   const statusRun = status?.evidence?.run || status?.latestEligibleRun || null;
-  const workflowRevisionId = workflowRevisionIdFor(run, runDetail, latestPackage) || statusRun?.workflowRevisionId || "";
+  const workflowRevisionId = status
+    ? statusRun?.workflowRevisionId || ""
+    : workflowRevisionIdFor(run, runDetail, latestPackage);
   const runStatus = run?.status || statusRun?.status || "";
   const runTerminal = runStatus === "completed" || runStatus === "failed" || runStatus === "error";
   const packageReady = status?.evidence?.resultPackage?.ready === true;

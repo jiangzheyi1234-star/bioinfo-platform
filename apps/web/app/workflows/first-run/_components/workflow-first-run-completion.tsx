@@ -5,7 +5,7 @@ import { ArrowRight, CheckCircle2, CircleAlert, ClipboardCheck, Database, FileAr
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-import type { FirstRunPilotHandoff, FirstRunValidationCard } from "../_domain/first-run-types";
+import type { FirstRunPilotHandoff, FirstRunStatus, FirstRunValidationCard } from "../_domain/first-run-types";
 import { formatBytes } from "../_domain/first-run-display";
 import { firstRunResultPackageReady } from "../_domain/first-run-package";
 import { FirstRunTrustSummary } from "./workflow-first-run-trust-summary";
@@ -15,6 +15,7 @@ import type { WorkflowResultPackageExport, WorkflowRun, WorkflowScenarioPack } f
 export function FirstRunCompletionPanel({
   card,
   downloadingValidationCard,
+  firstRunStatus,
   latestPackage,
   loadingValidationCard,
   onDownloadValidationCard,
@@ -31,6 +32,7 @@ export function FirstRunCompletionPanel({
 }: {
   card: FirstRunValidationCard | null;
   downloadingValidationCard: boolean;
+  firstRunStatus: FirstRunStatus | null;
   latestPackage?: WorkflowResultPackageExport;
   loadingValidationCard: boolean;
   nextScenarioPacks?: WorkflowScenarioPack[];
@@ -49,8 +51,10 @@ export function FirstRunCompletionPanel({
 
   const downloadHref =
     latestPackage && firstRunResultPackageReady(latestPackage) ? workflowResultPackageDownloadHref(latestPackage) : "";
-  const checks = card?.checks || [];
-  const passedChecks = checks.filter((item) => item.status === "passed").length;
+  const validationEvidence = firstRunStatus?.evidence?.validation;
+  const resultPackageEvidence = firstRunStatus?.evidence?.resultPackage;
+  const passedChecks = validationEvidence?.validationChecksPassed;
+  const totalChecks = validationEvidence?.validationChecksTotal;
   const keyResults = card?.keyResults || [];
   const handoff = pilotHandoff || card?.pilotHandoff || null;
   const evidenceBundle = handoff?.evidenceBundle;
@@ -130,11 +134,11 @@ export function FirstRunCompletionPanel({
         <SummaryItem label="run" value={run?.runId} mono />
         <SummaryItem label="result" value={resultId} mono />
         <SummaryItem label="revision" value={shortHash(workflowRevisionId)} mono />
-        <SummaryItem label="package" value={latestPackage?.packageExportId} mono />
+        <SummaryItem label="package" value={resultPackageEvidence?.packageExportId} mono />
         <SummaryItem label="size" value={formatBytes(latestPackage?.sizeBytes)} />
-        <SummaryItem label="package sha" value={shortHash(latestPackage?.sha256)} mono />
-        <SummaryItem label="manifest" value={shortHash(latestPackage?.manifestSha256)} mono />
-        <SummaryItem label="checks" value={checksLabel({ loadingValidationCard, passedChecks, totalChecks: checks.length })} />
+        <SummaryItem label="package sha" value={shortHash(resultPackageEvidence?.sha256)} mono />
+        <SummaryItem label="manifest" value={shortHash(resultPackageEvidence?.manifestSha256)} mono />
+        <SummaryItem label="checks" value={checksLabel({ loadingValidationCard, passedChecks, totalChecks })} />
       </div>
 
       {keyResults.length > 0 ? (
@@ -153,7 +157,7 @@ export function FirstRunCompletionPanel({
       ) : null}
 
       <div className="mt-4">
-        <FirstRunTrustSummary card={card} packageExport={latestPackage} />
+        <FirstRunTrustSummary status={firstRunStatus} />
       </div>
 
       {handoff ? <PilotHandoffSummary handoff={handoff} /> : null}
@@ -182,10 +186,10 @@ function checksLabel({
   totalChecks,
 }: {
   loadingValidationCard: boolean;
-  passedChecks: number;
-  totalChecks: number;
+  passedChecks?: number;
+  totalChecks?: number;
 }) {
-  if (totalChecks > 0) return `${passedChecks}/${totalChecks} passed checks`;
+  if (typeof passedChecks === "number" && typeof totalChecks === "number") return `${passedChecks}/${totalChecks} passed checks`;
   return loadingValidationCard ? "生成中" : "等待服务端验证卡";
 }
 
