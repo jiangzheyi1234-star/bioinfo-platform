@@ -201,9 +201,9 @@ async def disconnect_ssh_from_request() -> dict[str, Any]:
     return result
 
 
-async def list_ssh_listening_ports_from_request() -> dict[str, Any]:
+async def list_server_listening_ports_from_request(server_id: str) -> dict[str, Any]:
     return await run_runtime_payload(
-        runtime_service().list_remote_listening_ports,
+        lambda: runtime_service().list_server_listening_ports(server_id),
         wrapper="raw",
     )
 

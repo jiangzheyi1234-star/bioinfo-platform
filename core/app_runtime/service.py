@@ -159,10 +159,17 @@ class RuntimeService(
     def refresh_server_health(self, server_id: str) -> dict[str, Any]:
         return {"data": self.get_server_health(server_id)}
 
-    def list_remote_listening_ports(self) -> dict[str, Any]:
+    def list_server_listening_ports(self, server_id: str) -> dict[str, Any]:
         with self._lock:
             self._ensure_initialized()
+            ssh_status = self._get_ssh_status_unlocked()
+            server = self._build_primary_server_identity(ssh_status=ssh_status)
+            if server is None or server["serverId"] != server_id:
+                raise RuntimeServiceError(f"Server not found: {server_id}")
             ssh = self._ensure_ssh_connected()
+        return self._list_remote_listening_ports_with_ssh(ssh)
+
+    def _list_remote_listening_ports_with_ssh(self, ssh) -> dict[str, Any]:
         command = (
             "if command -v ss >/dev/null 2>&1; then "
             "printf 'COMMAND ss -lntup\\n'; ss -lntup 2>/dev/null || ss -lntu; "

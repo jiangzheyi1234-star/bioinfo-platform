@@ -200,6 +200,7 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert 'data-runner-repair-mode={mode}' in runner_repair
     assert 'mode?: "compact" | "full"' in runner_repair
     assert 'const [expanded, setExpanded] = useState(mode === "full")' in runner_repair
+    assert "diagnosticsOnly={compact}" in runner_repair
     assert "const canPrepareRunner = Boolean(status?.connected && status.serverId && !status.runner?.ready)" in runner_repair
     assert "const hasKnownRunnerTarget = Boolean(status?.serverId || controller.server?.serverId)" in runner_repair
     assert "const visibleLoadError = hasKnownRunnerTarget ? controller.loadError : \"\"" in runner_repair

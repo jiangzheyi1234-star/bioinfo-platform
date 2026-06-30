@@ -25,8 +25,8 @@ from apps.api.ssh_control_service import (
     get_server_health_from_request,
     get_server_operator_diagnostics_from_request,
     get_ssh_status_from_request,
+    list_server_listening_ports_from_request,
     list_servers_from_request,
-    list_ssh_listening_ports_from_request,
     list_ssh_remote_files_from_request,
     preview_server_runner_release_prune_from_request,
     refresh_server_health_from_request,
@@ -80,6 +80,11 @@ async def get_server_operator_diagnostics(
         run_id=run_id,
         scenario_id=scenario_id,
     )
+
+
+@router.get("/api/v1/servers/{server_id}/listening-ports")
+async def list_server_listening_ports(server_id: str) -> dict[str, Any]:
+    return await list_server_listening_ports_from_request(server_id)
 
 
 @router.post("/api/v1/servers/{server_id}/health/refresh")
@@ -143,11 +148,6 @@ async def scan_ssh_host_key(payload: SSHHostKeyScanRequest | None = None) -> dic
 @router.post("/api/v1/ssh/disconnect")
 async def disconnect_ssh() -> dict[str, Any]:
     return await disconnect_ssh_from_request()
-
-
-@router.get("/api/v1/ssh/listening-ports")
-async def list_ssh_listening_ports() -> dict[str, Any]:
-    return await list_ssh_listening_ports_from_request()
 
 
 @router.get("/api/v1/ssh/files")

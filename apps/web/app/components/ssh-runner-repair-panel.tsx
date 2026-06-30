@@ -33,6 +33,7 @@ type RunnerRepairPanelProps = {
   onEnsureRunner: () => void;
   onRefreshStatus: () => Promise<unknown>;
   onClose?: () => void;
+  diagnosticsOnly?: boolean;
   className?: string;
 };
 
@@ -67,6 +68,7 @@ export function RunnerRepairPanel({
   onEnsureRunner,
   onRefreshStatus,
   onClose,
+  diagnosticsOnly = false,
   className = "",
 }: RunnerRepairPanelProps) {
   const [portsLoading, setPortsLoading] = useState(false);
@@ -90,19 +92,19 @@ export function RunnerRepairPanel({
   const remote = resolveRemoteStatus(status);
   const serverId = status?.serverId || "";
   const canEnsureRunner = Boolean(status?.connected && serverId && !status.runner?.ready);
-  const canStopRunner = Boolean(status?.connected && serverId && runner && !isRunnerManuallyStopped(status));
-  const canUpgradeRunner = Boolean(status?.connected && serverId && runner && !isRunnerManuallyStopped(status));
-  const canPrune = Boolean(status?.connected && serverId);
+  const canStopRunner = Boolean(!diagnosticsOnly && status?.connected && serverId && runner && !isRunnerManuallyStopped(status));
+  const canUpgradeRunner = Boolean(!diagnosticsOnly && status?.connected && serverId && runner && !isRunnerManuallyStopped(status));
+  const canPrune = Boolean(!diagnosticsOnly && status?.connected && serverId);
   const deletableReleaseCount = Number(prunePlan?.deletableReleaseCount || 0);
 
   const loadListeningPorts = async () => {
-    if (!status?.connected || portsLoading) {
+    if (!status?.connected || !serverId || portsLoading) {
       return;
     }
     setPortsLoading(true);
     setPortsError("");
     try {
-      const payload = await requestLocalApiJson("GET", "/api/v1/ssh/listening-ports", { cache: "no-store" });
+      const payload = await requestLocalApiJson("GET", `/api/v1/servers/${encodeURIComponent(serverId)}/listening-ports`, { cache: "no-store" });
       const output = String(payload?.data?.output || "").trim();
       setPortsOutput(output || "远端没有返回监听端口信息。");
     } catch (error) {
@@ -279,34 +281,38 @@ export function RunnerRepairPanel({
                   <p className="font-mono text-slate-700">{formatRunnerPort(runner.tunnelPort)}</p>
                 </div>
               </div>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={!canUpgradeRunner || upgradeLoading}
-                  onClick={upgradeRunner}
-                  className="h-7 px-2 text-[11px]"
-                >
-                  <RefreshCw className={cn("mr-1 size-3", upgradeLoading ? "animate-spin" : "")} />
-                  {upgradeLoading ? "升级中" : "升级 Runner"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={!canStopRunner || stopLoading}
-                  onClick={stopRemoteService}
-                  className="h-7 px-2 text-[11px] text-red-700 hover:text-red-700"
-                >
-                  <Square className={cn("mr-1 size-3", stopLoading ? "animate-pulse" : "")} />
-                  {stopLoading ? "停止中" : "停止 Runner"}
-                </Button>
-              </div>
-              {upgradeError ? <p className="mt-1 text-[11px] text-red-600">{upgradeError}</p> : null}
-              {upgradeOutput ? <p className="mt-1 text-[10px] text-slate-500">{upgradeOutput}</p> : null}
-              {stopError ? <p className="mt-1 text-[11px] text-red-600">{stopError}</p> : null}
-              {stopOutput ? <p className="mt-1 whitespace-pre-wrap text-[10px] text-slate-500">{stopOutput}</p> : null}
+              {!diagnosticsOnly ? (
+                <>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={!canUpgradeRunner || upgradeLoading}
+                      onClick={upgradeRunner}
+                      className="h-7 px-2 text-[11px]"
+                    >
+                      <RefreshCw className={cn("mr-1 size-3", upgradeLoading ? "animate-spin" : "")} />
+                      {upgradeLoading ? "升级中" : "升级 Runner"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={!canStopRunner || stopLoading}
+                      onClick={stopRemoteService}
+                      className="h-7 px-2 text-[11px] text-red-700 hover:text-red-700"
+                    >
+                      <Square className={cn("mr-1 size-3", stopLoading ? "animate-pulse" : "")} />
+                      {stopLoading ? "停止中" : "停止 Runner"}
+                    </Button>
+                  </div>
+                  {upgradeError ? <p className="mt-1 text-[11px] text-red-600">{upgradeError}</p> : null}
+                  {upgradeOutput ? <p className="mt-1 text-[10px] text-slate-500">{upgradeOutput}</p> : null}
+                  {stopError ? <p className="mt-1 text-[11px] text-red-600">{stopError}</p> : null}
+                  {stopOutput ? <p className="mt-1 whitespace-pre-wrap text-[10px] text-slate-500">{stopOutput}</p> : null}
+                </>
+              ) : null}
             </>
           ) : (
             <p className="mt-1 text-[11px] text-slate-500">Runner 状态尚未返回，可先准备远程服务。</p>
@@ -314,44 +320,46 @@ export function RunnerRepairPanel({
         </div>
       ) : null}
 
-      <div className="mt-2 border-t border-slate-100 pt-2">
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-[10px] font-semibold text-slate-400">旧版本清理</p>
-          <div className="flex items-center gap-1">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={!canPrune || pruneLoading}
-              onClick={previewPrune}
-              className="h-6 px-2 text-[11px] text-slate-600"
-            >
-              <RefreshCw className={cn("mr-1 size-3", pruneLoading ? "animate-spin" : "")} />
-              预览
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={!canPrune || pruneLoading || deletableReleaseCount <= 0 || !prunePlan?.planHash}
-              onClick={runPrune}
-              className="h-6 px-2 text-[11px] text-red-700 hover:text-red-700"
-            >
-              <Trash2 className="mr-1 size-3" />
-              清理
-            </Button>
+      {!diagnosticsOnly ? (
+        <div className="mt-2 border-t border-slate-100 pt-2">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[10px] font-semibold text-slate-400">旧版本清理</p>
+            <div className="flex items-center gap-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={!canPrune || pruneLoading}
+                onClick={previewPrune}
+                className="h-6 px-2 text-[11px] text-slate-600"
+              >
+                <RefreshCw className={cn("mr-1 size-3", pruneLoading ? "animate-spin" : "")} />
+                预览
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={!canPrune || pruneLoading || deletableReleaseCount <= 0 || !prunePlan?.planHash}
+                onClick={runPrune}
+                className="h-6 px-2 text-[11px] text-red-700 hover:text-red-700"
+              >
+                <Trash2 className="mr-1 size-3" />
+                清理
+              </Button>
+            </div>
           </div>
+          {prunePlan ? (
+            <p className="mt-1 text-[11px] text-slate-500">
+              可清理 {deletableReleaseCount} 个版本，约 {formatBytes(prunePlan.deletableBytes)}。
+            </p>
+          ) : (
+            <p className="mt-1 text-[11px] text-slate-400">先预览；保留 current、previous、active run 引用版本。</p>
+          )}
+          {pruneError ? <p className="mt-1 text-[11px] text-red-600">{pruneError}</p> : null}
+          {pruneMessage ? <p className="mt-1 text-[11px] text-emerald-700">{pruneMessage}</p> : null}
         </div>
-        {prunePlan ? (
-          <p className="mt-1 text-[11px] text-slate-500">
-            可清理 {deletableReleaseCount} 个版本，约 {formatBytes(prunePlan.deletableBytes)}。
-          </p>
-        ) : (
-          <p className="mt-1 text-[11px] text-slate-400">先预览；保留 current、previous、active run 引用版本。</p>
-        )}
-        {pruneError ? <p className="mt-1 text-[11px] text-red-600">{pruneError}</p> : null}
-        {pruneMessage ? <p className="mt-1 text-[11px] text-emerald-700">{pruneMessage}</p> : null}
-      </div>
+      ) : null}
 
       <div className="mt-2 border-t border-slate-100 pt-2">
         <div className="flex items-center justify-between gap-2">
@@ -383,7 +391,7 @@ export function RunnerRepairPanel({
             type="button"
             variant="ghost"
             size="sm"
-            disabled={!status?.connected || portsLoading}
+            disabled={!status?.connected || !serverId || portsLoading}
             onClick={loadListeningPorts}
             className="h-6 px-2 text-[11px] text-slate-600"
           >

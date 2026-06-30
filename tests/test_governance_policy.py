@@ -58,6 +58,16 @@ def test_high_risk_governance_policy_is_explicit_and_blocked_for_multi_user() ->
     assert any(policy.audit_status == "required-before-multi-user" for policy in HIGH_RISK_API_POLICIES)
 
 
+def test_server_scoped_runner_diagnostic_routes_are_governed() -> None:
+    policies = {(policy.method, policy.route, policy.action) for policy in HIGH_RISK_API_POLICIES}
+    assert (
+        "GET",
+        "/api/v1/servers/{server_id}/listening-ports",
+        "diagnostics.listening_ports.read",
+    ) in policies
+    assert not any(policy.route == "/api/v1/ssh/listening-ports" for policy in HIGH_RISK_API_POLICIES)
+
+
 def test_high_risk_governance_policy_routes_and_implemented_audit_actions_exist() -> None:
     implementation_source = "\n".join(
         path.read_text(encoding="utf-8")

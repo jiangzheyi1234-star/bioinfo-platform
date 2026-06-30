@@ -647,11 +647,17 @@ def test_runtime_file_operations_delegate_to_file_manager() -> None:
 def test_remote_listening_ports_does_not_wrap_ssh_run_errors() -> None:
     service_source = _source("core/app_runtime/service.py")
 
-    ports_source = service_source.split("def list_remote_listening_ports(", 1)[1]
+    assert "def list_remote_listening_ports(" not in service_source
+    ports_source = service_source.split("def list_server_listening_ports(", 1)[1]
     ports_source = ports_source.split("def ensure_remote_runner_ready(", 1)[0]
     assert "except Exception" not in ports_source
     assert "failed to list remote listening ports" not in ports_source
     assert "ssh.run(command, timeout=15)" in ports_source
+    assert "server_id: str" in ports_source
+    assert 'server["serverId"] != server_id' in ports_source
+    assert "raise RuntimeServiceError(f\"Server not found: {server_id}\")" in ports_source
+    assert "return self._list_remote_listening_ports_with_ssh(ssh)" in ports_source
+    assert "def _list_remote_listening_ports_with_ssh(self, ssh)" in ports_source
 
 
 def test_runner_ready_health_check_errors_are_not_swallowed() -> None:

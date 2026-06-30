@@ -206,6 +206,7 @@ export function WorkflowRunnerRepairNotice({
           ensureRunnerBusy={controller.runnerEnsureBusy}
           onEnsureRunner={() => void controller.ensureRunner()}
           onRefreshStatus={controller.refreshWorkflowServer}
+          diagnosticsOnly={compact}
           className={cn("bg-white shadow-none", compact ? "mt-3" : "")}
         />
       ) : null}

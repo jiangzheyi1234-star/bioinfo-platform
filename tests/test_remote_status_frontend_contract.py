@@ -66,9 +66,11 @@ def test_remote_status_panel_exposes_runner_ports_and_stop_action() -> None:
     _assert_matches(
         repair_source,
         r"`/api/v1/servers/\$\{encodeURIComponent\(serverId\)\}/runner/stop`",
+        r"`/api/v1/servers/\$\{encodeURIComponent\(serverId\)\}/listening-ports`",
         r"await\s+onRefreshStatus\(\)",
     )
     _assert_not_contains(ui_source + repair_source, "/api/v1/ssh/remote-service/stop")
+    _assert_not_contains(repair_source, "/api/v1/ssh/listening-ports")
     _assert_not_contains(repair_source, "absolute bottom-full")
     _assert_contains(ui_source, 'className="absolute bottom-full left-2 z-30 mb-1 w-[360px]"')
 
@@ -89,6 +91,7 @@ def test_runner_repair_panel_exposes_upgrade_prune_and_operator_diagnostics() ->
         "Operator",
     )
     _assert_contains(source, "className?: string", "className = \"\"")
+    _assert_contains(source, "diagnosticsOnly?: boolean", "diagnosticsOnly = false")
     _assert_contains(source, "onClose?: () => void", "{onClose ? (")
     _assert_not_contains(source, "type SSHStatus")
     _assert_matches(source, r"disabled=\{!canPrune\s*\|\|\s*pruneLoading\s*\|\|\s*deletableReleaseCount <= 0")

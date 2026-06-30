@@ -756,7 +756,7 @@ def test_ssh_routes_delegate_request_dumping_and_cache_to_service() -> None:
     assert '@app.websocket("/api/v1/ssh/terminal/sessions/{session_id}/stream")' not in main_source
 
     ssh_route_start = route_source.index('@router.post("/api/v1/servers/{server_id}/ensure-runner")')
-    ssh_route_end = route_source.index('@router.get("/api/v1/ssh/listening-ports")')
+    ssh_route_end = route_source.index('@router.get("/api/v1/ssh/files")')
     ssh_routes = route_source[ssh_route_start:ssh_route_end]
     ssh_test_route_start = route_source.index('@router.post("/api/v1/ssh/test")')
     ssh_test_route_end = len(route_source)
@@ -782,6 +782,7 @@ def test_ssh_routes_delegate_request_dumping_and_cache_to_service() -> None:
     assert "connect_ssh_from_request" in ssh_routes
     assert "disconnect_ssh_from_request" in ssh_routes
     assert "/api/v1/ssh/remote-service/stop" not in ssh_routes
+    assert "/api/v1/ssh/listening-ports" not in route_source
     assert "test_ssh_connection_from_request" in ssh_test_route
 
     assert "def ensure_server_runner_from_request(" in service_source
@@ -808,14 +809,17 @@ def test_ssh_read_and_terminal_routes_delegate_runtime_calls_to_service() -> Non
     status_route_start = route_source.index('@router.get("/api/v1/ssh/status")')
     status_route_end = route_source.index('@router.post("/api/v1/servers/{server_id}/ensure-runner")')
     status_routes = route_source[status_route_start:status_route_end]
-    browser_route_start = route_source.index('@router.get("/api/v1/ssh/listening-ports")')
+    server_ports_route_start = route_source.index('@router.get("/api/v1/servers/{server_id}/listening-ports")')
+    server_ports_route_end = route_source.index('@router.post("/api/v1/servers/{server_id}/health/refresh")')
+    server_ports_route = route_source[server_ports_route_start:server_ports_route_end]
+    browser_route_start = route_source.index('@router.get("/api/v1/ssh/files")')
     browser_route_end = route_source.index(websocket_marker)
     browser_routes = route_source[browser_route_start:browser_route_end]
     stream_route_start = route_source.index(websocket_marker)
     stream_route_end = route_source.index('@router.post("/api/v1/ssh/test")')
     stream_route = route_source[stream_route_start:stream_route_end]
 
-    for routes in (status_routes, browser_routes):
+    for routes in (status_routes, server_ports_route, browser_routes):
         assert "_runtime()" not in routes
         assert "_run_runtime_payload" not in routes
         assert "_cached_runtime_payload" not in routes
@@ -827,7 +831,7 @@ def test_ssh_read_and_terminal_routes_delegate_runtime_calls_to_service() -> Non
     assert "get_server_from_request" in status_routes
     assert "get_server_health_from_request" in status_routes
     assert "refresh_server_health_from_request" in status_routes
-    assert "list_ssh_listening_ports_from_request" in browser_routes
+    assert "list_server_listening_ports_from_request" in server_ports_route
     assert "list_ssh_remote_files_from_request" in browser_routes
     assert "create_terminal_session_from_request" in browser_routes
     assert "close_terminal_session_from_request" in browser_routes
@@ -838,7 +842,8 @@ def test_ssh_read_and_terminal_routes_delegate_runtime_calls_to_service() -> Non
     assert "def get_server_from_request(" in service_source
     assert "def get_server_health_from_request(" in service_source
     assert "def refresh_server_health_from_request(" in service_source
-    assert "def list_ssh_listening_ports_from_request(" in service_source
+    assert "def list_server_listening_ports_from_request(" in service_source
+    assert "def list_ssh_listening_ports_from_request(" not in service_source
     assert "def list_ssh_remote_files_from_request(" in service_source
     assert "def create_terminal_session_from_request(" in service_source
     assert "def close_terminal_session_from_request(" in service_source
