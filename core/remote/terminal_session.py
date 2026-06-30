@@ -25,10 +25,29 @@ class TerminalSession:
         self._closed = False
         self._message = ""
         self._created_at = time.time()
+        self._last_accessed_at = self._created_at
+        self._closed_at: float | None = None
         threading.Thread(target=self._reader_loop, daemon=True).start()
+
+    @property
+    def created_at(self) -> float:
+        return self._created_at
+
+    @property
+    def last_accessed_at(self) -> float:
+        return self._last_accessed_at
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    @property
+    def closed_at(self) -> float | None:
+        return self._closed_at
 
     def snapshot(self, cursor: int = 0) -> dict:
         with self._lock:
+            self._touch()
             requested_cursor = max(0, int(cursor or 0))
             end_cursor = self._output_base_cursor + len(self._output)
             truncated = requested_cursor < self._output_base_cursor
@@ -46,17 +65,19 @@ class TerminalSession:
                 "closed": self._closed,
                 "message": self._message,
                 "created_at": self._created_at,
-                "closed_at": time.time() if self._closed else None,
+                "closed_at": self._closed_at,
             }
 
     def send(self, data: str) -> None:
         with self._lock:
+            self._touch()
             if self._closed:
                 raise RuntimeError("session closed")
             self._channel.send(data)
 
     def resize(self, cols: int, rows: int) -> None:
         with self._lock:
+            self._touch()
             if self._closed:
                 raise RuntimeError("session closed")
             self._channel.resize_pty(cols, rows)
@@ -81,6 +102,7 @@ class TerminalSession:
         with self._updated:
             self._closed = True
             self._message = message
+            self._closed_at = self._closed_at or time.time()
             self._version += 1
             self._updated.notify_all()
         self._channel.close()
@@ -105,14 +127,20 @@ class TerminalSession:
                             self._updated.notify_all()
                 elif self._channel.closed or self._channel.exit_status_ready():
                     with self._updated:
-                        self._closed = True
-                        self._message = "终端会话已结束"
-                        self._version += 1
-                        self._updated.notify_all()
+                            self._closed = True
+                            self._message = "终端会话已结束"
+                            self._closed_at = self._closed_at or time.time()
+                            self._version += 1
+                            self._updated.notify_all()
                     break
                 time.sleep(0.05)
         except (OSError, EOFError, paramiko.SSHException):
             with self._updated:
                 self._closed = True
+                self._closed_at = self._closed_at or time.time()
                 self._version += 1
                 self._updated.notify_all()
+
+    def _touch(self) -> None:
+        if not self._closed:
+            self._last_accessed_at = time.time()

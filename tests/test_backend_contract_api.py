@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -77,10 +78,14 @@ class FakeTerminalSession:
     def __init__(self, session_id: str) -> None:
         self.session_id = session_id
         self.closed = False
+        self.created_at = time.time()
+        self.last_accessed_at = self.created_at
+        self.closed_at = None
         self.message = ""
         self.resize_calls: list[tuple[int, int]] = []
 
     def snapshot(self, cursor: int = 0) -> dict[str, object]:
+        self.last_accessed_at = time.time()
         return {
             "session_id": self.session_id,
             "cursor": cursor,
@@ -93,17 +98,20 @@ class FakeTerminalSession:
             "closed": self.closed,
             "message": self.message,
             "created_at": 0.0,
-            "closed_at": 1.0 if self.closed else None,
+            "closed_at": self.closed_at,
         }
 
     def send(self, data: str) -> None:
+        self.last_accessed_at = time.time()
         return None
 
     def resize(self, cols: int, rows: int) -> None:
+        self.last_accessed_at = time.time()
         self.resize_calls.append((cols, rows))
 
     def close(self, message: str = "终端会话已结束") -> None:
         self.closed = True
+        self.closed_at = 1.0
         self.message = message
 
 
