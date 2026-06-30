@@ -90,6 +90,22 @@ def test_first_run_validation_and_trust_summary_are_status_contract_driven() -> 
     assert not (FIRST_RUN_DOMAIN / "first-run-validation-state.ts").exists()
 
 
+def test_first_run_refreshes_workspace_after_ssh_connect_success() -> None:
+    first_run_page = (FIRST_RUN_COMPONENTS / "workflow-first-run-page.tsx").read_text(encoding="utf-8")
+
+    assert "useRef" in first_run_page
+    assert 'const sshConnectionRefreshRef = useRef("")' in first_run_page
+    assert 'const sshConnectedServerId = ssh.status?.connected === true ? ssh.status.serverId || "" : ""' in first_run_page
+    assert "sshConnectionRefreshRef.current = connectionKey" in first_run_page
+    assert "void refreshWorkspaceAndFirstRunStatus()" in first_run_page
+    assert "ssh.status?.serverId" in first_run_page
+    assert "firstRunWorkspaceConnectionPrompt(state.error, serverConnected)" in first_run_page
+    assert "const visibleWorkspaceError = workspaceConnectionPrompt ? \"\" : state.error" in first_run_page
+    assert "请先连接远端后继续首跑。" in first_run_page
+    assert "远端已连接，正在读取 runner readiness。" in first_run_page
+    assert "<AlertDescription>{state.error}</AlertDescription>" not in first_run_page
+
+
 def test_first_run_conductor_uses_status_contract_before_local_run_hints() -> None:
     first_run_page = (FIRST_RUN_COMPONENTS / "workflow-first-run-page.tsx").read_text(encoding="utf-8")
     first_run_conductor = (FIRST_RUN_COMPONENTS / "workflow-first-run-conductor.tsx").read_text(encoding="utf-8")

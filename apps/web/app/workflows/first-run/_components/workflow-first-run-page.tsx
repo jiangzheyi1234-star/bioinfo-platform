@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
@@ -55,6 +55,7 @@ export function WorkflowFirstRunPage() {
   const [executionDiagnostics, setExecutionDiagnostics] = useState<WorkflowExecutionDiagnostics | null>(null);
   const [executionDiagnosticsLoading, setExecutionDiagnosticsLoading] = useState(false);
   const [executionDiagnosticsError, setExecutionDiagnosticsError] = useState("");
+  const sshConnectionRefreshRef = useRef("");
 
   const run = state.runDetail?.run || state.submittedRun;
   const result = state.runDetail?.results;
@@ -78,6 +79,8 @@ export function WorkflowFirstRunPage() {
   const movingPicturesWorkflow = state.catalog.find((item) => item.id === FIRST_RUN_PIPELINE_ID) || null;
   const selectedWorkflowReady = firstRunStatusSnapshot ? statusWorkflowEvidence?.ready === true : Boolean(movingPicturesWorkflow?.runnable);
   const serverConnected = firstRunStatusSnapshot ? statusServerEvidence?.connected === true : Boolean(state.server?.connected);
+  const workspaceConnectionPrompt = firstRunWorkspaceConnectionPrompt(state.error, serverConnected);
+  const visibleWorkspaceError = workspaceConnectionPrompt ? "" : state.error;
   const executionReady = firstRunStatusSnapshot ? statusExecutionEvidence?.ready === true : executionDiagnostics?.readiness?.ok === true;
   const serverReady = firstRunStatusSnapshot ? statusServerEvidence?.ready === true && statusExecutionEvidence?.ready === true : Boolean(state.server?.ready) && executionReady;
   const localSampleReady = sampleUploadsReady(state.sampleUploads);
@@ -106,42 +109,6 @@ export function WorkflowFirstRunPage() {
   const validationEligible = firstRunEvidence.validationEligible;
   const validationReady = firstRunEvidence.validationReady;
   const workflowRevisionId = firstRunEvidence.workflowRevisionId;
-  const firstRunConductor = useFirstRunConductor({
-    busy:
-      ensuringRunner ||
-      firstRunStatus.loading ||
-      state.sampleLoading ||
-      state.submitting ||
-      firstRunEvidence.packageLoading ||
-      firstRunEvidence.exportingPackage ||
-      firstRunEvidence.finalizingFirstRun ||
-      firstRunEvidence.validationCardFetchLoading,
-    input: {
-      canSubmit: firstRunCanSubmit,
-      firstRunStatus: firstRunStatusSnapshot || null,
-      runSubmitted,
-      sampleReady,
-      selectedWorkflowReady,
-      serverConnected,
-      serverReady,
-    },
-    onConnect: openConnectDialog,
-    onEnsureRunner: ensureRunner,
-    onFinalize: async () => {
-      await finalizeAndRefreshStatus();
-    },
-    onPrepareSampleData: prepareSampleDataAndRefreshStatus,
-    onRefreshRun: async () => {
-      await state.refreshRunDetail();
-      await firstRunStatus.refreshStatus({ forceRefresh: true });
-    },
-    onRefreshWorkspace: async () => {
-      await state.loadWorkspace({ forceRefresh: true });
-      await loadExecutionDiagnostics();
-      await firstRunStatus.refreshStatus({ forceRefresh: true });
-    },
-    onSubmitRun: submitFirstRunAndRefreshStatus,
-  });
 
   const steps = useMemo(
     () =>
@@ -182,6 +149,12 @@ export function WorkflowFirstRunPage() {
     }
   }, [state.server?.serverId]);
 
+  const refreshWorkspaceAndFirstRunStatus = useCallback(async () => {
+    await state.loadWorkspace({ forceRefresh: true });
+    await loadExecutionDiagnostics();
+    await firstRunStatus.refreshStatus({ forceRefresh: true });
+  }, [firstRunStatus, loadExecutionDiagnostics, state]);
+
   useEffect(() => {
     void loadExecutionDiagnostics();
   }, [loadExecutionDiagnostics]);
@@ -197,6 +170,63 @@ export function WorkflowFirstRunPage() {
     selectRun,
     submittedRunId,
   ]);
+
+  useEffect(() => {
+    const sshConnectedServerId = ssh.status?.connected === true ? ssh.status.serverId || "" : "";
+    if (!sshConnectedServerId) {
+      if (ssh.status?.connected !== true) sshConnectionRefreshRef.current = "";
+      return;
+    }
+    const connectionKey = [
+      sshConnectedServerId,
+      ssh.status?.host || "",
+      ssh.status?.port || "",
+      ssh.status?.user || "",
+    ].join("|");
+    if (sshConnectionRefreshRef.current === connectionKey) return;
+    sshConnectionRefreshRef.current = connectionKey;
+    void refreshWorkspaceAndFirstRunStatus();
+  }, [
+    ssh.status?.connected,
+    ssh.status?.host,
+    ssh.status?.port,
+    ssh.status?.serverId,
+    ssh.status?.user,
+    refreshWorkspaceAndFirstRunStatus,
+  ]);
+
+  const firstRunConductor = useFirstRunConductor({
+    busy:
+      ensuringRunner ||
+      firstRunStatus.loading ||
+      state.sampleLoading ||
+      state.submitting ||
+      firstRunEvidence.packageLoading ||
+      firstRunEvidence.exportingPackage ||
+      firstRunEvidence.finalizingFirstRun ||
+      firstRunEvidence.validationCardFetchLoading,
+    input: {
+      canSubmit: firstRunCanSubmit,
+      firstRunStatus: firstRunStatusSnapshot || null,
+      runSubmitted,
+      sampleReady,
+      selectedWorkflowReady,
+      serverConnected,
+      serverReady,
+    },
+    onConnect: openConnectDialog,
+    onEnsureRunner: ensureRunner,
+    onFinalize: async () => {
+      await finalizeAndRefreshStatus();
+    },
+    onPrepareSampleData: prepareSampleDataAndRefreshStatus,
+    onRefreshRun: async () => {
+      await state.refreshRunDetail();
+      await firstRunStatus.refreshStatus({ forceRefresh: true });
+    },
+    onRefreshWorkspace: refreshWorkspaceAndFirstRunStatus,
+    onSubmitRun: submitFirstRunAndRefreshStatus,
+  });
 
   function openConnectDialog() {
     ssh.clearFormError();
@@ -217,12 +247,6 @@ export function WorkflowFirstRunPage() {
     } finally {
       setEnsuringRunner(false);
     }
-  }
-
-  async function refreshWorkspaceAndFirstRunStatus() {
-    await state.loadWorkspace({ forceRefresh: true });
-    await loadExecutionDiagnostics();
-    await firstRunStatus.refreshStatus({ forceRefresh: true });
   }
 
   async function prepareSampleDataAndRefreshStatus() {
@@ -279,10 +303,17 @@ export function WorkflowFirstRunPage() {
           }
         />
 
-        {state.error ? (
+        {workspaceConnectionPrompt ? (
+          <Alert>
+            <Server strokeWidth={1.5} className="h-4 w-4" />
+            <AlertDescription>{workspaceConnectionPrompt}</AlertDescription>
+          </Alert>
+        ) : null}
+
+        {visibleWorkspaceError ? (
           <Alert variant="destructive">
             <AlertCircle strokeWidth={1.5} className="h-4 w-4" />
-            <AlertDescription>{state.error}</AlertDescription>
+            <AlertDescription>{visibleWorkspaceError}</AlertDescription>
           </Alert>
         ) : null}
 
@@ -566,4 +597,9 @@ function StepStateIcon({ state }: { state: FirstRunStepState }) {
   if (state === "blocked") return <XCircle strokeWidth={1.5} className="h-4 w-4 text-red-500" />;
   if (state === "current") return <Loader2 strokeWidth={1.5} className="h-4 w-4 animate-spin text-blue-500" />;
   return <span className="h-4 w-4 rounded-full border border-slate-300" />;
+}
+
+function firstRunWorkspaceConnectionPrompt(error: string, connected: boolean) {
+  if (!/serverId is required/i.test(String(error || ""))) return "";
+  return connected ? "远端已连接，正在读取 runner readiness。" : "请先连接远端后继续首跑。";
 }
