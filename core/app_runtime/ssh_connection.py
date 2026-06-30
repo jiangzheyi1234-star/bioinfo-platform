@@ -13,6 +13,7 @@ from config import (
     store_ssh_password,
 )
 from core.app_runtime import runtime_config
+from core.app_runtime.runner_stop_state import is_runner_manually_stopped
 from core.remote.ssh_connector import run_diagnostics, ssh_connect
 from core.remote.ssh_service import SSHReconnectError, SSHService
 
@@ -172,18 +173,19 @@ class RuntimeSshConnectionMixin:
                 if server is not None:
                     server_id = str(server["serverId"])
                     registry_entry = self._get_server_registry_entry(server_id)
+                    runner_stopped = is_runner_manually_stopped(registry_entry)
                     snapshot = registry_entry.get("last_health_snapshot")
                     runner_ready = bool(
                         isinstance(snapshot, dict)
                         and (snapshot.get("ready") or {}).get("ok") is True
                     )
-                    if not runner_ready:
+                    if not runner_stopped and not runner_ready:
                         self._save_runner_preparing_snapshot(
                             server_id=server_id,
                             message="Checking remote runner...",
                         )
                         status = self._get_ssh_status_unlocked()
-            if server is not None:
+            if server is not None and not runner_stopped:
                 self._ensure_runner_ready_in_background(server_id)
             return status
         finally:
@@ -247,14 +249,14 @@ class RuntimeSshConnectionMixin:
                 "use_agent": auth_mode == "agent",
             }
         steps = run_diagnostics(**diagnostics_kwargs)
-        ok = all(s.status == "ok" for s in steps)
+        ok = all(step["status"] == "ok" for step in steps)
         status = self.get_ssh_status()
         return {
             "ok": ok,
             "message": "SSH diagnostics passed" if ok else "SSH diagnostics failed",
             "steps": [
-                {"name": s.name, "status": s.status, "message": s.message}
-                for s in steps
+                {"name": step["name"], "status": step["status"], "message": step["message"]}
+                for step in steps
             ],
             "status": status,
         }
@@ -323,11 +325,13 @@ class RuntimeSshConnectionMixin:
             server = self._build_primary_server_identity(ssh_status=ssh_status)
             if server is not None:
                 server_id = str(server["serverId"])
-                self._save_runner_preparing_snapshot(
-                    server_id=server_id,
-                    message="Checking remote runner...",
-                )
-                self._ensure_runner_ready_in_background(server_id)
+                registry_entry = self._get_server_registry_entry(server_id)
+                if not is_runner_manually_stopped(registry_entry):
+                    self._save_runner_preparing_snapshot(
+                        server_id=server_id,
+                        message="Checking remote runner...",
+                    )
+                    self._ensure_runner_ready_in_background(server_id)
             self._auto_connect_failed = False
             self._auto_connect_error = ""
             self._auto_connect_notice_key = ""

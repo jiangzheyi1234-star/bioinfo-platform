@@ -47,7 +47,8 @@ export type UseSshConnectionResult = {
 function makePreparingStatus(form: SSHFormState): SSHStatus {
   return {
     configured: true,
-    connected: true,
+    connected: false,
+    connecting: true,
     auth_mode: form.auth_mode,
     ssh_host_alias: form.auth_mode === "ssh_config" ? form.ssh_host_alias.trim() : "",
     identity_ref: form.auth_mode === "key_file" ? form.identity_ref.trim() : "",
@@ -59,12 +60,6 @@ function makePreparingStatus(form: SSHFormState): SSHStatus {
     timeout_sec: Number(form.timeout_sec || 5),
     auto_connect_on_startup: canAutoConnectOnStartup(form) ? form.auto_connect_on_startup : false,
     message: "SSH connecting",
-    runner: {
-      state: "preparing",
-      ready: false,
-      message: "Connecting SSH...",
-      reasonCode: "",
-    },
   };
 }
 

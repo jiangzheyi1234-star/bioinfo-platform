@@ -11,6 +11,7 @@ from core.app_runtime.errors import RuntimeServiceError
 from core.app_runtime.server_health import (
     build_runner_ensure_failure_snapshot,
 )
+from core.app_runtime import runner_stop_state
 from core.app_runtime.server_payloads import (
     build_primary_server_identity,
     compose_runner_payload,
@@ -107,7 +108,7 @@ class RuntimeServerStateMixin:
         snapshot = registry_entry.get("last_health_snapshot")
         if isinstance(snapshot, dict):
             reason_code = str(snapshot.get("reasonCode") or "")
-            if reason_code in {"RUNNER_STOPPED", "RUNNER_SETUP_FAILED"}:
+            if reason_code in {runner_stop_state.MANUAL_RUNNER_STOP_REASON, "RUNNER_SETUP_FAILED"}:
                 return status
         try:
             if ssh is None or not getattr(ssh, "is_connected", False):
@@ -139,6 +140,9 @@ class RuntimeServerStateMixin:
     def _ensure_runner_ready_in_background(self, server_id: str) -> None:
         with self._lock:
             if server_id in self._runner_ensure_inflight:
+                return
+            record = self._get_server_registry_entry(server_id)
+            if runner_stop_state.is_runner_manually_stopped(record):
                 return
             self._runner_ensure_inflight.add(server_id)
 
@@ -194,6 +198,7 @@ class RuntimeServerStateMixin:
         ssh = self._ensure_ssh_connected()
         manager = self._service_locator.remote_runner_manager
         record = self._get_server_registry_entry(server_id)
+        runner_stop_state.raise_if_runner_manually_stopped(server_id=server_id, record=record)
         if record.get("bootstrap_version"):
             health = self._call_remote_runner(
                 manager.get_health,
@@ -235,6 +240,11 @@ class RuntimeServerStateMixin:
         if not configured or not connected:
             reason_code = "SSH_NOT_CONNECTED"
             ready_message = "Connect to the remote server before submitting runs."
+        elif runner_stop_state.is_runner_manually_stopped(registry_entry):
+            stopped = runner_stop_state.manual_runner_stop_health(server_id, registry_entry, self._get_saved_readiness_snapshot)
+            startup, live = stopped["startup"], stopped["live"]
+            ready_ok, ready_message, reason_code = stopped["readyOk"], stopped["readyMessage"], stopped["reasonCode"]
+            workflow_runtime, pipeline_registry = stopped["workflowRuntime"], stopped["pipelineRegistry"]
         elif not registry_entry.get("bootstrap_version"):
             snapshot = self._get_saved_readiness_snapshot(
                 server_id=server_id,

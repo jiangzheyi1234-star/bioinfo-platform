@@ -327,6 +327,7 @@ export function SshSidebar({
         : "连接";
   const connectionIconBusy = connecting || remotePreparing;
   const connectionIconClass = runnerFailed ? "text-amber-600" : status?.connected ? "text-blue-600" : "text-zinc-500";
+  const connectionActionDisabled = Boolean(connecting || status?.connected);
 
   return (
     <aside className="overflow-hidden border-b border-slate-200 bg-[#f7f7f5] md:border-b-0 md:border-r md:border-slate-200">
@@ -342,15 +343,15 @@ export function SshSidebar({
             <Button
               type="button"
               variant="ghost"
-              aria-disabled={Boolean(status?.connected)}
+              aria-disabled={connectionActionDisabled}
               onClick={() => {
-                if (!status?.connected) {
+                if (!connectionActionDisabled) {
                   onOpenConnect();
                 }
               }}
               className={cn(
                 "h-full min-w-0 flex-1 justify-center rounded-none bg-transparent px-0 text-left hover:bg-transparent md:justify-start",
-                status?.connected ? "cursor-default" : ""
+                connectionActionDisabled ? "cursor-default" : ""
               )}
             >
               {connectionIconBusy ? (

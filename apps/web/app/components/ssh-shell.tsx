@@ -6,7 +6,7 @@ import { Terminal as TerminalIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
-import { type SshShellContextValue, toForm } from "./ssh-shell-model";
+import { isSshChannelReady, type SshShellContextValue, toForm } from "./ssh-shell-model";
 import { useSshConnection } from "./ssh-shell-connection";
 import { useSshTerminal } from "./ssh-shell-terminal";
 import { RemoteStatusBar, SshConnectDialog, SshSidebar, SshTerminalPanel } from "./ssh-shell-ui";
@@ -33,6 +33,7 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
   };
   const toggleTerminal = () =>
     void (terminal.terminalOpen ? terminal.closeTerminal() : terminal.openTerminal());
+  const sshChannelReady = isSshChannelReady(connection.status);
 
   return (
     <SshShellContext.Provider value={connection.contextValue}>
@@ -56,13 +57,13 @@ export function SshShellProvider({ children }: { children: ReactNode }) {
                   <button
                     type="button"
                     aria-label="远程终端"
-                    title={connection.status?.connected ? "远程终端" : "请先连接远端服务器"}
-                    disabled={!connection.status?.connected}
+                    title={sshChannelReady ? "远程终端" : "请先连接远端服务器"}
+                    disabled={!sshChannelReady}
                     onClick={toggleTerminal}
                     className={cn(
                       "absolute right-3 top-2 z-20 inline-flex h-8 w-8 appearance-none items-center justify-center",
                       "rounded-lg border border-transparent text-slate-400 shadow-none outline-none transition",
-                      connection.status?.connected
+                      sshChannelReady
                         ? terminal.terminalOpen
                           ? "bg-slate-100 text-slate-900"
                           : "bg-white/80 hover:bg-slate-100 hover:text-slate-900"

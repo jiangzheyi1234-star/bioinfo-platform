@@ -91,3 +91,13 @@ def test_remote_status_failed_runner_can_trigger_repair_bootstrap() -> None:
         hook_source,
         "current?.connected && !current.runner",
     )
+
+
+def test_connecting_status_is_not_reported_as_connected() -> None:
+    hook_source = _source("connection")
+    preparing_status = hook_source.split("function makePreparingStatus", 1)[1].split(
+        "export function useSshConnection", 1
+    )[0]
+
+    _assert_contains(preparing_status, "connected: false", "connecting: true")
+    _assert_not_contains(preparing_status, "connected: true", "runner:")

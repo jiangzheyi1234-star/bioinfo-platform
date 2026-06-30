@@ -1,0 +1,118 @@
+from __future__ import annotations
+
+import uuid
+from types import SimpleNamespace
+
+import pytest
+
+from core.app_runtime.errors import RuntimeServiceError
+from core.app_runtime.service import RuntimeService, ServiceLocator
+
+
+def _stopped_runner_config() -> tuple[str, dict]:
+    server_id = f"srv_{uuid.uuid5(uuid.NAMESPACE_DNS, '192.0.2.10:22:tester').hex[:12]}"
+    return server_id, {
+        "ssh": {
+            "auth_mode": "key_file",
+            "host": "192.0.2.10",
+            "port": 22,
+            "user": "tester",
+            "password_ref": "",
+            "identity_ref": "C:/keys/id_ed25519",
+            "timeout_sec": 5,
+        },
+        "servers": {
+            server_id: {
+                "bootstrap_version": "phase1-test",
+                "runner_mode": "background_process",
+                "tunnel_port": 18000,
+                "service_port": 43127,
+                "token_ref": "runner://srv_test",
+                "last_health_snapshot": {
+                    "serverId": server_id,
+                    "state": "stopped",
+                    "startup": {"ok": True, "message": "Remote runner stop command ran."},
+                    "live": {"ok": False, "message": "Remote runner is stopped."},
+                    "ready": {"ok": False, "message": "Remote runner was manually stopped."},
+                    "reasonCode": "RUNNER_STOPPED",
+                    "checkedAt": "2026-04-21T12:00:00Z",
+                },
+            }
+        },
+    }
+
+
+def test_submit_run_does_not_restart_manually_stopped_runner(monkeypatch, tmp_path) -> None:
+    server_id, cfg = _stopped_runner_config()
+    service = RuntimeService(service_locator=ServiceLocator())
+    service._initialized = True
+    service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)
+
+    class FailIfCalledRemoteRunnerManager:
+        def get_health(self, **_kwargs):
+            raise AssertionError("stopped runner submission should not read remote health")
+
+        def bootstrap(self, **_kwargs):
+            raise AssertionError("stopped runner submission should not bootstrap")
+
+        def call_remote_endpoint(self, **_kwargs):
+            raise AssertionError("stopped runner submission should not call remote endpoints")
+
+    service._service_locator.remote_runner_manager = FailIfCalledRemoteRunnerManager()
+    monkeypatch.setattr("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg)
+
+    with pytest.raises(RuntimeServiceError) as raised:
+        service.submit_run(
+            {
+                "serverId": server_id,
+                "requestId": "req_stopped_runner",
+                "runSpec": {"pipelineId": "moving-pictures-16s-rulegraph-v1"},
+            }
+        )
+
+    assert raised.value.status_code == 409
+    assert raised.value.detail["reasonCode"] == "RUNNER_STOPPED"
+    assert raised.value.detail["nextAction"] == "START_RUNNER"
+
+
+def test_explicit_ensure_runner_starts_manually_stopped_runner(monkeypatch, tmp_path) -> None:
+    server_id, cfg = _stopped_runner_config()
+    service = RuntimeService(service_locator=ServiceLocator())
+    service._initialized = True
+    service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)
+    bootstrap_calls: list[str] = []
+
+    class ReadyRemoteRunnerManager:
+        def bootstrap(self, **kwargs):
+            bootstrap_calls.append(str(kwargs["server_id"]))
+            return {
+                "bootstrap_version": "phase1-test",
+                "runner_mode": "background_process",
+                "tunnel_port": 18765,
+                "service_port": 43127,
+                "token_ref": "runner://srv_test",
+                "health": {
+                    "serverId": server_id,
+                    "startup": {"ok": True, "message": "Remote runner config loaded."},
+                    "live": {"ok": True, "message": "Remote runner process is alive."},
+                    "ready": {"ok": True, "message": "Remote runner control plane is ready."},
+                    "reasonCode": "",
+                    "checkedAt": "2026-04-21T12:00:00Z",
+                },
+                "bootstrap_metadata": {"deployment_action": "explicit-start"},
+            }
+
+    def save_capture(next_cfg: dict) -> None:
+        snapshot = dict(next_cfg)
+        cfg.clear()
+        cfg.update(snapshot)
+
+    service._service_locator.remote_runner_manager = ReadyRemoteRunnerManager()
+    monkeypatch.setattr("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg)
+    monkeypatch.setattr("core.app_runtime.runtime_config.save_runtime_config", save_capture)
+
+    result = service.ensure_remote_runner_ready(server_id)
+
+    assert bootstrap_calls == [server_id]
+    assert result["data"]["runner"]["ready"] is True
+    assert cfg["servers"][server_id]["last_health_snapshot"]["reasonCode"] == ""

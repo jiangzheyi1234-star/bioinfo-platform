@@ -8,6 +8,8 @@ ROOT = Path(__file__).resolve().parents[1]
 COMPONENTS = ROOT / "apps" / "web" / "app" / "components"
 
 CONTRACT_FILES = {
+    "model": COMPONENTS / "ssh-shell-model.ts",
+    "shell": COMPONENTS / "ssh-shell.tsx",
     "terminal": COMPONENTS / "ssh-shell-terminal.ts",
     "xterm": COMPONENTS / "ssh-shell-xterm.ts",
 }
@@ -77,6 +79,38 @@ def test_terminal_session_uses_current_api_contract() -> None:
     )
     send_body = _between(source, "const sendTerminalStreamMessage = useCallback(", "const queueTerminalInput = useCallback")
     _assert_not_contains(send_body, "setTerminalMessage")
+
+
+def test_terminal_requires_ready_ssh_channel_not_optimistic_connection() -> None:
+    model_source = _source("model")
+    shell_source = _source("shell")
+    terminal_source = _source("terminal")
+
+    _assert_contains(
+        model_source,
+        "export function isSshChannelReady",
+        "!status.connecting",
+        "!status.auto_connect_in_progress",
+    )
+    _assert_contains(
+        shell_source,
+        "isSshChannelReady(connection.status)",
+        "disabled={!sshChannelReady}",
+    )
+    _assert_contains(
+        terminal_source,
+        "isSshChannelReady(nextStatus)",
+        "isSshChannelReady(status)",
+        "if (!isSshChannelReady(status))",
+    )
+    _assert_not_contains(
+        shell_source,
+        "disabled={!connection.status?.connected}",
+    )
+    _assert_not_contains(
+        terminal_source,
+        "if (!status?.connected)",
+    )
 
 
 def test_terminal_filters_xterm_mode_query_auto_replies() -> None:

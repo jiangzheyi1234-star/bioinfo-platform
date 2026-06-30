@@ -78,7 +78,7 @@ def compose_runner_payload(
     reason_code = str(health.get("reasonCode") or "")
     if ready:
         state = "ready"
-    elif str(health.get("state") or "") in {"preparing", "recovering"}:
+    elif str(health.get("state") or "") in {"preparing", "recovering", "stopped"}:
         state = str(health.get("state") or "")
     elif reason_code:
         state = "repair_needed"

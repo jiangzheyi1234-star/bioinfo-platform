@@ -16,6 +16,7 @@ import {
   type SSHStatus,
   type TerminalSnapshot,
   clampTerminalHeight,
+  isSshChannelReady,
   normalizeFetchError,
   readStoredTerminalHeight,
 } from "./ssh-shell-model";
@@ -254,7 +255,7 @@ export function useSshTerminal({
             event.code === 1000 ||
             terminalClosingRef.current ||
             terminalSessionClosedRef.current ||
-            !nextStatus?.connected ||
+            !isSshChannelReady(nextStatus) ||
             !terminalOpenRef.current ||
             terminalSessionIdRef.current !== sessionId
           ) {
@@ -313,13 +314,13 @@ export function useSshTerminal({
   }, [terminalHeight]);
 
   useEffect(() => {
-    if (status?.connected || !terminalOpen) {
+    if (isSshChannelReady(status) || !terminalOpen) {
       return;
     }
     clearTerminalReconnectTimer();
     setTerminalInputEnabled(false);
     setTerminalMessage("SSH 已断开，终端会话已结束");
-  }, [clearTerminalReconnectTimer, status?.connected, terminalOpen]);
+  }, [clearTerminalReconnectTimer, status, terminalOpen]);
 
   useEffect(() => {
     const onPointerMove = (event: PointerEvent) => {
@@ -380,7 +381,7 @@ export function useSshTerminal({
     async (options?: { replaceExisting?: boolean }) => {
       setTerminalOpen(true);
       setTerminalMessage("");
-      if (!status?.connected) {
+      if (!isSshChannelReady(status)) {
         setTerminalMessage("请先连接远端服务器");
         setTerminalInputEnabled(false);
         return;
@@ -411,7 +412,7 @@ export function useSshTerminal({
         creatingTerminalSessionRef.current = false;
       }
     },
-    [connectTerminalStream, replaceTerminalSnapshot, resetTerminalState, status?.connected, terminalInputEnabled, terminalSessionId]
+    [connectTerminalStream, replaceTerminalSnapshot, resetTerminalState, status, terminalInputEnabled, terminalSessionId]
   );
 
   const beginTerminalResize = useCallback(

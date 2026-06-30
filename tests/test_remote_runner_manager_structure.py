@@ -367,6 +367,15 @@ def test_database_catalog_proxy_layer_has_been_removed() -> None:
     assert "from core.remote_runner.catalog import" not in manager_source
 
 
+def test_bootstrap_active_lease_guard_runs_before_destructive_bundle_deploy() -> None:
+    manager_source = _source("core/remote_runner/manager.py")
+
+    assert "RemoteRunnerBootstrapGuardMixin" in manager_source
+    guard_index = manager_source.index("self._guard_bootstrap_without_active_leases(")
+    deploy_index = manager_source.index("self._deploy_service_runtime_bundle(")
+    assert guard_index < deploy_index
+
+
 def test_remote_runner_proxy_forwarders_do_not_wrap_client_errors() -> None:
     proxy_source = _source("core/remote_runner/proxy.py")
 

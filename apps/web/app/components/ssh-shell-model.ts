@@ -128,6 +128,10 @@ export type SshShellContextValue = {
   submitDisconnect: () => Promise<void>;
 };
 
+export function isSshChannelReady(status: SSHStatus | null | undefined): boolean {
+  return Boolean(status?.connected && !status.connecting && !status.auto_connect_in_progress);
+}
+
 export const defaultForm: SSHFormState = {
   auth_mode: "password_ref",
   ssh_host_alias: "",

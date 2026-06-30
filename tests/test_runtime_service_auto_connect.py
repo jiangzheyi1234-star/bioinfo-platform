@@ -41,6 +41,40 @@ class ReadyRemoteRunnerManager:
         }
 
 
+def stopped_runner_config() -> tuple[str, dict]:
+    server_id = f"srv_{uuid.uuid5(uuid.NAMESPACE_DNS, '192.0.2.10:22:tester').hex[:12]}"
+    return server_id, {
+        "ssh": {
+            "auth_mode": "key_file",
+            "host": "192.0.2.10",
+            "port": 22,
+            "user": "tester",
+            "password_ref": "",
+            "identity_ref": "C:/keys/id_ed25519",
+            "timeout_sec": 5,
+            "auto_connect_on_startup": True,
+        },
+        "servers": {
+            server_id: {
+                "bootstrap_version": "phase1-test",
+                "runner_mode": "background_process",
+                "tunnel_port": 18000,
+                "service_port": 43127,
+                "token_ref": "runner://srv_test",
+                "last_health_snapshot": {
+                    "serverId": server_id,
+                    "state": "stopped",
+                    "startup": {"ok": True, "message": "Remote runner stop command ran."},
+                    "live": {"ok": False, "message": "Remote runner is stopped."},
+                    "ready": {"ok": False, "message": "Remote runner was manually stopped."},
+                    "reasonCode": "RUNNER_STOPPED",
+                    "checkedAt": "2026-04-21T12:00:00Z",
+                },
+            }
+        },
+    }
+
+
 class RecoveringRemoteRunnerManager:
     def __init__(self) -> None:
         self.health_calls = 0
@@ -173,6 +207,59 @@ def test_startup_auto_connect_does_not_mask_unexpected_runner_state_errors() -> 
         "core.app_runtime.ssh_connection.ssh_connect", return_value=result
     ), pytest.raises(ValueError, match="unexpected runner state write"):
         service._attempt_startup_auto_connect()
+
+
+def test_connect_ssh_preserves_manual_runner_stop_snapshot() -> None:
+    server_id, cfg = stopped_runner_config()
+    service = RuntimeService(service_locator=ServiceLocator(remote_runner_manager=ReadyRemoteRunnerManager()))
+    service._initialized = True
+    result = SimpleNamespace(ok=True, client=DummyClient(), message="")
+
+    def save_capture(next_cfg: dict) -> None:
+        snapshot = dict(next_cfg)
+        cfg.clear()
+        cfg.update(snapshot)
+
+    def fail_background_ensure(next_server_id: str) -> None:
+        raise AssertionError(f"background ensure should not run for stopped runner {next_server_id}")
+
+    service._ensure_runner_ready_in_background = fail_background_ensure
+
+    with patch("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg), patch(
+        "core.app_runtime.runtime_config.save_runtime_config", save_capture
+    ), patch("core.app_runtime.ssh_connection.ssh_connect", return_value=result):
+        status = service.connect_ssh({})
+
+    assert status["connected"] is True
+    assert status["runner"]["state"] == "stopped"
+    assert status["runner"]["reasonCode"] == "RUNNER_STOPPED"
+    assert cfg["servers"][server_id]["last_health_snapshot"]["reasonCode"] == "RUNNER_STOPPED"
+    assert cfg["servers"][server_id]["last_health_snapshot"]["state"] == "stopped"
+
+
+def test_startup_auto_connect_preserves_manual_runner_stop_snapshot() -> None:
+    server_id, cfg = stopped_runner_config()
+    cfg["ssh"]["auth_mode"] = "password_ref"
+    cfg["ssh"]["password_ref"] = "ssh://tester@192.0.2.10:22"
+    cfg["ssh"]["identity_ref"] = ""
+    service = RuntimeService(service_locator=ServiceLocator(remote_runner_manager=ReadyRemoteRunnerManager()))
+    service._initialized = True
+    result = SimpleNamespace(ok=True, client=DummyClient(), message="")
+
+    def fail_background_ensure(next_server_id: str) -> None:
+        raise AssertionError(f"background ensure should not run for stopped runner {next_server_id}")
+
+    service._ensure_runner_ready_in_background = fail_background_ensure
+
+    with patch("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg), patch(
+        "core.app_runtime.ssh_connection.resolve_ssh_password", return_value="secret"
+    ), patch("core.app_runtime.ssh_connection.ssh_connect", return_value=result):
+        service._attempt_startup_auto_connect()
+        status = service.get_ssh_status()
+
+    assert cfg["servers"][server_id]["last_health_snapshot"]["reasonCode"] == "RUNNER_STOPPED"
+    assert cfg["servers"][server_id]["last_health_snapshot"]["state"] == "stopped"
+    assert status["runner"]["state"] == "stopped"
 
 
 def test_status_refresh_recovers_runner_when_ssh_stays_connected() -> None:

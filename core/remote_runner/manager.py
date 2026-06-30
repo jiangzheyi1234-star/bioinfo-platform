@@ -13,6 +13,7 @@ from core.remote_runner.artifact import (
 )
 from core.remote_runner.bootstrap_activation import RemoteRunnerBootstrapActivationMixin
 from core.remote_runner.bootstrap_bundle import RemoteRunnerBootstrapBundleMixin
+from core.remote_runner.bootstrap_guard import RemoteRunnerBootstrapGuardMixin
 from core.remote_runner.bootstrap_config_files import (
     BootstrapConfigTempFiles,
     cleanup_bootstrap_config_temp_files,
@@ -60,6 +61,7 @@ class RemoteRunnerManager(
     RemoteRunnerReuseMixin,
     RemoteRunnerWorkflowRuntimeMixin,
     RemoteRunnerBootstrapBundleMixin,
+    RemoteRunnerBootstrapGuardMixin,
     RemoteRunnerBootstrapActivationMixin,
 ):
     _manager_error = RemoteRunnerManagerError
@@ -218,6 +220,12 @@ class RemoteRunnerManager(
                 if reuse_result is not None:
                     return build_bootstrap_reuse_response(reuse_result, server)
 
+                self._guard_bootstrap_without_active_leases(
+                    server_id=server_id,
+                    ssh_service=ssh_service,
+                    server_record=server_record,
+                    bootstrap_metadata=bootstrap_metadata,
+                )
                 self._deploy_service_runtime_bundle(
                     ssh_service=ssh_service,
                     artifact=artifact,
