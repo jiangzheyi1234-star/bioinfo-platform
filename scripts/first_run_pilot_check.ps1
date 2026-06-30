@@ -361,6 +361,9 @@ function Assert-FirstRunPilotHandoff {
     if ($package.download.filename -and $resultPackageFile.filename -ne $package.download.filename) {
         Fail-Pilot "first-run evidenceBundle result package filename must match download filename"
     }
+    if ([string]::IsNullOrWhiteSpace([string]$resultPackageFile.href) -or -not ([string]$resultPackageFile.href).StartsWith("/api/v1/results/")) {
+        Fail-Pilot "first-run evidenceBundle result package href must stay under the result package download API"
+    }
     $baseName = $card.result.resultId
     $expectedBundleFilenames = @{
         "validation-card-json" = "$baseName.validation-card.json"
@@ -371,6 +374,23 @@ function Assert-FirstRunPilotHandoff {
         $file = @($requiredFiles | Where-Object { $_.role -eq $role }) | Select-Object -First 1
         if ($file.filename -ne $expectedBundleFilenames[$role]) {
             Fail-Pilot "first-run evidenceBundle $role filename must be $($expectedBundleFilenames[$role])"
+        }
+        if ([string]::IsNullOrWhiteSpace([string]$file.href)) {
+            Fail-Pilot "first-run evidenceBundle $role href must be present"
+        }
+        if (-not ([string]$file.href).StartsWith("/api/v1/first-run/runs/")) {
+            Fail-Pilot "first-run evidenceBundle $role href must stay under the first-run download API"
+        }
+    }
+    $expectedBundleHrefs = @{
+        "validation-card-json" = "/api/v1/first-run/runs/$([uri]::EscapeDataString($evidence.runId))/validation-card.json"
+        "validation-card-markdown" = "/api/v1/first-run/runs/$([uri]::EscapeDataString($evidence.runId))/validation-card.md"
+        "pilot-handoff" = "/api/v1/first-run/runs/$([uri]::EscapeDataString($evidence.runId))/pilot-handoff.md"
+    }
+    foreach ($role in $expectedBundleHrefs.Keys) {
+        $file = @($requiredFiles | Where-Object { $_.role -eq $role }) | Select-Object -First 1
+        if ($file.href -ne $expectedBundleHrefs[$role]) {
+            Fail-Pilot "first-run evidenceBundle $role href must be $($expectedBundleHrefs[$role])"
         }
     }
     if (-not (@($bundle.consumerChecklist) -contains "keep-result-package-validation-card-and-handoff-together")) {

@@ -88,6 +88,7 @@ export function useFirstRunEvidence({
   }, [resultId, statusPackageEvidence, statusPackageExportId]);
   const latestPackage = readyPackage || (status ? statusPackageFallback : packageExports[0]);
   const firstRunRunId = status ? statusRun?.runId || "" : run?.runId || "";
+  const firstRunServerId = status?.serverId || serverId;
   const workflowRevisionId = status
     ? statusRun?.workflowRevisionId || ""
     : workflowRevisionIdFor(run, runDetail, latestPackage);
@@ -214,13 +215,11 @@ export function useFirstRunEvidence({
     setValidationCardError("");
     try {
       await downloadFirstRunValidationCard({
-        card: validationCard,
-        resultId,
         runId: firstRunRunId,
-        serverId,
+        serverId: firstRunServerId,
       });
     } catch (err) {
-      setValidationCardError(workflowErrorMessage(err, "验证卡生成失败"));
+      setValidationCardError(workflowErrorMessage(err, "验证卡下载失败"));
     } finally {
       setValidationCardLoading(false);
     }
@@ -232,13 +231,11 @@ export function useFirstRunEvidence({
     setValidationCardError("");
     try {
       await downloadFirstRunValidationCardMarkdown({
-        card: validationCard,
-        resultId,
         runId: firstRunRunId,
-        serverId,
+        serverId: firstRunServerId,
       });
     } catch (err) {
-      setValidationCardError(workflowErrorMessage(err, "验证卡 Markdown 生成失败"));
+      setValidationCardError(workflowErrorMessage(err, "验证卡 Markdown 下载失败"));
     } finally {
       setValidationCardLoading(false);
     }
@@ -250,13 +247,11 @@ export function useFirstRunEvidence({
     setValidationCardError("");
     try {
       await downloadFirstRunHandoffManifest({
-        card: validationCard,
-        resultId,
         runId: firstRunRunId,
-        serverId,
+        serverId: firstRunServerId,
       });
     } catch (err) {
-      setValidationCardError(workflowErrorMessage(err, "交接清单生成失败"));
+      setValidationCardError(workflowErrorMessage(err, "交接清单下载失败"));
     } finally {
       setValidationCardLoading(false);
     }

@@ -82,7 +82,13 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "ready finalization must expose the same first-run evidenceBundle" in source
     assert "first-run evidenceBundle must include exactly one $role file" in source
     assert "first-run evidenceBundle result package file must match package hashes" in source
+    assert "first-run evidenceBundle result package href must stay under the result package download API" in source
     assert "first-run evidenceBundle $role filename must be" in source
+    assert "first-run evidenceBundle $role href must be" in source
+    assert "first-run evidenceBundle $role href must stay under the first-run download API" in source
+    assert "/api/v1/first-run/runs/$([uri]::EscapeDataString($evidence.runId))/validation-card.json" in source
+    assert "/api/v1/first-run/runs/$([uri]::EscapeDataString($evidence.runId))/validation-card.md" in source
+    assert "/api/v1/first-run/runs/$([uri]::EscapeDataString($evidence.runId))/pilot-handoff.md" in source
     assert "keep-result-package-validation-card-and-handoff-together" in source
     assert "function Assert-FirstRunPilotHandoff" in source
     assert "pilotHandoff evidence must match validationCard run and result" in source

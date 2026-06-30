@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import quote
 
 from apps.api.workflow_scenario_pack_service import list_workflow_scenario_packs
 
@@ -61,8 +62,10 @@ def _evidence_bundle(
     run_id = str(evidence.get("runId") or "").strip()
     result_id = str(evidence.get("resultId") or "").strip()
     base_name = result_id or run_id
+    first_run_download_base = f"/api/v1/first-run/runs/{quote(run_id, safe='')}" if run_id else ""
     report = card.get("reportInterpretation") if isinstance(card.get("reportInterpretation"), dict) else {}
     redaction = report.get("redaction") if isinstance(report.get("redaction"), dict) else {}
+    package_download = package.get("download") if isinstance(package.get("download"), dict) else {}
     return {
         "schemaVersion": FIRST_RUN_EVIDENCE_BUNDLE_SCHEMA_VERSION,
         "status": "ready",
@@ -78,24 +81,28 @@ def _evidence_bundle(
                 "manifestSha256": evidence.get("manifestSha256"),
                 "artifactPayloadMode": package.get("artifactPayloadMode"),
                 "includeArtifacts": package.get("includeArtifacts"),
+                "href": package_download.get("href"),
             },
             {
                 "role": "validation-card-json",
                 "filename": f"{base_name}.validation-card.json",
                 "source": "first-run-validation-card-api",
                 "schemaVersion": "h2ometa.first-run.validation-card.v1",
+                "href": f"{first_run_download_base}/validation-card.json" if first_run_download_base else "",
             },
             {
                 "role": "validation-card-markdown",
                 "filename": f"{base_name}.validation-card.md",
-                "source": "first-run-validation-card-markdown",
+                "source": "first-run-validation-card-markdown-api",
                 "schemaVersion": "h2ometa.first-run.validation-card.v1",
+                "href": f"{first_run_download_base}/validation-card.md" if first_run_download_base else "",
             },
             {
                 "role": "pilot-handoff",
                 "filename": f"{base_name}.pilot-handoff.md",
-                "source": "first-run-pilot-handoff-markdown",
+                "source": "first-run-pilot-handoff-markdown-api",
                 "schemaVersion": FIRST_RUN_PILOT_HANDOFF_SCHEMA_VERSION,
+                "href": f"{first_run_download_base}/pilot-handoff.md" if first_run_download_base else "",
             },
         ],
         "integrity": evidence,

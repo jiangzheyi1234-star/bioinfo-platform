@@ -156,6 +156,9 @@ def test_first_run_result_package_uses_selected_server_boundary() -> None:
     assert "exportWorkflowResultPackage(resultId, true, { serverId })" in first_run_evidence_state
     assert "packageExports.find((item) => item.packageExportId === statusPackageExportId)" in first_run_evidence_state
     assert "packageBytesState: \"available\"" in first_run_evidence_state
+    assert "const firstRunServerId = status?.serverId || serverId" in first_run_evidence_state
+    assert "serverId: firstRunServerId" in first_run_evidence_state
+    assert "card: validationCard" not in first_run_evidence_state
     assert "serverId={state.server?.serverId}" in first_run_page
     assert "serverId?: string;" in first_run_validation
     assert "workflowResultPackageDownloadHref(latestPackage, { serverId })" in first_run_validation

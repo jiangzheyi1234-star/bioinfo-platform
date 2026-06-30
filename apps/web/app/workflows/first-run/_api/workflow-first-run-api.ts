@@ -1,8 +1,7 @@
 "use client";
 
-import { requestLocalApiJson } from "@/app/lib/local-api-client";
+import { apiBase, requestLocalApiJson } from "@/app/lib/local-api-client";
 
-import { firstRunHandoffManifestMarkdown, firstRunValidationCardMarkdown } from "../_domain/first-run-markdown";
 import type { FirstRunFinalization, FirstRunStatus, FirstRunValidationCard } from "../_domain/first-run-types";
 
 export async function fetchFirstRunStatus(
@@ -54,63 +53,45 @@ export async function finalizeFirstRun(
 }
 
 export async function downloadFirstRunValidationCard({
-  card,
-  resultId,
   runId,
   serverId,
 }: {
-  card?: FirstRunValidationCard | null;
-  resultId: string;
   runId: string;
   serverId?: string;
 }) {
-  const resolvedCard = card || (await fetchFirstRunValidationCard(runId, { serverId }));
-  const blob = new Blob([JSON.stringify(resolvedCard, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = `${resultId || runId}.validation-card.json`;
-  document.body.appendChild(anchor);
-  anchor.click();
-  document.body.removeChild(anchor);
-  URL.revokeObjectURL(url);
+  downloadLocalApiFile(firstRunValidationCardJsonDownloadPath(runId, { serverId }));
 }
+
 export async function downloadFirstRunValidationCardMarkdown({
-  card,
-  resultId,
   runId,
   serverId,
 }: {
-  card?: FirstRunValidationCard | null;
-  resultId: string;
   runId: string;
   serverId?: string;
 }) {
-  const resolvedCard = card || (await fetchFirstRunValidationCard(runId, { serverId }));
-  downloadTextFile({
-    content: firstRunValidationCardMarkdown(resolvedCard),
-    filename: `${resultId || runId}.validation-card.md`,
-    type: "text/markdown;charset=utf-8",
-  });
+  downloadLocalApiFile(firstRunValidationCardMarkdownDownloadPath(runId, { serverId }));
 }
 
 export async function downloadFirstRunHandoffManifest({
-  card,
-  resultId,
   runId,
   serverId,
 }: {
-  card?: FirstRunValidationCard | null;
-  resultId: string;
   runId: string;
   serverId?: string;
 }) {
-  const resolvedCard = card || (await fetchFirstRunValidationCard(runId, { serverId }));
-  downloadTextFile({
-    content: firstRunHandoffManifestMarkdown(resolvedCard),
-    filename: `${resultId || runId}.pilot-handoff.md`,
-    type: "text/markdown;charset=utf-8",
-  });
+  downloadLocalApiFile(firstRunPilotHandoffMarkdownDownloadPath(runId, { serverId }));
+}
+
+export function firstRunValidationCardJsonDownloadPath(runId: string, options: { serverId?: string } = {}) {
+  return firstRunDownloadPath(runId, "validation-card.json", options);
+}
+
+export function firstRunValidationCardMarkdownDownloadPath(runId: string, options: { serverId?: string } = {}) {
+  return firstRunDownloadPath(runId, "validation-card.md", options);
+}
+
+export function firstRunPilotHandoffMarkdownDownloadPath(runId: string, options: { serverId?: string } = {}) {
+  return firstRunDownloadPath(runId, "pilot-handoff.md", options);
 }
 
 function queryString(query: URLSearchParams) {
@@ -118,14 +99,16 @@ function queryString(query: URLSearchParams) {
   return value ? `?${value}` : "";
 }
 
-function downloadTextFile({ content, filename, type }: { content: string; filename: string; type: string }) {
-  const blob = new Blob([content], { type });
-  const url = URL.createObjectURL(blob);
+function firstRunDownloadPath(runId: string, filename: string, options: { serverId?: string }) {
+  const query = new URLSearchParams();
+  if (options.serverId) query.set("serverId", options.serverId);
+  return `/api/v1/first-run/runs/${encodeURIComponent(runId)}/${filename}${queryString(query)}`;
+}
+
+function downloadLocalApiFile(path: string) {
   const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
+  anchor.href = `${apiBase()}${path}`;
   document.body.appendChild(anchor);
   anchor.click();
   document.body.removeChild(anchor);
-  URL.revokeObjectURL(url);
 }

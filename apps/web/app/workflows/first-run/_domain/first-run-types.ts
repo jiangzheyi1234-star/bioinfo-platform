@@ -252,6 +252,7 @@ export type FirstRunEvidenceBundleFile = {
   role?: string;
   filename?: string;
   source?: string;
+  href?: string;
   schemaVersion?: string;
   packageExportId?: string;
   sha256?: string;

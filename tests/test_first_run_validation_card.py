@@ -573,10 +573,20 @@ def test_first_run_validation_card_route_and_error_handler_are_registered() -> N
     route_source = _source("apps/api/workflow_first_run_routes.py")
     finalize_source = _source("apps/api/workflow_first_run_finalize_service.py")
     service_source = _source("apps/api/workflow_first_run_service.py")
+    markdown_source = _source("apps/api/workflow_first_run_markdown.py")
     main_source = _source("apps/api/main.py")
     route_errors = _source("apps/api/route_errors.py")
 
     assert '@router.get("/api/v1/first-run/runs/{run_id}/validation-card")' in route_source
+    assert '@router.get("/api/v1/first-run/runs/{run_id}/validation-card.json")' in route_source
+    assert '@router.get("/api/v1/first-run/runs/{run_id}/validation-card.md")' in route_source
+    assert '@router.get("/api/v1/first-run/runs/{run_id}/pilot-handoff.md")' in route_source
+    assert "first_run_validation_card_markdown" in route_source
+    assert "first_run_handoff_manifest_markdown" in route_source
+    assert "Content-Disposition" in route_source
+    assert "private, no-store" in route_source
+    assert "H2OMeta First Successful Run Validation Card" in markdown_source
+    assert "H2OMeta First Successful Run Pilot Handoff" in markdown_source
     assert '@router.post("/api/v1/first-run/runs/{run_id}/finalize")' in route_source
     assert "build_first_run_validation_card_from_request" in route_source
     assert "finalize_first_run_from_request" in route_source
@@ -946,24 +956,28 @@ def _expected_evidence_bundle(
                 "manifestSha256": manifest_sha256,
                 "artifactPayloadMode": "full",
                 "includeArtifacts": True,
+                "href": f"/api/v1/results/res_run_first/exports/{package_export_id}/download",
             },
             {
                 "role": "validation-card-json",
                 "filename": "res_run_first.validation-card.json",
                 "source": "first-run-validation-card-api",
                 "schemaVersion": "h2ometa.first-run.validation-card.v1",
+                "href": "/api/v1/first-run/runs/run_first/validation-card.json",
             },
             {
                 "role": "validation-card-markdown",
                 "filename": "res_run_first.validation-card.md",
-                "source": "first-run-validation-card-markdown",
+                "source": "first-run-validation-card-markdown-api",
                 "schemaVersion": "h2ometa.first-run.validation-card.v1",
+                "href": "/api/v1/first-run/runs/run_first/validation-card.md",
             },
             {
                 "role": "pilot-handoff",
                 "filename": "res_run_first.pilot-handoff.md",
-                "source": "first-run-pilot-handoff-markdown",
+                "source": "first-run-pilot-handoff-markdown-api",
                 "schemaVersion": "h2ometa.first-run.single-user-lab-pilot-handoff.v1",
+                "href": "/api/v1/first-run/runs/run_first/pilot-handoff.md",
             },
         ],
         "integrity": {
