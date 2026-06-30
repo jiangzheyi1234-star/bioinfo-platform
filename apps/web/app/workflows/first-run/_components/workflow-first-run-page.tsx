@@ -17,6 +17,8 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import { useSshShell } from "@/app/components/ssh-shell";
+import { RunnerRepairPanel } from "@/app/components/ssh-runner-repair-panel";
+import type { SSHStatus } from "@/app/components/ssh-shell-model";
 import { useWorkflowsPageState } from "@/app/components/use-workflows-page-state";
 import { WorkflowFirstRunConductorPanel, useFirstRunConductor } from "./workflow-first-run-conductor";
 import { FirstRunCompletionPanel } from "./workflow-first-run-completion";
@@ -333,11 +335,10 @@ export function WorkflowFirstRunPage() {
               error={runnerError}
               loading={state.loading}
               server={state.server}
+              sshStatus={ssh.status}
               onConnect={openConnectDialog}
               onEnsure={() => void ensureRunner()}
-              onRefresh={() => {
-                void refreshWorkspaceAndFirstRunStatus();
-              }}
+              onRefresh={refreshWorkspaceAndFirstRunStatus}
             />
             <SampleAndSubmitPanel
               canSubmit={firstRunCanSubmit}
@@ -448,6 +449,7 @@ function RunnerReadinessPanel({
   onEnsure,
   onRefresh,
   server,
+  sshStatus,
 }: {
   canEnsure: boolean;
   connected: boolean;
@@ -459,8 +461,9 @@ function RunnerReadinessPanel({
   loading: boolean;
   onConnect: () => void;
   onEnsure: () => void;
-  onRefresh: () => void;
+  onRefresh: () => Promise<void>;
   server: WorkflowServer | null;
+  sshStatus: SSHStatus | null;
 }) {
   const checks = runnerChecks(server);
   const executionReadiness = diagnostics?.readiness;
@@ -529,6 +532,15 @@ function RunnerReadinessPanel({
           {executionReadiness.blockingReasons.slice(0, 3).map((reason) => reason.code || reason.message || "EXECUTION_NOT_READY").join(" / ")}
         </div>
       ) : null}
+      <div className="mt-4" data-testid="first-run-runner-repair">
+        <RunnerRepairPanel
+          status={sshStatus}
+          ensureRunnerBusy={ensuring}
+          onEnsureRunner={onEnsure}
+          onRefreshStatus={onRefresh}
+          className="shadow-none"
+        />
+      </div>
     </section>
   );
 }

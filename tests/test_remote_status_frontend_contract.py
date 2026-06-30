@@ -88,6 +88,7 @@ def test_runner_repair_panel_exposes_upgrade_prune_and_operator_diagnostics() ->
         "Operator",
     )
     _assert_contains(source, "className?: string", "className = \"\"")
+    _assert_contains(source, "onClose?: () => void", "{onClose ? (")
     _assert_matches(source, r"disabled=\{!canPrune\s*\|\|\s*pruneLoading\s*\|\|\s*deletableReleaseCount <= 0")
 
 

@@ -31,8 +31,8 @@ type RunnerRepairPanelProps = {
   status: SSHStatus | null;
   ensureRunnerBusy: boolean;
   onEnsureRunner: () => void;
-  onRefreshStatus: () => Promise<SSHStatus | null>;
-  onClose: () => void;
+  onRefreshStatus: () => Promise<unknown>;
+  onClose?: () => void;
   className?: string;
 };
 
@@ -226,16 +226,18 @@ export function RunnerRepairPanel({
     >
       <div className="flex items-center justify-between gap-3">
         <p className="text-[11px] font-semibold text-slate-900">{remote.label}</p>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          aria-label="关闭远程状态详情"
-          onClick={onClose}
-          className="size-6 text-slate-400 hover:text-slate-700"
-        >
-          <X />
-        </Button>
+        {onClose ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="关闭远程状态详情"
+            onClick={onClose}
+            className="size-6 text-slate-400 hover:text-slate-700"
+          >
+            <X />
+          </Button>
+        ) : null}
       </div>
       <p className="mt-1 truncate text-[11px] text-slate-500">{remote.message}</p>
       <div className="mt-2 space-y-1">

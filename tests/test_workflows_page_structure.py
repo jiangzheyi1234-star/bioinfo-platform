@@ -310,6 +310,10 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "firstRunEvidenceBundleFileDownloadHref" in first_run_validation
     assert "serverId: firstRunServerId" in first_run_evidence_state
     assert "fetchWorkflowServerExecutionDiagnostics" in first_run_page
+    assert "RunnerRepairPanel" in first_run_page
+    assert 'data-testid="first-run-runner-repair"' in first_run_page
+    assert "sshStatus={ssh.status}" in first_run_page
+    assert 'className="shadow-none"' in first_run_page
     assert "executionDiagnostics?.readiness?.ok === true" in first_run_page
     assert "const firstRunCanSubmit = Boolean(" in first_run_page
     assert 'firstRunStatusSnapshot?.nextAction?.code === "SUBMIT_RUN"' in first_run_page
