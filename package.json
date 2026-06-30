@@ -6,6 +6,7 @@
     "firecrawl:login": "powershell -ExecutionPolicy Bypass -File ./scripts/firecrawl.ps1 login --browser",
     "firecrawl:status": "powershell -ExecutionPolicy Bypass -File ./scripts/firecrawl.ps1 --status",
     "test:e2e": "node node_modules/@playwright/test/cli.js test",
+    "test:e2e:first-run": "node node_modules/@playwright/test/cli.js test tests/e2e/first-run-onboarding.spec.ts",
     "test:e2e:ui": "node node_modules/@playwright/test/cli.js test --ui",
     "test:e2e:headed": "node node_modules/@playwright/test/cli.js test --headed"
   },

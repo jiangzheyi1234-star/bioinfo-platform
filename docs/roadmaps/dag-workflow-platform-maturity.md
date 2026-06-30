@@ -2,7 +2,7 @@
 
 Status: In progress
 
-Last reviewed: 2026-06-26
+Last reviewed: 2026-07-01
 
 Baseline: `main` tracking `origin/main`; this roadmap is being advanced directly on `main` at the user's request.
 
@@ -25,6 +25,7 @@ Accepted constraints:
 - Artifact lifecycle work must preserve content hashes and explicit manifest-declared outputs.
 - Public multi-user server mode remains unsupported until identity, RBAC, audit, secret, database, and object-storage boundaries are implemented and tested.
 - Windows owns launcher, frontend installs/builds, UI smoke, and Python quality gates when the Windows env is prepared.
+- First Successful Run browser contract proof is available as `npm run test:e2e:first-run`; it uses Playwright test-id selectors plus mocked first-run API responses to verify the UI contract without requiring sample-data downloads or a live runner.
 
 Rejected alternatives:
 
@@ -500,6 +501,7 @@ Progress:
 - Local `/api/v1/service-info` now includes `production-governance-readiness.v1`, a safe machine-readable gate matrix for deployment mode, network binding, machine-token auth, multi-user RBAC, PostgreSQL, S3/MinIO artifact storage, secret providers, audit, and release gates. The service-info projection reports status, reason codes, blocker ids, and source-controlled evidence references only, so operators can see why public multi-user production remains blocked without leaking check details, tokens, database URLs, S3 object locations, bucket names, endpoints, or secret refs.
 - The Workflows UI now surfaces that production-governance readiness matrix as a read-only operator panel. The frontend service-info client normalizes the payload through an allowlist before storing it in React state, keeping only deployment mode plus governance check ids, statuses, reason codes, blocker ids, and source-controlled evidence references while excluding `details`, service identity, state counts, security warnings, and secret-bearing configuration fields.
 - Local `/api/v1/service-info` now also includes a redacted `local-execution-readiness-projection.v1` for connected runners. It projects only execution diagnostics availability, readiness status, queue counts, worker/slot counts, and boolean readiness checks into the local control-plane health surface while excluding raw run events, worker session ids, paths, tokens, diagnostics exception text, and storage locators.
+- The Workflows UI now surfaces that redacted local execution readiness projection beside the production-governance matrix, showing only connection/diagnostics/readiness state, queue and worker aggregates, safe reason codes, and boolean checks. It still ignores `stateCounts`, raw diagnostics details, run events, worker session ids, paths, tokens, and storage locators.
 - Container runtime hardening now has a source-controlled target policy and CI-audited governance scanner. The current Docker Compose profile remains an unsupported server-single-user draft while bind-all API exposure, host API ports, environment-carried runner tokens, root containers, missing `no-new-privileges`, missing `cap_drop: ALL`, missing read-only root filesystems, missing resource limits, or missing secret mounts are detected; any production-ready claim now fails the security governance audit until those graduation controls are implemented and proven.
 - Deployment mode documentation now names only the current `H2OMETA_ARTIFACT_S3_*` artifact adapter configuration surface for S3/MinIO. Legacy `H2OMETA_S3_*` names are documented as unsupported rather than accepted as compatibility aliases.
 - S3/MinIO transport security configuration now uses one strict environment-boolean parser shared by remote-runner config and production-governance readiness. `H2OMETA_ARTIFACT_S3_SECURE` accepts only `1/true/yes/on` or `0/false/no/off`; invalid values fail runner config and keep governance readiness partial with `S3_MINIO_SECURE_TRANSPORT_INVALID` instead of being guessed as secure or insecure.

@@ -19,7 +19,12 @@ def test_workflow_production_governance_panel_reads_service_info_readiness() -> 
 
     assert "export type WorkflowProductionGovernanceReadiness" in model
     assert "export type WorkflowProductionGovernanceCheck" in model
+    assert "export type WorkflowLocalExecutionReadiness" in model
+    assert "export type WorkflowLocalExecutionReadinessQueue" in model
+    assert "export type WorkflowLocalExecutionReadinessWorkers" in model
     assert "productionGovernance?: WorkflowProductionGovernanceReadiness" in model
+    assert "executionReadiness?: WorkflowLocalExecutionReadiness" in model
+    assert "checks?: Record<string, boolean>" in model
     assert "publicMultiUserReady?: boolean" in model
     assert "publicMultiUserBlockingCheckIds?: string[]" in model
     assert "currentModeBlockingCheckIds?: string[]" in model
@@ -37,9 +42,14 @@ def test_workflow_production_governance_panel_reads_service_info_readiness() -> 
     assert "{ cache: \"no-store\" }" in api
     assert "response.item" in api
     assert "normalizeWorkflowServiceInfo(response.item)" in api
+    assert "normalizeLocalExecutionReadiness(item.executionReadiness)" in api
+    assert "normalizeLocalExecutionQueue(readiness.queue)" in api
+    assert "normalizeLocalExecutionWorkers(readiness.workers)" in api
+    assert "booleanRecord(readiness.checks)" in api
     assert "normalizeProductionGovernanceCheck" in api
     assert "stringList(check.evidence)" in api
     assert "return response.item" not in api
+    assert "item.stateCounts" not in api
     assert '"POST"' not in api
     assert '"PUT"' not in api
     assert '"PATCH"' not in api
@@ -47,6 +57,12 @@ def test_workflow_production_governance_panel_reads_service_info_readiness() -> 
 
     assert "export function WorkflowProductionGovernancePanel" in panel
     assert "fetchWorkflowServiceInfo({ forceRefresh })" in panel
+    assert "LocalExecutionReadinessPanel" in panel
+    assert "workflow-local-execution-readiness" in panel
+    assert "data-execution-ready" in panel
+    assert "data-execution-diagnostics" in panel
+    assert "workflow-local-execution-readiness-check" in panel
+    assert "stateCounts" not in panel
     assert "productionGovernanceSummary(governance)" in panel
     assert "publicMultiUserBlockingCheckIds" in panel
     assert "currentModeStatus" in panel

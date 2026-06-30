@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, CheckCircle2, Loader2, RefreshCw, ShieldCheck, XCircle } from "lucide-react";
+import { Activity, AlertCircle, CheckCircle2, Loader2, RefreshCw, ShieldCheck, XCircle } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 
 import { fetchWorkflowServiceInfo } from "./workflow-service-info-api";
 import type {
+  WorkflowLocalExecutionReadiness,
   WorkflowLocalServiceInfo,
   WorkflowProductionGovernanceCheck,
   WorkflowProductionGovernanceReadiness,
@@ -37,6 +38,7 @@ export function WorkflowProductionGovernancePanel() {
   }, [load]);
 
   const governance = serviceInfo?.productionGovernance;
+  const executionReadiness = serviceInfo?.executionReadiness;
   const checks = governance?.checks || [];
   const summary = useMemo(() => productionGovernanceSummary(governance), [governance]);
 
@@ -89,6 +91,8 @@ export function WorkflowProductionGovernancePanel() {
             <GovernanceMetric label="checks" value={String(checks.length)} />
           </div>
 
+          <LocalExecutionReadinessPanel readiness={executionReadiness} />
+
           <div className="grid gap-2 lg:grid-cols-2">
             {checks.slice(0, 8).map((check, index) => (
               <GovernanceCheckRow key={check.id || `${check.reasonCode || "check"}:${index}`} check={check} />
@@ -112,6 +116,69 @@ export function WorkflowProductionGovernancePanel() {
         </div>
       )}
     </section>
+  );
+}
+
+function LocalExecutionReadinessPanel({ readiness }: { readiness?: WorkflowLocalExecutionReadiness }) {
+  const queue = readiness?.queue || {};
+  const workers = readiness?.workers || {};
+  const checks = Object.entries(readiness?.checks || {});
+  const ready = readiness?.ready === true;
+  const diagnosticsAvailable = readiness?.diagnosticsAvailable === true;
+  const connected = readiness?.connected === true;
+  const tone = ready ? "pass" : diagnosticsAvailable ? "warn" : "blocked";
+  return (
+    <div
+      className="rounded-md border border-slate-100 bg-slate-50 px-3 py-3"
+      data-testid="workflow-local-execution-readiness"
+      data-execution-connected={connected ? "true" : "false"}
+      data-execution-diagnostics={diagnosticsAvailable ? "available" : "unavailable"}
+      data-execution-ready={ready ? "true" : "false"}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-xs font-semibold text-slate-900">
+            <Activity strokeWidth={1.5} className="h-3.5 w-3.5 text-slate-500" />
+            本地执行 readiness
+          </div>
+          <div className="mt-1 truncate font-mono text-[11px] text-slate-500">
+            {readiness?.schemaVersion || "schema pending"} · {readiness?.serverId || "no runner"} · {readiness?.generatedAt || "not generated"}
+          </div>
+        </div>
+        <span className={cn("rounded border px-1.5 py-0.5 text-[11px] font-medium", statusClass(tone))}>
+          {readiness?.status || "unknown"}
+        </span>
+      </div>
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <GovernanceMetric label="queue" value={`${queue.queuedJobs ?? 0}/${queue.totalQueuedJobs ?? 0}`} tone={queue.resourceWaitJobs ? "warn" : "default"} />
+        <GovernanceMetric label="claimed" value={String(queue.claimedJobs ?? 0)} tone={queue.activeLeases ? "warn" : "default"} />
+        <GovernanceMetric label="workers" value={String(workers.workerCount ?? 0)} tone={(workers.workerCount ?? 0) > 0 ? "pass" : "warn"} />
+        <GovernanceMetric label="slots" value={`${workers.runningSlots ?? 0}/${workers.totalSlots ?? 0}`} />
+      </div>
+
+      {readiness?.reasonCode ? (
+        <div className="mt-2 rounded border border-slate-200 bg-white px-2 py-1 font-mono text-[11px] text-slate-600">
+          {readiness.reasonCode}
+        </div>
+      ) : null}
+
+      {checks.length ? (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {checks.slice(0, 10).map(([id, ok]) => (
+            <span
+              key={id}
+              className={cn("rounded border px-1.5 py-0.5 font-mono text-[11px]", ok ? "border-emerald-200 bg-white text-emerald-700" : "border-amber-200 bg-white text-amber-700")}
+              data-testid="workflow-local-execution-readiness-check"
+              data-execution-check={id}
+              data-execution-check-ok={ok ? "true" : "false"}
+            >
+              {id}:{ok ? "ok" : "blocked"}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
