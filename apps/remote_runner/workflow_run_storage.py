@@ -276,21 +276,16 @@ def run_attempt_can_publish(
     attempt_id: str | None,
     lease_generation: int | None,
 ) -> bool:
-    has_attempt_context = any(
-        value is not None and str(value).strip()
-        for value in (attempt_id, lease_generation)
-    )
-    if not has_attempt_context:
-        return True
-    if not str(attempt_id or "").strip() or lease_generation is None:
-        return False
     lease = connection.execute(
         "SELECT attempt_id, lease_generation, state FROM run_leases WHERE run_id = ?",
         (run_id,),
     ).fetchone()
-    return bool(
-        lease is not None
-        and lease["attempt_id"] == attempt_id
-        and int(lease["lease_generation"]) == int(lease_generation)
-        and lease["state"] == "active"
+    decision = RunExecutionStateMachine.current_lease_guard(
+        attempt_id=attempt_id,
+        lease_generation=lease_generation,
+        current_attempt_id=str(lease["attempt_id"]) if lease is not None else None,
+        current_lease_generation=int(lease["lease_generation"]) if lease is not None else None,
+        current_lease_state=str(lease["state"]) if lease is not None else None,
+        allow_missing_attempt_context=True,
     )
+    return decision.accepted

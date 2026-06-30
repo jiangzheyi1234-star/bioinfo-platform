@@ -355,8 +355,9 @@ def heartbeat_run_attempt(
             "SELECT * FROM run_leases WHERE run_id = ?",
             (attempt["run_id"],),
         ).fetchone()
-        if not _is_current_lease(lease, normalized_attempt_id, lease_generation):
-            return {"accepted": False, "reason": "stale_generation"}
+        lease_guard = _current_lease_guard(lease, normalized_attempt_id, lease_generation)
+        if not lease_guard.accepted:
+            return {"accepted": False, "reason": lease_guard.reason}
         job = connection.execute(
             "SELECT * FROM run_jobs WHERE job_id = ?",
             (attempt["job_id"],),
@@ -394,8 +395,9 @@ def record_run_attempt_process_group(
             "SELECT * FROM run_leases WHERE run_id = ?",
             (attempt["run_id"],),
         ).fetchone()
-        if not _is_current_lease(lease, normalized_attempt_id, lease_generation):
-            return {"accepted": False, "reason": "stale_generation"}
+        lease_guard = _current_lease_guard(lease, normalized_attempt_id, lease_generation)
+        if not lease_guard.accepted:
+            return {"accepted": False, "reason": lease_guard.reason}
         connection.execute(
             """
             UPDATE run_attempts
@@ -519,7 +521,8 @@ def run_attempt_cancel_requested(
             "SELECT * FROM run_leases WHERE run_id = ?",
             (attempt["run_id"],),
         ).fetchone()
-        if not _is_current_lease(lease, normalized_attempt_id, lease_generation):
+        lease_guard = _current_lease_guard(lease, normalized_attempt_id, lease_generation)
+        if not lease_guard.accepted:
             return True
         run = _fetch_run_row(connection, str(attempt["run_id"]))
         return bool(attempt["cancel_requested_at"] or run["status"] == "canceling")
@@ -554,17 +557,18 @@ def complete_run_attempt(
             release_resource_allocation(connection, attempt_id=normalized_attempt_id, released_at=finished_at)
             connection.commit()
             return {"accepted": False, "reason": "already_terminal"}
-        if not _is_current_lease(lease, normalized_attempt_id, lease_generation):
+        lease_guard = _current_lease_guard(lease, normalized_attempt_id, lease_generation)
+        if not lease_guard.accepted:
             _fence_attempt_record(
                 connection,
                 attempt_id=normalized_attempt_id,
                 generation=lease_generation,
-                reason="stale_generation",
+                reason=lease_guard.reason,
                 occurred_at=finished_at,
                 run=run,
             )
             connection.commit()
-            return {"accepted": False, "reason": "stale_generation"}
+            return {"accepted": False, "reason": lease_guard.reason}
 
         connection.execute(
             """
@@ -673,12 +677,13 @@ def _fence_attempt_record(
     )
 
 
-def _is_current_lease(lease: sqlite3.Row | None, attempt_id: str, generation: int) -> bool:
-    return bool(
-        lease is not None
-        and lease["attempt_id"] == attempt_id
-        and int(lease["lease_generation"]) == int(generation)
-        and lease["state"] == "active"
+def _current_lease_guard(lease: sqlite3.Row | None, attempt_id: str, generation: int):
+    return RunExecutionStateMachine.current_lease_guard(
+        attempt_id=attempt_id,
+        lease_generation=generation,
+        current_attempt_id=str(lease["attempt_id"]) if lease is not None else None,
+        current_lease_generation=int(lease["lease_generation"]) if lease is not None else None,
+        current_lease_state=str(lease["state"]) if lease is not None else None,
     )
 
 

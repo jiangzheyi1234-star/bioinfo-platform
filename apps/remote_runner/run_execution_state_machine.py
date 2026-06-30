@@ -77,6 +77,12 @@ class RunJobClaimDecision:
     event_payload_keys: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class RunAttemptLeaseGuardDecision:
+    accepted: bool
+    reason: str
+
+
 class RunExecutionStateMachine:
     @staticmethod
     def submission_accepted() -> RunExecutionTransition:
@@ -340,6 +346,41 @@ class RunExecutionStateMachine:
                 "slotId",
             ),
         )
+
+    @staticmethod
+    def current_lease_guard(
+        *,
+        attempt_id: str | None,
+        lease_generation: int | None,
+        current_attempt_id: str | None,
+        current_lease_generation: int | None,
+        current_lease_state: str | None,
+        allow_missing_attempt_context: bool = False,
+    ) -> RunAttemptLeaseGuardDecision:
+        requested_attempt_id = str(attempt_id or "").strip()
+        has_generation = lease_generation is not None
+        has_attempt_context = bool(requested_attempt_id) or has_generation
+        if not has_attempt_context:
+            return RunAttemptLeaseGuardDecision(
+                accepted=bool(allow_missing_attempt_context),
+                reason="" if allow_missing_attempt_context else "stale_generation",
+            )
+        if not requested_attempt_id or not has_generation:
+            return RunAttemptLeaseGuardDecision(accepted=False, reason="stale_generation")
+        stored_attempt_id = str(current_attempt_id or "").strip()
+        if not stored_attempt_id:
+            return RunAttemptLeaseGuardDecision(accepted=False, reason="stale_generation")
+        if _normalize_optional_status(current_lease_state) != "active":
+            return RunAttemptLeaseGuardDecision(accepted=False, reason="stale_generation")
+        if stored_attempt_id != requested_attempt_id:
+            return RunAttemptLeaseGuardDecision(accepted=False, reason="stale_generation")
+        try:
+            generation_matches = int(current_lease_generation) == int(lease_generation)
+        except (TypeError, ValueError):
+            generation_matches = False
+        if not generation_matches:
+            return RunAttemptLeaseGuardDecision(accepted=False, reason="stale_generation")
+        return RunAttemptLeaseGuardDecision(accepted=True, reason="")
 
     @staticmethod
     def attempt_state_for_run_status(status: str) -> str:

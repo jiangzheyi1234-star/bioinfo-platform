@@ -692,6 +692,34 @@ def test_stale_generation_completion_fences_attempt_without_completion_event(tmp
     assert completion_events["count"] == 0
 
 
+def test_heartbeat_rejects_matching_non_active_lease_as_stale(tmp_path):
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_non_active_lease")
+    claim = claim_next_run_job(cfg, worker_id="worker_non_active", now="2099-06-07T10:00:00Z")
+    assert claim is not None
+    with get_connection(cfg) as connection:
+        connection.execute(
+            "UPDATE run_leases SET state = ?, updated_at = ? WHERE run_id = ?",
+            ("fenced", "2099-06-07T10:00:01Z", "run_non_active_lease"),
+        )
+        connection.commit()
+
+    heartbeat = heartbeat_run_attempt(
+        cfg,
+        claim["attemptId"],
+        lease_generation=claim["leaseGeneration"],
+        now="2099-06-07T10:00:02Z",
+    )
+
+    assert heartbeat == {"accepted": False, "reason": "stale_generation"}
+    with get_connection(cfg) as connection:
+        lease = connection.execute(
+            "SELECT state, heartbeat_at FROM run_leases WHERE run_id = ?",
+            ("run_non_active_lease",),
+        ).fetchone()
+    assert dict(lease) == {"state": "fenced", "heartbeat_at": "2099-06-07T10:00:00Z"}
+
+
 def test_process_group_recording_is_fenced_by_current_generation(tmp_path, monkeypatch):
     cfg = make_configured_remote_runner(tmp_path)
     _create_run(cfg, "run_process_group", execution={"retryPolicy": {"backoffSeconds": 0}})

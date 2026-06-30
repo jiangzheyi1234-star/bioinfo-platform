@@ -296,6 +296,83 @@ def test_job_claim_decision_rejects_unreleased_lease(lease_state: str) -> None:
         )
 
 
+def test_current_lease_guard_accepts_matching_active_lease() -> None:
+    decision = RunExecutionStateMachine.current_lease_guard(
+        attempt_id="att_1",
+        lease_generation=2,
+        current_attempt_id="att_1",
+        current_lease_generation=2,
+        current_lease_state="active",
+    )
+
+    assert decision.accepted is True
+    assert decision.reason == ""
+
+
+@pytest.mark.parametrize(
+    ("current_attempt_id", "current_generation", "current_state"),
+    [
+        ("att_other", 2, "active"),
+        ("att_1", 3, "active"),
+        ("att_1", 2, "expired"),
+        (None, None, None),
+    ],
+)
+def test_current_lease_guard_rejects_stale_attempt_context(
+    current_attempt_id: str | None,
+    current_generation: int | None,
+    current_state: str | None,
+) -> None:
+    decision = RunExecutionStateMachine.current_lease_guard(
+        attempt_id="att_1",
+        lease_generation=2,
+        current_attempt_id=current_attempt_id,
+        current_lease_generation=current_generation,
+        current_lease_state=current_state,
+    )
+
+    assert decision.accepted is False
+    assert decision.reason == "stale_generation"
+
+
+def test_current_lease_guard_allows_system_publish_without_attempt_context() -> None:
+    decision = RunExecutionStateMachine.current_lease_guard(
+        attempt_id=None,
+        lease_generation=None,
+        current_attempt_id=None,
+        current_lease_generation=None,
+        current_lease_state=None,
+        allow_missing_attempt_context=True,
+    )
+
+    assert decision.accepted is True
+    assert decision.reason == ""
+
+
+@pytest.mark.parametrize(
+    ("attempt_id", "lease_generation"),
+    [
+        (None, 1),
+        ("att_1", None),
+        (None, None),
+    ],
+)
+def test_current_lease_guard_rejects_incomplete_or_missing_attempt_context_by_default(
+    attempt_id: str | None,
+    lease_generation: int | None,
+) -> None:
+    decision = RunExecutionStateMachine.current_lease_guard(
+        attempt_id=attempt_id,
+        lease_generation=lease_generation,
+        current_attempt_id="att_1",
+        current_lease_generation=1,
+        current_lease_state="active",
+    )
+
+    assert decision.accepted is False
+    assert decision.reason == "stale_generation"
+
+
 @pytest.mark.parametrize(
     ("run_status", "attempt_state"),
     [

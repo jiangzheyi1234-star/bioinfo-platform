@@ -172,10 +172,12 @@ def test_run_execution_state_machine_owns_core_status_decisions() -> None:
     assert "class RunJobRequeueDecision" in state_machine
     assert "class RunJobRetryDecision" in state_machine
     assert "class RunJobClaimDecision" in state_machine
+    assert "class RunAttemptLeaseGuardDecision" in state_machine
     assert "def fence_attempt(" in state_machine
     assert "def requeue_retryable_job(" in state_machine
     assert "def retry_job_for_operator_request(" in state_machine
     assert "def claim_job(" in state_machine
+    assert "def current_lease_guard(" in state_machine
     assert "TERMINAL_RUN_STATUSES =" in state_machine
     assert "RETRYABLE_RUN_STATUSES =" in state_machine
     assert "RELEASED_LEASE_STATES =" in state_machine
@@ -192,6 +194,8 @@ def test_run_execution_state_machine_owns_core_status_decisions() -> None:
     assert "def _attempt_state_for_run_status(" not in run_worker
     assert "RunExecutionStateMachine.fence_attempt(" in run_execution_storage
     assert "RunExecutionStateMachine.claim_job(" in run_execution_storage
+    assert "RunExecutionStateMachine.current_lease_guard(" in run_execution_storage
+    assert "RunExecutionStateMachine.current_lease_guard(" in workflow_run_storage
     assert "RunExecutionStateMachine.fence_attempt(" in reconciler_actions
     assert "RunExecutionStateMachine.requeue_retryable_job(" in reconciler_actions
     assert "RunExecutionStateMachine.requeue_retryable_job(" in (REMOTE_RUNNER / "reconciler.py").read_text(encoding="utf-8")
@@ -211,6 +215,8 @@ def test_run_execution_state_machine_owns_core_status_decisions() -> None:
     assert "wait_reason_json = '{}'" not in reconciler_actions
     assert "RUN_JOB_LEASE_NOT_RELEASED" not in run_execution_storage
     assert "is_released_lease_state(lease_state)" not in run_execution_storage
+    assert "def _is_current_lease(" not in run_execution_storage
+    assert "and lease[\"state\"] == \"active\"" not in workflow_run_storage
     assert '("fenced", reason' not in run_execution_storage
     assert '("fenced", reason' not in reconciler_actions
 
