@@ -84,10 +84,14 @@ def test_runner_repair_panel_exposes_upgrade_prune_and_operator_diagnostics() ->
         "/runner/upgrade",
         "/runner/releases/prune/preview",
         "/runner/releases/prune/run",
+        "/runner/uninstall/preview",
+        "/runner/uninstall/run",
         "/operator-diagnostics",
         'confirmation: "prune-runner-releases"',
+        'confirmation: "uninstall-runner-control-plane"',
         "升级 Runner",
         "旧版本清理",
+        "控制面卸载",
         "Operator",
     )
     _assert_contains(source, "className?: string", "className = \"\"")
@@ -95,6 +99,7 @@ def test_runner_repair_panel_exposes_upgrade_prune_and_operator_diagnostics() ->
     _assert_contains(source, "onClose?: () => void", "{onClose ? (")
     _assert_not_contains(source, "type SSHStatus")
     _assert_matches(source, r"disabled=\{!canPrune\s*\|\|\s*pruneLoading\s*\|\|\s*deletableReleaseCount <= 0")
+    _assert_matches(source, r"disabled=\{!canUninstall\s*\|\|\s*uninstallLoading\s*\|\|\s*uninstallTargetCount <= 0")
 
 
 def test_manual_runner_stop_is_explicit_start_not_repair() -> None:

@@ -777,6 +777,8 @@ def test_ssh_routes_delegate_request_dumping_and_cache_to_service() -> None:
     assert "stop_server_runner_from_request" in ssh_routes
     assert "preview_server_runner_release_prune_from_request" in ssh_routes
     assert "run_server_runner_release_prune_from_request" in ssh_routes
+    assert "preview_server_runner_uninstall_from_request" in ssh_routes
+    assert "run_server_runner_uninstall_from_request" in ssh_routes
     assert "scan_ssh_host_key_from_request" in ssh_routes
     assert "accept_server_host_key_from_request" in ssh_routes
     assert "SSHHostKeyScanRequest" in ssh_routes
@@ -794,6 +796,8 @@ def test_ssh_routes_delegate_request_dumping_and_cache_to_service() -> None:
     assert "def stop_server_runner_from_request(" in service_source
     assert "def preview_server_runner_release_prune_from_request(" in service_source
     assert "def run_server_runner_release_prune_from_request(" in service_source
+    assert "def preview_server_runner_uninstall_from_request(" in service_source
+    assert "def run_server_runner_uninstall_from_request(" in service_source
     assert "def scan_ssh_host_key_from_request(" in service_source
     assert "def accept_server_host_key_from_request(" in service_source
     assert "def rotate_server_token_from_request(" in service_source

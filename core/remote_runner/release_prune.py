@@ -110,20 +110,8 @@ class RemoteRunnerReleasePruneMixin:
             ssh_service=ssh_service,
             server_record=server_record,
         )
-        active_leases = _diagnostic_list(diagnostics, "activeLeases", make_error=self._manager_error)
-        allocated_resources = _diagnostic_list(diagnostics, "allocatedResources", make_error=self._manager_error)
-        resource_waits = _diagnostic_list(diagnostics, "resourceWaits", make_error=self._manager_error)
-        worker_health = _diagnostic_dict(diagnostics, "workerHealth", make_error=self._manager_error)
-        queue_metrics = _diagnostic_dict(diagnostics, "queueMetrics", make_error=self._manager_error)
-        active_lease_count = len(active_leases)
-        block_reasons = _diagnostic_block_reasons(
-            diagnostics=diagnostics,
-            active_leases=active_leases,
-            allocated_resources=allocated_resources,
-            resource_waits=resource_waits,
-            worker_health=worker_health,
-            queue_metrics=queue_metrics,
-        )
+        activity = summarize_execution_activity(diagnostics, make_error=self._manager_error)
+        block_reasons = list(activity["blockReasons"])
         protected_paths = _protected_release_paths(
             current_release=current_release,
             config_release=config_release,
@@ -161,11 +149,11 @@ class RemoteRunnerReleasePruneMixin:
             "currentRelease": current_release,
             "configRelease": config_release,
             "protectedReleasePaths": sorted(protected_paths),
-            "activeLeaseCount": active_lease_count,
-            "allocatedResourceCount": len(allocated_resources),
-            "resourceWaitCount": len(resource_waits),
-            "claimedJobCount": _claimed_job_count(worker_health=worker_health, queue_metrics=queue_metrics),
-            "runningSlotCount": _running_slot_count(worker_health),
+            "activeLeaseCount": activity["activeLeaseCount"],
+            "allocatedResourceCount": activity["allocatedResourceCount"],
+            "resourceWaitCount": activity["resourceWaitCount"],
+            "claimedJobCount": activity["claimedJobCount"],
+            "runningSlotCount": activity["runningSlotCount"],
             "blockReasons": block_reasons,
             "releases": releases,
         }
@@ -360,6 +348,35 @@ def _diagnostic_block_reasons(
     if _running_slot_count(worker_health) > 0:
         reasons.append("running-worker-slots")
     return _unique(reasons)
+
+
+def summarize_execution_activity(diagnostics: dict[str, Any], *, make_error: type[Exception]) -> dict[str, Any]:
+    active_leases = _diagnostic_list(diagnostics, "activeLeases", make_error=make_error)
+    allocated_resources = _diagnostic_list(diagnostics, "allocatedResources", make_error=make_error)
+    resource_waits = _diagnostic_list(diagnostics, "resourceWaits", make_error=make_error)
+    worker_health = _diagnostic_dict(diagnostics, "workerHealth", make_error=make_error)
+    queue_metrics = _diagnostic_dict(diagnostics, "queueMetrics", make_error=make_error)
+    block_reasons = _diagnostic_block_reasons(
+        diagnostics=diagnostics,
+        active_leases=active_leases,
+        allocated_resources=allocated_resources,
+        resource_waits=resource_waits,
+        worker_health=worker_health,
+        queue_metrics=queue_metrics,
+    )
+    return {
+        "activeLeases": active_leases,
+        "allocatedResources": allocated_resources,
+        "resourceWaits": resource_waits,
+        "workerHealth": worker_health,
+        "queueMetrics": queue_metrics,
+        "activeLeaseCount": len(active_leases),
+        "allocatedResourceCount": len(allocated_resources),
+        "resourceWaitCount": len(resource_waits),
+        "claimedJobCount": _claimed_job_count(worker_health=worker_health, queue_metrics=queue_metrics),
+        "runningSlotCount": _running_slot_count(worker_health),
+        "blockReasons": block_reasons,
+    }
 
 
 def _claimed_job_count(*, worker_health: dict[str, Any], queue_metrics: dict[str, Any]) -> int:

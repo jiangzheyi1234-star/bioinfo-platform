@@ -4,6 +4,7 @@ from typing import Any
 
 from apps.api.models import (
     RunnerReleasePruneRunRequest,
+    RunnerUninstallRunRequest,
     SSHConnectionRequest,
     SSHHostKeyAcceptRequest,
     SSHHostKeyScanRequest,
@@ -132,6 +133,29 @@ async def run_server_runner_release_prune_from_request(
                 plan_hash=request.planHash,
             ),
             wrapper="data",
+        )
+    finally:
+        await _invalidate_ssh_state_cache()
+
+
+async def preview_server_runner_uninstall_from_request(server_id: str) -> dict[str, Any]:
+    return await run_runtime_payload(
+        lambda: runtime_service().preview_runner_uninstall(server_id),
+        wrapper="data",
+    )
+
+
+async def run_server_runner_uninstall_from_request(
+    server_id: str,
+    request: RunnerUninstallRunRequest,
+) -> dict[str, Any]:
+    try:
+        return await run_runtime_payload(
+            lambda: runtime_service().run_runner_uninstall(
+                server_id,
+                plan_hash=request.planHash,
+            ),
+            wrapper="raw",
         )
     finally:
         await _invalidate_ssh_state_cache()

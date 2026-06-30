@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import time
 from typing import Any, Optional
 
+from config import delete_runner_token
 from core.app_runtime.runner_database_ops import RunnerDatabaseOperationsMixin
 from core.app_runtime.runner_execution_ops import RunnerExecutionOperationsMixin
 from core.app_runtime.runner_file_ops import RunnerFileOperationsMixin
@@ -72,6 +74,57 @@ class RunnerOperationsMixin(
             plan_hash=plan_hash,
         )
 
+    def preview_runner_uninstall(self, server_id: str | None = None) -> dict[str, Any]:
+        selected_server_id, ssh, record = self._require_existing_runner_prepared(preferred_server_id=server_id)
+        return self._call_remote_runner(
+            self._service_locator.remote_runner_manager.preview_uninstall,
+            server_id=selected_server_id,
+            ssh_service=ssh,
+            server_record=record,
+        )
+
+    def run_runner_uninstall(self, server_id: str | None = None, *, plan_hash: str) -> dict[str, Any]:
+        selected_server_id, ssh, record = self._require_existing_runner_prepared(preferred_server_id=server_id)
+        result = self._call_remote_runner(
+            self._service_locator.remote_runner_manager.run_uninstall,
+            server_id=selected_server_id,
+            ssh_service=ssh,
+            server_record=record,
+            plan_hash=plan_hash,
+        )
+        token_ref = str(record.get("token_ref") or "")
+        if token_ref:
+            delete_runner_token(token_ref)
+        close_tunnel = getattr(ssh, "close_local_tunnel", None)
+        if callable(close_tunnel):
+            close_tunnel(f"runner-{selected_server_id}")
+        completed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        health = _runner_uninstalled_health(selected_server_id, completed_at=completed_at)
+        registry_entry = self._replace_server_registry_entry(
+            selected_server_id,
+            {
+                "last_health_snapshot": health,
+                "runner_uninstalled_at": completed_at,
+                "runner_uninstall": {
+                    "schemaVersion": result.get("schemaVersion"),
+                    "planHash": result.get("planHash"),
+                    "removedTargetCount": result.get("removedTargetCount"),
+                    "controlPlaneOnly": result.get("controlPlaneOnly"),
+                    "preservedPaths": result.get("preservedPaths"),
+                },
+            },
+        )
+        return {
+            "data": {
+                **result,
+                "serverId": selected_server_id,
+                "health": health,
+                "runner": self._compose_runner_payload(registry_entry=registry_entry, health=health),
+                "lifecycleAction": "uninstall",
+                "completedAt": completed_at,
+            }
+        }
+
     @staticmethod
     def _call_remote_runner(func, /, **kwargs):
         return call_remote_runner(func, **kwargs)
@@ -107,3 +160,15 @@ class RunnerOperationsMixin(
             raise RuntimeServiceError("Remote runner is not prepared")
         ssh = self._ensure_ssh_connected()
         return server_id, ssh, record
+
+
+def _runner_uninstalled_health(server_id: str, *, completed_at: str) -> dict[str, Any]:
+    return {
+        "serverId": server_id,
+        "state": "uninstalled",
+        "startup": {"ok": True, "message": "Remote runner control plane was uninstalled."},
+        "live": {"ok": False, "message": "Remote runner service is not installed."},
+        "ready": {"ok": False, "message": "Start the runner to reinstall the remote control plane."},
+        "reasonCode": "RUNNER_UNINSTALLED",
+        "checkedAt": completed_at,
+    }

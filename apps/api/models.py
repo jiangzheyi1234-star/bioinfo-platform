@@ -54,6 +54,11 @@ class RunnerReleasePruneRunRequest(ApiRequest):
     planHash: str = Field(min_length=64, max_length=64)
 
 
+class RunnerUninstallRunRequest(ApiRequest):
+    confirmation: Literal["uninstall-runner-control-plane"]
+    planHash: str = Field(min_length=64, max_length=64)
+
+
 class TerminalInputMessage(ApiRequest):
     type: Literal["input"]
     data: str = Field(min_length=1)

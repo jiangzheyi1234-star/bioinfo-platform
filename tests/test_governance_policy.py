@@ -68,6 +68,16 @@ def test_server_scoped_runner_diagnostic_routes_are_governed() -> None:
         "/api/v1/servers/{server_id}/listening-ports",
         "diagnostics.listening_ports.read",
     ) in policies
+    assert (
+        "POST",
+        "/api/v1/servers/{server_id}/runner/uninstall/preview",
+        "remote_runner.uninstall.preview",
+    ) in policies
+    assert (
+        "POST",
+        "/api/v1/servers/{server_id}/runner/uninstall/run",
+        "remote_runner.uninstall.run",
+    ) in policies
     assert not any(policy.route == "/api/v1/ssh/listening-ports" for policy in HIGH_RISK_API_POLICIES)
 
 

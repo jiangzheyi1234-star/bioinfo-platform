@@ -10,12 +10,14 @@ from fastapi.testclient import TestClient
 
 from apps.api.main import app
 from apps.api.response_cache import invalidate_response_cache
-from apps.api.models import RunnerReleasePruneRunRequest
+from apps.api.models import RunnerReleasePruneRunRequest, RunnerUninstallRunRequest
 from apps.api.ssh_routes import (
     ensure_server_runner,
     list_servers,
     preview_server_runner_release_prune,
+    preview_server_runner_uninstall,
     run_server_runner_release_prune,
+    run_server_runner_uninstall,
     start_server_runner,
     upgrade_server_runner,
 )
@@ -466,3 +468,79 @@ def test_runner_release_prune_api_forwards_preview_and_plan_hash(
     assert preview["data"]["schemaVersion"] == "h2ometa.remote-runner-release-prune.v1"
     assert fake_manager.run_plan_hash == "a" * 64
     assert result["data"]["deletedReleaseCount"] == 0
+
+
+def test_runner_uninstall_api_forwards_plan_hash_and_clears_prepared_registry(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    service = _make_service(tmp_path)
+    closed_tunnels: list[str] = []
+    service._service_locator.ssh_service = SimpleNamespace(
+        is_connected=True,
+        close=lambda: None,
+        close_local_tunnel=lambda name: closed_tunnels.append(name),
+    )
+    cfg = _runtime_config()
+    deleted_tokens: list[str] = []
+
+    class FakeRemoteRunnerManager:
+        def __init__(self) -> None:
+            self.run_plan_hash = ""
+
+        def preview_uninstall(self, **_kwargs):
+            return {
+                "schemaVersion": "h2ometa.remote-runner-uninstall.v1",
+                "planHash": "b" * 64,
+                "controlPlaneOnly": True,
+                "preservedPaths": [{"path": "/home/tester/.h2ometa/runner/shared/data"}],
+                "uninstallTargets": [],
+                "targetCount": 0,
+            }
+
+        def run_uninstall(self, **kwargs):
+            self.run_plan_hash = str(kwargs["plan_hash"])
+            return {
+                "schemaVersion": "h2ometa.remote-runner-uninstall.v1",
+                "planHash": self.run_plan_hash,
+                "controlPlaneOnly": True,
+                "preservedPaths": [{"path": "/home/tester/.h2ometa/runner/shared/data"}],
+                "removedTargets": [],
+                "removedTargetCount": 0,
+            }
+
+    fake_manager = FakeRemoteRunnerManager()
+    service._service_locator.remote_runner_manager = fake_manager
+    monkeypatch.setattr("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg)
+    monkeypatch.setattr("core.app_runtime.runtime_config.save_runtime_config", _save_capture(cfg))
+    monkeypatch.setattr("core.app_runtime.runner_ops.delete_runner_token", lambda token_ref: deleted_tokens.append(token_ref))
+    _patch_runtime_service(monkeypatch, service)
+
+    server_id = asyncio.run(list_servers())["data"]["items"][0]["serverId"]
+    cfg["servers"][server_id] = {
+        **_prepared_record(),
+        "last_health_snapshot": _ready_health(),
+    }
+
+    preview = asyncio.run(preview_server_runner_uninstall(server_id))
+    result = asyncio.run(
+        run_server_runner_uninstall(
+            server_id,
+            RunnerUninstallRunRequest(
+                confirmation="uninstall-runner-control-plane",
+                planHash=preview["data"]["planHash"],
+            ),
+        )
+    )
+
+    assert preview["data"]["schemaVersion"] == "h2ometa.remote-runner-uninstall.v1"
+    assert fake_manager.run_plan_hash == "b" * 64
+    assert deleted_tokens == ["runner://srv_test"]
+    assert closed_tunnels == [f"runner-{server_id}"]
+    assert result["data"]["lifecycleAction"] == "uninstall"
+    assert result["data"]["runner"]["state"] == "repair_needed"
+    assert cfg["servers"][server_id]["last_health_snapshot"]["reasonCode"] == "RUNNER_UNINSTALLED"
+    assert cfg["servers"][server_id]["runner_uninstall"]["removedTargetCount"] == 0
+    assert "bootstrap_version" not in cfg["servers"][server_id]
+    assert "token_ref" not in cfg["servers"][server_id]
+    assert "service_port" not in cfg["servers"][server_id]

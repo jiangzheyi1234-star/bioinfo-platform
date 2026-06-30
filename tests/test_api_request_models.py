@@ -5,9 +5,10 @@ from pydantic import ValidationError
 
 from apps.api.models import (
     ArtifactCachePinReleaseRequest,
-    RunnerReleasePruneRunRequest,
     ArtifactCachePinRetainRequest,
     ArtifactLifecycleControllerRunOnceRequest,
+    RunnerReleasePruneRunRequest,
+    RunnerUninstallRunRequest,
     ResultPackageExportRequest,
     ResultPackageRetireRequest,
     RunResumeRequest,
@@ -969,6 +970,23 @@ def test_runner_release_prune_run_request_requires_confirmation_and_plan_hash() 
     ):
         with pytest.raises(ValidationError):
             RunnerReleasePruneRunRequest.model_validate(payload)
+
+
+def test_runner_uninstall_run_request_requires_confirmation_and_plan_hash() -> None:
+    request = RunnerUninstallRunRequest.model_validate(
+        {"confirmation": "uninstall-runner-control-plane", "planHash": "a" * 64}
+    )
+
+    assert request.confirmation == "uninstall-runner-control-plane"
+    assert request.planHash == "a" * 64
+
+    for payload in (
+        {"confirmation": "uninstall-runner", "planHash": "a" * 64},
+        {"confirmation": "uninstall-runner-control-plane", "planHash": "short"},
+        {"confirmation": "uninstall-runner-control-plane", "planHash": "a" * 64, "deleteShared": True},
+    ):
+        with pytest.raises(ValidationError):
+            RunnerUninstallRunRequest.model_validate(payload)
 
 
 def test_terminal_client_message_adapter_uses_pydantic_discriminated_models() -> None:

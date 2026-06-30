@@ -8,6 +8,7 @@ from fastapi import APIRouter, Query, WebSocket
 
 from apps.api.models import (
     RunnerReleasePruneRunRequest,
+    RunnerUninstallRunRequest,
     SSHConnectionRequest,
     SSHHostKeyAcceptRequest,
     SSHHostKeyScanRequest,
@@ -29,9 +30,11 @@ from apps.api.ssh_control_service import (
     list_servers_from_request,
     list_ssh_remote_files_from_request,
     preview_server_runner_release_prune_from_request,
+    preview_server_runner_uninstall_from_request,
     refresh_server_health_from_request,
     rotate_server_token_from_request,
     run_server_runner_release_prune_from_request,
+    run_server_runner_uninstall_from_request,
     scan_ssh_host_key_from_request,
     start_server_runner_from_request,
     stop_server_runner_from_request,
@@ -123,6 +126,19 @@ async def run_server_runner_release_prune(
     payload: RunnerReleasePruneRunRequest,
 ) -> dict[str, Any]:
     return await run_server_runner_release_prune_from_request(server_id, payload)
+
+
+@router.post("/api/v1/servers/{server_id}/runner/uninstall/preview")
+async def preview_server_runner_uninstall(server_id: str) -> dict[str, Any]:
+    return await preview_server_runner_uninstall_from_request(server_id)
+
+
+@router.post("/api/v1/servers/{server_id}/runner/uninstall/run")
+async def run_server_runner_uninstall(
+    server_id: str,
+    payload: RunnerUninstallRunRequest,
+) -> dict[str, Any]:
+    return await run_server_runner_uninstall_from_request(server_id, payload)
 
 
 @router.post("/api/v1/servers/{server_id}/host-key/accept")

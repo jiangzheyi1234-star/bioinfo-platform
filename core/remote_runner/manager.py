@@ -48,6 +48,7 @@ from core.remote_runner.remote_io import RemoteRunnerRemoteIoMixin
 from core.remote_runner.result_package_proxy import RemoteRunnerResultPackageProxyMixin
 from core.remote_runner.reuse import RemoteRunnerReuseMixin
 from core.remote_runner.token_rotation import RemoteRunnerTokenRotationMixin
+from core.remote_runner.uninstall import RemoteRunnerUninstallMixin
 from core.remote_runner.workflow_runtime import RemoteRunnerWorkflowRuntimeMixin
 
 
@@ -60,6 +61,7 @@ class RemoteRunnerManager(
     RemoteRunnerProxyMixin,
     RemoteRunnerTokenRotationMixin,
     RemoteRunnerReleasePruneMixin,
+    RemoteRunnerUninstallMixin,
     RemoteRunnerReuseMixin,
     RemoteRunnerWorkflowRuntimeMixin,
     RemoteRunnerBootstrapBundleMixin,

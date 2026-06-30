@@ -417,6 +417,21 @@ def test_runner_release_prune_logic_lives_in_release_prune_module() -> None:
     assert "H2OMETA_PRUNE_RELEASES" not in manager_source
 
 
+def test_runner_uninstall_logic_lives_in_uninstall_module() -> None:
+    manager_source = _source("core/remote_runner/manager.py")
+    uninstall_source = _source("core/remote_runner/uninstall.py")
+
+    assert "from core.remote_runner.uninstall import RemoteRunnerUninstallMixin" in manager_source
+    assert "RemoteRunnerUninstallMixin" in manager_source
+    assert "class RemoteRunnerUninstallMixin" in uninstall_source
+    assert "def preview_uninstall(" in uninstall_source
+    assert "def run_uninstall(" in uninstall_source
+    assert "H2OMETA_UNINSTALL_RUNNER" in uninstall_source
+    assert "def preview_uninstall(" not in manager_source
+    assert "def run_uninstall(" not in manager_source
+    assert "H2OMETA_UNINSTALL_RUNNER" not in manager_source
+
+
 def test_rotate_token_does_not_have_outer_defensive_wrapper() -> None:
     rotation_path = ROOT / "core/remote_runner/token_rotation.py"
 

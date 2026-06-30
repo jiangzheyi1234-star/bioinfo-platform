@@ -27,6 +27,15 @@ type RunnerReleasePrunePlan = {
   }>;
 };
 
+type RunnerUninstallPlan = {
+  planHash?: string;
+  targetCount?: number;
+  removedTargetCount?: number;
+  controlPlaneOnly?: boolean;
+  blockReasons?: string[];
+  preservedPaths?: Array<{ path?: string; reason?: string }>;
+};
+
 type RunnerRepairPanelProps = {
   status: RunnerRepairStatus | null;
   ensureRunnerBusy: boolean;
@@ -87,6 +96,10 @@ export function RunnerRepairPanel({
   const [prunePlan, setPrunePlan] = useState<RunnerReleasePrunePlan | null>(null);
   const [pruneMessage, setPruneMessage] = useState("");
   const [pruneError, setPruneError] = useState("");
+  const [uninstallLoading, setUninstallLoading] = useState(false);
+  const [uninstallPlan, setUninstallPlan] = useState<RunnerUninstallPlan | null>(null);
+  const [uninstallMessage, setUninstallMessage] = useState("");
+  const [uninstallError, setUninstallError] = useState("");
 
   const runner = status?.runner;
   const remote = resolveRemoteStatus(status);
@@ -95,7 +108,9 @@ export function RunnerRepairPanel({
   const canStopRunner = Boolean(!diagnosticsOnly && status?.connected && serverId && runner && !isRunnerManuallyStopped(status));
   const canUpgradeRunner = Boolean(!diagnosticsOnly && status?.connected && serverId && runner && !isRunnerManuallyStopped(status));
   const canPrune = Boolean(!diagnosticsOnly && status?.connected && serverId);
+  const canUninstall = Boolean(!diagnosticsOnly && status?.connected && serverId && runner);
   const deletableReleaseCount = Number(prunePlan?.deletableReleaseCount || 0);
+  const uninstallTargetCount = Number(uninstallPlan?.targetCount || 0);
 
   const loadListeningPorts = async () => {
     if (!status?.connected || !serverId || portsLoading) {
@@ -195,6 +210,51 @@ export function RunnerRepairPanel({
       setPruneError(normalizeFetchError(error));
     } finally {
       setPruneLoading(false);
+    }
+  };
+
+  const previewUninstall = async () => {
+    if (!canUninstall || uninstallLoading) {
+      return;
+    }
+    setUninstallLoading(true);
+    setUninstallError("");
+    setUninstallMessage("");
+    try {
+      const payload = await requestLocalApiJson(
+        "POST",
+        `/api/v1/servers/${encodeURIComponent(serverId)}/runner/uninstall/preview`,
+        { cache: "no-store" }
+      );
+      setUninstallPlan((payload?.data || null) as RunnerUninstallPlan | null);
+    } catch (error) {
+      setUninstallError(normalizeFetchError(error));
+    } finally {
+      setUninstallLoading(false);
+    }
+  };
+
+  const runUninstall = async () => {
+    const planHash = String(uninstallPlan?.planHash || "");
+    if (!canUninstall || !planHash || uninstallLoading || uninstallTargetCount <= 0) {
+      return;
+    }
+    setUninstallLoading(true);
+    setUninstallError("");
+    setUninstallMessage("");
+    try {
+      const payload = await requestLocalApiJson(
+        "POST",
+        `/api/v1/servers/${encodeURIComponent(serverId)}/runner/uninstall/run`,
+        { body: { confirmation: "uninstall-runner-control-plane", planHash }, timeoutMs: 180_000 }
+      );
+      setUninstallPlan((payload?.data || uninstallPlan) as RunnerUninstallPlan);
+      setUninstallMessage("Runner 控制面已卸载，shared 数据已保留。");
+      await onRefreshStatus();
+    } catch (error) {
+      setUninstallError(normalizeFetchError(error));
+    } finally {
+      setUninstallLoading(false);
     }
   };
 
@@ -358,6 +418,50 @@ export function RunnerRepairPanel({
           )}
           {pruneError ? <p className="mt-1 text-[11px] text-red-600">{pruneError}</p> : null}
           {pruneMessage ? <p className="mt-1 text-[11px] text-emerald-700">{pruneMessage}</p> : null}
+        </div>
+      ) : null}
+
+      {!diagnosticsOnly ? (
+        <div className="mt-2 border-t border-slate-100 pt-2">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[10px] font-semibold text-slate-400">控制面卸载</p>
+            <div className="flex items-center gap-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={!canUninstall || uninstallLoading}
+                onClick={previewUninstall}
+                className="h-6 px-2 text-[11px] text-slate-600"
+              >
+                <RefreshCw className={cn("mr-1 size-3", uninstallLoading ? "animate-spin" : "")} />
+                预览
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={!canUninstall || uninstallLoading || uninstallTargetCount <= 0 || !uninstallPlan?.planHash}
+                onClick={runUninstall}
+                className="h-6 px-2 text-[11px] text-red-700 hover:text-red-700"
+              >
+                <Trash2 className="mr-1 size-3" />
+                卸载
+              </Button>
+            </div>
+          </div>
+          {uninstallPlan ? (
+            <p className="mt-1 text-[11px] text-slate-500">
+              将移除 {uninstallTargetCount} 个控制面目标；保留 {uninstallPlan.preservedPaths?.length || 0} 个 shared 数据边界。
+            </p>
+          ) : (
+            <p className="mt-1 text-[11px] text-slate-400">先预览；仅卸载 runner 控制面，不删除结果、上传、数据库和 workdir。</p>
+          )}
+          {uninstallPlan?.blockReasons?.length ? (
+            <p className="mt-1 text-[11px] text-amber-700">{uninstallPlan.blockReasons.join(" · ")}</p>
+          ) : null}
+          {uninstallError ? <p className="mt-1 text-[11px] text-red-600">{uninstallError}</p> : null}
+          {uninstallMessage ? <p className="mt-1 text-[11px] text-emerald-700">{uninstallMessage}</p> : null}
         </div>
       ) : null}
 

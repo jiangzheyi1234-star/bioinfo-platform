@@ -183,6 +183,16 @@ class RuntimeServerStateMixin:
         )
         return entry
 
+    def _replace_server_registry_entry(self, server_id: str, entry: dict[str, Any]) -> dict[str, Any]:
+        current = runtime_config.get_runtime_config()
+        registry = self._get_server_registry()
+        replacement = {key: value for key, value in entry.items() if value is not None}
+        registry[server_id] = replacement
+        runtime_config.save_runtime_config(
+            runtime_config.merge_runtime_config_patch(current, {"servers": registry})
+        )
+        return replacement
+
     def _require_runner_ready(
         self,
         *,
