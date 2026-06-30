@@ -76,10 +76,7 @@ export function WorkflowFirstRunPage() {
   const executionReady = executionDiagnostics?.readiness?.ok === true;
   const serverReady = Boolean(state.server?.ready) && executionReady;
   const sampleReady = sampleUploadsReady(state.sampleUploads);
-  const runStatus = run?.status || statusRun?.status || "";
   const runSubmitted = Boolean(run?.runId || statusRun?.runId);
-  const runFailed = runStatus === "failed" || runStatus === "error";
-  const reportReady = firstRunStatusSnapshot?.evidence?.report?.ready === true;
   const firstRunEvidence = useFirstRunEvidence({
     refreshRunDetail: state.refreshRunDetail,
     resultId,
@@ -89,9 +86,8 @@ export function WorkflowFirstRunPage() {
     serverId: state.server?.serverId,
   });
   const latestPackage = firstRunEvidence.latestPackage;
-  const packageReady = firstRunStatusSnapshot?.evidence?.resultPackage?.ready === true || firstRunEvidence.packageReady;
   const validationEligible = firstRunEvidence.validationEligible;
-  const validationReady = firstRunStatusSnapshot?.evidence?.validation?.ready === true || firstRunEvidence.validationReady;
+  const validationReady = firstRunEvidence.validationReady;
   const workflowRevisionId = firstRunEvidence.workflowRevisionId;
   const firstRunConductor = useFirstRunConductor({
     busy:
@@ -136,26 +132,20 @@ export function WorkflowFirstRunPage() {
   const steps = useMemo(
     () =>
       buildFirstRunSteps({
-        packageReady,
-        reportReady,
-        runFailed,
+        firstRunStatus: firstRunStatusSnapshot || null,
         runSubmitted,
         sampleReady,
         selectedWorkflowReady,
         serverConnected,
         serverReady,
-        validationReady,
       }),
     [
-      packageReady,
-      reportReady,
-      runFailed,
+      firstRunStatusSnapshot,
       runSubmitted,
       sampleReady,
       selectedWorkflowReady,
       serverConnected,
       serverReady,
-      validationReady,
     ]
   );
 
@@ -353,6 +343,7 @@ export function WorkflowFirstRunPage() {
               detail={state.runDetail}
               packageLoading={firstRunEvidence.packageLoading}
               previews={previews}
+              reportEvidence={firstRunStatusSnapshot?.evidence?.report}
               run={run}
               onRefreshRun={() => void state.refreshRunDetail()}
             />
@@ -360,7 +351,12 @@ export function WorkflowFirstRunPage() {
 
           <div className="space-y-5">
             <ResultPackagePanel
-              disabledReason={resultPackageDisabledReason({ resultId, run, workflowRevisionId })}
+              disabledReason={resultPackageDisabledReason({
+                firstRunStatus: firstRunStatusSnapshot || null,
+                resultId,
+                run,
+                workflowRevisionId,
+              })}
               error={firstRunEvidence.packageError}
               exporting={firstRunEvidence.exportingPackage}
               finalizationAction={firstRunEvidence.finalizationAction}

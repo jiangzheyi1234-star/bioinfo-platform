@@ -325,6 +325,7 @@ def _ready_package_evidence(card: dict[str, Any]) -> dict[str, Any]:
             "sha256": package.get("sha256"),
             "manifestSha256": package.get("manifestSha256"),
             "artifactPayloadMode": package.get("artifactPayloadMode"),
+            "includeArtifacts": package.get("includeArtifacts"),
         }
     )
 

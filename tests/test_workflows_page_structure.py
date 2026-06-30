@@ -366,7 +366,6 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "state.runHistoryError" in first_run_page
     assert "latestRunForPipeline" not in hook
     assert "const reportReady = runCompleted && artifacts.length > 0" not in first_run_page
-    assert "const reportReady = firstRunStatusSnapshot?.evidence?.report?.ready === true" in first_run_page
     assert "firstRunStatusSnapshot?.latestEligibleRun?.runId" in first_run_page
     assert "selectRun(latestEligibleRunId)" in first_run_page
     assert "statusAction: firstRunStatusSnapshot?.nextAction || null" in first_run_page

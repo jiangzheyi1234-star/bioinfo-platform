@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import { artifactName } from "../_domain/first-run-display";
+import type { FirstRunStatusEvidence } from "../_domain/first-run-types";
 import { RuleAttemptBadge } from "@/app/components/workflow-run-attempts-panel";
 import { WorkflowRuleFailureDiagnostics } from "@/app/components/workflow-rule-failure-diagnostics";
 import { WorkflowRuleLogEvidence } from "@/app/components/workflow-rule-log-evidence";
@@ -49,6 +50,7 @@ export function RunReportPanel({
   onRefreshRun,
   packageLoading,
   previews,
+  reportEvidence,
   run,
 }: {
   artifacts: WorkflowArtifact[];
@@ -56,6 +58,7 @@ export function RunReportPanel({
   onRefreshRun: () => void;
   packageLoading: boolean;
   previews: WorkflowArtifactPreview[];
+  reportEvidence?: FirstRunStatusEvidence["report"];
   run: WorkflowRun | null;
 }) {
   const rulesSummary = detail?.rules?.summary;
@@ -65,7 +68,7 @@ export function RunReportPanel({
   const reportPreview = preferredReportPreview(previews);
   const summaryPreview = previewByArtifactName(previews, "summary.tsv");
   const qcPreview = previewByArtifactName(previews, "qc-summary.tsv");
-  const insight = movingPicturesInsight(artifacts, summaryPreview, qcPreview, run);
+  const insight = movingPicturesInsight(artifacts, summaryPreview, qcPreview, reportEvidence);
   const rules = detail?.rules?.items || [];
   return (
     <section id="run-report" className="scroll-mt-24 rounded-lg border border-slate-200 bg-white p-5">
@@ -347,15 +350,16 @@ function movingPicturesInsight(
   artifacts: WorkflowArtifact[],
   summaryPreview: WorkflowArtifactPreview | undefined,
   qcPreview: WorkflowArtifactPreview | undefined,
-  run: WorkflowRun | null
+  reportEvidence: FirstRunStatusEvidence["report"] | undefined
 ) {
   const artifactNames = new Set(artifacts.map(artifactName));
+  const readyOutputs = new Set(reportEvidence?.outputs || []);
   const outputs = MOVING_PICTURES_EXPECTED_OUTPUTS.map((item) => ({
     ...item,
-    present: artifactNames.has(item.name),
+    present: readyOutputs.size > 0 ? readyOutputs.has(item.name) : artifactNames.has(item.name),
   }));
   return {
-    ready: run?.status === "completed" && outputs.every((item) => item.present),
+    ready: reportEvidence?.ready === true,
     outputs,
     metrics: [...summaryMetrics(summaryPreview), ...qcMetrics(qcPreview)].slice(0, 6),
   };

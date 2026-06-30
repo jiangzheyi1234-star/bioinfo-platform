@@ -207,6 +207,7 @@ export type FirstRunStatusEvidence = {
     sha256?: string;
     manifestSha256?: string;
     artifactPayloadMode?: string;
+    includeArtifacts?: boolean;
     blockedCode?: string;
   };
   validation?: {

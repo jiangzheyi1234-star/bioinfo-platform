@@ -4,9 +4,12 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from apps.api.workflow_first_run_status_service import build_first_run_status_from_request
 from apps.api.workflow_sample_data_service import MOVING_PICTURES_PIPELINE_ID
-from tests.test_first_run_validation_card import _patch_first_run_sources, _result, _run
+
+from tests.test_first_run_validation_card import _exports_for_case, _patch_first_run_sources, _result, _run
 
 
 def test_first_run_status_reports_ready_official_sample_run_and_ignores_newer_noneligible_run(monkeypatch) -> None:
@@ -34,10 +37,22 @@ def test_first_run_status_reports_ready_official_sample_run_and_ignores_newer_no
     assert result["evidence"]["sampleCache"]["status"] == "ready"
     assert result["evidence"]["run"]["runId"] == "run_first"
     assert result["evidence"]["report"]["ready"] is True
+    assert result["evidence"]["report"]["outputs"] == [
+        "summary.tsv",
+        "qc-summary.tsv",
+        "feature-table.tsv",
+        "run-report.html",
+    ]
+    assert result["evidence"]["resultPackage"]["ready"] is True
     assert result["evidence"]["resultPackage"]["packageExportId"] == "rpex_full"
+    assert result["evidence"]["resultPackage"]["sha256"] == "d" * 64
+    assert result["evidence"]["resultPackage"]["manifestSha256"] == "e" * 64
+    assert result["evidence"]["resultPackage"]["artifactPayloadMode"] == "full"
+    assert result["evidence"]["resultPackage"]["includeArtifacts"] is True
     assert result["evidence"]["validation"]["ready"] is True
     assert result["evidence"]["validation"]["validationChecksPassed"] == 10
     assert result["evidence"]["validation"]["evidenceBundleReady"] is True
+    assert result["evidence"]["validation"]["evidenceBundleId"] == "res_run_first.first-run-evidence"
 
 
 def test_first_run_status_blocks_until_official_sample_run_exists(monkeypatch) -> None:
@@ -83,6 +98,37 @@ def test_first_run_status_uses_validation_card_standard_for_report_readiness(mon
     assert result["evidence"]["validation"]["ready"] is False
     assert result["evidence"]["validation"]["blockedCode"] == "FIRST_RUN_EXPECTED_OUTPUTS_REQUIRED"
     assert result["evidence"]["report"] == {"ready": False, "blockedCode": "FIRST_RUN_EXPECTED_OUTPUTS_REQUIRED"}
+    assert result["evidence"]["resultPackage"] == {"ready": False}
+
+
+@pytest.mark.parametrize(
+    ("export_case", "expected_code"),
+    [
+        ("none", "FIRST_RUN_RESULT_PACKAGE_REQUIRED"),
+        ("metadata-only", "FIRST_RUN_FULL_RESULT_PACKAGE_REQUIRED"),
+        ("no-download", "FIRST_RUN_RESULT_PACKAGE_DOWNLOAD_REQUIRED"),
+        ("no-hash", "FIRST_RUN_RESULT_PACKAGE_HASH_REQUIRED"),
+    ],
+)
+def test_first_run_status_uses_validation_card_standard_for_result_package_readiness(
+    monkeypatch,
+    export_case: str,
+    expected_code: str,
+) -> None:
+    _patch_first_run_sources(monkeypatch, exports=_exports_for_case(export_case))
+    _patch_status_sources(monkeypatch, runs=[_run()])
+
+    result = asyncio.run(build_first_run_status_from_request(server_id="srv_first"))["data"]
+
+    assert result["status"] == "blocked"
+    assert result["stage"] == "export_result_package"
+    assert result["nextAction"]["code"] == "FINALIZE_FIRST_RUN"
+    assert result["nextAction"]["blockedCode"] == expected_code
+    assert result["nextAction"]["target"] == "#result-package"
+    assert result["evidence"]["report"] == {"ready": False}
+    assert result["evidence"]["resultPackage"] == {"ready": False, "blockedCode": expected_code}
+    assert result["evidence"]["validation"]["ready"] is False
+    assert result["evidence"]["validation"]["blockedCode"] == expected_code
 
 
 def test_first_run_status_requires_connection_before_guiding_run_actions(monkeypatch) -> None:
