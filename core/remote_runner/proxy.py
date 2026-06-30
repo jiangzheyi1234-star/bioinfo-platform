@@ -5,6 +5,10 @@ from typing import Any
 from config import resolve_runner_token
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
 from core.remote_runner.client import RemoteRunnerClientError, RemoteRunnerHttpClient
+from core.remote_runner.diagnostics import (
+    build_execution_diagnostics,
+    build_operator_diagnostics_bundle,
+)
 from core.remote_runner.endpoint_caller import call_remote_endpoint as execute_remote_endpoint
 from core.remote_runner.layout import remote_runner_bootstrap_layout
 
@@ -63,7 +67,7 @@ class RemoteRunnerProxyMixin:
             ssh_service=kwargs["ssh_service"],
             record=kwargs["server_record"],
         )
-        return client.get_execution_diagnostics()
+        return build_execution_diagnostics(client)
 
     def get_operator_diagnostics(self, **kwargs) -> dict[str, Any]:
         record = kwargs["server_record"]
@@ -74,7 +78,8 @@ class RemoteRunnerProxyMixin:
         )
         metadata = record.get("bootstrap_metadata") if isinstance(record.get("bootstrap_metadata"), dict) else {}
         release = metadata.get("release") if isinstance(metadata.get("release"), dict) else {}
-        return client.get_operator_diagnostics(
+        return build_operator_diagnostics_bundle(
+            client,
             server_id=str(kwargs["server_id"]),
             run_id=str(kwargs.get("run_id") or ""),
             scenario_id=str(kwargs.get("scenario_id") or ""),
