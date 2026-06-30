@@ -4,19 +4,49 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.contracts.remote_endpoints import REMOTE_ENDPOINTS, render_remote_endpoint_path
+from core.contracts.tool_remote_endpoints import (
+    TOOL_PREPARE_JOB_CREATE,
+    TOOL_PREPARE_JOB_QUEUE_READ,
+    TOOL_PREPARE_JOB_READ,
+)
+
+
+def tool_prepare_job_submit_path() -> str:
+    return REMOTE_ENDPOINTS[TOOL_PREPARE_JOB_CREATE].path_template
+
+
+def tool_prepare_job_poll_path_template() -> str:
+    template = REMOTE_ENDPOINTS[TOOL_PREPARE_JOB_READ].path_template
+    if "{job_id}" not in template:
+        raise ValueError("TOOL_PREPARE_JOB_READ_PATH_PARAM_UNEXPECTED")
+    return template.replace("{job_id}", "{jobId}")
+
+
+def tool_prepare_job_poll_path(job_id: str) -> str:
+    return render_remote_endpoint_path(TOOL_PREPARE_JOB_READ, {"job_id": job_id})
+
+
+def tool_prepare_job_queue_path() -> str:
+    return REMOTE_ENDPOINTS[TOOL_PREPARE_JOB_QUEUE_READ].path_template
+
+
+def tool_prepare_job_queue_method() -> str:
+    return REMOTE_ENDPOINTS[TOOL_PREPARE_JOB_QUEUE_READ].method
+
 
 def workflow_ready_validation_plan() -> dict[str, Any]:
     return {
         "planVersion": "tool-validation-plan-v1",
         "requiredState": "WorkflowReady",
         "submit": {
-            "method": "POST",
-            "path": "/api/v1/tools/prepare-jobs",
+            "method": REMOTE_ENDPOINTS[TOOL_PREPARE_JOB_CREATE].method,
+            "path": tool_prepare_job_submit_path(),
             "payloadRef": "preparePayload",
         },
         "poll": {
-            "method": "GET",
-            "pathTemplate": "/api/v1/tools/prepare-jobs/{jobId}",
+            "method": REMOTE_ENDPOINTS[TOOL_PREPARE_JOB_READ].method,
+            "pathTemplate": tool_prepare_job_poll_path_template(),
             "jobIdField": "jobId",
         },
         "terminalStatuses": {

@@ -229,7 +229,7 @@ def test_prepare_validation_queue_fills_batch_after_blocked_jobs(monkeypatch) ->
         "jobIds": [data["queued"][0]["jobId"]],
         "poll": {
             "method": "GET",
-            "path": "/api/v1/tools/prepare-jobs",
+            "path": "/api/v1/tools/prepare-jobs/queue",
             "query": {"status": "", "limit": 50, "offset": 0},
         },
         "terminalStatuses": ["cancelled", "exhausted", "failed", "succeeded", "waiting_resource"],

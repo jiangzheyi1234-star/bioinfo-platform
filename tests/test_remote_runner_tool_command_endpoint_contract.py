@@ -231,6 +231,34 @@ def test_tool_command_manager_delegates_to_endpoint_registry() -> None:
         assert "status_code=202" not in route_source
 
 
+def test_tool_validation_plan_paths_are_registry_owned() -> None:
+    from apps.api.tool_validation_plan import (
+        tool_prepare_job_poll_path,
+        tool_prepare_job_poll_path_template,
+        tool_prepare_job_queue_method,
+        tool_prepare_job_queue_path,
+        tool_prepare_job_submit_path,
+    )
+
+    plan_source = _source("apps/api/tool_validation_plan.py")
+    capability_source = _source("apps/api/tool_capability_service.py")
+
+    assert tool_prepare_job_submit_path() == "/api/v1/tools/prepare-jobs"
+    assert tool_prepare_job_poll_path_template() == "/api/v1/tools/prepare-jobs/{jobId}"
+    assert tool_prepare_job_poll_path("job/1") == "/api/v1/tools/prepare-jobs/job%2F1"
+    assert tool_prepare_job_queue_method() == "GET"
+    assert tool_prepare_job_queue_path() == "/api/v1/tools/prepare-jobs/queue"
+    assert "TOOL_PREPARE_JOB_CREATE" in plan_source
+    assert "TOOL_PREPARE_JOB_READ" in plan_source
+    assert "TOOL_PREPARE_JOB_QUEUE_READ" in plan_source
+    assert "render_remote_endpoint_path(TOOL_PREPARE_JOB_READ" in plan_source
+    assert '"/api/v1/tools/prepare-jobs"' not in plan_source
+    assert "tool_prepare_job_queue_method()" in capability_source
+    assert "tool_prepare_job_queue_path()" in capability_source
+    assert "tool_prepare_job_poll_path(job_id)" in capability_source
+    assert 'f"/api/v1/tools/prepare-jobs/{job_id}"' not in capability_source
+
+
 class FakeToolCommandClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, list[int]]] = []

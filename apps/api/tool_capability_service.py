@@ -19,6 +19,11 @@ from apps.api.tool_candidate_target_acceptance import bio_agent_catalog_target_a
 from apps.api.tool_capabilities import search_tool_capabilities
 from apps.api.tool_profile_catalog import catalog_tool_profiles
 from apps.api.tool_registry_payload import registered_tools_from_runtime_payload
+from apps.api.tool_validation_plan import (
+    tool_prepare_job_poll_path,
+    tool_prepare_job_queue_method,
+    tool_prepare_job_queue_path,
+)
 
 
 ACTIVE_PREPARE_JOB_STATUSES = ("queued", "running")
@@ -540,8 +545,8 @@ def _validation_batch_plan(
         "skippedCount": len(skipped),
         "jobIds": [str(item.get("jobId") or "") for item in queued if str(item.get("jobId") or "")],
         "poll": {
-            "method": "GET",
-            "path": "/api/v1/tools/prepare-jobs",
+            "method": tool_prepare_job_queue_method(),
+            "path": tool_prepare_job_queue_path(),
             "query": {"status": "", "limit": 50, "offset": 0},
         },
         "terminalStatuses": list(TERMINAL_PREPARE_JOB_STATUSES),
@@ -645,7 +650,7 @@ def _queued_validation_item(item: dict[str, Any], response: Any) -> dict[str, An
         "message": str(job.get("message") or ""),
         "createdAt": str(job.get("createdAt") or ""),
         "updatedAt": str(job.get("updatedAt") or ""),
-        "pollPath": f"/api/v1/tools/prepare-jobs/{job_id}",
+        "pollPath": tool_prepare_job_poll_path(job_id),
         "resultState": "",
         "workflowReady": False,
     }
