@@ -53,6 +53,12 @@ export function FirstRunCompletionPanel({
     latestPackage && firstRunResultPackageReady(latestPackage) ? workflowResultPackageDownloadHref(latestPackage) : "";
   const validationEvidence = firstRunStatus?.evidence?.validation;
   const resultPackageEvidence = firstRunStatus?.evidence?.resultPackage;
+  const statusRun = firstRunStatus?.evidence?.run || firstRunStatus?.latestEligibleRun || null;
+  const effectiveRunId = firstRunStatus ? statusRun?.runId || "" : run?.runId || "";
+  const effectiveResultId = firstRunStatus ? statusRun?.resultId || resultId : resultId;
+  const effectiveWorkflowRevisionId = firstRunStatus
+    ? statusRun?.workflowRevisionId || workflowRevisionId
+    : workflowRevisionId;
   const passedChecks = validationEvidence?.validationChecksPassed;
   const totalChecks = validationEvidence?.validationChecksTotal;
   const keyResults = card?.keyResults || [];
@@ -131,9 +137,9 @@ export function FirstRunCompletionPanel({
       {evidenceBundle ? <EvidenceBundleSummary bundle={evidenceBundle} /> : null}
 
       <div className="mt-4 grid gap-x-5 gap-y-2 border-t border-emerald-200 pt-4 text-xs md:grid-cols-2 xl:grid-cols-4">
-        <SummaryItem label="run" value={run?.runId} mono />
-        <SummaryItem label="result" value={resultId} mono />
-        <SummaryItem label="revision" value={shortHash(workflowRevisionId)} mono />
+        <SummaryItem label="run" value={effectiveRunId} mono />
+        <SummaryItem label="result" value={effectiveResultId} mono />
+        <SummaryItem label="revision" value={shortHash(effectiveWorkflowRevisionId)} mono />
         <SummaryItem label="package" value={resultPackageEvidence?.packageExportId} mono />
         <SummaryItem label="size" value={formatBytes(latestPackage?.sizeBytes)} />
         <SummaryItem label="package sha" value={shortHash(resultPackageEvidence?.sha256)} mono />

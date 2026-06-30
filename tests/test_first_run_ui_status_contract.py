@@ -51,6 +51,11 @@ def test_first_run_validation_and_trust_summary_are_status_contract_driven() -> 
     assert "status: FirstRunStatus | null" in first_run_trust_summary
     assert "status?: FirstRunStatus | null" not in first_run_trust_summary
     assert "const validationEvidence = firstRunStatus?.evidence?.validation" in first_run_validation
+    assert "const resultPackageEvidence = firstRunStatus?.evidence?.resultPackage" in first_run_validation
+    assert "const statusRun = firstRunStatus?.evidence?.run || firstRunStatus?.latestEligibleRun || null" in first_run_validation
+    assert 'const effectiveRunId = firstRunStatus ? statusRun?.runId || "" : run?.runId || ""' in first_run_validation
+    assert 'const effectiveRunStatus = firstRunStatus ? statusRun?.status || "" : run?.status || ""' in first_run_validation
+    assert "const packageExportId = firstRunStatus ? resultPackageEvidence?.packageExportId : packageExport?.packageExportId" in first_run_validation
     assert "const validationPassed = validationEvidence?.ready === true" in first_run_validation
     assert "data-validation-passed={validationPassed ? \"true\" : \"false\"}" in first_run_validation
     assert "evidence?.validation?.ready === true" in first_run_trust_summary
@@ -65,6 +70,9 @@ def test_first_run_validation_and_trust_summary_are_status_contract_driven() -> 
     assert "|| packageExport?.manifestSha256" not in first_run_trust_summary
     assert "latestPackage?.sha256 || resultPackageEvidence?.sha256" not in first_run_completion
     assert "latestPackage?.manifestSha256 || resultPackageEvidence?.manifestSha256" not in first_run_completion
+    assert "const statusRun = firstRunStatus?.evidence?.run || firstRunStatus?.latestEligibleRun || null" in first_run_completion
+    assert 'const effectiveRunId = firstRunStatus ? statusRun?.runId || "" : run?.runId || ""' in first_run_completion
+    assert "const effectiveResultId = firstRunStatus ? statusRun?.resultId || resultId : resultId" in first_run_completion
     assert "validationChecksPassed ?? checks.filter" not in first_run_validation
     assert not (FIRST_RUN_DOMAIN / "first-run-validation-state.ts").exists()
 

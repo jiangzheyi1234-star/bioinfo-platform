@@ -179,6 +179,17 @@ export function ValidationCard({
   const softwareEnvironment = card?.softwareEnvironment;
   const evidenceBundle = card?.pilotHandoff?.evidenceBundle;
   const validationEvidence = firstRunStatus?.evidence?.validation;
+  const resultPackageEvidence = firstRunStatus?.evidence?.resultPackage;
+  const statusRun = firstRunStatus?.evidence?.run || firstRunStatus?.latestEligibleRun || null;
+  const effectiveRunId = firstRunStatus ? statusRun?.runId || "" : run?.runId || "";
+  const effectiveRunStatus = firstRunStatus ? statusRun?.status || "" : run?.status || "";
+  const effectiveWorkflowRevisionId = firstRunStatus
+    ? statusRun?.workflowRevisionId || workflowRevisionId
+    : workflowRevisionId;
+  const inputCount = sampleData?.items?.length || sampleUploads.length || inputArtifacts.length || 0;
+  const packageExportId = firstRunStatus ? resultPackageEvidence?.packageExportId : packageExport?.packageExportId;
+  const packageSha256 = firstRunStatus ? resultPackageEvidence?.sha256 : packageExport?.sha256;
+  const manifestSha256 = firstRunStatus ? resultPackageEvidence?.manifestSha256 : packageExport?.manifestSha256;
   const passedChecks = validationEvidence?.validationChecksPassed;
   const totalChecks = validationEvidence?.validationChecksTotal;
   const validationPassed = validationEvidence?.ready === true;
@@ -225,18 +236,18 @@ export function ValidationCard({
       <div className="mt-4 grid gap-2 text-xs">
         <KeyValue label="dataset" value="QIIME 2 Moving Pictures tutorial" />
         <KeyValue label="pipeline" value="moving-pictures-16s-rulegraph-v1" mono />
-        <KeyValue label="run" value={run?.runId} mono />
+        <KeyValue label="run" value={effectiveRunId} mono />
         <KeyValue label="result" value={resultId} mono />
-        <KeyValue label="status" value={run?.status} />
+        <KeyValue label="status" value={effectiveRunStatus} />
         <KeyValue label="runner" value={server?.label || server?.serverId} mono />
         <KeyValue label="runtime" value={softwareRuntimeLabel(softwareEnvironment)} />
         <KeyValue label="database" value="不需要外部数据库" />
-        <KeyValue label="revision" value={workflowRevisionId} mono />
-        <KeyValue label="inputs" value={`${sampleUploads.length || inputArtifacts.length || 0} files`} />
+        <KeyValue label="revision" value={effectiveWorkflowRevisionId} mono />
+        <KeyValue label="inputs" value={`${inputCount} files`} />
         <KeyValue label="outputs" value={`${artifacts.length} artifacts`} />
-        <KeyValue label="package" value={packageExport?.packageExportId} mono />
-        <KeyValue label="package sha" value={packageExport?.sha256} mono />
-        <KeyValue label="manifest" value={packageExport?.manifestSha256} mono />
+        <KeyValue label="package" value={packageExportId} mono />
+        <KeyValue label="package sha" value={packageSha256} mono />
+        <KeyValue label="manifest" value={manifestSha256} mono />
         <KeyValue label="evidence" value={packageExport?.evidenceId} mono />
         <KeyValue label="bundle" value={evidenceBundle?.bundleId} mono />
         <KeyValue label="bundle files" value={evidenceBundle?.requiredFiles?.length ? `${evidenceBundle.requiredFiles.length} files` : ""} />
