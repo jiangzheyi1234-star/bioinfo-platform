@@ -25,6 +25,7 @@ $BlockedNextActionTargets = @{
     FIRST_RUN_NOT_SUCCESSFUL = "/workflows/first-run#run-report"
     FIRST_RUN_WORKFLOW_REVISION_REQUIRED = "/workflows/first-run#runner-readiness"
     FIRST_RUN_REPORT_PREVIEW_REQUIRED = "/workflows/first-run#run-report"
+    FIRST_RUN_REPORT_TRUST_ASSERTIONS_FAILED = "/workflows/first-run#run-report"
     FIRST_RUN_SAMPLE_INPUTS_REQUIRED = "/workflows/first-run#sample-data"
     FIRST_RUN_SAMPLE_INPUTS_INTEGRITY_MISMATCH = "/workflows/first-run#sample-data"
     FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED = "/workflows/first-run#evidence-bundle"

@@ -150,6 +150,7 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "function Assert-FirstRunBlockedNextAction" in source
     assert 'FIRST_RUN_WORKFLOW_REVISION_REQUIRED = "/workflows/first-run#runner-readiness"' in source
     assert 'FIRST_RUN_REPORT_PREVIEW_REQUIRED = "/workflows/first-run#run-report"' in source
+    assert 'FIRST_RUN_REPORT_TRUST_ASSERTIONS_FAILED = "/workflows/first-run#run-report"' in source
     assert 'FIRST_RUN_SAMPLE_INPUTS_INTEGRITY_MISMATCH = "/workflows/first-run#sample-data"' in source
     assert 'FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED = "/workflows/first-run#evidence-bundle"' in source
     assert 'FIRST_RUN_PILOT_HANDOFF_REQUIRED = "/workflows/first-run#evidence-bundle"' in source

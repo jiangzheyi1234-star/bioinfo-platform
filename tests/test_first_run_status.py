@@ -9,7 +9,14 @@ import pytest
 from apps.api.workflow_first_run_status_service import build_first_run_status_from_request
 from apps.api.workflow_sample_data_service import MOVING_PICTURES_PIPELINE_ID
 
-from tests.test_first_run_validation_card import _exports_for_case, _package, _patch_first_run_sources, _result, _run
+from tests.test_first_run_validation_card import (
+    _exports_for_case,
+    _package,
+    _patch_first_run_sources,
+    _previews_for_trust_case,
+    _result,
+    _run,
+)
 
 
 def test_first_run_status_reports_ready_official_sample_run_and_ignores_newer_noneligible_run(monkeypatch) -> None:
@@ -301,6 +308,26 @@ def test_first_run_status_uses_validation_card_standard_for_report_readiness(mon
     assert result["evidence"]["validation"]["ready"] is False
     assert result["evidence"]["validation"]["blockedCode"] == "FIRST_RUN_EXPECTED_OUTPUTS_REQUIRED"
     assert result["evidence"]["report"] == {"ready": False, "blockedCode": "FIRST_RUN_EXPECTED_OUTPUTS_REQUIRED"}
+    assert result["evidence"]["resultPackage"] == {"ready": False}
+
+
+def test_first_run_status_blocks_when_report_trust_assertions_fail(monkeypatch) -> None:
+    _patch_first_run_sources(monkeypatch, previews=_previews_for_trust_case("qc_features_mismatch"))
+    _patch_status_sources(monkeypatch, runs=[_run()])
+
+    result = asyncio.run(build_first_run_status_from_request(server_id="srv_first"))["data"]
+
+    assert result["status"] == "blocked"
+    assert result["stage"] == "inspect_failed_run"
+    assert result["nextAction"]["code"] == "INSPECT_FAILED_RUN"
+    assert result["nextAction"]["blockedCode"] == "FIRST_RUN_REPORT_TRUST_ASSERTIONS_FAILED"
+    assert result["nextAction"]["target"] == "#run-report"
+    assert result["evidence"]["validation"]["ready"] is False
+    assert result["evidence"]["validation"]["blockedCode"] == "FIRST_RUN_REPORT_TRUST_ASSERTIONS_FAILED"
+    assert result["evidence"]["report"] == {
+        "ready": False,
+        "blockedCode": "FIRST_RUN_REPORT_TRUST_ASSERTIONS_FAILED",
+    }
     assert result["evidence"]["resultPackage"] == {"ready": False}
 
 

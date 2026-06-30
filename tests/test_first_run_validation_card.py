@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 from typing import Any
 
@@ -408,6 +409,28 @@ def test_first_run_validation_card_requires_parseable_report_previews(monkeypatc
     _patch_first_run_sources(monkeypatch, previews=previews)
 
     with pytest.raises(WorkflowFirstRunValidationCardUnavailableError, match="FIRST_RUN_REPORT_PREVIEW_REQUIRED"):
+        asyncio.run(build_first_run_validation_card_from_request("run_first"))
+
+
+@pytest.mark.parametrize(
+    "preview_case",
+    [
+        "zero_passed_reads",
+        "zero_unique_features",
+        "missing_qc_samples_with_reads",
+        "missing_qc_features",
+        "qc_passed_reads_mismatch",
+        "qc_samples_with_reads_mismatch",
+        "qc_features_mismatch",
+    ],
+)
+def test_first_run_validation_card_requires_report_trust_assertions(monkeypatch, preview_case: str) -> None:
+    _patch_first_run_sources(monkeypatch, previews=_previews_for_trust_case(preview_case))
+
+    with pytest.raises(
+        WorkflowFirstRunValidationCardUnavailableError,
+        match="FIRST_RUN_REPORT_TRUST_ASSERTIONS_FAILED",
+    ):
         asyncio.run(build_first_run_validation_card_from_request("run_first"))
 
 
@@ -886,6 +909,41 @@ def _previews() -> dict[str, dict[str, Any]]:
             },
         },
     }
+
+
+def _previews_for_trust_case(preview_case: str) -> dict[str, dict[str, Any]]:
+    previews = copy.deepcopy(_previews())
+    summary_rows = previews["art_summary"]["preview"]["rows"]
+    qc_rows = previews["art_qc"]["preview"]["rows"]
+    if preview_case == "zero_passed_reads":
+        summary_rows[0][5] = "0"
+        summary_rows[1][5] = "0"
+        _set_qc_metric(qc_rows, "passed_reads", "0")
+    elif preview_case == "zero_unique_features":
+        summary_rows[0][6] = "0"
+        summary_rows[1][6] = "0"
+        _set_qc_metric(qc_rows, "features", "0")
+    elif preview_case == "missing_qc_samples_with_reads":
+        previews["art_qc"]["preview"]["rows"] = [row for row in qc_rows if row[0] != "samples_with_reads"]
+    elif preview_case == "missing_qc_features":
+        previews["art_qc"]["preview"]["rows"] = [row for row in qc_rows if row[0] != "features"]
+    elif preview_case == "qc_passed_reads_mismatch":
+        _set_qc_metric(qc_rows, "passed_reads", "29")
+    elif preview_case == "qc_samples_with_reads_mismatch":
+        _set_qc_metric(qc_rows, "samples_with_reads", "1")
+    elif preview_case == "qc_features_mismatch":
+        _set_qc_metric(qc_rows, "features", "8")
+    else:
+        raise AssertionError(f"unknown preview case {preview_case}")
+    return previews
+
+
+def _set_qc_metric(rows: list[list[str]], metric_id: str, value: str) -> None:
+    for row in rows:
+        if row[0] == metric_id:
+            row[1] = value
+            return
+    raise AssertionError(f"qc metric {metric_id} not found")
 
 
 def _exports() -> list[dict[str, Any]]:

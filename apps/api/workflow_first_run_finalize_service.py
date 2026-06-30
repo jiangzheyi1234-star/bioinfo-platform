@@ -6,6 +6,7 @@ from typing import Any
 
 from apps.api.execution_query_service import export_result_package_from_request
 from apps.api.models import ApiRequest, ResultPackageExportRequest
+from apps.api.workflow_first_run_report_interpretation import FIRST_RUN_REPORT_TRUST_ASSERTIONS_FAILED
 from apps.api.workflow_first_run_result_package_contract import (
     is_first_run_result_package_export_required,
     is_first_run_result_package_ledger_mismatch,
@@ -90,9 +91,13 @@ def first_run_next_action(code: str, detail: str) -> dict[str, str]:
     elif code == "FIRST_RUN_WORKFLOW_REVISION_REQUIRED":
         target = "/workflows/first-run#runner-readiness"
         label = "升级 runner 并重新提交"
-    elif code == "FIRST_RUN_REPORT_PREVIEW_REQUIRED" or code == "FIRST_RUN_EXPECTED_OUTPUTS_REQUIRED":
+    elif code in {
+        "FIRST_RUN_REPORT_PREVIEW_REQUIRED",
+        "FIRST_RUN_EXPECTED_OUTPUTS_REQUIRED",
+        FIRST_RUN_REPORT_TRUST_ASSERTIONS_FAILED,
+    }:
         target = "/workflows/first-run#run-report"
-        label = "检查报告预览"
+        label = "检查报告可信度"
     elif code == "FIRST_RUN_SAMPLE_INPUTS_REQUIRED" or code == "FIRST_RUN_SAMPLE_INPUTS_INTEGRITY_MISMATCH":
         target = "/workflows/first-run#sample-data"
         label = "重新准备官方样例数据"

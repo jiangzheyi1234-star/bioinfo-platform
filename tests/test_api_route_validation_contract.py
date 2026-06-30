@@ -581,7 +581,8 @@ def test_request_payload_serialization_policy_lives_in_core_helper() -> None:
     assert "request.model_dump(" not in remote_route_utils_source
     assert "def request_payload(" in core_source
     assert "request.runtime_payload()" in core_source
-    assert 'request.model_dump(by_alias=by_alias, exclude_none=True, mode="json")' in core_source
+    assert "exclude_unset: bool = False" in core_source
+    assert "exclude_unset=exclude_unset" in core_source
 
 
 def test_request_payload_uses_runtime_payload_before_model_dump() -> None:
@@ -595,10 +596,11 @@ def test_request_payload_uses_runtime_payload_before_model_dump() -> None:
         def __init__(self) -> None:
             self.call: dict[str, object] | None = None
 
-        def model_dump(self, *, by_alias: bool, exclude_none: bool, mode: str):
+        def model_dump(self, *, by_alias: bool, exclude_none: bool, exclude_unset: bool, mode: str):
             self.call = {
                 "by_alias": by_alias,
                 "exclude_none": exclude_none,
+                "exclude_unset": exclude_unset,
                 "mode": mode,
             }
             return {"dumped": True}
@@ -607,10 +609,11 @@ def test_request_payload_uses_runtime_payload_before_model_dump() -> None:
 
     assert request_payload(None) == {}
     assert request_payload(RuntimePayloadRequest()) == {"aliasName": "kept"}
-    assert request_payload(dumped, by_alias=True) == {"dumped": True}
+    assert request_payload(dumped, by_alias=True, exclude_unset=True) == {"dumped": True}
     assert dumped.call == {
         "by_alias": True,
         "exclude_none": True,
+        "exclude_unset": True,
         "mode": "json",
     }
 

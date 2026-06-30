@@ -380,6 +380,40 @@ def test_upgrade_runner_http_conflict_preserves_reason_code(monkeypatch: pytest.
     assert "WAIT_FOR_RUNS_OR_CANCEL_BEFORE_UPGRADE" in payload["detail"]
 
 
+def test_runner_lifecycle_mutation_failures_invalidate_ssh_state_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    invalidations: list[tuple[str, ...]] = []
+
+    async def fake_invalidate_response_cache(*_keys: str, prefixes=()) -> None:
+        invalidations.append(tuple(prefixes))
+
+    class ConflictRuntime:
+        def upgrade_remote_runner(self, server_id: str):
+            raise RuntimeServiceError(
+                "remote runner upgrade blocked because active workflow run leases exist",
+                status_code=409,
+                detail={"reasonCode": UPGRADE_ACTIVE_LEASES_REASON, "serverId": server_id},
+            )
+
+        def stop_remote_runner_service(self, server_id: str):
+            raise RuntimeServiceError(
+                "remote runner stop failed",
+                status_code=503,
+                detail={"reasonCode": "RUNNER_STOP_FAILED", "serverId": server_id},
+            )
+
+    monkeypatch.setattr("apps.api.ssh_control_service.runtime_service", lambda: ConflictRuntime())
+    monkeypatch.setattr("apps.api.ssh_control_service.invalidate_response_cache", fake_invalidate_response_cache)
+
+    client = TestClient(app)
+    upgrade_response = client.post("/api/v1/servers/srv_active/runner/upgrade")
+    stop_response = client.post("/api/v1/servers/srv_active/runner/stop")
+
+    assert upgrade_response.status_code == 409
+    assert stop_response.status_code == 503
+    assert len(invalidations) == 2
+    assert all("servers" in prefixes and "ssh_" in prefixes for prefixes in invalidations)
+
+
 def test_runner_release_prune_api_forwards_preview_and_plan_hash(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

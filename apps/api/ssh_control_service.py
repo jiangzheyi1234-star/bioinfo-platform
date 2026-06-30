@@ -95,21 +95,23 @@ async def get_server_operator_diagnostics_from_request(
 
 
 async def ensure_server_runner_from_request(server_id: str) -> dict[str, Any]:
-    result = await run_runtime_payload(
-        lambda: runtime_service().ensure_remote_runner_ready(server_id),
-        wrapper="raw",
-    )
-    await _invalidate_ssh_state_cache()
-    return result
+    try:
+        return await run_runtime_payload(
+            lambda: runtime_service().ensure_remote_runner_ready(server_id),
+            wrapper="raw",
+        )
+    finally:
+        await _invalidate_ssh_state_cache()
 
 
 async def upgrade_server_runner_from_request(server_id: str) -> dict[str, Any]:
-    result = await run_runtime_payload(
-        lambda: runtime_service().upgrade_remote_runner(server_id),
-        wrapper="raw",
-    )
-    await _invalidate_ssh_state_cache()
-    return result
+    try:
+        return await run_runtime_payload(
+            lambda: runtime_service().upgrade_remote_runner(server_id),
+            wrapper="raw",
+        )
+    finally:
+        await _invalidate_ssh_state_cache()
 
 
 async def preview_server_runner_release_prune_from_request(server_id: str) -> dict[str, Any]:
@@ -123,33 +125,36 @@ async def run_server_runner_release_prune_from_request(
     server_id: str,
     request: RunnerReleasePruneRunRequest,
 ) -> dict[str, Any]:
-    result = await run_runtime_payload(
-        lambda: runtime_service().run_runner_release_prune(
-            server_id,
-            plan_hash=request.planHash,
-        ),
-        wrapper="data",
-    )
-    await _invalidate_ssh_state_cache()
-    return result
+    try:
+        return await run_runtime_payload(
+            lambda: runtime_service().run_runner_release_prune(
+                server_id,
+                plan_hash=request.planHash,
+            ),
+            wrapper="data",
+        )
+    finally:
+        await _invalidate_ssh_state_cache()
 
 
 async def start_server_runner_from_request(server_id: str) -> dict[str, Any]:
-    result = await run_runtime_payload(
-        lambda: runtime_service().start_remote_runner(server_id),
-        wrapper="raw",
-    )
-    await _invalidate_ssh_state_cache()
-    return result
+    try:
+        return await run_runtime_payload(
+            lambda: runtime_service().start_remote_runner(server_id),
+            wrapper="raw",
+        )
+    finally:
+        await _invalidate_ssh_state_cache()
 
 
 async def stop_server_runner_from_request(server_id: str) -> dict[str, Any]:
-    result = await run_runtime_payload(
-        lambda: runtime_service().stop_remote_runner_service(server_id),
-        wrapper="raw",
-    )
-    await _invalidate_ssh_state_cache()
-    return result
+    try:
+        return await run_runtime_payload(
+            lambda: runtime_service().stop_remote_runner_service(server_id),
+            wrapper="raw",
+        )
+    finally:
+        await _invalidate_ssh_state_cache()
 
 
 async def scan_ssh_host_key_from_request(request: SSHHostKeyScanRequest | None) -> dict[str, Any]:

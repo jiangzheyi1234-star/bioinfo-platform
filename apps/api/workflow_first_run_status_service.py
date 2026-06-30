@@ -11,6 +11,7 @@ from apps.api.ssh_control_service import (
 )
 from apps.api.workflow_catalog_service import get_workflow_catalog_from_request
 from apps.api.workflow_first_run_finalize_service import first_run_next_action
+from apps.api.workflow_first_run_report_interpretation import FIRST_RUN_REPORT_TRUST_ASSERTIONS_FAILED
 from apps.api.workflow_first_run_result_package_contract import (
     is_first_run_result_package_blocker,
     is_first_run_result_package_export_required,
@@ -660,7 +661,11 @@ def _ready_validation_evidence(card: dict[str, Any]) -> dict[str, Any]:
 
 
 def _report_evidence(ready: bool, code: str) -> dict[str, Any]:
-    if code not in {"FIRST_RUN_EXPECTED_OUTPUTS_REQUIRED", "FIRST_RUN_REPORT_PREVIEW_REQUIRED"}:
+    if code not in {
+        "FIRST_RUN_EXPECTED_OUTPUTS_REQUIRED",
+        "FIRST_RUN_REPORT_PREVIEW_REQUIRED",
+        FIRST_RUN_REPORT_TRUST_ASSERTIONS_FAILED,
+    }:
         return {"ready": False}
     return {"ready": ready, "blockedCode": code}
 
@@ -676,7 +681,12 @@ def _action_for_validation_blocker(code: str, detail: str) -> dict[str, str]:
         return _blocked_action("PREPARE_SAMPLE_DATA", code, "重新准备官方样例数据", detail, "#sample-data")
     if code == "FIRST_RUN_WORKFLOW_REVISION_REQUIRED":
         return _blocked_action("ENSURE_RUNNER", code, "升级 runner 并重新提交", detail, "#runner-readiness")
-    if code in {"FIRST_RUN_EXPECTED_OUTPUTS_REQUIRED", "FIRST_RUN_REPORT_PREVIEW_REQUIRED", "FIRST_RUN_NOT_SUCCESSFUL"}:
+    if code in {
+        "FIRST_RUN_EXPECTED_OUTPUTS_REQUIRED",
+        "FIRST_RUN_REPORT_PREVIEW_REQUIRED",
+        FIRST_RUN_REPORT_TRUST_ASSERTIONS_FAILED,
+        "FIRST_RUN_NOT_SUCCESSFUL",
+    }:
         return _blocked_action("INSPECT_FAILED_RUN", code, "检查报告与失败定位", detail, "#run-report")
     if is_first_run_result_package_export_required(code):
         base = first_run_next_action(code, detail)
@@ -694,7 +704,12 @@ def _action_for_validation_blocker(code: str, detail: str) -> dict[str, str]:
 def _stage_for_blocker(code: str) -> str:
     if code in {"FIRST_RUN_SAMPLE_INPUTS_REQUIRED", "FIRST_RUN_SAMPLE_INPUTS_INTEGRITY_MISMATCH", "FIRST_RUN_SAMPLE_PREP_PROOF_REQUIRED"}:
         return "prepare_sample_data"
-    if code in {"FIRST_RUN_NOT_SUCCESSFUL", "FIRST_RUN_REPORT_PREVIEW_REQUIRED", "FIRST_RUN_EXPECTED_OUTPUTS_REQUIRED"}:
+    if code in {
+        "FIRST_RUN_NOT_SUCCESSFUL",
+        "FIRST_RUN_REPORT_PREVIEW_REQUIRED",
+        "FIRST_RUN_EXPECTED_OUTPUTS_REQUIRED",
+        FIRST_RUN_REPORT_TRUST_ASSERTIONS_FAILED,
+    }:
         return "inspect_failed_run"
     if is_first_run_result_package_blocker(code):
         return "export_result_package"
