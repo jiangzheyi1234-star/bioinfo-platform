@@ -76,6 +76,12 @@ def build_run_resume_execution_options(resume_plan: dict[str, Any]) -> dict[str,
         blockers.append("RUN_RESUME_POST_EXECUTION_ADOPTION_REQUIRED")
     if orchestration.get("contractReady") is not True:
         blockers.append("RUN_RESUME_EXECUTOR_CONTRACT_UNPROVEN")
+    if orchestration.get("executorReady") is not True:
+        blockers.append("RUN_RESUME_EXECUTOR_NOT_READY")
+    if orchestration.get("queueMutationAllowed") is not True:
+        blockers.append("RUN_RESUME_QUEUE_MUTATION_BLOCKED")
+    if orchestration.get("runStateMutationAllowed") is not True:
+        blockers.append("RUN_RESUME_RUN_STATE_MUTATION_BLOCKED")
     if orchestration.get("mode") != "run-resume":
         blockers.append("RUN_RESUME_EXECUTOR_MODE_UNSUPPORTED")
 

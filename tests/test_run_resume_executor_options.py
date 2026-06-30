@@ -17,7 +17,10 @@ def test_executor_accepts_strict_run_resume_options_without_forcerun() -> None:
         "forcerun_rules": [],
         "rerun_incomplete": True,
         "output_adoption_scope": None,
+        "resume_scope": parsed["resume_scope"],
     }
+    assert parsed["resume_scope"]["schemaVersion"] == "run-resume-execution-scope.v1"
+    assert parsed["resume_scope"]["mode"] == "run-resume"
 
 
 def test_executor_rejects_run_resume_options_with_forcerun_rules() -> None:

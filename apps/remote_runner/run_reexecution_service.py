@@ -15,7 +15,7 @@ from .config import RemoteRunnerConfig
 from .errors import RemoteRunnerOperationBlockedError
 from .execution_rule_retry_projection import rule_retry_blocked
 from .execution_resume_projection import resume_blocked
-from .execution_retry_storage import request_rule_retry
+from .execution_retry_storage import request_rule_retry, request_run_resume
 from .governance_audit import record_governance_audit_event
 from .route_utils import authorized_config, data_response, remote_runner_principal, run_sync
 from .run_execution_context_storage import fetch_run_execution_context
@@ -384,13 +384,48 @@ async def resume_run_from_request(
     if mismatch:
         await _record_resume_audit(cfg, run_id, plan, decision="deny", reason_code=mismatch)
         raise resume_blocked(plan, mismatch)
-    reason_code = (
-        "RUN_RESUME_MUTATION_API_DISABLED"
-        if plan.get("executionEnabled") is True
-        else str(plan.get("executionReasonCode") or "RUN_RESUME_EXECUTION_DISABLED")
+    reason_code = _resume_mutation_blocker(plan)
+    if reason_code:
+        await _record_resume_audit(cfg, run_id, plan, decision="deny", reason_code=reason_code)
+        raise resume_blocked(plan, reason_code)
+    try:
+        result = await run_sync(
+            request_run_resume,
+            cfg,
+            run_id,
+            actor=request.actor,
+            reason=request.reason,
+            resume_plan=plan,
+        )
+    except ValueError as exc:
+        reason_code = _exception_reason_code(exc, fallback="RUN_RESUME_REQUEST_BLOCKED")
+        await _record_resume_audit(cfg, run_id, plan, decision="deny", reason_code=reason_code)
+        raise resume_blocked(plan, reason_code) from exc
+    await _record_resume_audit(
+        cfg,
+        run_id,
+        plan,
+        decision="allow",
+        reason_code="RUN_RESUME_REQUESTED",
+        result=result,
     )
-    await _record_resume_audit(cfg, run_id, plan, decision="deny", reason_code=reason_code)
-    raise resume_blocked(plan, reason_code)
+    return data_response(_public_resume_result(result, plan))
+
+
+def _resume_mutation_blocker(plan: dict[str, Any]) -> str:
+    if plan.get("executionEnabled") is not True:
+        return str(plan.get("executionReasonCode") or "RUN_RESUME_EXECUTION_DISABLED")
+    readiness = plan.get("activationReadiness") if isinstance(plan.get("activationReadiness"), dict) else {}
+    if readiness.get("executionReady") is not True:
+        return str(readiness.get("reasonCode") or "RUN_RESUME_ACTIVATION_NOT_READY")
+    orchestration = plan.get("executorOrchestration") if isinstance(plan.get("executorOrchestration"), dict) else {}
+    if orchestration.get("executorReady") is not True:
+        return str(orchestration.get("reasonCode") or "RUN_RESUME_EXECUTOR_NOT_READY")
+    if orchestration.get("queueMutationAllowed") is not True:
+        return "RUN_RESUME_QUEUE_MUTATION_BLOCKED"
+    if orchestration.get("runStateMutationAllowed") is not True:
+        return "RUN_RESUME_RUN_STATE_MUTATION_BLOCKED"
+    return ""
 
 
 def _plan_object(context: dict[str, Any], key: str) -> dict[str, Any]:
@@ -434,6 +469,29 @@ def _public_rule_retry_result(result: dict[str, Any], plan: dict[str, Any]) -> d
         "availableAt": str(result.get("availableAt") or ""),
         "retryRequestedAt": str(result.get("retryRequestedAt") or ""),
         "planHash": str(plan.get("planHash") or ""),
+    }
+
+
+def _public_resume_result(result: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:
+    output_audit = plan.get("incompleteOutputAudit") if isinstance(plan.get("incompleteOutputAudit"), dict) else {}
+    adoption = plan.get("artifactAdoptionBoundary") if isinstance(plan.get("artifactAdoptionBoundary"), dict) else {}
+    return {
+        "schemaVersion": "run-resume-result.v1",
+        "runId": str(result.get("runId") or ""),
+        "accepted": True,
+        "blocked": False,
+        "status": str(result.get("status") or ""),
+        "stage": str(result.get("stage") or ""),
+        "scope": "resume",
+        "commandId": str(result.get("commandId") or ""),
+        "jobId": str(result.get("jobId") or ""),
+        "remainingAttempts": _safe_int(result.get("remainingAttempts")),
+        "availableAt": str(result.get("availableAt") or ""),
+        "resumeRequestedAt": str(result.get("retryRequestedAt") or ""),
+        "planHash": str(plan.get("planHash") or ""),
+        "resumeStrategy": str(plan.get("strategy") or ""),
+        "retainedOutputCount": _safe_int(adoption.get("retainedOutputCount")),
+        "rerunRequiredOutputCount": _safe_int(output_audit.get("rerunRequiredOutputCount")),
     }
 
 
@@ -626,11 +684,32 @@ async def _record_resume_audit(
     *,
     decision: str,
     reason_code: str,
+    result: dict[str, Any] | None = None,
 ) -> None:
     latest_attempt = plan.get("latestAttempt") if isinstance(plan.get("latestAttempt"), dict) else {}
     output_audit = (
         plan.get("incompleteOutputAudit") if isinstance(plan.get("incompleteOutputAudit"), dict) else {}
     )
+    details = {
+        "planHash": str(plan.get("planHash") or ""),
+        "executionEnabled": bool(plan.get("executionEnabled")),
+        "commandPreviewAvailable": bool(plan.get("commandPreviewAvailable")),
+        "latestAttemptState": str(latest_attempt.get("state") or ""),
+        "expectedOutputCount": _safe_int(output_audit.get("expectedOutputCount")),
+        "missingOutputCount": _safe_int(output_audit.get("missingOutputCount")),
+        "unsafeOutputCount": _safe_int(output_audit.get("unsafeOutputCount")),
+        "blockedReasonCodes": _string_list(plan.get("blockedReasonCodes")),
+    }
+    if result is not None:
+        details.update(
+            {
+                "status": str(result.get("status") or ""),
+                "stage": str(result.get("stage") or ""),
+                "scope": str(result.get("scope") or ""),
+                "remainingAttempts": _safe_int(result.get("remainingAttempts")),
+                "resumeOptionsStored": isinstance(result.get("executionOptions"), dict),
+            }
+        )
     await _record_reexecution_audit(
         cfg,
         action="run.resume",
@@ -638,16 +717,7 @@ async def _record_resume_audit(
         run_id=run_id,
         decision=decision,
         reason_code=reason_code,
-        details={
-            "planHash": str(plan.get("planHash") or ""),
-            "executionEnabled": bool(plan.get("executionEnabled")),
-            "commandPreviewAvailable": bool(plan.get("commandPreviewAvailable")),
-            "latestAttemptState": str(latest_attempt.get("state") or ""),
-            "expectedOutputCount": _safe_int(output_audit.get("expectedOutputCount")),
-            "missingOutputCount": _safe_int(output_audit.get("missingOutputCount")),
-            "unsafeOutputCount": _safe_int(output_audit.get("unsafeOutputCount")),
-            "blockedReasonCodes": _string_list(plan.get("blockedReasonCodes")),
-        },
+        details=details,
     )
 
 

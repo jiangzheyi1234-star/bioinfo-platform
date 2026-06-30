@@ -523,7 +523,7 @@ def test_rule_output_invalidation_apply_route_denies_wrong_role_before_read(
     assert audit[0]["subjectId"] == "authorization"
 
 
-def test_resume_route_records_blocked_intent_without_mutating_run(tmp_path, monkeypatch) -> None:
+def test_resume_route_requeues_with_plan_bound_execution_options(tmp_path, monkeypatch) -> None:
     cfg = make_configured_remote_runner(
         tmp_path,
         token="rbac-token",
@@ -536,28 +536,55 @@ def test_resume_route_records_blocked_intent_without_mutating_run(tmp_path, monk
     response = TestClient(app).post(
         "/api/v1/runs/run_resume_public/resume",
         headers={"Authorization": "Bearer rbac-token"},
-        json={"confirmation": "resume-run", "planHash": plan["planHash"], "actor": "operator"},
+        json={
+            "confirmation": "resume-run",
+            "planHash": plan["planHash"],
+            "actor": "operator",
+            "reason": "operator confirmed resume plan",
+        },
     )
 
-    assert response.status_code == 409
-    detail = response.json()["detail"]
-    assert detail["code"] == "RUN_RESUME_EXECUTION_DISABLED"
-    _assert_public_resume_plan_projection(detail["resumePlan"], plan)
-    _assert_run_not_requeued(cfg, "run_resume_public")
+    assert response.status_code == 202
+    result = response.json()["data"]
+    assert result == {
+        "schemaVersion": "run-resume-result.v1",
+        "runId": "run_resume_public",
+        "accepted": True,
+        "blocked": False,
+        "status": "queued",
+        "stage": "retry",
+        "scope": "resume",
+        "commandId": result["commandId"],
+        "jobId": result["jobId"],
+        "remainingAttempts": 2,
+        "availableAt": result["availableAt"],
+        "resumeRequestedAt": result["resumeRequestedAt"],
+        "planHash": plan["planHash"],
+        "resumeStrategy": "snakemake-rerun-incomplete",
+        "retainedOutputCount": 1,
+        "rerunRequiredOutputCount": 1,
+    }
+    assert result["commandId"].startswith("cmd_")
+    _assert_run_requeued_for_resume(cfg, "run_resume_public", source_plan=plan)
     events = list_governance_audit_events(cfg, action="run.resume")["items"]
     assert len(events) == 1
-    assert events[0]["decision"] == "deny"
-    assert events[0]["reasonCode"] == "RUN_RESUME_EXECUTION_DISABLED"
+    assert events[0]["decision"] == "allow"
+    assert events[0]["reasonCode"] == "RUN_RESUME_REQUESTED"
     assert events[0]["subjectKind"] == "run_resume"
     assert events[0]["details"] == {
         "planHash": plan["planHash"],
-        "executionEnabled": False,
+        "executionEnabled": True,
         "commandPreviewAvailable": True,
         "latestAttemptState": "failed",
         "expectedOutputCount": 2,
         "missingOutputCount": 1,
         "unsafeOutputCount": 0,
-        "blockedReasonCodes": plan["blockedReasonCodes"],
+        "blockedReasonCodes": [],
+        "status": "queued",
+        "stage": "retry",
+        "scope": "resume",
+        "remainingAttempts": 2,
+        "resumeOptionsStored": True,
     }
 
 
@@ -605,19 +632,19 @@ def test_resume_route_rejects_stale_plan_hash_before_mutation(tmp_path, monkeypa
     assert events[0]["subjectId"] == run_id
     assert events[0]["details"] == {
         "planHash": plan["planHash"],
-        "executionEnabled": False,
+        "executionEnabled": True,
         "commandPreviewAvailable": True,
         "latestAttemptState": "failed",
         "expectedOutputCount": 2,
         "missingOutputCount": 1,
         "unsafeOutputCount": 0,
-        "blockedReasonCodes": plan["blockedReasonCodes"],
+        "blockedReasonCodes": [],
     }
     assert "operator confirmed stale resume plan" not in json.dumps(events[0], sort_keys=True)
     assert "operator" not in json.dumps(events[0]["details"], sort_keys=True)
 
 
-def test_resume_route_stays_disabled_even_if_plan_claims_execution_enabled(tmp_path, monkeypatch) -> None:
+def test_resume_route_blocks_if_activation_readiness_is_not_ready(tmp_path, monkeypatch) -> None:
     cfg = make_configured_remote_runner(
         tmp_path,
         token="rbac-token",
@@ -627,7 +654,7 @@ def test_resume_route_stays_disabled_even_if_plan_claims_execution_enabled(tmp_p
     run_id = "run_resume_public_enabled_probe"
     _create_failed_resumable_run(cfg, run_id, result_dir=Path(cfg.results_dir) / "results-public-enabled-probe")
     plan = fetch_run_execution_context(cfg, run_id)["resumePlan"]
-    enabled_probe = {
+    readiness_probe = {
         **plan,
         "executionEnabled": True,
         "executionReasonCode": "RUN_RESUME_EXECUTION_ENABLED",
@@ -644,16 +671,16 @@ def test_resume_route_stays_disabled_even_if_plan_claims_execution_enabled(tmp_p
         },
         "activationReadiness": {
             **plan["activationReadiness"],
-            "executionReady": True,
+            "executionReady": False,
             "executionEnabled": True,
-            "reasonCode": "ACTIVATION_READY",
-            "blockedReasonCodes": [],
-            "blockedCheckCount": 0,
+            "reasonCode": "RUN_RESUME_ACTIVATION_NOT_READY",
+            "blockedReasonCodes": ["RUN_RESUME_ACTIVATION_NOT_READY"],
+            "blockedCheckCount": 1,
         },
     }
     monkeypatch.setattr(
         "apps.remote_runner.run_reexecution_service.fetch_run_execution_context",
-        lambda _cfg, _run_id: {"resumePlan": enabled_probe},
+        lambda _cfg, _run_id: {"resumePlan": readiness_probe},
     )
 
     response = TestClient(app).post(
@@ -664,21 +691,21 @@ def test_resume_route_stays_disabled_even_if_plan_claims_execution_enabled(tmp_p
 
     assert response.status_code == 409
     detail = response.json()["detail"]
-    assert detail["code"] == "RUN_RESUME_MUTATION_API_DISABLED"
+    assert detail["code"] == "RUN_RESUME_ACTIVATION_NOT_READY"
     public_plan = detail["resumePlan"]
-    _assert_public_resume_plan_projection(public_plan, enabled_probe, route_disabled=True)
-    assert public_plan["executionEnabled"] is False
-    assert public_plan["executionReasonCode"] == "RUN_RESUME_MUTATION_API_DISABLED"
-    assert public_plan["executorOrchestration"]["executorReady"] is False
-    assert public_plan["executorOrchestration"]["queueMutationAllowed"] is False
-    assert public_plan["executorOrchestration"]["runStateMutationAllowed"] is False
+    _assert_public_resume_plan_projection(public_plan, readiness_probe)
+    assert public_plan["executionEnabled"] is True
+    assert public_plan["executionReasonCode"] == "RUN_RESUME_EXECUTION_ENABLED"
+    assert public_plan["executorOrchestration"]["executorReady"] is True
+    assert public_plan["executorOrchestration"]["queueMutationAllowed"] is True
+    assert public_plan["executorOrchestration"]["runStateMutationAllowed"] is True
     assert public_plan["activationReadiness"]["executionReady"] is False
-    assert "RUN_RESUME_MUTATION_API_DISABLED" in public_plan["blockedReasonCodes"]
+    assert "RUN_RESUME_ACTIVATION_NOT_READY" in public_plan["activationReadiness"]["blockedReasonCodes"]
     _assert_run_not_requeued(cfg, run_id)
     events = list_governance_audit_events(cfg, action="run.resume")["items"]
     assert len(events) == 1
     assert events[0]["decision"] == "deny"
-    assert events[0]["reasonCode"] == "RUN_RESUME_MUTATION_API_DISABLED"
+    assert events[0]["reasonCode"] == "RUN_RESUME_ACTIVATION_NOT_READY"
 
 
 def test_run_reexecution_routes_reject_stale_plan_hash_before_mutation(tmp_path, monkeypatch) -> None:
@@ -946,6 +973,49 @@ def _assert_run_not_requeued(cfg, run_id: str) -> None:
     assert retry_event_count == 0
 
 
+def _assert_run_requeued_for_resume(cfg, run_id: str, *, source_plan: dict[str, Any]) -> None:
+    with get_connection(cfg) as connection:
+        run = connection.execute("SELECT status, stage FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+        job = connection.execute("SELECT state, execution_options_json FROM run_jobs WHERE run_id = ?", (run_id,)).fetchone()
+        command = connection.execute(
+            "SELECT command_type, actor, payload_json FROM run_commands WHERE run_id = ? AND command_type = 'retry_run'",
+            (run_id,),
+        ).fetchone()
+        retry_event = connection.execute(
+            "SELECT details_json FROM run_events WHERE run_id = ? AND event_type = 'run_retry_requested'",
+            (run_id,),
+        ).fetchone()
+    assert dict(run) == {"status": "queued", "stage": "retry"}
+    assert job["state"] == "queued"
+    execution_options = json.loads(job["execution_options_json"])
+    assert execution_options["schemaVersion"] == "run-job-execution-options.v1"
+    assert execution_options["snakemake"] == {
+        "schemaVersion": "snakemake-run-resume-options.v1",
+        "rerunIncomplete": True,
+        "forcerunRules": [],
+        "argsPreview": ["--rerun-incomplete"],
+        "unsafeFlagsProhibited": ["--forceall", "--touch", "--ignore-incomplete"],
+    }
+    assert execution_options["resumeScope"]["sourcePlanHash"] == source_plan["planHash"]
+    assert execution_options["resumeScope"]["mode"] == "run-resume"
+    assert execution_options["resumeScope"]["outputKeys"] == ["present", "missing"]
+    assert execution_options["resumeScope"]["pathExposed"] is False
+    assert command is not None
+    assert dict(command) == {
+        "command_type": "retry_run",
+        "actor": "operator",
+        "payload_json": command["payload_json"],
+    }
+    command_payload = json.loads(command["payload_json"])
+    assert command_payload["scope"] == "resume"
+    assert command_payload["reason"] == "operator confirmed resume plan"
+    assert command_payload["executionOptions"] == execution_options
+    assert retry_event is not None
+    event_payload = json.loads(retry_event["details_json"])["payload"]
+    assert event_payload["scope"] == "resume"
+    assert event_payload["executionOptions"] == execution_options
+
+
 def _assert_public_resume_plan_projection(
     public_plan: dict[str, Any],
     source_plan: dict[str, Any],
@@ -983,10 +1053,10 @@ def _assert_public_resume_plan_projection(
     assert public_plan["runId"] == source_plan["runId"]
     assert public_plan["workflowRevisionIdPresent"] is True
     assert public_plan["strategy"] == "snakemake-rerun-incomplete"
-    assert public_plan["supported"] is False
-    assert public_plan["eligible"] is False
-    assert public_plan["eligibleNow"] is False
-    assert public_plan["executionEnabled"] is False
+    assert public_plan["supported"] is bool(source_plan.get("supported"))
+    assert public_plan["eligible"] is bool(source_plan.get("eligible"))
+    assert public_plan["eligibleNow"] is bool(source_plan.get("eligibleNow"))
+    assert public_plan["executionEnabled"] is (False if route_disabled else source_plan.get("executionEnabled") is True)
     assert public_plan["commandPreviewAvailable"] is True
     assert public_plan["attemptCount"] == source_plan["attemptCount"]
     assert set(public_plan["latestAttempt"]) == {
@@ -1072,7 +1142,9 @@ def _assert_public_resume_plan_projection(
     assert public_plan["artifactAdoptionBoundary"]["pathExposed"] is False
     assert public_plan["artifactAdoptionBoundary"]["storageUriExposed"] is False
     assert public_plan["artifactAdoptionBoundary"]["checksumValueExposed"] is False
-    assert public_plan["artifactAdoptionBoundary"]["runStateMutationAllowed"] is False
+    assert public_plan["artifactAdoptionBoundary"]["runStateMutationAllowed"] is bool(
+        source_plan["artifactAdoptionBoundary"].get("runStateMutationAllowed")
+    )
 
     assert set(public_plan["executorOrchestration"]) == {
         "schemaVersion",
@@ -1103,9 +1175,15 @@ def _assert_public_resume_plan_projection(
         "storageUriExposed",
     }
     assert public_plan["executorOrchestration"]["mode"] == "run-resume"
-    assert public_plan["executorOrchestration"]["executorReady"] is False
-    assert public_plan["executorOrchestration"]["queueMutationAllowed"] is False
-    assert public_plan["executorOrchestration"]["runStateMutationAllowed"] is False
+    assert public_plan["executorOrchestration"]["executorReady"] is (
+        False if route_disabled else source_plan["executorOrchestration"].get("executorReady") is True
+    )
+    assert public_plan["executorOrchestration"]["queueMutationAllowed"] is (
+        False if route_disabled else source_plan["executorOrchestration"].get("queueMutationAllowed") is True
+    )
+    assert public_plan["executorOrchestration"]["runStateMutationAllowed"] is (
+        False if route_disabled else source_plan["executorOrchestration"].get("runStateMutationAllowed") is True
+    )
     assert public_plan["executorOrchestration"]["pathExposed"] is False
     assert public_plan["executorOrchestration"]["storageUriExposed"] is False
     assert set(public_plan["executorOrchestration"]["sourceAttempt"]) == {
@@ -1137,7 +1215,9 @@ def _assert_public_resume_plan_projection(
         "redactionPolicy",
     }
     assert readiness["schemaVersion"] == "run-resume-activation-readiness.v1"
-    assert readiness["executionReady"] is False
+    assert readiness["executionReady"] is (
+        False if route_disabled else source_plan["activationReadiness"].get("executionReady") is True
+    )
     assert readiness["redactionPolicy"] == {
         "rawIdentifiersExposed": False,
         "fingerprintsExposed": False,

@@ -22,17 +22,36 @@ class FakeClock:
         return f"2099-06-07T10:01:{self.tick:02d}Z"
 
 
-def test_run_worker_rejects_run_resume_options_until_workdir_reuse_path_is_proven(tmp_path: Path, monkeypatch) -> None:
+def test_run_worker_executes_run_resume_after_claim_reuses_source_workdir(tmp_path: Path, monkeypatch) -> None:
     from apps.remote_runner import run_worker
 
     cfg, run_id = _failed_resumable_run(tmp_path)
     options = build_run_resume_execution_options(fetch_run_execution_context(cfg, run_id)["resumePlan"])
     _requeue_with_execution_options(cfg, run_id, options)
+    source_attempt_id = options["resumeScope"]["sourceAttempt"]["attemptId"]
+    with get_connection(cfg) as connection:
+        source_work_dir = connection.execute(
+            "SELECT work_dir FROM run_attempts WHERE attempt_id = ?",
+            (source_attempt_id,),
+        ).fetchone()["work_dir"]
 
-    def fail_executor(*_args, **_kwargs) -> None:
-        raise AssertionError("executor must not run until run-resume workdir reuse is proven")
+    captured: dict[str, object] = {}
 
-    monkeypatch.setattr(run_worker, "run_snakemake_execution", fail_executor)
+    def fake_executor(executor_cfg, **kwargs) -> None:
+        captured.update(kwargs)
+        update_run_state(
+            executor_cfg,
+            run_id=str(kwargs["run_id"]),
+            status="completed",
+            stage="finalize",
+            message="Resume execution completed.",
+            request_id=str(kwargs["request_id"]),
+            result_dir=str(Path(executor_cfg.results_dir) / run_id),
+            attempt_id=str(kwargs["attempt_id"]),
+            lease_generation=int(kwargs["lease_generation"]),
+        )
+
+    monkeypatch.setattr(run_worker, "run_snakemake_execution", fake_executor)
 
     result = process_next_run_job(
         cfg,
@@ -43,16 +62,10 @@ def test_run_worker_rejects_run_resume_options_until_workdir_reuse_path_is_prove
     )
 
     assert result["claimed"] is True
-    assert result["executionError"] == "RUN_RESUME_CLAIM_WORKDIR_REUSE_UNSATISFIED"
-    with get_connection(cfg) as connection:
-        run = connection.execute(
-            "SELECT status, stage, last_error_json FROM runs WHERE run_id = ?",
-            (run_id,),
-        ).fetchone()
-    last_error = json.loads(run["last_error_json"])
-    assert dict(run) == {"status": "failed", "stage": "worker", "last_error_json": run["last_error_json"]}
-    assert last_error["code"] == "RUN_WORKER_EXECUTION_FAILED"
-    assert last_error["message"] == "RUN_RESUME_CLAIM_WORKDIR_REUSE_UNSATISFIED"
+    assert result["executionError"] == ""
+    assert result["attemptCompletion"]["accepted"] is True
+    assert captured["execution_options"] == options
+    assert captured["attempt_work_dir"] == source_work_dir
 
 
 def test_run_worker_revalidates_persisted_run_resume_options_after_claim(tmp_path: Path, monkeypatch) -> None:

@@ -174,6 +174,138 @@ def test_executor_applies_job_execution_options_to_dry_run_and_run(tmp_path: Pat
     assert "--logger-h2ometa-event-path" in calls[1]
 
 
+def test_executor_applies_run_resume_options_without_leaking_internal_scope(tmp_path: Path, monkeypatch) -> None:
+    snakemake_command = tmp_path / "tooling" / "workflow-env" / "bin" / "snakemake"
+    cfg = RemoteRunnerConfig(
+        token="phase3-token",
+        data_root=str(tmp_path / "shared"),
+        db_path=str(tmp_path / "shared" / "data" / "runner.db"),
+        uploads_dir=str(tmp_path / "shared" / "uploads"),
+        results_dir=str(tmp_path / "shared" / "results"),
+        work_dir=str(tmp_path / "shared" / "work"),
+        logs_dir=str(tmp_path / "shared" / "logs"),
+        release_dir=str(tmp_path / "release"),
+        snakemake_command=str(snakemake_command),
+    )
+    snakemake_command.parent.mkdir(parents=True, exist_ok=True)
+    snakemake_command.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    _write_file_summary_pipeline(Path(cfg.release_dir))
+    ensure_runtime_layout(cfg)
+
+    from apps.remote_runner.storage import create_run_record, persist_upload
+    from apps.remote_runner.storage_core import get_connection
+
+    upload = persist_upload(
+        cfg,
+        filename="reads.fastq",
+        content_base64="QHJlYWQxCkFDR1QKKwohISEhCg==",
+        mime_type="text/plain",
+    )
+    run_spec = {
+        "runId": "run_resume_executor_options",
+        "pipelineId": "file-summary-v1",
+        "projectId": "proj_demo",
+        "inputs": [{"uploadId": upload["uploadId"], "filename": "reads.fastq", "role": "reads"}],
+    }
+    create_run_record(
+        cfg,
+        server_id="srv_resume_executor_options",
+        request_id="req_resume_executor_options",
+        run_spec=run_spec,
+        idempotency_key="idem_resume_executor_options",
+        payload_hash="r" * 64,
+    )
+    result_dir = Path(cfg.results_dir) / "run_resume_executor_options"
+    work_dir = Path(cfg.work_dir) / "attempts" / "att_resume_source"
+    result_dir.mkdir(parents=True, exist_ok=True)
+    work_dir.mkdir(parents=True, exist_ok=True)
+    (work_dir / "run-config.json").write_text(
+        json.dumps(
+            {
+                "outputs": {
+                    "summary": str(result_dir / "summary.tsv"),
+                    "report": str(result_dir / "run-report.html"),
+                    "raw_log": str(result_dir / "raw-log.txt"),
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    with get_connection(cfg) as connection:
+        connection.execute(
+            "UPDATE runs SET result_dir = ? WHERE run_id = ?",
+            (str(result_dir), run_spec["runId"]),
+        )
+        connection.commit()
+
+    calls: list[list[str]] = []
+
+    class Result:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    def fake_run(cmd, **_kwargs):
+        calls.append(list(cmd))
+        return Result()
+
+    monkeypatch.setattr("apps.remote_runner.executor.subprocess.run", fake_run)
+    monkeypatch.setattr("apps.remote_runner.executor._collect_artifacts", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr("apps.remote_runner.executor.update_run_state", lambda *args, **kwargs: None)
+    monkeypatch.setattr("apps.remote_runner.executor.append_log_lines", lambda *args, **kwargs: None)
+
+    run_snakemake_execution(
+        cfg,
+        run_id=run_spec["runId"],
+        request_id="req_resume_executor_options",
+        run_spec=run_spec,
+        attempt_id="att_resume_target",
+        lease_generation=2,
+        attempt_number=2,
+        attempt_work_dir=str(work_dir),
+        execution_options={
+            "schemaVersion": "run-job-execution-options.v1",
+            "snakemake": {
+                "schemaVersion": "snakemake-run-resume-options.v1",
+                "rerunIncomplete": True,
+                "forcerunRules": [],
+                "argsPreview": ["--rerun-incomplete"],
+                "unsafeFlagsProhibited": ["--forceall", "--touch", "--ignore-incomplete"],
+            },
+            "resumeScope": {
+                "schemaVersion": "run-resume-execution-scope.v1",
+                "mode": "run-resume",
+                "sourcePlanHash": "a" * 64,
+                "sourceAttempt": {
+                    "attemptId": "att_resume_source",
+                    "attemptNumber": 1,
+                    "leaseGeneration": 1,
+                    "state": "failed",
+                },
+                "outputCount": 3,
+                "outputKeys": ["summary", "report", "raw_log"],
+                "finalizeRunOnAdoption": True,
+                "postExecutionAdoptionRequired": True,
+                "cacheAdoptionAllowed": False,
+                "pathExposed": False,
+                "storageUriExposed": False,
+                "checksumValueExposed": False,
+            },
+        },
+    )
+
+    assert len(calls) == 2
+    for command in calls:
+        assert "--rerun-incomplete" in command
+        assert "--forcerun" not in command
+        assert "--forceall" not in command
+        assert "--touch" not in command
+        assert "--ignore-incomplete" not in command
+        assert str(work_dir / "run-config.json") in command
+    assert "-n" in calls[0]
+    assert "--logger-h2ometa-event-path" in calls[1]
+
+
 def test_rule_rerun_artifact_adoption_does_not_finalize_whole_run(tmp_path: Path, monkeypatch) -> None:
     snakemake_command = tmp_path / "tooling" / "workflow-env" / "bin" / "snakemake"
     cfg = RemoteRunnerConfig(

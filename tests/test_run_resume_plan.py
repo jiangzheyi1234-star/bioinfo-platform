@@ -7,7 +7,7 @@ from apps.remote_runner.execution_plan_hash import stable_plan_hash
 from apps.remote_runner.execution_resume_plan import build_run_resume_plan
 
 
-def test_run_resume_plan_previews_snakemake_rerun_incomplete_without_enabling_execution(tmp_path: Path) -> None:
+def test_run_resume_plan_enables_snakemake_rerun_incomplete_after_evidence_is_ready(tmp_path: Path) -> None:
     work_dir = tmp_path / "work"
     result_dir = tmp_path / "results"
     work_dir.mkdir()
@@ -31,16 +31,17 @@ def test_run_resume_plan_previews_snakemake_rerun_incomplete_without_enabling_ex
     assert plan["schemaVersion"] == "run-resume-plan.v1"
     assert len(plan["planHash"]) == 64
     assert plan["planHash"] == stable_plan_hash(plan)
-    assert plan["supported"] is False
-    assert plan["eligible"] is False
-    assert plan["eligibleNow"] is False
-    assert plan["executionEnabled"] is False
+    assert plan["supported"] is True
+    assert plan["eligible"] is True
+    assert plan["eligibleNow"] is True
+    assert plan["executionEnabled"] is True
+    assert plan["executionReasonCode"] == "RUN_RESUME_EXECUTION_ENABLED"
     assert plan["activationReadiness"]["schemaVersion"] == "run-resume-activation-readiness.v1"
-    assert plan["activationReadiness"]["executionReady"] is False
-    assert plan["activationReadiness"]["executionEnabled"] is False
-    assert plan["activationReadiness"]["reasonCode"] == "RUN_RESUME_EXECUTOR_ORCHESTRATION_PREVIEW_ONLY"
-    assert plan["activationReadiness"]["readyCheckCount"] == 5
-    assert plan["activationReadiness"]["blockedCheckCount"] == 2
+    assert plan["activationReadiness"]["executionReady"] is True
+    assert plan["activationReadiness"]["executionEnabled"] is True
+    assert plan["activationReadiness"]["reasonCode"] == "ACTIVATION_READY"
+    assert plan["activationReadiness"]["readyCheckCount"] == 7
+    assert plan["activationReadiness"]["blockedCheckCount"] == 0
     assert plan["activationReadiness"]["summary"] == {
         "attemptCount": 1,
         "expectedOutputCount": 2,
@@ -55,7 +56,7 @@ def test_run_resume_plan_previews_snakemake_rerun_incomplete_without_enabling_ex
         "uncheckedOutputCount": 0,
         "unverifiedOutputCount": 0,
         "executorContractReady": 1,
-        "executorReady": 0,
+        "executorReady": 1,
     }
     assert plan["activationReadiness"]["redactionPolicy"]["pathsExposed"] is False
     assert plan["commandPreviewAvailable"] is True
@@ -108,9 +109,11 @@ def test_run_resume_plan_previews_snakemake_rerun_incomplete_without_enabling_ex
     assert plan["executorOrchestration"]["schemaVersion"] == "rerun-executor-orchestration.v1"
     assert plan["executorOrchestration"]["mode"] == "run-resume"
     assert plan["executorOrchestration"]["contractReady"] is True
-    assert plan["executorOrchestration"]["executorReady"] is False
-    assert plan["executorOrchestration"]["reasonCode"] == "RUN_RESUME_EXECUTOR_ORCHESTRATION_PREVIEW_ONLY"
-    assert plan["executorOrchestration"]["queueMutationAllowed"] is False
+    assert plan["executorOrchestration"]["executorReady"] is True
+    assert plan["executorOrchestration"]["reasonCode"] == "RUN_RESUME_EXECUTOR_READY"
+    assert plan["executorOrchestration"]["queueMutationAllowed"] is True
+    assert plan["executorOrchestration"]["runStateMutationAllowed"] is True
+    assert plan["executorOrchestration"]["finalizeRunAllowed"] is True
     assert plan["executorOrchestration"]["pathExposed"] is False
     assert plan["snakemakeOptions"] == {
         "schemaVersion": "snakemake-run-resume-options.v1",
@@ -118,7 +121,7 @@ def test_run_resume_plan_previews_snakemake_rerun_incomplete_without_enabling_ex
         "argsPreview": ["--rerun-incomplete"],
         "unsafeFlagsProhibited": ["--forceall", "--touch", "--ignore-incomplete"],
     }
-    assert "RUN_RESUME_MUTATION_API_DISABLED" in plan["blockedReasonCodes"]
+    assert plan["blockedReasonCodes"] == []
 
 
 def test_run_resume_plan_blocks_without_workflow_revision() -> None:

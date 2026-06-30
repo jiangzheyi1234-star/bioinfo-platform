@@ -172,8 +172,8 @@ def _public_executor_orchestration(
         "cacheAdoptionBypassRequired": bool(orchestration.get("cacheAdoptionBypassRequired")),
         "artifactAdoptionRequired": bool(orchestration.get("artifactAdoptionRequired")),
         "finalizeRunAllowed": bool(orchestration.get("finalizeRunAllowed")),
-        "queueMutationAllowed": False,
-        "runStateMutationAllowed": False,
+        "queueMutationAllowed": False if route_disabled else orchestration.get("queueMutationAllowed") is True,
+        "runStateMutationAllowed": False if route_disabled else orchestration.get("runStateMutationAllowed") is True,
         "pathExposed": bool(orchestration.get("pathExposed")),
         "storageUriExposed": bool(orchestration.get("storageUriExposed")),
     }
@@ -193,7 +193,7 @@ def _public_activation_readiness(readiness: dict[str, Any], *, route_disabled: b
         "schemaVersion": str(readiness.get("schemaVersion") or ""),
         "runId": str(readiness.get("runId") or ""),
         "workflowRevisionIdPresent": bool(str(readiness.get("workflowRevisionId") or "").strip()),
-        "executionReady": False,
+        "executionReady": False if route_disabled else readiness.get("executionReady") is True,
         "executionEnabled": False if route_disabled else readiness.get("executionEnabled") is True,
         "reasonCode": "RUN_RESUME_MUTATION_API_DISABLED"
         if route_disabled

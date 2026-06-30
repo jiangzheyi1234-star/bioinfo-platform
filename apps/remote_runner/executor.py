@@ -4,6 +4,7 @@ import json
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from .config import RemoteRunnerConfig
 from .artifact_input_lineage import record_run_input_artifact_lineage
@@ -31,6 +32,7 @@ from .rule_execution_projection import (
 from .storage import append_log_lines, update_run_state
 from .workflow_resources import build_workflow_resource_config
 from .resource_pool import ResourcePool, ResourceRequest, get_default_resource_pool
+from .execution_query_storage import fetch_run
 from .workflow_engine_adapter import (
     SnakemakeEngineAdapter,
     WorkflowRuntimeCommandError,
@@ -109,6 +111,7 @@ def _execute_snakemake_workflow(
     try:
         snakemake_execution_options = _snakemake_execution_options(execution_options)
         output_adoption_scope = snakemake_execution_options.pop("output_adoption_scope")
+        resume_scope = snakemake_execution_options.pop("resume_scope")
         engine = SnakemakeEngineAdapter(
             cfg,
             run_command=subprocess.run if subprocess.run is not _ORIGINAL_SUBPROCESS_RUN else None,
@@ -119,7 +122,6 @@ def _execute_snakemake_workflow(
                 lease_generation=lease_generation,
             ),
         )
-        result_dir.mkdir(parents=True, exist_ok=True)
         work_dir.mkdir(parents=True, exist_ok=True)
         logs_dir.mkdir(parents=True, exist_ok=True)
         snakemake_event_log.unlink(missing_ok=True)
@@ -133,8 +135,43 @@ def _execute_snakemake_workflow(
             attempt_id=attempt_id,
             lease_generation=lease_generation,
         )
+        if resume_scope is not None:
+            result_dir = _resolve_run_resume_result_dir(cfg, run_id=run_id)
+            config_path = work_dir / "run-config.json"
+        result_dir.mkdir(parents=True, exist_ok=True)
         pipeline_id = str(run_spec.get("pipelineId") or "")
-        if pipeline_id == GENERATED_TOOL_RUN_PIPELINE_ID:
+        if resume_scope is not None:
+            resume_context = _prepare_run_resume_workflow_context(
+                cfg,
+                run_id=run_id,
+                run_spec=run_spec,
+                work_dir=work_dir,
+                result_dir=result_dir,
+                resume_scope=resume_scope,
+            )
+            snakefile = resume_context["snakefile"]
+            config_path = resume_context["configPath"]
+            output_schema = resume_context["outputSchema"]
+            run_outputs = resume_context["outputs"]
+            if pipeline_id == GENERATED_TOOL_RUN_PIPELINE_ID:
+                seed_run_rules_from_config(
+                    cfg,
+                    run_id=run_id,
+                    attempt_id=attempt_id,
+                    lease_generation=lease_generation,
+                    attempt_number=attempt_number,
+                    config_path=config_path,
+                )
+            else:
+                seed_run_rules_from_graph(
+                    cfg,
+                    run_id=run_id,
+                    attempt_id=attempt_id,
+                    lease_generation=lease_generation,
+                    attempt_number=attempt_number,
+                    graph=dict(resume_context.get("graph") or {}),
+                )
+        elif pipeline_id == GENERATED_TOOL_RUN_PIPELINE_ID:
             resolved_inputs = _resolve_run_inputs(cfg, run_spec, input_work_dir=work_dir / "inputs")
             record_run_input_artifact_lineage(cfg, run_id=run_id, resolved_inputs=resolved_inputs, attempt_id=attempt_id)
             generated = prepare_generated_tool_workflow(
@@ -398,3 +435,120 @@ def _execute_snakemake_workflow(
             lease_generation=lease_generation,
             engine_stage=engine_stage,
         )
+
+
+def _prepare_run_resume_workflow_context(
+    cfg: RemoteRunnerConfig,
+    *,
+    run_id: str,
+    run_spec: dict,
+    work_dir: Path,
+    result_dir: Path,
+    resume_scope: dict,
+) -> dict[str, Any]:
+    config_path = work_dir / "run-config.json"
+    if not config_path.is_file():
+        raise WorkflowRuntimeCommandError("RUN_RESUME_RUN_CONFIG_NOT_FOUND")
+    config = _read_run_resume_config(config_path)
+    outputs = _run_resume_outputs(config, result_dir=result_dir, resume_scope=resume_scope)
+    pipeline_id = str(run_spec.get("pipelineId") or "")
+    if pipeline_id == GENERATED_TOOL_RUN_PIPELINE_ID:
+        snakefile = work_dir / "workflow" / "Snakefile"
+        output_schema = _generated_run_resume_output_schema(config, outputs)
+        graph = {}
+    else:
+        pipeline = get_pipeline(cfg, pipeline_id)
+        validate_run_spec_for_pipeline(pipeline, run_spec)
+        snakefile = pipeline.snakefile
+        output_schema = pipeline.output_schema
+        graph = dict(pipeline.ui_schema.get("graph") or {})
+    if not snakefile.is_file():
+        raise WorkflowRuntimeCommandError("RUN_RESUME_SNAKEFILE_NOT_FOUND")
+    return {
+        "snakefile": snakefile,
+        "configPath": config_path,
+        "outputs": outputs,
+        "outputSchema": output_schema,
+        "graph": graph,
+    }
+
+
+def _read_run_resume_config(config_path: Path) -> dict[str, Any]:
+    try:
+        parsed = json.loads(config_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise WorkflowRuntimeCommandError("RUN_RESUME_RUN_CONFIG_INVALID") from exc
+    if not isinstance(parsed, dict):
+        raise WorkflowRuntimeCommandError("RUN_RESUME_RUN_CONFIG_INVALID")
+    return parsed
+
+
+def _run_resume_outputs(
+    config: dict[str, Any],
+    *,
+    result_dir: Path,
+    resume_scope: dict,
+) -> dict[str, str]:
+    raw_outputs = config.get("outputs")
+    if not isinstance(raw_outputs, dict) or not raw_outputs:
+        raise WorkflowRuntimeCommandError("RUN_RESUME_RUN_CONFIG_OUTPUTS_MISSING")
+    required_keys = {str(key) for key in resume_scope.get("outputKeys") or []}
+    outputs: dict[str, str] = {}
+    result_root = result_dir.resolve(strict=False)
+    for key, raw_path in raw_outputs.items():
+        output_key = str(key or "").strip()
+        output_path = str(raw_path or "").strip()
+        if not output_key or not output_path:
+            raise WorkflowRuntimeCommandError("RUN_RESUME_OUTPUT_REFERENCE_INVALID")
+        path = Path(output_path)
+        if not path.is_absolute():
+            path = result_dir / path
+        resolved = path.resolve(strict=False)
+        if not _is_relative_to(resolved, result_root):
+            raise WorkflowRuntimeCommandError("RUN_RESUME_OUTPUT_PATH_OUTSIDE_RESULT_DIR")
+        outputs[output_key] = str(resolved)
+    missing_keys = required_keys - set(outputs)
+    if missing_keys:
+        raise WorkflowRuntimeCommandError("RUN_RESUME_OUTPUT_SCOPE_UNKNOWN")
+    return outputs
+
+
+def _generated_run_resume_output_schema(config: dict[str, Any], outputs: dict[str, str]) -> dict[str, Any]:
+    workflow = config.get("workflow") if isinstance(config.get("workflow"), dict) else {}
+    workflow_outputs = workflow.get("outputs") if isinstance(workflow.get("outputs"), dict) else {}
+    artifacts: list[dict[str, Any]] = []
+    for key, output_path in outputs.items():
+        spec = workflow_outputs.get(key) if isinstance(workflow_outputs.get(key), dict) else {}
+        artifact = {
+            "key": key,
+            "name": Path(output_path).name,
+            "kind": str(spec.get("kind") or "file"),
+            "mimeType": str(spec.get("mimeType") or "application/octet-stream"),
+        }
+        for flag in ("temp", "protected", "directory"):
+            if spec.get(flag) is True:
+                artifact[flag] = True
+        artifacts.append(artifact)
+    if not artifacts:
+        raise WorkflowRuntimeCommandError("RUN_RESUME_OUTPUT_ARTIFACTS_REQUIRED")
+    return {"type": "object", "artifacts": artifacts}
+
+
+def _resolve_run_resume_result_dir(cfg: RemoteRunnerConfig, *, run_id: str) -> Path:
+    run = fetch_run(cfg, run_id)
+    if run is None:
+        raise WorkflowRuntimeCommandError("RUN_NOT_FOUND")
+    raw_result_dir = str(run.get("resultDir") or "").strip()
+    if not raw_result_dir:
+        raise WorkflowRuntimeCommandError("RUN_RESUME_RESULT_DIR_REQUIRED")
+    result_dir = Path(raw_result_dir)
+    if not result_dir.is_absolute():
+        result_dir = Path(cfg.results_dir) / result_dir
+    resolved = result_dir.resolve(strict=False)
+    if not _is_relative_to(resolved, Path(cfg.results_dir).resolve(strict=False)):
+        raise WorkflowRuntimeCommandError("RUN_RESUME_RESULT_DIR_OUTSIDE_MANAGED_ROOT")
+    return resolved
+
+
+def _is_relative_to(path: Path, root: Path) -> bool:
+    return path == root or root in path.parents

@@ -92,7 +92,7 @@ def test_retry_run_rules_route_delegates_fail_closed_runtime_result(monkeypatch)
     }
 
 
-def test_resume_run_route_delegates_fail_closed_runtime_result(monkeypatch) -> None:
+def test_resume_run_route_delegates_runtime_result(monkeypatch) -> None:
     runtime = FakeExecutionRuntime()
     monkeypatch.setattr("apps.api.execution_query_service.runtime_service", lambda: runtime)
 
@@ -123,9 +123,10 @@ def test_resume_run_route_delegates_fail_closed_runtime_result(monkeypatch) -> N
         "data": {
             "schemaVersion": "run-resume-result.v1",
             "runId": "run_resume",
-            "accepted": False,
-            "blocked": True,
-            "reasonCode": "RUN_RESUME_MUTATION_API_DISABLED",
+            "accepted": True,
+            "blocked": False,
+            "status": "queued",
+            "scope": "resume",
         }
     }
 
@@ -482,12 +483,13 @@ class FakeExecutionRuntime:
         self.resume_calls.append((run_id, payload))
         return {
             "data": {
-                "schemaVersion": "run-resume-result.v1",
-                "runId": run_id,
-                "accepted": False,
-                "blocked": True,
-                "reasonCode": "RUN_RESUME_MUTATION_API_DISABLED",
-            }
+            "schemaVersion": "run-resume-result.v1",
+            "runId": run_id,
+            "accepted": True,
+            "blocked": False,
+            "status": "queued",
+            "scope": "resume",
+        }
         }
 
 

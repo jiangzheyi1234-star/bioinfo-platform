@@ -11,6 +11,7 @@ from .config import RemoteRunnerConfig
 from .event_contracts import append_run_event_v2, record_run_command
 from .execution_policy import heartbeat_timeout_seconds_for_job
 from .execution_decision_logging import log_admission_wait, log_claim_accepted
+from .execution_resume_claim_preflight import run_resume_execution_options_requested
 from .metrics import record_run_attempt_claimed, record_run_attempt_completed
 from .admission_storage import (
     admission_wait_reason,
@@ -191,7 +192,7 @@ def claim_next_run_job(
             current_lease_generation=int(current_lease["lease_generation"]) if current_lease is not None else None,
         )
         attempt_id = f"att_{uuid.uuid4().hex[:12]}"
-        work_dir = str(Path(cfg.work_dir) / "attempts" / attempt_id)
+        work_dir = _work_dir_for_claimed_job(cfg, connection, job, attempt_id=attempt_id)
         expires_at = _add_seconds(
             claimed_at,
             heartbeat_timeout_seconds_for_job(job, fallback_seconds=lease_seconds),
@@ -701,6 +702,45 @@ def _claim_to_dict(job: sqlite3.Row, attempt: sqlite3.Row, lease: sqlite3.Row) -
     }
 
 
+def _work_dir_for_claimed_job(
+    cfg: RemoteRunnerConfig,
+    connection: sqlite3.Connection,
+    job: sqlite3.Row,
+    *,
+    attempt_id: str,
+) -> str:
+    execution_options = _json_object(job["execution_options_json"])
+    if run_resume_execution_options_requested(execution_options):
+        return _source_work_dir_for_run_resume(connection, job, execution_options)
+    return str(Path(cfg.work_dir) / "attempts" / attempt_id)
+
+
+def _source_work_dir_for_run_resume(
+    connection: sqlite3.Connection,
+    job: sqlite3.Row,
+    execution_options: dict[str, Any],
+) -> str:
+    scope = execution_options.get("resumeScope")
+    source_attempt = scope.get("sourceAttempt") if isinstance(scope, dict) else None
+    source_attempt_id = str(source_attempt.get("attemptId") or "").strip() if isinstance(source_attempt, dict) else ""
+    if not source_attempt_id:
+        raise ValueError("RUN_RESUME_SOURCE_ATTEMPT_REQUIRED")
+    row = connection.execute(
+        "SELECT run_id, state, work_dir FROM run_attempts WHERE attempt_id = ?",
+        (source_attempt_id,),
+    ).fetchone()
+    if row is None:
+        raise ValueError("RUN_RESUME_SOURCE_ATTEMPT_NOT_FOUND")
+    if str(row["run_id"]) != str(job["run_id"]):
+        raise ValueError("RUN_RESUME_SOURCE_ATTEMPT_RUN_MISMATCH")
+    if str(row["state"]).lower() not in {"failed", "fenced", "canceled", "cancelled"}:
+        raise ValueError("RUN_RESUME_SOURCE_ATTEMPT_NOT_RESUMABLE")
+    work_dir = str(row["work_dir"] or "").strip()
+    if not work_dir:
+        raise ValueError("RUN_RESUME_SOURCE_WORKDIR_REQUIRED")
+    return work_dir
+
+
 def _attempt_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     return {
         "attemptId": row["attempt_id"],
@@ -773,6 +813,14 @@ def _optional_text(value: str | None) -> str | None:
 
 def _stable_json(value: dict[str, Any]) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def _json_object(value: str | None) -> dict[str, Any]:
+    try:
+        parsed = json.loads(value or "{}")
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 

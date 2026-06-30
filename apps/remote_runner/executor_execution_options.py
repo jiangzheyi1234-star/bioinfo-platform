@@ -19,12 +19,12 @@ _UNSAFE_RUN_RESUME_FLAGS = {"--forceall", "--touch", "--ignore-incomplete", "--f
 
 def _snakemake_execution_options(execution_options: dict | None) -> dict[str, Any]:
     if not execution_options:
-        return {"forcerun_rules": None, "rerun_incomplete": False, "output_adoption_scope": None}
+        return {"forcerun_rules": None, "rerun_incomplete": False, "output_adoption_scope": None, "resume_scope": None}
     if execution_options.get("schemaVersion") != RUN_JOB_EXECUTION_OPTIONS_SCHEMA_VERSION:
         raise WorkflowRuntimeCommandError("RUN_JOB_EXECUTION_OPTIONS_SCHEMA_UNSUPPORTED")
     snakemake = execution_options.get("snakemake")
     if not isinstance(snakemake, dict):
-        return {"forcerun_rules": None, "rerun_incomplete": False, "output_adoption_scope": None}
+        return {"forcerun_rules": None, "rerun_incomplete": False, "output_adoption_scope": None, "resume_scope": None}
     schema_version = snakemake.get("schemaVersion")
     if schema_version == SNAKEMAKE_RUN_RESUME_OPTIONS_SCHEMA_VERSION:
         return _run_resume_execution_options(execution_options, snakemake)
@@ -44,6 +44,7 @@ def _snakemake_execution_options(execution_options: dict | None) -> dict[str, An
         "forcerun_rules": forcerun_rules,
         "rerun_incomplete": rerun_incomplete,
         "output_adoption_scope": output_adoption_scope,
+        "resume_scope": None,
     }
 
 
@@ -62,11 +63,12 @@ def _run_resume_execution_options(execution_options: dict, snakemake: dict) -> d
         raise WorkflowRuntimeCommandError("RUN_RESUME_UNSAFE_FLAG_FORBIDDEN")
     if "outputAdoptionScope" in execution_options:
         raise WorkflowRuntimeCommandError("RUN_RESUME_RULE_OUTPUT_ADOPTION_SCOPE_FORBIDDEN")
-    _run_resume_scope(execution_options)
+    resume_scope = _run_resume_scope(execution_options)
     return {
         "forcerun_rules": [],
         "rerun_incomplete": True,
         "output_adoption_scope": None,
+        "resume_scope": resume_scope,
     }
 
 

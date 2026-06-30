@@ -9,6 +9,7 @@ from .rule_partial_rerun_launch_preflight import build_rule_partial_rerun_launch
 RERUN_EXECUTOR_ORCHESTRATION_SCHEMA_VERSION = "rerun-executor-orchestration.v1"
 RUN_RESUME_ARTIFACT_ADOPTION_BOUNDARY_SCHEMA_VERSION = "run-resume-artifact-adoption-boundary.v1"
 RUN_RESUME_EXECUTOR_PREVIEW_ONLY = "RUN_RESUME_EXECUTOR_ORCHESTRATION_PREVIEW_ONLY"
+RUN_RESUME_EXECUTOR_READY = "RUN_RESUME_EXECUTOR_READY"
 PARTIAL_RERUN_EXECUTOR_PREVIEW_ONLY = "PARTIAL_RERUN_EXECUTOR_ORCHESTRATION_PREVIEW_ONLY"
 RULE_RETRY_MUTATION_API_DISABLED = "RULE_RETRY_MUTATION_API_DISABLED"
 RULE_PARTIAL_RERUN_EXECUTOR_READY = "RULE_PARTIAL_RERUN_EXECUTOR_READY"
@@ -79,19 +80,15 @@ def build_run_resume_executor_orchestration(resume_plan: dict[str, Any]) -> dict
     if snakemake.get("rerunIncomplete") is not True:
         contract_blockers.append("SNAKEMAKE_RUN_RESUME_OPTIONS_UNPROVEN")
     contract_ready = not contract_blockers
-    blocked_reason_codes = _unique_strings(
-        [
-            *contract_blockers,
-            RUN_RESUME_EXECUTOR_PREVIEW_ONLY,
-        ]
-    )
+    executor_ready = contract_ready
+    blocked_reason_codes = _unique_strings(contract_blockers)
     return {
         "schemaVersion": RERUN_EXECUTOR_ORCHESTRATION_SCHEMA_VERSION,
         "mode": "run-resume",
         "available": True,
         "contractReady": contract_ready,
-        "executorReady": False,
-        "reasonCode": RUN_RESUME_EXECUTOR_PREVIEW_ONLY if contract_ready else blocked_reason_codes[0],
+        "executorReady": executor_ready,
+        "reasonCode": RUN_RESUME_EXECUTOR_READY if executor_ready else blocked_reason_codes[0],
         "blockedReasonCodes": blocked_reason_codes,
         "requiresBeforeExecution": blocked_reason_codes,
         "sourceAttempt": {
@@ -112,9 +109,9 @@ def build_run_resume_executor_orchestration(resume_plan: dict[str, Any]) -> dict
         "forcerunRulesRequired": False,
         "cacheAdoptionBypassRequired": True,
         "artifactAdoptionRequired": True,
-        "finalizeRunAllowed": False,
-        "queueMutationAllowed": False,
-        "runStateMutationAllowed": False,
+        "finalizeRunAllowed": executor_ready,
+        "queueMutationAllowed": executor_ready,
+        "runStateMutationAllowed": executor_ready,
         "pathExposed": False,
         "storageUriExposed": False,
     }

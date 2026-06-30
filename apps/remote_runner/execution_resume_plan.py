@@ -15,12 +15,6 @@ from .run_execution_state_machine import RETRYABLE_RUN_STATUSES, TERMINAL_RUN_ST
 
 RUN_RESUME_PLAN_SCHEMA_VERSION = "run-resume-plan.v1"
 SNAKEMAKE_RUN_RESUME_OPTIONS_SCHEMA_VERSION = "snakemake-run-resume-options.v1"
-RUN_RESUME_EXECUTION_BLOCKERS = [
-    "RUN_RESUME_MUTATION_API_DISABLED",
-    "WORKDIR_REUSE_POLICY_UNPROVEN",
-    "INCOMPLETE_OUTPUT_AUDIT_UNPROVEN",
-    "ARTIFACT_ADOPTION_UNPROVEN",
-]
 UNSAFE_SNAKEMAKE_RESUME_FLAGS = ["--forceall", "--touch", "--ignore-incomplete"]
 TERMINAL_JOB_STATES = {"completed", "failed", "canceled", "cancelled"}
 RESUMABLE_ATTEMPT_STATES = {"failed", "fenced", "canceled", "cancelled"}
@@ -65,14 +59,12 @@ def build_run_resume_plan(
     return _finalize(
         {
             **base,
-            "eligible": False,
-            "eligibleNow": False,
+            "supported": True,
+            "eligible": True,
+            "eligibleNow": True,
             "commandPreviewAvailable": True,
             "reasonCode": "RUN_RESUME_PREVIEW_AVAILABLE",
-            "message": (
-                "Snakemake resume semantics are available for planning via --rerun-incomplete, "
-                "but execution remains disabled until workdir reuse and incomplete-output audit policies are proven."
-            ),
+            "message": "Snakemake resume is ready to requeue via --rerun-incomplete after operator confirmation.",
             "snakemakeOptions": _snakemake_options(preview=True),
         }
     )
@@ -117,8 +109,8 @@ def _base_plan(
             workdir_evidence=workdir_evidence,
             output_audit=output_audit,
         ),
-        "blockedReasonCodes": list(RUN_RESUME_EXECUTION_BLOCKERS),
-        "requiresBeforeExecution": list(RUN_RESUME_EXECUTION_BLOCKERS),
+        "blockedReasonCodes": [],
+        "requiresBeforeExecution": [],
         "snakemakeOptions": _snakemake_options(preview=False),
     }
 
@@ -135,9 +127,27 @@ def _blocked(base: dict[str, Any], reason_code: str) -> dict[str, Any]:
 
 
 def _finalize(plan: dict[str, Any]) -> dict[str, Any]:
+    orchestration = build_run_resume_executor_orchestration(plan)
+    execution_enabled = (
+        orchestration.get("executorReady") is True
+        and orchestration.get("queueMutationAllowed") is True
+        and orchestration.get("runStateMutationAllowed") is True
+    )
+    blocked_reason_codes = _unique_strings(
+        [
+            *list(plan.get("blockedReasonCodes") or []),
+            *([] if execution_enabled else list(orchestration.get("blockedReasonCodes") or [])),
+        ]
+    )
     plan_with_orchestration = {
         **plan,
-        "executorOrchestration": build_run_resume_executor_orchestration(plan),
+        "executionEnabled": execution_enabled,
+        "executionReasonCode": "RUN_RESUME_EXECUTION_ENABLED"
+        if execution_enabled
+        else str(orchestration.get("reasonCode") or plan.get("executionReasonCode") or "RUN_RESUME_EXECUTION_DISABLED"),
+        "blockedReasonCodes": blocked_reason_codes,
+        "requiresBeforeExecution": blocked_reason_codes,
+        "executorOrchestration": orchestration,
     }
     return attach_plan_hash(
         {

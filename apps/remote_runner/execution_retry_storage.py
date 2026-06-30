@@ -5,6 +5,11 @@ from typing import Any
 from .config import RemoteRunnerConfig
 from .event_contracts import append_run_event_v2, record_run_command
 from .execution_policy import retry_backoff_seconds_for_job
+from .execution_resume_claim_preflight import (
+    build_run_resume_execution_options,
+    run_resume_execution_options_requested,
+    validate_run_resume_claim_preflight,
+)
 from .run_execution_state_machine import RunExecutionStateMachine
 from .run_execution_storage import (
     _add_seconds,
@@ -52,6 +57,20 @@ def request_run_retry(
         )
         if canonical_options != normalized_execution_options:
             raise ValueError("RULE_PARTIAL_RERUN_EXECUTION_OPTIONS_NOT_CURRENT")
+    if run_resume_execution_options_requested(normalized_execution_options):
+        if normalized_scope != "resume":
+            raise ValueError("RUN_RESUME_SCOPE_REQUIRED_FOR_RESUME_EXECUTION_OPTIONS")
+        validate_run_resume_claim_preflight(
+            normalized_execution_options,
+            run_id=normalized_run_id,
+            attempt_id="pending-worker-claim",
+            lease_generation=1,
+        )
+        canonical_options = build_run_resume_execution_options(
+            _current_run_resume_execution_plan(cfg, normalized_run_id)
+        )
+        if canonical_options != normalized_execution_options:
+            raise ValueError("RUN_RESUME_EXECUTION_OPTIONS_NOT_CURRENT")
     with get_connection(cfg) as connection:
         connection.execute("BEGIN IMMEDIATE")
         run = _fetch_run_row(connection, normalized_run_id)
@@ -95,6 +114,13 @@ def request_run_retry(
         available_at = _add_seconds(requested_at, backoff_seconds)
         if rule_partial_rerun_execution_options_requested(normalized_execution_options):
             validate_rule_partial_rerun_claim_preflight(
+                normalized_execution_options,
+                run_id=normalized_run_id,
+                attempt_id="pending-worker-claim",
+                lease_generation=attempt_count + 1,
+            )
+        if run_resume_execution_options_requested(normalized_execution_options):
+            validate_run_resume_claim_preflight(
                 normalized_execution_options,
                 run_id=normalized_run_id,
                 attempt_id="pending-worker-claim",
@@ -234,6 +260,55 @@ def request_rule_retry(
     }
 
 
+def request_run_resume(
+    cfg: RemoteRunnerConfig,
+    run_id: str,
+    *,
+    actor: str | None = None,
+    reason: str | None = None,
+    command_id: str | None = None,
+    resume_plan: dict[str, Any] | None = None,
+    now: str | None = None,
+) -> dict[str, Any]:
+    normalized_run_id = _required_text(run_id, "RUN_ID_REQUIRED")
+    current_plan = _current_run_resume_execution_plan(cfg, normalized_run_id)
+    plan = resume_plan or current_plan
+    if not isinstance(plan, dict):
+        raise ValueError("RUN_RESUME_PLAN_MISSING")
+    if str(plan.get("runId") or "").strip() != normalized_run_id:
+        raise ValueError("RUN_RESUME_RUN_ID_MISMATCH")
+    if str(plan.get("planHash") or "").strip() != str(current_plan.get("planHash") or "").strip():
+        raise ValueError("RUN_RESUME_PLAN_HASH_MISMATCH")
+    if plan.get("executionEnabled") is not True:
+        raise ValueError(str(plan.get("executionReasonCode") or "RUN_RESUME_EXECUTION_DISABLED"))
+    execution_options = build_run_resume_execution_options(plan)
+    result = request_run_retry(
+        cfg,
+        normalized_run_id,
+        actor=actor,
+        reason=reason or "operator_run_resume",
+        command_id=command_id,
+        execution_options=execution_options,
+        scope="resume",
+        now=now,
+    )
+    return {
+        **result,
+        "scope": "resume",
+        "resumeStrategy": str(plan.get("strategy") or ""),
+        "retainedOutputCount": _safe_int(
+            (plan.get("artifactAdoptionBoundary") if isinstance(plan.get("artifactAdoptionBoundary"), dict) else {}).get(
+                "retainedOutputCount"
+            )
+        ),
+        "rerunRequiredOutputCount": _safe_int(
+            (plan.get("incompleteOutputAudit") if isinstance(plan.get("incompleteOutputAudit"), dict) else {}).get(
+                "rerunRequiredOutputCount"
+            )
+        ),
+    }
+
+
 def _current_rule_retry_execution_plan(cfg: RemoteRunnerConfig, run_id: str) -> dict[str, Any]:
     from .run_execution_context_storage import fetch_run_execution_context
 
@@ -244,8 +319,25 @@ def _current_rule_retry_execution_plan(cfg: RemoteRunnerConfig, run_id: str) -> 
     return plan
 
 
+def _current_run_resume_execution_plan(cfg: RemoteRunnerConfig, run_id: str) -> dict[str, Any]:
+    from .run_execution_context_storage import fetch_run_execution_context
+
+    context = fetch_run_execution_context(cfg, run_id)
+    plan = context.get("resumePlan")
+    if not isinstance(plan, dict):
+        raise ValueError("RUN_RESUME_PLAN_MISSING")
+    return plan
+
+
 def _retry_scope(scope: str) -> str:
     normalized = str(scope or "").strip()
-    if normalized not in {"run", "rule"}:
+    if normalized not in {"run", "rule", "resume"}:
         raise ValueError(f"RUN_RETRY_SCOPE_UNSUPPORTED: {normalized}")
     return normalized
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0

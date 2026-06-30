@@ -125,26 +125,26 @@ def test_run_resume_claim_preflight_rejects_redaction_exposure(tmp_path: Path) -
     assert preflight["storageUriExposed"] is True
 
 
-def test_run_resume_claim_state_blocks_until_target_workdir_reuses_source_attempt(tmp_path: Path) -> None:
+def test_run_resume_claim_reuses_source_workdir_for_target_attempt(tmp_path: Path) -> None:
     cfg, run_id, source_claim = _failed_source_attempt(tmp_path)
     options = _source_attempt_options(cfg, run_id)
     target_claim = _claim_resume_target_attempt(cfg, run_id, options)
-
-    with pytest.raises(ValueError, match="RUN_RESUME_CLAIM_WORKDIR_REUSE_UNSATISFIED"):
-        validate_run_resume_claim_state(
-            cfg,
-            options,
-            run_id=run_id,
-            attempt_id=target_claim["attemptId"],
-            lease_generation=target_claim["leaseGeneration"],
-        )
 
     with get_connection(cfg) as connection:
         target_work_dir = connection.execute(
             "SELECT work_dir FROM run_attempts WHERE attempt_id = ?",
             (target_claim["attemptId"],),
         ).fetchone()["work_dir"]
-    assert target_work_dir != source_claim["attempt"]["workDir"]
+    assert target_work_dir == source_claim["attempt"]["workDir"]
+
+    preflight = validate_run_resume_claim_state(
+        cfg,
+        options,
+        run_id=run_id,
+        attempt_id=target_claim["attemptId"],
+        lease_generation=target_claim["leaseGeneration"],
+    )
+    assert preflight["workdirReuseSatisfied"] is True
 
 
 def test_run_resume_claim_state_validates_active_job_attempt_lease_and_reused_workdir(tmp_path: Path) -> None:
