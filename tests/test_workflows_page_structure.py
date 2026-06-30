@@ -52,6 +52,7 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     first_run_types = (FIRST_RUN_DOMAIN / "first-run-types.ts").read_text(encoding="utf-8")
     first_run_markdown = (FIRST_RUN_DOMAIN / "first-run-markdown.ts").read_text(encoding="utf-8")
     first_run_evidence_state = (FIRST_RUN_STATE / "use-first-run-evidence.ts").read_text(encoding="utf-8")
+    first_run_status_state = (FIRST_RUN_STATE / "use-first-run-status.ts").read_text(encoding="utf-8")
     server_readiness_api = (COMPONENTS / "workflow-server-readiness-api.ts").read_text(encoding="utf-8")
     workflow_detail_page = (COMPONENTS / "workflow-detail-page.tsx").read_text(encoding="utf-8")
     models = (COMPONENTS / "workflows-page-model.ts").read_text(encoding="utf-8")
@@ -76,14 +77,17 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "export function firstRunResultPackageReady" in first_run_package
     assert "export function firstRunValidationCardPassed" in first_run_validation_state
     assert "export function useFirstRunEvidence" in first_run_evidence_state
+    assert "export function useFirstRunStatus" in first_run_status_state
+    assert "fetchFirstRunStatus" in first_run_status_state
     assert "from \"../_domain/first-run-progress\"" in first_run_page
     assert "from \"../_state/use-first-run-evidence\"" in first_run_page
+    assert "from \"../_state/use-first-run-status\"" in first_run_page
     assert 'const FIRST_RUN_PIPELINE_ID = "moving-pictures-16s-rulegraph-v1"' not in first_run_page
-    assert "useWorkflowsPageState(FIRST_RUN_PIPELINE_ID, { autoResumeLatestRun: true })" in first_run_page
+    assert "useWorkflowsPageState(FIRST_RUN_PIPELINE_ID)" in first_run_page
+    assert "useWorkflowsPageState(FIRST_RUN_PIPELINE_ID, { autoResumeLatestRun: true })" not in first_run_page
     assert "useWorkflowsPageState(workflowId)" in workflow_detail_page
     assert "autoResumeLatestRun" not in workflow_detail_page
-    assert "options: UseWorkflowsPageStateOptions = {}" in hook
-    assert "const autoResumeLatestRun = options.autoResumeLatestRun === true" in hook
+    assert "autoResumeLatestRun" not in hook
     assert "const movingPicturesWorkflow = state.catalog.find((item) => item.id === FIRST_RUN_PIPELINE_ID) || null" in first_run_page
     assert "连接远端" in first_run_page
     assert "runner readiness" in first_run_page
@@ -199,10 +203,12 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "FIRST_RUN_PILOT_HANDOFF_REQUIRED" in first_run_markdown
     assert "const readyPackage = useMemo(() => packageExports.find(firstRunResultPackageReady), [packageExports])" in first_run_evidence_state
     assert "const latestPackage = readyPackage || packageExports[0]" in first_run_evidence_state
-    assert "const packageReady = Boolean(readyPackage)" in first_run_evidence_state
+    assert "const packageReady = status?.evidence?.resultPackage?.ready === true" in first_run_evidence_state
     assert "const validationEligible = firstRunEvidence.validationEligible" in first_run_page
-    assert "const validationEligible = runCompleted && packageReady && Boolean(workflowRevisionId)" in first_run_evidence_state
-    assert "const validationReady = validationEligible && firstRunValidationCardPassed(validationCard)" in first_run_evidence_state
+    assert "const validationEligible = validationReady && Boolean(workflowRevisionId)" in first_run_evidence_state
+    assert "const validationReady = status?.evidence?.validation?.ready === true" in first_run_evidence_state
+    assert "runCompleted && packageReady" not in first_run_evidence_state
+    assert "firstRunValidationCardPassed(validationCard)" not in first_run_evidence_state
     assert "firstRunValidationCardPassed(validationCard)" not in first_run_page
     assert "target: string" in first_run_progress
     assert "data-step-target={step.target}" in first_run_page
@@ -219,7 +225,11 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "workflowRevisionIdFor(run, runDetail, latestPackage)" in first_run_evidence_state
     assert "/api/v1/first-run/runs/${encodeURIComponent(runId)}/validation-card" in first_run_api
     assert "/api/v1/first-run/runs/${encodeURIComponent(runId)}/finalize" in first_run_api
+    assert "export async function fetchFirstRunStatus" in first_run_api
+    assert "/api/v1/first-run/status${queryString(query)}" in first_run_api
     assert "pilotHandoff?: FirstRunPilotHandoff" in first_run_types
+    assert "export type FirstRunStatus" in first_run_types
+    assert "latestEligibleRun?: FirstRunStatusRunSummary | null" in first_run_types
     assert "export type FirstRunEvidenceBundle" in first_run_types
     assert "evidenceBundle?: FirstRunEvidenceBundle" in first_run_types
     assert "FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED" in first_run_markdown
@@ -352,19 +362,14 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "state.selectedWorkflow?.description" not in first_run_page
     assert "fetchWorkflowResultPackageExports(resultId)" in first_run_evidence_state
     assert "fetchWorkflowResultPackageExports(resultId)" not in first_run_page
-    assert "autoResumeLatestRun?: boolean" in hook
-    assert "if (!autoResumeLatestRun || activeRunId || submittedRun?.runId || runDetail?.run?.runId) return" in hook
-    assert "void loadRunHistory({ forceRefresh: autoResumeLatestRun, reportError: autoResumeLatestRun })" in hook
     assert "setRunHistoryError(workflowErrorMessage(err, \"读取运行历史失败\"))" in hook
-    assert "void loadRunHistory({ forceRefresh: true, reportError: autoResumeLatestRun })" in hook
-    assert "selectedPipelineId !== initialWorkflowId" in hook
-    assert "const latestRun = latestRunForPipeline(runHistory, selectedPipelineId)" in hook
-    assert "setActiveRunId(latestRun.runId)" in hook
-    assert "setSubmittedRun(latestRun)" in hook
     assert "state.runHistoryError" in first_run_page
-    assert "function latestRunForPipeline" in hook
-    assert "workflowRunPipelineId(run) === pipelineId" in hook
-    assert "Date.parse(value)" in hook
+    assert "latestRunForPipeline" not in hook
+    assert "const reportReady = runCompleted && artifacts.length > 0" not in first_run_page
+    assert "const reportReady = firstRunStatusSnapshot?.evidence?.report?.ready === true" in first_run_page
+    assert "firstRunStatusSnapshot?.latestEligibleRun?.runId" in first_run_page
+    assert "selectRun(latestEligibleRunId)" in first_run_page
+    assert "statusAction: firstRunStatusSnapshot?.nextAction || null" in first_run_page
     assert "workflowResultPackageDownloadHref" in first_run_validation
     assert "refreshRunDetail" in hook
     assert "export async function uploadWorkflowSampleData" in api

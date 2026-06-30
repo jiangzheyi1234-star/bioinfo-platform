@@ -11,8 +11,12 @@ import {
 } from "../_api/workflow-first-run-api";
 import { firstRunResultPackageReady, mergePackageExport } from "../_domain/first-run-package";
 import { workflowRevisionIdFor } from "../_domain/first-run-progress";
-import { firstRunValidationCardPassed } from "../_domain/first-run-validation-state";
-import type { FirstRunFinalizationNextAction, FirstRunPilotHandoff, FirstRunValidationCard } from "../_domain/first-run-types";
+import type {
+  FirstRunNextAction,
+  FirstRunPilotHandoff,
+  FirstRunStatus,
+  FirstRunValidationCard,
+} from "../_domain/first-run-types";
 import {
   exportWorkflowResultPackage,
   fetchWorkflowResultPackageExports,
@@ -30,17 +34,15 @@ export function useFirstRunEvidence({
   refreshRunDetail,
   resultId,
   run,
-  runCompleted,
   runDetail,
-  runTerminal,
+  status,
   serverId,
 }: {
   refreshRunDetail: () => Promise<WorkflowRunDetail | null>;
   resultId: string;
   run: WorkflowRun | null;
-  runCompleted: boolean;
   runDetail: WorkflowRunDetail | null;
-  runTerminal: boolean;
+  status: FirstRunStatus | null;
   serverId?: string;
 }) {
   const [packageExports, setPackageExports] = useState<WorkflowResultPackageExport[]>([]);
@@ -48,7 +50,7 @@ export function useFirstRunEvidence({
   const [packageError, setPackageError] = useState("");
   const [exportingPackage, setExportingPackage] = useState(false);
   const [finalizingFirstRun, setFinalizingFirstRun] = useState(false);
-  const [finalizationAction, setFinalizationAction] = useState<FirstRunFinalizationNextAction | null>(null);
+  const [finalizationAction, setFinalizationAction] = useState<FirstRunNextAction | null>(null);
   const [pilotHandoff, setPilotHandoff] = useState<FirstRunPilotHandoff | null>(null);
   const [validationCard, setValidationCard] = useState<FirstRunValidationCard | null>(null);
   const [validationCardFetchLoading, setValidationCardFetchLoading] = useState(false);
@@ -61,10 +63,13 @@ export function useFirstRunEvidence({
 
   const readyPackage = useMemo(() => packageExports.find(firstRunResultPackageReady), [packageExports]);
   const latestPackage = readyPackage || packageExports[0];
-  const workflowRevisionId = workflowRevisionIdFor(run, runDetail, latestPackage);
-  const packageReady = Boolean(readyPackage);
-  const validationEligible = runCompleted && packageReady && Boolean(workflowRevisionId);
-  const validationReady = validationEligible && firstRunValidationCardPassed(validationCard);
+  const statusRun = status?.evidence?.run || status?.latestEligibleRun || null;
+  const workflowRevisionId = workflowRevisionIdFor(run, runDetail, latestPackage) || statusRun?.workflowRevisionId || "";
+  const runStatus = run?.status || statusRun?.status || "";
+  const runTerminal = runStatus === "completed" || runStatus === "failed" || runStatus === "error";
+  const packageReady = status?.evidence?.resultPackage?.ready === true;
+  const validationReady = status?.evidence?.validation?.ready === true;
+  const validationEligible = validationReady && Boolean(workflowRevisionId);
 
   const loadPackageExports = useCallback(async () => {
     if (!resultId || !runTerminal) {

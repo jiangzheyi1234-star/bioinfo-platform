@@ -6,7 +6,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-import type { FirstRunFinalizationNextAction, FirstRunValidationCard } from "../_domain/first-run-types";
+import type { FirstRunNextAction, FirstRunValidationCard } from "../_domain/first-run-types";
 import { formatBytes } from "../_domain/first-run-display";
 import { firstRunValidationCardPassed } from "../_domain/first-run-validation-state";
 import { FirstRunTrustSummary } from "./workflow-first-run-trust-summary";
@@ -40,7 +40,7 @@ export function ResultPackagePanel({
   disabledReason: string;
   error: string;
   exporting: boolean;
-  finalizationAction?: FirstRunFinalizationNextAction | null;
+  finalizationAction?: FirstRunNextAction | null;
   finalizing: boolean;
   latestPackage?: WorkflowResultPackageExport;
   loading: boolean;

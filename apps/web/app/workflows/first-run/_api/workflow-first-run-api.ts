@@ -3,7 +3,22 @@
 import { requestLocalApiJson } from "@/app/lib/local-api-client";
 
 import { firstRunHandoffManifestMarkdown, firstRunValidationCardMarkdown } from "../_domain/first-run-markdown";
-import type { FirstRunFinalization, FirstRunValidationCard } from "../_domain/first-run-types";
+import type { FirstRunFinalization, FirstRunStatus, FirstRunValidationCard } from "../_domain/first-run-types";
+
+export async function fetchFirstRunStatus(
+  options: { refresh?: boolean; runId?: string; serverId?: string } = {}
+): Promise<FirstRunStatus> {
+  const query = new URLSearchParams();
+  if (options.serverId) query.set("serverId", options.serverId);
+  if (options.runId) query.set("runId", options.runId);
+  if (options.refresh) query.set("refresh", "true");
+  const response = await requestLocalApiJson<{ data: FirstRunStatus }>(
+    "GET",
+    `/api/v1/first-run/status${queryString(query)}`,
+    { cache: "no-store", timeoutMs: 30_000 }
+  );
+  return response.data;
+}
 
 export async function fetchFirstRunValidationCard(
   runId: string,

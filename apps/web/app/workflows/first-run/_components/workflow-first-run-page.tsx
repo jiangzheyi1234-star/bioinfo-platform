@@ -37,17 +37,17 @@ import {
   FIRST_RUN_PIPELINE_NAME,
   buildFirstRunSteps,
   executionDiagnosticsDetail,
-  isTerminalRun,
   resultPackageDisabledReason,
   runnerChecks,
   type FirstRunStep,
   type FirstRunStepState,
 } from "../_domain/first-run-progress";
 import { useFirstRunEvidence } from "../_state/use-first-run-evidence";
+import { useFirstRunStatus } from "../_state/use-first-run-status";
 
 export function WorkflowFirstRunPage() {
   const ssh = useSshShell();
-  const state = useWorkflowsPageState(FIRST_RUN_PIPELINE_ID, { autoResumeLatestRun: true });
+  const state = useWorkflowsPageState(FIRST_RUN_PIPELINE_ID);
   const [ensuringRunner, setEnsuringRunner] = useState(false);
   const [runnerError, setRunnerError] = useState("");
   const [executionDiagnostics, setExecutionDiagnostics] = useState<WorkflowExecutionDiagnostics | null>(null);
@@ -56,7 +56,17 @@ export function WorkflowFirstRunPage() {
 
   const run = state.runDetail?.run || state.submittedRun;
   const result = state.runDetail?.results;
-  const resultId = result?.resultId || (run?.runId ? `res_${run.runId}` : "");
+  const activeRunId = state.activeRunId;
+  const submittedRunId = state.submittedRun?.runId || "";
+  const runDetailRunId = state.runDetail?.run?.runId || "";
+  const selectRun = state.selectRun;
+  const firstRunStatus = useFirstRunStatus({
+    runId: activeRunId || run?.runId,
+    serverId: state.server?.serverId,
+  });
+  const firstRunStatusSnapshot = firstRunStatus.status;
+  const statusRun = firstRunStatusSnapshot?.evidence?.run || firstRunStatusSnapshot?.latestEligibleRun || null;
+  const resultId = result?.resultId || statusRun?.resultId || (run?.runId ? `res_${run.runId}` : "");
   const artifacts = result?.artifacts || [];
   const inputArtifacts = result?.inputArtifacts || [];
   const previews = state.runDetail?.previews || [];
@@ -66,28 +76,27 @@ export function WorkflowFirstRunPage() {
   const executionReady = executionDiagnostics?.readiness?.ok === true;
   const serverReady = Boolean(state.server?.ready) && executionReady;
   const sampleReady = sampleUploadsReady(state.sampleUploads);
-  const runSubmitted = Boolean(run?.runId);
-  const runTerminal = isTerminalRun(run);
-  const runCompleted = run?.status === "completed";
-  const runFailed = run?.status === "failed" || run?.status === "error";
-  const reportReady = runCompleted && artifacts.length > 0;
+  const runStatus = run?.status || statusRun?.status || "";
+  const runSubmitted = Boolean(run?.runId || statusRun?.runId);
+  const runFailed = runStatus === "failed" || runStatus === "error";
+  const reportReady = firstRunStatusSnapshot?.evidence?.report?.ready === true;
   const firstRunEvidence = useFirstRunEvidence({
     refreshRunDetail: state.refreshRunDetail,
     resultId,
     run,
-    runCompleted,
     runDetail: state.runDetail,
-    runTerminal,
+    status: firstRunStatusSnapshot || null,
     serverId: state.server?.serverId,
   });
   const latestPackage = firstRunEvidence.latestPackage;
-  const packageReady = firstRunEvidence.packageReady;
+  const packageReady = firstRunStatusSnapshot?.evidence?.resultPackage?.ready === true || firstRunEvidence.packageReady;
   const validationEligible = firstRunEvidence.validationEligible;
-  const validationReady = firstRunEvidence.validationReady;
+  const validationReady = firstRunStatusSnapshot?.evidence?.validation?.ready === true || firstRunEvidence.validationReady;
   const workflowRevisionId = firstRunEvidence.workflowRevisionId;
   const firstRunConductor = useFirstRunConductor({
     busy:
       ensuringRunner ||
+      firstRunStatus.loading ||
       state.sampleLoading ||
       state.submitting ||
       firstRunEvidence.packageLoading ||
@@ -96,34 +105,32 @@ export function WorkflowFirstRunPage() {
       firstRunEvidence.validationCardFetchLoading,
     input: {
       canSubmit: state.canSubmit && executionReady && selectedWorkflowReady && sampleReady,
-      packageReady,
-      reportReady,
-      runCompleted,
-      runFailed,
       runSubmitted,
-      runTerminal,
       sampleReady,
       selectedWorkflowReady,
       serverConnected,
       serverReady,
-      validationEligible,
-      validationReady,
-      workflowRevisionId,
+      statusAction: firstRunStatusSnapshot?.nextAction || null,
     },
     onConnect: openConnectDialog,
     onEnsureRunner: ensureRunner,
     onFinalize: async () => {
-      await firstRunEvidence.finalizeRun();
+      await finalizeAndRefreshStatus();
     },
-    onPrepareSampleData: state.loadSampleData,
+    onPrepareSampleData: prepareSampleDataAndRefreshStatus,
     onRefreshRun: async () => {
       await state.refreshRunDetail();
+      await firstRunStatus.refreshStatus({ forceRefresh: true });
     },
     onRefreshWorkspace: async () => {
       await state.loadWorkspace({ forceRefresh: true });
       await loadExecutionDiagnostics();
+      await firstRunStatus.refreshStatus({ forceRefresh: true });
     },
-    onSubmitRun: state.submitRun,
+    onSubmitRun: async () => {
+      await state.submitRun();
+      await firstRunStatus.refreshStatus({ forceRefresh: true });
+    },
   });
 
   const steps = useMemo(
@@ -175,6 +182,18 @@ export function WorkflowFirstRunPage() {
     void loadExecutionDiagnostics();
   }, [loadExecutionDiagnostics]);
 
+  useEffect(() => {
+    const latestEligibleRunId = firstRunStatusSnapshot?.latestEligibleRun?.runId || "";
+    if (!latestEligibleRunId || activeRunId || submittedRunId || runDetailRunId) return;
+    selectRun(latestEligibleRunId);
+  }, [
+    activeRunId,
+    firstRunStatusSnapshot?.latestEligibleRun?.runId,
+    runDetailRunId,
+    selectRun,
+    submittedRunId,
+  ]);
+
   function openConnectDialog() {
     ssh.clearFormError();
     ssh.setDialogOpen(true);
@@ -188,6 +207,7 @@ export function WorkflowFirstRunPage() {
       await ensureWorkflowServerRunner(state.server.serverId);
       await state.loadWorkspace({ forceRefresh: true });
       await loadExecutionDiagnostics();
+      await firstRunStatus.refreshStatus({ forceRefresh: true });
     } catch (err) {
       setRunnerError(workflowErrorMessage(err, "runner readiness 准备失败"));
     } finally {
@@ -195,6 +215,31 @@ export function WorkflowFirstRunPage() {
     }
   }
 
+  async function refreshWorkspaceAndFirstRunStatus() {
+    await state.loadWorkspace({ forceRefresh: true });
+    await loadExecutionDiagnostics();
+    await firstRunStatus.refreshStatus({ forceRefresh: true });
+  }
+
+  async function prepareSampleDataAndRefreshStatus() {
+    await state.loadSampleData();
+    await firstRunStatus.refreshStatus({ forceRefresh: true });
+  }
+
+  async function submitRunAndRefreshStatus() {
+    await state.submitRun();
+    await firstRunStatus.refreshStatus({ forceRefresh: true });
+  }
+
+  async function finalizeAndRefreshStatus() {
+    await firstRunEvidence.finalizeRun();
+    await firstRunStatus.refreshStatus({ forceRefresh: true });
+  }
+
+  async function exportPackageAndRefreshStatus() {
+    await firstRunEvidence.exportPackage();
+    await firstRunStatus.refreshStatus({ forceRefresh: true });
+  }
 
   return (
     <div className="relative h-full w-full overflow-y-auto bg-white px-8 py-10 text-slate-800" data-testid="first-successful-run-page">
@@ -213,7 +258,7 @@ export function WorkflowFirstRunPage() {
               variant="outline"
               className="h-9 bg-white px-3 text-slate-600"
               disabled={state.loading}
-              onClick={() => void state.loadWorkspace({ forceRefresh: true })}
+              onClick={() => void refreshWorkspaceAndFirstRunStatus()}
             >
               {state.loading ? (
                 <Loader2 strokeWidth={1.5} className="mr-2 h-4 w-4 animate-spin" />
@@ -236,6 +281,13 @@ export function WorkflowFirstRunPage() {
           <Alert variant="destructive">
             <AlertCircle strokeWidth={1.5} className="h-4 w-4" />
             <AlertDescription>{state.runHistoryError}</AlertDescription>
+          </Alert>
+        ) : null}
+
+        {firstRunStatus.error ? (
+          <Alert variant="destructive">
+            <AlertCircle strokeWidth={1.5} className="h-4 w-4" />
+            <AlertDescription>{firstRunStatus.error}</AlertDescription>
           </Alert>
         ) : null}
 
@@ -280,8 +332,7 @@ export function WorkflowFirstRunPage() {
               onConnect={openConnectDialog}
               onEnsure={() => void ensureRunner()}
               onRefresh={() => {
-                void state.loadWorkspace({ forceRefresh: true });
-                void loadExecutionDiagnostics();
+                void refreshWorkspaceAndFirstRunStatus();
               }}
             />
             <SampleAndSubmitPanel
@@ -294,8 +345,8 @@ export function WorkflowFirstRunPage() {
               submitting={state.submitting}
               workflow={movingPicturesWorkflow}
               workflowLoading={state.loading}
-              onPrepareSample={() => void state.loadSampleData()}
-              onSubmit={() => void state.submitRun()}
+              onPrepareSample={() => void prepareSampleDataAndRefreshStatus()}
+              onSubmit={() => void submitRunAndRefreshStatus()}
             />
             <RunReportPanel
               artifacts={artifacts}
@@ -317,8 +368,8 @@ export function WorkflowFirstRunPage() {
               latestPackage={latestPackage}
               loading={firstRunEvidence.packageLoading}
               resultId={resultId}
-              onFinalize={() => void firstRunEvidence.finalizeRun()}
-              onExport={() => void firstRunEvidence.exportPackage()}
+              onFinalize={() => void finalizeAndRefreshStatus()}
+              onExport={() => void exportPackageAndRefreshStatus()}
               onRefresh={() => void firstRunEvidence.loadPackageExports()}
             />
             <ValidationCard

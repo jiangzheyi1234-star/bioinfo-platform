@@ -6,6 +6,7 @@ import { ArrowRight, CheckCircle2, Loader2, Play, RefreshCw, Server, ShieldCheck
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { workflowErrorMessage } from "@/app/components/workflows-page-model";
+import type { FirstRunNextAction } from "../_domain/first-run-types";
 
 export type FirstRunContinueActionCode =
   | "CONNECT_REMOTE"
@@ -19,6 +20,7 @@ export type FirstRunContinueActionCode =
   | "COMPLETE";
 
 export type FirstRunContinueAction = {
+  blockedCode?: string;
   code: FirstRunContinueActionCode;
   detail: string;
   disabled?: boolean;
@@ -29,19 +31,12 @@ export type FirstRunContinueAction = {
 
 export type FirstRunContinueActionInput = {
   canSubmit: boolean;
-  packageReady: boolean;
-  reportReady: boolean;
-  runCompleted: boolean;
-  runFailed: boolean;
   runSubmitted: boolean;
-  runTerminal: boolean;
   sampleReady: boolean;
   selectedWorkflowReady: boolean;
   serverConnected: boolean;
   serverReady: boolean;
-  validationEligible: boolean;
-  validationReady: boolean;
-  workflowRevisionId: string;
+  statusAction?: FirstRunNextAction | null;
 };
 
 export function buildFirstRunContinueAction(input: FirstRunContinueActionInput): FirstRunContinueAction {
@@ -91,56 +86,16 @@ export function buildFirstRunContinueAction(input: FirstRunContinueActionInput):
       tone: input.canSubmit ? "info" : "warning",
     };
   }
-  if (input.runFailed) {
-    return {
-      code: "INSPECT_FAILED_RUN",
-      detail: "首跑失败，先查看 rule-level 失败定位、stderr 和日志证据。",
-      label: "定位失败",
-      target: "#run-report",
-      tone: "danger",
-    };
-  }
-  if (!input.runTerminal) {
+  if (!input.statusAction) {
     return {
       code: "REFRESH_RUN",
-      detail: "运行已提交，继续刷新状态、rule 事件和日志证据。",
-      label: "刷新运行状态",
-      target: "#run-report",
-      tone: "info",
-    };
-  }
-  if (!input.reportReady) {
-    return {
-      code: "REFRESH_RUN",
-      detail: "等待 summary、QC、feature table 和 HTML report 进入结果视图。",
-      label: "读取报告",
+      detail: "等待服务端首跑状态聚合返回 run、报告、结果包和验证卡状态。",
+      label: "刷新首跑状态",
       target: "#run-report",
       tone: "warning",
     };
   }
-  if (!input.validationReady) {
-    const blocked = !input.runCompleted || !input.workflowRevisionId;
-    return {
-      code: "FINALIZE_FIRST_RUN",
-      detail: blocked
-        ? "必须是 completed 运行且带 WorkflowRevision，才能生成完整结果包和验证卡。"
-        : input.packageReady || input.validationEligible
-          ? "生成或复用完整结果包，并生成验证卡与证据包清单。"
-          : "等待完整结果包、WorkflowRevision 和服务端验证卡条件。",
-      disabled: blocked,
-      label: "完成首跑",
-      target: "#result-package",
-      tone: blocked ? "warning" : "success",
-    };
-  }
-  return {
-    code: "COMPLETE",
-    detail: "结果包、验证卡和 pilot handoff 已准备好。",
-    disabled: true,
-    label: "首跑已完成",
-    target: "#evidence-bundle",
-    tone: "success",
-  };
+  return continueActionFromStatus(input.statusAction);
 }
 
 export function useFirstRunConductor({
@@ -255,6 +210,63 @@ function actionIcon(code: FirstRunContinueActionCode, busy: boolean) {
   if (code === "SUBMIT_RUN") return <Play strokeWidth={1.5} className="h-4 w-4" />;
   if (code === "COMPLETE") return <CheckCircle2 strokeWidth={1.5} className="h-4 w-4" />;
   return <RefreshCw strokeWidth={1.5} className="h-4 w-4" />;
+}
+
+function continueActionFromStatus(action: FirstRunNextAction): FirstRunContinueAction {
+  const code = firstRunContinueActionCode(action.code);
+  return {
+    blockedCode: action.blockedCode,
+    code,
+    detail: action.detail || defaultActionDetail(code),
+    disabled: action.disabled === true || code === "COMPLETE",
+    label: action.label || defaultActionLabel(code),
+    target: action.target || defaultActionTarget(code),
+    tone: actionTone(code),
+  };
+}
+
+function firstRunContinueActionCode(code: string | undefined): FirstRunContinueActionCode {
+  if (
+    code === "CONNECT_REMOTE" ||
+    code === "ENSURE_RUNNER" ||
+    code === "REFRESH_WORKFLOW" ||
+    code === "PREPARE_SAMPLE_DATA" ||
+    code === "SUBMIT_RUN" ||
+    code === "REFRESH_RUN" ||
+    code === "INSPECT_FAILED_RUN" ||
+    code === "FINALIZE_FIRST_RUN" ||
+    code === "COMPLETE"
+  ) {
+    return code;
+  }
+  return "REFRESH_RUN";
+}
+
+function defaultActionDetail(code: FirstRunContinueActionCode) {
+  if (code === "INSPECT_FAILED_RUN") return "首跑失败，先查看 rule-level 失败定位、stderr 和日志证据。";
+  if (code === "FINALIZE_FIRST_RUN") return "生成或复用完整结果包，并生成验证卡与证据包清单。";
+  if (code === "COMPLETE") return "结果包、验证卡和 pilot handoff 已准备好。";
+  return "刷新服务端首跑状态。";
+}
+
+function defaultActionLabel(code: FirstRunContinueActionCode) {
+  if (code === "INSPECT_FAILED_RUN") return "定位失败";
+  if (code === "FINALIZE_FIRST_RUN") return "完成首跑";
+  if (code === "COMPLETE") return "首跑已完成";
+  return "刷新首跑状态";
+}
+
+function defaultActionTarget(code: FirstRunContinueActionCode) {
+  if (code === "FINALIZE_FIRST_RUN") return "#result-package";
+  if (code === "COMPLETE") return "#evidence-bundle";
+  return "#run-report";
+}
+
+function actionTone(code: FirstRunContinueActionCode): FirstRunContinueAction["tone"] {
+  if (code === "INSPECT_FAILED_RUN") return "danger";
+  if (code === "FINALIZE_FIRST_RUN" || code === "COMPLETE") return "success";
+  if (code === "CONNECT_REMOTE" || code === "ENSURE_RUNNER") return "warning";
+  return "info";
 }
 
 function conductorToneClass(tone: FirstRunContinueAction["tone"]) {

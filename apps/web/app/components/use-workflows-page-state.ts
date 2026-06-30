@@ -47,12 +47,7 @@ import {
   type WorkflowUpload,
 } from "./workflows-page-model";
 
-type UseWorkflowsPageStateOptions = {
-  autoResumeLatestRun?: boolean;
-};
-
-export function useWorkflowsPageState(initialWorkflowId = "", options: UseWorkflowsPageStateOptions = {}) {
-  const autoResumeLatestRun = options.autoResumeLatestRun === true;
+export function useWorkflowsPageState(initialWorkflowId = "") {
   const [catalog, setCatalog] = useState<WorkflowCatalogItem[]>(() => getCachedWorkflowCatalog() || []);
   const [tools, setTools] = useState<AddedTool[]>([]);
   const [databases, setDatabases] = useState<DatabaseItem[]>([]);
@@ -156,30 +151,12 @@ export function useWorkflowsPageState(initialWorkflowId = "", options: UseWorkfl
 
   useEffect(() => {
     void loadWorkspace();
-    void loadRunHistory({ forceRefresh: autoResumeLatestRun, reportError: autoResumeLatestRun });
-  }, [autoResumeLatestRun, loadRunHistory, loadWorkspace]);
+    void loadRunHistory();
+  }, [loadRunHistory, loadWorkspace]);
 
   const selectedWorkflow = catalog.find((item) => item.id === selectedWorkflowId) || catalog[0] || null;
   const selectedPipelineId = selectedWorkflow?.kind === "pipeline" && selectedWorkflow.runnable ? selectedWorkflow.id : "";
   const isGeneratedToolRun = selectedPipelineId === GENERATED_TOOL_RUN_PIPELINE_ID;
-
-  useEffect(() => {
-    if (!autoResumeLatestRun || activeRunId || submittedRun?.runId || runDetail?.run?.runId) return;
-    if (!initialWorkflowId || !selectedPipelineId || selectedPipelineId !== initialWorkflowId || isGeneratedToolRun) return;
-    const latestRun = latestRunForPipeline(runHistory, selectedPipelineId);
-    if (!latestRun?.runId) return;
-    setActiveRunId(latestRun.runId);
-    setSubmittedRun(latestRun);
-  }, [
-    activeRunId,
-    autoResumeLatestRun,
-    initialWorkflowId,
-    isGeneratedToolRun,
-    runDetail?.run?.runId,
-    runHistory,
-    selectedPipelineId,
-    submittedRun?.runId,
-  ]);
 
   useEffect(() => {
     setSampleUploads([]);
@@ -516,7 +493,7 @@ export function useWorkflowsPageState(initialWorkflowId = "", options: UseWorkfl
       }
       setSubmittedRun(run);
       setActiveRunId(run.runId);
-      void loadRunHistory({ forceRefresh: true, reportError: autoResumeLatestRun });
+      void loadRunHistory({ forceRefresh: true });
     } catch (err) {
       setSubmitError(workflowErrorMessage(err, "提交流程失败"));
     } finally {
@@ -624,13 +601,13 @@ export function useWorkflowsPageState(initialWorkflowId = "", options: UseWorkfl
     setArtifactInputError("");
   }
 
-  function selectRun(runId: string) {
+  const selectRun = useCallback((runId: string) => {
     setActiveRunId(runId);
     const fromHistory = runHistory.find((r) => r.runId === runId);
     if (fromHistory) {
       setSubmittedRun(fromHistory);
     }
-  }
+  }, [runHistory]);
 
   return {
     activeRunId,
@@ -694,26 +671,6 @@ export function useWorkflowsPageState(initialWorkflowId = "", options: UseWorkfl
 
 function sampleUploadIntegrityPassed(upload: WorkflowUpload) {
   return upload.integrityStatus === "passed" && Boolean(upload.sha256) && upload.sha256 === upload.expectedSha256;
-}
-
-function latestRunForPipeline(runs: WorkflowRun[], pipelineId: string): WorkflowRun | null {
-  const candidates = runs.filter((run) => workflowRunPipelineId(run) === pipelineId);
-  if (candidates.length === 0) return null;
-  return candidates
-    .map((run, index) => ({ index, run, timestamp: workflowRunTimestamp(run) }))
-    .sort((a, b) => b.timestamp - a.timestamp || a.index - b.index)[0].run;
-}
-
-function workflowRunPipelineId(run: WorkflowRun) {
-  return run.pipelineId || run.runSpec?.pipelineId || "";
-}
-
-function workflowRunTimestamp(run: WorkflowRun) {
-  for (const value of [run.submittedAt, run.startedAt, run.finishedAt, run.updatedAt, run.createdAt]) {
-    const timestamp = value ? Date.parse(value) : Number.NaN;
-    if (Number.isFinite(timestamp)) return timestamp;
-  }
-  return 0;
 }
 
 function resourceIdsFromWorkflowDesignDraft(record: WorkflowDesignDraftRecord): Record<string, string> {

@@ -164,11 +164,76 @@ export type FirstRunValidationCard = {
   pilotHandoff?: FirstRunPilotHandoff;
 };
 
-export type FirstRunFinalizationNextAction = {
+export type FirstRunNextAction = {
+  blockedCode?: string;
   code?: string;
   detail?: string;
+  disabled?: boolean;
   label?: string;
   target?: string;
+};
+
+export type FirstRunStatusRunSummary = {
+  runId?: string;
+  status?: string;
+  stage?: string;
+  workflowRevisionId?: string;
+  resultId?: string;
+  submittedAt?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  lastUpdatedAt?: string;
+  blockingCode?: string;
+};
+
+export type FirstRunStatusEvidence = {
+  sampleCache?: {
+    status?: string;
+    verifiedCacheCount?: number;
+    itemCount?: number;
+    missingCacheCount?: number;
+    sourceRequired?: boolean;
+    blockerCodes?: string[];
+  };
+  run?: FirstRunStatusRunSummary | null;
+  report?: {
+    ready?: boolean;
+    blockedCode?: string;
+    outputs?: string[];
+  };
+  resultPackage?: {
+    ready?: boolean;
+    packageExportId?: string;
+    sha256?: string;
+    manifestSha256?: string;
+    artifactPayloadMode?: string;
+    blockedCode?: string;
+  };
+  validation?: {
+    ready?: boolean;
+    blockedCode?: string;
+    detail?: string;
+    validationChecksPassed?: number;
+    validationChecksTotal?: number;
+    evidenceBundleReady?: boolean;
+    evidenceBundleId?: string;
+  };
+};
+
+export type FirstRunStatus = {
+  schemaVersion?: string;
+  scenario?: {
+    pipelineId?: string;
+    pipelineName?: string;
+    expectedSampleRoles?: string[];
+  };
+  serverId?: string;
+  status?: "ready" | "blocked" | "waiting" | string;
+  stage?: string;
+  nextAction?: FirstRunNextAction;
+  latestEligibleRun?: FirstRunStatusRunSummary | null;
+  ignoredLatestRun?: FirstRunStatusRunSummary | null;
+  evidence?: FirstRunStatusEvidence;
 };
 
 export type FirstRunPilotHandoffEvidence = {
@@ -315,7 +380,7 @@ export type FirstRunPilotHandoff = {
       excludedActions?: string[];
     };
   }>;
-  nextAction?: FirstRunFinalizationNextAction;
+  nextAction?: FirstRunNextAction;
   exclusions?: string[];
 };
 
@@ -327,5 +392,5 @@ export type FirstRunFinalization = {
   pilotHandoff?: FirstRunPilotHandoff;
   resultPackage?: WorkflowResultPackageExport;
   validationCard?: FirstRunValidationCard;
-  nextAction?: FirstRunFinalizationNextAction;
+  nextAction?: FirstRunNextAction;
 };
