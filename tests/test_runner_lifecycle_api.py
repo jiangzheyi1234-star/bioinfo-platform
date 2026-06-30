@@ -23,7 +23,11 @@ from apps.api.ssh_routes import (
 )
 from core.app_runtime.errors import RuntimeServiceError
 from core.app_runtime.service import RuntimeService, ServiceLocator
-from core.remote_runner.bootstrap_guard import UPGRADE_ACTIVE_LEASES_REASON, UPGRADE_DIAGNOSTICS_UNAVAILABLE_REASON
+from core.remote_runner.bootstrap_guard import (
+    BOOTSTRAP_DIAGNOSTICS_UNAVAILABLE_REASON,
+    UPGRADE_ACTIVE_LEASES_REASON,
+    UPGRADE_DIAGNOSTICS_UNAVAILABLE_REASON,
+)
 from core.remote_runner.errors import RemoteRunnerManagerError
 
 
@@ -347,6 +351,53 @@ def test_upgrade_runner_diagnostics_unavailable_block_preserves_health_snapshot(
 
     assert blocked.value.status_code == 409
     assert blocked.value.detail["reasonCode"] == UPGRADE_DIAGNOSTICS_UNAVAILABLE_REASON
+    assert cfg["servers"][server_id]["last_health_snapshot"] == health
+    assert cfg["servers"][server_id]["runner_upgrade_blocked_at"]
+    assert cfg["servers"][server_id]["bootstrap_metadata"]["upgradeGuard"]["checked"] is False
+
+
+def test_ensure_runner_diagnostics_unavailable_block_preserves_health_snapshot(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    service = _make_service(tmp_path)
+    service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)
+    cfg = _runtime_config()
+
+    class FakeRemoteRunnerManager:
+        def get_health(self, **_kwargs):
+            raise RuntimeServiceError("runner health unavailable")
+
+        def bootstrap(self, **_kwargs):
+            raise RemoteRunnerManagerError(
+                "remote runner bootstrap guard failed because execution diagnostics are unavailable",
+                bootstrap_metadata={
+                    "upgradeGuard": {
+                        "checked": False,
+                        "reason": "execution-diagnostics-unavailable",
+                        "message": "runner not reachable",
+                    }
+                },
+                status_code=409,
+                detail={
+                    "reasonCode": BOOTSTRAP_DIAGNOSTICS_UNAVAILABLE_REASON,
+                    "nextAction": "REPAIR_RUNNER_DIAGNOSTICS_BEFORE_BOOTSTRAP",
+                },
+            )
+
+    service._service_locator.remote_runner_manager = FakeRemoteRunnerManager()
+    monkeypatch.setattr("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg)
+    monkeypatch.setattr("core.app_runtime.runtime_config.save_runtime_config", _save_capture(cfg))
+    _patch_runtime_service(monkeypatch, service)
+
+    server_id = asyncio.run(list_servers())["data"]["items"][0]["serverId"]
+    health = _ready_health()
+    cfg["servers"][server_id] = {**_prepared_record(), "last_health_snapshot": health}
+
+    with pytest.raises(RuntimeServiceError) as blocked:
+        asyncio.run(ensure_server_runner(server_id))
+
+    assert blocked.value.status_code == 409
+    assert blocked.value.detail["reasonCode"] == BOOTSTRAP_DIAGNOSTICS_UNAVAILABLE_REASON
     assert cfg["servers"][server_id]["last_health_snapshot"] == health
     assert cfg["servers"][server_id]["runner_upgrade_blocked_at"]
     assert cfg["servers"][server_id]["bootstrap_metadata"]["upgradeGuard"]["checked"] is False

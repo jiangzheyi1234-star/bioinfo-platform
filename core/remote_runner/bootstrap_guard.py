@@ -7,8 +7,10 @@ from core.remote_runner.errors import RemoteRunnerManagerError
 
 
 UPGRADE_ACTIVE_LEASES_REASON = "RUNNER_UPGRADE_ACTIVE_LEASES"
+BOOTSTRAP_DIAGNOSTICS_UNAVAILABLE_REASON = "RUNNER_BOOTSTRAP_DIAGNOSTICS_UNAVAILABLE"
 UPGRADE_DIAGNOSTICS_UNAVAILABLE_REASON = "RUNNER_UPGRADE_DIAGNOSTICS_UNAVAILABLE"
 UPGRADE_GUARD_SCHEMA_VERSION = "h2ometa.remote-runner-upgrade-guard.v1"
+MANUAL_RUNNER_STOP_REASON = "RUNNER_STOPPED"
 
 
 class RemoteRunnerBootstrapGuardMixin:
@@ -37,18 +39,28 @@ class RemoteRunnerBootstrapGuardMixin:
                 "reason": "execution-diagnostics-unavailable",
                 "message": str(exc) or exc.__class__.__name__,
             }
-            if action == "upgrade":
-                raise self._manager_error(
-                    "remote runner upgrade guard failed because execution diagnostics are unavailable",
-                    bootstrap_metadata=bootstrap_metadata,
-                    status_code=409,
-                    detail={
-                        "reasonCode": UPGRADE_DIAGNOSTICS_UNAVAILABLE_REASON,
-                        "serverId": server_id,
-                        "nextAction": "REPAIR_RUNNER_DIAGNOSTICS_BEFORE_UPGRADE",
-                    },
-                ) from exc
-            return
+            if action == "start" and _is_manual_runner_stop_record(server_record):
+                return
+            reason_code = (
+                UPGRADE_DIAGNOSTICS_UNAVAILABLE_REASON
+                if action == "upgrade"
+                else BOOTSTRAP_DIAGNOSTICS_UNAVAILABLE_REASON
+            )
+            next_action = (
+                "REPAIR_RUNNER_DIAGNOSTICS_BEFORE_UPGRADE"
+                if action == "upgrade"
+                else "REPAIR_RUNNER_DIAGNOSTICS_BEFORE_BOOTSTRAP"
+            )
+            raise self._manager_error(
+                "remote runner bootstrap guard failed because execution diagnostics are unavailable",
+                bootstrap_metadata=bootstrap_metadata,
+                status_code=409,
+                detail={
+                    "reasonCode": reason_code,
+                    "serverId": server_id,
+                    "nextAction": next_action,
+                },
+            ) from exc
         active_leases = diagnostics.get("activeLeases")
         if not isinstance(active_leases, list):
             raise self._manager_error(
@@ -88,3 +100,9 @@ def _protected_lease_summary(value: Any) -> dict[str, Any]:
         "slotId": str(value.get("slotId") or ""),
         "expiresAt": str(value.get("expiresAt") or ""),
     }
+
+
+def _is_manual_runner_stop_record(server_record: dict[str, Any]) -> bool:
+    snapshot = server_record.get("last_health_snapshot")
+    reason_code = str(snapshot.get("reasonCode") or "") if isinstance(snapshot, dict) else ""
+    return reason_code == MANUAL_RUNNER_STOP_REASON

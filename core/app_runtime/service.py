@@ -21,7 +21,11 @@ from core.app_runtime.managers.workflow import WorkflowManager
 from core.remote.ssh_service import SSHService, TerminalSession
 from core.remote.ssh_connector import scan_ssh_host_key as scan_remote_ssh_host_key
 from core.remote.ssh_connector import trust_ssh_host_key
-from core.remote_runner.bootstrap_guard import UPGRADE_ACTIVE_LEASES_REASON, UPGRADE_DIAGNOSTICS_UNAVAILABLE_REASON
+from core.remote_runner.bootstrap_guard import (
+    BOOTSTRAP_DIAGNOSTICS_UNAVAILABLE_REASON,
+    UPGRADE_ACTIVE_LEASES_REASON,
+    UPGRADE_DIAGNOSTICS_UNAVAILABLE_REASON,
+)
 from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerError
 from core.app_runtime.errors import RuntimeServiceError
 from core.app_runtime.runner_stop_state import is_runner_manually_stopped, raise_if_runner_manually_stopped
@@ -245,6 +249,7 @@ class RuntimeService(
             if isinstance(cause, RemoteRunnerManagerError) and isinstance(cause.bootstrap_metadata, dict):
                 bootstrap_metadata = dict(cause.bootstrap_metadata)
             if _runtime_error_reason_code(exc) in {
+                BOOTSTRAP_DIAGNOSTICS_UNAVAILABLE_REASON,
                 UPGRADE_ACTIVE_LEASES_REASON,
                 UPGRADE_DIAGNOSTICS_UNAVAILABLE_REASON,
             }:

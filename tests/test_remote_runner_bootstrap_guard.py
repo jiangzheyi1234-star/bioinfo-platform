@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from core.remote_runner.bootstrap_guard import (
+    BOOTSTRAP_DIAGNOSTICS_UNAVAILABLE_REASON,
     UPGRADE_ACTIVE_LEASES_REASON,
     UPGRADE_DIAGNOSTICS_UNAVAILABLE_REASON,
     RemoteRunnerBootstrapGuardMixin,
@@ -73,15 +74,42 @@ def test_bootstrap_guard_skips_new_install_without_prior_runner() -> None:
     assert metadata == {}
 
 
-def test_bootstrap_guard_records_unavailable_diagnostics_without_blocking_repair() -> None:
+def test_bootstrap_guard_blocks_prepared_repair_when_diagnostics_are_unavailable() -> None:
+    metadata = {}
+    manager = GuardHarness(RemoteRunnerClientError("runner not reachable"))
+
+    with pytest.raises(RemoteRunnerManagerError) as raised:
+        manager._guard_bootstrap_without_active_leases(
+            server_id="srv_test",
+            ssh_service=object(),
+            server_record={"bootstrap_version": "phase1-test"},
+            bootstrap_metadata=metadata,
+        )
+
+    assert raised.value.status_code == 409
+    assert raised.value.detail["reasonCode"] == BOOTSTRAP_DIAGNOSTICS_UNAVAILABLE_REASON
+    assert raised.value.detail["nextAction"] == "REPAIR_RUNNER_DIAGNOSTICS_BEFORE_BOOTSTRAP"
+    assert metadata["upgradeGuard"] == {
+        "schemaVersion": "h2ometa.remote-runner-upgrade-guard.v1",
+        "checked": False,
+        "reason": "execution-diagnostics-unavailable",
+        "message": "runner not reachable",
+    }
+
+
+def test_bootstrap_guard_allows_manual_stopped_runner_start_when_diagnostics_are_unavailable() -> None:
     metadata = {}
     manager = GuardHarness(RemoteRunnerClientError("runner not reachable"))
 
     manager._guard_bootstrap_without_active_leases(
         server_id="srv_test",
         ssh_service=object(),
-        server_record={"bootstrap_version": "phase1-test"},
+        server_record={
+            "bootstrap_version": "phase1-test",
+            "last_health_snapshot": {"reasonCode": "RUNNER_STOPPED"},
+        },
         bootstrap_metadata=metadata,
+        bootstrap_action="start",
     )
 
     assert metadata["upgradeGuard"] == {
