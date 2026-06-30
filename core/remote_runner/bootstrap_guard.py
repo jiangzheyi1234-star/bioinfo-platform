@@ -7,6 +7,7 @@ from core.remote_runner.errors import RemoteRunnerManagerError
 
 
 UPGRADE_ACTIVE_LEASES_REASON = "RUNNER_UPGRADE_ACTIVE_LEASES"
+UPGRADE_DIAGNOSTICS_UNAVAILABLE_REASON = "RUNNER_UPGRADE_DIAGNOSTICS_UNAVAILABLE"
 UPGRADE_GUARD_SCHEMA_VERSION = "h2ometa.remote-runner-upgrade-guard.v1"
 
 
@@ -18,9 +19,11 @@ class RemoteRunnerBootstrapGuardMixin:
         ssh_service,
         server_record: dict[str, Any],
         bootstrap_metadata: dict[str, Any],
+        bootstrap_action: str = "ensure",
     ) -> None:
         if not str(server_record.get("bootstrap_version") or "").strip():
             return
+        action = str(bootstrap_action or "").strip() or "ensure"
         try:
             diagnostics = self.get_execution_diagnostics(
                 server_id=server_id,
@@ -34,6 +37,17 @@ class RemoteRunnerBootstrapGuardMixin:
                 "reason": "execution-diagnostics-unavailable",
                 "message": str(exc) or exc.__class__.__name__,
             }
+            if action == "upgrade":
+                raise self._manager_error(
+                    "remote runner upgrade guard failed because execution diagnostics are unavailable",
+                    bootstrap_metadata=bootstrap_metadata,
+                    status_code=409,
+                    detail={
+                        "reasonCode": UPGRADE_DIAGNOSTICS_UNAVAILABLE_REASON,
+                        "serverId": server_id,
+                        "nextAction": "REPAIR_RUNNER_DIAGNOSTICS_BEFORE_UPGRADE",
+                    },
+                ) from exc
             return
         active_leases = diagnostics.get("activeLeases")
         if not isinstance(active_leases, list):

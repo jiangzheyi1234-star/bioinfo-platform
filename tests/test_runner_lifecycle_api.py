@@ -21,7 +21,7 @@ from apps.api.ssh_routes import (
 )
 from core.app_runtime.errors import RuntimeServiceError
 from core.app_runtime.service import RuntimeService, ServiceLocator
-from core.remote_runner.bootstrap_guard import UPGRADE_ACTIVE_LEASES_REASON
+from core.remote_runner.bootstrap_guard import UPGRADE_ACTIVE_LEASES_REASON, UPGRADE_DIAGNOSTICS_UNAVAILABLE_REASON
 from core.remote_runner.errors import RemoteRunnerManagerError
 
 
@@ -111,6 +111,7 @@ def test_ensure_runner_bootstrap_persists_server_registry(
     result = asyncio.run(ensure_server_runner(server_id))
 
     assert len(fake_manager.bootstrap_calls) == 1
+    assert fake_manager.bootstrap_calls[0]["bootstrap_action"] == "ensure"
     assert cfg["servers"][server_id]["bootstrap_version"] == "phase1-test"
     assert cfg["servers"][server_id]["runner_mode"] == "background_process"
     assert cfg["servers"][server_id]["tunnel_port"] == 18765
@@ -118,6 +119,35 @@ def test_ensure_runner_bootstrap_persists_server_registry(
     assert result["data"]["health"]["reasonCode"] == ""
     assert result["data"]["runner"]["state"] == "ready"
     assert result["data"]["lifecycleAction"] == "ensure"
+
+
+def test_ensure_runner_http_conflict_preserves_manual_stop_reason_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    class ConflictRuntime:
+        def ensure_remote_runner_ready(self, server_id: str):
+            raise RuntimeServiceError(
+                "Remote runner was manually stopped. Use the explicit start action before submitting runs.",
+                status_code=409,
+                detail={
+                    "reasonCode": "RUNNER_STOPPED",
+                    "serverId": server_id,
+                    "nextAction": "START_RUNNER",
+                },
+            )
+
+    monkeypatch.setattr("apps.api.ssh_control_service.runtime_service", lambda: ConflictRuntime())
+
+    response = TestClient(app).post(
+        "/api/v1/servers/srv_stopped/ensure-runner",
+        headers={"X-Request-Id": "req_ensure_stopped"},
+    )
+
+    assert response.status_code == 409
+    assert response.headers["X-Request-Id"] == "req_ensure_stopped"
+    payload = response.json()
+    assert payload["code"] == "RUNTIME_SERVICE_ERROR"
+    assert payload["requestId"] == "req_ensure_stopped"
+    assert "RUNNER_STOPPED" in payload["detail"]
+    assert "START_RUNNER" in payload["detail"]
 
 
 def test_ensure_runner_keeps_ready_existing_runner_without_implicit_upgrade(
@@ -230,6 +260,7 @@ def test_upgrade_runner_requires_existing_runner_and_persists_upgrade_state(
 
     assert len(fake_manager.bootstrap_calls) == 1
     assert fake_manager.bootstrap_calls[0]["server_record"]["bootstrap_version"] == "old-ready-version"
+    assert fake_manager.bootstrap_calls[0]["bootstrap_action"] == "upgrade"
     assert cfg["servers"][server_id]["bootstrap_version"] == "phase-upgrade-test"
     assert cfg["servers"][server_id]["runner_upgraded_at"]
     assert cfg["servers"][server_id]["bootstrap_metadata"]["upgradeGuard"]["activeLeaseCount"] == 0
@@ -273,6 +304,50 @@ def test_upgrade_runner_active_lease_block_preserves_health_snapshot(
     assert cfg["servers"][server_id]["last_health_snapshot"] == health
     assert cfg["servers"][server_id]["runner_upgrade_blocked_at"]
     assert cfg["servers"][server_id]["bootstrap_metadata"]["upgradeGuard"]["activeLeaseCount"] == 1
+
+
+def test_upgrade_runner_diagnostics_unavailable_block_preserves_health_snapshot(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    service = _make_service(tmp_path)
+    service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)
+    cfg = _runtime_config()
+
+    class FakeRemoteRunnerManager:
+        def bootstrap(self, **_kwargs):
+            raise RemoteRunnerManagerError(
+                "remote runner upgrade guard failed because execution diagnostics are unavailable",
+                bootstrap_metadata={
+                    "upgradeGuard": {
+                        "checked": False,
+                        "reason": "execution-diagnostics-unavailable",
+                        "message": "runner not reachable",
+                    }
+                },
+                status_code=409,
+                detail={
+                    "reasonCode": UPGRADE_DIAGNOSTICS_UNAVAILABLE_REASON,
+                    "nextAction": "REPAIR_RUNNER_DIAGNOSTICS_BEFORE_UPGRADE",
+                },
+            )
+
+    service._service_locator.remote_runner_manager = FakeRemoteRunnerManager()
+    monkeypatch.setattr("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg)
+    monkeypatch.setattr("core.app_runtime.runtime_config.save_runtime_config", _save_capture(cfg))
+    _patch_runtime_service(monkeypatch, service)
+
+    server_id = asyncio.run(list_servers())["data"]["items"][0]["serverId"]
+    health = _ready_health()
+    cfg["servers"][server_id] = {**_prepared_record(), "last_health_snapshot": health}
+
+    with pytest.raises(RuntimeServiceError) as blocked:
+        asyncio.run(upgrade_server_runner(server_id))
+
+    assert blocked.value.status_code == 409
+    assert blocked.value.detail["reasonCode"] == UPGRADE_DIAGNOSTICS_UNAVAILABLE_REASON
+    assert cfg["servers"][server_id]["last_health_snapshot"] == health
+    assert cfg["servers"][server_id]["runner_upgrade_blocked_at"]
+    assert cfg["servers"][server_id]["bootstrap_metadata"]["upgradeGuard"]["checked"] is False
 
 
 def test_upgrade_runner_http_conflict_preserves_reason_code(monkeypatch: pytest.MonkeyPatch) -> None:

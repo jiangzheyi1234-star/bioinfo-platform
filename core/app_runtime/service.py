@@ -21,10 +21,10 @@ from core.app_runtime.managers.workflow import WorkflowManager
 from core.remote.ssh_service import SSHService, TerminalSession
 from core.remote.ssh_connector import scan_ssh_host_key as scan_remote_ssh_host_key
 from core.remote.ssh_connector import trust_ssh_host_key
-from core.remote_runner.bootstrap_guard import UPGRADE_ACTIVE_LEASES_REASON
+from core.remote_runner.bootstrap_guard import UPGRADE_ACTIVE_LEASES_REASON, UPGRADE_DIAGNOSTICS_UNAVAILABLE_REASON
 from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerError
 from core.app_runtime.errors import RuntimeServiceError
-from core.app_runtime.runner_stop_state import is_runner_manually_stopped
+from core.app_runtime.runner_stop_state import is_runner_manually_stopped, raise_if_runner_manually_stopped
 from core.app_runtime.runner_ops import RunnerOperationsMixin
 from core.app_runtime.server_state import RuntimeServerStateMixin
 from core.app_runtime.ssh_connection import RuntimeSshConnectionMixin
@@ -207,6 +207,8 @@ class RuntimeService(
             ssh = self._ensure_ssh_connected()
             manager = self._service_locator.remote_runner_manager
             server_record = self._get_server_registry_entry(server_id)
+            if action == "ensure":
+                raise_if_runner_manually_stopped(server_id=server_id, record=server_record)
             if action == "upgrade" and not server_record.get("bootstrap_version"):
                 raise RuntimeServiceError(
                     "Remote runner is not prepared; start it before upgrade.",
@@ -235,13 +237,17 @@ class RuntimeService(
                     server=server,
                     ssh_service=ssh,
                     server_record=server_record,
+                    bootstrap_action=action,
                 )
         except RuntimeServiceError as exc:
             bootstrap_metadata = {}
             cause = exc.__cause__
             if isinstance(cause, RemoteRunnerManagerError) and isinstance(cause.bootstrap_metadata, dict):
                 bootstrap_metadata = dict(cause.bootstrap_metadata)
-            if _runtime_error_reason_code(exc) == UPGRADE_ACTIVE_LEASES_REASON:
+            if _runtime_error_reason_code(exc) in {
+                UPGRADE_ACTIVE_LEASES_REASON,
+                UPGRADE_DIAGNOSTICS_UNAVAILABLE_REASON,
+            }:
                 blocked_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
                 with self._lock:
                     self._save_server_registry_entry(
@@ -322,6 +328,9 @@ class RuntimeService(
         if not server_record.get("bootstrap_version"):
             return None
         if is_runner_manually_stopped(server_record):
+            return None
+        snapshot = server_record.get("last_health_snapshot")
+        if isinstance(snapshot, dict) and not bool((snapshot.get("ready") or {}).get("ok")):
             return None
         try:
             health = self._call_remote_runner(

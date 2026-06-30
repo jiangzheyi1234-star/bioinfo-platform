@@ -92,6 +92,7 @@ class RemoteRunnerManager(
             server = kwargs["server"]
             ssh_service = kwargs["ssh_service"]
             server_record = kwargs.get("server_record") or {}
+            bootstrap_action = str(kwargs.get("bootstrap_action") or "ensure")
             version = REMOTE_RUNNER_VERSION
             home_dir = self._resolve_remote_home(ssh_service)
             remote_platform = self._detect_remote_platform(ssh_service)
@@ -227,6 +228,7 @@ class RemoteRunnerManager(
                     ssh_service=ssh_service,
                     server_record=server_record,
                     bootstrap_metadata=bootstrap_metadata,
+                    bootstrap_action=bootstrap_action,
                 )
                 self._deploy_service_runtime_bundle(
                     ssh_service=ssh_service,

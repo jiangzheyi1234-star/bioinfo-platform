@@ -108,9 +108,10 @@ class RuntimeSshConnectionMixin:
                 timeout=timeout,
             )
             if not result.ok or result.client is None:
-                if result.code == "SSH_HOST_KEY_UNTRUSTED":
+                result_code = str(getattr(result, "code", "") or "")
+                if result_code == "SSH_HOST_KEY_UNTRUSTED":
                     raise RuntimeServiceError(
-                        f"{result.code}: {result.message}",
+                        f"{result_code}: {result.message}",
                         status_code=409,
                     )
                 raise RuntimeServiceError(result.message)
