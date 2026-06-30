@@ -152,6 +152,9 @@ def test_terminal_stream_helper_uses_snapshot_model() -> None:
     assert "snapshot.get(" not in source
     assert "class TerminalSessionSnapshot(ApiRequest)" in models_source
     assert "def state_key(self) -> tuple[bool, bool, str]" in models_source
+    assert "_terminal_output_event(snapshot)" in source
+    assert '"base_cursor": snapshot.base_cursor' in source
+    assert '"truncated": snapshot.truncated' in source
 
 
 def test_terminal_stream_helper_does_not_swallow_protocol_failures() -> None:

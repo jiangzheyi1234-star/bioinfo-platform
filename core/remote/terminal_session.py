@@ -8,6 +8,9 @@ from typing import Any, Tuple
 import paramiko
 
 
+TERMINAL_SESSION_SCROLLBACK_CHARS = 512 * 1024
+
+
 class TerminalSession:
     """交互式终端会话"""
 
@@ -18,6 +21,7 @@ class TerminalSession:
         self._updated = Condition(self._lock)
         self._version = 0
         self._output = ""
+        self._output_base_cursor = 0
         self._closed = False
         self._message = ""
         self._created_at = time.time()
@@ -25,11 +29,18 @@ class TerminalSession:
 
     def snapshot(self, cursor: int = 0) -> dict:
         with self._lock:
+            requested_cursor = max(0, int(cursor or 0))
+            end_cursor = self._output_base_cursor + len(self._output)
+            truncated = requested_cursor < self._output_base_cursor
+            output_start = 0 if truncated else requested_cursor - self._output_base_cursor
             connected = not self._closed
             return {
                 "session_id": self.session_id,
-                "cursor": len(self._output),
-                "output": self._output[max(0, cursor) :],
+                "cursor": end_cursor,
+                "base_cursor": self._output_base_cursor,
+                "output": self._output[output_start:],
+                "truncated": truncated,
+                "scrollback_limit": TERMINAL_SESSION_SCROLLBACK_CHARS,
                 "connected": connected,
                 "input_enabled": connected,
                 "closed": self._closed,
@@ -57,7 +68,7 @@ class TerminalSession:
         with self._updated:
             while (
                 self._version == version
-                and len(self._output) <= max(0, cursor)
+                and self._output_base_cursor + len(self._output) <= max(0, cursor)
                 and not self._closed
             ):
                 remaining = deadline - time.monotonic()
@@ -74,6 +85,14 @@ class TerminalSession:
             self._updated.notify_all()
         self._channel.close()
 
+    def _append_output(self, data: str) -> None:
+        self._output += data
+        overflow = len(self._output) - TERMINAL_SESSION_SCROLLBACK_CHARS
+        if overflow <= 0:
+            return
+        self._output = self._output[overflow:]
+        self._output_base_cursor += overflow
+
     def _reader_loop(self) -> None:
         try:
             while not self._closed:
@@ -81,7 +100,7 @@ class TerminalSession:
                     data = self._channel.recv(4096)
                     if data:
                         with self._updated:
-                            self._output += data.decode("utf-8", errors="ignore")
+                            self._append_output(data.decode("utf-8", errors="ignore"))
                             self._version += 1
                             self._updated.notify_all()
                 elif self._channel.closed or self._channel.exit_status_ready():

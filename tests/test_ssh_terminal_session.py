@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from core.remote.ssh_service import LocalTunnel, SSHReconnector, SSHService, TerminalSession
+from core.remote.terminal_session import TERMINAL_SESSION_SCROLLBACK_CHARS
 
 
 def test_terminal_session_logic_lives_outside_ssh_service() -> None:
@@ -107,6 +108,35 @@ def test_terminal_session_snapshot_marks_live_session_as_connected() -> None:
     assert snapshot["input_enabled"] is True
     assert snapshot["closed"] is False
     assert snapshot["closed_at"] is None
+
+
+def test_terminal_session_scrollback_caps_output_with_absolute_cursor(monkeypatch) -> None:
+    class IdleThread:
+        def __init__(self, **_kwargs) -> None:
+            return None
+
+        def start(self) -> None:
+            return None
+
+    monkeypatch.setattr("core.remote.terminal_session.threading.Thread", IdleThread)
+    session = TerminalSession("term_test_scrollback", DummyChannel())
+    session._append_output("a" * (TERMINAL_SESSION_SCROLLBACK_CHARS + 10))
+
+    fresh = session.snapshot(cursor=10)
+    stale = session.snapshot(cursor=0)
+    started = time.monotonic()
+    waited, _version = session.wait_for_update(cursor=0, version=session._version, timeout=1.0)
+    elapsed = time.monotonic() - started
+
+    assert fresh["cursor"] == TERMINAL_SESSION_SCROLLBACK_CHARS + 10
+    assert fresh["base_cursor"] == 10
+    assert fresh["truncated"] is False
+    assert len(fresh["output"]) == TERMINAL_SESSION_SCROLLBACK_CHARS
+    assert stale["truncated"] is True
+    assert stale["output"] == fresh["output"]
+    assert stale["scrollback_limit"] == TERMINAL_SESSION_SCROLLBACK_CHARS
+    assert waited["truncated"] is True
+    assert elapsed < 0.25
 
 
 def test_terminal_session_snapshot_marks_closed_session_as_unavailable() -> None:

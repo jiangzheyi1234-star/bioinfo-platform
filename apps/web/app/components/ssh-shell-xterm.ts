@@ -8,10 +8,12 @@ import {
   LIGHT_TERMINAL_THEME,
   TERMINAL_FONT_SIZE,
   TERMINAL_LINE_HEIGHT,
+  TERMINAL_XTERM_SCROLLBACK_ROWS,
   type TerminalHandle,
   type XTermLike,
   getTerminalGridSize,
   isTerminalHandleActive,
+  retainTerminalReplayBufferTail,
 } from "./ssh-shell-model";
 
 type UseSshTerminalViewportOptions = {
@@ -160,7 +162,7 @@ export function useSshTerminalViewport({
     if (!data) {
       return;
     }
-    terminalBufferRef.current += data;
+    terminalBufferRef.current = retainTerminalReplayBufferTail(terminalBufferRef.current + data);
     const handle = terminalHandleRef.current;
     if (isTerminalHandleActive(handle) && terminalReadyRef.current) {
       handle.terminal.write(data);
@@ -168,7 +170,7 @@ export function useSshTerminalViewport({
   }, []);
 
   const replaceOutput = useCallback((data: string) => {
-    terminalBufferRef.current = data;
+    terminalBufferRef.current = retainTerminalReplayBufferTail(data);
     const handle = terminalHandleRef.current;
     if (!isTerminalHandleActive(handle) || !terminalReadyRef.current) {
       return;
@@ -220,7 +222,7 @@ export function useSshTerminalViewport({
           '"JetBrains Mono", "SFMono-Regular", ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
         fontSize: TERMINAL_FONT_SIZE,
         lineHeight: TERMINAL_LINE_HEIGHT,
-        scrollback: 4000,
+        scrollback: TERMINAL_XTERM_SCROLLBACK_ROWS,
         theme: LIGHT_TERMINAL_THEME,
       }) as unknown as XTermLike;
       const fitAddon = new FitAddon();

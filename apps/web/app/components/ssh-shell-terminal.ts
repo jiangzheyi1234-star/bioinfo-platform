@@ -217,8 +217,13 @@ export function useSshTerminal({
               if (!message.data) {
                 return;
               }
-              terminalCursorRef.current += message.data.length;
-              terminalViewport.appendOutput(message.data);
+              terminalCursorRef.current =
+                typeof message.cursor === "number" ? message.cursor : terminalCursorRef.current + message.data.length;
+              if (message.truncated) {
+                terminalViewport.replaceOutput(message.data);
+              } else {
+                terminalViewport.appendOutput(message.data);
+              }
               return;
             case "state":
               setTerminalInputEnabled(Boolean(message.input_enabled));

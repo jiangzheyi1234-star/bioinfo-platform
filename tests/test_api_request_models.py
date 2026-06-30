@@ -978,7 +978,10 @@ def test_terminal_session_snapshot_normalizes_runtime_dict() -> None:
         {
             "session_id": "term_1",
             "cursor": 12,
+            "base_cursor": 2,
             "output": "hello",
+            "truncated": True,
+            "scrollback_limit": 512000,
             "connected": True,
             "input_enabled": True,
             "closed": False,
@@ -989,11 +992,37 @@ def test_terminal_session_snapshot_normalizes_runtime_dict() -> None:
     )
 
     assert snapshot.cursor == 12
+    assert snapshot.base_cursor == 2
     assert snapshot.output == "hello"
+    assert snapshot.truncated is True
+    assert snapshot.scrollback_limit == 512000
     assert snapshot.state_key == (True, True, "")
 
 
 def test_terminal_session_snapshot_rejects_unknown_runtime_fields() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        TerminalSessionSnapshot.model_validate(
+            {
+                "session_id": "term_1",
+                "cursor": 12,
+                "base_cursor": 0,
+                "output": "hello",
+                "truncated": False,
+                "scrollback_limit": 512000,
+                "connected": True,
+                "input_enabled": True,
+                "closed": False,
+                "message": "",
+                "created_at": 1780470000.0,
+                "closed_at": None,
+                "legacyState": "connected",
+            }
+        )
+
+    assert exc_info.value.errors()[0]["type"] == "extra_forbidden"
+
+
+def test_terminal_session_snapshot_requires_scrollback_cursor_fields() -> None:
     with pytest.raises(ValidationError) as exc_info:
         TerminalSessionSnapshot.model_validate(
             {
@@ -1006,8 +1035,8 @@ def test_terminal_session_snapshot_rejects_unknown_runtime_fields() -> None:
                 "message": "",
                 "created_at": 1780470000.0,
                 "closed_at": None,
-                "legacyState": "connected",
             }
         )
 
-    assert exc_info.value.errors()[0]["type"] == "extra_forbidden"
+    missing_fields = {error["loc"][0] for error in exc_info.value.errors()}
+    assert {"base_cursor", "truncated", "scrollback_limit"}.issubset(missing_fields)

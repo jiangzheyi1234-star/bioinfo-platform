@@ -48,7 +48,10 @@ export type SSHFormState = {
 export type TerminalSnapshot = {
   session_id: string;
   cursor: number;
+  base_cursor: number;
   output: string;
+  truncated: boolean;
+  scrollback_limit: number;
   connected: boolean;
   input_enabled: boolean;
   closed: boolean;
@@ -130,6 +133,15 @@ export type SshShellContextValue = {
 
 export function isSshChannelReady(status: SSHStatus | null | undefined): boolean {
   return Boolean(status?.connected && !status.connecting && !status.auto_connect_in_progress);
+}
+
+export const TERMINAL_XTERM_SCROLLBACK_ROWS = 4000;
+export const TERMINAL_REPLAY_BUFFER_MAX_CHARS = 512 * 1024;
+
+export function retainTerminalReplayBufferTail(value: string): string {
+  return value.length <= TERMINAL_REPLAY_BUFFER_MAX_CHARS
+    ? value
+    : value.slice(value.length - TERMINAL_REPLAY_BUFFER_MAX_CHARS);
 }
 
 export const defaultForm: SSHFormState = {

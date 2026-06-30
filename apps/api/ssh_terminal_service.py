@@ -34,6 +34,16 @@ def _terminal_state_event(snapshot: TerminalSessionSnapshot) -> dict[str, Any]:
     }
 
 
+def _terminal_output_event(snapshot: TerminalSessionSnapshot) -> dict[str, Any]:
+    return {
+        "type": "output",
+        "data": snapshot.output,
+        "cursor": snapshot.cursor,
+        "base_cursor": snapshot.base_cursor,
+        "truncated": snapshot.truncated,
+    }
+
+
 async def _send_terminal_snapshot(
     websocket: TerminalWebSocket,
     *,
@@ -41,7 +51,7 @@ async def _send_terminal_snapshot(
     last_state: tuple[bool, bool, str] | None,
 ) -> tuple[int, tuple[bool, bool, str]]:
     if snapshot.output:
-        await websocket.send_json({"type": "output", "data": snapshot.output})
+        await websocket.send_json(_terminal_output_event(snapshot))
     state = snapshot.state_key
     if state != last_state and not snapshot.closed:
         await websocket.send_json(_terminal_state_event(snapshot))

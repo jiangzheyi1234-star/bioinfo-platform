@@ -8,7 +8,13 @@ export type TerminalStreamClientMessage =
   | { type: "ping" };
 
 export type TerminalReadyMessage = { type: "ready"; session_id: string };
-export type TerminalOutputMessage = { type: "output"; data: string };
+export type TerminalOutputMessage = {
+  type: "output";
+  data: string;
+  cursor: number;
+  base_cursor: number;
+  truncated: boolean;
+};
 export type TerminalStateMessage = {
   type: "state";
   connected: boolean;

@@ -49,7 +49,10 @@ class TerminalPingMessage(ApiRequest):
 class TerminalSessionSnapshot(ApiRequest):
     session_id: str = Field(min_length=1)
     cursor: int = Field(ge=0)
+    base_cursor: int = Field(ge=0)
     output: str
+    truncated: bool
+    scrollback_limit: int = Field(ge=1)
     connected: bool
     input_enabled: bool
     closed: bool

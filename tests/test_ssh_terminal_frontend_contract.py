@@ -81,6 +81,39 @@ def test_terminal_session_uses_current_api_contract() -> None:
     _assert_not_contains(send_body, "setTerminalMessage")
 
 
+def test_terminal_scrollback_is_capped_on_stream_and_viewport() -> None:
+    model_source = _source("model")
+    stream_source = (COMPONENTS / "ssh-terminal-stream.ts").read_text(encoding="utf-8")
+    terminal_source = _source("terminal")
+    xterm_source = _source("xterm")
+
+    _assert_contains(
+        model_source,
+        "TERMINAL_XTERM_SCROLLBACK_ROWS",
+        "TERMINAL_REPLAY_BUFFER_MAX_CHARS",
+        "retainTerminalReplayBufferTail",
+        "base_cursor: number",
+        "truncated: boolean",
+        "scrollback_limit: number",
+    )
+    _assert_contains(stream_source, "cursor: number", "base_cursor: number", "truncated: boolean")
+    _assert_contains(
+        terminal_source,
+        'case "output":',
+        "typeof message.cursor === \"number\"",
+        "if (message.truncated)",
+        "terminalViewport.replaceOutput(message.data)",
+        "terminalViewport.appendOutput(message.data)",
+    )
+    _assert_contains(
+        xterm_source,
+        "TERMINAL_XTERM_SCROLLBACK_ROWS",
+        "retainTerminalReplayBufferTail",
+        "scrollback: TERMINAL_XTERM_SCROLLBACK_ROWS",
+    )
+    _assert_not_contains(xterm_source, "terminalBufferRef.current += data")
+
+
 def test_terminal_requires_ready_ssh_channel_not_optimistic_connection() -> None:
     model_source = _source("model")
     shell_source = _source("shell")
