@@ -22,6 +22,7 @@ from core.contracts.remote_endpoints import (
     WORKFLOW_TRIGGER_READINESS_SUBMIT,
     WORKFLOW_TRIGGER_SCHEDULER_RUN_ONCE,
     WORKFLOW_TRIGGER_SCHEDULER_TICKS_READ,
+    remote_endpoint_success_status,
     render_remote_endpoint_path,
 )
 from core.governance_policy import HIGH_RISK_API_POLICIES
@@ -133,9 +134,11 @@ def test_trigger_command_endpoints_are_contract_rendered() -> None:
             assert endpoint.response_key == "data"
 
     assert REMOTE_ENDPOINTS[WORKFLOW_TRIGGER_CREATE].accepted_statuses == (201,)
+    assert remote_endpoint_success_status(WORKFLOW_TRIGGER_CREATE) == 201
     assert REMOTE_ENDPOINTS[WORKFLOW_TRIGGER_BACKFILL_PREVIEW].accepted_statuses == (200,)
     for endpoint_id in set(TRIGGER_COMMAND_ENDPOINTS) - {WORKFLOW_TRIGGER_CREATE, WORKFLOW_TRIGGER_BACKFILL_PREVIEW}:
         assert REMOTE_ENDPOINTS[endpoint_id].accepted_statuses == (202,)
+        assert remote_endpoint_success_status(endpoint_id) == 202
 
 
 def test_trigger_command_endpoint_contracts_match_governance_policy() -> None:
@@ -163,6 +166,27 @@ def test_trigger_command_endpoint_contracts_match_openapi_operation_ids_and_stat
             assert operation["operationId"] == endpoint.operation_id
             for status in endpoint.accepted_statuses:
                 assert str(status) in operation["responses"]
+
+
+def test_trigger_route_success_statuses_are_contract_owned() -> None:
+    local_route_source = _source("apps/api/workflow_trigger_routes.py")
+    remote_route_source = _source("apps/remote_runner/workflow_trigger_routes.py")
+    contract_owned_successes = (
+        "WORKFLOW_TRIGGER_CREATE",
+        "WORKFLOW_TRIGGER_EVENT_SUBMIT",
+        "WORKFLOW_TRIGGER_INBOX_SUBMIT",
+        "WORKFLOW_TRIGGER_INBOX_REPLAY",
+        "WORKFLOW_TRIGGER_READINESS_SUBMIT",
+        "WORKFLOW_TRIGGER_SCHEDULER_RUN_ONCE",
+        "WORKFLOW_TRIGGER_BACKFILL_LAUNCH",
+        "WORKFLOW_BACKFILL_LAUNCH_CANCEL",
+    )
+
+    for route_source in (local_route_source, remote_route_source):
+        for endpoint_id in contract_owned_successes:
+            assert f"remote_endpoint_success_status({endpoint_id})" in route_source
+        assert "status_code=201" not in route_source
+        assert "status_code=202" not in route_source
 
 
 def test_trigger_command_endpoint_caller_supports_json_and_raw_inbox_payloads() -> None:

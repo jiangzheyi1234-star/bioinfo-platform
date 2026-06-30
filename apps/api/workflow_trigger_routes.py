@@ -54,6 +54,7 @@ from core.contracts.remote_endpoints import (
     WORKFLOW_TRIGGER_READINESS_SUBMIT,
     WORKFLOW_TRIGGER_SCHEDULER_RUN_ONCE,
     WORKFLOW_TRIGGER_SCHEDULER_TICKS_READ,
+    remote_endpoint_success_status,
 )
 
 
@@ -74,7 +75,7 @@ async def list_workflow_triggers(
 @router.post(
     "/api/v1/workflow-triggers",
     operation_id=REMOTE_ENDPOINTS[WORKFLOW_TRIGGER_CREATE].operation_id,
-    status_code=201,
+    status_code=remote_endpoint_success_status(WORKFLOW_TRIGGER_CREATE),
 )
 async def create_workflow_trigger(payload: WorkflowTriggerCreateRequest) -> dict[str, Any]:
     return await create_workflow_trigger_from_request(payload)
@@ -151,7 +152,7 @@ async def list_workflow_trigger_scheduler_ticks(
 @router.post(
     "/api/v1/workflow-trigger-scheduler/run-once",
     operation_id=REMOTE_ENDPOINTS[WORKFLOW_TRIGGER_SCHEDULER_RUN_ONCE].operation_id,
-    status_code=202,
+    status_code=remote_endpoint_success_status(WORKFLOW_TRIGGER_SCHEDULER_RUN_ONCE),
 )
 async def run_workflow_trigger_scheduler_once(
     payload: WorkflowTriggerSchedulerRunOnceRequest,
@@ -200,7 +201,7 @@ async def get_workflow_backfill_launch(
 @router.post(
     "/api/v1/workflow-backfill-launches/{launch_id}/cancel",
     operation_id=REMOTE_ENDPOINTS[WORKFLOW_BACKFILL_LAUNCH_CANCEL].operation_id,
-    status_code=202,
+    status_code=remote_endpoint_success_status(WORKFLOW_BACKFILL_LAUNCH_CANCEL),
 )
 async def cancel_workflow_backfill_launch(
     launch_id: str,
@@ -217,7 +218,7 @@ async def cancel_workflow_backfill_launch(
 @router.post(
     "/api/v1/workflow-triggers/{trigger_id}/events",
     operation_id=REMOTE_ENDPOINTS[WORKFLOW_TRIGGER_EVENT_SUBMIT].operation_id,
-    status_code=202,
+    status_code=remote_endpoint_success_status(WORKFLOW_TRIGGER_EVENT_SUBMIT),
 )
 async def submit_workflow_trigger_event(
     trigger_id: str,
@@ -236,7 +237,7 @@ async def submit_workflow_trigger_event(
 @router.post(
     "/api/v1/workflow-triggers/{trigger_id}/inbox",
     operation_id=REMOTE_ENDPOINTS[WORKFLOW_TRIGGER_INBOX_SUBMIT].operation_id,
-    status_code=202,
+    status_code=remote_endpoint_success_status(WORKFLOW_TRIGGER_INBOX_SUBMIT),
 )
 async def submit_workflow_trigger_inbox_event(
     trigger_id: str,
@@ -256,7 +257,7 @@ async def submit_workflow_trigger_inbox_event(
 @router.post(
     "/api/v1/workflow-triggers/{trigger_id}/inbox/{inbox_event_id}/replay",
     operation_id=REMOTE_ENDPOINTS[WORKFLOW_TRIGGER_INBOX_REPLAY].operation_id,
-    status_code=202,
+    status_code=remote_endpoint_success_status(WORKFLOW_TRIGGER_INBOX_REPLAY),
 )
 async def replay_workflow_trigger_inbox_event(
     trigger_id: str,
@@ -277,7 +278,7 @@ async def replay_workflow_trigger_inbox_event(
 @router.post(
     "/api/v1/workflow-triggers/{trigger_id}/readiness",
     operation_id=REMOTE_ENDPOINTS[WORKFLOW_TRIGGER_READINESS_SUBMIT].operation_id,
-    status_code=202,
+    status_code=remote_endpoint_success_status(WORKFLOW_TRIGGER_READINESS_SUBMIT),
 )
 async def submit_workflow_trigger_readiness_event(
     trigger_id: str,
@@ -312,7 +313,7 @@ async def preview_workflow_trigger_backfill(
 @router.post(
     "/api/v1/workflow-triggers/{trigger_id}/backfill/launch",
     operation_id=REMOTE_ENDPOINTS[WORKFLOW_TRIGGER_BACKFILL_LAUNCH].operation_id,
-    status_code=202,
+    status_code=remote_endpoint_success_status(WORKFLOW_TRIGGER_BACKFILL_LAUNCH),
 )
 async def launch_workflow_trigger_backfill(
     trigger_id: str,
