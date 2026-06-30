@@ -259,6 +259,60 @@ def test_tool_validation_plan_paths_are_registry_owned() -> None:
     assert 'f"/api/v1/tools/prepare-jobs/{job_id}"' not in capability_source
 
 
+def test_tool_production_plan_path_is_registry_owned(monkeypatch) -> None:
+    from apps.api import tool_candidate_target_acceptance
+    from apps.api.tool_candidate_target_acceptance import (
+        tool_production_submit_method,
+        tool_production_submit_path_template,
+    )
+
+    plan_source = _source("apps/api/tool_candidate_target_acceptance.py")
+
+    production_endpoint = REMOTE_ENDPOINTS[TOOL_PRODUCTION_ENABLE]
+    assert tool_production_submit_method() == production_endpoint.method
+    assert tool_production_submit_path_template() == (
+        production_endpoint.path_template.replace("{tool_id}", "{toolId}")
+    )
+    assert "TOOL_PRODUCTION_ENABLE" in plan_source
+    assert "tool_production_submit_method()" in plan_source
+    assert "tool_production_submit_path_template()" in plan_source
+    assert '"/api/v1/tools/{toolId}/production"' not in plan_source
+
+    monkeypatch.setattr(
+        tool_candidate_target_acceptance,
+        "catalog_tool_profiles",
+        lambda *, query, page, page_size: {"total": 0, "items": []},
+    )
+    monkeypatch.setattr(tool_candidate_target_acceptance, "all_tool_profiles", list)
+    report = tool_candidate_target_acceptance.bio_agent_catalog_target_acceptance(
+        registered_tools=[
+            {
+                "id": "bioconda::fastqc",
+                "toolContract": {"state": "WorkflowReady", "workflowReady": True},
+            }
+        ],
+        catalog={
+            "total": 0,
+            "sourceCounts": {},
+            "addableDraftCounts": {"total": 0},
+            "qualityCounts": {
+                "discovered": 0,
+                "draftRunnable": 0,
+                "workflowReady": 0,
+                "productionEnabled": 0,
+            },
+        },
+    )
+
+    assert report["productionQueue"]["items"][0]["productionPlan"]["submit"] == {
+        "method": production_endpoint.method,
+        "pathTemplate": production_endpoint.path_template.replace(
+            "{tool_id}", "{toolId}"
+        ),
+        "payloadRef": "productionEvidence",
+    }
+
+
 class FakeToolCommandClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, list[int]]] = []

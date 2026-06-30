@@ -19,6 +19,8 @@ from apps.api.tool_profile_model import ToolProfile
 from apps.api.tool_profile_prepare_payload import profile_prepare_payload
 from apps.api.tool_profile_sources import all_tool_profiles
 from apps.api.tool_validation_plan import workflow_ready_validation_plan
+from core.contracts.remote_endpoints import REMOTE_ENDPOINTS
+from core.contracts.tool_remote_endpoints import TOOL_PRODUCTION_ENABLE
 
 
 CATALOG_TARGETS = {
@@ -269,8 +271,8 @@ def _production_plan() -> dict[str, Any]:
         "planVersion": "tool-production-plan-v1",
         "requiredState": "ProductionEnabled",
         "submit": {
-            "method": "POST",
-            "pathTemplate": "/api/v1/tools/{toolId}/production",
+            "method": tool_production_submit_method(),
+            "pathTemplate": tool_production_submit_path_template(),
             "payloadRef": "productionEvidence",
         },
         "acceptedEvidenceTypes": ["real-data-acceptance", "real-database-acceptance"],
@@ -291,6 +293,17 @@ def _production_plan() -> dict[str, Any]:
         ],
         "readinessBoundary": "ProductionEnabled is granted only after real run evidence validates artifacts and scoped production requirements.",
     }
+
+
+def tool_production_submit_method() -> str:
+    return REMOTE_ENDPOINTS[TOOL_PRODUCTION_ENABLE].method
+
+
+def tool_production_submit_path_template() -> str:
+    path_template = REMOTE_ENDPOINTS[TOOL_PRODUCTION_ENABLE].path_template
+    if "{tool_id}" not in path_template:
+        raise ValueError("TOOL_PRODUCTION_ENABLE_PATH_PARAM_UNEXPECTED")
+    return path_template.replace("{tool_id}", "{toolId}")
 
 
 def validation_queue_tool_ids(
