@@ -12,7 +12,7 @@ import {
   normalizeFetchError,
   resolveRemoteStatus,
   runnerEnsureActionLabel,
-  type SSHStatus,
+  type RunnerRepairStatus,
 } from "./ssh-shell-model";
 
 type RunnerReleasePrunePlan = {
@@ -28,7 +28,7 @@ type RunnerReleasePrunePlan = {
 };
 
 type RunnerRepairPanelProps = {
-  status: SSHStatus | null;
+  status: RunnerRepairStatus | null;
   ensureRunnerBusy: boolean;
   onEnsureRunner: () => void;
   onRefreshStatus: () => Promise<unknown>;

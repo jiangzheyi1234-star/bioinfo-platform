@@ -54,6 +54,7 @@ def test_remote_status_panel_exposes_runner_ports_and_stop_action() -> None:
     _assert_contains(ui_source, "RunnerRepairPanel")
     _assert_contains(
         repair_source,
+        "type RunnerRepairStatus",
         "resolveRemoteStatus(status)",
         "Runner Repair",
         "远端服务",
@@ -89,6 +90,7 @@ def test_runner_repair_panel_exposes_upgrade_prune_and_operator_diagnostics() ->
     )
     _assert_contains(source, "className?: string", "className = \"\"")
     _assert_contains(source, "onClose?: () => void", "{onClose ? (")
+    _assert_not_contains(source, "type SSHStatus")
     _assert_matches(source, r"disabled=\{!canPrune\s*\|\|\s*pruneLoading\s*\|\|\s*deletableReleaseCount <= 0")
 
 

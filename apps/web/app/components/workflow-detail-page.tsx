@@ -74,9 +74,13 @@ export function WorkflowDetailPage({ workflowId: workflowIdProp = "" }: { workfl
             onFilesChange={state.setFiles}
             onLoadSampleData={() => void state.loadSampleData()}
             onSubmit={() => void state.submitRun()}
+            onEnsureRunner={() => void state.ensureRunner()}
+            onRefreshServer={state.refreshWorkflowServer}
             isGeneratedToolRun={state.isGeneratedToolRun}
             selectedResourceDatabaseIds={state.selectedResourceDatabaseIds}
             server={state.server}
+            runnerEnsureBusy={state.runnerEnsureBusy}
+            runnerRepairError={state.runnerRepairError}
             submitError={state.submitError}
             submittedRun={state.submittedRun}
             submitting={state.submitting}

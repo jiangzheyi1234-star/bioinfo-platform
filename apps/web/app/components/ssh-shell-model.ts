@@ -2,9 +2,29 @@
 
 import { LocalApiError, apiBase } from "@/app/lib/local-api-client";
 
-export type SSHStatus = {
-  configured: boolean;
+export type RunnerLifecycleStatus = {
+  state: "preparing" | "ready" | "repair_needed" | "failed" | "stopped" | string;
+  ready: boolean;
+  message: string;
+  reasonCode: string;
+  deploymentAction?: string;
+  servicePort?: number;
+  tunnelPort?: number;
+};
+
+export type RunnerRepairStatus = {
   connected: boolean;
+  connecting?: boolean;
+  auto_connect_in_progress?: boolean;
+  displayTarget?: string;
+  host?: string;
+  message?: string;
+  serverId?: string;
+  runner?: RunnerLifecycleStatus;
+};
+
+export type SSHStatus = RunnerRepairStatus & {
+  configured: boolean;
   auth_mode?: "password_ref" | "key_file" | "ssh_config" | "agent";
   ssh_host_alias?: string;
   identity_ref?: string;
@@ -15,22 +35,10 @@ export type SSHStatus = {
   has_password: boolean;
   timeout_sec?: number;
   auto_connect_on_startup?: boolean;
-  message: string;
-  connecting?: boolean;
   auto_connect_attempted?: boolean;
-  auto_connect_in_progress?: boolean;
   auto_connect_failed?: boolean;
   auto_connect_error?: string;
-  serverId?: string;
-  runner?: {
-    state: "preparing" | "ready" | "repair_needed" | "failed" | "stopped" | string;
-    ready: boolean;
-    message: string;
-    reasonCode: string;
-    deploymentAction?: string;
-    servicePort?: number;
-    tunnelPort?: number;
-  };
+  message: string;
 };
 
 export type RemoteStatusView = {
@@ -149,13 +157,13 @@ export type SshShellContextValue = {
   submitDisconnect: () => Promise<void>;
 };
 
-export function isSshChannelReady(status: SSHStatus | null | undefined): boolean {
+export function isSshChannelReady(status: RunnerRepairStatus | null | undefined): boolean {
   return Boolean(status?.connected && !status.connecting && !status.auto_connect_in_progress);
 }
 
 export const MANUAL_RUNNER_STOP_REASON = "RUNNER_STOPPED";
 
-export function isRunnerManuallyStopped(status: SSHStatus | null | undefined): boolean {
+export function isRunnerManuallyStopped(status: RunnerRepairStatus | null | undefined): boolean {
   const runner = status?.runner;
   return Boolean(
     status?.connected &&
@@ -165,7 +173,7 @@ export function isRunnerManuallyStopped(status: SSHStatus | null | undefined): b
   );
 }
 
-export function isRunnerRepairRequired(status: SSHStatus | null | undefined): boolean {
+export function isRunnerRepairRequired(status: RunnerRepairStatus | null | undefined): boolean {
   const runner = status?.runner;
   return Boolean(
     status?.connected &&
@@ -175,7 +183,7 @@ export function isRunnerRepairRequired(status: SSHStatus | null | undefined): bo
   );
 }
 
-export function isRunnerPreparing(status: SSHStatus | null | undefined): boolean {
+export function isRunnerPreparing(status: RunnerRepairStatus | null | undefined): boolean {
   const runner = status?.runner;
   return Boolean(
     status?.connected &&
@@ -186,9 +194,9 @@ export function isRunnerPreparing(status: SSHStatus | null | undefined): boolean
   );
 }
 
-export function resolveRemoteStatus(status: SSHStatus | null): RemoteStatusView {
+export function resolveRemoteStatus(status: RunnerRepairStatus | null): RemoteStatusView {
   if (status?.connecting || status?.auto_connect_in_progress) {
-    const target = status.host ? `SSH: ${status.host}` : "SSH";
+    const target = remoteStatusTarget(status);
     return {
       label: "SSH 连接中",
       message: target,
@@ -206,7 +214,7 @@ export function resolveRemoteStatus(status: SSHStatus | null): RemoteStatusView 
       stages: ["SSH 未连接", "远程服务未启动"],
     };
   }
-  const target = status.host ? `SSH: ${status.host}` : "SSH";
+  const target = remoteStatusTarget(status);
   if (!status.runner) {
     return {
       label: "SSH 已连接",
@@ -255,7 +263,7 @@ export function resolveRemoteStatus(status: SSHStatus | null): RemoteStatusView 
   };
 }
 
-export function runnerEnsureActionLabel(status: SSHStatus | null | undefined, busy: boolean): string {
+export function runnerEnsureActionLabel(status: RunnerRepairStatus | null | undefined, busy: boolean): string {
   if (isRunnerManuallyStopped(status)) {
     return busy ? "启动中" : "启动远程服务";
   }
@@ -265,7 +273,7 @@ export function runnerEnsureActionLabel(status: SSHStatus | null | undefined, bu
   return busy ? "准备中" : "准备远程服务";
 }
 
-export function runnerSidebarSubcopy(status: SSHStatus | null | undefined): string {
+export function runnerSidebarSubcopy(status: RunnerRepairStatus | null | undefined): string {
   if (isRunnerManuallyStopped(status)) {
     return "远程服务已手动停止";
   }
@@ -273,6 +281,13 @@ export function runnerSidebarSubcopy(status: SSHStatus | null | undefined): stri
     return "远程服务需要修复";
   }
   return "远程服务准备中";
+}
+
+function remoteStatusTarget(status: RunnerRepairStatus): string {
+  if (status.displayTarget) {
+    return status.displayTarget;
+  }
+  return status.host ? `SSH: ${status.host}` : "SSH";
 }
 
 export const TERMINAL_XTERM_SCROLLBACK_ROWS = 4000;

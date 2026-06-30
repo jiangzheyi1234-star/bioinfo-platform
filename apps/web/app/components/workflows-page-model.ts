@@ -326,9 +326,13 @@ export type WorkflowServer = {
     pipelineRegistry?: WorkflowPipelineRegistryHealth;
   };
   runner?: {
+    state?: string;
     ready?: boolean;
     message?: string;
     reasonCode?: string;
+    deploymentAction?: string;
+    servicePort?: number;
+    tunnelPort?: number;
     bootstrapMetadata?: {
       workflow_profile?: {
         path?: string;

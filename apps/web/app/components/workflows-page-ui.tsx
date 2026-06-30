@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import type { DatabaseItem } from "./database-page-model";
 import { WorkflowCurrentRunPanel } from "./workflow-current-run-panel";
 import { WorkflowParamsForm } from "./workflow-params-form";
+import { RunnerRepairPanel } from "./ssh-runner-repair-panel";
 import {
   fetchRunsList,
   fetchWorkflowDatabases,
@@ -30,6 +31,7 @@ import {
   type WorkflowServer,
   type WorkflowUpload,
 } from "./workflows-page-model";
+import { MANUAL_RUNNER_STOP_REASON, type RunnerRepairStatus } from "./ssh-shell-model";
 import { rankArtifactInputCandidates, safeArtifactOutputLabel } from "./workflow-artifact-input-recommendation";
 import type { WorkflowArtifactRunInput } from "./workflow-pipeline-run-spec";
 
@@ -132,9 +134,13 @@ export function WorkflowRunBuilder({
   onClearArtifactInputs,
   onLoadSampleData,
   onSubmit,
+  onEnsureRunner,
+  onRefreshServer,
   isGeneratedToolRun,
   selectedResourceDatabaseIds,
   server,
+  runnerEnsureBusy,
+  runnerRepairError,
   submitError,
   submittedRun,
   submitting,
@@ -166,9 +172,13 @@ export function WorkflowRunBuilder({
   onClearArtifactInputs: () => void;
   onLoadSampleData: () => void;
   onSubmit: () => void;
+  onEnsureRunner: () => void;
+  onRefreshServer: () => Promise<WorkflowServer>;
   isGeneratedToolRun: boolean;
   selectedResourceDatabaseIds: Record<string, string>;
   server: WorkflowServer | null;
+  runnerEnsureBusy: boolean;
+  runnerRepairError: string;
   submitError: string;
   submittedRun: WorkflowRun | null;
   submitting: boolean;
@@ -184,6 +194,8 @@ export function WorkflowRunBuilder({
 }) {
   const currentRun = runDetail?.run || submittedRun || null;
   const ready = Boolean(server?.ready);
+  const runnerRepairStatus = workflowServerRepairStatus(server);
+  const showRunnerRepair = Boolean(runnerRepairStatus?.connected && runnerRepairStatus.runner && !runnerRepairStatus.runner.ready);
   const inputCount = files.length + sampleUploads.length + artifactInputs.length;
   const workflowRuntime = server?.health?.workflowRuntime;
   const pipelineRegistry = server?.health?.pipelineRegistry;
@@ -326,6 +338,21 @@ export function WorkflowRunBuilder({
                     </div>
                   ))}
                 </div>
+                {runnerRepairError ? (
+                  <Alert variant="destructive" className="mt-3 py-2 text-xs">
+                    <AlertCircle strokeWidth={1.5} className="h-3.5 w-3.5" />
+                    <AlertDescription>{runnerRepairError}</AlertDescription>
+                  </Alert>
+                ) : null}
+                {showRunnerRepair && runnerRepairStatus ? (
+                  <RunnerRepairPanel
+                    status={runnerRepairStatus}
+                    ensureRunnerBusy={runnerEnsureBusy}
+                    onEnsureRunner={onEnsureRunner}
+                    onRefreshStatus={onRefreshServer}
+                    className="mt-3 bg-slate-50 shadow-none"
+                  />
+                ) : null}
               </div>
 
               <div className="grid grid-cols-2 gap-3 border-t border-slate-100 pt-4">
@@ -650,4 +677,38 @@ function artifactInputRunLabel(artifact: WorkflowArtifactRunInput) {
 
 function shortId(value?: string) {
   return String(value || "").slice(0, 12);
+}
+
+function workflowServerRepairStatus(server: WorkflowServer | null): RunnerRepairStatus | null {
+  if (!server?.serverId) {
+    return null;
+  }
+  const runner = server.runner;
+  const reasonCode = runner?.reasonCode || server.reasonCode || "";
+  const connected = server.connected === true;
+  return {
+    connected,
+    displayTarget: server.label || server.serverId,
+    message: server.message || "",
+    serverId: server.serverId,
+    runner: connected && runner
+      ? {
+          state:
+            runner.state ||
+            (runner.ready === true
+              ? "ready"
+              : reasonCode === MANUAL_RUNNER_STOP_REASON
+                ? "stopped"
+                : reasonCode
+                  ? "repair_needed"
+                  : "preparing"),
+          ready: runner.ready === true,
+          message: runner.message || server.message || "",
+          reasonCode,
+          deploymentAction: runner.deploymentAction,
+          servicePort: runner.servicePort,
+          tunnelPort: runner.tunnelPort,
+        }
+      : undefined,
+  };
 }

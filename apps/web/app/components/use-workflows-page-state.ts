@@ -6,6 +6,8 @@ import type { DatabaseItem } from "./database-page-model";
 import type { AddedTool } from "./tools-page-model";
 import { GENERATED_TOOL_RUN_PIPELINE_ID, workflowToolRevisionId } from "./generated-workflow-model";
 import { useGeneratedWorkflowBuilder, type GeneratedWorkflowAddStepOptions } from "./use-generated-workflow-builder";
+import { MANUAL_RUNNER_STOP_REASON } from "./ssh-shell-model";
+import { ensureWorkflowServerRunner, startWorkflowServerRunner } from "./workflow-server-readiness-api";
 import { workflowInputRoleForIndex } from "./workflow-artifact-input-recommendation";
 import {
   fetchRunsList,
@@ -70,6 +72,8 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
   const [sampleLoading, setSampleLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
+  const [runnerEnsureBusy, setRunnerEnsureBusy] = useState(false);
+  const [runnerRepairError, setRunnerRepairError] = useState("");
   const [submittedRun, setSubmittedRun] = useState<WorkflowRun | null>(null);
   const [runDetail, setRunDetail] = useState<WorkflowRunDetail | null>(null);
   const [runHistory, setRunHistory] = useState<WorkflowRun[]>([]);
@@ -117,6 +121,7 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     }
     if (serverResult.status === "fulfilled") {
       setServer(serverResult.value);
+      setRunnerRepairError("");
     }
     if (serverResult.status === "rejected") {
       const message = workflowErrorMessage(serverResult.reason, "读取工作流运行服务失败");
@@ -140,6 +145,34 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
       setError(message);
     }
   }, [initialWorkflowId]);
+
+  const refreshWorkflowServer = useCallback(async () => {
+    const nextServer = await fetchWorkflowServer({ forceRefresh: true });
+    setServer(nextServer);
+    setRunnerRepairError("");
+    return nextServer;
+  }, []);
+
+  const ensureRunner = useCallback(async () => {
+    const serverId = server?.serverId || "";
+    if (!serverId || runnerEnsureBusy) {
+      return null;
+    }
+    setRunnerEnsureBusy(true);
+    setRunnerRepairError("");
+    try {
+      const runLifecycleAction = workflowServerRunnerManuallyStopped(server)
+        ? startWorkflowServerRunner
+        : ensureWorkflowServerRunner;
+      await runLifecycleAction(serverId);
+      return await refreshWorkflowServer();
+    } catch (err) {
+      setRunnerRepairError(workflowErrorMessage(err, "runner readiness 准备失败"));
+      return null;
+    } finally {
+      setRunnerEnsureBusy(false);
+    }
+  }, [refreshWorkflowServer, runnerEnsureBusy, server]);
 
   const loadRunHistory = useCallback(async (historyOptions: { forceRefresh?: boolean; reportError?: boolean } = {}) => {
     try {
@@ -655,7 +688,10 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     runDetail,
     runHistoryError,
     refreshRunDetail,
+    refreshWorkflowServer,
     runHistory,
+    runnerEnsureBusy,
+    runnerRepairError,
     sampleLoading,
     sampleUploads,
     selectedResourceDatabaseIds,
@@ -673,6 +709,7 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     setParams,
     setSelectedWorkflowId,
     setWorkflowResourceBinding,
+    ensureRunner,
     openWorkflowDesignDraft,
     compileGeneratedWorkflowDesign,
     saveAndValidateGeneratedWorkflowDesign,
@@ -687,6 +724,16 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
 
 function sampleUploadIntegrityPassed(upload: WorkflowUpload) {
   return upload.integrityStatus === "passed" && Boolean(upload.sha256) && upload.sha256 === upload.expectedSha256;
+}
+
+function workflowServerRunnerManuallyStopped(server: WorkflowServer | null) {
+  const runner = server?.runner;
+  return Boolean(
+    server?.connected &&
+      runner &&
+      runner.ready !== true &&
+      (runner.state === "stopped" || runner.reasonCode === MANUAL_RUNNER_STOP_REASON)
+  );
 }
 
 function resourceIdsFromWorkflowDesignDraft(record: WorkflowDesignDraftRecord): Record<string, string> {

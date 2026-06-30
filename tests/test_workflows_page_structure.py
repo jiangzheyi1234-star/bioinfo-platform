@@ -54,10 +54,12 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     first_run_status_state = (FIRST_RUN_STATE / "use-first-run-status.ts").read_text(encoding="utf-8")
     server_readiness_api = (COMPONENTS / "workflow-server-readiness-api.ts").read_text(encoding="utf-8")
     workflow_detail_page = (COMPONENTS / "workflow-detail-page.tsx").read_text(encoding="utf-8")
+    page_ui = (COMPONENTS / "workflows-page-ui.tsx").read_text(encoding="utf-8")
     models = (COMPONENTS / "workflows-page-model.ts").read_text(encoding="utf-8")
     first_run_source = f"{first_run_page}\n{first_run_api}\n{first_run_completion}\n{first_run_conductor}\n{first_run_report}\n{first_run_sample_submit}\n{first_run_trust_summary}\n{first_run_validation}"
     api = (COMPONENTS / "workflows-page-api.ts").read_text(encoding="utf-8")
     hook = (COMPONENTS / "use-workflows-page-state.ts").read_text(encoding="utf-8")
+    runner_adapter = _function_body(page_ui, "workflowServerRepairStatus")
 
     assert 'redirect("/workflows/first-run")' in root_page
     assert first_run_route.exists()
@@ -161,9 +163,36 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert '"SUBMIT_RUN"' in first_run_conductor
     assert '"FINALIZE_FIRST_RUN"' in first_run_conductor
     assert "export async function ensureWorkflowServerRunner" in server_readiness_api
-    assert "/api/v1/servers/${encodeURIComponent(normalizedServerId)}/ensure-runner" in server_readiness_api
+    assert "export async function startWorkflowServerRunner" in server_readiness_api
+    assert "postWorkflowServerRunnerAction(serverId, \"ensure-runner\")" in server_readiness_api
+    assert "postWorkflowServerRunnerAction(serverId, \"runner/start\")" in server_readiness_api
+    assert "/api/v1/servers/${encodeURIComponent(normalizedServerId)}/${actionPath}" in server_readiness_api
     assert "timeoutMs: 120_000" in server_readiness_api
     assert "invalidateAsyncCache(WORKFLOW_SERVER_CACHE_KEY)" in server_readiness_api
+    assert "ensureWorkflowServerRunner" in hook
+    assert "startWorkflowServerRunner" in hook
+    assert "workflowServerRunnerManuallyStopped(server)" in hook
+    assert "runner.reasonCode === MANUAL_RUNNER_STOP_REASON" in hook
+    assert "refreshWorkflowServer" in hook
+    assert "runnerEnsureBusy" in hook
+    assert "runnerRepairError" in hook
+    assert "onEnsureRunner={() => void state.ensureRunner()}" in workflow_detail_page
+    assert "onRefreshServer={state.refreshWorkflowServer}" in workflow_detail_page
+    assert "runnerEnsureBusy={state.runnerEnsureBusy}" in workflow_detail_page
+    assert "runnerRepairError={state.runnerRepairError}" in workflow_detail_page
+    assert "RunnerRepairPanel" in page_ui
+    assert "workflowServerRepairStatus(server)" in page_ui
+    assert "const showRunnerRepair = Boolean(runnerRepairStatus?.connected && runnerRepairStatus.runner && !runnerRepairStatus.runner.ready)" in page_ui
+    assert "onRefreshStatus={onRefreshServer}" in page_ui
+    assert "displayTarget: server.label || server.serverId" in runner_adapter
+    assert "connected = server.connected === true" in runner_adapter
+    assert "ready: runner.ready === true" in runner_adapter
+    assert "server.ready &&" not in runner_adapter
+    assert "port: 0" not in runner_adapter
+    assert 'user: ""' not in runner_adapter
+    assert "has_password" not in runner_adapter
+    assert "servicePort?: number" in models
+    assert "tunnelPort?: number" in models
     assert "FirstRunTrustSummary" in first_run_completion
     assert "单用户试点交接" in first_run_completion
     assert "首跑已完成" in first_run_completion
