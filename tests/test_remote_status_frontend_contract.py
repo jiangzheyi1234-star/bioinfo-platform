@@ -93,13 +93,34 @@ def test_runner_repair_panel_exposes_upgrade_prune_and_operator_diagnostics() ->
         "旧版本清理",
         "控制面卸载",
         "Operator",
+        "DestructiveConfirmation",
+        "confirmationMatches",
+        "stopConfirmation",
+        "pruneConfirmation",
+        "uninstallConfirmation",
+        "输入 ${target}",
+        "aria-label={`${action} 确认 serverId`}",
+        "useEffect",
+        "setPrunePlan(null)",
+        "setUninstallPlan(null)",
+        "setStopConfirmation(\"\")",
+        "}, [serverId])",
     )
     _assert_contains(source, "className?: string", "className = \"\"")
     _assert_contains(source, "diagnosticsOnly?: boolean", "diagnosticsOnly = false")
     _assert_contains(source, "onClose?: () => void", "{onClose ? (")
     _assert_not_contains(source, "type SSHStatus")
-    _assert_matches(source, r"disabled=\{!canPrune\s*\|\|\s*pruneLoading\s*\|\|\s*deletableReleaseCount <= 0")
-    _assert_matches(source, r"disabled=\{!canUninstall\s*\|\|\s*uninstallLoading\s*\|\|\s*uninstallTargetCount <= 0")
+    _assert_matches(source, r"disabled=\{!canStopRunner\s*\|\|\s*!stopConfirmed\s*\|\|\s*stopLoading")
+    _assert_matches(source, r"disabled=\{\s*!canPrune\s*\|\|\s*pruneLoading\s*\|\|\s*deletableReleaseCount <= 0")
+    _assert_matches(source, r"!prunePlan\?\.planHash\s*\|\|\s*!pruneConfirmed")
+    _assert_matches(source, r"disabled=\{\s*!canUninstall\s*\|\|\s*")
+    _assert_matches(source, r"!uninstallPlan\?\.planHash\s*\|\|\s*!uninstallConfirmed")
+    _assert_matches(
+        source,
+        r"const stopRemoteService = async \(\) => \{.*if \(!canStopRunner \|\| !stopConfirmed \|\| stopLoading\)",
+        r"const runPrune = async \(\) => \{.*if \(!canPrune \|\| !planHash \|\| !pruneConfirmed",
+        r"const runUninstall = async \(\) => \{.*if \(!canUninstall \|\| !planHash \|\| !uninstallConfirmed",
+    )
 
 
 def test_manual_runner_stop_is_explicit_start_not_repair() -> None:

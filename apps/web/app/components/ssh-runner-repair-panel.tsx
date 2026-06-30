@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { Activity, RefreshCw, Square, Trash2, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Activity, AlertTriangle, RefreshCw, Square, Trash2, X } from "lucide-react";
 
 import { requestLocalApiJson } from "@/app/lib/local-api-client";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 import {
@@ -71,6 +72,44 @@ function compactJson(value: unknown): string {
   return JSON.stringify(value ?? null, null, 2).slice(0, 4000);
 }
 
+function confirmationMatches(value: string, target: string): boolean {
+  return Boolean(target && value.trim() === target);
+}
+
+function DestructiveConfirmation({
+  action,
+  disabled = false,
+  target,
+  value,
+  onChange,
+}: {
+  action: string;
+  disabled?: boolean;
+  target: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  if (!target) {
+    return null;
+  }
+  return (
+    <label className="mt-2 block text-[11px] text-slate-500">
+      <span className="flex items-center gap-1 text-[10px] font-semibold text-amber-700">
+        <AlertTriangle className="size-3" />
+        {action} 确认
+      </span>
+      <Input
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={`输入 ${target}`}
+        aria-label={`${action} 确认 serverId`}
+        className="mt-1 h-7 rounded border-amber-200 px-2 py-1 font-mono text-[11px] focus:border-amber-400"
+      />
+    </label>
+  );
+}
+
 export function RunnerRepairPanel({
   status,
   ensureRunnerBusy,
@@ -96,10 +135,13 @@ export function RunnerRepairPanel({
   const [prunePlan, setPrunePlan] = useState<RunnerReleasePrunePlan | null>(null);
   const [pruneMessage, setPruneMessage] = useState("");
   const [pruneError, setPruneError] = useState("");
+  const [pruneConfirmation, setPruneConfirmation] = useState("");
   const [uninstallLoading, setUninstallLoading] = useState(false);
   const [uninstallPlan, setUninstallPlan] = useState<RunnerUninstallPlan | null>(null);
   const [uninstallMessage, setUninstallMessage] = useState("");
   const [uninstallError, setUninstallError] = useState("");
+  const [uninstallConfirmation, setUninstallConfirmation] = useState("");
+  const [stopConfirmation, setStopConfirmation] = useState("");
 
   const runner = status?.runner;
   const remote = resolveRemoteStatus(status);
@@ -111,6 +153,21 @@ export function RunnerRepairPanel({
   const canUninstall = Boolean(!diagnosticsOnly && status?.connected && serverId && runner);
   const deletableReleaseCount = Number(prunePlan?.deletableReleaseCount || 0);
   const uninstallTargetCount = Number(uninstallPlan?.targetCount || 0);
+  const stopConfirmed = confirmationMatches(stopConfirmation, serverId);
+  const pruneConfirmed = confirmationMatches(pruneConfirmation, serverId);
+  const uninstallConfirmed = confirmationMatches(uninstallConfirmation, serverId);
+
+  useEffect(() => {
+    setStopConfirmation("");
+    setPruneConfirmation("");
+    setPrunePlan(null);
+    setPruneMessage("");
+    setPruneError("");
+    setUninstallConfirmation("");
+    setUninstallPlan(null);
+    setUninstallMessage("");
+    setUninstallError("");
+  }, [serverId]);
 
   const loadListeningPorts = async () => {
     if (!status?.connected || !serverId || portsLoading) {
@@ -130,7 +187,7 @@ export function RunnerRepairPanel({
   };
 
   const stopRemoteService = async () => {
-    if (!canStopRunner || stopLoading) {
+    if (!canStopRunner || !stopConfirmed || stopLoading) {
       return;
     }
     setStopLoading(true);
@@ -140,6 +197,7 @@ export function RunnerRepairPanel({
       const payload = await requestLocalApiJson("POST", `/api/v1/servers/${encodeURIComponent(serverId)}/runner/stop`);
       const output = String(payload?.data?.output || "").trim();
       setStopOutput(output || "远程服务停止命令已执行。");
+      setStopConfirmation("");
       await onRefreshStatus();
     } catch (error) {
       setStopError(normalizeFetchError(error));
@@ -182,6 +240,7 @@ export function RunnerRepairPanel({
         { cache: "no-store" }
       );
       setPrunePlan((payload?.data || null) as RunnerReleasePrunePlan | null);
+      setPruneConfirmation("");
     } catch (error) {
       setPruneError(normalizeFetchError(error));
     } finally {
@@ -191,7 +250,7 @@ export function RunnerRepairPanel({
 
   const runPrune = async () => {
     const planHash = String(prunePlan?.planHash || "");
-    if (!canPrune || !planHash || pruneLoading || deletableReleaseCount <= 0) {
+    if (!canPrune || !planHash || !pruneConfirmed || pruneLoading || deletableReleaseCount <= 0) {
       return;
     }
     setPruneLoading(true);
@@ -205,6 +264,7 @@ export function RunnerRepairPanel({
       );
       setPrunePlan((payload?.data || prunePlan) as RunnerReleasePrunePlan);
       setPruneMessage("旧版本清理已完成。");
+      setPruneConfirmation("");
       await onRefreshStatus();
     } catch (error) {
       setPruneError(normalizeFetchError(error));
@@ -227,6 +287,7 @@ export function RunnerRepairPanel({
         { cache: "no-store" }
       );
       setUninstallPlan((payload?.data || null) as RunnerUninstallPlan | null);
+      setUninstallConfirmation("");
     } catch (error) {
       setUninstallError(normalizeFetchError(error));
     } finally {
@@ -236,7 +297,7 @@ export function RunnerRepairPanel({
 
   const runUninstall = async () => {
     const planHash = String(uninstallPlan?.planHash || "");
-    if (!canUninstall || !planHash || uninstallLoading || uninstallTargetCount <= 0) {
+    if (!canUninstall || !planHash || !uninstallConfirmed || uninstallLoading || uninstallTargetCount <= 0) {
       return;
     }
     setUninstallLoading(true);
@@ -250,6 +311,7 @@ export function RunnerRepairPanel({
       );
       setUninstallPlan((payload?.data || uninstallPlan) as RunnerUninstallPlan);
       setUninstallMessage("Runner 控制面已卸载，shared 数据已保留。");
+      setUninstallConfirmation("");
       await onRefreshStatus();
     } catch (error) {
       setUninstallError(normalizeFetchError(error));
@@ -359,7 +421,7 @@ export function RunnerRepairPanel({
                       type="button"
                       variant="outline"
                       size="sm"
-                      disabled={!canStopRunner || stopLoading}
+                      disabled={!canStopRunner || !stopConfirmed || stopLoading}
                       onClick={stopRemoteService}
                       className="h-7 px-2 text-[11px] text-red-700 hover:text-red-700"
                     >
@@ -369,6 +431,15 @@ export function RunnerRepairPanel({
                   </div>
                   {upgradeError ? <p className="mt-1 text-[11px] text-red-600">{upgradeError}</p> : null}
                   {upgradeOutput ? <p className="mt-1 text-[10px] text-slate-500">{upgradeOutput}</p> : null}
+                  {canStopRunner ? (
+                    <DestructiveConfirmation
+                      action="停止 Runner"
+                      disabled={stopLoading}
+                      target={serverId}
+                      value={stopConfirmation}
+                      onChange={setStopConfirmation}
+                    />
+                  ) : null}
                   {stopError ? <p className="mt-1 text-[11px] text-red-600">{stopError}</p> : null}
                   {stopOutput ? <p className="mt-1 whitespace-pre-wrap text-[10px] text-slate-500">{stopOutput}</p> : null}
                 </>
@@ -400,7 +471,9 @@ export function RunnerRepairPanel({
                 type="button"
                 variant="ghost"
                 size="sm"
-                disabled={!canPrune || pruneLoading || deletableReleaseCount <= 0 || !prunePlan?.planHash}
+                disabled={
+                  !canPrune || pruneLoading || deletableReleaseCount <= 0 || !prunePlan?.planHash || !pruneConfirmed
+                }
                 onClick={runPrune}
                 className="h-6 px-2 text-[11px] text-red-700 hover:text-red-700"
               >
@@ -416,6 +489,15 @@ export function RunnerRepairPanel({
           ) : (
             <p className="mt-1 text-[11px] text-slate-400">先预览；保留 current、previous、active run 引用版本。</p>
           )}
+          {prunePlan?.planHash && deletableReleaseCount > 0 ? (
+            <DestructiveConfirmation
+              action="清理旧版本"
+              disabled={pruneLoading}
+              target={serverId}
+              value={pruneConfirmation}
+              onChange={setPruneConfirmation}
+            />
+          ) : null}
           {pruneError ? <p className="mt-1 text-[11px] text-red-600">{pruneError}</p> : null}
           {pruneMessage ? <p className="mt-1 text-[11px] text-emerald-700">{pruneMessage}</p> : null}
         </div>
@@ -441,7 +523,13 @@ export function RunnerRepairPanel({
                 type="button"
                 variant="ghost"
                 size="sm"
-                disabled={!canUninstall || uninstallLoading || uninstallTargetCount <= 0 || !uninstallPlan?.planHash}
+                disabled={
+                  !canUninstall ||
+                  uninstallLoading ||
+                  uninstallTargetCount <= 0 ||
+                  !uninstallPlan?.planHash ||
+                  !uninstallConfirmed
+                }
                 onClick={runUninstall}
                 className="h-6 px-2 text-[11px] text-red-700 hover:text-red-700"
               >
@@ -459,6 +547,15 @@ export function RunnerRepairPanel({
           )}
           {uninstallPlan?.blockReasons?.length ? (
             <p className="mt-1 text-[11px] text-amber-700">{uninstallPlan.blockReasons.join(" · ")}</p>
+          ) : null}
+          {uninstallPlan?.planHash && uninstallTargetCount > 0 ? (
+            <DestructiveConfirmation
+              action="卸载控制面"
+              disabled={uninstallLoading}
+              target={serverId}
+              value={uninstallConfirmation}
+              onChange={setUninstallConfirmation}
+            />
           ) : null}
           {uninstallError ? <p className="mt-1 text-[11px] text-red-600">{uninstallError}</p> : null}
           {uninstallMessage ? <p className="mt-1 text-[11px] text-emerald-700">{uninstallMessage}</p> : null}
