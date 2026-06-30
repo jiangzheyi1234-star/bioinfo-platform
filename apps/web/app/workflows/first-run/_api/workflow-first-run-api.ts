@@ -2,7 +2,12 @@
 
 import { requestLocalApiJson } from "@/app/lib/local-api-client";
 
-import type { FirstRunFinalization, FirstRunStatus, FirstRunValidationCard } from "../_domain/first-run-types";
+import type {
+  FirstRunFinalization,
+  FirstRunStatus,
+  FirstRunSubmission,
+  FirstRunValidationCard,
+} from "../_domain/first-run-types";
 
 export async function fetchFirstRunStatus(
   options: { refresh?: boolean; runId?: string; serverId?: string } = {}
@@ -29,6 +34,26 @@ export async function fetchFirstRunValidationCard(
     "GET",
     `/api/v1/first-run/runs/${encodeURIComponent(runId)}/validation-card${queryString(query)}`,
     { cache: "no-store", timeoutMs: 30_000 }
+  );
+  return response.data;
+}
+
+export async function submitFirstRun(
+  options: { actor?: string; idempotencyKey?: string; serverId: string }
+): Promise<FirstRunSubmission> {
+  const response = await requestLocalApiJson<{ data: FirstRunSubmission }>(
+    "POST",
+    "/api/v1/first-run/runs",
+    {
+      body: {
+        serverId: options.serverId,
+        confirmation: "submit-first-run",
+        ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
+        ...(options.actor ? { actor: options.actor } : {}),
+      },
+      cache: "no-store",
+      timeoutMs: 180_000,
+    }
   );
   return response.data;
 }

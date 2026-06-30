@@ -138,30 +138,6 @@ function Assert-Sample-Uploads {
     }
 }
 
-function New-FirstRunRunSpec {
-    param([object[]]$Uploads)
-    return @{
-        projectId = "first-run-pilot"
-        pipelineId = $FirstRunPipelineId
-        inputs = @(
-            $Uploads | ForEach-Object {
-                @{
-                    uploadId = $_.uploadId
-                    filename = $_.filename
-                    role = $_.role
-                }
-            }
-        )
-        sampleDataPrepProof = @{
-            schemaVersion = "h2ometa.workflow-sample-data-prep-proof.v1"
-            source = "QIIME 2 Moving Pictures tutorial"
-            cachePolicy = "verified-sha256-local-cache"
-            items = @($Uploads | ForEach-Object { $_.prepProof })
-        }
-        params = @{}
-    }
-}
-
 function New-SampleUploadProof {
     param([object[]]$Uploads)
     $requiredRoles = @("metadata", "barcodes", "sequences")
@@ -206,21 +182,24 @@ function New-SampleUploadProof {
 
 function Submit-FirstRun {
     param([string]$ResolvedServerId)
-    Write-Step "preparing official Moving Pictures sample data"
-    $sampleResponse = Post-Json "$ApiBase/api/v1/workflow-sample-data/$([uri]::EscapeDataString($FirstRunPipelineId))/uploads" @{
+    Write-Step "submitting first-run workflow with official Moving Pictures sample data"
+    $idempotencyKey = "idem_first_run_pilot_$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())"
+    $submitResponse = Post-Json "$ApiBase/api/v1/first-run/runs" @{
         serverId = $ResolvedServerId
+        confirmation = "submit-first-run"
+        idempotencyKey = $idempotencyKey
+        actor = "first-run-pilot-check"
     } $SampleDataTimeoutSeconds
-    $uploads = @($sampleResponse.data.items)
-    Assert-Sample-Uploads $uploads
-    Write-Step "submitting first-run workflow"
-    $requestId = "req_first_run_pilot_$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())"
-    $submitResponse = Post-Json "$ApiBase/api/v1/runs" @{
-        serverId = $ResolvedServerId
-        requestId = $requestId
-        idempotencyKey = $requestId
-        runSpec = (New-FirstRunRunSpec $uploads)
+    if ($submitResponse.data.status -ne "submitted") {
+        $detail = [string]$submitResponse.data.nextAction.detail
+        if ([string]::IsNullOrWhiteSpace($detail)) {
+            $detail = "first-run submit endpoint did not reach submitted state"
+        }
+        Fail-Pilot $detail
     }
-    $submitted = $submitResponse.data
+    $uploads = @($submitResponse.data.sampleData.items)
+    Assert-Sample-Uploads $uploads
+    $submitted = $submitResponse.data.submittedRun
     if (-not $submitted.runId) {
         Fail-Pilot "submitted first-run response must include runId"
     }

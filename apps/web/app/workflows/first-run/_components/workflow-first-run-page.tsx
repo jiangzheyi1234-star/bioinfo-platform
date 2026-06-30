@@ -29,6 +29,7 @@ import { RunReportPanel } from "./workflow-first-run-report";
 import { ResultPackagePanel, ValidationCard } from "./workflow-first-run-validation";
 import { fetchWorkflowServerExecutionDiagnostics } from "@/app/components/workflows-page-api";
 import { ensureWorkflowServerRunner } from "@/app/components/workflow-server-readiness-api";
+import { submitFirstRun } from "../_api/workflow-first-run-api";
 import {
   workflowErrorMessage,
   type WorkflowExecutionDiagnostics,
@@ -55,6 +56,8 @@ export function WorkflowFirstRunPage() {
   const [executionDiagnostics, setExecutionDiagnostics] = useState<WorkflowExecutionDiagnostics | null>(null);
   const [executionDiagnosticsLoading, setExecutionDiagnosticsLoading] = useState(false);
   const [executionDiagnosticsError, setExecutionDiagnosticsError] = useState("");
+  const [submittingFirstRun, setSubmittingFirstRun] = useState(false);
+  const [firstRunSubmitError, setFirstRunSubmitError] = useState("");
   const sshConnectionRefreshRef = useRef("");
 
   const run = state.runDetail?.run || state.submittedRun;
@@ -93,6 +96,7 @@ export function WorkflowFirstRunPage() {
       statusExecutionEvidence?.ready === true &&
       statusWorkflowEvidence?.ready === true &&
       sampleReady &&
+      !submittingFirstRun &&
       !state.submitting &&
       !state.sampleLoading
   );
@@ -200,6 +204,7 @@ export function WorkflowFirstRunPage() {
       ensuringRunner ||
       firstRunStatus.loading ||
       state.sampleLoading ||
+      submittingFirstRun ||
       state.submitting ||
       firstRunEvidence.packageLoading ||
       firstRunEvidence.exportingPackage ||
@@ -255,13 +260,29 @@ export function WorkflowFirstRunPage() {
   }
 
   async function submitFirstRunAndRefreshStatus() {
-    const uploads = localSampleReady ? state.sampleUploads : await state.loadSampleData();
-    if (!sampleUploadsReady(uploads)) {
+    const serverId = state.server?.serverId || "";
+    if (!serverId || submittingFirstRun) return;
+    setSubmittingFirstRun(true);
+    setFirstRunSubmitError("");
+    try {
+      const submission = await submitFirstRun({
+        actor: "first-run-ui",
+        idempotencyKey: `idem_first_run_${Date.now()}`,
+        serverId,
+      });
+      const runId = submission.submittedRun?.runId || "";
+      if (submission.status !== "submitted" || !runId) {
+        setFirstRunSubmitError(submission.nextAction?.detail || "首跑提交未达到 submitted 状态。");
+        await firstRunStatus.refreshStatus({ forceRefresh: true });
+        return;
+      }
+      state.selectRun(runId);
       await firstRunStatus.refreshStatus({ forceRefresh: true });
-      return;
+    } catch (err) {
+      setFirstRunSubmitError(workflowErrorMessage(err, "提交首跑失败"));
+    } finally {
+      setSubmittingFirstRun(false);
     }
-    await state.submitRun({ sampleUploads: uploads });
-    await firstRunStatus.refreshStatus({ forceRefresh: true });
   }
 
   async function finalizeAndRefreshStatus() {
@@ -378,8 +399,8 @@ export function WorkflowFirstRunPage() {
               sampleCacheEvidence={firstRunStatusSnapshot?.evidence?.sampleCache}
               sampleLoading={state.sampleLoading}
               sampleUploads={state.sampleUploads}
-              submitError={state.submitError}
-              submitting={state.submitting}
+              submitError={firstRunSubmitError || state.submitError}
+              submitting={submittingFirstRun || state.submitting}
               workflow={movingPicturesWorkflow}
               workflowLoading={state.loading}
               onPrepareSample={() => void prepareSampleDataAndRefreshStatus()}

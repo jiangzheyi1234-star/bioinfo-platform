@@ -1,4 +1,4 @@
-import type { WorkflowResultPackageExport } from "@/app/components/workflows-page-model";
+import type { WorkflowResultPackageExport, WorkflowRun } from "@/app/components/workflows-page-model";
 
 export type FirstRunValidationMetric = {
   metricId?: string;
@@ -425,5 +425,22 @@ export type FirstRunFinalization = {
   pilotHandoff?: FirstRunPilotHandoff;
   resultPackage?: WorkflowResultPackageExport;
   validationCard?: FirstRunValidationCard;
+  nextAction?: FirstRunNextAction;
+};
+
+export type FirstRunSubmission = {
+  schemaVersion?: string;
+  status?: "submitted" | "blocked" | string;
+  serverId?: string;
+  actor?: string;
+  submittedRun?: WorkflowRun;
+  sampleData?: FirstRunSampleDataEvidence;
+  runSpec?: {
+    projectId?: string;
+    pipelineId?: string;
+    inputs?: Array<{ uploadId?: string; filename?: string; role?: string }>;
+    sampleDataPrepProof?: FirstRunSampleDataEvidence["prepProof"];
+  };
+  firstRunStatus?: FirstRunStatus;
   nextAction?: FirstRunNextAction;
 };

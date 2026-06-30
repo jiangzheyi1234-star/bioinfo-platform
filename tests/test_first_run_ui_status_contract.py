@@ -129,6 +129,7 @@ def test_first_run_conductor_uses_status_contract_before_local_run_hints() -> No
 
 def test_first_run_submit_uses_status_sample_cache_without_local_upload_gate() -> None:
     first_run_page = (FIRST_RUN_COMPONENTS / "workflow-first-run-page.tsx").read_text(encoding="utf-8")
+    first_run_api = (FIRST_RUN_ROUTE / "_api" / "workflow-first-run-api.ts").read_text(encoding="utf-8")
     first_run_sample_submit = (FIRST_RUN_COMPONENTS / "workflow-first-run-sample-submit.tsx").read_text(encoding="utf-8")
     workflows_state = (ROOT / "apps" / "web" / "app" / "components" / "use-workflows-page-state.ts").read_text(encoding="utf-8")
     first_run_status_state = (FIRST_RUN_ROUTE / "_state" / "use-first-run-status.ts").read_text(encoding="utf-8")
@@ -148,8 +149,16 @@ def test_first_run_submit_uses_status_sample_cache_without_local_upload_gate() -
     assert "canSubmit: firstRunCanSubmit" in first_run_page
     assert "canSubmit={firstRunCanSubmit}" in first_run_page
     assert "onSubmitRun: submitFirstRunAndRefreshStatus" in first_run_page
-    assert "const uploads = localSampleReady ? state.sampleUploads : await state.loadSampleData()" in first_run_page
-    assert "await state.submitRun({ sampleUploads: uploads })" in first_run_page
+    assert "import { submitFirstRun } from \"../_api/workflow-first-run-api\"" in first_run_page
+    assert "const submission = await submitFirstRun({" in first_run_page
+    assert 'actor: "first-run-ui"' in first_run_page
+    assert "idempotencyKey: `idem_first_run_${Date.now()}`" in first_run_page
+    assert "state.selectRun(runId)" in first_run_page
+    assert "await state.submitRun({ sampleUploads: uploads })" not in first_run_page
+    assert "const uploads = localSampleReady ? state.sampleUploads : await state.loadSampleData()" not in first_run_page
+    assert "export async function submitFirstRun" in first_run_api
+    assert 'confirmation: "submit-first-run"' in first_run_api
+    assert '"/api/v1/first-run/runs"' in first_run_api
     assert "sampleCacheEvidence={firstRunStatusSnapshot?.evidence?.sampleCache}" in first_run_page
     assert "state.canSubmit && executionReady && selectedWorkflowReady && sampleReady" not in first_run_page
     assert "sampleCacheEvidence?: FirstRunStatusEvidence[\"sampleCache\"]" in first_run_sample_submit

@@ -15,6 +15,10 @@ from apps.api.workflow_first_run_markdown import (
 )
 from apps.api.workflow_first_run_service import build_first_run_validation_card_from_request
 from apps.api.workflow_first_run_status_service import build_first_run_status_from_request
+from apps.api.workflow_first_run_submit_service import (
+    WorkflowFirstRunSubmitRequest,
+    submit_first_run_from_request,
+)
 
 
 router = APIRouter()
@@ -27,6 +31,14 @@ async def get_first_run_status(
     refresh: bool = False,
 ) -> dict[str, Any]:
     return await build_first_run_status_from_request(server_id=serverId, run_id=runId, refresh=refresh)
+
+
+@router.post("/api/v1/first-run/runs")
+async def submit_first_run(
+    request: WorkflowFirstRunSubmitRequest,
+    response: Response,
+) -> dict[str, Any]:
+    return await submit_first_run_from_request(request, response)
 
 
 @router.get("/api/v1/first-run/runs/{run_id}/validation-card")

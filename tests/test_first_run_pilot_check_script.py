@@ -50,8 +50,8 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "h2ometa.first-run.sample-upload-proof.v1" in source
     assert "h2ometa.workflow-sample-data-prep-proof.v1" in source
     assert "sample upload $role must include sample prep proof" in source
-    assert "sampleDataPrepProof = @{" in source
-    assert "items = @($Uploads | ForEach-Object { $_.prepProof })" in source
+    assert "sampleDataPrepProof = @{" not in source
+    assert "items = @($Uploads | ForEach-Object { $_.prepProof })" not in source
     assert "metadata\", \"barcodes\", \"sequences" in source
     assert "sample uploads include unexpected roles" in source
     assert "sample uploads include duplicate roles" in source
@@ -68,10 +68,14 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "passedCount = $passedItems.Count" in source
     assert "expectedRoles = $requiredRoles" in source
     assert "missingRoles = $missingRoles" in source
-    assert "$ApiBase/api/v1/workflow-sample-data/$([uri]::EscapeDataString($FirstRunPipelineId))/uploads" in source
-    assert "$ApiBase/api/v1/runs" in source
-    assert "projectId = \"first-run-pilot\"" in source
-    assert "runSpec = (New-FirstRunRunSpec $uploads)" in source
+    assert "$ApiBase/api/v1/workflow-sample-data/$([uri]::EscapeDataString($FirstRunPipelineId))/uploads" not in source
+    assert "$ApiBase/api/v1/first-run/runs" in source
+    assert 'confirmation = "submit-first-run"' in source
+    assert 'actor = "first-run-pilot-check"' in source
+    assert "$submitted = $submitResponse.data.submittedRun" in source
+    assert "projectId = \"first-run-pilot\"" not in source
+    assert "runSpec = (New-FirstRunRunSpec $uploads)" not in source
+    assert "function New-FirstRunRunSpec" not in source
     assert "$ApiBase/api/v1/runs/$([uri]::EscapeDataString($TargetRunId))/detail" in source
     assert "first-run did not complete within $RunTimeoutSeconds seconds" in source
     assert "/api/v1/first-run/runs/$([uri]::EscapeDataString($RunId))/finalize" in source
