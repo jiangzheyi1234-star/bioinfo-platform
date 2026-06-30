@@ -239,17 +239,48 @@ def test_claim_next_job_creates_attempt_with_current_lease_and_work_dir(tmp_path
     assert claim["job"]["timeoutPolicy"]["heartbeatTimeoutSeconds"] == 0
     assert claim["attempt"]["workerId"] == "worker_a"
     assert claim["attempt"]["attemptNumber"] == 1
+    assert claim["attempt"]["state"] == "running"
+    assert claim["lease"]["state"] == "active"
+    assert claim["job"]["state"] == "claimed"
     assert claim["attempt"]["outputAdoptionState"] == "pending"
     assert Path(claim["attempt"]["workDir"]).parent == Path(cfg.work_dir) / "attempts"
 
     with get_connection(cfg) as connection:
-        job = connection.execute("SELECT state FROM run_jobs WHERE run_id = ?", ("run_claim",)).fetchone()
+        job = connection.execute(
+            "SELECT state, attempt_count, wait_reason_json FROM run_jobs WHERE run_id = ?",
+            ("run_claim",),
+        ).fetchone()
+        attempt = connection.execute(
+            "SELECT state FROM run_attempts WHERE attempt_id = ?",
+            (claim["attemptId"],),
+        ).fetchone()
+        lease = connection.execute(
+            "SELECT state FROM run_leases WHERE run_id = ?",
+            ("run_claim",),
+        ).fetchone()
         event = connection.execute(
-            "SELECT event_type FROM run_events WHERE event_type = ?",
+            """
+            SELECT event_type, stage, message, details_json
+            FROM run_events
+            WHERE event_type = ?
+            """,
             ("run_attempt_claimed",),
         ).fetchone()
-    assert job["state"] == "claimed"
+    assert dict(job) == {"state": "claimed", "attempt_count": 1, "wait_reason_json": "{}"}
+    assert attempt["state"] == "running"
+    assert lease["state"] == "active"
     assert event["event_type"] == "run_attempt_claimed"
+    assert event["stage"] == "claim"
+    assert event["message"] == "Run attempt claimed."
+    assert json.loads(event["details_json"])["payload"] == {
+        "jobId": claim["jobId"],
+        "attemptId": claim["attemptId"],
+        "leaseGeneration": 1,
+        "attemptNumber": 1,
+        "workerId": "worker_a",
+        "sessionId": "",
+        "slotId": "slot-0",
+    }
 
 
 def test_claim_and_heartbeat_use_job_heartbeat_timeout_policy(tmp_path):
@@ -456,6 +487,73 @@ def test_two_workers_cannot_claim_same_unexpired_job(tmp_path):
     assert second is None
 
 
+def test_claim_next_job_rejects_unreleased_existing_lease_without_mutation(tmp_path):
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_claim_active_lease")
+    first = claim_next_run_job(cfg, worker_id="worker_a", now="2099-06-07T10:00:00Z", lease_seconds=30)
+    assert first is not None
+
+    with get_connection(cfg) as connection:
+        connection.execute(
+            "UPDATE run_jobs SET state = ?, updated_at = ? WHERE run_id = ?",
+            ("queued", "2099-06-07T10:00:01Z", "run_claim_active_lease"),
+        )
+        connection.commit()
+        before_attempt_count = connection.execute(
+            "SELECT COUNT(*) AS count FROM run_attempts WHERE run_id = ?",
+            ("run_claim_active_lease",),
+        ).fetchone()["count"]
+        before_claim_event_count = connection.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM run_events
+            WHERE run_id = ? AND event_type = 'run_attempt_claimed'
+            """,
+            ("run_claim_active_lease",),
+        ).fetchone()["count"]
+
+    with pytest.raises(RuntimeError, match="RUN_JOB_LEASE_NOT_RELEASED: active"):
+        claim_next_run_job(
+            cfg,
+            worker_id="worker_b",
+            slot_id="slot-1",
+            resource_capacity=ResourceRequest(cpu=2),
+            max_active_slots=2,
+            now="2099-06-07T10:00:02Z",
+            lease_seconds=30,
+        )
+
+    with get_connection(cfg) as connection:
+        job = connection.execute(
+            "SELECT state, attempt_count FROM run_jobs WHERE run_id = ?",
+            ("run_claim_active_lease",),
+        ).fetchone()
+        lease = connection.execute(
+            "SELECT state, attempt_id, lease_generation FROM run_leases WHERE run_id = ?",
+            ("run_claim_active_lease",),
+        ).fetchone()
+        after_attempt_count = connection.execute(
+            "SELECT COUNT(*) AS count FROM run_attempts WHERE run_id = ?",
+            ("run_claim_active_lease",),
+        ).fetchone()["count"]
+        after_claim_event_count = connection.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM run_events
+            WHERE run_id = ? AND event_type = 'run_attempt_claimed'
+            """,
+            ("run_claim_active_lease",),
+        ).fetchone()["count"]
+    assert dict(job) == {"state": "queued", "attempt_count": 1}
+    assert dict(lease) == {
+        "state": "active",
+        "attempt_id": first["attemptId"],
+        "lease_generation": 1,
+    }
+    assert after_attempt_count == before_attempt_count
+    assert after_claim_event_count == before_claim_event_count
+
+
 def test_expired_lease_reclaim_fences_old_attempt_and_increments_generation(tmp_path):
     cfg = make_configured_remote_runner(tmp_path)
     _create_run(cfg, "run_reclaim", execution={"retryPolicy": {"backoffSeconds": 0}})
@@ -482,9 +580,31 @@ def test_expired_lease_reclaim_fences_old_attempt_and_increments_generation(tmp_
             """,
             ("run_reclaim",),
         ).fetchone()
+        claim_event = connection.execute(
+            """
+            SELECT event_type, stage, message, details_json
+            FROM run_events
+            WHERE run_id = ? AND event_type = 'run_attempt_claimed'
+            ORDER BY rowid DESC
+            LIMIT 1
+            """,
+            ("run_reclaim",),
+        ).fetchone()
     assert old_attempt["state"] == "fenced"
     assert old_attempt["fenced_reason"] == "lease_expired"
     assert fence_events["count"] == 1
+    assert claim_event["event_type"] == "run_attempt_claimed"
+    assert claim_event["stage"] == "claim"
+    assert claim_event["message"] == "Run attempt claimed."
+    assert json.loads(claim_event["details_json"])["payload"] == {
+        "jobId": second["jobId"],
+        "attemptId": second["attemptId"],
+        "leaseGeneration": 2,
+        "attemptNumber": 2,
+        "workerId": "worker_b",
+        "sessionId": "",
+        "slotId": "slot-0",
+    }
 
 
 def test_old_heartbeat_and_completion_are_fenced_after_reclaim(tmp_path):

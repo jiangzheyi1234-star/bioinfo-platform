@@ -171,9 +171,11 @@ def test_run_execution_state_machine_owns_core_status_decisions() -> None:
     assert "class RunAttemptFenceDecision" in state_machine
     assert "class RunJobRequeueDecision" in state_machine
     assert "class RunJobRetryDecision" in state_machine
+    assert "class RunJobClaimDecision" in state_machine
     assert "def fence_attempt(" in state_machine
     assert "def requeue_retryable_job(" in state_machine
     assert "def retry_job_for_operator_request(" in state_machine
+    assert "def claim_job(" in state_machine
     assert "TERMINAL_RUN_STATUSES =" in state_machine
     assert "RETRYABLE_RUN_STATUSES =" in state_machine
     assert "RELEASED_LEASE_STATES =" in state_machine
@@ -189,20 +191,26 @@ def test_run_execution_state_machine_owns_core_status_decisions() -> None:
     assert "def _terminal_job_state_for_attempt_state(" not in run_execution_storage
     assert "def _attempt_state_for_run_status(" not in run_worker
     assert "RunExecutionStateMachine.fence_attempt(" in run_execution_storage
+    assert "RunExecutionStateMachine.claim_job(" in run_execution_storage
     assert "RunExecutionStateMachine.fence_attempt(" in reconciler_actions
     assert "RunExecutionStateMachine.requeue_retryable_job(" in reconciler_actions
     assert "RunExecutionStateMachine.requeue_retryable_job(" in (REMOTE_RUNNER / "reconciler.py").read_text(encoding="utf-8")
     assert "RunExecutionStateMachine.retry_job_for_operator_request(" in execution_retry_storage
+    assert len(run_execution_storage.splitlines()) <= 800
     assert '"expired" if reason == "lease_expired" else "fenced"' not in run_execution_storage
     assert '"expired" if reason == "lease_expired" else "fenced"' not in reconciler_actions
     assert 'event_type="run_attempt_fenced"' not in run_execution_storage
+    assert 'event_type="run_attempt_claimed"' not in run_execution_storage
     assert 'event_type="run_attempt_fenced"' not in reconciler_actions
     assert "Run attempt fenced" not in run_execution_storage
+    assert "Run attempt claimed." not in run_execution_storage
     assert "Run attempt fenced" not in reconciler_actions
     assert 'event_type="run_job_requeued"' not in reconciler_actions
     assert "Run job re-queued for retry." not in reconciler_actions
     assert "wait_reason_json = '{}'" not in execution_retry_storage
     assert "wait_reason_json = '{}'" not in reconciler_actions
+    assert "RUN_JOB_LEASE_NOT_RELEASED" not in run_execution_storage
+    assert "is_released_lease_state(lease_state)" not in run_execution_storage
     assert '("fenced", reason' not in run_execution_storage
     assert '("fenced", reason' not in reconciler_actions
 

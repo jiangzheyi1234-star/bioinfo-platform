@@ -246,6 +246,56 @@ def test_operator_retry_job_decision_is_distinct_from_recovery_requeue_event() -
     assert claimed.reason == "job_claimed"
 
 
+def test_job_claim_decision_owns_attempt_job_lease_and_event_shape() -> None:
+    decision = RunExecutionStateMachine.claim_job(
+        current_job_state="queued",
+        attempt_count=0,
+    )
+
+    assert decision.attempt_state == "running"
+    assert decision.lease_state == "active"
+    assert decision.job_state == "claimed"
+    assert decision.attempt_number == 1
+    assert decision.lease_generation == 1
+    assert decision.wait_reason_json == "{}"
+    assert decision.event_type == "run_attempt_claimed"
+    assert decision.stage == "claim"
+    assert decision.event_message == "Run attempt claimed."
+    assert decision.event_payload_keys == (
+        "jobId",
+        "attemptId",
+        "leaseGeneration",
+        "attemptNumber",
+        "workerId",
+        "sessionId",
+        "slotId",
+    )
+
+
+@pytest.mark.parametrize("released_lease_state", [None, "expired", "fenced", "failed", "canceled", "cancelled"])
+def test_job_claim_decision_allows_released_or_missing_lease(released_lease_state: str | None) -> None:
+    decision = RunExecutionStateMachine.claim_job(
+        current_job_state="queued",
+        attempt_count=1,
+        current_lease_state=released_lease_state,
+        current_lease_generation=None if released_lease_state is None else 4,
+    )
+
+    assert decision.attempt_number == 2
+    assert decision.lease_generation == (1 if released_lease_state is None else 5)
+
+
+@pytest.mark.parametrize("lease_state", ["active", "completed"])
+def test_job_claim_decision_rejects_unreleased_lease(lease_state: str) -> None:
+    with pytest.raises(RuntimeError, match=f"RUN_JOB_LEASE_NOT_RELEASED: {lease_state}"):
+        RunExecutionStateMachine.claim_job(
+            current_job_state="queued",
+            attempt_count=1,
+            current_lease_state=lease_state,
+            current_lease_generation=3,
+        )
+
+
 @pytest.mark.parametrize(
     ("run_status", "attempt_state"),
     [

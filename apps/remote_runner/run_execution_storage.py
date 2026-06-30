@@ -184,15 +184,13 @@ def claim_next_run_job(
             "SELECT * FROM run_leases WHERE run_id = ?",
             (job["run_id"],),
         ).fetchone()
-        next_generation = 1
-        if current_lease is not None:
-            next_generation = int(current_lease["lease_generation"]) + 1
-            lease_state = str(current_lease["state"])
-            if not RunExecutionStateMachine.is_released_lease_state(lease_state):
-                raise RuntimeError(f"RUN_JOB_LEASE_NOT_RELEASED: {lease_state}")
-
+        claim_decision = RunExecutionStateMachine.claim_job(
+            current_job_state=str(job["state"]),
+            attempt_count=int(job["attempt_count"]),
+            current_lease_state=str(current_lease["state"]) if current_lease is not None else None,
+            current_lease_generation=int(current_lease["lease_generation"]) if current_lease is not None else None,
+        )
         attempt_id = f"att_{uuid.uuid4().hex[:12]}"
-        attempt_number = int(job["attempt_count"]) + 1
         work_dir = str(Path(cfg.work_dir) / "attempts" / attempt_id)
         expires_at = _add_seconds(
             claimed_at,
@@ -212,9 +210,9 @@ def claim_next_run_job(
                 attempt_id,
                 job["run_id"],
                 job["job_id"],
-                next_generation,
-                attempt_number,
-                "running",
+                claim_decision.lease_generation,
+                claim_decision.attempt_number,
+                claim_decision.attempt_state,
                 normalized_worker_id,
                 work_dir,
                 None,
@@ -252,37 +250,43 @@ def claim_next_run_job(
             (
                 job["run_id"],
                 attempt_id,
-                next_generation,
+                claim_decision.lease_generation,
                 normalized_worker_id,
                 claimed_at,
                 normalized_session_id,
                 normalized_slot_id,
                 expires_at,
-                "active",
+                claim_decision.lease_state,
                 claimed_at,
             ),
         )
         connection.execute(
             """
             UPDATE run_jobs
-            SET state = ?, wait_reason_json = '{}', attempt_count = ?, updated_at = ?
+            SET state = ?, wait_reason_json = ?, attempt_count = ?, updated_at = ?
             WHERE job_id = ?
             """,
-            ("claimed", attempt_number, claimed_at, job["job_id"]),
+            (
+                claim_decision.job_state,
+                claim_decision.wait_reason_json,
+                claim_decision.attempt_number,
+                claimed_at,
+                job["job_id"],
+            ),
         )
         append_run_event_v2(
             connection,
             run_id=str(job["run_id"]),
-            event_type="run_attempt_claimed",
-            stage="claim",
+            event_type=claim_decision.event_type,
+            stage=claim_decision.stage,
             state_version=int(run["state_version"]),
-            message="Run attempt claimed.",
+            message=claim_decision.event_message,
             request_id=str(run["request_id"]),
             payload={
                 "jobId": job["job_id"],
                 "attemptId": attempt_id,
-                "leaseGeneration": next_generation,
-                "attemptNumber": attempt_number,
+                "leaseGeneration": claim_decision.lease_generation,
+                "attemptNumber": claim_decision.attempt_number,
                 "workerId": normalized_worker_id,
                 "sessionId": normalized_session_id,
                 "slotId": normalized_slot_id,
@@ -310,7 +314,7 @@ def claim_next_run_job(
         log_claim_accepted(
             job=job,
             attempt_id=attempt_id,
-            lease_generation=next_generation,
+            lease_generation=claim_decision.lease_generation,
             queue_name=normalized_queue_name,
             worker_id=normalized_worker_id,
             session_id=normalized_session_id,

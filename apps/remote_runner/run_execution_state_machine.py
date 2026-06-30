@@ -63,6 +63,20 @@ class RunJobRetryDecision:
     wait_reason_json: str | None
 
 
+@dataclass(frozen=True)
+class RunJobClaimDecision:
+    attempt_state: str
+    lease_state: str
+    job_state: str
+    attempt_number: int
+    lease_generation: int
+    wait_reason_json: str
+    event_type: str
+    stage: str
+    event_message: str
+    event_payload_keys: tuple[str, ...]
+
+
 class RunExecutionStateMachine:
     @staticmethod
     def submission_accepted() -> RunExecutionTransition:
@@ -288,6 +302,43 @@ class RunExecutionStateMachine:
             job_state="queued",
             remaining_attempts=remaining_attempts,
             wait_reason_json="{}",
+        )
+
+    @staticmethod
+    def claim_job(
+        *,
+        current_job_state: str,
+        attempt_count: int,
+        current_lease_state: str | None = None,
+        current_lease_generation: int | None = None,
+    ) -> RunJobClaimDecision:
+        normalized_state = _normalize_required_status(current_job_state, "JOB_STATE_REQUIRED")
+        if normalized_state != "queued":
+            raise RuntimeError(f"RUN_JOB_NOT_CLAIMABLE: {normalized_state}")
+        lease_state = _normalize_optional_status(current_lease_state)
+        if lease_state and lease_state not in RELEASED_LEASE_STATES:
+            raise RuntimeError(f"RUN_JOB_LEASE_NOT_RELEASED: {lease_state}")
+        attempt_number = max(0, int(attempt_count)) + 1
+        lease_generation = 1 if current_lease_generation is None else int(current_lease_generation) + 1
+        return RunJobClaimDecision(
+            attempt_state="running",
+            lease_state="active",
+            job_state="claimed",
+            attempt_number=attempt_number,
+            lease_generation=lease_generation,
+            wait_reason_json="{}",
+            event_type="run_attempt_claimed",
+            stage="claim",
+            event_message="Run attempt claimed.",
+            event_payload_keys=(
+                "jobId",
+                "attemptId",
+                "leaseGeneration",
+                "attemptNumber",
+                "workerId",
+                "sessionId",
+                "slotId",
+            ),
         )
 
     @staticmethod
