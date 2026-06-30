@@ -8,6 +8,7 @@ from unittest.mock import patch
 from core.remote_runner.artifact import WORKFLOW_RUNTIME_VERSION, WorkflowRuntimeArtifact
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
 from core.remote_runner.manager import RemoteRunnerManager
+from tests.helpers.remote_runner_control_plane import _health_endpoint_json
 
 
 def _runtime_state_json(port: int = 43127) -> str:
@@ -132,14 +133,11 @@ def test_bootstrap_repairs_partial_install_with_existing_workflow_runtime() -> N
         def __init__(self, *args, **kwargs) -> None:
             return None
 
-        def get_health(self) -> dict[str, object]:
-            return {
-                "startup": {"ok": True, "message": "Remote runner config loaded."},
-                "live": {"ok": True, "message": "Remote runner process is alive."},
-                "ready": {"ok": True, "message": "Remote runner control plane is ready."},
-                "reasonCode": "",
-                "checkedAt": "2026-04-22T00:00:00Z",
-            }
+        def get_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, object]:
+            health = _health_endpoint_json(path, accepted_statuses)
+            if health is not None:
+                return health
+            raise AssertionError(f"unexpected path: {path}")
 
     def fake_canary(**kwargs):
         kwargs["bootstrap_metadata"]["canary"] = {

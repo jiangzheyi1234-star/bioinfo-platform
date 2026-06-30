@@ -56,6 +56,21 @@ def _runtime_state_json(port: int = 43127, *, version: str = REMOTE_RUNNER_VERSI
     )
 
 
+def _health_endpoint_json(
+    path: str, accepted_statuses: set[int] | None = None
+) -> dict[str, object] | None:
+    if path == "/health/startup":
+        assert accepted_statuses == {200, 503}
+        return {"status": "ok"}
+    if path == "/health/live":
+        assert accepted_statuses is None
+        return {"status": "ok"}
+    if path == "/health/ready":
+        assert accepted_statuses == {200, 503}
+        return {"status": "ok"}
+    return None
+
+
 def _fake_runtime_dir(tmp_path: Path) -> Path:
     runtime = tmp_path / "runtime"
     bin_dir = runtime / "bin"

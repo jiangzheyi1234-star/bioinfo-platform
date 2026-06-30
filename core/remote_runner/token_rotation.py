@@ -8,6 +8,7 @@ from typing import Any
 
 from config import store_runner_token
 from core.remote_runner.client import RemoteRunnerClientError, RemoteRunnerHttpClient
+from core.remote_runner.health import build_runner_health
 from core.remote_runner.layout import (
     remote_runner_config,
     remote_runner_release,
@@ -99,7 +100,7 @@ class RemoteRunnerTokenRotationMixin:
                 token=token,
                 timeout=5,
             )
-            client.get_health()
+            build_runner_health(client)
         except _runner_rotation_failure_types():
             if old_config_path and old_config_path.exists():
                 try:

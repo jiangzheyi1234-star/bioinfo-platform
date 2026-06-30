@@ -16,6 +16,7 @@ from tests.helpers.remote_runner_control_plane import (
     _is_remote_bundle_cleanup,
     _is_remote_config_atomic_move,
     _fake_workflow_artifact,
+    _health_endpoint_json,
     _runtime_state_json,
 )
 
@@ -126,16 +127,10 @@ def test_bootstrap_reuses_existing_runner_when_artifact_sha_matches(monkeypatch)
         def __init__(self, *args, **kwargs) -> None:
             return None
 
-        def get_health(self) -> dict[str, object]:
-            return {
-                "startup": {"ok": True, "message": "Remote runner config loaded."},
-                "live": {"ok": True, "message": "Remote runner process is alive."},
-                "ready": {"ok": True, "message": "Remote runner control plane is ready."},
-                "reasonCode": "",
-                "checkedAt": "2026-04-22T00:00:00Z",
-            }
-
         def get_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, object]:
+            health = _health_endpoint_json(path, accepted_statuses)
+            if health is not None:
+                return health
             assert path == "/api/v1/database-templates"
             assert accepted_statuses == {200}
             return {
@@ -280,10 +275,10 @@ def test_fast_reuse_accepts_staged_runner_version(monkeypatch) -> None:
         def __init__(self, *args, **kwargs) -> None:
             return None
 
-        def get_health(self) -> dict[str, object]:
-            return {"ready": {"ok": True}}
-
         def get_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, object]:
+            health = _health_endpoint_json(path, accepted_statuses)
+            if health is not None:
+                return health
             assert path == "/api/v1/database-templates"
             assert accepted_statuses == {200}
             return {"data": {"items": [{"category": "db", "pathLabel": "path", "runtimeValue": "/db"}]}}
@@ -571,16 +566,10 @@ def test_fast_reuse_rejects_runner_when_database_template_route_is_missing(monke
         def __init__(self, *args, **kwargs) -> None:
             return None
 
-        def get_health(self) -> dict[str, object]:
-            return {
-                "startup": {"ok": True, "message": "Remote runner config loaded."},
-                "live": {"ok": True, "message": "Remote runner process is alive."},
-                "ready": {"ok": True, "message": "Remote runner control plane is ready."},
-                "reasonCode": "",
-                "checkedAt": "2026-04-22T00:00:00Z",
-            }
-
         def get_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, object]:
+            health = _health_endpoint_json(path, accepted_statuses)
+            if health is not None:
+                return health
             raise RemoteRunnerClientError("runner http error 404: Not Found")
 
     monkeypatch.setattr("core.remote_runner.reuse.resolve_runner_token", lambda token_ref: "phase2-token")

@@ -8,6 +8,7 @@ from typing import Any
 from core.contracts.database_remote_endpoints import DATABASE_TEMPLATE_LIST
 from core.remote_runner.client import RemoteRunnerClientError, RemoteRunnerHttpClient
 from core.remote_runner.endpoint_caller import call_remote_endpoint
+from core.remote_runner.health import build_runner_health
 
 
 class RemoteRunnerReadinessMixin:
@@ -87,7 +88,7 @@ class RemoteRunnerReadinessMixin:
         last_error = "remote runner health check failed"
         for attempt in range(attempts):
             try:
-                health = client.get_health()
+                health = build_runner_health(client)
             except RemoteRunnerClientError as exc:
                 last_error = str(exc) or last_error
             else:

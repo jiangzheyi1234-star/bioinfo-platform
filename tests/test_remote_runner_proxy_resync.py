@@ -52,14 +52,12 @@ def test_get_health_resyncs_when_stale_service_port_tunnel_fails(monkeypatch) ->
             assert token == "phase2-token"
             assert timeout == 5
 
-        def get_health(self) -> dict[str, object]:
-            return {
-                "startup": {"ok": True, "message": "Remote runner config loaded."},
-                "live": {"ok": True, "message": "Remote runner process is alive."},
-                "ready": {"ok": True, "message": "Remote runner control plane is ready."},
-                "reasonCode": "",
-                "checkedAt": "2026-06-09T14:00:00Z",
-            }
+        def get_json(
+            self, path: str, *, accepted_statuses: set[int] | None = None
+        ) -> dict[str, object]:
+            if path in {"/health/startup", "/health/live", "/health/ready"}:
+                return {"status": "ok"}
+            raise AssertionError(f"unexpected path: {path}")
 
     ssh = FakeSSH()
     monkeypatch.setattr("core.remote_runner.proxy.resolve_runner_token", lambda _ref: "phase2-token")

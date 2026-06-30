@@ -18,6 +18,7 @@ from tests.helpers.remote_runner_control_plane import (
     _is_remote_current_release_switch,
     _is_remote_runner_config_read,
     _fake_workflow_artifact,
+    _health_endpoint_json,
     _runtime_state_json,
 )
 
@@ -98,16 +99,10 @@ def test_bootstrap_extract_step_marks_remote_scripts_executable(monkeypatch) -> 
         def __init__(self, *args, **kwargs) -> None:
             return None
 
-        def get_health(self) -> dict[str, object]:
-            return {
-                "startup": {"ok": True, "message": "Remote runner config loaded."},
-                "live": {"ok": True, "message": "Remote runner process is alive."},
-                "ready": {"ok": True, "message": "Remote runner control plane is ready."},
-                "reasonCode": "",
-                "checkedAt": "2026-04-22T00:00:00Z",
-            }
-
         def get_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, object]:
+            health = _health_endpoint_json(path, accepted_statuses)
+            if health is not None:
+                return health
             assert path == "/api/v1/database-templates"
             assert accepted_statuses == {200}
             return {"data": {"items": [{"id": "kraken2"}]}}
@@ -210,14 +205,11 @@ def test_bootstrap_uses_staged_artifact_version_for_release_layout(monkeypatch) 
         def __init__(self, *args, **kwargs) -> None:
             return None
 
-        def get_health(self) -> dict[str, object]:
-            return {
-                "startup": {"ok": True, "message": "Remote runner config loaded."},
-                "live": {"ok": True, "message": "Remote runner process is alive."},
-                "ready": {"ok": True, "message": "Remote runner control plane is ready."},
-                "reasonCode": "",
-                "checkedAt": "2026-04-22T00:00:00Z",
-            }
+        def get_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, object]:
+            health = _health_endpoint_json(path, accepted_statuses)
+            if health is not None:
+                return health
+            raise AssertionError(f"unexpected path: {path}")
 
     with patch.object(manager, "_artifact_provider", SimpleNamespace(resolve=lambda **kwargs: FakeArtifact())), patch(
         "core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient
@@ -328,14 +320,11 @@ def test_bootstrap_registers_remote_workflow_runtime_when_local_artifact_is_miss
         def __init__(self, *args, **kwargs) -> None:
             return None
 
-        def get_health(self) -> dict[str, object]:
-            return {
-                "startup": {"ok": True, "message": "Remote runner config loaded."},
-                "live": {"ok": True, "message": "Remote runner process is alive."},
-                "ready": {"ok": True, "message": "Remote runner control plane is ready."},
-                "reasonCode": "",
-                "checkedAt": "2026-04-22T00:00:00Z",
-            }
+        def get_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, object]:
+            health = _health_endpoint_json(path, accepted_statuses)
+            if health is not None:
+                return health
+            raise AssertionError(f"unexpected path: {path}")
 
     with patch.object(manager, "_artifact_provider", SimpleNamespace(resolve=lambda **kwargs: FakeBundle())), patch.object(
         manager, "_workflow_artifact_provider", SimpleNamespace(resolve=missing_workflow_artifact)
@@ -435,14 +424,11 @@ def test_bootstrap_installs_when_artifact_sha_marker_is_missing(monkeypatch) -> 
         def __init__(self, *args, **kwargs) -> None:
             return None
 
-        def get_health(self) -> dict[str, object]:
-            return {
-                "startup": {"ok": True, "message": "Remote runner config loaded."},
-                "live": {"ok": True, "message": "Remote runner process is alive."},
-                "ready": {"ok": True, "message": "Remote runner control plane is ready."},
-                "reasonCode": "",
-                "checkedAt": "2026-04-22T00:00:00Z",
-            }
+        def get_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, object]:
+            health = _health_endpoint_json(path, accepted_statuses)
+            if health is not None:
+                return health
+            raise AssertionError(f"unexpected path: {path}")
 
     with patch.object(manager, "_artifact_provider", SimpleNamespace(resolve=lambda **kwargs: FakeArtifact())), patch(
         "core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient
@@ -537,14 +523,11 @@ def test_bootstrap_retries_canary_once_with_fresh_tunnel_after_connection_refuse
         def __init__(self, *args, **kwargs) -> None:
             return None
 
-        def get_health(self) -> dict[str, object]:
-            return {
-                "startup": {"ok": True, "message": "Remote runner config loaded."},
-                "live": {"ok": True, "message": "Remote runner process is alive."},
-                "ready": {"ok": True, "message": "Remote runner control plane is ready."},
-                "reasonCode": "",
-                "checkedAt": "2026-04-22T00:00:00Z",
-            }
+        def get_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, object]:
+            health = _health_endpoint_json(path, accepted_statuses)
+            if health is not None:
+                return health
+            raise AssertionError(f"unexpected path: {path}")
 
     def flaky_canary(*, client, server_id, bootstrap_metadata):
         nonlocal canary_calls

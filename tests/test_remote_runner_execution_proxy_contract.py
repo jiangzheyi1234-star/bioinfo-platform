@@ -600,6 +600,7 @@ def test_execution_manager_calls_generic_remote_endpoint_for_run_read_models() -
 
 
 def test_remote_runner_http_client_does_not_keep_migrated_semantic_methods() -> None:
+    assert not hasattr(RemoteRunnerHttpClient, "get_health")
     assert not hasattr(RemoteRunnerHttpClient, "get_execution_diagnostics")
     assert not hasattr(RemoteRunnerHttpClient, "get_operator_diagnostics")
     assert not hasattr(RemoteRunnerHttpClient, "get_run")

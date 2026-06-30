@@ -10,6 +10,7 @@ from core.remote_runner.diagnostics import (
     build_operator_diagnostics_bundle,
 )
 from core.remote_runner.endpoint_caller import call_remote_endpoint as execute_remote_endpoint
+from core.remote_runner.health import build_runner_health
 from core.remote_runner.layout import remote_runner_bootstrap_layout
 
 
@@ -127,7 +128,7 @@ class RemoteRunnerProxyMixin:
                 stale_error=exc,
             )
         try:
-            health = client.get_health()
+            health = build_runner_health(client)
         except RemoteRunnerClientError as exc:
             return self._get_health_after_runtime_state_resync(
                 server_id=server_id,
@@ -181,7 +182,7 @@ class RemoteRunnerProxyMixin:
             "version": str(state.get("version") or version),
         }
         try:
-            health = client.get_health()
+            health = build_runner_health(client)
         except RemoteRunnerClientError as exc:
             detail_payload = dict(exc.detail) if isinstance(exc.detail, dict) else {}
             detail_payload.setdefault("message", str(exc))

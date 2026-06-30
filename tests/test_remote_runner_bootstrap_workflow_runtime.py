@@ -17,6 +17,7 @@ from tests.helpers.remote_runner_control_plane import (
     _is_remote_current_release_switch,
     _is_remote_runner_config_read,
     _fake_workflow_artifact,
+    _health_endpoint_json,
     _runtime_state_json,
 )
 
@@ -193,14 +194,11 @@ def test_bootstrap_uses_bundled_service_runtime_without_remote_installer(monkeyp
         def __init__(self, *args, **kwargs) -> None:
             return None
 
-        def get_health(self) -> dict[str, object]:
-            return {
-                "startup": {"ok": True, "message": "Remote runner config loaded."},
-                "live": {"ok": True, "message": "Remote runner process is alive."},
-                "ready": {"ok": True, "message": "Remote runner control plane is ready."},
-                "reasonCode": "",
-                "checkedAt": "2026-04-22T00:00:00Z",
-            }
+        def get_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, object]:
+            health = _health_endpoint_json(path, accepted_statuses)
+            if health is not None:
+                return health
+            raise AssertionError(f"unexpected path: {path}")
 
     fake_ssh = FakeSSH()
     with patch.object(manager, "_artifact_provider", SimpleNamespace(resolve=lambda **kwargs: FakeBundle())), patch(
@@ -279,14 +277,11 @@ def test_bootstrap_does_not_install_runtime_on_remote_host(monkeypatch) -> None:
         def __init__(self, *args, **kwargs) -> None:
             return None
 
-        def get_health(self) -> dict[str, object]:
-            return {
-                "startup": {"ok": True, "message": "Remote runner config loaded."},
-                "live": {"ok": True, "message": "Remote runner process is alive."},
-                "ready": {"ok": True, "message": "Remote runner control plane is ready."},
-                "reasonCode": "",
-                "checkedAt": "2026-04-22T00:00:00Z",
-            }
+        def get_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, object]:
+            health = _health_endpoint_json(path, accepted_statuses)
+            if health is not None:
+                return health
+            raise AssertionError(f"unexpected path: {path}")
 
     with patch.object(manager, "_artifact_provider", SimpleNamespace(resolve=lambda **kwargs: FakeBundle())), patch(
         "core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient
@@ -370,17 +365,15 @@ def test_bootstrap_waits_for_remote_runner_health_after_startup(monkeypatch) -> 
         def __init__(self, *args, **kwargs) -> None:
             return None
 
-        def get_health(self) -> dict[str, object]:
-            health_calls["count"] += 1
-            if health_calls["count"] < 3:
+        def get_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, object]:
+            if path == "/health/startup":
+                health_calls["count"] += 1
+            if path == "/health/startup" and health_calls["count"] < 3:
                 raise RemoteRunnerClientError("runner unreachable")
-            return {
-                "startup": {"ok": True, "message": "Remote runner config loaded."},
-                "live": {"ok": True, "message": "Remote runner process is alive."},
-                "ready": {"ok": True, "message": "Remote runner control plane is ready."},
-                "reasonCode": "",
-                "checkedAt": "2026-04-22T00:00:00Z",
-            }
+            health = _health_endpoint_json(path, accepted_statuses)
+            if health is not None:
+                return health
+            raise AssertionError(f"unexpected path: {path}")
 
     monkeypatch.setattr("core.remote_runner.readiness.time.sleep", lambda *_args, **_kwargs: None)
 
@@ -454,14 +447,11 @@ def test_bootstrap_does_not_require_system_python3_for_bundled_runtime(monkeypat
         def __init__(self, *args, **kwargs) -> None:
             return None
 
-        def get_health(self) -> dict[str, object]:
-            return {
-                "startup": {"ok": True, "message": "Remote runner config loaded."},
-                "live": {"ok": True, "message": "Remote runner process is alive."},
-                "ready": {"ok": True, "message": "Remote runner control plane is ready."},
-                "reasonCode": "",
-                "checkedAt": "2026-04-22T00:00:00Z",
-            }
+        def get_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, object]:
+            health = _health_endpoint_json(path, accepted_statuses)
+            if health is not None:
+                return health
+            raise AssertionError(f"unexpected path: {path}")
 
     with patch.object(manager, "_artifact_provider", SimpleNamespace(resolve=lambda **kwargs: FakeBundle())), patch(
         "core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient
