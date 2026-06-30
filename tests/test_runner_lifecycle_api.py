@@ -10,7 +10,14 @@ from fastapi.testclient import TestClient
 
 from apps.api.main import app
 from apps.api.response_cache import invalidate_response_cache
-from apps.api.ssh_routes import ensure_server_runner, list_servers, upgrade_server_runner
+from apps.api.models import RunnerReleasePruneRunRequest
+from apps.api.ssh_routes import (
+    ensure_server_runner,
+    list_servers,
+    preview_server_runner_release_prune,
+    run_server_runner_release_prune,
+    upgrade_server_runner,
+)
 from core.app_runtime.errors import RuntimeServiceError
 from core.app_runtime.service import RuntimeService, ServiceLocator
 from core.remote_runner.bootstrap_guard import UPGRADE_ACTIVE_LEASES_REASON
@@ -264,3 +271,57 @@ def test_upgrade_runner_http_conflict_preserves_reason_code(monkeypatch: pytest.
     assert payload["requestId"] == "req_upgrade_active"
     assert UPGRADE_ACTIVE_LEASES_REASON in payload["detail"]
     assert "WAIT_FOR_RUNS_OR_CANCEL_BEFORE_UPGRADE" in payload["detail"]
+
+
+def test_runner_release_prune_api_forwards_preview_and_plan_hash(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    service = _make_service(tmp_path)
+    service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)
+    cfg = _runtime_config()
+
+    class FakeRemoteRunnerManager:
+        def __init__(self) -> None:
+            self.run_plan_hash = ""
+
+        def preview_release_prune(self, **_kwargs):
+            return {
+                "schemaVersion": "h2ometa.remote-runner-release-prune.v1",
+                "planHash": "a" * 64,
+                "releases": [],
+                "deletableReleaseCount": 0,
+            }
+
+        def run_release_prune(self, **kwargs):
+            self.run_plan_hash = str(kwargs["plan_hash"])
+            return {
+                "schemaVersion": "h2ometa.remote-runner-release-prune.v1",
+                "planHash": self.run_plan_hash,
+                "deletedReleases": [],
+                "deletedReleaseCount": 0,
+            }
+
+    fake_manager = FakeRemoteRunnerManager()
+    service._service_locator.remote_runner_manager = fake_manager
+    monkeypatch.setattr("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg)
+    monkeypatch.setattr("core.app_runtime.runtime_config.save_runtime_config", _save_capture(cfg))
+    _patch_runtime_service(monkeypatch, service)
+
+    server_id = asyncio.run(list_servers())["data"]["items"][0]["serverId"]
+    cfg["servers"][server_id] = _prepared_record()
+
+    preview = asyncio.run(preview_server_runner_release_prune(server_id))
+    result = asyncio.run(
+        run_server_runner_release_prune(
+            server_id,
+            RunnerReleasePruneRunRequest(
+                confirmation="prune-runner-releases",
+                planHash=preview["data"]["planHash"],
+            ),
+        )
+    )
+
+    assert preview["data"]["schemaVersion"] == "h2ometa.remote-runner-release-prune.v1"
+    assert fake_manager.run_plan_hash == "a" * 64
+    assert result["data"]["deletedReleaseCount"] == 0

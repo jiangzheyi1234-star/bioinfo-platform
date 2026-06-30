@@ -31,6 +31,11 @@ class SSHTerminalCreateRequest(ApiRequest):
     rows: int = Field(default=28, ge=12, le=80)
 
 
+class RunnerReleasePruneRunRequest(ApiRequest):
+    confirmation: Literal["prune-runner-releases"]
+    planHash: str = Field(min_length=64, max_length=64)
+
+
 class TerminalInputMessage(ApiRequest):
     type: Literal["input"]
     data: str = Field(min_length=1)

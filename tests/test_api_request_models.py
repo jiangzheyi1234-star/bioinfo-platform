@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from apps.api.models import (
     ArtifactCachePinReleaseRequest,
+    RunnerReleasePruneRunRequest,
     ArtifactCachePinRetainRequest,
     ArtifactLifecycleControllerRunOnceRequest,
     ResultPackageExportRequest,
@@ -951,6 +952,23 @@ def test_workflow_design_create_runtime_payload_omits_local_default_input_semant
     }
     for local_default in ("type", "kind", "data", "format", "operation", "resource"):
         assert local_default not in payload["draft"]["inputs"][0]
+
+
+def test_runner_release_prune_run_request_requires_confirmation_and_plan_hash() -> None:
+    request = RunnerReleasePruneRunRequest.model_validate(
+        {"confirmation": "prune-runner-releases", "planHash": "a" * 64}
+    )
+
+    assert request.confirmation == "prune-runner-releases"
+    assert request.planHash == "a" * 64
+
+    for payload in (
+        {"confirmation": "prune-releases", "planHash": "a" * 64},
+        {"confirmation": "prune-runner-releases", "planHash": "short"},
+        {"confirmation": "prune-runner-releases", "planHash": "a" * 64, "paths": ["/tmp/release"]},
+    ):
+        with pytest.raises(ValidationError):
+            RunnerReleasePruneRunRequest.model_validate(payload)
 
 
 def test_terminal_client_message_adapter_uses_pydantic_discriminated_models() -> None:

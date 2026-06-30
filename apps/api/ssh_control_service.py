@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from apps.api.models import SSHConnectionRequest, SSHTerminalCreateRequest
+from apps.api.models import RunnerReleasePruneRunRequest, SSHConnectionRequest, SSHTerminalCreateRequest
 from apps.api.response_cache import invalidate_response_cache
 from apps.api.route_utils import (
     cached_runtime_payload,
@@ -101,6 +101,28 @@ async def upgrade_server_runner_from_request(server_id: str) -> dict[str, Any]:
     result = await run_runtime_payload(
         lambda: runtime_service().upgrade_remote_runner(server_id),
         wrapper="raw",
+    )
+    await _invalidate_ssh_state_cache()
+    return result
+
+
+async def preview_server_runner_release_prune_from_request(server_id: str) -> dict[str, Any]:
+    return await run_runtime_payload(
+        lambda: runtime_service().preview_runner_release_prune(server_id),
+        wrapper="data",
+    )
+
+
+async def run_server_runner_release_prune_from_request(
+    server_id: str,
+    request: RunnerReleasePruneRunRequest,
+) -> dict[str, Any]:
+    result = await run_runtime_payload(
+        lambda: runtime_service().run_runner_release_prune(
+            server_id,
+            plan_hash=request.planHash,
+        ),
+        wrapper="data",
     )
     await _invalidate_ssh_state_cache()
     return result

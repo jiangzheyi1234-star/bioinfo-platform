@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Query, WebSocket
 
-from apps.api.models import SSHConnectionRequest, SSHTerminalCreateRequest
+from apps.api.models import RunnerReleasePruneRunRequest, SSHConnectionRequest, SSHTerminalCreateRequest
 from apps.api.ssh_control_service import (
     accept_server_host_key_from_request,
     close_terminal_session_from_request,
@@ -22,8 +22,10 @@ from apps.api.ssh_control_service import (
     list_servers_from_request,
     list_ssh_listening_ports_from_request,
     list_ssh_remote_files_from_request,
+    preview_server_runner_release_prune_from_request,
     refresh_server_health_from_request,
     rotate_server_token_from_request,
+    run_server_runner_release_prune_from_request,
     stop_ssh_remote_service_from_request,
     stream_terminal_session_from_request,
     test_ssh_connection_from_request,
@@ -85,6 +87,19 @@ async def ensure_server_runner(server_id: str) -> dict[str, Any]:
 @router.post("/api/v1/servers/{server_id}/runner/upgrade")
 async def upgrade_server_runner(server_id: str) -> dict[str, Any]:
     return await upgrade_server_runner_from_request(server_id)
+
+
+@router.post("/api/v1/servers/{server_id}/runner/releases/prune/preview")
+async def preview_server_runner_release_prune(server_id: str) -> dict[str, Any]:
+    return await preview_server_runner_release_prune_from_request(server_id)
+
+
+@router.post("/api/v1/servers/{server_id}/runner/releases/prune/run")
+async def run_server_runner_release_prune(
+    server_id: str,
+    payload: RunnerReleasePruneRunRequest,
+) -> dict[str, Any]:
+    return await run_server_runner_release_prune_from_request(server_id, payload)
 
 
 @router.post("/api/v1/servers/{server_id}/host-key/accept")

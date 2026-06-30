@@ -50,6 +50,25 @@ class RunnerOperationsMixin(
             scenario_id=scenario_id,
         )
 
+    def preview_runner_release_prune(self, server_id: str | None = None) -> dict[str, Any]:
+        selected_server_id, ssh, record = self._require_existing_runner_prepared(preferred_server_id=server_id)
+        return self._call_remote_runner(
+            self._service_locator.remote_runner_manager.preview_release_prune,
+            server_id=selected_server_id,
+            ssh_service=ssh,
+            server_record=record,
+        )
+
+    def run_runner_release_prune(self, server_id: str | None = None, *, plan_hash: str) -> dict[str, Any]:
+        selected_server_id, ssh, record = self._require_existing_runner_prepared(preferred_server_id=server_id)
+        return self._call_remote_runner(
+            self._service_locator.remote_runner_manager.run_release_prune,
+            server_id=selected_server_id,
+            ssh_service=ssh,
+            server_record=record,
+            plan_hash=plan_hash,
+        )
+
     @staticmethod
     def _call_remote_runner(func, /, **kwargs):
         return call_remote_runner(func, **kwargs)
