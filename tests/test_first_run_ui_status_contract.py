@@ -37,6 +37,7 @@ def test_first_run_ui_steps_and_report_are_status_contract_driven() -> None:
     assert "evidence?.report?.ready === true" in first_run_progress
     assert "reportEvidence={firstRunStatusSnapshot?.evidence?.report}" in first_run_page
     assert "firstRunStatus={firstRunStatusSnapshot || null}" in first_run_page
+    assert 'firstRunStatus.stage === "export_result_package"' not in first_run_progress
 
 
 def test_first_run_validation_and_trust_summary_are_status_contract_driven() -> None:
@@ -89,7 +90,10 @@ def test_first_run_conductor_uses_status_contract_before_local_run_hints() -> No
     assert "const status = input.firstRunStatus" in first_run_conductor
     assert "hasStatus ? evidence?.sampleCache?.status === \"ready\" : input.sampleReady" in first_run_conductor
     assert "hasStatus ? Boolean(statusRun?.runId) : input.runSubmitted" in first_run_conductor
-    assert "return continueActionFromStatus(status.nextAction)" in first_run_conductor
+    assert "if (status?.nextAction)" in first_run_conductor
+    assert "continueActionFromStatus(status.nextAction)" in first_run_conductor
+    assert first_run_conductor.index("if (status?.nextAction)") < first_run_conductor.index("if (!input.serverConnected)")
+    assert "if (!status?.nextAction)" not in first_run_conductor
 
 
 def test_first_run_submit_uses_status_sample_cache_without_local_upload_gate() -> None:

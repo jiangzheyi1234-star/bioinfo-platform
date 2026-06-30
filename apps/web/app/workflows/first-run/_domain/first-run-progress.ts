@@ -170,7 +170,6 @@ export function resultPackageDisabledReason({
     if (firstRunStatus.evidence?.resultPackage?.ready === true) return "";
     const action = firstRunStatus.nextAction;
     if (action?.code === "FINALIZE_FIRST_RUN") return "";
-    if (firstRunStatus.stage === "export_result_package") return "";
     return action?.detail || firstRunStatus.evidence?.resultPackage?.blockedCode || "等待首跑达到结果包导出阶段";
   }
   if (!resultId) return "等待运行产出 resultId";

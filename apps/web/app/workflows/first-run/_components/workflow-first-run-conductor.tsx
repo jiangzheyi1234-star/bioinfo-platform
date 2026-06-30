@@ -46,6 +46,16 @@ export function buildFirstRunContinueAction(input: FirstRunContinueActionInput):
   const hasStatus = Boolean(status);
   const sampleReady = hasStatus ? evidence?.sampleCache?.status === "ready" : input.sampleReady;
   const runSubmitted = hasStatus ? Boolean(statusRun?.runId) : input.runSubmitted;
+  if (status?.nextAction) {
+    const action = continueActionFromStatus(status.nextAction);
+    if (action.code !== "SUBMIT_RUN" || input.canSubmit) return action;
+    return {
+      ...action,
+      detail: action.detail || "等待输入、runner 和 workflow readiness 全部通过后提交。",
+      disabled: true,
+      tone: "warning",
+    };
+  }
   if (!input.serverConnected) {
     return {
       code: "CONNECT_REMOTE",
@@ -92,16 +102,13 @@ export function buildFirstRunContinueAction(input: FirstRunContinueActionInput):
       tone: input.canSubmit ? "info" : "warning",
     };
   }
-  if (!status?.nextAction) {
-    return {
-      code: "REFRESH_RUN",
-      detail: "等待服务端首跑状态聚合返回 run、报告、结果包和验证卡状态。",
-      label: "刷新首跑状态",
-      target: "#run-report",
-      tone: "warning",
-    };
-  }
-  return continueActionFromStatus(status.nextAction);
+  return {
+    code: "REFRESH_RUN",
+    detail: "等待服务端首跑状态聚合返回 run、报告、结果包和验证卡状态。",
+    label: "刷新首跑状态",
+    target: "#run-report",
+    tone: "warning",
+  };
 }
 
 export function useFirstRunConductor({
