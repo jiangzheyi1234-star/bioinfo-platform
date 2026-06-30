@@ -33,6 +33,14 @@ export type SSHStatus = {
   };
 };
 
+export type RemoteStatusView = {
+  label: string;
+  message: string;
+  dotClass: string;
+  toneClass: string;
+  stages: string[];
+};
+
 export type SSHFormState = {
   auth_mode: "password_ref" | "key_file" | "ssh_config" | "agent";
   ssh_host_alias: string;
@@ -176,6 +184,75 @@ export function isRunnerPreparing(status: SSHStatus | null | undefined): boolean
       !isRunnerManuallyStopped(status) &&
       !isRunnerRepairRequired(status)
   );
+}
+
+export function resolveRemoteStatus(status: SSHStatus | null): RemoteStatusView {
+  if (status?.connecting || status?.auto_connect_in_progress) {
+    const target = status.host ? `SSH: ${status.host}` : "SSH";
+    return {
+      label: "SSH 连接中",
+      message: target,
+      dotClass: "animate-pulse bg-blue-500",
+      toneClass: "text-blue-700",
+      stages: ["正在建立 SSH 连接", "等待认证结果", "连接成功后准备远程服务"],
+    };
+  }
+  if (!status?.connected) {
+    return {
+      label: "未连接",
+      message: "",
+      dotClass: "bg-slate-300",
+      toneClass: "text-slate-500",
+      stages: ["SSH 未连接", "远程服务未启动"],
+    };
+  }
+  const target = status.host ? `SSH: ${status.host}` : "SSH";
+  if (!status.runner) {
+    return {
+      label: "SSH 已连接",
+      message: "正在检查远程服务...",
+      dotClass: "animate-pulse bg-blue-500",
+      toneClass: "text-blue-700",
+      stages: ["SSH 已连接", "正在检查远程服务", "正在打开安全通道"],
+    };
+  }
+  if (status.runner.ready) {
+    return {
+      label: "已连接",
+      message: target,
+      dotClass: "bg-emerald-500",
+      toneClass: "text-blue-700",
+      stages: ["SSH 已连接", "远程服务已就绪", "安全通道已打开", "健康检查通过"],
+    };
+  }
+  if (isRunnerManuallyStopped(status)) {
+    return {
+      label: "远程服务已停止",
+      message: status.runner.message || "远程服务已手动停止",
+      dotClass: "bg-slate-400",
+      toneClass: "text-slate-700",
+      stages: ["SSH 已连接", "远程服务已手动停止", "等待手动启动"],
+    };
+  }
+  if (status.runner.state === "recovering") {
+    return {
+      label: "SSH 已连接",
+      message: status.runner.message || "远程服务正在恢复...",
+      dotClass: "animate-pulse bg-blue-500",
+      toneClass: "text-blue-700",
+      stages: ["SSH 已连接", "远程服务正在恢复", "正在重建安全通道"],
+    };
+  }
+  const failed = isRunnerRepairRequired(status);
+  return {
+    label: failed ? "远程服务需要修复" : "SSH 已连接",
+    message: status.runner.message || "",
+    dotClass: failed ? "bg-amber-500" : "animate-pulse bg-blue-500",
+    toneClass: failed ? "text-amber-700" : "text-blue-700",
+    stages: failed
+      ? ["SSH 已连接", "远程服务需要修复", status.runner.reasonCode || "请查看详情"]
+      : ["SSH 已连接", "正在检查远程服务", "正在同步环境", "正在启动远程服务", "正在打开安全通道"],
+  };
 }
 
 export function runnerEnsureActionLabel(status: SSHStatus | null | undefined, busy: boolean): string {

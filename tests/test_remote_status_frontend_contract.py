@@ -10,6 +10,7 @@ COMPONENTS = ROOT / "apps" / "web" / "app" / "components"
 CONTRACT_FILES = {
     "model": COMPONENTS / "ssh-shell-model.ts",
     "ui": COMPONENTS / "ssh-shell-ui.tsx",
+    "repair": COMPONENTS / "ssh-runner-repair-panel.tsx",
     "connection": COMPONENTS / "ssh-shell-connection.ts",
 }
 
@@ -34,7 +35,7 @@ def _assert_matches(source: str, *patterns: str) -> None:
 
 
 def test_remote_status_has_recovering_runner_copy() -> None:
-    source = _source("ui")
+    source = _source("model")
 
     _assert_contains(
         source,
@@ -46,29 +47,54 @@ def test_remote_status_has_recovering_runner_copy() -> None:
 
 def test_remote_status_panel_exposes_runner_ports_and_stop_action() -> None:
     model_source = _source("model")
-    source = _source("ui")
+    ui_source = _source("ui")
+    repair_source = _source("repair")
 
     _assert_contains(model_source, "serverId?: string")
+    _assert_contains(ui_source, "RunnerRepairPanel")
     _assert_contains(
-        source,
-        "远端服务端口",
+        repair_source,
+        "resolveRemoteStatus(status)",
+        "Runner Repair",
         "远端服务",
         "本地隧道",
         "runner.servicePort",
         "runner.tunnelPort",
-        "停止远程服务",
+        "停止 Runner",
     )
     _assert_matches(
-        source,
+        repair_source,
         r"`/api/v1/servers/\$\{encodeURIComponent\(serverId\)\}/runner/stop`",
         r"await\s+onRefreshStatus\(\)",
     )
-    _assert_not_contains(source, "/api/v1/ssh/remote-service/stop")
+    _assert_not_contains(ui_source + repair_source, "/api/v1/ssh/remote-service/stop")
+    _assert_not_contains(repair_source, "absolute bottom-full")
+    _assert_contains(ui_source, 'className="absolute bottom-full left-2 z-30 mb-1 w-[360px]"')
+
+
+def test_runner_repair_panel_exposes_upgrade_prune_and_operator_diagnostics() -> None:
+    source = _source("repair")
+
+    _assert_contains(
+        source,
+        'data-testid="runner-repair-panel"',
+        "/runner/upgrade",
+        "/runner/releases/prune/preview",
+        "/runner/releases/prune/run",
+        "/operator-diagnostics",
+        'confirmation: "prune-runner-releases"',
+        "升级 Runner",
+        "旧版本清理",
+        "Operator",
+    )
+    _assert_contains(source, "className?: string", "className = \"\"")
+    _assert_matches(source, r"disabled=\{!canPrune\s*\|\|\s*pruneLoading\s*\|\|\s*deletableReleaseCount <= 0")
 
 
 def test_manual_runner_stop_is_explicit_start_not_repair() -> None:
     model_source = _source("model")
     ui_source = _source("ui")
+    repair_source = _source("repair")
 
     _assert_contains(
         model_source,
@@ -78,10 +104,13 @@ def test_manual_runner_stop_is_explicit_start_not_repair() -> None:
         "远程服务已手动停止",
     )
     _assert_contains(
-        ui_source,
+        ui_source + repair_source,
         "isRunnerManuallyStopped(status)",
         "runnerEnsureActionLabel(status, ensureRunnerBusy)",
         "runnerSidebarSubcopy(status)",
+    )
+    _assert_contains(
+        model_source,
         "远程服务已停止",
         "等待手动启动",
     )
@@ -89,6 +118,7 @@ def test_manual_runner_stop_is_explicit_start_not_repair() -> None:
 
 def test_remote_status_failed_runner_can_trigger_repair_bootstrap() -> None:
     ui_source = _source("ui")
+    repair_source = _source("repair")
     hook_source = _source("connection")
     model_source = _source("model")
 
@@ -97,9 +127,9 @@ def test_remote_status_failed_runner_can_trigger_repair_bootstrap() -> None:
         "修复远程服务",
         "准备远程服务",
     )
-    _assert_contains(ui_source, "runnerEnsureActionLabel(status, ensureRunnerBusy)")
+    _assert_contains(ui_source + repair_source, "runnerEnsureActionLabel(status, ensureRunnerBusy)")
     _assert_matches(
-        ui_source,
+        repair_source,
         r"status\?\.connected\s*&&\s*!\s*status\.runner\?\.ready",
         r"onClick=\{onEnsureRunner\}",
     )

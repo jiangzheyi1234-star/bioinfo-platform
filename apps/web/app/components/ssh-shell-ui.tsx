@@ -3,9 +3,8 @@
 import Link from "next/link";
 import { useState } from "react";
 import type { PointerEvent as ReactPointerEvent, RefObject } from "react";
-import { CircleHelp, Clock3, Ellipsis, GripHorizontal, RefreshCw, Server, Square, Workflow, X } from "lucide-react";
+import { CircleHelp, Clock3, Ellipsis, GripHorizontal, RefreshCw, Server, Workflow, X } from "lucide-react";
 
-import { requestLocalApiJson } from "@/app/lib/local-api-client";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -20,87 +19,15 @@ import {
   isRunnerManuallyStopped,
   isRunnerPreparing,
   isRunnerRepairRequired,
-  normalizeFetchError,
+  resolveRemoteStatus,
   runnerEnsureActionLabel,
   runnerSidebarSubcopy,
   type SSHFormState,
   type SSHHostKeyCandidate,
   type SSHStatus,
 } from "./ssh-shell-model";
+import { RunnerRepairPanel } from "./ssh-runner-repair-panel";
 import { ToolPrepareTaskBar } from "./tool-prepare-task-bar";
-
-function resolveRemoteStatus(status: SSHStatus | null) {
-  if (status?.connecting || status?.auto_connect_in_progress) {
-    const target = status.host ? `SSH: ${status.host}` : "SSH";
-    return {
-      label: "SSH 连接中",
-      message: target,
-      dotClass: "animate-pulse bg-blue-500",
-      toneClass: "text-blue-700",
-      stages: ["正在建立 SSH 连接", "等待认证结果", "连接成功后准备远程服务"],
-    };
-  }
-  if (!status?.connected) {
-    return {
-      label: "未连接",
-      message: "",
-      dotClass: "bg-slate-300",
-      toneClass: "text-slate-500",
-      stages: ["SSH 未连接", "远程服务未启动"],
-    };
-  }
-  const target = status.host ? `SSH: ${status.host}` : "SSH";
-  if (!status.runner) {
-    return {
-      label: "SSH 已连接",
-      message: "正在检查远程服务...",
-      dotClass: "animate-pulse bg-blue-500",
-      toneClass: "text-blue-700",
-      stages: ["SSH 已连接", "正在检查远程服务", "正在打开安全通道"],
-    };
-  }
-  if (status.runner.ready) {
-    return {
-      label: "已连接",
-      message: target,
-      dotClass: "bg-emerald-500",
-      toneClass: "text-blue-700",
-      stages: ["SSH 已连接", "远程服务已就绪", "安全通道已打开", "健康检查通过"],
-    };
-  }
-  if (isRunnerManuallyStopped(status)) {
-    return {
-      label: "远程服务已停止",
-      message: status.runner.message || "远程服务已手动停止",
-      dotClass: "bg-slate-400",
-      toneClass: "text-slate-700",
-      stages: ["SSH 已连接", "远程服务已手动停止", "等待手动启动"],
-    };
-  }
-  if (status.runner.state === "recovering") {
-    return {
-      label: "SSH 已连接",
-      message: status.runner.message || "远程服务正在恢复...",
-      dotClass: "animate-pulse bg-blue-500",
-      toneClass: "text-blue-700",
-      stages: ["SSH 已连接", "远程服务正在恢复", "正在重建安全通道"],
-    };
-  }
-  const failed = isRunnerRepairRequired(status);
-  return {
-    label: failed ? "远程服务需要修复" : "SSH 已连接",
-    message: status.runner.message || "",
-    dotClass: failed ? "bg-amber-500" : "animate-pulse bg-blue-500",
-    toneClass: failed ? "text-amber-700" : "text-blue-700",
-    stages: failed
-      ? ["SSH 已连接", "远程服务需要修复", status.runner.reasonCode || "请查看详情"]
-      : ["SSH 已连接", "正在检查远程服务", "正在同步环境", "正在启动远程服务", "正在打开安全通道"],
-  };
-}
-
-function formatRunnerPort(value: number | undefined): string {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? String(value) : "未记录";
-}
 
 function formatConnectedHost(status: SSHStatus | null): string {
   if (!status?.connected) {
@@ -126,59 +53,11 @@ export function RemoteStatusBar({
   onEnsureRunner: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const [portsLoading, setPortsLoading] = useState(false);
-  const [portsOutput, setPortsOutput] = useState("");
-  const [portsError, setPortsError] = useState("");
-  const [stopLoading, setStopLoading] = useState(false);
-  const [stopOutput, setStopOutput] = useState("");
-  const [stopError, setStopError] = useState("");
   const remote = resolveRemoteStatus(status);
   const connectedHost = formatConnectedHost(status);
-  const runner = status?.runner;
   const connectedTone = Boolean(status?.connected && remote.toneClass === "text-blue-700");
   const remotePreparing = Boolean(status?.connected && (!status.runner || isRunnerPreparing(status)));
   const remoteBusy = connectBusy || ensureRunnerBusy || remotePreparing;
-  const canEnsureRunner = Boolean(status?.connected && !status.runner?.ready);
-  const canStopRunner = Boolean(status?.connected && status.serverId && runner && !isRunnerManuallyStopped(status));
-  const loadListeningPorts = async () => {
-    if (!status?.connected || portsLoading) {
-      return;
-    }
-    setPortsLoading(true);
-    setPortsError("");
-    try {
-      const payload = await requestLocalApiJson("GET", "/api/v1/ssh/listening-ports", { cache: "no-store" });
-      const output = String(payload?.data?.output || "").trim();
-      setPortsOutput(output || "远端没有返回监听端口信息。");
-    } catch (error) {
-      setPortsError(normalizeFetchError(error));
-    } finally {
-      setPortsLoading(false);
-    }
-  };
-  const stopRemoteService = async () => {
-    if (!status?.connected || stopLoading) {
-      return;
-    }
-    setStopLoading(true);
-    setStopError("");
-    setStopOutput("");
-    try {
-      const serverId = status.serverId || "";
-      if (!serverId) {
-        setStopError("serverId is required");
-        return;
-      }
-      const payload = await requestLocalApiJson("POST", `/api/v1/servers/${encodeURIComponent(serverId)}/runner/stop`);
-      const output = String(payload?.data?.output || "").trim();
-      setStopOutput(output || "远程服务停止命令已执行。");
-      await onRefreshStatus();
-    } catch (error) {
-      setStopError(normalizeFetchError(error));
-    } finally {
-      setStopLoading(false);
-    }
-  };
 
   return (
     <div className="relative border-t border-slate-200 bg-[#f7f7f5] text-slate-700">
@@ -188,99 +67,14 @@ export function RemoteStatusBar({
         </div>
       ) : null}
       {expanded ? (
-        <div className="absolute bottom-full left-2 z-30 mb-1 w-[340px] rounded-md border border-slate-200 bg-white p-2 shadow-xl shadow-slate-900/10">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-[11px] font-semibold text-slate-900">{remote.label}</p>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label="关闭远程状态详情"
-              onClick={() => setExpanded(false)}
-              className="size-6 text-slate-400 hover:text-slate-700"
-            >
-              <X />
-            </Button>
-          </div>
-          <p className="mt-1 truncate text-[11px] text-slate-500">{remote.message}</p>
-          <div className="mt-2 space-y-1">
-            {remote.stages.map((stage) => (
-              <div key={stage} className="flex items-center gap-2 text-[11px] text-slate-600">
-                <span className="h-1 w-1 rounded-full bg-slate-300" />
-                <span>{stage}</span>
-              </div>
-            ))}
-          </div>
-          {runner ? (
-            <div className="mt-2 border-t border-slate-100 pt-2">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-[10px] font-semibold text-slate-400">远端服务端口</p>
-                {canEnsureRunner ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    disabled={ensureRunnerBusy}
-                    onClick={onEnsureRunner}
-                    className="h-6 px-2 text-[11px] text-slate-600"
-                  >
-                    <RefreshCw className={cn("mr-1 size-3", ensureRunnerBusy ? "animate-spin" : "")} />
-                    {runnerEnsureActionLabel(status, ensureRunnerBusy)}
-                  </Button>
-                ) : null}
-              </div>
-              <div className="mt-2 flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={!canStopRunner || stopLoading}
-                  onClick={stopRemoteService}
-                  className="h-7 px-2 text-[11px] text-red-700 hover:text-red-700"
-                >
-                  <Square className={cn("mr-1 size-3", stopLoading ? "animate-pulse" : "")} />
-                  {stopLoading ? "停止中" : "停止远程服务"}
-                </Button>
-              </div>
-              {stopError ? <p className="mt-1 text-[11px] text-red-600">{stopError}</p> : null}
-              {stopOutput ? <p className="mt-1 whitespace-pre-wrap text-[10px] text-slate-500">{stopOutput}</p> : null}
-              <div className="mt-1 grid grid-cols-2 gap-2 text-[11px]">
-                <div className="rounded border border-slate-100 bg-slate-50 px-2 py-1">
-                  <p className="text-[10px] text-slate-400">远端服务</p>
-                  <p className="font-mono text-slate-700">{formatRunnerPort(runner.servicePort)}</p>
-                </div>
-                <div className="rounded border border-slate-100 bg-slate-50 px-2 py-1">
-                  <p className="text-[10px] text-slate-400">本地隧道</p>
-                  <p className="font-mono text-slate-700">{formatRunnerPort(runner.tunnelPort)}</p>
-                </div>
-              </div>
-            </div>
-          ) : null}
-          <div className="mt-2 border-t border-slate-100 pt-2">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-[10px] font-semibold text-slate-400">远端监听端口</p>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={!status?.connected || portsLoading}
-                onClick={loadListeningPorts}
-                className="h-6 px-2 text-[11px] text-slate-600"
-              >
-                <RefreshCw className={cn("mr-1 size-3", portsLoading ? "animate-spin" : "")} />
-                {portsLoading ? "读取中" : "刷新"}
-              </Button>
-            </div>
-            {portsError ? <p className="mt-1 text-[11px] text-red-600">{portsError}</p> : null}
-            {portsOutput ? (
-              <pre className="mt-2 max-h-48 overflow-auto rounded border border-slate-100 bg-slate-950 px-2 py-2 font-mono text-[10px] leading-relaxed text-slate-100">
-                {portsOutput}
-              </pre>
-            ) : (
-              <p className="mt-1 text-[11px] text-slate-400">点击刷新查看远端正在监听的端口和进程。</p>
-            )}
-          </div>
-        </div>
+        <RunnerRepairPanel
+          status={status}
+          ensureRunnerBusy={ensureRunnerBusy}
+          onEnsureRunner={onEnsureRunner}
+          onRefreshStatus={onRefreshStatus}
+          onClose={() => setExpanded(false)}
+          className="absolute bottom-full left-2 z-30 mb-1 w-[360px]"
+        />
       ) : null}
       <div className="flex h-6 items-center gap-0 px-1 text-sm leading-none">
         <Button
