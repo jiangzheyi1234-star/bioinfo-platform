@@ -129,6 +129,14 @@ class FakeSshService:
                 "LoadState=loaded\nActiveState=active\nSubState=running\nUnitFileState=enabled\nNeedDaemonReload=no\n",
                 "",
             )
+        if "loginctl show-user" in cmd:
+            return 0, "yes\n", ""
+        if "journalctl --user" in cmd:
+            return (
+                0,
+                "2026-06-30T00:00:00Z runner started\n2026-06-30T00:00:01Z token: hidden-value\n",
+                "",
+            )
         if "tail -n" in cmd:
             return (
                 0,
@@ -159,11 +167,17 @@ def test_lifecycle_diagnostics_collects_remote_agent_state_without_raw_paths() -
     assert diagnostics["artifactMarker"]["sha256"] == "a" * 64
     assert diagnostics["runtimeState"]["bindPort"] == 43127
     assert diagnostics["systemdUserService"]["properties"]["ActiveState"] == "active"
+    assert diagnostics["systemdUserService"]["linger"]["enabled"] is True
+    assert any(
+        "token:***REDACTED***" in line
+        for line in diagnostics["systemdUserService"]["journalTail"]["tail"]
+    )
+    assert "hidden-value" not in json.dumps(diagnostics)
     assert "Authorization:***REDACTED***" in diagnostics["runnerLogTail"]["tail"]
     assert "api_key=***REDACTED***" in diagnostics["runnerLogTail"]["tail"]
     assert "/home/tester" not in json.dumps(diagnostics)
     assert diagnostics["redactionPolicy"]["rawPathsExposed"] is False
-    assert len(ssh.commands) == 5
+    assert len(ssh.commands) == 7
 
 
 def test_operator_diagnostics_summary_includes_lifecycle_reason_codes() -> None:

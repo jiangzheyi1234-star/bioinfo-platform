@@ -3,6 +3,42 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from config import normalize_ssh_config
+
+
+def compose_ssh_status(
+    *,
+    ssh_config: dict[str, Any],
+    connected: bool,
+    connect_in_progress: bool,
+    auto_connect_attempted: bool,
+    auto_connect_in_progress: bool,
+    auto_connect_failed: bool,
+    auto_connect_error: str,
+) -> dict[str, Any]:
+    cfg = normalize_ssh_config(ssh_config)
+    auth_mode = str(cfg.get("auth_mode", "password_ref") or "password_ref")
+    connecting = connect_in_progress or auto_connect_in_progress
+    return {
+        "connected": connected,
+        "host": cfg.get("host", ""),
+        "port": cfg.get("port", 22),
+        "user": cfg.get("user", ""),
+        "auth_mode": auth_mode,
+        "ssh_host_alias": cfg.get("ssh_host_alias", ""),
+        "identity_ref": str(cfg.get("identity_ref", "") or "").strip(),
+        "remember_auth": bool(cfg.get("remember_auth", True)),
+        "has_password": bool(cfg.get("password_ref")),
+        "timeout_sec": cfg.get("timeout_sec", 5),
+        "auto_connect_on_startup": bool(cfg.get("auto_connect_on_startup", False)),
+        "auto_connect_attempted": auto_connect_attempted,
+        "auto_connect_in_progress": auto_connect_in_progress,
+        "auto_connect_failed": auto_connect_failed,
+        "auto_connect_error": auto_connect_error,
+        "connecting": connect_in_progress,
+        "message": "SSH connecting" if connecting else ("SSH connected" if connected else "SSH disconnected"),
+    }
+
 
 def build_primary_server_identity(*, ssh_status: dict[str, Any]) -> dict[str, Any] | None:
     host = str(ssh_status.get("host", "") or "").strip()

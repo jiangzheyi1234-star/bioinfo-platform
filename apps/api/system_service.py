@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from core.app_runtime.runner_stop_state import MANUAL_RUNNER_STOP_REASON
 from core.deployment_mode import (
     build_production_governance_readiness,
     require_supported_deployment_mode,
@@ -92,6 +93,14 @@ def _collect_runtime_snapshot() -> dict[str, Any]:
         server_id = str(ssh_status.get("serverId") or "").strip()
         counts["remoteRunnerConnected"] = connected
         counts["activeSshSessions"] = 1 if ssh_status.get("connected") else 0
+        runner_status = ssh_status.get("runner") if isinstance(ssh_status.get("runner"), dict) else {}
+        if connected and str(runner_status.get("reasonCode") or "") == MANUAL_RUNNER_STOP_REASON:
+            execution_readiness = _execution_unavailable(
+                connected=True,
+                server_id=server_id,
+                reason_code=MANUAL_RUNNER_STOP_REASON,
+            )
+            return {"stateCounts": counts, "executionReadiness": execution_readiness}
         if connected:
             execution_readiness = _collect_execution_readiness_projection(service, server_id=server_id)
             _add_execution_state_counts(counts, execution_readiness)

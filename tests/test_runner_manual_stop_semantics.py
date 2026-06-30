@@ -99,6 +99,69 @@ def test_explicit_ensure_runner_rejects_manually_stopped_runner(monkeypatch, tmp
     assert raised.value.detail["nextAction"] == "START_RUNNER"
 
 
+def test_existing_runner_diagnostics_rejects_manually_stopped_runner(monkeypatch, tmp_path) -> None:
+    server_id, cfg = _stopped_runner_config()
+    service = RuntimeService(service_locator=ServiceLocator())
+    service._initialized = True
+    service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)
+
+    class FailIfCalledRemoteRunnerManager:
+        def get_execution_diagnostics(self, **_kwargs):
+            raise AssertionError("manual stop diagnostics should not touch the remote runner")
+
+    service._service_locator.remote_runner_manager = FailIfCalledRemoteRunnerManager()
+    monkeypatch.setattr("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg)
+
+    with pytest.raises(RuntimeServiceError) as raised:
+        service.get_runner_execution_diagnostics(server_id)
+
+    assert raised.value.status_code == 409
+    assert raised.value.detail["reasonCode"] == "RUNNER_STOPPED"
+    assert raised.value.detail["nextAction"] == "START_RUNNER"
+
+
+def test_upgrade_runner_rejects_manually_stopped_runner(monkeypatch, tmp_path) -> None:
+    server_id, cfg = _stopped_runner_config()
+    service = RuntimeService(service_locator=ServiceLocator())
+    service._initialized = True
+    service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)
+
+    class FailIfCalledRemoteRunnerManager:
+        def bootstrap(self, **_kwargs):
+            raise AssertionError("manual stop upgrade should not bootstrap")
+
+    service._service_locator.remote_runner_manager = FailIfCalledRemoteRunnerManager()
+    monkeypatch.setattr("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg)
+
+    with pytest.raises(RuntimeServiceError) as raised:
+        service.upgrade_remote_runner(server_id)
+
+    assert raised.value.status_code == 409
+    assert raised.value.detail["reasonCode"] == "RUNNER_STOPPED"
+    assert raised.value.detail["nextAction"] == "START_RUNNER"
+
+
+def test_rotate_runner_token_rejects_manually_stopped_runner(monkeypatch, tmp_path) -> None:
+    server_id, cfg = _stopped_runner_config()
+    service = RuntimeService(service_locator=ServiceLocator())
+    service._initialized = True
+    service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)
+
+    class FailIfCalledRemoteRunnerManager:
+        def rotate_token(self, **_kwargs):
+            raise AssertionError("manual stop token rotation should not restart the runner")
+
+    service._service_locator.remote_runner_manager = FailIfCalledRemoteRunnerManager()
+    monkeypatch.setattr("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg)
+
+    with pytest.raises(RuntimeServiceError) as raised:
+        service.rotate_server_token(server_id)
+
+    assert raised.value.status_code == 409
+    assert raised.value.detail["reasonCode"] == "RUNNER_STOPPED"
+    assert raised.value.detail["nextAction"] == "START_RUNNER"
+
+
 def test_explicit_start_runner_starts_manually_stopped_runner(monkeypatch, tmp_path) -> None:
     server_id, cfg = _stopped_runner_config()
     service = RuntimeService(service_locator=ServiceLocator())

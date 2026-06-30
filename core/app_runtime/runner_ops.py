@@ -8,6 +8,7 @@ from core.app_runtime.runner_database_ops import RunnerDatabaseOperationsMixin
 from core.app_runtime.runner_execution_ops import RunnerExecutionOperationsMixin
 from core.app_runtime.runner_file_ops import RunnerFileOperationsMixin
 from core.app_runtime.runner_pipeline_ops import RunnerPipelineOperationsMixin
+from core.app_runtime.runner_stop_state import raise_if_runner_manually_stopped
 from core.app_runtime.runner_tool_ops import RunnerToolOperationsMixin
 from core.app_runtime.runner_workflow_design_ops import RunnerWorkflowDesignOperationsMixin
 from core.app_runtime.remote_runner_call import call_remote_runner
@@ -156,6 +157,7 @@ class RunnerOperationsMixin(
         if not bool(server.get("connected")):
             raise RuntimeServiceError("SSH is not connected")
         record = self._get_server_registry_entry(server_id)
+        raise_if_runner_manually_stopped(server_id=server_id, record=record)
         if not record.get("bootstrap_version"):
             raise RuntimeServiceError("Remote runner is not prepared")
         ssh = self._ensure_ssh_connected()

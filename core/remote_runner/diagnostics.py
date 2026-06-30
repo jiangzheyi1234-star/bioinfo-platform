@@ -8,7 +8,10 @@ import time
 from typing import Any, Protocol
 
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
-from core.remote_runner.layout import remote_runner_bootstrap_layout
+from core.remote_runner.layout import (
+    REMOTE_RUNNER_SERVICE_NAME,
+    remote_runner_bootstrap_layout,
+)
 
 
 class RemoteRunnerDiagnosticClient(Protocol):
@@ -58,7 +61,10 @@ def build_remote_runner_lifecycle_diagnostics(
     current = _inspect_current_release(ssh_service, paths.current, paths.release)
     artifact = _inspect_artifact_marker(ssh_service, f"{paths.current}/artifact.sha256")
     runtime_state = _inspect_runtime_state(ssh_service, paths.runtime_state)
-    systemd = _inspect_systemd_user_service(ssh_service)
+    systemd = _inspect_systemd_user_service(
+        ssh_service,
+        line_count=max(1, min(int(log_tail_lines or 80), 200)),
+    )
     log_tail = _inspect_runner_log_tail(
         ssh_service,
         paths.log,
@@ -260,11 +266,15 @@ def _inspect_runtime_state(ssh_service, runtime_state_path: str) -> dict[str, An
     }
 
 
-def _inspect_systemd_user_service(ssh_service) -> dict[str, Any]:
+def _inspect_systemd_user_service(
+    ssh_service,
+    *,
+    line_count: int,
+) -> dict[str, Any]:
     command = (
         "if command -v systemctl >/dev/null 2>&1 "
         "&& systemctl --user show-environment >/dev/null 2>&1; then "
-        "systemctl --user show h2ometa-remote.service "
+        f"systemctl --user show {shlex.quote(REMOTE_RUNNER_SERVICE_NAME)} "
         "--property=LoadState,ActiveState,SubState,UnitFileState,NeedDaemonReload "
         "--no-pager; else echo SYSTEMD_USER_UNAVAILABLE; fi"
     )
@@ -274,6 +284,55 @@ def _inspect_systemd_user_service(ssh_service) -> dict[str, Any]:
     return {
         "available": available and probe["exitCode"] == 0,
         "properties": properties if available else {},
+        "linger": _inspect_systemd_linger_status(ssh_service),
+        "journalTail": _inspect_systemd_journal_tail(
+            ssh_service,
+            line_count=line_count,
+        ),
+        "probe": _probe_public(probe),
+    }
+
+
+def _inspect_systemd_linger_status(ssh_service) -> dict[str, Any]:
+    command = (
+        "if command -v loginctl >/dev/null 2>&1; then "
+        "user=$(id -un 2>/dev/null || printf '%s' \"$USER\"); "
+        "loginctl show-user \"$user\" -p Linger --value 2>/dev/null || exit $?; "
+        "else echo LOGINCTL_UNAVAILABLE; fi"
+    )
+    probe = _run_remote_probe(ssh_service, command)
+    value = probe["stdout"].strip().splitlines()[0] if probe["stdout"].strip() else ""
+    unavailable = value == "LOGINCTL_UNAVAILABLE"
+    normalized = value.lower()
+    return {
+        "available": not unavailable and probe["exitCode"] == 0,
+        "enabled": normalized == "yes",
+        "value": value if not unavailable else "",
+        "probe": _probe_public(probe),
+    }
+
+
+def _inspect_systemd_journal_tail(
+    ssh_service,
+    *,
+    line_count: int,
+) -> dict[str, Any]:
+    command = (
+        "if command -v journalctl >/dev/null 2>&1; then "
+        "journalctl --user "
+        f"-u {shlex.quote(REMOTE_RUNNER_SERVICE_NAME)} "
+        f"-n {int(line_count)} --no-pager --output=short-iso 2>/dev/null || exit $?; "
+        "else echo JOURNALCTL_UNAVAILABLE; fi"
+    )
+    probe = _run_remote_probe(ssh_service, command)
+    unavailable = "JOURNALCTL_UNAVAILABLE" in probe["stdout"]
+    lines = []
+    if probe["exitCode"] == 0 and not unavailable:
+        lines = [_redact_log_line(line) for line in probe["stdout"].splitlines()]
+    return {
+        "available": not unavailable and probe["exitCode"] == 0,
+        "lineCount": len(lines),
+        "tail": lines[-line_count:],
         "probe": _probe_public(probe),
     }
 

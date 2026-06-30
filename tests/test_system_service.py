@@ -202,6 +202,52 @@ def test_service_info_execution_diagnostics_failure_is_stable_and_redacted(monke
     assert "/home/lab" not in serialized
 
 
+def test_service_info_preserves_manual_runner_stop_without_diagnostics(monkeypatch) -> None:
+    monkeypatch.setenv("H2OMETA_DEPLOYMENT_MODE", "desktop")
+
+    class Runtime:
+        def get_ssh_status(self):
+            return {
+                "connected": True,
+                "serverId": "srv_stopped",
+                "runner": {
+                    "state": "stopped",
+                    "ready": False,
+                    "reasonCode": "RUNNER_STOPPED",
+                },
+            }
+
+        def get_runner_execution_diagnostics(self, _server_id):
+            raise AssertionError("service-info should not touch diagnostics after manual stop")
+
+    monkeypatch.setattr("apps.api.route_utils.runtime_service", lambda: Runtime())
+
+    payload = asyncio.run(system_service.service_info_from_request())
+
+    item = payload["item"]
+    assert item["readiness"]["status"] == "degraded"
+    assert item["readiness"]["checks"]["remoteRunner"] is True
+    assert item["readiness"]["checks"]["executionDiagnostics"] is False
+    assert item["executionReadiness"] == {
+        "schemaVersion": "local-execution-readiness-projection.v1",
+        "connected": True,
+        "diagnosticsAvailable": False,
+        "ready": False,
+        "status": "unavailable",
+        "reasonCode": "RUNNER_STOPPED",
+        "serverId": "srv_stopped",
+        "generatedAt": "",
+        "queue": {},
+        "workers": {},
+        "checks": {},
+    }
+    assert item["stateCounts"] == {
+        "localApiProcesses": 1,
+        "remoteRunnerConnected": True,
+        "activeSshSessions": 1,
+    }
+
+
 def test_service_info_production_governance_is_redacted(monkeypatch) -> None:
     monkeypatch.setenv("H2OMETA_DEPLOYMENT_MODE", "server-single-user")
     monkeypatch.setenv("H2OMETA_RUNNER_TOKEN", "runner-secret-value")

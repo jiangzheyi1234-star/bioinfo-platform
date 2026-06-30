@@ -5,7 +5,6 @@ import threading
 import time
 from typing import Any, Optional
 
-from config import normalize_ssh_config
 from core.app_runtime import runtime_config
 from core.app_runtime.errors import RuntimeServiceError
 from core.app_runtime.server_health import (
@@ -14,6 +13,7 @@ from core.app_runtime.server_health import (
 from core.app_runtime import runner_stop_state
 from core.app_runtime.server_payloads import (
     build_primary_server_identity,
+    compose_ssh_status,
     compose_runner_payload,
     compose_server_payload,
     get_saved_readiness_snapshot,
@@ -27,6 +27,7 @@ class RuntimeServerStateMixin:
     _build_runner_ensure_failure_snapshot = staticmethod(build_runner_ensure_failure_snapshot)
     _build_primary_server_identity = staticmethod(build_primary_server_identity)
     _get_saved_readiness_snapshot = staticmethod(get_saved_readiness_snapshot)
+    _compose_ssh_status = staticmethod(compose_ssh_status)
     _compose_server_payload = staticmethod(compose_server_payload)
     _compose_runner_payload = staticmethod(compose_runner_payload)
 
@@ -329,28 +330,15 @@ class RuntimeServerStateMixin:
     def _get_ssh_status_unlocked(self) -> dict[str, Any]:
         ssh = self._service_locator.ssh_service
         connected = ssh is not None and getattr(ssh, "is_connected", False)
-        cfg = normalize_ssh_config(runtime_config.get_runtime_config().get("ssh", {}))
-        auth_mode = str(cfg.get("auth_mode", "password_ref") or "password_ref")
-        identity_ref = str(cfg.get("identity_ref", "") or "").strip()
-        status = {
-            "connected": connected,
-            "host": cfg.get("host", ""),
-            "port": cfg.get("port", 22),
-            "user": cfg.get("user", ""),
-            "auth_mode": auth_mode,
-            "ssh_host_alias": cfg.get("ssh_host_alias", ""),
-            "identity_ref": identity_ref,
-            "remember_auth": bool(cfg.get("remember_auth", True)),
-            "has_password": bool(cfg.get("password_ref")),
-            "timeout_sec": cfg.get("timeout_sec", 5),
-            "auto_connect_on_startup": bool(cfg.get("auto_connect_on_startup", False)),
-            "auto_connect_attempted": self._auto_connect_attempted,
-            "auto_connect_in_progress": self._auto_connect_in_progress,
-            "auto_connect_failed": self._auto_connect_failed,
-            "auto_connect_error": self._auto_connect_error,
-            "connecting": self._connect_in_progress,
-            "message": "SSH connecting" if self._connect_in_progress or self._auto_connect_in_progress else ("SSH connected" if connected else "SSH disconnected"),
-        }
+        status = self._compose_ssh_status(
+            ssh_config=runtime_config.get_runtime_config().get("ssh", {}),
+            connected=connected,
+            connect_in_progress=self._connect_in_progress,
+            auto_connect_attempted=self._auto_connect_attempted,
+            auto_connect_in_progress=self._auto_connect_in_progress,
+            auto_connect_failed=self._auto_connect_failed,
+            auto_connect_error=self._auto_connect_error,
+        )
         server = self._build_primary_server_identity(ssh_status=status)
         if server is not None:
             status["serverId"] = server["serverId"]

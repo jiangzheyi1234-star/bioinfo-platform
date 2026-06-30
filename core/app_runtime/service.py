@@ -211,7 +211,7 @@ class RuntimeService(
             ssh = self._ensure_ssh_connected()
             manager = self._service_locator.remote_runner_manager
             server_record = self._get_server_registry_entry(server_id)
-            if action == "ensure":
+            if action != "start":
                 raise_if_runner_manually_stopped(server_id=server_id, record=server_record)
             if action == "upgrade" and not server_record.get("bootstrap_version"):
                 raise RuntimeServiceError(
@@ -522,6 +522,7 @@ class RuntimeService(
             if server is None or server["serverId"] != server_id:
                 raise RuntimeServiceError(f"Server not found: {server_id}")
             record = self._get_server_registry_entry(server_id)
+            raise_if_runner_manually_stopped(server_id=server_id, record=record)
             if record.get("bootstrap_version"):
                 ssh = self._ensure_ssh_connected()
                 manager = self._service_locator.remote_runner_manager
