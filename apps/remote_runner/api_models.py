@@ -142,6 +142,20 @@ class RunResumeRequest(RemoteRunnerRequest):
     reason: str | None = None
 
 
+ExecutionLifecycleAction = Literal["ensure", "upgrade", "stop", "prune", "uninstall"]
+
+
+class ExecutionLifecycleGuardRequest(RemoteRunnerRequest):
+    action: ExecutionLifecycleAction
+    owner: str = Field(min_length=1, max_length=128)
+    ttlSeconds: int = Field(default=600, ge=30, le=3600)
+
+
+class ExecutionLifecycleGuardReleaseRequest(RemoteRunnerRequest):
+    action: ExecutionLifecycleAction
+    owner: str = Field(min_length=1, max_length=128)
+
+
 class ResultPackageExportRequest(RemoteRunnerRequest):
     includeArtifacts: StrictBool
     actor: str | None = None

@@ -36,6 +36,7 @@ def _tracked_policy_sources() -> list[Path]:
             ROOT / "apps" / "remote_runner" / "rule_cache_restore_adoption_service.py",
             ROOT / "apps" / "remote_runner" / "rule_staged_restore_promotion_service.py",
             ROOT / "apps" / "remote_runner" / "execution_observability_governance.py",
+            ROOT / "apps" / "remote_runner" / "execution_lifecycle_service.py",
             ROOT / "apps" / "remote_runner" / "secret_service.py",
             ROOT / "apps" / "remote_runner" / "submission_service.py",
             ROOT / "apps" / "remote_runner" / "tool_service.py",

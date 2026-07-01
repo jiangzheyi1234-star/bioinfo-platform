@@ -8,12 +8,21 @@ from core.app_runtime.errors import RuntimeServiceError
 from core.app_runtime.managers.base import BaseRuntimeManager
 from core.app_runtime.remote_runner_stop import STOP_REMOTE_RUNNER_COMMAND
 from core.app_runtime.runner_stop_state import build_manual_runner_stop_intent
-from core.remote_runner.release_prune import summarize_execution_activity
+from core.remote_runner.lifecycle_guard_owner import execution_lifecycle_guard_owner
 
 
 RUNNER_STOP_ACTIVE_LEASES_REASON = "RUNNER_STOP_ACTIVE_LEASES"
 RUNNER_STOP_BLOCKED_REASON = "RUNNER_STOP_BLOCKED"
 RUNNER_STOP_DIAGNOSTICS_UNAVAILABLE_REASON = "RUNNER_STOP_DIAGNOSTICS_UNAVAILABLE"
+EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION = "h2ometa.execution-lifecycle-guard.v1"
+_ACTIVITY_COUNT_KEYS = (
+    "activeLeaseCount",
+    "allocatedResourceCount",
+    "resourceWaitCount",
+    "queuedJobCount",
+    "claimedJobCount",
+    "runningSlotCount",
+)
 
 
 class RunnerManager(BaseRuntimeManager):
@@ -97,14 +106,26 @@ class RunnerManager(BaseRuntimeManager):
         record: dict[str, Any],
     ) -> None:
         try:
-            diagnostics = self._service._call_remote_runner(
-                manager.get_execution_diagnostics,
+            guard = self._service._call_remote_runner(
+                manager.request_execution_lifecycle_guard,
                 server_id=server_id,
                 ssh_service=ssh,
                 server_record=record,
+                action="stop",
+                owner=execution_lifecycle_guard_owner(server_id=server_id, action="stop"),
+                ttl_seconds=600,
+                timeout=30,
             )
-            activity = summarize_execution_activity(diagnostics, make_error=RuntimeServiceError)
+            activity = _activity_from_lifecycle_guard_payload(guard)
         except RuntimeServiceError as exc:
+            if exc.status_code == 409 and isinstance(exc.detail, dict) and exc.detail.get("schemaVersion") == EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION:
+                activity = _activity_from_lifecycle_guard_payload(exc.detail)
+                block_reasons = [str(item) for item in activity["blockReasons"]]
+                raise _runner_stop_blocked_error(
+                    server_id=server_id,
+                    activity=activity,
+                    block_reasons=block_reasons,
+                ) from exc
             raise RuntimeServiceError(
                 "remote runner stop guard failed because execution diagnostics are unavailable",
                 status_code=409,
@@ -117,20 +138,10 @@ class RunnerManager(BaseRuntimeManager):
         block_reasons = [str(item) for item in activity["blockReasons"]]
         if not block_reasons:
             return
-        raise RuntimeServiceError(
-            "remote runner stop blocked because runner execution state is not idle",
-            status_code=409,
-            detail={
-                "reasonCode": _stop_block_reason_code(block_reasons),
-                "serverId": server_id,
-                "blockReasons": block_reasons,
-                "activeLeaseCount": activity["activeLeaseCount"],
-                "allocatedResourceCount": activity["allocatedResourceCount"],
-                "resourceWaitCount": activity["resourceWaitCount"],
-                "claimedJobCount": activity["claimedJobCount"],
-                "runningSlotCount": activity["runningSlotCount"],
-                "nextAction": "WAIT_FOR_RUNS_OR_CANCEL_BEFORE_STOP",
-            },
+        raise _runner_stop_blocked_error(
+            server_id=server_id,
+            activity=activity,
+            block_reasons=block_reasons,
         )
 
 
@@ -138,3 +149,54 @@ def _stop_block_reason_code(block_reasons: list[str]) -> str:
     if "active-workflow-leases" in block_reasons:
         return RUNNER_STOP_ACTIVE_LEASES_REASON
     return RUNNER_STOP_BLOCKED_REASON
+
+
+def _runner_stop_blocked_error(
+    *,
+    server_id: str,
+    activity: dict[str, Any],
+    block_reasons: list[str],
+) -> RuntimeServiceError:
+    return RuntimeServiceError(
+        "remote runner stop blocked because runner execution state is not idle",
+        status_code=409,
+        detail={
+            "reasonCode": _stop_block_reason_code(block_reasons),
+            "serverId": server_id,
+            "blockReasons": block_reasons,
+            "activeLeaseCount": activity["activeLeaseCount"],
+            "allocatedResourceCount": activity["allocatedResourceCount"],
+            "resourceWaitCount": activity["resourceWaitCount"],
+            "queuedJobCount": activity["queuedJobCount"],
+            "claimedJobCount": activity["claimedJobCount"],
+            "runningSlotCount": activity["runningSlotCount"],
+            "nextAction": "WAIT_FOR_RUNS_OR_CANCEL_BEFORE_STOP",
+        },
+    )
+
+
+def _activity_from_lifecycle_guard_payload(value: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(value, dict) or value.get("schemaVersion") != EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION:
+        raise RuntimeServiceError("remote runner execution lifecycle guard response is invalid")
+    block_reasons = value.get("blockReasons")
+    if not isinstance(block_reasons, list):
+        raise RuntimeServiceError("remote runner execution lifecycle guard blockReasons is not a list")
+    for key in _ACTIVITY_COUNT_KEYS:
+        if key not in value:
+            raise RuntimeServiceError(f"remote runner execution lifecycle guard {key} is missing")
+    return {
+        "activeLeaseCount": _non_negative_int(value.get("activeLeaseCount")),
+        "allocatedResourceCount": _non_negative_int(value.get("allocatedResourceCount")),
+        "resourceWaitCount": _non_negative_int(value.get("resourceWaitCount")),
+        "queuedJobCount": _non_negative_int(value.get("queuedJobCount")),
+        "claimedJobCount": _non_negative_int(value.get("claimedJobCount")),
+        "runningSlotCount": _non_negative_int(value.get("runningSlotCount")),
+        "blockReasons": [str(item) for item in block_reasons],
+    }
+
+
+def _non_negative_int(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0

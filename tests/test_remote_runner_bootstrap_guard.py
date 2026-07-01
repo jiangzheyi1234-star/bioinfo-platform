@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from core.contracts.execution_activity import summarize_execution_activity
 from core.remote_runner.bootstrap_guard import (
     BOOTSTRAP_DIAGNOSTICS_UNAVAILABLE_REASON,
     UPGRADE_ACTIVE_LEASES_REASON,
@@ -25,6 +26,31 @@ class GuardHarness(RemoteRunnerBootstrapGuardMixin):
         if isinstance(self.diagnostics, Exception):
             raise self.diagnostics
         return self.diagnostics
+
+    def request_execution_lifecycle_guard(self, **kwargs):
+        self.calls += 1
+        if isinstance(self.diagnostics, Exception):
+            raise self.diagnostics
+        try:
+            activity = summarize_execution_activity(
+                self.diagnostics,
+                make_error=RemoteRunnerManagerError,
+                require_diagnostics_ok=False,
+            )
+        except RemoteRunnerManagerError:
+            return {"schemaVersion": "h2ometa.execution-lifecycle-guard.v1", "blockReasons": []}
+        payload = _lifecycle_guard_payload(
+            activity,
+            action=str(kwargs["action"]),
+            owner=str(kwargs["owner"]),
+        )
+        if payload["blockReasons"]:
+            raise RemoteRunnerManagerError(
+                "remote runner execution lifecycle guard blocked",
+                status_code=409,
+                detail=payload,
+            )
+        return payload
 
 
 def test_bootstrap_guard_blocks_active_leases_before_destructive_upgrade() -> None:
@@ -96,10 +122,15 @@ def test_bootstrap_guard_allows_idle_prepared_runner_before_upgrade() -> None:
         "activeLeaseCount": 0,
         "allocatedResourceCount": 0,
         "resourceWaitCount": 0,
+        "queuedJobCount": 0,
         "claimedJobCount": 0,
         "runningSlotCount": 0,
         "blockReasons": [],
         "protectedLeases": [],
+        "maintenanceOwner": "srv_test:upgrade:lifecycle",
+        "maintenanceRequestedAt": "2099-06-07T10:00:00Z",
+        "maintenanceExpiresAt": "2099-06-07T10:10:00Z",
+        "drainRequestedWorkerCount": 1,
     }
 
 
@@ -130,7 +161,7 @@ def test_bootstrap_guard_blocks_upgrade_when_execution_state_is_not_idle() -> No
     assert raised.value.detail["claimedJobCount"] == 2
     assert raised.value.detail["runningSlotCount"] == 1
     assert set(raised.value.detail["blockReasons"]) == {
-        "execution-diagnostics-not-ok",
+        "execution-invariants-not-ok",
         "allocated-resources",
         "queued-resource-waits",
         "claimed-jobs",
@@ -161,7 +192,7 @@ def test_bootstrap_guard_blocks_prepared_repair_when_diagnostics_are_unavailable
     assert metadata["upgradeGuard"] == {
         "schemaVersion": "h2ometa.remote-runner-upgrade-guard.v1",
         "checked": False,
-        "reason": "execution-diagnostics-unavailable",
+        "reason": "execution-lifecycle-guard-unavailable",
         "message": "runner not reachable",
     }
 
@@ -216,7 +247,7 @@ def test_bootstrap_guard_blocks_upgrade_when_diagnostics_are_unavailable() -> No
     assert metadata["upgradeGuard"] == {
         "schemaVersion": "h2ometa.remote-runner-upgrade-guard.v1",
         "checked": False,
-        "reason": "execution-diagnostics-unavailable",
+        "reason": "execution-lifecycle-guard-unavailable",
         "message": "runner not reachable",
     }
 
@@ -280,7 +311,32 @@ def _diagnostics(
             "workers": [],
         },
         "queueMetrics": {
+            "queuedJobs": 0,
             "claimedJobs": claimed_jobs,
             "resourceWaitJobs": len(resource_waits or []),
         },
+        "invariants": {"ok": ok, "failures": []},
+    }
+
+
+def _lifecycle_guard_payload(activity: dict[str, object], *, action: str, owner: str) -> dict[str, object]:
+    block_reasons = list(activity["blockReasons"])
+    return {
+        "schemaVersion": "h2ometa.execution-lifecycle-guard.v1",
+        "action": action,
+        "owner": owner,
+        "idle": not block_reasons,
+        "maintenanceActive": True,
+        "requestedAt": "2099-06-07T10:00:00Z",
+        "expiresAt": "2099-06-07T10:10:00Z",
+        "activeWorkerCount": 1,
+        "drainRequestedWorkerCount": 1,
+        "activeLeaseCount": activity["activeLeaseCount"],
+        "allocatedResourceCount": activity["allocatedResourceCount"],
+        "resourceWaitCount": activity["resourceWaitCount"],
+        "queuedJobCount": activity["queuedJobCount"],
+        "claimedJobCount": activity["claimedJobCount"],
+        "runningSlotCount": activity["runningSlotCount"],
+        "blockReasons": block_reasons,
+        "activeLeases": activity["activeLeases"],
     }

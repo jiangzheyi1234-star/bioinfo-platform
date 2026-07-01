@@ -378,6 +378,12 @@ class RemoteRunnerManager(
                             server_id=server_id,
                             bootstrap_metadata=bootstrap_metadata,
                         )
+                    self._release_bootstrap_lifecycle_guard(
+                        client=client,
+                        server_id=server_id,
+                        bootstrap_action=bootstrap_action,
+                        bootstrap_metadata=bootstrap_metadata,
+                    )
                     release_switch["active_release"] = paths.release
                     bootstrap_metadata["release_switch"] = release_switch
                 except (RemoteRunnerManagerError, RemoteRunnerClientError) as exc:

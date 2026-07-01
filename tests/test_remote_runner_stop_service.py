@@ -34,8 +34,8 @@ def _idle_execution_diagnostics() -> dict:
 
 
 class IdleRemoteRunnerManager:
-    def get_execution_diagnostics(self, **_kwargs):
-        return _idle_execution_diagnostics()
+    def request_execution_lifecycle_guard(self, **_kwargs):
+        return _lifecycle_guard_payload()
 
 
 def test_stop_remote_runner_service_runs_explicit_stop_commands(monkeypatch, tmp_path: Path) -> None:
@@ -126,16 +126,11 @@ def test_stop_remote_runner_blocks_active_execution_before_kill(monkeypatch, tmp
             raise AssertionError(f"stop command must not run while execution is active: {cmd}")
 
     class ActiveRemoteRunnerManager:
-        def get_execution_diagnostics(self, **_kwargs):
-            diagnostics = _idle_execution_diagnostics()
-            diagnostics["activeLeases"] = [
-                {
-                    "runId": "run_active",
-                    "attemptId": "attempt_active",
-                    "leaseGeneration": 2,
-                }
-            ]
-            return diagnostics
+        def request_execution_lifecycle_guard(self, **_kwargs):
+            return _lifecycle_guard_payload(
+                block_reasons=["active-workflow-leases"],
+                active_lease_count=1,
+            )
 
     service = make_service(tmp_path, FakeSSH())
     service._service_locator.remote_runner_manager = ActiveRemoteRunnerManager()
@@ -180,7 +175,7 @@ def test_stop_remote_runner_blocks_when_execution_diagnostics_unavailable(monkey
             raise AssertionError(f"stop command must not run without diagnostics: {cmd}")
 
     class BrokenDiagnosticsRemoteRunnerManager:
-        def get_execution_diagnostics(self, **_kwargs):
+        def request_execution_lifecycle_guard(self, **_kwargs):
             raise RuntimeError("runner diagnostics offline")
 
     service = make_service(tmp_path, FakeSSH())
@@ -203,3 +198,29 @@ def test_stop_remote_runner_blocks_when_execution_diagnostics_unavailable(monkey
     assert raised.value.status_code == 409
     assert raised.value.detail["reasonCode"] == RUNNER_STOP_DIAGNOSTICS_UNAVAILABLE_REASON
     assert raised.value.detail["nextAction"] == "REPAIR_RUNNER_DIAGNOSTICS_BEFORE_STOP"
+
+
+def _lifecycle_guard_payload(
+    *,
+    block_reasons: list[str] | None = None,
+    active_lease_count: int = 0,
+) -> dict:
+    reasons = block_reasons or []
+    return {
+        "schemaVersion": "h2ometa.execution-lifecycle-guard.v1",
+        "action": "stop",
+        "owner": "srv_test:stop:lifecycle",
+        "idle": not reasons,
+        "maintenanceActive": True,
+        "requestedAt": "2099-06-07T10:00:00Z",
+        "expiresAt": "2099-06-07T10:10:00Z",
+        "activeWorkerCount": 1,
+        "drainRequestedWorkerCount": 1,
+        "activeLeaseCount": active_lease_count,
+        "allocatedResourceCount": 0,
+        "resourceWaitCount": 0,
+        "queuedJobCount": 0,
+        "claimedJobCount": 0,
+        "runningSlotCount": 0,
+        "blockReasons": reasons,
+    }

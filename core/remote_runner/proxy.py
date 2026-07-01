@@ -3,8 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 from config import resolve_runner_token
+from core.contracts.remote_endpoints import EXECUTION_LIFECYCLE_GUARD, EXECUTION_LIFECYCLE_GUARD_RELEASE
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
-from core.remote_runner.client import RemoteRunnerClientError, RemoteRunnerHttpClient
+from core.remote_runner.client import RemoteRunnerClientError, RemoteRunnerConflictError, RemoteRunnerHttpClient
 from core.remote_runner.diagnostics import (
     build_execution_diagnostics,
     build_operator_diagnostics_bundle,
@@ -71,6 +72,80 @@ class RemoteRunnerProxyMixin:
             record=kwargs["server_record"],
         )
         return build_execution_diagnostics(client)
+
+    def request_execution_lifecycle_guard(self, **kwargs) -> dict[str, Any]:
+        return self._call_lifecycle_guard_endpoint(
+            endpoint_id=EXECUTION_LIFECYCLE_GUARD,
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            server_record=kwargs["server_record"],
+            payload={
+                "action": str(kwargs["action"]),
+                "owner": str(kwargs["owner"]),
+                "ttlSeconds": int(kwargs.get("ttl_seconds") or 600),
+            },
+            timeout=int(kwargs.get("timeout") or 30),
+        )
+
+    def release_execution_lifecycle_guard(self, **kwargs) -> dict[str, Any]:
+        return self._call_lifecycle_guard_endpoint(
+            endpoint_id=EXECUTION_LIFECYCLE_GUARD_RELEASE,
+            server_id=str(kwargs["server_id"]),
+            ssh_service=kwargs["ssh_service"],
+            server_record=kwargs["server_record"],
+            payload={
+                "action": str(kwargs["action"]),
+                "owner": str(kwargs["owner"]),
+            },
+            timeout=int(kwargs.get("timeout") or 30),
+        )
+
+    def _call_lifecycle_guard_endpoint(
+        self,
+        *,
+        endpoint_id: str,
+        server_id: str,
+        ssh_service,
+        server_record: dict[str, Any],
+        payload: dict[str, Any],
+        timeout: int,
+    ) -> dict[str, Any]:
+        client = self._get_client(
+            server_id=server_id,
+            ssh_service=ssh_service,
+            record=server_record,
+            timeout=timeout,
+        )
+        return self._call_lifecycle_guard_endpoint_with_client(
+            client=client,
+            endpoint_id=endpoint_id,
+            payload=payload,
+        )
+
+    @classmethod
+    def _call_lifecycle_guard_endpoint_with_client(
+        cls,
+        *,
+        client: RemoteRunnerHttpClient,
+        endpoint_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        try:
+            result = execute_remote_endpoint(
+                client,
+                endpoint_id,
+                path_values={},
+                payload=payload,
+            )
+        except RemoteRunnerConflictError as exc:
+            raise cls._manager_error(
+                "remote runner execution lifecycle guard blocked",
+                status_code=409,
+                detail=exc.payload,
+            ) from exc
+        if not isinstance(result, dict):
+            raise cls._manager_error("remote runner execution lifecycle guard returned a non-object response")
+        return result
 
     def get_operator_diagnostics(self, **kwargs) -> dict[str, Any]:
         record = kwargs["server_record"]
@@ -288,7 +363,7 @@ class RemoteRunnerProxyMixin:
 
 
     @staticmethod
-    def _manager_error(message: str) -> RuntimeError:
+    def _manager_error(message: str, **kwargs) -> RuntimeError:
         from core.remote_runner.manager import RemoteRunnerManagerError
 
-        return RemoteRunnerManagerError(message)
+        return RemoteRunnerManagerError(message, **kwargs)

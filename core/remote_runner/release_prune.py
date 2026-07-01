@@ -7,6 +7,7 @@ import shlex
 import time
 from typing import Any
 
+from core.contracts.execution_activity import summarize_execution_activity
 from core.remote_runner.layout import remote_runner_config, remote_runner_current, remote_runner_root
 
 
@@ -61,6 +62,7 @@ class RemoteRunnerReleasePruneMixin:
                         "serverId": server_id,
                         "blockReasons": block_reasons,
                         "activeLeaseCount": int(plan.get("activeLeaseCount") or 0),
+                        "queuedJobCount": int(plan.get("queuedJobCount") or 0),
                         "nextAction": "WAIT_FOR_RUNS_OR_REPAIR_BEFORE_PRUNE",
                     },
                 )
@@ -156,6 +158,7 @@ class RemoteRunnerReleasePruneMixin:
             "activeLeaseCount": activity["activeLeaseCount"],
             "allocatedResourceCount": activity["allocatedResourceCount"],
             "resourceWaitCount": activity["resourceWaitCount"],
+            "queuedJobCount": activity["queuedJobCount"],
             "claimedJobCount": activity["claimedJobCount"],
             "runningSlotCount": activity["runningSlotCount"],
             "blockReasons": block_reasons,
@@ -315,99 +318,6 @@ def _protection_reasons(
     return _unique(reasons)
 
 
-def _diagnostic_list(diagnostics: dict[str, Any], key: str, *, make_error: type[Exception]) -> list[Any]:
-    value = diagnostics.get(key)
-    if not isinstance(value, list):
-        raise make_error(f"runner release prune failed: execution diagnostics {key} is not a list")
-    return value
-
-
-def _diagnostic_dict(diagnostics: dict[str, Any], key: str, *, make_error: type[Exception]) -> dict[str, Any]:
-    value = diagnostics.get(key)
-    if not isinstance(value, dict):
-        raise make_error(f"runner release prune failed: execution diagnostics {key} is not an object")
-    return value
-
-
-def _diagnostic_block_reasons(
-    *,
-    diagnostics: dict[str, Any],
-    active_leases: list[Any],
-    allocated_resources: list[Any],
-    resource_waits: list[Any],
-    worker_health: dict[str, Any],
-    queue_metrics: dict[str, Any],
-) -> list[str]:
-    reasons: list[str] = []
-    if diagnostics.get("ok") is not True:
-        reasons.append("execution-diagnostics-not-ok")
-    if active_leases:
-        reasons.append("active-workflow-leases")
-    if allocated_resources:
-        reasons.append("allocated-resources")
-    if resource_waits:
-        reasons.append("queued-resource-waits")
-    if _claimed_job_count(worker_health=worker_health, queue_metrics=queue_metrics) > 0:
-        reasons.append("claimed-jobs")
-    if _running_slot_count(worker_health) > 0:
-        reasons.append("running-worker-slots")
-    return _unique(reasons)
-
-
-def summarize_execution_activity(diagnostics: dict[str, Any], *, make_error: type[Exception]) -> dict[str, Any]:
-    active_leases = _diagnostic_list(diagnostics, "activeLeases", make_error=make_error)
-    allocated_resources = _diagnostic_list(diagnostics, "allocatedResources", make_error=make_error)
-    resource_waits = _diagnostic_list(diagnostics, "resourceWaits", make_error=make_error)
-    worker_health = _diagnostic_dict(diagnostics, "workerHealth", make_error=make_error)
-    queue_metrics = _diagnostic_dict(diagnostics, "queueMetrics", make_error=make_error)
-    block_reasons = _diagnostic_block_reasons(
-        diagnostics=diagnostics,
-        active_leases=active_leases,
-        allocated_resources=allocated_resources,
-        resource_waits=resource_waits,
-        worker_health=worker_health,
-        queue_metrics=queue_metrics,
-    )
-    return {
-        "activeLeases": active_leases,
-        "allocatedResources": allocated_resources,
-        "resourceWaits": resource_waits,
-        "workerHealth": worker_health,
-        "queueMetrics": queue_metrics,
-        "activeLeaseCount": len(active_leases),
-        "allocatedResourceCount": len(allocated_resources),
-        "resourceWaitCount": len(resource_waits),
-        "claimedJobCount": _claimed_job_count(worker_health=worker_health, queue_metrics=queue_metrics),
-        "runningSlotCount": _running_slot_count(worker_health),
-        "blockReasons": block_reasons,
-    }
-
-
-def _claimed_job_count(*, worker_health: dict[str, Any], queue_metrics: dict[str, Any]) -> int:
-    return max(_non_negative_int(worker_health.get("claimedJobs")), _non_negative_int(queue_metrics.get("claimedJobs")))
-
-
-def _running_slot_count(worker_health: dict[str, Any]) -> int:
-    summary = worker_health.get("summary")
-    if isinstance(summary, dict):
-        summary_count = _non_negative_int(summary.get("runningSlots"))
-        if summary_count > 0:
-            return summary_count
-    slots = 0
-    workers = worker_health.get("workers")
-    if not isinstance(workers, list):
-        return slots
-    for worker in workers:
-        if not isinstance(worker, dict):
-            continue
-        if str(worker.get("state") or "") == "running" and str(worker.get("currentAttemptId") or ""):
-            slots += 1
-        for slot in worker.get("slots") or []:
-            if isinstance(slot, dict) and str(slot.get("state") or "") == "running":
-                slots += 1
-    return slots
-
-
 def _fallback_rollback_path(
     releases: list[dict[str, Any]],
     *,
@@ -429,13 +339,6 @@ def _block_reason_code(block_reasons: list[str]) -> str:
     if "active-workflow-leases" in block_reasons:
         return RELEASE_PRUNE_ACTIVE_LEASES_REASON
     return RELEASE_PRUNE_BLOCKED_REASON
-
-
-def _non_negative_int(value: Any) -> int:
-    try:
-        return max(0, int(value or 0))
-    except (TypeError, ValueError):
-        return 0
 
 
 def _is_versioned_release_name(name: str) -> bool:

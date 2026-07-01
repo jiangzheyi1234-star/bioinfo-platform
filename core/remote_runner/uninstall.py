@@ -7,6 +7,7 @@ import shlex
 import time
 from typing import Any
 
+from core.contracts.execution_activity import summarize_execution_activity
 from core.remote_runner.layout import (
     REMOTE_RUNNER_PROFILE_NAME,
     remote_runner_config,
@@ -15,7 +16,6 @@ from core.remote_runner.layout import (
     remote_runner_runtime_state,
     remote_runner_shared,
 )
-from core.remote_runner.release_prune import summarize_execution_activity
 
 
 RUNNER_UNINSTALL_SCHEMA_VERSION = "h2ometa.remote-runner-uninstall.v1"
@@ -69,6 +69,7 @@ class RemoteRunnerUninstallMixin:
                         "serverId": server_id,
                         "blockReasons": block_reasons,
                         "activeLeaseCount": int(plan.get("activeLeaseCount") or 0),
+                        "queuedJobCount": int(plan.get("queuedJobCount") or 0),
                         "nextAction": "WAIT_FOR_RUNS_OR_REPAIR_BEFORE_UNINSTALL",
                     },
                 )
@@ -136,6 +137,7 @@ class RemoteRunnerUninstallMixin:
             "activeLeaseCount": activity["activeLeaseCount"],
             "allocatedResourceCount": activity["allocatedResourceCount"],
             "resourceWaitCount": activity["resourceWaitCount"],
+            "queuedJobCount": activity["queuedJobCount"],
             "claimedJobCount": activity["claimedJobCount"],
             "runningSlotCount": activity["runningSlotCount"],
             "blockReasons": list(activity["blockReasons"]),

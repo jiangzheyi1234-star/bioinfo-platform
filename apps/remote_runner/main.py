@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from .audit_routes import router as audit_router
 from .artifact_lifecycle_controller import start_configured_artifact_lifecycle_controller_supervisor
 from .database_routes import router as database_router
+from .execution_lifecycle_routes import router as execution_lifecycle_router
 from .execution_query_routes import router as execution_query_router
 from .health_routes import router as health_router
 from .pipeline_routes import router as pipeline_router
@@ -49,6 +50,7 @@ register_exception_handlers(app)
 app.include_router(health_router)
 app.include_router(pipeline_router)
 app.include_router(submission_router)
+app.include_router(execution_lifecycle_router)
 app.include_router(execution_query_router)
 app.include_router(database_router)
 app.include_router(tool_router)

@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .config import RemoteRunnerConfig, inspect_runtime_layout, inspect_workflow_runtime
 from .errors import RemoteRunnerReadinessError
 from .execution_diagnostics import build_execution_diagnostics
+from .execution_lifecycle_guard import ensure_execution_lifecycle_admission_open
 from .pipeline import inspect_pipeline_registry
 
 
@@ -89,6 +90,7 @@ def ensure_submission_ready(cfg: RemoteRunnerConfig) -> None:
 
 
 def ensure_execution_admission_ready(cfg: RemoteRunnerConfig) -> None:
+    ensure_execution_lifecycle_admission_open(cfg)
     diagnostics = build_execution_diagnostics(cfg)
     readiness = diagnostics["readiness"]
     if readiness["ok"]:

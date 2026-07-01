@@ -7,6 +7,11 @@ from urllib.parse import quote, urlencode
 
 from core.contracts.artifact_lifecycle_remote_endpoints import ARTIFACT_LIFECYCLE_REMOTE_ENDPOINT_SPECS
 from core.contracts.database_remote_endpoints import DATABASE_REMOTE_ENDPOINT_SPECS
+from core.contracts.execution_lifecycle_remote_endpoints import (
+    EXECUTION_LIFECYCLE_GUARD as _EXECUTION_LIFECYCLE_GUARD,
+    EXECUTION_LIFECYCLE_GUARD_RELEASE as _EXECUTION_LIFECYCLE_GUARD_RELEASE,
+    EXECUTION_LIFECYCLE_REMOTE_ENDPOINT_SPECS,
+)
 from core.contracts.pipeline_remote_endpoints import PIPELINE_REMOTE_ENDPOINT_SPECS
 from core.contracts.result_package_remote_endpoints import RESULT_PACKAGE_REMOTE_ENDPOINT_SPECS
 from core.contracts.submission_remote_endpoints import RUN_CREATE as _RUN_CREATE, SUBMISSION_REMOTE_ENDPOINT_SPECS, UPLOAD_CREATE as _UPLOAD_CREATE
@@ -141,6 +146,10 @@ REMOTE_ENDPOINTS: dict[str, RemoteEndpoint] = {
     **{
         endpoint_id: RemoteEndpoint(endpoint_id=endpoint_id, **spec)
         for endpoint_id, spec in SUBMISSION_REMOTE_ENDPOINT_SPECS.items()
+    },
+    **{
+        endpoint_id: RemoteEndpoint(endpoint_id=endpoint_id, **spec)
+        for endpoint_id, spec in EXECUTION_LIFECYCLE_REMOTE_ENDPOINT_SPECS.items()
     },
     RUN_READ: RemoteEndpoint(
         endpoint_id=RUN_READ,
@@ -786,3 +795,5 @@ def _query_value(value: Any) -> str:
     return str(value)
 RUN_CREATE = _RUN_CREATE
 UPLOAD_CREATE = _UPLOAD_CREATE
+EXECUTION_LIFECYCLE_GUARD = _EXECUTION_LIFECYCLE_GUARD
+EXECUTION_LIFECYCLE_GUARD_RELEASE = _EXECUTION_LIFECYCLE_GUARD_RELEASE
