@@ -11,6 +11,7 @@ WEB_ROUTES = ROOT / "apps" / "web" / "app" / "workflows" / "results"
 def test_artifact_lifecycle_frontend_surface_is_confirmation_gated_gc() -> None:
     api = _read(WEB_COMPONENTS / "workflow-artifact-lifecycle-api.ts")
     page = _read(WEB_COMPONENTS / "workflow-artifact-lifecycle-page.tsx")
+    policy = _read(WEB_COMPONENTS / "workflow-artifact-lifecycle-policy.ts")
     controller_panel = _read(WEB_COMPONENTS / "workflow-artifact-lifecycle-controller-panel.tsx")
     package_byte_gc_panel = _read(WEB_COMPONENTS / "workflow-result-package-byte-gc-panel.tsx")
 
@@ -46,7 +47,6 @@ def test_artifact_lifecycle_frontend_surface_is_confirmation_gated_gc() -> None:
     assert "clearSavedPreview" in page
     assert "confirmationValue.trim() === GC_RUN_CONFIRMATION" in page
     assert "disabled={!canRun}" in page
-    assert "CONTROLLER_PREVIEW_REASON" in page
     assert "previewRequestFromControllerTick" in page
     assert "controllerTickCanPreviewPolicy" in page
     assert "maxDeleteBytesPerTick" in page
@@ -57,6 +57,8 @@ def test_artifact_lifecycle_frontend_surface_is_confirmation_gated_gc() -> None:
     assert "controllerRunning" in page
     assert "onRunControllerOnce={() => void runControllerOnce()}" in page
     assert "previewArtifactGc(request)" in page
+    assert "artifactLifecyclePolicyFingerprint" in policy
+    assert '"maxDeleteBytesPerTick":' in policy
     assert 'parseRequiredNonNegativeInteger(retentionDaysInput, "保留天数")' in page
     assert 'parseOptionalPositiveInteger(maxDeleteBytesInput, "本批最大字节")' in page
     assert 'parseOptionalNonNegativeInteger(quotaBytesInput, "配额字节")' in page
@@ -89,6 +91,7 @@ def test_artifact_lifecycle_frontend_surface_is_confirmation_gated_gc() -> None:
 def test_artifact_lifecycle_frontend_uses_public_projection_and_safe_preview_summary() -> None:
     model = _read(WEB_COMPONENTS / "workflow-artifact-lifecycle-model.ts")
     page = _read(WEB_COMPONENTS / "workflow-artifact-lifecycle-page.tsx")
+    policy = _read(WEB_COMPONENTS / "workflow-artifact-lifecycle-policy.ts")
     controller_panel = _read(WEB_COMPONENTS / "workflow-artifact-lifecycle-controller-panel.tsx")
     package_byte_gc_panel = _read(WEB_COMPONENTS / "workflow-result-package-byte-gc-panel.tsx")
 
@@ -127,10 +130,12 @@ def test_artifact_lifecycle_frontend_uses_public_projection_and_safe_preview_sum
     }
     assert not forbidden.intersection(_tokens(model))
     assert not forbidden.intersection(_tokens(page))
+    assert not forbidden.intersection(_tokens(policy))
     assert not forbidden.intersection(_tokens(controller_panel))
     assert not forbidden.intersection(_tokens(package_byte_gc_panel))
     assert '"path"' not in model
     assert '"path"' not in page
+    assert '"path"' not in policy
     assert '"path"' not in controller_panel
     assert '"path"' not in package_byte_gc_panel
 

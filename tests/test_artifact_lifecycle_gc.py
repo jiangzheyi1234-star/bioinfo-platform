@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from apps.remote_runner import route_utils
+from apps.remote_runner import artifact_lifecycle_service, route_utils
 from apps.remote_runner import artifact_lifecycle_controller_control as controller_control
 from apps.remote_runner.api_models import ArtifactLifecycleControllerRunOnceRequest
 from apps.remote_runner.artifact_lifecycle_service import (
@@ -88,6 +88,38 @@ def test_artifact_gc_preview_reports_usage_and_protection_reasons(tmp_path: Path
     assert protected_by_artifact[exported_full["artifactId"]] == {"export_package"}
     assert protected_by_artifact[exported_metadata["artifactId"]] == {"export_package"}
     assert "production_evidence" in protected_by_artifact[production["artifactId"]]
+
+
+def test_artifact_gc_preview_uses_quota_pressure_without_bypassing_hard_protections(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    candidate = _persist_managed_artifact(cfg, "run_gc_quota_candidate", status="completed")
+    active = _persist_managed_artifact(cfg, "run_gc_quota_active", status="running")
+
+    plan = preview_artifact_gc(
+        cfg,
+        _inline_policy_payload(
+            retention_days=5000,
+            quota_bytes=0,
+            reason="operator-retention",
+        ),
+    )
+
+    assert plan["policy"]["quotaBytes"] == 0
+    assert plan["quotaOverageBytes"] >= candidate["sizeBytes"] + active["sizeBytes"]
+    assert [item["artifactIds"] for item in plan["candidates"]] == [[candidate["artifactId"]]]
+    assert plan["candidates"][0]["reason"] == "quota_pressure"
+    protected_by_artifact = {
+        artifact_id: set(item["reasons"])
+        for item in plan["protected"]
+        for artifact_id in item["artifactIds"]
+    }
+    assert "run_not_terminal" in protected_by_artifact[active["artifactId"]]
+    public = artifact_lifecycle_service.public_artifact_gc_plan(plan)
+    assert public["policy"]["quotaBytes"] == 0
+    assert public["quotaOverageBytes"] == plan["quotaOverageBytes"]
+    assert public["candidates"][0]["reason"] == "quota_pressure"
+    assert "storageUri" not in repr(public)
+    assert "artifactId" not in repr(public)
 
 
 def test_artifact_lifecycle_controller_tick_previews_without_deleting_payloads(tmp_path: Path) -> None:
@@ -438,6 +470,28 @@ def test_artifact_gc_run_deletes_local_payload_and_records_tombstone_evidence_an
     assert governance[-1]["details"]["deletedCount"] == 1
 
 
+def test_artifact_gc_run_records_quota_pressure_reason(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    _persist_managed_artifact(cfg, "run_gc_quota_delete", status="completed")
+
+    result = run_artifact_gc(
+        cfg,
+        _confirmed_gc_payload(
+            cfg,
+            _inline_policy_payload(
+                retention_days=5000,
+                quota_bytes=0,
+                reason="operator-retention",
+            ),
+        ),
+    )
+
+    fetched = fetch_run_results(cfg, "run_gc_quota_delete")["artifacts"][0]
+    assert result["deleted"][0]["reason"] == "quota_pressure"
+    assert fetched["lifecycleState"] == "deleted"
+    assert fetched["gcReason"] == "quota_pressure"
+
+
 def test_artifact_gc_run_requires_current_plan_fingerprint(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     artifact = _persist_managed_artifact(cfg, "run_gc_fingerprint", status="completed")
@@ -665,6 +719,7 @@ def _inline_policy_payload(
     retention_days: int = 30,
     reason: str = "retention_expired",
     eligible_run_statuses: list[str] | None = None,
+    quota_bytes: int | None = None,
     max_delete_bytes: int | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
@@ -672,6 +727,8 @@ def _inline_policy_payload(
         "eligibleRunStatuses": eligible_run_statuses or ["completed", "failed", "canceled", "cancelled"],
         "reason": reason,
     }
+    if quota_bytes is not None:
+        payload["quotaBytes"] = quota_bytes
     if max_delete_bytes is not None:
         payload["maxDeleteBytesPerTick"] = max_delete_bytes
         payload["maxDeleteBytes"] = max_delete_bytes

@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from apps.remote_runner.api_models import (
     ArtifactCachePinReleaseRequest,
     ArtifactCachePinRetainRequest,
+    ArtifactGcPreviewRequest,
     ArtifactLifecycleControllerRunOnceRequest,
     ResultPackageExportRequest,
     ResultPackageRetireRequest,
@@ -716,6 +717,47 @@ def test_remote_runner_artifact_lifecycle_controller_run_once_request_is_bounded
     assert any(error["type"] == "too_short" and error["loc"] == ("eligibleRunStatuses",) for error in errors)
     assert any(error["type"] == "greater_than_equal" and error["loc"] == ("quotaBytes",) for error in errors)
     assert any(error["type"] == "extra_forbidden" and error["loc"] == ("deleteNow",) for error in errors)
+
+
+def test_remote_runner_artifact_gc_preview_request_accepts_explicit_policy_contract() -> None:
+    request = ArtifactGcPreviewRequest.model_validate(
+        {
+            "policyId": "request",
+            "policyVersion": 0,
+            "policyFingerprint": "alpfp_abc123",
+            "persisted": False,
+            "retentionDays": 14,
+            "eligibleRunStatuses": ["completed"],
+            "quotaBytes": 0,
+            "maxDeleteBytes": 2048,
+            "maxDeleteBytesPerTick": 2048,
+            "reason": "quota_pressure",
+            "actor": "operator",
+        }
+    )
+
+    assert request.policyVersion == 0
+    assert request.policyFingerprint == "alpfp_abc123"
+    assert request.quotaBytes == 0
+    assert request.maxDeleteBytesPerTick == 2048
+
+    with pytest.raises(ValidationError) as exc_info:
+        ArtifactGcPreviewRequest.model_validate(
+            {
+                "retentionDays": -1,
+                "eligibleRunStatuses": [],
+                "quotaBytes": -1,
+                "maxDeleteBytesPerTick": 0,
+                "serverId": "srv_primary",
+            }
+        )
+
+    errors = exc_info.value.errors()
+    assert any(error["type"] == "greater_than_equal" and error["loc"] == ("retentionDays",) for error in errors)
+    assert any(error["type"] == "too_short" and error["loc"] == ("eligibleRunStatuses",) for error in errors)
+    assert any(error["type"] == "greater_than_equal" and error["loc"] == ("quotaBytes",) for error in errors)
+    assert any(error["type"] == "greater_than_equal" and error["loc"] == ("maxDeleteBytesPerTick",) for error in errors)
+    assert any(error["type"] == "extra_forbidden" and error["loc"] == ("serverId",) for error in errors)
 
 
 def test_remote_runner_workflow_backfill_cancel_request_requires_confirmation() -> None:

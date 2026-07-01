@@ -144,6 +144,7 @@ export type WorkflowArtifactGcPreviewRequest = {
   eligibleRunStatuses?: string[];
   quotaBytes?: number | null;
   maxDeleteBytes?: number;
+  maxDeleteBytesPerTick?: number | null;
   reason?: string;
   actor?: string;
 };
@@ -155,6 +156,7 @@ export type WorkflowArtifactGcPlanPolicy = {
   persisted?: boolean;
   retentionDays?: number;
   eligibleRunStatuses?: string[];
+  quotaBytes?: number | null;
   maxDeleteBytes?: number | null;
   reason?: string;
 };
@@ -183,6 +185,8 @@ export type WorkflowArtifactGcPlan = {
   deleteBytes?: number;
   protectedCount?: number;
   protectedBytes?: number;
+  activeBytes?: number;
+  quotaOverageBytes?: number;
   candidates?: WorkflowArtifactGcPlanItem[];
   protected?: WorkflowArtifactGcPlanItem[];
 };

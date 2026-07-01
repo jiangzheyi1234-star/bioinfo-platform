@@ -29,6 +29,19 @@ import {
 import { WorkflowArtifactCacheController } from "./workflow-artifact-cache-controller";
 import { WorkflowArtifactLifecycleControllerPanel } from "./workflow-artifact-lifecycle-controller-panel";
 import { WorkflowResultPackageByteGcPanel } from "./workflow-result-package-byte-gc-panel";
+import {
+  artifactLifecyclePolicyFingerprint,
+  DEFAULT_ELIGIBLE_RUN_STATUSES,
+  DEFAULT_GC_POLICY_ID,
+  DEFAULT_GC_POLICY_VERSION,
+  DEFAULT_GC_REASON,
+  DEFAULT_GC_RETENTION_DAYS,
+  normalizeArtifactGcReason,
+  parseOptionalNonNegativeInteger,
+  parseOptionalPositiveInteger,
+  parseRequiredNonNegativeInteger,
+  type ArtifactGcPolicyInput,
+} from "./workflow-artifact-lifecycle-policy";
 import type {
   WorkflowArtifactGcPlan,
   WorkflowArtifactGcPlanItem,
@@ -49,7 +62,10 @@ export function WorkflowArtifactLifecyclePage() {
   const [preview, setPreview] = useState<WorkflowArtifactGcPlan | null>(null);
   const [previewRequest, setPreviewRequest] = useState<WorkflowArtifactGcPreviewRequest | null>(null);
   const [runResult, setRunResult] = useState<WorkflowArtifactGcRunResult | null>(null);
+  const [retentionDaysInput, setRetentionDaysInput] = useState(DEFAULT_GC_RETENTION_DAYS);
   const [quotaBytesInput, setQuotaBytesInput] = useState("");
+  const [maxDeleteBytesInput, setMaxDeleteBytesInput] = useState("");
+  const [gcReasonInput, setGcReasonInput] = useState(DEFAULT_GC_REASON);
   const [runConfirmation, setRunConfirmation] = useState("");
   const [loading, setLoading] = useState(true);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -90,9 +106,7 @@ export function WorkflowArtifactLifecyclePage() {
     setPreviewError("");
     setRunError("");
     try {
-      const request: WorkflowArtifactGcPreviewRequest = {
-        actor: "web-ui",
-      };
+      const request = await buildManualArtifactGcPreviewRequest();
       const plan = await previewArtifactGc(request);
       setPreview(plan);
       setPreviewRequest(request);
@@ -136,8 +150,14 @@ export function WorkflowArtifactLifecyclePage() {
     setControllerNotice("");
     setControllerError("");
     try {
+      const policy = readManualArtifactGcPolicyInput();
       const result = await runArtifactLifecycleControllerOnce({
         actor: "web-ui",
+        retentionDays: policy.retentionDays,
+        eligibleRunStatuses: policy.eligibleRunStatuses,
+        quotaBytes: policy.quotaBytes ?? undefined,
+        maxDeleteBytesPerTick: policy.maxDeleteBytesPerTick ?? undefined,
+        reason: policy.reason,
       });
       setControllerNotice(
         result.tickId
@@ -192,6 +212,41 @@ export function WorkflowArtifactLifecyclePage() {
   async function reloadAfterCachePolicyChange() {
     clearSavedPreview();
     await load(true);
+  }
+
+  function readManualArtifactGcPolicyInput(): ArtifactGcPolicyInput {
+    const retentionDays = parseRequiredNonNegativeInteger(retentionDaysInput, "保留天数");
+    const maxDeleteBytesPerTick = parseOptionalPositiveInteger(maxDeleteBytesInput, "本批最大字节");
+    const quotaBytes = parseOptionalNonNegativeInteger(quotaBytesInput, "配额字节");
+    const reason = normalizeArtifactGcReason(gcReasonInput);
+    return {
+      retentionDays,
+      eligibleRunStatuses: DEFAULT_ELIGIBLE_RUN_STATUSES,
+      quotaBytes: quotaBytes ?? null,
+      maxDeleteBytesPerTick: maxDeleteBytesPerTick ?? null,
+      reason,
+    };
+  }
+
+  async function buildManualArtifactGcPreviewRequest(): Promise<WorkflowArtifactGcPreviewRequest> {
+    const policy = readManualArtifactGcPolicyInput();
+    const policyFingerprint = await artifactLifecyclePolicyFingerprint(policy);
+    const request: WorkflowArtifactGcPreviewRequest = {
+      actor: "web-ui",
+      policyId: DEFAULT_GC_POLICY_ID,
+      policyVersion: DEFAULT_GC_POLICY_VERSION,
+      policyFingerprint,
+      persisted: false,
+      retentionDays: policy.retentionDays,
+      eligibleRunStatuses: policy.eligibleRunStatuses,
+      quotaBytes: policy.quotaBytes,
+      maxDeleteBytesPerTick: policy.maxDeleteBytesPerTick,
+      reason: policy.reason,
+    };
+    if (policy.maxDeleteBytesPerTick !== null && policy.maxDeleteBytesPerTick !== undefined) {
+      request.maxDeleteBytes = policy.maxDeleteBytesPerTick;
+    }
+    return request;
   }
 
   return (
@@ -275,6 +330,55 @@ export function WorkflowArtifactLifecyclePage() {
                   <h2 className="text-sm font-semibold text-slate-900">GC 预览</h2>
                 </div>
                 <div className="grid gap-3">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <Label htmlFor="artifact-gc-retention" className="text-xs text-slate-500">
+                        保留天数
+                      </Label>
+                      <Input
+                        id="artifact-gc-retention"
+                        inputMode="numeric"
+                        value={retentionDaysInput}
+                        onChange={(event) => setRetentionDaysInput(event.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="artifact-gc-max-delete" className="text-xs text-slate-500">
+                        本批最大字节
+                      </Label>
+                      <Input
+                        id="artifact-gc-max-delete"
+                        inputMode="numeric"
+                        placeholder="可选"
+                        value={maxDeleteBytesInput}
+                        onChange={(event) => setMaxDeleteBytesInput(event.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <Label htmlFor="artifact-gc-quota" className="text-xs text-slate-500">
+                        配额字节
+                      </Label>
+                      <Input
+                        id="artifact-gc-quota"
+                        inputMode="numeric"
+                        placeholder="可选"
+                        value={quotaBytesInput}
+                        onChange={(event) => setQuotaBytesInput(event.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="artifact-gc-reason" className="text-xs text-slate-500">
+                        原因
+                      </Label>
+                      <Input
+                        id="artifact-gc-reason"
+                        value={gcReasonInput}
+                        onChange={(event) => setGcReasonInput(event.target.value)}
+                      />
+                    </div>
+                  </div>
                   <Button type="submit" className="w-full" disabled={previewLoading}>
                     {previewLoading ? <Loader2 strokeWidth={1.5} className="mr-2 h-4 w-4 animate-spin" /> : <Eye strokeWidth={1.5} className="mr-2 h-4 w-4" />}
                     生成预览
@@ -396,7 +500,9 @@ function GcPreviewSummary({
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
             <span>保留 {previewRequest?.retentionDays ?? preview.policy?.retentionDays ?? "—"} 天</span>
-            <span>本批上限 {formatBytes(previewRequest?.maxDeleteBytes ?? preview.policy?.maxDeleteBytes)}</span>
+            <span>本批上限 {formatBytes(previewRequest?.maxDeleteBytes ?? previewRequest?.maxDeleteBytesPerTick ?? preview.policy?.maxDeleteBytes)}</span>
+            <span>配额 {formatBytes(previewRequest?.quotaBytes ?? preview.policy?.quotaBytes)}</span>
+            <span>超额 {formatBytes(preview.quotaOverageBytes)}</span>
           </div>
           <div className="break-all font-mono text-[11px] text-slate-500">{preview.planFingerprint || "plan fingerprint unavailable"}</div>
         </div>
@@ -561,6 +667,7 @@ function PlanItemList({
           </div>
           <div className="mt-1 flex flex-wrap gap-1.5 text-[11px] text-slate-500">
             <span>{item.storageBackend || "backend: —"}</span>
+            {item.reason ? <span>{item.reason}</span> : null}
             <span>artifacts {formatCount(item.artifactCount)}</span>
             <span>runs {formatCount(item.runCount)}</span>
             <span>materializations {formatCount(item.materializationCount)}</span>
@@ -598,7 +705,31 @@ function previewRequestFromControllerTick(
   tick: WorkflowArtifactLifecycleControllerTick
 ): WorkflowArtifactGcPreviewRequest | null {
   if (!controllerTickCanPreviewPolicy(tick)) return null;
-  return { actor: "web-ui" };
+  const policy = tick.policy;
+  if (
+    !policy?.policyFingerprint?.trim() ||
+    policy.retentionDays === undefined ||
+    !policy.eligibleRunStatuses?.length ||
+    !policy.reason?.trim()
+  ) {
+    return null;
+  }
+  const request: WorkflowArtifactGcPreviewRequest = {
+    actor: "web-ui",
+    policyId: policy.policyId || DEFAULT_GC_POLICY_ID,
+    policyVersion: policy.policyVersion ?? DEFAULT_GC_POLICY_VERSION,
+    policyFingerprint: policy.policyFingerprint,
+    persisted: Boolean(policy.persisted),
+    retentionDays: policy.retentionDays,
+    eligibleRunStatuses: policy.eligibleRunStatuses,
+    quotaBytes: policy.quotaBytes ?? null,
+    maxDeleteBytesPerTick: policy.maxDeleteBytesPerTick ?? null,
+    reason: policy.reason,
+  };
+  if (policy.maxDeleteBytesPerTick !== null && policy.maxDeleteBytesPerTick !== undefined) {
+    request.maxDeleteBytes = policy.maxDeleteBytesPerTick;
+  }
+  return request;
 }
 
 function Metric({
@@ -627,15 +758,6 @@ function Metric({
       <div className={cn("mt-1 font-semibold text-slate-900", compact ? "text-xs" : "text-sm")}>{value}</div>
     </div>
   );
-}
-
-function parseOptionalNonNegativeInteger(value: string, label: string) {
-  const normalized = value.trim();
-  if (!normalized) return undefined;
-  if (!/^\d+$/.test(normalized)) {
-    throw new Error(`${label}必须是非负整数`);
-  }
-  return Number(normalized);
 }
 
 function artifactLifecycleErrorMessage(err: unknown, fallback: string) {

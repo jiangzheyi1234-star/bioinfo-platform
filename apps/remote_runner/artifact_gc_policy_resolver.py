@@ -35,6 +35,7 @@ class GcPolicy:
     persisted: bool
     retention_days: int
     run_statuses: set[str]
+    quota_bytes: int | None
     max_delete_bytes: int | None
     reason: str
     actor: str
@@ -51,6 +52,7 @@ def resolve_gc_policy(cfg: RemoteRunnerConfig, payload: dict[str, Any] | None) -
             persisted=stored.persisted,
             retention_days=stored.retention_days,
             run_statuses=set(stored.eligible_run_statuses),
+            quota_bytes=stored.quota_bytes,
             max_delete_bytes=stored.max_delete_bytes_per_tick,
             reason=stored.reason,
             actor=str(body.get("actor") or stored.actor or "remote-runner-api").strip() or "remote-runner-api",
@@ -76,6 +78,7 @@ def resolve_gc_policy(cfg: RemoteRunnerConfig, payload: dict[str, Any] | None) -
         persisted=bool(body.get("persisted")) and policy_id != "request",
         retention_days=int(normalized["retentionDays"]),
         run_statuses=set(normalized["eligibleRunStatuses"]),
+        quota_bytes=normalized["quotaBytes"],
         max_delete_bytes=normalized["maxDeleteBytesPerTick"],
         reason=str(normalized["reason"] or DEFAULT_GC_REASON),
         actor=str(normalized["actor"] or "remote-runner-api"),

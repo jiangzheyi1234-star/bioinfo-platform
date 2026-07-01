@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from apps.api.models import (
     ArtifactCachePinReleaseRequest,
     ArtifactCachePinRetainRequest,
+    ArtifactGcPreviewRequest,
     ArtifactLifecycleControllerRunOnceRequest,
     RunnerReleasePruneRunRequest,
     RunnerUninstallRunRequest,
@@ -842,6 +843,48 @@ def test_artifact_lifecycle_controller_run_once_request_requires_confirmation_an
     assert any(error["type"] == "too_short" and error["loc"] == ("eligibleRunStatuses",) for error in errors)
     assert any(error["type"] == "greater_than_equal" and error["loc"] == ("maxDeleteBytesPerTick",) for error in errors)
     assert any(error["type"] == "extra_forbidden" and error["loc"] == ("planFingerprint",) for error in errors)
+
+
+def test_artifact_gc_preview_request_accepts_explicit_policy_contract() -> None:
+    request = ArtifactGcPreviewRequest.model_validate(
+        {
+            "serverId": "srv_primary",
+            "policyId": "request",
+            "policyVersion": 0,
+            "policyFingerprint": "alpfp_abc123",
+            "persisted": False,
+            "retentionDays": 7,
+            "eligibleRunStatuses": ["completed", "failed"],
+            "quotaBytes": 0,
+            "maxDeleteBytes": 1024,
+            "maxDeleteBytesPerTick": 1024,
+            "reason": "quota_pressure",
+            "actor": "operator",
+        }
+    )
+
+    assert request.serverId == "srv_primary"
+    assert request.policyFingerprint == "alpfp_abc123"
+    assert request.quotaBytes == 0
+    assert request.maxDeleteBytesPerTick == 1024
+
+    with pytest.raises(ValidationError) as exc_info:
+        ArtifactGcPreviewRequest.model_validate(
+            {
+                "retentionDays": -1,
+                "eligibleRunStatuses": [],
+                "quotaBytes": -1,
+                "maxDeleteBytesPerTick": 0,
+                "legacyPolicy": True,
+            }
+        )
+
+    errors = exc_info.value.errors()
+    assert any(error["type"] == "greater_than_equal" and error["loc"] == ("retentionDays",) for error in errors)
+    assert any(error["type"] == "too_short" and error["loc"] == ("eligibleRunStatuses",) for error in errors)
+    assert any(error["type"] == "greater_than_equal" and error["loc"] == ("quotaBytes",) for error in errors)
+    assert any(error["type"] == "greater_than_equal" and error["loc"] == ("maxDeleteBytesPerTick",) for error in errors)
+    assert any(error["type"] == "extra_forbidden" and error["loc"] == ("legacyPolicy",) for error in errors)
 
 
 def test_workflow_backfill_cancel_request_requires_confirmation() -> None:

@@ -32,7 +32,7 @@ const ARTIFACT_LIFECYCLE_TICKS_CACHE_KEY = "workflow:artifact-lifecycle-controll
 export async function fetchArtifactLifecycleUsage(
   options: ArtifactLifecycleFetchOptions = {}
 ): Promise<WorkflowArtifactLifecycleUsage> {
-  const quotaBytes = normalizeOptionalPositiveInteger(options.quotaBytes);
+  const quotaBytes = normalizeOptionalNonNegativeInteger(options.quotaBytes);
   const key = [
     ARTIFACT_LIFECYCLE_USAGE_CACHE_KEY,
     options.serverId || "default",
@@ -79,6 +79,15 @@ export async function runArtifactLifecycleControllerOnce(
     actor: request.actor?.trim() || "web-ui",
   };
   if (request.serverId) body.serverId = request.serverId;
+  const retentionDays = normalizeOptionalNonNegativeInteger(request.retentionDays);
+  if (retentionDays !== undefined) body.retentionDays = retentionDays;
+  const eligibleRunStatuses = normalizeRunStatuses(request.eligibleRunStatuses);
+  if (eligibleRunStatuses.length) body.eligibleRunStatuses = eligibleRunStatuses;
+  const quotaBytes = normalizeOptionalNonNegativeInteger(request.quotaBytes);
+  if (quotaBytes !== undefined) body.quotaBytes = quotaBytes;
+  const maxDeleteBytesPerTick = normalizeOptionalPositiveInteger(request.maxDeleteBytesPerTick);
+  if (maxDeleteBytesPerTick !== undefined) body.maxDeleteBytesPerTick = maxDeleteBytesPerTick;
+  if (request.reason?.trim()) body.reason = request.reason.trim();
 
   const response = await requestLocalApiJson<WorkflowArtifactLifecycleControllerRunOnceResponse>(
     "POST",
@@ -96,10 +105,7 @@ export async function runArtifactLifecycleControllerOnce(
 export async function previewArtifactGc(
   request: WorkflowArtifactGcPreviewRequest
 ): Promise<WorkflowArtifactGcPlan> {
-  const body: WorkflowArtifactGcPreviewRequest = {
-    actor: request.actor?.trim() || "web-ui",
-  };
-  if (request.serverId) body.serverId = request.serverId;
+  const body = buildArtifactGcRequestBody(request);
 
   const response = await requestLocalApiJson<{ data: WorkflowArtifactGcPlan }>(
     "POST",
@@ -180,12 +186,48 @@ function artifactLifecycleQuery(options: ArtifactLifecycleFetchOptions) {
   return query ? `?${query}` : "";
 }
 
+function buildArtifactGcRequestBody(request: WorkflowArtifactGcPreviewRequest) {
+  const body: WorkflowArtifactGcPreviewRequest = {
+    actor: request.actor?.trim() || "web-ui",
+  };
+  if (request.serverId) body.serverId = request.serverId;
+  if (request.policyId?.trim()) body.policyId = request.policyId.trim();
+  if (request.policyFingerprint?.trim()) body.policyFingerprint = request.policyFingerprint.trim();
+  if (request.policyVersion !== undefined) {
+    const policyVersion = normalizeOptionalNonNegativeInteger(request.policyVersion);
+    if (policyVersion !== undefined) body.policyVersion = policyVersion;
+  }
+  if (request.persisted !== undefined) body.persisted = request.persisted;
+  const retentionDays = normalizeOptionalNonNegativeInteger(request.retentionDays);
+  if (retentionDays !== undefined) body.retentionDays = retentionDays;
+  const eligibleRunStatuses = normalizeRunStatuses(request.eligibleRunStatuses);
+  if (eligibleRunStatuses.length) body.eligibleRunStatuses = eligibleRunStatuses;
+  const quotaBytes = normalizeOptionalNonNegativeInteger(request.quotaBytes);
+  if (quotaBytes !== undefined) body.quotaBytes = quotaBytes;
+  const maxDeleteBytes = normalizeOptionalPositiveInteger(request.maxDeleteBytes);
+  if (maxDeleteBytes !== undefined) body.maxDeleteBytes = maxDeleteBytes;
+  const maxDeleteBytesPerTick = normalizeOptionalPositiveInteger(request.maxDeleteBytesPerTick);
+  if (maxDeleteBytesPerTick !== undefined) body.maxDeleteBytesPerTick = maxDeleteBytesPerTick;
+  if (request.reason?.trim()) body.reason = request.reason.trim();
+  return body;
+}
+
 function invalidateArtifactLifecycleCaches() {
   invalidateAsyncCachePrefix(ARTIFACT_LIFECYCLE_USAGE_CACHE_KEY);
   invalidateAsyncCachePrefix(ARTIFACT_LIFECYCLE_TICKS_CACHE_KEY);
 }
 
-function normalizeOptionalPositiveInteger(value?: number) {
+function normalizeRunStatuses(value?: string[]) {
+  return Array.from(
+    new Set(
+      (value || [])
+        .map((item) => item.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function normalizeOptionalPositiveInteger(value?: number | null) {
   if (value === undefined || value === null || Number.isNaN(value)) {
     return undefined;
   }
@@ -193,7 +235,7 @@ function normalizeOptionalPositiveInteger(value?: number) {
   return normalized > 0 ? normalized : undefined;
 }
 
-function normalizeOptionalNonNegativeInteger(value?: number) {
+function normalizeOptionalNonNegativeInteger(value?: number | null) {
   if (value === undefined || value === null || Number.isNaN(value)) {
     return undefined;
   }

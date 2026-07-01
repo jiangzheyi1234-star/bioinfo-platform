@@ -254,12 +254,18 @@ class WorkflowBackfillCancelRequest(RemoteRunnerRequest):
 
 
 class ArtifactGcPreviewRequest(RemoteRunnerRequest):
+    policyId: str | None = Field(default=None, min_length=1)
+    policyVersion: int | None = Field(default=None, ge=0)
+    policyFingerprint: str | None = Field(default=None, min_length=1)
+    persisted: bool | None = None
     retentionDays: int = Field(default=30, ge=0)
     eligibleRunStatuses: list[str] = Field(
         default_factory=lambda: ["completed", "failed", "canceled", "cancelled"],
         min_length=1,
     )
+    quotaBytes: int | None = Field(default=None, ge=0)
     maxDeleteBytes: int | None = Field(default=None, ge=1)
+    maxDeleteBytesPerTick: int | None = Field(default=None, ge=1)
     reason: str = Field(default="retention_expired", min_length=1)
     actor: str | None = None
 

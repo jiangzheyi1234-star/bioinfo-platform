@@ -14,7 +14,7 @@ from apps.remote_runner.artifact_lifecycle_service import (
 from apps.remote_runner.evidence_storage import list_evidence_events
 from apps.remote_runner.main import app
 from tests.helpers.reference_database import make_configured_remote_runner
-from tests.test_artifact_lifecycle_gc import _persist_managed_artifact
+from tests.test_artifact_lifecycle_gc import _inline_policy_payload, _persist_managed_artifact
 
 
 def test_artifact_gc_preview_route_returns_public_projection_without_storage_identifiers(
@@ -29,10 +29,11 @@ def test_artifact_gc_preview_route_returns_public_projection_without_storage_ide
     artifact = _persist_managed_artifact(cfg, "run_gc_public_preview", status="completed")
     monkeypatch.setattr(route_utils, "load_remote_runner_config", lambda: cfg)
 
-    raw_plan = preview_artifact_gc(cfg, {"retentionDays": 30})
+    request = {**_inline_policy_payload(retention_days=30), "actor": "operator@example.test"}
+    raw_plan = preview_artifact_gc(cfg, request)
     response = TestClient(app).post(
         "/api/v1/artifacts/lifecycle/gc/preview",
-        json={"retentionDays": 30, "actor": "operator@example.test"},
+        json=request,
         headers={"Authorization": "Bearer rbac-token"},
     )
 
@@ -62,14 +63,14 @@ def test_artifact_gc_run_route_returns_public_projection_but_evidence_keeps_dele
     )
     artifact = _persist_managed_artifact(cfg, "run_gc_public_run", status="completed")
     monkeypatch.setattr(route_utils, "load_remote_runner_config", lambda: cfg)
-    plan = preview_artifact_gc(cfg, {"retentionDays": 30, "actor": "operator@example.test"})
+    request = {**_inline_policy_payload(retention_days=30), "actor": "operator@example.test"}
+    plan = preview_artifact_gc(cfg, request)
 
     response = TestClient(app).post(
         "/api/v1/artifacts/lifecycle/gc/run",
         json={
-            "retentionDays": 30,
+            **request,
             "confirmation": ARTIFACT_GC_CONFIRMATION,
-            "actor": "operator@example.test",
             "planFingerprint": plan["planFingerprint"],
         },
         headers={"Authorization": "Bearer rbac-token"},
@@ -132,7 +133,8 @@ def test_artifact_gc_delete_failure_response_does_not_leak_path_or_sha(
     )
     artifact = _persist_managed_artifact(cfg, "run_gc_public_failure", status="completed")
     monkeypatch.setattr(route_utils, "load_remote_runner_config", lambda: cfg)
-    plan = preview_artifact_gc(cfg, {"retentionDays": 30, "actor": "operator@example.test"})
+    request = {**_inline_policy_payload(retention_days=30), "actor": "operator@example.test"}
+    plan = preview_artifact_gc(cfg, request)
 
     def fail_delete(_cfg, _item):
         raise RuntimeError(f"cannot delete {artifact['path']} with sha {artifact['sha256']}")
@@ -141,9 +143,8 @@ def test_artifact_gc_delete_failure_response_does_not_leak_path_or_sha(
     response = TestClient(app).post(
         "/api/v1/artifacts/lifecycle/gc/run",
         json={
-            "retentionDays": 30,
+            **request,
             "confirmation": ARTIFACT_GC_CONFIRMATION,
-            "actor": "operator@example.test",
             "planFingerprint": plan["planFingerprint"],
         },
         headers={"Authorization": "Bearer rbac-token"},

@@ -8,6 +8,7 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 from .artifact_cache_storage import active_artifact_cache_pin_reasons, artifact_cache_storage_ref_key
+from .artifact_gc_planning import apply_max_delete_bytes, apply_quota_pressure, quota_overage_bytes
 from .artifact_gc_policy_resolver import GcPolicy, resolve_gc_policy
 from .artifact_io import artifact_local_path, delete_artifact_payload
 from .artifact_lifecycle_storage import (
@@ -30,6 +31,7 @@ ARTIFACT_LIFECYCLE_USAGE_SCHEMA = "h2ometa.artifact-lifecycle-usage.v1"
 ARTIFACT_GC_PLAN_SCHEMA = "h2ometa.artifact-gc-plan.v1"
 ARTIFACT_GC_PUBLIC_PLAN_SCHEMA = "h2ometa.artifact-gc-public-plan.v1"
 ARTIFACT_GC_PUBLIC_RUN_SCHEMA = "h2ometa.artifact-gc-public-run.v1"
+ARTIFACT_GC_QUOTA_PRESSURE_REASON = "quota_pressure"
 
 
 def build_artifact_lifecycle_usage(
@@ -120,6 +122,8 @@ def public_artifact_gc_plan(plan: dict[str, Any]) -> dict[str, Any]:
         "deleteBytes": int(plan.get("deleteBytes") or 0),
         "protectedCount": int(plan.get("protectedCount") or 0),
         "protectedBytes": int(plan.get("protectedBytes") or 0),
+        "activeBytes": int(plan.get("activeBytes") or 0),
+        "quotaOverageBytes": int(plan.get("quotaOverageBytes") or 0),
         "candidates": [_public_gc_plan_item(item) for item in plan.get("candidates") or []],
         "protected": [_public_gc_plan_item(item, protected_item=True) for item in plan.get("protected") or []],
     }
@@ -186,7 +190,12 @@ def run_artifact_gc(cfg: RemoteRunnerConfig, payload: dict[str, Any] | None = No
         try:
             _require_candidate_not_pinned(cfg, item)
             deletion = delete_artifact_payload(cfg, item)
-            _mark_candidate_deleted(cfg, item, deleted_at=executed_at, reason=policy.reason)
+            _mark_candidate_deleted(
+                cfg,
+                item,
+                deleted_at=executed_at,
+                reason=str(item.get("reason") or policy.reason),
+            )
             deleted.append({**item, "payloadDeleted": bool(deletion["deleted"])})
         except Exception as exc:
             errors.append(
@@ -248,14 +257,21 @@ def _build_gc_plan(cfg: RemoteRunnerConfig, policy: GcPolicy) -> dict[str, Any]:
     ref_reasons = lifecycle_reference_reasons(cfg)
     cache_pin_reasons = active_artifact_cache_pin_reasons(cfg)
     groups = _unique_storage_groups(rows)
+    active_bytes = sum(
+        int(group["sizeBytes"])
+        for group in groups.values()
+        if any(row["lifecycleState"] == "active" for row in group["records"])
+    )
+    quota_overage = quota_overage_bytes(active_bytes=active_bytes, quota_bytes=policy.quota_bytes)
     candidates: list[dict[str, Any]] = []
+    retention_held: list[dict[str, Any]] = []
     protected: list[dict[str, Any]] = []
     for group in groups.values():
         active_records = [row for row in group["records"] if row["lifecycleState"] == "active"]
         if not active_records:
             protected.append(_protected_item(group, ["already_deleted"]))
             continue
-        reasons = sorted(
+        hard_reasons = sorted(
             {
                 reason
                 for row in active_records
@@ -264,17 +280,44 @@ def _build_gc_plan(cfg: RemoteRunnerConfig, policy: GcPolicy) -> dict[str, Any]:
                     row,
                     policy=policy,
                     cutoff=cutoff,
+                    enforce_retention=False,
                     ref_reasons=ref_reasons,
                     cache_pin_reasons=cache_pin_reasons,
                 )
             }
         )
-        if reasons:
-            protected.append(_protected_item(group, reasons))
+        if hard_reasons:
+            protected.append(_protected_item(group, hard_reasons))
             continue
-        candidates.append(_candidate_item(group, policy=policy))
+        retention_reasons = sorted(
+            {
+                reason
+                for row in active_records
+                for reason in _record_protection_reasons(
+                    cfg,
+                    row,
+                    policy=policy,
+                    cutoff=cutoff,
+                    enforce_retention=True,
+                    ref_reasons=ref_reasons,
+                    cache_pin_reasons=cache_pin_reasons,
+                )
+            }
+        )
+        if "retention_window" in retention_reasons:
+            retention_held.append(_candidate_item(group, policy=policy, reason=ARTIFACT_GC_QUOTA_PRESSURE_REASON))
+            continue
+        candidates.append(_candidate_item(group, policy=policy, reason=policy.reason))
 
-    candidates, max_protected = _apply_max_delete_bytes(candidates, policy.max_delete_bytes)
+    retention_held, quota_candidates = apply_quota_pressure(
+        retention_held,
+        quota_overage_bytes=quota_overage,
+        existing_candidate_bytes=sum(int(item["sizeBytes"]) for item in candidates),
+    )
+    candidates.extend(quota_candidates)
+    protected.extend({**item, "reasons": ["retention_window"]} for item in retention_held)
+
+    candidates, max_protected = apply_max_delete_bytes(candidates, policy.max_delete_bytes)
     protected.extend(max_protected)
     candidates.sort(key=lambda item: (str(item["terminalAt"] or ""), str(item["storageUri"])))
     protected.sort(key=lambda item: (",".join(item["reasons"]), str(item["storageUri"])))
@@ -291,9 +334,12 @@ def _build_gc_plan(cfg: RemoteRunnerConfig, policy: GcPolicy) -> dict[str, Any]:
             "persisted": policy.persisted,
             "retentionDays": policy.retention_days,
             "eligibleRunStatuses": sorted(policy.run_statuses),
+            "quotaBytes": policy.quota_bytes,
             "maxDeleteBytes": policy.max_delete_bytes,
             "reason": policy.reason,
         },
+        "activeBytes": active_bytes,
+        "quotaOverageBytes": quota_overage,
         "candidateCount": len(candidates),
         "deleteBytes": delete_bytes,
         "protectedCount": len(protected),
@@ -337,6 +383,7 @@ def _record_protection_reasons(
     *,
     policy: GcPolicy,
     cutoff: datetime,
+    enforce_retention: bool,
     ref_reasons: dict[str, set[str]],
     cache_pin_reasons: dict[str, set[str]],
 ) -> list[str]:
@@ -354,7 +401,7 @@ def _record_protection_reasons(
     terminal_at = _terminal_at(row)
     if terminal_at is None:
         reasons.append("terminal_time_missing")
-    elif terminal_at > cutoff:
+    elif enforce_retention and terminal_at > cutoff:
         reasons.append("retention_window")
     materialization_state = str(row.get("materializationLifecycleState") or "")
     if materialization_state and materialization_state != "active":
@@ -403,7 +450,7 @@ def _storage_ref_key(row: dict[str, Any]) -> str:
     )
 
 
-def _candidate_item(group: dict[str, Any], *, policy: GcPolicy) -> dict[str, Any]:
+def _candidate_item(group: dict[str, Any], *, policy: GcPolicy, reason: str) -> dict[str, Any]:
     records = group["records"]
     terminal_values = [_terminal_at(row) for row in records]
     terminal_at = min((value for value in terminal_values if value is not None), default=None)
@@ -422,7 +469,7 @@ def _candidate_item(group: dict[str, Any], *, policy: GcPolicy) -> dict[str, Any
         ),
         "terminalAt": _format_dt(terminal_at) if terminal_at else "",
         "retentionUntil": retention_until,
-        "reason": policy.reason,
+        "reason": reason,
     }
 
 
@@ -575,6 +622,7 @@ def _public_gc_policy(policy: dict[str, Any]) -> dict[str, Any]:
         "persisted": bool(policy.get("persisted")),
         "retentionDays": int(policy.get("retentionDays") or 0),
         "eligibleRunStatuses": [str(item) for item in policy.get("eligibleRunStatuses") or []],
+        "quotaBytes": policy.get("quotaBytes"),
         "maxDeleteBytes": policy.get("maxDeleteBytes"),
         "reason": str(policy.get("reason") or ""),
     }
@@ -603,25 +651,6 @@ def _public_gc_error(item: dict[str, Any]) -> dict[str, Any]:
         "storageBackend": str(item.get("storageBackend") or ""),
         "errorCode": "ARTIFACT_GC_DELETE_FAILED",
     }
-
-
-def _apply_max_delete_bytes(
-    candidates: list[dict[str, Any]],
-    max_delete_bytes: int | None,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    if max_delete_bytes is None:
-        return candidates, []
-    kept: list[dict[str, Any]] = []
-    protected: list[dict[str, Any]] = []
-    total = 0
-    for item in sorted(candidates, key=lambda value: (str(value["terminalAt"]), str(value["storageUri"]))):
-        size = int(item["sizeBytes"])
-        if total + size > max_delete_bytes:
-            protected.append({**item, "reasons": ["max_delete_bytes"]})
-            continue
-        kept.append(item)
-        total += size
-    return kept, protected
 
 
 def _terminal_at(row: dict[str, Any]) -> datetime | None:
@@ -694,6 +723,7 @@ def _plan_id(planned_at: str, policy: GcPolicy, candidates: list[dict[str, Any]]
                 "persisted": policy.persisted,
                 "retentionDays": policy.retention_days,
                 "eligibleRunStatuses": sorted(policy.run_statuses),
+                "quotaBytes": policy.quota_bytes,
                 "maxDeleteBytes": policy.max_delete_bytes,
                 "reason": policy.reason,
             },
@@ -713,6 +743,7 @@ def _plan_fingerprint(policy: GcPolicy, candidates: list[dict[str, Any]], protec
             "persisted": policy.persisted,
             "retentionDays": policy.retention_days,
             "eligibleRunStatuses": sorted(policy.run_statuses),
+            "quotaBytes": policy.quota_bytes,
             "maxDeleteBytes": policy.max_delete_bytes,
             "reason": policy.reason,
         },
@@ -734,6 +765,7 @@ def _fingerprint_item(item: dict[str, Any], *, include_reasons: bool = False) ->
         "materializationIds": sorted(str(value) for value in item.get("materializationIds") or []),
         "terminalAt": str(item.get("terminalAt") or ""),
         "retentionUntil": str(item.get("retentionUntil") or ""),
+        "reason": str(item.get("reason") or ""),
     }
     if include_reasons:
         payload["reasons"] = sorted(str(value) for value in item.get("reasons") or [])
@@ -748,6 +780,8 @@ def _audit_details(plan: dict[str, Any]) -> dict[str, Any]:
         "protectedBytes": int(plan["protectedBytes"]),
         "retentionDays": int(plan["policy"]["retentionDays"]),
         "eligibleRunStatuses": list(plan["policy"]["eligibleRunStatuses"]),
+        "quotaBytes": plan["policy"].get("quotaBytes"),
+        "quotaOverageBytes": int(plan.get("quotaOverageBytes") or 0),
         "maxDeleteBytes": plan["policy"]["maxDeleteBytes"],
         "policyVersion": int(plan["policy"].get("policyVersion") or 0),
         "policyFingerprint": str(plan["policy"].get("policyFingerprint") or ""),
