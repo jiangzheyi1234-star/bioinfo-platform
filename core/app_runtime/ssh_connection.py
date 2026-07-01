@@ -254,10 +254,11 @@ class RuntimeSshConnectionMixin:
                 "key_file": resolved.get("identity_ref", "") if auth_mode in {"key_file", "ssh_config"} else "",
                 "use_agent": auth_mode == "agent",
                 "timeout": int(resolved.get("timeout_sec", 5)),
-            }
+        }
         steps = run_diagnostics(**diagnostics_kwargs)
         ok = all(step["status"] == "ok" for step in steps)
-        status = self.get_ssh_status()
+        diagnostic_status = self._diagnostic_ssh_status(merged=merged, resolved=resolved)
+        current_status = self.get_ssh_status()
         return {
             "ok": ok,
             "message": "SSH diagnostics passed" if ok else "SSH diagnostics failed",
@@ -269,8 +270,31 @@ class RuntimeSshConnectionMixin:
                 }
                 for step in steps
             ],
-            "status": status,
+            "status": diagnostic_status,
+            "currentStatus": current_status,
         }
+
+    def _diagnostic_ssh_status(self, *, merged: dict, resolved: dict) -> dict:
+        diagnostic_config = {
+            **merged,
+            "host": str(resolved.get("host", "") or "").strip(),
+            "port": int(resolved.get("port", 22) or 22),
+            "user": str(resolved.get("user", "") or "").strip(),
+            "identity_ref": str(resolved.get("identity_ref", "") or "").strip(),
+        }
+        status = self._compose_ssh_status(
+            ssh_config=diagnostic_config,
+            connected=False,
+            connect_in_progress=False,
+            auto_connect_attempted=False,
+            auto_connect_in_progress=False,
+            auto_connect_failed=False,
+            auto_connect_error="",
+        )
+        server = self._build_primary_server_identity(ssh_status=status)
+        if server is not None:
+            status["serverId"] = server["serverId"]
+        return status
 
     def _ensure_ssh_connected(self) -> SSHService:
         ssh = self._service_locator.ssh_service
