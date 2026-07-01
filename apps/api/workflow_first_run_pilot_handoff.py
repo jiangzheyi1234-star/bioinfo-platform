@@ -73,6 +73,15 @@ def _evidence_bundle(
         "status": "ready",
         "bundleId": f"{base_name}.first-run-evidence",
         "purpose": "portable-first-successful-run-proof",
+        "download": {
+            "role": "evidence-bundle-zip",
+            "filename": f"{base_name}.first-run-evidence.zip",
+            "source": "first-run-evidence-bundle-zip-api",
+            "href": _with_server_id_query(
+                f"{first_run_download_base}/evidence-bundle.zip" if first_run_download_base else "",
+                server_id,
+            ),
+        },
         "requiredFiles": [
             {
                 "role": "result-package",

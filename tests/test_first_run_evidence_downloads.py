@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
+import zipfile
 
 from apps.api.workflow_first_run_routes import (
+    download_first_run_evidence_bundle_zip,
     download_first_run_pilot_handoff_markdown,
     download_first_run_validation_card_json,
     download_first_run_validation_card_markdown,
@@ -80,3 +83,48 @@ def test_first_run_download_routes_return_server_owned_evidence_files(monkeypatc
     assert "/api/v1/first-run/runs/run_first/validation-card.json?serverId=srv_first" in handoff_markdown
     assert "/api/v1/first-run/runs/run_first/validation-card.md?serverId=srv_first" in handoff_markdown
     assert "/api/v1/first-run/runs/run_first/pilot-handoff.md?serverId=srv_first" in handoff_markdown
+
+
+def test_first_run_evidence_bundle_zip_contains_portable_trust_files(monkeypatch) -> None:
+    calls: list[tuple[str, str | None]] = []
+    _patch_first_run_sources(monkeypatch, calls=calls)
+
+    response = asyncio.run(download_first_run_evidence_bundle_zip("run_first", serverId="srv_first"))
+
+    assert calls == [
+        ("revision", "srv_first"),
+        ("exports", "srv_first"),
+        ("preview", "art_summary"),
+        ("preview", "art_qc"),
+    ]
+    assert response.media_type == "application/zip"
+    assert response.headers["content-disposition"] == 'attachment; filename="res_run_first.first-run-evidence.zip"'
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["cache-control"] == "private, no-store"
+
+    with zipfile.ZipFile(io.BytesIO(response.body)) as archive:
+        names = set(archive.namelist())
+        assert names == {
+            "README.md",
+            "res_run_first.evidence-bundle.json",
+            "res_run_first.pilot-handoff.md",
+            "res_run_first.validation-card.json",
+            "res_run_first.validation-card.md",
+        }
+        manifest = json.loads(archive.read("res_run_first.evidence-bundle.json").decode("utf-8"))
+        card = json.loads(archive.read("res_run_first.validation-card.json").decode("utf-8"))
+        handoff = archive.read("res_run_first.pilot-handoff.md").decode("utf-8")
+        readme = archive.read("README.md").decode("utf-8")
+
+    assert manifest["download"]["href"] == "/api/v1/first-run/runs/run_first/evidence-bundle.zip?serverId=srv_first"
+    assert manifest["requiredFiles"][0]["href"] == (
+        "/api/v1/results/res_run_first/exports/rpex_full/download?serverId=srv_first"
+    )
+    assert card["pilotHandoff"]["evidenceBundle"]["download"]["filename"] == "res_run_first.first-run-evidence.zip"
+    assert "H2OMeta First Successful Run Pilot Handoff" in handoff
+    assert "Keep it with the separately downloaded full result package" in readme
+    serialized = json.dumps(manifest, sort_keys=True) + json.dumps(card, sort_keys=True) + handoff + readme
+    assert "C:/secret" not in serialized
+    assert "s3://secret" not in serialized
+    assert '"storageUri"' not in serialized
+    assert '"packagePath"' not in serialized

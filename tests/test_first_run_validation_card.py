@@ -608,8 +608,11 @@ def test_first_run_validation_card_route_and_error_handler_are_registered() -> N
     assert '@router.get("/api/v1/first-run/runs/{run_id}/validation-card.json")' in route_source
     assert '@router.get("/api/v1/first-run/runs/{run_id}/validation-card.md")' in route_source
     assert '@router.get("/api/v1/first-run/runs/{run_id}/pilot-handoff.md")' in route_source
+    assert '@router.get("/api/v1/first-run/runs/{run_id}/evidence-bundle.zip")' in route_source
     assert "first_run_validation_card_markdown" in route_source
     assert "first_run_handoff_manifest_markdown" in route_source
+    assert "zipfile.ZipFile" in route_source
+    assert "_first_run_evidence_bundle_readme" in route_source
     assert "Content-Disposition" in route_source
     assert "private, no-store" in route_source
     assert "H2OMeta First Successful Run Validation Card" in markdown_source
@@ -1024,6 +1027,12 @@ def _expected_evidence_bundle(
         "status": "ready",
         "bundleId": "res_run_first.first-run-evidence",
         "purpose": "portable-first-successful-run-proof",
+        "download": {
+            "role": "evidence-bundle-zip",
+            "filename": "res_run_first.first-run-evidence.zip",
+            "source": "first-run-evidence-bundle-zip-api",
+            "href": "/api/v1/first-run/runs/run_first/evidence-bundle.zip?serverId=srv_first",
+        },
         "requiredFiles": [
             {
                 "role": "result-package",

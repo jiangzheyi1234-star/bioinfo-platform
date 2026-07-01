@@ -130,6 +130,8 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "first-run-evidence-bundle" in first_run_completion
     assert "first-run-pilot-backup-restore" in first_run_completion
     assert "first-run-completion-download-${role || \"evidence\"}" in first_run_completion
+    assert "first-run-completion-download-evidence-bundle-zip" in first_run_completion
+    assert "firstRunEvidenceBundleDownloadHref(evidenceBundle)" in first_run_completion
     assert "item.packageExportId" in first_run_completion
     assert "shortHash(item.sha256)" in first_run_completion
     assert "card?.pilotHandoff" in first_run_completion
@@ -154,6 +156,8 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "downloadHandoffManifest" not in first_run_evidence_state
     assert "firstRunEvidenceBundleFiles(evidenceBundle)" in first_run_completion
     assert "firstRunEvidenceBundleFileDownloadHref(file)" in first_run_completion
+    assert "export function firstRunEvidenceBundleDownloadHref" in first_run_evidence_bundle
+    assert "download?: FirstRunEvidenceBundleFile" in first_run_types
     assert "fetchWorkflowScenarioPacks" not in first_run_page
     assert "WorkflowFirstRunConductorPanel" in first_run_page
     assert "useFirstRunConductor" in first_run_page
@@ -234,8 +238,9 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "单用户试点交接" in first_run_completion
     assert "首跑已完成" in first_run_completion
     assert "下载结果包" in first_run_completion
+    assert "下载证据包 ZIP" in first_run_completion
     assert "下载证据包清单" in first_run_completion
-    assert "下载并分享以下 4 个文件" in first_run_completion
+    assert "完整结果包和证据包 ZIP" in first_run_completion
     assert "first-run-evidence-bundle-file" in first_run_completion
     assert "item.filename || item.source" in first_run_completion
     assert "firstRunEvidenceBundleFileDownloadHref(item)" in first_run_completion

@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import type { FirstRunPilotHandoff, FirstRunStatus, FirstRunValidationCard } from "../_domain/first-run-types";
 import { formatBytes } from "../_domain/first-run-display";
 import {
+  firstRunEvidenceBundleDownloadHref,
   firstRunEvidenceBundleFileDownloadHref,
   firstRunEvidenceBundleFiles,
 } from "../_domain/first-run-evidence-bundle";
@@ -57,6 +58,7 @@ export function FirstRunCompletionPanel({
   const handoff = pilotHandoff || card?.pilotHandoff || null;
   const evidenceBundle = handoff?.evidenceBundle;
   const evidenceDownloads = firstRunEvidenceBundleFiles(evidenceBundle);
+  const evidenceBundleDownloadHref = firstRunEvidenceBundleDownloadHref(evidenceBundle);
 
   return (
     <section
@@ -70,10 +72,22 @@ export function FirstRunCompletionPanel({
             首跑已完成
           </div>
           <p className="mt-1 max-w-3xl text-xs leading-5 text-emerald-800">
-            Moving Pictures 16S 已生成可下载结果包、验证卡和证据包清单。下载并分享以下 4 个文件，并保持它们放在一起。
+            Moving Pictures 16S 已生成完整结果包和证据包 ZIP；验证卡与 pilot handoff 也可单独下载。
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
+          {evidenceBundleDownloadHref ? (
+            <Button
+              asChild
+              className="h-9 bg-emerald-700 px-3 text-xs text-white hover:bg-emerald-800"
+              data-testid="first-run-completion-download-evidence-bundle-zip"
+            >
+              <a href={evidenceBundleDownloadHref} download={evidenceBundle?.download?.filename || undefined}>
+                <FileArchive strokeWidth={1.5} className="mr-2 h-3.5 w-3.5" />
+                下载证据包 ZIP
+              </a>
+            </Button>
+          ) : null}
           {evidenceDownloads.map((item) => (
             <EvidenceDownloadButton key={item.role || item.filename} file={item} />
           ))}

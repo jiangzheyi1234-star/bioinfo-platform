@@ -28,6 +28,10 @@ export function firstRunEvidenceBundleFileByRole(
   return (bundle?.requiredFiles || []).find((item) => item.role === role);
 }
 
+export function firstRunEvidenceBundleDownloadHref(bundle: FirstRunEvidenceBundle | null | undefined): string {
+  return firstRunEvidenceBundleFileDownloadHref(bundle?.download);
+}
+
 export function firstRunEvidenceBundleFileDownloadHref(file: FirstRunEvidenceBundleFile | null | undefined): string {
   const href = String(file?.href || "").trim();
   if (!href.startsWith("/api/v1/") || href.includes("://") || href.startsWith("//")) return "";

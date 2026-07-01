@@ -56,6 +56,7 @@ test.describe("First Successful Run onboarding", () => {
     await expect(page.getByTestId("first-run-pilot-handoff")).toBeVisible();
     await expect(page.getByTestId("first-run-evidence-bundle")).toBeVisible();
     await expect(page.getByTestId("first-run-evidence-bundle-file")).toHaveCount(4);
+    await expect(page.getByTestId("first-run-completion-download-evidence-bundle-zip")).toBeVisible();
     await expect(page.getByTestId("first-run-completion-download-result-package")).toBeVisible();
     await expect(page.getByTestId("first-run-completion-download-validation-card-json")).toBeVisible();
     await expect(page.getByTestId("first-run-completion-download-validation-card-markdown")).toBeVisible();
@@ -618,6 +619,11 @@ function pilotHandoff() {
       schemaVersion: "h2ometa.first-run.evidence-bundle.v1",
       status: "ready",
       bundleId: "bundle_first_run_e2e",
+      download: {
+        role: "evidence-bundle-zip",
+        filename: "first-run.evidence-bundle.zip",
+        href: `/api/v1/first-run/runs/${RUN_ID}/evidence-bundle.zip?serverId=${SERVER_ID}`,
+      },
       requiredFiles: [
         {
           role: "result-package",

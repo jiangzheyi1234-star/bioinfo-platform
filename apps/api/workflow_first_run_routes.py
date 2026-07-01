@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import io
 import json
+import zipfile
 from typing import Any
 
 from fastapi import APIRouter, Response
@@ -91,6 +93,37 @@ async def download_first_run_pilot_handoff_markdown(
     )
 
 
+@router.get("/api/v1/first-run/runs/{run_id}/evidence-bundle.zip")
+async def download_first_run_evidence_bundle_zip(
+    run_id: str,
+    serverId: str | None = None,
+) -> Response:
+    card = (await build_first_run_validation_card_from_request(run_id, server_id=serverId))["data"]
+    filename_base = _first_run_evidence_filename_base(card, run_id)
+    handoff = card.get("pilotHandoff") if isinstance(card.get("pilotHandoff"), dict) else {}
+    bundle = handoff.get("evidenceBundle") if isinstance(handoff.get("evidenceBundle"), dict) else {}
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, mode="w", compression=zipfile.ZIP_DEFLATED) as bundle_zip:
+        _write_zip_text(
+            bundle_zip,
+            f"{filename_base}.evidence-bundle.json",
+            json.dumps(bundle, ensure_ascii=False, indent=2),
+        )
+        _write_zip_text(
+            bundle_zip,
+            f"{filename_base}.validation-card.json",
+            json.dumps(card, ensure_ascii=False, indent=2),
+        )
+        _write_zip_text(bundle_zip, f"{filename_base}.validation-card.md", first_run_validation_card_markdown(card))
+        _write_zip_text(bundle_zip, f"{filename_base}.pilot-handoff.md", first_run_handoff_manifest_markdown(card))
+        _write_zip_text(bundle_zip, "README.md", _first_run_evidence_bundle_readme(card))
+    return Response(
+        content=archive.getvalue(),
+        media_type="application/zip",
+        headers=_download_headers(f"{filename_base}.first-run-evidence.zip"),
+    )
+
+
 @router.post("/api/v1/first-run/runs/{run_id}/finalize")
 async def finalize_first_run(
     run_id: str,
@@ -111,3 +144,30 @@ def _download_headers(filename: str) -> dict[str, str]:
         "X-Content-Type-Options": "nosniff",
         "Cache-Control": "private, no-store",
     }
+
+
+def _write_zip_text(bundle_zip: zipfile.ZipFile, filename: str, content: str) -> None:
+    bundle_zip.writestr(_safe_zip_member_name(filename), content.encode("utf-8"))
+
+
+def _safe_zip_member_name(filename: str) -> str:
+    safe = "".join(char if char.isalnum() or char in "._-" else "_" for char in filename)
+    return safe.strip("._") or "first-run-evidence.txt"
+
+
+def _first_run_evidence_bundle_readme(card: dict[str, Any]) -> str:
+    run = card.get("run") if isinstance(card.get("run"), dict) else {}
+    package = card.get("resultPackage") if isinstance(card.get("resultPackage"), dict) else {}
+    return "\n".join(
+        [
+            "# H2OMeta First Successful Run Evidence Bundle",
+            "",
+            f"Run: {run.get('runId') or '-'}",
+            f"Result package: {package.get('packageExportId') or '-'}",
+            f"Package SHA-256: {package.get('sha256') or '-'}",
+            f"Manifest SHA-256: {package.get('manifestSha256') or '-'}",
+            "",
+            "This zip contains the validation card, pilot handoff, and evidence bundle manifest.",
+            "Keep it with the separately downloaded full result package and verify the recorded hashes before sharing.",
+        ]
+    )

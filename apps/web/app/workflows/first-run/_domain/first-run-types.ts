@@ -298,6 +298,7 @@ export type FirstRunEvidenceBundle = {
   status?: string;
   bundleId?: string;
   purpose?: string;
+  download?: FirstRunEvidenceBundleFile;
   requiredFiles?: FirstRunEvidenceBundleFile[];
   integrity?: FirstRunPilotHandoffEvidence;
   redaction?: {
