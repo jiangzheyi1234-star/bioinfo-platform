@@ -12,10 +12,11 @@ def _source(filename: str) -> str:
     return (COMPONENTS / filename).read_text(encoding="utf-8")
 
 
-def test_trigger_events_have_read_only_frontend_surface() -> None:
+def test_trigger_events_have_definition_create_and_observability_surface() -> None:
     model = _source("workflow-trigger-model.ts")
     api = _source("workflow-trigger-api.ts")
     backfill_api = _source("workflow-backfill-api.ts")
+    definition_control = _source("workflow-trigger-definition-control.tsx")
     page = _source("workflow-trigger-observability-page.tsx")
     panel = _source("workflow-trigger-observability-panel.tsx")
     scheduler_panel = _source("workflow-trigger-scheduler-panel.tsx")
@@ -26,6 +27,10 @@ def test_trigger_events_have_read_only_frontend_surface() -> None:
     assert TRIGGER_ROUTE.exists()
     assert "WorkflowTriggerObservabilityPage" in route
     assert "WorkflowTrigger" in model
+    assert "WorkflowTriggerDefinitionSource" in model
+    assert "WorkflowTriggerDefinitionCreateRequest" in model
+    assert '"manual" | "cron" | "backfill"' in model
+    assert "WorkflowTriggerCreateResponse" in model
     assert "WorkflowTriggerContract" in model
     assert "WorkflowTriggerAuthoritativeIngress" in model
     assert "WorkflowTriggerOperatorAction" in model
@@ -67,6 +72,7 @@ def test_trigger_events_have_read_only_frontend_surface() -> None:
     assert "resourceId?: string" not in model
     assert "run?: WorkflowTriggerDispatchRun | null" in model
     assert "fetchWorkflowTriggers" in api
+    assert "createWorkflowTrigger" in api
     assert "fetchWorkflowTriggerEvents" in api
     assert "fetchWorkflowTriggerInboxEvents" in api
     assert "replayWorkflowTriggerInboxEvent" in api
@@ -102,12 +108,35 @@ def test_trigger_events_have_read_only_frontend_surface() -> None:
     assert "invalidateAsyncCachePrefix(WORKFLOW_TRIGGER_EVENTS_CACHE_KEY)" in api
     assert "invalidateAsyncCachePrefix(WORKFLOW_TRIGGER_INBOX_CACHE_KEY)" in api
     assert "requestLocalApiJson<WorkflowTriggerListResponse>" in api
+    assert "requestLocalApiJson<WorkflowTriggerCreateResponse>" in api
     assert "requestLocalApiJson<WorkflowTriggerEventListResponse>" in api
     assert "requestLocalApiJson<WorkflowTriggerInboxEventListResponse>" in api
     assert "requestLocalApiJson<WorkflowTriggerInboxReplayResponse>" in api
     assert "requestLocalApiJson<WorkflowTriggerReadinessObservationResponse>" in api
     assert "requestLocalApiJson<WorkflowTriggerSchedulerTickListResponse>" in api
+    assert "WorkflowTriggerDefinitionControl" in definition_control
+    assert 'data-testid="workflow-trigger-definition-control"' in definition_control
+    assert "WorkflowTriggerDefinitionCreateRequest" in definition_control
+    assert "Manual / cron / backfill definitions only" in definition_control
+    assert 'SelectItem value="manual"' in definition_control
+    assert 'SelectItem value="cron"' in definition_control
+    assert 'SelectItem value="backfill"' in definition_control
+    assert 'triggerSpec: { mode: "manual" }' in definition_control
+    assert "concurrencyPolicy: form.concurrencyPolicy" in definition_control
+    assert "triggerSpec: { partitionUnit: form.partitionUnit }" in definition_control
+    assert "CRON_TRIGGER_CRON_REQUIRED" in definition_control
+    assert "WORKFLOW_TRIGGER_INPUT_UPLOAD_AND_FILENAME_REQUIRED" in definition_control
+    assert "Webhook and readiness definitions stay API-only" in definition_control
+    assert "workflowRevisionId" in definition_control
+    assert "pipelineVersion" in definition_control
+    assert "pipelineId" in definition_control
+    assert "serverIdHint" in definition_control
     assert "window.setInterval(() => {" in page
+    assert "createWorkflowTrigger(request)" in page
+    assert "creatingTriggerDefinition" in page
+    assert "onCreate={createTriggerDefinition}" in page
+    assert "serverIdHint={selectedTrigger?.serverId || triggers[0]?.serverId || \"\"}" in page
+    assert "已创建 trigger definition" in page
     assert "void loadEvents(true)" in page
     assert "void loadSchedulerTicks(true)" in page
     assert "void loadReadinessObservation(true)" in page
@@ -220,11 +249,9 @@ def test_trigger_events_have_read_only_frontend_surface() -> None:
     assert "bulk replay" not in inbox_panel.lower()
 
     forbidden_controls = (
-        "createWorkflowTrigger",
         "pauseTrigger",
         "suspendTrigger",
         "catchup",
-        "concurrencyPolicy",
         "submitCronTrigger",
         "submitWebhookTrigger",
         "submitReadinessTrigger",
@@ -239,6 +266,7 @@ def test_trigger_events_have_read_only_frontend_surface() -> None:
         assert forbidden not in panel
         assert forbidden not in scheduler_panel
         assert forbidden not in inbox_panel
+        assert forbidden not in definition_control
 
 
 def test_backfill_and_results_pages_link_to_trigger_observability() -> None:

@@ -2,6 +2,27 @@ export type WorkflowTriggerSpec = Record<string, unknown>;
 
 export type WorkflowTriggerRunSpec = Record<string, unknown>;
 
+export type WorkflowTriggerDefinitionSource = "manual" | "cron" | "backfill";
+
+export type WorkflowTriggerDefinitionCreateRequest = {
+  name: string;
+  sourceType: WorkflowTriggerDefinitionSource;
+  serverId: string;
+  enabled: boolean;
+  runSpec: {
+    pipelineId: string;
+    projectId?: string;
+    pipelineVersion?: string;
+    workflowRevisionId?: string;
+    inputs?: Array<{ uploadId: string; filename: string }>;
+    params?: Record<string, string>;
+  };
+  triggerSpec:
+    | { mode: "manual" }
+    | { cron: string; timezone: string; concurrencyPolicy: "Forbid" | "Allow" }
+    | { partitionUnit: "hour" | "day" };
+};
+
 export type WorkflowTriggerAuthoritativeIngress =
   | "manual-event-api"
   | "cron-scheduler"
@@ -274,6 +295,10 @@ export type WorkflowTriggerEventSubmitResult = {
 
 export type WorkflowTriggerListResponse = {
   data: WorkflowTriggerList;
+};
+
+export type WorkflowTriggerCreateResponse = {
+  data: WorkflowTrigger;
 };
 
 export type WorkflowTriggerEventListResponse = {

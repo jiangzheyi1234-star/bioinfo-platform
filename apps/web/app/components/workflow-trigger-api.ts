@@ -6,10 +6,13 @@ import { requestLocalApiJson } from "@/app/lib/local-api-client";
 import { invalidateWorkflowBackfillLaunchCaches } from "./workflow-backfill-api";
 import { invalidateWorkflowRunResultCaches } from "./workflows-page-api";
 import type {
+  WorkflowTrigger,
   WorkflowTriggerEventList,
   WorkflowTriggerEventListResponse,
   WorkflowTriggerEventSubmitResponse,
   WorkflowTriggerEventSubmitResult,
+  WorkflowTriggerCreateResponse,
+  WorkflowTriggerDefinitionCreateRequest,
   WorkflowTriggerInboxEventList,
   WorkflowTriggerInboxEventListResponse,
   WorkflowTriggerInboxReplayResponse,
@@ -51,6 +54,24 @@ export async function fetchWorkflowTriggers(
   }, {
     forceRefresh: options.forceRefresh,
   });
+}
+
+export async function createWorkflowTrigger(
+  request: WorkflowTriggerDefinitionCreateRequest
+): Promise<WorkflowTrigger> {
+  const response = await requestLocalApiJson<WorkflowTriggerCreateResponse>(
+    "POST",
+    "/api/v1/workflow-triggers",
+    {
+      body: request,
+      cache: "no-store",
+    }
+  );
+  invalidateAsyncCachePrefix(WORKFLOW_TRIGGERS_CACHE_KEY);
+  invalidateAsyncCachePrefix(WORKFLOW_TRIGGER_EVENTS_CACHE_KEY);
+  invalidateAsyncCachePrefix(WORKFLOW_TRIGGER_SCHEDULER_TICKS_CACHE_KEY);
+  invalidateWorkflowBackfillLaunchCaches();
+  return response.data;
 }
 
 export async function fetchWorkflowTriggerEvents(

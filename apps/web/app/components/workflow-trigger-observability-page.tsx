@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 
 import { WorkflowPageHeader } from "./workflow-page-header";
 import {
+  createWorkflowTrigger,
   fetchWorkflowTriggerEvents,
   fetchWorkflowTriggerInboxEvents,
   fetchWorkflowTriggerReadinessObservation,
@@ -19,9 +20,11 @@ import {
   runWorkflowTriggerSchedulerOnce,
   submitManualWorkflowTriggerEvent,
 } from "./workflow-trigger-api";
+import { WorkflowTriggerDefinitionControl } from "./workflow-trigger-definition-control";
 import { WorkflowTriggerObservabilityPanel } from "./workflow-trigger-observability-panel";
 import type {
   WorkflowTrigger,
+  WorkflowTriggerDefinitionCreateRequest,
   WorkflowTriggerEvent,
   WorkflowTriggerInboxEvent,
   WorkflowTriggerReadinessObservation,
@@ -44,6 +47,7 @@ export function WorkflowTriggerObservabilityPage() {
   const [eventsLoading, setEventsLoading] = useState(false);
   const [inboxLoading, setInboxLoading] = useState(false);
   const [submittingManualTriggerId, setSubmittingManualTriggerId] = useState("");
+  const [creatingTriggerDefinition, setCreatingTriggerDefinition] = useState(false);
   const [replayingInboxEventId, setReplayingInboxEventId] = useState("");
   const [runningScheduler, setRunningScheduler] = useState(false);
   const [notice, setNotice] = useState("");
@@ -196,6 +200,37 @@ export function WorkflowTriggerObservabilityPage() {
     void loadSchedulerTicks(true);
   }
 
+  async function createTriggerDefinition(
+    request: WorkflowTriggerDefinitionCreateRequest
+  ): Promise<WorkflowTrigger | null> {
+    if (creatingTriggerDefinition) return null;
+    setCreatingTriggerDefinition(true);
+    setError("");
+    setEventError("");
+    setNotice("");
+    try {
+      const created = await createWorkflowTrigger(request);
+      const triggerId = created.triggerId;
+      setNotice(`已创建 trigger definition ${created.name || triggerId}`);
+      await loadTriggers(true);
+      if (triggerId) {
+        setEvents([]);
+        setInboxEvents([]);
+        setReadinessObservation(null);
+        setSelectedTriggerId(triggerId);
+        const params = new URLSearchParams(searchParams.toString());
+        params.set("trigger", triggerId);
+        router.replace(`/workflows/results/triggers?${params.toString()}`, { scroll: false });
+      }
+      return created;
+    } catch (err) {
+      setError(workflowErrorMessage(err, "创建触发定义失败"));
+      return null;
+    } finally {
+      setCreatingTriggerDefinition(false);
+    }
+  }
+
   async function replayInboxEvent(inboxEventId: string) {
     if (!selectedTriggerId || !inboxEventId || replayingInboxEventId) return;
     setReplayingInboxEventId(inboxEventId);
@@ -274,28 +309,35 @@ export function WorkflowTriggerObservabilityPage() {
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         ) : (
-          <WorkflowTriggerObservabilityPanel
-            error={error || eventError}
-            events={events}
-            eventsLoading={eventsLoading}
-            inboxEvents={inboxEvents}
-            inboxLoading={inboxLoading}
-            loading={loading}
-            notice={notice}
-            onRefresh={refresh}
-            onReplayInboxEvent={replayInboxEvent}
-            onRunSchedulerOnce={runSchedulerOnce}
-            onSelectTrigger={selectTrigger}
-            onSubmitManualTrigger={submitManualTrigger}
-            readinessObservation={readinessObservation}
-            replayingInboxEventId={replayingInboxEventId}
-            runningScheduler={runningScheduler}
-            schedulerTicks={schedulerTicks}
-            selectedTrigger={selectedTrigger}
-            selectedTriggerId={selectedTriggerId}
-            submittingManualTriggerId={submittingManualTriggerId}
-            triggers={triggers}
-          />
+          <>
+            <WorkflowTriggerDefinitionControl
+              creating={creatingTriggerDefinition}
+              onCreate={createTriggerDefinition}
+              serverIdHint={selectedTrigger?.serverId || triggers[0]?.serverId || ""}
+            />
+            <WorkflowTriggerObservabilityPanel
+              error={error || eventError}
+              events={events}
+              eventsLoading={eventsLoading}
+              inboxEvents={inboxEvents}
+              inboxLoading={inboxLoading}
+              loading={loading}
+              notice={notice}
+              onRefresh={refresh}
+              onReplayInboxEvent={replayInboxEvent}
+              onRunSchedulerOnce={runSchedulerOnce}
+              onSelectTrigger={selectTrigger}
+              onSubmitManualTrigger={submitManualTrigger}
+              readinessObservation={readinessObservation}
+              replayingInboxEventId={replayingInboxEventId}
+              runningScheduler={runningScheduler}
+              schedulerTicks={schedulerTicks}
+              selectedTrigger={selectedTrigger}
+              selectedTriggerId={selectedTriggerId}
+              submittingManualTriggerId={submittingManualTriggerId}
+              triggers={triggers}
+            />
+          </>
         )}
       </div>
     </div>
