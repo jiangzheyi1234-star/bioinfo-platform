@@ -7,6 +7,16 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+def _first_run_pilot_check_source() -> str:
+    script_dir = REPO_ROOT / "scripts"
+    return "\n".join(
+        [
+            (script_dir / "first_run_pilot_check.ps1").read_text(encoding="utf-8"),
+            (script_dir / "first_run_pilot_check_downloads.ps1").read_text(encoding="utf-8"),
+        ]
+    )
+
+
 def test_first_run_pilot_check_is_exposed_from_web_package() -> None:
     package = json.loads((REPO_ROOT / "apps" / "web" / "package.json").read_text(encoding="utf-8"))
 
@@ -16,9 +26,10 @@ def test_first_run_pilot_check_is_exposed_from_web_package() -> None:
 
 
 def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> None:
-    source = (REPO_ROOT / "scripts" / "first_run_pilot_check.ps1").read_text(encoding="utf-8")
+    source = _first_run_pilot_check_source()
 
     assert "FIRST_RUN_PILOT_CHECK_FAILED" in source
+    assert '. (Join-Path $PSScriptRoot "first_run_pilot_check_downloads.ps1")' in source
     assert "$ApiBase/health" in source
     assert "$ApiBase/api/v1/workflow-catalog" in source
     assert "$ApiBase/api/v1/workflow-scenario-packs" in source
@@ -87,12 +98,39 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "first-run evidenceBundle must include exactly one $role file" in source
     assert "first-run evidenceBundle result package file must match package hashes" in source
     assert "first-run evidenceBundle result package href must stay under the result package download API" in source
+    assert "function Assert-FirstRunResultPackageDownload" in source
+    assert "first-run result package download href must be present" in source
+    assert "first-run result package download href must stay under the result package download API" in source
+    assert "Get-FileHash -Algorithm SHA256" in source
+    assert "downloaded result package SHA-256 does not match finalization evidence" in source
+    assert "result package SHA-256 header does not match downloaded bytes" in source
+    assert "result package manifest SHA-256 header does not match finalization evidence" in source
+    assert "first-run result package download validation failed" in source
+    assert "Remove-Item -LiteralPath $packagePath -Force" in source
+    assert "$resultPackageDownloadProof = Assert-FirstRunResultPackageDownload $package $resultPackageFile" in source
     assert "first-run evidenceBundle $role filename must be" in source
     assert "first-run evidenceBundle $role href must be" in source
     assert "first-run evidenceBundle $role href must stay under the first-run download API" in source
+    assert "function Assert-FirstRunEvidenceBundleDownload" in source
+    assert "first-run evidenceBundle must expose an evidence-bundle ZIP download" in source
+    assert "evidence-bundle-zip" in source
+    assert "first-run-evidence-bundle-zip-api" in source
+    assert "first-run evidenceBundle ZIP href must be" in source
+    assert "first-run evidenceBundle ZIP href must stay under the first-run download API" in source
+    assert "first-run evidenceBundle ZIP download validation failed" in source
+    assert "System.IO.Compression.ZipFile" in source
+    assert "README.md" in source
+    assert "$baseName.evidence-bundle.json" in source
+    assert "$baseName.validation-card.json" in source
+    assert "$baseName.validation-card.md" in source
+    assert "$baseName.pilot-handoff.md" in source
+    assert "ZIP entries must exactly match the portable first-run evidence files" in source
+    assert "ZIP entry $entryName must be present and non-empty" in source
+    assert "$downloadProof = Assert-FirstRunEvidenceBundleDownload $bundle $evidence $card" in source
     assert "/api/v1/first-run/runs/$([uri]::EscapeDataString($evidence.runId))/validation-card.json" in source
     assert "/api/v1/first-run/runs/$([uri]::EscapeDataString($evidence.runId))/validation-card.md" in source
     assert "/api/v1/first-run/runs/$([uri]::EscapeDataString($evidence.runId))/pilot-handoff.md" in source
+    assert "/api/v1/first-run/runs/$([uri]::EscapeDataString($Evidence.runId))/evidence-bundle.zip" in source
     assert '$expectedServerQuery = "?serverId=$([uri]::EscapeDataString($card.runner.serverId))"' in source
     assert "validation-card.json$expectedServerQuery" in source
     assert "validation-card.md$expectedServerQuery" in source
@@ -135,8 +173,10 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "RUN_OWN_SMALL_SAMPLE" in source
     assert "$handoffProof = Assert-FirstRunPilotHandoff $finalization" in source
     assert "pilotHandoffSchemaVersion = $handoff.schemaVersion" in source
+    assert "resultPackageDownload = $resultPackageDownloadProof" in source
     assert "evidenceBundleSchemaVersion = $bundle.schemaVersion" in source
     assert "evidenceBundleFileRoles = @($requiredFiles | ForEach-Object { $_.role })" in source
+    assert "evidenceBundleDownload = $downloadProof" in source
     assert "backupRestoreSchemaVersion = $backup.schemaVersion" in source
     assert "nextScenarioIds = @($nextScenarios | ForEach-Object { $_.scenarioId })" in source
     assert "$nextScenarioDatabasePackCoverage = @($nextScenarios | ForEach-Object" in source
@@ -189,3 +229,5 @@ def test_first_run_pilot_docs_keep_mutating_proof_explicit() -> None:
     assert "sampleUploadProof.unexpectedRoles: []" in source
     assert "sampleUploadProof.duplicateRoles: []" in source
     assert "ready first-run evidence bundle" in source
+    assert "handoffProof.evidenceBundleDownload" in source
+    assert "handoffProof.resultPackageDownload" in source

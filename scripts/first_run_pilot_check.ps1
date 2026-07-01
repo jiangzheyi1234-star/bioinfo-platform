@@ -43,6 +43,8 @@ function Fail-Pilot {
     throw "FIRST_RUN_PILOT_CHECK_FAILED: $Message"
 }
 
+. (Join-Path $PSScriptRoot "first_run_pilot_check_downloads.ps1")
+
 function Get-Json {
     param([string]$Url)
     try {
@@ -344,6 +346,7 @@ function Assert-FirstRunPilotHandoff {
     if ([string]::IsNullOrWhiteSpace([string]$resultPackageFile.href) -or -not ([string]$resultPackageFile.href).StartsWith("/api/v1/results/")) {
         Fail-Pilot "first-run evidenceBundle result package href must stay under the result package download API"
     }
+    $resultPackageDownloadProof = Assert-FirstRunResultPackageDownload $package $resultPackageFile
     $baseName = $card.result.resultId
     $expectedBundleFilenames = @{
         "validation-card-json" = "$baseName.validation-card.json"
@@ -380,6 +383,7 @@ function Assert-FirstRunPilotHandoff {
     if (-not (@($bundle.consumerChecklist) -contains "keep-result-package-validation-card-and-handoff-together")) {
         Fail-Pilot "first-run evidenceBundle must tell operators to keep the evidence files together"
     }
+    $downloadProof = Assert-FirstRunEvidenceBundleDownload $bundle $evidence $card
 
     $checks = @($card.checks)
     $passedChecks = @($checks | Where-Object { $_.status -eq "passed" })
@@ -565,8 +569,10 @@ function Assert-FirstRunPilotHandoff {
         manifestSha256 = $evidence.manifestSha256
         validationChecksPassed = $evidence.validationChecksPassed
         validationChecksTotal = $evidence.validationChecksTotal
+        resultPackageDownload = $resultPackageDownloadProof
         evidenceBundleSchemaVersion = $bundle.schemaVersion
         evidenceBundleFileRoles = @($requiredFiles | ForEach-Object { $_.role })
+        evidenceBundleDownload = $downloadProof
         backupRestoreSchemaVersion = $backup.schemaVersion
         backupPlanCommand = $backup.planCommand
         restoreProofCommand = $backup.restoreProofCommand
