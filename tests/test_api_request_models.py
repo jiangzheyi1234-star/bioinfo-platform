@@ -43,6 +43,7 @@ from apps.api.models import (
     WorkflowTriggerInboxEventRequest,
     WorkflowTriggerInboxReplayRequest,
     WorkflowTriggerReadinessEventRequest,
+    WorkflowTriggerReadinessWatcherRunOnceRequest,
     WorkflowTriggerSchedulerRunOnceRequest,
 )
 
@@ -804,6 +805,36 @@ def test_workflow_trigger_scheduler_run_once_request_requires_confirmation_and_b
     assert any(error["type"] == "literal_error" and error["loc"] == ("confirmation",) for error in errors)
     assert any(error["type"] == "less_than_equal" and error["loc"] == ("limit",) for error in errors)
     assert any(error["type"] == "extra_forbidden" and error["loc"] == ("now",) for error in errors)
+
+
+def test_workflow_trigger_readiness_watcher_run_once_request_requires_confirmation_and_bounds() -> None:
+    request = WorkflowTriggerReadinessWatcherRunOnceRequest.model_validate(
+        {
+            "serverId": "srv_primary",
+            "confirmation": "run-readiness-watcher-once",
+            "limit": 12,
+            "actor": "operator",
+            "reason": "manual readiness watcher scan",
+        }
+    )
+
+    assert request.confirmation == "run-readiness-watcher-once"
+    assert request.limit == 12
+    assert request.serverId == "srv_primary"
+
+    with pytest.raises(ValidationError) as exc_info:
+        WorkflowTriggerReadinessWatcherRunOnceRequest.model_validate(
+            {
+                "confirmation": "run-now",
+                "limit": 101,
+                "path": "E:/secret/raw-path",
+            }
+        )
+
+    errors = exc_info.value.errors()
+    assert any(error["type"] == "literal_error" and error["loc"] == ("confirmation",) for error in errors)
+    assert any(error["type"] == "less_than_equal" and error["loc"] == ("limit",) for error in errors)
+    assert any(error["type"] == "extra_forbidden" and error["loc"] == ("path",) for error in errors)
 
 
 def test_artifact_lifecycle_controller_run_once_request_requires_confirmation_and_bounds() -> None:

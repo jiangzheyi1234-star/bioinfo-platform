@@ -21,6 +21,7 @@ from core.contracts.remote_endpoints import (
     WORKFLOW_TRIGGER_LIST,
     WORKFLOW_TRIGGER_READINESS_OBSERVATION_READ,
     WORKFLOW_TRIGGER_READINESS_SUBMIT,
+    WORKFLOW_TRIGGER_READINESS_WATCHER_RUN_ONCE,
     WORKFLOW_TRIGGER_SCHEDULER_RUN_ONCE,
     WORKFLOW_TRIGGER_SCHEDULER_TICKS_READ,
     remote_endpoint_success_status,
@@ -34,6 +35,7 @@ from .api_models import (
     WorkflowTriggerEventRequest,
     WorkflowTriggerInboxReplayRequest,
     WorkflowTriggerReadinessEventRequest,
+    WorkflowTriggerReadinessWatcherRunOnceRequest,
     WorkflowTriggerSchedulerRunOnceRequest,
 )
 from .control_service import (
@@ -54,6 +56,7 @@ from .control_service import (
     submit_workflow_trigger_readiness_event_request,
 )
 from .route_headers import AuthorizationHeader
+from .trigger_readiness_watcher_control_route_service import run_workflow_trigger_readiness_watcher_once_request
 from .trigger_scheduler_control_route_service import run_workflow_trigger_scheduler_once_request
 from .webhook_raw_request import WebhookRawRequestEnvelope, build_webhook_raw_request_envelope
 
@@ -142,6 +145,18 @@ async def run_workflow_trigger_scheduler_once(
     authorization: AuthorizationHeader = None,
 ) -> dict[str, Any]:
     return await run_workflow_trigger_scheduler_once_request(payload, authorization)
+
+
+@router.post(
+    "/api/v1/workflow-trigger-readiness-watcher/run-once",
+    operation_id=REMOTE_ENDPOINTS[WORKFLOW_TRIGGER_READINESS_WATCHER_RUN_ONCE].operation_id,
+    status_code=remote_endpoint_success_status(WORKFLOW_TRIGGER_READINESS_WATCHER_RUN_ONCE),
+)
+async def run_workflow_trigger_readiness_watcher_once(
+    payload: WorkflowTriggerReadinessWatcherRunOnceRequest,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await run_workflow_trigger_readiness_watcher_once_request(payload, authorization)
 
 
 @router.get(

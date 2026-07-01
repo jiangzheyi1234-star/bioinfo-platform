@@ -41,6 +41,10 @@ type DefinitionFormState = {
   webhookProvider: WorkflowTriggerWebhookProvider;
   webhookSecretRef: string;
   webhookToleranceSeconds: string;
+  watchAdapter: "local_path" | "database_registry";
+  watchEnabled: boolean;
+  watchPath: string;
+  watchStabilitySeconds: string;
   resourceId: string;
   resourceUri: string;
   partitionUnit: "day" | "hour";
@@ -67,6 +71,10 @@ const DEFAULT_FORM: DefinitionFormState = {
   webhookProvider: "github",
   webhookSecretRef: "",
   webhookToleranceSeconds: "",
+  watchAdapter: "local_path",
+  watchEnabled: false,
+  watchPath: "",
+  watchStabilitySeconds: "",
   resourceId: "",
   resourceUri: "",
   partitionUnit: "day",
@@ -139,7 +147,11 @@ export function WorkflowTriggerDefinitionControl({
             <Select
               value={form.sourceType}
               onValueChange={(value) =>
-                setForm((current) => ({ ...current, sourceType: value as WorkflowTriggerDefinitionSource }))
+                setForm((current) => ({
+                  ...current,
+                  sourceType: value as WorkflowTriggerDefinitionSource,
+                  watchAdapter: value === "database_ready" ? "database_registry" : "local_path",
+                }))
               }
             >
               <SelectTrigger className="h-8 text-xs">
@@ -359,30 +371,83 @@ export function WorkflowTriggerDefinitionControl({
           </div>
         ) : null}
         {isReadinessSource(form.sourceType) ? (
-          <div className="grid gap-3 md:grid-cols-[160px_minmax(0,1fr)_minmax(0,1fr)]">
-            <Field label="resource type">
-              <Input
-                value={readinessResourceType(form.sourceType)}
-                className="h-8 font-mono text-xs"
-                readOnly
-              />
-            </Field>
-            <Field label="resource id">
-              <Input
-                value={form.resourceId}
-                onChange={(event) => setForm((current) => ({ ...current, resourceId: event.target.value }))}
-                className="h-8 font-mono text-xs"
-                placeholder={readinessResourceIdPlaceholder(form.sourceType)}
-              />
-            </Field>
-            <Field label="resource uri">
-              <Input
-                value={form.resourceUri}
-                onChange={(event) => setForm((current) => ({ ...current, resourceUri: event.target.value }))}
-                className="h-8 font-mono text-xs"
-                placeholder="optional"
-              />
-            </Field>
+          <div className="grid gap-3">
+            <div className="grid gap-3 md:grid-cols-[160px_minmax(0,1fr)_minmax(0,1fr)]">
+              <Field label="resource type">
+                <Input
+                  value={readinessResourceType(form.sourceType)}
+                  className="h-8 font-mono text-xs"
+                  readOnly
+                />
+              </Field>
+              <Field label="resource id">
+                <Input
+                  value={form.resourceId}
+                  onChange={(event) => setForm((current) => ({ ...current, resourceId: event.target.value }))}
+                  className="h-8 font-mono text-xs"
+                  placeholder={readinessResourceIdPlaceholder(form.sourceType)}
+                />
+              </Field>
+              <Field label="resource uri">
+                <Input
+                  value={form.resourceUri}
+                  onChange={(event) => setForm((current) => ({ ...current, resourceUri: event.target.value }))}
+                  className="h-8 font-mono text-xs"
+                  placeholder="optional"
+                />
+              </Field>
+            </div>
+            <div className="grid gap-3 md:grid-cols-[140px_180px_minmax(0,1fr)_160px]">
+              <label className="flex items-center gap-2 pt-5 text-xs text-slate-600">
+                <Checkbox
+                  checked={form.watchEnabled}
+                  onCheckedChange={(checked) => setForm((current) => ({ ...current, watchEnabled: checked === true }))}
+                />
+                watch enabled
+              </label>
+              <Field label="watch adapter">
+                <Select
+                  value={form.watchAdapter}
+                  onValueChange={(value) =>
+                    setForm((current) => ({ ...current, watchAdapter: value as "local_path" | "database_registry" }))
+                  }
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="local_path">local_path</SelectItem>
+                    <SelectItem value="database_registry">database_registry</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+              {form.watchAdapter === "local_path" ? (
+                <>
+                  <Field label="watch path">
+                    <Input
+                      value={form.watchPath}
+                      onChange={(event) => setForm((current) => ({ ...current, watchPath: event.target.value }))}
+                      className="h-8 font-mono text-xs"
+                      placeholder="E:/data/incoming/reads.fastq"
+                    />
+                  </Field>
+                  <Field label="stability seconds">
+                    <Input
+                      value={form.watchStabilitySeconds}
+                      onChange={(event) =>
+                        setForm((current) => ({ ...current, watchStabilitySeconds: event.target.value }))
+                      }
+                      className="h-8 font-mono text-xs"
+                      placeholder="0"
+                    />
+                  </Field>
+                </>
+              ) : (
+                <div className="self-end text-xs text-slate-500 md:col-span-2">
+                  database_registry watches the registered database status.
+                </div>
+              )}
+            </div>
           </div>
         ) : null}
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
@@ -508,6 +573,8 @@ function buildCreateRequest(form: DefinitionFormState): WorkflowTriggerDefinitio
     const resourceId = form.resourceId.trim();
     const resourceUri = form.resourceUri.trim();
     if (!resourceId) return "WORKFLOW_TRIGGER_READINESS_RESOURCE_ID_REQUIRED";
+    const watch = readinessWatchSpec(form);
+    if (typeof watch === "string") return watch;
     return {
       name,
       sourceType: form.sourceType,
@@ -519,6 +586,7 @@ function buildCreateRequest(form: DefinitionFormState): WorkflowTriggerDefinitio
           type: readinessResourceType(form.sourceType),
           id: resourceId,
           ...(resourceUri ? { uri: resourceUri } : {}),
+          ...(watch ? { watch } : {}),
         },
       },
     };
@@ -546,6 +614,26 @@ function readinessResourceIdPlaceholder(sourceType: WorkflowTriggerDefinitionSou
   if (sourceType === "database_ready") return "database:blast-nt";
   if (sourceType === "file") return "file:/incoming/reads.fastq";
   return "dataset:reads";
+}
+
+function readinessWatchSpec(form: DefinitionFormState) {
+  if (!form.watchEnabled) return null;
+  if (form.watchAdapter === "database_registry") {
+    return { enabled: true, adapter: "database_registry" as const };
+  }
+  const path = form.watchPath.trim();
+  if (!path) return "WORKFLOW_TRIGGER_WATCH_PATH_REQUIRED";
+  const stabilityText = form.watchStabilitySeconds.trim();
+  const stabilitySeconds = stabilityText ? Number(stabilityText) : 0;
+  if (!Number.isInteger(stabilitySeconds) || stabilitySeconds < 0 || stabilitySeconds > 86400) {
+    return "WORKFLOW_TRIGGER_WATCH_STABILITY_SECONDS_OUT_OF_RANGE";
+  }
+  return {
+    enabled: true,
+    adapter: "local_path" as const,
+    path,
+    ...(stabilitySeconds > 0 ? { stabilitySeconds } : {}),
+  };
 }
 
 function commaLabels(value: string) {

@@ -145,7 +145,11 @@ def test_workflow_trigger_mutation_actions_use_workflow_operator_role(tmp_path) 
         api_token_roles=("workflow-operator",),
     )
 
-    for action in ("workflow_trigger.inbox_replay", "workflow_trigger.scheduler.run_once"):
+    for action in (
+        "workflow_trigger.inbox_replay",
+        "workflow_trigger.scheduler.run_once",
+        "workflow_trigger.readiness_watcher.run_once",
+    ):
         try:
             authorize_action(denied, action)
         except RemoteRunnerAuthorizationError as exc:

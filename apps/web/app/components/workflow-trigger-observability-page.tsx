@@ -17,6 +17,7 @@ import {
   fetchWorkflowTriggerSchedulerTicks,
   fetchWorkflowTriggers,
   replayWorkflowTriggerInboxEvent,
+  runWorkflowTriggerReadinessWatcherOnce,
   runWorkflowTriggerSchedulerOnce,
   submitManualWorkflowTriggerEvent,
 } from "./workflow-trigger-api";
@@ -28,6 +29,7 @@ import type {
   WorkflowTriggerEvent,
   WorkflowTriggerInboxEvent,
   WorkflowTriggerReadinessObservation,
+  WorkflowTriggerReadinessWatcherRunOnceResult,
   WorkflowTriggerSchedulerTick,
 } from "./workflow-trigger-model";
 import { workflowErrorMessage } from "./workflows-page-model";
@@ -41,6 +43,7 @@ export function WorkflowTriggerObservabilityPage() {
   const [events, setEvents] = useState<WorkflowTriggerEvent[]>([]);
   const [inboxEvents, setInboxEvents] = useState<WorkflowTriggerInboxEvent[]>([]);
   const [readinessObservation, setReadinessObservation] = useState<WorkflowTriggerReadinessObservation | null>(null);
+  const [readinessWatcherTick, setReadinessWatcherTick] = useState<WorkflowTriggerReadinessWatcherRunOnceResult | null>(null);
   const [schedulerTicks, setSchedulerTicks] = useState<WorkflowTriggerSchedulerTick[]>([]);
   const [selectedTriggerId, setSelectedTriggerId] = useState(triggerFromQuery);
   const [loading, setLoading] = useState(true);
@@ -49,6 +52,7 @@ export function WorkflowTriggerObservabilityPage() {
   const [submittingManualTriggerId, setSubmittingManualTriggerId] = useState("");
   const [creatingTriggerDefinition, setCreatingTriggerDefinition] = useState(false);
   const [replayingInboxEventId, setReplayingInboxEventId] = useState("");
+  const [runningReadinessWatcher, setRunningReadinessWatcher] = useState(false);
   const [runningScheduler, setRunningScheduler] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -283,6 +287,27 @@ export function WorkflowTriggerObservabilityPage() {
     }
   }
 
+  async function runReadinessWatcherOnce() {
+    if (runningReadinessWatcher) return;
+    setRunningReadinessWatcher(true);
+    setEventError("");
+    setNotice("");
+    try {
+      const result = await runWorkflowTriggerReadinessWatcherOnce({ limit: 100 });
+      setReadinessWatcherTick(result);
+      setNotice(
+        result.runOnceId
+          ? `已执行 readiness watcher ${result.runOnceId}`
+          : "已执行 readiness watcher"
+      );
+      await Promise.all([loadReadinessObservation(true), loadEvents(true), loadTriggers(true)]);
+    } catch (err) {
+      setEventError(workflowErrorMessage(err, "运行 readiness watcher 失败"));
+    } finally {
+      setRunningReadinessWatcher(false);
+    }
+  }
+
   return (
     <div className="relative flex-1 h-full w-full overflow-y-auto bg-white px-8 py-10 text-slate-800">
       <div className="mx-auto max-w-6xl space-y-6">
@@ -325,11 +350,14 @@ export function WorkflowTriggerObservabilityPage() {
               notice={notice}
               onRefresh={refresh}
               onReplayInboxEvent={replayInboxEvent}
+              onRunReadinessWatcherOnce={runReadinessWatcherOnce}
               onRunSchedulerOnce={runSchedulerOnce}
               onSelectTrigger={selectTrigger}
               onSubmitManualTrigger={submitManualTrigger}
               readinessObservation={readinessObservation}
+              readinessWatcherTick={readinessWatcherTick}
               replayingInboxEventId={replayingInboxEventId}
+              runningReadinessWatcher={runningReadinessWatcher}
               runningScheduler={runningScheduler}
               schedulerTicks={schedulerTicks}
               selectedTrigger={selectedTrigger}

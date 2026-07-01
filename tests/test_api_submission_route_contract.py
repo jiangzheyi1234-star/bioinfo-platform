@@ -170,11 +170,14 @@ def test_workflow_trigger_routes_delegate_runtime_calls_to_service() -> None:
     route_source = _source("apps/api/workflow_trigger_routes.py")
     service_path = ROOT / "apps/api/workflow_trigger_service.py"
     scheduler_service_path = ROOT / "apps/api/workflow_trigger_scheduler_control_service.py"
+    watcher_service_path = ROOT / "apps/api/workflow_trigger_readiness_watcher_control_service.py"
 
     assert service_path.exists()
     assert scheduler_service_path.exists()
+    assert watcher_service_path.exists()
     service_source = service_path.read_text(encoding="utf-8")
     scheduler_service_source = scheduler_service_path.read_text(encoding="utf-8")
+    watcher_service_source = watcher_service_path.read_text(encoding="utf-8")
 
     assert "from apps.api.workflow_trigger_routes import router as workflow_trigger_router" in main_source
     assert "app.include_router(workflow_trigger_router)" in main_source
@@ -193,6 +196,7 @@ def test_workflow_trigger_routes_delegate_runtime_calls_to_service() -> None:
     assert "get_workflow_backfill_launch_from_request" in route_source
     assert "cancel_workflow_backfill_launch_from_request" in route_source
     assert "run_workflow_trigger_scheduler_once_from_request" in route_source
+    assert "run_workflow_trigger_readiness_watcher_once_from_request" in route_source
     assert "launch_workflow_trigger_backfill_from_request" in route_source
     assert "preview_workflow_trigger_backfill_from_request" in route_source
     assert "submit_workflow_trigger_event_response_from_request" in route_source
@@ -238,7 +242,9 @@ def test_workflow_trigger_routes_delegate_runtime_calls_to_service() -> None:
     assert "runtime_service().list_workflow_trigger_inbox_events(" in service_source
     assert "runtime_service().submit_workflow_trigger_readiness_event(" in service_source
     assert "runtime_service().run_workflow_trigger_scheduler_once(" in scheduler_service_source
+    assert "runtime_service().run_workflow_trigger_readiness_watcher_once(" in watcher_service_source
     assert '"workflow_trigger_scheduler_ticks"' in scheduler_service_source
+    assert '"workflow_trigger_readiness_observation"' in watcher_service_source
     assert '"workflow_backfill_launches"' in scheduler_service_source
     assert 'prefixes=("workflow_trigger_events", "workflow_trigger_inbox")' in service_source
     assert 'prefixes=("workflow_trigger_events", "workflow_backfill_launches", "workflow_backfill_launch")' in service_source

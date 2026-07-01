@@ -62,6 +62,7 @@ from core.contracts.remote_endpoints import (
     WORKFLOW_TRIGGER_LIST,
     WORKFLOW_TRIGGER_READINESS_OBSERVATION_READ,
     WORKFLOW_TRIGGER_READINESS_SUBMIT,
+    WORKFLOW_TRIGGER_READINESS_WATCHER_RUN_ONCE,
     WORKFLOW_TRIGGER_SCHEDULER_RUN_ONCE,
     WORKFLOW_TRIGGER_SCHEDULER_TICKS_READ,
 )
@@ -302,6 +303,20 @@ class ExecutionManager(BaseRuntimeManager):
         server_id_hint = str(body.pop("serverId", None) or server_id or "").strip() or None
         return self.read_remote_endpoint(
             WORKFLOW_TRIGGER_SCHEDULER_RUN_ONCE,
+            payload=body,
+            preferred_server_id=server_id_hint,
+            timeout=20,
+        )
+
+    def run_workflow_trigger_readiness_watcher_once(
+        self,
+        payload: Optional[dict[str, Any]] = None,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        body = dict(payload or {})
+        server_id_hint = str(body.pop("serverId", None) or server_id or "").strip() or None
+        return self.read_remote_endpoint(
+            WORKFLOW_TRIGGER_READINESS_WATCHER_RUN_ONCE,
             payload=body,
             preferred_server_id=server_id_hint,
             timeout=20,

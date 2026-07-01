@@ -25,10 +25,12 @@ import type {
   WorkflowTriggerEventPayload,
   WorkflowTriggerInboxEvent,
   WorkflowTriggerReadinessObservation,
+  WorkflowTriggerReadinessWatcherRunOnceResult,
   WorkflowTriggerSchedulerTick,
   WorkflowRunAdmissionSummary,
 } from "./workflow-trigger-model";
 import { WorkflowTriggerInboxPanel } from "./workflow-trigger-inbox-panel";
+import { WorkflowTriggerReadinessWatcherPanel } from "./workflow-trigger-readiness-watcher-panel";
 import { WorkflowTriggerSchedulerPanel } from "./workflow-trigger-scheduler-panel";
 
 export function WorkflowTriggerObservabilityPanel({
@@ -41,11 +43,14 @@ export function WorkflowTriggerObservabilityPanel({
   notice,
   onRefresh,
   onReplayInboxEvent,
+  onRunReadinessWatcherOnce,
   onRunSchedulerOnce,
   onSelectTrigger,
   onSubmitManualTrigger,
   readinessObservation,
+  readinessWatcherTick,
   replayingInboxEventId,
+  runningReadinessWatcher,
   runningScheduler,
   schedulerTicks,
   selectedTrigger,
@@ -62,11 +67,14 @@ export function WorkflowTriggerObservabilityPanel({
   notice: string;
   onRefresh: () => void;
   onReplayInboxEvent: (inboxEventId: string) => void;
+  onRunReadinessWatcherOnce: () => void;
   onRunSchedulerOnce: () => void;
   onSelectTrigger: (triggerId: string) => void;
   onSubmitManualTrigger: (triggerId: string) => void;
   readinessObservation: WorkflowTriggerReadinessObservation | null;
+  readinessWatcherTick: WorkflowTriggerReadinessWatcherRunOnceResult | null;
   replayingInboxEventId: string;
+  runningReadinessWatcher: boolean;
   runningScheduler: boolean;
   schedulerTicks: WorkflowTriggerSchedulerTick[];
   selectedTrigger: WorkflowTrigger | null;
@@ -112,6 +120,11 @@ export function WorkflowTriggerObservabilityPanel({
         onRunSchedulerOnce={onRunSchedulerOnce}
         runningScheduler={runningScheduler}
         ticks={schedulerTicks}
+      />
+      <WorkflowTriggerReadinessWatcherPanel
+        latest={readinessWatcherTick}
+        onRunReadinessWatcherOnce={onRunReadinessWatcherOnce}
+        runningReadinessWatcher={runningReadinessWatcher}
       />
 
       {loading && triggers.length === 0 ? (

@@ -124,6 +124,13 @@ class RunnerExecutionOperationsMixin:
     ) -> dict[str, Any]:
         return self.execution.run_workflow_trigger_scheduler_once(payload, server_id)
 
+    def run_workflow_trigger_readiness_watcher_once(
+        self,
+        payload: Optional[dict[str, Any]] = None,
+        server_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        return self.execution.run_workflow_trigger_readiness_watcher_once(payload, server_id)
+
     def list_workflow_backfill_launches(
         self,
         *,

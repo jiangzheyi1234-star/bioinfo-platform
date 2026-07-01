@@ -17,6 +17,26 @@ from core.contracts.result_package_remote_endpoints import RESULT_PACKAGE_REMOTE
 from core.contracts.submission_remote_endpoints import RUN_CREATE as _RUN_CREATE, SUBMISSION_REMOTE_ENDPOINT_SPECS, UPLOAD_CREATE as _UPLOAD_CREATE
 from core.contracts.tool_remote_endpoints import TOOL_REMOTE_ENDPOINT_SPECS
 from core.contracts.workflow_design_remote_endpoints import WORKFLOW_DESIGN_REMOTE_ENDPOINT_SPECS
+from core.contracts.workflow_trigger_remote_endpoints import (
+    WORKFLOW_BACKFILL_LAUNCH_CANCEL,
+    WORKFLOW_BACKFILL_LAUNCH_LIST,
+    WORKFLOW_BACKFILL_LAUNCH_READ,
+    WORKFLOW_TRIGGER_BACKFILL_LAUNCH,
+    WORKFLOW_TRIGGER_BACKFILL_PREVIEW,
+    WORKFLOW_TRIGGER_CREATE,
+    WORKFLOW_TRIGGER_EVENT_SUBMIT,
+    WORKFLOW_TRIGGER_EVENTS_READ,
+    WORKFLOW_TRIGGER_INBOX_REPLAY,
+    WORKFLOW_TRIGGER_INBOX_READ,
+    WORKFLOW_TRIGGER_INBOX_SUBMIT,
+    WORKFLOW_TRIGGER_LIST,
+    WORKFLOW_TRIGGER_READINESS_OBSERVATION_READ,
+    WORKFLOW_TRIGGER_READINESS_SUBMIT,
+    WORKFLOW_TRIGGER_READINESS_WATCHER_RUN_ONCE,
+    WORKFLOW_TRIGGER_REMOTE_ENDPOINT_SPECS,
+    WORKFLOW_TRIGGER_SCHEDULER_RUN_ONCE,
+    WORKFLOW_TRIGGER_SCHEDULER_TICKS_READ,
+)
 
 
 class RemoteEndpointContractError(ValueError):
@@ -50,22 +70,6 @@ class RemoteEndpoint:
             if field_name
         ]
         return tuple(dict.fromkeys(names))
-
-
-def _workflow_trigger_command_endpoint(
-    endpoint_id: str, path_template: str, operation_id: str,
-    governance_action: str, request_schema: str, response_schema: str,
-    *,
-    invalidates: tuple[str, ...] = (),
-    response_key: str = "data",
-    accepted_statuses: tuple[int, ...] = (200,),
-) -> RemoteEndpoint:
-    return RemoteEndpoint(
-        endpoint_id=endpoint_id, method="POST", path_template=path_template, operation_id=operation_id,
-        governance_action=governance_action, request_schema=request_schema, response_schema=response_schema,
-        cache_scope="workflow-trigger-command", invalidates=invalidates, response_key=response_key,
-        accepted_statuses=accepted_statuses,
-    )
 
 
 RUN_LIST = "run.list"
@@ -107,22 +111,6 @@ ARTIFACT_CACHE_PINS_READ = "artifact.cache_pins.read"
 ARTIFACT_CACHE_PIN_RETAIN = "artifact.cache_pin.retain"
 ARTIFACT_CACHE_PIN_RELEASE = "artifact.cache_pin.release"
 ARTIFACT_CACHE_LOOKUP = "artifact.cache.lookup"
-WORKFLOW_TRIGGER_LIST = "workflow_trigger.list"
-WORKFLOW_TRIGGER_CREATE = "workflow_trigger.create"
-WORKFLOW_TRIGGER_EVENTS_READ = "workflow_trigger.events.read"
-WORKFLOW_TRIGGER_EVENT_SUBMIT = "workflow_trigger.event.submit"
-WORKFLOW_TRIGGER_READINESS_OBSERVATION_READ = "workflow_trigger.readiness_observation.read"
-WORKFLOW_TRIGGER_READINESS_SUBMIT = "workflow_trigger.readiness.submit"
-WORKFLOW_TRIGGER_INBOX_READ = "workflow_trigger.inbox.read"
-WORKFLOW_TRIGGER_INBOX_SUBMIT = "workflow_trigger.inbox.submit"
-WORKFLOW_TRIGGER_INBOX_REPLAY = "workflow_trigger.inbox.replay"
-WORKFLOW_TRIGGER_SCHEDULER_TICKS_READ = "workflow_trigger.scheduler_ticks.read"
-WORKFLOW_TRIGGER_SCHEDULER_RUN_ONCE = "workflow_trigger.scheduler.run_once"
-WORKFLOW_BACKFILL_LAUNCH_LIST = "workflow_trigger.backfill_launch.list"
-WORKFLOW_BACKFILL_LAUNCH_READ = "workflow_trigger.backfill_launch.read"
-WORKFLOW_TRIGGER_BACKFILL_PREVIEW = "workflow_trigger.backfill.preview"
-WORKFLOW_TRIGGER_BACKFILL_LAUNCH = "workflow_trigger.backfill.launch"
-WORKFLOW_BACKFILL_LAUNCH_CANCEL = "workflow_trigger.backfill_launch.cancel"
 GOVERNANCE_AUDIT_EVENTS_READ = "audit.events.read"
 SECRET_PROVIDER_READINESS_READ = "secret.provider_readiness.read"
 
@@ -571,143 +559,10 @@ REMOTE_ENDPOINTS: dict[str, RemoteEndpoint] = {
     },
     **{endpoint_id: RemoteEndpoint(endpoint_id=endpoint_id, **spec) for endpoint_id, spec in DATABASE_REMOTE_ENDPOINT_SPECS.items()},
     **{endpoint_id: RemoteEndpoint(endpoint_id=endpoint_id, **spec) for endpoint_id, spec in TOOL_REMOTE_ENDPOINT_SPECS.items()},
-    WORKFLOW_TRIGGER_LIST: RemoteEndpoint(
-        endpoint_id=WORKFLOW_TRIGGER_LIST,
-        method="GET",
-        path_template="/api/v1/workflow-triggers",
-        operation_id="listWorkflowTriggers",
-        governance_action="workflow_trigger.list",
-        request_schema=None,
-        response_schema="workflow-trigger-list.v1",
-        cache_scope="workflow-trigger-read-model",
-    ),
-    WORKFLOW_TRIGGER_CREATE: _workflow_trigger_command_endpoint(
-        WORKFLOW_TRIGGER_CREATE, "/api/v1/workflow-triggers", "createWorkflowTrigger",
-        "workflow_trigger.create", "workflow-trigger-create-request.v1", "workflow-trigger.v1",
-        invalidates=("workflow-trigger-read-model",),
-        accepted_statuses=(201,),
-    ),
-    WORKFLOW_TRIGGER_EVENTS_READ: RemoteEndpoint(
-        endpoint_id=WORKFLOW_TRIGGER_EVENTS_READ,
-        method="GET",
-        path_template="/api/v1/workflow-triggers/{trigger_id}/events",
-        operation_id="listWorkflowTriggerEvents",
-        governance_action="workflow_trigger.events.read",
-        request_schema=None,
-        response_schema="workflow-trigger-event-list.v1",
-        cache_scope="workflow-trigger-read-model",
-    ),
-    WORKFLOW_TRIGGER_EVENT_SUBMIT: _workflow_trigger_command_endpoint(
-        WORKFLOW_TRIGGER_EVENT_SUBMIT, "/api/v1/workflow-triggers/{trigger_id}/events",
-        "submitWorkflowTriggerEvent", "workflow_trigger.dispatch",
-        "workflow-trigger-event-request.v1", "workflow-trigger-dispatch.v1",
-        invalidates=("workflow-trigger-read-model", "run-read-model"),
-        response_key="",
-        accepted_statuses=(202,),
-    ),
-    WORKFLOW_TRIGGER_READINESS_OBSERVATION_READ: RemoteEndpoint(
-        endpoint_id=WORKFLOW_TRIGGER_READINESS_OBSERVATION_READ,
-        method="GET",
-        path_template="/api/v1/workflow-triggers/{trigger_id}/readiness-observation",
-        operation_id="getWorkflowTriggerReadinessObservation",
-        governance_action="workflow_trigger.readiness_observation.read",
-        request_schema=None,
-        response_schema="workflow-trigger-readiness-observation.v1",
-        cache_scope="workflow-trigger-read-model",
-    ),
-    WORKFLOW_TRIGGER_READINESS_SUBMIT: _workflow_trigger_command_endpoint(
-        WORKFLOW_TRIGGER_READINESS_SUBMIT, "/api/v1/workflow-triggers/{trigger_id}/readiness",
-        "submitWorkflowTriggerReadinessEvent", "workflow_trigger.dispatch",
-        "workflow-trigger-readiness-event-request.v1", "workflow-trigger-dispatch.v1",
-        invalidates=("workflow-trigger-read-model", "run-read-model"),
-        response_key="",
-        accepted_statuses=(202,),
-    ),
-    WORKFLOW_TRIGGER_INBOX_READ: RemoteEndpoint(
-        endpoint_id=WORKFLOW_TRIGGER_INBOX_READ,
-        method="GET",
-        path_template="/api/v1/workflow-triggers/{trigger_id}/inbox",
-        operation_id="listWorkflowTriggerInboxEvents",
-        governance_action="workflow_trigger.inbox.read",
-        request_schema=None,
-        response_schema="workflow-trigger-inbox-list.v1",
-        cache_scope="workflow-trigger-read-model",
-        query_params=("state", "limit"),
-    ),
-    WORKFLOW_TRIGGER_INBOX_SUBMIT: _workflow_trigger_command_endpoint(
-        WORKFLOW_TRIGGER_INBOX_SUBMIT, "/api/v1/workflow-triggers/{trigger_id}/inbox",
-        "submitWorkflowTriggerInboxEvent", "workflow_trigger.dispatch",
-        "workflow-trigger-inbox-event-request.v1", "workflow-trigger-dispatch.v1",
-        invalidates=("workflow-trigger-read-model", "run-read-model"),
-        response_key="",
-        accepted_statuses=(202,),
-    ),
-    WORKFLOW_TRIGGER_INBOX_REPLAY: _workflow_trigger_command_endpoint(
-        WORKFLOW_TRIGGER_INBOX_REPLAY, "/api/v1/workflow-triggers/{trigger_id}/inbox/{inbox_event_id}/replay",
-        "replayWorkflowTriggerInboxEvent", "workflow_trigger.inbox_replay",
-        "workflow-trigger-inbox-replay-request.v1", "workflow-trigger-dispatch.v1",
-        invalidates=("workflow-trigger-read-model", "run-read-model"),
-        response_key="",
-        accepted_statuses=(202,),
-    ),
-    WORKFLOW_TRIGGER_SCHEDULER_TICKS_READ: RemoteEndpoint(
-        endpoint_id=WORKFLOW_TRIGGER_SCHEDULER_TICKS_READ,
-        method="GET",
-        path_template="/api/v1/workflow-trigger-scheduler/ticks",
-        operation_id="listWorkflowTriggerSchedulerTicks",
-        governance_action="workflow_trigger.scheduler_ticks.read",
-        request_schema=None,
-        response_schema="h2ometa.workflow-trigger-scheduler-tick-read-model.v1",
-        cache_scope="workflow-trigger-scheduler-read-model",
-        query_params=("limit",),
-    ),
-    WORKFLOW_TRIGGER_SCHEDULER_RUN_ONCE: _workflow_trigger_command_endpoint(
-        WORKFLOW_TRIGGER_SCHEDULER_RUN_ONCE, "/api/v1/workflow-trigger-scheduler/run-once",
-        "runWorkflowTriggerSchedulerOnce", "workflow_trigger.scheduler.run_once",
-        "workflow-trigger-scheduler-run-once-request.v1", "h2ometa.workflow-trigger-scheduler-run-once-result.v1",
-        invalidates=("workflow-trigger-read-model", "workflow-backfill-read-model", "run-read-model"),
-        accepted_statuses=(202,),
-    ),
-    WORKFLOW_BACKFILL_LAUNCH_LIST: RemoteEndpoint(
-        endpoint_id=WORKFLOW_BACKFILL_LAUNCH_LIST,
-        method="GET",
-        path_template="/api/v1/workflow-backfill-launches",
-        operation_id="listWorkflowBackfillLaunches",
-        governance_action="workflow_trigger.backfill_launch.list",
-        request_schema=None,
-        response_schema="workflow-backfill-launch-list.v1",
-        cache_scope="workflow-backfill-read-model",
-        query_params=("triggerId", "limit"),
-    ),
-    WORKFLOW_BACKFILL_LAUNCH_READ: RemoteEndpoint(
-        endpoint_id=WORKFLOW_BACKFILL_LAUNCH_READ,
-        method="GET",
-        path_template="/api/v1/workflow-backfill-launches/{launch_id}",
-        operation_id="getWorkflowBackfillLaunch",
-        governance_action="workflow_trigger.backfill_launch.read",
-        request_schema=None,
-        response_schema="workflow-backfill-launch-detail.v1",
-        cache_scope="workflow-backfill-read-model",
-    ),
-    WORKFLOW_TRIGGER_BACKFILL_PREVIEW: _workflow_trigger_command_endpoint(
-        WORKFLOW_TRIGGER_BACKFILL_PREVIEW, "/api/v1/workflow-triggers/{trigger_id}/backfill/preview",
-        "previewWorkflowTriggerBackfill", "workflow_trigger.backfill_preview",
-        "workflow-trigger-backfill-preview-request.v1", "workflow-trigger-backfill-preview-result.v1",
-    ),
-    WORKFLOW_TRIGGER_BACKFILL_LAUNCH: _workflow_trigger_command_endpoint(
-        WORKFLOW_TRIGGER_BACKFILL_LAUNCH, "/api/v1/workflow-triggers/{trigger_id}/backfill/launch",
-        "launchWorkflowTriggerBackfill", "workflow_trigger.backfill_launch",
-        "workflow-trigger-backfill-launch-request.v1", "workflow-trigger-backfill-launch-result.v1",
-        invalidates=("workflow-backfill-read-model", "run-read-model"),
-        accepted_statuses=(202,),
-    ),
-    WORKFLOW_BACKFILL_LAUNCH_CANCEL: _workflow_trigger_command_endpoint(
-        WORKFLOW_BACKFILL_LAUNCH_CANCEL, "/api/v1/workflow-backfill-launches/{launch_id}/cancel",
-        "cancelWorkflowBackfillLaunch", "workflow_trigger.backfill_cancel",
-        "workflow-backfill-cancel-request.v1", "workflow-backfill-cancel-result.v1",
-        invalidates=("workflow-backfill-read-model", "run-read-model"),
-        accepted_statuses=(202,),
-    ),
+    **{
+        endpoint_id: RemoteEndpoint(endpoint_id=endpoint_id, **spec)
+        for endpoint_id, spec in WORKFLOW_TRIGGER_REMOTE_ENDPOINT_SPECS.items()
+    },
     GOVERNANCE_AUDIT_EVENTS_READ: RemoteEndpoint(
         endpoint_id=GOVERNANCE_AUDIT_EVENTS_READ,
         method="GET",

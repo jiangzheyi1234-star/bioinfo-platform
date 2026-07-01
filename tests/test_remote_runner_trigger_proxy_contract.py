@@ -20,6 +20,7 @@ from core.contracts.remote_endpoints import (
     WORKFLOW_TRIGGER_LIST,
     WORKFLOW_TRIGGER_READINESS_OBSERVATION_READ,
     WORKFLOW_TRIGGER_READINESS_SUBMIT,
+    WORKFLOW_TRIGGER_READINESS_WATCHER_RUN_ONCE,
     WORKFLOW_TRIGGER_SCHEDULER_RUN_ONCE,
     WORKFLOW_TRIGGER_SCHEDULER_TICKS_READ,
     remote_endpoint_success_status,
@@ -50,6 +51,7 @@ TRIGGER_COMMAND_ENDPOINTS = (
     WORKFLOW_TRIGGER_INBOX_REPLAY,
     WORKFLOW_TRIGGER_READINESS_SUBMIT,
     WORKFLOW_TRIGGER_SCHEDULER_RUN_ONCE,
+    WORKFLOW_TRIGGER_READINESS_WATCHER_RUN_ONCE,
     WORKFLOW_TRIGGER_BACKFILL_PREVIEW,
     WORKFLOW_TRIGGER_BACKFILL_LAUNCH,
     WORKFLOW_BACKFILL_LAUNCH_CANCEL,
@@ -67,6 +69,7 @@ TRIGGER_COMMAND_METHODS = (
     "replay_workflow_trigger_inbox_event",
     "submit_workflow_trigger_readiness_event",
     "run_workflow_trigger_scheduler_once",
+    "run_workflow_trigger_readiness_watcher_once",
     "preview_workflow_trigger_backfill",
     "launch_workflow_trigger_backfill",
     "cancel_workflow_backfill_launch",
@@ -123,6 +126,10 @@ def test_trigger_command_endpoints_are_contract_rendered() -> None:
         render_remote_endpoint_path(WORKFLOW_BACKFILL_LAUNCH_CANCEL, {"launch_id": "bfl/1"})
         == "/api/v1/workflow-backfill-launches/bfl%2F1/cancel"
     )
+    assert (
+        render_remote_endpoint_path(WORKFLOW_TRIGGER_READINESS_WATCHER_RUN_ONCE, {})
+        == "/api/v1/workflow-trigger-readiness-watcher/run-once"
+    )
 
     for endpoint_id in TRIGGER_COMMAND_ENDPOINTS:
         endpoint = REMOTE_ENDPOINTS[endpoint_id]
@@ -178,6 +185,7 @@ def test_trigger_route_success_statuses_are_contract_owned() -> None:
         "WORKFLOW_TRIGGER_INBOX_REPLAY",
         "WORKFLOW_TRIGGER_READINESS_SUBMIT",
         "WORKFLOW_TRIGGER_SCHEDULER_RUN_ONCE",
+        "WORKFLOW_TRIGGER_READINESS_WATCHER_RUN_ONCE",
         "WORKFLOW_TRIGGER_BACKFILL_LAUNCH",
         "WORKFLOW_BACKFILL_LAUNCH_CANCEL",
     )

@@ -30,6 +30,7 @@ from apps.remote_runner.api_models import (
     WorkflowTriggerInboxEventRequest,
     WorkflowTriggerInboxReplayRequest,
     WorkflowTriggerReadinessEventRequest,
+    WorkflowTriggerReadinessWatcherRunOnceRequest,
     WorkflowTriggerSchedulerRunOnceRequest,
 )
 
@@ -678,8 +679,37 @@ def test_remote_runner_workflow_trigger_scheduler_run_once_request_is_bounded() 
     errors = exc_info.value.errors()
     assert any(error["type"] == "literal_error" and error["loc"] == ("confirmation",) for error in errors)
     assert any(error["type"] == "greater_than_equal" and error["loc"] == ("limit",) for error in errors)
+
+
+def test_remote_runner_workflow_trigger_readiness_watcher_run_once_request_is_bounded() -> None:
+    request = WorkflowTriggerReadinessWatcherRunOnceRequest.model_validate(
+        {
+            "confirmation": "run-readiness-watcher-once",
+            "limit": 10,
+            "actor": "operator",
+            "reason": "manual readiness watcher scan",
+        }
+    )
+
+    assert request.confirmation == "run-readiness-watcher-once"
+    assert request.limit == 10
+    assert request.actor == "operator"
+
+    with pytest.raises(ValidationError) as exc_info:
+        WorkflowTriggerReadinessWatcherRunOnceRequest.model_validate(
+            {
+                "confirmation": "run-now",
+                "limit": 0,
+                "serverId": "srv_primary",
+                "path": "E:/secret/raw-path",
+            }
+        )
+
+    errors = exc_info.value.errors()
+    assert any(error["type"] == "literal_error" and error["loc"] == ("confirmation",) for error in errors)
+    assert any(error["type"] == "greater_than_equal" and error["loc"] == ("limit",) for error in errors)
     assert any(error["type"] == "extra_forbidden" and error["loc"] == ("serverId",) for error in errors)
-    assert any(error["type"] == "extra_forbidden" and error["loc"] == ("now",) for error in errors)
+    assert any(error["type"] == "extra_forbidden" and error["loc"] == ("path",) for error in errors)
 
 
 def test_remote_runner_artifact_lifecycle_controller_run_once_request_is_bounded() -> None:

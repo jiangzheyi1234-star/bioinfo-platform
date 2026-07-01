@@ -20,6 +20,7 @@ def test_trigger_events_have_definition_create_and_observability_surface() -> No
     page = _source("workflow-trigger-observability-page.tsx")
     panel = _source("workflow-trigger-observability-panel.tsx")
     scheduler_panel = _source("workflow-trigger-scheduler-panel.tsx")
+    watcher_panel = _source("workflow-trigger-readiness-watcher-panel.tsx")
     inbox_panel = _source("workflow-trigger-inbox-panel.tsx")
     results = _source("workflow-results-page.tsx")
     route = TRIGGER_ROUTE.read_text(encoding="utf-8")
@@ -48,6 +49,10 @@ def test_trigger_events_have_definition_create_and_observability_surface() -> No
     assert "WorkflowTriggerSchedulerTickListResponse" in model
     assert "WorkflowTriggerSchedulerRunOnceResult" in model
     assert "WorkflowTriggerSchedulerRunOnceResponse" in model
+    assert "WorkflowTriggerReadinessWatcherRunOnceResult" in model
+    assert "WorkflowTriggerReadinessWatcherRunOnceResponse" in model
+    assert 'adapter: "local_path" | "database_registry"' in model
+    assert "stabilitySeconds?: number" in model
     assert "controlsExposed?: boolean" in model
     assert "WorkflowRunAdmissionSummary" in model
     assert "waitReasonCode?: string" in model
@@ -81,12 +86,16 @@ def test_trigger_events_have_definition_create_and_observability_surface() -> No
     assert "fetchWorkflowTriggerReadinessObservation" in api
     assert "fetchWorkflowTriggerSchedulerTicks" in api
     assert "runWorkflowTriggerSchedulerOnce" in api
+    assert "runWorkflowTriggerReadinessWatcherOnce" in api
     assert "requestLocalApiJson<WorkflowTriggerSchedulerRunOnceResponse>" in api
+    assert "requestLocalApiJson<WorkflowTriggerReadinessWatcherRunOnceResponse>" in api
     assert "WORKFLOW_TRIGGER_READINESS_OBSERVATION_CACHE_KEY" in api
     assert "WORKFLOW_TRIGGER_SCHEDULER_TICKS_CACHE_KEY" in api
+    assert "WORKFLOW_TRIGGER_READINESS_WATCHER_TICK_CACHE_KEY" in api
     assert "/api/v1/workflow-triggers" in api
     assert "/api/v1/workflow-trigger-scheduler/ticks" in api
     assert "/api/v1/workflow-trigger-scheduler/run-once" in api
+    assert "/api/v1/workflow-trigger-readiness-watcher/run-once" in api
     assert "/readiness-observation" in api
     assert "/inbox" in api
     assert "/replay" in api
@@ -94,10 +103,11 @@ def test_trigger_events_have_definition_create_and_observability_surface() -> No
     assert 'eventType: "manual"' in api
     assert "manual:web-ui:" in api
     assert 'confirmation: "run-scheduler-once"' in api
+    assert 'confirmation: "run-readiness-watcher-once"' in api
     assert 'limit: options.limit || 100' in api
     assert "invalidateAsyncCachePrefix(WORKFLOW_TRIGGER_SCHEDULER_TICKS_CACHE_KEY)" in api
     assert "invalidateWorkflowBackfillLaunchCaches();" in api
-    assert api.count("invalidateWorkflowRunResultCaches();") == 3
+    assert api.count("invalidateWorkflowRunResultCaches();") == 4
     assert "export function invalidateWorkflowBackfillLaunchCaches" in backfill_api
     assert "invalidateAsyncCachePrefix(WORKFLOW_BACKFILL_LAUNCHES_CACHE_KEY)" in backfill_api
     assert "invalidateAsyncCachePrefix(WORKFLOW_BACKFILL_LAUNCH_CACHE_KEY)" in backfill_api
@@ -128,6 +138,13 @@ def test_trigger_events_have_definition_create_and_observability_surface() -> No
     assert 'triggerSpec: { mode: "manual" }' in definition_control
     assert "concurrencyPolicy: form.concurrencyPolicy" in definition_control
     assert "triggerSpec: { partitionUnit: form.partitionUnit }" in definition_control
+    assert "watchEnabled: boolean" in definition_control
+    assert "watchAdapter" in definition_control
+    assert "watchStabilitySeconds" in definition_control
+    assert 'SelectItem value="local_path"' in definition_control
+    assert 'SelectItem value="database_registry"' in definition_control
+    assert "stabilitySeconds" in definition_control
+    assert "WORKFLOW_TRIGGER_WATCH_PATH_REQUIRED" in definition_control
     assert "resourceId: string" in definition_control
     assert "resourceUri: string" in definition_control
     assert "isReadinessSource(form.sourceType)" in definition_control
@@ -159,7 +176,9 @@ def test_trigger_events_have_definition_create_and_observability_surface() -> No
     assert "fetchWorkflowTriggerReadinessObservation(selectedTriggerId" in page
     assert "fetchWorkflowTriggerSchedulerTicks({ forceRefresh, limit: 20 })" in page
     assert "runWorkflowTriggerSchedulerOnce({ limit: 100 })" in page
+    assert "runWorkflowTriggerReadinessWatcherOnce({ limit: 100 })" in page
     assert "runningScheduler" in page
+    assert "runningReadinessWatcher" in page
     assert "replayWorkflowTriggerInboxEvent(selectedTriggerId, inboxEventId)" in page
     assert "submitManualWorkflowTriggerEvent(triggerId)" in page
     assert "submittingManualTriggerId" in page
@@ -168,12 +187,15 @@ def test_trigger_events_have_definition_create_and_observability_surface() -> No
     assert "schedulerTicks={schedulerTicks}" in page
     assert "onRunSchedulerOnce={runSchedulerOnce}" in page
     assert "runningScheduler={runningScheduler}" in page
+    assert "onRunReadinessWatcherOnce={runReadinessWatcherOnce}" in page
+    assert "readinessWatcherTick={readinessWatcherTick}" in page
     assert "isReadinessSource" in page
     assert "fetchWorkflowTriggers().catch" in results
     assert 'href="/workflows/results/triggers"' in results
     assert "RunSummary" in panel
     assert "WorkflowTriggerInboxPanel" in panel
     assert "WorkflowTriggerSchedulerPanel" in panel
+    assert "WorkflowTriggerReadinessWatcherPanel" in panel
     assert "workflow_trigger.scheduler_ticks.read" not in panel
     assert "Cron due" in scheduler_panel
     assert "Backfill submitted" in scheduler_panel
@@ -195,6 +217,11 @@ def test_trigger_events_have_definition_create_and_observability_surface() -> No
     assert "run-scheduler-once" in scheduler_panel
     assert "disabled={confirmation.trim() !== SCHEDULER_RUN_ONCE_CONFIRMATION || runningScheduler}" in scheduler_panel
     assert "只返回聚合证据" in scheduler_panel
+    assert "READINESS_WATCHER_RUN_ONCE_CONFIRMATION" in watcher_panel
+    assert "运行一次 readiness watcher" in watcher_panel
+    assert "确认运行 readiness watcher" in watcher_panel
+    assert 'data-testid="workflow-trigger-readiness-watcher-summary"' in watcher_panel
+    assert "只返回聚合证据" in watcher_panel
     assert "ManualTriggerRunControl" in panel
     assert 'trigger.sourceType === "manual"' in panel
     assert "onSubmitManualTrigger(trigger.triggerId)" in panel
@@ -280,6 +307,7 @@ def test_trigger_events_have_definition_create_and_observability_surface() -> No
         assert forbidden not in page
         assert forbidden not in panel
         assert forbidden not in scheduler_panel
+        assert forbidden not in watcher_panel
         assert forbidden not in inbox_panel
         assert forbidden not in definition_control
 

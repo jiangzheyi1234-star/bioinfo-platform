@@ -35,6 +35,7 @@ from core.contracts.remote_endpoints import (
     WORKFLOW_TRIGGER_INBOX_READ,
     WORKFLOW_TRIGGER_LIST,
     WORKFLOW_TRIGGER_READINESS_OBSERVATION_READ,
+    WORKFLOW_TRIGGER_READINESS_WATCHER_RUN_ONCE,
     WORKFLOW_TRIGGER_SCHEDULER_TICKS_READ,
     RemoteEndpointContractError,
     render_remote_endpoint_path,
@@ -587,6 +588,11 @@ def test_execution_manager_calls_generic_remote_endpoint_for_run_read_models() -
     assert manager.list_workflow_trigger_scheduler_ticks(limit=8) == {
         "data": {"endpointId": WORKFLOW_TRIGGER_SCHEDULER_TICKS_READ, "pathValues": {}, "queryValues": {"limit": 8}}
     }
+    assert manager.run_workflow_trigger_readiness_watcher_once(
+        {"confirmation": "run-readiness-watcher-once", "limit": 4}
+    ) == {
+        "data": {"endpointId": WORKFLOW_TRIGGER_READINESS_WATCHER_RUN_ONCE, "pathValues": {}, "queryValues": {}}
+    }
     assert manager.list_workflow_backfill_launches(trigger_id="wtr_1", limit=25) == {
         "data": {
             "endpointId": WORKFLOW_BACKFILL_LAUNCH_LIST,
@@ -638,6 +644,7 @@ def test_execution_manager_calls_generic_remote_endpoint_for_run_read_models() -
         (WORKFLOW_TRIGGER_READINESS_OBSERVATION_READ, {"trigger_id": "wtr_1"}, {}),
         (WORKFLOW_TRIGGER_INBOX_READ, {"trigger_id": "wtr_1"}, {"state": "submitted", "limit": 5}),
         (WORKFLOW_TRIGGER_SCHEDULER_TICKS_READ, {}, {"limit": 8}),
+        (WORKFLOW_TRIGGER_READINESS_WATCHER_RUN_ONCE, {}, {}),
         (WORKFLOW_BACKFILL_LAUNCH_LIST, {}, {"triggerId": "wtr_1", "limit": 25}),
         (WORKFLOW_BACKFILL_LAUNCH_READ, {"launch_id": "bfl_1"}, {}),
         (GOVERNANCE_AUDIT_EVENTS_READ, {}, {"subjectKind": "run", "subjectId": "run_1", "action": "run.submit", "limit": 25}),
@@ -753,6 +760,7 @@ class FakeRemoteEndpointManager:
             WORKFLOW_TRIGGER_READINESS_OBSERVATION_READ,
             WORKFLOW_TRIGGER_INBOX_READ,
             WORKFLOW_TRIGGER_SCHEDULER_TICKS_READ,
+            WORKFLOW_TRIGGER_READINESS_WATCHER_RUN_ONCE,
             WORKFLOW_BACKFILL_LAUNCH_LIST,
             WORKFLOW_BACKFILL_LAUNCH_READ,
             GOVERNANCE_AUDIT_EVENTS_READ,

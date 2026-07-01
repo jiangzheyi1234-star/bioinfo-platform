@@ -21,6 +21,8 @@ import type {
   WorkflowTriggerListResponse,
   WorkflowTriggerReadinessObservationEnvelope,
   WorkflowTriggerReadinessObservationResponse,
+  WorkflowTriggerReadinessWatcherRunOnceResponse,
+  WorkflowTriggerReadinessWatcherRunOnceResult,
   WorkflowTriggerSchedulerRunOnceResponse,
   WorkflowTriggerSchedulerRunOnceResult,
   WorkflowTriggerSchedulerTickList,
@@ -38,6 +40,7 @@ const WORKFLOW_TRIGGERS_CACHE_KEY = "workflow:triggers";
 const WORKFLOW_TRIGGER_EVENTS_CACHE_KEY = "workflow:trigger-events";
 const WORKFLOW_TRIGGER_INBOX_CACHE_KEY = "workflow:trigger-inbox";
 const WORKFLOW_TRIGGER_READINESS_OBSERVATION_CACHE_KEY = "workflow:trigger-readiness-observation";
+const WORKFLOW_TRIGGER_READINESS_WATCHER_TICK_CACHE_KEY = "workflow:trigger-readiness-watcher-tick";
 const WORKFLOW_TRIGGER_SCHEDULER_TICKS_CACHE_KEY = "workflow:trigger-scheduler-ticks";
 
 export async function fetchWorkflowTriggers(
@@ -196,6 +199,29 @@ export async function runWorkflowTriggerSchedulerOnce(
   invalidateAsyncCachePrefix(WORKFLOW_TRIGGER_EVENTS_CACHE_KEY);
   invalidateAsyncCachePrefix(WORKFLOW_TRIGGER_SCHEDULER_TICKS_CACHE_KEY);
   invalidateWorkflowBackfillLaunchCaches();
+  invalidateWorkflowRunResultCaches();
+  return response.data;
+}
+
+export async function runWorkflowTriggerReadinessWatcherOnce(
+  options: WorkflowTriggerFetchOptions = {}
+): Promise<WorkflowTriggerReadinessWatcherRunOnceResult> {
+  const response = await requestLocalApiJson<WorkflowTriggerReadinessWatcherRunOnceResponse>(
+    "POST",
+    `/api/v1/workflow-trigger-readiness-watcher/run-once${triggerQuery({ serverId: options.serverId })}`,
+    {
+      body: {
+        confirmation: "run-readiness-watcher-once",
+        limit: options.limit || 100,
+        actor: "web-ui",
+        reason: "operator requested readiness watcher run-once from trigger observability",
+      },
+      cache: "no-store",
+    }
+  );
+  invalidateAsyncCachePrefix(WORKFLOW_TRIGGER_EVENTS_CACHE_KEY);
+  invalidateAsyncCachePrefix(WORKFLOW_TRIGGER_READINESS_OBSERVATION_CACHE_KEY);
+  invalidateAsyncCachePrefix(WORKFLOW_TRIGGER_READINESS_WATCHER_TICK_CACHE_KEY);
   invalidateWorkflowRunResultCaches();
   return response.data;
 }

@@ -635,6 +635,15 @@ HIGH_RISK_API_POLICIES: tuple[ApiGovernancePolicy, ...] = (
     ),
     remote_policy(
         "POST",
+        "/api/v1/workflow-trigger-readiness-watcher/run-once",
+        "apps/remote_runner/workflow_trigger_routes.py",
+        "workflow_trigger.readiness_watcher.run_once",
+        "workflow_trigger_readiness_watcher",
+        "implemented",
+        "workflow-operator",
+    ),
+    remote_policy(
+        "POST",
         "/api/v1/workflow-triggers/{trigger_id}/inbox",
         "apps/remote_runner/workflow_trigger_routes.py",
         "workflow_trigger.dispatch",

@@ -14,6 +14,7 @@ from apps.api.models import (
     WorkflowTriggerEventRequest,
     WorkflowTriggerInboxReplayRequest,
     WorkflowTriggerReadinessEventRequest,
+    WorkflowTriggerReadinessWatcherRunOnceRequest,
     WorkflowTriggerSchedulerRunOnceRequest,
 )
 from apps.api.main import app
@@ -31,6 +32,7 @@ from apps.api.workflow_trigger_routes import (
     list_workflow_triggers,
     preview_workflow_trigger_backfill,
     replay_workflow_trigger_inbox_event,
+    run_workflow_trigger_readiness_watcher_once,
     run_workflow_trigger_scheduler_once,
     submit_workflow_trigger_event,
     submit_workflow_trigger_readiness_event,
@@ -52,6 +54,10 @@ def test_workflow_trigger_routes_preserve_runtime_wrappers_and_submit_headers(mo
     monkeypatch.setattr("apps.api.workflow_trigger_service.runtime_service", lambda: FakeTriggerRuntime())
     monkeypatch.setattr(
         "apps.api.workflow_trigger_scheduler_control_service.runtime_service",
+        lambda: FakeTriggerRuntime(),
+    )
+    monkeypatch.setattr(
+        "apps.api.workflow_trigger_readiness_watcher_control_service.runtime_service",
         lambda: FakeTriggerRuntime(),
     )
 
@@ -86,6 +92,17 @@ def test_workflow_trigger_routes_preserve_runtime_wrappers_and_submit_headers(mo
                 limit=4,
                 actor="operator",
                 reason="manual drain",
+            ),
+            serverId="srv_primary",
+        )
+    )
+    readiness_watcher_run_once = asyncio.run(
+        run_workflow_trigger_readiness_watcher_once(
+            WorkflowTriggerReadinessWatcherRunOnceRequest(
+                confirmation="run-readiness-watcher-once",
+                limit=4,
+                actor="operator",
+                reason="manual watcher tick",
             ),
             serverId="srv_primary",
         )
@@ -259,6 +276,14 @@ def test_workflow_trigger_routes_preserve_runtime_wrappers_and_submit_headers(mo
             "controlsExposed": False,
             "cron": {"submitted": 1},
             "backfills": {"submitted": 0},
+        }
+    }
+    assert readiness_watcher_run_once == {
+        "data": {
+            "schemaVersion": "h2ometa.workflow-trigger-readiness-watcher-run-once-result.v1",
+            "runOnceId": "wfrw_demo",
+            "controlsExposed": False,
+            "readiness": {"checked": 2, "submitted": 1},
         }
     }
     assert backfill_detail == {"data": {"launchId": "bfl_demo", "partitions": []}}
@@ -454,6 +479,23 @@ class FakeTriggerRuntime:
                 "controlsExposed": False,
                 "cron": {"submitted": 1},
                 "backfills": {"submitted": 0},
+            }
+        }
+
+    def run_workflow_trigger_readiness_watcher_once(self, payload, *, server_id=None):
+        assert payload == {
+            "confirmation": "run-readiness-watcher-once",
+            "limit": 4,
+            "actor": "operator",
+            "reason": "manual watcher tick",
+        }
+        assert server_id == "srv_primary"
+        return {
+            "data": {
+                "schemaVersion": "h2ometa.workflow-trigger-readiness-watcher-run-once-result.v1",
+                "runOnceId": "wfrw_demo",
+                "controlsExposed": False,
+                "readiness": {"checked": 2, "submitted": 1},
             }
         }
 

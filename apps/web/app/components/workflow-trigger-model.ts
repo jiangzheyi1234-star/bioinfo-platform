@@ -13,6 +13,13 @@ export type WorkflowTriggerDefinitionSource =
 
 export type WorkflowTriggerWebhookProvider = "github" | "slack" | "stripe";
 
+export type WorkflowTriggerReadinessWatchSpec = {
+  enabled: boolean;
+  adapter: "local_path" | "database_registry";
+  path?: string;
+  stabilitySeconds?: number;
+};
+
 export type WorkflowTriggerDefinitionCreateRequest = {
   name: string;
   sourceType: WorkflowTriggerDefinitionSource;
@@ -39,7 +46,7 @@ export type WorkflowTriggerDefinitionCreateRequest = {
           toleranceSeconds?: number;
         };
       }
-    | { resource: { type: "dataset" | "file" | "database"; id: string; uri?: string } }
+    | { resource: { type: "dataset" | "file" | "database"; id: string; uri?: string; watch?: WorkflowTriggerReadinessWatchSpec } }
     | { partitionUnit: "hour" | "day" };
 };
 
@@ -267,6 +274,33 @@ export type WorkflowTriggerSchedulerRunOnceResult = {
   backfills?: WorkflowTriggerSchedulerTickCounts;
 };
 
+export type WorkflowTriggerReadinessWatcherTickCounts = {
+  checked?: number;
+  skipped?: number;
+  missing?: number;
+  ready?: number;
+  submitted?: number;
+  unchanged?: number;
+  observationCount?: number;
+  errorCount?: number;
+  stateCounts?: Record<string, number>;
+  sourceTypeCounts?: Record<string, number>;
+  resourceTypeCounts?: Record<string, number>;
+  watcherAdapterCounts?: Record<string, number>;
+  dispatchStateCounts?: Record<string, number>;
+  errorTypes?: Record<string, number>;
+  reasonCodes?: Record<string, number>;
+};
+
+export type WorkflowTriggerReadinessWatcherRunOnceResult = {
+  schemaVersion?: string;
+  runOnceId?: string;
+  evaluatedAt?: string;
+  limit?: number;
+  controlsExposed?: boolean;
+  readiness?: WorkflowTriggerReadinessWatcherTickCounts;
+};
+
 export type WorkflowTriggerList = {
   schemaVersion?: string;
   items: WorkflowTrigger[];
@@ -296,6 +330,10 @@ export type WorkflowTriggerSchedulerTickListResponse = {
 
 export type WorkflowTriggerSchedulerRunOnceResponse = {
   data: WorkflowTriggerSchedulerRunOnceResult;
+};
+
+export type WorkflowTriggerReadinessWatcherRunOnceResponse = {
+  data: WorkflowTriggerReadinessWatcherRunOnceResult;
 };
 
 export type WorkflowTriggerInboxReplayResult = {
