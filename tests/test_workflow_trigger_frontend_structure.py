@@ -29,7 +29,7 @@ def test_trigger_events_have_definition_create_and_observability_surface() -> No
     assert "WorkflowTrigger" in model
     assert "WorkflowTriggerDefinitionSource" in model
     assert "WorkflowTriggerDefinitionCreateRequest" in model
-    assert '"manual" | "cron" | "backfill"' in model
+    assert '"manual" | "cron" | "dataset" | "file" | "database_ready" | "backfill"' in model
     assert "WorkflowTriggerCreateResponse" in model
     assert "WorkflowTriggerContract" in model
     assert "WorkflowTriggerAuthoritativeIngress" in model
@@ -117,16 +117,27 @@ def test_trigger_events_have_definition_create_and_observability_surface() -> No
     assert "WorkflowTriggerDefinitionControl" in definition_control
     assert 'data-testid="workflow-trigger-definition-control"' in definition_control
     assert "WorkflowTriggerDefinitionCreateRequest" in definition_control
-    assert "Manual / cron / backfill definitions only" in definition_control
+    assert "Manual / cron / readiness / backfill definitions" in definition_control
     assert 'SelectItem value="manual"' in definition_control
     assert 'SelectItem value="cron"' in definition_control
+    assert 'SelectItem value="dataset"' in definition_control
+    assert 'SelectItem value="file"' in definition_control
+    assert 'SelectItem value="database_ready"' in definition_control
     assert 'SelectItem value="backfill"' in definition_control
     assert 'triggerSpec: { mode: "manual" }' in definition_control
     assert "concurrencyPolicy: form.concurrencyPolicy" in definition_control
     assert "triggerSpec: { partitionUnit: form.partitionUnit }" in definition_control
+    assert "resourceId: string" in definition_control
+    assert "resourceUri: string" in definition_control
+    assert "isReadinessSource(form.sourceType)" in definition_control
+    assert "WORKFLOW_TRIGGER_READINESS_RESOURCE_ID_REQUIRED" in definition_control
+    assert "type: readinessResourceType(form.sourceType)" in definition_control
+    assert "id: resourceId" in definition_control
+    assert "readinessResourceIdPlaceholder(form.sourceType)" in definition_control
     assert "CRON_TRIGGER_CRON_REQUIRED" in definition_control
     assert "WORKFLOW_TRIGGER_INPUT_UPLOAD_AND_FILENAME_REQUIRED" in definition_control
-    assert "Webhook and readiness definitions stay API-only" in definition_control
+    assert "Webhook definitions stay API-only" in definition_control
+    assert "readiness definitions stay API-only" not in definition_control
     assert "workflowRevisionId" in definition_control
     assert "pipelineVersion" in definition_control
     assert "pipelineId" in definition_control

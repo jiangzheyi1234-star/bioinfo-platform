@@ -35,6 +35,8 @@ type DefinitionFormState = {
   cron: string;
   timezone: string;
   concurrencyPolicy: "Forbid" | "Allow";
+  resourceId: string;
+  resourceUri: string;
   partitionUnit: "day" | "hour";
   enabled: boolean;
 };
@@ -54,6 +56,8 @@ const DEFAULT_FORM: DefinitionFormState = {
   cron: "0 2 * * *",
   timezone: "UTC",
   concurrencyPolicy: "Forbid",
+  resourceId: "",
+  resourceUri: "",
   partitionUnit: "day",
   enabled: true,
 };
@@ -108,7 +112,7 @@ export function WorkflowTriggerDefinitionControl({
             <CalendarClock strokeWidth={1.5} className="h-4 w-4 text-slate-500" />
             创建触发定义
           </div>
-          <div className="mt-1 text-xs text-slate-500">Manual / cron / backfill definitions only</div>
+          <div className="mt-1 text-xs text-slate-500">Manual / cron / readiness / backfill definitions</div>
         </div>
         <label className="flex items-center gap-2 text-xs text-slate-600">
           <Checkbox
@@ -133,6 +137,9 @@ export function WorkflowTriggerDefinitionControl({
               <SelectContent>
                 <SelectItem value="manual">manual</SelectItem>
                 <SelectItem value="cron">cron</SelectItem>
+                <SelectItem value="dataset">dataset</SelectItem>
+                <SelectItem value="file">file</SelectItem>
+                <SelectItem value="database_ready">database-ready</SelectItem>
                 <SelectItem value="backfill">backfill</SelectItem>
               </SelectContent>
             </Select>
@@ -276,9 +283,36 @@ export function WorkflowTriggerDefinitionControl({
             </Field>
           </div>
         ) : null}
+        {isReadinessSource(form.sourceType) ? (
+          <div className="grid gap-3 md:grid-cols-[160px_minmax(0,1fr)_minmax(0,1fr)]">
+            <Field label="resource type">
+              <Input
+                value={readinessResourceType(form.sourceType)}
+                className="h-8 font-mono text-xs"
+                readOnly
+              />
+            </Field>
+            <Field label="resource id">
+              <Input
+                value={form.resourceId}
+                onChange={(event) => setForm((current) => ({ ...current, resourceId: event.target.value }))}
+                className="h-8 font-mono text-xs"
+                placeholder={readinessResourceIdPlaceholder(form.sourceType)}
+              />
+            </Field>
+            <Field label="resource uri">
+              <Input
+                value={form.resourceUri}
+                onChange={(event) => setForm((current) => ({ ...current, resourceUri: event.target.value }))}
+                className="h-8 font-mono text-xs"
+                placeholder="optional"
+              />
+            </Field>
+          </div>
+        ) : null}
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
           <div className="text-xs text-slate-500">
-            Webhook and readiness definitions stay API-only until signed delivery and resource watcher setup have their own controls.
+            Webhook definitions stay API-only until signed delivery and secret references have their own controls.
           </div>
           <Button type="submit" className="h-8 px-3 text-xs" disabled={creating}>
             {creating ? <Loader2 strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Plus strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5" />}
@@ -357,6 +391,25 @@ function buildCreateRequest(form: DefinitionFormState): WorkflowTriggerDefinitio
       },
     };
   }
+  if (isReadinessSource(form.sourceType)) {
+    const resourceId = form.resourceId.trim();
+    const resourceUri = form.resourceUri.trim();
+    if (!resourceId) return "WORKFLOW_TRIGGER_READINESS_RESOURCE_ID_REQUIRED";
+    return {
+      name,
+      sourceType: form.sourceType,
+      serverId,
+      enabled: form.enabled,
+      runSpec,
+      triggerSpec: {
+        resource: {
+          type: readinessResourceType(form.sourceType),
+          id: resourceId,
+          ...(resourceUri ? { uri: resourceUri } : {}),
+        },
+      },
+    };
+  }
   return {
     name,
     sourceType: "backfill",
@@ -365,4 +418,19 @@ function buildCreateRequest(form: DefinitionFormState): WorkflowTriggerDefinitio
     runSpec,
     triggerSpec: { partitionUnit: form.partitionUnit },
   };
+}
+
+function isReadinessSource(sourceType: WorkflowTriggerDefinitionSource): sourceType is "dataset" | "file" | "database_ready" {
+  return sourceType === "dataset" || sourceType === "file" || sourceType === "database_ready";
+}
+
+function readinessResourceType(sourceType: "dataset" | "file" | "database_ready") {
+  if (sourceType === "database_ready") return "database";
+  return sourceType;
+}
+
+function readinessResourceIdPlaceholder(sourceType: WorkflowTriggerDefinitionSource) {
+  if (sourceType === "database_ready") return "database:blast-nt";
+  if (sourceType === "file") return "file:/incoming/reads.fastq";
+  return "dataset:reads";
 }
