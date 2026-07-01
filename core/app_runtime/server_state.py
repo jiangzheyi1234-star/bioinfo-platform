@@ -10,6 +10,7 @@ from core.app_runtime.errors import RuntimeServiceError
 from core.app_runtime.server_health import (
     build_runner_ensure_failure_snapshot,
 )
+from core.app_runtime.server_health_projection import build_server_health_projection
 from core.app_runtime import runner_stop_state
 from core.app_runtime.server_payloads import (
     build_primary_server_identity,
@@ -126,9 +127,11 @@ class RuntimeServerStateMixin:
         registry_entry: dict[str, Any],
     ) -> dict[str, Any]:
         snapshot = registry_entry.get("last_health_snapshot")
+        if runner_stop_state.requires_explicit_runner_start(registry_entry):
+            return status
         if isinstance(snapshot, dict):
             reason_code = str(snapshot.get("reasonCode") or "")
-            if reason_code in {runner_stop_state.MANUAL_RUNNER_STOP_REASON, "RUNNER_SETUP_FAILED"}:
+            if reason_code == "RUNNER_SETUP_FAILED":
                 return status
         try:
             if ssh is None or not getattr(ssh, "is_connected", False):
@@ -162,7 +165,7 @@ class RuntimeServerStateMixin:
             if server_id in self._runner_ensure_inflight:
                 return
             record = self._get_server_registry_entry(server_id)
-            if runner_stop_state.is_runner_manually_stopped(record):
+            if runner_stop_state.requires_explicit_runner_start(record):
                 return
             self._runner_ensure_inflight.add(server_id)
 
@@ -252,99 +255,13 @@ class RuntimeServerStateMixin:
         registry_entry: dict[str, Any],
         ssh: Optional[SSHService],
     ) -> dict[str, Any]:
-        connected = bool(ssh_status.get("connected"))
-        configured = bool(ssh_status.get("host") or ssh_status.get("ssh_host_alias"))
-        startup = {
-            "ok": configured,
-            "message": "Local backend has server configuration." if configured else "No SSH target configured.",
-        }
-        live = {
-            "ok": connected,
-            "message": "SSH tunnel reachable." if connected else "SSH connection is not active.",
-        }
-        reason_code = ""
-        ready_ok = False
-        ready_message = "Remote runner is not ready."
-        workflow_runtime: dict[str, Any] = {}
-        pipeline_registry: dict[str, Any] = {}
-        if not configured or not connected:
-            reason_code = "SSH_NOT_CONNECTED"
-            ready_message = "Connect to the remote server before submitting runs."
-        elif runner_stop_state.is_runner_manually_stopped(registry_entry):
-            stopped = runner_stop_state.manual_runner_stop_health(server_id, registry_entry, self._get_saved_readiness_snapshot)
-            startup, live = stopped["startup"], stopped["live"]
-            ready_ok, ready_message, reason_code = stopped["readyOk"], stopped["readyMessage"], stopped["reasonCode"]
-            workflow_runtime, pipeline_registry = stopped["workflowRuntime"], stopped["pipelineRegistry"]
-        elif not registry_entry.get("bootstrap_version"):
-            snapshot = self._get_saved_readiness_snapshot(
-                server_id=server_id,
-                registry_entry=registry_entry,
-            )
-            if snapshot is not None:
-                startup = snapshot["startup"]
-                live = snapshot["live"]
-                ready_ok = bool(snapshot["ready"]["ok"])
-                ready_message = str(snapshot["ready"]["message"])
-                reason_code = str(snapshot.get("reasonCode", "") or "RUNNER_NOT_READY")
-                workflow_runtime = dict(snapshot.get("workflowRuntime") or {})
-                pipeline_registry = dict(snapshot.get("pipelineRegistry") or {})
-            else:
-                reason_code = "RUNNER_NOT_READY"
-                ready_message = "Prepare the remote workspace before using this server."
-        else:
-            try:
-                if ssh is None or not getattr(ssh, "is_connected", False):
-                    raise RuntimeServiceError("SSH disconnected")
-                remote_health = self._call_remote_runner(
-                    self._service_locator.remote_runner_manager.get_health,
-                    server_id=server_id,
-                    ssh_service=ssh,
-                    server_record=registry_entry,
-                )
-                startup = remote_health["startup"]
-                live = remote_health["live"]
-                ready_ok = bool(remote_health["ready"]["ok"])
-                ready_message = str(remote_health["ready"]["message"])
-                reason_code = str(remote_health.get("reasonCode", "") or "")
-                workflow_runtime = dict(remote_health.get("workflowRuntime") or {})
-                pipeline_registry = dict(remote_health.get("pipelineRegistry") or {})
-                with self._lock:
-                    registry_entry.update(
-                        self._save_runner_health_snapshot(server_id=server_id, health=remote_health)
-                    )
-            except RuntimeServiceError as exc:
-                with self._lock:
-                    updated_entry = self._save_runner_connection_metadata_from_detail(
-                        server_id=server_id,
-                        detail=exc.detail,
-                    )
-                if updated_entry is not None:
-                    registry_entry = updated_entry
-                snapshot = self._get_saved_readiness_snapshot(
-                    server_id=server_id,
-                    registry_entry=registry_entry,
-                )
-                if snapshot is not None:
-                    startup = snapshot["startup"]
-                    live = snapshot["live"]
-                    ready_ok = bool(snapshot["ready"]["ok"])
-                    ready_message = str(snapshot["ready"]["message"])
-                    reason_code = str(snapshot.get("reasonCode", "") or "RUNNER_NOT_READY")
-                    workflow_runtime = dict(snapshot.get("workflowRuntime") or {})
-                    pipeline_registry = dict(snapshot.get("pipelineRegistry") or {})
-                else:
-                    reason_code = "RUNNER_NOT_READY"
-                    ready_message = str(exc) or "Remote runner control plane is not reachable."
-        return {
-            "serverId": server_id,
-            "startup": startup,
-            "live": live,
-            "ready": {"ok": ready_ok, "message": ready_message},
-            "workflowRuntime": workflow_runtime,
-            "pipelineRegistry": pipeline_registry,
-            "reasonCode": reason_code,
-            "checkedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        }
+        return build_server_health_projection(
+            self,
+            server_id=server_id,
+            ssh_status=ssh_status,
+            registry_entry=registry_entry,
+            ssh=ssh,
+        )
 
     def _get_ssh_status_unlocked(self) -> dict[str, Any]:
         ssh = self._service_locator.ssh_service
@@ -364,6 +281,12 @@ class RuntimeServerStateMixin:
         if connected and server is not None:
             registry_entry = self._get_server_registry_entry(str(server["serverId"]))
             snapshot = registry_entry.get("last_health_snapshot")
+            if runner_stop_state.has_unsupported_runner_stop_snapshot(registry_entry):
+                snapshot = runner_stop_state.unsupported_runner_stop_health(
+                    str(server["serverId"]),
+                    registry_entry,
+                    self._get_saved_readiness_snapshot,
+                )
             if isinstance(snapshot, dict):
                 status["runner"] = self._compose_runner_payload(
                     registry_entry=registry_entry,

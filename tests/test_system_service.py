@@ -248,6 +248,33 @@ def test_service_info_preserves_manual_runner_stop_without_diagnostics(monkeypat
     }
 
 
+def test_service_info_preserves_runner_stop_intent_required_without_diagnostics(monkeypatch) -> None:
+    monkeypatch.setenv("H2OMETA_DEPLOYMENT_MODE", "desktop")
+
+    class Runtime:
+        def get_ssh_status(self):
+            return {
+                "connected": True,
+                "serverId": "srv_legacy_stopped",
+                "runner": {
+                    "state": "repair_needed",
+                    "ready": False,
+                    "reasonCode": "RUNNER_STOP_INTENT_REQUIRED",
+                },
+            }
+
+        def get_runner_execution_diagnostics(self, _server_id):
+            raise AssertionError("service-info should not touch diagnostics for lifecycle repair state")
+
+    monkeypatch.setattr("apps.api.route_utils.runtime_service", lambda: Runtime())
+
+    payload = asyncio.run(system_service.service_info_from_request())
+
+    item = payload["item"]
+    assert item["executionReadiness"]["reasonCode"] == "RUNNER_STOP_INTENT_REQUIRED"
+    assert item["executionReadiness"]["serverId"] == "srv_legacy_stopped"
+
+
 def test_service_info_production_governance_is_redacted(monkeypatch) -> None:
     monkeypatch.setenv("H2OMETA_DEPLOYMENT_MODE", "server-single-user")
     monkeypatch.setenv("H2OMETA_RUNNER_TOKEN", "runner-secret-value")

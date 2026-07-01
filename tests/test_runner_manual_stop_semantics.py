@@ -28,6 +28,14 @@ def _stopped_runner_config() -> tuple[str, dict]:
                 "tunnel_port": 18000,
                 "service_port": 43127,
                 "token_ref": "runner://srv_test",
+                "runner_stop_intent": {
+                    "schemaVersion": "h2ometa.runner-stop-intent.v1",
+                    "active": True,
+                    "reasonCode": "RUNNER_STOPPED",
+                    "serverId": server_id,
+                    "stoppedAt": "2026-04-21T12:00:00Z",
+                    "source": "explicit-stop",
+                },
                 "last_health_snapshot": {
                     "serverId": server_id,
                     "state": "stopped",
@@ -96,6 +104,31 @@ def test_explicit_ensure_runner_rejects_manually_stopped_runner(monkeypatch, tmp
 
     assert raised.value.status_code == 409
     assert raised.value.detail["reasonCode"] == "RUNNER_STOPPED"
+    assert raised.value.detail["nextAction"] == "START_RUNNER"
+
+
+def test_snapshot_only_stop_state_requires_explicit_start_without_autostart(monkeypatch, tmp_path) -> None:
+    server_id, cfg = _stopped_runner_config()
+    del cfg["servers"][server_id]["runner_stop_intent"]
+    service = RuntimeService(service_locator=ServiceLocator())
+    service._initialized = True
+    service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)
+
+    class FailIfCalledRemoteRunnerManager:
+        def get_health(self, **_kwargs):
+            raise AssertionError("unsupported stop state must not read remote health")
+
+        def bootstrap(self, **_kwargs):
+            raise AssertionError("unsupported stop state must not bootstrap through ensure")
+
+    service._service_locator.remote_runner_manager = FailIfCalledRemoteRunnerManager()
+    monkeypatch.setattr("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg)
+
+    with pytest.raises(RuntimeServiceError) as raised:
+        service.ensure_remote_runner_ready(server_id)
+
+    assert raised.value.status_code == 409
+    assert raised.value.detail["reasonCode"] == "RUNNER_STOP_INTENT_REQUIRED"
     assert raised.value.detail["nextAction"] == "START_RUNNER"
 
 
@@ -203,3 +236,5 @@ def test_explicit_start_runner_starts_manually_stopped_runner(monkeypatch, tmp_p
     assert bootstrap_calls == [server_id]
     assert result["data"]["runner"]["ready"] is True
     assert cfg["servers"][server_id]["last_health_snapshot"]["reasonCode"] == ""
+    assert cfg["servers"][server_id]["runner_stop_intent"]["active"] is False
+    assert cfg["servers"][server_id]["runner_stop_intent"]["clearedByAction"] == "start"

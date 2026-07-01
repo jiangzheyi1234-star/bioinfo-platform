@@ -11,8 +11,8 @@ import {
   type SSHStatus,
   type SshShellContextValue,
   defaultForm,
-  isRunnerManuallyStopped,
   normalizeFetchError,
+  runnerRequiresExplicitStart,
   toForm,
 } from "./ssh-shell-model";
 
@@ -223,7 +223,7 @@ export function useSshConnection(): UseSshConnectionResult {
       if (!serverId) {
         return;
       }
-      const actionPath = isRunnerManuallyStopped(status) ? "runner/start" : "ensure-runner";
+      const actionPath = runnerRequiresExplicitStart(status) ? "runner/start" : "ensure-runner";
       const ensured = await requestLocalApiJson("POST", `/api/v1/servers/${encodeURIComponent(serverId)}/${actionPath}`, {
         timeoutMs: ENSURE_RUNNER_REQUEST_TIMEOUT_MS,
       });

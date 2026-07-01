@@ -173,6 +173,19 @@ export function isSshChannelReady(status: RunnerRepairStatus | null | undefined)
 }
 
 export const MANUAL_RUNNER_STOP_REASON = "RUNNER_STOPPED";
+export const RUNNER_STOP_INTENT_REQUIRED_REASON = "RUNNER_STOP_INTENT_REQUIRED";
+
+export function runnerRequiresExplicitStart(status: RunnerRepairStatus | null | undefined): boolean {
+  const runner = status?.runner;
+  return Boolean(
+    status?.connected &&
+      runner &&
+      !runner.ready &&
+      (runner.state === "stopped" ||
+        runner.reasonCode === MANUAL_RUNNER_STOP_REASON ||
+        runner.reasonCode === RUNNER_STOP_INTENT_REQUIRED_REASON)
+  );
+}
 
 export function isRunnerManuallyStopped(status: RunnerRepairStatus | null | undefined): boolean {
   const runner = status?.runner;
@@ -275,7 +288,7 @@ export function resolveRemoteStatus(status: RunnerRepairStatus | null): RemoteSt
 }
 
 export function runnerEnsureActionLabel(status: RunnerRepairStatus | null | undefined, busy: boolean): string {
-  if (isRunnerManuallyStopped(status)) {
+  if (runnerRequiresExplicitStart(status)) {
     return busy ? "启动中" : "启动远程服务";
   }
   if (isRunnerRepairRequired(status)) {
@@ -285,7 +298,7 @@ export function runnerEnsureActionLabel(status: RunnerRepairStatus | null | unde
 }
 
 export function runnerSidebarSubcopy(status: RunnerRepairStatus | null | undefined): string {
-  if (isRunnerManuallyStopped(status)) {
+  if (runnerRequiresExplicitStart(status)) {
     return "远程服务已手动停止";
   }
   if (isRunnerRepairRequired(status)) {

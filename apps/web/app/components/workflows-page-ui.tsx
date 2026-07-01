@@ -195,7 +195,7 @@ export function WorkflowRunBuilder({
   const currentRun = runDetail?.run || submittedRun || null;
   const ready = Boolean(server?.ready);
   const runnerRepairStatus = workflowServerRepairStatus(server);
-  const showRunnerRepair = Boolean(runnerRepairStatus?.connected && runnerRepairStatus.runner && !runnerRepairStatus.runner.ready);
+  const showRunnerRepair = Boolean(runnerRepairStatus?.connected && (!runnerRepairStatus.runner || !runnerRepairStatus.runner.ready));
   const inputCount = files.length + sampleUploads.length + artifactInputs.length;
   const workflowRuntime = server?.health?.workflowRuntime;
   const pipelineRegistry = server?.health?.pipelineRegistry;

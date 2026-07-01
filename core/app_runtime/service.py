@@ -29,7 +29,11 @@ from core.remote_runner.bootstrap_guard import (
 )
 from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerError
 from core.app_runtime.errors import RuntimeServiceError
-from core.app_runtime.runner_stop_state import is_runner_manually_stopped, raise_if_runner_manually_stopped
+from core.app_runtime.runner_stop_state import (
+    build_runner_stop_cleared_intent,
+    is_runner_manually_stopped,
+    raise_if_runner_manually_stopped,
+)
 from core.app_runtime.runner_ops import RunnerOperationsMixin
 from core.app_runtime.server_state import RuntimeServerStateMixin
 from core.app_runtime.ssh_connection import RuntimeSshConnectionMixin
@@ -297,6 +301,11 @@ class RuntimeService(
             "start": "runner_started_at",
             "upgrade": "runner_upgraded_at",
         }[action]
+        runner_stop_intent = (
+            build_runner_stop_cleared_intent(action=action, cleared_at=completed_at)
+            if action == "start"
+            else None
+        )
         with self._lock:
             self._save_server_registry_entry(
                 server_id,
@@ -309,6 +318,7 @@ class RuntimeService(
                     "last_health_snapshot": health,
                     "bootstrap_metadata": dict(result.get("bootstrap_metadata") or {}),
                     action_timestamp_key: completed_at,
+                    "runner_stop_intent": runner_stop_intent,
                 },
             )
         if not bool((health.get("ready") or {}).get("ok")):

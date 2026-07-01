@@ -28,7 +28,7 @@ import { WorkflowWorkspaceTabs } from "@/app/components/workflow-workspace-tabs"
 import { RunReportPanel } from "./workflow-first-run-report";
 import { ResultPackagePanel, ValidationCard } from "./workflow-first-run-validation";
 import { fetchWorkflowServerExecutionDiagnostics } from "@/app/components/workflows-page-api";
-import { ensureWorkflowServerRunner } from "@/app/components/workflow-server-readiness-api";
+import { runWorkflowServerRunnerRepairAction } from "@/app/components/workflow-runner-repair-state";
 import { submitFirstRun } from "../_api/workflow-first-run-api";
 import {
   workflowErrorMessage,
@@ -243,7 +243,7 @@ export function WorkflowFirstRunPage() {
     setEnsuringRunner(true);
     setRunnerError("");
     try {
-      await ensureWorkflowServerRunner(state.server.serverId);
+      await runWorkflowServerRunnerRepairAction(state.server);
       await state.loadWorkspace({ forceRefresh: true });
       await loadExecutionDiagnostics();
       await firstRunStatus.refreshStatus({ forceRefresh: true });

@@ -175,6 +175,14 @@ def test_bootstrap_guard_allows_manual_stopped_runner_start_when_diagnostics_are
         ssh_service=object(),
         server_record={
             "bootstrap_version": "phase1-test",
+            "runner_stop_intent": {
+                "schemaVersion": "h2ometa.runner-stop-intent.v1",
+                "active": True,
+                "reasonCode": "RUNNER_STOPPED",
+                "serverId": "srv_test",
+                "stoppedAt": "2026-04-21T12:00:00Z",
+                "source": "explicit-stop",
+            },
             "last_health_snapshot": {"reasonCode": "RUNNER_STOPPED"},
         },
         bootstrap_metadata=metadata,

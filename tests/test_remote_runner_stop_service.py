@@ -94,7 +94,16 @@ def test_stop_remote_runner_service_runs_explicit_stop_commands(monkeypatch, tmp
     assert result["data"]["ok"] is True
     assert result["data"]["runner"]["reasonCode"] == "RUNNER_STOPPED"
     assert result["data"]["lifecycleAction"] == "stop"
-    assert next(iter(cfg["servers"].values()))["last_health_snapshot"]["reasonCode"] == "RUNNER_STOPPED"
+    registry_entry = next(iter(cfg["servers"].values()))
+    assert registry_entry["last_health_snapshot"]["reasonCode"] == "RUNNER_STOPPED"
+    assert registry_entry["runner_stop_intent"] == {
+        "schemaVersion": "h2ometa.runner-stop-intent.v1",
+        "active": True,
+        "reasonCode": "RUNNER_STOPPED",
+        "serverId": server_id,
+        "stoppedAt": result["data"]["completedAt"],
+        "source": "explicit-stop",
+    }
 
 
 def test_stop_remote_runner_blocks_active_execution_before_kill(monkeypatch, tmp_path: Path) -> None:

@@ -138,6 +138,8 @@ def test_manual_runner_stop_is_explicit_start_not_repair() -> None:
     _assert_contains(
         model_source,
         'MANUAL_RUNNER_STOP_REASON = "RUNNER_STOPPED"',
+        'RUNNER_STOP_INTENT_REQUIRED_REASON = "RUNNER_STOP_INTENT_REQUIRED"',
+        "runnerRequiresExplicitStart",
         "isRunnerManuallyStopped",
         "启动远程服务",
         "远程服务已手动停止",
@@ -176,7 +178,7 @@ def test_remote_status_failed_runner_can_trigger_repair_bootstrap() -> None:
         hook_source,
         "ensure-runner",
         "runner/start",
-        "isRunnerManuallyStopped(status)",
+        "runnerRequiresExplicitStart(status)",
         "state: \"repair_needed\"",
     )
     _assert_matches(

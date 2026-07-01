@@ -152,7 +152,7 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "useFirstRunConductor" in first_run_page
     assert "firstRunConductor" in first_run_page
     assert "continueFirstRun" in first_run_page
-    assert "ensureWorkflowServerRunner" in first_run_page
+    assert "runWorkflowServerRunnerRepairAction" in first_run_page
     assert "requestLocalApiJson" not in first_run_page
     assert "export function buildFirstRunContinueAction" in first_run_conductor
     assert "export function WorkflowFirstRunConductorPanel" in first_run_conductor
@@ -175,11 +175,13 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "runWorkflowServerRunnerRepairAction" in hook
     assert "export function workflowServerRepairStatus" in runner_repair
     assert "export function workflowServerRunnerManuallyStopped" in runner_repair
+    assert "export function workflowServerRunnerRequiresExplicitStart" in runner_repair
     assert "export async function runWorkflowServerRunnerRepairAction" in runner_repair
     assert "export function useWorkflowRunnerRepairState" in runner_repair
     assert "export function WorkflowRunnerRepairNotice" in runner_repair
-    assert "workflowServerRunnerManuallyStopped(server) ? startWorkflowServerRunner : ensureWorkflowServerRunner" in runner_repair
+    assert "workflowServerRunnerRequiresExplicitStart(server) ? startWorkflowServerRunner : ensureWorkflowServerRunner" in runner_repair
     assert "runner.reasonCode === MANUAL_RUNNER_STOP_REASON" in runner_repair
+    assert "runner.reasonCode === RUNNER_STOP_INTENT_REQUIRED_REASON" in runner_repair
     assert "refreshWorkflowServer" in hook
     assert "runnerEnsureBusy" in hook
     assert "runnerRepairError" in hook
@@ -190,7 +192,7 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "RunnerRepairPanel" in page_ui
     assert "from \"./workflow-runner-repair-state\"" in page_ui
     assert "workflowServerRepairStatus(server)" in page_ui
-    assert "const showRunnerRepair = Boolean(runnerRepairStatus?.connected && runnerRepairStatus.runner && !runnerRepairStatus.runner.ready)" in page_ui
+    assert "const showRunnerRepair = Boolean(runnerRepairStatus?.connected && (!runnerRepairStatus.runner || !runnerRepairStatus.runner.ready))" in page_ui
     assert "onRefreshStatus={onRefreshServer}" in page_ui
     assert "useWorkflowRunnerRepairState()" in results_page
     assert "WorkflowRunnerRepairNotice controller={runnerRepair} mode=\"compact\"" in results_page

@@ -61,6 +61,14 @@ def stopped_runner_config() -> tuple[str, dict]:
                 "tunnel_port": 18000,
                 "service_port": 43127,
                 "token_ref": "runner://srv_test",
+                "runner_stop_intent": {
+                    "schemaVersion": "h2ometa.runner-stop-intent.v1",
+                    "active": True,
+                    "reasonCode": "RUNNER_STOPPED",
+                    "serverId": server_id,
+                    "stoppedAt": "2026-04-21T12:00:00Z",
+                    "source": "explicit-stop",
+                },
                 "last_health_snapshot": {
                     "serverId": server_id,
                     "state": "stopped",
@@ -235,6 +243,29 @@ def test_connect_ssh_preserves_manual_runner_stop_snapshot() -> None:
     assert status["runner"]["reasonCode"] == "RUNNER_STOPPED"
     assert cfg["servers"][server_id]["last_health_snapshot"]["reasonCode"] == "RUNNER_STOPPED"
     assert cfg["servers"][server_id]["last_health_snapshot"]["state"] == "stopped"
+
+
+def test_connect_ssh_blocks_snapshot_only_stop_state_from_background_ensure() -> None:
+    server_id, cfg = stopped_runner_config()
+    del cfg["servers"][server_id]["runner_stop_intent"]
+    service = RuntimeService(service_locator=ServiceLocator(remote_runner_manager=ReadyRemoteRunnerManager()))
+    service._initialized = True
+    result = SimpleNamespace(ok=True, client=DummyClient(), message="")
+
+    def fail_background_ensure(next_server_id: str) -> None:
+        raise AssertionError(f"snapshot-only stop state should not auto-ensure runner {next_server_id}")
+
+    service._ensure_runner_ready_in_background = fail_background_ensure
+
+    with patch("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg), patch(
+        "core.app_runtime.ssh_connection.ssh_connect", return_value=result
+    ):
+        status = service.connect_ssh({})
+
+    assert status["connected"] is True
+    assert status["runner"]["reasonCode"] == "RUNNER_STOP_INTENT_REQUIRED"
+    assert status["runner"]["state"] == "repair_needed"
+    assert cfg["servers"][server_id]["last_health_snapshot"]["reasonCode"] == "RUNNER_STOPPED"
 
 
 def test_ssh_status_projects_local_runner_tunnels() -> None:

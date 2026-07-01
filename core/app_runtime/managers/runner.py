@@ -7,6 +7,7 @@ from typing import Any
 from core.app_runtime.errors import RuntimeServiceError
 from core.app_runtime.managers.base import BaseRuntimeManager
 from core.app_runtime.remote_runner_stop import STOP_REMOTE_RUNNER_COMMAND
+from core.app_runtime.runner_stop_state import build_manual_runner_stop_intent
 from core.remote_runner.release_prune import summarize_execution_activity
 
 
@@ -61,7 +62,13 @@ class RunnerManager(BaseRuntimeManager):
         }
 
         with self._service._lock:
-            record = self._service._save_server_registry_entry(server_id, {"last_health_snapshot": health})
+            patch: dict[str, Any] = {"last_health_snapshot": health}
+            if ok:
+                patch["runner_stop_intent"] = build_manual_runner_stop_intent(
+                    server_id=server_id,
+                    stopped_at=str(health["checkedAt"]),
+                )
+            record = self._service._save_server_registry_entry(server_id, patch)
 
         if not ok:
             raise RuntimeServiceError(output or "failed to stop remote runner service")

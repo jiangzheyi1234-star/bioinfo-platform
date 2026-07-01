@@ -7,7 +7,12 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-import { MANUAL_RUNNER_STOP_REASON, runnerEnsureActionLabel, type RunnerRepairStatus } from "./ssh-shell-model";
+import {
+  MANUAL_RUNNER_STOP_REASON,
+  RUNNER_STOP_INTENT_REQUIRED_REASON,
+  runnerEnsureActionLabel,
+  type RunnerRepairStatus,
+} from "./ssh-shell-model";
 import { RunnerRepairPanel } from "./ssh-runner-repair-panel";
 import { ensureWorkflowServerRunner, startWorkflowServerRunner } from "./workflow-server-readiness-api";
 import { fetchWorkflowServer, getCachedWorkflowServer } from "./workflows-page-api";
@@ -69,6 +74,18 @@ export function workflowServerRunnerManuallyStopped(server: WorkflowServer | nul
   );
 }
 
+export function workflowServerRunnerRequiresExplicitStart(server: WorkflowServer | null) {
+  const runner = server?.runner;
+  return Boolean(
+    server?.connected &&
+      runner &&
+      runner.ready !== true &&
+      (runner.state === "stopped" ||
+        runner.reasonCode === MANUAL_RUNNER_STOP_REASON ||
+        runner.reasonCode === RUNNER_STOP_INTENT_REQUIRED_REASON)
+  );
+}
+
 export function workflowRunnerRepairBlockedReason(status: RunnerRepairStatus | null): string {
   const runner = status?.runner;
   if (!runner || runner.ready) {
@@ -82,7 +99,7 @@ export async function runWorkflowServerRunnerRepairAction(server: WorkflowServer
   if (!serverId) {
     throw new Error("serverId is required");
   }
-  const action = workflowServerRunnerManuallyStopped(server) ? startWorkflowServerRunner : ensureWorkflowServerRunner;
+  const action = workflowServerRunnerRequiresExplicitStart(server) ? startWorkflowServerRunner : ensureWorkflowServerRunner;
   await action(serverId);
 }
 

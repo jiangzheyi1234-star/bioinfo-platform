@@ -13,7 +13,7 @@ from config import (
     store_ssh_password,
 )
 from core.app_runtime import runtime_config
-from core.app_runtime.runner_stop_state import is_runner_manually_stopped
+from core.app_runtime.runner_stop_state import requires_explicit_runner_start
 from core.remote.ssh_connector import run_diagnostics, ssh_connect
 from core.remote.ssh_service import SSHReconnectError, SSHService
 
@@ -179,7 +179,7 @@ class RuntimeSshConnectionMixin:
                 if server is not None:
                     server_id = str(server["serverId"])
                     registry_entry = self._get_server_registry_entry(server_id)
-                    runner_stopped = is_runner_manually_stopped(registry_entry)
+                    runner_stopped = requires_explicit_runner_start(registry_entry)
                     snapshot = registry_entry.get("last_health_snapshot")
                     runner_ready = bool(
                         isinstance(snapshot, dict)
@@ -337,7 +337,7 @@ class RuntimeSshConnectionMixin:
             if server is not None:
                 server_id = str(server["serverId"])
                 registry_entry = self._get_server_registry_entry(server_id)
-                if not is_runner_manually_stopped(registry_entry):
+                if not requires_explicit_runner_start(registry_entry):
                     self._save_runner_preparing_snapshot(
                         server_id=server_id,
                         message="Checking remote runner...",
