@@ -156,7 +156,7 @@ export function useFirstRunEvidence({
     void loadNextScenarioPacks();
   }, [loadNextScenarioPacks]);
 
-  async function exportPackage() {
+  const exportPackage = useCallback(async () => {
     if (!resultId || exportingPackage) return;
     setExportingPackage(true);
     setPackageError("");
@@ -169,9 +169,9 @@ export function useFirstRunEvidence({
     } finally {
       setExportingPackage(false);
     }
-  }
+  }, [exportingPackage, refreshRunDetail, resultId, serverId]);
 
-  async function finalizeRun() {
+  const finalizeRun = useCallback(async () => {
     if (!firstRunRunId || finalizingFirstRun) return;
     setFinalizingFirstRun(true);
     setPackageError("");
@@ -198,7 +198,7 @@ export function useFirstRunEvidence({
     } finally {
       setFinalizingFirstRun(false);
     }
-  }
+  }, [finalizingFirstRun, firstRunRunId, refreshRunDetail, serverId]);
 
   return {
     exportPackage,

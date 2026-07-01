@@ -59,6 +59,7 @@ export function WorkflowFirstRunPage() {
   const [submittingFirstRun, setSubmittingFirstRun] = useState(false);
   const [firstRunSubmitError, setFirstRunSubmitError] = useState("");
   const sshConnectionRefreshRef = useRef("");
+  const autoFinalizeFirstRunRef = useRef("");
 
   const run = state.runDetail?.run || state.submittedRun;
   const result = state.runDetail?.results;
@@ -71,6 +72,9 @@ export function WorkflowFirstRunPage() {
     serverId: state.server?.serverId,
   });
   const firstRunStatusSnapshot = firstRunStatus.status;
+  const firstRunStatusStage = firstRunStatusSnapshot?.stage || "";
+  const firstRunNextActionCode = firstRunStatusSnapshot?.nextAction?.code || "";
+  const firstRunNextActionBlockedCode = firstRunStatusSnapshot?.nextAction?.blockedCode || "";
   const statusServerEvidence = firstRunStatusSnapshot?.evidence?.server;
   const statusExecutionEvidence = firstRunStatusSnapshot?.evidence?.execution;
   const statusWorkflowEvidence = firstRunStatusSnapshot?.evidence?.workflow;
@@ -113,6 +117,17 @@ export function WorkflowFirstRunPage() {
   const validationEligible = firstRunEvidence.validationEligible;
   const validationReady = firstRunEvidence.validationReady;
   const workflowRevisionId = firstRunEvidence.workflowRevisionId;
+  const finalizeFirstRun = firstRunEvidence.finalizeRun;
+  const exportFirstRunPackage = firstRunEvidence.exportPackage;
+  const refreshFirstRunStatus = firstRunStatus.refreshStatus;
+  const finalizeAndRefreshStatus = useCallback(async () => {
+    await finalizeFirstRun();
+    await refreshFirstRunStatus({ forceRefresh: true });
+  }, [finalizeFirstRun, refreshFirstRunStatus]);
+  const exportPackageAndRefreshStatus = useCallback(async () => {
+    await exportFirstRunPackage();
+    await refreshFirstRunStatus({ forceRefresh: true });
+  }, [exportFirstRunPackage, refreshFirstRunStatus]);
 
   const steps = useMemo(
     () =>
@@ -199,6 +214,36 @@ export function WorkflowFirstRunPage() {
     refreshWorkspaceAndFirstRunStatus,
   ]);
 
+  useEffect(() => {
+    const finalizedRunId = statusRun?.runId || "";
+    const blockedCode = firstRunNextActionBlockedCode;
+    const finalizeKey = `${finalizedRunId}|${blockedCode}`;
+    const runCompleted = String(statusRun?.status || "").toLowerCase() === "completed";
+    if (
+      firstRunStatusStage !== "export_result_package" ||
+      firstRunNextActionCode !== "FINALIZE_FIRST_RUN" ||
+      !finalizedRunId ||
+      !blockedCode ||
+      !runCompleted ||
+      firstRunEvidence.finalizingFirstRun ||
+      firstRunEvidence.validationReady
+    ) {
+      return;
+    }
+    if (autoFinalizeFirstRunRef.current === finalizeKey) return;
+    autoFinalizeFirstRunRef.current = finalizeKey;
+    void finalizeAndRefreshStatus();
+  }, [
+    finalizeAndRefreshStatus,
+    firstRunEvidence.finalizingFirstRun,
+    firstRunEvidence.validationReady,
+    firstRunNextActionBlockedCode,
+    firstRunNextActionCode,
+    firstRunStatusStage,
+    statusRun?.runId,
+    statusRun?.status,
+  ]);
+
   const firstRunConductor = useFirstRunConductor({
     busy:
       ensuringRunner ||
@@ -283,16 +328,6 @@ export function WorkflowFirstRunPage() {
     } finally {
       setSubmittingFirstRun(false);
     }
-  }
-
-  async function finalizeAndRefreshStatus() {
-    await firstRunEvidence.finalizeRun();
-    await firstRunStatus.refreshStatus({ forceRefresh: true });
-  }
-
-  async function exportPackageAndRefreshStatus() {
-    await firstRunEvidence.exportPackage();
-    await firstRunStatus.refreshStatus({ forceRefresh: true });
   }
 
   return (
