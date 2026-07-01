@@ -1238,6 +1238,30 @@ def test_tools_page_surfaces_snakemake_wrapper_matches() -> None:
     assert "applySelectedPackageLock(baseSelected" in hook
 
 
+def test_trigger_definition_control_productizes_signed_webhook_creation() -> None:
+    model = (COMPONENTS / "workflow-trigger-model.ts").read_text(encoding="utf-8")
+    control = (COMPONENTS / "workflow-trigger-definition-control.tsx").read_text(encoding="utf-8")
+
+    assert '"webhook"' in model
+    assert "export type WorkflowTriggerWebhookProvider" in model
+    assert 'provider: WorkflowTriggerWebhookProvider' in model
+    assert "eventMatch: { eventTypes: string[]; actions?: string[] }" in model
+    assert "secretRef: string" in model
+    assert '<SelectItem value="webhook">webhook</SelectItem>' in control
+    assert "webhookProvider" in control
+    assert "webhookEventTypes" in control
+    assert "webhookActions" in control
+    assert "webhookSecretRef" in control
+    assert "webhookToleranceSeconds" in control
+    assert "WORKFLOW_TRIGGER_WEBHOOK_EVENT_TYPES_REQUIRED" in control
+    assert "WORKFLOW_TRIGGER_SIGNATURE_SECRET_REF_REQUIRED" in control
+    assert "WORKFLOW_TRIGGER_SIGNATURE_TOLERANCE_OUT_OF_RANGE" in control
+    assert "eventMatch: {" in control
+    assert "signature," in control
+    assert "Webhook definitions stay API-only" not in control
+    assert "advanced JSON fallback" in control
+
+
 def test_workflow_sample_data_upload_uses_long_running_timeout() -> None:
     api = (COMPONENTS / "workflows-page-api.ts").read_text(encoding="utf-8")
     model = (COMPONENTS / "workflows-page-model.ts").read_text(encoding="utf-8")

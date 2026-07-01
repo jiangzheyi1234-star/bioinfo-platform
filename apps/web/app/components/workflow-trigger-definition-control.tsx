@@ -18,6 +18,7 @@ import type {
   WorkflowTrigger,
   WorkflowTriggerDefinitionCreateRequest,
   WorkflowTriggerDefinitionSource,
+  WorkflowTriggerWebhookProvider,
 } from "./workflow-trigger-model";
 
 type DefinitionFormState = {
@@ -35,6 +36,11 @@ type DefinitionFormState = {
   cron: string;
   timezone: string;
   concurrencyPolicy: "Forbid" | "Allow";
+  webhookActions: string;
+  webhookEventTypes: string;
+  webhookProvider: WorkflowTriggerWebhookProvider;
+  webhookSecretRef: string;
+  webhookToleranceSeconds: string;
   resourceId: string;
   resourceUri: string;
   partitionUnit: "day" | "hour";
@@ -56,6 +62,11 @@ const DEFAULT_FORM: DefinitionFormState = {
   cron: "0 2 * * *",
   timezone: "UTC",
   concurrencyPolicy: "Forbid",
+  webhookActions: "",
+  webhookEventTypes: "push",
+  webhookProvider: "github",
+  webhookSecretRef: "",
+  webhookToleranceSeconds: "",
   resourceId: "",
   resourceUri: "",
   partitionUnit: "day",
@@ -137,6 +148,7 @@ export function WorkflowTriggerDefinitionControl({
               <SelectContent>
                 <SelectItem value="manual">manual</SelectItem>
                 <SelectItem value="cron">cron</SelectItem>
+                <SelectItem value="webhook">webhook</SelectItem>
                 <SelectItem value="dataset">dataset</SelectItem>
                 <SelectItem value="file">file</SelectItem>
                 <SelectItem value="database_ready">database-ready</SelectItem>
@@ -265,6 +277,69 @@ export function WorkflowTriggerDefinitionControl({
             </Field>
           </div>
         ) : null}
+        {form.sourceType === "webhook" ? (
+          <div className="grid gap-3 md:grid-cols-4">
+            <Field label="provider">
+              <Select
+                value={form.webhookProvider}
+                onValueChange={(value) =>
+                  setForm((current) => ({ ...current, webhookProvider: value as WorkflowTriggerWebhookProvider }))
+                }
+              >
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="github">GitHub</SelectItem>
+                  <SelectItem value="slack">Slack</SelectItem>
+                  <SelectItem value="stripe">Stripe</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="event types">
+              <Input
+                value={form.webhookEventTypes}
+                onChange={(event) => setForm((current) => ({ ...current, webhookEventTypes: event.target.value }))}
+                className="h-8 font-mono text-xs"
+                placeholder={webhookEventTypesPlaceholder(form.webhookProvider)}
+              />
+            </Field>
+            <Field label="actions">
+              <Input
+                value={form.webhookActions}
+                onChange={(event) => setForm((current) => ({ ...current, webhookActions: event.target.value }))}
+                className="h-8 font-mono text-xs"
+                placeholder="optional comma list"
+              />
+            </Field>
+            {form.webhookProvider === "github" ? (
+              <Field label="signature header">
+                <Input value="X-Hub-Signature-256" className="h-8 font-mono text-xs" readOnly />
+              </Field>
+            ) : (
+              <Field label="tolerance seconds">
+                <Input
+                  value={form.webhookToleranceSeconds}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, webhookToleranceSeconds: event.target.value }))
+                  }
+                  className="h-8 font-mono text-xs"
+                  placeholder="default"
+                />
+              </Field>
+            )}
+            <div className="md:col-span-4">
+              <Field label="secretRef">
+                <Input
+                  value={form.webhookSecretRef}
+                  onChange={(event) => setForm((current) => ({ ...current, webhookSecretRef: event.target.value }))}
+                  className="h-8 font-mono text-xs"
+                  placeholder={webhookSecretRefPlaceholder(form.webhookProvider)}
+                />
+              </Field>
+            </div>
+          </div>
+        ) : null}
         {form.sourceType === "backfill" ? (
           <div className="grid gap-3 md:grid-cols-3">
             <Field label="partition unit">
@@ -312,7 +387,7 @@ export function WorkflowTriggerDefinitionControl({
         ) : null}
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
           <div className="text-xs text-slate-500">
-            Webhook definitions stay API-only until signed delivery and secret references have their own controls.
+            {form.sourceType === "webhook" ? "Webhook definitions use signed inbox delivery and redacted secret references." : "Definitions use typed trigger specs without advanced JSON fallback."}
           </div>
           <Button type="submit" className="h-8 px-3 text-xs" disabled={creating}>
             {creating ? <Loader2 strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Plus strokeWidth={1.5} className="mr-1.5 h-3.5 w-3.5" />}
@@ -391,6 +466,44 @@ function buildCreateRequest(form: DefinitionFormState): WorkflowTriggerDefinitio
       },
     };
   }
+  if (form.sourceType === "webhook") {
+    const eventTypes = commaLabels(form.webhookEventTypes);
+    const actions = commaLabels(form.webhookActions);
+    const secretRef = form.webhookSecretRef.trim();
+    if (eventTypes.length === 0) return "WORKFLOW_TRIGGER_WEBHOOK_EVENT_TYPES_REQUIRED";
+    if (!secretRef) return "WORKFLOW_TRIGGER_SIGNATURE_SECRET_REF_REQUIRED";
+    const signature: Extract<
+      WorkflowTriggerDefinitionCreateRequest["triggerSpec"],
+      { provider: WorkflowTriggerWebhookProvider }
+    >["signature"] = {
+      provider: form.webhookProvider,
+      required: true,
+      secretRef,
+    };
+    const tolerance = form.webhookToleranceSeconds.trim();
+    if (form.webhookProvider !== "github" && tolerance) {
+      const toleranceSeconds = Number(tolerance);
+      if (!Number.isInteger(toleranceSeconds) || toleranceSeconds < 1 || toleranceSeconds > 3600) {
+        return "WORKFLOW_TRIGGER_SIGNATURE_TOLERANCE_OUT_OF_RANGE";
+      }
+      signature.toleranceSeconds = toleranceSeconds;
+    }
+    return {
+      name,
+      sourceType: "webhook",
+      serverId,
+      enabled: form.enabled,
+      runSpec,
+      triggerSpec: {
+        provider: form.webhookProvider,
+        eventMatch: {
+          eventTypes,
+          ...(actions.length ? { actions } : {}),
+        },
+        signature,
+      },
+    };
+  }
   if (isReadinessSource(form.sourceType)) {
     const resourceId = form.resourceId.trim();
     const resourceUri = form.resourceUri.trim();
@@ -433,4 +546,23 @@ function readinessResourceIdPlaceholder(sourceType: WorkflowTriggerDefinitionSou
   if (sourceType === "database_ready") return "database:blast-nt";
   if (sourceType === "file") return "file:/incoming/reads.fastq";
   return "dataset:reads";
+}
+
+function commaLabels(value: string) {
+  return value
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function webhookEventTypesPlaceholder(provider: WorkflowTriggerWebhookProvider) {
+  if (provider === "slack") return "app_mention";
+  if (provider === "stripe") return "checkout.session.completed";
+  return "push";
+}
+
+function webhookSecretRefPlaceholder(provider: WorkflowTriggerWebhookProvider) {
+  if (provider === "slack") return "env://H2OMETA_SLACK_SIGNING_SECRET";
+  if (provider === "stripe") return "env://H2OMETA_STRIPE_WEBHOOK_SECRET";
+  return "env://H2OMETA_GITHUB_WEBHOOK_SECRET";
 }

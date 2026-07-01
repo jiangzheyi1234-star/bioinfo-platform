@@ -2,7 +2,16 @@ export type WorkflowTriggerSpec = Record<string, unknown>;
 
 export type WorkflowTriggerRunSpec = Record<string, unknown>;
 
-export type WorkflowTriggerDefinitionSource = "manual" | "cron" | "dataset" | "file" | "database_ready" | "backfill";
+export type WorkflowTriggerDefinitionSource =
+  | "manual"
+  | "cron"
+  | "webhook"
+  | "dataset"
+  | "file"
+  | "database_ready"
+  | "backfill";
+
+export type WorkflowTriggerWebhookProvider = "github" | "slack" | "stripe";
 
 export type WorkflowTriggerDefinitionCreateRequest = {
   name: string;
@@ -20,6 +29,16 @@ export type WorkflowTriggerDefinitionCreateRequest = {
   triggerSpec:
     | { mode: "manual" }
     | { cron: string; timezone: string; concurrencyPolicy: "Forbid" | "Allow" }
+    | {
+        provider: WorkflowTriggerWebhookProvider;
+        eventMatch: { eventTypes: string[]; actions?: string[] };
+        signature: {
+          provider: WorkflowTriggerWebhookProvider;
+          required: true;
+          secretRef: string;
+          toleranceSeconds?: number;
+        };
+      }
     | { resource: { type: "dataset" | "file" | "database"; id: string; uri?: string } }
     | { partitionUnit: "hour" | "day" };
 };
