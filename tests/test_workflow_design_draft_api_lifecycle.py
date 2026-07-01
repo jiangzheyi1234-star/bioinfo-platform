@@ -65,6 +65,9 @@ def test_workflow_design_draft_remote_runner_api_lifecycle(monkeypatch, tmp_path
     assert compiled_data["layout"]["snakefile"] == "workflow/Snakefile"
     assert compiled_data["layout"]["rules"] == "workflow/rules/generated.smk"
     assert compiled_data["runSpec"]["workflowDesign"]["draftId"] == draft_id
+    assert compiled_data["semanticPortEvidence"]["schemaVersion"] == "h2ometa.workflow-design-semantic-port-evidence.v1"
+    assert compiled_data["semanticPortEvidence"]["status"] == "passed"
+    assert "semanticPortEvidence" not in compiled_data["runSpec"]
     assert compiled_data["workflowRevisionId"].startswith("wfrev_")
     workflow_revision = fetch_workflow_revision(cfg, compiled_data["workflowRevisionId"])
     assert workflow_revision is not None
@@ -75,6 +78,7 @@ def test_workflow_design_draft_remote_runner_api_lifecycle(monkeypatch, tmp_path
         {item["path"] for item in workflow_revision["manifest"]["files"]}
     )
     assert workflow_revision["graphSnapshot"]["runSpec"]["workflowDesign"]["draftId"] == draft_id
+    assert workflow_revision["graphSnapshot"]["semanticPortEvidence"] == compiled_data["semanticPortEvidence"]
     assert list_runs(cfg) == []
 
     invalid_compile = client.post(

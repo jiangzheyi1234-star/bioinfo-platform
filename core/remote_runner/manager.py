@@ -78,7 +78,6 @@ class RemoteRunnerManager(
     _platform_from_metadata = staticmethod(platform_from_metadata)
     _reuse_failed = staticmethod(reuse_failed)
     _summarize_artifact = staticmethod(summarize_artifact)
-
     def __init__(
         self,
         artifact_provider: RemoteRunnerArtifactProvider | None = None,
@@ -137,7 +136,6 @@ class RemoteRunnerManager(
             )
             if reuse_result is not None:
                 return build_bootstrap_reuse_response(reuse_result, server)
-
             mode = self._detect_mode(ssh_service)
             previous_config_payload = self._read_remote_json_if_exists(
                 ssh_service,
@@ -174,7 +172,6 @@ class RemoteRunnerManager(
                 previous_release=previous_release,
                 previous_mode=previous_mode,
             )
-
             reuse_result = self._try_reuse_existing_runner(
                 server_id=server_id,
                 ssh_service=ssh_service,

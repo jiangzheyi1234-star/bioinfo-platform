@@ -4,6 +4,9 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
+from apps.remote_runner.workflow_design_compiler import compile_workflow_design_project
 from apps.remote_runner.workflow_design_planner import plan_workflow_design_draft
 from apps.remote_runner.workflow_design_storage import create_workflow_design_draft, require_workflow_design_draft
 from tests.generated_workflow_test_helpers import test_tool_revision_id, upsert_ready_tool
@@ -152,6 +155,61 @@ def test_semantic_port_plan_reports_compatible_edge(tmp_path: Path) -> None:
     assert "format" in edge["decision"]["matchedFields"]
     assert edge["recommendation"]["action"] == "connect"
     assert edge["converterCandidates"] == []
+
+
+def test_semantic_port_compile_persists_revision_evidence_for_compatible_edge(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    upsert_ready_tool(cfg, _alignment_source_tool(file_format=BAM_FORMAT))
+    upsert_ready_tool(cfg, _alignment_consumer_tool(file_format=BAM_FORMAT))
+    saved = create_workflow_design_draft(cfg, _two_node_design(source_format=BAM_FORMAT, target_format=BAM_FORMAT))
+
+    exported = compile_workflow_design_project(
+        cfg,
+        saved["draft"],
+        export_dir=tmp_path / "semantic-export",
+        draft_id=saved["draftId"],
+        revision=saved["revision"],
+    )
+
+    evidence = exported["semanticPortEvidence"]
+    assert evidence["schemaVersion"] == "h2ometa.workflow-design-semantic-port-evidence.v1"
+    assert evidence["sourcePlanSchemaVersion"] == "h2ometa.workflow-design-semantic-port-plan.v1"
+    assert evidence["status"] == "passed"
+    assert evidence["edgeCount"] == 1
+    assert evidence["compatibleEdgeCount"] == 1
+    assert evidence["blockedEdgeCount"] == 0
+    edge = evidence["edges"][0]
+    assert edge["from"] == {"nodeId": "source", "port": "report"}
+    assert edge["to"] == {"nodeId": "target", "port": "reads"}
+    assert edge["compatible"] is True
+    assert "format" in edge["matchedFields"]
+    assert edge["recommendation"] == {
+        "action": "connect",
+        "reasonCode": "PORTS_COMPATIBLE",
+        "converterCandidateCount": 0,
+    }
+    serialized_evidence = json.dumps(evidence, sort_keys=True)
+    assert "converterCandidates" not in serialized_evidence
+    assert "ruleTemplate" not in serialized_evidence
+    assert "commandTemplate" not in serialized_evidence
+    assert "semanticPortEvidence" not in json.dumps(exported["runSpec"], sort_keys=True)
+
+
+def test_semantic_port_compile_blocks_incompatible_persisted_edge(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    upsert_ready_tool(cfg, _alignment_source_tool(file_format=SAM_FORMAT))
+    upsert_ready_tool(cfg, _alignment_consumer_tool(file_format=BAM_FORMAT))
+    upsert_ready_tool(cfg, _sam_to_bam_converter())
+    saved = create_workflow_design_draft(cfg, _two_node_design(source_format=SAM_FORMAT, target_format=BAM_FORMAT))
+
+    with pytest.raises(ValueError, match="WORKFLOW_DESIGN_SEMANTIC_PORT_PLAN_BLOCKED"):
+        compile_workflow_design_project(
+            cfg,
+            saved["draft"],
+            export_dir=tmp_path / "blocked-export",
+            draft_id=saved["draftId"],
+            revision=saved["revision"],
+        )
 
 
 def test_semantic_port_plan_recommends_one_hop_converter_for_incompatible_edge(tmp_path: Path) -> None:

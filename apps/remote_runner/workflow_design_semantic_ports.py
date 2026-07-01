@@ -16,6 +16,7 @@ from core.contracts.workflow_design import WorkflowDesignDraftV1, WorkflowDesign
 
 
 SEMANTIC_PORT_PLAN_SCHEMA_VERSION = "h2ometa.workflow-design-semantic-port-plan.v1"
+SEMANTIC_PORT_EVIDENCE_SCHEMA_VERSION = "h2ometa.workflow-design-semantic-port-evidence.v1"
 _GRAPH_MUTATION_BLOCKERS = ["confirmation-required", "graph-mutation-requires-user-action"]
 _CONVERTER_LIMIT = 5
 
@@ -59,6 +60,81 @@ def empty_workflow_design_semantic_port_plan() -> dict[str, Any]:
         "blockedEdgeCount": 0,
         "converterCandidateCount": 0,
         "edges": [],
+    }
+
+
+def semantic_port_plan_persisted_blockers(plan: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        edge
+        for edge in _plan_edges(plan)
+        if edge.get("proposed") is not True
+        and (edge.get("decision") if isinstance(edge.get("decision"), dict) else {}).get("compatible") is not True
+    ]
+
+
+def workflow_design_semantic_port_evidence(plan: dict[str, Any]) -> dict[str, Any]:
+    edges = [edge for edge in _plan_edges(plan) if edge.get("proposed") is not True]
+    compatible_count = sum(1 for edge in edges if _edge_compatible(edge))
+    blocked_count = len(edges) - compatible_count
+    converter_count = sum(_edge_converter_count(edge) for edge in edges)
+    return {
+        "schemaVersion": SEMANTIC_PORT_EVIDENCE_SCHEMA_VERSION,
+        "sourcePlanSchemaVersion": str(plan.get("schemaVersion") or ""),
+        "status": "passed" if blocked_count == 0 else "blocked",
+        "edgeCount": len(edges),
+        "compatibleEdgeCount": compatible_count,
+        "blockedEdgeCount": blocked_count,
+        "converterCandidateCount": converter_count,
+        "edges": [_semantic_evidence_edge(edge) for edge in edges],
+    }
+
+
+def _plan_edges(plan: dict[str, Any]) -> list[dict[str, Any]]:
+    if not isinstance(plan, dict):
+        return []
+    return [edge for edge in plan.get("edges") or [] if isinstance(edge, dict)]
+
+
+def _edge_compatible(edge: dict[str, Any]) -> bool:
+    decision = edge.get("decision") if isinstance(edge.get("decision"), dict) else {}
+    return decision.get("compatible") is True
+
+
+def _edge_converter_count(edge: dict[str, Any]) -> int:
+    recommendation = edge.get("recommendation") if isinstance(edge.get("recommendation"), dict) else {}
+    try:
+        return int(recommendation.get("converterCandidateCount") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _semantic_evidence_edge(edge: dict[str, Any]) -> dict[str, Any]:
+    decision = edge.get("decision") if isinstance(edge.get("decision"), dict) else {}
+    recommendation = edge.get("recommendation") if isinstance(edge.get("recommendation"), dict) else {}
+    return {
+        **({"edgeId": str(edge.get("edgeId") or "")} if str(edge.get("edgeId") or "").strip() else {}),
+        "from": _edge_endpoint(edge.get("from")),
+        "to": _edge_endpoint(edge.get("to")),
+        "compatible": decision.get("compatible") is True,
+        "matchedFields": [str(item) for item in decision.get("matchedFields") or []],
+        "genericFields": [str(item) for item in decision.get("genericFields") or []],
+        "advisoryFields": [str(item) for item in decision.get("advisoryFields") or []],
+        "mismatchedField": str(decision.get("mismatchedField") or ""),
+        "hardChecks": [str(item) for item in decision.get("hardChecks") or []],
+        "recommendation": {
+            "action": str(recommendation.get("action") or ""),
+            "reasonCode": str(recommendation.get("reasonCode") or ""),
+            "converterCandidateCount": _edge_converter_count(edge),
+        },
+    }
+
+
+def _edge_endpoint(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {"nodeId": "", "port": ""}
+    return {
+        "nodeId": str(value.get("nodeId") or ""),
+        "port": str(value.get("port") or ""),
     }
 
 

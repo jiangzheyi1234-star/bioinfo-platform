@@ -279,6 +279,9 @@ def test_workflow_design_plan_preview_and_compile_export(tmp_path: Path) -> None
     assert exported["capabilityBundleAudit"][0]["capabilityBundleVersion"] == "capability-bundle-v1"
     assert exported["capabilityBundleAudit"][0]["toolRevisionId"] == test_tool_revision_id("bioconda::qc=1.0")
     assert exported["capabilityBundleAudit"][0]["selectionRationale"]["reason"]
+    assert exported["semanticPortEvidence"]["schemaVersion"] == "h2ometa.workflow-design-semantic-port-evidence.v1"
+    assert exported["semanticPortEvidence"]["status"] == "passed"
+    assert "semanticPortEvidence" not in exported["runSpec"]
     assert exported["runSpec"]["workflowDesign"]["draftId"] == saved["draftId"]
     assert exported["runSpec"]["workflowDesign"]["revision"] == saved["revision"]
     assert (export_dir / "workflow" / "Snakefile").is_file()

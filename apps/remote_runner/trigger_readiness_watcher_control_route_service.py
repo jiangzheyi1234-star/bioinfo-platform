@@ -20,8 +20,5 @@ async def run_workflow_trigger_readiness_watcher_once_request(
     payload: WorkflowTriggerReadinessWatcherRunOnceRequest,
     authorization: str | None,
 ) -> dict[str, Any]:
-    cfg = await _authorized_config_from_request(
-        authorization,
-        action="workflow_trigger.readiness_watcher.run_once",
-    )
+    cfg = await _authorized_config_from_request(authorization, action="workflow_trigger.readiness_watcher.run_once")
     return await run_sync(run_governed_workflow_trigger_readiness_watcher_once, cfg, payload)

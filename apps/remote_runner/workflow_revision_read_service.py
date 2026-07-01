@@ -95,6 +95,47 @@ def _public_graph_snapshot(value: Any) -> dict[str, Any]:
             "pipelineId": graph.get("pipelineId") or run_spec.get("pipelineId"),
             "nodeCount": len(nodes) or len(workflow_nodes),
             "ruleCount": _rule_count(nodes or workflow_nodes),
+            "semanticPortEvidence": _public_semantic_port_evidence(graph.get("semanticPortEvidence")),
+        }
+    )
+
+
+def _public_semantic_port_evidence(value: Any) -> dict[str, Any]:
+    evidence = value if isinstance(value, dict) else {}
+    return _compact(
+        {
+            "schemaVersion": evidence.get("schemaVersion"),
+            "sourcePlanSchemaVersion": evidence.get("sourcePlanSchemaVersion"),
+            "status": evidence.get("status"),
+            "edgeCount": evidence.get("edgeCount"),
+            "compatibleEdgeCount": evidence.get("compatibleEdgeCount"),
+            "blockedEdgeCount": evidence.get("blockedEdgeCount"),
+            "converterCandidateCount": evidence.get("converterCandidateCount"),
+            "edges": [_public_semantic_port_edge(item) for item in _mapping_items(evidence.get("edges"))],
+        }
+    )
+
+
+def _public_semantic_port_edge(item: dict[str, Any]) -> dict[str, Any]:
+    recommendation = item.get("recommendation") if isinstance(item.get("recommendation"), dict) else {}
+    return _compact(
+        {
+            "edgeId": item.get("edgeId"),
+            "from": item.get("from") if isinstance(item.get("from"), dict) else None,
+            "to": item.get("to") if isinstance(item.get("to"), dict) else None,
+            "compatible": item.get("compatible") is True,
+            "matchedFields": item.get("matchedFields") if isinstance(item.get("matchedFields"), list) else None,
+            "genericFields": item.get("genericFields") if isinstance(item.get("genericFields"), list) else None,
+            "advisoryFields": item.get("advisoryFields") if isinstance(item.get("advisoryFields"), list) else None,
+            "mismatchedField": item.get("mismatchedField"),
+            "hardChecks": item.get("hardChecks") if isinstance(item.get("hardChecks"), list) else None,
+            "recommendation": _compact(
+                {
+                    "action": recommendation.get("action"),
+                    "reasonCode": recommendation.get("reasonCode"),
+                    "converterCandidateCount": recommendation.get("converterCandidateCount"),
+                }
+            ),
         }
     )
 

@@ -22,6 +22,11 @@ from .rule_environment import render_rule_conda_env_yaml
 from .rule_outputs import SnakemakeExpression, output_spec_metadata, rule_output_metadata
 from .rule_rendering import render_generated_workflow_snakefile
 from .rule_runtime import runtime_config
+from .workflow_design_semantic_ports import (
+    build_workflow_design_semantic_port_plan,
+    semantic_port_plan_persisted_blockers,
+    workflow_design_semantic_port_evidence,
+)
 from core.contracts.workflow_design import (
     WorkflowDesignDraftV1,
     workflow_design_graph,
@@ -40,6 +45,9 @@ def compile_workflow_design_project(
     revision: int | None = None,
 ) -> dict[str, Any]:
     design = WorkflowDesignDraftV1.model_validate(draft)
+    semantic_port_plan = build_workflow_design_semantic_port_plan(cfg, design)
+    _validate_semantic_port_plan(semantic_port_plan)
+    semantic_port_evidence = workflow_design_semantic_port_evidence(semantic_port_plan)
     resolved_inputs = workflow_design_resolved_inputs(design)
     if not resolved_inputs:
         raise ValueError("INPUT_REQUIRED")
@@ -135,8 +143,27 @@ def compile_workflow_design_project(
             )
             for step in plan.steps
         ],
+        "semanticPortEvidence": semantic_port_evidence,
         "runSpec": workflow_design_to_generated_run_spec(design, draft_id=draft_id, revision=revision),
     }
+
+
+def _validate_semantic_port_plan(plan: dict[str, Any]) -> None:
+    blockers = semantic_port_plan_persisted_blockers(plan)
+    if not blockers:
+        return
+    first = blockers[0]
+    recommendation = first.get("recommendation") if isinstance(first.get("recommendation"), dict) else {}
+    reason_code = str(recommendation.get("reasonCode") or "PORTS_INCOMPATIBLE")
+    source = _semantic_edge_endpoint(first.get("from"))
+    target = _semantic_edge_endpoint(first.get("to"))
+    raise ValueError(f"WORKFLOW_DESIGN_SEMANTIC_PORT_PLAN_BLOCKED: {source}->{target} {reason_code}")
+
+
+def _semantic_edge_endpoint(value: Any) -> str:
+    if not isinstance(value, dict):
+        return "unknown.unknown"
+    return f"{value.get('nodeId') or 'unknown'}.{value.get('port') or 'unknown'}"
 
 
 def _clear_generated_export_paths(export_dir: Path) -> None:

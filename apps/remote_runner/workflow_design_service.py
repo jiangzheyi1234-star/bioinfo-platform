@@ -224,9 +224,15 @@ def _tool_revision_manifest_entry(
 
 def _workflow_revision_graph_snapshot(compiled: dict[str, Any]) -> dict[str, Any]:
     run_spec = compiled.get("runSpec") if isinstance(compiled.get("runSpec"), dict) else {}
+    semantic_port_evidence = (
+        compiled.get("semanticPortEvidence")
+        if isinstance(compiled.get("semanticPortEvidence"), dict)
+        else {}
+    )
     return {
         "schemaVersion": "workflow-graph-snapshot.v1",
         "runSpec": run_spec,
+        "semanticPortEvidence": semantic_port_evidence,
     }
 
 

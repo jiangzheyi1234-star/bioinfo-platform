@@ -30,6 +30,33 @@ def _graph_snapshot() -> dict:
         "schemaVersion": "workflow-graph.v1",
         "nodes": [{"stepId": "fastqc", "toolRevisionId": "toolrev_fastqc_1"}],
         "edges": [],
+        "semanticPortEvidence": {
+            "schemaVersion": "h2ometa.workflow-design-semantic-port-evidence.v1",
+            "sourcePlanSchemaVersion": "h2ometa.workflow-design-semantic-port-plan.v1",
+            "status": "passed",
+            "edgeCount": 1,
+            "compatibleEdgeCount": 1,
+            "blockedEdgeCount": 0,
+            "converterCandidateCount": 0,
+            "edges": [
+                {
+                    "from": {"nodeId": "source", "port": "report"},
+                    "to": {"nodeId": "target", "port": "reads"},
+                    "compatible": True,
+                    "matchedFields": ["format"],
+                    "genericFields": [],
+                    "advisoryFields": ["operation"],
+                    "mismatchedField": "",
+                    "hardChecks": ["format"],
+                    "recommendation": {
+                        "action": "connect",
+                        "reasonCode": "PORTS_COMPATIBLE",
+                        "converterCandidateCount": 0,
+                    },
+                    "converterCandidates": [{"converterToolRevisionId": "toolrev_converter"}],
+                }
+            ],
+        },
     }
 
 
@@ -160,6 +187,16 @@ def test_public_workflow_revision_redacts_runtime_paths_and_hashes_original_lock
         "schemaVersion": "workflow-runtime-lock.v1",
         "platform": "linux-64",
     }
+    semantic_evidence = public["graphSnapshot"]["semanticPortEvidence"]
+    assert semantic_evidence["schemaVersion"] == "h2ometa.workflow-design-semantic-port-evidence.v1"
+    assert semantic_evidence["status"] == "passed"
+    assert semantic_evidence["edgeCount"] == 1
+    assert semantic_evidence["edges"][0]["recommendation"] == {
+        "action": "connect",
+        "reasonCode": "PORTS_COMPATIBLE",
+        "converterCandidateCount": 0,
+    }
+    assert "converterCandidates" not in json.dumps(semantic_evidence, sort_keys=True)
     assert "snakemakeCommand" not in public["runtimeLock"]
     assert "releaseDir" not in public["runtimeLock"]
 
