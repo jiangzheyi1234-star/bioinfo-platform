@@ -279,7 +279,16 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "detail.rules?.items || []" in panel
     assert "WorkflowRunAttemptsPanel" in panel
     assert "onAttemptsLoaded={setRunAttempts}" in panel
-    assert "<WorkflowRunRulesPanel attempts={runAttempts} rules={rules} rulesModel={detail.rules} />" in panel
+    assert "executionContext={detail.executionContext}" in panel
+    assert "onResumeRun={handleResumeRun}" in panel
+    assert "onRetryRunRules={handleRetryRunRules}" in panel
+    assert "resumingRun={resumingRun}" in panel
+    assert "retryingRunRules={ruleRetrying}" in panel
+    assert 'data-rule-recovery-actions="true"' in rules_panel
+    assert "WorkflowRunResumeAction" in rules_panel
+    assert "WorkflowRuleRetryAction" in rules_panel
+    assert "context?.resumePlan" in rules_panel
+    assert "context?.ruleRetryExecutionPlan" in rules_panel
     assert "WorkflowRuleFailureDiagnostics" in panel
     assert "failureLocator={detail.failureLocator}" in panel
     assert "failureLocator?.failedRule?.runRuleId" in panel

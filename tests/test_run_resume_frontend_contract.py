@@ -17,6 +17,7 @@ def test_run_resume_frontend_wires_confirmation_gated_plan_hash_request() -> Non
     action = _source("workflow-run-resume-action.tsx")
     context_panel = _source("workflow-run-execution-context.tsx")
     detail_panel = _source("workflow-run-detail-panel.tsx")
+    rules_panel = _source("workflow-run-rules-panel.tsx")
 
     assert "resumeWorkflowRun" in api
     assert "`/api/v1/runs/${encodeURIComponent(runId)}/resume`" in api
@@ -69,6 +70,12 @@ def test_run_resume_frontend_wires_confirmation_gated_plan_hash_request() -> Non
     assert "plan={context.resumePlan}" in context_panel
     assert "resumingRun" in context_panel
     assert "resumeResult" in context_panel
+    assert "WorkflowRunResumeAction" in rules_panel
+    assert "plan={context.resumePlan}" in rules_panel
+    assert "onResume={onResumeRun}" in rules_panel
+    assert "resuming={resumingRun}" in rules_panel
+    assert "result={resumeResult}" in rules_panel
+    assert "onResumeRun={handleResumeRun}" in detail_panel
     assert "resumeWorkflowRun(run.runId, request)" in detail_panel
     assert "setResumeResult(result)" in detail_panel
     assert "resumeError" in detail_panel

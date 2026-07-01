@@ -17,6 +17,7 @@ def test_rule_retry_frontend_wires_confirmation_gated_plan_hash_request() -> Non
     action = _source("workflow-rule-retry-action.tsx")
     context_panel = _source("workflow-run-execution-context.tsx")
     detail_panel = _source("workflow-run-detail-panel.tsx")
+    rules_panel = _source("workflow-run-rules-panel.tsx")
 
     assert "retryWorkflowRunRules" in api
     assert "`/api/v1/runs/${encodeURIComponent(runId)}/rules/retry`" in api
@@ -66,6 +67,12 @@ def test_rule_retry_frontend_wires_confirmation_gated_plan_hash_request() -> Non
     assert "plan={context.ruleRetryExecutionPlan}" in context_panel
     assert "retryingRunRules" in context_panel
     assert "ruleRetryResult" in context_panel
+    assert "WorkflowRuleRetryAction" in rules_panel
+    assert "plan={context.ruleRetryExecutionPlan}" in rules_panel
+    assert "onRetry={onRetryRunRules}" in rules_panel
+    assert "retrying={retryingRunRules}" in rules_panel
+    assert "result={ruleRetryResult}" in rules_panel
+    assert "onRetryRunRules={handleRetryRunRules}" in detail_panel
     assert "retryWorkflowRunRules(run.runId, request)" in detail_panel
     assert "setRuleRetryResult(result)" in detail_panel
     assert "ruleRetryError" in detail_panel

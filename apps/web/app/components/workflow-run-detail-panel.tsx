@@ -778,7 +778,12 @@ export function WorkflowRunDetailPanel({
             <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
               {rulesAttemptCount} / {rules.length} 条规则包含 attempt 元数据。
             </div>
-            <WorkflowRunRulesPanel attempts={runAttempts} rules={rules} rulesModel={detail.rules} />
+            <WorkflowRunRulesPanel
+              attempts={runAttempts} rules={rules} rulesModel={detail.rules}
+              executionContext={detail.executionContext} onResumeRun={handleResumeRun}
+              onRetryRunRules={handleRetryRunRules} resumingRun={resumingRun} resumeResult={resumeResult}
+              retryingRunRules={ruleRetrying} ruleRetryResult={ruleRetryResult}
+            />
           </div>
         )}
 

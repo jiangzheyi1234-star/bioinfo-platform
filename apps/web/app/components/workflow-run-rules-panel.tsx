@@ -10,8 +10,12 @@ import { cn } from "@/lib/utils";
 import { RuleAttemptBadge, runAttemptByRule } from "./workflow-run-attempts-panel";
 import { WorkflowRuleFailureDiagnostics } from "./workflow-rule-failure-diagnostics";
 import { WorkflowRuleLogEvidence } from "./workflow-rule-log-evidence";
+import { WorkflowRuleRetryAction } from "./workflow-rule-retry-action";
+import type { WorkflowRuleRetryRequest, WorkflowRuleRetryResult } from "./workflow-rule-retry-model";
+import { WorkflowRunResumeAction } from "./workflow-run-resume-action";
+import type { WorkflowRunResumeRequest, WorkflowRunResumeResult } from "./workflow-run-resume-model";
 import type { WorkflowRunRulesSummary } from "./workflow-run-rules-model";
-import type { WorkflowRunDetail, WorkflowRunRule } from "./workflows-page-model";
+import type { WorkflowRunDetail, WorkflowRunExecutionContext, WorkflowRunRule } from "./workflows-page-model";
 import type { WorkflowRunAttemptsReadModel } from "./workflow-run-attempts-model";
 
 type RuleFilterKey = "all" | "failed" | "running" | "completed" | "logs";
@@ -26,10 +30,24 @@ const RULE_FILTERS: Array<{ key: RuleFilterKey; label: string }> = [
 
 export function WorkflowRunRulesPanel({
   attempts,
+  executionContext,
+  onResumeRun,
+  onRetryRunRules,
+  resumingRun,
+  resumeResult,
+  retryingRunRules,
+  ruleRetryResult,
   rules,
   rulesModel,
 }: {
   attempts: WorkflowRunAttemptsReadModel | null;
+  executionContext?: WorkflowRunExecutionContext;
+  onResumeRun?: (request: WorkflowRunResumeRequest) => void;
+  onRetryRunRules?: (request: WorkflowRuleRetryRequest) => void;
+  resumingRun?: boolean;
+  resumeResult?: WorkflowRunResumeResult | null;
+  retryingRunRules?: boolean;
+  ruleRetryResult?: WorkflowRuleRetryResult | null;
   rules: WorkflowRunRule[];
   rulesModel?: WorkflowRunDetail["rules"];
 }) {
@@ -47,6 +65,15 @@ export function WorkflowRunRulesPanel({
     <div className="space-y-3">
       <RunRulesRedactionNotice rules={rulesModel} />
       <RunRulesSummary summary={rulesModel?.summary} />
+      <RunRulesRecoveryActions
+        context={executionContext}
+        onResumeRun={onResumeRun}
+        onRetryRunRules={onRetryRunRules}
+        resumingRun={resumingRun}
+        resumeResult={resumeResult}
+        retryingRunRules={retryingRunRules}
+        ruleRetryResult={ruleRetryResult}
+      />
       <RunRulesToolbar
         filter={filter}
         matchCount={filteredRules.length}
@@ -122,6 +149,43 @@ export function WorkflowRunRulesPanel({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function RunRulesRecoveryActions({
+  context,
+  onResumeRun,
+  onRetryRunRules,
+  resumingRun,
+  resumeResult,
+  retryingRunRules,
+  ruleRetryResult,
+}: {
+  context?: WorkflowRunExecutionContext;
+  onResumeRun?: (request: WorkflowRunResumeRequest) => void;
+  onRetryRunRules?: (request: WorkflowRuleRetryRequest) => void;
+  resumingRun?: boolean;
+  resumeResult?: WorkflowRunResumeResult | null;
+  retryingRunRules?: boolean;
+  ruleRetryResult?: WorkflowRuleRetryResult | null;
+}) {
+  if (!context?.resumePlan && !context?.ruleRetryExecutionPlan) return null;
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-3" data-rule-recovery-actions="true">
+      <div className="text-xs font-semibold text-slate-900">恢复操作</div>
+      <WorkflowRunResumeAction
+        plan={context.resumePlan}
+        resuming={resumingRun}
+        result={resumeResult}
+        onResume={onResumeRun}
+      />
+      <WorkflowRuleRetryAction
+        plan={context.ruleRetryExecutionPlan}
+        retrying={retryingRunRules}
+        result={ruleRetryResult}
+        onRetry={onRetryRunRules}
+      />
     </div>
   );
 }
