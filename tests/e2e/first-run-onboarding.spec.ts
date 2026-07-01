@@ -39,6 +39,11 @@ test.describe("First Successful Run onboarding", () => {
     expect(String(payload.idempotencyKey || "")).toMatch(/^idem_first_run_/);
     expect(api.firstRunSubmitted).toBe(true);
     await expect(page.getByTestId("first-run-conductor")).toHaveAttribute("data-first-run-next-action", "REFRESH_RUN");
+    await expect(page.getByTestId("first-run-conductor")).toHaveAttribute("data-first-run-next-action", "COMPLETE", {
+      timeout: 12_000,
+    });
+    await expect(page.getByTestId("first-run-completion-panel")).toBeVisible();
+    expect(api.firstRunStatusPollsAfterSubmit).toBeGreaterThanOrEqual(3);
   });
 
   test("renders the completed result package, validation card, and evidence bundle", async ({ page }) => {
@@ -98,6 +103,7 @@ async function installFirstRunApiMocks(page: Page, mode: FirstRunMockMode) {
           ? packageRequiredFirstRunStatus()
           : readyToSubmitFirstRunStatus(),
     firstRunFinalized: false,
+    firstRunStatusPollsAfterSubmit: 0,
     firstRunSubmitted: false,
   };
 
@@ -135,6 +141,12 @@ async function installFirstRunApiMocks(page: Page, mode: FirstRunMockMode) {
       const requestedServerId = url.searchParams.get("serverId") || "";
       if (requestedServerId && requestedServerId !== SERVER_ID) {
         return data(route, missingServerFirstRunStatus());
+      }
+      if (mode === "ready-to-submit" && api.firstRunSubmitted) {
+        api.firstRunStatusPollsAfterSubmit += 1;
+        if (api.firstRunStatusPollsAfterSubmit >= 3) {
+          api.firstRunStatus = completedFirstRunStatus();
+        }
       }
       return data(route, api.firstRunStatus);
     }

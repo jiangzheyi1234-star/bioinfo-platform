@@ -174,6 +174,23 @@ def test_first_run_submit_uses_status_sample_cache_without_local_upload_gate() -
     assert "serverId: normalizedServerId || undefined" in first_run_status_state
 
 
+def test_first_run_status_hook_polls_submitted_status_until_settled() -> None:
+    first_run_status_state = (FIRST_RUN_ROUTE / "_state" / "use-first-run-status.ts").read_text(encoding="utf-8")
+
+    assert "const FIRST_RUN_STATUS_POLL_MS = 5000" in first_run_status_state
+    assert "type FirstRunStatusRefreshOptions = {" in first_run_status_state
+    assert "export function firstRunStatusShouldPoll(status: FirstRunStatus | null): boolean" in first_run_status_state
+    assert 'status?.status === "waiting"' in first_run_status_state
+    assert 'status?.stage === "run_in_progress"' in first_run_status_state
+    assert 'status?.nextAction?.code === "REFRESH_RUN"' in first_run_status_state
+    assert "silentRefreshInFlightRef" in first_run_status_state
+    assert "if (options.silent && silentRefreshInFlightRef.current)" in first_run_status_state
+    assert "if (!options.silent)" in first_run_status_state
+    assert "window.setInterval" in first_run_status_state
+    assert "window.clearInterval" in first_run_status_state
+    assert "refreshStatus({ forceRefresh: true, silent: true })" in first_run_status_state
+
+
 def test_first_run_evidence_actions_use_status_run_id_before_local_run() -> None:
     first_run_evidence_state = (FIRST_RUN_ROUTE / "_state" / "use-first-run-evidence.ts").read_text(encoding="utf-8")
 
