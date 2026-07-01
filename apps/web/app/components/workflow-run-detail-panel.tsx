@@ -29,6 +29,7 @@ import { WorkflowResultInputLineagePanel } from "./workflow-result-input-lineage
 import { WorkflowResultPackagePanel } from "./workflow-result-package-panel";
 import { WorkflowResultOutputLineagePanel } from "./workflow-result-output-lineage";
 import { WorkflowRunAttemptsPanel } from "./workflow-run-attempts-panel";
+import { WorkflowRunLogBlock } from "./workflow-run-log-block";
 import { WorkflowRunRulesPanel } from "./workflow-run-rules-panel";
 import { WorkflowRunTriggerProvenancePanel, WorkflowRunTriggerSummary } from "./workflow-run-trigger-provenance";
 import {
@@ -364,25 +365,6 @@ function formatBytes(bytes: number): string {
   const sizes = ["B", "KB", "MB", "GB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${parseFloat((bytes / k ** i).toFixed(2))} ${sizes[i]}`;
-}
-
-/* ─── Log block ─── */
-
-function LogBlock({ title, lines }: { title: string; lines: string[] }) {
-  if (lines.length === 0) {
-    return <div className="py-8 text-center text-sm text-slate-400">暂无 {title} 日志</div>;
-  }
-  return (
-    <div className="rounded-lg border border-slate-200 bg-slate-950 p-4">
-      <div className="mb-2 flex items-center justify-between">
-        <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">{title}</div>
-        <span className="text-[11px] text-slate-500">{lines.length} 行</span>
-      </div>
-      <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap text-xs leading-relaxed text-slate-100">
-        {lines.join("\n")}
-      </pre>
-    </div>
-  );
 }
 
 /* ─── Rule view ─── */
@@ -800,9 +782,9 @@ export function WorkflowRunDetailPanel({
           </div>
         )}
 
-        {tab === "stdout" && <LogBlock title="stdout" lines={stdout} />}
+        {tab === "stdout" && <WorkflowRunLogBlock runId={run.runId} stream="stdout" initialLog={detail.logs.stdout} />}
 
-        {tab === "stderr" && <LogBlock title="stderr" lines={stderr} />}
+        {tab === "stderr" && <WorkflowRunLogBlock runId={run.runId} stream="stderr" initialLog={detail.logs.stderr} />}
       </div>
     </div>
   );
