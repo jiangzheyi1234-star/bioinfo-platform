@@ -116,6 +116,7 @@ def manual_runner_stop_health(
     snapshot = get_saved_snapshot(server_id=server_id, registry_entry=registry_entry)
     if snapshot is None:
         return {
+            "state": "stopped",
             "startup": {"ok": True, "message": "Remote runner stop state is recorded."},
             "live": {"ok": False, "message": "Remote runner is manually stopped."},
             "readyOk": False,
@@ -125,6 +126,7 @@ def manual_runner_stop_health(
             "pipelineRegistry": {},
         }
     return {
+        "state": str(snapshot.get("state") or "stopped"),
         "startup": snapshot["startup"],
         "live": snapshot["live"],
         "readyOk": bool(snapshot["ready"]["ok"]),

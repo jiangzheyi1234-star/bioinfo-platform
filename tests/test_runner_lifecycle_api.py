@@ -503,6 +503,20 @@ def test_runner_lifecycle_mutation_failures_invalidate_ssh_state_cache(monkeypat
         invalidations.append(tuple(prefixes))
 
     class ConflictRuntime:
+        def ensure_remote_runner_ready(self, server_id: str):
+            raise RuntimeServiceError(
+                "remote runner ensure failed",
+                status_code=503,
+                detail={"reasonCode": "RUNNER_ENSURE_FAILED", "serverId": server_id},
+            )
+
+        def start_remote_runner(self, server_id: str):
+            raise RuntimeServiceError(
+                "remote runner start failed",
+                status_code=503,
+                detail={"reasonCode": "RUNNER_START_FAILED", "serverId": server_id},
+            )
+
         def upgrade_remote_runner(self, server_id: str):
             raise RuntimeServiceError(
                 "remote runner upgrade blocked because active workflow run leases exist",
@@ -517,16 +531,44 @@ def test_runner_lifecycle_mutation_failures_invalidate_ssh_state_cache(monkeypat
                 detail={"reasonCode": "RUNNER_STOP_FAILED", "serverId": server_id},
             )
 
+        def run_runner_release_prune(self, server_id: str, *, plan_hash: str):
+            raise RuntimeServiceError(
+                "remote runner release prune failed",
+                status_code=503,
+                detail={"reasonCode": "RUNNER_RELEASE_PRUNE_FAILED", "serverId": server_id, "planHash": plan_hash},
+            )
+
+        def run_runner_uninstall(self, server_id: str, *, plan_hash: str):
+            raise RuntimeServiceError(
+                "remote runner uninstall failed",
+                status_code=503,
+                detail={"reasonCode": "RUNNER_UNINSTALL_FAILED", "serverId": server_id, "planHash": plan_hash},
+            )
+
     monkeypatch.setattr("apps.api.ssh_control_service.runtime_service", lambda: ConflictRuntime())
     monkeypatch.setattr("apps.api.ssh_control_service.invalidate_response_cache", fake_invalidate_response_cache)
 
     client = TestClient(app)
+    ensure_response = client.post("/api/v1/servers/srv_active/ensure-runner")
+    start_response = client.post("/api/v1/servers/srv_active/runner/start")
     upgrade_response = client.post("/api/v1/servers/srv_active/runner/upgrade")
     stop_response = client.post("/api/v1/servers/srv_active/runner/stop")
+    prune_response = client.post(
+        "/api/v1/servers/srv_active/runner/releases/prune/run",
+        json={"confirmation": "prune-runner-releases", "planHash": "a" * 64},
+    )
+    uninstall_response = client.post(
+        "/api/v1/servers/srv_active/runner/uninstall/run",
+        json={"confirmation": "uninstall-runner-control-plane", "planHash": "b" * 64},
+    )
 
+    assert ensure_response.status_code == 503
+    assert start_response.status_code == 503
     assert upgrade_response.status_code == 409
     assert stop_response.status_code == 503
-    assert len(invalidations) == 2
+    assert prune_response.status_code == 503
+    assert uninstall_response.status_code == 503
+    assert len(invalidations) == 6
     assert all("servers" in prefixes and "ssh_" in prefixes for prefixes in invalidations)
 
 

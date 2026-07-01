@@ -253,6 +253,7 @@ class RuntimeSshConnectionMixin:
                 else (resolve_ssh_password({"ssh": merged}) if auth_mode == "password_ref" else ""),
                 "key_file": resolved.get("identity_ref", "") if auth_mode in {"key_file", "ssh_config"} else "",
                 "use_agent": auth_mode == "agent",
+                "timeout": int(resolved.get("timeout_sec", 5)),
             }
         steps = run_diagnostics(**diagnostics_kwargs)
         ok = all(step["status"] == "ok" for step in steps)
@@ -261,7 +262,11 @@ class RuntimeSshConnectionMixin:
             "ok": ok,
             "message": "SSH diagnostics passed" if ok else "SSH diagnostics failed",
             "steps": [
-                {"name": step["name"], "status": step["status"], "message": step["message"]}
+                {
+                    key: step[key]
+                    for key in ("name", "status", "message", "code", "phase")
+                    if key in step
+                }
                 for step in steps
             ],
             "status": status,

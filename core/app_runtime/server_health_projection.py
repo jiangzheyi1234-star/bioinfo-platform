@@ -29,12 +29,10 @@ def build_server_health_projection(
     reason_code = ""
     ready_ok = False
     ready_message = "Remote runner is not ready."
+    state = ""
     workflow_runtime: dict[str, Any] = {}
     pipeline_registry: dict[str, Any] = {}
-    if not configured or not connected:
-        reason_code = "SSH_NOT_CONNECTED"
-        ready_message = "Connect to the remote server before submitting runs."
-    elif runner_stop_state.is_runner_manually_stopped(registry_entry):
+    if runner_stop_state.is_runner_manually_stopped(registry_entry):
         stopped = runner_stop_state.manual_runner_stop_health(
             server_id,
             registry_entry,
@@ -43,6 +41,7 @@ def build_server_health_projection(
         startup, live = stopped["startup"], stopped["live"]
         ready_ok, ready_message, reason_code = stopped["readyOk"], stopped["readyMessage"], stopped["reasonCode"]
         workflow_runtime, pipeline_registry = stopped["workflowRuntime"], stopped["pipelineRegistry"]
+        state = str(stopped.get("state") or "")
     elif runner_stop_state.has_unsupported_runner_stop_snapshot(registry_entry):
         unsupported = runner_stop_state.unsupported_runner_stop_health(
             server_id,
@@ -56,6 +55,10 @@ def build_server_health_projection(
         reason_code = str(unsupported["reasonCode"])
         workflow_runtime = dict(unsupported.get("workflowRuntime") or {})
         pipeline_registry = dict(unsupported.get("pipelineRegistry") or {})
+        state = str(unsupported.get("state") or "")
+    elif not configured or not connected:
+        reason_code = "SSH_NOT_CONNECTED"
+        ready_message = "Connect to the remote server before submitting runs."
     elif not registry_entry.get("bootstrap_version"):
         snapshot = service._get_saved_readiness_snapshot(
             server_id=server_id,
@@ -108,6 +111,7 @@ def build_server_health_projection(
                 ready_message = str(exc) or "Remote runner control plane is not reachable."
     return {
         "serverId": server_id,
+        "state": state,
         "startup": startup,
         "live": live,
         "ready": {"ok": ready_ok, "message": ready_message},

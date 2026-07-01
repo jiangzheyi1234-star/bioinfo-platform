@@ -196,7 +196,15 @@ def test_run_diagnostics_reports_dns_failure(monkeypatch) -> None:
 
     steps = run_diagnostics("bad.example", 22, "tester")
 
-    assert steps == [{"name": "DNS/IP", "status": "fail", "message": "host not found"}]
+    assert steps == [
+        {
+            "name": "DNS/IP",
+            "status": "fail",
+            "message": "host not found",
+            "code": "SSH_NETWORK_ERROR",
+            "phase": "dns_lookup",
+        }
+    ]
 
 
 def test_run_diagnostics_does_not_mask_unexpected_dns_adapter_errors(monkeypatch) -> None:
@@ -218,6 +226,89 @@ def test_run_diagnostics_does_not_mask_unexpected_tcp_adapter_errors(monkeypatch
 
     with pytest.raises(RuntimeError, match="tcp adapter crashed"):
         run_diagnostics("192.0.2.10", 22, "tester")
+
+
+def test_run_diagnostics_reports_tcp_failure_code_and_uses_timeout(monkeypatch) -> None:
+    calls = []
+
+    def refused_connection(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise ConnectionRefusedError("connection refused")
+
+    monkeypatch.setattr("core.remote.ssh_connector.socket.getaddrinfo", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr("core.remote.ssh_connector.socket.create_connection", refused_connection)
+
+    steps = run_diagnostics("192.0.2.10", 2222, "tester", timeout=9)
+
+    assert steps[-1] == {
+        "name": "TCP",
+        "status": "fail",
+        "message": "SSH 端口拒绝连接，请确认远端 sshd 正在监听。",
+        "code": "SSH_TCP_REFUSED",
+        "phase": "tcp_connect",
+    }
+    assert calls == [((("192.0.2.10", 2222),), {"timeout": 9})]
+
+
+def test_run_diagnostics_reports_untrusted_host_key_with_phase_and_closes(monkeypatch) -> None:
+    calls = {"socket_closed": 0, "transport_closed": 0, "client_closed": 0}
+
+    class FakeSock:
+        def close(self) -> None:
+            calls["socket_closed"] += 1
+
+    class FakeTransport:
+        remote_version = "SSH-2.0-test"
+
+        def __init__(self, _sock, *, disabled_algorithms=None) -> None:
+            calls["disabled_algorithms"] = disabled_algorithms
+            self.banner_timeout = None
+            self.auth_timeout = None
+
+        def connect(self) -> None:
+            calls["transport_banner_timeout"] = self.banner_timeout
+            calls["transport_auth_timeout"] = self.auth_timeout
+
+        def close(self) -> None:
+            calls["transport_closed"] += 1
+
+    class FakeClient:
+        def load_system_host_keys(self) -> None:
+            return None
+
+        def load_host_keys(self, _path: str) -> None:
+            return None
+
+        def set_missing_host_key_policy(self, _policy) -> None:
+            return None
+
+        def connect(self, **kwargs) -> None:
+            calls["client_kwargs"] = kwargs
+            raise paramiko.SSHException("Server '192.0.2.10' not found in known_hosts")
+
+        def close(self) -> None:
+            calls["client_closed"] += 1
+
+    monkeypatch.setattr("core.remote.ssh_connector.socket.getaddrinfo", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr("core.remote.ssh_connector.socket.create_connection", lambda *_args, **_kwargs: FakeSock())
+    monkeypatch.setattr("core.remote.ssh_connector.paramiko.Transport", FakeTransport)
+    monkeypatch.setattr("core.remote.ssh_connector.paramiko.SSHClient", FakeClient)
+
+    steps = run_diagnostics("192.0.2.10", 2222, "tester", password="secret", timeout=11)
+
+    assert steps[-1] == {
+        "name": "Host key",
+        "status": "fail",
+        "message": "SSH 主机密钥未受信任，请先接受主机密钥或写入 known_hosts。",
+        "code": "SSH_HOST_KEY_UNTRUSTED",
+        "phase": "host_key",
+    }
+    assert calls["transport_banner_timeout"] == 11
+    assert calls["transport_auth_timeout"] == 11
+    assert calls["client_kwargs"]["timeout"] == 11
+    assert calls["client_kwargs"]["auth_timeout"] == 11
+    assert calls["client_closed"] == 1
+    assert calls["transport_closed"] == 1
 
 
 def test_trust_ssh_host_key_writes_app_known_hosts(monkeypatch, tmp_path) -> None:

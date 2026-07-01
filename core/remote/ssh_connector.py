@@ -230,44 +230,85 @@ def trust_ssh_host_key(
     return scanned
 
 
+def _diagnostic_step(
+    name: str,
+    status: str,
+    message: str,
+    *,
+    code: str = "",
+    phase: str = "",
+) -> dict[str, str]:
+    step = {"name": name, "status": status, "message": message}
+    if code:
+        step["code"] = code
+    if phase:
+        step["phase"] = phase
+    return step
+
+
 def run_diagnostics(
-    ip: str, port: int, user: str, password: str = "", key_file: str = "", use_agent: bool = False
-) -> list:
+    ip: str,
+    port: int,
+    user: str,
+    password: str = "",
+    key_file: str = "",
+    use_agent: bool = False,
+    timeout: int = 5,
+) -> list[dict[str, str]]:
     """SSH 诊断步骤."""
-    steps = []
+    timeout = max(1, int(timeout))
+    steps: list[dict[str, str]] = []
 
     # DNS/IP
     try:
         socket.getaddrinfo(ip, port)
-        steps.append({"name": "DNS/IP", "status": "ok", "message": f"{ip} resolved"})
+        steps.append(_diagnostic_step("DNS/IP", "ok", f"{ip} resolved", phase="dns_lookup"))
     except OSError as e:
-        steps.append({"name": "DNS/IP", "status": "fail", "message": str(e)})
+        code, message = _tcp_failure_message(e)
+        steps.append(_diagnostic_step("DNS/IP", "fail", message, code=code, phase="dns_lookup"))
         return steps
 
     # TCP
+    sock = None
     try:
-        socket.create_connection((ip, port), timeout=5).close()
-        steps.append({"name": "TCP", "status": "ok", "message": "connected"})
+        sock = socket.create_connection((ip, port), timeout=timeout)
+        steps.append(_diagnostic_step("TCP", "ok", "connected", phase="tcp_connect"))
     except OSError as e:
-        steps.append({"name": "TCP", "status": "fail", "message": str(e)})
+        code, message = _tcp_failure_message(e)
+        steps.append(_diagnostic_step("TCP", "fail", message, code=code, phase="tcp_connect"))
         return steps
+    finally:
+        if sock is not None:
+            sock.close()
 
     # SSH handshake
+    sock = None
+    t = None
     try:
-        sock = socket.create_connection((ip, port), timeout=5)
+        sock = socket.create_connection((ip, port), timeout=timeout)
         t = paramiko.Transport(sock, disabled_algorithms=_disabled_algorithms())
-        t.banner_timeout = 5
-        t.auth_timeout = 5
+        t.banner_timeout = timeout
+        t.auth_timeout = timeout
         t.connect()
         steps.append(
-            {"name": "SSH", "status": "ok", "message": t.remote_version or "connected"}
+            _diagnostic_step("SSH", "ok", t.remote_version or "connected", phase="ssh_handshake")
         )
-        t.close()
-    except (paramiko.SSHException, OSError) as e:
-        steps.append({"name": "SSH", "status": "fail", "message": str(e)})
+    except OSError as e:
+        code, message = _tcp_failure_message(e)
+        steps.append(_diagnostic_step("SSH", "fail", message, code=code, phase="tcp_connect"))
         return steps
+    except (paramiko.SSHException, OSError) as e:
+        phase, code, message = _ssh_failure_message(e)
+        steps.append(_diagnostic_step("SSH", "fail", message, code=code, phase=phase))
+        return steps
+    finally:
+        if t is not None:
+            t.close()
+        elif sock is not None:
+            sock.close()
 
     # Auth
+    c = None
     try:
         c = paramiko.SSHClient()
         _configure_host_key_policy(c)
@@ -275,10 +316,10 @@ def run_diagnostics(
             "hostname": ip,
             "port": port,
             "username": user,
-            "timeout": 5,
-            "banner_timeout": 5,
-            "auth_timeout": 5,
-            "channel_timeout": 5,
+            "timeout": timeout,
+            "banner_timeout": timeout,
+            "auth_timeout": timeout,
+            "channel_timeout": timeout,
             "allow_agent": use_agent,
             "look_for_keys": use_agent,
             "disabled_algorithms": _disabled_algorithms(),
@@ -288,9 +329,13 @@ def run_diagnostics(
         elif not use_agent:
             kwargs["password"] = password
         c.connect(**kwargs)
-        c.close()
-        steps.append({"name": "Auth", "status": "ok", "message": "authenticated"})
+        steps.append(_diagnostic_step("Auth", "ok", "authenticated", phase="auth"))
     except (paramiko.SSHException, OSError) as e:
-        steps.append({"name": "Auth", "status": "fail", "message": str(e)})
+        phase, code, message = _ssh_failure_message(e)
+        name = "Host key" if phase == "host_key" else "Auth"
+        steps.append(_diagnostic_step(name, "fail", message, code=code, phase=phase))
+    finally:
+        if c is not None:
+            c.close()
 
     return steps

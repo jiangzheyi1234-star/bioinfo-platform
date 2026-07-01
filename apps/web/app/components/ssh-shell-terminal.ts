@@ -14,6 +14,7 @@ import {
   DEFAULT_TERMINAL_HEIGHT,
   TERMINAL_HEIGHT_KEY,
   TERMINAL_PENDING_INPUT_MAX_CHARS,
+  type SSHStatusRefreshOptions,
   type SSHStatus,
   type TerminalSnapshot,
   clampTerminalHeight,
@@ -36,7 +37,7 @@ export type UseSshTerminalResult = {
 
 type UseSshTerminalOptions = {
   status: SSHStatus | null;
-  refreshStatus: (options?: { silent?: boolean }) => Promise<SSHStatus | null>;
+  refreshStatus: (options?: SSHStatusRefreshOptions) => Promise<SSHStatus | null>;
   surfaceRef: RefObject<HTMLDivElement | null>;
   viewportRef: RefObject<HTMLDivElement | null>;
 };

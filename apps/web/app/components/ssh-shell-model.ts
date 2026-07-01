@@ -52,6 +52,11 @@ export type SSHStatus = RunnerRepairStatus & {
   message: string;
 };
 
+export type SSHStatusRefreshOptions = {
+  silent?: boolean;
+  force?: boolean;
+};
+
 export type RemoteStatusView = {
   label: string;
   message: string;

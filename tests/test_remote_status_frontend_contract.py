@@ -193,6 +193,51 @@ def test_remote_status_failed_runner_can_trigger_repair_bootstrap() -> None:
     )
 
 
+def test_runner_lifecycle_actions_force_status_refresh_after_mutation() -> None:
+    hook_source = _source("connection")
+    shell_source = (COMPONENTS / "ssh-shell.tsx").read_text(encoding="utf-8")
+    terminal_source = (COMPONENTS / "ssh-shell-terminal.ts").read_text(encoding="utf-8")
+
+    _assert_contains(
+        _source("model"),
+        "export type SSHStatusRefreshOptions",
+        "force?: boolean",
+    )
+    _assert_contains(
+        hook_source,
+        "type SSHStatusRefreshOptions",
+        "options?.silent && !options.force",
+        "statusRefreshSequenceRef",
+        "refreshSequence !== statusRefreshSequenceRef.current",
+        'options?.silent && !options.force ? "/api/v1/ssh/status" : "/api/v1/ssh/status?refresh=true"',
+        "refreshStatus({ silent: true, force: true })",
+    )
+    _assert_matches(
+        hook_source,
+        r"const runner = ensured\?\.data\?\.runner;.*await refreshStatus\(\{ silent: true, force: true \}\);",
+        r"\} catch \(error\) \{.*await refreshStatus\(\{ silent: true, force: true \}\);",
+    )
+    _assert_contains(terminal_source, "type SSHStatusRefreshOptions")
+    _assert_contains(shell_source, "connection.refreshStatus({ silent: true, force: true })")
+
+
+def test_runner_repair_panel_refreshes_after_success_or_failure() -> None:
+    repair_source = _source("repair")
+
+    _assert_contains(
+        repair_source,
+        "const refreshAfterMutation = async () =>",
+        "await onRefreshStatus()",
+    )
+    _assert_matches(
+        repair_source,
+        r"const stopRemoteService = async \(\) => \{.*\} finally \{\s*await refreshAfterMutation\(\);",
+        r"const upgradeRunner = async \(\) => \{.*\} finally \{\s*await refreshAfterMutation\(\);",
+        r"const runPrune = async \(\) => \{.*\} finally \{\s*await refreshAfterMutation\(\);",
+        r"const runUninstall = async \(\) => \{.*\} finally \{\s*await refreshAfterMutation\(\);",
+    )
+
+
 def test_local_api_error_preserves_runner_problem_extensions() -> None:
     client_source = _source("local_api")
     model_source = _source("model")

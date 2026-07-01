@@ -19,8 +19,14 @@ def test_ssh_diagnostics_api_returns_dict_steps_without_attribute_adapter(monkey
     service._initialized = True
     received_kwargs = {}
     diagnostic_steps = [
-        {"name": "DNS/IP", "status": "ok", "message": "192.0.2.10 resolved"},
-        {"name": "TCP", "status": "fail", "message": "connection refused"},
+        {"name": "DNS/IP", "status": "ok", "message": "192.0.2.10 resolved", "phase": "dns_lookup"},
+        {
+            "name": "TCP",
+            "status": "fail",
+            "message": "SSH 端口拒绝连接，请确认远端 sshd 正在监听。",
+            "code": "SSH_TCP_REFUSED",
+            "phase": "tcp_connect",
+        },
     ]
 
     def fake_run_diagnostics(**kwargs):
@@ -44,4 +50,5 @@ def test_ssh_diagnostics_api_returns_dict_steps_without_attribute_adapter(monkey
         "password": "fresh-secret",
         "key_file": "",
         "use_agent": False,
+        "timeout": 5,
     }

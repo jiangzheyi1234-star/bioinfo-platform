@@ -8,6 +8,7 @@ import { LocalApiError, requestLocalApiJson } from "@/app/lib/local-api-client";
 import {
   type SSHHostKeyCandidate,
   type SSHFormState,
+  type SSHStatusRefreshOptions,
   type SSHStatus,
   type SshShellContextValue,
   defaultForm,
@@ -95,7 +96,7 @@ export type UseSshConnectionResult = {
   connectDisabled: boolean;
   updateField: <K extends keyof SSHFormState>(key: K, value: SSHFormState[K]) => void;
   selectKeyFile: () => Promise<void>;
-  refreshStatus: (options?: { silent?: boolean }) => Promise<SSHStatus | null>;
+  refreshStatus: (options?: SSHStatusRefreshOptions) => Promise<SSHStatus | null>;
   ensureRunner: () => Promise<void>;
   acceptHostKey: () => Promise<void>;
 };
@@ -135,26 +136,33 @@ export function useSshConnection(): UseSshConnectionResult {
   const statusInFlightRef = useRef<Promise<SSHStatus | null> | null>(null);
   const statusRef = useRef<SSHStatus | null>(null);
   const lastStatusRefreshRef = useRef(0);
+  const statusRefreshSequenceRef = useRef(0);
 
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
 
   const refreshStatus = useCallback(
-    async (options?: { silent?: boolean }): Promise<SSHStatus | null> => {
-      if (options?.silent && Date.now() - lastStatusRefreshRef.current < 15_000) {
+    async (options?: SSHStatusRefreshOptions): Promise<SSHStatus | null> => {
+      if (options?.silent && !options.force && Date.now() - lastStatusRefreshRef.current < 15_000) {
         return statusRef.current;
       }
-      if (options?.silent && statusInFlightRef.current) {
+      if (options?.silent && !options.force && statusInFlightRef.current) {
         return statusInFlightRef.current;
       }
       if (!options?.silent) {
         setLoading(true);
       }
+      const refreshSequence = statusRefreshSequenceRef.current + 1;
+      statusRefreshSequenceRef.current = refreshSequence;
       const request = (async () => {
-        const statusPath = options?.silent ? "/api/v1/ssh/status" : "/api/v1/ssh/status?refresh=true";
+        const statusPath =
+          options?.silent && !options.force ? "/api/v1/ssh/status" : "/api/v1/ssh/status?refresh=true";
         const data = await requestLocalApiJson("GET", statusPath, { cache: "no-store" });
         const next = (data?.item || null) as SSHStatus | null;
+        if (refreshSequence !== statusRefreshSequenceRef.current) {
+          return statusRef.current;
+        }
         setStatus(next);
         lastStatusRefreshRef.current = Date.now();
         setForm((current) => {
@@ -173,7 +181,9 @@ export function useSshConnection(): UseSshConnectionResult {
       try {
         return await request;
       } catch {
-        setStatus(null);
+        if (!options?.silent) {
+          setStatus(null);
+        }
         return null;
       } finally {
         if (statusInFlightRef.current === request) {
@@ -230,9 +240,8 @@ export function useSshConnection(): UseSshConnectionResult {
       const runner = ensured?.data?.runner;
       if (runner) {
         setStatus((current) => (current?.connected ? { ...current, runner } : current));
-      } else {
-        await refreshStatus({ silent: true });
       }
+      await refreshStatus({ silent: true, force: true });
     } catch (error) {
       setStatus((current) =>
         current?.connected
@@ -247,6 +256,7 @@ export function useSshConnection(): UseSshConnectionResult {
             }
           : current
       );
+      await refreshStatus({ silent: true, force: true });
     } finally {
       ensureInFlightRef.current = false;
       setEnsureRunnerBusy(false);

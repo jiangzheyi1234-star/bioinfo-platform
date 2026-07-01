@@ -195,6 +195,30 @@ def test_rotate_runner_token_rejects_manually_stopped_runner(monkeypatch, tmp_pa
     assert raised.value.detail["nextAction"] == "START_RUNNER"
 
 
+def test_server_health_projects_manual_stop_while_ssh_is_disconnected(monkeypatch) -> None:
+    server_id, cfg = _stopped_runner_config()
+    service = RuntimeService(service_locator=ServiceLocator())
+    service._initialized = True
+
+    class FailIfCalledRemoteRunnerManager:
+        def get_health(self, **_kwargs):
+            raise AssertionError("offline manual stop health should not touch remote runner")
+
+    service._service_locator.remote_runner_manager = FailIfCalledRemoteRunnerManager()
+    monkeypatch.setattr("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg)
+
+    server = service.list_servers()[0]
+    health = service.get_server_health(server_id)
+
+    assert server["connected"] is False
+    assert server["runner"]["state"] == "stopped"
+    assert server["runner"]["reasonCode"] == "RUNNER_STOPPED"
+    assert server["reasonCode"] == "RUNNER_STOPPED"
+    assert health["reasonCode"] == "RUNNER_STOPPED"
+    assert health["ready"]["ok"] is False
+    assert health["ready"]["message"] == "Remote runner was manually stopped."
+
+
 def test_explicit_start_runner_starts_manually_stopped_runner(monkeypatch, tmp_path) -> None:
     server_id, cfg = _stopped_runner_config()
     service = RuntimeService(service_locator=ServiceLocator())

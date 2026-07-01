@@ -180,6 +180,14 @@ export function RunnerRepairPanel({
     setUninstallError("");
   }, [serverId]);
 
+  const refreshAfterMutation = async () => {
+    try {
+      await onRefreshStatus();
+    } catch {
+      return;
+    }
+  };
+
   const loadListeningPorts = async () => {
     if (!status?.connected || !serverId || portsLoading) {
       return;
@@ -209,10 +217,10 @@ export function RunnerRepairPanel({
       const output = String(payload?.data?.output || "").trim();
       setStopOutput(output || "远程服务停止命令已执行。");
       setStopConfirmation("");
-      await onRefreshStatus();
     } catch (error) {
       setStopError(normalizeFetchError(error));
     } finally {
+      await refreshAfterMutation();
       setStopLoading(false);
     }
   };
@@ -229,10 +237,10 @@ export function RunnerRepairPanel({
         timeoutMs: 180_000,
       });
       setUpgradeOutput(String(payload?.data?.health?.ready?.message || "Runner upgrade completed."));
-      await onRefreshStatus();
     } catch (error) {
       setUpgradeError(normalizeFetchError(error));
     } finally {
+      await refreshAfterMutation();
       setUpgradeLoading(false);
     }
   };
@@ -276,10 +284,10 @@ export function RunnerRepairPanel({
       setPrunePlan((payload?.data || prunePlan) as RunnerReleasePrunePlan);
       setPruneMessage("旧版本清理已完成。");
       setPruneConfirmation("");
-      await onRefreshStatus();
     } catch (error) {
       setPruneError(normalizeFetchError(error));
     } finally {
+      await refreshAfterMutation();
       setPruneLoading(false);
     }
   };
@@ -323,10 +331,10 @@ export function RunnerRepairPanel({
       setUninstallPlan((payload?.data || uninstallPlan) as RunnerUninstallPlan);
       setUninstallMessage("Runner 控制面已卸载，shared 数据已保留。");
       setUninstallConfirmation("");
-      await onRefreshStatus();
     } catch (error) {
       setUninstallError(normalizeFetchError(error));
     } finally {
+      await refreshAfterMutation();
       setUninstallLoading(false);
     }
   };
