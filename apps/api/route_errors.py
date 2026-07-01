@@ -14,6 +14,7 @@ from core.app_runtime.errors import (
     RuntimeConflictError,
     RuntimeServiceError,
     runtime_service_detail,
+    runtime_service_problem_extensions,
     runtime_service_status_code,
 )
 from core.problem_responses import (
@@ -43,6 +44,7 @@ def register_exception_handlers(app: FastAPI) -> None:
                 code="RUNNER_NOT_READY" if status >= 500 else "RUNTIME_SERVICE_ERROR",
                 request_id=request_id,
                 instance=request.url.path,
+                extensions=runtime_service_problem_extensions(exc),
             ),
             headers={"X-Request-Id": request_id},
         )

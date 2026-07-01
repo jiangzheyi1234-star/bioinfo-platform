@@ -375,7 +375,9 @@ export function toForm(status: SSHStatus | null): SSHFormState {
 
 export function normalizeFetchError(error: unknown): string {
   if (error instanceof LocalApiError) {
-    return error.message || "请求失败";
+    const context = [error.reasonCode, error.nextAction].filter(Boolean).join(" · ");
+    const message = error.message || "请求失败";
+    return context ? `${message} (${context})` : message;
   }
   const message = error instanceof Error ? error.message : String(error || "");
   if (message.includes("Failed to fetch") || message.includes("NetworkError") || message.includes("Load failed")) {

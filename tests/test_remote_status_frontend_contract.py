@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 COMPONENTS = ROOT / "apps" / "web" / "app" / "components"
 
 CONTRACT_FILES = {
+    "local_api": ROOT / "apps" / "web" / "app" / "lib" / "local-api-client.ts",
     "model": COMPONENTS / "ssh-shell-model.ts",
     "ui": COMPONENTS / "ssh-shell-ui.tsx",
     "repair": COMPONENTS / "ssh-runner-repair-panel.tsx",
@@ -181,6 +182,26 @@ def test_remote_status_failed_runner_can_trigger_repair_bootstrap() -> None:
     _assert_not_contains(
         hook_source,
         "current?.connected && !current.runner",
+    )
+
+
+def test_local_api_error_preserves_runner_problem_extensions() -> None:
+    client_source = _source("local_api")
+    model_source = _source("model")
+
+    _assert_contains(
+        client_source,
+        "reasonCode?: string",
+        "nextAction?: string",
+        "this.reasonCode = options?.reasonCode",
+        "this.nextAction = options?.nextAction",
+        "problemDetail.reasonCode",
+        "problemDetail.nextAction",
+    )
+    _assert_contains(
+        model_source,
+        "[error.reasonCode, error.nextAction].filter(Boolean).join(\" · \")",
+        "return context ? `${message} (${context})` : message",
     )
 
 

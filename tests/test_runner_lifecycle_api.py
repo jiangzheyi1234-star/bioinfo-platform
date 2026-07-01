@@ -465,7 +465,10 @@ def test_upgrade_runner_http_conflict_preserves_reason_code(monkeypatch: pytest.
                 detail={
                     "reasonCode": UPGRADE_ACTIVE_LEASES_REASON,
                     "serverId": server_id,
+                    "blockReasons": ["active-workflow-leases"],
                     "activeLeaseCount": 1,
+                    "activeLeases": [{"runId": "run_sensitive"}],
+                    "host": "runner.internal",
                     "nextAction": "WAIT_FOR_RUNS_OR_CANCEL_BEFORE_UPGRADE",
                 },
             )
@@ -482,6 +485,13 @@ def test_upgrade_runner_http_conflict_preserves_reason_code(monkeypatch: pytest.
     payload = response.json()
     assert payload["code"] == "RUNTIME_SERVICE_ERROR"
     assert payload["requestId"] == "req_upgrade_active"
+    assert payload["reasonCode"] == UPGRADE_ACTIVE_LEASES_REASON
+    assert payload["serverId"] == "srv_active"
+    assert payload["blockReasons"] == ["active-workflow-leases"]
+    assert payload["activeLeaseCount"] == 1
+    assert payload["nextAction"] == "WAIT_FOR_RUNS_OR_CANCEL_BEFORE_UPGRADE"
+    assert "activeLeases" not in payload
+    assert "host" not in payload
     assert UPGRADE_ACTIVE_LEASES_REASON in payload["detail"]
     assert "WAIT_FOR_RUNS_OR_CANCEL_BEFORE_UPGRADE" in payload["detail"]
 

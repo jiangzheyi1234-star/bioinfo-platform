@@ -20,6 +20,7 @@ def build_problem_detail(
     request_id: str,
     instance: str,
     errors: list[dict[str, Any]] | None = None,
+    extensions: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "type": f"https://h2ometa.dev/problems/{code.lower().replace('_', '-')}",
@@ -32,6 +33,10 @@ def build_problem_detail(
     }
     if errors:
         payload["errors"] = errors
+    if extensions:
+        for key, value in extensions.items():
+            if key not in payload:
+                payload[key] = value
     return payload
 
 
@@ -44,6 +49,7 @@ def problem_http_exception(
     request_id: str,
     instance: str,
     errors: list[dict[str, Any]] | None = None,
+    extensions: dict[str, Any] | None = None,
 ) -> HTTPException:
     return HTTPException(
         status_code=status,
@@ -55,6 +61,7 @@ def problem_http_exception(
             request_id=request_id,
             instance=instance,
             errors=errors,
+            extensions=extensions,
         ),
         headers={"X-Request-Id": request_id},
     )

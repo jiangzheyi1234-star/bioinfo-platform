@@ -23,13 +23,15 @@ export class LocalApiError extends Error {
   title?: string;
   requestId?: string;
   problemCode?: string;
+  reasonCode?: string;
+  nextAction?: string;
 
   constructor(
     code: LocalApiErrorCode,
     message: string,
     status = 0,
     detail?: unknown,
-    options?: { title?: string; requestId?: string; problemCode?: string }
+    options?: { title?: string; requestId?: string; problemCode?: string; reasonCode?: string; nextAction?: string }
   ) {
     super(message);
     this.name = "LocalApiError";
@@ -39,6 +41,8 @@ export class LocalApiError extends Error {
     this.title = options?.title;
     this.requestId = options?.requestId;
     this.problemCode = options?.problemCode;
+    this.reasonCode = options?.reasonCode;
+    this.nextAction = options?.nextAction;
   }
 }
 
@@ -110,6 +114,8 @@ async function requestViaBrowserFetch<T>(
         title: typeof problemDetail.title === "string" ? problemDetail.title : undefined,
         requestId: typeof problemDetail.requestId === "string" ? problemDetail.requestId : undefined,
         problemCode: typeof problemDetail.code === "string" ? problemDetail.code : undefined,
+        reasonCode: typeof problemDetail.reasonCode === "string" ? problemDetail.reasonCode : undefined,
+        nextAction: typeof problemDetail.nextAction === "string" ? problemDetail.nextAction : undefined,
       });
     }
     if (

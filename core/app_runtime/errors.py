@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 
@@ -20,12 +21,38 @@ class RuntimeConflictError(RuntimeServiceError):
         self.payload = payload
 
 
+RUNTIME_SERVICE_PROBLEM_DETAIL_KEYS = {
+    "reasonCode",
+    "nextAction",
+    "serverId",
+    "blockReasons",
+    "activeLeaseCount",
+    "allocatedResourceCount",
+    "resourceWaitCount",
+    "claimedJobCount",
+    "runningSlotCount",
+}
+
+
 def runtime_service_detail(error: RuntimeServiceError | str) -> str:
     if isinstance(error, RuntimeServiceError):
         if error.detail is not None:
             return _normalize_detail(error.detail)
         return _remote_http_detail(str(error))
     return _remote_http_detail(str(error))
+
+
+def runtime_service_problem_extensions(error: RuntimeServiceError | str) -> dict[str, Any]:
+    if not isinstance(error, RuntimeServiceError) or not isinstance(error.detail, Mapping):
+        return {}
+    extensions: dict[str, Any] = {}
+    for key in RUNTIME_SERVICE_PROBLEM_DETAIL_KEYS:
+        if key not in error.detail:
+            continue
+        value = _safe_problem_extension_value(error.detail[key])
+        if value is not None:
+            extensions[key] = value
+    return extensions
 
 
 def runtime_service_status_code(error: RuntimeServiceError | str) -> int:
@@ -40,6 +67,19 @@ def _normalize_detail(detail: Any) -> str:
     if isinstance(detail, str):
         return detail.strip()
     return json.dumps(detail, ensure_ascii=False, separators=(",", ":"))
+
+
+def _safe_problem_extension_value(value: Any) -> Any:
+    if isinstance(value, str):
+        return value.strip() or None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray, str)):
+        safe_items = [str(item).strip() for item in value if str(item).strip()]
+        return safe_items or None
+    return None
 
 
 def _remote_http_detail(detail: str) -> str:
