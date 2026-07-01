@@ -68,6 +68,14 @@ export function workflowServerRunnerManuallyStopped(server: WorkflowServer | nul
   );
 }
 
+export function workflowRunnerRepairBlockedReason(status: RunnerRepairStatus | null): string {
+  const runner = status?.runner;
+  if (!runner || runner.ready) {
+    return "";
+  }
+  return runner.reasonCode || runner.deploymentAction || runner.state || "";
+}
+
 export async function runWorkflowServerRunnerRepairAction(server: WorkflowServer | null): Promise<void> {
   const serverId = server?.serverId || "";
   if (!serverId) {
@@ -153,6 +161,8 @@ export function WorkflowRunnerRepairNotice({
   const compact = mode === "compact";
   const canPrepareRunner = Boolean(status?.connected && status.serverId && !status.runner?.ready);
   const title = status?.runner?.reasonCode === MANUAL_RUNNER_STOP_REASON ? "远程服务已停止" : "远程服务未就绪";
+  const repairReason = workflowRunnerRepairBlockedReason(status);
+  const deploymentAction = status?.runner?.deploymentAction || "";
   return (
     <section
       className={cn("rounded-lg border border-amber-200 bg-amber-50 p-3", className)}
@@ -172,6 +182,26 @@ export function WorkflowRunnerRepairNotice({
             <div className="mt-0.5 truncate text-[11px] text-amber-800">
               {status.runner?.message || status.message || status.displayTarget || "等待 runner readiness"}
             </div>
+            {repairReason ? (
+              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-amber-700">
+                <span
+                  className="rounded border border-amber-200 bg-white px-1.5 py-0.5 font-mono"
+                  data-testid="workflow-runner-repair-blocked-reason"
+                  data-runner-repair-reason={repairReason}
+                >
+                  {repairReason}
+                </span>
+                {deploymentAction && deploymentAction !== repairReason ? (
+                  <span
+                    className="rounded border border-amber-200 bg-white px-1.5 py-0.5 font-mono"
+                    data-testid="workflow-runner-repair-deployment-action"
+                    data-runner-repair-deployment-action={deploymentAction}
+                  >
+                    {deploymentAction}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
             {canPrepareRunner ? (
@@ -195,7 +225,7 @@ export function WorkflowRunnerRepairNotice({
               className="h-8 border-amber-200 bg-white px-2.5 text-xs text-amber-900 hover:bg-amber-50"
             >
               <ChevronDown className={cn("mr-1.5 h-3.5 w-3.5 transition-transform", expanded ? "rotate-180" : "")} />
-              诊断
+              {expanded ? "收起" : "修复详情"}
             </Button>
           </div>
         </div>
@@ -206,7 +236,7 @@ export function WorkflowRunnerRepairNotice({
           ensureRunnerBusy={controller.runnerEnsureBusy}
           onEnsureRunner={() => void controller.ensureRunner()}
           onRefreshStatus={controller.refreshWorkflowServer}
-          diagnosticsOnly={compact}
+          diagnosticsOnly={false}
           className={cn("bg-white shadow-none", compact ? "mt-3" : "")}
         />
       ) : null}

@@ -109,7 +109,10 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "WorkflowRunnerRepairNotice controller={runnerRepair} mode=\"compact\"" in page
     assert "requestLocalApiJson" not in page
     assert "data-testid=\"workflow-runner-repair-notice\"" in runner_repair
-    assert "diagnosticsOnly={compact}" in runner_repair
+    assert 'data-testid="workflow-runner-repair-blocked-reason"' in runner_repair
+    assert "data-runner-repair-reason={repairReason}" in runner_repair
+    assert "diagnosticsOnly={false}" in runner_repair
+    assert "diagnosticsOnly={compact}" not in runner_repair
     assert "const catalogQualityStrip = (" in page
     assert page.count("{catalogQualityStrip}") == 2
     assert "useSearchParams" in page

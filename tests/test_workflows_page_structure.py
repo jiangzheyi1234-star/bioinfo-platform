@@ -200,7 +200,13 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert 'data-runner-repair-mode={mode}' in runner_repair
     assert 'mode?: "compact" | "full"' in runner_repair
     assert 'const [expanded, setExpanded] = useState(mode === "full")' in runner_repair
-    assert "diagnosticsOnly={compact}" in runner_repair
+    assert "workflowRunnerRepairBlockedReason(status)" in runner_repair
+    assert 'data-testid="workflow-runner-repair-blocked-reason"' in runner_repair
+    assert "data-runner-repair-reason={repairReason}" in runner_repair
+    assert 'data-testid="workflow-runner-repair-deployment-action"' in runner_repair
+    assert "修复详情" in runner_repair
+    assert "diagnosticsOnly={false}" in runner_repair
+    assert "diagnosticsOnly={compact}" not in runner_repair
     assert "const canPrepareRunner = Boolean(status?.connected && status.serverId && !status.runner?.ready)" in runner_repair
     assert "const hasKnownRunnerTarget = Boolean(status?.serverId || controller.server?.serverId)" in runner_repair
     assert "const visibleLoadError = hasKnownRunnerTarget ? controller.loadError : \"\"" in runner_repair
