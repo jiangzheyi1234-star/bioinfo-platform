@@ -166,16 +166,16 @@ function FirstRunRuleLevelView({
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-xs font-semibold text-slate-900">
             <RotateCcw strokeWidth={1.5} className="h-3.5 w-3.5 text-slate-500" />
-            Rule-level run view
+            步骤级运行详情
           </div>
           <div className="mt-1 text-[11px] leading-4 text-slate-500">
-            {rulesReady ? "每个 Snakemake rule 的状态、日志证据和失败定位已接入首跑报告。" : "等待 runner 返回 run-rules projection。"}
+            {rulesReady ? "每个运行步骤的状态、日志证据和失败定位已接入首跑报告。" : "等待 runner 返回步骤级运行记录。"}
           </div>
         </div>
         <Button asChild variant="outline" size="sm" className="h-8 shrink-0 bg-white px-2.5 text-xs">
           <Link href={resultHref}>
             <ArrowRight strokeWidth={1.5} className="h-3.5 w-3.5" />
-            完整规则 / retry / resume
+            完整步骤 / 重试 / 恢复
           </Link>
         </Button>
       </div>

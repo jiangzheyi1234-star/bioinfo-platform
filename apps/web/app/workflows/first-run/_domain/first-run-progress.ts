@@ -35,9 +35,9 @@ export function buildFirstRunSteps(input: {
     stepDefinition("connect", "连接远端", hasStatus ? evidence?.server?.connected === true : input.serverConnected, "SSH 连接可用", "#runner-readiness"),
     stepDefinition(
       "readiness",
-      "runner readiness",
+      "运行环境检查",
       hasStatus ? evidence?.server?.ready === true && evidence?.execution?.ready === true : input.serverReady,
-      "运行时、Snakemake、profile 与 pipeline registry 就绪",
+      "运行时、Snakemake、执行配置和示例目录就绪",
       "#runner-readiness"
     ),
     stepDefinition("select", "选择示例", hasStatus ? evidence?.workflow?.ready === true : input.selectedWorkflowReady, FIRST_RUN_PIPELINE_ID, "#sample-data"),
@@ -180,7 +180,7 @@ export function resultPackageDisabledReason({
   }
   if (!resultId) return "等待运行产出 resultId";
   if (!run || !isTerminalRun(run)) return "仅 completed/failed 运行可导出";
-  if (!workflowRevisionId) return "缺少 WorkflowRevision，当前 runner 需要升级到首跑 revision 绑定版本";
+  if (!workflowRevisionId) return "缺少流程版本记录，当前 runner 需要升级后重新提交首跑";
   return "";
 }
 

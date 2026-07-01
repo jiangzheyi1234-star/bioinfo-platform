@@ -6,11 +6,12 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 import { fetchDatabases, fetchDatabaseTemplates } from "./database-page-api";
-import { fetchWorkflowCatalog, fetchWorkflowTools } from "./workflows-page-api";
+import { fetchRunsList, fetchWorkflowCatalog, fetchWorkflowResultsList, fetchWorkflowTools } from "./workflows-page-api";
 
 const tabs = [
   { href: "/workflows/first-run", label: "首跑" },
   { href: "/workflows", label: "流程" },
+  { href: "/workflows/results", label: "运行记录" },
   { href: "/workflows/databases", label: "数据库" },
   { href: "/workflows/tools", label: "工具" },
 ];
@@ -28,6 +29,11 @@ export function WorkflowWorkspaceTabs() {
       void fetchWorkflowTools().catch(() => undefined);
       return;
     }
+    if (href === "/workflows/results") {
+      void fetchRunsList().catch(() => undefined);
+      void fetchWorkflowResultsList().catch(() => undefined);
+      return;
+    }
     void fetchWorkflowCatalog().catch(() => undefined);
   }
 
@@ -36,7 +42,7 @@ export function WorkflowWorkspaceTabs() {
       {tabs.map((tab) => {
         const active =
           tab.href === "/workflows"
-            ? pathname === tab.href || pathname === "/workflows/detail" || pathname.startsWith("/workflows/results")
+            ? pathname === tab.href || pathname === "/workflows/detail"
             : pathname === tab.href || pathname.startsWith(`${tab.href}/`);
         return (
           <Link

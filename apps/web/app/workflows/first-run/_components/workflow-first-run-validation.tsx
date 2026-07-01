@@ -212,7 +212,7 @@ export function ValidationCard({
             结果验证卡与证据包
           </div>
           <div className="mt-1 text-xs text-slate-500">
-            {loadingCard ? "正在生成服务端验证卡" : validationPassed ? "验证卡与证据包已通过" : card ? "服务端验证卡已加载" : eligible ? "等待服务端验证卡" : "等待结果包与 WorkflowRevision"}
+            {loadingCard ? "正在生成服务端验证卡" : validationPassed ? "验证卡与证据包已通过" : card ? "服务端验证卡已加载" : eligible ? "等待服务端验证卡" : "等待结果包与流程版本记录"}
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
@@ -254,7 +254,7 @@ export function ValidationCard({
         <KeyValue label="runner" value={server?.label || server?.serverId} mono />
         <KeyValue label="runtime" value={softwareRuntimeLabel(softwareEnvironment)} />
         <KeyValue label="database" value="不需要外部数据库" />
-        <KeyValue label="revision" value={effectiveWorkflowRevisionId} mono />
+        <KeyValue label="流程版本" value={effectiveWorkflowRevisionId} mono />
         <KeyValue label="inputs" value={`${inputCount} files`} />
         <KeyValue label="outputs" value={`${artifacts.length} artifacts`} />
         <KeyValue label="package" value={packageExportId} mono />
@@ -532,7 +532,7 @@ function checkLabel(code?: string) {
   const labels: Record<string, string> = {
     FIRST_RUN_PIPELINE_MATCH: "流程匹配",
     FIRST_RUN_COMPLETED: "运行完成",
-    FIRST_RUN_WORKFLOW_REVISION_PRESENT: "WorkflowRevision 已锁定",
+    FIRST_RUN_WORKFLOW_REVISION_PRESENT: "流程版本记录已锁定",
     FIRST_RUN_SOFTWARE_ENVIRONMENT_VERIFIED: "软件环境已验证",
     FIRST_RUN_INPUT_LINEAGE_PRESENT: "输入 lineage 已记录",
     FIRST_RUN_SAMPLE_INPUTS_VERIFIED: "官方样例输入已验证",

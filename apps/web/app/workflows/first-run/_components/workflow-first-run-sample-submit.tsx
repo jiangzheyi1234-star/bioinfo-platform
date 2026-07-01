@@ -65,7 +65,7 @@ export function SampleAndSubmitPanel({
           </div>
         </div>
         <span className={cn("rounded-full border px-2 py-1 text-[11px]", pipelineReady ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700")}>
-          {pipelineReady ? "WorkflowReady" : "未就绪"}
+          {pipelineReady ? "示例可运行" : "未就绪"}
         </span>
       </div>
 
@@ -407,7 +407,7 @@ function sampleUploadRoleBlockers(audit: ReturnType<typeof sampleUploadRoleAudit
 function firstRunWorkflowSelection(workflow: WorkflowCatalogItem | null, loading: boolean) {
   if (loading && !workflow) {
     return {
-      detail: "正在从 workflow catalog 读取首跑示例。",
+      detail: "正在从示例目录读取首跑示例。",
       label: "正在确认 Moving Pictures 16S 示例",
       state: "loading",
       tone: "warning" as const,
@@ -415,7 +415,7 @@ function firstRunWorkflowSelection(workflow: WorkflowCatalogItem | null, loading
   }
   if (!workflow) {
     return {
-      detail: "workflow catalog 缺少 moving-pictures-16s-rulegraph-v1，首跑不会退回到其他流程。",
+      detail: "示例目录缺少 moving-pictures-16s-rulegraph-v1，首跑不会退回到其他流程。",
       label: "未找到 Moving Pictures 16S 示例",
       state: "missing",
       tone: "danger" as const,
@@ -423,8 +423,8 @@ function firstRunWorkflowSelection(workflow: WorkflowCatalogItem | null, loading
   }
   if (!workflow.runnable) {
     return {
-      detail: [workflow.status, workflow.source, workflow.version].filter(Boolean).join(" / ") || "该示例还未达到 WorkflowReady。",
-      label: "示例存在但未 WorkflowReady",
+      detail: [workflow.status, workflow.source, workflow.version].filter(Boolean).join(" / ") || "该示例还未达到可运行状态。",
+      label: "示例存在但尚不可运行",
       state: "blocked",
       tone: "danger" as const,
     };

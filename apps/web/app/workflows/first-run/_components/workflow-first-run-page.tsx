@@ -248,7 +248,7 @@ export function WorkflowFirstRunPage() {
       await loadExecutionDiagnostics();
       await firstRunStatus.refreshStatus({ forceRefresh: true });
     } catch (err) {
-      setRunnerError(workflowErrorMessage(err, "runner readiness 准备失败"));
+      setRunnerError(workflowErrorMessage(err, "运行环境检查失败"));
     } finally {
       setEnsuringRunner(false);
     }
@@ -525,7 +525,7 @@ function RunnerReadinessPanel({
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
             <Server strokeWidth={1.5} className="h-4 w-4 text-slate-500" />
-            连接远端与 runner readiness
+            连接远端与运行环境检查
           </div>
           <div className="mt-1 truncate font-mono text-[11px] text-slate-400">
             {server?.label || server?.serverId || "no server selected"}
@@ -622,5 +622,5 @@ function StepStateIcon({ state }: { state: FirstRunStepState }) {
 
 function firstRunWorkspaceConnectionPrompt(error: string, connected: boolean) {
   if (!/serverId is required/i.test(String(error || ""))) return "";
-  return connected ? "远端已连接，正在读取 runner readiness。" : "请先连接远端后继续首跑。";
+  return connected ? "远端已连接，正在读取运行环境检查。" : "请先连接远端后继续首跑。";
 }

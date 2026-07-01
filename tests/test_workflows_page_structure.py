@@ -72,6 +72,9 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "./_components/workflow-first-run-page" in first_run_route.read_text(encoding="utf-8")
     assert "WorkflowFirstRunPage" in first_run_route.read_text(encoding="utf-8")
     assert '{ href: "/workflows/first-run", label: "首跑" }' in tabs
+    assert '{ href: "/workflows/results", label: "运行记录" }' in tabs
+    assert "fetchRunsList" in tabs
+    assert "fetchWorkflowResultsList" in tabs
     assert 'export const FIRST_RUN_PIPELINE_ID = "moving-pictures-16s-rulegraph-v1"' in first_run_progress
     assert "buildFirstRunSteps" in first_run_progress
     assert "runnerChecks" in first_run_progress
@@ -94,7 +97,8 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "autoResumeLatestRun" not in hook
     assert "const movingPicturesWorkflow = state.catalog.find((item) => item.id === FIRST_RUN_PIPELINE_ID) || null" in first_run_page
     assert "连接远端" in first_run_page
-    assert "runner readiness" in first_run_page
+    assert "运行环境检查" in first_run_page
+    assert "runner readiness" not in first_run_source
     assert "准备示例数据" in first_run_progress
     assert "提交运行" in first_run_progress
     assert "看懂报告" in first_run_progress
@@ -111,7 +115,8 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "WorkflowRuleLogEvidence" in first_run_report
     assert "RuleAttemptBadge" in first_run_report
     assert "firstFailedRule(detail, rules)" in first_run_report
-    assert "完整规则 / retry / resume" in first_run_report
+    assert "步骤级运行详情" in first_run_report
+    assert "完整步骤 / 重试 / 恢复" in first_run_report
     assert "ruleHasLogEvidence" in first_run_report
     assert "完成首跑" in first_run_source
     assert "仅导出结果包" in first_run_source

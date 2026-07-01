@@ -21,11 +21,13 @@ def test_local_web_smoke_checks_api_routes_web_routes_and_next_assets() -> None:
     assert "$ApiBase/api/v1/workflow-catalog" in source
     assert "$ApiBase/api/v1/tools" in source
     assert "$ApiBase/api/v1/databases" in source
+    assert 'Path = "/workflows/first-run"' in source
     assert 'Path = "/workflows"' in source
     assert 'Path = "/workflows/databases"' in source
     assert 'Path = "/workflows/tools"' in source
     assert 'Path = "/workflows/detail?workflow=generated-tool-run-v1"' in source
     assert 'Path = "/workflows/results"' in source
+    assert "app/workflows/first-run/page.js" in source
     assert "app/workflows/page.js" in source
     assert "app/workflows/databases/page.js" in source
     assert "app/workflows/tools/page.js" in source

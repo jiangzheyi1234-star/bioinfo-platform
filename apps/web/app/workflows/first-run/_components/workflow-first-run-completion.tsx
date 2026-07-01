@@ -85,7 +85,7 @@ export function FirstRunCompletionPanel({
       <div className="mt-4 grid gap-x-5 gap-y-2 border-t border-emerald-200 pt-4 text-xs md:grid-cols-2 xl:grid-cols-4">
         <SummaryItem label="run" value={effectiveRunId} mono />
         <SummaryItem label="result" value={effectiveResultId} mono />
-        <SummaryItem label="revision" value={shortHash(effectiveWorkflowRevisionId)} mono />
+        <SummaryItem label="流程版本" value={shortHash(effectiveWorkflowRevisionId)} mono />
         <SummaryItem label="package" value={resultPackageEvidence?.packageExportId} mono />
         <SummaryItem label="size" value={formatBytes(latestPackage?.sizeBytes)} />
         <SummaryItem label="package sha" value={shortHash(resultPackageEvidence?.sha256)} mono />

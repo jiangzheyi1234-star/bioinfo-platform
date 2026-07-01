@@ -73,7 +73,7 @@ export function buildFirstRunContinueAction(input: FirstRunContinueActionInput):
   if (!input.serverReady) {
     return {
       code: "ENSURE_RUNNER",
-      detail: "执行 runner readiness，确认 Snakemake、profile、pipeline registry 和 execution diagnostics。",
+      detail: "执行运行环境检查，确认 Snakemake、执行配置、示例目录和任务队列可用。",
       label: "准备 runner",
       target: "#runner-readiness",
       tone: "warning",
@@ -82,7 +82,7 @@ export function buildFirstRunContinueAction(input: FirstRunContinueActionInput):
   if (!input.selectedWorkflowReady) {
     return {
       code: "REFRESH_WORKFLOW",
-      detail: "workflow catalog 必须明确包含 Moving Pictures 16S，首跑不会退回其他流程。",
+      detail: "示例目录必须明确包含 Moving Pictures 16S，首跑不会退回其他流程。",
       label: "刷新首跑示例",
       target: "#sample-data",
       tone: "danger",
@@ -100,7 +100,7 @@ export function buildFirstRunContinueAction(input: FirstRunContinueActionInput):
   if (!runSubmitted) {
     return {
       code: "SUBMIT_RUN",
-      detail: input.canSubmit ? "提交 Moving Pictures 16S 首跑。" : "等待输入、runner 和 workflow readiness 全部通过后提交。",
+      detail: input.canSubmit ? "提交 Moving Pictures 16S 首跑。" : "等待输入、运行环境和示例检查全部通过后提交。",
       disabled: !input.canSubmit,
       label: "提交运行",
       target: "#sample-data",
@@ -261,7 +261,7 @@ function firstRunContinueActionCode(code: string | undefined): FirstRunContinueA
 }
 
 function defaultActionDetail(code: FirstRunContinueActionCode) {
-  if (code === "INSPECT_FAILED_RUN") return "首跑失败，先查看 rule-level 失败定位、stderr 和日志证据。";
+  if (code === "INSPECT_FAILED_RUN") return "首跑失败，先查看步骤级失败定位、stderr 和日志证据。";
   if (code === "FINALIZE_FIRST_RUN") return "生成或复用完整结果包，并生成验证卡与证据包清单。";
   if (code === "COMPLETE") return "结果包、验证卡和 pilot handoff 已准备好。";
   return "刷新服务端首跑状态。";
