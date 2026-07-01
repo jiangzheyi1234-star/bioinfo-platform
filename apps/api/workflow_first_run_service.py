@@ -119,6 +119,47 @@ async def build_first_run_validation_card_from_request(
     return {"data": card}
 
 
+async def build_first_run_report_evidence_from_request(
+    run_id: str,
+    *,
+    server_id: str | None = None,
+) -> dict[str, Any]:
+    normalized_run_id = str(run_id or "").strip()
+    if not normalized_run_id:
+        raise _unavailable("FIRST_RUN_RUN_ID_REQUIRED", "runId is required")
+    run_payload = await get_run_from_request(normalized_run_id)
+    run = _require_mapping(_unwrap_data(run_payload, {}), "FIRST_RUN_RUN_NOT_FOUND", normalized_run_id)
+    pipeline_id = _pipeline_id(run)
+    if pipeline_id != MOVING_PICTURES_PIPELINE_ID:
+        raise _unavailable(
+            "FIRST_RUN_PIPELINE_UNSUPPORTED",
+            f"expected {MOVING_PICTURES_PIPELINE_ID}, got {pipeline_id or 'missing'}",
+        )
+    status = str(run.get("status") or "").strip()
+    if status != "completed":
+        raise _unavailable("FIRST_RUN_NOT_SUCCESSFUL", f"run status is {status or 'missing'}")
+
+    result_id = _canonical_result_id_for_run(normalized_run_id)
+    result_payload = await get_result_from_request(result_id)
+    result = _require_mapping(_unwrap_data(result_payload, {}), "FIRST_RUN_RESULT_MISSING", result_id)
+    if str(result.get("runId") or "").strip() != normalized_run_id:
+        raise _unavailable("FIRST_RUN_RESULT_RUN_MISMATCH", f"{result_id} does not belong to {normalized_run_id}")
+    artifacts = [_safe_artifact(item) for item in _mapping_items(result.get("artifacts"))]
+    _assert_validation_card_evidence(
+        artifacts=artifacts,
+        input_artifacts=[_safe_input_artifact(item) for item in _mapping_items(result.get("inputArtifacts"))],
+    )
+    report_previews = await _load_first_run_report_previews(result_id, _mapping_items(result.get("artifacts")))
+    try:
+        interpretation = build_first_run_report_interpretation(
+            artifacts=artifacts,
+            report_previews=report_previews,
+        )
+    except FirstRunReportInterpretationUnavailableError as exc:
+        raise WorkflowFirstRunValidationCardUnavailableError(str(exc)) from exc
+    return {"data": _safe_report_evidence(interpretation)}
+
+
 def _build_validation_card(
     *,
     package_export: dict[str, Any],
@@ -248,6 +289,27 @@ def _passed_check(code: str, detail: str) -> dict[str, str]:
         "code": code,
         "status": "passed",
         "detail": detail,
+    }
+
+
+def _safe_report_evidence(interpretation: dict[str, Any]) -> dict[str, Any]:
+    outputs = _mapping_items(interpretation.get("outputs"))
+    metrics = _mapping_items(interpretation.get("metrics"))
+    return {
+        "ready": interpretation.get("status") == "ready",
+        "outputs": [str(item.get("name") or "") for item in outputs if item.get("name")],
+        "metrics": [
+            _compact(
+                {
+                    "metricId": item.get("metricId"),
+                    "label": item.get("label"),
+                    "value": item.get("value"),
+                    "displayValue": item.get("displayValue"),
+                    "source": item.get("source"),
+                }
+            )
+            for item in metrics
+        ],
     }
 
 

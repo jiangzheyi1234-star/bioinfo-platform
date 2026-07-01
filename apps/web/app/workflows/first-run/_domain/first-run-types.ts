@@ -231,6 +231,7 @@ export type FirstRunStatusEvidence = {
     ready?: boolean;
     blockedCode?: string;
     outputs?: string[];
+    metrics?: FirstRunValidationMetric[];
   };
   resultPackage?: {
     ready?: boolean;

@@ -9,7 +9,7 @@ const PACKAGE_EXPORT_ID = "pkg_first_run_e2e";
 const HASH = "a".repeat(64);
 const MANIFEST_HASH = "b".repeat(64);
 
-type FirstRunMockMode = "ready-to-submit" | "completed";
+type FirstRunMockMode = "ready-to-submit" | "package-required" | "completed";
 
 test.describe("First Successful Run onboarding", () => {
   test("submits the Moving Pictures first-run through the first-run contract", async ({ page }) => {
@@ -59,11 +59,29 @@ test.describe("First Successful Run onboarding", () => {
     await expect(page.getByTestId("first-run-pilot-handoff")).toContainText(PACKAGE_EXPORT_ID);
     await expect(page.getByTestId("first-run-evidence-bundle")).toContainText(PACKAGE_EXPORT_ID);
   });
+
+  test("marks report ready while guiding result package export", async ({ page }) => {
+    await installFirstRunApiMocks(page, "package-required");
+
+    await page.goto("/workflows/first-run");
+
+    await expect(page.getByTestId("first-run-conductor")).toHaveAttribute("data-first-run-next-action", "FINALIZE_FIRST_RUN");
+    await expect(page.locator('[data-first-run-step="report"]')).toHaveAttribute("data-step-state", "done");
+    await expect(page.locator('[data-first-run-step="package"]')).toHaveAttribute("data-step-state", "blocked");
+    await expect(page.getByTestId("first-run-report-insight")).toContainText("关键结果完整");
+    await expect(page.getByTestId("first-run-report-insight")).toContainText("passed reads");
+    await expect(page.getByTestId("first-run-completion-panel")).not.toBeVisible();
+  });
 });
 
 async function installFirstRunApiMocks(page: Page, mode: FirstRunMockMode) {
   const api = {
-    firstRunStatus: mode === "completed" ? completedFirstRunStatus() : readyToSubmitFirstRunStatus(),
+    firstRunStatus:
+      mode === "completed"
+        ? completedFirstRunStatus()
+        : mode === "package-required"
+          ? packageRequiredFirstRunStatus()
+          : readyToSubmitFirstRunStatus(),
     firstRunSubmitted: false,
   };
 
@@ -305,6 +323,47 @@ function completedFirstRunStatus() {
         validationChecksTotal: 6,
       },
     },
+  };
+}
+
+function packageRequiredFirstRunStatus() {
+  return {
+    ...readyToSubmitFirstRunStatus(),
+    status: "blocked",
+    stage: "export_result_package",
+    nextAction: {
+      blockedCode: "FIRST_RUN_RESULT_PACKAGE_REQUIRED",
+      code: "FINALIZE_FIRST_RUN",
+      detail: "报告已通过服务端可信检查，下一步导出完整结果包。",
+      label: "导出完整结果包",
+      target: "#result-package",
+    },
+    latestEligibleRun: workflowRun(),
+    evidence: {
+      ...readyToSubmitFirstRunStatus().evidence,
+      run: workflowRun(),
+      report: reportEvidence(),
+      resultPackage: {
+        ready: false,
+        blockedCode: "FIRST_RUN_RESULT_PACKAGE_REQUIRED",
+      },
+      validation: {
+        ready: false,
+        blockedCode: "FIRST_RUN_RESULT_PACKAGE_REQUIRED",
+      },
+    },
+  };
+}
+
+function reportEvidence() {
+  return {
+    ready: true,
+    outputs: ["summary.tsv", "qc-summary.tsv", "feature-table.tsv", "run-report.html"],
+    metrics: [
+      { metricId: "sample_count", label: "samples", value: 2, displayValue: "2", source: "summary.tsv" },
+      { metricId: "passed_reads_total", label: "passed reads", value: 30, displayValue: "30", source: "summary.tsv" },
+      { metricId: "unique_features_sample_sum", label: "unique features", value: 7, displayValue: "7", source: "summary.tsv" },
+    ],
   };
 }
 

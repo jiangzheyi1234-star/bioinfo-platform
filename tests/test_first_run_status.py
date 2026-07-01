@@ -54,6 +54,16 @@ def test_first_run_status_reports_ready_official_sample_run_and_ignores_newer_no
         "feature-table.tsv",
         "run-report.html",
     ]
+    assert {item["metricId"]: item["value"] for item in result["evidence"]["report"]["metrics"]} == {
+        "sample_count": 2,
+        "passed_reads_total": 30,
+        "unique_features_sample_sum": 7,
+        "qc_total_pairs": 60,
+        "qc_matched_reads": 60,
+        "qc_passed_reads": 30,
+        "qc_samples_with_reads": 2,
+        "qc_features": 7,
+    }
     assert result["evidence"]["resultPackage"]["ready"] is True
     assert result["evidence"]["resultPackage"]["packageExportId"] == "rpex_full"
     assert result["evidence"]["resultPackage"]["sha256"] == "d" * 64
@@ -355,10 +365,40 @@ def test_first_run_status_uses_validation_card_standard_for_result_package_readi
     assert result["nextAction"]["code"] == "FINALIZE_FIRST_RUN"
     assert result["nextAction"]["blockedCode"] == expected_code
     assert result["nextAction"]["target"] == "#result-package"
-    assert result["evidence"]["report"] == {"ready": False}
+    assert result["evidence"]["report"]["ready"] is True
+    assert result["evidence"]["report"]["outputs"] == [
+        "summary.tsv",
+        "qc-summary.tsv",
+        "feature-table.tsv",
+        "run-report.html",
+    ]
+    assert {item["metricId"]: item["value"] for item in result["evidence"]["report"]["metrics"]}["passed_reads_total"] == 30
     assert result["evidence"]["resultPackage"] == {"ready": False, "blockedCode": expected_code}
     assert result["evidence"]["validation"]["ready"] is False
     assert result["evidence"]["validation"]["blockedCode"] == expected_code
+
+
+def test_first_run_status_prioritizes_report_trust_before_result_package_export(monkeypatch) -> None:
+    _patch_first_run_sources(
+        monkeypatch,
+        exports=_exports_for_case("none"),
+        previews=_previews_for_trust_case("qc_features_mismatch"),
+    )
+    _patch_status_sources(monkeypatch, runs=[_run()])
+
+    result = asyncio.run(build_first_run_status_from_request(server_id="srv_first"))["data"]
+
+    assert result["status"] == "blocked"
+    assert result["stage"] == "inspect_failed_run"
+    assert result["nextAction"]["code"] == "INSPECT_FAILED_RUN"
+    assert result["nextAction"]["blockedCode"] == "FIRST_RUN_REPORT_TRUST_ASSERTIONS_FAILED"
+    assert result["nextAction"]["target"] == "#run-report"
+    assert result["evidence"]["report"] == {
+        "ready": False,
+        "blockedCode": "FIRST_RUN_REPORT_TRUST_ASSERTIONS_FAILED",
+    }
+    assert result["evidence"]["resultPackage"] == {"ready": False}
+    assert result["evidence"]["validation"]["blockedCode"] == "FIRST_RUN_REPORT_TRUST_ASSERTIONS_FAILED"
 
 
 @pytest.mark.parametrize(

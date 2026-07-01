@@ -21,6 +21,13 @@ from apps.api.workflow_first_run_service import (
     WorkflowFirstRunValidationCardUnavailableError,
     build_first_run_validation_card_from_request,
 )
+from apps.api.workflow_first_run_status_report import (
+    public_report_evidence,
+    ready_report_evidence,
+    report_blocked_code,
+    report_evidence,
+    report_evidence_for_package_blocker,
+)
 from apps.api.workflow_sample_data_service import (
     MOVING_PICTURES_FILES,
     MOVING_PICTURES_PIPELINE_ID,
@@ -206,7 +213,16 @@ async def build_first_run_status_from_request(
         card = (await build_first_run_validation_card_from_request(str(run_summary["runId"]), server_id=normalized_server_id))["data"]
     except WorkflowFirstRunValidationCardUnavailableError as exc:
         code = _error_code(exc)
-        action = _action_for_validation_blocker(code, str(exc))
+        detail = str(exc)
+        report = await report_evidence_for_package_blocker(
+            code,
+            run_id=str(run_summary["runId"]),
+            server_id=normalized_server_id,
+        )
+        if not report.get("ready") and report_blocked_code(report):
+            code = report_blocked_code(report)
+            detail = str(report.get("detail") or detail)
+        action = _action_for_validation_blocker(code, detail)
         return _status_response(
             status="blocked",
             stage=_stage_for_blocker(code),
@@ -219,9 +235,9 @@ async def build_first_run_status_from_request(
             server=server_evidence,
             execution=execution_evidence,
             workflow=workflow_evidence,
-            report=_report_evidence(False, code),
+            report=public_report_evidence(report) if report else report_evidence(False, code),
             result_package=_result_package_evidence(False, code),
-            validation={"ready": False, "blockedCode": code, "detail": str(exc)},
+            validation={"ready": False, "blockedCode": code, "detail": detail},
         )
 
     return _status_response(
@@ -236,7 +252,7 @@ async def build_first_run_status_from_request(
         server=server_evidence,
         execution=execution_evidence,
         workflow=workflow_evidence,
-        report=_ready_report_evidence(card),
+        report=ready_report_evidence(card),
         result_package=_ready_package_evidence(card),
         validation=_ready_validation_evidence(card),
     )
@@ -624,12 +640,6 @@ def _run_sort_key(run: dict[str, Any]) -> tuple[str, str]:
     return (timestamp, str(run.get("runId") or ""))
 
 
-def _ready_report_evidence(card: dict[str, Any]) -> dict[str, Any]:
-    interpretation = card.get("reportInterpretation") if isinstance(card.get("reportInterpretation"), dict) else {}
-    outputs = _mapping_items(interpretation.get("outputs"))
-    return {"ready": interpretation.get("status") == "ready", "outputs": [item.get("name") for item in outputs]}
-
-
 def _ready_package_evidence(card: dict[str, Any]) -> dict[str, Any]:
     package = card.get("resultPackage") if isinstance(card.get("resultPackage"), dict) else {}
     return _compact(
@@ -658,16 +668,6 @@ def _ready_validation_evidence(card: dict[str, Any]) -> dict[str, Any]:
             "evidenceBundleId": bundle.get("bundleId"),
         }
     )
-
-
-def _report_evidence(ready: bool, code: str) -> dict[str, Any]:
-    if code not in {
-        "FIRST_RUN_EXPECTED_OUTPUTS_REQUIRED",
-        "FIRST_RUN_REPORT_PREVIEW_REQUIRED",
-        FIRST_RUN_REPORT_TRUST_ASSERTIONS_FAILED,
-    }:
-        return {"ready": False}
-    return {"ready": ready, "blockedCode": code}
 
 
 def _result_package_evidence(ready: bool, code: str) -> dict[str, Any]:

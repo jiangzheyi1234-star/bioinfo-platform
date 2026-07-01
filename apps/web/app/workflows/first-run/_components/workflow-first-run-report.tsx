@@ -367,10 +367,16 @@ function movingPicturesInsight(
     ...item,
     present: readyOutputs.size > 0 ? readyOutputs.has(item.name) : artifactNames.has(item.name),
   }));
+  const evidenceMetrics = (reportEvidence?.metrics || [])
+    .map((item) => ({
+      label: item.label || item.metricId || "",
+      value: item.displayValue || String(item.value ?? ""),
+    }))
+    .filter((item) => item.label && item.value);
   return {
     ready: reportEvidence?.ready === true,
     outputs,
-    metrics: [...summaryMetrics(summaryPreview), ...qcMetrics(qcPreview)].slice(0, 6),
+    metrics: [...summaryMetrics(summaryPreview), ...qcMetrics(qcPreview), ...evidenceMetrics].slice(0, 6),
   };
 }
 

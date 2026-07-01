@@ -297,6 +297,8 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "const sampleData = card?.sampleData" in first_run_validation
     assert "const softwareEnvironment = card?.softwareEnvironment" in first_run_validation
     assert "reportInterpretation" in first_run_validation
+    assert "metrics?: FirstRunValidationMetric[]" in first_run_types
+    assert "reportEvidence?.metrics" in first_run_report
     assert "first-run-validation-card-evidence" in first_run_validation
     assert "FirstRunTrustSummary" in first_run_validation
     assert "first-run-trust-summary" in first_run_trust_summary
