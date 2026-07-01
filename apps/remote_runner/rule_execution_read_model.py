@@ -5,9 +5,11 @@ from typing import Any
 
 from .config import RemoteRunnerConfig
 from .execution_query_storage import fetch_run_results
+from .log_storage import fetch_log_lines
 from .rule_execution_storage import fetch_run_rules
 from .run_failure_locator_read_model import (
     build_rule_log_context,
+    public_stderr_failure_source_location,
     public_rule_event_summary,
     public_rule_message,
     safe_rule_wildcards,
@@ -23,8 +25,9 @@ def fetch_public_run_rules(cfg: RemoteRunnerConfig, run_id: str) -> dict[str, An
     results = fetch_run_results(cfg, run_id)
     artifacts = _dict_items(results.get("artifacts"))
     result_id = _canonical_result_id_for_run(run_id)
+    stderr_lines = _log_lines(fetch_log_lines(cfg, run_id, "stderr", None))
     items = [
-        _public_rule(cfg, result_id=result_id, rule=rule, artifacts=artifacts)
+        _public_rule(cfg, result_id=result_id, rule=rule, artifacts=artifacts, stderr_lines=stderr_lines)
         for rule in _dict_items(raw_rules.get("items"))
     ]
     return {
@@ -77,13 +80,14 @@ def _public_rule(
     result_id: str,
     rule: dict[str, Any],
     artifacts: list[dict[str, Any]],
+    stderr_lines: list[str],
 ) -> dict[str, Any]:
     events = [
         summary
         for summary in (public_rule_event_summary(event) for event in _dict_items(rule.get("events")))
         if summary is not None
     ]
-    source_location = _latest_source_location(events)
+    source_location = _latest_source_location(events) or _fallback_rule_source_location(rule, stderr_lines)
     return {
         "runRuleId": rule.get("runRuleId"),
         "runId": rule.get("runId"),
@@ -117,6 +121,15 @@ def _latest_source_location(events: list[dict[str, Any]]) -> dict[str, Any] | No
     return None
 
 
+def _fallback_rule_source_location(rule: dict[str, Any], stderr_lines: list[str]) -> dict[str, Any] | None:
+    if _status_value(rule.get("status")) not in {"failed", "error"}:
+        return None
+    return public_stderr_failure_source_location(
+        stderr_lines,
+        rule_name=str(rule.get("ruleName") or ""),
+    )
+
+
 def _dict_items(value: Any) -> list[dict[str, Any]]:
     return [item for item in (value or []) if isinstance(item, dict)]
 
@@ -127,6 +140,13 @@ def _dict_value(value: Any) -> dict[str, Any]:
 
 def _list_items(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
+
+
+def _log_lines(payload: Any) -> list[str]:
+    if not isinstance(payload, dict):
+        return []
+    lines = payload.get("lines")
+    return [str(line) for line in lines] if isinstance(lines, list) else []
 
 
 def _safe_int(value: Any) -> int:

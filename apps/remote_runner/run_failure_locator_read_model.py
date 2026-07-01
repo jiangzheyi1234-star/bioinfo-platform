@@ -48,10 +48,10 @@ def fetch_run_failure_locator(cfg: RemoteRunnerConfig, run_id: str) -> dict[str,
     results = fetch_run_results(cfg, run_id)
     rules = fetch_run_rules(cfg, run_id)
     rule_items = _dict_items(rules.get("items"))
-    failed_rule = _latest_failed_rule(rule_items)
-    failure_event = _latest_failure_event(failed_rule.get("events") or []) if failed_rule else _latest_failure_event(events)
     stdout_lines = _log_lines(stdout)
     stderr_lines = _log_lines(stderr)
+    failed_rule = _latest_failed_rule(rule_items) or _failed_rule_from_stderr(rule_items, stderr_lines)
+    failure_event = _latest_failure_event(failed_rule.get("events") or []) if failed_rule else _latest_failure_event(events)
     artifacts = _dict_items(results.get("artifacts"))
     related_artifacts = _related_artifacts(failed_rule, artifacts)
 
@@ -78,7 +78,14 @@ def fetch_run_failure_locator(cfg: RemoteRunnerConfig, run_id: str) -> dict[str,
             failed_rule.get("message") or (failure_event or {}).get("message") or run.get("message"),
             "Failed rule message redacted by run-failure-locator.v1.",
         ),
-        "failedRule": _failed_rule_summary(failed_rule, failure_event),
+        "failedRule": _failed_rule_summary(
+            failed_rule,
+            failure_event,
+            fallback_source_location=public_stderr_failure_source_location(
+                stderr_lines,
+                rule_name=str(failed_rule.get("ruleName") or ""),
+            ),
+        ),
         "runEvent": _failure_event_summary(failure_event),
         "logContext": _log_context(stdout_lines, stderr_lines),
         "artifactContext": _artifact_context(artifacts, related_artifacts),
@@ -114,6 +121,14 @@ def public_rule_message(value: Any, fallback: str = "") -> str:
 
 def public_rule_source_location(event: dict[str, Any] | None) -> dict[str, Any] | None:
     return _source_location(event)
+
+
+def public_stderr_failure_source_location(
+    stderr_lines: list[str],
+    *,
+    rule_name: str = "",
+) -> dict[str, Any] | None:
+    return _stderr_failure_source_location(stderr_lines, rule_name=rule_name)
 
 
 def safe_rule_wildcards(value: Any) -> dict[str, Any]:
@@ -196,9 +211,14 @@ def _artifact_context(artifacts: list[dict[str, Any]], related_artifacts: list[d
     }
 
 
-def _failed_rule_summary(rule: dict[str, Any], event: dict[str, Any] | None) -> dict[str, Any]:
+def _failed_rule_summary(
+    rule: dict[str, Any],
+    event: dict[str, Any] | None,
+    *,
+    fallback_source_location: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     latest_failure_event = _failure_event_summary(event)
-    source_location = latest_failure_event.get("sourceLocation") if latest_failure_event else None
+    source_location = (latest_failure_event.get("sourceLocation") if latest_failure_event else None) or fallback_source_location
     return {
         "runRuleId": rule.get("runRuleId"),
         "ruleName": rule.get("ruleName"),
@@ -369,6 +389,16 @@ def _latest_failed_rule(rules: list[dict[str, Any]]) -> dict[str, Any] | None:
     return max(failed, key=lambda rule: str(rule.get("finishedAt") or rule.get("updatedAt") or rule.get("startedAt") or ""))
 
 
+def _failed_rule_from_stderr(rules: list[dict[str, Any]], stderr_lines: list[str]) -> dict[str, Any] | None:
+    rule_name = _stderr_failure_rule_name(stderr_lines)
+    if not rule_name:
+        return None
+    for rule in rules:
+        if str(rule.get("ruleName") or "") == rule_name:
+            return rule
+    return None
+
+
 def _latest_failure_event(events: Any) -> dict[str, Any] | None:
     for event in reversed(_dict_items(events)):
         if _is_failed_status(event.get("status")) or "fail" in str(event.get("eventType") or "").lower():
@@ -472,6 +502,49 @@ def _log_lines(payload: Any) -> list[str]:
 
 def _is_failed_status(status: Any) -> bool:
     return str(status or "").lower() in {"failed", "error"}
+
+
+def _stderr_failure_rule_name(lines: list[str]) -> str:
+    for line in reversed(lines[-80:]):
+        match = re.search(r"\bError in rule (?P<rule>[A-Za-z0-9_.-]+)\s*:", line)
+        if match:
+            return str(match.group("rule") or "").strip()
+    return ""
+
+
+def _stderr_failure_source_location(lines: list[str], *, rule_name: str = "") -> dict[str, Any] | None:
+    if not lines:
+        return None
+    start_index = _stderr_failure_rule_index(lines, rule_name=rule_name)
+    search_lines = lines[start_index:] if start_index is not None else lines[-80:]
+    for line in search_lines:
+        source = _source_location_from_text(line)
+        if source:
+            return source
+    return None
+
+
+def _stderr_failure_rule_index(lines: list[str], *, rule_name: str) -> int | None:
+    escaped_rule = re.escape(rule_name) if rule_name else r"[A-Za-z0-9_.-]+"
+    pattern = re.compile(rf"\bError in rule {escaped_rule}\s*:")
+    for index in range(len(lines) - 1, max(-1, len(lines) - 81), -1):
+        if pattern.search(lines[index]):
+            return index
+    return None
+
+
+def _source_location_from_text(line: str) -> dict[str, Any] | None:
+    text = str(line or "").strip()
+    patterns = (
+        r'File\s+"(?P<file>[^"]+)",\s+line\s+(?P<line>\d+)',
+        r"File\s+'(?P<file>[^']+)',\s+line\s+(?P<line>\d+)",
+        r"(?P<file>[A-Za-z0-9_./\\ -]*(?:Snakefile|[A-Za-z0-9_. -]+\.smk)):(?P<line>\d+)\b",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            return _source_location({"details": {"file": match.group("file"), "line": match.group("line")}})
+    return None
 
 
 def _canonical_result_id_for_run(run_id: str) -> str:

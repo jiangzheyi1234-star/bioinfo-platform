@@ -178,6 +178,38 @@ def test_public_run_rules_project_log_evidence_without_raw_paths_or_commands(tmp
         assert forbidden not in serialized
 
 
+def test_failure_locator_and_rules_fallback_source_location_from_stderr(tmp_path) -> None:
+    cfg = make_configured_remote_runner(
+        tmp_path,
+        token="rbac-token",
+        api_token_roles=("workflow-operator",),
+    )
+    _failed_rule_run_with_stderr_source_location(cfg, tmp_path)
+
+    locator = fetch_run_failure_locator(cfg, "run_stderr_source")
+    source = locator["failedRule"]["sourceLocation"]
+
+    assert locator["reasonCode"] == "FAILED_RULE"
+    assert locator["failedRule"]["ruleName"] == "align_reads"
+    assert locator["failedRule"]["latestFailureEvent"] is None
+    assert source["schemaVersion"] == "run-source-location.v1"
+    assert source["sourceKind"] == "snakefile"
+    assert source["fileBasename"] == "Snakefile"
+    assert source["line"] == 77
+    assert source["fileHash"].startswith("sha256:")
+    serialized_failed_rule = json.dumps(locator["failedRule"], sort_keys=True)
+    assert str(tmp_path) not in serialized_failed_rule
+    assert "TOKEN_SHOULD_NOT_LEAK" not in serialized_failed_rule
+
+    rules = fetch_public_run_rules(cfg, "run_stderr_source")
+    rule = rules["items"][0]
+    assert rule["sourceLocation"] == source
+    assert rule["events"] == []
+    serialized_rules = json.dumps(rules, sort_keys=True)
+    assert str(tmp_path) not in serialized_rules
+    assert "TOKEN_SHOULD_NOT_LEAK" not in serialized_rules
+
+
 def _failed_rule_run_with_log_artifact(cfg, tmp_path: Path) -> dict[str, object]:
     create_run_record(
         cfg,
@@ -283,5 +315,73 @@ def _failed_rule_run_with_log_artifact(cfg, tmp_path: Path) -> dict[str, object]
         stage="running",
         message="Snakemake failed.",
         request_id="req_failure_locator",
+    )
+    return claim
+
+
+def _failed_rule_run_with_stderr_source_location(cfg, tmp_path: Path) -> dict[str, object]:
+    create_run_record(
+        cfg,
+        server_id="srv_stderr_source",
+        request_id="req_stderr_source",
+        run_spec={
+            "runId": "run_stderr_source",
+            "projectId": "proj_stderr_source",
+            "pipelineId": "pipeline_stderr_source",
+            "pipelineVersion": "0.1.0",
+            "runSpecVersion": "2026-04-21",
+            "workflowRevisionId": "wfrev_stderr_source",
+        },
+        idempotency_key="idem_stderr_source",
+        payload_hash="hash_stderr_source",
+    )
+    claim = claim_next_run_job(
+        cfg,
+        worker_id="worker_stderr_source",
+        now="2099-06-07T11:00:00Z",
+        lease_seconds=30,
+    )
+    assert claim is not None
+    attempt = claim["attempt"]
+    upsert_run_rule_state(
+        cfg,
+        run_id="run_stderr_source",
+        rule_name="align_reads",
+        step_id="align",
+        runtime_status_key="rule:align_reads",
+        status="failed",
+        attempt_id=str(claim["attemptId"]),
+        lease_generation=int(claim["leaseGeneration"]),
+        attempt_number=int(attempt["attemptNumber"]),
+        started_at="2099-06-07T11:00:01Z",
+        finished_at="2099-06-07T11:00:02Z",
+        exit_code=1,
+        message=f"Command failed at {tmp_path / 'secret' / 'align_reads.log'} TOKEN_SHOULD_NOT_LEAK",
+        command_summary="snakemake --cores 1 align_reads TOKEN_SHOULD_NOT_LEAK",
+        inputs=["inputs/reads.fastq"],
+        outputs=["outputs/aligned.bam"],
+        wildcards={"sample": "S1"},
+        logs=[],
+        occurred_at="2099-06-07T11:00:02Z",
+    )
+    append_log_lines(
+        cfg,
+        "run_stderr_source",
+        "stderr",
+        [
+            "Building DAG of jobs...",
+            "Error in rule align_reads:",
+            f'    File "{tmp_path / "workflow" / "Snakefile"}", line 77, in __rule_align_reads',
+            "    shell:",
+            "        command redacted in public projections TOKEN_SHOULD_NOT_LEAK",
+        ],
+    )
+    update_run_state(
+        cfg,
+        run_id="run_stderr_source",
+        status="failed",
+        stage="running",
+        message="Snakemake failed.",
+        request_id="req_stderr_source",
     )
     return claim
