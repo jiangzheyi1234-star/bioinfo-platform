@@ -130,6 +130,8 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "first-run-evidence-bundle" in first_run_completion
     assert "first-run-pilot-backup-restore" in first_run_completion
     assert "first-run-completion-download-${role || \"evidence\"}" in first_run_completion
+    assert "item.packageExportId" in first_run_completion
+    assert "shortHash(item.sha256)" in first_run_completion
     assert "card?.pilotHandoff" in first_run_completion
     assert "pilotHandoffFromCard" not in first_run_completion
     assert "first-run-next-scenario-handoff" in first_run_completion

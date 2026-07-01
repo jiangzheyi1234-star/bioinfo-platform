@@ -102,7 +102,7 @@ def test_first_run_refreshes_workspace_after_ssh_connect_success() -> None:
     assert "firstRunWorkspaceConnectionPrompt(state.error, serverConnected)" in first_run_page
     assert "const visibleWorkspaceError = workspaceConnectionPrompt ? \"\" : state.error" in first_run_page
     assert "请先连接远端后继续首跑。" in first_run_page
-    assert "远端已连接，正在读取 runner readiness。" in first_run_page
+    assert "远端已连接，正在读取运行环境检查。" in first_run_page
     assert "<AlertDescription>{state.error}</AlertDescription>" not in first_run_page
 
 

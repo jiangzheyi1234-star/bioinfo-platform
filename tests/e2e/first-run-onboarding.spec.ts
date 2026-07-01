@@ -61,7 +61,7 @@ test.describe("First Successful Run onboarding", () => {
   });
 
   test("marks report ready while guiding result package export", async ({ page }) => {
-    await installFirstRunApiMocks(page, "package-required");
+    const api = await installFirstRunApiMocks(page, "package-required");
 
     await page.goto("/workflows/first-run");
 
@@ -71,6 +71,21 @@ test.describe("First Successful Run onboarding", () => {
     await expect(page.getByTestId("first-run-report-insight")).toContainText("关键结果完整");
     await expect(page.getByTestId("first-run-report-insight")).toContainText("passed reads");
     await expect(page.getByTestId("first-run-completion-panel")).not.toBeVisible();
+
+    const [response, request] = await Promise.all([
+      page.waitForResponse((item) => new URL(item.url()).pathname === `/api/v1/first-run/runs/${RUN_ID}/finalize` && item.request().method() === "POST"),
+      page.waitForRequest((item) => new URL(item.url()).pathname === `/api/v1/first-run/runs/${RUN_ID}/finalize` && item.method() === "POST"),
+      page.getByTestId("first-run-continue").click(),
+    ]);
+    expect(response.ok()).toBe(true);
+    expect(request.postDataJSON()).toMatchObject({
+      actor: "first-run-ui",
+      serverId: SERVER_ID,
+    });
+    expect(api.firstRunFinalized).toBe(true);
+    await expect(page.getByTestId("first-run-conductor")).toHaveAttribute("data-first-run-next-action", "COMPLETE");
+    await expect(page.getByTestId("first-run-completion-panel")).toBeVisible();
+    await expect(page.getByTestId("first-run-evidence-bundle-file")).toHaveCount(4);
   });
 });
 
@@ -82,6 +97,7 @@ async function installFirstRunApiMocks(page: Page, mode: FirstRunMockMode) {
         : mode === "package-required"
           ? packageRequiredFirstRunStatus()
           : readyToSubmitFirstRunStatus(),
+    firstRunFinalized: false,
     firstRunSubmitted: false,
   };
 
@@ -116,7 +132,8 @@ async function installFirstRunApiMocks(page: Page, mode: FirstRunMockMode) {
       return data(route, { items: mode === "completed" || api.firstRunSubmitted ? [workflowRun()] : [] });
     }
     if (method === "GET" && path === "/api/v1/first-run/status") {
-      if (url.searchParams.get("serverId") !== SERVER_ID) {
+      const requestedServerId = url.searchParams.get("serverId") || "";
+      if (requestedServerId && requestedServerId !== SERVER_ID) {
         return data(route, missingServerFirstRunStatus());
       }
       return data(route, api.firstRunStatus);
@@ -128,6 +145,11 @@ async function installFirstRunApiMocks(page: Page, mode: FirstRunMockMode) {
       api.firstRunSubmitted = true;
       api.firstRunStatus = submittedFirstRunStatus();
       return data(route, firstRunSubmission());
+    }
+    if (method === "POST" && path === `/api/v1/first-run/runs/${RUN_ID}/finalize`) {
+      api.firstRunFinalized = true;
+      api.firstRunStatus = completedFirstRunStatus();
+      return data(route, firstRunFinalization());
     }
     if (method === "GET" && path === `/api/v1/runs/${RUN_ID}/detail`) {
       return data(route, runDetail());
@@ -401,6 +423,19 @@ function firstRunSubmission() {
   };
 }
 
+function firstRunFinalization() {
+  const card = validationCard();
+  return {
+    schemaVersion: "h2ometa.first-run.finalization.v1",
+    status: "ready",
+    packageAction: "exported",
+    evidenceBundle: pilotHandoff().evidenceBundle,
+    pilotHandoff: pilotHandoff(),
+    resultPackage: card.resultPackage,
+    validationCard: card,
+  };
+}
+
 function workflowRun() {
   return {
     runId: RUN_ID,
@@ -420,11 +455,25 @@ function runDetail() {
     run: workflowRun(),
     artifacts: [],
     inputArtifacts: [],
+    logs: {
+      stderr: { lines: [] },
+      stdout: { lines: [] },
+    },
     previews: [],
     results: {
       resultId: RESULT_ID,
       artifacts: [],
       inputArtifacts: [],
+    },
+    rules: {
+      items: [],
+      summary: {
+        failedRuleCount: 0,
+        ruleCount: 0,
+        rulesWithAvailableLogEvidence: 0,
+        rulesWithLogReferences: 0,
+        runningRuleCount: 0,
+      },
     },
   };
 }

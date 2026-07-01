@@ -258,6 +258,12 @@ function EvidenceBundleSummary({ bundle }: { bundle: NonNullable<FirstRunPilotHa
             ) : (
               <div className="truncate font-mono text-slate-500">{item.filename || item.source}</div>
             )}
+            {item.packageExportId ? (
+              <div className="mt-1 truncate font-mono text-slate-500">{item.packageExportId}</div>
+            ) : null}
+            {item.sha256 ? (
+              <div className="mt-1 truncate font-mono text-slate-400">{shortHash(item.sha256)}</div>
+            ) : null}
           </div>
         ))}
       </div>
