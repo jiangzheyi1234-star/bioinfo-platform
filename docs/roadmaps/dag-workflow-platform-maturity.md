@@ -258,9 +258,9 @@ Delivered foundation:
 - Run attempts now have a stable read-only `run-attempts.v1` API that exposes job, attempt, lease, slot, retry, timeout, and summary state while explicitly redacting work directories, process identifiers, command payloads, and runSpec content. This makes attempt/lease evidence a standalone contract before any rule-level retry/resume mutation is enabled.
 - Run observability read APIs are now governed high-risk remote actions. Run events, execution context, attempts, logs, rules, and failure locator require workflow-operator/auditor roles before storage or log reads and write hash-chained allow audit summaries with only counts, state distributions, stream labels, cursor-presence booleans, retry/resume eligibility flags, and log-evidence reason/status distributions, keeping log lines, rule-log tails, event detail payloads, run specs, command summaries, command args, paths, storage URIs, and raw cursor values out of governance audit details.
 
-Still pending before this phase is complete:
+Remaining hardening before this phase is claimed complete for a pilot:
 
-- Add rule-level partial retry/resume mutation APIs only after rule-attempt selection, downstream invalidation, workdir reuse, incomplete-output audit, executor-side partial rerun orchestration, terminal-to-target attempt lifecycle, and preserved-output closure are represented as explicit contracts.
+- Rule-level partial retry and run resume mutation APIs are now present and confirmation/plan-hash gated. Before claiming real pilot completion, run the focused reexecution route, worker preflight, frontend contract, and remote/launcher smoke proofs against the deployed runner artifact so the source-level contracts are proven in the operator path, not only in isolated tests.
 
 Recommended sequence:
 
