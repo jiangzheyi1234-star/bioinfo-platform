@@ -20,10 +20,16 @@ export class LocalApiError extends Error {
   code: LocalApiErrorCode;
   status: number;
   detail: unknown;
+  activeLeaseCount?: number;
+  allocatedResourceCount?: number;
+  blockReasons?: string[];
+  claimedJobCount?: number;
   title?: string;
+  runningSlotCount?: number;
   requestId?: string;
   problemCode?: string;
   reasonCode?: string;
+  resourceWaitCount?: number;
   nextAction?: string;
 
   constructor(
@@ -31,17 +37,35 @@ export class LocalApiError extends Error {
     message: string,
     status = 0,
     detail?: unknown,
-    options?: { title?: string; requestId?: string; problemCode?: string; reasonCode?: string; nextAction?: string }
+    options?: {
+      activeLeaseCount?: number;
+      allocatedResourceCount?: number;
+      blockReasons?: string[];
+      claimedJobCount?: number;
+      nextAction?: string;
+      problemCode?: string;
+      reasonCode?: string;
+      requestId?: string;
+      resourceWaitCount?: number;
+      runningSlotCount?: number;
+      title?: string;
+    }
   ) {
     super(message);
     this.name = "LocalApiError";
     this.code = code;
     this.status = status;
     this.detail = detail;
+    this.activeLeaseCount = options?.activeLeaseCount;
+    this.allocatedResourceCount = options?.allocatedResourceCount;
+    this.blockReasons = options?.blockReasons;
+    this.claimedJobCount = options?.claimedJobCount;
     this.title = options?.title;
+    this.runningSlotCount = options?.runningSlotCount;
     this.requestId = options?.requestId;
     this.problemCode = options?.problemCode;
     this.reasonCode = options?.reasonCode;
+    this.resourceWaitCount = options?.resourceWaitCount;
     this.nextAction = options?.nextAction;
   }
 }
@@ -111,10 +135,16 @@ async function requestViaBrowserFetch<T>(
             ? problemDetail.title
             : `HTTP ${response.status}`;
       throw new LocalApiError("backend_http_error", detailMessage, response.status, detail, {
+        activeLeaseCount: optionalProblemNumber(problemDetail.activeLeaseCount),
+        allocatedResourceCount: optionalProblemNumber(problemDetail.allocatedResourceCount),
+        blockReasons: optionalProblemStringArray(problemDetail.blockReasons),
+        claimedJobCount: optionalProblemNumber(problemDetail.claimedJobCount),
         title: typeof problemDetail.title === "string" ? problemDetail.title : undefined,
+        runningSlotCount: optionalProblemNumber(problemDetail.runningSlotCount),
         requestId: typeof problemDetail.requestId === "string" ? problemDetail.requestId : undefined,
         problemCode: typeof problemDetail.code === "string" ? problemDetail.code : undefined,
         reasonCode: typeof problemDetail.reasonCode === "string" ? problemDetail.reasonCode : undefined,
+        resourceWaitCount: optionalProblemNumber(problemDetail.resourceWaitCount),
         nextAction: typeof problemDetail.nextAction === "string" ? problemDetail.nextAction : undefined,
       });
     }
@@ -138,6 +168,16 @@ async function requestViaBrowserFetch<T>(
     window.clearTimeout(timeout);
     options.signal?.removeEventListener("abort", abortFromParent);
   }
+}
+
+function optionalProblemNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function optionalProblemStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const items = value.map((item) => String(item || "").trim()).filter(Boolean);
+  return items.length ? items : undefined;
 }
 
 export async function requestLocalApiJson<T = any>(

@@ -244,16 +244,30 @@ def test_local_api_error_preserves_runner_problem_extensions() -> None:
 
     _assert_contains(
         client_source,
+        "activeLeaseCount?: number",
+        "allocatedResourceCount?: number",
+        "resourceWaitCount?: number",
+        "claimedJobCount?: number",
+        "runningSlotCount?: number",
+        "blockReasons?: string[]",
         "reasonCode?: string",
         "nextAction?: string",
+        "this.activeLeaseCount = options?.activeLeaseCount",
+        "this.blockReasons = options?.blockReasons",
         "this.reasonCode = options?.reasonCode",
         "this.nextAction = options?.nextAction",
+        "optionalProblemNumber(problemDetail.activeLeaseCount)",
+        "optionalProblemStringArray(problemDetail.blockReasons)",
         "problemDetail.reasonCode",
         "problemDetail.nextAction",
     )
     _assert_contains(
         model_source,
-        "[error.reasonCode, error.nextAction].filter(Boolean).join(\" · \")",
+        "[error.reasonCode, error.nextAction, runnerLifecycleBlockSummary(error)].filter(Boolean).join(\" · \")",
+        "function runnerLifecycleBlockSummary(error: LocalApiError): string",
+        'lifecycleCountLabel("active leases", error.activeLeaseCount)',
+        'lifecycleCountLabel("claimed jobs", error.claimedJobCount)',
+        "blocks: ${error.blockReasons.slice(0, 3).join(\", \")}",
         "return context ? `${message} (${context})` : message",
     )
 

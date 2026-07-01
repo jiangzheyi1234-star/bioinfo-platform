@@ -404,7 +404,7 @@ export function toForm(status: SSHStatus | null): SSHFormState {
 
 export function normalizeFetchError(error: unknown): string {
   if (error instanceof LocalApiError) {
-    const context = [error.reasonCode, error.nextAction].filter(Boolean).join(" · ");
+    const context = [error.reasonCode, error.nextAction, runnerLifecycleBlockSummary(error)].filter(Boolean).join(" · ");
     const message = error.message || "请求失败";
     return context ? `${message} (${context})` : message;
   }
@@ -413,6 +413,22 @@ export function normalizeFetchError(error: unknown): string {
     return `本地 API 未启动或不可达：${apiBase()}`;
   }
   return message || "请求失败";
+}
+
+function runnerLifecycleBlockSummary(error: LocalApiError): string {
+  const counts = [
+    lifecycleCountLabel("active leases", error.activeLeaseCount),
+    lifecycleCountLabel("allocated resources", error.allocatedResourceCount),
+    lifecycleCountLabel("resource waits", error.resourceWaitCount),
+    lifecycleCountLabel("claimed jobs", error.claimedJobCount),
+    lifecycleCountLabel("running slots", error.runningSlotCount),
+  ].filter(Boolean);
+  const reasons = error.blockReasons?.length ? [`blocks: ${error.blockReasons.slice(0, 3).join(", ")}`] : [];
+  return [...counts, ...reasons].join(" · ");
+}
+
+function lifecycleCountLabel(label: string, value: number | undefined): string {
+  return typeof value === "number" && value > 0 ? `${label}: ${value}` : "";
 }
 
 function maxTerminalHeight(): number {
