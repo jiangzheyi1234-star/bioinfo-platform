@@ -107,6 +107,99 @@ test("graph editor supports add, undo, redo, search focus, layout, and subflow l
   await expect(edgeRows.first().getByTestId("workflow-graph-edge-audit")).toContainText("手动连接");
 });
 
+test("graph editor inserts backend-planned converter only after explicit confirmation", async ({ page }) => {
+  test.setTimeout(120_000);
+  await prepareE2EFixture(api);
+  await mockGraphEditorCapabilityTools(page);
+
+  let proposedEdgesSeen = 0;
+  await page.route("**/api/v1/workflow-design-drafts", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      json: {
+        data: {
+          createdAt: "2099-06-07T10:00:00Z",
+          draft: (await route.request().postDataJSON()).draft,
+          draftId: "wfd_e2e_converter",
+          name: "E2E generated workflow draft",
+          projectId: "generated-tool-run-v1",
+          revision: 1,
+          updatedAt: "2099-06-07T10:00:00Z",
+        },
+      },
+    });
+  });
+  await page.route("**/api/v1/workflow-design-drafts/wfd_e2e_converter/plan", async (route) => {
+    const body = await route.request().postDataJSON();
+    const proposedEdge = body.proposedEdges?.[0];
+    if (proposedEdge?.from?.port === "sam" && proposedEdge?.to?.port === "bam") {
+      proposedEdgesSeen += 1;
+    }
+    await page.waitForTimeout(150);
+    await route.fulfill({
+      json: {
+        data: {
+          valid: false,
+          normalizedGraph: { edges: [] },
+          orderedSteps: [],
+          previews: { config: "", snakefile: "" },
+          requiredDatabases: {},
+          requiredResources: {},
+          resolvedPorts: {},
+          runSpec: {},
+          validationIssues: [
+            { code: "WORKFLOW_GRAPH_CONNECTION_INCOMPATIBLE", message: "SAM must be converted to BAM" },
+          ],
+          semanticPortPlan: semanticPortPlanForConverter(proposedEdge),
+        },
+      },
+    });
+  });
+
+  await page.goto(`/workflows/detail?workflow=${encodeURIComponent(GENERATED_TOOL_RUN_PIPELINE_ID)}`);
+  await expect(page.getByText("工具工作流")).toBeVisible({ timeout: 20_000 });
+
+  await addGraphTool(page, GRAPH_TOOL_REVISIONS.samSource);
+  await addGraphTool(page, GRAPH_TOOL_REVISIONS.bamTarget);
+  await expect(page.getByTestId("rule-graph-node-card")).toHaveCount(2, { timeout: 10_000 });
+  await page.getByRole("button", { name: "自动布局" }).click();
+
+  const sourceNodeId = await nodeIdForTool(page, "E2E SAM source");
+  const targetNodeId = await nodeIdForTool(page, "E2E BAM target");
+  await dragConnection(
+    page,
+    graphHandle(page, "output", sourceNodeId, "sam"),
+    graphHandle(page, "input", targetNodeId, "bam")
+  );
+
+  const connectionNotice = page.getByTestId("workflow-graph-connection-notice");
+  await expect(connectionNotice).toHaveAttribute("data-connection-notice-code", "WORKFLOW_GRAPH_CONNECTION_INCOMPATIBLE");
+  await expect(connectionNotice).toHaveAttribute("data-connection-notice-state", "backend-plan-pending");
+  await expect(connectionNotice).toHaveAttribute("data-converter-insert-enabled", "false");
+  await expect(connectionNotice).toHaveAttribute("data-connection-notice-state", "backend-plan-confirmable", {
+    timeout: 15_000,
+  });
+  await expect(connectionNotice).toHaveAttribute("data-converter-insert-enabled", "true");
+  expect(proposedEdgesSeen).toBe(1);
+  await expect(page.getByTestId("workflow-graph-edge-row")).toHaveCount(0);
+
+  await connectionNotice.getByRole("button", { name: "确认插入转换" }).click();
+
+  const converterNodeId = await nodeIdForTool(page, "E2E SAM to BAM converter");
+  expect(converterNodeId).not.toBe(sourceNodeId);
+  expect(converterNodeId).not.toBe(targetNodeId);
+  const edgeRows = page.getByTestId("workflow-graph-edge-row");
+  await expect(edgeRows).toHaveCount(2, { timeout: 10_000 });
+  await expect(edgeRows.filter({ hasText: `${sourceNodeId}.sam` }).filter({ hasText: `${converterNodeId}.sam` })).toHaveCount(1);
+  await expect(edgeRows.filter({ hasText: `${converterNodeId}.bam` }).filter({ hasText: `${targetNodeId}.bam` })).toHaveCount(1);
+  await expect(edgeRows.filter({ hasText: `${sourceNodeId}.sam` }).filter({ hasText: `${targetNodeId}.bam` })).toHaveCount(0);
+  await expect(connectionNotice).toHaveAttribute("data-connection-notice-code", "");
+  await expect(connectionNotice).toHaveAttribute("data-converter-insert-enabled", "false");
+});
+
 async function dragConnection(page: Page, source: Locator, target: Locator) {
   const sourceBox = await source.boundingBox();
   const targetBox = await target.boundingBox();
@@ -132,6 +225,9 @@ function cssAttributeValue(value: string) {
 }
 
 const GRAPH_TOOL_REVISIONS = {
+  bamTarget: "e2e-bam-target-rev",
+  samSource: "e2e-sam-source-rev",
+  samToBamConverter: "e2e-sam-to-bam-rev",
   incompatibleTarget: "e2e-vcf-target-rev",
   source: "e2e-bam-source-rev",
   target: "e2e-bam-target-rev",
@@ -195,6 +291,40 @@ async function mockGraphEditorCapabilityTools(page: Page) {
               },
               revisionId: GRAPH_TOOL_REVISIONS.source,
             }),
+            workflowReadyTool({
+              id: "e2e-sam-source",
+              input: {
+                data: "data_2044",
+                format: "format_1930",
+                kind: "file",
+                name: "reads_fastq",
+              },
+              name: "E2E SAM source",
+              output: {
+                data: "data_0863",
+                format: "format_2573",
+                kind: "file",
+                name: "sam",
+              },
+              revisionId: GRAPH_TOOL_REVISIONS.samSource,
+            }),
+            workflowReadyTool({
+              id: "e2e-sam-to-bam",
+              input: {
+                data: "data_0863",
+                format: "format_2573",
+                kind: "file",
+                name: "sam",
+              },
+              name: "E2E SAM to BAM converter",
+              output: {
+                data: "data_0863",
+                format: "format_2572",
+                kind: "file",
+                name: "bam",
+              },
+              revisionId: GRAPH_TOOL_REVISIONS.samToBamConverter,
+            }),
           ],
           capabilityBundleGate: {},
           capabilityBundles: [],
@@ -215,8 +345,8 @@ async function mockGraphEditorCapabilityTools(page: Page) {
           query: "",
           registeredToolCounts: {
             productionEnabled: 0,
-            total: 3,
-            workflowReady: 3,
+            total: 5,
+            workflowReady: 5,
           },
           registeredTools: [],
           selectionPolicy: {
@@ -355,4 +485,107 @@ function graphHandle(page: Page, direction: "input" | "output", nodeId: string, 
   return page.locator(
     `[data-testid="rule-graph-handle-${direction}-${cssAttributeValue(nodeId)}-${cssAttributeValue(portName)}"]`
   );
+}
+
+function semanticPortPlanForConverter(proposedEdge: any) {
+  return {
+    schemaVersion: "h2ometa.workflow-design-semantic-port-plan.v1",
+    edgeCount: 1,
+    compatibleEdgeCount: 0,
+    blockedEdgeCount: 1,
+    converterCandidateCount: 1,
+    edges: [
+      {
+        proposed: true,
+        from: proposedEdge?.from || { nodeId: "missing-source", port: "sam" },
+        to: proposedEdge?.to || { nodeId: "missing-target", port: "bam" },
+        decision: semanticPortDecision({
+          compatible: false,
+          inputFormat: "format_2572",
+          matchedFields: ["type", "data"],
+          mismatchedField: "format",
+          outputFormat: "format_2573",
+        }),
+        recommendation: {
+          action: "insert-converter",
+          reasonCode: "ONE_HOP_CONVERTER_AVAILABLE",
+          confidence: 0.94,
+          hardChecks: [
+            "workflow-ready-converter",
+            "single-required-input",
+            "converter-has-no-database-resource",
+            "source-output-to-converter-input-strong-evidence",
+            "converter-output-to-target-input-strong-evidence",
+          ],
+          evidence: ["E2E SAM source output can enter converter", "converter BAM output satisfies target"],
+          converterCandidateCount: 1,
+        },
+        converterCandidates: [
+          {
+            converterToolRevisionId: GRAPH_TOOL_REVISIONS.samToBamConverter,
+            converterToolId: "e2e-sam-to-bam",
+            converterToolName: "E2E SAM to BAM converter",
+            inputPort: "sam",
+            outputPort: "bam",
+            inputScore: 6,
+            outputScore: 6,
+            totalScore: 15,
+            operation: "format-conversion",
+            workflowStage: "alignment-format-normalization",
+            confirmationRequired: true,
+            insertionMode: "explicit-user-confirmed",
+            autoInsertionBlockedReasons: ["confirmation-required", "graph-mutation-requires-user-action"],
+            hardChecks: [
+              "workflow-ready-converter",
+              "single-required-input",
+              "converter-has-no-database-resource",
+              "source-output-to-converter-input-strong-evidence",
+              "converter-output-to-target-input-strong-evidence",
+            ],
+            evidence: ["上游输出可进入 sam", "bam 可满足目标输入"],
+            inputDecision: semanticPortDecision({
+              compatible: true,
+              inputFormat: "format_2573",
+              matchedFields: ["type", "data", "format"],
+              outputFormat: "format_2573",
+            }),
+            outputDecision: semanticPortDecision({
+              compatible: true,
+              inputFormat: "format_2572",
+              matchedFields: ["type", "data", "format"],
+              outputFormat: "format_2572",
+            }),
+            reason: "Backend semanticPortPlan recommends explicit SAM to BAM converter insertion",
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function semanticPortDecision({
+  compatible,
+  inputFormat,
+  matchedFields,
+  mismatchedField = "",
+  outputFormat,
+}: {
+  compatible: boolean;
+  inputFormat: string;
+  matchedFields: string[];
+  mismatchedField?: string;
+  outputFormat: string;
+}) {
+  return {
+    compatible,
+    score: compatible ? matchedFields.length : null,
+    matchedFields,
+    genericFields: [],
+    advisoryFields: [],
+    mismatchedField,
+    hardChecks: compatible ? ["port-direction:output-to-input"] : ["port-direction:output-to-input", "format:conflict"],
+    advisoryChecks: [],
+    inputSpec: { data: "data_0863", format: inputFormat, type: "file" },
+    outputSpec: { data: "data_0863", format: outputFormat, type: "file" },
+  };
 }

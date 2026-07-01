@@ -5,6 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPONENTS = ROOT / "apps" / "web" / "app" / "components"
+E2E = ROOT / "tests" / "e2e"
 
 
 def test_canvas_converter_advice_requires_explicit_confirmation() -> None:
@@ -77,3 +78,26 @@ def test_canvas_converter_advice_requires_explicit_confirmation() -> None:
     assert "onInsertConverter(suggestion)" not in port_bindings_editor_ui
     assert "保存并验证后可使用后端转换建议" in port_bindings_editor_ui
     assert "findOneHopPortConverters" not in port_bindings_editor_ui
+
+
+def test_graph_editor_e2e_proves_backend_planned_converter_confirmation() -> None:
+    e2e_spec = (E2E / "generated-workflow-graph-editor.spec.ts").read_text(encoding="utf-8")
+
+    assert 'test("graph editor inserts backend-planned converter only after explicit confirmation"' in e2e_spec
+    assert "proposedEdgesSeen" in e2e_spec
+    assert "body.proposedEdges?.[0]" in e2e_spec
+    assert "semanticPortPlan: semanticPortPlanForConverter(proposedEdge)" in e2e_spec
+    assert 'proposed: true' in e2e_spec
+    assert 'action: "insert-converter"' in e2e_spec
+    assert 'reasonCode: "ONE_HOP_CONVERTER_AVAILABLE"' in e2e_spec
+    assert 'insertionMode: "explicit-user-confirmed"' in e2e_spec
+    assert 'autoInsertionBlockedReasons: ["confirmation-required", "graph-mutation-requires-user-action"]' in e2e_spec
+    assert 'await expect(connectionNotice).toHaveAttribute("data-connection-notice-state", "backend-plan-pending")' in e2e_spec
+    assert 'await expect(connectionNotice).toHaveAttribute("data-connection-notice-state", "backend-plan-confirmable"' in e2e_spec
+    assert 'await expect(connectionNotice).toHaveAttribute("data-converter-insert-enabled", "true")' in e2e_spec
+    assert 'await connectionNotice.getByRole("button", { name: "确认插入转换" }).click()' in e2e_spec
+    assert 'await expect(edgeRows).toHaveCount(2' in e2e_spec
+    assert 'await expect(edgeRows.filter({ hasText: `${sourceNodeId}.sam` }).filter({ hasText: `${converterNodeId}.sam` })).toHaveCount(1)' in e2e_spec
+    assert 'await expect(edgeRows.filter({ hasText: `${converterNodeId}.bam` }).filter({ hasText: `${targetNodeId}.bam` })).toHaveCount(1)' in e2e_spec
+    assert 'await expect(edgeRows.filter({ hasText: `${sourceNodeId}.sam` }).filter({ hasText: `${targetNodeId}.bam` })).toHaveCount(0)' in e2e_spec
+    assert "E2E SAM to BAM converter" in e2e_spec
