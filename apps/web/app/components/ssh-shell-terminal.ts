@@ -14,6 +14,7 @@ import {
   DEFAULT_TERMINAL_HEIGHT,
   TERMINAL_HEIGHT_KEY,
   TERMINAL_PENDING_INPUT_MAX_CHARS,
+  TERMINAL_SCROLLBACK_TRUNCATED_MESSAGE,
   type SSHStatusRefreshOptions,
   type SSHStatus,
   type TerminalSnapshot,
@@ -22,6 +23,7 @@ import {
   normalizeFetchError,
   readStoredTerminalHeight,
   retainTerminalPendingInputPrefix,
+  terminalAbsoluteCursor,
 } from "./ssh-shell-model";
 import { useSshTerminalViewport } from "./ssh-shell-xterm";
 
@@ -60,6 +62,7 @@ export function useSshTerminal({
   const terminalSessionClosedRef = useRef(false);
   const terminalClosingRef = useRef(false);
   const terminalInputEnabledRef = useRef(false);
+  const terminalScrollbackTruncatedRef = useRef(false);
   const pendingTerminalResizeRef = useRef<{ cols: number; rows: number } | null>(null);
   const pendingTerminalInputRef = useRef("");
   const dragStateRef = useRef<{ startY: number; startHeight: number } | null>(null);
@@ -174,6 +177,7 @@ export function useSshTerminal({
     terminalCursorRef.current = 0;
     terminalSessionIdRef.current = null;
     terminalSessionClosedRef.current = false;
+    terminalScrollbackTruncatedRef.current = false;
     pendingTerminalResizeRef.current = null;
     pendingTerminalInputRef.current = "";
     setTerminalSessionId(null);
@@ -184,11 +188,12 @@ export function useSshTerminal({
 
   const replaceTerminalSnapshot = useCallback(
     (item: TerminalSnapshot) => {
-      terminalCursorRef.current = item.cursor || 0;
+      terminalCursorRef.current = terminalAbsoluteCursor(item.cursor, item.base_cursor);
       terminalSessionIdRef.current = item.session_id;
       terminalSessionClosedRef.current = Boolean(item.closed);
+      terminalScrollbackTruncatedRef.current = Boolean(item.truncated);
       setTerminalSessionId(item.session_id);
-      setTerminalMessage(item.message || "");
+      setTerminalMessage(item.message || (item.truncated ? TERMINAL_SCROLLBACK_TRUNCATED_MESSAGE : ""));
       setTerminalInputEnabled(Boolean(item.input_enabled));
       terminalViewport.replaceOutput(typeof item.output === "string" ? item.output : "");
     },
@@ -221,21 +226,32 @@ export function useSshTerminal({
             case "ready":
               setTerminalMessage("");
               return;
-            case "output":
+            case "output": {
+              const previousCursor = terminalCursorRef.current;
+              terminalCursorRef.current = terminalAbsoluteCursor(message.cursor, message.base_cursor);
+              const streamWasRebased = message.truncated || message.base_cursor > previousCursor;
+              if (streamWasRebased) {
+                terminalScrollbackTruncatedRef.current = true;
+              }
               if (!message.data) {
+                if (message.truncated) {
+                  setTerminalMessage(TERMINAL_SCROLLBACK_TRUNCATED_MESSAGE);
+                }
                 return;
               }
-              terminalCursorRef.current =
-                typeof message.cursor === "number" ? message.cursor : terminalCursorRef.current + message.data.length;
-              if (message.truncated) {
+              if (streamWasRebased) {
+                setTerminalMessage(TERMINAL_SCROLLBACK_TRUNCATED_MESSAGE);
                 terminalViewport.replaceOutput(message.data);
               } else {
                 terminalViewport.appendOutput(message.data);
               }
               return;
+            }
             case "state":
               setTerminalInputEnabled(Boolean(message.input_enabled));
-              setTerminalMessage(message.message || "");
+              setTerminalMessage(
+                message.message || (terminalScrollbackTruncatedRef.current ? TERMINAL_SCROLLBACK_TRUNCATED_MESSAGE : "")
+              );
               return;
             case "error":
               if (/unknown session|unknown terminal session/i.test(message.message || "")) {

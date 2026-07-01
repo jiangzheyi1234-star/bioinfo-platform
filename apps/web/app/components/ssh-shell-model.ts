@@ -322,11 +322,16 @@ function remoteStatusTarget(status: RunnerRepairStatus): string {
 export const TERMINAL_XTERM_SCROLLBACK_ROWS = 4000;
 export const TERMINAL_REPLAY_BUFFER_MAX_CHARS = 512 * 1024;
 export const TERMINAL_PENDING_INPUT_MAX_CHARS = 16 * 1024;
+export const TERMINAL_SCROLLBACK_TRUNCATED_MESSAGE = "终端输出已裁剪，仅保留最近输出。";
 
 export function retainTerminalReplayBufferTail(value: string): string {
   return value.length <= TERMINAL_REPLAY_BUFFER_MAX_CHARS
     ? value
     : value.slice(value.length - TERMINAL_REPLAY_BUFFER_MAX_CHARS);
+}
+
+export function terminalAbsoluteCursor(cursor: number, baseCursor: number): number {
+  return Math.max(0, cursor, baseCursor);
 }
 
 export function retainTerminalPendingInputPrefix(value: string): string {
