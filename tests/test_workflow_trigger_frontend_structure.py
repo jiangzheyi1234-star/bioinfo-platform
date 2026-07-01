@@ -29,7 +29,8 @@ def test_trigger_events_have_definition_create_and_observability_surface() -> No
     assert "WorkflowTrigger" in model
     assert "WorkflowTriggerDefinitionSource" in model
     assert "WorkflowTriggerDefinitionCreateRequest" in model
-    assert '"manual" | "cron" | "dataset" | "file" | "database_ready" | "backfill"' in model
+    for source_type in ('"manual"', '"cron"', '"webhook"', '"dataset"', '"file"', '"database_ready"', '"backfill"'):
+        assert source_type in model
     assert "WorkflowTriggerCreateResponse" in model
     assert "WorkflowTriggerContract" in model
     assert "WorkflowTriggerAuthoritativeIngress" in model
@@ -136,7 +137,10 @@ def test_trigger_events_have_definition_create_and_observability_surface() -> No
     assert "readinessResourceIdPlaceholder(form.sourceType)" in definition_control
     assert "CRON_TRIGGER_CRON_REQUIRED" in definition_control
     assert "WORKFLOW_TRIGGER_INPUT_UPLOAD_AND_FILENAME_REQUIRED" in definition_control
-    assert "Webhook definitions stay API-only" in definition_control
+    assert "Webhook definitions use signed inbox delivery and redacted secret references." in definition_control
+    assert 'SelectItem value="webhook"' in definition_control
+    assert "WORKFLOW_TRIGGER_WEBHOOK_EVENT_TYPES_REQUIRED" in definition_control
+    assert "WORKFLOW_TRIGGER_SIGNATURE_SECRET_REF_REQUIRED" in definition_control
     assert "readiness definitions stay API-only" not in definition_control
     assert "workflowRevisionId" in definition_control
     assert "pipelineVersion" in definition_control

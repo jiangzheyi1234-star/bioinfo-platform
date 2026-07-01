@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import threading
+import time
 from typing import Any
 from urllib.parse import unquote, urlparse
 
@@ -211,6 +212,7 @@ def _watch_plan(trigger: dict[str, Any]) -> dict[str, Any] | None:
         "resourceId": resource_id,
         "resourceUri": resource_uri,
         "path": _watch_path(watch, resource_uri),
+        "stabilitySeconds": _watch_stability_seconds(watch),
         "labels": _safe_labels(watch.get("labels") if isinstance(watch.get("labels"), dict) else {}),
     }
 
@@ -231,6 +233,31 @@ def _observe_watch_plan(cfg: RemoteRunnerConfig, plan: dict[str, Any]) -> dict[s
             "observedAt": observed_at,
             "safeDetails": {"pathHash": _stable_hash(str(path)), "exists": False},
         }
+    stability_seconds = int(plan.get("stabilitySeconds") or 0)
+    if stability_seconds > 0:
+        age_seconds = max(0, int(time.time() - _path_latest_mtime(path)))
+        if age_seconds < stability_seconds:
+            path_hash = _stable_hash(str(path))
+            return {
+                "state": "missing",
+                "version": "",
+                "checksum": "",
+                "hash": _stable_hash(
+                    {
+                        "state": "unstable",
+                        "pathHash": path_hash,
+                        "stabilitySeconds": stability_seconds,
+                    }
+                ),
+                "observedAt": observed_at,
+                "safeDetails": {
+                    "pathHash": path_hash,
+                    "exists": True,
+                    "reasonCode": "WORKFLOW_TRIGGER_READINESS_WATCHER_PATH_UNSTABLE",
+                    "ageSeconds": age_seconds,
+                    "stabilitySeconds": stability_seconds,
+                },
+            }
     stats = _path_stats(path)
     observation_hash = _stable_hash(
         {
@@ -242,18 +269,21 @@ def _observe_watch_plan(cfg: RemoteRunnerConfig, plan: dict[str, Any]) -> dict[s
             "fileCount": stats["fileCount"],
         }
     )
+    safe_details = {
+        "pathHash": _stable_hash(str(path)),
+        "kind": stats["kind"],
+        "sizeBytes": stats["sizeBytes"],
+        "fileCount": stats["fileCount"],
+    }
+    if stability_seconds > 0:
+        safe_details["stabilitySeconds"] = stability_seconds
     return {
         "state": "ready",
         "version": f"sha256:{observation_hash}",
         "checksum": f"sha256:{stats['checksum']}",
         "hash": observation_hash,
         "observedAt": observed_at,
-        "safeDetails": {
-            "pathHash": _stable_hash(str(path)),
-            "kind": stats["kind"],
-            "sizeBytes": stats["sizeBytes"],
-            "fileCount": stats["fileCount"],
-        },
+        "safeDetails": safe_details,
     }
 
 
@@ -424,6 +454,17 @@ def _path_stats(path: Path) -> dict[str, Any]:
     raise ValueError("WORKFLOW_TRIGGER_READINESS_WATCHER_PATH_UNSUPPORTED")
 
 
+def _path_latest_mtime(path: Path) -> float:
+    latest = path.stat().st_mtime
+    if path.is_dir():
+        for child in path.rglob("*"):
+            try:
+                latest = max(latest, child.stat().st_mtime)
+            except OSError:
+                continue
+    return latest
+
+
 def _file_stats(path: Path) -> tuple[int, str]:
     digest = hashlib.sha256()
     size = 0
@@ -458,6 +499,17 @@ def _path_from_file_uri(uri: str) -> Path:
 def _watch_enabled(watch: dict[str, Any]) -> bool:
     value = str(watch.get("enabled") or "").strip().lower()
     return value in {"1", "true", "yes", "on"}
+
+
+def _watch_stability_seconds(watch: dict[str, Any]) -> int:
+    raw = watch.get("stabilitySeconds", 0)
+    try:
+        value = int(raw or 0)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("WORKFLOW_TRIGGER_READINESS_WATCHER_STABILITY_SECONDS_INVALID") from exc
+    if value < 0:
+        raise ValueError("WORKFLOW_TRIGGER_READINESS_WATCHER_STABILITY_SECONDS_INVALID")
+    return value
 
 
 def _safe_labels(labels: dict[str, Any]) -> dict[str, str]:

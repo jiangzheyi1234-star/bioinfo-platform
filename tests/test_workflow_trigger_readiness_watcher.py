@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -103,6 +104,39 @@ def test_readiness_watcher_dispatches_changed_version(
     assert tick["submitted"] == 1
     assert len(events) == 2
     assert events[0]["payload"]["resource"]["checksum"] != events[1]["payload"]["resource"]["checksum"]
+
+
+def test_readiness_watcher_waits_for_local_path_stability_before_dispatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_submission_ready", lambda _cfg: None)
+    monkeypatch.setattr("apps.remote_runner.trigger_service.ensure_execution_admission_ready", lambda _cfg: None)
+    watched = tmp_path / "incoming" / "reads.fastq"
+    watched.parent.mkdir()
+    watched.write_text("new data\n", encoding="utf-8")
+    trigger = _create_file_trigger_with_stability(cfg, watched, stability_seconds=3600)
+
+    first = run_workflow_trigger_readiness_watcher_once(cfg)
+    first_observation = fetch_readiness_observation(cfg, trigger["triggerId"])
+
+    assert first["checked"] == 1
+    assert first["missing"] == 1
+    assert first["submitted"] == 0
+    assert first_observation["observedState"] == "missing"
+    assert list_workflow_trigger_events(cfg, trigger["triggerId"])["items"] == []
+
+    old_mtime = time.time() - 7200
+    os.utime(watched, (old_mtime, old_mtime))
+    second = run_workflow_trigger_readiness_watcher_once(cfg)
+    events = list_workflow_trigger_events(cfg, trigger["triggerId"])["items"]
+
+    assert second["ready"] == 1
+    assert second["submitted"] == 1
+    assert len(events) == 1
+    assert events[0]["payload"]["payload"]["watcher"]["stabilitySeconds"] == 3600
+    assert str(watched) not in repr(events[0]["payload"]["payload"])
 
 
 def test_readiness_observation_read_model_returns_null_before_first_observation(
@@ -459,6 +493,35 @@ def _create_database_ready_trigger(cfg, database_id: str) -> dict[str, Any]:
 
 def _create_file_trigger(cfg, watched: Path) -> dict[str, Any]:
     return _create_file_trigger_with_resource_id(cfg, watched, "file:/incoming/reads.fastq")
+
+
+def _create_file_trigger_with_stability(cfg, watched: Path, *, stability_seconds: int) -> dict[str, Any]:
+    return create_workflow_trigger_from_request(
+        cfg,
+        WorkflowTriggerCreateRequest(
+            name="Stable watched FASTQ",
+            sourceType="file",
+            serverId="srv_primary",
+            runSpec={
+                "pipelineId": "file-summary-standard-v1",
+                "inputs": [{"uploadId": "upl_reads", "filename": "reads.fastq"}],
+            },
+            triggerSpec={
+                "resource": {
+                    "type": "file",
+                    "id": "file:/incoming/reads.fastq",
+                    "uri": watched.as_uri(),
+                    "watch": {
+                        "enabled": True,
+                        "adapter": "local_path",
+                        "path": str(watched),
+                        "stabilitySeconds": stability_seconds,
+                    },
+                }
+            },
+        ),
+        actor="pytest",
+    )["data"]
 
 
 def _create_file_trigger_with_resource_id(cfg, watched: Path, resource_id: str) -> dict[str, Any]:
