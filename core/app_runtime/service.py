@@ -25,6 +25,7 @@ from core.remote_runner.bootstrap_guard import (
     BOOTSTRAP_DIAGNOSTICS_UNAVAILABLE_REASON,
     UPGRADE_ACTIVE_LEASES_REASON,
     UPGRADE_DIAGNOSTICS_UNAVAILABLE_REASON,
+    UPGRADE_EXECUTION_BUSY_REASON,
 )
 from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerError
 from core.app_runtime.errors import RuntimeServiceError
@@ -252,6 +253,7 @@ class RuntimeService(
                 BOOTSTRAP_DIAGNOSTICS_UNAVAILABLE_REASON,
                 UPGRADE_ACTIVE_LEASES_REASON,
                 UPGRADE_DIAGNOSTICS_UNAVAILABLE_REASON,
+                UPGRADE_EXECUTION_BUSY_REASON,
             }:
                 blocked_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
                 with self._lock:

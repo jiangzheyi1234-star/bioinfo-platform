@@ -225,7 +225,7 @@ class RemoteRunnerManager(
                 if reuse_result is not None:
                     return build_bootstrap_reuse_response(reuse_result, server)
 
-                self._guard_bootstrap_without_active_leases(
+                self._guard_bootstrap_when_execution_idle(
                     server_id=server_id,
                     ssh_service=ssh_service,
                     server_record=server_record,

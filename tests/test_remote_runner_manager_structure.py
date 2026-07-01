@@ -371,7 +371,7 @@ def test_bootstrap_active_lease_guard_runs_before_destructive_bundle_deploy() ->
     manager_source = _source("core/remote_runner/manager.py")
 
     assert "RemoteRunnerBootstrapGuardMixin" in manager_source
-    guard_index = manager_source.index("self._guard_bootstrap_without_active_leases(")
+    guard_index = manager_source.index("self._guard_bootstrap_when_execution_idle(")
     deploy_index = manager_source.index("self._deploy_service_runtime_bundle(")
     assert guard_index < deploy_index
 
