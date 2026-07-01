@@ -112,6 +112,7 @@ export type WorkflowDesignSemanticPortCandidate = {
 
 export type WorkflowDesignSemanticPortEdgePlan = {
   edgeId?: string;
+  proposed?: boolean;
   from: { nodeId: string; port: string };
   to: { nodeId: string; port: string };
   decision: WorkflowDesignSemanticPortDecision;

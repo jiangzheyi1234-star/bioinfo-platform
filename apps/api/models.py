@@ -6,7 +6,7 @@ from typing import Annotated, Any, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, TypeAdapter
 
-from core.contracts.workflow_design import WorkflowDesignDraftV1
+from core.contracts.workflow_design import WorkflowDesignDraftV1, WorkflowDesignEdge
 
 
 class ApiRequest(BaseModel):
@@ -530,6 +530,7 @@ class WorkflowDesignDraftForkRequest(WorkflowDesignRequest):
 
 class WorkflowDesignDraftPlanRequest(WorkflowDesignRequest):
     serverId: str | None = None
+    proposedEdges: list[WorkflowDesignEdge] = Field(default_factory=list)
 
 
 class WorkflowDesignDraftCompileRequest(WorkflowDesignRequest):

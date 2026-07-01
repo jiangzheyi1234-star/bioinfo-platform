@@ -178,14 +178,20 @@ export function buildConverterInsertionPatch({
     throw new Error("WORKFLOW_CONVERTER_INSERTION_TOOL_MISMATCH");
   }
   const targetBinding = targetStep.inputs?.[request.targetInput];
-  if (
-    !targetBinding
-    || typeof targetBinding !== "object"
-    || !("fromStep" in targetBinding)
-    || targetBinding.fromStep !== request.sourceStepId
-    || targetBinding.output !== request.sourceOutput
-  ) {
-    throw new Error("WORKFLOW_CONVERTER_INSERTION_EDGE_STALE");
+  if (targetBinding && typeof targetBinding === "object" && "fromStep" in targetBinding) {
+    const existingConverterStep = draft.steps.find((step) => step.id === targetBinding.fromStep);
+    const existingConverterInput = existingConverterStep?.inputs?.[request.converter.inputName];
+    if (
+      existingConverterStep?.toolRevisionId === converterToolRevisionId
+      && targetBinding.output === request.converter.outputName
+      && existingConverterInput
+      && typeof existingConverterInput === "object"
+      && "fromStep" in existingConverterInput
+      && existingConverterInput.fromStep === request.sourceStepId
+      && existingConverterInput.output === request.sourceOutput
+    ) {
+      throw new Error("WORKFLOW_CONVERTER_INSERTION_ALREADY_APPLIED");
+    }
   }
   const converterStepId = uniqueStepId(
     `${request.converter.converterToolName || converterTool.name || "converter"}_converter`,

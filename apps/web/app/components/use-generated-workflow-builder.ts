@@ -175,7 +175,10 @@ export function useGeneratedWorkflowBuilder(tools: AddedTool[], availableResourc
     },
     insertConverter: (request: RulePortConverterInsertionRequest) => {
       const converterTool = toolByRevisionId.get(request.converter.converterToolRevisionId);
-      if (converterTool) dispatch({ type: "insert_converter", converterTool, request });
+      if (!converterTool) {
+        throw new Error("WORKFLOW_CONVERTER_INSERTION_TOOL_UNAVAILABLE");
+      }
+      dispatch({ type: "insert_converter", converterTool, request });
     },
     removeStep: (stepId: string) => dispatch({ type: "remove_step", stepId }),
     redo: () => dispatch({ type: "redo_graph" }),

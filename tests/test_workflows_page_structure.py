@@ -875,6 +875,7 @@ def test_generated_workflow_builder_has_explicit_dag_contract() -> None:
     assert "audit: manualEdgeAudit()" in builder_hook
     assert "buildConverterInsertionPatch" in builder_hook
     assert "insertConverter" in builder_hook
+    assert "WORKFLOW_CONVERTER_INSERTION_TOOL_UNAVAILABLE" in builder_hook
     assert "type: \"insert_converter\"" in builder_hook
     assert "setNodeSubflow" in builder_hook
     assert "type: \"set_node_subflow\"" in builder_hook

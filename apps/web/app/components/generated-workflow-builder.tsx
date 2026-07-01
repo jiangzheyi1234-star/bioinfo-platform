@@ -51,7 +51,13 @@ import { WorkflowDesignSemanticPortPlanPreview } from "./workflow-design-semanti
 import { StepParamsEditor } from "./generated-workflow-step-params-editor";
 import { GeneratedWorkflowToolRecommendations } from "./generated-workflow-tool-recommendations";
 import type { GeneratedWorkflowAddStepOptions, GeneratedWorkflowBuilderController } from "./use-generated-workflow-builder";
-import type { WorkflowDesignCompileResult, WorkflowDesignDraftRecord, WorkflowDesignPlan } from "./workflow-design-draft-model";
+import type {
+  WorkflowDesignCompileResult,
+  WorkflowDesignDraft,
+  WorkflowDesignDraftRecord,
+  WorkflowDesignPlan,
+  WorkflowDesignSemanticPortPlan,
+} from "./workflow-design-draft-model";
 import { databaseMatchesWorkflowResource } from "./workflows-page-model";
 import { displayRuleTemplateForTool, ruleSpecReadinessForTool } from "./tool-rule-readiness";
 
@@ -69,6 +75,9 @@ type GeneratedWorkflowBuilderProps = {
   onCompile?: () => void;
   onAddRecommendedTool?: (toolRevisionId: string, options?: GeneratedWorkflowAddStepOptions) => void;
   onOpenDesignDraft?: (draftId: string) => void;
+  onPlanProposedConnection?: (
+    edge: WorkflowDesignDraft["edges"][number]
+  ) => Promise<WorkflowDesignSemanticPortPlan | null>;
   onSaveAndValidate?: () => void;
 };
 
@@ -86,6 +95,7 @@ export function GeneratedWorkflowBuilder({
   onCompile,
   onAddRecommendedTool,
   onOpenDesignDraft,
+  onPlanProposedConnection,
   onSaveAndValidate,
 }: GeneratedWorkflowBuilderProps) {
   const workflowReadyTools = tools.filter((tool) => ruleSpecReadinessForTool(tool).workflowReady);
@@ -201,6 +211,7 @@ export function GeneratedWorkflowBuilder({
         inputCount={inputCount}
         outputCandidates={outputCandidates}
         semanticPortPlan={designPlan?.semanticPortPlan || null}
+        onPlanProposedConnection={onPlanProposedConnection}
         tools={workflowReadyTools}
       />
 
@@ -278,6 +289,7 @@ function WorkflowGraphWorkbench({
   inputCount,
   outputCandidates,
   semanticPortPlan,
+  onPlanProposedConnection,
   tools,
 }: {
   builder: GeneratedWorkflowBuilderController;
@@ -286,6 +298,9 @@ function WorkflowGraphWorkbench({
   inputCount: number;
   outputCandidates: GeneratedWorkflowOutputCandidate[];
   semanticPortPlan: WorkflowDesignPlan["semanticPortPlan"] | null;
+  onPlanProposedConnection?: (
+    edge: WorkflowDesignDraft["edges"][number]
+  ) => Promise<WorkflowDesignSemanticPortPlan | null>;
   tools: AddedTool[];
 }) {
   const toolByRevisionId = useMemo(() => new Map(workflowToolRevisionEntries(tools)), [tools]);
@@ -451,6 +466,7 @@ function WorkflowGraphWorkbench({
             onInsertConverter={builder.insertConverter}
             onNodePositionChange={builder.setNodePosition}
             onNodePositionsChange={builder.setNodePositions}
+            onPlanProposedConnection={onPlanProposedConnection}
             onSelectNode={setSelectedNodeId}
             searchQuery={graphSearchQuery}
             selectedNodeId={selectedNode?.id || ""}

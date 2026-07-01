@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from apps.remote_runner.workflow_design_planner import plan_workflow_design_draft
-from apps.remote_runner.workflow_design_storage import create_workflow_design_draft
+from apps.remote_runner.workflow_design_storage import create_workflow_design_draft, require_workflow_design_draft
 from tests.generated_workflow_test_helpers import test_tool_revision_id, upsert_ready_tool
 from tests.helpers.workflow_design_drafts import (
     workflow_design_config as _cfg,
@@ -188,6 +188,36 @@ def test_semantic_port_plan_recommends_one_hop_converter_for_incompatible_edge(t
     assert "commandTemplate" not in serialized
     assert "ruleTemplate" not in serialized
     assert "converterPath" not in serialized
+
+
+def test_semantic_port_plan_evaluates_proposed_edge_without_persisting_it(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    upsert_ready_tool(cfg, _alignment_source_tool(file_format=SAM_FORMAT))
+    upsert_ready_tool(cfg, _alignment_consumer_tool(file_format=BAM_FORMAT))
+    upsert_ready_tool(cfg, _sam_to_bam_converter())
+    draft = _two_node_design(source_format=SAM_FORMAT, target_format=BAM_FORMAT)
+    proposed_edges = list(draft["edges"])
+    draft["edges"] = []
+    saved = create_workflow_design_draft(cfg, draft)
+
+    plan = plan_workflow_design_draft(
+        cfg,
+        saved["draft"],
+        preview_root=tmp_path / "preview",
+        draft_id=saved["draftId"],
+        proposed_edges=proposed_edges,
+        revision=saved["revision"],
+    )
+
+    assert plan["normalizedGraph"]["edges"] == []
+    assert plan["runSpec"] == {}
+    assert require_workflow_design_draft(cfg, saved["draftId"])["draft"]["edges"] == []
+    edge = plan["semanticPortPlan"]["edges"][0]
+    assert edge["proposed"] is True
+    assert edge["from"] == proposed_edges[0]["from"]
+    assert edge["to"] == proposed_edges[0]["to"]
+    assert edge["recommendation"]["action"] == "insert-converter"
+    assert edge["converterCandidates"][0]["converterToolName"] == "sam-to-bam"
 
 
 def test_semantic_port_plan_reuses_converter_revision_already_present_elsewhere(tmp_path: Path) -> None:

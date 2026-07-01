@@ -29,8 +29,10 @@ import {
   buildWorkflowDesignDraft,
   workflowDesignDraftToGraphDraft,
   type WorkflowDesignCompileResult,
+  type WorkflowDesignDraft,
   type WorkflowDesignDraftRecord,
   type WorkflowDesignPlan,
+  type WorkflowDesignSemanticPortPlan,
 } from "./workflow-design-draft-model";
 import type { WorkflowArtifactRunInput } from "./workflow-pipeline-run-spec";
 import {
@@ -433,6 +435,24 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     return plan;
   }
 
+  async function planGeneratedWorkflowProposedConnection(
+    proposedEdge: WorkflowDesignDraft["edges"][number]
+  ): Promise<WorkflowDesignSemanticPortPlan | null> {
+    if (!server?.serverId) {
+      throw new Error("serverId is required");
+    }
+    if (currentWorkflowDesignDraftError) {
+      throw new Error(currentWorkflowDesignDraftError);
+    }
+    const saved = await saveGeneratedWorkflowDesign();
+    const plan = await planWorkflowDesignDraft({
+      draftId: saved.draftId,
+      proposedEdges: [proposedEdge],
+      serverId: server.serverId,
+    });
+    return plan.semanticPortPlan || null;
+  }
+
   async function saveAndValidateGeneratedWorkflowDesign() {
     if (workflowDesignBusy) return null;
     setWorkflowDesignBusy(true);
@@ -708,6 +728,7 @@ export function useWorkflowsPageState(initialWorkflowId = "") {
     ensureRunner,
     openWorkflowDesignDraft,
     compileGeneratedWorkflowDesign,
+    planGeneratedWorkflowProposedConnection,
     saveAndValidateGeneratedWorkflowDesign,
     submitError,
     submitRun,

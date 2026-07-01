@@ -328,15 +328,23 @@ export async function saveWorkflowDesignDraft({
 
 export async function planWorkflowDesignDraft({
   draftId,
+  proposedEdges,
   serverId,
 }: {
   draftId: string;
+  proposedEdges?: WorkflowDesignDraft["edges"];
   serverId?: string;
 }): Promise<WorkflowDesignPlan> {
   const response = await requestLocalApiJson<{ data: WorkflowDesignPlan }>(
     "POST",
     `/api/v1/workflow-design-drafts/${encodeURIComponent(draftId)}/plan`,
-    { body: { ...(serverId ? { serverId } : {}) }, cache: "no-store" }
+    {
+      body: {
+        ...(serverId ? { serverId } : {}),
+        ...(proposedEdges?.length ? { proposedEdges } : {}),
+      },
+      cache: "no-store",
+    }
   );
   return response.data;
 }

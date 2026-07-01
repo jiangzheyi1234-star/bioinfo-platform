@@ -191,6 +191,28 @@ assert.equal(backendInsertion.request.converter.converterToolRevisionId, convert
 assert.equal(backendInsertion.request.converter.inputName, canvasSuggestion.inputName);
 assert.equal(backendInsertion.request.converter.outputName, canvasSuggestion.outputName);
 
+const persistedPlanRejectedForProposedCanvasFlow = backendPlanConverterInsertionForSuggestion({
+  plan: backendSemanticPortPlan,
+  requireProposed: true,
+  sourceStepId: "source",
+  sourceOutput: "report",
+  targetStepId: "target",
+  targetInput: "reads",
+  suggestion: canvasSuggestion,
+});
+assert.equal(persistedPlanRejectedForProposedCanvasFlow, null);
+const proposedBackendInsertion = backendPlanConverterInsertionForSuggestion({
+  plan: { ...backendSemanticPortPlan, edges: [{ ...backendSemanticPortPlan.edges[0], proposed: true }] },
+  requireProposed: true,
+  sourceStepId: "source",
+  sourceOutput: "report",
+  targetStepId: "target",
+  targetInput: "reads",
+  suggestion: canvasSuggestion,
+});
+assert(proposedBackendInsertion);
+assert.equal(proposedBackendInsertion.request.converter.converterToolRevisionId, converterTool.toolRevisionId);
+
 const localOnlyInsertion = backendPlanConverterInsertionForSuggestion({
   plan: null,
   sourceStepId: "source",
@@ -428,22 +450,21 @@ assert.throws(
       converter,
     },
   }),
-  /WORKFLOW_CONVERTER_INSERTION_EDGE_STALE/
+  /WORKFLOW_CONVERTER_INSERTION_ALREADY_APPLIED/
 );
-assert.throws(
-  () => buildConverterInsertionPatch({
-    converterTool,
-    graphDraft: { ...graphDraft, edges: [] },
-    request: {
-      sourceStepId: "source",
-      sourceOutput: "report",
-      targetStepId: "target",
-      targetInput: "reads",
-      converter,
-    },
-  }),
-  /WORKFLOW_CONVERTER_INSERTION_EDGE_STALE/
-);
+const patchedFromProposedEdge = buildConverterInsertionPatch({
+  converterTool,
+  graphDraft: { ...graphDraft, edges: [] },
+  request: {
+    sourceStepId: "source",
+    sourceOutput: "report",
+    targetStepId: "target",
+    targetInput: "reads",
+    converter,
+  },
+});
+assert.equal(patchedFromProposedEdge.edges.length, 2);
+assert(!patchedFromProposedEdge.edges.some((edge) => edge.from.nodeId === "source" && edge.to.nodeId === "target"));
 
 const validation = validateGeneratedWorkflowDraft(patched, [sourceTool, converterTool, targetTool], { inputCount: 1 });
 assert.deepEqual(validation.errors, []);

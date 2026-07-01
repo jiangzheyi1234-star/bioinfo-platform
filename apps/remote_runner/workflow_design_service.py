@@ -8,6 +8,7 @@ from typing import Any
 from .api_models import (
     WorkflowDesignDraftCreateRequest,
     WorkflowDesignDraftForkRequest,
+    WorkflowDesignDraftPlanRequest,
     WorkflowDesignDraftUpdateRequest,
 )
 from .config import RemoteRunnerConfig
@@ -111,10 +112,17 @@ async def delete_workflow_design_draft_from_request(
 
 async def plan_workflow_design_draft_from_request(
     draft_id: str,
+    request: WorkflowDesignDraftPlanRequest | None,
     authorization: str | None,
 ) -> dict[str, Any]:
     cfg = authorized_config(authorization)
-    item = await run_sync(plan_workflow_design_draft_preview, cfg, draft_id)
+    payload = request_payload(request, by_alias=True)
+    item = await run_sync(
+        plan_workflow_design_draft_preview,
+        cfg,
+        draft_id,
+        payload.get("proposedEdges") or [],
+    )
     return data_response(item)
 
 
@@ -127,7 +135,11 @@ async def compile_workflow_design_draft_from_request(
     return data_response(item)
 
 
-def plan_workflow_design_draft_preview(cfg: RemoteRunnerConfig, draft_id: str) -> dict[str, Any]:
+def plan_workflow_design_draft_preview(
+    cfg: RemoteRunnerConfig,
+    draft_id: str,
+    proposed_edges: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     item = require_workflow_design_draft(cfg, draft_id)
     return plan_workflow_design_draft(
         cfg,
@@ -135,6 +147,7 @@ def plan_workflow_design_draft_preview(cfg: RemoteRunnerConfig, draft_id: str) -
         preview_root=Path(cfg.work_dir) / "workflow-design-previews" / draft_id,
         draft_id=draft_id,
         revision=int(item["revision"]),
+        proposed_edges=proposed_edges or [],
     )
 
 

@@ -33,10 +33,15 @@ def plan_workflow_design_draft(
     *,
     preview_root: Path,
     draft_id: str | None = None,
+    proposed_edges: list[dict[str, Any]] | None = None,
     revision: int | None = None,
 ) -> dict[str, Any]:
     design = WorkflowDesignDraftV1.model_validate(draft)
-    semantic_port_plan = build_workflow_design_semantic_port_plan(cfg, design)
+    semantic_port_plan = build_workflow_design_semantic_port_plan(
+        cfg,
+        design,
+        proposed_edges=proposed_edges or [],
+    )
     resolved_inputs = workflow_design_resolved_inputs(design)
     if not resolved_inputs:
         return _invalid_plan(design, "INPUT_REQUIRED", semantic_port_plan=semantic_port_plan)

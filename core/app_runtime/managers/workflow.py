@@ -73,8 +73,9 @@ class WorkflowManager(BaseRuntimeManager):
     def plan_workflow_design_draft(self, draft_id: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         body = dict(payload or {})
         preferred_server_id = body.pop("serverId", None)
-        if body:
-            raise RuntimeServiceError(f"WORKFLOW_DESIGN_PLAN_UNSUPPORTED_FIELD: {sorted(body)[0]}")
+        unsupported_fields = sorted(set(body) - {"proposedEdges"})
+        if unsupported_fields:
+            raise RuntimeServiceError(f"WORKFLOW_DESIGN_PLAN_UNSUPPORTED_FIELD: {unsupported_fields[0]}")
         return self.read_remote_endpoint(
             WORKFLOW_DESIGN_DRAFT_PLAN,
             path_values={"draft_id": draft_id},

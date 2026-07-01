@@ -33,6 +33,7 @@ def test_workflow_design_semantic_port_plan_is_rendered_from_backend_plan() -> N
     assert '"converter-needed": 0' in canvas
     assert "export type WorkflowDesignSemanticPortPlan" in model
     assert "semanticPortPlan?: WorkflowDesignSemanticPortPlan" in model
+    assert "proposed?: boolean" in model
 
     assert 'data-testid="workflow-design-semantic-port-plan"' in component
     assert "WorkflowDesignSemanticPortPlan" in component

@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
-from core.contracts.workflow_design import WorkflowDesignDraftV1
+from core.contracts.workflow_design import WorkflowDesignDraftV1, WorkflowDesignEdge
 
 
 class RemoteRunnerRequest(BaseModel):
@@ -430,7 +430,7 @@ class WorkflowDesignDraftForkRequest(WorkflowDesignRequest):
 
 
 class WorkflowDesignDraftPlanRequest(WorkflowDesignRequest):
-    pass
+    proposedEdges: list[WorkflowDesignEdge] = Field(default_factory=list)
 
 
 class WorkflowDesignDraftCompileRequest(WorkflowDesignRequest):

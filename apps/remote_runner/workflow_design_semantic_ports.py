@@ -23,10 +23,21 @@ _CONVERTER_LIMIT = 5
 def build_workflow_design_semantic_port_plan(
     cfg: RemoteRunnerConfig,
     design: WorkflowDesignDraftV1,
+    *,
+    proposed_edges: list[dict[str, Any] | WorkflowDesignEdge] | None = None,
 ) -> dict[str, Any]:
     contexts = _node_contexts(cfg, design)
     converters = _converter_contexts(cfg)
     edges = [_edge_semantic_plan(edge, contexts=contexts, converters=converters) for edge in design.edges]
+    edges.extend(
+        _edge_semantic_plan(
+            WorkflowDesignEdge.model_validate(edge),
+            contexts=contexts,
+            converters=converters,
+            proposed=True,
+        )
+        for edge in proposed_edges or []
+    )
     compatible_count = sum(1 for edge in edges if edge["decision"]["compatible"] is True)
     blocked_count = sum(1 for edge in edges if edge["decision"]["compatible"] is not True)
     converter_count = sum(len(edge["converterCandidates"]) for edge in edges)
@@ -56,10 +67,11 @@ def _edge_semantic_plan(
     *,
     contexts: dict[str, dict[str, Any]],
     converters: list[dict[str, Any]],
+    proposed: bool = False,
 ) -> dict[str, Any]:
     source = _resolve_edge_port(edge.from_.nodeId, edge.from_.port, "outputs", contexts)
     target = _resolve_edge_port(edge.to.nodeId, edge.to.port, "inputs", contexts)
-    edge_ref = _edge_ref(edge)
+    edge_ref = _edge_ref(edge, proposed=proposed)
     if not source["ok"]:
         return _blocked_edge(edge_ref, "SOURCE_PORT_UNRESOLVED", str(source["message"]))
     if not target["ok"]:
@@ -328,10 +340,11 @@ def _semantic_spec(value: Any) -> dict[str, str]:
     return result
 
 
-def _edge_ref(edge: WorkflowDesignEdge) -> dict[str, Any]:
+def _edge_ref(edge: WorkflowDesignEdge, *, proposed: bool = False) -> dict[str, Any]:
     edge_id = str(edge.id or "").strip()
     return {
         **({"edgeId": edge_id} if edge_id else {}),
+        **({"proposed": True} if proposed else {}),
         "from": {"nodeId": edge.from_.nodeId, "port": edge.from_.port},
         "to": {"nodeId": edge.to.nodeId, "port": edge.to.port},
     }

@@ -275,10 +275,17 @@ def test_runtime_plan_rejects_unsupported_local_body_fields() -> None:
     runner = FakeRunnerOps()
 
     result = runner.plan_workflow_design_draft("wfd_demo", {"serverId": "srv_demo"})
+    proposed_edge = {"from": {"nodeId": "source", "port": "report"}, "to": {"nodeId": "target", "port": "reads"}}
+    proposed_result = runner.plan_workflow_design_draft(
+        "wfd_demo",
+        {"serverId": "srv_demo", "proposedEdges": [proposed_edge]},
+    )
 
     assert result == {"data": {"valid": True}}
+    assert proposed_result == {"data": {"valid": True}}
     assert runner.selected_server_id == "srv_demo"
     assert runner.manager.calls[0]["payload"] == {}
+    assert runner.manager.calls[1]["payload"] == {"proposedEdges": [proposed_edge]}
 
     try:
         runner.plan_workflow_design_draft("wfd_demo", {"serverId": "srv_demo", "legacyRunSpec": {}})
@@ -286,7 +293,7 @@ def test_runtime_plan_rejects_unsupported_local_body_fields() -> None:
         assert str(exc) == "WORKFLOW_DESIGN_PLAN_UNSUPPORTED_FIELD: legacyRunSpec"
     else:
         raise AssertionError("unsupported plan body fields should fail before remote forwarding")
-    assert len(runner.manager.calls) == 1
+    assert len(runner.manager.calls) == 2
 
     uninitialized_runner = FakeRunnerOps()
     uninitialized_runner._ensure_initialized = lambda: (_ for _ in ()).throw(RuntimeServiceError("not initialized"))

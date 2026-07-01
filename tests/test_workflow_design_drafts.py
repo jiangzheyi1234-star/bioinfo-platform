@@ -173,6 +173,16 @@ def test_workflow_design_draft_payloads_are_strict() -> None:
         WorkflowDesignDraftPlanRequest.model_validate({"inputOverrides": [{"role": "input", "path": "/tmp/override"}]})
 
     assert plan_exc.value.errors()[0]["type"] == "extra_forbidden"
+    plan_request = WorkflowDesignDraftPlanRequest.model_validate(
+        {
+            "proposedEdges": [
+                {"from": {"nodeId": "source", "port": "report"}, "to": {"nodeId": "target", "port": "reads"}}
+            ]
+        }
+    )
+    plan_payload = plan_request.model_dump(by_alias=True, exclude_none=True, mode="json")
+    assert plan_payload["proposedEdges"][0]["from"] == {"nodeId": "source", "port": "report"}
+    assert "from_" not in plan_payload["proposedEdges"][0]
 
 
 def test_workflow_design_draft_storage_crud_and_fork(tmp_path: Path) -> None:

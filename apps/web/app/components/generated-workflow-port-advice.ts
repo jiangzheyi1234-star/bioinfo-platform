@@ -110,6 +110,7 @@ export function converterSuggestionsForConnection({
 
 export function backendPlanConverterInsertionForSuggestion({
   plan,
+  requireProposed = false,
   sourceOutput,
   sourceStepId,
   suggestion,
@@ -117,6 +118,7 @@ export function backendPlanConverterInsertionForSuggestion({
   targetStepId,
 }: {
   plan: WorkflowDesignSemanticPortPlan | null | undefined;
+  requireProposed?: boolean;
   sourceOutput: string;
   sourceStepId: string;
   suggestion: OutputConverterSuggestion;
@@ -130,6 +132,7 @@ export function backendPlanConverterInsertionForSuggestion({
       && item.from.port === sourceOutput
       && item.to.nodeId === targetStepId
       && item.to.port === targetInput
+      && (!requireProposed || item.proposed === true)
   );
   const candidate = edge?.converterCandidates.find(
     (item) =>

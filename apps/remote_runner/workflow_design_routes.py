@@ -125,7 +125,7 @@ async def plan_workflow_design_draft_api(
     payload: WorkflowDesignDraftPlanRequest | None = None,
     authorization: AuthorizationHeader = None,
 ) -> dict[str, Any]:
-    return await plan_workflow_design_draft_from_request(draft_id, authorization)
+    return await plan_workflow_design_draft_from_request(draft_id, payload, authorization)
 
 
 @router.post(

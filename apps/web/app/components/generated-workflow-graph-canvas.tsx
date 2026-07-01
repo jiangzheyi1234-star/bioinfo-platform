@@ -27,6 +27,13 @@ import { cn } from "@/lib/utils";
 
 import type { AddedTool } from "./tools-page-model";
 import type { RulePortConverterInsertionRequest } from "./generated-workflow-converter-recommendation";
+import {
+  connectionContextSignature,
+  connectionNoticeForDecision,
+  connectionNoticeState,
+  proposedConnectionStaleMessage,
+  type ConnectionNotice,
+} from "./generated-workflow-graph-connection-notice";
 import { RuleGraphNodeCard } from "./generated-workflow-graph-node-card";
 import { readWorkflowToolDrop } from "./generated-workflow-graph-drag-drop";
 import { layoutGeneratedWorkflowGraph } from "./generated-workflow-graph-layout";
@@ -38,11 +45,6 @@ import {
   type WorkflowGraphSemanticEdgeStatus,
   type WorkflowRuleFlowEdge,
 } from "./generated-workflow-react-flow-adapter";
-import {
-  backendPlanConverterInsertionForSuggestion,
-  converterSuggestionsForConnection,
-  type OutputConverterSuggestion,
-} from "./generated-workflow-port-advice";
 import {
   evaluateGeneratedWorkflowPortConnection,
   type GeneratedWorkflowPortConnectionDecision,
@@ -57,7 +59,7 @@ import {
   type GeneratedWorkflowValidationIssue,
 } from "./generated-workflow-model";
 import type { GeneratedWorkflowBuilderController } from "./use-generated-workflow-builder";
-import type { WorkflowDesignSemanticPortPlan } from "./workflow-design-draft-model";
+import type { WorkflowDesignDraft, WorkflowDesignSemanticPortPlan } from "./workflow-design-draft-model";
 
 type GraphNode = GeneratedWorkflowBuilderController["graphDraft"]["nodes"][number];
 type GraphEdge = GeneratedWorkflowBuilderController["graphDraft"]["edges"][number];
@@ -81,12 +83,6 @@ type RuleFlowSubflowGroupData = Record<string, unknown> & {
 type RuleFlowSubflowGroupNode = Node<RuleFlowSubflowGroupData, "subflowGroup">;
 type RuleFlowAnyNode = RuleFlowNode | RuleFlowSubflowGroupNode;
 type RuleFlowEdge = WorkflowRuleFlowEdge;
-type ConnectionNotice = {
-  code?: string;
-  message: string;
-  request?: RulePortConverterInsertionRequest;
-  suggestion?: OutputConverterSuggestion;
-};
 
 const FLOW_NODE_WIDTH = 290;
 const FLOW_NODE_COLUMN_GAP = 120;
@@ -107,6 +103,7 @@ export function GeneratedWorkflowGraphCanvas({
   onInsertConverter,
   onNodePositionChange,
   onNodePositionsChange,
+  onPlanProposedConnection,
   onSelectNode,
   searchQuery = "",
   selectedNodeId,
@@ -123,6 +120,9 @@ export function GeneratedWorkflowGraphCanvas({
   onInsertConverter: (request: RulePortConverterInsertionRequest) => void;
   onNodePositionChange: (nodeId: string, position: { x: number; y: number }) => void;
   onNodePositionsChange: (positions: Record<string, { x: number; y: number }>) => void;
+  onPlanProposedConnection?: (
+    edge: WorkflowDesignDraft["edges"][number]
+  ) => Promise<WorkflowDesignSemanticPortPlan | null>;
   onSelectNode: (nodeId: string) => void;
   searchQuery?: string;
   selectedNodeId: string;
@@ -131,6 +131,10 @@ export function GeneratedWorkflowGraphCanvas({
   validationIssues: GeneratedWorkflowValidationIssue[];
 }) {
   const graphDraft = useMemo<GeneratedWorkflowGraphDraft>(() => ({ edges, nodes, outputs: [] }), [edges, nodes]);
+  const graphSignature = useMemo(() => connectionContextSignature(graphDraft, tools), [graphDraft, tools]);
+  const graphDraftRef = useRef(graphDraft);
+  const graphSignatureRef = useRef(graphSignature);
+  const toolsRef = useRef(tools);
   const toolByRevisionId = useMemo(() => new Map(workflowToolRevisionEntries(tools)), [tools]);
   const layout = useMemo(() => layoutGeneratedWorkflowGraph({ edges, nodes }), [edges, nodes]);
   const matchedNodeIds = useMemo(
@@ -197,8 +201,18 @@ export function GeneratedWorkflowGraphCanvas({
 
   useEffect(() => {
     lastInvalidConnectionRef.current = null;
-    setConnectionNotice((current) => (current?.request ? null : current));
-  }, [graphDraft, semanticPortPlan, tools]);
+    setConnectionNotice((current) =>
+      current?.proposedKey
+        ? { code: current.code, message: "连接上下文已变化，请重新拖拽端口以获取新的后端建议。" }
+        : current
+    );
+  }, [graphSignature, semanticPortPlan]);
+
+  useEffect(() => {
+    graphDraftRef.current = graphDraft;
+    graphSignatureRef.current = graphSignature;
+    toolsRef.current = tools;
+  }, [graphDraft, graphSignature, tools]);
 
   const evaluateConnection = useCallback(
     (connection: Connection | RuleFlowEdge): GeneratedWorkflowPortConnectionDecision => {
@@ -215,18 +229,110 @@ export function GeneratedWorkflowGraphCanvas({
       const graphConnection = reactFlowConnectionToGraphConnection(connection);
       const decision = evaluateConnection(connection);
       if (!decision.ok) {
-        lastInvalidConnectionRef.current = connectionNoticeForDecision({ decision, graphConnection, graphDraft, semanticPortPlan, tools });
+        lastInvalidConnectionRef.current = connectionNoticeForDecision({
+          decision,
+          graphSignature,
+          graphConnection,
+          graphDraft,
+          requireProposedBackendPlan: true,
+          semanticPortPlan,
+          tools,
+        });
       }
       return decision.ok;
     },
-    [evaluateConnection, graphDraft, semanticPortPlan, tools]
+    [evaluateConnection, graphDraft, graphSignature, semanticPortPlan, tools]
   );
+
+  const showConnectionNotice = useCallback(
+    (
+      notice: ConnectionNotice,
+      decision: GeneratedWorkflowPortConnectionDecision,
+      graphConnection: ReturnType<typeof reactFlowConnectionToGraphConnection>
+    ) => {
+      setConnectionNotice(notice);
+      if (
+        !notice.proposedEdge
+        || notice.request
+        || !notice.suggestion
+        || !notice.proposedKey
+        || !graphConnection
+        || !notice.graphSignature
+        || !onPlanProposedConnection
+      ) {
+        return;
+      }
+      setConnectionNotice({
+        ...notice,
+        planning: true,
+        message: `${notice.message} 正在请求后端 semanticPortPlan 背书。`,
+      });
+      void onPlanProposedConnection(notice.proposedEdge)
+        .then((plan) => {
+          if (graphSignatureRef.current !== notice.graphSignature) {
+            setConnectionNotice((current) =>
+              current?.proposedKey === notice.proposedKey && current?.graphSignature === notice.graphSignature
+                ? { code: notice.code, message: "连接上下文已变化，请重新拖拽端口以获取新的后端建议。" }
+                : current
+            );
+            return;
+          }
+          const refreshed = connectionNoticeForDecision({
+            decision,
+            graphSignature: graphSignatureRef.current,
+            graphConnection,
+            graphDraft: graphDraftRef.current,
+            requireProposedBackendPlan: true,
+            semanticPortPlan: plan,
+            tools: toolsRef.current,
+          });
+          const next = refreshed.request
+            ? refreshed
+            : {
+                ...refreshed,
+                message: refreshed.suggestion
+                  ? `${refreshed.message} 后端未返回可确认的转换候选。`
+                  : refreshed.message,
+              };
+          setConnectionNotice((current) =>
+            current?.proposedKey === notice.proposedKey && current?.graphSignature === notice.graphSignature
+              ? next
+              : current
+          );
+        })
+        .catch((err) => {
+          const detail = err instanceof Error ? err.message : String(err);
+          setConnectionNotice((current) =>
+            current?.proposedKey === notice.proposedKey && current?.graphSignature === notice.graphSignature
+              ? {
+                  ...notice,
+                  message: `${notice.message} 后端 proposed edge 规划失败：${detail}`,
+                }
+              : current
+          );
+        });
+    },
+    [onPlanProposedConnection]
+  );
+
   const onConnect = useCallback<OnConnect>(
     (connection) => {
       const graphConnection = reactFlowConnectionToGraphConnection(connection);
       const decision = evaluateConnection(connection);
       if (!graphConnection || !decision.ok) {
-        setConnectionNotice(connectionNoticeForDecision({ decision, graphConnection, graphDraft, semanticPortPlan, tools }));
+        showConnectionNotice(
+          connectionNoticeForDecision({
+            decision,
+            graphSignature,
+            graphConnection,
+            graphDraft,
+            requireProposedBackendPlan: true,
+            semanticPortPlan,
+            tools,
+          }),
+          decision,
+          graphConnection
+        );
         return;
       }
       onBindInput(graphConnection.to.nodeId, graphConnection.to.port, decision.binding);
@@ -234,17 +340,48 @@ export function GeneratedWorkflowGraphCanvas({
         message: `已连接 ${graphConnection.from.nodeId}.${graphConnection.from.port} -> ${graphConnection.to.nodeId}.${graphConnection.to.port}`,
       });
     },
-    [evaluateConnection, graphDraft, onBindInput, semanticPortPlan, tools]
+    [evaluateConnection, graphDraft, graphSignature, onBindInput, semanticPortPlan, showConnectionNotice, tools]
   );
   const onConnectEnd = useCallback<OnConnectEnd>(
     (_event, connectionState) => {
       if (connectionState.isValid === false && lastInvalidConnectionRef.current) {
         const notice = lastInvalidConnectionRef.current;
         lastInvalidConnectionRef.current = null;
-        setConnectionNotice(notice);
+        if (!notice.proposedEdge) {
+          setConnectionNotice(notice);
+          return;
+        }
+        const graphConnection = { from: notice.proposedEdge.from, to: notice.proposedEdge.to };
+        const decision = evaluateGeneratedWorkflowPortConnection({ connection: graphConnection, graphDraft, tools });
+        showConnectionNotice(notice, decision, graphConnection);
       }
     },
-    []
+    [graphDraft, showConnectionNotice, tools]
+  );
+  const confirmConverterInsertion = useCallback(
+    (notice: ConnectionNotice) => {
+      if (!notice.request) return;
+      const staleMessage = proposedConnectionStaleMessage({
+        graphDraft: graphDraftRef.current,
+        graphSignature: graphSignatureRef.current,
+        notice,
+        tools: toolsRef.current,
+      });
+      if (staleMessage) {
+        setConnectionNotice({ code: "WORKFLOW_CONVERTER_INSERTION_STALE", message: staleMessage });
+        return;
+      }
+      try {
+        onInsertConverter(notice.request);
+        setConnectionNotice({
+          message: `已插入转换节点 ${notice.suggestion?.converterToolName || "converter"}，请复核新增连线。`,
+        });
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        setConnectionNotice({ code: "WORKFLOW_CONVERTER_INSERTION_FAILED", message: `转换节点插入失败：${detail}` });
+      }
+    },
+    [onInsertConverter]
   );
   const onNodesChange = useCallback<OnNodesChange<RuleFlowAnyNode>>((changes: NodeChange<RuleFlowAnyNode>[]) => {
     const workflowNodeChanges = changes.filter((change) => {
@@ -356,18 +493,14 @@ export function GeneratedWorkflowGraphCanvas({
         >
           <div className="min-w-0 break-words">{connectionNotice.message}</div>
           {connectionNotice.suggestion ? (
-            connectionNotice.request ? (
+            connectionNotice.planning ? (
+              <div className="text-[11px] text-sky-700">正在请求后端转换建议</div>
+            ) : connectionNotice.request ? (
               <Button
                 type="button"
                 variant="outline"
                 className="h-7 justify-self-start bg-white px-2 text-[11px]"
-                onClick={() => {
-                  if (!connectionNotice.request) return;
-                  onInsertConverter(connectionNotice.request);
-                  setConnectionNotice({
-                    message: `已插入转换节点 ${connectionNotice.suggestion?.converterToolName || "converter"}，请复核新增连线。`,
-                  });
-                }}
+                onClick={() => confirmConverterInsertion(connectionNotice)}
               >
                 <Plus strokeWidth={1.5} className="mr-1 h-3.5 w-3.5" />
                 确认插入转换
@@ -620,52 +753,6 @@ function flowNodePositions(nodes: RuleFlowNode[]) {
 
 function isSubflowGroupNodeId(nodeId: string) {
   return nodeId.startsWith(SUBFLOW_GROUP_NODE_PREFIX);
-}
-
-function connectionNoticeState(notice: ConnectionNotice) {
-  if (notice.request) return "backend-plan-confirmable";
-  if (notice.suggestion) return "advisory-only";
-  return "message";
-}
-
-function connectionNoticeForDecision({
-  decision,
-  graphConnection,
-  graphDraft,
-  semanticPortPlan,
-  tools,
-}: {
-  decision: GeneratedWorkflowPortConnectionDecision;
-  graphConnection: ReturnType<typeof reactFlowConnectionToGraphConnection>;
-  graphDraft: GeneratedWorkflowGraphDraft;
-  semanticPortPlan?: WorkflowDesignSemanticPortPlan | null;
-  tools: AddedTool[];
-}): ConnectionNotice {
-  if (!decision.ok && decision.code === "WORKFLOW_GRAPH_CONNECTION_INCOMPATIBLE" && graphConnection) {
-    const suggestion = converterSuggestionsForConnection({ connection: graphConnection, graphDraft, tools })[0];
-    if (suggestion) {
-      const replacementNote = graphDraft.edges.some(
-        (edge) => edge.to.nodeId === graphConnection.to.nodeId && edge.to.port === graphConnection.to.port
-      )
-        ? " 将替换当前目标输入绑定。"
-        : "";
-      const backendInsertion = backendPlanConverterInsertionForSuggestion({
-        plan: semanticPortPlan,
-        sourceOutput: suggestion.sourceOutput,
-        sourceStepId: suggestion.sourceStepId,
-        suggestion,
-        targetInput: graphConnection.to.port,
-        targetStepId: graphConnection.to.nodeId,
-      });
-      return {
-        code: decision.code,
-        message: `${decision.reason}。本地发现转换 ${suggestion.converterToolName}；后端 semanticPortPlan 背书后才可插入，且需确认，不会自动插入。${replacementNote}`,
-        request: backendInsertion?.request,
-        suggestion,
-      };
-    }
-  }
-  return { code: decision.ok ? undefined : decision.code, message: decision.reason };
 }
 
 function GraphCanvasStyles() {
