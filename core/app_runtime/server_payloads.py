@@ -90,6 +90,7 @@ def compose_server_payload(
     server: dict[str, Any],
     registry_entry: dict[str, Any],
     health: dict[str, Any],
+    local_tunnels: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     return {
         **server,
@@ -97,7 +98,11 @@ def compose_server_payload(
         "reasonCode": health.get("reasonCode", ""),
         "message": health["ready"]["message"],
         "health": health,
-        "runner": compose_runner_payload(registry_entry=registry_entry, health=health),
+        "runner": compose_runner_payload(
+            registry_entry=registry_entry,
+            health=health,
+            local_tunnels=local_tunnels,
+        ),
         "runnerVersion": registry_entry.get("bootstrap_version", ""),
         "runnerMode": registry_entry.get("runner_mode", ""),
     }
@@ -107,6 +112,7 @@ def compose_runner_payload(
     *,
     registry_entry: dict[str, Any],
     health: dict[str, Any],
+    local_tunnels: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     ready = bool((health.get("ready") or {}).get("ok"))
     metadata = registry_entry.get("bootstrap_metadata") if isinstance(registry_entry.get("bootstrap_metadata"), dict) else {}
@@ -130,5 +136,33 @@ def compose_runner_payload(
         "deploymentAction": deployment_action,
         "servicePort": registry_entry.get("service_port"),
         "tunnelPort": registry_entry.get("tunnel_port"),
+        "localTunnels": _public_local_tunnels(local_tunnels),
         "bootstrapMetadata": metadata,
     }
+
+
+def _public_local_tunnels(local_tunnels: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for tunnel in local_tunnels or []:
+        if not isinstance(tunnel, dict):
+            continue
+        items.append(
+            {
+                "schemaVersion": str(tunnel.get("schemaVersion") or "local-ssh-tunnel.v1"),
+                "name": str(tunnel.get("name") or ""),
+                "localHost": str(tunnel.get("localHost") or ""),
+                "localPort": _coerce_public_port(tunnel.get("localPort")),
+                "remoteHost": str(tunnel.get("remoteHost") or ""),
+                "remotePort": _coerce_public_port(tunnel.get("remotePort")),
+                "active": bool(tunnel.get("active")),
+            }
+        )
+    return items
+
+
+def _coerce_public_port(value: Any) -> int:
+    try:
+        port = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return port if 0 < port <= 65535 else 0

@@ -10,6 +10,17 @@ export type RunnerLifecycleStatus = {
   deploymentAction?: string;
   servicePort?: number;
   tunnelPort?: number;
+  localTunnels?: RunnerLocalTunnel[];
+};
+
+export type RunnerLocalTunnel = {
+  schemaVersion?: string;
+  name?: string;
+  localHost?: string;
+  localPort?: number;
+  remoteHost?: string;
+  remotePort?: number;
+  active?: boolean;
 };
 
 export type RunnerRepairStatus = {

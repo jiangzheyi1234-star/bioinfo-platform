@@ -31,6 +31,25 @@ class RuntimeServerStateMixin:
     _compose_server_payload = staticmethod(compose_server_payload)
     _compose_runner_payload = staticmethod(compose_runner_payload)
 
+    @staticmethod
+    def _local_tunnel_snapshots(ssh: Optional[SSHService]) -> list[dict[str, Any]]:
+        if ssh is None or not getattr(ssh, "is_connected", False):
+            return []
+        snapshotter = getattr(ssh, "local_tunnel_snapshots", None)
+        if not callable(snapshotter):
+            return [
+                {
+                    "schemaVersion": "local-ssh-tunnel.v1",
+                    "name": "unavailable",
+                    "localHost": "",
+                    "localPort": 0,
+                    "remoteHost": "",
+                    "remotePort": 0,
+                    "active": False,
+                }
+            ]
+        return snapshotter()
+
     def _save_runner_preparing_snapshot(
         self,
         *,
@@ -346,5 +365,9 @@ class RuntimeServerStateMixin:
             registry_entry = self._get_server_registry_entry(str(server["serverId"]))
             snapshot = registry_entry.get("last_health_snapshot")
             if isinstance(snapshot, dict):
-                status["runner"] = self._compose_runner_payload(registry_entry=registry_entry, health=snapshot)
+                status["runner"] = self._compose_runner_payload(
+                    registry_entry=registry_entry,
+                    health=snapshot,
+                    local_tunnels=self._local_tunnel_snapshots(ssh),
+                )
         return status

@@ -237,6 +237,45 @@ def test_connect_ssh_preserves_manual_runner_stop_snapshot() -> None:
     assert cfg["servers"][server_id]["last_health_snapshot"]["state"] == "stopped"
 
 
+def test_ssh_status_projects_local_runner_tunnels() -> None:
+    _server_id, cfg = stopped_runner_config()
+
+    class FakeSsh:
+        is_connected = True
+
+        def local_tunnel_snapshots(self):
+            return [
+                {
+                    "schemaVersion": "local-ssh-tunnel.v1",
+                    "name": "runner-srv_test",
+                    "localHost": "127.0.0.1",
+                    "localPort": 18000,
+                    "remoteHost": "127.0.0.1",
+                    "remotePort": 43127,
+                    "active": True,
+                }
+            ]
+
+    service = RuntimeService(service_locator=ServiceLocator(remote_runner_manager=ReadyRemoteRunnerManager()))
+    service._initialized = True
+    service._service_locator.ssh_service = FakeSsh()
+
+    with patch("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg):
+        status = service.get_ssh_status()
+
+    assert status["runner"]["localTunnels"] == [
+        {
+            "schemaVersion": "local-ssh-tunnel.v1",
+            "name": "runner-srv_test",
+            "localHost": "127.0.0.1",
+            "localPort": 18000,
+            "remoteHost": "127.0.0.1",
+            "remotePort": 43127,
+            "active": True,
+        }
+    ]
+
+
 def test_startup_auto_connect_preserves_manual_runner_stop_snapshot() -> None:
     server_id, cfg = stopped_runner_config()
     cfg["ssh"]["auth_mode"] = "password_ref"

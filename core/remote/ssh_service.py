@@ -216,6 +216,33 @@ class SSHService:
             if tunnel is not None:
                 tunnel.close()
 
+    def local_tunnel_snapshots(self) -> list[dict[str, Any]]:
+        with self._lock:
+            return [
+                {
+                    "schemaVersion": "local-ssh-tunnel.v1",
+                    "name": str(getattr(tunnel, "name", name) or name),
+                    "localHost": str(getattr(tunnel, "local_host", "") or ""),
+                    "localPort": self._coerce_tunnel_port(
+                        getattr(tunnel, "local_port", 0)
+                    ),
+                    "remoteHost": str(getattr(tunnel, "remote_host", "") or ""),
+                    "remotePort": self._coerce_tunnel_port(
+                        getattr(tunnel, "remote_port", 0)
+                    ),
+                    "active": bool(getattr(tunnel, "is_active", False)),
+                }
+                for name, tunnel in sorted(self._tunnels.items())
+            ]
+
+    @staticmethod
+    def _coerce_tunnel_port(value: Any) -> int:
+        try:
+            port = int(value)
+        except (TypeError, ValueError):
+            return 0
+        return port if 0 < port <= 65535 else 0
+
     def close(self) -> None:
         if self._reconnector:
             self._reconnector.cancel()

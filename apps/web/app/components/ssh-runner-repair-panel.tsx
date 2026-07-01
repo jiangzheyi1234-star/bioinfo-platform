@@ -51,6 +51,15 @@ function formatRunnerPort(value: number | undefined): string {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? String(value) : "未记录";
 }
 
+function formatTunnelEndpoint(host: string | undefined, port: number | undefined): string {
+  const safeHost = String(host || "").trim();
+  const safePort = formatRunnerPort(port);
+  if (!safeHost || safePort === "未记录") {
+    return "未记录";
+  }
+  return `${safeHost}:${safePort}`;
+}
+
 function formatBytes(value: number | undefined): string {
   const bytes = Number(value || 0);
   if (!Number.isFinite(bytes) || bytes <= 0) {
@@ -153,6 +162,8 @@ export function RunnerRepairPanel({
   const canUninstall = Boolean(!diagnosticsOnly && status?.connected && serverId && runner);
   const deletableReleaseCount = Number(prunePlan?.deletableReleaseCount || 0);
   const uninstallTargetCount = Number(uninstallPlan?.targetCount || 0);
+  const localTunnels = Array.isArray(runner?.localTunnels) ? runner.localTunnels : [];
+  const activeLocalTunnelCount = localTunnels.filter((tunnel) => tunnel.active).length;
   const stopConfirmed = confirmationMatches(stopConfirmation, serverId);
   const pruneConfirmed = confirmationMatches(pruneConfirmation, serverId);
   const uninstallConfirmed = confirmationMatches(uninstallConfirmation, serverId);
@@ -402,6 +413,45 @@ export function RunnerRepairPanel({
                   <p className="text-[10px] text-slate-400">本地隧道</p>
                   <p className="font-mono text-slate-700">{formatRunnerPort(runner.tunnelPort)}</p>
                 </div>
+              </div>
+              <div className="mt-2 rounded border border-slate-100 bg-slate-50 px-2 py-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[10px] font-semibold text-slate-400">本地 SSH 隧道投影</p>
+                  <span className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] text-slate-500">
+                    {activeLocalTunnelCount}/{localTunnels.length} active
+                  </span>
+                </div>
+                {localTunnels.length ? (
+                  <div className="mt-1 space-y-1" data-testid="runner-local-tunnels">
+                    {localTunnels.map((tunnel, index) => (
+                      <div
+                        key={`${tunnel.name || "tunnel"}-${index}`}
+                        className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 text-[10px]"
+                        data-runner-local-tunnel={tunnel.name || ""}
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate font-mono text-slate-700">{tunnel.name || "unnamed-tunnel"}</p>
+                          <p className="truncate font-mono text-slate-500">
+                            {formatTunnelEndpoint(tunnel.localHost, tunnel.localPort)} →{" "}
+                            {formatTunnelEndpoint(tunnel.remoteHost, tunnel.remotePort)}
+                          </p>
+                        </div>
+                        <span
+                          className={cn(
+                            "self-start rounded border px-1.5 py-0.5 font-mono",
+                            tunnel.active
+                              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                              : "border-slate-200 bg-white text-slate-500"
+                          )}
+                        >
+                          {tunnel.active ? "active" : "closed"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-1 text-[11px] text-slate-400">尚无本地 tunnel snapshot；刷新 runner 状态后再确认。</p>
+                )}
               </div>
               {!diagnosticsOnly ? (
                 <>

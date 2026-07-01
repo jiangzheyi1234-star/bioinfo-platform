@@ -334,6 +334,41 @@ def test_close_local_tunnel_closes_named_tunnel(monkeypatch) -> None:
     assert closes == ["runner-test"]
 
 
+def test_local_tunnel_snapshots_expose_only_public_endpoint_state(monkeypatch) -> None:
+    class FakeTransport:
+        def is_active(self) -> bool:
+            return True
+
+    class FakeClient:
+        def get_transport(self):
+            return FakeTransport()
+
+    def fake_start(self: LocalTunnel) -> None:
+        self._thread = object()
+        self._server = SimpleNamespace(server_address=(self.local_host, 18001))
+
+    monkeypatch.setattr(LocalTunnel, "start", fake_start)
+    monkeypatch.setattr(LocalTunnel, "is_active", property(lambda self: self._server is not None))
+
+    service = SSHService(initial_client=FakeClient())
+    service.ensure_local_tunnel("runner-test", remote_host="127.0.0.1", remote_port=39967)
+
+    snapshot = service.local_tunnel_snapshots()
+
+    assert snapshot == [
+        {
+            "schemaVersion": "local-ssh-tunnel.v1",
+            "name": "runner-test",
+            "localHost": "127.0.0.1",
+            "localPort": 18001,
+            "remoteHost": "127.0.0.1",
+            "remotePort": 39967,
+            "active": True,
+        }
+    ]
+    assert "_transport" not in str(snapshot)
+
+
 def test_list_directory_uses_sftp_and_returns_directory_metadata() -> None:
     class FakeSftp:
         def __init__(self) -> None:

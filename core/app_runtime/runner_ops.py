@@ -120,7 +120,11 @@ class RunnerOperationsMixin(
                 **result,
                 "serverId": selected_server_id,
                 "health": health,
-                "runner": self._compose_runner_payload(registry_entry=registry_entry, health=health),
+                "runner": self._compose_runner_payload(
+                    registry_entry=registry_entry,
+                    health=health,
+                    local_tunnels=self._local_tunnel_snapshots(ssh),
+                ),
                 "lifecycleAction": "uninstall",
                 "completedAt": completed_at,
             }

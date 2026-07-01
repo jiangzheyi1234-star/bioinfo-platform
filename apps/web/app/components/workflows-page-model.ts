@@ -333,6 +333,15 @@ export type WorkflowServer = {
     deploymentAction?: string;
     servicePort?: number;
     tunnelPort?: number;
+    localTunnels?: Array<{
+      schemaVersion?: string;
+      name?: string;
+      localHost?: string;
+      localPort?: number;
+      remoteHost?: string;
+      remotePort?: number;
+      active?: boolean;
+    }>;
     bootstrapMetadata?: {
       workflow_profile?: {
         path?: string;

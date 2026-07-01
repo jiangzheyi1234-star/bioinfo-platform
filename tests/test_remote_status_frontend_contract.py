@@ -52,6 +52,7 @@ def test_remote_status_panel_exposes_runner_ports_and_stop_action() -> None:
     repair_source = _source("repair")
 
     _assert_contains(model_source, "serverId?: string")
+    _assert_contains(model_source, "export type RunnerLocalTunnel", "localTunnels?: RunnerLocalTunnel[]")
     _assert_contains(ui_source, "RunnerRepairPanel")
     _assert_contains(
         repair_source,
@@ -62,6 +63,11 @@ def test_remote_status_panel_exposes_runner_ports_and_stop_action() -> None:
         "本地隧道",
         "runner.servicePort",
         "runner.tunnelPort",
+        "localTunnels",
+        "本地 SSH 隧道投影",
+        'data-testid="runner-local-tunnels"',
+        "formatTunnelEndpoint",
+        "activeLocalTunnel",
         "停止 Runner",
     )
     _assert_matches(

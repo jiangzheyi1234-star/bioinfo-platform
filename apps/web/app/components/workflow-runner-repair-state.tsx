@@ -53,6 +53,7 @@ export function workflowServerRepairStatus(server: WorkflowServer | null): Runne
           deploymentAction: runner.deploymentAction,
           servicePort: runner.servicePort,
           tunnelPort: runner.tunnelPort,
+          localTunnels: Array.isArray(runner.localTunnels) ? runner.localTunnels : [],
         }
       : undefined,
   };

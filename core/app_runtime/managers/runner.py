@@ -70,7 +70,11 @@ class RunnerManager(BaseRuntimeManager):
                 "ok": True,
                 "output": output,
                 "serverId": server_id,
-                "runner": self._service._compose_runner_payload(registry_entry=record, health=health),
+                "runner": self._service._compose_runner_payload(
+                    registry_entry=record,
+                    health=health,
+                    local_tunnels=self._service._local_tunnel_snapshots(ssh),
+                ),
                 "health": health,
                 "lifecycleAction": "stop",
                 "completedAt": health["checkedAt"],

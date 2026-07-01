@@ -126,7 +126,14 @@ class RuntimeService(
             registry_entry=registry_entry,
             ssh=ssh,
         )
-        return [self._compose_server_payload(server=server, registry_entry=registry_entry, health=health)]
+        return [
+            self._compose_server_payload(
+                server=server,
+                registry_entry=registry_entry,
+                health=health,
+                local_tunnels=self._local_tunnel_snapshots(ssh),
+            )
+        ]
 
     def get_server(self, server_id: str) -> dict[str, Any]:
         with self._lock:
@@ -143,7 +150,12 @@ class RuntimeService(
             registry_entry=registry_entry,
             ssh=ssh,
         )
-        return self._compose_server_payload(server=server, registry_entry=registry_entry, health=health)
+        return self._compose_server_payload(
+            server=server,
+            registry_entry=registry_entry,
+            health=health,
+            local_tunnels=self._local_tunnel_snapshots(ssh),
+        )
 
     def get_server_health(self, server_id: str) -> dict[str, Any]:
         with self._lock:
@@ -312,6 +324,7 @@ class RuntimeService(
                 "bootstrap_metadata": dict(result.get("bootstrap_metadata") or {}),
             },
             health=health,
+            local_tunnels=self._local_tunnel_snapshots(ssh),
         )
         return {
             "data": {
@@ -353,7 +366,11 @@ class RuntimeService(
         checked_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         with self._lock:
             registry_entry = self._save_runner_health_snapshot(server_id=server_id, health=health)
-        runner = self._compose_runner_payload(registry_entry=registry_entry, health=health)
+        runner = self._compose_runner_payload(
+            registry_entry=registry_entry,
+            health=health,
+            local_tunnels=self._local_tunnel_snapshots(ssh_service),
+        )
         return {
             "data": {
                 "serverId": server_id,

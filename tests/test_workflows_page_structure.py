@@ -219,6 +219,8 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "has_password" not in runner_adapter
     assert "servicePort?: number" in models
     assert "tunnelPort?: number" in models
+    assert "localTunnels?: Array" in models
+    assert "localTunnels: Array.isArray(runner.localTunnels) ? runner.localTunnels : []" in runner_adapter
     assert "FirstRunTrustSummary" in first_run_completion
     assert "单用户试点交接" in first_run_completion
     assert "首跑已完成" in first_run_completion
