@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import zipfile
@@ -24,6 +25,7 @@ from apps.api.workflow_first_run_submit_service import (
 
 
 router = APIRouter()
+FIRST_RUN_EVIDENCE_BUNDLE_ZIP_MANIFEST_SCHEMA_VERSION = "h2ometa.first-run.evidence-bundle-zip-manifest.v1"
 
 
 @router.get("/api/v1/first-run/status")
@@ -102,21 +104,16 @@ async def download_first_run_evidence_bundle_zip(
     filename_base = _first_run_evidence_filename_base(card, run_id)
     handoff = card.get("pilotHandoff") if isinstance(card.get("pilotHandoff"), dict) else {}
     bundle = handoff.get("evidenceBundle") if isinstance(handoff.get("evidenceBundle"), dict) else {}
+    zip_entries = _first_run_evidence_bundle_zip_entries(filename_base, card, bundle)
+    manifest = _first_run_evidence_bundle_zip_manifest(card, bundle, zip_entries)
+    manifest_bytes = json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8")
+    manifest_sha256 = hashlib.sha256(manifest_bytes).hexdigest()
     archive = io.BytesIO()
     with zipfile.ZipFile(archive, mode="w", compression=zipfile.ZIP_DEFLATED) as bundle_zip:
-        _write_zip_text(
-            bundle_zip,
-            f"{filename_base}.evidence-bundle.json",
-            json.dumps(bundle, ensure_ascii=False, indent=2),
-        )
-        _write_zip_text(
-            bundle_zip,
-            f"{filename_base}.validation-card.json",
-            json.dumps(card, ensure_ascii=False, indent=2),
-        )
-        _write_zip_text(bundle_zip, f"{filename_base}.validation-card.md", first_run_validation_card_markdown(card))
-        _write_zip_text(bundle_zip, f"{filename_base}.pilot-handoff.md", first_run_handoff_manifest_markdown(card))
-        _write_zip_text(bundle_zip, "README.md", _first_run_evidence_bundle_readme(card))
+        _write_zip_bytes(bundle_zip, "MANIFEST.json", manifest_bytes)
+        _write_zip_text(bundle_zip, "MANIFEST.sha256", f"{manifest_sha256}  MANIFEST.json\n")
+        for entry in zip_entries:
+            _write_zip_bytes(bundle_zip, str(entry["memberName"]), entry["content"])
     return Response(
         content=archive.getvalue(),
         media_type="application/zip",
@@ -146,8 +143,131 @@ def _download_headers(filename: str) -> dict[str, str]:
     }
 
 
+def _first_run_evidence_bundle_zip_entries(
+    filename_base: str,
+    card: dict[str, Any],
+    bundle: dict[str, Any],
+) -> list[dict[str, Any]]:
+    return [
+        _zip_text_entry(
+            role="evidence-bundle-json",
+            source="first-run-evidence-bundle-api",
+            media_type="application/json",
+            filename=f"{filename_base}.evidence-bundle.json",
+            content=json.dumps(bundle, ensure_ascii=False, indent=2, sort_keys=True),
+        ),
+        _zip_text_entry(
+            role="validation-card-json",
+            source="first-run-validation-card-api",
+            media_type="application/json",
+            filename=f"{filename_base}.validation-card.json",
+            content=json.dumps(card, ensure_ascii=False, indent=2, sort_keys=True),
+        ),
+        _zip_text_entry(
+            role="validation-card-markdown",
+            source="first-run-validation-card-markdown-api",
+            media_type="text/markdown; charset=utf-8",
+            filename=f"{filename_base}.validation-card.md",
+            content=first_run_validation_card_markdown(card),
+        ),
+        _zip_text_entry(
+            role="pilot-handoff",
+            source="first-run-pilot-handoff-markdown-api",
+            media_type="text/markdown; charset=utf-8",
+            filename=f"{filename_base}.pilot-handoff.md",
+            content=first_run_handoff_manifest_markdown(card),
+        ),
+        _zip_text_entry(
+            role="readme",
+            source="first-run-evidence-bundle-zip-api",
+            media_type="text/markdown; charset=utf-8",
+            filename="README.md",
+            content=_first_run_evidence_bundle_readme(card),
+        ),
+    ]
+
+
+def _first_run_evidence_bundle_zip_manifest(
+    card: dict[str, Any],
+    bundle: dict[str, Any],
+    entries: list[dict[str, Any]],
+) -> dict[str, Any]:
+    run = card.get("run") if isinstance(card.get("run"), dict) else {}
+    result = card.get("result") if isinstance(card.get("result"), dict) else {}
+    workflow_revision = card.get("workflowRevision") if isinstance(card.get("workflowRevision"), dict) else {}
+    package = card.get("resultPackage") if isinstance(card.get("resultPackage"), dict) else {}
+    required_files = [item for item in bundle.get("requiredFiles") or [] if isinstance(item, dict)]
+    result_package = next((item for item in required_files if item.get("role") == "result-package"), {})
+    return _compact(
+        {
+            "schemaVersion": FIRST_RUN_EVIDENCE_BUNDLE_ZIP_MANIFEST_SCHEMA_VERSION,
+            "bundleId": bundle.get("bundleId"),
+            "generatedAt": card.get("generatedAt"),
+            "runId": run.get("runId"),
+            "resultId": result.get("resultId"),
+            "workflowRevisionId": workflow_revision.get("workflowRevisionId"),
+            "hashAlgorithm": "sha256",
+            "files": [_zip_manifest_file(entry) for entry in entries],
+            "externalResultPackage": _compact(
+                {
+                    "role": "result-package",
+                    "filename": result_package.get("filename") or _mapping(package.get("download")).get("filename"),
+                    "packageExportId": package.get("packageExportId") or result_package.get("packageExportId"),
+                    "href": result_package.get("href") or _mapping(package.get("download")).get("href"),
+                    "sha256": package.get("sha256") or result_package.get("sha256"),
+                    "manifestSha256": package.get("manifestSha256") or result_package.get("manifestSha256"),
+                    "artifactPayloadMode": package.get("artifactPayloadMode") or result_package.get("artifactPayloadMode"),
+                    "includeArtifacts": package.get("includeArtifacts") if "includeArtifacts" in package else result_package.get("includeArtifacts"),
+                }
+            ),
+            "redaction": bundle.get("redaction") if isinstance(bundle.get("redaction"), dict) else None,
+            "verification": {
+                "manifestChecksumFile": "MANIFEST.sha256",
+                "steps": [
+                    "verify MANIFEST.json with MANIFEST.sha256",
+                    "verify every bundled file sha256 from MANIFEST.json",
+                    "download the external result package and verify sha256 plus manifestSha256",
+                ],
+            },
+        }
+    )
+
+
+def _zip_manifest_file(entry: dict[str, Any]) -> dict[str, Any]:
+    content = entry["content"]
+    return {
+        "role": entry["role"],
+        "memberName": entry["memberName"],
+        "source": entry["source"],
+        "mediaType": entry["mediaType"],
+        "sizeBytes": len(content),
+        "sha256": hashlib.sha256(content).hexdigest(),
+    }
+
+
+def _zip_text_entry(
+    *,
+    role: str,
+    source: str,
+    media_type: str,
+    filename: str,
+    content: str,
+) -> dict[str, Any]:
+    return {
+        "role": role,
+        "source": source,
+        "mediaType": media_type,
+        "memberName": _safe_zip_member_name(filename),
+        "content": content.encode("utf-8"),
+    }
+
+
 def _write_zip_text(bundle_zip: zipfile.ZipFile, filename: str, content: str) -> None:
-    bundle_zip.writestr(_safe_zip_member_name(filename), content.encode("utf-8"))
+    _write_zip_bytes(bundle_zip, filename, content.encode("utf-8"))
+
+
+def _write_zip_bytes(bundle_zip: zipfile.ZipFile, filename: str, content: bytes) -> None:
+    bundle_zip.writestr(_safe_zip_member_name(filename), content)
 
 
 def _safe_zip_member_name(filename: str) -> str:
@@ -167,7 +287,16 @@ def _first_run_evidence_bundle_readme(card: dict[str, Any]) -> str:
             f"Package SHA-256: {package.get('sha256') or '-'}",
             f"Manifest SHA-256: {package.get('manifestSha256') or '-'}",
             "",
-            "This zip contains the validation card, pilot handoff, and evidence bundle manifest.",
-            "Keep it with the separately downloaded full result package and verify the recorded hashes before sharing.",
+            "This zip contains a machine-readable MANIFEST.json, the validation card, pilot handoff, and evidence bundle manifest.",
+            "Verify MANIFEST.json with MANIFEST.sha256, then verify each bundled file hash before sharing.",
+            "Keep it with the separately downloaded full result package and verify the recorded package hashes before sharing.",
         ]
     )
+
+
+def _mapping(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _compact(value: dict[str, Any]) -> dict[str, Any]:
+    return {key: item for key, item in value.items() if item not in ("", None, [], {})}

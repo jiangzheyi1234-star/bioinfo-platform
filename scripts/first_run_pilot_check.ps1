@@ -8,6 +8,7 @@ param(
     [int]$PollSeconds = 5,
     [string]$RunId = "",
     [string]$ServerId = "",
+    [string]$ProofPath = "",
     [switch]$RunFirstSuccessfulRun,
     [switch]$RequireFinalizationReady
 )
@@ -41,6 +42,18 @@ function Write-Step {
 function Fail-Pilot {
     param([string]$Message)
     throw "FIRST_RUN_PILOT_CHECK_FAILED: $Message"
+}
+
+function Write-FirstRunProof {
+    param([string]$Path, [object]$Summary)
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return
+    }
+    $parent = Split-Path -Parent $Path
+    if (-not [string]::IsNullOrWhiteSpace($parent)) {
+        New-Item -ItemType Directory -Force -Path $parent | Out-Null
+    }
+    $Summary | ConvertTo-Json -Depth 12 | Set-Content -Path $Path -Encoding utf8
 }
 
 . (Join-Path $PSScriptRoot "first_run_pilot_check_downloads.ps1")
@@ -548,6 +561,41 @@ function Assert-FirstRunPilotHandoff {
     if ($handoff.nextAction.code -ne "RUN_OWN_SMALL_SAMPLE" -or $handoff.nextAction.target -ne "/workflows") {
         Fail-Pilot "pilotHandoff nextAction must guide the operator to run an own small sample"
     }
+    $report = $card.reportInterpretation
+    $reportOutputs = @($report.outputs)
+    $reportMetrics = @($report.metrics)
+    $reportRedaction = $report.redaction
+    $reportProof = [ordered]@{
+        schemaVersion = $report.schemaVersion
+        status = $report.status
+        summary = $report.summary
+        outputNames = @($reportOutputs | ForEach-Object { $_.name })
+        metricCount = $reportMetrics.Count
+        redactionPolicy = $reportRedaction.policy
+        rawPathsExposed = $reportRedaction.rawPathsExposed
+        storageUrisExposed = $reportRedaction.storageUrisExposed
+    }
+    $validationCardProof = [ordered]@{
+        schemaVersion = $card.schemaVersion
+        generatedAt = $card.generatedAt
+        runId = $card.run.runId
+        resultId = $card.result.resultId
+        workflowRevisionId = $card.workflowRevision.workflowRevisionId
+        checksPassed = $passedChecks.Count
+        checksTotal = $checks.Count
+        validationCardJsonSha256 = $downloadProof.validationCardJsonSha256
+    }
+    $resultPackageProof = [ordered]@{
+        packageExportId = $package.packageExportId
+        resultId = $package.resultId
+        runId = $package.runId
+        workflowRevisionId = $package.workflowRevisionId
+        sha256 = $package.sha256
+        manifestSha256 = $package.manifestSha256
+        artifactPayloadMode = $package.artifactPayloadMode
+        includeArtifacts = $package.includeArtifacts
+        download = $resultPackageDownloadProof
+    }
     $nextScenarioDatabasePackCoverage = @($nextScenarios | ForEach-Object {
         [ordered]@{
             scenarioId = $_.scenarioId
@@ -565,10 +613,17 @@ function Assert-FirstRunPilotHandoff {
     })
     return [ordered]@{
         pilotHandoffSchemaVersion = $handoff.schemaVersion
+        runId = $evidence.runId
+        resultId = $evidence.resultId
+        workflowRevisionId = $evidence.workflowRevisionId
+        packageExportId = $evidence.packageExportId
         packageSha256 = $evidence.packageSha256
         manifestSha256 = $evidence.manifestSha256
         validationChecksPassed = $evidence.validationChecksPassed
         validationChecksTotal = $evidence.validationChecksTotal
+        reportEvidence = $reportProof
+        validationCard = $validationCardProof
+        resultPackage = $resultPackageProof
         resultPackageDownload = $resultPackageDownloadProof
         evidenceBundleSchemaVersion = $bundle.schemaVersion
         evidenceBundleFileRoles = @($requiredFiles | ForEach-Object { $_.role })
@@ -717,6 +772,7 @@ $summary = [ordered]@{
     firstRunPath = $pack.firstRunPath
     serverId = $ServerId
     runId = $RunId
+    proofPath = $ProofPath
     closedLoopProven = $closedLoopProven
     closedLoopProofMode = $closedLoopProofMode
     finalizationStatus = $finalizationStatus
@@ -727,5 +783,6 @@ $summary = [ordered]@{
     sampleUploadProof = $sampleUploadProof
 }
 
+Write-FirstRunProof $ProofPath $summary
 Write-Step "passed"
-$summary | ConvertTo-Json -Depth 8
+$summary | ConvertTo-Json -Depth 12

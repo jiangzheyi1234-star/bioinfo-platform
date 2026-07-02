@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import io
 import json
 import zipfile
@@ -105,25 +106,59 @@ def test_first_run_evidence_bundle_zip_contains_portable_trust_files(monkeypatch
     with zipfile.ZipFile(io.BytesIO(response.body)) as archive:
         names = set(archive.namelist())
         assert names == {
+            "MANIFEST.json",
+            "MANIFEST.sha256",
             "README.md",
             "res_run_first.evidence-bundle.json",
             "res_run_first.pilot-handoff.md",
             "res_run_first.validation-card.json",
             "res_run_first.validation-card.md",
         }
-        manifest = json.loads(archive.read("res_run_first.evidence-bundle.json").decode("utf-8"))
+        zip_manifest_bytes = archive.read("MANIFEST.json")
+        zip_manifest = json.loads(zip_manifest_bytes.decode("utf-8"))
+        manifest_checksum = archive.read("MANIFEST.sha256").decode("utf-8").split()[0]
+        bundle_manifest = json.loads(archive.read("res_run_first.evidence-bundle.json").decode("utf-8"))
         card = json.loads(archive.read("res_run_first.validation-card.json").decode("utf-8"))
         handoff = archive.read("res_run_first.pilot-handoff.md").decode("utf-8")
         readme = archive.read("README.md").decode("utf-8")
 
-    assert manifest["download"]["href"] == "/api/v1/first-run/runs/run_first/evidence-bundle.zip?serverId=srv_first"
-    assert manifest["requiredFiles"][0]["href"] == (
+        assert manifest_checksum == hashlib.sha256(zip_manifest_bytes).hexdigest()
+        zip_files = {item["role"]: item for item in zip_manifest["files"]}
+        assert set(zip_files) == {
+            "evidence-bundle-json",
+            "pilot-handoff",
+            "readme",
+            "validation-card-json",
+            "validation-card-markdown",
+        }
+        for item in zip_files.values():
+            member_bytes = archive.read(item["memberName"])
+            assert item["sizeBytes"] == len(member_bytes)
+            assert item["sha256"] == hashlib.sha256(member_bytes).hexdigest()
+
+    assert zip_manifest["schemaVersion"] == "h2ometa.first-run.evidence-bundle-zip-manifest.v1"
+    assert zip_manifest["bundleId"] == "res_run_first.first-run-evidence"
+    assert zip_manifest["hashAlgorithm"] == "sha256"
+    assert zip_manifest["externalResultPackage"] == {
+        "role": "result-package",
+        "filename": "rpex_full.zip",
+        "packageExportId": "rpex_full",
+        "href": "/api/v1/results/res_run_first/exports/rpex_full/download?serverId=srv_first",
+        "sha256": "d" * 64,
+        "manifestSha256": "e" * 64,
+        "artifactPayloadMode": "full",
+        "includeArtifacts": True,
+    }
+    assert zip_manifest["verification"]["manifestChecksumFile"] == "MANIFEST.sha256"
+    assert bundle_manifest["download"]["href"] == "/api/v1/first-run/runs/run_first/evidence-bundle.zip?serverId=srv_first"
+    assert bundle_manifest["requiredFiles"][0]["href"] == (
         "/api/v1/results/res_run_first/exports/rpex_full/download?serverId=srv_first"
     )
     assert card["pilotHandoff"]["evidenceBundle"]["download"]["filename"] == "res_run_first.first-run-evidence.zip"
     assert "H2OMeta First Successful Run Pilot Handoff" in handoff
+    assert "Verify MANIFEST.json with MANIFEST.sha256" in readme
     assert "Keep it with the separately downloaded full result package" in readme
-    serialized = json.dumps(manifest, sort_keys=True) + json.dumps(card, sort_keys=True) + handoff + readme
+    serialized = json.dumps(zip_manifest, sort_keys=True) + json.dumps(bundle_manifest, sort_keys=True) + json.dumps(card, sort_keys=True) + handoff + readme
     assert "C:/secret" not in serialized
     assert "s3://secret" not in serialized
     assert '"storageUri"' not in serialized

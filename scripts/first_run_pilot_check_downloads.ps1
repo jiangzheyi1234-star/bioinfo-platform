@@ -16,6 +16,39 @@ function Get-FirstRunResponseHeader {
     return ""
 }
 
+function Get-FirstRunBytesSha256 {
+    param([byte[]]$Bytes)
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        return ([System.BitConverter]::ToString($sha256.ComputeHash($Bytes))).Replace("-", "").ToLowerInvariant()
+    } finally {
+        $sha256.Dispose()
+    }
+}
+
+function Read-FirstRunZipEntryBytes {
+    param([object]$Archive, [string]$EntryName)
+    $entry = @($Archive.Entries | Where-Object { $_.FullName -eq $EntryName }) | Select-Object -First 1
+    if ($null -eq $entry) {
+        throw "ZIP entry $EntryName must be present"
+    }
+    $stream = $entry.Open()
+    $memory = New-Object System.IO.MemoryStream
+    try {
+        $stream.CopyTo($memory)
+        return ,$memory.ToArray()
+    } finally {
+        $memory.Dispose()
+        $stream.Dispose()
+    }
+}
+
+function Read-FirstRunZipEntryText {
+    param([object]$Archive, [string]$EntryName)
+    $bytes = Read-FirstRunZipEntryBytes $Archive $EntryName
+    return [System.Text.Encoding]::UTF8.GetString($bytes)
+}
+
 function Assert-FirstRunResultPackageDownload {
     param([object]$Package, [object]$ResultPackageFile)
     if ($null -eq $ResultPackageFile -or [string]::IsNullOrWhiteSpace([string]$ResultPackageFile.href)) {
@@ -99,6 +132,9 @@ function Assert-FirstRunEvidenceBundleDownload {
     $archive = $null
     $entryNames = @()
     $zipSizeBytes = 0
+    $zipManifest = $null
+    $zipManifestSha256 = ""
+    $zipFileProofs = @()
     try {
         $downloadUrl = "$($ApiBase.TrimEnd("/"))$($download.href)"
         Invoke-WebRequest -Uri $downloadUrl -UseBasicParsing -OutFile $zipPath -TimeoutSec $TimeoutSeconds | Out-Null
@@ -108,7 +144,7 @@ function Assert-FirstRunEvidenceBundleDownload {
         Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction Stop
         $archive = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
         $entryNames = @($archive.Entries | ForEach-Object { $_.FullName })
-        $expectedEntries = @("README.md", "$baseName.evidence-bundle.json", "$baseName.validation-card.json", "$baseName.validation-card.md", "$baseName.pilot-handoff.md")
+        $expectedEntries = @("MANIFEST.json", "MANIFEST.sha256", "README.md", "$baseName.evidence-bundle.json", "$baseName.validation-card.json", "$baseName.validation-card.md", "$baseName.pilot-handoff.md")
         if ((@($entryNames | Sort-Object) -join "|") -ne (@($expectedEntries | Sort-Object) -join "|")) {
             throw "ZIP entries must exactly match the portable first-run evidence files"
         }
@@ -117,6 +153,46 @@ function Assert-FirstRunEvidenceBundleDownload {
             if ($null -eq $entry -or $entry.Length -le 0) {
                 throw "ZIP entry $entryName must be present and non-empty"
             }
+        }
+        $manifestBytes = Read-FirstRunZipEntryBytes $archive "MANIFEST.json"
+        $zipManifestSha256 = Get-FirstRunBytesSha256 $manifestBytes
+        $manifestChecksum = Normalize-FirstRunHash ((Read-FirstRunZipEntryText $archive "MANIFEST.sha256").Split(" ", [System.StringSplitOptions]::RemoveEmptyEntries)[0])
+        if ($manifestChecksum -ne $zipManifestSha256) {
+            throw "MANIFEST.sha256 must match MANIFEST.json bytes"
+        }
+        $zipManifest = Read-FirstRunZipEntryText $archive "MANIFEST.json" | ConvertFrom-Json
+        if ($zipManifest.schemaVersion -ne "h2ometa.first-run.evidence-bundle-zip-manifest.v1") {
+            throw "MANIFEST.json schemaVersion must be h2ometa.first-run.evidence-bundle-zip-manifest.v1"
+        }
+        if ($zipManifest.bundleId -ne $Bundle.bundleId -or $zipManifest.runId -ne $Evidence.runId) {
+            throw "MANIFEST.json must match the first-run bundle and run"
+        }
+        if ($zipManifest.externalResultPackage.sha256 -ne $Evidence.packageSha256 -or $zipManifest.externalResultPackage.manifestSha256 -ne $Evidence.manifestSha256) {
+            throw "MANIFEST.json external result package hashes must match finalization evidence"
+        }
+        $zipFileProofs = @(
+            @($zipManifest.files) | ForEach-Object {
+                $file = $_
+                $memberBytes = Read-FirstRunZipEntryBytes $archive ([string]$file.memberName)
+                $actualHash = Get-FirstRunBytesSha256 $memberBytes
+                if ([int64]$file.sizeBytes -ne $memberBytes.Length) {
+                    throw "MANIFEST.json sizeBytes for $($file.memberName) must match ZIP bytes"
+                }
+                if ((Normalize-FirstRunHash $file.sha256) -ne $actualHash) {
+                    throw "MANIFEST.json sha256 for $($file.memberName) must match ZIP bytes"
+                }
+                [ordered]@{
+                    role = $file.role
+                    memberName = $file.memberName
+                    sizeBytes = [int64]$file.sizeBytes
+                    sha256 = $actualHash
+                }
+            }
+        )
+        $zipRoles = @($zipFileProofs | ForEach-Object { $_.role } | Sort-Object)
+        $expectedZipRoles = @("evidence-bundle-json", "pilot-handoff", "readme", "validation-card-json", "validation-card-markdown")
+        if (($zipRoles -join "|") -ne ($expectedZipRoles -join "|")) {
+            throw "MANIFEST.json must list exactly the bundled first-run evidence file roles"
         }
     } catch {
         Fail-Pilot "first-run evidenceBundle ZIP download validation failed: $($_.Exception.Message)"
@@ -131,5 +207,11 @@ function Assert-FirstRunEvidenceBundleDownload {
         href = $download.href
         zipSizeBytes = $zipSizeBytes
         entryNames = @($entryNames | Sort-Object)
+        zipManifestSchemaVersion = [string]$zipManifest.schemaVersion
+        zipManifestSha256 = $zipManifestSha256
+        bundledFileRoles = @($zipFileProofs | ForEach-Object { $_.role })
+        bundledFiles = $zipFileProofs
+        validationCardJsonSha256 = [string](@($zipFileProofs | Where-Object { $_.role -eq "validation-card-json" } | Select-Object -First 1).sha256)
+        evidenceBundleJsonSha256 = [string](@($zipFileProofs | Where-Object { $_.role -eq "evidence-bundle-json" } | Select-Object -First 1).sha256)
     }
 }

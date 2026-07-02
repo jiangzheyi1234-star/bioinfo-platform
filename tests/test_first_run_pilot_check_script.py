@@ -44,6 +44,12 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "inputLineage" in source
     assert "outputChecksums" in source
     assert "[switch]$RunFirstSuccessfulRun" in source
+    assert '[string]$ProofPath = ""' in source
+    assert "function Write-FirstRunProof" in source
+    assert "Set-Content -Path $Path -Encoding utf8" in source
+    assert "Write-FirstRunProof $ProofPath $summary" in source
+    assert "proofPath = $ProofPath" in source
+    assert "ConvertTo-Json -Depth 12" in source
     assert "[int]$RunTimeoutSeconds = 1800" in source
     assert "[int]$SampleDataTimeoutSeconds = 300" in source
     assert "$ApiBase/api/v1/servers?refresh=true" in source
@@ -119,6 +125,14 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "first-run evidenceBundle ZIP href must stay under the first-run download API" in source
     assert "first-run evidenceBundle ZIP download validation failed" in source
     assert "System.IO.Compression.ZipFile" in source
+    assert "MANIFEST.json" in source
+    assert "MANIFEST.sha256" in source
+    assert "h2ometa.first-run.evidence-bundle-zip-manifest.v1" in source
+    assert "MANIFEST.sha256 must match MANIFEST.json bytes" in source
+    assert "MANIFEST.json external result package hashes must match finalization evidence" in source
+    assert "MANIFEST.json must list exactly the bundled first-run evidence file roles" in source
+    assert "function Read-FirstRunZipEntryBytes" in source
+    assert "function Get-FirstRunBytesSha256" in source
     assert "README.md" in source
     assert "$baseName.evidence-bundle.json" in source
     assert "$baseName.validation-card.json" in source
@@ -173,10 +187,27 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "RUN_OWN_SMALL_SAMPLE" in source
     assert "$handoffProof = Assert-FirstRunPilotHandoff $finalization" in source
     assert "pilotHandoffSchemaVersion = $handoff.schemaVersion" in source
+    assert "runId = $evidence.runId" in source
+    assert "resultId = $evidence.resultId" in source
+    assert "workflowRevisionId = $evidence.workflowRevisionId" in source
+    assert "packageExportId = $evidence.packageExportId" in source
+    assert "reportEvidence = $reportProof" in source
+    assert "schemaVersion = $report.schemaVersion" in source
+    assert "outputNames = @($reportOutputs | ForEach-Object { $_.name })" in source
+    assert "validationCard = $validationCardProof" in source
+    assert "resultPackage = $resultPackageProof" in source
+    assert "validationCardJsonSha256 = $downloadProof.validationCardJsonSha256" in source
+    assert "packageExportId = $package.packageExportId" in source
     assert "resultPackageDownload = $resultPackageDownloadProof" in source
     assert "evidenceBundleSchemaVersion = $bundle.schemaVersion" in source
     assert "evidenceBundleFileRoles = @($requiredFiles | ForEach-Object { $_.role })" in source
     assert "evidenceBundleDownload = $downloadProof" in source
+    assert "zipManifestSchemaVersion = [string]$zipManifest.schemaVersion" in source
+    assert "zipManifestSha256 = $zipManifestSha256" in source
+    assert "bundledFileRoles = @($zipFileProofs | ForEach-Object { $_.role })" in source
+    assert "bundledFiles = $zipFileProofs" in source
+    assert "validationCardJsonSha256" in source
+    assert "evidenceBundleJsonSha256" in source
     assert "backupRestoreSchemaVersion = $backup.schemaVersion" in source
     assert "nextScenarioIds = @($nextScenarios | ForEach-Object { $_.scenarioId })" in source
     assert "$nextScenarioDatabasePackCoverage = @($nextScenarios | ForEach-Object" in source
@@ -221,6 +252,7 @@ def test_first_run_pilot_docs_keep_mutating_proof_explicit() -> None:
     source = (REPO_ROOT / "docs" / "release-candidate-operating-loop.md").read_text(encoding="utf-8")
 
     assert "scripts\\first_run_pilot_check.ps1 -RunFirstSuccessfulRun -RequireFinalizationReady" in source
+    assert "-ProofPath" in source
     assert 'closedLoopProven: true' in source
     assert 'closedLoopProofMode: "submitted-run"' in source
     assert "executionReadinessProof.ok: true" in source
@@ -231,3 +263,10 @@ def test_first_run_pilot_docs_keep_mutating_proof_explicit() -> None:
     assert "ready first-run evidence bundle" in source
     assert "handoffProof.evidenceBundleDownload" in source
     assert "handoffProof.resultPackageDownload" in source
+    assert "handoffProof.evidenceBundleDownload.zipManifestSha256" in source
+    assert "handoffProof.evidenceBundleDownload.validationCardJsonSha256" in source
+    assert "handoffProof.resultId" in source
+    assert "handoffProof.workflowRevisionId" in source
+    assert "handoffProof.packageExportId" in source
+    assert "handoffProof.reportEvidence" in source
+    assert "handoffProof.validationCard.validationCardJsonSha256" in source

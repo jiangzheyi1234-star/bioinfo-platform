@@ -102,6 +102,7 @@ export function GeneratedWorkflowBuilder({
   const workflowReadyTools = tools.filter((tool) => ruleSpecReadinessForTool(tool).workflowReady);
   const firstTool = workflowReadyTools[0];
   const outputCandidates = buildOutputCandidates(builder.draft.steps, workflowReadyTools);
+  const compiledWorkflowRevisionId = workflowRevisionIdForCompileResult(compileResult);
 
   return (
     <div className="space-y-5 border-t border-slate-100 px-5 py-5">
@@ -229,9 +230,16 @@ export function GeneratedWorkflowBuilder({
         tools={workflowReadyTools}
       />
       <WorkflowDesignPlanPreview plan={designPlan || null} />
-      <WorkflowDesignCompileSummary result={compileResult || null} />
+      <div data-workflow-revision-boundary="WorkflowRevision" data-workflow-revision-id={compiledWorkflowRevisionId}>
+        <WorkflowDesignCompileSummary result={compileResult || null} />
+      </div>
     </div>
   );
+}
+
+function workflowRevisionIdForCompileResult(result: WorkflowDesignCompileResult | null | undefined) {
+  if (!result) return "";
+  return result.workflowRevisionId || "";
 }
 
 function WorkflowDesignPlanPreview({ plan }: { plan: WorkflowDesignPlan | null }) {
