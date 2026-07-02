@@ -103,6 +103,51 @@ def test_bootstrap_guard_skips_new_install_without_prior_runner() -> None:
     assert metadata == {}
 
 
+def test_bootstrap_guard_blocks_stale_registry_when_remote_current_exists() -> None:
+    metadata = {}
+    manager = GuardHarness(RemoteRunnerClientError("runner token not available"))
+
+    with pytest.raises(RemoteRunnerManagerError) as raised:
+        manager._guard_bootstrap_when_execution_idle(
+            server_id="srv_test",
+            ssh_service=object(),
+            server_record={},
+            bootstrap_metadata=metadata,
+            previous_release="/home/tester/.h2ometa/runner/releases/phase1-test",
+        )
+
+    assert manager.calls == 1
+    assert raised.value.status_code == 409
+    assert raised.value.detail["reasonCode"] == BOOTSTRAP_DIAGNOSTICS_UNAVAILABLE_REASON
+    assert raised.value.detail["nextAction"] == "REPAIR_RUNNER_DIAGNOSTICS_BEFORE_BOOTSTRAP"
+    assert metadata["upgradeGuard"] == {
+        "schemaVersion": "h2ometa.remote-runner-upgrade-guard.v1",
+        "checked": False,
+        "reason": "execution-lifecycle-guard-unavailable",
+        "message": "runner token not available",
+    }
+
+
+def test_bootstrap_guard_blocks_stale_registry_when_remote_config_exists() -> None:
+    metadata = {}
+    manager = GuardHarness(_diagnostics(active_leases=[{"runId": "run_active"}]))
+
+    with pytest.raises(RemoteRunnerManagerError) as raised:
+        manager._guard_bootstrap_when_execution_idle(
+            server_id="srv_test",
+            ssh_service=object(),
+            server_record={},
+            bootstrap_metadata=metadata,
+            previous_config_present=True,
+        )
+
+    assert manager.calls == 1
+    assert raised.value.status_code == 409
+    assert raised.value.detail["reasonCode"] == UPGRADE_ACTIVE_LEASES_REASON
+    assert metadata["upgradeGuard"]["checked"] is True
+    assert metadata["upgradeGuard"]["activeLeaseCount"] == 1
+
+
 def test_bootstrap_guard_allows_idle_prepared_runner_before_upgrade() -> None:
     metadata = {}
     manager = GuardHarness(_diagnostics())

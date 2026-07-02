@@ -36,8 +36,14 @@ class RemoteRunnerBootstrapGuardMixin:
         server_record: dict[str, Any],
         bootstrap_metadata: dict[str, Any],
         bootstrap_action: str = "ensure",
+        previous_release: str = "",
+        previous_config_present: bool = False,
     ) -> None:
-        if not str(server_record.get("bootstrap_version") or "").strip():
+        if not _has_prior_runner_evidence(
+            server_record,
+            previous_release=previous_release,
+            previous_config_present=previous_config_present,
+        ):
             return
         action = str(bootstrap_action or "").strip() or "ensure"
         if action == "start":
@@ -466,3 +472,16 @@ def _is_manual_runner_stop_record(server_record: dict[str, Any]) -> bool:
     snapshot = server_record.get("last_health_snapshot")
     reason_code = str(snapshot.get("reasonCode") or "") if isinstance(snapshot, dict) else ""
     return reason_code == MANUAL_RUNNER_STOP_REASON
+
+
+def _has_prior_runner_evidence(
+    server_record: dict[str, Any],
+    *,
+    previous_release: str,
+    previous_config_present: bool,
+) -> bool:
+    return (
+        bool(str(server_record.get("bootstrap_version") or "").strip())
+        or bool(str(previous_release or "").strip())
+        or bool(previous_config_present)
+    )

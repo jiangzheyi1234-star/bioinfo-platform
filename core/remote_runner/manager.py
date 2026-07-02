@@ -228,6 +228,8 @@ class RemoteRunnerManager(
                     server_record=server_record,
                     bootstrap_metadata=bootstrap_metadata,
                     bootstrap_action=bootstrap_action,
+                    previous_release=previous_release,
+                    previous_config_present=previous_config_payload is not None,
                 )
                 self._deploy_service_runtime_bundle(
                     ssh_service=ssh_service,
