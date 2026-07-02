@@ -159,6 +159,7 @@ def test_general_storage_module_is_import_facade_for_runtime_storage_domains() -
 def test_run_execution_state_machine_owns_core_status_decisions() -> None:
     state_machine_path = REMOTE_RUNNER / "run_execution_state_machine.py"
     run_execution_storage = (REMOTE_RUNNER / "run_execution_storage.py").read_text(encoding="utf-8")
+    execution_primitives = (REMOTE_RUNNER / "execution_storage_primitives.py").read_text(encoding="utf-8")
     workflow_run_storage = (REMOTE_RUNNER / "workflow_run_storage.py").read_text(encoding="utf-8")
     execution_retry_storage = (REMOTE_RUNNER / "execution_retry_storage.py").read_text(encoding="utf-8")
     reconciler_actions = (REMOTE_RUNNER / "reconciler_actions.py").read_text(encoding="utf-8")
@@ -181,15 +182,24 @@ def test_run_execution_state_machine_owns_core_status_decisions() -> None:
     assert "TERMINAL_RUN_STATUSES =" in state_machine
     assert "RETRYABLE_RUN_STATUSES =" in state_machine
     assert "RELEASED_LEASE_STATES =" in state_machine
+    assert "RUN_STATUSES =" in state_machine
+    assert "def attempt_row_to_dict(" in execution_primitives
+    assert "def fetch_run_row(" in execution_primitives
+    assert "def stable_json(" in execution_primitives
     assert "from .run_execution_state_machine import RunExecutionStateMachine" in run_execution_storage
     assert "from .run_execution_state_machine import RunExecutionStateMachine" in workflow_run_storage
     assert "from .run_execution_state_machine import RunExecutionStateMachine" in execution_retry_storage
     assert "from .run_execution_state_machine import RunExecutionStateMachine" in reconciler_actions
     assert "from .run_execution_state_machine import RunExecutionStateMachine" in run_worker
+    assert "from .execution_storage_primitives import (" in run_execution_storage
+    assert "from .execution_storage_primitives import (" in execution_retry_storage
+    assert "from .run_execution_storage import (\n    _" not in execution_retry_storage
 
     assert "TERMINAL_RUN_STATUSES =" not in run_execution_storage
     assert "RELEASED_LEASE_STATES =" not in run_execution_storage
     assert "RETRYABLE_RUN_STATUSES =" not in execution_retry_storage
+    assert "def required_text(" not in run_execution_storage
+    assert "def fetch_run_row(" not in run_execution_storage
     assert "def _terminal_job_state_for_attempt_state(" not in run_execution_storage
     assert "def _attempt_state_for_run_status(" not in run_worker
     assert "RunExecutionStateMachine.fence_attempt(" in run_execution_storage

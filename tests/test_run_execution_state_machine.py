@@ -37,6 +37,31 @@ def test_status_publication_increments_version_and_preserves_event_shape() -> No
     assert RunExecutionStateMachine.is_terminal_run_status(transition.to_status) is True
 
 
+def test_status_publication_rejects_unsupported_statuses() -> None:
+    with pytest.raises(ValueError, match="RUN_STATUS_UNSUPPORTED: archiving"):
+        RunExecutionStateMachine.publish_status(
+            current_status="queued",
+            state_version=1,
+            status="archiving",
+            stage="archive",
+            message="Unsupported state.",
+        )
+
+
+def test_status_publication_does_not_revive_terminal_runs() -> None:
+    with pytest.raises(ValueError, match="RUN_STATUS_TERMINAL_IMMUTABLE: failed -> queued"):
+        RunExecutionStateMachine.publish_status(
+            current_status="failed",
+            state_version=3,
+            status="queued",
+            stage="retry",
+            message="Retry must use request_retry.",
+        )
+
+    retry = RunExecutionStateMachine.request_retry(current_status="failed", state_version=3)
+    assert retry.to_status == "queued"
+
+
 def test_cancel_transition_updates_only_nonterminal_runs() -> None:
     nonterminal = RunExecutionStateMachine.request_cancel(
         current_status="running",

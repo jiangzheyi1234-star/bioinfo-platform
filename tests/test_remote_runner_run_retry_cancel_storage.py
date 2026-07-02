@@ -308,6 +308,41 @@ def test_request_run_retry_requeues_failed_run_for_next_attempt(tmp_path):
     assert stale_completion == {"accepted": False, "reason": "stale_generation"}
 
 
+def test_update_run_state_cannot_revive_terminal_run_without_retry(tmp_path):
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_terminal_publish_guard")
+    update_run_state(
+        cfg,
+        run_id="run_terminal_publish_guard",
+        status="failed",
+        stage="execute",
+        message="Terminal failure.",
+        request_id="req_run_terminal_publish_guard",
+    )
+
+    with pytest.raises(ValueError, match="RUN_STATUS_TERMINAL_IMMUTABLE: failed -> queued"):
+        update_run_state(
+            cfg,
+            run_id="run_terminal_publish_guard",
+            status="queued",
+            stage="retry",
+            message="Retry must use request_run_retry.",
+            request_id="req_run_terminal_publish_guard",
+        )
+
+    with get_connection(cfg) as connection:
+        run = connection.execute(
+            "SELECT status, stage, state_version, message FROM runs WHERE run_id = ?",
+            ("run_terminal_publish_guard",),
+        ).fetchone()
+    assert dict(run) == {
+        "status": "failed",
+        "stage": "execute",
+        "state_version": 2,
+        "message": "Terminal failure.",
+    }
+
+
 def test_request_run_retry_rejects_active_lease_without_side_effects(tmp_path):
     cfg = make_configured_remote_runner(tmp_path)
     _create_run(

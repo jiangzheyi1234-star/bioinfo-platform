@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
+RUN_STATUSES = frozenset({"queued", "running", "canceling", "completed", "failed", "canceled", "cancelled"})
 TERMINAL_RUN_STATUSES = frozenset({"completed", "failed", "canceled", "cancelled"})
 RETRYABLE_RUN_STATUSES = frozenset({"failed", "canceled", "cancelled"})
 RELEASED_LEASE_STATES = frozenset({"expired", "fenced", "failed", "canceled", "cancelled"})
@@ -105,10 +106,14 @@ class RunExecutionStateMachine:
         stage: str,
         message: str,
     ) -> RunExecutionTransition:
+        from_status = _normalize_run_status(current_status, "RUN_STATUS_REQUIRED")
+        to_status = _normalize_run_status(status, "RUN_STATUS_REQUIRED")
+        if from_status in TERMINAL_RUN_STATUSES and to_status != from_status:
+            raise ValueError(f"RUN_STATUS_TERMINAL_IMMUTABLE: {from_status} -> {to_status}")
         return RunExecutionTransition(
             event_type="status-transition",
-            from_status=_normalize_optional_status(current_status),
-            to_status=_normalize_required_status(status, "RUN_STATUS_REQUIRED"),
+            from_status=from_status,
+            to_status=to_status,
             stage=_normalize_required_text(stage, "RUN_STAGE_REQUIRED"),
             state_version=int(state_version) + 1,
             row_message=message,
@@ -412,6 +417,13 @@ def _normalize_required_status(value: str, error_code: str) -> str:
     normalized = _normalize_optional_status(value)
     if not normalized:
         raise ValueError(error_code)
+    return normalized
+
+
+def _normalize_run_status(value: str, error_code: str) -> str:
+    normalized = _normalize_required_status(value, error_code)
+    if normalized not in RUN_STATUSES:
+        raise ValueError(f"RUN_STATUS_UNSUPPORTED: {normalized}")
     return normalized
 
 

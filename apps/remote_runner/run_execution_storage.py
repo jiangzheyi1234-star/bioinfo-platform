@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-import json
 from pathlib import Path
 import sqlite3
 import uuid
@@ -23,6 +21,18 @@ from .admission_storage import (
 from .resource_pool import ResourceRequest
 from .execution_job_records import run_job_row_to_dict
 from .run_execution_state_machine import RunExecutionStateMachine
+from .execution_storage_primitives import (
+    add_seconds,
+    attempt_row_to_dict,
+    fetch_attempt_row,
+    fetch_run_row,
+    json_object,
+    lease_row_to_dict,
+    optional_positive_int,
+    optional_text,
+    required_text,
+    stable_json,
+)
 from .storage_core import get_connection, now_iso
 
 
@@ -39,7 +49,7 @@ def enqueue_run_job(
     timeout_policy: dict[str, Any] | None = None,
     execution_options: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    queued_at = _optional_text(available_at) or now_iso()
+    queued_at = optional_text(available_at) or now_iso()
     with get_connection(cfg) as connection:
         row = enqueue_run_job_record(
             connection,
@@ -70,8 +80,8 @@ def enqueue_run_job_record(
     timeout_policy: dict[str, Any] | None = None,
     execution_options: dict[str, Any] | None = None,
 ) -> sqlite3.Row:
-    normalized_run_id = _required_text(run_id, "RUN_ID_REQUIRED")
-    normalized_queue_name = _required_text(queue_name, "QUEUE_NAME_REQUIRED")
+    normalized_run_id = required_text(run_id, "RUN_ID_REQUIRED")
+    normalized_queue_name = required_text(queue_name, "QUEUE_NAME_REQUIRED")
     normalized_max_attempts = max(1, int(max_attempts))
     existing = connection.execute(
         "SELECT * FROM run_jobs WHERE run_id = ?",
@@ -80,7 +90,7 @@ def enqueue_run_job_record(
     if existing is not None:
         return existing
 
-    run = _fetch_run_row(connection, normalized_run_id)
+    run = fetch_run_row(connection, normalized_run_id)
     job_id = f"job_{uuid.uuid4().hex[:12]}"
     connection.execute(
         """
@@ -97,12 +107,12 @@ def enqueue_run_job_record(
             normalized_queue_name,
             int(priority),
             available_at,
-            _stable_json(wait_reason or {}),
+            stable_json(wait_reason or {}),
             0,
             normalized_max_attempts,
-            _stable_json(retry_policy or {}),
-            _stable_json(timeout_policy or {}),
-            _stable_json(execution_options or {}),
+            stable_json(retry_policy or {}),
+            stable_json(timeout_policy or {}),
+            stable_json(execution_options or {}),
             None,
             available_at,
             available_at,
@@ -139,11 +149,11 @@ def claim_next_run_job(
     now: str | None = None,
     lease_seconds: int = 60,
 ) -> dict[str, Any] | None:
-    normalized_worker_id = _required_text(worker_id, "WORKER_ID_REQUIRED")
-    normalized_session_id = _optional_text(session_id) or ""
-    normalized_slot_id = _required_text(slot_id, "SLOT_ID_REQUIRED")
-    normalized_queue_name = _required_text(queue_name, "QUEUE_NAME_REQUIRED")
-    claimed_at = _optional_text(now) or now_iso()
+    normalized_worker_id = required_text(worker_id, "WORKER_ID_REQUIRED")
+    normalized_session_id = optional_text(session_id) or ""
+    normalized_slot_id = required_text(slot_id, "SLOT_ID_REQUIRED")
+    normalized_queue_name = required_text(queue_name, "QUEUE_NAME_REQUIRED")
+    claimed_at = optional_text(now) or now_iso()
     request = resource_request or ResourceRequest()
     capacity = resource_capacity or ResourceRequest(cpu=max(1, int(max_active_slots)))
     with get_connection(cfg) as connection:
@@ -167,7 +177,7 @@ def claim_next_run_job(
                 SET wait_reason_json = ?, updated_at = ?
                 WHERE job_id = ?
                 """,
-                (_stable_json(wait_reason), claimed_at, job["job_id"]),
+                (stable_json(wait_reason), claimed_at, job["job_id"]),
             )
             log_admission_wait(
                 wait_reason=wait_reason,
@@ -180,7 +190,7 @@ def claim_next_run_job(
             )
             connection.commit()
             return None
-        run = _fetch_run_row(connection, str(job["run_id"]))
+        run = fetch_run_row(connection, str(job["run_id"]))
         current_lease = connection.execute(
             "SELECT * FROM run_leases WHERE run_id = ?",
             (job["run_id"],),
@@ -193,7 +203,7 @@ def claim_next_run_job(
         )
         attempt_id = f"att_{uuid.uuid4().hex[:12]}"
         work_dir = _work_dir_for_claimed_job(cfg, connection, job, attempt_id=attempt_id)
-        expires_at = _add_seconds(
+        expires_at = add_seconds(
             claimed_at,
             heartbeat_timeout_seconds_for_job(job, fallback_seconds=lease_seconds),
         )
@@ -348,10 +358,10 @@ def heartbeat_run_attempt(
     now: str | None = None,
     lease_seconds: int = 60,
 ) -> dict[str, Any]:
-    normalized_attempt_id = _required_text(attempt_id, "ATTEMPT_ID_REQUIRED")
-    heartbeat_at = _optional_text(now) or now_iso()
+    normalized_attempt_id = required_text(attempt_id, "ATTEMPT_ID_REQUIRED")
+    heartbeat_at = optional_text(now) or now_iso()
     with get_connection(cfg) as connection:
-        attempt = _fetch_attempt_row(connection, normalized_attempt_id)
+        attempt = fetch_attempt_row(connection, normalized_attempt_id)
         lease = connection.execute(
             "SELECT * FROM run_leases WHERE run_id = ?",
             (attempt["run_id"],),
@@ -363,7 +373,7 @@ def heartbeat_run_attempt(
             "SELECT * FROM run_jobs WHERE job_id = ?",
             (attempt["job_id"],),
         ).fetchone()
-        expires_at = _add_seconds(
+        expires_at = add_seconds(
             heartbeat_at,
             heartbeat_timeout_seconds_for_job(job, fallback_seconds=lease_seconds),
         )
@@ -387,11 +397,11 @@ def record_run_attempt_process_group(
     process_group_id: str,
     now: str | None = None,
 ) -> dict[str, Any]:
-    normalized_attempt_id = _required_text(attempt_id, "ATTEMPT_ID_REQUIRED")
-    normalized_process_group_id = _required_text(process_group_id, "PROCESS_GROUP_ID_REQUIRED")
-    updated_at = _optional_text(now) or now_iso()
+    normalized_attempt_id = required_text(attempt_id, "ATTEMPT_ID_REQUIRED")
+    normalized_process_group_id = required_text(process_group_id, "PROCESS_GROUP_ID_REQUIRED")
+    updated_at = optional_text(now) or now_iso()
     with get_connection(cfg) as connection:
-        attempt = _fetch_attempt_row(connection, normalized_attempt_id)
+        attempt = fetch_attempt_row(connection, normalized_attempt_id)
         lease = connection.execute(
             "SELECT * FROM run_leases WHERE run_id = ?",
             (attempt["run_id"],),
@@ -407,7 +417,7 @@ def record_run_attempt_process_group(
             """,
             (
                 normalized_process_group_id,
-                _optional_positive_int(normalized_process_group_id),
+                optional_positive_int(normalized_process_group_id),
                 updated_at,
                 normalized_attempt_id,
             ),
@@ -424,11 +434,11 @@ def request_run_cancel(
     command_id: str | None = None,
     now: str | None = None,
 ) -> dict[str, Any]:
-    normalized_run_id = _required_text(run_id, "RUN_ID_REQUIRED")
-    requested_at = _optional_text(now) or now_iso()
+    normalized_run_id = required_text(run_id, "RUN_ID_REQUIRED")
+    requested_at = optional_text(now) or now_iso()
     with get_connection(cfg) as connection:
         connection.execute("BEGIN IMMEDIATE")
-        run = _fetch_run_row(connection, normalized_run_id)
+        run = fetch_run_row(connection, normalized_run_id)
         command = record_run_command(
             connection,
             run_id=normalized_run_id,
@@ -515,9 +525,9 @@ def run_attempt_cancel_requested(
     *,
     lease_generation: int,
 ) -> bool:
-    normalized_attempt_id = _required_text(attempt_id, "ATTEMPT_ID_REQUIRED")
+    normalized_attempt_id = required_text(attempt_id, "ATTEMPT_ID_REQUIRED")
     with get_connection(cfg) as connection:
-        attempt = _fetch_attempt_row(connection, normalized_attempt_id)
+        attempt = fetch_attempt_row(connection, normalized_attempt_id)
         lease = connection.execute(
             "SELECT * FROM run_leases WHERE run_id = ?",
             (attempt["run_id"],),
@@ -525,7 +535,7 @@ def run_attempt_cancel_requested(
         lease_guard = _current_lease_guard(lease, normalized_attempt_id, lease_generation)
         if not lease_guard.accepted:
             return True
-        run = _fetch_run_row(connection, str(attempt["run_id"]))
+        run = fetch_run_row(connection, str(attempt["run_id"]))
         return bool(attempt["cancel_requested_at"] or run["status"] == "canceling")
 
 
@@ -538,14 +548,14 @@ def complete_run_attempt(
     exit_code: int | None = None,
     now: str | None = None,
 ) -> dict[str, Any]:
-    normalized_attempt_id = _required_text(attempt_id, "ATTEMPT_ID_REQUIRED")
+    normalized_attempt_id = required_text(attempt_id, "ATTEMPT_ID_REQUIRED")
     completion_decision = RunExecutionStateMachine.complete_attempt(
-        state=_required_text(state, "ATTEMPT_STATE_REQUIRED"),
+        state=required_text(state, "ATTEMPT_STATE_REQUIRED"),
     )
-    finished_at = _optional_text(now) or now_iso()
+    finished_at = optional_text(now) or now_iso()
     with get_connection(cfg) as connection:
-        attempt = _fetch_attempt_row(connection, normalized_attempt_id)
-        run = _fetch_run_row(connection, str(attempt["run_id"]))
+        attempt = fetch_attempt_row(connection, normalized_attempt_id)
+        run = fetch_run_row(connection, str(attempt["run_id"]))
         lease = connection.execute(
             "SELECT * FROM run_leases WHERE run_id = ?",
             (attempt["run_id"],),
@@ -689,8 +699,8 @@ def _current_lease_guard(lease: sqlite3.Row | None, attempt_id: str, generation:
 
 
 def _claim_to_dict(job: sqlite3.Row, attempt: sqlite3.Row, lease: sqlite3.Row) -> dict[str, Any]:
-    attempt_payload = _attempt_row_to_dict(attempt)
-    lease_payload = _lease_row_to_dict(lease)
+    attempt_payload = attempt_row_to_dict(attempt)
+    lease_payload = lease_row_to_dict(lease)
     return {
         "jobId": job["job_id"],
         "runId": job["run_id"],
@@ -709,7 +719,7 @@ def _work_dir_for_claimed_job(
     *,
     attempt_id: str,
 ) -> str:
-    execution_options = _json_object(job["execution_options_json"])
+    execution_options = json_object(job["execution_options_json"])
     if run_resume_execution_options_requested(execution_options):
         return _source_work_dir_for_run_resume(connection, job, execution_options)
     return str(Path(cfg.work_dir) / "attempts" / attempt_id)
@@ -739,100 +749,3 @@ def _source_work_dir_for_run_resume(
     if not work_dir:
         raise ValueError("RUN_RESUME_SOURCE_WORKDIR_REQUIRED")
     return work_dir
-
-
-def _attempt_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
-    return {
-        "attemptId": row["attempt_id"],
-        "runId": row["run_id"],
-        "jobId": row["job_id"],
-        "leaseGeneration": int(row["lease_generation"]),
-        "attemptNumber": int(row["attempt_number"]),
-        "state": row["state"],
-        "workerId": row["worker_id"],
-        "sessionId": row["session_id"],
-        "slotId": row["slot_id"],
-        "workDir": row["work_dir"],
-        "processPid": row["process_pid"],
-        "processGroupId": row["process_group_id"],
-        "cancelRequestedAt": row["cancel_requested_at"],
-        "killedAt": row["killed_at"],
-        "outputAdoptionState": row["output_adoption_state"],
-        "startedAt": row["started_at"],
-        "finishedAt": row["finished_at"],
-        "exitCode": row["exit_code"],
-        "fencedReason": row["fenced_reason"],
-        "createdAt": row["created_at"],
-        "updatedAt": row["updated_at"],
-    }
-
-
-def _lease_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
-    return {
-        "runId": row["run_id"],
-        "attemptId": row["attempt_id"],
-        "leaseGeneration": int(row["lease_generation"]),
-        "workerId": row["worker_id"],
-        "sessionId": row["session_id"],
-        "slotId": row["slot_id"],
-        "heartbeatAt": row["heartbeat_at"],
-        "expiresAt": row["expires_at"],
-        "state": row["state"],
-        "updatedAt": row["updated_at"],
-    }
-
-
-def _fetch_run_row(connection: sqlite3.Connection, run_id: str) -> sqlite3.Row:
-    row = connection.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
-    if row is None:
-        raise KeyError(run_id)
-    return row
-
-
-def _fetch_attempt_row(connection: sqlite3.Connection, attempt_id: str) -> sqlite3.Row:
-    row = connection.execute(
-        "SELECT * FROM run_attempts WHERE attempt_id = ?",
-        (attempt_id,),
-    ).fetchone()
-    if row is None:
-        raise KeyError(attempt_id)
-    return row
-
-
-def _required_text(value: str, code: str) -> str:
-    normalized = str(value or "").strip()
-    if not normalized:
-        raise ValueError(code)
-    return normalized
-
-
-def _optional_text(value: str | None) -> str | None:
-    normalized = str(value or "").strip()
-    return normalized or None
-
-
-def _stable_json(value: dict[str, Any]) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"))
-
-
-def _json_object(value: str | None) -> dict[str, Any]:
-    try:
-        parsed = json.loads(value or "{}")
-    except json.JSONDecodeError:
-        return {}
-    return parsed if isinstance(parsed, dict) else {}
-
-
-
-
-def _optional_positive_int(value: str) -> int | None:
-    try:
-        parsed = int(value)
-    except ValueError:
-        return None
-    return parsed if parsed > 0 else None
-
-
-def _add_seconds(value: str, seconds: int) -> str:
-    instant = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-    return (instant + timedelta(seconds=seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")

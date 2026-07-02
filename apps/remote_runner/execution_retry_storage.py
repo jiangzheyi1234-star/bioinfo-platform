@@ -11,12 +11,12 @@ from .execution_resume_claim_preflight import (
     validate_run_resume_claim_preflight,
 )
 from .run_execution_state_machine import RunExecutionStateMachine
-from .run_execution_storage import (
-    _add_seconds,
-    _fetch_run_row,
-    _optional_text,
-    _required_text,
-    _stable_json,
+from .execution_storage_primitives import (
+    add_seconds,
+    fetch_run_row,
+    optional_text,
+    required_text,
+    stable_json,
 )
 from .rule_partial_rerun_claim_preflight import (
     rule_partial_rerun_execution_options_requested,
@@ -37,10 +37,10 @@ def request_run_retry(
     scope: str = "run",
     now: str | None = None,
 ) -> dict[str, Any]:
-    normalized_run_id = _required_text(run_id, "RUN_ID_REQUIRED")
-    requested_at = _optional_text(now) or now_iso()
-    normalized_actor = _optional_text(actor) or "remote-runner-api"
-    normalized_reason = _optional_text(reason) or "operator_requested"
+    normalized_run_id = required_text(run_id, "RUN_ID_REQUIRED")
+    requested_at = optional_text(now) or now_iso()
+    normalized_actor = optional_text(actor) or "remote-runner-api"
+    normalized_reason = optional_text(reason) or "operator_requested"
     normalized_scope = _retry_scope(scope)
     normalized_execution_options = execution_options or {}
     if rule_partial_rerun_execution_options_requested(normalized_execution_options):
@@ -73,7 +73,7 @@ def request_run_retry(
             raise ValueError("RUN_RESUME_EXECUTION_OPTIONS_NOT_CURRENT")
     with get_connection(cfg) as connection:
         connection.execute("BEGIN IMMEDIATE")
-        run = _fetch_run_row(connection, normalized_run_id)
+        run = fetch_run_row(connection, normalized_run_id)
         run_status = str(run["status"] or "").lower()
         transition = RunExecutionStateMachine.request_retry(
             current_status=run_status,
@@ -111,7 +111,7 @@ def request_run_retry(
             raise ValueError(f"RUN_RETRY_JOB_NOT_RETRYABLE: {job_retry_decision.reason}")
         remaining_attempts = job_retry_decision.remaining_attempts
         backoff_seconds = retry_backoff_seconds_for_job(job, fallback_seconds=0)
-        available_at = _add_seconds(requested_at, backoff_seconds)
+        available_at = add_seconds(requested_at, backoff_seconds)
         if rule_partial_rerun_execution_options_requested(normalized_execution_options):
             validate_rule_partial_rerun_claim_preflight(
                 normalized_execution_options,
@@ -170,7 +170,7 @@ def request_run_retry(
                 job_retry_decision.job_state,
                 available_at,
                 job_retry_decision.wait_reason_json,
-                _stable_json(normalized_execution_options),
+                stable_json(normalized_execution_options),
                 requested_at,
                 job["job_id"],
             ),
@@ -232,7 +232,7 @@ def request_rule_retry(
     execution_plan: dict[str, Any] | None = None,
     now: str | None = None,
 ) -> dict[str, Any]:
-    normalized_run_id = _required_text(run_id, "RUN_ID_REQUIRED")
+    normalized_run_id = required_text(run_id, "RUN_ID_REQUIRED")
     current_plan = _current_rule_retry_execution_plan(cfg, normalized_run_id)
     plan = execution_plan or current_plan
     if not isinstance(plan, dict):
@@ -270,7 +270,7 @@ def request_run_resume(
     resume_plan: dict[str, Any] | None = None,
     now: str | None = None,
 ) -> dict[str, Any]:
-    normalized_run_id = _required_text(run_id, "RUN_ID_REQUIRED")
+    normalized_run_id = required_text(run_id, "RUN_ID_REQUIRED")
     current_plan = _current_run_resume_execution_plan(cfg, normalized_run_id)
     plan = resume_plan or current_plan
     if not isinstance(plan, dict):
