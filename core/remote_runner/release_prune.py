@@ -8,14 +8,19 @@ import time
 from typing import Any
 
 from core.contracts.execution_activity import summarize_execution_activity
+from core.remote_runner.client import RemoteRunnerClientError
+from core.remote_runner.errors import RemoteRunnerManagerError
 from core.remote_runner.layout import remote_runner_config, remote_runner_current, remote_runner_root
+from core.remote_runner.lifecycle_guard_owner import execution_lifecycle_guard_owner
 
 
 RELEASE_PRUNE_SCHEMA_VERSION = "h2ometa.remote-runner-release-prune.v1"
 RELEASE_PRUNE_CONFIRMATION = "prune-runner-releases"
 RELEASE_PRUNE_ACTIVE_LEASES_REASON = "RUNNER_RELEASE_PRUNE_ACTIVE_LEASES"
 RELEASE_PRUNE_BLOCKED_REASON = "RUNNER_RELEASE_PRUNE_BLOCKED"
+RELEASE_PRUNE_GUARD_UNAVAILABLE_REASON = "RUNNER_RELEASE_PRUNE_GUARD_UNAVAILABLE"
 RELEASE_PRUNE_PLAN_CHANGED_REASON = "RUNNER_RELEASE_PRUNE_PLAN_CHANGED"
+EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION = "h2ometa.execution-lifecycle-guard.v1"
 _VERSIONED_RELEASE_NAME = re.compile(r"^[0-9][0-9A-Za-z._-]*$")
 
 
@@ -52,35 +57,52 @@ class RemoteRunnerReleasePruneMixin:
                 ssh_service=ssh_service,
                 server_record=server_record,
             )
-            block_reasons = [str(item) for item in plan.get("blockReasons") or []]
-            if block_reasons:
-                raise self._manager_error(
-                    "runner release prune blocked because runner execution state is not idle",
-                    status_code=409,
-                    detail={
-                        "reasonCode": _block_reason_code(block_reasons),
-                        "serverId": server_id,
-                        "blockReasons": block_reasons,
-                        "activeLeaseCount": int(plan.get("activeLeaseCount") or 0),
-                        "queuedJobCount": int(plan.get("queuedJobCount") or 0),
-                        "nextAction": "WAIT_FOR_RUNS_OR_REPAIR_BEFORE_PRUNE",
-                    },
-                )
-            if not expected_plan_hash or expected_plan_hash != str(plan.get("planHash") or ""):
-                raise self._manager_error(
-                    "runner release prune plan hash is stale or missing",
-                    status_code=409,
-                    detail={
-                        "reasonCode": RELEASE_PRUNE_PLAN_CHANGED_REASON,
-                        "serverId": server_id,
-                        "expectedPlanHash": str(plan.get("planHash") or ""),
-                    },
-                )
-            deletable = [item for item in plan["releases"] if bool(item.get("deletable"))]
-            deleted = self._delete_release_paths(
+            _raise_if_prune_blocked(plan, server_id=server_id, make_error=self._manager_error)
+            _require_matching_plan_hash(
+                plan,
+                expected_plan_hash=expected_plan_hash,
+                server_id=server_id,
+                make_error=self._manager_error,
+            )
+            guard_owner = execution_lifecycle_guard_owner(server_id=server_id, action="prune")
+            guard = self._request_prune_lifecycle_guard(
+                server_id=server_id,
                 ssh_service=ssh_service,
-                releases_dir=str(plan["releasesDir"]),
-                release_paths=[str(item["path"]) for item in deletable],
+                server_record=server_record,
+                owner=guard_owner,
+            )
+            try:
+                guarded_plan = self._build_release_prune_plan(
+                    server_id=server_id,
+                    ssh_service=ssh_service,
+                    server_record=server_record,
+                )
+                _raise_if_prune_blocked(guarded_plan, server_id=server_id, make_error=self._manager_error)
+                _require_matching_plan_hash(
+                    guarded_plan,
+                    expected_plan_hash=expected_plan_hash,
+                    server_id=server_id,
+                    make_error=self._manager_error,
+                )
+                deletable = [item for item in guarded_plan["releases"] if bool(item.get("deletable"))]
+                deleted = self._delete_release_paths(
+                    ssh_service=ssh_service,
+                    releases_dir=str(guarded_plan["releasesDir"]),
+                    release_paths=[str(item["path"]) for item in deletable],
+                )
+            except (RemoteRunnerManagerError, RemoteRunnerClientError, OSError, EOFError, ValueError, KeyError):
+                self._release_prune_lifecycle_guard_best_effort(
+                    server_id=server_id,
+                    ssh_service=ssh_service,
+                    server_record=server_record,
+                    owner=guard_owner,
+                )
+                raise
+            guard_release = self._release_prune_lifecycle_guard(
+                server_id=server_id,
+                ssh_service=ssh_service,
+                server_record=server_record,
+                owner=guard_owner,
             )
         finally:
             self._release_remote_install_lock(
@@ -89,7 +111,9 @@ class RemoteRunnerReleasePruneMixin:
                 owner_token=lock_owner_token,
             )
         return {
-            **plan,
+            **guarded_plan,
+            "executionLifecycleGuard": guard,
+            "executionLifecycleGuardRelease": guard_release,
             "deletedReleases": deleted,
             "deletedReleaseCount": len(deleted),
             "prunedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -168,6 +192,86 @@ class RemoteRunnerReleasePruneMixin:
         plan["deletableBytes"] = sum(int(item["sizeBytes"]) for item in releases if bool(item["deletable"]))
         plan["planHash"] = _plan_hash(plan)
         return plan
+
+    def _request_prune_lifecycle_guard(
+        self,
+        *,
+        server_id: str,
+        ssh_service,
+        server_record: dict[str, Any],
+        owner: str,
+    ) -> dict[str, Any]:
+        try:
+            return self.request_execution_lifecycle_guard(
+                server_id=server_id,
+                ssh_service=ssh_service,
+                server_record=server_record,
+                action="prune",
+                owner=owner,
+                ttl_seconds=600,
+                timeout=30,
+            )
+        except RemoteRunnerManagerError as exc:
+            if (
+                exc.status_code == 409
+                and isinstance(exc.detail, dict)
+                and exc.detail.get("schemaVersion") == EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION
+            ):
+                _raise_lifecycle_guard_blocked(exc.detail, server_id=server_id, make_error=self._manager_error)
+            raise self._manager_error(
+                "runner release prune guard failed because execution lifecycle diagnostics are unavailable",
+                status_code=409,
+                detail={
+                    "reasonCode": RELEASE_PRUNE_GUARD_UNAVAILABLE_REASON,
+                    "serverId": server_id,
+                    "nextAction": "REPAIR_RUNNER_DIAGNOSTICS_BEFORE_PRUNE",
+                },
+            ) from exc
+        except RemoteRunnerClientError as exc:
+            raise self._manager_error(
+                "runner release prune guard failed because execution lifecycle diagnostics are unavailable",
+                status_code=409,
+                detail={
+                    "reasonCode": RELEASE_PRUNE_GUARD_UNAVAILABLE_REASON,
+                    "serverId": server_id,
+                    "nextAction": "REPAIR_RUNNER_DIAGNOSTICS_BEFORE_PRUNE",
+                },
+            ) from exc
+
+    def _release_prune_lifecycle_guard(
+        self,
+        *,
+        server_id: str,
+        ssh_service,
+        server_record: dict[str, Any],
+        owner: str,
+    ) -> dict[str, Any]:
+        return self.release_execution_lifecycle_guard(
+            server_id=server_id,
+            ssh_service=ssh_service,
+            server_record=server_record,
+            action="prune",
+            owner=owner,
+            timeout=30,
+        )
+
+    def _release_prune_lifecycle_guard_best_effort(
+        self,
+        *,
+        server_id: str,
+        ssh_service,
+        server_record: dict[str, Any],
+        owner: str,
+    ) -> None:
+        try:
+            self._release_prune_lifecycle_guard(
+                server_id=server_id,
+                ssh_service=ssh_service,
+                server_record=server_record,
+                owner=owner,
+            )
+        except (RemoteRunnerManagerError, RemoteRunnerClientError, OSError, EOFError, ValueError, KeyError):
+            return
 
     @classmethod
     def _delete_release_paths(
@@ -339,6 +443,66 @@ def _block_reason_code(block_reasons: list[str]) -> str:
     if "active-workflow-leases" in block_reasons:
         return RELEASE_PRUNE_ACTIVE_LEASES_REASON
     return RELEASE_PRUNE_BLOCKED_REASON
+
+
+def _raise_if_prune_blocked(plan: dict[str, Any], *, server_id: str, make_error: type[Exception]) -> None:
+    block_reasons = [str(item) for item in plan.get("blockReasons") or []]
+    if not block_reasons:
+        return
+    raise make_error(
+        "runner release prune blocked because runner execution state is not idle",
+        status_code=409,
+        detail={
+            "reasonCode": _block_reason_code(block_reasons),
+            "serverId": server_id,
+            "blockReasons": block_reasons,
+            "activeLeaseCount": int(plan.get("activeLeaseCount") or 0),
+            "queuedJobCount": int(plan.get("queuedJobCount") or 0),
+            "nextAction": "WAIT_FOR_RUNS_OR_REPAIR_BEFORE_PRUNE",
+        },
+    )
+
+
+def _raise_lifecycle_guard_blocked(
+    guard_payload: dict[str, Any],
+    *,
+    server_id: str,
+    make_error: type[Exception],
+) -> None:
+    block_reasons = [str(item) for item in guard_payload.get("blockReasons") or []]
+    raise make_error(
+        "runner release prune blocked because runner execution state is not idle",
+        status_code=409,
+        detail={
+            "reasonCode": _block_reason_code(block_reasons),
+            "serverId": server_id,
+            "blockReasons": block_reasons,
+            "activeLeaseCount": int(guard_payload.get("activeLeaseCount") or 0),
+            "queuedJobCount": int(guard_payload.get("queuedJobCount") or 0),
+            "nextAction": "WAIT_FOR_RUNS_OR_REPAIR_BEFORE_PRUNE",
+        },
+    )
+
+
+def _require_matching_plan_hash(
+    plan: dict[str, Any],
+    *,
+    expected_plan_hash: str,
+    server_id: str,
+    make_error: type[Exception],
+) -> None:
+    actual = str(plan.get("planHash") or "")
+    if expected_plan_hash and expected_plan_hash == actual:
+        return
+    raise make_error(
+        "runner release prune plan hash is stale or missing",
+        status_code=409,
+        detail={
+            "reasonCode": RELEASE_PRUNE_PLAN_CHANGED_REASON,
+            "serverId": server_id,
+            "expectedPlanHash": actual,
+        },
+    )
 
 
 def _is_versioned_release_name(name: str) -> bool:

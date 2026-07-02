@@ -54,10 +54,14 @@ class PruneHarness(RemoteRunnerReleasePruneMixin):
         *,
         diagnostics: dict[str, object] | None = None,
         active_leases: list[dict[str, object]] | None = None,
+        guard_payload: dict[str, object] | None = None,
     ) -> None:
         self.active_leases = active_leases or []
         self.diagnostics = diagnostics
+        self.guard_payload = guard_payload
         self.lock_events: list[str] = []
+        self.lifecycle_requests: list[dict[str, object]] = []
+        self.lifecycle_releases: list[dict[str, object]] = []
 
     def _resolve_remote_home(self, _ssh_service) -> str:
         return "/home/tester"
@@ -66,6 +70,31 @@ class PruneHarness(RemoteRunnerReleasePruneMixin):
         if self.diagnostics is not None:
             return self.diagnostics
         return _diagnostics(active_leases=self.active_leases)
+
+    def request_execution_lifecycle_guard(self, **kwargs):
+        self.lifecycle_requests.append(dict(kwargs))
+        payload = self.guard_payload or _lifecycle_guard_payload(
+            action=str(kwargs["action"]),
+            owner=str(kwargs["owner"]),
+        )
+        if payload.get("blockReasons"):
+            raise RemoteRunnerManagerError(
+                "remote runner execution lifecycle guard blocked",
+                status_code=409,
+                detail=payload,
+            )
+        return payload
+
+    def release_execution_lifecycle_guard(self, **kwargs):
+        self.lifecycle_releases.append(dict(kwargs))
+        return {
+            "schemaVersion": "h2ometa.execution-lifecycle-guard-release.v1",
+            "action": kwargs["action"],
+            "owner": kwargs["owner"],
+            "released": True,
+            "releasedAt": "2099-06-07T10:01:00Z",
+            "previous": {},
+        }
 
     def _acquire_remote_install_lock(self, **_kwargs) -> None:
         self.lock_events.append("acquire")
@@ -155,6 +184,29 @@ def test_release_prune_run_deletes_only_unprotected_release_with_matching_plan_h
 
     assert result["deletedReleaseCount"] == 1
     assert manager.lock_events == ["acquire", "release"]
+    assert manager.lifecycle_requests == [
+        {
+            "server_id": "srv_test",
+            "ssh_service": ssh,
+            "server_record": _server_record(),
+            "action": "prune",
+            "owner": "srv_test:prune:lifecycle",
+            "ttl_seconds": 600,
+            "timeout": 30,
+        }
+    ]
+    assert manager.lifecycle_releases == [
+        {
+            "server_id": "srv_test",
+            "ssh_service": ssh,
+            "server_record": _server_record(),
+            "action": "prune",
+            "owner": "srv_test:prune:lifecycle",
+            "timeout": 30,
+        }
+    ]
+    assert result["executionLifecycleGuard"]["action"] == "prune"
+    assert result["executionLifecycleGuardRelease"]["released"] is True
     assert result["deletedReleases"] == [
         {
             "name": "0.1.0-control-plane",
@@ -217,6 +269,37 @@ def test_release_prune_blocks_when_execution_diagnostics_are_not_idle() -> None:
     assert blocked.value.status_code == 409
     assert blocked.value.detail["reasonCode"] == RELEASE_PRUNE_BLOCKED_REASON
     assert blocked.value.detail["blockReasons"] == plan["blockReasons"]
+    assert manager.lifecycle_requests == []
+
+
+def test_release_prune_rechecks_lifecycle_guard_before_deleting_releases() -> None:
+    ssh = FakeSshService()
+    manager = PruneHarness(
+        guard_payload=_lifecycle_guard_payload(
+            active_leases=[{"runId": "run_raced"}],
+            block_reasons=["active-workflow-leases"],
+        )
+    )
+    plan = manager.preview_release_prune(
+        server_id="srv_test",
+        ssh_service=ssh,
+        server_record=_server_record(),
+    )
+
+    with pytest.raises(RemoteRunnerManagerError) as blocked:
+        manager.run_release_prune(
+            server_id="srv_test",
+            ssh_service=ssh,
+            server_record=_server_record(),
+            confirmation=RELEASE_PRUNE_CONFIRMATION,
+            plan_hash=plan["planHash"],
+        )
+
+    assert blocked.value.status_code == 409
+    assert blocked.value.detail["reasonCode"] == RELEASE_PRUNE_ACTIVE_LEASES_REASON
+    assert manager.lifecycle_requests[0]["action"] == "prune"
+    assert manager.lifecycle_releases == []
+    assert ssh.deleted_command == ""
 
 
 def test_release_prune_run_rejects_active_leases_and_stale_plan_hash() -> None:
@@ -232,7 +315,8 @@ def test_release_prune_run_rejects_active_leases_and_stale_plan_hash() -> None:
     assert active.value.detail["reasonCode"] == RELEASE_PRUNE_ACTIVE_LEASES_REASON
 
     with pytest.raises(RemoteRunnerManagerError) as stale:
-        PruneHarness().run_release_prune(
+        stale_manager = PruneHarness()
+        stale_manager.run_release_prune(
             server_id="srv_test",
             ssh_service=FakeSshService(),
             server_record=_server_record(),
@@ -241,3 +325,32 @@ def test_release_prune_run_rejects_active_leases_and_stale_plan_hash() -> None:
         )
     assert stale.value.status_code == 409
     assert stale.value.detail["reasonCode"] == RELEASE_PRUNE_PLAN_CHANGED_REASON
+    assert stale_manager.lifecycle_requests == []
+
+
+def _lifecycle_guard_payload(
+    *,
+    action: str = "prune",
+    owner: str = "srv_test:prune:lifecycle",
+    active_leases: list[dict[str, object]] | None = None,
+    block_reasons: list[str] | None = None,
+) -> dict[str, object]:
+    return {
+        "schemaVersion": "h2ometa.execution-lifecycle-guard.v1",
+        "action": action,
+        "owner": owner,
+        "idle": not block_reasons,
+        "maintenanceActive": True,
+        "requestedAt": "2099-06-07T10:00:00Z",
+        "expiresAt": "2099-06-07T10:10:00Z",
+        "activeWorkerCount": 1,
+        "drainRequestedWorkerCount": 1,
+        "activeLeaseCount": len(active_leases or []),
+        "allocatedResourceCount": 0,
+        "resourceWaitCount": 0,
+        "queuedJobCount": 0,
+        "claimedJobCount": 0,
+        "runningSlotCount": 0,
+        "blockReasons": block_reasons or [],
+        "activeLeases": active_leases or [],
+    }
