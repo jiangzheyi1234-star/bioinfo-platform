@@ -136,6 +136,34 @@ export type WorkflowDesignSemanticPortPlan = {
   edges: WorkflowDesignSemanticPortEdgePlan[];
 };
 
+export type WorkflowDesignSemanticPortEvidenceEdge = {
+  edgeId?: string;
+  from: { nodeId: string; port: string };
+  to: { nodeId: string; port: string };
+  compatible: boolean;
+  matchedFields: string[];
+  genericFields: string[];
+  advisoryFields: string[];
+  mismatchedField: string;
+  hardChecks: string[];
+  recommendation: {
+    action: "connect" | "insert-converter" | "block" | string;
+    reasonCode: string;
+    converterCandidateCount: number;
+  };
+};
+
+export type WorkflowDesignSemanticPortEvidence = {
+  schemaVersion: "h2ometa.workflow-design-semantic-port-evidence.v1";
+  sourcePlanSchemaVersion: string;
+  status: "passed" | "blocked" | string;
+  edgeCount: number;
+  compatibleEdgeCount: number;
+  blockedEdgeCount: number;
+  converterCandidateCount: number;
+  edges: WorkflowDesignSemanticPortEvidenceEdge[];
+};
+
 export type WorkflowDesignPlan = {
   valid: boolean;
   normalizedGraph: Record<string, unknown>;
@@ -165,6 +193,7 @@ export type WorkflowRevisionSummary = {
   graphSnapshot?: {
     schemaVersion?: string;
     runSpec?: Record<string, unknown>;
+    semanticPortEvidence?: WorkflowDesignSemanticPortEvidence;
   };
   runtimeLock?: Record<string, unknown>;
   compiler?: Record<string, unknown>;
@@ -175,6 +204,7 @@ export type WorkflowRevisionSummary = {
 export type WorkflowDesignCompileResult = {
   workflowRevisionId?: string;
   workflowRevision?: WorkflowRevisionSummary;
+  semanticPortEvidence?: WorkflowDesignSemanticPortEvidence;
   layout: Record<string, string | string[]>;
   runSpec: Record<string, unknown>;
 };

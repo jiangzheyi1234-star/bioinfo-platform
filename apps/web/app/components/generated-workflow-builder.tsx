@@ -47,6 +47,7 @@ import { GeneratedWorkflowRuleSpecPanel } from "./generated-workflow-rule-spec-p
 import { GeneratedWorkflowRuntimeEditor } from "./generated-workflow-runtime-editor";
 import { GeneratedWorkflowGraphSnakefilePreview, GeneratedWorkflowSnakefilePreview } from "./generated-workflow-snakefile-preview";
 import { GeneratedWorkflowSubflowControls } from "./generated-workflow-subflow-controls";
+import { WorkflowDesignCompileSummary } from "./workflow-design-compile-summary";
 import { WorkflowDesignSemanticPortPlanPreview } from "./workflow-design-semantic-port-plan";
 import { StepParamsEditor } from "./generated-workflow-step-params-editor";
 import { GeneratedWorkflowToolRecommendations } from "./generated-workflow-tool-recommendations";
@@ -248,35 +249,6 @@ function WorkflowDesignPlanPreview({ plan }: { plan: WorkflowDesignPlan | null }
         <pre className="max-h-72 overflow-auto rounded-md bg-slate-950 p-3 text-[11px] leading-5 text-slate-100">
           {plan.previews.config}
         </pre>
-      </div>
-    </div>
-  );
-}
-
-function WorkflowDesignCompileSummary({ result }: { result: WorkflowDesignCompileResult | null }) {
-  if (!result) return null;
-  const entries = Object.entries(result.layout || {});
-  return (
-    <div className="rounded-lg border border-slate-200 px-3 py-3">
-      <div className="mb-3 flex items-center gap-2 text-sm font-medium text-slate-900">
-        <Archive strokeWidth={1.5} className="h-4 w-4 text-slate-500" />
-        编译产物
-      </div>
-      <div className="grid gap-1.5">
-        {result.workflowRevisionId ? (
-          <div className="grid gap-1 rounded-md bg-emerald-50 px-3 py-2 text-xs md:grid-cols-[120px_minmax(0,1fr)]">
-            <div className="font-medium text-emerald-700">WorkflowRevision</div>
-            <div className="min-w-0 truncate font-mono text-emerald-800">{result.workflowRevisionId}</div>
-          </div>
-        ) : null}
-        {entries.map(([key, value]) => (
-          <div key={key} className="grid gap-1 rounded-md bg-slate-50 px-3 py-2 text-xs md:grid-cols-[120px_minmax(0,1fr)]">
-            <div className="font-medium text-slate-600">{key}</div>
-            <div className="min-w-0 font-mono text-slate-700">
-              {Array.isArray(value) ? value.join(", ") : value}
-            </div>
-          </div>
-        ))}
       </div>
     </div>
   );
