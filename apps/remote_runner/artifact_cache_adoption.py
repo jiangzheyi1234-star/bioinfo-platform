@@ -23,6 +23,7 @@ from .artifact_io import (
 from .config import RemoteRunnerConfig
 from .event_contracts import append_run_event_v2
 from .evidence_storage import append_evidence_event
+from .run_execution_state_machine import RunExecutionStateMachine
 from .storage_core import get_connection, now_iso
 from .workflow_run_storage import StaleRunAttemptError
 
@@ -398,7 +399,13 @@ def _complete_run_from_cache(
     cache_pin_ids: list[str],
     occurred_at: str,
 ) -> None:
-    next_state_version = int(run["state_version"]) + 1
+    transition = RunExecutionStateMachine.publish_status(
+        current_status=str(run["status"]),
+        state_version=int(run["state_version"]),
+        status="completed",
+        stage="cache",
+        message="Workflow outputs adopted from artifact cache.",
+    )
     connection.execute(
         """
         UPDATE runs
@@ -407,7 +414,7 @@ def _complete_run_from_cache(
             last_error_json = NULL, finished_at = ?, last_updated_at = ?
         WHERE run_id = ?
         """,
-        (next_state_version, result_dir, occurred_at, occurred_at, run_id),
+        (transition.state_version, result_dir, occurred_at, occurred_at, run_id),
     )
     connection.execute(
         """
@@ -422,12 +429,12 @@ def _complete_run_from_cache(
     append_run_event_v2(
         connection,
         run_id=run_id,
-        event_type="status-transition",
-        from_status=str(run["status"]),
-        to_status="completed",
-        stage="cache",
-        state_version=next_state_version,
-        message="Workflow outputs adopted from artifact cache.",
+        event_type=transition.event_type,
+        from_status=transition.from_status,
+        to_status=transition.to_status,
+        stage=transition.stage,
+        state_version=transition.state_version,
+        message=transition.event_message,
         request_id=request_id,
         payload={
             "artifactCount": artifact_count,

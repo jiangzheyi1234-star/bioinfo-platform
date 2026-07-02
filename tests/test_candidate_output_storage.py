@@ -419,6 +419,75 @@ def test_candidate_adoption_atomically_completes_run_and_attempt(tmp_path: Path)
     assert candidate_row["adopted_artifact_id"] == adopted["artifactIds"][0]
 
 
+def test_candidate_adoption_cannot_complete_terminal_run(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    claim = _create_attempt(cfg, "run_candidate_terminal_finalize")
+    output = Path(cfg.results_dir) / claim["runId"] / "final.txt"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text("final output\n", encoding="utf-8")
+    candidate = record_candidate_output(
+        cfg,
+        run_id=claim["runId"],
+        attempt_id=claim["attemptId"],
+        lease_generation=claim["leaseGeneration"],
+        output_key="report",
+        path=output,
+    )
+    expected = _expected_report(output, sha256=candidate["sha256"])
+    verify_candidate_outputs(
+        cfg,
+        run_id=claim["runId"],
+        attempt_id=claim["attemptId"],
+        lease_generation=claim["leaseGeneration"],
+        expected_outputs=expected,
+    )
+    with get_connection(cfg) as connection:
+        connection.execute(
+            """
+            UPDATE runs
+            SET status = 'failed', stage = 'execute', state_version = 2,
+                message = 'Terminal failure.'
+            WHERE run_id = ?
+            """,
+            (claim["runId"],),
+        )
+        connection.commit()
+
+    with pytest.raises(ValueError, match="RUN_STATUS_TERMINAL_IMMUTABLE: failed -> completed"):
+        adopt_verified_candidate_outputs(
+            cfg,
+            run_id=claim["runId"],
+            attempt_id=claim["attemptId"],
+            lease_generation=claim["leaseGeneration"],
+            expected_outputs=expected,
+            finalize_run=True,
+            request_id=f"req_{claim['runId']}",
+            result_dir=str(output.parent),
+        )
+
+    with get_connection(cfg) as connection:
+        run = connection.execute(
+            "SELECT status, stage, state_version, message FROM runs WHERE run_id = ?",
+            (claim["runId"],),
+        ).fetchone()
+        candidate_row = connection.execute(
+            "SELECT adopted_artifact_id FROM candidate_outputs WHERE candidate_output_id = ?",
+            (candidate["candidateOutputId"],),
+        ).fetchone()
+        artifact_count = connection.execute(
+            "SELECT COUNT(*) AS count FROM artifacts WHERE run_id = ?",
+            (claim["runId"],),
+        ).fetchone()["count"]
+    assert dict(run) == {
+        "status": "failed",
+        "stage": "execute",
+        "state_version": 2,
+        "message": "Terminal failure.",
+    }
+    assert candidate_row["adopted_artifact_id"] is None
+    assert artifact_count == 0
+
+
 def test_candidate_output_adoption_rejects_unmanaged_path_without_artifact_mutation(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     claim = _create_attempt(cfg, "run_candidate_unmanaged")

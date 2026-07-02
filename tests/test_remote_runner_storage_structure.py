@@ -162,6 +162,8 @@ def test_run_execution_state_machine_owns_core_status_decisions() -> None:
     execution_primitives = (REMOTE_RUNNER / "execution_storage_primitives.py").read_text(encoding="utf-8")
     workflow_run_storage = (REMOTE_RUNNER / "workflow_run_storage.py").read_text(encoding="utf-8")
     execution_retry_storage = (REMOTE_RUNNER / "execution_retry_storage.py").read_text(encoding="utf-8")
+    artifact_cache_adoption = (REMOTE_RUNNER / "artifact_cache_adoption.py").read_text(encoding="utf-8")
+    candidate_output_storage = (REMOTE_RUNNER / "candidate_output_storage.py").read_text(encoding="utf-8")
     reconciler_actions = (REMOTE_RUNNER / "reconciler_actions.py").read_text(encoding="utf-8")
     run_worker = (REMOTE_RUNNER / "run_worker.py").read_text(encoding="utf-8")
 
@@ -189,6 +191,8 @@ def test_run_execution_state_machine_owns_core_status_decisions() -> None:
     assert "from .run_execution_state_machine import RunExecutionStateMachine" in run_execution_storage
     assert "from .run_execution_state_machine import RunExecutionStateMachine" in workflow_run_storage
     assert "from .run_execution_state_machine import RunExecutionStateMachine" in execution_retry_storage
+    assert "from .run_execution_state_machine import RunExecutionStateMachine" in artifact_cache_adoption
+    assert "from .run_execution_state_machine import RunExecutionStateMachine" in candidate_output_storage
     assert "from .run_execution_state_machine import RunExecutionStateMachine" in reconciler_actions
     assert "from .run_execution_state_machine import RunExecutionStateMachine" in run_worker
     assert "from .execution_storage_primitives import (" in run_execution_storage
@@ -200,6 +204,8 @@ def test_run_execution_state_machine_owns_core_status_decisions() -> None:
     assert "RETRYABLE_RUN_STATUSES =" not in execution_retry_storage
     assert "def required_text(" not in run_execution_storage
     assert "def fetch_run_row(" not in run_execution_storage
+    assert 'next_state_version = int(run["state_version"]) + 1' not in artifact_cache_adoption
+    assert 'next_state_version = int(run["state_version"]) + 1' not in candidate_output_storage
     assert "def _terminal_job_state_for_attempt_state(" not in run_execution_storage
     assert "def _attempt_state_for_run_status(" not in run_worker
     assert "RunExecutionStateMachine.fence_attempt(" in run_execution_storage
