@@ -221,15 +221,13 @@ class RemoteRunnerManager(
                 )
                 if reuse_result is not None:
                     return build_bootstrap_reuse_response(reuse_result, server)
-
                 self._guard_bootstrap_when_execution_idle(
                     server_id=server_id,
                     ssh_service=ssh_service,
                     server_record=server_record,
                     bootstrap_metadata=bootstrap_metadata,
                     bootstrap_action=bootstrap_action,
-                    previous_release=previous_release,
-                    previous_config_present=previous_config_payload is not None,
+                    previous_release=previous_release, previous_config_present=previous_config_payload is not None,
                 )
                 self._deploy_service_runtime_bundle(
                     ssh_service=ssh_service,

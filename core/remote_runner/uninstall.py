@@ -8,6 +8,8 @@ import time
 from typing import Any
 
 from core.contracts.execution_activity import summarize_execution_activity
+from core.remote_runner.client import RemoteRunnerClientError
+from core.remote_runner.errors import RemoteRunnerManagerError
 from core.remote_runner.layout import (
     REMOTE_RUNNER_PROFILE_NAME,
     remote_runner_config,
@@ -16,13 +18,17 @@ from core.remote_runner.layout import (
     remote_runner_runtime_state,
     remote_runner_shared,
 )
+from core.remote_runner.lifecycle_guard_owner import execution_lifecycle_guard_owner
 
 
 RUNNER_UNINSTALL_SCHEMA_VERSION = "h2ometa.remote-runner-uninstall.v1"
 RUNNER_UNINSTALL_CONFIRMATION = "uninstall-runner-control-plane"
 RUNNER_UNINSTALL_ACTIVE_LEASES_REASON = "RUNNER_UNINSTALL_ACTIVE_LEASES"
 RUNNER_UNINSTALL_BLOCKED_REASON = "RUNNER_UNINSTALL_BLOCKED"
+RUNNER_UNINSTALL_GUARD_UNAVAILABLE_REASON = "RUNNER_UNINSTALL_GUARD_UNAVAILABLE"
 RUNNER_UNINSTALL_PLAN_CHANGED_REASON = "RUNNER_UNINSTALL_PLAN_CHANGED"
+EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION = "h2ometa.execution-lifecycle-guard.v1"
+EXECUTION_LIFECYCLE_MAINTENANCE_KEY = "execution_lifecycle_maintenance"
 _SAFE_TARGET_NAME = re.compile(r"^[A-Za-z0-9_.:-]+$")
 
 
@@ -59,35 +65,50 @@ class RemoteRunnerUninstallMixin:
                 ssh_service=ssh_service,
                 server_record=server_record,
             )
-            block_reasons = [str(item) for item in plan.get("blockReasons") or []]
-            if block_reasons:
-                raise self._manager_error(
-                    "runner uninstall blocked because runner execution state is not idle",
-                    status_code=409,
-                    detail={
-                        "reasonCode": _block_reason_code(block_reasons),
-                        "serverId": server_id,
-                        "blockReasons": block_reasons,
-                        "activeLeaseCount": int(plan.get("activeLeaseCount") or 0),
-                        "queuedJobCount": int(plan.get("queuedJobCount") or 0),
-                        "nextAction": "WAIT_FOR_RUNS_OR_REPAIR_BEFORE_UNINSTALL",
-                    },
-                )
-            if not expected_plan_hash or expected_plan_hash != str(plan.get("planHash") or ""):
-                raise self._manager_error(
-                    "runner uninstall plan hash is stale or missing",
-                    status_code=409,
-                    detail={
-                        "reasonCode": RUNNER_UNINSTALL_PLAN_CHANGED_REASON,
-                        "serverId": server_id,
-                        "expectedPlanHash": str(plan.get("planHash") or ""),
-                    },
-                )
-            removed = self._run_uninstall_targets(
-                ssh_service=ssh_service,
-                runner_root=str(plan["runnerRoot"]),
-                targets=[dict(item) for item in plan["uninstallTargets"]],
+            _raise_if_uninstall_blocked(plan, server_id=server_id, make_error=self._manager_error)
+            _require_matching_plan_hash(
+                plan,
+                expected_plan_hash=expected_plan_hash,
+                server_id=server_id,
+                make_error=self._manager_error,
             )
+            guard_owner = execution_lifecycle_guard_owner(server_id=server_id, action="uninstall")
+            guard = self._request_uninstall_lifecycle_guard(
+                server_id=server_id,
+                ssh_service=ssh_service,
+                server_record=server_record,
+                owner=guard_owner,
+            )
+            try:
+                guarded_plan = self._build_uninstall_plan(
+                    server_id=server_id,
+                    ssh_service=ssh_service,
+                    server_record=server_record,
+                )
+                _raise_if_uninstall_blocked(guarded_plan, server_id=server_id, make_error=self._manager_error)
+                _require_matching_plan_hash(
+                    guarded_plan,
+                    expected_plan_hash=expected_plan_hash,
+                    server_id=server_id,
+                    make_error=self._manager_error,
+                )
+                removed = self._run_uninstall_targets(
+                    ssh_service=ssh_service,
+                    runner_root=str(guarded_plan["runnerRoot"]),
+                    targets=[dict(item) for item in guarded_plan["uninstallTargets"]],
+                )
+                guard_release = self._clear_uninstall_lifecycle_guard(
+                    ssh_service=ssh_service,
+                    runner_root=str(guarded_plan["runnerRoot"]),
+                    owner=guard_owner,
+                )
+            except (RemoteRunnerManagerError, RemoteRunnerClientError, OSError, EOFError, ValueError, KeyError):
+                self._clear_uninstall_lifecycle_guard_best_effort(
+                    ssh_service=ssh_service,
+                    runner_root=runner_root,
+                    owner=guard_owner,
+                )
+                raise
         finally:
             self._release_remote_install_lock(
                 ssh_service=ssh_service,
@@ -95,7 +116,9 @@ class RemoteRunnerUninstallMixin:
                 owner_token=lock_owner_token,
             )
         return {
-            **plan,
+            **guarded_plan,
+            "executionLifecycleGuard": guard,
+            "executionLifecycleGuardRelease": guard_release,
             "removedTargets": removed,
             "removedTargetCount": len(removed),
             "uninstalledAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -144,6 +167,51 @@ class RemoteRunnerUninstallMixin:
         }
         plan["planHash"] = _plan_hash(plan)
         return plan
+
+    def _request_uninstall_lifecycle_guard(
+        self,
+        *,
+        server_id: str,
+        ssh_service,
+        server_record: dict[str, Any],
+        owner: str,
+    ) -> dict[str, Any]:
+        try:
+            return self.request_execution_lifecycle_guard(
+                server_id=server_id,
+                ssh_service=ssh_service,
+                server_record=server_record,
+                action="uninstall",
+                owner=owner,
+                ttl_seconds=600,
+                timeout=30,
+            )
+        except RemoteRunnerManagerError as exc:
+            if (
+                exc.status_code == 409
+                and isinstance(exc.detail, dict)
+                and exc.detail.get("schemaVersion") == EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION
+            ):
+                _raise_lifecycle_guard_blocked(exc.detail, server_id=server_id, make_error=self._manager_error)
+            raise self._manager_error(
+                "runner uninstall guard failed because execution lifecycle diagnostics are unavailable",
+                status_code=409,
+                detail={
+                    "reasonCode": RUNNER_UNINSTALL_GUARD_UNAVAILABLE_REASON,
+                    "serverId": server_id,
+                    "nextAction": "REPAIR_RUNNER_DIAGNOSTICS_BEFORE_UNINSTALL",
+                },
+            ) from exc
+        except RemoteRunnerClientError as exc:
+            raise self._manager_error(
+                "runner uninstall guard failed because execution lifecycle diagnostics are unavailable",
+                status_code=409,
+                detail={
+                    "reasonCode": RUNNER_UNINSTALL_GUARD_UNAVAILABLE_REASON,
+                    "serverId": server_id,
+                    "nextAction": "REPAIR_RUNNER_DIAGNOSTICS_BEFORE_UNINSTALL",
+                },
+            ) from exc
 
     @classmethod
     def _run_uninstall_targets(
@@ -237,6 +305,79 @@ class RemoteRunnerUninstallMixin:
         )
         _ = exit_code, stderr
         return _parse_removed_targets(stdout, make_error=cls._manager_error)
+
+    @classmethod
+    def _clear_uninstall_lifecycle_guard(
+        cls,
+        *,
+        ssh_service,
+        runner_root: str,
+        owner: str,
+    ) -> dict[str, Any]:
+        command = (
+            "bash -s -- __RUNNER_ROOT__ __OWNER__ __STATE_KEY__ <<'H2OMETA_CLEAR_UNINSTALL_GUARD'\n"
+            "set -eu\n"
+            "RUNNER_ROOT=$1\n"
+            "OWNER=$2\n"
+            "STATE_KEY=$3\n"
+            "DB=\"$RUNNER_ROOT/shared/data/runner.db\"\n"
+            "[ -f \"$DB\" ] || { printf '{\"released\":false,\"reason\":\"database-missing\"}\\n'; exit 0; }\n"
+            "python3 - \"$DB\" \"$OWNER\" \"$STATE_KEY\" <<'PY'\n"
+            "import json, sqlite3, sys\n"
+            "db_path, owner, state_key = sys.argv[1], sys.argv[2], sys.argv[3]\n"
+            "connection = sqlite3.connect(db_path, timeout=10)\n"
+            "connection.execute('PRAGMA busy_timeout=10000')\n"
+            "released = False\n"
+            "reason = 'not-owned'\n"
+            "try:\n"
+            "    row = connection.execute('SELECT value FROM service_state WHERE key = ?', (state_key,)).fetchone()\n"
+            "    if row is None:\n"
+            "        reason = 'not-found'\n"
+            "    else:\n"
+            "        try:\n"
+            "            payload = json.loads(str(row[0] or '{}'))\n"
+            "        except json.JSONDecodeError:\n"
+            "            payload = {}\n"
+            "        if payload.get('schemaVersion') == 'h2ometa.execution-lifecycle-guard.v1' and payload.get('action') == 'uninstall' and payload.get('owner') == owner:\n"
+            "            connection.execute('DELETE FROM service_state WHERE key = ?', (state_key,))\n"
+            "            connection.commit()\n"
+            "            released = True\n"
+            "            reason = 'released'\n"
+            "finally:\n"
+            "    connection.close()\n"
+            "print(json.dumps({'released': released, 'reason': reason}, sort_keys=True, separators=(',', ':')))\n"
+            "PY\n"
+            "H2OMETA_CLEAR_UNINSTALL_GUARD"
+        )
+        command = (
+            command.replace("__RUNNER_ROOT__", shlex.quote(runner_root))
+            .replace("__OWNER__", shlex.quote(owner))
+            .replace("__STATE_KEY__", shlex.quote(EXECUTION_LIFECYCLE_MAINTENANCE_KEY))
+        )
+        _exit_code, stdout, _stderr = cls._run_checked(
+            ssh_service,
+            command,
+            step="clear uninstall execution lifecycle guard",
+            timeout=20,
+        )
+        return _parse_guard_release(stdout, make_error=cls._manager_error)
+
+    @classmethod
+    def _clear_uninstall_lifecycle_guard_best_effort(
+        cls,
+        *,
+        ssh_service,
+        runner_root: str,
+        owner: str,
+    ) -> None:
+        try:
+            cls._clear_uninstall_lifecycle_guard(
+                ssh_service=ssh_service,
+                runner_root=runner_root,
+                owner=owner,
+            )
+        except (RemoteRunnerManagerError, RemoteRunnerClientError, OSError, EOFError, ValueError, KeyError):
+            return
 
 
 def _list_remote_uninstall_targets(
@@ -375,6 +516,83 @@ def _parse_removed_targets(stdout: str, *, make_error: type[Exception]) -> list[
             }
         )
     return removed
+
+
+def _raise_if_uninstall_blocked(plan: dict[str, Any], *, server_id: str, make_error: type[Exception]) -> None:
+    block_reasons = [str(item) for item in plan.get("blockReasons") or []]
+    if not block_reasons:
+        return
+    raise make_error(
+        "runner uninstall blocked because runner execution state is not idle",
+        status_code=409,
+        detail={
+            "reasonCode": _block_reason_code(block_reasons),
+            "serverId": server_id,
+            "blockReasons": block_reasons,
+            "activeLeaseCount": int(plan.get("activeLeaseCount") or 0),
+            "queuedJobCount": int(plan.get("queuedJobCount") or 0),
+            "nextAction": "WAIT_FOR_RUNS_OR_REPAIR_BEFORE_UNINSTALL",
+        },
+    )
+
+
+def _raise_lifecycle_guard_blocked(
+    guard_payload: dict[str, Any],
+    *,
+    server_id: str,
+    make_error: type[Exception],
+) -> None:
+    block_reasons = [str(item) for item in guard_payload.get("blockReasons") or []]
+    raise make_error(
+        "runner uninstall blocked because runner execution state is not idle",
+        status_code=409,
+        detail={
+            "reasonCode": _block_reason_code(block_reasons),
+            "serverId": server_id,
+            "blockReasons": block_reasons,
+            "activeLeaseCount": int(guard_payload.get("activeLeaseCount") or 0),
+            "queuedJobCount": int(guard_payload.get("queuedJobCount") or 0),
+            "nextAction": "WAIT_FOR_RUNS_OR_REPAIR_BEFORE_UNINSTALL",
+        },
+    )
+
+
+def _require_matching_plan_hash(
+    plan: dict[str, Any],
+    *,
+    expected_plan_hash: str,
+    server_id: str,
+    make_error: type[Exception],
+) -> None:
+    actual = str(plan.get("planHash") or "")
+    if expected_plan_hash and expected_plan_hash == actual:
+        return
+    raise make_error(
+        "runner uninstall plan hash is stale or missing",
+        status_code=409,
+        detail={
+            "reasonCode": RUNNER_UNINSTALL_PLAN_CHANGED_REASON,
+            "serverId": server_id,
+            "expectedPlanHash": actual,
+        },
+    )
+
+
+def _parse_guard_release(stdout: str, *, make_error: type[Exception]) -> dict[str, Any]:
+    lines = [line.strip() for line in stdout.splitlines() if line.strip()]
+    if not lines:
+        raise make_error("runner uninstall guard cleanup did not return a release manifest")
+    try:
+        payload = json.loads(lines[-1])
+    except json.JSONDecodeError as exc:
+        raise make_error("runner uninstall guard cleanup did not return valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise make_error("runner uninstall guard cleanup release manifest is not an object")
+    return {
+        "schemaVersion": "h2ometa.remote-runner-uninstall-guard-release.v1",
+        "released": bool(payload.get("released")),
+        "reason": str(payload.get("reason") or ""),
+    }
 
 
 def _block_reason_code(block_reasons: list[str]) -> str:
