@@ -709,9 +709,11 @@ def test_rotate_token_does_not_persist_local_token_before_remote_update_succeeds
     assert uploads == []
 
 
-def test_rotate_token_does_not_restore_on_unexpected_tunnel_adapter_errors(monkeypatch) -> None:
+def test_rotate_token_restores_and_releases_guard_on_tunnel_adapter_errors(monkeypatch) -> None:
     manager = RemoteRunnerManager()
     uploads: list[str] = []
+    lifecycle_requests: list[dict[str, object]] = []
+    lifecycle_releases: list[dict[str, object]] = []
 
     class FakeSSH:
         def run(self, cmd: str, timeout: int = 10):
@@ -730,8 +732,41 @@ def test_rotate_token_does_not_restore_on_unexpected_tunnel_adapter_errors(monke
         def ensure_local_tunnel(self, *args, **kwargs):
             raise RuntimeError("tunnel adapter crashed")
 
+    monkeypatch.setattr(
+        manager,
+        "request_execution_lifecycle_guard",
+        lambda **kwargs: lifecycle_requests.append(dict(kwargs))
+        or {
+            "schemaVersion": "h2ometa.execution-lifecycle-guard.v1",
+            "action": "token-rotation",
+            "owner": "srv_test:token-rotation:lifecycle",
+            "idle": True,
+            "maintenanceActive": True,
+            "activeLeaseCount": 0,
+            "allocatedResourceCount": 0,
+            "resourceWaitCount": 0,
+            "queuedJobCount": 0,
+            "claimedJobCount": 0,
+            "runningSlotCount": 0,
+            "blockReasons": [],
+        },
+    )
+    monkeypatch.setattr(
+        manager,
+        "release_execution_lifecycle_guard",
+        lambda **kwargs: lifecycle_releases.append(dict(kwargs))
+        or {
+            "schemaVersion": "h2ometa.execution-lifecycle-guard-release.v1",
+            "action": "token-rotation",
+            "owner": "srv_test:token-rotation:lifecycle",
+            "released": True,
+            "releasedAt": "2099-01-01T00:00:00Z",
+            "previous": {},
+        },
+    )
+
     with patch("core.remote_runner.token_rotation.store_runner_token") as store_token:
-        with pytest.raises(RuntimeError, match="tunnel adapter crashed"):
+        with pytest.raises(RemoteRunnerManagerError, match="tunnel adapter crashed"):
             manager.rotate_token(
                 server_id="srv_test",
                 server={},
@@ -744,8 +779,11 @@ def test_rotate_token_does_not_restore_on_unexpected_tunnel_adapter_errors(monke
             )
 
     store_token.assert_not_called()
-    assert len(uploads) == 1
+    assert len(uploads) == 2
     assert '"token":"old"' not in uploads[0]
+    assert uploads[1] == '{"token":"old"}'
+    assert lifecycle_requests[0]["action"] == "token-rotation"
+    assert lifecycle_releases[0]["action"] == "token-rotation"
 
 
 def test_manager_wraps_tunnel_setup_failures(monkeypatch) -> None:

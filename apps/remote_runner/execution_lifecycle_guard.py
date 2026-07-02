@@ -21,7 +21,14 @@ EXECUTION_LIFECYCLE_GUARD_BLOCKED_REASON = "EXECUTION_LIFECYCLE_GUARD_BLOCKED"
 EXECUTION_LIFECYCLE_GUARD_ALREADY_ACTIVE_REASON = "EXECUTION_LIFECYCLE_GUARD_ALREADY_ACTIVE"
 EXECUTION_LIFECYCLE_GUARD_OWNER_MISMATCH_REASON = "EXECUTION_LIFECYCLE_GUARD_OWNER_MISMATCH"
 EXECUTION_LIFECYCLE_GUARD_INVALID_STATE_REASON = "EXECUTION_LIFECYCLE_GUARD_INVALID_STATE"
-EXECUTION_LIFECYCLE_ALLOWED_ACTIONS = {"ensure", "upgrade", "stop", "prune", "uninstall"}
+EXECUTION_LIFECYCLE_ALLOWED_ACTIONS = {
+    "ensure",
+    "upgrade",
+    "stop",
+    "prune",
+    "uninstall",
+    "token-rotation",
+}
 
 
 def request_execution_lifecycle_guard(
@@ -165,12 +172,7 @@ def ensure_execution_lifecycle_admission_open(
 ) -> None:
     timestamp = _timestamp(now)
     with get_connection(cfg) as connection:
-        try:
-            maintenance = _read_maintenance(connection, now=timestamp, clear_expired=True)
-        except ValueError as exc:
-            raise RemoteRunnerReadinessError(
-                f"{EXECUTION_LIFECYCLE_GUARD_INVALID_STATE_REASON}: execution lifecycle guard state is invalid"
-            ) from exc
+        maintenance = read_execution_lifecycle_maintenance_for_connection(connection, now=timestamp)
         if connection.in_transaction:
             connection.commit()
     if maintenance is None:
@@ -178,6 +180,20 @@ def ensure_execution_lifecycle_admission_open(
     raise RemoteRunnerReadinessError(
         f"{EXECUTION_MAINTENANCE_ACTIVE_REASON}: execution control plane is in maintenance"
     )
+
+
+def read_execution_lifecycle_maintenance_for_connection(
+    connection,
+    *,
+    now: str | None = None,
+) -> dict[str, Any] | None:
+    timestamp = _timestamp(now)
+    try:
+        return _read_maintenance(connection, now=timestamp, clear_expired=True)
+    except ValueError as exc:
+        raise RemoteRunnerReadinessError(
+            f"{EXECUTION_LIFECYCLE_GUARD_INVALID_STATE_REASON}: execution lifecycle guard state is invalid"
+        ) from exc
 
 
 def _read_maintenance(

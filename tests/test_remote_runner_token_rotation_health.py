@@ -12,6 +12,8 @@ def test_rotate_token_validates_new_token_with_transport_health(monkeypatch) -> 
     manager = RemoteRunnerManager()
     uploads: list[tuple[str, str]] = []
     health_calls: list[tuple[str, list[int]]] = []
+    lifecycle_requests: list[dict[str, Any]] = []
+    lifecycle_releases: list[tuple[str, dict[str, Any], list[int]]] = []
     stored_tokens: list[dict[str, str]] = []
 
     class FakeSSH:
@@ -52,19 +54,62 @@ def test_rotate_token_validates_new_token_with_transport_health(monkeypatch) -> 
                 return health
             raise AssertionError(f"unexpected path: {path}")
 
+        def post_json(
+            self,
+            path: str,
+            payload: dict[str, Any],
+            *,
+            extra_headers: dict[str, str] | None = None,
+            accepted_statuses: set[int] | None = None,
+        ) -> dict[str, object]:
+            assert extra_headers is None
+            lifecycle_releases.append((path, dict(payload), sorted(accepted_statuses or [])))
+            if path == "/api/v1/execution/lifecycle-guard/release":
+                return {
+                    "data": {
+                        "schemaVersion": "h2ometa.execution-lifecycle-guard-release.v1",
+                        "action": "token-rotation",
+                        "owner": "srv_1:token-rotation:lifecycle",
+                        "released": True,
+                        "releasedAt": "2099-01-01T00:00:00Z",
+                        "previous": {},
+                    }
+                }
+            raise AssertionError(f"unexpected post path: {path}")
+
     monkeypatch.setattr(
         "core.remote_runner.token_rotation.secrets.token_urlsafe",
         lambda _size: "rotated-token",
     )
     monkeypatch.setattr("core.remote_runner.token_rotation.RemoteRunnerHttpClient", FakeClient)
     monkeypatch.setattr(
+        manager,
+        "request_execution_lifecycle_guard",
+        lambda **kwargs: lifecycle_requests.append(dict(kwargs))
+        or {
+            "schemaVersion": "h2ometa.execution-lifecycle-guard.v1",
+            "action": "token-rotation",
+            "owner": "srv_1:token-rotation:lifecycle",
+            "idle": True,
+            "maintenanceActive": True,
+            "activeLeaseCount": 0,
+            "allocatedResourceCount": 0,
+            "resourceWaitCount": 0,
+            "queuedJobCount": 0,
+            "claimedJobCount": 0,
+            "runningSlotCount": 0,
+            "blockReasons": [],
+        },
+    )
+    monkeypatch.setattr(
         "core.remote_runner.token_rotation.store_runner_token",
         lambda **kwargs: stored_tokens.append(dict(kwargs)) or "runner://srv_rotated",
     )
 
+    fake_ssh = FakeSSH()
     result = manager.rotate_token(
         server_id="srv_1",
-        ssh_service=FakeSSH(),
+        ssh_service=fake_ssh,
         server_record={
             "bootstrap_version": "v1",
             "runner_mode": "background_process",
@@ -78,6 +123,27 @@ def test_rotate_token_validates_new_token_with_transport_health(monkeypatch) -> 
         ("/health/startup", [200, 503]),
         ("/health/live", []),
         ("/health/ready", [200, 503]),
+    ]
+    assert len(lifecycle_requests) == 1
+    lifecycle_request = lifecycle_requests[0]
+    assert lifecycle_request["server_id"] == "srv_1"
+    assert lifecycle_request["ssh_service"] is fake_ssh
+    assert lifecycle_request["server_record"] == {
+        "bootstrap_version": "v1",
+        "runner_mode": "background_process",
+        "service_port": 43127,
+        "token_ref": "runner://srv_1",
+    }
+    assert lifecycle_request["action"] == "token-rotation"
+    assert lifecycle_request["owner"] == "srv_1:token-rotation:lifecycle"
+    assert lifecycle_request["ttl_seconds"] == 600
+    assert lifecycle_request["timeout"] == 30
+    assert lifecycle_releases == [
+        (
+            "/api/v1/execution/lifecycle-guard/release",
+            {"action": "token-rotation", "owner": "srv_1:token-rotation:lifecycle"},
+            [200],
+        )
     ]
     assert stored_tokens == [{"server_id": "srv_1", "token": "rotated-token"}]
     assert uploads

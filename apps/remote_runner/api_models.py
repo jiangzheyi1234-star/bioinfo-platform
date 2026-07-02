@@ -142,7 +142,14 @@ class RunResumeRequest(RemoteRunnerRequest):
     reason: str | None = None
 
 
-ExecutionLifecycleAction = Literal["ensure", "upgrade", "stop", "prune", "uninstall"]
+ExecutionLifecycleAction = Literal[
+    "ensure",
+    "upgrade",
+    "stop",
+    "prune",
+    "uninstall",
+    "token-rotation",
+]
 
 
 class ExecutionLifecycleGuardRequest(RemoteRunnerRequest):

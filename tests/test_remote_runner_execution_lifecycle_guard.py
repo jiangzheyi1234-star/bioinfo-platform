@@ -140,6 +140,77 @@ def test_lifecycle_guard_reports_durable_queued_jobs_without_blocking(tmp_path) 
     assert run_worker_is_draining(cfg, "worker-queued") is True
 
 
+def test_claim_next_run_job_respects_lifecycle_maintenance(tmp_path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_lifecycle_claim_blocked")
+
+    guard = request_execution_lifecycle_guard(
+        cfg,
+        action="upgrade",
+        owner="srv_lifecycle:upgrade:lifecycle",
+        now="2099-06-07T10:00:01Z",
+        ttl_seconds=600,
+    )
+    assert guard["idle"] is True
+    assert guard["queuedJobCount"] == 1
+
+    claim = claim_next_run_job(
+        cfg,
+        worker_id="worker-maintenance-blocked",
+        now="2099-06-07T10:00:02Z",
+        lease_seconds=30,
+    )
+
+    assert claim is None
+    with get_connection(cfg) as connection:
+        job = connection.execute(
+            "SELECT state FROM run_jobs WHERE run_id = ?",
+            ("run_lifecycle_claim_blocked",),
+        ).fetchone()
+        lease = connection.execute(
+            "SELECT state FROM run_leases WHERE run_id = ?",
+            ("run_lifecycle_claim_blocked",),
+        ).fetchone()
+    assert job["state"] == "queued"
+    assert lease is None
+
+
+def test_lifecycle_guard_allows_token_rotation_action(tmp_path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    register_run_worker(
+        cfg,
+        worker_id="worker-token-rotation",
+        session_id="session-token-rotation",
+        pid=123,
+        hostname="host-token-rotation",
+        now="2099-06-07T10:00:00Z",
+    )
+
+    guard = request_execution_lifecycle_guard(
+        cfg,
+        action="token-rotation",
+        owner="srv_lifecycle:token-rotation:lifecycle",
+        now="2099-06-07T10:00:01Z",
+        ttl_seconds=600,
+    )
+
+    assert guard["action"] == "token-rotation"
+    assert guard["idle"] is True
+    assert guard["maintenanceActive"] is True
+    assert guard["drainRequestedWorkerCount"] == 1
+    assert run_worker_is_draining(cfg, "worker-token-rotation") is True
+
+    release = release_execution_lifecycle_guard(
+        cfg,
+        action="token-rotation",
+        owner="srv_lifecycle:token-rotation:lifecycle",
+        now="2099-06-07T10:00:02Z",
+    )
+
+    assert release["action"] == "token-rotation"
+    assert release["released"] is True
+
+
 def test_expired_lifecycle_guard_is_cleared_on_admission_check(tmp_path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     with get_connection(cfg) as connection:
