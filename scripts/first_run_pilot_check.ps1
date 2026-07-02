@@ -57,6 +57,7 @@ function Write-FirstRunProof {
 }
 
 . (Join-Path $PSScriptRoot "first_run_pilot_check_downloads.ps1")
+. (Join-Path $PSScriptRoot "first_run_scenario_pack_check.ps1")
 
 function Get-Json {
     param([string]$Url)
@@ -678,20 +679,7 @@ if ($workflow.runnable -ne $true) {
     Fail-Pilot "$FirstRunPipelineId must be runnable for a single-user pilot"
 }
 
-$packs = Get-Json "$ApiBase/api/v1/workflow-scenario-packs"
-Assert-ArrayData $packs "workflow scenario packs"
-$pack = @($packs.data.items | Where-Object { $_.scenarioId -eq $FirstRunScenarioId }) | Select-Object -First 1
-if ($null -eq $pack) {
-    Fail-Pilot "scenario packs must include $FirstRunScenarioId"
-}
-if ($pack.status -ne "ready" -or $pack.firstRunPath -ne "/workflows/first-run") {
-    Fail-Pilot "$FirstRunScenarioId must be ready and point at /workflows/first-run"
-}
-foreach ($evidence in $RequiredEvidence) {
-    if ($pack.resultEvidence -notcontains $evidence) {
-        Fail-Pilot "$FirstRunScenarioId resultEvidence missing $evidence"
-    }
-}
+$pack = Assert-FirstRunScenarioPackCatalog $ApiBase $FirstRunScenarioId $RequiredEvidence
 
 Write-Step "checking First Successful Run UI at $WebBase"
 $firstRunPage = Get-Page "$WebBase/workflows/first-run"

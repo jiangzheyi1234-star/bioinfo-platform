@@ -13,6 +13,7 @@ def _first_run_pilot_check_source() -> str:
         [
             (script_dir / "first_run_pilot_check.ps1").read_text(encoding="utf-8"),
             (script_dir / "first_run_pilot_check_downloads.ps1").read_text(encoding="utf-8"),
+            (script_dir / "first_run_scenario_pack_check.ps1").read_text(encoding="utf-8"),
         ]
     )
 
@@ -30,9 +31,19 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
 
     assert "FIRST_RUN_PILOT_CHECK_FAILED" in source
     assert '. (Join-Path $PSScriptRoot "first_run_pilot_check_downloads.ps1")' in source
+    assert '. (Join-Path $PSScriptRoot "first_run_scenario_pack_check.ps1")' in source
     assert "$ApiBase/health" in source
     assert "$ApiBase/api/v1/workflow-catalog" in source
     assert "$ApiBase/api/v1/workflow-scenario-packs" in source
+    assert "function Assert-FirstRunScenarioPackCatalog" in source
+    assert "function Assert-FirstRunBlockedScenarioPack" in source
+    assert "workflow scenario packs must include $scenarioId" in source
+    assert "must expose a 3-5 WorkflowReady tool slice" in source
+    assert "tool slice must name curated tools instead of generic Bioconda imports" in source
+    assert "must stay blocked until operator gates pass" in source
+    assert "must not expose automatic first-run execution" in source
+    assert "database handoff must use a read-only ready scan before registration" in source
+    assert "Assert-FirstRunScenarioPackCatalog $ApiBase $FirstRunScenarioId $RequiredEvidence" in source
     assert "moving-pictures-16s-rulegraph-v1" in source
     assert "moving-pictures-16s" in source
     assert "/workflows/first-run" in source

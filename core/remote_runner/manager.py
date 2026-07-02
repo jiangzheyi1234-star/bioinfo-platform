@@ -14,15 +14,9 @@ from core.remote_runner.artifact import (
 from core.remote_runner.bootstrap_activation import RemoteRunnerBootstrapActivationMixin
 from core.remote_runner.bootstrap_bundle import RemoteRunnerBootstrapBundleMixin
 from core.remote_runner.bootstrap_guard import RemoteRunnerBootstrapGuardMixin
-from core.remote_runner.bootstrap_config_files import (
-    BootstrapConfigTempFiles,
-    cleanup_bootstrap_config_temp_files,
-    write_bootstrap_config_temp_files,
-)
-from core.remote_runner.bootstrap_response import (
-    build_bootstrap_install_response,
-    build_bootstrap_reuse_response,
-)
+from core.remote_runner.bootstrap_reuse_guard import RemoteRunnerBootstrapReuseGuardMixin
+from core.remote_runner.bootstrap_config_files import BootstrapConfigTempFiles, cleanup_bootstrap_config_temp_files, write_bootstrap_config_temp_files
+from core.remote_runner.bootstrap_response import build_bootstrap_install_response, build_bootstrap_reuse_response
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
 from core.remote_runner.client import RemoteRunnerClientError, RemoteRunnerHttpClient
 from core.remote_runner.environment import RemoteRunnerEnvironmentMixin
@@ -66,6 +60,7 @@ class RemoteRunnerManager(
     RemoteRunnerWorkflowRuntimeMixin,
     RemoteRunnerBootstrapBundleMixin,
     RemoteRunnerBootstrapGuardMixin,
+    RemoteRunnerBootstrapReuseGuardMixin,
     RemoteRunnerBootstrapActivationMixin,
 ):
     _manager_error = RemoteRunnerManagerError
@@ -100,7 +95,6 @@ class RemoteRunnerManager(
             artifact = self._artifact_provider.resolve(version=version, platform=remote_platform)
             version = str(getattr(artifact, "version", "") or version)
             paths = remote_runner_bootstrap_layout(home_dir, version)
-            requested_remote_port = 0
             previous_release = self._read_current_release_target(ssh_service, paths.current)
             fast_platform = platform_from_metadata(server_record) or remote_platform
             workflow_runtime_dir = paths.workflow_runtime_dir(version=WORKFLOW_RUNTIME_VERSION, platform=fast_platform)
@@ -118,6 +112,7 @@ class RemoteRunnerManager(
                 version=version,
                 remote_service_python=paths.service_python,
             )
+            self._guard_upgrade_reuse(server_id=server_id, ssh_service=ssh_service, server_record=server_record, bootstrap_metadata=fast_reuse_metadata, bootstrap_action=bootstrap_action, previous_release=previous_release)
             reuse_result = self._try_reuse_existing_runner_fast(
                 server_id=server_id,
                 ssh_service=ssh_service,
@@ -135,6 +130,7 @@ class RemoteRunnerManager(
                 bootstrap_metadata=fast_reuse_metadata,
             )
             if reuse_result is not None:
+                self._release_bootstrap_lifecycle_guard_for_reuse_result(server_id=server_id, bootstrap_action=bootstrap_action, bootstrap_metadata=fast_reuse_metadata, reuse_result=reuse_result)
                 return build_bootstrap_reuse_response(reuse_result, server)
             mode = self._detect_mode(ssh_service)
             previous_config_payload = self._read_remote_json_if_exists(
@@ -172,6 +168,8 @@ class RemoteRunnerManager(
                 previous_release=previous_release,
                 previous_mode=previous_mode,
             )
+            self._copy_upgrade_guard_metadata(fast_reuse_metadata, bootstrap_metadata)
+            self._guard_upgrade_reuse(server_id=server_id, ssh_service=ssh_service, server_record=server_record, bootstrap_metadata=bootstrap_metadata, bootstrap_action=bootstrap_action, previous_release=previous_release, previous_config_present=previous_config_payload is not None)
             reuse_result = self._try_reuse_existing_runner(
                 server_id=server_id,
                 ssh_service=ssh_service,
@@ -191,6 +189,7 @@ class RemoteRunnerManager(
                 bootstrap_metadata=bootstrap_metadata,
             )
             if reuse_result is not None:
+                self._release_bootstrap_lifecycle_guard_for_reuse_result(server_id=server_id, bootstrap_action=bootstrap_action, bootstrap_metadata=bootstrap_metadata, reuse_result=reuse_result)
                 return build_bootstrap_reuse_response(reuse_result, server)
 
             install_lock_owner_token = self._acquire_remote_install_lock(
@@ -220,6 +219,7 @@ class RemoteRunnerManager(
                     bootstrap_metadata=bootstrap_metadata,
                 )
                 if reuse_result is not None:
+                    self._release_bootstrap_lifecycle_guard_for_reuse_result(server_id=server_id, bootstrap_action=bootstrap_action, bootstrap_metadata=bootstrap_metadata, reuse_result=reuse_result)
                     return build_bootstrap_reuse_response(reuse_result, server)
                 self._guard_bootstrap_when_execution_idle(
                     server_id=server_id,
@@ -246,7 +246,7 @@ class RemoteRunnerManager(
                 config_payload = self._build_remote_config_payload(
                     version=version,
                     mode=mode,
-                    remote_port=requested_remote_port,
+                    remote_port=0,
                     token=token,
                     remote_shared=paths.shared,
                     remote_release=paths.release,

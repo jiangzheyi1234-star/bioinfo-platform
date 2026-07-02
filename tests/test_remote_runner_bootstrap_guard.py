@@ -179,6 +179,29 @@ def test_bootstrap_guard_allows_idle_prepared_runner_before_upgrade() -> None:
     }
 
 
+def test_bootstrap_guard_reuses_existing_idle_upgrade_guard() -> None:
+    metadata = {
+        "upgradeGuard": {
+            "schemaVersion": "h2ometa.remote-runner-upgrade-guard.v1",
+            "checked": True,
+            "idle": True,
+            "maintenanceOwner": "srv_test:upgrade:lifecycle",
+        }
+    }
+    manager = GuardHarness(RemoteRunnerClientError("guard should not be requested twice"))
+
+    manager._guard_bootstrap_when_execution_idle(
+        server_id="srv_test",
+        ssh_service=object(),
+        server_record={"bootstrap_version": "phase1-test"},
+        bootstrap_metadata=metadata,
+        bootstrap_action="upgrade",
+    )
+
+    assert manager.calls == 0
+    assert metadata["upgradeGuard"]["maintenanceOwner"] == "srv_test:upgrade:lifecycle"
+
+
 def test_bootstrap_guard_blocks_upgrade_when_execution_state_is_not_idle() -> None:
     metadata = {}
     manager = GuardHarness(

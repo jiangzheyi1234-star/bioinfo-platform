@@ -39,13 +39,21 @@ class RemoteRunnerBootstrapGuardMixin:
         previous_release: str = "",
         previous_config_present: bool = False,
     ) -> None:
+        action = str(bootstrap_action or "").strip() or "ensure"
+        existing_guard = bootstrap_metadata.get("upgradeGuard")
+        if (
+            action == "upgrade"
+            and isinstance(existing_guard, dict)
+            and existing_guard.get("checked") is True
+            and existing_guard.get("idle") is True
+        ):
+            return
         if not _has_prior_runner_evidence(
             server_record,
             previous_release=previous_release,
             previous_config_present=previous_config_present,
         ):
             return
-        action = str(bootstrap_action or "").strip() or "ensure"
         if action == "start":
             activity = self._bootstrap_start_activity(
                 server_id=server_id,

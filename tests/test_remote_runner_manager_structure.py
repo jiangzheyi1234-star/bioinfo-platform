@@ -254,7 +254,9 @@ def test_bootstrap_config_temp_file_io_lives_outside_manager() -> None:
     assert helper_path.exists()
     helper_source = helper_path.read_text(encoding="utf-8")
 
-    assert "from core.remote_runner.bootstrap_config_files import (" in manager_source
+    assert "from core.remote_runner.bootstrap_config_files import " in manager_source
+    assert "write_bootstrap_config_temp_files" in manager_source
+    assert "cleanup_bootstrap_config_temp_files" in manager_source
     assert "json.dump(" not in manager_source
     assert "tempfile.NamedTemporaryFile(" not in manager_source
     assert "Path(handle.name)" not in manager_source
@@ -293,7 +295,7 @@ def test_bootstrap_reuse_response_composition_lives_outside_manager() -> None:
 
     assert response_path.exists()
     response_source = response_path.read_text(encoding="utf-8")
-    assert "from core.remote_runner.bootstrap_response import (" in manager_source
+    assert "from core.remote_runner.bootstrap_response import " in manager_source
     assert "build_bootstrap_reuse_response" in manager_source
     assert "**reuse_result" not in manager_source
     assert "def build_bootstrap_reuse_response(" in response_source
@@ -374,6 +376,25 @@ def test_bootstrap_active_lease_guard_runs_before_destructive_bundle_deploy() ->
     guard_index = manager_source.index("self._guard_bootstrap_when_execution_idle(")
     deploy_index = manager_source.index("self._deploy_service_runtime_bundle(")
     assert guard_index < deploy_index
+
+
+def test_explicit_upgrade_guard_wraps_reuse_short_circuits() -> None:
+    manager_source = _source("core/remote_runner/manager.py")
+    reuse_guard_source = _source("core/remote_runner/bootstrap_reuse_guard.py")
+
+    fast_guard_index = manager_source.index("self._guard_upgrade_reuse(")
+    fast_reuse_index = manager_source.index("reuse_result = self._try_reuse_existing_runner_fast(")
+    first_release_index = manager_source.index("self._release_bootstrap_lifecycle_guard_for_reuse_result(")
+    first_return_index = manager_source.index("return build_bootstrap_reuse_response(reuse_result, server)")
+    normal_reuse_index = manager_source.index("reuse_result = self._try_reuse_existing_runner(")
+    deploy_index = manager_source.index("self._deploy_service_runtime_bundle(")
+
+    assert fast_guard_index < fast_reuse_index < first_release_index < first_return_index
+    assert first_return_index < normal_reuse_index < deploy_index
+    assert "RemoteRunnerBootstrapReuseGuardMixin" in manager_source
+    assert "if str(bootstrap_action or \"\").strip() != \"upgrade\":" in reuse_guard_source
+    assert "resolve_runner_token(token_ref)" in reuse_guard_source
+    assert "_copy_upgrade_guard_metadata(fast_reuse_metadata, bootstrap_metadata)" in manager_source
 
 
 def test_remote_runner_proxy_forwarders_do_not_wrap_client_errors() -> None:
