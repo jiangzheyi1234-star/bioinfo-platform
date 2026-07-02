@@ -7,6 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DOC = ROOT / "docs" / "release-candidate-operating-loop.md"
 SCRIPT = ROOT / "scripts" / "verify_release_candidate.ps1"
 PLATFORM_EVIDENCE_HELPER = ROOT / "scripts" / "rc_platform_evidence.ps1"
+FIRST_RUN_PILOT_HELPER = ROOT / "scripts" / "rc_first_run_pilot_proof.ps1"
 
 
 def _source(path: str) -> str:
@@ -44,6 +45,13 @@ def test_release_candidate_operating_loop_doc_defines_handoff_contract() -> None
         "scripts/local_web_smoke.ps1",
         "-RunWebE2E",
         "-WebE2ERepeat",
+        "-RunFirstRunPilotProof",
+        "-FirstRunPilotRunId",
+        "first-run pilot proof path",
+        "first-run-pilot-proof.json",
+        "scripts/first_run_pilot_check.ps1",
+        "firstRunPilotProof.closedLoopProven: true",
+        "Skipping the First Successful Run pilot proof blocks `localSingleUserProofEligible`",
         "localSingleUserProofEligible",
         "scripts/check_remote_runner_release_readiness.py",
         "database-pack-lifecycle-v1",
@@ -54,12 +62,15 @@ def test_release_candidate_operating_loop_doc_defines_handoff_contract() -> None
 
     assert "release-candidate-operating-loop.md" in readme
     assert "P0-11 Release Candidate Operating Loop Criteria" in roadmap
+    assert "-RunFirstRunPilotProof" in roadmap
+    assert "first-run-pilot-proof.json" in roadmap
 
 
 def test_release_candidate_script_collects_required_evidence_gates() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
     helper_source = PLATFORM_EVIDENCE_HELPER.read_text(encoding="utf-8")
-    combined_source = source + "\n" + helper_source
+    first_run_helper_source = FIRST_RUN_PILOT_HELPER.read_text(encoding="utf-8")
+    combined_source = source + "\n" + helper_source + "\n" + first_run_helper_source
 
     for token in (
         "h2ometa-release-candidate-evidence.v1",
@@ -119,6 +130,18 @@ def test_release_candidate_script_collects_required_evidence_gates() -> None:
         "release-scoped sources changed after the runtime manifest source commit",
         "config/remote-runner-release-manifest.json",
         "runtimeManifestDrift = $runtimeManifestDrift",
+        "rc_first_run_pilot_proof.ps1",
+        '$firstRunPilotProofPath = Join-Path $evidenceDir "first-run-pilot-proof.json"',
+        "$firstRunPilotProof = [ordered]@{",
+        "-RunFirstRunPilotProof and -FirstRunPilotRunId are mutually exclusive",
+        "runFirstRunPilotProof = $RunFirstRunPilotProof.IsPresent",
+        "firstRunPilotProofPath = $firstRunPilotProofPath",
+        "firstRunPilotProof = $firstRunPilotProof",
+        "$firstRunPilotProof.closedLoopProven -eq $true",
+        "h2ometa.first-run-pilot-check.v1",
+        "-RequireFinalizationReady",
+        "-RunFirstSuccessfulRun",
+        "validationCardJsonSha256",
         "localSingleUserProofEligible",
         "handoffEligible",
     ):
@@ -153,6 +176,11 @@ def test_release_candidate_script_keeps_optional_gates_explicit() -> None:
     assert 'Invoke-Native "npm" @("run", "test:e2e")' in source
     assert "E2E_API_BASE" in source
     assert "pass -RunWebE2E to execute Playwright" in source
+    assert "[switch]$RunFirstRunPilotProof" in source
+    assert '[string]$FirstRunPilotRunId = ""' in source
+    assert "first-run-pilot-proof" in source
+    assert "-ProofPath" in source
+    assert "pass -RunFirstRunPilotProof to prove the full Moving Pictures first successful run" in source
     assert "[string]$DesktopStartupEvidence" in source
     assert "desktop-startup-evidence" in source
     assert "pass -DesktopStartupEvidence after starting run.bat --desktop" in source

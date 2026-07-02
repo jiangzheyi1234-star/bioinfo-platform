@@ -26,7 +26,7 @@ The directory must include:
 - `release-candidate-summary.md`
 - one log file per executed gate
 
-The JSON summary must record the source commit, branch, generated timestamp, script path, CI run URL, Security Analysis evidence mode, Container Image Scan evidence mode, API/Web bases, launcher dev-cache root, handoff eligibility, local single-user proof eligibility, gate results, skipped optional gates, and known scoped limits. Development-only proof may omit the CI URL and platform evidence, but it must report `handoffEligible: false`.
+The JSON summary must record the source commit, branch, generated timestamp, script path, CI run URL, Security Analysis evidence mode, Container Image Scan evidence mode, API/Web bases, launcher dev-cache root, first-run pilot proof path, handoff eligibility, local single-user proof eligibility, gate results, skipped optional gates, and known scoped limits. Development-only proof may omit the CI URL and platform evidence, but it must report `handoffEligible: false`.
 
 ## Required Gates
 
@@ -54,10 +54,10 @@ The local Desktop/single-user proof is intentionally below production handoff bu
 Use this command from a clean Windows working tree:
 
 ```powershell
-scripts\verify_release_candidate.ps1 -DevelopmentOnly -StartLocalWeb -UseUserAppStateForLocalWeb -RunWebE2E -WebE2ERepeat 3
+scripts\verify_release_candidate.ps1 -DevelopmentOnly -StartLocalWeb -UseUserAppStateForLocalWeb -RunWebE2E -WebE2ERepeat 3 -RunFirstRunPilotProof
 ```
 
-This command launches `run.bat --web` headlessly, waits for API `/health` and the Web root to return OK, runs `scripts/local_web_smoke.ps1`, and executes Playwright through `npm run test:e2e` for the requested repeat count. The summary reports `localSingleUserProofEligible: true` only when the run is clean, passes the launcher/smoke/E2E gates, and does not rely on `-AllowDirty`.
+This command launches `run.bat --web` headlessly, waits for API `/health` and the Web root to return OK, runs `scripts/local_web_smoke.ps1`, executes Playwright through `npm run test:e2e` for the requested repeat count, and records `first-run-pilot-proof.json` through `scripts/first_run_pilot_check.ps1`. The summary reports `localSingleUserProofEligible: true` only when the run is clean, passes the launcher/smoke/E2E gates, proves `firstRunPilotProof.closedLoopProven: true`, and does not rely on `-AllowDirty`. Fresh `submitted-run` proof and reused `finalized-run` proof both count only after the same ready finalization, validation-card hash, result-package hash, and evidence-bundle checks pass.
 
 The script isolates `APPDATA` and `LOCALAPPDATA` for Python/test runtime state, while `H2OMETA_DEV_CACHE_ROOT` defaults to the normal Windows H2OMeta dev cache so `run.bat` can reuse manifest-resolved runtime artifacts instead of redownloading them on every proof run. `-UseUserAppStateForLocalWeb` intentionally switches only the launcher/smoke/E2E portion back to the operator's real Windows app state, because the local API readiness check includes the configured remote-runner connection.
 
@@ -109,13 +109,14 @@ Optional gates are explicit, never silent:
 - Local app state: pass `-UseUserAppStateForLocalWeb` when the proof must use the operator's configured SSH/runner state instead of an isolated empty runtime profile.
 - Local launcher smoke: start the app with `run.bat --web`, or pass `-StartLocalWeb`, then run `scripts/local_web_smoke.ps1` through `-RunLocalWebSmoke`.
 - Live UI E2E: pass `-RunWebE2E`; use `-WebE2ERepeat 3` for flaky-test burn-in.
+- First Successful Run pilot proof: pass `-RunFirstRunPilotProof` to run the full Moving Pictures path and write `first-run-pilot-proof.json`; pass `-FirstRunPilotRunId <run_id>` to reuse an existing completed run while still requiring ready finalization evidence.
 - Desktop startup: start with `run.bat --desktop` and pass `-DesktopStartupEvidence "<operator note or artifact path>"`.
 - Security Analysis platform gate: pass `-SecurityAnalysisRunUrl <security-analysis-run-url>` for the independent `Security Analysis` workflow when CodeQL and Scorecard ran green for the exact commit, or pass `-SecurityAnalysisUnavailableReason "<reason>"` to record private-repository plan or feature unavailability. Missing Security Analysis evidence keeps `handoffEligible: false`.
 - Container Image Scan platform gate: pass `-ContainerImageScanRunUrl <container-image-scan-run-url>` for the independent `Container Image Scan` workflow when Trivy image scanning ran green for the exact commit, or pass `-ContainerImageScanUnavailableReason "<reason>"` to record code-scanning, runner, or platform unavailability. Missing Container Image Scan evidence keeps `handoffEligible: false`.
 - Runtime release evidence: pass `-ReleaseGateEvidence <path>` to validate `release-gate-evidence.json` with `scripts/check_remote_runner_release_readiness.py`.
 - Runtime manifest supply chain: use `-RequireRuntimeManifestArtifacts` and `-RequireRuntimeSupplyChain` only when the RC includes remote-runner runtime artifact promotion.
 
-If an optional gate is skipped, the JSON summary must say so. Skipped optional gates do not fail a local Desktop/single-user RC, but they block claiming runtime artifact production readiness.
+If an optional gate is skipped, the JSON summary must say so. Skipping the First Successful Run pilot proof blocks `localSingleUserProofEligible`; skipping runtime release gates blocks claiming runtime artifact production readiness.
 
 Runtime release evidence becomes required automatically when the runtime manifest drift gate detects that release-scoped sources changed after the manifest source commit. `-DevelopmentOnly` may still record that drift as development proof, but it cannot be used for production handoff.
 

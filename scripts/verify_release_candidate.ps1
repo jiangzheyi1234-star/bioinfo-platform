@@ -8,10 +8,12 @@ param(
     [switch]$StartLocalWeb,
     [switch]$UseUserAppStateForLocalWeb,
     [switch]$RunWebE2E,
+    [switch]$RunFirstRunPilotProof,
     [ValidateRange(1, 10)]
     [int]$WebE2ERepeat = 1,
     [string]$ApiBase = $(if ($env:H2OMETA_API_BASE) { $env:H2OMETA_API_BASE } else { "http://127.0.0.1:8765" }),
     [string]$WebBase = $(if ($env:H2OMETA_WEB_BASE) { $env:H2OMETA_WEB_BASE } else { "http://127.0.0.1:3765" }),
+    [string]$FirstRunPilotRunId = "",
     [string]$DesktopStartupEvidence = "",
     [string]$ReleaseGateEvidence = "",
     [switch]$RequireReleaseGateEvidence,
@@ -484,7 +486,7 @@ function Write-RcSummary {
     )
     $jsonPath = Join-Path $EvidenceDir "release-candidate-summary.json"
     $markdownPath = Join-Path $EvidenceDir "release-candidate-summary.md"
-    $Summary | ConvertTo-Json -Depth 8 | Set-Content -Path $jsonPath -Encoding utf8
+    $Summary | ConvertTo-Json -Depth 12 | Set-Content -Path $jsonPath -Encoding utf8
 
     $lines = New-Object System.Collections.Generic.List[string]
     $lines.Add("# Release Candidate Summary") | Out-Null
@@ -557,6 +559,9 @@ $runtimeSupplyChainRequired = $RequireRuntimeSupplyChain.IsPresent
 $securityAnalysisEvidence = [pscustomobject]@{ recorded = $false; mode = "missing"; runUrl = ""; unavailableReason = "" }
 $containerImageScanEvidence = [pscustomobject]@{ recorded = $false; mode = "missing"; runUrl = ""; unavailableReason = "" }
 $startedLocalWebStack = $false
+$firstRunPilotProofPath = Join-Path $evidenceDir "first-run-pilot-proof.json"
+$firstRunPilotProof = [ordered]@{ requested = ($RunFirstRunPilotProof.IsPresent -or [bool]$FirstRunPilotRunId); proofPath = $firstRunPilotProofPath; closedLoopProven = $false; closedLoopProofMode = "not-run" }
+if ($RunFirstRunPilotProof -and $FirstRunPilotRunId) { throw "-RunFirstRunPilotProof and -FirstRunPilotRunId are mutually exclusive" }
 
 try {
     Invoke-RcStep -Steps $steps -Name "git-clean-worktree" -Required $true -EvidenceDir $evidenceDir -Body {
@@ -683,6 +688,19 @@ try {
         Add-SkippedStep -Steps $steps -Name "web-e2e" -Required $false -Message "pass -RunWebE2E to execute Playwright; use -WebE2ERepeat 3 for flaky-test burn-in"
     }
 
+    if ($RunFirstRunPilotProof -or $FirstRunPilotRunId) {
+        Invoke-RcStep -Steps $steps -Name "first-run-pilot-proof" -Required $true -EvidenceDir $evidenceDir -Body {
+            Invoke-WithLocalWebAppState -UseUserAppState $UseUserAppStateForLocalWeb.IsPresent -OriginalAppData $originalAppData -OriginalLocalAppData $originalLocalAppData -Body {
+                Invoke-WithWebEnvironment -ApiBase $ApiBase -WebBase $WebBase -Body {
+                    $proofArgs = @("-ExecutionPolicy", "Bypass", "-File", (Join-Path $repoRoot "scripts\rc_first_run_pilot_proof.ps1"), "-RepoRoot", $repoRoot, "-ApiBase", $ApiBase, "-WebBase", $WebBase, "-ProofPath", $firstRunPilotProofPath)
+                    if ($FirstRunPilotRunId) { $proofArgs += @("-RunId", $FirstRunPilotRunId) }
+                    Invoke-Native "powershell" $proofArgs $repoRoot
+                }
+            }
+        }
+        if (Test-Path -LiteralPath $firstRunPilotProofPath) { $firstRunPilotProof = Get-Content -LiteralPath $firstRunPilotProofPath -Raw | ConvertFrom-Json }
+    } else { Add-SkippedStep -Steps $steps -Name "first-run-pilot-proof" -Required $false -Message "pass -RunFirstRunPilotProof to prove the full Moving Pictures first successful run; optionally pass -FirstRunPilotRunId to reuse an existing completed run" }
+
     if ($DesktopStartupEvidence) {
         Invoke-RcStep -Steps $steps -Name "desktop-startup-evidence" -Required $false -EvidenceDir $evidenceDir -Body {
             Write-Host "desktopStartupEvidence=$DesktopStartupEvidence"
@@ -750,6 +768,8 @@ $summary = [ordered]@{
     useUserAppStateForLocalWeb = $UseUserAppStateForLocalWeb.IsPresent
     runWebE2E = $RunWebE2E.IsPresent
     webE2ERepeat = $WebE2ERepeat
+    runFirstRunPilotProof = $RunFirstRunPilotProof.IsPresent; firstRunPilotRunId = $FirstRunPilotRunId
+    firstRunPilotProofPath = $firstRunPilotProofPath; firstRunPilotProof = $firstRunPilotProof
     securityAnalysisEvidenceRecorded = $securityAnalysisEvidence.recorded
     securityAnalysisEvidenceMode = $securityAnalysisEvidence.mode
     securityAnalysisRunUrl = $securityAnalysisEvidence.runUrl
@@ -759,7 +779,7 @@ $summary = [ordered]@{
     containerImageScanRunUrl = $containerImageScanEvidence.runUrl
     containerImageScanUnavailableReason = $containerImageScanEvidence.unavailableReason
     handoffEligible = ($ok -and -not $DevelopmentOnly.IsPresent -and [bool]$CiRunUrl -and $RunNpmCi.IsPresent -and $securityAnalysisEvidence.recorded -and $containerImageScanEvidence.recorded)
-    localSingleUserProofEligible = ($ok -and -not $AllowDirty.IsPresent -and $StartLocalWeb.IsPresent -and $RunWebE2E.IsPresent -and (($RunLocalWebSmoke.IsPresent) -or $StartLocalWeb.IsPresent))
+    localSingleUserProofEligible = ($ok -and -not $AllowDirty.IsPresent -and $StartLocalWeb.IsPresent -and $RunWebE2E.IsPresent -and (($RunLocalWebSmoke.IsPresent) -or $StartLocalWeb.IsPresent) -and ($firstRunPilotProof.closedLoopProven -eq $true))
     runtimeManifestDrift = $runtimeManifestDrift
     steps = $steps
     scopedRuntimeLimits = @(
