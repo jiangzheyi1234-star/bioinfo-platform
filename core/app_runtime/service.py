@@ -31,8 +31,8 @@ from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerE
 from core.app_runtime.errors import RuntimeServiceError
 from core.app_runtime.runner_stop_state import (
     build_runner_stop_cleared_intent,
-    is_runner_manually_stopped,
     raise_if_runner_manually_stopped,
+    requires_explicit_runner_start,
 )
 from core.app_runtime.runner_ops import RunnerOperationsMixin
 from core.app_runtime.server_state import RuntimeServerStateMixin
@@ -357,7 +357,7 @@ class RuntimeService(
     ) -> dict[str, Any] | None:
         if not server_record.get("bootstrap_version"):
             return None
-        if is_runner_manually_stopped(server_record):
+        if requires_explicit_runner_start(server_record):
             return None
         snapshot = server_record.get("last_health_snapshot")
         if isinstance(snapshot, dict) and not bool((snapshot.get("ready") or {}).get("ok")):

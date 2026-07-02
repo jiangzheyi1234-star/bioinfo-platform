@@ -157,6 +157,43 @@ def test_ensure_runner_http_conflict_preserves_manual_stop_reason_code(monkeypat
     assert "START_RUNNER" in payload["detail"]
 
 
+def test_submit_run_http_conflict_preserves_manual_stop_reason_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    class ConflictRuntime:
+        def submit_run(self, payload: dict[str, Any]):
+            raise RuntimeServiceError(
+                "Remote runner was manually stopped. Use the explicit start action before submitting runs.",
+                status_code=409,
+                detail={
+                    "reasonCode": "RUNNER_STOPPED",
+                    "serverId": str(payload["serverId"]),
+                    "nextAction": "START_RUNNER",
+                },
+            )
+
+    monkeypatch.setattr("apps.api.submission_service.runtime_service", lambda: ConflictRuntime())
+
+    response = TestClient(app).post(
+        "/api/v1/runs",
+        headers={"X-Request-Id": "req_submit_stopped"},
+        json={
+            "serverId": "srv_stopped",
+            "requestId": "req_submit_stopped",
+            "runSpec": {"pipelineId": "moving-pictures-16s-rulegraph-v1"},
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.headers["X-Request-Id"] == "req_submit_stopped"
+    payload = response.json()
+    assert payload["code"] == "RUNTIME_SERVICE_ERROR"
+    assert payload["requestId"] == "req_submit_stopped"
+    assert payload["reasonCode"] == "RUNNER_STOPPED"
+    assert payload["serverId"] == "srv_stopped"
+    assert payload["nextAction"] == "START_RUNNER"
+    assert "RUNNER_STOPPED" in payload["detail"]
+    assert "START_RUNNER" in payload["detail"]
+
+
 def test_ensure_runner_keeps_ready_existing_runner_without_implicit_upgrade(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
