@@ -3,7 +3,6 @@ from __future__ import annotations
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from apps.api.problem_details import build_problem_detail, ensure_request_id
 from apps.api.workflow_first_run_service import WorkflowFirstRunValidationCardUnavailableError
 from apps.api.workflow_sample_data_service import (
     WorkflowSampleDataIntegrityError,
@@ -17,6 +16,7 @@ from core.app_runtime.errors import (
     runtime_service_problem_extensions,
     runtime_service_status_code,
 )
+from core.contracts.problem_details import PROBLEM_DETAIL_MEDIA_TYPE, build_problem_detail, ensure_request_id
 from core.problem_responses import (
     register_fixed_status_exception_handlers,
     status_detail_response,
@@ -27,8 +27,8 @@ from core.problem_responses import (
 
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(RuntimeConflictError)
-    async def runtime_conflict_error_handler(_request: Request, exc: RuntimeConflictError) -> JSONResponse:
-        return status_payload_response(exc)
+    async def runtime_conflict_error_handler(request: Request, exc: RuntimeConflictError) -> JSONResponse:
+        return status_payload_response(exc, request=request)
 
     @app.exception_handler(RuntimeServiceError)
     async def runtime_service_error_handler(request: Request, exc: RuntimeServiceError) -> JSONResponse:
@@ -47,6 +47,7 @@ def register_exception_handlers(app: FastAPI) -> None:
                 extensions=runtime_service_problem_extensions(exc),
             ),
             headers={"X-Request-Id": request_id},
+            media_type=PROBLEM_DETAIL_MEDIA_TYPE,
         )
 
     @app.exception_handler(WorkflowSampleDataUnavailableError)
@@ -87,14 +88,14 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(WorkflowFirstRunValidationCardUnavailableError)
     async def workflow_first_run_validation_card_unavailable_handler(
-        _request: Request,
+        request: Request,
         exc: WorkflowFirstRunValidationCardUnavailableError,
     ) -> JSONResponse:
-        return status_detail_response(exc)
+        return status_detail_response(exc, request=request)
 
     @app.exception_handler(ValueError)
-    async def value_error_handler(_request: Request, exc: ValueError) -> JSONResponse:
-        return value_error_response(exc)
+    async def value_error_handler(request: Request, exc: ValueError) -> JSONResponse:
+        return value_error_response(exc, request=request)
 
     register_fixed_status_exception_handlers(app, 400, TypeError, KeyError)
     register_fixed_status_exception_handlers(app, 502, OSError, TimeoutError)
@@ -120,4 +121,5 @@ def workflow_sample_data_problem_response(
             instance=request.url.path,
         ),
         headers={"X-Request-Id": request_id},
+        media_type=PROBLEM_DETAIL_MEDIA_TYPE,
     )

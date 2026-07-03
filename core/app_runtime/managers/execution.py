@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import uuid
 from typing import Any, Optional
 
 from core.app_runtime.errors import RuntimeServiceError
 from core.app_runtime.managers.base import BaseRuntimeManager
+from core.contracts.command_context import remote_command_context_from_payload
 from core.contracts.remote_endpoints import (
     ARTIFACT_CACHE_ENTRIES_READ,
     ARTIFACT_CACHE_LOOKUP,
@@ -81,12 +81,11 @@ class ExecutionManager(BaseRuntimeManager):
         return self.call_remote_endpoint(RUN_LIST, path_values={}, timeout=20)
 
     def submit_run(self, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-        body = dict(payload or {})
-        server_id_hint = str(body.get("serverId") or "").strip()
-        if not server_id_hint:
-            raise RuntimeServiceError("serverId is required")
-        request_id = str(body.get("requestId") or f"req_{uuid.uuid4().hex[:8]}").strip()
-        idempotency_key = str(body.get("idempotencyKey") or request_id).strip()
+        try:
+            context, body = remote_command_context_from_payload(payload)
+        except ValueError as exc:
+            raise RuntimeServiceError("serverId is required") from exc
+        idempotency_key = str(body.get("idempotencyKey") or context.request_id).strip()
         if not idempotency_key:
             raise RuntimeServiceError("idempotencyKey is required")
         run_spec = dict(body.get("runSpec") or {})
@@ -94,7 +93,8 @@ class ExecutionManager(BaseRuntimeManager):
             run_spec["runId"] = body["runId"]
         if not str(run_spec.get("pipelineId") or "").strip():
             raise RuntimeServiceError("pipelineId is required")
-        manager, server_id, ssh, record = self._runner_context(preferred_server_id=server_id_hint)
+        manager, server_id, ssh, record = self._runner_context(preferred_server_id=context.server_id)
+        context_headers = context.headers | {"X-H2OMeta-Server-Id": server_id}
         return self._service._call_remote_runner(
             manager.call_remote_endpoint,
             server_id=server_id,
@@ -104,13 +104,11 @@ class ExecutionManager(BaseRuntimeManager):
             path_values={},
             query_values={},
             payload={
-                "serverId": server_id,
-                "requestId": request_id,
                 "runSpec": run_spec,
             },
             extra_headers={
                 "Idempotency-Key": idempotency_key,
-                "X-Request-Id": request_id,
+                **context_headers,
             },
         )
 

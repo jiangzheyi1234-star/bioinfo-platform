@@ -677,7 +677,7 @@ def test_first_run_validation_card_route_and_error_handler_are_registered() -> N
     assert "workflow_first_run_router" in main_source
     assert "WorkflowFirstRunValidationCardUnavailableError(ValueError):\n    status_code = 409" in service_source
     assert "WorkflowFirstRunValidationCardUnavailableError" in route_errors
-    assert "status_detail_response(exc)" in route_errors
+    assert "status_detail_response(exc, request=request)" in route_errors
 
 
 def _patch_first_run_sources(

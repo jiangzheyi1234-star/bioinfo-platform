@@ -174,8 +174,6 @@ def test_submission_records_durable_job_without_starting_executor(
     monkeypatch.setattr("apps.remote_runner.submission_service.ensure_execution_admission_ready", lambda cfg: None)
 
     request = RunCreateRequest(
-        serverId="srv_idem",
-        requestId="req_idem",
         runSpec={
             "projectId": "proj_idem",
             "pipelineId": "file-summary-v1",
@@ -183,8 +181,20 @@ def test_submission_records_durable_job_without_starting_executor(
         },
     )
 
-    first = create_run_from_request(cfg, request, idempotency_key="idem_same", x_request_id="req_idem")
-    replay = create_run_from_request(cfg, request, idempotency_key="idem_same", x_request_id="req_idem")
+    first = create_run_from_request(
+        cfg,
+        request,
+        idempotency_key="idem_same",
+        x_request_id="req_idem",
+        x_server_id="srv_idem",
+    )
+    replay = create_run_from_request(
+        cfg,
+        request,
+        idempotency_key="idem_same",
+        x_request_id="req_idem",
+        x_server_id="srv_idem",
+    )
 
     assert first["data"]["runId"] == replay["data"]["runId"]
     with get_connection(cfg) as connection:

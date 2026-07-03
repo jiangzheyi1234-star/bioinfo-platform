@@ -2,14 +2,20 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.contracts.state_contracts import (
+    BACKFILL_ADVANCEABLE_LAUNCH_STATES,
+    BACKFILL_PARTITION_CANCELABLE_STATES,
+    BACKFILL_PENDING_PARTITION_STATES,
+    BACKFILL_RUN_ORDERS,
+    normalize_state,
+)
+
 from .run_execution_state_machine import RunExecutionStateMachine
 
 
-BACKFILL_RUN_ORDERS = frozenset({"forward", "backward"})
-ADVANCEABLE_LAUNCH_STATES = frozenset({"launching", "running", "submitted"})
-BACKFILL_PARTITION_CANCELABLE_STATES = frozenset({"pending", "admitting", "submitted", "replayed"})
+ADVANCEABLE_LAUNCH_STATES = BACKFILL_ADVANCEABLE_LAUNCH_STATES
 ADMITTING_PARTITION_STATES = frozenset({"admitting"})
-PENDING_PARTITION_STATES = frozenset({"pending", "admitting"})
+PENDING_PARTITION_STATES = BACKFILL_PENDING_PARTITION_STATES
 
 
 class WorkflowBackfillStateMachine:
@@ -120,4 +126,4 @@ class WorkflowBackfillStateMachine:
 
 
 def _normalize(value: Any) -> str:
-    return str(value or "").strip().lower()
+    return normalize_state(value)

@@ -8,7 +8,7 @@ from core.contracts.remote_endpoints import REMOTE_ENDPOINTS, RUN_CREATE, UPLOAD
 
 from .api_models import RunCreateRequest, UploadCreateRequest
 from .control_service import create_run_from_request, create_upload_from_request
-from .route_headers import AuthorizationHeader, IdempotencyKeyHeader, RequestIdHeader
+from .route_headers import AuthorizationHeader, IdempotencyKeyHeader, RequestIdHeader, ServerIdHeader
 
 
 router = APIRouter()
@@ -32,10 +32,12 @@ async def create_run(
     authorization: AuthorizationHeader = None,
     idempotency_key: IdempotencyKeyHeader = None,
     x_request_id: RequestIdHeader = None,
+    x_server_id: ServerIdHeader = None,
 ) -> dict[str, Any]:
     return await create_run_from_request(
         payload,
         authorization,
         idempotency_key=idempotency_key,
         x_request_id=x_request_id,
+        x_server_id=x_server_id,
     )

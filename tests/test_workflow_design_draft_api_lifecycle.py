@@ -129,8 +129,13 @@ def test_generated_tool_run_record_keeps_strict_draft_run_spec(monkeypatch, tmp_
 
     missing_revision = client.post(
         "/api/v1/runs",
-        headers={"Authorization": "Bearer workflow-design-token", "Idempotency-Key": "idem_design_run_missing_revision"},
-        json={"serverId": "srv_design", "requestId": "req_design_run_missing_revision", "runSpec": run_spec},
+        headers={
+            "Authorization": "Bearer workflow-design-token",
+            "Idempotency-Key": "idem_design_run_missing_revision",
+            "X-Request-Id": "req_design_run_missing_revision",
+            "X-H2OMeta-Server-Id": "srv_design",
+        },
+        json={"runSpec": run_spec},
     )
     assert missing_revision.status_code == 422
 
@@ -141,8 +146,13 @@ def test_generated_tool_run_record_keeps_strict_draft_run_spec(monkeypatch, tmp_
 
     response = client.post(
         "/api/v1/runs",
-        headers={"Authorization": "Bearer workflow-design-token", "Idempotency-Key": "idem_design_run"},
-        json={"serverId": "srv_design", "requestId": "req_design_run", "runSpec": run_spec},
+        headers={
+            "Authorization": "Bearer workflow-design-token",
+            "Idempotency-Key": "idem_design_run",
+            "X-Request-Id": "req_design_run",
+            "X-H2OMeta-Server-Id": "srv_design",
+        },
+        json={"runSpec": run_spec},
     )
 
     assert response.status_code == 202

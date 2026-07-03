@@ -120,7 +120,7 @@ def test_rule_cache_restore_adoption_apply_route_rejects_stale_plan_without_muta
     )
 
     assert response.status_code == 409
-    detail = response.json()["detail"]
+    detail = response.json()
     assert detail["code"] == "RULE_CACHE_RESTORE_PLAN_HASH_MISMATCH"
     assert detail["ruleCacheRestorePlan"]["schemaVersion"] == "rule-cache-restore-adoption-public-plan.v1"
     assert fetch_run_results(cfg, run_id)["artifactCount"] == 0

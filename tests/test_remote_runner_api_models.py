@@ -117,15 +117,17 @@ def test_remote_runner_tool_production_evidence_accepts_scoped_attestation_field
     assert exc_info.value.errors()[0]["type"] == "extra_forbidden"
 
 
-def test_remote_runner_run_request_requires_top_level_server_id() -> None:
+def test_remote_runner_run_request_rejects_control_context_fields() -> None:
     with pytest.raises(ValidationError) as exc_info:
         RunCreateRequest.model_validate(
             {
+                "serverId": "srv_demo",
                 "requestId": "req_demo",
                 "runSpec": {"pipelineId": "file-summary-v1"},
             }
         )
 
+    assert exc_info.value.errors()[0]["type"] == "extra_forbidden"
     assert exc_info.value.errors()[0]["loc"] == ("serverId",)
 
 
@@ -133,8 +135,6 @@ def test_remote_runner_run_request_requires_pipeline_id_in_run_spec() -> None:
     with pytest.raises(ValidationError) as exc_info:
         RunCreateRequest.model_validate(
             {
-                "serverId": "srv_demo",
-                "requestId": "req_demo",
                 "runSpec": {"inputs": []},
             }
         )
@@ -146,8 +146,6 @@ def test_remote_runner_run_request_rejects_legacy_run_spec_server_id_as_extra_fi
     with pytest.raises(ValidationError) as exc_info:
         RunCreateRequest.model_validate(
             {
-                "serverId": "srv_demo",
-                "requestId": "req_demo",
                 "runSpec": {"serverId": "srv_legacy", "pipelineId": "file-summary-v1"},
             }
         )
@@ -159,8 +157,6 @@ def test_remote_runner_run_request_rejects_legacy_run_spec_server_id_as_extra_fi
 def test_remote_runner_run_request_preserves_run_spec_extensions() -> None:
     request = RunCreateRequest.model_validate(
         {
-            "serverId": "srv_demo",
-            "requestId": "req_demo",
             "runSpec": {"pipelineId": "file-summary-v1", "inputs": [], "workflowRevisionId": "wfrev_demo"},
         }
     )

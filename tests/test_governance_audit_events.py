@@ -84,8 +84,6 @@ def test_run_submission_records_governance_audit_without_run_spec_payload(
     response = create_run_from_request(
         cfg,
         RunCreateRequest(
-            serverId="srv_audit",
-            requestId="req_audit_submit",
             runSpec={
                 "projectId": "proj_audit",
                 "pipelineId": "file-summary-standard-v1",
@@ -94,6 +92,7 @@ def test_run_submission_records_governance_audit_without_run_spec_payload(
         ),
         idempotency_key="idem_audit_submit",
         x_request_id="req_audit_submit",
+        x_server_id="srv_audit",
     )
     run_id = response["data"]["runId"]
     events = list_governance_audit_events(

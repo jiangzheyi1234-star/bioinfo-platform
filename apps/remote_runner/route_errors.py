@@ -43,18 +43,18 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(DatabaseCandidateConflictError)
     async def database_candidate_conflict_handler(
-        _request: Request,
+        request: Request,
         exc: DatabaseCandidateConflictError,
     ) -> JSONResponse:
-        return status_payload_response(exc)
+        return status_payload_response(exc, request=request)
 
     @app.exception_handler(RemoteRunnerOperationBlockedError)
     async def remote_runner_operation_blocked_handler(
-        _request: Request,
+        request: Request,
         exc: RemoteRunnerOperationBlockedError,
     ) -> JSONResponse:
-        return status_payload_response(exc)
+        return status_payload_response(exc, request=request)
 
     @app.exception_handler(ValueError)
-    async def value_error_handler(_request: Request, exc: ValueError) -> JSONResponse:
-        return value_error_response(exc)
+    async def value_error_handler(request: Request, exc: ValueError) -> JSONResponse:
+        return value_error_response(exc, request=request)

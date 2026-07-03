@@ -33,6 +33,16 @@ def _http_error_detail_value(payload: str) -> Any:
     return decoded.get("detail")
 
 
+def _http_error_problem_payload(payload: str) -> dict[str, Any] | None:
+    decoded = _decode_json_object(payload)
+    if not isinstance(decoded, dict):
+        return None
+    if "code" in decoded and "status" in decoded and "detail" in decoded:
+        return decoded
+    detail = decoded.get("detail")
+    return detail if isinstance(detail, dict) else None
+
+
 def _http_error_detail(payload: str) -> str:
     detail = _http_error_detail_value(payload)
     if detail is None:
@@ -104,8 +114,9 @@ class RemoteRunnerHttpClient:
                 if isinstance(decoded, dict):
                     return decoded
             detail_value = _http_error_detail_value(response_payload)
-            if exc.code == 409 and isinstance(detail_value, dict):
-                raise RemoteRunnerConflictError(detail_value) from exc
+            problem_payload = _http_error_problem_payload(response_payload)
+            if exc.code == 409 and problem_payload is not None:
+                raise RemoteRunnerConflictError(problem_payload) from exc
             detail = _http_error_detail(response_payload)
             message = f"runner http error {exc.code}"
             if detail:
@@ -158,8 +169,9 @@ class RemoteRunnerHttpClient:
                 }
             response_payload = response_body.decode("utf-8", errors="replace")
             detail_value = _http_error_detail_value(response_payload)
-            if exc.code == 409 and isinstance(detail_value, dict):
-                raise RemoteRunnerConflictError(detail_value) from exc
+            problem_payload = _http_error_problem_payload(response_payload)
+            if exc.code == 409 and problem_payload is not None:
+                raise RemoteRunnerConflictError(problem_payload) from exc
             detail = _http_error_detail(response_payload)
             message = f"runner http error {exc.code}"
             if detail:

@@ -685,7 +685,12 @@ def test_submit_run_returns_async_headers(monkeypatch, tmp_path: Path) -> None:
     class FakeRemoteRunnerManager:
         def call_remote_endpoint(self, **kwargs):
             assert kwargs["endpoint_id"] == "run.create"
-            assert kwargs["extra_headers"] == {"Idempotency-Key": "req_submit_001", "X-Request-Id": "req_submit_001"}
+            assert kwargs["extra_headers"] == {
+                "Idempotency-Key": "req_submit_001",
+                "X-Request-Id": "req_submit_001",
+                "X-H2OMeta-Server-Id": kwargs["server_id"],
+            }
+            assert kwargs["payload"] == {"runSpec": {"pipelineId": "taxonomy-v1"}}
             return {
                 "data": {
                     "runId": "run_2026_phase2",

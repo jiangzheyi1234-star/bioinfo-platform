@@ -10,3 +10,5 @@ from fastapi import Header
 AuthorizationHeader = Annotated[str | None, Header()]
 IdempotencyKeyHeader = Annotated[str | None, Header(alias="Idempotency-Key")]
 RequestIdHeader = Annotated[str | None, Header(alias="X-Request-Id")]
+ServerIdHeader = Annotated[str | None, Header(alias="X-H2OMeta-Server-Id")]
+ActorHeader = Annotated[str | None, Header(alias="X-H2OMeta-Actor")]

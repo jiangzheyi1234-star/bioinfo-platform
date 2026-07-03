@@ -141,7 +141,7 @@ def test_rule_staged_restore_apply_route_rejects_stale_plan_hash_before_mutation
     )
 
     assert response.status_code == 409
-    detail = response.json()["detail"]
+    detail = response.json()
     assert detail["code"] == "RULE_CACHE_RESTORE_PLAN_HASH_MISMATCH"
     public_plan = detail["ruleCacheRestorePlan"]
     assert public_plan["schemaVersion"] == "rule-cache-restore-staged-file-public-plan.v1"

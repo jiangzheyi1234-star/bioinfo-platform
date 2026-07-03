@@ -137,7 +137,7 @@ def test_rule_staged_restore_promotion_apply_route_rejects_stale_plan_hash_befor
     )
 
     assert response.status_code == 409
-    detail = response.json()["detail"]
+    detail = response.json()
     assert detail["code"] == "RULE_CACHE_RESTORE_PLAN_HASH_MISMATCH"
     public_plan = detail["ruleCacheRestorePlan"]
     assert public_plan["schemaVersion"] == "rule-cache-restore-final-output-public-plan.v1"
@@ -176,7 +176,7 @@ def test_rule_staged_restore_promotion_apply_route_rejects_lease_mismatch_withou
     )
 
     assert response.status_code == 409
-    assert response.json()["detail"]["code"] == "RUN_ATTEMPT_STALE"
+    assert response.json()["code"] == "RUN_ATTEMPT_STALE"
     assert not final_path.exists()
     assert _candidate_count(cfg, run_id) == 0
     audit = list_governance_audit_events(cfg, action="run.rule_cache_restore.final_outputs.apply")["items"]

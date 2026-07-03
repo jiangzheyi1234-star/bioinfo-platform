@@ -23,13 +23,16 @@ def create_run_from_request(
     *,
     idempotency_key: str | None,
     x_request_id: str | None,
+    x_server_id: str | None,
 ) -> dict[str, Any]:
     ensure_submission_ready(cfg)
     run_spec = request_payload(request.runSpec)
     pipeline_id = request.runSpec.pipelineId
     pipeline_version = request.runSpec.pipelineVersion
-    request_id = str(request.requestId or x_request_id or f"req_{int(time.time() * 1000)}")
-    server_id = str(request.serverId)
+    request_id = str(x_request_id or f"req_{int(time.time() * 1000)}")
+    server_id = str(x_server_id or "").strip()
+    if not server_id:
+        raise ValueError("REMOTE_COMMAND_CONTEXT_SERVER_ID_REQUIRED")
     idem_key = str(idempotency_key or f"idem_{request_id}")
     pipeline = get_pipeline(cfg, pipeline_id)
     validate_run_spec_for_pipeline(pipeline, run_spec)
@@ -42,7 +45,7 @@ def create_run_from_request(
         run_spec["pipelineVersion"] = pipeline.version
     if pipeline_id != GENERATED_TOOL_RUN_PIPELINE_ID and not str(run_spec.get("workflowRevisionId") or "").strip():
         run_spec["workflowRevisionId"] = _workflow_revision_for_bundled_pipeline(cfg, pipeline)["workflowRevisionId"]
-    payload_hash = canonical_payload_hash({"serverId": server_id, "runSpec": run_spec})
+    payload_hash = canonical_payload_hash({"runSpec": run_spec})
     run_create = create_run_record(
         cfg,
         server_id=server_id,

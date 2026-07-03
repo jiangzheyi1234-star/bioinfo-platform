@@ -61,8 +61,8 @@ def test_submission_endpoint_caller_preserves_upload_unwrap_and_run_envelope() -
         client,
         RUN_CREATE,
         path_values={},
-        payload={"serverId": "srv_1", "requestId": "req_1", "runSpec": {"pipelineId": "taxonomy-v1"}},
-        extra_headers={"Idempotency-Key": "idem_1", "X-Request-Id": "req_1"},
+        payload={"runSpec": {"pipelineId": "taxonomy-v1"}},
+        extra_headers={"Idempotency-Key": "idem_1", "X-Request-Id": "req_1", "X-H2OMeta-Server-Id": "srv_1"},
     )
 
     assert upload == {"uploadId": "upl_1", "sha256": "abc123"}
@@ -81,9 +81,9 @@ def test_submission_endpoint_caller_preserves_upload_unwrap_and_run_envelope() -
         ),
         (
             "/api/v1/runs",
-            {"serverId": "srv_1", "requestId": "req_1", "runSpec": {"pipelineId": "taxonomy-v1"}},
+            {"runSpec": {"pipelineId": "taxonomy-v1"}},
             [202],
-            {"Idempotency-Key": "idem_1", "X-Request-Id": "req_1"},
+            {"Idempotency-Key": "idem_1", "X-Request-Id": "req_1", "X-H2OMeta-Server-Id": "srv_1"},
         ),
     ]
 
@@ -100,8 +100,8 @@ def test_submission_proxy_generic_endpoint_call_uses_registry() -> None:
     run = proxy.call_remote_endpoint(
         **_endpoint_kwargs(
             RUN_CREATE,
-            payload={"serverId": "srv_1", "requestId": "req_1", "runSpec": {"pipelineId": "taxonomy-v1"}},
-            extra_headers={"Idempotency-Key": "idem_1", "X-Request-Id": "req_1"},
+            payload={"runSpec": {"pipelineId": "taxonomy-v1"}},
+            extra_headers={"Idempotency-Key": "idem_1", "X-Request-Id": "req_1", "X-H2OMeta-Server-Id": "srv_1"},
         )
     )
 

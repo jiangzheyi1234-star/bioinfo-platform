@@ -407,13 +407,12 @@ def test_remote_runner_create_run_rejects_unknown_pipeline(tmp_path: Path, monke
         asyncio.run(
             create_run(
                 RunCreateRequest(
-                    serverId="srv_demo",
-                    requestId="req_unknown_pipeline",
                     runSpec={"projectId": "proj_demo", "pipelineId": "unknown-v1", "inputs": []},
                 ),
                 authorization="Bearer phase2-token",
                 idempotency_key="idem-unknown-pipeline",
                 x_request_id="req_unknown_pipeline",
+                x_server_id="srv_demo",
             )
         )
 
@@ -448,8 +447,6 @@ def test_remote_runner_create_run_rejects_invalid_pipeline_params(tmp_path: Path
         asyncio.run(
             create_run(
                 RunCreateRequest(
-                    serverId="srv_demo",
-                    requestId="req_bad_params",
                     runSpec={
                         "projectId": "proj_demo",
                         "pipelineId": "file-summary-v1",
@@ -460,6 +457,7 @@ def test_remote_runner_create_run_rejects_invalid_pipeline_params(tmp_path: Path
                 authorization="Bearer phase2-token",
                 idempotency_key="idem-bad-params",
                 x_request_id="req_bad_params",
+                x_server_id="srv_demo",
             )
         )
 
@@ -502,8 +500,6 @@ def test_remote_runner_run_lifecycle_produces_events_logs_and_results(tmp_path: 
     submit = asyncio.run(
         create_run(
             RunCreateRequest(
-                serverId="srv_demo",
-                requestId="req_phase2",
                 runSpec={
                     "projectId": "proj_demo",
                     "pipelineId": "file-summary-v1",
@@ -513,6 +509,7 @@ def test_remote_runner_run_lifecycle_produces_events_logs_and_results(tmp_path: 
             authorization="Bearer phase2-token",
             idempotency_key="idem-phase2",
             x_request_id="req_phase2",
+            x_server_id="srv_demo",
         )
     )
     run_id = submit["data"]["runId"]

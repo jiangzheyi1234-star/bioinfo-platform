@@ -157,7 +157,9 @@ def test_resume_run_http_route_preserves_runtime_conflict_payload(monkeypatch) -
     )
 
     assert response.status_code == 409
-    assert response.json() == {"detail": payload}
+    problem = response.json()
+    assert problem["code"] == payload["code"]
+    assert problem["resumePlan"] == payload["resumePlan"]
 
 
 def test_rule_output_invalidation_apply_route_delegates_runtime_result(monkeypatch) -> None:

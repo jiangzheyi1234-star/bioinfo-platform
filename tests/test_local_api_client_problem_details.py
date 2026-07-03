@@ -13,3 +13,6 @@ def test_local_api_client_extracts_nested_problem_details() -> None:
     assert "problemDetail.title" in client
     assert "problemDetail.requestId" in client
     assert "problemDetail.code" in client
+    assert "export type LocalApiProblemDetails" in client
+    assert "problem?: LocalApiProblemDetails" in client
+    assert "problem: problemDetail" in client

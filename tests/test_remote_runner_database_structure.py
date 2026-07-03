@@ -33,7 +33,7 @@ def test_candidate_database_errors_are_reported_as_conflicts() -> None:
     assert "DATABASE_CANDIDATES" not in source
     assert 'detail.startswith("DATABASE_CANDIDATES:")' not in source
     assert "_detail_response(409, exc.payload)" not in source
-    assert "return status_payload_response(exc)" in source
+    assert "return status_payload_response(exc, request=request)" in source
 
 
 def test_database_not_found_status_lives_on_domain_error() -> None:

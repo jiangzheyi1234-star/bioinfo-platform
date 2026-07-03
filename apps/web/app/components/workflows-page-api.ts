@@ -1,5 +1,6 @@
 import { apiBase, requestLocalApiJson } from "@/app/lib/local-api-client";
 import { cachedAsync, invalidateAsyncCache, invalidateAsyncCachePrefix, peekAsyncCache } from "@/app/lib/async-cache";
+import type { LocalApiRunSubmitRequest } from "@/app/lib/local-api-openapi-types";
 
 import type { DatabaseItem, DatabasesResponse } from "./database-page-model";
 import type { RuleOutputSpec } from "./generated-workflow-model";
@@ -448,20 +449,24 @@ export async function submitWorkflowDesignRun({
     })),
   };
   const requestId = `req_workflow_design_${Date.now()}`;
+  const body: LocalApiRunSubmitRequest = {
+    serverId: server.serverId,
+    requestId,
+    idempotencyKey: requestId,
+    runSpec: runSpec as LocalApiRunSubmitRequest["runSpec"],
+  };
   const response = await requestLocalApiJson<WorkflowRunResponse>("POST", "/api/v1/runs", {
-    body: {
-      serverId: server.serverId,
-      requestId,
-      idempotencyKey: requestId,
-      runSpec,
-    },
+    body,
   });
   invalidateWorkflowRunResultCaches();
   return response.data;
 }
 
-function requireWorkflowDesignPlanRunSpec(plan: WorkflowDesignPlan): Record<string, unknown> {
+function requireWorkflowDesignPlanRunSpec(plan: WorkflowDesignPlan): LocalApiRunSubmitRequest["runSpec"] {
   const runSpec = plan.runSpec;
+  if (typeof runSpec.pipelineId !== "string" || runSpec.pipelineId.trim().length === 0) {
+    throw new Error("WORKFLOW_DESIGN_PLAN_RUN_SPEC_REQUIRED: pipelineId");
+  }
   const workflowDesign = runSpec.workflowDesign;
   if (!workflowDesign || typeof workflowDesign !== "object" || Array.isArray(workflowDesign)) {
     throw new Error("WORKFLOW_DESIGN_PLAN_RUN_SPEC_REQUIRED: workflowDesign");
@@ -473,7 +478,7 @@ function requireWorkflowDesignPlanRunSpec(plan: WorkflowDesignPlan): Record<stri
   if (!Number.isInteger(metadata.revision) || Number(metadata.revision) < 1) {
     throw new Error("WORKFLOW_DESIGN_PLAN_RUN_SPEC_REQUIRED: workflowDesign.revision");
   }
-  return runSpec;
+  return runSpec as LocalApiRunSubmitRequest["runSpec"];
 }
 
 function requireWorkflowDesignPlannedInputs(runSpec: Record<string, unknown>): Array<{ role: string; filename: string }> {
@@ -544,13 +549,14 @@ export async function submitPipelineWorkflowRun({
     resourceBindings,
   });
   const requestId = `req_workflow_ui_${Date.now()}`;
+  const body: LocalApiRunSubmitRequest = {
+    serverId: server.serverId,
+    requestId,
+    idempotencyKey: requestId,
+    runSpec: runSpec as LocalApiRunSubmitRequest["runSpec"],
+  };
   const response = await requestLocalApiJson<WorkflowRunResponse>("POST", "/api/v1/runs", {
-    body: {
-      serverId: server.serverId,
-      requestId,
-      idempotencyKey: requestId,
-      runSpec,
-    },
+    body,
   });
   invalidateWorkflowRunResultCaches();
   return response.data;

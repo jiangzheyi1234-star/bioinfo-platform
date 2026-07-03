@@ -2,13 +2,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from core.contracts.state_contracts import (
+    LEASE_RELEASED_STATES,
+    PUBLISHED_ATTEMPT_TERMINAL_STATES,
+    RESULT_EXPORTABLE_RUN_STATUSES,
+    RETRYABLE_RUN_STATUSES,
+    RUN_STATUSES,
+    TERMINAL_RUN_STATUSES,
+    is_result_exportable_run_status,
+    is_terminal_run_status,
+    normalize_state,
+)
 
-RUN_STATUSES = frozenset({"queued", "running", "canceling", "completed", "failed", "canceled", "cancelled"})
-TERMINAL_RUN_STATUSES = frozenset({"completed", "failed", "canceled", "cancelled"})
-RESULT_EXPORTABLE_RUN_STATUSES = frozenset({"completed", "failed"})
-RETRYABLE_RUN_STATUSES = frozenset({"failed", "canceled", "cancelled"})
-RELEASED_LEASE_STATES = frozenset({"expired", "fenced", "failed", "canceled", "cancelled"})
-PUBLISHED_ATTEMPT_TERMINAL_STATES = frozenset({"succeeded", "failed", "cancelled"})
+RELEASED_LEASE_STATES = LEASE_RELEASED_STATES
 FENCE_ATTEMPT_REASONS = frozenset({"lease_expired", "attempt_timeout", "stale_generation"})
 
 
@@ -124,7 +130,7 @@ class RunAttemptLeaseGuardDecision:
 class RunExecutionStateMachine:
     @staticmethod
     def is_result_exportable_run_status(status: str | None) -> bool:
-        return _normalize_optional_status(status) in RESULT_EXPORTABLE_RUN_STATUSES
+        return is_result_exportable_run_status(status)
 
     @staticmethod
     def submission_accepted() -> RunExecutionTransition:
@@ -473,7 +479,7 @@ class RunExecutionStateMachine:
 
     @staticmethod
     def is_terminal_run_status(status: str) -> bool:
-        return _normalize_optional_status(status) in TERMINAL_RUN_STATUSES
+        return is_terminal_run_status(status)
 
     @staticmethod
     def is_released_lease_state(state: str) -> bool:
@@ -506,4 +512,4 @@ def _normalize_required_text(value: str, error_code: str) -> str:
 
 
 def _normalize_optional_status(value: str | None) -> str:
-    return str(value or "").strip().lower()
+    return normalize_state(value)

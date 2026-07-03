@@ -197,6 +197,7 @@ async def create_run_from_request(
     *,
     idempotency_key: str | None,
     x_request_id: str | None,
+    x_server_id: str | None,
 ) -> dict[str, Any]:
     cfg = await _authorized_config_from_request(authorization, action="run.submit")
     return await run_sync(
@@ -205,6 +206,7 @@ async def create_run_from_request(
         payload,
         idempotency_key=idempotency_key,
         x_request_id=x_request_id,
+        x_server_id=x_server_id,
     )
 
 

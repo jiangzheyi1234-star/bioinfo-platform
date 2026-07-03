@@ -4,9 +4,9 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from apps.api.models import RunSubmitRequest, UploadSubmitRequest
-from apps.api.problem_details import ensure_request_id
 from apps.api.response_cache import invalidate_response_cache
 from apps.api.route_utils import request_payload, run_runtime_payload, runtime_service
+from core.contracts.problem_details import ensure_request_id
 
 
 @dataclass(frozen=True)

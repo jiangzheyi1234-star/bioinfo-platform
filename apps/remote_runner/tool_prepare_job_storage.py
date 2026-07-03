@@ -6,6 +6,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from core.contracts.state_contracts import TERMINAL_TOOL_PREPARE_JOB_STATUSES, terminal_status_sql
+
 from .config import RemoteRunnerConfig
 from .errors import RemoteRunnerNotFoundError
 from .storage_core import get_connection, now_iso
@@ -17,8 +19,8 @@ from .tool_platform_storage import record_prepare_job_validation_result
 from .tool_prepare_reservations import tool_prepare_job_reservation
 
 
-TERMINAL_PREPARE_JOB_STATUSES = {"succeeded", "failed", "cancelled", "waiting_resource", "exhausted"}
-TERMINAL_PREPARE_JOB_STATUS_SQL = "(" + ", ".join(f"'{status}'" for status in sorted(TERMINAL_PREPARE_JOB_STATUSES)) + ")"
+TERMINAL_PREPARE_JOB_STATUSES = set(TERMINAL_TOOL_PREPARE_JOB_STATUSES)
+TERMINAL_PREPARE_JOB_STATUS_SQL = terminal_status_sql(TERMINAL_TOOL_PREPARE_JOB_STATUSES)
 
 
 def create_tool_prepare_job(cfg: RemoteRunnerConfig, payload: dict[str, Any]) -> dict[str, Any]:

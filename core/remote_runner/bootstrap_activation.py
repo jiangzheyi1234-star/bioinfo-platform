@@ -156,8 +156,6 @@ class RemoteRunnerBootstrapActivationMixin:
                 RUN_CREATE,
                 path_values={},
                 payload={
-                    "serverId": server_id,
-                    "requestId": request_id,
                     "runSpec": {
                         "pipelineId": "file-summary-v1",
                         "inputs": [
@@ -173,6 +171,7 @@ class RemoteRunnerBootstrapActivationMixin:
                 extra_headers={
                     "Idempotency-Key": f"idem_bootstrap_canary_{secrets.token_hex(8)}",
                     "X-Request-Id": request_id,
+                    "X-H2OMeta-Server-Id": server_id,
                 },
             )
             run_id = str(((submission.get("data") or {}).get("runId")) or "")

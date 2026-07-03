@@ -6,6 +6,7 @@ from typing import Annotated, Any, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, TypeAdapter
 
+from core.contracts.request_contracts import RunSpecRequest
 from core.contracts.workflow_design import WorkflowDesignDraftV1, WorkflowDesignEdge
 
 
@@ -98,24 +99,6 @@ TerminalClientMessage: TypeAlias = Annotated[
     Field(discriminator="type"),
 ]
 TERMINAL_CLIENT_MESSAGE_ADAPTER = TypeAdapter(TerminalClientMessage)
-
-
-class RunSpecRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    pipelineId: str = Field(min_length=1)
-    projectId: str | None = None
-    pipelineVersion: str | None = None
-    runId: str | None = None
-    runSpecVersion: str | None = None
-    workflowRevisionId: str | None = None
-    inputs: list[dict[str, Any]] | None = None
-    params: dict[str, Any] | None = None
-    resourceBindings: dict[str, Any] | None = None
-    sampleDataPrepProof: dict[str, Any] | None = None
-    execution: dict[str, Any] | None = None
-    workflowDesign: dict[str, Any] | None = None
-    workflow: dict[str, Any] | None = None
 
 
 class RunSubmitRequest(ApiRequest):

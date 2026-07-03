@@ -397,8 +397,8 @@ def test_api_route_error_status_codes_live_on_domain_errors() -> None:
     assert "WorkflowFirstRunValidationCardUnavailableError(ValueError):\n    status_code = 409" in first_run_service
     assert "detail_response(409," not in route_errors
     assert "detail_response(404, str(exc))" not in route_errors
-    assert "status_payload_response(exc)" in route_errors
-    assert "status_detail_response(exc)" in route_errors
+    assert "status_payload_response(exc, request=request)" in route_errors
+    assert "status_detail_response(exc, request=request)" in route_errors
     assert "detail_response(exc.status_code, exc.payload if exc.payload is not None else str(exc))" not in route_errors
     assert "detail_response(exc.status_code, str(exc))" not in route_errors
     assert "def workflow_sample_data_problem_response(" in route_errors
@@ -421,7 +421,8 @@ def test_detail_response_shape_lives_in_shared_problem_response_helper() -> None
     assert "def status_detail_response(" in helper_source
     assert "def status_payload_response(" in helper_source
     assert "def fixed_status_response(" in helper_source
-    assert 'content={"detail": detail}' in helper_source
+    assert "content=build_problem_detail(" in helper_source
+    assert 'media_type=PROBLEM_DETAIL_MEDIA_TYPE' in helper_source
 
 
 def test_fixed_status_exception_responses_live_in_shared_helper() -> None:
@@ -443,7 +444,7 @@ def test_fixed_status_exception_responses_live_in_shared_helper() -> None:
     assert "TimeoutError" in route_errors
     assert "def fixed_status_response(" in response_helper
     assert "def register_fixed_status_exception_handlers(" in response_helper
-    assert "return detail_response(status_code, str(error))" in response_helper
+    assert "str(error),\n        request=request," in response_helper
 
 
 def test_fixed_status_exception_registration_lives_in_shared_helper() -> None:
@@ -522,8 +523,8 @@ def test_api_value_error_status_classification_lives_outside_route_errors() -> N
     assert "detail.startswith(" not in route_errors
     assert "problem_value_error_status_code(" not in route_errors
     assert "problem_value_error_status_code(" not in remote_route_errors
-    assert "value_error_response(exc)" in route_errors
-    assert "value_error_response(exc)" in remote_route_errors
+    assert "value_error_response(exc, request=request)" in route_errors
+    assert "value_error_response(exc, request=request)" in remote_route_errors
     assert "problem_value_error_status_code(detail)" in response_helper
     assert "def value_error_response(" in response_helper
     assert "def problem_value_error_status_code(" in shared_errors

@@ -217,7 +217,7 @@ def test_rule_retry_route_records_blocked_intent_without_mutating_run(tmp_path, 
     )
 
     assert response.status_code == 409
-    detail = response.json()["detail"]
+    detail = response.json()
     assert detail["code"] == "RULE_RETRY_EXECUTION_DISABLED"
     assert detail["ruleRetryExecutionPlan"]["planHash"] == plan["planHash"]
     _assert_run_not_requeued(cfg, "run_rule_retry_public")
@@ -436,7 +436,7 @@ def test_rule_output_invalidation_apply_route_tombstones_edges_and_records_safe_
         },
     )
     assert second_response.status_code == 409
-    second_detail = second_response.json()["detail"]
+    second_detail = second_response.json()
     assert second_detail["code"] == "OUTPUT_EDGE_INVALIDATION_ALREADY_APPLIED"
     public_plan = second_detail["ruleOutputInvalidationPlan"]
     assert public_plan["outputInvalidationState"] == {
@@ -477,8 +477,8 @@ def test_rule_output_invalidation_apply_route_rejects_stale_plan_hash_before_mut
     )
 
     assert response.status_code == 409
-    assert response.json()["detail"]["code"] == "RULE_OUTPUT_INVALIDATION_PLAN_HASH_MISMATCH"
-    detail_text = json.dumps(response.json()["detail"], sort_keys=True)
+    assert response.json()["code"] == "RULE_OUTPUT_INVALIDATION_PLAN_HASH_MISMATCH"
+    detail_text = json.dumps(response.json(), sort_keys=True)
     assert align["edgeId"] not in detail_text
     assert align["artifactBlobId"] not in detail_text
     assert "runArtifactEdgeId" not in detail_text
@@ -611,7 +611,7 @@ def test_resume_route_rejects_stale_plan_hash_before_mutation(tmp_path, monkeypa
     )
 
     assert response.status_code == 409
-    detail = response.json()["detail"]
+    detail = response.json()
     assert detail["code"] == "RUN_REEXECUTION_PLAN_HASH_MISMATCH"
     _assert_public_resume_plan_projection(detail["resumePlan"], plan)
     detail_text = json.dumps(detail, sort_keys=True)
@@ -690,7 +690,7 @@ def test_resume_route_blocks_if_activation_readiness_is_not_ready(tmp_path, monk
     )
 
     assert response.status_code == 409
-    detail = response.json()["detail"]
+    detail = response.json()
     assert detail["code"] == "RUN_RESUME_ACTIVATION_NOT_READY"
     public_plan = detail["resumePlan"]
     _assert_public_resume_plan_projection(public_plan, readiness_probe)
@@ -724,7 +724,7 @@ def test_run_reexecution_routes_reject_stale_plan_hash_before_mutation(tmp_path,
     )
 
     assert response.status_code == 409
-    assert response.json()["detail"]["code"] == "RUN_REEXECUTION_PLAN_HASH_MISMATCH"
+    assert response.json()["code"] == "RUN_REEXECUTION_PLAN_HASH_MISMATCH"
     _assert_run_not_requeued(cfg, "run_rule_retry_stale")
     events = list_governance_audit_events(cfg, action="run.rule_retry")["items"]
     assert events[0]["reasonCode"] == "RUN_REEXECUTION_PLAN_HASH_MISMATCH"

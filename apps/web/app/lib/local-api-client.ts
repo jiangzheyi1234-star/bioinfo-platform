@@ -14,6 +14,26 @@ type LocalApiRequestOptions = {
   timeoutMs?: number;
 };
 
+export type LocalApiProblemDetails = {
+  type?: string;
+  title?: string;
+  status?: number;
+  detail?: unknown;
+  instance?: string;
+  code?: string;
+  requestId?: string;
+  reasonCode?: string;
+  nextAction?: string;
+  activeLeaseCount?: number;
+  allocatedResourceCount?: number;
+  blockReasons?: string[];
+  claimedJobCount?: number;
+  queuedJobCount?: number;
+  resourceWaitCount?: number;
+  runningSlotCount?: number;
+  [key: string]: unknown;
+};
+
 const DEFAULT_REQUEST_TIMEOUT_MS = 8_000;
 
 export class LocalApiError extends Error {
@@ -28,6 +48,7 @@ export class LocalApiError extends Error {
   title?: string;
   runningSlotCount?: number;
   requestId?: string;
+  problem?: LocalApiProblemDetails;
   problemCode?: string;
   reasonCode?: string;
   resourceWaitCount?: number;
@@ -45,6 +66,7 @@ export class LocalApiError extends Error {
       claimedJobCount?: number;
       queuedJobCount?: number;
       nextAction?: string;
+      problem?: LocalApiProblemDetails;
       problemCode?: string;
       reasonCode?: string;
       requestId?: string;
@@ -66,6 +88,7 @@ export class LocalApiError extends Error {
     this.title = options?.title;
     this.runningSlotCount = options?.runningSlotCount;
     this.requestId = options?.requestId;
+    this.problem = options?.problem;
     this.problemCode = options?.problemCode;
     this.reasonCode = options?.reasonCode;
     this.resourceWaitCount = options?.resourceWaitCount;
@@ -146,6 +169,7 @@ async function requestViaBrowserFetch<T>(
         title: typeof problemDetail.title === "string" ? problemDetail.title : undefined,
         runningSlotCount: optionalProblemNumber(problemDetail.runningSlotCount),
         requestId: typeof problemDetail.requestId === "string" ? problemDetail.requestId : undefined,
+        problem: problemDetail,
         problemCode: typeof problemDetail.code === "string" ? problemDetail.code : undefined,
         reasonCode: typeof problemDetail.reasonCode === "string" ? problemDetail.reasonCode : undefined,
         resourceWaitCount: optionalProblemNumber(problemDetail.resourceWaitCount),

@@ -96,8 +96,8 @@ def test_run_command_endpoint_caller_posts_payload_and_accepted_statuses() -> No
         client,
         RUN_CREATE,
         path_values={},
-        payload={"serverId": "srv_1", "requestId": "req_1", "runSpec": {"pipelineId": "taxonomy-v1"}},
-        extra_headers={"Idempotency-Key": "idem_1", "X-Request-Id": "req_1"},
+        payload={"runSpec": {"pipelineId": "taxonomy-v1"}},
+        extra_headers={"Idempotency-Key": "idem_1", "X-Request-Id": "req_1", "X-H2OMeta-Server-Id": "srv_1"},
     )
     cancelled = call_remote_endpoint(client, RUN_CANCEL, path_values={"run_id": "run_1"})
     retried = call_remote_endpoint(
@@ -134,9 +134,9 @@ def test_run_command_endpoint_caller_posts_payload_and_accepted_statuses() -> No
         (
             "POST",
             "/api/v1/runs",
-            {"serverId": "srv_1", "requestId": "req_1", "runSpec": {"pipelineId": "taxonomy-v1"}},
+            {"runSpec": {"pipelineId": "taxonomy-v1"}},
             (202,),
-            {"Idempotency-Key": "idem_1", "X-Request-Id": "req_1"},
+            {"Idempotency-Key": "idem_1", "X-Request-Id": "req_1", "X-H2OMeta-Server-Id": "srv_1"},
         ),
         ("POST", "/api/v1/runs/run_1/cancel", {}, (200,), {}),
         ("POST", "/api/v1/runs/run_1/retry", {"scope": "run", "actor": "operator"}, (202,), {}),
@@ -157,8 +157,8 @@ def test_run_command_proxy_generic_endpoint_call_uses_registry() -> None:
         **_endpoint_kwargs(
             RUN_CREATE,
             path_values={},
-            payload={"serverId": "srv_1", "requestId": "req_1", "runSpec": {"pipelineId": "taxonomy-v1"}},
-            extra_headers={"Idempotency-Key": "idem_1", "X-Request-Id": "req_1"},
+            payload={"runSpec": {"pipelineId": "taxonomy-v1"}},
+            extra_headers={"Idempotency-Key": "idem_1", "X-Request-Id": "req_1", "X-H2OMeta-Server-Id": "srv_1"},
         )
     )
     cancelled = proxy.call_remote_endpoint(**_endpoint_kwargs(RUN_CANCEL, path_values={"run_id": "run_1"}))
@@ -226,13 +226,13 @@ def test_execution_manager_calls_run_commands_via_generic_endpoint() -> None:
         (RUN_RESUME, {"run_id": "run_1"}, {}),
     ]
     assert service.remote_runner_manager.payloads == [
-        (RUN_CREATE, {"serverId": "srv_1", "requestId": "req_1", "runSpec": {"pipelineId": "taxonomy-v1"}}),
+        (RUN_CREATE, {"runSpec": {"pipelineId": "taxonomy-v1"}}),
         (RUN_CANCEL, {}),
         (RUN_RETRY, {"scope": "run", "actor": "operator"}),
         (RUN_RESUME, {"confirmation": "resume-run", "planHash": "a" * 64}),
     ]
     assert service.remote_runner_manager.extra_headers == [
-        (RUN_CREATE, {"Idempotency-Key": "idem_1", "X-Request-Id": "req_1"}),
+        (RUN_CREATE, {"Idempotency-Key": "idem_1", "X-Request-Id": "req_1", "X-H2OMeta-Server-Id": "srv_1"}),
         (RUN_CANCEL, {}),
         (RUN_RETRY, {}),
         (RUN_RESUME, {}),
