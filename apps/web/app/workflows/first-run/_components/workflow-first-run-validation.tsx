@@ -184,19 +184,26 @@ export function ValidationCard({
   const validationJsonHref = firstRunEvidenceBundleFileDownloadHref(validationJsonFile);
   const validationEvidence = firstRunStatus?.evidence?.validation;
   const resultPackageEvidence = firstRunStatus?.evidence?.resultPackage;
+  const completionProof = firstRunStatus?.evidence?.completionProof;
   const statusRun = firstRunStatus?.evidence?.run || firstRunStatus?.latestEligibleRun || null;
-  const effectiveRunId = firstRunStatus ? statusRun?.runId || "" : run?.runId || "";
+  const effectiveRunId = firstRunStatus ? statusRun?.runId || completionProof?.runId || "" : run?.runId || "";
   const effectiveRunStatus = firstRunStatus ? statusRun?.status || "" : run?.status || "";
   const effectiveWorkflowRevisionId = firstRunStatus
-    ? statusRun?.workflowRevisionId || workflowRevisionId
+    ? statusRun?.workflowRevisionId || completionProof?.workflowRevisionId || workflowRevisionId
     : workflowRevisionId;
+  const effectiveServerLabel = server?.label || server?.serverId || completionProof?.serverId || "";
   const inputCount = sampleData?.items?.length || sampleUploads.length || inputArtifacts.length || 0;
-  const packageExportId = firstRunStatus ? resultPackageEvidence?.packageExportId : packageExport?.packageExportId;
-  const packageSha256 = firstRunStatus ? resultPackageEvidence?.sha256 : packageExport?.sha256;
-  const manifestSha256 = firstRunStatus ? resultPackageEvidence?.manifestSha256 : packageExport?.manifestSha256;
-  const passedChecks = validationEvidence?.validationChecksPassed;
-  const totalChecks = validationEvidence?.validationChecksTotal;
-  const validationPassed = validationEvidence?.ready === true;
+  const effectiveResultId = resultId || completionProof?.resultId || "";
+  const packageExportId = firstRunStatus ? resultPackageEvidence?.packageExportId || completionProof?.packageExportId : packageExport?.packageExportId;
+  const packageSha256 = firstRunStatus ? resultPackageEvidence?.sha256 || completionProof?.resultPackageSha256 : packageExport?.sha256;
+  const manifestSha256 = firstRunStatus ? resultPackageEvidence?.manifestSha256 || completionProof?.resultPackageManifestSha256 : packageExport?.manifestSha256;
+  const packageEvidenceId = firstRunStatus ? resultPackageEvidence?.evidenceId || completionProof?.packageEvidenceId : packageExport?.evidenceId;
+  const generatedAt = card?.generatedAt || validationEvidence?.generatedAt || completionProof?.validationCardGeneratedAt;
+  const passedChecks = validationEvidence?.validationChecksPassed ?? completionProof?.validationChecksPassed;
+  const totalChecks = validationEvidence?.validationChecksTotal ?? completionProof?.validationChecksTotal;
+  const validationPassed = validationEvidence?.ready === true || completionProof?.ready === true;
+  const effectiveBundleId = evidenceBundle?.bundleId || completionProof?.evidenceBundleId || "";
+  const bundleFileCount = evidenceBundle?.requiredFiles?.length || completionProof?.evidenceBundleFileRoles?.length || 0;
   return (
     <section
       id="validation-card"
@@ -249,9 +256,9 @@ export function ValidationCard({
         <KeyValue label="dataset" value="QIIME 2 Moving Pictures tutorial" />
         <KeyValue label="pipeline" value="moving-pictures-16s-rulegraph-v1" mono />
         <KeyValue label="run" value={effectiveRunId} mono />
-        <KeyValue label="result" value={resultId} mono />
+        <KeyValue label="result" value={effectiveResultId} mono />
         <KeyValue label="status" value={effectiveRunStatus} />
-        <KeyValue label="runner" value={server?.label || server?.serverId} mono />
+        <KeyValue label="runner" value={effectiveServerLabel} mono />
         <KeyValue label="runtime" value={softwareRuntimeLabel(softwareEnvironment)} />
         <KeyValue label="database" value="不需要外部数据库" />
         <KeyValue label="流程版本" value={effectiveWorkflowRevisionId} mono />
@@ -260,11 +267,12 @@ export function ValidationCard({
         <KeyValue label="package" value={packageExportId} mono />
         <KeyValue label="package sha" value={packageSha256} mono />
         <KeyValue label="manifest" value={manifestSha256} mono />
-        <KeyValue label="evidence" value={packageExport?.evidenceId} mono />
-        <KeyValue label="bundle" value={evidenceBundle?.bundleId} mono />
-        <KeyValue label="bundle files" value={evidenceBundle?.requiredFiles?.length ? `${evidenceBundle.requiredFiles.length} files` : ""} />
+        <KeyValue label="evidence" value={packageEvidenceId} mono />
+        <KeyValue label="bundle" value={effectiveBundleId} mono />
+        <KeyValue label="saved proof" value={completionProof?.validationCardJsonSha256} mono />
+        <KeyValue label="bundle files" value={bundleFileCount ? `${bundleFileCount} files` : ""} />
         <KeyValue label="card" value={card?.schemaVersion} mono />
-        <KeyValue label="generated" value={card?.generatedAt} mono />
+        <KeyValue label="generated" value={generatedAt} mono />
         <KeyValue
           label="checks"
           value={typeof passedChecks === "number" && typeof totalChecks === "number" ? `${passedChecks}/${totalChecks} passed checks` : ""}

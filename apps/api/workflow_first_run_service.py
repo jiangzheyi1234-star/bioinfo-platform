@@ -211,7 +211,7 @@ def _build_validation_card(
     )
     card = {
         "schemaVersion": FIRST_RUN_VALIDATION_CARD_SCHEMA_VERSION,
-        "generatedAt": _utc_now(),
+        "generatedAt": _validation_card_generated_at(package_export),
         "scenario": {
             "scenarioId": "moving-pictures-16s",
             "dataset": "QIIME 2 Moving Pictures tutorial",
@@ -295,6 +295,11 @@ def _passed_check(code: str, detail: str) -> dict[str, str]:
         "status": "passed",
         "detail": detail,
     }
+
+
+def _validation_card_generated_at(package_export: dict[str, Any]) -> str:
+    created_at = str(package_export.get("createdAt") or "").strip()
+    return created_at or _utc_now()
 
 
 def _safe_report_evidence(interpretation: dict[str, Any]) -> dict[str, Any]:

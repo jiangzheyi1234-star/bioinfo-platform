@@ -227,6 +227,7 @@ export type FirstRunStatusEvidence = {
     sourceRequired?: boolean;
     blockerCodes?: string[];
   };
+  completionProof?: FirstRunCompletionProof;
   run?: FirstRunStatusRunSummary | null;
   report?: {
     ready?: boolean;
@@ -239,8 +240,10 @@ export type FirstRunStatusEvidence = {
     packageExportId?: string;
     sha256?: string;
     manifestSha256?: string;
+    evidenceId?: string;
     artifactPayloadMode?: string;
     includeArtifacts?: boolean;
+    createdAt?: string;
     download?: {
       href?: string;
       filename?: string;
@@ -251,11 +254,35 @@ export type FirstRunStatusEvidence = {
     ready?: boolean;
     blockedCode?: string;
     detail?: string;
+    generatedAt?: string;
+    packageExportId?: string;
+    packageEvidenceId?: string;
     validationChecksPassed?: number;
     validationChecksTotal?: number;
     evidenceBundleReady?: boolean;
     evidenceBundleId?: string;
   };
+};
+
+export type FirstRunCompletionProof = {
+  schemaVersion?: string;
+  ready?: boolean;
+  serverId?: string;
+  runId?: string;
+  resultId?: string;
+  workflowRevisionId?: string;
+  packageExportId?: string;
+  packageEvidenceId?: string;
+  resultPackageSha256?: string;
+  resultPackageManifestSha256?: string;
+  validationCardGeneratedAt?: string;
+  validationCardJsonSha256?: string;
+  validationChecksPassed?: number;
+  validationChecksTotal?: number;
+  evidenceBundleId?: string;
+  evidenceBundleReady?: boolean;
+  evidenceBundleFileRoles?: string[];
+  savedAt?: string;
 };
 
 export type FirstRunStatus = {
@@ -428,6 +455,7 @@ export type FirstRunFinalization = {
   schemaVersion?: string;
   status?: "ready" | "blocked" | string;
   packageAction?: string;
+  completionProof?: FirstRunCompletionProof;
   evidenceBundle?: FirstRunEvidenceBundle;
   pilotHandoff?: FirstRunPilotHandoff;
   resultPackage?: WorkflowResultPackageExport;

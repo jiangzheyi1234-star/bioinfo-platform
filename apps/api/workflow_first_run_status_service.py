@@ -10,6 +10,7 @@ from apps.api.ssh_control_service import (
     list_servers_from_request,
 )
 from apps.api.workflow_catalog_service import get_workflow_catalog_from_request
+from apps.api.workflow_first_run_completion_store import latest_first_run_completion_proof
 from apps.api.workflow_first_run_finalize_service import first_run_next_action
 from apps.api.workflow_first_run_report_interpretation import FIRST_RUN_REPORT_TRUST_ASSERTIONS_FAILED
 from apps.api.workflow_first_run_result_package_contract import (
@@ -327,6 +328,7 @@ def _status_response(
                 "execution": execution or {"ready": False},
                 "workflow": workflow or {"ready": False},
                 "sampleCache": sample_cache,
+                "completionProof": latest_first_run_completion_proof(server_id=server_id) or {"ready": False},
                 "run": run,
                 "report": report or {"ready": False},
                 "resultPackage": result_package or {"ready": False},
@@ -683,8 +685,10 @@ def _ready_package_evidence(card: dict[str, Any]) -> dict[str, Any]:
             "packageExportId": package.get("packageExportId"),
             "sha256": package.get("sha256"),
             "manifestSha256": package.get("manifestSha256"),
+            "evidenceId": package.get("evidenceId"),
             "artifactPayloadMode": package.get("artifactPayloadMode"),
             "includeArtifacts": package.get("includeArtifacts"),
+            "createdAt": package.get("createdAt"),
             "download": _safe_download_evidence(package.get("download")),
         }
     )
@@ -705,9 +709,13 @@ def _ready_validation_evidence(card: dict[str, Any]) -> dict[str, Any]:
     passed = [item for item in checks if item.get("status") == "passed"]
     handoff = card.get("pilotHandoff") if isinstance(card.get("pilotHandoff"), dict) else {}
     bundle = handoff.get("evidenceBundle") if isinstance(handoff.get("evidenceBundle"), dict) else {}
+    package = card.get("resultPackage") if isinstance(card.get("resultPackage"), dict) else {}
     return _compact(
         {
             "ready": True,
+            "generatedAt": card.get("generatedAt"),
+            "packageExportId": package.get("packageExportId"),
+            "packageEvidenceId": package.get("evidenceId"),
             "validationChecksPassed": len(passed),
             "validationChecksTotal": len(checks),
             "evidenceBundleReady": bundle.get("status") == "ready",

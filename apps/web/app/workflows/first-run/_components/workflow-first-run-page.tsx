@@ -78,8 +78,9 @@ export function WorkflowFirstRunPage() {
   const statusServerEvidence = firstRunStatusSnapshot?.evidence?.server;
   const statusExecutionEvidence = firstRunStatusSnapshot?.evidence?.execution;
   const statusWorkflowEvidence = firstRunStatusSnapshot?.evidence?.workflow;
+  const statusCompletionProof = firstRunStatusSnapshot?.evidence?.completionProof;
   const statusRun = firstRunStatusSnapshot?.evidence?.run || firstRunStatusSnapshot?.latestEligibleRun || null;
-  const resultId = result?.resultId || statusRun?.resultId || (run?.runId ? `res_${run.runId}` : "");
+  const resultId = result?.resultId || statusRun?.resultId || statusCompletionProof?.resultId || (run?.runId ? `res_${run.runId}` : "");
   const artifacts = result?.artifacts || [];
   const inputArtifacts = result?.inputArtifacts || [];
   const previews = state.runDetail?.previews || [];

@@ -6,6 +6,7 @@ from typing import Any
 
 from apps.api.execution_query_service import export_result_package_from_request
 from apps.api.models import ApiRequest, ResultPackageExportRequest
+from apps.api.workflow_first_run_completion_store import record_first_run_completion_proof
 from apps.api.workflow_first_run_report_interpretation import FIRST_RUN_REPORT_TRUST_ASSERTIONS_FAILED
 from apps.api.workflow_first_run_result_package_contract import (
     FIRST_RUN_RESULT_PACKAGE_EXPORT_MISMATCH,
@@ -37,7 +38,7 @@ async def finalize_first_run_from_request(
     server_id = request.serverId
     try:
         card = (await build_first_run_validation_card_from_request(normalized_run_id, server_id=server_id))["data"]
-        return _ready(card, package_action="reused")
+        return _ready(card, package_action="reused", server_id=server_id)
     except WorkflowFirstRunValidationCardUnavailableError as exc:
         code = _error_code(exc)
         if not is_first_run_result_package_export_required(code):
@@ -70,16 +71,18 @@ async def finalize_first_run_from_request(
         )["data"]
     except WorkflowFirstRunValidationCardUnavailableError as exc:
         return _blocked(_error_code(exc), str(exc), result_package=exported_package)
-    return _ready(card, package_action="exported")
+    return _ready(card, package_action="exported", server_id=server_id)
 
 
-def _ready(card: dict[str, Any], *, package_action: str) -> dict[str, Any]:
+def _ready(card: dict[str, Any], *, package_action: str, server_id: str | None) -> dict[str, Any]:
     handoff = _pilot_handoff(card)
+    completion_proof = record_first_run_completion_proof(card, server_id=server_id)
     return {
         "data": {
             "schemaVersion": FIRST_RUN_FINALIZATION_SCHEMA_VERSION,
             "status": "ready",
             "packageAction": package_action,
+            "completionProof": completion_proof,
             "evidenceBundle": handoff["evidenceBundle"],
             "pilotHandoff": handoff,
             "resultPackage": card.get("resultPackage") if isinstance(card.get("resultPackage"), dict) else {},

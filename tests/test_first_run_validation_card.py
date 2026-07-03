@@ -248,6 +248,20 @@ def test_first_run_validation_card_is_server_generated_and_redacted(monkeypatch)
     assert '"sourceStorageUri"' not in serialized
 
 
+def test_first_run_validation_card_uses_persisted_package_created_at(monkeypatch) -> None:
+    package = _package("rpex_full", created_at="2026-06-29T00:21:00Z")
+    _patch_first_run_sources(monkeypatch, exports=[package])
+    monkeypatch.setattr(
+        "apps.api.workflow_first_run_service._utc_now",
+        lambda: pytest.fail("validation card generatedAt must come from persisted result package export"),
+    )
+
+    card = asyncio.run(build_first_run_validation_card_from_request("run_first", server_id="srv_first"))["data"]
+
+    assert card["generatedAt"] == "2026-06-29T00:21:00Z"
+    assert card["resultPackage"]["createdAt"] == "2026-06-29T00:21:00Z"
+
+
 @pytest.mark.parametrize(
     ("run_patch", "expected_code"),
     [
@@ -450,6 +464,7 @@ def test_first_run_validation_card_requires_report_trust_assertions(monkeypatch,
 
 def test_first_run_finalize_reuses_existing_full_package(monkeypatch) -> None:
     _patch_first_run_sources(monkeypatch)
+    monkeypatch.setattr("apps.api.workflow_first_run_completion_store._now", lambda: "2026-06-29T00:30:00Z")
 
     async def fail_export(*_args, **_kwargs):
         raise AssertionError("finalize must not export when validation card is already ready")
@@ -466,6 +481,24 @@ def test_first_run_finalize_reuses_existing_full_package(monkeypatch) -> None:
     assert result["schemaVersion"] == "h2ometa.first-run.finalization.v1"
     assert result["status"] == "ready"
     assert result["packageAction"] == "reused"
+    assert result["completionProof"]["schemaVersion"] == "h2ometa.first-run.completion-proof.v1"
+    assert result["completionProof"]["ready"] is True
+    assert result["completionProof"]["serverId"] == "srv_first"
+    assert result["completionProof"]["runId"] == "run_first"
+    assert result["completionProof"]["resultId"] == "res_run_first"
+    assert result["completionProof"]["workflowRevisionId"] == "wfrev_first"
+    assert result["completionProof"]["packageExportId"] == "rpex_full"
+    assert result["completionProof"]["packageEvidenceId"] == "ev_export"
+    assert result["completionProof"]["resultPackageSha256"] == "d" * 64
+    assert result["completionProof"]["resultPackageManifestSha256"] == "e" * 64
+    assert result["completionProof"]["validationCardGeneratedAt"] == "2026-06-29T00:00:00Z"
+    assert len(result["completionProof"]["validationCardJsonSha256"]) == 64
+    assert result["completionProof"]["validationChecksPassed"] == 10
+    assert result["completionProof"]["validationChecksTotal"] == 10
+    assert result["completionProof"]["evidenceBundleId"] == "res_run_first.first-run-evidence"
+    assert result["completionProof"]["evidenceBundleReady"] is True
+    assert result["completionProof"]["savedAt"] == "2026-06-29T00:30:00Z"
+    assert "proofKey" not in result["completionProof"]
     assert result["evidenceBundle"] == _expected_evidence_bundle()
     assert result["pilotHandoff"] == {
         "schemaVersion": "h2ometa.first-run.single-user-lab-pilot-handoff.v1",
@@ -1032,6 +1065,7 @@ def _package(
     package_export_id: str,
     *,
     artifact_payload_mode: str = "full",
+    created_at: str = "",
     download: bool = True,
     include_artifacts: bool = True,
     manifest_sha256: str = "e" * 64,
@@ -1052,6 +1086,8 @@ def _package(
         "evidenceId": "ev_export",
         "packagePath": "C:/secret/packages/result.zip",
     }
+    if created_at:
+        item["createdAt"] = created_at
     if download:
         item["download"] = {
             "href": f"/api/v1/results/res_run_first/exports/{package_export_id}/download",

@@ -62,16 +62,27 @@ def test_first_run_validation_and_trust_summary_are_status_contract_driven() -> 
     assert "status?: FirstRunStatus | null" not in first_run_trust_summary
     assert "const validationEvidence = firstRunStatus?.evidence?.validation" in first_run_validation
     assert "const resultPackageEvidence = firstRunStatus?.evidence?.resultPackage" in first_run_validation
+    assert "const completionProof = firstRunStatus?.evidence?.completionProof" in first_run_validation
     assert "const statusRun = firstRunStatus?.evidence?.run || firstRunStatus?.latestEligibleRun || null" in first_run_validation
-    assert 'const effectiveRunId = firstRunStatus ? statusRun?.runId || "" : run?.runId || ""' in first_run_validation
+    assert 'const effectiveRunId = firstRunStatus ? statusRun?.runId || completionProof?.runId || "" : run?.runId || ""' in first_run_validation
     assert 'const effectiveRunStatus = firstRunStatus ? statusRun?.status || "" : run?.status || ""' in first_run_validation
-    assert "const packageExportId = firstRunStatus ? resultPackageEvidence?.packageExportId : packageExport?.packageExportId" in first_run_validation
-    assert "const validationPassed = validationEvidence?.ready === true" in first_run_validation
+    assert "const effectiveResultId = resultId || completionProof?.resultId || \"\"" in first_run_validation
+    assert "const effectiveServerLabel = server?.label || server?.serverId || completionProof?.serverId || \"\"" in first_run_validation
+    assert "const effectiveBundleId = evidenceBundle?.bundleId || completionProof?.evidenceBundleId || \"\"" in first_run_validation
+    assert "completionProof?.evidenceBundleFileRoles?.length" in first_run_validation
+    assert "resultPackageEvidence?.packageExportId || completionProof?.packageExportId" in first_run_validation
+    assert "resultPackageEvidence?.sha256 || completionProof?.resultPackageSha256" in first_run_validation
+    assert "resultPackageEvidence?.manifestSha256 || completionProof?.resultPackageManifestSha256" in first_run_validation
+    assert "resultPackageEvidence?.evidenceId || completionProof?.packageEvidenceId" in first_run_validation
+    assert "validationEvidence?.validationChecksPassed ?? completionProof?.validationChecksPassed" in first_run_validation
+    assert "const validationPassed = validationEvidence?.ready === true || completionProof?.ready === true" in first_run_validation
     assert "data-validation-passed={validationPassed ? \"true\" : \"false\"}" in first_run_validation
-    assert "evidence?.validation?.ready === true" in first_run_trust_summary
+    assert "const completionProof = evidence?.completionProof" in first_run_trust_summary
+    assert "evidence?.validation?.ready === true || completionProof?.ready === true" in first_run_trust_summary
     assert "evidence?.sampleCache?.status === \"ready\"" in first_run_trust_summary
     assert "evidence?.report?.ready === true" in first_run_trust_summary
-    assert "resultPackage?.ready === true" in first_run_trust_summary
+    assert "resultPackage?.ready === true || completionProof?.ready === true" in first_run_trust_summary
+    assert "completionProof.validationCardJsonSha256" in first_run_trust_summary
     assert "FirstRunTrustSummary status={firstRunStatus}" in first_run_validation
     assert "FirstRunTrustSummary status={firstRunStatus}" in first_run_completion
     assert "firstRunValidationCardPassed" not in first_run_validation

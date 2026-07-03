@@ -6,6 +6,10 @@ from typing import Any
 
 import pytest
 
+from apps.api.workflow_first_run_finalize_service import (
+    WorkflowFirstRunFinalizeRequest,
+    finalize_first_run_from_request,
+)
 from apps.api.workflow_first_run_status_service import build_first_run_status_from_request
 from apps.api.workflow_sample_data_service import MOVING_PICTURES_PIPELINE_ID
 
@@ -70,6 +74,7 @@ def test_first_run_status_reports_ready_official_sample_run_and_ignores_newer_no
     assert result["evidence"]["resultPackage"]["packageExportId"] == "rpex_full"
     assert result["evidence"]["resultPackage"]["sha256"] == "d" * 64
     assert result["evidence"]["resultPackage"]["manifestSha256"] == "e" * 64
+    assert result["evidence"]["resultPackage"]["evidenceId"] == "ev_export"
     assert result["evidence"]["resultPackage"]["artifactPayloadMode"] == "full"
     assert result["evidence"]["resultPackage"]["includeArtifacts"] is True
     assert result["evidence"]["resultPackage"]["download"] == {
@@ -77,6 +82,9 @@ def test_first_run_status_reports_ready_official_sample_run_and_ignores_newer_no
         "filename": "rpex_full.zip",
     }
     assert result["evidence"]["validation"]["ready"] is True
+    assert result["evidence"]["validation"]["generatedAt"] == "2026-06-29T00:00:00Z"
+    assert result["evidence"]["validation"]["packageExportId"] == "rpex_full"
+    assert result["evidence"]["validation"]["packageEvidenceId"] == "ev_export"
     assert result["evidence"]["validation"]["validationChecksPassed"] == 10
     assert result["evidence"]["validation"]["evidenceBundleReady"] is True
     assert result["evidence"]["validation"]["evidenceBundleId"] == "res_run_first.first-run-evidence"
@@ -105,6 +113,33 @@ def test_first_run_status_blocks_until_official_sample_run_exists(monkeypatch) -
     assert result["latestEligibleRun"] is None
     assert result["ignoredLatestRun"]["runId"] == "run_manual"
     assert result["evidence"]["sampleCache"]["status"] == "source_required"
+
+
+def test_first_run_status_returns_saved_completion_proof_without_current_run(monkeypatch) -> None:
+    _patch_first_run_sources(monkeypatch)
+    monkeypatch.setattr("apps.api.workflow_first_run_completion_store._now", lambda: "2026-06-29T00:30:00Z")
+    finalized = asyncio.run(
+        finalize_first_run_from_request(
+            "run_first",
+            WorkflowFirstRunFinalizeRequest(serverId="srv_first", actor="operator"),
+        )
+    )["data"]
+    _patch_status_sources(monkeypatch, runs=[], sample_status="ready")
+
+    result = asyncio.run(build_first_run_status_from_request(server_id="srv_first"))["data"]
+
+    assert result["status"] == "blocked"
+    assert result["stage"] == "submit_run"
+    assert result["evidence"]["completionProof"]["ready"] is True
+    assert result["evidence"]["completionProof"]["serverId"] == "srv_first"
+    assert result["evidence"]["completionProof"]["runId"] == "run_first"
+    assert result["evidence"]["completionProof"]["resultId"] == "res_run_first"
+    assert result["evidence"]["completionProof"]["packageExportId"] == "rpex_full"
+    assert result["evidence"]["completionProof"]["validationCardJsonSha256"] == finalized["completionProof"][
+        "validationCardJsonSha256"
+    ]
+    assert result["evidence"]["completionProof"]["savedAt"] == "2026-06-29T00:30:00Z"
+    assert "proofKey" not in result["evidence"]["completionProof"]
 
 
 def test_first_run_status_requires_eligible_run_on_selected_server(monkeypatch) -> None:

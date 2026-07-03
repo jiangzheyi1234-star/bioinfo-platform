@@ -69,6 +69,8 @@ export function useFirstRunEvidence({
     if (statusPackageEvidence?.ready !== true || !statusPackageExportId || !resultId) return undefined;
     return {
       artifactPayloadMode: statusPackageEvidence.artifactPayloadMode,
+      createdAt: statusPackageEvidence.createdAt,
+      evidenceId: statusPackageEvidence.evidenceId,
       includeArtifacts: statusPackageEvidence.includeArtifacts,
       lifecycleState: "active",
       manifestSha256: statusPackageEvidence.manifestSha256,

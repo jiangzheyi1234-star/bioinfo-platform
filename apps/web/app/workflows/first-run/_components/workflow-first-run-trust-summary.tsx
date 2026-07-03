@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, ClipboardCheck, Cpu, Database, FileArchive, XCircle } from "lucide-react";
+import { CheckCircle2, ClipboardCheck, Cpu, Database, FileArchive, ShieldCheck, XCircle } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -15,17 +15,27 @@ export function FirstRunTrustSummary({
 }) {
   const evidence = status?.evidence;
   const resultPackage = evidence?.resultPackage;
-  const passedChecks = evidence?.validation?.validationChecksPassed;
-  const totalChecks = evidence?.validation?.validationChecksTotal;
-  const summaryReady = evidence?.validation?.ready === true;
-  const packageHash = resultPackage?.sha256 || "";
-  const manifestHash = resultPackage?.manifestSha256 || "";
+  const completionProof = evidence?.completionProof;
+  const passedChecks = evidence?.validation?.validationChecksPassed ?? completionProof?.validationChecksPassed;
+  const totalChecks = evidence?.validation?.validationChecksTotal ?? completionProof?.validationChecksTotal;
+  const summaryReady = evidence?.validation?.ready === true || completionProof?.ready === true;
+  const packageHash = resultPackage?.sha256 || completionProof?.resultPackageSha256 || "";
+  const manifestHash = resultPackage?.manifestSha256 || completionProof?.resultPackageManifestSha256 || "";
   const fullPackage = resultPackage?.artifactPayloadMode === "full" || resultPackage?.includeArtifacts === true;
   const sampleReady = evidence?.sampleCache?.status === "ready";
   const reportReady = evidence?.report?.ready === true;
-  const packageReady = resultPackage?.ready === true;
+  const packageReady = resultPackage?.ready === true || completionProof?.ready === true;
   const outputCount = evidence?.report?.outputs?.length;
   const items = [
+    {
+      label: "已保存证明",
+      detail:
+        completionProof?.ready === true
+          ? `${completionProof.packageExportId || "result package"} · ${shortHash(completionProof.validationCardJsonSha256)}`
+          : "等待首跑完成证明写入本地索引",
+      tone: completionProof?.ready === true ? "success" : "waiting",
+      icon: ShieldCheck,
+    },
     {
       label: "官方样例输入",
       detail:
@@ -59,10 +69,10 @@ export function FirstRunTrustSummary({
     {
       label: "结果包",
       detail:
-        packageReady && fullPackage && packageHash && manifestHash
+        packageReady && (fullPackage || completionProof?.ready === true) && packageHash && manifestHash
           ? `完整包 ${shortHash(packageHash)} / manifest ${shortHash(manifestHash)}`
           : "等待完整结果包和 hash",
-      tone: packageReady && fullPackage && packageHash && manifestHash ? "success" : "waiting",
+      tone: packageReady && (fullPackage || completionProof?.ready === true) && packageHash && manifestHash ? "success" : "waiting",
       icon: FileArchive,
     },
   ] satisfies Array<{ label: string; detail: string; tone: TrustTone; icon: typeof CheckCircle2 }>;
@@ -93,7 +103,7 @@ export function FirstRunTrustSummary({
           {typeof passedChecks === "number" && typeof totalChecks === "number" ? `${passedChecks}/${totalChecks} checks` : "waiting"}
         </span>
       </div>
-      <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-5" data-testid="first-run-trust-summary-items">
+      <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-6" data-testid="first-run-trust-summary-items">
         {items.map((item) => (
           <TrustItem key={item.label} item={item} />
         ))}
