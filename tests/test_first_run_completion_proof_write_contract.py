@@ -38,6 +38,8 @@ def test_first_run_completion_proof_read_and_write_share_ready_validator() -> No
         ("missing-package-sha", "FIRST_RUN_COMPLETION_PROOF_INVALID: missing resultPackageSha256"),
         ("result-mismatch", "FIRST_RUN_COMPLETION_PROOF_INVALID: resultId does not match runId"),
         ("bundle-mismatch", "FIRST_RUN_COMPLETION_PROOF_INVALID: evidenceBundleId does not match resultId"),
+        ("duplicate-bundle-role", "FIRST_RUN_COMPLETION_PROOF_INVALID: duplicate evidence bundle roles result-package"),
+        ("unexpected-bundle-role", "FIRST_RUN_COMPLETION_PROOF_INVALID: unexpected evidence bundle roles operator-note"),
     ],
 )
 def test_first_run_finalize_rejects_generated_completion_proof_that_fails_contract(
@@ -55,6 +57,14 @@ def test_first_run_finalize_rejects_generated_completion_proof_that_fails_contra
             card["result"]["resultId"] = "res_other"
         elif proof_case == "bundle-mismatch":
             card["pilotHandoff"]["evidenceBundle"]["bundleId"] = "res_other.first-run-evidence"
+        elif proof_case == "duplicate-bundle-role":
+            card["pilotHandoff"]["evidenceBundle"]["requiredFiles"].append(
+                dict(card["pilotHandoff"]["evidenceBundle"]["requiredFiles"][0])
+            )
+        elif proof_case == "unexpected-bundle-role":
+            note_file = dict(card["pilotHandoff"]["evidenceBundle"]["requiredFiles"][0])
+            note_file["role"] = "operator-note"
+            card["pilotHandoff"]["evidenceBundle"]["requiredFiles"].append(note_file)
         else:
             raise AssertionError(f"unknown proof case {proof_case}")
         return {"data": card}

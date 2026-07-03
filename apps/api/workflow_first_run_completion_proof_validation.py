@@ -66,10 +66,9 @@ def first_run_completion_proof_invalid_reason(proof: dict[str, Any]) -> str:
         return "missing report outputs " + ", ".join(missing_report_outputs)
     if proof.get("evidenceBundleReady") is not True:
         return "evidence bundle is not ready"
-    evidence_bundle_roles = {str(item or "").strip() for item in proof.get("evidenceBundleFileRoles") or []}
-    missing_bundle_roles = sorted(_REQUIRED_EVIDENCE_BUNDLE_ROLES - evidence_bundle_roles)
-    if missing_bundle_roles:
-        return "missing evidence bundle roles " + ", ".join(missing_bundle_roles)
+    bundle_role_error = _evidence_bundle_role_error(proof.get("evidenceBundleFileRoles"))
+    if bundle_role_error:
+        return bundle_role_error
     return ""
 
 
@@ -95,6 +94,21 @@ def _valid_check_counts(passed: Any, total: Any) -> bool:
 def _valid_sha256(value: str) -> bool:
     normalized = value.strip().lower()
     return len(normalized) == 64 and all(char in "0123456789abcdef" for char in normalized)
+
+
+def _evidence_bundle_role_error(value: Any) -> str:
+    roles = [str(item or "").strip() for item in value or []]
+    role_set = set(roles)
+    missing_roles = sorted(_REQUIRED_EVIDENCE_BUNDLE_ROLES - role_set)
+    if missing_roles:
+        return "missing evidence bundle roles " + ", ".join(missing_roles)
+    unexpected_roles = sorted(role for role in role_set if role not in _REQUIRED_EVIDENCE_BUNDLE_ROLES)
+    if unexpected_roles:
+        return "unexpected evidence bundle roles " + ", ".join(unexpected_roles)
+    duplicate_roles = sorted(role for role in role_set if roles.count(role) > 1)
+    if duplicate_roles:
+        return "duplicate evidence bundle roles " + ", ".join(duplicate_roles)
+    return ""
 
 
 def _valid_utc_timestamp(value: str) -> bool:

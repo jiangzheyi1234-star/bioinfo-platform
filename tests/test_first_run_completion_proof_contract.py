@@ -34,6 +34,30 @@ from tests.test_first_run_status import _patch_status_sources
         ({"reportOutputNames": ["summary.tsv", "qc-summary.tsv", "run-report.html"]}, "feature-table.tsv"),
         ({"evidenceBundleReady": False}, "evidence bundle is not ready"),
         ({"evidenceBundleFileRoles": ["result-package", "validation-card-json", "pilot-handoff"]}, "validation-card-markdown"),
+        (
+            {
+                "evidenceBundleFileRoles": [
+                    "result-package",
+                    "validation-card-json",
+                    "validation-card-markdown",
+                    "pilot-handoff",
+                    "operator-note",
+                ]
+            },
+            "unexpected evidence bundle roles operator-note",
+        ),
+        (
+            {
+                "evidenceBundleFileRoles": [
+                    "result-package",
+                    "result-package",
+                    "validation-card-json",
+                    "validation-card-markdown",
+                    "pilot-handoff",
+                ]
+            },
+            "duplicate evidence bundle roles result-package",
+        ),
     ],
 )
 def test_first_run_status_fails_closed_on_invalid_saved_completion_proof(
