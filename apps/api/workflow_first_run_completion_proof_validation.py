@@ -52,6 +52,10 @@ def first_run_completion_proof_invalid_reason(proof: dict[str, Any]) -> str:
     ]
     if invalid_timestamp_fields:
         return "invalid timestamp " + ", ".join(invalid_timestamp_fields)
+    saved_at = _utc_timestamp(str(proof.get("savedAt") or ""))
+    generated_at = _utc_timestamp(str(proof.get("validationCardGeneratedAt") or ""))
+    if saved_at is None or generated_at is None or saved_at < generated_at:
+        return "savedAt predates validationCardGeneratedAt"
     if not _valid_check_counts(proof.get("validationChecksPassed"), proof.get("validationChecksTotal")):
         return "validation checks are incomplete"
     if proof.get("reportReady") is not True:
@@ -94,15 +98,21 @@ def _valid_sha256(value: str) -> bool:
 
 
 def _valid_utc_timestamp(value: str) -> bool:
+    return _utc_timestamp(value) is not None
+
+
+def _utc_timestamp(value: str) -> datetime | None:
     normalized = value.strip()
     if not normalized:
-        return False
+        return None
     candidate = normalized[:-1] + "+00:00" if normalized.endswith("Z") else normalized
     try:
         parsed = datetime.fromisoformat(candidate)
     except ValueError:
-        return False
-    return parsed.tzinfo is not None and parsed.utcoffset() == timedelta(0)
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() != timedelta(0):
+        return None
+    return parsed
 
 
 def _identity_error(proof: dict[str, Any]) -> str:

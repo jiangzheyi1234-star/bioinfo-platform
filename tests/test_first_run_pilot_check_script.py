@@ -139,6 +139,7 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "completionProof must match resultPackage hashes" in source
     assert "completionProof must match downloaded validation card hash" in source
     assert "completionProof savedAt must be a UTC timestamp" in source
+    assert "completionProof savedAt must not predate validationCardGeneratedAt" in source
     assert "$completionProof = Assert-FirstRunCompletionProof $Finalization $downloadProof.validationCardJsonSha256" in source
     assert "ready finalization must include a single-user-lab pilotHandoff" in source
     assert "h2ometa.first-run.evidence-bundle.v1" in source

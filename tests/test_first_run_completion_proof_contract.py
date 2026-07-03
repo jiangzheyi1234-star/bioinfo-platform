@@ -28,6 +28,7 @@ from tests.test_first_run_status import _patch_status_sources
         ({"validationCardJsonSha256": "g" * 64}, "invalid sha256 validationCardJsonSha256"),
         ({"validationCardGeneratedAt": "not-a-timestamp"}, "invalid timestamp validationCardGeneratedAt"),
         ({"savedAt": "not-a-timestamp"}, "invalid timestamp savedAt"),
+        ({"savedAt": "2026-06-28T23:59:59Z"}, "savedAt predates validationCardGeneratedAt"),
         ({"validationChecksPassed": 9}, "validation checks are incomplete"),
         ({"reportReady": False}, "report evidence is not ready"),
         ({"reportOutputNames": ["summary.tsv", "qc-summary.tsv", "run-report.html"]}, "feature-table.tsv"),
