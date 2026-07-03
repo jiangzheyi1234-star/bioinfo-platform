@@ -561,6 +561,24 @@ def test_first_run_status_requires_connection_before_guiding_run_actions(monkeyp
     assert result["evidence"]["workflow"]["blockedCode"] == "FIRST_RUN_SERVER_REQUIRED"
 
 
+def test_first_run_status_does_not_read_saved_completion_proof_without_server_or_run(monkeypatch) -> None:
+    def fail_completion_proof_lookup(*_args, **_kwargs):
+        raise AssertionError("unbound first-run status must not read saved completion proofs")
+
+    _patch_status_sources(monkeypatch, runs=[_run()])
+    monkeypatch.setattr(
+        "apps.api.workflow_first_run_status_service.latest_first_run_completion_proof_evidence",
+        fail_completion_proof_lookup,
+    )
+
+    result = asyncio.run(build_first_run_status_from_request())["data"]
+
+    assert result["status"] == "blocked"
+    assert result["stage"] == "connect_remote"
+    assert result["nextAction"]["blockedCode"] == "FIRST_RUN_SERVER_REQUIRED"
+    assert result["evidence"]["completionProof"] == {"ready": False}
+
+
 def test_first_run_status_requires_run_spec_pipeline_and_upload_backed_sample_inputs(monkeypatch) -> None:
     run = _run()
     run["pipelineId"] = MOVING_PICTURES_PIPELINE_ID

@@ -188,6 +188,27 @@ def test_first_run_status_uses_requested_saved_completion_proof_when_newer_proof
     assert result["latestEligibleRun"]["runId"] == "run_first"
 
 
+def test_first_run_status_uses_requested_saved_completion_proof_without_selected_server(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    store_path = tmp_path / "completion-proofs-v1.json"
+    store_path.write_text(json.dumps({"version": 1, "records": [_completion_proof()]}), encoding="utf-8")
+
+    _patch_status_sources(monkeypatch, runs=[], sample_status="ready")
+    monkeypatch.setattr(
+        "apps.api.workflow_first_run_completion_store.get_first_run_completion_proof_store_path",
+        lambda: store_path,
+    )
+
+    result = asyncio.run(build_first_run_status_from_request(run_id="run_first"))["data"]
+
+    assert result["status"] == "ready"
+    assert result["serverId"] == "srv_first"
+    assert result["evidence"]["completionProof"]["runId"] == "run_first"
+    assert result["evidence"]["completionProof"]["serverId"] == "srv_first"
+
+
 def _completion_proof() -> dict[str, Any]:
     return {
         "schemaVersion": "h2ometa.first-run.completion-proof.v1",

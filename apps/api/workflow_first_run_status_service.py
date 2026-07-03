@@ -58,9 +58,13 @@ async def build_first_run_status_from_request(
     sample_cache = _sample_cache_summary(
         _unwrap_data(await inspect_workflow_sample_data_status(MOVING_PICTURES_PIPELINE_ID), {})
     )
-    completion_proof = latest_first_run_completion_proof_evidence(
-        server_id=normalized_server_id,
-        run_id=normalized_run_id,
+    completion_proof = (
+        latest_first_run_completion_proof_evidence(
+            server_id=normalized_server_id,
+            run_id=normalized_run_id,
+        )
+        if normalized_server_id or normalized_run_id
+        else {"ready": False}
     )
     if _completion_proof_matches_requested_run(completion_proof, run_id=normalized_run_id):
         return _completion_proof_status_response(
