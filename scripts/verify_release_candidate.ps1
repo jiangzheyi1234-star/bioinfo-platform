@@ -180,6 +180,37 @@ function Add-StepResult {
     }) | Out-Null
 }
 
+function Convert-ToProofNumber {
+    param([object]$Value)
+    if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value)) {
+        return $null
+    }
+    try {
+        return [double]$Value
+    } catch {
+        return $null
+    }
+}
+
+function Test-FirstRunTimingProof {
+    param([object]$Proof)
+    if ($null -eq $Proof -or $null -eq $Proof.runTimingProof) {
+        return $false
+    }
+    $timing = $Proof.runTimingProof
+    $timeoutBudget = Convert-ToProofNumber $timing.timeoutBudgetSeconds
+    $windowMax = Convert-ToProofNumber $timing.durationWindowSeconds.maxSeconds
+    return (
+        $timing.schemaVersion -eq "h2ometa.first-run.timing-proof.v1" -and
+        $timing.completedWithinTimeout -eq $true -and
+        $timing.withinExpectedDurationWindow -eq $true -and
+        $null -ne $timeoutBudget -and
+        $null -ne $windowMax -and
+        $timeoutBudget -le 1800 -and
+        $windowMax -le 1800
+    )
+}
+
 function Invoke-RcStep {
     param(
         [System.Collections.Generic.List[object]]$Steps,
@@ -338,7 +369,11 @@ function Write-RcSummary {
     $lines.Add("") | Out-Null
     $lines.Add("## Gates") | Out-Null
     foreach ($step in $Summary.steps) {
-        $lines.Add("- $($step.status): $($step.name) $($step.message)") | Out-Null
+        $duration = ""
+        if ($null -ne $step.durationSeconds) {
+            $duration = " ($($step.durationSeconds)s)"
+        }
+        $lines.Add("- $($step.status): $($step.name)$duration $($step.message)") | Out-Null
     }
     $lines.Add("") | Out-Null
     $lines.Add("## Scoped Limits") | Out-Null
@@ -607,6 +642,8 @@ if ($steps | Where-Object { $_.required -and $_.status -ne "passed" }) {
     $ok = $false
 }
 
+$firstRunPilotTimingProofAccepted = Test-FirstRunTimingProof $firstRunPilotProof
+
 $summary = [ordered]@{
     schemaVersion = "h2ometa-release-candidate-evidence.v1"
     ok = $ok
@@ -628,6 +665,7 @@ $summary = [ordered]@{
     webE2ERepeat = $WebE2ERepeat
     runFirstRunPilotProof = $RunFirstRunPilotProof.IsPresent; firstRunPilotRunId = $FirstRunPilotRunId
     firstRunPilotProofPath = $firstRunPilotProofPath; firstRunPilotProof = $firstRunPilotProof
+    firstRunPilotTimingProofAccepted = $firstRunPilotTimingProofAccepted
     runSingleUserPilotBackupPlan = $RunSingleUserPilotBackupPlan.IsPresent
     singleUserPilotBackupPlanPath = $singleUserPilotBackupPlanPath
     singleUserPilotBackupPlan = $singleUserPilotBackupPlan
@@ -640,7 +678,7 @@ $summary = [ordered]@{
     containerImageScanRunUrl = $containerImageScanEvidence.runUrl
     containerImageScanUnavailableReason = $containerImageScanEvidence.unavailableReason
     handoffEligible = ($ok -and -not $DevelopmentOnly.IsPresent -and [bool]$CiRunUrl -and $RunNpmCi.IsPresent -and $securityAnalysisEvidence.recorded -and $containerImageScanEvidence.recorded)
-    localSingleUserProofEligible = ($ok -and -not $AllowDirty.IsPresent -and $StartLocalWeb.IsPresent -and $RunWebE2E.IsPresent -and (($RunLocalWebSmoke.IsPresent) -or $StartLocalWeb.IsPresent) -and ($firstRunPilotProof.closedLoopProven -eq $true) -and ($singleUserPilotBackupPlan.readyForManualBackup -eq $true))
+    localSingleUserProofEligible = ($ok -and -not $AllowDirty.IsPresent -and $StartLocalWeb.IsPresent -and $RunWebE2E.IsPresent -and (($RunLocalWebSmoke.IsPresent) -or $StartLocalWeb.IsPresent) -and ($firstRunPilotProof.closedLoopProven -eq $true) -and $firstRunPilotTimingProofAccepted -and ($singleUserPilotBackupPlan.readyForManualBackup -eq $true))
     runtimeManifestDrift = $runtimeManifestDrift
     steps = $steps
     scopedRuntimeLimits = @(

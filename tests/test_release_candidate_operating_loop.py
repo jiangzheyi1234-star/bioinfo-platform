@@ -55,10 +55,12 @@ def test_release_candidate_operating_loop_doc_defines_handoff_contract() -> None
         "scripts/first_run_pilot_check.ps1",
         "scripts\\single_user_pilot_backup_plan.ps1",
         "firstRunPilotProof.closedLoopProven: true",
+        "firstRunPilotProof.runTimingProof.withinExpectedDurationWindow: true",
         "-RunSingleUserPilotBackupPlan",
         "-SingleUserPilotRemoteRunnerSharedRoot",
         "singleUserPilotBackupPlan.readyForManualBackup: true",
         "singleUserPilotBackupPlan.firstRunProof.accepted: true",
+        "singleUserPilotBackupPlan.firstRunProof.summary.runTimingProof.withinExpectedDurationWindow: true",
         "fresh `submitted-run` proof from `-RunFirstRunPilotProof`",
         "fails closed when the pilot proof is reused through `-FirstRunPilotRunId`",
         "Skipping the First Successful Run pilot proof or the single-user pilot backup plan blocks `localSingleUserProofEligible`",
@@ -155,6 +157,10 @@ def test_release_candidate_script_collects_required_evidence_gates() -> None:
         "singleUserPilotBackupPlanPath = $singleUserPilotBackupPlanPath",
         "singleUserPilotBackupPlan = $singleUserPilotBackupPlan",
         "$firstRunPilotProof.closedLoopProven -eq $true",
+        "Test-FirstRunTimingProof",
+        "firstRunPilotTimingProofAccepted",
+        "h2ometa.first-run.timing-proof.v1",
+        "$firstRunPilotTimingProofAccepted",
         "$singleUserPilotBackupPlan.readyForManualBackup -eq $true",
         "h2ometa.first-run-pilot-check.v1",
         "h2ometa.single-user-pilot-backup-plan.v1",
@@ -170,6 +176,7 @@ def test_release_candidate_script_collects_required_evidence_gates() -> None:
         "validationCardJsonSha256",
         "localSingleUserProofEligible",
         "handoffEligible",
+        '($($step.durationSeconds)s)',
     ):
         assert token in combined_source
 

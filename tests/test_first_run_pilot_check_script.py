@@ -12,6 +12,7 @@ def _first_run_pilot_check_source() -> str:
     return "\n".join(
         [
             (script_dir / "first_run_pilot_check.ps1").read_text(encoding="utf-8"),
+            (script_dir / "first_run_timing_proof.ps1").read_text(encoding="utf-8"),
             (script_dir / "first_run_pilot_check_downloads.ps1").read_text(encoding="utf-8"),
             (script_dir / "first_run_scenario_pack_check.ps1").read_text(encoding="utf-8"),
         ]
@@ -30,6 +31,7 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     source = _first_run_pilot_check_source()
 
     assert "FIRST_RUN_PILOT_CHECK_FAILED" in source
+    assert '. (Join-Path $PSScriptRoot "first_run_timing_proof.ps1")' in source
     assert '. (Join-Path $PSScriptRoot "first_run_pilot_check_downloads.ps1")' in source
     assert '. (Join-Path $PSScriptRoot "first_run_scenario_pack_check.ps1")' in source
     assert "$ApiBase/health" in source
@@ -62,6 +64,20 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "proofPath = $ProofPath" in source
     assert "ConvertTo-Json -Depth 12" in source
     assert "[int]$RunTimeoutSeconds = 1800" in source
+    assert "$FirstRunTimingTargetMinSeconds = 900" in source
+    assert "$FirstRunTimingMaxSeconds = 1800" in source
+    assert "h2ometa.first-run.timing-proof.v1" in source
+    assert "function New-RunTimingProof" in source
+    assert "proofStartedAt = Format-UtcIso $ProofStartedAt" in source
+    assert "proofFinishedAt = Format-UtcIso $ProofFinishedAt" in source
+    assert "runSubmittedAt = $runSubmittedAt" in source
+    assert "runDurationSeconds = $runDurationSeconds" in source
+    assert "queueDurationSeconds = $queueDurationSeconds" in source
+    assert "executionDurationSeconds = $executionDurationSeconds" in source
+    assert "timeoutBudgetSeconds = $timeoutBudgetSeconds" in source
+    assert "withinExpectedDurationWindow = $completedWithinTimeout" in source
+    assert "durationWindowSeconds = [ordered]@{" in source
+    assert "lowerBoundRequired = $false" in source
     assert "[int]$SampleDataTimeoutSeconds = 300" in source
     assert "$ApiBase/api/v1/servers?refresh=true" in source
     assert "a connected and ready server is required for first-run execution" in source
@@ -106,6 +122,11 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "function New-FirstRunRunSpec" not in source
     assert "$ApiBase/api/v1/runs/$([uri]::EscapeDataString($TargetRunId))/detail" in source
     assert "first-run did not complete within $RunTimeoutSeconds seconds" in source
+    assert "$terminalRun = Wait-Run-Terminal $RunId" in source
+    assert "$null = Wait-Run-Terminal $RunId" not in source
+    assert "$runTimingProof = New-RunTimingProof" in source
+    assert "runTimingProof = $runTimingProof" in source
+    assert "first-run did not complete within the expected timing window" in source
     assert "/api/v1/first-run/runs/$([uri]::EscapeDataString($RunId))/finalize" in source
     assert "h2ometa.first-run.finalization.v1" in source
     assert "ready finalization must include validationCard, resultPackage, and evidenceBundle" in source
@@ -245,6 +266,7 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "blockedActionProof = $blockedActionProof" in source
     assert "executionReadinessProof = $executionReadinessProof" in source
     assert "sampleUploadProof = $sampleUploadProof" in source
+    assert "runTimingProof = $runTimingProof" in source
     assert "if ($RequireFinalizationReady -or $RunFirstSuccessfulRun)" in source
     assert "-RunFirstSuccessfulRun cannot be combined with -RunId" in source
     assert "-RequireFinalizationReady requires -RunId or -RunFirstSuccessfulRun" in source

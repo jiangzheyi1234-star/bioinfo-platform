@@ -50,6 +50,11 @@ def test_single_user_pilot_backup_plan_script_defines_read_only_handoff() -> Non
     assert "scripts\\first_run_pilot_check.ps1 -RunFirstSuccessfulRun -RequireFinalizationReady" in source
     assert "closedLoopProven=true" in source
     assert "closedLoopProofMode=submitted-run" in source
+    assert "FIRST_RUN_PROOF_TIMING_REQUIRED" in source
+    assert "runTimingProof.schemaVersion=h2ometa.first-run.timing-proof.v1" in source
+    assert "runTimingProof.completedWithinTimeout=true" in source
+    assert "runTimingProof.withinExpectedDurationWindow=true" in source
+    assert "runTimingProof.timeoutBudgetSeconds<=1800" in source
     assert "executionReadinessProof.ok=true" in source
     assert "sampleUploadProof.schemaVersion=h2ometa.first-run.sample-upload-proof.v1" in source
     assert "sampleUploadProof.passed=true" in source
@@ -149,6 +154,13 @@ def test_single_user_pilot_backup_plan_outputs_machine_readable_json(tmp_path: P
             "pilot-handoff",
         ],
         "nextScenarioIds": ["taxonomy-classification", "amr-annotation"],
+        "runTimingProof": {
+            "withinExpectedDurationWindow": True,
+            "completedWithinTimeout": True,
+            "timeoutBudgetSeconds": 1800,
+            "observedDurationSeconds": 1200,
+            "durationSource": "runner-run-timestamps",
+        },
     }
     assert summary["localArchiveItems"] == ["config.json", "ssh/known_hosts", "tool-packs/registry-v1.json"]
     assert "data/runner.db" in summary["remoteState"]["include"]
@@ -158,6 +170,10 @@ def test_single_user_pilot_backup_plan_outputs_machine_readable_json(tmp_path: P
     assert summary["restoreDrill"]["firstRunProofCommand"] == (
         "scripts\\first_run_pilot_check.ps1 -RunFirstSuccessfulRun -RequireFinalizationReady"
     )
+    assert "runTimingProof.schemaVersion=h2ometa.first-run.timing-proof.v1" in summary["restoreDrill"]["mustReport"]
+    assert "runTimingProof.completedWithinTimeout=true" in summary["restoreDrill"]["mustReport"]
+    assert "runTimingProof.withinExpectedDurationWindow=true" in summary["restoreDrill"]["mustReport"]
+    assert "runTimingProof.timeoutBudgetSeconds<=1800" in summary["restoreDrill"]["mustReport"]
     assert "executionReadinessProof.ok=true" in summary["restoreDrill"]["mustReport"]
     assert "sampleUploadProof.schemaVersion=h2ometa.first-run.sample-upload-proof.v1" in summary["restoreDrill"]["mustReport"]
     assert "sampleUploadProof.passed=true" in summary["restoreDrill"]["mustReport"]
@@ -300,6 +316,41 @@ def test_single_user_pilot_backup_plan_requires_first_run_proof_for_ready_backup
     assert {item["code"] for item in summary["blockers"]} == {"FIRST_RUN_PROOF_NOT_SUPPLIED"}
 
 
+@pytest.mark.skipif(_powershell_executable() is None, reason="PowerShell is required to execute the pilot backup plan script")
+def test_single_user_pilot_backup_plan_rejects_first_run_proof_without_timing(tmp_path: Path) -> None:
+    appdata_root = tmp_path / "Roaming" / "H2OMeta"
+    appdata_root.mkdir(parents=True)
+    proof_path = tmp_path / "first-run-pilot-proof.json"
+    _write_first_run_proof(proof_path, include_timing=False)
+
+    completed = subprocess.run(
+        [
+            _powershell_executable() or "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(SCRIPT),
+            "-AppDataRoot",
+            str(appdata_root),
+            "-RemoteRunnerSharedRoot",
+            "/home/lab/.h2ometa/runner/shared",
+            "-FirstRunProofPath",
+            str(proof_path),
+            "-RequireExistingState",
+        ],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    summary = json.loads(completed.stdout)
+    assert summary["readyForManualBackup"] is False
+    assert {item["code"] for item in summary["blockers"]} == {"FIRST_RUN_PROOF_TIMING_REQUIRED"}
+
+
 def test_single_user_pilot_backup_plan_is_exposed_from_web_package() -> None:
     package = json.loads((REPO_ROOT / "apps" / "web" / "package.json").read_text(encoding="utf-8"))
 
@@ -334,6 +385,9 @@ def test_single_user_pilot_backup_docs_connect_restore_to_first_run_proof() -> N
     assert "scripts\\first_run_pilot_check.ps1 -RunFirstSuccessfulRun -RequireFinalizationReady" in source
     assert 'closedLoopProven: true' in source
     assert 'closedLoopProofMode: "submitted-run"' in source
+    assert 'runTimingProof.schemaVersion: "h2ometa.first-run.timing-proof.v1"' in source
+    assert "runTimingProof.completedWithinTimeout: true" in source
+    assert "runTimingProof.withinExpectedDurationWindow: true" in source
     assert "executionReadinessProof.ok: true" in source
     assert 'sampleUploadProof.schemaVersion: "h2ometa.first-run.sample-upload-proof.v1"' in source
     assert "sampleUploadProof.passed: true" in source
@@ -344,52 +398,61 @@ def test_single_user_pilot_backup_docs_connect_restore_to_first_run_proof() -> N
     assert "handoffProof.nextScenarioDatabasePackCoverage" in source
 
 
-def _write_first_run_proof(path: Path) -> None:
-    path.write_text(
-        json.dumps(
-            {
-                "schemaVersion": "h2ometa.first-run-pilot-check.v1",
-                "serverId": "srv_first",
-                "runId": "run_first",
-                "closedLoopProven": True,
-                "closedLoopProofMode": "submitted-run",
-                "executionReadinessProof": {"ok": True},
-                "sampleUploadProof": {
-                    "schemaVersion": "h2ometa.first-run.sample-upload-proof.v1",
-                    "passed": True,
-                    "expectedRoles": ["metadata", "barcodes", "sequences"],
-                    "unexpectedRoles": [],
-                    "duplicateRoles": [],
-                },
-                "handoffProof": {
-                    "resultId": "res_run_first",
-                    "workflowRevisionId": "wfrev_first",
-                    "packageExportId": "rpex_full",
-                    "resultPackageDownload": {"sha256": "a" * 64},
-                    "evidenceBundleSchemaVersion": "h2ometa.first-run.evidence-bundle.v1",
-                    "evidenceBundleFileRoles": [
-                        "result-package",
-                        "validation-card-json",
-                        "validation-card-markdown",
-                        "pilot-handoff",
-                    ],
-                    "evidenceBundleDownload": {
-                        "zipManifestSha256": "b" * 64,
-                        "validationCardJsonSha256": "c" * 64,
-                    },
-                    "backupPlanCommand": (
-                        'scripts\\single_user_pilot_backup_plan.ps1 -RemoteRunnerSharedRoot "<remote-shared-root>" '
-                        '-FirstRunProofPath "<first-run-proof.json>" -RequireExistingState'
-                    ),
-                    "restoreProofCommand": "scripts\\first_run_pilot_check.ps1 -RunFirstSuccessfulRun -RequireFinalizationReady",
-                    "nextScenarioIds": ["taxonomy-classification", "amr-annotation"],
-                    "nextScenarioDatabasePackCoverage": [
-                        {"scenarioId": "taxonomy-classification"},
-                        {"scenarioId": "amr-annotation"},
-                    ],
-                },
+def _write_first_run_proof(path: Path, *, include_timing: bool = True) -> None:
+    payload = {
+        "schemaVersion": "h2ometa.first-run-pilot-check.v1",
+        "serverId": "srv_first",
+        "runId": "run_first",
+        "closedLoopProven": True,
+        "closedLoopProofMode": "submitted-run",
+        "executionReadinessProof": {"ok": True},
+        "sampleUploadProof": {
+            "schemaVersion": "h2ometa.first-run.sample-upload-proof.v1",
+            "passed": True,
+            "expectedRoles": ["metadata", "barcodes", "sequences"],
+            "unexpectedRoles": [],
+            "duplicateRoles": [],
+        },
+        "handoffProof": {
+            "resultId": "res_run_first",
+            "workflowRevisionId": "wfrev_first",
+            "packageExportId": "rpex_full",
+            "resultPackageDownload": {"sha256": "a" * 64},
+            "evidenceBundleSchemaVersion": "h2ometa.first-run.evidence-bundle.v1",
+            "evidenceBundleFileRoles": [
+                "result-package",
+                "validation-card-json",
+                "validation-card-markdown",
+                "pilot-handoff",
+            ],
+            "evidenceBundleDownload": {
+                "zipManifestSha256": "b" * 64,
+                "validationCardJsonSha256": "c" * 64,
             },
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
+            "backupPlanCommand": (
+                'scripts\\single_user_pilot_backup_plan.ps1 -RemoteRunnerSharedRoot "<remote-shared-root>" '
+                '-FirstRunProofPath "<first-run-proof.json>" -RequireExistingState'
+            ),
+            "restoreProofCommand": "scripts\\first_run_pilot_check.ps1 -RunFirstSuccessfulRun -RequireFinalizationReady",
+            "nextScenarioIds": ["taxonomy-classification", "amr-annotation"],
+            "nextScenarioDatabasePackCoverage": [
+                {"scenarioId": "taxonomy-classification"},
+                {"scenarioId": "amr-annotation"},
+            ],
+        },
+    }
+    if include_timing:
+        payload["runTimingProof"] = {
+            "schemaVersion": "h2ometa.first-run.timing-proof.v1",
+            "completedWithinTimeout": True,
+            "withinExpectedDurationWindow": True,
+            "timeoutBudgetSeconds": 1800,
+            "durationWindowSeconds": {
+                "targetMinSeconds": 900,
+                "maxSeconds": 1800,
+                "lowerBoundRequired": False,
+            },
+            "observedDurationSeconds": 1200,
+            "durationSource": "runner-run-timestamps",
+        }
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")

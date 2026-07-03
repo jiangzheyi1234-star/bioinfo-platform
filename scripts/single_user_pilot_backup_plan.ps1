@@ -124,6 +124,18 @@ function Test-SameStringSet {
     return $true
 }
 
+function Convert-ToProofNumber {
+    param([object]$Value)
+    if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value)) {
+        return $null
+    }
+    try {
+        return [double]$Value
+    } catch {
+        return $null
+    }
+}
+
 function New-FirstRunProofConsumption {
     param(
         [string]$PathText,
@@ -156,6 +168,14 @@ function New-FirstRunProofConsumption {
         }
         if ($proof.closedLoopProofMode -ne "submitted-run") {
             Add-ProofError $errors "FIRST_RUN_PROOF_MODE_UNSUPPORTED" "First-run proof must be a fresh submitted-run proof."
+        }
+        $timing = $proof.runTimingProof
+        $timeoutBudget = Convert-ToProofNumber $timing.timeoutBudgetSeconds
+        $windowMax = Convert-ToProofNumber $timing.durationWindowSeconds.maxSeconds
+        if ($null -eq $timing -or $timing.schemaVersion -ne "h2ometa.first-run.timing-proof.v1" -or $timing.completedWithinTimeout -ne $true -or $timing.withinExpectedDurationWindow -ne $true) {
+            Add-ProofError $errors "FIRST_RUN_PROOF_TIMING_REQUIRED" "First-run proof must include runTimingProof completed within the expected 30 minute window."
+        } elseif ($null -eq $timeoutBudget -or $null -eq $windowMax -or $timeoutBudget -gt 1800 -or $windowMax -gt 1800) {
+            Add-ProofError $errors "FIRST_RUN_PROOF_TIMING_REQUIRED" "First-run proof timing budget must be no more than 1800 seconds."
         }
         if ($null -eq $proof.executionReadinessProof -or $proof.executionReadinessProof.ok -ne $true) {
             Add-ProofError $errors "FIRST_RUN_PROOF_EXECUTION_READINESS_REQUIRED" "First-run proof must include executionReadinessProof.ok=true."
@@ -219,6 +239,13 @@ function New-FirstRunProofConsumption {
             packageExportId = [string]$proof.handoffProof.packageExportId
             evidenceBundleFileRoles = Get-StringArray $proof.handoffProof.evidenceBundleFileRoles
             nextScenarioIds = Get-StringArray $proof.handoffProof.nextScenarioIds
+            runTimingProof = if ($null -eq $proof.runTimingProof) { $null } else { [ordered]@{
+                withinExpectedDurationWindow = [bool]$proof.runTimingProof.withinExpectedDurationWindow
+                completedWithinTimeout = [bool]$proof.runTimingProof.completedWithinTimeout
+                timeoutBudgetSeconds = $proof.runTimingProof.timeoutBudgetSeconds
+                observedDurationSeconds = $proof.runTimingProof.observedDurationSeconds
+                durationSource = [string]$proof.runTimingProof.durationSource
+            } }
         } }
     }
 }
@@ -347,6 +374,10 @@ $plan = [ordered]@{
         mustReport = @(
             "closedLoopProven=true",
             "closedLoopProofMode=submitted-run",
+            "runTimingProof.schemaVersion=h2ometa.first-run.timing-proof.v1",
+            "runTimingProof.completedWithinTimeout=true",
+            "runTimingProof.withinExpectedDurationWindow=true",
+            "runTimingProof.timeoutBudgetSeconds<=1800",
             "executionReadinessProof.ok=true",
             "sampleUploadProof.schemaVersion=h2ometa.first-run.sample-upload-proof.v1",
             "sampleUploadProof.passed=true",

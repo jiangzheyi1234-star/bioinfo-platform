@@ -40,9 +40,15 @@ if ($proof.closedLoopProven -ne $true) {
 if ($proof.handoffProof.validationCard.validationCardJsonSha256 -eq $null) {
     throw "first-run pilot proof must include validationCardJsonSha256"
 }
+if (-not $RunId) {
+    if ($proof.runTimingProof.schemaVersion -ne "h2ometa.first-run.timing-proof.v1" -or $proof.runTimingProof.withinExpectedDurationWindow -ne $true) {
+        throw "fresh first-run pilot proof must include runTimingProof within the expected duration window"
+    }
+}
 
 Write-Host "proofPath=$ProofPath"
 Write-Host "closedLoopProofMode=$($proof.closedLoopProofMode)"
 Write-Host "runId=$($proof.runId)"
+Write-Host "runTimingProof.withinExpectedDurationWindow=$($proof.runTimingProof.withinExpectedDurationWindow)"
 Write-Host "workflowRevisionId=$($proof.handoffProof.workflowRevisionId)"
 Write-Host "packageExportId=$($proof.handoffProof.packageExportId)"

@@ -17,6 +17,10 @@ $ErrorActionPreference = "Stop"
 $FirstRunPipelineId = "moving-pictures-16s-rulegraph-v1"
 $FirstRunScenarioId = "moving-pictures-16s"
 $RequiredEvidence = @("resultPackage", "validationCard", "evidenceBundle", "workflowRevision", "inputLineage", "outputChecksums")
+$FirstRunTimingTargetMinSeconds = 900
+$FirstRunTimingMaxSeconds = 1800
+$proofStartedAt = [DateTimeOffset]::UtcNow
+$script:LastRunWaitProof = $null
 $ClosedLoopProofModes = @{
     SmokeOnly = "catalog-page-smoke"
     FinalizedRun = "finalized-run"
@@ -56,6 +60,7 @@ function Write-FirstRunProof {
     $Summary | ConvertTo-Json -Depth 12 | Set-Content -Path $Path -Encoding utf8
 }
 
+. (Join-Path $PSScriptRoot "first_run_timing_proof.ps1")
 . (Join-Path $PSScriptRoot "first_run_pilot_check_downloads.ps1")
 . (Join-Path $PSScriptRoot "first_run_scenario_pack_check.ps1")
 
@@ -262,6 +267,7 @@ function Assert-ExecutionReadiness {
 
 function Wait-Run-Terminal {
     param([string]$TargetRunId)
+    $waitStartedAt = [DateTimeOffset]::UtcNow
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds($RunTimeoutSeconds)
     $lastStatus = "unknown"
     while ([DateTimeOffset]::UtcNow -lt $deadline) {
@@ -271,6 +277,10 @@ function Wait-Run-Terminal {
         if ($lastStatus -in @("completed", "failed", "error", "canceled", "cancelled")) {
             if ($lastStatus -ne "completed") {
                 Fail-Pilot "first-run ended as $lastStatus"
+            }
+            $script:LastRunWaitProof = [ordered]@{
+                waitStartedAt = Format-UtcIso $waitStartedAt
+                waitFinishedAt = Format-UtcIso ([DateTimeOffset]::UtcNow)
             }
             return $run
         }
@@ -698,6 +708,8 @@ $handoffProof = $null
 $blockedActionProof = $null
 $executionReadinessProof = $null
 $sampleUploadProof = $null
+$terminalRun = $null
+$runTimingProof = $null
 if ($RunFirstSuccessfulRun -and $RunId) {
     Fail-Pilot "-RunFirstSuccessfulRun cannot be combined with -RunId"
 }
@@ -712,7 +724,7 @@ if ($RunFirstSuccessfulRun) {
     $submissionProof = Submit-FirstRun $ServerId
     $RunId = $submissionProof.runId
     $sampleUploadProof = $submissionProof.sampleUploadProof
-    $null = Wait-Run-Terminal $RunId
+    $terminalRun = Wait-Run-Terminal $RunId
     $closedLoopProofMode = $ClosedLoopProofModes.SubmittedRun
 }
 if ($RunId) {
@@ -749,10 +761,28 @@ if ($RunId) {
     }
 }
 
+$proofFinishedAt = [DateTimeOffset]::UtcNow
+if ($RunFirstSuccessfulRun -and $null -ne $terminalRun) {
+    $runTimingProof = New-RunTimingProof `
+        -Run $terminalRun `
+        -WaitProof $script:LastRunWaitProof `
+        -ProofStartedAt $proofStartedAt `
+        -ProofFinishedAt $proofFinishedAt `
+        -RunTimeoutSeconds $RunTimeoutSeconds `
+        -TargetMinSeconds $FirstRunTimingTargetMinSeconds `
+        -MaxSeconds $FirstRunTimingMaxSeconds
+    if ($runTimingProof.withinExpectedDurationWindow -ne $true) {
+        Fail-Pilot "first-run did not complete within the expected timing window"
+    }
+}
+
 $summary = [ordered]@{
     schemaVersion = "h2ometa.first-run-pilot-check.v1"
     apiBase = $ApiBase
     webBase = $WebBase
+    proofStartedAt = Format-UtcIso $proofStartedAt
+    proofFinishedAt = Format-UtcIso $proofFinishedAt
+    proofDurationSeconds = [math]::Round(($proofFinishedAt - $proofStartedAt).TotalSeconds, 3)
     pipelineId = $FirstRunPipelineId
     workflowReady = $true
     scenarioId = $FirstRunScenarioId
@@ -769,6 +799,7 @@ $summary = [ordered]@{
     blockedActionProof = $blockedActionProof
     executionReadinessProof = $executionReadinessProof
     sampleUploadProof = $sampleUploadProof
+    runTimingProof = $runTimingProof
 }
 
 Write-FirstRunProof $ProofPath $summary
