@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from typing import Any
 
 
@@ -26,6 +27,10 @@ _REQUIRED_SHA256_FIELDS = (
     "resultPackageManifestSha256",
     "validationCardJsonSha256",
 )
+_REQUIRED_TIMESTAMP_FIELDS = (
+    "validationCardGeneratedAt",
+    "savedAt",
+)
 _REQUIRED_REPORT_OUTPUTS = frozenset(("summary.tsv", "qc-summary.tsv", "feature-table.tsv", "run-report.html"))
 _REQUIRED_EVIDENCE_BUNDLE_ROLES = frozenset(
     ("result-package", "validation-card-json", "validation-card-markdown", "pilot-handoff")
@@ -42,6 +47,11 @@ def first_run_completion_proof_invalid_reason(proof: dict[str, Any]) -> str:
     invalid_hash_fields = [field for field in _REQUIRED_SHA256_FIELDS if not _valid_sha256(str(proof.get(field) or ""))]
     if invalid_hash_fields:
         return "invalid sha256 " + ", ".join(invalid_hash_fields)
+    invalid_timestamp_fields = [
+        field for field in _REQUIRED_TIMESTAMP_FIELDS if not _valid_utc_timestamp(str(proof.get(field) or ""))
+    ]
+    if invalid_timestamp_fields:
+        return "invalid timestamp " + ", ".join(invalid_timestamp_fields)
     if not _valid_check_counts(proof.get("validationChecksPassed"), proof.get("validationChecksTotal")):
         return "validation checks are incomplete"
     if proof.get("reportReady") is not True:
@@ -81,6 +91,18 @@ def _valid_check_counts(passed: Any, total: Any) -> bool:
 def _valid_sha256(value: str) -> bool:
     normalized = value.strip().lower()
     return len(normalized) == 64 and all(char in "0123456789abcdef" for char in normalized)
+
+
+def _valid_utc_timestamp(value: str) -> bool:
+    normalized = value.strip()
+    if not normalized:
+        return False
+    candidate = normalized[:-1] + "+00:00" if normalized.endswith("Z") else normalized
+    try:
+        parsed = datetime.fromisoformat(candidate)
+    except ValueError:
+        return False
+    return parsed.tzinfo is not None and parsed.utcoffset() == timedelta(0)
 
 
 def _identity_error(proof: dict[str, Any]) -> str:
