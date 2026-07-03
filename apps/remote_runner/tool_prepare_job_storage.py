@@ -6,7 +6,11 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from core.contracts.state_contracts import TERMINAL_TOOL_PREPARE_JOB_STATUSES, terminal_status_sql
+from core.contracts.state_contracts import (
+    ACTIVE_TOOL_PREPARE_JOB_STATUSES,
+    TERMINAL_TOOL_PREPARE_JOB_STATUSES,
+    terminal_status_sql,
+)
 
 from .config import RemoteRunnerConfig
 from .errors import RemoteRunnerNotFoundError
@@ -19,6 +23,8 @@ from .tool_platform_storage import record_prepare_job_validation_result
 from .tool_prepare_reservations import tool_prepare_job_reservation
 
 
+ACTIVE_PREPARE_JOB_STATUSES = set(ACTIVE_TOOL_PREPARE_JOB_STATUSES)
+ACTIVE_PREPARE_JOB_STATUS_SQL = terminal_status_sql(ACTIVE_TOOL_PREPARE_JOB_STATUSES)
 TERMINAL_PREPARE_JOB_STATUSES = set(TERMINAL_TOOL_PREPARE_JOB_STATUSES)
 TERMINAL_PREPARE_JOB_STATUS_SQL = terminal_status_sql(TERMINAL_TOOL_PREPARE_JOB_STATUSES)
 
@@ -118,10 +124,10 @@ def _fetch_active_prepare_job_by_reservation(connection: sqlite3.Connection, res
     if not normalized_key:
         return None
     return connection.execute(
-        """
+        f"""
         SELECT *
         FROM tool_prepare_jobs
-        WHERE reservation_key = ? AND status IN ('queued', 'running')
+        WHERE reservation_key = ? AND status IN {ACTIVE_PREPARE_JOB_STATUS_SQL}
         ORDER BY rowid DESC
         LIMIT 1
         """,
@@ -223,7 +229,7 @@ def _events_by_job_id(connection: sqlite3.Connection, job_ids: list[str]) -> dic
 
 
 def _prepare_job_status_counts(rows: list[Any]) -> dict[str, int]:
-    counts = {status: 0 for status in sorted(TERMINAL_PREPARE_JOB_STATUSES | {"queued", "running"})}
+    counts = {status: 0 for status in sorted(TERMINAL_PREPARE_JOB_STATUSES | ACTIVE_PREPARE_JOB_STATUSES)}
     for row in rows:
         counts[str(row["status"])] = int(row["count"] or 0)
     return counts
@@ -383,7 +389,7 @@ def mark_tool_prepare_job_worker_failure(
         }
         if attempts >= max_attempts:
             connection.execute(
-                """
+                f"""
                 UPDATE tool_prepare_jobs
                 SET status = 'exhausted',
                     stage = 'exhausted',
@@ -396,7 +402,7 @@ def mark_tool_prepare_job_worker_failure(
                     last_worker_error_json = ?,
                     updated_at = ?,
                     finished_at = COALESCE(finished_at, ?)
-                WHERE job_id = ? AND status NOT IN ('succeeded', 'failed', 'cancelled', 'waiting_resource', 'exhausted')
+                WHERE job_id = ? AND status NOT IN {TERMINAL_PREPARE_JOB_STATUS_SQL}
                 """,
                 (
                     normalized_message,
@@ -427,7 +433,7 @@ def mark_tool_prepare_job_worker_failure(
         else:
             next_attempt_at = _add_seconds(failed_at, int(retry_delay_seconds))
             connection.execute(
-                """
+                f"""
                 UPDATE tool_prepare_jobs
                 SET status = 'queued',
                     stage = 'retry_wait',
@@ -438,7 +444,7 @@ def mark_tool_prepare_job_worker_failure(
                     next_attempt_at = ?,
                     last_worker_error_json = ?,
                     updated_at = ?
-                WHERE job_id = ? AND status NOT IN ('succeeded', 'failed', 'cancelled', 'waiting_resource', 'exhausted')
+                WHERE job_id = ? AND status NOT IN {TERMINAL_PREPARE_JOB_STATUS_SQL}
                 """,
                 (
                     normalized_message,
@@ -526,10 +532,10 @@ def record_tool_prepare_job_event(
             raise KeyError(job_id)
         if row["status"] not in TERMINAL_PREPARE_JOB_STATUSES:
             connection.execute(
-                """
+                f"""
                 UPDATE tool_prepare_jobs
                 SET status = 'running', stage = ?, message = ?, updated_at = ?, started_at = COALESCE(started_at, ?)
-                WHERE job_id = ? AND status IN ('queued', 'running')
+                WHERE job_id = ? AND status IN {ACTIVE_PREPARE_JOB_STATUS_SQL}
                 """,
                 (normalized_stage, normalized_message, now, now, job_id),
             )

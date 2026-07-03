@@ -292,7 +292,11 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "RuleSpecContractPreview" in ui
     assert "export function ToolPrepareTaskProvider" in task_context
     assert "fetchToolPrepareJobQueue" in task_context
-    assert 'RECOVERABLE_TASK_STATUSES = ["queued", "running"] as const' in task_context
+    assert "TOOL_PREPARE_ACTIVE_STATUSES" in model
+    assert "TOOL_PREPARE_TERMINAL_STATUSES" in model
+    assert "TOOL_PREPARE_ACTIVE_STATUSES.map((status)" in task_context
+    assert "ACTIVE_TOOL_PREPARE_STATUS_SET.has(job.status)" in task_context
+    assert "TERMINAL_TOOL_PREPARE_STATUS_SET.has(job.status)" in task_context
     assert "Promise.allSettled(" in task_context
     assert ".filter(isActiveJob)" in task_context
     assert "export function ToolPrepareTaskBar" in task_bar

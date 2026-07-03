@@ -339,6 +339,13 @@ def test_tool_prepare_job_records_live_outside_storage_mutation_module() -> None
     assert "from .storage_core import get_connection, now_iso" in storage
     assert "from .storage import get_connection, now_iso" not in storage
     assert "from .tool_prepare_job_records import (" in storage
+    assert "from core.contracts.state_contracts import (" in storage
+    assert "ACTIVE_TOOL_PREPARE_JOB_STATUSES" in storage
+    assert "TERMINAL_TOOL_PREPARE_JOB_STATUSES" in storage
+    assert "ACTIVE_PREPARE_JOB_STATUS_SQL" in storage
+    assert "TERMINAL_PREPARE_JOB_STATUS_SQL" in storage
+    assert "status IN ('queued', 'running')" not in storage
+    assert "status NOT IN ('succeeded', 'failed', 'cancelled', 'waiting_resource', 'exhausted')" not in storage
     assert "def _job_row_to_dict(" not in storage
     assert "def _event_row_to_dict(" not in storage
     assert "def _missing_resources_from_events(" not in storage

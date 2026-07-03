@@ -3,11 +3,16 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { cancelToolPrepareJob, fetchToolPrepareJob, fetchToolPrepareJobQueue, invalidateWorkflowToolCaches } from "./tools-page-api";
-import type { ToolPrepareJob } from "./tools-page-model";
+import {
+  TOOL_PREPARE_ACTIVE_STATUSES,
+  TOOL_PREPARE_TERMINAL_STATUSES,
+  type ToolPrepareJob,
+} from "./tools-page-model";
 
 const POLL_INTERVAL_MS = 1500;
 const MAX_RETAINED_TASKS = 8;
-const RECOVERABLE_TASK_STATUSES = ["queued", "running"] as const;
+const ACTIVE_TOOL_PREPARE_STATUS_SET = new Set<string>(TOOL_PREPARE_ACTIVE_STATUSES);
+const TERMINAL_TOOL_PREPARE_STATUS_SET = new Set<string>(TOOL_PREPARE_TERMINAL_STATUSES);
 
 type ToolPrepareTaskContextValue = {
   tasks: ToolPrepareJob[];
@@ -57,7 +62,7 @@ export function ToolPrepareTaskProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const controller = new AbortController();
     void Promise.allSettled(
-      RECOVERABLE_TASK_STATUSES.map((status) =>
+      TOOL_PREPARE_ACTIVE_STATUSES.map((status) =>
         fetchToolPrepareJobQueue({ limit: 50, signal: controller.signal, status })
       )
     ).then((pages) => {
@@ -105,11 +110,11 @@ export function useToolPrepareTasks() {
 }
 
 export function isActiveJob(job: ToolPrepareJob) {
-  return job.status === "queued" || job.status === "running";
+  return ACTIVE_TOOL_PREPARE_STATUS_SET.has(job.status);
 }
 
 export function isTerminalJob(job: ToolPrepareJob) {
-  return job.status === "succeeded" || job.status === "failed" || job.status === "cancelled" || job.status === "waiting_resource" || job.status === "exhausted";
+  return TERMINAL_TOOL_PREPARE_STATUS_SET.has(job.status);
 }
 
 function trimTasks(tasks: ToolPrepareJob[]) {

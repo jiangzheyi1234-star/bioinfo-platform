@@ -139,8 +139,8 @@ def test_waiting_resource_prepare_job_is_terminal_and_visible() -> None:
     frontend_state = (ROOT / "apps" / "web" / "app" / "components" / "use-tools-page-state.ts").read_text(encoding="utf-8")
     model = _tools_page_model_source()
 
-    assert '"waiting_resource"' in job_storage
-    assert 'job.status === "waiting_resource"' in task_context
+    assert "TERMINAL_PREPARE_JOB_STATUS_SQL" in job_storage
+    assert "TERMINAL_TOOL_PREPARE_STATUS_SET.has(job.status)" in task_context
     assert 'status === "waiting_resource"' in task_bar
     assert "isTerminalJob(task)" in frontend_state
     assert "isActiveJob(task)" in frontend_state

@@ -42,6 +42,14 @@ def is_result_exportable_run_status(status: Any) -> bool:
     return normalize_state(status) in RESULT_EXPORTABLE_RUN_STATUSES
 
 
+def is_active_tool_prepare_job_status(status: Any) -> bool:
+    return normalize_state(status) in ACTIVE_TOOL_PREPARE_JOB_STATUSES
+
+
+def is_terminal_tool_prepare_job_status(status: Any) -> bool:
+    return normalize_state(status) in TERMINAL_TOOL_PREPARE_JOB_STATUSES
+
+
 def ensure_known_run_status(status: Any, *, code: str = "RUN_STATUS_UNSUPPORTED") -> str:
     normalized = normalize_state(status)
     if normalized not in RUN_STATUSES:

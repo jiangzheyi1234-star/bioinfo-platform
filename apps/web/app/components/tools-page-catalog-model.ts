@@ -394,7 +394,21 @@ export type AddedTool = ToolSearchItem & {
   capabilityBundleStatus?: CapabilityBundleStatus;
 };
 
-export type ToolPrepareJobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled" | "waiting_resource" | "exhausted" | string;
+export const TOOL_PREPARE_ACTIVE_STATUSES = ["queued", "running"] as const;
+export const TOOL_PREPARE_TERMINAL_STATUSES = [
+  "succeeded",
+  "failed",
+  "cancelled",
+  "waiting_resource",
+  "exhausted",
+] as const;
+export const TOOL_PREPARE_JOB_STATUSES = [
+  ...TOOL_PREPARE_ACTIVE_STATUSES,
+  ...TOOL_PREPARE_TERMINAL_STATUSES,
+] as const;
+
+export type ToolPrepareKnownJobStatus = (typeof TOOL_PREPARE_JOB_STATUSES)[number];
+export type ToolPrepareJobStatus = ToolPrepareKnownJobStatus | string;
 
 export type ToolPrepareJobEvent = {
   eventId: string;
