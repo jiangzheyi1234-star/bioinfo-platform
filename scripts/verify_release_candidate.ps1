@@ -209,6 +209,18 @@ function Test-ProofSha256 {
     return (([string]$Value).Trim() -match "^[0-9a-fA-F]{64}$")
 }
 
+function Convert-ToProofUtcTimestamp {
+    param([object]$Value)
+    $parsed = [DateTimeOffset]::MinValue
+    if (-not [DateTimeOffset]::TryParse(([string]$Value).Trim(), [ref]$parsed)) {
+        return $null
+    }
+    if ($parsed.Offset.TotalSeconds -ne 0) {
+        return $null
+    }
+    return $parsed
+}
+
 function Test-FirstRunTimingProof {
     param([object]$Proof)
     if ($null -eq $Proof -or $null -eq $Proof.runTimingProof) {
@@ -237,6 +249,8 @@ function Test-FirstRunCompletionProof {
     $completionProof = $handoff.completionProof
     $checksPassed = Convert-ToProofNumber $completionProof.validationChecksPassed
     $checksTotal = Convert-ToProofNumber $completionProof.validationChecksTotal
+    $savedAt = Convert-ToProofUtcTimestamp $completionProof.savedAt
+    $generatedAt = Convert-ToProofUtcTimestamp $completionProof.validationCardGeneratedAt
     $reportOutputs = @("summary.tsv", "qc-summary.tsv", "feature-table.tsv", "run-report.html")
     $bundleRoles = @("result-package", "validation-card-json", "validation-card-markdown", "pilot-handoff")
     return (
@@ -247,6 +261,9 @@ function Test-FirstRunCompletionProof {
         $completionProof.resultId -eq $handoff.resultId -and
         $completionProof.workflowRevisionId -eq $handoff.workflowRevisionId -and
         $completionProof.packageExportId -eq $handoff.packageExportId -and
+        $null -ne $savedAt -and
+        $null -ne $generatedAt -and
+        $savedAt -ge $generatedAt -and
         (Test-ProofSha256 $completionProof.resultPackageSha256) -and
         (Test-ProofSha256 $completionProof.resultPackageManifestSha256) -and
         $completionProof.validationCardJsonSha256 -eq $handoff.validationCard.validationCardJsonSha256 -and
