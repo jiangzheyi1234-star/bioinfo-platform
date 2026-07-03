@@ -3,6 +3,16 @@ from __future__ import annotations
 from typing import Any
 
 
+EXECUTION_ACTIVITY_DIAGNOSTICS_NOT_OK_REASON = "execution-diagnostics-not-ok"
+EXECUTION_ACTIVITY_INVARIANTS_NOT_OK_REASON = "execution-invariants-not-ok"
+EXECUTION_ACTIVITY_ACTIVE_WORKFLOW_LEASES_REASON = "active-workflow-leases"
+EXECUTION_ACTIVITY_ALLOCATED_RESOURCES_REASON = "allocated-resources"
+EXECUTION_ACTIVITY_QUEUED_RESOURCE_WAITS_REASON = "queued-resource-waits"
+EXECUTION_ACTIVITY_QUEUED_JOBS_REASON = "queued-jobs"
+EXECUTION_ACTIVITY_CLAIMED_JOBS_REASON = "claimed-jobs"
+EXECUTION_ACTIVITY_RUNNING_WORKER_SLOTS_REASON = "running-worker-slots"
+
+
 def summarize_execution_activity(
     diagnostics: dict[str, Any],
     *,
@@ -78,23 +88,23 @@ def _diagnostic_block_reasons(
     reasons: list[str] = []
     if require_diagnostics_ok:
         if diagnostics.get("ok") is not True:
-            reasons.append("execution-diagnostics-not-ok")
+            reasons.append(EXECUTION_ACTIVITY_DIAGNOSTICS_NOT_OK_REASON)
     else:
         invariants = diagnostics.get("invariants") if isinstance(diagnostics.get("invariants"), dict) else {}
         if invariants.get("ok") is not True:
-            reasons.append("execution-invariants-not-ok")
+            reasons.append(EXECUTION_ACTIVITY_INVARIANTS_NOT_OK_REASON)
     if active_leases:
-        reasons.append("active-workflow-leases")
+        reasons.append(EXECUTION_ACTIVITY_ACTIVE_WORKFLOW_LEASES_REASON)
     if allocated_resources:
-        reasons.append("allocated-resources")
+        reasons.append(EXECUTION_ACTIVITY_ALLOCATED_RESOURCES_REASON)
     if resource_waits:
-        reasons.append("queued-resource-waits")
+        reasons.append(EXECUTION_ACTIVITY_QUEUED_RESOURCE_WAITS_REASON)
     if block_queued_jobs and queued_job_count > 0:
-        reasons.append("queued-jobs")
+        reasons.append(EXECUTION_ACTIVITY_QUEUED_JOBS_REASON)
     if claimed_job_count > 0:
-        reasons.append("claimed-jobs")
+        reasons.append(EXECUTION_ACTIVITY_CLAIMED_JOBS_REASON)
     if running_slot_count > 0:
-        reasons.append("running-worker-slots")
+        reasons.append(EXECUTION_ACTIVITY_RUNNING_WORKER_SLOTS_REASON)
     return _unique(reasons)
 
 

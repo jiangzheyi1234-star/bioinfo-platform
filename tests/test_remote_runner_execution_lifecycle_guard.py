@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from core.contracts.execution_activity import EXECUTION_ACTIVITY_ACTIVE_WORKFLOW_LEASES_REASON
 from apps.remote_runner.errors import RemoteRunnerOperationBlockedError, RemoteRunnerReadinessError
 from apps.remote_runner.execution_lifecycle_guard import (
     EXECUTION_LIFECYCLE_GUARD_ACTIVE_LEASES_REASON,
@@ -106,7 +107,7 @@ def test_lifecycle_guard_blocks_active_lease_and_keeps_maintenance_active(tmp_pa
     payload = blocked.value.payload
     assert payload["reasonCode"] == EXECUTION_LIFECYCLE_GUARD_ACTIVE_LEASES_REASON
     assert payload["activeLeaseCount"] == 1
-    assert "active-workflow-leases" in payload["blockReasons"]
+    assert EXECUTION_ACTIVITY_ACTIVE_WORKFLOW_LEASES_REASON in payload["blockReasons"]
     assert "allocated-resources" in payload["blockReasons"]
     assert "claimed-jobs" in payload["blockReasons"]
     assert payload["activeLeases"][0]["runId"] == "run_lifecycle_active"

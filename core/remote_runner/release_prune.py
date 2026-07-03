@@ -7,7 +7,7 @@ import shlex
 import time
 from typing import Any
 
-from core.contracts.execution_activity import summarize_execution_activity
+from core.contracts.execution_activity import EXECUTION_ACTIVITY_ACTIVE_WORKFLOW_LEASES_REASON, summarize_execution_activity
 from core.remote_runner.client import RemoteRunnerClientError
 from core.remote_runner.errors import RemoteRunnerManagerError
 from core.remote_runner.layout import remote_runner_config, remote_runner_current, remote_runner_root
@@ -440,7 +440,7 @@ def _fallback_rollback_path(
 
 
 def _block_reason_code(block_reasons: list[str]) -> str:
-    if "active-workflow-leases" in block_reasons:
+    if EXECUTION_ACTIVITY_ACTIVE_WORKFLOW_LEASES_REASON in block_reasons:
         return RELEASE_PRUNE_ACTIVE_LEASES_REASON
     return RELEASE_PRUNE_BLOCKED_REASON
 

@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 import json
 from typing import Any
 
-from core.contracts.execution_activity import summarize_execution_activity
+from core.contracts.execution_activity import EXECUTION_ACTIVITY_ACTIVE_WORKFLOW_LEASES_REASON, summarize_execution_activity
 
 from .config import RemoteRunnerConfig
 from .errors import RemoteRunnerOperationBlockedError, RemoteRunnerReadinessError
@@ -318,7 +318,7 @@ def _release_payload(
 
 
 def _blocked_reason_code(block_reasons: list[str]) -> str:
-    if "active-workflow-leases" in block_reasons:
+    if EXECUTION_ACTIVITY_ACTIVE_WORKFLOW_LEASES_REASON in block_reasons:
         return EXECUTION_LIFECYCLE_GUARD_ACTIVE_LEASES_REASON
     return EXECUTION_LIFECYCLE_GUARD_BLOCKED_REASON
 

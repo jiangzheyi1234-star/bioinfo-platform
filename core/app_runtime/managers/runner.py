@@ -8,6 +8,7 @@ from core.app_runtime.errors import RuntimeServiceError
 from core.app_runtime.managers.base import BaseRuntimeManager
 from core.app_runtime.remote_runner_stop import STOP_REMOTE_RUNNER_COMMAND
 from core.app_runtime.runner_stop_state import build_manual_runner_stop_intent
+from core.contracts.execution_activity import EXECUTION_ACTIVITY_ACTIVE_WORKFLOW_LEASES_REASON
 from core.remote_runner.lifecycle_guard_owner import execution_lifecycle_guard_owner
 
 
@@ -149,7 +150,7 @@ class RunnerManager(BaseRuntimeManager):
 
 
 def _stop_block_reason_code(block_reasons: list[str]) -> str:
-    if "active-workflow-leases" in block_reasons:
+    if EXECUTION_ACTIVITY_ACTIVE_WORKFLOW_LEASES_REASON in block_reasons:
         return RUNNER_STOP_ACTIVE_LEASES_REASON
     return RUNNER_STOP_BLOCKED_REASON
 
