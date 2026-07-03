@@ -121,6 +121,26 @@ class RunExecutionStateMachine:
         )
 
     @staticmethod
+    def complete_from_artifact_cache(*, current_status: str, state_version: int) -> RunExecutionTransition:
+        return RunExecutionStateMachine.publish_status(
+            current_status=current_status,
+            state_version=state_version,
+            status="completed",
+            stage="cache",
+            message="Workflow outputs adopted from artifact cache.",
+        )
+
+    @staticmethod
+    def complete_from_verified_outputs(*, current_status: str, state_version: int) -> RunExecutionTransition:
+        return RunExecutionStateMachine.publish_status(
+            current_status=current_status,
+            state_version=state_version,
+            status="completed",
+            stage="finalize",
+            message="Snakemake execution completed.",
+        )
+
+    @staticmethod
     def request_cancel(*, current_status: str, state_version: int) -> RunExecutionTransition:
         normalized_status = _normalize_required_status(current_status, "RUN_STATUS_REQUIRED")
         if normalized_status in TERMINAL_RUN_STATUSES:

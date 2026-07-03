@@ -176,6 +176,8 @@ def test_run_execution_state_machine_owns_core_status_decisions() -> None:
     assert "class RunJobRetryDecision" in state_machine
     assert "class RunJobClaimDecision" in state_machine
     assert "class RunAttemptLeaseGuardDecision" in state_machine
+    assert "def complete_from_artifact_cache(" in state_machine
+    assert "def complete_from_verified_outputs(" in state_machine
     assert "def fence_attempt(" in state_machine
     assert "def requeue_retryable_job(" in state_machine
     assert "def retry_job_for_operator_request(" in state_machine
@@ -212,6 +214,8 @@ def test_run_execution_state_machine_owns_core_status_decisions() -> None:
     assert "RunExecutionStateMachine.claim_job(" in run_execution_storage
     assert "RunExecutionStateMachine.current_lease_guard(" in run_execution_storage
     assert "RunExecutionStateMachine.current_lease_guard(" in workflow_run_storage
+    assert "RunExecutionStateMachine.complete_from_artifact_cache(" in artifact_cache_adoption
+    assert "RunExecutionStateMachine.complete_from_verified_outputs(" in candidate_output_storage
     assert "RunExecutionStateMachine.fence_attempt(" in reconciler_actions
     assert "RunExecutionStateMachine.requeue_retryable_job(" in reconciler_actions
     assert "RunExecutionStateMachine.requeue_retryable_job(" in (REMOTE_RUNNER / "reconciler.py").read_text(encoding="utf-8")
@@ -222,6 +226,10 @@ def test_run_execution_state_machine_owns_core_status_decisions() -> None:
     assert 'event_type="run_attempt_fenced"' not in run_execution_storage
     assert 'event_type="run_attempt_claimed"' not in run_execution_storage
     assert 'event_type="run_attempt_fenced"' not in reconciler_actions
+    assert "Workflow outputs adopted from artifact cache." not in artifact_cache_adoption
+    assert "Snakemake execution completed." not in candidate_output_storage
+    assert "SET status = 'completed', stage = 'cache'" not in artifact_cache_adoption
+    assert "SET status = 'completed', stage = 'finalize'" not in candidate_output_storage
     assert "Run attempt fenced" not in run_execution_storage
     assert "Run attempt claimed." not in run_execution_storage
     assert "Run attempt fenced" not in reconciler_actions

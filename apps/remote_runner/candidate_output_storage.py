@@ -619,22 +619,27 @@ def _complete_run_after_adoption(
     run = connection.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
     if run is None:
         raise KeyError(run_id)
-    transition = RunExecutionStateMachine.publish_status(
+    transition = RunExecutionStateMachine.complete_from_verified_outputs(
         current_status=str(run["status"]),
         state_version=int(run["state_version"]),
-        status="completed",
-        stage="finalize",
-        message="Snakemake execution completed.",
     )
     connection.execute(
         """
         UPDATE runs
-        SET status = 'completed', stage = 'finalize', state_version = ?,
-            message = 'Snakemake execution completed.', result_dir = ?,
+        SET status = ?, stage = ?, state_version = ?,
+            message = ?, result_dir = ?,
             last_error_json = '{}', last_updated_at = ?
         WHERE run_id = ?
         """,
-        (transition.state_version, result_dir, occurred_at, run_id),
+        (
+            transition.to_status,
+            transition.stage,
+            transition.state_version,
+            transition.row_message,
+            result_dir,
+            occurred_at,
+            run_id,
+        ),
     )
     connection.execute(
         """

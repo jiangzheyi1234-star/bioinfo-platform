@@ -399,22 +399,28 @@ def _complete_run_from_cache(
     cache_pin_ids: list[str],
     occurred_at: str,
 ) -> None:
-    transition = RunExecutionStateMachine.publish_status(
+    transition = RunExecutionStateMachine.complete_from_artifact_cache(
         current_status=str(run["status"]),
         state_version=int(run["state_version"]),
-        status="completed",
-        stage="cache",
-        message="Workflow outputs adopted from artifact cache.",
     )
     connection.execute(
         """
         UPDATE runs
-        SET status = 'completed', stage = 'cache', state_version = ?,
-            message = 'Workflow outputs adopted from artifact cache.', result_dir = ?,
+        SET status = ?, stage = ?, state_version = ?,
+            message = ?, result_dir = ?,
             last_error_json = NULL, finished_at = ?, last_updated_at = ?
         WHERE run_id = ?
         """,
-        (transition.state_version, result_dir, occurred_at, occurred_at, run_id),
+        (
+            transition.to_status,
+            transition.stage,
+            transition.state_version,
+            transition.row_message,
+            result_dir,
+            occurred_at,
+            occurred_at,
+            run_id,
+        ),
     )
     connection.execute(
         """

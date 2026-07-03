@@ -62,6 +62,40 @@ def test_status_publication_does_not_revive_terminal_runs() -> None:
     assert retry.to_status == "queued"
 
 
+def test_completion_transitions_own_artifact_cache_and_verified_output_semantics() -> None:
+    cache = RunExecutionStateMachine.complete_from_artifact_cache(
+        current_status="running",
+        state_version=7,
+    )
+    verified = RunExecutionStateMachine.complete_from_verified_outputs(
+        current_status="running",
+        state_version=7,
+    )
+
+    assert cache.to_status == "completed"
+    assert cache.stage == "cache"
+    assert cache.state_version == 8
+    assert cache.event_message == "Workflow outputs adopted from artifact cache."
+    assert verified.to_status == "completed"
+    assert verified.stage == "finalize"
+    assert verified.state_version == 8
+    assert verified.event_message == "Snakemake execution completed."
+
+
+def test_completion_transitions_do_not_revive_terminal_runs() -> None:
+    with pytest.raises(ValueError, match="RUN_STATUS_TERMINAL_IMMUTABLE: failed -> completed"):
+        RunExecutionStateMachine.complete_from_artifact_cache(
+            current_status="failed",
+            state_version=3,
+        )
+
+    with pytest.raises(ValueError, match="RUN_STATUS_TERMINAL_IMMUTABLE: cancelled -> completed"):
+        RunExecutionStateMachine.complete_from_verified_outputs(
+            current_status="cancelled",
+            state_version=5,
+        )
+
+
 def test_cancel_transition_updates_only_nonterminal_runs() -> None:
     nonterminal = RunExecutionStateMachine.request_cancel(
         current_status="running",
