@@ -4,7 +4,12 @@ from datetime import UTC, datetime, timedelta
 import json
 from typing import Any
 
-from core.contracts.execution_activity import EXECUTION_ACTIVITY_ACTIVE_WORKFLOW_LEASES_REASON, summarize_execution_activity
+from core.contracts.execution_activity import (
+    EXECUTION_ACTIVITY_ACTIVE_WORKFLOW_LEASES_REASON,
+    EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
+    EXECUTION_LIFECYCLE_MAINTENANCE_KEY,
+    summarize_execution_activity,
+)
 
 from .config import RemoteRunnerConfig
 from .errors import RemoteRunnerOperationBlockedError, RemoteRunnerReadinessError
@@ -12,9 +17,7 @@ from .execution_diagnostics import build_execution_diagnostics
 from .storage_core import get_connection, now_iso
 
 
-EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION = "h2ometa.execution-lifecycle-guard.v1"
 EXECUTION_LIFECYCLE_GUARD_RELEASE_SCHEMA_VERSION = "h2ometa.execution-lifecycle-guard-release.v1"
-EXECUTION_LIFECYCLE_MAINTENANCE_KEY = "execution_lifecycle_maintenance"
 EXECUTION_MAINTENANCE_ACTIVE_REASON = "EXECUTION_MAINTENANCE_ACTIVE"
 EXECUTION_LIFECYCLE_GUARD_ACTIVE_LEASES_REASON = "EXECUTION_LIFECYCLE_GUARD_ACTIVE_LEASES"
 EXECUTION_LIFECYCLE_GUARD_BLOCKED_REASON = "EXECUTION_LIFECYCLE_GUARD_BLOCKED"

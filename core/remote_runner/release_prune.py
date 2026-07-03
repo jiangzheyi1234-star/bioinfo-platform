@@ -7,7 +7,11 @@ import shlex
 import time
 from typing import Any
 
-from core.contracts.execution_activity import EXECUTION_ACTIVITY_ACTIVE_WORKFLOW_LEASES_REASON, summarize_execution_activity
+from core.contracts.execution_activity import (
+    EXECUTION_ACTIVITY_ACTIVE_WORKFLOW_LEASES_REASON,
+    EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
+    summarize_execution_activity,
+)
 from core.remote_runner.client import RemoteRunnerClientError
 from core.remote_runner.errors import RemoteRunnerManagerError
 from core.remote_runner.layout import remote_runner_config, remote_runner_current, remote_runner_root
@@ -20,7 +24,6 @@ RELEASE_PRUNE_ACTIVE_LEASES_REASON = "RUNNER_RELEASE_PRUNE_ACTIVE_LEASES"
 RELEASE_PRUNE_BLOCKED_REASON = "RUNNER_RELEASE_PRUNE_BLOCKED"
 RELEASE_PRUNE_GUARD_UNAVAILABLE_REASON = "RUNNER_RELEASE_PRUNE_GUARD_UNAVAILABLE"
 RELEASE_PRUNE_PLAN_CHANGED_REASON = "RUNNER_RELEASE_PRUNE_PLAN_CHANGED"
-EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION = "h2ometa.execution-lifecycle-guard.v1"
 _VERSIONED_RELEASE_NAME = re.compile(r"^[0-9][0-9A-Za-z._-]*$")
 
 

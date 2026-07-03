@@ -7,7 +7,12 @@ import shlex
 import time
 from typing import Any
 
-from core.contracts.execution_activity import EXECUTION_ACTIVITY_ACTIVE_WORKFLOW_LEASES_REASON, summarize_execution_activity
+from core.contracts.execution_activity import (
+    EXECUTION_ACTIVITY_ACTIVE_WORKFLOW_LEASES_REASON,
+    EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
+    EXECUTION_LIFECYCLE_MAINTENANCE_KEY,
+    summarize_execution_activity,
+)
 from core.remote_runner.client import RemoteRunnerClientError
 from core.remote_runner.errors import RemoteRunnerManagerError
 from core.remote_runner.layout import (
@@ -27,8 +32,6 @@ RUNNER_UNINSTALL_ACTIVE_LEASES_REASON = "RUNNER_UNINSTALL_ACTIVE_LEASES"
 RUNNER_UNINSTALL_BLOCKED_REASON = "RUNNER_UNINSTALL_BLOCKED"
 RUNNER_UNINSTALL_GUARD_UNAVAILABLE_REASON = "RUNNER_UNINSTALL_GUARD_UNAVAILABLE"
 RUNNER_UNINSTALL_PLAN_CHANGED_REASON = "RUNNER_UNINSTALL_PLAN_CHANGED"
-EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION = "h2ometa.execution-lifecycle-guard.v1"
-EXECUTION_LIFECYCLE_MAINTENANCE_KEY = "execution_lifecycle_maintenance"
 _SAFE_TARGET_NAME = re.compile(r"^[A-Za-z0-9_.:-]+$")
 
 
@@ -338,7 +341,11 @@ class RemoteRunnerUninstallMixin:
             "            payload = json.loads(str(row[0] or '{}'))\n"
             "        except json.JSONDecodeError:\n"
             "            payload = {}\n"
-            "        if payload.get('schemaVersion') == 'h2ometa.execution-lifecycle-guard.v1' and payload.get('action') == 'uninstall' and payload.get('owner') == owner:\n"
+            "        if (\n"
+            f"            payload.get('schemaVersion') == {EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION!r}\n"
+            "            and payload.get('action') == 'uninstall'\n"
+            "            and payload.get('owner') == owner\n"
+            "        ):\n"
             "            connection.execute('DELETE FROM service_state WHERE key = ?', (state_key,))\n"
             "            connection.commit()\n"
             "            released = True\n"

@@ -8,14 +8,16 @@ from core.app_runtime.errors import RuntimeServiceError
 from core.app_runtime.managers.base import BaseRuntimeManager
 from core.app_runtime.remote_runner_stop import STOP_REMOTE_RUNNER_COMMAND
 from core.app_runtime.runner_stop_state import build_manual_runner_stop_intent
-from core.contracts.execution_activity import EXECUTION_ACTIVITY_ACTIVE_WORKFLOW_LEASES_REASON
+from core.contracts.execution_activity import (
+    EXECUTION_ACTIVITY_ACTIVE_WORKFLOW_LEASES_REASON,
+    EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
+)
 from core.remote_runner.lifecycle_guard_owner import execution_lifecycle_guard_owner
 
 
 RUNNER_STOP_ACTIVE_LEASES_REASON = "RUNNER_STOP_ACTIVE_LEASES"
 RUNNER_STOP_BLOCKED_REASON = "RUNNER_STOP_BLOCKED"
 RUNNER_STOP_DIAGNOSTICS_UNAVAILABLE_REASON = "RUNNER_STOP_DIAGNOSTICS_UNAVAILABLE"
-EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION = "h2ometa.execution-lifecycle-guard.v1"
 _ACTIVITY_COUNT_KEYS = (
     "activeLeaseCount",
     "allocatedResourceCount",

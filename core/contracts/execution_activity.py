@@ -11,6 +11,8 @@ EXECUTION_ACTIVITY_QUEUED_RESOURCE_WAITS_REASON = "queued-resource-waits"
 EXECUTION_ACTIVITY_QUEUED_JOBS_REASON = "queued-jobs"
 EXECUTION_ACTIVITY_CLAIMED_JOBS_REASON = "claimed-jobs"
 EXECUTION_ACTIVITY_RUNNING_WORKER_SLOTS_REASON = "running-worker-slots"
+EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION = "h2ometa.execution-lifecycle-guard.v1"
+EXECUTION_LIFECYCLE_MAINTENANCE_KEY = "execution_lifecycle_maintenance"
 
 
 def summarize_execution_activity(

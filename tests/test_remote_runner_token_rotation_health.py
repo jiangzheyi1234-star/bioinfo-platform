@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
+from core.contracts.execution_activity import EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION
 from core.remote_runner.errors import RemoteRunnerManagerError
 from core.remote_runner.manager import RemoteRunnerManager
 from tests.helpers.remote_runner_control_plane import _health_endpoint_json
@@ -91,7 +92,7 @@ def test_rotate_token_validates_new_token_with_transport_health(monkeypatch) -> 
         "request_execution_lifecycle_guard",
         lambda **kwargs: lifecycle_requests.append(dict(kwargs))
         or {
-            "schemaVersion": "h2ometa.execution-lifecycle-guard.v1",
+            "schemaVersion": EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
             "action": "token-rotation",
             "owner": "srv_1:token-rotation:lifecycle",
             "idle": True,
@@ -186,7 +187,7 @@ def test_rotate_token_fails_loudly_when_systemd_restart_fails(monkeypatch) -> No
         manager,
         "request_execution_lifecycle_guard",
         lambda **_kwargs: {
-            "schemaVersion": "h2ometa.execution-lifecycle-guard.v1",
+            "schemaVersion": EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
             "blockReasons": [],
         },
     )
@@ -254,7 +255,7 @@ def test_rotate_token_fails_loudly_when_background_stop_fails(monkeypatch) -> No
         manager,
         "request_execution_lifecycle_guard",
         lambda **_kwargs: {
-            "schemaVersion": "h2ometa.execution-lifecycle-guard.v1",
+            "schemaVersion": EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
             "blockReasons": [],
         },
     )

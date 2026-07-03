@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from core.contracts.execution_activity import EXECUTION_ACTIVITY_ACTIVE_WORKFLOW_LEASES_REASON, summarize_execution_activity
+from core.contracts.execution_activity import (
+    EXECUTION_ACTIVITY_ACTIVE_WORKFLOW_LEASES_REASON,
+    EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
+    summarize_execution_activity,
+)
 from core.contracts.remote_endpoints import EXECUTION_LIFECYCLE_GUARD_RELEASE
 from core.remote_runner.client import RemoteRunnerClientError
 from core.remote_runner.errors import RemoteRunnerManagerError
@@ -14,7 +18,6 @@ UPGRADE_EXECUTION_BUSY_REASON = "RUNNER_UPGRADE_EXECUTION_BUSY"
 BOOTSTRAP_DIAGNOSTICS_UNAVAILABLE_REASON = "RUNNER_BOOTSTRAP_DIAGNOSTICS_UNAVAILABLE"
 UPGRADE_DIAGNOSTICS_UNAVAILABLE_REASON = "RUNNER_UPGRADE_DIAGNOSTICS_UNAVAILABLE"
 UPGRADE_GUARD_SCHEMA_VERSION = "h2ometa.remote-runner-upgrade-guard.v1"
-EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION = "h2ometa.execution-lifecycle-guard.v1"
 MANUAL_RUNNER_STOP_REASON = "RUNNER_STOPPED"
 MANUAL_RUNNER_STOP_INTENT_KEY = "runner_stop_intent"
 _ACTIVITY_COUNT_KEYS = (

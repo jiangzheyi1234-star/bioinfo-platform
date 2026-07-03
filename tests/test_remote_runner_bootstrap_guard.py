@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from core.contracts.execution_activity import summarize_execution_activity
+from core.contracts.execution_activity import EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION, summarize_execution_activity
 from core.remote_runner.bootstrap_guard import (
     BOOTSTRAP_DIAGNOSTICS_UNAVAILABLE_REASON,
     UPGRADE_ACTIVE_LEASES_REASON,
@@ -39,7 +39,7 @@ class GuardHarness(RemoteRunnerBootstrapGuardMixin):
                 block_queued_jobs=str(kwargs["action"]) == "upgrade",
             )
         except RemoteRunnerManagerError:
-            return {"schemaVersion": "h2ometa.execution-lifecycle-guard.v1", "blockReasons": []}
+            return {"schemaVersion": EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION, "blockReasons": []}
         payload = _lifecycle_guard_payload(
             activity,
             action=str(kwargs["action"]),
@@ -415,7 +415,7 @@ def _diagnostics(
 def _lifecycle_guard_payload(activity: dict[str, object], *, action: str, owner: str) -> dict[str, object]:
     block_reasons = list(activity["blockReasons"])
     return {
-        "schemaVersion": "h2ometa.execution-lifecycle-guard.v1",
+        "schemaVersion": EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
         "action": action,
         "owner": owner,
         "idle": not block_reasons,

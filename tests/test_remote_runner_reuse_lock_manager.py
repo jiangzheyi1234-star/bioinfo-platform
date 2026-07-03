@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
+from core.contracts.execution_activity import EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION
 from core.contracts.remote_endpoints import RESULT_LIST
 from core.remote_runner.artifact import WORKFLOW_RUNTIME_VERSION
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
@@ -737,7 +738,7 @@ def test_rotate_token_restores_and_releases_guard_on_tunnel_adapter_errors(monke
         "request_execution_lifecycle_guard",
         lambda **kwargs: lifecycle_requests.append(dict(kwargs))
         or {
-            "schemaVersion": "h2ometa.execution-lifecycle-guard.v1",
+            "schemaVersion": EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
             "action": "token-rotation",
             "owner": "srv_test:token-rotation:lifecycle",
             "idle": True,

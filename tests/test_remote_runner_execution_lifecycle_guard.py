@@ -4,13 +4,15 @@ import json
 
 import pytest
 
-from core.contracts.execution_activity import EXECUTION_ACTIVITY_ACTIVE_WORKFLOW_LEASES_REASON
+from core.contracts.execution_activity import (
+    EXECUTION_ACTIVITY_ACTIVE_WORKFLOW_LEASES_REASON,
+    EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
+    EXECUTION_LIFECYCLE_MAINTENANCE_KEY,
+)
 from apps.remote_runner.errors import RemoteRunnerOperationBlockedError, RemoteRunnerReadinessError
 from apps.remote_runner.execution_lifecycle_guard import (
     EXECUTION_LIFECYCLE_GUARD_ACTIVE_LEASES_REASON,
     EXECUTION_LIFECYCLE_GUARD_BLOCKED_REASON,
-    EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
-    EXECUTION_LIFECYCLE_MAINTENANCE_KEY,
     EXECUTION_MAINTENANCE_ACTIVE_REASON,
     ensure_execution_lifecycle_admission_open,
     release_execution_lifecycle_guard,

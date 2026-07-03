@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from core.contracts.execution_activity import EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION
 from core.remote_runner.errors import RemoteRunnerManagerError
 from core.remote_runner.uninstall import (
     RUNNER_UNINSTALL_ACTIVE_LEASES_REASON,
@@ -277,7 +278,7 @@ def _lifecycle_guard_payload(
     block_reasons: list[str] | None = None,
 ) -> dict[str, object]:
     return {
-        "schemaVersion": "h2ometa.execution-lifecycle-guard.v1",
+        "schemaVersion": EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
         "action": action,
         "owner": owner,
         "idle": not block_reasons,

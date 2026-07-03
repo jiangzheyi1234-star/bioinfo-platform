@@ -12,6 +12,7 @@ from core.app_runtime.managers.runner import (
     RUNNER_STOP_DIAGNOSTICS_UNAVAILABLE_REASON,
 )
 from core.app_runtime.service import RuntimeService, ServiceLocator
+from core.contracts.execution_activity import EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION
 
 
 def make_service(_tmp_path: Path, ssh_service) -> RuntimeService:
@@ -226,7 +227,7 @@ def _lifecycle_guard_payload(
 ) -> dict:
     reasons = block_reasons or []
     return {
-        "schemaVersion": "h2ometa.execution-lifecycle-guard.v1",
+        "schemaVersion": EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
         "action": "stop",
         "owner": "srv_test:stop:lifecycle",
         "idle": not reasons,
