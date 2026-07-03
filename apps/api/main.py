@@ -23,13 +23,16 @@ from apps.api.workflow_first_run_routes import router as workflow_first_run_rout
 from apps.api.workflow_sample_data_routes import router as workflow_sample_data_router
 from apps.api.workflow_scenario_pack_routes import router as workflow_scenario_pack_router
 from apps.api.workflow_trigger_routes import router as workflow_trigger_router
+from core.contracts.problem_details import install_problem_details_openapi, problem_detail_responses
 
 
 app = FastAPI(
     title="H2OMeta Local API",
     version="0.1.0",
     lifespan=lifespan,
+    responses=problem_detail_responses(),
 )
+install_problem_details_openapi(app)
 register_exception_handlers(app)
 
 app.add_middleware(

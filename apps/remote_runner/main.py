@@ -4,6 +4,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from core.contracts.problem_details import install_problem_details_openapi, problem_detail_responses
+
 from .audit_routes import router as audit_router
 from .artifact_lifecycle_controller import start_configured_artifact_lifecycle_controller_supervisor
 from .database_routes import router as database_router
@@ -45,7 +47,13 @@ async def lifespan(app: FastAPI):
             supervisor.stop()
 
 
-app = FastAPI(title="H2OMeta Remote Runner", version="0.1.1-control-plane", lifespan=lifespan)
+app = FastAPI(
+    title="H2OMeta Remote Runner",
+    version="0.1.1-control-plane",
+    lifespan=lifespan,
+    responses=problem_detail_responses(),
+)
+install_problem_details_openapi(app)
 register_exception_handlers(app)
 app.include_router(health_router)
 app.include_router(pipeline_router)

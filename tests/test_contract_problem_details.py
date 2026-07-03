@@ -5,8 +5,10 @@ from types import SimpleNamespace
 
 from core.contracts.problem_details import (
     PROBLEM_DETAIL_MEDIA_TYPE,
+    ProblemDetail,
     build_problem_detail,
     normalize_problem_code,
+    problem_detail_response,
 )
 from core.problem_responses import status_payload_response, value_error_response
 
@@ -48,6 +50,15 @@ def test_problem_detail_builder_uses_rfc9457_top_level_fields() -> None:
     assert payload["code"] == "RUNNER_STOPPED"
     assert payload["requestId"] == "req_1"
     assert payload["reasonCode"] == "RUNNER_STOPPED"
+    assert ProblemDetail.model_validate(payload).code == "RUNNER_STOPPED"
+
+
+def test_problem_detail_openapi_response_uses_problem_json_only() -> None:
+    response = problem_detail_response(409)
+
+    assert response["description"] == "RFC 9457 Problem Details (409)"
+    assert list(response["content"]) == [PROBLEM_DETAIL_MEDIA_TYPE]
+    assert response["content"][PROBLEM_DETAIL_MEDIA_TYPE]["schema"] == {"$ref": "#/components/schemas/ProblemDetail"}
 
 
 def test_problem_code_normalization_rejects_human_detail_strings() -> None:
