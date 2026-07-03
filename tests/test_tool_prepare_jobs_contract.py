@@ -29,6 +29,7 @@ def test_prepare_uses_async_job_contract_across_api_layers() -> None:
     task_context = (ROOT / "apps" / "web" / "app" / "components" / "tool-prepare-task-context.tsx").read_text(encoding="utf-8")
     task_bar = (ROOT / "apps" / "web" / "app" / "components" / "tool-prepare-task-bar.tsx").read_text(encoding="utf-8")
     storage_schema = (ROOT / "apps" / "remote_runner" / "storage_schema.py").read_text(encoding="utf-8")
+    prepare_schema = (ROOT / "apps" / "remote_runner" / "tool_prepare_schema.py").read_text(encoding="utf-8")
     job_storage = (ROOT / "apps" / "remote_runner" / "tool_prepare_job_storage.py").read_text(encoding="utf-8")
 
     assert "operation_id=REMOTE_ENDPOINTS[TOOL_PREPARE_JOB_CREATE].operation_id" in remote_route
@@ -67,7 +68,9 @@ def test_prepare_uses_async_job_contract_across_api_layers() -> None:
     assert "createToolPrepareJob(nextTool)" in frontend_state
     assert "waitForToolPrepareJob(job.jobId)" not in frontend_state
     assert "trackToolPrepareJob(job)" in frontend_state
-    assert "CREATE TABLE IF NOT EXISTS tool_prepare_job_events" in storage_schema
+    assert "from .tool_prepare_schema import TOOL_PREPARE_SCHEMA_SQL" in storage_schema
+    assert "CREATE TABLE IF NOT EXISTS tool_prepare_job_events" in prepare_schema
+    assert "CREATE TABLE IF NOT EXISTS tool_prepare_jobs" in prepare_schema
     assert "record_tool_prepare_job_event" in job_storage
     assert "def list_latest_tool_prepare_jobs_by_tool_id" in job_storage
     assert "latest_jobs_by_tool_id" in job_storage

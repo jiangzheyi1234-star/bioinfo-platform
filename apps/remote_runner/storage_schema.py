@@ -3,6 +3,7 @@ from __future__ import annotations
 from .artifact_cache_pin_schema import ARTIFACT_CACHE_PIN_SCHEMA_SQL
 from .artifact_lifecycle_policy_schema import ARTIFACT_LIFECYCLE_POLICY_SCHEMA_SQL
 from .sqlite_trigger_readiness_watcher_migrations import WORKFLOW_TRIGGER_READINESS_WATCHER_SCHEMA_SQL
+from .tool_prepare_schema import TOOL_PREPARE_SCHEMA_SQL
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS service_state (
     key TEXT PRIMARY KEY,
@@ -704,45 +705,7 @@ ON tool_index(source, quality_score DESC, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_tool_index_state_quality
 ON tool_index(state, quality_score DESC, updated_at DESC);
 
-CREATE TABLE IF NOT EXISTS tool_prepare_jobs (
-    job_id TEXT PRIMARY KEY,
-    status TEXT NOT NULL,
-    stage TEXT NOT NULL,
-    message TEXT NOT NULL,
-    tool_id TEXT NOT NULL,
-    reservation_key TEXT NOT NULL DEFAULT '',
-    reservation_package_spec TEXT NOT NULL DEFAULT '',
-    reservation_validation_target TEXT NOT NULL DEFAULT '',
-    request_json TEXT NOT NULL,
-    result_json TEXT,
-    error_code TEXT,
-    claimed_by TEXT NOT NULL DEFAULT '',
-    claimed_until TEXT,
-    heartbeat_at TEXT,
-    attempts INTEGER NOT NULL DEFAULT 0,
-    max_attempts INTEGER NOT NULL DEFAULT 3,
-    next_attempt_at TEXT,
-    exhausted_at TEXT,
-    backoff_seconds INTEGER NOT NULL DEFAULT 30,
-    last_worker_error_json TEXT NOT NULL DEFAULT '{}',
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    started_at TEXT,
-    finished_at TEXT,
-    cancelled_at TEXT
-);
-
-CREATE TABLE IF NOT EXISTS tool_prepare_job_events (
-    event_id TEXT PRIMARY KEY,
-    job_id TEXT NOT NULL,
-    stage TEXT NOT NULL,
-    level TEXT NOT NULL,
-    message TEXT NOT NULL,
-    details_json TEXT NOT NULL DEFAULT '{}',
-    created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS workflow_design_drafts (
+""" + TOOL_PREPARE_SCHEMA_SQL + """CREATE TABLE IF NOT EXISTS workflow_design_drafts (
     draft_id TEXT PRIMARY KEY,
     parent_draft_id TEXT,
     contract_version TEXT NOT NULL,

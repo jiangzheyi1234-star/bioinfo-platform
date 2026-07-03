@@ -9,12 +9,17 @@ REMOTE_RUNNER = ROOT / "apps" / "remote_runner"
 
 def test_storage_schema_lives_outside_storage_module() -> None:
     schema = (REMOTE_RUNNER / "storage_schema.py").read_text(encoding="utf-8")
+    tool_prepare_schema = (REMOTE_RUNNER / "tool_prepare_schema.py").read_text(encoding="utf-8")
     storage = (REMOTE_RUNNER / "storage.py").read_text(encoding="utf-8")
     storage_core = (REMOTE_RUNNER / "storage_core.py").read_text(encoding="utf-8")
     sqlite_migrations = (REMOTE_RUNNER / "sqlite_migrations.py").read_text(encoding="utf-8")
 
     assert "SCHEMA_SQL" in schema
+    assert len(schema.splitlines()) < 800
     assert "CREATE TABLE IF NOT EXISTS runs" in schema
+    assert "from .tool_prepare_schema import TOOL_PREPARE_SCHEMA_SQL" in schema
+    assert "CREATE TABLE IF NOT EXISTS tool_prepare_jobs" not in schema
+    assert "CREATE TABLE IF NOT EXISTS tool_prepare_jobs" in tool_prepare_schema
     assert "from .storage_schema import SCHEMA_SQL" in sqlite_migrations
     assert "PRAGMA user_version" in sqlite_migrations
     assert "schema_migrations" in sqlite_migrations
@@ -169,6 +174,7 @@ def test_general_storage_module_is_import_facade_for_runtime_storage_domains() -
 
 def test_run_execution_state_machine_owns_core_status_decisions() -> None:
     state_machine_path = REMOTE_RUNNER / "run_execution_state_machine.py"
+    state_contracts = (ROOT / "core" / "contracts" / "state_contracts.py").read_text(encoding="utf-8")
     run_execution_storage = (REMOTE_RUNNER / "run_execution_storage.py").read_text(encoding="utf-8")
     execution_primitives = (REMOTE_RUNNER / "execution_storage_primitives.py").read_text(encoding="utf-8")
     workflow_run_storage = (REMOTE_RUNNER / "workflow_run_storage.py").read_text(encoding="utf-8")
@@ -194,10 +200,18 @@ def test_run_execution_state_machine_owns_core_status_decisions() -> None:
     assert "def retry_job_for_operator_request(" in state_machine
     assert "def claim_job(" in state_machine
     assert "def current_lease_guard(" in state_machine
-    assert "TERMINAL_RUN_STATUSES =" in state_machine
-    assert "RETRYABLE_RUN_STATUSES =" in state_machine
-    assert "RELEASED_LEASE_STATES =" in state_machine
-    assert "RUN_STATUSES =" in state_machine
+    assert "RUN_STATUSES =" in state_contracts
+    assert "TERMINAL_RUN_STATUSES =" in state_contracts
+    assert "RETRYABLE_RUN_STATUSES =" in state_contracts
+    assert "LEASE_RELEASED_STATES =" in state_contracts
+    assert "from core.contracts.state_contracts import (" in state_machine
+    assert "RUN_STATUSES," in state_machine
+    assert "TERMINAL_RUN_STATUSES," in state_machine
+    assert "RETRYABLE_RUN_STATUSES," in state_machine
+    assert "RELEASED_LEASE_STATES = LEASE_RELEASED_STATES" in state_machine
+    assert "RUN_STATUSES =" not in state_machine
+    assert "TERMINAL_RUN_STATUSES =" not in state_machine
+    assert "RETRYABLE_RUN_STATUSES =" not in state_machine
     assert "def attempt_row_to_dict(" in execution_primitives
     assert "def fetch_run_row(" in execution_primitives
     assert "def stable_json(" in execution_primitives
