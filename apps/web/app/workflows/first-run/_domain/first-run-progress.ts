@@ -86,7 +86,7 @@ export function buildFirstRunSteps(input: {
     stepDefinition(
       "evidence-bundle",
       "下载/分享证据包",
-      completionProofReady || evidence?.validation?.ready === true || status?.status === "ready",
+      completionProofReady || evidence?.validation?.ready === true,
       "结果包、验证卡 JSON/Markdown、pilot handoff 四件套",
       "#evidence-bundle"
     ),

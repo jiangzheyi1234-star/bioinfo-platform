@@ -96,8 +96,7 @@ export function useFirstRunEvidence({
   const runStatus = status ? statusRun?.status || "" : run?.status || "";
   const runTerminal = runStatus === "completed" || runStatus === "failed" || runStatus === "error";
   const packageReady = status?.evidence?.resultPackage?.ready === true || completionProof?.ready === true;
-  const validationReady =
-    status?.status === "ready" || status?.evidence?.validation?.ready === true || completionProof?.ready === true;
+  const validationReady = status?.evidence?.validation?.ready === true || completionProof?.ready === true;
   const validationEligible = validationReady;
 
   const loadPackageExports = useCallback(async () => {

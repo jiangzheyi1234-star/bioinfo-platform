@@ -35,6 +35,7 @@ def test_first_run_ui_steps_and_report_are_status_contract_driven() -> None:
     assert "input.runFailed" not in first_run_progress
     assert "runCompleted" not in first_run_progress
     assert "runTerminal" not in first_run_progress
+    assert 'status?.status === "ready"' not in first_run_progress
     assert "includeArtifacts?: boolean;" in first_run_types
     assert "export type FirstRunCompletionProof = {\n  schemaVersion?: string;\n  ready?: boolean;\n  blockedCode?: string;\n  detail?: string;" in first_run_types
     assert "const reportReady = runCompleted && artifacts.length > 0" not in first_run_page
@@ -227,7 +228,9 @@ def test_first_run_evidence_actions_use_status_run_id_before_local_run() -> None
     assert "const completionProof = activeFirstRunCompletionProof(status)" in first_run_evidence_state
     assert 'const firstRunRunId = status ? statusRun?.runId || "" : run?.runId || ""' in first_run_evidence_state
     assert 'const runStatus = status ? statusRun?.status || "" : run?.status || ""' in first_run_evidence_state
+    assert 'const validationReady = status?.evidence?.validation?.ready === true || completionProof?.ready === true' in first_run_evidence_state
     assert "const validationEligible = validationReady" in first_run_evidence_state
+    assert 'status?.status === "ready"' not in first_run_evidence_state
     assert "fetchFirstRunValidationCard(firstRunRunId" in first_run_evidence_state
     assert "finalizeFirstRun(firstRunRunId" in first_run_evidence_state
     assert "downloadFirstRunValidationCard" not in first_run_evidence_state
