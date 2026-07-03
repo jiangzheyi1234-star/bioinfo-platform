@@ -475,11 +475,11 @@ def _protected_lease_summary(value: Any) -> dict[str, Any]:
 
 def _is_manual_runner_stop_record(server_record: dict[str, Any]) -> bool:
     intent = server_record.get(MANUAL_RUNNER_STOP_INTENT_KEY)
-    if isinstance(intent, dict) and bool(intent.get("active")) and str(intent.get("reasonCode") or "") == MANUAL_RUNNER_STOP_REASON:
-        return True
-    snapshot = server_record.get("last_health_snapshot")
-    reason_code = str(snapshot.get("reasonCode") or "") if isinstance(snapshot, dict) else ""
-    return reason_code == MANUAL_RUNNER_STOP_REASON
+    return (
+        isinstance(intent, dict)
+        and bool(intent.get("active"))
+        and str(intent.get("reasonCode") or "") == MANUAL_RUNNER_STOP_REASON
+    )
 
 
 def _has_prior_runner_evidence(

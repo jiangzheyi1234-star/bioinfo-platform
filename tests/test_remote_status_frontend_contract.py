@@ -155,6 +155,12 @@ def test_manual_runner_stop_is_explicit_start_not_repair() -> None:
         "远程服务已停止",
         "等待手动启动",
     )
+    _assert_not_contains(
+        model_source.split("export function runnerRequiresExplicitStart", 1)[1].split(
+            "export function isRunnerManuallyStopped", 1
+        )[0],
+        "RUNNER_STOP_INTENT_REQUIRED_REASON",
+    )
 
 
 def test_remote_status_failed_runner_can_trigger_repair_bootstrap() -> None:

@@ -101,11 +101,23 @@ class RemoteRunnerTokenRotationMixin:
                 timeout=10,
             )
             if str(record.get("runner_mode")) == "systemd_user":
-                ssh_service.run("systemctl --user restart h2ometa-remote.service", timeout=30)
+                self._run_token_rotation_command(
+                    ssh_service,
+                    "systemctl --user restart h2ometa-remote.service",
+                    step="restart remote runner after token rotation",
+                    timeout=30,
+                )
             else:
-                ssh_service.run("pkill -f '[r]emote_runner.run' || true", timeout=10)
-                ssh_service.run(
+                self._run_token_rotation_command(
+                    ssh_service,
+                    "pkill -f '[r]emote_runner.run'",
+                    step="stop remote runner after token rotation",
+                    timeout=10,
+                )
+                self._run_token_rotation_command(
+                    ssh_service,
                     remote_runner_start_command(home_dir, remote_config),
+                    step="start remote runner after token rotation",
                     timeout=30,
                 )
             tunnel = self._open_runner_tunnel(
@@ -131,11 +143,23 @@ class RemoteRunnerTokenRotationMixin:
                         timeout=10,
                     )
                     if str(record.get("runner_mode")) == "systemd_user":
-                        ssh_service.run("systemctl --user restart h2ometa-remote.service", timeout=30)
+                        self._run_token_rotation_command(
+                            ssh_service,
+                            "systemctl --user restart h2ometa-remote.service",
+                            step="restart remote runner after token rotation restore",
+                            timeout=30,
+                        )
                     else:
-                        ssh_service.run("pkill -f '[r]emote_runner.run' || true", timeout=10)
-                        ssh_service.run(
+                        self._run_token_rotation_command(
+                            ssh_service,
+                            "pkill -f '[r]emote_runner.run'",
+                            step="stop remote runner after token rotation restore",
+                            timeout=10,
+                        )
+                        self._run_token_rotation_command(
+                            ssh_service,
                             remote_runner_start_command(home_dir, remote_config),
+                            step="start remote runner after token rotation restore",
                             timeout=30,
                         )
                     self.release_execution_lifecycle_guard(
@@ -154,6 +178,13 @@ class RemoteRunnerTokenRotationMixin:
             raise
         token_ref = store_runner_token(server_id=server_id, token=token)
         return {"token_ref": token_ref}
+
+    def _run_token_rotation_command(self, ssh_service, command: str, *, step: str, timeout: int) -> None:
+        exit_code, stdout, stderr = ssh_service.run(command, timeout=timeout)
+        if int(exit_code) == 0:
+            return
+        detail = str(stderr or stdout or "").strip() or f"exit code {exit_code}"
+        raise self._manager_error(f"{step} failed: {detail}")
 
     @classmethod
     def _release_token_rotation_guard(cls, *, client: RemoteRunnerHttpClient, owner: str) -> None:

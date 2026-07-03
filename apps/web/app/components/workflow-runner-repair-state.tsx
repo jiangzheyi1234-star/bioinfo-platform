@@ -80,9 +80,7 @@ export function workflowServerRunnerRequiresExplicitStart(server: WorkflowServer
     server?.connected &&
       runner &&
       runner.ready !== true &&
-      (runner.state === "stopped" ||
-        runner.reasonCode === MANUAL_RUNNER_STOP_REASON ||
-        runner.reasonCode === RUNNER_STOP_INTENT_REQUIRED_REASON)
+      (runner.state === "stopped" || runner.reasonCode === MANUAL_RUNNER_STOP_REASON)
   );
 }
 
@@ -177,7 +175,12 @@ export function WorkflowRunnerRepairNotice({
     return null;
   }
   const compact = mode === "compact";
-  const canPrepareRunner = Boolean(status?.connected && status.serverId && !status.runner?.ready);
+  const canPrepareRunner = Boolean(
+    status?.connected &&
+      status.serverId &&
+      !status.runner?.ready &&
+      status.runner?.reasonCode !== RUNNER_STOP_INTENT_REQUIRED_REASON
+  );
   const title = status?.runner?.reasonCode === MANUAL_RUNNER_STOP_REASON ? "远程服务已停止" : "远程服务未就绪";
   const repairReason = workflowRunnerRepairBlockedReason(status);
   const deploymentAction = status?.runner?.deploymentAction || "";

@@ -56,10 +56,27 @@ def test_stop_remote_runner_service_runs_explicit_stop_commands(monkeypatch, tmp
 
         def __init__(self) -> None:
             self.commands: list[tuple[str, int]] = []
+            self.closed_tunnels: list[str] = []
 
         def run(self, cmd: str, timeout: int = 10):
             self.commands.append((cmd, timeout))
             return 0, "systemd_user=stopped\nstop_script=stopped\nprocess=not-running\n", ""
+
+        def close_local_tunnel(self, name: str) -> None:
+            self.closed_tunnels.append(name)
+
+        def local_tunnel_snapshots(self):
+            return [
+                {
+                    "schemaVersion": "local-ssh-tunnel.v1",
+                    "name": "unrelated",
+                    "localHost": "127.0.0.1",
+                    "localPort": 18001,
+                    "remoteHost": "127.0.0.1",
+                    "remotePort": 43128,
+                    "active": True,
+                }
+            ]
 
     fake_ssh = FakeSSH()
     service = make_service(tmp_path, fake_ssh)
@@ -91,8 +108,10 @@ def test_stop_remote_runner_service_runs_explicit_stop_commands(monkeypatch, tmp
     assert "bash \"$STOP_SCRIPT\"" in command
     assert "pkill -f '[r]emote_runner.run'" in command
     assert "runner-state.json" in command
+    assert fake_ssh.closed_tunnels == [f"runner-{server_id}"]
     assert result["data"]["ok"] is True
     assert result["data"]["runner"]["reasonCode"] == "RUNNER_STOPPED"
+    assert all(tunnel["name"] != f"runner-{server_id}" for tunnel in result["data"]["runner"]["localTunnels"])
     assert result["data"]["lifecycleAction"] == "stop"
     registry_entry = next(iter(cfg["servers"].values()))
     assert registry_entry["last_health_snapshot"]["reasonCode"] == "RUNNER_STOPPED"

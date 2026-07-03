@@ -40,6 +40,7 @@ RESULT_PACKAGE_REMOTE_ENDPOINT_SPECS: dict[str, dict[str, Any]] = {
         "request_schema": None,
         "response_schema": "h2ometa.result-package-download.v1",
         "cache_scope": "result-package-download",
+        "response_transport": "bytes",
     },
     RESULT_PACKAGE_RETIRE: {
         "method": "POST",

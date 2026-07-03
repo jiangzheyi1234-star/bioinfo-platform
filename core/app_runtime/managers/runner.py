@@ -81,6 +81,9 @@ class RunnerManager(BaseRuntimeManager):
 
         if not ok:
             raise RuntimeServiceError(output or "failed to stop remote runner service")
+        close_tunnel = getattr(ssh, "close_local_tunnel", None)
+        if callable(close_tunnel):
+            close_tunnel(f"runner-{server_id}")
         return {
             "data": {
                 "ok": True,

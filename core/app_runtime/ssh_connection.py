@@ -258,7 +258,8 @@ class RuntimeSshConnectionMixin:
         steps = run_diagnostics(**diagnostics_kwargs)
         ok = all(step["status"] == "ok" for step in steps)
         diagnostic_status = self._diagnostic_ssh_status(merged=merged, resolved=resolved)
-        current_status = self.get_ssh_status()
+        with self._lock:
+            current_status = self._get_ssh_status_unlocked()
         return {
             "ok": ok,
             "message": "SSH diagnostics passed" if ok else "SSH diagnostics failed",

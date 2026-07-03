@@ -3,7 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import patch
 
+import pytest
+
+from core.remote_runner.errors import RemoteRunnerManagerError
 from core.remote_runner.manager import RemoteRunnerManager
 from tests.helpers.remote_runner_control_plane import _health_endpoint_json
 
@@ -147,3 +151,137 @@ def test_rotate_token_validates_new_token_with_transport_health(monkeypatch) -> 
     ]
     assert stored_tokens == [{"server_id": "srv_1", "token": "rotated-token"}]
     assert uploads
+
+
+def test_rotate_token_fails_loudly_when_systemd_restart_fails(monkeypatch) -> None:
+    manager = RemoteRunnerManager()
+    uploads: list[str] = []
+    restart_attempts = 0
+    lifecycle_releases: list[dict[str, Any]] = []
+
+    class FakeSSH:
+        def run(self, cmd: str, timeout: int = 10):
+            nonlocal restart_attempts
+            if 'printf "%s" "$HOME"' in cmd:
+                return 0, "/home/tester", ""
+            if "test -s" in cmd and "mv -f" in cmd:
+                return 0, "", ""
+            if cmd == "systemctl --user restart h2ometa-remote.service":
+                restart_attempts += 1
+                if restart_attempts == 1:
+                    return 1, "", "systemd unit failed"
+                return 0, "", ""
+            raise AssertionError(f"unexpected command: {cmd}")
+
+        def download(self, _remote: str, local: str) -> None:
+            Path(local).write_text('{"token":"old"}', encoding="utf-8")
+
+        def upload(self, local: str, _remote: str) -> None:
+            uploads.append(Path(local).read_text(encoding="utf-8"))
+
+        def ensure_local_tunnel(self, *args: Any, **kwargs: Any):
+            raise AssertionError("rotation must fail before opening a tunnel")
+
+    monkeypatch.setattr(
+        manager,
+        "request_execution_lifecycle_guard",
+        lambda **_kwargs: {
+            "schemaVersion": "h2ometa.execution-lifecycle-guard.v1",
+            "blockReasons": [],
+        },
+    )
+    monkeypatch.setattr(
+        manager,
+        "release_execution_lifecycle_guard",
+        lambda **kwargs: lifecycle_releases.append(dict(kwargs)) or {"released": True},
+    )
+
+    with patch("core.remote_runner.token_rotation.store_runner_token") as store_token:
+        with pytest.raises(
+            RemoteRunnerManagerError,
+            match="restart remote runner after token rotation failed: systemd unit failed",
+        ):
+            manager.rotate_token(
+                server_id="srv_1",
+                ssh_service=FakeSSH(),
+                server_record={
+                    "bootstrap_version": "v1",
+                    "runner_mode": "systemd_user",
+                    "service_port": 43127,
+                    "token_ref": "runner://srv_1",
+                },
+            )
+
+    store_token.assert_not_called()
+    assert len(uploads) == 2
+    assert uploads[1] == '{"token":"old"}'
+    assert restart_attempts == 2
+    assert lifecycle_releases[0]["action"] == "token-rotation"
+
+
+def test_rotate_token_fails_loudly_when_background_stop_fails(monkeypatch) -> None:
+    manager = RemoteRunnerManager()
+    uploads: list[str] = []
+    stop_attempts = 0
+    lifecycle_releases: list[dict[str, Any]] = []
+
+    class FakeSSH:
+        def run(self, cmd: str, timeout: int = 10):
+            nonlocal stop_attempts
+            if 'printf "%s" "$HOME"' in cmd:
+                return 0, "/home/tester", ""
+            if "test -s" in cmd and "mv -f" in cmd:
+                return 0, "", ""
+            if cmd == "pkill -f '[r]emote_runner.run'":
+                stop_attempts += 1
+                if stop_attempts == 1:
+                    return 1, "", "no remote runner process matched"
+                return 0, "", ""
+            if "start_service.sh" in cmd or "remote_runner.run" in cmd:
+                return 0, "", ""
+            raise AssertionError(f"unexpected command: {cmd}")
+
+        def download(self, _remote: str, local: str) -> None:
+            Path(local).write_text('{"token":"old"}', encoding="utf-8")
+
+        def upload(self, local: str, _remote: str) -> None:
+            uploads.append(Path(local).read_text(encoding="utf-8"))
+
+        def ensure_local_tunnel(self, *args: Any, **kwargs: Any):
+            raise AssertionError("rotation must fail before opening a tunnel")
+
+    monkeypatch.setattr(
+        manager,
+        "request_execution_lifecycle_guard",
+        lambda **_kwargs: {
+            "schemaVersion": "h2ometa.execution-lifecycle-guard.v1",
+            "blockReasons": [],
+        },
+    )
+    monkeypatch.setattr(
+        manager,
+        "release_execution_lifecycle_guard",
+        lambda **kwargs: lifecycle_releases.append(dict(kwargs)) or {"released": True},
+    )
+
+    with patch("core.remote_runner.token_rotation.store_runner_token") as store_token:
+        with pytest.raises(
+            RemoteRunnerManagerError,
+            match="stop remote runner after token rotation failed: no remote runner process matched",
+        ):
+            manager.rotate_token(
+                server_id="srv_1",
+                ssh_service=FakeSSH(),
+                server_record={
+                    "bootstrap_version": "v1",
+                    "runner_mode": "background_process",
+                    "service_port": 43127,
+                    "token_ref": "runner://srv_1",
+                },
+            )
+
+    store_token.assert_not_called()
+    assert len(uploads) == 2
+    assert uploads[1] == '{"token":"old"}'
+    assert stop_attempts == 2
+    assert lifecycle_releases[0]["action"] == "token-rotation"

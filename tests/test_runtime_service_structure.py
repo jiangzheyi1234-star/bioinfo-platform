@@ -570,6 +570,7 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "RESULT_AUDIT_READ" in execution_manager_source
     assert "RESULT_PACKAGE_EXPORT_LIST" in execution_manager_source
     assert "RESULT_PACKAGE_EXPORT" in execution_manager_source
+    assert "RESULT_PACKAGE_DOWNLOAD" in execution_manager_source
     assert "RESULT_PACKAGE_RETIRE" in execution_manager_source
     assert "RESULT_PACKAGE_BYTE_GC_PREVIEW" in execution_manager_source
     assert "RESULT_PACKAGE_BYTE_GC_RUN" in execution_manager_source
@@ -601,7 +602,8 @@ def test_runtime_execution_operations_delegate_to_execution_manager() -> None:
     assert "read_existing_remote_endpoint(" in execution_manager_source
     assert '"list_result_package_exports"' not in execution_manager_source
     assert "require_existing_runner=True" in execution_manager_source
-    assert 'self.call_existing_runner(\n            "download_result_package",' in execution_manager_source
+    assert "RESULT_PACKAGE_DOWNLOAD" in execution_manager_source
+    assert '"download_result_package"' not in execution_manager_source
     assert '"export_result_package"' not in execution_manager_source
     assert '"retire_result_package"' not in execution_manager_source
     assert '"preview_result_package_byte_gc"' not in execution_manager_source

@@ -26,6 +26,22 @@ def call_remote_endpoint(
         raise RemoteEndpointContractError("REMOTE_ENDPOINT_BODY_AMBIGUOUS", endpoint_id)
     if extra_headers and endpoint.method != "POST":
         raise RemoteEndpointContractError("REMOTE_ENDPOINT_EXTRA_HEADERS_UNSUPPORTED", endpoint_id)
+    if endpoint.response_transport == "bytes":
+        if endpoint.method != "GET":
+            raise RemoteEndpointContractError(
+                "REMOTE_ENDPOINT_BYTES_METHOD_UNSUPPORTED",
+                endpoint_id,
+            )
+        if payload or raw_body is not None:
+            raise RemoteEndpointContractError("REMOTE_ENDPOINT_BYTES_PAYLOAD_FORBIDDEN", endpoint_id)
+        if extra_headers:
+            raise RemoteEndpointContractError("REMOTE_ENDPOINT_BYTES_EXTRA_HEADERS_UNSUPPORTED", endpoint_id)
+        return client.download_bytes(path, **status_kwargs)
+    if endpoint.response_transport != "json":
+        raise RemoteEndpointContractError(
+            "REMOTE_ENDPOINT_RESPONSE_TRANSPORT_UNSUPPORTED",
+            f"{endpoint_id}.{endpoint.response_transport}",
+        )
 
     if endpoint.method == "GET":
         if payload or raw_body is not None:

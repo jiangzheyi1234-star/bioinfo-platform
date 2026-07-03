@@ -116,7 +116,15 @@ class RemoteRunnerHttpClient:
         except (http.client.RemoteDisconnected, ConnectionError, OSError) as exc:
             raise RemoteRunnerClientError(str(exc) or "runner unreachable") from exc
 
-    def _request_bytes(self, method: str, path: str) -> dict[str, Any]:
+    def _request_bytes(
+        self,
+        method: str,
+        path: str,
+        *,
+        accepted_statuses: set[int] | None = None,
+    ) -> dict[str, Any]:
+        accepted = accepted_statuses or {200}
+        enforce_status = accepted_statuses is not None
         request = urllib.request.Request(
             f"{self.base_url.rstrip('/')}/{path.lstrip('/')}",
             headers={"Authorization": f"Bearer {self.token}"},
@@ -124,14 +132,34 @@ class RemoteRunnerHttpClient:
         )
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                status_code = int(response.status)
+                content = response.read()
+                if enforce_status and status_code not in accepted:
+                    raise RemoteRunnerClientError(
+                        f"runner http status {status_code} not accepted for {method} {path}",
+                        status_code=status_code,
+                        detail={
+                            "acceptedStatusCodes": sorted(accepted),
+                            "statusCode": status_code,
+                        },
+                    )
                 return {
-                    "statusCode": int(response.status),
-                    "content": response.read(),
+                    "statusCode": status_code,
+                    "content": content,
                     "headers": {key.lower(): value for key, value in response.headers.items()},
                 }
         except urllib.error.HTTPError as exc:
-            response_payload = exc.read().decode("utf-8", errors="replace")
+            response_body = exc.read()
+            if exc.code in accepted:
+                return {
+                    "statusCode": int(exc.code),
+                    "content": response_body,
+                    "headers": {key.lower(): value for key, value in exc.headers.items()},
+                }
+            response_payload = response_body.decode("utf-8", errors="replace")
             detail_value = _http_error_detail_value(response_payload)
+            if exc.code == 409 and isinstance(detail_value, dict):
+                raise RemoteRunnerConflictError(detail_value) from exc
             detail = _http_error_detail(response_payload)
             message = f"runner http error {exc.code}"
             if detail:
@@ -217,8 +245,13 @@ class RemoteRunnerHttpClient:
     def delete_json(self, path: str, *, accepted_statuses: set[int] | None = None) -> dict[str, Any]:
         return self._request_json("DELETE", path, accepted_statuses=accepted_statuses)
 
-    def download_bytes(self, path: str) -> dict[str, Any]:
-        return self._request_bytes("GET", path)
+    def download_bytes(
+        self,
+        path: str,
+        *,
+        accepted_statuses: set[int] | None = None,
+    ) -> dict[str, Any]:
+        return self._request_bytes("GET", path, accepted_statuses=accepted_statuses)
 
 
 def _decode_json_object(payload: str) -> dict[str, Any] | None:

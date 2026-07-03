@@ -186,9 +186,7 @@ export function runnerRequiresExplicitStart(status: RunnerRepairStatus | null | 
     status?.connected &&
       runner &&
       !runner.ready &&
-      (runner.state === "stopped" ||
-        runner.reasonCode === MANUAL_RUNNER_STOP_REASON ||
-        runner.reasonCode === RUNNER_STOP_INTENT_REQUIRED_REASON)
+      (runner.state === "stopped" || runner.reasonCode === MANUAL_RUNNER_STOP_REASON)
   );
 }
 

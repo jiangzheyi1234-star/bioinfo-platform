@@ -197,7 +197,8 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "export function WorkflowRunnerRepairNotice" in runner_repair
     assert "workflowServerRunnerRequiresExplicitStart(server) ? startWorkflowServerRunner : ensureWorkflowServerRunner" in runner_repair
     assert "runner.reasonCode === MANUAL_RUNNER_STOP_REASON" in runner_repair
-    assert "runner.reasonCode === RUNNER_STOP_INTENT_REQUIRED_REASON" in runner_repair
+    assert "runner.reasonCode === RUNNER_STOP_INTENT_REQUIRED_REASON" not in runner_repair
+    assert "status.runner?.reasonCode !== RUNNER_STOP_INTENT_REQUIRED_REASON" in runner_repair
     assert "refreshWorkflowServer" in hook
     assert "runnerEnsureBusy" in hook
     assert "runnerRepairError" in hook
@@ -225,7 +226,8 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "修复详情" in runner_repair
     assert "diagnosticsOnly={false}" in runner_repair
     assert "diagnosticsOnly={compact}" not in runner_repair
-    assert "const canPrepareRunner = Boolean(status?.connected && status.serverId && !status.runner?.ready)" in runner_repair
+    assert "const canPrepareRunner = Boolean(" in runner_repair
+    assert "status.runner?.reasonCode !== RUNNER_STOP_INTENT_REQUIRED_REASON" in runner_repair
     assert "const hasKnownRunnerTarget = Boolean(status?.serverId || controller.server?.serverId)" in runner_repair
     assert "const visibleLoadError = hasKnownRunnerTarget ? controller.loadError : \"\"" in runner_repair
     assert "displayTarget: server.label || server.serverId" in runner_adapter

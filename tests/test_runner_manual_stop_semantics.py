@@ -129,7 +129,32 @@ def test_snapshot_only_stop_state_requires_explicit_start_without_autostart(monk
 
     assert raised.value.status_code == 409
     assert raised.value.detail["reasonCode"] == "RUNNER_STOP_INTENT_REQUIRED"
-    assert raised.value.detail["nextAction"] == "START_RUNNER"
+    assert raised.value.detail["nextAction"] == "REPAIR_RUNNER_STOP_STATE"
+
+
+def test_explicit_start_rejects_snapshot_only_stop_state(monkeypatch, tmp_path) -> None:
+    server_id, cfg = _stopped_runner_config()
+    del cfg["servers"][server_id]["runner_stop_intent"]
+    service = RuntimeService(service_locator=ServiceLocator())
+    service._initialized = True
+    service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)
+
+    class FailIfCalledRemoteRunnerManager:
+        def get_health(self, **_kwargs):
+            raise AssertionError("unsupported stop state start must not read remote health")
+
+        def bootstrap(self, **_kwargs):
+            raise AssertionError("unsupported stop state start must not bootstrap")
+
+    service._service_locator.remote_runner_manager = FailIfCalledRemoteRunnerManager()
+    monkeypatch.setattr("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg)
+
+    with pytest.raises(RuntimeServiceError) as raised:
+        service.start_remote_runner(server_id)
+
+    assert raised.value.status_code == 409
+    assert raised.value.detail["reasonCode"] == "RUNNER_STOP_INTENT_REQUIRED"
+    assert raised.value.detail["nextAction"] == "REPAIR_RUNNER_STOP_STATE"
 
 
 def test_existing_runner_diagnostics_rejects_manually_stopped_runner(monkeypatch, tmp_path) -> None:

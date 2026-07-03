@@ -31,7 +31,9 @@ from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerE
 from core.app_runtime.errors import RuntimeServiceError
 from core.app_runtime.runner_stop_state import (
     build_runner_stop_cleared_intent,
+    has_unsupported_runner_stop_snapshot,
     raise_if_runner_manually_stopped,
+    raise_unsupported_runner_stop_snapshot,
     requires_explicit_runner_start,
 )
 from core.app_runtime.runner_ops import RunnerOperationsMixin
@@ -228,6 +230,8 @@ class RuntimeService(
             ssh = self._ensure_ssh_connected()
             manager = self._service_locator.remote_runner_manager
             server_record = self._get_server_registry_entry(server_id)
+            if action == "start" and has_unsupported_runner_stop_snapshot(server_record):
+                raise_unsupported_runner_stop_snapshot(server_id=server_id)
             if action != "start":
                 raise_if_runner_manually_stopped(server_id=server_id, record=server_record)
             if action == "upgrade" and not server_record.get("bootstrap_version"):

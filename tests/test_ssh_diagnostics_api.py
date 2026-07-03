@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from types import SimpleNamespace
 
 from core.app_runtime.service import RuntimeService, ServiceLocator
@@ -57,6 +58,7 @@ def test_ssh_diagnostics_api_returns_dict_steps_without_attribute_adapter(monkey
 
 
 def test_ssh_diagnostics_status_reports_test_target_not_current_session(monkeypatch) -> None:
+    current_server_id = f"srv_{uuid.uuid5(uuid.NAMESPACE_DNS, '198.51.100.10:22:current').hex[:12]}"
     cfg = {
         "ssh": {
             "auth_mode": "password_ref",
@@ -66,11 +68,25 @@ def test_ssh_diagnostics_status_reports_test_target_not_current_session(monkeypa
             "password_ref": "ssh://current@198.51.100.10:22",
             "identity_ref": "",
             "timeout_sec": 5,
-        }
+        },
+        "servers": {
+            current_server_id: {
+                "bootstrap_version": "phase1-test",
+                "runner_mode": "background_process",
+                "service_port": 43127,
+                "token_ref": "runner://srv_current",
+            }
+        },
     }
     service = RuntimeService(service_locator=ServiceLocator())
     service._initialized = True
     service._service_locator.ssh_service = SimpleNamespace(is_connected=True, close=lambda: None)
+
+    class FailIfRunnerHealthIsRead:
+        def get_health(self, **_kwargs):
+            raise AssertionError("/ssh/test currentStatus must not refresh runner health")
+
+    service._service_locator.remote_runner_manager = FailIfRunnerHealthIsRead()
 
     monkeypatch.setattr("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg)
     monkeypatch.setattr(

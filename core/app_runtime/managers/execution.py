@@ -69,6 +69,7 @@ from core.contracts.remote_endpoints import (
 from core.contracts.result_package_remote_endpoints import (
     RESULT_PACKAGE_BYTE_GC_PREVIEW,
     RESULT_PACKAGE_BYTE_GC_RUN,
+    RESULT_PACKAGE_DOWNLOAD,
     RESULT_PACKAGE_EXPORT,
     RESULT_PACKAGE_EXPORT_LIST,
     RESULT_PACKAGE_RETIRE,
@@ -582,11 +583,12 @@ class ExecutionManager(BaseRuntimeManager):
         package_export_id: str,
         server_id: Optional[str] = None,
     ) -> dict[str, Any]:
-        return self.call_existing_runner(
-            "download_result_package",
+        return self.call_remote_endpoint(
+            RESULT_PACKAGE_DOWNLOAD,
+            path_values={"result_id": result_id, "package_export_id": package_export_id},
             preferred_server_id=server_id,
-            result_id=result_id,
-            package_export_id=package_export_id,
+            require_existing_runner=True,
+            timeout=60,
         )
 
     def retire_result_package(

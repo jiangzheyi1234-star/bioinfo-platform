@@ -19,7 +19,6 @@ from core.governance_policy import HIGH_RISK_API_POLICIES
 from core.remote_runner.client import RemoteRunnerHttpClient
 from core.remote_runner.endpoint_caller import call_remote_endpoint
 from core.remote_runner.proxy import RemoteRunnerProxyMixin
-from core.remote_runner.result_package_proxy import RemoteRunnerResultPackageProxyMixin
 
 
 RESULT_PACKAGE_COMMAND_ENDPOINTS = (
@@ -85,6 +84,7 @@ def test_result_package_download_endpoint_is_contract_rendered() -> None:
     assert endpoint.response_schema == "h2ometa.result-package-download.v1"
     assert endpoint.cache_scope == "result-package-download"
     assert endpoint.invalidates == ()
+    assert endpoint.response_transport == "bytes"
 
 
 def test_result_package_governed_endpoint_contracts_match_governance_policy() -> None:
@@ -246,21 +246,49 @@ def test_execution_manager_calls_result_package_commands_via_generic_endpoint() 
         {"confirmation": "run-result-package-byte-gc", "planFingerprint": "fp_1"},
         server_id="srv_result",
     ) == {"data": {"endpointId": RESULT_PACKAGE_BYTE_GC_RUN, "pathValues": {}, "queryValues": {}}}
+    assert manager.download_result_package(
+        "res_1",
+        "rpex_1",
+        server_id="srv_result",
+    ) == {
+        "endpointId": RESULT_PACKAGE_DOWNLOAD,
+        "pathValues": {"result_id": "res_1", "package_export_id": "rpex_1"},
+        "queryValues": {},
+    }
     assert service.remote_runner_manager.calls == [
         (RESULT_PACKAGE_EXPORT, {"result_id": "res_1"}, {}),
         (RESULT_PACKAGE_RETIRE, {"result_id": "res_1", "package_export_id": "rpex_1"}, {}),
         (RESULT_PACKAGE_BYTE_GC_PREVIEW, {}, {}),
         (RESULT_PACKAGE_BYTE_GC_RUN, {}, {}),
+        (RESULT_PACKAGE_DOWNLOAD, {"result_id": "res_1", "package_export_id": "rpex_1"}, {}),
     ]
     assert service.remote_runner_manager.payloads == [
         (RESULT_PACKAGE_EXPORT, {"includeArtifacts": False}),
         (RESULT_PACKAGE_RETIRE, {"confirmation": "retire-result-package-export"}),
         (RESULT_PACKAGE_BYTE_GC_PREVIEW, {"retentionDays": 14}),
         (RESULT_PACKAGE_BYTE_GC_RUN, {"confirmation": "run-result-package-byte-gc", "planFingerprint": "fp_1"}),
+        (RESULT_PACKAGE_DOWNLOAD, {}),
     ]
 
 
-def test_transport_and_result_package_proxy_keep_only_download_semantics() -> None:
+def test_result_package_download_endpoint_caller_uses_bytes_transport() -> None:
+    client = FakeDownloadClient("http://example.test", "token")
+
+    downloaded = call_remote_endpoint(
+        client,
+        RESULT_PACKAGE_DOWNLOAD,
+        path_values={"result_id": "res/1", "package_export_id": "rpex/1"},
+    )
+
+    assert downloaded == {
+        "method": "GET",
+        "path": "/api/v1/results/res%2F1/exports/rpex%2F1/download",
+        "acceptedStatuses": [200],
+    }
+    assert client.calls == [("GET", "/api/v1/results/res%2F1/exports/rpex%2F1/download", [200])]
+
+
+def test_transport_keeps_only_download_primitive() -> None:
     for method_name in (
         "export_result_package",
         "retire_result_package",
@@ -268,11 +296,9 @@ def test_transport_and_result_package_proxy_keep_only_download_semantics() -> No
         "run_result_package_byte_gc",
     ):
         assert not hasattr(RemoteRunnerHttpClient, method_name)
-        assert not hasattr(RemoteRunnerResultPackageProxyMixin, method_name)
 
     assert not hasattr(RemoteRunnerHttpClient, "download_result_package")
     assert hasattr(RemoteRunnerHttpClient, "download_bytes")
-    assert hasattr(RemoteRunnerResultPackageProxyMixin, "download_result_package")
 
 
 def test_transport_download_accepts_rendered_path_only() -> None:
@@ -281,25 +307,9 @@ def test_transport_download_accepts_rendered_path_only() -> None:
     assert client.download_bytes("/api/v1/results/res%2F1/exports/rpex%2F1/download") == {
         "method": "GET",
         "path": "/api/v1/results/res%2F1/exports/rpex%2F1/download",
+        "acceptedStatuses": [],
     }
-    assert client.calls == [("GET", "/api/v1/results/res%2F1/exports/rpex%2F1/download")]
-
-
-def test_result_package_proxy_download_uses_registry_rendered_path() -> None:
-    proxy = FakeDownloadProxy()
-
-    assert proxy.download_result_package(
-        server_id="srv_1",
-        ssh_service=object(),
-        server_record={"server_id": "srv_1"},
-        result_id="res/1",
-        package_export_id="rpex/1",
-    ) == {
-        "method": "GET",
-        "path": "/api/v1/results/res%2F1/exports/rpex%2F1/download",
-    }
-    assert proxy.client.calls == [("GET", "/api/v1/results/res%2F1/exports/rpex%2F1/download")]
-    assert proxy.timeouts == [60]
+    assert client.calls == [("GET", "/api/v1/results/res%2F1/exports/rpex%2F1/download", [])]
 
 
 class FakeCommandClient:
@@ -321,22 +331,18 @@ class FakeCommandClient:
 class FakeDownloadClient(RemoteRunnerHttpClient):
     def __init__(self, base_url: str, token: str) -> None:
         super().__init__(base_url, token)
-        self.calls: list[tuple[str, str]] = []
+        self.calls: list[tuple[str, str, list[int]]] = []
 
-    def _request_bytes(self, method: str, path: str) -> dict[str, object]:
-        self.calls.append((method, path))
-        return {"method": method, "path": path}
-
-
-class FakeDownloadProxy(RemoteRunnerResultPackageProxyMixin):
-    def __init__(self) -> None:
-        self.client = FakeDownloadClient("http://example.test", "token")
-        self.timeouts: list[int] = []
-
-    def _get_client(self, **kwargs):
-        assert kwargs["server_id"] == "srv_1"
-        self.timeouts.append(int(kwargs["timeout"]))
-        return self.client
+    def _request_bytes(
+        self,
+        method: str,
+        path: str,
+        *,
+        accepted_statuses: set[int] | None = None,
+    ) -> dict[str, object]:
+        accepted = sorted(accepted_statuses or [])
+        self.calls.append((method, path, accepted))
+        return {"method": method, "path": path, "acceptedStatuses": accepted}
 
 
 class FakeProxy(RemoteRunnerProxyMixin):

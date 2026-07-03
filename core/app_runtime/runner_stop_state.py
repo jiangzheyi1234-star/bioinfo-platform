@@ -69,15 +69,19 @@ def raise_if_runner_manually_stopped(*, server_id: str, record: dict[str, Any]) 
             },
         )
     if has_unsupported_runner_stop_snapshot(record):
-        raise RuntimeServiceError(
-            RUNNER_STOP_INTENT_REQUIRED_MESSAGE,
-            status_code=409,
-            detail={
-                "reasonCode": RUNNER_STOP_INTENT_REQUIRED_REASON,
-                "serverId": server_id,
-                "nextAction": "START_RUNNER",
-            },
-        )
+        raise_unsupported_runner_stop_snapshot(server_id=server_id)
+
+
+def raise_unsupported_runner_stop_snapshot(*, server_id: str) -> None:
+    raise RuntimeServiceError(
+        RUNNER_STOP_INTENT_REQUIRED_MESSAGE,
+        status_code=409,
+        detail={
+            "reasonCode": RUNNER_STOP_INTENT_REQUIRED_REASON,
+            "serverId": server_id,
+            "nextAction": "REPAIR_RUNNER_STOP_STATE",
+        },
+    )
 
 
 def unsupported_runner_stop_health(
