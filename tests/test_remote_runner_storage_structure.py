@@ -109,7 +109,18 @@ def test_run_query_storage_lives_outside_general_storage_module() -> None:
     assert "def list_results(" in run_query_storage
     assert "def fetch_result(" in run_query_storage
     assert "from .storage_core import get_connection" in run_query_storage
+    assert "from .run_execution_state_machine import RESULT_EXPORTABLE_RUN_STATUSES" in run_query_storage
+    assert "WHERE status IN ('completed', 'failed')" not in run_query_storage
     assert "from .storage import" not in run_query_storage
+
+
+def test_result_exportable_run_statuses_are_state_machine_owned() -> None:
+    query_storage = (REMOTE_RUNNER / "execution_query_storage.py").read_text(encoding="utf-8")
+    artifact_product_service = (REMOTE_RUNNER / "artifact_product_service.py").read_text(encoding="utf-8")
+
+    assert "RESULT_EXPORTABLE_RUN_STATUSES = " not in artifact_product_service
+    assert "RunExecutionStateMachine.is_result_exportable_run_status" in artifact_product_service
+    assert "RESULT_EXPORTABLE_RUN_STATUSES" in query_storage
 
 
 def test_general_storage_module_is_import_facade_for_runtime_storage_domains() -> None:

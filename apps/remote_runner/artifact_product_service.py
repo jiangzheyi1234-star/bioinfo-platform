@@ -39,6 +39,7 @@ from .result_package_trigger_provenance import (
     trigger_ro_crate_entity,
     trigger_ro_crate_id,
 )
+from .run_execution_state_machine import RunExecutionStateMachine
 from .rule_execution_storage import fetch_run_rules
 from .storage_core import get_connection, now_iso
 from .workflow_revision_storage import fetch_workflow_revision
@@ -48,7 +49,6 @@ RESULT_PACKAGE_SCHEMA_VERSION = "h2ometa.result-package.v2"
 RESULT_PACKAGE_PROFILE = "h2ometa.result-evidence-package.v1"
 RESULT_EXPORT_EVENT_TYPE = "result.export.v1"
 RESULT_EXPORT_SCHEMA_NAME = "ResultPackageExportEvent"
-RESULT_EXPORTABLE_RUN_STATUSES = {"completed", "failed"}
 ARTIFACT_PAYLOAD_MODE_INCLUDED = "included"
 ARTIFACT_PAYLOAD_MODE_METADATA_ONLY = "metadata-only"
 
@@ -489,7 +489,7 @@ def _require_canonical_result_id(result_id: str, result: dict[str, Any]) -> None
 
 def _require_exportable_run(run: dict[str, Any]) -> None:
     status = str(run.get("status") or "").strip()
-    if status not in RESULT_EXPORTABLE_RUN_STATUSES:
+    if not RunExecutionStateMachine.is_result_exportable_run_status(status):
         raise ValueError(f"RESULT_RUN_NOT_TERMINAL: {status or 'unknown'}")
 
 

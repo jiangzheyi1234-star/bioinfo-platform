@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 RUN_STATUSES = frozenset({"queued", "running", "canceling", "completed", "failed", "canceled", "cancelled"})
 TERMINAL_RUN_STATUSES = frozenset({"completed", "failed", "canceled", "cancelled"})
+RESULT_EXPORTABLE_RUN_STATUSES = frozenset({"completed", "failed"})
 RETRYABLE_RUN_STATUSES = frozenset({"failed", "canceled", "cancelled"})
 RELEASED_LEASE_STATES = frozenset({"expired", "fenced", "failed", "canceled", "cancelled"})
 PUBLISHED_ATTEMPT_TERMINAL_STATES = frozenset({"succeeded", "failed", "cancelled"})
@@ -121,6 +122,10 @@ class RunAttemptLeaseGuardDecision:
 
 
 class RunExecutionStateMachine:
+    @staticmethod
+    def is_result_exportable_run_status(status: str | None) -> bool:
+        return _normalize_optional_status(status) in RESULT_EXPORTABLE_RUN_STATUSES
+
     @staticmethod
     def submission_accepted() -> RunExecutionTransition:
         return RunExecutionTransition(

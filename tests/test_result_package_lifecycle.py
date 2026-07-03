@@ -23,7 +23,7 @@ def test_result_package_retire_tombstones_record_without_deleting_package(tmp_pa
     package = export_result_package(cfg, "res_run_retire", include_artifacts=True)
     package_path = Path(package["packagePath"])
 
-    protected = preview_artifact_gc(cfg, {"retentionDays": 30})
+    protected = preview_artifact_gc(cfg, {})
     result = retire_result_package_export(
         cfg,
         "res_run_retire",
@@ -32,7 +32,7 @@ def test_result_package_retire_tombstones_record_without_deleting_package(tmp_pa
         actor="operator",
         reason="superseded package",
     )
-    unprotected = preview_artifact_gc(cfg, {"retentionDays": 30})
+    unprotected = preview_artifact_gc(cfg, {})
     evidence = list_evidence_events(
         cfg,
         subject_kind="result_package_export",

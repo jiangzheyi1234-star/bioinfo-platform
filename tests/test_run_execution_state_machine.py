@@ -18,6 +18,16 @@ def test_submission_transition_matches_run_acceptance_contract() -> None:
     assert transition.update_run is True
 
 
+@pytest.mark.parametrize("status", ["completed", "failed", " Completed ", "FAILED"])
+def test_result_exportable_statuses_are_state_machine_owned(status: str) -> None:
+    assert RunExecutionStateMachine.is_result_exportable_run_status(status) is True
+
+
+@pytest.mark.parametrize("status", ["queued", "running", "canceling", "canceled", "cancelled", "", None])
+def test_result_exportable_statuses_exclude_non_result_runs(status: str | None) -> None:
+    assert RunExecutionStateMachine.is_result_exportable_run_status(status) is False
+
+
 def test_job_enqueue_decision_owns_initial_queue_state_and_event_shape() -> None:
     decision = RunExecutionStateMachine.enqueue_job()
 

@@ -6,6 +6,7 @@ from typing import Any
 from .artifact_output_labels import safe_artifact_output_label
 from .config import RemoteRunnerConfig
 from .errors import RemoteRunnerNotFoundError
+from .run_execution_state_machine import RESULT_EXPORTABLE_RUN_STATUSES
 from .storage_core import get_connection
 
 
@@ -143,14 +144,17 @@ def fetch_run_results(cfg: RemoteRunnerConfig, run_id: str) -> dict[str, Any]:
 
 
 def list_results(cfg: RemoteRunnerConfig) -> list[dict[str, Any]]:
+    exportable_statuses = tuple(sorted(RESULT_EXPORTABLE_RUN_STATUSES))
+    placeholders = ", ".join("?" for _ in exportable_statuses)
     with get_connection(cfg) as connection:
         rows = connection.execute(
-            """
+            f"""
             SELECT run_id, pipeline_id, finished_at, last_updated_at
             FROM runs
-            WHERE status IN ('completed', 'failed')
+            WHERE status IN ({placeholders})
             ORDER BY COALESCE(finished_at, last_updated_at) DESC
-            """
+            """,
+            exportable_statuses,
         ).fetchall()
     items = []
     for row in rows:
