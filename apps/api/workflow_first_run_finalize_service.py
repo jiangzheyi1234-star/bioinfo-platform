@@ -82,6 +82,8 @@ async def finalize_first_run_from_request(
         return _blocked(_error_code(exc), str(exc), result_package=exported_package)
     try:
         return _ready(card, package_action="exported", server_id=server_id)
+    except WorkflowFirstRunValidationCardUnavailableError as exc:
+        return _blocked(_error_code(exc), str(exc), result_package=exported_package)
     except FirstRunCompletionProofStoreError as exc:
         return _blocked(
             FIRST_RUN_COMPLETION_PROOF_STORE_UNREADABLE,

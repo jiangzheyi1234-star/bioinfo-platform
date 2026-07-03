@@ -607,6 +607,46 @@ def test_first_run_finalize_binds_validation_card_to_exported_package(monkeypatc
     assert result["evidenceBundle"]["requiredFiles"][0]["sha256"] == "3" * 64
 
 
+def test_first_run_finalize_returns_typed_blocker_when_exported_card_lacks_evidence_bundle(monkeypatch) -> None:
+    calls: list[str] = []
+    exported = _package("rpex_finalized")
+
+    async def fake_card(*_args, expected_package_export_id: str | None = None, **_kwargs):
+        calls.append(expected_package_export_id or "")
+        if expected_package_export_id is None:
+            raise WorkflowFirstRunValidationCardUnavailableError("FIRST_RUN_RESULT_PACKAGE_REQUIRED: export required")
+        return {
+            "data": {
+                "schemaVersion": "h2ometa.first-run.validation-card.v1",
+                "resultPackage": {"packageExportId": expected_package_export_id},
+                "pilotHandoff": {"schemaVersion": "h2ometa.first-run.single-user-lab-pilot-handoff.v1"},
+            }
+        }
+
+    async def fake_export(*_args, **_kwargs):
+        return {"data": exported}
+
+    monkeypatch.setattr(
+        "apps.api.workflow_first_run_finalize_service.build_first_run_validation_card_from_request",
+        fake_card,
+    )
+    monkeypatch.setattr("apps.api.workflow_first_run_finalize_service.export_result_package_from_request", fake_export)
+
+    result = asyncio.run(
+        finalize_first_run_from_request("run_first", WorkflowFirstRunFinalizeRequest(serverId="srv_first"))
+    )["data"]
+
+    assert calls == ["", "rpex_finalized"]
+    assert result["status"] == "blocked"
+    assert result["nextAction"] == {
+        "code": "FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED",
+        "detail": "FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED: first-run pilotHandoff must include evidenceBundle",
+        "label": "重新生成首跑验证卡",
+        "target": "/workflows/first-run#evidence-bundle",
+    }
+    assert result["resultPackage"] == exported
+
+
 def test_first_run_finalize_returns_typed_blocker_when_completion_proof_store_fails(monkeypatch) -> None:
     _patch_first_run_sources(monkeypatch)
 
