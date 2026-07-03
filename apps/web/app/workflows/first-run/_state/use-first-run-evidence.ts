@@ -58,6 +58,7 @@ export function useFirstRunEvidence({
 
   const statusRun = status?.evidence?.run || status?.latestEligibleRun || null;
   const statusPackageEvidence = status?.evidence?.resultPackage;
+  const completionProof = status?.evidence?.completionProof;
   const statusPackageExportId = statusPackageEvidence?.packageExportId || "";
   const readyPackage = useMemo(() => {
     if (statusPackageExportId) {
@@ -66,31 +67,36 @@ export function useFirstRunEvidence({
     return packageExports.find(firstRunResultPackageReady);
   }, [packageExports, statusPackageExportId]);
   const statusPackageFallback = useMemo(() => {
-    if (statusPackageEvidence?.ready !== true || !statusPackageExportId || !resultId) return undefined;
+    const proofPackageExportId = completionProof?.packageExportId || "";
+    const effectivePackageExportId = statusPackageExportId || proofPackageExportId;
+    const effectiveResultId = resultId || completionProof?.resultId || "";
+    const ready = statusPackageEvidence?.ready === true || completionProof?.ready === true;
+    if (!ready || !effectivePackageExportId || !effectiveResultId) return undefined;
     return {
-      artifactPayloadMode: statusPackageEvidence.artifactPayloadMode,
-      createdAt: statusPackageEvidence.createdAt,
-      evidenceId: statusPackageEvidence.evidenceId,
-      includeArtifacts: statusPackageEvidence.includeArtifacts,
+      artifactPayloadMode: statusPackageEvidence?.artifactPayloadMode,
+      createdAt: statusPackageEvidence?.createdAt || completionProof?.validationCardGeneratedAt,
+      evidenceId: statusPackageEvidence?.evidenceId || completionProof?.packageEvidenceId,
+      includeArtifacts: statusPackageEvidence?.includeArtifacts ?? completionProof?.ready,
       lifecycleState: "active",
-      manifestSha256: statusPackageEvidence.manifestSha256,
+      manifestSha256: statusPackageEvidence?.manifestSha256 || completionProof?.resultPackageManifestSha256,
       packageBytesState: "available",
-      packageExportId: statusPackageExportId,
-      resultId,
-      sha256: statusPackageEvidence.sha256,
-      download: statusPackageEvidence.download,
+      packageExportId: effectivePackageExportId,
+      resultId: effectiveResultId,
+      sha256: statusPackageEvidence?.sha256 || completionProof?.resultPackageSha256,
+      download: statusPackageEvidence?.download,
     } satisfies WorkflowResultPackageExport;
-  }, [resultId, statusPackageEvidence, statusPackageExportId]);
+  }, [completionProof, resultId, statusPackageEvidence, statusPackageExportId]);
   const latestPackage = readyPackage || (status ? statusPackageFallback : packageExports[0]);
   const firstRunRunId = status ? statusRun?.runId || "" : run?.runId || "";
   const firstRunServerId = status?.serverId || serverId;
   const workflowRevisionId = status
-    ? statusRun?.workflowRevisionId || ""
+    ? statusRun?.workflowRevisionId || completionProof?.workflowRevisionId || ""
     : workflowRevisionIdFor(run, runDetail, latestPackage);
   const runStatus = status ? statusRun?.status || "" : run?.status || "";
   const runTerminal = runStatus === "completed" || runStatus === "failed" || runStatus === "error";
-  const packageReady = status?.evidence?.resultPackage?.ready === true;
-  const validationReady = status?.status === "ready" || status?.evidence?.validation?.ready === true;
+  const packageReady = status?.evidence?.resultPackage?.ready === true || completionProof?.ready === true;
+  const validationReady =
+    status?.status === "ready" || status?.evidence?.validation?.ready === true || completionProof?.ready === true;
   const validationEligible = validationReady;
 
   const loadPackageExports = useCallback(async () => {

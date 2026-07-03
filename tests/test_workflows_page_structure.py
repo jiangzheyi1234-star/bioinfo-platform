@@ -271,10 +271,11 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "downloadFirstRunHandoffManifest" not in first_run_api
     assert "packageExports.find((item) => item.packageExportId === statusPackageExportId)" in first_run_evidence_state
     assert "const latestPackage = readyPackage || (status ? statusPackageFallback : packageExports[0])" in first_run_evidence_state
-    assert "const packageReady = status?.evidence?.resultPackage?.ready === true" in first_run_evidence_state
+    assert "const completionProof = status?.evidence?.completionProof" in first_run_evidence_state
+    assert "const packageReady = status?.evidence?.resultPackage?.ready === true || completionProof?.ready === true" in first_run_evidence_state
     assert "const validationEligible = firstRunEvidence.validationEligible" in first_run_page
     assert "const validationEligible = validationReady" in first_run_evidence_state
-    assert 'const validationReady = status?.status === "ready" || status?.evidence?.validation?.ready === true' in first_run_evidence_state
+    assert 'status?.evidence?.validation?.ready === true || completionProof?.ready === true' in first_run_evidence_state
     assert "runCompleted && packageReady" not in first_run_evidence_state
     assert "firstRunValidationCardPassed" not in first_run_evidence_state
     assert "firstRunValidationCardPassed" not in first_run_page

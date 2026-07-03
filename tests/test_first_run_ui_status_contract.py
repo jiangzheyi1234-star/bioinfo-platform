@@ -91,9 +91,12 @@ def test_first_run_validation_and_trust_summary_are_status_contract_driven() -> 
     assert "|| packageExport?.manifestSha256" not in first_run_trust_summary
     assert "latestPackage?.sha256 || resultPackageEvidence?.sha256" not in first_run_completion
     assert "latestPackage?.manifestSha256 || resultPackageEvidence?.manifestSha256" not in first_run_completion
+    assert "const completionProof = firstRunStatus?.evidence?.completionProof" in first_run_completion
     assert "const statusRun = firstRunStatus?.evidence?.run || firstRunStatus?.latestEligibleRun || null" in first_run_completion
-    assert 'const effectiveRunId = firstRunStatus ? statusRun?.runId || "" : run?.runId || ""' in first_run_completion
-    assert "const effectiveResultId = firstRunStatus ? statusRun?.resultId || resultId : resultId" in first_run_completion
+    assert 'const effectiveRunId = firstRunStatus ? statusRun?.runId || completionProof?.runId || "" : run?.runId || ""' in first_run_completion
+    assert "const effectiveResultId = firstRunStatus ? statusRun?.resultId || completionProof?.resultId || resultId : resultId" in first_run_completion
+    assert "const packageExportId = resultPackageEvidence?.packageExportId || completionProof?.packageExportId" in first_run_completion
+    assert "const proofOnly = completionProof?.ready === true && !evidenceBundle" in first_run_completion
     assert "firstRunEvidenceBundleFiles(evidenceBundle)" in first_run_completion
     assert "firstRunEvidenceBundleFileDownloadHref(file)" in first_run_completion
     assert "workflowResultPackageDownloadHref(latestPackage" not in first_run_completion

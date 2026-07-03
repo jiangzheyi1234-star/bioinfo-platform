@@ -46,19 +46,24 @@ export function FirstRunCompletionPanel({
 
   const validationEvidence = firstRunStatus?.evidence?.validation;
   const resultPackageEvidence = firstRunStatus?.evidence?.resultPackage;
+  const completionProof = firstRunStatus?.evidence?.completionProof;
   const statusRun = firstRunStatus?.evidence?.run || firstRunStatus?.latestEligibleRun || null;
-  const effectiveRunId = firstRunStatus ? statusRun?.runId || "" : run?.runId || "";
-  const effectiveResultId = firstRunStatus ? statusRun?.resultId || resultId : resultId;
+  const effectiveRunId = firstRunStatus ? statusRun?.runId || completionProof?.runId || "" : run?.runId || "";
+  const effectiveResultId = firstRunStatus ? statusRun?.resultId || completionProof?.resultId || resultId : resultId;
   const effectiveWorkflowRevisionId = firstRunStatus
-    ? statusRun?.workflowRevisionId || workflowRevisionId
+    ? statusRun?.workflowRevisionId || completionProof?.workflowRevisionId || workflowRevisionId
     : workflowRevisionId;
-  const passedChecks = validationEvidence?.validationChecksPassed;
-  const totalChecks = validationEvidence?.validationChecksTotal;
+  const packageExportId = resultPackageEvidence?.packageExportId || completionProof?.packageExportId;
+  const packageSha256 = resultPackageEvidence?.sha256 || completionProof?.resultPackageSha256;
+  const manifestSha256 = resultPackageEvidence?.manifestSha256 || completionProof?.resultPackageManifestSha256;
+  const passedChecks = validationEvidence?.validationChecksPassed ?? completionProof?.validationChecksPassed;
+  const totalChecks = validationEvidence?.validationChecksTotal ?? completionProof?.validationChecksTotal;
   const keyResults = card?.keyResults || [];
   const handoff = pilotHandoff || card?.pilotHandoff || null;
   const evidenceBundle = handoff?.evidenceBundle;
   const evidenceDownloads = firstRunEvidenceBundleFiles(evidenceBundle);
   const evidenceBundleDownloadHref = firstRunEvidenceBundleDownloadHref(evidenceBundle);
+  const proofOnly = completionProof?.ready === true && !evidenceBundle;
 
   return (
     <section
@@ -72,7 +77,9 @@ export function FirstRunCompletionPanel({
             首跑已完成
           </div>
           <p className="mt-1 max-w-3xl text-xs leading-5 text-emerald-800">
-            Moving Pictures 16S 已生成完整结果包和证据包 ZIP；验证卡与 pilot handoff 也可单独下载。
+            {proofOnly
+              ? "Moving Pictures 16S 已保存首跑完成证明；重新连接 runner 后可刷新下载完整证据包。"
+              : "Moving Pictures 16S 已生成完整结果包和证据包 ZIP；验证卡与 pilot handoff 也可单独下载。"}
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
@@ -100,10 +107,10 @@ export function FirstRunCompletionPanel({
         <SummaryItem label="run" value={effectiveRunId} mono />
         <SummaryItem label="result" value={effectiveResultId} mono />
         <SummaryItem label="流程版本" value={shortHash(effectiveWorkflowRevisionId)} mono />
-        <SummaryItem label="package" value={resultPackageEvidence?.packageExportId} mono />
+        <SummaryItem label="package" value={packageExportId} mono />
         <SummaryItem label="size" value={formatBytes(latestPackage?.sizeBytes)} />
-        <SummaryItem label="package sha" value={shortHash(resultPackageEvidence?.sha256)} mono />
-        <SummaryItem label="manifest" value={shortHash(resultPackageEvidence?.manifestSha256)} mono />
+        <SummaryItem label="package sha" value={shortHash(packageSha256)} mono />
+        <SummaryItem label="manifest" value={shortHash(manifestSha256)} mono />
         <SummaryItem label="checks" value={checksLabel({ loadingValidationCard, passedChecks, totalChecks })} />
       </div>
 
