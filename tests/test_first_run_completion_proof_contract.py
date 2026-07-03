@@ -19,6 +19,8 @@ from tests.test_first_run_status import _patch_status_sources
     [
         ({"runId": ""}, "runId"),
         ({"resultPackageSha256": ""}, "resultPackageSha256"),
+        ({"resultId": "res_other"}, "resultId does not match runId"),
+        ({"evidenceBundleId": "res_other.first-run-evidence"}, "evidenceBundleId does not match resultId"),
         ({"resultPackageSha256": "not-a-sha256"}, "invalid sha256 resultPackageSha256"),
         ({"resultPackageManifestSha256": "0" * 63}, "invalid sha256 resultPackageManifestSha256"),
         ({"validationCardJsonSha256": "g" * 64}, "invalid sha256 validationCardJsonSha256"),

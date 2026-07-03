@@ -173,6 +173,9 @@ def _ensure_ready_completion_proof(proof: dict[str, Any]) -> None:
     missing_fields = [field for field in _REQUIRED_READY_FIELDS if not str(proof.get(field) or "").strip()]
     if missing_fields:
         raise _invalid_proof("missing " + ", ".join(missing_fields))
+    identity_error = _identity_error(proof)
+    if identity_error:
+        raise _invalid_proof(identity_error)
     invalid_hash_fields = [field for field in _REQUIRED_SHA256_FIELDS if not _valid_sha256(str(proof.get(field) or ""))]
     if invalid_hash_fields:
         raise _invalid_proof("invalid sha256 " + ", ".join(invalid_hash_fields))
@@ -203,6 +206,24 @@ def _valid_check_counts(passed: Any, total: Any) -> bool:
 def _valid_sha256(value: str) -> bool:
     normalized = value.strip().lower()
     return len(normalized) == 64 and all(char in "0123456789abcdef" for char in normalized)
+
+
+def _identity_error(proof: dict[str, Any]) -> str:
+    run_id = str(proof.get("runId") or "").strip()
+    result_id = str(proof.get("resultId") or "").strip()
+    expected_result_id = _canonical_result_id(run_id)
+    if run_id and result_id and result_id != expected_result_id:
+        return "resultId does not match runId"
+    evidence_bundle_id = str(proof.get("evidenceBundleId") or "").strip()
+    expected_bundle_id = f"{result_id}.first-run-evidence" if result_id else ""
+    if result_id and evidence_bundle_id and evidence_bundle_id != expected_bundle_id:
+        return "evidenceBundleId does not match resultId"
+    return ""
+
+
+def _canonical_result_id(run_id: str) -> str:
+    normalized = run_id.strip()
+    return normalized if normalized.startswith("res_") else f"res_{normalized}"
 
 
 def _invalid_proof(detail: str) -> FirstRunCompletionProofStoreError:
