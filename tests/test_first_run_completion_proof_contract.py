@@ -16,7 +16,10 @@ from tests.test_first_run_status import _patch_status_sources
         ({"runId": ""}, "runId"),
         ({"resultPackageSha256": ""}, "resultPackageSha256"),
         ({"validationChecksPassed": 9}, "validation checks are incomplete"),
+        ({"reportReady": False}, "report evidence is not ready"),
+        ({"reportOutputNames": ["summary.tsv", "qc-summary.tsv", "run-report.html"]}, "feature-table.tsv"),
         ({"evidenceBundleReady": False}, "evidence bundle is not ready"),
+        ({"evidenceBundleFileRoles": ["result-package", "validation-card-json", "pilot-handoff"]}, "validation-card-markdown"),
     ],
 )
 def test_first_run_status_fails_closed_on_invalid_saved_completion_proof(

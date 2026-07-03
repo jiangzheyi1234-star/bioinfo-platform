@@ -23,6 +23,10 @@ _REQUIRED_READY_FIELDS = (
     "validationCardJsonSha256",
     "evidenceBundleId",
 )
+_REQUIRED_REPORT_OUTPUTS = frozenset(("summary.tsv", "qc-summary.tsv", "feature-table.tsv", "run-report.html"))
+_REQUIRED_EVIDENCE_BUNDLE_ROLES = frozenset(
+    ("result-package", "validation-card-json", "validation-card-markdown", "pilot-handoff")
+)
 
 
 def first_run_completion_proof_evidence(
@@ -52,8 +56,18 @@ def first_run_completion_proof_evidence(
     total = proof.get("validationChecksTotal")
     if not _valid_check_counts(passed, total):
         return _invalid("saved first-run completion proof validation checks are incomplete")
+    if proof.get("reportReady") is not True:
+        return _invalid("saved first-run completion proof report evidence is not ready")
+    report_output_names = {str(item or "").strip() for item in proof.get("reportOutputNames") or []}
+    missing_report_outputs = sorted(_REQUIRED_REPORT_OUTPUTS - report_output_names)
+    if missing_report_outputs:
+        return _invalid("saved first-run completion proof is missing report outputs " + ", ".join(missing_report_outputs))
     if proof.get("evidenceBundleReady") is not True:
         return _invalid("saved first-run completion proof evidence bundle is not ready")
+    evidence_bundle_roles = {str(item or "").strip() for item in proof.get("evidenceBundleFileRoles") or []}
+    missing_bundle_roles = sorted(_REQUIRED_EVIDENCE_BUNDLE_ROLES - evidence_bundle_roles)
+    if missing_bundle_roles:
+        return _invalid("saved first-run completion proof is missing evidence bundle roles " + ", ".join(missing_bundle_roles))
     return deepcopy(proof)
 
 
