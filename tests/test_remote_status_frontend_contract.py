@@ -147,8 +147,15 @@ def test_manual_runner_stop_is_explicit_start_not_repair() -> None:
     _assert_contains(
         ui_source + repair_source,
         "isRunnerManuallyStopped(status)",
+        "runnerStopIntentRepairRequired",
         "runnerEnsureActionLabel(status, ensureRunnerBusy)",
         "runnerSidebarSubcopy(status)",
+    )
+    _assert_contains(repair_source, "RUNNER_STOP_INTENT_REQUIRED_REASON")
+    _assert_matches(
+        repair_source,
+        r"const runnerStopIntentRepairRequired = runner\?\.reasonCode === RUNNER_STOP_INTENT_REQUIRED_REASON",
+        r"const canEnsureRunner = Boolean\(status\?\.connected && serverId && !status\.runner\?\.ready && !runnerStopIntentRepairRequired\)",
     )
     _assert_contains(
         model_source,
@@ -253,16 +260,19 @@ def test_local_api_error_preserves_runner_problem_extensions() -> None:
         "activeLeaseCount?: number",
         "allocatedResourceCount?: number",
         "resourceWaitCount?: number",
+        "queuedJobCount?: number",
         "claimedJobCount?: number",
         "runningSlotCount?: number",
         "blockReasons?: string[]",
         "reasonCode?: string",
         "nextAction?: string",
         "this.activeLeaseCount = options?.activeLeaseCount",
+        "this.queuedJobCount = options?.queuedJobCount",
         "this.blockReasons = options?.blockReasons",
         "this.reasonCode = options?.reasonCode",
         "this.nextAction = options?.nextAction",
         "optionalProblemNumber(problemDetail.activeLeaseCount)",
+        "optionalProblemNumber(problemDetail.queuedJobCount)",
         "optionalProblemStringArray(problemDetail.blockReasons)",
         "problemDetail.reasonCode",
         "problemDetail.nextAction",
@@ -272,6 +282,7 @@ def test_local_api_error_preserves_runner_problem_extensions() -> None:
         "[error.reasonCode, error.nextAction, runnerLifecycleBlockSummary(error)].filter(Boolean).join(\" · \")",
         "function runnerLifecycleBlockSummary(error: LocalApiError): string",
         'lifecycleCountLabel("active leases", error.activeLeaseCount)',
+        'lifecycleCountLabel("queued jobs", error.queuedJobCount)',
         'lifecycleCountLabel("claimed jobs", error.claimedJobCount)',
         "blocks: ${error.blockReasons.slice(0, 3).join(\", \")}",
         "return context ? `${message} (${context})` : message",

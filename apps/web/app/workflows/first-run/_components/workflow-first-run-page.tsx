@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 
 import { useSshShell } from "@/app/components/ssh-shell";
 import { RunnerRepairPanel } from "@/app/components/ssh-runner-repair-panel";
-import type { SSHStatus } from "@/app/components/ssh-shell-model";
+import { runnerEnsureActionLabel, type SSHStatus } from "@/app/components/ssh-shell-model";
 import { useWorkflowsPageState } from "@/app/components/use-workflows-page-state";
 import { WorkflowFirstRunConductorPanel, useFirstRunConductor } from "./workflow-first-run-conductor";
 import { FirstRunCompletionPanel } from "./workflow-first-run-completion";
@@ -579,7 +579,7 @@ function RunnerReadinessPanel({
             onClick={onEnsure}
           >
             {ensuring ? <Loader2 strokeWidth={1.5} className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck strokeWidth={1.5} className="h-3.5 w-3.5" />}
-            准备 runner
+            {runnerEnsureActionLabel(sshStatus, ensuring)}
           </Button>
           <Button variant="ghost" size="sm" className="h-8 px-2 text-xs text-slate-500" disabled={loading} onClick={onRefresh}>
             <RefreshCw strokeWidth={1.5} className={loading ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"} />

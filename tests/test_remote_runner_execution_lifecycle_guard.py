@@ -7,6 +7,7 @@ import pytest
 from apps.remote_runner.errors import RemoteRunnerOperationBlockedError, RemoteRunnerReadinessError
 from apps.remote_runner.execution_lifecycle_guard import (
     EXECUTION_LIFECYCLE_GUARD_ACTIVE_LEASES_REASON,
+    EXECUTION_LIFECYCLE_GUARD_BLOCKED_REASON,
     EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
     EXECUTION_LIFECYCLE_MAINTENANCE_KEY,
     EXECUTION_MAINTENANCE_ACTIVE_REASON,
@@ -35,8 +36,8 @@ def test_lifecycle_guard_marks_workers_draining_and_blocks_new_admission(tmp_pat
 
     guard = request_execution_lifecycle_guard(
         cfg,
-        action="upgrade",
-        owner="srv_lifecycle:upgrade:lifecycle",
+        action="stop",
+        owner="srv_lifecycle:stop:lifecycle",
         now="2099-06-07T10:00:01Z",
         ttl_seconds=600,
     )
@@ -53,8 +54,8 @@ def test_lifecycle_guard_marks_workers_draining_and_blocks_new_admission(tmp_pat
 
     release = release_execution_lifecycle_guard(
         cfg,
-        action="upgrade",
-        owner="srv_lifecycle:upgrade:lifecycle",
+        action="stop",
+        owner="srv_lifecycle:stop:lifecycle",
         now="2099-06-07T10:00:03Z",
     )
 
@@ -114,7 +115,7 @@ def test_lifecycle_guard_blocks_active_lease_and_keeps_maintenance_active(tmp_pa
         ensure_execution_lifecycle_admission_open(cfg, now="2099-06-07T10:00:03Z")
 
 
-def test_lifecycle_guard_reports_durable_queued_jobs_without_blocking(tmp_path) -> None:
+def test_lifecycle_guard_reports_durable_queued_jobs_without_blocking_non_upgrade(tmp_path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     _create_run(cfg, "run_lifecycle_queued")
     register_run_worker(
@@ -128,8 +129,8 @@ def test_lifecycle_guard_reports_durable_queued_jobs_without_blocking(tmp_path) 
 
     guard = request_execution_lifecycle_guard(
         cfg,
-        action="upgrade",
-        owner="srv_lifecycle:upgrade:lifecycle",
+        action="stop",
+        owner="srv_lifecycle:stop:lifecycle",
         now="2099-06-07T10:00:01Z",
         ttl_seconds=600,
     )
@@ -140,14 +141,53 @@ def test_lifecycle_guard_reports_durable_queued_jobs_without_blocking(tmp_path) 
     assert run_worker_is_draining(cfg, "worker-queued") is True
 
 
+def test_lifecycle_guard_blocks_upgrade_when_only_queued_jobs_exist(tmp_path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_lifecycle_queued_upgrade")
+    register_run_worker(
+        cfg,
+        worker_id="worker-queued-upgrade",
+        session_id="session-queued-upgrade",
+        pid=123,
+        hostname="host-queued-upgrade",
+        now="2099-06-07T10:00:00Z",
+    )
+
+    with pytest.raises(RemoteRunnerOperationBlockedError) as blocked:
+        request_execution_lifecycle_guard(
+            cfg,
+            action="upgrade",
+            owner="srv_lifecycle:upgrade:lifecycle",
+            now="2099-06-07T10:00:01Z",
+            ttl_seconds=600,
+        )
+
+    payload = blocked.value.payload
+    assert payload["reasonCode"] == EXECUTION_LIFECYCLE_GUARD_BLOCKED_REASON
+    assert payload["queuedJobCount"] == 1
+    assert payload["blockReasons"] == ["queued-jobs"]
+    assert run_worker_is_draining(cfg, "worker-queued-upgrade") is True
+    with pytest.raises(RemoteRunnerReadinessError):
+        ensure_execution_lifecycle_admission_open(cfg, now="2099-06-07T10:00:02Z")
+
+    claim = claim_next_run_job(
+        cfg,
+        worker_id="worker-maintenance-blocked-upgrade",
+        now="2099-06-07T10:00:03Z",
+        lease_seconds=30,
+    )
+
+    assert claim is None
+
+
 def test_claim_next_run_job_respects_lifecycle_maintenance(tmp_path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     _create_run(cfg, "run_lifecycle_claim_blocked")
 
     guard = request_execution_lifecycle_guard(
         cfg,
-        action="upgrade",
-        owner="srv_lifecycle:upgrade:lifecycle",
+        action="stop",
+        owner="srv_lifecycle:stop:lifecycle",
         now="2099-06-07T10:00:01Z",
         ttl_seconds=600,
     )

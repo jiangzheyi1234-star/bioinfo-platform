@@ -29,6 +29,7 @@ RUNTIME_SERVICE_PROBLEM_DETAIL_KEYS = {
     "activeLeaseCount",
     "allocatedResourceCount",
     "resourceWaitCount",
+    "queuedJobCount",
     "claimedJobCount",
     "runningSlotCount",
 }

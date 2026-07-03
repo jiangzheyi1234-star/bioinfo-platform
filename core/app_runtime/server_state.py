@@ -281,7 +281,26 @@ class RuntimeServerStateMixin:
         if connected and server is not None:
             registry_entry = self._get_server_registry_entry(str(server["serverId"]))
             snapshot = registry_entry.get("last_health_snapshot")
-            if runner_stop_state.has_unsupported_runner_stop_snapshot(registry_entry):
+            if runner_stop_state.is_runner_manually_stopped(registry_entry):
+                stopped = runner_stop_state.manual_runner_stop_health(
+                    str(server["serverId"]),
+                    registry_entry,
+                    self._get_saved_readiness_snapshot,
+                )
+                snapshot = {
+                    "serverId": str(server["serverId"]),
+                    "state": str(stopped.get("state") or "stopped"),
+                    "startup": stopped["startup"],
+                    "live": stopped["live"],
+                    "ready": {
+                        "ok": bool(stopped["readyOk"]),
+                        "message": str(stopped["readyMessage"]),
+                    },
+                    "workflowRuntime": dict(stopped.get("workflowRuntime") or {}),
+                    "pipelineRegistry": dict(stopped.get("pipelineRegistry") or {}),
+                    "reasonCode": str(stopped["reasonCode"]),
+                }
+            elif runner_stop_state.has_unsupported_runner_stop_snapshot(registry_entry):
                 snapshot = runner_stop_state.unsupported_runner_stop_health(
                     str(server["serverId"]),
                     registry_entry,

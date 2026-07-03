@@ -36,6 +36,7 @@ class GuardHarness(RemoteRunnerBootstrapGuardMixin):
                 self.diagnostics,
                 make_error=RemoteRunnerManagerError,
                 require_diagnostics_ok=False,
+                block_queued_jobs=str(kwargs["action"]) == "upgrade",
             )
         except RemoteRunnerManagerError:
             return {"schemaVersion": "h2ometa.execution-lifecycle-guard.v1", "blockReasons": []}
@@ -242,6 +243,29 @@ def test_bootstrap_guard_blocks_upgrade_when_execution_state_is_not_idle() -> No
     assert metadata["upgradeGuard"]["runningSlotCount"] == 1
 
 
+def test_bootstrap_guard_blocks_upgrade_when_queued_jobs_are_waiting() -> None:
+    metadata = {}
+    manager = GuardHarness(_diagnostics(queued_jobs=2))
+
+    with pytest.raises(RemoteRunnerManagerError) as raised:
+        manager._guard_bootstrap_when_execution_idle(
+            server_id="srv_test",
+            ssh_service=object(),
+            server_record={"bootstrap_version": "phase1-test"},
+            bootstrap_metadata=metadata,
+            bootstrap_action="upgrade",
+        )
+
+    assert raised.value.status_code == 409
+    assert raised.value.detail["reasonCode"] == UPGRADE_EXECUTION_BUSY_REASON
+    assert raised.value.detail["nextAction"] == "WAIT_FOR_RUNS_OR_CANCEL_BEFORE_UPGRADE"
+    assert raised.value.detail["queuedJobCount"] == 2
+    assert raised.value.detail["blockReasons"] == ["queued-jobs"]
+    assert metadata["upgradeGuard"]["idle"] is False
+    assert metadata["upgradeGuard"]["queuedJobCount"] == 2
+    assert metadata["upgradeGuard"]["blockReasons"] == ["queued-jobs"]
+
+
 def test_bootstrap_guard_blocks_prepared_repair_when_diagnostics_are_unavailable() -> None:
     metadata = {}
     manager = GuardHarness(RemoteRunnerClientError("runner not reachable"))
@@ -364,6 +388,7 @@ def _diagnostics(
     active_leases: list[object] | None = None,
     allocated_resources: list[dict[str, object]] | None = None,
     resource_waits: list[dict[str, object]] | None = None,
+    queued_jobs: int = 0,
     claimed_jobs: int = 0,
     running_slots: int = 0,
 ) -> dict[str, object]:
@@ -379,7 +404,7 @@ def _diagnostics(
             "workers": [],
         },
         "queueMetrics": {
-            "queuedJobs": 0,
+            "queuedJobs": queued_jobs,
             "claimedJobs": claimed_jobs,
             "resourceWaitJobs": len(resource_waits or []),
         },

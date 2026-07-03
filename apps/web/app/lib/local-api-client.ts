@@ -24,6 +24,7 @@ export class LocalApiError extends Error {
   allocatedResourceCount?: number;
   blockReasons?: string[];
   claimedJobCount?: number;
+  queuedJobCount?: number;
   title?: string;
   runningSlotCount?: number;
   requestId?: string;
@@ -42,6 +43,7 @@ export class LocalApiError extends Error {
       allocatedResourceCount?: number;
       blockReasons?: string[];
       claimedJobCount?: number;
+      queuedJobCount?: number;
       nextAction?: string;
       problemCode?: string;
       reasonCode?: string;
@@ -60,6 +62,7 @@ export class LocalApiError extends Error {
     this.allocatedResourceCount = options?.allocatedResourceCount;
     this.blockReasons = options?.blockReasons;
     this.claimedJobCount = options?.claimedJobCount;
+    this.queuedJobCount = options?.queuedJobCount;
     this.title = options?.title;
     this.runningSlotCount = options?.runningSlotCount;
     this.requestId = options?.requestId;
@@ -139,6 +142,7 @@ async function requestViaBrowserFetch<T>(
         allocatedResourceCount: optionalProblemNumber(problemDetail.allocatedResourceCount),
         blockReasons: optionalProblemStringArray(problemDetail.blockReasons),
         claimedJobCount: optionalProblemNumber(problemDetail.claimedJobCount),
+        queuedJobCount: optionalProblemNumber(problemDetail.queuedJobCount),
         title: typeof problemDetail.title === "string" ? problemDetail.title : undefined,
         runningSlotCount: optionalProblemNumber(problemDetail.runningSlotCount),
         requestId: typeof problemDetail.requestId === "string" ? problemDetail.requestId : undefined,

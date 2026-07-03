@@ -94,7 +94,7 @@ def request_execution_lifecycle_guard(
             diagnostics,
             make_error=ValueError,
             require_diagnostics_ok=False,
-            block_queued_jobs=False,
+            block_queued_jobs=normalized_action == "upgrade",
         )
     except Exception:
         _release_owned_maintenance_best_effort(

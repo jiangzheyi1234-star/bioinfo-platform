@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 import {
+  RUNNER_STOP_INTENT_REQUIRED_REASON,
   isRunnerManuallyStopped,
   normalizeFetchError,
   resolveRemoteStatus,
@@ -155,7 +156,8 @@ export function RunnerRepairPanel({
   const runner = status?.runner;
   const remote = resolveRemoteStatus(status);
   const serverId = status?.serverId || "";
-  const canEnsureRunner = Boolean(status?.connected && serverId && !status.runner?.ready);
+  const runnerStopIntentRepairRequired = runner?.reasonCode === RUNNER_STOP_INTENT_REQUIRED_REASON;
+  const canEnsureRunner = Boolean(status?.connected && serverId && !status.runner?.ready && !runnerStopIntentRepairRequired);
   const canStopRunner = Boolean(!diagnosticsOnly && status?.connected && serverId && runner && !isRunnerManuallyStopped(status));
   const canUpgradeRunner = Boolean(!diagnosticsOnly && status?.connected && serverId && runner && !isRunnerManuallyStopped(status));
   const canPrune = Boolean(!diagnosticsOnly && status?.connected && serverId);

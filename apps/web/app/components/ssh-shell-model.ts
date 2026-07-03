@@ -423,6 +423,7 @@ function runnerLifecycleBlockSummary(error: LocalApiError): string {
     lifecycleCountLabel("active leases", error.activeLeaseCount),
     lifecycleCountLabel("allocated resources", error.allocatedResourceCount),
     lifecycleCountLabel("resource waits", error.resourceWaitCount),
+    lifecycleCountLabel("queued jobs", error.queuedJobCount),
     lifecycleCountLabel("claimed jobs", error.claimedJobCount),
     lifecycleCountLabel("running slots", error.runningSlotCount),
   ].filter(Boolean);

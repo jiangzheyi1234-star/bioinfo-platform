@@ -307,6 +307,31 @@ def test_ssh_status_projects_local_runner_tunnels() -> None:
     ]
 
 
+def test_ssh_status_projects_manual_stop_intent_without_saved_snapshot() -> None:
+    server_id, cfg = stopped_runner_config()
+    del cfg["servers"][server_id]["last_health_snapshot"]
+
+    class FakeSsh:
+        is_connected = True
+
+    service = RuntimeService(service_locator=ServiceLocator(remote_runner_manager=ReadyRemoteRunnerManager()))
+    service._initialized = True
+    service._service_locator.ssh_service = FakeSsh()
+
+    def fail_background_ensure(next_server_id: str) -> None:
+        raise AssertionError(f"manual stop intent should not auto-ensure runner {next_server_id}")
+
+    service._ensure_runner_ready_in_background = fail_background_ensure
+
+    with patch("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg):
+        status = service.get_ssh_status()
+
+    assert status["runner"]["state"] == "stopped"
+    assert status["runner"]["reasonCode"] == "RUNNER_STOPPED"
+    assert status["runner"]["ready"] is False
+    assert "explicit start action" in status["runner"]["message"]
+
+
 def test_startup_auto_connect_preserves_manual_runner_stop_snapshot() -> None:
     server_id, cfg = stopped_runner_config()
     cfg["ssh"]["auth_mode"] = "password_ref"
