@@ -136,6 +136,8 @@ def _read_registry(path: Path, *, missing_ok: bool = False) -> dict[str, Any]:
         return {"version": FIRST_RUN_COMPLETION_PROOF_REGISTRY_VERSION, "records": []}
     except json.JSONDecodeError as exc:
         raise FirstRunCompletionProofStoreError("FIRST_RUN_COMPLETION_PROOF_STORE_INVALID_JSON") from exc
+    except OSError as exc:
+        raise FirstRunCompletionProofStoreError("FIRST_RUN_COMPLETION_PROOF_STORE_READ_FAILED") from exc
     if not isinstance(payload, dict) or _registry_version(payload) != FIRST_RUN_COMPLETION_PROOF_REGISTRY_VERSION:
         raise FirstRunCompletionProofStoreError("FIRST_RUN_COMPLETION_PROOF_STORE_VERSION_UNSUPPORTED")
     if not isinstance(payload.get("records"), list):
@@ -146,10 +148,13 @@ def _read_registry(path: Path, *, missing_ok: bool = False) -> dict[str, Any]:
 
 
 def _write_registry(path: Path, registry: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    tmp_path.write_text(json.dumps(registry, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
-    tmp_path.replace(path)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path.with_suffix(path.suffix + ".tmp")
+        tmp_path.write_text(json.dumps(registry, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+        tmp_path.replace(path)
+    except OSError as exc:
+        raise FirstRunCompletionProofStoreError("FIRST_RUN_COMPLETION_PROOF_STORE_WRITE_FAILED") from exc
 
 
 def _records(registry: dict[str, Any]) -> list[dict[str, Any]]:

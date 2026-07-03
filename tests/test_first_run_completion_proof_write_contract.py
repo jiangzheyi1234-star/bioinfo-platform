@@ -5,7 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from apps.api.workflow_first_run_completion_proof_contract import FIRST_RUN_COMPLETION_PROOF_INVALID
+from apps.api.workflow_first_run_completion_proof_contract import (
+    FIRST_RUN_COMPLETION_PROOF_INVALID,
+    FIRST_RUN_COMPLETION_PROOF_STORE_UNREADABLE,
+)
 from apps.api.workflow_first_run_finalize_service import (
     WorkflowFirstRunFinalizeRequest,
     finalize_first_run_from_request,
@@ -73,5 +76,37 @@ def test_first_run_finalize_rejects_generated_completion_proof_that_fails_contra
         "code": FIRST_RUN_COMPLETION_PROOF_INVALID,
         "detail": detail,
         "label": "重新生成首跑完成证明",
+        "target": "/workflows/first-run#evidence-bundle",
+    }
+
+
+def test_first_run_finalize_returns_typed_blocker_when_completion_proof_store_write_fails(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    _patch_first_run_sources(monkeypatch)
+    blocked_parent = tmp_path / "not-a-directory"
+    blocked_parent.write_text("file blocks completion proof directory creation", encoding="utf-8")
+    store_path = blocked_parent / "completion-proofs-v1.json"
+    monkeypatch.setattr(
+        "apps.api.workflow_first_run_completion_store.get_first_run_completion_proof_store_path",
+        lambda: store_path,
+    )
+
+    result = asyncio.run(
+        finalize_first_run_from_request(
+            "run_first",
+            WorkflowFirstRunFinalizeRequest(serverId="srv_first", actor="operator"),
+        )
+    )["data"]
+
+    assert result["status"] == "blocked"
+    assert result["nextAction"] == {
+        "code": FIRST_RUN_COMPLETION_PROOF_STORE_UNREADABLE,
+        "detail": (
+            "saved first-run completion proof store is unreadable: "
+            "FIRST_RUN_COMPLETION_PROOF_STORE_WRITE_FAILED"
+        ),
+        "label": "修复本地首跑证明索引",
         "target": "/workflows/first-run#evidence-bundle",
     }
