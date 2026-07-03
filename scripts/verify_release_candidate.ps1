@@ -253,6 +253,7 @@ function Test-FirstRunCompletionProof {
     $generatedAt = Convert-ToProofUtcTimestamp $completionProof.validationCardGeneratedAt
     $reportOutputs = @("summary.tsv", "qc-summary.tsv", "feature-table.tsv", "run-report.html")
     $bundleRoles = @("result-package", "validation-card-json", "validation-card-markdown", "pilot-handoff")
+    $zipRoles = @("completion-proof-json", "evidence-bundle-json", "pilot-handoff", "readme", "validation-card-json", "validation-card-markdown")
     return (
         $completionProof.schemaVersion -eq "h2ometa.first-run.completion-proof.v1" -and
         $completionProof.ready -eq $true -and
@@ -276,7 +277,8 @@ function Test-FirstRunCompletionProof {
         (Test-ProofStringSet $completionProof.reportOutputNames $reportOutputs) -and
         $completionProof.evidenceBundleReady -eq $true -and
         $completionProof.evidenceBundleId -eq "$($completionProof.resultId).first-run-evidence" -and
-        (Test-ProofStringSet $completionProof.evidenceBundleFileRoles $bundleRoles)
+        (Test-ProofStringSet $completionProof.evidenceBundleFileRoles $bundleRoles) -and
+        (Test-ProofStringSet $completionProof.evidenceBundleZipFileRoles $zipRoles)
     )
 }
 

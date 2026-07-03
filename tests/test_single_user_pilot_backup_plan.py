@@ -68,6 +68,7 @@ def test_single_user_pilot_backup_plan_script_defines_read_only_handoff() -> Non
     assert "handoffProof.completionProof.validationChecksTotal>=10" in source
     assert "handoffProof.completionProof.reportOutputNames=$($expectedReportOutputs -join ',')" in source
     assert "handoffProof.completionProof.validationCardJsonSha256" in source
+    assert "handoffProof.completionProof.evidenceBundleZipFileRoles=$($expectedEvidenceBundleZipRoles -join ',')" in source
     assert "handoffProof.evidenceBundleDownload.completionProofJsonSha256" in source
     assert "handoffProof.evidenceBundleSchemaVersion=h2ometa.first-run.evidence-bundle.v1" in source
     assert "handoffProof.evidenceBundleFileRoles=$($expectedEvidenceBundleRoles -join ',')" in source
@@ -180,6 +181,14 @@ def test_single_user_pilot_backup_plan_outputs_machine_readable_json(tmp_path: P
                 "validation-card-markdown",
                 "pilot-handoff",
             ],
+            "evidenceBundleZipFileRoles": [
+                "completion-proof-json",
+                "evidence-bundle-json",
+                "pilot-handoff",
+                "readme",
+                "validation-card-json",
+                "validation-card-markdown",
+            ],
         },
         "evidenceBundleFileRoles": [
             "result-package",
@@ -226,6 +235,10 @@ def test_single_user_pilot_backup_plan_outputs_machine_readable_json(tmp_path: P
         in summary["restoreDrill"]["mustReport"]
     )
     assert "handoffProof.completionProof.validationCardJsonSha256" in summary["restoreDrill"]["mustReport"]
+    assert (
+        "handoffProof.completionProof.evidenceBundleZipFileRoles=completion-proof-json,evidence-bundle-json,pilot-handoff,readme,validation-card-json,validation-card-markdown"
+        in summary["restoreDrill"]["mustReport"]
+    )
     assert "handoffProof.evidenceBundleDownload.completionProofJsonSha256" in summary["restoreDrill"]["mustReport"]
     assert (
         "handoffProof.evidenceBundleSchemaVersion=h2ometa.first-run.evidence-bundle.v1"
@@ -465,6 +478,37 @@ def test_single_user_pilot_backup_plan_rejects_first_run_proof_without_matching_
         {"reportReady": False},
         {"reportOutputNames": ["summary.tsv", "qc-summary.tsv", "run-report.html"]},
         {"evidenceBundleFileRoles": ["result-package", "validation-card-json", "pilot-handoff"]},
+        {
+            "evidenceBundleZipFileRoles": [
+                "evidence-bundle-json",
+                "pilot-handoff",
+                "readme",
+                "validation-card-json",
+                "validation-card-markdown",
+            ]
+        },
+        {
+            "evidenceBundleZipFileRoles": [
+                "completion-proof-json",
+                "evidence-bundle-json",
+                "pilot-handoff",
+                "readme",
+                "validation-card-json",
+                "validation-card-markdown",
+                "operator-note",
+            ]
+        },
+        {
+            "evidenceBundleZipFileRoles": [
+                "completion-proof-json",
+                "completion-proof-json",
+                "evidence-bundle-json",
+                "pilot-handoff",
+                "readme",
+                "validation-card-json",
+                "validation-card-markdown",
+            ]
+        },
     ],
 )
 def test_single_user_pilot_backup_plan_rejects_first_run_proof_with_weak_completion_proof_contract(
@@ -584,6 +628,14 @@ def _write_first_run_proof(
             "validation-card-json",
             "validation-card-markdown",
             "pilot-handoff",
+        ],
+        "evidenceBundleZipFileRoles": [
+            "completion-proof-json",
+            "evidence-bundle-json",
+            "pilot-handoff",
+            "readme",
+            "validation-card-json",
+            "validation-card-markdown",
         ],
     }
     completion_proof_payload.update(completion_proof_patch or {})

@@ -410,7 +410,7 @@ function Assert-FirstRunPilotHandoff {
         Fail-Pilot "first-run evidenceBundle must tell operators to keep the evidence files together"
     }
     $downloadProof = Assert-FirstRunEvidenceBundleDownload $bundle $evidence $card $Finalization.completionProof
-    $completionProof = Assert-FirstRunCompletionProof $Finalization $downloadProof.validationCardJsonSha256
+    $completionProof = Assert-FirstRunCompletionProof $Finalization $downloadProof.validationCardJsonSha256 $downloadProof.bundledFileRoles
     $checks = @($card.checks)
     $passedChecks = @($checks | Where-Object { $_.status -eq "passed" })
     if ($checks.Count -lt $FirstRunCompletionProofMinValidationChecks -or $passedChecks.Count -ne $checks.Count) {

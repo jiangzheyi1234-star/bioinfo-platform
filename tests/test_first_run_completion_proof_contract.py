@@ -77,6 +77,46 @@ from tests.test_first_run_status import _patch_status_sources
             },
             "duplicate evidence bundle roles result-package",
         ),
+        (
+            {
+                "evidenceBundleZipFileRoles": [
+                    "evidence-bundle-json",
+                    "pilot-handoff",
+                    "readme",
+                    "validation-card-json",
+                    "validation-card-markdown",
+                ]
+            },
+            "missing evidence bundle ZIP roles completion-proof-json",
+        ),
+        (
+            {
+                "evidenceBundleZipFileRoles": [
+                    "completion-proof-json",
+                    "evidence-bundle-json",
+                    "pilot-handoff",
+                    "readme",
+                    "validation-card-json",
+                    "validation-card-markdown",
+                    "operator-note",
+                ]
+            },
+            "unexpected evidence bundle ZIP roles operator-note",
+        ),
+        (
+            {
+                "evidenceBundleZipFileRoles": [
+                    "completion-proof-json",
+                    "completion-proof-json",
+                    "evidence-bundle-json",
+                    "pilot-handoff",
+                    "readme",
+                    "validation-card-json",
+                    "validation-card-markdown",
+                ]
+            },
+            "duplicate evidence bundle ZIP roles completion-proof-json",
+        ),
     ],
 )
 def test_first_run_status_fails_closed_on_invalid_saved_completion_proof(
@@ -277,6 +317,14 @@ def _completion_proof() -> dict[str, Any]:
             "validation-card-json",
             "validation-card-markdown",
             "pilot-handoff",
+        ],
+        "evidenceBundleZipFileRoles": [
+            "completion-proof-json",
+            "evidence-bundle-json",
+            "pilot-handoff",
+            "readme",
+            "validation-card-json",
+            "validation-card-markdown",
         ],
         "savedAt": "2026-06-29T00:30:00Z",
     }

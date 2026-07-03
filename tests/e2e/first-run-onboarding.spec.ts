@@ -706,6 +706,14 @@ function completionProof() {
     evidenceBundleId: EVIDENCE_BUNDLE_ID,
     evidenceBundleReady: true,
     evidenceBundleFileRoles: ["result-package", "validation-card-json", "validation-card-markdown", "pilot-handoff"],
+    evidenceBundleZipFileRoles: [
+      "completion-proof-json",
+      "evidence-bundle-json",
+      "pilot-handoff",
+      "readme",
+      "validation-card-json",
+      "validation-card-markdown",
+    ],
     savedAt: "2026-07-01T00:05:00Z",
   };
 }

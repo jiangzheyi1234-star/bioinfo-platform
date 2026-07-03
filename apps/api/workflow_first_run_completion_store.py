@@ -12,6 +12,7 @@ from typing import Any
 from config import get_app_data_dir
 from apps.api.workflow_first_run_completion_proof_validation import (
     FIRST_RUN_COMPLETION_PROOF_INVALID,
+    FIRST_RUN_COMPLETION_PROOF_EVIDENCE_BUNDLE_ZIP_ROLES,
     FIRST_RUN_COMPLETION_PROOF_SCHEMA_VERSION,
     first_run_completion_proof_invalid_reason,
 )
@@ -119,6 +120,7 @@ def build_first_run_completion_proof(
         "evidenceBundleId": str(bundle.get("bundleId") or "").strip(),
         "evidenceBundleReady": bundle.get("status") == "ready",
         "evidenceBundleFileRoles": [str(item.get("role") or "").strip() for item in required_files if item.get("role")],
+        "evidenceBundleZipFileRoles": list(FIRST_RUN_COMPLETION_PROOF_EVIDENCE_BUNDLE_ZIP_ROLES),
         "savedAt": _now(),
         "ready": True,
     }

@@ -506,6 +506,14 @@ def test_first_run_finalize_reuses_existing_full_package(monkeypatch) -> None:
     ]
     assert result["completionProof"]["evidenceBundleId"] == "res_run_first.first-run-evidence"
     assert result["completionProof"]["evidenceBundleReady"] is True
+    assert result["completionProof"]["evidenceBundleZipFileRoles"] == [
+        "completion-proof-json",
+        "evidence-bundle-json",
+        "pilot-handoff",
+        "readme",
+        "validation-card-json",
+        "validation-card-markdown",
+    ]
     assert result["completionProof"]["savedAt"] == "2026-06-29T00:30:00Z"
     assert "proofKey" not in result["completionProof"]
     assert result["evidenceBundle"] == _expected_evidence_bundle()

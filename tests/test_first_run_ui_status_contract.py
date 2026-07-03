@@ -256,6 +256,7 @@ def test_first_run_completion_proof_only_drives_current_matching_run() -> None:
     assert "validationChecksTotal < MIN_VALIDATION_CHECKS" in completion_proof
     assert "exactProofSet(proof.reportOutputNames, REQUIRED_REPORT_OUTPUT_NAMES)" in completion_proof
     assert "exactProofSet(proof.evidenceBundleFileRoles, REQUIRED_EVIDENCE_BUNDLE_ROLES)" in completion_proof
+    assert "exactProofSet(proof.evidenceBundleZipFileRoles, REQUIRED_EVIDENCE_BUNDLE_ZIP_ROLES)" in completion_proof
     assert "proofResultId !== canonicalResultId(proofRunId)" in completion_proof
     assert 'normalizedProofValue(proof.evidenceBundleId) !== `${proofResultId}.first-run-evidence`' in completion_proof
     assert "const statusRunId = normalizedProofValue(status?.evidence?.run?.runId || status?.latestEligibleRun?.runId)" in completion_proof
@@ -266,6 +267,7 @@ def test_first_run_completion_proof_only_drives_current_matching_run() -> None:
     assert "export function firstRunCompletionProofReady" in completion_proof
     assert "reportReady?: boolean;" in first_run_types
     assert "reportOutputNames?: string[];" in first_run_types
+    assert "evidenceBundleZipFileRoles?: string[];" in first_run_types
     assert 'import { activeFirstRunCompletionProof } from "../_domain/first-run-completion-proof"' in first_run_page
     assert "const statusCompletionProof = activeFirstRunCompletionProof(firstRunStatusSnapshot)" in first_run_page
 

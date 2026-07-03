@@ -83,7 +83,7 @@ function Assert-FirstRunZipCompletionProof {
             throw $message
         }
     }
-    foreach ($field in @("reportOutputNames", "evidenceBundleFileRoles")) {
+    foreach ($field in @("reportOutputNames", "evidenceBundleFileRoles", "evidenceBundleZipFileRoles")) {
         $actualValues = Get-FirstRunProofStringArray $ProofFromZip $field
         $expectedValues = Get-FirstRunProofStringArray $ExpectedProof $field
         if (($actualValues -join "|") -ne ($expectedValues -join "|")) {

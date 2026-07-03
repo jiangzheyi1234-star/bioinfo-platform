@@ -144,10 +144,12 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "completionProof report outputs must be exactly the official first-run report outputs" in source
     assert "pilotHandoff evidenceBundle roles must be exactly the official first-run evidence roles" in source
     assert "completionProof evidenceBundle roles must be exactly the official first-run evidence roles" in source
+    assert "completionProof evidenceBundle ZIP roles must be exactly the official portable first-run evidence ZIP roles" in source
+    assert "completionProof evidenceBundle ZIP roles must match downloaded evidenceBundle ZIP manifest" in source
     assert "completionProof savedAt must be a UTC timestamp" in source
     assert "completionProof validationCardGeneratedAt must be a UTC timestamp" in source
     assert "completionProof savedAt must not predate validationCardGeneratedAt" in source
-    assert "$completionProof = Assert-FirstRunCompletionProof $Finalization $downloadProof.validationCardJsonSha256" in source
+    assert "$completionProof = Assert-FirstRunCompletionProof $Finalization $downloadProof.validationCardJsonSha256 $downloadProof.bundledFileRoles" in source
     assert "ready finalization must include a single-user-lab pilotHandoff" in source
     assert "h2ometa.first-run.evidence-bundle.v1" in source
     assert "ready finalization must expose the same first-run evidenceBundle" in source
@@ -263,6 +265,7 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "zipManifestSha256 = $zipManifestSha256" in source
     assert "bundledFileRoles = @($zipFileProofs | ForEach-Object { $_.role })" in source
     assert "bundledFiles = $zipFileProofs" in source
+    assert "evidenceBundleZipFileRoles = $proofZipRoles" in source
     assert "completionProofJsonSha256" in source
     assert "validationCardJsonSha256" in source
     assert "evidenceBundleJsonSha256" in source
@@ -330,3 +333,4 @@ def test_first_run_pilot_docs_keep_mutating_proof_explicit() -> None:
     assert "handoffProof.packageExportId" in source
     assert "handoffProof.reportEvidence" in source
     assert "handoffProof.validationCard.validationCardJsonSha256" in source
+    assert "handoffProof.completionProof.evidenceBundleZipFileRoles" in source

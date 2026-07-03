@@ -89,6 +89,18 @@ def test_record_first_run_completion_proof_rejects_builder_output_that_fails_sch
         ("bundle-mismatch", "FIRST_RUN_COMPLETION_PROOF_INVALID: evidenceBundleId does not match resultId"),
         ("duplicate-bundle-role", "FIRST_RUN_COMPLETION_PROOF_INVALID: duplicate evidence bundle roles result-package"),
         ("unexpected-bundle-role", "FIRST_RUN_COMPLETION_PROOF_INVALID: unexpected evidence bundle roles operator-note"),
+        (
+            "missing-zip-role",
+            "FIRST_RUN_COMPLETION_PROOF_INVALID: missing evidence bundle ZIP roles completion-proof-json",
+        ),
+        (
+            "duplicate-zip-role",
+            "FIRST_RUN_COMPLETION_PROOF_INVALID: duplicate evidence bundle ZIP roles completion-proof-json",
+        ),
+        (
+            "unexpected-zip-role",
+            "FIRST_RUN_COMPLETION_PROOF_INVALID: unexpected evidence bundle ZIP roles operator-note",
+        ),
         ("reduced-check-set", "FIRST_RUN_COMPLETION_PROOF_INVALID: validation checks are incomplete"),
         ("duplicate-report-output", "FIRST_RUN_COMPLETION_PROOF_INVALID: duplicate report outputs summary.tsv"),
         ("unexpected-report-output", "FIRST_RUN_COMPLETION_PROOF_INVALID: unexpected report outputs debug.log"),
@@ -100,6 +112,46 @@ def test_first_run_finalize_rejects_generated_completion_proof_that_fails_contra
     detail: str,
 ) -> None:
     _patch_first_run_sources(monkeypatch)
+    if proof_case == "missing-zip-role":
+        monkeypatch.setattr(
+            completion_store,
+            "FIRST_RUN_COMPLETION_PROOF_EVIDENCE_BUNDLE_ZIP_ROLES",
+            (
+                "evidence-bundle-json",
+                "pilot-handoff",
+                "readme",
+                "validation-card-json",
+                "validation-card-markdown",
+            ),
+        )
+    elif proof_case == "duplicate-zip-role":
+        monkeypatch.setattr(
+            completion_store,
+            "FIRST_RUN_COMPLETION_PROOF_EVIDENCE_BUNDLE_ZIP_ROLES",
+            (
+                "completion-proof-json",
+                "completion-proof-json",
+                "evidence-bundle-json",
+                "pilot-handoff",
+                "readme",
+                "validation-card-json",
+                "validation-card-markdown",
+            ),
+        )
+    elif proof_case == "unexpected-zip-role":
+        monkeypatch.setattr(
+            completion_store,
+            "FIRST_RUN_COMPLETION_PROOF_EVIDENCE_BUNDLE_ZIP_ROLES",
+            (
+                "completion-proof-json",
+                "evidence-bundle-json",
+                "pilot-handoff",
+                "readme",
+                "validation-card-json",
+                "validation-card-markdown",
+                "operator-note",
+            ),
+        )
 
     async def fake_card(run_id: str, *_, server_id: str | None = None, **__):
         card = (await build_first_run_validation_card_from_request(run_id, server_id=server_id))["data"]
@@ -123,6 +175,8 @@ def test_first_run_finalize_rejects_generated_completion_proof_that_fails_contra
             card["reportInterpretation"]["outputs"].append(dict(card["reportInterpretation"]["outputs"][0]))
         elif proof_case == "unexpected-report-output":
             card["reportInterpretation"]["outputs"].append({"name": "debug.log"})
+        elif proof_case in {"missing-zip-role", "duplicate-zip-role", "unexpected-zip-role"}:
+            pass
         else:
             raise AssertionError(f"unknown proof case {proof_case}")
         return {"data": card}
@@ -266,6 +320,14 @@ def _completion_proof_record() -> dict[str, object]:
             "validation-card-json",
             "validation-card-markdown",
             "pilot-handoff",
+        ],
+        "evidenceBundleZipFileRoles": [
+            "completion-proof-json",
+            "evidence-bundle-json",
+            "pilot-handoff",
+            "readme",
+            "validation-card-json",
+            "validation-card-markdown",
         ],
         "savedAt": "2026-06-29T00:30:00Z",
     }

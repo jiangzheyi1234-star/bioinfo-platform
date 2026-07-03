@@ -37,6 +37,15 @@ _REQUIRED_REPORT_OUTPUTS = frozenset(("summary.tsv", "qc-summary.tsv", "feature-
 _REQUIRED_EVIDENCE_BUNDLE_ROLES = frozenset(
     ("result-package", "validation-card-json", "validation-card-markdown", "pilot-handoff")
 )
+FIRST_RUN_COMPLETION_PROOF_EVIDENCE_BUNDLE_ZIP_ROLES = (
+    "completion-proof-json",
+    "evidence-bundle-json",
+    "pilot-handoff",
+    "readme",
+    "validation-card-json",
+    "validation-card-markdown",
+)
+_REQUIRED_EVIDENCE_BUNDLE_ZIP_ROLES = frozenset(FIRST_RUN_COMPLETION_PROOF_EVIDENCE_BUNDLE_ZIP_ROLES)
 
 
 def first_run_completion_proof_invalid_reason(proof: dict[str, Any]) -> str:
@@ -72,9 +81,20 @@ def first_run_completion_proof_invalid_reason(proof: dict[str, Any]) -> str:
         return report_output_error
     if proof.get("evidenceBundleReady") is not True:
         return "evidence bundle is not ready"
-    bundle_role_error = _evidence_bundle_role_error(proof.get("evidenceBundleFileRoles"))
+    bundle_role_error = _string_set_error(
+        proof.get("evidenceBundleFileRoles"),
+        required=_REQUIRED_EVIDENCE_BUNDLE_ROLES,
+        label="evidence bundle roles",
+    )
     if bundle_role_error:
         return bundle_role_error
+    bundle_zip_role_error = _string_set_error(
+        proof.get("evidenceBundleZipFileRoles"),
+        required=_REQUIRED_EVIDENCE_BUNDLE_ZIP_ROLES,
+        label="evidence bundle ZIP roles",
+    )
+    if bundle_zip_role_error:
+        return bundle_zip_role_error
     return ""
 
 
@@ -102,18 +122,18 @@ def _valid_sha256(value: str) -> bool:
     return len(normalized) == 64 and all(char in "0123456789abcdef" for char in normalized)
 
 
-def _evidence_bundle_role_error(value: Any) -> str:
+def _string_set_error(value: Any, *, required: frozenset[str], label: str) -> str:
     roles = [str(item or "").strip() for item in value or []]
     role_set = set(roles)
-    missing_roles = sorted(_REQUIRED_EVIDENCE_BUNDLE_ROLES - role_set)
+    missing_roles = sorted(required - role_set)
     if missing_roles:
-        return "missing evidence bundle roles " + ", ".join(missing_roles)
-    unexpected_roles = sorted(role for role in role_set if role not in _REQUIRED_EVIDENCE_BUNDLE_ROLES)
+        return f"missing {label} " + ", ".join(missing_roles)
+    unexpected_roles = sorted(role for role in role_set if role not in required)
     if unexpected_roles:
-        return "unexpected evidence bundle roles " + ", ".join(unexpected_roles)
+        return f"unexpected {label} " + ", ".join(unexpected_roles)
     duplicate_roles = sorted(role for role in role_set if roles.count(role) > 1)
     if duplicate_roles:
-        return "duplicate evidence bundle roles " + ", ".join(duplicate_roles)
+        return f"duplicate {label} " + ", ".join(duplicate_roles)
     return ""
 
 

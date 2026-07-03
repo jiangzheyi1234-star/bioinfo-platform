@@ -157,6 +157,7 @@ function New-FirstRunProofConsumption {
     param(
         [string]$PathText,
         [string[]]$ExpectedEvidenceBundleRoles,
+        [string[]]$ExpectedEvidenceBundleZipRoles,
         [string[]]$ExpectedReportOutputs,
         [string[]]$ExpectedNextScenarioIds,
         [string]$ExpectedBackupPlanCommand,
@@ -262,6 +263,9 @@ function New-FirstRunProofConsumption {
                 if ($completionProof.evidenceBundleReady -ne $true -or $completionProof.evidenceBundleId -ne "$($completionProof.resultId).first-run-evidence" -or -not (Test-SameStringSet (Get-StringArray $completionProof.evidenceBundleFileRoles) $ExpectedEvidenceBundleRoles)) {
                     Add-ProofError $errors "FIRST_RUN_PROOF_COMPLETION_PROOF_REQUIRED" "handoffProof completionProof must include a ready evidence bundle with exact proof roles."
                 }
+                if (-not (Test-SameStringSet (Get-StringArray $completionProof.evidenceBundleZipFileRoles) $ExpectedEvidenceBundleZipRoles)) {
+                    Add-ProofError $errors "FIRST_RUN_PROOF_COMPLETION_PROOF_REQUIRED" "handoffProof completionProof must include exact portable evidence ZIP roles."
+                }
             }
             if ($handoff.backupPlanCommand -ne $ExpectedBackupPlanCommand -or $handoff.restoreProofCommand -ne $ExpectedRestoreProofCommand) {
                 Add-ProofError $errors "FIRST_RUN_PROOF_BACKUP_HANDOFF_MISMATCH" "handoffProof backup/restore commands must match the read-only pilot handoff."
@@ -310,6 +314,7 @@ function New-FirstRunProofConsumption {
                 evidenceBundleId = [string]$proof.handoffProof.completionProof.evidenceBundleId
                 evidenceBundleReady = [bool]$proof.handoffProof.completionProof.evidenceBundleReady
                 evidenceBundleFileRoles = Get-StringArray $proof.handoffProof.completionProof.evidenceBundleFileRoles
+                evidenceBundleZipFileRoles = Get-StringArray $proof.handoffProof.completionProof.evidenceBundleZipFileRoles
             } }
             evidenceBundleFileRoles = Get-StringArray $proof.handoffProof.evidenceBundleFileRoles
             nextScenarioIds = Get-StringArray $proof.handoffProof.nextScenarioIds
@@ -371,6 +376,7 @@ if (-not $remoteRootSupplied) {
 }
 
 $expectedEvidenceBundleRoles = @("result-package", "validation-card-json", "validation-card-markdown", "pilot-handoff")
+$expectedEvidenceBundleZipRoles = @("completion-proof-json", "evidence-bundle-json", "pilot-handoff", "readme", "validation-card-json", "validation-card-markdown")
 $expectedReportOutputs = @("summary.tsv", "qc-summary.tsv", "feature-table.tsv", "run-report.html")
 $expectedNextScenarioIds = @("taxonomy-classification", "amr-annotation")
 $expectedBackupPlanCommand = 'scripts\single_user_pilot_backup_plan.ps1 -RemoteRunnerSharedRoot "<remote-shared-root>" -FirstRunProofPath "<first-run-proof.json>" -RequireExistingState'
@@ -378,6 +384,7 @@ $expectedRestoreProofCommand = "scripts\first_run_pilot_check.ps1 -RunFirstSucce
 $firstRunProof = New-FirstRunProofConsumption `
     -PathText $FirstRunProofPath `
     -ExpectedEvidenceBundleRoles $expectedEvidenceBundleRoles `
+    -ExpectedEvidenceBundleZipRoles $expectedEvidenceBundleZipRoles `
     -ExpectedReportOutputs $expectedReportOutputs `
     -ExpectedNextScenarioIds $expectedNextScenarioIds `
     -ExpectedBackupPlanCommand $expectedBackupPlanCommand `
@@ -468,6 +475,7 @@ $plan = [ordered]@{
             "handoffProof.completionProof.validationChecksTotal>=10",
             "handoffProof.completionProof.reportOutputNames=$($expectedReportOutputs -join ',')",
             "handoffProof.completionProof.validationCardJsonSha256",
+            "handoffProof.completionProof.evidenceBundleZipFileRoles=$($expectedEvidenceBundleZipRoles -join ',')",
             "handoffProof.evidenceBundleDownload.completionProofJsonSha256",
             "handoffProof.evidenceBundleSchemaVersion=h2ometa.first-run.evidence-bundle.v1",
             "handoffProof.evidenceBundleFileRoles=$($expectedEvidenceBundleRoles -join ',')",

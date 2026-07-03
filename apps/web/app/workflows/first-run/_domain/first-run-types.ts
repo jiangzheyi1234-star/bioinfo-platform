@@ -286,6 +286,7 @@ export type FirstRunCompletionProof = {
   evidenceBundleId?: string;
   evidenceBundleReady?: boolean;
   evidenceBundleFileRoles?: string[];
+  evidenceBundleZipFileRoles?: string[];
   savedAt?: string;
 };
 

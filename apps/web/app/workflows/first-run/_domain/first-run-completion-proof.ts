@@ -23,6 +23,14 @@ const REQUIRED_EVIDENCE_BUNDLE_ROLES = [
   "validation-card-markdown",
   "pilot-handoff",
 ];
+const REQUIRED_EVIDENCE_BUNDLE_ZIP_ROLES = [
+  "completion-proof-json",
+  "evidence-bundle-json",
+  "pilot-handoff",
+  "readme",
+  "validation-card-json",
+  "validation-card-markdown",
+];
 
 export function activeFirstRunCompletionProof(
   status: FirstRunStatus | null | undefined
@@ -63,6 +71,7 @@ function firstRunCompletionProofContractReady(proof: FirstRunCompletionProof | u
   if (!exactProofSet(proof.reportOutputNames, REQUIRED_REPORT_OUTPUT_NAMES)) return false;
   if (proof.evidenceBundleReady !== true) return false;
   if (!exactProofSet(proof.evidenceBundleFileRoles, REQUIRED_EVIDENCE_BUNDLE_ROLES)) return false;
+  if (!exactProofSet(proof.evidenceBundleZipFileRoles, REQUIRED_EVIDENCE_BUNDLE_ZIP_ROLES)) return false;
   const proofRunId = normalizedProofValue(proof.runId);
   const proofResultId = normalizedProofValue(proof.resultId);
   if (proofResultId !== canonicalResultId(proofRunId)) return false;

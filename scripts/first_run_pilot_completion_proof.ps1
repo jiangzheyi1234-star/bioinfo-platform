@@ -1,6 +1,7 @@
 $FirstRunCompletionProofMinValidationChecks = 10
 $FirstRunCompletionProofReportOutputs = @("summary.tsv", "qc-summary.tsv", "feature-table.tsv", "run-report.html")
 $FirstRunCompletionProofEvidenceBundleRoles = @("result-package", "validation-card-json", "validation-card-markdown", "pilot-handoff")
+$FirstRunCompletionProofEvidenceBundleZipRoles = @("completion-proof-json", "evidence-bundle-json", "pilot-handoff", "readme", "validation-card-json", "validation-card-markdown")
 
 function Assert-FirstRunExactStringSet {
     param(
@@ -27,7 +28,8 @@ function Assert-FirstRunExactStringSet {
 function Assert-FirstRunCompletionProof {
     param(
         [object]$Finalization,
-        [string]$ValidationCardJsonSha256
+        [string]$ValidationCardJsonSha256,
+        [object[]]$EvidenceBundleZipRoles
     )
 
     $proof = $Finalization.completionProof
@@ -103,6 +105,19 @@ function Assert-FirstRunCompletionProof {
     if ((($proofBundleRoles | Sort-Object) -join "|") -ne (($bundleRoles | Sort-Object) -join "|")) {
         Fail-Pilot "completionProof evidenceBundle roles must match pilotHandoff evidenceBundle"
     }
+    $proofZipRoles = @($proof.evidenceBundleZipFileRoles | ForEach-Object { ([string]$_).Trim() })
+    $downloadedZipRoles = @($EvidenceBundleZipRoles | ForEach-Object { ([string]$_).Trim() })
+    Assert-FirstRunExactStringSet `
+        -Actual $proofZipRoles `
+        -Expected $FirstRunCompletionProofEvidenceBundleZipRoles `
+        -Message "completionProof evidenceBundle ZIP roles must be exactly the official portable first-run evidence ZIP roles"
+    Assert-FirstRunExactStringSet `
+        -Actual $downloadedZipRoles `
+        -Expected $FirstRunCompletionProofEvidenceBundleZipRoles `
+        -Message "downloaded evidenceBundle ZIP roles must be exactly the official portable first-run evidence ZIP roles"
+    if ((($proofZipRoles | Sort-Object) -join "|") -ne (($downloadedZipRoles | Sort-Object) -join "|")) {
+        Fail-Pilot "completionProof evidenceBundle ZIP roles must match downloaded evidenceBundle ZIP manifest"
+    }
     if ([string]::IsNullOrWhiteSpace([string]$proof.savedAt)) {
         Fail-Pilot "completionProof must include savedAt"
     }
@@ -137,5 +152,6 @@ function Assert-FirstRunCompletionProof {
         reportOutputNames = $proofReportOutputNames
         evidenceBundleId = $proof.evidenceBundleId
         evidenceBundleFileRoles = $proofBundleRoles
+        evidenceBundleZipFileRoles = $proofZipRoles
     }
 }
