@@ -5,7 +5,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-
+from core.contracts.execution_activity import EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION
+from core.contracts.remote_endpoints import EXECUTION_LIFECYCLE_GUARD, EXECUTION_LIFECYCLE_GUARD_RELEASE, REMOTE_ENDPOINTS
 from core.remote_runner.artifact import RemoteRunnerArtifactError, WORKFLOW_RUNTIME_VERSION
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
 from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerError
@@ -430,16 +431,63 @@ def test_bootstrap_installs_when_artifact_sha_marker_is_missing(monkeypatch) -> 
                 return health
             raise AssertionError(f"unexpected path: {path}")
 
+        def post_json(
+            self,
+            path: str,
+            payload: dict[str, object],
+            *,
+            extra_headers: dict[str, str] | None = None,
+            accepted_statuses: set[int] | None = None,
+        ) -> dict[str, object]:
+            assert extra_headers is None
+            assert accepted_statuses == {200}
+            if path == REMOTE_ENDPOINTS[EXECUTION_LIFECYCLE_GUARD].path_template:
+                return {
+                    "data": {
+                        "schemaVersion": EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
+                        "action": payload["action"],
+                        "owner": payload["owner"],
+                        "idle": True,
+                        "maintenanceActive": True,
+                        "requestedAt": "2099-06-07T10:00:00Z",
+                        "expiresAt": "2099-06-07T10:10:00Z",
+                        "activeWorkerCount": 0,
+                        "drainRequestedWorkerCount": 0,
+                        "activeLeaseCount": 0,
+                        "allocatedResourceCount": 0,
+                        "resourceWaitCount": 0,
+                        "queuedJobCount": 0,
+                        "claimedJobCount": 0,
+                        "runningSlotCount": 0,
+                        "blockReasons": [],
+                        "activeLeases": [],
+                    }
+                }
+            if path == REMOTE_ENDPOINTS[EXECUTION_LIFECYCLE_GUARD_RELEASE].path_template:
+                return {
+                    "data": {
+                        "schemaVersion": "h2ometa.execution-lifecycle-guard-release.v1",
+                        "action": payload["action"],
+                        "owner": payload["owner"],
+                        "released": True,
+                        "releasedAt": "2099-06-07T10:01:00Z",
+                    }
+                }
+            raise AssertionError(f"unexpected post path: {path}")
+
     with patch.object(manager, "_artifact_provider", SimpleNamespace(resolve=lambda **kwargs: FakeArtifact())), patch(
         "core.remote_runner.manager.RemoteRunnerHttpClient", FakeClient
-        ), patch("core.remote_runner.reuse.resolve_runner_token", lambda token_ref: "phase2-token"), patch(
-        "core.remote_runner.manager.store_runner_token", lambda **kwargs: "runner://srv_test"
+    ), patch("core.remote_runner.proxy.RemoteRunnerHttpClient", FakeClient), patch(
+        "core.remote_runner.reuse.resolve_runner_token", lambda token_ref: "phase2-token"
+    ), patch("core.remote_runner.proxy.resolve_runner_token", lambda token_ref: "phase2-token"), patch(
+        "core.remote_runner.manager.store_runner_token",
+        lambda **kwargs: "runner://srv_test",
     ):
         result = manager.bootstrap(
             server_id="srv_test",
             server={"label": "demo"},
             ssh_service=FakeSSH(),
-            server_record={"token_ref": "runner://srv_test"},
+            server_record={"service_port": 43127, "token_ref": "runner://srv_test"},
         )
 
     assert result["bootstrap_metadata"]["deployment_action"] == "installed"

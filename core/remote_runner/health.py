@@ -3,6 +3,13 @@ from __future__ import annotations
 import time
 from typing import Any, Protocol
 
+from core.contracts.remote_endpoints import (
+    RUNNER_HEALTH_LIVE,
+    RUNNER_HEALTH_READY,
+    RUNNER_HEALTH_STARTUP,
+)
+from core.remote_runner.endpoint_caller import call_remote_endpoint
+
 
 class RemoteRunnerHealthClient(Protocol):
     def get_json(
@@ -12,9 +19,9 @@ class RemoteRunnerHealthClient(Protocol):
 
 
 def build_runner_health(client: RemoteRunnerHealthClient) -> dict[str, Any]:
-    startup = client.get_json("/health/startup", accepted_statuses={200, 503})
-    live = client.get_json("/health/live")
-    ready = client.get_json("/health/ready", accepted_statuses={200, 503})
+    startup = call_remote_endpoint(client, RUNNER_HEALTH_STARTUP, path_values={})
+    live = call_remote_endpoint(client, RUNNER_HEALTH_LIVE, path_values={})
+    ready = call_remote_endpoint(client, RUNNER_HEALTH_READY, path_values={})
     workflow = (
         ready.get("workflowRuntime")
         if isinstance(ready.get("workflowRuntime"), dict)

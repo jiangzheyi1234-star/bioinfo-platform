@@ -494,5 +494,8 @@ def _has_prior_runner_evidence(
     return (
         bool(str(server_record.get("bootstrap_version") or "").strip())
         or bool(str(previous_release or "").strip())
-        or bool(previous_config_present)
+        or (
+            bool(previous_config_present)
+            and bool(str(server_record.get("token_ref") or "").strip())
+        )
     )

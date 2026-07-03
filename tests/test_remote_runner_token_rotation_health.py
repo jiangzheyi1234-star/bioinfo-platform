@@ -126,7 +126,7 @@ def test_rotate_token_validates_new_token_with_transport_health(monkeypatch) -> 
     assert result == {"token_ref": "runner://srv_rotated"}
     assert health_calls == [
         ("/health/startup", [200, 503]),
-        ("/health/live", []),
+        ("/health/live", [200]),
         ("/health/ready", [200, 503]),
     ]
     assert len(lifecycle_requests) == 1

@@ -104,6 +104,22 @@ def test_bootstrap_guard_skips_new_install_without_prior_runner() -> None:
     assert metadata == {}
 
 
+def test_bootstrap_guard_skips_config_only_partial_install_without_local_token() -> None:
+    metadata = {}
+    manager = GuardHarness({"activeLeases": [{"runId": "run_active"}]})
+
+    manager._guard_bootstrap_when_execution_idle(
+        server_id="srv_test",
+        ssh_service=object(),
+        server_record={},
+        bootstrap_metadata=metadata,
+        previous_config_present=True,
+    )
+
+    assert manager.calls == 0
+    assert metadata == {}
+
+
 def test_bootstrap_guard_blocks_stale_registry_when_remote_current_exists() -> None:
     metadata = {}
     manager = GuardHarness(RemoteRunnerClientError("runner token not available"))
@@ -137,7 +153,7 @@ def test_bootstrap_guard_blocks_stale_registry_when_remote_config_exists() -> No
         manager._guard_bootstrap_when_execution_idle(
             server_id="srv_test",
             ssh_service=object(),
-            server_record={},
+            server_record={"token_ref": "runner://srv_test"},
             bootstrap_metadata=metadata,
             previous_config_present=True,
         )

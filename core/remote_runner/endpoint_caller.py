@@ -83,3 +83,21 @@ def call_remote_endpoint(
             f"{endpoint_id}.{endpoint.response_item_key}",
         )
     return data[endpoint.response_item_key]
+
+
+def probe_remote_endpoint(
+    client: Any,
+    endpoint_id: str,
+    *,
+    path_values: dict[str, Any],
+    query_values: dict[str, Any] | None = None,
+    accepted_statuses: set[int] | None = None,
+) -> Any:
+    endpoint = get_remote_endpoint(endpoint_id)
+    if endpoint.method != "GET":
+        raise RemoteEndpointContractError("REMOTE_ENDPOINT_PROBE_METHOD_UNSUPPORTED", endpoint_id)
+    if endpoint.response_transport != "json":
+        raise RemoteEndpointContractError("REMOTE_ENDPOINT_PROBE_TRANSPORT_UNSUPPORTED", endpoint_id)
+    path = render_remote_endpoint_path(endpoint_id, path_values, query_values=query_values)
+    accepted = accepted_statuses if accepted_statuses is not None else set(endpoint.accepted_statuses)
+    return client.probe_json(path, accepted_statuses=set(accepted))

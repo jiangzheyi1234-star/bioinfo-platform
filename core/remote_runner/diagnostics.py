@@ -7,7 +7,13 @@ import shlex
 import time
 from typing import Any, Protocol
 
+from core.contracts.remote_endpoints import (
+    RUNNER_HEALTH_EXECUTION_DIAGNOSTICS,
+    render_remote_endpoint_path,
+)
+from core.contracts.runner_health_remote_endpoints import OPERATOR_DIAGNOSTIC_HEALTH_ENDPOINT_IDS
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
+from core.remote_runner.endpoint_caller import call_remote_endpoint, probe_remote_endpoint
 from core.remote_runner.layout import (
     REMOTE_RUNNER_SERVICE_NAME,
     remote_runner_bootstrap_layout,
@@ -26,13 +32,9 @@ class RemoteRunnerDiagnosticClient(Protocol):
         ...
 
 
-OPERATOR_DIAGNOSTIC_HEALTH_ENDPOINTS = (
-    "/health/startup",
-    "/health/live",
-    "/health/ready",
-    "/health/meta",
-    "/health/workers",
-    "/health/execution-diagnostics",
+OPERATOR_DIAGNOSTIC_HEALTH_ENDPOINTS = tuple(
+    render_remote_endpoint_path(endpoint_id, {})
+    for endpoint_id in OPERATOR_DIAGNOSTIC_HEALTH_ENDPOINT_IDS
 )
 REMOTE_RUNNER_LIFECYCLE_DIAGNOSTICS_SCHEMA = (
     "remote-runner-lifecycle-diagnostics.v1"
@@ -46,7 +48,7 @@ _SENSITIVE_LOG_PATTERNS = (
 
 
 def build_execution_diagnostics(client: RemoteRunnerDiagnosticClient) -> dict[str, Any]:
-    return client.get_json("/health/execution-diagnostics")["data"]
+    return call_remote_endpoint(client, RUNNER_HEALTH_EXECUTION_DIAGNOSTICS, path_values={})
 
 
 def build_remote_runner_lifecycle_diagnostics(
@@ -128,10 +130,15 @@ def build_operator_diagnostics_bundle(
     source_commit: str = "",
     lifecycle: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    remote_runner = {
-        endpoint: client.probe_json(endpoint, accepted_statuses={200, 503})
-        for endpoint in OPERATOR_DIAGNOSTIC_HEALTH_ENDPOINTS
-    }
+    remote_runner = {}
+    for endpoint_id in OPERATOR_DIAGNOSTIC_HEALTH_ENDPOINT_IDS:
+        endpoint = render_remote_endpoint_path(endpoint_id, {})
+        remote_runner[endpoint] = probe_remote_endpoint(
+            client,
+            endpoint_id,
+            path_values={},
+            accepted_statuses={200, 503},
+        )
     collected_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     bundle = {
         "schemaVersion": "operator-diagnostics-bundle.v1",

@@ -63,7 +63,7 @@ def _health_endpoint_json(
         assert accepted_statuses == {200, 503}
         return {"status": "ok"}
     if path == "/health/live":
-        assert accepted_statuses is None
+        assert accepted_statuses == {200}
         return {"status": "ok"}
     if path == "/health/ready":
         assert accepted_statuses == {200, 503}
