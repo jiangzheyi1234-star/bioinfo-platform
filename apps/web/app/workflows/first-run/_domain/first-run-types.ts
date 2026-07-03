@@ -281,6 +281,8 @@ export type FirstRunCompletionProof = {
   validationCardJsonSha256?: string;
   validationChecksPassed?: number;
   validationChecksTotal?: number;
+  reportReady?: boolean;
+  reportOutputNames?: string[];
   evidenceBundleId?: string;
   evidenceBundleReady?: boolean;
   evidenceBundleFileRoles?: string[];

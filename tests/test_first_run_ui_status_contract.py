@@ -241,14 +241,25 @@ def test_first_run_evidence_actions_use_status_run_id_before_local_run() -> None
 def test_first_run_completion_proof_only_drives_current_matching_run() -> None:
     completion_proof = (FIRST_RUN_DOMAIN / "first-run-completion-proof.ts").read_text(encoding="utf-8")
     first_run_page = (FIRST_RUN_COMPONENTS / "workflow-first-run-page.tsx").read_text(encoding="utf-8")
+    first_run_types = (FIRST_RUN_DOMAIN / "first-run-types.ts").read_text(encoding="utf-8")
 
     assert "export function activeFirstRunCompletionProof" in completion_proof
+    assert 'const FIRST_RUN_COMPLETION_PROOF_SCHEMA_VERSION = "h2ometa.first-run.completion-proof.v1"' in completion_proof
+    assert "const MIN_VALIDATION_CHECKS = 10" in completion_proof
+    assert "if (!firstRunCompletionProofContractReady(proof)) return undefined" in completion_proof
+    assert "validationChecksTotal < MIN_VALIDATION_CHECKS" in completion_proof
+    assert "exactProofSet(proof.reportOutputNames, REQUIRED_REPORT_OUTPUT_NAMES)" in completion_proof
+    assert "exactProofSet(proof.evidenceBundleFileRoles, REQUIRED_EVIDENCE_BUNDLE_ROLES)" in completion_proof
+    assert "proofResultId !== canonicalResultId(proofRunId)" in completion_proof
+    assert 'normalizedProofValue(proof.evidenceBundleId) !== `${proofResultId}.first-run-evidence`' in completion_proof
     assert "const statusRunId = normalizedProofValue(status?.evidence?.run?.runId || status?.latestEligibleRun?.runId)" in completion_proof
     assert "if (statusRunId && statusRunId !== proofRunId) return undefined" in completion_proof
     assert "if (proofServerId && statusServerId && proofServerId !== statusServerId) return undefined" in completion_proof
     assert "if (statusRunId === proofRunId) return proof" in completion_proof
     assert 'status?.status === "ready"' not in completion_proof
     assert "export function firstRunCompletionProofReady" in completion_proof
+    assert "reportReady?: boolean;" in first_run_types
+    assert "reportOutputNames?: string[];" in first_run_types
     assert 'import { activeFirstRunCompletionProof } from "../_domain/first-run-completion-proof"' in first_run_page
     assert "const statusCompletionProof = activeFirstRunCompletionProof(firstRunStatusSnapshot)" in first_run_page
 
