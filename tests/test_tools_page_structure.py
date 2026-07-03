@@ -270,7 +270,10 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "workflow-ready" in ui
     assert "production-enabled" in ui
     assert "ToolCatalogTargetAcceptance" in model
+    assert "ToolPrepareJobQueueResponse" in model
     assert "fetchToolCandidateTargetAcceptance" not in api
+    assert "export async function fetchToolPrepareJobQueue" in api
+    assert "/api/v1/tools/prepare-jobs/queue?${params.toString()}" in api
     assert "graph.targetAcceptance" in hook
     assert "targetAcceptance" in hook
     assert "setTargetAcceptance" in hook
@@ -288,6 +291,10 @@ def test_tools_page_has_focused_support_modules() -> None:
     assert "RuleNodeSummary" in ui
     assert "RuleSpecContractPreview" in ui
     assert "export function ToolPrepareTaskProvider" in task_context
+    assert "fetchToolPrepareJobQueue" in task_context
+    assert 'RECOVERABLE_TASK_STATUSES = ["queued", "running"] as const' in task_context
+    assert "Promise.allSettled(" in task_context
+    assert ".filter(isActiveJob)" in task_context
     assert "export function ToolPrepareTaskBar" in task_bar
     assert "Snakemake dry-run" in task_bar
     assert "Smoke run" in task_bar

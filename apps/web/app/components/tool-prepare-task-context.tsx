@@ -2,11 +2,12 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
-import { cancelToolPrepareJob, fetchToolPrepareJob, invalidateWorkflowToolCaches } from "./tools-page-api";
+import { cancelToolPrepareJob, fetchToolPrepareJob, fetchToolPrepareJobQueue, invalidateWorkflowToolCaches } from "./tools-page-api";
 import type { ToolPrepareJob } from "./tools-page-model";
 
 const POLL_INTERVAL_MS = 1500;
 const MAX_RETAINED_TASKS = 8;
+const RECOVERABLE_TASK_STATUSES = ["queued", "running"] as const;
 
 type ToolPrepareTaskContextValue = {
   tasks: ToolPrepareJob[];
@@ -22,12 +23,16 @@ const ToolPrepareTaskContext = createContext<ToolPrepareTaskContextValue | null>
 export function ToolPrepareTaskProvider({ children }: { children: ReactNode }) {
   const [tasks, setTasks] = useState<ToolPrepareJob[]>([]);
 
-  const mergeTask = useCallback((job: ToolPrepareJob) => {
-    setTasks((current) => trimTasks([job, ...current.filter((item) => item.jobId !== job.jobId)]));
-    if (isTerminalJob(job)) {
+  const mergeTasks = useCallback((jobs: ToolPrepareJob[]) => {
+    if (jobs.length === 0) return;
+    const incomingIds = new Set(jobs.map((job) => job.jobId));
+    setTasks((current) => trimTasks([...jobs, ...current.filter((item) => !incomingIds.has(item.jobId))]));
+    if (jobs.some(isTerminalJob)) {
       invalidateWorkflowToolCaches();
     }
   }, []);
+
+  const mergeTask = useCallback((job: ToolPrepareJob) => mergeTasks([job]), [mergeTasks]);
 
   const refreshToolPrepareJob = useCallback(
     async (jobId: string) => {
@@ -48,6 +53,22 @@ export function ToolPrepareTaskProvider({ children }: { children: ReactNode }) {
   const dismissToolPrepareTask = useCallback((jobId: string) => {
     setTasks((current) => current.filter((item) => item.jobId !== jobId || !isTerminalJob(item)));
   }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void Promise.allSettled(
+      RECOVERABLE_TASK_STATUSES.map((status) =>
+        fetchToolPrepareJobQueue({ limit: 50, signal: controller.signal, status })
+      )
+    ).then((pages) => {
+      if (controller.signal.aborted) return;
+      const restoredTasks = pages
+        .flatMap((page) => (page.status === "fulfilled" ? page.value.items : []))
+        .filter(isActiveJob);
+      mergeTasks(restoredTasks);
+    });
+    return () => controller.abort();
+  }, [mergeTasks]);
 
   useEffect(() => {
     const activeIds = tasks.filter(isActiveJob).map((task) => task.jobId);

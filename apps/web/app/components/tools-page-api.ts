@@ -11,6 +11,8 @@ import {
   type SnakemakeWrapperCatalogResponse,
   type ToolProfileCatalogResponse,
   type ToolPrepareJob,
+  type ToolPrepareJobQueue,
+  type ToolPrepareJobQueueResponse,
   type ToolPrepareJobResponse,
   type ToolSearchResponse,
   type ToolValidationQueuePrepareResponse,
@@ -171,6 +173,30 @@ export async function fetchToolPrepareJob(jobId: string): Promise<ToolPrepareJob
   const response = await requestLocalApiJson<ToolPrepareJobResponse>("GET", `/api/v1/tools/prepare-jobs/${encodeURIComponent(jobId)}`, {
     cache: "no-store",
   });
+  return response.data;
+}
+
+export async function fetchToolPrepareJobQueue({
+  limit = 50,
+  offset = 0,
+  signal,
+  status = "",
+}: {
+  limit?: number;
+  offset?: number;
+  signal?: AbortSignal;
+  status?: string;
+} = {}): Promise<ToolPrepareJobQueue> {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
+  if (status) params.set("status", status);
+  const response = await requestLocalApiJson<ToolPrepareJobQueueResponse>(
+    "GET",
+    `/api/v1/tools/prepare-jobs/queue?${params.toString()}`,
+    { cache: "no-store", signal }
+  );
   return response.data;
 }
 

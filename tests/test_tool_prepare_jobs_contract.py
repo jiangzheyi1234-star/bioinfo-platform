@@ -56,9 +56,11 @@ def test_prepare_uses_async_job_contract_across_api_layers() -> None:
     assert "def cancel_tool_prepare_job" in runner_tool_ops
 
     assert "createToolPrepareJob" in frontend_api
+    assert "fetchToolPrepareJobQueue" in frontend_api
     assert "fetchToolPrepareJob" in frontend_api
     assert "cancelToolPrepareJob" in frontend_api
     assert '"/api/v1/tools/prepare-jobs"' in frontend_api
+    assert "/api/v1/tools/prepare-jobs/queue?${params.toString()}" in frontend_api
     assert "prepareToolDependency(nextTool)" not in frontend_state
     assert "if (shouldAutoPrepareOnAdd(nextTool))" in frontend_state
     assert "function shouldAutoPrepareOnAdd(tool: AddedTool)" in frontend_state
@@ -123,7 +125,7 @@ def test_terminal_prepare_job_refreshes_tool_cache_for_workflow_builder() -> Non
     frontend_api = (ROOT / "apps" / "web" / "app" / "components" / "tools-page-api.ts").read_text(encoding="utf-8")
 
     assert "invalidateWorkflowToolCaches" in frontend_api
-    assert "if (isTerminalJob(job))" in task_context
+    assert "if (jobs.some(isTerminalJob))" in task_context
     assert "invalidateWorkflowToolCaches();" in task_context
     assert "lastPrepareRefreshRef" in frontend_state
     assert "isTerminalJob(task)" in frontend_state

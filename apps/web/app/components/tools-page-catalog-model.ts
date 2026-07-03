@@ -211,6 +211,10 @@ export type ToolPrepareJobQueue = {
   statusCounts: ToolPrepareJobStatusCounts;
 };
 
+export type ToolPrepareJobQueueResponse = {
+  data: ToolPrepareJobQueue;
+};
+
 export type ToolCatalogTargetAcceptance = {
   targetName: string;
   targetPlatform: string;
