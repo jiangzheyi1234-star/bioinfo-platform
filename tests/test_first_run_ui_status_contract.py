@@ -145,6 +145,9 @@ def test_first_run_conductor_uses_status_contract_before_local_run_hints() -> No
     assert "const completionProofReady = firstRunCompletionProofReady(status)" in first_run_conductor
     assert "if (completionProofReady)" in first_run_conductor
     assert 'code: "COMPLETE"' in first_run_conductor
+    assert 'status.nextAction.code === "COMPLETE" && !completionProofReady' in first_run_conductor
+    assert "return missingCompletionProofAction(status)" in first_run_conductor
+    assert "首跑证据已就绪，但本地完成证明尚未保存" in first_run_conductor
     assert "hasStatus ? evidence?.sampleCache?.status === \"ready\" : input.sampleReady" in first_run_conductor
     assert "hasStatus ? Boolean(statusRun?.runId) : input.runSubmitted" in first_run_conductor
     assert "if (status?.nextAction)" in first_run_conductor

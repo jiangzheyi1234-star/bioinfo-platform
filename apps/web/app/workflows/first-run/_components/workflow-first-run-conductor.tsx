@@ -58,6 +58,9 @@ export function buildFirstRunContinueAction(input: FirstRunContinueActionInput):
     };
   }
   if (status?.nextAction) {
+    if (status.nextAction.code === "COMPLETE" && !completionProofReady) {
+      return missingCompletionProofAction(status);
+    }
     const action = continueActionFromStatus(status.nextAction);
     const statusAllowsSubmit =
       status.stage === "submit_run" &&
@@ -269,6 +272,32 @@ function firstRunContinueActionCode(code: string | undefined): FirstRunContinueA
     return code;
   }
   return "REFRESH_RUN";
+}
+
+function missingCompletionProofAction(status: FirstRunStatus): FirstRunContinueAction {
+  const evidence = status.evidence;
+  const statusRun = evidence?.run || status.latestEligibleRun || null;
+  const canFinalize = Boolean(
+    statusRun?.runId &&
+      evidence?.resultPackage?.ready === true &&
+      evidence?.validation?.ready === true
+  );
+  if (canFinalize) {
+    return {
+      code: "FINALIZE_FIRST_RUN",
+      detail: "首跑证据已就绪，但本地完成证明尚未保存；完成首跑以写入证明。",
+      label: "保存完成证明",
+      target: "#result-package",
+      tone: "success",
+    };
+  }
+  return {
+    code: "REFRESH_RUN",
+    detail: "服务端尚未返回可验证的首跑完成证明；刷新状态后继续。",
+    label: "刷新首跑状态",
+    target: "#evidence-bundle",
+    tone: "warning",
+  };
 }
 
 function defaultActionDetail(code: FirstRunContinueActionCode) {

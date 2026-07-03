@@ -4,10 +4,12 @@ const FIRST_RUN_PIPELINE_ID = "moving-pictures-16s-rulegraph-v1";
 const SERVER_ID = "srv_first_run_e2e";
 const RUN_ID = "run_first_run_e2e";
 const RESULT_ID = `res_${RUN_ID}`;
+const EVIDENCE_BUNDLE_ID = `${RESULT_ID}.first-run-evidence`;
 const WORKFLOW_REVISION_ID = "wfrev_first_run_e2e";
 const PACKAGE_EXPORT_ID = "pkg_first_run_e2e";
 const HASH = "a".repeat(64);
 const MANIFEST_HASH = "b".repeat(64);
+const VALIDATION_CARD_HASH = "c".repeat(64);
 
 type FirstRunMockMode = "ready-to-submit" | "package-required" | "completed";
 
@@ -351,12 +353,13 @@ function completedFirstRunStatus() {
         sha256: HASH,
       },
       validation: {
-        evidenceBundleId: "bundle_first_run_e2e",
+        evidenceBundleId: EVIDENCE_BUNDLE_ID,
         evidenceBundleReady: true,
         ready: true,
-        validationChecksPassed: 6,
-        validationChecksTotal: 6,
+        validationChecksPassed: 10,
+        validationChecksTotal: 10,
       },
+      completionProof: completionProof(),
     },
   };
 }
@@ -442,6 +445,7 @@ function firstRunFinalization() {
     schemaVersion: "h2ometa.first-run.finalization.v1",
     status: "ready",
     packageAction: "exported",
+    completionProof: completionProof(),
     evidenceBundle: pilotHandoff().evidenceBundle,
     pilotHandoff: pilotHandoff(),
     resultPackage: card.resultPackage,
@@ -550,6 +554,14 @@ function validationCard() {
     checks: [
       { code: "sample-inputs", status: "passed", detail: "three expected roles" },
       { code: "result-package", status: "passed", detail: "manifest and payload checksums recorded" },
+      { code: "workflow-revision", status: "passed", detail: "workflow revision recorded" },
+      { code: "report-summary", status: "passed", detail: "summary output present" },
+      { code: "report-qc", status: "passed", detail: "qc output present" },
+      { code: "feature-table", status: "passed", detail: "feature table output present" },
+      { code: "html-report", status: "passed", detail: "html report output present" },
+      { code: "evidence-bundle", status: "passed", detail: "evidence bundle ready" },
+      { code: "pilot-handoff", status: "passed", detail: "pilot handoff ready" },
+      { code: "completion-proof", status: "passed", detail: "completion proof ready" },
     ],
     generatedAt: "2026-07-01T00:00:00Z",
     keyResults: [
@@ -562,6 +574,12 @@ function validationCard() {
     ],
     pilotHandoff: pilotHandoff(),
     reportInterpretation: {
+      outputs: [
+        { name: "summary.tsv" },
+        { name: "qc-summary.tsv" },
+        { name: "feature-table.tsv" },
+        { name: "run-report.html" },
+      ],
       status: "ready",
       summary: "Moving Pictures 16S produced the expected report outputs.",
     },
@@ -612,13 +630,13 @@ function pilotHandoff() {
       packageExportId: PACKAGE_EXPORT_ID,
       packageSha256: HASH,
       manifestSha256: MANIFEST_HASH,
-      validationChecksPassed: 6,
-      validationChecksTotal: 6,
+      validationChecksPassed: 10,
+      validationChecksTotal: 10,
     },
     evidenceBundle: {
       schemaVersion: "h2ometa.first-run.evidence-bundle.v1",
       status: "ready",
-      bundleId: "bundle_first_run_e2e",
+      bundleId: EVIDENCE_BUNDLE_ID,
       download: {
         role: "evidence-bundle-zip",
         filename: "first-run.evidence-bundle.zip",
@@ -664,6 +682,31 @@ function pilotHandoff() {
       planCommand: "scripts\\single_user_pilot_backup_plan.ps1",
       restoreProofCommand: "scripts\\first_run_pilot_check.ps1 -RequireFinalizationReady",
     },
+  };
+}
+
+function completionProof() {
+  return {
+    schemaVersion: "h2ometa.first-run.completion-proof.v1",
+    ready: true,
+    serverId: SERVER_ID,
+    runId: RUN_ID,
+    resultId: RESULT_ID,
+    workflowRevisionId: WORKFLOW_REVISION_ID,
+    packageExportId: PACKAGE_EXPORT_ID,
+    packageEvidenceId: "ev_first_run_e2e",
+    resultPackageSha256: HASH,
+    resultPackageManifestSha256: MANIFEST_HASH,
+    validationCardGeneratedAt: "2026-07-01T00:00:00Z",
+    validationCardJsonSha256: VALIDATION_CARD_HASH,
+    validationChecksPassed: 10,
+    validationChecksTotal: 10,
+    reportReady: true,
+    reportOutputNames: ["summary.tsv", "qc-summary.tsv", "feature-table.tsv", "run-report.html"],
+    evidenceBundleId: EVIDENCE_BUNDLE_ID,
+    evidenceBundleReady: true,
+    evidenceBundleFileRoles: ["result-package", "validation-card-json", "validation-card-markdown", "pilot-handoff"],
+    savedAt: "2026-07-01T00:05:00Z",
   };
 }
 
