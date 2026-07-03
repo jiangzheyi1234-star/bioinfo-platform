@@ -129,6 +129,18 @@ function Test-ProofSha256 {
     return (([string]$Value).Trim() -match "^[0-9a-fA-F]{64}$")
 }
 
+function Convert-ToProofUtcTimestamp {
+    param([object]$Value)
+    $parsed = [DateTimeOffset]::MinValue
+    if (-not [DateTimeOffset]::TryParse(([string]$Value).Trim(), [ref]$parsed)) {
+        return $null
+    }
+    if ($parsed.Offset.TotalSeconds -ne 0) {
+        return $null
+    }
+    return $parsed
+}
+
 function Convert-ToProofNumber {
     param([object]$Value)
     if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value)) {
@@ -222,11 +234,16 @@ function New-FirstRunProofConsumption {
             if ($null -eq $completionProof) {
                 Add-ProofError $errors "FIRST_RUN_PROOF_COMPLETION_PROOF_REQUIRED" "handoffProof must include persisted completionProof."
             } else {
-                if ($completionProof.schemaVersion -ne "h2ometa.first-run.completion-proof.v1" -or $completionProof.ready -ne $true -or [string]::IsNullOrWhiteSpace([string]$completionProof.savedAt) -or [string]::IsNullOrWhiteSpace([string]$completionProof.validationCardJsonSha256)) {
-                    Add-ProofError $errors "FIRST_RUN_PROOF_COMPLETION_PROOF_REQUIRED" "handoffProof completionProof must be a persisted h2ometa.first-run.completion-proof.v1 proof with ready=true, savedAt, and validationCardJsonSha256."
+                if ($completionProof.schemaVersion -ne "h2ometa.first-run.completion-proof.v1" -or $completionProof.ready -ne $true -or [string]::IsNullOrWhiteSpace([string]$completionProof.savedAt) -or [string]::IsNullOrWhiteSpace([string]$completionProof.validationCardGeneratedAt) -or [string]::IsNullOrWhiteSpace([string]$completionProof.validationCardJsonSha256)) {
+                    Add-ProofError $errors "FIRST_RUN_PROOF_COMPLETION_PROOF_REQUIRED" "handoffProof completionProof must be a persisted h2ometa.first-run.completion-proof.v1 proof with ready=true, savedAt, validationCardGeneratedAt, and validationCardJsonSha256."
                 }
                 if ($completionProof.serverId -ne $proof.serverId -or $completionProof.runId -ne $proof.runId -or $completionProof.resultId -ne $handoff.resultId -or $completionProof.workflowRevisionId -ne $handoff.workflowRevisionId -or $completionProof.packageExportId -ne $handoff.packageExportId) {
                     Add-ProofError $errors "FIRST_RUN_PROOF_COMPLETION_PROOF_REQUIRED" "handoffProof completionProof must match first-run handoff identity."
+                }
+                $completionSavedAt = Convert-ToProofUtcTimestamp $completionProof.savedAt
+                $completionGeneratedAt = Convert-ToProofUtcTimestamp $completionProof.validationCardGeneratedAt
+                if ($null -eq $completionSavedAt -or $null -eq $completionGeneratedAt -or $completionSavedAt -lt $completionGeneratedAt) {
+                    Add-ProofError $errors "FIRST_RUN_PROOF_COMPLETION_PROOF_REQUIRED" "handoffProof completionProof timestamps must be UTC and savedAt must not predate validationCardGeneratedAt."
                 }
                 if ($completionProof.resultPackageSha256 -ne $handoff.resultPackageDownload.sha256 -or -not (Test-ProofSha256 $completionProof.resultPackageSha256) -or -not (Test-ProofSha256 $completionProof.resultPackageManifestSha256)) {
                     Add-ProofError $errors "FIRST_RUN_PROOF_COMPLETION_PROOF_REQUIRED" "handoffProof completionProof must include matching result package hashes."
@@ -284,6 +301,7 @@ function New-FirstRunProofConsumption {
                 packageExportId = [string]$proof.handoffProof.completionProof.packageExportId
                 resultPackageSha256 = [string]$proof.handoffProof.completionProof.resultPackageSha256
                 resultPackageManifestSha256 = [string]$proof.handoffProof.completionProof.resultPackageManifestSha256
+                validationCardGeneratedAt = [string]$proof.handoffProof.completionProof.validationCardGeneratedAt
                 validationCardJsonSha256 = [string]$proof.handoffProof.completionProof.validationCardJsonSha256
                 validationChecksPassed = $proof.handoffProof.completionProof.validationChecksPassed
                 validationChecksTotal = $proof.handoffProof.completionProof.validationChecksTotal
