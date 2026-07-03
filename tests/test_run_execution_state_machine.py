@@ -340,6 +340,21 @@ def test_job_claim_decision_owns_attempt_job_lease_and_event_shape() -> None:
         "sessionId",
         "slotId",
     )
+    assert decision.event_payload(
+        job_id="job_1",
+        attempt_id="att_1",
+        worker_id="worker-a",
+        session_id="session-a",
+        slot_id="slot-a",
+    ) == {
+        "jobId": "job_1",
+        "attemptId": "att_1",
+        "leaseGeneration": 1,
+        "attemptNumber": 1,
+        "workerId": "worker-a",
+        "sessionId": "session-a",
+        "slotId": "slot-a",
+    }
 
 
 @pytest.mark.parametrize("released_lease_state", [None, "expired", "fenced", "failed", "canceled", "cancelled"])

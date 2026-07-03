@@ -298,15 +298,13 @@ def claim_next_run_job(
             state_version=int(run["state_version"]),
             message=claim_decision.event_message,
             request_id=str(run["request_id"]),
-            payload={
-                "jobId": job["job_id"],
-                "attemptId": attempt_id,
-                "leaseGeneration": claim_decision.lease_generation,
-                "attemptNumber": claim_decision.attempt_number,
-                "workerId": normalized_worker_id,
-                "sessionId": normalized_session_id,
-                "slotId": normalized_slot_id,
-            },
+            payload=claim_decision.event_payload(
+                job_id=str(job["job_id"]),
+                attempt_id=attempt_id,
+                worker_id=normalized_worker_id,
+                session_id=normalized_session_id,
+                slot_id=normalized_slot_id,
+            ),
             occurred_at=claimed_at,
         )
         record_resource_allocation(

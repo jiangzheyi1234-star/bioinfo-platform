@@ -91,6 +91,28 @@ class RunJobClaimDecision:
     event_message: str
     event_payload_keys: tuple[str, ...]
 
+    def event_payload(
+        self,
+        *,
+        job_id: str,
+        attempt_id: str,
+        worker_id: str,
+        session_id: str,
+        slot_id: str,
+    ) -> dict[str, str | int]:
+        payload: dict[str, str | int] = {
+            "jobId": str(job_id),
+            "attemptId": str(attempt_id),
+            "leaseGeneration": self.lease_generation,
+            "attemptNumber": self.attempt_number,
+            "workerId": str(worker_id),
+            "sessionId": str(session_id),
+            "slotId": str(slot_id),
+        }
+        if tuple(payload.keys()) != self.event_payload_keys:
+            raise RuntimeError("RUN_JOB_CLAIM_EVENT_PAYLOAD_CONTRACT_MISMATCH")
+        return payload
+
 
 @dataclass(frozen=True)
 class RunAttemptLeaseGuardDecision:
