@@ -55,6 +55,7 @@ class WorkflowFirstRunValidationCardUnavailableError(ValueError):
 async def build_first_run_validation_card_from_request(
     run_id: str,
     *,
+    expected_package_export_id: str | None = None,
     server_id: str | None = None,
 ) -> dict[str, Any]:
     normalized_run_id = str(run_id or "").strip()
@@ -99,7 +100,9 @@ async def build_first_run_validation_card_from_request(
     package_export = _require_result_package(
         exports_data.get("items"),
         result_id=result_id,
+        run_id=normalized_run_id,
         workflow_revision_id=workflow_revision_id,
+        expected_package_export_id=expected_package_export_id,
     )
     report_previews = await _load_first_run_report_previews(
         result_id,
@@ -605,12 +608,16 @@ def _require_result_package(
     items: Any,
     *,
     result_id: str,
+    run_id: str,
     workflow_revision_id: str,
+    expected_package_export_id: str | None = None,
 ) -> dict[str, Any]:
     gate = evaluate_first_run_result_package(
         items,
         result_id=result_id,
+        run_id=run_id,
         workflow_revision_id=workflow_revision_id,
+        expected_package_export_id=expected_package_export_id,
     )
     if gate.state == "ready" and gate.package_export is not None:
         return gate.package_export

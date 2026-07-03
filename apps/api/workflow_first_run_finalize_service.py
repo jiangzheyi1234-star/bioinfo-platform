@@ -8,6 +8,7 @@ from apps.api.execution_query_service import export_result_package_from_request
 from apps.api.models import ApiRequest, ResultPackageExportRequest
 from apps.api.workflow_first_run_report_interpretation import FIRST_RUN_REPORT_TRUST_ASSERTIONS_FAILED
 from apps.api.workflow_first_run_result_package_contract import (
+    FIRST_RUN_RESULT_PACKAGE_EXPORT_MISMATCH,
     is_first_run_result_package_export_required,
     is_first_run_result_package_ledger_mismatch,
 )
@@ -51,10 +52,24 @@ async def finalize_first_run_from_request(
             actor=request.actor or "first-run-finalize",
         ),
     )
+    exported_package = _unwrap_data(exported)
+    exported_package_id = str(exported_package.get("packageExportId") or "").strip()
+    if not exported_package_id:
+        return _blocked(
+            FIRST_RUN_RESULT_PACKAGE_EXPORT_MISMATCH,
+            "first-run finalization did not receive an exported packageExportId",
+            result_package=exported_package,
+        )
     try:
-        card = (await build_first_run_validation_card_from_request(normalized_run_id, server_id=server_id))["data"]
+        card = (
+            await build_first_run_validation_card_from_request(
+                normalized_run_id,
+                expected_package_export_id=exported_package_id,
+                server_id=server_id,
+            )
+        )["data"]
     except WorkflowFirstRunValidationCardUnavailableError as exc:
-        return _blocked(_error_code(exc), str(exc), result_package=_unwrap_data(exported))
+        return _blocked(_error_code(exc), str(exc), result_package=exported_package)
     return _ready(card, package_action="exported")
 
 

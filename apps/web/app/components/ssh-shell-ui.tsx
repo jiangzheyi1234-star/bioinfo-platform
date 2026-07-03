@@ -116,9 +116,8 @@ export function SshSidebar({
   onDisconnect,
   onEnsureRunner,
 }: SshSidebarProps) {
-  const workflowsActive = pathname.startsWith("/workflows");
   const resultsActive = pathname.startsWith("/workflows/results");
-  const workflowCatalogActive = workflowsActive && !resultsActive;
+  const firstRunActive = pathname === "/workflows/first-run" || pathname.startsWith("/workflows/first-run/");
   const remotePreparing = Boolean(status?.connected && (!status.runner || isRunnerPreparing(status)));
   const connecting = connectBusy || Boolean(status?.connecting || status?.auto_connect_in_progress);
   const canRepairRunner = Boolean(status?.connected && !status.runner?.ready);
@@ -222,17 +221,17 @@ export function SshSidebar({
             variant="ghost"
             className={cn(
               "h-8 w-full justify-center px-0 md:justify-start",
-              workflowCatalogActive ? "bg-slate-200/90 text-slate-950" : "text-slate-700 hover:bg-slate-200/60"
+              firstRunActive ? "bg-slate-200/90 text-slate-950" : "text-slate-700 hover:bg-slate-200/60"
             )}
           >
-            <Link href="/workflows" aria-current={workflowCatalogActive ? "page" : undefined}>
+            <Link href="/workflows/first-run" aria-current={firstRunActive ? "page" : undefined}>
               <span className="flex w-8 justify-center md:w-6">
                 <Workflow
                   strokeWidth={1.5}
-                  className={cn("size-4", workflowCatalogActive ? "text-zinc-900" : "text-zinc-500")}
+                  className={cn("size-4", firstRunActive ? "text-zinc-900" : "text-zinc-500")}
                 />
               </span>
-              <span className="sr-only md:not-sr-only">流程和数据库</span>
+              <span className="sr-only md:not-sr-only">首跑向导</span>
             </Link>
           </Button>
           <Button

@@ -36,6 +36,7 @@ def _tools_page_ui_source() -> str:
 def test_first_successful_run_is_default_onboarding_path() -> None:
     root_page = (ROOT / "apps" / "web" / "app" / "page.tsx").read_text(encoding="utf-8")
     tabs = (COMPONENTS / "workflow-workspace-tabs.tsx").read_text(encoding="utf-8")
+    ssh_shell_ui = (COMPONENTS / "ssh-shell-ui.tsx").read_text(encoding="utf-8")
     first_run_route = ROOT / "apps" / "web" / "app" / "workflows" / "first-run" / "page.tsx"
     first_run_page = (FIRST_RUN_COMPONENTS / "workflow-first-run-page.tsx").read_text(encoding="utf-8")
     first_run_api = (FIRST_RUN_API / "workflow-first-run-api.ts").read_text(encoding="utf-8")
@@ -73,6 +74,10 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "WorkflowFirstRunPage" in first_run_route.read_text(encoding="utf-8")
     assert '{ href: "/workflows/first-run", label: "首跑" }' in tabs
     assert '{ href: "/workflows/results", label: "运行记录" }' in tabs
+    assert 'const firstRunActive = pathname === "/workflows/first-run" || pathname.startsWith("/workflows/first-run/")' in ssh_shell_ui
+    assert '<Link href="/workflows/first-run" aria-current={firstRunActive ? "page" : undefined}>' in ssh_shell_ui
+    assert "首跑向导" in ssh_shell_ui
+    assert "流程和数据库" not in ssh_shell_ui
     assert "fetchRunsList" in tabs
     assert "fetchWorkflowResultsList" in tabs
     assert 'export const FIRST_RUN_PIPELINE_ID = "moving-pictures-16s-rulegraph-v1"' in first_run_progress

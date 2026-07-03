@@ -319,6 +319,7 @@ def test_first_run_validation_card_requires_full_downloadable_hashed_package(
     ("package_patch", "expected_code"),
     [
         ({"resultId": "res_other"}, "FIRST_RUN_RESULT_PACKAGE_RESULT_MISMATCH"),
+        ({"runId": "run_other"}, "FIRST_RUN_RESULT_PACKAGE_RUN_MISMATCH"),
         ({"workflowRevisionId": "wfrev_other"}, "FIRST_RUN_RESULT_PACKAGE_REVISION_MISMATCH"),
     ],
 )
@@ -333,6 +334,18 @@ def test_first_run_validation_card_rejects_mismatched_result_package(
 
     with pytest.raises(WorkflowFirstRunValidationCardUnavailableError, match=expected_code):
         asyncio.run(build_first_run_validation_card_from_request("run_first"))
+
+
+def test_first_run_validation_card_skips_stale_package_before_matching_export(monkeypatch) -> None:
+    stale = _package("rpex_stale")
+    stale["runId"] = "run_other"
+    valid = _package("rpex_full")
+    _patch_first_run_sources(monkeypatch, exports=[stale, valid])
+
+    card = asyncio.run(build_first_run_validation_card_from_request("run_first", server_id="srv_first"))["data"]
+
+    assert card["resultPackage"]["packageExportId"] == "rpex_full"
+    assert card["pilotHandoff"]["evidenceBundle"] == _expected_evidence_bundle()
 
 
 @pytest.mark.parametrize(
@@ -520,6 +533,34 @@ def test_first_run_finalize_exports_full_package_when_missing(monkeypatch) -> No
     assert result["resultPackage"]["packageExportId"] == "rpex_finalized"
     assert result["validationCard"]["resultPackage"]["packageExportId"] == "rpex_finalized"
     assert result["evidenceBundle"]["requiredFiles"][0]["packageExportId"] == "rpex_finalized"
+
+
+def test_first_run_finalize_binds_validation_card_to_exported_package(monkeypatch) -> None:
+    exports: list[dict[str, Any]] = []
+    _patch_first_run_sources(monkeypatch, exports=exports)
+
+    async def fake_export(result_id: str, request) -> dict[str, Any]:
+        stale = _package("rpex_stale", sha256="1" * 64, manifest_sha256="2" * 64)
+        exported = _package("rpex_finalized", sha256="3" * 64, manifest_sha256="4" * 64)
+        exports.extend([stale, exported])
+        return {"data": exported}
+
+    monkeypatch.setattr("apps.api.workflow_first_run_finalize_service.export_result_package_from_request", fake_export)
+
+    result = asyncio.run(
+        finalize_first_run_from_request(
+            "run_first",
+            WorkflowFirstRunFinalizeRequest(serverId="srv_first", actor="operator"),
+        )
+    )["data"]
+
+    assert result["status"] == "ready"
+    assert result["packageAction"] == "exported"
+    assert result["resultPackage"]["packageExportId"] == "rpex_finalized"
+    assert result["resultPackage"]["sha256"] == "3" * 64
+    assert result["validationCard"]["resultPackage"]["packageExportId"] == "rpex_finalized"
+    assert result["evidenceBundle"]["requiredFiles"][0]["packageExportId"] == "rpex_finalized"
+    assert result["evidenceBundle"]["requiredFiles"][0]["sha256"] == "3" * 64
 
 
 def test_first_run_finalize_returns_typed_blocked_action(monkeypatch) -> None:

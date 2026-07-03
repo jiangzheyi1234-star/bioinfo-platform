@@ -11,13 +11,16 @@ FIRST_RUN_FULL_RESULT_PACKAGE_REQUIRED = "FIRST_RUN_FULL_RESULT_PACKAGE_REQUIRED
 FIRST_RUN_RESULT_PACKAGE_DOWNLOAD_REQUIRED = "FIRST_RUN_RESULT_PACKAGE_DOWNLOAD_REQUIRED"
 FIRST_RUN_RESULT_PACKAGE_HASH_REQUIRED = "FIRST_RUN_RESULT_PACKAGE_HASH_REQUIRED"
 FIRST_RUN_RESULT_PACKAGE_REQUIRED = "FIRST_RUN_RESULT_PACKAGE_REQUIRED"
+FIRST_RUN_RESULT_PACKAGE_EXPORT_MISMATCH = "FIRST_RUN_RESULT_PACKAGE_EXPORT_MISMATCH"
 FIRST_RUN_RESULT_PACKAGE_RESULT_MISMATCH = "FIRST_RUN_RESULT_PACKAGE_RESULT_MISMATCH"
+FIRST_RUN_RESULT_PACKAGE_RUN_MISMATCH = "FIRST_RUN_RESULT_PACKAGE_RUN_MISMATCH"
 FIRST_RUN_RESULT_PACKAGE_REVISION_MISMATCH = "FIRST_RUN_RESULT_PACKAGE_REVISION_MISMATCH"
 
 FIRST_RUN_RESULT_PACKAGE_EXPORT_REQUIRED_CODES = frozenset(
     {
         FIRST_RUN_FULL_RESULT_PACKAGE_REQUIRED,
         FIRST_RUN_RESULT_PACKAGE_DOWNLOAD_REQUIRED,
+        FIRST_RUN_RESULT_PACKAGE_EXPORT_MISMATCH,
         FIRST_RUN_RESULT_PACKAGE_HASH_REQUIRED,
         FIRST_RUN_RESULT_PACKAGE_REQUIRED,
     }
@@ -25,6 +28,7 @@ FIRST_RUN_RESULT_PACKAGE_EXPORT_REQUIRED_CODES = frozenset(
 FIRST_RUN_RESULT_PACKAGE_LEDGER_MISMATCH_CODES = frozenset(
     {
         FIRST_RUN_RESULT_PACKAGE_RESULT_MISMATCH,
+        FIRST_RUN_RESULT_PACKAGE_RUN_MISMATCH,
         FIRST_RUN_RESULT_PACKAGE_REVISION_MISMATCH,
     }
 )
@@ -47,7 +51,9 @@ def evaluate_first_run_result_package(
     items: Any,
     *,
     result_id: str,
+    run_id: str,
     workflow_revision_id: str,
+    expected_package_export_id: str | None = None,
 ) -> FirstRunResultPackageGate:
     exports = [item for item in _mapping_items(items) if item.get("lifecycleState") == "active"]
     if not exports:
@@ -75,23 +81,47 @@ def evaluate_first_run_result_package(
             FIRST_RUN_FULL_RESULT_PACKAGE_REQUIRED,
             "validation card requires a full result package, not metadata-only evidence",
         )
-    package_export = full_downloads[0]
-    if not package_export.get("sha256") or not package_export.get("manifestSha256"):
+    expected_id = str(expected_package_export_id or "").strip()
+    if expected_id:
+        full_downloads = [
+            item
+            for item in full_downloads
+            if str(item.get("packageExportId") or "").strip() == expected_id
+        ]
+        if not full_downloads:
+            return _export_required(
+                FIRST_RUN_RESULT_PACKAGE_EXPORT_MISMATCH,
+                "validation card requires the package exported by first-run finalization",
+            )
+    hashed = [item for item in full_downloads if item.get("sha256") and item.get("manifestSha256")]
+    if not hashed:
         return _export_required(
             FIRST_RUN_RESULT_PACKAGE_HASH_REQUIRED,
             "result package sha256 and manifestSha256 are required",
         )
-    if str(package_export.get("resultId") or "").strip() != result_id:
+    result_matches = [item for item in hashed if str(item.get("resultId") or "").strip() == result_id]
+    if not result_matches:
         return _ledger_mismatch(
             FIRST_RUN_RESULT_PACKAGE_RESULT_MISMATCH,
             "result package does not match the first-run result",
         )
-    if str(package_export.get("workflowRevisionId") or "").strip() != workflow_revision_id:
+    run_matches = [item for item in result_matches if str(item.get("runId") or "").strip() == run_id]
+    if not run_matches:
+        return _ledger_mismatch(
+            FIRST_RUN_RESULT_PACKAGE_RUN_MISMATCH,
+            "result package does not match the first-run run",
+        )
+    revision_matches = [
+        item
+        for item in run_matches
+        if str(item.get("workflowRevisionId") or "").strip() == workflow_revision_id
+    ]
+    if not revision_matches:
         return _ledger_mismatch(
             FIRST_RUN_RESULT_PACKAGE_REVISION_MISMATCH,
             "result package does not match the first-run WorkflowRevision",
         )
-    return FirstRunResultPackageGate(state="ready", package_export=package_export)
+    return FirstRunResultPackageGate(state="ready", package_export=revision_matches[0])
 
 
 def safe_first_run_result_package(item: dict[str, Any]) -> dict[str, Any]:
