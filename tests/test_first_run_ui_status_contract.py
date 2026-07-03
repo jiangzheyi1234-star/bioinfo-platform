@@ -15,13 +15,14 @@ def test_first_run_ui_steps_and_report_are_status_contract_driven() -> None:
     first_run_progress = (FIRST_RUN_DOMAIN / "first-run-progress.ts").read_text(encoding="utf-8")
     first_run_types = (FIRST_RUN_DOMAIN / "first-run-types.ts").read_text(encoding="utf-8")
 
+    assert 'import { firstRunCompletionProofReady } from "./first-run-completion-proof"' in first_run_progress
     assert 'import type { FirstRunStatus } from "./first-run-types"' in first_run_progress
     assert "reportEvidence?: FirstRunStatusEvidence[\"report\"]" in first_run_report
     assert "ready: reportEvidence?.ready === true" in first_run_report
     assert 'run?.status === "completed" && outputs.every' not in first_run_report
     assert "firstRunStepIdForStage" in first_run_progress
     assert 'stage === "inspect_failed_run"' in first_run_progress
-    assert "const completionProofReady = evidence?.completionProof?.ready === true" in first_run_progress
+    assert "const completionProofReady = firstRunCompletionProofReady(status)" in first_run_progress
     assert "completionProofReady || (hasStatus ? evidence?.sampleCache?.status === \"ready\" : input.sampleReady)" in first_run_progress
     assert "completionProofReady || (hasStatus ? Boolean(statusRun?.runId) : input.runSubmitted)" in first_run_progress
     assert "completionProofReady || (hasStatus ? evidence?.server?.connected === true : input.serverConnected)" in first_run_progress
@@ -57,13 +58,16 @@ def test_first_run_validation_and_trust_summary_are_status_contract_driven() -> 
     first_run_validation = (FIRST_RUN_COMPONENTS / "workflow-first-run-validation.tsx").read_text(encoding="utf-8")
 
     assert "firstRunStatus={firstRunStatusSnapshot || null}" in first_run_page
+    assert 'import { activeFirstRunCompletionProof } from "../_domain/first-run-completion-proof"' in first_run_validation
+    assert 'import { activeFirstRunCompletionProof } from "../_domain/first-run-completion-proof"' in first_run_completion
+    assert 'import { activeFirstRunCompletionProof } from "../_domain/first-run-completion-proof"' in first_run_trust_summary
     assert "firstRunStatus: FirstRunStatus | null" in first_run_completion
     assert "firstRunStatus?: FirstRunStatus | null" not in first_run_completion
     assert "status: FirstRunStatus | null" in first_run_trust_summary
     assert "status?: FirstRunStatus | null" not in first_run_trust_summary
     assert "const validationEvidence = firstRunStatus?.evidence?.validation" in first_run_validation
     assert "const resultPackageEvidence = firstRunStatus?.evidence?.resultPackage" in first_run_validation
-    assert "const completionProof = firstRunStatus?.evidence?.completionProof" in first_run_validation
+    assert "const completionProof = activeFirstRunCompletionProof(firstRunStatus)" in first_run_validation
     assert "const statusRun = firstRunStatus?.evidence?.run || firstRunStatus?.latestEligibleRun || null" in first_run_validation
     assert 'const effectiveRunId = firstRunStatus ? statusRun?.runId || completionProof?.runId || "" : run?.runId || ""' in first_run_validation
     assert 'const effectiveRunStatus = firstRunStatus ? statusRun?.status || "" : run?.status || ""' in first_run_validation
@@ -78,7 +82,7 @@ def test_first_run_validation_and_trust_summary_are_status_contract_driven() -> 
     assert "validationEvidence?.validationChecksPassed ?? completionProof?.validationChecksPassed" in first_run_validation
     assert "const validationPassed = validationEvidence?.ready === true || completionProof?.ready === true" in first_run_validation
     assert "data-validation-passed={validationPassed ? \"true\" : \"false\"}" in first_run_validation
-    assert "const completionProof = evidence?.completionProof" in first_run_trust_summary
+    assert "const completionProof = activeFirstRunCompletionProof(status)" in first_run_trust_summary
     assert "evidence?.validation?.ready === true || completionProof?.ready === true" in first_run_trust_summary
     assert "evidence?.sampleCache?.status === \"ready\"" in first_run_trust_summary
     assert "evidence?.report?.ready === true" in first_run_trust_summary
@@ -92,7 +96,7 @@ def test_first_run_validation_and_trust_summary_are_status_contract_driven() -> 
     assert "|| packageExport?.manifestSha256" not in first_run_trust_summary
     assert "latestPackage?.sha256 || resultPackageEvidence?.sha256" not in first_run_completion
     assert "latestPackage?.manifestSha256 || resultPackageEvidence?.manifestSha256" not in first_run_completion
-    assert "const completionProof = firstRunStatus?.evidence?.completionProof" in first_run_completion
+    assert "const completionProof = activeFirstRunCompletionProof(firstRunStatus)" in first_run_completion
     assert "const statusRun = firstRunStatus?.evidence?.run || firstRunStatus?.latestEligibleRun || null" in first_run_completion
     assert 'const effectiveRunId = firstRunStatus ? statusRun?.runId || completionProof?.runId || "" : run?.runId || ""' in first_run_completion
     assert "const effectiveResultId = firstRunStatus ? statusRun?.resultId || completionProof?.resultId || resultId : resultId" in first_run_completion
@@ -130,7 +134,8 @@ def test_first_run_conductor_uses_status_contract_before_local_run_hints() -> No
     assert "firstRunStatus: FirstRunStatus | null" in first_run_conductor
     assert "statusAction?: FirstRunNextAction | null" not in first_run_conductor
     assert "const status = input.firstRunStatus" in first_run_conductor
-    assert "const completionProofReady = evidence?.completionProof?.ready === true" in first_run_conductor
+    assert 'import { firstRunCompletionProofReady } from "../_domain/first-run-completion-proof"' in first_run_conductor
+    assert "const completionProofReady = firstRunCompletionProofReady(status)" in first_run_conductor
     assert "if (completionProofReady)" in first_run_conductor
     assert 'code: "COMPLETE"' in first_run_conductor
     assert "hasStatus ? evidence?.sampleCache?.status === \"ready\" : input.sampleReady" in first_run_conductor
@@ -212,6 +217,8 @@ def test_first_run_status_hook_polls_submitted_status_until_settled() -> None:
 def test_first_run_evidence_actions_use_status_run_id_before_local_run() -> None:
     first_run_evidence_state = (FIRST_RUN_ROUTE / "_state" / "use-first-run-evidence.ts").read_text(encoding="utf-8")
 
+    assert 'import { activeFirstRunCompletionProof } from "../_domain/first-run-completion-proof"' in first_run_evidence_state
+    assert "const completionProof = activeFirstRunCompletionProof(status)" in first_run_evidence_state
     assert 'const firstRunRunId = status ? statusRun?.runId || "" : run?.runId || ""' in first_run_evidence_state
     assert 'const runStatus = status ? statusRun?.status || "" : run?.status || ""' in first_run_evidence_state
     assert "const validationEligible = validationReady" in first_run_evidence_state
@@ -223,6 +230,21 @@ def test_first_run_evidence_actions_use_status_run_id_before_local_run() -> None
     assert "fetchFirstRunValidationCard(run.runId" not in first_run_evidence_state
     assert "finalizeFirstRun(run.runId" not in first_run_evidence_state
     assert "validationReady && Boolean(workflowRevisionId)" not in first_run_evidence_state
+
+
+def test_first_run_completion_proof_only_drives_current_matching_run() -> None:
+    completion_proof = (FIRST_RUN_DOMAIN / "first-run-completion-proof.ts").read_text(encoding="utf-8")
+    first_run_page = (FIRST_RUN_COMPONENTS / "workflow-first-run-page.tsx").read_text(encoding="utf-8")
+
+    assert "export function activeFirstRunCompletionProof" in completion_proof
+    assert "const statusRunId = normalizedProofValue(status?.evidence?.run?.runId || status?.latestEligibleRun?.runId)" in completion_proof
+    assert "if (statusRunId && statusRunId !== proofRunId) return undefined" in completion_proof
+    assert "if (proofServerId && statusServerId && proofServerId !== statusServerId) return undefined" in completion_proof
+    assert "if (statusRunId === proofRunId) return proof" in completion_proof
+    assert 'status?.status === "ready"' not in completion_proof
+    assert "export function firstRunCompletionProofReady" in completion_proof
+    assert 'import { activeFirstRunCompletionProof } from "../_domain/first-run-completion-proof"' in first_run_page
+    assert "const statusCompletionProof = activeFirstRunCompletionProof(firstRunStatusSnapshot)" in first_run_page
 
 
 def test_first_run_result_package_uses_selected_server_boundary() -> None:

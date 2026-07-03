@@ -6,6 +6,7 @@ import { ArrowRight, CheckCircle2, Loader2, Play, RefreshCw, Server, ShieldCheck
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { workflowErrorMessage } from "@/app/components/workflows-page-model";
+import { firstRunCompletionProofReady } from "../_domain/first-run-completion-proof";
 import type { FirstRunNextAction, FirstRunStatus } from "../_domain/first-run-types";
 
 export type FirstRunContinueActionCode =
@@ -42,7 +43,7 @@ export type FirstRunContinueActionInput = {
 export function buildFirstRunContinueAction(input: FirstRunContinueActionInput): FirstRunContinueAction {
   const status = input.firstRunStatus;
   const evidence = status?.evidence;
-  const completionProofReady = evidence?.completionProof?.ready === true;
+  const completionProofReady = firstRunCompletionProofReady(status);
   const statusRun = evidence?.run || status?.latestEligibleRun || null;
   const hasStatus = Boolean(status);
   const sampleReady = hasStatus ? evidence?.sampleCache?.status === "ready" : input.sampleReady;

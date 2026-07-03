@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import type { FirstRunNextAction, FirstRunStatus, FirstRunValidationCard } from "../_domain/first-run-types";
+import { activeFirstRunCompletionProof } from "../_domain/first-run-completion-proof";
 import { formatBytes } from "../_domain/first-run-display";
 import {
   firstRunEvidenceBundleFileByRole,
@@ -184,7 +185,7 @@ export function ValidationCard({
   const validationJsonHref = firstRunEvidenceBundleFileDownloadHref(validationJsonFile);
   const validationEvidence = firstRunStatus?.evidence?.validation;
   const resultPackageEvidence = firstRunStatus?.evidence?.resultPackage;
-  const completionProof = firstRunStatus?.evidence?.completionProof;
+  const completionProof = activeFirstRunCompletionProof(firstRunStatus);
   const statusRun = firstRunStatus?.evidence?.run || firstRunStatus?.latestEligibleRun || null;
   const effectiveRunId = firstRunStatus ? statusRun?.runId || completionProof?.runId || "" : run?.runId || "";
   const effectiveRunStatus = firstRunStatus ? statusRun?.status || "" : run?.status || "";

@@ -5,6 +5,7 @@ import type {
   WorkflowRunDetail,
   WorkflowServer,
 } from "@/app/components/workflows-page-model";
+import { firstRunCompletionProofReady } from "./first-run-completion-proof";
 import type { FirstRunStatus } from "./first-run-types";
 
 export const FIRST_RUN_PIPELINE_ID = "moving-pictures-16s-rulegraph-v1";
@@ -29,7 +30,7 @@ export function buildFirstRunSteps(input: {
 }): FirstRunStep[] {
   const status = input.firstRunStatus;
   const evidence = status?.evidence;
-  const completionProofReady = evidence?.completionProof?.ready === true;
+  const completionProofReady = firstRunCompletionProofReady(status);
   const statusRun = evidence?.run || status?.latestEligibleRun || null;
   const hasStatus = Boolean(status);
   const base = [
@@ -188,7 +189,7 @@ export function resultPackageDisabledReason({
   workflowRevisionId: string;
 }) {
   if (firstRunStatus) {
-    if (firstRunStatus.evidence?.completionProof?.ready === true) return "";
+    if (firstRunCompletionProofReady(firstRunStatus)) return "";
     if (firstRunStatus.evidence?.resultPackage?.ready === true) return "";
     const action = firstRunStatus.nextAction;
     if (action?.code === "FINALIZE_FIRST_RUN") return "";

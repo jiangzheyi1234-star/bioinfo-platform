@@ -6,6 +6,7 @@ import {
   fetchFirstRunValidationCard,
   finalizeFirstRun,
 } from "../_api/workflow-first-run-api";
+import { activeFirstRunCompletionProof } from "../_domain/first-run-completion-proof";
 import { firstRunResultPackageReady, mergePackageExport } from "../_domain/first-run-package";
 import { workflowRevisionIdFor } from "../_domain/first-run-progress";
 import type {
@@ -58,7 +59,7 @@ export function useFirstRunEvidence({
 
   const statusRun = status?.evidence?.run || status?.latestEligibleRun || null;
   const statusPackageEvidence = status?.evidence?.resultPackage;
-  const completionProof = status?.evidence?.completionProof;
+  const completionProof = activeFirstRunCompletionProof(status);
   const statusPackageExportId = statusPackageEvidence?.packageExportId || "";
   const readyPackage = useMemo(() => {
     if (statusPackageExportId) {

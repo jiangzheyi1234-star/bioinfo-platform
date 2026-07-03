@@ -172,7 +172,8 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "requestLocalApiJson" not in first_run_page
     assert "export function buildFirstRunContinueAction" in first_run_conductor
     assert "export function WorkflowFirstRunConductorPanel" in first_run_conductor
-    assert "const completionProofReady = evidence?.completionProof?.ready === true" in first_run_conductor
+    assert 'import { firstRunCompletionProofReady } from "../_domain/first-run-completion-proof"' in first_run_conductor
+    assert "const completionProofReady = firstRunCompletionProofReady(status)" in first_run_conductor
     assert "if (completionProofReady)" in first_run_conductor
     assert 'data-testid="first-run-conductor"' in first_run_conductor
     assert 'data-first-run-next-action={action.code}' in first_run_conductor
@@ -273,11 +274,13 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "downloadFirstRunHandoffManifest" not in first_run_api
     assert "packageExports.find((item) => item.packageExportId === statusPackageExportId)" in first_run_evidence_state
     assert "const latestPackage = readyPackage || (status ? statusPackageFallback : packageExports[0])" in first_run_evidence_state
-    assert "const completionProof = status?.evidence?.completionProof" in first_run_evidence_state
+    assert 'import { activeFirstRunCompletionProof } from "../_domain/first-run-completion-proof"' in first_run_evidence_state
+    assert "const completionProof = activeFirstRunCompletionProof(status)" in first_run_evidence_state
     assert "const packageReady = status?.evidence?.resultPackage?.ready === true || completionProof?.ready === true" in first_run_evidence_state
-    assert "const completionProofReady = evidence?.completionProof?.ready === true" in first_run_progress
+    assert 'import { firstRunCompletionProofReady } from "./first-run-completion-proof"' in first_run_progress
+    assert "const completionProofReady = firstRunCompletionProofReady(status)" in first_run_progress
     assert "completionProofReady || evidence?.resultPackage?.ready === true" in first_run_progress
-    assert "firstRunStatus.evidence?.completionProof?.ready === true" in first_run_progress
+    assert "firstRunCompletionProofReady(firstRunStatus)" in first_run_progress
     assert "const validationEligible = firstRunEvidence.validationEligible" in first_run_page
     assert "const validationEligible = validationReady" in first_run_evidence_state
     assert 'status?.evidence?.validation?.ready === true || completionProof?.ready === true' in first_run_evidence_state

@@ -45,6 +45,7 @@ import {
   type FirstRunStep,
   type FirstRunStepState,
 } from "../_domain/first-run-progress";
+import { activeFirstRunCompletionProof } from "../_domain/first-run-completion-proof";
 import { useFirstRunEvidence } from "../_state/use-first-run-evidence";
 import { useFirstRunStatus } from "../_state/use-first-run-status";
 
@@ -78,7 +79,7 @@ export function WorkflowFirstRunPage() {
   const statusServerEvidence = firstRunStatusSnapshot?.evidence?.server;
   const statusExecutionEvidence = firstRunStatusSnapshot?.evidence?.execution;
   const statusWorkflowEvidence = firstRunStatusSnapshot?.evidence?.workflow;
-  const statusCompletionProof = firstRunStatusSnapshot?.evidence?.completionProof;
+  const statusCompletionProof = activeFirstRunCompletionProof(firstRunStatusSnapshot);
   const statusRun = firstRunStatusSnapshot?.evidence?.run || firstRunStatusSnapshot?.latestEligibleRun || null;
   const resultId = result?.resultId || statusRun?.resultId || statusCompletionProof?.resultId || (run?.runId ? `res_${run.runId}` : "");
   const artifacts = result?.artifacts || [];

@@ -4,6 +4,7 @@ import { CheckCircle2, ClipboardCheck, Cpu, Database, FileArchive, ShieldCheck, 
 
 import { cn } from "@/lib/utils";
 
+import { activeFirstRunCompletionProof } from "../_domain/first-run-completion-proof";
 import type { FirstRunStatus } from "../_domain/first-run-types";
 
 type TrustTone = "success" | "waiting";
@@ -15,7 +16,7 @@ export function FirstRunTrustSummary({
 }) {
   const evidence = status?.evidence;
   const resultPackage = evidence?.resultPackage;
-  const completionProof = evidence?.completionProof;
+  const completionProof = activeFirstRunCompletionProof(status);
   const passedChecks = evidence?.validation?.validationChecksPassed ?? completionProof?.validationChecksPassed;
   const totalChecks = evidence?.validation?.validationChecksTotal ?? completionProof?.validationChecksTotal;
   const summaryReady = evidence?.validation?.ready === true || completionProof?.ready === true;
