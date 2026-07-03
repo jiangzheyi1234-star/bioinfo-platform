@@ -28,6 +28,7 @@ from apps.api.workflow_first_run_service import (
 
 
 FIRST_RUN_FINALIZATION_SCHEMA_VERSION = "h2ometa.first-run.finalization.v1"
+FIRST_RUN_COMPLETION_PROOF_REQUIRED = "FIRST_RUN_COMPLETION_PROOF_REQUIRED"
 
 
 class WorkflowFirstRunFinalizeRequest(ApiRequest):
@@ -149,6 +150,9 @@ def first_run_next_action(code: str, detail: str) -> dict[str, str]:
     elif code == "FIRST_RUN_PILOT_HANDOFF_REQUIRED" or code == "FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED":
         target = "/workflows/first-run#evidence-bundle"
         label = "重新生成首跑验证卡"
+    elif code == FIRST_RUN_COMPLETION_PROOF_REQUIRED:
+        target = "/workflows/first-run#result-package"
+        label = "完成首跑并保存证明"
     elif code == FIRST_RUN_COMPLETION_PROOF_INVALID:
         target = "/workflows/first-run#evidence-bundle"
         label = "重新生成首跑完成证明"

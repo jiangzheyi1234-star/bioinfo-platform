@@ -14,7 +14,7 @@ from apps.api.workflow_first_run_completion_proof_contract import (
     first_run_completion_proof_evidence,
     latest_first_run_completion_proof_evidence,
 )
-from apps.api.workflow_first_run_finalize_service import first_run_next_action
+from apps.api.workflow_first_run_finalize_service import FIRST_RUN_COMPLETION_PROOF_REQUIRED, first_run_next_action
 from apps.api.workflow_first_run_report_interpretation import FIRST_RUN_REPORT_TRUST_ASSERTIONS_FAILED
 from apps.api.workflow_first_run_result_package_contract import (
     is_first_run_result_package_blocker,
@@ -286,6 +286,40 @@ async def build_first_run_status_from_request(
             report=public_report_evidence(report) if report else report_evidence(False, code),
             result_package=_result_package_evidence(False, code),
             validation={"ready": False, "blockedCode": code, "detail": detail},
+            completion_proof=completion_proof,
+        )
+
+    if completion_proof.get("ready") is not True:
+        proof_blocker = str(completion_proof.get("blockedCode") or "").strip()
+        code = proof_blocker or FIRST_RUN_COMPLETION_PROOF_REQUIRED
+        detail = str(completion_proof.get("detail") or "").strip() or "首跑验证卡、结果包和证据包均已就绪；请完成首跑以写入本地完成证明。"
+        action = first_run_next_action(code, detail)
+        action_code = "REFRESH_RUN" if proof_blocker == "FIRST_RUN_COMPLETION_PROOF_STORE_UNREADABLE" else "FINALIZE_FIRST_RUN"
+        return _status_response(
+            status="blocked",
+            stage="validation_ready" if action_code == "REFRESH_RUN" else "export_result_package",
+            next_action=_blocked_action(
+                action_code,
+                code,
+                action["label"],
+                action["detail"],
+                _anchor_target(action["target"]),
+            ),
+            sample_cache=sample_cache,
+            latest_eligible_run=latest_eligible_run,
+            ignored_latest_run=ignored_latest_run,
+            run=run_summary,
+            server_id=normalized_server_id,
+            server=server_evidence,
+            execution=execution_evidence,
+            workflow=workflow_evidence,
+            report=ready_report_evidence(card),
+            result_package=_ready_package_evidence(card),
+            validation={
+                "ready": False,
+                "blockedCode": code,
+                "detail": detail,
+            },
             completion_proof=completion_proof,
         )
 

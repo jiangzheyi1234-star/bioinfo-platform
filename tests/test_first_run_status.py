@@ -7,9 +7,12 @@ from typing import Any
 import pytest
 
 from apps.api.workflow_first_run_finalize_service import (
+    FIRST_RUN_COMPLETION_PROOF_REQUIRED,
     WorkflowFirstRunFinalizeRequest,
     finalize_first_run_from_request,
 )
+from apps.api.workflow_first_run_completion_proof_contract import FIRST_RUN_COMPLETION_PROOF_STORE_UNREADABLE
+from apps.api.workflow_first_run_completion_store import FirstRunCompletionProofStoreError
 from apps.api.workflow_first_run_status_service import build_first_run_status_from_request
 from apps.api.workflow_sample_data_service import MOVING_PICTURES_PIPELINE_ID
 
@@ -23,7 +26,7 @@ from tests.test_first_run_validation_card import (
 )
 
 
-def test_first_run_status_reports_ready_official_sample_run_and_ignores_newer_noneligible_run(monkeypatch) -> None:
+def test_first_run_status_requires_finalize_to_persist_ready_official_sample_proof(monkeypatch) -> None:
     _patch_first_run_sources(monkeypatch)
     _patch_status_sources(
         monkeypatch,
@@ -39,9 +42,15 @@ def test_first_run_status_reports_ready_official_sample_run_and_ignores_newer_no
     assert result["scenario"]["pipelineId"] == MOVING_PICTURES_PIPELINE_ID
     assert result["scenario"]["expectedSampleRoles"] == ["metadata", "barcodes", "sequences"]
     assert result["serverId"] == "srv_first"
-    assert result["status"] == "ready"
-    assert result["stage"] == "validation_ready"
-    assert result["nextAction"]["code"] == "COMPLETE"
+    assert result["status"] == "blocked"
+    assert result["stage"] == "export_result_package"
+    assert result["nextAction"] == {
+        "code": "FINALIZE_FIRST_RUN",
+        "blockedCode": FIRST_RUN_COMPLETION_PROOF_REQUIRED,
+        "detail": "首跑验证卡、结果包和证据包均已就绪；请完成首跑以写入本地完成证明。",
+        "label": "完成首跑并保存证明",
+        "target": "#result-package",
+    }
     assert result["latestEligibleRun"]["runId"] == "run_first"
     assert result["latestEligibleRun"]["serverId"] == "srv_first"
     assert result["ignoredLatestRun"]["runId"] == "run_manual"
@@ -81,13 +90,39 @@ def test_first_run_status_reports_ready_official_sample_run_and_ignores_newer_no
         "href": "/api/v1/results/res_run_first/exports/rpex_full/download",
         "filename": "rpex_full.zip",
     }
-    assert result["evidence"]["validation"]["ready"] is True
-    assert result["evidence"]["validation"]["generatedAt"] == "2026-06-29T00:00:00Z"
-    assert result["evidence"]["validation"]["packageExportId"] == "rpex_full"
-    assert result["evidence"]["validation"]["packageEvidenceId"] == "ev_export"
-    assert result["evidence"]["validation"]["validationChecksPassed"] == 10
-    assert result["evidence"]["validation"]["evidenceBundleReady"] is True
-    assert result["evidence"]["validation"]["evidenceBundleId"] == "res_run_first.first-run-evidence"
+    assert result["evidence"]["validation"] == {
+        "ready": False,
+        "blockedCode": FIRST_RUN_COMPLETION_PROOF_REQUIRED,
+        "detail": "首跑验证卡、结果包和证据包均已就绪；请完成首跑以写入本地完成证明。",
+    }
+    assert result["evidence"]["completionProof"] == {"ready": False}
+
+
+def test_first_run_status_preserves_completion_proof_store_blocker_after_live_validation_ready(monkeypatch) -> None:
+    def fail_latest_completion_proof(*, server_id: str | None = None, run_id: str | None = None) -> dict[str, Any]:
+        assert server_id == "srv_first"
+        assert run_id == ""
+        raise FirstRunCompletionProofStoreError("FIRST_RUN_COMPLETION_PROOF_STORE_INVALID_JSON")
+
+    _patch_first_run_sources(monkeypatch)
+    _patch_status_sources(monkeypatch, runs=[_run()])
+    monkeypatch.setattr(
+        "apps.api.workflow_first_run_completion_proof_contract.latest_first_run_completion_proof",
+        fail_latest_completion_proof,
+    )
+
+    result = asyncio.run(build_first_run_status_from_request(server_id="srv_first"))["data"]
+
+    assert result["status"] == "blocked"
+    assert result["stage"] == "validation_ready"
+    assert result["nextAction"]["code"] == "REFRESH_RUN"
+    assert result["nextAction"]["blockedCode"] == FIRST_RUN_COMPLETION_PROOF_STORE_UNREADABLE
+    assert result["nextAction"]["label"] == "修复本地首跑证明索引"
+    assert result["evidence"]["report"]["ready"] is True
+    assert result["evidence"]["resultPackage"]["ready"] is True
+    assert result["evidence"]["validation"]["blockedCode"] == FIRST_RUN_COMPLETION_PROOF_STORE_UNREADABLE
+    assert result["evidence"]["completionProof"]["blockedCode"] == FIRST_RUN_COMPLETION_PROOF_STORE_UNREADABLE
+    assert "FIRST_RUN_COMPLETION_PROOF_STORE_INVALID_JSON" in result["evidence"]["completionProof"]["detail"]
 
 
 def test_first_run_status_blocks_until_official_sample_run_exists(monkeypatch) -> None:
