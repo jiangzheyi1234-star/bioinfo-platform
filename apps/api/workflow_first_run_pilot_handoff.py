@@ -166,7 +166,8 @@ def _backup_restore_handoff() -> dict[str, Any]:
         "mode": "read-only-plan",
         "planCommand": (
             "scripts\\single_user_pilot_backup_plan.ps1 "
-            "-RemoteRunnerSharedRoot \"<remote-shared-root>\" -RequireExistingState"
+            "-RemoteRunnerSharedRoot \"<remote-shared-root>\" "
+            "-FirstRunProofPath \"<first-run-proof.json>\" -RequireExistingState"
         ),
         "restoreProofCommand": "scripts\\first_run_pilot_check.ps1 -RunFirstSuccessfulRun -RequireFinalizationReady",
         "runbookPath": "docs/single-user-pilot-backup-restore.md",

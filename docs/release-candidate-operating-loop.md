@@ -86,7 +86,7 @@ This selects a ready server, proves `/execution-diagnostics` readiness before su
 Before a lab pilot is handed off, record the backup and restore plan for the exact local app profile and remote runner state root:
 
 ```powershell
-scripts\single_user_pilot_backup_plan.ps1 -RemoteRunnerSharedRoot "/home/<user>/.h2ometa/runner/shared" -RequireExistingState
+scripts\single_user_pilot_backup_plan.ps1 -RemoteRunnerSharedRoot "/home/<user>/.h2ometa/runner/shared" -FirstRunProofPath ".\release-evidence\first-run-pilot-proof.json" -RequireExistingState
 ```
 
 The script is intentionally read-only. It emits `h2ometa.single-user-pilot-backup-plan.v1` JSON that names the local `%APPDATA%\H2OMeta` control-plane state, the operator-supplied remote runner `shared` root, excluded caches, secret rebind items, and the required restore drill. It does not copy files, open SSH, or compress archives because the current single-user pilot requires an explicit operator stop window or a runner-provided online backup path before copying SQLite-backed state. The detailed runbook is `docs/single-user-pilot-backup-restore.md`.

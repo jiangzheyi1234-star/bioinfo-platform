@@ -418,7 +418,7 @@ function Assert-FirstRunPilotHandoff {
     if ($backup.requiresIsolatedRestore -ne $true -or $backup.requiresManualSecretRebind -ne $true) {
         Fail-Pilot "backupRestore handoff must require isolated restore and manual secret rebind"
     }
-    $expectedBackupPlanCommand = 'scripts\single_user_pilot_backup_plan.ps1 -RemoteRunnerSharedRoot "<remote-shared-root>" -RequireExistingState'
+    $expectedBackupPlanCommand = 'scripts\single_user_pilot_backup_plan.ps1 -RemoteRunnerSharedRoot "<remote-shared-root>" -FirstRunProofPath "<first-run-proof.json>" -RequireExistingState'
     if ($backup.planCommand -ne $expectedBackupPlanCommand) {
         Fail-Pilot "backupRestore handoff must include the read-only backup plan command"
     }

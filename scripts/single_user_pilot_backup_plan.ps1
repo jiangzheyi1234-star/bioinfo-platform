@@ -3,6 +3,7 @@ param(
     [string]$LocalAppDataRoot = "",
     [string]$DevCacheRoot = "",
     [string]$RemoteRunnerSharedRoot = "",
+    [string]$FirstRunProofPath = "",
     [switch]$RequireExistingState
 )
 
@@ -91,6 +92,137 @@ function Add-Blocker {
     $Blockers.Add([ordered]@{ code = $Code; message = $Message }) | Out-Null
 }
 
+function Add-ProofError {
+    param(
+        [System.Collections.Generic.List[object]]$Errors,
+        [string]$Code,
+        [string]$Message
+    )
+    $Errors.Add([ordered]@{ code = $Code; message = $Message }) | Out-Null
+}
+
+function Get-StringArray {
+    param([object]$Value)
+    if ($null -eq $Value) {
+        return @()
+    }
+    return @($Value | ForEach-Object { if ($null -ne $_) { [string]$_ } })
+}
+
+function Test-SameStringSet {
+    param([string[]]$Actual, [string[]]$Expected)
+    $actualSorted = @($Actual | Sort-Object)
+    $expectedSorted = @($Expected | Sort-Object)
+    if ($actualSorted.Count -ne $expectedSorted.Count) {
+        return $false
+    }
+    for ($index = 0; $index -lt $expectedSorted.Count; $index++) {
+        if ($actualSorted[$index] -ne $expectedSorted[$index]) {
+            return $false
+        }
+    }
+    return $true
+}
+
+function New-FirstRunProofConsumption {
+    param(
+        [string]$PathText,
+        [string[]]$ExpectedEvidenceBundleRoles,
+        [string[]]$ExpectedNextScenarioIds,
+        [string]$ExpectedBackupPlanCommand,
+        [string]$ExpectedRestoreProofCommand
+    )
+    $errors = New-Object System.Collections.Generic.List[object]
+    $resolved = Resolve-LocalPathText $PathText
+    $proof = $null
+    if ([string]::IsNullOrWhiteSpace($resolved)) {
+        Add-ProofError $errors "FIRST_RUN_PROOF_NOT_SUPPLIED" "Pass -FirstRunProofPath pointing at first_run_pilot_check.ps1 -ProofPath output before claiming backup readiness."
+    } elseif (-not (Test-Path -LiteralPath $resolved -PathType Leaf)) {
+        Add-ProofError $errors "FIRST_RUN_PROOF_FILE_MISSING" "First-run proof file does not exist: $resolved"
+    } else {
+        try {
+            $proof = Get-Content -LiteralPath $resolved -Raw | ConvertFrom-Json
+        } catch {
+            Add-ProofError $errors "FIRST_RUN_PROOF_INVALID_JSON" "First-run proof file is not valid JSON: $($_.Exception.Message)"
+        }
+    }
+
+    if ($null -ne $proof) {
+        if ($proof.schemaVersion -ne "h2ometa.first-run-pilot-check.v1") {
+            Add-ProofError $errors "FIRST_RUN_PROOF_SCHEMA_INVALID" "First-run proof schemaVersion must be h2ometa.first-run-pilot-check.v1."
+        }
+        if ($proof.closedLoopProven -ne $true) {
+            Add-ProofError $errors "FIRST_RUN_PROOF_NOT_CLOSED_LOOP" "First-run proof must report closedLoopProven=true."
+        }
+        if ($proof.closedLoopProofMode -ne "submitted-run") {
+            Add-ProofError $errors "FIRST_RUN_PROOF_MODE_UNSUPPORTED" "First-run proof must be a fresh submitted-run proof."
+        }
+        if ($null -eq $proof.executionReadinessProof -or $proof.executionReadinessProof.ok -ne $true) {
+            Add-ProofError $errors "FIRST_RUN_PROOF_EXECUTION_READINESS_REQUIRED" "First-run proof must include executionReadinessProof.ok=true."
+        }
+        $sample = $proof.sampleUploadProof
+        if ($null -eq $sample -or $sample.schemaVersion -ne "h2ometa.first-run.sample-upload-proof.v1" -or $sample.passed -ne $true) {
+            Add-ProofError $errors "FIRST_RUN_PROOF_SAMPLE_UPLOAD_REQUIRED" "First-run proof must include a passed sampleUploadProof."
+        } else {
+            if ((Get-StringArray $sample.unexpectedRoles).Count -ne 0 -or (Get-StringArray $sample.duplicateRoles).Count -ne 0) {
+                Add-ProofError $errors "FIRST_RUN_PROOF_SAMPLE_UPLOAD_REQUIRED" "First-run sampleUploadProof must not contain unexpected or duplicate roles."
+            }
+            if (-not (Test-SameStringSet (Get-StringArray $sample.expectedRoles) @("metadata", "barcodes", "sequences"))) {
+                Add-ProofError $errors "FIRST_RUN_PROOF_SAMPLE_UPLOAD_REQUIRED" "First-run sampleUploadProof must cover metadata, barcodes, and sequences."
+            }
+        }
+        $handoff = $proof.handoffProof
+        if ($null -eq $handoff) {
+            Add-ProofError $errors "FIRST_RUN_PROOF_HANDOFF_REQUIRED" "First-run proof must include handoffProof."
+        } else {
+            if ($handoff.evidenceBundleSchemaVersion -ne "h2ometa.first-run.evidence-bundle.v1") {
+                Add-ProofError $errors "FIRST_RUN_PROOF_EVIDENCE_BUNDLE_REQUIRED" "handoffProof must include the first-run evidence bundle schema."
+            }
+            if (-not (Test-SameStringSet (Get-StringArray $handoff.evidenceBundleFileRoles) $ExpectedEvidenceBundleRoles)) {
+                Add-ProofError $errors "FIRST_RUN_PROOF_EVIDENCE_BUNDLE_REQUIRED" "handoffProof must include exactly the portable evidence bundle file roles."
+            }
+            if ([string]::IsNullOrWhiteSpace([string]$handoff.resultId) -or [string]::IsNullOrWhiteSpace([string]$handoff.workflowRevisionId) -or [string]::IsNullOrWhiteSpace([string]$handoff.packageExportId)) {
+                Add-ProofError $errors "FIRST_RUN_PROOF_HANDOFF_REQUIRED" "handoffProof must include resultId, workflowRevisionId, and packageExportId."
+            }
+            if ($null -eq $handoff.resultPackageDownload -or [string]::IsNullOrWhiteSpace([string]$handoff.resultPackageDownload.sha256)) {
+                Add-ProofError $errors "FIRST_RUN_PROOF_HANDOFF_REQUIRED" "handoffProof must include resultPackageDownload SHA-256 proof."
+            }
+            if ($null -eq $handoff.evidenceBundleDownload -or [string]::IsNullOrWhiteSpace([string]$handoff.evidenceBundleDownload.zipManifestSha256) -or [string]::IsNullOrWhiteSpace([string]$handoff.evidenceBundleDownload.validationCardJsonSha256)) {
+                Add-ProofError $errors "FIRST_RUN_PROOF_EVIDENCE_BUNDLE_REQUIRED" "handoffProof must include evidenceBundleDownload hashes."
+            }
+            if ($handoff.backupPlanCommand -ne $ExpectedBackupPlanCommand -or $handoff.restoreProofCommand -ne $ExpectedRestoreProofCommand) {
+                Add-ProofError $errors "FIRST_RUN_PROOF_BACKUP_HANDOFF_MISMATCH" "handoffProof backup/restore commands must match the read-only pilot handoff."
+            }
+            if (-not (Test-SameStringSet (Get-StringArray $handoff.nextScenarioIds) $ExpectedNextScenarioIds)) {
+                Add-ProofError $errors "FIRST_RUN_PROOF_NEXT_SCENARIO_REQUIRED" "handoffProof must include the taxonomy and AMR next scenario gates."
+            }
+            $coverage = @($handoff.nextScenarioDatabasePackCoverage)
+            if ($coverage.Count -lt 2) {
+                Add-ProofError $errors "FIRST_RUN_PROOF_NEXT_SCENARIO_REQUIRED" "handoffProof must include database pack coverage for blocked next scenarios."
+            }
+        }
+    }
+
+    $accepted = ($errors.Count -eq 0)
+    return [ordered]@{
+        schemaVersion = "h2ometa.single-user-pilot-first-run-proof-consumption.v1"
+        path = $resolved
+        status = if ($accepted) { "accepted" } elseif ([string]::IsNullOrWhiteSpace($resolved)) { "not_supplied" } else { "blocked" }
+        accepted = $accepted
+        errors = @($errors.ToArray())
+        summary = if ($null -eq $proof) { $null } else { [ordered]@{
+            runId = [string]$proof.runId
+            serverId = [string]$proof.serverId
+            closedLoopProofMode = [string]$proof.closedLoopProofMode
+            resultId = [string]$proof.handoffProof.resultId
+            workflowRevisionId = [string]$proof.handoffProof.workflowRevisionId
+            packageExportId = [string]$proof.handoffProof.packageExportId
+            evidenceBundleFileRoles = Get-StringArray $proof.handoffProof.evidenceBundleFileRoles
+            nextScenarioIds = Get-StringArray $proof.handoffProof.nextScenarioIds
+        } }
+    }
+}
+
 if ([string]::IsNullOrWhiteSpace($AppDataRoot)) {
     $AppDataRoot = Get-DefaultAppDataRoot
 }
@@ -139,8 +271,17 @@ if (-not $remoteRootSupplied) {
 
 $expectedEvidenceBundleRoles = @("result-package", "validation-card-json", "validation-card-markdown", "pilot-handoff")
 $expectedNextScenarioIds = @("taxonomy-classification", "amr-annotation")
-$expectedBackupPlanCommand = 'scripts\single_user_pilot_backup_plan.ps1 -RemoteRunnerSharedRoot "<remote-shared-root>" -RequireExistingState'
+$expectedBackupPlanCommand = 'scripts\single_user_pilot_backup_plan.ps1 -RemoteRunnerSharedRoot "<remote-shared-root>" -FirstRunProofPath "<first-run-proof.json>" -RequireExistingState'
 $expectedRestoreProofCommand = "scripts\first_run_pilot_check.ps1 -RunFirstSuccessfulRun -RequireFinalizationReady"
+$firstRunProof = New-FirstRunProofConsumption `
+    -PathText $FirstRunProofPath `
+    -ExpectedEvidenceBundleRoles $expectedEvidenceBundleRoles `
+    -ExpectedNextScenarioIds $expectedNextScenarioIds `
+    -ExpectedBackupPlanCommand $expectedBackupPlanCommand `
+    -ExpectedRestoreProofCommand $expectedRestoreProofCommand
+foreach ($proofError in @($firstRunProof.errors)) {
+    Add-Blocker $blockers $proofError.code $proofError.message
+}
 
 $plan = [ordered]@{
     schemaVersion = "h2ometa.single-user-pilot-backup-plan.v1"
@@ -165,6 +306,7 @@ $plan = [ordered]@{
         "operator-managed SSH identities referenced by local identity_ref",
         "OS keyring entries referenced by local password_ref and runner token_ref"
     )
+    firstRunProof = $firstRunProof
     remoteExcludedItems = @(
         "runtime/runner-state.json",
         "locks/",

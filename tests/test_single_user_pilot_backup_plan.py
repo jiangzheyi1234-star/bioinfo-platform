@@ -20,6 +20,14 @@ def test_single_user_pilot_backup_plan_script_defines_read_only_handoff() -> Non
     assert "h2ometa.single-user-pilot-backup-plan.v1" in source
     assert "mode = \"read-only-plan\"" in source
     assert "readyForManualBackup" in source
+    assert '[string]$FirstRunProofPath = ""' in source
+    assert "h2ometa.single-user-pilot-first-run-proof-consumption.v1" in source
+    assert "FIRST_RUN_PROOF_NOT_SUPPLIED" in source
+    assert "FIRST_RUN_PROOF_NOT_CLOSED_LOOP" in source
+    assert "FIRST_RUN_PROOF_MODE_UNSUPPORTED" in source
+    assert "FIRST_RUN_PROOF_SAMPLE_UPLOAD_REQUIRED" in source
+    assert "FIRST_RUN_PROOF_EVIDENCE_BUNDLE_REQUIRED" in source
+    assert "FIRST_RUN_PROOF_NEXT_SCENARIO_REQUIRED" in source
     assert "[switch]$RequireExistingState" in source
     assert "REMOTE_RUNNER_ROOT_NOT_SUPPLIED" in source
     assert "NO_EXISTING_LOCAL_APP_STATE" in source
@@ -70,6 +78,8 @@ def test_single_user_pilot_backup_plan_script_defines_read_only_handoff() -> Non
     assert "requiredHandoffProof" in source
     assert "manual-audited-database-and-sample-gates" in source
     assert "SINGLE_USER_PILOT_BACKUP_PLAN_FAILED" in source
+    assert "New-FirstRunProofConsumption" in source
+    assert "Add-Blocker $blockers $proofError.code $proofError.message" in source
     assert "Compress-Archive" not in source
     assert "Invoke-RestMethod" not in source
     assert "Invoke-Command" not in source
@@ -86,6 +96,8 @@ def test_single_user_pilot_backup_plan_outputs_machine_readable_json(tmp_path: P
     dev_cache_root = tmp_path / "dev-cache"
     appdata_root.mkdir(parents=True)
     localappdata_root.mkdir(parents=True)
+    proof_path = tmp_path / "first-run-pilot-proof.json"
+    _write_first_run_proof(proof_path)
 
     completed = subprocess.run(
         [
@@ -103,6 +115,8 @@ def test_single_user_pilot_backup_plan_outputs_machine_readable_json(tmp_path: P
             str(dev_cache_root),
             "-RemoteRunnerSharedRoot",
             "/home/lab/.h2ometa/runner/shared",
+            "-FirstRunProofPath",
+            str(proof_path),
             "-RequireExistingState",
         ],
         cwd=REPO_ROOT,
@@ -117,6 +131,25 @@ def test_single_user_pilot_backup_plan_outputs_machine_readable_json(tmp_path: P
     assert summary["mode"] == "read-only-plan"
     assert summary["readyForManualBackup"] is True
     assert summary["blockers"] == []
+    assert summary["firstRunProof"]["schemaVersion"] == "h2ometa.single-user-pilot-first-run-proof-consumption.v1"
+    assert summary["firstRunProof"]["status"] == "accepted"
+    assert summary["firstRunProof"]["accepted"] is True
+    assert summary["firstRunProof"]["errors"] == []
+    assert summary["firstRunProof"]["summary"] == {
+        "runId": "run_first",
+        "serverId": "srv_first",
+        "closedLoopProofMode": "submitted-run",
+        "resultId": "res_run_first",
+        "workflowRevisionId": "wfrev_first",
+        "packageExportId": "rpex_full",
+        "evidenceBundleFileRoles": [
+            "result-package",
+            "validation-card-json",
+            "validation-card-markdown",
+            "pilot-handoff",
+        ],
+        "nextScenarioIds": ["taxonomy-classification", "amr-annotation"],
+    }
     assert summary["localArchiveItems"] == ["config.json", "ssh/known_hosts", "tool-packs/registry-v1.json"]
     assert "data/runner.db" in summary["remoteState"]["include"]
     assert "runner.db-wal" in summary["archivePolicy"]["sqliteCopyRule"]
@@ -141,7 +174,8 @@ def test_single_user_pilot_backup_plan_outputs_machine_readable_json(tmp_path: P
     )
     assert (
         "handoffProof.backupPlanCommand="
-        'scripts\\single_user_pilot_backup_plan.ps1 -RemoteRunnerSharedRoot "<remote-shared-root>" -RequireExistingState'
+        'scripts\\single_user_pilot_backup_plan.ps1 -RemoteRunnerSharedRoot "<remote-shared-root>" '
+        '-FirstRunProofPath "<first-run-proof.json>" -RequireExistingState'
         in summary["restoreDrill"]["mustReport"]
     )
     assert (
@@ -186,7 +220,8 @@ def test_single_user_pilot_backup_plan_outputs_machine_readable_json(tmp_path: P
         "pilot-handoff",
     ]
     assert required_handoff["backupPlanCommand"] == (
-        'scripts\\single_user_pilot_backup_plan.ps1 -RemoteRunnerSharedRoot "<remote-shared-root>" -RequireExistingState'
+        'scripts\\single_user_pilot_backup_plan.ps1 -RemoteRunnerSharedRoot "<remote-shared-root>" '
+        '-FirstRunProofPath "<first-run-proof.json>" -RequireExistingState'
     )
     assert required_handoff["restoreProofCommand"] == (
         "scripts\\first_run_pilot_check.ps1 -RunFirstSuccessfulRun -RequireFinalizationReady"
@@ -233,6 +268,38 @@ def test_single_user_pilot_backup_plan_outputs_machine_readable_json(tmp_path: P
     assert required_handoff["operatorGateMode"] == "manual-audited-database-and-sample-gates"
 
 
+@pytest.mark.skipif(_powershell_executable() is None, reason="PowerShell is required to execute the pilot backup plan script")
+def test_single_user_pilot_backup_plan_requires_first_run_proof_for_ready_backup(tmp_path: Path) -> None:
+    appdata_root = tmp_path / "Roaming" / "H2OMeta"
+    appdata_root.mkdir(parents=True)
+
+    completed = subprocess.run(
+        [
+            _powershell_executable() or "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(SCRIPT),
+            "-AppDataRoot",
+            str(appdata_root),
+            "-RemoteRunnerSharedRoot",
+            "/home/lab/.h2ometa/runner/shared",
+            "-RequireExistingState",
+        ],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    summary = json.loads(completed.stdout)
+    assert summary["readyForManualBackup"] is False
+    assert summary["firstRunProof"]["status"] == "not_supplied"
+    assert {item["code"] for item in summary["blockers"]} == {"FIRST_RUN_PROOF_NOT_SUPPLIED"}
+
+
 def test_single_user_pilot_backup_plan_is_exposed_from_web_package() -> None:
     package = json.loads((REPO_ROOT / "apps" / "web" / "package.json").read_text(encoding="utf-8"))
 
@@ -248,6 +315,7 @@ def test_single_user_pilot_backup_docs_connect_restore_to_first_run_proof() -> N
 
     assert "Single-User Pilot Backup And Restore" in source
     assert "scripts\\single_user_pilot_backup_plan.ps1" in source
+    assert "-FirstRunProofPath" in source
     assert "h2ometa.single-user-pilot-backup-plan.v1" in source
     assert "single-user-pilot-backup-restore.md" in source
     assert "single-user-pilot-backup-restore.md" in readme
@@ -274,3 +342,54 @@ def test_single_user_pilot_backup_docs_connect_restore_to_first_run_proof() -> N
     assert "handoffProof.evidenceBundleSchemaVersion" in source
     assert "handoffProof.evidenceBundleFileRoles" in source
     assert "handoffProof.nextScenarioDatabasePackCoverage" in source
+
+
+def _write_first_run_proof(path: Path) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "schemaVersion": "h2ometa.first-run-pilot-check.v1",
+                "serverId": "srv_first",
+                "runId": "run_first",
+                "closedLoopProven": True,
+                "closedLoopProofMode": "submitted-run",
+                "executionReadinessProof": {"ok": True},
+                "sampleUploadProof": {
+                    "schemaVersion": "h2ometa.first-run.sample-upload-proof.v1",
+                    "passed": True,
+                    "expectedRoles": ["metadata", "barcodes", "sequences"],
+                    "unexpectedRoles": [],
+                    "duplicateRoles": [],
+                },
+                "handoffProof": {
+                    "resultId": "res_run_first",
+                    "workflowRevisionId": "wfrev_first",
+                    "packageExportId": "rpex_full",
+                    "resultPackageDownload": {"sha256": "a" * 64},
+                    "evidenceBundleSchemaVersion": "h2ometa.first-run.evidence-bundle.v1",
+                    "evidenceBundleFileRoles": [
+                        "result-package",
+                        "validation-card-json",
+                        "validation-card-markdown",
+                        "pilot-handoff",
+                    ],
+                    "evidenceBundleDownload": {
+                        "zipManifestSha256": "b" * 64,
+                        "validationCardJsonSha256": "c" * 64,
+                    },
+                    "backupPlanCommand": (
+                        'scripts\\single_user_pilot_backup_plan.ps1 -RemoteRunnerSharedRoot "<remote-shared-root>" '
+                        '-FirstRunProofPath "<first-run-proof.json>" -RequireExistingState'
+                    ),
+                    "restoreProofCommand": "scripts\\first_run_pilot_check.ps1 -RunFirstSuccessfulRun -RequireFinalizationReady",
+                    "nextScenarioIds": ["taxonomy-classification", "amr-annotation"],
+                    "nextScenarioDatabasePackCoverage": [
+                        {"scenarioId": "taxonomy-classification"},
+                        {"scenarioId": "amr-annotation"},
+                    ],
+                },
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )

@@ -19,10 +19,10 @@ It is not a server-multi-user, Kubernetes, Postgres, S3, or RBAC runbook. Those 
 Run the plan before handing a pilot to a lab owner:
 
 ```powershell
-scripts\single_user_pilot_backup_plan.ps1 -RemoteRunnerSharedRoot "/home/<user>/.h2ometa/runner/shared" -RequireExistingState
+scripts\single_user_pilot_backup_plan.ps1 -RemoteRunnerSharedRoot "/home/<user>/.h2ometa/runner/shared" -FirstRunProofPath ".\release-evidence\first-run-pilot-proof.json" -RequireExistingState
 ```
 
-The command is intentionally read-only. It emits `h2ometa.single-user-pilot-backup-plan.v1` JSON and does not copy files, compress archives, call SSH, or mutate local/remote state.
+The command is intentionally read-only. It emits `h2ometa.single-user-pilot-backup-plan.v1` JSON and does not copy files, compress archives, call SSH, or mutate local/remote state. `readyForManualBackup` is true only after the command consumes a passed `first_run_pilot_check.ps1 -ProofPath` JSON proof.
 
 ## Durable State
 
