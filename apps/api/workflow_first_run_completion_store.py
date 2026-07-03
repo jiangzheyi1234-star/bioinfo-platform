@@ -136,6 +136,8 @@ def _read_registry(path: Path, *, missing_ok: bool = False) -> dict[str, Any]:
         raise FirstRunCompletionProofStoreError("FIRST_RUN_COMPLETION_PROOF_STORE_VERSION_UNSUPPORTED")
     if not isinstance(payload.get("records"), list):
         raise FirstRunCompletionProofStoreError("FIRST_RUN_COMPLETION_PROOF_STORE_RECORDS_INVALID")
+    if any(not isinstance(record, dict) for record in payload["records"]):
+        raise FirstRunCompletionProofStoreError("FIRST_RUN_COMPLETION_PROOF_STORE_RECORD_INVALID")
     return payload
 
 
