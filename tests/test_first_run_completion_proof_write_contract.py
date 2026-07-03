@@ -80,6 +80,26 @@ def test_first_run_finalize_rejects_generated_completion_proof_that_fails_contra
     }
 
 
+def test_first_run_finalize_rejects_completion_proof_without_saved_timestamp(monkeypatch) -> None:
+    _patch_first_run_sources(monkeypatch)
+    monkeypatch.setattr("apps.api.workflow_first_run_completion_store._now", lambda: "")
+
+    result = asyncio.run(
+        finalize_first_run_from_request(
+            "run_first",
+            WorkflowFirstRunFinalizeRequest(serverId="srv_first", actor="operator"),
+        )
+    )["data"]
+
+    assert result["status"] == "blocked"
+    assert result["nextAction"] == {
+        "code": FIRST_RUN_COMPLETION_PROOF_INVALID,
+        "detail": "FIRST_RUN_COMPLETION_PROOF_INVALID: missing savedAt",
+        "label": "重新生成首跑完成证明",
+        "target": "/workflows/first-run#evidence-bundle",
+    }
+
+
 def test_first_run_finalize_returns_typed_blocker_when_completion_proof_store_write_fails(
     monkeypatch,
     tmp_path,

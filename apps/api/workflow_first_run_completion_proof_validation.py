@@ -19,6 +19,7 @@ _REQUIRED_READY_FIELDS = (
     "validationCardGeneratedAt",
     "validationCardJsonSha256",
     "evidenceBundleId",
+    "savedAt",
 )
 _REQUIRED_SHA256_FIELDS = (
     "resultPackageSha256",

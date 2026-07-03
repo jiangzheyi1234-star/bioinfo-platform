@@ -19,6 +19,7 @@ from tests.test_first_run_status import _patch_status_sources
     ("proof_patch", "detail_fragment"),
     [
         ({"runId": ""}, "runId"),
+        ({"savedAt": ""}, "savedAt"),
         ({"resultPackageSha256": ""}, "resultPackageSha256"),
         ({"resultId": "res_other"}, "resultId does not match runId"),
         ({"evidenceBundleId": "res_other.first-run-evidence"}, "evidenceBundleId does not match resultId"),
