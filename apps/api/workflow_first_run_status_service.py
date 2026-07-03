@@ -10,6 +10,7 @@ from apps.api.ssh_control_service import (
     list_servers_from_request,
 )
 from apps.api.workflow_catalog_service import get_workflow_catalog_from_request
+from apps.api.workflow_first_run_completion_proof_contract import first_run_completion_proof_evidence
 from apps.api.workflow_first_run_completion_store import latest_first_run_completion_proof
 from apps.api.workflow_first_run_finalize_service import first_run_next_action
 from apps.api.workflow_first_run_report_interpretation import FIRST_RUN_REPORT_TRUST_ASSERTIONS_FAILED
@@ -55,7 +56,10 @@ async def build_first_run_status_from_request(
     sample_cache = _sample_cache_summary(
         _unwrap_data(await inspect_workflow_sample_data_status(MOVING_PICTURES_PIPELINE_ID), {})
     )
-    completion_proof = latest_first_run_completion_proof(server_id=normalized_server_id)
+    completion_proof = first_run_completion_proof_evidence(
+        latest_first_run_completion_proof(server_id=normalized_server_id),
+        server_id=normalized_server_id,
+    )
     if _completion_proof_matches_requested_run(completion_proof, run_id=normalized_run_id):
         return _completion_proof_status_response(
             completion_proof,
@@ -449,7 +453,10 @@ def _status_response(
                 "execution": execution or {"ready": False},
                 "workflow": workflow or {"ready": False},
                 "sampleCache": sample_cache,
-                "completionProof": completion_proof or latest_first_run_completion_proof(server_id=server_id) or {"ready": False},
+                "completionProof": first_run_completion_proof_evidence(
+                    completion_proof or latest_first_run_completion_proof(server_id=server_id),
+                    server_id=server_id,
+                ),
                 "run": run,
                 "report": report or {"ready": False},
                 "resultPackage": result_package or {"ready": False},

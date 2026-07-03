@@ -1,0 +1,69 @@
+"""Completion proof evidence contract for First Successful Run status."""
+
+from __future__ import annotations
+
+from copy import deepcopy
+from typing import Any
+
+from apps.api.workflow_first_run_completion_store import FIRST_RUN_COMPLETION_PROOF_SCHEMA_VERSION
+
+
+FIRST_RUN_COMPLETION_PROOF_INVALID = "FIRST_RUN_COMPLETION_PROOF_INVALID"
+
+_REQUIRED_READY_FIELDS = (
+    "serverId",
+    "runId",
+    "resultId",
+    "workflowRevisionId",
+    "packageExportId",
+    "packageEvidenceId",
+    "resultPackageSha256",
+    "resultPackageManifestSha256",
+    "validationCardGeneratedAt",
+    "validationCardJsonSha256",
+    "evidenceBundleId",
+)
+
+
+def first_run_completion_proof_evidence(
+    proof: dict[str, Any] | None,
+    *,
+    server_id: str | None = None,
+) -> dict[str, Any]:
+    if not proof:
+        return {"ready": False}
+    if not isinstance(proof, dict):
+        return _invalid("saved first-run completion proof must be an object")
+    if proof.get("ready") is not True:
+        if proof.get("blockedCode") == FIRST_RUN_COMPLETION_PROOF_INVALID:
+            return deepcopy(proof)
+        return {"ready": False}
+    schema_version = str(proof.get("schemaVersion") or "").strip()
+    if schema_version != FIRST_RUN_COMPLETION_PROOF_SCHEMA_VERSION:
+        return _invalid("saved first-run completion proof schema is unsupported")
+    requested_server_id = str(server_id or "").strip()
+    proof_server_id = str(proof.get("serverId") or "").strip()
+    if requested_server_id and proof_server_id != requested_server_id:
+        return _invalid("saved first-run completion proof belongs to a different server")
+    missing_fields = [field for field in _REQUIRED_READY_FIELDS if not str(proof.get(field) or "").strip()]
+    if missing_fields:
+        return _invalid("saved first-run completion proof is missing " + ", ".join(missing_fields))
+    passed = proof.get("validationChecksPassed")
+    total = proof.get("validationChecksTotal")
+    if not _valid_check_counts(passed, total):
+        return _invalid("saved first-run completion proof validation checks are incomplete")
+    if proof.get("evidenceBundleReady") is not True:
+        return _invalid("saved first-run completion proof evidence bundle is not ready")
+    return deepcopy(proof)
+
+
+def _valid_check_counts(passed: Any, total: Any) -> bool:
+    if not isinstance(passed, int) or isinstance(passed, bool):
+        return False
+    if not isinstance(total, int) or isinstance(total, bool):
+        return False
+    return total > 0 and passed == total
+
+
+def _invalid(detail: str) -> dict[str, Any]:
+    return {"ready": False, "blockedCode": FIRST_RUN_COMPLETION_PROOF_INVALID, "detail": detail}
