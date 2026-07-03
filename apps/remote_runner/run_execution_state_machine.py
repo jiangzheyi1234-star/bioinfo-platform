@@ -56,6 +56,15 @@ class RunJobRequeueDecision:
 
 
 @dataclass(frozen=True)
+class RunJobEnqueueDecision:
+    job_state: str
+    attempt_count: int
+    event_type: str
+    stage: str
+    event_message: str
+
+
+@dataclass(frozen=True)
 class RunJobRetryDecision:
     action: str
     reason: str
@@ -95,6 +104,16 @@ class RunExecutionStateMachine:
             state_version=1,
             row_message="Run accepted",
             event_message="Accepted for asynchronous execution",
+        )
+
+    @staticmethod
+    def enqueue_job() -> RunJobEnqueueDecision:
+        return RunJobEnqueueDecision(
+            job_state="queued",
+            attempt_count=0,
+            event_type="run_job_queued",
+            stage="queue",
+            event_message="Run job queued.",
         )
 
     @staticmethod

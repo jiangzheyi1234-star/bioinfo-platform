@@ -18,6 +18,16 @@ def test_submission_transition_matches_run_acceptance_contract() -> None:
     assert transition.update_run is True
 
 
+def test_job_enqueue_decision_owns_initial_queue_state_and_event_shape() -> None:
+    decision = RunExecutionStateMachine.enqueue_job()
+
+    assert decision.job_state == "queued"
+    assert decision.attempt_count == 0
+    assert decision.event_type == "run_job_queued"
+    assert decision.stage == "queue"
+    assert decision.event_message == "Run job queued."
+
+
 def test_status_publication_increments_version_and_preserves_event_shape() -> None:
     transition = RunExecutionStateMachine.publish_status(
         current_status="queued",

@@ -93,6 +93,7 @@ def enqueue_run_job_record(
 
     run = fetch_run_row(connection, normalized_run_id)
     job_id = f"job_{uuid.uuid4().hex[:12]}"
+    enqueue_decision = RunExecutionStateMachine.enqueue_job()
     connection.execute(
         """
         INSERT INTO run_jobs (
@@ -104,12 +105,12 @@ def enqueue_run_job_record(
         (
             job_id,
             normalized_run_id,
-            "queued",
+            enqueue_decision.job_state,
             normalized_queue_name,
             int(priority),
             available_at,
             stable_json(wait_reason or {}),
-            0,
+            enqueue_decision.attempt_count,
             normalized_max_attempts,
             stable_json(retry_policy or {}),
             stable_json(timeout_policy or {}),
@@ -122,10 +123,10 @@ def enqueue_run_job_record(
     append_run_event_v2(
         connection,
         run_id=normalized_run_id,
-        event_type="run_job_queued",
-        stage="queue",
+        event_type=enqueue_decision.event_type,
+        stage=enqueue_decision.stage,
         state_version=int(run["state_version"]),
-        message="Run job queued.",
+        message=enqueue_decision.event_message,
         request_id=str(run["request_id"]),
         payload={
             "jobId": job_id,
