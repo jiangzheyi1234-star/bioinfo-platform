@@ -192,6 +192,23 @@ function Convert-ToProofNumber {
     }
 }
 
+function Test-ProofStringSet {
+    param([object[]]$Actual, [string[]]$Expected)
+    $actualValues = @($Actual | ForEach-Object { ([string]$_).Trim() })
+    $actualSorted = @($actualValues | Sort-Object)
+    $expectedSorted = @($Expected | Sort-Object)
+    if ($actualSorted.Count -ne $expectedSorted.Count) { return $false }
+    for ($index = 0; $index -lt $expectedSorted.Count; $index++) {
+        if ($actualSorted[$index] -ne $expectedSorted[$index]) { return $false }
+    }
+    return $true
+}
+
+function Test-ProofSha256 {
+    param([object]$Value)
+    return (([string]$Value).Trim() -match "^[0-9a-fA-F]{64}$")
+}
+
 function Test-FirstRunTimingProof {
     param([object]$Proof)
     if ($null -eq $Proof -or $null -eq $Proof.runTimingProof) {
@@ -208,6 +225,40 @@ function Test-FirstRunTimingProof {
         $null -ne $windowMax -and
         $timeoutBudget -le 1800 -and
         $windowMax -le 1800
+    )
+}
+
+function Test-FirstRunCompletionProof {
+    param([object]$Proof)
+    if ($null -eq $Proof -or $null -eq $Proof.handoffProof -or $null -eq $Proof.handoffProof.completionProof) {
+        return $false
+    }
+    $handoff = $Proof.handoffProof
+    $completionProof = $handoff.completionProof
+    $checksPassed = Convert-ToProofNumber $completionProof.validationChecksPassed
+    $checksTotal = Convert-ToProofNumber $completionProof.validationChecksTotal
+    $reportOutputs = @("summary.tsv", "qc-summary.tsv", "feature-table.tsv", "run-report.html")
+    $bundleRoles = @("result-package", "validation-card-json", "validation-card-markdown", "pilot-handoff")
+    return (
+        $completionProof.schemaVersion -eq "h2ometa.first-run.completion-proof.v1" -and
+        $completionProof.ready -eq $true -and
+        $completionProof.serverId -eq $Proof.serverId -and
+        $completionProof.runId -eq $Proof.runId -and
+        $completionProof.resultId -eq $handoff.resultId -and
+        $completionProof.workflowRevisionId -eq $handoff.workflowRevisionId -and
+        $completionProof.packageExportId -eq $handoff.packageExportId -and
+        (Test-ProofSha256 $completionProof.resultPackageSha256) -and
+        (Test-ProofSha256 $completionProof.resultPackageManifestSha256) -and
+        $completionProof.validationCardJsonSha256 -eq $handoff.validationCard.validationCardJsonSha256 -and
+        $completionProof.validationCardJsonSha256 -eq $handoff.evidenceBundleDownload.validationCardJsonSha256 -and
+        (Test-ProofSha256 $completionProof.validationCardJsonSha256) -and
+        $null -ne $checksPassed -and $null -ne $checksTotal -and
+        $checksPassed -eq $checksTotal -and $checksTotal -ge 10 -and
+        $completionProof.reportReady -eq $true -and
+        (Test-ProofStringSet $completionProof.reportOutputNames $reportOutputs) -and
+        $completionProof.evidenceBundleReady -eq $true -and
+        $completionProof.evidenceBundleId -eq "$($completionProof.resultId).first-run-evidence" -and
+        (Test-ProofStringSet $completionProof.evidenceBundleFileRoles $bundleRoles)
     )
 }
 
@@ -643,6 +694,7 @@ if ($steps | Where-Object { $_.required -and $_.status -ne "passed" }) {
 }
 
 $firstRunPilotTimingProofAccepted = Test-FirstRunTimingProof $firstRunPilotProof
+$firstRunPilotCompletionProofAccepted = Test-FirstRunCompletionProof $firstRunPilotProof
 
 $summary = [ordered]@{
     schemaVersion = "h2ometa-release-candidate-evidence.v1"
@@ -666,6 +718,7 @@ $summary = [ordered]@{
     runFirstRunPilotProof = $RunFirstRunPilotProof.IsPresent; firstRunPilotRunId = $FirstRunPilotRunId
     firstRunPilotProofPath = $firstRunPilotProofPath; firstRunPilotProof = $firstRunPilotProof
     firstRunPilotTimingProofAccepted = $firstRunPilotTimingProofAccepted
+    firstRunPilotCompletionProofAccepted = $firstRunPilotCompletionProofAccepted
     runSingleUserPilotBackupPlan = $RunSingleUserPilotBackupPlan.IsPresent
     singleUserPilotBackupPlanPath = $singleUserPilotBackupPlanPath
     singleUserPilotBackupPlan = $singleUserPilotBackupPlan
@@ -678,7 +731,7 @@ $summary = [ordered]@{
     containerImageScanRunUrl = $containerImageScanEvidence.runUrl
     containerImageScanUnavailableReason = $containerImageScanEvidence.unavailableReason
     handoffEligible = ($ok -and -not $DevelopmentOnly.IsPresent -and [bool]$CiRunUrl -and $RunNpmCi.IsPresent -and $securityAnalysisEvidence.recorded -and $containerImageScanEvidence.recorded)
-    localSingleUserProofEligible = ($ok -and -not $AllowDirty.IsPresent -and $StartLocalWeb.IsPresent -and $RunWebE2E.IsPresent -and (($RunLocalWebSmoke.IsPresent) -or $StartLocalWeb.IsPresent) -and ($firstRunPilotProof.closedLoopProven -eq $true) -and $firstRunPilotTimingProofAccepted -and ($singleUserPilotBackupPlan.readyForManualBackup -eq $true))
+    localSingleUserProofEligible = ($ok -and -not $AllowDirty.IsPresent -and $StartLocalWeb.IsPresent -and $RunWebE2E.IsPresent -and (($RunLocalWebSmoke.IsPresent) -or $StartLocalWeb.IsPresent) -and ($firstRunPilotProof.closedLoopProven -eq $true) -and $firstRunPilotTimingProofAccepted -and $firstRunPilotCompletionProofAccepted -and ($singleUserPilotBackupPlan.readyForManualBackup -eq $true))
     runtimeManifestDrift = $runtimeManifestDrift
     steps = $steps
     scopedRuntimeLimits = @(
