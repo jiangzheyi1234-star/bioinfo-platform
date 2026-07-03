@@ -76,6 +76,7 @@ export function useFirstRunEvidence({
       packageExportId: statusPackageExportId,
       resultId,
       sha256: statusPackageEvidence.sha256,
+      download: statusPackageEvidence.download,
     } satisfies WorkflowResultPackageExport;
   }, [resultId, statusPackageEvidence, statusPackageExportId]);
   const latestPackage = readyPackage || (status ? statusPackageFallback : packageExports[0]);

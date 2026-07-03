@@ -175,6 +175,7 @@ export type FirstRunNextAction = {
 
 export type FirstRunStatusRunSummary = {
   runId?: string;
+  serverId?: string;
   status?: string;
   stage?: string;
   workflowRevisionId?: string;
@@ -240,6 +241,10 @@ export type FirstRunStatusEvidence = {
     manifestSha256?: string;
     artifactPayloadMode?: string;
     includeArtifacts?: boolean;
+    download?: {
+      href?: string;
+      filename?: string;
+    };
     blockedCode?: string;
   };
   validation?: {

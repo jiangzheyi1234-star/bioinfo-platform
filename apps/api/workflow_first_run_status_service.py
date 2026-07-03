@@ -113,9 +113,11 @@ async def build_first_run_status_from_request(
     runs_payload = await list_runs_from_request(refresh)
     runs = _mapping_items(_unwrap_data(runs_payload, {}).get("items"))
     selected_run = await _selected_run(normalized_run_id, runs)
-    latest_eligible_raw = _latest_run([run for run in runs if _official_sample_run_blocker(run) == ""])
+    latest_eligible_raw = _latest_run(
+        [run for run in runs if _first_run_run_blocker(run, server_id=normalized_server_id) == ""]
+    )
     latest_eligible_run = _run_summary(latest_eligible_raw) if latest_eligible_raw is not None else None
-    ignored_latest_run = _ignored_latest_run(runs, latest_eligible_run)
+    ignored_latest_run = _ignored_latest_run(runs, latest_eligible_run, server_id=normalized_server_id)
 
     if selected_run is None:
         selected_run = latest_eligible_raw
@@ -156,9 +158,29 @@ async def build_first_run_status_from_request(
             workflow=workflow_evidence,
         )
 
-    blocker = _official_sample_run_blocker(selected_run)
+    blocker = _first_run_run_blocker(selected_run, server_id=normalized_server_id)
     run_summary = _run_summary(selected_run)
     if blocker:
+        if blocker == "FIRST_RUN_RUN_SERVER_MISMATCH":
+            return _status_response(
+                status="blocked",
+                stage="submit_run",
+                next_action=_blocked_action(
+                    "SUBMIT_RUN",
+                    blocker,
+                    "在当前远端重新提交首跑",
+                    "当前 run 不属于所选远端 runner，不能作为这个远端的首跑证据。",
+                    "#sample-data",
+                ),
+                sample_cache=sample_cache,
+                latest_eligible_run=latest_eligible_run,
+                ignored_latest_run=ignored_latest_run,
+                run=run_summary,
+                server_id=normalized_server_id,
+                server=server_evidence,
+                execution=execution_evidence,
+                workflow=workflow_evidence,
+            )
         return _status_response(
             status="blocked",
             stage="prepare_sample_data",
@@ -546,6 +568,13 @@ def _sample_cache_summary(status: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _first_run_run_blocker(run: dict[str, Any], *, server_id: str) -> str:
+    run_server_id = str(run.get("serverId") or "").strip()
+    if run_server_id != server_id:
+        return "FIRST_RUN_RUN_SERVER_MISMATCH"
+    return _official_sample_run_blocker(run)
+
+
 def _official_sample_run_blocker(run: dict[str, Any]) -> str:
     run_spec = run.get("runSpec") if isinstance(run.get("runSpec"), dict) else {}
     pipeline_id = str(run_spec.get("pipelineId") or "").strip()
@@ -602,6 +631,7 @@ def _run_summary(run: dict[str, Any]) -> dict[str, Any]:
     return _compact(
         {
             "runId": run.get("runId"),
+            "serverId": run.get("serverId"),
             "status": run.get("status"),
             "stage": run.get("stage"),
             "workflowRevisionId": run.get("workflowRevisionId") or run_spec.get("workflowRevisionId"),
@@ -620,14 +650,19 @@ def _latest_run(runs: list[dict[str, Any]]) -> dict[str, Any] | None:
     return sorted(runs, key=_run_sort_key, reverse=True)[0]
 
 
-def _ignored_latest_run(runs: list[dict[str, Any]], latest_eligible_run: dict[str, Any] | None) -> dict[str, Any] | None:
+def _ignored_latest_run(
+    runs: list[dict[str, Any]],
+    latest_eligible_run: dict[str, Any] | None,
+    *,
+    server_id: str,
+) -> dict[str, Any] | None:
     latest_raw = _latest_run(runs)
     if latest_raw is None:
         return None
     latest = _run_summary(latest_raw)
     if latest_eligible_run and latest.get("runId") == latest_eligible_run.get("runId"):
         return None
-    return _compact({**latest, "blockingCode": _official_sample_run_blocker(latest_raw)})
+    return _compact({**latest, "blockingCode": _first_run_run_blocker(latest_raw, server_id=server_id)})
 
 
 def _run_sort_key(run: dict[str, Any]) -> tuple[str, str]:
@@ -650,8 +685,19 @@ def _ready_package_evidence(card: dict[str, Any]) -> dict[str, Any]:
             "manifestSha256": package.get("manifestSha256"),
             "artifactPayloadMode": package.get("artifactPayloadMode"),
             "includeArtifacts": package.get("includeArtifacts"),
+            "download": _safe_download_evidence(package.get("download")),
         }
     )
+
+
+def _safe_download_evidence(value: Any) -> dict[str, str] | None:
+    if not isinstance(value, dict):
+        return None
+    href = str(value.get("href") or "").strip()
+    filename = str(value.get("filename") or "").strip()
+    if not href:
+        return None
+    return _compact({"href": href, "filename": filename})
 
 
 def _ready_validation_evidence(card: dict[str, Any]) -> dict[str, Any]:

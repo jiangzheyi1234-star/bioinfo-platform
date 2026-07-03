@@ -741,6 +741,7 @@ def _patch_first_run_sources(
 def _run() -> dict[str, Any]:
     return {
         "runId": "run_first",
+        "serverId": "srv_first",
         "pipelineId": "moving-pictures-16s-rulegraph-v1",
         "workflowRevisionId": "wfrev_first",
         "status": "completed",

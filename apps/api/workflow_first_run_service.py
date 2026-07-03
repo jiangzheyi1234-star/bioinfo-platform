@@ -64,6 +64,7 @@ async def build_first_run_validation_card_from_request(
 
     run_payload = await get_run_from_request(normalized_run_id)
     run = _require_mapping(_unwrap_data(run_payload, {}), "FIRST_RUN_RUN_NOT_FOUND", normalized_run_id)
+    _require_run_server(run, server_id=server_id)
     pipeline_id = _pipeline_id(run)
     if pipeline_id != MOVING_PICTURES_PIPELINE_ID:
         raise _unavailable(
@@ -132,6 +133,7 @@ async def build_first_run_report_evidence_from_request(
         raise _unavailable("FIRST_RUN_RUN_ID_REQUIRED", "runId is required")
     run_payload = await get_run_from_request(normalized_run_id)
     run = _require_mapping(_unwrap_data(run_payload, {}), "FIRST_RUN_RUN_NOT_FOUND", normalized_run_id)
+    _require_run_server(run, server_id=server_id)
     pipeline_id = _pipeline_id(run)
     if pipeline_id != MOVING_PICTURES_PIPELINE_ID:
         raise _unavailable(
@@ -622,6 +624,18 @@ def _require_result_package(
     if gate.state == "ready" and gate.package_export is not None:
         return gate.package_export
     raise _unavailable(gate.code, gate.detail)
+
+
+def _require_run_server(run: dict[str, Any], *, server_id: str | None) -> None:
+    normalized_server_id = str(server_id or "").strip()
+    if not normalized_server_id:
+        return
+    run_server_id = str(run.get("serverId") or "").strip()
+    if run_server_id != normalized_server_id:
+        raise _unavailable(
+            "FIRST_RUN_RUN_SERVER_MISMATCH",
+            f"first-run validation requires run serverId {normalized_server_id}, got {run_server_id or 'missing'}",
+        )
 
 
 def _assert_validation_card_evidence(

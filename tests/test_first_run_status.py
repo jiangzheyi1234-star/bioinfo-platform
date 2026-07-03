@@ -39,7 +39,9 @@ def test_first_run_status_reports_ready_official_sample_run_and_ignores_newer_no
     assert result["stage"] == "validation_ready"
     assert result["nextAction"]["code"] == "COMPLETE"
     assert result["latestEligibleRun"]["runId"] == "run_first"
+    assert result["latestEligibleRun"]["serverId"] == "srv_first"
     assert result["ignoredLatestRun"]["runId"] == "run_manual"
+    assert result["ignoredLatestRun"]["serverId"] == "srv_first"
     assert result["ignoredLatestRun"]["blockingCode"] == "FIRST_RUN_SAMPLE_PREP_PROOF_REQUIRED"
     assert result["evidence"]["sampleCache"]["status"] == "ready"
     assert result["evidence"]["server"]["ready"] is True
@@ -70,6 +72,10 @@ def test_first_run_status_reports_ready_official_sample_run_and_ignores_newer_no
     assert result["evidence"]["resultPackage"]["manifestSha256"] == "e" * 64
     assert result["evidence"]["resultPackage"]["artifactPayloadMode"] == "full"
     assert result["evidence"]["resultPackage"]["includeArtifacts"] is True
+    assert result["evidence"]["resultPackage"]["download"] == {
+        "href": "/api/v1/results/res_run_first/exports/rpex_full/download",
+        "filename": "rpex_full.zip",
+    }
     assert result["evidence"]["validation"]["ready"] is True
     assert result["evidence"]["validation"]["validationChecksPassed"] == 10
     assert result["evidence"]["validation"]["evidenceBundleReady"] is True
@@ -99,6 +105,22 @@ def test_first_run_status_blocks_until_official_sample_run_exists(monkeypatch) -
     assert result["latestEligibleRun"] is None
     assert result["ignoredLatestRun"]["runId"] == "run_manual"
     assert result["evidence"]["sampleCache"]["status"] == "source_required"
+
+
+def test_first_run_status_requires_eligible_run_on_selected_server(monkeypatch) -> None:
+    run = _run()
+    run["serverId"] = "srv_other"
+    _patch_status_sources(monkeypatch, runs=[run], sample_status="ready")
+
+    result = asyncio.run(build_first_run_status_from_request(server_id="srv_first"))["data"]
+
+    assert result["status"] == "blocked"
+    assert result["stage"] == "submit_run"
+    assert result["nextAction"]["code"] == "SUBMIT_RUN"
+    assert result["latestEligibleRun"] is None
+    assert result["ignoredLatestRun"]["runId"] == "run_first"
+    assert result["ignoredLatestRun"]["serverId"] == "srv_other"
+    assert result["ignoredLatestRun"]["blockingCode"] == "FIRST_RUN_RUN_SERVER_MISMATCH"
 
 
 def test_first_run_status_guides_submit_when_sample_cache_ready_without_eligible_run(monkeypatch) -> None:
