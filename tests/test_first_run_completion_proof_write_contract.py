@@ -40,6 +40,7 @@ def test_first_run_completion_proof_read_and_write_share_ready_validator() -> No
         ("bundle-mismatch", "FIRST_RUN_COMPLETION_PROOF_INVALID: evidenceBundleId does not match resultId"),
         ("duplicate-bundle-role", "FIRST_RUN_COMPLETION_PROOF_INVALID: duplicate evidence bundle roles result-package"),
         ("unexpected-bundle-role", "FIRST_RUN_COMPLETION_PROOF_INVALID: unexpected evidence bundle roles operator-note"),
+        ("reduced-check-set", "FIRST_RUN_COMPLETION_PROOF_INVALID: validation checks are incomplete"),
     ],
 )
 def test_first_run_finalize_rejects_generated_completion_proof_that_fails_contract(
@@ -65,6 +66,8 @@ def test_first_run_finalize_rejects_generated_completion_proof_that_fails_contra
             note_file = dict(card["pilotHandoff"]["evidenceBundle"]["requiredFiles"][0])
             note_file["role"] = "operator-note"
             card["pilotHandoff"]["evidenceBundle"]["requiredFiles"].append(note_file)
+        elif proof_case == "reduced-check-set":
+            card["checks"] = card["checks"][:1]
         else:
             raise AssertionError(f"unknown proof case {proof_case}")
         return {"data": card}

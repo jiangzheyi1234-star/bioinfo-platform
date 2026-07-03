@@ -7,6 +7,7 @@ from typing import Any
 
 
 FIRST_RUN_COMPLETION_PROOF_INVALID = "FIRST_RUN_COMPLETION_PROOF_INVALID"
+FIRST_RUN_COMPLETION_PROOF_MIN_VALIDATION_CHECKS = 10
 
 _REQUIRED_READY_FIELDS = (
     "serverId",
@@ -88,7 +89,7 @@ def _valid_check_counts(passed: Any, total: Any) -> bool:
         return False
     if not isinstance(total, int) or isinstance(total, bool):
         return False
-    return total > 0 and passed == total
+    return total >= FIRST_RUN_COMPLETION_PROOF_MIN_VALIDATION_CHECKS and passed == total
 
 
 def _valid_sha256(value: str) -> bool:
