@@ -16,7 +16,13 @@ export function FirstRunTrustSummary({
 }) {
   const evidence = status?.evidence;
   const resultPackage = evidence?.resultPackage;
+  const storedCompletionProof = evidence?.completionProof;
   const completionProof = activeFirstRunCompletionProof(status);
+  const completionProofIssue =
+    storedCompletionProof?.blockedCode || storedCompletionProof?.detail
+      ? [storedCompletionProof.blockedCode, storedCompletionProof.detail].filter(Boolean).join(": ")
+      : "";
+  const completionProofUnavailable = Boolean(completionProofIssue || storedCompletionProof?.ready === false);
   const passedChecks = evidence?.validation?.validationChecksPassed ?? completionProof?.validationChecksPassed;
   const totalChecks = evidence?.validation?.validationChecksTotal ?? completionProof?.validationChecksTotal;
   const summaryReady = evidence?.validation?.ready === true || completionProof?.ready === true;
@@ -33,6 +39,8 @@ export function FirstRunTrustSummary({
       detail:
         completionProof?.ready === true
           ? `${completionProof.packageExportId || "result package"} · ${shortHash(completionProof.validationCardJsonSha256)}`
+          : completionProofUnavailable
+            ? completionProofIssue || "本地首跑完成证明不可用"
           : "等待首跑完成证明写入本地索引",
       tone: completionProof?.ready === true ? "success" : "waiting",
       icon: ShieldCheck,

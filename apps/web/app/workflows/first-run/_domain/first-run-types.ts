@@ -267,6 +267,8 @@ export type FirstRunStatusEvidence = {
 export type FirstRunCompletionProof = {
   schemaVersion?: string;
   ready?: boolean;
+  blockedCode?: string;
+  detail?: string;
   serverId?: string;
   runId?: string;
   resultId?: string;

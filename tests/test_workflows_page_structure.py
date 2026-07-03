@@ -245,6 +245,8 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "localTunnels?: Array" in models
     assert "localTunnels: Array.isArray(runner.localTunnels) ? runner.localTunnels : []" in runner_adapter
     assert "FirstRunTrustSummary" in first_run_completion
+    assert "const storedCompletionProof = evidence?.completionProof" in first_run_trust_summary
+    assert "本地首跑完成证明不可用" in first_run_trust_summary
     assert "单用户试点交接" in first_run_completion
     assert "首跑已完成" in first_run_completion
     assert "下载结果包" in first_run_completion

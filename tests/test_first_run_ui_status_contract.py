@@ -36,6 +36,7 @@ def test_first_run_ui_steps_and_report_are_status_contract_driven() -> None:
     assert "runCompleted" not in first_run_progress
     assert "runTerminal" not in first_run_progress
     assert "includeArtifacts?: boolean;" in first_run_types
+    assert "export type FirstRunCompletionProof = {\n  schemaVersion?: string;\n  ready?: boolean;\n  blockedCode?: string;\n  detail?: string;" in first_run_types
     assert "const reportReady = runCompleted && artifacts.length > 0" not in first_run_page
     assert "const reportReady =" not in first_run_page
     assert "evidence?.report?.ready === true" in first_run_progress
@@ -83,11 +84,16 @@ def test_first_run_validation_and_trust_summary_are_status_contract_driven() -> 
     assert "const validationPassed = validationEvidence?.ready === true || completionProof?.ready === true" in first_run_validation
     assert "data-validation-passed={validationPassed ? \"true\" : \"false\"}" in first_run_validation
     assert "const completionProof = activeFirstRunCompletionProof(status)" in first_run_trust_summary
+    assert "const storedCompletionProof = evidence?.completionProof" in first_run_trust_summary
+    assert "const completionProofIssue =" in first_run_trust_summary
+    assert "storedCompletionProof?.blockedCode || storedCompletionProof?.detail" in first_run_trust_summary
+    assert "const completionProofUnavailable = Boolean(completionProofIssue || storedCompletionProof?.ready === false)" in first_run_trust_summary
     assert "evidence?.validation?.ready === true || completionProof?.ready === true" in first_run_trust_summary
     assert "evidence?.sampleCache?.status === \"ready\"" in first_run_trust_summary
     assert "evidence?.report?.ready === true" in first_run_trust_summary
     assert "resultPackage?.ready === true || completionProof?.ready === true" in first_run_trust_summary
     assert "completionProof.validationCardJsonSha256" in first_run_trust_summary
+    assert "本地首跑完成证明不可用" in first_run_trust_summary
     assert "FirstRunTrustSummary status={firstRunStatus}" in first_run_validation
     assert "FirstRunTrustSummary status={firstRunStatus}" in first_run_completion
     assert "firstRunValidationCardPassed" not in first_run_validation
