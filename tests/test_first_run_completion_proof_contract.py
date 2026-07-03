@@ -18,6 +18,8 @@ from tests.test_first_run_status import _patch_status_sources
 @pytest.mark.parametrize(
     ("proof_patch", "detail_fragment"),
     [
+        ({"schemaVersion": "h2ometa.first-run.completion-proof.v0"}, "schema is unsupported"),
+        ({"ready": False}, "is not ready"),
         ({"runId": ""}, "runId"),
         ({"savedAt": ""}, "savedAt"),
         ({"resultPackageSha256": ""}, "resultPackageSha256"),

@@ -12,11 +12,11 @@ from typing import Any
 from config import get_app_data_dir
 from apps.api.workflow_first_run_completion_proof_validation import (
     FIRST_RUN_COMPLETION_PROOF_INVALID,
+    FIRST_RUN_COMPLETION_PROOF_SCHEMA_VERSION,
     first_run_completion_proof_invalid_reason,
 )
 
 
-FIRST_RUN_COMPLETION_PROOF_SCHEMA_VERSION = "h2ometa.first-run.completion-proof.v1"
 FIRST_RUN_COMPLETION_PROOF_REGISTRY_VERSION = 1
 FIRST_RUN_COMPLETION_PROOF_MAX_RECORDS = 25
 

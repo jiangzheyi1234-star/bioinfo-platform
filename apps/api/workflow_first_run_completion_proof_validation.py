@@ -7,6 +7,7 @@ from typing import Any
 
 
 FIRST_RUN_COMPLETION_PROOF_INVALID = "FIRST_RUN_COMPLETION_PROOF_INVALID"
+FIRST_RUN_COMPLETION_PROOF_SCHEMA_VERSION = "h2ometa.first-run.completion-proof.v1"
 FIRST_RUN_COMPLETION_PROOF_MIN_VALIDATION_CHECKS = 10
 
 _REQUIRED_READY_FIELDS = (
@@ -39,6 +40,11 @@ _REQUIRED_EVIDENCE_BUNDLE_ROLES = frozenset(
 
 
 def first_run_completion_proof_invalid_reason(proof: dict[str, Any]) -> str:
+    schema_version = str(proof.get("schemaVersion") or "").strip()
+    if schema_version != FIRST_RUN_COMPLETION_PROOF_SCHEMA_VERSION:
+        return "schema is unsupported"
+    if proof.get("ready") is not True:
+        return "is not ready"
     missing_fields = [field for field in _REQUIRED_READY_FIELDS if not str(proof.get(field) or "").strip()]
     if missing_fields:
         return "missing " + ", ".join(missing_fields)

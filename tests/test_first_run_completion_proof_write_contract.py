@@ -5,9 +5,14 @@ from pathlib import Path
 
 import pytest
 
+from apps.api import workflow_first_run_completion_store as completion_store
 from apps.api.workflow_first_run_completion_proof_contract import (
     FIRST_RUN_COMPLETION_PROOF_INVALID,
     FIRST_RUN_COMPLETION_PROOF_STORE_UNREADABLE,
+)
+from apps.api.workflow_first_run_completion_proof_validation import (
+    FIRST_RUN_COMPLETION_PROOF_SCHEMA_VERSION,
+    first_run_completion_proof_invalid_reason,
 )
 from apps.api.workflow_first_run_finalize_service import (
     WorkflowFirstRunFinalizeRequest,
@@ -30,6 +35,50 @@ def test_first_run_completion_proof_read_and_write_share_ready_validator() -> No
     assert "saved_first_run_completion_proof_invalid_detail(proof)" in contract_source
     assert "_REQUIRED_READY_FIELDS" not in store_source
     assert "_REQUIRED_READY_FIELDS" not in contract_source
+
+
+@pytest.mark.parametrize(
+    ("proof_patch", "detail"),
+    [
+        ({"schemaVersion": "h2ometa.first-run.completion-proof.v0"}, "schema is unsupported"),
+        ({"ready": False}, "is not ready"),
+    ],
+)
+def test_first_run_completion_proof_validator_rejects_schema_and_ready_contract(
+    proof_patch: dict[str, object],
+    detail: str,
+) -> None:
+    proof = _completion_proof_record()
+    proof.update(proof_patch)
+
+    assert first_run_completion_proof_invalid_reason(proof) == detail
+
+
+@pytest.mark.parametrize(
+    ("proof_patch", "detail"),
+    [
+        ({"schemaVersion": "h2ometa.first-run.completion-proof.v0"}, "schema is unsupported"),
+        ({"ready": False}, "is not ready"),
+    ],
+)
+def test_record_first_run_completion_proof_rejects_builder_output_that_fails_schema_ready_contract(
+    monkeypatch,
+    tmp_path,
+    proof_patch: dict[str, object],
+    detail: str,
+) -> None:
+    proof = _completion_proof_record()
+    proof.update(proof_patch)
+    monkeypatch.setattr(completion_store, "build_first_run_completion_proof", lambda *_args, **_kwargs: proof)
+
+    with pytest.raises(completion_store.FirstRunCompletionProofStoreError) as exc_info:
+        completion_store.record_first_run_completion_proof(
+            {},
+            server_id="srv_first",
+            store_path=tmp_path / "completion-proofs-v1.json",
+        )
+
+    assert str(exc_info.value) == f"{FIRST_RUN_COMPLETION_PROOF_INVALID}: {detail}"
 
 
 @pytest.mark.parametrize(
@@ -188,4 +237,35 @@ def test_first_run_finalize_returns_typed_blocker_when_completion_proof_store_wr
         ),
         "label": "修复本地首跑证明索引",
         "target": "/workflows/first-run#evidence-bundle",
+    }
+
+
+def _completion_proof_record() -> dict[str, object]:
+    return {
+        "schemaVersion": FIRST_RUN_COMPLETION_PROOF_SCHEMA_VERSION,
+        "proofKey": "srv_first|run_first|res_run_first|rpex_full",
+        "ready": True,
+        "serverId": "srv_first",
+        "runId": "run_first",
+        "resultId": "res_run_first",
+        "workflowRevisionId": "wfrev_first",
+        "packageExportId": "rpex_full",
+        "packageEvidenceId": "ev_export",
+        "resultPackageSha256": "d" * 64,
+        "resultPackageManifestSha256": "e" * 64,
+        "validationCardGeneratedAt": "2026-06-29T00:00:00Z",
+        "validationCardJsonSha256": "f" * 64,
+        "validationChecksPassed": 10,
+        "validationChecksTotal": 10,
+        "reportReady": True,
+        "reportOutputNames": ["summary.tsv", "qc-summary.tsv", "feature-table.tsv", "run-report.html"],
+        "evidenceBundleId": "res_run_first.first-run-evidence",
+        "evidenceBundleReady": True,
+        "evidenceBundleFileRoles": [
+            "result-package",
+            "validation-card-json",
+            "validation-card-markdown",
+            "pilot-handoff",
+        ],
+        "savedAt": "2026-06-29T00:30:00Z",
     }

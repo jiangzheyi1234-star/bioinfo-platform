@@ -11,7 +11,6 @@ from apps.api.ssh_control_service import (
 )
 from apps.api.workflow_catalog_service import get_workflow_catalog_from_request
 from apps.api.workflow_first_run_completion_proof_contract import (
-    first_run_completion_proof_evidence,
     latest_first_run_completion_proof_evidence,
 )
 from apps.api.workflow_first_run_finalize_service import FIRST_RUN_COMPLETION_PROOF_REQUIRED, first_run_next_action
@@ -494,7 +493,7 @@ def _status_response(
                 "workflow": workflow or {"ready": False},
                 "sampleCache": sample_cache,
                 "completionProof": (
-                    first_run_completion_proof_evidence(completion_proof, server_id=server_id)
+                    completion_proof
                     if completion_proof is not None
                     else latest_first_run_completion_proof_evidence(
                         server_id=server_id,
