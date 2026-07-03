@@ -19,6 +19,9 @@ from tests.test_first_run_status import _patch_status_sources
     [
         ({"runId": ""}, "runId"),
         ({"resultPackageSha256": ""}, "resultPackageSha256"),
+        ({"resultPackageSha256": "not-a-sha256"}, "invalid sha256 resultPackageSha256"),
+        ({"resultPackageManifestSha256": "0" * 63}, "invalid sha256 resultPackageManifestSha256"),
+        ({"validationCardJsonSha256": "g" * 64}, "invalid sha256 validationCardJsonSha256"),
         ({"validationChecksPassed": 9}, "validation checks are incomplete"),
         ({"reportReady": False}, "report evidence is not ready"),
         ({"reportOutputNames": ["summary.tsv", "qc-summary.tsv", "run-report.html"]}, "feature-table.tsv"),

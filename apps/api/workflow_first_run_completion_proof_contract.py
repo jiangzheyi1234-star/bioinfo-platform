@@ -31,6 +31,11 @@ _REQUIRED_READY_FIELDS = (
     "validationCardJsonSha256",
     "evidenceBundleId",
 )
+_REQUIRED_SHA256_FIELDS = (
+    "resultPackageSha256",
+    "resultPackageManifestSha256",
+    "validationCardJsonSha256",
+)
 _REQUIRED_REPORT_OUTPUTS = frozenset(("summary.tsv", "qc-summary.tsv", "feature-table.tsv", "run-report.html"))
 _REQUIRED_EVIDENCE_BUNDLE_ROLES = frozenset(
     ("result-package", "validation-card-json", "validation-card-markdown", "pilot-handoff")
@@ -60,6 +65,9 @@ def first_run_completion_proof_evidence(
     missing_fields = [field for field in _REQUIRED_READY_FIELDS if not str(proof.get(field) or "").strip()]
     if missing_fields:
         return _invalid("saved first-run completion proof is missing " + ", ".join(missing_fields))
+    invalid_hash_fields = [field for field in _REQUIRED_SHA256_FIELDS if not _valid_sha256(str(proof.get(field) or ""))]
+    if invalid_hash_fields:
+        return _invalid("saved first-run completion proof has invalid sha256 " + ", ".join(invalid_hash_fields))
     passed = proof.get("validationChecksPassed")
     total = proof.get("validationChecksTotal")
     if not _valid_check_counts(passed, total):
@@ -102,6 +110,11 @@ def _valid_check_counts(passed: Any, total: Any) -> bool:
     if not isinstance(total, int) or isinstance(total, bool):
         return False
     return total > 0 and passed == total
+
+
+def _valid_sha256(value: str) -> bool:
+    normalized = value.strip().lower()
+    return len(normalized) == 64 and all(char in "0123456789abcdef" for char in normalized)
 
 
 def _invalid(detail: str) -> dict[str, Any]:
