@@ -56,9 +56,9 @@ def first_run_completion_proof_store_unreadable_evidence(exc: Exception) -> dict
     }
 
 
-def latest_first_run_completion_proof_evidence(*, server_id: str) -> dict[str, Any]:
+def latest_first_run_completion_proof_evidence(*, server_id: str, run_id: str | None = None) -> dict[str, Any]:
     try:
-        proof = latest_first_run_completion_proof(server_id=server_id)
+        proof = latest_first_run_completion_proof(server_id=server_id, run_id=run_id)
     except FirstRunCompletionProofStoreError as exc:
         return first_run_completion_proof_store_unreadable_evidence(exc)
     return first_run_completion_proof_evidence(proof, server_id=server_id)

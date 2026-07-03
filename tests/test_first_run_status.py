@@ -198,8 +198,7 @@ def test_first_run_status_does_not_apply_saved_completion_proof_to_other_selecte
     assert result["status"] == "blocked"
     assert result["stage"] == "submit_run"
     assert result["nextAction"]["code"] == "SUBMIT_RUN"
-    assert result["evidence"]["completionProof"]["ready"] is True
-    assert result["evidence"]["completionProof"]["runId"] == "run_first"
+    assert result["evidence"]["completionProof"] == {"ready": False}
 
 
 def test_first_run_status_requires_eligible_run_on_selected_server(monkeypatch) -> None:

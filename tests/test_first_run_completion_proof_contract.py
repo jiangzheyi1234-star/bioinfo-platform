@@ -40,8 +40,9 @@ def test_first_run_status_fails_closed_on_invalid_saved_completion_proof(
     proof = _completion_proof()
     proof.update(proof_patch)
 
-    def fake_latest_completion_proof(*, server_id: str | None = None) -> dict[str, Any]:
+    def fake_latest_completion_proof(*, server_id: str | None = None, run_id: str | None = None) -> dict[str, Any]:
         assert server_id == "srv_first"
+        assert run_id == ""
         return proof
 
     _patch_status_sources(monkeypatch, runs=[], sample_status="ready")
@@ -62,8 +63,9 @@ def test_first_run_status_fails_closed_on_invalid_saved_completion_proof(
 
 
 def test_first_run_status_fails_closed_when_completion_proof_store_is_unreadable(monkeypatch) -> None:
-    def fail_latest_completion_proof(*, server_id: str | None = None) -> dict[str, Any]:
+    def fail_latest_completion_proof(*, server_id: str | None = None, run_id: str | None = None) -> dict[str, Any]:
         assert server_id == "srv_first"
+        assert run_id == ""
         raise FirstRunCompletionProofStoreError("FIRST_RUN_COMPLETION_PROOF_STORE_INVALID_JSON")
 
     _patch_status_sources(monkeypatch, runs=[], sample_status="ready")
@@ -105,6 +107,38 @@ def test_first_run_status_fails_closed_when_completion_proof_records_are_malform
     assert result["evidence"]["completionProof"]["ready"] is False
     assert result["evidence"]["completionProof"]["blockedCode"] == FIRST_RUN_COMPLETION_PROOF_STORE_UNREADABLE
     assert "FIRST_RUN_COMPLETION_PROOF_STORE_RECORD_INVALID" in result["evidence"]["completionProof"]["detail"]
+
+
+def test_first_run_status_uses_requested_saved_completion_proof_when_newer_proof_exists(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    older_proof = _completion_proof()
+    newer_proof = _completion_proof()
+    newer_proof.update(
+        {
+            "runId": "run_second",
+            "resultId": "res_run_second",
+            "packageExportId": "rpex_second",
+            "evidenceBundleId": "res_run_second.first-run-evidence",
+            "savedAt": "2026-06-29T00:45:00Z",
+        }
+    )
+    store_path = tmp_path / "completion-proofs-v1.json"
+    store_path.write_text(json.dumps({"version": 1, "records": [older_proof, newer_proof]}), encoding="utf-8")
+
+    _patch_status_sources(monkeypatch, runs=[], sample_status="ready")
+    monkeypatch.setattr(
+        "apps.api.workflow_first_run_completion_store.get_first_run_completion_proof_store_path",
+        lambda: store_path,
+    )
+
+    result = asyncio.run(build_first_run_status_from_request(server_id="srv_first", run_id="run_first"))["data"]
+
+    assert result["status"] == "ready"
+    assert result["evidence"]["completionProof"]["runId"] == "run_first"
+    assert result["evidence"]["completionProof"]["packageExportId"] == "rpex_full"
+    assert result["latestEligibleRun"]["runId"] == "run_first"
 
 
 def _completion_proof() -> dict[str, Any]:

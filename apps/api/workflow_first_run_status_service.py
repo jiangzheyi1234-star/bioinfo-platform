@@ -58,7 +58,10 @@ async def build_first_run_status_from_request(
     sample_cache = _sample_cache_summary(
         _unwrap_data(await inspect_workflow_sample_data_status(MOVING_PICTURES_PIPELINE_ID), {})
     )
-    completion_proof = latest_first_run_completion_proof_evidence(server_id=normalized_server_id)
+    completion_proof = latest_first_run_completion_proof_evidence(
+        server_id=normalized_server_id,
+        run_id=normalized_run_id,
+    )
     if _completion_proof_matches_requested_run(completion_proof, run_id=normalized_run_id):
         return _completion_proof_status_response(
             completion_proof,
@@ -455,7 +458,10 @@ def _status_response(
                 "completionProof": (
                     first_run_completion_proof_evidence(completion_proof, server_id=server_id)
                     if completion_proof is not None
-                    else latest_first_run_completion_proof_evidence(server_id=server_id)
+                    else latest_first_run_completion_proof_evidence(
+                        server_id=server_id,
+                        run_id=str((run or {}).get("runId") or "").strip(),
+                    )
                 ),
                 "run": run,
                 "report": report or {"ready": False},

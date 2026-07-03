@@ -51,13 +51,17 @@ def record_first_run_completion_proof(
 def latest_first_run_completion_proof(
     *,
     server_id: str | None = None,
+    run_id: str | None = None,
     store_path: Path | None = None,
 ) -> dict[str, Any] | None:
     registry = _read_registry(store_path or get_first_run_completion_proof_store_path(), missing_ok=True)
     wanted_server_id = str(server_id or "").strip()
+    wanted_run_id = str(run_id or "").strip()
     records = _records(registry)
     if wanted_server_id:
         records = [record for record in records if str(record.get("serverId") or "").strip() == wanted_server_id]
+    if wanted_run_id:
+        records = [record for record in records if str(record.get("runId") or "").strip() == wanted_run_id]
     if not records:
         return None
     latest = sorted(records, key=lambda item: str(item.get("savedAt") or ""))[-1]
