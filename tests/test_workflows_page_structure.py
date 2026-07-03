@@ -172,6 +172,8 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "requestLocalApiJson" not in first_run_page
     assert "export function buildFirstRunContinueAction" in first_run_conductor
     assert "export function WorkflowFirstRunConductorPanel" in first_run_conductor
+    assert "const completionProofReady = evidence?.completionProof?.ready === true" in first_run_conductor
+    assert "if (completionProofReady)" in first_run_conductor
     assert 'data-testid="first-run-conductor"' in first_run_conductor
     assert 'data-first-run-next-action={action.code}' in first_run_conductor
     assert 'data-testid="first-run-continue"' in first_run_conductor
@@ -273,6 +275,9 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "const latestPackage = readyPackage || (status ? statusPackageFallback : packageExports[0])" in first_run_evidence_state
     assert "const completionProof = status?.evidence?.completionProof" in first_run_evidence_state
     assert "const packageReady = status?.evidence?.resultPackage?.ready === true || completionProof?.ready === true" in first_run_evidence_state
+    assert "const completionProofReady = evidence?.completionProof?.ready === true" in first_run_progress
+    assert "completionProofReady || evidence?.resultPackage?.ready === true" in first_run_progress
+    assert "firstRunStatus.evidence?.completionProof?.ready === true" in first_run_progress
     assert "const validationEligible = firstRunEvidence.validationEligible" in first_run_page
     assert "const validationEligible = validationReady" in first_run_evidence_state
     assert 'status?.evidence?.validation?.ready === true || completionProof?.ready === true' in first_run_evidence_state

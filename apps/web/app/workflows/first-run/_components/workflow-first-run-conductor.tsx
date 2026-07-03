@@ -42,10 +42,20 @@ export type FirstRunContinueActionInput = {
 export function buildFirstRunContinueAction(input: FirstRunContinueActionInput): FirstRunContinueAction {
   const status = input.firstRunStatus;
   const evidence = status?.evidence;
+  const completionProofReady = evidence?.completionProof?.ready === true;
   const statusRun = evidence?.run || status?.latestEligibleRun || null;
   const hasStatus = Boolean(status);
   const sampleReady = hasStatus ? evidence?.sampleCache?.status === "ready" : input.sampleReady;
   const runSubmitted = hasStatus ? Boolean(statusRun?.runId) : input.runSubmitted;
+  if (completionProofReady) {
+    return {
+      code: "COMPLETE",
+      detail: "首跑完成证明已保存；可刷新状态或下载可用证据包继续交接。",
+      label: "首跑已完成",
+      target: "#evidence-bundle",
+      tone: "success",
+    };
+  }
   if (status?.nextAction) {
     const action = continueActionFromStatus(status.nextAction);
     const statusAllowsSubmit =

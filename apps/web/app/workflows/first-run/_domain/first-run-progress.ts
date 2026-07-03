@@ -29,57 +29,72 @@ export function buildFirstRunSteps(input: {
 }): FirstRunStep[] {
   const status = input.firstRunStatus;
   const evidence = status?.evidence;
+  const completionProofReady = evidence?.completionProof?.ready === true;
   const statusRun = evidence?.run || status?.latestEligibleRun || null;
   const hasStatus = Boolean(status);
   const base = [
-    stepDefinition("connect", "连接远端", hasStatus ? evidence?.server?.connected === true : input.serverConnected, "SSH 连接可用", "#runner-readiness"),
+    stepDefinition(
+      "connect",
+      "连接远端",
+      completionProofReady || (hasStatus ? evidence?.server?.connected === true : input.serverConnected),
+      "SSH 连接可用",
+      "#runner-readiness"
+    ),
     stepDefinition(
       "readiness",
       "运行环境检查",
-      hasStatus ? evidence?.server?.ready === true && evidence?.execution?.ready === true : input.serverReady,
+      completionProofReady || (hasStatus ? evidence?.server?.ready === true && evidence?.execution?.ready === true : input.serverReady),
       "运行时、Snakemake、执行配置和示例目录就绪",
       "#runner-readiness"
     ),
-    stepDefinition("select", "选择示例", hasStatus ? evidence?.workflow?.ready === true : input.selectedWorkflowReady, FIRST_RUN_PIPELINE_ID, "#sample-data"),
+    stepDefinition(
+      "select",
+      "选择示例",
+      completionProofReady || (hasStatus ? evidence?.workflow?.ready === true : input.selectedWorkflowReady),
+      FIRST_RUN_PIPELINE_ID,
+      "#sample-data"
+    ),
     stepDefinition(
       "sample",
       "准备示例数据",
-      hasStatus ? evidence?.sampleCache?.status === "ready" : input.sampleReady,
+      completionProofReady || (hasStatus ? evidence?.sampleCache?.status === "ready" : input.sampleReady),
       "metadata、barcodes、sequences 三个输入",
       "#sample-data"
     ),
     stepDefinition(
       "submit",
       "提交运行",
-      hasStatus ? Boolean(statusRun?.runId) : input.runSubmitted,
+      completionProofReady || (hasStatus ? Boolean(statusRun?.runId) : input.runSubmitted),
       "固定 pipeline run 已进入队列",
       "#sample-data"
     ),
     stepDefinition(
       "report",
       "看懂报告",
-      evidence?.report?.ready === true,
+      completionProofReady || evidence?.report?.ready === true,
       "summary、QC、feature table 和 HTML report 已通过服务端验证",
       "#run-report"
     ),
     stepDefinition(
       "package",
       "导出结果包",
-      evidence?.resultPackage?.ready === true,
+      completionProofReady || evidence?.resultPackage?.ready === true,
       "完整结果包包含 manifest、产物和证据",
       "#result-package"
     ),
     stepDefinition(
       "evidence-bundle",
       "下载/分享证据包",
-      evidence?.validation?.ready === true || status?.status === "ready",
+      completionProofReady || evidence?.validation?.ready === true || status?.status === "ready",
       "结果包、验证卡 JSON/Markdown、pilot handoff 四件套",
       "#evidence-bundle"
     ),
   ] as const;
   const firstIncomplete = base.findIndex(([, , done]) => !done);
-  const currentStepId = firstRunStepIdForStage(status?.stage) || base[firstIncomplete]?.[0] || "evidence-bundle";
-  const blockedStepId = status?.status === "blocked" ? currentStepId : "";
+  const currentStepId = completionProofReady
+    ? "evidence-bundle"
+    : firstRunStepIdForStage(status?.stage) || base[firstIncomplete]?.[0] || "evidence-bundle";
+  const blockedStepId = status?.status === "blocked" && !completionProofReady ? currentStepId : "";
   return base.map(([id, label, done, detail, target], index) => ({
     id,
     label,
@@ -173,6 +188,7 @@ export function resultPackageDisabledReason({
   workflowRevisionId: string;
 }) {
   if (firstRunStatus) {
+    if (firstRunStatus.evidence?.completionProof?.ready === true) return "";
     if (firstRunStatus.evidence?.resultPackage?.ready === true) return "";
     const action = firstRunStatus.nextAction;
     if (action?.code === "FINALIZE_FIRST_RUN") return "";

@@ -21,10 +21,11 @@ def test_first_run_ui_steps_and_report_are_status_contract_driven() -> None:
     assert 'run?.status === "completed" && outputs.every' not in first_run_report
     assert "firstRunStepIdForStage" in first_run_progress
     assert 'stage === "inspect_failed_run"' in first_run_progress
-    assert "hasStatus ? evidence?.sampleCache?.status === \"ready\" : input.sampleReady" in first_run_progress
-    assert "hasStatus ? Boolean(statusRun?.runId) : input.runSubmitted" in first_run_progress
-    assert "hasStatus ? evidence?.server?.connected === true : input.serverConnected" in first_run_progress
-    assert "hasStatus ? evidence?.workflow?.ready === true : input.selectedWorkflowReady" in first_run_progress
+    assert "const completionProofReady = evidence?.completionProof?.ready === true" in first_run_progress
+    assert "completionProofReady || (hasStatus ? evidence?.sampleCache?.status === \"ready\" : input.sampleReady)" in first_run_progress
+    assert "completionProofReady || (hasStatus ? Boolean(statusRun?.runId) : input.runSubmitted)" in first_run_progress
+    assert "completionProofReady || (hasStatus ? evidence?.server?.connected === true : input.serverConnected)" in first_run_progress
+    assert "completionProofReady || (hasStatus ? evidence?.workflow?.ready === true : input.selectedWorkflowReady)" in first_run_progress
     assert "action?.code === \"FINALIZE_FIRST_RUN\"" in first_run_progress
     assert "firstRunStatus: firstRunStatusSnapshot || null" in first_run_page
     assert "input.reportReady" not in first_run_progress
@@ -129,6 +130,9 @@ def test_first_run_conductor_uses_status_contract_before_local_run_hints() -> No
     assert "firstRunStatus: FirstRunStatus | null" in first_run_conductor
     assert "statusAction?: FirstRunNextAction | null" not in first_run_conductor
     assert "const status = input.firstRunStatus" in first_run_conductor
+    assert "const completionProofReady = evidence?.completionProof?.ready === true" in first_run_conductor
+    assert "if (completionProofReady)" in first_run_conductor
+    assert 'code: "COMPLETE"' in first_run_conductor
     assert "hasStatus ? evidence?.sampleCache?.status === \"ready\" : input.sampleReady" in first_run_conductor
     assert "hasStatus ? Boolean(statusRun?.runId) : input.runSubmitted" in first_run_conductor
     assert "if (status?.nextAction)" in first_run_conductor
