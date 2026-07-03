@@ -37,7 +37,6 @@ $BlockedNextActionTargets = @{
     FIRST_RUN_PILOT_HANDOFF_REQUIRED = "/workflows/first-run#evidence-bundle"
 }
 $FirstRunRecoveryAnchors = @("runner-readiness", "sample-data", "run-report", "result-package", "validation-card", "evidence-bundle")
-
 function Write-Step {
     param([string]$Message)
     Write-Host "[first-run-pilot] $Message"
@@ -63,7 +62,7 @@ function Write-FirstRunProof {
 . (Join-Path $PSScriptRoot "first_run_timing_proof.ps1")
 . (Join-Path $PSScriptRoot "first_run_pilot_check_downloads.ps1")
 . (Join-Path $PSScriptRoot "first_run_scenario_pack_check.ps1")
-
+. (Join-Path $PSScriptRoot "first_run_pilot_completion_proof.ps1")
 function Get-Json {
     param([string]$Url)
     try {
@@ -408,7 +407,7 @@ function Assert-FirstRunPilotHandoff {
         Fail-Pilot "first-run evidenceBundle must tell operators to keep the evidence files together"
     }
     $downloadProof = Assert-FirstRunEvidenceBundleDownload $bundle $evidence $card
-
+    $completionProof = Assert-FirstRunCompletionProof $Finalization $downloadProof.validationCardJsonSha256
     $checks = @($card.checks)
     $passedChecks = @($checks | Where-Object { $_.status -eq "passed" })
     if ($checks.Count -eq 0 -or $passedChecks.Count -ne $checks.Count) {
@@ -634,6 +633,7 @@ function Assert-FirstRunPilotHandoff {
         validationChecksTotal = $evidence.validationChecksTotal
         reportEvidence = $reportProof
         validationCard = $validationCardProof
+        completionProof = $completionProof
         resultPackage = $resultPackageProof
         resultPackageDownload = $resultPackageDownloadProof
         evidenceBundleSchemaVersion = $bundle.schemaVersion
@@ -739,8 +739,8 @@ if ($RunId) {
     }
     $finalizationStatus = $finalization.status
     if ($finalization.status -eq "ready") {
-        if ($null -eq $finalization.validationCard -or $null -eq $finalization.resultPackage -or $null -eq $finalization.evidenceBundle) {
-            Fail-Pilot "ready finalization must include validationCard, resultPackage, and evidenceBundle"
+        if ($null -eq $finalization.validationCard -or $null -eq $finalization.resultPackage -or $null -eq $finalization.evidenceBundle -or $null -eq $finalization.completionProof) {
+            Fail-Pilot "ready finalization must include validationCard, resultPackage, evidenceBundle, and completionProof"
         }
         if (-not $finalization.resultPackage.sha256 -or -not $finalization.resultPackage.manifestSha256) {
             Fail-Pilot "ready finalization resultPackage must include sha256 and manifestSha256"

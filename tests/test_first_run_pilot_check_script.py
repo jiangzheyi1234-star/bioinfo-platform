@@ -15,6 +15,7 @@ def _first_run_pilot_check_source() -> str:
             (script_dir / "first_run_timing_proof.ps1").read_text(encoding="utf-8"),
             (script_dir / "first_run_pilot_check_downloads.ps1").read_text(encoding="utf-8"),
             (script_dir / "first_run_scenario_pack_check.ps1").read_text(encoding="utf-8"),
+            (script_dir / "first_run_pilot_completion_proof.ps1").read_text(encoding="utf-8"),
         ]
     )
 
@@ -34,6 +35,7 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert '. (Join-Path $PSScriptRoot "first_run_timing_proof.ps1")' in source
     assert '. (Join-Path $PSScriptRoot "first_run_pilot_check_downloads.ps1")' in source
     assert '. (Join-Path $PSScriptRoot "first_run_scenario_pack_check.ps1")' in source
+    assert '. (Join-Path $PSScriptRoot "first_run_pilot_completion_proof.ps1")' in source
     assert "$ApiBase/health" in source
     assert "$ApiBase/api/v1/workflow-catalog" in source
     assert "$ApiBase/api/v1/workflow-scenario-packs" in source
@@ -129,7 +131,15 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "first-run did not complete within the expected timing window" in source
     assert "/api/v1/first-run/runs/$([uri]::EscapeDataString($RunId))/finalize" in source
     assert "h2ometa.first-run.finalization.v1" in source
-    assert "ready finalization must include validationCard, resultPackage, and evidenceBundle" in source
+    assert "ready finalization must include validationCard, resultPackage, evidenceBundle, and completionProof" in source
+    assert "function Assert-FirstRunCompletionProof" in source
+    assert "h2ometa.first-run.completion-proof.v1" in source
+    assert "ready finalization must include a persisted first-run completionProof" in source
+    assert "completionProof must match validationCard run and result" in source
+    assert "completionProof must match resultPackage hashes" in source
+    assert "completionProof must match downloaded validation card hash" in source
+    assert "completionProof savedAt must be a UTC timestamp" in source
+    assert "$completionProof = Assert-FirstRunCompletionProof $Finalization $downloadProof.validationCardJsonSha256" in source
     assert "ready finalization must include a single-user-lab pilotHandoff" in source
     assert "h2ometa.first-run.evidence-bundle.v1" in source
     assert "ready finalization must expose the same first-run evidenceBundle" in source
@@ -227,6 +237,7 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "schemaVersion = $report.schemaVersion" in source
     assert "outputNames = @($reportOutputs | ForEach-Object { $_.name })" in source
     assert "validationCard = $validationCardProof" in source
+    assert "completionProof = $completionProof" in source
     assert "resultPackage = $resultPackageProof" in source
     assert "validationCardJsonSha256 = $downloadProof.validationCardJsonSha256" in source
     assert "packageExportId = $package.packageExportId" in source
