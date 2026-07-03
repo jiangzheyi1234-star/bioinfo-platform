@@ -49,6 +49,49 @@ function Read-FirstRunZipEntryText {
     return [System.Text.Encoding]::UTF8.GetString($bytes)
 }
 
+function Get-FirstRunProofField {
+    param([object]$Proof, [string]$Name)
+    if ($null -eq $Proof -or $null -eq $Proof.PSObject.Properties[$Name]) {
+        return $null
+    }
+    return $Proof.PSObject.Properties[$Name].Value
+}
+
+function Get-FirstRunProofStringArray {
+    param([object]$Proof, [string]$Name)
+    $value = Get-FirstRunProofField $Proof $Name
+    if ($null -eq $value) {
+        return @()
+    }
+    return @($value | ForEach-Object { ([string]$_).Trim() })
+}
+
+function Assert-FirstRunZipCompletionProof {
+    param([object]$ProofFromZip, [object]$ExpectedProof)
+    $message = "ZIP completion-proof.json must match finalization completionProof"
+    if ($null -eq $ProofFromZip -or $null -eq $ExpectedProof) {
+        throw $message
+    }
+    $scalarFields = @(
+        "schemaVersion", "ready", "serverId", "runId", "resultId", "workflowRevisionId",
+        "packageExportId", "packageEvidenceId", "resultPackageSha256", "resultPackageManifestSha256",
+        "validationCardGeneratedAt", "validationCardJsonSha256", "validationChecksPassed",
+        "validationChecksTotal", "reportReady", "evidenceBundleId", "evidenceBundleReady", "savedAt"
+    )
+    foreach ($field in $scalarFields) {
+        if ([string](Get-FirstRunProofField $ProofFromZip $field) -ne [string](Get-FirstRunProofField $ExpectedProof $field)) {
+            throw $message
+        }
+    }
+    foreach ($field in @("reportOutputNames", "evidenceBundleFileRoles")) {
+        $actualValues = Get-FirstRunProofStringArray $ProofFromZip $field
+        $expectedValues = Get-FirstRunProofStringArray $ExpectedProof $field
+        if (($actualValues -join "|") -ne ($expectedValues -join "|")) {
+            throw $message
+        }
+    }
+}
+
 function Assert-FirstRunResultPackageDownload {
     param([object]$Package, [object]$ResultPackageFile)
     if ($null -eq $ResultPackageFile -or [string]::IsNullOrWhiteSpace([string]$ResultPackageFile.href)) {
@@ -103,7 +146,7 @@ function Assert-FirstRunResultPackageDownload {
 }
 
 function Assert-FirstRunEvidenceBundleDownload {
-    param([object]$Bundle, [object]$Evidence, [object]$Card)
+    param([object]$Bundle, [object]$Evidence, [object]$Card, [object]$CompletionProof)
     $download = $Bundle.download
     if ($null -eq $download) {
         Fail-Pilot "first-run evidenceBundle must expose an evidence-bundle ZIP download"
@@ -144,7 +187,7 @@ function Assert-FirstRunEvidenceBundleDownload {
         Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction Stop
         $archive = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
         $entryNames = @($archive.Entries | ForEach-Object { $_.FullName })
-        $expectedEntries = @("MANIFEST.json", "MANIFEST.sha256", "README.md", "$baseName.evidence-bundle.json", "$baseName.validation-card.json", "$baseName.validation-card.md", "$baseName.pilot-handoff.md")
+        $expectedEntries = @("MANIFEST.json", "MANIFEST.sha256", "README.md", "$baseName.evidence-bundle.json", "$baseName.validation-card.json", "$baseName.completion-proof.json", "$baseName.validation-card.md", "$baseName.pilot-handoff.md")
         if ((@($entryNames | Sort-Object) -join "|") -ne (@($expectedEntries | Sort-Object) -join "|")) {
             throw "ZIP entries must exactly match the portable first-run evidence files"
         }
@@ -170,6 +213,8 @@ function Assert-FirstRunEvidenceBundleDownload {
         if ($zipManifest.externalResultPackage.sha256 -ne $Evidence.packageSha256 -or $zipManifest.externalResultPackage.manifestSha256 -ne $Evidence.manifestSha256) {
             throw "MANIFEST.json external result package hashes must match finalization evidence"
         }
+        $zipCompletionProof = Read-FirstRunZipEntryText $archive "$baseName.completion-proof.json" | ConvertFrom-Json
+        Assert-FirstRunZipCompletionProof $zipCompletionProof $CompletionProof
         $zipFileProofs = @(
             @($zipManifest.files) | ForEach-Object {
                 $file = $_
@@ -190,7 +235,7 @@ function Assert-FirstRunEvidenceBundleDownload {
             }
         )
         $zipRoles = @($zipFileProofs | ForEach-Object { $_.role } | Sort-Object)
-        $expectedZipRoles = @("evidence-bundle-json", "pilot-handoff", "readme", "validation-card-json", "validation-card-markdown")
+        $expectedZipRoles = @("completion-proof-json", "evidence-bundle-json", "pilot-handoff", "readme", "validation-card-json", "validation-card-markdown")
         if (($zipRoles -join "|") -ne ($expectedZipRoles -join "|")) {
             throw "MANIFEST.json must list exactly the bundled first-run evidence file roles"
         }
@@ -211,6 +256,7 @@ function Assert-FirstRunEvidenceBundleDownload {
         zipManifestSha256 = $zipManifestSha256
         bundledFileRoles = @($zipFileProofs | ForEach-Object { $_.role })
         bundledFiles = $zipFileProofs
+        completionProofJsonSha256 = [string](@($zipFileProofs | Where-Object { $_.role -eq "completion-proof-json" } | Select-Object -First 1).sha256)
         validationCardJsonSha256 = [string](@($zipFileProofs | Where-Object { $_.role -eq "validation-card-json" } | Select-Object -First 1).sha256)
         evidenceBundleJsonSha256 = [string](@($zipFileProofs | Where-Object { $_.role -eq "evidence-bundle-json" } | Select-Object -First 1).sha256)
     }

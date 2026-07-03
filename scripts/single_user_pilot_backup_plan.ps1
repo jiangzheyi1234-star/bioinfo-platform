@@ -225,7 +225,7 @@ function New-FirstRunProofConsumption {
             if ($null -eq $handoff.resultPackageDownload -or -not (Test-ProofSha256 $handoff.resultPackageDownload.sha256)) {
                 Add-ProofError $errors "FIRST_RUN_PROOF_HANDOFF_REQUIRED" "handoffProof must include resultPackageDownload SHA-256 proof."
             }
-            if ($null -eq $handoff.evidenceBundleDownload -or -not (Test-ProofSha256 $handoff.evidenceBundleDownload.zipManifestSha256) -or -not (Test-ProofSha256 $handoff.evidenceBundleDownload.validationCardJsonSha256)) {
+            if ($null -eq $handoff.evidenceBundleDownload -or -not (Test-ProofSha256 $handoff.evidenceBundleDownload.zipManifestSha256) -or -not (Test-ProofSha256 $handoff.evidenceBundleDownload.completionProofJsonSha256) -or -not (Test-ProofSha256 $handoff.evidenceBundleDownload.validationCardJsonSha256)) {
                 Add-ProofError $errors "FIRST_RUN_PROOF_EVIDENCE_BUNDLE_REQUIRED" "handoffProof must include evidenceBundleDownload hashes."
             }
             $completionProof = $handoff.completionProof
@@ -468,6 +468,7 @@ $plan = [ordered]@{
             "handoffProof.completionProof.validationChecksTotal>=10",
             "handoffProof.completionProof.reportOutputNames=$($expectedReportOutputs -join ',')",
             "handoffProof.completionProof.validationCardJsonSha256",
+            "handoffProof.evidenceBundleDownload.completionProofJsonSha256",
             "handoffProof.evidenceBundleSchemaVersion=h2ometa.first-run.evidence-bundle.v1",
             "handoffProof.evidenceBundleFileRoles=$($expectedEvidenceBundleRoles -join ',')",
             "handoffProof.backupPlanCommand=$expectedBackupPlanCommand",

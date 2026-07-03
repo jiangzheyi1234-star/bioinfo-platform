@@ -409,7 +409,7 @@ function Assert-FirstRunPilotHandoff {
     if (-not (@($bundle.consumerChecklist) -contains "keep-result-package-validation-card-and-handoff-together")) {
         Fail-Pilot "first-run evidenceBundle must tell operators to keep the evidence files together"
     }
-    $downloadProof = Assert-FirstRunEvidenceBundleDownload $bundle $evidence $card
+    $downloadProof = Assert-FirstRunEvidenceBundleDownload $bundle $evidence $card $Finalization.completionProof
     $completionProof = Assert-FirstRunCompletionProof $Finalization $downloadProof.validationCardJsonSha256
     $checks = @($card.checks)
     $passedChecks = @($checks | Where-Object { $_.status -eq "passed" })

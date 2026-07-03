@@ -16,6 +16,7 @@ from apps.api.workflow_first_run_markdown import (
     first_run_handoff_manifest_markdown,
     first_run_validation_card_markdown,
 )
+from apps.api.workflow_first_run_completion_proof_contract import latest_first_run_completion_proof_evidence
 from apps.api.workflow_first_run_service import build_first_run_validation_card_from_request
 from apps.api.workflow_first_run_status_service import build_first_run_status_from_request
 from apps.api.workflow_first_run_submit_service import (
@@ -104,7 +105,8 @@ async def download_first_run_evidence_bundle_zip(
     filename_base = _first_run_evidence_filename_base(card, run_id)
     handoff = card.get("pilotHandoff") if isinstance(card.get("pilotHandoff"), dict) else {}
     bundle = handoff.get("evidenceBundle") if isinstance(handoff.get("evidenceBundle"), dict) else {}
-    zip_entries = _first_run_evidence_bundle_zip_entries(filename_base, card, bundle)
+    completion_proof = _first_run_evidence_bundle_completion_proof(card, run_id=run_id, server_id=serverId)
+    zip_entries = _first_run_evidence_bundle_zip_entries(filename_base, card, bundle, completion_proof)
     manifest = _first_run_evidence_bundle_zip_manifest(card, bundle, zip_entries)
     manifest_bytes = json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8")
     manifest_sha256 = hashlib.sha256(manifest_bytes).hexdigest()
@@ -147,8 +149,9 @@ def _first_run_evidence_bundle_zip_entries(
     filename_base: str,
     card: dict[str, Any],
     bundle: dict[str, Any],
+    completion_proof: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    return [
+    entries = [
         _zip_text_entry(
             role="evidence-bundle-json",
             source="first-run-evidence-bundle-api",
@@ -185,6 +188,18 @@ def _first_run_evidence_bundle_zip_entries(
             content=_first_run_evidence_bundle_readme(card),
         ),
     ]
+    if _is_ready_completion_proof(completion_proof):
+        entries.insert(
+            2,
+            _zip_text_entry(
+                role="completion-proof-json",
+                source="first-run-completion-proof-store",
+                media_type="application/json",
+                filename=f"{filename_base}.completion-proof.json",
+                content=json.dumps(completion_proof, ensure_ascii=False, indent=2, sort_keys=True),
+            ),
+        )
+    return entries
 
 
 def _first_run_evidence_bundle_zip_manifest(
@@ -287,11 +302,27 @@ def _first_run_evidence_bundle_readme(card: dict[str, Any]) -> str:
             f"Package SHA-256: {package.get('sha256') or '-'}",
             f"Manifest SHA-256: {package.get('manifestSha256') or '-'}",
             "",
-            "This zip contains a machine-readable MANIFEST.json, the validation card, pilot handoff, and evidence bundle manifest.",
+            "This zip contains a machine-readable MANIFEST.json, the validation card, pilot handoff, evidence bundle manifest, and saved completion proof when present.",
             "Verify MANIFEST.json with MANIFEST.sha256, then verify each bundled file hash before sharing.",
             "Keep it with the separately downloaded full result package and verify the recorded package hashes before sharing.",
         ]
     )
+
+
+def _first_run_evidence_bundle_completion_proof(
+    card: dict[str, Any],
+    *,
+    run_id: str,
+    server_id: str | None,
+) -> dict[str, Any] | None:
+    runner = card.get("runner") if isinstance(card.get("runner"), dict) else {}
+    selected_server_id = str(server_id or runner.get("serverId") or "").strip()
+    proof = latest_first_run_completion_proof_evidence(server_id=selected_server_id, run_id=run_id)
+    return proof if _is_ready_completion_proof(proof) else None
+
+
+def _is_ready_completion_proof(proof: dict[str, Any] | None) -> bool:
+    return isinstance(proof, dict) and proof.get("ready") is True
 
 
 def _mapping(value: Any) -> dict[str, Any]:

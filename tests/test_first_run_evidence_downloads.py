@@ -12,6 +12,7 @@ from apps.api.workflow_first_run_routes import (
     download_first_run_validation_card_json,
     download_first_run_validation_card_markdown,
 )
+from tests.test_first_run_completion_proof_contract import _completion_proof
 from tests.test_first_run_validation_card import _patch_first_run_sources
 
 
@@ -89,6 +90,10 @@ def test_first_run_download_routes_return_server_owned_evidence_files(monkeypatc
 def test_first_run_evidence_bundle_zip_contains_portable_trust_files(monkeypatch) -> None:
     calls: list[tuple[str, str | None]] = []
     _patch_first_run_sources(monkeypatch, calls=calls)
+    monkeypatch.setattr(
+        "apps.api.workflow_first_run_routes.latest_first_run_completion_proof_evidence",
+        lambda **_kwargs: {"ready": False},
+    )
 
     response = asyncio.run(download_first_run_evidence_bundle_zip("run_first", serverId="srv_first"))
 
@@ -163,3 +168,46 @@ def test_first_run_evidence_bundle_zip_contains_portable_trust_files(monkeypatch
     assert "s3://secret" not in serialized
     assert '"storageUri"' not in serialized
     assert '"packagePath"' not in serialized
+
+
+def test_first_run_evidence_bundle_zip_includes_saved_completion_proof(monkeypatch) -> None:
+    _patch_first_run_sources(monkeypatch)
+    proof = _completion_proof()
+
+    def fake_completion_proof(*, server_id: str, run_id: str | None = None) -> dict[str, object]:
+        assert server_id == "srv_first"
+        assert run_id == "run_first"
+        return proof
+
+    monkeypatch.setattr(
+        "apps.api.workflow_first_run_routes.latest_first_run_completion_proof_evidence",
+        fake_completion_proof,
+    )
+
+    response = asyncio.run(download_first_run_evidence_bundle_zip("run_first", serverId="srv_first"))
+
+    with zipfile.ZipFile(io.BytesIO(response.body)) as archive:
+        names = set(archive.namelist())
+        assert "res_run_first.completion-proof.json" in names
+        zip_manifest = json.loads(archive.read("MANIFEST.json").decode("utf-8"))
+        completion_proof_bytes = archive.read("res_run_first.completion-proof.json")
+        completion_proof = json.loads(completion_proof_bytes.decode("utf-8"))
+        zip_files = {item["role"]: item for item in zip_manifest["files"]}
+
+    assert completion_proof == proof
+    assert zip_files["completion-proof-json"] == {
+        "role": "completion-proof-json",
+        "memberName": "res_run_first.completion-proof.json",
+        "source": "first-run-completion-proof-store",
+        "mediaType": "application/json",
+        "sizeBytes": len(completion_proof_bytes),
+        "sha256": hashlib.sha256(completion_proof_bytes).hexdigest(),
+    }
+    assert set(zip_files) == {
+        "completion-proof-json",
+        "evidence-bundle-json",
+        "pilot-handoff",
+        "readme",
+        "validation-card-json",
+        "validation-card-markdown",
+    }

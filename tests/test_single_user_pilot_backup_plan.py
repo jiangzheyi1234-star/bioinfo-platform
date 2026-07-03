@@ -68,6 +68,7 @@ def test_single_user_pilot_backup_plan_script_defines_read_only_handoff() -> Non
     assert "handoffProof.completionProof.validationChecksTotal>=10" in source
     assert "handoffProof.completionProof.reportOutputNames=$($expectedReportOutputs -join ',')" in source
     assert "handoffProof.completionProof.validationCardJsonSha256" in source
+    assert "handoffProof.evidenceBundleDownload.completionProofJsonSha256" in source
     assert "handoffProof.evidenceBundleSchemaVersion=h2ometa.first-run.evidence-bundle.v1" in source
     assert "handoffProof.evidenceBundleFileRoles=$($expectedEvidenceBundleRoles -join ',')" in source
     assert "handoffProof.nextScenarioIds=$($expectedNextScenarioIds -join ',')" in source
@@ -225,6 +226,7 @@ def test_single_user_pilot_backup_plan_outputs_machine_readable_json(tmp_path: P
         in summary["restoreDrill"]["mustReport"]
     )
     assert "handoffProof.completionProof.validationCardJsonSha256" in summary["restoreDrill"]["mustReport"]
+    assert "handoffProof.evidenceBundleDownload.completionProofJsonSha256" in summary["restoreDrill"]["mustReport"]
     assert (
         "handoffProof.evidenceBundleSchemaVersion=h2ometa.first-run.evidence-bundle.v1"
         in summary["restoreDrill"]["mustReport"]
@@ -546,6 +548,7 @@ def test_single_user_pilot_backup_docs_connect_restore_to_first_run_proof() -> N
     assert "sampleUploadProof.duplicateRoles: []" in source
     assert "handoffProof.evidenceBundleSchemaVersion" in source
     assert "handoffProof.evidenceBundleFileRoles" in source
+    assert "handoffProof.evidenceBundleDownload.completionProofJsonSha256" in source
     assert "handoffProof.nextScenarioDatabasePackCoverage" in source
 
 
@@ -618,6 +621,7 @@ def _write_first_run_proof(
             ],
             "evidenceBundleDownload": {
                 "zipManifestSha256": "b" * 64,
+                "completionProofJsonSha256": "d" * 64,
                 "validationCardJsonSha256": "c" * 64,
             },
             "backupPlanCommand": (

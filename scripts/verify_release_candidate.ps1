@@ -269,6 +269,7 @@ function Test-FirstRunCompletionProof {
         $completionProof.validationCardJsonSha256 -eq $handoff.validationCard.validationCardJsonSha256 -and
         $completionProof.validationCardJsonSha256 -eq $handoff.evidenceBundleDownload.validationCardJsonSha256 -and
         (Test-ProofSha256 $completionProof.validationCardJsonSha256) -and
+        (Test-ProofSha256 $handoff.evidenceBundleDownload.completionProofJsonSha256) -and
         $null -ne $checksPassed -and $null -ne $checksTotal -and
         $checksPassed -eq $checksTotal -and $checksTotal -ge 10 -and
         $completionProof.reportReady -eq $true -and

@@ -40,6 +40,9 @@ if ($proof.closedLoopProven -ne $true) {
 if ($proof.handoffProof.validationCard.validationCardJsonSha256 -eq $null) {
     throw "first-run pilot proof must include validationCardJsonSha256"
 }
+if ($proof.handoffProof.evidenceBundleDownload.completionProofJsonSha256 -eq $null) {
+    throw "first-run pilot proof must include completionProofJsonSha256"
+}
 if (-not $RunId) {
     if ($proof.runTimingProof.schemaVersion -ne "h2ometa.first-run.timing-proof.v1" -or $proof.runTimingProof.withinExpectedDurationWindow -ne $true) {
         throw "fresh first-run pilot proof must include runTimingProof within the expected duration window"

@@ -183,16 +183,20 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "MANIFEST.sha256 must match MANIFEST.json bytes" in source
     assert "MANIFEST.json external result package hashes must match finalization evidence" in source
     assert "MANIFEST.json must list exactly the bundled first-run evidence file roles" in source
+    assert "function Assert-FirstRunZipCompletionProof" in source
+    assert "ZIP completion-proof.json must match finalization completionProof" in source
     assert "function Read-FirstRunZipEntryBytes" in source
     assert "function Get-FirstRunBytesSha256" in source
     assert "README.md" in source
     assert "$baseName.evidence-bundle.json" in source
+    assert "$baseName.completion-proof.json" in source
     assert "$baseName.validation-card.json" in source
     assert "$baseName.validation-card.md" in source
     assert "$baseName.pilot-handoff.md" in source
+    assert "completion-proof-json" in source
     assert "ZIP entries must exactly match the portable first-run evidence files" in source
     assert "ZIP entry $entryName must be present and non-empty" in source
-    assert "$downloadProof = Assert-FirstRunEvidenceBundleDownload $bundle $evidence $card" in source
+    assert "$downloadProof = Assert-FirstRunEvidenceBundleDownload $bundle $evidence $card $Finalization.completionProof" in source
     assert "/api/v1/first-run/runs/$([uri]::EscapeDataString($evidence.runId))/validation-card.json" in source
     assert "/api/v1/first-run/runs/$([uri]::EscapeDataString($evidence.runId))/validation-card.md" in source
     assert "/api/v1/first-run/runs/$([uri]::EscapeDataString($evidence.runId))/pilot-handoff.md" in source
@@ -259,6 +263,7 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "zipManifestSha256 = $zipManifestSha256" in source
     assert "bundledFileRoles = @($zipFileProofs | ForEach-Object { $_.role })" in source
     assert "bundledFiles = $zipFileProofs" in source
+    assert "completionProofJsonSha256" in source
     assert "validationCardJsonSha256" in source
     assert "evidenceBundleJsonSha256" in source
     assert "backupRestoreSchemaVersion = $backup.schemaVersion" in source
@@ -318,6 +323,7 @@ def test_first_run_pilot_docs_keep_mutating_proof_explicit() -> None:
     assert "handoffProof.evidenceBundleDownload" in source
     assert "handoffProof.resultPackageDownload" in source
     assert "handoffProof.evidenceBundleDownload.zipManifestSha256" in source
+    assert "handoffProof.evidenceBundleDownload.completionProofJsonSha256" in source
     assert "handoffProof.evidenceBundleDownload.validationCardJsonSha256" in source
     assert "handoffProof.resultId" in source
     assert "handoffProof.workflowRevisionId" in source
