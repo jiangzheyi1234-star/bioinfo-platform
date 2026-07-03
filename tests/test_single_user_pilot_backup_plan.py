@@ -26,6 +26,7 @@ def test_single_user_pilot_backup_plan_script_defines_read_only_handoff() -> Non
     assert "FIRST_RUN_PROOF_NOT_CLOSED_LOOP" in source
     assert "FIRST_RUN_PROOF_MODE_UNSUPPORTED" in source
     assert "FIRST_RUN_PROOF_SAMPLE_UPLOAD_REQUIRED" in source
+    assert "FIRST_RUN_PROOF_COMPLETION_PROOF_REQUIRED" in source
     assert "FIRST_RUN_PROOF_EVIDENCE_BUNDLE_REQUIRED" in source
     assert "FIRST_RUN_PROOF_NEXT_SCENARIO_REQUIRED" in source
     assert "[switch]$RequireExistingState" in source
@@ -61,6 +62,8 @@ def test_single_user_pilot_backup_plan_script_defines_read_only_handoff() -> Non
     assert "sampleUploadProof.unexpectedRoles=[]" in source
     assert "sampleUploadProof.duplicateRoles=[]" in source
     assert "sampleUploadProof covers metadata, barcodes, and sequences" in source
+    assert "handoffProof.completionProof.savedAt" in source
+    assert "handoffProof.completionProof.validationCardJsonSha256" in source
     assert "handoffProof.evidenceBundleSchemaVersion=h2ometa.first-run.evidence-bundle.v1" in source
     assert "handoffProof.evidenceBundleFileRoles=$($expectedEvidenceBundleRoles -join ',')" in source
     assert "handoffProof.nextScenarioIds=$($expectedNextScenarioIds -join ',')" in source
@@ -147,6 +150,10 @@ def test_single_user_pilot_backup_plan_outputs_machine_readable_json(tmp_path: P
         "resultId": "res_run_first",
         "workflowRevisionId": "wfrev_first",
         "packageExportId": "rpex_full",
+        "completionProof": {
+            "savedAt": "2026-06-29T00:30:00Z",
+            "validationCardJsonSha256": "c" * 64,
+        },
         "evidenceBundleFileRoles": [
             "result-package",
             "validation-card-json",
@@ -180,6 +187,8 @@ def test_single_user_pilot_backup_plan_outputs_machine_readable_json(tmp_path: P
     assert "sampleUploadProof.unexpectedRoles=[]" in summary["restoreDrill"]["mustReport"]
     assert "sampleUploadProof.duplicateRoles=[]" in summary["restoreDrill"]["mustReport"]
     assert "sampleUploadProof covers metadata, barcodes, and sequences" in summary["restoreDrill"]["mustReport"]
+    assert "handoffProof.completionProof.savedAt" in summary["restoreDrill"]["mustReport"]
+    assert "handoffProof.completionProof.validationCardJsonSha256" in summary["restoreDrill"]["mustReport"]
     assert (
         "handoffProof.evidenceBundleSchemaVersion=h2ometa.first-run.evidence-bundle.v1"
         in summary["restoreDrill"]["mustReport"]
@@ -351,6 +360,56 @@ def test_single_user_pilot_backup_plan_rejects_first_run_proof_without_timing(tm
     assert {item["code"] for item in summary["blockers"]} == {"FIRST_RUN_PROOF_TIMING_REQUIRED"}
 
 
+@pytest.mark.skipif(_powershell_executable() is None, reason="PowerShell is required to execute the pilot backup plan script")
+@pytest.mark.parametrize(
+    ("completion_proof", "completion_proof_hash"),
+    [
+        (False, "c" * 64),
+        (True, "d" * 64),
+    ],
+)
+def test_single_user_pilot_backup_plan_rejects_first_run_proof_without_matching_completion_proof(
+    tmp_path: Path,
+    completion_proof: bool,
+    completion_proof_hash: str,
+) -> None:
+    appdata_root = tmp_path / "Roaming" / "H2OMeta"
+    appdata_root.mkdir(parents=True)
+    proof_path = tmp_path / "first-run-pilot-proof.json"
+    _write_first_run_proof(
+        proof_path,
+        completion_proof=completion_proof,
+        completion_proof_hash=completion_proof_hash,
+    )
+
+    completed = subprocess.run(
+        [
+            _powershell_executable() or "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(SCRIPT),
+            "-AppDataRoot",
+            str(appdata_root),
+            "-RemoteRunnerSharedRoot",
+            "/home/lab/.h2ometa/runner/shared",
+            "-FirstRunProofPath",
+            str(proof_path),
+            "-RequireExistingState",
+        ],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    summary = json.loads(completed.stdout)
+    assert summary["readyForManualBackup"] is False
+    assert {item["code"] for item in summary["blockers"]} == {"FIRST_RUN_PROOF_COMPLETION_PROOF_REQUIRED"}
+
+
 def test_single_user_pilot_backup_plan_is_exposed_from_web_package() -> None:
     package = json.loads((REPO_ROOT / "apps" / "web" / "package.json").read_text(encoding="utf-8"))
 
@@ -398,7 +457,13 @@ def test_single_user_pilot_backup_docs_connect_restore_to_first_run_proof() -> N
     assert "handoffProof.nextScenarioDatabasePackCoverage" in source
 
 
-def _write_first_run_proof(path: Path, *, include_timing: bool = True) -> None:
+def _write_first_run_proof(
+    path: Path,
+    *,
+    include_timing: bool = True,
+    completion_proof: bool = True,
+    completion_proof_hash: str = "c" * 64,
+) -> None:
     payload = {
         "schemaVersion": "h2ometa.first-run-pilot-check.v1",
         "serverId": "srv_first",
@@ -418,6 +483,17 @@ def _write_first_run_proof(path: Path, *, include_timing: bool = True) -> None:
             "workflowRevisionId": "wfrev_first",
             "packageExportId": "rpex_full",
             "resultPackageDownload": {"sha256": "a" * 64},
+            "validationCard": {"validationCardJsonSha256": "c" * 64},
+            **(
+                {
+                    "completionProof": {
+                        "savedAt": "2026-06-29T00:30:00Z",
+                        "validationCardJsonSha256": completion_proof_hash,
+                    }
+                }
+                if completion_proof
+                else {}
+            ),
             "evidenceBundleSchemaVersion": "h2ometa.first-run.evidence-bundle.v1",
             "evidenceBundleFileRoles": [
                 "result-package",

@@ -210,6 +210,14 @@ function New-FirstRunProofConsumption {
             if ($null -eq $handoff.evidenceBundleDownload -or [string]::IsNullOrWhiteSpace([string]$handoff.evidenceBundleDownload.zipManifestSha256) -or [string]::IsNullOrWhiteSpace([string]$handoff.evidenceBundleDownload.validationCardJsonSha256)) {
                 Add-ProofError $errors "FIRST_RUN_PROOF_EVIDENCE_BUNDLE_REQUIRED" "handoffProof must include evidenceBundleDownload hashes."
             }
+            $completionProof = $handoff.completionProof
+            $downloadedValidationCardSha = [string]$handoff.evidenceBundleDownload.validationCardJsonSha256
+            $validationCardSha = [string]$handoff.validationCard.validationCardJsonSha256
+            if ($null -eq $completionProof -or [string]::IsNullOrWhiteSpace([string]$completionProof.savedAt) -or [string]::IsNullOrWhiteSpace([string]$completionProof.validationCardJsonSha256)) {
+                Add-ProofError $errors "FIRST_RUN_PROOF_COMPLETION_PROOF_REQUIRED" "handoffProof must include persisted completionProof savedAt and validationCardJsonSha256."
+            } elseif ($completionProof.validationCardJsonSha256 -ne $downloadedValidationCardSha -or (-not [string]::IsNullOrWhiteSpace($validationCardSha) -and $completionProof.validationCardJsonSha256 -ne $validationCardSha)) {
+                Add-ProofError $errors "FIRST_RUN_PROOF_COMPLETION_PROOF_REQUIRED" "handoffProof completionProof must match validation card and evidence bundle hashes."
+            }
             if ($handoff.backupPlanCommand -ne $ExpectedBackupPlanCommand -or $handoff.restoreProofCommand -ne $ExpectedRestoreProofCommand) {
                 Add-ProofError $errors "FIRST_RUN_PROOF_BACKUP_HANDOFF_MISMATCH" "handoffProof backup/restore commands must match the read-only pilot handoff."
             }
@@ -237,6 +245,10 @@ function New-FirstRunProofConsumption {
             resultId = [string]$proof.handoffProof.resultId
             workflowRevisionId = [string]$proof.handoffProof.workflowRevisionId
             packageExportId = [string]$proof.handoffProof.packageExportId
+            completionProof = if ($null -eq $proof.handoffProof.completionProof) { $null } else { [ordered]@{
+                savedAt = [string]$proof.handoffProof.completionProof.savedAt
+                validationCardJsonSha256 = [string]$proof.handoffProof.completionProof.validationCardJsonSha256
+            } }
             evidenceBundleFileRoles = Get-StringArray $proof.handoffProof.evidenceBundleFileRoles
             nextScenarioIds = Get-StringArray $proof.handoffProof.nextScenarioIds
             runTimingProof = if ($null -eq $proof.runTimingProof) { $null } else { [ordered]@{
@@ -386,6 +398,8 @@ $plan = [ordered]@{
             "validationCard ready",
             "resultPackage SHA256 present",
             "sampleUploadProof covers metadata, barcodes, and sequences",
+            "handoffProof.completionProof.savedAt",
+            "handoffProof.completionProof.validationCardJsonSha256",
             "handoffProof.evidenceBundleSchemaVersion=h2ometa.first-run.evidence-bundle.v1",
             "handoffProof.evidenceBundleFileRoles=$($expectedEvidenceBundleRoles -join ',')",
             "handoffProof.backupPlanCommand=$expectedBackupPlanCommand",
