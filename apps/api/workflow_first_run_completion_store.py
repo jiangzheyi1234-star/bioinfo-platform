@@ -15,6 +15,29 @@ from config import get_app_data_dir
 FIRST_RUN_COMPLETION_PROOF_SCHEMA_VERSION = "h2ometa.first-run.completion-proof.v1"
 FIRST_RUN_COMPLETION_PROOF_REGISTRY_VERSION = 1
 FIRST_RUN_COMPLETION_PROOF_MAX_RECORDS = 25
+FIRST_RUN_COMPLETION_PROOF_INVALID = "FIRST_RUN_COMPLETION_PROOF_INVALID"
+_REQUIRED_READY_FIELDS = (
+    "serverId",
+    "runId",
+    "resultId",
+    "workflowRevisionId",
+    "packageExportId",
+    "packageEvidenceId",
+    "resultPackageSha256",
+    "resultPackageManifestSha256",
+    "validationCardGeneratedAt",
+    "validationCardJsonSha256",
+    "evidenceBundleId",
+)
+_REQUIRED_SHA256_FIELDS = (
+    "resultPackageSha256",
+    "resultPackageManifestSha256",
+    "validationCardJsonSha256",
+)
+_REQUIRED_REPORT_OUTPUTS = frozenset(("summary.tsv", "qc-summary.tsv", "feature-table.tsv", "run-report.html"))
+_REQUIRED_EVIDENCE_BUNDLE_ROLES = frozenset(
+    ("result-package", "validation-card-json", "validation-card-markdown", "pilot-handoff")
+)
 
 
 class FirstRunCompletionProofStoreError(ValueError):
@@ -33,6 +56,7 @@ def record_first_run_completion_proof(
 ) -> dict[str, Any]:
     path = store_path or get_first_run_completion_proof_store_path()
     proof = build_first_run_completion_proof(card, server_id=server_id)
+    _ensure_ready_completion_proof(proof)
     registry = _read_registry(path)
     records = [record for record in _records(registry) if record.get("proofKey") != proof["proofKey"]]
     records.append(proof)
@@ -143,6 +167,46 @@ def _write_registry(path: Path, registry: dict[str, Any]) -> None:
 
 def _records(registry: dict[str, Any]) -> list[dict[str, Any]]:
     return [record for record in registry.get("records") or [] if isinstance(record, dict)]
+
+
+def _ensure_ready_completion_proof(proof: dict[str, Any]) -> None:
+    missing_fields = [field for field in _REQUIRED_READY_FIELDS if not str(proof.get(field) or "").strip()]
+    if missing_fields:
+        raise _invalid_proof("missing " + ", ".join(missing_fields))
+    invalid_hash_fields = [field for field in _REQUIRED_SHA256_FIELDS if not _valid_sha256(str(proof.get(field) or ""))]
+    if invalid_hash_fields:
+        raise _invalid_proof("invalid sha256 " + ", ".join(invalid_hash_fields))
+    if not _valid_check_counts(proof.get("validationChecksPassed"), proof.get("validationChecksTotal")):
+        raise _invalid_proof("validation checks are incomplete")
+    if proof.get("reportReady") is not True:
+        raise _invalid_proof("report evidence is not ready")
+    report_output_names = {str(item or "").strip() for item in proof.get("reportOutputNames") or []}
+    missing_report_outputs = sorted(_REQUIRED_REPORT_OUTPUTS - report_output_names)
+    if missing_report_outputs:
+        raise _invalid_proof("missing report outputs " + ", ".join(missing_report_outputs))
+    if proof.get("evidenceBundleReady") is not True:
+        raise _invalid_proof("evidence bundle is not ready")
+    evidence_bundle_roles = {str(item or "").strip() for item in proof.get("evidenceBundleFileRoles") or []}
+    missing_bundle_roles = sorted(_REQUIRED_EVIDENCE_BUNDLE_ROLES - evidence_bundle_roles)
+    if missing_bundle_roles:
+        raise _invalid_proof("missing evidence bundle roles " + ", ".join(missing_bundle_roles))
+
+
+def _valid_check_counts(passed: Any, total: Any) -> bool:
+    if not isinstance(passed, int) or isinstance(passed, bool):
+        return False
+    if not isinstance(total, int) or isinstance(total, bool):
+        return False
+    return total > 0 and passed == total
+
+
+def _valid_sha256(value: str) -> bool:
+    normalized = value.strip().lower()
+    return len(normalized) == 64 and all(char in "0123456789abcdef" for char in normalized)
+
+
+def _invalid_proof(detail: str) -> FirstRunCompletionProofStoreError:
+    return FirstRunCompletionProofStoreError(f"{FIRST_RUN_COMPLETION_PROOF_INVALID}: {detail}")
 
 
 def _public_proof(record: dict[str, Any]) -> dict[str, Any]:

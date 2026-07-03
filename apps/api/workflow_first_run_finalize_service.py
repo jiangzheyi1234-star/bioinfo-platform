@@ -7,6 +7,7 @@ from typing import Any
 from apps.api.execution_query_service import export_result_package_from_request
 from apps.api.models import ApiRequest, ResultPackageExportRequest
 from apps.api.workflow_first_run_completion_proof_contract import (
+    FIRST_RUN_COMPLETION_PROOF_INVALID,
     FIRST_RUN_COMPLETION_PROOF_STORE_UNREADABLE,
     first_run_completion_proof_store_unreadable_evidence,
 )
@@ -51,7 +52,8 @@ async def finalize_first_run_from_request(
         if not is_first_run_result_package_export_required(code):
             return _blocked(code, str(exc))
     except FirstRunCompletionProofStoreError as exc:
-        return _blocked(FIRST_RUN_COMPLETION_PROOF_STORE_UNREADABLE, _completion_proof_store_error_detail(exc))
+        code, detail = _completion_proof_store_blocker(exc)
+        return _blocked(code, detail)
 
     result_id = _canonical_result_id_for_run(normalized_run_id)
     exported = await export_result_package_from_request(
@@ -85,9 +87,10 @@ async def finalize_first_run_from_request(
     except WorkflowFirstRunValidationCardUnavailableError as exc:
         return _blocked(_error_code(exc), str(exc), result_package=exported_package)
     except FirstRunCompletionProofStoreError as exc:
+        code, detail = _completion_proof_store_blocker(exc)
         return _blocked(
-            FIRST_RUN_COMPLETION_PROOF_STORE_UNREADABLE,
-            _completion_proof_store_error_detail(exc),
+            code,
+            detail,
             result_package=exported_package,
         )
 
@@ -146,6 +149,9 @@ def first_run_next_action(code: str, detail: str) -> dict[str, str]:
     elif code == "FIRST_RUN_PILOT_HANDOFF_REQUIRED" or code == "FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED":
         target = "/workflows/first-run#evidence-bundle"
         label = "重新生成首跑验证卡"
+    elif code == FIRST_RUN_COMPLETION_PROOF_INVALID:
+        target = "/workflows/first-run#evidence-bundle"
+        label = "重新生成首跑完成证明"
     elif code == FIRST_RUN_COMPLETION_PROOF_STORE_UNREADABLE:
         target = "/workflows/first-run#evidence-bundle"
         label = "修复本地首跑证明索引"
@@ -181,8 +187,14 @@ def _error_code(exc: WorkflowFirstRunValidationCardUnavailableError) -> str:
     return str(exc).split(":", 1)[0].strip() or "FIRST_RUN_FINALIZATION_BLOCKED"
 
 
-def _completion_proof_store_error_detail(exc: FirstRunCompletionProofStoreError) -> str:
-    return str(first_run_completion_proof_store_unreadable_evidence(exc).get("detail") or str(exc))
+def _completion_proof_store_blocker(exc: FirstRunCompletionProofStoreError) -> tuple[str, str]:
+    detail = str(exc).strip()
+    if detail.startswith(FIRST_RUN_COMPLETION_PROOF_INVALID):
+        return FIRST_RUN_COMPLETION_PROOF_INVALID, detail
+    return (
+        FIRST_RUN_COMPLETION_PROOF_STORE_UNREADABLE,
+        str(first_run_completion_proof_store_unreadable_evidence(exc).get("detail") or detail),
+    )
 
 
 def _unwrap_data(payload: Any) -> dict[str, Any]:
