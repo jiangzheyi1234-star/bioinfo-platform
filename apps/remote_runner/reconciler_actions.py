@@ -328,20 +328,20 @@ def dead_letter_job(
         return {"deadLettered": False, "reason": "job_not_found"}
     if job["dead_lettered_at"] is not None:
         return {"deadLettered": False, "reason": "already_dead_lettered"}
+    run = connection.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+    transition = RunExecutionStateMachine.dead_letter_job(
+        current_status=str(run["status"]) if run is not None else "",
+        state_version=int(run["state_version"]) if run is not None else -1,
+    )
     connection.execute(
         """
         UPDATE run_jobs
         SET state = ?, dead_lettered_at = ?, updated_at = ?
         WHERE job_id = ?
         """,
-        ("failed", timestamp, timestamp, job_id),
+        (transition.job_state, timestamp, timestamp, job_id),
     )
-    run = connection.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
     if run is not None:
-        transition = RunExecutionStateMachine.dead_letter_job(
-            current_status=str(run["status"]),
-            state_version=int(run["state_version"]),
-        )
         connection.execute(
             """
             UPDATE runs

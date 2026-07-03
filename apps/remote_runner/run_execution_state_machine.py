@@ -56,6 +56,11 @@ class RunJobRequeueDecision:
 
 
 @dataclass(frozen=True)
+class RunJobDeadLetterDecision(RunExecutionTransition):
+    job_state: str = "failed"
+
+
+@dataclass(frozen=True)
 class RunJobEnqueueDecision:
     job_state: str
     attempt_count: int
@@ -199,8 +204,8 @@ class RunExecutionStateMachine:
         )
 
     @staticmethod
-    def dead_letter_job(*, current_status: str, state_version: int) -> RunExecutionTransition:
-        return RunExecutionTransition(
+    def dead_letter_job(*, current_status: str, state_version: int) -> RunJobDeadLetterDecision:
+        return RunJobDeadLetterDecision(
             event_type="run_job_dead_lettered",
             from_status=_normalize_optional_status(current_status),
             to_status="failed",

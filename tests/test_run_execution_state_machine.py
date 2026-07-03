@@ -157,6 +157,7 @@ def test_dead_letter_transition_matches_reconciler_contract() -> None:
     assert transition.event_type == "run_job_dead_lettered"
     assert transition.from_status == "running"
     assert transition.to_status == "failed"
+    assert transition.job_state == "failed"
     assert transition.stage == "dead_letter"
     assert transition.state_version == 7
     assert transition.row_message == "Job dead-lettered after max retries."
