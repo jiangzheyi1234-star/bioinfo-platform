@@ -453,6 +453,8 @@ def test_single_user_pilot_backup_plan_rejects_first_run_proof_without_matching_
         {"ready": False},
         {"runId": "run_other"},
         {"resultPackageSha256": "d" * 64},
+        {"resultPackageManifestSha256": "not-a-sha256"},
+        {"validationCardJsonSha256": "not-a-sha256"},
         {"validationChecksTotal": 9},
         {"reportReady": False},
         {"reportOutputNames": ["summary.tsv", "qc-summary.tsv", "run-report.html"]},

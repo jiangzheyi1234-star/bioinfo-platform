@@ -124,6 +124,11 @@ function Test-SameStringSet {
     return $true
 }
 
+function Test-ProofSha256 {
+    param([object]$Value)
+    return (([string]$Value).Trim() -match "^[0-9a-fA-F]{64}$")
+}
+
 function Convert-ToProofNumber {
     param([object]$Value)
     if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value)) {
@@ -205,10 +210,10 @@ function New-FirstRunProofConsumption {
             if ([string]::IsNullOrWhiteSpace([string]$handoff.resultId) -or [string]::IsNullOrWhiteSpace([string]$handoff.workflowRevisionId) -or [string]::IsNullOrWhiteSpace([string]$handoff.packageExportId)) {
                 Add-ProofError $errors "FIRST_RUN_PROOF_HANDOFF_REQUIRED" "handoffProof must include resultId, workflowRevisionId, and packageExportId."
             }
-            if ($null -eq $handoff.resultPackageDownload -or [string]::IsNullOrWhiteSpace([string]$handoff.resultPackageDownload.sha256)) {
+            if ($null -eq $handoff.resultPackageDownload -or -not (Test-ProofSha256 $handoff.resultPackageDownload.sha256)) {
                 Add-ProofError $errors "FIRST_RUN_PROOF_HANDOFF_REQUIRED" "handoffProof must include resultPackageDownload SHA-256 proof."
             }
-            if ($null -eq $handoff.evidenceBundleDownload -or [string]::IsNullOrWhiteSpace([string]$handoff.evidenceBundleDownload.zipManifestSha256) -or [string]::IsNullOrWhiteSpace([string]$handoff.evidenceBundleDownload.validationCardJsonSha256)) {
+            if ($null -eq $handoff.evidenceBundleDownload -or -not (Test-ProofSha256 $handoff.evidenceBundleDownload.zipManifestSha256) -or -not (Test-ProofSha256 $handoff.evidenceBundleDownload.validationCardJsonSha256)) {
                 Add-ProofError $errors "FIRST_RUN_PROOF_EVIDENCE_BUNDLE_REQUIRED" "handoffProof must include evidenceBundleDownload hashes."
             }
             $completionProof = $handoff.completionProof
@@ -223,10 +228,10 @@ function New-FirstRunProofConsumption {
                 if ($completionProof.serverId -ne $proof.serverId -or $completionProof.runId -ne $proof.runId -or $completionProof.resultId -ne $handoff.resultId -or $completionProof.workflowRevisionId -ne $handoff.workflowRevisionId -or $completionProof.packageExportId -ne $handoff.packageExportId) {
                     Add-ProofError $errors "FIRST_RUN_PROOF_COMPLETION_PROOF_REQUIRED" "handoffProof completionProof must match first-run handoff identity."
                 }
-                if ($completionProof.resultPackageSha256 -ne $handoff.resultPackageDownload.sha256 -or [string]::IsNullOrWhiteSpace([string]$completionProof.resultPackageManifestSha256)) {
+                if ($completionProof.resultPackageSha256 -ne $handoff.resultPackageDownload.sha256 -or -not (Test-ProofSha256 $completionProof.resultPackageSha256) -or -not (Test-ProofSha256 $completionProof.resultPackageManifestSha256)) {
                     Add-ProofError $errors "FIRST_RUN_PROOF_COMPLETION_PROOF_REQUIRED" "handoffProof completionProof must include matching result package hashes."
                 }
-                if ($completionProof.validationCardJsonSha256 -ne $downloadedValidationCardSha -or (-not [string]::IsNullOrWhiteSpace($validationCardSha) -and $completionProof.validationCardJsonSha256 -ne $validationCardSha)) {
+                if (-not (Test-ProofSha256 $completionProof.validationCardJsonSha256) -or $completionProof.validationCardJsonSha256 -ne $downloadedValidationCardSha -or (-not [string]::IsNullOrWhiteSpace($validationCardSha) -and $completionProof.validationCardJsonSha256 -ne $validationCardSha)) {
                     Add-ProofError $errors "FIRST_RUN_PROOF_COMPLETION_PROOF_REQUIRED" "handoffProof completionProof must match validation card and evidence bundle hashes."
                 }
                 $completionChecksPassed = Convert-ToProofNumber $completionProof.validationChecksPassed
