@@ -64,7 +64,10 @@ function Assert-FirstRunCompletionProof {
         Fail-Pilot "completionProof savedAt must be a UTC timestamp"
     }
     $generatedAt = [DateTimeOffset]::MinValue
-    if (-not [DateTimeOffset]::TryParse([string]$proof.validationCardGeneratedAt, [ref]$generatedAt) -or $savedAt -lt $generatedAt) {
+    if (-not [DateTimeOffset]::TryParse([string]$proof.validationCardGeneratedAt, [ref]$generatedAt) -or $generatedAt.Offset.TotalSeconds -ne 0) {
+        Fail-Pilot "completionProof validationCardGeneratedAt must be a UTC timestamp"
+    }
+    if ($savedAt -lt $generatedAt) {
         Fail-Pilot "completionProof savedAt must not predate validationCardGeneratedAt"
     }
 
