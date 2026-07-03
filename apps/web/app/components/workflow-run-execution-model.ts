@@ -1,12 +1,16 @@
-import type { WorkflowRunRuleEvent, WorkflowRunSourceLocation } from "./workflows-page-model";
+import type {
+  WorkflowArtifact,
+  WorkflowRunRuleEvent,
+  WorkflowRunRuleLogContext,
+  WorkflowRunSourceLocation,
+} from "./workflow-run-diagnostics-model";
 
-export type WorkflowArtifact = {
-  artifactId: string;
-  kind: string;
-  mimeType: string;
-  sizeBytes: number;
-  sha256?: string;
-};
+export type {
+  WorkflowArtifact,
+  WorkflowRunRuleEvent,
+  WorkflowRunRuleLogContext,
+  WorkflowRunSourceLocation,
+} from "./workflow-run-diagnostics-model";
 
 export type WorkflowRunExecutionJob = {
   jobId?: string;
@@ -792,29 +796,6 @@ export type WorkflowRunFailureLocator = {
     sourceLocationsSanitized?: boolean;
     runSpecExposed?: boolean;
   };
-};
-
-export type WorkflowRunRuleLogContext = {
-  schemaVersion?: string;
-  status?: "available" | "unavailable" | string;
-  reasonCode?:
-    | "PREVIEW_AVAILABLE"
-    | "NO_FAILED_RULE"
-    | "NO_RULE_LOGS"
-    | "PATH_REFERENCE_ONLY"
-    | "MATCHED_ARTIFACT_NOT_PREVIEWABLE"
-    | "RESULT_ID_MISSING"
-    | "PREVIEW_UNAVAILABLE"
-    | string;
-  message?: string;
-  logReferenceCount?: number;
-  matchedArtifactCount?: number;
-  matchedArtifacts?: WorkflowArtifact[];
-  selectedArtifact?: WorkflowArtifact;
-  previewKind?: string;
-  lineCount?: number;
-  tail?: string[];
-  truncated?: boolean;
 };
 
 export type WorkflowRunExecutionContext = {

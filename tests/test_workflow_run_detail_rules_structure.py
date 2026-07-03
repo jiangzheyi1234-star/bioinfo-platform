@@ -14,7 +14,8 @@ def _component_source(filename: str) -> str:
 def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     model = _component_source("workflows-page-model.ts")
     execution_model = _component_source("workflow-run-execution-model.ts")
-    model_contract = f"{model}\n{execution_model}"
+    diagnostics_model = _component_source("workflow-run-diagnostics-model.ts")
+    model_contract = f"{model}\n{execution_model}\n{diagnostics_model}"
     api = _component_source("workflows-page-api.ts")
     panel = _component_source("workflow-run-detail-panel.tsx")
     execution_panel = _component_source("workflow-run-execution-context.tsx")
@@ -29,14 +30,18 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     dag_preview = _component_source("workflow-dag-preview.tsx")
     catalog_service = (ROOT / "apps" / "api" / "workflow_catalog_service.py").read_text(encoding="utf-8")
 
-    assert "export type WorkflowRunRuleEvent" in model
-    assert "export type WorkflowRunSourceLocation" in model
+    assert "export type WorkflowRunRuleEvent" in diagnostics_model
+    assert "export type WorkflowRunSourceLocation" in diagnostics_model
+    assert "export type WorkflowRunRuleLogContext" in diagnostics_model
     assert "export type WorkflowRunRule" in model
     assert "export type WorkflowRunRules" in model
     assert "export type WorkflowRunRulesSummary" in rules_model
     assert "statusCounts?: Record<string, number>" in rules_model
     assert "logEvidenceReasonCodes?: Record<string, number>" in rules_model
     assert 'from "./workflow-run-execution-model"' in model
+    assert 'from "./workflow-run-diagnostics-model"' in model
+    assert 'from "./workflow-run-diagnostics-model"' in execution_model
+    assert 'from "./workflows-page-model"' not in execution_model
     assert "export type WorkflowRunExecutionContext" in model_contract
     assert "export type WorkflowRunActivationReadiness" in model_contract
     assert "export type WorkflowRunExecutorOrchestration" in model_contract
@@ -79,7 +84,7 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "executionContext?: WorkflowRunExecutionContext" in model
     assert "failureLocator?: WorkflowRunFailureLocator" in model
     assert "ruleLogContext?: WorkflowRunRuleLogContext" in model_contract
-    assert "export type WorkflowRunRuleLogContext" in model_contract
+    assert "export type WorkflowRunRuleLogContext" in diagnostics_model
     assert '"PATH_REFERENCE_ONLY"' in model_contract
     assert '"PREVIEW_AVAILABLE"' in model_contract
     assert "reasonCode?: \"RUN_NOT_FAILED\" | \"RUN_FAILED_NO_RULE\" | \"FAILED_RULE\" | string" in model_contract
@@ -187,7 +192,7 @@ def test_workflow_run_detail_model_and_panel_surface_rule_level_state() -> None:
     assert "inputs?: string[]" not in model
     assert "outputs?: string[]" not in model
     assert "logs?: string[]" not in model
-    assert "details?: Record<string, unknown>" in model
+    assert "details?: Record<string, unknown>" in diagnostics_model
     assert "exportWorkflowResultPackage" in api
     assert "retireWorkflowResultPackage" in api
     assert "workflowResultPackageDownloadHref" in api

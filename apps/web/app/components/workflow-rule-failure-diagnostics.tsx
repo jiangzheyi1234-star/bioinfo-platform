@@ -1,10 +1,12 @@
 "use client";
 
 import type {
-  WorkflowRunRule,
   WorkflowRunRuleEvent,
   WorkflowRunRuleLogContext,
   WorkflowRunSourceLocation,
+} from "./workflow-run-diagnostics-model";
+import type {
+  WorkflowRunRule,
 } from "./workflows-page-model";
 
 function isFailedStatus(status?: string) {

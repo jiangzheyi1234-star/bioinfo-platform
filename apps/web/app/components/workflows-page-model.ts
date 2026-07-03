@@ -2,16 +2,26 @@ import type { DatabaseItem } from "./database-page-model";
 import type { AddedTool } from "./tools-page-model";
 import type {
   WorkflowArtifact,
+  WorkflowRunRuleEvent,
+  WorkflowRunRuleLogContext,
+  WorkflowRunSourceLocation,
+} from "./workflow-run-diagnostics-model";
+import type {
   WorkflowInputArtifact,
   WorkflowRunExecutionContext,
   WorkflowRunFailureLocator,
   WorkflowRunRuleOutputInvalidationApplyResult,
-  WorkflowRunRuleLogContext,
 } from "./workflow-run-execution-model";
 import { displayRuleTemplateForTool, hasRuleAction, ruleSpecReadinessForTool } from "./tool-rule-readiness";
 
 export type {
   WorkflowArtifact,
+  WorkflowRunRuleEvent,
+  WorkflowRunRuleLogContext,
+  WorkflowRunSourceLocation,
+} from "./workflow-run-diagnostics-model";
+
+export type {
   WorkflowInputArtifact,
   WorkflowInputArtifactPort,
   WorkflowRunActivationReadiness,
@@ -36,7 +46,6 @@ export type {
   WorkflowRunRuleRetrySnakemakeOptions,
   WorkflowRunRuleSelectedAttempt,
   WorkflowRunWorkdirReusePolicy,
-  WorkflowRunRuleLogContext,
 } from "./workflow-run-execution-model";
 
 export type WorkflowCatalogItem = {
@@ -517,31 +526,6 @@ export type WorkflowRunEvent = {
 export type WorkflowLogLines = {
   lines?: string[];
   nextCursor?: string;
-};
-
-export type WorkflowRunSourceLocation = {
-  schemaVersion?: string;
-  sourceKind?: string;
-  fileBasename?: string;
-  fileHash?: string;
-  line?: number;
-};
-
-export type WorkflowRunRuleEvent = {
-  ruleEventId?: string;
-  runId?: string;
-  runRuleId?: string;
-  ruleName?: string;
-  stepId?: string;
-  eventType?: string;
-  status?: string;
-  attemptId?: string;
-  leaseGeneration?: number;
-  attemptNumber?: number;
-  message?: string;
-  createdAt?: string;
-  details?: Record<string, unknown>;
-  sourceLocation?: WorkflowRunSourceLocation;
 };
 
 export type WorkflowRunRule = {
