@@ -33,6 +33,22 @@ from tests.test_first_run_status import _patch_status_sources
         ({"validationChecksPassed": 1, "validationChecksTotal": 1}, "validation checks are incomplete"),
         ({"reportReady": False}, "report evidence is not ready"),
         ({"reportOutputNames": ["summary.tsv", "qc-summary.tsv", "run-report.html"]}, "feature-table.tsv"),
+        (
+            {"reportOutputNames": ["summary.tsv", "qc-summary.tsv", "feature-table.tsv", "run-report.html", "debug.log"]},
+            "unexpected report outputs debug.log",
+        ),
+        (
+            {
+                "reportOutputNames": [
+                    "summary.tsv",
+                    "summary.tsv",
+                    "qc-summary.tsv",
+                    "feature-table.tsv",
+                    "run-report.html",
+                ]
+            },
+            "duplicate report outputs summary.tsv",
+        ),
         ({"evidenceBundleReady": False}, "evidence bundle is not ready"),
         ({"evidenceBundleFileRoles": ["result-package", "validation-card-json", "pilot-handoff"]}, "validation-card-markdown"),
         (

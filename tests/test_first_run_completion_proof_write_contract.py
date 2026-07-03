@@ -41,6 +41,8 @@ def test_first_run_completion_proof_read_and_write_share_ready_validator() -> No
         ("duplicate-bundle-role", "FIRST_RUN_COMPLETION_PROOF_INVALID: duplicate evidence bundle roles result-package"),
         ("unexpected-bundle-role", "FIRST_RUN_COMPLETION_PROOF_INVALID: unexpected evidence bundle roles operator-note"),
         ("reduced-check-set", "FIRST_RUN_COMPLETION_PROOF_INVALID: validation checks are incomplete"),
+        ("duplicate-report-output", "FIRST_RUN_COMPLETION_PROOF_INVALID: duplicate report outputs summary.tsv"),
+        ("unexpected-report-output", "FIRST_RUN_COMPLETION_PROOF_INVALID: unexpected report outputs debug.log"),
     ],
 )
 def test_first_run_finalize_rejects_generated_completion_proof_that_fails_contract(
@@ -68,6 +70,10 @@ def test_first_run_finalize_rejects_generated_completion_proof_that_fails_contra
             card["pilotHandoff"]["evidenceBundle"]["requiredFiles"].append(note_file)
         elif proof_case == "reduced-check-set":
             card["checks"] = card["checks"][:1]
+        elif proof_case == "duplicate-report-output":
+            card["reportInterpretation"]["outputs"].append(dict(card["reportInterpretation"]["outputs"][0]))
+        elif proof_case == "unexpected-report-output":
+            card["reportInterpretation"]["outputs"].append({"name": "debug.log"})
         else:
             raise AssertionError(f"unknown proof case {proof_case}")
         return {"data": card}

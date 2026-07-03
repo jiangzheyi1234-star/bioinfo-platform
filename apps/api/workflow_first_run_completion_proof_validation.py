@@ -61,10 +61,9 @@ def first_run_completion_proof_invalid_reason(proof: dict[str, Any]) -> str:
         return "validation checks are incomplete"
     if proof.get("reportReady") is not True:
         return "report evidence is not ready"
-    report_output_names = {str(item or "").strip() for item in proof.get("reportOutputNames") or []}
-    missing_report_outputs = sorted(_REQUIRED_REPORT_OUTPUTS - report_output_names)
-    if missing_report_outputs:
-        return "missing report outputs " + ", ".join(missing_report_outputs)
+    report_output_error = _report_output_error(proof.get("reportOutputNames"))
+    if report_output_error:
+        return report_output_error
     if proof.get("evidenceBundleReady") is not True:
         return "evidence bundle is not ready"
     bundle_role_error = _evidence_bundle_role_error(proof.get("evidenceBundleFileRoles"))
@@ -109,6 +108,21 @@ def _evidence_bundle_role_error(value: Any) -> str:
     duplicate_roles = sorted(role for role in role_set if roles.count(role) > 1)
     if duplicate_roles:
         return "duplicate evidence bundle roles " + ", ".join(duplicate_roles)
+    return ""
+
+
+def _report_output_error(value: Any) -> str:
+    outputs = [str(item or "").strip() for item in value or []]
+    output_set = set(outputs)
+    missing_outputs = sorted(_REQUIRED_REPORT_OUTPUTS - output_set)
+    if missing_outputs:
+        return "missing report outputs " + ", ".join(missing_outputs)
+    unexpected_outputs = sorted(output for output in output_set if output not in _REQUIRED_REPORT_OUTPUTS)
+    if unexpected_outputs:
+        return "unexpected report outputs " + ", ".join(unexpected_outputs)
+    duplicate_outputs = sorted(output for output in output_set if outputs.count(output) > 1)
+    if duplicate_outputs:
+        return "duplicate report outputs " + ", ".join(duplicate_outputs)
     return ""
 
 
