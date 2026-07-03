@@ -63,6 +63,10 @@ def test_single_user_pilot_backup_plan_script_defines_read_only_handoff() -> Non
     assert "sampleUploadProof.duplicateRoles=[]" in source
     assert "sampleUploadProof covers metadata, barcodes, and sequences" in source
     assert "handoffProof.completionProof.savedAt" in source
+    assert "handoffProof.completionProof.schemaVersion=h2ometa.first-run.completion-proof.v1" in source
+    assert "handoffProof.completionProof.ready=true" in source
+    assert "handoffProof.completionProof.validationChecksTotal>=10" in source
+    assert "handoffProof.completionProof.reportOutputNames=$($expectedReportOutputs -join ',')" in source
     assert "handoffProof.completionProof.validationCardJsonSha256" in source
     assert "handoffProof.evidenceBundleSchemaVersion=h2ometa.first-run.evidence-bundle.v1" in source
     assert "handoffProof.evidenceBundleFileRoles=$($expectedEvidenceBundleRoles -join ',')" in source
@@ -151,8 +155,29 @@ def test_single_user_pilot_backup_plan_outputs_machine_readable_json(tmp_path: P
         "workflowRevisionId": "wfrev_first",
         "packageExportId": "rpex_full",
         "completionProof": {
+            "schemaVersion": "h2ometa.first-run.completion-proof.v1",
+            "ready": True,
             "savedAt": "2026-06-29T00:30:00Z",
+            "serverId": "srv_first",
+            "runId": "run_first",
+            "resultId": "res_run_first",
+            "workflowRevisionId": "wfrev_first",
+            "packageExportId": "rpex_full",
+            "resultPackageSha256": "a" * 64,
+            "resultPackageManifestSha256": "e" * 64,
             "validationCardJsonSha256": "c" * 64,
+            "validationChecksPassed": 10,
+            "validationChecksTotal": 10,
+            "reportReady": True,
+            "reportOutputNames": ["summary.tsv", "qc-summary.tsv", "feature-table.tsv", "run-report.html"],
+            "evidenceBundleId": "res_run_first.first-run-evidence",
+            "evidenceBundleReady": True,
+            "evidenceBundleFileRoles": [
+                "result-package",
+                "validation-card-json",
+                "validation-card-markdown",
+                "pilot-handoff",
+            ],
         },
         "evidenceBundleFileRoles": [
             "result-package",
@@ -188,6 +213,16 @@ def test_single_user_pilot_backup_plan_outputs_machine_readable_json(tmp_path: P
     assert "sampleUploadProof.duplicateRoles=[]" in summary["restoreDrill"]["mustReport"]
     assert "sampleUploadProof covers metadata, barcodes, and sequences" in summary["restoreDrill"]["mustReport"]
     assert "handoffProof.completionProof.savedAt" in summary["restoreDrill"]["mustReport"]
+    assert (
+        "handoffProof.completionProof.schemaVersion=h2ometa.first-run.completion-proof.v1"
+        in summary["restoreDrill"]["mustReport"]
+    )
+    assert "handoffProof.completionProof.ready=true" in summary["restoreDrill"]["mustReport"]
+    assert "handoffProof.completionProof.validationChecksTotal>=10" in summary["restoreDrill"]["mustReport"]
+    assert (
+        "handoffProof.completionProof.reportOutputNames=summary.tsv,qc-summary.tsv,feature-table.tsv,run-report.html"
+        in summary["restoreDrill"]["mustReport"]
+    )
     assert "handoffProof.completionProof.validationCardJsonSha256" in summary["restoreDrill"]["mustReport"]
     assert (
         "handoffProof.evidenceBundleSchemaVersion=h2ometa.first-run.evidence-bundle.v1"
@@ -410,6 +445,57 @@ def test_single_user_pilot_backup_plan_rejects_first_run_proof_without_matching_
     assert {item["code"] for item in summary["blockers"]} == {"FIRST_RUN_PROOF_COMPLETION_PROOF_REQUIRED"}
 
 
+@pytest.mark.skipif(_powershell_executable() is None, reason="PowerShell is required to execute the pilot backup plan script")
+@pytest.mark.parametrize(
+    "completion_proof_patch",
+    [
+        {"schemaVersion": "h2ometa.first-run.completion-proof.v0"},
+        {"ready": False},
+        {"runId": "run_other"},
+        {"resultPackageSha256": "d" * 64},
+        {"validationChecksTotal": 9},
+        {"reportReady": False},
+        {"reportOutputNames": ["summary.tsv", "qc-summary.tsv", "run-report.html"]},
+        {"evidenceBundleFileRoles": ["result-package", "validation-card-json", "pilot-handoff"]},
+    ],
+)
+def test_single_user_pilot_backup_plan_rejects_first_run_proof_with_weak_completion_proof_contract(
+    tmp_path: Path,
+    completion_proof_patch: dict[str, object],
+) -> None:
+    appdata_root = tmp_path / "Roaming" / "H2OMeta"
+    appdata_root.mkdir(parents=True)
+    proof_path = tmp_path / "first-run-pilot-proof.json"
+    _write_first_run_proof(proof_path, completion_proof_patch=completion_proof_patch)
+
+    completed = subprocess.run(
+        [
+            _powershell_executable() or "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(SCRIPT),
+            "-AppDataRoot",
+            str(appdata_root),
+            "-RemoteRunnerSharedRoot",
+            "/home/lab/.h2ometa/runner/shared",
+            "-FirstRunProofPath",
+            str(proof_path),
+            "-RequireExistingState",
+        ],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    summary = json.loads(completed.stdout)
+    assert summary["readyForManualBackup"] is False
+    assert {item["code"] for item in summary["blockers"]} == {"FIRST_RUN_PROOF_COMPLETION_PROOF_REQUIRED"}
+
+
 def test_single_user_pilot_backup_plan_is_exposed_from_web_package() -> None:
     package = json.loads((REPO_ROOT / "apps" / "web" / "package.json").read_text(encoding="utf-8"))
 
@@ -463,7 +549,34 @@ def _write_first_run_proof(
     include_timing: bool = True,
     completion_proof: bool = True,
     completion_proof_hash: str = "c" * 64,
+    completion_proof_patch: dict[str, object] | None = None,
 ) -> None:
+    completion_proof_payload = {
+        "schemaVersion": "h2ometa.first-run.completion-proof.v1",
+        "ready": True,
+        "savedAt": "2026-06-29T00:30:00Z",
+        "serverId": "srv_first",
+        "runId": "run_first",
+        "resultId": "res_run_first",
+        "workflowRevisionId": "wfrev_first",
+        "packageExportId": "rpex_full",
+        "resultPackageSha256": "a" * 64,
+        "resultPackageManifestSha256": "e" * 64,
+        "validationCardJsonSha256": completion_proof_hash,
+        "validationChecksPassed": 10,
+        "validationChecksTotal": 10,
+        "reportReady": True,
+        "reportOutputNames": ["summary.tsv", "qc-summary.tsv", "feature-table.tsv", "run-report.html"],
+        "evidenceBundleId": "res_run_first.first-run-evidence",
+        "evidenceBundleReady": True,
+        "evidenceBundleFileRoles": [
+            "result-package",
+            "validation-card-json",
+            "validation-card-markdown",
+            "pilot-handoff",
+        ],
+    }
+    completion_proof_payload.update(completion_proof_patch or {})
     payload = {
         "schemaVersion": "h2ometa.first-run-pilot-check.v1",
         "serverId": "srv_first",
@@ -485,12 +598,7 @@ def _write_first_run_proof(
             "resultPackageDownload": {"sha256": "a" * 64},
             "validationCard": {"validationCardJsonSha256": "c" * 64},
             **(
-                {
-                    "completionProof": {
-                        "savedAt": "2026-06-29T00:30:00Z",
-                        "validationCardJsonSha256": completion_proof_hash,
-                    }
-                }
+                {"completionProof": completion_proof_payload}
                 if completion_proof
                 else {}
             ),
