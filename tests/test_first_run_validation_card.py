@@ -495,6 +495,13 @@ def test_first_run_finalize_reuses_existing_full_package(monkeypatch) -> None:
     assert len(result["completionProof"]["validationCardJsonSha256"]) == 64
     assert result["completionProof"]["validationChecksPassed"] == 10
     assert result["completionProof"]["validationChecksTotal"] == 10
+    assert result["completionProof"]["reportReady"] is True
+    assert result["completionProof"]["reportOutputNames"] == [
+        "summary.tsv",
+        "qc-summary.tsv",
+        "feature-table.tsv",
+        "run-report.html",
+    ]
     assert result["completionProof"]["evidenceBundleId"] == "res_run_first.first-run-evidence"
     assert result["completionProof"]["evidenceBundleReady"] is True
     assert result["completionProof"]["savedAt"] == "2026-06-29T00:30:00Z"

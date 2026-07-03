@@ -128,8 +128,43 @@ def test_first_run_status_returns_saved_completion_proof_without_current_run(mon
 
     result = asyncio.run(build_first_run_status_from_request(server_id="srv_first"))["data"]
 
-    assert result["status"] == "blocked"
-    assert result["stage"] == "submit_run"
+    assert result["status"] == "ready"
+    assert result["stage"] == "validation_ready"
+    assert result["nextAction"] == {
+        "code": "COMPLETE",
+        "detail": "首跑完成证明已保存；重新连接 runner 后可刷新下载完整证据包。",
+        "label": "查看已保存证明",
+        "target": "#evidence-bundle",
+    }
+    assert result["latestEligibleRun"] == {
+        "runId": "run_first",
+        "serverId": "srv_first",
+        "status": "completed",
+        "stage": "validation_ready",
+        "workflowRevisionId": "wfrev_first",
+        "resultId": "res_run_first",
+        "finishedAt": "2026-06-29T00:00:00Z",
+        "lastUpdatedAt": "2026-06-29T00:30:00Z",
+    }
+    assert result["evidence"]["run"] == result["latestEligibleRun"]
+    assert result["evidence"]["report"] == {
+        "ready": True,
+        "outputs": ["summary.tsv", "qc-summary.tsv", "feature-table.tsv", "run-report.html"],
+    }
+    assert result["evidence"]["resultPackage"] == {
+        "ready": True,
+        "packageExportId": "rpex_full",
+        "sha256": "d" * 64,
+        "manifestSha256": "e" * 64,
+        "evidenceId": "ev_export",
+        "artifactPayloadMode": "full",
+        "includeArtifacts": True,
+        "createdAt": "2026-06-29T00:00:00Z",
+    }
+    assert result["evidence"]["validation"]["ready"] is True
+    assert result["evidence"]["validation"]["packageExportId"] == "rpex_full"
+    assert result["evidence"]["validation"]["validationChecksPassed"] == 10
+    assert result["evidence"]["validation"]["evidenceBundleId"] == "res_run_first.first-run-evidence"
     assert result["evidence"]["completionProof"]["ready"] is True
     assert result["evidence"]["completionProof"]["serverId"] == "srv_first"
     assert result["evidence"]["completionProof"]["runId"] == "run_first"
@@ -140,6 +175,31 @@ def test_first_run_status_returns_saved_completion_proof_without_current_run(mon
     ]
     assert result["evidence"]["completionProof"]["savedAt"] == "2026-06-29T00:30:00Z"
     assert "proofKey" not in result["evidence"]["completionProof"]
+
+
+def test_first_run_status_does_not_apply_saved_completion_proof_to_other_selected_run(monkeypatch) -> None:
+    _patch_first_run_sources(monkeypatch)
+    asyncio.run(
+        finalize_first_run_from_request(
+            "run_first",
+            WorkflowFirstRunFinalizeRequest(serverId="srv_first", actor="operator"),
+        )
+    )
+    _patch_status_sources(monkeypatch, runs=[], sample_status="ready")
+
+    async def fake_get_run(run_id: str) -> dict[str, Any]:
+        assert run_id == "run_other"
+        return {"data": {}}
+
+    monkeypatch.setattr("apps.api.workflow_first_run_status_service.get_run_from_request", fake_get_run)
+
+    result = asyncio.run(build_first_run_status_from_request(server_id="srv_first", run_id="run_other"))["data"]
+
+    assert result["status"] == "blocked"
+    assert result["stage"] == "submit_run"
+    assert result["nextAction"]["code"] == "SUBMIT_RUN"
+    assert result["evidence"]["completionProof"]["ready"] is True
+    assert result["evidence"]["completionProof"]["runId"] == "run_first"
 
 
 def test_first_run_status_requires_eligible_run_on_selected_server(monkeypatch) -> None:

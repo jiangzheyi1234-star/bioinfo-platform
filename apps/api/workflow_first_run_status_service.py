@@ -55,6 +55,13 @@ async def build_first_run_status_from_request(
     sample_cache = _sample_cache_summary(
         _unwrap_data(await inspect_workflow_sample_data_status(MOVING_PICTURES_PIPELINE_ID), {})
     )
+    completion_proof = latest_first_run_completion_proof(server_id=normalized_server_id)
+    if _completion_proof_matches_requested_run(completion_proof, run_id=normalized_run_id):
+        return _completion_proof_status_response(
+            completion_proof,
+            sample_cache=sample_cache,
+            server_id=normalized_server_id,
+        )
 
     if not normalized_server_id:
         return _status_response(
@@ -75,6 +82,7 @@ async def build_first_run_status_from_request(
             server=_server_evidence(None, server_id=normalized_server_id, blocked_code="FIRST_RUN_SERVER_REQUIRED"),
             execution={"ready": False, "blockedCode": "FIRST_RUN_SERVER_REQUIRED"},
             workflow={"ready": False, "blockedCode": "FIRST_RUN_SERVER_REQUIRED"},
+            completion_proof=completion_proof,
         )
 
     runner_gate = await _runner_readiness_gate(normalized_server_id, refresh=refresh)
@@ -90,6 +98,7 @@ async def build_first_run_status_from_request(
             server_id=normalized_server_id,
             server=runner_gate.get("server"),
             execution=runner_gate.get("execution"),
+            completion_proof=completion_proof,
         )
     server_evidence = runner_gate.get("server")
     execution_evidence = runner_gate.get("execution")
@@ -109,6 +118,7 @@ async def build_first_run_status_from_request(
             server=server_evidence,
             execution=execution_evidence,
             workflow=workflow_evidence,
+            completion_proof=completion_proof,
         )
 
     runs_payload = await list_runs_from_request(refresh)
@@ -141,6 +151,7 @@ async def build_first_run_status_from_request(
                 server=server_evidence,
                 execution=execution_evidence,
                 workflow=workflow_evidence,
+                completion_proof=completion_proof,
             )
         action = _action("PREPARE_SAMPLE_DATA", "准备并上传官方 Moving Pictures 16S 样例数据。", "准备示例数据", "#sample-data")
         if sample_cache.get("status") == "blocked":
@@ -157,6 +168,7 @@ async def build_first_run_status_from_request(
             server=server_evidence,
             execution=execution_evidence,
             workflow=workflow_evidence,
+            completion_proof=completion_proof,
         )
 
     blocker = _first_run_run_blocker(selected_run, server_id=normalized_server_id)
@@ -181,6 +193,7 @@ async def build_first_run_status_from_request(
                 server=server_evidence,
                 execution=execution_evidence,
                 workflow=workflow_evidence,
+                completion_proof=completion_proof,
             )
         return _status_response(
             status="blocked",
@@ -200,6 +213,7 @@ async def build_first_run_status_from_request(
             server=server_evidence,
             execution=execution_evidence,
             workflow=workflow_evidence,
+            completion_proof=completion_proof,
         )
 
     run_status = str(run_summary.get("status") or "").strip()
@@ -230,6 +244,7 @@ async def build_first_run_status_from_request(
             server=server_evidence,
             execution=execution_evidence,
             workflow=workflow_evidence,
+            completion_proof=completion_proof,
         )
 
     try:
@@ -261,6 +276,7 @@ async def build_first_run_status_from_request(
             report=public_report_evidence(report) if report else report_evidence(False, code),
             result_package=_result_package_evidence(False, code),
             validation={"ready": False, "blockedCode": code, "detail": detail},
+            completion_proof=completion_proof,
         )
 
     return _status_response(
@@ -278,6 +294,110 @@ async def build_first_run_status_from_request(
         report=ready_report_evidence(card),
         result_package=_ready_package_evidence(card),
         validation=_ready_validation_evidence(card),
+        completion_proof=completion_proof,
+    )
+
+
+def _completion_proof_matches_requested_run(
+    completion_proof: dict[str, Any] | None,
+    *,
+    run_id: str,
+) -> bool:
+    if not completion_proof or completion_proof.get("ready") is not True:
+        return False
+    requested_run_id = str(run_id or "").strip()
+    if not requested_run_id:
+        return True
+    return str(completion_proof.get("runId") or "").strip() == requested_run_id
+
+
+def _completion_proof_status_response(
+    completion_proof: dict[str, Any],
+    *,
+    sample_cache: dict[str, Any],
+    server_id: str,
+) -> dict[str, Any]:
+    effective_server_id = server_id or str(completion_proof.get("serverId") or "").strip()
+    run = _completion_proof_run_summary(completion_proof)
+    return _status_response(
+        status="ready",
+        stage="validation_ready",
+        next_action=_action(
+            "COMPLETE",
+            "首跑完成证明已保存；重新连接 runner 后可刷新下载完整证据包。",
+            "查看已保存证明",
+            "#evidence-bundle",
+        ),
+        sample_cache=sample_cache,
+        latest_eligible_run=run,
+        ignored_latest_run=None,
+        run=run,
+        server_id=effective_server_id,
+        server={
+            "ready": False,
+            "serverId": effective_server_id,
+            "detail": "saved completion proof; current runner was not inspected",
+        },
+        execution={"ready": False, "detail": "saved completion proof; current runner was not inspected"},
+        workflow={"ready": False, "pipelineId": MOVING_PICTURES_PIPELINE_ID},
+        report=_completion_proof_report_evidence(completion_proof),
+        result_package=_completion_proof_package_evidence(completion_proof),
+        validation=_completion_proof_validation_evidence(completion_proof),
+        completion_proof=completion_proof,
+    )
+
+
+def _completion_proof_run_summary(completion_proof: dict[str, Any]) -> dict[str, Any]:
+    return _compact(
+        {
+            "runId": completion_proof.get("runId"),
+            "serverId": completion_proof.get("serverId"),
+            "status": "completed",
+            "stage": "validation_ready",
+            "workflowRevisionId": completion_proof.get("workflowRevisionId"),
+            "resultId": completion_proof.get("resultId"),
+            "finishedAt": completion_proof.get("validationCardGeneratedAt"),
+            "lastUpdatedAt": completion_proof.get("savedAt"),
+        }
+    )
+
+
+def _completion_proof_report_evidence(completion_proof: dict[str, Any]) -> dict[str, Any]:
+    return _compact(
+        {
+            "ready": completion_proof.get("reportReady") is True,
+            "outputs": completion_proof.get("reportOutputNames") or [],
+        }
+    )
+
+
+def _completion_proof_package_evidence(completion_proof: dict[str, Any]) -> dict[str, Any]:
+    return _compact(
+        {
+            "ready": True,
+            "packageExportId": completion_proof.get("packageExportId"),
+            "sha256": completion_proof.get("resultPackageSha256"),
+            "manifestSha256": completion_proof.get("resultPackageManifestSha256"),
+            "evidenceId": completion_proof.get("packageEvidenceId"),
+            "artifactPayloadMode": "full",
+            "includeArtifacts": True,
+            "createdAt": completion_proof.get("validationCardGeneratedAt"),
+        }
+    )
+
+
+def _completion_proof_validation_evidence(completion_proof: dict[str, Any]) -> dict[str, Any]:
+    return _compact(
+        {
+            "ready": True,
+            "generatedAt": completion_proof.get("validationCardGeneratedAt"),
+            "packageExportId": completion_proof.get("packageExportId"),
+            "packageEvidenceId": completion_proof.get("packageEvidenceId"),
+            "validationChecksPassed": completion_proof.get("validationChecksPassed"),
+            "validationChecksTotal": completion_proof.get("validationChecksTotal"),
+            "evidenceBundleReady": completion_proof.get("evidenceBundleReady"),
+            "evidenceBundleId": completion_proof.get("evidenceBundleId"),
+        }
     )
 
 
@@ -308,6 +428,7 @@ def _status_response(
     report: dict[str, Any] | None = None,
     result_package: dict[str, Any] | None = None,
     validation: dict[str, Any] | None = None,
+    completion_proof: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "data": {
@@ -328,7 +449,7 @@ def _status_response(
                 "execution": execution or {"ready": False},
                 "workflow": workflow or {"ready": False},
                 "sampleCache": sample_cache,
-                "completionProof": latest_first_run_completion_proof(server_id=server_id) or {"ready": False},
+                "completionProof": completion_proof or latest_first_run_completion_proof(server_id=server_id) or {"ready": False},
                 "run": run,
                 "report": report or {"ready": False},
                 "resultPackage": result_package or {"ready": False},

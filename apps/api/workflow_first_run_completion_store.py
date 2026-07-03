@@ -70,6 +70,10 @@ def build_first_run_completion_proof(
     runner = _mapping(normalized.get("runner"))
     workflow_revision = _mapping(normalized.get("workflowRevision"))
     package = _mapping(normalized.get("resultPackage"))
+    report_interpretation = _mapping(normalized.get("reportInterpretation"))
+    report_outputs = [
+        item for item in report_interpretation.get("outputs") or [] if isinstance(item, dict)
+    ]
     handoff = _mapping(normalized.get("pilotHandoff"))
     bundle = _mapping(handoff.get("evidenceBundle"))
     required_files = [item for item in bundle.get("requiredFiles") or [] if isinstance(item, dict)]
@@ -99,6 +103,10 @@ def build_first_run_completion_proof(
         "validationCardJsonSha256": _validation_card_json_sha256(normalized),
         "validationChecksPassed": passed_checks,
         "validationChecksTotal": len(checks),
+        "reportReady": report_interpretation.get("status") == "ready",
+        "reportOutputNames": [
+            str(item.get("name") or "").strip() for item in report_outputs if item.get("name")
+        ],
         "evidenceBundleId": str(bundle.get("bundleId") or "").strip(),
         "evidenceBundleReady": bundle.get("status") == "ready",
         "evidenceBundleFileRoles": [str(item.get("role") or "").strip() for item in required_files if item.get("role")],
