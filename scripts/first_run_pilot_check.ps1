@@ -350,11 +350,14 @@ function Assert-FirstRunPilotHandoff {
         Fail-Pilot "first-run evidenceBundle integrity must match pilotHandoff evidence"
     }
     $requiredFiles = @($bundle.requiredFiles)
-    $expectedBundleRoles = @("result-package", "validation-card-json", "validation-card-markdown", "pilot-handoff")
+    $expectedBundleRoles = $FirstRunCompletionProofEvidenceBundleRoles
     foreach ($role in $expectedBundleRoles) {
         if ((@($requiredFiles | Where-Object { $_.role -eq $role })).Count -ne 1) {
             Fail-Pilot "first-run evidenceBundle must include exactly one $role file"
         }
+    }
+    if ($requiredFiles.Count -ne $expectedBundleRoles.Count) {
+        Fail-Pilot "first-run evidenceBundle must include only the required proof files"
     }
     $resultPackageFile = @($requiredFiles | Where-Object { $_.role -eq "result-package" }) | Select-Object -First 1
     if ($resultPackageFile.packageExportId -ne $package.packageExportId) {
@@ -410,8 +413,8 @@ function Assert-FirstRunPilotHandoff {
     $completionProof = Assert-FirstRunCompletionProof $Finalization $downloadProof.validationCardJsonSha256
     $checks = @($card.checks)
     $passedChecks = @($checks | Where-Object { $_.status -eq "passed" })
-    if ($checks.Count -eq 0 -or $passedChecks.Count -ne $checks.Count) {
-        Fail-Pilot "ready validationCard checks must all be passed"
+    if ($checks.Count -lt $FirstRunCompletionProofMinValidationChecks -or $passedChecks.Count -ne $checks.Count) {
+        Fail-Pilot "ready validationCard checks must all be passed and include at least 10 checks"
     }
     if ($evidence.validationChecksTotal -ne $checks.Count -or $evidence.validationChecksPassed -ne $passedChecks.Count) {
         Fail-Pilot "pilotHandoff evidence must match validationCard checks"

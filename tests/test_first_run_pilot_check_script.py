@@ -138,6 +138,12 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "completionProof must match validationCard run and result" in source
     assert "completionProof must match resultPackage hashes" in source
     assert "completionProof must match downloaded validation card hash" in source
+    assert "$FirstRunCompletionProofMinValidationChecks = 10" in source
+    assert "completionProof validation checks must be complete and include at least 10 checks" in source
+    assert "validationCard report outputs must be exactly the official first-run report outputs" in source
+    assert "completionProof report outputs must be exactly the official first-run report outputs" in source
+    assert "pilotHandoff evidenceBundle roles must be exactly the official first-run evidence roles" in source
+    assert "completionProof evidenceBundle roles must be exactly the official first-run evidence roles" in source
     assert "completionProof savedAt must be a UTC timestamp" in source
     assert "completionProof validationCardGeneratedAt must be a UTC timestamp" in source
     assert "completionProof savedAt must not predate validationCardGeneratedAt" in source
@@ -146,6 +152,8 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "h2ometa.first-run.evidence-bundle.v1" in source
     assert "ready finalization must expose the same first-run evidenceBundle" in source
     assert "first-run evidenceBundle must include exactly one $role file" in source
+    assert "first-run evidenceBundle must include only the required proof files" in source
+    assert "ready validationCard checks must all be passed and include at least 10 checks" in source
     assert "first-run evidenceBundle result package file must match package hashes" in source
     assert "first-run evidenceBundle result package href must stay under the result package download API" in source
     assert "function Assert-FirstRunResultPackageDownload" in source

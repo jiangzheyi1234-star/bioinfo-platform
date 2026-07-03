@@ -1,3 +1,29 @@
+$FirstRunCompletionProofMinValidationChecks = 10
+$FirstRunCompletionProofReportOutputs = @("summary.tsv", "qc-summary.tsv", "feature-table.tsv", "run-report.html")
+$FirstRunCompletionProofEvidenceBundleRoles = @("result-package", "validation-card-json", "validation-card-markdown", "pilot-handoff")
+
+function Assert-FirstRunExactStringSet {
+    param(
+        [object[]]$Actual,
+        [string[]]$Expected,
+        [string]$Message
+    )
+    $actualValues = @($Actual | ForEach-Object { ([string]$_).Trim() })
+    if ($actualValues.Count -ne $Expected.Count) {
+        Fail-Pilot $Message
+    }
+    foreach ($expectedValue in $Expected) {
+        if ((@($actualValues | Where-Object { $_ -ceq $expectedValue })).Count -ne 1) {
+            Fail-Pilot $Message
+        }
+    }
+    foreach ($actualValue in $actualValues) {
+        if (-not ($Expected -ccontains $actualValue)) {
+            Fail-Pilot $Message
+        }
+    }
+}
+
 function Assert-FirstRunCompletionProof {
     param(
         [object]$Finalization,
@@ -42,18 +68,39 @@ function Assert-FirstRunCompletionProof {
     if ($proof.validationChecksPassed -ne $passedChecks.Count -or $proof.validationChecksTotal -ne $checks.Count) {
         Fail-Pilot "completionProof must match validationCard checks"
     }
+    if ($proof.validationChecksPassed -ne $proof.validationChecksTotal -or $proof.validationChecksTotal -lt $FirstRunCompletionProofMinValidationChecks) {
+        Fail-Pilot "completionProof validation checks must be complete and include at least 10 checks"
+    }
     if ($proof.reportReady -ne $true) {
         Fail-Pilot "completionProof must mark report evidence ready"
     }
-    $reportOutputNames = @($card.reportInterpretation.outputs | ForEach-Object { $_.name })
-    if (((@($proof.reportOutputNames) | Sort-Object) -join "|") -ne (($reportOutputNames | Sort-Object) -join "|")) {
+    $reportOutputNames = @($card.reportInterpretation.outputs | ForEach-Object { ([string]$_.name).Trim() })
+    $proofReportOutputNames = @($proof.reportOutputNames | ForEach-Object { ([string]$_).Trim() })
+    Assert-FirstRunExactStringSet `
+        -Actual $reportOutputNames `
+        -Expected $FirstRunCompletionProofReportOutputs `
+        -Message "validationCard report outputs must be exactly the official first-run report outputs"
+    Assert-FirstRunExactStringSet `
+        -Actual $proofReportOutputNames `
+        -Expected $FirstRunCompletionProofReportOutputs `
+        -Message "completionProof report outputs must be exactly the official first-run report outputs"
+    if ((($proofReportOutputNames | Sort-Object) -join "|") -ne (($reportOutputNames | Sort-Object) -join "|")) {
         Fail-Pilot "completionProof report outputs must match validationCard report"
     }
     if ($proof.evidenceBundleId -ne $bundle.bundleId -or $proof.evidenceBundleReady -ne $true) {
         Fail-Pilot "completionProof must match ready first-run evidenceBundle"
     }
-    $bundleRoles = @($bundle.requiredFiles | ForEach-Object { $_.role })
-    if (((@($proof.evidenceBundleFileRoles) | Sort-Object) -join "|") -ne (($bundleRoles | Sort-Object) -join "|")) {
+    $bundleRoles = @($bundle.requiredFiles | ForEach-Object { ([string]$_.role).Trim() })
+    $proofBundleRoles = @($proof.evidenceBundleFileRoles | ForEach-Object { ([string]$_).Trim() })
+    Assert-FirstRunExactStringSet `
+        -Actual $bundleRoles `
+        -Expected $FirstRunCompletionProofEvidenceBundleRoles `
+        -Message "pilotHandoff evidenceBundle roles must be exactly the official first-run evidence roles"
+    Assert-FirstRunExactStringSet `
+        -Actual $proofBundleRoles `
+        -Expected $FirstRunCompletionProofEvidenceBundleRoles `
+        -Message "completionProof evidenceBundle roles must be exactly the official first-run evidence roles"
+    if ((($proofBundleRoles | Sort-Object) -join "|") -ne (($bundleRoles | Sort-Object) -join "|")) {
         Fail-Pilot "completionProof evidenceBundle roles must match pilotHandoff evidenceBundle"
     }
     if ([string]::IsNullOrWhiteSpace([string]$proof.savedAt)) {
@@ -86,7 +133,9 @@ function Assert-FirstRunCompletionProof {
         validationCardJsonSha256 = $proof.validationCardJsonSha256
         validationChecksPassed = $proof.validationChecksPassed
         validationChecksTotal = $proof.validationChecksTotal
+        reportReady = $proof.reportReady
+        reportOutputNames = $proofReportOutputNames
         evidenceBundleId = $proof.evidenceBundleId
-        evidenceBundleFileRoles = @($proof.evidenceBundleFileRoles)
+        evidenceBundleFileRoles = $proofBundleRoles
     }
 }
