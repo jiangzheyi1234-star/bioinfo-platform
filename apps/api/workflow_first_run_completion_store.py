@@ -10,34 +10,15 @@ from pathlib import Path
 from typing import Any
 
 from config import get_app_data_dir
+from apps.api.workflow_first_run_completion_proof_validation import (
+    FIRST_RUN_COMPLETION_PROOF_INVALID,
+    first_run_completion_proof_invalid_reason,
+)
 
 
 FIRST_RUN_COMPLETION_PROOF_SCHEMA_VERSION = "h2ometa.first-run.completion-proof.v1"
 FIRST_RUN_COMPLETION_PROOF_REGISTRY_VERSION = 1
 FIRST_RUN_COMPLETION_PROOF_MAX_RECORDS = 25
-FIRST_RUN_COMPLETION_PROOF_INVALID = "FIRST_RUN_COMPLETION_PROOF_INVALID"
-_REQUIRED_READY_FIELDS = (
-    "serverId",
-    "runId",
-    "resultId",
-    "workflowRevisionId",
-    "packageExportId",
-    "packageEvidenceId",
-    "resultPackageSha256",
-    "resultPackageManifestSha256",
-    "validationCardGeneratedAt",
-    "validationCardJsonSha256",
-    "evidenceBundleId",
-)
-_REQUIRED_SHA256_FIELDS = (
-    "resultPackageSha256",
-    "resultPackageManifestSha256",
-    "validationCardJsonSha256",
-)
-_REQUIRED_REPORT_OUTPUTS = frozenset(("summary.tsv", "qc-summary.tsv", "feature-table.tsv", "run-report.html"))
-_REQUIRED_EVIDENCE_BUNDLE_ROLES = frozenset(
-    ("result-package", "validation-card-json", "validation-card-markdown", "pilot-handoff")
-)
 
 
 class FirstRunCompletionProofStoreError(ValueError):
@@ -170,60 +151,9 @@ def _records(registry: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _ensure_ready_completion_proof(proof: dict[str, Any]) -> None:
-    missing_fields = [field for field in _REQUIRED_READY_FIELDS if not str(proof.get(field) or "").strip()]
-    if missing_fields:
-        raise _invalid_proof("missing " + ", ".join(missing_fields))
-    identity_error = _identity_error(proof)
-    if identity_error:
-        raise _invalid_proof(identity_error)
-    invalid_hash_fields = [field for field in _REQUIRED_SHA256_FIELDS if not _valid_sha256(str(proof.get(field) or ""))]
-    if invalid_hash_fields:
-        raise _invalid_proof("invalid sha256 " + ", ".join(invalid_hash_fields))
-    if not _valid_check_counts(proof.get("validationChecksPassed"), proof.get("validationChecksTotal")):
-        raise _invalid_proof("validation checks are incomplete")
-    if proof.get("reportReady") is not True:
-        raise _invalid_proof("report evidence is not ready")
-    report_output_names = {str(item or "").strip() for item in proof.get("reportOutputNames") or []}
-    missing_report_outputs = sorted(_REQUIRED_REPORT_OUTPUTS - report_output_names)
-    if missing_report_outputs:
-        raise _invalid_proof("missing report outputs " + ", ".join(missing_report_outputs))
-    if proof.get("evidenceBundleReady") is not True:
-        raise _invalid_proof("evidence bundle is not ready")
-    evidence_bundle_roles = {str(item or "").strip() for item in proof.get("evidenceBundleFileRoles") or []}
-    missing_bundle_roles = sorted(_REQUIRED_EVIDENCE_BUNDLE_ROLES - evidence_bundle_roles)
-    if missing_bundle_roles:
-        raise _invalid_proof("missing evidence bundle roles " + ", ".join(missing_bundle_roles))
-
-
-def _valid_check_counts(passed: Any, total: Any) -> bool:
-    if not isinstance(passed, int) or isinstance(passed, bool):
-        return False
-    if not isinstance(total, int) or isinstance(total, bool):
-        return False
-    return total > 0 and passed == total
-
-
-def _valid_sha256(value: str) -> bool:
-    normalized = value.strip().lower()
-    return len(normalized) == 64 and all(char in "0123456789abcdef" for char in normalized)
-
-
-def _identity_error(proof: dict[str, Any]) -> str:
-    run_id = str(proof.get("runId") or "").strip()
-    result_id = str(proof.get("resultId") or "").strip()
-    expected_result_id = _canonical_result_id(run_id)
-    if run_id and result_id and result_id != expected_result_id:
-        return "resultId does not match runId"
-    evidence_bundle_id = str(proof.get("evidenceBundleId") or "").strip()
-    expected_bundle_id = f"{result_id}.first-run-evidence" if result_id else ""
-    if result_id and evidence_bundle_id and evidence_bundle_id != expected_bundle_id:
-        return "evidenceBundleId does not match resultId"
-    return ""
-
-
-def _canonical_result_id(run_id: str) -> str:
-    normalized = run_id.strip()
-    return normalized if normalized.startswith("res_") else f"res_{normalized}"
+    invalid_reason = first_run_completion_proof_invalid_reason(proof)
+    if invalid_reason:
+        raise _invalid_proof(invalid_reason)
 
 
 def _invalid_proof(detail: str) -> FirstRunCompletionProofStoreError:
