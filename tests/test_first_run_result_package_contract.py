@@ -33,6 +33,7 @@ def test_first_run_result_package_gate_classifies_export_required(
     gate = evaluate_first_run_result_package(
         _exports_for_case(export_case),
         result_id="res_run_first",
+        run_id="run_first",
         workflow_revision_id="wfrev_first",
     )
 
@@ -58,6 +59,7 @@ def test_first_run_result_package_gate_classifies_ledger_mismatch(
     gate = evaluate_first_run_result_package(
         [package],
         result_id="res_run_first",
+        run_id="run_first",
         workflow_revision_id="wfrev_first",
     )
 
@@ -65,6 +67,22 @@ def test_first_run_result_package_gate_classifies_ledger_mismatch(
     assert gate.code == expected_code
     assert is_first_run_result_package_ledger_mismatch(gate.code)
     assert not is_first_run_result_package_export_required(gate.code)
+
+
+def test_first_run_result_package_gate_classifies_run_mismatch() -> None:
+    package = _package("rpex_wrong")
+    package["runId"] = "run_other"
+
+    gate = evaluate_first_run_result_package(
+        [package],
+        result_id="res_run_first",
+        run_id="run_first",
+        workflow_revision_id="wfrev_first",
+    )
+
+    assert gate.state == "ledger_mismatch"
+    assert gate.code == "FIRST_RUN_RESULT_PACKAGE_RUN_MISMATCH"
+    assert is_first_run_result_package_ledger_mismatch(gate.code)
 
 
 def test_first_run_finalize_does_not_export_on_package_ledger_mismatch(monkeypatch) -> None:

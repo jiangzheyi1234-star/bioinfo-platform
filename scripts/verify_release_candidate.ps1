@@ -9,11 +9,13 @@ param(
     [switch]$UseUserAppStateForLocalWeb,
     [switch]$RunWebE2E,
     [switch]$RunFirstRunPilotProof,
+    [switch]$RunSingleUserPilotBackupPlan,
     [ValidateRange(1, 10)]
     [int]$WebE2ERepeat = 1,
     [string]$ApiBase = $(if ($env:H2OMETA_API_BASE) { $env:H2OMETA_API_BASE } else { "http://127.0.0.1:8765" }),
     [string]$WebBase = $(if ($env:H2OMETA_WEB_BASE) { $env:H2OMETA_WEB_BASE } else { "http://127.0.0.1:3765" }),
     [string]$FirstRunPilotRunId = "",
+    [string]$SingleUserPilotRemoteRunnerSharedRoot = "",
     [string]$DesktopStartupEvidence = "",
     [string]$ReleaseGateEvidence = "",
     [switch]$RequireReleaseGateEvidence,
@@ -91,6 +93,8 @@ function Restore-EnvironmentValue {
     }
 }
 
+. (Join-Path $PSScriptRoot "rc_local_web_stack.ps1")
+
 function Invoke-WithWebEnvironment {
     param(
         [string]$ApiBase,
@@ -148,173 +152,6 @@ function Invoke-WithLocalWebAppState {
     } finally {
         Restore-EnvironmentValue -Name "APPDATA" -Exists $hadAppData -Value $currentAppData
         Restore-EnvironmentValue -Name "LOCALAPPDATA" -Exists $hadLocalAppData -Value $currentLocalAppData
-    }
-}
-
-function Invoke-HeadlessLocalWebLaunch {
-    param([string]$RepoRoot)
-
-    $launcher = Join-Path $RepoRoot "run.bat"
-    $launcherOut = Join-Path ([System.IO.Path]::GetTempPath()) "h2ometa-run-bat-$PID-$([guid]::NewGuid()).out.log"
-    $launcherErr = Join-Path ([System.IO.Path]::GetTempPath()) "h2ometa-run-bat-$PID-$([guid]::NewGuid()).err.log"
-    $hadHeadlessFlag = Test-Path -LiteralPath "Env:\H2OMETA_HEADLESS_LAUNCH"
-    $previousHeadlessFlag = [Environment]::GetEnvironmentVariable("H2OMETA_HEADLESS_LAUNCH", "Process")
-    try {
-        $env:H2OMETA_HEADLESS_LAUNCH = "1"
-        $process = Start-Process `
-            -FilePath "cmd.exe" `
-            -ArgumentList @("/c", "`"$launcher`" --web") `
-            -WorkingDirectory $RepoRoot `
-            -RedirectStandardOutput $launcherOut `
-            -RedirectStandardError $launcherErr `
-            -WindowStyle Hidden `
-            -PassThru
-        if (-not $process.WaitForExit(120000)) {
-            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-            throw "run.bat --web did not exit within 120 seconds"
-        }
-        $process.Refresh()
-        if (Test-Path -LiteralPath $launcherOut) {
-            Get-Content -LiteralPath $launcherOut | ForEach-Object { Write-Host $_ }
-        }
-        if (Test-Path -LiteralPath $launcherErr) {
-            Get-Content -LiteralPath $launcherErr | ForEach-Object { Write-Host $_ }
-        }
-        $exitCode = if ($null -eq $process.ExitCode) { 0 } else { [int]$process.ExitCode }
-        if ($exitCode -ne 0) {
-            throw "$launcher exited with code $exitCode"
-        }
-    } finally {
-        Restore-EnvironmentValue -Name "H2OMETA_HEADLESS_LAUNCH" -Exists $hadHeadlessFlag -Value $previousHeadlessFlag
-        Remove-Item -LiteralPath $launcherOut, $launcherErr -Force -ErrorAction SilentlyContinue
-    }
-}
-
-function Wait-LocalWebStack {
-    param(
-        [string]$ApiBase,
-        [string]$WebBase,
-        [int]$TimeoutSeconds = 120
-    )
-
-    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-    $lastError = ""
-    do {
-        try {
-            $health = Invoke-RestMethod -Uri "$ApiBase/health" -TimeoutSec 5
-            if ($health.status -ne "ok") {
-                throw "API health status was $($health.status)"
-            }
-            $serviceInfo = Invoke-RestMethod -Uri "$ApiBase/api/v1/service-info" -TimeoutSec 5
-            if ($serviceInfo.item.readiness.status -ne "ready") {
-                throw "API readiness status was $($serviceInfo.item.readiness.status)"
-            }
-            $page = Invoke-WebRequest -Uri $WebBase -UseBasicParsing -TimeoutSec 5
-            if ($page.StatusCode -ne 200) {
-                throw "Web root returned HTTP $($page.StatusCode)"
-            }
-            Write-Host "apiBase=$ApiBase"
-            Write-Host "webBase=$WebBase"
-            Write-Host "apiHealthStatus=$($health.status)"
-            Write-Host "apiReadinessStatus=$($serviceInfo.item.readiness.status)"
-            Write-Host "webStatusCode=$($page.StatusCode)"
-            return
-        } catch {
-            $lastError = $_.Exception.Message
-            Start-Sleep -Seconds 2
-        }
-    } while ((Get-Date) -lt $deadline)
-
-    throw "local web stack did not become ready within $TimeoutSeconds seconds: $lastError"
-}
-
-function Stop-LocalWebStack {
-    param(
-        [int[]]$Ports,
-        [string]$RepoRoot = ""
-    )
-
-    $processIds = @()
-    if (-not (Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue)) {
-        Write-Host "Get-NetTCPConnection is unavailable; local web stack cleanup skipped"
-    } else {
-        foreach ($port in $Ports) {
-            $connections = @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)
-            foreach ($connection in $connections) {
-                if ($connection.OwningProcess -gt 0) {
-                    $processIds += [int]$connection.OwningProcess
-                }
-            }
-        }
-    }
-
-    if ($RepoRoot -and (Get-Command Get-CimInstance -ErrorAction SilentlyContinue)) {
-        $processes = @(Get-CimInstance Win32_Process | Where-Object {
-            $commandLine = [string]$_.CommandLine
-            $commandLine -and
-                $commandLine.Contains($RepoRoot) -and
-                (
-                    $commandLine.Contains("scripts\run-local-api-dev.bat") -or
-                    $commandLine.Contains("scripts\run-web-dev.bat") -or
-                    $commandLine.Contains("apps.api.run") -or
-                    $commandLine.Contains("next dev")
-                )
-        })
-        foreach ($process in $processes) {
-            if ($process.ProcessId -gt 0) {
-                $processIds += [int]$process.ProcessId
-            }
-        }
-    }
-
-    foreach ($processId in ($processIds | Select-Object -Unique)) {
-        try {
-            Stop-Process -Id $processId -Force -ErrorAction Stop
-            Write-Host "stopped local web stack process $processId"
-        } catch {
-            Write-Host "failed to stop process ${processId}: $($_.Exception.Message)"
-        }
-    }
-}
-
-function Save-LocalWebStackLogs {
-    param(
-        [string]$RepoRoot,
-        [string]$EvidenceDir
-    )
-
-    $logNames = @(
-        ".h2ometa-api.out.log",
-        ".h2ometa-api.err.log",
-        ".h2ometa-web.out.log",
-        ".h2ometa-web.err.log"
-    )
-    foreach ($logName in $logNames) {
-        $source = Join-Path $RepoRoot $logName
-        if (-not (Test-Path -LiteralPath $source)) {
-            continue
-        }
-        $cleanName = $logName.TrimStart([char]'.')
-        $destination = Join-Path $EvidenceDir "local-web-stack-$cleanName"
-        $saved = $false
-        for ($attempt = 1; $attempt -le 5; $attempt++) {
-            try {
-                Copy-Item -LiteralPath $source -Destination $destination -Force
-                Remove-Item -LiteralPath $source -Force
-                Write-Host "saved local web stack log $destination"
-                $saved = $true
-                break
-            } catch {
-                if ($attempt -lt 5) {
-                    Start-Sleep -Seconds 1
-                    continue
-                }
-                Write-Host "failed to save local web stack log ${source}: $($_.Exception.Message)"
-            }
-        }
-        if (-not $saved -and -not (Test-Path -LiteralPath $source)) {
-            Write-Host "local web stack log disappeared before save: $source"
-        }
     }
 }
 
@@ -561,7 +398,11 @@ $containerImageScanEvidence = [pscustomobject]@{ recorded = $false; mode = "miss
 $startedLocalWebStack = $false
 $firstRunPilotProofPath = Join-Path $evidenceDir "first-run-pilot-proof.json"
 $firstRunPilotProof = [ordered]@{ requested = ($RunFirstRunPilotProof.IsPresent -or [bool]$FirstRunPilotRunId); proofPath = $firstRunPilotProofPath; closedLoopProven = $false; closedLoopProofMode = "not-run" }
+$singleUserPilotBackupPlanPath = Join-Path $evidenceDir "single-user-pilot-backup-plan.json"
+$singleUserPilotBackupPlan = [ordered]@{ requested = $RunSingleUserPilotBackupPlan.IsPresent; planPath = $singleUserPilotBackupPlanPath; readyForManualBackup = $false; status = "not-run" }
 if ($RunFirstRunPilotProof -and $FirstRunPilotRunId) { throw "-RunFirstRunPilotProof and -FirstRunPilotRunId are mutually exclusive" }
+if ($RunSingleUserPilotBackupPlan -and $FirstRunPilotRunId) { throw "-RunSingleUserPilotBackupPlan requires a fresh -RunFirstRunPilotProof submitted-run proof, not -FirstRunPilotRunId" }
+if ($RunSingleUserPilotBackupPlan -and -not $RunFirstRunPilotProof) { throw "-RunSingleUserPilotBackupPlan requires -RunFirstRunPilotProof" }
 
 try {
     Invoke-RcStep -Steps $steps -Name "git-clean-worktree" -Required $true -EvidenceDir $evidenceDir -Body {
@@ -701,6 +542,23 @@ try {
         if (Test-Path -LiteralPath $firstRunPilotProofPath) { $firstRunPilotProof = Get-Content -LiteralPath $firstRunPilotProofPath -Raw | ConvertFrom-Json }
     } else { Add-SkippedStep -Steps $steps -Name "first-run-pilot-proof" -Required $false -Message "pass -RunFirstRunPilotProof to prove the full Moving Pictures first successful run; optionally pass -FirstRunPilotRunId to reuse an existing completed run" }
 
+    if ($RunSingleUserPilotBackupPlan) {
+        Invoke-RcStep -Steps $steps -Name "single-user-pilot-backup-plan" -Required $true -EvidenceDir $evidenceDir -Body {
+            $backupPlanArgs = @(
+                "-ExecutionPolicy", "Bypass",
+                "-File", (Join-Path $repoRoot "scripts\rc_single_user_pilot_backup_plan.ps1"),
+                "-RepoRoot", $repoRoot,
+                "-FirstRunProofPath", $firstRunPilotProofPath,
+                "-RemoteRunnerSharedRoot", $SingleUserPilotRemoteRunnerSharedRoot,
+                "-PlanPath", $singleUserPilotBackupPlanPath
+            )
+            Invoke-Native "powershell" $backupPlanArgs $repoRoot
+        }
+        if (Test-Path -LiteralPath $singleUserPilotBackupPlanPath) { $singleUserPilotBackupPlan = Get-Content -LiteralPath $singleUserPilotBackupPlanPath -Raw | ConvertFrom-Json }
+    } else {
+        Add-SkippedStep -Steps $steps -Name "single-user-pilot-backup-plan" -Required $false -Message "pass -RunSingleUserPilotBackupPlan with -SingleUserPilotRemoteRunnerSharedRoot after first-run proof to prove pilot backup readiness"
+    }
+
     if ($DesktopStartupEvidence) {
         Invoke-RcStep -Steps $steps -Name "desktop-startup-evidence" -Required $false -EvidenceDir $evidenceDir -Body {
             Write-Host "desktopStartupEvidence=$DesktopStartupEvidence"
@@ -770,6 +628,9 @@ $summary = [ordered]@{
     webE2ERepeat = $WebE2ERepeat
     runFirstRunPilotProof = $RunFirstRunPilotProof.IsPresent; firstRunPilotRunId = $FirstRunPilotRunId
     firstRunPilotProofPath = $firstRunPilotProofPath; firstRunPilotProof = $firstRunPilotProof
+    runSingleUserPilotBackupPlan = $RunSingleUserPilotBackupPlan.IsPresent
+    singleUserPilotBackupPlanPath = $singleUserPilotBackupPlanPath
+    singleUserPilotBackupPlan = $singleUserPilotBackupPlan
     securityAnalysisEvidenceRecorded = $securityAnalysisEvidence.recorded
     securityAnalysisEvidenceMode = $securityAnalysisEvidence.mode
     securityAnalysisRunUrl = $securityAnalysisEvidence.runUrl
@@ -779,7 +640,7 @@ $summary = [ordered]@{
     containerImageScanRunUrl = $containerImageScanEvidence.runUrl
     containerImageScanUnavailableReason = $containerImageScanEvidence.unavailableReason
     handoffEligible = ($ok -and -not $DevelopmentOnly.IsPresent -and [bool]$CiRunUrl -and $RunNpmCi.IsPresent -and $securityAnalysisEvidence.recorded -and $containerImageScanEvidence.recorded)
-    localSingleUserProofEligible = ($ok -and -not $AllowDirty.IsPresent -and $StartLocalWeb.IsPresent -and $RunWebE2E.IsPresent -and (($RunLocalWebSmoke.IsPresent) -or $StartLocalWeb.IsPresent) -and ($firstRunPilotProof.closedLoopProven -eq $true))
+    localSingleUserProofEligible = ($ok -and -not $AllowDirty.IsPresent -and $StartLocalWeb.IsPresent -and $RunWebE2E.IsPresent -and (($RunLocalWebSmoke.IsPresent) -or $StartLocalWeb.IsPresent) -and ($firstRunPilotProof.closedLoopProven -eq $true) -and ($singleUserPilotBackupPlan.readyForManualBackup -eq $true))
     runtimeManifestDrift = $runtimeManifestDrift
     steps = $steps
     scopedRuntimeLimits = @(

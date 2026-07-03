@@ -69,7 +69,7 @@ Closure requires:
 2. The script requires a clean working tree unless the operator explicitly allows dirty development proof.
 3. Production handoff evidence requires `-CiRunUrl`, `-RunNpmCi`, explicit Security Analysis and Container Image Scan platform evidence, and `handoffEligible: true`.
 4. Required gates cover Python tests/ruff, clean web install, web lint/typecheck/build, security audits, and database pack lifecycle contracts.
-5. Local single-user proof is explicit: `-StartLocalWeb` launches `run.bat --web`, `-UseUserAppStateForLocalWeb` opts into the operator's configured SSH/runner state, `-RunWebE2E` runs Playwright, `-WebE2ERepeat 3` is the burn-in target, and `-RunFirstRunPilotProof` records `first-run-pilot-proof.json` before calling UI workflows stable.
+5. Local single-user proof is explicit: `-StartLocalWeb` launches `run.bat --web`, `-UseUserAppStateForLocalWeb` opts into the operator's configured SSH/runner state, `-RunWebE2E` runs Playwright, `-WebE2ERepeat 3` is the burn-in target, `-RunFirstRunPilotProof` records `first-run-pilot-proof.json`, and `-RunSingleUserPilotBackupPlan -SingleUserPilotRemoteRunnerSharedRoot "<remote-shared-root>"` records `single-user-pilot-backup-plan.json` before calling a lab pilot package stable.
 6. Optional local launcher smoke, desktop startup evidence, and runtime release evidence are explicit switches and are recorded as skipped when not run.
 7. The docs state that no RC evidence means no production handoff.
 
