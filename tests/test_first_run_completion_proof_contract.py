@@ -5,7 +5,11 @@ from typing import Any
 
 import pytest
 
-from apps.api.workflow_first_run_completion_proof_contract import FIRST_RUN_COMPLETION_PROOF_INVALID
+from apps.api.workflow_first_run_completion_proof_contract import (
+    FIRST_RUN_COMPLETION_PROOF_INVALID,
+    FIRST_RUN_COMPLETION_PROOF_STORE_UNREADABLE,
+)
+from apps.api.workflow_first_run_completion_store import FirstRunCompletionProofStoreError
 from apps.api.workflow_first_run_status_service import build_first_run_status_from_request
 from tests.test_first_run_status import _patch_status_sources
 
@@ -36,7 +40,7 @@ def test_first_run_status_fails_closed_on_invalid_saved_completion_proof(
 
     _patch_status_sources(monkeypatch, runs=[], sample_status="ready")
     monkeypatch.setattr(
-        "apps.api.workflow_first_run_status_service.latest_first_run_completion_proof",
+        "apps.api.workflow_first_run_completion_proof_contract.latest_first_run_completion_proof",
         fake_latest_completion_proof,
     )
 
@@ -49,6 +53,32 @@ def test_first_run_status_fails_closed_on_invalid_saved_completion_proof(
     assert result["evidence"]["completionProof"]["ready"] is False
     assert result["evidence"]["completionProof"]["blockedCode"] == FIRST_RUN_COMPLETION_PROOF_INVALID
     assert detail_fragment in result["evidence"]["completionProof"]["detail"]
+
+
+def test_first_run_status_fails_closed_when_completion_proof_store_is_unreadable(monkeypatch) -> None:
+    def fail_latest_completion_proof(*, server_id: str | None = None) -> dict[str, Any]:
+        assert server_id == "srv_first"
+        raise FirstRunCompletionProofStoreError("FIRST_RUN_COMPLETION_PROOF_STORE_INVALID_JSON")
+
+    _patch_status_sources(monkeypatch, runs=[], sample_status="ready")
+    monkeypatch.setattr(
+        "apps.api.workflow_first_run_completion_proof_contract.latest_first_run_completion_proof",
+        fail_latest_completion_proof,
+    )
+
+    result = asyncio.run(build_first_run_status_from_request(server_id="srv_first"))["data"]
+
+    assert result["status"] == "blocked"
+    assert result["stage"] == "submit_run"
+    assert result["nextAction"]["code"] == "SUBMIT_RUN"
+    assert result["evidence"]["completionProof"] == {
+        "ready": False,
+        "blockedCode": FIRST_RUN_COMPLETION_PROOF_STORE_UNREADABLE,
+        "detail": (
+            "saved first-run completion proof store is unreadable: "
+            "FIRST_RUN_COMPLETION_PROOF_STORE_INVALID_JSON"
+        ),
+    }
 
 
 def _completion_proof() -> dict[str, Any]:

@@ -7,6 +7,8 @@ from typing import Any
 
 import pytest
 
+from apps.api.workflow_first_run_completion_proof_contract import FIRST_RUN_COMPLETION_PROOF_STORE_UNREADABLE
+from apps.api.workflow_first_run_completion_store import FirstRunCompletionProofStoreError
 from apps.api.workflow_first_run_service import (
     WorkflowFirstRunValidationCardUnavailableError,
     build_first_run_validation_card_from_request,
@@ -603,6 +605,39 @@ def test_first_run_finalize_binds_validation_card_to_exported_package(monkeypatc
     assert result["validationCard"]["resultPackage"]["packageExportId"] == "rpex_finalized"
     assert result["evidenceBundle"]["requiredFiles"][0]["packageExportId"] == "rpex_finalized"
     assert result["evidenceBundle"]["requiredFiles"][0]["sha256"] == "3" * 64
+
+
+def test_first_run_finalize_returns_typed_blocker_when_completion_proof_store_fails(monkeypatch) -> None:
+    _patch_first_run_sources(monkeypatch)
+
+    def fail_record_completion_proof(*_args, **_kwargs):
+        raise FirstRunCompletionProofStoreError("FIRST_RUN_COMPLETION_PROOF_STORE_INVALID_JSON")
+
+    monkeypatch.setattr(
+        "apps.api.workflow_first_run_finalize_service.record_first_run_completion_proof",
+        fail_record_completion_proof,
+    )
+
+    result = asyncio.run(
+        finalize_first_run_from_request(
+            "run_first",
+            WorkflowFirstRunFinalizeRequest(serverId="srv_first", actor="operator"),
+        )
+    )["data"]
+
+    assert result == {
+        "schemaVersion": "h2ometa.first-run.finalization.v1",
+        "status": "blocked",
+        "nextAction": {
+            "code": FIRST_RUN_COMPLETION_PROOF_STORE_UNREADABLE,
+            "detail": (
+                "saved first-run completion proof store is unreadable: "
+                "FIRST_RUN_COMPLETION_PROOF_STORE_INVALID_JSON"
+            ),
+            "label": "修复本地首跑证明索引",
+            "target": "/workflows/first-run#evidence-bundle",
+        },
+    }
 
 
 def test_first_run_finalize_returns_typed_blocked_action(monkeypatch) -> None:

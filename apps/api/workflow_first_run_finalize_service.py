@@ -6,7 +6,14 @@ from typing import Any
 
 from apps.api.execution_query_service import export_result_package_from_request
 from apps.api.models import ApiRequest, ResultPackageExportRequest
-from apps.api.workflow_first_run_completion_store import record_first_run_completion_proof
+from apps.api.workflow_first_run_completion_proof_contract import (
+    FIRST_RUN_COMPLETION_PROOF_STORE_UNREADABLE,
+    first_run_completion_proof_store_unreadable_evidence,
+)
+from apps.api.workflow_first_run_completion_store import (
+    FirstRunCompletionProofStoreError,
+    record_first_run_completion_proof,
+)
 from apps.api.workflow_first_run_report_interpretation import FIRST_RUN_REPORT_TRUST_ASSERTIONS_FAILED
 from apps.api.workflow_first_run_result_package_contract import (
     FIRST_RUN_RESULT_PACKAGE_EXPORT_MISMATCH,
@@ -43,6 +50,8 @@ async def finalize_first_run_from_request(
         code = _error_code(exc)
         if not is_first_run_result_package_export_required(code):
             return _blocked(code, str(exc))
+    except FirstRunCompletionProofStoreError as exc:
+        return _blocked(FIRST_RUN_COMPLETION_PROOF_STORE_UNREADABLE, _completion_proof_store_error_detail(exc))
 
     result_id = _canonical_result_id_for_run(normalized_run_id)
     exported = await export_result_package_from_request(
@@ -71,7 +80,14 @@ async def finalize_first_run_from_request(
         )["data"]
     except WorkflowFirstRunValidationCardUnavailableError as exc:
         return _blocked(_error_code(exc), str(exc), result_package=exported_package)
-    return _ready(card, package_action="exported", server_id=server_id)
+    try:
+        return _ready(card, package_action="exported", server_id=server_id)
+    except FirstRunCompletionProofStoreError as exc:
+        return _blocked(
+            FIRST_RUN_COMPLETION_PROOF_STORE_UNREADABLE,
+            _completion_proof_store_error_detail(exc),
+            result_package=exported_package,
+        )
 
 
 def _ready(card: dict[str, Any], *, package_action: str, server_id: str | None) -> dict[str, Any]:
@@ -128,6 +144,9 @@ def first_run_next_action(code: str, detail: str) -> dict[str, str]:
     elif code == "FIRST_RUN_PILOT_HANDOFF_REQUIRED" or code == "FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED":
         target = "/workflows/first-run#evidence-bundle"
         label = "重新生成首跑验证卡"
+    elif code == FIRST_RUN_COMPLETION_PROOF_STORE_UNREADABLE:
+        target = "/workflows/first-run#evidence-bundle"
+        label = "修复本地首跑证明索引"
     else:
         target = "/workflows/first-run"
         label = "返回首跑向导"
@@ -158,6 +177,10 @@ def _canonical_result_id_for_run(run_id: str) -> str:
 
 def _error_code(exc: WorkflowFirstRunValidationCardUnavailableError) -> str:
     return str(exc).split(":", 1)[0].strip() or "FIRST_RUN_FINALIZATION_BLOCKED"
+
+
+def _completion_proof_store_error_detail(exc: FirstRunCompletionProofStoreError) -> str:
+    return str(first_run_completion_proof_store_unreadable_evidence(exc).get("detail") or str(exc))
 
 
 def _unwrap_data(payload: Any) -> dict[str, Any]:
