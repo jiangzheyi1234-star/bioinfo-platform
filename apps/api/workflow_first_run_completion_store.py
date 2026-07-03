@@ -136,7 +136,7 @@ def _read_registry(path: Path, *, missing_ok: bool = False) -> dict[str, Any]:
         return {"version": FIRST_RUN_COMPLETION_PROOF_REGISTRY_VERSION, "records": []}
     except json.JSONDecodeError as exc:
         raise FirstRunCompletionProofStoreError("FIRST_RUN_COMPLETION_PROOF_STORE_INVALID_JSON") from exc
-    if not isinstance(payload, dict) or int(payload.get("version") or 0) != FIRST_RUN_COMPLETION_PROOF_REGISTRY_VERSION:
+    if not isinstance(payload, dict) or _registry_version(payload) != FIRST_RUN_COMPLETION_PROOF_REGISTRY_VERSION:
         raise FirstRunCompletionProofStoreError("FIRST_RUN_COMPLETION_PROOF_STORE_VERSION_UNSUPPORTED")
     if not isinstance(payload.get("records"), list):
         raise FirstRunCompletionProofStoreError("FIRST_RUN_COMPLETION_PROOF_STORE_RECORDS_INVALID")
@@ -154,6 +154,16 @@ def _write_registry(path: Path, registry: dict[str, Any]) -> None:
 
 def _records(registry: dict[str, Any]) -> list[dict[str, Any]]:
     return [record for record in registry.get("records") or [] if isinstance(record, dict)]
+
+
+def _registry_version(payload: dict[str, Any]) -> int:
+    version = payload.get("version")
+    if isinstance(version, bool):
+        raise FirstRunCompletionProofStoreError("FIRST_RUN_COMPLETION_PROOF_STORE_VERSION_UNSUPPORTED")
+    try:
+        return int(version or 0)
+    except (TypeError, ValueError) as exc:
+        raise FirstRunCompletionProofStoreError("FIRST_RUN_COMPLETION_PROOF_STORE_VERSION_UNSUPPORTED") from exc
 
 
 def _ensure_ready_completion_proof(proof: dict[str, Any]) -> None:

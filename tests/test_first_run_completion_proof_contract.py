@@ -109,6 +109,29 @@ def test_first_run_status_fails_closed_when_completion_proof_records_are_malform
     assert "FIRST_RUN_COMPLETION_PROOF_STORE_RECORD_INVALID" in result["evidence"]["completionProof"]["detail"]
 
 
+def test_first_run_status_fails_closed_when_completion_proof_store_version_is_malformed(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    store_path = tmp_path / "completion-proofs-v1.json"
+    store_path.write_text(json.dumps({"version": "bad", "records": [_completion_proof()]}), encoding="utf-8")
+
+    _patch_status_sources(monkeypatch, runs=[], sample_status="ready")
+    monkeypatch.setattr(
+        "apps.api.workflow_first_run_completion_store.get_first_run_completion_proof_store_path",
+        lambda: store_path,
+    )
+
+    result = asyncio.run(build_first_run_status_from_request(server_id="srv_first"))["data"]
+
+    assert result["status"] == "blocked"
+    assert result["stage"] == "submit_run"
+    assert result["nextAction"]["code"] == "SUBMIT_RUN"
+    assert result["evidence"]["completionProof"]["ready"] is False
+    assert result["evidence"]["completionProof"]["blockedCode"] == FIRST_RUN_COMPLETION_PROOF_STORE_UNREADABLE
+    assert "FIRST_RUN_COMPLETION_PROOF_STORE_VERSION_UNSUPPORTED" in result["evidence"]["completionProof"]["detail"]
+
+
 def test_first_run_status_uses_requested_saved_completion_proof_when_newer_proof_exists(
     monkeypatch,
     tmp_path,
