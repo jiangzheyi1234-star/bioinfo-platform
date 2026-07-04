@@ -5,6 +5,8 @@ import sys
 from pathlib import Path
 
 from scripts import security_governance_audit as audit
+from scripts import security_workflow_governance as workflow_governance
+from scripts.security_governance_common import Finding
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -68,6 +70,8 @@ def test_local_api_cors_stays_explicit_and_desktop_scoped() -> None:
 
 def test_security_governance_audit_script_contract() -> None:
     source = _source("scripts/security_governance_audit.py")
+    common_source = _source("scripts/security_governance_common.py")
+    workflow_governance_source = _source("scripts/security_workflow_governance.py")
     security_analysis_source = _source("scripts/security_analysis_governance.py")
     github_ruleset_source = _source("scripts/github_ruleset_governance.py")
     image_scan_source = _source("scripts/container_image_scan_governance.py")
@@ -83,6 +87,10 @@ def test_security_governance_audit_script_contract() -> None:
         + image_scan_source
         + "\n"
         + runtime_governance_source
+        + "\n"
+        + common_source
+        + "\n"
+        + workflow_governance_source
     )
 
     assert "git" in source and "ls-files" in source
@@ -92,27 +100,33 @@ def test_security_governance_audit_script_contract() -> None:
     assert "slack-token" in source
     assert "quoted-secret-assignment" in source
     assert "cors-wildcard" in source
-    assert "dangerous-workflow-trigger" in source
-    assert "unpinned-action" in source
-    assert "MAX_WORKFLOW_ARTIFACT_RETENTION_DAYS = 2" in source
-    assert "scan_workflow_artifact_retention" in source
-    assert "workflow-artifact-retention-missing" in source
-    assert "workflow-artifact-retention-too-long" in source
-    assert "scan_workflow_checkout_credentials" in source
-    assert "workflow-checkout-persist-credentials" in source
-    assert "workflow_run is not allowed" in source
-    assert "scan_workflow_security_contract" in source
-    assert "WORKFLOW_JOB_WRITE_PERMISSION_ALLOWLIST" in source
-    assert "workflow-permission-write-unapproved" in source
-    assert "DEPENDENCY_REVIEW_ACTION" in source
+    assert "security_governance_common" in source
+    assert "security_workflow_governance" in source
+    assert "def scan_workflow_security_contract(" not in source
+    assert "def scan_workflow_artifact_retention(" not in source
+    assert "class SimpleYamlMapping" not in source
+    assert "dangerous-workflow-trigger" in workflow_governance_source
+    assert "unpinned-action" in workflow_governance_source
+    assert "MAX_WORKFLOW_ARTIFACT_RETENTION_DAYS = 2" in workflow_governance_source
+    assert "scan_workflow_artifact_retention" in workflow_governance_source
+    assert "workflow-artifact-retention-missing" in workflow_governance_source
+    assert "workflow-artifact-retention-too-long" in workflow_governance_source
+    assert "scan_workflow_checkout_credentials" in workflow_governance_source
+    assert "workflow-checkout-persist-credentials" in workflow_governance_source
+    assert "workflow_run is not allowed" in workflow_governance_source
+    assert "_scan_workflow_security_contract" in source
+    assert "scan_workflow_security_contract as _scan_workflow_security_contract" in source
+    assert "WORKFLOW_JOB_WRITE_PERMISSION_ALLOWLIST" in workflow_governance_source
+    assert "workflow-permission-write-unapproved" in workflow_governance_source
+    assert "DEPENDENCY_REVIEW_ACTION" in workflow_governance_source
     assert "SECURITY_ANALYSIS_WORKFLOW" in combined_source
     assert "CODEQL_ACTION_SHA" in combined_source
     assert "SCORECARD_ACTION_SHA" in combined_source
-    assert "scan_dependency_review_workflow_contract" in source
+    assert "scan_dependency_review_workflow_contract" in workflow_governance_source
     assert "scan_security_analysis_workflow_contract" in combined_source
-    assert "dependency-review-severity" in source
-    assert "dependency-review-pr-comments" in source
-    assert "dependency-review-warn-only" in source
+    assert "dependency-review-severity" in workflow_governance_source
+    assert "dependency-review-pr-comments" in workflow_governance_source
+    assert "dependency-review-warn-only" in workflow_governance_source
     assert "security-analysis-soft-fail" in combined_source
     assert "security-analysis-scorecard-permissions" in combined_source
     assert "_scan_scorecard_publish_job_restrictions" in combined_source
@@ -492,36 +506,36 @@ jobs:
 """
 
     assert "unpinned-action" in _finding_codes(
-        audit.scan_workflow_security_contract(".github/workflows/unsafe.yml", unversioned_action)
+        workflow_governance.scan_workflow_security_contract(".github/workflows/unsafe.yml", unversioned_action)
     )
     write_codes = _finding_codes(
-        audit.scan_workflow_security_contract(".github/workflows/unsafe.yml", write_on_pr)
+        workflow_governance.scan_workflow_security_contract(".github/workflows/unsafe.yml", write_on_pr)
     )
     assert "workflow-permission-write-unapproved" in write_codes
     assert "workflow-write-permission-on-pr" in write_codes
     assert "dangerous-workflow-trigger" in _finding_codes(
-        audit.scan_workflow_security_contract(".github/workflows/unsafe.yml", workflow_run)
+        workflow_governance.scan_workflow_security_contract(".github/workflows/unsafe.yml", workflow_run)
     )
     assert "workflow-artifact-retention-missing" in _finding_codes(
-        audit.scan_workflow_security_contract(
+        workflow_governance.scan_workflow_security_contract(
             ".github/workflows/unsafe.yml",
             upload_artifact_missing_retention,
         )
     )
     assert "workflow-artifact-retention-too-long" in _finding_codes(
-        audit.scan_workflow_security_contract(
+        workflow_governance.scan_workflow_security_contract(
             ".github/workflows/unsafe.yml",
             upload_artifact_long_retention,
         )
     )
     assert "workflow-artifact-retention-invalid" in _finding_codes(
-        audit.scan_workflow_security_contract(
+        workflow_governance.scan_workflow_security_contract(
             ".github/workflows/unsafe.yml",
             upload_artifact_expression_retention,
         )
     )
     dependency_review_codes = _finding_codes(
-        audit.scan_workflow_security_contract(
+        workflow_governance.scan_workflow_security_contract(
             ".github/workflows/unsafe.yml",
             dependency_review_warn_only,
         )
@@ -531,25 +545,25 @@ jobs:
     assert "dependency-review-pr-comments" in dependency_review_codes
     assert "dependency-review-warn-only" in dependency_review_codes
     assert "workflow-checkout-persist-credentials" in _finding_codes(
-        audit.scan_workflow_security_contract(
+        workflow_governance.scan_workflow_security_contract(
             ".github/workflows/unsafe.yml",
             checkout_persist_credentials,
         )
     )
     assert "workflow-checkout-persist-credentials" in _finding_codes(
-        audit.scan_workflow_security_contract(
+        workflow_governance.scan_workflow_security_contract(
             ".github/workflows/unsafe.yml",
             checkout_persist_credentials_true,
         )
     )
     assert "workflow-checkout-persist-credentials" in _finding_codes(
-        audit.scan_workflow_security_contract(
+        workflow_governance.scan_workflow_security_contract(
             ".github/workflows/unsafe.yml",
             checkout_persist_credentials_env_spoof,
         )
     )
     security_analysis_codes = _finding_codes(
-        audit.scan_workflow_security_contract(
+        workflow_governance.scan_workflow_security_contract(
             ".github/workflows/security-analysis.yml",
             security_analysis_soft_fail,
         )
@@ -558,19 +572,19 @@ jobs:
     assert "security-analysis-scorecard-contract" in security_analysis_codes
     assert "security-analysis-codeql-contract" in security_analysis_codes
     assert "security-analysis-scorecard-contract" in _finding_codes(
-        audit.scan_workflow_security_contract(
+        workflow_governance.scan_workflow_security_contract(
             ".github/workflows/security-analysis.yml",
             security_analysis_pr_upload,
         )
     )
     assert "security-analysis-untrusted-trigger" in _finding_codes(
-        audit.scan_workflow_security_contract(
+        workflow_governance.scan_workflow_security_contract(
             ".github/workflows/security-analysis.yml",
             security_analysis_pr_upload,
         )
     )
     disallowed_scorecard_codes = _finding_codes(
-        audit.scan_workflow_security_contract(
+        workflow_governance.scan_workflow_security_contract(
             ".github/workflows/security-analysis.yml",
             security_analysis_disallowed_scorecard_job,
         )
@@ -580,25 +594,25 @@ jobs:
     assert any(
         finding.code == "security-analysis-scorecard-job-restriction"
         and "container" in finding.detail
-        for finding in audit.scan_workflow_security_contract(
+        for finding in workflow_governance.scan_workflow_security_contract(
             ".github/workflows/security-analysis.yml",
             security_analysis_disallowed_scorecard_job,
         )
     )
     assert "security-analysis-workflow-restriction" in _finding_codes(
-        audit.scan_workflow_security_contract(
+        workflow_governance.scan_workflow_security_contract(
             ".github/workflows/security-analysis.yml",
             security_analysis_top_level_inline_env,
         )
     )
     assert "security-analysis-scorecard-runner" in _finding_codes(
-        audit.scan_workflow_security_contract(
+        workflow_governance.scan_workflow_security_contract(
             ".github/workflows/security-analysis.yml",
             security_analysis_windows_scorecard,
         )
     )
     assert "security-analysis-required-gate" in _finding_codes(
-        audit.scan_workflow_security_contract(
+        workflow_governance.scan_workflow_security_contract(
             ".github/workflows/ci.yml",
             ci_with_required_scorecard,
         )
@@ -608,7 +622,7 @@ jobs:
 def test_security_governance_audit_accepts_release_permission_allowlist() -> None:
     workflow = _source(".github/workflows/release-remote-runner-artifacts.yml")
 
-    findings = audit.scan_workflow_security_contract(
+    findings = workflow_governance.scan_workflow_security_contract(
         ".github/workflows/release-remote-runner-artifacts.yml",
         workflow,
     )
@@ -638,7 +652,7 @@ jobs:
           comment-summary-in-pr: never
 """
 
-    findings = audit.scan_workflow_security_contract(
+    findings = workflow_governance.scan_workflow_security_contract(
         ".github/workflows/dependency-review.yml",
         workflow,
     )
@@ -649,7 +663,7 @@ jobs:
 def test_security_governance_audit_accepts_security_analysis_workflow() -> None:
     workflow = _source(".github/workflows/security-analysis.yml")
 
-    findings = audit.scan_workflow_security_contract(
+    findings = workflow_governance.scan_workflow_security_contract(
         ".github/workflows/security-analysis.yml",
         workflow,
     )
@@ -778,5 +792,5 @@ def test_remote_runner_auth_and_deployment_security_contracts_are_locked() -> No
     assert "SSH_HOST_KEY_UNTRUSTED" in ssh_connector
 
 
-def _finding_codes(findings: list[audit.Finding]) -> set[str]:
+def _finding_codes(findings: list[Finding]) -> set[str]:
     return {finding.code for finding in findings}

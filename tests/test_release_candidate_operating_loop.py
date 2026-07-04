@@ -69,6 +69,7 @@ def test_release_candidate_operating_loop_doc_defines_handoff_contract() -> None
         "database-pack-lifecycle-v1",
         "Runtime manifest drift gate",
         "runtimeManifestDrift.hasDrift",
+        "scripts/security_workflow_governance.py",
     ):
         assert token in source
 

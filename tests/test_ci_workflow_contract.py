@@ -218,5 +218,7 @@ def test_codeowners_covers_security_sensitive_automation() -> None:
     assert "/scripts/dependabot_governance.py @jiangzheyi1234-star" in source
     assert "/scripts/github_ruleset_governance.py @jiangzheyi1234-star" in source
     assert "/scripts/security_governance_audit.py @jiangzheyi1234-star" in source
+    assert "/scripts/security_governance_common.py @jiangzheyi1234-star" in source
+    assert "/scripts/security_workflow_governance.py @jiangzheyi1234-star" in source
     assert "/scripts/security_analysis_governance.py @jiangzheyi1234-star" in source
     assert "/core/governance_policy.py @jiangzheyi1234-star" in source
