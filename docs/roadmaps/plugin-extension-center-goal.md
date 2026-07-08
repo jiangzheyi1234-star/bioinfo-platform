@@ -1,6 +1,6 @@
 # Plugin And Remote Executor Goal
 
-Status: Phased implementation; Phase 1-3 landed, Phase 4 baseline landed, broad multi-profile UX pending
+Status: Phased implementation; Phase 1-5 baselines landed, broad multi-profile UX and richer runtime packs pending
 
 Last reviewed: 2026-07-08
 
@@ -189,6 +189,12 @@ Acceptance evidence:
 - Bring tool plugins, runtime components, and database/runtime pack status into the plugin center.
 - Keep source-of-truth boundaries separated: tool preparation stays remote-runner owned; remote provisioning stays local-control-plane owned.
 - Add shared task presentation utilities only after duplication proves real.
+
+Baseline landed:
+
+- The plugin center reads the remote-runner owned tool prepare queue and local-control-plane owned remote provisioning queue separately.
+- The installation task summary aggregates active tool preparation and remote provisioning counts without merging their backend domain models.
+- The tool plugin card surfaces the latest remote tool preparation job when the runner is available, while keeping the existing tools page as the detailed management surface.
 
 Acceptance evidence:
 

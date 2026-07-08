@@ -119,3 +119,17 @@ def test_plugin_center_phase_four_surfaces_server_profiles() -> None:
     assert "SERVER_PROFILES_CONFIG_KEY" in runtime_source
     assert "DEFAULT_SERVER_PROFILE_ID" in runtime_source
     assert "ServerProfileOperationsMixin" in service_source
+
+
+def test_plugin_center_phase_five_aggregates_extension_tasks_without_merging_domains() -> None:
+    page_source = (COMPONENTS / "plugin-center-page.tsx").read_text(encoding="utf-8")
+    roadmap_source = ROADMAP.read_text(encoding="utf-8")
+
+    assert "fetchToolPrepareJobQueue" in page_source
+    assert "TOOL_PREPARE_ACTIVE_STATUSES" in page_source
+    assert "toolPrepareActiveCount" in page_source
+    assert "activeToolPrepareTaskCount + activeProvisioningJobs.length" in page_source
+    assert 'data-testid="plugin-center-tool-prepare-latest"' in page_source
+    assert "toolPrepareQueue?.total ?? tasks.length" in page_source
+    assert "tool preparation stays remote-runner owned" in roadmap_source
+    assert "remote provisioning queue separately" in roadmap_source

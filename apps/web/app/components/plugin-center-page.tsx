@@ -29,6 +29,8 @@ import {
 } from "./plugin-center-model";
 import { RunnerRepairPanel } from "./ssh-runner-repair-panel";
 import { useToolPrepareTasks } from "./tool-prepare-task-context";
+import { fetchToolPrepareJobQueue } from "./tools-page-api";
+import { TOOL_PREPARE_ACTIVE_STATUSES, type ToolPrepareJobQueue } from "./tools-page-model";
 import { useWorkflowRunnerRepairState } from "./workflow-runner-repair-state";
 import { WorkflowPageHeader } from "./workflow-page-header";
 
@@ -109,6 +111,7 @@ function stageIconTone(state: InstallStageState) {
 }
 
 const REMOTE_PROVISIONING_POLL_MS = 1500;
+const TOOL_PREPARE_QUEUE_POLL_MS = 2500;
 
 function remoteProvisioningAction(status: RunnerRepairStatus | null): RemoteProvisioningJobAction {
   return isRunnerManuallyStopped(status) ? "start-runner" : "ensure-runner";
@@ -128,6 +131,17 @@ function hostKeyTrustLabel(profile: ServerProfile | null): string {
 function runnerTokenLabel(profile: ServerProfile | null): string {
   if (!profile?.configured) return "未配置";
   return profile.runner.hasTokenRef ? "已绑定" : "未绑定";
+}
+
+function toolPrepareActiveCount(queue: ToolPrepareJobQueue | null): number {
+  if (!queue) return 0;
+  return TOOL_PREPARE_ACTIVE_STATUSES.reduce((total, status) => total + Number(queue.statusCounts?.[status] || 0), 0);
+}
+
+function latestToolPrepareLabel(queue: ToolPrepareJobQueue | null): string {
+  const job = queue?.items?.[0] || null;
+  if (!job) return "暂无远端工具准备任务";
+  return `${job.toolId || "tool"} · ${job.status} · ${job.stage}`;
 }
 
 function mergeRemoteProvisioningJob(
@@ -183,6 +197,8 @@ export function PluginCenterPage() {
   const { activeTasks, tasks } = useToolPrepareTasks();
   const [provisioningQueue, setProvisioningQueue] = useState<RemoteProvisioningJobQueue | null>(null);
   const [serverProfiles, setServerProfiles] = useState<ServerProfileList | null>(null);
+  const [toolPrepareQueue, setToolPrepareQueue] = useState<ToolPrepareJobQueue | null>(null);
+  const [toolPrepareQueueError, setToolPrepareQueueError] = useState("");
   const [provisioningBusy, setProvisioningBusy] = useState(false);
   const [provisioningError, setProvisioningError] = useState("");
   const refreshedTerminalJobKeyRef = useRef("");
@@ -211,7 +227,10 @@ export function PluginCenterPage() {
   const runnerReady = Boolean(status?.connected && status.runner?.ready);
   const canPrepareRunner = Boolean(status?.connected && serverId && !runnerReady);
   const connecting = Boolean(sshShell.connectBusy || status?.connecting || status?.auto_connect_in_progress);
-  const activeInstallationTaskCount = activeTasks.length + activeProvisioningJobs.length;
+  const persistentToolPrepareActiveCount = toolPrepareActiveCount(toolPrepareQueue);
+  const activeToolPrepareTaskCount = Math.max(activeTasks.length, persistentToolPrepareActiveCount);
+  const activeInstallationTaskCount = activeToolPrepareTaskCount + activeProvisioningJobs.length;
+  const toolPrepareTotal = toolPrepareQueue?.total ?? tasks.length;
 
   const refreshProvisioningJobs = useCallback(async (signal?: AbortSignal) => {
     const queue = await fetchRemoteProvisioningJobQueue({ limit: 8, signal });
@@ -219,14 +238,27 @@ export function PluginCenterPage() {
     return queue;
   }, []);
 
+  const refreshToolPrepareQueue = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const queue = await fetchToolPrepareJobQueue({ limit: 8, signal });
+      setToolPrepareQueue(queue);
+      setToolPrepareQueueError("");
+      return queue;
+    } catch {
+      setToolPrepareQueueError("远端执行器未就绪，暂无法同步工具准备队列。");
+      return null;
+    }
+  }, []);
+
   useEffect(() => {
     const controller = new AbortController();
     void refreshProvisioningJobs(controller.signal).catch(() => undefined);
+    void refreshToolPrepareQueue(controller.signal);
     void fetchServerProfiles(controller.signal)
       .then(setServerProfiles)
       .catch(() => undefined);
     return () => controller.abort();
-  }, [refreshProvisioningJobs]);
+  }, [refreshProvisioningJobs, refreshToolPrepareQueue]);
 
   useEffect(() => {
     if (activeProvisioningJobs.length === 0) return;
@@ -235,6 +267,14 @@ export function PluginCenterPage() {
     }, REMOTE_PROVISIONING_POLL_MS);
     return () => window.clearInterval(timer);
   }, [activeProvisioningJobs.length, refreshProvisioningJobs]);
+
+  useEffect(() => {
+    if (persistentToolPrepareActiveCount === 0) return;
+    const timer = window.setInterval(() => {
+      void refreshToolPrepareQueue();
+    }, TOOL_PREPARE_QUEUE_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [persistentToolPrepareActiveCount, refreshToolPrepareQueue]);
 
   useEffect(() => {
     if (!latestRunnerProvisioningJob || isActiveRemoteProvisioningJob(latestRunnerProvisioningJob)) {
@@ -418,11 +458,20 @@ export function PluginCenterPage() {
                   <p className="mt-1 text-xs text-slate-500">Bioconda、conda-forge 和 Snakemake wrapper 工具继续由工具页准备和验证。</p>
                   <div className="mt-3 flex items-center justify-between gap-3 text-xs">
                     <span className="text-slate-500">
-                      活跃验证任务 <span className="font-mono text-slate-900">{activeTasks.length}</span>
+                      活跃验证任务 <span className="font-mono text-slate-900">{activeToolPrepareTaskCount}</span>
                     </span>
                     <Link href="/workflows/tools" className="font-medium text-blue-700 hover:text-blue-900">
                       打开工具
                     </Link>
+                  </div>
+                  <div
+                    className="mt-3 rounded-md border border-slate-100 bg-slate-50 px-2 py-2 text-xs text-slate-600"
+                    data-testid="plugin-center-tool-prepare-latest"
+                  >
+                    <div className="font-medium text-slate-900">{latestToolPrepareLabel(toolPrepareQueue)}</div>
+                    <div className="mt-1 truncate text-[11px] text-slate-500">
+                      {toolPrepareQueueError || "远端 runner 就绪后同步工具准备队列。"}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -454,7 +503,7 @@ export function PluginCenterPage() {
                     </div>
                     <div className="rounded-md border border-slate-100 bg-slate-50 px-2 py-1">
                       <div className="text-[10px] text-slate-500">工具</div>
-                      <div className="font-mono text-slate-900">{tasks.length}</div>
+                      <div className="font-mono text-slate-900">{toolPrepareTotal}</div>
                     </div>
                     <div className="rounded-md border border-slate-100 bg-slate-50 px-2 py-1">
                       <div className="text-[10px] text-slate-500">远端</div>
