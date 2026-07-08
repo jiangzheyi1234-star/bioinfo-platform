@@ -7,11 +7,15 @@ import { Activity, ArrowRight, Boxes, CheckCircle2, Clock3, Package, Plug, Serve
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
+import { useSshShell } from "./ssh-shell";
 import {
+  isRunnerManuallyStopped,
   isRunnerPreparing,
   isRunnerRepairRequired,
   resolveRemoteStatus,
   runnerEnsureActionLabel,
+  toForm,
+  type RunnerRepairStatus,
 } from "./ssh-shell-model";
 import { RunnerRepairPanel } from "./ssh-runner-repair-panel";
 import { useToolPrepareTasks } from "./tool-prepare-task-context";
@@ -23,6 +27,71 @@ function statusTone(status: ReturnType<typeof resolveRemoteStatus>) {
   if (status.label.includes("需要修复")) return "border-amber-200 bg-amber-50 text-amber-800";
   if (status.label.includes("连接中") || status.label.includes("SSH 已连接")) return "border-blue-200 bg-blue-50 text-blue-800";
   return "border-slate-200 bg-slate-50 text-slate-600";
+}
+
+type InstallStageState = "done" | "current" | "pending" | "blocked";
+
+type InstallStage = {
+  id: "connect" | "trust-host-key" | "install-runner" | "canary" | "ready";
+  label: string;
+  detail: string;
+  state: InstallStageState;
+};
+
+function remoteExecutorInstallStages(status: RunnerRepairStatus | null): InstallStage[] {
+  const connected = Boolean(status?.connected);
+  const runner = status?.runner;
+  const ready = Boolean(connected && runner?.ready);
+  const preparing = isRunnerPreparing(status);
+  const needsRepair = isRunnerRepairRequired(status);
+  const manuallyStopped = isRunnerManuallyStopped(status);
+  const installBlocked = needsRepair || manuallyStopped || runner?.state === "failed";
+
+  return [
+    {
+      id: "connect",
+      label: "连接 SSH",
+      detail: connected ? status?.displayTarget || status?.host || "SSH 已连接" : "从插件中心打开 SSH 连接对话框",
+      state: connected ? "done" : "current",
+    },
+    {
+      id: "trust-host-key",
+      label: "信任 SSH 主机密钥",
+      detail: connected ? "主机密钥已通过当前 known_hosts 校验" : "首次连接会要求确认 SHA256 fingerprint",
+      state: connected ? "done" : "pending",
+    },
+    {
+      id: "install-runner",
+      label: "安装或复用远端执行器",
+      detail: runner?.message || "使用 manifest artifact 安装、复用或修复 runner",
+      state: ready ? "done" : connected ? (installBlocked ? "blocked" : "current") : "pending",
+    },
+    {
+      id: "canary",
+      label: "运行 bootstrap canary",
+      detail: ready ? "上传、提交运行和结果预览已通过" : "安装后提交最小样例运行并验证产物",
+      state: ready ? "done" : preparing ? "current" : installBlocked ? "blocked" : "pending",
+    },
+    {
+      id: "ready",
+      label: "远端执行器就绪",
+      detail: ready ? "健康检查、认证隧道和执行能力已就绪" : runner?.reasonCode || "等待远端执行器完成安装验证",
+      state: ready ? "done" : installBlocked ? "blocked" : "pending",
+    },
+  ];
+}
+
+function stageIconTone(state: InstallStageState) {
+  switch (state) {
+    case "done":
+      return "text-emerald-600";
+    case "current":
+      return "text-blue-600";
+    case "blocked":
+      return "text-amber-600";
+    default:
+      return "text-slate-400";
+  }
 }
 
 function CardShell({
@@ -45,15 +114,22 @@ function CardShell({
 }
 
 export function PluginCenterPage() {
+  const sshShell = useSshShell();
   const runnerRepair = useWorkflowRunnerRepairState();
   const { activeTasks, tasks } = useToolPrepareTasks();
-  const status = runnerRepair.status;
+  const status = runnerRepair.status || sshShell.status;
   const remote = resolveRemoteStatus(status);
+  const installStages = remoteExecutorInstallStages(status);
   const serverId = status?.serverId || runnerRepair.server?.serverId || "";
   const runnerReady = Boolean(status?.connected && status.runner?.ready);
-  const runnerPreparing = isRunnerPreparing(status);
-  const runnerNeedsRepair = isRunnerRepairRequired(status);
   const canPrepareRunner = Boolean(status?.connected && serverId && !runnerReady);
+  const connecting = Boolean(sshShell.connectBusy || status?.connecting || status?.auto_connect_in_progress);
+
+  const openConnectDialog = () => {
+    sshShell.clearFormError();
+    sshShell.setForm(toForm(sshShell.status));
+    sshShell.setDialogOpen(true);
+  };
 
   return (
     <div className="relative h-full w-full overflow-y-auto bg-white px-4 py-6 text-slate-800 sm:px-6 sm:py-10 lg:px-8">
@@ -97,23 +173,46 @@ export function PluginCenterPage() {
               </div>
 
               <div className="space-y-2" data-testid="plugin-center-remote-executor-stage-list">
-                {remote.stages.map((stage) => (
-                  <div key={stage} className="flex items-center gap-2 text-sm text-slate-600">
-                    {runnerReady ? (
-                      <CheckCircle2 strokeWidth={1.5} className="h-4 w-4 text-emerald-600" />
-                    ) : runnerPreparing ? (
-                      <Activity strokeWidth={1.5} className="h-4 w-4 animate-pulse text-blue-600" />
-                    ) : runnerNeedsRepair ? (
-                      <Wrench strokeWidth={1.5} className="h-4 w-4 text-amber-600" />
+                {installStages.map((stage) => (
+                  <div
+                    key={stage.id}
+                    className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5 rounded-md border border-slate-100 bg-slate-50 px-2 py-2 text-sm text-slate-600"
+                    data-install-stage={stage.id}
+                    data-install-stage-state={stage.state}
+                  >
+                    {stage.state === "done" ? (
+                      <CheckCircle2 strokeWidth={1.5} className={cn("mt-0.5 h-4 w-4", stageIconTone(stage.state))} />
+                    ) : stage.state === "current" ? (
+                      <Activity
+                        strokeWidth={1.5}
+                        className={cn("mt-0.5 h-4 w-4 animate-pulse", stageIconTone(stage.state))}
+                      />
+                    ) : stage.state === "blocked" ? (
+                      <Wrench strokeWidth={1.5} className={cn("mt-0.5 h-4 w-4", stageIconTone(stage.state))} />
                     ) : (
-                      <Clock3 strokeWidth={1.5} className="h-4 w-4 text-slate-400" />
+                      <Clock3 strokeWidth={1.5} className={cn("mt-0.5 h-4 w-4", stageIconTone(stage.state))} />
                     )}
-                    <span>{stage}</span>
+                    <div className="min-w-0">
+                      <div className="font-medium text-slate-900">{stage.label}</div>
+                      <div className="mt-0.5 truncate text-xs text-slate-500">{stage.detail}</div>
+                    </div>
                   </div>
                 ))}
               </div>
 
               <div className="flex flex-wrap gap-2">
+                {!status?.connected ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={connecting}
+                    onClick={openConnectDialog}
+                    data-testid="plugin-center-connect-ssh"
+                  >
+                    <Plug strokeWidth={1.5} className="mr-2 h-4 w-4" />
+                    {connecting ? "连接中" : "连接 SSH"}
+                  </Button>
+                ) : null}
                 {canPrepareRunner ? (
                   <Button
                     type="button"
@@ -135,7 +234,7 @@ export function PluginCenterPage() {
               </div>
             </CardShell>
 
-            {status?.connected && (!status.runner || !status.runner.ready) ? (
+            {status?.connected ? (
               <RunnerRepairPanel
                 status={status}
                 ensureRunnerBusy={runnerRepair.runnerEnsureBusy}
