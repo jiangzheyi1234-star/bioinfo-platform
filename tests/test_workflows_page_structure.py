@@ -75,8 +75,11 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert '{ href: "/workflows/first-run", label: "首跑" }' in tabs
     assert '{ href: "/workflows/results", label: "运行记录" }' in tabs
     assert 'const firstRunActive = pathname === "/workflows/first-run" || pathname.startsWith("/workflows/first-run/")' in ssh_shell_ui
+    assert 'const pluginsActive = pathname === "/workflows/plugins" || pathname.startsWith("/workflows/plugins/")' in ssh_shell_ui
     assert '<Link href="/workflows/first-run" aria-current={firstRunActive ? "page" : undefined}>' in ssh_shell_ui
+    assert '<Link href="/workflows/plugins" aria-current={pluginsActive ? "page" : undefined}>' in ssh_shell_ui
     assert "首跑向导" in ssh_shell_ui
+    assert "插件" in ssh_shell_ui
     assert "流程和数据库" not in ssh_shell_ui
     assert "fetchRunsList" in tabs
     assert "fetchWorkflowResultsList" in tabs

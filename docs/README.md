@@ -12,6 +12,7 @@ This directory keeps current operating contracts, accepted architecture decision
 - `windows-agent-command-guide.md`: Windows command syntax, sandbox, proof, and cleanup guidance for Codex agents.
 - `managed-workflow-runtime-runbook.md`: remote runner and managed Snakemake runtime release path.
 - `reference-database-pack-lifecycle.md`: reference database pack catalog, manual installation, registration handoff, and evidence policy.
+- `remote-agent-deployment-strategy.md`: remote executor artifact, bootstrap, service, readiness, and rollback strategy.
 - `release-candidate-operating-loop.md`: product-level RC verification, evidence directory, and promotion rules.
 - `single-user-pilot-backup-restore.md`: private lab pilot backup/restore planning and restore acceptance.
 - `security-governance.md`: current threat model, CI security gate, secret handling, CORS/auth boundaries, and release security checklist.
@@ -20,7 +21,7 @@ This directory keeps current operating contracts, accepted architecture decision
 - `snakemake-tool-integration-spec.md`: tool contract progression into generated Snakemake workflows.
 - `codex-agent-fleet.md`: multi-agent coordination contract for this repository.
 - `adr/`: accepted architecture decisions.
-- `roadmaps/`: current roadmap summaries that reference accepted ADRs and implemented code, not old task plans.
+- `roadmaps/`: current roadmap summaries that reference accepted ADRs and implemented code, not old task plans. `roadmaps/plugin-extension-center-goal.md` defines the plugin center and remote executor installation goal.
 
 ## Lifecycle Rule
 
