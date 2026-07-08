@@ -18,12 +18,14 @@ import {
   toForm,
   type RunnerRepairStatus,
 } from "./ssh-shell-model";
-import { createRemoteProvisioningJob, fetchRemoteProvisioningJobQueue } from "./plugin-center-api";
+import { createRemoteProvisioningJob, fetchRemoteProvisioningJobQueue, fetchServerProfiles } from "./plugin-center-api";
 import {
   isActiveRemoteProvisioningJob,
   type RemoteProvisioningJob,
   type RemoteProvisioningJobAction,
   type RemoteProvisioningJobQueue,
+  type ServerProfile,
+  type ServerProfileList,
 } from "./plugin-center-model";
 import { RunnerRepairPanel } from "./ssh-runner-repair-panel";
 import { useToolPrepareTasks } from "./tool-prepare-task-context";
@@ -118,6 +120,16 @@ function remoteProvisioningJobLabel(job: RemoteProvisioningJob | null): string {
   return `${action} · ${job.status} · ${job.stage}`;
 }
 
+function hostKeyTrustLabel(profile: ServerProfile | null): string {
+  if (!profile?.configured) return "未配置";
+  return profile.hostKeyTrust.trusted ? "已信任" : "等待确认";
+}
+
+function runnerTokenLabel(profile: ServerProfile | null): string {
+  if (!profile?.configured) return "未配置";
+  return profile.runner.hasTokenRef ? "已绑定" : "未绑定";
+}
+
 function mergeRemoteProvisioningJob(
   queue: RemoteProvisioningJobQueue | null,
   job: RemoteProvisioningJob
@@ -170,12 +182,20 @@ export function PluginCenterPage() {
   const runnerRepair = useWorkflowRunnerRepairState();
   const { activeTasks, tasks } = useToolPrepareTasks();
   const [provisioningQueue, setProvisioningQueue] = useState<RemoteProvisioningJobQueue | null>(null);
+  const [serverProfiles, setServerProfiles] = useState<ServerProfileList | null>(null);
   const [provisioningBusy, setProvisioningBusy] = useState(false);
   const [provisioningError, setProvisioningError] = useState("");
   const refreshedTerminalJobKeyRef = useRef("");
   const status = runnerRepair.status || sshShell.status;
   const remote = resolveRemoteStatus(status);
   const serverId = status?.serverId || runnerRepair.server?.serverId || "";
+  const activeServerProfile = useMemo(
+    () =>
+      serverProfiles?.items.find((profile) => profile.serverId === serverId) ||
+      serverProfiles?.items.find((profile) => profile.profileId === serverProfiles.activeProfileId) ||
+      null,
+    [serverProfiles, serverId]
+  );
   const activeProvisioningJobs = useMemo(
     () => (provisioningQueue?.items || []).filter(isActiveRemoteProvisioningJob),
     [provisioningQueue?.items]
@@ -202,6 +222,9 @@ export function PluginCenterPage() {
   useEffect(() => {
     const controller = new AbortController();
     void refreshProvisioningJobs(controller.signal).catch(() => undefined);
+    void fetchServerProfiles(controller.signal)
+      .then(setServerProfiles)
+      .catch(() => undefined);
     return () => controller.abort();
   }, [refreshProvisioningJobs]);
 
@@ -286,6 +309,27 @@ export function PluginCenterPage() {
                 <div className="rounded-md border border-slate-100 bg-slate-50 px-3 py-2">
                   <div className="text-[11px] text-slate-500">本地隧道</div>
                   <div className="mt-1 font-mono text-xs text-slate-900">{status?.runner?.tunnelPort || "未记录"}</div>
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-3" data-testid="plugin-center-server-profile-summary">
+                <div className="rounded-md border border-slate-100 bg-slate-50 px-3 py-2">
+                  <div className="text-[11px] text-slate-500">配置档案</div>
+                  <div className="mt-1 truncate text-xs font-medium text-slate-900">
+                    {activeServerProfile?.displayName || "Default server"}
+                  </div>
+                </div>
+                <div className="rounded-md border border-slate-100 bg-slate-50 px-3 py-2">
+                  <div className="text-[11px] text-slate-500">主机密钥</div>
+                  <div className="mt-1 truncate text-xs font-medium text-slate-900">
+                    {hostKeyTrustLabel(activeServerProfile)}
+                  </div>
+                </div>
+                <div className="rounded-md border border-slate-100 bg-slate-50 px-3 py-2">
+                  <div className="text-[11px] text-slate-500">Runner token</div>
+                  <div className="mt-1 truncate text-xs font-medium text-slate-900">
+                    {runnerTokenLabel(activeServerProfile)}
+                  </div>
                 </div>
               </div>
 

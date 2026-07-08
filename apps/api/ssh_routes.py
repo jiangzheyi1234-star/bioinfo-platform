@@ -25,12 +25,14 @@ from apps.api.ssh_control_service import (
     disconnect_ssh_from_request,
     ensure_server_runner_from_request,
     get_remote_provisioning_job_from_request,
+    get_server_profile_from_request,
     get_server_from_request,
     get_server_execution_diagnostics_from_request,
     get_server_health_from_request,
     get_server_operator_diagnostics_from_request,
     get_ssh_status_from_request,
     list_remote_provisioning_job_queue_from_request,
+    list_server_profiles_from_request,
     list_server_listening_ports_from_request,
     list_servers_from_request,
     list_ssh_remote_files_from_request,
@@ -65,6 +67,16 @@ async def list_servers(refresh: bool = False) -> dict[str, Any]:
 @router.get("/api/v1/servers/{server_id}")
 async def get_server(server_id: str) -> dict[str, Any]:
     return await get_server_from_request(server_id)
+
+
+@router.get("/api/v1/server-profiles")
+async def list_server_profiles() -> dict[str, Any]:
+    return await list_server_profiles_from_request()
+
+
+@router.get("/api/v1/server-profiles/{profile_id}")
+async def get_server_profile(profile_id: str) -> dict[str, Any]:
+    return await get_server_profile_from_request(profile_id)
 
 
 @router.get("/api/v1/servers/{server_id}/health")

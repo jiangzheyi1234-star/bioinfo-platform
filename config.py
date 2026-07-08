@@ -88,6 +88,14 @@ def default_config() -> dict:
         "linux": {"conda_executable": ""},
         "databases": {"db_root": ""},
         "servers": {},
+        "server_profiles": {
+            "default": {
+                "profile_id": "default",
+                "display_name": "",
+                "source": "legacy-ssh-config",
+            }
+        },
+        "active_server_profile_id": "default",
     }
 
 

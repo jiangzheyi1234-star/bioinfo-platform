@@ -59,6 +59,20 @@ async def get_server_from_request(server_id: str) -> dict[str, Any]:
     )
 
 
+async def list_server_profiles_from_request() -> dict[str, Any]:
+    return await run_runtime_payload(
+        runtime_service().list_server_profiles,
+        wrapper="raw",
+    )
+
+
+async def get_server_profile_from_request(profile_id: str) -> dict[str, Any]:
+    return await run_runtime_payload(
+        lambda: runtime_service().get_server_profile(profile_id),
+        wrapper="raw",
+    )
+
+
 async def get_server_health_from_request(server_id: str) -> dict[str, Any]:
     return await run_runtime_payload(
         lambda: runtime_service().get_server_health(server_id),

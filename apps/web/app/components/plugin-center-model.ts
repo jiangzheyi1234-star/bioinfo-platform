@@ -55,6 +55,59 @@ export type RemoteProvisioningJobQueueResponse = {
   data: RemoteProvisioningJobQueue;
 };
 
+export type ServerProfile = {
+  schemaVersion: "server-profile.v1" | string;
+  profileId: string;
+  serverId: string;
+  displayName: string;
+  source: string;
+  isDefault: boolean;
+  configured: boolean;
+  connected: boolean;
+  connection: {
+    authMode: string;
+    sshHostAlias: string;
+    host: string;
+    port: number;
+    user: string;
+    identityRef: string;
+    rememberAuth: boolean;
+    autoConnectOnStartup: boolean;
+    hasPassword: boolean;
+    timeoutSec: number;
+  };
+  hostKeyTrust: {
+    trusted: boolean;
+    fingerprintSha256: string;
+    knownHostsPath: string;
+  };
+  runner: {
+    state: string;
+    ready: boolean;
+    message: string;
+    reasonCode: string;
+    installedVersion: string;
+    runnerMode: string;
+    deploymentAction: string;
+    servicePort?: number;
+    tunnelPort?: number;
+    tokenRef: string;
+    hasTokenRef: boolean;
+    health?: Record<string, unknown> | null;
+  };
+};
+
+export type ServerProfileList = {
+  items: ServerProfile[];
+  total: number;
+  defaultProfileId: string;
+  activeProfileId: string;
+};
+
+export type ServerProfileListResponse = {
+  data: ServerProfileList;
+};
+
 export function isActiveRemoteProvisioningJob(job: RemoteProvisioningJob): boolean {
   return REMOTE_PROVISIONING_ACTIVE_STATUSES.includes(job.status as (typeof REMOTE_PROVISIONING_ACTIVE_STATUSES)[number]);
 }

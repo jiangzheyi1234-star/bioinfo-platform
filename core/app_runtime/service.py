@@ -38,6 +38,7 @@ from core.app_runtime.runner_stop_state import (
 )
 from core.app_runtime.runner_ops import RunnerOperationsMixin
 from core.app_runtime.remote_provisioning_jobs import RemoteProvisioningOperationsMixin
+from core.app_runtime.server_profiles import ServerProfileOperationsMixin
 from core.app_runtime.server_state import RuntimeServerStateMixin
 from core.app_runtime.ssh_connection import RuntimeSshConnectionMixin
 from core.app_runtime.terminal_sessions import RuntimeTerminalSessionMixin
@@ -75,6 +76,7 @@ class RuntimeService(
     RuntimeServerStateMixin,
     RunnerOperationsMixin,
     RemoteProvisioningOperationsMixin,
+    ServerProfileOperationsMixin,
     RuntimeSshConnectionMixin,
     RuntimeTerminalSessionMixin,
 ):
@@ -538,6 +540,14 @@ class RuntimeService(
             state["host_key_trusted"] = True
             state["host_key_fingerprint_sha256"] = trusted.fingerprint_sha256
             state["known_hosts_path"] = trusted.known_hosts_path
+            self._save_server_registry_entry(
+                server_id,
+                {
+                    "host_key_trusted": True,
+                    "host_key_fingerprint_sha256": trusted.fingerprint_sha256,
+                    "known_hosts_path": trusted.known_hosts_path,
+                },
+            )
             return {
                 "data": {
                     "serverId": server_id,

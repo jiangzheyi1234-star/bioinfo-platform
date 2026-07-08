@@ -100,3 +100,22 @@ def test_plugin_center_phase_three_uses_local_remote_provisioning_jobs() -> None
     assert "REMOTE_PROVISIONING_CONFIG_KEY" in runtime_source
     assert "threading.Thread" in runtime_source
     assert "RemoteProvisioningOperationsMixin" in service_source
+
+
+def test_plugin_center_phase_four_surfaces_server_profiles() -> None:
+    page_source = (COMPONENTS / "plugin-center-page.tsx").read_text(encoding="utf-8")
+    api_source = (COMPONENTS / "plugin-center-api.ts").read_text(encoding="utf-8")
+    model_source = (COMPONENTS / "plugin-center-model.ts").read_text(encoding="utf-8")
+    route_source = (API / "ssh_routes.py").read_text(encoding="utf-8")
+    runtime_source = (CORE_RUNTIME / "server_profiles.py").read_text(encoding="utf-8")
+    service_source = (CORE_RUNTIME / "service.py").read_text(encoding="utf-8")
+
+    assert "fetchServerProfiles" in page_source
+    assert "activeServerProfile" in page_source
+    assert 'data-testid="plugin-center-server-profile-summary"' in page_source
+    assert "/api/v1/server-profiles" in api_source
+    assert "type ServerProfile" in model_source
+    assert '"/api/v1/server-profiles"' in route_source
+    assert "SERVER_PROFILES_CONFIG_KEY" in runtime_source
+    assert "DEFAULT_SERVER_PROFILE_ID" in runtime_source
+    assert "ServerProfileOperationsMixin" in service_source

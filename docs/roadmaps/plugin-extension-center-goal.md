@@ -1,6 +1,6 @@
 # Plugin And Remote Executor Goal
 
-Status: Phased implementation; Phase 1-3 landed, Phase 4+ pending
+Status: Phased implementation; Phase 1-3 landed, Phase 4 baseline landed, broad multi-profile UX pending
 
 Last reviewed: 2026-07-08
 
@@ -171,6 +171,12 @@ Acceptance evidence:
 - Migrate current single SSH config into a default profile path without silently changing semantics.
 - Bind runner registry state to profile identity.
 - Prepare the UI for multiple profiles without requiring full multi-server switching in the first slice.
+
+Baseline landed:
+
+- The local API exposes a default server profile read model derived from the current SSH config plus server registry.
+- The plugin center shows the active profile, host-key trust, and runner token binding summary.
+- Host-key trust acceptance persists fingerprint and known-hosts metadata into the server registry for later profile reads.
 
 Acceptance evidence:
 

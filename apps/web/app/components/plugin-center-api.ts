@@ -8,6 +8,8 @@ import type {
   RemoteProvisioningJobQueue,
   RemoteProvisioningJobQueueResponse,
   RemoteProvisioningJobResponse,
+  ServerProfileList,
+  ServerProfileListResponse,
 } from "./plugin-center-model";
 
 export async function createRemoteProvisioningJob(
@@ -63,6 +65,15 @@ export async function cancelRemoteProvisioningJob(jobId: string): Promise<Remote
     "POST",
     `/api/v1/remote-provisioning/jobs/${encodeURIComponent(jobId)}/cancel`,
     { body: {} }
+  );
+  return response.data;
+}
+
+export async function fetchServerProfiles(signal?: AbortSignal): Promise<ServerProfileList> {
+  const response = await requestLocalApiJson<ServerProfileListResponse>(
+    "GET",
+    "/api/v1/server-profiles",
+    { cache: "no-store", signal }
   );
   return response.data;
 }
