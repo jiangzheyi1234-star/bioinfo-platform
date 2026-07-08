@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Query, WebSocket
 
 from apps.api.models import (
+    RemoteProvisioningJobCreateRequest,
     RunnerReleasePruneRunRequest,
     RunnerUninstallRunRequest,
     SSHConnectionRequest,
@@ -16,16 +17,20 @@ from apps.api.models import (
 )
 from apps.api.ssh_control_service import (
     accept_server_host_key_from_request,
+    cancel_remote_provisioning_job_from_request,
     close_terminal_session_from_request,
     connect_ssh_from_request,
+    create_remote_provisioning_job_from_request,
     create_terminal_session_from_request,
     disconnect_ssh_from_request,
     ensure_server_runner_from_request,
+    get_remote_provisioning_job_from_request,
     get_server_from_request,
     get_server_execution_diagnostics_from_request,
     get_server_health_from_request,
     get_server_operator_diagnostics_from_request,
     get_ssh_status_from_request,
+    list_remote_provisioning_job_queue_from_request,
     list_server_listening_ports_from_request,
     list_servers_from_request,
     list_ssh_remote_files_from_request,
@@ -113,6 +118,37 @@ async def start_server_runner(server_id: str) -> dict[str, Any]:
 @router.post("/api/v1/servers/{server_id}/runner/stop")
 async def stop_server_runner(server_id: str) -> dict[str, Any]:
     return await stop_server_runner_from_request(server_id)
+
+
+@router.post("/api/v1/servers/{server_id}/remote-provisioning/jobs")
+async def create_remote_provisioning_job(
+    server_id: str,
+    payload: RemoteProvisioningJobCreateRequest | None = None,
+) -> dict[str, Any]:
+    return await create_remote_provisioning_job_from_request(server_id, payload)
+
+
+@router.get("/api/v1/remote-provisioning/jobs")
+async def list_remote_provisioning_jobs(
+    status: str = "",
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+) -> dict[str, Any]:
+    return await list_remote_provisioning_job_queue_from_request(
+        status=status,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/api/v1/remote-provisioning/jobs/{job_id}")
+async def get_remote_provisioning_job(job_id: str) -> dict[str, Any]:
+    return await get_remote_provisioning_job_from_request(job_id)
+
+
+@router.post("/api/v1/remote-provisioning/jobs/{job_id}/cancel")
+async def cancel_remote_provisioning_job(job_id: str) -> dict[str, Any]:
+    return await cancel_remote_provisioning_job_from_request(job_id)
 
 
 @router.post("/api/v1/servers/{server_id}/runner/releases/prune/preview")

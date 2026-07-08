@@ -37,6 +37,7 @@ from core.app_runtime.runner_stop_state import (
     requires_explicit_runner_start,
 )
 from core.app_runtime.runner_ops import RunnerOperationsMixin
+from core.app_runtime.remote_provisioning_jobs import RemoteProvisioningOperationsMixin
 from core.app_runtime.server_state import RuntimeServerStateMixin
 from core.app_runtime.ssh_connection import RuntimeSshConnectionMixin
 from core.app_runtime.terminal_sessions import RuntimeTerminalSessionMixin
@@ -73,6 +74,7 @@ class ServiceLocator:
 class RuntimeService(
     RuntimeServerStateMixin,
     RunnerOperationsMixin,
+    RemoteProvisioningOperationsMixin,
     RuntimeSshConnectionMixin,
     RuntimeTerminalSessionMixin,
 ):
@@ -93,6 +95,7 @@ class RuntimeService(
         self._auto_connect_error = ""
         self._auto_connect_notice_key = ""
         self._server_action_state: dict[str, dict[str, Any]] = {}
+        self._remote_provisioning_threads: dict[str, threading.Thread] = {}
         self.databases = DatabaseManager(self)
         self.execution = ExecutionManager(self)
         self.files = FileManager(self)

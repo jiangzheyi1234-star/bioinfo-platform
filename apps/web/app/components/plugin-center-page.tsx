@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Activity, ArrowRight, Boxes, CheckCircle2, Clock3, Package, Plug, Server, Wrench } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -12,11 +12,19 @@ import {
   isRunnerManuallyStopped,
   isRunnerPreparing,
   isRunnerRepairRequired,
+  normalizeFetchError,
   resolveRemoteStatus,
   runnerEnsureActionLabel,
   toForm,
   type RunnerRepairStatus,
 } from "./ssh-shell-model";
+import { createRemoteProvisioningJob, fetchRemoteProvisioningJobQueue } from "./plugin-center-api";
+import {
+  isActiveRemoteProvisioningJob,
+  type RemoteProvisioningJob,
+  type RemoteProvisioningJobAction,
+  type RemoteProvisioningJobQueue,
+} from "./plugin-center-model";
 import { RunnerRepairPanel } from "./ssh-runner-repair-panel";
 import { useToolPrepareTasks } from "./tool-prepare-task-context";
 import { useWorkflowRunnerRepairState } from "./workflow-runner-repair-state";
@@ -38,11 +46,15 @@ type InstallStage = {
   state: InstallStageState;
 };
 
-function remoteExecutorInstallStages(status: RunnerRepairStatus | null): InstallStage[] {
+function remoteExecutorInstallStages(
+  status: RunnerRepairStatus | null,
+  activeProvisioningJob: RemoteProvisioningJob | null
+): InstallStage[] {
   const connected = Boolean(status?.connected);
   const runner = status?.runner;
   const ready = Boolean(connected && runner?.ready);
   const preparing = isRunnerPreparing(status);
+  const provisioningActive = Boolean(activeProvisioningJob);
   const needsRepair = isRunnerRepairRequired(status);
   const manuallyStopped = isRunnerManuallyStopped(status);
   const installBlocked = needsRepair || manuallyStopped || runner?.state === "failed";
@@ -63,14 +75,14 @@ function remoteExecutorInstallStages(status: RunnerRepairStatus | null): Install
     {
       id: "install-runner",
       label: "安装或复用远端执行器",
-      detail: runner?.message || "使用 manifest artifact 安装、复用或修复 runner",
-      state: ready ? "done" : connected ? (installBlocked ? "blocked" : "current") : "pending",
+      detail: activeProvisioningJob?.message || runner?.message || "使用 manifest artifact 安装、复用或修复 runner",
+      state: ready ? "done" : provisioningActive ? "current" : connected ? (installBlocked ? "blocked" : "current") : "pending",
     },
     {
       id: "canary",
       label: "运行 bootstrap canary",
       detail: ready ? "上传、提交运行和结果预览已通过" : "安装后提交最小样例运行并验证产物",
-      state: ready ? "done" : preparing ? "current" : installBlocked ? "blocked" : "pending",
+      state: ready ? "done" : preparing || provisioningActive ? "current" : installBlocked ? "blocked" : "pending",
     },
     {
       id: "ready",
@@ -92,6 +104,46 @@ function stageIconTone(state: InstallStageState) {
     default:
       return "text-slate-400";
   }
+}
+
+const REMOTE_PROVISIONING_POLL_MS = 1500;
+
+function remoteProvisioningAction(status: RunnerRepairStatus | null): RemoteProvisioningJobAction {
+  return isRunnerManuallyStopped(status) ? "start-runner" : "ensure-runner";
+}
+
+function remoteProvisioningJobLabel(job: RemoteProvisioningJob | null): string {
+  if (!job) return "暂无远端执行器安装任务";
+  const action = job.action === "start-runner" ? "启动" : job.action === "upgrade-runner" ? "升级" : "安装";
+  return `${action} · ${job.status} · ${job.stage}`;
+}
+
+function mergeRemoteProvisioningJob(
+  queue: RemoteProvisioningJobQueue | null,
+  job: RemoteProvisioningJob
+): RemoteProvisioningJobQueue {
+  const items = [job, ...(queue?.items || []).filter((item) => item.jobId !== job.jobId)];
+  const activeCount = items.filter(isActiveRemoteProvisioningJob).length;
+  return {
+    items,
+    total: Math.max(queue?.total || 0, items.length),
+    limit: queue?.limit || 8,
+    offset: queue?.offset || 0,
+    status: queue?.status || "",
+    statusCounts: statusCountsFromRemoteProvisioningItems(items),
+    activeCount,
+    queuedCount: items.filter((item) => item.status === "queued").length,
+    runningCount: items.filter((item) => item.status === "running").length,
+    activeStatuses: queue?.activeStatuses || ["queued", "running"],
+    terminalStatuses: queue?.terminalStatuses || ["succeeded", "failed", "cancelled"],
+  };
+}
+
+function statusCountsFromRemoteProvisioningItems(items: RemoteProvisioningJob[]): Record<string, number> {
+  return items.reduce<Record<string, number>>((counts, item) => {
+    counts[item.status] = (counts[item.status] || 0) + 1;
+    return counts;
+  }, {});
 }
 
 function CardShell({
@@ -117,18 +169,83 @@ export function PluginCenterPage() {
   const sshShell = useSshShell();
   const runnerRepair = useWorkflowRunnerRepairState();
   const { activeTasks, tasks } = useToolPrepareTasks();
+  const [provisioningQueue, setProvisioningQueue] = useState<RemoteProvisioningJobQueue | null>(null);
+  const [provisioningBusy, setProvisioningBusy] = useState(false);
+  const [provisioningError, setProvisioningError] = useState("");
+  const refreshedTerminalJobKeyRef = useRef("");
   const status = runnerRepair.status || sshShell.status;
   const remote = resolveRemoteStatus(status);
-  const installStages = remoteExecutorInstallStages(status);
   const serverId = status?.serverId || runnerRepair.server?.serverId || "";
+  const activeProvisioningJobs = useMemo(
+    () => (provisioningQueue?.items || []).filter(isActiveRemoteProvisioningJob),
+    [provisioningQueue?.items]
+  );
+  const activeRunnerProvisioningJob = useMemo(
+    () => activeProvisioningJobs.find((job) => job.serverId === serverId) || null,
+    [activeProvisioningJobs, serverId]
+  );
+  const latestProvisioningJob = provisioningQueue?.items?.[0] || null;
+  const latestRunnerProvisioningJob =
+    provisioningQueue?.items.find((job) => job.serverId === serverId) || latestProvisioningJob;
+  const installStages = remoteExecutorInstallStages(status, activeRunnerProvisioningJob);
   const runnerReady = Boolean(status?.connected && status.runner?.ready);
   const canPrepareRunner = Boolean(status?.connected && serverId && !runnerReady);
   const connecting = Boolean(sshShell.connectBusy || status?.connecting || status?.auto_connect_in_progress);
+  const activeInstallationTaskCount = activeTasks.length + activeProvisioningJobs.length;
+
+  const refreshProvisioningJobs = useCallback(async (signal?: AbortSignal) => {
+    const queue = await fetchRemoteProvisioningJobQueue({ limit: 8, signal });
+    setProvisioningQueue(queue);
+    return queue;
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void refreshProvisioningJobs(controller.signal).catch(() => undefined);
+    return () => controller.abort();
+  }, [refreshProvisioningJobs]);
+
+  useEffect(() => {
+    if (activeProvisioningJobs.length === 0) return;
+    const timer = window.setInterval(() => {
+      void refreshProvisioningJobs().catch(() => undefined);
+    }, REMOTE_PROVISIONING_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [activeProvisioningJobs.length, refreshProvisioningJobs]);
+
+  useEffect(() => {
+    if (!latestRunnerProvisioningJob || isActiveRemoteProvisioningJob(latestRunnerProvisioningJob)) {
+      return;
+    }
+    const key = `${latestRunnerProvisioningJob.jobId}:${latestRunnerProvisioningJob.status}:${latestRunnerProvisioningJob.updatedAt}`;
+    if (key === refreshedTerminalJobKeyRef.current) {
+      return;
+    }
+    refreshedTerminalJobKeyRef.current = key;
+    void runnerRepair.refreshWorkflowServer().catch(() => undefined);
+  }, [latestRunnerProvisioningJob, runnerRepair]);
 
   const openConnectDialog = () => {
     sshShell.clearFormError();
     sshShell.setForm(toForm(sshShell.status));
     sshShell.setDialogOpen(true);
+  };
+
+  const startRemoteExecutorProvisioning = async () => {
+    if (!serverId || provisioningBusy || activeRunnerProvisioningJob) {
+      return;
+    }
+    setProvisioningBusy(true);
+    setProvisioningError("");
+    try {
+      const job = await createRemoteProvisioningJob(serverId, remoteProvisioningAction(status));
+      setProvisioningQueue((current) => mergeRemoteProvisioningJob(current, job));
+      await refreshProvisioningJobs();
+    } catch (error) {
+      setProvisioningError(normalizeFetchError(error));
+    } finally {
+      setProvisioningBusy(false);
+    }
   };
 
   return (
@@ -217,12 +334,14 @@ export function PluginCenterPage() {
                   <Button
                     type="button"
                     size="sm"
-                    disabled={runnerRepair.runnerEnsureBusy}
-                    onClick={() => void runnerRepair.ensureRunner()}
+                    disabled={runnerRepair.runnerEnsureBusy || provisioningBusy || Boolean(activeRunnerProvisioningJob)}
+                    onClick={() => void startRemoteExecutorProvisioning()}
                     data-testid="plugin-center-remote-executor-prepare"
                   >
                     <Wrench strokeWidth={1.5} className="mr-2 h-4 w-4" />
-                    {runnerEnsureActionLabel(status, runnerRepair.runnerEnsureBusy)}
+                    {activeRunnerProvisioningJob
+                      ? "安装任务运行中"
+                      : runnerEnsureActionLabel(status, runnerRepair.runnerEnsureBusy || provisioningBusy)}
                   </Button>
                 ) : null}
                 <Button asChild variant="outline" size="sm" data-testid="plugin-center-tools-link">
@@ -272,7 +391,7 @@ export function PluginCenterPage() {
                   <h2 className="text-sm font-semibold text-slate-950">运行环境组件</h2>
                   <p className="mt-1 text-xs text-slate-500">托管 Snakemake runtime、wrapper 缓存和数据库运行层会逐步汇入这里。</p>
                   <div className="mt-3 rounded-md border border-slate-100 bg-slate-50 px-2 py-1 text-[11px] text-slate-500">
-                    下一阶段接入 provisioning job 后展示安装事件。
+                    远端执行器 provisioning job 已接入本地控制面。
                   </div>
                 </div>
               </div>
@@ -283,17 +402,38 @@ export function PluginCenterPage() {
                 <Plug strokeWidth={1.5} className="mt-0.5 h-4 w-4 text-slate-500" />
                 <div className="min-w-0 flex-1">
                   <h2 className="text-sm font-semibold text-slate-950">安装任务</h2>
-                  <p className="mt-1 text-xs text-slate-500">工具验证任务已接入；远端执行器 provisioning job 是下一阶段。</p>
-                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                  <p className="mt-1 text-xs text-slate-500">工具验证任务和远端执行器 provisioning jobs 统一在这里跟踪。</p>
+                  <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
                     <div className="rounded-md border border-slate-100 bg-slate-50 px-2 py-1">
                       <div className="text-[10px] text-slate-500">活跃</div>
-                      <div className="font-mono text-slate-900">{activeTasks.length}</div>
+                      <div className="font-mono text-slate-900">{activeInstallationTaskCount}</div>
                     </div>
                     <div className="rounded-md border border-slate-100 bg-slate-50 px-2 py-1">
-                      <div className="text-[10px] text-slate-500">最近</div>
+                      <div className="text-[10px] text-slate-500">工具</div>
                       <div className="font-mono text-slate-900">{tasks.length}</div>
                     </div>
+                    <div className="rounded-md border border-slate-100 bg-slate-50 px-2 py-1">
+                      <div className="text-[10px] text-slate-500">远端</div>
+                      <div className="font-mono text-slate-900">{provisioningQueue?.total || 0}</div>
+                    </div>
                   </div>
+                  <div
+                    className="mt-3 rounded-md border border-slate-100 bg-slate-50 px-2 py-2 text-xs text-slate-600"
+                    data-testid="plugin-center-remote-provisioning-latest"
+                  >
+                    <div className="font-medium text-slate-900">{remoteProvisioningJobLabel(latestProvisioningJob)}</div>
+                    <div className="mt-1 truncate text-[11px] text-slate-500">
+                      {latestProvisioningJob?.message || "连接 SSH 后可从远端执行器卡片提交安装任务。"}
+                    </div>
+                  </div>
+                  {provisioningError ? (
+                    <div
+                      className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-800"
+                      data-testid="plugin-center-remote-provisioning-error"
+                    >
+                      {provisioningError}
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </CardShell>

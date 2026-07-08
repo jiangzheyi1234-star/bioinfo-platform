@@ -4,7 +4,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+API = ROOT / "apps" / "api"
 COMPONENTS = ROOT / "apps" / "web" / "app" / "components"
+CORE_RUNTIME = ROOT / "core" / "app_runtime"
 PLUGIN_ROUTE = ROOT / "apps" / "web" / "app" / "workflows" / "plugins" / "page.tsx"
 ROADMAP = ROOT / "docs" / "roadmaps" / "plugin-extension-center-goal.md"
 
@@ -69,3 +71,32 @@ def test_plugin_center_remote_executor_flow_uses_existing_trust_and_repair_paths
     assert "/api/v1/ssh/host-key/scan" in connection_source
     assert "/host-key/accept" in connection_source
     assert 'confirmation: "trust-ssh-host-key"' in connection_source
+
+
+def test_plugin_center_phase_three_uses_local_remote_provisioning_jobs() -> None:
+    page_source = (COMPONENTS / "plugin-center-page.tsx").read_text(encoding="utf-8")
+    api_source = (COMPONENTS / "plugin-center-api.ts").read_text(encoding="utf-8")
+    model_source = (COMPONENTS / "plugin-center-model.ts").read_text(encoding="utf-8")
+    route_source = (API / "ssh_routes.py").read_text(encoding="utf-8")
+    control_source = (API / "ssh_control_service.py").read_text(encoding="utf-8")
+    runtime_source = (CORE_RUNTIME / "remote_provisioning_jobs.py").read_text(encoding="utf-8")
+    service_source = (CORE_RUNTIME / "service.py").read_text(encoding="utf-8")
+
+    assert "createRemoteProvisioningJob" in page_source
+    assert "fetchRemoteProvisioningJobQueue" in page_source
+    assert "activeRunnerProvisioningJob" in page_source
+    assert 'data-testid="plugin-center-remote-provisioning-latest"' in page_source
+    assert "远端执行器 provisioning job 已接入本地控制面" in page_source
+    assert "/api/v1/servers/${encodeURIComponent(serverId)}/remote-provisioning/jobs" in api_source
+    assert "/api/v1/remote-provisioning/jobs?" in api_source
+    assert "REMOTE_PROVISIONING_ACTIVE_STATUSES" in model_source
+    assert "RemoteProvisioningJobQueue" in model_source
+    assert '"/api/v1/servers/{server_id}/remote-provisioning/jobs"' in route_source
+    assert '"/api/v1/remote-provisioning/jobs"' in route_source
+    assert '"/api/v1/remote-provisioning/jobs/{job_id}/cancel"' in route_source
+    assert "create_remote_provisioning_job_from_request" in control_source
+    assert "list_remote_provisioning_job_queue_from_request" in control_source
+    assert "class RemoteProvisioningOperationsMixin" in runtime_source
+    assert "REMOTE_PROVISIONING_CONFIG_KEY" in runtime_source
+    assert "threading.Thread" in runtime_source
+    assert "RemoteProvisioningOperationsMixin" in service_source

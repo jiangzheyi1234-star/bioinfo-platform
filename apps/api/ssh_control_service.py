@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from apps.api.models import (
+    RemoteProvisioningJobCreateRequest,
     RunnerReleasePruneRunRequest,
     RunnerUninstallRunRequest,
     SSHConnectionRequest,
@@ -179,6 +180,51 @@ async def stop_server_runner_from_request(server_id: str) -> dict[str, Any]:
         )
     finally:
         await _invalidate_ssh_state_cache()
+
+
+async def create_remote_provisioning_job_from_request(
+    server_id: str,
+    request: RemoteProvisioningJobCreateRequest | None,
+) -> dict[str, Any]:
+    payload = request_payload(request) if request is not None else {}
+    result = await run_runtime_payload(
+        lambda: runtime_service().create_remote_provisioning_job(server_id, payload),
+        wrapper="raw",
+    )
+    await _invalidate_ssh_state_cache()
+    return result
+
+
+async def list_remote_provisioning_job_queue_from_request(
+    *,
+    status: str = "",
+    limit: int = 20,
+    offset: int = 0,
+) -> dict[str, Any]:
+    return await run_runtime_payload(
+        lambda: runtime_service().list_remote_provisioning_job_queue(
+            status=status,
+            limit=limit,
+            offset=offset,
+        ),
+        wrapper="raw",
+    )
+
+
+async def get_remote_provisioning_job_from_request(job_id: str) -> dict[str, Any]:
+    return await run_runtime_payload(
+        lambda: runtime_service().get_remote_provisioning_job(job_id),
+        wrapper="raw",
+    )
+
+
+async def cancel_remote_provisioning_job_from_request(job_id: str) -> dict[str, Any]:
+    result = await run_runtime_payload(
+        lambda: runtime_service().cancel_remote_provisioning_job(job_id),
+        wrapper="raw",
+    )
+    await _invalidate_ssh_state_cache()
+    return result
 
 
 async def scan_ssh_host_key_from_request(request: SSHHostKeyScanRequest | None) -> dict[str, Any]:

@@ -1,6 +1,6 @@
 # Plugin And Remote Executor Goal
 
-Status: Draft goal
+Status: Phased implementation; Phase 1-3 landed, Phase 4+ pending
 
 Last reviewed: 2026-07-08
 

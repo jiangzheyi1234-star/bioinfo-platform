@@ -60,6 +60,10 @@ class RunnerUninstallRunRequest(ApiRequest):
     planHash: str = Field(min_length=64, max_length=64)
 
 
+class RemoteProvisioningJobCreateRequest(ApiRequest):
+    action: Literal["ensure-runner", "start-runner", "upgrade-runner"] = "ensure-runner"
+
+
 class TerminalInputMessage(ApiRequest):
     type: Literal["input"]
     data: str = Field(min_length=1)
