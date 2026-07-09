@@ -3,10 +3,12 @@
 import { requestLocalApiJson } from "@/app/lib/local-api-client";
 
 import type {
+  PluginCenterExtensionActionRequest,
+  PluginCenterExtensionActionResponse,
+  PluginCenterExtensionActionResult,
   PluginCenterExtensionList,
   PluginCenterExtensionListResponse,
   RemoteProvisioningJob,
-  RemoteProvisioningJobAction,
   RemoteProvisioningJobQueue,
   RemoteProvisioningJobQueueResponse,
   RemoteProvisioningJobResponse,
@@ -23,16 +25,16 @@ export async function fetchPluginCenterExtensions(signal?: AbortSignal): Promise
   return response.data;
 }
 
-export async function createRemoteProvisioningJob(
-  serverId: string,
-  action: RemoteProvisioningJobAction
-): Promise<RemoteProvisioningJob> {
-  const response = await requestLocalApiJson<RemoteProvisioningJobResponse>(
+export async function executePluginCenterExtensionAction(
+  extensionId: string,
+  request: PluginCenterExtensionActionRequest
+): Promise<PluginCenterExtensionActionResult> {
+  const response = await requestLocalApiJson<PluginCenterExtensionActionResponse>(
     "POST",
-    `/api/v1/servers/${encodeURIComponent(serverId)}/remote-provisioning/jobs`,
+    `/api/v1/plugin-center/extensions/${encodeURIComponent(extensionId)}/actions`,
     {
-      body: { action },
-      timeoutMs: 10_000,
+      body: request,
+      timeoutMs: request.action === "uninstall" && request.mode === "run" ? 180_000 : 10_000,
     }
   );
   return response.data;

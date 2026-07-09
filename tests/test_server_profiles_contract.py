@@ -126,6 +126,7 @@ def test_server_profile_api_and_plugin_center_surface_contracts() -> None:
     api_source = (ROOT / "apps" / "web" / "app" / "components" / "plugin-center-api.ts").read_text(
         encoding="utf-8"
     )
+    runtime_source = (ROOT / "core" / "app_runtime" / "managed_extensions.py").read_text(encoding="utf-8")
 
     assert '"/api/v1/server-profiles"' in route_source
     assert '"/api/v1/server-profiles/{profile_id}"' in route_source
@@ -134,5 +135,8 @@ def test_server_profile_api_and_plugin_center_surface_contracts() -> None:
     assert '"/api/v1/server-profiles"' in api_source
     assert "fetchServerProfiles" in page_source
     assert "activeServerProfile" in page_source
-    assert "activeServerProfile?.runner.installedVersion" in view_model_source
-    assert "profile?.runner.health" in view_model_source
+    assert "managedExtensionList?.items || []" in page_source
+    assert "activeServerProfile?.runner.installedVersion" not in view_model_source
+    assert "profile?.runner.health" not in view_model_source
+    assert "runner.installedVersion" in runtime_source
+    assert "_workflow_runtime_projection" in runtime_source

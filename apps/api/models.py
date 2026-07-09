@@ -64,6 +64,14 @@ class RemoteProvisioningJobCreateRequest(ApiRequest):
     action: Literal["ensure-runner", "start-runner", "upgrade-runner", "repair-runner"] = "ensure-runner"
 
 
+class ManagedExtensionActionRequest(ApiRequest):
+    action: str = Field(min_length=1)
+    serverId: str | None = Field(default=None, min_length=1)
+    mode: Literal["run", "preview"] = "run"
+    confirmation: str | None = None
+    planHash: str | None = Field(default=None, min_length=64, max_length=64)
+
+
 class TerminalInputMessage(ApiRequest):
     type: Literal["input"]
     data: str = Field(min_length=1)

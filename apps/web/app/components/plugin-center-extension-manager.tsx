@@ -8,19 +8,23 @@ import {
   Clock3,
   Database,
   Layers3,
+  MoreHorizontal,
   Package,
   Plug,
+  RefreshCw,
   Search,
   Server,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
+  Trash2,
   Wrench,
   XCircle,
   type LucideIcon,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
@@ -38,11 +42,15 @@ type PluginCenterExtensionManagerProps = {
   viewMode: PluginCenterViewMode;
   query: string;
   sourceFilter: string;
+  busyActionKey?: string;
+  children?: ReactNode;
+  loadError?: string;
   remoteDetail?: ReactNode;
   onViewModeChange: (mode: PluginCenterViewMode) => void;
   onQueryChange: (query: string) => void;
   onSourceFilterChange: (sourceId: string) => void;
   onPrimaryAction: (item: PluginCenterExtensionItem) => void;
+  onExtensionAction: (item: PluginCenterExtensionItem, action: string) => void;
 };
 
 const ICONS: Record<string, LucideIcon> = {
@@ -57,7 +65,11 @@ const ICONS: Record<string, LucideIcon> = {
 };
 
 export function PluginCenterExtensionManager({
+  busyActionKey = "",
+  children,
   items,
+  loadError = "",
+  onExtensionAction,
   onPrimaryAction,
   onQueryChange,
   onSourceFilterChange,
@@ -123,6 +135,12 @@ export function PluginCenterExtensionManager({
 
         <InstalledExtensionStrip items={installedItems} onSelect={(item) => onQueryChange(item.name)} />
 
+        {loadError ? (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            插件 registry 加载失败：{loadError}
+          </div>
+        ) : null}
+
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap gap-2" data-testid="plugin-center-source-tabs">
             {sourceOptions.map((source) => (
@@ -153,6 +171,8 @@ export function PluginCenterExtensionManager({
                 key={category.id}
                 items={categoryItems}
                 title={category.label}
+                busyActionKey={busyActionKey}
+                onExtensionAction={onExtensionAction}
                 onPrimaryAction={onPrimaryAction}
               />
             );
@@ -166,6 +186,7 @@ export function PluginCenterExtensionManager({
 
         <ExtensionJobQueuePanel activeCount={activeTasks.length} tasks={tasks} />
         {remoteDetail ? <section id="remote-runner-detail">{remoteDetail}</section> : null}
+        {children}
       </div>
     </div>
   );
@@ -229,11 +250,15 @@ function InstalledExtensionStrip({
 }
 
 function ExtensionCategorySection({
+  busyActionKey,
   items,
+  onExtensionAction,
   onPrimaryAction,
   title,
 }: {
+  busyActionKey: string;
   items: PluginCenterExtensionItem[];
+  onExtensionAction: (item: PluginCenterExtensionItem, action: string) => void;
   onPrimaryAction: (item: PluginCenterExtensionItem) => void;
   title: string;
 }) {
@@ -244,7 +269,13 @@ function ExtensionCategorySection({
       </div>
       <div className="grid gap-3 md:grid-cols-2">
         {items.map((item) => (
-          <ExtensionCard key={`${title}-${item.id}`} item={item} onPrimaryAction={onPrimaryAction} />
+          <ExtensionCard
+            key={`${title}-${item.id}`}
+            busyActionKey={busyActionKey}
+            item={item}
+            onExtensionAction={onExtensionAction}
+            onPrimaryAction={onPrimaryAction}
+          />
         ))}
       </div>
     </section>
@@ -252,14 +283,20 @@ function ExtensionCategorySection({
 }
 
 function ExtensionCard({
+  busyActionKey,
   item,
+  onExtensionAction,
   onPrimaryAction,
 }: {
+  busyActionKey: string;
   item: PluginCenterExtensionItem;
+  onExtensionAction: (item: PluginCenterExtensionItem, action: string) => void;
   onPrimaryAction: (item: PluginCenterExtensionItem) => void;
 }) {
   const Icon = iconFor(item);
   const disabled = item.primaryAction === "try_in_chat" && !item.tryInChat?.enabled;
+  const secondaryActions = extensionActionOptions(item).filter((action) => action.id !== item.primaryAction);
+  const primaryBusy = busyActionKey === `${item.id}:${item.primaryAction}:run`;
   return (
     <article className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm shadow-slate-900/5">
       <div className={cn("grid h-10 w-10 place-items-center rounded-lg border", iconTone(item))}>
@@ -279,17 +316,65 @@ function ExtensionCard({
           {item.detailLabel ? <span>{item.detailLabel}</span> : null}
         </div>
       </div>
-      {item.primaryAction === "manage" && item.manageHref ? (
-        <Button asChild variant="outline" size="sm">
-          <Link href={item.manageHref}>{item.primaryActionLabel}</Link>
-        </Button>
-      ) : (
-        <Button type="button" variant={item.primaryAction === "install" ? "default" : "outline"} size="sm" disabled={disabled} onClick={() => onPrimaryAction(item)}>
-          {item.primaryActionLabel}
-        </Button>
-      )}
+      <div className="flex items-center gap-1">
+        {item.primaryAction === "manage" && item.manageHref ? (
+          <Button asChild variant="outline" size="sm">
+            <Link href={item.manageHref}>{item.primaryActionLabel}</Link>
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            variant={item.primaryAction === "install" || item.primaryAction === "repair" ? "default" : "outline"}
+            size="sm"
+            disabled={disabled || primaryBusy}
+            onClick={() => onPrimaryAction(item)}
+          >
+            {primaryBusy ? "执行中" : item.primaryActionLabel}
+          </Button>
+        )}
+        {secondaryActions.length ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" variant="ghost" size="icon" title="更多操作" className="h-8 w-8">
+                <MoreHorizontal strokeWidth={1.6} className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {secondaryActions.map((action) => {
+                const busy = busyActionKey.startsWith(`${item.id}:${action.id}:`);
+                return (
+                  <DropdownMenuItem
+                    key={action.id}
+                    destructive={action.id === "uninstall"}
+                    onSelect={() => onExtensionAction(item, action.id)}
+                  >
+                    {action.id === "uninstall" ? <Trash2 className="mr-2 h-4 w-4" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                    {busy ? "执行中" : action.label || actionLabel(action.id)}
+                  </DropdownMenuItem>
+                );
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
+      </div>
     </article>
   );
+}
+
+function extensionActionOptions(item: PluginCenterExtensionItem): Array<{ id: string; label?: string }> {
+  const declared = item.manifest?.actions || [];
+  return declared
+    .filter((action) => action.type === "managed-extension-action")
+    .filter((action) => item.actions.includes(action.id as PluginCenterExtensionItem["actions"][number]))
+    .map((action) => ({ id: String(action.id), label: action.label }));
+}
+
+function actionLabel(action: string): string {
+  if (action === "install") return "安装";
+  if (action === "repair") return "修复";
+  if (action === "update") return "更新";
+  if (action === "uninstall") return "卸载";
+  return action;
 }
 
 function ExtensionJobQueuePanel({

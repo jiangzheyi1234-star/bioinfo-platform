@@ -2,8 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.app_runtime.errors import RuntimeServiceError
+from core.app_runtime.runner_stop_state import requires_explicit_runner_start
+
 MANAGED_EXTENSION_LIST_SCHEMA_VERSION = "h2ometa.managed-extension-list.v1"
 MANAGED_EXTENSION_MANIFEST_SCHEMA_VERSION = "h2ometa.managed-extension-manifest.v1"
+MANAGED_EXTENSION_ACTION_RESULT_SCHEMA_VERSION = "h2ometa.managed-extension-action-result.v1"
 REMOTE_EXECUTOR_EXTENSION_ID = "h2ometa-remote-runner"
 
 
@@ -30,6 +34,135 @@ class ManagedExtensionOperationsMixin:
                 "defaultProfileId": str(profiles.get("defaultProfileId") or ""),
             }
         }
+
+    def execute_managed_extension_action(self, extension_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        normalized_extension_id = str(extension_id or "").strip()
+        if normalized_extension_id != REMOTE_EXECUTOR_EXTENSION_ID:
+            raise RuntimeServiceError(
+                f"Managed extension is not executable: {normalized_extension_id}",
+                status_code=404,
+                detail={
+                    "reasonCode": "MANAGED_EXTENSION_NOT_EXECUTABLE",
+                    "extensionId": normalized_extension_id,
+                },
+            )
+        action = str((payload or {}).get("action") or "").strip()
+        mode = str((payload or {}).get("mode") or "run").strip()
+        if not action:
+            raise RuntimeServiceError(
+                "Managed extension action is required",
+                status_code=400,
+                detail={"reasonCode": "MANAGED_EXTENSION_ACTION_REQUIRED", "extensionId": normalized_extension_id},
+            )
+        with self._lock:
+            self._ensure_initialized()
+            profiles = self.list_server_profiles()["data"]
+            active_profile = _active_server_profile(profiles)
+            server_id = _select_action_server_id(payload, active_profile)
+            if not active_profile or str(active_profile.get("serverId") or "") != server_id:
+                raise RuntimeServiceError(
+                    f"Server not found: {server_id}",
+                    status_code=404,
+                    detail={
+                        "reasonCode": "MANAGED_EXTENSION_SERVER_NOT_FOUND",
+                        "extensionId": normalized_extension_id,
+                        "serverId": server_id,
+                    },
+                )
+            if not bool(active_profile.get("connected")):
+                raise RuntimeServiceError(
+                    "SSH is not connected",
+                    status_code=409,
+                    detail={
+                        "reasonCode": "MANAGED_EXTENSION_REQUIRES_SSH",
+                        "extensionId": normalized_extension_id,
+                        "serverId": server_id,
+                        "nextAction": "CONNECT_SSH",
+                    },
+                )
+            runner = _record(active_profile, "runner")
+            server_record = self._get_server_registry_entry(server_id)
+
+        if action in {"install", "repair", "update"}:
+            if mode != "run":
+                raise RuntimeServiceError(
+                    f"Managed extension action does not support preview: {action}",
+                    status_code=400,
+                    detail={
+                        "reasonCode": "MANAGED_EXTENSION_ACTION_MODE_UNSUPPORTED",
+                        "extensionId": normalized_extension_id,
+                        "action": action,
+                        "mode": mode,
+                    },
+                )
+            provisioning_action = _remote_executor_provisioning_action(
+                action=action,
+                runner=runner,
+                server_record=server_record,
+            )
+            job = self.create_remote_provisioning_job(server_id, {"action": provisioning_action})["data"]
+            return _managed_extension_action_result(
+                extension_id=normalized_extension_id,
+                action=action,
+                server_id=server_id,
+                status=str(job.get("status") or "queued"),
+                message=str(job.get("message") or ""),
+                job_kind="remote-provisioning",
+                job=job,
+            )
+        if action == "uninstall":
+            if mode == "preview":
+                plan = self.preview_runner_uninstall(server_id)
+                return _managed_extension_action_result(
+                    extension_id=normalized_extension_id,
+                    action=action,
+                    server_id=server_id,
+                    status="preview",
+                    message="Runner uninstall preview is ready.",
+                    plan=plan,
+                )
+            if mode == "run":
+                confirmation = str((payload or {}).get("confirmation") or "")
+                if confirmation != "uninstall-runner-control-plane":
+                    raise RuntimeServiceError(
+                        "Runner uninstall confirmation is required",
+                        status_code=409,
+                        detail={
+                            "reasonCode": "MANAGED_EXTENSION_CONFIRMATION_REQUIRED",
+                            "extensionId": normalized_extension_id,
+                            "action": action,
+                            "confirmation": "uninstall-runner-control-plane",
+                        },
+                    )
+                plan_hash = str((payload or {}).get("planHash") or "").strip()
+                if not plan_hash:
+                    raise RuntimeServiceError(
+                        "Runner uninstall planHash is required",
+                        status_code=400,
+                        detail={
+                            "reasonCode": "MANAGED_EXTENSION_PLAN_HASH_REQUIRED",
+                            "extensionId": normalized_extension_id,
+                            "action": action,
+                        },
+                    )
+                result = self.run_runner_uninstall(server_id, plan_hash=plan_hash)["data"]
+                return _managed_extension_action_result(
+                    extension_id=normalized_extension_id,
+                    action=action,
+                    server_id=server_id,
+                    status="succeeded",
+                    message="Runner control plane was uninstalled.",
+                    result=result,
+                )
+        raise RuntimeServiceError(
+            f"Unsupported managed extension action: {action}",
+            status_code=400,
+            detail={
+                "reasonCode": "MANAGED_EXTENSION_ACTION_UNSUPPORTED",
+                "extensionId": normalized_extension_id,
+                "action": action,
+            },
+        )
 
 
 def build_managed_extensions(
@@ -83,7 +216,7 @@ def build_managed_extensions(
             health="ready" if runner_ready else "failed" if runner_repair else "warning" if connected else "unknown",
             health_label="已就绪" if runner_ready else "需要修复" if runner_repair else "可安装" if connected else "未连接",
             detail_label=detail_target if connected else "需要 SSH",
-            primary_action="manage" if runner_ready else "install",
+            primary_action="manage" if runner_ready else "repair" if runner_repair else "install",
             primary_action_label="安装中"
             if provisioning_active
             else "管理"
@@ -93,7 +226,7 @@ def build_managed_extensions(
             else "安装"
             if connected
             else "连接",
-            actions=["manage", "update"] if runner_ready else ["install"],
+            actions=["manage", "update", "uninstall"] if runner_ready else ["repair"] if runner_repair else ["install"],
             capabilities=[
                 {"id": "remote-bootstrap", "label": "远端 bootstrap", "operation": "ensure-runner"},
                 {"id": "runner-diagnostics-repair", "label": "诊断修复", "operation": "repair-runner"},
@@ -375,29 +508,41 @@ def _remote_executor_manifest() -> dict[str, Any]:
             "platforms": ["linux-64"],
         },
         actions=[
-            {"id": "install", "operation": "ensure-runner", "job": "remote-provisioning"},
-            {"id": "start", "operation": "start-runner", "job": "remote-provisioning"},
-            {"id": "repair", "operation": "repair-runner", "job": "remote-provisioning"},
-            {"id": "upgrade", "operation": "upgrade-runner", "job": "remote-provisioning"},
-            {"id": "stop", "method": "POST", "pathTemplate": "/api/v1/servers/{serverId}/runner/stop"},
             {
-                "id": "prune",
-                "method": "POST",
-                "confirmation": "prune-runner-releases",
-                "pathTemplate": "/api/v1/servers/{serverId}/runner/releases/prune/run",
+                "id": "install",
+                "label": "安装",
+                "type": "managed-extension-action",
+                "operation": "ensure-runner",
+                "jobKind": "remote-provisioning",
+            },
+            {
+                "id": "repair",
+                "label": "修复",
+                "type": "managed-extension-action",
+                "operation": "repair-runner",
+                "jobKind": "remote-provisioning",
+            },
+            {
+                "id": "update",
+                "label": "更新",
+                "type": "managed-extension-action",
+                "operation": "upgrade-runner",
+                "jobKind": "remote-provisioning",
             },
             {
                 "id": "uninstall",
-                "method": "POST",
+                "label": "卸载",
+                "type": "managed-extension-action",
+                "mode": "preview",
                 "confirmation": "uninstall-runner-control-plane",
-                "pathTemplate": "/api/v1/servers/{serverId}/runner/uninstall/run",
+                "requiresPreview": True,
+                "requiresConfirmation": True,
+                "risk": "destructive",
             },
-            {"id": "tokenRotate", "method": "POST", "pathTemplate": "/api/v1/servers/{serverId}/token/rotate"},
         ],
         permissions=[
             {"id": "ssh:connect", "risk": "medium"},
             {"id": "runner:install", "risk": "high"},
-            {"id": "runner:stop", "risk": "high", "confirmation": "operator-action"},
             {"id": "runner:uninstall", "risk": "destructive", "confirmation": "uninstall-runner-control-plane"},
         ],
         state_projection={
@@ -444,6 +589,59 @@ def _active_server_profile(profiles: dict[str, Any]) -> dict[str, Any] | None:
         if isinstance(item, dict) and item.get("isDefault"):
             return item
     return items[0] if isinstance(items[0], dict) else None
+
+
+def _select_action_server_id(payload: dict[str, Any], active_server_profile: dict[str, Any] | None) -> str:
+    server_id = str((payload or {}).get("serverId") or "").strip()
+    if server_id:
+        return server_id
+    return str((active_server_profile or {}).get("serverId") or "").strip()
+
+
+def _remote_executor_provisioning_action(
+    *,
+    action: str,
+    runner: dict[str, Any],
+    server_record: dict[str, Any],
+) -> str:
+    if action == "update":
+        return "upgrade-runner"
+    if action == "repair" or _runner_needs_diagnostics_repair(runner):
+        return "repair-runner"
+    if requires_explicit_runner_start(server_record):
+        return "start-runner"
+    return "ensure-runner"
+
+
+def _managed_extension_action_result(
+    *,
+    extension_id: str,
+    action: str,
+    server_id: str,
+    status: str,
+    message: str,
+    job_kind: str = "",
+    job: dict[str, Any] | None = None,
+    plan: dict[str, Any] | None = None,
+    result: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "schemaVersion": MANAGED_EXTENSION_ACTION_RESULT_SCHEMA_VERSION,
+        "extensionId": extension_id,
+        "action": action,
+        "serverId": server_id,
+        "status": status,
+        "message": message,
+    }
+    if job_kind:
+        data["jobKind"] = job_kind
+    if job is not None:
+        data["job"] = job
+    if plan is not None:
+        data["plan"] = plan
+    if result is not None:
+        data["result"] = result
+    return {"data": data}
 
 
 def _active_remote_provisioning_job(

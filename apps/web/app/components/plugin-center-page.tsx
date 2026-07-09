@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
-  createRemoteProvisioningJob,
+  executePluginCenterExtensionAction,
   fetchPluginCenterExtensions,
   fetchRemoteProvisioningJobQueue,
   fetchServerProfiles,
@@ -15,34 +15,28 @@ import {
   type PluginCenterExtensionItem,
   type PluginCenterViewMode,
   type RemoteProvisioningJob,
-  type RemoteProvisioningJobAction,
   type RemoteProvisioningJobQueue,
   type ServerProfile,
   type ServerProfileList,
 } from "./plugin-center-model";
-import { buildPluginCenterExtensions, buildPluginCenterTasks } from "./plugin-center-view-model";
+import { buildPluginCenterTasks } from "./plugin-center-view-model";
 import { RunnerRepairPanel } from "./ssh-runner-repair-panel";
 import { useSshShell } from "./ssh-shell";
 import {
-  isRunnerManuallyStopped,
   normalizeFetchError,
-  runnerNeedsDiagnosticsRepair,
   toForm,
   type RunnerLifecycleStatus,
   type RunnerRepairStatus,
 } from "./ssh-shell-model";
-import { useToolPrepareTasks } from "./tool-prepare-task-context";
 import { fetchToolPrepareJobQueue } from "./tools-page-api";
 import { TOOL_PREPARE_ACTIVE_STATUSES, type ToolPrepareJobQueue } from "./tools-page-model";
 import { useWorkflowRunnerRepairState } from "./workflow-runner-repair-state";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 
 const REMOTE_PROVISIONING_POLL_MS = 1500;
 const TOOL_PREPARE_QUEUE_POLL_MS = 2500;
-
-function remoteProvisioningAction(status: RunnerRepairStatus | null): RemoteProvisioningJobAction {
-  if (runnerNeedsDiagnosticsRepair(status)) return "repair-runner";
-  return isRunnerManuallyStopped(status) ? "start-runner" : "ensure-runner";
-}
 
 function toolPrepareActiveCount(queue: ToolPrepareJobQueue | null): number {
   if (!queue) return 0;
@@ -75,6 +69,27 @@ function statusCountsFromRemoteProvisioningItems(items: RemoteProvisioningJob[])
     counts[item.status] = (counts[item.status] || 0) + 1;
     return counts;
   }, {});
+}
+
+type UninstallPreviewState = {
+  item: PluginCenterExtensionItem;
+  plan: Record<string, unknown>;
+  serverId: string;
+};
+
+function recordString(value: Record<string, unknown> | null, key: string): string {
+  const next = value?.[key];
+  return typeof next === "string" ? next : "";
+}
+
+function recordNumber(value: Record<string, unknown> | null, key: string): number {
+  const next = value?.[key];
+  return typeof next === "number" && Number.isFinite(next) ? next : 0;
+}
+
+function recordArrayLength(value: Record<string, unknown> | null, key: string): number {
+  const next = value?.[key];
+  return Array.isArray(next) ? next.length : 0;
 }
 
 function mergePluginRemoteStatus(
@@ -112,7 +127,6 @@ function mergePluginRemoteStatus(
 export function PluginCenterPage() {
   const sshShell = useSshShell();
   const runnerRepair = useWorkflowRunnerRepairState();
-  const { activeTasks: activeToolPrepareTasks } = useToolPrepareTasks();
   const [viewMode, setViewMode] = useState<PluginCenterViewMode>("plugins");
   const [query, setQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState("all");
@@ -120,8 +134,11 @@ export function PluginCenterPage() {
   const [managedExtensionList, setManagedExtensionList] = useState<PluginCenterExtensionList | null>(null);
   const [serverProfiles, setServerProfiles] = useState<ServerProfileList | null>(null);
   const [toolPrepareQueue, setToolPrepareQueue] = useState<ToolPrepareJobQueue | null>(null);
-  const [provisioningBusy, setProvisioningBusy] = useState(false);
-  const [provisioningError, setProvisioningError] = useState("");
+  const [extensionListError, setExtensionListError] = useState("");
+  const [extensionActionBusyKey, setExtensionActionBusyKey] = useState("");
+  const [extensionActionError, setExtensionActionError] = useState("");
+  const [uninstallPreview, setUninstallPreview] = useState<UninstallPreviewState | null>(null);
+  const [uninstallConfirmation, setUninstallConfirmation] = useState("");
   const refreshedTerminalJobKeyRef = useRef("");
   const rawStatus = runnerRepair.status || sshShell.status;
   const rawServerId = rawStatus?.serverId || runnerRepair.server?.serverId || "";
@@ -148,31 +165,8 @@ export function PluginCenterPage() {
   const latestProvisioningJob = provisioningQueue?.items?.[0] || null;
   const latestRunnerProvisioningJob =
     provisioningQueue?.items.find((job) => job.serverId === serverId) || latestProvisioningJob;
-  const runnerReady = Boolean(status?.connected && status.runner?.ready);
   const persistentToolPrepareActiveCount = toolPrepareActiveCount(toolPrepareQueue);
-  const activeToolPrepareTaskCount = Math.max(activeToolPrepareTasks.length, persistentToolPrepareActiveCount);
-  const extensions = useMemo(
-    () => {
-      if (managedExtensionList?.items?.length) return managedExtensionList.items;
-      return buildPluginCenterExtensions({
-        activeProvisioningJob: activeRunnerProvisioningJob,
-        activeServerProfile,
-        activeToolPrepareTaskCount,
-        provisioningQueue,
-        status: status || null,
-        toolPrepareQueue,
-      });
-    },
-    [
-      activeRunnerProvisioningJob,
-      activeServerProfile,
-      activeToolPrepareTaskCount,
-      managedExtensionList,
-      provisioningQueue,
-      status,
-      toolPrepareQueue,
-    ]
-  );
+  const extensions = useMemo(() => managedExtensionList?.items || [], [managedExtensionList]);
   const installationTasks = useMemo(
     () => buildPluginCenterTasks(provisioningQueue, toolPrepareQueue),
     [provisioningQueue, toolPrepareQueue]
@@ -188,9 +182,11 @@ export function PluginCenterPage() {
     try {
       const next = await fetchPluginCenterExtensions(signal);
       setManagedExtensionList(next);
+      setExtensionListError("");
       return next;
-    } catch {
+    } catch (error) {
       setManagedExtensionList(null);
+      setExtensionListError(normalizeFetchError(error));
       return null;
     }
   }, []);
@@ -253,21 +249,53 @@ export function PluginCenterPage() {
     sshShell.setDialogOpen(true);
   };
 
-  const startRemoteExecutorProvisioning = async () => {
-    if (!serverId || provisioningBusy || activeRunnerProvisioningJob) {
+  const executeExtensionAction = async (
+    item: PluginCenterExtensionItem,
+    action: string,
+    options: { mode?: "run" | "preview"; confirmation?: string; planHash?: string } = {}
+  ) => {
+    if (item.id === "h2ometa-remote-runner" && !status?.connected) {
+      openConnectDialog();
       return;
     }
-    setProvisioningBusy(true);
-    setProvisioningError("");
+    const targetServerId = item.serverId || serverId;
+    if (!targetServerId) {
+      setExtensionActionError("没有可执行的远端 server profile。");
+      return;
+    }
+    if (action !== "uninstall" && activeRunnerProvisioningJob) {
+      setExtensionActionError("远端执行器已有安装任务在运行。");
+      return;
+    }
+    const busyKey = `${item.id}:${action}:${options.mode || "run"}`;
+    setExtensionActionBusyKey(busyKey);
+    setExtensionActionError("");
     try {
-      const job = await createRemoteProvisioningJob(serverId, remoteProvisioningAction(status || null));
-      setProvisioningQueue((current) => mergeRemoteProvisioningJob(current, job));
+      const result = await executePluginCenterExtensionAction(item.id, {
+        action,
+        serverId: targetServerId,
+        mode: options.mode || "run",
+        confirmation: options.confirmation,
+        planHash: options.planHash,
+      });
+      if (result.job) {
+        setProvisioningQueue((current) => mergeRemoteProvisioningJob(current, result.job as RemoteProvisioningJob));
+      }
+      if (action === "uninstall" && result.plan) {
+        setUninstallPreview({ item, plan: result.plan, serverId: targetServerId });
+        setUninstallConfirmation("");
+      }
+      if (action === "uninstall" && result.result) {
+        setUninstallPreview(null);
+        setUninstallConfirmation("");
+      }
       await refreshManagedExtensions();
       await refreshProvisioningJobs();
+      await runnerRepair.refreshWorkflowServer().catch(() => undefined);
     } catch (error) {
-      setProvisioningError(normalizeFetchError(error));
+      setExtensionActionError(normalizeFetchError(error));
     } finally {
-      setProvisioningBusy(false);
+      setExtensionActionBusyKey("");
     }
   };
 
@@ -283,8 +311,8 @@ export function PluginCenterPage() {
         openConnectDialog();
         return;
       }
-      if (!runnerReady) {
-        void startRemoteExecutorProvisioning();
+      if (item.primaryAction === "install" || item.primaryAction === "repair") {
+        void executeExtensionAction(item, item.primaryAction);
         return;
       }
       document.getElementById("remote-runner-detail")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -295,6 +323,30 @@ export function PluginCenterPage() {
       setQuery(item.name);
     }
   };
+
+  const handleSecondaryAction = (item: PluginCenterExtensionItem, action: string) => {
+    if (action === "uninstall") {
+      void executeExtensionAction(item, action, { mode: "preview" });
+      return;
+    }
+    void executeExtensionAction(item, action);
+  };
+
+  const runUninstall = () => {
+    if (!uninstallPreview) return;
+    const planHash = recordString(uninstallPreview.plan, "planHash");
+    if (!planHash || uninstallConfirmation.trim() !== uninstallPreview.serverId) return;
+    void executeExtensionAction(uninstallPreview.item, "uninstall", {
+      mode: "run",
+      confirmation: "uninstall-runner-control-plane",
+      planHash,
+    });
+  };
+
+  const uninstallTargetCount = recordNumber(uninstallPreview?.plan || null, "targetCount");
+  const uninstallPreservedCount = recordArrayLength(uninstallPreview?.plan || null, "preservedPaths");
+  const uninstallPlanHash = recordString(uninstallPreview?.plan || null, "planHash");
+  const uninstallConfirmed = Boolean(uninstallPreview && uninstallConfirmation.trim() === uninstallPreview.serverId);
 
   const remoteDetail = status?.connected ? (
     <div className="space-y-3">
@@ -310,9 +362,9 @@ export function PluginCenterPage() {
         diagnosticsOnly={false}
         className="shadow-none"
       />
-      {provisioningError ? (
+      {extensionActionError ? (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          {provisioningError}
+          {extensionActionError}
         </div>
       ) : null}
     </div>
@@ -325,11 +377,53 @@ export function PluginCenterPage() {
       viewMode={viewMode}
       query={query}
       sourceFilter={sourceFilter}
+      loadError={extensionListError}
+      busyActionKey={extensionActionBusyKey}
       remoteDetail={remoteDetail}
       onViewModeChange={handleViewModeChange}
       onQueryChange={setQuery}
       onSourceFilterChange={setSourceFilter}
       onPrimaryAction={handlePrimaryAction}
-    />
+      onExtensionAction={handleSecondaryAction}
+    >
+      <Dialog open={Boolean(uninstallPreview)} onOpenChange={(open) => (!open ? setUninstallPreview(null) : null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>卸载远端执行器</DialogTitle>
+            <DialogDescription>
+              仅卸载 runner 控制面，保留 shared 数据边界。输入 serverId 后才能执行。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800">
+              将移除 {uninstallTargetCount} 个控制面目标，保留 {uninstallPreservedCount} 个 shared 数据边界。
+            </div>
+            <label className="block text-xs font-medium text-slate-600">
+              确认 serverId
+              <Input
+                className="mt-1 font-mono"
+                value={uninstallConfirmation}
+                placeholder={uninstallPreview?.serverId || ""}
+                onChange={(event) => setUninstallConfirmation(event.target.value)}
+              />
+            </label>
+            {extensionActionError ? <p className="text-xs text-red-600">{extensionActionError}</p> : null}
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={() => setUninstallPreview(null)}>
+                取消
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={!uninstallPlanHash || !uninstallConfirmed || Boolean(extensionActionBusyKey)}
+                onClick={runUninstall}
+              >
+                卸载
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </PluginCenterExtensionManager>
   );
 }

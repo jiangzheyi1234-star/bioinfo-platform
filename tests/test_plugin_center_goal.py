@@ -41,9 +41,8 @@ def test_plugin_center_route_surfaces_phase_one_cards() -> None:
     assert "PluginCenterExtensionItem" in model_source
     assert "PluginCenterTask" in model_source
     assert "useWorkflowRunnerRepairState" in page_source
-    assert "useToolPrepareTasks" in page_source
     assert "RunnerRepairPanel" in page_source
-    assert 'href: "/workflows/tools"' in (COMPONENTS / "plugin-center-view-model.ts").read_text(encoding="utf-8")
+    assert "PluginCenterExtensionManifest" in model_source
     assert 'Link href="/workflows/plugins"' in sidebar_source
     assert "pluginsActive" in sidebar_source
 
@@ -51,7 +50,6 @@ def test_plugin_center_route_surfaces_phase_one_cards() -> None:
 def test_plugin_center_remote_executor_flow_uses_existing_trust_and_repair_paths() -> None:
     page_source = (COMPONENTS / "plugin-center-page.tsx").read_text(encoding="utf-8")
     manager_source = (COMPONENTS / "plugin-center-extension-manager.tsx").read_text(encoding="utf-8")
-    view_model_source = (COMPONENTS / "plugin-center-view-model.ts").read_text(encoding="utf-8")
     repair_source = (COMPONENTS / "ssh-runner-repair-panel.tsx").read_text(encoding="utf-8")
     connection_source = (COMPONENTS / "ssh-shell-connection.ts").read_text(encoding="utf-8")
 
@@ -60,15 +58,12 @@ def test_plugin_center_remote_executor_flow_uses_existing_trust_and_repair_paths
     assert "sshShell.setForm(toForm(sshShell.status))" in page_source
     assert "mergePluginRemoteStatus" in page_source
     assert "rawStatus = runnerRepair.status || sshShell.status" in page_source
-    assert 'id: "h2ometa-remote-runner"' in view_model_source
-    assert "status?.connected || activeServerProfile?.connected" in view_model_source
-    assert 'operation: "ensure-runner"' in view_model_source
-    assert 'operation: "diagnostics"' in view_model_source
+    assert "executePluginCenterExtensionAction" in page_source
+    assert "executeExtensionAction(item, item.primaryAction)" in page_source
     assert "onPrimaryAction(item)" in manager_source
+    assert "onExtensionAction(item, action.id)" in manager_source
     assert 'document.getElementById("remote-runner-detail")' in page_source
-    assert "isRunnerManuallyStopped(status)" in page_source
-    assert "runnerNeedsDiagnosticsRepair(status)" in page_source
-    assert '"repair-runner"' in page_source
+    assert '"repair"' in page_source
     assert "RunnerRepairPanel" in page_source
     assert "status?.connected ? (" in page_source
     assert "/runner/upgrade" in repair_source
@@ -91,18 +86,18 @@ def test_plugin_center_phase_three_uses_local_remote_provisioning_jobs() -> None
     runtime_source = (CORE_RUNTIME / "remote_provisioning_jobs.py").read_text(encoding="utf-8")
     service_source = (CORE_RUNTIME / "service.py").read_text(encoding="utf-8")
 
-    assert "createRemoteProvisioningJob" in page_source
+    assert "executePluginCenterExtensionAction" in page_source
     assert "fetchRemoteProvisioningJobQueue" in page_source
     assert "activeRunnerProvisioningJob" in page_source
     assert "buildPluginCenterTasks" in page_source
     assert 'kind: "remote-provisioning"' in view_model_source
     assert 'data-testid="plugin-center-installation-tasks-card"' in manager_source
-    assert "/api/v1/servers/${encodeURIComponent(serverId)}/remote-provisioning/jobs" in api_source
+    assert "/api/v1/plugin-center/extensions/${encodeURIComponent(extensionId)}/actions" in api_source
+    assert "createRemoteProvisioningJob" not in api_source
     assert "/api/v1/remote-provisioning/jobs?" in api_source
     assert "REMOTE_PROVISIONING_ACTIVE_STATUSES" in model_source
     assert "RemoteProvisioningJobQueue" in model_source
     assert '"repair-runner"' in model_source
-    assert 'operation: "repair-runner"' in view_model_source
     assert '"/api/v1/servers/{server_id}/remote-provisioning/jobs"' in route_source
     assert '"/api/v1/servers/{server_id}/runner/diagnostics/repair"' in route_source
     assert '"/api/v1/remote-provisioning/jobs"' in route_source
@@ -119,15 +114,12 @@ def test_plugin_center_phase_four_surfaces_server_profiles() -> None:
     page_source = (COMPONENTS / "plugin-center-page.tsx").read_text(encoding="utf-8")
     api_source = (COMPONENTS / "plugin-center-api.ts").read_text(encoding="utf-8")
     model_source = (COMPONENTS / "plugin-center-model.ts").read_text(encoding="utf-8")
-    view_model_source = (COMPONENTS / "plugin-center-view-model.ts").read_text(encoding="utf-8")
     route_source = (API / "ssh_routes.py").read_text(encoding="utf-8")
     runtime_source = (CORE_RUNTIME / "server_profiles.py").read_text(encoding="utf-8")
     service_source = (CORE_RUNTIME / "service.py").read_text(encoding="utf-8")
 
     assert "fetchServerProfiles" in page_source
     assert "activeServerProfile" in page_source
-    assert "activeServerProfile?.runner.installedVersion" in view_model_source
-    assert "profile?.runner.health" in view_model_source
     assert "/api/v1/server-profiles" in api_source
     assert "type ServerProfile" in model_source
     assert '"/api/v1/server-profiles"' in route_source
@@ -170,14 +162,34 @@ def test_plugin_center_phase_six_uses_backend_managed_extension_registry() -> No
     assert "fetchPluginCenterExtensions" in api_source
     assert '"/api/v1/plugin-center/extensions"' in api_source
     assert "PluginCenterExtensionList" in model_source
+    assert "PluginCenterExtensionActionRequest" in model_source
     assert "managedExtensionList" in page_source
-    assert "managedExtensionList.items" in page_source
+    assert "managedExtensionList?.items || []" in page_source
+    assert "buildPluginCenterExtensions" not in page_source
     assert '"/api/v1/plugin-center/extensions"' in route_source
+    assert '"/api/v1/plugin-center/extensions/{extension_id}/actions"' in route_source
     assert "list_plugin_center_extensions_from_request" in route_source
+    assert "execute_plugin_center_extension_action_from_request" in route_source
     assert "runtime_service().list_managed_extensions" in route_service_source
+    assert "runtime_service().execute_managed_extension_action" in route_service_source
     assert "class ManagedExtensionOperationsMixin" in runtime_source
     assert "MANAGED_EXTENSION_MANIFEST_SCHEMA_VERSION" in runtime_source
+    assert "MANAGED_EXTENSION_ACTION_RESULT_SCHEMA_VERSION" in runtime_source
     assert "REMOTE_EXECUTOR_EXTENSION_ID" in runtime_source
     assert "remote-runner-release-manifest" in runtime_source
+    assert "execute_managed_extension_action" in runtime_source
     assert "ManagedExtensionOperationsMixin" in service_source
     assert "plugin_center_router" in main_source
+
+
+def test_plugin_center_phase_seven_removes_frontend_extension_fallback() -> None:
+    page_source = (COMPONENTS / "plugin-center-page.tsx").read_text(encoding="utf-8")
+    view_model_source = (COMPONENTS / "plugin-center-view-model.ts").read_text(encoding="utf-8")
+    manager_source = (COMPONENTS / "plugin-center-extension-manager.tsx").read_text(encoding="utf-8")
+
+    assert "buildPluginCenterExtensions" not in page_source
+    assert "function buildPluginCenterExtensions" not in view_model_source
+    assert "type BuildPluginCenterExtensionsInput" not in view_model_source
+    assert "loadError" in manager_source
+    assert "extensionActionOptions" in manager_source
+    assert "managed-extension-action" in manager_source

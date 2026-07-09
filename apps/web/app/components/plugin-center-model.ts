@@ -31,7 +31,15 @@ export type PluginCenterInstallState =
   | "updating"
   | "failed";
 export type PluginCenterHealth = "ready" | "warning" | "failed" | "unknown";
-export type PluginCenterAction = "install" | "update" | "enable" | "disable" | "remove" | "try_in_chat" | "manage";
+export type PluginCenterAction =
+  | "install"
+  | "update"
+  | "repair"
+  | "enable"
+  | "disable"
+  | "uninstall"
+  | "try_in_chat"
+  | "manage";
 
 export type PluginCenterCapability = {
   id: string;
@@ -39,6 +47,34 @@ export type PluginCenterCapability = {
   operation?: string;
   workflowStage?: string;
   agentSelectable?: boolean;
+};
+
+export type PluginCenterManifestAction = {
+  id: PluginCenterAction | string;
+  label?: string;
+  type?: string;
+  operation?: string;
+  jobKind?: string;
+  mode?: "run" | "preview" | string;
+  confirmation?: string;
+  requiresPreview?: boolean;
+  requiresConfirmation?: boolean;
+  risk?: "low" | "medium" | "high" | "destructive" | string;
+  href?: string;
+  disabledReason?: string;
+  enabled?: boolean;
+};
+
+export type PluginCenterExtensionManifest = {
+  schemaVersion?: string;
+  id?: string;
+  kind?: string;
+  displayName?: string;
+  requiresServerProfile?: boolean;
+  artifactSpec?: Record<string, unknown>;
+  actions?: PluginCenterManifestAction[];
+  permissions?: Array<Record<string, unknown>>;
+  stateProjection?: Record<string, unknown>;
 };
 
 export type PluginCenterExtensionItem = {
@@ -72,7 +108,7 @@ export type PluginCenterExtensionItem = {
   primaryActionLabel: string;
   actions: PluginCenterAction[];
   capabilities: PluginCenterCapability[];
-  manifest?: Record<string, unknown>;
+  manifest?: PluginCenterExtensionManifest;
   tryInChat?: {
     enabled: boolean;
     promptTemplate?: string;
@@ -91,6 +127,33 @@ export type PluginCenterExtensionList = {
 
 export type PluginCenterExtensionListResponse = {
   data: PluginCenterExtensionList;
+};
+
+export type PluginCenterExtensionActionMode = "run" | "preview";
+
+export type PluginCenterExtensionActionRequest = {
+  action: PluginCenterAction | string;
+  serverId?: string;
+  mode?: PluginCenterExtensionActionMode;
+  confirmation?: string;
+  planHash?: string;
+};
+
+export type PluginCenterExtensionActionResult = {
+  schemaVersion: string;
+  extensionId: string;
+  action: string;
+  serverId: string;
+  status: string;
+  message: string;
+  jobKind?: string;
+  job?: RemoteProvisioningJob;
+  plan?: Record<string, unknown>;
+  result?: Record<string, unknown>;
+};
+
+export type PluginCenterExtensionActionResponse = {
+  data: PluginCenterExtensionActionResult;
 };
 
 export type PluginCenterTask = {
