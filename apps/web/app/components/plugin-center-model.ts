@@ -81,6 +81,16 @@ export type ServerProfile = {
     fingerprintSha256: string;
     knownHostsPath: string;
   };
+  provisioning: {
+    lastJobId: string;
+    lastAction: string;
+    lastStatus: string;
+    lastUpdatedAt: string;
+  };
+  diagnostics: {
+    lastBundleRef: string;
+    lastCheckedAt: string;
+  };
   runner: {
     state: string;
     ready: boolean;

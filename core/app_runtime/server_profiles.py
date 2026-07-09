@@ -77,6 +77,8 @@ def build_default_server_profile(
         "connected": bool(ssh_status.get("connected")),
         "connection": _connection_projection(ssh_config=ssh_config, ssh_status=ssh_status),
         "hostKeyTrust": _host_key_trust_projection(registry_entry=registry_entry, action_state=action_state),
+        "provisioning": _provisioning_projection(registry_entry),
+        "diagnostics": _diagnostics_projection(registry_entry),
         "runner": _runner_projection(
             registry_entry=registry_entry,
             health=health,
@@ -176,6 +178,22 @@ def _host_key_trust_projection(
         "trusted": bool(registry_entry.get("host_key_trusted") or action_state.get("host_key_trusted")),
         "fingerprintSha256": fingerprint,
         "knownHostsPath": known_hosts_path,
+    }
+
+
+def _provisioning_projection(registry_entry: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "lastJobId": str(registry_entry.get("last_provisioning_job_id") or ""),
+        "lastAction": str(registry_entry.get("last_provisioning_action") or ""),
+        "lastStatus": str(registry_entry.get("last_provisioning_job_status") or ""),
+        "lastUpdatedAt": str(registry_entry.get("last_provisioning_job_updated_at") or ""),
+    }
+
+
+def _diagnostics_projection(registry_entry: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "lastBundleRef": str(registry_entry.get("last_diagnostics_bundle_ref") or ""),
+        "lastCheckedAt": str(registry_entry.get("last_diagnostics_checked_at") or ""),
     }
 
 

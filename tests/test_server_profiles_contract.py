@@ -55,6 +55,12 @@ def test_default_server_profile_binds_ssh_runner_and_host_key_without_secret_val
         "host_key_trusted": True,
         "host_key_fingerprint_sha256": "SHA256:test-fingerprint",
         "known_hosts_path": "C:/Users/test/AppData/Roaming/H2OMeta/ssh/known_hosts",
+        "last_provisioning_job_id": "remote-provisioning-test",
+        "last_provisioning_action": "ensure-runner",
+        "last_provisioning_job_status": "succeeded",
+        "last_provisioning_job_updated_at": "2026-07-08T00:00:00Z",
+        "last_diagnostics_bundle_ref": "diagnostics://srv/bundle.json",
+        "last_diagnostics_checked_at": "2026-07-08T00:01:00Z",
         "last_health_snapshot": {
             "serverId": server["serverId"],
             "state": "ready",
@@ -89,6 +95,16 @@ def test_default_server_profile_binds_ssh_runner_and_host_key_without_secret_val
     }
     assert profile["hostKeyTrust"]["trusted"] is True
     assert profile["hostKeyTrust"]["fingerprintSha256"] == "SHA256:test-fingerprint"
+    assert profile["provisioning"] == {
+        "lastJobId": "remote-provisioning-test",
+        "lastAction": "ensure-runner",
+        "lastStatus": "succeeded",
+        "lastUpdatedAt": "2026-07-08T00:00:00Z",
+    }
+    assert profile["diagnostics"] == {
+        "lastBundleRef": "diagnostics://srv/bundle.json",
+        "lastCheckedAt": "2026-07-08T00:01:00Z",
+    }
     assert profile["runner"]["installedVersion"] == "0.1.5-control-plane"
     assert profile["runner"]["hasTokenRef"] is True
     assert profile["runner"]["tokenRef"] == f"runner://{server['serverId']}"

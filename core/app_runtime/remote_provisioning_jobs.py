@@ -65,6 +65,16 @@ class RemoteProvisioningOperationsMixin:
             action=action,
             display_target=str(server.get("displayTarget") or server.get("host") or ""),
         )
+        with self._lock:
+            self._save_server_registry_entry(
+                normalized_server_id,
+                {
+                    "last_provisioning_job_id": job["jobId"],
+                    "last_provisioning_action": action,
+                    "last_provisioning_job_status": job["status"],
+                    "last_provisioning_job_updated_at": job["updatedAt"],
+                },
+            )
         worker = threading.Thread(
             target=self._run_remote_provisioning_job,
             args=(job["jobId"],),
@@ -107,15 +117,16 @@ class RemoteProvisioningOperationsMixin:
             action = str(job.get("action") or "ensure-runner")
             server_id = str(job.get("serverId") or "")
             result = self._execute_remote_provisioning_action(action=action, server_id=server_id)
-            _finish_remote_provisioning_job(
+            finished = _finish_remote_provisioning_job(
                 job_id,
                 status="succeeded",
                 stage="ready",
                 message=_success_message(action),
                 result=_summarize_runner_result(result),
             )
+            self._save_remote_provisioning_profile_state(finished)
         except RuntimeServiceError as exc:
-            _finish_remote_provisioning_job(
+            finished = _finish_remote_provisioning_job(
                 job_id,
                 status="failed",
                 stage="failed",
@@ -123,8 +134,9 @@ class RemoteProvisioningOperationsMixin:
                 error_code=_runtime_error_reason_code(exc) or "REMOTE_PROVISIONING_FAILED",
                 result=None,
             )
+            self._save_remote_provisioning_profile_state(finished)
         except Exception as exc:  # pragma: no cover - defensive boundary for background threads
-            _finish_remote_provisioning_job(
+            finished = _finish_remote_provisioning_job(
                 job_id,
                 status="failed",
                 stage="failed",
@@ -132,6 +144,7 @@ class RemoteProvisioningOperationsMixin:
                 error_code="REMOTE_PROVISIONING_UNEXPECTED_ERROR",
                 result=None,
             )
+            self._save_remote_provisioning_profile_state(finished)
         finally:
             with self._lock:
                 threads = getattr(self, "_remote_provisioning_threads", None)
@@ -150,6 +163,23 @@ class RemoteProvisioningOperationsMixin:
             status_code=400,
             detail={"reasonCode": "REMOTE_PROVISIONING_UNSUPPORTED_ACTION", "action": action},
         )
+
+    def _save_remote_provisioning_profile_state(self, job: dict[str, Any] | None) -> None:
+        if not isinstance(job, dict):
+            return
+        server_id = str(job.get("serverId") or "").strip()
+        if not server_id:
+            return
+        with self._lock:
+            self._save_server_registry_entry(
+                server_id,
+                {
+                    "last_provisioning_job_id": str(job.get("jobId") or ""),
+                    "last_provisioning_action": str(job.get("action") or ""),
+                    "last_provisioning_job_status": str(job.get("status") or ""),
+                    "last_provisioning_job_updated_at": str(job.get("updatedAt") or ""),
+                },
+            )
 
 
 def _normalize_action(value: Any) -> str:

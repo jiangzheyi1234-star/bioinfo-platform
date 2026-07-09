@@ -215,13 +215,13 @@ The goal is complete when current-state evidence proves:
 - Security confirmations, token handling, host-key trust, redaction, rollback, and fail-closed behavior remain intact.
 - Tests and documentation cover the route, UI states, API contracts, provisioning lifecycle, and security boundaries.
 
-## Open Design Choices
+## Current Decisions And Deferred Choices
 
-- Whether the navigation label should be `Plugins`, `Extensions`, or the Chinese product label `插件`.
-- Whether Phase 1 should link to the existing tools page or move tools under the new route immediately.
-- Whether provisioning jobs should live in the local runtime config, a local SQLite store, or another local persistence boundary.
-- How much of the current `ssh` config should remain after server profiles exist.
-- Whether a thin remote CLI should be packaged in the runner artifact in the first implementation slice or deferred until provisioning jobs are in place.
+- Navigation uses the Chinese product label `插件` while the architecture vocabulary remains plugin/extension center.
+- Tool management stays on the current tools page for detailed workflows; the plugin center links to it and reads the tool prepare queue for summary status.
+- The first provisioning job store lives in the local runtime config. Moving it to local SQLite is deferred until retention, audit, or concurrency pressure proves the need.
+- The current single `ssh` config remains as the compatibility source while the API exposes a first-class default server profile projection.
+- The thin remote CLI remains deferred. If added, it should be packaged as a management shell around the long-running service after provisioning lifecycle evidence is stable.
 
 ## Related Documents
 

@@ -118,6 +118,10 @@ def test_plugin_center_phase_four_surfaces_server_profiles() -> None:
     assert '"/api/v1/server-profiles"' in route_source
     assert "SERVER_PROFILES_CONFIG_KEY" in runtime_source
     assert "DEFAULT_SERVER_PROFILE_ID" in runtime_source
+    assert "_provisioning_projection" in runtime_source
+    assert "_diagnostics_projection" in runtime_source
+    assert "last_provisioning_job_id" in runtime_source
+    assert "last_diagnostics_bundle_ref" in runtime_source
     assert "ServerProfileOperationsMixin" in service_source
 
 
