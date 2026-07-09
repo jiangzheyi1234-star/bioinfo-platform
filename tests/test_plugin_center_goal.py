@@ -155,3 +155,29 @@ def test_plugin_center_phase_five_aggregates_extension_tasks_without_merging_dom
     assert 'data-testid="plugin-center-installation-tasks-card"' in manager_source
     assert "tool preparation stays remote-runner owned" in roadmap_source
     assert "remote provisioning queue separately" in roadmap_source
+
+
+def test_plugin_center_phase_six_uses_backend_managed_extension_registry() -> None:
+    page_source = (COMPONENTS / "plugin-center-page.tsx").read_text(encoding="utf-8")
+    api_source = (COMPONENTS / "plugin-center-api.ts").read_text(encoding="utf-8")
+    model_source = (COMPONENTS / "plugin-center-model.ts").read_text(encoding="utf-8")
+    route_source = (API / "plugin_center_routes.py").read_text(encoding="utf-8")
+    route_service_source = (API / "plugin_center_service.py").read_text(encoding="utf-8")
+    runtime_source = (CORE_RUNTIME / "managed_extensions.py").read_text(encoding="utf-8")
+    service_source = (CORE_RUNTIME / "service.py").read_text(encoding="utf-8")
+    main_source = (API / "main.py").read_text(encoding="utf-8")
+
+    assert "fetchPluginCenterExtensions" in api_source
+    assert '"/api/v1/plugin-center/extensions"' in api_source
+    assert "PluginCenterExtensionList" in model_source
+    assert "managedExtensionList" in page_source
+    assert "managedExtensionList.items" in page_source
+    assert '"/api/v1/plugin-center/extensions"' in route_source
+    assert "list_plugin_center_extensions_from_request" in route_source
+    assert "runtime_service().list_managed_extensions" in route_service_source
+    assert "class ManagedExtensionOperationsMixin" in runtime_source
+    assert "MANAGED_EXTENSION_MANIFEST_SCHEMA_VERSION" in runtime_source
+    assert "REMOTE_EXECUTOR_EXTENSION_ID" in runtime_source
+    assert "remote-runner-release-manifest" in runtime_source
+    assert "ManagedExtensionOperationsMixin" in service_source
+    assert "plugin_center_router" in main_source

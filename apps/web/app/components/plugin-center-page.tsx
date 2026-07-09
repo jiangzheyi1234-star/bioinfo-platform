@@ -2,10 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { createRemoteProvisioningJob, fetchRemoteProvisioningJobQueue, fetchServerProfiles } from "./plugin-center-api";
+import {
+  createRemoteProvisioningJob,
+  fetchPluginCenterExtensions,
+  fetchRemoteProvisioningJobQueue,
+  fetchServerProfiles,
+} from "./plugin-center-api";
 import { PluginCenterExtensionManager } from "./plugin-center-extension-manager";
 import {
   isActiveRemoteProvisioningJob,
+  type PluginCenterExtensionList,
   type PluginCenterExtensionItem,
   type PluginCenterViewMode,
   type RemoteProvisioningJob,
@@ -111,6 +117,7 @@ export function PluginCenterPage() {
   const [query, setQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [provisioningQueue, setProvisioningQueue] = useState<RemoteProvisioningJobQueue | null>(null);
+  const [managedExtensionList, setManagedExtensionList] = useState<PluginCenterExtensionList | null>(null);
   const [serverProfiles, setServerProfiles] = useState<ServerProfileList | null>(null);
   const [toolPrepareQueue, setToolPrepareQueue] = useState<ToolPrepareJobQueue | null>(null);
   const [provisioningBusy, setProvisioningBusy] = useState(false);
@@ -145,16 +152,26 @@ export function PluginCenterPage() {
   const persistentToolPrepareActiveCount = toolPrepareActiveCount(toolPrepareQueue);
   const activeToolPrepareTaskCount = Math.max(activeToolPrepareTasks.length, persistentToolPrepareActiveCount);
   const extensions = useMemo(
-    () =>
-      buildPluginCenterExtensions({
+    () => {
+      if (managedExtensionList?.items?.length) return managedExtensionList.items;
+      return buildPluginCenterExtensions({
         activeProvisioningJob: activeRunnerProvisioningJob,
         activeServerProfile,
         activeToolPrepareTaskCount,
         provisioningQueue,
         status: status || null,
         toolPrepareQueue,
-      }),
-    [activeRunnerProvisioningJob, activeServerProfile, activeToolPrepareTaskCount, provisioningQueue, status, toolPrepareQueue]
+      });
+    },
+    [
+      activeRunnerProvisioningJob,
+      activeServerProfile,
+      activeToolPrepareTaskCount,
+      managedExtensionList,
+      provisioningQueue,
+      status,
+      toolPrepareQueue,
+    ]
   );
   const installationTasks = useMemo(
     () => buildPluginCenterTasks(provisioningQueue, toolPrepareQueue),
@@ -165,6 +182,17 @@ export function PluginCenterPage() {
     const queue = await fetchRemoteProvisioningJobQueue({ limit: 12, signal });
     setProvisioningQueue(queue);
     return queue;
+  }, []);
+
+  const refreshManagedExtensions = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const next = await fetchPluginCenterExtensions(signal);
+      setManagedExtensionList(next);
+      return next;
+    } catch {
+      setManagedExtensionList(null);
+      return null;
+    }
   }, []);
 
   const refreshToolPrepareQueue = useCallback(async (signal?: AbortSignal) => {
@@ -180,21 +208,23 @@ export function PluginCenterPage() {
 
   useEffect(() => {
     const controller = new AbortController();
+    void refreshManagedExtensions(controller.signal);
     void refreshProvisioningJobs(controller.signal).catch(() => undefined);
     void refreshToolPrepareQueue(controller.signal);
     void fetchServerProfiles(controller.signal)
       .then(setServerProfiles)
       .catch(() => undefined);
     return () => controller.abort();
-  }, [refreshProvisioningJobs, refreshToolPrepareQueue]);
+  }, [refreshManagedExtensions, refreshProvisioningJobs, refreshToolPrepareQueue]);
 
   useEffect(() => {
     if (activeProvisioningJobs.length === 0) return;
     const timer = window.setInterval(() => {
+      void refreshManagedExtensions().catch(() => undefined);
       void refreshProvisioningJobs().catch(() => undefined);
     }, REMOTE_PROVISIONING_POLL_MS);
     return () => window.clearInterval(timer);
-  }, [activeProvisioningJobs.length, refreshProvisioningJobs]);
+  }, [activeProvisioningJobs.length, refreshManagedExtensions, refreshProvisioningJobs]);
 
   useEffect(() => {
     if (persistentToolPrepareActiveCount === 0) return;
@@ -213,8 +243,9 @@ export function PluginCenterPage() {
       return;
     }
     refreshedTerminalJobKeyRef.current = key;
+    void refreshManagedExtensions().catch(() => undefined);
     void runnerRepair.refreshWorkflowServer().catch(() => undefined);
-  }, [latestRunnerProvisioningJob, runnerRepair]);
+  }, [latestRunnerProvisioningJob, refreshManagedExtensions, runnerRepair]);
 
   const openConnectDialog = () => {
     sshShell.clearFormError();
@@ -231,6 +262,7 @@ export function PluginCenterPage() {
     try {
       const job = await createRemoteProvisioningJob(serverId, remoteProvisioningAction(status || null));
       setProvisioningQueue((current) => mergeRemoteProvisioningJob(current, job));
+      await refreshManagedExtensions();
       await refreshProvisioningJobs();
     } catch (error) {
       setProvisioningError(normalizeFetchError(error));

@@ -72,11 +72,25 @@ export type PluginCenterExtensionItem = {
   primaryActionLabel: string;
   actions: PluginCenterAction[];
   capabilities: PluginCenterCapability[];
+  manifest?: Record<string, unknown>;
   tryInChat?: {
     enabled: boolean;
     promptTemplate?: string;
     capabilityId?: string;
   };
+};
+
+export type PluginCenterExtensionList = {
+  schemaVersion: string;
+  items: PluginCenterExtensionItem[];
+  total: number;
+  source: string;
+  activeProfileId?: string;
+  defaultProfileId?: string;
+};
+
+export type PluginCenterExtensionListResponse = {
+  data: PluginCenterExtensionList;
 };
 
 export type PluginCenterTask = {

@@ -36,6 +36,7 @@ from core.app_runtime.runner_stop_state import (
     raise_unsupported_runner_stop_snapshot,
     requires_explicit_runner_start,
 )
+from core.app_runtime.managed_extensions import ManagedExtensionOperationsMixin
 from core.app_runtime.runner_ops import RunnerOperationsMixin
 from core.app_runtime.remote_provisioning_jobs import RemoteProvisioningOperationsMixin
 from core.app_runtime.server_profiles import ServerProfileOperationsMixin
@@ -74,6 +75,7 @@ class ServiceLocator:
 
 class RuntimeService(
     RuntimeServerStateMixin,
+    ManagedExtensionOperationsMixin,
     RunnerOperationsMixin,
     RemoteProvisioningOperationsMixin,
     ServerProfileOperationsMixin,

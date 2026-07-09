@@ -9,6 +9,7 @@ from apps.api.audit_routes import router as audit_router
 from apps.api.database_routes import router as database_router
 from apps.api.execution_query_routes import router as execution_query_router
 from apps.api.lifespan import lifespan
+from apps.api.plugin_center_routes import router as plugin_center_router
 from apps.api.route_errors import register_exception_handlers
 from apps.api.secret_routes import router as secret_router
 from apps.api.ssh_routes import router as ssh_router
@@ -52,6 +53,7 @@ app.add_middleware(
 )
 
 app.include_router(system_router)
+app.include_router(plugin_center_router)
 app.include_router(tool_capability_router)
 app.include_router(tool_contract_router)
 app.include_router(tool_router)

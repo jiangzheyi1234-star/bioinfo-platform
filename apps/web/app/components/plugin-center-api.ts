@@ -3,6 +3,8 @@
 import { requestLocalApiJson } from "@/app/lib/local-api-client";
 
 import type {
+  PluginCenterExtensionList,
+  PluginCenterExtensionListResponse,
   RemoteProvisioningJob,
   RemoteProvisioningJobAction,
   RemoteProvisioningJobQueue,
@@ -11,6 +13,15 @@ import type {
   ServerProfileList,
   ServerProfileListResponse,
 } from "./plugin-center-model";
+
+export async function fetchPluginCenterExtensions(signal?: AbortSignal): Promise<PluginCenterExtensionList> {
+  const response = await requestLocalApiJson<PluginCenterExtensionListResponse>(
+    "GET",
+    "/api/v1/plugin-center/extensions",
+    { cache: "no-store", signal }
+  );
+  return response.data;
+}
 
 export async function createRemoteProvisioningJob(
   serverId: string,
