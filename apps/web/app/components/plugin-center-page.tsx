@@ -11,12 +11,20 @@ import {
   type RemoteProvisioningJob,
   type RemoteProvisioningJobAction,
   type RemoteProvisioningJobQueue,
+  type ServerProfile,
   type ServerProfileList,
 } from "./plugin-center-model";
 import { buildPluginCenterExtensions, buildPluginCenterTasks } from "./plugin-center-view-model";
 import { RunnerRepairPanel } from "./ssh-runner-repair-panel";
 import { useSshShell } from "./ssh-shell";
-import { isRunnerManuallyStopped, normalizeFetchError, toForm, type RunnerRepairStatus } from "./ssh-shell-model";
+import {
+  isRunnerManuallyStopped,
+  normalizeFetchError,
+  runnerNeedsDiagnosticsRepair,
+  toForm,
+  type RunnerLifecycleStatus,
+  type RunnerRepairStatus,
+} from "./ssh-shell-model";
 import { useToolPrepareTasks } from "./tool-prepare-task-context";
 import { fetchToolPrepareJobQueue } from "./tools-page-api";
 import { TOOL_PREPARE_ACTIVE_STATUSES, type ToolPrepareJobQueue } from "./tools-page-model";
@@ -26,6 +34,7 @@ const REMOTE_PROVISIONING_POLL_MS = 1500;
 const TOOL_PREPARE_QUEUE_POLL_MS = 2500;
 
 function remoteProvisioningAction(status: RunnerRepairStatus | null): RemoteProvisioningJobAction {
+  if (runnerNeedsDiagnosticsRepair(status)) return "repair-runner";
   return isRunnerManuallyStopped(status) ? "start-runner" : "ensure-runner";
 }
 
@@ -62,6 +71,38 @@ function statusCountsFromRemoteProvisioningItems(items: RemoteProvisioningJob[])
   }, {});
 }
 
+function mergePluginRemoteStatus(
+  status: RunnerRepairStatus | null,
+  profile: ServerProfile | null
+): RunnerRepairStatus | null {
+  if (!profile) return status;
+  const connected = Boolean(status?.connected || profile.connected);
+  const profileRunner = profile.runner;
+  const runnerReady = Boolean(status?.runner?.ready || profileRunner.ready);
+  const runner: RunnerLifecycleStatus = {
+    state: runnerReady ? "ready" : status?.runner?.state || profileRunner.state || "preparing",
+    ready: runnerReady,
+    message: runnerReady
+      ? profileRunner.message || status?.runner?.message || "Remote runner control plane is ready."
+      : status?.runner?.message || profileRunner.message || "",
+    reasonCode: runnerReady ? "" : status?.runner?.reasonCode || profileRunner.reasonCode || "",
+    deploymentAction: status?.runner?.deploymentAction || profileRunner.deploymentAction,
+    servicePort: status?.runner?.servicePort || profileRunner.servicePort,
+    tunnelPort: status?.runner?.tunnelPort || profileRunner.tunnelPort,
+    localTunnels: status?.runner?.localTunnels || [],
+  };
+  return {
+    connected,
+    connecting: status?.connecting,
+    auto_connect_in_progress: status?.auto_connect_in_progress,
+    displayTarget: status?.displayTarget || profile.displayName,
+    host: status?.host || profile.connection.host,
+    message: status?.message || profileRunner.message || "",
+    serverId: status?.serverId || profile.serverId,
+    runner,
+  };
+}
+
 export function PluginCenterPage() {
   const sshShell = useSshShell();
   const runnerRepair = useWorkflowRunnerRepairState();
@@ -75,15 +116,20 @@ export function PluginCenterPage() {
   const [provisioningBusy, setProvisioningBusy] = useState(false);
   const [provisioningError, setProvisioningError] = useState("");
   const refreshedTerminalJobKeyRef = useRef("");
-  const status = runnerRepair.status || sshShell.status;
-  const serverId = status?.serverId || runnerRepair.server?.serverId || "";
+  const rawStatus = runnerRepair.status || sshShell.status;
+  const rawServerId = rawStatus?.serverId || runnerRepair.server?.serverId || "";
   const activeServerProfile = useMemo(
     () =>
-      serverProfiles?.items.find((profile) => profile.serverId === serverId) ||
+      serverProfiles?.items.find((profile) => profile.serverId === rawServerId) ||
       serverProfiles?.items.find((profile) => profile.profileId === serverProfiles.activeProfileId) ||
       null,
-    [serverProfiles, serverId]
+    [serverProfiles, rawServerId]
   );
+  const status = useMemo(
+    () => mergePluginRemoteStatus(rawStatus || null, activeServerProfile),
+    [activeServerProfile, rawStatus]
+  );
+  const serverId = status?.serverId || rawServerId;
   const activeProvisioningJobs = useMemo(
     () => (provisioningQueue?.items || []).filter(isActiveRemoteProvisioningJob),
     [provisioningQueue?.items]

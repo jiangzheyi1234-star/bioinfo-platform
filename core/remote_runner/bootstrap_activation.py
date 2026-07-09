@@ -156,6 +156,7 @@ class RemoteRunnerBootstrapActivationMixin:
                 RUN_CREATE,
                 path_values={},
                 payload={
+                    "serverId": server_id,
                     "runSpec": {
                         "pipelineId": "file-summary-v1",
                         "inputs": [

@@ -12,12 +12,17 @@ from core.contracts.execution_activity import (
     EXECUTION_ACTIVITY_ACTIVE_WORKFLOW_LEASES_REASON,
     EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
 )
+from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
+from core.remote_runner.install_lock import reclaim_orphaned_install_lock
 from core.remote_runner.lifecycle_guard_owner import execution_lifecycle_guard_owner
+from core.remote_runner.layout import remote_runner_bootstrap_layout
 
 
 RUNNER_STOP_ACTIVE_LEASES_REASON = "RUNNER_STOP_ACTIVE_LEASES"
 RUNNER_STOP_BLOCKED_REASON = "RUNNER_STOP_BLOCKED"
 RUNNER_STOP_DIAGNOSTICS_UNAVAILABLE_REASON = "RUNNER_STOP_DIAGNOSTICS_UNAVAILABLE"
+RUNNER_DIAGNOSTICS_REPAIR_NOT_PREPARED_REASON = "RUNNER_DIAGNOSTICS_REPAIR_NOT_PREPARED"
+RUNNER_DIAGNOSTICS_REPAIR_STOP_FAILED_REASON = "RUNNER_DIAGNOSTICS_REPAIR_STOP_FAILED"
 _ACTIVITY_COUNT_KEYS = (
     "activeLeaseCount",
     "allocatedResourceCount",
@@ -29,6 +34,119 @@ _ACTIVITY_COUNT_KEYS = (
 
 
 class RunnerManager(BaseRuntimeManager):
+    def repair_remote_runner_diagnostics(self, server_id: str) -> dict[str, Any]:
+        with self._service._lock:
+            self._service._ensure_initialized()
+            ssh_status = self._service._get_ssh_status_unlocked()
+            server = self._service._build_primary_server_identity(ssh_status=ssh_status)
+            if server is None or server["serverId"] != server_id:
+                raise RuntimeServiceError(f"Server not found: {server_id}")
+            record = self._service._get_server_registry_entry(server_id)
+            if not record.get("bootstrap_version"):
+                raise RuntimeServiceError(
+                    "Remote runner is not prepared; start it before diagnostics repair.",
+                    status_code=409,
+                    detail={
+                        "reasonCode": RUNNER_DIAGNOSTICS_REPAIR_NOT_PREPARED_REASON,
+                        "serverId": server_id,
+                        "nextAction": "START_RUNNER_BEFORE_DIAGNOSTICS_REPAIR",
+                    },
+                )
+            runner_mode = str(record.get("runner_mode") or "")
+            ssh = self._service._ensure_ssh_connected()
+            manager = self._service._service_locator.remote_runner_manager
+
+        command = f"H2OMETA_RUNNER_MODE={shlex.quote(runner_mode)}\n{STOP_REMOTE_RUNNER_COMMAND}"
+        exit_code, stdout, stderr = ssh.run(command, timeout=30)
+        stop_output = (stdout or stderr or "").strip()
+        stopped_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        if exit_code != 0:
+            raise RuntimeServiceError(
+                stop_output or "remote runner diagnostics repair failed to stop the current service",
+                status_code=409,
+                detail={
+                    "reasonCode": RUNNER_DIAGNOSTICS_REPAIR_STOP_FAILED_REASON,
+                    "serverId": server_id,
+                    "nextAction": "CHECK_OPERATOR_DIAGNOSTICS",
+                    "output": stop_output,
+                },
+            )
+
+        close_tunnel = getattr(ssh, "close_local_tunnel", None)
+        if callable(close_tunnel):
+            close_tunnel(f"runner-{server_id}")
+
+        lock_status = "not-checked"
+        lock_reclaimed = False
+        try:
+            home_dir = manager._resolve_remote_home(ssh)
+            lock_dir = remote_runner_bootstrap_layout(home_dir, REMOTE_RUNNER_VERSION).install_lock
+            lock_reclaimed, lock_status = reclaim_orphaned_install_lock(
+                ssh_service=ssh,
+                lock_dir=lock_dir,
+            )
+        except Exception as exc:  # pragma: no cover - diagnostic evidence only
+            lock_status = f"error:{exc.__class__.__name__}:{str(exc)}"
+
+        stop_intent = build_manual_runner_stop_intent(server_id=server_id, stopped_at=stopped_at)
+        stop_intent["source"] = "diagnostics-repair"
+        repair_record = {
+            "schemaVersion": "h2ometa.runner-diagnostics-repair.v1",
+            "serverId": server_id,
+            "startedAt": stopped_at,
+            "stopOutput": stop_output,
+            "installLockReclaimed": lock_reclaimed,
+            "installLockStatus": lock_status,
+        }
+        with self._service._lock:
+            self._service._save_server_registry_entry(
+                server_id,
+                {
+                    "last_health_snapshot": _repairing_health(server_id, checked_at=stopped_at),
+                    "runner_stop_intent": stop_intent,
+                    "runner_diagnostics_repair": repair_record,
+                },
+            )
+
+        try:
+            result = self._service.start_remote_runner(server_id)
+        except RuntimeServiceError:
+            with self._service._lock:
+                failed_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                self._service._save_server_registry_entry(
+                    server_id,
+                    {
+                        "runner_diagnostics_repair": {
+                            **repair_record,
+                            "finishedAt": failed_at,
+                            "status": "failed",
+                        }
+                    },
+                )
+            raise
+
+        finished_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        with self._service._lock:
+            self._service._save_server_registry_entry(
+                server_id,
+                {
+                    "runner_diagnostics_repair": {
+                        **repair_record,
+                        "finishedAt": finished_at,
+                        "status": "succeeded",
+                    }
+                },
+            )
+        data = result.get("data") if isinstance(result, dict) else None
+        if isinstance(data, dict):
+            data["lifecycleAction"] = "repair-diagnostics"
+            data["repair"] = {
+                **repair_record,
+                "finishedAt": finished_at,
+                "status": "succeeded",
+            }
+        return result
+
     def stop_remote_runner_service(self, server_id: str) -> dict[str, Any]:
         with self._service._lock:
             self._service._ensure_initialized()
@@ -179,6 +297,20 @@ def _runner_stop_blocked_error(
             "nextAction": "WAIT_FOR_RUNS_OR_CANCEL_BEFORE_STOP",
         },
     )
+
+
+def _repairing_health(server_id: str, *, checked_at: str) -> dict[str, Any]:
+    return {
+        "serverId": server_id,
+        "state": "recovering",
+        "startup": {"ok": True, "message": "Remote runner diagnostics repair is restarting the service."},
+        "live": {"ok": False, "message": "Remote runner service is being restarted."},
+        "ready": {"ok": False, "message": "Remote runner diagnostics repair is in progress."},
+        "workflowRuntime": {},
+        "pipelineRegistry": {},
+        "reasonCode": "RUNNER_DIAGNOSTICS_REPAIRING",
+        "checkedAt": checked_at,
+    }
 
 
 def _activity_from_lifecycle_guard_payload(value: dict[str, Any]) -> dict[str, Any]:

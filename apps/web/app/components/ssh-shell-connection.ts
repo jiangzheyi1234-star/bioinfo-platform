@@ -13,6 +13,7 @@ import {
   type SshShellContextValue,
   defaultForm,
   normalizeFetchError,
+  runnerNeedsDiagnosticsRepair,
   runnerRequiresExplicitStart,
   toForm,
 } from "./ssh-shell-model";
@@ -233,7 +234,11 @@ export function useSshConnection(): UseSshConnectionResult {
       if (!serverId) {
         return;
       }
-      const actionPath = runnerRequiresExplicitStart(status) ? "runner/start" : "ensure-runner";
+      const actionPath = runnerNeedsDiagnosticsRepair(status)
+        ? "runner/diagnostics/repair"
+        : runnerRequiresExplicitStart(status)
+          ? "runner/start"
+          : "ensure-runner";
       const ensured = await requestLocalApiJson("POST", `/api/v1/servers/${encodeURIComponent(serverId)}/${actionPath}`, {
         timeoutMs: ENSURE_RUNNER_REQUEST_TIMEOUT_MS,
       });

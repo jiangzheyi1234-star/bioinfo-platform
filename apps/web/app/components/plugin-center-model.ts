@@ -93,7 +93,7 @@ export type PluginCenterTask = {
   href?: string;
 };
 
-export type RemoteProvisioningJobAction = "ensure-runner" | "start-runner" | "upgrade-runner";
+export type RemoteProvisioningJobAction = "ensure-runner" | "start-runner" | "upgrade-runner" | "repair-runner";
 export type RemoteProvisioningJobStatus =
   | (typeof REMOTE_PROVISIONING_ACTIVE_STATUSES)[number]
   | (typeof REMOTE_PROVISIONING_TERMINAL_STATUSES)[number]

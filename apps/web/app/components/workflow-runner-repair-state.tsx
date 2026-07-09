@@ -10,11 +10,16 @@ import { cn } from "@/lib/utils";
 import {
   MANUAL_RUNNER_STOP_REASON,
   RUNNER_STOP_INTENT_REQUIRED_REASON,
+  runnerNeedsDiagnosticsRepair,
   runnerEnsureActionLabel,
   type RunnerRepairStatus,
 } from "./ssh-shell-model";
 import { RunnerRepairPanel } from "./ssh-runner-repair-panel";
-import { ensureWorkflowServerRunner, startWorkflowServerRunner } from "./workflow-server-readiness-api";
+import {
+  ensureWorkflowServerRunner,
+  repairWorkflowServerRunnerDiagnostics,
+  startWorkflowServerRunner,
+} from "./workflow-server-readiness-api";
 import { fetchWorkflowServer, getCachedWorkflowServer } from "./workflows-page-api";
 import { workflowErrorMessage, type WorkflowServer } from "./workflows-page-model";
 
@@ -97,7 +102,12 @@ export async function runWorkflowServerRunnerRepairAction(server: WorkflowServer
   if (!serverId) {
     throw new Error("serverId is required");
   }
-  const action = workflowServerRunnerRequiresExplicitStart(server) ? startWorkflowServerRunner : ensureWorkflowServerRunner;
+  const status = workflowServerRepairStatus(server);
+  const action = runnerNeedsDiagnosticsRepair(status)
+    ? repairWorkflowServerRunnerDiagnostics
+    : workflowServerRunnerRequiresExplicitStart(server)
+      ? startWorkflowServerRunner
+      : ensureWorkflowServerRunner;
   await action(serverId);
 }
 

@@ -191,10 +191,12 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert '"FINALIZE_FIRST_RUN"' in first_run_conductor
     assert "export async function ensureWorkflowServerRunner" in server_readiness_api
     assert "export async function startWorkflowServerRunner" in server_readiness_api
+    assert "export async function repairWorkflowServerRunnerDiagnostics" in server_readiness_api
     assert "postWorkflowServerRunnerAction(serverId, \"ensure-runner\")" in server_readiness_api
     assert "postWorkflowServerRunnerAction(serverId, \"runner/start\")" in server_readiness_api
+    assert "postWorkflowServerRunnerAction(serverId, \"runner/diagnostics/repair\", 180_000)" in server_readiness_api
     assert "/api/v1/servers/${encodeURIComponent(normalizedServerId)}/${actionPath}" in server_readiness_api
-    assert "timeoutMs: 120_000" in server_readiness_api
+    assert "timeoutMs = 120_000" in server_readiness_api
     assert "invalidateAsyncCache(WORKFLOW_SERVER_CACHE_KEY)" in server_readiness_api
     assert "runWorkflowServerRunnerRepairAction" in hook
     assert "export function workflowServerRepairStatus" in runner_repair
@@ -203,7 +205,8 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "export async function runWorkflowServerRunnerRepairAction" in runner_repair
     assert "export function useWorkflowRunnerRepairState" in runner_repair
     assert "export function WorkflowRunnerRepairNotice" in runner_repair
-    assert "workflowServerRunnerRequiresExplicitStart(server) ? startWorkflowServerRunner : ensureWorkflowServerRunner" in runner_repair
+    assert "runnerNeedsDiagnosticsRepair(status)" in runner_repair
+    assert "repairWorkflowServerRunnerDiagnostics" in runner_repair
     assert "runner.reasonCode === MANUAL_RUNNER_STOP_REASON" in runner_repair
     assert "runner.reasonCode === RUNNER_STOP_INTENT_REQUIRED_REASON" not in runner_repair
     assert "status.runner?.reasonCode !== RUNNER_STOP_INTENT_REQUIRED_REASON" in runner_repair
@@ -403,6 +406,8 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "sshStatus={ssh.status}" in first_run_page
     assert 'className="shadow-none"' in first_run_page
     assert "executionDiagnostics?.readiness?.ok === true" in first_run_page
+    assert "const firstRunServerId = state.server?.serverId || (ssh.status?.connected === true ? ssh.status.serverId || \"\" : \"\")" in first_run_page
+    assert "serverId: firstRunServerId" in first_run_page
     assert "const firstRunCanSubmit = Boolean(" in first_run_page
     assert 'firstRunStatusSnapshot?.nextAction?.code === "SUBMIT_RUN"' in first_run_page
     assert "statusServerEvidence?.ready === true" in first_run_page

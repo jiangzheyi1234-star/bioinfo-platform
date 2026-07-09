@@ -11,7 +11,7 @@ from core.app_runtime.errors import RuntimeServiceError
 REMOTE_PROVISIONING_CONFIG_KEY = "remote_provisioning_jobs"
 REMOTE_PROVISIONING_ACTIVE_STATUSES = ("queued", "running")
 REMOTE_PROVISIONING_TERMINAL_STATUSES = ("succeeded", "failed", "cancelled")
-REMOTE_PROVISIONING_ACTIONS = ("ensure-runner", "start-runner", "upgrade-runner")
+REMOTE_PROVISIONING_ACTIONS = ("ensure-runner", "start-runner", "upgrade-runner", "repair-runner")
 
 _MAX_RETAINED_JOBS = 50
 _jobs_lock = threading.RLock()
@@ -158,6 +158,8 @@ class RemoteProvisioningOperationsMixin:
             return self.start_remote_runner(server_id)
         if action == "upgrade-runner":
             return self.upgrade_remote_runner(server_id)
+        if action == "repair-runner":
+            return self.repair_remote_runner_diagnostics(server_id)
         raise RuntimeServiceError(
             f"Unsupported remote provisioning action: {action}",
             status_code=400,
@@ -476,6 +478,7 @@ def _queued_message(action: str) -> str:
         "ensure-runner": "Remote runner provisioning is queued.",
         "start-runner": "Remote runner start is queued.",
         "upgrade-runner": "Remote runner upgrade is queued.",
+        "repair-runner": "Remote runner diagnostics repair is queued.",
     }.get(action, "Remote provisioning job is queued.")
 
 
@@ -484,6 +487,7 @@ def _running_stage(action: str) -> str:
         "ensure-runner": "bootstrap",
         "start-runner": "start",
         "upgrade-runner": "upgrade",
+        "repair-runner": "repair",
     }.get(action, "running")
 
 
@@ -492,6 +496,7 @@ def _running_message(action: str) -> str:
         "ensure-runner": "Installing or reusing the remote runner.",
         "start-runner": "Starting the remote runner service.",
         "upgrade-runner": "Upgrading the remote runner release.",
+        "repair-runner": "Repairing remote runner diagnostics.",
     }.get(action, "Remote provisioning job is running.")
 
 
@@ -500,6 +505,7 @@ def _success_message(action: str) -> str:
         "ensure-runner": "Remote runner provisioning completed.",
         "start-runner": "Remote runner start completed.",
         "upgrade-runner": "Remote runner upgrade completed.",
+        "repair-runner": "Remote runner diagnostics repair completed.",
     }.get(action, "Remote provisioning completed.")
 
 

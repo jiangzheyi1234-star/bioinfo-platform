@@ -98,6 +98,7 @@ HIGH_RISK_API_POLICIES: tuple[ApiGovernancePolicy, ...] = (
     local_policy("POST", "/api/v1/servers/{server_id}/runner/start", "remote_runner.start", "server", "platform-admin"),
     local_policy("POST", "/api/v1/servers/{server_id}/runner/stop", "remote_runner.stop", "server", "platform-admin"),
     local_policy("POST", "/api/v1/servers/{server_id}/runner/upgrade", "remote_runner.upgrade", "server", "platform-admin"),
+    local_policy("POST", "/api/v1/servers/{server_id}/runner/diagnostics/repair", "remote_runner.diagnostics_repair", "server", "platform-admin"),
     local_policy("POST", "/api/v1/servers/{server_id}/runner/releases/prune/preview", "remote_runner.release_prune.preview", "server", "platform-admin"),
     local_policy("POST", "/api/v1/servers/{server_id}/runner/releases/prune/run", "remote_runner.release_prune.run", "server", "platform-admin"),
     local_policy("POST", "/api/v1/servers/{server_id}/runner/uninstall/preview", "remote_runner.uninstall.preview", "server", "platform-admin"),

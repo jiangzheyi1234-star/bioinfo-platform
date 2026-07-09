@@ -126,6 +126,96 @@ def test_stop_remote_runner_service_runs_explicit_stop_commands(monkeypatch, tmp
     }
 
 
+def test_repair_remote_runner_diagnostics_stops_reclaims_lock_and_starts(monkeypatch, tmp_path: Path) -> None:
+    cfg = {
+        "ssh": {
+            "host": "192.0.2.10",
+            "port": 22,
+            "user": "tester",
+            "auth_mode": "key_file",
+            "identity_ref": "C:/keys/id_ed25519",
+            "timeout_sec": 5,
+        },
+        "servers": {},
+    }
+
+    class FakeSSH:
+        is_connected = True
+
+        def __init__(self) -> None:
+            self.commands: list[tuple[str, int]] = []
+            self.closed_tunnels: list[str] = []
+
+        def run(self, cmd: str, timeout: int = 10):
+            self.commands.append((cmd, timeout))
+            if "printf \"%s\" \"$HOME\"" in cmd:
+                return 0, "/home/tester", ""
+            if "H2OMETA_RECLAIM_ORPHANED_LOCK" in cmd:
+                return 0, "reclaimed", ""
+            return 0, "systemd_user=stopped\nstop_script=stopped\nprocess=not-running\n", ""
+
+        def close_local_tunnel(self, name: str) -> None:
+            self.closed_tunnels.append(name)
+
+        def local_tunnel_snapshots(self):
+            return []
+
+    class FakeRemoteRunnerManager:
+        def _resolve_remote_home(self, ssh):
+            exit_code, stdout, stderr = ssh.run('printf "%s" "$HOME"', timeout=10)
+            assert exit_code == 0, stderr
+            return stdout.strip()
+
+    fake_ssh = FakeSSH()
+    service = make_service(tmp_path, fake_ssh)
+    service._service_locator.remote_runner_manager = FakeRemoteRunnerManager()
+    started: list[str] = []
+
+    def fake_start(server_id: str):
+        started.append(server_id)
+        return {
+            "data": {
+                "serverId": server_id,
+                "runner": {"ready": True},
+                "health": {"ready": {"ok": True, "message": "ready"}},
+                "lifecycleAction": "start",
+                "completedAt": "2099-06-07T10:00:00Z",
+            }
+        }
+
+    service.start_remote_runner = fake_start  # type: ignore[method-assign]
+
+    def save_capture(next_cfg: dict) -> None:
+        snapshot = dict(next_cfg)
+        cfg.clear()
+        cfg.update(snapshot)
+
+    monkeypatch.setattr("core.app_runtime.runtime_config.get_runtime_config", lambda: cfg)
+    monkeypatch.setattr("core.app_runtime.runtime_config.save_runtime_config", save_capture)
+    monkeypatch.setattr("apps.api.ssh_control_service.runtime_service", lambda: service)
+
+    server_id = asyncio.run(list_servers())["data"]["items"][0]["serverId"]
+    cfg["servers"][server_id] = {
+        "bootstrap_version": "phase1-test",
+        "runner_mode": "systemd_user",
+        "service_port": 43127,
+        "tunnel_port": 18765,
+        "token_ref": "runner://srv_test",
+    }
+
+    result = service.repair_remote_runner_diagnostics(server_id)
+
+    assert started == [server_id]
+    assert fake_ssh.closed_tunnels == [f"runner-{server_id}"]
+    assert any("systemctl --user stop h2ometa-remote.service" in command for command, _ in fake_ssh.commands)
+    assert any("H2OMETA_RECLAIM_ORPHANED_LOCK" in command for command, _ in fake_ssh.commands)
+    assert result["data"]["lifecycleAction"] == "repair-diagnostics"
+    assert result["data"]["repair"]["installLockReclaimed"] is True
+    registry_entry = cfg["servers"][server_id]
+    assert registry_entry["runner_stop_intent"]["source"] == "diagnostics-repair"
+    assert registry_entry["runner_diagnostics_repair"]["status"] == "succeeded"
+
+
 def test_stop_remote_runner_blocks_active_execution_before_kill(monkeypatch, tmp_path: Path) -> None:
     cfg = {
         "ssh": {

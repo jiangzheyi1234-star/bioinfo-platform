@@ -58,12 +58,17 @@ def test_plugin_center_remote_executor_flow_uses_existing_trust_and_repair_paths
     assert "useSshShell()" in page_source
     assert "sshShell.setDialogOpen(true)" in page_source
     assert "sshShell.setForm(toForm(sshShell.status))" in page_source
+    assert "mergePluginRemoteStatus" in page_source
+    assert "rawStatus = runnerRepair.status || sshShell.status" in page_source
     assert 'id: "h2ometa-remote-runner"' in view_model_source
+    assert "status?.connected || activeServerProfile?.connected" in view_model_source
     assert 'operation: "ensure-runner"' in view_model_source
     assert 'operation: "diagnostics"' in view_model_source
     assert "onPrimaryAction(item)" in manager_source
     assert 'document.getElementById("remote-runner-detail")' in page_source
     assert "isRunnerManuallyStopped(status)" in page_source
+    assert "runnerNeedsDiagnosticsRepair(status)" in page_source
+    assert '"repair-runner"' in page_source
     assert "RunnerRepairPanel" in page_source
     assert "status?.connected ? (" in page_source
     assert "/runner/upgrade" in repair_source
@@ -96,7 +101,10 @@ def test_plugin_center_phase_three_uses_local_remote_provisioning_jobs() -> None
     assert "/api/v1/remote-provisioning/jobs?" in api_source
     assert "REMOTE_PROVISIONING_ACTIVE_STATUSES" in model_source
     assert "RemoteProvisioningJobQueue" in model_source
+    assert '"repair-runner"' in model_source
+    assert 'operation: "repair-runner"' in view_model_source
     assert '"/api/v1/servers/{server_id}/remote-provisioning/jobs"' in route_source
+    assert '"/api/v1/servers/{server_id}/runner/diagnostics/repair"' in route_source
     assert '"/api/v1/remote-provisioning/jobs"' in route_source
     assert '"/api/v1/remote-provisioning/jobs/{job_id}/cancel"' in route_source
     assert "create_remote_provisioning_job_from_request" in control_source

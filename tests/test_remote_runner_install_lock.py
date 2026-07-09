@@ -10,6 +10,7 @@ import pytest
 from core.remote_runner.install_lock import (
     _OWNER_LOCK_MIN_AGE_SECONDS,
     acquire_remote_install_lock,
+    reclaim_orphaned_install_lock,
     reclaim_stale_install_lock,
     reclaim_stale_install_lock_status,
     release_remote_install_lock,
@@ -141,6 +142,38 @@ def test_acquire_remote_install_lock_retries_immediately_after_stale_reclaim() -
         "last_reclaim_status": "reclaimed",
         "ownerFenced": True,
     }
+
+
+def test_reclaim_orphaned_install_lock_requires_no_active_install_process() -> None:
+    ssh = FakeSSH([(22, "active", "")])
+
+    reclaimed, status = reclaim_orphaned_install_lock(
+        ssh_service=ssh,
+        lock_dir="/home/tester/.h2ometa/runner/locks/install-0.1.1-control-plane.lock",
+    )
+
+    assert not reclaimed
+    assert status == "active"
+    command = ssh.commands[0]
+    assert "H2OMETA_RECLAIM_ORPHANED_LOCK" in command
+    assert "ps -eo args=" in command
+    assert "rm -rf \"$LOCK\"" in command
+    assert "[l]aunch_remote_runner[.]sh" in command
+    assert "[s]tart_service[.]sh" in command
+    assert "t[a]r[[:space:]].*-xzf" in command
+    assert "[c]onda-unpack" in command
+
+
+def test_reclaim_orphaned_install_lock_reports_reclaimed() -> None:
+    ssh = FakeSSH([(0, "reclaimed", "")])
+
+    reclaimed, status = reclaim_orphaned_install_lock(
+        ssh_service=ssh,
+        lock_dir="/home/tester/.h2ometa/runner/locks/install-0.1.1-control-plane.lock",
+    )
+
+    assert reclaimed
+    assert status == "reclaimed"
 
 
 def test_release_remote_install_lock_is_owner_fenced() -> None:

@@ -179,6 +179,11 @@ export function isSshChannelReady(status: RunnerRepairStatus | null | undefined)
 
 export const MANUAL_RUNNER_STOP_REASON = "RUNNER_STOPPED";
 export const RUNNER_STOP_INTENT_REQUIRED_REASON = "RUNNER_STOP_INTENT_REQUIRED";
+const RUNNER_DIAGNOSTICS_UNAVAILABLE_REASONS = new Set([
+  "RUNNER_BOOTSTRAP_DIAGNOSTICS_UNAVAILABLE",
+  "RUNNER_STOP_DIAGNOSTICS_UNAVAILABLE",
+  "RUNNER_UPGRADE_DIAGNOSTICS_UNAVAILABLE",
+]);
 
 export function runnerRequiresExplicitStart(status: RunnerRepairStatus | null | undefined): boolean {
   const runner = status?.runner;
@@ -207,6 +212,18 @@ export function isRunnerRepairRequired(status: RunnerRepairStatus | null | undef
       runner &&
       !runner.ready &&
       (runner.state === "repair_needed" || runner.state === "failed")
+  );
+}
+
+export function runnerNeedsDiagnosticsRepair(status: RunnerRepairStatus | null | undefined): boolean {
+  const reasonCode = status?.runner?.reasonCode || "";
+  const message = status?.runner?.message || status?.message || "";
+  return Boolean(
+    status?.connected &&
+      status.runner &&
+      !status.runner.ready &&
+      (RUNNER_DIAGNOSTICS_UNAVAILABLE_REASONS.has(reasonCode) ||
+        /Remote end closed connection|execution diagnostics are unavailable/i.test(message))
   );
 }
 
@@ -291,6 +308,9 @@ export function resolveRemoteStatus(status: RunnerRepairStatus | null): RemoteSt
 }
 
 export function runnerEnsureActionLabel(status: RunnerRepairStatus | null | undefined, busy: boolean): string {
+  if (runnerNeedsDiagnosticsRepair(status)) {
+    return busy ? "诊断修复中" : "诊断修复";
+  }
   if (runnerRequiresExplicitStart(status)) {
     return busy ? "启动中" : "启动远程服务";
   }

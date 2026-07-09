@@ -97,7 +97,7 @@ export class LocalApiError extends Error {
 }
 
 export function apiBase(): string {
-  const raw = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8765";
+  const raw = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8765";
   return raw.trim().replace(/\/+$/, "");
 }
 

@@ -178,6 +178,10 @@ def test_remote_status_failed_runner_can_trigger_repair_bootstrap() -> None:
 
     _assert_contains(
         model_source,
+        "runnerNeedsDiagnosticsRepair",
+        "RUNNER_DIAGNOSTICS_UNAVAILABLE_REASONS",
+        "Remote end closed connection",
+        "诊断修复",
         "修复远程服务",
         "准备远程服务",
     )
@@ -191,6 +195,8 @@ def test_remote_status_failed_runner_can_trigger_repair_bootstrap() -> None:
         hook_source,
         "ensure-runner",
         "runner/start",
+        "runner/diagnostics/repair",
+        "runnerNeedsDiagnosticsRepair(status)",
         "runnerRequiresExplicitStart(status)",
         "state: \"repair_needed\"",
     )

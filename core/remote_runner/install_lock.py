@@ -204,6 +204,40 @@ printf reclaimed
     return False, marker or "empty"
 
 
+def reclaim_orphaned_install_lock(*, ssh_service, lock_dir: str) -> tuple[bool, str]:
+    command = r"""
+set -u
+LOCK=$1
+ACTIVE_PATTERN=$2
+if [ ! -d "$LOCK" ]; then
+  printf missing
+  exit 0
+fi
+if ps -eo args= | grep -E "$ACTIVE_PATTERN" | grep -v grep >/dev/null; then
+  printf active
+  exit 22
+fi
+rm -rf "$LOCK"
+printf reclaimed
+""".strip()
+    exit_code, stdout, stderr = ssh_service.run(
+        "bash -s -- {lock} {pattern} <<'H2OMETA_RECLAIM_ORPHANED_LOCK'\n{script}\nH2OMETA_RECLAIM_ORPHANED_LOCK".format(
+            lock=shlex.quote(lock_dir),
+            pattern=shlex.quote(_ACTIVE_INSTALL_PROCESS_PATTERN),
+            script=command,
+        ),
+        timeout=15,
+    )
+    tokens = stdout.strip().split()
+    marker = tokens[-1] if tokens else ""
+    if exit_code == 0:
+        return marker == "reclaimed", marker or "empty"
+    detail = (stderr.strip() or stdout.strip() or f"exit:{exit_code}").strip()
+    if marker == "active":
+        return False, "active"
+    return False, f"error:{exit_code}:{detail}"
+
+
 def describe_remote_install_lock(*, ssh_service, lock_dir: str) -> str:
     command = r"""
 set -u

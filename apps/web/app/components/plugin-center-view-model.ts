@@ -1,6 +1,6 @@
 "use client";
 
-import type { RunnerRepairStatus } from "./ssh-shell-model";
+import { runnerNeedsDiagnosticsRepair, type RunnerRepairStatus } from "./ssh-shell-model";
 import { TOOL_PREPARE_ACTIVE_STATUSES, type ToolPrepareJob, type ToolPrepareJobQueue } from "./tools-page-model";
 import {
   isActiveRemoteProvisioningJob,
@@ -28,8 +28,9 @@ export function buildPluginCenterExtensions({
   status,
   toolPrepareQueue,
 }: BuildPluginCenterExtensionsInput): PluginCenterExtensionItem[] {
-  const connected = Boolean(status?.connected);
+  const connected = Boolean(status?.connected || activeServerProfile?.connected);
   const runnerReady = Boolean(status?.runner?.ready || activeServerProfile?.runner.ready);
+  const runnerDiagnosticsRepair = runnerNeedsDiagnosticsRepair(status);
   const runnerVersion = activeServerProfile?.runner.installedVersion || "";
   const workflowRuntime = workflowRuntimeProjection(activeServerProfile);
   const provisioningActive = Boolean(activeProvisioningJob);
@@ -54,18 +55,19 @@ export function buildPluginCenterExtensions({
       featured: true,
       installed: Boolean(runnerVersion || runnerReady),
       enabled: runnerReady,
-      installState: provisioningActive ? "installing" : runnerReady ? "enabled" : connected ? "not_installed" : "disabled",
+      installState: provisioningActive ? "installing" : runnerReady ? "enabled" : runnerDiagnosticsRepair ? "failed" : connected ? "not_installed" : "disabled",
       installedVersion: runnerVersion,
       requiresRunner: false,
       serverId: activeServerProfile?.serverId || status?.serverId || "",
-      health: runnerReady ? "ready" : connected ? "warning" : "unknown",
-      healthLabel: runnerReady ? "已就绪" : connected ? "可安装" : "未连接",
+      health: runnerReady ? "ready" : runnerDiagnosticsRepair ? "failed" : connected ? "warning" : "unknown",
+      healthLabel: runnerReady ? "已就绪" : runnerDiagnosticsRepair ? "需要修复" : connected ? "可安装" : "未连接",
       detailLabel: connected ? status?.displayTarget || status?.host || "SSH 已连接" : "需要 SSH",
       primaryAction: runnerReady ? "manage" : "install",
-      primaryActionLabel: provisioningActive ? "安装中" : runnerReady ? "管理" : connected ? "安装" : "连接",
+      primaryActionLabel: provisioningActive ? "安装中" : runnerReady ? "管理" : runnerDiagnosticsRepair ? "修复" : connected ? "安装" : "连接",
       actions: runnerReady ? ["manage", "update"] : ["install"],
       capabilities: [
         { id: "remote-bootstrap", label: "远端 bootstrap", operation: "ensure-runner" },
+        { id: "runner-diagnostics-repair", label: "诊断修复", operation: "repair-runner" },
         { id: "runner-health", label: "健康检查", operation: "diagnostics" },
       ],
     },

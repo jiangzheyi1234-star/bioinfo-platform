@@ -27,6 +27,9 @@ class RunnerOperationsMixin(
     def stop_remote_runner_service(self, server_id: str) -> dict[str, Any]:
         return self.runner.stop_remote_runner_service(server_id)
 
+    def repair_remote_runner_diagnostics(self, server_id: str) -> dict[str, Any]:
+        return self.runner.repair_remote_runner_diagnostics(server_id)
+
     def start_remote_runner(self, server_id: str) -> dict[str, Any]:
         return self._bootstrap_remote_runner(server_id=server_id, action="start")
 

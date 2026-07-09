@@ -20,6 +20,7 @@ class GuardHarness(RemoteRunnerBootstrapGuardMixin):
     def __init__(self, diagnostics):
         self.diagnostics = diagnostics
         self.calls = 0
+        self.release_calls: list[dict] = []
 
     def get_execution_diagnostics(self, **_kwargs):
         self.calls += 1
@@ -52,6 +53,10 @@ class GuardHarness(RemoteRunnerBootstrapGuardMixin):
                 detail=payload,
             )
         return payload
+
+    def _call_lifecycle_guard_endpoint_with_client(self, **kwargs):
+        self.release_calls.append(kwargs)
+        return {"released": True}
 
 
 def test_bootstrap_guard_blocks_active_leases_before_destructive_upgrade() -> None:
@@ -217,6 +222,21 @@ def test_bootstrap_guard_reuses_existing_idle_upgrade_guard() -> None:
 
     assert manager.calls == 0
     assert metadata["upgradeGuard"]["maintenanceOwner"] == "srv_test:upgrade:lifecycle"
+
+
+def test_bootstrap_guard_release_skips_start_without_acquired_owner() -> None:
+    metadata = {"upgradeGuard": {"checked": False, "reason": "execution-diagnostics-unavailable"}}
+    manager = GuardHarness(_diagnostics())
+
+    manager._release_bootstrap_lifecycle_guard(
+        client=object(),
+        server_id="srv_test",
+        bootstrap_action="start",
+        bootstrap_metadata=metadata,
+    )
+
+    assert manager.release_calls == []
+    assert "upgradeGuardRelease" not in metadata
 
 
 def test_bootstrap_guard_blocks_upgrade_when_execution_state_is_not_idle() -> None:

@@ -776,6 +776,7 @@ def test_ssh_routes_delegate_request_dumping_and_cache_to_service() -> None:
     assert "upgrade_server_runner_from_request" in ssh_routes
     assert "start_server_runner_from_request" in ssh_routes
     assert "stop_server_runner_from_request" in ssh_routes
+    assert "repair_server_runner_diagnostics_from_request" in ssh_routes
     assert "preview_server_runner_release_prune_from_request" in ssh_routes
     assert "run_server_runner_release_prune_from_request" in ssh_routes
     assert "preview_server_runner_uninstall_from_request" in ssh_routes
@@ -795,6 +796,7 @@ def test_ssh_routes_delegate_request_dumping_and_cache_to_service() -> None:
     assert "def upgrade_server_runner_from_request(" in service_source
     assert "def start_server_runner_from_request(" in service_source
     assert "def stop_server_runner_from_request(" in service_source
+    assert "def repair_server_runner_diagnostics_from_request(" in service_source
     assert "def preview_server_runner_release_prune_from_request(" in service_source
     assert "def run_server_runner_release_prune_from_request(" in service_source
     assert "def preview_server_runner_uninstall_from_request(" in service_source

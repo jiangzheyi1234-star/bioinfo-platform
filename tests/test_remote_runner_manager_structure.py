@@ -217,6 +217,17 @@ def test_bootstrap_canary_only_wraps_declared_runner_failures() -> None:
     assert "except (self._manager_error, RemoteRunnerClientError) as exc" in canary_source
 
 
+def test_bootstrap_canary_submits_server_id_at_top_level() -> None:
+    activation_source = _source("core/remote_runner/bootstrap_activation.py")
+
+    canary_source = activation_source.split("def _run_bootstrap_canary(", 1)[1]
+    canary_source = canary_source.split("def _wait_for_terminal_run(", 1)[0]
+    assert '"serverId": server_id' in canary_source
+    assert '"runSpec": {' in canary_source
+    assert canary_source.index('"serverId": server_id') < canary_source.index('"runSpec": {')
+    assert '"serverId": server_id' not in canary_source.split('"runSpec": {', 1)[1].split('"params": {"threads": 1}', 1)[0]
+
+
 def test_rollback_failure_record_only_wraps_declared_runner_failures() -> None:
     activation_source = _source("core/remote_runner/bootstrap_activation.py")
 

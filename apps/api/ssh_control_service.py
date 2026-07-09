@@ -196,6 +196,16 @@ async def stop_server_runner_from_request(server_id: str) -> dict[str, Any]:
         await _invalidate_ssh_state_cache()
 
 
+async def repair_server_runner_diagnostics_from_request(server_id: str) -> dict[str, Any]:
+    try:
+        return await run_runtime_payload(
+            lambda: runtime_service().repair_remote_runner_diagnostics(server_id),
+            wrapper="raw",
+        )
+    finally:
+        await _invalidate_ssh_state_cache()
+
+
 async def create_remote_provisioning_job_from_request(
     server_id: str,
     request: RemoteProvisioningJobCreateRequest | None,

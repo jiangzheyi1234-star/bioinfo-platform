@@ -65,9 +65,10 @@ export function WorkflowFirstRunPage() {
   const submittedRunId = state.submittedRun?.runId || "";
   const runDetailRunId = state.runDetail?.run?.runId || "";
   const selectRun = state.selectRun;
+  const firstRunServerId = state.server?.serverId || (ssh.status?.connected === true ? ssh.status.serverId || "" : "");
   const firstRunStatus = useFirstRunStatus({
     runId: activeRunId || run?.runId,
-    serverId: state.server?.serverId,
+    serverId: firstRunServerId,
   });
   const firstRunStatusSnapshot = firstRunStatus.status;
   const statusServerEvidence = firstRunStatusSnapshot?.evidence?.server;
@@ -106,7 +107,7 @@ export function WorkflowFirstRunPage() {
     run,
     runDetail: state.runDetail,
     status: firstRunStatusSnapshot || null,
-    serverId: state.server?.serverId,
+    serverId: firstRunServerId,
   });
   const latestPackage = firstRunEvidence.latestPackage;
   const validationEligible = firstRunEvidence.validationEligible;
@@ -145,7 +146,7 @@ export function WorkflowFirstRunPage() {
   );
 
   const loadExecutionDiagnostics = useCallback(async () => {
-    const serverId = state.server?.serverId || "";
+    const serverId = firstRunServerId;
     if (!serverId) {
       setExecutionDiagnostics(null);
       setExecutionDiagnosticsError("");
@@ -161,7 +162,7 @@ export function WorkflowFirstRunPage() {
     } finally {
       setExecutionDiagnosticsLoading(false);
     }
-  }, [state.server?.serverId]);
+  }, [firstRunServerId]);
 
   const refreshWorkspaceAndFirstRunStatus = useCallback(async () => {
     await state.loadWorkspace({ forceRefresh: true });
@@ -387,7 +388,7 @@ export function WorkflowFirstRunPage() {
         <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
           <div className="space-y-5">
             <RunnerReadinessPanel
-              canEnsure={Boolean(state.server?.serverId)}
+              canEnsure={Boolean(firstRunServerId)}
               connected={serverConnected}
               diagnostics={executionDiagnostics}
               diagnosticsError={executionDiagnosticsError}
@@ -442,7 +443,7 @@ export function WorkflowFirstRunPage() {
               latestPackage={latestPackage}
               loading={firstRunEvidence.packageLoading}
               resultId={resultId}
-              serverId={state.server?.serverId}
+              serverId={firstRunServerId}
               onFinalize={() => void finalizeAndRefreshStatus()}
               onExport={() => void exportPackageAndRefreshStatus()}
               onRefresh={() => void firstRunEvidence.loadPackageExports()}

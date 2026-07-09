@@ -309,9 +309,6 @@ class RemoteRunnerBootstrapGuardMixin:
         owner = str(guard.get("maintenanceOwner") or "").strip()
         action = str(bootstrap_action or "").strip() or "ensure"
         release_action = action
-        if not owner and action == "start":
-            release_action = "stop"
-            owner = execution_lifecycle_guard_owner(server_id=server_id, action=release_action)
         if not owner:
             return
         try:

@@ -568,6 +568,13 @@ def test_runner_lifecycle_mutation_failures_invalidate_ssh_state_cache(monkeypat
                 detail={"reasonCode": "RUNNER_STOP_FAILED", "serverId": server_id},
             )
 
+        def repair_remote_runner_diagnostics(self, server_id: str):
+            raise RuntimeServiceError(
+                "remote runner diagnostics repair failed",
+                status_code=503,
+                detail={"reasonCode": "RUNNER_DIAGNOSTICS_REPAIR_FAILED", "serverId": server_id},
+            )
+
         def run_runner_release_prune(self, server_id: str, *, plan_hash: str):
             raise RuntimeServiceError(
                 "remote runner release prune failed",
@@ -590,6 +597,7 @@ def test_runner_lifecycle_mutation_failures_invalidate_ssh_state_cache(monkeypat
     start_response = client.post("/api/v1/servers/srv_active/runner/start")
     upgrade_response = client.post("/api/v1/servers/srv_active/runner/upgrade")
     stop_response = client.post("/api/v1/servers/srv_active/runner/stop")
+    repair_response = client.post("/api/v1/servers/srv_active/runner/diagnostics/repair")
     prune_response = client.post(
         "/api/v1/servers/srv_active/runner/releases/prune/run",
         json={"confirmation": "prune-runner-releases", "planHash": "a" * 64},
@@ -603,9 +611,10 @@ def test_runner_lifecycle_mutation_failures_invalidate_ssh_state_cache(monkeypat
     assert start_response.status_code == 503
     assert upgrade_response.status_code == 409
     assert stop_response.status_code == 503
+    assert repair_response.status_code == 503
     assert prune_response.status_code == 503
     assert uninstall_response.status_code == 503
-    assert len(invalidations) == 6
+    assert len(invalidations) == 7
     assert all("servers" in prefixes and "ssh_" in prefixes for prefixes in invalidations)
 
 

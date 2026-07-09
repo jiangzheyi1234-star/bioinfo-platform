@@ -38,6 +38,7 @@ from apps.api.ssh_control_service import (
     list_ssh_remote_files_from_request,
     preview_server_runner_release_prune_from_request,
     preview_server_runner_uninstall_from_request,
+    repair_server_runner_diagnostics_from_request,
     refresh_server_health_from_request,
     rotate_server_token_from_request,
     run_server_runner_release_prune_from_request,
@@ -130,6 +131,11 @@ async def start_server_runner(server_id: str) -> dict[str, Any]:
 @router.post("/api/v1/servers/{server_id}/runner/stop")
 async def stop_server_runner(server_id: str) -> dict[str, Any]:
     return await stop_server_runner_from_request(server_id)
+
+
+@router.post("/api/v1/servers/{server_id}/runner/diagnostics/repair")
+async def repair_server_runner_diagnostics(server_id: str) -> dict[str, Any]:
+    return await repair_server_runner_diagnostics_from_request(server_id)
 
 
 @router.post("/api/v1/servers/{server_id}/remote-provisioning/jobs")

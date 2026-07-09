@@ -81,6 +81,22 @@ def test_remote_provisioning_cancel_is_explicit_about_running_jobs(monkeypatch: 
     assert exc_info.value.detail["reasonCode"] == "REMOTE_PROVISIONING_RUNNING_CANCEL_UNSUPPORTED"
 
 
+def test_remote_provisioning_accepts_runner_diagnostics_repair(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_runtime_config(monkeypatch)
+
+    assert jobs._normalize_action("repair-runner") == "repair-runner"
+    queued = jobs._create_remote_provisioning_job_record(
+        server_id="server-localhost",
+        action="repair-runner",
+    )
+    running = jobs._start_remote_provisioning_job(queued["jobId"])
+
+    assert queued["message"] == "Remote runner diagnostics repair is queued."
+    assert running is not None
+    assert running["stage"] == "repair"
+    assert running["message"] == "Repairing remote runner diagnostics."
+
+
 def test_remote_provisioning_action_validation_fails_loudly() -> None:
     with pytest.raises(RuntimeServiceError) as exc_info:
         jobs._normalize_action("shell-out")

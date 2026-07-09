@@ -13,14 +13,22 @@ export async function startWorkflowServerRunner(serverId: string): Promise<void>
   await postWorkflowServerRunnerAction(serverId, "runner/start");
 }
 
-async function postWorkflowServerRunnerAction(serverId: string, actionPath: "ensure-runner" | "runner/start"): Promise<void> {
+export async function repairWorkflowServerRunnerDiagnostics(serverId: string): Promise<void> {
+  await postWorkflowServerRunnerAction(serverId, "runner/diagnostics/repair", 180_000);
+}
+
+async function postWorkflowServerRunnerAction(
+  serverId: string,
+  actionPath: "ensure-runner" | "runner/start" | "runner/diagnostics/repair",
+  timeoutMs = 120_000
+): Promise<void> {
   const normalizedServerId = serverId.trim();
   if (!normalizedServerId) {
     throw new Error("serverId is required");
   }
   await requestLocalApiJson("POST", `/api/v1/servers/${encodeURIComponent(normalizedServerId)}/${actionPath}`, {
     cache: "no-store",
-    timeoutMs: 120_000,
+    timeoutMs,
   });
   invalidateAsyncCache(WORKFLOW_SERVER_CACHE_KEY);
 }

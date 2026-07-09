@@ -61,7 +61,7 @@ class RunnerUninstallRunRequest(ApiRequest):
 
 
 class RemoteProvisioningJobCreateRequest(ApiRequest):
-    action: Literal["ensure-runner", "start-runner", "upgrade-runner"] = "ensure-runner"
+    action: Literal["ensure-runner", "start-runner", "upgrade-runner", "repair-runner"] = "ensure-runner"
 
 
 class TerminalInputMessage(ApiRequest):
