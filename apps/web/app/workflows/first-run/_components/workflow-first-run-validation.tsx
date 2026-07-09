@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import type { FirstRunNextAction, FirstRunStatus, FirstRunValidationCard } from "../_domain/first-run-types";
-import { formatBytes } from "../_domain/first-run-display";
+import { formatBytes, friendlyFirstRunMessage } from "../_domain/first-run-display";
 import {
   firstRunEvidenceBundleFileByRole,
   firstRunEvidenceBundleFileDownloadHref,
@@ -72,7 +72,7 @@ export function ResultPackagePanel({
 
       {disabledReason ? (
         <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
-          {disabledReason}
+          {friendlyFirstRunMessage(disabledReason)}
         </div>
       ) : null}
 
@@ -87,7 +87,7 @@ export function ResultPackagePanel({
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="font-semibold">{finalizationAction.label || "首跑完成被阻塞"}</div>
-              <div className="mt-0.5">{finalizationAction.detail || finalizationAction.code}</div>
+              <div className="mt-0.5">{friendlyFirstRunMessage(finalizationAction.detail || finalizationAction.code)}</div>
             </div>
             {finalizationAction.target ? (
               <Button asChild variant="outline" size="sm" className="h-8 shrink-0 border-amber-200 bg-white px-2.5 text-xs text-amber-800 hover:bg-amber-50">
@@ -132,14 +132,17 @@ export function ResultPackagePanel({
       </div>
 
       {latestPackage ? (
-        <div className="mt-4 grid gap-2 text-xs">
-          <KeyValue label="package" value={latestPackage.packageExportId} mono />
-          <KeyValue label="payload" value={latestPackage.artifactPayloadMode || (latestPackage.includeArtifacts ? "full" : "metadata-only")} />
-          <KeyValue label="size" value={formatBytes(latestPackage.sizeBytes)} />
-          <KeyValue label="sha256" value={latestPackage.sha256} mono />
-          <KeyValue label="manifest" value={latestPackage.manifestSha256} mono />
-          <KeyValue label="evidence" value={latestPackage.evidenceId} mono />
-        </div>
+        <details className="mt-4 rounded-md border border-slate-200 bg-slate-50">
+          <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-slate-600">结果包详情</summary>
+          <div className="grid gap-2 border-t border-slate-200 bg-white p-3 text-xs">
+            <KeyValue label="package" value={latestPackage.packageExportId} mono />
+            <KeyValue label="payload" value={latestPackage.artifactPayloadMode || (latestPackage.includeArtifacts ? "full" : "metadata-only")} />
+            <KeyValue label="size" value={formatBytes(latestPackage.sizeBytes)} />
+            <KeyValue label="sha256" value={latestPackage.sha256} mono />
+            <KeyValue label="manifest" value={latestPackage.manifestSha256} mono />
+            <KeyValue label="evidence" value={latestPackage.evidenceId} mono />
+          </div>
+        </details>
       ) : null}
     </section>
   );
@@ -245,31 +248,36 @@ export function ValidationCard({
         <FirstRunTrustSummary status={firstRunStatus} />
       </div>
 
-      <div className="mt-4 grid gap-2 text-xs">
-        <KeyValue label="dataset" value="QIIME 2 Moving Pictures tutorial" />
-        <KeyValue label="pipeline" value="moving-pictures-16s-rulegraph-v1" mono />
-        <KeyValue label="run" value={effectiveRunId} mono />
-        <KeyValue label="result" value={resultId} mono />
-        <KeyValue label="status" value={effectiveRunStatus} />
-        <KeyValue label="runner" value={server?.label || server?.serverId} mono />
-        <KeyValue label="runtime" value={softwareRuntimeLabel(softwareEnvironment)} />
-        <KeyValue label="database" value="不需要外部数据库" />
-        <KeyValue label="流程版本" value={effectiveWorkflowRevisionId} mono />
-        <KeyValue label="inputs" value={`${inputCount} files`} />
-        <KeyValue label="outputs" value={`${artifacts.length} artifacts`} />
-        <KeyValue label="package" value={packageExportId} mono />
-        <KeyValue label="package sha" value={packageSha256} mono />
-        <KeyValue label="manifest" value={manifestSha256} mono />
-        <KeyValue label="evidence" value={packageExport?.evidenceId} mono />
-        <KeyValue label="bundle" value={evidenceBundle?.bundleId} mono />
-        <KeyValue label="bundle files" value={evidenceBundle?.requiredFiles?.length ? `${evidenceBundle.requiredFiles.length} files` : ""} />
-        <KeyValue label="card" value={card?.schemaVersion} mono />
-        <KeyValue label="generated" value={card?.generatedAt} mono />
-        <KeyValue
-          label="checks"
-          value={typeof passedChecks === "number" && typeof totalChecks === "number" ? `${passedChecks}/${totalChecks} passed checks` : ""}
-        />
-      </div>
+      <details className="mt-4 rounded-md border border-slate-200 bg-slate-50">
+        <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-slate-600">
+          运行与证据详情
+        </summary>
+        <div className="grid gap-2 border-t border-slate-200 bg-white p-3 text-xs">
+          <KeyValue label="dataset" value="QIIME 2 Moving Pictures tutorial" />
+          <KeyValue label="pipeline" value="moving-pictures-16s-rulegraph-v1" mono />
+          <KeyValue label="run" value={effectiveRunId} mono />
+          <KeyValue label="result" value={resultId} mono />
+          <KeyValue label="status" value={effectiveRunStatus} />
+          <KeyValue label="runner" value={server?.label || server?.serverId} mono />
+          <KeyValue label="runtime" value={softwareRuntimeLabel(softwareEnvironment)} />
+          <KeyValue label="database" value="不需要外部数据库" />
+          <KeyValue label="流程版本" value={effectiveWorkflowRevisionId} mono />
+          <KeyValue label="inputs" value={`${inputCount} files`} />
+          <KeyValue label="outputs" value={`${artifacts.length} artifacts`} />
+          <KeyValue label="package" value={packageExportId} mono />
+          <KeyValue label="package sha" value={packageSha256} mono />
+          <KeyValue label="manifest" value={manifestSha256} mono />
+          <KeyValue label="evidence" value={packageExport?.evidenceId} mono />
+          <KeyValue label="bundle" value={evidenceBundle?.bundleId} mono />
+          <KeyValue label="bundle files" value={evidenceBundle?.requiredFiles?.length ? `${evidenceBundle.requiredFiles.length} files` : ""} />
+          <KeyValue label="card" value={card?.schemaVersion} mono />
+          <KeyValue label="generated" value={card?.generatedAt} mono />
+          <KeyValue
+            label="checks"
+            value={typeof passedChecks === "number" && typeof totalChecks === "number" ? `${passedChecks}/${totalChecks} passed checks` : ""}
+          />
+        </div>
+      </details>
 
       {card ? <ValidationCardEvidenceSummary card={card} /> : null}
       {evidenceBundle ? <ValidationCardEvidenceBundle bundle={evidenceBundle} /> : null}

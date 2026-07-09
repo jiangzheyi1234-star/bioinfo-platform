@@ -42,6 +42,7 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     first_run_api = (FIRST_RUN_API / "workflow-first-run-api.ts").read_text(encoding="utf-8")
     first_run_completion = (FIRST_RUN_COMPONENTS / "workflow-first-run-completion.tsx").read_text(encoding="utf-8")
     first_run_conductor = (FIRST_RUN_COMPONENTS / "workflow-first-run-conductor.tsx").read_text(encoding="utf-8")
+    first_run_overview = (FIRST_RUN_COMPONENTS / "workflow-first-run-overview.tsx").read_text(encoding="utf-8")
     first_run_report = (FIRST_RUN_COMPONENTS / "workflow-first-run-report.tsx").read_text(encoding="utf-8")
     first_run_sample_submit = (FIRST_RUN_COMPONENTS / "workflow-first-run-sample-submit.tsx").read_text(encoding="utf-8")
     first_run_trust_summary = (FIRST_RUN_COMPONENTS / "workflow-first-run-trust-summary.tsx").read_text(encoding="utf-8")
@@ -60,7 +61,7 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     runner_repair = (COMPONENTS / "workflow-runner-repair-state.tsx").read_text(encoding="utf-8")
     page_ui = (COMPONENTS / "workflows-page-ui.tsx").read_text(encoding="utf-8")
     models = (COMPONENTS / "workflows-page-model.ts").read_text(encoding="utf-8")
-    first_run_source = f"{first_run_page}\n{first_run_api}\n{first_run_completion}\n{first_run_conductor}\n{first_run_report}\n{first_run_sample_submit}\n{first_run_trust_summary}\n{first_run_validation}"
+    first_run_source = f"{first_run_page}\n{first_run_api}\n{first_run_completion}\n{first_run_conductor}\n{first_run_overview}\n{first_run_report}\n{first_run_sample_submit}\n{first_run_trust_summary}\n{first_run_validation}"
     api = (COMPONENTS / "workflows-page-api.ts").read_text(encoding="utf-8")
     hook = (COMPONENTS / "use-workflows-page-state.ts").read_text(encoding="utf-8")
     runner_adapter = _function_body(runner_repair, "workflowServerRepairStatus")
@@ -167,7 +168,11 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "export function firstRunEvidenceBundleDownloadHref" in first_run_evidence_bundle
     assert "download?: FirstRunEvidenceBundleFile" in first_run_types
     assert "fetchWorkflowScenarioPacks" not in first_run_page
-    assert "WorkflowFirstRunConductorPanel" in first_run_page
+    assert "FirstRunLaunchOverview" in first_run_page
+    assert 'data-testid="first-run-overview"' in first_run_overview
+    assert 'data-testid="first-run-conductor"' in first_run_overview
+    assert 'data-first-run-next-action={action.code}' in first_run_overview
+    assert 'data-testid="first-run-continue"' in first_run_overview
     assert "useFirstRunConductor" in first_run_page
     assert "firstRunConductor" in first_run_page
     assert "continueFirstRun" in first_run_page
@@ -283,8 +288,8 @@ def test_first_successful_run_is_default_onboarding_path() -> None:
     assert "firstRunValidationCardPassed" not in first_run_page
     assert "firstRunValidationCardPassed" not in first_run_completion + first_run_trust_summary + first_run_validation
     assert "target: string" in first_run_progress
-    assert "data-step-target={step.target}" in first_run_page
-    assert "href={step.target}" in first_run_page
+    assert "data-step-target={step.target}" in first_run_overview
+    assert "href={step.target}" in first_run_overview
     assert '"#result-package"' in first_run_progress
     assert '"#evidence-bundle"' in first_run_progress
     assert "if (!ready) return null" in first_run_completion

@@ -4,9 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
+  Clock3,
   Loader2,
   RefreshCw,
-  Rocket,
   Server,
   ShieldCheck,
   XCircle,
@@ -20,10 +20,10 @@ import { useSshShell } from "@/app/components/ssh-shell";
 import { RunnerRepairPanel } from "@/app/components/ssh-runner-repair-panel";
 import { runnerEnsureActionLabel, type SSHStatus } from "@/app/components/ssh-shell-model";
 import { useWorkflowsPageState } from "@/app/components/use-workflows-page-state";
-import { WorkflowFirstRunConductorPanel, useFirstRunConductor } from "./workflow-first-run-conductor";
+import { useFirstRunConductor } from "./workflow-first-run-conductor";
 import { FirstRunCompletionPanel } from "./workflow-first-run-completion";
+import { FirstRunLaunchOverview } from "./workflow-first-run-overview";
 import { SampleAndSubmitPanel, sampleUploadsReady } from "./workflow-first-run-sample-submit";
-import { WorkflowPageHeader } from "@/app/components/workflow-page-header";
 import { WorkflowWorkspaceTabs } from "@/app/components/workflow-workspace-tabs";
 import { RunReportPanel } from "./workflow-first-run-report";
 import { ResultPackagePanel, ValidationCard } from "./workflow-first-run-validation";
@@ -42,9 +42,8 @@ import {
   executionDiagnosticsDetail,
   resultPackageDisabledReason,
   runnerChecks,
-  type FirstRunStep,
-  type FirstRunStepState,
 } from "../_domain/first-run-progress";
+import { friendlyFirstRunMessage } from "../_domain/first-run-display";
 import { useFirstRunEvidence } from "../_state/use-first-run-evidence";
 import { useFirstRunStatus } from "../_state/use-first-run-status";
 
@@ -59,7 +58,6 @@ export function WorkflowFirstRunPage() {
   const [submittingFirstRun, setSubmittingFirstRun] = useState(false);
   const [firstRunSubmitError, setFirstRunSubmitError] = useState("");
   const sshConnectionRefreshRef = useRef("");
-  const autoFinalizeFirstRunRef = useRef("");
 
   const run = state.runDetail?.run || state.submittedRun;
   const result = state.runDetail?.results;
@@ -72,9 +70,6 @@ export function WorkflowFirstRunPage() {
     serverId: state.server?.serverId,
   });
   const firstRunStatusSnapshot = firstRunStatus.status;
-  const firstRunStatusStage = firstRunStatusSnapshot?.stage || "";
-  const firstRunNextActionCode = firstRunStatusSnapshot?.nextAction?.code || "";
-  const firstRunNextActionBlockedCode = firstRunStatusSnapshot?.nextAction?.blockedCode || "";
   const statusServerEvidence = firstRunStatusSnapshot?.evidence?.server;
   const statusExecutionEvidence = firstRunStatusSnapshot?.evidence?.execution;
   const statusWorkflowEvidence = firstRunStatusSnapshot?.evidence?.workflow;
@@ -214,36 +209,6 @@ export function WorkflowFirstRunPage() {
     refreshWorkspaceAndFirstRunStatus,
   ]);
 
-  useEffect(() => {
-    const finalizedRunId = statusRun?.runId || "";
-    const blockedCode = firstRunNextActionBlockedCode;
-    const finalizeKey = `${finalizedRunId}|${blockedCode}`;
-    const runCompleted = String(statusRun?.status || "").toLowerCase() === "completed";
-    if (
-      firstRunStatusStage !== "export_result_package" ||
-      firstRunNextActionCode !== "FINALIZE_FIRST_RUN" ||
-      !finalizedRunId ||
-      !blockedCode ||
-      !runCompleted ||
-      firstRunEvidence.finalizingFirstRun ||
-      firstRunEvidence.validationReady
-    ) {
-      return;
-    }
-    if (autoFinalizeFirstRunRef.current === finalizeKey) return;
-    autoFinalizeFirstRunRef.current = finalizeKey;
-    void finalizeAndRefreshStatus();
-  }, [
-    finalizeAndRefreshStatus,
-    firstRunEvidence.finalizingFirstRun,
-    firstRunEvidence.validationReady,
-    firstRunNextActionBlockedCode,
-    firstRunNextActionCode,
-    firstRunStatusStage,
-    statusRun?.runId,
-    statusRun?.status,
-  ]);
-
   const firstRunConductor = useFirstRunConductor({
     busy:
       ensuringRunner ||
@@ -331,21 +296,20 @@ export function WorkflowFirstRunPage() {
   }
 
   return (
-    <div className="relative h-full w-full overflow-y-auto bg-white px-8 py-10 text-slate-800" data-testid="first-successful-run-page">
+    <div className="relative h-full w-full overflow-y-auto bg-slate-50 px-8 py-8 text-slate-800" data-testid="first-successful-run-page">
       <WorkflowWorkspaceTabs />
       <div className="mx-auto max-w-6xl space-y-6">
-        <WorkflowPageHeader
-          title="首跑向导"
-          leading={
-            <span className="inline-flex h-8 items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 text-xs font-medium text-emerald-700">
-              <Rocket strokeWidth={1.5} className="h-3.5 w-3.5" />
-              {FIRST_RUN_PIPELINE_NAME}
-            </span>
-          }
-          actions={
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-semibold tracking-normal text-slate-950">首跑向导</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+              用官方 Moving Pictures 样例完成一次端到端运行，确认远端环境、流程、结果包和证据链都可交付。
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
             <Button
               variant="outline"
-              className="h-9 bg-white px-3 text-slate-600"
+              className="h-10 bg-white px-3 text-slate-600 shadow-sm"
               disabled={state.loading}
               onClick={() => void refreshWorkspaceAndFirstRunStatus()}
             >
@@ -356,8 +320,8 @@ export function WorkflowFirstRunPage() {
               )}
               刷新状态
             </Button>
-          }
-        />
+          </div>
+        </div>
 
         {workspaceConnectionPrompt ? (
           <Alert>
@@ -402,16 +366,26 @@ export function WorkflowFirstRunPage() {
           pilotHandoff={firstRunEvidence.pilotHandoff}
         />
 
-        <WorkflowFirstRunConductorPanel
+        <FirstRunLaunchOverview
           action={firstRunConductor.action}
           busy={firstRunConductor.busy}
           error={firstRunConductor.error}
+          refreshing={state.loading || firstRunStatus.loading}
+          resultId={resultId}
+          runId={statusRun?.runId || run?.runId || ""}
+          runSubmitted={runSubmitted}
+          sampleReady={sampleReady}
+          server={state.server}
+          serverConnected={serverConnected}
+          serverReady={serverReady}
+          steps={steps}
+          validationReady={validationReady}
           onContinue={() => void firstRunConductor.continueFirstRun()}
+          onRefresh={() => void refreshWorkspaceAndFirstRunStatus()}
         />
 
         <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
           <div className="space-y-5">
-            <FirstRunSteps steps={steps} />
             <RunnerReadinessPanel
               canEnsure={Boolean(state.server?.serverId)}
               connected={serverConnected}
@@ -495,34 +469,6 @@ export function WorkflowFirstRunPage() {
   );
 }
 
-function FirstRunSteps({ steps }: { steps: FirstRunStep[] }) {
-  return (
-    <section className="rounded-lg border border-slate-200 bg-white" data-testid="first-run-step-list">
-      <div className="grid divide-y divide-slate-100 md:grid-cols-4 md:divide-x md:divide-y-0 xl:grid-cols-8">
-        {steps.map((step, index) => (
-          <a
-            key={step.id}
-            href={step.target}
-            className="block min-w-0 px-3 py-3 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-200"
-            data-first-run-step={step.id}
-            data-step-state={step.state}
-            data-step-target={step.target}
-          >
-            <div className="flex items-center gap-2">
-              <StepStateIcon state={step.state} />
-              <span className="text-[11px] font-medium text-slate-400">{String(index + 1).padStart(2, "0")}</span>
-            </div>
-            <div className={cn("mt-2 truncate text-xs font-semibold", step.state === "blocked" ? "text-red-700" : "text-slate-900")}>
-              {step.label}
-            </div>
-            <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-500">{step.detail}</div>
-          </a>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function RunnerReadinessPanel({
   canEnsure,
   connected,
@@ -554,19 +500,40 @@ function RunnerReadinessPanel({
 }) {
   const checks = runnerChecks(server);
   const executionReadiness = diagnostics?.readiness;
+  const serverLabel = server?.label || server?.serverId || (connected ? sshStatus?.host || "已连接远端" : "尚未连接远端");
+  const environmentReady = connected && server?.ready === true && executionReadiness?.ok === true;
   return (
-    <section id="runner-readiness" className="scroll-mt-24 rounded-lg border border-slate-200 bg-white p-5">
+    <section id="runner-readiness" className="scroll-mt-24 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
+          <div className="flex items-center gap-2 text-base font-semibold text-slate-950">
             <Server strokeWidth={1.5} className="h-4 w-4 text-slate-500" />
-            连接远端与运行环境检查
+            远端运行环境
           </div>
-          <div className="mt-1 truncate font-mono text-[11px] text-slate-400">
-            {server?.label || server?.serverId || "no server selected"}
+          <div className="mt-1 max-w-xl text-sm leading-6 text-slate-500">
+            {environmentReady
+              ? "SSH、runner 和执行环境都已通过检查，可以继续准备样例或提交运行。"
+              : connected
+                ? "已建立 SSH 连接，继续检查 runner、Snakemake 和流程目录。"
+                : "先连接远端服务器，系统会在连接后检查 runner 和执行环境。"}
+          </div>
+          <div className="mt-2 truncate font-mono text-[11px] text-slate-400">
+            {serverLabel}
           </div>
         </div>
-        <div className="flex shrink-0 flex-wrap gap-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <span
+            className={cn(
+              "rounded-full border px-2.5 py-1 text-xs font-medium",
+              environmentReady
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                : connected
+                  ? "border-blue-200 bg-blue-50 text-blue-700"
+                  : "border-amber-200 bg-amber-50 text-amber-700"
+            )}
+          >
+            {environmentReady ? "已就绪" : connected ? "检查中" : "待连接"}
+          </span>
           <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs" onClick={onConnect} data-testid="first-run-open-connect">
             <Server strokeWidth={1.5} className="h-3.5 w-3.5" />
             连接远端
@@ -574,7 +541,7 @@ function RunnerReadinessPanel({
           <Button
             variant="outline"
             size="sm"
-            className="h-8 px-2.5 text-xs"
+            className="h-8 bg-white px-2.5 text-xs"
             disabled={!canEnsure || ensuring || loading}
             onClick={onEnsure}
           >
@@ -602,16 +569,25 @@ function RunnerReadinessPanel({
         </Alert>
       ) : null}
 
-      <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-        <ReadinessCheck label="SSH" ok={connected} detail={connected ? "connected" : "未连接"} />
-        <ReadinessCheck label="Runner" ok={Boolean(server?.ready)} detail={server?.runner?.message || server?.message || server?.reasonCode || "未检查"} />
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <ReadinessCheck label="SSH" status={connected ? "ready" : "waiting"} detail={connected ? "连接已建立" : "等待连接"} />
+        <ReadinessCheck
+          label="Runner"
+          status={server?.ready === true ? "ready" : server?.reasonCode ? "blocked" : "waiting"}
+          detail={server?.runner?.message || server?.message || server?.reasonCode || "等待检查"}
+        />
         <ReadinessCheck
           label="Execution"
-          ok={executionReadiness?.ok === true}
+          status={executionReadiness?.ok === true ? "ready" : diagnosticsLoading ? "checking" : executionReadiness ? "blocked" : "waiting"}
           detail={executionDiagnosticsDetail(diagnostics, diagnosticsLoading)}
         />
         {checks.map((check) => (
-          <ReadinessCheck key={check.label} label={check.label} ok={check.ok} detail={check.detail} />
+          <ReadinessCheck
+            key={check.label}
+            label={check.label}
+            status={check.ok ? "ready" : check.detail ? "blocked" : "waiting"}
+            detail={check.detail || "等待检查"}
+          />
         ))}
       </div>
       {executionReadiness?.blockingReasons?.length ? (
@@ -619,40 +595,61 @@ function RunnerReadinessPanel({
           {executionReadiness.blockingReasons.slice(0, 3).map((reason) => reason.code || reason.message || "EXECUTION_NOT_READY").join(" / ")}
         </div>
       ) : null}
-      <div className="mt-4" data-testid="first-run-runner-repair">
-        <RunnerRepairPanel
-          status={sshStatus}
-          ensureRunnerBusy={ensuring}
-          onEnsureRunner={onEnsure}
-          onRefreshStatus={onRefresh}
-          className="shadow-none"
-        />
-      </div>
+      <details className="mt-5 rounded-md border border-slate-200 bg-slate-50">
+        <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-slate-600">
+          高级诊断与修复
+        </summary>
+        <div className="border-t border-slate-200 bg-white p-3" data-testid="first-run-runner-repair">
+          <RunnerRepairPanel
+            status={sshStatus}
+            ensureRunnerBusy={ensuring}
+            onEnsureRunner={onEnsure}
+            onRefreshStatus={onRefresh}
+            className="shadow-none"
+          />
+        </div>
+      </details>
     </section>
   );
 }
 
-function ReadinessCheck({ detail, label, ok }: { detail: string; label: string; ok: boolean }) {
+function ReadinessCheck({
+  detail,
+  label,
+  status,
+}: {
+  detail: string;
+  label: string;
+  status: "ready" | "checking" | "waiting" | "blocked";
+}) {
+  const ready = status === "ready";
+  const blocked = status === "blocked";
   return (
-    <div className="min-w-0 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+    <div
+      className={cn(
+        "min-w-0 rounded-md border px-3 py-2",
+        ready
+          ? "border-emerald-200 bg-emerald-50/70"
+          : blocked
+            ? "border-red-200 bg-red-50/70"
+            : "border-slate-200 bg-slate-50"
+      )}
+    >
       <div className="flex items-center gap-1.5 text-xs font-medium text-slate-800">
-        {ok ? (
+        {ready ? (
           <CheckCircle2 strokeWidth={1.5} className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
-        ) : (
+        ) : status === "checking" ? (
+          <Loader2 strokeWidth={1.5} className="h-3.5 w-3.5 shrink-0 animate-spin text-blue-500" />
+        ) : blocked ? (
           <XCircle strokeWidth={1.5} className="h-3.5 w-3.5 shrink-0 text-red-500" />
+        ) : (
+          <Clock3 strokeWidth={1.5} className="h-3.5 w-3.5 shrink-0 text-slate-400" />
         )}
         <span>{label}</span>
       </div>
-      <div className="mt-1 truncate text-[11px] text-slate-500">{detail || "未检查"}</div>
+      <div className="mt-1 truncate text-[11px] text-slate-500">{friendlyFirstRunMessage(detail) || "未检查"}</div>
     </div>
   );
-}
-
-function StepStateIcon({ state }: { state: FirstRunStepState }) {
-  if (state === "done") return <CheckCircle2 strokeWidth={1.5} className="h-4 w-4 text-emerald-500" />;
-  if (state === "blocked") return <XCircle strokeWidth={1.5} className="h-4 w-4 text-red-500" />;
-  if (state === "current") return <Loader2 strokeWidth={1.5} className="h-4 w-4 animate-spin text-blue-500" />;
-  return <span className="h-4 w-4 rounded-full border border-slate-300" />;
 }
 
 function firstRunWorkspaceConnectionPrompt(error: string, connected: boolean) {

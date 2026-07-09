@@ -70,27 +70,27 @@ export function FirstRunTrustSummary({
     <div
       className={cn(
         "rounded-md border p-3",
-        summaryReady ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"
+        summaryReady ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-white"
       )}
       data-testid="first-run-trust-summary"
       data-summary-ready={summaryReady ? "true" : "false"}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className={cn("flex min-w-0 items-center gap-2 text-xs font-semibold", summaryReady ? "text-emerald-950" : "text-amber-950")}>
+        <div className={cn("flex min-w-0 items-center gap-2 text-xs font-semibold", summaryReady ? "text-emerald-950" : "text-slate-900")}>
           {summaryReady ? (
             <CheckCircle2 strokeWidth={1.5} className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
           ) : (
-            <XCircle strokeWidth={1.5} className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+            <XCircle strokeWidth={1.5} className="h-3.5 w-3.5 shrink-0 text-slate-400" />
           )}
           <span className="truncate">这次结果为什么可信</span>
         </div>
         <span
           className={cn(
             "rounded-full border bg-white px-2 py-0.5 text-[11px]",
-            summaryReady ? "border-emerald-200 text-emerald-700" : "border-amber-200 text-amber-700"
+            summaryReady ? "border-emerald-200 text-emerald-700" : "border-slate-200 text-slate-500"
           )}
         >
-          {typeof passedChecks === "number" && typeof totalChecks === "number" ? `${passedChecks}/${totalChecks} checks` : "waiting"}
+          {typeof passedChecks === "number" && typeof totalChecks === "number" ? `${passedChecks}/${totalChecks} checks` : "准备中"}
         </span>
       </div>
       <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-5" data-testid="first-run-trust-summary-items">
@@ -109,7 +109,12 @@ function TrustItem({
 }) {
   const Icon = item.icon;
   return (
-    <div className="min-w-0 rounded border border-emerald-200 bg-white px-3 py-2">
+    <div
+      className={cn(
+        "min-w-0 rounded border bg-white px-3 py-2",
+        item.tone === "success" ? "border-emerald-200" : "border-slate-200"
+      )}
+    >
       <div className="flex min-w-0 items-center gap-2 text-[11px] font-semibold text-slate-800">
         <Icon
           strokeWidth={1.5}
