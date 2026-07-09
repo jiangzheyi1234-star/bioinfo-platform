@@ -120,6 +120,9 @@ def test_server_profile_api_and_plugin_center_surface_contracts() -> None:
     page_source = (ROOT / "apps" / "web" / "app" / "components" / "plugin-center-page.tsx").read_text(
         encoding="utf-8"
     )
+    view_model_source = (ROOT / "apps" / "web" / "app" / "components" / "plugin-center-view-model.ts").read_text(
+        encoding="utf-8"
+    )
     api_source = (ROOT / "apps" / "web" / "app" / "components" / "plugin-center-api.ts").read_text(
         encoding="utf-8"
     )
@@ -130,6 +133,6 @@ def test_server_profile_api_and_plugin_center_surface_contracts() -> None:
     assert "get_server_profile_from_request" in control_source
     assert '"/api/v1/server-profiles"' in api_source
     assert "fetchServerProfiles" in page_source
-    assert 'data-testid="plugin-center-server-profile-summary"' in page_source
-    assert "hostKeyTrustLabel(activeServerProfile)" in page_source
-    assert "runnerTokenLabel(activeServerProfile)" in page_source
+    assert "activeServerProfile" in page_source
+    assert "activeServerProfile?.runner.installedVersion" in view_model_source
+    assert "profile?.runner.health" in view_model_source

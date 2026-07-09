@@ -195,12 +195,16 @@ Baseline landed:
 - The plugin center reads the remote-runner owned tool prepare queue and local-control-plane owned remote provisioning queue separately.
 - The installation task summary aggregates active tool preparation and remote provisioning counts without merging their backend domain models.
 - The tool plugin card surfaces the latest remote tool preparation job when the runner is available, while keeping the existing tools page as the detailed management surface.
+- The plugin center now uses a Codex-style unified extension manager layout with `插件` / `技能` tabs, global search, installed extension strip, source filters, category sections, and a shared installation task list.
+- Runtime, tool, database, tool-pack, and skill entries are adapted into a shared frontend `PluginCenterExtensionItem` read model before introducing any new backend aggregation endpoint.
+- Remote provisioning jobs and tool prepare jobs are adapted into a shared frontend `PluginCenterTask` view while preserving their separate backend owners.
 
 Acceptance evidence:
 
 - Tool prepare tests still cover tool-specific behavior.
 - Plugin center tests verify cross-card status aggregation without leaking secrets.
 - Documentation explains the ownership boundary.
+- Browser smoke against a real local web session verifies the unified plugin manager shows the real server profile, remote runner version, workflow runtime version, source filters, category sections, and unified task list.
 
 ## Completion Criteria
 
@@ -219,7 +223,9 @@ The goal is complete when current-state evidence proves:
 
 - Navigation uses the Chinese product label `插件` while the architecture vocabulary remains plugin/extension center.
 - Tool management stays on the current tools page for detailed workflows; the plugin center links to it and reads the tool prepare queue for summary status.
+- The plugin center page should remain a discovery, install, enable, update, and status surface. Specialized tool contract editing, database registration, and runner repair details may open linked deep-management surfaces instead of being duplicated inline.
 - The first provisioning job store lives in the local runtime config. Moving it to local SQLite is deferred until retention, audit, or concurrency pressure proves the need.
+- A backend plugin-center summary endpoint is deferred until the frontend read-model adapters become too complex or multi-profile loading requires server-side aggregation.
 - The current single `ssh` config remains as the compatibility source while the API exposes a first-class default server profile projection.
 - The thin remote CLI remains deferred. If added, it should be packaged as a management shell around the long-running service after provisioning lifecycle evidence is stable.
 

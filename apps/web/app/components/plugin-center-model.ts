@@ -1,6 +1,98 @@
 export const REMOTE_PROVISIONING_ACTIVE_STATUSES = ["queued", "running"] as const;
 export const REMOTE_PROVISIONING_TERMINAL_STATUSES = ["succeeded", "failed", "cancelled"] as const;
 
+export const PLUGIN_CENTER_VIEW_MODES = ["plugins", "skills"] as const;
+export const PLUGIN_CENTER_CATEGORIES = [
+  { id: "featured", label: "Featured" },
+  { id: "runtime", label: "Runtime" },
+  { id: "workflow-tools", label: "Workflow Tools" },
+  { id: "data", label: "Data" },
+  { id: "productivity", label: "Productivity" },
+  { id: "governance", label: "Governance" },
+] as const;
+
+export type PluginCenterViewMode = (typeof PLUGIN_CENTER_VIEW_MODES)[number];
+export type PluginCenterCategoryId = (typeof PLUGIN_CENTER_CATEGORIES)[number]["id"];
+export type PluginCenterKind = "plugin" | "skill" | "tool" | "tool-pack" | "runtime" | "database-pack";
+export type PluginCenterSourceType =
+  | "official"
+  | "local"
+  | "remote"
+  | "bioconda"
+  | "conda-forge"
+  | "snakemake-wrapper"
+  | "tool-pack";
+export type PluginCenterInstallState =
+  | "not_installed"
+  | "installed"
+  | "enabled"
+  | "disabled"
+  | "installing"
+  | "updating"
+  | "failed";
+export type PluginCenterHealth = "ready" | "warning" | "failed" | "unknown";
+export type PluginCenterAction = "install" | "update" | "enable" | "disable" | "remove" | "try_in_chat" | "manage";
+
+export type PluginCenterCapability = {
+  id: string;
+  label: string;
+  operation?: string;
+  workflowStage?: string;
+  agentSelectable?: boolean;
+};
+
+export type PluginCenterExtensionItem = {
+  id: string;
+  kind: PluginCenterKind;
+  slug: string;
+  name: string;
+  summary: string;
+  description?: string;
+  icon: string;
+  publisher: string;
+  sourceId: string;
+  sourceLabel: string;
+  sourceType: PluginCenterSourceType;
+  categoryIds: PluginCenterCategoryId[];
+  tags: string[];
+  featured: boolean;
+  installed: boolean;
+  enabled: boolean;
+  installState: PluginCenterInstallState;
+  installedVersion?: string;
+  latestVersion?: string;
+  updateAvailable?: boolean;
+  requiresRunner?: boolean;
+  serverId?: string;
+  health: PluginCenterHealth;
+  healthLabel: string;
+  detailLabel?: string;
+  manageHref?: string;
+  primaryAction: PluginCenterAction;
+  primaryActionLabel: string;
+  actions: PluginCenterAction[];
+  capabilities: PluginCenterCapability[];
+  tryInChat?: {
+    enabled: boolean;
+    promptTemplate?: string;
+    capabilityId?: string;
+  };
+};
+
+export type PluginCenterTask = {
+  id: string;
+  kind: "remote-provisioning" | "tool-prepare";
+  target: string;
+  action: string;
+  status: string;
+  stage: string;
+  message: string;
+  createdAt: string;
+  updatedAt: string;
+  active: boolean;
+  href?: string;
+};
+
 export type RemoteProvisioningJobAction = "ensure-runner" | "start-runner" | "upgrade-runner";
 export type RemoteProvisioningJobStatus =
   | (typeof REMOTE_PROVISIONING_ACTIVE_STATUSES)[number]
