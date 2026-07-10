@@ -89,6 +89,25 @@ def test_server_scoped_runner_diagnostic_routes_are_governed() -> None:
     assert not any(policy.route == "/api/v1/ssh/listening-ports" for policy in HIGH_RISK_API_POLICIES)
 
 
+def test_managed_extension_mutations_are_governed() -> None:
+    policies = {(policy.method, policy.route, policy.action) for policy in HIGH_RISK_API_POLICIES}
+    assert (
+        "POST",
+        "/api/v1/servers/{server_id}/remote-provisioning/jobs",
+        "managed_extension.provision",
+    ) in policies
+    assert (
+        "POST",
+        "/api/v1/remote-provisioning/jobs/{job_id}/cancel",
+        "managed_extension.provision.cancel",
+    ) in policies
+    assert (
+        "POST",
+        "/api/v1/plugin-center/extensions/{extension_id}/actions",
+        "managed_extension.action",
+    ) in policies
+
+
 def test_high_risk_governance_policy_routes_and_implemented_audit_actions_exist() -> None:
     implementation_source = "\n".join(
         path.read_text(encoding="utf-8")

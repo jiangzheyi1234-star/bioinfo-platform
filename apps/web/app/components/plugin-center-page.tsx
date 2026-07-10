@@ -8,11 +8,16 @@ import {
   fetchRemoteProvisioningJobQueue,
   fetchServerProfiles,
 } from "./plugin-center-api";
+import {
+  PluginCenterExtensionDetails,
+  type PluginCenterTargetContext,
+} from "./plugin-center-extension-details";
 import { PluginCenterExtensionManager } from "./plugin-center-extension-manager";
 import {
   isActiveRemoteProvisioningJob,
   type PluginCenterExtensionList,
   type PluginCenterExtensionItem,
+  type PluginCenterManagedManifestAction,
   type PluginCenterViewMode,
   type RemoteProvisioningJob,
   type RemoteProvisioningJobQueue,
@@ -37,6 +42,7 @@ import { Input } from "@/components/ui/input";
 
 const REMOTE_PROVISIONING_POLL_MS = 1500;
 const TOOL_PREPARE_QUEUE_POLL_MS = 2500;
+const PREFLIGHT_ACTIONS = new Set(["install", "repair", "update"]);
 
 function toolPrepareActiveCount(queue: ToolPrepareJobQueue | null): number {
   if (!queue) return 0;
@@ -75,6 +81,11 @@ type UninstallPreviewState = {
   item: PluginCenterExtensionItem;
   plan: Record<string, unknown>;
   serverId: string;
+};
+
+type ExtensionDetailsState = {
+  itemId: string;
+  pendingAction: string | null;
 };
 
 function recordString(value: Record<string, unknown> | null, key: string): string {
@@ -132,11 +143,14 @@ export function PluginCenterPage() {
   const [sourceFilter, setSourceFilter] = useState("all");
   const [provisioningQueue, setProvisioningQueue] = useState<RemoteProvisioningJobQueue | null>(null);
   const [managedExtensionList, setManagedExtensionList] = useState<PluginCenterExtensionList | null>(null);
+  const [extensionListLoading, setExtensionListLoading] = useState(true);
   const [serverProfiles, setServerProfiles] = useState<ServerProfileList | null>(null);
+  const [serverProfilesLoading, setServerProfilesLoading] = useState(true);
   const [toolPrepareQueue, setToolPrepareQueue] = useState<ToolPrepareJobQueue | null>(null);
   const [extensionListError, setExtensionListError] = useState("");
   const [extensionActionBusyKey, setExtensionActionBusyKey] = useState("");
   const [extensionActionError, setExtensionActionError] = useState("");
+  const [extensionDetails, setExtensionDetails] = useState<ExtensionDetailsState | null>(null);
   const [uninstallPreview, setUninstallPreview] = useState<UninstallPreviewState | null>(null);
   const [uninstallConfirmation, setUninstallConfirmation] = useState("");
   const refreshedTerminalJobKeyRef = useRef("");
@@ -167,6 +181,25 @@ export function PluginCenterPage() {
     provisioningQueue?.items.find((job) => job.serverId === serverId) || latestProvisioningJob;
   const persistentToolPrepareActiveCount = toolPrepareActiveCount(toolPrepareQueue);
   const extensions = useMemo(() => managedExtensionList?.items || [], [managedExtensionList]);
+  const selectedExtension = useMemo(
+    () => extensions.find((item) => item.id === extensionDetails?.itemId) || null,
+    [extensionDetails?.itemId, extensions]
+  );
+  const activeTarget = useMemo<PluginCenterTargetContext>(
+    () => ({
+      profileId: activeServerProfile?.profileId || managedExtensionList?.activeProfileId || "",
+      serverId: activeServerProfile?.serverId || serverId,
+      label:
+        activeServerProfile?.displayName ||
+        status?.displayTarget ||
+        serverId ||
+        "未选择 active server profile",
+      connected: Boolean(status?.connected || activeServerProfile?.connected),
+      trusted: Boolean(activeServerProfile?.hostKeyTrust.trusted),
+      loading: serverProfilesLoading && !activeServerProfile,
+    }),
+    [activeServerProfile, managedExtensionList?.activeProfileId, serverId, serverProfilesLoading, status]
+  );
   const installationTasks = useMemo(
     () => buildPluginCenterTasks(provisioningQueue, toolPrepareQueue),
     [provisioningQueue, toolPrepareQueue]
@@ -178,16 +211,18 @@ export function PluginCenterPage() {
     return queue;
   }, []);
 
-  const refreshManagedExtensions = useCallback(async (signal?: AbortSignal) => {
+  const refreshManagedExtensions = useCallback(async (signal?: AbortSignal, showLoading = false) => {
+    if (showLoading) setExtensionListLoading(true);
     try {
       const next = await fetchPluginCenterExtensions(signal);
       setManagedExtensionList(next);
       setExtensionListError("");
       return next;
     } catch (error) {
-      setManagedExtensionList(null);
-      setExtensionListError(normalizeFetchError(error));
+      if (!signal?.aborted) setExtensionListError(normalizeFetchError(error));
       return null;
+    } finally {
+      if (showLoading) setExtensionListLoading(false);
     }
   }, []);
 
@@ -204,12 +239,13 @@ export function PluginCenterPage() {
 
   useEffect(() => {
     const controller = new AbortController();
-    void refreshManagedExtensions(controller.signal);
+    void refreshManagedExtensions(controller.signal, true);
     void refreshProvisioningJobs(controller.signal).catch(() => undefined);
     void refreshToolPrepareQueue(controller.signal);
     void fetchServerProfiles(controller.signal)
       .then(setServerProfiles)
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => setServerProfilesLoading(false));
     return () => controller.abort();
   }, [refreshManagedExtensions, refreshProvisioningJobs, refreshToolPrepareQueue]);
 
@@ -252,15 +288,34 @@ export function PluginCenterPage() {
   const executeExtensionAction = async (
     item: PluginCenterExtensionItem,
     action: string,
-    options: { mode?: "run" | "preview"; confirmation?: string; planHash?: string } = {}
+    options: {
+      mode?: "run" | "preview";
+      confirmation?: string;
+      planHash?: string;
+      expectedServerId?: string;
+    } = {}
   ) => {
-    if (item.id === "h2ometa-remote-runner" && !status?.connected) {
+    const requiresServerProfile = item.manifest.installTargets.some((target) => target.requiresServerProfile);
+    if (requiresServerProfile && !status?.connected) {
+      setExtensionDetails(null);
       openConnectDialog();
       return;
     }
-    const targetServerId = item.serverId || serverId;
-    if (!targetServerId) {
+    const targetServerId = requiresServerProfile ? options.expectedServerId || serverId : item.serverId || serverId;
+    if (requiresServerProfile && !targetServerId) {
       setExtensionActionError("没有可执行的远端 server profile。");
+      return;
+    }
+    if (
+      requiresServerProfile &&
+      ((options.expectedServerId && options.expectedServerId !== serverId) ||
+        (item.serverId && item.serverId !== targetServerId))
+    ) {
+      setExtensionActionError("远端目标已变化，请刷新插件状态后重新核对预检。");
+      return;
+    }
+    if (requiresServerProfile && !activeTarget.trusted) {
+      setExtensionActionError("请先确认当前远端目标的 Host key。");
       return;
     }
     if (action !== "uninstall" && activeRunnerProvisioningJob) {
@@ -273,7 +328,7 @@ export function PluginCenterPage() {
     try {
       const result = await executePluginCenterExtensionAction(item.id, {
         action,
-        serverId: targetServerId,
+        serverId: targetServerId || undefined,
         mode: options.mode || "run",
         confirmation: options.confirmation,
         planHash: options.planHash,
@@ -282,12 +337,17 @@ export function PluginCenterPage() {
         setProvisioningQueue((current) => mergeRemoteProvisioningJob(current, result.job as RemoteProvisioningJob));
       }
       if (action === "uninstall" && result.plan) {
-        setUninstallPreview({ item, plan: result.plan, serverId: targetServerId });
+        setUninstallPreview({ item, plan: result.plan, serverId: result.serverId });
         setUninstallConfirmation("");
       }
       if (action === "uninstall" && result.result) {
         setUninstallPreview(null);
         setUninstallConfirmation("");
+      }
+      if (action !== "uninstall") {
+        setExtensionDetails((current) =>
+          current?.itemId === item.id ? { itemId: item.id, pendingAction: null } : current
+        );
       }
       await refreshManagedExtensions();
       await refreshProvisioningJobs();
@@ -305,31 +365,50 @@ export function PluginCenterPage() {
     setQuery("");
   };
 
+  const openExtensionDetails = (item: PluginCenterExtensionItem, pendingAction: string | null = null) => {
+    setExtensionActionError("");
+    setExtensionDetails({ itemId: item.id, pendingAction });
+  };
+
   const handlePrimaryAction = (item: PluginCenterExtensionItem) => {
-    if (item.id === "h2ometa-remote-runner") {
-      if (!status?.connected) {
-        openConnectDialog();
-        return;
+    if (PREFLIGHT_ACTIONS.has(item.primaryAction)) {
+      if (item.primaryAction !== "update" || item.updateAvailable === true) {
+        openExtensionDetails(item, item.primaryAction);
       }
-      if (item.primaryAction === "install" || item.primaryAction === "repair") {
-        void executeExtensionAction(item, item.primaryAction);
-        return;
-      }
-      document.getElementById("remote-runner-detail")?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
-    }
-    if (item.primaryAction === "try_in_chat") {
-      setViewMode("skills");
-      setQuery(item.name);
     }
   };
 
   const handleSecondaryAction = (item: PluginCenterExtensionItem, action: string) => {
+    if (PREFLIGHT_ACTIONS.has(action)) {
+      if (action !== "update" || item.updateAvailable === true) openExtensionDetails(item, action);
+      return;
+    }
     if (action === "uninstall") {
+      setExtensionDetails(null);
       void executeExtensionAction(item, action, { mode: "preview" });
       return;
     }
     void executeExtensionAction(item, action);
+  };
+
+  const confirmExtensionAction = (item: PluginCenterExtensionItem, action: string, expectedServerId: string) => {
+    const declaredAction = item.manifest.actions.find(
+      (candidate): candidate is PluginCenterManagedManifestAction =>
+        candidate.id === action && candidate.type === "managed-extension-action"
+    );
+    if (!declaredAction) {
+      setExtensionActionError("v2 manifest 未声明该 managed action。");
+      return;
+    }
+    if (declaredAction.requiresConfirmation && !declaredAction.confirmation) {
+      setExtensionActionError("v2 manifest 缺少服务端确认合同。");
+      return;
+    }
+    void executeExtensionAction(item, action, {
+      confirmation: declaredAction.requiresConfirmation ? declaredAction.confirmation : undefined,
+      expectedServerId,
+    });
   };
 
   const runUninstall = () => {
@@ -362,22 +441,21 @@ export function PluginCenterPage() {
         diagnosticsOnly={false}
         className="shadow-none"
       />
-      {extensionActionError ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          {extensionActionError}
-        </div>
-      ) : null}
     </div>
   ) : null;
 
   return (
     <PluginCenterExtensionManager
+      actionError={extensionActionError}
+      activeTarget={activeTarget}
       items={extensions}
+      registries={managedExtensionList?.registries || []}
       tasks={installationTasks}
       viewMode={viewMode}
       query={query}
       sourceFilter={sourceFilter}
       loadError={extensionListError}
+      loading={extensionListLoading}
       busyActionKey={extensionActionBusyKey}
       remoteDetail={remoteDetail}
       onViewModeChange={handleViewModeChange}
@@ -385,7 +463,20 @@ export function PluginCenterPage() {
       onSourceFilterChange={setSourceFilter}
       onPrimaryAction={handlePrimaryAction}
       onExtensionAction={handleSecondaryAction}
+      onOpenDetails={(item) => openExtensionDetails(item)}
+      onRetry={() => void refreshManagedExtensions(undefined, true)}
     >
+      <PluginCenterExtensionDetails
+        actionError={extensionActionError}
+        busy={Boolean(selectedExtension && extensionActionBusyKey.startsWith(`${selectedExtension.id}:`))}
+        item={selectedExtension}
+        open={Boolean(extensionDetails && selectedExtension)}
+        pendingAction={extensionDetails?.pendingAction || null}
+        target={activeTarget}
+        onActionConfirm={confirmExtensionAction}
+        onActionRequest={handleSecondaryAction}
+        onOpenChange={(open) => (!open ? setExtensionDetails(null) : null)}
+      />
       <Dialog open={Boolean(uninstallPreview)} onOpenChange={(open) => (!open ? setUninstallPreview(null) : null)}>
         <DialogContent className="max-w-lg">
           <DialogHeader>

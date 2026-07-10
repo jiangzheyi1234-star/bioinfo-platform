@@ -50,19 +50,26 @@ class ApiGovernancePolicy:
         return f"{self.surface}:{self.method}:{self.route}"
 
 
-def local_policy(method: str, route: str, action: str, subject_kind: str, *roles: str) -> ApiGovernancePolicy:
+def local_policy(
+    method: str,
+    route: str,
+    action: str,
+    subject_kind: str,
+    *roles: str,
+    source: str = "apps/api/ssh_routes.py",
+) -> ApiGovernancePolicy:
     return ApiGovernancePolicy(
         surface="local-api",
         method=method,
         route=route,
-        route_source="apps/api/ssh_routes.py",
+        route_source=source,
         action=action,
         subject_kind=subject_kind,
         current_boundary="desktop-localhost-only",
         future_roles=tuple(roles),
         audit_status="required-before-multi-user",
         standards=("OWASP-ASVS-5", "OWASP-Logging"),
-        safe_detail_keys=("serverId", "requestId", "outcome"),
+        safe_detail_keys=("serverId", "extensionId", "jobId", "action", "requestId", "outcome"),
     )
 
 
@@ -103,6 +110,28 @@ HIGH_RISK_API_POLICIES: tuple[ApiGovernancePolicy, ...] = (
     local_policy("POST", "/api/v1/servers/{server_id}/runner/releases/prune/run", "remote_runner.release_prune.run", "server", "platform-admin"),
     local_policy("POST", "/api/v1/servers/{server_id}/runner/uninstall/preview", "remote_runner.uninstall.preview", "server", "platform-admin"),
     local_policy("POST", "/api/v1/servers/{server_id}/runner/uninstall/run", "remote_runner.uninstall.run", "server", "platform-admin"),
+    local_policy(
+        "POST",
+        "/api/v1/servers/{server_id}/remote-provisioning/jobs",
+        "managed_extension.provision",
+        "managed_extension",
+        "platform-admin",
+    ),
+    local_policy(
+        "POST",
+        "/api/v1/remote-provisioning/jobs/{job_id}/cancel",
+        "managed_extension.provision.cancel",
+        "managed_extension",
+        "platform-admin",
+    ),
+    local_policy(
+        "POST",
+        "/api/v1/plugin-center/extensions/{extension_id}/actions",
+        "managed_extension.action",
+        "managed_extension",
+        "platform-admin",
+        source="apps/api/plugin_center_routes.py",
+    ),
     local_policy("POST", "/api/v1/servers/{server_id}/host-key/accept", "ssh.host_key.accept", "server", "platform-admin"),
     local_policy("POST", "/api/v1/servers/{server_id}/token/rotate", "remote_runner.token.rotate", "server", "platform-admin"),
     local_policy("GET", "/api/v1/servers/{server_id}/operator-diagnostics", "diagnostics.operator.read", "server", "auditor"),

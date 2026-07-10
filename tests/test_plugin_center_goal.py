@@ -50,8 +50,10 @@ def test_plugin_center_route_surfaces_phase_one_cards() -> None:
 def test_plugin_center_remote_executor_flow_uses_existing_trust_and_repair_paths() -> None:
     page_source = (COMPONENTS / "plugin-center-page.tsx").read_text(encoding="utf-8")
     manager_source = (COMPONENTS / "plugin-center-extension-manager.tsx").read_text(encoding="utf-8")
+    details_source = (COMPONENTS / "plugin-center-extension-details.tsx").read_text(encoding="utf-8")
     repair_source = (COMPONENTS / "ssh-runner-repair-panel.tsx").read_text(encoding="utf-8")
     connection_source = (COMPONENTS / "ssh-shell-connection.ts").read_text(encoding="utf-8")
+    registry_source = (CORE_RUNTIME / "managed_extension_registry.py").read_text(encoding="utf-8")
 
     assert "useSshShell()" in page_source
     assert "sshShell.setDialogOpen(true)" in page_source
@@ -59,10 +61,15 @@ def test_plugin_center_remote_executor_flow_uses_existing_trust_and_repair_paths
     assert "mergePluginRemoteStatus" in page_source
     assert "rawStatus = runnerRepair.status || sshShell.status" in page_source
     assert "executePluginCenterExtensionAction" in page_source
-    assert "executeExtensionAction(item, item.primaryAction)" in page_source
+    assert "openExtensionDetails(item, item.primaryAction)" in page_source
+    assert "executeExtensionAction(item, item.primaryAction)" not in page_source
+    assert "PluginCenterExtensionDetails" in page_source
+    assert "onActionConfirm" in details_source
     assert "onPrimaryAction(item)" in manager_source
     assert "onExtensionAction(item, action.id)" in manager_source
-    assert 'document.getElementById("remote-runner-detail")' in page_source
+    assert 'catalog_extra={"manageHref": "#remote-runner-detail"}' in registry_source
+    assert 'item.primaryAction === "manage" && item.manageHref' in manager_source
+    assert '"h2ometa-remote-runner"' not in page_source
     assert '"repair"' in page_source
     assert "RunnerRepairPanel" in page_source
     assert "status?.connected ? (" in page_source
@@ -156,6 +163,8 @@ def test_plugin_center_phase_six_uses_backend_managed_extension_registry() -> No
     route_source = (API / "plugin_center_routes.py").read_text(encoding="utf-8")
     route_service_source = (API / "plugin_center_service.py").read_text(encoding="utf-8")
     runtime_source = (CORE_RUNTIME / "managed_extensions.py").read_text(encoding="utf-8")
+    registry_source = (CORE_RUNTIME / "managed_extension_registry.py").read_text(encoding="utf-8")
+    contract_source = (ROOT / "core" / "contracts" / "managed_extensions.py").read_text(encoding="utf-8")
     service_source = (CORE_RUNTIME / "service.py").read_text(encoding="utf-8")
     main_source = (API / "main.py").read_text(encoding="utf-8")
 
@@ -173,10 +182,13 @@ def test_plugin_center_phase_six_uses_backend_managed_extension_registry() -> No
     assert "runtime_service().list_managed_extensions" in route_service_source
     assert "runtime_service().execute_managed_extension_action" in route_service_source
     assert "class ManagedExtensionOperationsMixin" in runtime_source
-    assert "MANAGED_EXTENSION_MANIFEST_SCHEMA_VERSION" in runtime_source
+    assert "MANAGED_EXTENSION_MANIFEST_SCHEMA_VERSION" in contract_source
     assert "MANAGED_EXTENSION_ACTION_RESULT_SCHEMA_VERSION" in runtime_source
-    assert "REMOTE_EXECUTOR_EXTENSION_ID" in runtime_source
-    assert "remote-runner-release-manifest" in runtime_source
+    assert "REMOTE_EXECUTOR_EXTENSION_ID" not in runtime_source
+    assert '"h2ometa-remote-runner"' not in runtime_source
+    assert "REMOTE_RUNNER_ARTIFACT" in registry_source
+    assert "release_artifact_distribution" in registry_source
+    assert "ManagedExtensionDriverRegistry" in runtime_source
     assert "execute_managed_extension_action" in runtime_source
     assert "ManagedExtensionOperationsMixin" in service_source
     assert "plugin_center_router" in main_source
@@ -193,3 +205,65 @@ def test_plugin_center_phase_seven_removes_frontend_extension_fallback() -> None
     assert "loadError" in manager_source
     assert "extensionActionOptions" in manager_source
     assert "managed-extension-action" in manager_source
+
+
+def test_plugin_center_v2_details_preflight_and_resilient_loading_contract() -> None:
+    page_source = (COMPONENTS / "plugin-center-page.tsx").read_text(encoding="utf-8")
+    manager_source = (COMPONENTS / "plugin-center-extension-manager.tsx").read_text(encoding="utf-8")
+    details_source = (COMPONENTS / "plugin-center-extension-details.tsx").read_text(encoding="utf-8")
+    model_source = (COMPONENTS / "plugin-center-model.ts").read_text(encoding="utf-8")
+
+    assert 'schemaVersion: "h2ometa.managed-extension-manifest.v2"' in model_source
+    assert "registryId: string" in model_source
+    assert "version: string" in model_source
+    assert "registries: PluginCenterRegistry[]" in model_source
+    assert "packageImport: boolean" in model_source
+    assert "placement: PluginCenterPlacement" in model_source
+    assert "installTargets: PluginCenterInstallTarget[]" in model_source
+    assert "distribution: PluginCenterDistribution" in model_source
+    assert "compatibility: PluginCenterCompatibility" in model_source
+    assert "capabilities: PluginCenterCapability[]" in model_source
+    assert "driver: string" in model_source
+    assert "signatureAvailable: boolean" in model_source
+
+    assert 'const PREFLIGHT_ACTIONS = new Set(["install", "repair", "update"])' in page_source
+    assert "openExtensionDetails(item, item.primaryAction)" in page_source
+    assert "confirmExtensionAction" in page_source
+    assert "hostKeyTrust.trusted" in page_source
+    assert "status?.connected || activeServerProfile?.connected || activeServerProfile?.hostKeyTrust.trusted" not in page_source
+    assert "expectedServerId" in page_source
+    assert "远端目标已变化" in page_source
+    assert "declaredAction.requiresConfirmation" in page_source
+    assert '"h2ometa-remote-runner"' not in page_source
+    assert 'mode: "preview"' in page_source
+    assert "planHash" in page_source
+    assert "setManagedExtensionList(null)" not in page_source
+    assert "refreshManagedExtensions(undefined, true)" in page_source
+
+    assert "manifest.distribution.variants" in details_source
+    assert "SHA-256" in details_source
+    assert "SBOM" in details_source
+    assert "Provenance" in details_source
+    assert "Attestation" in details_source
+    assert "Signature" in details_source
+    assert "Host key" in details_source
+    assert "trustMissing" in details_source
+    assert "confirmationKey" in details_source
+    assert "targetServerId: string" in details_source
+    assert "metadata available" in details_source
+    assert "不代表签名、证明或制品已经通过安装策略验证" in details_source
+    assert "manifest.permissions" in details_source
+    assert "manifest.capabilities" in details_source
+
+    assert 'aria-live="assertive"' in manager_source
+    assert 'role="tab"' in manager_source
+    assert 'type="search"' in manager_source
+    assert 'id: "installed"' in manager_source
+    assert 'id: "updates"' in manager_source
+    assert 'id: "attention"' in manager_source
+    assert 'item.updateAvailable === true' in manager_source
+    assert "onOpenDetails" in manager_source
+    assert "当前保留并显示上次成功加载的数据" in manager_source
+    assert "本地包安装" not in manager_source
+    assert "本地包安装" not in details_source
+    assert "try_in_chat" not in page_source

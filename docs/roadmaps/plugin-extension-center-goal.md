@@ -1,8 +1,8 @@
 # Plugin And Remote Executor Goal
 
-Status: Phased implementation; Phase 1-5 baselines landed, broad multi-profile UX and richer runtime packs pending
+Status: Phased implementation; Phase 1-6 landed, Phase 7 generic transactions pending
 
-Last reviewed: 2026-07-08
+Last reviewed: 2026-07-10
 
 ## Objective
 
@@ -79,7 +79,7 @@ Add a first-class server profile model before broad multi-server UX. A profile s
 - Runner token reference, runner version, service port, last tunnel projection, health snapshot, and install state.
 - Last provisioning job id and last diagnostics bundle reference when available.
 
-The current single global `ssh` config can remain as a compatibility source during the first slice, but new UI and contracts should move toward explicit server profiles.
+Plugin-center contracts and UI require an explicit server profile. The old global `ssh` config is not accepted as a fallback source.
 
 ### Remote Provisioning Job
 
@@ -206,6 +206,36 @@ Acceptance evidence:
 - Documentation explains the ownership boundary.
 - Browser smoke against a real local web session verifies the unified plugin manager shows the real server profile, remote runner version, workflow runtime version, source filters, category sections, and unified task list.
 
+### Phase 6: Package Contract And Driver Registry
+
+- Replace the runner-id branch with strict manifest validation and registry-selected managed extension drivers.
+- Separate catalog definition, installed-instance projection, and installation transaction models.
+- Project the real release version, platform, archive name, size, digest, and supply-chain metadata into the plugin contract.
+- Show the exact target, placement, package, permissions, capabilities, and verification state before high-risk actions.
+- Hide update when the installed version already equals the selected release version.
+- Keep unsupported actions and drivers fail-loud; do not retain the v1 manifest as a fallback.
+
+Acceptance evidence:
+
+- A registry contract test proves adding a fake second driver does not require changing the runtime mixin.
+- Manifest tests prove release metadata comes from `remote-runner-release-manifest.json` rather than copied values.
+- Browser smoke proves install preflight identifies the real remote profile and package metadata.
+- Existing remote runner install, repair, update, rollback, and uninstall behavior remains equivalent.
+
+### Phase 7: Generic Installation Transactions
+
+- Add durable desired and observed installed-instance receipts keyed by plugin, target, version, platform, and digest.
+- Extend provisioning jobs with resolver, policy, download, verification, staging, activation, health, commit, and rollback stages.
+- Add Bio Tool Pack as the second real managed extension driver.
+- Add dependency ownership, conflict checks, restart recovery, idempotency keys, and safe cancellation boundaries.
+
+### Phase 8: Trusted Registries And Offline Bundles
+
+- Promote OCI artifacts to the canonical digest-addressed source while retaining immutable GitHub Release mirrors.
+- Add TUF version metadata and Cosign identity/provenance verification.
+- Add organization registries, policy allowlists, revocation, and blocklist handling.
+- Add signed `.h2obundle` import/export only after full compatibility, trust, and transaction validation exists.
+
 ## Completion Criteria
 
 The goal is complete when current-state evidence proves:
@@ -225,9 +255,10 @@ The goal is complete when current-state evidence proves:
 - Tool management stays on the current tools page for detailed workflows; the plugin center links to it and reads the tool prepare queue for summary status.
 - The plugin center page should remain a discovery, install, enable, update, and status surface. Specialized tool contract editing, database registration, and runner repair details may open linked deep-management surfaces instead of being duplicated inline.
 - The first provisioning job store lives in the local runtime config. Moving it to local SQLite is deferred until retention, audit, or concurrency pressure proves the need.
-- A backend plugin-center summary endpoint is deferred until the frontend read-model adapters become too complex or multi-profile loading requires server-side aggregation.
-- The current single `ssh` config remains as the compatibility source while the API exposes a first-class default server profile projection.
+- The backend managed-extension registry is the only plugin-center catalog contract. The frontend does not rebuild extension entries from SSH or tool projections.
+- Server profile identity is explicit in managed-extension actions and install preflight. Legacy source labels are not part of the plugin contract.
 - The thin remote CLI remains deferred. If added, it should be packaged as a management shell around the long-running service after provisioning lifecycle evidence is stable.
+- Public marketplace features are deferred until package trust, durable transactions, and a second real driver are proven.
 
 ## Related Documents
 
@@ -235,3 +266,4 @@ The goal is complete when current-state evidence proves:
 - `docs/security-governance.md`
 - `docs/snakemake-tool-integration-spec.md`
 - `docs/codex-agent-fleet.md`
+- `docs/plugin-package-architecture.md`

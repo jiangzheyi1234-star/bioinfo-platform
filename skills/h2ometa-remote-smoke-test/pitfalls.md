@@ -9,6 +9,7 @@ Use this file when a task matches a failure mode that has already happened in `b
 - Stale fixed port `8876`
 - Duplicate runner startup
 - Dirty bootstrap retries
+- Installed runner service inactive with stale state
 - Browser screenshot capture timeouts
 - Historical artifact-edge duplicates during runner upgrade
 - Staging deploy direct health payload mismatch
@@ -79,6 +80,21 @@ What to do:
 
 Why this exists:
 - Reusing dirty state makes bootstrap results hard to trust.
+
+## Installed Runner Service Inactive With Stale State
+
+Symptom:
+- SSH and the Local API are healthy, the versioned release and workflow runtime exist, but `remote_smoke.py` reports `RUNNER_NOT_READY` because the recorded runner process is no longer running.
+- `systemctl --user status h2ometa-remote.service` reports `inactive (dead)` or `disabled`, while `shared/runtime/runner-state.json` still contains an old PID and dynamic port.
+
+What to do:
+- Run `scripts/inspect_remote_runner_service.py` first. It is a read-only check of the service, journal, active release, redacted config, state, and log.
+- Do not foreground-run `launch_remote_runner.sh` and do not treat the stale state file as a live service.
+- Starting, enabling, repairing, or bootstrapping the service is mutating work. Obtain explicit authorization, then use the managed remote-executor action so health, canary, and rollback remain part of the transaction.
+- After an authorized repair, verify the service is active, the state PID is live, the dynamic port is current, and the canonical non-bootstrap smoke passes.
+
+Why this exists:
+- A valid installed release can outlive its stopped systemd user service, leaving otherwise plausible state that makes a connectivity problem look like a deployment problem.
 
 ## Browser Screenshot Capture Timeouts
 
