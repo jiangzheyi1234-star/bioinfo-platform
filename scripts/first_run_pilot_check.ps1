@@ -27,16 +27,15 @@ $ClosedLoopProofModes = @{
     SubmittedRun = "submitted-run"
 }
 $BlockedNextActionTargets = @{
-    FIRST_RUN_NOT_SUCCESSFUL = "/workflows/first-run#run-report"
-    FIRST_RUN_WORKFLOW_REVISION_REQUIRED = "/workflows/first-run#runner-readiness"
-    FIRST_RUN_REPORT_PREVIEW_REQUIRED = "/workflows/first-run#run-report"
-    FIRST_RUN_REPORT_TRUST_ASSERTIONS_FAILED = "/workflows/first-run#run-report"
-    FIRST_RUN_SAMPLE_INPUTS_REQUIRED = "/workflows/first-run#sample-data"
-    FIRST_RUN_SAMPLE_INPUTS_INTEGRITY_MISMATCH = "/workflows/first-run#sample-data"
-    FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED = "/workflows/first-run#evidence-bundle"
-    FIRST_RUN_PILOT_HANDOFF_REQUIRED = "/workflows/first-run#evidence-bundle"
+    FIRST_RUN_NOT_SUCCESSFUL = "/workflows/results"
+    FIRST_RUN_WORKFLOW_REVISION_REQUIRED = "/workflows/detail?workflow=moving-pictures-16s-rulegraph-v1"
+    FIRST_RUN_REPORT_PREVIEW_REQUIRED = "/workflows/results"
+    FIRST_RUN_REPORT_TRUST_ASSERTIONS_FAILED = "/workflows/results"
+    FIRST_RUN_SAMPLE_INPUTS_REQUIRED = "/workflows/detail?workflow=moving-pictures-16s-rulegraph-v1"
+    FIRST_RUN_SAMPLE_INPUTS_INTEGRITY_MISMATCH = "/workflows/detail?workflow=moving-pictures-16s-rulegraph-v1"
+    FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED = "/workflows/results"
+    FIRST_RUN_PILOT_HANDOFF_REQUIRED = "/workflows/results"
 }
-$FirstRunRecoveryAnchors = @("runner-readiness", "sample-data", "run-report", "result-package", "validation-card", "evidence-bundle")
 
 function Write-Step {
     param([string]$Message)
@@ -658,13 +657,8 @@ function Assert-FirstRunBlockedNextAction {
             Fail-Pilot "blocked finalization nextAction target must match $($Action.code)"
         }
     }
-    if ($Action.target.StartsWith("/workflows/first-run#")) {
-        $anchor = $Action.target.Split("#", 2)[1]
-        if ($FirstRunRecoveryAnchors -notcontains $anchor) {
-            Fail-Pilot "blocked finalization nextAction target must use a first-run recovery anchor"
-        }
-    } elseif ($Action.target -ne "/workflows/first-run") {
-        Fail-Pilot "blocked finalization nextAction target must stay inside first-run"
+    if (-not $Action.target.StartsWith("/workflows")) {
+        Fail-Pilot "blocked finalization nextAction target must stay inside the workflow workspace"
     }
     return [ordered]@{
         code = $Action.code
@@ -691,13 +685,10 @@ if ($workflow.runnable -ne $true) {
 
 $pack = Assert-FirstRunScenarioPackCatalog $ApiBase $FirstRunScenarioId $RequiredEvidence
 
-Write-Step "checking First Successful Run UI at $WebBase"
-$firstRunPage = Get-Page "$WebBase/workflows/first-run"
-if ($firstRunPage.StatusCode -ne 200) {
-    Fail-Pilot "/workflows/first-run returned HTTP $($firstRunPage.StatusCode)"
-}
-if (-not $firstRunPage.Content.Contains("app/workflows/first-run/page.js")) {
-    Fail-Pilot "/workflows/first-run must include the first-run Next page bundle"
+Write-Step "checking workflow workspace at $WebBase"
+$workspacePage = Get-Page "$WebBase/workflows"
+if ($workspacePage.StatusCode -ne 200) {
+    Fail-Pilot "/workflows returned HTTP $($workspacePage.StatusCode)"
 }
 
 $closedLoopProven = $false
@@ -787,7 +778,7 @@ $summary = [ordered]@{
     workflowReady = $true
     scenarioId = $FirstRunScenarioId
     scenarioStatus = $pack.status
-    firstRunPath = $pack.firstRunPath
+    workspacePath = "/workflows"
     serverId = $ServerId
     runId = $RunId
     proofPath = $ProofPath

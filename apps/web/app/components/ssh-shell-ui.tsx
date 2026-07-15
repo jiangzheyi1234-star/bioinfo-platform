@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import type { PointerEvent as ReactPointerEvent, RefObject } from "react";
-import { CircleHelp, Clock3, Ellipsis, GripHorizontal, RefreshCw, Server, Workflow, X } from "lucide-react";
+import { CircleHelp, Clock3, Ellipsis, GripHorizontal, RefreshCw, Server, X } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -117,7 +117,6 @@ export function SshSidebar({
   onEnsureRunner,
 }: SshSidebarProps) {
   const resultsActive = pathname.startsWith("/workflows/results");
-  const firstRunActive = pathname === "/workflows/first-run" || pathname.startsWith("/workflows/first-run/");
   const remotePreparing = Boolean(status?.connected && (!status.runner || isRunnerPreparing(status)));
   const connecting = connectBusy || Boolean(status?.connecting || status?.auto_connect_in_progress);
   const canRepairRunner = Boolean(status?.connected && !status.runner?.ready);
@@ -216,24 +215,6 @@ export function SshSidebar({
         </div>
 
         <div className="space-y-1 px-0 md:px-2">
-           <Button
-            asChild
-            variant="ghost"
-            className={cn(
-              "h-8 w-full justify-center px-0 md:justify-start",
-              firstRunActive ? "bg-slate-200/90 text-slate-950" : "text-slate-700 hover:bg-slate-200/60"
-            )}
-          >
-            <Link href="/workflows/first-run" aria-current={firstRunActive ? "page" : undefined}>
-              <span className="flex w-8 justify-center md:w-6">
-                <Workflow
-                  strokeWidth={1.5}
-                  className={cn("size-4", firstRunActive ? "text-zinc-900" : "text-zinc-500")}
-                />
-              </span>
-              <span className="sr-only md:not-sr-only">首跑向导</span>
-            </Link>
-          </Button>
           <Button
             asChild
             variant="ghost"

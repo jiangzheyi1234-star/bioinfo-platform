@@ -80,6 +80,50 @@ What to do:
 Why this exists:
 - Reusing dirty state makes bootstrap results hard to trust.
 
+## Dead Runner Bootstrap Diagnostics Recovery Deadlock
+
+Symptom:
+- `remote_smoke.py --bootstrap` repeatedly returns `RUNNER_BOOTSTRAP_DIAGNOSTICS_UNAVAILABLE` after the old Runner is already inactive and `runner-state.json` has been safely cleared.
+- The suggested action says to repair Runner diagnostics, but those diagnostics are served by the same stopped Runner that bootstrap is trying to recover.
+
+What to do:
+- Confirm over SSH that no `remote_runner.run` process exists and the systemd user service is not active.
+- Permit only a same-release `ensure` recovery after that cold-stop proof; keep release changes and explicit upgrades fail-closed when lifecycle diagnostics are unavailable.
+- Retry bootstrap through the Windows Local API and confirm the bootstrap canary before running tool acceptance.
+
+Why this exists:
+- A stopped Runner cannot grant its own execution lifecycle guard, so same-release cold recovery needs an independent SSH proof without weakening upgrade protection.
+
+## Bootstrap Tunnel Replaced By Background Health Polling
+
+Symptom:
+- Bootstrap starts a healthy remote process and writes a fresh runtime state, but activation fails with `WinError 10061` before the canary starts.
+- The remote journal shows only 401 requests from old local state, and the newly written remote token is not committed locally because bootstrap did not complete.
+
+What to do:
+- Use a bootstrap-specific SSH tunnel name during activation and canary instead of the canonical `runner-<serverId>` tunnel used by background health polling.
+- After this failure, stop the new remote service, remove only `shared/runtime/runner-state.json`, and retry bootstrap so a new token can be committed locally.
+
+Why this exists:
+- A background health check can still target the registry's old service port and replace the canonical named tunnel while bootstrap is validating a newly assigned dynamic port.
+
+## MultiQC Smoke Fixture And FastQC Chain Mismatch
+
+Symptom:
+- A standalone MultiQC profile smoke passes with `fastqc_data.txt`, but a generated workflow that uploads the same fixture produces no report because upload storage prefixes the filename.
+- A FastQC-to-MultiQC edge is rejected because FastQC declares `report_archive/application/zip` while MultiQC declares `qc_report/text/plain`.
+- A hand-built FastQC ZIP still fails when its first archive member is the report file instead of the top-level `<sample>_fastqc/` directory.
+
+What to do:
+- Validate MultiQC as a real FastQC-to-MultiQC workflow, not as an isolated uploaded text file.
+- Give the FastQC ZIP output and MultiQC input the same specific EDAM contract: quality-control report (`data_3914`) in ZIP format (`format_3987`).
+- Set the wrapper's `use_input_files_only` parameter by default so it reads the connected artifact instead of scanning an upload directory.
+- Build the binary smoke fixture deterministically with the directory entry first, matching real FastQC archive structure.
+- Validate generated outputs by stable lineage `artifactKey`, not by the compiler-prefixed physical filename.
+
+Why this exists:
+- MultiQC discovery is filename- and archive-structure-sensitive, while generated workflows deliberately rename physical outputs to avoid node collisions. Profile-only smoke and basename checks do not prove the composable workflow path.
+
 ## Browser Screenshot Capture Timeouts
 
 Symptom:

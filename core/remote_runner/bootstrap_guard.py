@@ -10,6 +10,7 @@ from core.contracts.execution_activity import (
 from core.contracts.remote_endpoints import EXECUTION_LIFECYCLE_GUARD_RELEASE
 from core.remote_runner.client import RemoteRunnerClientError
 from core.remote_runner.errors import RemoteRunnerManagerError
+from core.remote_runner.layout import REMOTE_RUNNER_SERVICE_NAME
 from core.remote_runner.lifecycle_guard_owner import execution_lifecycle_guard_owner
 
 
@@ -20,6 +21,8 @@ UPGRADE_DIAGNOSTICS_UNAVAILABLE_REASON = "RUNNER_UPGRADE_DIAGNOSTICS_UNAVAILABLE
 UPGRADE_GUARD_SCHEMA_VERSION = "h2ometa.remote-runner-upgrade-guard.v1"
 MANUAL_RUNNER_STOP_REASON = "RUNNER_STOPPED"
 MANUAL_RUNNER_STOP_INTENT_KEY = "runner_stop_intent"
+COLD_STOP_RECOVERY_REASON = "runner-cold-stopped"
+COLD_STOP_PROOF_SCHEMA_VERSION = "h2ometa.remote-runner-cold-stop-proof.v1"
 _ACTIVITY_COUNT_KEYS = (
     "activeLeaseCount",
     "allocatedResourceCount",
@@ -40,6 +43,7 @@ class RemoteRunnerBootstrapGuardMixin:
         bootstrap_metadata: dict[str, Any],
         bootstrap_action: str = "ensure",
         previous_release: str = "",
+        target_release: str = "",
         previous_config_present: bool = False,
     ) -> None:
         action = str(bootstrap_action or "").strip() or "ensure"
@@ -75,7 +79,16 @@ class RemoteRunnerBootstrapGuardMixin:
                 server_record=server_record,
                 bootstrap_metadata=bootstrap_metadata,
                 action=action,
+                previous_release=previous_release,
+                target_release=target_release,
             )
+            existing_guard = bootstrap_metadata.get("upgradeGuard")
+            if (
+                isinstance(existing_guard, dict)
+                and existing_guard.get("checked") is False
+                and existing_guard.get("reason") == COLD_STOP_RECOVERY_REASON
+            ):
+                return
         try:
             protected_leases = [_protected_lease_summary(item) for item in activity["activeLeases"]]
         except RemoteRunnerManagerError as exc:
@@ -177,6 +190,8 @@ class RemoteRunnerBootstrapGuardMixin:
         server_record: dict[str, Any],
         bootstrap_metadata: dict[str, Any],
         action: str,
+        previous_release: str,
+        target_release: str,
     ) -> dict[str, Any]:
         owner = execution_lifecycle_guard_owner(server_id=server_id, action=action)
         try:
@@ -246,6 +261,15 @@ class RemoteRunnerBootstrapGuardMixin:
                     status_code=409,
                     detail=detail,
                 ) from exc
+            if self._record_cold_stopped_recovery_if_safe(
+                ssh_service=ssh_service,
+                bootstrap_metadata=bootstrap_metadata,
+                action=action,
+                previous_release=previous_release,
+                target_release=target_release,
+                exc=exc,
+            ):
+                return _empty_activity()
             self._raise_diagnostics_unavailable(
                 server_id=server_id,
                 bootstrap_metadata=bootstrap_metadata,
@@ -254,6 +278,15 @@ class RemoteRunnerBootstrapGuardMixin:
                 exc=exc,
             )
         except RemoteRunnerClientError as exc:
+            if self._record_cold_stopped_recovery_if_safe(
+                ssh_service=ssh_service,
+                bootstrap_metadata=bootstrap_metadata,
+                action=action,
+                previous_release=previous_release,
+                target_release=target_release,
+                exc=exc,
+            ):
+                return _empty_activity()
             self._raise_diagnostics_unavailable(
                 server_id=server_id,
                 bootstrap_metadata=bootstrap_metadata,
@@ -273,6 +306,32 @@ class RemoteRunnerBootstrapGuardMixin:
             )
         activity["lifecycleGuard"] = guard
         return activity
+
+    @staticmethod
+    def _record_cold_stopped_recovery_if_safe(
+        *,
+        ssh_service,
+        bootstrap_metadata: dict[str, Any],
+        action: str,
+        previous_release: str,
+        target_release: str,
+        exc: Exception,
+    ) -> bool:
+        previous = str(previous_release or "").strip().rstrip("/")
+        target = str(target_release or "").strip().rstrip("/")
+        if action != "ensure" or not previous or previous != target:
+            return False
+        proof = _probe_remote_runner_cold_stop(ssh_service)
+        if proof is None:
+            return False
+        bootstrap_metadata["upgradeGuard"] = {
+            "schemaVersion": UPGRADE_GUARD_SCHEMA_VERSION,
+            "checked": False,
+            "reason": COLD_STOP_RECOVERY_REASON,
+            "message": str(exc) or exc.__class__.__name__,
+            "coldStopProof": proof,
+        }
+        return True
 
     def _record_lifecycle_guard_metadata(
         self,
@@ -382,6 +441,30 @@ def _record_diagnostics_unavailable(
         "checked": False,
         "reason": reason,
         "message": str(exc) or exc.__class__.__name__,
+    }
+
+
+def _probe_remote_runner_cold_stop(ssh_service) -> dict[str, Any] | None:
+    command = (
+        "if ! command -v pgrep >/dev/null 2>&1; then printf 'unknown\\n'; "
+        "elif pgrep -f '[r]emote_runner.run' >/dev/null 2>&1; then printf 'running\\n'; "
+        "elif command -v systemctl >/dev/null 2>&1 "
+        "&& systemctl --user show-environment >/dev/null 2>&1; then "
+        f"state=$(systemctl --user is-active {REMOTE_RUNNER_SERVICE_NAME} 2>/dev/null || true); "
+        "case \"$state\" in active|activating|reloading|deactivating) printf 'running\\n';; "
+        "*) printf 'stopped\\n';; esac; else printf 'stopped\\n'; fi"
+    )
+    try:
+        exit_code, stdout, _stderr = ssh_service.run(command, timeout=10)
+    except Exception:
+        return None
+    if exit_code != 0 or str(stdout or "").strip() != "stopped":
+        return None
+    return {
+        "schemaVersion": COLD_STOP_PROOF_SCHEMA_VERSION,
+        "checked": True,
+        "runnerProcessAbsent": True,
+        "activeServiceAbsent": True,
     }
 
 

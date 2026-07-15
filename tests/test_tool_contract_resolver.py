@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import base64
+import io
+import zipfile
+
 from apps.api.tool_contract_resolver import ToolContractResolver
 from apps.api.tool_profiles import known_tool_profile_ids
+from core.contracts.rule_ports import ports_compatible
 
 
 def test_unresolved_wrapper_contract_requires_editable_confirmation() -> None:
@@ -161,6 +166,15 @@ def test_fastqc_profile_overlay_declares_report_outputs() -> None:
     assert "commandTemplate" not in template
     assert {output["name"] for output in template["outputs"]} == {"html", "zip"}
     assert template["outputs"][0]["path"] == "results/reads_fastqc.html"
+    assert next(output for output in template["outputs"] if output["name"] == "zip") == {
+        "name": "zip",
+        "path": "results/reads_fastqc.zip",
+        "kind": "qc_report",
+        "mimeType": "application/zip",
+        "type": "file",
+        "data": "http://edamontology.org/data_3914",
+        "format": "http://edamontology.org/format_3987",
+    }
     assert template["smokeTest"]["inputs"]["reads"]["filename"] == "reads.fastq"
 
 
@@ -192,7 +206,38 @@ def test_multiqc_profile_overlay_declares_report_output() -> None:
             "format": "http://edamontology.org/format_2331",
         }
     ]
-    assert template["smokeTest"]["inputs"]["fastqc_data"]["filename"] == "fastqc_data.txt"
+    assert template["inputs"] == [
+        {
+            "name": "fastqc_data",
+            "type": "file",
+            "kind": "qc_report",
+            "mimeType": "application/zip",
+            "data": "http://edamontology.org/data_3914",
+            "format": "http://edamontology.org/format_3987",
+            "required": True,
+        }
+    ]
+    assert template["params"]["use_input_files_only"]["default"] is True
+    fixture = template["smokeTest"]["inputs"]["fastqc_data"]
+    assert fixture["filename"] == "reads_fastqc.zip"
+    assert fixture["mimeType"] == "application/zip"
+    assert fixture["contentBase64"]
+    with zipfile.ZipFile(io.BytesIO(base64.b64decode(fixture["contentBase64"]))) as archive:
+        assert archive.namelist()[0] == "reads_fastqc/"
+        assert "reads_fastqc/fastqc_data.txt" in archive.namelist()
+
+
+def test_fastqc_zip_output_connects_to_multiqc_input() -> None:
+    resolver = ToolContractResolver()
+    fastqc = resolver.resolve_dependency(
+        {"name": "fastqc", "source": "bioconda", "packageSpec": "bioconda::fastqc=0.12.1"}
+    )["ruleTemplate"]
+    multiqc = resolver.resolve_dependency(
+        {"name": "multiqc", "source": "bioconda", "packageSpec": "bioconda::multiqc=1.35"}
+    )["ruleTemplate"]
+
+    fastqc_zip = next(output for output in fastqc["outputs"] if output["name"] == "zip")
+    assert ports_compatible(multiqc["inputs"][0], fastqc_zip)
 
 
 def test_seqkit_stats_profile_overlay_declares_locked_generic_wrapper() -> None:

@@ -11,6 +11,7 @@ EDAM_SEQUENCE = "http://edamontology.org/data_2044"
 EDAM_SEQUENCE_ALIGNMENT = "http://edamontology.org/data_0863"
 EDAM_SEQUENCE_ASSEMBLY = "http://edamontology.org/data_0925"
 EDAM_GENE_REPORT = "http://edamontology.org/data_0916"
+EDAM_QUALITY_CONTROL_REPORT = "http://edamontology.org/data_3914"
 
 EDAM_GENERIC_FORMAT = "http://edamontology.org/format_1915"
 EDAM_FASTA = "http://edamontology.org/format_1929"
@@ -24,6 +25,7 @@ EDAM_BIGWIG = "http://edamontology.org/format_3006"
 EDAM_VCF = "http://edamontology.org/format_3016"
 EDAM_JSON = "http://edamontology.org/format_3464"
 EDAM_TSV = "http://edamontology.org/format_3475"
+EDAM_ZIP = "http://edamontology.org/format_3987"
 
 _TABULAR_KINDS = {
     "annotation_table",

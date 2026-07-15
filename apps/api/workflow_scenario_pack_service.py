@@ -78,7 +78,6 @@ def _scenario_pack(definition: dict[str, Any], pipelines: dict[str, dict[str, An
         "operatorActionRequired": status != "ready",
         "noAutomaticExecution": True,
         "pipelineId": pipeline_id,
-        "firstRunPath": definition["firstRunPath"] if status == "ready" else "",
         "workflowPath": f"/workflows/detail?workflow={pipeline_id}" if pipeline_ready else "",
         "sampleData": definition["sampleData"],
         "sampleDataHandoff": _sample_data_handoff(definition),
@@ -121,8 +120,6 @@ def _validate_scenario_definition(
     priority = definition.get("priority")
     if not isinstance(priority, int) or priority < 1:
         raise WorkflowScenarioPackCatalogError("SCENARIO_PRIORITY_INVALID")
-    if definition.get("firstRunPath") and definition["firstRunPath"] != "/workflows/first-run":
-        raise WorkflowScenarioPackCatalogError("SCENARIO_FIRST_RUN_PATH_UNSUPPORTED")
     for target in _next_action_targets(definition):
         if target not in SCENARIO_PRODUCT_TARGETS:
             raise WorkflowScenarioPackCatalogError(f"SCENARIO_ACTION_TARGET_UNSUPPORTED: {target}")
@@ -526,12 +523,11 @@ def _scenario_definitions() -> list[dict[str, Any]]:
         {
             "packId": "h2ometa-scenario-moving-pictures-16s",
             "scenarioId": "moving-pictures-16s",
-            "name": "16S Moving Pictures 首跑",
+            "name": "16S Moving Pictures 示例",
             "vertical": "16S",
             "summary": "从 QIIME 2 Moving Pictures 三文件样例到报告、结果包和验证卡。",
             "priority": 1,
             "pipelineId": MOVING_PICTURES_PIPELINE_ID,
-            "firstRunPath": "/workflows/first-run",
             "sampleData": {
                 "mode": "bundled-loader",
                 "source": "QIIME 2 Moving Pictures tutorial",
@@ -603,7 +599,6 @@ def _scenario_definitions() -> list[dict[str, Any]]:
             "summary": "FASTQ/FASTA 输入到分类报告，要求小工具切片、参考库登记和结果证据。",
             "priority": 2,
             "pipelineId": "taxonomy-classification-scenario-v1",
-            "firstRunPath": "",
             "sampleData": {
                 "mode": "required",
                 "source": "operator-provided audited FASTQ/FASTA fixture",
@@ -689,7 +684,6 @@ def _scenario_definitions() -> list[dict[str, Any]]:
             "summary": "组装/蛋白输入到 AMR 或功能注释报告，要求 CARD/annotation 数据库手动验收。",
             "priority": 3,
             "pipelineId": "amr-annotation-scenario-v1",
-            "firstRunPath": "",
             "sampleData": {
                 "mode": "required",
                 "source": "operator-provided audited contig/protein fixture",

@@ -22,9 +22,7 @@ def _first_run_pilot_check_source() -> str:
 def test_first_run_pilot_check_is_exposed_from_web_package() -> None:
     package = json.loads((REPO_ROOT / "apps" / "web" / "package.json").read_text(encoding="utf-8"))
 
-    assert package["scripts"]["smoke:first-run"] == (
-        "powershell -ExecutionPolicy Bypass -File ../../scripts/first_run_pilot_check.ps1"
-    )
+    assert "smoke:first-run" not in package["scripts"]
 
 
 def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> None:
@@ -48,8 +46,10 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "Assert-FirstRunScenarioPackCatalog $ApiBase $FirstRunScenarioId $RequiredEvidence" in source
     assert "moving-pictures-16s-rulegraph-v1" in source
     assert "moving-pictures-16s" in source
-    assert "/workflows/first-run" in source
-    assert "app/workflows/first-run/page.js" in source
+    assert 'Get-Page "$WebBase/workflows"' in source
+    assert "/workflows/first-run" not in source
+    assert '$expectedWorkflowPath = "/workflows/detail?workflow=$($pack.pipelineId)"' in source
+    assert 'workspacePath = "/workflows"' in source
     assert "resultPackage" in source
     assert "validationCard" in source
     assert '$RequiredEvidence = @("resultPackage", "validationCard", "evidenceBundle"' in source
@@ -251,17 +251,15 @@ def test_first_run_pilot_check_verifies_single_user_first_result_contract() -> N
     assert "registrationPrefillSource = $_.databaseInstallHandoff.registration.prefillSource" in source
     assert "handoffProof = $handoffProof" in source
     assert "function Assert-FirstRunBlockedNextAction" in source
-    assert 'FIRST_RUN_WORKFLOW_REVISION_REQUIRED = "/workflows/first-run#runner-readiness"' in source
-    assert 'FIRST_RUN_REPORT_PREVIEW_REQUIRED = "/workflows/first-run#run-report"' in source
-    assert 'FIRST_RUN_REPORT_TRUST_ASSERTIONS_FAILED = "/workflows/first-run#run-report"' in source
-    assert 'FIRST_RUN_SAMPLE_INPUTS_INTEGRITY_MISMATCH = "/workflows/first-run#sample-data"' in source
-    assert 'FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED = "/workflows/first-run#evidence-bundle"' in source
-    assert 'FIRST_RUN_PILOT_HANDOFF_REQUIRED = "/workflows/first-run#evidence-bundle"' in source
-    assert '$FirstRunRecoveryAnchors = @("runner-readiness", "sample-data", "run-report", "result-package", "validation-card", "evidence-bundle")' in source
+    assert 'FIRST_RUN_WORKFLOW_REVISION_REQUIRED = "/workflows/detail?workflow=moving-pictures-16s-rulegraph-v1"' in source
+    assert 'FIRST_RUN_REPORT_PREVIEW_REQUIRED = "/workflows/results"' in source
+    assert 'FIRST_RUN_REPORT_TRUST_ASSERTIONS_FAILED = "/workflows/results"' in source
+    assert 'FIRST_RUN_SAMPLE_INPUTS_INTEGRITY_MISMATCH = "/workflows/detail?workflow=moving-pictures-16s-rulegraph-v1"' in source
+    assert 'FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED = "/workflows/results"' in source
+    assert 'FIRST_RUN_PILOT_HANDOFF_REQUIRED = "/workflows/results"' in source
     assert "blocked finalization must include nextAction code and target" in source
     assert "blocked finalization nextAction target must match $($Action.code)" in source
-    assert "blocked finalization nextAction target must use a first-run recovery anchor" in source
-    assert "blocked finalization nextAction target must stay inside first-run" in source
+    assert "blocked finalization nextAction target must stay inside the workflow workspace" in source
     assert "$blockedActionProof = Assert-FirstRunBlockedNextAction $finalization.nextAction" in source
     assert "blockedActionProof = $blockedActionProof" in source
     assert "executionReadinessProof = $executionReadinessProof" in source

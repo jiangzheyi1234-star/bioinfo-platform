@@ -88,7 +88,7 @@ async def submit_first_run_from_request(
                 "code": "REFRESH_RUN",
                 "detail": "首跑已提交，等待 runner 返回运行状态、报告和结果包证据。",
                 "label": "查看运行状态",
-                "target": "/workflows/first-run#run-report",
+                "target": "/workflows/results",
             },
         }
     }

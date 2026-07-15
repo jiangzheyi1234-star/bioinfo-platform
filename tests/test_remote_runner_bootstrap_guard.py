@@ -5,6 +5,8 @@ import pytest
 from core.contracts.execution_activity import EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION, summarize_execution_activity
 from core.remote_runner.bootstrap_guard import (
     BOOTSTRAP_DIAGNOSTICS_UNAVAILABLE_REASON,
+    COLD_STOP_PROOF_SCHEMA_VERSION,
+    COLD_STOP_RECOVERY_REASON,
     UPGRADE_ACTIVE_LEASES_REASON,
     UPGRADE_DIAGNOSTICS_UNAVAILABLE_REASON,
     UPGRADE_EXECUTION_BUSY_REASON,
@@ -52,6 +54,19 @@ class GuardHarness(RemoteRunnerBootstrapGuardMixin):
                 detail=payload,
             )
         return payload
+
+
+class ColdStopSsh:
+    def __init__(self, state: str):
+        self.state = state
+        self.calls = 0
+
+    def run(self, command: str, timeout: int):
+        self.calls += 1
+        assert "pgrep -f '[r]emote_runner.run'" in command
+        assert "systemctl --user is-active h2ometa-remote.service" in command
+        assert timeout == 10
+        return 0, f"{self.state}\n", ""
 
 
 def test_bootstrap_guard_blocks_active_leases_before_destructive_upgrade() -> None:
@@ -303,6 +318,76 @@ def test_bootstrap_guard_blocks_prepared_repair_when_diagnostics_are_unavailable
         "reason": "execution-lifecycle-guard-unavailable",
         "message": "runner not reachable",
     }
+
+
+def test_bootstrap_guard_allows_same_release_cold_stop_recovery() -> None:
+    metadata = {}
+    manager = GuardHarness(RemoteRunnerClientError("runner not reachable"))
+    ssh = ColdStopSsh("stopped")
+    release = "/home/tester/.h2ometa/runner/releases/0.1.5-control-plane"
+
+    manager._guard_bootstrap_when_execution_idle(
+        server_id="srv_test",
+        ssh_service=ssh,
+        server_record={"bootstrap_version": "0.1.5-control-plane"},
+        bootstrap_metadata=metadata,
+        previous_release=release,
+        target_release=release,
+    )
+
+    assert manager.calls == 1
+    assert ssh.calls == 1
+    assert metadata["upgradeGuard"] == {
+        "schemaVersion": "h2ometa.remote-runner-upgrade-guard.v1",
+        "checked": False,
+        "reason": COLD_STOP_RECOVERY_REASON,
+        "message": "runner not reachable",
+        "coldStopProof": {
+            "schemaVersion": COLD_STOP_PROOF_SCHEMA_VERSION,
+            "checked": True,
+            "runnerProcessAbsent": True,
+            "activeServiceAbsent": True,
+        },
+    }
+
+
+def test_bootstrap_guard_blocks_cold_recovery_when_process_or_service_is_running() -> None:
+    metadata = {}
+    manager = GuardHarness(RemoteRunnerClientError("runner not reachable"))
+    ssh = ColdStopSsh("running")
+    release = "/home/tester/.h2ometa/runner/releases/0.1.5-control-plane"
+
+    with pytest.raises(RemoteRunnerManagerError) as raised:
+        manager._guard_bootstrap_when_execution_idle(
+            server_id="srv_test",
+            ssh_service=ssh,
+            server_record={"bootstrap_version": "0.1.5-control-plane"},
+            bootstrap_metadata=metadata,
+            previous_release=release,
+            target_release=release,
+        )
+
+    assert raised.value.detail["reasonCode"] == BOOTSTRAP_DIAGNOSTICS_UNAVAILABLE_REASON
+    assert ssh.calls == 1
+
+
+def test_bootstrap_guard_blocks_cold_recovery_for_release_change() -> None:
+    metadata = {}
+    manager = GuardHarness(RemoteRunnerClientError("runner not reachable"))
+    ssh = ColdStopSsh("stopped")
+
+    with pytest.raises(RemoteRunnerManagerError) as raised:
+        manager._guard_bootstrap_when_execution_idle(
+            server_id="srv_test",
+            ssh_service=ssh,
+            server_record={"bootstrap_version": "0.1.4-control-plane"},
+            bootstrap_metadata=metadata,
+            previous_release="/home/tester/.h2ometa/runner/releases/0.1.4-control-plane",
+            target_release="/home/tester/.h2ometa/runner/releases/0.1.5-control-plane",
+        )
+
+    assert raised.value.detail["reasonCode"] == BOOTSTRAP_DIAGNOSTICS_UNAVAILABLE_REASON
+    assert ssh.calls == 0
 
 
 def test_bootstrap_guard_allows_manual_stopped_runner_start_when_diagnostics_are_unavailable() -> None:

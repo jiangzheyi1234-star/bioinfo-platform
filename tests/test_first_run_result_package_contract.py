@@ -105,4 +105,4 @@ def test_first_run_finalize_does_not_export_on_package_ledger_mismatch(monkeypat
     assert result["status"] == "blocked"
     assert result["nextAction"]["code"] == "FIRST_RUN_RESULT_PACKAGE_RESULT_MISMATCH"
     assert result["nextAction"]["label"] == "检查结果包账本"
-    assert result["nextAction"]["target"] == "/workflows/first-run#result-package"
+    assert result["nextAction"]["target"] == "/workflows/results"

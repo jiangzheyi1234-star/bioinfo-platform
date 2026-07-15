@@ -278,7 +278,6 @@ export type WorkflowScenarioPack = {
   operatorActionRequired: boolean;
   noAutomaticExecution: boolean;
   pipelineId: string;
-  firstRunPath: string;
   workflowPath: string;
   sampleData: {
     mode?: string;

@@ -101,33 +101,33 @@ def _blocked(code: str, detail: str, *, result_package: dict[str, Any] | None = 
 
 def first_run_next_action(code: str, detail: str) -> dict[str, str]:
     if code == "FIRST_RUN_NOT_SUCCESSFUL":
-        target = "/workflows/first-run#run-report"
+        target = "/workflows/results"
         label = "等待首跑成功完成"
     elif code == "FIRST_RUN_WORKFLOW_REVISION_REQUIRED":
-        target = "/workflows/first-run#runner-readiness"
+        target = "/workflows/detail?workflow=moving-pictures-16s-rulegraph-v1"
         label = "升级 runner 并重新提交"
     elif code in {
         "FIRST_RUN_REPORT_PREVIEW_REQUIRED",
         "FIRST_RUN_EXPECTED_OUTPUTS_REQUIRED",
         FIRST_RUN_REPORT_TRUST_ASSERTIONS_FAILED,
     }:
-        target = "/workflows/first-run#run-report"
+        target = "/workflows/results"
         label = "检查报告可信度"
     elif code == "FIRST_RUN_SAMPLE_INPUTS_REQUIRED" or code == "FIRST_RUN_SAMPLE_INPUTS_INTEGRITY_MISMATCH":
-        target = "/workflows/first-run#sample-data"
+        target = "/workflows/detail?workflow=moving-pictures-16s-rulegraph-v1"
         label = "重新准备官方样例数据"
     elif is_first_run_result_package_export_required(code):
-        target = "/workflows/first-run#result-package"
+        target = "/workflows/results"
         label = "导出完整结果包"
     elif is_first_run_result_package_ledger_mismatch(code):
-        target = "/workflows/first-run#result-package"
+        target = "/workflows/results"
         label = "检查结果包账本"
     elif code == "FIRST_RUN_PILOT_HANDOFF_REQUIRED" or code == "FIRST_RUN_EVIDENCE_BUNDLE_REQUIRED":
-        target = "/workflows/first-run#evidence-bundle"
+        target = "/workflows/results"
         label = "重新生成首跑验证卡"
     else:
-        target = "/workflows/first-run"
-        label = "返回首跑向导"
+        target = "/workflows"
+        label = "返回工作区"
     return {
         "code": code or "FIRST_RUN_FINALIZATION_BLOCKED",
         "detail": detail,

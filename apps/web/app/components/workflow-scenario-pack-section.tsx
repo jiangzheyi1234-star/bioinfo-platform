@@ -32,7 +32,13 @@ export function WorkflowScenarioPackSection({
 
       <div className="grid divide-y divide-slate-100 lg:grid-cols-3 lg:divide-x lg:divide-y-0">
         {packs.map((pack) => (
-          <article key={pack.packId} className="min-w-0 p-4" data-scenario-pack={pack.scenarioId} data-scenario-status={pack.status}>
+          <article
+            key={pack.packId}
+            className="min-w-0 p-4"
+            data-scenario-pack={pack.scenarioId}
+            data-scenario-status={pack.status}
+            data-scenario-ready={pack.status === "ready"}
+          >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="truncate text-sm font-semibold text-slate-950">{pack.name}</div>
@@ -93,14 +99,6 @@ export function WorkflowScenarioPackSection({
             ) : null}
 
             <div className="mt-4 flex flex-wrap gap-2">
-              {pack.status === "ready" && pack.firstRunPath ? (
-                <Button asChild className="h-8 px-2.5 text-xs">
-                  <Link href={pack.firstRunPath}>
-                    <ArrowRight strokeWidth={1.5} className="h-3.5 w-3.5" />
-                    首跑
-                  </Link>
-                </Button>
-              ) : null}
               {pack.workflowPath ? (
                 <Button asChild variant="outline" className="h-8 bg-white px-2.5 text-xs">
                   <Link href={pack.workflowPath}>

@@ -36,7 +36,6 @@ REQUIRED_SCENARIO_PACK_FIELDS = {
     "operatorActionRequired",
     "noAutomaticExecution",
     "pipelineId",
-    "firstRunPath",
     "workflowPath",
     "sampleData",
     "sampleDataHandoff",
@@ -158,7 +157,6 @@ def test_only_moving_pictures_scenario_is_ready_until_vertical_packs_have_real_g
     first_run = items["moving-pictures-16s"]
     assert first_run["status"] == "ready"
     assert first_run["operatorActionRequired"] is False
-    assert first_run["firstRunPath"] == "/workflows/first-run"
     assert first_run["requiredDatabases"] == []
     assert first_run["sampleDataHandoff"]["mode"] == "bundled_loader"
     assert first_run["sampleDataHandoff"]["status"] == "ready"
@@ -194,7 +192,6 @@ def test_only_moving_pictures_scenario_is_ready_until_vertical_packs_have_real_g
     taxonomy = items["taxonomy-classification"]
     assert taxonomy["status"] == "blocked"
     assert taxonomy["operatorActionRequired"] is True
-    assert taxonomy["firstRunPath"] == ""
     assert taxonomy["sampleDataHandoff"]["mode"] == "operator_provided"
     assert taxonomy["sampleDataHandoff"]["status"] == "operator_required"
     assert taxonomy["sampleDataHandoff"]["operatorActionRequired"] is True
@@ -388,7 +385,6 @@ def test_only_moving_pictures_scenario_is_ready_until_vertical_packs_have_real_g
     amr = items["amr-annotation"]
     assert amr["status"] == "blocked"
     assert amr["operatorActionRequired"] is True
-    assert amr["firstRunPath"] == ""
     assert amr["sampleDataHandoff"]["inputOptions"] == [
         {"role": "contigs", "formats": ["fna", "fasta"], "required": False},
         {"role": "proteins", "formats": ["faa", "fasta"], "required": False},

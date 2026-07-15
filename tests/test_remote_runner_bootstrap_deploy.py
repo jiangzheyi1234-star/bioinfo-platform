@@ -501,6 +501,7 @@ def test_bootstrap_installs_when_artifact_sha_marker_is_missing(monkeypatch) -> 
 def test_bootstrap_retries_canary_once_with_fresh_tunnel_after_connection_refused(monkeypatch) -> None:
     manager = RemoteRunnerManager()
     executed: list[str] = []
+    tunnel_names: list[str] = []
     tunnel_ports: list[int] = []
     closed_tunnels: list[str] = []
     canary_calls = 0
@@ -560,7 +561,8 @@ def test_bootstrap_retries_canary_once_with_fresh_tunnel_after_connection_refuse
         def upload(self, local: str, remote: str) -> None:
             return None
 
-        def ensure_local_tunnel(self, *args, **kwargs):
+        def ensure_local_tunnel(self, name: str, **kwargs):
+            tunnel_names.append(name)
             tunnel_ports.append(int(kwargs["remote_port"]))
             return FakeTunnel(18000 + len(tunnel_ports))
 
@@ -600,8 +602,9 @@ def test_bootstrap_retries_canary_once_with_fresh_tunnel_after_connection_refuse
         )
 
     assert canary_calls == 2
+    assert tunnel_names == ["runner-srv_test-bootstrap", "runner-srv_test-bootstrap"]
     assert tunnel_ports == [43127, 43127]
-    assert closed_tunnels == ["runner-srv_test"]
+    assert closed_tunnels == ["runner-srv_test-bootstrap"]
     assert result["health"]["ready"]["ok"] is True
     assert result["bootstrap_metadata"]["canary_retry"]["servicePort"] == 43127
     assert result["bootstrap_metadata"]["canary"] == {"ok": True, "status": "passed"}

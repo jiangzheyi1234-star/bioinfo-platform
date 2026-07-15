@@ -209,6 +209,7 @@ def _smoke_fixture_quality_summary(prepare_payload: dict[str, Any]) -> dict[str,
             issues.append(f"input-{index}:invalid-smoke-input")
             continue
         content = str(raw_input.get("content") or "")
+        content_base64 = str(raw_input.get("contentBase64") or "").strip()
         filename = str(
             raw_input.get("filename")
             or raw_input.get("name")
@@ -225,7 +226,7 @@ def _smoke_fixture_quality_summary(prepare_payload: dict[str, Any]) -> dict[str,
         ):
             issues.append(f"{filename}:placeholder-content")
             continue
-        if content:
+        if content or content_base64:
             materialized_count += 1
 
     if issues:

@@ -225,7 +225,9 @@ class RemoteRunnerManager(
                     server_record=server_record,
                     bootstrap_metadata=bootstrap_metadata,
                     bootstrap_action=bootstrap_action,
-                    previous_release=previous_release, previous_config_present=previous_config_payload is not None,
+                    previous_release=previous_release,
+                    target_release=paths.release,
+                    previous_config_present=previous_config_payload is not None,
                 )
                 self._deploy_service_runtime_bundle(
                     ssh_service=ssh_service,
@@ -324,7 +326,7 @@ class RemoteRunnerManager(
                     )
                     remote_port = int(runtime_state["bindPort"])
                     tunnel = ssh_service.ensure_local_tunnel(
-                        f"runner-{server_id}",
+                        f"runner-{server_id}-bootstrap",
                         remote_host="127.0.0.1",
                         remote_port=remote_port,
                     )
@@ -351,9 +353,9 @@ class RemoteRunnerManager(
                         remote_port = int(runtime_state["bindPort"])
                         close_tunnel = getattr(ssh_service, "close_local_tunnel", None)
                         if callable(close_tunnel):
-                            close_tunnel(f"runner-{server_id}")
+                            close_tunnel(f"runner-{server_id}-bootstrap")
                         tunnel = ssh_service.ensure_local_tunnel(
-                            f"runner-{server_id}",
+                            f"runner-{server_id}-bootstrap",
                             remote_host="127.0.0.1",
                             remote_port=remote_port,
                         )

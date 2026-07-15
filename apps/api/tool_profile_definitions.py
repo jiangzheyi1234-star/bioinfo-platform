@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import base64
+import io
+import zipfile
+
 from .bio_tool_pack_manifest import (
     bio_tool_pack_manifest_from_profiles,
     load_bio_tool_pack_manifest,
@@ -9,6 +13,35 @@ from .bio_tool_pack_manifest import (
 from .tool_profile_direct_use_pack import DIRECT_USE_TOOL_PROFILES
 from .tool_profile_open_source_pack import OPEN_SOURCE_TOOL_PROFILES
 from .tool_profile_model import ToolProfile
+from .tool_profile_semantics import EDAM_QUALITY_CONTROL_REPORT, EDAM_ZIP
+
+
+_FASTQC_SMOKE_DATA = (
+    "##FastQC\t0.12.1\n"
+    ">>Basic Statistics\tpass\n"
+    "#Measure\tValue\n"
+    "Filename\treads.fastq\n"
+    "File type\tConventional base calls\n"
+    "Encoding\tSanger / Illumina 1.9\n"
+    "Total Sequences\t1\n"
+    "Sequences flagged as poor quality\t0\n"
+    "Sequence length\t8\n"
+    "%GC\t50\n"
+    ">>END_MODULE\n"
+)
+
+
+def _fastqc_smoke_archive_base64() -> str:
+    buffer = io.BytesIO()
+    directory = zipfile.ZipInfo("reads_fastqc/", (1980, 1, 1, 0, 0, 0))
+    directory.external_attr = (0o40755 << 16) | 0x10
+    report = zipfile.ZipInfo("reads_fastqc/fastqc_data.txt", (1980, 1, 1, 0, 0, 0))
+    report.compress_type = zipfile.ZIP_DEFLATED
+    report.external_attr = 0o100644 << 16
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr(directory, b"")
+        archive.writestr(report, _FASTQC_SMOKE_DATA.encode("utf-8"))
+    return base64.b64encode(buffer.getvalue()).decode("ascii")
 
 
 _CURATED_TOOL_PROFILES: tuple[ToolProfile, ...] = (
@@ -173,7 +206,7 @@ _CURATED_TOOL_PROFILES: tuple[ToolProfile, ...] = (
         ),
         ToolProfile(
             profile_id="fastqc",
-            version=1,
+            version=2,
             tool_names=("fastqc",),
             package_name="fastqc",
             package_source="bioconda",
@@ -200,8 +233,10 @@ _CURATED_TOOL_PROFILES: tuple[ToolProfile, ...] = (
                     {
                         "name": "zip",
                         "path": "results/reads_fastqc.zip",
-                        "kind": "report_archive",
+                        "kind": "qc_report",
                         "mimeType": "application/zip",
+                        "data": EDAM_QUALITY_CONTROL_REPORT,
+                        "format": EDAM_ZIP,
                     },
                 ],
                 "params": {},
@@ -306,7 +341,7 @@ _CURATED_TOOL_PROFILES: tuple[ToolProfile, ...] = (
         ),
         ToolProfile(
             profile_id="multiqc",
-            version=1,
+            version=2,
             tool_names=("multiqc",),
             package_name="multiqc",
             package_source="bioconda",
@@ -319,7 +354,9 @@ _CURATED_TOOL_PROFILES: tuple[ToolProfile, ...] = (
                         "name": "fastqc_data",
                         "type": "file",
                         "kind": "qc_report",
-                        "mimeType": "text/plain",
+                        "mimeType": "application/zip",
+                        "data": EDAM_QUALITY_CONTROL_REPORT,
+                        "format": EDAM_ZIP,
                         "required": True,
                     }
                 ],
@@ -331,7 +368,13 @@ _CURATED_TOOL_PROFILES: tuple[ToolProfile, ...] = (
                         "mimeType": "text/html",
                     }
                 ],
-                "params": {},
+                "params": {
+                    "use_input_files_only": {
+                        "type": "boolean",
+                        "title": "Use only connected QC files",
+                        "default": True,
+                    }
+                },
                 "resources": {"threads": {"default": 1}, "mem_mb": {"default": 1024}},
                 "environment": {
                     "conda": {
@@ -343,21 +386,9 @@ _CURATED_TOOL_PROFILES: tuple[ToolProfile, ...] = (
                 "smokeTest": {
                     "inputs": {
                         "fastqc_data": {
-                            "filename": "fastqc_data.txt",
-                            "content": (
-                                "##FastQC\t0.12.1\n"
-                                ">>Basic Statistics\tpass\n"
-                                "#Measure\tValue\n"
-                                "Filename\treads.fastq\n"
-                                "File type\tConventional base calls\n"
-                                "Encoding\tSanger / Illumina 1.9\n"
-                                "Total Sequences\t1\n"
-                                "Sequences flagged as poor quality\t0\n"
-                                "Sequence length\t8\n"
-                                "%GC\t50\n"
-                                ">>END_MODULE\n"
-                            ),
-                            "mimeType": "text/plain",
+                            "filename": "reads_fastqc.zip",
+                            "contentBase64": _fastqc_smoke_archive_base64(),
+                            "mimeType": "application/zip",
                         }
                     },
                     "timeoutSeconds": 300,

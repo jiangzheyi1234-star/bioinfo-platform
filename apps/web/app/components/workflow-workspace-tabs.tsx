@@ -9,7 +9,6 @@ import { fetchDatabases, fetchDatabaseTemplates } from "./database-page-api";
 import { fetchRunsList, fetchWorkflowCatalog, fetchWorkflowResultsList, fetchWorkflowTools } from "./workflows-page-api";
 
 const tabs = [
-  { href: "/workflows/first-run", label: "首跑" },
   { href: "/workflows", label: "流程" },
   { href: "/workflows/results", label: "运行记录" },
   { href: "/workflows/databases", label: "数据库" },

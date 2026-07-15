@@ -22,7 +22,7 @@ function Assert-FirstRunBlockedScenarioPack {
     if ($Pack.status -ne "blocked" -or $Pack.operatorActionRequired -ne $true) {
         Fail-Pilot "$($Pack.scenarioId) must stay blocked until operator gates pass"
     }
-    if ($Pack.firstRunPath -or $Pack.noAutomaticExecution -ne $true) {
+    if ($Pack.workflowPath -or $Pack.noAutomaticExecution -ne $true) {
         Fail-Pilot "$($Pack.scenarioId) must not expose automatic first-run execution"
     }
     Assert-FirstRunScenarioToolSlice $Pack "planned"
@@ -54,8 +54,9 @@ function Assert-FirstRunScenarioPackCatalog {
         }
     }
     $pack = @($items | Where-Object { $_.scenarioId -eq $FirstRunScenarioId }) | Select-Object -First 1
-    if ($pack.status -ne "ready" -or $pack.firstRunPath -ne "/workflows/first-run") {
-        Fail-Pilot "$FirstRunScenarioId must be ready and point at /workflows/first-run"
+    $expectedWorkflowPath = "/workflows/detail?workflow=$($pack.pipelineId)"
+    if ($pack.status -ne "ready" -or $pack.workflowPath -ne $expectedWorkflowPath) {
+        Fail-Pilot "$FirstRunScenarioId must be ready and point at its workflow detail page"
     }
     Assert-FirstRunScenarioToolSlice $pack "workflow_ready"
     foreach ($evidence in $RequiredEvidence) {
