@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 REQUIRED_TABLES = {
+    "agent_events",
+    "agent_approvals",
+    "agent_plan_revisions",
+    "agent_sessions",
     "artifact_blobs",
     "artifact_cache_entries",
     "artifact_cache_pins",
@@ -51,6 +55,14 @@ REQUIRED_TABLES = {
 }
 
 REQUIRED_INDEXES = {
+    "idx_agent_events_hash_chain",
+    "idx_agent_events_session_idempotency",
+    "idx_agent_approvals_effective_decision",
+    "idx_agent_approvals_session_plan",
+    "idx_agent_plan_revisions_hash",
+    "idx_agent_plan_revisions_session_generation",
+    "idx_agent_sessions_project_updated",
+    "idx_agent_sessions_status_updated",
     "idx_artifact_materializations_lifecycle",
     "idx_artifact_cache_entries_blob",
     "idx_artifact_cache_entries_revision",
@@ -105,4 +117,12 @@ REQUIRED_INDEXES = {
     "idx_workflow_backfill_partitions_run",
 }
 
-REQUIRED_TRIGGERS = {"workflow_revisions_no_update"}
+REQUIRED_TRIGGERS = {
+    "agent_events_no_delete",
+    "agent_events_no_update",
+    "agent_approvals_no_delete",
+    "agent_approvals_no_update",
+    "agent_plan_revisions_no_delete",
+    "agent_plan_revisions_no_update",
+    "workflow_revisions_no_update",
+}

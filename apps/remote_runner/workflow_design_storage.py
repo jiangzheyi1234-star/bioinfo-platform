@@ -49,6 +49,56 @@ def create_workflow_design_draft(
     return saved
 
 
+def create_or_fetch_workflow_design_draft(
+    cfg: RemoteRunnerConfig,
+    draft_id: str,
+    draft: dict[str, Any],
+    *,
+    parent_draft_id: str | None = None,
+) -> dict[str, Any]:
+    normalized = normalize_workflow_design_draft(draft)
+    normalized_draft_id = str(draft_id or "").strip()
+    if not normalized_draft_id:
+        raise ValueError("WORKFLOW_DESIGN_DRAFT_ID_REQUIRED")
+    now = now_iso()
+    draft_json = json.dumps(normalized, ensure_ascii=False, sort_keys=True)
+    with get_connection(cfg) as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        existing = connection.execute(
+            "SELECT * FROM workflow_design_drafts WHERE draft_id = ?",
+            (normalized_draft_id,),
+        ).fetchone()
+        if existing is not None:
+            if existing["parent_draft_id"] != parent_draft_id or existing["draft_json"] != draft_json:
+                raise WorkflowDesignRevisionConflictError("WORKFLOW_DESIGN_DRAFT_ID_CONFLICT")
+            return _row_to_dict(existing)
+        connection.execute(
+            """
+            INSERT INTO workflow_design_drafts (
+                draft_id, parent_draft_id, contract_version, engine, name, project_id,
+                revision, draft_json, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+            """,
+            (
+                normalized_draft_id,
+                parent_draft_id,
+                normalized["contractVersion"],
+                normalized["engine"],
+                normalized["metadata"]["name"],
+                normalized["metadata"]["projectId"],
+                draft_json,
+                now,
+                now,
+            ),
+        )
+        row = connection.execute(
+            "SELECT * FROM workflow_design_drafts WHERE draft_id = ?",
+            (normalized_draft_id,),
+        ).fetchone()
+        connection.commit()
+    return _row_to_dict(row)
+
+
 def list_workflow_design_drafts(cfg: RemoteRunnerConfig) -> list[dict[str, Any]]:
     with get_connection(cfg) as connection:
         rows = connection.execute(
@@ -87,11 +137,12 @@ def update_workflow_design_draft(
     now = now_iso()
     with get_connection(cfg) as connection:
         existing = connection.execute(
-            "SELECT revision FROM workflow_design_drafts WHERE draft_id = ?",
+            "SELECT revision, draft_json FROM workflow_design_drafts WHERE draft_id = ?",
             (draft_id,),
         ).fetchone()
         if existing is None:
             raise RemoteRunnerNotFoundError("WORKFLOW_DESIGN_DRAFT_NOT_FOUND")
+        _assert_user_mutable_draft(json.loads(existing["draft_json"]))
         revision = int(existing["revision"])
         if expected_revision is not None and revision != expected_revision:
             raise WorkflowDesignRevisionConflictError("WORKFLOW_DESIGN_REVISION_CONFLICT")
@@ -129,6 +180,7 @@ def fork_workflow_design_draft(
     existing = fetch_workflow_design_draft(cfg, draft_id)
     if existing is None:
         raise RemoteRunnerNotFoundError("WORKFLOW_DESIGN_DRAFT_NOT_FOUND")
+    _assert_user_mutable_draft(existing["draft"])
     draft = dict(existing["draft"])
     if name:
         draft["metadata"] = {**dict(draft.get("metadata") or {}), "name": name}
@@ -137,6 +189,13 @@ def fork_workflow_design_draft(
 
 def delete_workflow_design_draft(cfg: RemoteRunnerConfig, draft_id: str) -> None:
     with get_connection(cfg) as connection:
+        existing = connection.execute(
+            "SELECT draft_json FROM workflow_design_drafts WHERE draft_id = ?",
+            (draft_id,),
+        ).fetchone()
+        if existing is None:
+            raise RemoteRunnerNotFoundError("WORKFLOW_DESIGN_DRAFT_NOT_FOUND")
+        _assert_user_mutable_draft(json.loads(existing["draft_json"]))
         cursor = connection.execute(
             "DELETE FROM workflow_design_drafts WHERE draft_id = ?",
             (draft_id,),
@@ -144,6 +203,14 @@ def delete_workflow_design_draft(cfg: RemoteRunnerConfig, draft_id: str) -> None
         connection.commit()
     if cursor.rowcount == 0:
         raise RemoteRunnerNotFoundError("WORKFLOW_DESIGN_DRAFT_NOT_FOUND")
+
+
+def _assert_user_mutable_draft(draft: dict[str, Any]) -> None:
+    provenance = draft.get("provenance")
+    if isinstance(provenance, dict) and str(provenance.get("agentSessionId") or "").strip():
+        raise WorkflowDesignRevisionConflictError(
+            "AGENT_MANAGED_WORKFLOW_DESIGN_DRAFT_IMMUTABLE"
+        )
 
 
 def _row_to_dict(row) -> dict[str, Any]:

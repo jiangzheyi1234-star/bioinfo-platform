@@ -15,6 +15,7 @@ def _tracked_policy_sources() -> list[Path]:
     sources.update(
         {
             ROOT / "apps" / "remote_runner" / "audit_service.py",
+            ROOT / "apps" / "remote_runner" / "agent_session_service.py",
             ROOT / "apps" / "remote_runner" / "artifact_lifecycle_controller_control.py",
             ROOT / "apps" / "remote_runner" / "artifact_lifecycle_controller_control_route_service.py",
             ROOT / "apps" / "remote_runner" / "artifact_lifecycle_policy.py",

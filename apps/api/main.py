@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from apps.api.agent_session_routes import router as agent_session_router
 from apps.api.audit_routes import router as audit_router
 from apps.api.database_routes import router as database_router
 from apps.api.execution_query_routes import router as execution_query_router
@@ -49,6 +50,7 @@ app.add_middleware(
 )
 
 app.include_router(system_router)
+app.include_router(agent_session_router)
 app.include_router(tool_capability_router)
 app.include_router(tool_contract_router)
 app.include_router(tool_router)

@@ -4,6 +4,7 @@ import time
 from typing import Any, Optional
 
 from config import delete_runner_token
+from core.app_runtime.runner_agent_ops import RunnerAgentOperationsMixin
 from core.app_runtime.runner_database_ops import RunnerDatabaseOperationsMixin
 from core.app_runtime.runner_execution_ops import RunnerExecutionOperationsMixin
 from core.app_runtime.runner_file_ops import RunnerFileOperationsMixin
@@ -17,6 +18,7 @@ from .errors import RuntimeServiceError
 
 
 class RunnerOperationsMixin(
+    RunnerAgentOperationsMixin,
     RunnerDatabaseOperationsMixin,
     RunnerExecutionOperationsMixin,
     RunnerFileOperationsMixin,

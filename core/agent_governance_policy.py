@@ -1,0 +1,109 @@
+"""Governance policy specs for the AgentSession remote control plane."""
+
+from __future__ import annotations
+
+
+AgentRemoteGovernanceSpec = tuple[
+    str,
+    str,
+    str,
+    str,
+    str,
+    str,
+    tuple[str, ...],
+]
+
+_ROUTES = "apps/remote_runner/agent_session_routes.py"
+
+AGENT_REMOTE_GOVERNANCE_SPECS: tuple[AgentRemoteGovernanceSpec, ...] = (
+    (
+        "GET",
+        "/api/v1/agent-sessions",
+        _ROUTES,
+        "agent_session.list",
+        "agent_session",
+        "implemented",
+        ("workflow-operator", "auditor"),
+    ),
+    (
+        "POST",
+        "/api/v1/agent-sessions",
+        _ROUTES,
+        "agent_session.create",
+        "agent_session",
+        "implemented",
+        ("workflow-operator",),
+    ),
+    (
+        "GET",
+        "/api/v1/agent-sessions/{session_id}",
+        _ROUTES,
+        "agent_session.read",
+        "agent_session",
+        "implemented",
+        ("workflow-operator", "auditor"),
+    ),
+    (
+        "GET",
+        "/api/v1/agent-sessions/{session_id}/events",
+        _ROUTES,
+        "agent_session.events.read",
+        "agent_session_event",
+        "implemented",
+        ("workflow-operator", "auditor"),
+    ),
+    (
+        "GET",
+        "/api/v1/agent-sessions/{session_id}/plans",
+        _ROUTES,
+        "agent_session.plans.read",
+        "agent_plan_revision",
+        "implemented",
+        ("workflow-operator", "auditor"),
+    ),
+    (
+        "GET",
+        "/api/v1/agent-sessions/{session_id}/approvals",
+        _ROUTES,
+        "agent_session.approvals.read",
+        "agent_approval",
+        "implemented",
+        ("workflow-operator", "auditor"),
+    ),
+    (
+        "POST",
+        "/api/v1/agent-sessions/{session_id}/plan",
+        _ROUTES,
+        "agent_session.plan",
+        "agent_plan_revision",
+        "implemented",
+        ("workflow-operator",),
+    ),
+    (
+        "POST",
+        "/api/v1/agent-sessions/{session_id}/approval",
+        _ROUTES,
+        "agent_session.approval",
+        "agent_approval",
+        "implemented",
+        ("workflow-operator",),
+    ),
+    (
+        "POST",
+        "/api/v1/agent-sessions/{session_id}/replan",
+        _ROUTES,
+        "agent_session.replan",
+        "agent_plan_revision",
+        "implemented",
+        ("workflow-operator",),
+    ),
+    (
+        "POST",
+        "/api/v1/agent-sessions/{session_id}/cancel",
+        _ROUTES,
+        "agent_session.cancel",
+        "agent_session",
+        "implemented",
+        ("workflow-operator",),
+    ),
+)

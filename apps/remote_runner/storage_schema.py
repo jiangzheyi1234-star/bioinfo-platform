@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .agent_session_schema import AGENT_SESSION_SCHEMA_SQL
 from .artifact_cache_pin_schema import ARTIFACT_CACHE_PIN_SCHEMA_SQL
 from .artifact_lifecycle_policy_schema import ARTIFACT_LIFECYCLE_POLICY_SCHEMA_SQL
 from .sqlite_trigger_readiness_watcher_migrations import WORKFLOW_TRIGGER_READINESS_WATCHER_SCHEMA_SQL
@@ -822,4 +823,4 @@ CREATE TABLE IF NOT EXISTS reconcile_queue (
     updated_at TEXT NOT NULL,
     UNIQUE(dedup_key)
 );
-""" + ARTIFACT_CACHE_PIN_SCHEMA_SQL + ARTIFACT_LIFECYCLE_POLICY_SCHEMA_SQL + WORKFLOW_TRIGGER_READINESS_WATCHER_SCHEMA_SQL
+""" + AGENT_SESSION_SCHEMA_SQL + ARTIFACT_CACHE_PIN_SCHEMA_SQL + ARTIFACT_LIFECYCLE_POLICY_SCHEMA_SQL + WORKFLOW_TRIGGER_READINESS_WATCHER_SCHEMA_SQL

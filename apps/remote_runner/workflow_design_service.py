@@ -12,6 +12,7 @@ from .api_models import (
     WorkflowDesignDraftUpdateRequest,
 )
 from .config import RemoteRunnerConfig
+from .errors import WorkflowDesignRevisionConflictError
 from .route_utils import authorized_config, data_response, request_payload, run_sync
 from .workflow_design_compiler import compile_workflow_design_project
 from .workflow_design_planner import plan_workflow_design_draft
@@ -151,8 +152,22 @@ def plan_workflow_design_draft_preview(
     )
 
 
-def compile_workflow_design_draft_export(cfg: RemoteRunnerConfig, draft_id: str) -> dict[str, Any]:
+def compile_workflow_design_draft_export(
+    cfg: RemoteRunnerConfig,
+    draft_id: str,
+    *,
+    expected_revision: int | None = None,
+    expected_draft: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     item = require_workflow_design_draft(cfg, draft_id)
+    if expected_revision is not None and int(item["revision"]) != expected_revision:
+        raise WorkflowDesignRevisionConflictError(
+            "AGENT_APPROVAL_DRAFT_REVISION_CONFLICT"
+        )
+    if expected_draft is not None and item["draft"] != expected_draft:
+        raise WorkflowDesignRevisionConflictError(
+            "AGENT_APPROVAL_DRAFT_SNAPSHOT_CONFLICT"
+        )
     export_dir = Path(cfg.work_dir) / "workflow-design-exports" / draft_id / f"rev-{item['revision']}"
     compiled = compile_workflow_design_project(
         cfg,

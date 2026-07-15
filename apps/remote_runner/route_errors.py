@@ -11,6 +11,7 @@ from core.problem_responses import (
 
 from .database_errors import DatabaseCandidateConflictError, DatabaseRegistryError
 from .errors import (
+    AgentSessionTransitionConflictError,
     IdempotencyKeyReusedError,
     RemoteRunnerAuthorizationError,
     RemoteRunnerAuthError,
@@ -32,6 +33,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         RemoteRunnerAuthorizationError,
         RemoteRunnerReadinessError,
         RemoteRunnerNotFoundError,
+        AgentSessionTransitionConflictError,
         WorkflowDesignRevisionConflictError,
         IdempotencyKeyReusedError,
         UploadTooLargeError,

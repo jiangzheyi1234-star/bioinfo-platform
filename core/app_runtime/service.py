@@ -11,6 +11,7 @@ from config import (
     store_runner_token,
 )
 from core.app_runtime import runtime_config
+from core.app_runtime.managers.agent import AgentManager
 from core.app_runtime.managers.database import DatabaseManager
 from core.app_runtime.managers.execution import ExecutionManager
 from core.app_runtime.managers.file import FileManager
@@ -93,6 +94,7 @@ class RuntimeService(
         self._auto_connect_error = ""
         self._auto_connect_notice_key = ""
         self._server_action_state: dict[str, dict[str, Any]] = {}
+        self.agents = AgentManager(self)
         self.databases = DatabaseManager(self)
         self.execution = ExecutionManager(self)
         self.files = FileManager(self)

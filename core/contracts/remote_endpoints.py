@@ -5,6 +5,7 @@ from string import Formatter
 from typing import Any
 from urllib.parse import quote, urlencode
 
+from core.contracts.agent_remote_endpoints import AGENT_REMOTE_ENDPOINT_SPECS
 from core.contracts.artifact_lifecycle_remote_endpoints import ARTIFACT_LIFECYCLE_REMOTE_ENDPOINT_SPECS
 from core.contracts.database_remote_endpoints import DATABASE_REMOTE_ENDPOINT_SPECS
 from core.contracts.execution_lifecycle_remote_endpoints import (
@@ -126,6 +127,10 @@ SECRET_PROVIDER_READINESS_READ = "secret.provider_readiness.read"
 
 
 REMOTE_ENDPOINTS: dict[str, RemoteEndpoint] = {
+    **{
+        endpoint_id: RemoteEndpoint(endpoint_id=endpoint_id, **spec)
+        for endpoint_id, spec in AGENT_REMOTE_ENDPOINT_SPECS.items()
+    },
     **{
         endpoint_id: RemoteEndpoint(endpoint_id=endpoint_id, **spec)
         for endpoint_id, spec in RUNNER_HEALTH_REMOTE_ENDPOINT_SPECS.items()

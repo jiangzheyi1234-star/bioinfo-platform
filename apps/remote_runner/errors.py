@@ -29,6 +29,10 @@ class WorkflowDesignRevisionConflictError(ValueError):
     status_code = 409
 
 
+class AgentSessionTransitionConflictError(ValueError):
+    status_code = 409
+
+
 class WorkflowToolNotReadyError(ValueError):
     status_code = 409
 

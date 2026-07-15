@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from core.agent_governance_policy import AGENT_REMOTE_GOVERNANCE_SPECS
 from core.artifact_lifecycle_governance_policy import ARTIFACT_LIFECYCLE_POLICY_GOVERNANCE_SPECS
 
 
@@ -67,13 +68,7 @@ def local_policy(method: str, route: str, action: str, subject_kind: str, *roles
 
 
 def remote_policy(
-    method: str,
-    route: str,
-    source: str,
-    action: str,
-    subject_kind: str,
-    audit_status: str,
-    *roles: str,
+    method: str, route: str, source: str, action: str, subject_kind: str, audit_status: str, *roles: str
 ) -> ApiGovernancePolicy:
     return ApiGovernancePolicy(
         surface="remote-runner-api",
@@ -829,6 +824,7 @@ HIGH_RISK_API_POLICIES: tuple[ApiGovernancePolicy, ...] = (
         "data-steward",
         "platform-admin",
     ),
+    *(remote_policy(*spec[:-1], *spec[-1]) for spec in AGENT_REMOTE_GOVERNANCE_SPECS),
 )
 
 
