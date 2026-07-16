@@ -86,6 +86,7 @@ class RemoteRunnerBundleBuilder:
             'RUN_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
             'cd "$RUN_DIR"\n'
             'export H2OMETA_REMOTE_CONFIG="$CONFIG_PATH"\n'
+            '"$RUN_DIR/runtime/bin/python" -B -c "from remote_runner.runner_protocol_startup import require_runner_protocol_startup_preflight; require_runner_protocol_startup_preflight()"\n'
             'nohup "$RUN_DIR/launch_remote_runner.sh" >>"$LOG_PATH" 2>&1 &\n'
             'echo $! > "$RUN_DIR/runner.pid"\n',
         )
@@ -95,25 +96,20 @@ class RemoteRunnerBundleBuilder:
             "set -euo pipefail\n"
             'RUN_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
             'cd "$RUN_DIR"\n'
-            'RUNNER_PYTHON="${H2OMETA_REMOTE_RUNNER_PYTHON:-}"\n'
+            'RUNNER_PYTHON="$RUN_DIR/runtime/bin/python"\n'
+            '"$RUNNER_PYTHON" -B -c "from remote_runner.runner_protocol_startup import require_runner_protocol_startup_preflight; require_runner_protocol_startup_preflight()"\n'
             'if [ -n "${H2OMETA_REMOTE_CONFIG:-}" ]; then\n'
             '  SHARED_ROOT="$(cd "$(dirname "$H2OMETA_REMOTE_CONFIG")/.." && pwd)"\n'
             '  TOOLS_BIN="$SHARED_ROOT/tools/bin"\n'
             '  if [ -d "$TOOLS_BIN" ]; then\n'
             '    export PATH="$TOOLS_BIN:$PATH"\n'
             "  fi\n"
-            '  if [ -z "$RUNNER_PYTHON" ] && [ -f "$H2OMETA_REMOTE_CONFIG" ]; then\n'
-            "    RUNNER_PYTHON=\"$(sed -n 's/.*\\\"runner_python\\\"[[:space:]]*:[[:space:]]*\\\"\\([^\\\"]*\\)\\\".*/\\1/p' \"$H2OMETA_REMOTE_CONFIG\" | head -n 1)\"\n"
-            "  fi\n"
-            "fi\n"
-            'if [ -z "$RUNNER_PYTHON" ]; then\n'
-            '  RUNNER_PYTHON="$RUN_DIR/runtime/bin/python"\n'
             "fi\n"
             'if [ -x "$RUN_DIR/runtime/bin/conda-unpack" ] && [ ! -f "$RUN_DIR/runtime/.h2ometa-conda-unpacked" ]; then\n'
             '  "$RUN_DIR/runtime/bin/python" "$RUN_DIR/runtime/bin/conda-unpack"\n'
             '  touch "$RUN_DIR/runtime/.h2ometa-conda-unpacked"\n'
             "fi\n"
-            'exec "$RUNNER_PYTHON" -m remote_runner.run\n',
+            'exec "$RUNNER_PYTHON" -B -m remote_runner.run\n',
         )
         self._write_text_lf(
             bundle_dir / "check_service.sh",

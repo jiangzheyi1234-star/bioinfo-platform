@@ -31,8 +31,16 @@ def test_storage_schema_lives_outside_storage_module() -> None:
 def test_remote_runner_startup_runs_explicit_schema_migration_before_listening() -> None:
     run_source = (REMOTE_RUNNER / "run.py").read_text(encoding="utf-8")
 
-    assert "from .config import ensure_runtime_layout" in run_source
+    assert "load_remote_runner_config_from_startup_preflight()" in run_source
+    assert "bind_remote_runner_config_snapshot," in run_source
+    assert "ensure_runtime_layout," in run_source
     assert "ensure_runtime_layout(cfg)" in run_source
+    assert run_source.index("load_remote_runner_config_from_startup_preflight()") < run_source.index(
+        "bind_remote_runner_config_snapshot(cfg)"
+    )
+    assert run_source.index("bind_remote_runner_config_snapshot(cfg)") < run_source.index(
+        "ensure_runtime_layout(cfg)"
+    )
     assert run_source.index("ensure_runtime_layout(cfg)") < run_source.index("socket.socket(")
 
 

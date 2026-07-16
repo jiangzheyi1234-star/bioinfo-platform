@@ -6,6 +6,9 @@ import time
 from typing import Any
 
 from core.contracts.database_remote_endpoints import DATABASE_TEMPLATE_LIST
+from core.contracts.runner_protocol_runtime import (
+    require_runner_protocol_runtime_self_attestation,
+)
 from core.remote_runner.client import RemoteRunnerClientError, RemoteRunnerHttpClient
 from core.remote_runner.endpoint_caller import call_remote_endpoint
 from core.remote_runner.health import build_runner_health
@@ -61,6 +64,10 @@ class RemoteRunnerReadinessMixin:
             raise cls._manager_error("remote runner runtime state has invalid bind port") from exc
         if port <= 0 or port > 65535:
             raise cls._manager_error("remote runner runtime state has invalid bind port")
+        require_runner_protocol_runtime_self_attestation(
+            state.get("runnerProtocol"),
+            make_error=cls._manager_error,
+        )
         state["bindPort"] = port
         return state
 
@@ -115,9 +122,17 @@ class RemoteRunnerReadinessMixin:
             except RemoteRunnerClientError as exc:
                 last_error = str(exc) or last_error
             else:
-                if body.get("status") == "ok" and body.get("service") == "h2ometa-remote":
-                    return body
-                last_error = str(body.get("message") or last_error)
+                try:
+                    require_runner_protocol_runtime_self_attestation(
+                        body.get("runnerProtocol"),
+                        make_error=cls._manager_error,
+                    )
+                except RuntimeError as exc:
+                    last_error = str(exc)
+                else:
+                    if body.get("status") == "ok" and body.get("service") == "h2ometa-remote":
+                        return body
+                    last_error = str(body.get("message") or last_error)
             if attempt != attempts - 1:
                 time.sleep(delay_seconds)
         raise cls._manager_error(last_error)

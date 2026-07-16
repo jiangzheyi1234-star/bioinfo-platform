@@ -4,12 +4,7 @@ import ctypes
 import logging
 import socket
 
-import uvicorn
-
-from core.logging_config import configure_structured_logging
-
-from .config import ensure_runtime_layout, load_remote_runner_config, write_runtime_state
-from .main import app
+from .runner_protocol_startup import load_remote_runner_config_from_startup_preflight
 
 
 LOGGER = logging.getLogger("h2ometa.remote_runner")
@@ -24,9 +19,22 @@ def _set_process_name(name: str = "h2ometa-remote") -> None:
 
 
 def main() -> None:
+    cfg = load_remote_runner_config_from_startup_preflight()
+    import uvicorn
+
+    from core.logging_config import configure_structured_logging
+
+    from .config import (
+        bind_remote_runner_config_snapshot,
+        ensure_runtime_layout,
+        write_runtime_state,
+    )
+
+    bind_remote_runner_config_snapshot(cfg)
+    from .main import app
+
     configure_structured_logging()
     _set_process_name()
-    cfg = load_remote_runner_config()
     ensure_runtime_layout(cfg)
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

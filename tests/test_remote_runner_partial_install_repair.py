@@ -5,10 +5,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from core.contracts.runner_protocol_runtime import (
+    build_runner_protocol_runtime_self_attestation,
+)
 from core.remote_runner.artifact import WORKFLOW_RUNTIME_VERSION, WorkflowRuntimeArtifact
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
 from core.remote_runner.manager import RemoteRunnerManager
-from tests.helpers.remote_runner_control_plane import _health_endpoint_json
+from tests.helpers.remote_runner_control_plane import _health_endpoint_json, _remote_runner_manifest
 
 
 def _runtime_state_json(port: int = 43127) -> str:
@@ -20,6 +23,7 @@ def _runtime_state_json(port: int = 43127) -> str:
             "bindHost": "127.0.0.1",
             "bindPort": port,
             "startedAt": "2026-04-22T00:00:00Z",
+            "runnerProtocol": build_runner_protocol_runtime_self_attestation(),
         }
     )
 
@@ -59,6 +63,7 @@ def test_bootstrap_repairs_partial_install_with_existing_workflow_runtime() -> N
 
     class FakeArtifact:
         archive_path = Path(__file__)
+        manifest = _remote_runner_manifest()
         platform = "linux-64"
         sha256 = "b" * 64
 
@@ -94,7 +99,7 @@ def test_bootstrap_repairs_partial_install_with_existing_workflow_runtime() -> N
                 return 0, json.dumps(uploaded_config), ""
             if "workflow-env/bin/snakemake" in cmd and "--version" in cmd:
                 return 0, "9.19.0\n", ""
-            if "runtime/bin/python -c \"from remote_runner.config import load_remote_runner_config, ensure_runtime_layout; ensure_runtime_layout(load_remote_runner_config())\"" in cmd:
+            if "runner_protocol_startup" in cmd:
                 return 0, "", ""
             if "rm -f /home/zyserver/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
                 return 0, "", ""
@@ -108,7 +113,9 @@ def test_bootstrap_repairs_partial_install_with_existing_workflow_runtime() -> N
                 return 0, "", ""
             if f"rm -rf /home/zyserver/.h2ometa/runner/locks/install-{REMOTE_RUNNER_VERSION}.lock" in cmd:
                 return 0, "", ""
-            if "runner.json.tmp" in cmd and "mv -f" in cmd:
+            if cmd.endswith("/shared/config/runner.json.candidate"):
+                return 0, "", ""
+            if "runner.json" in cmd and "mv -f" in cmd:
                 return 0, "", ""
             if "profile.v9+.yaml.tmp" in cmd and "mv -f" in cmd:
                 return 0, "", ""
@@ -122,7 +129,11 @@ def test_bootstrap_repairs_partial_install_with_existing_workflow_runtime() -> N
 
         def upload(self, local: str, remote: str) -> None:
             uploads.append((local, remote))
-            if remote in {"/home/zyserver/.h2ometa/runner/shared/config/runner.json", "/home/zyserver/.h2ometa/runner/shared/config/runner.json.tmp"}:
+            if remote in {
+                "/home/zyserver/.h2ometa/runner/shared/config/runner.json",
+                "/home/zyserver/.h2ometa/runner/shared/config/runner.json.tmp",
+                "/home/zyserver/.h2ometa/runner/shared/config/runner.json.candidate.tmp",
+            }:
                 uploaded_config.update(json.loads(Path(local).read_text(encoding="utf-8")))
 
         def ensure_local_tunnel(self, *args, **kwargs):

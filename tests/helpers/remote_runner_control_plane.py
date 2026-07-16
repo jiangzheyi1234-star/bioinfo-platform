@@ -5,6 +5,9 @@ from pathlib import Path
 
 import pytest
 
+from core.contracts.runner_protocol_runtime import (
+    build_runner_protocol_runtime_self_attestation,
+)
 from core.remote_runner.artifact import WorkflowRuntimeArtifact
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
 from core.remote_runner.manager import RemoteRunnerManager
@@ -18,10 +21,15 @@ def _is_remote_bundle_cleanup(cmd: str) -> bool:
 
 
 def _is_remote_config_atomic_move(cmd: str) -> bool:
+    if cmd.startswith("rm -f ") and cmd.endswith(
+        "/shared/config/runner.json.candidate"
+    ):
+        return True
     return (
         cmd.startswith("test -s ")
         and (
             "/shared/config/runner.json.tmp" in cmd
+            or "/shared/config/runner.json.candidate" in cmd
             or "/shared/config/snakemake/default/profile.v9+.yaml.tmp" in cmd
         )
         and " mv -f " in cmd
@@ -30,6 +38,8 @@ def _is_remote_config_atomic_move(cmd: str) -> bool:
             or "/shared/config/snakemake/default/profile.v9+.yaml" in cmd
         )
     )
+def _is_remote_runner_config_read(cmd: str) -> bool:
+    return cmd.startswith("cat ") and "/shared/config/runner.json" in cmd
 
 
 def _is_remote_current_release_read(cmd: str) -> bool:
@@ -53,6 +63,7 @@ def _runtime_state_json(port: int = 43127, *, version: str = REMOTE_RUNNER_VERSI
             "bindHost": "127.0.0.1",
             "bindPort": port,
             "startedAt": "2026-04-22T00:00:00Z",
+            "runnerProtocol": build_runner_protocol_runtime_self_attestation(),
         }
     )
 
@@ -71,18 +82,47 @@ def _remote_runner_manifest(
     }
 
 
+def _remote_runner_protocol_config(
+    *,
+    version: str = REMOTE_RUNNER_VERSION,
+    release: str | None = None,
+) -> dict[str, str]:
+    manifest = _remote_runner_manifest(version=version)
+    descriptor = manifest["runnerProtocol"]
+    assert isinstance(descriptor, dict)
+    release_root = release or f"/home/tester/.h2ometa/runner/releases/{version}"
+    return {
+        "service_name": "h2ometa-remote",
+        "version": version,
+        "release_dir": f"{release_root}/remote_runner",
+        "runner_python": f"{release_root}/runtime/bin/python",
+        "runner_protocol_version": str(descriptor["protocolVersion"]),
+        "runner_protocol_fingerprint": str(manifest["runnerProtocolFingerprint"]),
+    }
+
+
 def _health_endpoint_json(
     path: str, accepted_statuses: set[int] | None = None
 ) -> dict[str, object] | None:
     if path == "/health/startup":
         assert accepted_statuses == {200, 503}
-        return {"status": "ok"}
+        return {
+            "status": "ok",
+            "runnerProtocol": build_runner_protocol_runtime_self_attestation(),
+        }
     if path == "/health/live":
         assert accepted_statuses == {200}
-        return {"status": "ok", "service": "h2ometa-remote"}
+        return {
+            "status": "ok",
+            "service": "h2ometa-remote",
+            "runnerProtocol": build_runner_protocol_runtime_self_attestation(),
+        }
     if path == "/health/ready":
         assert accepted_statuses == {200, 503}
-        return {"status": "ok"}
+        return {
+            "status": "ok",
+            "runnerProtocol": build_runner_protocol_runtime_self_attestation(),
+        }
     return None
 
 

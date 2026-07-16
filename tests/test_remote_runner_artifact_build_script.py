@@ -85,3 +85,21 @@ def test_remote_build_script_embeds_exact_runner_protocol_descriptor() -> None:
 
     assert '"runnerProtocol"' in plan["remoteScript"]
     assert str(fields["runnerProtocolFingerprint"]) in plan["remoteScript"]
+
+
+def test_remote_build_script_starts_protocol_preflight_without_bytecode_writes() -> None:
+    plan = builder.build_remote_script_plan(
+        version="protocol-test",
+        platform="linux-64",
+        runtime_source="copy-from-current",
+    )
+
+    script = plan["remoteScript"]
+    assert 'exec "$RUNNER_PYTHON" -B -m remote_runner.run' in script
+    assert script.index("require_runner_protocol_startup_preflight") < script.rindex(
+        "conda-unpack"
+    )
+    assert script.index("require_runner_protocol_startup_preflight") < script.index(
+        "nohup"
+    )
+    assert "H2OMETA_REMOTE_RUNNER_PYTHON" not in script

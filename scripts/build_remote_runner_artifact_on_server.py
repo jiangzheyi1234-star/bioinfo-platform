@@ -361,6 +361,7 @@ LOG_PATH="${{2:?log path required}}"
 RUN_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$RUN_DIR"
 export H2OMETA_REMOTE_CONFIG="$CONFIG_PATH"
+"$RUN_DIR/runtime/bin/python" -B -c "from remote_runner.runner_protocol_startup import require_runner_protocol_startup_preflight; require_runner_protocol_startup_preflight()"
 nohup "$RUN_DIR/launch_remote_runner.sh" >>"$LOG_PATH" 2>&1 &
 echo $! > "$RUN_DIR/runner.pid"
 SH
@@ -369,25 +370,20 @@ cat > "$BUILD_ROOT/bundle/launch_remote_runner.sh" <<'SH'
 set -euo pipefail
 RUN_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$RUN_DIR"
-RUNNER_PYTHON="${{H2OMETA_REMOTE_RUNNER_PYTHON:-}}"
+RUNNER_PYTHON="$RUN_DIR/runtime/bin/python"
+"$RUNNER_PYTHON" -B -c "from remote_runner.runner_protocol_startup import require_runner_protocol_startup_preflight; require_runner_protocol_startup_preflight()"
 if [ -n "${{H2OMETA_REMOTE_CONFIG:-}}" ]; then
   SHARED_ROOT="$(cd "$(dirname "$H2OMETA_REMOTE_CONFIG")/.." && pwd)"
   TOOLS_BIN="$SHARED_ROOT/tools/bin"
   if [ -d "$TOOLS_BIN" ]; then
     export PATH="$TOOLS_BIN:$PATH"
   fi
-  if [ -z "$RUNNER_PYTHON" ] && [ -f "$H2OMETA_REMOTE_CONFIG" ]; then
-    RUNNER_PYTHON="$(sed -n 's/.*\\"runner_python\\"[[:space:]]*:[[:space:]]*\\"\\([^\\"]*\\)\\".*/\\1/p' "$H2OMETA_REMOTE_CONFIG" | head -n 1)"
-  fi
-fi
-if [ -z "$RUNNER_PYTHON" ]; then
-  RUNNER_PYTHON="$RUN_DIR/runtime/bin/python"
 fi
 if [ -x "$RUN_DIR/runtime/bin/conda-unpack" ] && [ ! -f "$RUN_DIR/runtime/.h2ometa-conda-unpacked" ]; then
   "$RUN_DIR/runtime/bin/python" "$RUN_DIR/runtime/bin/conda-unpack"
   touch "$RUN_DIR/runtime/.h2ometa-conda-unpacked"
 fi
-exec "$RUNNER_PYTHON" -m remote_runner.run
+exec "$RUNNER_PYTHON" -B -m remote_runner.run
 SH
 cat > "$BUILD_ROOT/bundle/check_service.sh" <<'SH'
 #!/usr/bin/env bash

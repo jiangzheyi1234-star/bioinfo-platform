@@ -13,6 +13,8 @@ from apps.remote_runner.config import (
     load_remote_runner_config,
 )
 from apps.remote_runner.errors import RemoteRunnerAuthError
+from core.contracts.runner_protocol import RUNNER_PROTOCOL_VERSION
+from core.contracts.runner_protocol_runtime import CURRENT_RUNNER_PROTOCOL_FINGERPRINT
 from core.contracts.pipeline_manifest import PipelineRegistryError
 from apps.remote_runner.api_models import RunCreateRequest, RunRetryRequest, UploadCreateRequest
 from apps.remote_runner.execution_query_routes import (
@@ -62,6 +64,8 @@ def test_remote_runner_health_endpoints_require_auth_and_do_not_mutate_runtime(
         json.dumps(
             {
                 "token": "phase1-token",
+                "runner_protocol_version": RUNNER_PROTOCOL_VERSION,
+                "runner_protocol_fingerprint": CURRENT_RUNNER_PROTOCOL_FINGERPRINT,
                 "data_root": str(tmp_path / "shared"),
                 "db_path": str(tmp_path / "shared" / "data" / "runner.db"),
                 "uploads_dir": str(tmp_path / "shared" / "uploads"),
@@ -110,6 +114,8 @@ def test_remote_runner_health_does_not_create_runtime_layout(tmp_path: Path, mon
         json.dumps(
             {
                 "token": "phase1-token",
+                "runner_protocol_version": RUNNER_PROTOCOL_VERSION,
+                "runner_protocol_fingerprint": CURRENT_RUNNER_PROTOCOL_FINGERPRINT,
                 "data_root": str(tmp_path / "shared"),
                 "db_path": str(tmp_path / "shared" / "data" / "runner.db"),
                 "uploads_dir": str(tmp_path / "shared" / "uploads"),
@@ -141,6 +147,8 @@ def test_remote_runner_worker_health_endpoint_reports_worker_sessions(tmp_path: 
         json.dumps(
             {
                 "token": "phase-worker-token",
+                "runner_protocol_version": RUNNER_PROTOCOL_VERSION,
+                "runner_protocol_fingerprint": CURRENT_RUNNER_PROTOCOL_FINGERPRINT,
                 "data_root": str(tmp_path / "shared"),
                 "db_path": str(tmp_path / "shared" / "data" / "runner.db"),
                 "uploads_dir": str(tmp_path / "shared" / "uploads"),
@@ -183,6 +191,8 @@ def test_remote_runner_cancel_run_endpoint_records_cancel_command(tmp_path: Path
         json.dumps(
             {
                 "token": "phase-cancel-token",
+                "runner_protocol_version": RUNNER_PROTOCOL_VERSION,
+                "runner_protocol_fingerprint": CURRENT_RUNNER_PROTOCOL_FINGERPRINT,
                 "api_token_roles": ["workflow-operator"],
                 "data_root": str(tmp_path / "shared"),
                 "db_path": str(tmp_path / "shared" / "data" / "runner.db"),
@@ -226,6 +236,8 @@ def test_remote_runner_retry_run_endpoint_requeues_terminal_failed_run(tmp_path:
         json.dumps(
             {
                 "token": "phase-retry-token",
+                "runner_protocol_version": RUNNER_PROTOCOL_VERSION,
+                "runner_protocol_fingerprint": CURRENT_RUNNER_PROTOCOL_FINGERPRINT,
                 "api_token_roles": ["workflow-operator"],
                 "data_root": str(tmp_path / "shared"),
                 "db_path": str(tmp_path / "shared" / "data" / "runner.db"),
@@ -288,6 +300,8 @@ def test_remote_runner_upload_persists_file_and_metadata(tmp_path: Path, monkeyp
         json.dumps(
             {
                 "token": "phase2-token",
+                "runner_protocol_version": RUNNER_PROTOCOL_VERSION,
+                "runner_protocol_fingerprint": CURRENT_RUNNER_PROTOCOL_FINGERPRINT,
                 "api_token_roles": ["workflow-operator"],
                 "data_root": str(tmp_path / "shared"),
                 "db_path": str(tmp_path / "shared" / "data" / "runner.db"),
@@ -319,6 +333,8 @@ def test_remote_runner_pipeline_api_lists_registered_pipelines(tmp_path: Path, m
         json.dumps(
             {
                 "token": "phase2-token",
+                "runner_protocol_version": RUNNER_PROTOCOL_VERSION,
+                "runner_protocol_fingerprint": CURRENT_RUNNER_PROTOCOL_FINGERPRINT,
                 "api_token_roles": ["workflow-operator"],
                 "data_root": str(tmp_path / "shared"),
                 "db_path": str(tmp_path / "shared" / "data" / "runner.db"),
@@ -355,6 +371,8 @@ def test_remote_runner_health_ready_surfaces_invalid_pipeline_manifest(tmp_path:
         json.dumps(
             {
                 "token": "phase2-token",
+                "runner_protocol_version": RUNNER_PROTOCOL_VERSION,
+                "runner_protocol_fingerprint": CURRENT_RUNNER_PROTOCOL_FINGERPRINT,
                 "api_token_roles": ["workflow-operator"],
                 "data_root": str(tmp_path / "shared"),
                 "db_path": str(tmp_path / "shared" / "data" / "runner.db"),
@@ -384,6 +402,8 @@ def test_remote_runner_create_run_rejects_unknown_pipeline(tmp_path: Path, monke
         json.dumps(
             {
                 "token": "phase2-token",
+                "runner_protocol_version": RUNNER_PROTOCOL_VERSION,
+                "runner_protocol_fingerprint": CURRENT_RUNNER_PROTOCOL_FINGERPRINT,
                 "api_token_roles": ["workflow-operator"],
                 "data_root": str(tmp_path / "shared"),
                 "db_path": str(tmp_path / "shared" / "data" / "runner.db"),
@@ -425,6 +445,8 @@ def test_remote_runner_create_run_rejects_invalid_pipeline_params(tmp_path: Path
         json.dumps(
             {
                 "token": "phase2-token",
+                "runner_protocol_version": RUNNER_PROTOCOL_VERSION,
+                "runner_protocol_fingerprint": CURRENT_RUNNER_PROTOCOL_FINGERPRINT,
                 "api_token_roles": ["workflow-operator"],
                 "data_root": str(tmp_path / "shared"),
                 "db_path": str(tmp_path / "shared" / "data" / "runner.db"),
@@ -471,6 +493,8 @@ def test_remote_runner_run_lifecycle_produces_events_logs_and_results(tmp_path: 
         json.dumps(
             {
                 "token": "phase2-token",
+                "runner_protocol_version": RUNNER_PROTOCOL_VERSION,
+                "runner_protocol_fingerprint": CURRENT_RUNNER_PROTOCOL_FINGERPRINT,
                 "api_token_roles": ["workflow-operator", "artifact-curator"],
                 "data_root": str(tmp_path / "shared"),
                 "db_path": str(tmp_path / "shared" / "data" / "runner.db"),
@@ -574,6 +598,8 @@ def test_remote_runner_upload_rejects_oversized_payload(tmp_path: Path, monkeypa
         json.dumps(
             {
                 "token": "phase2-token",
+                "runner_protocol_version": RUNNER_PROTOCOL_VERSION,
+                "runner_protocol_fingerprint": CURRENT_RUNNER_PROTOCOL_FINGERPRINT,
                 "data_root": str(tmp_path / "shared"),
                 "db_path": str(tmp_path / "shared" / "data" / "runner.db"),
                 "uploads_dir": str(tmp_path / "shared" / "uploads"),
@@ -605,6 +631,8 @@ def test_result_preview_truncates_large_text_payload(tmp_path: Path, monkeypatch
         json.dumps(
             {
                 "token": "phase2-token",
+                "runner_protocol_version": RUNNER_PROTOCOL_VERSION,
+                "runner_protocol_fingerprint": CURRENT_RUNNER_PROTOCOL_FINGERPRINT,
                 "api_token_roles": ["artifact-curator"],
                 "data_root": str(tmp_path / "shared"),
                 "db_path": str(tmp_path / "shared" / "data" / "runner.db"),

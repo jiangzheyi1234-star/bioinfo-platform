@@ -18,6 +18,7 @@ from tests.helpers.remote_runner_control_plane import (
     _is_remote_runner_config_read,
     _fake_workflow_artifact,
     _health_endpoint_json,
+    _remote_runner_manifest,
     _runtime_state_json,
 )
 
@@ -146,6 +147,7 @@ def test_bootstrap_uses_bundled_service_runtime_without_remote_installer(monkeyp
 
     class FakeBundle:
         archive_path = Path(__file__)
+        manifest = _remote_runner_manifest()
 
     class FakeSSH:
         def run(self, cmd: str, timeout: int = 10):
@@ -159,7 +161,7 @@ def test_bootstrap_uses_bundled_service_runtime_without_remote_installer(monkeyp
                 return 0, "", ""
             if "tar -xzf" in cmd:
                 return 0, "", ""
-            if "runtime/bin/python -c \"from remote_runner.config import load_remote_runner_config, ensure_runtime_layout; ensure_runtime_layout(load_remote_runner_config())\"" in cmd:
+            if "runner_protocol_startup" in cmd:
                 return 0, "", ""
             if "rm -f /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
                 return 0, "", ""
@@ -225,6 +227,7 @@ def test_bootstrap_does_not_install_runtime_on_remote_host(monkeypatch) -> None:
 
     class FakeBundle:
         archive_path = Path(__file__)
+        manifest = _remote_runner_manifest()
 
     class FakeTunnel:
         local_port = 18765
@@ -242,7 +245,7 @@ def test_bootstrap_does_not_install_runtime_on_remote_host(monkeypatch) -> None:
                 return 0, "", ""
             if "tar -xzf" in cmd:
                 return 0, "", ""
-            if "runtime/bin/python -c \"from remote_runner.config import load_remote_runner_config, ensure_runtime_layout; ensure_runtime_layout(load_remote_runner_config())\"" in cmd:
+            if "runner_protocol_startup" in cmd:
                 return 0, "", ""
             if "rm -f /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
                 return 0, "", ""
@@ -312,6 +315,7 @@ def test_bootstrap_waits_for_remote_runner_health_after_startup(monkeypatch) -> 
 
     class FakeBundle:
         archive_path = Path(__file__)
+        manifest = _remote_runner_manifest()
 
     class FakeTunnel:
         local_port = 18765
@@ -328,7 +332,7 @@ def test_bootstrap_waits_for_remote_runner_health_after_startup(monkeypatch) -> 
                 return 0, "", ""
             if "tar -xzf" in cmd:
                 return 0, "", ""
-            if "runtime/bin/python -c \"from remote_runner.config import load_remote_runner_config, ensure_runtime_layout; ensure_runtime_layout(load_remote_runner_config())\"" in cmd:
+            if "runner_protocol_startup" in cmd:
                 return 0, "", ""
             if "rm -f /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
                 return 0, "", ""
@@ -397,6 +401,7 @@ def test_bootstrap_does_not_require_system_python3_for_bundled_runtime(monkeypat
 
     class FakeBundle:
         archive_path = Path(__file__)
+        manifest = _remote_runner_manifest()
 
     class FakeTunnel:
         local_port = 18765
@@ -413,7 +418,7 @@ def test_bootstrap_does_not_require_system_python3_for_bundled_runtime(monkeypat
                 return 0, "", ""
             if "tar -xzf" in cmd:
                 return 0, "", ""
-            if "runtime/bin/python -c \"from remote_runner.config import load_remote_runner_config, ensure_runtime_layout; ensure_runtime_layout(load_remote_runner_config())\"" in cmd:
+            if "runner_protocol_startup" in cmd:
                 return 0, "", ""
             if "rm -f /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
                 return 0, "", ""

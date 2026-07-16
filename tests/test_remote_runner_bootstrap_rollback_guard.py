@@ -3,6 +3,10 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerError
+from tests.helpers.remote_runner_control_plane import (
+    _remote_runner_manifest,
+    _remote_runner_protocol_config,
+)
 
 
 class _RollbackSsh:
@@ -22,6 +26,19 @@ def _metadata() -> dict[str, object]:
 
 
 def _patch_rollback_runtime(monkeypatch, events: list[object]) -> None:
+    def read_remote_json(cls, _ssh_service, path: str, _label: str):
+        if path.endswith("bootstrap_manifest.json"):
+            return _remote_runner_manifest(version="old")
+        return _remote_runner_protocol_config(
+            version="old",
+            release="/runner/releases/old",
+        )
+
+    monkeypatch.setattr(
+        RemoteRunnerManager,
+        "_read_remote_json",
+        classmethod(read_remote_json),
+    )
     monkeypatch.setattr(
         RemoteRunnerManager,
         "_run_checked",
@@ -93,7 +110,7 @@ def _attempt_rollback(tmp_path, metadata: dict[str, object]) -> None:
     )
 
 
-def test_rollback_releases_recorded_guard_between_live_and_ready(monkeypatch, tmp_path) -> None:
+def test_rollback_releases_recorded_guard_after_live_and_ready(monkeypatch, tmp_path) -> None:
     events: list[object] = []
     metadata = _metadata()
     _patch_rollback_runtime(monkeypatch, events)
@@ -117,8 +134,8 @@ def test_rollback_releases_recorded_guard_between_live_and_ready(monkeypatch, tm
 
     assert events[-3:] == [
         "live",
-        ("release", {"action": "upgrade", "owner": "srv_rollback:upgrade:lifecycle"}),
         "ready",
+        ("release", {"action": "upgrade", "owner": "srv_rollback:upgrade:lifecycle"}),
     ]
     rollback = metadata["rollback"]
     assert rollback["restored"] is True
@@ -163,8 +180,9 @@ def test_rollback_guard_release_failure_remains_fail_closed(monkeypatch, tmp_pat
 
     _attempt_rollback(tmp_path, metadata)
 
-    assert events[-2:] == [
+    assert events[-3:] == [
         "live",
+        "ready",
         ("release", {"action": "upgrade", "owner": "srv_rollback:upgrade:lifecycle"}),
     ]
     rollback = metadata["rollback"]
@@ -174,13 +192,11 @@ def test_rollback_guard_release_failure_remains_fail_closed(monkeypatch, tmp_pat
     assert recovery["liveVerified"] is True
     assert recovery["releaseAttempted"] is True
     assert recovery["released"] is False
-    assert recovery["readyVerified"] is False
+    assert recovery["readyVerified"] is True
     assert recovery["failClosed"] is True
     assert recovery["admissionState"] == "guarded-or-unknown"
     assert "remains fail-closed" in recovery["message"]
-    assert recovery["nextAction"] == (
-        "retry owner-matched lifecycle guard release, then verify ready health"
-    )
+    assert recovery["nextAction"] == "retry owner-matched lifecycle guard release"
     assert metadata["upgradeGuardRelease"]["released"] is False
     assert metadata["upgradeGuardRelease"]["reason"] == "execution-lifecycle-guard-release-unconfirmed"
     assert metadata["release_switch"] == {"target_release": "/runner/releases/new"}
@@ -214,7 +230,10 @@ def test_rollback_accepts_owner_matched_guard_already_released_by_failed_canary(
     rollback = metadata["rollback"]
     recovery = rollback["lifecycleGuardRecovery"]
     assert rollback["restored"] is True
-    assert events[-1] == "ready"
+    assert events[-1] == (
+        "release",
+        {"action": "upgrade", "owner": "srv_rollback:upgrade:lifecycle"},
+    )
     assert recovery["released"] is False
     assert recovery["alreadyAbsent"] is True
     assert recovery["admissionState"] == "open"
@@ -222,7 +241,7 @@ def test_rollback_accepts_owner_matched_guard_already_released_by_failed_canary(
     assert recovery["message"] == "rollback lifecycle guard was already absent"
 
 
-def test_rollback_ready_failure_after_release_reports_admission_open(monkeypatch, tmp_path) -> None:
+def test_rollback_ready_failure_retains_guard_and_admission_closed(monkeypatch, tmp_path) -> None:
     events: list[object] = []
     metadata = _metadata()
     _patch_rollback_runtime(monkeypatch, events)
@@ -252,9 +271,12 @@ def test_rollback_ready_failure_after_release_reports_admission_open(monkeypatch
     rollback = metadata["rollback"]
     recovery = rollback["lifecycleGuardRecovery"]
     assert rollback["restored"] is False
-    assert recovery["released"] is True
+    assert ("release", {"action": "upgrade", "owner": "srv_rollback:upgrade:lifecycle"}) not in events
+    assert recovery["released"] is False
     assert recovery["readyVerified"] is False
-    assert recovery["admissionState"] == "open"
-    assert recovery["failClosed"] is False
-    assert "ready health failed" in recovery["message"]
-    assert recovery["nextAction"] == "repair previous runner readiness before resuming execution"
+    assert recovery["admissionState"] == "guarded-or-unknown"
+    assert recovery["failClosed"] is True
+    assert "ready health failed before guard release" in recovery["message"]
+    assert recovery["nextAction"] == (
+        "repair previous runner readiness, then release the lifecycle guard"
+    )

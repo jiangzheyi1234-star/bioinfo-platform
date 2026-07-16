@@ -12,9 +12,19 @@ import json
 from typing import Any
 
 
-RUNNER_PROTOCOL_DESCRIPTOR_SCHEMA = "h2ometa.runner-protocol-descriptor.v1"
-RUNNER_PROTOCOL_VERSION = "runner-protocol.v1"
+RUNNER_PROTOCOL_DESCRIPTOR_SCHEMA = "h2ometa.runner-protocol-descriptor.v2"
+RUNNER_PROTOCOL_VERSION = "runner-protocol.v2"
 RUNNER_PROTOCOL_DATABASE_SCHEMA_VERSION = 18
+RUNNER_PROTOCOL_RUNTIME_SELF_ATTESTATION_SCHEMA = (
+    "h2ometa.runner-protocol-runtime-self-attestation.v1"
+)
+RUNNER_PROTOCOL_RUNTIME_SELF_ATTESTATION_SURFACES = (
+    "runtime-state",
+    "health-startup",
+    "health-live",
+    "health-ready",
+    "health-meta",
+)
 RUNNER_PROTOCOL_TOOL_PREPARE_PROCESS_MARKER_SCHEMA = (
     "h2ometa.tool-prepare-process-marker.v1"
 )
@@ -22,6 +32,7 @@ RUNNER_PROTOCOL_TOOL_PREPARE_PROCESS_MARKER_SCHEMA = (
 RUNNER_PROTOCOL_CAPABILITIES = (
     "artifact-exact-protocol-descriptor-v1",
     "execution-lifecycle-guard-v1",
+    "runtime-self-attestation-v1",
     "tool-prepare-process-evidence-fencing-v1",
 )
 RUNNER_PROTOCOL_WRITER_SCOPES = (
@@ -48,10 +59,12 @@ _COVERAGE_FIELDS = frozenset(
         "automaticRecoveryEnabled",
         "coverageComplete",
         "coveredWriterScopes",
+        "runtimeSelfAttestationSchema",
+        "runtimeSelfAttestationSurfaces",
         "toolPrepareProcessMarkerSchema",
     }
 )
-_FINGERPRINT_DOMAIN = b"h2ometa.runner-protocol-descriptor.v1"
+_FINGERPRINT_DOMAIN = b"h2ometa.runner-protocol-descriptor.v2"
 
 
 def build_runner_protocol_descriptor() -> dict[str, object]:
@@ -63,6 +76,12 @@ def build_runner_protocol_descriptor() -> dict[str, object]:
             "automaticRecoveryEnabled": False,
             "coverageComplete": False,
             "coveredWriterScopes": list(RUNNER_PROTOCOL_COVERED_WRITER_SCOPES),
+            "runtimeSelfAttestationSchema": (
+                RUNNER_PROTOCOL_RUNTIME_SELF_ATTESTATION_SCHEMA
+            ),
+            "runtimeSelfAttestationSurfaces": list(
+                RUNNER_PROTOCOL_RUNTIME_SELF_ATTESTATION_SURFACES
+            ),
             "toolPrepareProcessMarkerSchema": (
                 RUNNER_PROTOCOL_TOOL_PREPARE_PROCESS_MARKER_SCHEMA
             ),
@@ -145,6 +164,18 @@ def require_runner_protocol_descriptor(
         coverage.get("coveredWriterScopes"),
         expected=RUNNER_PROTOCOL_COVERED_WRITER_SCOPES,
         field="coverage.coveredWriterScopes",
+        make_error=make_error,
+    )
+    _require_exact_string(
+        coverage.get("runtimeSelfAttestationSchema"),
+        expected=RUNNER_PROTOCOL_RUNTIME_SELF_ATTESTATION_SCHEMA,
+        field="coverage.runtimeSelfAttestationSchema",
+        make_error=make_error,
+    )
+    _require_exact_string_list(
+        coverage.get("runtimeSelfAttestationSurfaces"),
+        expected=RUNNER_PROTOCOL_RUNTIME_SELF_ATTESTATION_SURFACES,
+        field="coverage.runtimeSelfAttestationSurfaces",
         make_error=make_error,
     )
     _require_exact_string(

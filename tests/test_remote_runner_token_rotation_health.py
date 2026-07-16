@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -12,10 +13,16 @@ from core.contracts.execution_activity import (
     EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
 )
 from core.contracts.remote_endpoints import RemoteEndpointContractError
+from core.remote_runner.client import RemoteRunnerClientError
 from core.remote_runner.errors import RemoteRunnerManagerError
 from core.remote_runner.manager import RemoteRunnerManager
 from core.remote_runner.token_rotation import _runner_rotation_failure_types, _unlink_temp_configs
-from tests.helpers.remote_runner_control_plane import _health_endpoint_json
+from tests.helpers.remote_runner_control_plane import (
+    _health_endpoint_json,
+    _remote_runner_manifest,
+    _remote_runner_protocol_config,
+    _runtime_state_json,
+)
 
 
 def test_rotate_token_validates_new_token_with_transport_health(monkeypatch) -> None:
@@ -31,6 +38,14 @@ def test_rotate_token_validates_new_token_with_transport_health(monkeypatch) -> 
         def run(self, cmd: str, timeout: int = 10):
             if 'printf "%s" "$HOME"' in cmd:
                 return 0, "/home/tester", ""
+            if "bootstrap_manifest.json" in cmd:
+                return 0, json.dumps(_remote_runner_manifest(version="v1")), ""
+            if cmd.endswith("/shared/config/runner.json"):
+                return 0, json.dumps(_remote_runner_protocol_config(version="v1")), ""
+            if cmd.endswith("/shared/runtime/runner-state.json"):
+                return 0, _runtime_state_json(version="v1"), ""
+            if cmd == "kill -0 123":
+                return 0, "", ""
             if "test -s" in cmd and "mv -f" in cmd:
                 return 0, "", ""
             if "pkill -f '[r]emote_runner.run'" in cmd:
@@ -164,6 +179,94 @@ def test_rotate_token_validates_new_token_with_transport_health(monkeypatch) -> 
     assert not Path(uploads[0][0]).exists()
 
 
+def test_guard_release_ambiguity_keeps_verified_rotated_runtime(monkeypatch) -> None:
+    manager = RemoteRunnerManager()
+    uploads: list[str] = []
+    commands: list[str] = []
+    stored_tokens: list[dict[str, str]] = []
+
+    class FakeSSH:
+        def run(self, cmd: str, timeout: int = 10):
+            commands.append(cmd)
+            if 'printf "%s" "$HOME"' in cmd:
+                return 0, "/home/tester", ""
+            if "bootstrap_manifest.json" in cmd:
+                return 0, json.dumps(_remote_runner_manifest(version="v1")), ""
+            if cmd.endswith("/shared/config/runner.json"):
+                return 0, json.dumps(_remote_runner_protocol_config(version="v1")), ""
+            if "test -s" in cmd and "mv -f" in cmd:
+                return 0, "", ""
+            if "pkill -f '[r]emote_runner.run'" in cmd:
+                return 0, "", ""
+            if "start_service.sh" in cmd or "remote_runner.run" in cmd:
+                return 0, "", ""
+            raise AssertionError(f"unexpected command: {cmd}")
+
+        def download(self, _remote: str, local: str) -> None:
+            Path(local).write_text('{"token":"old"}', encoding="utf-8")
+
+        def upload(self, local: str, _remote: str) -> None:
+            uploads.append(Path(local).read_text(encoding="utf-8"))
+
+    monkeypatch.setattr(
+        "core.remote_runner.token_rotation.secrets.token_urlsafe",
+        lambda _size: "rotated-token",
+    )
+    monkeypatch.setattr(
+        "core.remote_runner.token_rotation.RemoteRunnerHttpClient",
+        lambda **_kwargs: object(),
+    )
+    monkeypatch.setattr(
+        "core.remote_runner.token_rotation.store_runner_token",
+        lambda **kwargs: stored_tokens.append(dict(kwargs)) or "runner://srv_1",
+    )
+    monkeypatch.setattr(
+        manager,
+        "request_execution_lifecycle_guard",
+        lambda **_kwargs: {"maintenanceActive": True},
+    )
+    monkeypatch.setattr(
+        manager,
+        "_wait_for_runtime_state",
+        lambda **_kwargs: {"bindPort": 43127},
+    )
+    monkeypatch.setattr(
+        manager,
+        "_open_runner_tunnel",
+        lambda **_kwargs: SimpleNamespace(local_port=18765),
+    )
+    monkeypatch.setattr(
+        manager,
+        "_wait_for_runner_health",
+        lambda *_args, **_kwargs: {"ready": {"ok": True}},
+    )
+
+    def ambiguous_release(**_kwargs) -> None:
+        raise RemoteRunnerClientError("release response lost")
+
+    monkeypatch.setattr(manager, "_release_token_rotation_guard", ambiguous_release)
+
+    with pytest.raises(
+        RemoteRunnerManagerError,
+        match="committed a verified ready runtime.*release was not confirmed",
+    ):
+        manager.rotate_token(
+            server_id="srv_1",
+            ssh_service=FakeSSH(),
+            server_record={
+                "bootstrap_version": "v1",
+                "runner_mode": "background_process",
+                "service_port": 43127,
+                "token_ref": "runner://srv_1",
+            },
+        )
+
+    assert len(uploads) == 1
+    assert stored_tokens == [{"server_id": "srv_1", "token": "rotated-token"}]
+    assert sum("pkill -f '[r]emote_runner.run'" in command for command in commands) == 1
+    assert sum("start_service.sh" in command for command in commands) == 1
+
+
 def test_rotate_token_fails_loudly_when_systemd_restart_fails(monkeypatch) -> None:
     manager = RemoteRunnerManager()
     uploads: list[str] = []
@@ -176,6 +279,10 @@ def test_rotate_token_fails_loudly_when_systemd_restart_fails(monkeypatch) -> No
             nonlocal restart_attempts
             if 'printf "%s" "$HOME"' in cmd:
                 return 0, "/home/tester", ""
+            if "bootstrap_manifest.json" in cmd:
+                return 0, json.dumps(_remote_runner_manifest(version="v1")), ""
+            if cmd.endswith("/shared/config/runner.json"):
+                return 0, json.dumps(_remote_runner_protocol_config(version="v1")), ""
             if "test -s" in cmd and "mv -f" in cmd:
                 return 0, "", ""
             if cmd == "systemctl --user restart h2ometa-remote.service":
@@ -230,7 +337,7 @@ def test_rotate_token_fails_loudly_when_systemd_restart_fails(monkeypatch) -> No
     assert len(uploads) == 2
     assert uploads[1] == '{"token":"old"}'
     assert restart_attempts == 2
-    assert lifecycle_releases[0]["action"] == "token-rotation"
+    assert lifecycle_releases == []
     assert len(set(temp_paths)) == 2
     assert all(not Path(path).exists() for path in temp_paths)
 
@@ -345,6 +452,10 @@ def test_rotate_token_fails_loudly_when_background_stop_fails(monkeypatch) -> No
             nonlocal stop_attempts
             if 'printf "%s" "$HOME"' in cmd:
                 return 0, "/home/tester", ""
+            if "bootstrap_manifest.json" in cmd:
+                return 0, json.dumps(_remote_runner_manifest(version="v1")), ""
+            if cmd.endswith("/shared/config/runner.json"):
+                return 0, json.dumps(_remote_runner_protocol_config(version="v1")), ""
             if "test -s" in cmd and "mv -f" in cmd:
                 return 0, "", ""
             if cmd == "pkill -f '[r]emote_runner.run'":
@@ -399,4 +510,133 @@ def test_rotate_token_fails_loudly_when_background_stop_fails(monkeypatch) -> No
     assert len(uploads) == 2
     assert uploads[1] == '{"token":"old"}'
     assert stop_attempts == 2
-    assert lifecycle_releases[0]["action"] == "token-rotation"
+    assert lifecycle_releases == []
+
+
+def test_rotate_token_does_not_persist_local_token_before_remote_update_succeeds(monkeypatch) -> None:
+    manager = RemoteRunnerManager()
+    uploads: list[tuple[str, str]] = []
+
+    class FakeSSH:
+        def run(self, cmd: str, timeout: int = 10):
+            if 'printf "%s" "$HOME"' in cmd:
+                return 0, "/home/tester", ""
+            if "bootstrap_manifest.json" in cmd:
+                return 0, json.dumps(_remote_runner_manifest(version="0.1.0-control-plane")), ""
+            if cmd.endswith("/shared/config/runner.json"):
+                return 0, json.dumps(_remote_runner_protocol_config(version="0.1.0-control-plane")), ""
+            raise RuntimeError("boom")
+
+        def download(self, remote: str, local: str) -> None:
+            raise RuntimeError("download failed")
+
+        def upload(self, local: str, remote: str) -> None:
+            uploads.append((local, remote))
+            raise RuntimeError("upload failed")
+
+    fake_ssh = FakeSSH()
+
+    with patch("core.remote_runner.token_rotation.store_runner_token") as store_token:
+        try:
+            manager.rotate_token(
+                server_id="srv_test",
+                server={},
+                ssh_service=fake_ssh,
+                server_record={
+                    "bootstrap_version": "0.1.0-control-plane",
+                    "runner_mode": "background_process",
+                    "service_port": 43127,
+                },
+            )
+        except Exception as exc:
+            assert "download failed" in str(exc)
+        else:
+            raise AssertionError("rotate_token should fail when remote update fails")
+
+    store_token.assert_not_called()
+    assert uploads == []
+
+
+def test_rotate_token_restores_and_retains_guard_on_tunnel_adapter_errors(monkeypatch) -> None:
+    manager = RemoteRunnerManager()
+    uploads: list[str] = []
+    lifecycle_requests: list[dict[str, object]] = []
+    lifecycle_releases: list[dict[str, object]] = []
+
+    class FakeSSH:
+        def run(self, cmd: str, timeout: int = 10):
+            if 'printf "%s" "$HOME"' in cmd:
+                return 0, "/home/tester", ""
+            if "bootstrap_manifest.json" in cmd:
+                return 0, json.dumps(_remote_runner_manifest(version="0.1.0-control-plane")), ""
+            if cmd.endswith("/shared/config/runner.json"):
+                return 0, json.dumps(_remote_runner_protocol_config(version="0.1.0-control-plane")), ""
+            if cmd.endswith("/shared/runtime/runner-state.json"):
+                return 0, _runtime_state_json(version="0.1.0-control-plane"), ""
+            if cmd == "kill -0 123":
+                return 0, "", ""
+            if cmd.startswith("test -s ") or cmd.startswith("pkill -f ") or "start_service.sh" in cmd:
+                return 0, "", ""
+            raise AssertionError(f"unexpected command: {cmd}")
+
+        def download(self, _remote: str, local: str) -> None:
+            Path(local).write_text('{"token":"old"}', encoding="utf-8")
+
+        def upload(self, local: str, _remote: str) -> None:
+            uploads.append(Path(local).read_text(encoding="utf-8"))
+
+        def ensure_local_tunnel(self, *args: Any, **kwargs: Any):
+            raise RuntimeError("tunnel adapter crashed")
+
+    monkeypatch.setattr(
+        manager,
+        "request_execution_lifecycle_guard",
+        lambda **kwargs: lifecycle_requests.append(dict(kwargs))
+        or {
+            "schemaVersion": EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
+            "action": "token-rotation",
+            "owner": "srv_test:token-rotation:lifecycle",
+            "idle": True,
+            "maintenanceActive": True,
+            "activeLeaseCount": 0,
+            "allocatedResourceCount": 0,
+            "resourceWaitCount": 0,
+            "queuedJobCount": 0,
+            "claimedJobCount": 0,
+            "runningSlotCount": 0,
+            "blockReasons": [],
+        },
+    )
+    monkeypatch.setattr(
+        manager,
+        "release_execution_lifecycle_guard",
+        lambda **kwargs: lifecycle_releases.append(dict(kwargs))
+        or {
+            "schemaVersion": "h2ometa.execution-lifecycle-guard-release.v1",
+            "action": "token-rotation",
+            "owner": "srv_test:token-rotation:lifecycle",
+            "released": True,
+            "releasedAt": "2099-01-01T00:00:00Z",
+            "previous": {},
+        },
+    )
+
+    with patch("core.remote_runner.token_rotation.store_runner_token") as store_token:
+        with pytest.raises(RemoteRunnerManagerError, match="tunnel adapter crashed"):
+            manager.rotate_token(
+                server_id="srv_test",
+                server={},
+                ssh_service=FakeSSH(),
+                server_record={
+                    "bootstrap_version": "0.1.0-control-plane",
+                    "runner_mode": "background_process",
+                    "service_port": 43127,
+                },
+            )
+
+    store_token.assert_not_called()
+    assert len(uploads) == 2
+    assert '"token":"old"' not in uploads[0]
+    assert uploads[1] == '{"token":"old"}'
+    assert lifecycle_requests[0]["action"] == "token-rotation"
+    assert lifecycle_releases == []

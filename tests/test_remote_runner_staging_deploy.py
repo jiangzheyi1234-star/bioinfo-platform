@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from core.contracts.runner_protocol import RUNNER_PROTOCOL_VERSION
 from core.remote_runner.bundle import RemoteRunnerBundleBuilder
 from scripts.deploy_remote_runner_staging_artifact import validate_staging_artifact
 from tests.helpers.remote_runner_control_plane import _fake_runtime_dir
@@ -25,7 +26,7 @@ def test_staging_artifact_validation_reports_exact_runner_protocol(tmp_path: Pat
 
     metadata = validate_staging_artifact(bundle.archive_path)
 
-    assert metadata["runnerProtocolVersion"] == "runner-protocol.v1"
+    assert metadata["runnerProtocolVersion"] == RUNNER_PROTOCOL_VERSION
     assert metadata["runnerProtocolFingerprint"].startswith("sha256:")
 
 

@@ -2,15 +2,27 @@ from __future__ import annotations
 
 import json
 import os
-import time
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from core.contracts.runner_protocol import RUNNER_PROTOCOL_VERSION
+from core.contracts.runner_protocol_runtime import (
+    CURRENT_RUNNER_PROTOCOL_FINGERPRINT,
+    build_runner_protocol_runtime_self_attestation,
+    require_current_runner_protocol_expectation,
+)
 from core.env_bool import parse_strict_env_bool
 
 from .api_token_config import apply_api_token_env_overrides, normalize_api_token_roles
+from .config_snapshot import (
+    bind_remote_runner_config_snapshot,
+    get_process_bound_remote_runner_config,
+    require_explicit_loaded_runner_protocol,
+)
 from .database_backend_config import apply_database_backend_env_overrides, assert_supported_database_backend
+from .runtime_state import get_runtime_state_path, write_runtime_state
 from .worker_resource_config import apply_run_worker_env_overrides
 from .sqlite_migrations import initialize_or_migrate_runtime_db
 
@@ -34,10 +46,14 @@ __all__ = [
     "DEFAULT_CONDA_PREFIX_DIRNAME",
     "DEFAULT_SNAKEMAKE_WRAPPER_PREFIX",
     "DEFAULT_WORKFLOW_PROFILE_NAME",
+    "bind_remote_runner_config_snapshot",
     "build_workflow_runtime_environment",
+    "get_runtime_state_path",
     "get_workflow_profile_path",
     "inspect_workflow_profile",
     "inspect_workflow_runtime",
+    "require_explicit_loaded_runner_protocol",
+    "write_runtime_state",
 ]
 
 DEFAULT_REMOTE_ROOT_RELATIVE = Path(".h2ometa") / "runner"
@@ -60,6 +76,8 @@ class RemoteRunnerConfig:
     api_token_roles: tuple[str, ...] = ()
     database_backend: str = "sqlite"
     database_url: str = ""
+    runner_protocol_version: str = RUNNER_PROTOCOL_VERSION
+    runner_protocol_fingerprint: str = CURRENT_RUNNER_PROTOCOL_FINGERPRINT
     data_root: str = str(DEFAULT_DATA_ROOT)
     db_path: str = str(DEFAULT_DB_PATH)
     runtime_state_path: str = str(DEFAULT_RUNTIME_STATE_PATH)
@@ -96,17 +114,34 @@ class RemoteRunnerConfig:
     artifact_s3_secure: bool = True
     artifact_s3_prefix: str = "h2ometa"
 
+
 def get_config_path() -> Path:
     raw = str(os.environ.get("H2OMETA_REMOTE_CONFIG", "") or "").strip()
     return Path(raw) if raw else DEFAULT_CONFIG_PATH
 
 
 def load_remote_runner_config() -> RemoteRunnerConfig:
+    bound = get_process_bound_remote_runner_config()
+    if bound is not None:
+        return bound
     path = get_config_path()
     raw: dict[str, Any] = {}
     if path.exists():
         raw = json.loads(path.read_text(encoding="utf-8"))
+    return remote_runner_config_from_payload(raw)
+
+
+def remote_runner_config_from_payload(
+    payload: Mapping[str, Any],
+) -> RemoteRunnerConfig:
+    """Build config from one already-read snapshot without reopening the file."""
+
+    raw = dict(payload)
     cfg = RemoteRunnerConfig(**{key: value for key, value in raw.items() if key in RemoteRunnerConfig.__dataclass_fields__})
+    cfg._runner_protocol_expectation_explicit = all(
+        key in raw
+        for key in ("runner_protocol_version", "runner_protocol_fingerprint")
+    )
     cfg.api_token_actor = str(cfg.api_token_actor or "remote-runner-api").strip() or "remote-runner-api"
     cfg.api_token_roles = normalize_api_token_roles(cfg.api_token_roles)
     apply_run_worker_env_overrides(cfg)
@@ -114,6 +149,7 @@ def load_remote_runner_config() -> RemoteRunnerConfig:
     apply_api_token_env_overrides(cfg)
     apply_database_backend_env_overrides(cfg)
     return cfg
+
 
 def apply_artifact_storage_env_overrides(cfg: RemoteRunnerConfig) -> None:
     overrides = {
@@ -135,47 +171,11 @@ def apply_artifact_storage_env_overrides(cfg: RemoteRunnerConfig) -> None:
         )
 
 
-def get_runtime_state_path(cfg: RemoteRunnerConfig) -> Path:
-    return Path(cfg.runtime_state_path)
-
-
-def write_runtime_state(
-    cfg: RemoteRunnerConfig,
-    *,
-    bind_host: str,
-    bind_port: int,
-    pid: int | None = None,
-) -> dict[str, Any]:
-    state = {
-        "service": cfg.service_name,
-        "version": cfg.version,
-        "pid": int(pid or os.getpid()),
-        "bindHost": bind_host,
-        "bindPort": int(bind_port),
-        "startedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-    }
-    path = get_runtime_state_path(cfg)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-    payload = json.dumps(state, ensure_ascii=False, indent=2)
-    with temp.open("w", encoding="utf-8") as handle:
-        handle.write(payload)
-        handle.flush()
-        os.fsync(handle.fileno())
-    temp.replace(path)
-    try:
-        directory_fd = os.open(str(path.parent), os.O_RDONLY)
-    except OSError:
-        directory_fd = None
-    if directory_fd is not None:
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
-    return state
-
-
 def ensure_runtime_layout(cfg: RemoteRunnerConfig) -> dict[str, bool]:
+    require_current_runner_protocol_expectation(
+        cfg.runner_protocol_version,
+        cfg.runner_protocol_fingerprint,
+    )
     assert_supported_database_backend(cfg)
     data_root = Path(cfg.data_root)
     db_path = Path(cfg.db_path)
@@ -253,4 +253,5 @@ def dump_public_config(cfg: RemoteRunnerConfig) -> dict[str, Any]:
     data.pop("database_url", None)
     data.pop("artifact_s3_access_key", None)
     data.pop("artifact_s3_secret_key", None)
+    data["runnerProtocol"] = build_runner_protocol_runtime_self_attestation()
     return data

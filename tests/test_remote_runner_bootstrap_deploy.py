@@ -34,6 +34,7 @@ def test_bootstrap_extract_step_marks_remote_scripts_executable(monkeypatch) -> 
 
     class FakeBundle:
         archive_path = Path(__file__)
+        manifest = _remote_runner_manifest()
 
     class FakeTunnel:
         local_port = 18765
@@ -53,7 +54,7 @@ def test_bootstrap_extract_step_marks_remote_scripts_executable(monkeypatch) -> 
                 return 0, "", ""
             if "tar -xzf" in cmd:
                 return 0, "", ""
-            if "runtime/bin/python -c \"from remote_runner.config import load_remote_runner_config, ensure_runtime_layout; ensure_runtime_layout(load_remote_runner_config())\"" in cmd:
+            if "runner_protocol_startup" in cmd:
                 return 0, "", ""
             if "rm -f /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
                 return 0, "", ""
@@ -143,6 +144,7 @@ def test_bootstrap_uses_staged_artifact_version_for_release_layout(monkeypatch) 
 
     class FakeArtifact:
         archive_path = Path(__file__)
+        manifest = _remote_runner_manifest()
         version = staged_version
         platform = "linux-64"
         sha256 = "d" * 64
@@ -169,7 +171,7 @@ def test_bootstrap_uses_staged_artifact_version_for_release_layout(monkeypatch) 
                 return 0, "", ""
             if "cat /home/tester/.h2ometa/runner/shared/config/runner.json" in cmd:
                 return 0, json.dumps(uploaded_config), ""
-            if f"releases/{staged_version}/runtime/bin/python" in cmd and "ensure_runtime_layout" in cmd:
+            if "runner_protocol_startup" in cmd:
                 return 0, "", ""
             if "rm -f /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
                 return 0, "", ""
@@ -199,7 +201,7 @@ def test_bootstrap_uses_staged_artifact_version_for_release_layout(monkeypatch) 
             raise AssertionError(f"unexpected command: {cmd}")
 
         def upload(self, local: str, remote: str) -> None:
-            if remote == "/home/tester/.h2ometa/runner/shared/config/runner.json.tmp":
+            if remote == "/home/tester/.h2ometa/runner/shared/config/runner.json.candidate.tmp":
                 uploaded_config.update(json.loads(Path(local).read_text(encoding="utf-8")))
 
         def ensure_local_tunnel(self, *args, **kwargs):
@@ -252,6 +254,7 @@ def test_bootstrap_registers_remote_workflow_runtime_when_local_artifact_is_miss
 
     class FakeBundle:
         archive_path = Path(__file__)
+        manifest = _remote_runner_manifest()
         sha256 = "e" * 64
         platform = "linux-64"
 
@@ -288,7 +291,7 @@ def test_bootstrap_registers_remote_workflow_runtime_when_local_artifact_is_miss
                 return 0, "", ""
             if "cat /home/tester/.h2ometa/runner/shared/config/runner.json" in cmd:
                 return 0, json.dumps(uploaded_config), ""
-            if "runtime/bin/python -c \"from remote_runner.config import load_remote_runner_config, ensure_runtime_layout; ensure_runtime_layout(load_remote_runner_config())\"" in cmd:
+            if "runner_protocol_startup" in cmd:
                 return 0, "", ""
             if "rm -f /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
                 return 0, "", ""
@@ -314,7 +317,11 @@ def test_bootstrap_registers_remote_workflow_runtime_when_local_artifact_is_miss
 
         def upload(self, local: str, remote: str) -> None:
             uploads.append((local, remote))
-            if remote in {"/home/tester/.h2ometa/runner/shared/config/runner.json", "/home/tester/.h2ometa/runner/shared/config/runner.json.tmp"}:
+            if remote in {
+                "/home/tester/.h2ometa/runner/shared/config/runner.json",
+                "/home/tester/.h2ometa/runner/shared/config/runner.json.tmp",
+                "/home/tester/.h2ometa/runner/shared/config/runner.json.candidate.tmp",
+            }:
                 uploaded_config.update(json.loads(Path(local).read_text(encoding="utf-8")))
 
         def ensure_local_tunnel(self, *args, **kwargs):
@@ -344,7 +351,7 @@ def test_bootstrap_registers_remote_workflow_runtime_when_local_artifact_is_miss
         )
 
     remote_uploads = [remote for _local, remote in uploads]
-    assert "/home/tester/.h2ometa/runner/shared/config/runner.json.tmp" in remote_uploads
+    assert "/home/tester/.h2ometa/runner/shared/config/runner.json.candidate.tmp" in remote_uploads
     assert workflow_runtime_bundle not in remote_uploads
     assert any(f"ln -sfn /home/tester/.h2ometa/runner/releases/{REMOTE_RUNNER_VERSION} /home/tester/.h2ometa/runner/current" in cmd for cmd in executed)
     assert any("printf" in cmd and f"{workflow_runtime_dir}/artifact.sha256" in cmd for cmd in executed)
@@ -358,6 +365,7 @@ def test_bootstrap_installs_when_artifact_sha_marker_is_missing(monkeypatch) -> 
 
     class FakeArtifact:
         archive_path = Path(__file__)
+        manifest = _remote_runner_manifest()
         platform = "linux-64"
         sha256 = "b" * 64
 
@@ -387,7 +395,7 @@ def test_bootstrap_installs_when_artifact_sha_marker_is_missing(monkeypatch) -> 
                 return 0, "", ""
             if "artifact.sha256" in cmd and "releases" in cmd:
                 return 1, "", "No such file"
-            if "runtime/bin/python -c \"from remote_runner.config import load_remote_runner_config, ensure_runtime_layout; ensure_runtime_layout(load_remote_runner_config())\"" in cmd:
+            if "runner_protocol_startup" in cmd:
                 return 0, "", ""
             if "rm -f /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
                 return 0, "", ""
@@ -510,6 +518,7 @@ def test_bootstrap_retries_canary_once_with_fresh_tunnel_after_connection_refuse
 
     class FakeArtifact:
         archive_path = Path(__file__)
+        manifest = _remote_runner_manifest()
         platform = "linux-64"
         sha256 = "c" * 64
 
@@ -538,7 +547,7 @@ def test_bootstrap_retries_canary_once_with_fresh_tunnel_after_connection_refuse
                 return 0, "", ""
             if "printf" in cmd and "artifact.sha256" in cmd:
                 return 0, "", ""
-            if "runtime/bin/python -c \"from remote_runner.config import load_remote_runner_config, ensure_runtime_layout; ensure_runtime_layout(load_remote_runner_config())\"" in cmd:
+            if "runner_protocol_startup" in cmd:
                 return 0, "", ""
             if "workflow-env/bin/snakemake" in cmd and "--version" in cmd:
                 return 0, "9.19.0\n", ""
@@ -671,6 +680,7 @@ def test_bootstrap_does_not_persist_local_token_before_remote_service_is_healthy
 
     class FakeBundle:
         archive_path = Path(__file__)
+        manifest = _remote_runner_manifest()
 
     class FakeSSH:
         def run(self, cmd: str, timeout: int = 10):
@@ -688,14 +698,18 @@ def test_bootstrap_does_not_persist_local_token_before_remote_service_is_healthy
                 return 0, "", ""
             if "cat /home/tester/.h2ometa/runner/shared/config/runner.json" in cmd:
                 return 0, json.dumps(uploaded_config), ""
-            if "runtime/bin/python -c \"from remote_runner.config import load_remote_runner_config, ensure_runtime_layout; ensure_runtime_layout(load_remote_runner_config())\"" in cmd:
+            if "runner_protocol_startup" in cmd:
                 return 0, "", ""
             if "bash /home/tester/.h2ometa/runner/current/start_service.sh" in cmd:
                 raise RuntimeError("service failed to start")
             return 0, "", ""
 
         def upload(self, local: str, remote: str) -> None:
-            if remote in {"/home/tester/.h2ometa/runner/shared/config/runner.json", "/home/tester/.h2ometa/runner/shared/config/runner.json.tmp"}:
+            if remote in {
+                "/home/tester/.h2ometa/runner/shared/config/runner.json",
+                "/home/tester/.h2ometa/runner/shared/config/runner.json.tmp",
+                "/home/tester/.h2ometa/runner/shared/config/runner.json.candidate.tmp",
+            }:
                 uploaded_config.update(json.loads(Path(local).read_text(encoding="utf-8")))
             return None
 
@@ -723,6 +737,7 @@ def test_bootstrap_fails_fast_when_bundled_runtime_initialization_returns_nonzer
 
     class FakeBundle:
         archive_path = Path(__file__)
+        manifest = _remote_runner_manifest()
 
     class FakeSSH:
         def run(self, cmd: str, timeout: int = 10):
@@ -738,8 +753,10 @@ def test_bootstrap_fails_fast_when_bundled_runtime_initialization_returns_nonzer
                 return 0, "", ""
             if "tar -xzf" in cmd:
                 return 0, "", ""
-            if "runtime/bin/python -c \"from remote_runner.config import load_remote_runner_config, ensure_runtime_layout; ensure_runtime_layout(load_remote_runner_config())\"" in cmd:
+            if "initialize_runtime_layout_from_explicit_config" in cmd:
                 return 1, "", "bundled runtime failed"
+            if "require_runner_protocol_startup_preflight" in cmd:
+                return 0, "", ""
             if _is_remote_current_release_read(cmd):
                 return 1, "", "No such file"
             if _is_remote_current_release_switch(cmd):
@@ -747,6 +764,8 @@ def test_bootstrap_fails_fast_when_bundled_runtime_initialization_returns_nonzer
             if _is_remote_runner_config_read(cmd):
                 return 1, "", "No such file"
             if _is_remote_bundle_cleanup(cmd) or _is_remote_config_atomic_move(cmd):
+                return 0, "", ""
+            if cmd == "rm -f /home/tester/.h2ometa/runner/shared/config/runner.json":
                 return 0, "", ""
             if "rm -rf" in cmd and "/locks/install-" in cmd:
                 return 0, "", ""

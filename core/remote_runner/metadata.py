@@ -263,6 +263,8 @@ def build_remote_config_payload(
     snakemake_version: str,
     workflow_profile_dir: str,
     workflow_profile_name: str,
+    runner_protocol_version: str,
+    runner_protocol_fingerprint: str,
 ) -> dict[str, Any]:
     return {
         "service_name": "h2ometa-remote",
@@ -274,6 +276,8 @@ def build_remote_config_payload(
         "api_token_actor": "remote-runner-api",
         "api_token_roles": sorted(SUPPORTED_ROLES),
         "database_backend": "sqlite",
+        "runner_protocol_version": runner_protocol_version,
+        "runner_protocol_fingerprint": runner_protocol_fingerprint,
         "data_root": f"{remote_shared}",
         "db_path": f"{remote_shared}/data/runner.db",
         "runtime_state_path": remote_runtime_state,

@@ -7,7 +7,6 @@ from unittest.mock import patch
 
 import pytest
 
-from core.contracts.execution_activity import EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION
 from core.contracts.remote_endpoints import RESULT_LIST
 from core.remote_runner.artifact import WORKFLOW_RUNTIME_VERSION
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
@@ -19,6 +18,7 @@ from tests.helpers.remote_runner_control_plane import (
     _fake_workflow_artifact,
     _health_endpoint_json,
     _remote_runner_manifest,
+    _remote_runner_protocol_config,
     _runtime_state_json,
 )
 
@@ -96,6 +96,7 @@ def test_bootstrap_reuses_existing_runner_when_artifact_sha_matches(monkeypatch)
             if "cat /home/tester/.h2ometa/runner/shared/config/runner.json" in cmd:
                 return 0, json.dumps(
                     {
+                        **_remote_runner_protocol_config(),
                         "managed_conda_command": f"{workflow_runtime_dir}/workflow-env/bin/conda",
                         "managed_conda_root_prefix": f"{workflow_runtime_dir}/micromamba-root",
                         "workflow_runtime_provider": "conda-pack",
@@ -239,6 +240,7 @@ def test_fast_reuse_accepts_staged_runner_version(monkeypatch) -> None:
             if "cat /home/tester/.h2ometa/runner/shared/config/runner.json" in cmd:
                 return 0, json.dumps(
                     {
+                        **_remote_runner_protocol_config(version=staged_version),
                         "managed_conda_command": "/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/workflow-env/bin/conda",
                         "managed_conda_root_prefix": "/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/micromamba-root",
                         "workflow_runtime_provider": "conda-pack",
@@ -318,6 +320,12 @@ def test_fast_reuse_rejects_runner_when_workflow_runtime_marker_is_missing(monke
                 return 0, json.dumps(_remote_runner_manifest()), ""
             if "cat /home/tester/.h2ometa/runner/releases/0.1.0-control-plane/artifact.sha256" in cmd:
                 return 0, "b" * 64, ""
+            if "cat /home/tester/.h2ometa/runner/shared/config/runner.json" in cmd:
+                return 0, json.dumps(
+                    _remote_runner_protocol_config(
+                        release="/home/tester/.h2ometa/runner/releases/0.1.0-control-plane"
+                    )
+                ), ""
             if "cat /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
                 return 0, _runtime_state_json(), ""
             if "kill -0 123" in cmd:
@@ -508,6 +516,9 @@ def test_fast_reuse_rejects_runner_when_database_template_route_is_missing(monke
             if "cat /home/tester/.h2ometa/runner/shared/config/runner.json" in cmd:
                 return 0, json.dumps(
                     {
+                        **_remote_runner_protocol_config(
+                            release="/home/tester/.h2ometa/runner/releases/0.1.0-control-plane"
+                        ),
                         "managed_conda_command": "/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/workflow-env/bin/conda",
                         "managed_conda_root_prefix": "/home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/micromamba-root",
                         "workflow_runtime_provider": "conda-pack",
@@ -635,123 +646,6 @@ def test_remote_install_lock_fails_when_busy() -> None:
         assert 'owner={"version":"install-test"}' in message
     else:
         raise AssertionError("busy install lock should fail after attempts are exhausted")
-
-def test_rotate_token_does_not_persist_local_token_before_remote_update_succeeds(monkeypatch) -> None:
-    manager = RemoteRunnerManager()
-    uploads: list[tuple[str, str]] = []
-
-    class FakeSSH:
-        def run(self, cmd: str, timeout: int = 10):
-            if 'printf "%s" "$HOME"' in cmd:
-                return 0, "/home/tester", ""
-            raise RuntimeError("boom")
-
-        def download(self, remote: str, local: str) -> None:
-            raise RuntimeError("download failed")
-
-        def upload(self, local: str, remote: str) -> None:
-            uploads.append((local, remote))
-            raise RuntimeError("upload failed")
-
-    fake_ssh = FakeSSH()
-
-    with patch("core.remote_runner.token_rotation.store_runner_token") as store_token:
-        try:
-            manager.rotate_token(
-                server_id="srv_test",
-                server={},
-                ssh_service=fake_ssh,
-                server_record={
-                    "bootstrap_version": "0.1.0-control-plane",
-                    "runner_mode": "background_process",
-                    "service_port": 43127,
-                },
-            )
-        except Exception as exc:
-            assert "download failed" in str(exc)
-        else:
-            raise AssertionError("rotate_token should fail when remote update fails")
-
-    store_token.assert_not_called()
-    assert uploads == []
-
-
-def test_rotate_token_restores_and_releases_guard_on_tunnel_adapter_errors(monkeypatch) -> None:
-    manager = RemoteRunnerManager()
-    uploads: list[str] = []
-    lifecycle_requests: list[dict[str, object]] = []
-    lifecycle_releases: list[dict[str, object]] = []
-
-    class FakeSSH:
-        def run(self, cmd: str, timeout: int = 10):
-            if 'printf "%s" "$HOME"' in cmd:
-                return 0, "/home/tester", ""
-            if cmd.startswith("test -s ") or cmd.startswith("pkill -f ") or "start_service.sh" in cmd:
-                return 0, "", ""
-            raise AssertionError(f"unexpected command: {cmd}")
-
-        def download(self, _remote: str, local: str) -> None:
-            Path(local).write_text('{"token":"old"}', encoding="utf-8")
-
-        def upload(self, local: str, _remote: str) -> None:
-            uploads.append(Path(local).read_text(encoding="utf-8"))
-
-        def ensure_local_tunnel(self, *args, **kwargs):
-            raise RuntimeError("tunnel adapter crashed")
-
-    monkeypatch.setattr(
-        manager,
-        "request_execution_lifecycle_guard",
-        lambda **kwargs: lifecycle_requests.append(dict(kwargs))
-        or {
-            "schemaVersion": EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
-            "action": "token-rotation",
-            "owner": "srv_test:token-rotation:lifecycle",
-            "idle": True,
-            "maintenanceActive": True,
-            "activeLeaseCount": 0,
-            "allocatedResourceCount": 0,
-            "resourceWaitCount": 0,
-            "queuedJobCount": 0,
-            "claimedJobCount": 0,
-            "runningSlotCount": 0,
-            "blockReasons": [],
-        },
-    )
-    monkeypatch.setattr(
-        manager,
-        "release_execution_lifecycle_guard",
-        lambda **kwargs: lifecycle_releases.append(dict(kwargs))
-        or {
-            "schemaVersion": "h2ometa.execution-lifecycle-guard-release.v1",
-            "action": "token-rotation",
-            "owner": "srv_test:token-rotation:lifecycle",
-            "released": True,
-            "releasedAt": "2099-01-01T00:00:00Z",
-            "previous": {},
-        },
-    )
-
-    with patch("core.remote_runner.token_rotation.store_runner_token") as store_token:
-        with pytest.raises(RemoteRunnerManagerError, match="tunnel adapter crashed"):
-            manager.rotate_token(
-                server_id="srv_test",
-                server={},
-                ssh_service=FakeSSH(),
-                server_record={
-                    "bootstrap_version": "0.1.0-control-plane",
-                    "runner_mode": "background_process",
-                    "service_port": 43127,
-                },
-            )
-
-    store_token.assert_not_called()
-    assert len(uploads) == 2
-    assert '"token":"old"' not in uploads[0]
-    assert uploads[1] == '{"token":"old"}'
-    assert lifecycle_requests[0]["action"] == "token-rotation"
-    assert lifecycle_releases[0]["action"] == "token-rotation"
-
 
 def test_manager_wraps_tunnel_setup_failures(monkeypatch) -> None:
     manager = RemoteRunnerManager()

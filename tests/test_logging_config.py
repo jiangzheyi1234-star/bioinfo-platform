@@ -138,12 +138,20 @@ def test_remote_runner_uses_structured_logging(monkeypatch):
     fake_socket = FakeSocket()
     cfg = SimpleNamespace(bind_host="127.0.0.1", bind_port=0)
     monkeypatch.setattr(remote_run, "_set_process_name", lambda: None)
-    monkeypatch.setattr(remote_run, "load_remote_runner_config", lambda: cfg)
-    monkeypatch.setattr(remote_run, "ensure_runtime_layout", lambda _cfg: None)
-    monkeypatch.setattr(remote_run, "write_runtime_state", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        remote_run,
+        "load_remote_runner_config_from_startup_preflight",
+        lambda: cfg,
+    )
+    monkeypatch.setattr(
+        "apps.remote_runner.config.bind_remote_runner_config_snapshot",
+        lambda _cfg: None,
+    )
+    monkeypatch.setattr("apps.remote_runner.config.ensure_runtime_layout", lambda _cfg: None)
+    monkeypatch.setattr("apps.remote_runner.config.write_runtime_state", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(remote_run.socket, "socket", lambda *_args, **_kwargs: fake_socket)
-    monkeypatch.setattr(remote_run.uvicorn, "Config", fake_config)
-    monkeypatch.setattr(remote_run.uvicorn, "Server", FakeServer)
+    monkeypatch.setattr("uvicorn.Config", fake_config)
+    monkeypatch.setattr("uvicorn.Server", FakeServer)
 
     remote_run.main()
 

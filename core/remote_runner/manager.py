@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import secrets
-import shlex
 from typing import Any
 
 from config import store_runner_token
@@ -14,8 +13,10 @@ from core.remote_runner.artifact import (
 from core.remote_runner.bootstrap_activation import RemoteRunnerBootstrapActivationMixin
 from core.remote_runner.bootstrap_bundle import RemoteRunnerBootstrapBundleMixin
 from core.remote_runner.bootstrap_guard import RemoteRunnerBootstrapGuardMixin
+from core.remote_runner.bootstrap_protocol_activation import (
+    RemoteRunnerBootstrapProtocolActivationMixin,
+)
 from core.remote_runner.bootstrap_reuse_guard import RemoteRunnerBootstrapReuseGuardMixin
-from core.remote_runner.bootstrap_config_files import BootstrapConfigTempFiles, cleanup_bootstrap_config_temp_files, write_bootstrap_config_temp_files
 from core.remote_runner.bootstrap_response import build_bootstrap_install_response, build_bootstrap_reuse_response
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
 from core.remote_runner.client import RemoteRunnerClientError, RemoteRunnerHttpClient
@@ -58,6 +59,7 @@ class RemoteRunnerManager(
     RemoteRunnerBootstrapBundleMixin,
     RemoteRunnerBootstrapGuardMixin,
     RemoteRunnerBootstrapReuseGuardMixin,
+    RemoteRunnerBootstrapProtocolActivationMixin,
     RemoteRunnerBootstrapActivationMixin,
 ):
     _manager_error = RemoteRunnerManagerError
@@ -195,7 +197,8 @@ class RemoteRunnerManager(
                 remote_root=paths.root,
                 bootstrap_metadata=bootstrap_metadata,
             )
-            config_temp_files: BootstrapConfigTempFiles | None = None
+            config_temp_files = None
+            remote_candidate_config = f"{paths.config}.candidate"
             try:
                 reuse_result = self._try_reuse_existing_runner(
                     server_id=server_id,
@@ -242,67 +245,28 @@ class RemoteRunnerManager(
                     remote_artifact_sha=remote_workflow_artifact_sha,
                     bootstrap_metadata=bootstrap_metadata,
                 )
-                config_payload = self._build_remote_config_payload(
-                    version=version,
-                    mode=mode,
-                    remote_port=0,
-                    token=token,
-                    remote_shared=paths.shared,
-                    remote_release=paths.release,
-                    remote_runtime_state=paths.runtime_state,
-                    runner_python=paths.service_python,
-                    managed_conda_command=str(workflow_runtime.get("command") or ""),
-                    managed_conda_root_prefix=str(workflow_runtime.get("root_prefix") or ""),
-                    workflow_runtime_provider=str(workflow_runtime.get("provider") or ""),
-                    workflow_runtime_source=str(workflow_runtime.get("source") or ""),
-                    workflow_runtime_version=str(workflow_runtime.get("version") or ""),
-                    snakemake_command=str(workflow_runtime.get("snakemake_command") or ""),
-                    snakemake_version=str(workflow_runtime.get("snakemake_version") or ""),
-                    workflow_profile_dir=paths.profile_dir,
-                    workflow_profile_name=paths.profile_name,
-                )
-                config_temp_files = write_bootstrap_config_temp_files(
-                    previous_config_payload=previous_config_payload,
-                    config_payload=config_payload,
-                )
-                self._upload_remote_file_atomic(
-                    ssh_service,
-                    local_path=config_temp_files.config_path,
-                    remote_path=paths.config,
-                    step="write remote runner config",
-                    timeout=10,
-                )
-                self._verify_remote_config_payload(
-                    ssh_service=ssh_service,
-                    remote_config=paths.config,
-                    expected=config_payload,
-                )
-                self._write_remote_workflow_profile(
-                    ssh_service=ssh_service,
-                    remote_profile_path=paths.profile_path,
-                    remote_profile_dir=paths.profile_dir,
-                    remote_conda_prefix=paths.conda_prefix,
-                    remote_wrapper_prefix=paths.wrapper_prefix,
-                    bootstrap_metadata=bootstrap_metadata,
-                )
-                self._run_checked(
-                    ssh_service,
-                    'cd {release} && H2OMETA_REMOTE_CONFIG={config} {python} -c "from remote_runner.config import load_remote_runner_config, ensure_runtime_layout; ensure_runtime_layout(load_remote_runner_config())"'.format(
-                        release=shlex.quote(paths.release),
-                        config=shlex.quote(paths.config),
-                        python=shlex.quote(paths.service_python),
-                    ),
-                    step="initialize remote runner layout",
-                    timeout=60,
-                )
-                self._run_checked(
-                    ssh_service,
-                    f"rm -f {shlex.quote(paths.runtime_state)}",
-                    step="clear previous remote runner runtime state",
-                    timeout=10,
+                config_temp_files, config_payload = (
+                    self._prepare_remote_runner_protocol_candidate(
+                        ssh_service=ssh_service,
+                        artifact=artifact,
+                        workflow_runtime=workflow_runtime,
+                        version=version,
+                        mode=mode,
+                        token=token,
+                        paths=paths,
+                        previous_config_payload=previous_config_payload,
+                        remote_candidate_config=remote_candidate_config,
+                    )
                 )
                 release_switch = dict(bootstrap_metadata.get("release_switch") or {})
                 try:
+                    self._promote_remote_runner_protocol_candidate(
+                        ssh_service=ssh_service,
+                        paths=paths,
+                        remote_candidate_config=remote_candidate_config,
+                        config_payload=config_payload,
+                        bootstrap_metadata=bootstrap_metadata,
+                    )
                     self._switch_current_release(
                         ssh_service=ssh_service,
                         target=paths.release,
@@ -414,10 +378,22 @@ class RemoteRunnerManager(
                     server=server,
                     bootstrap_metadata=bootstrap_metadata,
                 )
+            except (RemoteRunnerManagerError, RemoteRunnerClientError) as exc:
+                failure = self._pre_activation_failure(
+                    exc=exc,
+                    bootstrap_action=bootstrap_action,
+                    bootstrap_metadata=bootstrap_metadata,
+                )
+                if failure is not None:
+                    raise failure from exc
+                raise
             finally:
                 try:
-                    if config_temp_files is not None:
-                        cleanup_bootstrap_config_temp_files(config_temp_files)
+                    self._cleanup_remote_runner_protocol_candidate(
+                        ssh_service=ssh_service,
+                        remote_candidate_config=remote_candidate_config,
+                        temp_files=config_temp_files,
+                    )
                 finally:
                     self._release_remote_install_lock(
                         ssh_service=ssh_service,

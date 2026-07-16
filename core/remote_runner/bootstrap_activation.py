@@ -325,14 +325,34 @@ class RemoteRunnerBootstrapActivationMixin:
         rollback["lifecycleGuardRecovery"] = rollback_guard_recovery
         bootstrap_metadata["rollback"] = rollback
         target_release = str((bootstrap_metadata.get("release_switch") or {}).get("target_release") or "")
+        previous_manifest: dict[str, Any] | None = None
+        compatibility_error = ""
+        preflight = bootstrap_metadata.get("preflight")
+        tooling = bootstrap_metadata.get("tooling")
+        service_runtime = tooling.get("service_runtime") if isinstance(tooling, dict) else None
+        expected_platform = str(
+            (preflight.get("platform") if isinstance(preflight, dict) else "")
+            or (service_runtime.get("platform") if isinstance(service_runtime, dict) else "")
+            or ""
+        )
         if not previous_release or previous_release == target_release:
-            rollback["message"] = "previous release unavailable for rollback"
-            bootstrap_metadata["rollback"] = rollback
-            return
-        if previous_config_path is None or not previous_config_path.exists():
-            rollback["message"] = "previous runner config unavailable for rollback"
-            bootstrap_metadata["rollback"] = rollback
-            return
+            compatibility_error = "previous release unavailable for exact rollback"
+        elif previous_config_path is None or not previous_config_path.exists():
+            compatibility_error = "previous runner config unavailable for exact rollback"
+        else:
+            try:
+                previous_manifest = cls._read_remote_json(
+                    ssh_service,
+                    f"{previous_release}/bootstrap_manifest.json",
+                    "previous remote runner manifest",
+                )
+                cls._verify_remote_manifest_for_reuse(
+                    previous_manifest,
+                    version=previous_version,
+                    platform=expected_platform,
+                )
+            except cls._manager_error as exc:
+                compatibility_error = str(exc) or "previous runner protocol is incompatible"
         try:
             try:
                 cls._run_checked(
@@ -345,13 +365,57 @@ class RemoteRunnerBootstrapActivationMixin:
                 )
             except cls._manager_error as exc:
                 rollback["stopError"] = str(exc)
-            cls._upload_remote_file_atomic(
-                ssh_service,
-                local_path=previous_config_path,
-                remote_path=remote_config,
-                step="restore previous remote runner config",
-                timeout=10,
-            )
+            if previous_config_path is not None and previous_config_path.exists():
+                cls._upload_remote_file_atomic(
+                    ssh_service,
+                    local_path=previous_config_path,
+                    remote_path=remote_config,
+                    step="restore previous remote runner config",
+                    timeout=10,
+                )
+            else:
+                cls._run_checked(
+                    ssh_service,
+                    f"rm -f {shlex.quote(remote_config)}",
+                    step="remove failed remote runner config",
+                    timeout=10,
+                )
+            if compatibility_error or previous_manifest is None:
+                rollback["forwardRepairRequired"] = True
+                rollback["protocolCompatible"] = False
+                rollback["message"] = (
+                    "automatic rollback blocked; lifecycle guard retained for forward repair: "
+                    f"{compatibility_error or 'previous runner protocol is incompatible'}"
+                )
+                rollback_guard_recovery["message"] = rollback["message"]
+                rollback_guard_recovery["nextAction"] = (
+                    "deploy a current-protocol runner before resuming execution"
+                )
+                bootstrap_metadata["rollback"] = rollback
+                return
+            try:
+                cls._verify_remote_protocol_config_for_reuse(
+                    ssh_service=ssh_service,
+                    remote_config=remote_config,
+                    remote_release=previous_release,
+                    manifest=previous_manifest,
+                )
+            except cls._manager_error as exc:
+                detail = str(exc) or "previous runner config binding is incompatible"
+                rollback["forwardRepairRequired"] = True
+                rollback["protocolCompatible"] = False
+                rollback["message"] = (
+                    "automatic rollback blocked; lifecycle guard retained for forward repair: "
+                    f"{detail}"
+                )
+                rollback_guard_recovery["message"] = rollback["message"]
+                rollback_guard_recovery["nextAction"] = (
+                    "deploy a current-protocol runner with an exact release/config binding "
+                    "before resuming execution"
+                )
+                bootstrap_metadata["rollback"] = rollback
+                return
+            rollback["protocolCompatible"] = True
             cls._switch_current_release(
                 ssh_service=ssh_service,
                 target=previous_release,
@@ -392,6 +456,8 @@ class RemoteRunnerBootstrapActivationMixin:
             )
             rollback["live"] = cls._wait_for_runner_live(client, attempts=3)
             rollback_guard_recovery["liveVerified"] = True
+            rollback["health"] = cls._wait_for_runner_health(client, attempts=3)
+            rollback_guard_recovery["readyVerified"] = True
             rollback_guard_recovery["releaseAttempted"] = True
             release = cls._release_bootstrap_lifecycle_guard(
                 client=client,
@@ -416,8 +482,6 @@ class RemoteRunnerBootstrapActivationMixin:
             rollback_guard_recovery["message"] = recovery_message
             rollback_guard_recovery["admissionState"] = "open"
             rollback_guard_recovery["failClosed"] = False
-            rollback["health"] = cls._wait_for_runner_health(client, attempts=3)
-            rollback_guard_recovery["readyVerified"] = True
             rollback["restored"] = True
             rollback["message"] = "previous release restored"
             release_switch = dict(bootstrap_metadata.get("release_switch") or {})
@@ -427,17 +491,18 @@ class RemoteRunnerBootstrapActivationMixin:
         except (cls._manager_error, RemoteRunnerClientError) as exc:
             detail = str(exc) or "rollback failed"
             rollback["message"] = detail
-            if rollback_guard_recovery["liveVerified"] and not rollback_guard_recovery["readyVerified"]:
-                if rollback_guard_recovery["admissionState"] == "open":
-                    rollback_guard_recovery["message"] = (
-                        f"lifecycle guard released, but rollback ready health failed: {detail}"
-                    )
-                    rollback_guard_recovery["nextAction"] = "repair previous runner readiness before resuming execution"
-                else:
-                    rollback_guard_recovery["message"] = (
-                        f"rollback remains fail-closed until lifecycle guard recovery completes: {detail}"
-                    )
-                    rollback_guard_recovery["nextAction"] = (
-                        "retry owner-matched lifecycle guard release, then verify ready health"
-                    )
+            if rollback_guard_recovery["readyVerified"]:
+                rollback_guard_recovery["message"] = (
+                    f"rollback is ready but remains fail-closed until lifecycle guard release succeeds: {detail}"
+                )
+                rollback_guard_recovery["nextAction"] = (
+                    "retry owner-matched lifecycle guard release"
+                )
+            elif rollback_guard_recovery["liveVerified"]:
+                rollback_guard_recovery["message"] = (
+                    f"rollback remains fail-closed because ready health failed before guard release: {detail}"
+                )
+                rollback_guard_recovery["nextAction"] = (
+                    "repair previous runner readiness, then release the lifecycle guard"
+                )
         bootstrap_metadata["rollback"] = rollback

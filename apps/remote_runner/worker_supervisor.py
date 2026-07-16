@@ -7,7 +7,7 @@ import threading
 from typing import Any
 import uuid
 
-from .config import load_remote_runner_config
+from .config import load_remote_runner_config, require_explicit_loaded_runner_protocol
 from .reconciler import run_active_reconciler_once
 from .resource_pool import ResourcePool
 from .worker_resource_config import build_run_worker_resource_plan
@@ -432,6 +432,7 @@ def start_tool_prepare_worker_supervisor(
 
 def start_configured_run_worker_supervisor() -> RunWorkerSupervisor | None:
     cfg = load_remote_runner_config()
+    require_explicit_loaded_runner_protocol(cfg)
     if not cfg.token or not _run_worker_enabled():
         return None
     return start_run_worker_supervisor(cfg)
@@ -439,6 +440,7 @@ def start_configured_run_worker_supervisor() -> RunWorkerSupervisor | None:
 
 def start_configured_tool_prepare_worker_supervisor() -> ToolPrepareWorkerSupervisor | None:
     cfg = load_remote_runner_config()
+    require_explicit_loaded_runner_protocol(cfg)
     if not cfg.token or not _run_worker_enabled():
         return None
     return start_tool_prepare_worker_supervisor(cfg)

@@ -5,6 +5,9 @@ from types import SimpleNamespace
 from unittest.mock import patch
 import uuid
 
+from core.contracts.runner_protocol_runtime import (
+    build_runner_protocol_runtime_self_attestation,
+)
 from core.app_runtime.errors import RuntimeServiceError
 from core.app_runtime.service import RuntimeService, ServiceLocator
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
@@ -31,6 +34,7 @@ def test_get_health_resyncs_when_stale_service_port_tunnel_fails(monkeypatch) ->
                             "bindHost": "127.0.0.1",
                             "bindPort": 36551,
                             "pid": 4242,
+                            "runnerProtocol": build_runner_protocol_runtime_self_attestation(),
                         }
                     ),
                     "",
@@ -56,7 +60,10 @@ def test_get_health_resyncs_when_stale_service_port_tunnel_fails(monkeypatch) ->
             self, path: str, *, accepted_statuses: set[int] | None = None
         ) -> dict[str, object]:
             if path in {"/health/startup", "/health/live", "/health/ready"}:
-                return {"status": "ok"}
+                return {
+                    "status": "ok",
+                    "runnerProtocol": build_runner_protocol_runtime_self_attestation(),
+                }
             raise AssertionError(f"unexpected path: {path}")
 
     ssh = FakeSSH()

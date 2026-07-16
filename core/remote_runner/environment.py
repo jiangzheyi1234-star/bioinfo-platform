@@ -58,6 +58,8 @@ class RemoteRunnerEnvironmentMixin:
             "token",
             "data_root",
             "database_backend",
+            "runner_protocol_version",
+            "runner_protocol_fingerprint",
             "db_path",
             "runtime_state_path",
             "release_dir",
@@ -75,6 +77,38 @@ class RemoteRunnerEnvironmentMixin:
         for key in required_keys:
             if actual.get(key) != expected.get(key):
                 raise cls._manager_error(f"remote runner config verification failed: {key}")
+
+    @classmethod
+    def _verify_remote_protocol_config_for_reuse(
+        cls,
+        *,
+        ssh_service,
+        remote_config: str,
+        remote_release: str,
+        manifest: dict[str, Any],
+    ) -> None:
+        descriptor = require_current_runner_protocol_manifest(
+            manifest,
+            make_error=cls._manager_error,
+        )
+        actual = cls._read_remote_json(
+            ssh_service,
+            remote_config,
+            "remote runner config",
+        )
+        expected = {
+            "service_name": manifest["service"],
+            "version": manifest["version"],
+            "release_dir": f"{remote_release}/remote_runner",
+            "runner_python": f"{remote_release}/runtime/bin/python",
+            "runner_protocol_version": descriptor["protocolVersion"],
+            "runner_protocol_fingerprint": manifest["runnerProtocolFingerprint"],
+        }
+        for key, value in expected.items():
+            if actual.get(key) != value:
+                raise cls._manager_error(
+                    f"remote runner protocol config verification failed: {key}"
+                )
 
     @classmethod
     def _require_service_port(cls, record: dict[str, Any]) -> int:

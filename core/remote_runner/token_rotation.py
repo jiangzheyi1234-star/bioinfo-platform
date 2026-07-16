@@ -10,7 +10,6 @@ from config import store_runner_token
 from core.contracts.execution_activity import EXECUTION_LIFECYCLE_GUARD_RELEASE_SCHEMA_VERSION
 from core.contracts.remote_endpoints import EXECUTION_LIFECYCLE_GUARD_RELEASE, RemoteEndpointContractError
 from core.remote_runner.client import RemoteRunnerClientError, RemoteRunnerHttpClient
-from core.remote_runner.health import build_runner_health
 from core.remote_runner.layout import (
     remote_runner_config,
     remote_runner_release,
@@ -91,9 +90,27 @@ class RemoteRunnerTokenRotationMixin:
         token = secrets.token_urlsafe(24)
         home_dir = self._resolve_remote_home(ssh_service)
         remote_config = remote_runner_config(home_dir)
+        target_release = remote_runner_release(home_dir, version)
         tooling = (record.get("bootstrap_metadata") or {}).get("tooling") or {}
         service_runtime = tooling.get("service_runtime") or {}
         workflow_runtime = tooling.get("workflow_runtime") or {}
+        manifest = self._read_remote_json(
+            ssh_service,
+            f"{target_release}/bootstrap_manifest.json",
+            "remote runner manifest",
+        )
+        self._verify_remote_manifest_for_reuse(
+            manifest,
+            version=version,
+            platform=str(service_runtime.get("platform") or ""),
+        )
+        self._verify_remote_protocol_config_for_reuse(
+            ssh_service=ssh_service,
+            remote_config=remote_config,
+            remote_release=target_release,
+            manifest=manifest,
+        )
+        runner_protocol = manifest.get("runnerProtocol") or {}
         guard_owner = execution_lifecycle_guard_owner(
             server_id=server_id,
             action=TOKEN_ROTATION_LIFECYCLE_ACTION,
@@ -116,9 +133,9 @@ class RemoteRunnerTokenRotationMixin:
                     remote_port=remote_port,
                     token=token,
                     remote_shared=remote_runner_shared(home_dir),
-                    remote_release=remote_runner_release(home_dir, version),
+                    remote_release=target_release,
                     remote_runtime_state=remote_runner_runtime_state(home_dir),
-                    runner_python=str(service_runtime.get("python") or ""),
+                    runner_python=f"{target_release}/runtime/bin/python",
                     managed_conda_command=str(workflow_runtime.get("command") or ""),
                     managed_conda_root_prefix=str(workflow_runtime.get("root_prefix") or ""),
                     workflow_runtime_provider=str(workflow_runtime.get("provider") or ""),
@@ -132,6 +149,12 @@ class RemoteRunnerTokenRotationMixin:
                     workflow_profile_name=str(
                         record.get("bootstrap_metadata", {}).get("workflow_profile", {}).get("name")
                         or "profile.v9+.yaml"
+                    ),
+                    runner_protocol_version=str(
+                        runner_protocol.get("protocolVersion") or ""
+                    ),
+                    runner_protocol_fingerprint=str(
+                        manifest.get("runnerProtocolFingerprint") or ""
                     ),
                 ),
                 handle,
@@ -174,19 +197,24 @@ class RemoteRunnerTokenRotationMixin:
                     step="start remote runner after token rotation",
                     timeout=30,
                 )
+            runtime_state = self._wait_for_runtime_state(
+                ssh_service=ssh_service,
+                remote_runtime_state=remote_runner_runtime_state(home_dir),
+                version=version,
+                attempts=3,
+            )
             tunnel = self._open_runner_tunnel(
                 server_id=server_id,
                 ssh_service=ssh_service,
-                remote_port=remote_port,
+                remote_port=int(runtime_state["bindPort"]),
             )
             client = RemoteRunnerHttpClient(
                 base_url=f"http://127.0.0.1:{tunnel.local_port}",
                 token=token,
                 timeout=5,
             )
-            build_runner_health(client)
-            self._release_token_rotation_guard(client=client, owner=guard_owner)
-        except _runner_rotation_failure_types():
+            self._wait_for_runner_health(client, attempts=3)
+        except _runner_rotation_failure_types() as rotation_exc:
             if old_config_path and old_config_path.exists():
                 try:
                     self._upload_remote_file_atomic(
@@ -216,21 +244,26 @@ class RemoteRunnerTokenRotationMixin:
                             step="start remote runner after token rotation restore",
                             timeout=30,
                         )
-                    self.release_execution_lifecycle_guard(
-                        server_id=server_id,
-                        ssh_service=ssh_service,
-                        server_record=record,
-                        action=TOKEN_ROTATION_LIFECYCLE_ACTION,
-                        owner=guard_owner,
-                        timeout=30,
-                    )
                 except _runner_rotation_failure_types() as restore_exc:
                     restore_detail = str(restore_exc) or restore_exc.__class__.__name__
                     raise self._manager_error(
                         f"runner token rotation failed; previous config restore also failed: {restore_detail}"
                     ) from restore_exc
+                rotation_detail = str(rotation_exc) or rotation_exc.__class__.__name__
+                raise self._manager_error(
+                    f"{rotation_detail}; previous config restored and restarted, but the "
+                    "lifecycle guard remains active pending verified recovery"
+                ) from rotation_exc
             raise
         token_ref = store_runner_token(server_id=server_id, token=token)
+        try:
+            self._release_token_rotation_guard(client=client, owner=guard_owner)
+        except _runner_rotation_failure_types() as release_exc:
+            raise self._manager_error(
+                "runner token rotation committed a verified ready runtime, but lifecycle "
+                "guard release was not confirmed; the new config was retained and the "
+                "owner-matched guard state must be verified"
+            ) from release_exc
         return {"token_ref": token_ref}
 
     def _run_token_rotation_command(self, ssh_service, command: str, *, step: str, timeout: int) -> None:

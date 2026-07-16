@@ -3,6 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from core.contracts.runner_protocol_runtime import (
+    build_runner_protocol_runtime_self_attestation,
+)
 from core.contracts.remote_endpoints import (
     REMOTE_ENDPOINTS,
     RUNNER_HEALTH_EXECUTION_DIAGNOSTICS,
@@ -46,7 +49,10 @@ class FakeHealthClient:
         if path == "/health/startup":
             return {"status": "ok"}
         if path == "/health/live":
-            return {"status": "ok"}
+            return {
+                "status": "ok",
+                "runnerProtocol": build_runner_protocol_runtime_self_attestation(),
+            }
         if path == "/health/ready":
             return self.ready
         raise AssertionError(f"unexpected path: {path}")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -8,14 +9,14 @@ from apps.remote_runner import artifact_cache_read_service
 from apps.remote_runner import artifact_lifecycle_controller_read_api
 from apps.remote_runner import control_service
 from apps.remote_runner import route_utils
-from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
+from apps.remote_runner.config import RemoteRunnerConfig
 from apps.remote_runner.databases import list_reference_databases
 from apps.remote_runner.errors import RemoteRunnerAuthorizationError
 from apps.remote_runner.governance_audit import list_governance_audit_events
 from apps.remote_runner.main import app
 from apps.remote_runner.route_utils import authorize_action
 from apps.remote_runner.sqlite_migrations import SCHEMA_LEDGER_CHECKSUM_ERROR, RemoteRunnerSQLiteSchemaError
-from tests.helpers.reference_database import make_configured_remote_runner
+from tests.helpers.reference_database import make_configured_remote_runner, make_remote_runner_config
 
 
 def test_remote_runner_action_authorization_denies_unknown_and_wrong_roles(tmp_path) -> None:
@@ -64,23 +65,14 @@ def test_remote_runner_authorization_denial_stays_403_when_audit_ledger_is_missi
 
 
 def test_database_mutation_route_denies_role_when_audit_ledger_is_missing(tmp_path, monkeypatch) -> None:
-    db_path = tmp_path / "missing" / "runner.db"
-    config_path = tmp_path / "runner.json"
-    config_path.write_text(
-        json.dumps(
-            {
-                "token": "rbac-token",
-                "api_token_roles": ["auditor"],
-                "data_root": str(tmp_path / "shared"),
-                "db_path": str(db_path),
-                "uploads_dir": str(tmp_path / "shared" / "uploads"),
-                "results_dir": str(tmp_path / "shared" / "results"),
-                "work_dir": str(tmp_path / "shared" / "work"),
-                "logs_dir": str(tmp_path / "shared" / "logs"),
-            }
-        ),
-        encoding="utf-8",
+    cfg = make_remote_runner_config(
+        tmp_path / "missing",
+        token="rbac-token",
+        api_token_roles=("auditor",),
     )
+    db_path = Path(cfg.db_path)
+    config_path = tmp_path / "runner.json"
+    config_path.write_text(json.dumps(cfg.__dict__), encoding="utf-8")
     monkeypatch.setenv("H2OMETA_REMOTE_CONFIG", str(config_path))
 
     response = TestClient(app).post(
@@ -861,25 +853,14 @@ def test_database_mutation_route_denies_role_without_side_effect_or_secret_leak(
     tmp_path,
     monkeypatch,
 ) -> None:
-    config_path = tmp_path / "runner.json"
-    payload = {
-        "token": "rbac-token",
-        "api_token_roles": ["auditor"],
-        "data_root": str(tmp_path / "shared"),
-        "db_path": str(tmp_path / "shared" / "data" / "runner.db"),
-        "uploads_dir": str(tmp_path / "shared" / "uploads"),
-        "results_dir": str(tmp_path / "shared" / "results"),
-        "work_dir": str(tmp_path / "shared" / "work"),
-        "logs_dir": str(tmp_path / "shared" / "logs"),
-    }
-    config_path.write_text(json.dumps(payload), encoding="utf-8")
-    monkeypatch.setenv("H2OMETA_REMOTE_CONFIG", str(config_path))
     cfg = make_configured_remote_runner(
         tmp_path,
         token="rbac-token",
         api_token_roles=("auditor",),
     )
-    ensure_runtime_layout(cfg)
+    config_path = tmp_path / "runner.json"
+    config_path.write_text(json.dumps(cfg.__dict__), encoding="utf-8")
+    monkeypatch.setenv("H2OMETA_REMOTE_CONFIG", str(config_path))
 
     response = TestClient(app).post(
         "/api/v1/databases",

@@ -12,7 +12,11 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 from .api_models import WorkflowTriggerReadinessEventRequest
-from .config import RemoteRunnerConfig, load_remote_runner_config
+from .config import (
+    RemoteRunnerConfig,
+    load_remote_runner_config,
+    require_explicit_loaded_runner_protocol,
+)
 from .databases import fetch_reference_database
 from .storage_core import now_iso
 from .trigger_readiness_watcher_storage import fetch_readiness_observation, upsert_readiness_observation
@@ -159,6 +163,7 @@ def start_configured_workflow_trigger_readiness_watcher_supervisor() -> (
     WorkflowTriggerReadinessWatcherSupervisor | None
 ):
     cfg = load_remote_runner_config()
+    require_explicit_loaded_runner_protocol(cfg)
     if not cfg.token or not _readiness_watcher_enabled():
         return None
     return start_workflow_trigger_readiness_watcher_supervisor(

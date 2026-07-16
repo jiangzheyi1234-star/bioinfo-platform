@@ -15,8 +15,11 @@ from .artifact_lifecycle_policy import (
     normalize_artifact_lifecycle_policy_payload,
     require_complete_artifact_lifecycle_policy_payload,
 )
-from .config import RemoteRunnerConfig
-from .config import load_remote_runner_config
+from .config import (
+    RemoteRunnerConfig,
+    load_remote_runner_config,
+    require_explicit_loaded_runner_protocol,
+)
 from .evidence_storage import append_evidence_event
 from .governance_audit import record_governance_audit_event
 from .storage_core import get_connection, now_iso
@@ -106,6 +109,7 @@ def start_artifact_lifecycle_controller_supervisor(
 
 def start_configured_artifact_lifecycle_controller_supervisor() -> ArtifactLifecycleControllerSupervisor | None:
     cfg = load_remote_runner_config()
+    require_explicit_loaded_runner_protocol(cfg)
     if not cfg.token or not _controller_enabled():
         return None
     return start_artifact_lifecycle_controller_supervisor(

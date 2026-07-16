@@ -10,7 +10,11 @@ from core.api_payloads import request_payload
 from core.api_responses import data_response
 from core.governance_policy import HIGH_RISK_API_POLICIES
 
-from .config import RemoteRunnerConfig, load_remote_runner_config
+from .config import (
+    RemoteRunnerConfig,
+    load_remote_runner_config,
+    require_explicit_loaded_runner_protocol,
+)
 from .errors import RemoteRunnerAuthorizationError, RemoteRunnerAuthError
 from .governance_audit import record_governance_audit_event
 from .sqlite_migrations import (
@@ -44,6 +48,7 @@ def require_auth(authorization: str | None, token: str) -> None:
 
 def authorized_config(authorization: str | None, *, action: str | None = None) -> RemoteRunnerConfig:
     cfg = load_remote_runner_config()
+    require_explicit_loaded_runner_protocol(cfg)
     require_auth(authorization, cfg.token)
     if action:
         authorize_action(cfg, action)

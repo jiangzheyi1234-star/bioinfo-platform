@@ -238,10 +238,13 @@ def test_workflow_profile_cleanup_does_not_swallow_unlink_errors() -> None:
 def test_bootstrap_temp_config_cleanup_does_not_swallow_unlink_errors() -> None:
     manager_source = _source("core/remote_runner/manager.py")
     helper_source = _source("core/remote_runner/bootstrap_config_files.py")
+    protocol_activation_source = _source(
+        "core/remote_runner/bootstrap_protocol_activation.py"
+    )
 
     cleanup_source = helper_source.split("def cleanup_bootstrap_config_temp_files(", 1)[1]
     assert "temp_path.unlink(missing_ok=True)" in cleanup_source
-    assert "cleanup_bootstrap_config_temp_files(config_temp_files)" in manager_source
+    assert "cleanup_bootstrap_config_temp_files(temp_files)" in protocol_activation_source
     assert "self._release_remote_install_lock" in manager_source
     assert "except OSError" not in cleanup_source
     assert "pass" not in cleanup_source
@@ -249,14 +252,18 @@ def test_bootstrap_temp_config_cleanup_does_not_swallow_unlink_errors() -> None:
 
 def test_bootstrap_config_temp_file_io_lives_outside_manager() -> None:
     manager_source = _source("core/remote_runner/manager.py")
+    protocol_activation_source = _source(
+        "core/remote_runner/bootstrap_protocol_activation.py"
+    )
     helper_path = ROOT / "core/remote_runner/bootstrap_config_files.py"
 
     assert helper_path.exists()
     helper_source = helper_path.read_text(encoding="utf-8")
 
-    assert "from core.remote_runner.bootstrap_config_files import " in manager_source
-    assert "write_bootstrap_config_temp_files" in manager_source
-    assert "cleanup_bootstrap_config_temp_files" in manager_source
+    assert "from core.remote_runner.bootstrap_config_files import (" in protocol_activation_source
+    assert "write_bootstrap_config_temp_files" in protocol_activation_source
+    assert "cleanup_bootstrap_config_temp_files" in protocol_activation_source
+    assert "bootstrap_config_files" not in manager_source
     assert "json.dump(" not in manager_source
     assert "tempfile.NamedTemporaryFile(" not in manager_source
     assert "Path(handle.name)" not in manager_source

@@ -13,6 +13,8 @@ from apps.remote_runner.config import (
     load_remote_runner_config,
 )
 from apps.remote_runner.storage_core import get_connection
+from core.contracts.runner_protocol import RUNNER_PROTOCOL_VERSION
+from core.contracts.runner_protocol_runtime import CURRENT_RUNNER_PROTOCOL_FINGERPRINT
 from core.remote_runner.metadata import build_remote_config_payload
 
 
@@ -251,6 +253,8 @@ def test_remote_bootstrap_config_payload_declares_sqlite_backend_without_databas
         snakemake_version="",
         workflow_profile_dir="/home/tester/.h2ometa/runner/shared/workflow-profiles",
         workflow_profile_name="h2ometa",
+        runner_protocol_version=RUNNER_PROTOCOL_VERSION,
+        runner_protocol_fingerprint=CURRENT_RUNNER_PROTOCOL_FINGERPRINT,
     )
 
     assert payload["database_backend"] == "sqlite"

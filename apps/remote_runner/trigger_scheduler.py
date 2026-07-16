@@ -10,7 +10,11 @@ from typing import Any
 from croniter import croniter
 
 from .api_models import WorkflowTriggerEventRequest
-from .config import RemoteRunnerConfig, load_remote_runner_config
+from .config import (
+    RemoteRunnerConfig,
+    load_remote_runner_config,
+    require_explicit_loaded_runner_protocol,
+)
 from .evidence_storage import append_evidence_event
 from .storage_core import get_connection
 from .trigger_cron_contract import (
@@ -372,6 +376,7 @@ def start_workflow_trigger_scheduler_supervisor(
 
 def start_configured_workflow_trigger_scheduler_supervisor() -> WorkflowTriggerSchedulerSupervisor | None:
     cfg = load_remote_runner_config()
+    require_explicit_loaded_runner_protocol(cfg)
     if not cfg.token or not _trigger_scheduler_enabled():
         return None
     return start_workflow_trigger_scheduler_supervisor(

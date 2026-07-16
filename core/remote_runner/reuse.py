@@ -51,12 +51,17 @@ class RemoteRunnerReuseMixin:
                 or ""
             )
             self._verify_remote_manifest_for_reuse(manifest, version=version, platform=platform)
-
             exit_code, stdout, _stderr = ssh_service.run(f"cat {shlex.quote(remote_artifact_sha)}", timeout=10)
             if exit_code != 0:
                 return self._reuse_failed(bootstrap_metadata, "artifact sha marker missing")
             if artifact_sha and stdout.strip() != artifact_sha:
                 return self._reuse_failed(bootstrap_metadata, "artifact sha mismatch")
+            self._verify_remote_protocol_config_for_reuse(
+                ssh_service=ssh_service,
+                remote_config=remote_config,
+                remote_release=remote_release,
+                manifest=manifest,
+            )
 
             exit_code, stdout, stderr = ssh_service.run(f"cat {shlex.quote(remote_runtime_state)}", timeout=10)
             if exit_code != 0:
@@ -136,12 +141,17 @@ class RemoteRunnerReuseMixin:
 
             manifest = self._read_remote_json(ssh_service, f"{remote_release}/bootstrap_manifest.json", "remote runner manifest")
             self._verify_remote_manifest(manifest, version=version, platform=remote_platform)
-
             exit_code, stdout, _stderr = ssh_service.run(f"cat {shlex.quote(remote_artifact_sha)}", timeout=10)
             if exit_code != 0:
                 return self._reuse_failed(bootstrap_metadata, "artifact sha marker missing")
             if stdout.strip() != artifact_sha:
                 return self._reuse_failed(bootstrap_metadata, "artifact sha mismatch")
+            self._verify_remote_protocol_config_for_reuse(
+                ssh_service=ssh_service,
+                remote_config=remote_config,
+                remote_release=remote_release,
+                manifest=manifest,
+            )
 
             exit_code, stdout, stderr = ssh_service.run(f"cat {shlex.quote(remote_runtime_state)}", timeout=10)
             if exit_code != 0:

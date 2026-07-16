@@ -3,12 +3,16 @@ from __future__ import annotations
 import time
 from typing import Any, Protocol
 
+from core.contracts.runner_protocol_runtime import (
+    require_runner_protocol_runtime_self_attestation,
+)
 from core.contracts.remote_endpoints import (
     RUNNER_HEALTH_LIVE,
     RUNNER_HEALTH_READY,
     RUNNER_HEALTH_STARTUP,
 )
 from core.remote_runner.endpoint_caller import call_remote_endpoint
+from core.remote_runner.client import RemoteRunnerClientError
 
 
 class RemoteRunnerHealthClient(Protocol):
@@ -21,6 +25,10 @@ class RemoteRunnerHealthClient(Protocol):
 def build_runner_health(client: RemoteRunnerHealthClient) -> dict[str, Any]:
     startup = call_remote_endpoint(client, RUNNER_HEALTH_STARTUP, path_values={})
     live = call_remote_endpoint(client, RUNNER_HEALTH_LIVE, path_values={})
+    runner_protocol = require_runner_protocol_runtime_self_attestation(
+        live.get("runnerProtocol"),
+        make_error=RemoteRunnerClientError,
+    )
     ready = call_remote_endpoint(client, RUNNER_HEALTH_READY, path_values={})
     workflow = (
         ready.get("workflowRuntime")
@@ -78,6 +86,7 @@ def build_runner_health(client: RemoteRunnerHealthClient) -> dict[str, Any]:
                 else "Remote runner process is not healthy."
             ),
         },
+        "runnerProtocol": runner_protocol,
         "ready": {
             "ok": ready_ok,
             "message": ready_message,

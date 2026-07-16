@@ -8,6 +8,10 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from core.contracts.runner_protocol_runtime import (
+    build_runner_protocol_runtime_self_attestation,
+)
+
 from .config import RemoteRunnerConfig, inspect_runtime_layout, inspect_workflow_runtime
 from .errors import RemoteRunnerReadinessError
 from .execution_diagnostics import build_execution_diagnostics
@@ -115,6 +119,7 @@ def _build_health_payload(status: str, checks: dict[str, bool], cfg: RemoteRunne
         "version": cfg.version,
         "startedAt": _STARTED_AT,
         "mode": cfg.mode,
+        "runnerProtocol": build_runner_protocol_runtime_self_attestation(),
         "checks": checks,
     }
 
