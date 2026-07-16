@@ -8,6 +8,7 @@ import pytest
 from core.remote_runner.artifact import WorkflowRuntimeArtifact
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
 from core.remote_runner.manager import RemoteRunnerManager
+from core.remote_runner.protocol_manifest import build_runner_protocol_manifest_fields
 
 _ORIGINAL_ENSURE_WORKFLOW_RUNTIME = RemoteRunnerManager._ensure_workflow_runtime
 
@@ -54,6 +55,20 @@ def _runtime_state_json(port: int = 43127, *, version: str = REMOTE_RUNNER_VERSI
             "startedAt": "2026-04-22T00:00:00Z",
         }
     )
+
+
+def _remote_runner_manifest(
+    *,
+    version: str = REMOTE_RUNNER_VERSION,
+    platform: str = "linux-64",
+) -> dict[str, object]:
+    return {
+        "service": "h2ometa-remote",
+        "version": version,
+        "platform": platform,
+        "runtime": {"provider": "bundled", "python": "runtime/bin/python"},
+        **build_runner_protocol_manifest_fields(),
+    }
 
 
 def _health_endpoint_json(

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+from core.remote_runner.protocol_manifest import build_runner_protocol_manifest_fields
 from scripts import build_remote_runner_artifact_on_server as builder
 
 
@@ -71,3 +72,16 @@ def test_remote_runner_source_upload_includes_shared_contracts(monkeypatch, tmp_
         ("file", "core/problem_status.py", "/tmp/h2ometa-build/bundle/core/problem_status.py", False),
         ("tree", "core/contracts", "/tmp/h2ometa-build/bundle/core/contracts", True),
     ]
+
+
+def test_remote_build_script_embeds_exact_runner_protocol_descriptor() -> None:
+    fields = build_runner_protocol_manifest_fields()
+
+    plan = builder.build_remote_script_plan(
+        version="protocol-test",
+        platform="linux-64",
+        runtime_source="copy-from-current",
+    )
+
+    assert '"runnerProtocol"' in plan["remoteScript"]
+    assert str(fields["runnerProtocolFingerprint"]) in plan["remoteScript"]

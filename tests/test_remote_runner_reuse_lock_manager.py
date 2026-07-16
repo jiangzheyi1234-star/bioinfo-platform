@@ -18,6 +18,7 @@ from tests.helpers.remote_runner_control_plane import (
     _is_remote_config_atomic_move,
     _fake_workflow_artifact,
     _health_endpoint_json,
+    _remote_runner_manifest,
     _runtime_state_json,
 )
 
@@ -83,14 +84,7 @@ def test_bootstrap_reuses_existing_runner_when_artifact_sha_matches(monkeypatch)
             if "readlink -f /home/tester/.h2ometa/runner/current" in cmd:
                 return 0, f"/home/tester/.h2ometa/runner/releases/{REMOTE_RUNNER_VERSION}\n", ""
             if "bootstrap_manifest.json" in cmd:
-                return 0, json.dumps(
-                    {
-                        "service": "h2ometa-remote",
-                        "version": REMOTE_RUNNER_VERSION,
-                        "platform": "linux-64",
-                        "runtime": {"provider": "bundled", "python": "runtime/bin/python"},
-                    }
-                ), ""
+                return 0, json.dumps(_remote_runner_manifest()), ""
             if "cat /home/tester/.h2ometa/runner/releases/" in cmd and "artifact.sha256" in cmd:
                 return 0, "b" * 64, ""
             if "cat /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
@@ -233,14 +227,7 @@ def test_fast_reuse_accepts_staged_runner_version(monkeypatch) -> None:
             if "readlink -f /home/tester/.h2ometa/runner/current" in cmd:
                 return 0, f"/home/tester/.h2ometa/runner/releases/{staged_version}\n", ""
             if f"cat /home/tester/.h2ometa/runner/releases/{staged_version}/bootstrap_manifest.json" in cmd:
-                return 0, json.dumps(
-                    {
-                        "service": "h2ometa-remote",
-                        "version": staged_version,
-                        "platform": "linux-64",
-                        "runtime": {"provider": "bundled", "python": "runtime/bin/python"},
-                    }
-                ), ""
+                return 0, json.dumps(_remote_runner_manifest(version=staged_version)), ""
             if f"cat /home/tester/.h2ometa/runner/releases/{staged_version}/artifact.sha256" in cmd:
                 return 0, "d" * 64, ""
             if "cat /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
@@ -328,14 +315,7 @@ def test_fast_reuse_rejects_runner_when_workflow_runtime_marker_is_missing(monke
             if "readlink -f /home/tester/.h2ometa/runner/current" in cmd:
                 return 0, "/home/tester/.h2ometa/runner/releases/0.1.0-control-plane\n", ""
             if "cat /home/tester/.h2ometa/runner/releases/0.1.0-control-plane/bootstrap_manifest.json" in cmd:
-                return 0, json.dumps(
-                    {
-                        "service": "h2ometa-remote",
-                        "version": REMOTE_RUNNER_VERSION,
-                        "platform": "linux-64",
-                        "runtime": {"provider": "bundled", "python": "runtime/bin/python"},
-                    }
-                ), ""
+                return 0, json.dumps(_remote_runner_manifest()), ""
             if "cat /home/tester/.h2ometa/runner/releases/0.1.0-control-plane/artifact.sha256" in cmd:
                 return 0, "b" * 64, ""
             if "cat /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
@@ -392,14 +372,7 @@ def test_fast_reuse_rejects_runner_when_remote_runner_artifact_sha_mismatches(mo
             if "readlink -f /home/tester/.h2ometa/runner/current" in cmd:
                 return 0, "/home/tester/.h2ometa/runner/releases/0.1.0-control-plane\n", ""
             if "cat /home/tester/.h2ometa/runner/releases/0.1.0-control-plane/bootstrap_manifest.json" in cmd:
-                return 0, json.dumps(
-                    {
-                        "service": "h2ometa-remote",
-                        "version": REMOTE_RUNNER_VERSION,
-                        "platform": "linux-64",
-                        "runtime": {"provider": "bundled", "python": "runtime/bin/python"},
-                    }
-                ), ""
+                return 0, json.dumps(_remote_runner_manifest()), ""
             if "cat /home/tester/.h2ometa/runner/releases/0.1.0-control-plane/artifact.sha256" in cmd:
                 return 0, "a" * 64, ""
             raise AssertionError(f"unexpected command: {cmd}")
@@ -523,14 +496,7 @@ def test_fast_reuse_rejects_runner_when_database_template_route_is_missing(monke
             if "readlink -f /home/tester/.h2ometa/runner/current" in cmd:
                 return 0, "/home/tester/.h2ometa/runner/releases/0.1.0-control-plane\n", ""
             if "cat /home/tester/.h2ometa/runner/releases/0.1.0-control-plane/bootstrap_manifest.json" in cmd:
-                return 0, json.dumps(
-                    {
-                        "service": "h2ometa-remote",
-                        "version": REMOTE_RUNNER_VERSION,
-                        "platform": "linux-64",
-                        "runtime": {"provider": "bundled", "python": "runtime/bin/python"},
-                    }
-                ), ""
+                return 0, json.dumps(_remote_runner_manifest()), ""
             if "cat /home/tester/.h2ometa/runner/releases/0.1.0-control-plane/artifact.sha256" in cmd:
                 return 0, "b" * 64, ""
             if "cat /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:

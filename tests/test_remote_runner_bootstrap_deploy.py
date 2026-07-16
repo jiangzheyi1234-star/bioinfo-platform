@@ -23,6 +23,7 @@ from tests.helpers.remote_runner_control_plane import (
     _is_remote_runner_config_read,
     _fake_workflow_artifact,
     _health_endpoint_json,
+    _remote_runner_manifest,
     _runtime_state_json,
 )
 
@@ -375,14 +376,7 @@ def test_bootstrap_installs_when_artifact_sha_marker_is_missing(monkeypatch) -> 
             if "readlink -f /home/tester/.h2ometa/runner/current" in cmd:
                 return 0, f"/home/tester/.h2ometa/runner/releases/{REMOTE_RUNNER_VERSION}\n", ""
             if "bootstrap_manifest.json" in cmd:
-                return 0, json.dumps(
-                    {
-                        "service": "h2ometa-remote",
-                        "version": REMOTE_RUNNER_VERSION,
-                        "platform": "linux-64",
-                        "runtime": {"provider": "bundled", "python": "runtime/bin/python"},
-                    }
-                ), ""
+                return 0, json.dumps(_remote_runner_manifest()), ""
             if "mkdir -p" in cmd:
                 return 0, "", ""
             if "pkill -f '[r]emote_runner.run'" in cmd and "runner-state.json" in cmd:

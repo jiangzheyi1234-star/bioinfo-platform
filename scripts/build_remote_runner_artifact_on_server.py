@@ -18,6 +18,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from core.remote_runner.release_manifest import REMOTE_RUNNER_ARTIFACT, REMOTE_RUNNER_VERSION  # noqa: E402
+from core.remote_runner.protocol_manifest import build_runner_protocol_manifest_fields  # noqa: E402
 
 CORE_RUNTIME_HELPER_FILES = (
     "async_boundary.py",
@@ -338,6 +339,7 @@ def build_remote_script(
             "lockFile": lock_file_name if runtime_source == "lockfile" else "",
             "lockSha256": lock_sha256 if runtime_source == "lockfile" else "",
         },
+        **build_runner_protocol_manifest_fields(),
     }
     return f"""
 set -euo pipefail

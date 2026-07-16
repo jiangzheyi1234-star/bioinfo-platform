@@ -18,6 +18,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from core.remote_runner.artifact_io import read_expected_sha256, read_manifest, sha256_file  # noqa: E402
+from core.remote_runner.protocol_manifest import require_current_runner_protocol_manifest  # noqa: E402
 
 
 def _print_json(label: str, payload: Any) -> None:
@@ -78,6 +79,10 @@ def validate_staging_artifact(artifact: Path) -> dict[str, Any]:
     version = str(manifest.get("version") or "").strip()
     if not version:
         raise RuntimeError("artifact version is missing")
+    runner_protocol = require_current_runner_protocol_manifest(
+        manifest,
+        make_error=RuntimeError,
+    )
 
     executor_artifacts = _archive_text(artifact, "remote_runner/executor_artifacts.py")
     reconciler = _archive_text(artifact, "remote_runner/reconciler.py")
@@ -109,6 +114,8 @@ def validate_staging_artifact(artifact: Path) -> dict[str, Any]:
         "sha256": actual,
         "version": version,
         "platform": str(manifest.get("platform") or ""),
+        "runnerProtocolVersion": runner_protocol["protocolVersion"],
+        "runnerProtocolFingerprint": manifest["runnerProtocolFingerprint"],
         **markers,
     }
 

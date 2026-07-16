@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from core.remote_runner.layout import REMOTE_RUNNER_RELATIVE_ROOT
+from core.remote_runner.protocol_manifest import build_runner_protocol_manifest_fields
 from core.remote_runner.release_manifest import REMOTE_RUNNER_ARTIFACT, REMOTE_RUNNER_VERSION
 
 CORE_RUNTIME_HELPER_FILES = (
@@ -73,6 +74,7 @@ class RemoteRunnerBundleBuilder:
                 "provider": "bundled",
                 "python": "runtime/bin/python",
             },
+            **build_runner_protocol_manifest_fields(),
         }
         self._write_text_lf(bundle_dir / "bootstrap_manifest.json", json.dumps(manifest, indent=2))
         self._write_text_lf(

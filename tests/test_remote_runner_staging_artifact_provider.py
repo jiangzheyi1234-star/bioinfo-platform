@@ -10,6 +10,7 @@ import pytest
 
 from core.remote_runner.artifact import RemoteRunnerArtifactError, RemoteRunnerArtifactProvider
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
+from core.remote_runner.protocol_manifest import build_runner_protocol_manifest_fields
 from core.remote_runner.release_manifest import REMOTE_RUNNER_ARTIFACT
 
 
@@ -20,6 +21,7 @@ def _write_minimal_runner_artifact(path: Path, *, version: str = REMOTE_RUNNER_V
         "version": version,
         "platform": "linux-64",
         "runtime": {"provider": "bundled", "python": "runtime/bin/python"},
+        **build_runner_protocol_manifest_fields(),
     }
     with tarfile.open(path, "w:gz") as archive:
         manifest_payload = json.dumps(manifest).encode("utf-8")

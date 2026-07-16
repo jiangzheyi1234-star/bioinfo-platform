@@ -3,6 +3,8 @@ from __future__ import annotations
 import shlex
 from typing import Any
 
+from core.remote_runner.protocol_manifest import require_current_runner_protocol_manifest
+
 
 class RemoteRunnerEnvironmentMixin:
     _manager_error: type[Exception]
@@ -18,6 +20,10 @@ class RemoteRunnerEnvironmentMixin:
         runtime = manifest.get("runtime") if isinstance(manifest.get("runtime"), dict) else {}
         if str(runtime.get("provider") or "") != "bundled" or str(runtime.get("python") or "") != "runtime/bin/python":
             raise cls._manager_error("remote runner manifest does not declare bundled runtime")
+        require_current_runner_protocol_manifest(
+            manifest,
+            make_error=cls._manager_error,
+        )
 
     @classmethod
     def _verify_remote_manifest_for_reuse(cls, manifest: dict[str, Any], *, version: str, platform: str) -> None:
@@ -30,6 +36,10 @@ class RemoteRunnerEnvironmentMixin:
         runtime = manifest.get("runtime") if isinstance(manifest.get("runtime"), dict) else {}
         if str(runtime.get("provider") or "") != "bundled" or str(runtime.get("python") or "") != "runtime/bin/python":
             raise cls._manager_error("remote runner manifest does not declare bundled runtime")
+        require_current_runner_protocol_manifest(
+            manifest,
+            make_error=cls._manager_error,
+        )
 
     @classmethod
     def _verify_remote_config_payload(

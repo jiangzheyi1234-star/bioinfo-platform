@@ -16,6 +16,7 @@ from core.remote_runner.artifact import (
 )
 from core.remote_runner.artifact_diagnostics import supply_chain_metadata
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
+from core.remote_runner.protocol_manifest import build_runner_protocol_manifest_fields
 from core.remote_runner.release_manifest import (
     REMOTE_RUNNER_ARTIFACT,
     ReleaseArtifactSpec,
@@ -32,6 +33,8 @@ def _write_artifact(
     content: bytes = b"artifact",
     include_wrapper_assets: bool = True,
     runtime_python_mode: int = 0o755,
+    include_runner_protocol: bool = True,
+    runner_protocol_fingerprint: str | None = None,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     manifest = {
@@ -40,6 +43,10 @@ def _write_artifact(
         "platform": platform,
         "runtime": {"provider": "bundled", "python": "runtime/bin/python"},
     }
+    if include_runner_protocol:
+        manifest.update(build_runner_protocol_manifest_fields())
+        if runner_protocol_fingerprint is not None:
+            manifest["runnerProtocolFingerprint"] = runner_protocol_fingerprint
     with tarfile.open(path, "w:gz") as archive:
         manifest_bytes = json.dumps(manifest).encode("utf-8")
         manifest_info = tarfile.TarInfo("bootstrap_manifest.json")

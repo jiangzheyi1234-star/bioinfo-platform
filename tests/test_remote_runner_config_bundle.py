@@ -17,7 +17,9 @@ from apps.remote_runner.config import (
 from apps.remote_runner.config import RemoteRunnerConfig
 from apps.remote_runner.worker_resource_config import build_run_worker_resource_plan
 from config import get_app_cache_dir
+from core.contracts.runner_protocol import RUNNER_PROTOCOL_VERSION
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION, RemoteRunnerBundleBuilder
+from core.remote_runner.protocol_manifest import require_current_runner_protocol_manifest
 from tests.helpers.remote_runner_control_plane import (
     _fake_runtime_dir,
 )
@@ -88,6 +90,7 @@ def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> 
     assert (bundle.bundle_dir / "core" / "__init__.py").exists()
     assert (bundle.bundle_dir / "core" / "logging_config.py").exists()
     assert (bundle.bundle_dir / "core" / "contracts" / "__init__.py").exists()
+    assert (bundle.bundle_dir / "core" / "contracts" / "runner_protocol.py").exists()
     assert (bundle.bundle_dir / "core" / "contracts" / "workflow_design.py").exists()
     assert not (bundle.bundle_dir / "remote_runner" / "requirements.txt").exists()
     assert (bundle.bundle_dir / "remote_runner" / "pipelines" / "file-summary-v1" / "pipeline.json").exists()
@@ -120,6 +123,12 @@ def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> 
     assert b"\r\n" not in launch_script_path.read_bytes()
     assert bundle.archive_path.exists()
     assert bundle.platform == "linux-64"
+    manifest = json.loads(
+        (bundle.bundle_dir / "bootstrap_manifest.json").read_text(encoding="utf-8")
+    )
+    runner_protocol = require_current_runner_protocol_manifest(manifest)
+    assert runner_protocol["protocolVersion"] == RUNNER_PROTOCOL_VERSION
+    assert runner_protocol["coverage"]["automaticRecoveryEnabled"] is False
 
 def test_load_remote_runner_config_preserves_workflow_runtime_metadata(tmp_path: Path, monkeypatch) -> None:
     config_path = tmp_path / "runner.json"
