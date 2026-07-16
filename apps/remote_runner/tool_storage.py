@@ -6,7 +6,7 @@ from typing import Any
 from .config import RemoteRunnerConfig
 from .storage_core import get_connection, now_iso
 from .tool_contract import build_tool_contract, default_contract_status, normalize_contract_status
-from .tool_platform_storage import delete_tool_index, upsert_tool_index
+from .tool_platform_storage import delete_tool_index, upsert_tool_index_record
 
 
 def _tool_row_to_dict(row) -> dict[str, Any]:
@@ -60,19 +60,36 @@ def list_tools(cfg: RemoteRunnerConfig) -> list[dict[str, Any]]:
 
 def fetch_tool(cfg: RemoteRunnerConfig, tool_id: str) -> dict[str, Any] | None:
     with get_connection(cfg) as connection:
-        row = connection.execute(
-            """
-            SELECT tools.*, tool_index.validation_summary_json AS validation_summary_json
-            FROM tools
-            LEFT JOIN tool_index ON tool_index.tool_id = tools.tool_id
-            WHERE tools.tool_id = ?
-            """,
-            (tool_id,),
-        ).fetchone()
+        return fetch_tool_record(connection, tool_id)
+
+
+def fetch_tool_record(connection: Any, tool_id: str) -> dict[str, Any] | None:
+    row = connection.execute(
+        """
+        SELECT tools.*, tool_index.validation_summary_json AS validation_summary_json
+        FROM tools
+        LEFT JOIN tool_index ON tool_index.tool_id = tools.tool_id
+        WHERE tools.tool_id = ?
+        """,
+        (tool_id,),
+    ).fetchone()
     return _tool_row_to_dict(row) if row is not None else None
 
 
 def upsert_tool(cfg: RemoteRunnerConfig, tool: dict[str, Any]) -> dict[str, Any]:
+    with get_connection(cfg) as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        saved = upsert_tool_record(connection, tool)
+        connection.commit()
+    return saved
+
+
+def upsert_tool_record(
+    connection: Any,
+    tool: dict[str, Any],
+    *,
+    updated_at: str | None = None,
+) -> dict[str, Any]:
     tool_id = str(tool.get("id") or "").strip()
     name = str(tool.get("name") or "").strip()
     source = str(tool.get("source") or "").strip()
@@ -80,8 +97,8 @@ def upsert_tool(cfg: RemoteRunnerConfig, tool: dict[str, Any]) -> dict[str, Any]
     if not tool_id or not name or not source or not package_spec:
         raise ValueError("TOOL_MANIFEST_INVALID")
 
-    now = now_iso()
-    existing = fetch_tool(cfg, tool_id)
+    now = str(updated_at or now_iso())
+    existing = fetch_tool_record(connection, tool_id)
     status = str(tool.get("status") or (existing or {}).get("status") or "declared")
     message = str(tool.get("message") or (existing or {}).get("message") or "Tool declared.")
     contract_status_provided = "contractStatus" in tool
@@ -93,73 +110,71 @@ def upsert_tool(cfg: RemoteRunnerConfig, tool: dict[str, Any]) -> dict[str, Any]
         if contract_status_provided
         else str(tool.get("lastCheckedAt") or (existing or {}).get("lastCheckedAt") or "") or None
     )
-    with get_connection(cfg) as connection:
-        connection.execute(
-            """
-            INSERT INTO tools (
-                tool_id, tool_revision_id, revision, name, source, source_label, version, package_spec, summary,
-                target_platform, target_platform_supported, platforms_json, source_url,
-                test_command, rule_template_json, rule_spec_draft_json, capabilities_json, snakemake_wrappers_json,
-                contract_status_json, status, message, created_at, updated_at, published_at, last_checked_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(tool_id) DO UPDATE SET
-                tool_revision_id = excluded.tool_revision_id,
-                revision = excluded.revision,
-                name = excluded.name,
-                source = excluded.source,
-                source_label = excluded.source_label,
-                version = excluded.version,
-                package_spec = excluded.package_spec,
-                summary = excluded.summary,
-                target_platform = excluded.target_platform,
-                target_platform_supported = excluded.target_platform_supported,
-                platforms_json = excluded.platforms_json,
-                source_url = excluded.source_url,
-                test_command = excluded.test_command,
-                rule_template_json = excluded.rule_template_json,
-                rule_spec_draft_json = excluded.rule_spec_draft_json,
-                capabilities_json = excluded.capabilities_json,
-                snakemake_wrappers_json = excluded.snakemake_wrappers_json,
-                contract_status_json = excluded.contract_status_json,
-                status = excluded.status,
-                message = excluded.message,
-                updated_at = excluded.updated_at,
-                published_at = excluded.published_at,
-                last_checked_at = excluded.last_checked_at
-            """,
-            (
-                tool_id,
-                str(tool.get("toolRevisionId") or ""),
-                int(tool.get("revision") or 0),
-                name,
-                source,
-                str(tool.get("sourceLabel") or source),
-                str(tool.get("version") or ""),
-                package_spec,
-                str(tool.get("summary") or ""),
-                str(tool.get("targetPlatform") or "linux-64"),
-                1 if bool(tool.get("targetPlatformSupported")) else 0,
-                json.dumps(list(tool.get("platforms") or [])),
-                str(tool.get("sourceUrl") or ""),
-                str(tool.get("testCommand") or ""),
-                json.dumps(dict(tool.get("ruleTemplate") or {}), ensure_ascii=False),
-                json.dumps(dict(tool.get("ruleSpecDraft") or {}), ensure_ascii=False),
-                json.dumps(list(tool.get("capabilities") or []), ensure_ascii=False),
-                json.dumps(list(tool.get("snakemakeWrappers") or []), ensure_ascii=False),
-                json.dumps(contract_status, ensure_ascii=False),
-                status,
-                message,
-                (existing or {}).get("createdAt") or now,
-                now,
-                str(tool.get("publishedAt") or "") or None,
-                last_checked_at,
-            ),
-        )
-        connection.commit()
-    saved = fetch_tool(cfg, tool_id)
+    connection.execute(
+        """
+        INSERT INTO tools (
+            tool_id, tool_revision_id, revision, name, source, source_label, version, package_spec, summary,
+            target_platform, target_platform_supported, platforms_json, source_url,
+            test_command, rule_template_json, rule_spec_draft_json, capabilities_json, snakemake_wrappers_json,
+            contract_status_json, status, message, created_at, updated_at, published_at, last_checked_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(tool_id) DO UPDATE SET
+            tool_revision_id = excluded.tool_revision_id,
+            revision = excluded.revision,
+            name = excluded.name,
+            source = excluded.source,
+            source_label = excluded.source_label,
+            version = excluded.version,
+            package_spec = excluded.package_spec,
+            summary = excluded.summary,
+            target_platform = excluded.target_platform,
+            target_platform_supported = excluded.target_platform_supported,
+            platforms_json = excluded.platforms_json,
+            source_url = excluded.source_url,
+            test_command = excluded.test_command,
+            rule_template_json = excluded.rule_template_json,
+            rule_spec_draft_json = excluded.rule_spec_draft_json,
+            capabilities_json = excluded.capabilities_json,
+            snakemake_wrappers_json = excluded.snakemake_wrappers_json,
+            contract_status_json = excluded.contract_status_json,
+            status = excluded.status,
+            message = excluded.message,
+            updated_at = excluded.updated_at,
+            published_at = excluded.published_at,
+            last_checked_at = excluded.last_checked_at
+        """,
+        (
+            tool_id,
+            str(tool.get("toolRevisionId") or ""),
+            int(tool.get("revision") or 0),
+            name,
+            source,
+            str(tool.get("sourceLabel") or source),
+            str(tool.get("version") or ""),
+            package_spec,
+            str(tool.get("summary") or ""),
+            str(tool.get("targetPlatform") or "linux-64"),
+            1 if bool(tool.get("targetPlatformSupported")) else 0,
+            json.dumps(list(tool.get("platforms") or [])),
+            str(tool.get("sourceUrl") or ""),
+            str(tool.get("testCommand") or ""),
+            json.dumps(dict(tool.get("ruleTemplate") or {}), ensure_ascii=False),
+            json.dumps(dict(tool.get("ruleSpecDraft") or {}), ensure_ascii=False),
+            json.dumps(list(tool.get("capabilities") or []), ensure_ascii=False),
+            json.dumps(list(tool.get("snakemakeWrappers") or []), ensure_ascii=False),
+            json.dumps(contract_status, ensure_ascii=False),
+            status,
+            message,
+            (existing or {}).get("createdAt") or now,
+            now,
+            str(tool.get("publishedAt") or "") or None,
+            last_checked_at,
+        ),
+    )
+    saved = fetch_tool_record(connection, tool_id)
     if saved is None:
         raise KeyError(tool_id)
-    upsert_tool_index(cfg, saved)
+    upsert_tool_index_record(connection, saved, updated_at=now)
     return saved
 
 

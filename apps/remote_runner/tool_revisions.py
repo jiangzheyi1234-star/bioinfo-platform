@@ -11,55 +11,73 @@ from .tool_platform_storage import latest_validation_summary_for_tool_revision
 
 
 def publish_tool_revision(cfg: RemoteRunnerConfig, tool: dict[str, Any]) -> dict[str, Any]:
+    with get_connection(cfg) as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        revision_tool = publish_tool_revision_record(connection, tool)
+        connection.commit()
+    return revision_tool
+
+
+def publish_tool_revision_record(
+    connection: Any,
+    tool: dict[str, Any],
+    *,
+    published_at: str | None = None,
+) -> dict[str, Any]:
     tool_id = str(tool.get("id") or "").strip()
     if not tool_id:
         raise ValueError("TOOL_ID_REQUIRED")
-    spec_hash = tool_spec_hash(tool)
+    environment_lock = build_environment_lock(tool)
+    hash_input = {**tool, "environmentLock": environment_lock} if environment_lock else tool
+    spec_hash = tool_spec_hash(hash_input)
     tool_revision_id = f"{tool_id}#{spec_hash[:12]}"
 
-    with get_connection(cfg) as connection:
-        existing = connection.execute(
-            "SELECT tool_json FROM tool_revisions WHERE tool_revision_id = ?",
-            (tool_revision_id,),
-        ).fetchone()
-        if existing is not None:
-            saved = json.loads(existing["tool_json"] or "{}")
-            return saved if isinstance(saved, dict) else {}
-        row = connection.execute(
-            "SELECT COALESCE(MAX(revision), 0) AS latest_revision FROM tool_revisions WHERE tool_id = ?",
-            (tool_id,),
-        ).fetchone()
-        revision = int(row["latest_revision"] or 0) + 1
-        published_at = now_iso()
-        environment_lock = build_environment_lock(tool)
-        revision_tool = {
-            **tool,
-            "id": tool_id,
-            "toolId": tool_id,
-            "toolRevisionId": tool_revision_id,
-            "revision": revision,
-            "specHash": spec_hash,
-            "publishedAt": published_at,
-            "status": "published",
-            "message": str(tool.get("message") or "Tool revision published."),
-        }
-        if environment_lock:
-            revision_tool["environmentLock"] = environment_lock
-        revision_tool["toolContract"] = build_tool_contract(revision_tool)
-        connection.execute(
-            """
-            INSERT INTO tool_revisions (tool_revision_id, tool_id, revision, tool_json, published_at)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (
-                tool_revision_id,
-                tool_id,
-                revision,
-                json.dumps(revision_tool, ensure_ascii=False, sort_keys=True),
-                published_at,
-            ),
-        )
-        connection.commit()
+    existing = connection.execute(
+        "SELECT tool_json FROM tool_revisions WHERE tool_revision_id = ?",
+        (tool_revision_id,),
+    ).fetchone()
+    if existing is not None:
+        saved = json.loads(existing["tool_json"] or "{}")
+        if (
+            not isinstance(saved, dict)
+            or str(saved.get("id") or saved.get("toolId") or "").strip() != tool_id
+            or str(saved.get("specHash") or "") != spec_hash
+        ):
+            raise ValueError("TOOL_REVISION_ID_COLLISION")
+        return saved
+    row = connection.execute(
+        "SELECT COALESCE(MAX(revision), 0) AS latest_revision FROM tool_revisions WHERE tool_id = ?",
+        (tool_id,),
+    ).fetchone()
+    revision = int(row["latest_revision"] or 0) + 1
+    occurred_at = str(published_at or now_iso())
+    revision_tool = {
+        **tool,
+        "id": tool_id,
+        "toolId": tool_id,
+        "toolRevisionId": tool_revision_id,
+        "revision": revision,
+        "specHash": spec_hash,
+        "publishedAt": occurred_at,
+        "status": "published",
+        "message": str(tool.get("message") or "Tool revision published."),
+    }
+    if environment_lock:
+        revision_tool["environmentLock"] = environment_lock
+    revision_tool["toolContract"] = build_tool_contract(revision_tool)
+    connection.execute(
+        """
+        INSERT INTO tool_revisions (tool_revision_id, tool_id, revision, tool_json, published_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            tool_revision_id,
+            tool_id,
+            revision,
+            json.dumps(revision_tool, ensure_ascii=False, sort_keys=True),
+            occurred_at,
+        ),
+    )
     return revision_tool
 
 
