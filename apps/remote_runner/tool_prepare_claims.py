@@ -406,6 +406,59 @@ def require_active_tool_prepare_claim_for_connection(
     return {"attempt": attempt, "job": job}
 
 
+def record_tool_prepare_attempt_outcome_for_connection(
+    connection,
+    proof: ToolPrepareAttemptProof,
+    *,
+    outcome_status: str,
+    updated_at: str,
+    last_error: dict[str, Any] | None = None,
+) -> None:
+    """Record a durable outcome without releasing the still-running worker attempt."""
+
+    normalized_outcome = _required_text(outcome_status, "TOOL_PREPARE_ATTEMPT_OUTCOME_REQUIRED")
+    timestamp = _timestamp(updated_at)
+    require_active_tool_prepare_claim_for_connection(connection, proof)
+    error_json = json.dumps(last_error, ensure_ascii=False, sort_keys=True) if last_error is not None else None
+    updated = connection.execute(
+        """
+        UPDATE tool_prepare_attempts
+        SET outcome_status = ?,
+            last_error_json = CASE WHEN ? IS NULL THEN last_error_json ELSE ? END,
+            updated_at = ?
+        WHERE attempt_id = ?
+          AND job_id = ?
+          AND generation = ?
+          AND state = 'active'
+          AND worker_id = ?
+          AND session_id = ?
+          AND process_instance_id = ?
+          AND process_pid = ?
+          AND hostname = ?
+          AND claim_owner = ?
+          AND claim_token_hash = ?
+        """,
+        (
+            normalized_outcome,
+            error_json,
+            error_json,
+            timestamp,
+            proof.attempt_id,
+            proof.job_id,
+            proof.generation,
+            proof.worker_id,
+            proof.session_id,
+            proof.process_instance_id,
+            proof.process_pid,
+            proof.hostname,
+            proof.claim_owner,
+            _claim_token_hash(proof.claim_token),
+        ),
+    )
+    if updated.rowcount != 1:
+        raise ToolPrepareClaimLostError("attempt outcome compare-and-set failed")
+
+
 def _new_attempt_proof(
     *,
     job_id: str,
@@ -606,6 +659,7 @@ __all__ = [
     "ToolPrepareWorkerIdentity",
     "claim_next_tool_prepare_job",
     "heartbeat_tool_prepare_job",
+    "record_tool_prepare_attempt_outcome_for_connection",
     "require_active_tool_prepare_claim_for_connection",
     "release_tool_prepare_worker_claim",
 ]
