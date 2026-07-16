@@ -19,6 +19,8 @@ from core.remote_runner.manager import RemoteRunnerManager
 from core.remote_runner.token_rotation import _runner_rotation_failure_types, _unlink_temp_configs
 from tests.helpers.remote_runner_control_plane import (
     _health_endpoint_json,
+    _is_remote_process_incarnation_probe,
+    _process_incarnation_probe_output,
     _remote_runner_manifest,
     _remote_runner_protocol_config,
     _runtime_state_json,
@@ -44,8 +46,8 @@ def test_rotate_token_validates_new_token_with_transport_health(monkeypatch) -> 
                 return 0, json.dumps(_remote_runner_protocol_config(version="v1")), ""
             if cmd.endswith("/shared/runtime/runner-state.json"):
                 return 0, _runtime_state_json(version="v1"), ""
-            if cmd == "kill -0 123":
-                return 0, "", ""
+            if _is_remote_process_incarnation_probe(cmd):
+                return 0, _process_incarnation_probe_output(), ""
             if "test -s" in cmd and "mv -f" in cmd:
                 return 0, "", ""
             if "pkill -f '[r]emote_runner.run'" in cmd:
@@ -573,8 +575,8 @@ def test_rotate_token_restores_and_retains_guard_on_tunnel_adapter_errors(monkey
                 return 0, json.dumps(_remote_runner_protocol_config(version="0.1.0-control-plane")), ""
             if cmd.endswith("/shared/runtime/runner-state.json"):
                 return 0, _runtime_state_json(version="0.1.0-control-plane"), ""
-            if cmd == "kill -0 123":
-                return 0, "", ""
+            if _is_remote_process_incarnation_probe(cmd):
+                return 0, _process_incarnation_probe_output(), ""
             if cmd.startswith("test -s ") or cmd.startswith("pkill -f ") or "start_service.sh" in cmd:
                 return 0, "", ""
             raise AssertionError(f"unexpected command: {cmd}")

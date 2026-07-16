@@ -6,12 +6,22 @@ import time
 from typing import Any
 
 from core.contracts.database_remote_endpoints import DATABASE_TEMPLATE_LIST
+from core.contracts.linux_process_incarnation import (
+    build_linux_process_incarnation,
+    parse_proc_stat_start_ticks,
+    require_linux_process_incarnation,
+)
 from core.contracts.runner_protocol_runtime import (
     require_runner_protocol_runtime_self_attestation,
 )
 from core.remote_runner.client import RemoteRunnerClientError, RemoteRunnerHttpClient
 from core.remote_runner.endpoint_caller import call_remote_endpoint
 from core.remote_runner.health import build_runner_health
+
+
+REMOTE_PROCESS_INCARNATION_PROBE_SENTINEL = (
+    "H2OMETA_REMOTE_PROCESS_INCARNATION_PROBE_V1"
+)
 
 
 class RemoteRunnerReadinessMixin:
@@ -34,7 +44,7 @@ class RemoteRunnerReadinessMixin:
             if exit_code == 0:
                 try:
                     state = cls._parse_runtime_state(stdout, version=version)
-                    cls._verify_runtime_state_pid(ssh_service, state)
+                    cls._verify_runtime_process_incarnation(ssh_service, state)
                     return state
                 except RuntimeError as exc:
                     last_error = str(exc)
@@ -68,21 +78,73 @@ class RemoteRunnerReadinessMixin:
             state.get("runnerProtocol"),
             make_error=cls._manager_error,
         )
+        pid = state.get("pid")
+        if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
+            raise cls._manager_error("remote runner runtime state has invalid pid")
+        process_incarnation = require_linux_process_incarnation(
+            state.get("processIncarnation"),
+            make_error=cls._manager_error,
+        )
+        if process_incarnation["pid"] != pid:
+            raise cls._manager_error(
+                "remote runner runtime state pid does not match process incarnation"
+            )
         state["bindPort"] = port
+        state["pid"] = pid
+        state["processIncarnation"] = process_incarnation
         return state
 
     @classmethod
-    def _verify_runtime_state_pid(cls, ssh_service, state: dict[str, Any]) -> None:
-        try:
-            pid = int(state.get("pid"))
-        except (TypeError, ValueError) as exc:
-            raise cls._manager_error("remote runner runtime state has invalid pid") from exc
-        if pid <= 0:
-            raise cls._manager_error("remote runner runtime state has invalid pid")
-        exit_code, _stdout, stderr = ssh_service.run(f"kill -0 {pid}", timeout=10)
+    def _verify_runtime_process_incarnation(
+        cls,
+        ssh_service,
+        state: dict[str, Any],
+    ) -> None:
+        expected = require_linux_process_incarnation(
+            state.get("processIncarnation"),
+            make_error=cls._manager_error,
+        )
+        pid = int(expected["pid"])
+        command = cls._build_remote_process_incarnation_probe(pid)
+        exit_code, stdout, stderr = ssh_service.run(command, timeout=10)
         if exit_code != 0:
-            detail = stderr.strip() or f"pid {pid}"
-            raise cls._manager_error(f"remote runner process is not running: {detail}")
+            detail = stderr.strip() or stdout.strip() or f"pid {pid}"
+            raise cls._manager_error(
+                "remote runner process incarnation is unavailable: " + detail
+            )
+        boot_id, separator, proc_stat = stdout.partition("\n")
+        if not separator or not proc_stat:
+            raise cls._manager_error(
+                "remote runner process incarnation observation is invalid"
+            )
+        try:
+            proc_start_ticks = parse_proc_stat_start_ticks(
+                proc_stat,
+                expected_pid=pid,
+            )
+            observed = build_linux_process_incarnation(
+                boot_id=boot_id,
+                pid=pid,
+                proc_start_ticks=proc_start_ticks,
+            )
+        except (TypeError, ValueError) as exc:
+            raise cls._manager_error(
+                "remote runner process incarnation observation is invalid"
+            ) from exc
+        if observed != expected:
+            raise cls._manager_error(
+                "remote runner process incarnation does not match runtime state"
+            )
+
+    @staticmethod
+    def _build_remote_process_incarnation_probe(pid: int) -> str:
+        return (
+            "set -eu; "
+            f"{REMOTE_PROCESS_INCARNATION_PROBE_SENTINEL}=1; "
+            'boot_id="$(cat /proc/sys/kernel/random/boot_id)"; '
+            "printf '%s\\n' \"$boot_id\"; "
+            f"cat /proc/{pid}/stat"
+        )
 
     @classmethod
     def _wait_for_runner_health(

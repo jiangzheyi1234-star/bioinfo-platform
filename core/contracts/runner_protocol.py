@@ -1,7 +1,7 @@
-"""Strict descriptor for the currently deployed remote-runner protocol.
+"""Strict descriptor for the current remote-runner protocol.
 
-The descriptor records exact writer coverage and process-evidence fencing support.
-It does not establish liveness, process death, or the identity of its producer.
+The descriptor records exact writer coverage and point-in-time procfs evidence.
+It does not establish liveness, listener ownership, exclusivity, or process death.
 """
 
 from __future__ import annotations
@@ -11,9 +11,10 @@ import hashlib
 import json
 from typing import Any
 
+from .linux_process_incarnation import LINUX_PROCESS_INCARNATION_SCHEMA
 
-RUNNER_PROTOCOL_DESCRIPTOR_SCHEMA = "h2ometa.runner-protocol-descriptor.v2"
-RUNNER_PROTOCOL_VERSION = "runner-protocol.v2"
+RUNNER_PROTOCOL_DESCRIPTOR_SCHEMA = "h2ometa.runner-protocol-descriptor.v3"
+RUNNER_PROTOCOL_VERSION = "runner-protocol.v3"
 RUNNER_PROTOCOL_DATABASE_SCHEMA_VERSION = 18
 RUNNER_PROTOCOL_RUNTIME_SELF_ATTESTATION_SCHEMA = (
     "h2ometa.runner-protocol-runtime-self-attestation.v1"
@@ -25,6 +26,10 @@ RUNNER_PROTOCOL_RUNTIME_SELF_ATTESTATION_SURFACES = (
     "health-ready",
     "health-meta",
 )
+RUNNER_PROTOCOL_RUNTIME_PROCESS_INCARNATION_SCHEMA = (
+    LINUX_PROCESS_INCARNATION_SCHEMA
+)
+RUNNER_PROTOCOL_RUNTIME_PROCESS_INCARNATION_SURFACES = ("runtime-state",)
 RUNNER_PROTOCOL_TOOL_PREPARE_PROCESS_MARKER_SCHEMA = (
     "h2ometa.tool-prepare-process-marker.v1"
 )
@@ -32,6 +37,7 @@ RUNNER_PROTOCOL_TOOL_PREPARE_PROCESS_MARKER_SCHEMA = (
 RUNNER_PROTOCOL_CAPABILITIES = (
     "artifact-exact-protocol-descriptor-v1",
     "execution-lifecycle-guard-v1",
+    "runtime-process-incarnation-evidence-v1",
     "runtime-self-attestation-v1",
     "tool-prepare-process-evidence-fencing-v1",
 )
@@ -59,12 +65,14 @@ _COVERAGE_FIELDS = frozenset(
         "automaticRecoveryEnabled",
         "coverageComplete",
         "coveredWriterScopes",
+        "runtimeProcessIncarnationSchema",
+        "runtimeProcessIncarnationSurfaces",
         "runtimeSelfAttestationSchema",
         "runtimeSelfAttestationSurfaces",
         "toolPrepareProcessMarkerSchema",
     }
 )
-_FINGERPRINT_DOMAIN = b"h2ometa.runner-protocol-descriptor.v2"
+_FINGERPRINT_DOMAIN = b"h2ometa.runner-protocol-descriptor.v3"
 
 
 def build_runner_protocol_descriptor() -> dict[str, object]:
@@ -76,6 +84,12 @@ def build_runner_protocol_descriptor() -> dict[str, object]:
             "automaticRecoveryEnabled": False,
             "coverageComplete": False,
             "coveredWriterScopes": list(RUNNER_PROTOCOL_COVERED_WRITER_SCOPES),
+            "runtimeProcessIncarnationSchema": (
+                RUNNER_PROTOCOL_RUNTIME_PROCESS_INCARNATION_SCHEMA
+            ),
+            "runtimeProcessIncarnationSurfaces": list(
+                RUNNER_PROTOCOL_RUNTIME_PROCESS_INCARNATION_SURFACES
+            ),
             "runtimeSelfAttestationSchema": (
                 RUNNER_PROTOCOL_RUNTIME_SELF_ATTESTATION_SCHEMA
             ),
@@ -164,6 +178,18 @@ def require_runner_protocol_descriptor(
         coverage.get("coveredWriterScopes"),
         expected=RUNNER_PROTOCOL_COVERED_WRITER_SCOPES,
         field="coverage.coveredWriterScopes",
+        make_error=make_error,
+    )
+    _require_exact_string(
+        coverage.get("runtimeProcessIncarnationSchema"),
+        expected=RUNNER_PROTOCOL_RUNTIME_PROCESS_INCARNATION_SCHEMA,
+        field="coverage.runtimeProcessIncarnationSchema",
+        make_error=make_error,
+    )
+    _require_exact_string_list(
+        coverage.get("runtimeProcessIncarnationSurfaces"),
+        expected=RUNNER_PROTOCOL_RUNTIME_PROCESS_INCARNATION_SURFACES,
+        field="coverage.runtimeProcessIncarnationSurfaces",
         make_error=make_error,
     )
     _require_exact_string(

@@ -68,7 +68,7 @@ class RemoteRunnerReuseMixin:
                 detail = stderr.strip() or stdout.strip() or "runtime state missing"
                 return self._reuse_failed(bootstrap_metadata, detail)
             state = self._parse_runtime_state(stdout, version=version)
-            self._verify_runtime_state_pid(ssh_service, state)
+            self._verify_runtime_process_incarnation(ssh_service, state)
             self._verify_workflow_runtime_for_reuse(
                 ssh_service=ssh_service,
                 artifact=workflow_artifact,
@@ -158,7 +158,7 @@ class RemoteRunnerReuseMixin:
                 detail = stderr.strip() or stdout.strip() or "runtime state missing"
                 return self._reuse_failed(bootstrap_metadata, detail)
             state = self._parse_runtime_state(stdout, version=version)
-            self._verify_runtime_state_pid(ssh_service, state)
+            self._verify_runtime_process_incarnation(ssh_service, state)
             self._verify_workflow_runtime_for_reuse(
                 ssh_service=ssh_service,
                 artifact=workflow_artifact,

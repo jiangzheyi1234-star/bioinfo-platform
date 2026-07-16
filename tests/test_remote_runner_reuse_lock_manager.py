@@ -15,21 +15,23 @@ from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerE
 from tests.helpers.remote_runner_control_plane import (
     _is_remote_bundle_cleanup,
     _is_remote_config_atomic_move,
+    _is_remote_process_incarnation_probe,
     _fake_workflow_artifact,
     _health_endpoint_json,
     _remote_runner_manifest,
     _remote_runner_protocol_config,
+    _process_incarnation_probe_output,
     _runtime_state_json,
 )
 
-def test_wait_for_runtime_state_rejects_dead_runner_pid() -> None:
+def test_wait_for_runtime_state_rejects_unobservable_process_incarnation() -> None:
     manager = RemoteRunnerManager()
 
     class FakeSSH:
         def run(self, cmd: str, timeout: int = 10):
             if "cat /remote/runner-state.json" in cmd:
                 return 0, _runtime_state_json(), ""
-            if "kill -0 123" in cmd:
+            if _is_remote_process_incarnation_probe(cmd):
                 return 1, "", "No such process"
             if _is_remote_bundle_cleanup(cmd) or _is_remote_config_atomic_move(cmd):
                 return 0, "", ""
@@ -44,9 +46,98 @@ def test_wait_for_runtime_state_rejects_dead_runner_pid() -> None:
             delay_seconds=0,
         )
     except RemoteRunnerManagerError as exc:
-        assert "not running" in str(exc)
+        assert "process incarnation is unavailable" in str(exc)
     else:
-        raise AssertionError("dead runner pid should be rejected")
+        raise AssertionError("unobservable process incarnation should be rejected")
+
+
+@pytest.mark.parametrize("reuse_path", ["fast", "full"])
+def test_reuse_rejects_process_incarnation_drift_before_tunnel(
+    monkeypatch: pytest.MonkeyPatch,
+    reuse_path: str,
+) -> None:
+    manager = RemoteRunnerManager()
+    remote_release = (
+        f"/home/tester/.h2ometa/runner/releases/{REMOTE_RUNNER_VERSION}"
+    )
+    tunneled = False
+    bootstrap_metadata: dict[str, object] = {
+        "preflight": {"platform": "linux-64"},
+        "tooling": {
+            "workflow_runtime": {
+                "artifact_sha": "f" * 64,
+                "snakemake_command": "/remote/snakemake",
+            }
+        },
+    }
+    monkeypatch.setattr(
+        "core.remote_runner.reuse.resolve_runner_token",
+        lambda _ref: "token",
+    )
+
+    class FakeSSH:
+        def run(self, cmd: str, timeout: int = 10):
+            if cmd == "readlink -f /home/tester/.h2ometa/runner/current":
+                return 0, f"{remote_release}\n", ""
+            if cmd == f"cat {remote_release}/bootstrap_manifest.json":
+                return 0, json.dumps(_remote_runner_manifest()), ""
+            if cmd == f"cat {remote_release}/artifact.sha256":
+                return 0, "b" * 64, ""
+            if cmd == "cat /home/tester/.h2ometa/runner/shared/config/runner.json":
+                return 0, json.dumps(
+                    _remote_runner_protocol_config(release=remote_release)
+                ), ""
+            if cmd == "cat /home/tester/.h2ometa/runner/shared/runtime/runner-state.json":
+                return 0, _runtime_state_json(), ""
+            if _is_remote_process_incarnation_probe(cmd):
+                return 0, _process_incarnation_probe_output(start_ticks=778), ""
+            raise AssertionError(cmd)
+
+        def ensure_local_tunnel(self, *args, **kwargs):
+            nonlocal tunneled
+            tunneled = True
+            raise AssertionError("incarnation drift must reject reuse before tunneling")
+
+    common_arguments = dict(
+        server_id="srv_demo",
+        ssh_service=FakeSSH(),
+        version=REMOTE_RUNNER_VERSION,
+        remote_release=remote_release,
+        remote_current="/home/tester/.h2ometa/runner/current",
+        remote_runtime_state=(
+            "/home/tester/.h2ometa/runner/shared/runtime/runner-state.json"
+        ),
+        remote_config="/home/tester/.h2ometa/runner/shared/config/runner.json",
+        remote_artifact_sha=f"{remote_release}/artifact.sha256",
+        artifact_sha="b" * 64,
+        workflow_artifact=_fake_workflow_artifact(),
+        workflow_runtime_dir="/home/tester/.h2ometa/runner/tools/workflow-runtime",
+        remote_workflow_artifact_sha="/remote/workflow-artifact.sha256",
+        bootstrap_metadata=bootstrap_metadata,
+    )
+    server_record = {
+        "bootstrap_version": REMOTE_RUNNER_VERSION,
+        "runner_mode": "systemd_user",
+        "token_ref": "runner://srv_demo",
+    }
+    if reuse_path == "fast":
+        result = manager._try_reuse_existing_runner_fast(
+            server_record=server_record,
+            **common_arguments,
+        )
+    else:
+        result = manager._try_reuse_existing_runner(
+            server_record=server_record,
+            mode="systemd_user",
+            remote_platform="linux-64",
+            **common_arguments,
+        )
+
+    assert result is None
+    assert tunneled is False
+    reuse_check = bootstrap_metadata["reuse_check"]
+    assert isinstance(reuse_check, dict)
+    assert "process incarnation" in str(reuse_check["reason"])
 
 def test_bootstrap_reuses_existing_runner_when_artifact_sha_matches(monkeypatch) -> None:
     manager = RemoteRunnerManager()
@@ -89,8 +180,8 @@ def test_bootstrap_reuses_existing_runner_when_artifact_sha_matches(monkeypatch)
                 return 0, "b" * 64, ""
             if "cat /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
                 return 0, _runtime_state_json(), ""
-            if "kill -0 123" in cmd:
-                return 0, "", ""
+            if _is_remote_process_incarnation_probe(cmd):
+                return 0, _process_incarnation_probe_output(), ""
             if f"cat {workflow_runtime_dir}/artifact.sha256" in cmd:
                 return 0, "f" * 64, ""
             if "cat /home/tester/.h2ometa/runner/shared/config/runner.json" in cmd:
@@ -233,8 +324,8 @@ def test_fast_reuse_accepts_staged_runner_version(monkeypatch) -> None:
                 return 0, "d" * 64, ""
             if "cat /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
                 return 0, _runtime_state_json(version=staged_version), ""
-            if "kill -0 123" in cmd:
-                return 0, "", ""
+            if _is_remote_process_incarnation_probe(cmd):
+                return 0, _process_incarnation_probe_output(), ""
             if "cat /home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/artifact.sha256" in cmd:
                 return 0, "f" * 64, ""
             if "cat /home/tester/.h2ometa/runner/shared/config/runner.json" in cmd:
@@ -328,8 +419,8 @@ def test_fast_reuse_rejects_runner_when_workflow_runtime_marker_is_missing(monke
                 ), ""
             if "cat /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
                 return 0, _runtime_state_json(), ""
-            if "kill -0 123" in cmd:
-                return 0, "", ""
+            if _is_remote_process_incarnation_probe(cmd):
+                return 0, _process_incarnation_probe_output(), ""
             if "cat /home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/artifact.sha256" in cmd:
                 return 1, "", "No such file"
             if _is_remote_bundle_cleanup(cmd) or _is_remote_config_atomic_move(cmd):
@@ -509,8 +600,8 @@ def test_fast_reuse_rejects_runner_when_database_template_route_is_missing(monke
                 return 0, "b" * 64, ""
             if "cat /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
                 return 0, _runtime_state_json(), ""
-            if "kill -0 123" in cmd:
-                return 0, "", ""
+            if _is_remote_process_incarnation_probe(cmd):
+                return 0, _process_incarnation_probe_output(), ""
             if "cat /home/tester/.h2ometa/runner/tools/workflow-runtime-0.1.0-linux-64/artifact.sha256" in cmd:
                 return 0, "f" * 64, ""
             if "cat /home/tester/.h2ometa/runner/shared/config/runner.json" in cmd:

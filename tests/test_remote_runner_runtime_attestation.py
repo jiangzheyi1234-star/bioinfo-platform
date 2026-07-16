@@ -13,6 +13,9 @@ from apps.remote_runner.health_service import (
     build_health_ready_payload,
     build_health_startup_payload,
 )
+from core.contracts.linux_process_incarnation import (
+    build_linux_process_incarnation,
+)
 from core.contracts.runner_protocol_runtime import (
     CURRENT_RUNNER_PROTOCOL_FINGERPRINT,
     build_runner_protocol_runtime_self_attestation,
@@ -20,6 +23,17 @@ from core.contracts.runner_protocol_runtime import (
 from core.remote_runner.client import RemoteRunnerClientError
 from core.remote_runner.health import build_runner_health
 from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerError
+
+
+_BOOT_ID = "11111111-2222-3333-4444-555555555555"
+
+
+def _process_incarnation(*, pid: int = 123) -> dict[str, object]:
+    return build_linux_process_incarnation(
+        boot_id=_BOOT_ID,
+        pid=pid,
+        proc_start_ticks=777,
+    )
 
 
 def test_runtime_state_atomically_publishes_current_protocol_attestation(
@@ -36,10 +50,12 @@ def test_runtime_state_atomically_publishes_current_protocol_attestation(
         bind_host="127.0.0.1",
         bind_port=43127,
         pid=123,
+        process_incarnation=_process_incarnation(),
     )
     persisted = json.loads(state_path.read_text(encoding="utf-8"))
 
     assert state["runnerProtocol"] == build_runner_protocol_runtime_self_attestation()
+    assert state["processIncarnation"] == _process_incarnation()
     assert persisted == state
     assert not list(state_path.parent.glob("*.tmp"))
 
@@ -65,6 +81,7 @@ def _runtime_state(*, protocol: object) -> str:
             "bindHost": "127.0.0.1",
             "bindPort": 43127,
             "pid": 123,
+            "processIncarnation": _process_incarnation(),
             "runnerProtocol": protocol,
         }
     )
@@ -77,6 +94,45 @@ def test_control_plane_accepts_exact_runtime_state_attestation() -> None:
     )
 
     assert state["runnerProtocol"]["protocolFingerprint"] == CURRENT_RUNNER_PROTOCOL_FINGERPRINT
+
+
+@pytest.mark.parametrize("mutation", ["missing", "extra", "pid-mismatch"])
+def test_control_plane_rejects_invalid_runtime_process_incarnation(
+    mutation: str,
+) -> None:
+    payload = json.loads(
+        _runtime_state(protocol=build_runner_protocol_runtime_self_attestation())
+    )
+    if mutation == "missing":
+        payload.pop("processIncarnation")
+    elif mutation == "extra":
+        payload["processIncarnation"]["liveness"] = True
+    else:
+        payload["pid"] = 124
+
+    with pytest.raises(RemoteRunnerManagerError, match="process incarnation"):
+        RemoteRunnerManager._parse_runtime_state(
+            json.dumps(payload),
+            version="runtime-attestation-test",
+        )
+
+
+def test_runtime_state_rejects_pid_that_does_not_match_process_incarnation(
+    tmp_path: Path,
+) -> None:
+    cfg = RemoteRunnerConfig(
+        version="runtime-attestation-test",
+        runtime_state_path=str(tmp_path / "runtime" / "runner-state.json"),
+    )
+
+    with pytest.raises(ValueError, match="does not match process incarnation"):
+        write_runtime_state(
+            cfg,
+            bind_host="127.0.0.1",
+            bind_port=43127,
+            pid=124,
+            process_incarnation=_process_incarnation(pid=123),
+        )
 
 
 @pytest.mark.parametrize(

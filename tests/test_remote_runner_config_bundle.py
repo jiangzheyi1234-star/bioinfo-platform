@@ -17,6 +17,9 @@ from apps.remote_runner.config import (
 from apps.remote_runner.config import RemoteRunnerConfig
 from apps.remote_runner.worker_resource_config import build_run_worker_resource_plan
 from config import get_app_cache_dir
+from core.contracts.linux_process_incarnation import (
+    build_linux_process_incarnation,
+)
 from core.contracts.runner_protocol import RUNNER_PROTOCOL_VERSION
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION, RemoteRunnerBundleBuilder
 from core.remote_runner.protocol_manifest import require_current_runner_protocol_manifest
@@ -71,7 +74,18 @@ def test_write_runtime_state_records_assigned_port(tmp_path: Path) -> None:
         runtime_state_path=str(tmp_path / "shared" / "runtime" / "runner-state.json"),
     )
 
-    state = write_runtime_state(cfg, bind_host="127.0.0.1", bind_port=43127, pid=123)
+    process_incarnation = build_linux_process_incarnation(
+        boot_id="11111111-2222-3333-4444-555555555555",
+        pid=123,
+        proc_start_ticks=777,
+    )
+    state = write_runtime_state(
+        cfg,
+        bind_host="127.0.0.1",
+        bind_port=43127,
+        pid=123,
+        process_incarnation=process_incarnation,
+    )
     payload = json.loads(get_runtime_state_path(cfg).read_text(encoding="utf-8"))
 
     assert state["bindPort"] == 43127
@@ -80,17 +94,22 @@ def test_write_runtime_state_records_assigned_port(tmp_path: Path) -> None:
     assert payload["bindHost"] == "127.0.0.1"
     assert payload["bindPort"] == 43127
     assert payload["pid"] == 123
+    assert payload["processIncarnation"] == process_incarnation
 
 def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> None:
     builder = RemoteRunnerBundleBuilder()
     bundle = builder.build(version=REMOTE_RUNNER_VERSION, platform="linux-64", runtime_dir=_fake_runtime_dir(tmp_path))
 
     assert (bundle.bundle_dir / "remote_runner" / "main.py").exists()
+    assert (bundle.bundle_dir / "remote_runner" / "process_incarnation.py").exists()
     assert (bundle.bundle_dir / "remote_runner" / "run.py").exists()
     assert (bundle.bundle_dir / "core" / "__init__.py").exists()
     assert (bundle.bundle_dir / "core" / "logging_config.py").exists()
     assert (bundle.bundle_dir / "core" / "contracts" / "__init__.py").exists()
     assert (bundle.bundle_dir / "core" / "contracts" / "runner_protocol.py").exists()
+    assert (
+        bundle.bundle_dir / "core" / "contracts" / "linux_process_incarnation.py"
+    ).exists()
     assert (bundle.bundle_dir / "core" / "contracts" / "workflow_design.py").exists()
     assert not (bundle.bundle_dir / "remote_runner" / "requirements.txt").exists()
     assert (bundle.bundle_dir / "remote_runner" / "pipelines" / "file-summary-v1" / "pipeline.json").exists()

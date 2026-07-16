@@ -15,6 +15,8 @@ from core.contracts.runner_protocol import (
     RUNNER_PROTOCOL_COVERED_WRITER_SCOPES,
     RUNNER_PROTOCOL_DATABASE_SCHEMA_VERSION,
     RUNNER_PROTOCOL_DESCRIPTOR_SCHEMA,
+    RUNNER_PROTOCOL_RUNTIME_PROCESS_INCARNATION_SCHEMA,
+    RUNNER_PROTOCOL_RUNTIME_PROCESS_INCARNATION_SURFACES,
     RUNNER_PROTOCOL_RUNTIME_SELF_ATTESTATION_SCHEMA,
     RUNNER_PROTOCOL_RUNTIME_SELF_ATTESTATION_SURFACES,
     RUNNER_PROTOCOL_TOOL_PREPARE_PROCESS_MARKER_SCHEMA,
@@ -45,6 +47,7 @@ def test_build_runner_protocol_descriptor_declares_exact_current_coverage() -> N
         "capabilities": [
             "artifact-exact-protocol-descriptor-v1",
             "execution-lifecycle-guard-v1",
+            "runtime-process-incarnation-evidence-v1",
             "runtime-self-attestation-v1",
             "tool-prepare-process-evidence-fencing-v1",
         ],
@@ -52,6 +55,10 @@ def test_build_runner_protocol_descriptor_declares_exact_current_coverage() -> N
             "automaticRecoveryEnabled": False,
             "coverageComplete": False,
             "coveredWriterScopes": ["tool-prepare-worker"],
+            "runtimeProcessIncarnationSchema": (
+                "h2ometa.linux-process-incarnation.v1"
+            ),
+            "runtimeProcessIncarnationSurfaces": ["runtime-state"],
             "runtimeSelfAttestationSchema": (
                 "h2ometa.runner-protocol-runtime-self-attestation.v1"
             ),
@@ -67,8 +74,8 @@ def test_build_runner_protocol_descriptor_declares_exact_current_coverage() -> N
             ),
         },
         "databaseSchemaVersion": 18,
-        "protocolVersion": "runner-protocol.v2",
-        "schemaVersion": "h2ometa.runner-protocol-descriptor.v2",
+        "protocolVersion": "runner-protocol.v3",
+        "schemaVersion": "h2ometa.runner-protocol-descriptor.v3",
         "writerScopes": [
             "artifact-lifecycle-controller",
             "run-worker",
@@ -83,6 +90,12 @@ def test_build_runner_protocol_descriptor_declares_exact_current_coverage() -> N
         "automaticRecoveryEnabled": False,
         "coverageComplete": False,
         "coveredWriterScopes": list(RUNNER_PROTOCOL_COVERED_WRITER_SCOPES),
+        "runtimeProcessIncarnationSchema": (
+            RUNNER_PROTOCOL_RUNTIME_PROCESS_INCARNATION_SCHEMA
+        ),
+        "runtimeProcessIncarnationSurfaces": list(
+            RUNNER_PROTOCOL_RUNTIME_PROCESS_INCARNATION_SURFACES
+        ),
         "runtimeSelfAttestationSchema": (
             RUNNER_PROTOCOL_RUNTIME_SELF_ATTESTATION_SCHEMA
         ),
@@ -151,8 +164,8 @@ def test_require_runner_protocol_descriptor_rejects_unknown_fields() -> None:
 @pytest.mark.parametrize(
     ("field", "replacement"),
     [
-        ("schemaVersion", "h2ometa.runner-protocol-descriptor.v1"),
-        ("protocolVersion", "runner-protocol.v1"),
+        ("schemaVersion", "h2ometa.runner-protocol-descriptor.v2"),
+        ("protocolVersion", "runner-protocol.v2"),
         ("databaseSchemaVersion", 17),
         ("databaseSchemaVersion", True),
     ],
@@ -216,6 +229,8 @@ def test_require_runner_protocol_descriptor_rejects_invalid_coverage_shape() -> 
         "automaticRecoveryEnabled",
         "coverageComplete",
         "coveredWriterScopes",
+        "runtimeProcessIncarnationSchema",
+        "runtimeProcessIncarnationSurfaces",
         "runtimeSelfAttestationSchema",
         "runtimeSelfAttestationSurfaces",
         "toolPrepareProcessMarkerSchema",
@@ -240,6 +255,8 @@ def test_require_runner_protocol_descriptor_rejects_missing_coverage_fields(
         ("coverageComplete", True),
         ("coveredWriterScopes", []),
         ("coveredWriterScopes", ["tool-prepare"]),
+        ("runtimeProcessIncarnationSchema", "old"),
+        ("runtimeProcessIncarnationSurfaces", []),
         ("runtimeSelfAttestationSchema", "old"),
         ("runtimeSelfAttestationSurfaces", []),
         (
@@ -300,7 +317,7 @@ def test_runner_protocol_descriptor_fingerprint_is_domain_separated_and_stable()
     descriptor = build_runner_protocol_descriptor()
     canonical = runner_protocol_descriptor_canonical_json(descriptor)
     expected = hashlib.sha256(
-        b"h2ometa.runner-protocol-descriptor.v2\x00" + canonical.encode("utf-8")
+        b"h2ometa.runner-protocol-descriptor.v3\x00" + canonical.encode("utf-8")
     ).hexdigest()
 
     assert runner_protocol_descriptor_fingerprint(descriptor) == f"sha256:{expected}"

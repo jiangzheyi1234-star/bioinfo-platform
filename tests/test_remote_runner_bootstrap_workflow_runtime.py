@@ -15,10 +15,12 @@ from tests.helpers.remote_runner_control_plane import (
     _is_remote_config_atomic_move,
     _is_remote_current_release_read,
     _is_remote_current_release_switch,
+    _is_remote_process_incarnation_probe,
     _is_remote_runner_config_read,
     _fake_workflow_artifact,
     _health_endpoint_json,
     _remote_runner_manifest,
+    _process_incarnation_probe_output,
     _runtime_state_json,
 )
 
@@ -169,8 +171,8 @@ def test_bootstrap_uses_bundled_service_runtime_without_remote_installer(monkeyp
                 return 0, "", ""
             if "cat /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
                 return 0, _runtime_state_json(), ""
-            if "kill -0 123" in cmd:
-                return 0, "", ""
+            if _is_remote_process_incarnation_probe(cmd):
+                return 0, _process_incarnation_probe_output(), ""
             if _is_remote_current_release_read(cmd):
                 return 1, "", "No such file"
             if _is_remote_current_release_switch(cmd):
@@ -253,8 +255,8 @@ def test_bootstrap_does_not_install_runtime_on_remote_host(monkeypatch) -> None:
                 return 0, "", ""
             if "cat /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
                 return 0, _runtime_state_json(), ""
-            if "kill -0 123" in cmd:
-                return 0, "", ""
+            if _is_remote_process_incarnation_probe(cmd):
+                return 0, _process_incarnation_probe_output(), ""
             if _is_remote_current_release_read(cmd):
                 return 1, "", "No such file"
             if _is_remote_current_release_switch(cmd):
@@ -340,8 +342,8 @@ def test_bootstrap_waits_for_remote_runner_health_after_startup(monkeypatch) -> 
                 return 0, "", ""
             if "cat /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
                 return 0, _runtime_state_json(), ""
-            if "kill -0 123" in cmd:
-                return 0, "", ""
+            if _is_remote_process_incarnation_probe(cmd):
+                return 0, _process_incarnation_probe_output(), ""
             if _is_remote_current_release_read(cmd):
                 return 1, "", "No such file"
             if _is_remote_current_release_switch(cmd):
@@ -426,8 +428,8 @@ def test_bootstrap_does_not_require_system_python3_for_bundled_runtime(monkeypat
                 return 0, "", ""
             if "cat /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
                 return 0, _runtime_state_json(), ""
-            if "kill -0 123" in cmd:
-                return 0, "", ""
+            if _is_remote_process_incarnation_probe(cmd):
+                return 0, _process_incarnation_probe_output(), ""
             if _is_remote_current_release_read(cmd):
                 return 1, "", "No such file"
             if _is_remote_current_release_switch(cmd):

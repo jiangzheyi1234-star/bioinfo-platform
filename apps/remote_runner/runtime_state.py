@@ -8,9 +8,14 @@ from pathlib import Path
 import time
 from typing import Protocol
 
+from core.contracts.linux_process_incarnation import (
+    require_linux_process_incarnation,
+)
 from core.contracts.runner_protocol_runtime import (
     build_runner_protocol_runtime_self_attestation,
 )
+
+from .process_incarnation import capture_linux_process_incarnation
 
 
 class RuntimeStateConfig(Protocol):
@@ -29,14 +34,30 @@ def write_runtime_state(
     bind_host: str,
     bind_port: int,
     pid: int | None = None,
+    process_incarnation: object | None = None,
 ) -> dict[str, object]:
+    process_pid = os.getpid() if pid is None else pid
+    if isinstance(process_pid, bool) or not isinstance(process_pid, int):
+        raise ValueError("remote runner runtime state pid is invalid")
+    if process_pid <= 0:
+        raise ValueError("remote runner runtime state pid is invalid")
+    incarnation = (
+        capture_linux_process_incarnation(pid=process_pid)
+        if process_incarnation is None
+        else require_linux_process_incarnation(process_incarnation)
+    )
+    if incarnation["pid"] != process_pid:
+        raise ValueError(
+            "remote runner runtime state pid does not match process incarnation"
+        )
     state: dict[str, object] = {
         "service": cfg.service_name,
         "version": cfg.version,
-        "pid": int(pid or os.getpid()),
+        "pid": process_pid,
         "bindHost": bind_host,
         "bindPort": int(bind_port),
         "startedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "processIncarnation": incarnation,
         "runnerProtocol": build_runner_protocol_runtime_self_attestation(),
     }
     path = get_runtime_state_path(cfg)

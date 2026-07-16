@@ -5,27 +5,16 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from core.contracts.runner_protocol_runtime import (
-    build_runner_protocol_runtime_self_attestation,
-)
 from core.remote_runner.artifact import WORKFLOW_RUNTIME_VERSION, WorkflowRuntimeArtifact
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
 from core.remote_runner.manager import RemoteRunnerManager
-from tests.helpers.remote_runner_control_plane import _health_endpoint_json, _remote_runner_manifest
-
-
-def _runtime_state_json(port: int = 43127) -> str:
-    return json.dumps(
-        {
-            "service": "h2ometa-remote",
-            "version": REMOTE_RUNNER_VERSION,
-            "pid": 123,
-            "bindHost": "127.0.0.1",
-            "bindPort": port,
-            "startedAt": "2026-04-22T00:00:00Z",
-            "runnerProtocol": build_runner_protocol_runtime_self_attestation(),
-        }
-    )
+from tests.helpers.remote_runner_control_plane import (
+    _health_endpoint_json,
+    _is_remote_process_incarnation_probe,
+    _process_incarnation_probe_output,
+    _remote_runner_manifest,
+    _runtime_state_json,
+)
 
 
 def _fake_workflow_artifact() -> WorkflowRuntimeArtifact:
@@ -109,8 +98,8 @@ def test_bootstrap_repairs_partial_install_with_existing_workflow_runtime() -> N
                 return 0, "", ""
             if "cat /home/zyserver/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
                 return 0, _runtime_state_json(), ""
-            if "kill -0 123" in cmd:
-                return 0, "", ""
+            if _is_remote_process_incarnation_probe(cmd):
+                return 0, _process_incarnation_probe_output(), ""
             if f"rm -rf /home/zyserver/.h2ometa/runner/locks/install-{REMOTE_RUNNER_VERSION}.lock" in cmd:
                 return 0, "", ""
             if cmd.endswith("/shared/config/runner.json.candidate"):

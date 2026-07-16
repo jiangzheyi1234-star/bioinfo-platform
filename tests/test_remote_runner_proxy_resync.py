@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from types import SimpleNamespace
 from unittest.mock import patch
 import uuid
@@ -12,6 +11,11 @@ from core.app_runtime.errors import RuntimeServiceError
 from core.app_runtime.service import RuntimeService, ServiceLocator
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
 from core.remote_runner.manager import RemoteRunnerManager
+from tests.helpers.remote_runner_control_plane import (
+    _is_remote_process_incarnation_probe,
+    _process_incarnation_probe_output,
+    _runtime_state_json,
+)
 
 
 def test_get_health_resyncs_when_stale_service_port_tunnel_fails(monkeypatch) -> None:
@@ -25,22 +29,9 @@ def test_get_health_resyncs_when_stale_service_port_tunnel_fails(monkeypatch) ->
             if 'printf "%s" "$HOME"' in cmd:
                 return 0, "/home/tester", ""
             if "cat /home/tester/.h2ometa/runner/shared/runtime/runner-state.json" in cmd:
-                return (
-                    0,
-                    json.dumps(
-                        {
-                            "service": "h2ometa-remote",
-                            "version": REMOTE_RUNNER_VERSION,
-                            "bindHost": "127.0.0.1",
-                            "bindPort": 36551,
-                            "pid": 4242,
-                            "runnerProtocol": build_runner_protocol_runtime_self_attestation(),
-                        }
-                    ),
-                    "",
-                )
-            if "kill -0 4242" in cmd:
-                return 0, "", ""
+                return 0, _runtime_state_json(port=36551, pid=4242), ""
+            if _is_remote_process_incarnation_probe(cmd):
+                return 0, _process_incarnation_probe_output(pid=4242), ""
             raise AssertionError(f"unexpected command: {cmd}")
 
         def ensure_local_tunnel(self, _name: str, *, remote_host: str, remote_port: int):

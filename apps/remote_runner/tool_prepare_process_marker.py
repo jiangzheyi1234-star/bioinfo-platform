@@ -18,6 +18,8 @@ import sys
 import threading
 from typing import Mapping
 
+from core.contracts.linux_process_incarnation import parse_proc_stat_start_ticks
+
 
 TOOL_PREPARE_PROCESS_MARKER_SCHEMA = "h2ometa.tool-prepare-process-marker.v1"
 TOOL_PREPARE_PROCESS_MARKER_INVALID = "TOOL_PREPARE_PROCESS_MARKER_INVALID"
@@ -98,7 +100,10 @@ class ToolPrepareProcessMarker:
             boot_id = boot_id_path.read_text(encoding="utf-8").strip().lower()
             stat_text = (proc_root / str(pid) / "stat").read_text(encoding="utf-8")
             cgroup_text = (proc_root / str(pid) / "cgroup").read_text(encoding="utf-8")
-            proc_start_ticks = _parse_proc_start_ticks(stat_text, expected_pid=pid)
+            proc_start_ticks = parse_proc_stat_start_ticks(
+                stat_text,
+                expected_pid=pid,
+            )
             cgroup_path = _parse_unified_cgroup_path(cgroup_text)
         except (OSError, UnicodeError, ValueError) as exc:
             raise ToolPrepareProcessMarkerError(
@@ -326,25 +331,6 @@ def _identity_evidence_profile(
 def _cgroup_matches_unit(cgroup_path: str, service_unit: str) -> bool:
     normalized_path = str(cgroup_path or "").rstrip("/")
     return bool(normalized_path) and normalized_path.rsplit("/", 1)[-1] == service_unit
-
-
-def _parse_proc_start_ticks(raw: str, *, expected_pid: int) -> int:
-    try:
-        stat_pid = int(raw.split(" ", 1)[0])
-    except (TypeError, ValueError) as exc:
-        raise ValueError("invalid proc stat pid") from exc
-    if stat_pid != expected_pid:
-        raise ValueError("proc stat pid mismatch")
-    closing_paren = raw.rfind(")")
-    if closing_paren <= 0:
-        raise ValueError("invalid proc stat")
-    fields_after_comm = raw[closing_paren + 1 :].strip().split()
-    if len(fields_after_comm) <= 19:
-        raise ValueError("invalid proc stat")
-    start_ticks = int(fields_after_comm[19])
-    if start_ticks <= 0:
-        raise ValueError("invalid proc start ticks")
-    return start_ticks
 
 
 def _parse_unified_cgroup_path(raw: str) -> str:

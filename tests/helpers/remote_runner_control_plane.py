@@ -5,6 +5,9 @@ from pathlib import Path
 
 import pytest
 
+from core.contracts.linux_process_incarnation import (
+    build_linux_process_incarnation,
+)
 from core.contracts.runner_protocol_runtime import (
     build_runner_protocol_runtime_self_attestation,
 )
@@ -12,8 +15,13 @@ from core.remote_runner.artifact import WorkflowRuntimeArtifact
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
 from core.remote_runner.manager import RemoteRunnerManager
 from core.remote_runner.protocol_manifest import build_runner_protocol_manifest_fields
+from core.remote_runner.readiness import (
+    REMOTE_PROCESS_INCARNATION_PROBE_SENTINEL,
+)
 
 _ORIGINAL_ENSURE_WORKFLOW_RUNTIME = RemoteRunnerManager._ensure_workflow_runtime
+_TEST_BOOT_ID = "11111111-2222-3333-4444-555555555555"
+_TEST_PROC_START_TICKS = 777
 
 
 def _is_remote_bundle_cleanup(cmd: str) -> bool:
@@ -54,15 +62,42 @@ def _is_remote_runner_config_read(cmd: str) -> bool:
     return cmd.startswith("cat ") and cmd.endswith("/.h2ometa/runner/shared/config/runner.json")
 
 
-def _runtime_state_json(port: int = 43127, *, version: str = REMOTE_RUNNER_VERSION) -> str:
+def _is_remote_process_incarnation_probe(cmd: str) -> bool:
+    return REMOTE_PROCESS_INCARNATION_PROBE_SENTINEL in cmd
+
+
+def _process_incarnation_probe_output(
+    *,
+    boot_id: str = _TEST_BOOT_ID,
+    pid: int = 123,
+    start_ticks: int = _TEST_PROC_START_TICKS,
+    comm: str = "remote runner ) worker",
+) -> str:
+    stat_fields = ["S", *("0" for _ in range(18)), str(start_ticks)]
+    return f"{boot_id}\n{pid} ({comm}) {' '.join(stat_fields)}\n"
+
+
+def _runtime_state_json(
+    port: int = 43127,
+    *,
+    version: str = REMOTE_RUNNER_VERSION,
+    pid: int = 123,
+    boot_id: str = _TEST_BOOT_ID,
+    start_ticks: int = _TEST_PROC_START_TICKS,
+) -> str:
     return json.dumps(
         {
             "service": "h2ometa-remote",
             "version": version,
-            "pid": 123,
+            "pid": pid,
             "bindHost": "127.0.0.1",
             "bindPort": port,
             "startedAt": "2026-04-22T00:00:00Z",
+            "processIncarnation": build_linux_process_incarnation(
+                boot_id=boot_id,
+                pid=pid,
+                proc_start_ticks=start_ticks,
+            ),
             "runnerProtocol": build_runner_protocol_runtime_self_attestation(),
         }
     )
