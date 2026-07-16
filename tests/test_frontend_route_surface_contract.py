@@ -9,6 +9,7 @@ WEB_APP_ROOT = REPO_ROOT / "apps" / "web" / "app"
 EXPECTED_ROUTES = {
     "/",
     "/workflows",
+    "/workflows/catalog",
     "/workflows/databases",
     "/workflows/detail",
     "/workflows/results",
@@ -40,9 +41,20 @@ def test_root_route_redirects_to_workflows() -> None:
     assert "FileSummaryWorkbench" not in source
 
 
+def test_workflow_root_is_agent_first_and_catalog_preserves_existing_library() -> None:
+    root_source = (WEB_APP_ROOT / "workflows" / "page.tsx").read_text(encoding="utf-8")
+    catalog_source = (WEB_APP_ROOT / "workflows" / "catalog" / "page.tsx").read_text(encoding="utf-8")
+
+    assert "AgentWorkbenchPage" in root_source
+    assert "WorkflowsPage" not in root_source
+    assert "WorkflowsPage" in catalog_source
+
+
 def test_workflow_tabs_expose_only_current_workspace_routes() -> None:
     source = (WEB_APP_ROOT / "components" / "workflow-workspace-tabs.tsx").read_text(encoding="utf-8")
 
     assert 'href: "/workflows"' in source
+    assert 'href: "/workflows/catalog"' in source
     assert 'href: "/workflows/databases"' in source
     assert 'href: "/workflows/tools"' in source
+    assert 'pathname === "/workflows/detail"' in source

@@ -30,7 +30,7 @@ export function WorkflowDetailPage({ workflowId: workflowIdProp = "" }: { workfl
           actions={
             <Button asChild variant="outline" className="h-9 bg-white px-3 text-slate-600">
               <Link
-                href="/workflows"
+                href="/workflows/catalog"
                 onFocus={() => void fetchWorkflowCatalog().catch(() => undefined)}
                 onPointerEnter={() => void fetchWorkflowCatalog().catch(() => undefined)}
               >

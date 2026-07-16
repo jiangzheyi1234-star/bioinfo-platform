@@ -105,7 +105,8 @@ Assert-ArrayData $databases "databases"
 
 Write-Step "checking Web UI at $WebBase"
 $routes = @(
-    @{ Path = "/workflows"; Text = @("/workflows/databases", "/workflows/tools", "app/workflows/page.js") },
+    @{ Path = "/workflows"; Text = @("/workflows/catalog", "/workflows/databases", "/workflows/tools", "app/workflows/page.js") },
+    @{ Path = "/workflows/catalog"; Text = @("app/workflows/catalog/page.js", "/workflows/results", "/workflows/tools") },
     @{ Path = "/workflows/databases"; Text = @("app/workflows/databases/page.js", "/workflows/tools") },
     @{ Path = "/workflows/tools"; Text = @("app/workflows/tools/page.js", "/workflows/databases") },
     @{ Path = "/workflows/detail?workflow=generated-tool-run-v1"; Text = @("app/workflows/detail/page.js", "generated-tool-run-v1") },

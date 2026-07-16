@@ -365,12 +365,25 @@ export async function compileWorkflowDesignDraft({
 }
 
 export async function fetchWorkflowServer(options: FetchOptions = {}): Promise<WorkflowServer> {
-  return cachedAsync(WORKFLOW_SERVER_CACHE_KEY, 15_000, async () => {
-    const response = await requestLocalApiJson<WorkflowServersResponse>("GET", `/api/v1/servers${refreshQuery(options)}`, { cache: "no-store" });
+  const expectedServerId = String(options.serverId || "").trim();
+  const cacheKey = `${WORKFLOW_SERVER_CACHE_KEY}:${expectedServerId || "default"}`;
+  return cachedAsync(cacheKey, 15_000, async () => {
+    const response = await requestLocalApiJson<WorkflowServersResponse>(
+      "GET",
+      `/api/v1/servers${options.forceRefresh ? "?refresh=true" : ""}`,
+      { cache: "no-store" }
+    );
     const items = response.data.items || [];
-    const selected = items.find((item) => item.connected && item.ready && item.serverId) || items.find((item) => item.serverId);
+    const selected = expectedServerId
+      ? items.find((item) => item.serverId === expectedServerId)
+      : items.find((item) => item.connected && item.ready && item.serverId) ||
+        items.find((item) => item.serverId);
     if (!selected?.serverId) {
-      throw new Error("serverId is required");
+      throw new Error(
+        expectedServerId
+          ? `AGENT_WORKBENCH_SERVER_NOT_FOUND: ${expectedServerId}`
+          : "serverId is required"
+      );
     }
     return selected;
   }, {
@@ -388,7 +401,7 @@ export async function fetchWorkflowServerExecutionDiagnostics(serverId: string):
 }
 
 export function getCachedWorkflowServer(): WorkflowServer | undefined {
-  return peekAsyncCache<WorkflowServer>(WORKFLOW_SERVER_CACHE_KEY);
+  return peekAsyncCache<WorkflowServer>(`${WORKFLOW_SERVER_CACHE_KEY}:default`);
 }
 
 export async function fileToBase64(file: File): Promise<string> {

@@ -42,7 +42,7 @@ test.afterAll(async () => {
 
 test.describe("Workflow Catalog and Navigation", () => {
   test("browse workflow catalog page", async ({ page }) => {
-    await page.goto("/workflows");
+    await page.goto("/workflows/catalog");
     await expect(page.getByText("流程目录")).toBeVisible({ timeout: 10_000 });
 
     const catalog = await fetchWorkflowCatalog(api);
