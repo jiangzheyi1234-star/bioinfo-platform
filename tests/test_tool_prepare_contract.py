@@ -1,18 +1,27 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 
 from apps.api.tool_profiles import resolve_tool_profile
 from apps.remote_runner.config import ensure_runtime_layout
 from apps.remote_runner.databases import add_reference_database, check_reference_database
 from apps.remote_runner.storage import fetch_tool
 from apps.remote_runner.storage import upsert_tool
+from apps.remote_runner.tool_prepare_claims import (
+    ToolPrepareAttemptProof,
+    ToolPrepareClaimLostError,
+    ToolPrepareWorkerIdentity,
+    claim_next_tool_prepare_job,
+    release_tool_prepare_worker_claim,
+)
 from apps.remote_runner.tool_prepare_job_storage import (
+    TERMINAL_PREPARE_JOB_STATUSES,
     cancel_tool_prepare_job,
-    complete_tool_prepare_job,
     create_tool_prepare_job,
     fail_tool_prepare_job,
     fetch_tool_prepare_job,
@@ -255,7 +264,7 @@ def test_h2ometa_profile_prepare_job_result_is_workflow_ready(monkeypatch, tmp_p
         },
     )
 
-    run_tool_prepare_job(cfg, job["jobId"])
+    _run_claimed_prepare_job(cfg, job["jobId"])
 
     finished = fetch_tool_prepare_job(cfg, job["jobId"])
     assert finished is not None
@@ -404,7 +413,7 @@ def test_h2ometa_seqkit_stats_profile_prepare_job_result_is_workflow_ready(monke
         },
     )
 
-    run_tool_prepare_job(cfg, job["jobId"])
+    _run_claimed_prepare_job(cfg, job["jobId"])
 
     finished = fetch_tool_prepare_job(cfg, job["jobId"])
     assert finished is not None
@@ -455,7 +464,7 @@ def test_h2ometa_database_profile_prepare_job_waits_for_missing_database_resourc
         },
     )
 
-    run_tool_prepare_job(cfg, job["jobId"])
+    _run_claimed_prepare_job(cfg, job["jobId"])
 
     finished = fetch_tool_prepare_job(cfg, job["jobId"])
     assert finished is not None
@@ -512,7 +521,7 @@ def test_h2ometa_bracken_profile_prepare_job_waits_for_missing_database_resource
         },
     )
 
-    run_tool_prepare_job(cfg, job["jobId"])
+    _run_claimed_prepare_job(cfg, job["jobId"])
 
     finished = fetch_tool_prepare_job(cfg, job["jobId"])
     assert finished is not None
@@ -576,7 +585,7 @@ def test_database_profile_prepare_job_reports_ambiguous_resource_candidates(tmp_
         },
     )
 
-    run_tool_prepare_job(cfg, job["jobId"])
+    _run_claimed_prepare_job(cfg, job["jobId"])
 
     finished = fetch_tool_prepare_job(cfg, job["jobId"])
     assert finished is not None
@@ -594,19 +603,32 @@ def test_waiting_resource_prepare_job_is_terminal(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)
     job = create_tool_prepare_job(cfg, {"id": "bioconda::kraken2", "name": "kraken2"})
+    proof = _claim_prepare_job(cfg, job["jobId"])
 
     mark_tool_prepare_job_waiting_resource(
         cfg,
-        job["jobId"],
+        proof,
         code="WORKFLOW_RESOURCE_BINDING_REQUIRED",
         message="Required database resource binding is missing: kraken2_db",
         details={"resourceKey": "kraken2_db", "acceptedTemplates": ["kraken2"]},
     )
+    assert release_tool_prepare_worker_claim(cfg, proof=proof) is True
 
-    record_tool_prepare_job_event(cfg, job["jobId"], stage="dry_run", message="This event should not advance a terminal job.")
-    fail_tool_prepare_job(cfg, job["jobId"], code="SNAKEMAKE_DRY_RUN_FAILED", message="This should not overwrite waiting_resource.")
+    with pytest.raises(ToolPrepareClaimLostError):
+        record_tool_prepare_job_event(
+            cfg,
+            proof,
+            stage="dry_run",
+            message="This event should not advance a terminal job.",
+        )
+    with pytest.raises(ToolPrepareClaimLostError):
+        fail_tool_prepare_job(
+            cfg,
+            proof,
+            code="SNAKEMAKE_DRY_RUN_FAILED",
+            message="This should not overwrite waiting_resource.",
+        )
     cancel_tool_prepare_job(cfg, job["jobId"])
-    complete_tool_prepare_job(cfg, job["jobId"], {"message": "This should not publish."})
 
     finished = fetch_tool_prepare_job(cfg, job["jobId"])
     assert finished is not None
@@ -614,7 +636,7 @@ def test_waiting_resource_prepare_job_is_terminal(tmp_path: Path) -> None:
     assert finished["stage"] == "waiting_resource"
     assert finished["errorCode"] == "WORKFLOW_RESOURCE_BINDING_REQUIRED"
     assert finished["result"] is None
-    assert [event["stage"] for event in finished["events"]] == ["queued", "waiting_resource"]
+    assert [event["stage"] for event in finished["events"]] == ["queued", "claimed", "waiting_resource"]
 
 
 def test_create_prepare_job_reuses_existing_active_job_for_same_tool(tmp_path: Path) -> None:
@@ -629,12 +651,19 @@ def test_create_prepare_job_reuses_existing_active_job_for_same_tool(tmp_path: P
     assert second["request"] == {"id": "bioconda::fastqc", "name": "fastqc"}
     assert [event["stage"] for event in second["events"]] == ["queued"]
 
-    record_tool_prepare_job_event(cfg, first["jobId"], stage="dry_run", message="Running dry-run.")
+    proof = _claim_prepare_job(cfg, first["jobId"])
+    record_tool_prepare_job_event(cfg, proof, stage="dry_run", message="Running dry-run.")
     third = create_tool_prepare_job(cfg, {"id": "bioconda::fastqc", "name": "fastqc"})
     assert third["jobId"] == first["jobId"]
     assert third["status"] == "running"
 
-    fail_tool_prepare_job(cfg, first["jobId"], code="SNAKEMAKE_DRY_RUN_FAILED", message="dry-run failed")
+    fail_tool_prepare_job(cfg, proof, code="SNAKEMAKE_DRY_RUN_FAILED", message="dry-run failed")
+    held = create_tool_prepare_job(cfg, {"id": "bioconda::fastqc", "name": "fastqc"})
+    assert held["jobId"] == first["jobId"]
+    assert held["status"] == "failed"
+    assert held["reusedExisting"] is True
+
+    assert release_tool_prepare_worker_claim(cfg, proof=proof) is True
     retry = create_tool_prepare_job(cfg, {"id": "bioconda::fastqc", "name": "fastqc"})
     assert retry["jobId"] != first["jobId"]
     assert retry["status"] == "queued"
@@ -662,6 +691,14 @@ def test_create_prepare_job_reserves_active_job_by_package_and_validation_target
             "validationTarget": " workflow-ready ",
         },
     )
+    assert same_reservation["jobId"] == first["jobId"]
+    assert same_reservation["reusedExisting"] is True
+    assert same_reservation["reservation"] == {
+        "key": "workflow-ready\x1fbioconda::fastqc=0.12.1",
+        "packageSpec": "bioconda::fastqc=0.12.1",
+        "validationTarget": "workflow-ready",
+    }
+    proof = _claim_prepare_job(cfg, first["jobId"])
     different_target = create_tool_prepare_job(
         cfg,
         {
@@ -671,18 +708,24 @@ def test_create_prepare_job_reserves_active_job_by_package_and_validation_target
             "validationTarget": "production-evidence",
         },
     )
-
-    assert same_reservation["jobId"] == first["jobId"]
-    assert same_reservation["reusedExisting"] is True
-    assert same_reservation["reservation"] == {
-        "key": "workflow-ready\x1fbioconda::fastqc=0.12.1",
-        "packageSpec": "bioconda::fastqc=0.12.1",
-        "validationTarget": "workflow-ready",
-    }
     assert different_target["jobId"] != first["jobId"]
     assert different_target["reusedExisting"] is False
 
-    fail_tool_prepare_job(cfg, first["jobId"], code="SNAKEMAKE_DRY_RUN_FAILED", message="dry-run failed")
+    fail_tool_prepare_job(cfg, proof, code="SNAKEMAKE_DRY_RUN_FAILED", message="dry-run failed")
+    held = create_tool_prepare_job(
+        cfg,
+        {
+            "id": "curated::fastqc-held",
+            "name": "FastQC",
+            "packageSpec": "bioconda::fastqc=0.12.1",
+            "validationTarget": "workflow-ready",
+        },
+    )
+    assert held["jobId"] == first["jobId"]
+    assert held["status"] == "failed"
+    assert held["reusedExisting"] is True
+
+    assert release_tool_prepare_worker_claim(cfg, proof=proof) is True
     retry = create_tool_prepare_job(
         cfg,
         {
@@ -694,6 +737,32 @@ def test_create_prepare_job_reserves_active_job_by_package_and_validation_target
     )
     assert retry["jobId"] != first["jobId"]
     assert retry["reservation"]["key"] == "workflow-ready\x1fbioconda::fastqc=0.12.1"
+
+
+def _run_claimed_prepare_job(cfg, job_id: str) -> None:
+    proof = _claim_prepare_job(cfg, job_id)
+    try:
+        run_tool_prepare_job(cfg, proof)
+    finally:
+        job = fetch_tool_prepare_job(cfg, job_id)
+        if job is not None and job["status"] in TERMINAL_PREPARE_JOB_STATUSES:
+            assert release_tool_prepare_worker_claim(cfg, proof=proof) is True
+
+
+def _claim_prepare_job(cfg, job_id: str) -> ToolPrepareAttemptProof:
+    proof = claim_next_tool_prepare_job(
+        cfg,
+        identity=ToolPrepareWorkerIdentity(
+            worker_id=f"test-worker-{job_id}",
+            session_id=f"test-session-{job_id}",
+            process_instance_id=f"test-process-{job_id}",
+            process_pid=os.getpid(),
+            hostname="test-runner",
+        ),
+    )
+    assert proof is not None
+    assert proof.job_id == job_id
+    return proof
 
 
 def _publish_tool_candidate(cfg, payload: dict[str, object]) -> dict[str, object]:

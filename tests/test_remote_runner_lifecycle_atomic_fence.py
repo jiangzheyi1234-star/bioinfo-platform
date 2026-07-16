@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import json
+import os
 
 import pytest
 
@@ -27,13 +29,17 @@ from apps.remote_runner.run_worker_storage import (
 )
 from apps.remote_runner.storage import create_run_record
 from apps.remote_runner.storage_core import get_connection
+from apps.remote_runner.tool_prepare_claims import (
+    ToolPrepareClaimLostError,
+    ToolPrepareWorkerIdentity,
+    claim_next_tool_prepare_job,
+    release_tool_prepare_worker_claim,
+)
 from apps.remote_runner.tool_prepare_job_storage import (
     cancel_tool_prepare_job,
-    claim_next_tool_prepare_job,
     create_tool_prepare_job,
     fetch_tool_prepare_job,
 )
-from apps.remote_runner.tool_prepare_worker_lease import release_tool_prepare_worker_claim
 from apps.remote_runner.workflow_run_storage import update_run_state
 from core.contracts.execution_activity import (
     EXECUTION_ACTIVITY_ACTIVE_TOOL_PREPARE_CLAIMS_REASON,
@@ -111,6 +117,7 @@ def test_inactive_maintenance_row_fails_closed_for_every_admission_path(tmp_path
         )
         connection.commit()
 
+    tool_identity = _tool_identity("tool-worker-invalid-maintenance")
     blocked_calls = (
         lambda: _create_run(cfg, "run_invalid_create"),
         lambda: request_run_retry(
@@ -122,11 +129,14 @@ def test_inactive_maintenance_row_fails_closed_for_every_admission_path(tmp_path
         lambda: enqueue_run_job(cfg, "run_invalid_enqueue"),
         lambda: claim_next_run_job(cfg, worker_id="worker-invalid-maintenance"),
         lambda: create_tool_prepare_job(cfg, {"id": "bioconda::invalid", "name": "invalid"}),
-        lambda: claim_next_tool_prepare_job(cfg, worker_id="tool-worker-invalid-maintenance"),
+        lambda: claim_next_tool_prepare_job(cfg, identity=tool_identity),
     )
     for blocked_call in blocked_calls:
         with pytest.raises(RemoteRunnerReadinessError, match=EXECUTION_LIFECYCLE_GUARD_INVALID_STATE_REASON):
             blocked_call()
+    with get_connection(cfg) as connection:
+        attempt_count = int(connection.execute("SELECT COUNT(*) AS count FROM tool_prepare_attempts").fetchone()["count"])
+    assert attempt_count == 0
 
 
 @pytest.mark.parametrize(
@@ -197,7 +207,7 @@ def test_tool_prepare_create_and_claim_are_fenced_during_maintenance(tmp_path) -
 
     assert claim_next_tool_prepare_job(
         cfg,
-        worker_id="worker-maintenance-blocked",
+        identity=_tool_identity("worker-maintenance-blocked"),
         now="2099-06-07T10:00:02Z",
         lease_seconds=30,
     ) is None
@@ -207,6 +217,9 @@ def test_tool_prepare_create_and_claim_are_fenced_during_maintenance(tmp_path) -
         ).fetchall()
         event_count = int(
             connection.execute("SELECT COUNT(*) AS count FROM tool_prepare_job_events").fetchone()["count"]
+        )
+        attempt_count = int(
+            connection.execute("SELECT COUNT(*) AS count FROM tool_prepare_attempts").fetchone()["count"]
         )
 
     assert [dict(row) for row in jobs] == [
@@ -218,24 +231,28 @@ def test_tool_prepare_create_and_claim_are_fenced_during_maintenance(tmp_path) -
         }
     ]
     assert event_count == 1
+    assert attempt_count == 0
 
 
 @pytest.mark.parametrize(
-    ("case", "expected_reason", "expected_counts"),
+    ("case", "expected_reasons", "expected_counts"),
     [
         (
             "queued",
-            EXECUTION_ACTIVITY_QUEUED_TOOL_PREPARE_JOBS_REASON,
+            [EXECUTION_ACTIVITY_QUEUED_TOOL_PREPARE_JOBS_REASON],
             {"queued": 1, "running": 0, "activeClaims": 0},
         ),
         (
             "running",
-            EXECUTION_ACTIVITY_RUNNING_TOOL_PREPARE_JOBS_REASON,
-            {"queued": 0, "running": 1, "activeClaims": 0},
+            [
+                EXECUTION_ACTIVITY_RUNNING_TOOL_PREPARE_JOBS_REASON,
+                EXECUTION_ACTIVITY_ACTIVE_TOOL_PREPARE_CLAIMS_REASON,
+            ],
+            {"queued": 0, "running": 1, "activeClaims": 1},
         ),
         (
             "cancelled-active-claim",
-            EXECUTION_ACTIVITY_ACTIVE_TOOL_PREPARE_CLAIMS_REASON,
+            [EXECUTION_ACTIVITY_ACTIVE_TOOL_PREPARE_CLAIMS_REASON],
             {"queued": 0, "running": 0, "activeClaims": 1},
         ),
     ],
@@ -243,7 +260,7 @@ def test_tool_prepare_create_and_claim_are_fenced_during_maintenance(tmp_path) -
 def test_tool_prepare_activity_blocks_upgrade_guard(
     tmp_path,
     case: str,
-    expected_reason: str,
+    expected_reasons: list[str],
     expected_counts: dict[str, int],
 ) -> None:
     cfg = make_configured_remote_runner(tmp_path)
@@ -251,25 +268,19 @@ def test_tool_prepare_activity_blocks_upgrade_guard(
         cfg,
         {"id": f"bioconda::{case}", "name": case},
     )
+    proof = None
     if case != "queued":
-        claimed = claim_next_tool_prepare_job(
+        proof = claim_next_tool_prepare_job(
             cfg,
-            worker_id="worker-tool-prepare",
+            identity=_tool_identity("worker-tool-prepare", session=case),
             now="2099-06-07T10:00:00Z",
             lease_seconds=30,
         )
-        assert claimed is not None
-        if case == "running":
-            assert release_tool_prepare_worker_claim(
-                cfg,
-                job_id=job["jobId"],
-                worker_id="worker-tool-prepare",
-                now="2099-06-07T10:00:01Z",
-            ) is True
-        else:
+        assert proof is not None
+        if case == "cancelled-active-claim":
             cancelled = cancel_tool_prepare_job(cfg, job["jobId"])
             assert cancelled["status"] == "cancelled"
-            assert cancelled["lease"]["claimedBy"] == "worker-tool-prepare"
+            assert cancelled["lease"]["claimedBy"] == proof.claim_owner
 
     with pytest.raises(RemoteRunnerOperationBlockedError) as blocked:
         request_execution_lifecycle_guard(
@@ -282,7 +293,7 @@ def test_tool_prepare_activity_blocks_upgrade_guard(
 
     payload = blocked.value.payload
     assert payload["reasonCode"] == EXECUTION_LIFECYCLE_GUARD_BLOCKED_REASON
-    assert payload["blockReasons"] == [expected_reason]
+    assert payload["blockReasons"] == expected_reasons
     assert {
         "queued": payload["queuedToolPrepareJobCount"],
         "running": payload["runningToolPrepareJobCount"],
@@ -291,6 +302,18 @@ def test_tool_prepare_activity_blocks_upgrade_guard(
     assert payload["maintenanceActive"] is False
     assert payload["maintenanceRelease"]["released"] is True
     ensure_execution_lifecycle_admission_open(cfg, now="2099-06-07T10:00:03Z")
+    if proof is not None:
+        if case == "running":
+            cancelled = cancel_tool_prepare_job(cfg, proof.job_id)
+            assert cancelled["status"] == "cancelled"
+        assert release_tool_prepare_worker_claim(
+            cfg,
+            proof=proof,
+            now="2099-06-07T10:00:04Z",
+        ) is True
+        released = fetch_tool_prepare_job(cfg, proof.job_id)
+        assert released is not None
+        assert released["lease"]["claimedBy"] == ""
 
 
 def test_release_tool_prepare_worker_claim_clears_the_persisted_lease(tmp_path) -> None:
@@ -299,25 +322,28 @@ def test_release_tool_prepare_worker_claim_clears_the_persisted_lease(tmp_path) 
         cfg,
         {"id": "bioconda::worker-release", "name": "worker-release"},
     )
-    claimed = claim_next_tool_prepare_job(
+    proof = claim_next_tool_prepare_job(
         cfg,
-        worker_id="worker-owner",
+        identity=_tool_identity("worker-owner"),
         now="2099-06-07T10:00:00Z",
         lease_seconds=30,
     )
+    assert proof is not None
+    claimed = fetch_tool_prepare_job(cfg, job["jobId"])
     assert claimed is not None
-    assert claimed["lease"]["claimedBy"] == "worker-owner"
+    assert claimed["lease"]["claimedBy"] == proof.claim_owner
+    cancelled = cancel_tool_prepare_job(cfg, proof.job_id)
+    assert cancelled["status"] == "cancelled"
 
+    with pytest.raises(ToolPrepareClaimLostError, match="attempt proof rejected"):
+        release_tool_prepare_worker_claim(
+            cfg,
+            proof=replace(proof, session_id="worker-other-session"),
+            now="2099-06-07T10:00:01Z",
+        )
     assert release_tool_prepare_worker_claim(
         cfg,
-        job_id=job["jobId"],
-        worker_id="worker-other",
-        now="2099-06-07T10:00:01Z",
-    ) is False
-    assert release_tool_prepare_worker_claim(
-        cfg,
-        job_id=job["jobId"],
-        worker_id="worker-owner",
+        proof=proof,
         now="2099-06-07T10:00:02Z",
     ) is True
 
@@ -331,7 +357,18 @@ def test_release_tool_prepare_worker_claim_clears_the_persisted_lease(tmp_path) 
             "SELECT claimed_by, claimed_until, heartbeat_at FROM tool_prepare_jobs WHERE job_id = ?",
             (job["jobId"],),
         ).fetchone()
+        attempt = connection.execute(
+            "SELECT state, outcome_status, released_at FROM tool_prepare_attempts WHERE attempt_id = ?",
+            (proof.attempt_id,),
+        ).fetchone()
+        database_dump = "\n".join(connection.iterdump())
     assert dict(row) == {"claimed_by": "", "claimed_until": None, "heartbeat_at": None}
+    assert dict(attempt) == {
+        "state": "released",
+        "outcome_status": "cancelled",
+        "released_at": "2099-06-07T10:00:02Z",
+    }
+    assert proof.claim_token not in database_dump
 
 
 def test_legacy_guard_infers_owned_drains_and_preserves_other_manual_drain(tmp_path) -> None:
@@ -464,4 +501,14 @@ def _register_worker(cfg, worker_id: str) -> None:
         pid=123,
         hostname="host-atomic",
         now="2099-06-07T09:59:59Z",
+    )
+
+
+def _tool_identity(worker_id: str, *, session: str = "session-1") -> ToolPrepareWorkerIdentity:
+    return ToolPrepareWorkerIdentity(
+        worker_id=worker_id,
+        session_id=session,
+        process_instance_id=f"process-{session}",
+        process_pid=os.getpid(),
+        hostname="lifecycle-test-runner",
     )

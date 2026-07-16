@@ -20,13 +20,16 @@ from .run_worker_storage import (
     register_run_worker,
     run_worker_is_draining,
 )
-from .tool_prepare_job_storage import (
+from .tool_prepare_attempt_mutations import mark_tool_prepare_job_worker_failure
+from .tool_prepare_claims import (
+    ToolPrepareAttemptProof,
+    ToolPrepareClaimLostError,
+    ToolPrepareWorkerIdentity,
     claim_next_tool_prepare_job,
     heartbeat_tool_prepare_job,
-    mark_tool_prepare_job_worker_failure,
+    release_tool_prepare_worker_claim,
 )
 from .tool_prepare_jobs import run_tool_prepare_job
-from .tool_prepare_worker_lease import release_tool_prepare_worker_claim
 
 
 LOGGER = logging.getLogger(__name__)
@@ -228,6 +231,7 @@ class ToolPrepareWorkerSupervisor:
     ) -> None:
         self._cfg = cfg
         self._worker_id = worker_id
+        self._identity = ToolPrepareWorkerIdentity.create(worker_id)
         self._poll_interval_seconds = poll_interval_seconds
         self._heartbeat_interval_seconds = heartbeat_interval_seconds
         self._error_backoff_seconds = error_backoff_seconds
@@ -246,7 +250,7 @@ class ToolPrepareWorkerSupervisor:
             try:
                 result = process_next_tool_prepare_job(
                     self._cfg,
-                    worker_id=self._worker_id,
+                    identity=self._identity,
                     heartbeat_interval_seconds=self._heartbeat_interval_seconds,
                 )
             except Exception:  # noqa: BLE001 - supervisor must keep polling after persisting/logging failures.
@@ -281,62 +285,83 @@ def start_run_worker_supervisor(
 def process_next_tool_prepare_job(
     cfg: Any,
     *,
-    worker_id: str = "tool-prepare-worker-1",
+    identity: ToolPrepareWorkerIdentity,
     lease_seconds: int = 300,
     heartbeat_interval_seconds: float = 30.0,
     retry_delay_seconds: int = 30,
 ) -> dict[str, Any]:
-    job = claim_next_tool_prepare_job(
+    proof = claim_next_tool_prepare_job(
         cfg,
-        worker_id=worker_id,
+        identity=identity,
         lease_seconds=lease_seconds,
     )
-    if job is None:
+    if proof is None:
         return {"claimed": False}
-    job_id = str(job["jobId"])
+    job_id = proof.job_id
+    result: dict[str, Any] = {"claimed": True, "jobId": job_id}
     stop_heartbeat = threading.Event()
     heartbeat_thread = _start_tool_prepare_heartbeat_thread(
         cfg,
-        job_id=job_id,
-        worker_id=worker_id,
+        proof=proof,
         lease_seconds=lease_seconds,
         interval_seconds=heartbeat_interval_seconds,
         stop_event=stop_heartbeat,
     )
     try:
-        run_tool_prepare_job(cfg, job_id)
+        run_tool_prepare_job(cfg, proof)
+    except ToolPrepareClaimLostError as exc:
+        result.update(
+            {
+                "claimLost": True,
+                "claimLostReason": exc.reason,
+            }
+        )
     except Exception as exc:  # noqa: BLE001 - worker failures must not strand jobs in running state.
         error_message = str(exc) or exc.__class__.__name__
-        retry = mark_tool_prepare_job_worker_failure(
-            cfg,
-            job_id,
-            code="TOOL_PREPARE_WORKER_CRASHED",
-            message=error_message,
-            retry_delay_seconds=retry_delay_seconds,
-        )
-        return {
-            "claimed": True,
-            "jobId": job_id,
-            "workerError": error_message,
-            "retryStatus": str(retry.get("status") or ""),
-        }
+        result["workerError"] = error_message
+        try:
+            retry = mark_tool_prepare_job_worker_failure(
+                cfg,
+                proof,
+                code="TOOL_PREPARE_WORKER_CRASHED",
+                message=error_message,
+                retry_delay_seconds=retry_delay_seconds,
+            )
+            result["retryStatus"] = str(retry.get("status") or "")
+        except ToolPrepareClaimLostError as claim_exc:
+            result.update(
+                {
+                    "claimLost": True,
+                    "claimLostReason": claim_exc.reason,
+                    "recoveryRequired": True,
+                }
+            )
     finally:
         stop_heartbeat.set()
         if heartbeat_thread is not None:
             heartbeat_thread.join(timeout=1)
-        release_tool_prepare_worker_claim(
-            cfg,
-            job_id=job_id,
-            worker_id=worker_id,
-        )
-    return {"claimed": True, "jobId": job_id}
+        try:
+            release_tool_prepare_worker_claim(cfg, proof=proof)
+        except ToolPrepareClaimLostError as exc:
+            result.update(
+                {
+                    "recoveryRequired": True,
+                    "releaseError": str(exc),
+                }
+            )
+            LOGGER.error(
+                "Tool prepare attempt release requires recovery: job_id=%s attempt_id=%s reason=%s",
+                proof.job_id,
+                proof.attempt_id,
+                exc.reason,
+            )
+    return result
 
 
 def _start_tool_prepare_heartbeat_thread(
     cfg: Any,
     *,
-    job_id: str,
-    worker_id: str,
+    proof: ToolPrepareAttemptProof,
     lease_seconds: int,
     interval_seconds: float,
     stop_event: threading.Event,
@@ -347,8 +372,7 @@ def _start_tool_prepare_heartbeat_thread(
         target=_heartbeat_tool_prepare_until_stopped,
         kwargs={
             "cfg": cfg,
-            "job_id": job_id,
-            "worker_id": worker_id,
+            "proof": proof,
             "lease_seconds": lease_seconds,
             "interval_seconds": interval_seconds,
             "stop_event": stop_event,
@@ -362,20 +386,27 @@ def _start_tool_prepare_heartbeat_thread(
 def _heartbeat_tool_prepare_until_stopped(
     *,
     cfg: Any,
-    job_id: str,
-    worker_id: str,
+    proof: ToolPrepareAttemptProof,
     lease_seconds: int,
     interval_seconds: float,
     stop_event: threading.Event,
 ) -> None:
     while not stop_event.wait(interval_seconds):
-        result = heartbeat_tool_prepare_job(
-            cfg,
-            job_id,
-            worker_id=worker_id,
-            lease_seconds=lease_seconds,
-        )
-        if not result.get("accepted"):
+        try:
+            heartbeat_tool_prepare_job(
+                cfg,
+                proof,
+                lease_seconds=lease_seconds,
+            )
+        except ToolPrepareClaimLostError:
+            stop_event.set()
+            return
+        except Exception:  # noqa: BLE001 - heartbeat failures must stop this claim loop and remain observable.
+            LOGGER.exception(
+                "Remote runner tool prepare heartbeat failed: job_id=%s attempt_id=%s",
+                proof.job_id,
+                proof.attempt_id,
+            )
             stop_event.set()
             return
 

@@ -3,10 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from apps.remote_runner.config import RemoteRunnerConfig, ensure_runtime_layout
+from apps.remote_runner.tool_prepare_claims import (
+    ToolPrepareAttemptProof,
+    ToolPrepareWorkerIdentity,
+    release_tool_prepare_worker_claim,
+)
 from apps.remote_runner.tool_prepare_job_storage import (
     cancel_tool_prepare_job,
     claim_next_tool_prepare_job,
-    complete_tool_prepare_job,
     create_tool_prepare_job,
     fail_tool_prepare_job,
     fetch_tool_prepare_job,
@@ -14,46 +18,81 @@ from apps.remote_runner.tool_prepare_job_storage import (
     list_tool_prepare_jobs,
     mark_tool_prepare_job_waiting_resource,
 )
+from apps.remote_runner.tool_prepare_publication import publish_validated_tool_for_attempt
 
 
 def test_list_tool_prepare_jobs_returns_filtered_page_and_status_counts(tmp_path: Path) -> None:
     cfg = _config(tmp_path)
     jobs = [
-        create_tool_prepare_job(cfg, {"id": f"bioconda::tool-{index}", "name": f"tool-{index}"})
+        create_tool_prepare_job(
+            cfg,
+            {
+                "id": f"bioconda::tool-{index}",
+                "name": f"tool-{index}",
+                "packageSpec": f"bioconda::tool-{index}=1.0",
+                "source": "bioconda",
+            },
+        )
         for index in range(6)
     ]
     jobs_by_id = {job["jobId"]: job for job in jobs}
+    identity = ToolPrepareWorkerIdentity.create("worker-a")
 
-    claimed = claim_next_tool_prepare_job(cfg, worker_id="worker-a", now="2099-06-07T10:00:00Z")
-    assert claimed is not None
-    complete_tool_prepare_job(
+    claimed = _claim_next(cfg, identity, now="2099-06-07T10:00:00Z")
+    _publish_and_release(
         cfg,
-        claimed["jobId"],
-        {"id": jobs_by_id[claimed["jobId"]]["toolId"], "toolContract": {"state": "WorkflowReady", "workflowReady": True}},
+        claimed,
+        jobs_by_id[claimed.job_id],
+        {
+            "id": jobs_by_id[claimed.job_id]["toolId"],
+            "toolContract": {"state": "WorkflowReady", "workflowReady": True},
+        },
     )
-    running = claim_next_tool_prepare_job(cfg, worker_id="worker-a", now="2099-06-07T10:01:00Z")
-    assert running is not None
-    remaining_jobs = [job for job in jobs if job["jobId"] not in {claimed["jobId"], running["jobId"]}]
-    succeeded, failed, waiting, cancelled = remaining_jobs
-    complete_tool_prepare_job(
+    running = _claim_next(cfg, identity, now="2099-06-07T10:01:00Z")
+    succeeded = _claim_next(cfg, identity, now="2099-06-07T10:02:00Z")
+    _publish_and_release(
         cfg,
-        succeeded["jobId"],
-        {"id": succeeded["toolId"], "toolContract": {"state": "WorkflowReady", "workflowReady": True}},
+        succeeded,
+        jobs_by_id[succeeded.job_id],
+        {
+            "id": jobs_by_id[succeeded.job_id]["toolId"],
+            "toolContract": {"state": "WorkflowReady", "workflowReady": True},
+        },
     )
-    fail_tool_prepare_job(cfg, failed["jobId"], code="SNAKEMAKE_DRY_RUN_FAILED", message="dry-run failed")
+    failed = _claim_next(cfg, identity, now="2099-06-07T10:03:00Z")
+    fail_tool_prepare_job(
+        cfg,
+        failed,
+        code="SNAKEMAKE_DRY_RUN_FAILED",
+        message="dry-run failed",
+    )
+    assert release_tool_prepare_worker_claim(cfg, proof=failed) is True
+    waiting = _claim_next(cfg, identity, now="2099-06-07T10:04:00Z")
     mark_tool_prepare_job_waiting_resource(
         cfg,
-        waiting["jobId"],
+        waiting,
         code="RESOURCE_BINDING_MISSING",
         message="database missing",
     )
+    assert release_tool_prepare_worker_claim(cfg, proof=waiting) is True
+    claimed_job_ids = {
+        claimed.job_id,
+        running.job_id,
+        succeeded.job_id,
+        failed.job_id,
+        waiting.job_id,
+    }
+    cancelled = next(job for job in jobs if job["jobId"] not in claimed_job_ids)
     cancel_tool_prepare_job(cfg, cancelled["jobId"])
 
     page = list_tool_prepare_jobs(cfg, status="succeeded", limit=10, offset=0)
     all_jobs = list_tool_prepare_jobs(cfg, limit=3, offset=0)
 
     assert page["total"] == 2
-    assert {item["jobId"] for item in page["items"]} == {claimed["jobId"], succeeded["jobId"]}
+    assert {item["jobId"] for item in page["items"]} == {
+        claimed.job_id,
+        succeeded.job_id,
+    }
     assert page["statusCounts"] == {
         "cancelled": 1,
         "failed": 1,
@@ -71,20 +110,34 @@ def test_list_tool_prepare_jobs_returns_filtered_page_and_status_counts(tmp_path
 
 def test_completed_prepare_job_exposes_validation_evidence_ids(tmp_path: Path) -> None:
     cfg = _config(tmp_path)
-    job = create_tool_prepare_job(cfg, {"id": "bioconda::fastqc", "name": "fastqc"})
-
-    completed = complete_tool_prepare_job(
+    job = create_tool_prepare_job(
         cfg,
-        job["jobId"],
+        {
+            "id": "bioconda::fastqc",
+            "name": "fastqc",
+            "packageSpec": "bioconda::fastqc=1.0",
+            "source": "bioconda",
+        },
+    )
+    identity = ToolPrepareWorkerIdentity.create("worker-evidence")
+    proof = _claim_next(cfg, identity)
+
+    _publish_and_release(
+        cfg,
+        proof,
+        job,
         {
             "id": "bioconda::fastqc",
             "toolRevisionId": "bioconda::fastqc@1",
             "toolContract": {"state": "WorkflowReady", "workflowReady": True},
         },
     )
+    completed = fetch_tool_prepare_job(cfg, job["jobId"])
     fetched = fetch_tool_prepare_job(cfg, job["jobId"])
     latest = list_latest_tool_prepare_jobs_by_tool_id(cfg, ["bioconda::fastqc"])["bioconda::fastqc"]
 
+    assert completed is not None
+    assert fetched is not None
     assert completed["result"]["validationResultId"].startswith("toolval_")
     assert completed["result"]["evidenceId"].startswith("evid_")
     assert completed["validationResultId"] == completed["result"]["validationResultId"]
@@ -132,3 +185,31 @@ def _config(tmp_path: Path) -> RemoteRunnerConfig:
     )
     ensure_runtime_layout(cfg)
     return cfg
+
+
+def _claim_next(
+    cfg: RemoteRunnerConfig,
+    identity: ToolPrepareWorkerIdentity,
+    *,
+    now: str | None = None,
+) -> ToolPrepareAttemptProof:
+    proof = claim_next_tool_prepare_job(cfg, identity=identity, now=now)
+    assert proof is not None
+    return proof
+
+
+def _publish_and_release(
+    cfg: RemoteRunnerConfig,
+    proof: ToolPrepareAttemptProof,
+    job: dict[str, object],
+    result: dict[str, object],
+) -> dict[str, object]:
+    request = job.get("request")
+    assert isinstance(request, dict)
+    published = publish_validated_tool_for_attempt(
+        cfg,
+        proof=proof,
+        validated_tool={**request, **result},
+    )
+    assert release_tool_prepare_worker_claim(cfg, proof=proof) is True
+    return published

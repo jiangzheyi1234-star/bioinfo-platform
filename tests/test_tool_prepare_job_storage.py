@@ -6,12 +6,17 @@ import sqlite3
 from apps.remote_runner.config import ensure_runtime_layout
 from apps.remote_runner.sqlite_migrations import initialize_or_migrate_runtime_db
 from apps.remote_runner.storage_core import get_connection
+from apps.remote_runner.tool_prepare_claims import (
+    ToolPrepareWorkerIdentity,
+    claim_next_tool_prepare_job,
+    release_tool_prepare_worker_claim,
+)
 from apps.remote_runner.tool_prepare_job_storage import (
-    complete_tool_prepare_job,
     create_tool_prepare_job,
     fail_tool_prepare_job,
     list_latest_tool_prepare_jobs_by_tool_id,
 )
+from apps.remote_runner.tool_prepare_publication import publish_validated_tool_for_attempt
 from tests.test_tool_contract_pipeline import _cfg
 
 
@@ -82,23 +87,38 @@ def test_latest_prepare_jobs_by_tool_id_returns_safe_status_summary(
     cfg = _cfg(tmp_path)
     ensure_runtime_layout(cfg)
 
-    older = create_tool_prepare_job(cfg, {"id": "bioconda::fastqc", "name": "fastqc"})
-    complete_tool_prepare_job(
+    fastqc = {
+        "id": "bioconda::fastqc",
+        "name": "fastqc",
+        "packageSpec": "bioconda::fastqc=1.0",
+        "source": "bioconda",
+    }
+    older = create_tool_prepare_job(cfg, fastqc)
+    identity = ToolPrepareWorkerIdentity.create("worker-safe-summary")
+    older_proof = claim_next_tool_prepare_job(cfg, identity=identity)
+    assert older_proof is not None
+    publish_validated_tool_for_attempt(
         cfg,
-        older["jobId"],
-        {
+        proof=older_proof,
+        validated_tool={
+            **older["request"],
             "id": "bioconda::fastqc",
             "toolContract": {"state": "WorkflowReady", "workflowReady": True},
             "message": "Tool revision published.",
         },
     )
-    latest = create_tool_prepare_job(cfg, {"id": "bioconda::fastqc", "name": "fastqc"})
+    assert release_tool_prepare_worker_claim(cfg, proof=older_proof) is True
+    latest = create_tool_prepare_job(cfg, fastqc)
+    latest_proof = claim_next_tool_prepare_job(cfg, identity=identity)
+    assert latest_proof is not None
+    assert latest_proof.job_id == latest["jobId"]
     fail_tool_prepare_job(
         cfg,
-        latest["jobId"],
+        latest_proof,
         code="SNAKEMAKE_DRY_RUN_FAILED",
         message="Snakemake dry-run failed.",
     )
+    assert release_tool_prepare_worker_claim(cfg, proof=latest_proof) is True
     other = create_tool_prepare_job(cfg, {"id": "bioconda::multiqc", "name": "multiqc"})
 
     summaries = list_latest_tool_prepare_jobs_by_tool_id(
@@ -116,7 +136,7 @@ def test_latest_prepare_jobs_by_tool_id_returns_safe_status_summary(
         "errorCode": "SNAKEMAKE_DRY_RUN_FAILED",
         "createdAt": summaries["bioconda::fastqc"]["createdAt"],
         "updatedAt": summaries["bioconda::fastqc"]["updatedAt"],
-        "startedAt": None,
+        "startedAt": summaries["bioconda::fastqc"]["startedAt"],
         "finishedAt": summaries["bioconda::fastqc"]["finishedAt"],
         "cancelledAt": None,
         "resultState": "",

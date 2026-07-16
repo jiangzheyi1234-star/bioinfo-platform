@@ -3,29 +3,40 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
-from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .config import RemoteRunnerConfig
-from .errors import RemoteRunnerNotFoundError
-from .execution_lifecycle_guard import (
-    ensure_execution_lifecycle_admission_open_for_connection,
-    read_execution_lifecycle_maintenance_for_connection,
-)
+from .errors import RemoteRunnerNotFoundError, RemoteRunnerOperationBlockedError
+from .execution_lifecycle_guard import ensure_execution_lifecycle_admission_open_for_connection
 from .storage_core import get_connection, now_iso
-from .tool_prepare_job_records import (
-    event_row_to_dict,
-    job_row_to_dict,
-)
 from .tool_platform_storage import record_prepare_job_validation_result
+from .tool_prepare_attempt_mutations import (
+    fail_tool_prepare_job,
+    mark_tool_prepare_job_waiting_resource,
+    mark_tool_prepare_job_worker_failure,
+    record_tool_prepare_job_event,
+)
+from .tool_prepare_claims import claim_next_tool_prepare_job, heartbeat_tool_prepare_job
+from .tool_prepare_job_records import event_row_to_dict, job_row_to_dict
 from .tool_prepare_reservations import tool_prepare_job_reservation
 
 
-TERMINAL_PREPARE_JOB_STATUSES = {"succeeded", "failed", "cancelled", "waiting_resource", "exhausted"}
-TERMINAL_PREPARE_JOB_STATUS_SQL = "(" + ", ".join(f"'{status}'" for status in sorted(TERMINAL_PREPARE_JOB_STATUSES)) + ")"
+TERMINAL_PREPARE_JOB_STATUSES = {
+    "succeeded",
+    "failed",
+    "cancelled",
+    "waiting_resource",
+    "exhausted",
+}
+TERMINAL_PREPARE_JOB_STATUS_SQL = (
+    "(" + ", ".join(f"'{status}'" for status in sorted(TERMINAL_PREPARE_JOB_STATUSES)) + ")"
+)
 
 
-def create_tool_prepare_job(cfg: RemoteRunnerConfig, payload: dict[str, Any]) -> dict[str, Any]:
+def create_tool_prepare_job(
+    cfg: RemoteRunnerConfig,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
     now = now_iso()
     job_id = f"toolprep_{uuid.uuid4().hex[:12]}"
     tool_id = str(payload.get("id") or "").strip()
@@ -34,7 +45,10 @@ def create_tool_prepare_job(cfg: RemoteRunnerConfig, payload: dict[str, Any]) ->
     backoff_seconds = _positive_int(payload.get("backoffSeconds"), default=30)
     with get_connection(cfg) as connection:
         connection.execute("BEGIN IMMEDIATE")
-        existing_row = _fetch_active_prepare_job_by_reservation(connection, reservation["key"])
+        existing_row = _fetch_active_prepare_job_by_reservation(
+            connection,
+            reservation["key"],
+        )
         if existing_row is not None:
             connection.commit()
             job = _job_with_events(connection, existing_row)
@@ -75,7 +89,10 @@ def create_tool_prepare_job(cfg: RemoteRunnerConfig, payload: dict[str, Any]) ->
                 ),
             )
         except sqlite3.IntegrityError:
-            existing_row = _fetch_active_prepare_job_by_reservation(connection, reservation["key"])
+            existing_row = _fetch_active_prepare_job_by_reservation(
+                connection,
+                reservation["key"],
+            )
             if existing_row is None:
                 raise
             job = _job_with_events(connection, existing_row)
@@ -87,7 +104,11 @@ def create_tool_prepare_job(cfg: RemoteRunnerConfig, payload: dict[str, Any]) ->
             stage="queued",
             level="info",
             message="Prepare job queued.",
-            details={"toolId": tool_id, "reservation": _reservation_payload(reservation)},
+            details={
+                "toolId": tool_id,
+                "reservation": _reservation_payload(reservation),
+            },
+            created_at=now,
         )
         connection.commit()
     job = fetch_tool_prepare_job(cfg, job_id)
@@ -97,12 +118,18 @@ def create_tool_prepare_job(cfg: RemoteRunnerConfig, payload: dict[str, Any]) ->
     return job
 
 
-def fetch_tool_prepare_job(cfg: RemoteRunnerConfig, job_id: str) -> dict[str, Any] | None:
+def fetch_tool_prepare_job(
+    cfg: RemoteRunnerConfig,
+    job_id: str,
+) -> dict[str, Any] | None:
     normalized = str(job_id or "").strip()
     if not normalized:
         return None
     with get_connection(cfg) as connection:
-        row = connection.execute("SELECT * FROM tool_prepare_jobs WHERE job_id = ?", (normalized,)).fetchone()
+        row = connection.execute(
+            "SELECT * FROM tool_prepare_jobs WHERE job_id = ?",
+            (normalized,),
+        ).fetchone()
         event_rows = (
             connection.execute(
                 """
@@ -115,26 +142,58 @@ def fetch_tool_prepare_job(cfg: RemoteRunnerConfig, job_id: str) -> dict[str, An
             if row is not None
             else []
         )
-    return job_row_to_dict(row, [event_row_to_dict(event_row) for event_row in event_rows]) if row is not None else None
+    return (
+        job_row_to_dict(
+            row,
+            [event_row_to_dict(event_row) for event_row in event_rows],
+        )
+        if row is not None
+        else None
+    )
 
 
-def _fetch_active_prepare_job_by_reservation(connection: sqlite3.Connection, reservation_key: str) -> sqlite3.Row | None:
+def _fetch_active_prepare_job_by_reservation(
+    connection: sqlite3.Connection,
+    reservation_key: str,
+) -> sqlite3.Row | None:
     normalized_key = str(reservation_key or "")
     if not normalized_key:
         return None
     return connection.execute(
         """
-        SELECT *
-        FROM tool_prepare_jobs
-        WHERE reservation_key = ? AND status IN ('queued', 'running')
-        ORDER BY rowid DESC
+        SELECT jobs.*
+        FROM tool_prepare_jobs AS jobs
+        WHERE jobs.reservation_key = ?
+          AND (
+              jobs.status IN ('queued', 'running')
+              OR EXISTS (
+                  SELECT 1
+                  FROM tool_prepare_attempts AS attempts
+                  WHERE attempts.job_id = jobs.job_id
+                    AND attempts.state IN ('active', 'recovery_required')
+              )
+          )
+        ORDER BY
+            CASE
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM tool_prepare_attempts AS attempts
+                    WHERE attempts.job_id = jobs.job_id
+                      AND attempts.state IN ('active', 'recovery_required')
+                ) THEN 0
+                ELSE 1
+            END,
+            jobs.rowid DESC
         LIMIT 1
         """,
         (normalized_key,),
     ).fetchone()
 
 
-def _job_with_events(connection: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
+def _job_with_events(
+    connection: sqlite3.Connection,
+    row: sqlite3.Row,
+) -> dict[str, Any]:
     event_rows = connection.execute(
         """
         SELECT * FROM tool_prepare_job_events
@@ -143,7 +202,10 @@ def _job_with_events(connection: sqlite3.Connection, row: sqlite3.Row) -> dict[s
         """,
         (row["job_id"],),
     ).fetchall()
-    return job_row_to_dict(row, [event_row_to_dict(event_row) for event_row in event_rows])
+    return job_row_to_dict(
+        row,
+        [event_row_to_dict(event_row) for event_row in event_rows],
+    )
 
 
 def _reservation_payload(reservation: dict[str, str]) -> dict[str, str]:
@@ -154,7 +216,10 @@ def _reservation_payload(reservation: dict[str, str]) -> dict[str, str]:
     }
 
 
-def require_tool_prepare_job(cfg: RemoteRunnerConfig, job_id: str) -> dict[str, Any]:
+def require_tool_prepare_job(
+    cfg: RemoteRunnerConfig,
+    job_id: str,
+) -> dict[str, Any]:
     job = fetch_tool_prepare_job(cfg, job_id)
     if job is None:
         raise RemoteRunnerNotFoundError("TOOL_PREPARE_JOB_NOT_FOUND")
@@ -195,10 +260,19 @@ def list_tool_prepare_jobs(
             GROUP BY status
             """
         ).fetchall()
-        event_rows_by_job_id = _events_by_job_id(connection, [str(row["job_id"]) for row in rows])
+        event_rows_by_job_id = _events_by_job_id(
+            connection,
+            [str(row["job_id"]) for row in rows],
+        )
     return {
         "items": [
-            job_row_to_dict(row, [event_row_to_dict(event) for event in event_rows_by_job_id.get(str(row["job_id"]), [])])
+            job_row_to_dict(
+                row,
+                [
+                    event_row_to_dict(event)
+                    for event in event_rows_by_job_id.get(str(row["job_id"]), [])
+                ],
+            )
             for row in rows
         ],
         "total": int(total or 0),
@@ -208,7 +282,10 @@ def list_tool_prepare_jobs(
     }
 
 
-def _events_by_job_id(connection: sqlite3.Connection, job_ids: list[str]) -> dict[str, list[sqlite3.Row]]:
+def _events_by_job_id(
+    connection: sqlite3.Connection,
+    job_ids: list[str],
+) -> dict[str, list[sqlite3.Row]]:
     if not job_ids:
         return {}
     placeholders = ", ".join("?" for _ in job_ids)
@@ -228,13 +305,19 @@ def _events_by_job_id(connection: sqlite3.Connection, job_ids: list[str]) -> dic
 
 
 def _prepare_job_status_counts(rows: list[Any]) -> dict[str, int]:
-    counts = {status: 0 for status in sorted(TERMINAL_PREPARE_JOB_STATUSES | {"queued", "running"})}
+    counts = {
+        status: 0
+        for status in sorted(TERMINAL_PREPARE_JOB_STATUSES | {"queued", "running"})
+    }
     for row in rows:
         counts[str(row["status"])] = int(row["count"] or 0)
     return counts
 
 
-def list_latest_tool_prepare_jobs_by_tool_id(cfg: RemoteRunnerConfig, tool_ids: list[str]) -> dict[str, dict[str, Any]]:
+def list_latest_tool_prepare_jobs_by_tool_id(
+    cfg: RemoteRunnerConfig,
+    tool_ids: list[str],
+) -> dict[str, dict[str, Any]]:
     normalized_ids = _normalized_tool_ids(tool_ids)
     if not normalized_ids:
         return {}
@@ -258,220 +341,6 @@ def list_latest_tool_prepare_jobs_by_tool_id(cfg: RemoteRunnerConfig, tool_ids: 
     return latest_jobs_by_tool_id
 
 
-def claim_next_tool_prepare_job(
-    cfg: RemoteRunnerConfig,
-    *,
-    worker_id: str = "tool-prepare-worker",
-    now: str | None = None,
-    lease_seconds: int = 300,
-) -> dict[str, Any] | None:
-    claimed_at = str(now or now_iso())
-    normalized_worker_id = str(worker_id or "tool-prepare-worker").strip() or "tool-prepare-worker"
-    with get_connection(cfg) as connection:
-        connection.execute("BEGIN IMMEDIATE")
-        if read_execution_lifecycle_maintenance_for_connection(connection, now=claimed_at) is not None:
-            connection.commit()
-            return None
-        row = connection.execute(
-            """
-            SELECT *
-            FROM tool_prepare_jobs
-            WHERE (
-                status = 'queued'
-                AND COALESCE(next_attempt_at, created_at) <= ?
-            ) OR (
-                status = 'running'
-                AND (claimed_until IS NULL OR claimed_until < ?)
-            )
-            ORDER BY created_at ASC, job_id ASC
-            LIMIT 1
-            """,
-            (claimed_at, claimed_at),
-        ).fetchone()
-        if row is None:
-            connection.commit()
-            return None
-        reclaimed = str(row["status"] or "") == "running"
-        next_attempts = int(row["attempts"] or 0) + 1
-        claimed_until = _add_seconds(claimed_at, int(lease_seconds))
-        connection.execute(
-            """
-            UPDATE tool_prepare_jobs
-            SET status = 'running',
-                stage = 'claimed',
-                message = 'Prepare job claimed by worker.',
-                claimed_by = ?,
-                claimed_until = ?,
-                heartbeat_at = ?,
-                attempts = ?,
-                next_attempt_at = NULL,
-                exhausted_at = NULL,
-                started_at = COALESCE(started_at, ?),
-                updated_at = ?
-            WHERE job_id = ?
-            """,
-            (
-                normalized_worker_id,
-                claimed_until,
-                claimed_at,
-                next_attempts,
-                claimed_at,
-                claimed_at,
-                row["job_id"],
-            ),
-        )
-        _insert_prepare_job_event(
-            connection,
-            job_id=str(row["job_id"]),
-            stage="reclaimed" if reclaimed else "claimed",
-            level="info",
-            message="Prepare job reclaimed after an expired lease." if reclaimed else "Prepare job claimed by worker.",
-            details={"workerId": normalized_worker_id, "attempts": next_attempts, "claimedUntil": claimed_until},
-        )
-        connection.commit()
-    return fetch_tool_prepare_job(cfg, str(row["job_id"]))
-
-
-def heartbeat_tool_prepare_job(
-    cfg: RemoteRunnerConfig,
-    job_id: str,
-    *,
-    worker_id: str,
-    now: str | None = None,
-    lease_seconds: int = 300,
-) -> dict[str, Any]:
-    heartbeat_at = str(now or now_iso())
-    normalized_job_id = str(job_id or "").strip()
-    normalized_worker_id = str(worker_id or "").strip()
-    with get_connection(cfg) as connection:
-        row = connection.execute("SELECT * FROM tool_prepare_jobs WHERE job_id = ?", (normalized_job_id,)).fetchone()
-        if row is None:
-            raise KeyError(job_id)
-        if str(row["claimed_by"] or "") != normalized_worker_id:
-            return {"accepted": False, "reason": "not_current_worker"}
-        claimed_until = _add_seconds(heartbeat_at, int(lease_seconds))
-        connection.execute(
-            """
-            UPDATE tool_prepare_jobs
-            SET heartbeat_at = ?, claimed_until = ?, updated_at = ?
-            WHERE job_id = ? AND claimed_by = ?
-            """,
-            (heartbeat_at, claimed_until, heartbeat_at, normalized_job_id, normalized_worker_id),
-        )
-        connection.commit()
-    return {"accepted": True, "claimedUntil": claimed_until}
-
-
-def mark_tool_prepare_job_worker_failure(
-    cfg: RemoteRunnerConfig,
-    job_id: str,
-    *,
-    code: str,
-    message: str,
-    now: str | None = None,
-    retry_delay_seconds: int = 30,
-) -> dict[str, Any]:
-    failed_at = str(now or now_iso())
-    normalized_code = str(code or "TOOL_PREPARE_WORKER_FAILED").strip() or "TOOL_PREPARE_WORKER_FAILED"
-    normalized_message = str(message or normalized_code).strip() or normalized_code
-    with get_connection(cfg) as connection:
-        row = connection.execute("SELECT * FROM tool_prepare_jobs WHERE job_id = ?", (str(job_id or "").strip(),)).fetchone()
-        if row is None:
-            raise KeyError(job_id)
-        if str(row["status"] or "") in TERMINAL_PREPARE_JOB_STATUSES:
-            return _job_with_events(connection, row)
-        attempts = int(row["attempts"] or 0)
-        max_attempts = max(1, int(row["max_attempts"] or 1))
-        worker_error = {
-            "code": normalized_code,
-            "message": normalized_message,
-            "at": failed_at,
-            "attempts": attempts,
-            "maxAttempts": max_attempts,
-        }
-        if attempts >= max_attempts:
-            connection.execute(
-                """
-                UPDATE tool_prepare_jobs
-                SET status = 'exhausted',
-                    stage = 'exhausted',
-                    message = ?,
-                    error_code = ?,
-                    claimed_by = '',
-                    claimed_until = NULL,
-                    next_attempt_at = NULL,
-                    exhausted_at = ?,
-                    last_worker_error_json = ?,
-                    updated_at = ?,
-                    finished_at = COALESCE(finished_at, ?)
-                WHERE job_id = ? AND status NOT IN ('succeeded', 'failed', 'cancelled', 'waiting_resource', 'exhausted')
-                """,
-                (
-                    normalized_message,
-                    normalized_code,
-                    failed_at,
-                    json.dumps(worker_error, ensure_ascii=False, sort_keys=True),
-                    failed_at,
-                    failed_at,
-                    job_id,
-                ),
-            )
-            _insert_prepare_job_event(
-                connection,
-                job_id=job_id,
-                stage="exhausted",
-                level="error",
-                message=normalized_message,
-                details=worker_error,
-            )
-            record_prepare_job_validation_result(
-                connection,
-                job_id=job_id,
-                stage="exhausted",
-                status="exhausted",
-                failure_code=normalized_code,
-                created_at=failed_at,
-            )
-        else:
-            next_attempt_at = _add_seconds(failed_at, int(retry_delay_seconds))
-            connection.execute(
-                """
-                UPDATE tool_prepare_jobs
-                SET status = 'queued',
-                    stage = 'retry_wait',
-                    message = ?,
-                    error_code = ?,
-                    claimed_by = '',
-                    claimed_until = NULL,
-                    next_attempt_at = ?,
-                    last_worker_error_json = ?,
-                    updated_at = ?
-                WHERE job_id = ? AND status NOT IN ('succeeded', 'failed', 'cancelled', 'waiting_resource', 'exhausted')
-                """,
-                (
-                    normalized_message,
-                    normalized_code,
-                    next_attempt_at,
-                    json.dumps(worker_error, ensure_ascii=False, sort_keys=True),
-                    failed_at,
-                    job_id,
-                ),
-            )
-            _insert_prepare_job_event(
-                connection,
-                job_id=job_id,
-                stage="retry_wait",
-                level="warning",
-                message=normalized_message,
-                details={**worker_error, "nextAttemptAt": next_attempt_at},
-            )
-        connection.commit()
-    job = fetch_tool_prepare_job(cfg, job_id)
-    if job is None:
-        raise KeyError(job_id)
-    return job
-
-
 def _normalized_tool_ids(tool_ids: list[str]) -> list[str]:
     normalized: list[str] = []
     seen: set[str] = set()
@@ -486,10 +355,17 @@ def _normalized_tool_ids(tool_ids: list[str]) -> list[str]:
 
 def _job_row_to_safe_summary(row: Any) -> dict[str, Any]:
     result = json.loads(row["result_json"] or "{}") if row["result_json"] else {}
-    contract = result.get("toolContract") if isinstance(result, dict) and isinstance(result.get("toolContract"), dict) else {}
+    contract = (
+        result.get("toolContract")
+        if isinstance(result, dict) and isinstance(result.get("toolContract"), dict)
+        else {}
+    )
     state = str(contract.get("state") or "").strip()
     succeeded = str(row["status"] or "") == "succeeded"
-    workflow_ready = succeeded and (bool(contract.get("workflowReady")) or state in {"WorkflowReady", "ProductionEnabled"})
+    workflow_ready = succeeded and (
+        bool(contract.get("workflowReady"))
+        or state in {"WorkflowReady", "ProductionEnabled"}
+    )
     production_enabled = succeeded and (
         bool(contract.get("productionEnabled"))
         or str(contract.get("state") or "") == "ProductionEnabled"
@@ -509,73 +385,28 @@ def _job_row_to_safe_summary(row: Any) -> dict[str, Any]:
         "resultState": state if succeeded else "",
         "workflowReady": workflow_ready,
         "productionEnabled": production_enabled,
-        "validationResultId": str(result.get("validationResultId") or "") if succeeded else "",
+        "validationResultId": (
+            str(result.get("validationResultId") or "") if succeeded else ""
+        ),
         "evidenceId": str(result.get("evidenceId") or "") if succeeded else "",
     }
 
 
-def record_tool_prepare_job_event(
-    cfg: RemoteRunnerConfig,
-    job_id: str,
-    *,
-    stage: str,
-    message: str,
-    level: str = "info",
-    details: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    now = now_iso()
-    event_id = f"evt_{uuid.uuid4().hex[:12]}"
-    normalized_stage = str(stage or "running").strip() or "running"
-    normalized_message = str(message or "").strip() or "Prepare job updated."
-    normalized_level = str(level or "info").strip() or "info"
-    with get_connection(cfg) as connection:
-        row = connection.execute("SELECT status FROM tool_prepare_jobs WHERE job_id = ?", (job_id,)).fetchone()
-        if row is None:
-            raise KeyError(job_id)
-        if row["status"] not in TERMINAL_PREPARE_JOB_STATUSES:
-            connection.execute(
-                """
-                UPDATE tool_prepare_jobs
-                SET status = 'running', stage = ?, message = ?, updated_at = ?, started_at = COALESCE(started_at, ?)
-                WHERE job_id = ? AND status IN ('queued', 'running')
-                """,
-                (normalized_stage, normalized_message, now, now, job_id),
-            )
-            connection.execute(
-                """
-                INSERT INTO tool_prepare_job_events (event_id, job_id, stage, level, message, details_json, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    event_id,
-                    job_id,
-                    normalized_stage,
-                    normalized_level,
-                    normalized_message,
-                    json.dumps(details or {}, ensure_ascii=False, sort_keys=True),
-                    now,
-                ),
-            )
-        connection.commit()
-    job = fetch_tool_prepare_job(cfg, job_id)
-    if job is None:
-        raise KeyError(job_id)
-    return job
-
-
 def _insert_prepare_job_event(
-    connection: Any,
+    connection: sqlite3.Connection,
     *,
     job_id: str,
     stage: str,
     level: str,
     message: str,
     details: dict[str, Any] | None = None,
+    created_at: str | None = None,
 ) -> None:
     connection.execute(
         """
-        INSERT INTO tool_prepare_job_events (event_id, job_id, stage, level, message, details_json, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO tool_prepare_job_events (
+            event_id, job_id, stage, level, message, details_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
         (
             f"evt_{uuid.uuid4().hex[:12]}",
@@ -584,187 +415,123 @@ def _insert_prepare_job_event(
             level,
             message,
             json.dumps(details or {}, ensure_ascii=False, sort_keys=True),
-            now_iso(),
+            created_at or now_iso(),
         ),
     )
 
 
-def complete_tool_prepare_job(cfg: RemoteRunnerConfig, job_id: str, result: dict[str, Any]) -> dict[str, Any]:
-    now = now_iso()
-    with get_connection(cfg) as connection:
-        cursor = connection.execute(
-            f"""
-            UPDATE tool_prepare_jobs
-            SET status = 'succeeded', stage = 'published', message = ?, result_json = ?, updated_at = ?, finished_at = ?
-            WHERE job_id = ? AND status NOT IN {TERMINAL_PREPARE_JOB_STATUS_SQL}
-            """,
-            (
-                str(result.get("message") or "Tool revision published."),
-                json.dumps(result, ensure_ascii=False, sort_keys=True),
-                now,
-                now,
-                job_id,
-            ),
-        )
-        if cursor.rowcount:
-            validation_result = record_prepare_job_validation_result(
-                connection,
-                job_id=job_id,
-                stage="published",
-                status="succeeded",
-                result=result,
-                created_at=now,
-            )
-            stored_result = {
-                **result,
-                "validationResultId": validation_result["validationResultId"],
-                "evidenceId": validation_result["evidenceId"],
-            }
-            connection.execute(
-                """
-                UPDATE tool_prepare_jobs
-                SET result_json = ?
-                WHERE job_id = ?
-                """,
-                (json.dumps(stored_result, ensure_ascii=False, sort_keys=True), job_id),
-            )
-            _insert_prepare_job_event(
-                connection,
-                job_id=job_id,
-                stage="published",
-                level="success",
-                message=str(result.get("message") or "Tool revision published."),
-                details={
-                    "toolRevisionId": str(result.get("toolRevisionId") or ""),
-                    "validationResultId": validation_result["validationResultId"],
-                    "evidenceId": validation_result["evidenceId"],
-                },
-            )
-        connection.commit()
-    job = fetch_tool_prepare_job(cfg, job_id)
-    if job is None:
-        raise KeyError(job_id)
-    return job
-
-
-def fail_tool_prepare_job(cfg: RemoteRunnerConfig, job_id: str, *, code: str, message: str) -> dict[str, Any]:
-    now = now_iso()
-    with get_connection(cfg) as connection:
-        cursor = connection.execute(
-            f"""
-            UPDATE tool_prepare_jobs
-            SET status = 'failed', stage = 'failed', message = ?, error_code = ?, updated_at = ?, finished_at = ?
-            WHERE job_id = ? AND status NOT IN {TERMINAL_PREPARE_JOB_STATUS_SQL}
-            """,
-            (message, code, now, now, job_id),
-        )
-        if cursor.rowcount:
-            _insert_prepare_job_event(
-                connection,
-                job_id=job_id,
-                stage="failed",
-                level="error",
-                message=message,
-                details={"code": code},
-            )
-            record_prepare_job_validation_result(
-                connection,
-                job_id=job_id,
-                stage="failed",
-                status="failed",
-                failure_code=code,
-                created_at=now,
-            )
-        connection.commit()
-    job = fetch_tool_prepare_job(cfg, job_id)
-    if job is None:
-        raise KeyError(job_id)
-    return job
-
-
-def mark_tool_prepare_job_waiting_resource(
+def cancel_tool_prepare_job(
     cfg: RemoteRunnerConfig,
     job_id: str,
-    *,
-    code: str,
-    message: str,
-    details: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    now = now_iso()
-    normalized_code = str(code or "WORKFLOW_RESOURCE_BINDING_REQUIRED").strip() or "WORKFLOW_RESOURCE_BINDING_REQUIRED"
-    normalized_message = str(message or normalized_code).strip() or normalized_code
-    event_details = {"code": normalized_code, **(details or {})}
+    cancelled_at = now_iso()
+    normalized_job_id = str(job_id or "").strip()
     with get_connection(cfg) as connection:
-        cursor = connection.execute(
-            f"""
-            UPDATE tool_prepare_jobs
-            SET status = 'waiting_resource', stage = 'waiting_resource', message = ?, error_code = ?,
-                updated_at = ?, finished_at = ?
-            WHERE job_id = ? AND status NOT IN {TERMINAL_PREPARE_JOB_STATUS_SQL}
-            """,
-            (normalized_message, normalized_code, now, now, job_id),
-        )
-        if cursor.rowcount:
-            _insert_prepare_job_event(
-                connection,
-                job_id=job_id,
-                stage="waiting_resource",
-                level="warning",
-                message=normalized_message,
-                details=event_details,
-            )
-            record_prepare_job_validation_result(
-                connection,
-                job_id=job_id,
-                stage="waiting_resource",
-                status="waiting_resource",
-                failure_code=normalized_code,
-                created_at=now,
-            )
-        connection.commit()
-    job = fetch_tool_prepare_job(cfg, job_id)
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            row = connection.execute(
+                "SELECT * FROM tool_prepare_jobs WHERE job_id = ?",
+                (normalized_job_id,),
+            ).fetchone()
+            if row is None:
+                raise RemoteRunnerNotFoundError("TOOL_PREPARE_JOB_NOT_FOUND")
+            if str(row["status"] or "") not in TERMINAL_PREPARE_JOB_STATUSES:
+                claim_owner = str(row["claimed_by"] or "")
+                generation = int(row["attempts"] or 0)
+                updated = connection.execute(
+                    f"""
+                    UPDATE tool_prepare_jobs
+                    SET status = 'cancelled',
+                        stage = 'cancelled',
+                        message = 'Prepare job cancelled.',
+                        updated_at = ?,
+                        finished_at = COALESCE(finished_at, ?),
+                        cancelled_at = ?
+                    WHERE job_id = ?
+                      AND status NOT IN {TERMINAL_PREPARE_JOB_STATUS_SQL}
+                      AND COALESCE(claimed_by, '') = ?
+                      AND attempts = ?
+                    """,
+                    (
+                        cancelled_at,
+                        cancelled_at,
+                        cancelled_at,
+                        normalized_job_id,
+                        claim_owner,
+                        generation,
+                    ),
+                )
+                if updated.rowcount != 1:
+                    raise RemoteRunnerOperationBlockedError(
+                        "TOOL_PREPARE_CANCEL_JOB_PROJECTION_INVALID"
+                    )
+                open_attempt_count = int(
+                    connection.execute(
+                        """
+                        SELECT COUNT(*) AS count
+                        FROM tool_prepare_attempts
+                        WHERE job_id = ?
+                          AND state IN ('active', 'recovery_required')
+                        """,
+                        (normalized_job_id,),
+                    ).fetchone()["count"]
+                )
+                attempt_update = connection.execute(
+                    """
+                    UPDATE tool_prepare_attempts
+                    SET outcome_status = 'cancelled', updated_at = ?
+                    WHERE job_id = ?
+                      AND generation = ?
+                      AND claim_owner = ?
+                      AND state IN ('active', 'recovery_required')
+                    """,
+                    (
+                        cancelled_at,
+                        normalized_job_id,
+                        generation,
+                        claim_owner,
+                    ),
+                )
+                claim_projection_matches = bool(claim_owner) == bool(
+                    open_attempt_count
+                )
+                if (
+                    open_attempt_count > 1
+                    or attempt_update.rowcount != open_attempt_count
+                    or not claim_projection_matches
+                ):
+                    raise RemoteRunnerOperationBlockedError(
+                        "TOOL_PREPARE_CANCEL_CLAIM_PROJECTION_INVALID"
+                    )
+                _insert_prepare_job_event(
+                    connection,
+                    job_id=normalized_job_id,
+                    stage="cancelled",
+                    level="warning",
+                    message="Prepare job cancelled.",
+                    created_at=cancelled_at,
+                )
+                record_prepare_job_validation_result(
+                    connection,
+                    job_id=normalized_job_id,
+                    stage="cancelled",
+                    status="cancelled",
+                    created_at=cancelled_at,
+                )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+    job = fetch_tool_prepare_job(cfg, normalized_job_id)
     if job is None:
-        raise KeyError(job_id)
+        raise RemoteRunnerNotFoundError("TOOL_PREPARE_JOB_NOT_FOUND")
     return job
 
 
-def cancel_tool_prepare_job(cfg: RemoteRunnerConfig, job_id: str) -> dict[str, Any]:
-    now = now_iso()
-    with get_connection(cfg) as connection:
-        cursor = connection.execute(
-            f"""
-            UPDATE tool_prepare_jobs
-            SET status = 'cancelled', stage = 'cancelled', message = 'Prepare job cancelled.',
-                updated_at = ?, finished_at = COALESCE(finished_at, ?), cancelled_at = ?
-            WHERE job_id = ? AND status NOT IN {TERMINAL_PREPARE_JOB_STATUS_SQL}
-            """,
-            (now, now, now, job_id),
-        )
-        if cursor.rowcount:
-            _insert_prepare_job_event(
-                connection,
-                job_id=job_id,
-                stage="cancelled",
-                level="warning",
-                message="Prepare job cancelled.",
-            )
-            record_prepare_job_validation_result(
-                connection,
-                job_id=job_id,
-                stage="cancelled",
-                status="cancelled",
-                created_at=now,
-            )
-        connection.commit()
-    job = fetch_tool_prepare_job(cfg, job_id)
-    if job is None:
-        raise RemoteRunnerNotFoundError("TOOL_PREPARE_JOB_NOT_FOUND")
-    if cursor.rowcount == 0 and job["status"] not in TERMINAL_PREPARE_JOB_STATUSES:
-        raise RemoteRunnerNotFoundError("TOOL_PREPARE_JOB_NOT_FOUND")
-    return job
-
-
-def tool_prepare_job_cancelled(cfg: RemoteRunnerConfig, job_id: str) -> bool:
+def tool_prepare_job_cancelled(
+    cfg: RemoteRunnerConfig,
+    job_id: str,
+) -> bool:
     job = fetch_tool_prepare_job(cfg, job_id)
     return job is not None and job["status"] == "cancelled"
 
@@ -782,6 +549,20 @@ def _positive_int(value: Any, *, default: int) -> int:
     return max(1, parsed)
 
 
-def _add_seconds(value: str, seconds: int) -> str:
-    instant = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-    return (instant + timedelta(seconds=seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
+__all__ = [
+    "TERMINAL_PREPARE_JOB_STATUSES",
+    "cancel_tool_prepare_job",
+    "claim_next_tool_prepare_job",
+    "create_tool_prepare_job",
+    "fail_tool_prepare_job",
+    "fetch_tool_prepare_job",
+    "heartbeat_tool_prepare_job",
+    "list_latest_tool_prepare_jobs_by_tool_id",
+    "list_tool_prepare_jobs",
+    "mark_tool_prepare_job_waiting_resource",
+    "mark_tool_prepare_job_worker_failure",
+    "record_tool_prepare_job_event",
+    "require_tool_prepare_job",
+    "tool_prepare_job_cancelled",
+    "tool_prepare_job_payload",
+]

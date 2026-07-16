@@ -14,7 +14,12 @@ from apps.remote_runner.run_execution_storage import claim_next_run_job, request
 from apps.remote_runner.run_worker_storage import build_run_worker_health
 from apps.remote_runner.storage import create_run_record, fetch_run, update_run_state
 from apps.remote_runner.storage_core import get_connection
-from apps.remote_runner.tool_prepare_job_storage import create_tool_prepare_job, fetch_tool_prepare_job
+from apps.remote_runner.tool_prepare_claims import ToolPrepareAttemptProof, ToolPrepareWorkerIdentity
+from apps.remote_runner.tool_prepare_job_storage import (
+    cancel_tool_prepare_job,
+    create_tool_prepare_job,
+    fetch_tool_prepare_job,
+)
 
 
 def test_run_worker_supervisor_polls_until_stopped(monkeypatch) -> None:
@@ -403,8 +408,19 @@ def test_tool_prepare_worker_supervisor_polls_until_stopped(monkeypatch) -> None
 
     calls: list[dict[str, Any]] = []
 
-    def fake_process_next_tool_prepare_job(cfg, *, worker_id: str, heartbeat_interval_seconds: float):
-        calls.append({"cfg": cfg, "workerId": worker_id, "heartbeatIntervalSeconds": heartbeat_interval_seconds})
+    def fake_process_next_tool_prepare_job(
+        cfg,
+        *,
+        identity: ToolPrepareWorkerIdentity,
+        heartbeat_interval_seconds: float,
+    ):
+        calls.append(
+            {
+                "cfg": cfg,
+                "identity": identity,
+                "heartbeatIntervalSeconds": heartbeat_interval_seconds,
+            }
+        )
         return {"claimed": False}
 
     monkeypatch.setattr(worker_supervisor, "process_next_tool_prepare_job", fake_process_next_tool_prepare_job)
@@ -417,12 +433,41 @@ def test_tool_prepare_worker_supervisor_polls_until_stopped(monkeypatch) -> None
         heartbeat_interval_seconds=0.02,
     )
     deadline = time.monotonic() + 1
-    while not calls and time.monotonic() < deadline:
+    while len(calls) < 2 and time.monotonic() < deadline:
         time.sleep(0.01)
 
     supervisor.stop(timeout_seconds=1)
 
-    assert calls == [{"cfg": cfg, "workerId": "tool-prepare-test", "heartbeatIntervalSeconds": 0.02}]
+    assert len(calls) >= 2
+    first_identity = calls[0]["identity"]
+    assert first_identity.worker_id == "tool-prepare-test"
+    assert all(call["cfg"] is cfg for call in calls)
+    assert all(call["identity"] is first_identity for call in calls)
+    assert all(call["heartbeatIntervalSeconds"] == 0.02 for call in calls)
+
+
+def test_two_tool_prepare_supervisors_with_same_worker_id_get_distinct_identities() -> None:
+    from apps.remote_runner import worker_supervisor
+
+    cfg = SimpleNamespace(service_name="test-runner")
+    first = worker_supervisor.ToolPrepareWorkerSupervisor(
+        cfg,
+        worker_id="tool-prepare-same-worker",
+        poll_interval_seconds=1,
+        heartbeat_interval_seconds=30,
+        error_backoff_seconds=5,
+    )
+    second = worker_supervisor.ToolPrepareWorkerSupervisor(
+        cfg,
+        worker_id="tool-prepare-same-worker",
+        poll_interval_seconds=1,
+        heartbeat_interval_seconds=30,
+        error_backoff_seconds=5,
+    )
+
+    assert first._identity.worker_id == second._identity.worker_id == "tool-prepare-same-worker"
+    assert first._identity.session_id != second._identity.session_id
+    assert first._identity.process_instance_id != second._identity.process_instance_id
 
 
 def test_process_next_tool_prepare_job_runs_one_queued_job(tmp_path: Path, monkeypatch) -> None:
@@ -430,13 +475,32 @@ def test_process_next_tool_prepare_job_runs_one_queued_job(tmp_path: Path, monke
 
     cfg = _config(tmp_path)
     job = create_tool_prepare_job(cfg, {"id": "bioconda::fastqc", "name": "fastqc"})
-    calls: list[str] = []
-    monkeypatch.setattr(worker_supervisor, "run_tool_prepare_job", lambda _cfg, job_id: calls.append(job_id))
+    calls: list[ToolPrepareAttemptProof] = []
 
-    result = worker_supervisor.process_next_tool_prepare_job(cfg)
+    def finish_by_cancellation(_cfg, proof: ToolPrepareAttemptProof) -> None:
+        calls.append(proof)
+        cancel_tool_prepare_job(_cfg, proof.job_id)
+
+    monkeypatch.setattr(worker_supervisor, "run_tool_prepare_job", finish_by_cancellation)
+    identity = ToolPrepareWorkerIdentity.create("tool-prepare-process-test")
+
+    result = worker_supervisor.process_next_tool_prepare_job(
+        cfg,
+        identity=identity,
+        heartbeat_interval_seconds=0,
+    )
 
     assert result == {"claimed": True, "jobId": job["jobId"]}
-    assert calls == [job["jobId"]]
+    assert len(calls) == 1
+    assert calls[0].job_id == job["jobId"]
+    assert calls[0].worker_id == identity.worker_id
+    assert calls[0].session_id == identity.session_id
+    assert calls[0].process_instance_id == identity.process_instance_id
+    assert calls[0].claim_token not in repr(result)
+    refreshed = fetch_tool_prepare_job(cfg, job["jobId"])
+    assert refreshed is not None
+    assert refreshed["status"] == "cancelled"
+    assert refreshed["lease"]["claimedBy"] == ""
 
 
 def test_process_next_tool_prepare_job_requeues_unexpected_worker_error(tmp_path: Path, monkeypatch) -> None:
@@ -445,14 +509,17 @@ def test_process_next_tool_prepare_job_requeues_unexpected_worker_error(tmp_path
     cfg = _config(tmp_path)
     job = create_tool_prepare_job(cfg, {"id": "bioconda::fastqc", "name": "fastqc"})
 
-    def crash(_cfg, _job_id: str) -> None:
+    seen_proofs: list[ToolPrepareAttemptProof] = []
+
+    def crash(_cfg, proof: ToolPrepareAttemptProof) -> None:
+        seen_proofs.append(proof)
         raise RuntimeError("prepare worker crashed")
 
     monkeypatch.setattr(worker_supervisor, "run_tool_prepare_job", crash)
 
     result = worker_supervisor.process_next_tool_prepare_job(
         cfg,
-        worker_id="prepare-worker-test",
+        identity=ToolPrepareWorkerIdentity.create("prepare-worker-test"),
         heartbeat_interval_seconds=0,
         retry_delay_seconds=0,
     )
@@ -463,6 +530,8 @@ def test_process_next_tool_prepare_job_requeues_unexpected_worker_error(tmp_path
         "workerError": "prepare worker crashed",
         "retryStatus": "queued",
     }
+    assert len(seen_proofs) == 1
+    assert seen_proofs[0].claim_token not in repr(result)
     refreshed = fetch_tool_prepare_job(cfg, job["jobId"])
     assert refreshed is not None
     assert refreshed["status"] == "queued"

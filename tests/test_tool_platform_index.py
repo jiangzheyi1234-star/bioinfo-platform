@@ -4,16 +4,21 @@ from pathlib import Path
 
 from apps.remote_runner.config import ensure_runtime_layout
 from apps.remote_runner.storage_core import get_connection
+from apps.remote_runner.tool_prepare_claims import (
+    ToolPrepareWorkerIdentity,
+    claim_next_tool_prepare_job,
+    release_tool_prepare_worker_claim,
+)
 from apps.remote_runner.tool_platform_storage import (
     list_tool_runtime_profiles,
     list_tool_validation_results,
     search_tool_index,
 )
 from apps.remote_runner.tool_prepare_job_storage import (
-    complete_tool_prepare_job,
     create_tool_prepare_job,
     fail_tool_prepare_job,
 )
+from apps.remote_runner.tool_prepare_publication import publish_validated_tool_for_attempt
 from apps.remote_runner.tools import add_registered_tool
 from tests.test_tool_contract_pipeline import _cfg
 
@@ -70,13 +75,17 @@ def test_tool_validation_results_are_durable_and_update_tool_index_summary(tmp_p
             "validationTarget": "workflow-ready",
         },
     )
+    identity = ToolPrepareWorkerIdentity.create("worker-validation-failure")
+    proof = claim_next_tool_prepare_job(cfg, identity=identity)
+    assert proof is not None
 
     failed = fail_tool_prepare_job(
         cfg,
-        job["jobId"],
+        proof,
         code="SNAKEMAKE_DRY_RUN_FAILED",
         message="Snakemake dry-run failed.",
     )
+    assert release_tool_prepare_worker_claim(cfg, proof=proof) is True
     results = list_tool_validation_results(cfg, tool_id="bioconda::fastqc")
     page = search_tool_index(cfg, query="fastqc", limit=10, offset=0)
 
@@ -114,6 +123,10 @@ def test_tool_validation_result_reuses_runtime_profile_for_same_revision_and_loc
             "runtimeProfile": runtime_profile,
         },
     )
+    identity = ToolPrepareWorkerIdentity.create("worker-runtime-profile")
+    first_proof = claim_next_tool_prepare_job(cfg, identity=identity)
+    assert first_proof is not None
+    assert first_proof.job_id == first["jobId"]
     second = create_tool_prepare_job(
         cfg,
         {
@@ -122,28 +135,37 @@ def test_tool_validation_result_reuses_runtime_profile_for_same_revision_and_loc
             "runtimeProfile": runtime_profile,
         },
     )
+    second_proof = claim_next_tool_prepare_job(cfg, identity=identity)
+    assert second_proof is not None
+    assert second_proof.job_id == second["jobId"]
 
-    complete_tool_prepare_job(
+    first_published = publish_validated_tool_for_attempt(
         cfg,
-        first["jobId"],
-        {
+        proof=first_proof,
+        validated_tool={
+            **first["request"],
             "id": "bioconda::fastqc",
-            "toolRevisionId": "bioconda::fastqc#rev1",
             "message": "Tool revision published.",
         },
     )
-    complete_tool_prepare_job(
+    assert release_tool_prepare_worker_claim(cfg, proof=first_proof) is True
+    second_published = publish_validated_tool_for_attempt(
         cfg,
-        second["jobId"],
-        {
+        proof=second_proof,
+        validated_tool={
+            **second["request"],
             "id": "bioconda::fastqc",
-            "toolRevisionId": "bioconda::fastqc#rev1",
             "message": "Tool revision published.",
         },
     )
+    assert release_tool_prepare_worker_claim(cfg, proof=second_proof) is True
 
     results = list_tool_validation_results(cfg, tool_id="bioconda::fastqc")
-    profiles = list_tool_runtime_profiles(cfg, tool_revision_id="bioconda::fastqc#rev1")
+    assert first_published["toolRevisionId"] == second_published["toolRevisionId"]
+    profiles = list_tool_runtime_profiles(
+        cfg,
+        tool_revision_id=first_published["toolRevisionId"],
+    )
 
     assert len(results) == 2
     assert len(profiles) == 1

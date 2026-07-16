@@ -133,7 +133,7 @@ def test_cancel_before_publication_prevents_every_publication_write(tmp_path: Pa
 
     assert statuses == ["cancelled"]
     assert attempt["state"] == "active"
-    assert attempt["outcome_status"] == ""
+    assert attempt["outcome_status"] == "cancelled"
     assert published_events == 0
 
 

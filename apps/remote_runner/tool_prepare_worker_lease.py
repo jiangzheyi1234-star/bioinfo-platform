@@ -2,29 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .config import RemoteRunnerConfig
-from .storage_core import get_connection, now_iso
-
-
-def release_tool_prepare_worker_claim(
-    cfg: RemoteRunnerConfig,
-    *,
-    job_id: str,
-    worker_id: str,
-    now: str | None = None,
-) -> bool:
-    released_at = str(now or now_iso())
-    with get_connection(cfg) as connection:
-        cursor = connection.execute(
-            """
-            UPDATE tool_prepare_jobs
-            SET claimed_by = '', claimed_until = NULL, heartbeat_at = NULL, updated_at = ?
-            WHERE job_id = ? AND claimed_by = ?
-            """,
-            (released_at, str(job_id or "").strip(), str(worker_id or "").strip()),
-        )
-        connection.commit()
-    return cursor.rowcount == 1
+from .tool_prepare_claims import release_tool_prepare_worker_claim
 
 
 def tool_prepare_worker_activity(connection, *, now: str) -> dict[str, Any]:
@@ -54,3 +32,6 @@ def tool_prepare_worker_activity(connection, *, now: str) -> dict[str, Any]:
         "active": counts["queued"] + counts["running"],
         "activeClaims": active_claims,
     }
+
+
+__all__ = ["release_tool_prepare_worker_claim", "tool_prepare_worker_activity"]

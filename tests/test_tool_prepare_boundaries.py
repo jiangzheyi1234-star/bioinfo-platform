@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
 
 from apps.remote_runner.config import ensure_runtime_layout
+from apps.remote_runner.tool_prepare_claims import (
+    ToolPrepareWorkerIdentity,
+    claim_next_tool_prepare_job,
+)
 from apps.remote_runner.tool_prepare_job_storage import create_tool_prepare_job, fetch_tool_prepare_job
 from apps.remote_runner.tool_prepare_jobs import run_tool_prepare_job
 from tests.test_tool_contract_pipeline import _cfg
@@ -19,15 +24,27 @@ def test_tool_prepare_job_does_not_mask_unexpected_validation_errors(monkeypatch
         raise RuntimeError("prepare validation adapter crashed")
 
     monkeypatch.setattr("apps.remote_runner.tool_prepare_jobs.validate_registered_tool_for_publish", fail_validation)
+    proof = claim_next_tool_prepare_job(
+        cfg,
+        identity=ToolPrepareWorkerIdentity(
+            worker_id="tool-prepare-boundary-worker",
+            session_id="tool-prepare-boundary-session",
+            process_instance_id="tool-prepare-boundary-process",
+            process_pid=os.getpid(),
+            hostname="test-runner",
+        ),
+    )
+    assert proof is not None
+    assert proof.job_id == job["jobId"]
 
     with pytest.raises(RuntimeError, match="prepare validation adapter crashed"):
-        run_tool_prepare_job(cfg, job["jobId"])
+        run_tool_prepare_job(cfg, proof)
 
     finished = fetch_tool_prepare_job(cfg, job["jobId"])
     assert finished is not None
     assert finished["status"] == "running"
     assert finished["errorCode"] is None
-    assert [event["stage"] for event in finished["events"]] == ["queued", "validating_spec"]
+    assert [event["stage"] for event in finished["events"]] == ["queued", "claimed", "validating_spec"]
 
 
 def test_tool_prepare_is_exposed_through_api_layers() -> None:
