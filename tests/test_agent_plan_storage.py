@@ -6,6 +6,7 @@ import sqlite3
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from apps.remote_runner.agent_plan_storage import (
     AgentPlanStorageConflictError,
@@ -18,6 +19,7 @@ from apps.remote_runner.agent_plan_storage import (
 from apps.remote_runner.agent_session_storage import create_agent_session, transition_agent_session
 from apps.remote_runner.storage_core import get_connection
 from apps.remote_runner.workflow_design_storage import create_workflow_design_draft, fork_workflow_design_draft
+from core.contracts.agent_plan import AgentPlanRevisionRecord
 from tests.helpers.workflow_design_drafts import workflow_design_config, workflow_design_draft
 
 
@@ -121,6 +123,9 @@ def test_agent_plan_revision_is_immutable_idempotent_and_bound_to_draft(tmp_path
     assert len(plan["planHash"]) == 64
     assert hashlib.sha256(plan["canonicalPayload"].encode("utf-8")).hexdigest() == plan["planHash"]
     assert json.loads(plan["canonicalPayload"])["proposal"] == plan["proposal"]
+    validated_plan = AgentPlanRevisionRecord.model_validate(plan)
+    assert validated_plan.canonicalPayload == plan["canonicalPayload"]
+    assert validated_plan.planHash == plan["planHash"]
     assert fetch_agent_plan_revision(cfg, plan["planRevisionId"]) == plan
     assert list_agent_plan_revisions(cfg, session["sessionId"]) == [plan]
 
@@ -150,6 +155,27 @@ def test_agent_plan_revision_is_immutable_idempotent_and_bound_to_draft(tmp_path
                 "DELETE FROM agent_plan_revisions WHERE plan_revision_id = ?",
                 (plan["planRevisionId"],),
             )
+
+
+def test_agent_plan_public_contract_rejects_canonical_payload_tampering(tmp_path: Path) -> None:
+    _cfg, _session, _draft, _proposal, plan = _create_first_plan(tmp_path)
+
+    mismatched_payload = dict(plan)
+    canonical = json.loads(plan["canonicalPayload"])
+    canonical["draftRevision"] += 1
+    mismatched_payload["canonicalPayload"] = json.dumps(canonical, sort_keys=True, separators=(",", ":"))
+    mismatched_payload["planHash"] = hashlib.sha256(
+        mismatched_payload["canonicalPayload"].encode("utf-8")
+    ).hexdigest()
+    with pytest.raises(ValidationError, match="AGENT_PLAN_CANONICAL_PAYLOAD_MISMATCH"):
+        AgentPlanRevisionRecord.model_validate(mismatched_payload)
+
+    stale_hash = dict(plan)
+    stale_hash["canonicalPayload"] = plan["canonicalPayload"].replace(
+        '"planGeneration":1', '"planGeneration":1.0'
+    )
+    with pytest.raises(ValidationError, match="AGENT_PLAN_CANONICAL_HASH_MISMATCH"):
+        AgentPlanRevisionRecord.model_validate(stale_hash)
 
 
 def test_agent_approval_is_plan_bound_idempotent_and_immutable(tmp_path: Path) -> None:
