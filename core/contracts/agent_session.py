@@ -12,6 +12,7 @@ from .workflow_design import WorkflowDesignDraftV1
 
 AGENT_SESSION_CONTRACT_VERSION = "agent-session.v1"
 AGENT_SESSION_EVENT_CONTRACT_VERSION = "agent-event.v1"
+AGENT_PRINCIPAL_CONTEXT_VERSION = "agent-principal-context.v1"
 
 AgentSessionStatus = Literal[
     "created",
@@ -74,6 +75,16 @@ class AgentSessionModel(BaseModel):
 
     def runtime_payload(self) -> dict[str, JsonValue]:
         return self.model_dump(by_alias=True, exclude_none=True, mode="json")
+
+
+class AgentPrincipalContext(AgentSessionModel):
+    schemaVersion: Literal["agent-principal-context.v1"]
+    actor: str = Field(min_length=1, max_length=500)
+
+    @field_validator("actor")
+    @classmethod
+    def validate_actor(cls, value: str) -> str:
+        return _required_text(value, "AGENT_PRINCIPAL_CONTEXT_ACTOR_REQUIRED")
 
 
 class AgentSessionGoal(AgentSessionModel):
@@ -174,30 +185,46 @@ class AgentPlanProposal(AgentSessionModel):
         return self
 
 
-class AgentSessionCreateRequest(AgentSessionModel):
+class AgentSessionCreateIntent(AgentSessionModel):
     contractVersion: Literal["agent-session.v1"]
     projectId: str = Field(min_length=1, max_length=500)
     creationRequestId: str = Field(min_length=1, max_length=500)
-    createdBy: str = Field(min_length=1, max_length=500)
     goal: AgentSessionGoal
     constraints: AgentSessionConstraints = Field(default_factory=AgentSessionConstraints)
     budget: AgentSessionBudget
 
-    @field_validator("projectId", "creationRequestId", "createdBy")
+    @field_validator("projectId", "creationRequestId")
     @classmethod
     def validate_required_text(cls, value: str) -> str:
         return _required_text(value, "AGENT_SESSION_CREATE_TEXT_REQUIRED")
 
 
-class AgentSessionCommand(AgentSessionModel):
+class AgentSessionCreateRequest(AgentSessionCreateIntent):
+    createdBy: str = Field(min_length=1, max_length=500)
+
+    @field_validator("createdBy")
+    @classmethod
+    def validate_created_by(cls, value: str) -> str:
+        return _required_text(value, "AGENT_SESSION_CREATE_TEXT_REQUIRED")
+
+
+class AgentSessionCommandIntent(AgentSessionModel):
     requestId: str = Field(min_length=1, max_length=500)
-    actor: str = Field(min_length=1, max_length=500)
     idempotencyKey: str = Field(min_length=1, max_length=500)
     expectedStateVersion: int = Field(ge=1)
 
-    @field_validator("requestId", "actor", "idempotencyKey")
+    @field_validator("requestId", "idempotencyKey")
     @classmethod
     def validate_command_text(cls, value: str) -> str:
+        return _required_text(value, "AGENT_SESSION_COMMAND_TEXT_REQUIRED")
+
+
+class AgentSessionCommand(AgentSessionCommandIntent):
+    actor: str = Field(min_length=1, max_length=500)
+
+    @field_validator("actor")
+    @classmethod
+    def validate_actor(cls, value: str) -> str:
         return _required_text(value, "AGENT_SESSION_COMMAND_TEXT_REQUIRED")
 
 
@@ -215,7 +242,7 @@ class AgentReplanRequest(AgentSessionCommand):
         return _required_text(value, "AGENT_SESSION_REPLAN_REASON_REQUIRED")
 
 
-class AgentApprovalRequest(AgentSessionCommand):
+class AgentApprovalIntent(AgentSessionCommandIntent):
     decision: AgentApprovalDecision
     expectedPlanHash: str = Field(min_length=1, max_length=500)
     reason: str | None = Field(default=None, min_length=1, max_length=10_000)
@@ -239,7 +266,16 @@ class AgentApprovalRequest(AgentSessionCommand):
         return self
 
 
-class AgentCancelRequest(AgentSessionCommand):
+class AgentApprovalRequest(AgentApprovalIntent):
+    actor: str = Field(min_length=1, max_length=500)
+
+    @field_validator("actor")
+    @classmethod
+    def validate_actor(cls, value: str) -> str:
+        return _required_text(value, "AGENT_SESSION_COMMAND_TEXT_REQUIRED")
+
+
+class AgentCancelIntent(AgentSessionCommandIntent):
     reason: str | None = Field(default=None, min_length=1, max_length=10_000)
 
     @field_validator("reason")
@@ -248,6 +284,15 @@ class AgentCancelRequest(AgentSessionCommand):
         if value is None:
             return None
         return _required_text(value, "AGENT_SESSION_CANCEL_REASON_REQUIRED")
+
+
+class AgentCancelRequest(AgentCancelIntent):
+    actor: str = Field(min_length=1, max_length=500)
+
+    @field_validator("actor")
+    @classmethod
+    def validate_actor(cls, value: str) -> str:
+        return _required_text(value, "AGENT_SESSION_COMMAND_TEXT_REQUIRED")
 
 
 class AgentSessionRecord(AgentSessionModel):

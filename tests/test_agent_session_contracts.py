@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from core.contracts.agent_session import (
     AgentApprovalRequest,
     AgentPlanRequest,
+    AgentPrincipalContext,
     AgentSessionCreateRequest,
     AgentSessionEvent,
     AgentSessionRecord,
@@ -128,6 +129,25 @@ def test_create_contract_is_strict_and_serializes_camel_case_runtime_payload() -
     extra["serverId"] = "server-local-routing-must-not-be-persisted"
     with pytest.raises(ValidationError) as extra_exc:
         AgentSessionCreateRequest.model_validate(extra)
+    assert extra_exc.value.errors()[0]["type"] == "extra_forbidden"
+
+
+def test_authenticated_principal_context_is_minimal_and_strict() -> None:
+    context = AgentPrincipalContext.model_validate(
+        {
+            "schemaVersion": "agent-principal-context.v1",
+            "actor": "runner-user",
+        }
+    )
+
+    assert context.runtime_payload() == {
+        "schemaVersion": "agent-principal-context.v1",
+        "actor": "runner-user",
+    }
+    with pytest.raises(ValidationError) as extra_exc:
+        AgentPrincipalContext.model_validate(
+            context.runtime_payload() | {"roles": ["workflow-operator"]}
+        )
     assert extra_exc.value.errors()[0]["type"] == "extra_forbidden"
 
 

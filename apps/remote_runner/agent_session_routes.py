@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter
 
 from core.contracts.agent_remote_endpoints import (
+    AGENT_PRINCIPAL_CONTEXT_READ,
     AGENT_SESSION_APPROVAL,
     AGENT_SESSION_APPROVALS_READ,
     AGENT_SESSION_CANCEL,
@@ -31,6 +32,7 @@ from .agent_session_service import (
     approve_agent_session_from_http,
     cancel_agent_session_from_http,
     create_agent_session_from_http,
+    get_agent_principal_context_from_http,
     get_agent_session_from_http,
     list_agent_approvals_from_http,
     list_agent_events_from_http,
@@ -43,6 +45,16 @@ from .route_headers import AuthorizationHeader
 
 
 router = APIRouter()
+
+
+@router.get(
+    "/api/v1/agent-principal-context",
+    operation_id=REMOTE_ENDPOINTS[AGENT_PRINCIPAL_CONTEXT_READ].operation_id,
+)
+async def get_agent_principal_context_api(
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await get_agent_principal_context_from_http(authorization)
 
 
 @router.get("/api/v1/agent-sessions", operation_id=REMOTE_ENDPOINTS[AGENT_SESSION_LIST].operation_id)

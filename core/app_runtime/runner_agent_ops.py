@@ -4,6 +4,9 @@ from typing import Any
 
 
 class RunnerAgentOperationsMixin:
+    def get_agent_principal_context(self, *, server_id: str) -> dict[str, Any]:
+        return self.agents.get_agent_principal_context(server_id=server_id)
+
     def list_agent_sessions(self, server_id: str | None = None) -> dict[str, Any]:
         return self.agents.list_agent_sessions(server_id)
 

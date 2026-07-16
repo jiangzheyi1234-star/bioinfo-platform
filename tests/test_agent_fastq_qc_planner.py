@@ -100,12 +100,13 @@ def test_fastq_qc_planner_fails_closed_for_missing_ambiguous_or_drifted_capabili
 def test_fastq_qc_command_and_goal_reject_graphs_gzip_and_multiple_inputs() -> None:
     command = {
         "requestId": "plan-1",
-        "actor": "user-1",
         "idempotencyKey": "plan-1",
         "expectedStateVersion": 1,
         "serverId": "srv-qc",
     }
     assert AgentPlanRequest.model_validate(command).model_dump()["serverId"] == "srv-qc"
+    with pytest.raises(ValidationError, match="extra_forbidden"):
+        AgentPlanRequest.model_validate(command | {"actor": "browser-claim"})
     with pytest.raises(ValidationError, match="extra_forbidden"):
         AgentPlanRequest.model_validate(command | {"proposal": {"draft": {}}})
 

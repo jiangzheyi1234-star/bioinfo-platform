@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import ValidationError
+
 from core.app_runtime.errors import RuntimeServiceError
 from core.app_runtime.managers.base import BaseRuntimeManager
 from core.contracts.agent_remote_endpoints import (
+    AGENT_PRINCIPAL_CONTEXT_READ,
     AGENT_SESSION_APPROVAL,
     AGENT_SESSION_APPROVALS_READ,
     AGENT_SESSION_CANCEL,
@@ -22,12 +25,27 @@ from core.contracts.agent_session import (
     AgentApprovalRequest,
     AgentCancelRequest,
     AgentPlanRequest,
+    AgentPrincipalContext,
     AgentReplanRequest,
     AgentSessionCreateRequest,
 )
 
 
 class AgentManager(BaseRuntimeManager):
+    def get_agent_principal_context(self, *, server_id: str) -> dict[str, Any]:
+        preferred_server_id = _optional_text(server_id)
+        if preferred_server_id is None:
+            raise RuntimeServiceError("AGENT_SESSION_SERVER_ID_REQUIRED")
+        result = self.read_existing_remote_endpoint(
+            AGENT_PRINCIPAL_CONTEXT_READ,
+            preferred_server_id=preferred_server_id,
+        )
+        try:
+            context = AgentPrincipalContext.model_validate(result.get("data"))
+        except ValidationError as exc:
+            raise RuntimeServiceError("AGENT_PRINCIPAL_CONTEXT_INVALID") from exc
+        return {"data": context.runtime_payload()}
+
     def list_agent_sessions(self, server_id: str | None = None) -> dict[str, Any]:
         return {
             "data": {

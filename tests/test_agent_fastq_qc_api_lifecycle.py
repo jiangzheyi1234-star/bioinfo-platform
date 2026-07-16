@@ -28,6 +28,9 @@ class HttpRemoteBridgeRuntime:
         self.headers = headers
         self.calls: list[tuple[str, str | None]] = []
 
+    def get_agent_principal_context(self, *, server_id: str) -> dict[str, Any]:
+        return self._get("principal", "/api/v1/agent-principal-context", server_id)
+
     def get_agent_session(
         self,
         session_id: str,
@@ -245,7 +248,6 @@ def test_local_command_only_facade_replays_against_the_real_remote_boundary(
     command = AgentPlanRequest.model_validate(
         {
             "requestId": "local-plan-real-remote",
-            "actor": "user-1",
             "idempotencyKey": "local-plan-real-remote",
             "expectedStateVersion": created["stateVersion"],
             "serverId": "srv-real-remote",
@@ -294,7 +296,6 @@ def test_local_facade_recovers_interrupted_plan_from_durable_proposal_intent(
     command = AgentPlanRequest.model_validate(
         {
             "requestId": "plan-interrupted-once",
-            "actor": "user-1",
             "idempotencyKey": "plan-interrupted-once",
             "expectedStateVersion": created["stateVersion"],
             "serverId": "srv-recovery",

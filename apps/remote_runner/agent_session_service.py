@@ -7,8 +7,10 @@ import json
 from typing import Any
 
 from core.contracts.agent_session import (
+    AGENT_PRINCIPAL_CONTEXT_VERSION,
     AgentApprovalRequest,
     AgentCancelRequest,
+    AgentPrincipalContext,
     AgentPlanRequest,
     AgentReplanRequest,
     AgentSessionCreateRequest,
@@ -369,6 +371,18 @@ def cancel_agent_session_from_request(
 async def list_agent_sessions_from_http(authorization: str | None) -> dict[str, Any]:
     cfg = authorized_config(authorization, action="agent_session.list")
     return data_response({"items": await run_sync(list_agent_sessions, cfg)})
+
+
+async def get_agent_principal_context_from_http(
+    authorization: str | None,
+) -> dict[str, Any]:
+    cfg = authorized_config(authorization, action="agent_session.principal_context.read")
+    principal = remote_runner_principal(cfg)
+    context = AgentPrincipalContext(
+        schemaVersion=AGENT_PRINCIPAL_CONTEXT_VERSION,
+        actor=principal.actor,
+    )
+    return data_response(context.runtime_payload())
 
 
 async def create_agent_session_from_http(

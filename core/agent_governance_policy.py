@@ -18,6 +18,15 @@ _ROUTES = "apps/remote_runner/agent_session_routes.py"
 AGENT_REMOTE_GOVERNANCE_SPECS: tuple[AgentRemoteGovernanceSpec, ...] = (
     (
         "GET",
+        "/api/v1/agent-principal-context",
+        _ROUTES,
+        "agent_session.principal_context.read",
+        "agent_principal_context",
+        "implemented",
+        ("workflow-operator",),
+    ),
+    (
+        "GET",
         "/api/v1/agent-sessions",
         _ROUTES,
         "agent_session.list",

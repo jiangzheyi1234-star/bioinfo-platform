@@ -29,9 +29,11 @@ from apps.api.agent_session_routes import (
     replan_agent_session_api,
 )
 from apps.api.main import app
+from core.app_runtime.errors import RuntimeServiceError
 from core.app_runtime.managers.agent import AgentManager
 from core.app_runtime.runner_ops import RunnerOperationsMixin
 from core.contracts.agent_remote_endpoints import (
+    AGENT_PRINCIPAL_CONTEXT_READ,
     AGENT_SESSION_APPROVAL,
     AGENT_SESSION_APPROVALS_READ,
     AGENT_SESSION_CANCEL,
@@ -61,7 +63,6 @@ def _create_payload(*, server_id: str | None = "srv_agent") -> dict[str, Any]:
         "contractVersion": "agent-session.v1",
         "projectId": "project-qc",
         "creationRequestId": "create-qc-1",
-        "createdBy": "user-1",
         "goal": {
             "summary": "Run FASTQ QC and produce a reviewable MultiQC report.",
             "successCriteria": ["Produce a reviewable MultiQC report."],
@@ -105,7 +106,6 @@ def _plan_payload(*, server_id: str | None = "srv_agent") -> dict[str, Any]:
 def _plan_command_payload(*, server_id: str = "srv_agent") -> dict[str, Any]:
     return {
         "requestId": "req-plan-1",
-        "actor": "user-1",
         "idempotencyKey": "idem-plan-1",
         "expectedStateVersion": 1,
         "serverId": server_id,
@@ -132,7 +132,6 @@ def _fastq_context() -> dict[str, Any]:
 def _approval_payload(*, server_id: str | None = "srv_agent") -> dict[str, Any]:
     payload: dict[str, Any] = {
         "requestId": "req-approve-1",
-        "actor": "user-1",
         "idempotencyKey": "idem-approve-1",
         "expectedStateVersion": 3,
         "decision": "approve",
@@ -146,7 +145,6 @@ def _approval_payload(*, server_id: str | None = "srv_agent") -> dict[str, Any]:
 def _cancel_payload(*, server_id: str | None = "srv_agent") -> dict[str, Any]:
     payload: dict[str, Any] = {
         "requestId": "req-cancel-1",
-        "actor": "user-1",
         "idempotencyKey": "idem-cancel-1",
         "expectedStateVersion": 3,
         "reason": "Operator cancelled before execution.",
@@ -159,10 +157,16 @@ def _cancel_payload(*, server_id: str | None = "srv_agent") -> dict[str, Any]:
 class FakeRemoteRunnerManager:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
+        self.principal_context: Any = {
+            "schemaVersion": "agent-principal-context.v1",
+            "actor": "trusted-user",
+        }
 
     def call_remote_endpoint(self, **kwargs: Any) -> Any:
         self.calls.append(kwargs)
         endpoint_id = kwargs["endpoint_id"]
+        if endpoint_id == AGENT_PRINCIPAL_CONTEXT_READ:
+            return self.principal_context
         if endpoint_id == AGENT_SESSION_LIST:
             return [{"sessionId": "ags_1"}]
         if endpoint_id == AGENT_SESSION_EVENTS_READ:
@@ -211,6 +215,14 @@ class FakeRunnerOps(RunnerOperationsMixin):
 class FakeRuntime:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str | None, dict[str, Any]]] = []
+        self.principal_context: Any = {
+            "schemaVersion": "agent-principal-context.v1",
+            "actor": "trusted-user",
+        }
+
+    def get_agent_principal_context(self, *, server_id: str) -> dict[str, Any]:
+        self.calls.append(("principal", server_id, {}))
+        return {"data": copy.deepcopy(self.principal_context)}
 
     def list_agent_sessions(self, *, server_id: str | None = None) -> dict[str, Any]:
         self.calls.append(("list", server_id, {}))
@@ -426,7 +438,7 @@ def _session_record(session_id: str = "ags_1") -> dict[str, Any]:
         "planner": {},
         "lastErrorCode": "",
         "creationRequestId": created["creationRequestId"],
-        "createdBy": created["createdBy"],
+        "createdBy": "trusted-user",
         "createdAt": "2026-07-15T00:00:00Z",
         "updatedAt": "2026-07-15T00:00:00Z",
     }
@@ -467,7 +479,7 @@ def _ready_tool(profile_id: str, version: str) -> dict[str, Any]:
     }
 
 
-def test_local_models_accept_only_local_server_routing_and_strip_it_explicitly() -> None:
+def test_local_models_forbid_browser_principal_claims_and_require_server_routing() -> None:
     request = AgentSessionCreateRequest.model_validate(_create_payload())
     server_id, remote_payload = split_agent_routing(request)
 
@@ -475,6 +487,36 @@ def test_local_models_accept_only_local_server_routing_and_strip_it_explicitly()
     assert "serverId" not in remote_payload
     assert remote_payload["contractVersion"] == "agent-session.v1"
     assert remote_payload["budget"] == _budget()
+    assert "createdBy" not in remote_payload
+
+    replan = _plan_command_payload() | {
+        "reason": "Use the corrected sample pairing.",
+    }
+    principal_claims = (
+        (AgentSessionCreateRequest, _create_payload() | {"createdBy": "intruder"}),
+        (AgentPlanRequest, _plan_command_payload() | {"actor": "intruder"}),
+        (AgentReplanRequest, replan | {"actor": "intruder"}),
+        (AgentApprovalRequest, _approval_payload() | {"actor": "intruder"}),
+        (AgentCancelRequest, _cancel_payload() | {"actor": "intruder"}),
+    )
+    for model_type, payload in principal_claims:
+        with pytest.raises(ValidationError) as principal_exc:
+            model_type.model_validate(payload)
+        assert principal_exc.value.errors()[0]["type"] == "extra_forbidden"
+
+    required_server_requests = (
+        (AgentSessionCreateRequest, _create_payload()),
+        (AgentPlanRequest, _plan_command_payload()),
+        (AgentReplanRequest, replan),
+        (AgentApprovalRequest, _approval_payload()),
+        (AgentCancelRequest, _cancel_payload()),
+    )
+    for model_type, payload in required_server_requests:
+        without_server = dict(payload)
+        without_server.pop("serverId")
+        with pytest.raises(ValidationError) as server_exc:
+            model_type.model_validate(without_server)
+        assert server_exc.value.errors()[0]["type"] == "missing"
 
     provider_specific = _plan_command_payload() | {"proposal": {"draft": {}}}
     with pytest.raises(ValidationError) as provider_exc:
@@ -528,24 +570,96 @@ def test_local_write_routes_pass_server_separately_from_remote_contract(monkeypa
     assert approved["data"]["action"] == "approval"
     assert cancelled["data"]["action"] == "cancel"
     assert [call[0] for call in runtime.calls] == [
+        "principal",
         "create",
+        "principal",
         "get",
         "events",
         "upload",
         "tools",
         "plan",
+        "principal",
         "approval",
+        "principal",
         "get",
+        "principal",
         "cancel",
     ]
     assert all(server_id == "srv_agent" for _, server_id, _ in runtime.calls)
     assert all("serverId" not in payload for _, _, payload in runtime.calls)
+    created_call = next(payload for action, _, payload in runtime.calls if action == "create")
     planned_call = next(payload for action, _, payload in runtime.calls if action == "plan")
+    approved_call = next(payload for action, _, payload in runtime.calls if action == "approval")
+    cancelled_call = next(payload for action, _, payload in runtime.calls if action == "cancel")
+    assert created_call["createdBy"] == "trusted-user"
+    assert planned_call["actor"] == "trusted-user"
+    assert approved_call["actor"] == "trusted-user"
+    assert cancelled_call["actor"] == "trusted-user"
     assert planned_call["proposal"]["planner"]["adapterId"] == "h2ometa.fastq-qc.v1"
     assert [node["id"] for node in planned_call["proposal"]["draft"]["nodes"]] == [
         "fastqc",
         "multiqc",
     ]
+
+
+def test_local_replan_binds_trusted_actor_to_the_same_selected_server(monkeypatch) -> None:
+    runtime = FakeRuntime()
+    monkeypatch.setattr("apps.api.agent_session_service.runtime_service", lambda: runtime)
+
+    def passthrough_replan(**kwargs: Any) -> dict[str, Any]:
+        assert kwargs["replan"] is True
+        return kwargs["runtime"].replan_agent_session(
+            kwargs["session_id"],
+            kwargs["command"],
+            server_id=kwargs["server_id"],
+        )
+
+    monkeypatch.setattr(
+        "apps.api.agent_session_service.plan_agent_session_with_adapter",
+        passthrough_replan,
+    )
+    request = AgentReplanRequest.model_validate(
+        _plan_command_payload(server_id="srv_replan")
+        | {"reason": "Apply the reviewed typed adjustment."}
+    )
+
+    result = asyncio.run(replan_agent_session_api("ags_1", request))
+
+    assert result["data"]["action"] == "replan"
+    assert runtime.calls == [
+        ("principal", "srv_replan", {}),
+        (
+            "replan",
+            "srv_replan",
+            {
+                "requestId": "req-plan-1",
+                "idempotencyKey": "idem-plan-1",
+                "expectedStateVersion": 1,
+                "reason": "Apply the reviewed typed adjustment.",
+                "actor": "trusted-user",
+            },
+        ),
+    ]
+
+
+def test_local_write_fails_closed_for_invalid_principal_context(monkeypatch) -> None:
+    runtime = FakeRuntime()
+    runtime.principal_context = {
+        "schemaVersion": "agent-principal-context.v1",
+        "actor": "trusted-user",
+        "roles": ["workflow-operator"],
+    }
+    monkeypatch.setattr("apps.api.agent_session_service.runtime_service", lambda: runtime)
+
+    with pytest.raises(ValueError, match="AGENT_PRINCIPAL_CONTEXT_INVALID"):
+        asyncio.run(
+            cancel_agent_session_api(
+                "ags_1",
+                AgentCancelRequest.model_validate(_cancel_payload()),
+            )
+        )
+
+    assert runtime.calls == [("principal", "srv_agent", {})]
 
 
 def test_duplicate_local_plan_replays_the_original_remote_request(monkeypatch) -> None:
@@ -613,10 +727,16 @@ def test_local_read_routes_pass_selected_server_id(monkeypatch) -> None:
 def test_runtime_manager_strips_server_id_and_revalidates_remote_payloads() -> None:
     runner = FakeRunnerOps()
 
-    created = runner.create_agent_session(_create_payload())
+    created = runner.create_agent_session(_create_payload() | {"createdBy": "trusted-user"})
     planned = runner.plan_agent_session("ags_1", _plan_payload())
-    approved = runner.approve_agent_session("ags_1", _approval_payload())
-    cancelled = runner.cancel_agent_session("ags_1", _cancel_payload())
+    approved = runner.approve_agent_session(
+        "ags_1",
+        _approval_payload() | {"actor": "trusted-user"},
+    )
+    cancelled = runner.cancel_agent_session(
+        "ags_1",
+        _cancel_payload() | {"actor": "trusted-user"},
+    )
 
     assert created["data"]["status"] == "created"
     assert planned["data"]["endpointId"] == AGENT_SESSION_PLAN
@@ -641,18 +761,26 @@ def test_runtime_manager_strips_server_id_and_revalidates_remote_payloads() -> N
 def test_runtime_read_operations_cover_all_agent_session_read_endpoints() -> None:
     runner = FakeRunnerOps()
 
+    principal = runner.get_agent_principal_context(server_id="srv_agent")
     listed = runner.list_agent_sessions(server_id="srv_agent")
     fetched = runner.get_agent_session("ags_1", server_id="srv_agent")
     events = runner.list_agent_session_events("ags_1", server_id="srv_agent")
     plans = runner.list_agent_session_plans("ags_1", server_id="srv_agent")
     approvals = runner.list_agent_session_approvals("ags_1", server_id="srv_agent")
 
+    assert principal == {
+        "data": {
+            "schemaVersion": "agent-principal-context.v1",
+            "actor": "trusted-user",
+        }
+    }
     assert listed == {"data": {"items": [{"sessionId": "ags_1"}]}}
     assert fetched == {"data": {"sessionId": "ags_1", "status": "created"}}
     assert events == {"data": {"items": [{"eventId": "agev_1"}]}}
     assert plans == {"data": {"items": [{"planRevisionId": "agp_1"}]}}
     assert approvals == {"data": {"items": [{"approvalId": "aga_1"}]}}
     assert [call["endpoint_id"] for call in runner.manager.calls] == [
+        AGENT_PRINCIPAL_CONTEXT_READ,
         AGENT_SESSION_LIST,
         AGENT_SESSION_READ,
         AGENT_SESSION_EVENTS_READ,
@@ -660,6 +788,18 @@ def test_runtime_read_operations_cover_all_agent_session_read_endpoints() -> Non
         AGENT_SESSION_APPROVALS_READ,
     ]
     assert all(call["path_values"].get("session_id", "ags_1") == "ags_1" for call in runner.manager.calls)
+
+
+def test_runtime_principal_context_rejects_nonminimal_remote_payload() -> None:
+    runner = FakeRunnerOps()
+    runner.manager.principal_context = {
+        "schemaVersion": "agent-principal-context.v1",
+        "actor": "trusted-user",
+        "roles": ["workflow-operator"],
+    }
+
+    with pytest.raises(RuntimeServiceError, match="AGENT_PRINCIPAL_CONTEXT_INVALID"):
+        runner.get_agent_principal_context(server_id="srv_agent")
 
 
 def test_local_app_registers_the_complete_agent_session_facade() -> None:
@@ -680,3 +820,4 @@ def test_local_app_registers_the_complete_agent_session_facade() -> None:
     assert route_operations[("/api/v1/agent-sessions/{session_id}/approval", "POST")] == "approveAgentSessionPlan"
     assert route_operations[("/api/v1/agent-sessions/{session_id}/replan", "POST")] == "replanAgentSession"
     assert route_operations[("/api/v1/agent-sessions/{session_id}/cancel", "POST")] == "cancelAgentSession"
+    assert ("/api/v1/agent-principal-context", "GET") not in route_operations

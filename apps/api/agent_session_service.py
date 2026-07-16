@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import ValidationError
+
 from apps.api.agent_session_models import (
     AgentApprovalRequest,
     AgentCancelRequest,
@@ -15,6 +17,7 @@ from apps.api.agent_session_models import (
 from apps.api.agent_session_planner_service import plan_agent_session_with_adapter
 from apps.api.response_cache import invalidate_response_cache
 from apps.api.route_utils import cached_runtime_payload, run_runtime_payload, runtime_service
+from core.contracts.agent_session import AgentPrincipalContext
 
 
 AGENT_SESSION_CACHE_PREFIXES = (
@@ -44,8 +47,17 @@ async def create_agent_session_from_request(
     request: AgentSessionCreateRequest,
 ) -> dict[str, Any]:
     server_id, body = split_agent_routing(request)
+    runtime = runtime_service()
     result = await run_runtime_payload(
-        lambda: runtime_service().create_agent_session(body, server_id=server_id),
+        lambda: runtime.create_agent_session(
+            _bind_trusted_principal(
+                runtime,
+                server_id=server_id,
+                payload=body,
+                claim_field="createdBy",
+            ),
+            server_id=server_id,
+        ),
         wrapper="raw",
     )
     await _invalidate_agent_session_cache()
@@ -114,14 +126,18 @@ async def plan_agent_session_from_request(
     request: AgentPlanRequest,
 ) -> dict[str, Any]:
     server_id, body = split_agent_routing(request)
-    if server_id is None:
-        raise ValueError("AGENT_SESSION_SERVER_ID_REQUIRED")
+    runtime = runtime_service()
     result = await run_runtime_payload(
         lambda: plan_agent_session_with_adapter(
-            runtime=runtime_service(),
+            runtime=runtime,
             session_id=session_id,
             server_id=server_id,
-            command=body,
+            command=_bind_trusted_principal(
+                runtime,
+                server_id=server_id,
+                payload=body,
+                claim_field="actor",
+            ),
             replan=False,
         ),
         wrapper="raw",
@@ -135,10 +151,16 @@ async def approve_agent_session_from_request(
     request: AgentApprovalRequest,
 ) -> dict[str, Any]:
     server_id, body = split_agent_routing(request)
+    runtime = runtime_service()
     result = await run_runtime_payload(
-        lambda: runtime_service().approve_agent_session(
+        lambda: runtime.approve_agent_session(
             session_id,
-            body,
+            _bind_trusted_principal(
+                runtime,
+                server_id=server_id,
+                payload=body,
+                claim_field="actor",
+            ),
             server_id=server_id,
         ),
         wrapper="raw",
@@ -152,14 +174,18 @@ async def replan_agent_session_from_request(
     request: AgentReplanRequest,
 ) -> dict[str, Any]:
     server_id, body = split_agent_routing(request)
-    if server_id is None:
-        raise ValueError("AGENT_SESSION_SERVER_ID_REQUIRED")
+    runtime = runtime_service()
     result = await run_runtime_payload(
         lambda: plan_agent_session_with_adapter(
-            runtime=runtime_service(),
+            runtime=runtime,
             session_id=session_id,
             server_id=server_id,
-            command=body,
+            command=_bind_trusted_principal(
+                runtime,
+                server_id=server_id,
+                payload=body,
+                claim_field="actor",
+            ),
             replan=True,
         ),
         wrapper="raw",
@@ -173,10 +199,16 @@ async def cancel_agent_session_from_request(
     request: AgentCancelRequest,
 ) -> dict[str, Any]:
     server_id, body = split_agent_routing(request)
+    runtime = runtime_service()
     result = await run_runtime_payload(
-        lambda: runtime_service().cancel_agent_session(
+        lambda: runtime.cancel_agent_session(
             session_id,
-            body,
+            _bind_trusted_principal(
+                runtime,
+                server_id=server_id,
+                payload=body,
+                claim_field="actor",
+            ),
             server_id=server_id,
         ),
         wrapper="raw",
@@ -209,3 +241,21 @@ async def _cached_session_child(
 
 async def _invalidate_agent_session_cache() -> None:
     await invalidate_response_cache(prefixes=AGENT_SESSION_CACHE_PREFIXES)
+
+
+def _bind_trusted_principal(
+    runtime: Any,
+    *,
+    server_id: str,
+    payload: dict[str, object],
+    claim_field: str,
+) -> dict[str, object]:
+    response = runtime.get_agent_principal_context(server_id=server_id)
+    data = response.get("data") if isinstance(response, dict) else None
+    try:
+        context = AgentPrincipalContext.model_validate(data)
+    except ValidationError as exc:
+        raise ValueError("AGENT_PRINCIPAL_CONTEXT_INVALID") from exc
+    if claim_field in payload:
+        raise ValueError("AGENT_PRINCIPAL_CLAIM_FORBIDDEN")
+    return dict(payload) | {claim_field: context.actor}

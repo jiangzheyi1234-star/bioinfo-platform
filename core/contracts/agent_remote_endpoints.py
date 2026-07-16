@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 
+AGENT_PRINCIPAL_CONTEXT_READ = "agent_session.principal_context.read"
 AGENT_SESSION_LIST = "agent_session.list"
 AGENT_SESSION_CREATE = "agent_session.create"
 AGENT_SESSION_READ = "agent_session.read"
@@ -16,6 +17,15 @@ AGENT_SESSION_CANCEL = "agent_session.cancel"
 
 
 AGENT_REMOTE_ENDPOINT_SPECS: dict[str, dict[str, Any]] = {
+    AGENT_PRINCIPAL_CONTEXT_READ: {
+        "method": "GET",
+        "path_template": "/api/v1/agent-principal-context",
+        "operation_id": "getAgentPrincipalContext",
+        "governance_action": "agent_session.principal_context.read",
+        "request_schema": None,
+        "response_schema": "agent-principal-context.v1",
+        "cache_scope": "agent-principal-context-read-model",
+    },
     AGENT_SESSION_LIST: {
         "method": "GET",
         "path_template": "/api/v1/agent-sessions",

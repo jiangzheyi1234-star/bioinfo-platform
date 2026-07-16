@@ -85,6 +85,21 @@ def test_server_scoped_runner_diagnostic_routes_are_governed() -> None:
     assert not any(policy.route == "/api/v1/ssh/listening-ports" for policy in HIGH_RISK_API_POLICIES)
 
 
+def test_agent_principal_context_remote_route_is_governed() -> None:
+    policies = {
+        (policy.surface, policy.method, policy.route, policy.action, policy.future_roles)
+        for policy in HIGH_RISK_API_POLICIES
+    }
+
+    assert (
+        "remote-runner-api",
+        "GET",
+        "/api/v1/agent-principal-context",
+        "agent_session.principal_context.read",
+        ("workflow-operator",),
+    ) in policies
+
+
 def test_high_risk_governance_policy_routes_and_implemented_audit_actions_exist() -> None:
     implementation_source = "\n".join(
         path.read_text(encoding="utf-8")

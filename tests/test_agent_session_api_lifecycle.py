@@ -69,6 +69,29 @@ def _plan_payload(*, request_id: str, state_version: int, draft: dict[str, Any] 
     }
 
 
+def test_agent_principal_context_is_authenticated_and_minimal(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    cfg = workflow_design_config(tmp_path)
+    cfg.api_token_actor = "bound-runner-user"
+    monkeypatch.setattr("apps.remote_runner.route_utils.load_remote_runner_config", lambda: cfg)
+    client = TestClient(app)
+
+    unauthorized = client.get("/api/v1/agent-principal-context")
+    authorized = client.get(
+        "/api/v1/agent-principal-context",
+        headers={"Authorization": "Bearer workflow-design-token"},
+    )
+
+    assert unauthorized.status_code == 401
+    assert authorized.status_code == 200
+    assert _data(authorized) == {
+        "schemaVersion": "agent-principal-context.v1",
+        "actor": "bound-runner-user",
+    }
+
+
 def test_agent_session_remote_api_plan_approve_compile_and_replan(monkeypatch, tmp_path: Path) -> None:
     cfg = workflow_design_config(tmp_path)
     cfg.api_token_actor = "user-1"
