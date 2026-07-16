@@ -44,8 +44,12 @@ from .sqlite_trigger_inbox_migrations import (
     migrate_workflow_trigger_inbox_payload_schema,
     migrate_workflow_trigger_inbox_signature_metadata_schema,
 )
+from .sqlite_tool_prepare_migrations import (
+    assert_tool_prepare_attempt_schema,
+    ensure_tool_prepare_attempt_schema,
+    ensure_tool_prepare_job_schema,
+)
 from .storage_schema import SCHEMA_SQL
-from .tool_prepare_reservations import json_object, tool_prepare_job_reservation
 
 CURRENT_SCHEMA_VERSION = 18
 BASELINE_MIGRATION_NAME = "001_baseline_remote_runner_schema"
@@ -83,6 +87,8 @@ def initialize_or_migrate_runtime_db(db_path: str | Path) -> None:
         connection.row_factory = sqlite3.Row
         configure_runtime_connection(connection)
         migrate_runtime_schema(connection)
+        ensure_tool_prepare_attempt_schema(connection)
+        connection.commit()
 
 def configure_runtime_connection(connection: sqlite3.Connection) -> None:
     connection.execute("PRAGMA busy_timeout = 5000")
@@ -240,6 +246,7 @@ def ensure_runtime_schema_current(connection: sqlite3.Connection) -> None:
             f"{SCHEMA_MIGRATION_REQUIRED_ERROR}: database version {version} requires explicit migration"
         )
     _assert_current_schema_contract(connection)
+    assert_tool_prepare_attempt_schema(connection, error_type=RemoteRunnerSQLiteSchemaError)
 
 def read_schema_version(connection: sqlite3.Connection) -> int:
     row = connection.execute("PRAGMA user_version").fetchone()
@@ -323,7 +330,7 @@ def _apply_baseline_schema_migration(connection: sqlite3.Connection) -> None:
     _ensure_backfill_launches(connection)
     _ensure_candidate_output_columns(connection)
     _ensure_tools_columns(connection)
-    _ensure_tool_prepare_job_columns(connection)
+    ensure_tool_prepare_job_schema(connection)
     ensure_artifact_storage_columns(connection)
     ensure_artifact_lifecycle(connection)
     ensure_artifact_cache(connection)
@@ -785,75 +792,3 @@ def _ensure_columns(
     for column, definition in column_definitions.items():
         if column not in columns:
             connection.execute(f"ALTER TABLE {table_name} ADD COLUMN {column} {definition}")
-
-
-def _ensure_tool_prepare_job_columns(connection: sqlite3.Connection) -> None:
-    columns = {row["name"] for row in connection.execute("PRAGMA table_info(tool_prepare_jobs)").fetchall()}
-    column_definitions = {
-        "reservation_key": "TEXT NOT NULL DEFAULT ''",
-        "reservation_package_spec": "TEXT NOT NULL DEFAULT ''",
-        "reservation_validation_target": "TEXT NOT NULL DEFAULT ''",
-        "claimed_by": "TEXT NOT NULL DEFAULT ''",
-        "claimed_until": "TEXT",
-        "heartbeat_at": "TEXT",
-        "attempts": "INTEGER NOT NULL DEFAULT 0",
-        "max_attempts": "INTEGER NOT NULL DEFAULT 3",
-        "next_attempt_at": "TEXT",
-        "exhausted_at": "TEXT",
-        "backoff_seconds": "INTEGER NOT NULL DEFAULT 30",
-        "last_worker_error_json": "TEXT NOT NULL DEFAULT '{}'",
-    }
-    added_columns = False
-    for column, definition in column_definitions.items():
-        if column not in columns:
-            connection.execute(f"ALTER TABLE tool_prepare_jobs ADD COLUMN {column} {definition}")
-            added_columns = True
-    if added_columns or _tool_prepare_jobs_need_reservation_backfill(connection):
-        _backfill_tool_prepare_job_reservations(connection)
-    connection.execute(
-        """
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_tool_prepare_jobs_active_reservation
-        ON tool_prepare_jobs(reservation_key)
-        WHERE status IN ('queued', 'running') AND reservation_key <> ''
-        """
-    )
-
-
-def _tool_prepare_jobs_need_reservation_backfill(connection: sqlite3.Connection) -> bool:
-    row = connection.execute(
-        """
-        SELECT 1
-        FROM tool_prepare_jobs
-        WHERE reservation_key = ''
-        LIMIT 1
-        """
-    ).fetchone()
-    return row is not None
-
-
-def _backfill_tool_prepare_job_reservations(connection: sqlite3.Connection) -> None:
-    rows = connection.execute(
-        """
-        SELECT job_id, tool_id, request_json
-        FROM tool_prepare_jobs
-        WHERE reservation_key = ''
-        """
-    ).fetchall()
-    for row in rows:
-        request = json_object(row["request_json"])
-        reservation = tool_prepare_job_reservation(request, str(row["tool_id"] or ""))
-        connection.execute(
-            """
-            UPDATE tool_prepare_jobs
-            SET reservation_key = ?,
-                reservation_package_spec = ?,
-                reservation_validation_target = ?
-            WHERE job_id = ?
-            """,
-            (
-                reservation["key"],
-                reservation["packageSpec"],
-                reservation["validationTarget"],
-                row["job_id"],
-            ),
-        )
