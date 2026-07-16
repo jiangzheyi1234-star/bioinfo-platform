@@ -7,6 +7,7 @@ from apps.remote_runner.run_execution_storage import claim_next_run_job
 from apps.remote_runner.sqlite_migrations import initialize_or_migrate_runtime_db
 from apps.remote_runner.run_worker_storage import (
     build_run_worker_health,
+    build_run_worker_health_for_connection,
     heartbeat_run_worker,
     heartbeat_run_worker_slot,
     mark_run_worker_stopped,
@@ -110,6 +111,77 @@ def test_run_worker_register_heartbeat_drain_and_stop_are_visible_in_health(tmp_
     assert stopped["state"] == "stopped"
     assert stopped["currentAttemptId"] is None
     assert stopped["stoppedAt"] == "2099-06-07T10:00:09Z"
+
+
+def test_run_worker_health_connection_reader_matches_cfg_wrapper(tmp_path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    register_run_worker(
+        cfg,
+        worker_id="worker-equivalent",
+        session_id="session-equivalent",
+        pid=321,
+        hostname="host-equivalent",
+        now="2099-06-07T10:00:00Z",
+    )
+    register_run_worker_slot(
+        cfg,
+        worker_id="worker-equivalent",
+        session_id="session-equivalent",
+        slot_id="slot-0",
+        now="2099-06-07T10:00:01Z",
+    )
+
+    wrapped = build_run_worker_health(cfg, now="2099-06-07T10:00:05Z")
+    with get_connection(cfg) as connection:
+        from_connection = build_run_worker_health_for_connection(
+            connection,
+            now="2099-06-07T10:00:05Z",
+        )
+
+    assert from_connection == wrapped
+
+
+def test_run_worker_health_connection_reader_holds_explicit_transaction_snapshot(
+    tmp_path,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    register_run_worker(
+        cfg,
+        worker_id="worker-snapshot",
+        session_id="session-snapshot",
+        pid=654,
+        hostname="host-snapshot",
+        now="2099-06-07T10:00:00Z",
+    )
+
+    with get_connection(cfg) as connection:
+        connection.execute("BEGIN")
+        before = build_run_worker_health_for_connection(
+            connection,
+            now="2099-06-07T10:00:05Z",
+        )
+        heartbeat_run_worker(
+            cfg,
+            worker_id="worker-snapshot",
+            session_id="session-snapshot",
+            state="running",
+            current_attempt_id="att_after_snapshot",
+            now="2099-06-07T10:00:03Z",
+        )
+        during = build_run_worker_health_for_connection(
+            connection,
+            now="2099-06-07T10:00:05Z",
+        )
+        assert connection.in_transaction is True
+        connection.rollback()
+
+    after = build_run_worker_health(cfg, now="2099-06-07T10:00:05Z")
+
+    assert during == before
+    assert before["workers"][0]["state"] == "idle"
+    assert before["workers"][0]["currentAttemptId"] is None
+    assert after["workers"][0]["state"] == "running"
+    assert after["workers"][0]["currentAttemptId"] == "att_after_snapshot"
 
 
 def test_run_worker_rejects_stale_session_heartbeat(tmp_path) -> None:

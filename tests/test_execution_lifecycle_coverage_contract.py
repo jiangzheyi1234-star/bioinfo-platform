@@ -23,7 +23,10 @@ from core.remote_runner.errors import RemoteRunnerManagerError
 from core.remote_runner.proxy import RemoteRunnerProxyMixin
 
 
-PARTIAL_PRODUCER_COVERAGE = ("run-execution",)
+PARTIAL_PRODUCER_COVERAGE = (
+    "run-execution",
+    "tool-preparation",
+)
 FULL_REQUIRED_COVERAGE = (
     "run-execution",
     "tool-preparation",
@@ -76,7 +79,6 @@ def test_http_lifecycle_guard_rejects_partial_coverage_before_storage_mutation(m
     assert blocked.value.payload["maintenanceActive"] is False
     assert blocked.value.payload["quiescenceCoverage"] == list(PARTIAL_PRODUCER_COVERAGE)
     assert blocked.value.payload["missingQuiescenceCoverage"] == [
-        "tool-preparation",
         "workflow-automation",
         "mutating-operations",
     ]
@@ -87,8 +89,8 @@ def test_lifecycle_coverage_consumer_rejects_partial_coverage() -> None:
     with pytest.raises(
         ValueError,
         match=(
-            "quiescence coverage is incomplete: tool-preparation, "
-            "workflow-automation, mutating-operations"
+            "quiescence coverage is incomplete: workflow-automation, "
+            "mutating-operations"
         ),
     ):
         require_execution_lifecycle_quiescence_coverage(

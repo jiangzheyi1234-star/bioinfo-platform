@@ -337,25 +337,34 @@ def fetch_run_worker(cfg: RemoteRunnerConfig, worker_id: str) -> dict[str, Any] 
 def build_run_worker_health(cfg: RemoteRunnerConfig, *, now: str | None = None) -> dict[str, Any]:
     timestamp = _optional_text(now) or now_iso()
     with get_connection(cfg) as connection:
-        worker_rows = connection.execute(
-            "SELECT * FROM run_workers ORDER BY worker_id ASC",
-        ).fetchall()
-        slot_rows = connection.execute(
-            "SELECT * FROM run_worker_slots ORDER BY worker_id ASC, slot_id ASC",
-        ).fetchall()
-        queue_depth = connection.execute(
-            """
-            SELECT COUNT(*) AS count
-            FROM run_jobs
-            WHERE state = 'queued'
-              AND available_at <= ?
-              AND dead_lettered_at IS NULL
-            """,
-            (timestamp,),
-        ).fetchone()["count"]
-        claimed_jobs = connection.execute(
-            "SELECT COUNT(*) AS count FROM run_jobs WHERE state = 'claimed'",
-        ).fetchone()["count"]
+        return build_run_worker_health_for_connection(connection, now=timestamp)
+
+
+def build_run_worker_health_for_connection(
+    connection,
+    *,
+    now: str,
+) -> dict[str, Any]:
+    timestamp = _required_text(now, "RUN_WORKER_HEALTH_NOW_REQUIRED")
+    worker_rows = connection.execute(
+        "SELECT * FROM run_workers ORDER BY worker_id ASC",
+    ).fetchall()
+    slot_rows = connection.execute(
+        "SELECT * FROM run_worker_slots ORDER BY worker_id ASC, slot_id ASC",
+    ).fetchall()
+    queue_depth = connection.execute(
+        """
+        SELECT COUNT(*) AS count
+        FROM run_jobs
+        WHERE state = 'queued'
+          AND available_at <= ?
+          AND dead_lettered_at IS NULL
+        """,
+        (timestamp,),
+    ).fetchone()["count"]
+    claimed_jobs = connection.execute(
+        "SELECT COUNT(*) AS count FROM run_jobs WHERE state = 'claimed'",
+    ).fetchone()["count"]
     slots_by_worker: dict[str, list[dict[str, Any]]] = {}
     for row in slot_rows:
         slots_by_worker.setdefault(str(row["worker_id"]), []).append(_slot_row_to_dict(row, now_text=timestamp))

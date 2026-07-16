@@ -16,7 +16,7 @@ from core.contracts.execution_activity import (
 
 from .config import RemoteRunnerConfig
 from .errors import RemoteRunnerOperationBlockedError, RemoteRunnerReadinessError
-from .execution_diagnostics import build_execution_diagnostics
+from .execution_diagnostics import build_execution_diagnostics_for_connection
 from .storage_core import get_connection, now_iso
 
 
@@ -29,6 +29,7 @@ EXECUTION_LIFECYCLE_GUARD_EXPIRED_REASON = "EXECUTION_LIFECYCLE_GUARD_EXPIRED_PE
 EXECUTION_LIFECYCLE_GUARD_EXPIRY_POLICY = "fail-closed"
 EXECUTION_LIFECYCLE_QUIESCENCE_COVERAGE = [
     "run-execution",
+    "tool-preparation",
 ]
 EXECUTION_LIFECYCLE_ALLOWED_ACTIONS = {
     "ensure",
@@ -52,6 +53,9 @@ def request_execution_lifecycle_guard(
     normalized_owner = _owner(owner)
     timestamp = _timestamp(now)
     active_worker_count = 0
+    diagnostics: dict[str, Any]
+    activity: dict[str, Any]
+    blocked_payload: dict[str, Any] | None = None
     with get_connection(cfg) as connection:
         connection.execute("BEGIN IMMEDIATE")
         try:
@@ -95,51 +99,55 @@ def request_execution_lifecycle_guard(
                 """,
                 (EXECUTION_LIFECYCLE_MAINTENANCE_KEY, _stable_json(maintenance)),
             )
+            diagnostics = build_execution_diagnostics_for_connection(
+                connection,
+                now=timestamp,
+            )
+            activity = summarize_execution_activity(
+                diagnostics,
+                make_error=ValueError,
+                require_diagnostics_ok=False,
+                block_queued_jobs=normalized_action == "upgrade",
+            )
+            payload = _guard_payload(
+                action=normalized_action,
+                owner=normalized_owner,
+                maintenance=maintenance,
+                active_worker_count=active_worker_count,
+                activity=activity,
+            )
+            block_reasons = [str(item) for item in payload["blockReasons"]]
+            if block_reasons:
+                _release_owned_maintenance_for_connection(
+                    connection,
+                    maintenance,
+                    updated_at=timestamp,
+                )
+                release = _release_payload(
+                    action=normalized_action,
+                    owner=normalized_owner,
+                    released=True,
+                    released_at=timestamp,
+                    previous=maintenance,
+                )
+                payload["maintenanceActive"] = False
+                payload["maintenanceRelease"] = release
+                payload["released"] = True
+                payload["reasonCode"] = _blocked_reason_code(block_reasons)
+                payload["nextAction"] = "WAIT_FOR_RUNS_OR_CANCEL_BEFORE_LIFECYCLE"
+                if activity["activeLeases"]:
+                    payload["activeLeases"] = activity["activeLeases"]
+                blocked_payload = payload
             connection.commit()
         except Exception:
             if connection.in_transaction:
                 connection.rollback()
             raise
-
-    try:
-        diagnostics = build_execution_diagnostics(cfg, now=timestamp)
-        activity = summarize_execution_activity(
-            diagnostics,
-            make_error=ValueError,
-            require_diagnostics_ok=False,
-            block_queued_jobs=normalized_action == "upgrade",
+    if blocked_payload is not None:
+        raise RemoteRunnerOperationBlockedError(
+            str(blocked_payload["reasonCode"]),
+            blocked_payload,
         )
-    except Exception:
-        _release_owned_maintenance_best_effort(
-            cfg,
-            action=normalized_action,
-            owner=normalized_owner,
-            now=timestamp,
-        )
-        raise
-    payload = _guard_payload(
-        action=normalized_action,
-        owner=normalized_owner,
-        maintenance=maintenance,
-        active_worker_count=active_worker_count,
-        activity=activity,
-    )
-    block_reasons = [str(item) for item in payload["blockReasons"]]
-    if block_reasons:
-        release = release_execution_lifecycle_guard(
-            cfg,
-            action=normalized_action,
-            owner=normalized_owner,
-            now=timestamp,
-        )
-        payload["maintenanceActive"] = False
-        payload["maintenanceRelease"] = release
-        payload["released"] = bool(release.get("released"))
-        payload["reasonCode"] = _blocked_reason_code(block_reasons)
-        payload["nextAction"] = "WAIT_FOR_RUNS_OR_CANCEL_BEFORE_LIFECYCLE"
-        if activity["activeLeases"]:
-            payload["activeLeases"] = activity["activeLeases"]
-        raise RemoteRunnerOperationBlockedError(str(payload["reasonCode"]), payload)
     return payload
 
 
@@ -172,8 +180,11 @@ def release_execution_lifecycle_guard(
                     EXECUTION_LIFECYCLE_GUARD_OWNER_MISMATCH_REASON,
                     _active_conflict_payload(existing, requested_action=normalized_action, requested_owner=normalized_owner),
                 )
-            _clear_owned_worker_drains(connection, existing, updated_at=timestamp)
-            connection.execute("DELETE FROM service_state WHERE key = ?", (EXECUTION_LIFECYCLE_MAINTENANCE_KEY,))
+            _release_owned_maintenance_for_connection(
+                connection,
+                existing,
+                updated_at=timestamp,
+            )
             connection.commit()
         except Exception:
             if connection.in_transaction:
@@ -373,19 +384,6 @@ def _blocked_reason_code(block_reasons: list[str]) -> str:
     return EXECUTION_LIFECYCLE_GUARD_BLOCKED_REASON
 
 
-def _release_owned_maintenance_best_effort(
-    cfg: RemoteRunnerConfig,
-    *,
-    action: str,
-    owner: str,
-    now: str,
-) -> None:
-    try:
-        release_execution_lifecycle_guard(cfg, action=action, owner=owner, now=now)
-    except Exception:
-        return
-
-
 def _is_expired(payload: dict[str, Any], now: str) -> bool:
     expires_at = str(payload.get("expiresAt") or "")
     if not expires_at:
@@ -481,6 +479,21 @@ def _clear_owned_worker_drains(connection, maintenance: dict[str, Any], *, updat
         """,
         [(updated_at, worker_id, requested_at) for worker_id in worker_ids],
     )
+
+
+def _release_owned_maintenance_for_connection(
+    connection,
+    maintenance: dict[str, Any],
+    *,
+    updated_at: str,
+) -> None:
+    _clear_owned_worker_drains(connection, maintenance, updated_at=updated_at)
+    deleted = connection.execute(
+        "DELETE FROM service_state WHERE key = ?",
+        (EXECUTION_LIFECYCLE_MAINTENANCE_KEY,),
+    )
+    if deleted.rowcount != 1:
+        raise RuntimeError(EXECUTION_LIFECYCLE_GUARD_INVALID_STATE_REASON)
 
 
 def _expires_at(now: str, ttl_seconds: int) -> str:

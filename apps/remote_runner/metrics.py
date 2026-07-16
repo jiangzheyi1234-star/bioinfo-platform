@@ -184,60 +184,68 @@ def collect_queue_metrics(cfg: Any) -> dict[str, Any]:
 
     now = now_iso()
     with get_connection(cfg) as connection:
-        jobs_by_state = _count_by_column(connection, "run_jobs", "state")
-        attempts_by_state = _count_by_column(connection, "run_attempts", "state")
-        leases_by_state = _count_by_column(connection, "run_leases", "state")
-        queued = connection.execute(
-            "SELECT COUNT(*) AS c FROM run_jobs WHERE state = 'queued' AND available_at <= ? AND dead_lettered_at IS NULL",
-            (now,),
-        ).fetchone()["c"]
-        total_queued = connection.execute(
-            "SELECT COUNT(*) AS c FROM run_jobs WHERE state = 'queued' AND dead_lettered_at IS NULL"
-        ).fetchone()["c"]
-        scheduled = connection.execute(
-            "SELECT COUNT(*) AS c FROM run_jobs WHERE state = 'queued' AND available_at > ? AND dead_lettered_at IS NULL",
-            (now,),
-        ).fetchone()["c"]
-        claimed = connection.execute(
-            "SELECT COUNT(*) AS c FROM run_jobs WHERE state = 'claimed'"
-        ).fetchone()["c"]
-        dead = connection.execute(
-            "SELECT COUNT(*) AS c FROM run_jobs WHERE dead_lettered_at IS NOT NULL"
-        ).fetchone()["c"]
-        active_leases = connection.execute(
-            "SELECT COUNT(*) AS c FROM run_leases WHERE state = 'active'"
-        ).fetchone()["c"]
-        wait_rows = connection.execute(
-            """
-            SELECT wait_reason_json
-            FROM run_jobs
-            WHERE state = 'queued'
-              AND dead_lettered_at IS NULL
-              AND wait_reason_json IS NOT NULL
-              AND wait_reason_json <> ''
-              AND wait_reason_json <> '{}'
-            """
-        ).fetchall()
-        allocations = connection.execute(
-            """
-            SELECT
-                COALESCE(SUM(CASE WHEN state = 'allocated' THEN 1 ELSE 0 END), 0) AS active_count,
-                COALESCE(SUM(CASE WHEN state = 'released' THEN 1 ELSE 0 END), 0) AS released_count,
-                COALESCE(SUM(CASE WHEN state = 'allocated' THEN cpu ELSE 0 END), 0) AS cpu,
-                COALESCE(SUM(CASE WHEN state = 'allocated' THEN memory_mb ELSE 0 END), 0) AS memory_mb,
-                COALESCE(SUM(CASE WHEN state = 'allocated' THEN disk_mb ELSE 0 END), 0) AS disk_mb,
-                COALESCE(SUM(CASE WHEN state = 'allocated' THEN gpu ELSE 0 END), 0) AS gpu
-            FROM run_resource_allocations
-            """
-        ).fetchone()
-        recovery = _recovery_counts(connection)
-        oldest_queued = connection.execute(
-            """
-            SELECT MIN(created_at) AS created_at
-            FROM run_jobs
-            WHERE state = 'queued' AND dead_lettered_at IS NULL
-            """
-        ).fetchone()["created_at"]
+        return collect_queue_metrics_for_connection(connection, now=now)
+
+
+def collect_queue_metrics_for_connection(
+    connection: sqlite3.Connection,
+    *,
+    now: str,
+) -> dict[str, Any]:
+    jobs_by_state = _count_by_column(connection, "run_jobs", "state")
+    attempts_by_state = _count_by_column(connection, "run_attempts", "state")
+    leases_by_state = _count_by_column(connection, "run_leases", "state")
+    queued = connection.execute(
+        "SELECT COUNT(*) AS c FROM run_jobs WHERE state = 'queued' AND available_at <= ? AND dead_lettered_at IS NULL",
+        (now,),
+    ).fetchone()["c"]
+    total_queued = connection.execute(
+        "SELECT COUNT(*) AS c FROM run_jobs WHERE state = 'queued' AND dead_lettered_at IS NULL"
+    ).fetchone()["c"]
+    scheduled = connection.execute(
+        "SELECT COUNT(*) AS c FROM run_jobs WHERE state = 'queued' AND available_at > ? AND dead_lettered_at IS NULL",
+        (now,),
+    ).fetchone()["c"]
+    claimed = connection.execute(
+        "SELECT COUNT(*) AS c FROM run_jobs WHERE state = 'claimed'"
+    ).fetchone()["c"]
+    dead = connection.execute(
+        "SELECT COUNT(*) AS c FROM run_jobs WHERE dead_lettered_at IS NOT NULL"
+    ).fetchone()["c"]
+    active_leases = connection.execute(
+        "SELECT COUNT(*) AS c FROM run_leases WHERE state = 'active'"
+    ).fetchone()["c"]
+    wait_rows = connection.execute(
+        """
+        SELECT wait_reason_json
+        FROM run_jobs
+        WHERE state = 'queued'
+          AND dead_lettered_at IS NULL
+          AND wait_reason_json IS NOT NULL
+          AND wait_reason_json <> ''
+          AND wait_reason_json <> '{}'
+        """
+    ).fetchall()
+    allocations = connection.execute(
+        """
+        SELECT
+            COALESCE(SUM(CASE WHEN state = 'allocated' THEN 1 ELSE 0 END), 0) AS active_count,
+            COALESCE(SUM(CASE WHEN state = 'released' THEN 1 ELSE 0 END), 0) AS released_count,
+            COALESCE(SUM(CASE WHEN state = 'allocated' THEN cpu ELSE 0 END), 0) AS cpu,
+            COALESCE(SUM(CASE WHEN state = 'allocated' THEN memory_mb ELSE 0 END), 0) AS memory_mb,
+            COALESCE(SUM(CASE WHEN state = 'allocated' THEN disk_mb ELSE 0 END), 0) AS disk_mb,
+            COALESCE(SUM(CASE WHEN state = 'allocated' THEN gpu ELSE 0 END), 0) AS gpu
+        FROM run_resource_allocations
+        """
+    ).fetchone()
+    recovery = _recovery_counts(connection)
+    oldest_queued = connection.execute(
+        """
+        SELECT MIN(created_at) AS created_at
+        FROM run_jobs
+        WHERE state = 'queued' AND dead_lettered_at IS NULL
+        """
+    ).fetchone()["created_at"]
     wait_reasons = _wait_reason_counts(wait_rows)
     return {
         "queuedJobs": int(queued),
@@ -274,16 +282,19 @@ def collect_sqlite_metrics(cfg: Any) -> dict[str, Any]:
 
     try:
         with get_connection(cfg) as connection:
-            journal_mode = str(connection.execute("PRAGMA journal_mode").fetchone()[0] or "")
-            busy_timeout = int(connection.execute("PRAGMA busy_timeout").fetchone()[0] or 0)
+            return collect_sqlite_metrics_for_connection(connection)
     except sqlite3.OperationalError as exc:
-        if _sqlite_busy_error(exc):
-            return {
-                "ok": False,
-                "error": "sqlite_busy",
-                "busyErrors": int(get_metrics().sqlite_busy_errors.get()),
-            }
-        return {"ok": False, "error": "sqlite_metrics_failed", "message": str(exc)}
+        return _sqlite_metrics_error(exc)
+
+
+def collect_sqlite_metrics_for_connection(
+    connection: sqlite3.Connection,
+) -> dict[str, Any]:
+    try:
+        journal_mode = str(connection.execute("PRAGMA journal_mode").fetchone()[0] or "")
+        busy_timeout = int(connection.execute("PRAGMA busy_timeout").fetchone()[0] or 0)
+    except sqlite3.OperationalError as exc:
+        return _sqlite_metrics_error(exc)
     return {
         "ok": journal_mode.lower() == "wal" and busy_timeout >= 5000,
         "journalMode": journal_mode.lower(),
@@ -372,3 +383,13 @@ def _json_object(value: str | None) -> dict[str, Any]:
 def _sqlite_busy_error(exc: sqlite3.OperationalError) -> bool:
     message = str(exc).lower()
     return "database is locked" in message or "database table is locked" in message or "busy" in message
+
+
+def _sqlite_metrics_error(exc: sqlite3.OperationalError) -> dict[str, Any]:
+    if _sqlite_busy_error(exc):
+        return {
+            "ok": False,
+            "error": "sqlite_busy",
+            "busyErrors": int(get_metrics().sqlite_busy_errors.get()),
+        }
+    return {"ok": False, "error": "sqlite_metrics_failed", "message": str(exc)}

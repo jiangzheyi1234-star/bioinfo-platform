@@ -9,7 +9,9 @@ from apps.remote_runner.metrics import (
     RunnerMetrics,
     collect_disk_metrics,
     collect_queue_metrics,
+    collect_queue_metrics_for_connection,
     collect_sqlite_metrics,
+    collect_sqlite_metrics_for_connection,
     get_metrics,
     record_sqlite_busy_error,
     reset_metrics,
@@ -249,6 +251,40 @@ def test_collect_queue_metrics_reports_admission_wait_allocations_and_recovery(t
     assert after_completion["allocations"]["released"] == 1
 
 
+def test_collect_queue_metrics_connection_matches_cfg_wrapper(tmp_path, monkeypatch):
+    from apps.remote_runner import storage_core
+
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_metrics_connection_equivalence")
+    now = "2099-06-07T10:00:00Z"
+    monkeypatch.setattr(storage_core, "now_iso", lambda: now)
+
+    wrapped = collect_queue_metrics(cfg)
+    with get_connection(cfg) as connection:
+        direct = collect_queue_metrics_for_connection(connection, now=now)
+
+    assert direct == wrapped
+
+
+def test_collect_queue_metrics_connection_uses_existing_transaction_snapshot(tmp_path):
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_metrics_snapshot_initial")
+    now = "2099-06-07T10:00:00Z"
+
+    with get_connection(cfg) as connection:
+        connection.execute("BEGIN")
+        before_write = collect_queue_metrics_for_connection(connection, now=now)
+
+        _create_run(cfg, "run_metrics_snapshot_later")
+
+        pinned_snapshot = collect_queue_metrics_for_connection(connection, now=now)
+        connection.rollback()
+        latest_snapshot = collect_queue_metrics_for_connection(connection, now=now)
+
+    assert pinned_snapshot == before_write
+    assert latest_snapshot["totalQueuedJobs"] == before_write["totalQueuedJobs"] + 1
+
+
 def test_collect_sqlite_metrics_reports_wal_busy_timeout_and_busy_counter(tmp_path):
     reset_metrics()
     cfg = make_configured_remote_runner(tmp_path)
@@ -262,6 +298,42 @@ def test_collect_sqlite_metrics_reports_wal_busy_timeout_and_busy_counter(tmp_pa
     assert sqlite_metrics["busyTimeoutMs"] >= 5000
     assert sqlite_metrics["busyTimeoutOk"] is True
     assert sqlite_metrics["busyErrors"] == 1
+
+
+def test_collect_sqlite_metrics_connection_matches_cfg_wrapper(tmp_path):
+    reset_metrics()
+    cfg = make_configured_remote_runner(tmp_path)
+    record_sqlite_busy_error()
+
+    wrapped = collect_sqlite_metrics(cfg)
+    with get_connection(cfg) as connection:
+        direct = collect_sqlite_metrics_for_connection(connection)
+
+    assert direct == wrapped
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("database is locked", {"ok": False, "error": "sqlite_busy", "busyErrors": 0}),
+        (
+            "cannot inspect sqlite",
+            {
+                "ok": False,
+                "error": "sqlite_metrics_failed",
+                "message": "cannot inspect sqlite",
+            },
+        ),
+    ],
+)
+def test_collect_sqlite_metrics_connection_maps_operational_errors(message, expected):
+    class FailingConnection:
+        def execute(self, _sql):
+            raise sqlite3.OperationalError(message)
+
+    reset_metrics()
+
+    assert collect_sqlite_metrics_for_connection(FailingConnection()) == expected
 
 
 def test_observed_sqlite_connection_records_busy_errors(tmp_path):

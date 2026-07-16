@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 
 import pytest
 
@@ -32,6 +33,7 @@ from apps.remote_runner.run_worker_storage import (
 )
 from apps.remote_runner.storage import create_run_record
 from apps.remote_runner.storage_core import get_connection
+from apps.remote_runner.tool_prepare_job_storage import create_tool_prepare_job
 from tests.helpers.reference_database import make_configured_remote_runner
 
 
@@ -173,6 +175,180 @@ def test_lifecycle_guard_same_owner_reentry_retains_and_extends_drain_ownership(
     assert run_worker_is_draining(cfg, "worker-reentry-second") is False
 
 
+def test_lifecycle_guard_snapshot_failure_rolls_back_new_maintenance(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from apps.remote_runner import execution_lifecycle_guard
+
+    cfg = make_configured_remote_runner(tmp_path)
+    register_run_worker(
+        cfg,
+        worker_id="worker-snapshot-fault",
+        session_id="session-snapshot-fault",
+        pid=125,
+        hostname="host-snapshot-fault",
+        now="2099-06-07T10:00:00Z",
+    )
+
+    def fail_snapshot(connection, **_kwargs):
+        assert connection.in_transaction is True
+        raise RuntimeError("snapshot fault")
+
+    monkeypatch.setattr(
+        execution_lifecycle_guard,
+        "build_execution_diagnostics_for_connection",
+        fail_snapshot,
+    )
+
+    with pytest.raises(RuntimeError, match="snapshot fault"):
+        request_execution_lifecycle_guard(
+            cfg,
+            action="stop",
+            owner="srv_lifecycle:snapshot-fault:lifecycle",
+            now="2099-06-07T10:00:01Z",
+        )
+
+    with get_connection(cfg) as connection:
+        maintenance = connection.execute(
+            "SELECT value FROM service_state WHERE key = ?",
+            (EXECUTION_LIFECYCLE_MAINTENANCE_KEY,),
+        ).fetchone()
+    assert maintenance is None
+    assert run_worker_is_draining(cfg, "worker-snapshot-fault") is False
+
+
+def test_lifecycle_guard_reentry_snapshot_failure_restores_previous_guard(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from apps.remote_runner import execution_lifecycle_guard
+
+    cfg = make_configured_remote_runner(tmp_path)
+    register_run_worker(
+        cfg,
+        worker_id="worker-reentry-stable",
+        session_id="session-reentry-stable",
+        pid=126,
+        hostname="host-reentry-stable",
+        now="2099-06-07T10:00:00Z",
+    )
+    request_execution_lifecycle_guard(
+        cfg,
+        action="stop",
+        owner="srv_lifecycle:reentry-fault:lifecycle",
+        now="2099-06-07T10:00:01Z",
+    )
+    with get_connection(cfg) as connection:
+        before = str(
+            connection.execute(
+                "SELECT value FROM service_state WHERE key = ?",
+                (EXECUTION_LIFECYCLE_MAINTENANCE_KEY,),
+            ).fetchone()["value"]
+        )
+    register_run_worker(
+        cfg,
+        worker_id="worker-reentry-new",
+        session_id="session-reentry-new",
+        pid=127,
+        hostname="host-reentry-new",
+        now="2099-06-07T10:00:02Z",
+    )
+
+    def fail_snapshot(_connection, **_kwargs):
+        raise RuntimeError("reentry snapshot fault")
+
+    monkeypatch.setattr(
+        execution_lifecycle_guard,
+        "build_execution_diagnostics_for_connection",
+        fail_snapshot,
+    )
+    with pytest.raises(RuntimeError, match="reentry snapshot fault"):
+        request_execution_lifecycle_guard(
+            cfg,
+            action="stop",
+            owner="srv_lifecycle:reentry-fault:lifecycle",
+            now="2099-06-07T10:00:03Z",
+        )
+
+    with get_connection(cfg) as connection:
+        after = str(
+            connection.execute(
+                "SELECT value FROM service_state WHERE key = ?",
+                (EXECUTION_LIFECYCLE_MAINTENANCE_KEY,),
+            ).fetchone()["value"]
+        )
+    assert after == before
+    assert run_worker_is_draining(cfg, "worker-reentry-stable") is True
+    assert run_worker_is_draining(cfg, "worker-reentry-new") is False
+
+
+def test_lifecycle_guard_blocks_interleaved_tool_admission_until_guard_commit(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from apps.remote_runner import execution_lifecycle_guard
+
+    cfg = make_configured_remote_runner(tmp_path)
+    original_snapshot = execution_lifecycle_guard.build_execution_diagnostics_for_connection
+    writer_started = threading.Event()
+    writer_finished = threading.Event()
+    writer_errors: list[BaseException] = []
+    writer_thread: threading.Thread | None = None
+
+    def attempt_admission() -> None:
+        writer_started.set()
+        try:
+            create_tool_prepare_job(
+                cfg,
+                {"id": "bioconda::guard-interleave", "name": "guard-interleave"},
+            )
+        except BaseException as exc:
+            writer_errors.append(exc)
+        finally:
+            writer_finished.set()
+
+    def snapshot_with_waiting_writer(connection, **kwargs):
+        nonlocal writer_thread
+        writer_thread = threading.Thread(target=attempt_admission, daemon=True)
+        writer_thread.start()
+        assert writer_started.wait(1)
+        assert writer_finished.wait(0.1) is False
+        return original_snapshot(connection, **kwargs)
+
+    monkeypatch.setattr(
+        execution_lifecycle_guard,
+        "build_execution_diagnostics_for_connection",
+        snapshot_with_waiting_writer,
+    )
+    guard = request_execution_lifecycle_guard(
+        cfg,
+        action="stop",
+        owner="srv_lifecycle:interleave:lifecycle",
+        now="2099-06-07T10:00:01Z",
+    )
+    assert writer_thread is not None
+    writer_thread.join(timeout=2)
+
+    assert guard["maintenanceActive"] is True
+    assert writer_thread.is_alive() is False
+    assert len(writer_errors) == 1
+    assert isinstance(writer_errors[0], RemoteRunnerReadinessError)
+    with get_connection(cfg) as connection:
+        count = int(
+            connection.execute(
+                "SELECT COUNT(*) AS count FROM tool_prepare_jobs",
+            ).fetchone()["count"]
+        )
+    assert count == 0
+    release_execution_lifecycle_guard(
+        cfg,
+        action="stop",
+        owner="srv_lifecycle:interleave:lifecycle",
+        now="2099-06-07T10:00:02Z",
+    )
+
+
 def test_lifecycle_guard_blocks_active_lease_and_releases_new_maintenance(tmp_path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     _create_run(cfg, "run_lifecycle_active")
@@ -292,6 +468,55 @@ def test_lifecycle_guard_blocks_upgrade_when_only_queued_jobs_exist(tmp_path) ->
 
     assert claim is not None
     assert claim["runId"] == "run_lifecycle_queued_upgrade"
+
+
+def test_lifecycle_guard_blocker_cleanup_failure_rolls_back_every_change(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from apps.remote_runner import execution_lifecycle_guard
+
+    cfg = make_configured_remote_runner(tmp_path)
+    _create_run(cfg, "run_lifecycle_cleanup_fault")
+    register_run_worker(
+        cfg,
+        worker_id="worker-cleanup-fault",
+        session_id="session-cleanup-fault",
+        pid=128,
+        hostname="host-cleanup-fault",
+        now="2099-06-07T10:00:00Z",
+    )
+    original_release = execution_lifecycle_guard._release_owned_maintenance_for_connection
+
+    def release_then_fail(connection, maintenance, *, updated_at: str) -> None:
+        original_release(
+            connection,
+            maintenance,
+            updated_at=updated_at,
+        )
+        raise RuntimeError("cleanup fault")
+
+    monkeypatch.setattr(
+        execution_lifecycle_guard,
+        "_release_owned_maintenance_for_connection",
+        release_then_fail,
+    )
+    with pytest.raises(RuntimeError, match="cleanup fault"):
+        request_execution_lifecycle_guard(
+            cfg,
+            action="upgrade",
+            owner="srv_lifecycle:cleanup-fault:lifecycle",
+            now="2099-06-07T10:00:01Z",
+        )
+
+    with get_connection(cfg) as connection:
+        maintenance = connection.execute(
+            "SELECT value FROM service_state WHERE key = ?",
+            (EXECUTION_LIFECYCLE_MAINTENANCE_KEY,),
+        ).fetchone()
+    assert maintenance is None
+    assert run_worker_is_draining(cfg, "worker-cleanup-fault") is False
+    ensure_execution_lifecycle_admission_open(cfg, now="2099-06-07T10:00:02Z")
 
 
 def test_claim_next_run_job_respects_lifecycle_maintenance(tmp_path) -> None:

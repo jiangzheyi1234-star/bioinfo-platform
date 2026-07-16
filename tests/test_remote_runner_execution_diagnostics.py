@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from apps.remote_runner.execution_diagnostics import build_execution_diagnostics
+import pytest
+
+from apps.remote_runner.execution_diagnostics import (
+    build_execution_diagnostics,
+    build_execution_diagnostics_for_connection,
+)
 from apps.remote_runner.health_service import ensure_execution_admission_ready
 from apps.remote_runner.resource_pool import ResourceRequest
 from apps.remote_runner.run_execution_storage import claim_next_run_job
@@ -174,6 +179,70 @@ def test_execution_diagnostics_fails_closed_on_tool_prepare_projection_mismatch(
     assert "toolPrepareOpenAttemptsMatchCurrentJobClaims" in failures
     assert "phantom-owner" not in str(diagnostics)
     assert proof.claim_token not in str(diagnostics)
+
+
+def test_execution_diagnostics_connection_pins_one_sqlite_snapshot(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from apps.remote_runner import execution_diagnostics
+
+    cfg = make_configured_remote_runner(tmp_path)
+    original_queue_reader = execution_diagnostics.collect_queue_metrics_for_connection
+    interleaved = False
+
+    def read_queue_then_commit_tool_job(connection, *, now: str):
+        nonlocal interleaved
+        queue = original_queue_reader(connection, now=now)
+        if not interleaved:
+            interleaved = True
+            create_tool_prepare_job(
+                cfg,
+                {"id": "bioconda::snapshot-later", "name": "snapshot-later"},
+            )
+        return queue
+
+    monkeypatch.setattr(
+        execution_diagnostics,
+        "collect_queue_metrics_for_connection",
+        read_queue_then_commit_tool_job,
+    )
+    with get_connection(cfg) as connection:
+        connection.execute("BEGIN")
+        snapshot = build_execution_diagnostics_for_connection(
+            connection,
+            now="2099-06-07T10:00:00Z",
+        )
+        connection.commit()
+    monkeypatch.setattr(
+        execution_diagnostics,
+        "collect_queue_metrics_for_connection",
+        original_queue_reader,
+    )
+    latest = build_execution_diagnostics(
+        cfg,
+        now="2099-06-07T10:00:01Z",
+    )
+
+    assert interleaved is True
+    assert snapshot["toolPrepareJobs"]["queued"] == 0
+    assert latest["toolPrepareJobs"]["queued"] == 1
+
+
+def test_execution_diagnostics_connection_requires_explicit_transaction(
+    tmp_path,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+
+    with get_connection(cfg) as connection:
+        with pytest.raises(
+            ValueError,
+            match="EXECUTION_DIAGNOSTICS_TRANSACTION_REQUIRED",
+        ):
+            build_execution_diagnostics_for_connection(
+                connection,
+                now="2099-06-07T10:00:00Z",
+            )
 
 
 def test_execution_admission_ready_rejects_when_no_worker_is_available(tmp_path) -> None:

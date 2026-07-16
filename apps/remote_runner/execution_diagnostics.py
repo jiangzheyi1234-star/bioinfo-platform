@@ -6,8 +6,11 @@ from .config import RemoteRunnerConfig
 from .event_contracts import verify_run_event_hash_chain
 from .execution_observability import build_execution_observability
 from .execution_readiness import evaluate_execution_readiness
-from .metrics import collect_queue_metrics, collect_sqlite_metrics
-from .run_worker_storage import build_run_worker_health
+from .metrics import (
+    collect_queue_metrics_for_connection,
+    collect_sqlite_metrics_for_connection,
+)
+from .run_worker_storage import build_run_worker_health_for_connection
 from .storage_core import get_connection, now_iso
 from .tool_prepare_worker_lease import tool_prepare_worker_activity
 
@@ -20,36 +23,74 @@ def build_execution_diagnostics(
     now: str | None = None,
 ) -> dict[str, Any]:
     timestamp = now or now_iso()
-    normalized_run_ids = _normalize_run_ids(run_ids)
-    queue_metrics = collect_queue_metrics(cfg)
-    worker_health = build_run_worker_health(cfg, now=timestamp)
-    sqlite_metrics = collect_sqlite_metrics(cfg)
     with get_connection(cfg) as connection:
-        active_leases = _active_leases(connection)
-        allocated_resources = _allocated_resources(connection)
-        resource_waits = _resource_waits(connection)
-        tool_prepare_jobs = tool_prepare_worker_activity(connection, now=timestamp)
-        recent_events = _recent_events(connection, run_ids=normalized_run_ids, limit=event_limit)
-        recovery_evidence = _recovery_evidence(connection, run_ids=normalized_run_ids, limit=event_limit)
-        event_chains = {
-            run_id: verify_run_event_hash_chain(connection, run_id)
-            for run_id in normalized_run_ids
-        }
-        invariants = _invariants(
-            connection,
-            queue_metrics=queue_metrics,
-            worker_health=worker_health,
-            sqlite_metrics=sqlite_metrics,
-            tool_prepare_jobs=tool_prepare_jobs,
-        )
-        observability = build_execution_observability(
-            connection,
-            now=timestamp,
-            queue_metrics=queue_metrics,
-            worker_health=worker_health,
-            sqlite_metrics=sqlite_metrics,
-            invariants=invariants,
-        )
+        connection.execute("BEGIN")
+        try:
+            payload = build_execution_diagnostics_for_connection(
+                connection,
+                run_ids=run_ids,
+                event_limit=event_limit,
+                now=timestamp,
+            )
+            connection.commit()
+        except BaseException:
+            if connection.in_transaction:
+                connection.rollback()
+            raise
+    return payload
+
+
+def build_execution_diagnostics_for_connection(
+    connection,
+    *,
+    run_ids: list[str] | None = None,
+    event_limit: int = 25,
+    now: str,
+) -> dict[str, Any]:
+    """Build one diagnostics payload from the caller's current SQLite snapshot."""
+
+    if not connection.in_transaction:
+        raise ValueError("EXECUTION_DIAGNOSTICS_TRANSACTION_REQUIRED")
+    timestamp = str(now or "").strip()
+    if not timestamp:
+        raise ValueError("EXECUTION_DIAGNOSTICS_TIMESTAMP_REQUIRED")
+    normalized_run_ids = _normalize_run_ids(run_ids)
+    queue_metrics = collect_queue_metrics_for_connection(connection, now=timestamp)
+    worker_health = build_run_worker_health_for_connection(connection, now=timestamp)
+    sqlite_metrics = collect_sqlite_metrics_for_connection(connection)
+    active_leases = _active_leases(connection)
+    allocated_resources = _allocated_resources(connection)
+    resource_waits = _resource_waits(connection)
+    tool_prepare_jobs = tool_prepare_worker_activity(connection, now=timestamp)
+    recent_events = _recent_events(
+        connection,
+        run_ids=normalized_run_ids,
+        limit=event_limit,
+    )
+    recovery_evidence = _recovery_evidence(
+        connection,
+        run_ids=normalized_run_ids,
+        limit=event_limit,
+    )
+    event_chains = {
+        run_id: verify_run_event_hash_chain(connection, run_id)
+        for run_id in normalized_run_ids
+    }
+    invariants = _invariants(
+        connection,
+        queue_metrics=queue_metrics,
+        worker_health=worker_health,
+        sqlite_metrics=sqlite_metrics,
+        tool_prepare_jobs=tool_prepare_jobs,
+    )
+    observability = build_execution_observability(
+        connection,
+        now=timestamp,
+        queue_metrics=queue_metrics,
+        worker_health=worker_health,
+        sqlite_metrics=sqlite_metrics,
+        invariants=invariants,
+    )
     payload = {
         "schemaVersion": "execution-diagnostics.v1",
         "generatedAt": timestamp,
