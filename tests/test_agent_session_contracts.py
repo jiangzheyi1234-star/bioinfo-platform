@@ -203,6 +203,35 @@ def test_plan_proposal_rejects_model_internal_trace_fields() -> None:
         AgentPlanRequest.model_validate(payload)
 
 
+def test_agent_public_contract_rejects_unsafe_json_integers_and_preserves_booleans() -> None:
+    payload = _create_request()
+    payload["goal"]["context"] = {
+        "sampleCount": 9_007_199_254_740_993,
+        "paired": True,
+    }
+    with pytest.raises(ValidationError, match="JSON_INTEGER_OUT_OF_SAFE_RANGE"):
+        AgentSessionCreateRequest.model_validate(payload)
+
+    payload["goal"]["context"]["sampleCount"] = 9_007_199_254_740_991
+    request = AgentSessionCreateRequest.model_validate(payload)
+    assert request.goal.context == {
+        "sampleCount": 9_007_199_254_740_991,
+        "paired": True,
+    }
+
+    event = _event()
+    event["sequence"] = 9_007_199_254_740_993
+    with pytest.raises(ValidationError, match="JSON_INTEGER_OUT_OF_SAFE_RANGE"):
+        AgentSessionEvent.model_validate(event)
+
+    plan = _plan_request()
+    plan["proposal"]["draft"]["nodes"][0]["params"]["min_len"] = (
+        9_007_199_254_740_993
+    )
+    with pytest.raises(ValidationError, match="JSON_INTEGER_OUT_OF_SAFE_RANGE"):
+        AgentPlanRequest.model_validate(plan)
+
+
 def test_plan_proposal_embeds_strict_workflow_design_and_provider_neutral_planner_audit() -> None:
     request = AgentPlanRequest.model_validate(_plan_request())
     payload = request.runtime_payload()

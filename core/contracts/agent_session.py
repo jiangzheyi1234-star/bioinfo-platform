@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
-from .workflow_design import WorkflowDesignDraftV1
+from .workflow_design import WorkflowDesignDraftV1, assert_json_interoperable_numbers
 
 
 AGENT_SESSION_CONTRACT_VERSION = "agent-session.v1"
@@ -72,6 +72,14 @@ _SECRET_VALUE_PATTERNS = (
 
 class AgentSessionModel(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=False, strict=True)
+
+    @model_validator(mode="after")
+    def reject_non_interoperable_json_numbers(self) -> "AgentSessionModel":
+        assert_json_interoperable_numbers(
+            self.model_dump(by_alias=True, exclude_none=True, mode="python"),
+            path="agent",
+        )
+        return self
 
     def runtime_payload(self) -> dict[str, JsonValue]:
         return self.model_dump(by_alias=True, exclude_none=True, mode="json")
@@ -390,6 +398,7 @@ class AgentSessionEvent(AgentSessionModel):
 
 
 def assert_agent_session_json_safe(value: JsonValue, *, path: str = "agent") -> None:
+    assert_json_interoperable_numbers(value, path=path)
     if isinstance(value, dict):
         for key, nested in value.items():
             key_text = str(key)

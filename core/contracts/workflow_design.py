@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any, Literal
 
@@ -13,6 +14,7 @@ GENERATED_WORKFLOW_RULE_CONTRACT_VERSION = "rule-contract-v1"
 WORKFLOW_DESIGN_DRAFT_CONTRACT_VERSION = "workflow-design-draft-v1"
 WORKFLOW_DESIGN_ENGINE = "snakemake"
 WORKFLOW_DESIGN_EDGE_AUDIT_KEYS = frozenset({"source", "decision", "confidence", "reason", "hardChecks", "evidence"})
+JSON_SAFE_INTEGER_MAX = (1 << 53) - 1
 
 WorkflowDesignScalar = str | int | float | bool
 WorkflowDesignParamValue = str | int | float | bool
@@ -20,6 +22,14 @@ WorkflowDesignParamValue = str | int | float | bool
 
 class WorkflowDesignModel(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=False, strict=True)
+
+    @model_validator(mode="after")
+    def reject_non_interoperable_json_numbers(self) -> "WorkflowDesignModel":
+        assert_json_interoperable_numbers(
+            self.model_dump(by_alias=True, exclude_none=True, mode="python"),
+            path="workflowDesign",
+        )
+        return self
 
     def runtime_payload(self) -> dict[str, Any]:
         return self.model_dump(by_alias=True, exclude_none=True, mode="json")
@@ -160,6 +170,29 @@ def normalize_workflow_design_draft(draft: WorkflowDesignDraftV1 | dict[str, Any
         if isinstance(item, dict):
             _drop_empty_text_fields(item, ("kind", "data", "format", "operation", "resource"))
     return payload
+
+
+def assert_json_interoperable_numbers(value: Any, *, path: str = "json") -> None:
+    """Reject numeric values that cannot cross Python/JavaScript JSON losslessly."""
+    if value is None or isinstance(value, (str, bool)):
+        return
+    if isinstance(value, int):
+        if abs(value) > JSON_SAFE_INTEGER_MAX:
+            raise ValueError(f"JSON_INTEGER_OUT_OF_SAFE_RANGE: {path}")
+        return
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError(f"JSON_NUMBER_NON_FINITE: {path}")
+        if value.is_integer() and abs(value) > JSON_SAFE_INTEGER_MAX:
+            raise ValueError(f"JSON_INTEGER_OUT_OF_SAFE_RANGE: {path}")
+        return
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            assert_json_interoperable_numbers(nested, path=f"{path}.{key}")
+        return
+    if isinstance(value, (list, tuple)):
+        for index, nested in enumerate(value):
+            assert_json_interoperable_numbers(nested, path=f"{path}[{index}]")
 
 
 def workflow_design_resolved_inputs(draft: WorkflowDesignDraftV1) -> list[dict[str, str]]:

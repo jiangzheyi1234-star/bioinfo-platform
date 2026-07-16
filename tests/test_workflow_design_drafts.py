@@ -185,6 +185,26 @@ def test_workflow_design_draft_payloads_are_strict() -> None:
     assert "from_" not in plan_payload["proposedEdges"][0]
 
 
+@pytest.mark.parametrize("unsafe_integer", [9_007_199_254_740_993, -9_007_199_254_740_993])
+def test_workflow_design_rejects_integers_outside_javascript_safe_range(
+    unsafe_integer: int,
+) -> None:
+    draft = _draft()
+    draft["nodes"][0]["params"]["min_len"] = unsafe_integer
+
+    with pytest.raises(ValidationError, match="JSON_INTEGER_OUT_OF_SAFE_RANGE"):
+        WorkflowDesignDraftCreateRequest.model_validate({"draft": draft})
+
+
+def test_workflow_design_safe_integer_validation_does_not_misclassify_booleans() -> None:
+    draft = _draft()
+    draft["nodes"][0]["params"]["emit_report"] = True
+
+    request = WorkflowDesignDraftCreateRequest.model_validate({"draft": draft})
+
+    assert request.draft.nodes[0].params["emit_report"] is True
+
+
 def test_workflow_design_draft_storage_crud_and_fork(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     saved = create_workflow_design_draft(cfg, _draft())
