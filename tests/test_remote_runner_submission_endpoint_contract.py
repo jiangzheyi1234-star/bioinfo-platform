@@ -6,6 +6,7 @@ from core.contracts.remote_endpoints import (
     REMOTE_ENDPOINTS,
     RUN_CREATE,
     UPLOAD_CREATE,
+    UPLOAD_READ,
     remote_endpoint_success_status,
     render_remote_endpoint_path,
 )
@@ -14,19 +15,24 @@ from core.remote_runner.endpoint_caller import call_remote_endpoint
 from core.remote_runner.proxy import RemoteRunnerProxyMixin
 
 
-SUBMISSION_ENDPOINTS = (UPLOAD_CREATE, RUN_CREATE)
+SUBMISSION_ENDPOINTS = (UPLOAD_CREATE, UPLOAD_READ, RUN_CREATE)
 
 
 def test_submission_endpoints_are_contract_rendered() -> None:
     assert render_remote_endpoint_path(UPLOAD_CREATE, {}) == "/api/v1/uploads"
+    assert render_remote_endpoint_path(UPLOAD_READ, {"upload_id": "upl_1"}) == "/api/v1/uploads/upl_1"
     assert render_remote_endpoint_path(RUN_CREATE, {}) == "/api/v1/runs"
 
     upload = REMOTE_ENDPOINTS[UPLOAD_CREATE]
+    upload_read = REMOTE_ENDPOINTS[UPLOAD_READ]
     run = REMOTE_ENDPOINTS[RUN_CREATE]
     assert upload.method == "POST"
     assert upload.response_key == "data"
     assert upload.cache_scope == "upload-command"
     assert upload.accepted_statuses == (200,)
+    assert upload_read.method == "GET"
+    assert upload_read.response_key == "data"
+    assert upload_read.cache_scope == "upload-read-model"
     assert run.method == "POST"
     assert run.response_key == ""
     assert run.cache_scope == "run-command"
@@ -57,6 +63,11 @@ def test_submission_endpoint_caller_preserves_upload_unwrap_and_run_envelope() -
         path_values={},
         payload={"filename": "reads.fastq", "contentBase64": "QEdPQgo=", "mimeType": "text/plain"},
     )
+    uploaded = call_remote_endpoint(
+        client,
+        UPLOAD_READ,
+        path_values={"upload_id": "upl_1"},
+    )
     run = call_remote_endpoint(
         client,
         RUN_CREATE,
@@ -66,6 +77,7 @@ def test_submission_endpoint_caller_preserves_upload_unwrap_and_run_envelope() -
     )
 
     assert upload == {"uploadId": "upl_1", "sha256": "abc123"}
+    assert uploaded == {"uploadId": "upl_1", "sha256": "abc123"}
     assert run == {
         "data": {"runId": "run_1", "status": "queued", "requestId": "req_1"},
         "location": "/api/v1/runs/run_1",
@@ -86,6 +98,7 @@ def test_submission_endpoint_caller_preserves_upload_unwrap_and_run_envelope() -
             {"Idempotency-Key": "idem_1", "X-Request-Id": "req_1"},
         ),
     ]
+    assert client.get_calls == [("/api/v1/uploads/upl_1", [200])]
 
 
 def test_submission_proxy_generic_endpoint_call_uses_registry() -> None:
@@ -141,6 +154,16 @@ def _endpoint_kwargs(
 class FakeSubmissionClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, Any], list[int], dict[str, str]]] = []
+        self.get_calls: list[tuple[str, list[int]]] = []
+
+    def get_json(
+        self,
+        path: str,
+        *,
+        accepted_statuses: set[int] | None = None,
+    ) -> dict[str, Any]:
+        self.get_calls.append((path, sorted(accepted_statuses or [])))
+        return {"data": {"uploadId": "upl_1", "sha256": "abc123"}}
 
     def post_json(
         self,

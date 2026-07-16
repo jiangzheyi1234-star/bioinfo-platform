@@ -50,7 +50,8 @@ Exit criteria：
 
 - Contract 与状态机测试覆盖每个允许和拒绝的迁移。
 - Planner interface 不包含 provider enum、SDK type、credential 或 arbitrary-code 字段。
-- 首刀预算有明确硬上限，且 `maxRunSubmissions: 0`。
+- 首刀预算有明确硬上限且 API 不存在 Agent run-submit；启用 submit 前新增 fail-closed
+  `maxRunSubmissions`，旧 session 缺失时按 `0`。
 
 ## Phase 1 — 持久 FASTQ QC Planning 切片
 
@@ -61,26 +62,34 @@ Deliverables：
 - Remote SQLite `agent_sessions`、不可变 `plan_revisions`、`agent_approvals` 和 append-only、
   hash-chained `agent_events`，通过 forward migration 与 schema contract 检查加入。
 - Remote command 与对应 local API：create/get/list、events、plan、approve/request changes、replan、cancel。
-- `fixture.fastq-qc.v1` 选择精确注册的 FastQC、MultiQC capability bundle，并生成严格
+- `h2ometa.fastq-qc.v1` 选择精确注册的 FastQC、MultiQC capability bundle，并生成严格
   `WorkflowDesignDraft` proposal。
+- Local `/plan`、`/replan` 只接收 command，不接收 DAG；它们从同一 runner 读取 session、经
+  size/SHA-256 验证的 upload 与 capability graph，再向 remote proposal boundary 提交严格 contract。
+- Planning command event 同事务保存规范 `proposalIntent`；若后续 draft/plan 写入中断，重试重放原 intent，
+  不从可能已漂移的 capability registry 重建。
+- Remote 根据真实 upload、不可变 ToolRevision、profile version/package/wrapper/signature 重建 proposal 并
+  做 canonical equality，拒绝输出换线、metadata/resource/exposure 篡改和同版本漂移 revision。
 - 在公开边界上复用现有 plan-only validation 与 compile service。
 - 用 `parentPlanRevisionId` 保留 replan lineage；审批/编译后 replan 必须 fork draft。
 
 Required scenario：
 
 1. 用唯一 `creationRequestId` 为 FASTQ QC/report goal 创建 session。
-2. 对已注册 `reads.fastq` 或 `reads.fastq.gz` input 进行 plan。
+2. 对一个已物化、未压缩的 `reads.fastq`/`reads.fq` input 进行 plan；多文件和 gzip 明确失败。
 3. 持久化精确 draft revision、normalized preview、validation evidence、budget 与 `planHash`。
 4. State version、plan generation、plan hash、tool revision 或 draft revision 过期时拒绝 approval。
 5. 有效 approval 只编译不可变 `WorkflowRevision`，状态变为 `ready_to_run`。
 6. 证明没有创建 run command、attempt 或 run event。
-7. Replan 后，旧 plan、draft/revision reference、approval 和 workflow revision 仍可查询且未改变。
+7. 通用 control-plane replan 后旧 lineage 仍可查询；首个 FASTQ adapter 在 typed adjustment 上线前明确
+   拒绝 replan，不允许用自由文本原因生成同一计划并消耗预算。
 
 Exit criteria：
 
 - 每个非终态都能在进程重启后恢复。
-- 相同 idempotency key 的重复 plan/approval/replan 只产生一次持久效果。
+- 相同 idempotency key 的重复 plan/approval/受支持 replan 只产生一次持久效果。
 - Capability gate、budget、stale write、stale hash 都返回明确 problem details。
+- FastQC `0.12.1` 与 MultiQC wrapper environment `1.34` 的声明、bundle 与 compile evidence 一致。
 - 旧 schema migration 和空数据库创建都在 Windows 通过。
 
 ## Phase 2 — Agent-First Web Workbench
@@ -91,7 +100,8 @@ Outcome：科学用户无需打开 canvas 即可完成 Phase 1。
 
 - goal、inputs、constraints、evidence expectations 与 budget controls；
 - structured plan card，展示 tools、exact revisions、inputs/outputs、resources、risks 和 validation；
-- approve、request changes、replan、cancel、resume，并明确 action scope；
+- approve、request changes、cancel、resume；只有 adapter 声明 typed adjustment schema 时才启用 replan，
+  否则显示明确的 unsupported recovery action；
 - 由 `agent_events` 派生的持久 activity timeline；
 - compile readiness 与不可变 `WorkflowRevision` identity；
 - 只读 “Execution graph” advanced panel；
@@ -99,7 +109,8 @@ Outcome：科学用户无需打开 canvas 即可完成 Phase 1。
 
 Exit criteria：
 
-- Browser acceptance 覆盖 create -> plan -> approve -> compile -> reload -> replan。
+- Browser acceptance 覆盖 create -> plan -> approve -> compile -> reload；另验证当前 FASTQ replan 的明确
+  unsupported 状态，以及未来声明 typed adjustment 的 adapter replan。
 - Approval UI 显示 hash 绑定的精确 action、target、arguments、risk 和 budget impact。
 - Stale approval 与 capability failure 可见，绝不退化为 empty/loading state。
 - 迁移期间保留现有 generated-workflow builder，但默认旅程不新增 drag/drop 功能。

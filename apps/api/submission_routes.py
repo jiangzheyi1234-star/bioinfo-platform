@@ -8,10 +8,17 @@ from fastapi import APIRouter, Response
 
 from apps.api.models import RunSubmitRequest, UploadSubmitRequest
 from apps.api.submission_service import (
+    get_upload_from_request,
     submit_run_response_from_request,
     upload_file_from_request,
 )
-from core.contracts.remote_endpoints import REMOTE_ENDPOINTS, RUN_CREATE, UPLOAD_CREATE, remote_endpoint_success_status
+from core.contracts.remote_endpoints import (
+    REMOTE_ENDPOINTS,
+    RUN_CREATE,
+    UPLOAD_CREATE,
+    UPLOAD_READ,
+    remote_endpoint_success_status,
+)
 
 
 router = APIRouter()
@@ -20,6 +27,17 @@ router = APIRouter()
 @router.post("/api/v1/uploads", operation_id=REMOTE_ENDPOINTS[UPLOAD_CREATE].operation_id)
 async def upload_file(payload: UploadSubmitRequest) -> dict[str, Any]:
     return await upload_file_from_request(payload)
+
+
+@router.get(
+    "/api/v1/uploads/{upload_id}",
+    operation_id=REMOTE_ENDPOINTS[UPLOAD_READ].operation_id,
+)
+async def get_upload(
+    upload_id: str,
+    serverId: str | None = None,
+) -> dict[str, Any]:
+    return await get_upload_from_request(upload_id, server_id=serverId)
 
 
 @router.post(

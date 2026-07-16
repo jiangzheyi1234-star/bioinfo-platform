@@ -14,6 +14,7 @@ from core.contracts.agent_session import (
     AgentSessionCreateRequest,
 )
 
+from .agent_fastq_qc_validation import validate_fastq_qc_materialized_plan
 from .agent_plan_storage import (
     create_agent_plan_revision,
     list_agent_approvals,
@@ -71,6 +72,7 @@ def plan_agent_session_from_request(
     replan: bool,
 ) -> dict[str, Any]:
     request_payload = request.runtime_payload()
+    session = require_agent_session(cfg, session_id)
     command_hash = _hash_json(
         {
             "command": "replan" if replan else "plan",
@@ -104,6 +106,12 @@ def plan_agent_session_from_request(
         if completed is not None:
             return completed
     else:
+        validate_fastq_qc_materialized_plan(
+            cfg,
+            session=session,
+            proposal=request.proposal,
+            replan=replan,
+        )
         before = require_agent_session(cfg, session_id)
         parent_draft_id = before.get("activeDraftId") if replan else None
         parent_plan_revision_id = _latest_plan_revision_id(cfg, session_id) if replan else None
@@ -113,6 +121,7 @@ def plan_agent_session_from_request(
             "parentDraftId": parent_draft_id,
             "parentPlanRevisionId": parent_plan_revision_id,
             "planner": proposal["planner"],
+            "proposalIntent": request_payload["proposal"],
             "proposalHash": proposal_hash,
         }
         if isinstance(request, AgentReplanRequest):

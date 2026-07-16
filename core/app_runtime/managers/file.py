@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from core.app_runtime.managers.base import BaseRuntimeManager
-from core.contracts.remote_endpoints import UPLOAD_CREATE
+from core.contracts.remote_endpoints import UPLOAD_CREATE, UPLOAD_READ
 
 
 class FileManager(BaseRuntimeManager):
@@ -18,6 +18,18 @@ class FileManager(BaseRuntimeManager):
                 "mimeType": str(body.get("mimeType") or "application/octet-stream"),
             },
             preferred_server_id=body.get("serverId"),
+        )
+
+    def get_upload(
+        self,
+        upload_id: str,
+        *,
+        server_id: str | None = None,
+    ) -> dict[str, Any]:
+        return self.read_existing_remote_endpoint(
+            UPLOAD_READ,
+            path_values={"upload_id": upload_id},
+            preferred_server_id=server_id,
         )
 
     def list_remote_files(

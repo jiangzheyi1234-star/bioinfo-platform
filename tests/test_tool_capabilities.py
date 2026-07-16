@@ -330,7 +330,7 @@ def test_tool_search_applies_non_database_profile_overlay(monkeypatch) -> None:
         ("fastp", "0.24.1", "1.3.3", "fastp", "", []),
         ("fastqc", "0.12.1", "0.12.1", "fastqc", "", []),
         ("kraken2", "2.1.3", "2.17.1", "kraken2", "kraken2_db", ["kraken2"]),
-        ("multiqc", "1.25", "1.35", "multiqc", "", []),
+        ("multiqc", "1.25", "1.34", "multiqc", "", []),
         ("seqkit", "2.13.0", "2.13.0", "seqkit-stats", "", []),
     ],
 )

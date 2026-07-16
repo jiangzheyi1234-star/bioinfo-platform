@@ -84,6 +84,13 @@ draft revision 与 hash，随后创建或复用不可变 `WorkflowRevision`。Ap
 - `serverId` 只用于本地路由，不远端持久化。Provider audit 只保存中性、已脱敏的 `adapterId`、
   `adapterVersion`、`modelRef`。
 - Local API 可以校验、路由和聚合，但不得维护影子 Agent/run 数据库。
+- 本地 `/plan`、`/replan` 只接受 command envelope 与 `serverId`，不得接受 caller-authored
+  `proposal`、nodes 或 edges；本地 adapter 生成严格 proposal 后，remote runner 的同名内部边界才接收它。
+- 规划输入必须由同一 runner 的 upload ledger 重新读取并校验 size/SHA-256；计划只保存逻辑路径、
+  upload identity 与 digest，不保存 runner 绝对路径。
+- Remote 必须从 upload ledger、不可变 ToolRevision 与已锁定 profile signature 重建确定性 proposal，
+  并与收到的 proposal 做规范化全等比较；curated adapter 还拒绝会覆盖 profile environment 的额外
+  `environmentSpec`/`environmentLock`。只核对节点名、版本或输出别名不构成信任校验。
 - Agent event 使用独立 aggregate 与 hash chain，不混入 `run_events`；一个 session 可以产生多个
   plan、workflow revision 和 run。
 
@@ -102,8 +109,10 @@ cancelled -> terminal
 ```
 
 命令必须携带 `expectedStateVersion`，approval 还必须携带 `expectedPlanHash`；成功命令递增
-`stateVersion`。客户端提供 `idempotencyKey`，重复命令返回原结果。非法迁移必须明确失败。复合 planning
-中途崩溃后只能留下可恢复 command 或明确 `plan_failed` event，不能出现“看似已审批”的半成品。
+`stateVersion`。客户端提供 `idempotencyKey`，重复命令返回原结果。非法迁移必须明确失败。Planning command
+event 与规范化 `proposalIntent` 在同一事务持久化；若 draft/PlanRevision 落盘前中断，重试必须重放该 intent，
+不得从已漂移的 registry 重新生成。复合 planning 只能留下可恢复 command 或明确 `plan_failed` event，
+不能出现“看似已审批”的半成品。
 
 最小事件集为 `agent.session_created`、`agent.plan_requested`、`agent.draft_created`、
 `agent.draft_revised`、`agent.plan_validated`、`agent.plan_rejected`、`agent.approval_granted`、
@@ -117,9 +126,9 @@ cancelled -> terminal
    remote validation 仍是权威。
 2. 任意生成 shell、Python、Snakemake rule 或 caller-supplied `RuleSpec` 不得跨越控制面边界；未知
    payload 明确失败。
-3. Session 有 plan generation、planner/tool call、wall time、external bytes、model token/cost 与 run
-   submission 硬预算。达到硬上限只能暂停或失败，模型不能提高自己的预算；首个切片
-   `maxRunSubmissions` 为 `0`。
+3. Session 有 plan generation、planner/tool call、retry 与 wall-time 硬预算。达到硬上限只能暂停或
+   失败，模型不能提高自己的预算；首个切片根本不提供 run submit command。启用 run 前必须新增
+   fail-closed 的 `maxRunSubmissions`（旧 session 按 `0`），不得把 compile approval 外溢为运行授权。
 4. Side effect 必须分级。Draft planning 可逆；compile 需要持久审批；run submit、cancel、data delete、
    credential change 和 external publish 各自需要独立 policy 或 approval。
 5. Event 只存结构化方案、脱敏摘要、hash、tool result 和 decision evidence；不存 API key、authorization
@@ -131,7 +140,7 @@ cancelled -> terminal
 
 ## 首个纵向切片：FASTQ QC
 
-第一刀无需真实 LLM。确定性 provider-neutral adapter `fixture.fastq-qc.v1` 接受“对这些 FASTQ 做质量
+第一刀无需真实 LLM。确定性 provider-neutral adapter `h2ometa.fastq-qc.v1` 接受“对这个 FASTQ 做质量
 检查并生成汇总报告”，从 registry 选择 FastQC 到 MultiQC 的精确 capability bundle：
 
 ```text
@@ -145,9 +154,18 @@ create AgentSession
   -> ready_to_run (no submission)
 ```
 
+首版严格限定一个已物化、未压缩的 `.fastq`/`.fq`。当前 WorkflowDesign binding 不能把多个 source
+组成 collection，同一 target port 也不能接多条 edge；FastQC profile 的单 MIME contract 尚不能诚实表示
+gzip。多样本、双端和 `.fastq.gz` 必须先增加 typed collection/fan-in 与 compression/MIME union，当前
+明确失败而不是只取第一项或让 MultiQC 扫目录。FastQC 固定 `0.12.1`，MultiQC 固定到 vendored
+`v9.8.0/bio/multiqc` 实际环境的 `1.34`，避免 capability audit 与真实 wrapper environment 漂移。
+当前 adapter 也不接受自由文本 change reason 后生成同一计划；在定义 typed adjustment contract 前，
+本地与 remote `/replan` 明确返回 `WORKFLOW_FASTQ_QC_REPLAN_ADJUSTMENT_UNSUPPORTED`。通用控制面仍保留不可变 replan
+lineage，未来 adapter 只能对声明并实际应用的结构化修改开放该命令。
+
 验收必须证明：重启恢复；重复命令幂等；过期 state/hash 被拒绝；不可由 Agent 选择的工具被拒绝；approval
-可审计；replan lineage 不可变；approval 没有创建任何 `RunLedger` 记录。先证明控制面，再接 provider
-adapter 或自主执行循环。
+可审计；通用 replan lineage 不可变；不支持的 adapter replan 明确失败；approval 没有创建任何
+`RunLedger` 记录。先证明控制面，再接 provider adapter 或自主执行循环。
 
 ## 非目标
 

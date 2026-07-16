@@ -619,7 +619,7 @@ def test_runtime_file_operations_live_in_dedicated_mixin() -> None:
     assert "from core.app_runtime.runner_file_ops import RunnerFileOperationsMixin" in runner_ops_source
     assert "RunnerFileOperationsMixin" in runner_ops_source
     assert "class RunnerFileOperationsMixin" in file_ops_source
-    for method_name in ("upload_file", "list_remote_files"):
+    for method_name in ("upload_file", "get_upload", "list_remote_files"):
         assert f"def {method_name}(" in file_ops_source
         assert f"def {method_name}(" not in runner_ops_source
 
@@ -637,6 +637,7 @@ def test_runtime_file_operations_delegate_to_file_manager() -> None:
     assert "self.files = FileManager(self)" in service_source
     assert "class FileManager(BaseRuntimeManager)" in file_manager_source
     assert "UPLOAD_CREATE" in file_manager_source
+    assert "UPLOAD_READ" in file_manager_source
     assert '"upload_content"' not in file_manager_source
     assert "self.call_remote_endpoint(" in file_manager_source
     assert "ssh.list_directory(" in file_manager_source
@@ -644,6 +645,7 @@ def test_runtime_file_operations_delegate_to_file_manager() -> None:
     assert "self._require_runner_ready(" not in file_ops_source
     assert "self._ensure_ssh_connected(" not in file_ops_source
     assert "self.files.upload_file(" in file_ops_source
+    assert "self.files.get_upload(" in file_ops_source
 
 
 def test_remote_listening_ports_does_not_wrap_ssh_run_errors() -> None:

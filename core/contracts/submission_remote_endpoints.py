@@ -4,6 +4,7 @@ from typing import Any
 
 
 UPLOAD_CREATE = "upload.create"
+UPLOAD_READ = "upload.read"
 RUN_CREATE = "run.create"
 
 
@@ -16,6 +17,15 @@ SUBMISSION_REMOTE_ENDPOINT_SPECS: dict[str, dict[str, Any]] = {
         "request_schema": "upload-create-request.v1",
         "response_schema": "upload.v1",
         "cache_scope": "upload-command",
+    },
+    UPLOAD_READ: {
+        "method": "GET",
+        "path_template": "/api/v1/uploads/{upload_id}",
+        "operation_id": "getUpload",
+        "governance_action": None,
+        "request_schema": None,
+        "response_schema": "upload.v1",
+        "cache_scope": "upload-read-model",
     },
     RUN_CREATE: {
         "method": "POST",

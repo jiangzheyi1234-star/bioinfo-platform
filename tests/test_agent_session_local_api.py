@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import threading
 from typing import Any
 
@@ -64,10 +65,13 @@ def _create_payload(*, server_id: str | None = "srv_agent") -> dict[str, Any]:
         "goal": {
             "summary": "Run FASTQ QC and produce a reviewable MultiQC report.",
             "successCriteria": ["Produce a reviewable MultiQC report."],
-            "context": {"sampleCount": 2},
+            "context": _fastq_context(),
         },
         "constraints": {
-            "allowedToolRevisionIds": ["tr_fastqc", "tr_multiqc"],
+            "allowedToolRevisionIds": [
+                "bioconda::fastqc@0.12.1",
+                "bioconda::multiqc@1.34",
+            ],
             "forbiddenActions": ["arbitrary_shell"],
             "requirements": {"networkAccess": "declared-only"},
         },
@@ -96,6 +100,33 @@ def _plan_payload(*, server_id: str | None = "srv_agent") -> dict[str, Any]:
     if server_id is not None:
         payload["serverId"] = server_id
     return payload
+
+
+def _plan_command_payload(*, server_id: str = "srv_agent") -> dict[str, Any]:
+    return {
+        "requestId": "req-plan-1",
+        "actor": "user-1",
+        "idempotencyKey": "idem-plan-1",
+        "expectedStateVersion": 1,
+        "serverId": server_id,
+    }
+
+
+def _fastq_context() -> dict[str, Any]:
+    return {
+        "schemaVersion": "agent-fastq-qc-goal.v1",
+        "analysis": "fastq-qc",
+        "inputs": [
+            {
+                "uploadId": "upl_reads",
+                "filename": "reads.fastq",
+                "sha256": "a" * 64,
+                "sizeBytes": 32,
+                "mimeType": "text/plain",
+            }
+        ],
+        "reportFormat": "multiqc-html",
+    }
 
 
 def _approval_payload(*, server_id: str | None = "srv_agent") -> dict[str, Any]:
@@ -200,7 +231,27 @@ class FakeRuntime:
         server_id: str | None = None,
     ) -> dict[str, Any]:
         self.calls.append(("get", server_id, {"sessionId": session_id}))
-        return {"data": {"sessionId": session_id}}
+        return {"data": _session_record(session_id)}
+
+    def get_upload(
+        self,
+        upload_id: str,
+        *,
+        server_id: str | None = None,
+    ) -> dict[str, Any]:
+        self.calls.append(("upload", server_id, {"uploadId": upload_id}))
+        return {"data": _fastq_context()["inputs"][0] | {"uploadedAt": "2026-07-15T00:00:00Z"}}
+
+    def list_tools(self, server_id: str | None = None) -> dict[str, Any]:
+        self.calls.append(("tools", server_id, {}))
+        return {
+            "data": {
+                "items": [
+                    _ready_tool("fastqc", "0.12.1"),
+                    _ready_tool("multiqc", "1.34"),
+                ]
+            }
+        }
 
     def list_agent_session_events(
         self,
@@ -277,6 +328,145 @@ class FakeRuntime:
         return {"data": {"sessionId": session_id or "ags_1", "action": action}}
 
 
+class IdempotentReplayRuntime(FakeRuntime):
+    def __init__(self) -> None:
+        super().__init__()
+        self.persisted_event: dict[str, Any] | None = None
+        self.persisted_plan: dict[str, Any] | None = None
+        self.outbound_proposals: list[dict[str, Any]] = []
+
+    def list_agent_session_events(
+        self,
+        session_id: str,
+        *,
+        server_id: str | None = None,
+    ) -> dict[str, Any]:
+        self.calls.append(("events", server_id, {"sessionId": session_id}))
+        items = [] if self.persisted_event is None else [copy.deepcopy(self.persisted_event)]
+        return {"data": {"items": items}}
+
+    def list_agent_session_plans(
+        self,
+        session_id: str,
+        *,
+        server_id: str | None = None,
+    ) -> dict[str, Any]:
+        self.calls.append(("plans", server_id, {"sessionId": session_id}))
+        items = [] if self.persisted_plan is None else [copy.deepcopy(self.persisted_plan)]
+        return {"data": {"items": items}}
+
+    def plan_agent_session(
+        self,
+        session_id: str,
+        payload: dict[str, Any],
+        *,
+        server_id: str | None = None,
+    ) -> dict[str, Any]:
+        self.calls.append(("plan", server_id, copy.deepcopy(payload)))
+        proposal = copy.deepcopy(payload["proposal"])
+        if self.outbound_proposals and proposal != self.outbound_proposals[0]:
+            raise RuntimeError("AGENT_COMMAND_IDEMPOTENCY_CONFLICT")
+        self.outbound_proposals.append(proposal)
+        if self.persisted_plan is None:
+            persisted = copy.deepcopy(proposal)
+            persisted["draft"]["provenance"].update(
+                {
+                    "agentSessionId": session_id,
+                    "agentPlanGeneration": 1,
+                }
+            )
+            self.persisted_event = {
+                "idempotencyKey": str(payload["idempotencyKey"]),
+                "eventType": "agent.plan_requested",
+                "planGeneration": 1,
+            }
+            self.persisted_plan = {
+                "planGeneration": 1,
+                "proposal": persisted,
+            }
+        return {"data": {"sessionId": session_id, "action": "plan"}}
+
+
+class InterruptedReplayRuntime(IdempotentReplayRuntime):
+    def plan_agent_session(
+        self,
+        session_id: str,
+        payload: dict[str, Any],
+        *,
+        server_id: str | None = None,
+    ) -> dict[str, Any]:
+        self.calls.append(("plan", server_id, copy.deepcopy(payload)))
+        proposal = copy.deepcopy(payload["proposal"])
+        if self.outbound_proposals and proposal != self.outbound_proposals[0]:
+            raise RuntimeError("AGENT_COMMAND_IDEMPOTENCY_CONFLICT")
+        self.outbound_proposals.append(proposal)
+        if len(self.outbound_proposals) == 1:
+            self.persisted_event = {
+                "idempotencyKey": str(payload["idempotencyKey"]),
+                "eventType": "agent.plan_requested",
+                "planGeneration": 1,
+                "payload": {"proposalIntent": copy.deepcopy(proposal)},
+            }
+            raise RuntimeError("SIMULATED_REMOTE_INTERRUPTION")
+        return {"data": {"sessionId": session_id, "action": "plan"}}
+
+
+def _session_record(session_id: str = "ags_1") -> dict[str, Any]:
+    created = _create_payload(server_id=None)
+    return {
+        "contractVersion": "agent-session.v1",
+        "sessionId": session_id,
+        "projectId": created["projectId"],
+        "goal": created["goal"],
+        "constraints": created["constraints"],
+        "budget": created["budget"],
+        "status": "created",
+        "stateVersion": 1,
+        "planGeneration": 0,
+        "planner": {},
+        "lastErrorCode": "",
+        "creationRequestId": created["creationRequestId"],
+        "createdBy": created["createdBy"],
+        "createdAt": "2026-07-15T00:00:00Z",
+        "updatedAt": "2026-07-15T00:00:00Z",
+    }
+
+
+def _ready_tool(profile_id: str, version: str) -> dict[str, Any]:
+    package_spec = f"bioconda::{profile_id}={version}"
+    return {
+        "id": f"bioconda::{profile_id}",
+        "name": profile_id,
+        "source": "bioconda",
+        "version": version,
+        "packageSpec": package_spec,
+        "targetPlatform": "linux-64",
+        "toolRevisionId": f"bioconda::{profile_id}@{version}",
+        "validationSummary": {
+            "latestResultId": f"toolval_{profile_id}",
+            "latestStatus": "passed",
+            "evidenceId": f"evid_{profile_id}",
+            "updatedAt": "2026-07-15T00:00:00Z",
+        },
+        "toolContract": {
+            "state": "WorkflowReady",
+            "workflowReady": True,
+            "package": {
+                "packageSpec": package_spec,
+                "source": "bioconda",
+                "version": version,
+                "targetPlatform": "linux-64",
+                "targetPlatformSupported": True,
+            },
+            "validation": {
+                "dryRun": {"status": "passed"},
+                "smokeRun": {"status": "passed"},
+                "outputValidation": {"status": "passed"},
+            },
+        },
+    }
+
+
 def test_local_models_accept_only_local_server_routing_and_strip_it_explicitly() -> None:
     request = AgentSessionCreateRequest.model_validate(_create_payload())
     server_id, remote_payload = split_agent_routing(request)
@@ -286,8 +476,7 @@ def test_local_models_accept_only_local_server_routing_and_strip_it_explicitly()
     assert remote_payload["contractVersion"] == "agent-session.v1"
     assert remote_payload["budget"] == _budget()
 
-    provider_specific = _plan_payload()
-    provider_specific["proposal"]["planner"]["provider"] = "vendor-a"
+    provider_specific = _plan_command_payload() | {"proposal": {"draft": {}}}
     with pytest.raises(ValidationError) as provider_exc:
         AgentPlanRequest.model_validate(provider_specific)
     assert provider_exc.value.errors()[0]["type"] == "extra_forbidden"
@@ -306,7 +495,7 @@ def test_local_write_routes_pass_server_separately_from_remote_contract(monkeypa
     planned = asyncio.run(
         plan_agent_session_api(
             "ags_1",
-            AgentPlanRequest.model_validate(_plan_payload()),
+            AgentPlanRequest.model_validate(_plan_command_payload()),
         )
     )
     approved = asyncio.run(
@@ -315,17 +504,18 @@ def test_local_write_routes_pass_server_separately_from_remote_contract(monkeypa
             AgentApprovalRequest.model_validate(_approval_payload()),
         )
     )
-    replan_payload = _plan_payload()
+    replan_payload = _plan_command_payload()
     replan_payload["requestId"] = "req-replan-1"
     replan_payload["idempotencyKey"] = "idem-replan-1"
     replan_payload["expectedStateVersion"] = 4
     replan_payload["reason"] = "Use the corrected sample pairing."
-    replanned = asyncio.run(
-        replan_agent_session_api(
-            "ags_1",
-            AgentReplanRequest.model_validate(replan_payload),
+    with pytest.raises(ValueError, match="WORKFLOW_FASTQ_QC_REPLAN_ADJUSTMENT_UNSUPPORTED"):
+        asyncio.run(
+            replan_agent_session_api(
+                "ags_1",
+                AgentReplanRequest.model_validate(replan_payload),
+            )
         )
-    )
     cancelled = asyncio.run(
         cancel_agent_session_api(
             "ags_1",
@@ -336,17 +526,62 @@ def test_local_write_routes_pass_server_separately_from_remote_contract(monkeypa
     assert created["data"]["action"] == "create"
     assert planned["data"]["action"] == "plan"
     assert approved["data"]["action"] == "approval"
-    assert replanned["data"]["action"] == "replan"
     assert cancelled["data"]["action"] == "cancel"
     assert [call[0] for call in runtime.calls] == [
         "create",
+        "get",
+        "events",
+        "upload",
+        "tools",
         "plan",
         "approval",
-        "replan",
+        "get",
         "cancel",
     ]
     assert all(server_id == "srv_agent" for _, server_id, _ in runtime.calls)
     assert all("serverId" not in payload for _, _, payload in runtime.calls)
+    planned_call = next(payload for action, _, payload in runtime.calls if action == "plan")
+    assert planned_call["proposal"]["planner"]["adapterId"] == "h2ometa.fastq-qc.v1"
+    assert [node["id"] for node in planned_call["proposal"]["draft"]["nodes"]] == [
+        "fastqc",
+        "multiqc",
+    ]
+
+
+def test_duplicate_local_plan_replays_the_original_remote_request(monkeypatch) -> None:
+    runtime = IdempotentReplayRuntime()
+    monkeypatch.setattr("apps.api.agent_session_service.runtime_service", lambda: runtime)
+    request = AgentPlanRequest.model_validate(_plan_command_payload())
+
+    first = asyncio.run(plan_agent_session_api("ags_1", request))
+    second = asyncio.run(plan_agent_session_api("ags_1", request))
+
+    assert first == second == {"data": {"sessionId": "ags_1", "action": "plan"}}
+    assert runtime.outbound_proposals[0] == runtime.outbound_proposals[1]
+    assert sum(action == "tools" for action, _, _ in runtime.calls) == 1
+    assert sum(action == "upload" for action, _, _ in runtime.calls) == 1
+    assert runtime.persisted_plan is not None
+    persisted_provenance = runtime.persisted_plan["proposal"]["draft"]["provenance"]
+    assert persisted_provenance["agentSessionId"] == "ags_1"
+    assert persisted_provenance["agentPlanGeneration"] == 1
+    assert "agentSessionId" not in runtime.outbound_proposals[1]["draft"]["provenance"]
+    assert "agentPlanGeneration" not in runtime.outbound_proposals[1]["draft"]["provenance"]
+
+
+def test_interrupted_local_plan_replays_durable_remote_proposal_intent(monkeypatch) -> None:
+    runtime = InterruptedReplayRuntime()
+    monkeypatch.setattr("apps.api.agent_session_service.runtime_service", lambda: runtime)
+    request = AgentPlanRequest.model_validate(_plan_command_payload())
+
+    with pytest.raises(RuntimeError, match="SIMULATED_REMOTE_INTERRUPTION"):
+        asyncio.run(plan_agent_session_api("ags_1", request))
+    recovered = asyncio.run(plan_agent_session_api("ags_1", request))
+
+    assert recovered == {"data": {"sessionId": "ags_1", "action": "plan"}}
+    assert runtime.persisted_plan is None
+    assert runtime.outbound_proposals[0] == runtime.outbound_proposals[1]
+    assert sum(action == "tools" for action, _, _ in runtime.calls) == 1
+    assert sum(action == "upload" for action, _, _ in runtime.calls) == 1
 
 
 def test_local_read_routes_pass_selected_server_id(monkeypatch) -> None:
@@ -362,7 +597,7 @@ def test_local_read_routes_pass_selected_server_id(monkeypatch) -> None:
     )
 
     assert listed == {"data": {"items": []}}
-    assert fetched == {"data": {"sessionId": "ags_1"}}
+    assert fetched["data"]["sessionId"] == "ags_1"
     assert events == {"data": {"items": []}}
     assert plans == {"data": {"items": []}}
     assert approvals == {"data": {"items": []}}

@@ -6,6 +6,7 @@ import pytest
 
 from apps.remote_runner.errors import UploadTooLargeError
 from apps.remote_runner.storage import MAX_UPLOAD_BYTES, persist_upload
+from apps.remote_runner.upload_service import require_materialized_upload
 from tests.helpers.reference_database import make_configured_remote_runner
 
 
@@ -23,3 +24,25 @@ def test_oversized_upload_raises_domain_error_before_decoding(tmp_path: Path) ->
 
     assert str(raised.value) == "UPLOAD_TOO_LARGE"
     assert raised.value.status_code == 413
+
+
+def test_materialized_upload_read_verifies_bytes_and_hides_storage_path(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    upload = persist_upload(
+        cfg,
+        filename="reads.fastq",
+        content_base64="QQ==",
+        mime_type="text/plain",
+    )
+
+    verified = require_materialized_upload(cfg, upload["uploadId"])
+
+    assert verified == {
+        key: upload[key]
+        for key in ("uploadId", "filename", "sizeBytes", "sha256", "mimeType", "uploadedAt")
+    }
+    assert "path" not in verified
+
+    Path(upload["path"]).write_bytes(b"B")
+    with pytest.raises(ValueError, match="INPUT_UPLOAD_SHA256_MISMATCH"):
+        require_materialized_upload(cfg, upload["uploadId"])

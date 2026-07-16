@@ -26,6 +26,17 @@ async def upload_file_from_request(request: UploadSubmitRequest) -> dict[str, An
     )
 
 
+async def get_upload_from_request(
+    upload_id: str,
+    *,
+    server_id: str | None,
+) -> dict[str, Any]:
+    return await run_runtime_payload(
+        lambda: runtime_service().get_upload(upload_id, server_id=server_id),
+        wrapper="raw",
+    )
+
+
 async def submit_run_from_request(request: RunSubmitRequest) -> RunSubmission:
     request_id = ensure_request_id(request.requestId)
     result = await run_runtime_payload(

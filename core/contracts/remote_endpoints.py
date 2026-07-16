@@ -24,7 +24,12 @@ from core.contracts.runner_health_remote_endpoints import (
     RUNNER_HEALTH_STARTUP as _RUNNER_HEALTH_STARTUP,
     RUNNER_HEALTH_WORKERS as _RUNNER_HEALTH_WORKERS,
 )
-from core.contracts.submission_remote_endpoints import RUN_CREATE as _RUN_CREATE, SUBMISSION_REMOTE_ENDPOINT_SPECS, UPLOAD_CREATE as _UPLOAD_CREATE
+from core.contracts.submission_remote_endpoints import (
+    RUN_CREATE as _RUN_CREATE,
+    SUBMISSION_REMOTE_ENDPOINT_SPECS,
+    UPLOAD_CREATE as _UPLOAD_CREATE,
+    UPLOAD_READ as _UPLOAD_READ,
+)
 from core.contracts.tool_remote_endpoints import TOOL_REMOTE_ENDPOINT_SPECS
 from core.contracts.workflow_design_remote_endpoints import WORKFLOW_DESIGN_REMOTE_ENDPOINT_SPECS
 from core.contracts.workflow_trigger_remote_endpoints import (
@@ -669,6 +674,7 @@ def _query_value(value: Any) -> str:
     return str(value)
 RUN_CREATE = _RUN_CREATE
 UPLOAD_CREATE = _UPLOAD_CREATE
+UPLOAD_READ = _UPLOAD_READ
 EXECUTION_LIFECYCLE_GUARD = _EXECUTION_LIFECYCLE_GUARD
 EXECUTION_LIFECYCLE_GUARD_RELEASE = _EXECUTION_LIFECYCLE_GUARD_RELEASE
 RUNNER_HEALTH_STARTUP = _RUNNER_HEALTH_STARTUP

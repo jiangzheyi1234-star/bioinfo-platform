@@ -4,11 +4,18 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from core.contracts.remote_endpoints import REMOTE_ENDPOINTS, RUN_CREATE, UPLOAD_CREATE, remote_endpoint_success_status
+from core.contracts.remote_endpoints import (
+    REMOTE_ENDPOINTS,
+    RUN_CREATE,
+    UPLOAD_CREATE,
+    UPLOAD_READ,
+    remote_endpoint_success_status,
+)
 
 from .api_models import RunCreateRequest, UploadCreateRequest
 from .control_service import create_run_from_request, create_upload_from_request
 from .route_headers import AuthorizationHeader, IdempotencyKeyHeader, RequestIdHeader
+from .upload_read_service import get_upload_from_request
 
 
 router = APIRouter()
@@ -20,6 +27,17 @@ async def create_upload(
     authorization: AuthorizationHeader = None,
 ) -> dict[str, Any]:
     return await create_upload_from_request(payload, authorization)
+
+
+@router.get(
+    "/api/v1/uploads/{upload_id}",
+    operation_id=REMOTE_ENDPOINTS[UPLOAD_READ].operation_id,
+)
+async def get_upload(
+    upload_id: str,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await get_upload_from_request(upload_id, authorization)
 
 
 @router.post(

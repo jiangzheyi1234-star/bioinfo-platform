@@ -6,11 +6,13 @@ from typing import TypeAlias
 
 from pydantic import Field
 
+from core.contracts.agent_fastq_qc import (
+    AgentFastqQcPlanCommand as AgentPlanCommandContract,
+    AgentFastqQcReplanCommand as AgentReplanCommandContract,
+)
 from core.contracts.agent_session import (
     AgentApprovalRequest as AgentApprovalContract,
     AgentCancelRequest as AgentCancelContract,
-    AgentPlanRequest as AgentPlanContract,
-    AgentReplanRequest as AgentReplanContract,
     AgentSessionCreateRequest as AgentSessionCreateContract,
 )
 
@@ -19,12 +21,12 @@ class AgentSessionCreateRequest(AgentSessionCreateContract):
     serverId: str | None = Field(default=None, min_length=1, max_length=500)
 
 
-class AgentPlanRequest(AgentPlanContract):
-    serverId: str | None = Field(default=None, min_length=1, max_length=500)
+class AgentPlanRequest(AgentPlanCommandContract):
+    serverId: str = Field(min_length=1, max_length=500)
 
 
-class AgentReplanRequest(AgentReplanContract):
-    serverId: str | None = Field(default=None, min_length=1, max_length=500)
+class AgentReplanRequest(AgentReplanCommandContract):
+    serverId: str = Field(min_length=1, max_length=500)
 
 
 class AgentApprovalRequest(AgentApprovalContract):

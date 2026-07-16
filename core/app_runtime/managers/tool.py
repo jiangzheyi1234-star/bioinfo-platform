@@ -19,10 +19,11 @@ from core.contracts.tool_remote_endpoints import (
 
 
 class ToolManager(BaseRuntimeManager):
-    def list_tools(self) -> dict[str, Any]:
+    def list_tools(self, server_id: str | None = None) -> dict[str, Any]:
         items = self.call_remote_endpoint(
             TOOL_LIST,
             path_values={},
+            preferred_server_id=server_id,
             require_existing_runner=True,
         )
         return {"data": {"items": items}}

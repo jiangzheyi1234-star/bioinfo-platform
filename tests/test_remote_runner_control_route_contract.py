@@ -312,6 +312,15 @@ def test_upload_route_delegates_request_field_mapping_to_service() -> None:
     assert "request.contentBase64" in service_source
 
 
+def test_upload_read_route_delegates_verified_read_to_service() -> None:
+    route_source = _source("apps/remote_runner/submission_routes.py")
+    service_source = _source("apps/remote_runner/upload_read_service.py")
+
+    assert "return await get_upload_from_request(upload_id, authorization)" in route_source
+    assert "run_sync(authorized_config, authorization)" in service_source
+    assert "run_sync(require_materialized_upload, cfg, upload_id)" in service_source
+
+
 def test_remote_runner_main_delegates_control_plane_work_to_service() -> None:
     main_source = _source("apps/remote_runner/main.py")
     health_route_source = _source("apps/remote_runner/health_routes.py")

@@ -192,6 +192,8 @@ def test_multiqc_profile_overlay_declares_report_output() -> None:
     template = draft["ruleTemplate"]
     assert draft["source"] == "h2ometa-tool-profile"
     assert draft["lock"]["profileId"] == "multiqc"
+    assert draft["lock"]["profileVersion"] == 3
+    assert draft["lock"]["packageSpec"] == "bioconda::multiqc=1.34"
     assert draft["lock"]["wrapperIdentifier"] == "v9.8.0/bio/multiqc"
     assert template["wrapper"] == "v9.8.0/bio/multiqc"
     assert "commandTemplate" not in template
@@ -233,7 +235,7 @@ def test_fastqc_zip_output_connects_to_multiqc_input() -> None:
         {"name": "fastqc", "source": "bioconda", "packageSpec": "bioconda::fastqc=0.12.1"}
     )["ruleTemplate"]
     multiqc = resolver.resolve_dependency(
-        {"name": "multiqc", "source": "bioconda", "packageSpec": "bioconda::multiqc=1.35"}
+        {"name": "multiqc", "source": "bioconda", "packageSpec": "bioconda::multiqc=1.34"}
     )["ruleTemplate"]
 
     fastqc_zip = next(output for output in fastqc["outputs"] if output["name"] == "zip")

@@ -341,11 +341,11 @@ _CURATED_TOOL_PROFILES: tuple[ToolProfile, ...] = (
         ),
         ToolProfile(
             profile_id="multiqc",
-            version=2,
+            version=3,
             tool_names=("multiqc",),
             package_name="multiqc",
             package_source="bioconda",
-            package_version="1.35",
+            package_version="1.34",
             preferred_wrapper_paths=("bio/multiqc",),
             rule_template={
                 "wrapper": "v9.8.0/bio/multiqc",

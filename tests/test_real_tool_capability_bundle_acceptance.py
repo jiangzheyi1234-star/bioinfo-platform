@@ -20,7 +20,7 @@ REAL_TOOL_FIXTURES = {
     "fastqc": {"package": "fastqc", "version": "0.12.1", "toolName": "fastqc"},
     "fastp": {"package": "fastp", "version": "0.24.1", "toolName": "fastp"},
     "seqkit-stats": {"package": "seqkit", "version": "2.13.0", "toolName": "seqkit-stats"},
-    "multiqc": {"package": "multiqc", "version": "1.25", "toolName": "multiqc"},
+    "multiqc": {"package": "multiqc", "version": "1.34", "toolName": "multiqc"},
     "bracken": {"package": "bracken", "version": "2.9", "toolName": "bracken"},
 }
 

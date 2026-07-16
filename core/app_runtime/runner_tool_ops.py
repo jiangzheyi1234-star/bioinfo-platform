@@ -4,8 +4,8 @@ from typing import Any, Optional
 
 
 class RunnerToolOperationsMixin:
-    def list_tools(self) -> dict[str, Any]:
-        return self.tools.list_tools()
+    def list_tools(self, server_id: str | None = None) -> dict[str, Any]:
+        return self.tools.list_tools(server_id)
 
     def list_tool_index(
         self,

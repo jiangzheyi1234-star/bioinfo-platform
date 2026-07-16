@@ -12,6 +12,7 @@ from apps.api.agent_session_models import (
     AgentSessionCreateRequest,
     split_agent_routing,
 )
+from apps.api.agent_session_planner_service import plan_agent_session_with_adapter
 from apps.api.response_cache import invalidate_response_cache
 from apps.api.route_utils import cached_runtime_payload, run_runtime_payload, runtime_service
 
@@ -113,11 +114,15 @@ async def plan_agent_session_from_request(
     request: AgentPlanRequest,
 ) -> dict[str, Any]:
     server_id, body = split_agent_routing(request)
+    if server_id is None:
+        raise ValueError("AGENT_SESSION_SERVER_ID_REQUIRED")
     result = await run_runtime_payload(
-        lambda: runtime_service().plan_agent_session(
-            session_id,
-            body,
+        lambda: plan_agent_session_with_adapter(
+            runtime=runtime_service(),
+            session_id=session_id,
             server_id=server_id,
+            command=body,
+            replan=False,
         ),
         wrapper="raw",
     )
@@ -147,11 +152,15 @@ async def replan_agent_session_from_request(
     request: AgentReplanRequest,
 ) -> dict[str, Any]:
     server_id, body = split_agent_routing(request)
+    if server_id is None:
+        raise ValueError("AGENT_SESSION_SERVER_ID_REQUIRED")
     result = await run_runtime_payload(
-        lambda: runtime_service().replan_agent_session(
-            session_id,
-            body,
+        lambda: plan_agent_session_with_adapter(
+            runtime=runtime_service(),
+            session_id=session_id,
             server_id=server_id,
+            command=body,
+            replan=True,
         ),
         wrapper="raw",
     )
