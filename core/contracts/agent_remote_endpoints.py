@@ -7,6 +7,7 @@ AGENT_PRINCIPAL_CONTEXT_READ = "agent_session.principal_context.read"
 AGENT_SESSION_LIST = "agent_session.list"
 AGENT_SESSION_CREATE = "agent_session.create"
 AGENT_SESSION_READ = "agent_session.read"
+AGENT_SESSION_SNAPSHOT_READ = "agent_session.snapshot.read"
 AGENT_SESSION_EVENTS_READ = "agent_session.events.read"
 AGENT_SESSION_PLANS_READ = "agent_session.plans.read"
 AGENT_SESSION_APPROVALS_READ = "agent_session.approvals.read"
@@ -54,6 +55,15 @@ AGENT_REMOTE_ENDPOINT_SPECS: dict[str, dict[str, Any]] = {
         "governance_action": "agent_session.read",
         "request_schema": None,
         "response_schema": "agent-session.v1",
+        "cache_scope": "agent-session-read-model",
+    },
+    AGENT_SESSION_SNAPSHOT_READ: {
+        "method": "GET",
+        "path_template": "/api/v1/agent-sessions/{session_id}/snapshot",
+        "operation_id": "getAgentSessionSnapshot",
+        "governance_action": "agent_session.snapshot.read",
+        "request_schema": None,
+        "response_schema": "agent-session-snapshot.v1",
         "cache_scope": "agent-session-read-model",
     },
     AGENT_SESSION_EVENTS_READ: {

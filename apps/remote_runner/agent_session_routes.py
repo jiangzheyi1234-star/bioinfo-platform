@@ -18,6 +18,7 @@ from core.contracts.agent_remote_endpoints import (
     AGENT_SESSION_PLANS_READ,
     AGENT_SESSION_READ,
     AGENT_SESSION_REPLAN,
+    AGENT_SESSION_SNAPSHOT_READ,
 )
 from core.contracts.agent_session import (
     AgentApprovalRequest,
@@ -34,6 +35,7 @@ from .agent_session_service import (
     create_agent_session_from_http,
     get_agent_principal_context_from_http,
     get_agent_session_from_http,
+    get_agent_session_snapshot_from_http,
     list_agent_approvals_from_http,
     list_agent_events_from_http,
     list_agent_plans_from_http,
@@ -83,6 +85,17 @@ async def get_agent_session_api(
     authorization: AuthorizationHeader = None,
 ) -> dict[str, Any]:
     return await get_agent_session_from_http(session_id, authorization)
+
+
+@router.get(
+    "/api/v1/agent-sessions/{session_id}/snapshot",
+    operation_id=REMOTE_ENDPOINTS[AGENT_SESSION_SNAPSHOT_READ].operation_id,
+)
+async def get_agent_session_snapshot_api(
+    session_id: str,
+    authorization: AuthorizationHeader = None,
+) -> dict[str, Any]:
+    return await get_agent_session_snapshot_from_http(session_id, authorization)
 
 
 @router.get(

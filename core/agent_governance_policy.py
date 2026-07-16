@@ -54,6 +54,15 @@ AGENT_REMOTE_GOVERNANCE_SPECS: tuple[AgentRemoteGovernanceSpec, ...] = (
     ),
     (
         "GET",
+        "/api/v1/agent-sessions/{session_id}/snapshot",
+        _ROUTES,
+        "agent_session.snapshot.read",
+        "agent_session",
+        "implemented",
+        ("workflow-operator", "auditor"),
+    ),
+    (
+        "GET",
         "/api/v1/agent-sessions/{session_id}/events",
         _ROUTES,
         "agent_session.events.read",

@@ -20,7 +20,9 @@ from core.contracts.agent_remote_endpoints import (
     AGENT_SESSION_PLANS_READ,
     AGENT_SESSION_READ,
     AGENT_SESSION_REPLAN,
+    AGENT_SESSION_SNAPSHOT_READ,
 )
+from core.contracts.agent_snapshot import AgentSessionSnapshot
 from core.contracts.agent_session import (
     AgentApprovalRequest,
     AgentCancelRequest,
@@ -85,6 +87,32 @@ class AgentManager(BaseRuntimeManager):
             path_values={"session_id": session_id},
             preferred_server_id=server_id,
         )
+
+    def get_agent_session_snapshot(
+        self,
+        session_id: str,
+        *,
+        server_id: str,
+    ) -> dict[str, Any]:
+        preferred_server_id = _optional_text(server_id)
+        if preferred_server_id is None:
+            raise RuntimeServiceError("AGENT_SESSION_SERVER_ID_REQUIRED")
+        normalized_session_id = _optional_text(session_id)
+        if normalized_session_id is None:
+            raise RuntimeServiceError("AGENT_SESSION_ID_REQUIRED")
+        result = self.read_existing_remote_endpoint(
+            AGENT_SESSION_SNAPSHOT_READ,
+            path_values={"session_id": normalized_session_id},
+            preferred_server_id=preferred_server_id,
+        )
+        data = result.get("data") if isinstance(result, dict) else None
+        try:
+            snapshot = AgentSessionSnapshot.model_validate(data)
+        except ValidationError as exc:
+            raise RuntimeServiceError("AGENT_SESSION_SNAPSHOT_INVALID") from exc
+        if snapshot.session.sessionId != normalized_session_id:
+            raise RuntimeServiceError("AGENT_SESSION_SNAPSHOT_IDENTITY_MISMATCH")
+        return {"data": snapshot.runtime_payload()}
 
     def list_agent_session_events(
         self,

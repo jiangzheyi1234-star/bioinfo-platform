@@ -23,6 +23,7 @@ from .agent_plan_storage import (
     list_agent_plan_revisions,
     record_agent_approval,
 )
+from .agent_snapshot_storage import read_agent_session_snapshot
 from .agent_session_state_machine import AgentSessionStateMachine
 from .agent_session_storage import (
     AgentSessionStorageConflictError,
@@ -397,6 +398,14 @@ async def create_agent_session_from_http(
 async def get_agent_session_from_http(session_id: str, authorization: str | None) -> dict[str, Any]:
     cfg = authorized_config(authorization, action="agent_session.read")
     return data_response(await run_sync(require_agent_session, cfg, session_id))
+
+
+async def get_agent_session_snapshot_from_http(
+    session_id: str,
+    authorization: str | None,
+) -> dict[str, Any]:
+    cfg = authorized_config(authorization, action="agent_session.snapshot.read")
+    return data_response(await run_sync(read_agent_session_snapshot, cfg, session_id))
 
 
 async def list_agent_events_from_http(session_id: str, authorization: str | None) -> dict[str, Any]:

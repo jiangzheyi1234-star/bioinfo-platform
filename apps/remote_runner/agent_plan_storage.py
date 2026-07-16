@@ -87,7 +87,7 @@ def create_agent_plan_revision(
                 if str(existing["plan_hash"]) != plan_hash:
                     raise AgentPlanStorageConflictError("AGENT_PLAN_GENERATION_ALREADY_COMMITTED")
                 connection.commit()
-                return _plan_row_to_dict(existing)
+                return agent_plan_row_to_dict(existing)
             session = _require_row(
                 connection,
                 "SELECT * FROM agent_sessions WHERE session_id = ?",
@@ -148,7 +148,7 @@ def create_agent_plan_revision(
         except Exception:
             connection.rollback()
             raise
-    return _plan_row_to_dict(row)
+    return agent_plan_row_to_dict(row)
 
 
 def fetch_agent_plan_revision(
@@ -161,7 +161,7 @@ def fetch_agent_plan_revision(
             "SELECT * FROM agent_plan_revisions WHERE plan_revision_id = ?",
             (normalized_id,),
         ).fetchone()
-    return _plan_row_to_dict(row) if row is not None else None
+    return agent_plan_row_to_dict(row) if row is not None else None
 
 
 def require_agent_plan_revision(cfg: RemoteRunnerConfig, plan_revision_id: str) -> dict[str, Any]:
@@ -182,7 +182,7 @@ def list_agent_plan_revisions(cfg: RemoteRunnerConfig, session_id: str) -> list[
             """,
             (normalized_session_id,),
         ).fetchall()
-    return [_plan_row_to_dict(row) for row in rows]
+    return [agent_plan_row_to_dict(row) for row in rows]
 
 
 def record_agent_approval(
@@ -240,7 +240,7 @@ def record_agent_approval(
                 if str(replay["approval_hash"]) != approval_hash:
                     raise AgentPlanStorageConflictError("AGENT_APPROVAL_IDEMPOTENCY_CONFLICT")
                 connection.commit()
-                return _approval_row_to_dict(replay)
+                return agent_approval_row_to_dict(replay)
             event_collision = connection.execute(
                 """
                 SELECT event_id FROM agent_events
@@ -359,7 +359,7 @@ def record_agent_approval(
         except Exception:
             connection.rollback()
             raise
-    return _approval_row_to_dict(row)
+    return agent_approval_row_to_dict(row)
 
 
 def list_agent_approvals(cfg: RemoteRunnerConfig, session_id: str) -> list[dict[str, Any]]:
@@ -373,7 +373,7 @@ def list_agent_approvals(cfg: RemoteRunnerConfig, session_id: str) -> list[dict[
             """,
             (normalized_session_id,),
         ).fetchall()
-    return [_approval_row_to_dict(row) for row in rows]
+    return [agent_approval_row_to_dict(row) for row in rows]
 
 
 def _validate_parent(
@@ -488,7 +488,7 @@ def _validate_approval_target(
         raise AgentPlanStorageConflictError("AGENT_APPROVAL_DRAFT_SNAPSHOT_CONFLICT")
 
 
-def _plan_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+def agent_plan_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     payload = {
         "contractVersion": row["contract_version"],
         "planRevisionId": row["plan_revision_id"],
@@ -523,7 +523,7 @@ def _plan_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     return payload
 
 
-def _approval_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+def agent_approval_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     payload = {
         "contractVersion": row["contract_version"],
         "approvalId": row["approval_id"],

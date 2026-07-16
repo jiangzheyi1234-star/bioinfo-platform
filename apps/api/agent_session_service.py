@@ -23,6 +23,7 @@ from core.contracts.agent_session import AgentPrincipalContext
 AGENT_SESSION_CACHE_PREFIXES = (
     "agent_sessions:",
     "agent_session:",
+    "agent_session_snapshot:",
     "agent_session_events:",
     "agent_session_plans:",
     "agent_session_approvals:",
@@ -74,6 +75,30 @@ async def get_agent_session_from_request(
         f"agent_session:{server_id or 'default'}:{session_id}",
         10,
         lambda: runtime_service().get_agent_session(session_id, server_id=server_id),
+        wrapper="raw",
+        force_refresh=refresh,
+    )
+
+
+async def get_agent_session_snapshot_from_request(
+    session_id: str,
+    *,
+    refresh: bool,
+    server_id: str,
+) -> dict[str, Any]:
+    normalized_server_id = str(server_id or "").strip()
+    if not normalized_server_id:
+        raise ValueError("AGENT_SESSION_SERVER_ID_REQUIRED")
+    normalized_session_id = str(session_id or "").strip()
+    if not normalized_session_id:
+        raise ValueError("AGENT_SESSION_ID_REQUIRED")
+    return await cached_runtime_payload(
+        f"agent_session_snapshot:{normalized_server_id}:{normalized_session_id}",
+        10,
+        lambda: runtime_service().get_agent_session_snapshot(
+            normalized_session_id,
+            server_id=normalized_server_id,
+        ),
         wrapper="raw",
         force_refresh=refresh,
     )

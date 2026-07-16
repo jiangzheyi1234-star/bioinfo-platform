@@ -76,7 +76,7 @@ def create_agent_session(
                 if str(existing["creation_request_hash"]) != creation_hash:
                     raise AgentSessionStorageConflictError("AGENT_SESSION_CREATION_REQUEST_CONFLICT")
                 connection.commit()
-                return _session_row_to_dict(existing)
+                return agent_session_row_to_dict(existing)
             connection.execute(
                 """
                 INSERT INTO agent_sessions (
@@ -119,7 +119,7 @@ def create_agent_session(
         except Exception:
             connection.rollback()
             raise
-    return _session_row_to_dict(row)
+    return agent_session_row_to_dict(row)
 
 
 def fetch_agent_session(cfg: RemoteRunnerConfig, session_id: str) -> dict[str, Any] | None:
@@ -129,7 +129,7 @@ def fetch_agent_session(cfg: RemoteRunnerConfig, session_id: str) -> dict[str, A
             "SELECT * FROM agent_sessions WHERE session_id = ?",
             (normalized_session_id,),
         ).fetchone()
-    return _session_row_to_dict(row) if row is not None else None
+    return agent_session_row_to_dict(row) if row is not None else None
 
 
 def require_agent_session(cfg: RemoteRunnerConfig, session_id: str) -> dict[str, Any]:
@@ -167,7 +167,7 @@ def list_agent_sessions(
                 """,
                 (normalized_limit,),
             ).fetchall()
-    return [_session_row_to_dict(row) for row in rows]
+    return [agent_session_row_to_dict(row) for row in rows]
 
 
 def transition_agent_session(
@@ -241,7 +241,11 @@ def transition_agent_session(
                     raise AgentSessionStorageConflictError("AGENT_COMMAND_IDEMPOTENCY_CONFLICT")
                 session_row = _fetch_session_row(connection, normalized_session_id)
                 connection.commit()
-                return {"session": _session_row_to_dict(session_row), "event": _event_row_to_dict(replay), "replayed": True}
+                return {
+                    "session": agent_session_row_to_dict(session_row),
+                    "event": agent_session_event_row_to_dict(replay),
+                    "replayed": True,
+                }
 
             current = _fetch_session_row(connection, normalized_session_id)
             current_state_version = int(current["state_version"])
@@ -306,7 +310,11 @@ def transition_agent_session(
         except Exception:
             connection.rollback()
             raise
-    return {"session": _session_row_to_dict(session_row), "event": event, "replayed": False}
+    return {
+        "session": agent_session_row_to_dict(session_row),
+        "event": event,
+        "replayed": False,
+    }
 
 
 def fetch_agent_events(cfg: RemoteRunnerConfig, session_id: str) -> list[dict[str, Any]]:
@@ -316,7 +324,7 @@ def fetch_agent_events(cfg: RemoteRunnerConfig, session_id: str) -> list[dict[st
             "SELECT * FROM agent_events WHERE session_id = ? ORDER BY seq ASC",
             (normalized_session_id,),
         ).fetchall()
-    return [_event_row_to_dict(row) for row in rows]
+    return [agent_session_event_row_to_dict(row) for row in rows]
 
 
 def verify_agent_event_hash_chain(cfg: RemoteRunnerConfig, session_id: str) -> dict[str, Any]:
@@ -326,6 +334,12 @@ def verify_agent_event_hash_chain(cfg: RemoteRunnerConfig, session_id: str) -> d
             "SELECT * FROM agent_events WHERE session_id = ? ORDER BY seq ASC",
             (normalized_session_id,),
         ).fetchall()
+    return verify_agent_event_rows_hash_chain(rows)
+
+
+def verify_agent_event_rows_hash_chain(
+    rows: list[sqlite3.Row],
+) -> dict[str, Any]:
     previous_hash: str | None = None
     for expected_sequence, row in enumerate(rows, start=1):
         if int(row["seq"]) != expected_sequence:
@@ -442,7 +456,7 @@ def append_agent_event_record(
         ),
     )
     row = connection.execute("SELECT * FROM agent_events WHERE event_id = ?", (event_id,)).fetchone()
-    return _event_row_to_dict(row)
+    return agent_session_event_row_to_dict(row)
 
 
 def _fetch_session_row(connection: sqlite3.Connection, session_id: str) -> sqlite3.Row:
@@ -494,7 +508,7 @@ def _session_update_values(current: sqlite3.Row, patch: dict[str, Any]) -> dict[
     }
 
 
-def _session_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+def agent_session_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     payload = {
         "sessionId": row["session_id"],
         "contractVersion": row["contract_version"],
@@ -521,7 +535,7 @@ def _session_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     return payload
 
 
-def _event_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+def agent_session_event_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     payload = {
         "eventId": row["event_id"],
         "sessionId": row["session_id"],

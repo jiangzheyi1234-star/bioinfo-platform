@@ -26,6 +26,14 @@ class RunnerAgentOperationsMixin:
     ) -> dict[str, Any]:
         return self.agents.get_agent_session(session_id, server_id=server_id)
 
+    def get_agent_session_snapshot(
+        self,
+        session_id: str,
+        *,
+        server_id: str,
+    ) -> dict[str, Any]:
+        return self.agents.get_agent_session_snapshot(session_id, server_id=server_id)
+
     def list_agent_session_events(
         self,
         session_id: str,
