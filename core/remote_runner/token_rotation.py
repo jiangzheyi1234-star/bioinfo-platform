@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from config import store_runner_token
-from core.contracts.remote_endpoints import EXECUTION_LIFECYCLE_GUARD_RELEASE
+from core.contracts.execution_activity import EXECUTION_LIFECYCLE_GUARD_RELEASE_SCHEMA_VERSION
+from core.contracts.remote_endpoints import EXECUTION_LIFECYCLE_GUARD_RELEASE, RemoteEndpointContractError
 from core.remote_runner.client import RemoteRunnerClientError, RemoteRunnerHttpClient
 from core.remote_runner.health import build_runner_health
 from core.remote_runner.layout import (
@@ -26,11 +27,60 @@ TOKEN_ROTATION_LIFECYCLE_ACTION = "token-rotation"
 def _runner_rotation_failure_types() -> tuple[type[BaseException], ...]:
     from core.remote_runner.manager import RemoteRunnerManagerError
 
-    return (RemoteRunnerManagerError, RemoteRunnerClientError, OSError, EOFError)
+    return (
+        RemoteRunnerManagerError,
+        RemoteRunnerClientError,
+        RemoteEndpointContractError,
+        OSError,
+        EOFError,
+    )
+
+
+def _restrict_temp_config_permissions(path: Path) -> None:
+    try:
+        path.chmod(0o600)
+    except OSError:
+        # NamedTemporaryFile already creates a private file. chmod is an
+        # additional best-effort hardening step on platforms that support it.
+        return
+
+
+def _unlink_temp_configs(*paths: Path | None) -> None:
+    errors: list[OSError] = []
+    for path in paths:
+        if path is None:
+            continue
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as exc:
+            errors.append(exc)
+    if len(errors) == 1:
+        raise errors[0]
+    if errors:
+        raise ExceptionGroup("failed to remove token rotation temporary configs", errors)
 
 
 class RemoteRunnerTokenRotationMixin:
     def rotate_token(self, **kwargs) -> dict[str, Any]:
+        temp_paths: list[Path] = []
+        rotation_error: BaseException | None = None
+        try:
+            return self._rotate_token_with_temp_configs(temp_paths=temp_paths, **kwargs)
+        except BaseException as exc:
+            rotation_error = exc
+            raise
+        finally:
+            try:
+                _unlink_temp_configs(*temp_paths)
+            except BaseException as cleanup_error:
+                if rotation_error is not None:
+                    raise BaseExceptionGroup(
+                        "token rotation and temporary config cleanup both failed",
+                        [rotation_error, cleanup_error],
+                    ) from None
+                raise
+
+    def _rotate_token_with_temp_configs(self, *, temp_paths: list[Path], **kwargs) -> dict[str, Any]:
         server_id = str(kwargs["server_id"])
         record = kwargs["server_record"]
         ssh_service = kwargs["ssh_service"]
@@ -51,9 +101,14 @@ class RemoteRunnerTokenRotationMixin:
         old_config_path: Path | None = None
         with tempfile.NamedTemporaryFile("w+b", delete=False, suffix=".json") as handle:
             old_config_path = Path(handle.name)
+            _restrict_temp_config_permissions(old_config_path)
+            temp_paths.append(old_config_path)
         ssh_service.download(remote_config, str(old_config_path))
 
         with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json", encoding="utf-8") as handle:
+            local_config_path = Path(handle.name)
+            _restrict_temp_config_permissions(local_config_path)
+            temp_paths.append(local_config_path)
             json.dump(
                 self._build_remote_config_payload(
                     version=version,
@@ -82,7 +137,6 @@ class RemoteRunnerTokenRotationMixin:
                 handle,
                 indent=2,
             )
-            local_config_path = Path(handle.name)
         self.request_execution_lifecycle_guard(
             server_id=server_id,
             ssh_service=ssh_service,
@@ -188,8 +242,18 @@ class RemoteRunnerTokenRotationMixin:
 
     @classmethod
     def _release_token_rotation_guard(cls, *, client: RemoteRunnerHttpClient, owner: str) -> None:
-        cls._call_lifecycle_guard_endpoint_with_client(
+        release = cls._call_lifecycle_guard_endpoint_with_client(
             client=client,
             endpoint_id=EXECUTION_LIFECYCLE_GUARD_RELEASE,
             payload={"action": TOKEN_ROTATION_LIFECYCLE_ACTION, "owner": owner},
         )
+        if (
+            release.get("schemaVersion") != EXECUTION_LIFECYCLE_GUARD_RELEASE_SCHEMA_VERSION
+            or str(release.get("action") or "") != TOKEN_ROTATION_LIFECYCLE_ACTION
+            or str(release.get("owner") or "") != owner
+            or release.get("released") is not True
+        ):
+            raise cls._manager_error(
+                "remote runner token rotation lifecycle guard release was not confirmed",
+                detail=release,
+            )

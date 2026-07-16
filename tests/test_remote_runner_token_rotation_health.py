@@ -7,15 +7,21 @@ from unittest.mock import patch
 
 import pytest
 
-from core.contracts.execution_activity import EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION
+from core.contracts.execution_activity import (
+    EXECUTION_LIFECYCLE_GUARD_RELEASE_SCHEMA_VERSION,
+    EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
+)
+from core.contracts.remote_endpoints import RemoteEndpointContractError
 from core.remote_runner.errors import RemoteRunnerManagerError
 from core.remote_runner.manager import RemoteRunnerManager
+from core.remote_runner.token_rotation import _runner_rotation_failure_types, _unlink_temp_configs
 from tests.helpers.remote_runner_control_plane import _health_endpoint_json
 
 
 def test_rotate_token_validates_new_token_with_transport_health(monkeypatch) -> None:
     manager = RemoteRunnerManager()
     uploads: list[tuple[str, str]] = []
+    downloads: list[str] = []
     health_calls: list[tuple[str, list[int]]] = []
     lifecycle_requests: list[dict[str, Any]] = []
     lifecycle_releases: list[tuple[str, dict[str, Any], list[int]]] = []
@@ -35,6 +41,7 @@ def test_rotate_token_validates_new_token_with_transport_health(monkeypatch) -> 
 
         def download(self, remote: str, local: str) -> None:
             assert remote == "/home/tester/.h2ometa/runner/shared/config/runner.json"
+            downloads.append(local)
             Path(local).write_text("{}", encoding="utf-8")
 
         def upload(self, local: str, remote: str) -> None:
@@ -72,7 +79,7 @@ def test_rotate_token_validates_new_token_with_transport_health(monkeypatch) -> 
             if path == "/api/v1/execution/lifecycle-guard/release":
                 return {
                     "data": {
-                        "schemaVersion": "h2ometa.execution-lifecycle-guard-release.v1",
+                        "schemaVersion": EXECUTION_LIFECYCLE_GUARD_RELEASE_SCHEMA_VERSION,
                         "action": "token-rotation",
                         "owner": "srv_1:token-rotation:lifecycle",
                         "released": True,
@@ -152,11 +159,15 @@ def test_rotate_token_validates_new_token_with_transport_health(monkeypatch) -> 
     ]
     assert stored_tokens == [{"server_id": "srv_1", "token": "rotated-token"}]
     assert uploads
+    assert len(downloads) == 1
+    assert not Path(downloads[0]).exists()
+    assert not Path(uploads[0][0]).exists()
 
 
 def test_rotate_token_fails_loudly_when_systemd_restart_fails(monkeypatch) -> None:
     manager = RemoteRunnerManager()
     uploads: list[str] = []
+    temp_paths: list[str] = []
     restart_attempts = 0
     lifecycle_releases: list[dict[str, Any]] = []
 
@@ -175,9 +186,11 @@ def test_rotate_token_fails_loudly_when_systemd_restart_fails(monkeypatch) -> No
             raise AssertionError(f"unexpected command: {cmd}")
 
         def download(self, _remote: str, local: str) -> None:
+            temp_paths.append(local)
             Path(local).write_text('{"token":"old"}', encoding="utf-8")
 
         def upload(self, local: str, _remote: str) -> None:
+            temp_paths.append(local)
             uploads.append(Path(local).read_text(encoding="utf-8"))
 
         def ensure_local_tunnel(self, *args: Any, **kwargs: Any):
@@ -218,6 +231,107 @@ def test_rotate_token_fails_loudly_when_systemd_restart_fails(monkeypatch) -> No
     assert uploads[1] == '{"token":"old"}'
     assert restart_attempts == 2
     assert lifecycle_releases[0]["action"] == "token-rotation"
+    assert len(set(temp_paths)) == 2
+    assert all(not Path(path).exists() for path in temp_paths)
+
+
+@pytest.mark.parametrize(
+    "release",
+    [
+        {
+            "schemaVersion": "h2ometa.execution-lifecycle-guard-release.v2",
+            "action": "token-rotation",
+            "owner": "srv_1:token-rotation:lifecycle",
+            "released": True,
+        },
+        {
+            "schemaVersion": EXECUTION_LIFECYCLE_GUARD_RELEASE_SCHEMA_VERSION,
+            "action": "bootstrap",
+            "owner": "srv_1:token-rotation:lifecycle",
+            "released": True,
+        },
+        {
+            "schemaVersion": EXECUTION_LIFECYCLE_GUARD_RELEASE_SCHEMA_VERSION,
+            "action": "token-rotation",
+            "owner": "srv_other:token-rotation:lifecycle",
+            "released": True,
+        },
+        {
+            "schemaVersion": EXECUTION_LIFECYCLE_GUARD_RELEASE_SCHEMA_VERSION,
+            "action": "token-rotation",
+            "owner": "srv_1:token-rotation:lifecycle",
+            "released": False,
+        },
+    ],
+)
+def test_token_rotation_rejects_unconfirmed_lifecycle_guard_release(
+    monkeypatch,
+    release: dict[str, Any],
+) -> None:
+    monkeypatch.setattr(
+        RemoteRunnerManager,
+        "_call_lifecycle_guard_endpoint_with_client",
+        classmethod(lambda cls, **_kwargs: release),
+    )
+
+    with pytest.raises(
+        RemoteRunnerManagerError,
+        match="token rotation lifecycle guard release was not confirmed",
+    ) as exc_info:
+        RemoteRunnerManager._release_token_rotation_guard(
+            client=object(),
+            owner="srv_1:token-rotation:lifecycle",
+        )
+
+    assert exc_info.value.detail == release
+
+
+def test_temp_cleanup_attempts_all_paths_and_propagates_errors() -> None:
+    calls: list[str] = []
+
+    class FakePath:
+        def __init__(self, name: str, *, error: OSError | None = None) -> None:
+            self.name = name
+            self.error = error
+
+        def unlink(self, *, missing_ok: bool) -> None:
+            assert missing_ok is True
+            calls.append(self.name)
+            if self.error is not None:
+                raise self.error
+
+    cleanup_error = OSError("temporary config cleanup failed")
+    with pytest.raises(OSError, match="temporary config cleanup failed"):
+        _unlink_temp_configs(
+            FakePath("old", error=cleanup_error),  # type: ignore[arg-type]
+            FakePath("new"),  # type: ignore[arg-type]
+        )
+
+    assert calls == ["old", "new"]
+
+
+def test_temp_cleanup_failure_is_combined_with_primary_rotation_failure(monkeypatch) -> None:
+    manager = RemoteRunnerManager()
+    rotation_error = RemoteRunnerManagerError("rotation failed")
+    cleanup_error = OSError("cleanup failed")
+
+    def fail_rotation(**_kwargs: Any) -> dict[str, Any]:
+        raise rotation_error
+
+    def fail_cleanup(*_paths: Path | None) -> None:
+        raise cleanup_error
+
+    monkeypatch.setattr(manager, "_rotate_token_with_temp_configs", fail_rotation)
+    monkeypatch.setattr("core.remote_runner.token_rotation._unlink_temp_configs", fail_cleanup)
+
+    with pytest.raises(BaseExceptionGroup) as exc_info:
+        manager.rotate_token()
+
+    assert exc_info.value.exceptions == (rotation_error, cleanup_error)
+
+
+def test_remote_endpoint_contract_failures_enter_token_rotation_rollback() -> None:
+    assert RemoteEndpointContractError in _runner_rotation_failure_types()
 
 
 def test_rotate_token_fails_loudly_when_background_stop_fails(monkeypatch) -> None:
