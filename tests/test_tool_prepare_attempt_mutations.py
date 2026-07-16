@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import replace
 import json
-import os
 from pathlib import Path
 from typing import Any, Callable
 
@@ -25,6 +24,7 @@ from apps.remote_runner.tool_prepare_claims import (
 )
 from apps.remote_runner.tool_prepare_job_storage import create_tool_prepare_job
 from tests.helpers.reference_database import make_configured_remote_runner
+from tests.helpers.tool_prepare_identity import make_unverifiable_tool_prepare_worker_identity
 
 
 MutationCall = Callable[[Any, ToolPrepareAttemptProof], dict[str, Any]]
@@ -495,11 +495,10 @@ def _claimed_job(
 
 
 def _identity(worker_id: str, *, session: str = "session-1") -> ToolPrepareWorkerIdentity:
-    return ToolPrepareWorkerIdentity(
+    return make_unverifiable_tool_prepare_worker_identity(
         worker_id=worker_id,
         session_id=session,
         process_instance_id=f"process-{session}",
-        process_pid=os.getpid(),
         hostname="test-runner",
     )
 

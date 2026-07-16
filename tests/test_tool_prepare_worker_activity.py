@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 import os
 from pathlib import Path
@@ -13,7 +14,6 @@ from apps.remote_runner.tool_prepare_attempt_mutations import (
 from apps.remote_runner.tool_prepare_claims import (
     ToolPrepareAttemptProof,
     ToolPrepareClaimLostError,
-    ToolPrepareWorkerIdentity,
     claim_next_tool_prepare_job,
     release_tool_prepare_worker_claim,
 )
@@ -21,8 +21,10 @@ from apps.remote_runner.tool_prepare_job_storage import (
     cancel_tool_prepare_job,
     create_tool_prepare_job,
 )
+from apps.remote_runner.tool_prepare_process_marker import ToolPrepareProcessMarker
 from apps.remote_runner.tool_prepare_worker_lease import tool_prepare_worker_activity
 from tests.helpers.reference_database import make_configured_remote_runner
+from tests.helpers.tool_prepare_identity import make_unverifiable_tool_prepare_worker_identity
 
 
 NOW = "2099-06-07T10:00:01Z"
@@ -46,6 +48,10 @@ def test_activity_counts_active_attempt_from_ledger(tmp_path: Path) -> None:
         "expiredActiveAttemptCount": 0,
         "openAttemptCount": 1,
         "jobClaimProjectionCount": 1,
+        "systemdProcessIdentityAttemptCount": 0,
+        "linuxProcessIdentityAttemptCount": 0,
+        "unsupportedProcessIdentityAttemptCount": 1,
+        "invalidProcessIdentityAttemptCount": 0,
         "projectionMismatchCount": 0,
         "projectionViolations": [],
     }
@@ -291,6 +297,60 @@ def test_activity_never_exposes_claim_secrets_or_owner(tmp_path: Path) -> None:
         assert set(violation) <= SAFE_VIOLATION_FIELDS
 
 
+def test_tampered_process_marker_is_an_invariant_violation(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    _job, proof = _claimed_job(cfg, "marker-tamper")
+    with get_connection(cfg) as connection:
+        connection.execute(
+            "UPDATE tool_prepare_attempts SET process_marker_fingerprint = ? WHERE attempt_id = ?",
+            ("sha256:" + "0" * 64, proof.attempt_id),
+        )
+        connection.commit()
+
+    activity = _activity(cfg, now=NOW)
+
+    assert activity["invalidProcessIdentityAttemptCount"] == 1
+    assert activity["unsupportedProcessIdentityAttemptCount"] == 0
+    assert activity["projectionMismatchCount"] == 2
+    assert {item["reason"] for item in activity["projectionViolations"]} == {
+        "OPEN_ATTEMPT_PROCESS_MARKER_INVALID",
+        "OPEN_ATTEMPT_PROCESS_MARKER_EVENT_MISMATCH",
+    }
+
+
+def test_coherent_marker_rewrite_is_fenced_by_claim_event_anchor(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    _job, proof = _claimed_job(cfg, "marker-rewrite")
+    with get_connection(cfg) as connection:
+        row = connection.execute(
+            "SELECT process_marker_json FROM tool_prepare_attempts WHERE attempt_id = ?",
+            (proof.attempt_id,),
+        ).fetchone()
+        marker = ToolPrepareProcessMarker.from_json(str(row["process_marker_json"]))
+        rewritten = replace(marker, platform="win32")
+        rewritten.validate()
+        connection.execute(
+            """
+            UPDATE tool_prepare_attempts
+            SET process_marker_json = ?, process_marker_fingerprint = ?
+            WHERE attempt_id = ?
+            """,
+            (rewritten.canonical_json(), rewritten.fingerprint(), proof.attempt_id),
+        )
+        connection.commit()
+
+    activity = _activity(cfg, now=NOW)
+
+    assert activity["invalidProcessIdentityAttemptCount"] == 0
+    assert activity["unsupportedProcessIdentityAttemptCount"] == 1
+    _assert_single_violation(
+        activity,
+        reason="OPEN_ATTEMPT_PROCESS_MARKER_EVENT_MISMATCH",
+        job_id=proof.job_id,
+        attempt_id=proof.attempt_id,
+    )
+
+
 def _claimed_job(
     cfg,
     name: str,
@@ -303,7 +363,7 @@ def _claimed_job(
     )
     proof = claim_next_tool_prepare_job(
         cfg,
-        identity=ToolPrepareWorkerIdentity(
+        identity=make_unverifiable_tool_prepare_worker_identity(
             worker_id=f"worker-{name}",
             session_id=f"session-{name}",
             process_instance_id=f"process-{name}",

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import sqlite3
 from pathlib import Path
+import threading
 
 import pytest
 
@@ -19,6 +21,7 @@ from apps.remote_runner.sqlite_tool_prepare_migrations import (
     assert_tool_prepare_attempt_schema,
 )
 from apps.remote_runner.storage_core import get_connection
+from apps.remote_runner.tool_prepare_worker_lease import tool_prepare_worker_activity
 from tests.helpers.reference_database import make_remote_runner_config
 
 
@@ -33,6 +36,9 @@ EXPECTED_ATTEMPT_COLUMNS = {
     "process_pid",
     "hostname",
     "process_instance_id",
+    "process_marker_schema",
+    "process_marker_json",
+    "process_marker_fingerprint",
     "claim_owner",
     "claim_token_hash",
     "claimed_at",
@@ -107,6 +113,83 @@ def test_existing_v18_gets_sidecar_without_core_ledger_changes(tmp_path: Path) -
     assert before == after
     assert after[0] == CURRENT_SCHEMA_VERSION
     assert after[1][2] == sqlite_migrations._baseline_checksum()
+
+
+def test_existing_open_attempts_get_fail_closed_process_marker_columns(tmp_path: Path) -> None:
+    cfg = make_remote_runner_config(tmp_path)
+    initialize_or_migrate_runtime_db(cfg.db_path)
+    with sqlite3.connect(cfg.db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        connection.execute(f"DROP TABLE {TOOL_PREPARE_ATTEMPT_TABLE}")
+        _create_legacy_attempt_sidecar(connection)
+        _insert_attempt(connection, "legacy-active", job_id="legacy-job-active", generation=1)
+        _insert_attempt(
+            connection,
+            "legacy-recovery",
+            job_id="legacy-job-recovery",
+            generation=1,
+            state="recovery_required",
+        )
+        before = _core_ledger(connection)
+
+    initialize_or_migrate_runtime_db(cfg.db_path)
+
+    with sqlite3.connect(cfg.db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        after = _core_ledger(connection)
+        rows = connection.execute(
+            f"""
+            SELECT attempt_id, process_marker_schema, process_marker_json, process_marker_fingerprint
+            FROM {TOOL_PREPARE_ATTEMPT_TABLE}
+            ORDER BY attempt_id
+            """
+        ).fetchall()
+        assert_tool_prepare_attempt_schema(connection)
+    with get_connection(cfg) as connection:
+        activity = tool_prepare_worker_activity(connection, now="2099-06-07T10:06:00Z")
+
+    assert before == after
+    assert [dict(row) for row in rows] == [
+        {
+            "attempt_id": attempt_id,
+            "process_marker_schema": "",
+            "process_marker_json": "",
+            "process_marker_fingerprint": "",
+        }
+        for attempt_id in ("legacy-active", "legacy-recovery")
+    ]
+    assert activity["activeAttemptCount"] == 1
+    assert activity["recoveryRequiredAttemptCount"] == 1
+    assert activity["openAttemptCount"] == 2
+    assert activity["invalidProcessIdentityAttemptCount"] == 2
+    assert sum(
+        item["reason"] == "OPEN_ATTEMPT_PROCESS_MARKER_INVALID"
+        for item in activity["projectionViolations"]
+    ) == 2
+
+
+def test_concurrent_attempt_sidecar_upgrades_are_serialized(tmp_path: Path) -> None:
+    cfg = make_remote_runner_config(tmp_path)
+    initialize_or_migrate_runtime_db(cfg.db_path)
+    with sqlite3.connect(cfg.db_path) as connection:
+        connection.execute(f"DROP TABLE {TOOL_PREPARE_ATTEMPT_TABLE}")
+        _create_legacy_attempt_sidecar(connection)
+
+    barrier = threading.Barrier(3)
+
+    def initialize() -> None:
+        barrier.wait()
+        initialize_or_migrate_runtime_db(cfg.db_path)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(initialize) for _ in range(2)]
+        barrier.wait()
+        for future in futures:
+            future.result(timeout=10)
+
+    with sqlite3.connect(cfg.db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        assert_tool_prepare_attempt_schema(connection)
 
 
 def test_initializer_validates_core_before_creating_auxiliary_schema(tmp_path: Path) -> None:
@@ -243,6 +326,49 @@ def _insert_attempt(
             "2099-06-07T10:00:00Z",
             "2099-06-07T10:00:00Z",
         ),
+    )
+
+
+def _create_legacy_attempt_sidecar(connection: sqlite3.Connection) -> None:
+    connection.executescript(
+        f"""
+        CREATE TABLE {TOOL_PREPARE_ATTEMPT_TABLE} (
+            attempt_id TEXT PRIMARY KEY NOT NULL,
+            job_id TEXT NOT NULL,
+            generation INTEGER NOT NULL,
+            state TEXT NOT NULL,
+            outcome_status TEXT NOT NULL DEFAULT '',
+            worker_id TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            process_pid INTEGER NOT NULL,
+            hostname TEXT NOT NULL,
+            process_instance_id TEXT NOT NULL,
+            claim_owner TEXT NOT NULL,
+            claim_token_hash TEXT NOT NULL,
+            claimed_at TEXT NOT NULL,
+            heartbeat_at TEXT NOT NULL,
+            lease_expires_at TEXT NOT NULL,
+            released_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            last_error_json TEXT NOT NULL DEFAULT '{{}}',
+            recovery_evidence_json TEXT NOT NULL DEFAULT '{{}}',
+            UNIQUE(job_id, generation),
+            CHECK (generation > 0),
+            CHECK (process_pid > 0),
+            CHECK (state IN ('active', 'released', 'recovery_required', 'abandoned')),
+            CHECK (
+                (state IN ('active', 'recovery_required') AND released_at IS NULL)
+                OR (state IN ('released', 'abandoned') AND released_at IS NOT NULL)
+            )
+        );
+        CREATE UNIQUE INDEX {TOOL_PREPARE_ATTEMPT_ONE_OPEN_INDEX}
+        ON {TOOL_PREPARE_ATTEMPT_TABLE}(job_id)
+        WHERE state IN ('active', 'recovery_required');
+        CREATE INDEX {TOOL_PREPARE_ATTEMPT_ACTIVE_EXPIRY_INDEX}
+        ON {TOOL_PREPARE_ATTEMPT_TABLE}(lease_expires_at, job_id)
+        WHERE state = 'active';
+        """
     )
 
 

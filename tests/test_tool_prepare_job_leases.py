@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import replace
-import os
 from pathlib import Path
 import sqlite3
 
@@ -23,6 +22,7 @@ from apps.remote_runner.tool_prepare_job_storage import (
     create_tool_prepare_job,
     fetch_tool_prepare_job,
 )
+from tests.helpers.tool_prepare_identity import make_unverifiable_tool_prepare_worker_identity
 
 
 def test_claim_tool_prepare_job_sets_lease_and_attempt(tmp_path: Path) -> None:
@@ -381,11 +381,10 @@ def test_tool_prepare_job_migrates_lease_columns_for_legacy_database(tmp_path: P
 
 
 def _identity(worker_id: str, *, session: str = "session-1") -> ToolPrepareWorkerIdentity:
-    return ToolPrepareWorkerIdentity(
+    return make_unverifiable_tool_prepare_worker_identity(
         worker_id=worker_id,
         session_id=session,
         process_instance_id=f"process-{session}",
-        process_pid=os.getpid(),
         hostname="lease-test-runner",
     )
 

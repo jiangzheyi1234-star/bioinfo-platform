@@ -1,9 +1,17 @@
 from __future__ import annotations
 
 from datetime import datetime
+import json
 from typing import Any
 
 from .tool_prepare_claims import release_tool_prepare_worker_claim
+from .tool_prepare_process_marker import (
+    LINUX_PROCESS_IDENTITY_EVIDENCE_PROFILE,
+    SYSTEMD_PROCESS_IDENTITY_EVIDENCE_PROFILE,
+    TOOL_PREPARE_PROCESS_MARKER_SCHEMA,
+    UNSUPPORTED_PROCESS_IDENTITY_EVIDENCE_PROFILE,
+    validate_persisted_tool_prepare_process_marker,
+)
 
 
 def tool_prepare_worker_activity(connection, *, now: str) -> dict[str, Any]:
@@ -24,6 +32,12 @@ def tool_prepare_worker_activity(connection, *, now: str) -> dict[str, Any]:
             attempts.state AS attempt_state,
             attempts.outcome_status,
             attempts.claim_owner AS attempt_claim_owner,
+            attempts.process_instance_id,
+            attempts.process_pid,
+            attempts.hostname,
+            attempts.process_marker_schema,
+            attempts.process_marker_json,
+            attempts.process_marker_fingerprint,
             attempts.heartbeat_at AS attempt_heartbeat_at,
             attempts.lease_expires_at AS attempt_lease_expires_at,
             jobs.job_id AS projected_job_id,
@@ -39,6 +53,17 @@ def tool_prepare_worker_activity(connection, *, now: str) -> dict[str, Any]:
         ORDER BY attempts.job_id, attempts.generation, attempts.attempt_id
         """
     ).fetchall()
+    claim_event_rows = connection.execute(
+        """
+        SELECT events.details_json
+        FROM tool_prepare_job_events AS events
+        JOIN tool_prepare_attempts AS attempts ON attempts.job_id = events.job_id
+        WHERE events.stage = 'claimed'
+          AND attempts.state IN ('active', 'recovery_required')
+        ORDER BY events.created_at, events.event_id
+        """
+    ).fetchall()
+    claim_event_fingerprints = _claim_event_process_marker_fingerprints(claim_event_rows)
 
     counts = {"queued": 0, "running": 0}
     for row in job_rows:
@@ -65,7 +90,12 @@ def tool_prepare_worker_activity(connection, *, now: str) -> dict[str, Any]:
     projection_violations = _projection_violations(
         job_rows=job_rows,
         attempt_rows=attempt_rows,
+        claim_event_fingerprints=claim_event_fingerprints,
     )
+    process_identity_profiles = [
+        _process_identity_evidence_profile(row)
+        for row in attempt_rows
+    ]
 
     return {
         "schemaVersion": "tool-prepare-activity.v1",
@@ -77,18 +107,42 @@ def tool_prepare_worker_activity(connection, *, now: str) -> dict[str, Any]:
         "expiredActiveAttemptCount": expired_active_attempt_count,
         "openAttemptCount": open_attempt_count,
         "jobClaimProjectionCount": job_claim_projection_count,
+        "systemdProcessIdentityAttemptCount": process_identity_profiles.count(
+            SYSTEMD_PROCESS_IDENTITY_EVIDENCE_PROFILE
+        ),
+        "linuxProcessIdentityAttemptCount": process_identity_profiles.count(
+            LINUX_PROCESS_IDENTITY_EVIDENCE_PROFILE
+        ),
+        "unsupportedProcessIdentityAttemptCount": process_identity_profiles.count(
+            UNSUPPORTED_PROCESS_IDENTITY_EVIDENCE_PROFILE
+        ),
+        "invalidProcessIdentityAttemptCount": process_identity_profiles.count(None),
         "projectionMismatchCount": len(projection_violations),
         "projectionViolations": projection_violations,
     }
 
 
-def _projection_violations(*, job_rows, attempt_rows) -> list[dict[str, Any]]:
+def _projection_violations(
+    *,
+    job_rows,
+    attempt_rows,
+    claim_event_fingerprints: dict[str, tuple[str, ...]],
+) -> list[dict[str, Any]]:
     violations: list[dict[str, Any]] = []
     open_job_ids = {
         str(row["attempt_job_id"] or "")
         for row in attempt_rows
     }
     for row in attempt_rows:
+        attempt_id = str(row["attempt_id"] or "")
+        if _process_identity_evidence_profile(row) is None:
+            violations.append(_attempt_violation(row, "OPEN_ATTEMPT_PROCESS_MARKER_INVALID"))
+        if claim_event_fingerprints.get(attempt_id) != (
+            str(row["process_marker_fingerprint"] or ""),
+        ):
+            violations.append(
+                _attempt_violation(row, "OPEN_ATTEMPT_PROCESS_MARKER_EVENT_MISMATCH")
+            )
         if row["projected_job_id"] is None:
             violations.append(_attempt_violation(row, "OPEN_ATTEMPT_JOB_MISSING"))
             continue
@@ -120,6 +174,38 @@ def _projection_violations(*, job_rows, attempt_rows) -> list[dict[str, Any]]:
                 }
             )
     return violations
+
+
+def _claim_event_process_marker_fingerprints(rows) -> dict[str, tuple[str, ...]]:
+    values: dict[str, list[str]] = {}
+    for row in rows:
+        try:
+            details = json.loads(str(row["details_json"] or ""))
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(details, dict):
+            continue
+        attempt_id = str(details.get("attemptId") or "").strip()
+        fingerprint = str(details.get("processMarkerFingerprint") or "").strip()
+        if attempt_id:
+            values.setdefault(attempt_id, []).append(fingerprint)
+    return {attempt_id: tuple(fingerprints) for attempt_id, fingerprints in values.items()}
+
+
+def _process_identity_evidence_profile(row) -> str | None:
+    if str(row["process_marker_schema"] or "") != TOOL_PREPARE_PROCESS_MARKER_SCHEMA:
+        return None
+    try:
+        marker = validate_persisted_tool_prepare_process_marker(
+            marker_json=str(row["process_marker_json"] or ""),
+            marker_fingerprint=str(row["process_marker_fingerprint"] or ""),
+            expected_process_instance_id=str(row["process_instance_id"] or ""),
+            expected_process_pid=int(row["process_pid"] or 0),
+            expected_hostname=str(row["hostname"] or ""),
+        )
+    except (TypeError, ValueError):
+        return None
+    return marker.identity_evidence_profile
 
 
 def _attempt_violation(row, reason: str) -> dict[str, Any]:

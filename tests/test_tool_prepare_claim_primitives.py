@@ -23,14 +23,19 @@ from apps.remote_runner.tool_prepare_job_storage import (
     create_tool_prepare_job,
     fetch_tool_prepare_job,
 )
+from apps.remote_runner.tool_prepare_process_marker import (
+    TOOL_PREPARE_PROCESS_MARKER_SCHEMA,
+    ToolPrepareProcessMarker,
+)
 from apps.remote_runner.tool_prepare_worker_lease import tool_prepare_worker_activity
 from tests.helpers.reference_database import make_configured_remote_runner
+from tests.helpers.tool_prepare_identity import make_unverifiable_tool_prepare_worker_identity
 
 
 CLAIM_TOKEN_HASH_DOMAIN = b"h2ometa.tool-prepare.claim-token.v1"
 
 
-def test_worker_identity_is_immutable_and_unique_per_process_session() -> None:
+def test_worker_identity_shares_process_marker_but_uses_unique_sessions() -> None:
     first = ToolPrepareWorkerIdentity.create("tool-worker")
     second = ToolPrepareWorkerIdentity.create("tool-worker")
 
@@ -39,7 +44,8 @@ def test_worker_identity_is_immutable_and_unique_per_process_session() -> None:
     assert first.hostname
     assert second.hostname
     assert first.session_id != second.session_id
-    assert first.process_instance_id != second.process_instance_id
+    assert first.process_instance_id == second.process_instance_id
+    assert first.process_marker is second.process_marker
     with pytest.raises(FrozenInstanceError):
         first.session_id = "replacement"  # type: ignore[misc]
 
@@ -70,6 +76,13 @@ def test_claim_persists_only_domain_separated_token_hash(tmp_path: Path) -> None
     assert attempt is not None
     assert attempt["claim_token_hash"] == expected_hash
     assert attempt["claim_token_hash"] != proof.claim_token
+    assert attempt["process_marker_schema"] == TOOL_PREPARE_PROCESS_MARKER_SCHEMA
+    assert attempt["process_marker_fingerprint"] == proof.process_marker_fingerprint
+    marker = ToolPrepareProcessMarker.from_json(attempt["process_marker_json"])
+    assert marker.process_instance_id == proof.process_instance_id
+    assert marker.process_pid == proof.process_pid
+    assert marker.hostname == proof.hostname
+    assert marker.fingerprint() == proof.process_marker_fingerprint
     assert persisted_job["claimed_by"] == proof.claim_owner
     assert persisted_job["attempts"] == proof.generation == 1
     assert proof.claim_token not in repr(proof)
@@ -81,6 +94,7 @@ def test_claim_persists_only_domain_separated_token_hash(tmp_path: Path) -> None
         "attemptId": proof.attempt_id,
         "claimedUntil": "2099-06-07T10:00:30Z",
         "generation": 1,
+        "processMarkerFingerprint": proof.process_marker_fingerprint,
         "processInstanceId": proof.process_instance_id,
         "sessionId": proof.session_id,
         "workerId": proof.worker_id,
@@ -90,11 +104,33 @@ def test_claim_persists_only_domain_separated_token_hash(tmp_path: Path) -> None
     assert "claim_token_hash" not in event["details_json"]
 
 
+def test_tampered_process_marker_fences_worker_mutation(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    create_tool_prepare_job(cfg, {"id": "bioconda::marker-tamper", "name": "marker-tamper"})
+    proof = _claim_proof(cfg)
+    with get_connection(cfg) as connection:
+        connection.execute(
+            "UPDATE tool_prepare_attempts SET process_marker_json = '{}' WHERE attempt_id = ?",
+            (proof.attempt_id,),
+        )
+        connection.commit()
+
+    with pytest.raises(ToolPrepareClaimLostError, match="attempt process marker rejected"):
+        heartbeat_tool_prepare_job(
+            cfg,
+            proof,
+            now="2099-06-07T10:00:01Z",
+            lease_seconds=30,
+        )
+
+    _assert_attempt_state(cfg, proof, state="active", heartbeat_at="2099-06-07T10:00:00Z")
+
+
 def test_same_worker_restart_cannot_adopt_open_attempt(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     create_tool_prepare_job(cfg, {"id": "bioconda::seqkit", "name": "seqkit"})
-    original_identity = ToolPrepareWorkerIdentity.create("same-logical-worker")
-    restarted_identity = ToolPrepareWorkerIdentity.create("same-logical-worker")
+    original_identity = _identity("same-logical-worker", session="original-process")
+    restarted_identity = _identity("same-logical-worker", session="restarted-process")
     proof = _claim_proof(cfg, identity=original_identity, lease_seconds=10)
 
     replacement = claim_next_tool_prepare_job(
@@ -148,6 +184,26 @@ def test_expired_open_attempt_is_not_reclaimed(tmp_path: Path) -> None:
     assert dict(row) == {"status": "running", "attempts": 1, "claimed_by": proof.claim_owner}
 
 
+def test_identity_from_another_process_cannot_claim(tmp_path: Path) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    job = create_tool_prepare_job(cfg, {"id": "bioconda::foreign-process", "name": "foreign-process"})
+    identity = make_unverifiable_tool_prepare_worker_identity(
+        "foreign-worker",
+        session_id="foreign-session",
+        process_instance_id="foreign-process-instance",
+        process_pid=os.getpid() + 1,
+        hostname="test-runner",
+    )
+
+    with pytest.raises(ValueError, match="TOOL_PREPARE_WORKER_PROCESS_MISMATCH"):
+        claim_next_tool_prepare_job(cfg, identity=identity)
+
+    refreshed = fetch_tool_prepare_job(cfg, job["jobId"])
+    assert refreshed is not None
+    assert refreshed["status"] == "queued"
+    assert refreshed["lease"]["claimedBy"] == ""
+
+
 def test_exact_owner_can_heartbeat_after_ttl_without_new_generation(tmp_path: Path) -> None:
     cfg = make_configured_remote_runner(tmp_path)
     create_tool_prepare_job(cfg, {"id": "bioconda::fastp", "name": "fastp"})
@@ -175,12 +231,16 @@ def test_connection_verifier_returns_exact_active_attempt_and_job(tmp_path: Path
     proof = _claim_proof(cfg)
 
     with get_connection(cfg) as connection:
+        with pytest.raises(ToolPrepareClaimLostError, match="requires an active transaction"):
+            require_active_tool_prepare_claim_for_connection(connection, proof)
+        connection.execute("BEGIN IMMEDIATE")
         verified = require_active_tool_prepare_claim_for_connection(connection, proof)
         with pytest.raises(ToolPrepareClaimLostError, match="attempt proof rejected"):
             require_active_tool_prepare_claim_for_connection(
                 connection,
                 replace(proof, claim_token="e" * 64),
             )
+        connection.rollback()
 
     assert verified["attempt"]["attempt_id"] == proof.attempt_id
     assert verified["attempt"]["generation"] == proof.generation
@@ -194,9 +254,10 @@ def test_connection_verifier_returns_exact_active_attempt_and_job(tmp_path: Path
         lambda proof: replace(proof, claim_token="0" * 64),
         lambda proof: replace(proof, session_id="wrong-session"),
         lambda proof: replace(proof, process_instance_id="wrong-process"),
+        lambda proof: replace(proof, process_marker_fingerprint="sha256:" + "0" * 64),
         lambda proof: replace(proof, generation=proof.generation + 1),
     ],
-    ids=("wrong-token", "wrong-session", "wrong-process", "wrong-generation"),
+    ids=("wrong-token", "wrong-session", "wrong-process", "wrong-marker", "wrong-generation"),
 )
 def test_wrong_proof_cannot_heartbeat(
     tmp_path: Path,
@@ -465,11 +526,10 @@ def _claim_proof(
 
 
 def _identity(worker_id: str, *, session: str = "session-1") -> ToolPrepareWorkerIdentity:
-    return ToolPrepareWorkerIdentity(
+    return make_unverifiable_tool_prepare_worker_identity(
         worker_id=worker_id,
         session_id=session,
         process_instance_id=f"process-{session}",
-        process_pid=os.getpid(),
         hostname="test-runner",
     )
 

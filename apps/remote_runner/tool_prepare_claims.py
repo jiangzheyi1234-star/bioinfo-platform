@@ -7,12 +7,17 @@ import hmac
 import json
 import os
 import secrets
-import socket
 from typing import Any
 import uuid
 
 from .config import RemoteRunnerConfig
 from .storage_core import get_connection, now_iso
+from .tool_prepare_process_marker import (
+    TOOL_PREPARE_PROCESS_MARKER_SCHEMA,
+    ToolPrepareProcessMarker,
+    current_tool_prepare_process_marker,
+    validate_persisted_tool_prepare_process_marker,
+)
 
 
 TOOL_PREPARE_CLAIM_LOST = "TOOL_PREPARE_CLAIM_LOST"
@@ -44,20 +49,19 @@ class ToolPrepareWorkerIdentity:
     process_instance_id: str
     process_pid: int
     hostname: str
+    process_marker: ToolPrepareProcessMarker
 
     @classmethod
     def create(cls, worker_id: str) -> ToolPrepareWorkerIdentity:
         normalized_worker_id = _required_text(worker_id, "TOOL_PREPARE_WORKER_ID_REQUIRED")
-        hostname = _required_text(socket.gethostname(), "TOOL_PREPARE_WORKER_HOSTNAME_REQUIRED")
-        process_pid = os.getpid()
-        if process_pid <= 0:
-            raise ValueError("TOOL_PREPARE_WORKER_PID_INVALID")
+        process_marker = current_tool_prepare_process_marker()
         return cls(
             worker_id=normalized_worker_id,
             session_id=f"toolprep_session_{secrets.token_hex(16)}",
-            process_instance_id=f"toolprep_process_{secrets.token_hex(16)}",
-            process_pid=process_pid,
-            hostname=hostname,
+            process_instance_id=process_marker.process_instance_id,
+            process_pid=process_marker.process_pid,
+            hostname=process_marker.hostname,
+            process_marker=process_marker,
         )
 
 
@@ -71,6 +75,7 @@ class ToolPrepareAttemptProof:
     process_instance_id: str
     process_pid: int
     hostname: str
+    process_marker_fingerprint: str
     claim_owner: str
     claim_token: str = field(repr=False)
 
@@ -167,10 +172,11 @@ def claim_next_tool_prepare_job(
                 INSERT INTO tool_prepare_attempts (
                     attempt_id, job_id, generation, state, outcome_status,
                     worker_id, session_id, process_pid, hostname, process_instance_id,
+                    process_marker_schema, process_marker_json, process_marker_fingerprint,
                     claim_owner, claim_token_hash, claimed_at, heartbeat_at,
                     lease_expires_at, released_at, created_at, updated_at,
                     last_error_json, recovery_evidence_json
-                ) VALUES (?, ?, ?, 'active', '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, '{}', '{}')
+                ) VALUES (?, ?, ?, 'active', '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, '{}', '{}')
                 """,
                 (
                     proof.attempt_id,
@@ -181,6 +187,9 @@ def claim_next_tool_prepare_job(
                     proof.process_pid,
                     proof.hostname,
                     proof.process_instance_id,
+                    TOOL_PREPARE_PROCESS_MARKER_SCHEMA,
+                    normalized_identity.process_marker.canonical_json(),
+                    proof.process_marker_fingerprint,
                     proof.claim_owner,
                     _claim_token_hash(proof.claim_token),
                     claimed_at,
@@ -224,6 +233,7 @@ def heartbeat_tool_prepare_job(
                   AND process_instance_id = ?
                   AND process_pid = ?
                   AND hostname = ?
+                  AND process_marker_fingerprint = ?
                   AND claim_owner = ?
                   AND claim_token_hash = ?
                 """,
@@ -239,6 +249,7 @@ def heartbeat_tool_prepare_job(
                     proof.process_instance_id,
                     proof.process_pid,
                     proof.hostname,
+                    proof.process_marker_fingerprint,
                     proof.claim_owner,
                     _claim_token_hash(proof.claim_token),
                 ),
@@ -349,6 +360,7 @@ def release_tool_prepare_worker_claim(
                       AND process_instance_id = ?
                       AND process_pid = ?
                       AND hostname = ?
+                      AND process_marker_fingerprint = ?
                       AND claim_owner = ?
                       AND claim_token_hash = ?
                     """,
@@ -364,6 +376,7 @@ def release_tool_prepare_worker_claim(
                         proof.process_instance_id,
                         proof.process_pid,
                         proof.hostname,
+                        proof.process_marker_fingerprint,
                         proof.claim_owner,
                         _claim_token_hash(proof.claim_token),
                     ),
@@ -395,6 +408,8 @@ def require_active_tool_prepare_claim_for_connection(
 ) -> dict[str, Any]:
     """Validate an attempt proof inside the caller's current database transaction."""
 
+    if not connection.in_transaction:
+        raise ToolPrepareClaimLostError("claim verification requires an active transaction")
     attempt = _require_exact_attempt(connection, proof)
     if str(attempt["state"]) != "active":
         raise ToolPrepareClaimLostError("attempt is not active")
@@ -435,6 +450,7 @@ def record_tool_prepare_attempt_outcome_for_connection(
           AND process_instance_id = ?
           AND process_pid = ?
           AND hostname = ?
+          AND process_marker_fingerprint = ?
           AND claim_owner = ?
           AND claim_token_hash = ?
         """,
@@ -451,6 +467,7 @@ def record_tool_prepare_attempt_outcome_for_connection(
             proof.process_instance_id,
             proof.process_pid,
             proof.hostname,
+            proof.process_marker_fingerprint,
             proof.claim_owner,
             _claim_token_hash(proof.claim_token),
         ),
@@ -474,6 +491,7 @@ def _new_attempt_proof(
         process_instance_id=identity.process_instance_id,
         process_pid=identity.process_pid,
         hostname=identity.hostname,
+        process_marker_fingerprint=identity.process_marker.fingerprint(),
         claim_owner=f"toolprep_owner_{secrets.token_hex(16)}",
         claim_token=secrets.token_hex(32),
     )
@@ -496,6 +514,8 @@ def _require_exact_attempt(connection, proof: ToolPrepareAttemptProof):
         "process_instance_id": proof.process_instance_id,
         "process_pid": proof.process_pid,
         "hostname": proof.hostname,
+        "process_marker_schema": TOOL_PREPARE_PROCESS_MARKER_SCHEMA,
+        "process_marker_fingerprint": proof.process_marker_fingerprint,
         "claim_owner": proof.claim_owner,
     }
     for column, expected in expected_values.items():
@@ -504,6 +524,16 @@ def _require_exact_attempt(connection, proof: ToolPrepareAttemptProof):
             raise ToolPrepareClaimLostError("attempt proof rejected")
     if not hmac.compare_digest(str(row["claim_token_hash"]), _claim_token_hash(proof.claim_token)):
         raise ToolPrepareClaimLostError("attempt proof rejected")
+    try:
+        validate_persisted_tool_prepare_process_marker(
+            marker_json=str(row["process_marker_json"] or ""),
+            marker_fingerprint=str(row["process_marker_fingerprint"] or ""),
+            expected_process_instance_id=proof.process_instance_id,
+            expected_process_pid=proof.process_pid,
+            expected_hostname=proof.hostname,
+        )
+    except ValueError as exc:
+        raise ToolPrepareClaimLostError("attempt process marker rejected") from exc
     return row
 
 
@@ -555,6 +585,7 @@ def _mark_attempt_recovery_required(
           AND process_instance_id = ?
           AND process_pid = ?
           AND hostname = ?
+          AND process_marker_fingerprint = ?
           AND claim_owner = ?
           AND claim_token_hash = ?
         """,
@@ -569,6 +600,7 @@ def _mark_attempt_recovery_required(
             proof.process_instance_id,
             proof.process_pid,
             proof.hostname,
+            proof.process_marker_fingerprint,
             proof.claim_owner,
             _claim_token_hash(proof.claim_token),
         ),
@@ -588,6 +620,7 @@ def _insert_claim_event(
         "attemptId": proof.attempt_id,
         "claimedUntil": claimed_until,
         "generation": proof.generation,
+        "processMarkerFingerprint": proof.process_marker_fingerprint,
         "processInstanceId": proof.process_instance_id,
         "sessionId": proof.session_id,
         "workerId": proof.worker_id,
@@ -622,6 +655,17 @@ def _require_identity(identity: ToolPrepareWorkerIdentity) -> ToolPrepareWorkerI
     _required_text(identity.hostname, "TOOL_PREPARE_WORKER_HOSTNAME_REQUIRED")
     if identity.process_pid <= 0:
         raise ValueError("TOOL_PREPARE_WORKER_PID_INVALID")
+    if identity.process_pid != os.getpid():
+        raise ValueError("TOOL_PREPARE_WORKER_PROCESS_MISMATCH")
+    if not isinstance(identity.process_marker, ToolPrepareProcessMarker):
+        raise ValueError("TOOL_PREPARE_PROCESS_MARKER_REQUIRED")
+    identity.process_marker.validate()
+    if (
+        identity.process_marker.process_instance_id != identity.process_instance_id
+        or identity.process_marker.process_pid != identity.process_pid
+        or identity.process_marker.hostname != identity.hostname
+    ):
+        raise ValueError("TOOL_PREPARE_PROCESS_MARKER_IDENTITY_MISMATCH")
     return identity
 
 

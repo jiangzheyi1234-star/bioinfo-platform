@@ -75,11 +75,42 @@ def test_partial_or_inconsistent_ledger_counts_fail_closed() -> None:
         summarize_execution_activity(inconsistent, make_error=ValueError)
 
 
+def test_partial_or_inconsistent_process_identity_counts_fail_closed() -> None:
+    partial = _diagnostics()
+    partial["toolPrepareJobs"].pop("invalidProcessIdentityAttemptCount")
+    missing = _diagnostics()
+    for key in (
+        "systemdProcessIdentityAttemptCount",
+        "linuxProcessIdentityAttemptCount",
+        "unsupportedProcessIdentityAttemptCount",
+        "invalidProcessIdentityAttemptCount",
+    ):
+        missing["toolPrepareJobs"].pop(key)
+    inconsistent = _diagnostics()
+    inconsistent["toolPrepareJobs"]["systemdProcessIdentityAttemptCount"] = 4
+
+    with pytest.raises(ValueError, match="process identity counts are incomplete"):
+        summarize_execution_activity(partial, make_error=ValueError)
+    with pytest.raises(ValueError, match="process identity counts are incomplete"):
+        summarize_execution_activity(missing, make_error=ValueError)
+    with pytest.raises(ValueError, match="process identity counts are inconsistent"):
+        summarize_execution_activity(inconsistent, make_error=ValueError)
+
+
 def test_projection_violation_count_must_match_safe_details() -> None:
     diagnostics = _diagnostics()
     diagnostics["toolPrepareJobs"]["projectionMismatchCount"] = 1
 
     with pytest.raises(ValueError, match="projection violations are inconsistent"):
+        summarize_execution_activity(diagnostics, make_error=ValueError)
+
+
+def test_invalid_process_identity_count_requires_matching_violation() -> None:
+    diagnostics = _diagnostics()
+    diagnostics["toolPrepareJobs"]["unsupportedProcessIdentityAttemptCount"] = 0
+    diagnostics["toolPrepareJobs"]["invalidProcessIdentityAttemptCount"] = 1
+
+    with pytest.raises(ValueError, match="invalid process identities are inconsistent"):
         summarize_execution_activity(diagnostics, make_error=ValueError)
 
 
@@ -119,6 +150,10 @@ def _diagnostics(*, include_tool_prepare: bool = True) -> dict[str, object]:
                 "expiredActiveAttemptCount": 1,
                 "openAttemptCount": 3,
                 "jobClaimProjectionCount": 3,
+                "systemdProcessIdentityAttemptCount": 1,
+                "linuxProcessIdentityAttemptCount": 1,
+                "unsupportedProcessIdentityAttemptCount": 1,
+                "invalidProcessIdentityAttemptCount": 0,
                 "projectionMismatchCount": 0,
                 "projectionViolations": [],
             }

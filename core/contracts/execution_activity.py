@@ -232,6 +232,41 @@ def _tool_prepare_activity_counts(
         violations = activity.get("projectionViolations")
         if not isinstance(violations, list) or len(violations) != ledger_counts["projectionMismatchCount"]:
             raise make_error("execution diagnostics toolPrepareJobs projection violations are inconsistent")
+        identity_keys = (
+            "systemdProcessIdentityAttemptCount",
+            "linuxProcessIdentityAttemptCount",
+            "unsupportedProcessIdentityAttemptCount",
+            "invalidProcessIdentityAttemptCount",
+        )
+        identity_values_present = [key in activity for key in identity_keys]
+        if not all(identity_values_present):
+            raise make_error(
+                "execution diagnostics toolPrepareJobs process identity counts are incomplete"
+            )
+        identity_counts = {
+            key: _strict_non_negative_int(
+                activity.get(key),
+                key=f"toolPrepareJobs.{key}",
+                make_error=make_error,
+            )
+            for key in identity_keys
+        }
+        if sum(identity_counts.values()) != ledger_counts["openAttemptCount"]:
+            raise make_error(
+                "execution diagnostics toolPrepareJobs process identity counts are inconsistent"
+            )
+        invalid_marker_violation_count = sum(
+            isinstance(item, dict)
+            and item.get("reason") == "OPEN_ATTEMPT_PROCESS_MARKER_INVALID"
+            for item in violations
+        )
+        if (
+            identity_counts["invalidProcessIdentityAttemptCount"]
+            != invalid_marker_violation_count
+        ):
+            raise make_error(
+                "execution diagnostics toolPrepareJobs invalid process identities are inconsistent"
+            )
     return (
         required_counts["queued"],
         required_counts["running"],

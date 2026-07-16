@@ -7,11 +7,11 @@ import pytest
 
 from apps.remote_runner.config import ensure_runtime_layout
 from apps.remote_runner.tool_prepare_claims import (
-    ToolPrepareWorkerIdentity,
     claim_next_tool_prepare_job,
 )
 from apps.remote_runner.tool_prepare_job_storage import create_tool_prepare_job, fetch_tool_prepare_job
 from apps.remote_runner.tool_prepare_jobs import run_tool_prepare_job
+from tests.helpers.tool_prepare_identity import make_unverifiable_tool_prepare_worker_identity
 from tests.test_tool_contract_pipeline import _cfg
 
 
@@ -26,7 +26,7 @@ def test_tool_prepare_job_does_not_mask_unexpected_validation_errors(monkeypatch
     monkeypatch.setattr("apps.remote_runner.tool_prepare_jobs.validate_registered_tool_for_publish", fail_validation)
     proof = claim_next_tool_prepare_job(
         cfg,
-        identity=ToolPrepareWorkerIdentity(
+        identity=make_unverifiable_tool_prepare_worker_identity(
             worker_id="tool-prepare-boundary-worker",
             session_id="tool-prepare-boundary-session",
             process_instance_id="tool-prepare-boundary-process",

@@ -11,7 +11,6 @@ from apps.remote_runner.config import ensure_runtime_layout
 from apps.remote_runner.storage_core import get_connection
 from apps.remote_runner.tool_prepare_claims import (
     ToolPrepareClaimLostError,
-    ToolPrepareWorkerIdentity,
     claim_next_tool_prepare_job,
 )
 from apps.remote_runner.tool_prepare_job_storage import (
@@ -20,6 +19,7 @@ from apps.remote_runner.tool_prepare_job_storage import (
 )
 from apps.remote_runner.tool_prepare_publication import publish_validated_tool_for_attempt
 from tests.helpers.reference_database import make_remote_runner_config
+from tests.helpers.tool_prepare_identity import make_unverifiable_tool_prepare_worker_identity
 
 
 COMPLETED_AT = "2099-06-07T10:01:00Z"
@@ -283,11 +283,10 @@ def _claimed_prepare_job(tmp_path: Path):
     request = _tool_payload()
     job = create_tool_prepare_job(cfg, request)
     tool = {key: value for key, value in request.items() if key != "validationTarget"}
-    identity = ToolPrepareWorkerIdentity(
+    identity = make_unverifiable_tool_prepare_worker_identity(
         worker_id="atomic-publication-worker",
         session_id="atomic-publication-session",
         process_instance_id="atomic-publication-process",
-        process_pid=4242,
         hostname="atomic-runner",
     )
     proof = claim_next_tool_prepare_job(

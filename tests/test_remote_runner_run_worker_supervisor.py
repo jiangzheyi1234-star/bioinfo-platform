@@ -446,7 +446,7 @@ def test_tool_prepare_worker_supervisor_polls_until_stopped(monkeypatch) -> None
     assert all(call["heartbeatIntervalSeconds"] == 0.02 for call in calls)
 
 
-def test_two_tool_prepare_supervisors_with_same_worker_id_get_distinct_identities() -> None:
+def test_two_tool_prepare_supervisors_share_process_marker_but_get_distinct_sessions() -> None:
     from apps.remote_runner import worker_supervisor
 
     cfg = SimpleNamespace(service_name="test-runner")
@@ -467,7 +467,8 @@ def test_two_tool_prepare_supervisors_with_same_worker_id_get_distinct_identitie
 
     assert first._identity.worker_id == second._identity.worker_id == "tool-prepare-same-worker"
     assert first._identity.session_id != second._identity.session_id
-    assert first._identity.process_instance_id != second._identity.process_instance_id
+    assert first._identity.process_instance_id == second._identity.process_instance_id
+    assert first._identity.process_marker is second._identity.process_marker
 
 
 def test_process_next_tool_prepare_job_runs_one_queued_job(tmp_path: Path, monkeypatch) -> None:

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import replace
 import json
-import os
 
 import pytest
 
@@ -49,6 +48,7 @@ from core.contracts.execution_activity import (
     EXECUTION_LIFECYCLE_MAINTENANCE_KEY,
     EXECUTION_LIFECYCLE_MAINTENANCE_SCHEMA_VERSION,
 )
+from tests.helpers.tool_prepare_identity import make_unverifiable_tool_prepare_worker_identity
 from tests.helpers.reference_database import make_configured_remote_runner
 
 
@@ -505,10 +505,9 @@ def _register_worker(cfg, worker_id: str) -> None:
 
 
 def _tool_identity(worker_id: str, *, session: str = "session-1") -> ToolPrepareWorkerIdentity:
-    return ToolPrepareWorkerIdentity(
+    return make_unverifiable_tool_prepare_worker_identity(
         worker_id=worker_id,
         session_id=session,
         process_instance_id=f"process-{session}",
-        process_pid=os.getpid(),
         hostname="lifecycle-test-runner",
     )

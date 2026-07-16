@@ -15,7 +15,6 @@ from apps.remote_runner.storage import upsert_tool
 from apps.remote_runner.tool_prepare_claims import (
     ToolPrepareAttemptProof,
     ToolPrepareClaimLostError,
-    ToolPrepareWorkerIdentity,
     claim_next_tool_prepare_job,
     release_tool_prepare_worker_claim,
 )
@@ -32,6 +31,7 @@ from apps.remote_runner.tool_prepare_jobs import run_tool_prepare_job
 from apps.remote_runner.tool_preparation import validate_registered_tool_for_publish
 from apps.remote_runner.tool_revisions import fetch_tool_revision, publish_tool_revision
 from apps.remote_runner.tools import ToolRegistryError
+from tests.helpers.tool_prepare_identity import make_unverifiable_tool_prepare_worker_identity
 from tests.test_tool_contract_pipeline import _cfg, _rule_contract_fields, _runtime_commands
 
 
@@ -752,7 +752,7 @@ def _run_claimed_prepare_job(cfg, job_id: str) -> None:
 def _claim_prepare_job(cfg, job_id: str) -> ToolPrepareAttemptProof:
     proof = claim_next_tool_prepare_job(
         cfg,
-        identity=ToolPrepareWorkerIdentity(
+        identity=make_unverifiable_tool_prepare_worker_identity(
             worker_id=f"test-worker-{job_id}",
             session_id=f"test-session-{job_id}",
             process_instance_id=f"test-process-{job_id}",

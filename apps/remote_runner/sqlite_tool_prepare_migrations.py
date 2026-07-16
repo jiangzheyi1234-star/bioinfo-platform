@@ -22,6 +22,9 @@ CREATE TABLE IF NOT EXISTS {TOOL_PREPARE_ATTEMPT_TABLE} (
     process_pid INTEGER NOT NULL,
     hostname TEXT NOT NULL,
     process_instance_id TEXT NOT NULL,
+    process_marker_schema TEXT NOT NULL DEFAULT '',
+    process_marker_json TEXT NOT NULL DEFAULT '',
+    process_marker_fingerprint TEXT NOT NULL DEFAULT '',
     claim_owner TEXT NOT NULL,
     claim_token_hash TEXT NOT NULL,
     claimed_at TEXT NOT NULL,
@@ -66,6 +69,9 @@ _REQUIRED_ATTEMPT_COLUMNS = {
     "process_pid": ("INTEGER", 1, None, 0),
     "hostname": ("TEXT", 1, None, 0),
     "process_instance_id": ("TEXT", 1, None, 0),
+    "process_marker_schema": ("TEXT", 1, "''", 0),
+    "process_marker_json": ("TEXT", 1, "''", 0),
+    "process_marker_fingerprint": ("TEXT", 1, "''", 0),
     "claim_owner": ("TEXT", 1, None, 0),
     "claim_token_hash": ("TEXT", 1, None, 0),
     "claimed_at": ("TEXT", 1, None, 0),
@@ -80,10 +86,38 @@ _REQUIRED_ATTEMPT_COLUMNS = {
 
 
 def ensure_tool_prepare_attempt_schema(connection: sqlite3.Connection) -> None:
-    connection.execute(_ATTEMPT_TABLE_SQL)
-    connection.execute(_ATTEMPT_ONE_OPEN_INDEX_SQL)
-    connection.execute(_ATTEMPT_ACTIVE_EXPIRY_INDEX_SQL)
-    assert_tool_prepare_attempt_schema(connection)
+    owns_transaction = not connection.in_transaction
+    if owns_transaction:
+        connection.execute("BEGIN IMMEDIATE")
+    try:
+        connection.execute(_ATTEMPT_TABLE_SQL)
+        _ensure_attempt_process_marker_columns(connection)
+        connection.execute(_ATTEMPT_ONE_OPEN_INDEX_SQL)
+        connection.execute(_ATTEMPT_ACTIVE_EXPIRY_INDEX_SQL)
+        assert_tool_prepare_attempt_schema(connection)
+        if owns_transaction:
+            connection.commit()
+    except Exception:
+        if owns_transaction:
+            connection.rollback()
+        raise
+
+
+def _ensure_attempt_process_marker_columns(connection: sqlite3.Connection) -> None:
+    columns = {
+        str(row[1])
+        for row in connection.execute(f"PRAGMA table_info({TOOL_PREPARE_ATTEMPT_TABLE})").fetchall()
+    }
+    definitions = {
+        "process_marker_schema": "TEXT NOT NULL DEFAULT ''",
+        "process_marker_json": "TEXT NOT NULL DEFAULT ''",
+        "process_marker_fingerprint": "TEXT NOT NULL DEFAULT ''",
+    }
+    for name, definition in definitions.items():
+        if name not in columns:
+            connection.execute(
+                f"ALTER TABLE {TOOL_PREPARE_ATTEMPT_TABLE} ADD COLUMN {name} {definition}"
+            )
 
 
 def assert_tool_prepare_attempt_schema(
