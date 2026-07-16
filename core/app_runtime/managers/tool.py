@@ -36,6 +36,7 @@ class ToolManager(BaseRuntimeManager):
         offset: int = 0,
         source: str | None = None,
         state: str | None = None,
+        server_id: str | None = None,
     ) -> dict[str, Any]:
         return {
             "data": self.call_remote_endpoint(
@@ -48,6 +49,7 @@ class ToolManager(BaseRuntimeManager):
                     "source": source,
                     "state": state,
                 },
+                preferred_server_id=server_id,
                 require_existing_runner=True,
             )
         }
@@ -78,7 +80,11 @@ class ToolManager(BaseRuntimeManager):
             )
         }
 
-    def list_latest_tool_prepare_jobs(self, tool_ids: list[str]) -> dict[str, Any]:
+    def list_latest_tool_prepare_jobs(
+        self,
+        tool_ids: list[str],
+        server_id: str | None = None,
+    ) -> dict[str, Any]:
         encoded_tool_ids = ",".join(str(item or "").strip() for item in tool_ids if str(item or "").strip())
         return {
             "data": {
@@ -86,6 +92,7 @@ class ToolManager(BaseRuntimeManager):
                     TOOL_PREPARE_JOB_LATEST_READ,
                     path_values={},
                     query_values={"toolIds": encoded_tool_ids},
+                    preferred_server_id=server_id,
                     require_existing_runner=True,
                 )
             }
@@ -97,12 +104,14 @@ class ToolManager(BaseRuntimeManager):
         status: str = "",
         limit: int = 50,
         offset: int = 0,
+        server_id: str | None = None,
     ) -> dict[str, Any]:
         return {
             "data": self.call_remote_endpoint(
                 TOOL_PREPARE_JOB_QUEUE_READ,
                 path_values={},
                 query_values={"status": status, "limit": limit, "offset": offset},
+                preferred_server_id=server_id,
                 require_existing_runner=True,
             )
         }

@@ -19,6 +19,7 @@ from apps.api.tool_candidate_target_acceptance import bio_agent_catalog_target_a
 from apps.api.tool_capabilities import search_tool_capabilities
 from apps.api.tool_profile_catalog import catalog_tool_profiles
 from apps.api.tool_registry_payload import registered_tools_from_runtime_payload
+from apps.api.tool_capability_server_runtime import bind_capability_graph_runtime
 from apps.api.tool_validation_plan import (
     tool_prepare_job_poll_path,
     tool_prepare_job_queue_method,
@@ -242,6 +243,7 @@ async def get_capability_graph_snapshot_from_request(
     page: int,
     page_size: int,
     agent_selectable_only: bool,
+    server_id: str | None = None,
 ) -> dict[str, Any]:
     runtime = runtime_service()
     return await run_sync(
@@ -253,6 +255,7 @@ async def get_capability_graph_snapshot_from_request(
                 page=page,
                 page_size=page_size,
                 agent_selectable_only=agent_selectable_only,
+                server_id=server_id,
             )
         }
     )
@@ -268,7 +271,9 @@ def _capability_snapshot_with_runtime_state(
     registered_tools: list[dict[str, Any]] | None = None,
     agent_selectable_only: bool = False,
     include_acceptance: bool = True,
+    server_id: str | None = None,
 ) -> dict[str, Any]:
+    runtime = bind_capability_graph_runtime(runtime, server_id)
     registered = registered_tools
     if registered is None:
         registered = _registered_tools_with_tool_index(
@@ -300,6 +305,8 @@ def _capability_snapshot_with_runtime_state(
         prepare_job_queue=prepare_job_queue,
         agent_selectable_only=agent_selectable_only,
     )
+    if runtime.server_id:
+        base_snapshot["serverId"] = runtime.server_id
     if not include_acceptance:
         return base_snapshot
     target_acceptance = _target_acceptance_from_snapshot(
@@ -309,7 +316,7 @@ def _capability_snapshot_with_runtime_state(
         snapshot=base_snapshot,
         prepare_job_queue=prepare_job_queue,
     )
-    return DEFAULT_CAPABILITY_GRAPH_SERVICE.snapshot_from_runtime(
+    snapshot = DEFAULT_CAPABILITY_GRAPH_SERVICE.snapshot_from_runtime(
         runtime=runtime,
         query=query,
         target_platform=target_platform,
@@ -322,6 +329,9 @@ def _capability_snapshot_with_runtime_state(
         prepare_job_queue=prepare_job_queue,
         agent_selectable_only=agent_selectable_only,
     )
+    if runtime.server_id:
+        snapshot["serverId"] = runtime.server_id
+    return snapshot
 
 
 def _target_acceptance_from_snapshot(

@@ -50,6 +50,7 @@ async def capability_graph_snapshot_api(
     page: int = Query(default=1, ge=1),
     pageSize: int = Query(default=50, ge=1, le=100),
     agentSelectableOnly: bool = False,
+    serverId: str | None = Query(default=None, min_length=1, pattern=r".*\S.*"),
 ) -> dict[str, Any]:
     return await get_capability_graph_snapshot_from_request(
         q=q,
@@ -57,6 +58,7 @@ async def capability_graph_snapshot_api(
         page=page,
         page_size=pageSize,
         agent_selectable_only=agentSelectableOnly,
+        server_id=serverId,
     )
 
 

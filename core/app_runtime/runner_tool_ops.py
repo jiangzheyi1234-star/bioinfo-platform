@@ -15,6 +15,7 @@ class RunnerToolOperationsMixin:
         offset: int = 0,
         source: str | None = None,
         state: str | None = None,
+        server_id: str | None = None,
     ) -> dict[str, Any]:
         return self.tools.list_tool_index(
             query=query,
@@ -22,6 +23,7 @@ class RunnerToolOperationsMixin:
             offset=offset,
             source=source,
             state=state,
+            server_id=server_id,
         )
 
     def add_tool(self, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
@@ -30,8 +32,12 @@ class RunnerToolOperationsMixin:
     def create_tool_prepare_job(self, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         return self.tools.create_tool_prepare_job(payload)
 
-    def list_latest_tool_prepare_jobs(self, tool_ids: list[str]) -> dict[str, Any]:
-        return self.tools.list_latest_tool_prepare_jobs(tool_ids)
+    def list_latest_tool_prepare_jobs(
+        self,
+        tool_ids: list[str],
+        server_id: str | None = None,
+    ) -> dict[str, Any]:
+        return self.tools.list_latest_tool_prepare_jobs(tool_ids, server_id=server_id)
 
     def list_tool_prepare_job_queue(
         self,
@@ -39,11 +45,13 @@ class RunnerToolOperationsMixin:
         status: str = "",
         limit: int = 50,
         offset: int = 0,
+        server_id: str | None = None,
     ) -> dict[str, Any]:
         return self.tools.list_tool_prepare_job_queue(
             status=status,
             limit=limit,
             offset=offset,
+            server_id=server_id,
         )
 
     def get_tool_prepare_job(self, job_id: str) -> dict[str, Any]:

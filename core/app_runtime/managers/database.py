@@ -19,10 +19,11 @@ DATABASE_VALIDATION_TIMEOUT_SECONDS = 2100
 
 
 class DatabaseManager(BaseRuntimeManager):
-    def list_databases(self) -> dict[str, Any]:
+    def list_databases(self, server_id: str | None = None) -> dict[str, Any]:
         items = self.call_remote_endpoint(
             DATABASE_LIST,
             path_values={},
+            preferred_server_id=server_id,
             require_existing_runner=True,
         )
         return {"data": {"items": items}}

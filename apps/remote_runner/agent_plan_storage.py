@@ -505,6 +505,21 @@ def _plan_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "createdAt": row["created_at"],
     }
     AgentPlanRevisionRecord.model_validate(payload)
+    hash_payload = {
+        "budget": payload["budget"],
+        "contractVersion": payload["contractVersion"],
+        "draftId": payload["draftId"],
+        "draftRevision": payload["draftRevision"],
+        "parentPlanRevisionId": payload["parentPlanRevisionId"],
+        "planGeneration": payload["planGeneration"],
+        "proposal": payload["proposal"],
+        "sessionId": payload["sessionId"],
+        "validation": payload["validation"],
+    }
+    canonical_payload = _stable_json(hash_payload)
+    if hashlib.sha256(canonical_payload.encode("utf-8")).hexdigest() != payload["planHash"]:
+        raise AgentPlanStorageConflictError("AGENT_PLAN_STORED_HASH_MISMATCH")
+    payload["canonicalPayload"] = canonical_payload
     return payload
 
 

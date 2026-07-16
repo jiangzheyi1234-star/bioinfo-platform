@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import sqlite3
 from pathlib import Path
 
@@ -117,6 +119,8 @@ def test_agent_plan_revision_is_immutable_idempotent_and_bound_to_draft(tmp_path
 
     assert replay == plan
     assert len(plan["planHash"]) == 64
+    assert hashlib.sha256(plan["canonicalPayload"].encode("utf-8")).hexdigest() == plan["planHash"]
+    assert json.loads(plan["canonicalPayload"])["proposal"] == plan["proposal"]
     assert fetch_agent_plan_revision(cfg, plan["planRevisionId"]) == plan
     assert list_agent_plan_revisions(cfg, session["sessionId"]) == [plan]
 

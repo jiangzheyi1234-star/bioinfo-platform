@@ -4,8 +4,8 @@ from typing import Any, Optional
 
 
 class RunnerDatabaseOperationsMixin:
-    def list_databases(self) -> dict[str, Any]:
-        return self.databases.list_databases()
+    def list_databases(self, server_id: str | None = None) -> dict[str, Any]:
+        return self.databases.list_databases(server_id)
 
     def list_database_templates(self) -> dict[str, Any]:
         return self.databases.list_database_templates()
