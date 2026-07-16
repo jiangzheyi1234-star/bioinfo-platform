@@ -105,13 +105,24 @@ def summarize_execution_activity(
     resource_waits = _diagnostic_list(diagnostics, "resourceWaits", make_error=make_error)
     worker_health = _diagnostic_dict(diagnostics, "workerHealth", make_error=make_error)
     queue_metrics = _diagnostic_dict(diagnostics, "queueMetrics", make_error=make_error)
-    tool_prepare_jobs = _optional_diagnostic_dict(diagnostics, "toolPrepareJobs", make_error=make_error)
+    tool_prepare_jobs = _optional_diagnostic_dict(
+        diagnostics,
+        "toolPrepareJobs",
+        make_error=make_error,
+    )
     queued_job_count = _queued_job_count(queue_metrics)
     claimed_job_count = _claimed_job_count(worker_health=worker_health, queue_metrics=queue_metrics)
     running_slot_count = _running_slot_count(worker_health)
-    queued_tool_prepare_job_count = _non_negative_int(tool_prepare_jobs.get("queued"))
-    running_tool_prepare_job_count = _non_negative_int(tool_prepare_jobs.get("running"))
-    active_tool_prepare_claim_count = _non_negative_int(tool_prepare_jobs.get("activeClaims"))
+    (
+        queued_tool_prepare_job_count,
+        running_tool_prepare_job_count,
+        active_tool_prepare_claim_count,
+    ) = _tool_prepare_activity_counts(
+        tool_prepare_jobs,
+        present="toolPrepareJobs" in diagnostics
+        and diagnostics.get("toolPrepareJobs") is not None,
+        make_error=make_error,
+    )
     block_reasons = _diagnostic_block_reasons(
         diagnostics=diagnostics,
         active_leases=active_leases,
@@ -168,6 +179,64 @@ def _optional_diagnostic_dict(
     if not isinstance(value, dict):
         raise make_error(f"execution diagnostics {key} is not an object")
     return value
+
+
+def _tool_prepare_activity_counts(
+    activity: dict[str, Any],
+    *,
+    present: bool,
+    make_error: type[Exception],
+) -> tuple[int, int, int]:
+    if not present:
+        return 0, 0, 0
+    schema_version = activity.get("schemaVersion")
+    if schema_version is not None and schema_version != "tool-prepare-activity.v1":
+        raise make_error("execution diagnostics toolPrepareJobs schemaVersion is invalid")
+    required_counts = {
+        key: _strict_non_negative_int(
+            activity.get(key),
+            key=f"toolPrepareJobs.{key}",
+            make_error=make_error,
+        )
+        for key in ("queued", "running", "activeClaims")
+    }
+    ledger_keys = (
+        "activeAttemptCount",
+        "recoveryRequiredAttemptCount",
+        "expiredActiveAttemptCount",
+        "openAttemptCount",
+        "jobClaimProjectionCount",
+        "projectionMismatchCount",
+    )
+    ledger_values_present = [key in activity for key in ledger_keys]
+    if any(ledger_values_present):
+        if not all(ledger_values_present):
+            raise make_error("execution diagnostics toolPrepareJobs ledger counts are incomplete")
+        ledger_counts = {
+            key: _strict_non_negative_int(
+                activity.get(key),
+                key=f"toolPrepareJobs.{key}",
+                make_error=make_error,
+            )
+            for key in ledger_keys
+        }
+        if ledger_counts["openAttemptCount"] != (
+            ledger_counts["activeAttemptCount"]
+            + ledger_counts["recoveryRequiredAttemptCount"]
+        ):
+            raise make_error("execution diagnostics toolPrepareJobs open attempt counts are inconsistent")
+        if required_counts["activeClaims"] != ledger_counts["openAttemptCount"]:
+            raise make_error("execution diagnostics toolPrepareJobs activeClaims is not ledger-derived")
+        if ledger_counts["expiredActiveAttemptCount"] > ledger_counts["activeAttemptCount"]:
+            raise make_error("execution diagnostics toolPrepareJobs expired attempt count is invalid")
+        violations = activity.get("projectionViolations")
+        if not isinstance(violations, list) or len(violations) != ledger_counts["projectionMismatchCount"]:
+            raise make_error("execution diagnostics toolPrepareJobs projection violations are inconsistent")
+    return (
+        required_counts["queued"],
+        required_counts["running"],
+        required_counts["activeClaims"],
+    )
 
 
 def _diagnostic_block_reasons(
@@ -251,6 +320,17 @@ def _non_negative_int(value: Any) -> int:
         return max(0, int(value or 0))
     except (TypeError, ValueError):
         return 0
+
+
+def _strict_non_negative_int(
+    value: Any,
+    *,
+    key: str,
+    make_error: type[Exception],
+) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise make_error(f"execution diagnostics {key} is not a non-negative integer")
+    return value
 
 
 def _strict_utc_timestamp(value: Any, *, key: str, make_error: type[Exception]) -> datetime:

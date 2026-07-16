@@ -11,6 +11,11 @@ from apps.remote_runner.run_worker_storage import (
 )
 from apps.remote_runner.storage import create_run_record
 from apps.remote_runner.storage_core import get_connection
+from apps.remote_runner.tool_prepare_claims import (
+    ToolPrepareWorkerIdentity,
+    claim_next_tool_prepare_job,
+)
+from apps.remote_runner.tool_prepare_job_storage import create_tool_prepare_job
 from tests.helpers.reference_database import make_configured_remote_runner
 
 
@@ -132,6 +137,43 @@ def test_execution_diagnostics_flags_allocated_resource_without_active_lease(tmp
     assert "EXECUTION_INVARIANT_FAILED" in {
         alert["code"] for alert in diagnostics["executionObservability"]["alerts"]
     }
+
+
+def test_execution_diagnostics_fails_closed_on_tool_prepare_projection_mismatch(
+    tmp_path,
+) -> None:
+    cfg = make_configured_remote_runner(tmp_path)
+    job = create_tool_prepare_job(
+        cfg,
+        {"id": "bioconda::diagnostic-fence", "name": "diagnostic-fence"},
+    )
+    proof = claim_next_tool_prepare_job(
+        cfg,
+        identity=ToolPrepareWorkerIdentity.create("diagnostic-tool-worker"),
+        now="2099-06-07T10:00:00Z",
+    )
+    assert proof is not None
+    with get_connection(cfg) as connection:
+        connection.execute(
+            "UPDATE tool_prepare_jobs SET claimed_by = 'phantom-owner' WHERE job_id = ?",
+            (job["jobId"],),
+        )
+        connection.commit()
+
+    diagnostics = build_execution_diagnostics(
+        cfg,
+        now="2099-06-07T10:00:01Z",
+    )
+    activity = diagnostics["toolPrepareJobs"]
+    failures = {failure["name"] for failure in diagnostics["invariants"]["failures"]}
+
+    assert diagnostics["ok"] is False
+    assert activity["activeClaims"] == 1
+    assert activity["openAttemptCount"] == 1
+    assert activity["projectionMismatchCount"] >= 1
+    assert "toolPrepareOpenAttemptsMatchCurrentJobClaims" in failures
+    assert "phantom-owner" not in str(diagnostics)
+    assert proof.claim_token not in str(diagnostics)
 
 
 def test_execution_admission_ready_rejects_when_no_worker_is_available(tmp_path) -> None:

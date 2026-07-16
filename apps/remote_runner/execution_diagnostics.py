@@ -40,6 +40,7 @@ def build_execution_diagnostics(
             queue_metrics=queue_metrics,
             worker_health=worker_health,
             sqlite_metrics=sqlite_metrics,
+            tool_prepare_jobs=tool_prepare_jobs,
         )
         observability = build_execution_observability(
             connection,
@@ -262,6 +263,7 @@ def _invariants(
     queue_metrics: dict[str, Any],
     worker_health: dict[str, Any],
     sqlite_metrics: dict[str, Any],
+    tool_prepare_jobs: dict[str, Any],
 ) -> dict[str, Any]:
     checks = [
         _check_sqlite(sqlite_metrics),
@@ -269,6 +271,9 @@ def _invariants(
         _check_active_leases_have_running_attempts(connection),
         _check_running_slots_have_running_attempts(connection),
         _check_claimed_jobs_have_active_leases(connection),
+        _check_tool_prepare_open_attempts_match_current_job_claims(
+            tool_prepare_jobs,
+        ),
         _check_worker_summary_matches_queue_metrics(queue_metrics, worker_health),
     ]
     failures = [check for check in checks if not check["ok"]]
@@ -362,6 +367,32 @@ def _check_claimed_jobs_have_active_leases(connection) -> dict[str, Any]:
         "name": "claimedJobsHaveActiveLeases",
         "ok": not rows,
         "details": {"violations": [_row_identity(row) for row in rows]},
+    }
+
+
+def _check_tool_prepare_open_attempts_match_current_job_claims(
+    activity: dict[str, Any],
+) -> dict[str, Any]:
+    raw_violations = activity.get("projectionViolations")
+    violations = raw_violations if isinstance(raw_violations, list) else []
+    raw_mismatch_count = activity.get("projectionMismatchCount")
+    mismatch_count = (
+        raw_mismatch_count
+        if isinstance(raw_mismatch_count, int) and not isinstance(raw_mismatch_count, bool)
+        else -1
+    )
+    contract_valid = (
+        isinstance(raw_violations, list)
+        and mismatch_count >= 0
+        and mismatch_count == len(violations)
+    )
+    return {
+        "name": "toolPrepareOpenAttemptsMatchCurrentJobClaims",
+        "ok": contract_valid and mismatch_count == 0,
+        "details": {
+            "projectionMismatchCount": max(0, mismatch_count),
+            "violations": violations,
+        },
     }
 
 
