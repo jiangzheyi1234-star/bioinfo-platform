@@ -12,7 +12,10 @@ from core.app_runtime.managers.runner import (
     RUNNER_STOP_DIAGNOSTICS_UNAVAILABLE_REASON,
 )
 from core.app_runtime.service import RuntimeService, ServiceLocator
-from core.contracts.execution_activity import EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION
+from core.contracts.execution_activity import (
+    EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
+    EXECUTION_LIFECYCLE_REQUIRED_QUIESCENCE_COVERAGE,
+)
 
 
 def make_service(_tmp_path: Path, ssh_service) -> RuntimeService:
@@ -234,6 +237,8 @@ def _lifecycle_guard_payload(
         "maintenanceActive": True,
         "requestedAt": "2099-06-07T10:00:00Z",
         "expiresAt": "2099-06-07T10:10:00Z",
+        "expiryPolicy": "fail-closed",
+        "quiescenceCoverage": list(EXECUTION_LIFECYCLE_REQUIRED_QUIESCENCE_COVERAGE),
         "activeWorkerCount": 1,
         "drainRequestedWorkerCount": 1,
         "activeLeaseCount": active_lease_count,
@@ -242,5 +247,8 @@ def _lifecycle_guard_payload(
         "queuedJobCount": 0,
         "claimedJobCount": 0,
         "runningSlotCount": 0,
+        "queuedToolPrepareJobCount": 0,
+        "runningToolPrepareJobCount": 0,
+        "activeToolPrepareClaimCount": 0,
         "blockReasons": reasons,
     }

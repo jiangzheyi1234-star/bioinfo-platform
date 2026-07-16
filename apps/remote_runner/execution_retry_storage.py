@@ -4,6 +4,7 @@ from typing import Any
 
 from .config import RemoteRunnerConfig
 from .event_contracts import append_run_event_v2, record_run_command
+from .execution_lifecycle_guard import ensure_execution_lifecycle_admission_open_for_connection
 from .execution_policy import retry_backoff_seconds_for_job
 from .execution_resume_claim_preflight import (
     build_run_resume_execution_options,
@@ -73,6 +74,7 @@ def request_run_retry(
             raise ValueError("RUN_RESUME_EXECUTION_OPTIONS_NOT_CURRENT")
     with get_connection(cfg) as connection:
         connection.execute("BEGIN IMMEDIATE")
+        ensure_execution_lifecycle_admission_open_for_connection(connection, now=requested_at)
         run = fetch_run_row(connection, normalized_run_id)
         run_status = str(run["status"] or "").lower()
         transition = RunExecutionStateMachine.request_retry(

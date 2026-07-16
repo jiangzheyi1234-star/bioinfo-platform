@@ -8,6 +8,10 @@ from typing import Any
 
 from .config import RemoteRunnerConfig
 from .errors import RemoteRunnerNotFoundError
+from .execution_lifecycle_guard import (
+    ensure_execution_lifecycle_admission_open_for_connection,
+    read_execution_lifecycle_maintenance_for_connection,
+)
 from .storage_core import get_connection, now_iso
 from .tool_prepare_job_records import (
     event_row_to_dict,
@@ -29,11 +33,14 @@ def create_tool_prepare_job(cfg: RemoteRunnerConfig, payload: dict[str, Any]) ->
     max_attempts = _positive_int(payload.get("maxAttempts"), default=3)
     backoff_seconds = _positive_int(payload.get("backoffSeconds"), default=30)
     with get_connection(cfg) as connection:
+        connection.execute("BEGIN IMMEDIATE")
         existing_row = _fetch_active_prepare_job_by_reservation(connection, reservation["key"])
         if existing_row is not None:
+            connection.commit()
             job = _job_with_events(connection, existing_row)
             job["reusedExisting"] = True
             return job
+        ensure_execution_lifecycle_admission_open_for_connection(connection, now=now)
         try:
             connection.execute(
                 """
@@ -262,6 +269,9 @@ def claim_next_tool_prepare_job(
     normalized_worker_id = str(worker_id or "tool-prepare-worker").strip() or "tool-prepare-worker"
     with get_connection(cfg) as connection:
         connection.execute("BEGIN IMMEDIATE")
+        if read_execution_lifecycle_maintenance_for_connection(connection, now=claimed_at) is not None:
+            connection.commit()
+            return None
         row = connection.execute(
             """
             SELECT *
@@ -337,14 +347,14 @@ def heartbeat_tool_prepare_job(
         row = connection.execute("SELECT * FROM tool_prepare_jobs WHERE job_id = ?", (normalized_job_id,)).fetchone()
         if row is None:
             raise KeyError(job_id)
-        if str(row["status"] or "") != "running" or str(row["claimed_by"] or "") != normalized_worker_id:
+        if str(row["claimed_by"] or "") != normalized_worker_id:
             return {"accepted": False, "reason": "not_current_worker"}
         claimed_until = _add_seconds(heartbeat_at, int(lease_seconds))
         connection.execute(
             """
             UPDATE tool_prepare_jobs
             SET heartbeat_at = ?, claimed_until = ?, updated_at = ?
-            WHERE job_id = ? AND status = 'running' AND claimed_by = ?
+            WHERE job_id = ? AND claimed_by = ?
             """,
             (heartbeat_at, claimed_until, heartbeat_at, normalized_job_id, normalized_worker_id),
         )

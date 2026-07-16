@@ -2,9 +2,19 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.contracts.execution_activity import (
+    EXECUTION_LIFECYCLE_COVERAGE_INCOMPLETE_REASON,
+    EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
+    EXECUTION_LIFECYCLE_REQUIRED_QUIESCENCE_COVERAGE,
+)
+
 from .api_models import ExecutionLifecycleGuardReleaseRequest, ExecutionLifecycleGuardRequest
 from .errors import RemoteRunnerOperationBlockedError
-from .execution_lifecycle_guard import release_execution_lifecycle_guard, request_execution_lifecycle_guard
+from .execution_lifecycle_guard import (
+    EXECUTION_LIFECYCLE_QUIESCENCE_COVERAGE,
+    release_execution_lifecycle_guard,
+    request_execution_lifecycle_guard,
+)
 from .governance_audit import record_governance_audit_event
 from .route_utils import authorized_config, data_response, run_sync
 
@@ -15,6 +25,10 @@ async def request_execution_lifecycle_guard_from_request(
 ) -> dict[str, Any]:
     cfg = await run_sync(_authorized_lifecycle_guard_config, authorization)
     try:
+        _require_complete_lifecycle_guard_coverage(
+            action=payload.action,
+            owner=payload.owner,
+        )
         result = await run_sync(
             request_execution_lifecycle_guard,
             cfg,
@@ -43,6 +57,27 @@ async def request_execution_lifecycle_guard_from_request(
         details=result,
     )
     return data_response(result)
+
+
+def _require_complete_lifecycle_guard_coverage(*, action: str, owner: str) -> None:
+    available = list(EXECUTION_LIFECYCLE_QUIESCENCE_COVERAGE)
+    missing = [item for item in EXECUTION_LIFECYCLE_REQUIRED_QUIESCENCE_COVERAGE if item not in available]
+    if not missing:
+        return
+    raise RemoteRunnerOperationBlockedError(
+        EXECUTION_LIFECYCLE_COVERAGE_INCOMPLETE_REASON,
+        {
+            "schemaVersion": EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
+            "reasonCode": EXECUTION_LIFECYCLE_COVERAGE_INCOMPLETE_REASON,
+            "action": str(action),
+            "owner": str(owner),
+            "maintenanceActive": False,
+            "quiescenceCoverage": available,
+            "requiredQuiescenceCoverage": list(EXECUTION_LIFECYCLE_REQUIRED_QUIESCENCE_COVERAGE),
+            "missingQuiescenceCoverage": missing,
+            "nextAction": "UPGRADE_RUNNER_LIFECYCLE_FENCE_BEFORE_DESTRUCTIVE_OPERATIONS",
+        },
+    )
 
 
 async def release_execution_lifecycle_guard_from_request(
@@ -106,6 +141,8 @@ def _audit_details(details: dict[str, Any]) -> dict[str, Any]:
         "released": bool(details.get("released")),
         "reasonCode": str(details.get("reasonCode") or ""),
         "blockReasons": list(details.get("blockReasons") or []),
+        "quiescenceCoverage": list(details.get("quiescenceCoverage") or []),
+        "missingQuiescenceCoverage": list(details.get("missingQuiescenceCoverage") or []),
         "activeLeaseCount": int(details.get("activeLeaseCount") or 0),
         "queuedJobCount": int(details.get("queuedJobCount") or 0),
         "claimedJobCount": int(details.get("claimedJobCount") or 0),

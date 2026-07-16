@@ -283,6 +283,7 @@ class RemoteRunnerBootstrapActivationMixin:
         ssh_service,
         server_id: str,
         server_record: dict[str, Any],
+        bootstrap_action: str,
         previous_version: str,
         previous_release: str,
         previous_mode: str,
@@ -305,6 +306,23 @@ class RemoteRunnerBootstrapActivationMixin:
                 "message": "",
             }
         )
+        guard = bootstrap_metadata.get("upgradeGuard")
+        guard = guard if isinstance(guard, dict) else {}
+        maintenance_owner = str(guard.get("maintenanceOwner") or "").strip()
+        rollback_guard_recovery = {
+            "schemaVersion": "h2ometa.remote-runner-rollback-lifecycle-guard-recovery.v1",
+            "required": bool(maintenance_owner),
+            "bootstrapAction": str(bootstrap_action or "").strip() or "ensure",
+            "maintenanceOwner": maintenance_owner,
+            "liveVerified": False,
+            "releaseAttempted": False,
+            "released": False,
+            "readyVerified": False,
+            "failClosed": True,
+            "admissionState": "guarded-or-unknown",
+            "message": "rollback lifecycle guard recovery has not completed",
+        }
+        rollback["lifecycleGuardRecovery"] = rollback_guard_recovery
         bootstrap_metadata["rollback"] = rollback
         target_release = str((bootstrap_metadata.get("release_switch") or {}).get("target_release") or "")
         if not previous_release or previous_release == target_release:
@@ -358,18 +376,48 @@ class RemoteRunnerBootstrapActivationMixin:
                 "version": str(runtime_state.get("version") or ""),
             }
             token = resolve_runner_token(str(server_record.get("token_ref") or ""))
-            if token:
-                tunnel = ssh_service.ensure_local_tunnel(
-                    f"runner-{server_id}",
-                    remote_host="127.0.0.1",
-                    remote_port=int(runtime_state["bindPort"]),
+            if not token:
+                raise cls._manager_error(
+                    "previous runner token unavailable for rollback lifecycle guard recovery"
                 )
-                client = RemoteRunnerHttpClient(
-                    base_url=f"http://127.0.0.1:{tunnel.local_port}",
-                    token=token,
-                    timeout=5,
+            tunnel = ssh_service.ensure_local_tunnel(
+                f"runner-{server_id}",
+                remote_host="127.0.0.1",
+                remote_port=int(runtime_state["bindPort"]),
+            )
+            client = RemoteRunnerHttpClient(
+                base_url=f"http://127.0.0.1:{tunnel.local_port}",
+                token=token,
+                timeout=5,
+            )
+            rollback["live"] = cls._wait_for_runner_live(client, attempts=3)
+            rollback_guard_recovery["liveVerified"] = True
+            rollback_guard_recovery["releaseAttempted"] = True
+            release = cls._release_bootstrap_lifecycle_guard(
+                client=client,
+                server_id=server_id,
+                bootstrap_action=bootstrap_action,
+                bootstrap_metadata=bootstrap_metadata,
+                allow_absent=True,
+            )
+            if release is not None:
+                rollback_guard_recovery["released"] = release.get("released") is True
+                rollback_guard_recovery["alreadyAbsent"] = release.get("released") is False
+            elif rollback_guard_recovery["required"]:
+                raise cls._manager_error(
+                    "rollback lifecycle guard release was not attempted for the recorded owner"
                 )
-                rollback["health"] = cls._wait_for_runner_health(client, attempts=3)
+            if release is None:
+                recovery_message = "rollback lifecycle guard release was not required"
+            elif release.get("released") is True:
+                recovery_message = "rollback lifecycle guard released"
+            else:
+                recovery_message = "rollback lifecycle guard was already absent"
+            rollback_guard_recovery["message"] = recovery_message
+            rollback_guard_recovery["admissionState"] = "open"
+            rollback_guard_recovery["failClosed"] = False
+            rollback["health"] = cls._wait_for_runner_health(client, attempts=3)
+            rollback_guard_recovery["readyVerified"] = True
             rollback["restored"] = True
             rollback["message"] = "previous release restored"
             release_switch = dict(bootstrap_metadata.get("release_switch") or {})
@@ -377,5 +425,19 @@ class RemoteRunnerBootstrapActivationMixin:
             release_switch["rolled_back"] = True
             bootstrap_metadata["release_switch"] = release_switch
         except (cls._manager_error, RemoteRunnerClientError) as exc:
-            rollback["message"] = str(exc) or "rollback failed"
+            detail = str(exc) or "rollback failed"
+            rollback["message"] = detail
+            if rollback_guard_recovery["liveVerified"] and not rollback_guard_recovery["readyVerified"]:
+                if rollback_guard_recovery["admissionState"] == "open":
+                    rollback_guard_recovery["message"] = (
+                        f"lifecycle guard released, but rollback ready health failed: {detail}"
+                    )
+                    rollback_guard_recovery["nextAction"] = "repair previous runner readiness before resuming execution"
+                else:
+                    rollback_guard_recovery["message"] = (
+                        f"rollback remains fail-closed until lifecycle guard recovery completes: {detail}"
+                    )
+                    rollback_guard_recovery["nextAction"] = (
+                        "retry owner-matched lifecycle guard release, then verify ready health"
+                    )
         bootstrap_metadata["rollback"] = rollback

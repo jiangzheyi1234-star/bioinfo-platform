@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from core.contracts.execution_activity import EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION, summarize_execution_activity
+from core.contracts.execution_activity import (
+    EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
+    EXECUTION_LIFECYCLE_REQUIRED_QUIESCENCE_COVERAGE,
+    summarize_execution_activity,
+)
 from core.remote_runner.bootstrap_guard import (
     BOOTSTRAP_DIAGNOSTICS_UNAVAILABLE_REASON,
     COLD_STOP_PROOF_SCHEMA_VERSION,
@@ -202,6 +206,9 @@ def test_bootstrap_guard_allows_idle_prepared_runner_before_upgrade() -> None:
         "queuedJobCount": 0,
         "claimedJobCount": 0,
         "runningSlotCount": 0,
+        "queuedToolPrepareJobCount": 0,
+        "runningToolPrepareJobCount": 0,
+        "activeToolPrepareClaimCount": 0,
         "blockReasons": [],
         "protectedLeases": [],
         "maintenanceOwner": "srv_test:upgrade:lifecycle",
@@ -510,6 +517,7 @@ def _diagnostics(
             "resourceWaitJobs": len(resource_waits or []),
         },
         "invariants": {"ok": ok, "failures": []},
+        "toolPrepareJobs": {"queued": 0, "running": 0, "activeClaims": 0},
     }
 
 
@@ -523,14 +531,19 @@ def _lifecycle_guard_payload(activity: dict[str, object], *, action: str, owner:
         "maintenanceActive": True,
         "requestedAt": "2099-06-07T10:00:00Z",
         "expiresAt": "2099-06-07T10:10:00Z",
+        "expiryPolicy": "fail-closed",
         "activeWorkerCount": 1,
         "drainRequestedWorkerCount": 1,
+        "quiescenceCoverage": list(EXECUTION_LIFECYCLE_REQUIRED_QUIESCENCE_COVERAGE),
         "activeLeaseCount": activity["activeLeaseCount"],
         "allocatedResourceCount": activity["allocatedResourceCount"],
         "resourceWaitCount": activity["resourceWaitCount"],
         "queuedJobCount": activity["queuedJobCount"],
         "claimedJobCount": activity["claimedJobCount"],
         "runningSlotCount": activity["runningSlotCount"],
+        "queuedToolPrepareJobCount": activity["queuedToolPrepareJobCount"],
+        "runningToolPrepareJobCount": activity["runningToolPrepareJobCount"],
+        "activeToolPrepareClaimCount": activity["activeToolPrepareClaimCount"],
         "blockReasons": block_reasons,
         "activeLeases": activity["activeLeases"],
     }

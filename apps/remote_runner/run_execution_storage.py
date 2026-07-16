@@ -9,7 +9,10 @@ from .config import RemoteRunnerConfig
 from .event_contracts import append_run_event_v2, record_run_command
 from .execution_policy import heartbeat_timeout_seconds_for_job
 from .execution_decision_logging import log_admission_wait, log_claim_accepted
-from .execution_lifecycle_guard import read_execution_lifecycle_maintenance_for_connection
+from .execution_lifecycle_guard import (
+    ensure_execution_lifecycle_admission_open_for_connection,
+    read_execution_lifecycle_maintenance_for_connection,
+)
 from .execution_resume_claim_preflight import run_resume_execution_options_requested
 from .metrics import record_run_attempt_claimed, record_run_attempt_completed
 from .admission_storage import (
@@ -52,6 +55,8 @@ def enqueue_run_job(
 ) -> dict[str, Any]:
     queued_at = optional_text(available_at) or now_iso()
     with get_connection(cfg) as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        ensure_execution_lifecycle_admission_open_for_connection(connection, now=queued_at)
         row = enqueue_run_job_record(
             connection,
             run_id=run_id,

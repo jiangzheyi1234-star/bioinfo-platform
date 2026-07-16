@@ -5,6 +5,7 @@ from pathlib import Path
 from core.contracts.execution_activity import (
     EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
     EXECUTION_LIFECYCLE_MAINTENANCE_KEY,
+    EXECUTION_LIFECYCLE_MAINTENANCE_SCHEMA_VERSION,
 )
 
 
@@ -28,6 +29,7 @@ FIXTURE_PATHS = (
 
 def test_execution_lifecycle_guard_contract_values_are_declared_once() -> None:
     assert EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION == "h2ometa.execution-lifecycle-guard.v1"
+    assert EXECUTION_LIFECYCLE_MAINTENANCE_SCHEMA_VERSION == "h2ometa.execution-lifecycle-maintenance.v2"
     assert EXECUTION_LIFECYCLE_MAINTENANCE_KEY == "execution_lifecycle_maintenance"
 
     for relative_path in CONSUMER_PATHS:
@@ -45,3 +47,4 @@ def test_uninstall_remote_cleanup_uses_contract_schema_value() -> None:
 
     assert "h2ometa.execution-lifecycle-guard.v1" not in source
     assert "{EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION!r}" in source
+    assert "{EXECUTION_LIFECYCLE_MAINTENANCE_SCHEMA_VERSION!r}" in source

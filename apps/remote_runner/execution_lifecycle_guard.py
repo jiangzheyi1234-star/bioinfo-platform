@@ -6,8 +6,11 @@ from typing import Any
 
 from core.contracts.execution_activity import (
     EXECUTION_ACTIVITY_ACTIVE_WORKFLOW_LEASES_REASON,
+    EXECUTION_LIFECYCLE_GUARD_RELEASE_SCHEMA_VERSION,
+    EXECUTION_LIFECYCLE_GUARD_ALREADY_ACTIVE_REASON,
     EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
     EXECUTION_LIFECYCLE_MAINTENANCE_KEY,
+    EXECUTION_LIFECYCLE_MAINTENANCE_SCHEMA_VERSION,
     summarize_execution_activity,
 )
 
@@ -17,13 +20,16 @@ from .execution_diagnostics import build_execution_diagnostics
 from .storage_core import get_connection, now_iso
 
 
-EXECUTION_LIFECYCLE_GUARD_RELEASE_SCHEMA_VERSION = "h2ometa.execution-lifecycle-guard-release.v1"
 EXECUTION_MAINTENANCE_ACTIVE_REASON = "EXECUTION_MAINTENANCE_ACTIVE"
 EXECUTION_LIFECYCLE_GUARD_ACTIVE_LEASES_REASON = "EXECUTION_LIFECYCLE_GUARD_ACTIVE_LEASES"
 EXECUTION_LIFECYCLE_GUARD_BLOCKED_REASON = "EXECUTION_LIFECYCLE_GUARD_BLOCKED"
-EXECUTION_LIFECYCLE_GUARD_ALREADY_ACTIVE_REASON = "EXECUTION_LIFECYCLE_GUARD_ALREADY_ACTIVE"
 EXECUTION_LIFECYCLE_GUARD_OWNER_MISMATCH_REASON = "EXECUTION_LIFECYCLE_GUARD_OWNER_MISMATCH"
 EXECUTION_LIFECYCLE_GUARD_INVALID_STATE_REASON = "EXECUTION_LIFECYCLE_GUARD_INVALID_STATE"
+EXECUTION_LIFECYCLE_GUARD_EXPIRED_REASON = "EXECUTION_LIFECYCLE_GUARD_EXPIRED_PENDING_RECOVERY"
+EXECUTION_LIFECYCLE_GUARD_EXPIRY_POLICY = "fail-closed"
+EXECUTION_LIFECYCLE_QUIESCENCE_COVERAGE = [
+    "run-execution",
+]
 EXECUTION_LIFECYCLE_ALLOWED_ACTIONS = {
     "ensure",
     "upgrade",
@@ -45,14 +51,6 @@ def request_execution_lifecycle_guard(
     normalized_action = _action(action)
     normalized_owner = _owner(owner)
     timestamp = _timestamp(now)
-    expires_at = _expires_at(timestamp, ttl_seconds)
-    maintenance = _maintenance_payload(
-        action=normalized_action,
-        owner=normalized_owner,
-        requested_at=timestamp,
-        expires_at=expires_at,
-        ttl_seconds=ttl_seconds,
-    )
     active_worker_count = 0
     with get_connection(cfg) as connection:
         connection.execute("BEGIN IMMEDIATE")
@@ -64,18 +62,30 @@ def request_execution_lifecycle_guard(
                     EXECUTION_LIFECYCLE_GUARD_ALREADY_ACTIVE_REASON,
                     _active_conflict_payload(existing, requested_action=normalized_action, requested_owner=normalized_owner),
                 )
+            requested_at = str((existing or {}).get("requestedAt") or timestamp)
+            drained_worker_ids = _drained_worker_ids(existing)
+            newly_drained_worker_ids = _undrained_active_worker_ids(connection)
+            drained_worker_ids = _unique_worker_ids([*drained_worker_ids, *newly_drained_worker_ids])
+            maintenance = _maintenance_payload(
+                action=normalized_action,
+                owner=normalized_owner,
+                requested_at=requested_at,
+                expires_at=_expires_at(timestamp, ttl_seconds),
+                ttl_seconds=ttl_seconds,
+                drained_worker_ids=drained_worker_ids,
+            )
             active_worker_count = int(
                 connection.execute(
                     "SELECT COUNT(*) AS count FROM run_workers WHERE stopped_at IS NULL",
                 ).fetchone()["count"]
             )
-            connection.execute(
+            connection.executemany(
                 """
                 UPDATE run_workers
-                SET drain_requested_at = COALESCE(drain_requested_at, ?), updated_at = ?
-                WHERE stopped_at IS NULL
+                SET drain_requested_at = ?, updated_at = ?
+                WHERE worker_id = ? AND stopped_at IS NULL AND drain_requested_at IS NULL
                 """,
-                (timestamp, timestamp),
+                [(requested_at, timestamp, worker_id) for worker_id in newly_drained_worker_ids],
             )
             connection.execute(
                 """
@@ -116,6 +126,15 @@ def request_execution_lifecycle_guard(
     )
     block_reasons = [str(item) for item in payload["blockReasons"]]
     if block_reasons:
+        release = release_execution_lifecycle_guard(
+            cfg,
+            action=normalized_action,
+            owner=normalized_owner,
+            now=timestamp,
+        )
+        payload["maintenanceActive"] = False
+        payload["maintenanceRelease"] = release
+        payload["released"] = bool(release.get("released"))
         payload["reasonCode"] = _blocked_reason_code(block_reasons)
         payload["nextAction"] = "WAIT_FOR_RUNS_OR_CANCEL_BEFORE_LIFECYCLE"
         if activity["activeLeases"]:
@@ -153,6 +172,7 @@ def release_execution_lifecycle_guard(
                     EXECUTION_LIFECYCLE_GUARD_OWNER_MISMATCH_REASON,
                     _active_conflict_payload(existing, requested_action=normalized_action, requested_owner=normalized_owner),
                 )
+            _clear_owned_worker_drains(connection, existing, updated_at=timestamp)
             connection.execute("DELETE FROM service_state WHERE key = ?", (EXECUTION_LIFECYCLE_MAINTENANCE_KEY,))
             connection.commit()
         except Exception:
@@ -175,13 +195,25 @@ def ensure_execution_lifecycle_admission_open(
 ) -> None:
     timestamp = _timestamp(now)
     with get_connection(cfg) as connection:
-        maintenance = read_execution_lifecycle_maintenance_for_connection(connection, now=timestamp)
-        if connection.in_transaction:
-            connection.commit()
+        ensure_execution_lifecycle_admission_open_for_connection(connection, now=timestamp)
+
+
+def ensure_execution_lifecycle_admission_open_for_connection(
+    connection,
+    *,
+    now: str | None = None,
+) -> None:
+    timestamp = _timestamp(now)
+    maintenance = read_execution_lifecycle_maintenance_for_connection(connection, now=timestamp)
     if maintenance is None:
         return
+    reason_code = (
+        EXECUTION_LIFECYCLE_GUARD_EXPIRED_REASON
+        if maintenance.get("expired") is True
+        else EXECUTION_MAINTENANCE_ACTIVE_REASON
+    )
     raise RemoteRunnerReadinessError(
-        f"{EXECUTION_MAINTENANCE_ACTIVE_REASON}: execution control plane is in maintenance"
+        f"{reason_code}: execution control plane is in maintenance"
     )
 
 
@@ -215,14 +247,16 @@ def _read_maintenance(
         payload = json.loads(str(row["value"] or "{}"))
     except json.JSONDecodeError as exc:
         raise ValueError(EXECUTION_LIFECYCLE_GUARD_INVALID_STATE_REASON) from exc
-    if not isinstance(payload, dict) or payload.get("schemaVersion") != EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION:
-        raise ValueError(EXECUTION_LIFECYCLE_GUARD_INVALID_STATE_REASON)
+    payload = _normalize_maintenance_payload(connection, payload)
     if not payload.get("active"):
         return None
+    _drained_worker_ids(payload)
     if _is_expired(payload, now):
-        if clear_expired:
-            connection.execute("DELETE FROM service_state WHERE key = ?", (EXECUTION_LIFECYCLE_MAINTENANCE_KEY,))
-        return None
+        expired = dict(payload)
+        expired["expired"] = True
+        expired["reasonCode"] = EXECUTION_LIFECYCLE_GUARD_EXPIRED_REASON
+        expired["expiryPolicy"] = EXECUTION_LIFECYCLE_GUARD_EXPIRY_POLICY
+        return expired
     return payload
 
 
@@ -243,13 +277,18 @@ def _active_conflict_payload(
     requested_action: str,
     requested_owner: str,
 ) -> dict[str, Any]:
+    expired = bool((maintenance or {}).get("expired"))
     return {
         "schemaVersion": EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
         "reasonCode": EXECUTION_LIFECYCLE_GUARD_ALREADY_ACTIVE_REASON,
         "requestedAction": requested_action,
         "requestedOwner": requested_owner,
         "activeMaintenance": maintenance or {},
-        "nextAction": "WAIT_FOR_ACTIVE_MAINTENANCE_OR_RELEASE",
+        "nextAction": (
+            "RELEASE_OR_RENEW_EXPIRED_MAINTENANCE_WITH_OWNER_PROOF"
+            if expired
+            else "WAIT_FOR_ACTIVE_MAINTENANCE_OR_RELEASE"
+        ),
     }
 
 
@@ -260,16 +299,19 @@ def _maintenance_payload(
     requested_at: str,
     expires_at: str,
     ttl_seconds: int,
+    drained_worker_ids: list[str],
 ) -> dict[str, Any]:
     return {
-        "schemaVersion": EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
+        "schemaVersion": EXECUTION_LIFECYCLE_MAINTENANCE_SCHEMA_VERSION,
         "active": True,
         "reasonCode": EXECUTION_MAINTENANCE_ACTIVE_REASON,
         "action": action,
         "owner": owner,
         "requestedAt": requested_at,
         "expiresAt": expires_at,
-        "ttlSeconds": int(ttl_seconds),
+        "ttlSeconds": _bounded_ttl(ttl_seconds),
+        "expiryPolicy": EXECUTION_LIFECYCLE_GUARD_EXPIRY_POLICY,
+        "drainedWorkerIds": list(drained_worker_ids),
     }
 
 
@@ -290,14 +332,19 @@ def _guard_payload(
         "maintenanceActive": True,
         "requestedAt": maintenance["requestedAt"],
         "expiresAt": maintenance["expiresAt"],
+        "expiryPolicy": maintenance["expiryPolicy"],
+        "quiescenceCoverage": list(EXECUTION_LIFECYCLE_QUIESCENCE_COVERAGE),
         "activeWorkerCount": int(active_worker_count),
-        "drainRequestedWorkerCount": int(active_worker_count),
+        "drainRequestedWorkerCount": len(_drained_worker_ids(maintenance)),
         "activeLeaseCount": activity["activeLeaseCount"],
         "allocatedResourceCount": activity["allocatedResourceCount"],
         "resourceWaitCount": activity["resourceWaitCount"],
         "queuedJobCount": activity["queuedJobCount"],
         "claimedJobCount": activity["claimedJobCount"],
         "runningSlotCount": activity["runningSlotCount"],
+        "queuedToolPrepareJobCount": activity["queuedToolPrepareJobCount"],
+        "runningToolPrepareJobCount": activity["runningToolPrepareJobCount"],
+        "activeToolPrepareClaimCount": activity["activeToolPrepareClaimCount"],
         "blockReasons": block_reasons,
     }
 
@@ -346,9 +393,106 @@ def _is_expired(payload: dict[str, Any], now: str) -> bool:
     return _parse_iso(expires_at) <= _parse_iso(now)
 
 
+def _normalize_maintenance_payload(connection, payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict) or payload.get("schemaVersion") not in {
+        EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
+        EXECUTION_LIFECYCLE_MAINTENANCE_SCHEMA_VERSION,
+    }:
+        raise ValueError(EXECUTION_LIFECYCLE_GUARD_INVALID_STATE_REASON)
+    normalized = dict(payload)
+    if payload.get("active") is not True:
+        raise ValueError(EXECUTION_LIFECYCLE_GUARD_INVALID_STATE_REASON)
+    legacy_state = payload.get("schemaVersion") == EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION
+    if legacy_state and "expiryPolicy" not in normalized:
+        normalized["expiryPolicy"] = EXECUTION_LIFECYCLE_GUARD_EXPIRY_POLICY
+    if normalized.get("expiryPolicy") != EXECUTION_LIFECYCLE_GUARD_EXPIRY_POLICY:
+        raise ValueError(EXECUTION_LIFECYCLE_GUARD_INVALID_STATE_REASON)
+    _action(str(normalized.get("action") or ""))
+    _owner(str(normalized.get("owner") or ""))
+    requested_at = str(normalized.get("requestedAt") or "")
+    _parse_iso(requested_at)
+    _parse_iso(str(normalized.get("expiresAt") or ""))
+    if _bounded_ttl(normalized.get("ttlSeconds")) != int(normalized.get("ttlSeconds") or 0):
+        raise ValueError(EXECUTION_LIFECYCLE_GUARD_INVALID_STATE_REASON)
+    if legacy_state and "drainedWorkerIds" not in normalized:
+        normalized["drainedWorkerIds"] = _legacy_owned_worker_ids(
+            connection,
+            requested_at=requested_at,
+        )
+        normalized["drainOwnershipInference"] = "legacy-requested-at"
+    _drained_worker_ids(normalized)
+    return normalized
+
+
+def _legacy_owned_worker_ids(connection, *, requested_at: str) -> list[str]:
+    rows = connection.execute(
+        """
+        SELECT worker_id
+        FROM run_workers
+        WHERE drain_requested_at = ?
+        ORDER BY worker_id
+        """,
+        (requested_at,),
+    ).fetchall()
+    return [str(row["worker_id"]) for row in rows]
+
+
+def _undrained_active_worker_ids(connection) -> list[str]:
+    rows = connection.execute(
+        """
+        SELECT worker_id
+        FROM run_workers
+        WHERE stopped_at IS NULL AND drain_requested_at IS NULL
+        ORDER BY worker_id
+        """
+    ).fetchall()
+    return [str(row["worker_id"]) for row in rows]
+
+
+def _drained_worker_ids(payload: dict[str, Any] | None) -> list[str]:
+    if payload is None:
+        return []
+    value = payload.get("drainedWorkerIds")
+    if not isinstance(value, list):
+        raise ValueError(EXECUTION_LIFECYCLE_GUARD_INVALID_STATE_REASON)
+    normalized: list[str] = []
+    for item in value:
+        worker_id = str(item or "").strip()
+        if not worker_id:
+            raise ValueError(EXECUTION_LIFECYCLE_GUARD_INVALID_STATE_REASON)
+        normalized.append(worker_id)
+    if len(normalized) != len(set(normalized)):
+        raise ValueError(EXECUTION_LIFECYCLE_GUARD_INVALID_STATE_REASON)
+    return normalized
+
+
+def _unique_worker_ids(values: list[str]) -> list[str]:
+    return sorted(dict.fromkeys(str(value) for value in values))
+
+
+def _clear_owned_worker_drains(connection, maintenance: dict[str, Any], *, updated_at: str) -> None:
+    requested_at = str(maintenance.get("requestedAt") or "")
+    worker_ids = _drained_worker_ids(maintenance)
+    connection.executemany(
+        """
+        UPDATE run_workers
+        SET drain_requested_at = NULL, updated_at = ?
+        WHERE worker_id = ? AND drain_requested_at = ?
+        """,
+        [(updated_at, worker_id, requested_at) for worker_id in worker_ids],
+    )
+
+
 def _expires_at(now: str, ttl_seconds: int) -> str:
-    safe_ttl = max(30, min(int(ttl_seconds or 600), 3600))
+    safe_ttl = _bounded_ttl(ttl_seconds)
     return (_parse_iso(now) + timedelta(seconds=safe_ttl)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _bounded_ttl(value: Any) -> int:
+    try:
+        return max(30, min(int(value or 600), 3600))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(EXECUTION_LIFECYCLE_GUARD_INVALID_STATE_REASON) from exc
 
 
 def _parse_iso(value: str) -> datetime:

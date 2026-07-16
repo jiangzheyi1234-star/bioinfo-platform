@@ -26,6 +26,7 @@ from .tool_prepare_job_storage import (
     mark_tool_prepare_job_worker_failure,
 )
 from .tool_prepare_jobs import run_tool_prepare_job
+from .tool_prepare_worker_lease import release_tool_prepare_worker_claim
 
 
 LOGGER = logging.getLogger(__name__)
@@ -323,6 +324,11 @@ def process_next_tool_prepare_job(
         stop_heartbeat.set()
         if heartbeat_thread is not None:
             heartbeat_thread.join(timeout=1)
+        release_tool_prepare_worker_claim(
+            cfg,
+            job_id=job_id,
+            worker_id=worker_id,
+        )
     return {"claimed": True, "jobId": job_id}
 
 

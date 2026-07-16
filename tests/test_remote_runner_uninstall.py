@@ -285,6 +285,7 @@ def _lifecycle_guard_payload(
         "maintenanceActive": True,
         "requestedAt": "2099-06-07T10:00:00Z",
         "expiresAt": "2099-06-07T10:10:00Z",
+        "expiryPolicy": "fail-closed",
         "activeWorkerCount": 1,
         "drainRequestedWorkerCount": 1,
         "activeLeaseCount": len(active_leases or []),

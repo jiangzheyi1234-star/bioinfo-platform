@@ -3,6 +3,11 @@ from __future__ import annotations
 from typing import Any
 
 from config import resolve_runner_token
+from core.contracts.execution_activity import (
+    EXECUTION_LIFECYCLE_GUARD_RELEASE_SCHEMA_VERSION,
+    require_execution_lifecycle_guard_success_contract,
+    require_execution_lifecycle_quiescence_coverage,
+)
 from core.contracts.remote_endpoints import EXECUTION_LIFECYCLE_GUARD, EXECUTION_LIFECYCLE_GUARD_RELEASE
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
 from core.remote_runner.client import RemoteRunnerClientError, RemoteRunnerConflictError, RemoteRunnerHttpClient
@@ -15,6 +20,9 @@ from core.remote_runner.diagnostics import (
 from core.remote_runner.endpoint_caller import call_remote_endpoint as execute_remote_endpoint
 from core.remote_runner.health import build_runner_health
 from core.remote_runner.layout import remote_runner_bootstrap_layout
+
+
+EXECUTION_LIFECYCLE_ATTESTATION_INVALID_REASON = "EXECUTION_LIFECYCLE_ATTESTATION_INVALID"
 
 
 def _is_manager_error(exc: Exception) -> bool:
@@ -138,6 +146,15 @@ class RemoteRunnerProxyMixin:
                 payload=payload,
             )
         except RemoteRunnerConflictError as exc:
+            if (
+                endpoint_id == EXECUTION_LIFECYCLE_GUARD
+                and isinstance(exc.payload, dict)
+                and isinstance(exc.payload.get("blockReasons"), list)
+            ):
+                require_execution_lifecycle_quiescence_coverage(
+                    exc.payload,
+                    make_error=cls._manager_error,
+                )
             raise cls._manager_error(
                 "remote runner execution lifecycle guard blocked",
                 status_code=409,
@@ -145,7 +162,81 @@ class RemoteRunnerProxyMixin:
             ) from exc
         if not isinstance(result, dict):
             raise cls._manager_error("remote runner execution lifecycle guard returned a non-object response")
+        if endpoint_id == EXECUTION_LIFECYCLE_GUARD:
+            try:
+                require_execution_lifecycle_guard_success_contract(
+                    result,
+                    expected_action=str(payload.get("action") or ""),
+                    expected_owner=str(payload.get("owner") or ""),
+                    make_error=cls._manager_error,
+                )
+            except RuntimeError as exc:
+                cleanup = cls._release_rejected_lifecycle_guard(
+                    client=client,
+                    request_payload=payload,
+                )
+                raise cls._manager_error(
+                    f"remote runner execution lifecycle guard attestation is invalid: {exc}",
+                    status_code=409,
+                    detail={
+                        "reasonCode": EXECUTION_LIFECYCLE_ATTESTATION_INVALID_REASON,
+                        "validationError": str(exc),
+                        "guard": result,
+                        "maintenanceRelease": cleanup,
+                        "recoveryRequired": cleanup.get("ok") is not True,
+                    },
+                ) from exc
         return result
+
+    @classmethod
+    def _release_rejected_lifecycle_guard(
+        cls,
+        *,
+        client: RemoteRunnerHttpClient,
+        request_payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        action = str(request_payload.get("action") or "").strip()
+        owner = str(request_payload.get("owner") or "").strip()
+        if not action or not owner:
+            return {
+                "ok": False,
+                "reasonCode": "EXECUTION_LIFECYCLE_GUARD_RELEASE_IDENTITY_MISSING",
+            }
+        try:
+            result = execute_remote_endpoint(
+                client,
+                EXECUTION_LIFECYCLE_GUARD_RELEASE,
+                path_values={},
+                payload={"action": action, "owner": owner},
+            )
+        except Exception as exc:  # noqa: BLE001 - cleanup failure must be surfaced as recovery-required.
+            return {
+                "ok": False,
+                "reasonCode": "EXECUTION_LIFECYCLE_GUARD_RELEASE_FAILED",
+                "message": str(exc) or exc.__class__.__name__,
+            }
+        if not isinstance(result, dict):
+            return {
+                "ok": False,
+                "reasonCode": "EXECUTION_LIFECYCLE_GUARD_RELEASE_INVALID",
+                "message": "release response is not an object",
+            }
+        released = result.get("released")
+        already_absent = released is False and result.get("previous") == {}
+        valid = (
+            result.get("schemaVersion") == EXECUTION_LIFECYCLE_GUARD_RELEASE_SCHEMA_VERSION
+            and result.get("action") == action
+            and result.get("owner") == owner
+            and isinstance(released, bool)
+            and (released is True or already_absent)
+        )
+        return {
+            "ok": bool(valid),
+            "reasonCode": "" if valid else "EXECUTION_LIFECYCLE_GUARD_RELEASE_INVALID",
+            "released": released is True,
+            "alreadyAbsent": already_absent,
+            "response": result,
+        }
 
     def get_operator_diagnostics(self, **kwargs) -> dict[str, Any]:
         record = kwargs["server_record"]

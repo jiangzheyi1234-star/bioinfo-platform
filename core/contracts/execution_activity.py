@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 
@@ -11,8 +12,81 @@ EXECUTION_ACTIVITY_QUEUED_RESOURCE_WAITS_REASON = "queued-resource-waits"
 EXECUTION_ACTIVITY_QUEUED_JOBS_REASON = "queued-jobs"
 EXECUTION_ACTIVITY_CLAIMED_JOBS_REASON = "claimed-jobs"
 EXECUTION_ACTIVITY_RUNNING_WORKER_SLOTS_REASON = "running-worker-slots"
+EXECUTION_ACTIVITY_QUEUED_TOOL_PREPARE_JOBS_REASON = "queued-tool-prepare-jobs"
+EXECUTION_ACTIVITY_RUNNING_TOOL_PREPARE_JOBS_REASON = "running-tool-prepare-jobs"
+EXECUTION_ACTIVITY_ACTIVE_TOOL_PREPARE_CLAIMS_REASON = "active-tool-prepare-claims"
 EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION = "h2ometa.execution-lifecycle-guard.v1"
+EXECUTION_LIFECYCLE_GUARD_RELEASE_SCHEMA_VERSION = "h2ometa.execution-lifecycle-guard-release.v1"
+EXECUTION_LIFECYCLE_MAINTENANCE_SCHEMA_VERSION = "h2ometa.execution-lifecycle-maintenance.v2"
 EXECUTION_LIFECYCLE_MAINTENANCE_KEY = "execution_lifecycle_maintenance"
+EXECUTION_LIFECYCLE_GUARD_ALREADY_ACTIVE_REASON = "EXECUTION_LIFECYCLE_GUARD_ALREADY_ACTIVE"
+EXECUTION_LIFECYCLE_COVERAGE_INCOMPLETE_REASON = "EXECUTION_LIFECYCLE_QUIESCENCE_COVERAGE_INCOMPLETE"
+EXECUTION_LIFECYCLE_REQUIRED_QUIESCENCE_COVERAGE = (
+    "run-execution",
+    "tool-preparation",
+    "workflow-automation",
+    "mutating-operations",
+)
+EXECUTION_LIFECYCLE_SUCCESS_COUNT_KEYS = (
+    "activeWorkerCount",
+    "drainRequestedWorkerCount",
+    "activeLeaseCount",
+    "allocatedResourceCount",
+    "resourceWaitCount",
+    "queuedJobCount",
+    "claimedJobCount",
+    "runningSlotCount",
+    "queuedToolPrepareJobCount",
+    "runningToolPrepareJobCount",
+    "activeToolPrepareClaimCount",
+)
+
+
+def require_execution_lifecycle_quiescence_coverage(
+    payload: dict[str, Any],
+    *,
+    make_error: type[Exception],
+) -> tuple[str, ...]:
+    raw = payload.get("quiescenceCoverage") if isinstance(payload, dict) else None
+    if not isinstance(raw, list) or any(not isinstance(item, str) or not item for item in raw):
+        raise make_error("remote runner execution lifecycle guard quiescenceCoverage is invalid")
+    coverage = tuple(dict.fromkeys(raw))
+    missing = [item for item in EXECUTION_LIFECYCLE_REQUIRED_QUIESCENCE_COVERAGE if item not in coverage]
+    if missing:
+        raise make_error(
+            "remote runner execution lifecycle guard quiescence coverage is incomplete: "
+            + ", ".join(missing)
+        )
+    return coverage
+
+
+def require_execution_lifecycle_guard_success_contract(
+    payload: dict[str, Any],
+    *,
+    expected_action: str,
+    expected_owner: str,
+    make_error: type[Exception],
+) -> tuple[str, ...]:
+    if not isinstance(payload, dict) or payload.get("schemaVersion") != EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION:
+        raise make_error("remote runner execution lifecycle guard schemaVersion is invalid")
+    if payload.get("action") != expected_action or payload.get("owner") != expected_owner:
+        raise make_error("remote runner execution lifecycle guard identity does not match the request")
+    if payload.get("idle") is not True or payload.get("maintenanceActive") is not True:
+        raise make_error("remote runner execution lifecycle guard did not attest active idle maintenance")
+    if payload.get("expiryPolicy") != "fail-closed":
+        raise make_error("remote runner execution lifecycle guard expiryPolicy is not fail-closed")
+    requested_at = _strict_utc_timestamp(payload.get("requestedAt"), key="requestedAt", make_error=make_error)
+    expires_at = _strict_utc_timestamp(payload.get("expiresAt"), key="expiresAt", make_error=make_error)
+    if expires_at <= requested_at:
+        raise make_error("remote runner execution lifecycle guard expiresAt must be after requestedAt")
+    block_reasons = payload.get("blockReasons")
+    if not isinstance(block_reasons, list) or block_reasons:
+        raise make_error("remote runner execution lifecycle guard success blockReasons must be an empty list")
+    for key in EXECUTION_LIFECYCLE_SUCCESS_COUNT_KEYS:
+        value = payload.get(key)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise make_error(f"remote runner execution lifecycle guard {key} is not a non-negative integer")
+    return require_execution_lifecycle_quiescence_coverage(payload, make_error=make_error)
 
 
 def summarize_execution_activity(
@@ -31,9 +105,13 @@ def summarize_execution_activity(
     resource_waits = _diagnostic_list(diagnostics, "resourceWaits", make_error=make_error)
     worker_health = _diagnostic_dict(diagnostics, "workerHealth", make_error=make_error)
     queue_metrics = _diagnostic_dict(diagnostics, "queueMetrics", make_error=make_error)
+    tool_prepare_jobs = _optional_diagnostic_dict(diagnostics, "toolPrepareJobs", make_error=make_error)
     queued_job_count = _queued_job_count(queue_metrics)
     claimed_job_count = _claimed_job_count(worker_health=worker_health, queue_metrics=queue_metrics)
     running_slot_count = _running_slot_count(worker_health)
+    queued_tool_prepare_job_count = _non_negative_int(tool_prepare_jobs.get("queued"))
+    running_tool_prepare_job_count = _non_negative_int(tool_prepare_jobs.get("running"))
+    active_tool_prepare_claim_count = _non_negative_int(tool_prepare_jobs.get("activeClaims"))
     block_reasons = _diagnostic_block_reasons(
         diagnostics=diagnostics,
         active_leases=active_leases,
@@ -42,6 +120,9 @@ def summarize_execution_activity(
         queued_job_count=queued_job_count,
         claimed_job_count=claimed_job_count,
         running_slot_count=running_slot_count,
+        queued_tool_prepare_job_count=queued_tool_prepare_job_count,
+        running_tool_prepare_job_count=running_tool_prepare_job_count,
+        active_tool_prepare_claim_count=active_tool_prepare_claim_count,
         require_diagnostics_ok=require_diagnostics_ok,
         block_queued_jobs=block_queued_jobs,
     )
@@ -57,6 +138,9 @@ def summarize_execution_activity(
         "queuedJobCount": queued_job_count,
         "claimedJobCount": claimed_job_count,
         "runningSlotCount": running_slot_count,
+        "queuedToolPrepareJobCount": queued_tool_prepare_job_count,
+        "runningToolPrepareJobCount": running_tool_prepare_job_count,
+        "activeToolPrepareClaimCount": active_tool_prepare_claim_count,
         "blockReasons": block_reasons,
     }
 
@@ -75,6 +159,17 @@ def _diagnostic_dict(diagnostics: dict[str, Any], key: str, *, make_error: type[
     return value
 
 
+def _optional_diagnostic_dict(
+    diagnostics: dict[str, Any], key: str, *, make_error: type[Exception]
+) -> dict[str, Any]:
+    value = diagnostics.get(key)
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise make_error(f"execution diagnostics {key} is not an object")
+    return value
+
+
 def _diagnostic_block_reasons(
     *,
     diagnostics: dict[str, Any],
@@ -84,6 +179,9 @@ def _diagnostic_block_reasons(
     queued_job_count: int,
     claimed_job_count: int,
     running_slot_count: int,
+    queued_tool_prepare_job_count: int,
+    running_tool_prepare_job_count: int,
+    active_tool_prepare_claim_count: int,
     require_diagnostics_ok: bool,
     block_queued_jobs: bool,
 ) -> list[str]:
@@ -107,6 +205,12 @@ def _diagnostic_block_reasons(
         reasons.append(EXECUTION_ACTIVITY_CLAIMED_JOBS_REASON)
     if running_slot_count > 0:
         reasons.append(EXECUTION_ACTIVITY_RUNNING_WORKER_SLOTS_REASON)
+    if block_queued_jobs and queued_tool_prepare_job_count > 0:
+        reasons.append(EXECUTION_ACTIVITY_QUEUED_TOOL_PREPARE_JOBS_REASON)
+    if running_tool_prepare_job_count > 0:
+        reasons.append(EXECUTION_ACTIVITY_RUNNING_TOOL_PREPARE_JOBS_REASON)
+    if active_tool_prepare_claim_count > 0:
+        reasons.append(EXECUTION_ACTIVITY_ACTIVE_TOOL_PREPARE_CLAIMS_REASON)
     return _unique(reasons)
 
 
@@ -147,6 +251,15 @@ def _non_negative_int(value: Any) -> int:
         return max(0, int(value or 0))
     except (TypeError, ValueError):
         return 0
+
+
+def _strict_utc_timestamp(value: Any, *, key: str, make_error: type[Exception]) -> datetime:
+    if not isinstance(value, str):
+        raise make_error(f"remote runner execution lifecycle guard {key} is invalid")
+    try:
+        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+    except ValueError as exc:
+        raise make_error(f"remote runner execution lifecycle guard {key} is invalid") from exc
 
 
 def _unique(values: list[str]) -> list[str]:

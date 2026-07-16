@@ -101,6 +101,28 @@ class RemoteRunnerReadinessMixin:
         raise cls._manager_error(last_error)
 
     @classmethod
+    def _wait_for_runner_live(
+        cls,
+        client: RemoteRunnerHttpClient,
+        *,
+        attempts: int = 8,
+        delay_seconds: float = 1.0,
+    ) -> dict[str, Any]:
+        last_error = "remote runner live check failed"
+        for attempt in range(attempts):
+            try:
+                body = client.get_json("/health/live", accepted_statuses={200})
+            except RemoteRunnerClientError as exc:
+                last_error = str(exc) or last_error
+            else:
+                if body.get("status") == "ok" and body.get("service") == "h2ometa-remote":
+                    return body
+                last_error = str(body.get("message") or last_error)
+            if attempt != attempts - 1:
+                time.sleep(delay_seconds)
+        raise cls._manager_error(last_error)
+
+    @classmethod
     def _require_ready_health(cls, health: dict[str, Any]) -> None:
         ready_error = cls._ready_health_error(health)
         if ready_error:

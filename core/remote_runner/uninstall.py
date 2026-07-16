@@ -11,6 +11,7 @@ from core.contracts.execution_activity import (
     EXECUTION_ACTIVITY_ACTIVE_WORKFLOW_LEASES_REASON,
     EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
     EXECUTION_LIFECYCLE_MAINTENANCE_KEY,
+    EXECUTION_LIFECYCLE_MAINTENANCE_SCHEMA_VERSION,
     summarize_execution_activity,
 )
 from core.remote_runner.client import RemoteRunnerClientError
@@ -194,16 +195,19 @@ class RemoteRunnerUninstallMixin:
                 exc.status_code == 409
                 and isinstance(exc.detail, dict)
                 and exc.detail.get("schemaVersion") == EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION
+                and isinstance(exc.detail.get("blockReasons"), list)
             ):
                 _raise_lifecycle_guard_blocked(exc.detail, server_id=server_id, make_error=self._manager_error)
+            detail = {
+                "reasonCode": RUNNER_UNINSTALL_GUARD_UNAVAILABLE_REASON,
+                "serverId": server_id,
+                "nextAction": "REPAIR_RUNNER_DIAGNOSTICS_BEFORE_UNINSTALL",
+                "lifecycleGuardError": exc.detail if isinstance(exc.detail, dict) else {},
+            }
             raise self._manager_error(
                 "runner uninstall guard failed because execution lifecycle diagnostics are unavailable",
                 status_code=409,
-                detail={
-                    "reasonCode": RUNNER_UNINSTALL_GUARD_UNAVAILABLE_REASON,
-                    "serverId": server_id,
-                    "nextAction": "REPAIR_RUNNER_DIAGNOSTICS_BEFORE_UNINSTALL",
-                },
+                detail=detail,
             ) from exc
         except RemoteRunnerClientError as exc:
             raise self._manager_error(
@@ -342,10 +346,21 @@ class RemoteRunnerUninstallMixin:
             "        except json.JSONDecodeError:\n"
             "            payload = {}\n"
             "        if (\n"
-            f"            payload.get('schemaVersion') == {EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION!r}\n"
+            f"            payload.get('schemaVersion') in ({EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION!r}, {EXECUTION_LIFECYCLE_MAINTENANCE_SCHEMA_VERSION!r})\n"
             "            and payload.get('action') == 'uninstall'\n"
             "            and payload.get('owner') == owner\n"
             "        ):\n"
+            "            requested_at = str(payload.get('requestedAt') or '')\n"
+            "            worker_ids = payload.get('drainedWorkerIds')\n"
+            "            if not isinstance(worker_ids, list):\n"
+            "                worker_ids = [row[0] for row in connection.execute(\n"
+            "                    'SELECT worker_id FROM run_workers WHERE drain_requested_at = ?',\n"
+            "                    (requested_at,),\n"
+            "                ).fetchall()]\n"
+            "            connection.executemany(\n"
+            "                'UPDATE run_workers SET drain_requested_at = NULL WHERE worker_id = ? AND drain_requested_at = ?',\n"
+            "                [(str(worker_id), requested_at) for worker_id in worker_ids],\n"
+            "            )\n"
             "            connection.execute('DELETE FROM service_state WHERE key = ?', (state_key,))\n"
             "            connection.commit()\n"
             "            released = True\n"

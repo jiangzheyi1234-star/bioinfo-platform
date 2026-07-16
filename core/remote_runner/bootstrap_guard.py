@@ -4,10 +4,13 @@ from typing import Any
 
 from core.contracts.execution_activity import (
     EXECUTION_ACTIVITY_ACTIVE_WORKFLOW_LEASES_REASON,
+    EXECUTION_LIFECYCLE_GUARD_ALREADY_ACTIVE_REASON,
+    EXECUTION_LIFECYCLE_GUARD_RELEASE_SCHEMA_VERSION,
     EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
+    require_execution_lifecycle_quiescence_coverage,
     summarize_execution_activity,
 )
-from core.contracts.remote_endpoints import EXECUTION_LIFECYCLE_GUARD_RELEASE
+from core.contracts.remote_endpoints import EXECUTION_LIFECYCLE_GUARD_RELEASE, RemoteEndpointContractError
 from core.remote_runner.client import RemoteRunnerClientError
 from core.remote_runner.errors import RemoteRunnerManagerError
 from core.remote_runner.layout import REMOTE_RUNNER_SERVICE_NAME
@@ -30,6 +33,9 @@ _ACTIVITY_COUNT_KEYS = (
     "queuedJobCount",
     "claimedJobCount",
     "runningSlotCount",
+    "queuedToolPrepareJobCount",
+    "runningToolPrepareJobCount",
+    "activeToolPrepareClaimCount",
 )
 
 
@@ -110,6 +116,9 @@ class RemoteRunnerBootstrapGuardMixin:
             "queuedJobCount": activity["queuedJobCount"],
             "claimedJobCount": activity["claimedJobCount"],
             "runningSlotCount": activity["runningSlotCount"],
+            "queuedToolPrepareJobCount": activity["queuedToolPrepareJobCount"],
+            "runningToolPrepareJobCount": activity["runningToolPrepareJobCount"],
+            "activeToolPrepareClaimCount": activity["activeToolPrepareClaimCount"],
             "blockReasons": block_reasons,
             "protectedLeases": protected_leases,
         }
@@ -126,6 +135,9 @@ class RemoteRunnerBootstrapGuardMixin:
                 "queuedJobCount": activity["queuedJobCount"],
                 "claimedJobCount": activity["claimedJobCount"],
                 "runningSlotCount": activity["runningSlotCount"],
+                "queuedToolPrepareJobCount": activity["queuedToolPrepareJobCount"],
+                "runningToolPrepareJobCount": activity["runningToolPrepareJobCount"],
+                "activeToolPrepareClaimCount": activity["activeToolPrepareClaimCount"],
                 "nextAction": _execution_busy_next_action(action),
             }
             if protected_leases:
@@ -205,6 +217,25 @@ class RemoteRunnerBootstrapGuardMixin:
                 timeout=30,
             )
         except RemoteRunnerManagerError as exc:
+            if (
+                exc.status_code == 409
+                and isinstance(exc.detail, dict)
+                and exc.detail.get("schemaVersion") == EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION
+                and exc.detail.get("reasonCode") == EXECUTION_LIFECYCLE_GUARD_ALREADY_ACTIVE_REASON
+                and not isinstance(exc.detail.get("blockReasons"), list)
+            ):
+                active = exc.detail.get("activeMaintenance")
+                active = active if isinstance(active, dict) else {}
+                bootstrap_metadata["upgradeGuard"] = {
+                    "schemaVersion": UPGRADE_GUARD_SCHEMA_VERSION,
+                    "checked": False,
+                    "reason": "execution-lifecycle-guard-already-active",
+                    "message": str(exc) or "remote runner lifecycle guard is already active",
+                    "activeAction": str(active.get("action") or ""),
+                    "activeOwner": str(active.get("owner") or ""),
+                    "activeExpiresAt": str(active.get("expiresAt") or ""),
+                }
+                raise
             if exc.status_code == 409 and isinstance(exc.detail, dict) and exc.detail.get("schemaVersion") == EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION:
                 try:
                     activity = _activity_from_lifecycle_guard_payload(exc.detail, make_error=self._manager_error)
@@ -241,6 +272,9 @@ class RemoteRunnerBootstrapGuardMixin:
                     "queuedJobCount": activity["queuedJobCount"],
                     "claimedJobCount": activity["claimedJobCount"],
                     "runningSlotCount": activity["runningSlotCount"],
+                    "queuedToolPrepareJobCount": activity["queuedToolPrepareJobCount"],
+                    "runningToolPrepareJobCount": activity["runningToolPrepareJobCount"],
+                    "activeToolPrepareClaimCount": activity["activeToolPrepareClaimCount"],
                     "nextAction": _execution_busy_next_action(action),
                 }
                 try:
@@ -351,19 +385,24 @@ class RemoteRunnerBootstrapGuardMixin:
             "queuedJobCount": activity["queuedJobCount"],
             "claimedJobCount": activity["claimedJobCount"],
             "runningSlotCount": activity["runningSlotCount"],
+            "queuedToolPrepareJobCount": activity["queuedToolPrepareJobCount"],
+            "runningToolPrepareJobCount": activity["runningToolPrepareJobCount"],
+            "activeToolPrepareClaimCount": activity["activeToolPrepareClaimCount"],
             "blockReasons": [str(item) for item in activity["blockReasons"]],
             "protectedLeases": protected_leases,
         }
         _attach_lifecycle_guard_metadata(bootstrap_metadata["upgradeGuard"], guard)
 
+    @classmethod
     def _release_bootstrap_lifecycle_guard(
-        self,
+        cls,
         *,
         client,
         server_id: str,
         bootstrap_action: str,
         bootstrap_metadata: dict[str, Any],
-    ) -> None:
+        allow_absent: bool = False,
+    ) -> dict[str, Any] | None:
         guard = bootstrap_metadata.get("upgradeGuard") if isinstance(bootstrap_metadata.get("upgradeGuard"), dict) else {}
         owner = str(guard.get("maintenanceOwner") or "").strip()
         action = str(bootstrap_action or "").strip() or "ensure"
@@ -372,21 +411,21 @@ class RemoteRunnerBootstrapGuardMixin:
             release_action = "stop"
             owner = execution_lifecycle_guard_owner(server_id=server_id, action=release_action)
         if not owner:
-            return
+            return None
         try:
-            release = self._call_lifecycle_guard_endpoint_with_client(
+            release = cls._call_lifecycle_guard_endpoint_with_client(
                 client=client,
                 endpoint_id=EXECUTION_LIFECYCLE_GUARD_RELEASE,
                 payload={"action": release_action, "owner": owner},
             )
-        except (RemoteRunnerClientError, RemoteRunnerManagerError) as exc:
+        except (RemoteEndpointContractError, RemoteRunnerClientError, RemoteRunnerManagerError) as exc:
             bootstrap_metadata["upgradeGuardRelease"] = {
                 "schemaVersion": "h2ometa.remote-runner-upgrade-guard-release.v1",
                 "released": False,
                 "reason": "execution-lifecycle-guard-release-failed",
                 "message": str(exc) or exc.__class__.__name__,
             }
-            raise self._manager_error(
+            raise cls._manager_error(
                 "remote runner bootstrap guard release failed",
                 bootstrap_metadata=bootstrap_metadata,
                 status_code=409,
@@ -396,7 +435,31 @@ class RemoteRunnerBootstrapGuardMixin:
                     "nextAction": "REPAIR_RUNNER_DIAGNOSTICS_BEFORE_BOOTSTRAP",
                 },
             ) from exc
+        release_absent = (
+            allow_absent
+            and release.get("released") is False
+            and not bool(release.get("previous"))
+        )
+        if (
+            release.get("schemaVersion") != EXECUTION_LIFECYCLE_GUARD_RELEASE_SCHEMA_VERSION
+            or (release.get("released") is not True and not release_absent)
+            or str(release.get("action") or "") != release_action
+            or str(release.get("owner") or "") != owner
+        ):
+            bootstrap_metadata["upgradeGuardRelease"] = {
+                "schemaVersion": "h2ometa.remote-runner-upgrade-guard-release.v1",
+                "released": False,
+                "reason": "execution-lifecycle-guard-release-unconfirmed",
+                "message": "remote runner lifecycle guard release response did not match the requested owner",
+                "response": release,
+            }
+            raise cls._manager_error(
+                "remote runner bootstrap guard release was not confirmed",
+                bootstrap_metadata=bootstrap_metadata,
+                status_code=409,
+            )
         bootstrap_metadata["upgradeGuardRelease"] = release
+        return release
 
     def _raise_diagnostics_unavailable(
         self,
@@ -418,15 +481,19 @@ class RemoteRunnerBootstrapGuardMixin:
             if action == "upgrade"
             else "REPAIR_RUNNER_DIAGNOSTICS_BEFORE_BOOTSTRAP"
         )
+        detail = {
+            "reasonCode": reason_code,
+            "serverId": server_id,
+            "nextAction": next_action,
+        }
+        remote_detail = getattr(exc, "detail", None)
+        if isinstance(remote_detail, dict):
+            detail["lifecycleGuardError"] = remote_detail
         raise self._manager_error(
             "remote runner bootstrap guard failed because execution diagnostics are unavailable",
             bootstrap_metadata=bootstrap_metadata,
             status_code=409,
-            detail={
-                "reasonCode": reason_code,
-                "serverId": server_id,
-                "nextAction": next_action,
-            },
+            detail=detail,
         ) from exc
 
 
@@ -442,6 +509,9 @@ def _record_diagnostics_unavailable(
         "reason": reason,
         "message": str(exc) or exc.__class__.__name__,
     }
+    remote_detail = getattr(exc, "detail", None)
+    if isinstance(remote_detail, dict):
+        bootstrap_metadata["upgradeGuard"]["lifecycleGuardError"] = remote_detail
 
 
 def _probe_remote_runner_cold_stop(ssh_service) -> dict[str, Any] | None:
@@ -483,6 +553,7 @@ def _execution_busy_next_action(action: str) -> str:
 def _activity_from_lifecycle_guard_payload(value: dict[str, Any], *, make_error: type[Exception]) -> dict[str, Any]:
     if not isinstance(value, dict) or value.get("schemaVersion") != EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION:
         raise make_error("remote runner execution lifecycle guard response is invalid")
+    require_execution_lifecycle_quiescence_coverage(value, make_error=make_error)
     block_reasons = value.get("blockReasons")
     if not isinstance(block_reasons, list):
         raise make_error("remote runner execution lifecycle guard blockReasons is not a list")
@@ -504,6 +575,9 @@ def _activity_from_lifecycle_guard_payload(value: dict[str, Any], *, make_error:
         "queuedJobCount": _non_negative_int(value.get("queuedJobCount")),
         "claimedJobCount": _non_negative_int(value.get("claimedJobCount")),
         "runningSlotCount": _non_negative_int(value.get("runningSlotCount")),
+        "queuedToolPrepareJobCount": _non_negative_int(value.get("queuedToolPrepareJobCount")),
+        "runningToolPrepareJobCount": _non_negative_int(value.get("runningToolPrepareJobCount")),
+        "activeToolPrepareClaimCount": _non_negative_int(value.get("activeToolPrepareClaimCount")),
         "blockReasons": [str(item) for item in block_reasons],
     }
 
@@ -535,6 +609,9 @@ def _empty_activity() -> dict[str, Any]:
         "queuedJobCount": 0,
         "claimedJobCount": 0,
         "runningSlotCount": 0,
+        "queuedToolPrepareJobCount": 0,
+        "runningToolPrepareJobCount": 0,
+        "activeToolPrepareClaimCount": 0,
         "blockReasons": [],
     }
 

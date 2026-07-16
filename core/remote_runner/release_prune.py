@@ -219,16 +219,19 @@ class RemoteRunnerReleasePruneMixin:
                 exc.status_code == 409
                 and isinstance(exc.detail, dict)
                 and exc.detail.get("schemaVersion") == EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION
+                and isinstance(exc.detail.get("blockReasons"), list)
             ):
                 _raise_lifecycle_guard_blocked(exc.detail, server_id=server_id, make_error=self._manager_error)
+            detail = {
+                "reasonCode": RELEASE_PRUNE_GUARD_UNAVAILABLE_REASON,
+                "serverId": server_id,
+                "nextAction": "REPAIR_RUNNER_DIAGNOSTICS_BEFORE_PRUNE",
+                "lifecycleGuardError": exc.detail if isinstance(exc.detail, dict) else {},
+            }
             raise self._manager_error(
                 "runner release prune guard failed because execution lifecycle diagnostics are unavailable",
                 status_code=409,
-                detail={
-                    "reasonCode": RELEASE_PRUNE_GUARD_UNAVAILABLE_REASON,
-                    "serverId": server_id,
-                    "nextAction": "REPAIR_RUNNER_DIAGNOSTICS_BEFORE_PRUNE",
-                },
+                detail=detail,
             ) from exc
         except RemoteRunnerClientError as exc:
             raise self._manager_error(

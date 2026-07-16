@@ -5,7 +5,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from core.contracts.execution_activity import EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION
+from core.contracts.execution_activity import (
+    EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
+    EXECUTION_LIFECYCLE_REQUIRED_QUIESCENCE_COVERAGE,
+)
 from core.contracts.remote_endpoints import EXECUTION_LIFECYCLE_GUARD, EXECUTION_LIFECYCLE_GUARD_RELEASE, REMOTE_ENDPOINTS
 from core.remote_runner.artifact import RemoteRunnerArtifactError, WORKFLOW_RUNTIME_VERSION
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
@@ -451,14 +454,19 @@ def test_bootstrap_installs_when_artifact_sha_marker_is_missing(monkeypatch) -> 
                         "maintenanceActive": True,
                         "requestedAt": "2099-06-07T10:00:00Z",
                         "expiresAt": "2099-06-07T10:10:00Z",
+                        "expiryPolicy": "fail-closed",
                         "activeWorkerCount": 0,
-                        "drainRequestedWorkerCount": 0,
+                            "drainRequestedWorkerCount": 0,
+                            "quiescenceCoverage": list(EXECUTION_LIFECYCLE_REQUIRED_QUIESCENCE_COVERAGE),
                         "activeLeaseCount": 0,
                         "allocatedResourceCount": 0,
                         "resourceWaitCount": 0,
                         "queuedJobCount": 0,
                         "claimedJobCount": 0,
-                        "runningSlotCount": 0,
+                            "runningSlotCount": 0,
+                            "queuedToolPrepareJobCount": 0,
+                            "runningToolPrepareJobCount": 0,
+                            "activeToolPrepareClaimCount": 0,
                         "blockReasons": [],
                         "activeLeases": [],
                     }

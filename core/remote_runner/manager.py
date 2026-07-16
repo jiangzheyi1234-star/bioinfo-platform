@@ -44,7 +44,6 @@ from core.remote_runner.token_rotation import RemoteRunnerTokenRotationMixin
 from core.remote_runner.uninstall import RemoteRunnerUninstallMixin
 from core.remote_runner.workflow_runtime import RemoteRunnerWorkflowRuntimeMixin
 
-
 class RemoteRunnerManager(
     RemoteRunnerEnvironmentMixin,
     RemoteRunnerInstallLockMixin,
@@ -335,6 +334,7 @@ class RemoteRunnerManager(
                         token=token,
                         timeout=30,
                     )
+                    self._wait_for_runner_live(client)
                     health = self._wait_for_runner_health(client)
                     try:
                         self._run_bootstrap_canary(
@@ -387,7 +387,7 @@ class RemoteRunnerManager(
                     self._attempt_release_rollback(
                         ssh_service=ssh_service,
                         server_id=server_id,
-                        server_record=server_record,
+                        server_record=server_record, bootstrap_action=bootstrap_action,
                         previous_version=str((previous_config_payload or {}).get("version") or server_record.get("bootstrap_version") or ""),
                         previous_release=previous_release,
                         previous_mode=previous_mode,

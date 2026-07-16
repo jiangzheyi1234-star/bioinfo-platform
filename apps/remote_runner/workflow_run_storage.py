@@ -9,6 +9,7 @@ from typing import Any
 from .config import RemoteRunnerConfig
 from .errors import IdempotencyKeyReusedError
 from .event_contracts import append_run_event_v2, record_run_command
+from .execution_lifecycle_guard import ensure_execution_lifecycle_admission_open_for_connection
 from .execution_policy import execution_policy_from_run_spec
 from .execution_query_storage import fetch_run
 from .run_execution_storage import enqueue_run_job_record
@@ -90,6 +91,7 @@ def create_run_record(
     }
 
     with get_connection(cfg) as connection:
+        connection.execute("BEGIN IMMEDIATE")
         existing = connection.execute(
             "SELECT run_id, canonical_payload_hash, status FROM idempotency WHERE server_id = ? AND idempotency_key = ?",
             (server_id, idempotency_key),
@@ -97,6 +99,7 @@ def create_run_record(
         if existing is not None:
             if existing["canonical_payload_hash"] != payload_hash:
                 raise IdempotencyKeyReusedError("IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD")
+            connection.commit()
             existing_run = fetch_run(cfg, existing["run_id"])
             if existing_run is None:
                 raise ValueError("RUN_NOT_FOUND")
@@ -107,6 +110,7 @@ def create_run_record(
                 reason="idempotency_replay",
             )
 
+        ensure_execution_lifecycle_admission_open_for_connection(connection, now=submitted_at)
         connection.execute(
             """
             INSERT INTO runs (

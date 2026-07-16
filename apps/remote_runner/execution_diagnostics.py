@@ -9,6 +9,7 @@ from .execution_readiness import evaluate_execution_readiness
 from .metrics import collect_queue_metrics, collect_sqlite_metrics
 from .run_worker_storage import build_run_worker_health
 from .storage_core import get_connection, now_iso
+from .tool_prepare_worker_lease import tool_prepare_worker_activity
 
 
 def build_execution_diagnostics(
@@ -27,6 +28,7 @@ def build_execution_diagnostics(
         active_leases = _active_leases(connection)
         allocated_resources = _allocated_resources(connection)
         resource_waits = _resource_waits(connection)
+        tool_prepare_jobs = tool_prepare_worker_activity(connection, now=timestamp)
         recent_events = _recent_events(connection, run_ids=normalized_run_ids, limit=event_limit)
         recovery_evidence = _recovery_evidence(connection, run_ids=normalized_run_ids, limit=event_limit)
         event_chains = {
@@ -59,6 +61,7 @@ def build_execution_diagnostics(
         "activeLeases": active_leases,
         "allocatedResources": allocated_resources,
         "resourceWaits": resource_waits,
+        "toolPrepareJobs": tool_prepare_jobs,
         "recoveryEvidence": recovery_evidence,
         "recentEvents": recent_events,
         "eventHashChains": event_chains,

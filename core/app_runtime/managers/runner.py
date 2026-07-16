@@ -11,6 +11,7 @@ from core.app_runtime.runner_stop_state import build_manual_runner_stop_intent
 from core.contracts.execution_activity import (
     EXECUTION_ACTIVITY_ACTIVE_WORKFLOW_LEASES_REASON,
     EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION,
+    require_execution_lifecycle_quiescence_coverage,
 )
 from core.remote_runner.lifecycle_guard_owner import execution_lifecycle_guard_owner
 
@@ -25,6 +26,9 @@ _ACTIVITY_COUNT_KEYS = (
     "queuedJobCount",
     "claimedJobCount",
     "runningSlotCount",
+    "queuedToolPrepareJobCount",
+    "runningToolPrepareJobCount",
+    "activeToolPrepareClaimCount",
 )
 
 
@@ -124,6 +128,13 @@ class RunnerManager(BaseRuntimeManager):
             )
             activity = _activity_from_lifecycle_guard_payload(guard)
         except RuntimeServiceError as exc:
+            if (
+                exc.status_code == 409
+                and isinstance(exc.detail, dict)
+                and exc.detail.get("schemaVersion") == EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION
+                and not isinstance(exc.detail.get("blockReasons"), list)
+            ):
+                raise
             if exc.status_code == 409 and isinstance(exc.detail, dict) and exc.detail.get("schemaVersion") == EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION:
                 activity = _activity_from_lifecycle_guard_payload(exc.detail)
                 block_reasons = [str(item) for item in activity["blockReasons"]]
@@ -132,14 +143,16 @@ class RunnerManager(BaseRuntimeManager):
                     activity=activity,
                     block_reasons=block_reasons,
                 ) from exc
+            detail = {
+                "reasonCode": RUNNER_STOP_DIAGNOSTICS_UNAVAILABLE_REASON,
+                "serverId": server_id,
+                "nextAction": "REPAIR_RUNNER_DIAGNOSTICS_BEFORE_STOP",
+                "lifecycleGuardError": exc.detail if isinstance(exc.detail, dict) else {},
+            }
             raise RuntimeServiceError(
                 "remote runner stop guard failed because execution diagnostics are unavailable",
                 status_code=409,
-                detail={
-                    "reasonCode": RUNNER_STOP_DIAGNOSTICS_UNAVAILABLE_REASON,
-                    "serverId": server_id,
-                    "nextAction": "REPAIR_RUNNER_DIAGNOSTICS_BEFORE_STOP",
-                },
+                detail=detail,
             ) from exc
         block_reasons = [str(item) for item in activity["blockReasons"]]
         if not block_reasons:
@@ -184,6 +197,7 @@ def _runner_stop_blocked_error(
 def _activity_from_lifecycle_guard_payload(value: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(value, dict) or value.get("schemaVersion") != EXECUTION_LIFECYCLE_GUARD_SCHEMA_VERSION:
         raise RuntimeServiceError("remote runner execution lifecycle guard response is invalid")
+    require_execution_lifecycle_quiescence_coverage(value, make_error=RuntimeServiceError)
     block_reasons = value.get("blockReasons")
     if not isinstance(block_reasons, list):
         raise RuntimeServiceError("remote runner execution lifecycle guard blockReasons is not a list")
@@ -197,6 +211,9 @@ def _activity_from_lifecycle_guard_payload(value: dict[str, Any]) -> dict[str, A
         "queuedJobCount": _non_negative_int(value.get("queuedJobCount")),
         "claimedJobCount": _non_negative_int(value.get("claimedJobCount")),
         "runningSlotCount": _non_negative_int(value.get("runningSlotCount")),
+        "queuedToolPrepareJobCount": _non_negative_int(value.get("queuedToolPrepareJobCount")),
+        "runningToolPrepareJobCount": _non_negative_int(value.get("runningToolPrepareJobCount")),
+        "activeToolPrepareClaimCount": _non_negative_int(value.get("activeToolPrepareClaimCount")),
         "blockReasons": [str(item) for item in block_reasons],
     }
 

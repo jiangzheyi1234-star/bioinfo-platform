@@ -64,7 +64,7 @@ def _health_endpoint_json(
         return {"status": "ok"}
     if path == "/health/live":
         assert accepted_statuses == {200}
-        return {"status": "ok"}
+        return {"status": "ok", "service": "h2ometa-remote"}
     if path == "/health/ready":
         assert accepted_statuses == {200, 503}
         return {"status": "ok"}
