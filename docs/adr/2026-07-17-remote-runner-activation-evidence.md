@@ -137,7 +137,40 @@ bytes digest 不证明 wrapper 源内容不可变。
 Token rotation 必须保持 integrity key ID 和所有 credential-free runtime identity 不变，同时创建新的
 generation ID、token generation ID 与 config-blob tag；tag 变化只证明 blob 变化，publisher 后续还必须
 验证 operation-specific exact diff。Integrity key rotation 是独立的 reseal/repair，不得冒充 token
-rotation。只要 retained rollback generation 仍引用旧 key ID，keyring 就不得 prune 对应 key。
+rotation。只要 retained rollback generation 仍引用旧 key ID，远端 private integrity-key store 就不得 prune
+对应 key。
+
+### 版本化 credential identity
+
+现有 production path 的 `runner://<serverId>` 是一个可变 OS-keyring slot：`set_password` 会覆盖旧 token，
+普通 upgrade 也会隐式生成新 token。它既不能按 generation 找回 rollback credential，也把 active selector
+与 secret identity 混成同一个名字。后续接线必须删除这种固定 ref 语义，不增加双读或旧 ref fallback。
+
+本阶段只增加 dormant pure contract，定义不可变 installation record、版本化 token locator 与远端
+config-integrity-key descriptor，不调用 OS keyring、不写远端文件，也不改变 generation、transition 或
+protocol v5。`runnerInstallationId` 是随机 opaque 128-bit ID，与 canonical runner root 绑定；它不包含
+`serverId`、hostname、IP、SSH alias、machine-id 或时间戳。复制 installation record 会得到相同 fingerprint，
+所以它不证明物理主机或 SSH host identity，也不授权跨主机自动 adoption。跨主机 restore 默认创建新的
+installation/token/key IDs 并显式 re-enrol；若未来需要保留旧 generation，必须另有 host-key registry 与受审计
+的 secret export/import 流程。
+
+控制端 token locator 使用 exact
+`h2ometa-runner-token:v2:<runnerInstallationId>:<tokenGenerationId>`，OS-keyring service namespace 也独立
+版本化。Locator 只含非 secret opaque ID，但仍按 internal sensitive metadata 处理；diagnostics、audit 与
+公开结果只允许 domain-separated locator fingerprint 及 provider/purpose/version，不输出 raw locator。Token
+material 永不进入 locator、generation、descriptor、journal、异常或日志。远端 integrity descriptor 只声明
+`remote-private-file`、`config-blob-integrity`、key ID、`hmac-sha256`、32-byte 长度与从 trusted runner root
+逐字派生的
+`shared/activation/secrets/config-integrity/<configBlobIntegrityKeyId>.key`。Descriptor fingerprint 只证明
+这份 locator record；它不证明 material 存在、owner/mode/nlink、非 symlink、实际 bytes 或 HMAC 验证成功。
+
+面向 generation 的高层 binding 必须一次核对 installation root、generation fingerprint、token locator、
+integrity descriptor 以及 installation/generation/token/key 四类 ID 分离。当前 binding 仍是 dormant record
+validation，不是 transition evidence；future generation-aware transition 才能消费它。实际 store 阶段必须在
+全局 activation gate 下实现 create-or-verify：不存在时写入，已存在且 constant-time 相同才幂等接受，不同则
+永久冲突；写后重读，backend unavailable/locked/missing/结果未知都 fail closed。Python keyring 公共 API
+没有 CAS/no-replace 事务，Windows `CredWrite` 和 Secret Service 的 replace 语义也会覆盖同名 credential，
+因此底层 `set_password` 不能单独证明 immutable storage。
 
 相同 `generationId` 在所有 operation 中都必须对应逐字段完全相同的 generation record。Repair 可以用新的
 activation 重启同一 generation；若 reseal、key rotation 或任何内容证据改变，必须创建新的 generation
@@ -290,6 +323,10 @@ tag、digest 和 protocol preflight 验证成功后才可成为候选。`current
 - [in-toto ResourceDescriptor：artifact content digest](https://github.com/in-toto/attestation/blob/main/spec/v1/resource_descriptor.md)
 - [SLSA build provenance：subject、resolved dependencies 与 external parameters](https://slsa.dev/spec/v1.2/build-provenance)
 - [RFC 8785：JCS 的 I-JSON、number 与 property ordering 约束](https://www.rfc-editor.org/rfc/rfc8785.html)
+- [Python keyring：get/set/delete 公共 API 与错误语义](https://keyring.readthedocs.io/en/latest/)
+- [Windows CredWrite：同名 credential 的替换语义](https://learn.microsoft.com/windows/win32/api/wincred/nf-wincred-credwritew)
+- [Secret Service：CreateItem 的显式 replace 语义](https://specifications.freedesktop.org/secret-service/latest-single/)
+- [Apple Keychain：secret 与公开 searchable attributes](https://developer.apple.com/documentation/security/keychain-items)
 - [systemd.unit：fragment、drop-in 与 load path 组合语义](https://www.freedesktop.org/software/systemd/man/latest/systemd.unit.html)
 - [systemctl：`cat` 读取磁盘 backing files，不代表 manager 已加载状态](https://www.freedesktop.org/software/systemd/man/latest/systemctl.html)
 - [Nix profiles：不可变 generation 与原子 selector](https://nix.dev/manual/nix/latest/package-management/profiles)
