@@ -11,6 +11,7 @@ import pytest
 
 import apps.remote_runner.activation_generation_registry_storage as storage
 import apps.remote_runner.activation_no_replace_io as no_replace_io
+import apps.remote_runner.activation_storage_filesystem as storage_filesystem
 import apps.remote_runner.activation_storage_layout as storage_layout
 import apps.remote_runner.activation_storage_root as storage_root
 import apps.remote_runner.activation_storage_session as storage_session
@@ -638,13 +639,16 @@ def test_storage_session_has_a_closed_constructor_and_no_platform_side_effects()
         ActivationStorageSession()
 
     session_source = inspect.getsource(storage_session)
+    filesystem_source = inspect.getsource(storage_filesystem)
     layout_source = inspect.getsource(storage_layout)
     root_module_source = inspect.getsource(storage_root)
-    combined_source = session_source + layout_source + root_module_source
+    combined_source = (
+        session_source + filesystem_source + layout_source + root_module_source
+    )
     assert "global-activation.lock" in layout_source
-    assert "/proc/self/mountinfo" in session_source
-    assert '"ext4"' in session_source
-    assert '"xfs"' in session_source
+    assert "/proc/self/mountinfo" in filesystem_source
+    assert '"ext4"' in filesystem_source
+    assert '"xfs"' in filesystem_source
     assert "Path.resolve" not in combined_source
     assert "subprocess" not in combined_source
     assert "shell=True" not in combined_source

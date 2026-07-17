@@ -199,8 +199,8 @@ fsync 并从 journal 重读，随后 no-replace 发布 generation directory、�
 不能进入 service mutation。
 
 本阶段把这一顺序的信任根落成真实 Linux storage primitive，而不是继续增加纯 record。
-`activation_storage_root.py`、`activation_storage_layout.py` 与 `activation_storage_session.py` 从 validated
-installation 的 canonical runner root 出发，逐组件以 directory fd、
+`activation_storage_root.py`、`activation_storage_layout.py`、`activation_storage_filesystem.py` 与
+`activation_storage_session.py` 从 validated installation 的 canonical runner root 出发，逐组件以 directory fd、
 `O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC` 打开固定路径；从 `/` 到 runner root 的完整祖先链都必须由 root
 或当前 UID 拥有且不得 group/world writable。Session 保留 runner parent、root、`shared`、shared-level global
 lock、`activation`、activation-level `.staging`、`generation-registrations` 与 journal `.staging` capabilities。
