@@ -117,5 +117,5 @@ def test_remote_build_script_delegates_lifetime_startup_without_bytecode_writes(
     assert 'echo $! > "$RUN_DIR/runner.pid"' not in start_script
     assert "Type=simple" in script
     assert "Restart=on-failure" in script
-    assert "RestartPreventExitStatus=73 74" in script
+    assert "RestartPreventExitStatus=73 74 75" in script
     assert "H2OMETA_REMOTE_RUNNER_PYTHON" not in script

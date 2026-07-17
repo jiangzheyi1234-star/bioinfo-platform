@@ -323,6 +323,54 @@ uv run python scripts\inspect_remote_runner_service.py
 
 Routine diagnostics must not foreground-run `launch_remote_runner.sh`. Current cooperating releases reject a second launcher through the lifetime fence, but older or noncooperating releases can still start another runner and overwrite `runner-state.json`.
 
+Protocol v5 publishes early process-owner evidence before the diagnostic PID file,
+runtime unpacking, socket creation, or runtime-state publication:
+
+- `shared/runtime/process-owners/<launchId>.json` is a canonical `0600` record
+  that a cooperating publisher creates with no-replace semantics and does not
+  delete on normal exit.
+- `shared/runtime/runner-process-owner.json` is the canonical `0600` current
+  reference. `runner-state.json.processOwner` repeats that reference after the
+  exec target has revalidated the exact launch ID, owner fingerprint, procfs
+  incarnation, startup snapshot, and held `runner.lock` inode.
+- Exit status `75` means owner evidence could not be safely published or
+  adopted. The systemd unit treats it as restart-preventing so corrupted or
+  ambiguous evidence does not create a restart storm.
+
+The same startup snapshot requires the canonical mutable layout before taking
+the lifetime lock: config at `shared/config/runner.json`, state at
+`shared/runtime/runner-state.json`, SQLite at `shared/data/runner.db`, and the
+managed uploads/results/work/logs/profile paths in their fixed `shared`
+subdirectories, including the exact managed profile name
+`profile.v9+.yaml`. The shared tree must not overlap the immutable release tree.
+Do not rename `runner-state.json` or point any mutable field at `runner.lock`,
+the owner pointer, or the owner-record directory; startup fails closed before
+creating the runtime directory.
+
+The configured bundled interpreter is the lexical release entrypoint
+`runtime/bin/python`. That entrypoint may be the normal Python-version symlink,
+but its resolved target must be a regular executable in the same immutable
+`runtime/bin` directory. Directory aliases, missing or non-executable targets,
+and symlinks outside that directory fail startup before process adoption.
+
+This evidence is an audit-preserving, cooperative no-overwrite record, not a
+tamper-resistant ledger: the runner OS identity still owns the `0600` files and
+can modify them if that identity is compromised. It also does not prove current
+liveness, process death, listener ownership, descendants, systemd invocation,
+or cgroup membership. Do not use the current pointer or PID file alone for an
+exact stop decision. Those guarantees require the activation gate and
+pidfd/systemd/cgroup stop protocol described in the following hardening phase.
+The lifetime lock and owner publication require a stable local Linux filesystem;
+do not place `shared/runtime` on NFS or another filesystem with weaker
+flock/link/rename durability semantics.
+
+`deploy_remote_runner_staging_artifact.py` currently validates the local bundle
+and then exits with `STAGING_PROTOCOL_ACTIVATION_REQUIRED`; it has no SSH or
+remote-mutation path. Re-enable staging deployment only after config, unit,
+release, rollback, and exact readiness share the activation transaction. This
+fail-closed interval prevents a release-only swap from racing token rotation or
+claiming rollback without owner/procfs/readiness proof.
+
 The workflow UI readiness panel must show SSH, runner live, workflow runtime, Snakemake version, profile, pipeline registry, and the most recent bootstrap canary separately. A missing canary record is not proof of readiness.
 
 ## Execution Recovery

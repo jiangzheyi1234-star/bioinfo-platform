@@ -20,6 +20,14 @@ from core.contracts.runner_protocol_runtime import (
     CURRENT_RUNNER_PROTOCOL_FINGERPRINT,
     build_runner_protocol_runtime_self_attestation,
 )
+from core.contracts.runner_process_lifetime import (
+    RUNNER_PROCESS_LIFETIME_LOCK_PROFILE,
+)
+from core.contracts.runner_process_owner import (
+    build_runner_process_owner,
+    build_runner_process_owner_reference,
+    runner_process_owner_fingerprint,
+)
 from core.remote_runner.client import RemoteRunnerClientError
 from core.remote_runner.health import build_runner_health
 from core.remote_runner.manager import RemoteRunnerManager, RemoteRunnerManagerError
@@ -36,6 +44,45 @@ def _process_incarnation(*, pid: int = 123) -> dict[str, object]:
     )
 
 
+def _process_owner(*, pid: int = 123) -> dict[str, object]:
+    return build_runner_process_owner(
+        launch_id="1" * 32,
+        process_incarnation=_process_incarnation(pid=pid),
+        startup_binding={
+            "artifactArchiveSha256Path": "/runner/v5/artifact.sha256",
+            "bootstrapManifestFingerprint": "sha256:" + "a" * 64,
+            "bootstrapManifestPath": "/runner/v5/bootstrap_manifest.json",
+            "configPath": "/runner/shared/config/runner.json",
+            "configuredMode": "background_process",
+            "declaredArtifactArchiveSha256": "sha256:" + "b" * 64,
+            "effectiveConfigFingerprint": "sha256:" + "c" * 64,
+            "packagePath": "/runner/v5/remote_runner",
+            "persistedConfigFingerprint": "sha256:" + "d" * 64,
+            "protocolFingerprint": CURRENT_RUNNER_PROTOCOL_FINGERPRINT,
+            "protocolVersion": build_runner_protocol_runtime_self_attestation()[
+                "protocolVersion"
+            ],
+            "runnerPythonPath": "/runner/v5/runtime/bin/python",
+            "service": "h2ometa-remote",
+            "version": "runtime-attestation-test",
+        },
+        lifetime_lock={
+            "device": 17,
+            "inode": 91,
+            "path": "/runner/shared/runtime/runner.lock",
+            "profile": RUNNER_PROCESS_LIFETIME_LOCK_PROFILE,
+        },
+    )
+
+
+def _process_owner_reference(*, pid: int = 123) -> dict[str, str]:
+    owner = _process_owner(pid=pid)
+    return build_runner_process_owner_reference(
+        launch_id=owner["launchId"],
+        owner_fingerprint=runner_process_owner_fingerprint(owner),
+    )
+
+
 def test_runtime_state_atomically_publishes_current_protocol_attestation(
     tmp_path: Path,
 ) -> None:
@@ -49,6 +96,7 @@ def test_runtime_state_atomically_publishes_current_protocol_attestation(
         cfg,
         bind_host="127.0.0.1",
         bind_port=43127,
+        process_owner=_process_owner(),
         pid=123,
         process_incarnation=_process_incarnation(),
     )
@@ -56,6 +104,7 @@ def test_runtime_state_atomically_publishes_current_protocol_attestation(
 
     assert state["runnerProtocol"] == build_runner_protocol_runtime_self_attestation()
     assert state["processIncarnation"] == _process_incarnation()
+    assert state["processOwner"] == _process_owner_reference()
     assert persisted == state
     assert not list(state_path.parent.glob("*.tmp"))
 
@@ -82,6 +131,7 @@ def _runtime_state(*, protocol: object) -> str:
             "bindPort": 43127,
             "pid": 123,
             "processIncarnation": _process_incarnation(),
+            "processOwner": _process_owner_reference(),
             "runnerProtocol": protocol,
         }
     )
@@ -130,8 +180,71 @@ def test_runtime_state_rejects_pid_that_does_not_match_process_incarnation(
             cfg,
             bind_host="127.0.0.1",
             bind_port=43127,
+            process_owner=_process_owner(),
             pid=124,
             process_incarnation=_process_incarnation(pid=123),
+        )
+
+
+@pytest.mark.parametrize(
+    ("drift", "message"),
+    [
+        ("incarnation", "does not match process incarnation"),
+        ("version", "does not match runtime binding"),
+        ("mode", "does not match runtime binding"),
+        ("protocol_version", "does not match runtime binding"),
+        ("protocol_fingerprint", "does not match runtime binding"),
+    ],
+)
+def test_runtime_state_rejects_owner_evidence_drift(
+    tmp_path: Path,
+    drift: str,
+    message: str,
+) -> None:
+    cfg = RemoteRunnerConfig(
+        version="runtime-attestation-test",
+        runtime_state_path=str(tmp_path / "runtime" / "runner-state.json"),
+    )
+    owner = _process_owner(pid=124 if drift == "incarnation" else 123)
+    startup = owner["startupBinding"]
+    if drift == "version":
+        startup["version"] = "other-runtime"
+    elif drift == "mode":
+        startup["configuredMode"] = "systemd_user"
+    elif drift == "protocol_version":
+        startup["protocolVersion"] = "runner-protocol.v999"
+    elif drift == "protocol_fingerprint":
+        startup["protocolFingerprint"] = "sha256:" + "0" * 64
+
+    with pytest.raises(ValueError, match=message):
+        write_runtime_state(
+            cfg,
+            bind_host="127.0.0.1",
+            bind_port=43127,
+            process_owner=owner,
+            pid=123,
+            process_incarnation=_process_incarnation(),
+        )
+
+
+@pytest.mark.parametrize("mutation", ["missing", "extra", "fingerprint"])
+def test_control_plane_rejects_invalid_runtime_process_owner_reference(
+    mutation: str,
+) -> None:
+    payload = json.loads(
+        _runtime_state(protocol=build_runner_protocol_runtime_self_attestation())
+    )
+    if mutation == "missing":
+        payload.pop("processOwner")
+    elif mutation == "extra":
+        payload["processOwner"]["alive"] = True
+    else:
+        payload["processOwner"]["ownerFingerprint"] = "sha256:" + "G" * 64
+
+    with pytest.raises(RemoteRunnerManagerError, match="process owner reference"):
+        RemoteRunnerManager._parse_runtime_state(
+            json.dumps(payload),
+            version="runtime-attestation-test",
         )
 
 

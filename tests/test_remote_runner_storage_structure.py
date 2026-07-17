@@ -31,22 +31,44 @@ def test_storage_schema_lives_outside_storage_module() -> None:
 def test_remote_runner_startup_runs_explicit_schema_migration_before_listening() -> None:
     run_source = (REMOTE_RUNNER / "run.py").read_text(encoding="utf-8")
 
-    assert "load_remote_runner_config_from_startup_preflight()" in run_source
+    assert "load_remote_runner_startup_snapshot()" in run_source
     assert "bind_remote_runner_config_snapshot," in run_source
     assert "ensure_runtime_layout," in run_source
     assert "adopt_runner_process_lifetime_lock(cfg)" in run_source
+    assert "adopt_runner_process_owner(" in run_source
     assert "ensure_runtime_layout(cfg)" in run_source
-    assert run_source.index("load_remote_runner_config_from_startup_preflight()") < run_source.index(
+    helper_call = "cfg, startup_binding = _load_startup_snapshot_for_owner_adoption()"
+    assert run_source.index(helper_call) < run_source.index(
         "lifetime_lock = adopt_runner_process_lifetime_lock(cfg)"
     )
+    helper_start = run_source.index("def _load_startup_snapshot_for_owner_adoption()")
+    assert "return load_remote_runner_startup_snapshot()" in run_source[helper_start:]
     assert run_source.index("lifetime_lock = adopt_runner_process_lifetime_lock(cfg)") < run_source.index(
+        "process_owner = adopt_runner_process_owner("
+    )
+    assert run_source.index("process_owner = adopt_runner_process_owner(") < run_source.index(
         "bind_remote_runner_config_snapshot(cfg)"
     )
     assert run_source.index("bind_remote_runner_config_snapshot(cfg)") < run_source.index(
         "ensure_runtime_layout(cfg)"
     )
     assert run_source.index("ensure_runtime_layout(cfg)") < run_source.index("socket.socket(")
-    assert run_source.index("sock.close()") < run_source.index("lifetime_lock.release()")
+    cleanup_call = "_cleanup_runner_process("
+    assert run_source.index("server.run(sockets=[sock])") < run_source.index(
+        cleanup_call
+    )
+    cleanup_start = run_source.index(
+        "def _cleanup_runner_process(*, cfg, lifetime_lock, sock)"
+    )
+    cleanup_end = run_source.index("def cli_main()", cleanup_start)
+    cleanup_source = run_source[cleanup_start:cleanup_end]
+    assert cleanup_source.index('"socket"') < cleanup_source.index('"pid_file"')
+    assert cleanup_source.index('"pid_file"') < cleanup_source.index(
+        '"lifetime_lock"'
+    )
+    assert "sock.close()" in cleanup_source
+    assert "remove_runner_pid_file_if_owned(cfg)" in cleanup_source
+    assert "lifetime_lock.release" in cleanup_source
 
 
 def test_tool_storage_lives_outside_general_storage_module() -> None:
@@ -337,7 +359,7 @@ def test_tool_prepare_job_records_live_outside_storage_mutation_module() -> None
 
     assert "from .storage_core import get_connection, now_iso" in storage
     assert "from .storage import get_connection, now_iso" not in storage
-    assert "from .tool_prepare_job_records import (" in storage
+    assert "from .tool_prepare_job_records import " in storage
     assert "def _job_row_to_dict(" not in storage
     assert "def _event_row_to_dict(" not in storage
     assert "def _missing_resources_from_events(" not in storage

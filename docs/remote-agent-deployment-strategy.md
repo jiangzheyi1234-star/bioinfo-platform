@@ -114,11 +114,15 @@ Updates are version switches, not in-place mutation.
 
 1. Resolve and verify the new release artifacts.
 2. Install to `releases/<new-version>` without deleting the old release.
-3. Write the new config and workflow profile.
-4. Atomically switch `current` to the new release.
+3. Stage the new config, workflow profile, and systemd unit as one activation
+   transaction; verify the unit's restart-prevention statuses before loading it.
+4. Atomically switch `current` to the new release and load the staged unit.
 5. Start the managed service and verify runtime state, health, and canary.
 6. Persist the ready server record only after successful validation.
-7. On activation failure, restore the previous config, switch `current` back, restart the previous service, and record rollback outcome.
+7. On activation failure, restore the previous config and unit, switch
+   `current` back, reload systemd, restart the previous service, verify the
+   restoration, and record rollback outcome. Never report rollback success if
+   any restore step fails.
 
 Keep at least the current and previous release. A future retention job may delete older releases only after they are not referenced by `current`, rollback metadata, or an active run.
 
@@ -128,7 +132,9 @@ The remote agent is ready only when all required layers are healthy:
 
 - SSH connection and host identity are valid.
 - Release artifact marker matches the manifest SHA-256.
-- Service process is running and runtime state has the expected service, version, host, port, and PID.
+- Service process is running; runtime state has the expected service, version,
+  host, port, current protocol self-attestation, a valid process-owner
+  reference, and a procfs incarnation that a fresh remote observation matches.
 - Authenticated health endpoint is reachable through the tunnel.
 - Workflow runtime is available and reports the managed Snakemake version.
 - Pipeline registry is present and valid.

@@ -13,6 +13,7 @@ from core.contracts.runner_process_lifetime import (
     RUNNER_PROCESS_LIFETIME_LOCK_FILENAME,
     RUNNER_PROCESS_LIFETIME_LOCK_FD_ENV,
     RUNNER_PROCESS_LIFETIME_LOCK_HELD_EXIT_STATUS,
+    RUNNER_PROCESS_LIFETIME_LOCK_PROFILE,
     RUNNER_PROCESS_LIFETIME_LOCK_UNAVAILABLE_EXIT_STATUS,
 )
 
@@ -64,7 +65,13 @@ class RunnerProcessLifetimeLock:
             )
         result = dict(environ)
         result[RUNNER_PROCESS_LIFETIME_LOCK_FD_ENV] = str(self._fd)
-        _set_lock_fd_inheritable(self._fd, True)
+        try:
+            _set_lock_fd_inheritable(self._fd, True)
+        except OSError as exc:
+            raise RunnerProcessLifetimeLockError(
+                reason_code=RUNNER_PROCESS_LIFETIME_LOCK_UNAVAILABLE,
+                path=self.path,
+            ) from exc
         return result
 
     def mutation_subprocess_pass_fds(self) -> tuple[int, ...]:
@@ -76,6 +83,49 @@ class RunnerProcessLifetimeLock:
                 path=self.path,
             )
         return (self._fd,)
+
+    def require_matches_config(self, cfg: ProcessLifetimeLockConfig) -> None:
+        """Reject a locked preflight that resolves to a different lock path."""
+
+        expected = _lifetime_lock_error_path(cfg)
+        try:
+            expected = get_runner_process_lifetime_lock_path(cfg).absolute()
+            held_path = self.path.absolute()
+        except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as exc:
+            raise RunnerProcessLifetimeLockError(
+                reason_code=RUNNER_PROCESS_LIFETIME_LOCK_UNAVAILABLE,
+                path=expected,
+            ) from exc
+        if expected != held_path:
+            raise RunnerProcessLifetimeLockError(
+                reason_code=RUNNER_PROCESS_LIFETIME_LOCK_UNAVAILABLE,
+                path=expected,
+            )
+        self.describe_identity()
+
+    def describe_identity(self) -> dict[str, object]:
+        """Revalidate and describe the exact stable inode held by this lease."""
+
+        if self._released:
+            raise RunnerProcessLifetimeLockError(
+                reason_code=RUNNER_PROCESS_LIFETIME_LOCK_UNAVAILABLE,
+                path=self.path,
+            )
+        try:
+            _require_lock_fd_matches_path(self._fd, self.path)
+            fd_stat = _stat_lock_fd(self._fd)
+            absolute_path = self.path.absolute().as_posix()
+        except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as exc:
+            raise RunnerProcessLifetimeLockError(
+                reason_code=RUNNER_PROCESS_LIFETIME_LOCK_UNAVAILABLE,
+                path=self.path,
+            ) from exc
+        return {
+            "profile": RUNNER_PROCESS_LIFETIME_LOCK_PROFILE,
+            "path": absolute_path,
+            "device": int(fd_stat.st_dev),
+            "inode": int(fd_stat.st_ino),
+        }
 
     def release(self) -> None:
         if self._released:
@@ -97,11 +147,12 @@ def acquire_runner_process_lifetime_lock(
 ) -> RunnerProcessLifetimeLock:
     """Acquire the stable, nonblocking Linux flock before runtime mutation."""
 
-    path = get_runner_process_lifetime_lock_path(cfg)
+    path = _lifetime_lock_error_path(cfg)
     try:
+        path = get_runner_process_lifetime_lock_path(cfg)
         path.parent.mkdir(parents=True, exist_ok=True)
         fd = _open_lock_file(path)
-    except OSError as exc:
+    except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as exc:
         raise RunnerProcessLifetimeLockError(
             reason_code=RUNNER_PROCESS_LIFETIME_LOCK_UNAVAILABLE,
             path=path,
@@ -135,37 +186,32 @@ def adopt_runner_process_lifetime_lock(
 ) -> RunnerProcessLifetimeLock:
     """Adopt and verify the exact lock FD inherited from the fixed launcher."""
 
-    path = get_runner_process_lifetime_lock_path(cfg)
+    path = _lifetime_lock_error_path(cfg)
     env = os.environ if environ is None else environ
-    raw_fd = str(env.get(RUNNER_PROCESS_LIFETIME_LOCK_FD_ENV) or "")
-    if (
-        not raw_fd.isascii()
-        or not raw_fd.isdecimal()
-        or raw_fd != str(int(raw_fd or 0))
-    ):
-        raise RunnerProcessLifetimeLockError(
-            reason_code=RUNNER_PROCESS_LIFETIME_LOCK_UNAVAILABLE,
-            path=path,
-        )
-    fd = int(raw_fd)
-    if fd < 3:
-        raise RunnerProcessLifetimeLockError(
-            reason_code=RUNNER_PROCESS_LIFETIME_LOCK_UNAVAILABLE,
-            path=path,
-        )
+    fd = -1
     try:
+        raw_fd = str(env.get(RUNNER_PROCESS_LIFETIME_LOCK_FD_ENV) or "")
+        if not raw_fd.isascii() or not raw_fd.isdecimal():
+            raise ValueError("runner process lifetime lock FD is invalid")
+        candidate_fd = int(raw_fd)
+        if raw_fd != str(candidate_fd) or candidate_fd < 3:
+            raise ValueError("runner process lifetime lock FD is invalid")
+        fd = candidate_fd
+        path = get_runner_process_lifetime_lock_path(cfg)
         _require_lock_fd_matches_path(fd, path)
         _try_lock_file(fd)
         _require_lock_fd_matches_path(fd, path)
         _set_lock_fd_inheritable(fd, False)
-    except OSError as exc:
-        try:
-            _close_lock_file(fd)
-        except OSError:
-            pass
+    except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as exc:
+        if fd >= 3:
+            try:
+                _close_lock_file(fd)
+            except OSError:
+                pass
         reason = (
             RUNNER_PROCESS_LIFETIME_LOCK_HELD
-            if exc.errno in {errno.EACCES, errno.EAGAIN, errno.EWOULDBLOCK}
+            if isinstance(exc, OSError)
+            and exc.errno in {errno.EACCES, errno.EAGAIN, errno.EWOULDBLOCK}
             else RUNNER_PROCESS_LIFETIME_LOCK_UNAVAILABLE
         )
         raise RunnerProcessLifetimeLockError(
@@ -175,6 +221,13 @@ def adopt_runner_process_lifetime_lock(
     if environ is None:
         os.environ.pop(RUNNER_PROCESS_LIFETIME_LOCK_FD_ENV, None)
     return RunnerProcessLifetimeLock(path=path, _fd=fd)
+
+
+def _lifetime_lock_error_path(cfg: ProcessLifetimeLockConfig) -> Path:
+    try:
+        return Path(getattr(cfg, "runtime_state_path"))
+    except (AttributeError, OSError, RuntimeError, TypeError, ValueError):
+        return Path("<invalid-runtime-state-path>")
 
 
 def _open_lock_file(path: Path) -> int:

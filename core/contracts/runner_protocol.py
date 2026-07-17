@@ -1,8 +1,9 @@
 """Strict descriptor for the current remote-runner protocol.
 
-The descriptor records exact writer coverage, point-in-time procfs evidence,
-and a cooperating-process lifetime fence. The fence is not global exclusivity:
-it does not prove listener ownership, process-tree ownership, liveness, or death.
+The descriptor records exact writer coverage, immutable early process-owner
+evidence, point-in-time procfs evidence, and a cooperating-process lifetime
+fence. None of those surfaces proves listener ownership, process-tree
+ownership, liveness, death, or systemd activation.
 """
 
 from __future__ import annotations
@@ -14,9 +15,14 @@ from typing import Any
 
 from .linux_process_incarnation import LINUX_PROCESS_INCARNATION_SCHEMA
 from .runner_process_lifetime import RUNNER_PROCESS_LIFETIME_LOCK_PROFILE
+from .runner_process_owner import (
+    RUNNER_PROCESS_OWNER_PROFILE,
+    RUNNER_PROCESS_OWNER_REFERENCE_SCHEMA,
+    RUNNER_PROCESS_OWNER_SCHEMA,
+)
 
-RUNNER_PROTOCOL_DESCRIPTOR_SCHEMA = "h2ometa.runner-protocol-descriptor.v4"
-RUNNER_PROTOCOL_VERSION = "runner-protocol.v4"
+RUNNER_PROTOCOL_DESCRIPTOR_SCHEMA = "h2ometa.runner-protocol-descriptor.v5"
+RUNNER_PROTOCOL_VERSION = "runner-protocol.v5"
 RUNNER_PROTOCOL_DATABASE_SCHEMA_VERSION = 18
 RUNNER_PROTOCOL_RUNTIME_SELF_ATTESTATION_SCHEMA = (
     "h2ometa.runner-protocol-runtime-self-attestation.v1"
@@ -35,12 +41,23 @@ RUNNER_PROTOCOL_RUNTIME_PROCESS_INCARNATION_SURFACES = ("runtime-state",)
 RUNNER_PROTOCOL_PROCESS_LIFETIME_LOCK_PROFILE = (
     RUNNER_PROCESS_LIFETIME_LOCK_PROFILE
 )
+RUNNER_PROTOCOL_PROCESS_OWNER_SCHEMA = RUNNER_PROCESS_OWNER_SCHEMA
+RUNNER_PROTOCOL_PROCESS_OWNER_PROFILE = RUNNER_PROCESS_OWNER_PROFILE
+RUNNER_PROTOCOL_PROCESS_OWNER_REFERENCE_SCHEMA = (
+    RUNNER_PROCESS_OWNER_REFERENCE_SCHEMA
+)
+RUNNER_PROTOCOL_PROCESS_OWNER_SURFACES = (
+    "runner-process-owner-record",
+    "current-owner-reference",
+    "runtime-state-reference",
+)
 RUNNER_PROTOCOL_TOOL_PREPARE_PROCESS_MARKER_SCHEMA = (
     "h2ometa.tool-prepare-process-marker.v1"
 )
 
 RUNNER_PROTOCOL_CAPABILITIES = (
     "artifact-exact-protocol-descriptor-v1",
+    "early-process-owner-evidence-v1",
     "execution-lifecycle-guard-v1",
     "process-lifetime-flock-fence-v1",
     "runtime-process-incarnation-evidence-v1",
@@ -72,6 +89,10 @@ _COVERAGE_FIELDS = frozenset(
         "coverageComplete",
         "coveredWriterScopes",
         "processLifetimeLockProfile",
+        "processOwnerProfile",
+        "processOwnerReferenceSchema",
+        "processOwnerSchema",
+        "processOwnerSurfaces",
         "runtimeProcessIncarnationSchema",
         "runtimeProcessIncarnationSurfaces",
         "runtimeSelfAttestationSchema",
@@ -79,7 +100,7 @@ _COVERAGE_FIELDS = frozenset(
         "toolPrepareProcessMarkerSchema",
     }
 )
-_FINGERPRINT_DOMAIN = b"h2ometa.runner-protocol-descriptor.v4"
+_FINGERPRINT_DOMAIN = b"h2ometa.runner-protocol-descriptor.v5"
 
 
 def build_runner_protocol_descriptor() -> dict[str, object]:
@@ -93,6 +114,14 @@ def build_runner_protocol_descriptor() -> dict[str, object]:
             "coveredWriterScopes": list(RUNNER_PROTOCOL_COVERED_WRITER_SCOPES),
             "processLifetimeLockProfile": (
                 RUNNER_PROTOCOL_PROCESS_LIFETIME_LOCK_PROFILE
+            ),
+            "processOwnerProfile": RUNNER_PROTOCOL_PROCESS_OWNER_PROFILE,
+            "processOwnerReferenceSchema": (
+                RUNNER_PROTOCOL_PROCESS_OWNER_REFERENCE_SCHEMA
+            ),
+            "processOwnerSchema": RUNNER_PROTOCOL_PROCESS_OWNER_SCHEMA,
+            "processOwnerSurfaces": list(
+                RUNNER_PROTOCOL_PROCESS_OWNER_SURFACES
             ),
             "runtimeProcessIncarnationSchema": (
                 RUNNER_PROTOCOL_RUNTIME_PROCESS_INCARNATION_SCHEMA
@@ -194,6 +223,30 @@ def require_runner_protocol_descriptor(
         coverage.get("processLifetimeLockProfile"),
         expected=RUNNER_PROTOCOL_PROCESS_LIFETIME_LOCK_PROFILE,
         field="coverage.processLifetimeLockProfile",
+        make_error=make_error,
+    )
+    _require_exact_string(
+        coverage.get("processOwnerProfile"),
+        expected=RUNNER_PROTOCOL_PROCESS_OWNER_PROFILE,
+        field="coverage.processOwnerProfile",
+        make_error=make_error,
+    )
+    _require_exact_string(
+        coverage.get("processOwnerReferenceSchema"),
+        expected=RUNNER_PROTOCOL_PROCESS_OWNER_REFERENCE_SCHEMA,
+        field="coverage.processOwnerReferenceSchema",
+        make_error=make_error,
+    )
+    _require_exact_string(
+        coverage.get("processOwnerSchema"),
+        expected=RUNNER_PROTOCOL_PROCESS_OWNER_SCHEMA,
+        field="coverage.processOwnerSchema",
+        make_error=make_error,
+    )
+    _require_exact_string_list(
+        coverage.get("processOwnerSurfaces"),
+        expected=RUNNER_PROTOCOL_PROCESS_OWNER_SURFACES,
+        field="coverage.processOwnerSurfaces",
         make_error=make_error,
     )
     _require_exact_string(

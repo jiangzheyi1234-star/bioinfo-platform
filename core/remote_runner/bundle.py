@@ -12,6 +12,9 @@ from core.contracts.runner_process_lifetime import (
     RUNNER_PROCESS_LIFETIME_LOCK_HELD_EXIT_STATUS,
     RUNNER_PROCESS_LIFETIME_LOCK_UNAVAILABLE_EXIT_STATUS,
 )
+from core.contracts.runner_process_owner import (
+    RUNNER_PROCESS_OWNER_UNAVAILABLE_EXIT_STATUS,
+)
 from core.remote_runner.layout import REMOTE_RUNNER_RELATIVE_ROOT
 from core.remote_runner.protocol_manifest import build_runner_protocol_manifest_fields
 from core.remote_runner.release_manifest import REMOTE_RUNNER_ARTIFACT, REMOTE_RUNNER_VERSION
@@ -162,7 +165,8 @@ class RemoteRunnerBundleBuilder:
             "Restart=on-failure\n"
             "RestartPreventExitStatus="
             f"{RUNNER_PROCESS_LIFETIME_LOCK_HELD_EXIT_STATUS} "
-            f"{RUNNER_PROCESS_LIFETIME_LOCK_UNAVAILABLE_EXIT_STATUS}\n"
+            f"{RUNNER_PROCESS_LIFETIME_LOCK_UNAVAILABLE_EXIT_STATUS} "
+            f"{RUNNER_PROCESS_OWNER_UNAVAILABLE_EXIT_STATUS}\n"
             "RestartSec=2\n\n"
             "[Install]\n"
             "WantedBy=default.target\n",

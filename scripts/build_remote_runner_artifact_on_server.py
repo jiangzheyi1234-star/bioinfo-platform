@@ -22,6 +22,9 @@ from core.contracts.runner_process_lifetime import (  # noqa: E402
     RUNNER_PROCESS_LIFETIME_LOCK_HELD_EXIT_STATUS,
     RUNNER_PROCESS_LIFETIME_LOCK_UNAVAILABLE_EXIT_STATUS,
 )
+from core.contracts.runner_process_owner import (  # noqa: E402
+    RUNNER_PROCESS_OWNER_UNAVAILABLE_EXIT_STATUS,
+)
 from core.remote_runner.release_manifest import REMOTE_RUNNER_ARTIFACT, REMOTE_RUNNER_VERSION  # noqa: E402
 from core.remote_runner.protocol_manifest import build_runner_protocol_manifest_fields  # noqa: E402
 
@@ -431,7 +434,7 @@ WorkingDirectory=%h/.h2ometa/runner/current
 Environment=H2OMETA_REMOTE_CONFIG=%h/.h2ometa/runner/shared/config/runner.json
 ExecStart=%h/.h2ometa/runner/current/launch_remote_runner.sh
 Restart=on-failure
-RestartPreventExitStatus={RUNNER_PROCESS_LIFETIME_LOCK_HELD_EXIT_STATUS} {RUNNER_PROCESS_LIFETIME_LOCK_UNAVAILABLE_EXIT_STATUS}
+RestartPreventExitStatus={RUNNER_PROCESS_LIFETIME_LOCK_HELD_EXIT_STATUS} {RUNNER_PROCESS_LIFETIME_LOCK_UNAVAILABLE_EXIT_STATUS} {RUNNER_PROCESS_OWNER_UNAVAILABLE_EXIT_STATUS}
 RestartSec=2
 
 [Install]

@@ -11,6 +11,9 @@ from core.contracts.linux_process_incarnation import (
 from core.contracts.runner_protocol_runtime import (
     build_runner_protocol_runtime_self_attestation,
 )
+from core.contracts.runner_process_owner import (
+    build_runner_process_owner_reference,
+)
 from core.remote_runner.artifact import WorkflowRuntimeArtifact
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION
 from core.remote_runner.manager import RemoteRunnerManager
@@ -22,6 +25,8 @@ from core.remote_runner.readiness import (
 _ORIGINAL_ENSURE_WORKFLOW_RUNTIME = RemoteRunnerManager._ensure_workflow_runtime
 _TEST_BOOT_ID = "11111111-2222-3333-4444-555555555555"
 _TEST_PROC_START_TICKS = 777
+_TEST_PROCESS_OWNER_LAUNCH_ID = "1" * 32
+_TEST_PROCESS_OWNER_FINGERPRINT = "sha256:" + "a" * 64
 
 
 def _is_remote_bundle_cleanup(cmd: str) -> bool:
@@ -99,6 +104,10 @@ def _runtime_state_json(
                 proc_start_ticks=start_ticks,
             ),
             "runnerProtocol": build_runner_protocol_runtime_self_attestation(),
+            "processOwner": build_runner_process_owner_reference(
+                launch_id=_TEST_PROCESS_OWNER_LAUNCH_ID,
+                owner_fingerprint=_TEST_PROCESS_OWNER_FINGERPRINT,
+            ),
         }
     )
 

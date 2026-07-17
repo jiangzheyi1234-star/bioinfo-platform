@@ -71,8 +71,20 @@ def remove_runner_pid_file_if_owned(
 ) -> bool:
     """Remove only the canonical PID file written for this exact process."""
 
+    return remove_runner_pid_file_path_if_owned(
+        get_runner_pid_file_path(cfg),
+        pid=pid,
+    )
+
+
+def remove_runner_pid_file_path_if_owned(
+    path: Path,
+    *,
+    pid: int | None = None,
+) -> bool:
+    """Remove one explicit diagnostic PID path only when this process owns it."""
+
     process_pid = _require_process_pid(os.getpid() if pid is None else pid)
-    path = get_runner_pid_file_path(cfg)
     try:
         payload = path.read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -108,5 +120,6 @@ __all__ = [
     "RUNNER_PID_FILENAME",
     "get_runner_pid_file_path",
     "remove_runner_pid_file_if_owned",
+    "remove_runner_pid_file_path_if_owned",
     "write_runner_pid_file_atomic",
 ]

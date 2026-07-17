@@ -1,58 +1,76 @@
 #!/usr/bin/env python3
-"""Atomically deploy a development remote-runner artifact to the configured staging host."""
+"""Validate a staging artifact while protocol activation remains fail-closed.
+
+Protocol v5 requires config, systemd unit, release, lifetime fence, owner
+evidence, and readiness proof to change under one remote activation transaction.
+The former release-only staging swap could not prove that boundary, so this
+entry point intentionally performs no SSH connection or remote mutation until
+the activation transaction is implemented.
+"""
 
 from __future__ import annotations
 
 import argparse
 import json
-import shlex
+import re
 import sys
 import tarfile
-import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from core.remote_runner.artifact_io import read_expected_sha256, read_manifest, sha256_file  # noqa: E402
-from core.remote_runner.protocol_manifest import require_current_runner_protocol_manifest  # noqa: E402
+from core.contracts.runner_protocol_runtime import (  # noqa: E402
+    require_current_runner_protocol_expectation,
+)
+from core.remote_runner.artifact_io import (  # noqa: E402
+    read_expected_sha256,
+    read_manifest,
+    sha256_file,
+)
+from core.remote_runner.protocol_manifest import (  # noqa: E402
+    require_current_runner_protocol_manifest,
+)
+
+
+STAGING_PROTOCOL_ACTIVATION_REQUIRED = (
+    "STAGING_PROTOCOL_ACTIVATION_REQUIRED: remote mutation is disabled until "
+    "config, systemd unit, release, rollback, and exact readiness share one "
+    "activation transaction"
+)
+_ARTIFACT_VERSION_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
+_DEPLOY_NONCE_PATTERN = re.compile(r"[0-9a-f]{12}\Z")
+
+
+def _require_artifact_version(
+    value: object,
+    *,
+    make_error: type[Exception],
+) -> str:
+    if (
+        not isinstance(value, str)
+        or value != value.strip()
+        or _ARTIFACT_VERSION_PATTERN.fullmatch(value) is None
+    ):
+        raise make_error("artifact version is invalid")
+    return value
 
 
 def _print_json(label: str, payload: Any) -> None:
     print(f"{label}: {json.dumps(payload, ensure_ascii=False, sort_keys=True)}")
 
 
-def _connect():
-    from config import get_config, normalize_ssh_config, resolve_ssh_config_target, resolve_ssh_password
-    from core.remote.ssh_connector import ssh_connect
-
-    cfg = get_config()
-    ssh_cfg = normalize_ssh_config(cfg.get("ssh", {}))
-    auth_mode = str(ssh_cfg.get("auth_mode") or "password_ref")
-    resolved = resolve_ssh_config_target(ssh_cfg) if auth_mode == "ssh_config" else ssh_cfg
-    password = resolve_ssh_password({"ssh": ssh_cfg}) if auth_mode == "password_ref" else ""
-    key_file = str(resolved.get("identity_ref", "") or "") if auth_mode in {"key_file", "ssh_config"} else ""
-    result = ssh_connect(
-        ip=str(resolved.get("host") or ""),
-        port=int(resolved.get("port") or 22),
-        user=str(resolved.get("user") or ""),
-        password=password,
-        key_file=key_file,
-        use_agent=auth_mode == "agent",
-        timeout=int(resolved.get("timeout_sec") or 5),
-    )
-    if not result.ok or result.client is None:
-        raise RuntimeError(f"SSH connection failed: {result.message}")
-    return result.client
-
-
 def _archive_text(artifact: Path, member_name: str) -> str:
     with tarfile.open(artifact, "r:gz") as archive:
         member = next(
-            (item for item in archive.getmembers() if item.name.strip("./") == member_name),
+            (
+                item
+                for item in archive.getmembers()
+                if item.name.strip("./") == member_name
+            ),
             None,
         )
         if member is None:
@@ -61,6 +79,11 @@ def _archive_text(artifact: Path, member_name: str) -> str:
         if handle is None:
             raise RuntimeError(f"artifact member unreadable: {member_name}")
         return handle.read().decode("utf-8")
+
+
+def _archive_member_names(artifact: Path) -> set[str]:
+    with tarfile.open(artifact, "r:gz") as archive:
+        return {item.name.strip("./") for item in archive.getmembers()}
 
 
 def validate_staging_artifact(artifact: Path) -> dict[str, Any]:
@@ -72,43 +95,72 @@ def validate_staging_artifact(artifact: Path) -> dict[str, Any]:
     expected = read_expected_sha256(checksum_path)
     actual = sha256_file(artifact)
     if actual != expected:
-        raise RuntimeError(f"artifact checksum mismatch: expected={expected} actual={actual}")
+        raise RuntimeError(
+            f"artifact checksum mismatch: expected={expected} actual={actual}"
+        )
     manifest = read_manifest(artifact)
     if manifest.get("service") != "h2ometa-remote":
-        raise RuntimeError(f"unexpected artifact service: {manifest.get('service')}")
-    version = str(manifest.get("version") or "").strip()
-    if not version:
-        raise RuntimeError("artifact version is missing")
+        raise RuntimeError(
+            f"unexpected artifact service: {manifest.get('service')}"
+        )
+    version = _require_artifact_version(
+        manifest.get("version"),
+        make_error=RuntimeError,
+    )
     runner_protocol = require_current_runner_protocol_manifest(
         manifest,
         make_error=RuntimeError,
     )
 
-    executor_artifacts = _archive_text(artifact, "remote_runner/executor_artifacts.py")
+    executor_artifacts = _archive_text(
+        artifact,
+        "remote_runner/executor_artifacts.py",
+    )
     reconciler = _archive_text(artifact, "remote_runner/reconciler.py")
     actions = _archive_text(artifact, "remote_runner/reconciler_actions.py")
-    archive_members = {item.name.strip("./") for item in tarfile.open(artifact, "r:gz").getmembers()}
+    process_owner = _archive_text(artifact, "remote_runner/process_owner.py")
+    owner_contract = _archive_text(
+        artifact,
+        "core/contracts/runner_process_owner.py",
+    )
+    service_unit = _archive_text(artifact, "h2ometa-remote.service")
+    archive_members = _archive_member_names(artifact)
     markers = {
-        "candidateAdoption": "adopt_verified_candidate_outputs" in executor_artifacts,
+        "candidateAdoption": "adopt_verified_candidate_outputs"
+        in executor_artifacts,
         "activeReconciler": "run_active_reconciler_once" in reconciler,
         "sigkillEscalation": "signal.SIGKILL" in actions,
-        "runWorkerResourceConfig": "remote_runner/worker_resource_config.py" in archive_members,
+        "runWorkerResourceConfig": (
+            "remote_runner/worker_resource_config.py" in archive_members
+        ),
         "multiSlotGate": "H2OMETA_REMOTE_ENABLE_MULTI_SLOT"
         in _archive_text(artifact, "remote_runner/worker_supervisor.py"),
-        "cancelResultMapping": "RUN_CANCELLED" in _archive_text(artifact, "remote_runner/executor_outcomes.py"),
+        "cancelResultMapping": "RUN_CANCELLED"
+        in _archive_text(artifact, "remote_runner/executor_outcomes.py"),
         "executionObservability": (
             "remote_runner/execution_observability.py" in archive_members
-            and "execution-observability.v1" in _archive_text(artifact, "remote_runner/execution_observability.py")
+            and "execution-observability.v1"
+            in _archive_text(artifact, "remote_runner/execution_observability.py")
         ),
         "executionPolicy": (
             "remote_runner/execution_policy.py" in archive_members
-            and "attempt_start_to_close_exceeded" in _archive_text(artifact, "remote_runner/execution_policy.py")
+            and "attempt_start_to_close_exceeded"
+            in _archive_text(artifact, "remote_runner/execution_policy.py")
             and "expire_queued_jobs_over_ttl" in actions
+        ),
+        "processOwnerEvidence": (
+            "REMOTE_RUNNER_PROCESS_OWNER_UNAVAILABLE" in process_owner
+            and "h2ometa.runner-process-owner.v1" in owner_contract
+        ),
+        "processOwnerRestartPrevention": (
+            "RestartPreventExitStatus=73 74 75" in service_unit
         ),
     }
     missing = [key for key, present in markers.items() if not present]
     if missing:
-        raise RuntimeError(f"artifact is missing P0-1 markers: {', '.join(missing)}")
+        raise RuntimeError(
+            f"artifact is missing P0-1 markers: {', '.join(missing)}"
+        )
     return {
         "path": str(artifact),
         "sha256": actual,
@@ -120,123 +172,49 @@ def validate_staging_artifact(artifact: Path) -> dict[str, Any]:
     }
 
 
-def _remote_deploy_script(*, remote_artifact: str, version: str, nonce: str) -> str:
-    root = "$HOME/.h2ometa/runner"
-    release = f"{root}/releases/{version}"
-    stage = f"{root}/releases/.{version}.staging-{nonce}"
-    backup = f"{root}/releases/.{version}.backup-{nonce}"
-    failed = f"{root}/releases/.{version}.failed-{nonce}"
-    runtime_state = f"{root}/shared/runtime/runner-state.json"
-    return f"""
-set -euo pipefail
-ARTIFACT={shlex.quote(remote_artifact)}
-ROOT="{root}"
-RELEASE="{release}"
-STAGE="{stage}"
-BACKUP="{backup}"
-FAILED="{failed}"
-RUNTIME_STATE="{runtime_state}"
+def _remote_deploy_script(
+    *,
+    remote_artifact: str,
+    artifact_sha256: str,
+    runner_protocol_version: str,
+    runner_protocol_fingerprint: str,
+    version: str,
+    nonce: str,
+) -> NoReturn:
+    """Validate every caller-controlled value, then refuse remote mutation."""
 
-rollback() {{
-  status=$?
-  trap - ERR
-  set +e
-  systemctl --user stop h2ometa-remote.service >/dev/null 2>&1
-  if [ -d "$RELEASE" ]; then mv "$RELEASE" "$FAILED"; fi
-  if [ -d "$BACKUP" ]; then mv "$BACKUP" "$RELEASE"; fi
-  rm -f "$RUNTIME_STATE"
-  systemctl --user restart h2ometa-remote.service >/dev/null 2>&1
-  printf 'ROLLBACK release=%s failed=%s\\n' "$RELEASE" "$FAILED" >&2
-  exit "$status"
-}}
-trap rollback ERR
-
-test -f "$ARTIFACT"
-test "$(readlink -f "$ROOT/current")" = "$(readlink -f "$RELEASE")"
-rm -rf "$STAGE"
-mkdir -p "$STAGE"
-tar -xzf "$ARTIFACT" -C "$STAGE"
-grep -q 'adopt_verified_candidate_outputs' "$STAGE/remote_runner/executor_artifacts.py"
-grep -q 'run_active_reconciler_once' "$STAGE/remote_runner/reconciler.py"
-grep -q 'signal.SIGKILL' "$STAGE/remote_runner/reconciler_actions.py"
-test -f "$STAGE/remote_runner/worker_resource_config.py"
-grep -q 'H2OMETA_REMOTE_ENABLE_MULTI_SLOT' "$STAGE/remote_runner/worker_supervisor.py"
-grep -q 'RUN_CANCELLED' "$STAGE/remote_runner/executor_outcomes.py"
-test -f "$STAGE/remote_runner/execution_policy.py"
-test -f "$STAGE/remote_runner/execution_observability.py"
-grep -q 'execution-observability.v1' "$STAGE/remote_runner/execution_observability.py"
-grep -q 'attempt_start_to_close_exceeded' "$STAGE/remote_runner/execution_policy.py"
-grep -q 'expire_queued_jobs_over_ttl' "$STAGE/remote_runner/reconciler_actions.py"
-chmod +x "$STAGE"/*.sh
-
-systemctl --user stop h2ometa-remote.service
-rm -f "$RUNTIME_STATE"
-mv "$RELEASE" "$BACKUP"
-mv "$STAGE" "$RELEASE"
-systemctl --user restart h2ometa-remote.service
-
-ready=0
-for _ in $(seq 1 60); do
-  if python3 - "$RUNTIME_STATE" "$ROOT/shared/config/runner.json" <<'PY'
-import json
-import pathlib
-import sys
-import urllib.request
-
-try:
-    state_path = pathlib.Path(sys.argv[1])
-    config_path = pathlib.Path(sys.argv[2])
-    if not state_path.exists():
-        raise SystemExit(1)
-    state = json.loads(state_path.read_text())
-    cfg = json.loads(config_path.read_text())
-    req = urllib.request.Request(
-        f"http://127.0.0.1:{{state['bindPort']}}/health/ready",
-        headers={{"Authorization": "Bearer " + cfg["token"]}},
+    if not isinstance(remote_artifact, str) or not remote_artifact:
+        raise ValueError("staging remote artifact path is invalid")
+    _require_artifact_version(version, make_error=ValueError)
+    if not isinstance(nonce, str) or _DEPLOY_NONCE_PATTERN.fullmatch(nonce) is None:
+        raise ValueError("staging deploy nonce is invalid")
+    if not isinstance(artifact_sha256, str) or len(artifact_sha256) != 64 or any(
+        character not in "0123456789abcdef" for character in artifact_sha256
+    ):
+        raise ValueError("staging artifact sha256 is invalid")
+    require_current_runner_protocol_expectation(
+        runner_protocol_version,
+        runner_protocol_fingerprint,
+        make_error=ValueError,
     )
-    payload = json.loads(urllib.request.urlopen(req, timeout=2).read().decode())
-except Exception:
-    raise SystemExit(1)
-raise SystemExit(0 if payload.get("status") == "ok" else 1)
-PY
-  then
-    ready=1
-    break
-  fi
-  sleep 1
-done
-test "$ready" = 1
-
-trap - ERR
-python3 - "$RELEASE" "$BACKUP" "$RUNTIME_STATE" <<'PY'
-import json
-import pathlib
-import sys
-
-state = json.loads(pathlib.Path(sys.argv[3]).read_text())
-print(json.dumps({{
-    "release": sys.argv[1],
-    "backup": sys.argv[2],
-    "pid": int(state["pid"]),
-    "bindPort": int(state["bindPort"]),
-    "version": state["version"],
-}}, sort_keys=True))
-PY
-"""
+    raise RuntimeError(STAGING_PROTOCOL_ACTIVATION_REQUIRED)
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Deploy a locally built development artifact without changing the production release manifest. "
-            "The current release is backed up and restored automatically if readiness fails."
+            "Validate a development remote-runner artifact. Remote mutation is "
+            "fail-closed until the protocol activation transaction is available."
         )
     )
     parser.add_argument("artifact", type=Path)
     parser.add_argument(
         "--allow-staging-deploy",
         action="store_true",
-        help="Required acknowledgement that the configured remote runner service will be restarted.",
+        help=(
+            "Acknowledge a future staging mutation. The current command still "
+            "fails closed after local validation."
+        ),
     )
     return parser
 
@@ -249,41 +227,21 @@ def main(argv: list[str] | None = None) -> int:
     artifact = args.artifact.resolve()
     metadata = validate_staging_artifact(artifact)
     _print_json("STAGING_ARTIFACT", metadata)
-
-    client = _connect()
-    remote_artifact = f"/tmp/h2ometa-staging-{uuid.uuid4().hex}.tar.gz"
-    nonce = uuid.uuid4().hex[:12]
     try:
-        sftp = client.open_sftp()
-        try:
-            sftp.put(str(artifact), remote_artifact)
-        finally:
-            sftp.close()
-        command = _remote_deploy_script(
-            remote_artifact=remote_artifact,
+        _remote_deploy_script(
+            remote_artifact="<remote-mutation-disabled>",
+            artifact_sha256=str(metadata["sha256"]),
+            runner_protocol_version=str(metadata["runnerProtocolVersion"]),
+            runner_protocol_fingerprint=str(
+                metadata["runnerProtocolFingerprint"]
+            ),
             version=str(metadata["version"]),
-            nonce=nonce,
+            nonce="000000000000",
         )
-        _stdin, stdout, stderr = client.exec_command(command, timeout=180)
-        exit_code = stdout.channel.recv_exit_status()
-        output = stdout.read().decode("utf-8", errors="replace").strip()
-        error = stderr.read().decode("utf-8", errors="replace").strip()
-        if exit_code != 0:
-            raise RuntimeError(error or output or f"remote staging deploy failed: {exit_code}")
-        lines = [line for line in output.splitlines() if line.strip()]
-        result = json.loads(lines[-1])
-        _print_json("STAGING_DEPLOY", result)
-        print("RESULT: ok")
-        return 0
-    finally:
-        try:
-            _stdin, cleanup_stdout, _stderr = client.exec_command(
-                f"rm -f {shlex.quote(remote_artifact)}",
-                timeout=20,
-            )
-            cleanup_stdout.channel.recv_exit_status()
-        finally:
-            client.close()
+    except RuntimeError as exc:
+        print(f"ERROR: {exc}")
+        return 3
+    raise AssertionError("staging mutation unexpectedly became reachable")
 
 
 if __name__ == "__main__":

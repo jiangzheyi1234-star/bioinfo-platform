@@ -21,6 +21,13 @@ from core.contracts.linux_process_incarnation import (
     build_linux_process_incarnation,
 )
 from core.contracts.runner_protocol import RUNNER_PROTOCOL_VERSION
+from core.contracts.runner_protocol_runtime import (
+    CURRENT_RUNNER_PROTOCOL_FINGERPRINT,
+)
+from core.contracts.runner_process_lifetime import (
+    RUNNER_PROCESS_LIFETIME_LOCK_PROFILE,
+)
+from core.contracts.runner_process_owner import build_runner_process_owner
 from core.remote_runner.bundle import REMOTE_RUNNER_VERSION, RemoteRunnerBundleBuilder
 from core.remote_runner.protocol_manifest import require_current_runner_protocol_manifest
 from tests.helpers.remote_runner_control_plane import (
@@ -83,6 +90,32 @@ def test_write_runtime_state_records_assigned_port(tmp_path: Path) -> None:
         cfg,
         bind_host="127.0.0.1",
         bind_port=43127,
+        process_owner=build_runner_process_owner(
+            launch_id="1" * 32,
+            process_incarnation=process_incarnation,
+            startup_binding={
+                "artifactArchiveSha256Path": "/runner/v5/artifact.sha256",
+                "bootstrapManifestFingerprint": "sha256:" + "a" * 64,
+                "bootstrapManifestPath": "/runner/v5/bootstrap_manifest.json",
+                "configPath": "/runner/shared/config/runner.json",
+                "configuredMode": "background_process",
+                "declaredArtifactArchiveSha256": "sha256:" + "b" * 64,
+                "effectiveConfigFingerprint": "sha256:" + "c" * 64,
+                "packagePath": "/runner/v5/remote_runner",
+                "persistedConfigFingerprint": "sha256:" + "d" * 64,
+                "protocolFingerprint": CURRENT_RUNNER_PROTOCOL_FINGERPRINT,
+                "protocolVersion": RUNNER_PROTOCOL_VERSION,
+                "runnerPythonPath": "/runner/v5/runtime/bin/python",
+                "service": "h2ometa-remote",
+                "version": "test-version",
+            },
+            lifetime_lock={
+                "device": 17,
+                "inode": 91,
+                "path": "/runner/shared/runtime/runner.lock",
+                "profile": RUNNER_PROCESS_LIFETIME_LOCK_PROFILE,
+            },
+        ),
         pid=123,
         process_incarnation=process_incarnation,
     )
@@ -95,6 +128,7 @@ def test_write_runtime_state_records_assigned_port(tmp_path: Path) -> None:
     assert payload["bindPort"] == 43127
     assert payload["pid"] == 123
     assert payload["processIncarnation"] == process_incarnation
+    assert payload["processOwner"]["launchId"] == "1" * 32
 
 def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> None:
     builder = RemoteRunnerBundleBuilder()
@@ -107,6 +141,7 @@ def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> 
     ).exists()
     assert (bundle.bundle_dir / "remote_runner" / "process_lifetime_lock.py").exists()
     assert (bundle.bundle_dir / "remote_runner" / "process_pid_file.py").exists()
+    assert (bundle.bundle_dir / "remote_runner" / "process_owner.py").exists()
     assert (bundle.bundle_dir / "remote_runner" / "run.py").exists()
     assert (bundle.bundle_dir / "core" / "__init__.py").exists()
     assert (bundle.bundle_dir / "core" / "logging_config.py").exists()
@@ -117,6 +152,9 @@ def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> 
     ).exists()
     assert (
         bundle.bundle_dir / "core" / "contracts" / "runner_process_lifetime.py"
+    ).exists()
+    assert (
+        bundle.bundle_dir / "core" / "contracts" / "runner_process_owner.py"
     ).exists()
     assert (bundle.bundle_dir / "core" / "contracts" / "workflow_design.py").exists()
     assert not (bundle.bundle_dir / "remote_runner" / "requirements.txt").exists()
@@ -165,7 +203,7 @@ def test_remote_runner_bundle_contains_expected_phase1_files(tmp_path: Path) -> 
     assert 'echo $! > "$RUN_DIR/runner.pid"' not in start_script
     assert "Type=simple" in service_unit
     assert "Restart=on-failure" in service_unit
-    assert "RestartPreventExitStatus=73 74" in service_unit
+    assert "RestartPreventExitStatus=73 74 75" in service_unit
     assert "H2OMETA_REMOTE_RUNNER_PYTHON" not in launch_script
     assert 'cd "$RUN_DIR"' in launch_script
     assert b"\r\n" not in launch_script_path.read_bytes()

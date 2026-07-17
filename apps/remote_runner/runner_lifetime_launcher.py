@@ -13,11 +13,19 @@ from .process_lifetime_lock import (
     RunnerProcessLifetimeLockError,
     acquire_runner_process_lifetime_lock,
 )
+from .process_owner import (
+    RunnerProcessOwnerError,
+    build_runner_process_owner_exec_environment,
+    publish_runner_process_owner,
+)
 from .process_pid_file import (
     remove_runner_pid_file_if_owned,
     write_runner_pid_file_atomic,
 )
-from .runner_protocol_startup import load_remote_runner_config_from_startup_preflight
+from .runner_protocol_startup import (
+    REMOTE_CONFIG_ENV,
+    load_remote_runner_startup_snapshot,
+)
 
 
 class ProcessLifetimeLauncherConfig(Protocol):
@@ -29,9 +37,16 @@ class ProcessLifetimeLauncherConfig(Protocol):
 def launch_remote_runner() -> NoReturn:
     """Acquire once, prepare the runtime, then exec the runner with the same PID."""
 
-    cfg = load_remote_runner_config_from_startup_preflight()
+    cfg, _provisional_binding = _load_startup_snapshot_for_owner_publication()
     lifetime_lock = acquire_runner_process_lifetime_lock(cfg)
     try:
+        cfg, startup_binding = _load_startup_snapshot_for_owner_publication()
+        lifetime_lock.require_matches_config(cfg)
+        process_owner = publish_runner_process_owner(
+            cfg,
+            startup_binding=startup_binding,
+            lifetime_lock=lifetime_lock,
+        )
         write_runner_pid_file_atomic(cfg)
         environment = _build_runtime_environment(cfg, os.environ)
         _prepare_bundled_runtime(
@@ -40,22 +55,48 @@ def launch_remote_runner() -> NoReturn:
             lock_pass_fds=lifetime_lock.mutation_subprocess_pass_fds(),
         )
         exec_environment = lifetime_lock.build_exec_environment(environment)
+        exec_environment = build_runner_process_owner_exec_environment(
+            process_owner,
+            exec_environment,
+        )
         _exec_remote_runner(cfg, exec_environment)
         raise RuntimeError("REMOTE_RUNNER_EXEC_RETURNED")
-    except BaseException:
+    except BaseException as exc:
         try:
             remove_runner_pid_file_if_owned(cfg)
-        finally:
+        except (OSError, RuntimeError, UnicodeError, ValueError, TypeError) as cleanup_exc:
+            exc.add_note(
+                "REMOTE_RUNNER_PID_CLEANUP_FAILED_AFTER_LAUNCHER_ERROR: "
+                f"{type(cleanup_exc).__name__}"
+            )
+        try:
             lifetime_lock.release()
+        except OSError as release_exc:
+            exc.add_note(
+                "REMOTE_RUNNER_LOCK_RELEASE_FAILED_AFTER_LAUNCHER_ERROR: "
+                f"{type(release_exc).__name__}"
+            )
         raise
 
 
 def main() -> int:
     try:
         launch_remote_runner()
-    except RunnerProcessLifetimeLockError as exc:
+    except (RunnerProcessLifetimeLockError, RunnerProcessOwnerError) as exc:
+        for note in getattr(exc, "__notes__", ()):
+            print(note, file=sys.stderr)
         print(str(exc), file=sys.stderr)
         return exc.exit_status
+
+
+def _load_startup_snapshot_for_owner_publication():
+    try:
+        return load_remote_runner_startup_snapshot()
+    except (OSError, RuntimeError, UnicodeError, ValueError, TypeError) as exc:
+        raw_config_path = str(os.environ.get(REMOTE_CONFIG_ENV) or "").strip()
+        raise RunnerProcessOwnerError(
+            path=Path(raw_config_path or "<remote-runner-startup-snapshot>")
+        ) from exc
 
 
 def _build_runtime_environment(

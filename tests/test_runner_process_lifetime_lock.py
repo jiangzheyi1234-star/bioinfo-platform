@@ -16,6 +16,7 @@ from apps.remote_runner import process_lifetime_lock as lifetime_lock
 from core.contracts.runner_process_lifetime import (
     RUNNER_PROCESS_LIFETIME_LOCK_FD_ENV,
     RUNNER_PROCESS_LIFETIME_LOCK_HELD_EXIT_STATUS,
+    RUNNER_PROCESS_LIFETIME_LOCK_PROFILE,
     RUNNER_PROCESS_LIFETIME_LOCK_UNAVAILABLE_EXIT_STATUS,
 )
 
@@ -24,6 +25,82 @@ def _config(path: Path):
     return SimpleNamespace(
         runtime_state_path=str(path / "runtime" / "runner-state.json")
     )
+
+
+def test_invalid_runtime_state_path_maps_all_lock_boundaries_to_exit_74(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    invalid_cfg = SimpleNamespace(runtime_state_path="")
+
+    with pytest.raises(lifetime_lock.RunnerProcessLifetimeLockError) as acquire_exc:
+        lifetime_lock.acquire_runner_process_lifetime_lock(invalid_cfg)
+    assert (
+        acquire_exc.value.exit_status
+        == RUNNER_PROCESS_LIFETIME_LOCK_UNAVAILABLE_EXIT_STATUS
+    )
+
+    closed: list[int] = []
+    monkeypatch.setattr(lifetime_lock, "_close_lock_file", closed.append)
+    with pytest.raises(lifetime_lock.RunnerProcessLifetimeLockError) as adopt_exc:
+        lifetime_lock.adopt_runner_process_lifetime_lock(
+            invalid_cfg,
+            environ={RUNNER_PROCESS_LIFETIME_LOCK_FD_ENV: "23"},
+        )
+    assert adopt_exc.value.exit_status == RUNNER_PROCESS_LIFETIME_LOCK_UNAVAILABLE_EXIT_STATUS
+    assert closed == [23]
+
+    lease = lifetime_lock.RunnerProcessLifetimeLock(
+        path=tmp_path / "runner.lock",
+        _fd=31,
+    )
+    with pytest.raises(lifetime_lock.RunnerProcessLifetimeLockError) as match_exc:
+        lease.require_matches_config(invalid_cfg)
+    assert match_exc.value.exit_status == RUNNER_PROCESS_LIFETIME_LOCK_UNAVAILABLE_EXIT_STATUS
+
+
+def test_huge_inherited_lock_fd_is_mapped_without_integer_escape(tmp_path: Path) -> None:
+    huge_fd = "9" * 100_000
+
+    with pytest.raises(lifetime_lock.RunnerProcessLifetimeLockError) as exc_info:
+        lifetime_lock.adopt_runner_process_lifetime_lock(
+            _config(tmp_path),
+            environ={RUNNER_PROCESS_LIFETIME_LOCK_FD_ENV: huge_fd},
+        )
+
+    assert exc_info.value.exit_status == RUNNER_PROCESS_LIFETIME_LOCK_UNAVAILABLE_EXIT_STATUS
+
+
+def test_noncanonical_inherited_fd_is_rejected_without_closing_that_fd(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    closed: list[int] = []
+    monkeypatch.setattr(lifetime_lock, "_close_lock_file", closed.append)
+
+    with pytest.raises(lifetime_lock.RunnerProcessLifetimeLockError) as exc_info:
+        lifetime_lock.adopt_runner_process_lifetime_lock(
+            _config(tmp_path),
+            environ={RUNNER_PROCESS_LIFETIME_LOCK_FD_ENV: "03"},
+        )
+
+    assert exc_info.value.exit_status == RUNNER_PROCESS_LIFETIME_LOCK_UNAVAILABLE_EXIT_STATUS
+    assert closed == []
+
+
+def test_missing_or_explosive_runtime_state_attribute_maps_to_exit_74() -> None:
+    class ExplosiveConfig:
+        @property
+        def runtime_state_path(self):
+            raise RuntimeError("explosive config getter")
+
+    for cfg in (SimpleNamespace(), ExplosiveConfig()):
+        with pytest.raises(lifetime_lock.RunnerProcessLifetimeLockError) as exc_info:
+            lifetime_lock.acquire_runner_process_lifetime_lock(cfg)
+        assert (
+            exc_info.value.exit_status
+            == RUNNER_PROCESS_LIFETIME_LOCK_UNAVAILABLE_EXIT_STATUS
+        )
 
 
 def _exec_lock_helper_source() -> str:
@@ -335,6 +412,46 @@ def test_exec_environment_exposes_only_held_fd_and_release_is_idempotent(
         lease.mutation_subprocess_pass_fds()
 
 
+def test_lease_describes_exact_inode_and_rejects_config_path_drift(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    cfg = _config(tmp_path)
+    path = lifetime_lock.get_runner_process_lifetime_lock_path(cfg)
+    checked: list[tuple[int, Path]] = []
+    monkeypatch.setattr(
+        lifetime_lock,
+        "_require_lock_fd_matches_path",
+        lambda fd, target: checked.append((fd, target)),
+    )
+    monkeypatch.setattr(
+        lifetime_lock,
+        "_stat_lock_fd",
+        lambda _fd: SimpleNamespace(st_dev=17, st_ino=901),
+    )
+    monkeypatch.setattr(lifetime_lock, "_close_lock_file", lambda _fd: None)
+    lease = lifetime_lock.RunnerProcessLifetimeLock(path=path, _fd=19)
+
+    assert lease.describe_identity() == {
+        "device": 17,
+        "inode": 901,
+        "path": path.absolute().as_posix(),
+        "profile": RUNNER_PROCESS_LIFETIME_LOCK_PROFILE,
+    }
+    lease.require_matches_config(cfg)
+    assert checked == [(19, path), (19, path)]
+
+    with pytest.raises(lifetime_lock.RunnerProcessLifetimeLockError) as exc_info:
+        lease.require_matches_config(_config(tmp_path / "other"))
+    assert (
+        exc_info.value.reason_code
+        == lifetime_lock.RUNNER_PROCESS_LIFETIME_LOCK_UNAVAILABLE
+    )
+    lease.release()
+    with pytest.raises(lifetime_lock.RunnerProcessLifetimeLockError):
+        lease.describe_identity()
+
+
 @pytest.mark.parametrize("raw_fd", ["", "0", "2", "+3", "03", " 3", "3 ", "three"])
 def test_adopt_rejects_missing_or_noncanonical_fd(
     tmp_path: Path,
@@ -415,6 +532,15 @@ def test_real_flock_keeps_stable_inode_and_releases_on_close(tmp_path: Path) -> 
     cfg = _config(tmp_path)
     first = lifetime_lock.acquire_runner_process_lifetime_lock(cfg)
     path = lifetime_lock.get_runner_process_lifetime_lock_path(cfg)
+    identity = first.describe_identity()
+    first.require_matches_config(cfg)
+
+    assert identity == {
+        "device": path.stat().st_dev,
+        "inode": path.stat().st_ino,
+        "path": path.absolute().as_posix(),
+        "profile": RUNNER_PROCESS_LIFETIME_LOCK_PROFILE,
+    }
 
     with pytest.raises(lifetime_lock.RunnerProcessLifetimeLockError) as exc_info:
         lifetime_lock.acquire_runner_process_lifetime_lock(cfg)

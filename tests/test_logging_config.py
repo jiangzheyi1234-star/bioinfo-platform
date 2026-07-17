@@ -148,19 +148,28 @@ def test_remote_runner_uses_structured_logging(monkeypatch):
     cfg = SimpleNamespace(
         bind_host="127.0.0.1",
         bind_port=0,
+        mode="background_process",
         release_dir="/release/remote_runner",
         runtime_state_path="/shared/runtime/runner-state.json",
+        service_name="h2ometa-remote",
+        version="logging-test",
     )
     monkeypatch.setattr(remote_run, "_set_process_name", lambda: events.append("process_name"))
     monkeypatch.setattr(
         remote_run,
-        "load_remote_runner_config_from_startup_preflight",
-        lambda: events.append("preflight") or cfg,
+        "load_remote_runner_startup_snapshot",
+        lambda: events.append("preflight") or (cfg, {"snapshot": "locked"}),
     )
     monkeypatch.setattr(
         remote_run,
         "adopt_runner_process_lifetime_lock",
-        lambda _cfg: events.append("adopt") or FakeLease(),
+        lambda _cfg: events.append("lock_adopt") or FakeLease(),
+    )
+    owner = {"owner": True}
+    monkeypatch.setattr(
+        remote_run,
+        "adopt_runner_process_owner",
+        lambda _cfg, **_kwargs: events.append("owner_adopt") or owner,
     )
     monkeypatch.setattr(
         remote_run,
@@ -176,7 +185,10 @@ def test_remote_runner_uses_structured_logging(monkeypatch):
     )
     monkeypatch.setattr(
         "apps.remote_runner.config.write_runtime_state",
-        lambda *_args, **_kwargs: events.append("runtime_state"),
+        lambda *_args, **kwargs: (
+            captured.update(runtime_process_owner=kwargs["process_owner"]),
+            events.append("runtime_state"),
+        ),
     )
 
     def fake_socket_factory(*_args, **_kwargs):
@@ -196,9 +208,11 @@ def test_remote_runner_uses_structured_logging(monkeypatch):
     assert captured["config_kwargs"]["log_config"] is None
     assert captured["config_kwargs"]["fd"] == 123
     assert captured["server_sockets"] == [fake_socket]
+    assert captured["runtime_process_owner"] is owner
     assert events == [
         "preflight",
-        "adopt",
+        "lock_adopt",
+        "owner_adopt",
         "bind_snapshot",
         "process_name",
         "ensure_layout",

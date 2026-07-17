@@ -16,6 +16,10 @@ from core.contracts.runner_protocol import (
     RUNNER_PROTOCOL_DATABASE_SCHEMA_VERSION,
     RUNNER_PROTOCOL_DESCRIPTOR_SCHEMA,
     RUNNER_PROTOCOL_PROCESS_LIFETIME_LOCK_PROFILE,
+    RUNNER_PROTOCOL_PROCESS_OWNER_PROFILE,
+    RUNNER_PROTOCOL_PROCESS_OWNER_REFERENCE_SCHEMA,
+    RUNNER_PROTOCOL_PROCESS_OWNER_SCHEMA,
+    RUNNER_PROTOCOL_PROCESS_OWNER_SURFACES,
     RUNNER_PROTOCOL_RUNTIME_PROCESS_INCARNATION_SCHEMA,
     RUNNER_PROTOCOL_RUNTIME_PROCESS_INCARNATION_SURFACES,
     RUNNER_PROTOCOL_RUNTIME_SELF_ATTESTATION_SCHEMA,
@@ -30,6 +34,11 @@ from core.contracts.runner_protocol import (
 )
 from core.contracts.runner_process_lifetime import (
     RUNNER_PROCESS_LIFETIME_LOCK_PROFILE,
+)
+from core.contracts.runner_process_owner import (
+    RUNNER_PROCESS_OWNER_PROFILE,
+    RUNNER_PROCESS_OWNER_REFERENCE_SCHEMA,
+    RUNNER_PROCESS_OWNER_SCHEMA,
 )
 
 
@@ -52,12 +61,27 @@ def test_runner_protocol_lifetime_lock_profile_tracks_fence_contract() -> None:
     )
 
 
+def test_runner_protocol_process_owner_coverage_tracks_owner_contract() -> None:
+    assert RUNNER_PROTOCOL_PROCESS_OWNER_SCHEMA == RUNNER_PROCESS_OWNER_SCHEMA
+    assert RUNNER_PROTOCOL_PROCESS_OWNER_PROFILE == RUNNER_PROCESS_OWNER_PROFILE
+    assert (
+        RUNNER_PROTOCOL_PROCESS_OWNER_REFERENCE_SCHEMA
+        == RUNNER_PROCESS_OWNER_REFERENCE_SCHEMA
+    )
+    assert RUNNER_PROTOCOL_PROCESS_OWNER_SURFACES == (
+        "runner-process-owner-record",
+        "current-owner-reference",
+        "runtime-state-reference",
+    )
+
+
 def test_build_runner_protocol_descriptor_declares_exact_current_coverage() -> None:
     descriptor = build_runner_protocol_descriptor()
 
     assert descriptor == {
         "capabilities": [
             "artifact-exact-protocol-descriptor-v1",
+            "early-process-owner-evidence-v1",
             "execution-lifecycle-guard-v1",
             "process-lifetime-flock-fence-v1",
             "runtime-process-incarnation-evidence-v1",
@@ -71,6 +95,16 @@ def test_build_runner_protocol_descriptor_declares_exact_current_coverage() -> N
             "processLifetimeLockProfile": (
                 "linux-flock-cooperating-single-instance-v1"
             ),
+            "processOwnerProfile": "linux-procfs-flock-startup-binding-v1",
+            "processOwnerReferenceSchema": (
+                "h2ometa.runner-process-owner-reference.v1"
+            ),
+            "processOwnerSchema": "h2ometa.runner-process-owner.v1",
+            "processOwnerSurfaces": [
+                "runner-process-owner-record",
+                "current-owner-reference",
+                "runtime-state-reference",
+            ],
             "runtimeProcessIncarnationSchema": (
                 "h2ometa.linux-process-incarnation.v1"
             ),
@@ -90,8 +124,8 @@ def test_build_runner_protocol_descriptor_declares_exact_current_coverage() -> N
             ),
         },
         "databaseSchemaVersion": 18,
-        "protocolVersion": "runner-protocol.v4",
-        "schemaVersion": "h2ometa.runner-protocol-descriptor.v4",
+        "protocolVersion": "runner-protocol.v5",
+        "schemaVersion": "h2ometa.runner-protocol-descriptor.v5",
         "writerScopes": [
             "artifact-lifecycle-controller",
             "run-worker",
@@ -109,6 +143,12 @@ def test_build_runner_protocol_descriptor_declares_exact_current_coverage() -> N
         "processLifetimeLockProfile": (
             RUNNER_PROTOCOL_PROCESS_LIFETIME_LOCK_PROFILE
         ),
+        "processOwnerProfile": RUNNER_PROTOCOL_PROCESS_OWNER_PROFILE,
+        "processOwnerReferenceSchema": (
+            RUNNER_PROTOCOL_PROCESS_OWNER_REFERENCE_SCHEMA
+        ),
+        "processOwnerSchema": RUNNER_PROTOCOL_PROCESS_OWNER_SCHEMA,
+        "processOwnerSurfaces": list(RUNNER_PROTOCOL_PROCESS_OWNER_SURFACES),
         "runtimeProcessIncarnationSchema": (
             RUNNER_PROTOCOL_RUNTIME_PROCESS_INCARNATION_SCHEMA
         ),
@@ -183,8 +223,8 @@ def test_require_runner_protocol_descriptor_rejects_unknown_fields() -> None:
 @pytest.mark.parametrize(
     ("field", "replacement"),
     [
-        ("schemaVersion", "h2ometa.runner-protocol-descriptor.v3"),
-        ("protocolVersion", "runner-protocol.v3"),
+        ("schemaVersion", "h2ometa.runner-protocol-descriptor.v4"),
+        ("protocolVersion", "runner-protocol.v4"),
         ("databaseSchemaVersion", 17),
         ("databaseSchemaVersion", True),
     ],
@@ -249,6 +289,10 @@ def test_require_runner_protocol_descriptor_rejects_invalid_coverage_shape() -> 
         "coverageComplete",
         "coveredWriterScopes",
         "processLifetimeLockProfile",
+        "processOwnerProfile",
+        "processOwnerReferenceSchema",
+        "processOwnerSchema",
+        "processOwnerSurfaces",
         "runtimeProcessIncarnationSchema",
         "runtimeProcessIncarnationSurfaces",
         "runtimeSelfAttestationSchema",
@@ -276,6 +320,18 @@ def test_require_runner_protocol_descriptor_rejects_missing_coverage_fields(
         ("coveredWriterScopes", []),
         ("coveredWriterScopes", ["tool-prepare"]),
         ("processLifetimeLockProfile", "unsupported"),
+        ("processOwnerProfile", "unsupported"),
+        ("processOwnerReferenceSchema", "old"),
+        ("processOwnerSchema", "old"),
+        ("processOwnerSurfaces", []),
+        (
+            "processOwnerSurfaces",
+            [
+                "current-owner-reference",
+                "runner-process-owner-record",
+                "runtime-state-reference",
+            ],
+        ),
         ("runtimeProcessIncarnationSchema", "old"),
         ("runtimeProcessIncarnationSurfaces", []),
         ("runtimeSelfAttestationSchema", "old"),
@@ -338,7 +394,7 @@ def test_runner_protocol_descriptor_fingerprint_is_domain_separated_and_stable()
     descriptor = build_runner_protocol_descriptor()
     canonical = runner_protocol_descriptor_canonical_json(descriptor)
     expected = hashlib.sha256(
-        b"h2ometa.runner-protocol-descriptor.v4\x00" + canonical.encode("utf-8")
+        b"h2ometa.runner-protocol-descriptor.v5\x00" + canonical.encode("utf-8")
     ).hexdigest()
 
     assert runner_protocol_descriptor_fingerprint(descriptor) == f"sha256:{expected}"

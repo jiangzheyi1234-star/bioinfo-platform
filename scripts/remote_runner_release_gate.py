@@ -47,12 +47,15 @@ EVIDENCE_LABELS = {
 }
 
 REQUIRED_BUNDLE_MARKERS = {
+    "core/contracts/runner_process_owner.py": "h2ometa.runner-process-owner.v1",
+    "h2ometa-remote.service": "RestartPreventExitStatus=73 74 75",
     "remote_runner/worker_resource_config.py": "",
     "remote_runner/executor_outcomes.py": "RUN_CANCELLED",
     "remote_runner/execution_observability.py": "execution-observability.v1",
     "remote_runner/execution_policy.py": "attempt_start_to_close_exceeded",
     "remote_runner/worker_supervisor.py": "H2OMETA_REMOTE_ENABLE_MULTI_SLOT",
     "remote_runner/reconciler_actions.py": "expire_queued_jobs_over_ttl",
+    "remote_runner/process_owner.py": "REMOTE_RUNNER_PROCESS_OWNER_UNAVAILABLE",
 }
 
 

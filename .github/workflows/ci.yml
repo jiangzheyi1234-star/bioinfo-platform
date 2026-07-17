@@ -197,6 +197,10 @@ jobs:
           uv sync --frozen --group dev
           uv run --frozen python -m pytest -q \
             tests/test_remote_runner_install_lock.py \
+            tests/test_remote_runner_mutable_layout.py \
+            tests/test_remote_runner_process_owner.py \
+            tests/test_remote_runner_protocol_startup.py \
+            tests/test_remote_runner_release_gate.py \
             tests/test_runner_process_lifetime_lock.py \
             tests/test_release_manifest_traceability.py \
             tests/test_workflow_runtime_artifact_build_script.py \

@@ -14,13 +14,22 @@ from core.contracts.linux_process_incarnation import (
 from core.contracts.runner_protocol_runtime import (
     build_runner_protocol_runtime_self_attestation,
 )
+from core.contracts.runner_process_owner import (
+    build_runner_process_owner_reference,
+    require_runner_process_owner,
+    runner_process_owner_fingerprint,
+)
 
 from .process_incarnation import capture_linux_process_incarnation
+
+
+RUNNER_RUNTIME_STATE_FILENAME = "runner-state.json"
 
 
 class RuntimeStateConfig(Protocol):
     service_name: str
     version: str
+    mode: str
     runtime_state_path: str
 
 
@@ -33,6 +42,7 @@ def write_runtime_state(
     *,
     bind_host: str,
     bind_port: int,
+    process_owner: object,
     pid: int | None = None,
     process_incarnation: object | None = None,
 ) -> dict[str, object]:
@@ -50,6 +60,28 @@ def write_runtime_state(
         raise ValueError(
             "remote runner runtime state pid does not match process incarnation"
         )
+    owner = require_runner_process_owner(process_owner)
+    if owner["processIncarnation"] != incarnation:
+        raise ValueError(
+            "remote runner runtime state process owner does not match process incarnation"
+        )
+    attestation = build_runner_protocol_runtime_self_attestation()
+    owner_startup = owner["startupBinding"]
+    if (
+        owner_startup["service"] != cfg.service_name
+        or owner_startup["version"] != cfg.version
+        or owner_startup["configuredMode"] != cfg.mode
+        or owner_startup["protocolVersion"] != attestation["protocolVersion"]
+        or owner_startup["protocolFingerprint"]
+        != attestation["protocolFingerprint"]
+    ):
+        raise ValueError(
+            "remote runner runtime state process owner does not match runtime binding"
+        )
+    owner_reference = build_runner_process_owner_reference(
+        launch_id=owner["launchId"],
+        owner_fingerprint=runner_process_owner_fingerprint(owner),
+    )
     state: dict[str, object] = {
         "service": cfg.service_name,
         "version": cfg.version,
@@ -58,7 +90,8 @@ def write_runtime_state(
         "bindPort": int(bind_port),
         "startedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "processIncarnation": incarnation,
-        "runnerProtocol": build_runner_protocol_runtime_self_attestation(),
+        "processOwner": owner_reference,
+        "runnerProtocol": attestation,
     }
     path = get_runtime_state_path(cfg)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -81,4 +114,8 @@ def write_runtime_state(
     return state
 
 
-__all__ = ["get_runtime_state_path", "write_runtime_state"]
+__all__ = [
+    "RUNNER_RUNTIME_STATE_FILENAME",
+    "get_runtime_state_path",
+    "write_runtime_state",
+]

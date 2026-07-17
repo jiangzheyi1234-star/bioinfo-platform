@@ -14,6 +14,9 @@ from core.contracts.linux_process_incarnation import (
 from core.contracts.runner_protocol_runtime import (
     require_runner_protocol_runtime_self_attestation,
 )
+from core.contracts.runner_process_owner import (
+    require_runner_process_owner_reference,
+)
 from core.remote_runner.client import RemoteRunnerClientError, RemoteRunnerHttpClient
 from core.remote_runner.endpoint_caller import call_remote_endpoint
 from core.remote_runner.health import build_runner_health
@@ -89,9 +92,14 @@ class RemoteRunnerReadinessMixin:
             raise cls._manager_error(
                 "remote runner runtime state pid does not match process incarnation"
             )
+        process_owner = require_runner_process_owner_reference(
+            state.get("processOwner"),
+            make_error=cls._manager_error,
+        )
         state["bindPort"] = port
         state["pid"] = pid
         state["processIncarnation"] = process_incarnation
+        state["processOwner"] = process_owner
         return state
 
     @classmethod

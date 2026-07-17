@@ -2,18 +2,34 @@ from __future__ import annotations
 
 import ctypes
 import logging
+import os
+from pathlib import Path
 import socket
 import sys
+
+from core.contracts.runner_process_lifetime import (
+    RUNNER_PROCESS_LIFETIME_LOCK_FD_ENV,
+)
+from core.contracts.runner_process_owner import (
+    RUNNER_PROCESS_OWNER_FINGERPRINT_ENV,
+    RUNNER_PROCESS_OWNER_LAUNCH_ID_ENV,
+)
 
 from .process_lifetime_lock import (
     RunnerProcessLifetimeLockError,
     adopt_runner_process_lifetime_lock,
 )
-from .process_pid_file import remove_runner_pid_file_if_owned
-from .runner_protocol_startup import load_remote_runner_config_from_startup_preflight
+from .process_owner import RunnerProcessOwnerError, adopt_runner_process_owner
+from .process_pid_file import (
+    RUNNER_PID_FILENAME,
+    remove_runner_pid_file_if_owned,
+    remove_runner_pid_file_path_if_owned,
+)
+from .runner_protocol_startup import REMOTE_CONFIG_ENV, load_remote_runner_startup_snapshot
 
 
 LOGGER = logging.getLogger("h2ometa.remote_runner")
+_MAX_INHERITED_FILE_DESCRIPTOR = (1 << 31) - 1
 
 
 def _set_process_name(name: str = "h2ometa-remote") -> None:
@@ -25,10 +41,16 @@ def _set_process_name(name: str = "h2ometa-remote") -> None:
 
 
 def main() -> None:
-    cfg = load_remote_runner_config_from_startup_preflight()
+    cfg, startup_binding = _load_startup_snapshot_for_owner_adoption()
+    lifetime_lock = None
     try:
         lifetime_lock = adopt_runner_process_lifetime_lock(cfg)
-    except RunnerProcessLifetimeLockError as exc:
+        process_owner = adopt_runner_process_owner(
+            cfg,
+            startup_binding=startup_binding,
+            lifetime_lock=lifetime_lock,
+        )
+    except (RunnerProcessLifetimeLockError, RunnerProcessOwnerError) as exc:
         try:
             remove_runner_pid_file_if_owned(cfg)
         except (OSError, UnicodeError, ValueError) as cleanup_exc:
@@ -36,6 +58,14 @@ def main() -> None:
                 "REMOTE_RUNNER_PID_CLEANUP_FAILED_AFTER_LOCK_ADOPTION: "
                 f"{type(cleanup_exc).__name__}"
             )
+        if lifetime_lock is not None:
+            try:
+                lifetime_lock.release()
+            except OSError as release_exc:
+                exc.add_note(
+                    "REMOTE_RUNNER_LOCK_RELEASE_FAILED_AFTER_OWNER_ADOPTION: "
+                    f"{type(release_exc).__name__}"
+                )
         raise
     sock = None
     try:
@@ -64,6 +94,7 @@ def main() -> None:
             cfg,
             bind_host=str(assigned_host),
             bind_port=int(assigned_port),
+            process_owner=process_owner,
         )
         LOGGER.info(
             "remote_runner_starting",
@@ -80,14 +111,88 @@ def main() -> None:
         server = uvicorn.Server(config)
         server.run(sockets=[sock])
     finally:
+        _cleanup_runner_process(
+            cfg=cfg,
+            lifetime_lock=lifetime_lock,
+            sock=sock,
+        )
+
+
+def _load_startup_snapshot_for_owner_adoption():
+    try:
+        return load_remote_runner_startup_snapshot()
+    except (OSError, RuntimeError, UnicodeError, ValueError, TypeError) as exc:
+        raw_config_path = str(os.environ.get(REMOTE_CONFIG_ENV) or "").strip()
+        error = RunnerProcessOwnerError(
+            path=Path(raw_config_path or "<remote-runner-startup-snapshot>")
+        )
+        error.add_note(
+            "REMOTE_RUNNER_STARTUP_SNAPSHOT_REJECTED_AFTER_EXEC: "
+            f"{type(exc).__name__}: {exc}"
+        )
         try:
-            if sock is not None:
-                sock.close()
-        finally:
-            try:
-                remove_runner_pid_file_if_owned(cfg)
-            finally:
-                lifetime_lock.release()
+            remove_runner_pid_file_path_if_owned(
+                Path(__file__).resolve().parents[1] / RUNNER_PID_FILENAME
+            )
+        except (OSError, UnicodeError, ValueError) as cleanup_exc:
+            error.add_note(
+                "REMOTE_RUNNER_PID_CLEANUP_FAILED_AFTER_STARTUP_SNAPSHOT_REJECTION: "
+                f"{type(cleanup_exc).__name__}"
+            )
+        _scrub_inherited_runner_binding_environment(error)
+        raise error from exc
+
+
+def _scrub_inherited_runner_binding_environment(
+    error: RunnerProcessOwnerError,
+) -> None:
+    raw_fd = str(os.environ.pop(RUNNER_PROCESS_LIFETIME_LOCK_FD_ENV, "") or "")
+    os.environ.pop(RUNNER_PROCESS_OWNER_LAUNCH_ID_ENV, None)
+    os.environ.pop(RUNNER_PROCESS_OWNER_FINGERPRINT_ENV, None)
+    if (
+        not raw_fd.isascii()
+        or not raw_fd.isdecimal()
+        or (len(raw_fd) > 1 and raw_fd.startswith("0"))
+        or len(raw_fd) > 10
+    ):
+        return
+    fd = int(raw_fd)
+    if fd < 3 or fd > _MAX_INHERITED_FILE_DESCRIPTOR:
+        return
+    try:
+        os.set_inheritable(fd, False)
+    except OSError as exc:
+        error.add_note(
+            "REMOTE_RUNNER_LOCK_FD_SCRUB_FAILED_AFTER_STARTUP_SNAPSHOT_REJECTION: "
+            f"{type(exc).__name__}"
+        )
+
+
+def _cleanup_runner_process(*, cfg, lifetime_lock, sock) -> None:
+    cleanup_actions = (
+        (
+            "socket",
+            lambda: sock.close() if sock is not None else None,
+            (OSError,),
+        ),
+        (
+            "pid_file",
+            lambda: remove_runner_pid_file_if_owned(cfg),
+            (OSError, UnicodeError, ValueError),
+        ),
+        ("lifetime_lock", lifetime_lock.release, (OSError,)),
+    )
+    for resource, action, expected_errors in cleanup_actions:
+        try:
+            action()
+        except expected_errors as exc:
+            LOGGER.warning(
+                "remote_runner_cleanup_failed",
+                extra={
+                    "resource": resource,
+                    "errorType": type(exc).__name__,
+                },
+            )
 
 
 def cli_main() -> int:
@@ -95,7 +200,7 @@ def cli_main() -> int:
 
     try:
         main()
-    except RunnerProcessLifetimeLockError as exc:
+    except (RunnerProcessLifetimeLockError, RunnerProcessOwnerError) as exc:
         for note in getattr(exc, "__notes__", ()):
             print(note, file=sys.stderr)
         print(str(exc), file=sys.stderr)
