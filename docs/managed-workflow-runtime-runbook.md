@@ -360,6 +360,9 @@ liveness, process death, listener ownership, descendants, systemd invocation,
 or cgroup membership. Do not use the current pointer or PID file alone for an
 exact stop decision. Those guarantees require the activation gate and
 pidfd/systemd/cgroup stop protocol described in the following hardening phase.
+The accepted generation/activation/invocation identity model is recorded in
+`docs/adr/2026-07-17-remote-runner-activation-evidence.md`; its pure contracts
+do not change protocol v5 or re-enable staging deployment by themselves.
 The lifetime lock and owner publication require a stable local Linux filesystem;
 do not place `shared/runtime` on NFS or another filesystem with weaker
 flock/link/rename durability semantics.
