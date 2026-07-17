@@ -88,6 +88,21 @@ Controller observation 还必须证明 template 已加载、没有 drop-in，并
 restart-preventing statuses。Template 文件本身的 fingerprint 属于 generation；`NeedDaemonReload=no`
 和空 drop-in 列表把该文件证据连接到 systemd 的有效配置。
 
+Runner-side 自观察先以独立的 dormant contract 落地，不修改 protocol v5、owner v1、runtime-state 或
+现有启动入口。`runner-systemd-self-observation.v1` 严格保留 cgroup v2 `0::PATH`、cgroup v1
+`name=systemd` 或 hybrid 中的候选路径；它不按 basename 宣称 membership。cgroup namespace 可能让
+`/proc/self/cgroup` 显示相对路径，因此 controller 必须先确定 systemd 实际管理的 hierarchy，再要求完整
+`ControlGroup` 与该 hierarchy 的候选路径精确相等，才能进入后续验证。`SYSTEMD_EXEC_PID` 从 systemd
+v248 才提供：存在时必须规范且等于 self PID，缺失不能作为 v232 基线的失败原因。
+
+本阶段有意不发布 `runner-activation-process-binding.v1`。Generation 的 raw config bytes fingerprint、
+credential-free runtime-config fingerprint 与现有 owner 的 persisted/effective fingerprints 具有不同语义；
+在共享内容计算器完成前把两组 digest 一起封装，只能证明两份声明被关联，不能证明 runner 实际加载了该
+generation。Binding v1 必须等 generation config/profile/unit/release 的实际字节均可重算后再定义，并同时
+精确关联 controller `FragmentPath`、template fingerprint 与对应的 cgroup hierarchy。当前也不生成可启动
+template、不把 capability 写入 v5 descriptor；generation-aware startup、runtime-state reference、
+`READY=1` 与 protocol v6 必须在后续端到端接线阶段一起完成。
+
 `MainPID` 会复用，cgroup 路径会随 unit 名复用，`INVOCATION_ID` 也不是 secret；任何一个字段都不能
 单独授权 mutation。唯一 unit 实例使 stop 可以针对不会被新 activation 复用的对象调用 `StopUnit` 并
 等待 job 完成，避免固定 unit 在“检查旧 invocation”和“停止”之间重启的 TOCTOU。
